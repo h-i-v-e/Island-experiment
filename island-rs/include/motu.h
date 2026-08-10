@@ -1,0 +1,85 @@
+#ifndef MOTU_RUST_H
+#define MOTU_RUST_H
+
+#include <stdint.h>
+
+#ifdef _WIN32
+#define MOTU_EXPORT __declspec(dllimport)
+#else
+#define MOTU_EXPORT
+#endif
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef struct { float x, y, z; } Vector3Export;
+typedef struct { float x, y; } Vector2Export;
+typedef struct {
+    float maxZ, waterRatio, slopeMultiplier, coastalSlopeMultiplier, noiseMultiplier;
+    float coastalErosionStrength, beachFormationStrength;
+    float hydraulicErosionStrength, hydraulicDepositionStrength;
+    float hydraulicDepositionSlopeDegrees;
+    float riverLod2SourceThreshold, riverLod1SourceThreshold;
+    float riverBroadSourceThreshold, riverLandSourceThreshold, riverFinalSourceThreshold;
+} MotuOptions;
+typedef struct { const Vector3Export *data; int32_t length; } Vector3ExportArray;
+typedef struct { const Vector2Export *data; int32_t length; } Vector2ExportArray;
+typedef struct { const int32_t *data; int32_t length; } TriangleExportArray;
+typedef struct { Vector3Export min, max; } ExportArea;
+typedef struct {
+    void *handle;
+    Vector3ExportArray vertices, normals;
+    TriangleExportArray triangles;
+} ExportMesh;
+typedef struct {
+    void *handle;
+    Vector3ExportArray vertices, normals;
+    TriangleExportArray triangles;
+    Vector2ExportArray uv;
+} ExportMeshWithUV;
+typedef struct { ExportMesh *data; int32_t length; } ExportMeshArray;
+typedef struct { void *handle; const ExportMesh *data; int32_t length; } ExportMeshGrid;
+typedef struct { int32_t width, height; float *data; float seaLevel; } ExportHeightMapWithSeaLevel;
+typedef struct { Vector3ExportArray trees, bushes, rocks; } ExportDecoration;
+typedef struct { int32_t offset; float scale; } TreeMeshPrototype;
+typedef struct { const TreeMeshPrototype *prototypes; int32_t length; } TreeMeshPrototypes;
+typedef struct { ExportMesh mesh; int32_t *offsets; } ExportTreeBillboards;
+typedef struct { ExportTreeBillboards octants[8]; void *offsetsHandle; } ExportTreeBillboardsArray;
+
+MOTU_EXPORT void *CreateMotu(int32_t seed, const MotuOptions *options);
+MOTU_EXPORT void *LoadMotu(const char *filePath);
+MOTU_EXPORT void SaveMotu(const void *handle, const char *filePath);
+MOTU_EXPORT void ReleaseMotu(void *handle);
+MOTU_EXPORT void GetDecoration(const void *handle, ExportDecoration *output);
+MOTU_EXPORT void CreateMesh(const void *handle, const ExportArea *area, int32_t lod,
+                            uint8_t clampSides, ExportMesh *output);
+MOTU_EXPORT void ReleaseMesh(ExportMesh *output);
+MOTU_EXPORT void CreateMeshGrid(const void *handle, const ExportArea *area, int32_t lod,
+                                int32_t divisions, uint8_t clampSides,
+                                ExportMeshGrid *output);
+MOTU_EXPORT void ReleaseMeshGrid(ExportMeshGrid *output);
+MOTU_EXPORT void CreateRiverMesh(const void *handle, const ExportArea *area,
+                                 ExportMeshWithUV *output);
+MOTU_EXPORT void ReleaseMeshWithUV(ExportMeshWithUV *output);
+MOTU_EXPORT ExportHeightMapWithSeaLevel *CreateHeightMap(const void *handle, int32_t resolution);
+MOTU_EXPORT void ReleaseHeightMap(ExportHeightMapWithSeaLevel *map);
+MOTU_EXPORT uint8_t *CreateNormalMap(const void *handle, int32_t lod, int32_t dimension);
+MOTU_EXPORT void ReleaseNormalMap(uint8_t *data);
+MOTU_EXPORT uint8_t *CreateNormalMap3DC(const void *handle, int32_t lod, int32_t dimension);
+MOTU_EXPORT void ReleaseNormalMap3DC(uint8_t *data);
+MOTU_EXPORT uint32_t *ExportFoliageData(const void *handle, int32_t dimension);
+MOTU_EXPORT void ReleaseFoliageData(uint32_t *data);
+MOTU_EXPORT float *CreateSeaDepthMap(const void *handle, int32_t dimension);
+MOTU_EXPORT void ReleaseSeaDepthMap(float *data);
+MOTU_EXPORT void CreateTreeBillboards(const void *handle, const TreeMeshPrototypes *input,
+                                      ExportTreeBillboardsArray *output);
+MOTU_EXPORT void ReleaseTreeBillboards(ExportTreeBillboardsArray *output);
+MOTU_EXPORT void ReleaseMeshes(ExportMeshArray *output);
+MOTU_EXPORT void SetLogFile(const char *path);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif

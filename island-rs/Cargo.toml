@@ -1,0 +1,33 @@
+[package]
+name = "island-rs"
+version = "0.1.0"
+edition = "2024"
+description = "A deterministic procedural island generator ported from Motu"
+license = "UNLICENSED"
+
+[lib]
+name = "motu"
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+glam = "0.33.2"
+
+[[bin]]
+name = "island"
+path = "src/main.rs"
+
+[profile.release]
+lto = "thin"
+strip = true
+
+[profile.profiling]
+inherits = "release"
+debug = true
+strip = false
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+all = "warn"
+pedantic = "warn"

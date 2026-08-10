@@ -1,0 +1,1542 @@
+#![allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss,
+    clippy::cast_possible_wrap
+)]
+
+use std::{
+    cmp::Ordering,
+    collections::BinaryHeap,
+    fs::File,
+    io::{self, Read, Write},
+    path::Path,
+    thread,
+};
+
+use crate::{
+    Adjacency, BoundingBox, Mesh, Raster, River, Vec2, Vec3,
+    coast::{self, CoastScale, GeologyField},
+    noise,
+    rivers::RiverNetwork,
+    rng::Rng,
+};
+
+const DETAIL_DISPLACEMENT_RATIO: f32 = 0.025;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[repr(C)]
+pub struct IslandOptions {
+    pub max_height: f32,
+    pub water_ratio: f32,
+    pub slope_multiplier: f32,
+    pub coastal_slope_multiplier: f32,
+    pub noise_multiplier: f32,
+    /// Multiplies mesh-native wave erosion and rocky-platform formation.
+    pub coastal_erosion_strength: f32,
+    /// Controls redistribution of eroded coastal sediment into beaches.
+    pub beach_formation_strength: f32,
+    /// Multiplies the strength of every staged hydraulic erosion pass.
+    /// Zero disables hydraulic erosion while preserving thermal erosion.
+    pub hydraulic_erosion_strength: f32,
+    /// Controls how quickly excess carried sediment settles on gentle slopes.
+    pub hydraulic_deposition_strength: f32,
+    /// Slope angle at which hydraulic deposition falls to zero.
+    pub hydraulic_deposition_slope_degrees: f32,
+    /// River-source flow thresholds measured in standard deviations above the
+    /// mean flow for each successive mesh-detail stage.
+    pub river_lod2_source_threshold: f32,
+    pub river_lod1_source_threshold: f32,
+    pub river_broad_source_threshold: f32,
+    pub river_land_source_threshold: f32,
+    pub river_final_source_threshold: f32,
+    /// Number of free-form XY seed points used by Delaunay triangulation.
+    pub terrain_size: u32,
+}
+
+impl Default for IslandOptions {
+    fn default() -> Self {
+        Self {
+            max_height: 0.2,
+            water_ratio: 0.6,
+            slope_multiplier: 1.3,
+            coastal_slope_multiplier: 1.0,
+            noise_multiplier: 0.0005,
+            coastal_erosion_strength: 1.0,
+            beach_formation_strength: 1.0,
+            hydraulic_erosion_strength: 1.0,
+            hydraulic_deposition_strength: 1.5,
+            hydraulic_deposition_slope_degrees: 12.0,
+            river_lod2_source_threshold: 0.35,
+            river_lod1_source_threshold: 0.65,
+            river_broad_source_threshold: 1.0,
+            river_land_source_threshold: 1.3,
+            river_final_source_threshold: 1.6,
+            terrain_size: 1024,
+        }
+    }
+}
+
+impl IslandOptions {
+    const fn river_source_thresholds(self) -> [f32; 5] {
+        [
+            self.river_lod2_source_threshold,
+            self.river_lod1_source_threshold,
+            self.river_broad_source_threshold,
+            self.river_land_source_threshold,
+            self.river_final_source_threshold,
+        ]
+    }
+
+    fn validate(self) -> Result<Self, String> {
+        if !self.max_height.is_finite() || self.max_height <= 0.0 {
+            return Err("max_height must be finite and greater than zero".into());
+        }
+        if !self.hydraulic_erosion_strength.is_finite()
+            || !(0.0..=8.0).contains(&self.hydraulic_erosion_strength)
+        {
+            return Err("hydraulic_erosion_strength must be between 0 and 8".into());
+        }
+        if !self.hydraulic_deposition_strength.is_finite()
+            || !(0.0..=4.0).contains(&self.hydraulic_deposition_strength)
+        {
+            return Err("hydraulic_deposition_strength must be between 0 and 4".into());
+        }
+        if !self.hydraulic_deposition_slope_degrees.is_finite()
+            || !(1.0..=45.0).contains(&self.hydraulic_deposition_slope_degrees)
+        {
+            return Err("hydraulic_deposition_slope_degrees must be between 1 and 45".into());
+        }
+        if self.terrain_size < 16 || self.terrain_size > 4096 {
+            return Err("terrain_size must contain between 16 and 4096 seed points".into());
+        }
+        Ok(self)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct TriangleIndex {
+    dimension: usize,
+    offsets: Vec<usize>,
+    faces: Vec<u32>,
+}
+
+impl TriangleIndex {
+    fn new(mesh: &Mesh) -> Self {
+        let face_count = mesh.triangles.len() / 3;
+        let dimension = ((face_count as f32).sqrt().ceil() as usize / 2).clamp(8, 512);
+        let bin_count = dimension * dimension;
+        let mut counts = vec![0_usize; bin_count];
+        for triangle in mesh.triangles.chunks_exact(3) {
+            let (min_x, max_x, min_y, max_y) = triangle_bin_bounds(mesh, triangle, dimension);
+            for y in min_y..=max_y {
+                for x in min_x..=max_x {
+                    counts[y * dimension + x] += 1;
+                }
+            }
+        }
+        let mut offsets = Vec::with_capacity(bin_count + 1);
+        offsets.push(0);
+        for count in counts {
+            offsets.push(offsets.last().copied().unwrap_or_default() + count);
+        }
+        let mut cursor = offsets[..bin_count].to_vec();
+        let mut faces = vec![0_u32; *offsets.last().unwrap_or(&0)];
+        for (face, triangle) in mesh.triangles.chunks_exact(3).enumerate() {
+            let (min_x, max_x, min_y, max_y) = triangle_bin_bounds(mesh, triangle, dimension);
+            for y in min_y..=max_y {
+                for x in min_x..=max_x {
+                    let bin = y * dimension + x;
+                    faces[cursor[bin]] = face as u32;
+                    cursor[bin] += 1;
+                }
+            }
+        }
+        Self {
+            dimension,
+            offsets,
+            faces,
+        }
+    }
+
+    fn candidates(&self, point: Vec2) -> &[u32] {
+        let x = bin_coordinate(point.x, self.dimension);
+        let y = bin_coordinate(point.y, self.dimension);
+        let bin = y * self.dimension + x;
+        &self.faces[self.offsets[bin]..self.offsets[bin + 1]]
+    }
+}
+
+/// The finest irregular terrain mesh plus a derived spatial lookup index.
+///
+/// The index uses bins only to locate triangles for sampling. It never defines
+/// vertices, connectivity, erosion, flow, rivers, or levels of detail.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Terrain {
+    mesh: Mesh,
+    triangle_index: TriangleIndex,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SurfaceMaps {
+    width: u32,
+    height: u32,
+    normal_rgb: Vec<u8>,
+    occlusion: Vec<u8>,
+}
+
+impl SurfaceMaps {
+    #[must_use]
+    pub const fn width(&self) -> u32 {
+        self.width
+    }
+
+    #[must_use]
+    pub const fn height(&self) -> u32 {
+        self.height
+    }
+
+    #[must_use]
+    pub fn normal_rgb(&self) -> &[u8] {
+        &self.normal_rgb
+    }
+
+    #[must_use]
+    pub fn occlusion(&self) -> &[u8] {
+        &self.occlusion
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct SurfaceSample {
+    position: Vec3,
+    normal: Vec3,
+}
+
+impl Terrain {
+    fn new(mesh: Mesh) -> Self {
+        let triangle_index = TriangleIndex::new(&mesh);
+        Self {
+            mesh,
+            triangle_index,
+        }
+    }
+
+    #[must_use]
+    pub fn mesh(&self) -> &Mesh {
+        &self.mesh
+    }
+
+    #[must_use]
+    pub fn vertices(&self) -> &[Vec3] {
+        &self.mesh.vertices
+    }
+
+    #[must_use]
+    pub fn vertex_count(&self) -> usize {
+        self.mesh.vertices.len()
+    }
+
+    #[must_use]
+    pub fn triangle_count(&self) -> usize {
+        self.mesh.triangles.len() / 3
+    }
+
+    #[must_use]
+    pub fn sample(&self, u: f32, v: f32) -> f32 {
+        sample_mesh_triangle(
+            &self.mesh,
+            &self.triangle_index,
+            Vec2::new(u.clamp(0.0, 1.0), v.clamp(0.0, 1.0)),
+        )
+        .map_or_else(
+            || self.mesh.vertices[nearest_vertex_index(&self.mesh, u, v)].z,
+            |(triangle, weights)| {
+                weights[0].mul_add(
+                    self.mesh.vertices[triangle[0]].z,
+                    weights[1].mul_add(
+                        self.mesh.vertices[triangle[1]].z,
+                        weights[2] * self.mesh.vertices[triangle[2]].z,
+                    ),
+                )
+            },
+        )
+    }
+
+    #[must_use]
+    pub fn sample_normal(&self, u: f32, v: f32) -> Vec3 {
+        sample_mesh_triangle(
+            &self.mesh,
+            &self.triangle_index,
+            Vec2::new(u.clamp(0.0, 1.0), v.clamp(0.0, 1.0)),
+        )
+        .map_or_else(
+            || {
+                let nearest = nearest_vertex_index(&self.mesh, u, v);
+                self.mesh.normals[nearest]
+            },
+            |(triangle, weights)| {
+                (self.mesh.normals[triangle[0]] * weights[0]
+                    + self.mesh.normals[triangle[1]] * weights[1]
+                    + self.mesh.normals[triangle[2]] * weights[2])
+                    .try_normalize()
+                    .unwrap_or(Vec3::Z)
+            },
+        )
+    }
+
+    pub(crate) fn sample_surface(&self, u: f32, v: f32) -> (f32, Vec3) {
+        sample_mesh_surface(&self.mesh, &self.triangle_index, u, v)
+    }
+}
+
+fn sample_mesh_surface(mesh: &Mesh, triangle_index: &TriangleIndex, u: f32, v: f32) -> (f32, Vec3) {
+    let point = Vec2::new(u.clamp(0.0, 1.0), v.clamp(0.0, 1.0));
+    sample_mesh_triangle(mesh, triangle_index, point).map_or_else(
+        || {
+            let nearest = nearest_vertex_index(mesh, u, v);
+            (mesh.vertices[nearest].z, mesh.normals[nearest])
+        },
+        |(triangle, weights)| {
+            let elevation = weights[0].mul_add(
+                mesh.vertices[triangle[0]].z,
+                weights[1].mul_add(
+                    mesh.vertices[triangle[1]].z,
+                    weights[2] * mesh.vertices[triangle[2]].z,
+                ),
+            );
+            let normal = (mesh.normals[triangle[0]] * weights[0]
+                + mesh.normals[triangle[1]] * weights[1]
+                + mesh.normals[triangle[2]] * weights[2])
+                .try_normalize()
+                .unwrap_or(Vec3::Z);
+            (elevation, normal)
+        },
+    )
+}
+
+fn sample_mesh_triangle(
+    mesh: &Mesh,
+    triangle_index: &TriangleIndex,
+    point: Vec2,
+) -> Option<([usize; 3], [f32; 3])> {
+    triangle_index.candidates(point).iter().find_map(|&face| {
+        let offset = face as usize * 3;
+        let triangle = [
+            mesh.triangles[offset] as usize,
+            mesh.triangles[offset + 1] as usize,
+            mesh.triangles[offset + 2] as usize,
+        ];
+        barycentric(
+            point,
+            mesh.vertices[triangle[0]].truncate(),
+            mesh.vertices[triangle[1]].truncate(),
+            mesh.vertices[triangle[2]].truncate(),
+        )
+        .map(|weights| (triangle, weights))
+    })
+}
+
+fn nearest_vertex_index(mesh: &Mesh, u: f32, v: f32) -> usize {
+    let point = Vec2::new(u, v);
+    mesh.vertices
+        .iter()
+        .enumerate()
+        .min_by(|(_, left), (_, right)| {
+            (left.truncate() - point)
+                .length_squared()
+                .total_cmp(&(right.truncate() - point).length_squared())
+        })
+        .map_or(0, |(index, _)| index)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Decoration {
+    Tree,
+    Bush,
+    Rock,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Decorations {
+    trees: Vec<Vec3>,
+    bushes: Vec<Vec3>,
+    rocks: Vec<Vec3>,
+}
+
+impl Decorations {
+    #[must_use]
+    pub fn trees(&self) -> &[Vec3] {
+        &self.trees
+    }
+
+    #[must_use]
+    pub fn bushes(&self) -> &[Vec3] {
+        &self.bushes
+    }
+
+    #[must_use]
+    pub fn rocks(&self) -> &[Vec3] {
+        &self.rocks
+    }
+
+    fn generate(seed: u64, terrain: &Terrain, rivers: &[River], target: usize) -> Self {
+        let mut rng = Rng::new(seed ^ 0xe703_7ed1_a0b4_28db);
+        let mut out = Self::default();
+        for _ in 0..target * 6 {
+            if out.trees.len() + out.bushes.len() + out.rocks.len() >= target {
+                break;
+            }
+            let u = rng.range(0.01, 0.99);
+            let v = rng.range(0.01, 0.99);
+            let height = terrain.sample(u, v);
+            if height <= 0.001 {
+                continue;
+            }
+            let normal = terrain.sample_normal(u, v);
+            let slope = 1.0 - normal.z;
+            let point = Vec3::new(u, v, height);
+            if rivers.iter().any(|river| {
+                river.nodes.iter().any(|node| {
+                    (node.position.truncate() - point.truncate()).length_squared() < 0.000_025
+                })
+            }) {
+                continue;
+            }
+            let moisture = noise::fractal(seed ^ 0x8ebc_6af0_9c88_c6e3, u * 7.0, v * 7.0, 3);
+            if slope > 0.38 || height > 0.145 {
+                if rng.unit() < 0.38 {
+                    out.rocks.push(point);
+                }
+            } else if moisture > -0.05 && height > 0.012 && height < 0.13 {
+                if rng.unit() < 0.72 {
+                    out.trees.push(point);
+                }
+            } else if rng.unit() < 0.54 {
+                out.bushes.push(point);
+            }
+        }
+        out
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Island {
+    seed: u64,
+    options: IslandOptions,
+    terrain: Terrain,
+    coarser_lods: [Mesh; 2],
+    rivers: Vec<River>,
+    river_mesh: Mesh,
+    decorations: Decorations,
+}
+
+impl Island {
+    /// Generates an island and all derived assets.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when an option is non-finite or outside its supported
+    /// range.
+    pub fn generate(seed: u64, options: IslandOptions) -> Result<Self, String> {
+        let options = options.validate()?;
+        let points = create_seed_points(seed, options.terrain_size as usize);
+        let mut base = Mesh::delaunay(&points);
+        let base_adjacency = base.adjacency();
+        let geology = assign_elevations(&mut base, &base_adjacency, seed, options);
+        let river_thresholds = options.river_source_thresholds();
+        hydraulic_erode_stage(&mut base, &base_adjacency, 0.45, options);
+        erode_mesh(&mut base, &base_adjacency, options, 5);
+        base.calculate_normals();
+
+        let mut lod2 = base.tessellated_displaced(DETAIL_DISPLACEMENT_RATIO);
+        let lod2_adjacency = lod2.adjacency();
+        lod2.smooth_with(&lod2_adjacency);
+        add_surface_noise(
+            &mut lod2,
+            seed ^ 0xa076_1d64_78bd_642f,
+            32.0,
+            options.noise_multiplier,
+        );
+        hydraulic_erode_stage(&mut lod2, &lod2_adjacency, 0.55, options);
+        erode_mesh(&mut lod2, &lod2_adjacency, options, 4);
+        let mut lod2_rivers =
+            RiverNetwork::generate(&mut lod2, &lod2_adjacency, river_thresholds[0]);
+        lod2_rivers.shape(&mut lod2, &lod2_adjacency, true, true);
+        lod2.calculate_normals();
+
+        let mut lod1 = lod2.tessellated_displaced(DETAIL_DISPLACEMENT_RATIO);
+        let first_lod1_adjacency = lod1.adjacency();
+        lod1.smooth_with(&first_lod1_adjacency);
+        add_surface_noise(
+            &mut lod1,
+            seed ^ 0xe703_7ed1_a0b4_28db,
+            64.0,
+            options.noise_multiplier * 0.5,
+        );
+        hydraulic_erode_stage(&mut lod1, &first_lod1_adjacency, 0.65, options);
+        erode_mesh(&mut lod1, &first_lod1_adjacency, options, 4);
+        let mut lod1_rivers =
+            RiverNetwork::generate(&mut lod1, &first_lod1_adjacency, river_thresholds[1]);
+        lod1_rivers.shape(&mut lod1, &first_lod1_adjacency, false, true);
+        lod1.calculate_normals();
+
+        let mut lod1 = refine_lod1_again(&lod1, seed, options, river_thresholds[2]);
+
+        let mut lod0 = lod1.tessellated_displaced(DETAIL_DISPLACEMENT_RATIO);
+        let broad_adjacency = lod0.adjacency();
+        lod0.smooth_with(&broad_adjacency);
+        hydraulic_erode_stage(&mut lod0, &broad_adjacency, 0.8, options);
+        lod0.calculate_normals();
+
+        lod0 = lod0.tessellated_displaced(DETAIL_DISPLACEMENT_RATIO);
+        let land_adjacency = lod0.adjacency();
+        add_surface_noise(
+            &mut lod0,
+            seed ^ 0x5899_65cc_7537_4cc3,
+            128.0,
+            options.noise_multiplier * 0.125,
+        );
+        hydraulic_erode_stage(&mut lod0, &land_adjacency, 0.75, options);
+        erode_mesh(&mut lod0, &land_adjacency, options, 2);
+        let mut land_rivers =
+            RiverNetwork::generate(&mut lod0, &land_adjacency, river_thresholds[3]);
+        land_rivers.shape(&mut lod0, &land_adjacency, true, true);
+        lod0.smooth_land_with(&land_adjacency);
+
+        // Run the lasting coastal pass after all broad/global smoothing. Its
+        // cliff and headland displacement then drives the following adaptive
+        // refinement rather than being averaged back into a gentle slope.
+        apply_coastal_stage(&mut lod0, geology, seed, options, CoastScale::Coarse, 1.0);
+
+        lod0 = lod0.tessellated_displaced(DETAIL_DISPLACEMENT_RATIO);
+        let detail_adjacency = lod0.adjacency();
+        add_surface_noise(
+            &mut lod0,
+            seed ^ 0x1d8e_4e27_c47d_124f,
+            192.0,
+            options.noise_multiplier * 0.0625,
+        );
+        hydraulic_erode_stage(&mut lod0, &detail_adjacency, 0.5, options);
+        lod0.smooth_land_with(&detail_adjacency);
+        lod0.smooth_seabed_with(&detail_adjacency);
+        apply_coastal_stage(&mut lod0, geology, seed, options, CoastScale::Detail, 0.55);
+        let detail_adjacency = lod0.adjacency();
+        let mut final_rivers =
+            RiverNetwork::generate(&mut lod0, &detail_adjacency, river_thresholds[4]);
+        // Earlier passes build the alluvial terrain. Keep the definitive pass
+        // carve-only so its outlet cannot be raised again after the last cut.
+        final_rivers.shape(&mut lod0, &detail_adjacency, true, false);
+        let (rivers, river_mesh) = final_rivers.into_parts(&mut lod0, &detail_adjacency);
+        correct_lods(&mut lod0, &mut lod1, &mut lod2);
+
+        let terrain = Terrain::new(lod0);
+        let decorations =
+            Decorations::generate(seed, &terrain, &rivers, options.terrain_size as usize * 4);
+        Ok(Self {
+            seed,
+            options,
+            terrain,
+            coarser_lods: [lod1, lod2],
+            rivers,
+            river_mesh,
+            decorations,
+        })
+    }
+
+    #[must_use]
+    pub const fn seed(&self) -> u64 {
+        self.seed
+    }
+
+    #[must_use]
+    pub const fn options(&self) -> IslandOptions {
+        self.options
+    }
+
+    #[must_use]
+    pub const fn terrain(&self) -> &Terrain {
+        &self.terrain
+    }
+
+    #[must_use]
+    pub fn lod(&self, level: usize) -> Option<&Mesh> {
+        match level {
+            0 => Some(self.terrain.mesh()),
+            1 => Some(&self.coarser_lods[0]),
+            2 => Some(&self.coarser_lods[1]),
+            _ => None,
+        }
+    }
+
+    #[must_use]
+    pub const fn river_mesh(&self) -> &Mesh {
+        &self.river_mesh
+    }
+
+    #[must_use]
+    pub fn rivers(&self) -> &[River] {
+        &self.rivers
+    }
+
+    #[must_use]
+    pub const fn decorations(&self) -> &Decorations {
+        &self.decorations
+    }
+
+    #[must_use]
+    pub fn render(&self, width: u32, height: u32) -> Raster {
+        let mut raster = Raster::new(width, height);
+        raster.render(self);
+        raster
+    }
+
+    #[must_use]
+    pub fn height_map(&self, width: u32, height: u32) -> Vec<f32> {
+        sample_grid(width, height, |u, v| self.terrain.sample(u, v))
+    }
+
+    #[must_use]
+    pub fn sea_depth_map(&self, width: u32, height: u32) -> Vec<f32> {
+        sample_grid(width, height, |u, v| {
+            (-self.terrain.sample(u, v) / (self.options.max_height * 0.28)).clamp(0.0, 1.0)
+        })
+    }
+
+    /// Bakes high-detail normal corrections and the original directional
+    /// occlusion kernel for a target terrain LOD.
+    #[must_use]
+    pub fn surface_maps(&self, lod: usize, width: u32, height: u32) -> Option<SurfaceMaps> {
+        let target = self.lod(lod)?;
+        Some(bake_surface_maps(
+            &self.terrain,
+            (lod != 0).then_some(target),
+            width.max(1),
+            height.max(1),
+        ))
+    }
+
+    #[must_use]
+    pub fn normal_map(&self, width: u32, height: u32) -> Vec<u8> {
+        let mut output = Vec::with_capacity(width as usize * height as usize * 3);
+        for y in 0..height {
+            let v = y as f32 / height.saturating_sub(1).max(1) as f32;
+            for x in 0..width {
+                let u = x as f32 / width.saturating_sub(1).max(1) as f32;
+                let normal = self.terrain.sample_normal(u, v);
+                output.extend([
+                    ((normal.x * 0.5 + 0.5) * 255.0) as u8,
+                    ((normal.y * 0.5 + 0.5) * 255.0) as u8,
+                    ((normal.z * 0.5 + 0.5) * 255.0) as u8,
+                ]);
+            }
+        }
+        output
+    }
+
+    #[must_use]
+    pub fn foliage_map(&self, dimension: u32) -> Vec<u32> {
+        let mut map = vec![0_u32; dimension as usize * dimension as usize];
+        let put = |map: &mut [u32], points: &[Vec3], shift: u32, value: u32| {
+            for point in points {
+                let x = (point.x * (dimension - 1) as f32).round() as usize;
+                let y = (point.y * (dimension - 1) as f32).round() as usize;
+                map[y * dimension as usize + x] |= value << shift;
+            }
+        };
+        put(&mut map, &self.decorations.trees, 24, 255);
+        put(&mut map, &self.decorations.bushes, 16, 210);
+        put(&mut map, &self.decorations.rocks, 8, 255);
+        for y in 0..dimension {
+            for x in 0..dimension {
+                let u = x as f32 / dimension.saturating_sub(1).max(1) as f32;
+                let v = y as f32 / dimension.saturating_sub(1).max(1) as f32;
+                let richness = noise::fractal(self.seed, u * 5.0, v * 5.0, 3);
+                map[y as usize * dimension as usize + x as usize] |=
+                    ((richness * 0.5 + 0.5) * 255.0) as u32;
+            }
+        }
+        map
+    }
+
+    /// Saves the reproducible seed and generation options.
+    ///
+    /// # Errors
+    ///
+    /// Returns an I/O error if the destination cannot be created or written.
+    pub fn save(&self, path: impl AsRef<Path>) -> io::Result<()> {
+        let mut file = File::create(path)?;
+        file.write_all(b"MOTURS\0\x07")?;
+        file.write_all(&self.seed.to_le_bytes())?;
+        for value in [
+            self.options.max_height,
+            self.options.water_ratio,
+            self.options.slope_multiplier,
+            self.options.coastal_slope_multiplier,
+            self.options.noise_multiplier,
+            self.options.coastal_erosion_strength,
+            self.options.beach_formation_strength,
+            self.options.hydraulic_erosion_strength,
+            self.options.hydraulic_deposition_strength,
+            self.options.hydraulic_deposition_slope_degrees,
+            self.options.river_lod2_source_threshold,
+            self.options.river_lod1_source_threshold,
+            self.options.river_broad_source_threshold,
+            self.options.river_land_source_threshold,
+            self.options.river_final_source_threshold,
+        ] {
+            file.write_all(&value.to_le_bytes())?;
+        }
+        file.write_all(&self.options.terrain_size.to_le_bytes())
+    }
+
+    /// Loads a saved seed/options file and deterministically regenerates it.
+    ///
+    /// # Errors
+    ///
+    /// Returns an I/O error for unreadable, truncated, or invalid input.
+    pub fn load(path: impl AsRef<Path>) -> io::Result<Self> {
+        let mut file = File::open(path)?;
+        let mut magic = [0_u8; 8];
+        file.read_exact(&mut magic)?;
+        if &magic[..7] != b"MOTURS\0" || !matches!(magic[7], 3..=7) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "invalid Motu Rust free-form mesh file",
+            ));
+        }
+        let seed = read_u64(&mut file)?;
+        let max_height = read_f32(&mut file)?;
+        let water_ratio = read_f32(&mut file)?;
+        let slope_multiplier = read_f32(&mut file)?;
+        let coastal_slope_multiplier = read_f32(&mut file)?;
+        let noise_multiplier = read_f32(&mut file)?;
+        let defaults = IslandOptions::default();
+        let coastal_erosion_strength = if magic[7] >= 7 {
+            read_f32(&mut file)?
+        } else {
+            defaults.coastal_erosion_strength
+        };
+        let beach_formation_strength = if magic[7] >= 7 {
+            read_f32(&mut file)?
+        } else {
+            defaults.beach_formation_strength
+        };
+        let hydraulic_erosion_strength = if magic[7] >= 4 {
+            read_f32(&mut file)?
+        } else {
+            defaults.hydraulic_erosion_strength
+        };
+        let hydraulic_deposition_strength = if magic[7] >= 6 {
+            read_f32(&mut file)?
+        } else {
+            defaults.hydraulic_deposition_strength
+        };
+        let hydraulic_deposition_slope_degrees = if magic[7] >= 6 {
+            read_f32(&mut file)?
+        } else {
+            defaults.hydraulic_deposition_slope_degrees
+        };
+        let mut options = IslandOptions {
+            max_height,
+            water_ratio,
+            slope_multiplier,
+            coastal_slope_multiplier,
+            noise_multiplier,
+            coastal_erosion_strength,
+            beach_formation_strength,
+            hydraulic_erosion_strength,
+            hydraulic_deposition_strength,
+            hydraulic_deposition_slope_degrees,
+            ..defaults
+        };
+        if magic[7] >= 5 {
+            options.river_lod2_source_threshold = read_f32(&mut file)?;
+            options.river_lod1_source_threshold = read_f32(&mut file)?;
+            options.river_broad_source_threshold = read_f32(&mut file)?;
+            options.river_land_source_threshold = read_f32(&mut file)?;
+            options.river_final_source_threshold = read_f32(&mut file)?;
+        }
+        options.terrain_size = read_u32(&mut file)?;
+        Self::generate(seed, options)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
+    }
+
+    #[must_use]
+    pub fn mesh_in(&self, lod: usize, bounds: BoundingBox) -> Option<Mesh> {
+        self.lod(lod).map(|mesh| mesh.sliced(bounds))
+    }
+}
+
+/// Runs the second adaptive LOD1 shaping pass while keeping flatter faces at
+/// their existing density.
+fn refine_lod1_again(lod1: &Mesh, seed: u64, options: IslandOptions, river_threshold: f32) -> Mesh {
+    let mut refined = lod1.tessellated_displaced(DETAIL_DISPLACEMENT_RATIO);
+    let adjacency = refined.adjacency();
+    refined.smooth_with(&adjacency);
+    add_surface_noise(
+        &mut refined,
+        seed ^ 0x8ebc_6af0_9c88_c6e3,
+        96.0,
+        options.noise_multiplier * 0.25,
+    );
+    hydraulic_erode_stage(&mut refined, &adjacency, 0.7, options);
+    erode_mesh(&mut refined, &adjacency, options, 3);
+    let mut rivers = RiverNetwork::generate(&mut refined, &adjacency, river_threshold);
+    rivers.shape(&mut refined, &adjacency, false, true);
+    refined.calculate_normals();
+    refined
+}
+
+fn apply_coastal_stage(
+    mesh: &mut Mesh,
+    geology: GeologyField,
+    seed: u64,
+    options: IslandOptions,
+    scale: CoastScale,
+    strength_multiplier: f32,
+) {
+    let scale_seed = match scale {
+        CoastScale::Coarse => seed ^ 0x94d0_49bb_1331_11eb,
+        CoastScale::Detail => seed ^ 0xbf58_476d_1ce4_e5b9,
+    };
+    coast::evolve(
+        mesh,
+        geology,
+        scale_seed,
+        options.coastal_erosion_strength * strength_multiplier,
+        options.beach_formation_strength,
+        scale,
+    );
+}
+
+fn correct_lods(lod0: &mut Mesh, lod1: &mut Mesh, lod2: &mut Mesh) {
+    let lod1_vertex_count = lod1.vertices.len();
+    let lod2_vertex_count = lod2.vertices.len();
+    debug_assert!(lod0.vertices.len() >= lod1_vertex_count);
+    debug_assert!(lod1_vertex_count >= lod2_vertex_count);
+
+    lod1.vertices
+        .copy_from_slice(&lod0.vertices[..lod1_vertex_count]);
+    lod2.vertices
+        .copy_from_slice(&lod0.vertices[..lod2_vertex_count]);
+
+    for mesh in [lod0, lod1, lod2] {
+        mesh.uv
+            .iter_mut()
+            .zip(&mesh.vertices)
+            .for_each(|(uv, vertex)| *uv = vertex.truncate());
+        mesh.calculate_normals();
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct DistanceState {
+    cost: f32,
+    vertex: usize,
+}
+
+impl PartialEq for DistanceState {
+    fn eq(&self, other: &Self) -> bool {
+        self.vertex == other.vertex && self.cost.to_bits() == other.cost.to_bits()
+    }
+}
+
+impl Eq for DistanceState {}
+
+impl PartialOrd for DistanceState {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for DistanceState {
+    fn cmp(&self, other: &Self) -> Ordering {
+        other
+            .cost
+            .total_cmp(&self.cost)
+            .then_with(|| other.vertex.cmp(&self.vertex))
+    }
+}
+
+fn create_seed_points(seed: u64, count: usize) -> Vec<Vec2> {
+    let mut rng = Rng::new(seed);
+    let mut points = Vec::with_capacity(count);
+    for _ in 0..count.saturating_sub(8) {
+        points.push(Vec2::new(rng.unit(), rng.unit()));
+    }
+    points.extend([
+        Vec2::new(0.0, 0.0),
+        Vec2::new(0.0, 0.5),
+        Vec2::new(0.0, 1.0),
+        Vec2::new(0.5, 1.0),
+        Vec2::new(1.0, 1.0),
+        Vec2::new(1.0, 0.5),
+        Vec2::new(1.0, 0.0),
+        Vec2::new(0.5, 0.0),
+    ]);
+    points
+}
+
+fn assign_elevations(
+    mesh: &mut Mesh,
+    adjacency: &Adjacency,
+    seed: u64,
+    options: IslandOptions,
+) -> GeologyField {
+    let geology =
+        GeologyField::calibrated(seed, mesh.vertices.iter().map(|vertex| vertex.truncate()));
+    let scores: Vec<f32> = mesh
+        .vertices
+        .iter()
+        .map(|vertex| {
+            let dx = vertex.x.mul_add(2.0, -1.0);
+            let dy = vertex.y.mul_add(2.0, -1.0);
+            let radius = dx.hypot(dy);
+            coast::terrain_noise(seed, vertex.truncate()).height_component() + 0.82
+                - radius.powf(1.65)
+        })
+        .collect();
+    let mut ranked = scores.clone();
+    ranked.sort_unstable_by(f32::total_cmp);
+    let sea_index = ((ranked.len() - 1) as f32 * options.water_ratio) as usize;
+    let sea_level = ranked[sea_index];
+    let perimeter = mesh.perimeter_vertices();
+    let candidate_sea: Vec<bool> = scores.iter().map(|score| *score < sea_level).collect();
+    let mut sea = vec![false; mesh.vertices.len()];
+    let mut fringe: Vec<usize> = perimeter
+        .into_iter()
+        .filter(|index| candidate_sea[*index])
+        .collect();
+    for &vertex in &fringe {
+        sea[vertex] = true;
+    }
+    while let Some(vertex) = fringe.pop() {
+        for &neighbour in &adjacency[vertex] {
+            if candidate_sea[neighbour] && !sea[neighbour] {
+                sea[neighbour] = true;
+                fringe.push(neighbour);
+            }
+        }
+    }
+
+    let distance_to_sea = graph_distances(mesh, adjacency, &sea);
+    let land: Vec<bool> = sea.iter().map(|value| !value).collect();
+    let distance_to_land = graph_distances(mesh, adjacency, &land);
+    let max_land = distance_to_sea
+        .iter()
+        .zip(&land)
+        .filter_map(|(distance, is_land)| is_land.then_some(*distance))
+        .fold(f32::EPSILON, f32::max);
+    let max_sea = distance_to_land
+        .iter()
+        .zip(&sea)
+        .filter_map(|(distance, is_sea)| is_sea.then_some(*distance))
+        .fold(f32::EPSILON, f32::max);
+
+    for (index, vertex) in mesh.vertices.iter_mut().enumerate() {
+        vertex.z = if sea[index] {
+            -distance_to_land[index] / max_sea * options.max_height * 0.28
+        } else {
+            let normalized = distance_to_sea[index] / max_land;
+            normalized.powf(options.coastal_slope_multiplier.max(0.1)) * options.max_height
+        };
+    }
+    geology
+}
+
+fn graph_distances(mesh: &Mesh, adjacency: &Adjacency, target: &[bool]) -> Vec<f32> {
+    let mut distances = vec![f32::INFINITY; mesh.vertices.len()];
+    let mut queue = BinaryHeap::new();
+    for (vertex, &is_target) in target.iter().enumerate() {
+        if is_target {
+            distances[vertex] = 0.0;
+            queue.push(DistanceState { cost: 0.0, vertex });
+        }
+    }
+    while let Some(DistanceState { cost, vertex }) = queue.pop() {
+        if cost > distances[vertex] {
+            continue;
+        }
+        for &neighbour in &adjacency[vertex] {
+            let edge =
+                (mesh.vertices[vertex].truncate() - mesh.vertices[neighbour].truncate()).length();
+            let next = cost + edge;
+            if next < distances[neighbour] {
+                distances[neighbour] = next;
+                queue.push(DistanceState {
+                    cost: next,
+                    vertex: neighbour,
+                });
+            }
+        }
+    }
+    distances
+}
+
+fn add_surface_noise(mesh: &mut Mesh, seed: u64, frequency: f32, amplitude: f32) {
+    for (vertex, normal) in mesh.vertices.iter_mut().zip(&mesh.normals) {
+        if vertex.z > 0.0 {
+            let displacement =
+                noise::fractal(seed, vertex.x * frequency, vertex.y * frequency, 4) * amplitude;
+            *vertex += *normal * displacement;
+        }
+    }
+}
+
+fn hydraulic_erode_stage(
+    mesh: &mut Mesh,
+    adjacency: &Adjacency,
+    stage_strength: f32,
+    options: IslandOptions,
+) {
+    hydraulic_erode(
+        mesh,
+        adjacency,
+        false,
+        HydraulicErosionSettings::new(stage_strength, options),
+    );
+}
+
+#[derive(Clone, Copy, Debug)]
+struct HydraulicErosionSettings {
+    erosion_strength: f32,
+    deposition_strength: f32,
+    full_deposition_slope: f32,
+    maximum_deposition_slope: f32,
+}
+
+impl HydraulicErosionSettings {
+    fn new(stage_strength: f32, options: IslandOptions) -> Self {
+        let maximum_deposition_slope = options
+            .hydraulic_deposition_slope_degrees
+            .to_radians()
+            .tan();
+        Self {
+            erosion_strength: stage_strength * options.hydraulic_erosion_strength,
+            deposition_strength: options.hydraulic_deposition_strength,
+            full_deposition_slope: (options.hydraulic_deposition_slope_degrees / 3.0)
+                .to_radians()
+                .tan(),
+            maximum_deposition_slope,
+        }
+    }
+}
+
+fn hydraulic_erode(
+    mesh: &mut Mesh,
+    adjacency: &Adjacency,
+    include_sea: bool,
+    settings: HydraulicErosionSettings,
+) {
+    if settings.erosion_strength == 0.0 {
+        return;
+    }
+
+    let mut order: Vec<usize> = (0..mesh.vertices.len()).collect();
+    order
+        .sort_unstable_by(|left, right| mesh.vertices[*right].z.total_cmp(&mesh.vertices[*left].z));
+    let max_shift = mesh
+        .vertices
+        .iter()
+        .map(|vertex| vertex.z)
+        .fold(0.0_f32, f32::max)
+        * 0.012;
+
+    for source in order {
+        if mesh.vertices[source].z <= 0.0 {
+            break;
+        }
+        let mut current = source;
+        let mut speed = 0.0_f32;
+        let mut sediment = 0.0_f32;
+        for _ in 0..mesh.vertices.len() {
+            let next = adjacency[current]
+                .iter()
+                .copied()
+                .filter(|neighbour| mesh.vertices[*neighbour].z < mesh.vertices[current].z)
+                .min_by(|left, right| mesh.vertices[*left].z.total_cmp(&mesh.vertices[*right].z));
+            let Some(next) = next else {
+                deposit_sediment_fan(mesh, adjacency, current, &mut sediment, max_shift, settings);
+                break;
+            };
+            if mesh.vertices[next].z < 0.0 && !include_sea {
+                deposit_sediment_fan(mesh, adjacency, current, &mut sediment, max_shift, settings);
+                break;
+            }
+            let direction = mesh.vertices[current] - mesh.vertices[next];
+            let distance = direction.length().max(f32::EPSILON);
+            let horizontal_distance = direction.truncate().length().max(f32::EPSILON);
+            let slope = direction.z / horizontal_distance;
+            let sin_slope = direction.z / distance;
+            let acceleration = sin_slope * sin_slope * sin_slope * distance;
+            speed = speed.mul_add(0.75, acceleration * 0.25);
+            let deposition_weight = deposition_weight(slope, settings);
+            let available_material = if include_sea {
+                f32::INFINITY
+            } else {
+                mesh.vertices[current].z.max(0.0)
+            };
+            let shift = exchange_sediment(
+                &mut sediment,
+                speed,
+                deposition_weight,
+                max_shift,
+                available_material,
+                settings,
+            );
+            mesh.vertices[current].z += shift;
+            current = next;
+        }
+    }
+}
+
+fn deposition_weight(slope: f32, settings: HydraulicErosionSettings) -> f32 {
+    let width =
+        (settings.maximum_deposition_slope - settings.full_deposition_slope).max(f32::EPSILON);
+    let normalized = ((slope - settings.full_deposition_slope) / width).clamp(0.0, 1.0);
+    1.0 - normalized * normalized * (3.0 - 2.0 * normalized)
+}
+
+fn exchange_sediment(
+    sediment: &mut f32,
+    capacity: f32,
+    deposition_weight: f32,
+    max_shift: f32,
+    available_material: f32,
+    settings: HydraulicErosionSettings,
+) -> f32 {
+    let difference = *sediment - capacity;
+    if difference > 0.0 {
+        let rate = (settings.deposition_strength * 0.35 * deposition_weight).min(1.0);
+        let deposited = (difference * rate).min(max_shift).min(*sediment);
+        *sediment -= deposited;
+        deposited
+    } else {
+        let erosion_weight = 1.0 - deposition_weight;
+        let eroded = (-difference * settings.erosion_strength * erosion_weight)
+            .min(max_shift)
+            .min(available_material);
+        *sediment += eroded;
+        -eroded
+    }
+}
+
+fn deposit_sediment_fan(
+    mesh: &mut Mesh,
+    adjacency: &Adjacency,
+    center: usize,
+    sediment: &mut f32,
+    max_shift: f32,
+    settings: HydraulicErosionSettings,
+) {
+    let rate = (settings.deposition_strength * 0.35).min(1.0);
+    if *sediment <= 0.0 || rate == 0.0 {
+        return;
+    }
+
+    let center_position = mesh.vertices[center];
+    let mut total_weight = 1.0_f32;
+    for &neighbour in &adjacency[center] {
+        let candidate = mesh.vertices[neighbour];
+        if candidate.z < 0.0 {
+            continue;
+        }
+        let horizontal_distance = (candidate - center_position)
+            .truncate()
+            .length()
+            .max(f32::EPSILON);
+        let slope = ((candidate.z - center_position.z) / horizontal_distance).abs();
+        total_weight += deposition_weight(slope, settings);
+    }
+
+    let total_deposit = (*sediment * rate).min(max_shift * total_weight);
+    let deposit_per_weight = total_deposit / total_weight;
+    mesh.vertices[center].z += deposit_per_weight;
+    for &neighbour in &adjacency[center] {
+        let candidate = mesh.vertices[neighbour];
+        if candidate.z < 0.0 {
+            continue;
+        }
+        let horizontal_distance = (candidate - center_position)
+            .truncate()
+            .length()
+            .max(f32::EPSILON);
+        let slope = ((candidate.z - center_position.z) / horizontal_distance).abs();
+        mesh.vertices[neighbour].z += deposit_per_weight * deposition_weight(slope, settings);
+    }
+    *sediment -= total_deposit;
+}
+
+fn erode_mesh(mesh: &mut Mesh, adjacency: &Adjacency, options: IslandOptions, passes: usize) {
+    let mut delta = vec![0.0; mesh.vertices.len()];
+    let talus = options.max_height * 0.006 / options.slope_multiplier.max(0.1);
+    for _ in 0..passes {
+        delta.fill(0.0);
+        for (index, neighbours) in adjacency.iter().enumerate() {
+            let height = mesh.vertices[index].z;
+            if height <= 0.0 {
+                continue;
+            }
+            let Some(lowest) = neighbours
+                .iter()
+                .copied()
+                .filter(|neighbour| mesh.vertices[*neighbour].z > 0.0)
+                .min_by(|left, right| mesh.vertices[*left].z.total_cmp(&mesh.vertices[*right].z))
+            else {
+                continue;
+            };
+            let difference = height - mesh.vertices[lowest].z;
+            if difference > talus {
+                let transfer = (difference - talus) * 0.18;
+                delta[index] -= transfer;
+                delta[lowest] += transfer;
+            }
+        }
+        mesh.vertices
+            .iter_mut()
+            .zip(&delta)
+            .for_each(|(vertex, change)| vertex.z += change);
+    }
+}
+
+fn barycentric(point: Vec2, a: Vec2, b: Vec2, c: Vec2) -> Option<[f32; 3]> {
+    let denominator = (b.y - c.y).mul_add(a.x - c.x, (c.x - b.x) * (a.y - c.y));
+    if denominator.abs() <= f32::EPSILON {
+        return None;
+    }
+    let first = (b.y - c.y).mul_add(point.x - c.x, (c.x - b.x) * (point.y - c.y)) / denominator;
+    let second = (c.y - a.y).mul_add(point.x - c.x, (a.x - c.x) * (point.y - c.y)) / denominator;
+    let third = 1.0 - first - second;
+    (first >= -1.0e-5 && second >= -1.0e-5 && third >= -1.0e-5).then_some([first, second, third])
+}
+
+fn bin_coordinate(value: f32, dimension: usize) -> usize {
+    ((value.clamp(0.0, 1.0) * dimension as f32).floor() as usize).min(dimension - 1)
+}
+
+fn triangle_bin_bounds(
+    mesh: &Mesh,
+    triangle: &[u32],
+    dimension: usize,
+) -> (usize, usize, usize, usize) {
+    let points = [
+        mesh.vertices[triangle[0] as usize],
+        mesh.vertices[triangle[1] as usize],
+        mesh.vertices[triangle[2] as usize],
+    ];
+    let min_x = points.iter().map(|point| point.x).fold(f32::MAX, f32::min);
+    let max_x = points.iter().map(|point| point.x).fold(f32::MIN, f32::max);
+    let min_y = points.iter().map(|point| point.y).fold(f32::MAX, f32::min);
+    let max_y = points.iter().map(|point| point.y).fold(f32::MIN, f32::max);
+    (
+        bin_coordinate(min_x, dimension),
+        bin_coordinate(max_x, dimension),
+        bin_coordinate(min_y, dimension),
+        bin_coordinate(max_y, dimension),
+    )
+}
+
+const OCCLUSION_OFFSETS: [(isize, isize); 15] = [
+    (-8, -2),
+    (-4, 2),
+    (-2, 1),
+    (-1, 1),
+    (-1, -1),
+    (-1, -4),
+    (1, 2),
+    (1, 1),
+    (1, -1),
+    (1, -2),
+    (2, 4),
+    (2, -1),
+    (2, -8),
+    (4, -2),
+    (8, 2),
+];
+
+fn bake_surface_maps(
+    high_detail: &Terrain,
+    target: Option<&Mesh>,
+    width: u32,
+    height: u32,
+) -> SurfaceMaps {
+    let width_usize = width as usize;
+    let height_usize = height as usize;
+    let pixel_count = width_usize * height_usize;
+    let mut samples = vec![SurfaceSample::default(); pixel_count];
+    let mut normal_rgb = vec![0_u8; pixel_count * 3];
+    let thread_count = surface_map_thread_count(pixel_count, height_usize);
+    let rows_per_chunk = height_usize.div_ceil(thread_count);
+
+    if let Some(target) = target {
+        let target_index = TriangleIndex::new(target);
+        thread::scope(|scope| {
+            for (chunk, (sample_rows, normal_rows)) in samples
+                .chunks_mut(rows_per_chunk * width_usize)
+                .zip(normal_rgb.chunks_mut(rows_per_chunk * width_usize * 3))
+                .enumerate()
+            {
+                let start_y = chunk * rows_per_chunk;
+                let target_index = &target_index;
+                scope.spawn(move || {
+                    bake_surface_rows(
+                        high_detail,
+                        target,
+                        target_index,
+                        width,
+                        height,
+                        start_y,
+                        sample_rows,
+                        normal_rows,
+                    );
+                });
+            }
+        });
+    } else {
+        normal_rgb
+            .chunks_exact_mut(3)
+            .for_each(|pixel| pixel.copy_from_slice(&[127, 127, 255]));
+        thread::scope(|scope| {
+            for (chunk, sample_rows) in samples.chunks_mut(rows_per_chunk * width_usize).enumerate()
+            {
+                let start_y = chunk * rows_per_chunk;
+                scope.spawn(move || {
+                    bake_surface_sample_rows(high_detail, width, height, start_y, sample_rows);
+                });
+            }
+        });
+    }
+
+    let mut occlusion = vec![u8::MAX; pixel_count];
+    thread::scope(|scope| {
+        for (chunk, rows) in occlusion
+            .chunks_mut(rows_per_chunk * width_usize)
+            .enumerate()
+        {
+            let start_y = chunk * rows_per_chunk;
+            let samples = &samples;
+            scope.spawn(move || {
+                bake_occlusion_rows(samples, width_usize, height_usize, start_y, rows);
+            });
+        }
+    });
+
+    SurfaceMaps {
+        width,
+        height,
+        normal_rgb,
+        occlusion,
+    }
+}
+
+fn bake_surface_sample_rows(
+    high_detail: &Terrain,
+    width: u32,
+    height: u32,
+    start_y: usize,
+    samples: &mut [SurfaceSample],
+) {
+    let width_usize = width as usize;
+    for (local_y, sample_row) in samples.chunks_exact_mut(width_usize).enumerate() {
+        let y = start_y + local_y;
+        let v = y as f32 / height.saturating_sub(1).max(1) as f32;
+        for (x, sample) in sample_row.iter_mut().enumerate() {
+            let u = x as f32 / width.saturating_sub(1).max(1) as f32;
+            let (elevation, normal) = high_detail.sample_surface(u, v);
+            *sample = SurfaceSample {
+                position: Vec3::new(u, v, elevation),
+                normal,
+            };
+        }
+    }
+}
+
+fn surface_map_thread_count(pixel_count: usize, height: usize) -> usize {
+    if pixel_count < 65_536 {
+        return 1;
+    }
+    thread::available_parallelism()
+        .map_or(1, usize::from)
+        .min(height)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn bake_surface_rows(
+    high_detail: &Terrain,
+    target: &Mesh,
+    target_index: &TriangleIndex,
+    width: u32,
+    height: u32,
+    start_y: usize,
+    samples: &mut [SurfaceSample],
+    normal_rgb: &mut [u8],
+) {
+    let width_usize = width as usize;
+    for (local_y, (sample_row, normal_row)) in samples
+        .chunks_exact_mut(width_usize)
+        .zip(normal_rgb.chunks_exact_mut(width_usize * 3))
+        .enumerate()
+    {
+        let y = start_y + local_y;
+        let v = y as f32 / height.saturating_sub(1).max(1) as f32;
+        for (x, (sample, normal_pixel)) in sample_row
+            .iter_mut()
+            .zip(normal_row.chunks_exact_mut(3))
+            .enumerate()
+        {
+            let u = x as f32 / width.saturating_sub(1).max(1) as f32;
+            let (elevation, high_normal) = high_detail.sample_surface(u, v);
+            let (_, target_normal) = sample_mesh_surface(target, target_index, u, v);
+            *sample = SurfaceSample {
+                position: Vec3::new(u, v, elevation),
+                normal: high_normal,
+            };
+            let detail_normal = (Vec3::Z + high_normal - target_normal)
+                .try_normalize()
+                .unwrap_or(Vec3::Z);
+            normal_pixel[0] = signed_normal_byte(detail_normal.y);
+            normal_pixel[1] = signed_normal_byte(detail_normal.x);
+            normal_pixel[2] = (detail_normal.z.clamp(0.0, 1.0) * 255.0) as u8;
+        }
+    }
+}
+
+fn signed_normal_byte(value: f32) -> u8 {
+    value.mul_add(127.5, 127.5).clamp(0.0, 255.0) as u8
+}
+
+fn bake_occlusion_rows(
+    samples: &[SurfaceSample],
+    width: usize,
+    height: usize,
+    start_y: usize,
+    output: &mut [u8],
+) {
+    for (local_y, row) in output.chunks_exact_mut(width).enumerate() {
+        let y = start_y + local_y;
+        for (x, value) in row.iter_mut().enumerate() {
+            let sample = samples[y * width + x];
+            let mut total = 0.0_f32;
+            let mut count = 0_u32;
+            for (offset_x, offset_y) in OCCLUSION_OFFSETS {
+                let Some(px) = x.checked_add_signed(offset_x) else {
+                    continue;
+                };
+                let Some(py) = y.checked_add_signed(offset_y) else {
+                    continue;
+                };
+                if px >= width || py >= height {
+                    continue;
+                }
+                let direction = samples[py * width + px].position - sample.position;
+                let Some(direction) = direction.try_normalize() else {
+                    continue;
+                };
+                total += direction.dot(sample.normal).max(0.0);
+                count += 1;
+            }
+            if count > 0 {
+                *value = ((1.0 - total / count as f32) * 255.0).clamp(0.0, 255.0) as u8;
+            }
+        }
+    }
+}
+
+fn sample_grid(width: u32, height: u32, mut sample: impl FnMut(f32, f32) -> f32) -> Vec<f32> {
+    let mut output = Vec::with_capacity(width as usize * height as usize);
+    for y in 0..height {
+        let v = y as f32 / height.saturating_sub(1).max(1) as f32;
+        for x in 0..width {
+            let u = x as f32 / width.saturating_sub(1).max(1) as f32;
+            output.push(sample(u, v));
+        }
+    }
+    output
+}
+
+fn read_u64(reader: &mut impl Read) -> io::Result<u64> {
+    let mut bytes = [0_u8; 8];
+    reader.read_exact(&mut bytes)?;
+    Ok(u64::from_le_bytes(bytes))
+}
+
+fn read_u32(reader: &mut impl Read) -> io::Result<u32> {
+    let mut bytes = [0_u8; 4];
+    reader.read_exact(&mut bytes)?;
+    Ok(u32::from_le_bytes(bytes))
+}
+
+fn read_f32(reader: &mut impl Read) -> io::Result<f32> {
+    let mut bytes = [0_u8; 4];
+    reader.read_exact(&mut bytes)?;
+    Ok(f32::from_le_bytes(bytes))
+}
+
+#[cfg(test)]
+mod hydraulic_tests {
+    use super::{
+        HydraulicErosionSettings, Mesh, Vec3, add_surface_noise, deposition_weight,
+        exchange_sediment, noise,
+    };
+
+    fn settings() -> HydraulicErosionSettings {
+        HydraulicErosionSettings {
+            erosion_strength: 1.0,
+            deposition_strength: 2.0,
+            full_deposition_slope: 4.0_f32.to_radians().tan(),
+            maximum_deposition_slope: 12.0_f32.to_radians().tan(),
+        }
+    }
+
+    #[test]
+    fn deposition_fades_smoothly_between_gentle_and_steep_slopes() {
+        let settings = settings();
+        let gentle = deposition_weight(2.0_f32.to_radians().tan(), settings);
+        let transition = deposition_weight(8.0_f32.to_radians().tan(), settings);
+        let steep = deposition_weight(20.0_f32.to_radians().tan(), settings);
+        assert!((gentle - 1.0).abs() < f32::EPSILON);
+        assert!(transition > 0.0 && transition < gentle);
+        assert!(steep.abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn terrain_noise_displaces_land_along_the_surface_normal() {
+        let normal = Vec3::new(0.6, 0.0, 0.8);
+        let original = Vec3::new(0.3125, 0.4375, 0.5);
+        let mut mesh = Mesh {
+            vertices: vec![original],
+            normals: vec![normal],
+            triangles: Vec::new(),
+            uv: Vec::new(),
+        };
+        let expected = noise::fractal(7, original.x * 32.0, original.y * 32.0, 4) * 0.1;
+        assert!(expected.abs() > 1.0e-6);
+
+        add_surface_noise(&mut mesh, 7, 32.0, 0.1);
+
+        assert!((mesh.vertices[0] - (original + normal * expected)).length() < 1.0e-6);
+        assert!((mesh.vertices[0].x - original.x).abs() > 1.0e-6);
+    }
+
+    #[test]
+    fn sediment_exchange_conserves_every_applied_transfer() {
+        let settings = settings();
+        let mut sediment = 1.0;
+        let before = sediment;
+        let deposited = exchange_sediment(&mut sediment, 0.2, 1.0, 10.0, f32::INFINITY, settings);
+        assert!(deposited > 0.0);
+        assert!((sediment + deposited - before).abs() < 1.0e-6);
+
+        let mut sediment = 0.0;
+        let before = sediment;
+        let eroded = exchange_sediment(&mut sediment, 1.0, 0.0, 0.5, 0.3, settings);
+        assert!(eroded < 0.0);
+        assert!((sediment + eroded - before).abs() < 1.0e-6);
+
+        let mut sediment = 1.0;
+        let steep_deposit =
+            exchange_sediment(&mut sediment, 0.2, 0.0, 10.0, f32::INFINITY, settings);
+        assert!(steep_deposit.abs() < f32::EPSILON);
+    }
+}

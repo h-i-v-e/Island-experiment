@@ -1,0 +1,2274 @@
+#![allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss
+)]
+
+use std::{
+    cmp::Ordering,
+    collections::{BinaryHeap, HashMap, HashSet},
+};
+
+use crate::{Adjacency, Mesh, Vec3};
+
+const RIVER_SURFACE_OFFSET: f32 = 0.000_01;
+const MAX_RIVER_RINGS: u8 = 3;
+const RIVER_BOUNDARY: u8 = 1 << 7;
+const WATERFALL_LIP_SMOOTHING: f32 = 0.5;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RiverNode {
+    pub vertex: usize,
+    pub flow: u32,
+    pub surface: f32,
+    pub position: Vec3,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct River {
+    pub nodes: Vec<RiverNode>,
+    pub join: Option<usize>,
+}
+
+impl River {
+    #[must_use]
+    pub fn source_flow(&self) -> u32 {
+        self.nodes.first().map_or(0, |node| node.flow)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct RiverNetwork {
+    rivers: Vec<River>,
+    waterfalls: Vec<Vec<bool>>,
+    max_flow: u32,
+    max_height: f32,
+    perimeter: Vec<bool>,
+}
+
+impl RiverNetwork {
+    pub(crate) fn generate(
+        mesh: &mut Mesh,
+        adjacency: &Adjacency,
+        deviation_threshold: f32,
+    ) -> Self {
+        let perimeter = mesh.perimeter_mask();
+        fix_inland_seas(mesh, adjacency, &perimeter);
+        let downstream = map_downstream(mesh, adjacency);
+        let flow = calculate_flow(mesh, &downstream);
+        let sources = find_sources(mesh, adjacency, &downstream, &flow, deviation_threshold);
+        let mut rivers = trace_rivers(mesh, adjacency, &flow, &sources);
+        update_join_flows(&mut rivers);
+        let max_flow = rivers
+            .iter()
+            .flat_map(|river| river.nodes.iter())
+            .map(|node| node.flow)
+            .max()
+            .unwrap_or(1);
+        let max_height = mesh
+            .vertices
+            .iter()
+            .map(|vertex| vertex.z)
+            .fold(f32::EPSILON, f32::max);
+        let waterfalls = rivers
+            .iter()
+            .map(|river| vec![false; river.nodes.len()])
+            .collect();
+        Self {
+            rivers,
+            waterfalls,
+            max_flow,
+            max_height,
+            perimeter,
+        }
+    }
+
+    pub(crate) fn shape(
+        &mut self,
+        mesh: &mut Mesh,
+        adjacency: &Adjacency,
+        smooth: bool,
+        form_deltas: bool,
+    ) {
+        if self.rivers.is_empty() {
+            return;
+        }
+        self.jiggle(mesh);
+        if smooth {
+            self.smooth(mesh, adjacency);
+        }
+        self.carve(mesh, adjacency, form_deltas);
+        self.refresh(mesh);
+    }
+
+    pub(crate) fn into_parts(
+        mut self,
+        mesh: &mut Mesh,
+        adjacency: &Adjacency,
+    ) -> (Vec<River>, Mesh) {
+        let river_mesh = self.build_mesh(mesh, adjacency);
+        mesh.calculate_normals();
+        self.refresh(mesh);
+        (self.rivers, river_mesh)
+    }
+
+    fn jiggle(&mut self, mesh: &mut Mesh) {
+        let mut river_vertex = vec![false; mesh.vertices.len()];
+        for node in self.rivers.iter().flat_map(|river| &river.nodes) {
+            river_vertex[node.vertex] = true;
+        }
+        let original = mesh.vertices.clone();
+        let mut best_height = vec![f32::INFINITY; original.len()];
+        let mut best_centroid = vec![Vec3::ZERO; original.len()];
+        for triangle in mesh.triangles.chunks_exact(3) {
+            let centroid = (original[triangle[0] as usize]
+                + original[triangle[1] as usize]
+                + original[triangle[2] as usize])
+                / 3.0;
+            for &vertex in triangle {
+                let vertex = vertex as usize;
+                if river_vertex[vertex] && centroid.z < best_height[vertex] {
+                    best_height[vertex] = centroid.z;
+                    best_centroid[vertex] = centroid;
+                }
+            }
+        }
+        let mut accumulated = vec![Vec3::default(); original.len()];
+        let mut count = vec![0_u32; original.len()];
+        for river in &self.rivers {
+            for node in river
+                .nodes
+                .iter()
+                .skip(1)
+                .take(river.nodes.len().saturating_sub(2))
+            {
+                let current = original[node.vertex];
+                let lowest = best_height[node.vertex];
+                if lowest.is_finite() {
+                    let centroid = best_centroid[node.vertex];
+                    let slope =
+                        ((current.z - lowest) / self.max_height.max(f32::EPSILON)).clamp(0.0, 1.0);
+                    let moved = current * (0.35 + slope * 0.35) + centroid * (0.65 - slope * 0.35);
+                    accumulated[node.vertex] += moved;
+                    count[node.vertex] += 1;
+                }
+            }
+        }
+        apply_averaged(mesh, &accumulated, &count, &self.perimeter);
+    }
+
+    fn smooth(&self, mesh: &mut Mesh, adjacency: &Adjacency) {
+        let original = mesh.vertices.clone();
+        let mut accumulated = vec![Vec3::default(); original.len()];
+        let mut count = vec![0_u32; original.len()];
+        for river in &self.rivers {
+            for window in river.nodes.windows(3) {
+                let previous = window[0].vertex;
+                let center = window[1].vertex;
+                let next = window[2].vertex;
+                accumulated[center] +=
+                    (original[previous] + original[center] + original[next]) / 3.0;
+                count[center] += 1;
+                for &bank in &adjacency[center] {
+                    if bank == previous || bank == next {
+                        continue;
+                    }
+                    let (sum, total) = adjacency[bank]
+                        .iter()
+                        .fold((original[bank], 1_u32), |(sum, total), &neighbour| {
+                            (sum + original[neighbour], total + 1)
+                        });
+                    accumulated[bank] += sum / total as f32;
+                    count[bank] += 1;
+                }
+            }
+        }
+        apply_averaged(mesh, &accumulated, &count, &self.perimeter);
+    }
+
+    fn carve(&mut self, mesh: &mut Mesh, adjacency: &Adjacency, form_deltas: bool) {
+        let depth_multiplier = 1.0 / (self.max_flow as f32).sqrt().max(1.0);
+        let base_width = average_edge_length(mesh, adjacency).max(0.000_25);
+        let mut known_surfaces = HashMap::<usize, f32>::new();
+        let mut sediments = vec![0.0_f32; self.rivers.len()];
+        let mut gradient_scratch = Vec::new();
+        let mut bank_scratch = BankScratch::new(mesh.vertices.len());
+        for (river_index, sediment_output) in sediments.iter_mut().enumerate() {
+            let terminal_ocean = self.rivers[river_index].join.is_none()
+                && self.rivers[river_index]
+                    .nodes
+                    .last()
+                    .is_some_and(|node| mesh.vertices[node.vertex].z <= 0.0);
+            let join_vertex = self.rivers[river_index]
+                .nodes
+                .last()
+                .map(|node| node.vertex);
+            let downstream_surface = self.rivers[river_index]
+                .join
+                .and_then(|join| self.rivers.get(join))
+                .and_then(|river| {
+                    river
+                        .nodes
+                        .iter()
+                        .find(|node| Some(node.vertex) == join_vertex)
+                })
+                .map_or(f32::NEG_INFINITY, |node| node.surface);
+            let nodes = &mut self.rivers[river_index].nodes;
+            let sediment = shape_and_carve_river(
+                mesh,
+                adjacency,
+                nodes,
+                &mut self.waterfalls[river_index],
+                &mut gradient_scratch,
+                &mut bank_scratch,
+                RiverCarveParameters {
+                    downstream_surface,
+                    terminal_ocean,
+                    max_height: self.max_height,
+                    max_flow: self.max_flow,
+                    depth_multiplier,
+                    base_width,
+                    form_waterfall_shelves: !form_deltas,
+                },
+            );
+            for node in nodes {
+                known_surfaces
+                    .entry(node.vertex)
+                    .and_modify(|value| *value = value.min(node.surface))
+                    .or_insert(node.surface);
+            }
+            *sediment_output = sediment;
+        }
+        if form_deltas {
+            for tributary in (0..self.rivers.len()).rev() {
+                let Some(join) = self.rivers[tributary].join else {
+                    continue;
+                };
+                let sediment = std::mem::take(&mut sediments[tributary]);
+                sediments[join] += sediment;
+            }
+            let edge_length = average_edge_length(mesh, adjacency).max(0.000_25);
+            let mut scratch = DeltaScratch::new(mesh.vertices.len());
+            for (river, sediment) in self.rivers.iter().zip(sediments) {
+                if river.join.is_none()
+                    && sediment > 0.0
+                    && river
+                        .nodes
+                        .last()
+                        .is_some_and(|node| mesh.vertices[node.vertex].z <= 0.0)
+                {
+                    create_delta(
+                        mesh,
+                        adjacency,
+                        &river.nodes,
+                        sediment,
+                        self.max_height,
+                        edge_length,
+                        &mut scratch,
+                    );
+                }
+            }
+        }
+        for river in &mut self.rivers {
+            for node in &mut river.nodes {
+                if let Some(surface) = known_surfaces.get(&node.vertex) {
+                    node.surface = node.surface.min(*surface);
+                }
+            }
+        }
+    }
+
+    fn build_mesh(&self, terrain: &mut Mesh, adjacency: &Adjacency) -> Mesh {
+        let vertex_count = terrain.vertices.len();
+        let perimeter = terrain.perimeter_mask();
+        let mut coverage = vec![0_u8; vertex_count];
+        let mut owner_distance = vec![u8::MAX; vertex_count];
+        let mut surfaces = vec![0.0_f32; vertex_count];
+        let mut waterfall_lips = vec![false; vertex_count];
+        let mut frontiers: [Vec<RiverMeshCandidate>; MAX_RIVER_RINGS as usize + 1] =
+            std::array::from_fn(|_| Vec::new());
+
+        for (river, waterfalls) in self.rivers.iter().zip(&self.waterfalls) {
+            for (index, node) in river.nodes.iter().enumerate() {
+                let remaining = river_ring_count(node.flow, self.max_flow);
+                frontiers[remaining as usize].push(RiverMeshCandidate {
+                    remaining,
+                    distance: 0,
+                    surface: node.surface,
+                    vertex: node.vertex,
+                    waterfall_lip: waterfalls.get(index).copied().unwrap_or(false),
+                });
+            }
+        }
+
+        for remaining in (0..=MAX_RIVER_RINGS).rev() {
+            while let Some(candidate) = frontiers[remaining as usize].pop() {
+                let current_coverage = coverage[candidate.vertex];
+                let candidate_coverage = candidate.remaining + 1;
+                if current_coverage > candidate_coverage
+                    || (current_coverage == candidate_coverage
+                        && (owner_distance[candidate.vertex] < candidate.distance
+                            || (owner_distance[candidate.vertex] == candidate.distance
+                                && surfaces[candidate.vertex] <= candidate.surface)))
+                {
+                    continue;
+                }
+                coverage[candidate.vertex] = candidate_coverage;
+                owner_distance[candidate.vertex] = candidate.distance;
+                surfaces[candidate.vertex] = candidate.surface;
+                waterfall_lips[candidate.vertex] = candidate.waterfall_lip;
+                if candidate.remaining == 0 {
+                    continue;
+                }
+                for &neighbour in &adjacency[candidate.vertex] {
+                    frontiers[candidate.remaining as usize - 1].push(RiverMeshCandidate {
+                        remaining: candidate.remaining - 1,
+                        distance: candidate.distance + 1,
+                        surface: candidate.surface,
+                        vertex: neighbour,
+                        waterfall_lip: candidate.waterfall_lip,
+                    });
+                }
+            }
+        }
+
+        mark_river_boundary(adjacency, &perimeter, &mut coverage);
+        let (under_river, _) = river_topology_masks(terrain, &coverage);
+        if under_river.iter().any(|&is_river| is_river) {
+            let midpoints = terrain.tessellate_incident_to(&under_river);
+            coverage.reserve(midpoints.len());
+            surfaces.reserve(midpoints.len());
+            waterfall_lips.reserve(midpoints.len());
+            for [a, b, midpoint] in midpoints {
+                debug_assert_eq!(midpoint as usize, coverage.len());
+                let a = a as usize;
+                let b = b as usize;
+                let selected = coverage[a] != 0 && coverage[b] != 0;
+                coverage.push(if selected {
+                    coverage[a].min(coverage[b])
+                } else {
+                    0
+                });
+                surfaces.push(if selected {
+                    (surfaces[a] + surfaces[b]) * 0.5
+                } else {
+                    0.0
+                });
+                waterfall_lips.push(selected && waterfall_lips[a] && waterfall_lips[b]);
+            }
+            for value in &mut coverage {
+                *value &= !RIVER_BOUNDARY;
+            }
+            let refined_adjacency = terrain.adjacency();
+            let refined_perimeter = terrain.perimeter_mask();
+            mark_river_boundary(&refined_adjacency, &refined_perimeter, &mut coverage);
+            let (under_river, bank) = river_topology_masks(terrain, &coverage);
+            smooth_river_terrain_vertices(
+                terrain,
+                &refined_adjacency,
+                &under_river,
+                &bank,
+                &surfaces,
+            );
+        }
+        duplicate_river_topology(terrain, &coverage, &surfaces, &waterfall_lips)
+    }
+
+    fn refresh(&mut self, mesh: &Mesh) {
+        for river in &mut self.rivers {
+            for node in &mut river.nodes {
+                node.position = mesh.vertices[node.vertex];
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct RiverMeshCandidate {
+    remaining: u8,
+    distance: u8,
+    surface: f32,
+    vertex: usize,
+    waterfall_lip: bool,
+}
+
+fn river_ring_count(flow: u32, max_flow: u32) -> u8 {
+    (river_half_width(flow, max_flow, 1.0).ceil() as u8).min(MAX_RIVER_RINGS)
+}
+
+fn river_half_width(flow: u32, max_flow: u32, base_width: f32) -> f32 {
+    let normalized_flow = (flow as f32 / max_flow.max(1) as f32).sqrt();
+    base_width * normalized_flow.mul_add(1.9, 0.58)
+}
+
+fn mark_river_boundary(adjacency: &Adjacency, perimeter: &[bool], coverage: &mut [u8]) {
+    for vertex in 0..coverage.len() {
+        if coverage[vertex] != 0
+            && (perimeter[vertex]
+                || adjacency[vertex]
+                    .iter()
+                    .any(|&neighbour| coverage[neighbour] == 0))
+        {
+            coverage[vertex] |= RIVER_BOUNDARY;
+        }
+    }
+}
+
+fn is_river_boundary(coverage: u8) -> bool {
+    coverage & RIVER_BOUNDARY != 0
+}
+
+fn river_topology_masks(terrain: &Mesh, coverage: &[u8]) -> (Vec<bool>, Vec<bool>) {
+    let selected_count = coverage.iter().filter(|&&value| value != 0).count();
+    let mut edges = Vec::with_capacity(selected_count.saturating_mul(6));
+    let mut under_river = vec![false; terrain.vertices.len()];
+    for triangle in terrain.triangles.chunks_exact(3) {
+        let selected = triangle
+            .iter()
+            .all(|&vertex| coverage[vertex as usize] != 0);
+        let boundary_only = triangle
+            .iter()
+            .all(|&vertex| is_river_boundary(coverage[vertex as usize]));
+        if !selected || boundary_only {
+            continue;
+        }
+        for &vertex in triangle {
+            under_river[vertex as usize] = true;
+        }
+        for (a, b) in [
+            (triangle[0], triangle[1]),
+            (triangle[1], triangle[2]),
+            (triangle[2], triangle[0]),
+        ] {
+            let (a, b) = if a < b { (a, b) } else { (b, a) };
+            edges.push((u64::from(a) << 32) | u64::from(b));
+        }
+    }
+    edges.sort_unstable();
+    let mut bank = vec![false; terrain.vertices.len()];
+    let mut start = 0;
+    while start < edges.len() {
+        let edge = edges[start];
+        let mut end = start + 1;
+        while end < edges.len() && edges[end] == edge {
+            end += 1;
+        }
+        if end - start == 1 {
+            bank[(edge >> 32) as usize] = true;
+            bank[(edge & u64::from(u32::MAX)) as usize] = true;
+        }
+        start = end;
+    }
+    (under_river, bank)
+}
+
+fn smooth_river_terrain_vertices(
+    terrain: &mut Mesh,
+    adjacency: &Adjacency,
+    under_river: &[bool],
+    bank: &[bool],
+    surfaces: &[f32],
+) {
+    let mut adjusted = Vec::with_capacity(
+        under_river
+            .iter()
+            .filter(|&&is_under_river| is_under_river)
+            .count(),
+    );
+    for (vertex, &is_under_river) in under_river.iter().enumerate() {
+        if !is_under_river {
+            continue;
+        }
+        let current = terrain.vertices[vertex];
+        let smoothed = if bank[vertex] {
+            let mut along_bank = adjacency[vertex]
+                .iter()
+                .copied()
+                .filter(|&neighbour| bank[neighbour]);
+            let (Some(previous), Some(next), None) =
+                (along_bank.next(), along_bank.next(), along_bank.next())
+            else {
+                continue;
+            };
+            (current + terrain.vertices[previous] + terrain.vertices[next]) / 3.0
+        } else {
+            let (total, count) = adjacency[vertex]
+                .iter()
+                .copied()
+                .filter(|&neighbour| under_river[neighbour])
+                .fold((current, 1_u32), |(total, count), neighbour| {
+                    (total + terrain.vertices[neighbour], count + 1)
+                });
+            let mut smoothed = total / count as f32;
+            smoothed.z = smoothed.z.min(surfaces[vertex] - RIVER_SURFACE_OFFSET);
+            smoothed
+        };
+        adjusted.push((vertex, smoothed));
+    }
+    for (vertex, position) in adjusted {
+        terrain.vertices[vertex] = position;
+        if !terrain.uv.is_empty() {
+            terrain.uv[vertex] = position.truncate();
+        }
+    }
+}
+
+fn duplicate_river_topology(
+    terrain: &Mesh,
+    coverage: &[u8],
+    surfaces: &[f32],
+    waterfall_lips: &[bool],
+) -> Mesh {
+    let selected_count = coverage.iter().filter(|&&remaining| remaining > 0).count();
+    let mut mapping = vec![u32::MAX; terrain.vertices.len()];
+    let mut out_waterfall_lips = Vec::with_capacity(selected_count);
+    let mut out = Mesh {
+        vertices: Vec::with_capacity(selected_count),
+        normals: Vec::new(),
+        triangles: Vec::new(),
+        uv: Vec::with_capacity(selected_count),
+    };
+
+    for (index, &remaining) in coverage.iter().enumerate() {
+        if remaining == 0 {
+            continue;
+        }
+        let mut vertex = terrain.vertices[index];
+        vertex.z = if is_river_boundary(remaining) {
+            vertex.z.min(surfaces[index]) + RIVER_SURFACE_OFFSET
+        } else {
+            surfaces[index] + RIVER_SURFACE_OFFSET
+        };
+        mapping[index] = out.vertices.len() as u32;
+        out.vertices.push(vertex);
+        out_waterfall_lips.push(waterfall_lips[index] && !is_river_boundary(remaining));
+        out.uv.push(
+            terrain
+                .uv
+                .get(index)
+                .copied()
+                .unwrap_or_else(|| vertex.truncate()),
+        );
+    }
+
+    for triangle in terrain.triangles.chunks_exact(3) {
+        let mapped = [
+            mapping[triangle[0] as usize],
+            mapping[triangle[1] as usize],
+            mapping[triangle[2] as usize],
+        ];
+        let boundary_only = triangle
+            .iter()
+            .all(|&vertex| is_river_boundary(coverage[vertex as usize]));
+        if mapped.iter().all(|&vertex| vertex != u32::MAX) && !boundary_only {
+            out.triangles.extend(mapped);
+        }
+    }
+    round_waterfall_lips(out, out_waterfall_lips)
+}
+
+fn round_waterfall_lips(mut mesh: Mesh, mut waterfall_lips: Vec<bool>) -> Mesh {
+    if !waterfall_lips.iter().any(|&is_lip| is_lip) || mesh.triangles.is_empty() {
+        mesh.calculate_normals();
+        return mesh;
+    }
+
+    let midpoints = mesh.tessellate_incident_to(&waterfall_lips);
+    waterfall_lips.reserve(midpoints.len());
+    for [a, b, midpoint] in midpoints {
+        debug_assert_eq!(midpoint as usize, waterfall_lips.len());
+        waterfall_lips.push(waterfall_lips[a as usize] && waterfall_lips[b as usize]);
+    }
+    let adjacency = mesh.adjacency();
+    let perimeter = mesh.perimeter_mask();
+    let mut adjusted = Vec::with_capacity(waterfall_lips.iter().filter(|&&is_lip| is_lip).count());
+
+    for (vertex, &is_lip) in waterfall_lips.iter().enumerate() {
+        if !is_lip || perimeter[vertex] || adjacency[vertex].is_empty() {
+            continue;
+        }
+        let current = mesh.vertices[vertex];
+        let (total, count, minimum, maximum) = adjacency[vertex].iter().copied().fold(
+            (current, 1_u32, current.z, current.z),
+            |(total, count, minimum, maximum), neighbour| {
+                let position = mesh.vertices[neighbour];
+                (
+                    total + position,
+                    count + 1,
+                    minimum.min(position.z),
+                    maximum.max(position.z),
+                )
+            },
+        );
+        let average = total / count as f32;
+        let normal = Vec3::Z;
+        let displacement = (average - current).dot(normal) * WATERFALL_LIP_SMOOTHING;
+        let mut rounded = current + normal * displacement;
+        rounded.z = rounded.z.clamp(minimum, maximum);
+        adjusted.push((vertex, rounded));
+    }
+
+    for (vertex, position) in adjusted {
+        mesh.vertices[vertex] = position;
+    }
+    mesh.calculate_normals();
+    mesh
+}
+
+fn apply_averaged(mesh: &mut Mesh, accumulated: &[Vec3], count: &[u32], perimeter: &[bool]) {
+    for (index, vertex) in mesh.vertices.iter_mut().enumerate() {
+        if count[index] > 0 && !perimeter[index] {
+            *vertex = accumulated[index] / count[index] as f32;
+        }
+    }
+    if !mesh.uv.is_empty() {
+        mesh.uv = mesh
+            .vertices
+            .iter()
+            .map(|vertex| vertex.truncate())
+            .collect();
+    }
+}
+
+fn fix_inland_seas(mesh: &mut Mesh, adjacency: &Adjacency, perimeter: &[bool]) {
+    let mut ocean = vec![false; mesh.vertices.len()];
+    let mut fringe: Vec<usize> = perimeter
+        .iter()
+        .enumerate()
+        .filter_map(|(vertex, &is_perimeter)| {
+            (is_perimeter && mesh.vertices[vertex].z <= 0.0).then_some(vertex)
+        })
+        .collect();
+    for &vertex in &fringe {
+        ocean[vertex] = true;
+    }
+    while let Some(vertex) = fringe.pop() {
+        for &neighbour in &adjacency[vertex] {
+            if !ocean[neighbour] && mesh.vertices[neighbour].z <= 0.0 {
+                ocean[neighbour] = true;
+                fringe.push(neighbour);
+            }
+        }
+    }
+    for (index, vertex) in mesh.vertices.iter_mut().enumerate() {
+        if vertex.z <= 0.0 && !ocean[index] {
+            vertex.z = f32::EPSILON;
+        }
+    }
+}
+
+fn map_downstream(mesh: &Mesh, adjacency: &Adjacency) -> Vec<usize> {
+    adjacency
+        .iter()
+        .enumerate()
+        .map(|(index, neighbours)| {
+            neighbours
+                .iter()
+                .copied()
+                .filter(|&neighbour| mesh.vertices[neighbour].z < mesh.vertices[index].z)
+                .min_by(|&left, &right| {
+                    let left_slope = downhill_slope(mesh, index, left);
+                    let right_slope = downhill_slope(mesh, index, right);
+                    left_slope.total_cmp(&right_slope).reverse()
+                })
+                .unwrap_or(index)
+        })
+        .collect()
+}
+
+fn downhill_slope(mesh: &Mesh, from: usize, to: usize) -> f32 {
+    let distance = (mesh.vertices[from].truncate() - mesh.vertices[to].truncate())
+        .length()
+        .max(f32::EPSILON);
+    (mesh.vertices[from].z - mesh.vertices[to].z) / distance
+}
+
+fn calculate_flow(mesh: &Mesh, downstream: &[usize]) -> Vec<u32> {
+    let mut order: Vec<usize> = (0..mesh.vertices.len()).collect();
+    order
+        .sort_unstable_by(|&left, &right| mesh.vertices[right].z.total_cmp(&mesh.vertices[left].z));
+    let mut flow = vec![1_u32; mesh.vertices.len()];
+    for vertex in order {
+        let next = downstream[vertex];
+        if next != vertex {
+            flow[next] = flow[next].saturating_add(flow[vertex]);
+        }
+    }
+    flow
+}
+
+fn find_sources(
+    mesh: &Mesh,
+    adjacency: &Adjacency,
+    downstream: &[usize],
+    flow: &[u32],
+    deviation_threshold: f32,
+) -> Vec<usize> {
+    let land_flows: Vec<f32> = flow
+        .iter()
+        .enumerate()
+        .filter_map(|(index, &value)| (mesh.vertices[index].z > 0.0).then_some(value as f32))
+        .collect();
+    let mean = land_flows.iter().sum::<f32>() / land_flows.len().max(1) as f32;
+    let deviation = (land_flows
+        .iter()
+        .map(|value| (value - mean) * (value - mean))
+        .sum::<f32>()
+        / land_flows.len().max(1) as f32)
+        .sqrt();
+    let threshold = mean + deviation * deviation_threshold;
+    let mut sources: Vec<usize> = (0..mesh.vertices.len())
+        .filter(|&vertex| {
+            mesh.vertices[vertex].z > 0.0
+                && flow[vertex] as f32 >= threshold
+                && !adjacency[vertex].iter().any(|&neighbour| {
+                    downstream[neighbour] == vertex && flow[neighbour] as f32 >= threshold
+                })
+        })
+        .collect();
+    sources.sort_unstable_by(|&left, &right| {
+        mesh.vertices[left]
+            .z
+            .total_cmp(&mesh.vertices[right].z)
+            .then_with(|| flow[right].cmp(&flow[left]))
+    });
+    sources.truncate(96);
+    sources
+}
+
+fn trace_rivers(
+    mesh: &mut Mesh,
+    adjacency: &Adjacency,
+    flow: &[u32],
+    sources: &[usize],
+) -> Vec<River> {
+    let mut rivers = Vec::<River>::new();
+    let mut occupied = HashMap::<usize, usize>::new();
+    for &source in sources {
+        if occupied.contains_key(&source) {
+            continue;
+        }
+        let mut path = vec![source];
+        let mut seen = HashSet::from([source]);
+        let mut join = None;
+        for _ in 0..mesh.vertices.len().min(16_384) {
+            let current = *path.last().expect("river path is non-empty");
+            if mesh.vertices[current].z <= 0.0 {
+                break;
+            }
+            if current != source
+                && let Some(&river) = occupied.get(&current)
+            {
+                join = Some(river);
+                break;
+            }
+            let next = adjacency[current]
+                .iter()
+                .copied()
+                .filter(|vertex| !seen.contains(vertex))
+                .filter(|&vertex| mesh.vertices[vertex].z < mesh.vertices[current].z)
+                .max_by(|&left, &right| {
+                    downhill_slope(mesh, current, left)
+                        .total_cmp(&downhill_slope(mesh, current, right))
+                });
+            if let Some(next) = next {
+                path.push(next);
+                seen.insert(next);
+                continue;
+            }
+            let Some(escape) = escape_sink(mesh, adjacency, current, &seen, &occupied) else {
+                break;
+            };
+            let sink_height = mesh.vertices[current].z;
+            for &vertex in escape.iter().skip(1) {
+                mesh.vertices[vertex].z = mesh.vertices[vertex].z.min(sink_height);
+                if seen.insert(vertex) {
+                    path.push(vertex);
+                }
+            }
+        }
+        if path.len() < 3 {
+            continue;
+        }
+        let river_index = rivers.len();
+        let nodes = path
+            .iter()
+            .map(|&vertex| RiverNode {
+                vertex,
+                flow: flow[vertex],
+                surface: mesh.vertices[vertex].z,
+                position: mesh.vertices[vertex],
+            })
+            .collect();
+        for &vertex in path.iter().take(path.len().saturating_sub(1)) {
+            occupied.entry(vertex).or_insert(river_index);
+        }
+        rivers.push(River { nodes, join });
+    }
+    rivers
+}
+
+fn update_join_flows(rivers: &mut [River]) {
+    for river in rivers.iter_mut() {
+        let mut running = 0_u32;
+        for node in &mut river.nodes {
+            running = running.max(node.flow);
+            node.flow = running;
+        }
+    }
+    for tributary in (0..rivers.len()).rev() {
+        let Some(join) = rivers[tributary].join else {
+            continue;
+        };
+        let Some(last) = rivers[tributary].nodes.last().copied() else {
+            continue;
+        };
+        let mut joined = false;
+        for node in &mut rivers[join].nodes {
+            if node.vertex == last.vertex {
+                joined = true;
+            }
+            if joined {
+                node.flow = node.flow.max(last.flow);
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct RouteState {
+    cost: f32,
+    vertex: usize,
+}
+
+impl PartialEq for RouteState {
+    fn eq(&self, other: &Self) -> bool {
+        self.vertex == other.vertex && self.cost.to_bits() == other.cost.to_bits()
+    }
+}
+
+impl Eq for RouteState {}
+
+impl PartialOrd for RouteState {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for RouteState {
+    fn cmp(&self, other: &Self) -> Ordering {
+        other
+            .cost
+            .total_cmp(&self.cost)
+            .then_with(|| other.vertex.cmp(&self.vertex))
+    }
+}
+
+fn escape_sink(
+    mesh: &Mesh,
+    adjacency: &Adjacency,
+    start: usize,
+    river_path: &HashSet<usize>,
+    occupied: &HashMap<usize, usize>,
+) -> Option<Vec<usize>> {
+    let mut distances = HashMap::from([(start, 0.0_f32)]);
+    let mut previous = HashMap::<usize, usize>::new();
+    let mut queue = BinaryHeap::from([RouteState {
+        cost: 0.0,
+        vertex: start,
+    }]);
+    let target_height = mesh.vertices[start].z;
+    let mut target = None;
+    for _ in 0..24_000 {
+        let Some(RouteState { cost, vertex }) = queue.pop() else {
+            break;
+        };
+        if cost > *distances.get(&vertex).unwrap_or(&f32::INFINITY) {
+            continue;
+        }
+        if vertex != start
+            && (mesh.vertices[vertex].z < target_height - f32::EPSILON
+                || mesh.vertices[vertex].z <= 0.0
+                || occupied.contains_key(&vertex))
+        {
+            target = Some(vertex);
+            break;
+        }
+        for &neighbour in &adjacency[vertex] {
+            if river_path.contains(&neighbour) {
+                continue;
+            }
+            let distance =
+                (mesh.vertices[vertex].truncate() - mesh.vertices[neighbour].truncate()).length();
+            let rise = (mesh.vertices[neighbour].z - mesh.vertices[vertex].z).max(0.0);
+            let next = cost + distance + rise * 40.0;
+            if next < *distances.get(&neighbour).unwrap_or(&f32::INFINITY) {
+                distances.insert(neighbour, next);
+                previous.insert(neighbour, vertex);
+                queue.push(RouteState {
+                    cost: next,
+                    vertex: neighbour,
+                });
+            }
+        }
+    }
+    let mut current = target?;
+    let mut path = vec![current];
+    while current != start {
+        current = *previous.get(&current)?;
+        path.push(current);
+    }
+    path.reverse();
+    Some(path)
+}
+
+#[derive(Clone, Copy, Debug)]
+struct BankCandidate {
+    target_height: f32,
+    distance: f32,
+    score: f32,
+    shelf_radius: f32,
+    radius: f32,
+    vertex: usize,
+}
+
+impl PartialEq for BankCandidate {
+    fn eq(&self, other: &Self) -> bool {
+        self.vertex == other.vertex
+            && self.target_height.to_bits() == other.target_height.to_bits()
+            && self.distance.to_bits() == other.distance.to_bits()
+            && self.score.to_bits() == other.score.to_bits()
+            && self.shelf_radius.to_bits() == other.shelf_radius.to_bits()
+            && self.radius.to_bits() == other.radius.to_bits()
+    }
+}
+
+impl Eq for BankCandidate {}
+
+impl PartialOrd for BankCandidate {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for BankCandidate {
+    fn cmp(&self, other: &Self) -> Ordering {
+        other
+            .score
+            .total_cmp(&self.score)
+            .then_with(|| other.target_height.total_cmp(&self.target_height))
+            .then_with(|| other.vertex.cmp(&self.vertex))
+    }
+}
+
+#[derive(Debug)]
+struct BankScratch {
+    targets: Vec<f32>,
+    scores: Vec<f32>,
+    shelf: Vec<bool>,
+    touched: Vec<usize>,
+    channel: Vec<u32>,
+    stamp: u32,
+    frontier: BinaryHeap<BankCandidate>,
+}
+
+impl BankScratch {
+    fn new(vertex_count: usize) -> Self {
+        Self {
+            targets: vec![f32::INFINITY; vertex_count],
+            scores: vec![f32::INFINITY; vertex_count],
+            shelf: vec![false; vertex_count],
+            touched: Vec::new(),
+            channel: vec![0; vertex_count],
+            stamp: 0,
+            frontier: BinaryHeap::new(),
+        }
+    }
+
+    fn begin(&mut self, nodes: &[RiverNode]) {
+        self.frontier.clear();
+        self.touched.clear();
+        self.stamp = self.stamp.wrapping_add(1);
+        if self.stamp == 0 {
+            self.channel.fill(0);
+            self.stamp = 1;
+        }
+        for node in nodes {
+            self.channel[node.vertex] = self.stamp;
+        }
+    }
+
+    fn set_target(&mut self, candidate: BankCandidate) {
+        let vertex = candidate.vertex;
+        let current_score = self.scores[vertex];
+        let score_order = candidate.score.total_cmp(&current_score);
+        if score_order.is_gt()
+            || (score_order.is_eq() && candidate.target_height >= self.targets[vertex])
+        {
+            return;
+        }
+        if !current_score.is_finite() {
+            self.touched.push(vertex);
+        }
+        self.targets[vertex] = candidate.target_height;
+        self.scores[vertex] = candidate.score;
+        self.shelf[vertex] = candidate.distance <= candidate.shelf_radius;
+        self.frontier.push(candidate);
+    }
+
+    fn is_channel(&self, vertex: usize) -> bool {
+        self.channel[vertex] == self.stamp
+    }
+
+    fn reset_targets(&mut self) {
+        for &vertex in &self.touched {
+            self.targets[vertex] = f32::INFINITY;
+            self.scores[vertex] = f32::INFINITY;
+            self.shelf[vertex] = false;
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn carve_banks(
+    mesh: &mut Mesh,
+    adjacency: &Adjacency,
+    nodes: &[RiverNode],
+    waterfalls: &[bool],
+    max_flow: u32,
+    base_width: f32,
+    form_waterfall_shelves: bool,
+    sediment: &mut f32,
+    scratch: &mut BankScratch,
+) {
+    const MAXIMUM_BANK_SLOPE: f32 = 0.28;
+    const SHELF_MARGIN: f32 = 1.35;
+
+    scratch.begin(nodes);
+    for (index, node) in nodes.iter().enumerate() {
+        let normalized_flow = (node.flow as f32 / max_flow.max(1) as f32).sqrt();
+        let edge_length = local_edge_length(mesh, adjacency, node.vertex);
+        let supports_waterfall = waterfalls.get(index).copied().unwrap_or(false)
+            || index
+                .checked_sub(1)
+                .and_then(|previous| waterfalls.get(previous))
+                .copied()
+                .unwrap_or(false);
+        let shelf_radius = if form_waterfall_shelves && supports_waterfall {
+            river_half_width(node.flow, max_flow, base_width) * SHELF_MARGIN
+        } else {
+            0.0
+        };
+        let radius = shelf_radius + edge_length * normalized_flow.mul_add(2.0, 3.0);
+        let target_height = mesh.vertices[node.vertex].z;
+        scratch.set_target(BankCandidate {
+            target_height,
+            distance: 0.0,
+            score: if form_waterfall_shelves {
+                0.0
+            } else {
+                target_height
+            },
+            shelf_radius,
+            radius,
+            vertex: node.vertex,
+        });
+    }
+
+    while let Some(candidate) = scratch.frontier.pop() {
+        let score_order = candidate.score.total_cmp(&scratch.scores[candidate.vertex]);
+        if score_order.is_gt()
+            || (score_order.is_eq() && candidate.target_height > scratch.targets[candidate.vertex])
+        {
+            continue;
+        }
+        for &neighbour in &adjacency[candidate.vertex] {
+            if scratch.is_channel(neighbour) || mesh.vertices[neighbour].z <= 0.0 {
+                continue;
+            }
+            let step = (mesh.vertices[candidate.vertex].truncate()
+                - mesh.vertices[neighbour].truncate())
+            .length();
+            let distance = candidate.distance + step;
+            if distance > candidate.radius {
+                continue;
+            }
+            let previous_bank_distance = (candidate.distance - candidate.shelf_radius).max(0.0);
+            let bank_distance = (distance - candidate.shelf_radius).max(0.0);
+            let target_height = candidate.target_height
+                + (bank_distance - previous_bank_distance) * MAXIMUM_BANK_SLOPE;
+            scratch.set_target(BankCandidate {
+                target_height,
+                distance,
+                score: if form_waterfall_shelves {
+                    distance
+                } else {
+                    target_height
+                },
+                shelf_radius: candidate.shelf_radius,
+                radius: candidate.radius,
+                vertex: neighbour,
+            });
+        }
+    }
+
+    for &vertex in &scratch.touched {
+        if scratch.is_channel(vertex) {
+            continue;
+        }
+        let target = scratch.targets[vertex];
+        if mesh.vertices[vertex].z > target {
+            *sediment += mesh.vertices[vertex].z - target;
+            mesh.vertices[vertex].z = target;
+        } else if scratch.shelf[vertex] {
+            mesh.vertices[vertex].z = target;
+        }
+    }
+    scratch.reset_targets();
+}
+
+#[derive(Clone, Copy, Debug)]
+struct RiverCarveParameters {
+    downstream_surface: f32,
+    terminal_ocean: bool,
+    max_height: f32,
+    max_flow: u32,
+    depth_multiplier: f32,
+    base_width: f32,
+    form_waterfall_shelves: bool,
+}
+
+fn shape_and_carve_river(
+    mesh: &mut Mesh,
+    adjacency: &Adjacency,
+    nodes: &mut [RiverNode],
+    waterfalls: &mut [bool],
+    gradient_scratch: &mut Vec<f32>,
+    bank_scratch: &mut BankScratch,
+    parameters: RiverCarveParameters,
+) -> f32 {
+    let mut surface = parameters.downstream_surface;
+    let mut water_surface = parameters.downstream_surface;
+    for node in nodes.iter_mut().rev() {
+        let vertex = mesh.vertices[node.vertex];
+        surface = surface.max(vertex.z).max(0.0);
+        let depth = river_depth(mesh, adjacency, *node, parameters);
+        water_surface = water_surface.max(surface - depth * 0.35);
+        node.surface = water_surface;
+    }
+
+    let mouth_start = parameters
+        .terminal_ocean
+        .then(|| river_mouth_grade_start(mesh, nodes))
+        .flatten();
+    let stepped_end = mouth_start.unwrap_or_else(|| nodes.len().saturating_sub(1));
+    form_stepped_profile(
+        nodes,
+        waterfalls,
+        stepped_end,
+        parameters.max_height,
+        gradient_scratch,
+    );
+
+    let mut sediment = 0.0_f32;
+    if parameters.terminal_ocean {
+        grade_river_mouth(
+            mesh,
+            nodes,
+            waterfalls,
+            parameters.max_height,
+            &mut sediment,
+        );
+    }
+    let bed_end = mouth_start.map_or(stepped_end, |start| start.saturating_sub(1));
+    if mouth_start != Some(0) {
+        carve_stepped_bed(
+            mesh,
+            adjacency,
+            nodes,
+            waterfalls,
+            bed_end,
+            parameters,
+            gradient_scratch,
+            &mut sediment,
+        );
+    }
+    carve_banks(
+        mesh,
+        adjacency,
+        nodes,
+        waterfalls,
+        parameters.max_flow,
+        parameters.base_width,
+        parameters.form_waterfall_shelves,
+        &mut sediment,
+        bank_scratch,
+    );
+    sediment
+}
+
+fn river_depth(
+    mesh: &Mesh,
+    adjacency: &Adjacency,
+    node: RiverNode,
+    parameters: RiverCarveParameters,
+) -> f32 {
+    let vertex = mesh.vertices[node.vertex];
+    let altitude = ((parameters.max_height - vertex.z) / parameters.max_height.max(f32::EPSILON))
+        .clamp(0.0, 1.0);
+    let normalized_flow = (node.flow as f32 / parameters.max_flow.max(1) as f32).sqrt();
+    let unconstrained = altitude
+        * altitude
+        * vertex.z.max(0.0)
+        * 0.24
+        * (node.flow as f32).sqrt()
+        * parameters.depth_multiplier;
+    let edge_limited =
+        local_edge_length(mesh, adjacency, node.vertex) * normalized_flow.mul_add(0.18, 0.18);
+    unconstrained.min(edge_limited)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn carve_stepped_bed(
+    mesh: &mut Mesh,
+    adjacency: &Adjacency,
+    nodes: &[RiverNode],
+    waterfalls: &[bool],
+    end: usize,
+    parameters: RiverCarveParameters,
+    bed_targets: &mut Vec<f32>,
+    sediment: &mut f32,
+) {
+    let end = end.min(nodes.len().saturating_sub(1));
+    bed_targets.clear();
+    bed_targets.extend(
+        nodes[..=end]
+            .iter()
+            .map(|&node| node.surface - river_depth(mesh, adjacency, node, parameters)),
+    );
+
+    let mut reach_start = 0;
+    for segment in 0..end {
+        if waterfalls[segment] {
+            carve_flat_bed_reach(
+                mesh,
+                &nodes[reach_start..=segment],
+                &bed_targets[reach_start..=segment],
+                sediment,
+            );
+            reach_start = segment + 1;
+        }
+    }
+    carve_flat_bed_reach(
+        mesh,
+        &nodes[reach_start..=end],
+        &bed_targets[reach_start..=end],
+        sediment,
+    );
+}
+
+fn carve_flat_bed_reach(mesh: &mut Mesh, nodes: &[RiverNode], targets: &[f32], sediment: &mut f32) {
+    let floor = targets.iter().copied().fold(f32::INFINITY, f32::min);
+    for node in nodes {
+        let vertex = &mut mesh.vertices[node.vertex];
+        if vertex.z > floor {
+            *sediment += vertex.z - floor;
+            vertex.z = floor;
+        }
+    }
+}
+
+fn form_stepped_profile(
+    nodes: &mut [RiverNode],
+    waterfalls: &mut [bool],
+    end: usize,
+    max_height: f32,
+    gradient_scratch: &mut Vec<f32>,
+) {
+    waterfalls.fill(false);
+    let end = end.min(nodes.len().saturating_sub(1));
+    if end == 0 {
+        return;
+    }
+
+    gradient_scratch.clear();
+    gradient_scratch.reserve(end);
+    for segment in 0..end {
+        let start = segment.saturating_sub(2);
+        let finish = (segment + 2).min(end - 1);
+        let mut weighted_gradient = 0.0_f32;
+        let mut total_weight = 0.0_f32;
+        for neighbour in start..=finish {
+            let distance = (nodes[neighbour].position.truncate()
+                - nodes[neighbour + 1].position.truncate())
+            .length()
+            .max(f32::EPSILON);
+            let drop = (nodes[neighbour].surface - nodes[neighbour + 1].surface).max(0.0);
+            let separation = segment.abs_diff(neighbour) as f32;
+            let weight = 3.0 - separation;
+            weighted_gradient += drop / distance * weight;
+            total_weight += weight;
+        }
+        gradient_scratch.push(weighted_gradient / total_weight.max(1.0));
+    }
+
+    let minimum_fall = max_height * 0.0075;
+    let maximum_fall = max_height * 0.018;
+    let gentle_reach_length = max_height * 0.006;
+    let steep_gradient = (max_height * 2.25).max(f32::EPSILON);
+    let mut level = nodes[end].surface;
+    let mut reach_length = 0.0_f32;
+    for index in (0..end).rev() {
+        let segment_length =
+            (nodes[index].position.truncate() - nodes[index + 1].position.truncate()).length();
+        reach_length += segment_length;
+        let natural_surface = nodes[index].surface.max(level);
+        let available_rise = natural_surface - level;
+        let gradient_response = (gradient_scratch[index] / steep_gradient)
+            .clamp(0.0, 1.0)
+            .sqrt();
+        let target_fall = (maximum_fall - minimum_fall).mul_add(gradient_response, minimum_fall);
+        let required_reach_length = gentle_reach_length * (1.0 - gradient_response * 0.9);
+        if available_rise >= target_fall && reach_length >= required_reach_length {
+            level += target_fall;
+            waterfalls[index] = true;
+            reach_length = 0.0;
+        }
+        nodes[index].surface = level.min(natural_surface);
+    }
+}
+
+fn river_mouth_grade_start(mesh: &Mesh, nodes: &[RiverNode]) -> Option<usize> {
+    const GRADE_SEGMENTS: usize = 10;
+
+    let last_land = nodes
+        .iter()
+        .rposition(|node| mesh.vertices[node.vertex].z > 0.0)?;
+    let end = nodes.len().saturating_sub(1);
+    (last_land < end).then_some(last_land.saturating_sub(GRADE_SEGMENTS))
+}
+
+fn grade_river_mouth(
+    mesh: &mut Mesh,
+    nodes: &mut [RiverNode],
+    waterfalls: &mut [bool],
+    max_height: f32,
+    sediment: &mut f32,
+) {
+    let Some(start) = river_mouth_grade_start(mesh, nodes) else {
+        return;
+    };
+    let end = nodes.len().saturating_sub(1);
+    let span = (end - start) as f32;
+    let start_surface = nodes[start].surface.max(0.0);
+    let mouth_depth = (max_height * 0.0025).max(0.000_02);
+    waterfalls[start..end].fill(false);
+    for (offset, node) in nodes[start..=end].iter_mut().enumerate() {
+        let progress = offset as f32 / span;
+        let surface = start_surface * (1.0 - progress);
+        node.surface = surface;
+        let target_bed = surface - mouth_depth * progress.mul_add(0.5, 0.5);
+        let vertex = &mut mesh.vertices[node.vertex];
+        if vertex.z > target_bed {
+            *sediment += vertex.z - target_bed;
+            vertex.z = target_bed;
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct DeltaCandidate {
+    priority: f32,
+    distance: f32,
+    vertex: usize,
+}
+
+impl PartialEq for DeltaCandidate {
+    fn eq(&self, other: &Self) -> bool {
+        self.vertex == other.vertex && self.priority.to_bits() == other.priority.to_bits()
+    }
+}
+
+impl Eq for DeltaCandidate {}
+
+impl PartialOrd for DeltaCandidate {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for DeltaCandidate {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.priority
+            .total_cmp(&other.priority)
+            .then_with(|| other.vertex.cmp(&self.vertex))
+    }
+}
+
+#[derive(Debug)]
+struct DeltaScratch {
+    visited: Vec<u32>,
+    channel: Vec<u32>,
+    stamp: u32,
+    frontier: BinaryHeap<DeltaCandidate>,
+}
+
+impl DeltaScratch {
+    fn new(vertex_count: usize) -> Self {
+        Self {
+            visited: vec![0; vertex_count],
+            channel: vec![0; vertex_count],
+            stamp: 0,
+            frontier: BinaryHeap::new(),
+        }
+    }
+
+    fn begin(&mut self, nodes: &[RiverNode]) {
+        self.frontier.clear();
+        self.stamp = self.stamp.wrapping_add(1);
+        if self.stamp == 0 {
+            self.visited.fill(0);
+            self.channel.fill(0);
+            self.stamp = 1;
+        }
+        for node in nodes {
+            self.channel[node.vertex] = self.stamp;
+        }
+    }
+
+    fn visit(&mut self, vertex: usize) -> bool {
+        if self.visited[vertex] == self.stamp {
+            return false;
+        }
+        self.visited[vertex] = self.stamp;
+        true
+    }
+
+    fn is_channel(&self, vertex: usize) -> bool {
+        self.channel[vertex] == self.stamp
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn create_delta(
+    mesh: &mut Mesh,
+    adjacency: &Adjacency,
+    nodes: &[RiverNode],
+    mut sediment: f32,
+    max_height: f32,
+    edge_length: f32,
+    scratch: &mut DeltaScratch,
+) {
+    let Some(outlet) = nodes.last().map(|node| node.vertex) else {
+        return;
+    };
+    if mesh.vertices[outlet].z > 0.0 {
+        return;
+    }
+
+    let valley_budget = sediment * 0.7;
+    let mut valley_sediment = valley_budget;
+    create_alluvial_valley(
+        mesh,
+        adjacency,
+        nodes,
+        &mut valley_sediment,
+        max_height,
+        edge_length,
+        scratch,
+    );
+    sediment -= valley_budget - valley_sediment;
+
+    let outlet_position = mesh.vertices[outlet].truncate();
+    let approach = nodes
+        .get(nodes.len().saturating_sub(8))
+        .map_or(outlet_position, |node| {
+            mesh.vertices[node.vertex].truncate()
+        });
+    let downstream = (outlet_position - approach).normalize_or_zero();
+    let radius = edge_length * 18.0;
+    let allowance = (sediment / 96.0).max(max_height * 0.000_01);
+    let mouth_height = max_height * 0.0035;
+    scratch.begin(nodes);
+    scratch.visit(outlet);
+    scratch.frontier.push(DeltaCandidate {
+        priority: mouth_height,
+        distance: 0.0,
+        vertex: outlet,
+    });
+
+    for _ in 0..384 {
+        let Some(candidate) = scratch.frontier.pop() else {
+            break;
+        };
+        let normalized_distance = (candidate.distance / radius).clamp(0.0, 1.0);
+        let target_height = mouth_height * (1.0 - normalized_distance)
+            - max_height * normalized_distance * normalized_distance * 0.035;
+        if !scratch.is_channel(candidate.vertex)
+            && mesh.vertices[candidate.vertex].z < target_height
+        {
+            let deposit = (target_height - mesh.vertices[candidate.vertex].z)
+                .min(allowance)
+                .min(sediment);
+            mesh.vertices[candidate.vertex].z += deposit;
+            sediment -= deposit;
+        }
+        if sediment <= f32::EPSILON {
+            break;
+        }
+
+        for &neighbour in &adjacency[candidate.vertex] {
+            if !scratch.visit(neighbour) {
+                continue;
+            }
+            let offset = mesh.vertices[neighbour].truncate() - outlet_position;
+            let distance = offset.length();
+            if distance > radius {
+                continue;
+            }
+            let alignment = if distance <= f32::EPSILON {
+                1.0
+            } else {
+                offset.dot(downstream) / distance
+            };
+            if alignment < -0.2 {
+                continue;
+            }
+            let priority =
+                mesh.vertices[neighbour].z - distance * 0.04 + alignment.max(0.0) * edge_length;
+            scratch.frontier.push(DeltaCandidate {
+                priority,
+                distance,
+                vertex: neighbour,
+            });
+        }
+    }
+}
+
+fn create_alluvial_valley(
+    mesh: &mut Mesh,
+    adjacency: &Adjacency,
+    nodes: &[RiverNode],
+    sediment: &mut f32,
+    max_height: f32,
+    edge_length: f32,
+    scratch: &mut DeltaScratch,
+) {
+    const VALLEY_REACHES: usize = 14;
+
+    let start = nodes.len().saturating_sub(VALLEY_REACHES);
+    let valley_width = edge_length * 7.0;
+    let bank_freeboard = max_height * 0.0025;
+    let lateral_relief = max_height * 0.012;
+    let allowance = (*sediment / 128.0).max(max_height * 0.000_01);
+    scratch.begin(nodes);
+    for node in &nodes[start..] {
+        if scratch.visit(node.vertex) {
+            let target_height = node.surface.max(0.0) + bank_freeboard;
+            scratch.frontier.push(DeltaCandidate {
+                priority: target_height,
+                distance: 0.0,
+                vertex: node.vertex,
+            });
+        }
+    }
+
+    for _ in 0..768 {
+        let Some(candidate) = scratch.frontier.pop() else {
+            break;
+        };
+        let target_height = candidate.priority;
+        if !scratch.is_channel(candidate.vertex)
+            && mesh.vertices[candidate.vertex].z < target_height
+        {
+            let deposit = (target_height - mesh.vertices[candidate.vertex].z)
+                .min(allowance)
+                .min(*sediment);
+            mesh.vertices[candidate.vertex].z += deposit;
+            *sediment -= deposit;
+        }
+        if *sediment <= f32::EPSILON {
+            break;
+        }
+
+        for &neighbour in &adjacency[candidate.vertex] {
+            if !scratch.visit(neighbour) {
+                continue;
+            }
+            let step = (mesh.vertices[candidate.vertex].truncate()
+                - mesh.vertices[neighbour].truncate())
+            .length();
+            let distance = candidate.distance + step;
+            if distance > valley_width {
+                continue;
+            }
+            let previous_distance = candidate.distance / valley_width;
+            let normalized_distance = distance / valley_width;
+            let additional_relief = lateral_relief
+                * (normalized_distance * normalized_distance
+                    - previous_distance * previous_distance);
+            let priority = candidate.priority - additional_relief;
+            scratch.frontier.push(DeltaCandidate {
+                priority,
+                distance,
+                vertex: neighbour,
+            });
+        }
+    }
+}
+
+fn average_edge_length(mesh: &Mesh, adjacency: &Adjacency) -> f32 {
+    let mut total = 0.0_f32;
+    let mut count = 0_u32;
+    for (vertex, neighbours) in adjacency.iter().enumerate() {
+        for &neighbour in neighbours.iter().filter(|&&neighbour| neighbour > vertex) {
+            total +=
+                (mesh.vertices[vertex].truncate() - mesh.vertices[neighbour].truncate()).length();
+            count += 1;
+        }
+    }
+    total / count.max(1) as f32
+}
+
+fn local_edge_length(mesh: &Mesh, adjacency: &Adjacency, vertex: usize) -> f32 {
+    let neighbours = &adjacency[vertex];
+    let total = neighbours
+        .iter()
+        .map(|&neighbour| {
+            (mesh.vertices[vertex].truncate() - mesh.vertices[neighbour].truncate()).length()
+        })
+        .sum::<f32>();
+    total / neighbours.len().max(1) as f32
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Vec2;
+
+    #[test]
+    fn waterfall_height_and_frequency_increase_with_smoothed_gradient() {
+        let mut surface = 0.0_f32;
+        let mut nodes = Vec::new();
+        for index in (0..=20).rev() {
+            if index < 20 {
+                surface += if index < 10 { 0.012 } else { 0.002 };
+            }
+            nodes.push(RiverNode {
+                vertex: index,
+                flow: 10,
+                surface,
+                position: Vec3::new(index as f32 * 0.02, 0.5, surface),
+            });
+        }
+        nodes.reverse();
+        let outlet_surface = nodes[20].surface;
+        let mut waterfalls = vec![false; nodes.len()];
+        let mut scratch = Vec::new();
+
+        form_stepped_profile(&mut nodes, &mut waterfalls, 20, 0.2, &mut scratch);
+
+        let mut gentle = Vec::new();
+        let mut steep = Vec::new();
+        for (index, pair) in nodes.windows(2).enumerate() {
+            let drop = pair[0].surface - pair[1].surface;
+            if waterfalls[index] {
+                if index < 10 {
+                    steep.push(drop);
+                } else {
+                    gentle.push(drop);
+                }
+            } else {
+                assert!(drop.abs() < 1.0e-7);
+            }
+        }
+        assert!(!gentle.is_empty());
+        assert!(!steep.is_empty());
+        assert!(steep.len() > gentle.len());
+        assert!(steep.len() >= 8);
+        let gentle_average = gentle.iter().sum::<f32>() / gentle.len() as f32;
+        let steep_average = steep.iter().sum::<f32>() / steep.len() as f32;
+        assert!(steep_average > gentle_average * 1.35);
+        assert!(steep.iter().all(|height| *height <= 0.0036 + 1.0e-7));
+        assert!((nodes[20].surface - outlet_surface).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn waterfall_terraces_are_carved_into_the_river_bed() {
+        let points: Vec<Vec2> = (0..=2)
+            .flat_map(|y| (0..=4).map(move |x| Vec2::new(x as f32 * 0.25, y as f32 * 0.5)))
+            .collect();
+        let mut mesh = Mesh::delaunay(&points);
+        mesh.vertices.iter_mut().for_each(|vertex| vertex.z = 0.12);
+        let channel: Vec<usize> = (0..4)
+            .map(|x| {
+                points
+                    .iter()
+                    .position(|point| *point == Vec2::new(x as f32 * 0.25, 0.5))
+                    .unwrap()
+            })
+            .collect();
+        let surfaces = [0.06, 0.06, 0.03, 0.03];
+        for (&vertex, &surface) in channel.iter().zip(&surfaces) {
+            mesh.vertices[vertex].z = surface;
+        }
+        let nodes: Vec<RiverNode> = channel
+            .iter()
+            .zip(surfaces)
+            .map(|(&vertex, surface)| RiverNode {
+                vertex,
+                flow: 10,
+                surface,
+                position: mesh.vertices[vertex],
+            })
+            .collect();
+        let waterfalls = [false, true, false, false];
+        let adjacency = mesh.adjacency();
+        let parameters = RiverCarveParameters {
+            downstream_surface: 0.0,
+            terminal_ocean: false,
+            max_height: 0.2,
+            max_flow: 10,
+            depth_multiplier: 1.0 / 10.0_f32.sqrt(),
+            base_width: average_edge_length(&mesh, &adjacency),
+            form_waterfall_shelves: true,
+        };
+        let mut targets = Vec::new();
+        let mut sediment = 0.0;
+
+        carve_stepped_bed(
+            &mut mesh,
+            &adjacency,
+            &nodes,
+            &waterfalls,
+            3,
+            parameters,
+            &mut targets,
+            &mut sediment,
+        );
+
+        let beds: Vec<f32> = channel
+            .iter()
+            .map(|&vertex| mesh.vertices[vertex].z)
+            .collect();
+        assert!((beds[0] - beds[1]).abs() < f32::EPSILON);
+        assert!((beds[2] - beds[3]).abs() < f32::EPSILON);
+        assert!(beds[1] > beds[2]);
+        assert!(sediment > 0.0);
+    }
+
+    #[test]
+    fn waterfall_lip_refinement_adds_detail_and_rounds_along_the_normal() {
+        let points: Vec<Vec2> = (0..=4)
+            .flat_map(|y| (0..=4).map(move |x| Vec2::new(x as f32 / 4.0, y as f32 / 4.0)))
+            .collect();
+        let mut water = Mesh::delaunay(&points);
+        for vertex in &mut water.vertices {
+            vertex.z = if vertex.y <= 0.5 { 0.1 } else { 0.0 };
+        }
+        water.uv = water
+            .vertices
+            .iter()
+            .map(|vertex| vertex.truncate())
+            .collect();
+        let center = points
+            .iter()
+            .position(|point| *point == Vec2::new(0.5, 0.5))
+            .unwrap();
+        let original = water.vertices[center];
+        let original_vertices = water.vertices.clone();
+        let original_vertex_count = water.vertices.len();
+        let mut lips = vec![false; water.vertices.len()];
+        for (vertex, position) in water.vertices.iter().enumerate() {
+            lips[vertex] = (position.y - 0.5).abs() < f32::EPSILON;
+        }
+
+        let rounded = round_waterfall_lips(water, lips);
+
+        assert!(rounded.vertices.len() > original_vertex_count);
+        assert_ne!(rounded.vertices[center], original);
+        assert_eq!(rounded.vertices[center].truncate(), original.truncate());
+        assert!(rounded.vertices[center].z < original.z);
+        assert!(rounded.vertices[center].z > 0.0);
+        for (vertex, original) in original_vertices.iter().enumerate() {
+            if original.y > 0.5 {
+                assert_eq!(rounded.vertices[vertex], *original);
+            }
+        }
+    }
+
+    #[test]
+    fn bank_grading_spreads_the_cut_beyond_the_first_ring() {
+        let points: Vec<Vec2> = (0..=6)
+            .flat_map(|y| (0..=6).map(move |x| Vec2::new(x as f32 / 6.0, y as f32 / 6.0)))
+            .collect();
+        let mut mesh = Mesh::delaunay(&points);
+        mesh.vertices.iter_mut().for_each(|vertex| vertex.z = 0.18);
+        let center = points
+            .iter()
+            .position(|point| *point == Vec2::new(0.5, 0.5))
+            .unwrap();
+        mesh.vertices[center].z = 0.02;
+        let adjacency = mesh.adjacency();
+        let first_ring = adjacency[center].to_vec();
+        let node = RiverNode {
+            vertex: center,
+            flow: 10,
+            surface: 0.03,
+            position: mesh.vertices[center],
+        };
+        let mut scratch = BankScratch::new(mesh.vertices.len());
+        let mut sediment = 0.0;
+        let base_width = average_edge_length(&mesh, &adjacency);
+        let shelf_width = river_half_width(node.flow, 10, base_width);
+
+        carve_banks(
+            &mut mesh,
+            &adjacency,
+            &[node],
+            &[true],
+            10,
+            base_width,
+            true,
+            &mut sediment,
+            &mut scratch,
+        );
+
+        assert!(
+            first_ring
+                .iter()
+                .all(|&bank| (mesh.vertices[bank].z - mesh.vertices[center].z).abs() < 1.0e-6)
+        );
+        assert!(mesh.vertices.iter().all(|position| {
+            let distance = (*position - mesh.vertices[center]).truncate().length();
+            distance > shelf_width || (position.z - mesh.vertices[center].z).abs() < 1.0e-6
+        }));
+        assert!(mesh.vertices.iter().enumerate().any(|(vertex, position)| {
+            vertex != center && !first_ring.contains(&vertex) && position.z < 0.18
+        }));
+        assert!(sediment > 0.0);
+    }
+
+    #[test]
+    fn waterfall_banks_follow_the_nearest_terrace_instead_of_the_lowest_one() {
+        let points: Vec<Vec2> = (0..=6)
+            .flat_map(|y| (0..=6).map(move |x| Vec2::new(x as f32 / 6.0, y as f32 / 6.0)))
+            .collect();
+        let mut mesh = Mesh::delaunay(&points);
+        mesh.vertices.iter_mut().for_each(|vertex| vertex.z = 0.18);
+        let vertex_at = |x: usize, y: usize| {
+            points
+                .iter()
+                .position(|point| *point == Vec2::new(x as f32 / 6.0, y as f32 / 6.0))
+                .unwrap()
+        };
+        let upper = vertex_at(2, 3);
+        let lower = vertex_at(3, 3);
+        let upper_bank = vertex_at(2, 2);
+        let lower_bank = vertex_at(3, 2);
+        mesh.vertices[upper].z = 0.08;
+        mesh.vertices[lower].z = 0.02;
+        mesh.vertices[upper_bank].z = 0.01;
+        let nodes = [
+            RiverNode {
+                vertex: upper,
+                flow: 10,
+                surface: 0.09,
+                position: mesh.vertices[upper],
+            },
+            RiverNode {
+                vertex: lower,
+                flow: 10,
+                surface: 0.03,
+                position: mesh.vertices[lower],
+            },
+        ];
+        let adjacency = mesh.adjacency();
+        let base_width = average_edge_length(&mesh, &adjacency);
+        let mut scratch = BankScratch::new(mesh.vertices.len());
+        let mut sediment = 0.0;
+
+        carve_banks(
+            &mut mesh,
+            &adjacency,
+            &nodes,
+            &[true, false],
+            10,
+            base_width,
+            true,
+            &mut sediment,
+            &mut scratch,
+        );
+
+        assert!((mesh.vertices[upper_bank].z - mesh.vertices[upper].z).abs() < 1.0e-6);
+        assert!((mesh.vertices[lower_bank].z - mesh.vertices[lower].z).abs() < 1.0e-6);
+        assert!(mesh.vertices[upper_bank].z > mesh.vertices[lower_bank].z + 0.05);
+    }
+
+    #[test]
+    fn greater_flow_selects_more_terrain_rings() {
+        let points: Vec<Vec2> = (0..=8)
+            .flat_map(|y| (0..=8).map(move |x| Vec2::new(x as f32 / 8.0, y as f32 / 8.0)))
+            .collect();
+        let terrain = Mesh::delaunay(&points);
+        let center = points
+            .iter()
+            .position(|point| *point == Vec2::new(0.5, 0.5))
+            .unwrap();
+        let network = |flow| RiverNetwork {
+            rivers: vec![River {
+                nodes: vec![RiverNode {
+                    vertex: center,
+                    flow,
+                    surface: 0.01,
+                    position: terrain.vertices[center],
+                }],
+                join: None,
+            }],
+            waterfalls: vec![vec![false]],
+            max_flow: 100,
+            max_height: 0.2,
+            perimeter: vec![false; terrain.vertices.len()],
+        };
+        let adjacency = terrain.adjacency();
+        let narrow = network(1).build_mesh(&mut terrain.clone(), &adjacency);
+        let broad = network(100).build_mesh(&mut terrain.clone(), &adjacency);
+
+        assert_eq!(river_ring_count(1, 100), 1);
+        assert_eq!(river_ring_count(100, 100), 3);
+        assert!(broad.vertices.len() > narrow.vertices.len() * 2);
+        assert!(broad.triangles.len() > narrow.triangles.len() * 2);
+    }
+
+    #[test]
+    fn river_mesh_duplicates_terrain_topology_without_climbing_its_banks() {
+        let points: Vec<Vec2> = (0..=8)
+            .flat_map(|y| (0..=8).map(move |x| Vec2::new(x as f32 / 8.0, y as f32 / 8.0)))
+            .collect();
+        let mut terrain = Mesh::delaunay(&points);
+        for vertex in &mut terrain.vertices {
+            vertex.z = vertex.x.mul_add(0.03, vertex.y * 0.02);
+        }
+        let center = points
+            .iter()
+            .position(|point| *point == Vec2::new(0.5, 0.5))
+            .unwrap();
+        let surface = 0.025;
+        let network = RiverNetwork {
+            rivers: vec![River {
+                nodes: vec![RiverNode {
+                    vertex: center,
+                    flow: 100,
+                    surface,
+                    position: terrain.vertices[center],
+                }],
+                join: None,
+            }],
+            waterfalls: vec![vec![false]],
+            max_flow: 100,
+            max_height: 0.2,
+            perimeter: vec![false; terrain.vertices.len()],
+        };
+        let adjacency = terrain.adjacency();
+        let river_mesh = network.build_mesh(&mut terrain, &adjacency);
+        assert!(!river_mesh.triangles.is_empty());
+        assert!(
+            river_mesh
+                .vertices
+                .iter()
+                .all(|vertex| vertex.z <= surface + RIVER_SURFACE_OFFSET + 1.0e-6)
+        );
+        assert!(
+            river_mesh
+                .vertices
+                .iter()
+                .any(|vertex| vertex.z < surface - 1.0e-4)
+        );
+        assert!(
+            river_mesh
+                .triangles
+                .iter()
+                .all(|&vertex| (vertex as usize) < river_mesh.vertices.len())
+        );
+    }
+
+    #[test]
+    fn river_mesh_omits_triangles_made_only_from_its_outer_ring() {
+        let points: Vec<Vec2> = (0..=8)
+            .flat_map(|y| (0..=8).map(move |x| Vec2::new(x as f32 / 8.0, y as f32 / 8.0)))
+            .collect();
+        let mut terrain = Mesh::delaunay(&points);
+        let center = points
+            .iter()
+            .position(|point| *point == Vec2::new(0.5, 0.5))
+            .unwrap();
+        let surface = 0.12;
+        let network = RiverNetwork {
+            rivers: vec![River {
+                nodes: vec![RiverNode {
+                    vertex: center,
+                    flow: 100,
+                    surface,
+                    position: terrain.vertices[center],
+                }],
+                join: None,
+            }],
+            waterfalls: vec![vec![false]],
+            max_flow: 100,
+            max_height: 0.2,
+            perimeter: vec![false; terrain.vertices.len()],
+        };
+        let adjacency = terrain.adjacency();
+        let river_mesh = network.build_mesh(&mut terrain, &adjacency);
+
+        assert!(!river_mesh.triangles.is_empty());
+        assert!(river_mesh.triangles.chunks_exact(3).all(|triangle| {
+            triangle.iter().any(|&vertex| {
+                river_mesh.vertices[vertex as usize].z > RIVER_SURFACE_OFFSET + 1.0e-6
+            })
+        }));
+    }
+
+    #[test]
+    fn river_bank_refinement_updates_shared_terrain_topology() {
+        let points: Vec<Vec2> = (0..=8)
+            .flat_map(|y| (0..=8).map(move |x| Vec2::new(x as f32 / 8.0, y as f32 / 8.0)))
+            .collect();
+        let mut terrain = Mesh::delaunay(&points);
+        let center = points
+            .iter()
+            .position(|point| *point == Vec2::new(0.5, 0.5))
+            .unwrap();
+        let network = RiverNetwork {
+            rivers: vec![River {
+                nodes: vec![RiverNode {
+                    vertex: center,
+                    flow: 100,
+                    surface: 0.12,
+                    position: terrain.vertices[center],
+                }],
+                join: None,
+            }],
+            waterfalls: vec![vec![false]],
+            max_flow: 100,
+            max_height: 0.2,
+            perimeter: vec![false; terrain.vertices.len()],
+        };
+        let original_vertices = terrain.vertices.clone();
+        let adjacency = terrain.adjacency();
+
+        let river_mesh = network.build_mesh(&mut terrain, &adjacency);
+        let terrain_xy: HashSet<(u32, u32)> = terrain
+            .vertices
+            .iter()
+            .map(|vertex| (vertex.x.to_bits(), vertex.y.to_bits()))
+            .collect();
+
+        assert!(terrain.vertices.len() > original_vertices.len());
+        assert!(
+            terrain.vertices[..original_vertices.len()]
+                .iter()
+                .zip(&original_vertices)
+                .any(|(refined, original)| refined.truncate() != original.truncate())
+        );
+        assert!(
+            river_mesh
+                .vertices
+                .iter()
+                .all(|vertex| terrain_xy.contains(&(vertex.x.to_bits(), vertex.y.to_bits())))
+        );
+    }
+
+    #[test]
+    fn river_footprint_refinement_smooths_the_shared_terrain_bed() {
+        let points: Vec<Vec2> = (0..=8)
+            .flat_map(|y| (0..=8).map(move |x| Vec2::new(x as f32 / 8.0, y as f32 / 8.0)))
+            .collect();
+        let mut terrain = Mesh::delaunay(&points);
+        let center = points
+            .iter()
+            .position(|point| *point == Vec2::new(0.5, 0.5))
+            .unwrap();
+        terrain.vertices[center].z = -0.1;
+        let network = RiverNetwork {
+            rivers: vec![River {
+                nodes: vec![RiverNode {
+                    vertex: center,
+                    flow: 100,
+                    surface: 0.12,
+                    position: terrain.vertices[center],
+                }],
+                join: None,
+            }],
+            waterfalls: vec![vec![false]],
+            max_flow: 100,
+            max_height: 0.2,
+            perimeter: vec![false; terrain.vertices.len()],
+        };
+        let original_vertex_count = terrain.vertices.len();
+        let adjacency = terrain.adjacency();
+
+        let river_mesh = network.build_mesh(&mut terrain, &adjacency);
+
+        assert!(terrain.vertices.len() > original_vertex_count);
+        assert!(terrain.vertices[center].z > -0.1);
+        assert!(terrain.vertices[center].z < 0.12);
+        assert!(
+            river_mesh
+                .vertices
+                .iter()
+                .any(|vertex| vertex.truncate() == terrain.vertices[center].truncate())
+        );
+    }
+
+    #[test]
+    fn river_mouth_is_graded_across_multiple_segments() {
+        let mut mesh = Mesh {
+            vertices: (0..12)
+                .map(|index| {
+                    let height = if index == 11 {
+                        -0.01
+                    } else {
+                        0.12 - index as f32 * 0.008
+                    };
+                    Vec3::new(index as f32 * 0.01, 0.5, height)
+                })
+                .collect(),
+            ..Mesh::default()
+        };
+        let mut nodes: Vec<RiverNode> = mesh
+            .vertices
+            .iter()
+            .copied()
+            .enumerate()
+            .map(|(vertex, position)| RiverNode {
+                vertex,
+                flow: 10,
+                surface: position.z.max(0.0),
+                position,
+            })
+            .collect();
+        let original_last_land = mesh.vertices[10].z;
+        let mut sediment = 0.0;
+        let mut waterfalls = vec![true; nodes.len()];
+
+        grade_river_mouth(&mut mesh, &mut nodes, &mut waterfalls, 0.2, &mut sediment);
+
+        assert!(nodes.last().unwrap().surface.abs() < f32::EPSILON);
+        assert!(
+            nodes
+                .windows(2)
+                .all(|pair| pair[0].surface + f32::EPSILON >= pair[1].surface)
+        );
+        let drops: Vec<f32> = nodes
+            .windows(2)
+            .map(|pair| pair[0].surface - pair[1].surface)
+            .collect();
+        assert!(drops.iter().all(|drop| (*drop - drops[0]).abs() < 1.0e-6));
+        assert!(mesh.vertices[10].z < original_last_land);
+        assert!(sediment > 0.0);
+        assert!(waterfalls[..11].iter().all(|waterfall| !waterfall));
+    }
+
+    #[test]
+    fn delta_builds_a_raised_valley_and_spreads_offshore() {
+        let mut points = Vec::new();
+        for y in 0..5 {
+            for x in 0..5 {
+                points.push(Vec2::new(x as f32 * 0.25, y as f32 * 0.25));
+            }
+        }
+        let mut mesh = Mesh::delaunay(&points);
+        for vertex in &mut mesh.vertices {
+            vertex.z = if vertex.x < 0.25 {
+                0.04
+            } else if vertex.x < 0.5 {
+                0.001
+            } else {
+                -0.02 - (vertex.y - 0.5).abs() * 0.004 - vertex.x * 0.002
+            };
+        }
+        let previous = points
+            .iter()
+            .position(|point| *point == Vec2::new(0.25, 0.5))
+            .unwrap();
+        let outlet = points
+            .iter()
+            .position(|point| *point == Vec2::new(0.5, 0.5))
+            .unwrap();
+        let nodes = [
+            RiverNode {
+                vertex: previous,
+                flow: 10,
+                surface: 0.01,
+                position: mesh.vertices[previous],
+            },
+            RiverNode {
+                vertex: outlet,
+                flow: 10,
+                surface: 0.0,
+                position: mesh.vertices[outlet],
+            },
+        ];
+        let adjacency = mesh.adjacency();
+        let edge_length = average_edge_length(&mesh, &adjacency);
+        let before: Vec<f32> = mesh.vertices.iter().map(|vertex| vertex.z).collect();
+        let channel_before = [before[previous], before[outlet]];
+        let mut scratch = DeltaScratch::new(mesh.vertices.len());
+
+        create_delta(
+            &mut mesh,
+            &adjacency,
+            &nodes,
+            1.0,
+            0.2,
+            edge_length,
+            &mut scratch,
+        );
+
+        let changed: Vec<usize> = mesh
+            .vertices
+            .iter()
+            .enumerate()
+            .filter_map(|(index, vertex)| (vertex.z > before[index]).then_some(index))
+            .collect();
+        assert!(changed.len() > 3);
+        assert!(changed.iter().any(|&index| {
+            mesh.vertices[index].x > 0.5 && (mesh.vertices[index].y - 0.5).abs() > 0.1
+        }));
+        assert!(changed.iter().any(|&index| mesh.vertices[index].z > 0.0));
+        assert!((mesh.vertices[previous].z - channel_before[0]).abs() < f32::EPSILON);
+        assert!((mesh.vertices[outlet].z - channel_before[1]).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn routed_rivers_have_monotonic_surfaces_and_valid_joins() {
+        let points = [
+            Vec2::new(0.0, 0.0),
+            Vec2::new(1.0, 0.0),
+            Vec2::new(1.0, 1.0),
+            Vec2::new(0.0, 1.0),
+            Vec2::new(0.5, 0.5),
+            Vec2::new(0.25, 0.65),
+            Vec2::new(0.75, 0.65),
+        ];
+        let mut mesh = Mesh::delaunay(&points);
+        for vertex in &mut mesh.vertices {
+            vertex.z = 0.2 - (vertex.y - 0.5).abs() * 0.3;
+        }
+        mesh.vertices[0].z = -0.02;
+        mesh.vertices[1].z = -0.02;
+        let adjacency = mesh.adjacency();
+        let mut network = RiverNetwork::generate(&mut mesh, &adjacency, 0.0);
+        network.shape(&mut mesh, &adjacency, true, true);
+        for (index, river) in network.rivers.iter().enumerate() {
+            assert!(river.join.is_none_or(|join| join < index));
+            assert!(
+                river
+                    .nodes
+                    .windows(2)
+                    .all(|pair| pair[0].surface + 1.0e-6 >= pair[1].surface)
+            );
+        }
+    }
+}
