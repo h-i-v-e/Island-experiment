@@ -23,6 +23,7 @@ internal static class MotuNative
         internal float riverBroadSourceThreshold;
         internal float riverLandSourceThreshold;
         internal float riverFinalSourceThreshold;
+        internal float cliffRenderStrength;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -81,6 +82,7 @@ internal static class MotuNative
         internal Vector3Array vertices;
         internal Vector3Array normals;
         internal TriangleArray triangles;
+        internal Vector2Array uv;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -136,6 +138,13 @@ internal static class MotuNative
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
     internal static extern void ReleaseMesh(ref ExportMesh output);
+
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+    internal static extern void CreateSupportMesh(
+        IntPtr handle,
+        ref ExportArea area,
+        int lod,
+        out ExportMesh output);
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
     internal static extern void CreateMeshGrid(

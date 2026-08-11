@@ -41,9 +41,10 @@ pub struct MotuOptions {
     pub riverBroadSourceThreshold: f32,
     pub riverLandSourceThreshold: f32,
     pub riverFinalSourceThreshold: f32,
+    pub cliffRenderStrength: f32,
 }
 
-const _: () = assert!(size_of::<MotuOptions>() == size_of::<[f32; 15]>());
+const _: () = assert!(size_of::<MotuOptions>() == size_of::<[f32; 16]>());
 
 impl From<MotuOptions> for IslandOptions {
     fn from(value: MotuOptions) -> Self {
@@ -63,6 +64,7 @@ impl From<MotuOptions> for IslandOptions {
             river_broad_source_threshold: value.riverBroadSourceThreshold,
             river_land_source_threshold: value.riverLandSourceThreshold,
             river_final_source_threshold: value.riverFinalSourceThreshold,
+            cliff_render_strength: value.cliffRenderStrength,
             ..Self::default()
         }
     }
@@ -109,6 +111,7 @@ pub struct ExportMesh {
     pub vertices: Vector3ExportArray,
     pub normals: Vector3ExportArray,
     pub triangles: TriangleExportArray,
+    pub uv: Vector2ExportArray,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -263,6 +266,10 @@ fn export_mesh(mesh: Box<Mesh>) -> ExportMesh {
             data: mesh.triangles.as_ptr().cast(),
             length: length_i32(mesh.triangles.len()),
         },
+        uv: Vector2ExportArray {
+            data: mesh.uv.as_ptr(),
+            length: length_i32(mesh.uv.len()),
+        },
     }
 }
 
@@ -335,21 +342,38 @@ pub unsafe extern "C" fn CreateMesh(
         unsafe { (*area).into() }
     };
     let lod = usize::try_from(lod.max(0)).unwrap_or(0);
-    let Some(mesh) = island.lod(lod) else {
+    let Some(sliced) = island.render_mesh_in(lod, bounds, clamp_sides) else {
         return;
     };
-    let sliced = island
-        .lod(lod + 1)
-        .filter(|_| clamp_sides != 0)
-        .map_or_else(
-            || mesh.sliced(bounds),
-            |coarser| {
-                mesh.sliced_grid_clamped(bounds, 1, coarser, clamp_sides)
-                    .pop()
-                    .unwrap_or_default()
-            },
-        );
     *output = export_mesh(Box::new(sliced));
+}
+
+/// Exports the authoritative XY-safe surface for collision and downward
+/// queries. This never returns render-only folds or overhangs.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn CreateSupportMesh(
+    handle: *const c_void,
+    area: *const ExportArea,
+    lod: i32,
+    output: *mut ExportMesh,
+) {
+    let Some(island) = (unsafe { island_ref(handle) }) else {
+        return;
+    };
+    let Some(output) = (unsafe { output.as_mut() }) else {
+        return;
+    };
+    let bounds = if area.is_null() {
+        BoundingBox::default()
+    } else {
+        // SAFETY: non-null area must point to a readable ExportArea.
+        unsafe { (*area).into() }
+    };
+    let lod = usize::try_from(lod.max(0)).unwrap_or(0);
+    let Some(mesh) = island.mesh_in(lod, bounds) else {
+        return;
+    };
+    *output = export_mesh(Box::new(mesh));
 }
 
 #[unsafe(no_mangle)]
@@ -368,9 +392,6 @@ pub unsafe extern "C" fn CreateMeshGrid(
         return;
     };
     let lod = usize::try_from(lod.max(0)).unwrap_or(0);
-    let Some(mesh) = island.lod(lod) else {
-        return;
-    };
     let bounds = if area.is_null() {
         BoundingBox::default()
     } else {
@@ -378,13 +399,9 @@ pub unsafe extern "C" fn CreateMeshGrid(
         unsafe { (*area).into() }
     };
     let divisions = usize::try_from(divisions.max(0)).unwrap_or(0);
-    let tiles = island
-        .lod(lod + 1)
-        .filter(|_| clamp_sides != 0)
-        .map_or_else(
-            || mesh.sliced_grid(bounds, divisions),
-            |coarser| mesh.sliced_grid_clamped(bounds, divisions, coarser, clamp_sides),
-        );
+    let Some(tiles) = island.render_mesh_grid(lod, bounds, divisions, clamp_sides) else {
+        return;
+    };
     let exports: Vec<ExportMesh> = tiles
         .into_iter()
         .map(|tile| export_mesh(Box::new(tile)))
@@ -467,6 +484,7 @@ pub unsafe extern "C" fn ReleaseMeshWithUV(output: *mut ExportMeshWithUv) {
         vertices: output.vertices,
         normals: output.normals,
         triangles: output.triangles,
+        uv: output.uv,
     };
     // SAFETY: base owns the same mesh handle.
     unsafe { ReleaseMesh(&raw mut base) };
@@ -790,6 +808,7 @@ mod tests {
             riverBroadSourceThreshold: 1.0,
             riverLandSourceThreshold: 1.3,
             riverFinalSourceThreshold: 1.6,
+            cliffRenderStrength: 1.0,
         };
         // SAFETY: this test passes valid pointers and releases every returned
         // allocation exactly once through its paired ABI function.
@@ -801,7 +820,15 @@ mod tests {
             CreateMesh(handle, ptr::null(), 2, 0, &raw mut mesh);
             assert!(!mesh.handle.is_null());
             assert!(mesh.triangles.length > 0);
+            assert_eq!(mesh.uv.length, mesh.vertices.length);
             ReleaseMesh(&raw mut mesh);
+
+            let mut support = ExportMesh::default();
+            CreateSupportMesh(handle, ptr::null(), 0, &raw mut support);
+            assert!(!support.handle.is_null());
+            assert!(support.triangles.length > 0);
+            assert_eq!(support.uv.length, support.vertices.length);
+            ReleaseMesh(&raw mut support);
 
             let mut grid = ExportMeshGrid::default();
             CreateMeshGrid(handle, ptr::null(), 2, 8, 0, &raw mut grid);
@@ -809,6 +836,11 @@ mod tests {
             assert_eq!(grid.length, 64);
             let tiles = std::slice::from_raw_parts(grid.data, grid.length as usize);
             assert!(tiles.iter().all(|tile| tile.triangles.length > 0));
+            assert!(
+                tiles
+                    .iter()
+                    .all(|tile| tile.uv.length == tile.vertices.length)
+            );
             ReleaseMeshGrid(&raw mut grid);
             assert!(grid.handle.is_null());
 

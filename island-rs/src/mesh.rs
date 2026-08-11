@@ -24,6 +24,19 @@ pub struct Mesh {
     pub uv: Vec<Vec2>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct NewVertexStencil {
+    pub vertex: u32,
+    pub surrounding: [u32; 4],
+    pub count: u8,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct TessellationResult {
+    pub mesh: Mesh,
+    pub new_vertices: Vec<NewVertexStencil>,
+}
+
 /// Compact compressed-sparse-row mesh connectivity.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Adjacency {
@@ -183,6 +196,14 @@ impl Mesh {
     /// left untouched, including flat regions on an inclined plane.
     #[must_use]
     pub fn tessellated_displaced(&self, displacement_ratio: f32) -> Self {
+        self.tessellated_displaced_attributed(displacement_ratio)
+            .mesh
+    }
+
+    pub(crate) fn tessellated_displaced_attributed(
+        &self,
+        displacement_ratio: f32,
+    ) -> TessellationResult {
         let adjacency = self.adjacency();
         let displaced: Vec<bool> = self
             .vertices
@@ -211,7 +232,9 @@ impl Mesh {
                 normal_displacement > mean_edge_length * displacement_ratio
             })
             .collect();
-        self.tessellated_faces(|triangle| triangle.iter().any(|&vertex| displaced[vertex as usize]))
+        self.tessellated_faces_attributed(|triangle| {
+            triangle.iter().any(|&vertex| displaced[vertex as usize])
+        })
     }
 
     fn tessellated_where(&self, should_split: impl Fn([Vec3; 3]) -> bool) -> Self {
@@ -225,13 +248,21 @@ impl Mesh {
     }
 
     fn tessellated_faces(&self, should_split: impl Fn([u32; 3]) -> bool) -> Self {
+        self.tessellated_faces_attributed(should_split).mesh
+    }
+
+    fn tessellated_faces_attributed(
+        &self,
+        should_split: impl Fn([u32; 3]) -> bool,
+    ) -> TessellationResult {
         let mut out = Self {
             vertices: self.vertices.clone(),
             normals: Vec::new(),
             triangles: Vec::with_capacity(self.triangles.len() * 4),
             uv: self.uv.clone(),
         };
-        let mut midpoints = BTreeMap::<(u32, u32), u32>::new();
+        let mut midpoints = BTreeMap::<(u32, u32), (u32, usize)>::new();
+        let mut new_vertices = Vec::new();
         for triangle in self.triangles.chunks_exact(3) {
             let a = triangle[0];
             let b = triangle[1];
@@ -239,9 +270,9 @@ impl Mesh {
             if !should_split([a, b, c]) {
                 continue;
             }
-            let ab = midpoint(a, b, self, &mut out, &mut midpoints);
-            let bc = midpoint(b, c, self, &mut out, &mut midpoints);
-            let ca = midpoint(c, a, self, &mut out, &mut midpoints);
+            let ab = midpoint(a, b, c, self, &mut out, &mut midpoints, &mut new_vertices);
+            let bc = midpoint(b, c, a, self, &mut out, &mut midpoints, &mut new_vertices);
+            let ca = midpoint(c, a, b, self, &mut out, &mut midpoints, &mut new_vertices);
             out.triangles
                 .extend([a, ab, ca, ab, b, bc, ca, bc, c, ab, bc, ca]);
         }
@@ -257,16 +288,22 @@ impl Mesh {
                 a,
                 b,
                 c,
-                midpoints.get(&ordered_edge(a, b)).copied(),
-                midpoints.get(&ordered_edge(a, c)).copied(),
-                midpoints.get(&ordered_edge(c, b)).copied(),
+                conforming_midpoint(midpoints.get(&ordered_edge(a, b)), c, &mut new_vertices),
+                conforming_midpoint(midpoints.get(&ordered_edge(a, c)), b, &mut new_vertices),
+                conforming_midpoint(midpoints.get(&ordered_edge(c, b)), a, &mut new_vertices),
             );
         }
         out.calculate_normals();
-        out
+        TessellationResult {
+            mesh: out,
+            new_vertices,
+        }
     }
 
-    pub(crate) fn tessellate_incident_to(&mut self, marked_vertices: &[bool]) -> Vec<[u32; 3]> {
+    pub(crate) fn tessellate_incident_to(
+        &mut self,
+        marked_vertices: &[bool],
+    ) -> Vec<NewVertexStencil> {
         let source_triangles = std::mem::take(&mut self.triangles);
         let marked_count = marked_vertices.iter().filter(|&&marked| marked).count();
         let midpoint_capacity = marked_count.saturating_mul(6);
@@ -275,7 +312,7 @@ impl Mesh {
                 .len()
                 .saturating_add(marked_count.saturating_mul(54)),
         );
-        let mut midpoints = HashMap::<(u32, u32), u32>::with_capacity(midpoint_capacity);
+        let mut midpoints = HashMap::<(u32, u32), (u32, usize)>::with_capacity(midpoint_capacity);
         let mut added = Vec::with_capacity(midpoint_capacity);
 
         for triangle in source_triangles.chunks_exact(3) {
@@ -286,9 +323,9 @@ impl Mesh {
             {
                 continue;
             }
-            let ab = midpoint_in_place(a, b, self, &mut midpoints, &mut added);
-            let bc = midpoint_in_place(b, c, self, &mut midpoints, &mut added);
-            let ca = midpoint_in_place(c, a, self, &mut midpoints, &mut added);
+            let ab = midpoint_in_place(a, b, c, self, &mut midpoints, &mut added);
+            let bc = midpoint_in_place(b, c, a, self, &mut midpoints, &mut added);
+            let ca = midpoint_in_place(c, a, b, self, &mut midpoints, &mut added);
             triangles.extend([a, ab, ca, ab, b, bc, ca, bc, c, ab, bc, ca]);
         }
         for triangle in source_triangles.chunks_exact(3) {
@@ -304,9 +341,9 @@ impl Mesh {
                 a,
                 b,
                 c,
-                midpoints.get(&ordered_edge(a, b)).copied(),
-                midpoints.get(&ordered_edge(a, c)).copied(),
-                midpoints.get(&ordered_edge(c, b)).copied(),
+                conforming_midpoint(midpoints.get(&ordered_edge(a, b)), c, &mut added),
+                conforming_midpoint(midpoints.get(&ordered_edge(a, c)), b, &mut added),
+                conforming_midpoint(midpoints.get(&ordered_edge(c, b)), a, &mut added),
             );
         }
         self.triangles = triangles;
@@ -953,15 +990,26 @@ fn sample_boundary(profile: &[BoundarySample], coordinate: f32) -> Option<Bounda
     })
 }
 
+fn add_stencil_opposite(stencil: &mut NewVertexStencil, opposite: u32) {
+    let count = usize::from(stencil.count);
+    if count < stencil.surrounding.len() && !stencil.surrounding[..count].contains(&opposite) {
+        stencil.surrounding[count] = opposite;
+        stencil.count += 1;
+    }
+}
+
 fn midpoint(
     a: u32,
     b: u32,
+    opposite: u32,
     source: &Mesh,
     output: &mut Mesh,
-    midpoints: &mut BTreeMap<(u32, u32), u32>,
+    midpoints: &mut BTreeMap<(u32, u32), (u32, usize)>,
+    new_vertices: &mut Vec<NewVertexStencil>,
 ) -> u32 {
     let key = ordered_edge(a, b);
-    if let Some(&index) = midpoints.get(&key) {
+    if let Some(&(index, stencil)) = midpoints.get(&key) {
+        add_stencil_opposite(&mut new_vertices[stencil], opposite);
         return index;
     }
     let index = output.vertices.len() as u32;
@@ -973,19 +1021,27 @@ fn midpoint(
             .uv
             .push((source.uv[a as usize] + source.uv[b as usize]) * 0.5);
     }
-    midpoints.insert(key, index);
+    let stencil = new_vertices.len();
+    new_vertices.push(NewVertexStencil {
+        vertex: index,
+        surrounding: [key.0, key.1, opposite, 0],
+        count: 3,
+    });
+    midpoints.insert(key, (index, stencil));
     index
 }
 
 fn midpoint_in_place(
     a: u32,
     b: u32,
+    opposite: u32,
     mesh: &mut Mesh,
-    midpoints: &mut HashMap<(u32, u32), u32>,
-    added: &mut Vec<[u32; 3]>,
+    midpoints: &mut HashMap<(u32, u32), (u32, usize)>,
+    added: &mut Vec<NewVertexStencil>,
 ) -> u32 {
     let key = ordered_edge(a, b);
-    if let Some(&index) = midpoints.get(&key) {
+    if let Some(&(index, stencil)) = midpoints.get(&key) {
+        add_stencil_opposite(&mut added[stencil], opposite);
         return index;
     }
     let index = mesh.vertices.len() as u32;
@@ -995,9 +1051,24 @@ fn midpoint_in_place(
     if let Some(uv) = uv {
         mesh.uv.push(uv);
     }
-    midpoints.insert(key, index);
-    added.push([a, b, index]);
+    let stencil = added.len();
+    added.push(NewVertexStencil {
+        vertex: index,
+        surrounding: [key.0, key.1, opposite, 0],
+        count: 3,
+    });
+    midpoints.insert(key, (index, stencil));
     index
+}
+
+fn conforming_midpoint(
+    midpoint: Option<&(u32, usize)>,
+    opposite: u32,
+    stencils: &mut [NewVertexStencil],
+) -> Option<u32> {
+    let &(vertex, stencil) = midpoint?;
+    add_stencil_opposite(&mut stencils[stencil], opposite);
+    Some(vertex)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1120,6 +1191,35 @@ mod tests {
         let tessellated = mesh.tessellated();
         assert_eq!(tessellated.triangles.len(), mesh.triangles.len() * 4);
         assert_eq!(tessellated.vertices.len(), 9);
+    }
+
+    #[test]
+    fn tessellation_stencils_reference_only_the_old_generation() {
+        let mesh = Mesh::delaunay(&[
+            Vec2::new(0.0, 0.0),
+            Vec2::new(1.0, 0.0),
+            Vec2::new(1.0, 1.0),
+            Vec2::new(0.0, 1.0),
+        ]);
+        let old_vertex_count = mesh.vertices.len();
+        let result = mesh.tessellated_faces_attributed(|_| true);
+
+        assert_eq!(result.new_vertices.len(), 5);
+        assert!(result.new_vertices.iter().any(|stencil| stencil.count == 4));
+        assert!(result.new_vertices.iter().any(|stencil| stencil.count == 3));
+        for (offset, stencil) in result.new_vertices.iter().enumerate() {
+            let count = usize::from(stencil.count);
+            assert_eq!(stencil.vertex as usize, old_vertex_count + offset);
+            assert!(
+                stencil.surrounding[..count]
+                    .iter()
+                    .all(|&vertex| (vertex as usize) < old_vertex_count)
+            );
+            let mut unique = stencil.surrounding[..count].to_vec();
+            unique.sort_unstable();
+            unique.dedup();
+            assert_eq!(unique.len(), count);
+        }
     }
 
     #[test]

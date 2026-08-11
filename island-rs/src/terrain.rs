@@ -17,12 +17,148 @@ use std::{
 use crate::{
     Adjacency, BoundingBox, Mesh, Raster, River, Vec2, Vec3,
     coast::{self, CoastScale, GeologyField},
+    mesh::{NewVertexStencil, TessellationResult},
     noise,
+    render_mesh::RenderMesh,
     rivers::RiverNetwork,
     rng::Rng,
 };
 
 const DETAIL_DISPLACEMENT_RATIO: f32 = 0.025;
+const HYDRAULIC_EDGE_SHIFT_LIMIT: f32 = 0.08;
+const HYDRAULIC_MIN_PROJECTED_AREA_RATIO: f32 = 0.2;
+const MINIMUM_BEDROCK_EROSION_RATE: f32 = 0.05;
+pub(crate) const LOOSE_DEPTH_EPSILON: f32 = 1.0e-8;
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct SurfaceMaterial {
+    deposited_depth: Vec<f32>,
+    bedrock_hardness: Vec<f32>,
+}
+
+impl SurfaceMaterial {
+    pub(crate) fn empty(vertex_count: usize) -> Self {
+        Self {
+            deposited_depth: vec![0.0; vertex_count],
+            bedrock_hardness: vec![0.0; vertex_count],
+        }
+    }
+
+    pub(crate) fn initialize_geology(&mut self, mesh: &Mesh, geology: GeologyField) {
+        debug_assert_eq!(self.bedrock_hardness.len(), mesh.vertices.len());
+        self.bedrock_hardness
+            .iter_mut()
+            .zip(&mesh.vertices)
+            .for_each(|(hardness, vertex)| *hardness = geology.hardness(vertex.truncate()));
+    }
+
+    pub(crate) fn depths(&self) -> &[f32] {
+        &self.deposited_depth
+    }
+
+    pub(crate) fn depths_mut(&mut self) -> &mut [f32] {
+        &mut self.deposited_depth
+    }
+
+    pub(crate) fn hardnesses(&self) -> &[f32] {
+        &self.bedrock_hardness
+    }
+
+    fn into_tessellated(mut self, source: &Mesh, tessellation: TessellationResult) -> (Mesh, Self) {
+        let old_volume = self.volume(source);
+        self.extend_after_tessellation(old_volume, &tessellation.mesh, &tessellation.new_vertices);
+        (tessellation.mesh, self)
+    }
+
+    pub(crate) fn volume(&self, mesh: &Mesh) -> f64 {
+        debug_assert_eq!(self.deposited_depth.len(), mesh.vertices.len());
+        mesh.triangles
+            .chunks_exact(3)
+            .map(|triangle| {
+                let [a, b, c] = [
+                    mesh.vertices[triangle[0] as usize].truncate(),
+                    mesh.vertices[triangle[1] as usize].truncate(),
+                    mesh.vertices[triangle[2] as usize].truncate(),
+                ];
+                let third_area = f64::from((b - a).perp_dot(c - a).abs() / 6.0);
+                let depth = triangle
+                    .iter()
+                    .map(|&vertex| f64::from(self.deposited_depth[vertex as usize].max(0.0)))
+                    .sum::<f64>();
+                third_area * depth
+            })
+            .sum()
+    }
+
+    pub(crate) fn extend_after_tessellation(
+        &mut self,
+        old_volume: f64,
+        mesh: &Mesh,
+        stencils: &[NewVertexStencil],
+    ) {
+        let old_vertex_count = self.deposited_depth.len();
+        self.deposited_depth.reserve(stencils.len());
+        self.bedrock_hardness.reserve(stencils.len());
+        for stencil in stencils {
+            debug_assert_eq!(stencil.vertex as usize, self.deposited_depth.len());
+            let count = usize::from(stencil.count);
+            debug_assert!((3..=4).contains(&count));
+            debug_assert!(
+                stencil.surrounding[..count]
+                    .iter()
+                    .all(|&vertex| (vertex as usize) < old_vertex_count)
+            );
+            let depth = stencil.surrounding[..count]
+                .iter()
+                .map(|&vertex| self.deposited_depth[vertex as usize])
+                .sum::<f32>()
+                / count as f32;
+            let hardness = stencil.surrounding[..count]
+                .iter()
+                .map(|&vertex| self.bedrock_hardness[vertex as usize])
+                .sum::<f32>()
+                / count as f32;
+            self.deposited_depth.push(depth.max(0.0));
+            self.bedrock_hardness.push(hardness.clamp(0.0, 1.0));
+        }
+        debug_assert_eq!(self.deposited_depth.len(), mesh.vertices.len());
+        debug_assert_eq!(self.bedrock_hardness.len(), mesh.vertices.len());
+        self.rescale_to_volume(mesh, old_volume);
+    }
+
+    pub(crate) fn rescale_to_volume(&mut self, mesh: &Mesh, target_volume: f64) {
+        debug_assert_eq!(self.deposited_depth.len(), mesh.vertices.len());
+        if target_volume <= f64::EPSILON {
+            self.deposited_depth.fill(0.0);
+            return;
+        }
+        let provisional = self.volume(mesh);
+        if provisional <= f64::EPSILON {
+            debug_assert!(false, "positive loose volume vanished during mesh mutation");
+            return;
+        }
+        let scale = (target_volume / provisional) as f32;
+        self.deposited_depth
+            .iter_mut()
+            .for_each(|depth| *depth = (*depth * scale).max(0.0));
+    }
+}
+
+pub(crate) fn projected_vertex_control_areas(mesh: &Mesh) -> Vec<f32> {
+    let mut areas = vec![0.0; mesh.vertices.len()];
+    for triangle in mesh.triangles.chunks_exact(3) {
+        let [a, b, c] = [
+            mesh.vertices[triangle[0] as usize].truncate(),
+            mesh.vertices[triangle[1] as usize].truncate(),
+            mesh.vertices[triangle[2] as usize].truncate(),
+        ];
+        let share = (b - a).perp_dot(c - a).abs() / 6.0;
+        for &vertex in triangle {
+            areas[vertex as usize] += share;
+        }
+    }
+    areas
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[repr(C)]
@@ -43,6 +179,9 @@ pub struct IslandOptions {
     pub hydraulic_deposition_strength: f32,
     /// Slope angle at which hydraulic deposition falls to zero.
     pub hydraulic_deposition_slope_degrees: f32,
+    /// Retained for save-file and native ABI compatibility. Render-only cliff
+    /// sharpening is disabled and this value is currently ignored.
+    pub cliff_render_strength: f32,
     /// River-source flow thresholds measured in standard deviations above the
     /// mean flow for each successive mesh-detail stage.
     pub river_lod2_source_threshold: f32,
@@ -67,6 +206,7 @@ impl Default for IslandOptions {
             hydraulic_erosion_strength: 1.0,
             hydraulic_deposition_strength: 1.5,
             hydraulic_deposition_slope_degrees: 12.0,
+            cliff_render_strength: 0.0,
             river_lod2_source_threshold: 0.35,
             river_lod1_source_threshold: 0.65,
             river_broad_source_threshold: 1.0,
@@ -426,6 +566,7 @@ pub struct Island {
     options: IslandOptions,
     terrain: Terrain,
     coarser_lods: [Mesh; 2],
+    render_lod0: RenderMesh,
     rivers: Vec<River>,
     river_mesh: Mesh,
     decorations: Decorations,
@@ -440,96 +581,25 @@ impl Island {
     /// range.
     pub fn generate(seed: u64, options: IslandOptions) -> Result<Self, String> {
         let options = options.validate()?;
-        let points = create_seed_points(seed, options.terrain_size as usize);
-        let mut base = Mesh::delaunay(&points);
-        let base_adjacency = base.adjacency();
-        let geology = assign_elevations(&mut base, &base_adjacency, seed, options);
-        let river_thresholds = options.river_source_thresholds();
-        hydraulic_erode_stage(&mut base, &base_adjacency, 0.45, options);
-        erode_mesh(&mut base, &base_adjacency, options, 5);
-        base.calculate_normals();
-
-        let mut lod2 = base.tessellated_displaced(DETAIL_DISPLACEMENT_RATIO);
-        let lod2_adjacency = lod2.adjacency();
-        lod2.smooth_with(&lod2_adjacency);
-        add_surface_noise(
-            &mut lod2,
-            seed ^ 0xa076_1d64_78bd_642f,
-            32.0,
-            options.noise_multiplier,
-        );
-        hydraulic_erode_stage(&mut lod2, &lod2_adjacency, 0.55, options);
-        erode_mesh(&mut lod2, &lod2_adjacency, options, 4);
-        let mut lod2_rivers =
-            RiverNetwork::generate(&mut lod2, &lod2_adjacency, river_thresholds[0]);
-        lod2_rivers.shape(&mut lod2, &lod2_adjacency, true, true);
-        lod2.calculate_normals();
-
-        let mut lod1 = lod2.tessellated_displaced(DETAIL_DISPLACEMENT_RATIO);
-        let first_lod1_adjacency = lod1.adjacency();
-        lod1.smooth_with(&first_lod1_adjacency);
-        add_surface_noise(
-            &mut lod1,
-            seed ^ 0xe703_7ed1_a0b4_28db,
-            64.0,
-            options.noise_multiplier * 0.5,
-        );
-        hydraulic_erode_stage(&mut lod1, &first_lod1_adjacency, 0.65, options);
-        erode_mesh(&mut lod1, &first_lod1_adjacency, options, 4);
-        let mut lod1_rivers =
-            RiverNetwork::generate(&mut lod1, &first_lod1_adjacency, river_thresholds[1]);
-        lod1_rivers.shape(&mut lod1, &first_lod1_adjacency, false, true);
-        lod1.calculate_normals();
-
-        let mut lod1 = refine_lod1_again(&lod1, seed, options, river_thresholds[2]);
-
-        let mut lod0 = lod1.tessellated_displaced(DETAIL_DISPLACEMENT_RATIO);
-        let broad_adjacency = lod0.adjacency();
-        lod0.smooth_with(&broad_adjacency);
-        hydraulic_erode_stage(&mut lod0, &broad_adjacency, 0.8, options);
-        lod0.calculate_normals();
-
-        lod0 = lod0.tessellated_displaced(DETAIL_DISPLACEMENT_RATIO);
-        let land_adjacency = lod0.adjacency();
-        add_surface_noise(
-            &mut lod0,
-            seed ^ 0x5899_65cc_7537_4cc3,
-            128.0,
-            options.noise_multiplier * 0.125,
-        );
-        hydraulic_erode_stage(&mut lod0, &land_adjacency, 0.75, options);
-        erode_mesh(&mut lod0, &land_adjacency, options, 2);
-        let mut land_rivers =
-            RiverNetwork::generate(&mut lod0, &land_adjacency, river_thresholds[3]);
-        land_rivers.shape(&mut lod0, &land_adjacency, true, true);
-        lod0.smooth_land_with(&land_adjacency);
-
-        // Run the lasting coastal pass after all broad/global smoothing. Its
-        // cliff and headland displacement then drives the following adaptive
-        // refinement rather than being averaged back into a gentle slope.
-        apply_coastal_stage(&mut lod0, geology, seed, options, CoastScale::Coarse, 1.0);
-
-        lod0 = lod0.tessellated_displaced(DETAIL_DISPLACEMENT_RATIO);
-        let detail_adjacency = lod0.adjacency();
-        add_surface_noise(
-            &mut lod0,
-            seed ^ 0x1d8e_4e27_c47d_124f,
-            192.0,
-            options.noise_multiplier * 0.0625,
-        );
-        hydraulic_erode_stage(&mut lod0, &detail_adjacency, 0.5, options);
-        lod0.smooth_land_with(&detail_adjacency);
-        lod0.smooth_seabed_with(&detail_adjacency);
-        apply_coastal_stage(&mut lod0, geology, seed, options, CoastScale::Detail, 0.55);
+        let (base, material, geology) = generate_base(seed, options);
+        let context = GenerationContext::new(seed, options);
+        let (mut lod2, material) = generate_lod2(&base, material, context);
+        let (lod1, material) = generate_first_lod1(&lod2, material, context);
+        let (mut lod1, material) =
+            refine_lod1_again(&lod1, material, seed, options, context.river_thresholds[2]);
+        let (lod0, material) = generate_broad_lod0(&lod1, material, context);
+        let (mut lod0, mut material) = generate_detail_lod0(&lod0, material, context);
         let detail_adjacency = lod0.adjacency();
         let mut final_rivers =
-            RiverNetwork::generate(&mut lod0, &detail_adjacency, river_thresholds[4]);
-        // Earlier passes build the alluvial terrain. Keep the definitive pass
-        // carve-only so its outlet cannot be raised again after the last cut.
-        final_rivers.shape(&mut lod0, &detail_adjacency, true, false);
-        let (rivers, river_mesh) = final_rivers.into_parts(&mut lod0, &detail_adjacency);
+            RiverNetwork::generate(&mut lod0, &detail_adjacency, context.river_thresholds[4]);
+        final_rivers.shape(&mut lod0, &detail_adjacency, &mut material, true, false);
+        let (rivers, river_mesh) =
+            final_rivers.into_parts(&mut lod0, &detail_adjacency, &mut material);
         correct_lods(&mut lod0, &mut lod1, &mut lod2);
 
+        // Keep the render-mesh ABI and slicer intact, but bypass the cliff
+        // refinement/retreat path which can invert very steep patches.
+        let render_lod0 = RenderMesh::generate(&lod0, geology, &rivers, 0.0);
         let terrain = Terrain::new(lod0);
         let decorations =
             Decorations::generate(seed, &terrain, &rivers, options.terrain_size as usize * 4);
@@ -538,6 +608,7 @@ impl Island {
             options,
             terrain,
             coarser_lods: [lod1, lod2],
+            render_lod0,
             rivers,
             river_mesh,
             decorations,
@@ -563,6 +634,18 @@ impl Island {
     pub fn lod(&self, level: usize) -> Option<&Mesh> {
         match level {
             0 => Some(self.terrain.mesh()),
+            1 => Some(&self.coarser_lods[0]),
+            2 => Some(&self.coarser_lods[1]),
+            _ => None,
+        }
+    }
+
+    /// Returns the mesh intended for display. Render-only cliff sharpening is
+    /// disabled, so every level uses its corrected support surface.
+    #[must_use]
+    pub fn render_lod(&self, level: usize) -> Option<&Mesh> {
+        match level {
+            0 => Some(self.render_lod0.mesh()),
             1 => Some(&self.coarser_lods[0]),
             2 => Some(&self.coarser_lods[1]),
             _ => None,
@@ -666,7 +749,7 @@ impl Island {
     /// Returns an I/O error if the destination cannot be created or written.
     pub fn save(&self, path: impl AsRef<Path>) -> io::Result<()> {
         let mut file = File::create(path)?;
-        file.write_all(b"MOTURS\0\x07")?;
+        file.write_all(b"MOTURS\0\x08")?;
         file.write_all(&self.seed.to_le_bytes())?;
         for value in [
             self.options.max_height,
@@ -684,6 +767,7 @@ impl Island {
             self.options.river_broad_source_threshold,
             self.options.river_land_source_threshold,
             self.options.river_final_source_threshold,
+            self.options.cliff_render_strength,
         ] {
             file.write_all(&value.to_le_bytes())?;
         }
@@ -699,7 +783,7 @@ impl Island {
         let mut file = File::open(path)?;
         let mut magic = [0_u8; 8];
         file.read_exact(&mut magic)?;
-        if &magic[..7] != b"MOTURS\0" || !matches!(magic[7], 3..=7) {
+        if &magic[..7] != b"MOTURS\0" || !matches!(magic[7], 3..=8) {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "invalid Motu Rust free-form mesh file",
@@ -757,6 +841,9 @@ impl Island {
             options.river_land_source_threshold = read_f32(&mut file)?;
             options.river_final_source_threshold = read_f32(&mut file)?;
         }
+        if magic[7] >= 8 {
+            options.cliff_render_strength = read_f32(&mut file)?;
+        }
         options.terrain_size = read_u32(&mut file)?;
         Self::generate(seed, options)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
@@ -766,12 +853,212 @@ impl Island {
     pub fn mesh_in(&self, lod: usize, bounds: BoundingBox) -> Option<Mesh> {
         self.lod(lod).map(|mesh| mesh.sliced(bounds))
     }
+
+    /// Clips a display mesh while retaining support-anchored UVs. Only LOD0
+    /// uses the true-3D clipper.
+    #[must_use]
+    pub fn render_mesh_in(&self, lod: usize, bounds: BoundingBox, clamp_sides: u8) -> Option<Mesh> {
+        match lod {
+            0 => Some(self.render_lod0.sliced(
+                bounds,
+                (clamp_sides != 0).then_some(&self.coarser_lods[0]),
+                clamp_sides,
+            )),
+            1 | 2 => {
+                let mesh = self.lod(lod)?;
+                self.lod(lod + 1).filter(|_| clamp_sides != 0).map_or_else(
+                    || Some(mesh.sliced(bounds)),
+                    |coarser| {
+                        mesh.sliced_grid_clamped(bounds, 1, coarser, clamp_sides)
+                            .pop()
+                    },
+                )
+            }
+            _ => None,
+        }
+    }
+
+    /// Clips a display LOD into one tile batch. The global render mesh is
+    /// borrowed and processed once; only returned tile buffers are allocated.
+    #[must_use]
+    pub fn render_mesh_grid(
+        &self,
+        lod: usize,
+        bounds: BoundingBox,
+        divisions: usize,
+        clamp_sides: u8,
+    ) -> Option<Vec<Mesh>> {
+        match lod {
+            0 => Some(self.render_lod0.sliced_grid(
+                bounds,
+                divisions,
+                (clamp_sides != 0).then_some(&self.coarser_lods[0]),
+                clamp_sides,
+            )),
+            1 | 2 => {
+                let mesh = self.lod(lod)?;
+                Some(self.lod(lod + 1).filter(|_| clamp_sides != 0).map_or_else(
+                    || mesh.sliced_grid(bounds, divisions),
+                    |coarser| mesh.sliced_grid_clamped(bounds, divisions, coarser, clamp_sides),
+                ))
+            }
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct GenerationContext {
+    seed: u64,
+    options: IslandOptions,
+    river_thresholds: [f32; 5],
+}
+
+impl GenerationContext {
+    fn new(seed: u64, options: IslandOptions) -> Self {
+        Self {
+            seed,
+            options,
+            river_thresholds: options.river_source_thresholds(),
+        }
+    }
+}
+
+fn generate_base(seed: u64, options: IslandOptions) -> (Mesh, SurfaceMaterial, GeologyField) {
+    let points = create_seed_points(seed, options.terrain_size as usize);
+    let mut mesh = Mesh::delaunay(&points);
+    let mut material = SurfaceMaterial::empty(mesh.vertices.len());
+    let adjacency = mesh.adjacency();
+    let geology = assign_elevations(&mut mesh, &adjacency, seed, options);
+    material.initialize_geology(&mesh, geology);
+    hydraulic_erode_stage(&mut mesh, &adjacency, &mut material, 0.45, options);
+    erode_mesh(&mut mesh, &adjacency, &mut material, options, 5);
+    mesh.calculate_normals();
+    (mesh, material, geology)
+}
+
+fn generate_lod2(
+    base: &Mesh,
+    material: SurfaceMaterial,
+    context: GenerationContext,
+) -> (Mesh, SurfaceMaterial) {
+    let tessellation = base.tessellated_displaced_attributed(DETAIL_DISPLACEMENT_RATIO);
+    let (mut mesh, mut material) = material.into_tessellated(base, tessellation);
+    let adjacency = mesh.adjacency();
+    mesh.smooth_with(&adjacency);
+    add_surface_noise(
+        &mut mesh,
+        context.seed ^ 0xa076_1d64_78bd_642f,
+        32.0,
+        context.options.noise_multiplier,
+    );
+    hydraulic_erode_stage(&mut mesh, &adjacency, &mut material, 0.55, context.options);
+    erode_mesh(&mut mesh, &adjacency, &mut material, context.options, 4);
+    let mut rivers = RiverNetwork::generate(&mut mesh, &adjacency, context.river_thresholds[0]);
+    rivers.shape(&mut mesh, &adjacency, &mut material, true, true);
+    mesh.calculate_normals();
+    (mesh, material)
+}
+
+fn generate_first_lod1(
+    lod2: &Mesh,
+    material: SurfaceMaterial,
+    context: GenerationContext,
+) -> (Mesh, SurfaceMaterial) {
+    let tessellation = lod2.tessellated_displaced_attributed(DETAIL_DISPLACEMENT_RATIO);
+    let (mut mesh, mut material) = material.into_tessellated(lod2, tessellation);
+    let adjacency = mesh.adjacency();
+    mesh.smooth_with(&adjacency);
+    add_surface_noise(
+        &mut mesh,
+        context.seed ^ 0xe703_7ed1_a0b4_28db,
+        64.0,
+        context.options.noise_multiplier * 0.5,
+    );
+    hydraulic_erode_stage(&mut mesh, &adjacency, &mut material, 0.65, context.options);
+    erode_mesh(&mut mesh, &adjacency, &mut material, context.options, 4);
+    let mut rivers = RiverNetwork::generate(&mut mesh, &adjacency, context.river_thresholds[1]);
+    rivers.shape(&mut mesh, &adjacency, &mut material, false, true);
+    mesh.calculate_normals();
+    (mesh, material)
+}
+
+fn generate_broad_lod0(
+    lod1: &Mesh,
+    material: SurfaceMaterial,
+    context: GenerationContext,
+) -> (Mesh, SurfaceMaterial) {
+    let tessellation = lod1.tessellated_displaced_attributed(DETAIL_DISPLACEMENT_RATIO);
+    let (mut mesh, mut material) = material.into_tessellated(lod1, tessellation);
+    let adjacency = mesh.adjacency();
+    mesh.smooth_with(&adjacency);
+    hydraulic_erode_stage(&mut mesh, &adjacency, &mut material, 0.8, context.options);
+    mesh.calculate_normals();
+
+    let tessellation = mesh.tessellated_displaced_attributed(DETAIL_DISPLACEMENT_RATIO);
+    (mesh, material) = material.into_tessellated(&mesh, tessellation);
+    let adjacency = mesh.adjacency();
+    add_surface_noise(
+        &mut mesh,
+        context.seed ^ 0x5899_65cc_7537_4cc3,
+        128.0,
+        context.options.noise_multiplier * 0.125,
+    );
+    hydraulic_erode_stage(&mut mesh, &adjacency, &mut material, 0.75, context.options);
+    erode_mesh(&mut mesh, &adjacency, &mut material, context.options, 2);
+    let mut rivers = RiverNetwork::generate(&mut mesh, &adjacency, context.river_thresholds[3]);
+    rivers.shape(&mut mesh, &adjacency, &mut material, true, true);
+    mesh.smooth_land_with(&adjacency);
+    apply_coastal_stage(
+        &mut mesh,
+        &mut material,
+        context.seed,
+        context.options,
+        CoastScale::Coarse,
+        1.0,
+    );
+    (mesh, material)
+}
+
+fn generate_detail_lod0(
+    lod0: &Mesh,
+    material: SurfaceMaterial,
+    context: GenerationContext,
+) -> (Mesh, SurfaceMaterial) {
+    let tessellation = lod0.tessellated_displaced_attributed(DETAIL_DISPLACEMENT_RATIO);
+    let (mut mesh, mut material) = material.into_tessellated(lod0, tessellation);
+    let adjacency = mesh.adjacency();
+    add_surface_noise(
+        &mut mesh,
+        context.seed ^ 0x1d8e_4e27_c47d_124f,
+        192.0,
+        context.options.noise_multiplier * 0.0625,
+    );
+    hydraulic_erode_stage(&mut mesh, &adjacency, &mut material, 0.5, context.options);
+    mesh.smooth_land_with(&adjacency);
+    mesh.smooth_seabed_with(&adjacency);
+    apply_coastal_stage(
+        &mut mesh,
+        &mut material,
+        context.seed,
+        context.options,
+        CoastScale::Detail,
+        0.55,
+    );
+    (mesh, material)
 }
 
 /// Runs the second adaptive LOD1 shaping pass while keeping flatter faces at
 /// their existing density.
-fn refine_lod1_again(lod1: &Mesh, seed: u64, options: IslandOptions, river_threshold: f32) -> Mesh {
-    let mut refined = lod1.tessellated_displaced(DETAIL_DISPLACEMENT_RATIO);
+fn refine_lod1_again(
+    lod1: &Mesh,
+    material: SurfaceMaterial,
+    seed: u64,
+    options: IslandOptions,
+    river_threshold: f32,
+) -> (Mesh, SurfaceMaterial) {
+    let tessellation = lod1.tessellated_displaced_attributed(DETAIL_DISPLACEMENT_RATIO);
+    let (mut refined, mut material) = material.into_tessellated(lod1, tessellation);
     let adjacency = refined.adjacency();
     refined.smooth_with(&adjacency);
     add_surface_noise(
@@ -780,17 +1067,17 @@ fn refine_lod1_again(lod1: &Mesh, seed: u64, options: IslandOptions, river_thres
         96.0,
         options.noise_multiplier * 0.25,
     );
-    hydraulic_erode_stage(&mut refined, &adjacency, 0.7, options);
-    erode_mesh(&mut refined, &adjacency, options, 3);
+    hydraulic_erode_stage(&mut refined, &adjacency, &mut material, 0.7, options);
+    erode_mesh(&mut refined, &adjacency, &mut material, options, 3);
     let mut rivers = RiverNetwork::generate(&mut refined, &adjacency, river_threshold);
-    rivers.shape(&mut refined, &adjacency, false, true);
+    rivers.shape(&mut refined, &adjacency, &mut material, false, true);
     refined.calculate_normals();
-    refined
+    (refined, material)
 }
 
 fn apply_coastal_stage(
     mesh: &mut Mesh,
-    geology: GeologyField,
+    material: &mut SurfaceMaterial,
     seed: u64,
     options: IslandOptions,
     scale: CoastScale,
@@ -802,7 +1089,7 @@ fn apply_coastal_stage(
     };
     coast::evolve(
         mesh,
-        geology,
+        material,
         scale_seed,
         options.coastal_erosion_strength * strength_multiplier,
         options.beach_formation_strength,
@@ -987,15 +1274,28 @@ fn add_surface_noise(mesh: &mut Mesh, seed: u64, frequency: f32, amplitude: f32)
 fn hydraulic_erode_stage(
     mesh: &mut Mesh,
     adjacency: &Adjacency,
+    material: &mut SurfaceMaterial,
     stage_strength: f32,
     options: IslandOptions,
 ) {
+    let bedrock_rates: Vec<f32> = material
+        .hardnesses()
+        .iter()
+        .map(|&hardness| bedrock_erosion_rate(hardness))
+        .collect();
     hydraulic_erode(
         mesh,
         adjacency,
+        material,
+        &bedrock_rates,
         false,
         HydraulicErosionSettings::new(stage_strength, options),
     );
+}
+
+pub(crate) fn bedrock_erosion_rate(hardness: f32) -> f32 {
+    let softness = 1.0 - hardness.clamp(0.0, 1.0);
+    MINIMUM_BEDROCK_EROSION_RATE + (1.0 - MINIMUM_BEDROCK_EROSION_RATE) * softness * softness
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -1004,6 +1304,118 @@ struct HydraulicErosionSettings {
     deposition_strength: f32,
     full_deposition_slope: f32,
     maximum_deposition_slope: f32,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct HydraulicShiftLimits {
+    deposition: f32,
+    erosion: f32,
+    available_material: f32,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct HydraulicExchange {
+    capacity: f32,
+    deposition_weight: f32,
+    slope_erosion_weight: f32,
+    limits: HydraulicShiftLimits,
+    loose_available: f32,
+    bedrock_rate: f32,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct HydraulicTransfer {
+    normal_retreat: f32,
+    vertical_deposit: f32,
+    loose_removed: f32,
+    bedrock_removed: f32,
+}
+
+struct VertexFaceAdjacency {
+    offsets: Vec<usize>,
+    faces: Vec<usize>,
+}
+
+struct ProjectedFaceAreas {
+    reference: Vec<f32>,
+    current: Vec<f32>,
+}
+
+impl VertexFaceAdjacency {
+    fn new(mesh: &Mesh) -> Self {
+        let mut offsets = vec![0; mesh.vertices.len() + 1];
+        for &vertex in &mesh.triangles {
+            offsets[vertex as usize + 1] += 1;
+        }
+        for index in 1..offsets.len() {
+            offsets[index] += offsets[index - 1];
+        }
+
+        let mut next = offsets[..mesh.vertices.len()].to_vec();
+        let mut faces = vec![0; mesh.triangles.len()];
+        for (face, triangle) in mesh.triangles.chunks_exact(3).enumerate() {
+            for &vertex in triangle {
+                let vertex = vertex as usize;
+                faces[next[vertex]] = face;
+                next[vertex] += 1;
+            }
+        }
+        Self { offsets, faces }
+    }
+
+    fn faces(&self, vertex: usize) -> &[usize] {
+        &self.faces[self.offsets[vertex]..self.offsets[vertex + 1]]
+    }
+}
+
+impl ProjectedFaceAreas {
+    fn new(mesh: &Mesh) -> Self {
+        let reference: Vec<f32> = (0..mesh.triangles.len() / 3)
+            .map(|face| projected_face_area(mesh, face))
+            .collect();
+        let current = reference.clone();
+        Self { reference, current }
+    }
+
+    fn safe_erosion_cap(
+        &self,
+        mesh: &Mesh,
+        vertex_faces: &VertexFaceAdjacency,
+        vertex: usize,
+        normal: Vec3,
+        requested_cap: f32,
+    ) -> f32 {
+        let candidate = mesh.vertices[vertex] - normal * requested_cap;
+        vertex_faces
+            .faces(vertex)
+            .iter()
+            .fold(requested_cap, |safe_cap, &face| {
+                let reference = self.reference[face];
+                if reference.abs() <= f32::EPSILON {
+                    return 0.0;
+                }
+                let orientation = reference.signum();
+                let current = self.current[face] * orientation;
+                if current <= 0.0 {
+                    return 0.0;
+                }
+                let minimum = (reference.abs() * HYDRAULIC_MIN_PROJECTED_AREA_RATIO).min(current);
+                let candidate =
+                    projected_face_area_with_vertex(mesh, face, vertex, candidate) * orientation;
+                if candidate >= minimum {
+                    safe_cap
+                } else {
+                    let fraction = ((current - minimum) / (current - candidate)).clamp(0.0, 1.0);
+                    safe_cap.min(requested_cap * fraction)
+                }
+            })
+    }
+
+    fn update_incident(&mut self, mesh: &Mesh, vertex_faces: &VertexFaceAdjacency, vertex: usize) {
+        for &face in vertex_faces.faces(vertex) {
+            self.current[face] = projected_face_area(mesh, face);
+        }
+    }
 }
 
 impl HydraulicErosionSettings {
@@ -1026,6 +1438,8 @@ impl HydraulicErosionSettings {
 fn hydraulic_erode(
     mesh: &mut Mesh,
     adjacency: &Adjacency,
+    material: &mut SurfaceMaterial,
+    bedrock_rates: &[f32],
     include_sea: bool,
     settings: HydraulicErosionSettings,
 ) {
@@ -1033,6 +1447,10 @@ fn hydraulic_erode(
         return;
     }
 
+    debug_assert_eq!(material.depths().len(), mesh.vertices.len());
+    debug_assert_eq!(bedrock_rates.len(), mesh.vertices.len());
+    let vertex_faces = VertexFaceAdjacency::new(mesh);
+    let mut projected_areas = ProjectedFaceAreas::new(mesh);
     let mut order: Vec<usize> = (0..mesh.vertices.len()).collect();
     order
         .sort_unstable_by(|left, right| mesh.vertices[*right].z.total_cmp(&mesh.vertices[*left].z));
@@ -1042,89 +1460,284 @@ fn hydraulic_erode(
         .map(|vertex| vertex.z)
         .fold(0.0_f32, f32::max)
         * 0.012;
-
+    let mut stage = HydraulicStage {
+        mesh,
+        adjacency,
+        material,
+        bedrock_rates,
+        vertex_faces: &vertex_faces,
+        projected_areas: &mut projected_areas,
+        include_sea,
+        settings,
+        max_shift,
+    };
     for source in order {
-        if mesh.vertices[source].z <= 0.0 {
+        if stage.mesh.vertices[source].z <= 0.0 {
             break;
         }
+        stage.erode_path(source);
+    }
+}
+
+struct HydraulicStage<'a> {
+    mesh: &'a mut Mesh,
+    adjacency: &'a Adjacency,
+    material: &'a mut SurfaceMaterial,
+    bedrock_rates: &'a [f32],
+    vertex_faces: &'a VertexFaceAdjacency,
+    projected_areas: &'a mut ProjectedFaceAreas,
+    include_sea: bool,
+    settings: HydraulicErosionSettings,
+    max_shift: f32,
+}
+
+impl HydraulicStage<'_> {
+    fn erode_path(&mut self, source: usize) {
         let mut current = source;
         let mut speed = 0.0_f32;
         let mut sediment = 0.0_f32;
-        for _ in 0..mesh.vertices.len() {
-            let next = adjacency[current]
+        for _ in 0..self.mesh.vertices.len() {
+            let next = self.adjacency[current]
                 .iter()
                 .copied()
-                .filter(|neighbour| mesh.vertices[*neighbour].z < mesh.vertices[current].z)
-                .min_by(|left, right| mesh.vertices[*left].z.total_cmp(&mesh.vertices[*right].z));
+                .filter(|neighbour| {
+                    self.mesh.vertices[*neighbour].z < self.mesh.vertices[current].z
+                })
+                .min_by(|left, right| {
+                    self.mesh.vertices[*left]
+                        .z
+                        .total_cmp(&self.mesh.vertices[*right].z)
+                });
             let Some(next) = next else {
-                deposit_sediment_fan(mesh, adjacency, current, &mut sediment, max_shift, settings);
+                self.deposit_fan(current, &mut sediment);
                 break;
             };
-            if mesh.vertices[next].z < 0.0 && !include_sea {
-                deposit_sediment_fan(mesh, adjacency, current, &mut sediment, max_shift, settings);
+            if self.mesh.vertices[next].z < 0.0 && !self.include_sea {
+                self.deposit_fan(current, &mut sediment);
                 break;
             }
-            let direction = mesh.vertices[current] - mesh.vertices[next];
+            let direction = self.mesh.vertices[current] - self.mesh.vertices[next];
             let distance = direction.length().max(f32::EPSILON);
             let horizontal_distance = direction.truncate().length().max(f32::EPSILON);
             let slope = direction.z / horizontal_distance;
             let sin_slope = direction.z / distance;
             let acceleration = sin_slope * sin_slope * sin_slope * distance;
             speed = speed.mul_add(0.75, acceleration * 0.25);
-            let deposition_weight = deposition_weight(slope, settings);
-            let available_material = if include_sea {
-                f32::INFINITY
-            } else {
-                mesh.vertices[current].z.max(0.0)
-            };
-            let shift = exchange_sediment(
+            let deposition_weight = deposition_weight(slope, self.settings);
+            let (erosion_direction, slope_erosion_weight, erosion_cap, available_material) =
+                if sediment <= speed {
+                    let normal = current_surface_normal(self.mesh, self.vertex_faces, current);
+                    let erosion_direction = hydraulic_erosion_direction(normal);
+                    let slope_erosion_weight = hydraulic_slope_erosion_weight(normal.z);
+                    let edge_cap = local_hydraulic_erosion_cap(
+                        self.mesh,
+                        self.adjacency,
+                        current,
+                        self.max_shift,
+                    );
+                    let erosion_cap = self.projected_areas.safe_erosion_cap(
+                        self.mesh,
+                        self.vertex_faces,
+                        current,
+                        erosion_direction,
+                        edge_cap,
+                    );
+                    let available_material = if self.include_sea {
+                        f32::INFINITY
+                    } else if erosion_direction.z > 0.0 {
+                        self.mesh.vertices[current].z.max(0.0) / erosion_direction.z
+                    } else {
+                        0.0
+                    };
+                    (
+                        erosion_direction,
+                        slope_erosion_weight,
+                        erosion_cap,
+                        available_material,
+                    )
+                } else {
+                    (Vec3::Z, 0.0, 0.0, f32::INFINITY)
+                };
+            let transfer = exchange_sediment(
                 &mut sediment,
-                speed,
-                deposition_weight,
-                max_shift,
-                available_material,
-                settings,
+                self.settings,
+                HydraulicExchange {
+                    capacity: speed,
+                    deposition_weight,
+                    slope_erosion_weight,
+                    limits: HydraulicShiftLimits {
+                        deposition: self.max_shift,
+                        erosion: erosion_cap,
+                        available_material,
+                    },
+                    loose_available: self.material.depths()[current],
+                    bedrock_rate: self.bedrock_rates[current],
+                },
             );
-            mesh.vertices[current].z += shift;
+            apply_hydraulic_transfer(
+                &mut self.mesh.vertices[current],
+                erosion_direction,
+                transfer,
+            );
+            let loose_depth = &mut self.material.depths_mut()[current];
+            *loose_depth =
+                (*loose_depth - transfer.loose_removed).max(0.0) + transfer.vertical_deposit;
+            if *loose_depth < LOOSE_DEPTH_EPSILON {
+                *loose_depth = 0.0;
+            }
+            if transfer.normal_retreat > 0.0 {
+                self.projected_areas
+                    .update_incident(self.mesh, self.vertex_faces, current);
+            }
             current = next;
         }
     }
+
+    fn deposit_fan(&mut self, center: usize, sediment: &mut f32) {
+        deposit_sediment_fan(
+            self.mesh,
+            self.adjacency,
+            self.material,
+            center,
+            sediment,
+            self.max_shift,
+            self.settings,
+        );
+    }
+}
+
+fn current_surface_normal(mesh: &Mesh, vertex_faces: &VertexFaceAdjacency, vertex: usize) -> Vec3 {
+    vertex_faces
+        .faces(vertex)
+        .iter()
+        .fold(Vec3::ZERO, |normal, &face| {
+            let offset = face * 3;
+            let a = mesh.vertices[mesh.triangles[offset] as usize];
+            let b = mesh.vertices[mesh.triangles[offset + 1] as usize];
+            let c = mesh.vertices[mesh.triangles[offset + 2] as usize];
+            normal + (b - a).cross(c - a)
+        })
+        .try_normalize()
+        .unwrap_or(Vec3::Z)
+}
+
+fn hydraulic_slope_erosion_weight(normal_z: f32) -> f32 {
+    let vertical_alignment = normal_z.clamp(0.0, 1.0);
+    let horizontal_alignment = (1.0 - vertical_alignment * vertical_alignment).sqrt();
+    2.0 * vertical_alignment * horizontal_alignment
+}
+
+fn hydraulic_erosion_direction(normal: Vec3) -> Vec3 {
+    let vertical_alignment = normal.z.clamp(0.0, 1.0);
+    let beyond_forty_five_degrees =
+        (1.0 - 2.0 * vertical_alignment * vertical_alignment).clamp(0.0, 1.0);
+    let vertical_blend = smooth_unit_interval(beyond_forty_five_degrees);
+    normal.lerp(Vec3::Z, vertical_blend).normalize_or_zero()
+}
+
+fn smooth_unit_interval(value: f32) -> f32 {
+    value * value * (3.0 - 2.0 * value)
+}
+
+fn local_hydraulic_erosion_cap(
+    mesh: &Mesh,
+    adjacency: &Adjacency,
+    vertex: usize,
+    global_cap: f32,
+) -> f32 {
+    let minimum_edge = adjacency[vertex]
+        .iter()
+        .map(|&neighbour| mesh.vertices[vertex].distance(mesh.vertices[neighbour]))
+        .fold(f32::INFINITY, f32::min);
+    global_cap.min(minimum_edge * HYDRAULIC_EDGE_SHIFT_LIMIT)
+}
+
+fn projected_face_area(mesh: &Mesh, face: usize) -> f32 {
+    let offset = face * 3;
+    let [a, b, c] = [
+        mesh.vertices[mesh.triangles[offset] as usize].truncate(),
+        mesh.vertices[mesh.triangles[offset + 1] as usize].truncate(),
+        mesh.vertices[mesh.triangles[offset + 2] as usize].truncate(),
+    ];
+    (b - a).perp_dot(c - a)
+}
+
+fn projected_face_area_with_vertex(
+    mesh: &Mesh,
+    face: usize,
+    moved_vertex: usize,
+    candidate: Vec3,
+) -> f32 {
+    let offset = face * 3;
+    let indices = [
+        mesh.triangles[offset] as usize,
+        mesh.triangles[offset + 1] as usize,
+        mesh.triangles[offset + 2] as usize,
+    ];
+    let points = indices.map(|index| {
+        if index == moved_vertex {
+            candidate.truncate()
+        } else {
+            mesh.vertices[index].truncate()
+        }
+    });
+    (points[1] - points[0]).perp_dot(points[2] - points[0])
+}
+
+fn apply_hydraulic_transfer(vertex: &mut Vec3, normal: Vec3, transfer: HydraulicTransfer) {
+    *vertex -= normal * transfer.normal_retreat;
+    vertex.z += transfer.vertical_deposit;
 }
 
 fn deposition_weight(slope: f32, settings: HydraulicErosionSettings) -> f32 {
     let width =
         (settings.maximum_deposition_slope - settings.full_deposition_slope).max(f32::EPSILON);
     let normalized = ((slope - settings.full_deposition_slope) / width).clamp(0.0, 1.0);
-    1.0 - normalized * normalized * (3.0 - 2.0 * normalized)
+    1.0 - smooth_unit_interval(normalized)
 }
 
 fn exchange_sediment(
     sediment: &mut f32,
-    capacity: f32,
-    deposition_weight: f32,
-    max_shift: f32,
-    available_material: f32,
     settings: HydraulicErosionSettings,
-) -> f32 {
-    let difference = *sediment - capacity;
+    exchange: HydraulicExchange,
+) -> HydraulicTransfer {
+    let difference = *sediment - exchange.capacity;
     if difference > 0.0 {
-        let rate = (settings.deposition_strength * 0.35 * deposition_weight).min(1.0);
-        let deposited = (difference * rate).min(max_shift).min(*sediment);
+        let rate = (settings.deposition_strength * 0.35 * exchange.deposition_weight).min(1.0);
+        let deposited = (difference * rate)
+            .min(exchange.limits.deposition)
+            .min(*sediment);
         *sediment -= deposited;
-        deposited
+        HydraulicTransfer {
+            vertical_deposit: deposited,
+            ..HydraulicTransfer::default()
+        }
     } else {
-        let erosion_weight = 1.0 - deposition_weight;
-        let eroded = (-difference * settings.erosion_strength * erosion_weight)
-            .min(max_shift)
-            .min(available_material);
-        *sediment += eroded;
-        -eroded
+        let erosion_weight = 1.0 - exchange.deposition_weight;
+        let requested = (-difference
+            * settings.erosion_strength
+            * erosion_weight
+            * exchange.slope_erosion_weight)
+            .min(exchange.limits.erosion)
+            .min(exchange.limits.available_material);
+        let loose_removed = requested.min(exchange.loose_available.max(0.0));
+        let bedrock_removed =
+            (requested - loose_removed).max(0.0) * exchange.bedrock_rate.clamp(0.0, 1.0);
+        let normal_retreat = loose_removed + bedrock_removed;
+        *sediment += normal_retreat;
+        HydraulicTransfer {
+            normal_retreat,
+            loose_removed,
+            bedrock_removed,
+            ..HydraulicTransfer::default()
+        }
     }
 }
 
 fn deposit_sediment_fan(
     mesh: &mut Mesh,
     adjacency: &Adjacency,
+    material: &mut SurfaceMaterial,
     center: usize,
     sediment: &mut f32,
     max_shift: f32,
@@ -1153,6 +1766,7 @@ fn deposit_sediment_fan(
     let total_deposit = (*sediment * rate).min(max_shift * total_weight);
     let deposit_per_weight = total_deposit / total_weight;
     mesh.vertices[center].z += deposit_per_weight;
+    material.depths_mut()[center] += deposit_per_weight;
     for &neighbour in &adjacency[center] {
         let candidate = mesh.vertices[neighbour];
         if candidate.z < 0.0 {
@@ -1163,16 +1777,26 @@ fn deposit_sediment_fan(
             .length()
             .max(f32::EPSILON);
         let slope = ((candidate.z - center_position.z) / horizontal_distance).abs();
-        mesh.vertices[neighbour].z += deposit_per_weight * deposition_weight(slope, settings);
+        let deposit = deposit_per_weight * deposition_weight(slope, settings);
+        mesh.vertices[neighbour].z += deposit;
+        material.depths_mut()[neighbour] += deposit;
     }
     *sediment -= total_deposit;
 }
 
-fn erode_mesh(mesh: &mut Mesh, adjacency: &Adjacency, options: IslandOptions, passes: usize) {
+fn erode_mesh(
+    mesh: &mut Mesh,
+    adjacency: &Adjacency,
+    material: &mut SurfaceMaterial,
+    options: IslandOptions,
+    passes: usize,
+) {
     let mut delta = vec![0.0; mesh.vertices.len()];
+    let mut loose_delta = vec![0.0; mesh.vertices.len()];
     let talus = options.max_height * 0.006 / options.slope_multiplier.max(0.1);
     for _ in 0..passes {
         delta.fill(0.0);
+        loose_delta.fill(0.0);
         for (index, neighbours) in adjacency.iter().enumerate() {
             let height = mesh.vertices[index].z;
             if height <= 0.0 {
@@ -1191,12 +1815,20 @@ fn erode_mesh(mesh: &mut Mesh, adjacency: &Adjacency, options: IslandOptions, pa
                 let transfer = (difference - talus) * 0.18;
                 delta[index] -= transfer;
                 delta[lowest] += transfer;
+                let loose_transfer = material.depths()[index].min(transfer);
+                loose_delta[index] -= loose_transfer;
+                loose_delta[lowest] += transfer;
             }
         }
         mesh.vertices
             .iter_mut()
             .zip(&delta)
             .for_each(|(vertex, change)| vertex.z += change);
+        material
+            .depths_mut()
+            .iter_mut()
+            .zip(&loose_delta)
+            .for_each(|(depth, change)| *depth = (*depth + change).max(0.0));
     }
 }
 
@@ -1476,8 +2108,11 @@ fn read_f32(reader: &mut impl Read) -> io::Result<f32> {
 #[cfg(test)]
 mod hydraulic_tests {
     use super::{
-        HydraulicErosionSettings, Mesh, Vec3, add_surface_noise, deposition_weight,
-        exchange_sediment, noise,
+        HydraulicErosionSettings, HydraulicExchange, HydraulicShiftLimits, HydraulicTransfer, Mesh,
+        ProjectedFaceAreas, SurfaceMaterial, Vec3, VertexFaceAdjacency, add_surface_noise,
+        apply_hydraulic_transfer, deposition_weight, exchange_sediment, hydraulic_erode,
+        hydraulic_erosion_direction, hydraulic_slope_erosion_weight, local_hydraulic_erosion_cap,
+        noise,
     };
 
     fn settings() -> HydraulicErosionSettings {
@@ -1486,6 +2121,32 @@ mod hydraulic_tests {
             deposition_strength: 2.0,
             full_deposition_slope: 4.0_f32.to_radians().tan(),
             maximum_deposition_slope: 12.0_f32.to_radians().tan(),
+        }
+    }
+
+    fn shift_limits(maximum: f32, available_material: f32) -> HydraulicShiftLimits {
+        HydraulicShiftLimits {
+            deposition: maximum,
+            erosion: maximum,
+            available_material,
+        }
+    }
+
+    fn exchange(
+        capacity: f32,
+        deposition_weight: f32,
+        slope_erosion_weight: f32,
+        limits: HydraulicShiftLimits,
+        loose_available: f32,
+        bedrock_rate: f32,
+    ) -> HydraulicExchange {
+        HydraulicExchange {
+            capacity,
+            deposition_weight,
+            slope_erosion_weight,
+            limits,
+            loose_available,
+            bedrock_rate,
         }
     }
 
@@ -1524,19 +2185,249 @@ mod hydraulic_tests {
         let settings = settings();
         let mut sediment = 1.0;
         let before = sediment;
-        let deposited = exchange_sediment(&mut sediment, 0.2, 1.0, 10.0, f32::INFINITY, settings);
-        assert!(deposited > 0.0);
-        assert!((sediment + deposited - before).abs() < 1.0e-6);
+        let deposited = exchange_sediment(
+            &mut sediment,
+            settings,
+            exchange(0.2, 1.0, 1.0, shift_limits(10.0, f32::INFINITY), 0.0, 1.0),
+        );
+        assert!(deposited.vertical_deposit > 0.0);
+        assert!((sediment + deposited.vertical_deposit - before).abs() < 1.0e-6);
 
         let mut sediment = 0.0;
         let before = sediment;
-        let eroded = exchange_sediment(&mut sediment, 1.0, 0.0, 0.5, 0.3, settings);
-        assert!(eroded < 0.0);
-        assert!((sediment + eroded - before).abs() < 1.0e-6);
+        let eroded = exchange_sediment(
+            &mut sediment,
+            settings,
+            exchange(1.0, 0.0, 1.0, shift_limits(0.5, 0.3), 0.0, 1.0),
+        );
+        assert!(eroded.normal_retreat > 0.0);
+        assert!((sediment - eroded.normal_retreat - before).abs() < 1.0e-6);
 
         let mut sediment = 1.0;
-        let steep_deposit =
-            exchange_sediment(&mut sediment, 0.2, 0.0, 10.0, f32::INFINITY, settings);
-        assert!(steep_deposit.abs() < f32::EPSILON);
+        let steep_deposit = exchange_sediment(
+            &mut sediment,
+            settings,
+            exchange(0.2, 0.0, 1.0, shift_limits(10.0, f32::INFINITY), 0.0, 1.0),
+        );
+        assert!(steep_deposit.vertical_deposit.abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn loose_material_is_removed_before_hard_bedrock() {
+        let settings = settings();
+        let mut sediment = 0.0;
+        let transfer = exchange_sediment(
+            &mut sediment,
+            settings,
+            exchange(1.0, 0.0, 1.0, shift_limits(0.5, f32::INFINITY), 0.2, 0.1),
+        );
+
+        assert!((transfer.loose_removed - 0.2).abs() < 1.0e-6);
+        assert!((transfer.bedrock_removed - 0.03).abs() < 1.0e-6);
+        assert!((transfer.normal_retreat - 0.23).abs() < 1.0e-6);
+        assert!((sediment - transfer.normal_retreat).abs() < 1.0e-6);
+    }
+
+    #[test]
+    fn material_volume_is_conserved_across_adaptive_tessellation() {
+        let mut mesh = Mesh {
+            vertices: vec![
+                Vec3::new(-1.0, -1.0, 0.0),
+                Vec3::new(1.0, -1.0, 0.0),
+                Vec3::new(1.0, 1.0, 0.0),
+                Vec3::new(-1.0, 1.0, 0.0),
+                Vec3::new(0.0, 0.0, 0.8),
+            ],
+            normals: Vec::new(),
+            triangles: vec![0, 1, 4, 1, 2, 4, 2, 3, 4, 3, 0, 4],
+            uv: Vec::new(),
+        };
+        mesh.calculate_normals();
+        let mut material = SurfaceMaterial::empty(mesh.vertices.len());
+        material.deposited_depth = vec![0.01, 0.02, 0.03, 0.04, 0.08];
+        let old_volume = material.volume(&mesh);
+        let tessellation = mesh.tessellated_displaced_attributed(0.1);
+
+        let (tessellated, material) = material.into_tessellated(&mesh, tessellation);
+        let new_volume = material.volume(&tessellated);
+        let relative_error = (new_volume - old_volume).abs() / old_volume;
+
+        assert!(tessellated.vertices.len() > mesh.vertices.len());
+        assert_eq!(material.depths().len(), tessellated.vertices.len());
+        assert!(relative_error < 1.0e-6, "relative error: {relative_error}");
+        assert!(
+            material
+                .depths()
+                .iter()
+                .all(|depth| depth.is_finite() && *depth >= 0.0)
+        );
+    }
+
+    #[test]
+    fn hydraulic_erosion_peaks_at_forty_five_degrees_and_stops_at_vertical() {
+        let flat = hydraulic_slope_erosion_weight(1.0);
+        let thirty_degrees = hydraulic_slope_erosion_weight(0.866_025_4);
+        let forty_five_degrees = hydraulic_slope_erosion_weight(0.707_106_77);
+        let sixty_degrees = hydraulic_slope_erosion_weight(0.5);
+        let steep = hydraulic_slope_erosion_weight(0.207_911_69);
+        let near_vertical = hydraulic_slope_erosion_weight(0.017_452_406);
+
+        assert_eq!(flat.to_bits(), 0.0_f32.to_bits());
+        assert!((forty_five_degrees - 1.0).abs() < 1.0e-6);
+        assert!((thirty_degrees - sixty_degrees).abs() < 1.0e-6);
+        assert!(forty_five_degrees > thirty_degrees);
+        assert!(sixty_degrees > steep);
+        assert!(near_vertical < steep);
+        assert_eq!(
+            hydraulic_slope_erosion_weight(0.0).to_bits(),
+            0.0_f32.to_bits()
+        );
+        assert_eq!(
+            hydraulic_slope_erosion_weight(-0.1).to_bits(),
+            0.0_f32.to_bits()
+        );
+    }
+
+    #[test]
+    fn steep_hydraulic_erosion_blends_from_the_normal_toward_vertical() {
+        let thirty_degrees = Vec3::new(0.5, 0.0, 0.866_025_4);
+        let forty_five_degrees = Vec3::new(0.707_106_77, 0.0, 0.707_106_77);
+        let sixty_degrees = Vec3::new(0.866_025_4, 0.0, 0.5);
+        let near_vertical = Vec3::new(0.999_847_7, 0.0, 0.017_452_406);
+
+        assert!(hydraulic_erosion_direction(thirty_degrees).abs_diff_eq(thirty_degrees, 1.0e-6));
+        assert!(
+            hydraulic_erosion_direction(forty_five_degrees).abs_diff_eq(forty_five_degrees, 1.0e-6)
+        );
+        let blended_sixty = hydraulic_erosion_direction(sixty_degrees);
+        assert!(blended_sixty.z > sixty_degrees.z);
+        assert!(blended_sixty.x < sixty_degrees.x);
+        assert!(hydraulic_erosion_direction(near_vertical).z > 0.999);
+    }
+
+    #[test]
+    fn hydraulic_erosion_moves_down_normal_but_deposition_stays_vertical() {
+        let normal = Vec3::new(0.6, 0.0, 0.8);
+        let original = Vec3::new(0.4, 0.5, 0.2);
+        let mut eroded = original;
+        apply_hydraulic_transfer(
+            &mut eroded,
+            normal,
+            HydraulicTransfer {
+                normal_retreat: 0.05,
+                ..HydraulicTransfer::default()
+            },
+        );
+        assert!((eroded - (original - normal * 0.05)).length() < 1.0e-6);
+
+        let mut deposited = original;
+        apply_hydraulic_transfer(
+            &mut deposited,
+            normal,
+            HydraulicTransfer {
+                vertical_deposit: 0.05,
+                ..HydraulicTransfer::default()
+            },
+        );
+        assert!((deposited - (original + Vec3::Z * 0.05)).length() < 1.0e-6);
+    }
+
+    #[test]
+    fn vertical_faces_do_not_supply_hydraulic_sediment() {
+        let settings = settings();
+        let mut sediment = 0.0;
+        let eroded = exchange_sediment(
+            &mut sediment,
+            settings,
+            exchange(1.0, 0.0, 0.0, shift_limits(0.5, 0.3), 0.0, 1.0),
+        );
+
+        assert!(eroded.normal_retreat.abs() < f32::EPSILON);
+        assert!(sediment.abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn hydraulic_pass_retreats_sloped_mesh_laterally() {
+        let mut mesh = Mesh {
+            vertices: vec![
+                Vec3::new(0.0, 0.0, 1.0),
+                Vec3::new(1.0, 0.0, 0.5),
+                Vec3::new(0.0, 1.0, 0.5),
+            ],
+            normals: Vec::new(),
+            triangles: vec![0, 1, 2],
+            uv: Vec::new(),
+        };
+        let adjacency = mesh.adjacency();
+        let original = mesh.vertices[0];
+        let mut material = SurfaceMaterial::empty(mesh.vertices.len());
+        let bedrock_rates = vec![1.0; mesh.vertices.len()];
+
+        hydraulic_erode(
+            &mut mesh,
+            &adjacency,
+            &mut material,
+            &bedrock_rates,
+            true,
+            settings(),
+        );
+
+        assert!(mesh.vertices[0].x < original.x);
+        assert!(mesh.vertices[0].y < original.y);
+        assert!(mesh.vertices[0].z < original.z);
+    }
+
+    #[test]
+    fn hydraulic_cap_preserves_projected_triangle_orientation_and_area() {
+        let mesh = Mesh {
+            vertices: vec![
+                Vec3::new(0.0, 0.0, 1.0),
+                Vec3::new(1.0, 0.0, 0.0),
+                Vec3::new(0.0, 1.0, 0.0),
+            ],
+            normals: Vec::new(),
+            triangles: vec![0, 1, 2],
+            uv: Vec::new(),
+        };
+        let vertex_faces = VertexFaceAdjacency::new(&mesh);
+        let mut projected_areas = ProjectedFaceAreas::new(&mesh);
+        let normal = Vec3::new(-0.7, -0.1, 0.707_106_77).normalize();
+        let requested = 2.0;
+        let cap = projected_areas.safe_erosion_cap(&mesh, &vertex_faces, 0, normal, requested);
+        let mut moved_mesh = mesh.clone();
+        moved_mesh.vertices[0] -= normal * cap;
+        projected_areas.update_incident(&moved_mesh, &vertex_faces, 0);
+        let second_cap =
+            projected_areas.safe_erosion_cap(&moved_mesh, &vertex_faces, 0, normal, requested);
+        let before_area = (mesh.vertices[1] - mesh.vertices[0])
+            .truncate()
+            .perp_dot((mesh.vertices[2] - mesh.vertices[0]).truncate());
+        let after_area = (moved_mesh.vertices[1] - moved_mesh.vertices[0])
+            .truncate()
+            .perp_dot((moved_mesh.vertices[2] - moved_mesh.vertices[0]).truncate());
+
+        assert!(cap < requested);
+        assert!(before_area * after_area > 0.0);
+        assert!(after_area.abs() >= before_area.abs() * 0.2);
+        assert!(second_cap < f32::EPSILON);
+    }
+
+    #[test]
+    fn local_hydraulic_cap_is_edge_relative() {
+        let mesh = Mesh {
+            vertices: vec![
+                Vec3::new(0.0, 0.0, 1.0),
+                Vec3::new(0.5, 0.0, 0.5),
+                Vec3::new(0.0, 1.0, 0.0),
+            ],
+            normals: Vec::new(),
+            triangles: vec![0, 1, 2],
+            uv: Vec::new(),
+        };
+        let adjacency = mesh.adjacency();
+        let shortest_edge = mesh.vertices[0].distance(mesh.vertices[1]);
+        let cap = local_hydraulic_erosion_cap(&mesh, &adjacency, 0, 10.0);
+
+        assert!((cap - shortest_edge * 0.08).abs() < 1.0e-6);
     }
 }

@@ -10,7 +10,7 @@ use std::{
     f32::consts::TAU,
 };
 
-use crate::{Adjacency, Mesh, Vec2, noise};
+use crate::{Adjacency, Mesh, Vec2, noise, terrain::SurfaceMaterial};
 
 const SEA_EPSILON: f32 = 1.0e-7;
 const NO_FACE: u32 = u32::MAX;
@@ -46,8 +46,8 @@ impl TerrainNoiseSample {
         self.continental.mul_add(0.78, self.detail * 0.22)
     }
 
-    fn raw_hardness(self) -> f32 {
-        self.continental.mul_add(0.8, self.detail * 0.2)
+    fn material_component(self) -> f32 {
+        self.height_component()
     }
 }
 
@@ -62,7 +62,7 @@ impl GeologyField {
     #[must_use]
     pub(crate) fn calibrated(seed: u64, positions: impl Iterator<Item = Vec2>) -> Self {
         let mut samples: Vec<f32> = positions
-            .map(|position| terrain_noise(seed, position).raw_hardness())
+            .map(|position| terrain_noise(seed, position).material_component())
             .collect();
         samples.sort_unstable_by(f32::total_cmp);
         let last = samples.len().saturating_sub(1);
@@ -76,8 +76,8 @@ impl GeologyField {
     }
 
     #[must_use]
-    fn hardness(self, position: Vec2) -> f32 {
-        let normalized = ((terrain_noise(self.seed, position).raw_hardness()
+    pub(crate) fn hardness(self, position: Vec2) -> f32 {
+        let normalized = ((terrain_noise(self.seed, position).material_component()
             - self.low_raw_hardness)
             * self.inverse_raw_range)
             .clamp(0.0, 1.0);
@@ -253,7 +253,7 @@ pub(crate) struct CoastIterationStats {
 /// vertices, which preserves the shared LOD prefixes used by `correct_lods`.
 pub(crate) fn evolve(
     mesh: &mut Mesh,
-    geology: GeologyField,
+    material: &mut SurfaceMaterial,
     seed: u64,
     erosion_strength: f32,
     beach_strength: f32,
@@ -263,7 +263,7 @@ pub(crate) fn evolve(
         return CoastIterationStats::default();
     }
 
-    selectively_refine_coast(mesh, scale.band_width());
+    selectively_refine_coast(mesh, material, scale.band_width());
     let climate = WaveClimate::new(seed);
     let adjacency = mesh.adjacency();
     let face_adjacency = face_adjacency(mesh);
@@ -275,7 +275,8 @@ pub(crate) fn evolve(
     topology.calculate_exposure(mesh, &face_adjacency, climate);
     let band = CoastalBand::new(mesh, &adjacency, &topology, scale.band_width());
     let mut scratch = CoastScratch::new(mesh.vertices.len(), topology.points.len());
-    initialize_soft_cover(mesh, &band, scale.band_width(), &mut scratch.soft_cover);
+    scratch.soft_cover.copy_from_slice(material.depths());
+    let bedrock_hardness = material.hardnesses();
     let mut total = CoastIterationStats::default();
     for _ in 0..scale.iterations() {
         let stats = erode_transport_and_deposit(
@@ -283,7 +284,7 @@ pub(crate) fn evolve(
             &adjacency,
             &topology,
             &band,
-            geology,
+            bedrock_hardness,
             climate,
             erosion_strength,
             beach_strength,
@@ -304,6 +305,7 @@ pub(crate) fn evolve(
     );
     total.eroded += exposed_cover;
     total.retained = scratch.sediment.iter().sum();
+    material.depths_mut().copy_from_slice(&scratch.soft_cover);
     mesh.uv.clear();
     mesh.uv
         .extend(mesh.vertices.iter().map(|vertex| vertex.truncate()));
@@ -311,7 +313,7 @@ pub(crate) fn evolve(
     total
 }
 
-fn selectively_refine_coast(mesh: &mut Mesh, _band_width: f32) {
+fn selectively_refine_coast(mesh: &mut Mesh, material: &mut SurfaceMaterial, _band_width: f32) {
     let mut marked = vec![false; mesh.vertices.len()];
     for triangle in mesh.triangles.chunks_exact(3) {
         let heights = [
@@ -328,7 +330,9 @@ fn selectively_refine_coast(mesh: &mut Mesh, _band_width: f32) {
         }
     }
     if marked.iter().any(|&value| value) {
-        mesh.tessellate_incident_to(&marked);
+        let old_volume = material.volume(mesh);
+        let stencils = mesh.tessellate_incident_to(&marked);
+        material.extend_after_tessellation(old_volume, mesh, &stencils);
         mesh.calculate_normals();
     }
 }
@@ -640,7 +644,7 @@ fn erode_transport_and_deposit(
     _adjacency: &Adjacency,
     topology: &CoastTopology,
     band: &CoastalBand,
-    geology: GeologyField,
+    bedrock_hardness: &[f32],
     climate: WaveClimate,
     erosion_strength: f32,
     beach_strength: f32,
@@ -656,8 +660,8 @@ fn erode_transport_and_deposit(
             continue;
         }
         let exposure = topology.points[owner as usize].exposure;
-        let bedrock_hardness = geology.hardness(vertex.truncate());
-        let hardness = effective_surface_hardness(bedrock_hardness, scratch.soft_cover[index]);
+        let hardness =
+            effective_surface_hardness(bedrock_hardness[index], scratch.soft_cover[index]);
         let distance_falloff = smooth_falloff(band.distance[index] / band_width);
         let erosion_profile = coastal_erosion_profile(hardness, vertex.z);
         let attack = scale.erosion_step()
@@ -697,7 +701,7 @@ fn erode_transport_and_deposit(
             mesh,
             topology,
             band,
-            geology,
+            bedrock_hardness,
             beach_strength,
             band_width,
             &mut scratch.sediment,
@@ -747,7 +751,7 @@ fn deposit_beaches(
     mesh: &mut Mesh,
     topology: &CoastTopology,
     band: &CoastalBand,
-    geology: GeologyField,
+    bedrock_hardness: &[f32],
     strength: f32,
     band_width: f32,
     sediment: &mut [f64],
@@ -765,7 +769,7 @@ fn deposit_beaches(
         }
         let point = topology.points[owner as usize];
         let sheltered = 1.0 - point.exposure;
-        let hardness = geology.hardness(vertex.truncate());
+        let hardness = bedrock_hardness[index];
         let soft_rock = 1.0 - hardness;
         let eligibility = sheltered * sheltered * soft_rock * soft_rock;
         if eligibility < 0.04 {
@@ -813,28 +817,6 @@ fn deposit_beaches(
         sediment[index] = (sediment[index] - used).max(0.0);
     }
     deposited
-}
-
-fn initialize_soft_cover(mesh: &Mesh, band: &CoastalBand, band_width: f32, soft_cover: &mut [f32]) {
-    for (index, cover) in soft_cover.iter_mut().enumerate() {
-        if band.owner[index] == NO_FACE || band.distance[index] > band_width {
-            continue;
-        }
-        let normal_z = mesh.normals.get(index).map_or(0.0, |normal| normal.z);
-        *cover = inferred_soft_cover(
-            normal_z,
-            mesh.vertices[index].z,
-            band.distance[index],
-            band_width,
-        );
-    }
-}
-
-fn inferred_soft_cover(normal_z: f32, elevation: f32, shore_distance: f32, band_width: f32) -> f32 {
-    let gentle = smooth_step(((normal_z - 0.84) / 0.15).clamp(0.0, 1.0));
-    let near_sea = smooth_falloff(elevation.abs() / 0.055);
-    let near_shore = smooth_falloff(shore_distance / band_width);
-    gentle * near_sea * near_shore * 0.012
 }
 
 fn effective_surface_hardness(bedrock_hardness: f32, soft_cover: f32) -> f32 {
@@ -1150,29 +1132,33 @@ mod tests {
     }
 
     #[test]
-    fn gentle_near_shore_deposits_override_hard_bedrock_until_removed() {
-        let cover = inferred_soft_cover(0.995, 0.002, 0.0, 0.05);
+    fn persisted_deposits_override_hard_bedrock_until_removed() {
+        let cover = 0.012;
         let exposed_hardness = effective_surface_hardness(0.98, cover);
         let uncovered_hardness = effective_surface_hardness(0.98, 0.0);
 
-        assert!(cover > 0.011);
         assert!(exposed_hardness < 0.03);
         assert!(uncovered_hardness > 0.97);
-        assert_eq!(
-            inferred_soft_cover(0.6, 0.002, 0.0, 0.05).to_bits(),
-            0.0_f32.to_bits()
-        );
     }
 
     #[test]
     fn coastal_evolution_is_finite_and_never_reorders_vertices() {
         let mut mesh = synthetic_island();
         let original_vertices = mesh.vertices.clone();
+        let mut material = SurfaceMaterial::empty(mesh.vertices.len());
         let geology = GeologyField::calibrated(7, mesh.vertices.iter().map(|v| v.truncate()));
-        let stats = evolve(&mut mesh, geology, 7, 1.0, 1.0, CoastScale::Detail);
+        material.initialize_geology(&mesh, geology);
+        let stats = evolve(&mut mesh, &mut material, 7, 1.0, 1.0, CoastScale::Detail);
         assert!(stats.eroded > 0.0);
         assert!(stats.deposited <= stats.eroded + 1.0e-9);
         assert!(mesh.vertices.len() >= original_vertices.len());
+        assert_eq!(material.depths().len(), mesh.vertices.len());
+        assert!(
+            material
+                .depths()
+                .iter()
+                .all(|depth| depth.is_finite() && *depth >= 0.0)
+        );
         assert!(mesh.vertices.iter().all(|vertex| vertex.is_finite()));
         assert_eq!(
             mesh.vertices
@@ -1191,9 +1177,13 @@ mod tests {
     fn zero_strength_preserves_mesh_exactly() {
         let mut mesh = synthetic_island();
         let original = mesh.clone();
+        let mut material = SurfaceMaterial::empty(mesh.vertices.len());
         let geology = GeologyField::calibrated(9, mesh.vertices.iter().map(|v| v.truncate()));
-        let stats = evolve(&mut mesh, geology, 9, 0.0, 4.0, CoastScale::Coarse);
+        material.initialize_geology(&mesh, geology);
+        let original_material = material.clone();
+        let stats = evolve(&mut mesh, &mut material, 9, 0.0, 4.0, CoastScale::Coarse);
         assert_eq!(mesh, original);
+        assert_eq!(material, original_material);
         assert_eq!(stats.eroded.to_bits(), 0.0_f64.to_bits());
         assert_eq!(stats.deposited.to_bits(), 0.0_f64.to_bits());
     }

@@ -10,6 +10,7 @@ mod mesh;
 mod noise;
 mod png;
 mod raster;
+mod render_mesh;
 mod rivers;
 mod rng;
 mod terrain;

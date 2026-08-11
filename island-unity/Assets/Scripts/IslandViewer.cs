@@ -49,6 +49,7 @@ public sealed class IslandViewer : MonoBehaviour
     private bool showRivers = true;
     private bool showSea = true;
     private bool showMeshEdges;
+    private bool useRenderCollider = true;
     private bool clickCandidate;
     private Vector2 clickStart;
 
@@ -220,6 +221,7 @@ public sealed class IslandViewer : MonoBehaviour
                 riverBroadSourceThreshold = riverBroadSourceThreshold,
                 riverLandSourceThreshold = riverLandSourceThreshold,
                 riverFinalSourceThreshold = riverFinalSourceThreshold,
+                cliffRenderStrength = 0f,
             };
 
             islandHandle = MotuNative.CreateMotu(seed, ref options);
@@ -236,6 +238,7 @@ public sealed class IslandViewer : MonoBehaviour
             terrainRoot.transform.SetParent(transform, false);
             terrainStreamer = terrainRoot.AddComponent<TerrainTileStreamer>();
             terrainStreamer.Initialize(islandHandle, terrainMaterials, TerrainScale);
+            terrainStreamer.UseRenderCollider = useRenderCollider;
             firstPersonController.SetTerrainStreamer(terrainStreamer);
 
             MotuNative.CreateRiverMesh(islandHandle, IntPtr.Zero, out var riverExport);
@@ -270,7 +273,7 @@ public sealed class IslandViewer : MonoBehaviour
             status += " | maps: 2048 LOD 0, 1024 LOD 1, 512 LOD 2";
             status += string.Format(
                 CultureInfo.InvariantCulture,
-                " | current LOD 0 tile collider | {0:F1} km square",
+                " | current LOD 0 render collider (support fallback) | {0:F1} km square",
                 TerrainScale / 1000f);
         }
         catch (Exception exception)
@@ -376,7 +379,7 @@ public sealed class IslandViewer : MonoBehaviour
             source.vertices,
             source.normals,
             source.triangles,
-            default,
+            source.uv,
             createSurfaceMapCoordinates,
             createTangents);
     }
@@ -588,7 +591,7 @@ public sealed class IslandViewer : MonoBehaviour
             return;
         }
 
-        GUILayout.BeginArea(new Rect(16f, 16f, 500f, 684f), GUI.skin.box);
+        GUILayout.BeginArea(new Rect(16f, 16f, 500f, 736f), GUI.skin.box);
         GUILayout.Label("Motu Rust Island Viewer");
         GUILayout.BeginHorizontal();
         GUILayout.Label("Seed", GUILayout.Width(42f));
@@ -642,7 +645,6 @@ public sealed class IslandViewer : MonoBehaviour
             1f,
             45f,
             "F1");
-
         GUILayout.Space(4f);
         GUILayout.Label("River source thresholds (SD; higher = fewer rivers)");
         riverLod2SourceThreshold = OptionSlider(
@@ -687,6 +689,13 @@ public sealed class IslandViewer : MonoBehaviour
 
         GUILayout.Space(4f);
         showMeshEdges = GUILayout.Toggle(showMeshEdges, "Show mesh edges (wireframe)");
+        useRenderCollider = GUILayout.Toggle(
+            useRenderCollider,
+            "Use true 3D collider (support fallback)");
+        if (terrainStreamer != null)
+        {
+            terrainStreamer.UseRenderCollider = useRenderCollider;
+        }
         var nextRivers = GUILayout.Toggle(showRivers, "Show carved river surfaces");
         var nextSea = GUILayout.Toggle(showSea, "Show sea surface");
         if (nextRivers != showRivers)
@@ -740,4 +749,98 @@ public sealed class IslandViewer : MonoBehaviour
         riverLandSourceThreshold = 1.3f;
         riverFinalSourceThreshold = 1.6f;
     }
+
+#if UNITY_EDITOR
+    public static void BatchValidateNativeInterop()
+    {
+        var options = new MotuNative.Options
+        {
+            maxZ = 0.2f,
+            waterRatio = 0.6f,
+            slopeMultiplier = 1.3f,
+            coastalSlopeMultiplier = 1f,
+            noiseMultiplier = 0.0005f,
+            coastalErosionStrength = 1f,
+            beachFormationStrength = 1f,
+            hydraulicErosionStrength = 1f,
+            hydraulicDepositionStrength = 1.5f,
+            hydraulicDepositionSlopeDegrees = 12f,
+            riverLod2SourceThreshold = 0.35f,
+            riverLod1SourceThreshold = 0.65f,
+            riverBroadSourceThreshold = 1f,
+            riverLandSourceThreshold = 1.3f,
+            riverFinalSourceThreshold = 1.6f,
+            cliffRenderStrength = 0f,
+        };
+        var handle = MotuNative.CreateMotu(2018, ref options);
+        if (handle == IntPtr.Zero)
+        {
+            throw new InvalidOperationException("Native validation could not generate an island.");
+        }
+
+        try
+        {
+            const float lod0ParentResolution = 64f;
+            var area = new MotuNative.ExportArea(
+                24f / lod0ParentResolution,
+                24f / lod0ParentResolution,
+                25f / lod0ParentResolution,
+                25f / lod0ParentResolution);
+            MotuNative.CreateMeshGrid(handle, ref area, 0, 8, 0, out var grid);
+            try
+            {
+                if (grid.handle == IntPtr.Zero || grid.length != 64)
+                {
+                    throw new InvalidOperationException("Native render-grid layout is invalid.");
+                }
+                var exportSize = Marshal.SizeOf<MotuNative.ExportMesh>();
+                for (var index = 0; index < grid.length; index++)
+                {
+                    var nativeMesh = Marshal.PtrToStructure<MotuNative.ExportMesh>(
+                        IntPtr.Add(grid.data, index * exportSize));
+                    if (nativeMesh.vertices.length == 0
+                        || nativeMesh.triangles.length == 0
+                        || nativeMesh.uv.length != nativeMesh.vertices.length)
+                    {
+                        throw new InvalidOperationException("A render tile has invalid geometry or UVs.");
+                    }
+                    var renderMesh = CopyTerrainMesh(nativeMesh, 0);
+                    Physics.BakeMesh(renderMesh.GetEntityId(), false);
+                    DestroyImmediate(renderMesh);
+                }
+            }
+            finally
+            {
+                MotuNative.ReleaseMeshGrid(ref grid);
+            }
+
+            const float lod0Resolution = 512f;
+            var colliderArea = new MotuNative.ExportArea(
+                192f / lod0Resolution,
+                192f / lod0Resolution,
+                193f / lod0Resolution,
+                193f / lod0Resolution);
+            MotuNative.CreateSupportMesh(handle, ref colliderArea, 0, out var support);
+            try
+            {
+                if (support.handle == IntPtr.Zero
+                    || support.triangles.length == 0
+                    || support.uv.length != support.vertices.length)
+                {
+                    throw new InvalidOperationException("Native support-collider mesh is invalid.");
+                }
+                DestroyImmediate(CopyTerrainMesh(support, 0));
+            }
+            finally
+            {
+                MotuNative.ReleaseMesh(ref support);
+            }
+        }
+        finally
+        {
+            MotuNative.ReleaseMotu(handle);
+        }
+        Debug.Log("Motu native render/support mesh validation passed.");
+    }
+#endif
 }

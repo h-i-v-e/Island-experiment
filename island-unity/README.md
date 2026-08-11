@@ -25,6 +25,12 @@ redistributes that sediment toward sheltered shorelines. Higher river-threshold
 values produce fewer source rivers. Slider changes take effect when you press
 Generate. Drag to orbit, use the mouse wheel to zoom, and right-drag to pan.
 
+Render-only cliff sharpening and its slider are disabled. LOD 0 displays the
+same corrected support surface used by terrain queries, avoiding the inverted
+patches previously introduced by the additional normal-retreat remeshing pass.
+Hydraulic erosion, coastal erosion, adaptive terrain tessellation, rivers, and
+waterfalls remain active.
+
 Enable **Show mesh edges (wireframe)** to render the generated triangle edges
 without allocating duplicate line meshes. The setting remains active when you
 enter first-person mode and applies automatically to newly streamed LOD tiles.
@@ -33,14 +39,17 @@ Click the overview terrain to enter first-person mode. The current LOD 2 tile
 and its neighbours are each split into an 8x8 LOD 1 group. The current LOD 1
 tile and its neighbours are each split again into 8x8 LOD 0 groups. Only the
 current LOD 0 tile has a `MeshCollider`; it moves as the player crosses tile
-boundaries. Press Escape to discard the refinement groups and return to the
-64-tile LOD 2 overview. First-person controls are WASD, Shift to run, Space to
-jump, and the mouse to look.
+boundaries. The collider uses the true-3D tile by default and automatically
+falls back to a separately exported support tile if Unity cannot cook it. The
+overlay can force support collision for diagnostics. Press Escape to discard
+the refinement groups and return to the 64-tile LOD 2 overview. First-person
+controls are WASD, Shift to run, Space to jump, and the mouse to look.
 
-Every 8x8 group is geometrically clipped at its tile boundaries. Only LOD 0
-and LOD 1 edges bordering an active lower-detail neighbour are projected onto
-that coarser mesh's height and normal profile. Edges shared by two groups at
-the same LOD retain their full detail.
+Every 8x8 group is geometrically clipped at its tile boundaries. LOD 0 uses an
+attribute-carrying 3D plane clipper, so vertical faces and multiple heights at
+one XY location survive slicing. Only LOD 0 and LOD 1 edges bordering an active
+lower-detail neighbour are morphed onto that coarser support surface. Edges
+shared by two groups at the same LOD retain their full detail.
 
 Sediment deposition has separate strength and slope controls. At the default
 12-degree limit, deposition is strongest below 4 degrees, fades smoothly
@@ -64,3 +73,12 @@ cp ../island-rs/target/release/libmotu.dylib Assets/Plugins/macOS/
 
 The included plugin is built for Apple Silicon. Other platforms need their own
 Rust `cdylib` in the corresponding Unity plugin folder.
+
+For an editor compile plus native ABI, streamed tile, UV, support mesh, and
+collider-cooking check, run:
+
+```sh
+/Applications/Unity/Hub/Editor/6000.5.6f1/Unity.app/Contents/MacOS/Unity \
+  -batchmode -nographics -projectPath "$PWD" \
+  -executeMethod IslandViewer.BatchValidateNativeInterop -quit
+```

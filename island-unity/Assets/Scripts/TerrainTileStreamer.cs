@@ -52,12 +52,14 @@ public sealed class TerrainTileStreamer : MonoBehaviour
     private float worldSize;
     private TileGroup lod2Group;
     private MeshCollider currentCollider;
+    private Mesh currentColliderMesh;
     private Vector2Int currentLod2 = new Vector2Int(-1, -1);
     private Vector2Int currentLod1 = new Vector2Int(-1, -1);
     private Vector2Int currentLod0 = new Vector2Int(-1, -1);
 
     public int BaseVertexCount { get; private set; }
     public int BaseTriangleCount { get; private set; }
+    public bool UseRenderCollider { get; set; } = true;
     internal int Lod1GroupCount => lod1Groups.Count;
     internal int Lod0GroupCount => lod0Groups.Count;
     internal bool HasCurrentCollider => currentCollider != null;
@@ -385,8 +387,51 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         {
             return;
         }
+        if (UseRenderCollider)
+        {
+            try
+            {
+                Physics.BakeMesh(tile.mesh.GetEntityId(), false);
+                currentCollider = tile.gameObject.AddComponent<MeshCollider>();
+                currentCollider.sharedMesh = tile.mesh;
+                return;
+            }
+            catch (Exception exception)
+            {
+                Debug.LogWarning($"Render collider cooking failed; using support terrain: {exception.Message}");
+            }
+        }
+
+        var inverseResolution = 1f / Lod0Resolution;
+        var area = new MotuNative.ExportArea(
+            lod0Cell.x * inverseResolution,
+            lod0Cell.y * inverseResolution,
+            (lod0Cell.x + 1) * inverseResolution,
+            (lod0Cell.y + 1) * inverseResolution);
+        var supportExport = new MotuNative.ExportMesh();
+        var colliderMesh = tile.mesh;
+        try
+        {
+            MotuNative.CreateSupportMesh(islandHandle, ref area, 0, out supportExport);
+            if (supportExport.handle != IntPtr.Zero && supportExport.triangles.length != 0)
+            {
+                currentColliderMesh = IslandViewer.CopyTerrainMesh(supportExport, 0);
+                colliderMesh = currentColliderMesh;
+            }
+        }
+        catch (Exception exception)
+        {
+            Debug.LogWarning($"Support collider export failed; using the render tile: {exception.Message}");
+            DestroyUnityObject(currentColliderMesh);
+            currentColliderMesh = null;
+        }
+        finally
+        {
+            MotuNative.ReleaseMesh(ref supportExport);
+        }
+
         currentCollider = tile.gameObject.AddComponent<MeshCollider>();
-        currentCollider.sharedMesh = tile.mesh;
+        currentCollider.sharedMesh = colliderMesh;
     }
 
     private void RemoveCollider()
@@ -398,6 +443,8 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         currentCollider.enabled = false;
         DestroyUnityObject(currentCollider);
         currentCollider = null;
+        DestroyUnityObject(currentColliderMesh);
+        currentColliderMesh = null;
     }
 
     private void SetLod2TileActive(Vector2Int key, bool active)

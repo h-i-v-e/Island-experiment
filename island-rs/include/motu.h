@@ -22,6 +22,7 @@ typedef struct {
     float hydraulicDepositionSlopeDegrees;
     float riverLod2SourceThreshold, riverLod1SourceThreshold;
     float riverBroadSourceThreshold, riverLandSourceThreshold, riverFinalSourceThreshold;
+    float cliffRenderStrength;
 } MotuOptions;
 typedef struct { const Vector3Export *data; int32_t length; } Vector3ExportArray;
 typedef struct { const Vector2Export *data; int32_t length; } Vector2ExportArray;
@@ -31,6 +32,7 @@ typedef struct {
     void *handle;
     Vector3ExportArray vertices, normals;
     TriangleExportArray triangles;
+    Vector2ExportArray uv;
 } ExportMesh;
 typedef struct {
     void *handle;
@@ -54,6 +56,8 @@ MOTU_EXPORT void ReleaseMotu(void *handle);
 MOTU_EXPORT void GetDecoration(const void *handle, ExportDecoration *output);
 MOTU_EXPORT void CreateMesh(const void *handle, const ExportArea *area, int32_t lod,
                             uint8_t clampSides, ExportMesh *output);
+MOTU_EXPORT void CreateSupportMesh(const void *handle, const ExportArea *area, int32_t lod,
+                                   ExportMesh *output);
 MOTU_EXPORT void ReleaseMesh(ExportMesh *output);
 MOTU_EXPORT void CreateMeshGrid(const void *handle, const ExportArea *area, int32_t lod,
                                 int32_t divisions, uint8_t clampSides,

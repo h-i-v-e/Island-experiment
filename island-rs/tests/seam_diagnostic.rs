@@ -125,3 +125,85 @@ fn two_side_clamps_share_one_coarse_corner_sample() {
         "maximum seam error was {maximum_error}"
     );
 }
+
+#[test]
+fn render_grid_preserves_sibling_boundaries() {
+    let island = Island::generate(
+        23,
+        IslandOptions {
+            terrain_size: 65,
+            hydraulic_erosion_strength: 8.0,
+            ..IslandOptions::default()
+        },
+    )
+    .unwrap();
+    let tiles = island
+        .render_mesh_grid(0, BoundingBox::default(), 2, 0)
+        .unwrap();
+    let vertical = |mesh: &Mesh, minimum_y: f32, maximum_y: f32| {
+        let mut points: Vec<_> = mesh
+            .vertices
+            .iter()
+            .filter(|vertex| {
+                (vertex.x - 0.5).abs() < 1.0e-6 && vertex.y >= minimum_y && vertex.y <= maximum_y
+            })
+            .map(|vertex| (vertex.y.to_bits(), vertex.z.to_bits()))
+            .collect();
+        points.sort_unstable();
+        points.dedup();
+        points
+    };
+    let horizontal = |mesh: &Mesh, minimum_x: f32, maximum_x: f32| {
+        let mut points: Vec<_> = mesh
+            .vertices
+            .iter()
+            .filter(|vertex| {
+                (vertex.y - 0.5).abs() < 1.0e-6 && vertex.x >= minimum_x && vertex.x <= maximum_x
+            })
+            .map(|vertex| (vertex.x.to_bits(), vertex.z.to_bits()))
+            .collect();
+        points.sort_unstable();
+        points.dedup();
+        points
+    };
+
+    assert_eq!(vertical(&tiles[0], 0.0, 0.5), vertical(&tiles[1], 0.0, 0.5));
+    assert_eq!(
+        horizontal(&tiles[0], 0.0, 0.5),
+        horizontal(&tiles[2], 0.0, 0.5)
+    );
+}
+
+#[test]
+fn render_lod_morphs_only_requested_outer_sides() {
+    let island = Island::generate(
+        23,
+        IslandOptions {
+            terrain_size: 65,
+            hydraulic_erosion_strength: 8.0,
+            ..IslandOptions::default()
+        },
+    )
+    .unwrap();
+    let resolution = 64.0;
+    let bounds = BoundingBox::new(
+        Vec3::new(1.0 / resolution, 1.0 / resolution, f32::MIN),
+        Vec3::new(2.0 / resolution, 2.0 / resolution, f32::MAX),
+    );
+    let coarse = island.lod(1).unwrap().sliced(bounds);
+    let tiles = island.render_mesh_grid(0, bounds, 8, TOP | LEFT).unwrap();
+
+    for side in [TOP, LEFT] {
+        let coarse_profile = profile(&coarse, bounds, side);
+        assert!(!coarse_profile.is_empty());
+        for vertex in tiles
+            .iter()
+            .flat_map(|mesh| &mesh.vertices)
+            .copied()
+            .filter(|vertex| on_side(*vertex, bounds, side))
+        {
+            let expected = sample(&coarse_profile, coordinate(vertex, side));
+            assert!((vertex.z - expected).abs() < 1.0e-5);
+        }
+    }
+}

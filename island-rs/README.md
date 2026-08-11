@@ -12,6 +12,8 @@ The generator provides:
 - deterministic seeded free-form terrain with configurable water coverage and elevation;
 - staged perimeter-preserving XYZ smoothing between LOD refinement passes;
 - graph-based thermal and hydraulic erosion over compact CSR mesh adjacency;
+- persistent unconsolidated cover and noise-aligned bedrock hardness shared by
+  hydraulic, thermal, coastal, and river-valley erosion;
 - topology reuse across smoothing, erosion, and river passes at each LOD;
 - conforming land/coast/relief tessellation with coarse seabed preservation;
 - mesh-native coastal evolution with noise-aligned rock hardness, directional
@@ -26,6 +28,8 @@ The generator provides:
 - high-detail-to-coarse-LOD normal baking and directional ambient occlusion textures;
 - terrain meshes at three levels of detail, normals, one-pass geometrically
   clipped grid slicing, coarser-LOD edge clamping, and height maps;
+- one XY-safe support surface shared by simulation, collision, and LOD 0
+  rendering, with geometrically clipped tile slicing and LOD edge clamping;
 - tree, bush, and rock placement plus packed foliage and sea-depth maps;
 - flat spatial triangle indexing, parallel RGB rendering, and a built-in PNG encoder;
 - save/load of reproducible generator inputs;
@@ -47,6 +51,7 @@ Useful options:
 --hydraulic-erosion-strength <0..8>
 --hydraulic-deposition-strength <0..4>
 --hydraulic-deposition-slope <1..45>
+--cliff-render-strength <FLOAT>
 --river-lod2-threshold <SD> --river-lod1-threshold <SD>
 --river-broad-threshold <SD> --river-land-threshold <SD>
 --river-final-threshold <SD>
@@ -71,18 +76,53 @@ complete coastal stage, including its selective tessellation.
 
 Hydraulic erosion strength is a multiplier over the generator's staged erosion
 profile. The default is `1`; use `0` to disable hydraulic erosion while keeping
-thermal erosion and river carving enabled.
+thermal erosion and river carving enabled. Through 45 degrees material retreats
+along the live mesh surface normal. Above 45 degrees the movement direction
+blends smoothly toward vertical lowering, becoming almost entirely downward as
+the surface approaches 90 degrees; this prevents resistant cliff ridges being
+drawn into extremely thin horizontal flanges. The erosion amount still uses
+`sin(2θ)`, calculated from the vertical and horizontal components of the surface
+normal: zero on level ground, maximum at 45 degrees, and smoothly back to zero
+at vertical. Overhanging faces also receive no hydraulic retreat. Every inward
+movement is limited relative to local edge length and incident projected
+triangle area to prevent near-vertical faces collapsing into spikes. Each
+hydraulic stage caches its starting signed XY face areas and their live values.
+Every lateral erosion move is capped analytically against only the moved
+vertex's incident faces, preserving their stage-start orientation and at least
+20 percent of their original projected area without per-move allocation.
 
-Hydraulic deposition tracks the sediment actually removed from the terrain.
-Its strength controls how quickly excess sediment settles, while the slope
-angle controls where deposition fades to zero. The defaults deposit fully
-below 4 degrees, taper smoothly to zero at 12 degrees, and retain sediment on
-steeper slopes until the flow reaches gentler ground.
+Hydraulic bedrock resistance uses the same continental/detail noise field as
+the initial terrain. That material identity is sampled once on the base mesh
+and propagated through adaptive tessellation, so coherent hard ridges survive
+while soft basins retreat more quickly. Deposited, thermal, beach, delta, and
+alluvial material shares a persistent unconsolidated-cover account and is
+removed at the full soft-material rate before the underlying bedrock. Hydraulic
+deposition tracks the sediment actually removed from the terrain. Its strength
+controls how quickly excess sediment settles, while the slope angle controls
+where deposition fades to zero. The defaults deposit fully below 4 degrees,
+taper smoothly to zero at 12 degrees, and retain sediment on steeper slopes
+until the flow reaches gentler ground.
+
+Render-only cliff sharpening is disabled because its normal-retreat remeshing
+could invert steep patches. LOD 0 now exports the corrected support surface
+directly, retaining hydraulic erosion, coastal erosion, adaptive terrain
+tessellation, rivers, and waterfalls without an additional render displacement
+pass. The `--cliff-render-strength` option remains accepted solely for saved
+option and native ABI compatibility; its value is ignored. Tile boundaries
+facing a coarser LOD still morph back only on the requested side.
+
+Terrain exports include explicit support-anchored UVs. `CreateSupportMesh`
+provides an unambiguous XY-safe collider surface. `CreateMesh` and
+`CreateMeshGrid` now export that same surface for LOD 0, while LOD 1 and LOD 2
+remain their existing support surfaces.
 
 River thresholds are standard deviations above mean accumulated flow. Lower
 values select more river sources; higher values produce fewer rivers. The five
 controls correspond to the successive coarse, medium, broad, land-refined, and
-final-detail routing/carving passes.
+final-detail routing/carving passes. River excavation consumes loose cover
+before hardness-weighted bedrock, transfers area-weighted sediment volumes
+through tributaries, records alluvial/delta/shelf raises as loose cover, and
+exports the unused balance from the final carve-only outlets.
 
 The default `--seed-points 1024` matches the original generator. Staged uniform,
 land-only, and relief-selective passes produce roughly 500,000 irregular

@@ -232,6 +232,74 @@ fn coarser_lods_share_final_lod0_vertex_positions() {
 }
 
 #[test]
+fn render_cliff_sharpening_stays_disabled_for_legacy_strength_values() {
+    let island = Island::generate(
+        23,
+        IslandOptions {
+            hydraulic_erosion_strength: 8.0,
+            cliff_render_strength: 4.0,
+            ..small_options()
+        },
+    )
+    .unwrap();
+
+    assert_eq!(island.render_lod(0), island.lod(0));
+}
+
+#[test]
+fn strong_hydraulic_terrain_uses_the_support_mesh_for_rendering() {
+    let island = Island::generate(
+        23,
+        IslandOptions {
+            hydraulic_erosion_strength: 8.0,
+            ..small_options()
+        },
+    )
+    .unwrap();
+    let support = island.lod(0).unwrap();
+    let render = island.render_lod(0).unwrap();
+
+    assert_eq!(render, support);
+}
+
+#[test]
+fn hydraulic_erosion_does_not_reverse_projected_faces() {
+    let options = |hydraulic_erosion_strength| IslandOptions {
+        hydraulic_erosion_strength,
+        coastal_erosion_strength: 0.0,
+        beach_formation_strength: 0.0,
+        noise_multiplier: 0.0,
+        river_lod2_source_threshold: 16.0,
+        river_lod1_source_threshold: 16.0,
+        river_broad_source_threshold: 16.0,
+        river_land_source_threshold: 16.0,
+        river_final_source_threshold: 16.0,
+        ..small_options()
+    };
+    let reversed = |mesh: &motu::Mesh| {
+        mesh.triangles
+            .chunks_exact(3)
+            .fold((0, 0.0_f32), |(count, minimum), triangle| {
+                let [a, b, c] = [
+                    mesh.vertices[triangle[0] as usize].truncate(),
+                    mesh.vertices[triangle[1] as usize].truncate(),
+                    mesh.vertices[triangle[2] as usize].truncate(),
+                ];
+                let area = (b - a).perp_dot(c - a);
+                (count + usize::from(area < -1.0e-10), minimum.min(area))
+            })
+    };
+    let without = Island::generate(23, options(0.0)).unwrap();
+    let strong = Island::generate(23, options(8.0)).unwrap();
+    let (without_reversed, without_minimum) = reversed(without.lod(0).unwrap());
+    let (strong_reversed, strong_minimum) = reversed(strong.lod(0).unwrap());
+    assert_eq!(
+        strong_reversed, without_reversed,
+        "hydraulic changed reversed faces from {without_reversed} ({without_minimum}) to {strong_reversed} ({strong_minimum})"
+    );
+}
+
+#[test]
 fn terrain_topology_is_free_form_delaunay() {
     use std::collections::HashSet;
 
