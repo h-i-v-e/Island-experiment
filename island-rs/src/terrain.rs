@@ -10,16 +10,21 @@ use std::{
     collections::BinaryHeap,
     fs::File,
     io::{self, Read, Write},
+    mem::size_of,
     path::Path,
+    sync::OnceLock,
     thread,
 };
+
+use rayon::prelude::*;
 
 use crate::{
     Adjacency, BoundingBox, Mesh, Raster, River, Vec2, Vec3,
     coast::{self, CoastScale, GeologyField},
     mesh::{NewVertexStencil, TessellationResult},
+    mesh_clipper::MeshClipper,
     noise,
-    render_mesh::RenderMesh,
+    profiling::StageTimer,
     rivers::RiverNetwork,
     rng::Rng,
 };
@@ -28,6 +33,7 @@ const DETAIL_DISPLACEMENT_RATIO: f32 = 0.025;
 const HYDRAULIC_EDGE_SHIFT_LIMIT: f32 = 0.08;
 const HYDRAULIC_MIN_PROJECTED_AREA_RATIO: f32 = 0.2;
 const MINIMUM_BEDROCK_EROSION_RATE: f32 = 0.05;
+const TRIANGLE_INDEX_OFFSET_BUDGET_BYTES: usize = 32 * 1024 * 1024;
 pub(crate) const LOOSE_DEPTH_EPSILON: f32 = 1.0e-8;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -179,9 +185,6 @@ pub struct IslandOptions {
     pub hydraulic_deposition_strength: f32,
     /// Slope angle at which hydraulic deposition falls to zero.
     pub hydraulic_deposition_slope_degrees: f32,
-    /// Retained for save-file and native ABI compatibility. Render-only cliff
-    /// sharpening is disabled and this value is currently ignored.
-    pub cliff_render_strength: f32,
     /// River-source flow thresholds measured in standard deviations above the
     /// mean flow for each successive mesh-detail stage.
     pub river_lod2_source_threshold: f32,
@@ -206,7 +209,6 @@ impl Default for IslandOptions {
             hydraulic_erosion_strength: 1.0,
             hydraulic_deposition_strength: 1.5,
             hydraulic_deposition_slope_degrees: 12.0,
-            cliff_render_strength: 0.0,
             river_lod2_source_threshold: 0.35,
             river_lod1_source_threshold: 0.65,
             river_broad_source_threshold: 1.0,
@@ -264,7 +266,10 @@ struct TriangleIndex {
 impl TriangleIndex {
     fn new(mesh: &Mesh) -> Self {
         let face_count = mesh.triangles.len() / 3;
-        let dimension = ((face_count as f32).sqrt().ceil() as usize / 2).clamp(8, 512);
+        let maximum_dimension =
+            ((TRIANGLE_INDEX_OFFSET_BUDGET_BYTES / size_of::<usize>()) as f64).sqrt() as usize;
+        let dimension =
+            ((face_count as f64 / 8.0).sqrt().ceil() as usize).clamp(8, maximum_dimension.max(8));
         let bin_count = dimension * dimension;
         let mut counts = vec![0_usize; bin_count];
         for triangle in mesh.triangles.chunks_exact(3) {
@@ -300,10 +305,69 @@ impl TriangleIndex {
     }
 
     fn candidates(&self, point: Vec2) -> &[u32] {
-        let x = bin_coordinate(point.x, self.dimension);
-        let y = bin_coordinate(point.y, self.dimension);
+        let [x, y] = self.point_bin(point);
         let bin = y * self.dimension + x;
         &self.faces[self.offsets[bin]..self.offsets[bin + 1]]
+    }
+
+    fn point_bin(&self, point: Vec2) -> [usize; 2] {
+        [
+            bin_coordinate(point.x, self.dimension),
+            bin_coordinate(point.y, self.dimension),
+        ]
+    }
+
+    fn bin_faces(&self, x: usize, y: usize) -> &[u32] {
+        let bin = y * self.dimension + x;
+        &self.faces[self.offsets[bin]..self.offsets[bin + 1]]
+    }
+
+    fn nearest_vertex(&self, mesh: &Mesh, point: Vec2) -> usize {
+        let [origin_x, origin_y] = self.point_bin(point);
+        let mut best = None::<(f32, usize)>;
+        for radius in 0..self.dimension {
+            let minimum_x = origin_x.saturating_sub(radius);
+            let maximum_x = (origin_x + radius).min(self.dimension - 1);
+            let minimum_y = origin_y.saturating_sub(radius);
+            let maximum_y = (origin_y + radius).min(self.dimension - 1);
+            for y in minimum_y..=maximum_y {
+                for x in minimum_x..=maximum_x {
+                    if radius != 0
+                        && x != minimum_x
+                        && x != maximum_x
+                        && y != minimum_y
+                        && y != maximum_y
+                    {
+                        continue;
+                    }
+                    for &face in self.bin_faces(x, y) {
+                        let offset = face as usize * 3;
+                        for &vertex in &mesh.triangles[offset..offset + 3] {
+                            let vertex = vertex as usize;
+                            let distance = mesh.vertices[vertex].truncate().distance_squared(point);
+                            if best.is_none_or(|current| match distance.total_cmp(&current.0) {
+                                Ordering::Less => true,
+                                Ordering::Equal => vertex < current.1,
+                                Ordering::Greater => false,
+                            }) {
+                                best = Some((distance, vertex));
+                            }
+                        }
+                    }
+                }
+            }
+            if let Some((distance, vertex)) = best {
+                let cell_width = 1.0 / self.dimension as f32;
+                if radius == 0 || distance.sqrt() <= (radius as f32 + 1.0) * cell_width {
+                    return vertex;
+                }
+            }
+        }
+        debug_assert!(
+            mesh.vertices.is_empty(),
+            "triangle index did not reference any vertex"
+        );
+        0
     }
 }
 
@@ -390,7 +454,10 @@ impl Terrain {
             Vec2::new(u.clamp(0.0, 1.0), v.clamp(0.0, 1.0)),
         )
         .map_or_else(
-            || self.mesh.vertices[nearest_vertex_index(&self.mesh, u, v)].z,
+            || {
+                let point = Vec2::new(u.clamp(0.0, 1.0), v.clamp(0.0, 1.0));
+                self.mesh.vertices[self.triangle_index.nearest_vertex(&self.mesh, point)].z
+            },
             |(triangle, weights)| {
                 weights[0].mul_add(
                     self.mesh.vertices[triangle[0]].z,
@@ -412,7 +479,8 @@ impl Terrain {
         )
         .map_or_else(
             || {
-                let nearest = nearest_vertex_index(&self.mesh, u, v);
+                let point = Vec2::new(u.clamp(0.0, 1.0), v.clamp(0.0, 1.0));
+                let nearest = self.triangle_index.nearest_vertex(&self.mesh, point);
                 self.mesh.normals[nearest]
             },
             |(triangle, weights)| {
@@ -434,7 +502,7 @@ fn sample_mesh_surface(mesh: &Mesh, triangle_index: &TriangleIndex, u: f32, v: f
     let point = Vec2::new(u.clamp(0.0, 1.0), v.clamp(0.0, 1.0));
     sample_mesh_triangle(mesh, triangle_index, point).map_or_else(
         || {
-            let nearest = nearest_vertex_index(mesh, u, v);
+            let nearest = triangle_index.nearest_vertex(mesh, point);
             (mesh.vertices[nearest].z, mesh.normals[nearest])
         },
         |(triangle, weights)| {
@@ -477,19 +545,6 @@ fn sample_mesh_triangle(
     })
 }
 
-fn nearest_vertex_index(mesh: &Mesh, u: f32, v: f32) -> usize {
-    let point = Vec2::new(u, v);
-    mesh.vertices
-        .iter()
-        .enumerate()
-        .min_by(|(_, left), (_, right)| {
-            (left.truncate() - point)
-                .length_squared()
-                .total_cmp(&(right.truncate() - point).length_squared())
-        })
-        .map_or(0, |(index, _)| index)
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Decoration {
     Tree,
@@ -502,6 +557,69 @@ pub struct Decorations {
     trees: Vec<Vec3>,
     bushes: Vec<Vec3>,
     rocks: Vec<Vec3>,
+}
+
+struct RiverPointIndex {
+    dimension: usize,
+    offsets: Vec<usize>,
+    points: Vec<Vec2>,
+}
+
+impl RiverPointIndex {
+    fn new(rivers: &[River]) -> Self {
+        let point_count = rivers.iter().map(|river| river.nodes.len()).sum::<usize>();
+        let dimension = ((point_count as f32 / 4.0).sqrt().ceil() as usize).clamp(8, 512);
+        let mut counts = vec![0_usize; dimension * dimension];
+        for point in rivers
+            .iter()
+            .flat_map(|river| river.nodes.iter().map(|node| node.position.truncate()))
+        {
+            let x = bin_coordinate(point.x, dimension);
+            let y = bin_coordinate(point.y, dimension);
+            counts[y * dimension + x] += 1;
+        }
+        let mut offsets = Vec::with_capacity(counts.len() + 1);
+        offsets.push(0);
+        for count in counts {
+            offsets.push(offsets.last().copied().unwrap_or_default() + count);
+        }
+        let mut cursor = offsets[..dimension * dimension].to_vec();
+        let mut points = vec![Vec2::ZERO; point_count];
+        for point in rivers
+            .iter()
+            .flat_map(|river| river.nodes.iter().map(|node| node.position.truncate()))
+        {
+            let x = bin_coordinate(point.x, dimension);
+            let y = bin_coordinate(point.y, dimension);
+            let bin = y * dimension + x;
+            points[cursor[bin]] = point;
+            cursor[bin] += 1;
+        }
+        Self {
+            dimension,
+            offsets,
+            points,
+        }
+    }
+
+    fn contains_within(&self, point: Vec2, distance_squared: f32) -> bool {
+        let radius = distance_squared.sqrt();
+        let cell_radius = (radius * self.dimension as f32).ceil() as usize;
+        let origin_x = bin_coordinate(point.x, self.dimension);
+        let origin_y = bin_coordinate(point.y, self.dimension);
+        let minimum_x = origin_x.saturating_sub(cell_radius);
+        let maximum_x = (origin_x + cell_radius).min(self.dimension - 1);
+        let minimum_y = origin_y.saturating_sub(cell_radius);
+        let maximum_y = (origin_y + cell_radius).min(self.dimension - 1);
+        (minimum_y..=maximum_y).any(|y| {
+            (minimum_x..=maximum_x).any(|x| {
+                let bin = y * self.dimension + x;
+                self.points[self.offsets[bin]..self.offsets[bin + 1]]
+                    .iter()
+                    .any(|river_point| river_point.distance_squared(point) < distance_squared)
+            })
+        })
+    }
 }
 
 impl Decorations {
@@ -521,26 +639,26 @@ impl Decorations {
     }
 
     fn generate(seed: u64, terrain: &Terrain, rivers: &[River], target: usize) -> Self {
+        let _timer = StageTimer::new("decorations.lazy");
         let mut rng = Rng::new(seed ^ 0xe703_7ed1_a0b4_28db);
         let mut out = Self::default();
+        out.trees.reserve(target * 3 / 5);
+        out.bushes.reserve(target / 4);
+        out.rocks.reserve(target / 6);
+        let river_index = RiverPointIndex::new(rivers);
         for _ in 0..target * 6 {
             if out.trees.len() + out.bushes.len() + out.rocks.len() >= target {
                 break;
             }
             let u = rng.range(0.01, 0.99);
             let v = rng.range(0.01, 0.99);
-            let height = terrain.sample(u, v);
+            let (height, normal) = terrain.sample_surface(u, v);
             if height <= 0.001 {
                 continue;
             }
-            let normal = terrain.sample_normal(u, v);
             let slope = 1.0 - normal.z;
             let point = Vec3::new(u, v, height);
-            if rivers.iter().any(|river| {
-                river.nodes.iter().any(|node| {
-                    (node.position.truncate() - point.truncate()).length_squared() < 0.000_025
-                })
-            }) {
+            if river_index.contains_within(point.truncate(), 0.000_025) {
                 continue;
             }
             let moisture = noise::fractal(seed ^ 0x8ebc_6af0_9c88_c6e3, u * 7.0, v * 7.0, 3);
@@ -566,10 +684,9 @@ pub struct Island {
     options: IslandOptions,
     terrain: Terrain,
     coarser_lods: [Mesh; 2],
-    render_lod0: RenderMesh,
     rivers: Vec<River>,
     river_mesh: Mesh,
-    decorations: Decorations,
+    decorations: OnceLock<Decorations>,
 }
 
 impl Island {
@@ -580,38 +697,48 @@ impl Island {
     /// Returns an error when an option is non-finite or outside its supported
     /// range.
     pub fn generate(seed: u64, options: IslandOptions) -> Result<Self, String> {
+        let _timer = StageTimer::new("island.generate");
         let options = options.validate()?;
-        let (base, material, geology) = generate_base(seed, options);
+        let mut scratch = GenerationScratch::default();
+        let (base, material) = generate_base(seed, options, &mut scratch);
         let context = GenerationContext::new(seed, options);
-        let (mut lod2, material) = generate_lod2(&base, material, context);
-        let (lod1, material) = generate_first_lod1(&lod2, material, context);
-        let (mut lod1, material) =
-            refine_lod1_again(&lod1, material, seed, options, context.river_thresholds[2]);
-        let (lod0, material) = generate_broad_lod0(&lod1, material, context);
-        let (mut lod0, mut material) = generate_detail_lod0(&lod0, material, context);
-        let detail_adjacency = lod0.adjacency();
-        let mut final_rivers =
-            RiverNetwork::generate(&mut lod0, &detail_adjacency, context.river_thresholds[4]);
-        final_rivers.shape(&mut lod0, &detail_adjacency, &mut material, true, false);
-        let (rivers, river_mesh) =
-            final_rivers.into_parts(&mut lod0, &detail_adjacency, &mut material);
-        correct_lods(&mut lod0, &mut lod1, &mut lod2);
+        let (mut lod2, material) = generate_lod2(&base, material, context, &mut scratch);
+        let (lod1, material) = generate_first_lod1(&lod2, material, context, &mut scratch);
+        let (mut lod1, material) = refine_lod1_again(
+            &lod1,
+            material,
+            seed,
+            options,
+            context.river_thresholds[2],
+            &mut scratch,
+        );
+        let (lod0, material) = generate_broad_lod0(&lod1, material, context, &mut scratch);
+        let (mut lod0, mut material) = generate_detail_lod0(&lod0, material, context, &mut scratch);
+        let (rivers, river_mesh) = {
+            let _timer = StageTimer::new("rivers.final");
+            let detail_adjacency = lod0.adjacency();
+            let mut final_rivers =
+                RiverNetwork::generate(&mut lod0, &detail_adjacency, context.river_thresholds[4]);
+            final_rivers.shape(&mut lod0, &detail_adjacency, &mut material, true, false);
+            final_rivers.into_parts(&mut lod0, &detail_adjacency, &mut material)
+        };
+        {
+            let _timer = StageTimer::new("lod.correct");
+            correct_lods(&mut lod0, &mut lod1, &mut lod2);
+        }
 
-        // Keep the render-mesh ABI and slicer intact, but bypass the cliff
-        // refinement/retreat path which can invert very steep patches.
-        let render_lod0 = RenderMesh::generate(&lod0, geology, &rivers, 0.0);
-        let terrain = Terrain::new(lod0);
-        let decorations =
-            Decorations::generate(seed, &terrain, &rivers, options.terrain_size as usize * 4);
+        let terrain = {
+            let _timer = StageTimer::new("terrain.index");
+            Terrain::new(lod0)
+        };
         Ok(Self {
             seed,
             options,
             terrain,
             coarser_lods: [lod1, lod2],
-            render_lod0,
             rivers,
             river_mesh,
-            decorations,
+            decorations: OnceLock::new(),
         })
     }
 
@@ -640,16 +767,10 @@ impl Island {
         }
     }
 
-    /// Returns the mesh intended for display. Render-only cliff sharpening is
-    /// disabled, so every level uses its corrected support surface.
+    /// Returns the corrected support mesh intended for display.
     #[must_use]
     pub fn render_lod(&self, level: usize) -> Option<&Mesh> {
-        match level {
-            0 => Some(self.render_lod0.mesh()),
-            1 => Some(&self.coarser_lods[0]),
-            2 => Some(&self.coarser_lods[1]),
-            _ => None,
-        }
+        self.lod(level)
     }
 
     #[must_use]
@@ -663,8 +784,15 @@ impl Island {
     }
 
     #[must_use]
-    pub const fn decorations(&self) -> &Decorations {
-        &self.decorations
+    pub fn decorations(&self) -> &Decorations {
+        self.decorations.get_or_init(|| {
+            Decorations::generate(
+                self.seed,
+                &self.terrain,
+                &self.rivers,
+                self.options.terrain_size as usize * 4,
+            )
+        })
     }
 
     #[must_use]
@@ -727,9 +855,10 @@ impl Island {
                 map[y * dimension as usize + x] |= value << shift;
             }
         };
-        put(&mut map, &self.decorations.trees, 24, 255);
-        put(&mut map, &self.decorations.bushes, 16, 210);
-        put(&mut map, &self.decorations.rocks, 8, 255);
+        let decorations = self.decorations();
+        put(&mut map, &decorations.trees, 24, 255);
+        put(&mut map, &decorations.bushes, 16, 210);
+        put(&mut map, &decorations.rocks, 8, 255);
         for y in 0..dimension {
             for x in 0..dimension {
                 let u = x as f32 / dimension.saturating_sub(1).max(1) as f32;
@@ -749,7 +878,7 @@ impl Island {
     /// Returns an I/O error if the destination cannot be created or written.
     pub fn save(&self, path: impl AsRef<Path>) -> io::Result<()> {
         let mut file = File::create(path)?;
-        file.write_all(b"MOTURS\0\x08")?;
+        file.write_all(b"MOTURS\0\x09")?;
         file.write_all(&self.seed.to_le_bytes())?;
         for value in [
             self.options.max_height,
@@ -767,7 +896,6 @@ impl Island {
             self.options.river_broad_source_threshold,
             self.options.river_land_source_threshold,
             self.options.river_final_source_threshold,
-            self.options.cliff_render_strength,
         ] {
             file.write_all(&value.to_le_bytes())?;
         }
@@ -783,7 +911,7 @@ impl Island {
         let mut file = File::open(path)?;
         let mut magic = [0_u8; 8];
         file.read_exact(&mut magic)?;
-        if &magic[..7] != b"MOTURS\0" || !matches!(magic[7], 3..=8) {
+        if &magic[..7] != b"MOTURS\0" || !matches!(magic[7], 3..=9) {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "invalid Motu Rust free-form mesh file",
@@ -841,8 +969,8 @@ impl Island {
             options.river_land_source_threshold = read_f32(&mut file)?;
             options.river_final_source_threshold = read_f32(&mut file)?;
         }
-        if magic[7] >= 8 {
-            options.cliff_render_strength = read_f32(&mut file)?;
+        if magic[7] == 8 {
+            let _obsolete_cliff_render_strength = read_f32(&mut file)?;
         }
         options.terrain_size = read_u32(&mut file)?;
         Self::generate(seed, options)
@@ -854,12 +982,11 @@ impl Island {
         self.lod(lod).map(|mesh| mesh.sliced(bounds))
     }
 
-    /// Clips a display mesh while retaining support-anchored UVs. Only LOD0
-    /// uses the true-3D clipper.
+    /// Clips a display mesh while retaining corrected LOD transitions.
     #[must_use]
     pub fn render_mesh_in(&self, lod: usize, bounds: BoundingBox, clamp_sides: u8) -> Option<Mesh> {
         match lod {
-            0 => Some(self.render_lod0.sliced(
+            0 => Some(MeshClipper::new(self.terrain.mesh()).sliced(
                 bounds,
                 (clamp_sides != 0).then_some(&self.coarser_lods[0]),
                 clamp_sides,
@@ -889,7 +1016,7 @@ impl Island {
         clamp_sides: u8,
     ) -> Option<Vec<Mesh>> {
         match lod {
-            0 => Some(self.render_lod0.sliced_grid(
+            0 => Some(MeshClipper::new(self.terrain.mesh()).sliced_grid(
                 bounds,
                 divisions,
                 (clamp_sides != 0).then_some(&self.coarser_lods[0]),
@@ -914,6 +1041,12 @@ struct GenerationContext {
     river_thresholds: [f32; 5],
 }
 
+#[derive(Default)]
+struct GenerationScratch {
+    hydraulic: HydraulicScratch,
+    bedrock_rates: Vec<f32>,
+}
+
 impl GenerationContext {
     fn new(seed: u64, options: IslandOptions) -> Self {
         Self {
@@ -924,24 +1057,31 @@ impl GenerationContext {
     }
 }
 
-fn generate_base(seed: u64, options: IslandOptions) -> (Mesh, SurfaceMaterial, GeologyField) {
+fn generate_base(
+    seed: u64,
+    options: IslandOptions,
+    scratch: &mut GenerationScratch,
+) -> (Mesh, SurfaceMaterial) {
+    let _timer = StageTimer::new("generation.base");
     let points = create_seed_points(seed, options.terrain_size as usize);
     let mut mesh = Mesh::delaunay(&points);
     let mut material = SurfaceMaterial::empty(mesh.vertices.len());
     let adjacency = mesh.adjacency();
     let geology = assign_elevations(&mut mesh, &adjacency, seed, options);
     material.initialize_geology(&mesh, geology);
-    hydraulic_erode_stage(&mut mesh, &adjacency, &mut material, 0.45, options);
+    hydraulic_erode_stage(&mut mesh, &adjacency, &mut material, 0.45, options, scratch);
     erode_mesh(&mut mesh, &adjacency, &mut material, options, 5);
     mesh.calculate_normals();
-    (mesh, material, geology)
+    (mesh, material)
 }
 
 fn generate_lod2(
     base: &Mesh,
     material: SurfaceMaterial,
     context: GenerationContext,
+    scratch: &mut GenerationScratch,
 ) -> (Mesh, SurfaceMaterial) {
+    let _timer = StageTimer::new("generation.lod2");
     let tessellation = base.tessellated_displaced_attributed(DETAIL_DISPLACEMENT_RATIO);
     let (mut mesh, mut material) = material.into_tessellated(base, tessellation);
     let adjacency = mesh.adjacency();
@@ -952,7 +1092,14 @@ fn generate_lod2(
         32.0,
         context.options.noise_multiplier,
     );
-    hydraulic_erode_stage(&mut mesh, &adjacency, &mut material, 0.55, context.options);
+    hydraulic_erode_stage(
+        &mut mesh,
+        &adjacency,
+        &mut material,
+        0.55,
+        context.options,
+        scratch,
+    );
     erode_mesh(&mut mesh, &adjacency, &mut material, context.options, 4);
     let mut rivers = RiverNetwork::generate(&mut mesh, &adjacency, context.river_thresholds[0]);
     rivers.shape(&mut mesh, &adjacency, &mut material, true, true);
@@ -964,7 +1111,9 @@ fn generate_first_lod1(
     lod2: &Mesh,
     material: SurfaceMaterial,
     context: GenerationContext,
+    scratch: &mut GenerationScratch,
 ) -> (Mesh, SurfaceMaterial) {
+    let _timer = StageTimer::new("generation.lod1.first");
     let tessellation = lod2.tessellated_displaced_attributed(DETAIL_DISPLACEMENT_RATIO);
     let (mut mesh, mut material) = material.into_tessellated(lod2, tessellation);
     let adjacency = mesh.adjacency();
@@ -975,7 +1124,14 @@ fn generate_first_lod1(
         64.0,
         context.options.noise_multiplier * 0.5,
     );
-    hydraulic_erode_stage(&mut mesh, &adjacency, &mut material, 0.65, context.options);
+    hydraulic_erode_stage(
+        &mut mesh,
+        &adjacency,
+        &mut material,
+        0.65,
+        context.options,
+        scratch,
+    );
     erode_mesh(&mut mesh, &adjacency, &mut material, context.options, 4);
     let mut rivers = RiverNetwork::generate(&mut mesh, &adjacency, context.river_thresholds[1]);
     rivers.shape(&mut mesh, &adjacency, &mut material, false, true);
@@ -987,12 +1143,21 @@ fn generate_broad_lod0(
     lod1: &Mesh,
     material: SurfaceMaterial,
     context: GenerationContext,
+    scratch: &mut GenerationScratch,
 ) -> (Mesh, SurfaceMaterial) {
+    let _timer = StageTimer::new("generation.lod0.broad");
     let tessellation = lod1.tessellated_displaced_attributed(DETAIL_DISPLACEMENT_RATIO);
     let (mut mesh, mut material) = material.into_tessellated(lod1, tessellation);
     let adjacency = mesh.adjacency();
     mesh.smooth_with(&adjacency);
-    hydraulic_erode_stage(&mut mesh, &adjacency, &mut material, 0.8, context.options);
+    hydraulic_erode_stage(
+        &mut mesh,
+        &adjacency,
+        &mut material,
+        0.8,
+        context.options,
+        scratch,
+    );
     mesh.calculate_normals();
 
     let tessellation = mesh.tessellated_displaced_attributed(DETAIL_DISPLACEMENT_RATIO);
@@ -1004,7 +1169,14 @@ fn generate_broad_lod0(
         128.0,
         context.options.noise_multiplier * 0.125,
     );
-    hydraulic_erode_stage(&mut mesh, &adjacency, &mut material, 0.75, context.options);
+    hydraulic_erode_stage(
+        &mut mesh,
+        &adjacency,
+        &mut material,
+        0.75,
+        context.options,
+        scratch,
+    );
     erode_mesh(&mut mesh, &adjacency, &mut material, context.options, 2);
     let mut rivers = RiverNetwork::generate(&mut mesh, &adjacency, context.river_thresholds[3]);
     rivers.shape(&mut mesh, &adjacency, &mut material, true, true);
@@ -1024,7 +1196,9 @@ fn generate_detail_lod0(
     lod0: &Mesh,
     material: SurfaceMaterial,
     context: GenerationContext,
+    scratch: &mut GenerationScratch,
 ) -> (Mesh, SurfaceMaterial) {
+    let _timer = StageTimer::new("generation.lod0.detail");
     let tessellation = lod0.tessellated_displaced_attributed(DETAIL_DISPLACEMENT_RATIO);
     let (mut mesh, mut material) = material.into_tessellated(lod0, tessellation);
     let adjacency = mesh.adjacency();
@@ -1034,7 +1208,14 @@ fn generate_detail_lod0(
         192.0,
         context.options.noise_multiplier * 0.0625,
     );
-    hydraulic_erode_stage(&mut mesh, &adjacency, &mut material, 0.5, context.options);
+    hydraulic_erode_stage(
+        &mut mesh,
+        &adjacency,
+        &mut material,
+        0.5,
+        context.options,
+        scratch,
+    );
     mesh.smooth_land_with(&adjacency);
     mesh.smooth_seabed_with(&adjacency);
     apply_coastal_stage(
@@ -1056,7 +1237,9 @@ fn refine_lod1_again(
     seed: u64,
     options: IslandOptions,
     river_threshold: f32,
+    scratch: &mut GenerationScratch,
 ) -> (Mesh, SurfaceMaterial) {
+    let _timer = StageTimer::new("generation.lod1.refine");
     let tessellation = lod1.tessellated_displaced_attributed(DETAIL_DISPLACEMENT_RATIO);
     let (mut refined, mut material) = material.into_tessellated(lod1, tessellation);
     let adjacency = refined.adjacency();
@@ -1067,7 +1250,14 @@ fn refine_lod1_again(
         96.0,
         options.noise_multiplier * 0.25,
     );
-    hydraulic_erode_stage(&mut refined, &adjacency, &mut material, 0.7, options);
+    hydraulic_erode_stage(
+        &mut refined,
+        &adjacency,
+        &mut material,
+        0.7,
+        options,
+        scratch,
+    );
     erode_mesh(&mut refined, &adjacency, &mut material, options, 3);
     let mut rivers = RiverNetwork::generate(&mut refined, &adjacency, river_threshold);
     rivers.shape(&mut refined, &adjacency, &mut material, false, true);
@@ -1083,6 +1273,10 @@ fn apply_coastal_stage(
     scale: CoastScale,
     strength_multiplier: f32,
 ) {
+    let _timer = StageTimer::new(match scale {
+        CoastScale::Coarse => "coast.coarse",
+        CoastScale::Detail => "coast.detail",
+    });
     let scale_seed = match scale {
         CoastScale::Coarse => seed ^ 0x94d0_49bb_1331_11eb,
         CoastScale::Detail => seed ^ 0xbf58_476d_1ce4_e5b9,
@@ -1262,13 +1456,16 @@ fn graph_distances(mesh: &Mesh, adjacency: &Adjacency, target: &[bool]) -> Vec<f
 }
 
 fn add_surface_noise(mesh: &mut Mesh, seed: u64, frequency: f32, amplitude: f32) {
-    for (vertex, normal) in mesh.vertices.iter_mut().zip(&mesh.normals) {
-        if vertex.z > 0.0 {
-            let displacement =
-                noise::fractal(seed, vertex.x * frequency, vertex.y * frequency, 4) * amplitude;
-            *vertex += *normal * displacement;
-        }
-    }
+    mesh.vertices
+        .par_iter_mut()
+        .zip(mesh.normals.par_iter())
+        .for_each(|(vertex, normal)| {
+            if vertex.z > 0.0 {
+                let displacement =
+                    noise::fractal(seed, vertex.x * frequency, vertex.y * frequency, 4) * amplitude;
+                *vertex += *normal * displacement;
+            }
+        });
 }
 
 fn hydraulic_erode_stage(
@@ -1277,20 +1474,207 @@ fn hydraulic_erode_stage(
     material: &mut SurfaceMaterial,
     stage_strength: f32,
     options: IslandOptions,
+    scratch: &mut GenerationScratch,
 ) {
-    let bedrock_rates: Vec<f32> = material
-        .hardnesses()
-        .iter()
-        .map(|&hardness| bedrock_erosion_rate(hardness))
-        .collect();
-    hydraulic_erode(
-        mesh,
-        adjacency,
-        material,
-        &bedrock_rates,
-        false,
-        HydraulicErosionSettings::new(stage_strength, options),
+    let _timer = StageTimer::new("hydraulic.stage");
+    scratch.bedrock_rates.clear();
+    scratch.bedrock_rates.extend(
+        material
+            .hardnesses()
+            .iter()
+            .map(|&hardness| bedrock_erosion_rate(hardness)),
     );
+    if std::env::var_os("MOTU_EXPERIMENTAL_MESH_FLOW").is_some() {
+        hydraulic_erode_with_scratch(
+            mesh,
+            adjacency,
+            material,
+            &scratch.bedrock_rates,
+            false,
+            HydraulicErosionSettings::new(stage_strength, options),
+            &mut scratch.hydraulic,
+        );
+    } else {
+        hydraulic_erode_reference(
+            mesh,
+            adjacency,
+            material,
+            &scratch.bedrock_rates,
+            false,
+            HydraulicErosionSettings::new(stage_strength, options),
+        );
+    }
+}
+
+/// Proven sequential hydraulic model. Each source path observes the terrain
+/// mutations made by earlier paths, which is part of its ridge and drainage
+/// formation rather than an implementation detail that can be reordered.
+fn hydraulic_erode_reference(
+    mesh: &mut Mesh,
+    adjacency: &Adjacency,
+    material: &mut SurfaceMaterial,
+    bedrock_rates: &[f32],
+    include_sea: bool,
+    settings: HydraulicErosionSettings,
+) {
+    if settings.erosion_strength == 0.0 {
+        return;
+    }
+    let vertex_faces = VertexFaceAdjacency::new(mesh);
+    let mut projected_areas = ProjectedFaceAreas::new(mesh);
+    let mut order: Vec<usize> = (0..mesh.vertices.len()).collect();
+    order
+        .sort_unstable_by(|left, right| mesh.vertices[*right].z.total_cmp(&mesh.vertices[*left].z));
+    let max_shift = mesh
+        .vertices
+        .iter()
+        .map(|vertex| vertex.z)
+        .fold(0.0_f32, f32::max)
+        * 0.012;
+    for source in order {
+        if mesh.vertices[source].z <= 0.0 {
+            break;
+        }
+        erode_reference_path(
+            mesh,
+            adjacency,
+            material,
+            bedrock_rates,
+            &vertex_faces,
+            &mut projected_areas,
+            include_sea,
+            settings,
+            max_shift,
+            source,
+        );
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn erode_reference_path(
+    mesh: &mut Mesh,
+    adjacency: &Adjacency,
+    material: &mut SurfaceMaterial,
+    bedrock_rates: &[f32],
+    vertex_faces: &VertexFaceAdjacency,
+    projected_areas: &mut ProjectedFaceAreas,
+    include_sea: bool,
+    settings: HydraulicErosionSettings,
+    max_shift: f32,
+    source: usize,
+) {
+    let mut current = source;
+    let mut speed = 0.0_f32;
+    let mut sediment = 0.0_f32;
+    for _ in 0..mesh.vertices.len() {
+        let next = adjacency[current]
+            .iter()
+            .copied()
+            .filter(|neighbour| mesh.vertices[*neighbour].z < mesh.vertices[current].z)
+            .min_by(|left, right| mesh.vertices[*left].z.total_cmp(&mesh.vertices[*right].z));
+        let Some(next) = next else {
+            deposit_sediment_fan(
+                mesh,
+                adjacency,
+                material,
+                current,
+                &mut sediment,
+                max_shift,
+                settings,
+            );
+            break;
+        };
+        if mesh.vertices[next].z < 0.0 && !include_sea {
+            deposit_sediment_fan(
+                mesh,
+                adjacency,
+                material,
+                current,
+                &mut sediment,
+                max_shift,
+                settings,
+            );
+            break;
+        }
+        let direction = mesh.vertices[current] - mesh.vertices[next];
+        let distance = direction.length().max(f32::EPSILON);
+        let horizontal_distance = direction.truncate().length().max(f32::EPSILON);
+        let slope = direction.z / horizontal_distance;
+        let sin_slope = direction.z / distance;
+        let acceleration = sin_slope * sin_slope * sin_slope * distance;
+        speed = speed.mul_add(0.75, acceleration * 0.25);
+        let deposition_weight = deposition_weight(slope, settings);
+        let (erosion_direction, slope_erosion_weight, erosion_cap, available_material) =
+            if sediment <= speed {
+                let normal = surface_normal_at(mesh, vertex_faces, current);
+                let erosion_direction = hydraulic_erosion_direction(normal);
+                let slope_erosion_weight = hydraulic_slope_erosion_weight(normal.z);
+                let edge_cap = local_hydraulic_erosion_cap(mesh, adjacency, current, max_shift);
+                let erosion_cap = projected_areas.safe_erosion_cap(
+                    mesh,
+                    vertex_faces,
+                    current,
+                    erosion_direction,
+                    edge_cap,
+                );
+                let available_material = if include_sea {
+                    f32::INFINITY
+                } else if erosion_direction.z > 0.0 {
+                    mesh.vertices[current].z.max(0.0) / erosion_direction.z
+                } else {
+                    0.0
+                };
+                (
+                    erosion_direction,
+                    slope_erosion_weight,
+                    erosion_cap,
+                    available_material,
+                )
+            } else {
+                (Vec3::Z, 0.0, 0.0, f32::INFINITY)
+            };
+        let transfer = exchange_sediment(
+            &mut sediment,
+            settings,
+            HydraulicExchange {
+                capacity: speed,
+                deposition_weight,
+                slope_erosion_weight,
+                limits: HydraulicShiftLimits {
+                    deposition: max_shift,
+                    erosion: erosion_cap,
+                    available_material,
+                },
+                loose_available: material.depths()[current],
+                bedrock_rate: bedrock_rates[current],
+            },
+        );
+        apply_hydraulic_transfer(&mut mesh.vertices[current], erosion_direction, transfer);
+        let loose_depth = &mut material.depths_mut()[current];
+        *loose_depth = (*loose_depth - transfer.loose_removed).max(0.0) + transfer.vertical_deposit;
+        if *loose_depth < LOOSE_DEPTH_EPSILON {
+            *loose_depth = 0.0;
+        }
+        if transfer.normal_retreat > 0.0 {
+            projected_areas.update_incident(mesh, vertex_faces, current);
+        }
+        current = next;
+    }
+}
+
+fn surface_normal_at(mesh: &Mesh, vertex_faces: &VertexFaceAdjacency, vertex: usize) -> Vec3 {
+    vertex_faces
+        .faces(vertex)
+        .iter()
+        .fold(Vec3::ZERO, |normal, &face| {
+            let offset = face * 3;
+            let a = mesh.vertices[mesh.triangles[offset] as usize];
+            let b = mesh.vertices[mesh.triangles[offset + 1] as usize];
+            let c = mesh.vertices[mesh.triangles[offset + 2] as usize];
+            normal + (b - a).cross(c - a)
+        })
+        .try_normalize()
+        .unwrap_or(Vec3::Z)
 }
 
 pub(crate) fn bedrock_erosion_rate(hardness: f32) -> f32 {
@@ -1329,6 +1713,13 @@ struct HydraulicTransfer {
     vertical_deposit: f32,
     loose_removed: f32,
     bedrock_removed: f32,
+}
+
+#[derive(Clone, Copy)]
+struct ThermalTransfer {
+    target: usize,
+    height: f32,
+    loose: f32,
 }
 
 struct VertexFaceAdjacency {
@@ -1435,6 +1826,7 @@ impl HydraulicErosionSettings {
     }
 }
 
+#[cfg(test)]
 fn hydraulic_erode(
     mesh: &mut Mesh,
     adjacency: &Adjacency,
@@ -1442,6 +1834,51 @@ fn hydraulic_erode(
     bedrock_rates: &[f32],
     include_sea: bool,
     settings: HydraulicErosionSettings,
+) {
+    let mut scratch = HydraulicScratch::default();
+    hydraulic_erode_with_scratch(
+        mesh,
+        adjacency,
+        material,
+        bedrock_rates,
+        include_sea,
+        settings,
+        &mut scratch,
+    );
+}
+
+const HYDRAULIC_FLOW_ITERATIONS: usize = 16;
+const NO_DOWNSTREAM: usize = usize::MAX;
+
+#[derive(Default)]
+struct HydraulicScratch {
+    order: Vec<usize>,
+    downstream: Vec<usize>,
+    control_areas: Vec<f32>,
+    water: Vec<f32>,
+    sediment: Vec<f32>,
+}
+
+impl HydraulicScratch {
+    fn resize(&mut self, vertex_count: usize) {
+        self.order.clear();
+        self.order.extend(0..vertex_count);
+        self.downstream.resize(vertex_count, NO_DOWNSTREAM);
+        self.control_areas.resize(vertex_count, 0.0);
+        self.water.resize(vertex_count, 0.0);
+        self.sediment.resize(vertex_count, 0.0);
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn hydraulic_erode_with_scratch(
+    mesh: &mut Mesh,
+    adjacency: &Adjacency,
+    material: &mut SurfaceMaterial,
+    bedrock_rates: &[f32],
+    include_sea: bool,
+    settings: HydraulicErosionSettings,
+    scratch: &mut HydraulicScratch,
 ) {
     if settings.erosion_strength == 0.0 {
         return;
@@ -1451,174 +1888,222 @@ fn hydraulic_erode(
     debug_assert_eq!(bedrock_rates.len(), mesh.vertices.len());
     let vertex_faces = VertexFaceAdjacency::new(mesh);
     let mut projected_areas = ProjectedFaceAreas::new(mesh);
-    let mut order: Vec<usize> = (0..mesh.vertices.len()).collect();
-    order
-        .sort_unstable_by(|left, right| mesh.vertices[*right].z.total_cmp(&mesh.vertices[*left].z));
     let max_shift = mesh
         .vertices
         .iter()
         .map(|vertex| vertex.z)
         .fold(0.0_f32, f32::max)
         * 0.012;
-    let mut stage = HydraulicStage {
-        mesh,
-        adjacency,
-        material,
-        bedrock_rates,
-        vertex_faces: &vertex_faces,
-        projected_areas: &mut projected_areas,
-        include_sea,
-        settings,
-        max_shift,
-    };
-    for source in order {
-        if stage.mesh.vertices[source].z <= 0.0 {
-            break;
-        }
-        stage.erode_path(source);
-    }
-}
+    scratch.resize(mesh.vertices.len());
 
-struct HydraulicStage<'a> {
-    mesh: &'a mut Mesh,
-    adjacency: &'a Adjacency,
-    material: &'a mut SurfaceMaterial,
-    bedrock_rates: &'a [f32],
-    vertex_faces: &'a VertexFaceAdjacency,
-    projected_areas: &'a mut ProjectedFaceAreas,
-    include_sea: bool,
-    settings: HydraulicErosionSettings,
-    max_shift: f32,
-}
-
-impl HydraulicStage<'_> {
-    fn erode_path(&mut self, source: usize) {
-        let mut current = source;
-        let mut speed = 0.0_f32;
-        let mut sediment = 0.0_f32;
-        for _ in 0..self.mesh.vertices.len() {
-            let next = self.adjacency[current]
-                .iter()
-                .copied()
-                .filter(|neighbour| {
-                    self.mesh.vertices[*neighbour].z < self.mesh.vertices[current].z
-                })
-                .min_by(|left, right| {
-                    self.mesh.vertices[*left]
-                        .z
-                        .total_cmp(&self.mesh.vertices[*right].z)
-                });
-            let Some(next) = next else {
-                self.deposit_fan(current, &mut sediment);
-                break;
-            };
-            if self.mesh.vertices[next].z < 0.0 && !self.include_sea {
-                self.deposit_fan(current, &mut sediment);
-                break;
-            }
-            let direction = self.mesh.vertices[current] - self.mesh.vertices[next];
-            let distance = direction.length().max(f32::EPSILON);
-            let horizontal_distance = direction.truncate().length().max(f32::EPSILON);
-            let slope = direction.z / horizontal_distance;
-            let sin_slope = direction.z / distance;
-            let acceleration = sin_slope * sin_slope * sin_slope * distance;
-            speed = speed.mul_add(0.75, acceleration * 0.25);
-            let deposition_weight = deposition_weight(slope, self.settings);
-            let (erosion_direction, slope_erosion_weight, erosion_cap, available_material) =
-                if sediment <= speed {
-                    let normal = current_surface_normal(self.mesh, self.vertex_faces, current);
-                    let erosion_direction = hydraulic_erosion_direction(normal);
-                    let slope_erosion_weight = hydraulic_slope_erosion_weight(normal.z);
-                    let edge_cap = local_hydraulic_erosion_cap(
-                        self.mesh,
-                        self.adjacency,
-                        current,
-                        self.max_shift,
-                    );
-                    let erosion_cap = self.projected_areas.safe_erosion_cap(
-                        self.mesh,
-                        self.vertex_faces,
-                        current,
-                        erosion_direction,
-                        edge_cap,
-                    );
-                    let available_material = if self.include_sea {
-                        f32::INFINITY
-                    } else if erosion_direction.z > 0.0 {
-                        self.mesh.vertices[current].z.max(0.0) / erosion_direction.z
-                    } else {
-                        0.0
-                    };
-                    (
-                        erosion_direction,
-                        slope_erosion_weight,
-                        erosion_cap,
-                        available_material,
-                    )
-                } else {
-                    (Vec3::Z, 0.0, 0.0, f32::INFINITY)
-                };
-            let transfer = exchange_sediment(
-                &mut sediment,
-                self.settings,
-                HydraulicExchange {
-                    capacity: speed,
-                    deposition_weight,
-                    slope_erosion_weight,
-                    limits: HydraulicShiftLimits {
-                        deposition: self.max_shift,
-                        erosion: erosion_cap,
-                        available_material,
-                    },
-                    loose_available: self.material.depths()[current],
-                    bedrock_rate: self.bedrock_rates[current],
-                },
-            );
-            apply_hydraulic_transfer(
-                &mut self.mesh.vertices[current],
-                erosion_direction,
-                transfer,
-            );
-            let loose_depth = &mut self.material.depths_mut()[current];
-            *loose_depth =
-                (*loose_depth - transfer.loose_removed).max(0.0) + transfer.vertical_deposit;
-            if *loose_depth < LOOSE_DEPTH_EPSILON {
-                *loose_depth = 0.0;
-            }
-            if transfer.normal_retreat > 0.0 {
-                self.projected_areas
-                    .update_incident(self.mesh, self.vertex_faces, current);
-            }
-            current = next;
-        }
-    }
-
-    fn deposit_fan(&mut self, center: usize, sediment: &mut f32) {
-        deposit_sediment_fan(
-            self.mesh,
-            self.adjacency,
-            self.material,
-            center,
-            sediment,
-            self.max_shift,
-            self.settings,
+    for _ in 0..HYDRAULIC_FLOW_ITERATIONS {
+        calculate_normals_with_faces(mesh, &vertex_faces);
+        prepare_hydraulic_flow(mesh, adjacency, include_sea, scratch);
+        apply_hydraulic_flow(
+            mesh,
+            adjacency,
+            material,
+            bedrock_rates,
+            &vertex_faces,
+            &mut projected_areas,
+            include_sea,
+            settings,
+            max_shift,
+            scratch,
         );
     }
 }
 
-fn current_surface_normal(mesh: &Mesh, vertex_faces: &VertexFaceAdjacency, vertex: usize) -> Vec3 {
-    vertex_faces
-        .faces(vertex)
-        .iter()
-        .fold(Vec3::ZERO, |normal, &face| {
-            let offset = face * 3;
-            let a = mesh.vertices[mesh.triangles[offset] as usize];
-            let b = mesh.vertices[mesh.triangles[offset + 1] as usize];
-            let c = mesh.vertices[mesh.triangles[offset + 2] as usize];
-            normal + (b - a).cross(c - a)
+fn calculate_normals_with_faces(mesh: &mut Mesh, vertex_faces: &VertexFaceAdjacency) {
+    let vertices = &mesh.vertices;
+    let triangles = &mesh.triangles;
+    mesh.normals = (0..vertices.len())
+        .into_par_iter()
+        .map(|vertex| {
+            vertex_faces
+                .faces(vertex)
+                .iter()
+                .fold(Vec3::ZERO, |normal, &face| {
+                    let offset = face * 3;
+                    let a = vertices[triangles[offset] as usize];
+                    let b = vertices[triangles[offset + 1] as usize];
+                    let c = vertices[triangles[offset + 2] as usize];
+                    normal + (b - a).cross(c - a)
+                })
+                .try_normalize()
+                .unwrap_or(Vec3::Z)
         })
-        .try_normalize()
-        .unwrap_or(Vec3::Z)
+        .collect();
+}
+
+fn prepare_hydraulic_flow(
+    mesh: &Mesh,
+    adjacency: &Adjacency,
+    include_sea: bool,
+    scratch: &mut HydraulicScratch,
+) {
+    scratch
+        .downstream
+        .par_iter_mut()
+        .enumerate()
+        .for_each(|(vertex, output)| {
+            let source = mesh.vertices[vertex];
+            *output = adjacency[vertex]
+                .iter()
+                .copied()
+                .filter(|&candidate| {
+                    let height = mesh.vertices[candidate].z;
+                    height < source.z && (include_sea || height >= 0.0)
+                })
+                .max_by(|&left, &right| {
+                    downhill_gradient(source, mesh.vertices[left])
+                        .total_cmp(&downhill_gradient(source, mesh.vertices[right]))
+                        .then_with(|| right.cmp(&left))
+                })
+                .unwrap_or(NO_DOWNSTREAM);
+        });
+
+    scratch.control_areas.fill(0.0);
+    for triangle in mesh.triangles.chunks_exact(3) {
+        let [a, b, c] = [
+            mesh.vertices[triangle[0] as usize].truncate(),
+            mesh.vertices[triangle[1] as usize].truncate(),
+            mesh.vertices[triangle[2] as usize].truncate(),
+        ];
+        let share = (b - a).perp_dot(c - a).abs() / 6.0;
+        for &vertex in triangle {
+            scratch.control_areas[vertex as usize] += share;
+        }
+    }
+    let (land_area, land_vertices) = mesh
+        .vertices
+        .iter()
+        .zip(&scratch.control_areas)
+        .filter(|(vertex, _)| include_sea || vertex.z > 0.0)
+        .fold((0.0_f32, 0_usize), |(area, count), (_, &control_area)| {
+            (area + control_area, count + 1)
+        });
+    let mean_area = land_area / land_vertices.max(1) as f32;
+    scratch
+        .water
+        .par_iter_mut()
+        .zip(&scratch.control_areas)
+        .zip(&mesh.vertices)
+        .for_each(|((water, &area), vertex)| {
+            *water = if (include_sea || vertex.z > 0.0) && mean_area > f32::EPSILON {
+                area / mean_area
+            } else {
+                0.0
+            };
+        });
+    scratch.sediment.fill(0.0);
+    scratch.order.sort_unstable_by(|&left, &right| {
+        mesh.vertices[right]
+            .z
+            .total_cmp(&mesh.vertices[left].z)
+            .then_with(|| left.cmp(&right))
+    });
+    for &vertex in &scratch.order {
+        let downstream = scratch.downstream[vertex];
+        if downstream != NO_DOWNSTREAM {
+            scratch.water[downstream] += scratch.water[vertex];
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_hydraulic_flow(
+    mesh: &mut Mesh,
+    adjacency: &Adjacency,
+    material: &mut SurfaceMaterial,
+    bedrock_rates: &[f32],
+    vertex_faces: &VertexFaceAdjacency,
+    projected_areas: &mut ProjectedFaceAreas,
+    include_sea: bool,
+    settings: HydraulicErosionSettings,
+    max_shift: f32,
+    scratch: &mut HydraulicScratch,
+) {
+    for &current in &scratch.order {
+        if mesh.vertices[current].z <= 0.0 {
+            continue;
+        }
+        let next = scratch.downstream[current];
+        let mut sediment = scratch.sediment[current];
+        if next == NO_DOWNSTREAM {
+            deposit_sediment_fan(
+                mesh,
+                adjacency,
+                material,
+                current,
+                &mut sediment,
+                max_shift,
+                settings,
+            );
+            continue;
+        }
+
+        let direction = mesh.vertices[current] - mesh.vertices[next];
+        let distance = direction.length().max(f32::EPSILON);
+        let horizontal_distance = direction.truncate().length().max(f32::EPSILON);
+        let slope = direction.z / horizontal_distance;
+        let sin_slope = direction.z / distance;
+        let acceleration = sin_slope * sin_slope * sin_slope * distance;
+        let capacity = acceleration * scratch.water[current].max(1.0);
+        let deposition_weight = deposition_weight(slope, settings);
+        let normal = mesh.normals[current];
+        let erosion_direction = hydraulic_erosion_direction(normal);
+        let slope_erosion_weight = hydraulic_slope_erosion_weight(normal.z);
+        let edge_cap = local_hydraulic_erosion_cap(mesh, adjacency, current, max_shift);
+        let erosion_cap = projected_areas.safe_erosion_cap(
+            mesh,
+            vertex_faces,
+            current,
+            erosion_direction,
+            edge_cap,
+        );
+        let available_material = if include_sea {
+            f32::INFINITY
+        } else if erosion_direction.z > 0.0 {
+            mesh.vertices[current].z.max(0.0) / erosion_direction.z
+        } else {
+            0.0
+        };
+        let transfer = exchange_sediment(
+            &mut sediment,
+            settings,
+            HydraulicExchange {
+                capacity,
+                deposition_weight,
+                slope_erosion_weight,
+                limits: HydraulicShiftLimits {
+                    deposition: max_shift,
+                    erosion: erosion_cap,
+                    available_material,
+                },
+                loose_available: material.depths()[current],
+                bedrock_rate: bedrock_rates[current],
+            },
+        );
+        apply_hydraulic_transfer(&mut mesh.vertices[current], erosion_direction, transfer);
+        let loose_depth = &mut material.depths_mut()[current];
+        *loose_depth = (*loose_depth - transfer.loose_removed).max(0.0) + transfer.vertical_deposit;
+        if *loose_depth < LOOSE_DEPTH_EPSILON {
+            *loose_depth = 0.0;
+        }
+        if transfer.normal_retreat > 0.0 {
+            projected_areas.update_incident(mesh, vertex_faces, current);
+        }
+        scratch.sediment[next] += sediment;
+    }
+}
+
+fn downhill_gradient(source: Vec3, target: Vec3) -> f32 {
+    (source.z - target.z)
+        / source
+            .truncate()
+            .distance(target.truncate())
+            .max(f32::EPSILON)
 }
 
 fn hydraulic_slope_erosion_weight(normal_z: f32) -> f32 {
@@ -1791,34 +2276,47 @@ fn erode_mesh(
     options: IslandOptions,
     passes: usize,
 ) {
+    let _timer = StageTimer::new("thermal.stage");
     let mut delta = vec![0.0; mesh.vertices.len()];
     let mut loose_delta = vec![0.0; mesh.vertices.len()];
     let talus = options.max_height * 0.006 / options.slope_multiplier.max(0.1);
     for _ in 0..passes {
         delta.fill(0.0);
         loose_delta.fill(0.0);
-        for (index, neighbours) in adjacency.iter().enumerate() {
-            let height = mesh.vertices[index].z;
-            if height <= 0.0 {
-                continue;
-            }
-            let Some(lowest) = neighbours
-                .iter()
-                .copied()
-                .filter(|neighbour| mesh.vertices[*neighbour].z > 0.0)
-                .min_by(|left, right| mesh.vertices[*left].z.total_cmp(&mesh.vertices[*right].z))
-            else {
+        let transfers: Vec<Option<ThermalTransfer>> = (0..adjacency.len())
+            .into_par_iter()
+            .map(|index| {
+                let neighbours = &adjacency[index];
+                let height = mesh.vertices[index].z;
+                if height <= 0.0 {
+                    return None;
+                }
+                let lowest = neighbours
+                    .iter()
+                    .copied()
+                    .filter(|neighbour| mesh.vertices[*neighbour].z > 0.0)
+                    .min_by(|left, right| {
+                        mesh.vertices[*left].z.total_cmp(&mesh.vertices[*right].z)
+                    })?;
+                let difference = height - mesh.vertices[lowest].z;
+                (difference > talus).then(|| {
+                    let transfer = (difference - talus) * 0.18;
+                    ThermalTransfer {
+                        target: lowest,
+                        height: transfer,
+                        loose: material.depths()[index].min(transfer),
+                    }
+                })
+            })
+            .collect();
+        for (index, transfer) in transfers.into_iter().enumerate() {
+            let Some(transfer) = transfer else {
                 continue;
             };
-            let difference = height - mesh.vertices[lowest].z;
-            if difference > talus {
-                let transfer = (difference - talus) * 0.18;
-                delta[index] -= transfer;
-                delta[lowest] += transfer;
-                let loose_transfer = material.depths()[index].min(transfer);
-                loose_delta[index] -= loose_transfer;
-                loose_delta[lowest] += transfer;
-            }
+            delta[index] -= transfer.height;
+            delta[transfer.target] += transfer.height;
+            loose_delta[index] -= transfer.loose;
+            loose_delta[transfer.target] += transfer.height;
         }
         mesh.vertices
             .iter_mut()
@@ -1893,6 +2391,7 @@ fn bake_surface_maps(
     width: u32,
     height: u32,
 ) -> SurfaceMaps {
+    let _timer = StageTimer::new("surface_maps.bake");
     let width_usize = width as usize;
     let height_usize = height as usize;
     let pixel_count = width_usize * height_usize;

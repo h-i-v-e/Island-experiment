@@ -177,6 +177,11 @@ public sealed class IslandViewer : MonoBehaviour
 
     private void Update()
     {
+        if (Input.GetKeyDown(KeyCode.M))
+        {
+            showMeshEdges = !showMeshEdges;
+        }
+
         if (firstPersonController == null
             || firstPersonController.IsActive
             || terrainStreamer == null
@@ -306,7 +311,6 @@ public sealed class IslandViewer : MonoBehaviour
                 riverBroadSourceThreshold = riverBroadSourceThreshold,
                 riverLandSourceThreshold = riverLandSourceThreshold,
                 riverFinalSourceThreshold = riverFinalSourceThreshold,
-                cliffRenderStrength = 0f,
             };
 
             prepared = await Task.Run(
@@ -766,8 +770,9 @@ public sealed class IslandViewer : MonoBehaviour
     {
         if (firstPersonController != null && firstPersonController.IsActive)
         {
-            GUILayout.BeginArea(new Rect(16f, 16f, 430f, 64f), GUI.skin.box);
+            GUILayout.BeginArea(new Rect(16f, 16f, 430f, 82f), GUI.skin.box);
             GUILayout.Label("First person: WASD move | Shift run | Space jump | Mouse look");
+            GUILayout.Label("M: toggle mesh edges");
             GUILayout.Label("Escape: return to island overview");
             GUILayout.EndArea();
             GUI.Label(
@@ -968,7 +973,6 @@ public sealed class IslandViewer : MonoBehaviour
             riverBroadSourceThreshold = 1f,
             riverLandSourceThreshold = 1.3f,
             riverFinalSourceThreshold = 1.6f,
-            cliffRenderStrength = 0f,
         };
         var handle = MotuNative.CreateMotu(2018, ref options);
         if (handle == IntPtr.Zero)

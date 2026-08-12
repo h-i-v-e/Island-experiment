@@ -642,6 +642,7 @@ fn duplicate_river_topology(
 ) -> Mesh {
     let selected_count = coverage.iter().filter(|&&remaining| remaining > 0).count();
     let mut mapping = vec![u32::MAX; terrain.vertices.len()];
+    let mut xy_mapping = HashMap::<(u32, u32), u32>::with_capacity(selected_count);
     let mut out_waterfall_lips = Vec::with_capacity(selected_count);
     let mut out = Mesh {
         vertices: Vec::with_capacity(selected_count),
@@ -660,7 +661,17 @@ fn duplicate_river_topology(
         } else {
             surfaces[index] + RIVER_SURFACE_OFFSET
         };
-        mapping[index] = out.vertices.len() as u32;
+        let key = (vertex.x.to_bits(), vertex.y.to_bits());
+        if let Some(&mapped) = xy_mapping.get(&key) {
+            mapping[index] = mapped;
+            let mapped = mapped as usize;
+            out.vertices[mapped].z = out.vertices[mapped].z.min(vertex.z);
+            out_waterfall_lips[mapped] |= waterfall_lips[index] && !is_river_boundary(remaining);
+            continue;
+        }
+        let mapped = out.vertices.len() as u32;
+        mapping[index] = mapped;
+        xy_mapping.insert(key, mapped);
         out.vertices.push(vertex);
         out_waterfall_lips.push(waterfall_lips[index] && !is_river_boundary(remaining));
         out.uv.push(
@@ -681,7 +692,8 @@ fn duplicate_river_topology(
         let boundary_only = triangle
             .iter()
             .all(|&vertex| is_river_boundary(coverage[vertex as usize]));
-        if mapped.iter().all(|&vertex| vertex != u32::MAX) && !boundary_only {
+        let distinct = mapped[0] != mapped[1] && mapped[1] != mapped[2] && mapped[2] != mapped[0];
+        if mapped.iter().all(|&vertex| vertex != u32::MAX) && distinct && !boundary_only {
             out.triangles.extend(mapped);
         }
     }

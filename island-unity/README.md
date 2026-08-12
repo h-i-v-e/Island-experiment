@@ -28,15 +28,15 @@ redistributes that sediment toward sheltered shorelines. Higher river-threshold
 values produce fewer source rivers. Slider changes take effect when you press
 Generate. Drag to orbit, use the mouse wheel to zoom, and right-drag to pan.
 
-Render-only cliff sharpening and its slider are disabled. LOD 0 displays the
-same corrected support surface used by terrain queries, avoiding the inverted
-patches previously introduced by the additional normal-retreat remeshing pass.
-Hydraulic erosion, coastal erosion, adaptive terrain tessellation, rivers, and
-waterfalls remain active.
+LOD 0 displays the same corrected support surface used by terrain queries
+without retaining duplicate render geometry. Hydraulic erosion, coastal
+erosion, adaptive terrain tessellation, rivers, and waterfalls remain active.
 
 Enable **Show mesh edges (wireframe)** to render the generated triangle edges
 without allocating duplicate line meshes. The setting remains active when you
 enter first-person mode and applies automatically to newly streamed LOD tiles.
+Press **M** in either overview or first-person mode to toggle mesh edges without
+using the overlay.
 
 Click the overview terrain to enter first-person mode. The current LOD 2 tile
 and its neighbours are each split into an 8x8 LOD 1 group. The current LOD 1
@@ -44,7 +44,8 @@ tile and its neighbours are each split again into 8x8 LOD 0 groups. Only the
 current LOD 0 tile has a `MeshCollider`; it moves as the player crosses tile
 boundaries. The collider uses the true-3D tile by default and automatically
 falls back to a separately exported support tile if Unity cannot cook it. The
-overlay can force support collision for diagnostics. Press Escape to discard
+overlay can force support collision for diagnostics. Press M to toggle mesh
+edges. Press Escape to discard
 the refinement groups and return to the 64-tile LOD 2 overview. River surfaces
 are clipped on the same 64x64 LOD 1 boundaries and only the chunks inside the
 active LOD 1 neighbourhood are rendered. Chunks are cached after their first

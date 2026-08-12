@@ -11,13 +11,24 @@ crate-type = ["rlib", "cdylib"]
 
 [dependencies]
 glam = "0.33.2"
+rayon = "1.11.0"
+
+[features]
+default = []
+profiling = []
 
 [[bin]]
 name = "island"
 path = "src/main.rs"
 
+[[bin]]
+name = "generation-bench"
+path = "src/bin/generation_bench.rs"
+
 [profile.release]
-lto = "thin"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
 strip = true
 
 [profile.profiling]

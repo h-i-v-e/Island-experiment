@@ -31,6 +31,30 @@ fn generation_is_deterministic() {
 }
 
 #[test]
+fn generation_is_deterministic_across_worker_counts() {
+    let generate = |workers| {
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(workers)
+            .build()
+            .unwrap()
+            .install(|| {
+                Island::generate(
+                    2018,
+                    IslandOptions {
+                        terrain_size: 24,
+                        ..IslandOptions::default()
+                    },
+                )
+                .unwrap()
+            })
+    };
+    let single = generate(1);
+    let parallel = generate(4);
+    assert_eq!(single.terrain(), parallel.terrain());
+    assert_eq!(single.rivers(), parallel.rivers());
+}
+
+#[test]
 fn water_ratio_increases_connected_ocean_coverage() {
     let coverage = |water_ratio| {
         let island = Island::generate(
@@ -41,13 +65,25 @@ fn water_ratio_increases_connected_ocean_coverage() {
             },
         )
         .unwrap();
-        let water = island
-            .terrain()
-            .vertices()
-            .iter()
-            .filter(|vertex| vertex.z <= 0.0)
-            .count();
-        water as f32 / island.terrain().vertices().len() as f32
+        let mesh = island.terrain().mesh();
+        let (water, total) =
+            mesh.triangles
+                .chunks_exact(3)
+                .fold((0.0_f32, 0.0_f32), |(water, total), triangle| {
+                    let [a, b, c] = [
+                        mesh.vertices[triangle[0] as usize],
+                        mesh.vertices[triangle[1] as usize],
+                        mesh.vertices[triangle[2] as usize],
+                    ];
+                    let area = (b - a).truncate().perp_dot((c - a).truncate()).abs() * 0.5;
+                    let underwater = [a, b, c]
+                        .into_iter()
+                        .filter(|vertex| vertex.z <= 0.0)
+                        .count() as f32
+                        / 3.0;
+                    (water + area * underwater, total + area)
+                });
+        water / total
     };
     assert!(coverage(0.6) < coverage(0.85));
 }
@@ -232,22 +268,7 @@ fn coarser_lods_share_final_lod0_vertex_positions() {
 }
 
 #[test]
-fn render_cliff_sharpening_stays_disabled_for_legacy_strength_values() {
-    let island = Island::generate(
-        23,
-        IslandOptions {
-            hydraulic_erosion_strength: 8.0,
-            cliff_render_strength: 4.0,
-            ..small_options()
-        },
-    )
-    .unwrap();
-
-    assert_eq!(island.render_lod(0), island.lod(0));
-}
-
-#[test]
-fn strong_hydraulic_terrain_uses_the_support_mesh_for_rendering() {
+fn lod0_render_uses_the_corrected_support_mesh() {
     let island = Island::generate(
         23,
         IslandOptions {

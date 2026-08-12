@@ -23,7 +23,6 @@ internal static class MotuNative
         internal float riverBroadSourceThreshold;
         internal float riverLandSourceThreshold;
         internal float riverFinalSourceThreshold;
-        internal float cliffRenderStrength;
     }
 
     [StructLayout(LayoutKind.Sequential)]

@@ -101,10 +101,6 @@ fn parse(arguments: impl Iterator<Item = String>) -> Result<Option<Command>, Str
                 command.options.hydraulic_deposition_slope_degrees =
                     parse_value(&argument, &value(&mut arguments)?)?;
             }
-            "--cliff-render-strength" => {
-                command.options.cliff_render_strength =
-                    parse_value(&argument, &value(&mut arguments)?)?;
-            }
             "--river-lod2-threshold" => {
                 command.options.river_lod2_source_threshold =
                     parse_value(&argument, &value(&mut arguments)?)?;
@@ -169,8 +165,6 @@ fn print_help() {
                                   Gentle-slope deposition rate from 0 to 4 [default: 1.5]\n\
            --hydraulic-deposition-slope <DEGREES>\n\
                                   Angle where deposition reaches zero [default: 12]\n\
-           --cliff-render-strength <S>\n\
-                                  Accepted for compatibility; currently ignored\n\
            --river-lod2-threshold <SD>    Coarse river source threshold [default: 0.35]\n\
            --river-lod1-threshold <SD>    Medium river source threshold [default: 0.65]\n\
            --river-broad-threshold <SD>   Broad LOD 0 threshold [default: 1.0]\n\
@@ -206,8 +200,6 @@ mod tests {
                 "15",
                 "--river-final-threshold",
                 "2.25",
-                "--cliff-render-strength",
-                "1.75",
             ]
             .into_iter()
             .map(String::from),
@@ -223,7 +215,6 @@ mod tests {
         assert!((command.options.hydraulic_deposition_strength - 2.5).abs() < f32::EPSILON);
         assert!((command.options.hydraulic_deposition_slope_degrees - 15.0).abs() < f32::EPSILON);
         assert!((command.options.river_final_source_threshold - 2.25).abs() < f32::EPSILON);
-        assert!((command.options.cliff_render_strength - 1.75).abs() < f32::EPSILON);
     }
 
     #[test]

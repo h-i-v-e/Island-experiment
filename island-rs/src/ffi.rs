@@ -41,10 +41,9 @@ pub struct MotuOptions {
     pub riverBroadSourceThreshold: f32,
     pub riverLandSourceThreshold: f32,
     pub riverFinalSourceThreshold: f32,
-    pub cliffRenderStrength: f32,
 }
 
-const _: () = assert!(size_of::<MotuOptions>() == size_of::<[f32; 16]>());
+const _: () = assert!(size_of::<MotuOptions>() == size_of::<[f32; 15]>());
 
 impl From<MotuOptions> for IslandOptions {
     fn from(value: MotuOptions) -> Self {
@@ -64,7 +63,6 @@ impl From<MotuOptions> for IslandOptions {
             river_broad_source_threshold: value.riverBroadSourceThreshold,
             river_land_source_threshold: value.riverLandSourceThreshold,
             river_final_source_threshold: value.riverFinalSourceThreshold,
-            cliff_render_strength: value.cliffRenderStrength,
             ..Self::default()
         }
     }
@@ -841,7 +839,6 @@ mod tests {
             riverBroadSourceThreshold: 1.0,
             riverLandSourceThreshold: 1.3,
             riverFinalSourceThreshold: 1.6,
-            cliffRenderStrength: 1.0,
         };
         // SAFETY: this test passes valid pointers and releases every returned
         // allocation exactly once through its paired ABI function.

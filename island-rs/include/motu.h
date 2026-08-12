@@ -22,7 +22,6 @@ typedef struct {
     float hydraulicDepositionSlopeDegrees;
     float riverLod2SourceThreshold, riverLod1SourceThreshold;
     float riverBroadSourceThreshold, riverLandSourceThreshold, riverFinalSourceThreshold;
-    float cliffRenderStrength;
 } MotuOptions;
 typedef struct { const Vector3Export *data; int32_t length; } Vector3ExportArray;
 typedef struct { const Vector2Export *data; int32_t length; } Vector2ExportArray;

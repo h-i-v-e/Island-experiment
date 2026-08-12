@@ -9,6 +9,8 @@ use std::{
     ops::Index,
 };
 
+use rayon::prelude::*;
+
 use crate::{BoundingBox, Vec2, Vec3};
 
 pub const CLAMP_TOP: u8 = 1;
@@ -255,19 +257,26 @@ impl Mesh {
         &self,
         should_split: impl Fn([u32; 3]) -> bool,
     ) -> TessellationResult {
+        let split: Vec<bool> = self
+            .triangles
+            .chunks_exact(3)
+            .map(|triangle| should_split([triangle[0], triangle[1], triangle[2]]))
+            .collect();
+        let selected_faces = split.iter().filter(|&&selected| selected).count();
         let mut out = Self {
             vertices: self.vertices.clone(),
             normals: Vec::new(),
-            triangles: Vec::with_capacity(self.triangles.len() * 4),
+            triangles: Vec::with_capacity(selected_faces.saturating_mul(12)),
             uv: self.uv.clone(),
         };
-        let mut midpoints = BTreeMap::<(u32, u32), (u32, usize)>::new();
-        let mut new_vertices = Vec::new();
-        for triangle in self.triangles.chunks_exact(3) {
+        let mut midpoints =
+            HashMap::<u64, (u32, usize)>::with_capacity(selected_faces.saturating_mul(3));
+        let mut new_vertices = Vec::with_capacity(selected_faces.saturating_mul(3));
+        for (face, triangle) in self.triangles.chunks_exact(3).enumerate() {
             let a = triangle[0];
             let b = triangle[1];
             let c = triangle[2];
-            if !should_split([a, b, c]) {
+            if !split[face] {
                 continue;
             }
             let ab = midpoint(a, b, c, self, &mut out, &mut midpoints, &mut new_vertices);
@@ -276,11 +285,29 @@ impl Mesh {
             out.triangles
                 .extend([a, ab, ca, ab, b, bc, ca, bc, c, ab, bc, ca]);
         }
-        for triangle in self.triangles.chunks_exact(3) {
+        let conforming_indices = self
+            .triangles
+            .chunks_exact(3)
+            .enumerate()
+            .filter(|(face, _)| !split[*face])
+            .map(|(_, triangle)| {
+                let midpoint_count = [
+                    packed_edge(triangle[0], triangle[1]),
+                    packed_edge(triangle[0], triangle[2]),
+                    packed_edge(triangle[2], triangle[1]),
+                ]
+                .iter()
+                .filter(|edge| midpoints.contains_key(edge))
+                .count();
+                [3, 6, 9, 12][midpoint_count]
+            })
+            .sum::<usize>();
+        out.triangles.reserve(conforming_indices);
+        for (face, triangle) in self.triangles.chunks_exact(3).enumerate() {
             let a = triangle[0];
             let b = triangle[1];
             let c = triangle[2];
-            if should_split([a, b, c]) {
+            if split[face] {
                 continue;
             }
             add_conforming_triangle(
@@ -288,9 +315,9 @@ impl Mesh {
                 a,
                 b,
                 c,
-                conforming_midpoint(midpoints.get(&ordered_edge(a, b)), c, &mut new_vertices),
-                conforming_midpoint(midpoints.get(&ordered_edge(a, c)), b, &mut new_vertices),
-                conforming_midpoint(midpoints.get(&ordered_edge(c, b)), a, &mut new_vertices),
+                conforming_midpoint(midpoints.get(&packed_edge(a, b)), c, &mut new_vertices),
+                conforming_midpoint(midpoints.get(&packed_edge(a, c)), b, &mut new_vertices),
+                conforming_midpoint(midpoints.get(&packed_edge(c, b)), a, &mut new_vertices),
             );
         }
         out.calculate_normals();
@@ -382,11 +409,11 @@ impl Mesh {
         self.smooth_excluding(adjacency, |vertex| vertex.z >= 0.0);
     }
 
-    fn smooth_excluding(&mut self, adjacency: &Adjacency, exclude: impl Fn(Vec3) -> bool) {
+    fn smooth_excluding(&mut self, adjacency: &Adjacency, exclude: impl Fn(Vec3) -> bool + Sync) {
         let perimeter = self.perimeter_mask();
         let moved: Vec<Vec3> = self
             .vertices
-            .iter()
+            .par_iter()
             .enumerate()
             .map(|(index, &vertex)| {
                 if perimeter[index] || exclude(vertex) {
@@ -408,7 +435,7 @@ impl Mesh {
         if !self.uv.is_empty() {
             self.uv = self
                 .vertices
-                .iter()
+                .par_iter()
                 .map(|vertex| vertex.truncate())
                 .collect();
         }
@@ -1004,10 +1031,10 @@ fn midpoint(
     opposite: u32,
     source: &Mesh,
     output: &mut Mesh,
-    midpoints: &mut BTreeMap<(u32, u32), (u32, usize)>,
+    midpoints: &mut HashMap<u64, (u32, usize)>,
     new_vertices: &mut Vec<NewVertexStencil>,
 ) -> u32 {
-    let key = ordered_edge(a, b);
+    let key = packed_edge(a, b);
     if let Some(&(index, stencil)) = midpoints.get(&key) {
         add_stencil_opposite(&mut new_vertices[stencil], opposite);
         return index;
@@ -1024,7 +1051,7 @@ fn midpoint(
     let stencil = new_vertices.len();
     new_vertices.push(NewVertexStencil {
         vertex: index,
-        surrounding: [key.0, key.1, opposite, 0],
+        surrounding: [a.min(b), a.max(b), opposite, 0],
         count: 3,
     });
     midpoints.insert(key, (index, stencil));
@@ -1122,6 +1149,11 @@ fn add_conforming_triangle(
 
 fn ordered_edge<T: Ord + Copy>(a: T, b: T) -> (T, T) {
     if a < b { (a, b) } else { (b, a) }
+}
+
+fn packed_edge(a: u32, b: u32) -> u64 {
+    let (a, b) = ordered_edge(a, b);
+    (u64::from(a) << 32) | u64::from(b)
 }
 
 fn orient_triangle(mut triangle: [usize; 3], points: &[Vec2]) -> [usize; 3] {

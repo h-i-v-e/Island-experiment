@@ -103,13 +103,15 @@ where deposition fades to zero. The defaults deposit fully below 4 degrees,
 taper smoothly to zero at 12 degrees, and retain sediment on steeper slopes
 until the flow reaches gentler ground.
 
-Render-only cliff sharpening is disabled because its normal-retreat remeshing
-could invert steep patches. LOD 0 now exports the corrected support surface
-directly, retaining hydraulic erosion, coastal erosion, adaptive terrain
-tessellation, rivers, and waterfalls without an additional render displacement
-pass. The `--cliff-render-strength` option remains accepted solely for saved
-option and native ABI compatibility; its value is ignored. Tile boundaries
-facing a coarser LOD still morph back only on the requested side.
+LOD 0 exports the corrected support surface directly, retaining hydraulic
+erosion, coastal erosion, adaptive terrain tessellation, rivers, and waterfalls
+without a duplicate display mesh. Tile boundaries facing a coarser LOD still
+morph back only on the requested side.
+
+Hydraulic erosion uses the sequential path model because each path needs to
+observe the terrain mutations made by earlier paths to form coherent drainage
+and ridges. The bounded mesh-flow experiment is retained only for investigation
+and can be selected with `MOTU_EXPERIMENTAL_MESH_FLOW=1`.
 
 Terrain exports include explicit support-anchored UVs. `CreateSupportMesh`
 provides an unambiguous XY-safe collider surface. `CreateMesh` and
