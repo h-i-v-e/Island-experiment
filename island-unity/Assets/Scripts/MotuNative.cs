@@ -165,6 +165,13 @@ internal static class MotuNative
         out ExportMeshWithUv output);
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+    internal static extern void CreateRiverMeshGrid(
+        IntPtr handle,
+        ref ExportArea area,
+        int divisions,
+        out ExportMeshGrid output);
+
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
     internal static extern void ReleaseMeshWithUV(ref ExportMeshWithUv output);
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]

@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using System.Threading;
+using System.Threading.Tasks;
 using UnityEngine;
 
 public sealed class TerrainTileStreamer : MonoBehaviour
@@ -12,7 +14,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
     internal const byte ClampRight = 8;
     private const int NearbyRadius = 1;
     private const int Lod2Resolution = Divisions;
-    private const int Lod1Resolution = Divisions * Divisions;
+    internal const int Lod1Resolution = Divisions * Divisions;
     private const int Lod0Resolution = Divisions * Divisions * Divisions;
 
     private sealed class Tile
@@ -45,12 +47,17 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         new Dictionary<Vector2Int, TileGroup>();
     private readonly Dictionary<Vector2Int, TileGroup> lod0Groups =
         new Dictionary<Vector2Int, TileGroup>();
+    private readonly Dictionary<Vector2Int, TileGroup> riverGroups =
+        new Dictionary<Vector2Int, TileGroup>();
     private readonly List<Vector2Int> removalScratch = new List<Vector2Int>(9);
 
     private IntPtr islandHandle;
     private Material[] materials;
+    private Material riverMaterial;
+    private IslandViewer.PreparedMesh[] preparedRiverTiles;
     private float worldSize;
     private TileGroup lod2Group;
+    private GameObject riverRoot;
     private MeshCollider currentCollider;
     private Mesh currentColliderMesh;
     private Vector2Int currentLod2 = new Vector2Int(-1, -1);
@@ -66,12 +73,35 @@ public sealed class TerrainTileStreamer : MonoBehaviour
     internal byte Lod1ClampSidesAt(Vector2Int key) => lod1Groups[key].clampSides;
     internal byte Lod0ClampSidesAt(Vector2Int key) => lod0Groups[key].clampSides;
 
-    public void Initialize(IntPtr handle, Material[] terrainMaterials, float terrainWorldSize)
+    internal async Task InitializeAsync(
+        IntPtr handle,
+        Material[] terrainMaterials,
+        Material waterMaterial,
+        float terrainWorldSize,
+        IslandViewer.PreparedMesh[] overviewTiles,
+        IslandViewer.PreparedMesh[] riverTiles,
+        bool showRivers,
+        CancellationToken cancellationToken)
     {
         islandHandle = handle;
         materials = terrainMaterials;
+        riverMaterial = waterMaterial;
+        preparedRiverTiles = riverTiles;
         worldSize = terrainWorldSize;
-        lod2Group = CreateGroup(2, Vector2Int.zero, 1, 0);
+        if (preparedRiverTiles == null
+            || preparedRiverTiles.Length != Lod1Resolution * Lod1Resolution)
+        {
+            throw new InvalidOperationException("The prepared river tile batch is invalid.");
+        }
+        riverRoot = new GameObject("Rivers");
+        riverRoot.transform.SetParent(transform, false);
+        riverRoot.transform.localPosition = Vector3.up * 0.025f;
+        riverRoot.SetActive(showRivers);
+        lod2Group = await CreatePreparedGroupAsync(
+            2,
+            Vector2Int.zero,
+            overviewTiles,
+            cancellationToken);
         for (var index = 0; index < lod2Group.tiles.Length; index++)
         {
             var tile = lod2Group.tiles[index];
@@ -81,6 +111,39 @@ public sealed class TerrainTileStreamer : MonoBehaviour
             }
             BaseVertexCount += tile.mesh.vertexCount;
             BaseTriangleCount += (int)tile.mesh.GetIndexCount(0) / 3;
+        }
+    }
+
+    internal static IslandViewer.PreparedMesh[] PrepareOverviewTiles(IntPtr handle)
+    {
+        var area = new MotuNative.ExportArea(0f, 0f, 1f, 1f);
+        MotuNative.CreateMeshGrid(handle, ref area, 2, Divisions, 0, out var export);
+        try
+        {
+            if (export.handle == IntPtr.Zero
+                || export.data == IntPtr.Zero
+                || export.length != Divisions * Divisions)
+            {
+                throw new InvalidOperationException(
+                    "The Rust grid slicer returned an invalid overview tile batch.");
+            }
+
+            var result = new IslandViewer.PreparedMesh[export.length];
+            var exportSize = Marshal.SizeOf<MotuNative.ExportMesh>();
+            for (var index = 0; index < export.length; index++)
+            {
+                var nativeMesh = Marshal.PtrToStructure<MotuNative.ExportMesh>(
+                    IntPtr.Add(export.data, index * exportSize));
+                if (nativeMesh.handle != IntPtr.Zero && nativeMesh.triangles.length != 0)
+                {
+                    result[index] = IslandViewer.CopyTerrainMeshData(nativeMesh, 2);
+                }
+            }
+            return result;
+        }
+        finally
+        {
+            MotuNative.ReleaseMeshGrid(ref export);
         }
     }
 
@@ -112,6 +175,10 @@ public sealed class TerrainTileStreamer : MonoBehaviour
     public void ClearPlayerFocus()
     {
         RemoveCollider();
+        foreach (var group in riverGroups.Values)
+        {
+            group.root?.SetActive(false);
+        }
         foreach (var entry in lod0Groups)
         {
             SetLod1TileActive(entry.Key, true);
@@ -183,12 +250,25 @@ public sealed class TerrainTileStreamer : MonoBehaviour
     public void Dispose()
     {
         ClearPlayerFocus();
+        foreach (var group in riverGroups.Values)
+        {
+            DestroyGroup(group);
+        }
+        riverGroups.Clear();
+        DestroyUnityObject(riverRoot);
+        riverRoot = null;
+        preparedRiverTiles = null;
         if (lod2Group != null)
         {
             DestroyGroup(lod2Group);
             lod2Group = null;
         }
         islandHandle = IntPtr.Zero;
+    }
+
+    public void SetRiversVisible(bool visible)
+    {
+        riverRoot?.SetActive(visible);
     }
 
     private void UpdateLod1Neighborhood(Vector2Int center)
@@ -199,6 +279,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
             DestroyGroup(lod1Groups[key]);
             lod1Groups.Remove(key);
             SetLod2TileActive(key, true);
+            SetRiverGroupActive(key, false);
         }
 
         ForEachNeighbour(center, Lod2Resolution, key =>
@@ -215,6 +296,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
                 lod1Groups.Add(key, CreateGroup(1, key, Lod2Resolution, clampSides));
             }
             SetLod2TileActive(key, false);
+            SetRiverGroupActive(key, true);
         });
     }
 
@@ -306,6 +388,56 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         return sides;
     }
 
+    private async Task<TileGroup> CreatePreparedGroupAsync(
+        int lod,
+        Vector2Int parent,
+        IslandViewer.PreparedMesh[] preparedMeshes,
+        CancellationToken cancellationToken)
+    {
+        if (preparedMeshes == null || preparedMeshes.Length != Divisions * Divisions)
+        {
+            throw new InvalidOperationException("The prepared overview tile batch is invalid.");
+        }
+
+        GameObject root = null;
+        var tiles = new Tile[preparedMeshes.Length];
+        try
+        {
+            root = new GameObject($"LOD {lod} group {parent.x},{parent.y}");
+            root.transform.SetParent(transform, false);
+            for (var index = 0; index < preparedMeshes.Length; index++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var preparedMesh = preparedMeshes[index];
+                if (preparedMesh != null)
+                {
+                    var mesh = IslandViewer.CreateTerrainMesh(preparedMesh, lod);
+                    var localX = index % Divisions;
+                    var localY = index / Divisions;
+                    var tileObject = new GameObject($"LOD {lod} tile {localX},{localY}");
+                    tileObject.transform.SetParent(root.transform, false);
+                    tileObject.AddComponent<MeshFilter>().sharedMesh = mesh;
+                    tileObject.AddComponent<MeshRenderer>().sharedMaterial = materials[lod];
+                    tiles[index] = new Tile(tileObject, mesh);
+                }
+
+                // Mesh and tangent uploads must use Unity's main thread. Spreading
+                // them across frames avoids replacing one long native stall with
+                // a large render-resource upload hitch.
+                if ((index & 3) == 3)
+                {
+                    await Task.Yield();
+                }
+            }
+            return new TileGroup(root, tiles, 0);
+        }
+        catch
+        {
+            DestroyGroup(new TileGroup(root, tiles, 0));
+            throw;
+        }
+    }
+
     private TileGroup CreateGroup(
         int lod,
         Vector2Int parent,
@@ -370,6 +502,60 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         {
             MotuNative.ReleaseMeshGrid(ref export);
         }
+    }
+
+    private TileGroup CreateRiverGroup(Vector2Int parent)
+    {
+        GameObject root = null;
+        var tiles = new Tile[Divisions * Divisions];
+        try
+        {
+            root = new GameObject($"River group {parent.x},{parent.y}");
+            root.transform.SetParent(riverRoot.transform, false);
+            for (var localY = 0; localY < Divisions; localY++)
+            {
+                for (var localX = 0; localX < Divisions; localX++)
+                {
+                    var globalX = parent.x * Divisions + localX;
+                    var globalY = parent.y * Divisions + localY;
+                    var preparedIndex = globalY * Lod1Resolution + globalX;
+                    var preparedMesh = preparedRiverTiles[preparedIndex];
+                    if (preparedMesh == null)
+                    {
+                        continue;
+                    }
+
+                    var mesh = IslandViewer.CreateRiverMesh(preparedMesh);
+                    preparedRiverTiles[preparedIndex] = null;
+                    var tileIndex = localY * Divisions + localX;
+                    var tileObject = new GameObject($"River LOD 1 tile {globalX},{globalY}");
+                    tileObject.transform.SetParent(root.transform, false);
+                    tileObject.AddComponent<MeshFilter>().sharedMesh = mesh;
+                    tileObject.AddComponent<MeshRenderer>().sharedMaterial = riverMaterial;
+                    tiles[tileIndex] = new Tile(tileObject, mesh);
+                }
+            }
+            return new TileGroup(root, tiles, 0);
+        }
+        catch
+        {
+            DestroyGroup(new TileGroup(root, tiles, 0));
+            throw;
+        }
+    }
+
+    private void SetRiverGroupActive(Vector2Int key, bool active)
+    {
+        if (!riverGroups.TryGetValue(key, out var group))
+        {
+            if (!active)
+            {
+                return;
+            }
+            group = CreateRiverGroup(key);
+            riverGroups.Add(key, group);
+        }
+        group.root?.SetActive(active);
     }
 
     private void MoveCollider(Vector2Int lod0Cell)

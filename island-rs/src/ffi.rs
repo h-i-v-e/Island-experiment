@@ -273,6 +273,23 @@ fn export_mesh(mesh: Box<Mesh>) -> ExportMesh {
     }
 }
 
+fn export_mesh_grid(tiles: Vec<Mesh>) -> ExportMeshGrid {
+    let exports: Vec<ExportMesh> = tiles
+        .into_iter()
+        .map(|tile| export_mesh(Box::new(tile)))
+        .collect();
+    let owner = Box::new(exports);
+    let output = ExportMeshGrid {
+        handle: ptr::null_mut(),
+        data: owner.as_ptr(),
+        length: length_i32(owner.len()),
+    };
+    ExportMeshGrid {
+        handle: Box::into_raw(owner).cast(),
+        ..output
+    }
+}
+
 fn export_surface_maps(maps: Box<SurfaceMaps>) -> ExportSurfaceMaps {
     let handle = Box::into_raw(maps);
     // SAFETY: handle remains owned by the caller until ReleaseSurfaceMaps.
@@ -402,14 +419,7 @@ pub unsafe extern "C" fn CreateMeshGrid(
     let Some(tiles) = island.render_mesh_grid(lod, bounds, divisions, clamp_sides) else {
         return;
     };
-    let exports: Vec<ExportMesh> = tiles
-        .into_iter()
-        .map(|tile| export_mesh(Box::new(tile)))
-        .collect();
-    let owner = Box::new(exports);
-    output.data = owner.as_ptr();
-    output.length = length_i32(owner.len());
-    output.handle = Box::into_raw(owner).cast();
+    *output = export_mesh_grid(tiles);
 }
 
 #[unsafe(no_mangle)]
@@ -472,6 +482,29 @@ pub unsafe extern "C" fn CreateRiverMesh(
             length: uv_length,
         },
     };
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn CreateRiverMeshGrid(
+    handle: *const c_void,
+    area: *const ExportArea,
+    divisions: i32,
+    output: *mut ExportMeshGrid,
+) {
+    let Some(island) = (unsafe { island_ref(handle) }) else {
+        return;
+    };
+    let Some(output) = (unsafe { output.as_mut() }) else {
+        return;
+    };
+    let bounds = if area.is_null() {
+        BoundingBox::default()
+    } else {
+        // SAFETY: non-null area must point to a readable ExportArea.
+        unsafe { (*area).into() }
+    };
+    let divisions = usize::try_from(divisions.max(0)).unwrap_or(0);
+    *output = export_mesh_grid(island.river_mesh().sliced_grid(bounds, divisions));
 }
 
 #[unsafe(no_mangle)]
@@ -843,6 +876,21 @@ mod tests {
             );
             ReleaseMeshGrid(&raw mut grid);
             assert!(grid.handle.is_null());
+
+            let mut river_grid = ExportMeshGrid::default();
+            CreateRiverMeshGrid(handle, ptr::null(), 8, &raw mut river_grid);
+            assert!(!river_grid.handle.is_null());
+            assert_eq!(river_grid.length, 64);
+            let river_tiles =
+                std::slice::from_raw_parts(river_grid.data, river_grid.length as usize);
+            assert!(river_tiles.iter().any(|tile| tile.triangles.length > 0));
+            assert!(
+                river_tiles
+                    .iter()
+                    .all(|tile| tile.uv.length == tile.vertices.length)
+            );
+            ReleaseMeshGrid(&raw mut river_grid);
+            assert!(river_grid.handle.is_null());
 
             let height_map = CreateHeightMap(handle, 16);
             assert!(!height_map.is_null());

@@ -16,9 +16,12 @@ The project can also be opened normally from Hub after stale licensing clients
 have exited. Use the launcher if Hub reports that it cannot connect to the
 licensing service.
 
-Generation builds all three texture sets and an 8x8 LOD 2 overview, so the
-initial pause is longer than displaying one monolithic LOD. Use the overlay to
-regenerate another seed and adjust terrain, coastal evolution,
+Generation builds the island, all three texture sets, the LOD1-clipped river
+tiles, and the 8x8 LOD 2 overview on a background worker. The existing island
+remains visible while regeneration runs, and the overlay reports elapsed time.
+Unity texture and mesh objects are then uploaded on the main thread, with the
+64 overview tiles spread across frames to avoid a large upload hitch. Use the
+overlay to regenerate another seed and adjust terrain, coastal evolution,
 hydraulic-erosion, or per-stage river source thresholds. Coastal erosion cuts
 exposed softer rock into bays and platforms; beach formation conservatively
 redistributes that sediment toward sheltered shorelines. Higher river-threshold
@@ -42,8 +45,11 @@ current LOD 0 tile has a `MeshCollider`; it moves as the player crosses tile
 boundaries. The collider uses the true-3D tile by default and automatically
 falls back to a separately exported support tile if Unity cannot cook it. The
 overlay can force support collision for diagnostics. Press Escape to discard
-the refinement groups and return to the 64-tile LOD 2 overview. First-person
-controls are WASD, Shift to run, Space to jump, and the mouse to look.
+the refinement groups and return to the 64-tile LOD 2 overview. River surfaces
+are clipped on the same 64x64 LOD 1 boundaries and only the chunks inside the
+active LOD 1 neighbourhood are rendered. Chunks are cached after their first
+visit, so revisiting an area only changes visibility. First-person controls are
+WASD, Shift to run, Space to jump, and the mouse to look.
 
 Every 8x8 group is geometrically clipped at its tile boundaries. LOD 0 uses an
 attribute-carrying 3D plane clipper, so vertical faces and multiple heights at

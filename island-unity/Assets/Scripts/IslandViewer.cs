@@ -2,6 +2,8 @@ using System;
 using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.InteropServices;
+using System.Threading;
+using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.Rendering;
 using Debug = UnityEngine.Debug;
@@ -19,7 +21,6 @@ public sealed class IslandViewer : MonoBehaviour
 
     private IntPtr islandHandle;
     private TerrainTileStreamer terrainStreamer;
-    private GameObject riverObject;
     private GameObject seaObject;
     private Camera viewerCamera;
     private FirstPersonController firstPersonController;
@@ -52,6 +53,81 @@ public sealed class IslandViewer : MonoBehaviour
     private bool useRenderCollider = true;
     private bool clickCandidate;
     private Vector2 clickStart;
+    private CancellationTokenSource generationCancellation;
+    private Stopwatch generationTimer;
+    private bool generationInProgress;
+    private bool isDestroyed;
+
+    internal sealed class PreparedMesh
+    {
+        internal readonly Vector3[] vertices;
+        internal readonly Vector3[] normals;
+        internal readonly int[] triangles;
+        internal readonly Vector2[] uv;
+
+        internal PreparedMesh(
+            Vector3[] vertices,
+            Vector3[] normals,
+            int[] triangles,
+            Vector2[] uv)
+        {
+            this.vertices = vertices;
+            this.normals = normals;
+            this.triangles = triangles;
+            this.uv = uv;
+        }
+    }
+
+    private sealed class PreparedSurfaceMaps
+    {
+        internal readonly int dimension;
+        internal readonly byte[] normalRgb;
+        internal readonly byte[] occlusion;
+
+        internal PreparedSurfaceMaps(int dimension, byte[] normalRgb, byte[] occlusion)
+        {
+            this.dimension = dimension;
+            this.normalRgb = normalRgb;
+            this.occlusion = occlusion;
+        }
+    }
+
+    private sealed class PreparedIsland : IDisposable
+    {
+        internal IntPtr handle;
+        internal readonly PreparedSurfaceMaps[] surfaceMaps;
+        internal readonly PreparedMesh[] overviewTiles;
+        internal readonly PreparedMesh[] riverTiles;
+
+        internal PreparedIsland(
+            IntPtr handle,
+            PreparedSurfaceMaps[] surfaceMaps,
+            PreparedMesh[] overviewTiles,
+            PreparedMesh[] riverTiles)
+        {
+            this.handle = handle;
+            this.surfaceMaps = surfaceMaps;
+            this.overviewTiles = overviewTiles;
+            this.riverTiles = riverTiles;
+        }
+
+        internal IntPtr TakeHandle()
+        {
+            var result = handle;
+            handle = IntPtr.Zero;
+            return result;
+        }
+
+        public void Dispose()
+        {
+            if (handle == IntPtr.Zero)
+            {
+                return;
+            }
+            MotuNative.ReleaseMotu(handle);
+            handle = IntPtr.Zero;
+        }
+    }
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void Bootstrap()
@@ -140,6 +216,8 @@ public sealed class IslandViewer : MonoBehaviour
 
     private void OnDestroy()
     {
+        isDestroyed = true;
+        generationCancellation?.Cancel();
         firstPersonController?.Exit();
         ClearGeneratedContent();
         for (var lod = 0; lod < terrainMaterials.Length; lod++)
@@ -189,18 +267,25 @@ public sealed class IslandViewer : MonoBehaviour
         seaMaterial = CreateMaterial("Motu/Water", new Color(0.03f, 0.28f, 0.55f, 0.62f));
     }
 
-    private void Generate()
+    private async void Generate()
     {
+        if (generationInProgress)
+        {
+            return;
+        }
         if (!int.TryParse(seedText, NumberStyles.Integer, CultureInfo.InvariantCulture, out seed))
         {
             status = "Seed must be a whole number.";
             return;
         }
 
-        status = "Generating...";
+        status = "Generating island in background...";
         firstPersonController?.Exit();
-        ClearGeneratedContent();
-        var timer = Stopwatch.StartNew();
+        generationInProgress = true;
+        generationTimer = Stopwatch.StartNew();
+        var cancellation = new CancellationTokenSource();
+        generationCancellation = cancellation;
+        PreparedIsland prepared = null;
 
         try
         {
@@ -224,34 +309,40 @@ public sealed class IslandViewer : MonoBehaviour
                 cliffRenderStrength = 0f,
             };
 
-            islandHandle = MotuNative.CreateMotu(seed, ref options);
-            if (islandHandle == IntPtr.Zero)
+            prepared = await Task.Run(
+                () => PrepareIsland(seed, options, cancellation.Token),
+                cancellation.Token);
+            cancellation.Token.ThrowIfCancellationRequested();
+            if (isDestroyed)
             {
-                throw new InvalidOperationException("The Rust generator returned a null island handle.");
+                return;
             }
 
-            CreateSurfaceTextures(0, Lod0SurfaceMapDimension, false);
-            CreateSurfaceTextures(1, Lod1SurfaceMapDimension, true);
-            CreateSurfaceTextures(2, Lod2SurfaceMapDimension, true);
+            status = "Uploading generated island...";
+            ClearGeneratedContent();
+            islandHandle = prepared.TakeHandle();
+
+            for (var lod = 0; lod < prepared.surfaceMaps.Length; lod++)
+            {
+                CreateSurfaceTextures(lod, prepared.surfaceMaps[lod]);
+                await Task.Yield();
+                cancellation.Token.ThrowIfCancellationRequested();
+            }
 
             var terrainRoot = new GameObject("Terrain Tiles");
             terrainRoot.transform.SetParent(transform, false);
             terrainStreamer = terrainRoot.AddComponent<TerrainTileStreamer>();
-            terrainStreamer.Initialize(islandHandle, terrainMaterials, TerrainScale);
+            await terrainStreamer.InitializeAsync(
+                islandHandle,
+                terrainMaterials,
+                riverMaterial,
+                TerrainScale,
+                prepared.overviewTiles,
+                prepared.riverTiles,
+                showRivers,
+                cancellation.Token);
             terrainStreamer.UseRenderCollider = useRenderCollider;
             firstPersonController.SetTerrainStreamer(terrainStreamer);
-
-            MotuNative.CreateRiverMesh(islandHandle, IntPtr.Zero, out var riverExport);
-            try
-            {
-                riverObject = CreateMeshObject("Rivers", CopyMesh(riverExport), riverMaterial);
-                riverObject.transform.position = Vector3.up * 0.025f;
-                riverObject.SetActive(showRivers);
-            }
-            finally
-            {
-                MotuNative.ReleaseMeshWithUV(ref riverExport);
-            }
 
             seaObject = GameObject.CreatePrimitive(PrimitiveType.Plane);
             seaObject.name = "Sea";
@@ -262,19 +353,26 @@ public sealed class IslandViewer : MonoBehaviour
             DestroyUnityObject(seaObject.GetComponent<Collider>());
             seaObject.SetActive(showSea);
 
-            timer.Stop();
+            generationTimer.Stop();
             status = string.Format(
                 CultureInfo.InvariantCulture,
                 "Seed {0} | 64 LOD 2 tiles | {1:N0} vertices | {2:N0} triangles | {3:F2}s",
                 seed,
                 terrainStreamer.BaseVertexCount,
                 terrainStreamer.BaseTriangleCount,
-                timer.Elapsed.TotalSeconds);
+                generationTimer.Elapsed.TotalSeconds);
             status += " | maps: 2048 LOD 0, 1024 LOD 1, 512 LOD 2";
             status += string.Format(
                 CultureInfo.InvariantCulture,
                 " | current LOD 0 render collider (support fallback) | {0:F1} km square",
                 TerrainScale / 1000f);
+        }
+        catch (OperationCanceledException)
+        {
+            if (!isDestroyed)
+            {
+                status = "Generation cancelled.";
+            }
         }
         catch (Exception exception)
         {
@@ -282,15 +380,64 @@ public sealed class IslandViewer : MonoBehaviour
             Debug.LogException(exception);
             ClearGeneratedContent();
         }
+        finally
+        {
+            prepared?.Dispose();
+            if (ReferenceEquals(generationCancellation, cancellation))
+            {
+                generationCancellation = null;
+                generationInProgress = false;
+                generationTimer = null;
+            }
+            cancellation.Dispose();
+        }
     }
 
-    private void CreateSurfaceTextures(int lod, int dimension, bool includeDetailNormal)
+    private static PreparedIsland PrepareIsland(
+        int islandSeed,
+        MotuNative.Options options,
+        CancellationToken cancellationToken)
     {
-        MotuNative.CreateSurfaceMaps(
-            islandHandle,
-            lod,
-            dimension,
-            out var surfaceMaps);
+        var handle = MotuNative.CreateMotu(islandSeed, ref options);
+        if (handle == IntPtr.Zero)
+        {
+            throw new InvalidOperationException("The Rust generator returned a null island handle.");
+        }
+
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var surfaceMaps = new PreparedSurfaceMaps[3];
+            surfaceMaps[0] = PrepareSurfaceMaps(handle, 0, Lod0SurfaceMapDimension, false);
+            cancellationToken.ThrowIfCancellationRequested();
+            surfaceMaps[1] = PrepareSurfaceMaps(handle, 1, Lod1SurfaceMapDimension, true);
+            cancellationToken.ThrowIfCancellationRequested();
+            surfaceMaps[2] = PrepareSurfaceMaps(handle, 2, Lod2SurfaceMapDimension, true);
+            cancellationToken.ThrowIfCancellationRequested();
+            var overviewTiles = TerrainTileStreamer.PrepareOverviewTiles(handle);
+            cancellationToken.ThrowIfCancellationRequested();
+            var riverTiles = PrepareRiverTiles(handle);
+            cancellationToken.ThrowIfCancellationRequested();
+            var result = new PreparedIsland(handle, surfaceMaps, overviewTiles, riverTiles);
+            handle = IntPtr.Zero;
+            return result;
+        }
+        finally
+        {
+            if (handle != IntPtr.Zero)
+            {
+                MotuNative.ReleaseMotu(handle);
+            }
+        }
+    }
+
+    private static PreparedSurfaceMaps PrepareSurfaceMaps(
+        IntPtr handle,
+        int lod,
+        int dimension,
+        bool includeDetailNormal)
+    {
+        MotuNative.CreateSurfaceMaps(handle, lod, dimension, out var surfaceMaps);
         try
         {
             if (surfaceMaps.handle == IntPtr.Zero
@@ -306,38 +453,81 @@ public sealed class IslandViewer : MonoBehaviour
             var pixelCount = checked(dimension * dimension);
             var occlusionBytes = new byte[pixelCount];
             Marshal.Copy(surfaceMaps.occlusion, occlusionBytes, 0, occlusionBytes.Length);
-
-            terrainOcclusionTextures[lod] = CreateSurfaceTexture(
-                $"Motu LOD {lod} Terrain Occlusion",
-                dimension,
-                TextureFormat.R8,
-                occlusionBytes);
+            byte[] normalBytes = null;
             if (includeDetailNormal)
             {
-                var normalBytes = new byte[checked(pixelCount * 3)];
+                normalBytes = new byte[checked(pixelCount * 3)];
                 Marshal.Copy(surfaceMaps.normalRgb, normalBytes, 0, normalBytes.Length);
-                terrainNormalTextures[lod] = CreateSurfaceTexture(
-                    $"Motu LOD {lod} Detail Normal",
-                    dimension,
-                    TextureFormat.RGB24,
-                    normalBytes);
-                terrainMaterials[lod].SetTexture("_DetailNormal", terrainNormalTextures[lod]);
-                terrainMaterials[lod].SetTexture("_Occlusion", terrainOcclusionTextures[lod]);
             }
-            else
-            {
-                if (!terrainMaterials[lod].HasProperty("_Occlusion"))
-                {
-                    throw new InvalidOperationException(
-                        "The LOD 0 terrain shader does not expose its baked occlusion texture.");
-                }
-                terrainMaterials[lod].SetTexture("_Occlusion", terrainOcclusionTextures[lod]);
-            }
+            return new PreparedSurfaceMaps(dimension, normalBytes, occlusionBytes);
         }
         finally
         {
             MotuNative.ReleaseSurfaceMaps(ref surfaceMaps);
         }
+    }
+
+    private static PreparedMesh[] PrepareRiverTiles(IntPtr handle)
+    {
+        var area = new MotuNative.ExportArea(0f, 0f, 1f, 1f);
+        MotuNative.CreateRiverMeshGrid(
+            handle,
+            ref area,
+            TerrainTileStreamer.Lod1Resolution,
+            out var export);
+        try
+        {
+            var expectedLength = TerrainTileStreamer.Lod1Resolution
+                * TerrainTileStreamer.Lod1Resolution;
+            if (export.handle == IntPtr.Zero
+                || export.data == IntPtr.Zero
+                || export.length != expectedLength)
+            {
+                throw new InvalidOperationException(
+                    "The Rust river slicer returned an invalid LOD 1 tile batch.");
+            }
+
+            var result = new PreparedMesh[export.length];
+            var exportSize = Marshal.SizeOf<MotuNative.ExportMesh>();
+            for (var index = 0; index < export.length; index++)
+            {
+                var nativeMesh = Marshal.PtrToStructure<MotuNative.ExportMesh>(
+                    IntPtr.Add(export.data, index * exportSize));
+                if (nativeMesh.handle != IntPtr.Zero && nativeMesh.triangles.length != 0)
+                {
+                    result[index] = CopyRiverMeshData(nativeMesh);
+                }
+            }
+            return result;
+        }
+        finally
+        {
+            MotuNative.ReleaseMeshGrid(ref export);
+        }
+    }
+
+    private void CreateSurfaceTextures(int lod, PreparedSurfaceMaps surfaceMaps)
+    {
+        terrainOcclusionTextures[lod] = CreateSurfaceTexture(
+            $"Motu LOD {lod} Terrain Occlusion",
+            surfaceMaps.dimension,
+            TextureFormat.R8,
+            surfaceMaps.occlusion);
+        if (surfaceMaps.normalRgb != null)
+        {
+            terrainNormalTextures[lod] = CreateSurfaceTexture(
+                $"Motu LOD {lod} Detail Normal",
+                surfaceMaps.dimension,
+                TextureFormat.RGB24,
+                surfaceMaps.normalRgb);
+            terrainMaterials[lod].SetTexture("_DetailNormal", terrainNormalTextures[lod]);
+        }
+        else if (!terrainMaterials[lod].HasProperty("_Occlusion"))
+        {
+            throw new InvalidOperationException(
+                "The LOD 0 terrain shader does not expose its baked occlusion texture.");
+        }
+        terrainMaterials[lod].SetTexture("_Occlusion", terrainOcclusionTextures[lod]);
     }
 
     private static Texture2D CreateSurfaceTexture(
@@ -361,49 +551,47 @@ public sealed class IslandViewer : MonoBehaviour
         return texture;
     }
 
-    private GameObject CreateMeshObject(string objectName, Mesh mesh, Material material)
+    internal static PreparedMesh CopyTerrainMeshData(MotuNative.ExportMesh source, int lod)
     {
-        var meshObject = new GameObject(objectName);
-        meshObject.transform.SetParent(transform, false);
-        meshObject.AddComponent<MeshFilter>().sharedMesh = mesh;
-        meshObject.AddComponent<MeshRenderer>().sharedMaterial = material;
-        return meshObject;
-    }
-
-    private static Mesh CopyMesh(
-        MotuNative.ExportMesh source,
-        bool createSurfaceMapCoordinates,
-        bool createTangents)
-    {
-        return CopyMesh(
+        return CopyMeshData(
             source.vertices,
             source.normals,
             source.triangles,
             source.uv,
-            createSurfaceMapCoordinates,
-            createTangents);
+            true);
     }
 
     internal static Mesh CopyTerrainMesh(MotuNative.ExportMesh source, int lod)
     {
-        return CopyMesh(
-            source,
-            createSurfaceMapCoordinates: true,
-            createTangents: lod != 0);
+        return CreateTerrainMesh(CopyTerrainMeshData(source, lod), lod);
     }
 
-    private static Mesh CopyMesh(MotuNative.ExportMeshWithUv source)
+    internal static Mesh CreateTerrainMesh(PreparedMesh source, int lod)
     {
-        return CopyMesh(source.vertices, source.normals, source.triangles, source.uv, false, false);
+        return CreateMesh(source, lod != 0);
     }
 
-    private static Mesh CopyMesh(
+    internal static PreparedMesh CopyRiverMeshData(MotuNative.ExportMesh source)
+    {
+        return CopyMeshData(
+            source.vertices,
+            source.normals,
+            source.triangles,
+            source.uv,
+            false);
+    }
+
+    internal static Mesh CreateRiverMesh(PreparedMesh source)
+    {
+        return CreateMesh(source, false);
+    }
+
+    private static PreparedMesh CopyMeshData(
         MotuNative.Vector3Array sourceVertices,
         MotuNative.Vector3Array sourceNormals,
         MotuNative.TriangleArray sourceTriangles,
         MotuNative.Vector2Array sourceUv,
-        bool createSurfaceMapCoordinates,
-        bool createTangents)
+        bool createSurfaceMapCoordinates)
     {
         if (sourceVertices.data == IntPtr.Zero || sourceVertices.length == 0)
         {
@@ -423,24 +611,39 @@ public sealed class IslandViewer : MonoBehaviour
                 (triangles[index + 2], triangles[index + 1]);
         }
 
-        var mesh = new Mesh
-        {
-            name = "Motu Generated Mesh",
-            indexFormat = vertices.Length > ushort.MaxValue
-                ? IndexFormat.UInt32
-                : IndexFormat.UInt16,
-            vertices = vertices,
-            normals = normals,
-            triangles = triangles,
-        };
-
+        Vector2[] uv;
         if (sourceUv.data != IntPtr.Zero && sourceUv.length == vertices.Length)
         {
-            mesh.uv = CopyVector2Array(sourceUv);
+            uv = CopyVector2Array(sourceUv);
         }
         else if (createSurfaceMapCoordinates)
         {
-            mesh.uv = CreateTerrainUv(vertices);
+            uv = CreateTerrainUv(vertices);
+        }
+        else
+        {
+            uv = Array.Empty<Vector2>();
+        }
+
+        return new PreparedMesh(vertices, normals, triangles, uv);
+    }
+
+    private static Mesh CreateMesh(PreparedMesh source, bool createTangents)
+    {
+        var mesh = new Mesh
+        {
+            name = "Motu Generated Mesh",
+            indexFormat = source.vertices.Length > ushort.MaxValue
+                ? IndexFormat.UInt32
+                : IndexFormat.UInt16,
+            vertices = source.vertices,
+            normals = source.normals,
+            triangles = source.triangles,
+        };
+
+        if (source.uv.Length == source.vertices.Length)
+        {
+            mesh.uv = source.uv;
         }
         if (createTangents)
         {
@@ -511,7 +714,6 @@ public sealed class IslandViewer : MonoBehaviour
             DestroyUnityObject(terrainStreamer.gameObject);
             terrainStreamer = null;
         }
-        DestroyMeshObject(ref riverObject);
         DestroyUnityObject(seaObject);
         seaObject = null;
         for (var lod = 0; lod < terrainMaterials.Length; lod++)
@@ -529,23 +731,6 @@ public sealed class IslandViewer : MonoBehaviour
             MotuNative.ReleaseMotu(islandHandle);
             islandHandle = IntPtr.Zero;
         }
-    }
-
-    private static void DestroyMeshObject(ref GameObject meshObject)
-    {
-        if (meshObject == null)
-        {
-            return;
-        }
-
-        var filter = meshObject.GetComponent<MeshFilter>();
-        if (filter != null)
-        {
-            DestroyUnityObject(filter.sharedMesh);
-        }
-
-        DestroyUnityObject(meshObject);
-        meshObject = null;
     }
 
     private static void DestroyUnityObject(UnityEngine.Object value)
@@ -596,10 +781,15 @@ public sealed class IslandViewer : MonoBehaviour
         GUILayout.BeginHorizontal();
         GUILayout.Label("Seed", GUILayout.Width(42f));
         seedText = GUILayout.TextField(seedText, GUILayout.Width(110f));
-        if (GUILayout.Button("Generate", GUILayout.Width(90f)))
+        var guiWasEnabled = GUI.enabled;
+        GUI.enabled = !generationInProgress;
+        if (GUILayout.Button(
+            generationInProgress ? "Generating..." : "Generate",
+            GUILayout.Width(90f)))
         {
             Generate();
         }
+        GUI.enabled = guiWasEnabled;
         GUILayout.EndHorizontal();
 
         GUILayout.Space(4f);
@@ -701,7 +891,7 @@ public sealed class IslandViewer : MonoBehaviour
         if (nextRivers != showRivers)
         {
             showRivers = nextRivers;
-            if (riverObject != null) riverObject.SetActive(showRivers);
+            terrainStreamer?.SetRiversVisible(showRivers);
         }
         if (nextSea != showSea)
         {
@@ -709,7 +899,15 @@ public sealed class IslandViewer : MonoBehaviour
             if (seaObject != null) seaObject.SetActive(showSea);
         }
 
-        GUILayout.Label(status);
+        var displayedStatus = status;
+        if (generationInProgress && generationTimer != null)
+        {
+            displayedStatus += string.Format(
+                CultureInfo.InvariantCulture,
+                " {0:F1}s",
+                generationTimer.Elapsed.TotalSeconds);
+        }
+        GUILayout.Label(displayedStatus);
         GUILayout.Label("Click terrain: stream detail + walk   |   Drag: orbit   |   Wheel: zoom");
         GUILayout.EndArea();
     }
@@ -812,6 +1010,48 @@ public sealed class IslandViewer : MonoBehaviour
             finally
             {
                 MotuNative.ReleaseMeshGrid(ref grid);
+            }
+
+            var riverArea = new MotuNative.ExportArea(0f, 0f, 1f, 1f);
+            const int riverResolution = TerrainTileStreamer.Lod1Resolution;
+            MotuNative.CreateRiverMeshGrid(
+                handle,
+                ref riverArea,
+                riverResolution,
+                out var riverGrid);
+            try
+            {
+                if (riverGrid.handle == IntPtr.Zero
+                    || riverGrid.data == IntPtr.Zero
+                    || riverGrid.length != riverResolution * riverResolution)
+                {
+                    throw new InvalidOperationException("Native river-grid layout is invalid.");
+                }
+                var exportSize = Marshal.SizeOf<MotuNative.ExportMesh>();
+                var foundRiverGeometry = false;
+                for (var index = 0; index < riverGrid.length; index++)
+                {
+                    var nativeMesh = Marshal.PtrToStructure<MotuNative.ExportMesh>(
+                        IntPtr.Add(riverGrid.data, index * exportSize));
+                    if (nativeMesh.triangles.length == 0)
+                    {
+                        continue;
+                    }
+                    foundRiverGeometry = true;
+                    if (nativeMesh.uv.length != nativeMesh.vertices.length)
+                    {
+                        throw new InvalidOperationException(
+                            "A sliced river tile has invalid UV coordinates.");
+                    }
+                }
+                if (!foundRiverGeometry)
+                {
+                    throw new InvalidOperationException("Native river grid is unexpectedly empty.");
+                }
+            }
+            finally
+            {
+                MotuNative.ReleaseMeshGrid(ref riverGrid);
             }
 
             const float lod0Resolution = 512f;
