@@ -55,6 +55,27 @@ fn generation_is_deterministic_across_worker_counts() {
 }
 
 #[test]
+fn final_terrain_has_ten_centimetres_clearance_from_the_sea_plane() {
+    let island = Island::generate(
+        2018,
+        IslandOptions {
+            terrain_size: 24,
+            ..IslandOptions::default()
+        },
+    )
+    .unwrap();
+    let clearance = 0.10 / 2_000.0;
+
+    assert!(
+        island
+            .terrain()
+            .vertices()
+            .iter()
+            .all(|vertex| vertex.z <= -clearance || vertex.z >= clearance)
+    );
+}
+
+#[test]
 fn water_ratio_increases_connected_ocean_coverage() {
     let coverage = |water_ratio| {
         let island = Island::generate(
@@ -432,6 +453,33 @@ fn coarse_lod_surface_maps_capture_detail_and_occlusion() {
 fn rivers_are_continuous_flowing_terrain_submeshes_with_waterfalls() {
     let island = Island::generate(666, small_options()).unwrap();
     assert!(!island.rivers().is_empty());
+    let terrain = island.terrain().mesh();
+    let adjacency = terrain.adjacency();
+    let corner = terrain
+        .vertices
+        .iter()
+        .enumerate()
+        .min_by(|(_, left), (_, right)| {
+            left.x
+                .total_cmp(&right.x)
+                .then_with(|| left.y.total_cmp(&right.y))
+        })
+        .map(|(vertex, _)| vertex)
+        .unwrap();
+    let mut ocean = vec![false; terrain.vertices.len()];
+    let mut fringe = vec![corner];
+    ocean[corner] = true;
+    while let Some(vertex) = fringe.pop() {
+        for &neighbour in &adjacency[vertex] {
+            if !ocean[neighbour] && terrain.vertices[neighbour].z < 0.0 {
+                ocean[neighbour] = true;
+                fringe.push(neighbour);
+            }
+        }
+    }
+    assert!(island.rivers().iter().all(|river| {
+        river.join.is_some() || river.nodes.last().is_some_and(|node| ocean[node.vertex])
+    }));
     let total_nodes: usize = island.rivers().iter().map(|river| river.nodes.len()).sum();
     let total_segments: usize = island
         .rivers()
