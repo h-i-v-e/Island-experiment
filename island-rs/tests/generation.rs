@@ -432,7 +432,7 @@ fn coarse_lod_surface_maps_capture_detail_and_occlusion() {
     assert!(
         lod0.normal_rgb()
             .chunks_exact(3)
-            .all(|pixel| pixel == [127, 127, 255])
+            .any(|pixel| pixel != [127, 127, 255])
     );
     assert!(lod0.occlusion().iter().any(|value| *value < u8::MAX));
     assert_eq!(lod1.width(), 64);

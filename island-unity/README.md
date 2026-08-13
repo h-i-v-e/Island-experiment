@@ -63,11 +63,20 @@ Sediment deposition has separate strength and slope controls. At the default
 across moderate slopes, and reaches zero at 12 degrees. Raising the limit lets
 sediment settle on progressively steeper terrain.
 
-All terrain LODs bake the original directional ambient-occlusion texture.
-LOD 1 and LOD 2 also bake high-detail normal corrections from LOD 0. The
-viewer uses the original resolution progression: 2048x2048 AO for LOD 0,
-1024x1024 normal and AO maps for LOD 1, and 512x512 normal and AO maps for
-LOD 2. LOD 0 continues to use its full geometric normals directly.
+All terrain LODs share one `Motu/Terrain Unified` material and the same
+2048x2048 world-space normal and directional ambient-occlusion maps. The maps
+are sampled with global terrain UVs, so their colour and lighting do not jump
+at a tile or LOD boundary. LOD 0 disables the sampled normal per renderer and
+uses its own geometric normals; LOD 1 and LOD 2 use the world-space normal map
+derived from the final LOD 0 terrain.
+
+Terrain mesh colours carry material data rather than a visible tint. Red is
+bedrock hardness, green is loose/deposited cover, and blue is final river-bed
+coverage. Rust samples the authoritative final LOD 0 field after each tile is
+clipped, so reordered and newly created boundary vertices receive matching
+values. The unified shader uses these channels to expose harder rock on slopes,
+colour sheltered coastal deposits as beaches, and distinguish rocky from silty
+river beds consistently across all LODs.
 
 ## Rebuild the native plugin
 

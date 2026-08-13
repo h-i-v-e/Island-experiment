@@ -13,10 +13,11 @@ public sealed class IslandViewer : MonoBehaviour
     private const float TerrainScale = 2000f;
     private const float SeaHeight = 0f;
     private const float MinimumWaterRatio = 0.6f;
+    private const float DefaultWaterRatio = 0.95f;
     private const float MaximumRiverSourceThreshold = 16f;
-    private const int Lod0SurfaceMapDimension = 2048;
-    private const int Lod1SurfaceMapDimension = 1024;
-    private const int Lod2SurfaceMapDimension = 512;
+    private const int SurfaceMapDimension = 2048;
+    private const int CliffNoiseDimension = 64;
+    private const int CliffNoiseLatticePeriod = 16;
     private const float ClickDragTolerance = 6f;
 
     private IntPtr islandHandle;
@@ -24,15 +25,16 @@ public sealed class IslandViewer : MonoBehaviour
     private GameObject seaObject;
     private Camera viewerCamera;
     private FirstPersonController firstPersonController;
-    private readonly Material[] terrainMaterials = new Material[3];
-    private readonly Texture2D[] terrainNormalTextures = new Texture2D[3];
-    private readonly Texture2D[] terrainOcclusionTextures = new Texture2D[3];
+    private Material terrainMaterial;
+    private Texture2D terrainNormalTexture;
+    private Texture2D terrainOcclusionTexture;
+    private Texture3D cliffNoiseTexture;
     private Material riverMaterial;
     private Material seaMaterial;
     private string seedText = "666";
     private int seed = 666;
     private float maxHeight = 0.2f;
-    private float waterRatio = MinimumWaterRatio;
+    private float waterRatio = DefaultWaterRatio;
     private float slopeMultiplier = 1.3f;
     private float coastalSlopeMultiplier = 1f;
     private float noiseMultiplier = 0.0005f;
@@ -64,17 +66,20 @@ public sealed class IslandViewer : MonoBehaviour
         internal readonly Vector3[] normals;
         internal readonly int[] triangles;
         internal readonly Vector2[] uv;
+        internal readonly Color[] material;
 
         internal PreparedMesh(
             Vector3[] vertices,
             Vector3[] normals,
             int[] triangles,
-            Vector2[] uv)
+            Vector2[] uv,
+            Color[] material)
         {
             this.vertices = vertices;
             this.normals = normals;
             this.triangles = triangles;
             this.uv = uv;
+            this.material = material;
         }
     }
 
@@ -95,13 +100,13 @@ public sealed class IslandViewer : MonoBehaviour
     private sealed class PreparedIsland : IDisposable
     {
         internal IntPtr handle;
-        internal readonly PreparedSurfaceMaps[] surfaceMaps;
+        internal readonly PreparedSurfaceMaps surfaceMaps;
         internal readonly PreparedMesh[] overviewTiles;
         internal readonly PreparedMesh[] riverTiles;
 
         internal PreparedIsland(
             IntPtr handle,
-            PreparedSurfaceMaps[] surfaceMaps,
+            PreparedSurfaceMaps surfaceMaps,
             PreparedMesh[] overviewTiles,
             PreparedMesh[] riverTiles)
         {
@@ -225,16 +230,15 @@ public sealed class IslandViewer : MonoBehaviour
         generationCancellation?.Cancel();
         firstPersonController?.Exit();
         ClearGeneratedContent();
-        for (var lod = 0; lod < terrainMaterials.Length; lod++)
-        {
-            DestroyUnityObject(terrainMaterials[lod]);
-        }
+        DestroyUnityObject(terrainMaterial);
+        DestroyUnityObject(cliffNoiseTexture);
         DestroyUnityObject(riverMaterial);
         DestroyUnityObject(seaMaterial);
     }
 
     private void BuildEnvironment()
     {
+        RenderSettings.ambientMode = AmbientMode.Flat;
         RenderSettings.ambientLight = new Color(0.42f, 0.46f, 0.52f);
 
         var lightObject = new GameObject("Sun");
@@ -259,15 +263,11 @@ public sealed class IslandViewer : MonoBehaviour
         firstPersonController = cameraObject.AddComponent<FirstPersonController>();
         firstPersonController.Configure(orbitCamera);
 
-        terrainMaterials[0] = CreateMaterial(
-            "Motu/Terrain Occlusion",
-            new Color(0.35f, 0.58f, 0.22f));
-        for (var lod = 1; lod <= 2; lod++)
-        {
-            terrainMaterials[lod] = CreateMaterial(
-                "Motu/Terrain Detail",
-                new Color(0.35f, 0.58f, 0.22f));
-        }
+        terrainMaterial = CreateMaterial(
+            "Motu/Terrain Unified",
+            Color.white);
+        cliffNoiseTexture = CreateCliffNoiseTexture();
+        terrainMaterial.SetTexture("_CliffNoise3D", cliffNoiseTexture);
         riverMaterial = CreateMaterial("Motu/Water", new Color(0.05f, 0.36f, 0.78f, 0.92f));
         seaMaterial = CreateMaterial("Motu/Water", new Color(0.03f, 0.28f, 0.55f, 0.62f));
     }
@@ -326,19 +326,16 @@ public sealed class IslandViewer : MonoBehaviour
             ClearGeneratedContent();
             islandHandle = prepared.TakeHandle();
 
-            for (var lod = 0; lod < prepared.surfaceMaps.Length; lod++)
-            {
-                CreateSurfaceTextures(lod, prepared.surfaceMaps[lod]);
-                await Task.Yield();
-                cancellation.Token.ThrowIfCancellationRequested();
-            }
+            CreateSurfaceTextures(prepared.surfaceMaps);
+            await Task.Yield();
+            cancellation.Token.ThrowIfCancellationRequested();
 
             var terrainRoot = new GameObject("Terrain Tiles");
             terrainRoot.transform.SetParent(transform, false);
             terrainStreamer = terrainRoot.AddComponent<TerrainTileStreamer>();
             await terrainStreamer.InitializeAsync(
                 islandHandle,
-                terrainMaterials,
+                terrainMaterial,
                 riverMaterial,
                 TerrainScale,
                 prepared.overviewTiles,
@@ -365,7 +362,7 @@ public sealed class IslandViewer : MonoBehaviour
                 terrainStreamer.BaseVertexCount,
                 terrainStreamer.BaseTriangleCount,
                 generationTimer.Elapsed.TotalSeconds);
-            status += " | maps: 2048 LOD 0, 1024 LOD 1, 512 LOD 2";
+            status += " | shared 2048 terrain shading map";
             status += string.Format(
                 CultureInfo.InvariantCulture,
                 " | current LOD 0 render collider (support fallback) | {0:F1} km square",
@@ -411,12 +408,7 @@ public sealed class IslandViewer : MonoBehaviour
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var surfaceMaps = new PreparedSurfaceMaps[3];
-            surfaceMaps[0] = PrepareSurfaceMaps(handle, 0, Lod0SurfaceMapDimension, false);
-            cancellationToken.ThrowIfCancellationRequested();
-            surfaceMaps[1] = PrepareSurfaceMaps(handle, 1, Lod1SurfaceMapDimension, true);
-            cancellationToken.ThrowIfCancellationRequested();
-            surfaceMaps[2] = PrepareSurfaceMaps(handle, 2, Lod2SurfaceMapDimension, true);
+            var surfaceMaps = PrepareSurfaceMaps(handle, SurfaceMapDimension);
             cancellationToken.ThrowIfCancellationRequested();
             var overviewTiles = TerrainTileStreamer.PrepareOverviewTiles(handle);
             cancellationToken.ThrowIfCancellationRequested();
@@ -437,16 +429,14 @@ public sealed class IslandViewer : MonoBehaviour
 
     private static PreparedSurfaceMaps PrepareSurfaceMaps(
         IntPtr handle,
-        int lod,
-        int dimension,
-        bool includeDetailNormal)
+        int dimension)
     {
-        MotuNative.CreateSurfaceMaps(handle, lod, dimension, out var surfaceMaps);
+        MotuNative.CreateSurfaceMaps(handle, 0, dimension, out var surfaceMaps);
         try
         {
             if (surfaceMaps.handle == IntPtr.Zero
                 || surfaceMaps.occlusion == IntPtr.Zero
-                || (includeDetailNormal && surfaceMaps.normalRgb == IntPtr.Zero)
+                || surfaceMaps.normalRgb == IntPtr.Zero
                 || surfaceMaps.width != dimension
                 || surfaceMaps.height != dimension)
             {
@@ -457,12 +447,8 @@ public sealed class IslandViewer : MonoBehaviour
             var pixelCount = checked(dimension * dimension);
             var occlusionBytes = new byte[pixelCount];
             Marshal.Copy(surfaceMaps.occlusion, occlusionBytes, 0, occlusionBytes.Length);
-            byte[] normalBytes = null;
-            if (includeDetailNormal)
-            {
-                normalBytes = new byte[checked(pixelCount * 3)];
-                Marshal.Copy(surfaceMaps.normalRgb, normalBytes, 0, normalBytes.Length);
-            }
+            var normalBytes = new byte[checked(pixelCount * 3)];
+            Marshal.Copy(surfaceMaps.normalRgb, normalBytes, 0, normalBytes.Length);
             return new PreparedSurfaceMaps(dimension, normalBytes, occlusionBytes);
         }
         finally
@@ -510,28 +496,26 @@ public sealed class IslandViewer : MonoBehaviour
         }
     }
 
-    private void CreateSurfaceTextures(int lod, PreparedSurfaceMaps surfaceMaps)
+    private void CreateSurfaceTextures(PreparedSurfaceMaps surfaceMaps)
     {
-        terrainOcclusionTextures[lod] = CreateSurfaceTexture(
-            $"Motu LOD {lod} Terrain Occlusion",
+        terrainOcclusionTexture = CreateSurfaceTexture(
+            "Motu Shared Terrain Occlusion",
             surfaceMaps.dimension,
             TextureFormat.R8,
             surfaceMaps.occlusion);
-        if (surfaceMaps.normalRgb != null)
-        {
-            terrainNormalTextures[lod] = CreateSurfaceTexture(
-                $"Motu LOD {lod} Detail Normal",
-                surfaceMaps.dimension,
-                TextureFormat.RGB24,
-                surfaceMaps.normalRgb);
-            terrainMaterials[lod].SetTexture("_DetailNormal", terrainNormalTextures[lod]);
-        }
-        else if (!terrainMaterials[lod].HasProperty("_Occlusion"))
+        terrainNormalTexture = CreateSurfaceTexture(
+            "Motu Shared Terrain World Normal",
+            surfaceMaps.dimension,
+            TextureFormat.RGB24,
+            surfaceMaps.normalRgb);
+        if (!terrainMaterial.HasProperty("_WorldNormal")
+            || !terrainMaterial.HasProperty("_Occlusion"))
         {
             throw new InvalidOperationException(
-                "The LOD 0 terrain shader does not expose its baked occlusion texture.");
+                "The unified terrain shader does not expose its shared surface textures.");
         }
-        terrainMaterials[lod].SetTexture("_Occlusion", terrainOcclusionTextures[lod]);
+        terrainMaterial.SetTexture("_WorldNormal", terrainNormalTexture);
+        terrainMaterial.SetTexture("_Occlusion", terrainOcclusionTexture);
     }
 
     private static Texture2D CreateSurfaceTexture(
@@ -562,6 +546,8 @@ public sealed class IslandViewer : MonoBehaviour
             source.normals,
             source.triangles,
             source.uv,
+            source.material,
+            true,
             true);
     }
 
@@ -572,7 +558,7 @@ public sealed class IslandViewer : MonoBehaviour
 
     internal static Mesh CreateTerrainMesh(PreparedMesh source, int lod)
     {
-        return CreateMesh(source, lod != 0);
+        return CreateMesh(source, false);
     }
 
     internal static PreparedMesh CopyRiverMeshData(MotuNative.ExportMesh source)
@@ -582,6 +568,8 @@ public sealed class IslandViewer : MonoBehaviour
             source.normals,
             source.triangles,
             source.uv,
+            source.material,
+            false,
             false);
     }
 
@@ -595,6 +583,8 @@ public sealed class IslandViewer : MonoBehaviour
         MotuNative.Vector3Array sourceNormals,
         MotuNative.TriangleArray sourceTriangles,
         MotuNative.Vector2Array sourceUv,
+        MotuNative.Vector3Array sourceMaterial,
+        bool requireMaterial,
         bool createSurfaceMapCoordinates)
     {
         if (sourceVertices.data == IntPtr.Zero || sourceVertices.length == 0)
@@ -629,7 +619,14 @@ public sealed class IslandViewer : MonoBehaviour
             uv = Array.Empty<Vector2>();
         }
 
-        return new PreparedMesh(vertices, normals, triangles, uv);
+        var material = CopyMaterialArray(sourceMaterial);
+        if (requireMaterial && material.Length != vertices.Length)
+        {
+            throw new InvalidOperationException(
+                "The Rust terrain export returned invalid material attributes.");
+        }
+
+        return new PreparedMesh(vertices, normals, triangles, uv, material);
     }
 
     private static Mesh CreateMesh(PreparedMesh source, bool createTangents)
@@ -648,6 +645,10 @@ public sealed class IslandViewer : MonoBehaviour
         if (source.uv.Length == source.vertices.Length)
         {
             mesh.uv = source.uv;
+        }
+        if (source.material.Length == source.vertices.Length)
+        {
+            mesh.colors = source.material;
         }
         if (createTangents)
         {
@@ -708,6 +709,28 @@ public sealed class IslandViewer : MonoBehaviour
         return result;
     }
 
+    private static Color[] CopyMaterialArray(MotuNative.Vector3Array source)
+    {
+        if (source.data == IntPtr.Zero || source.length == 0)
+        {
+            return Array.Empty<Color>();
+        }
+
+        var packed = new float[checked(source.length * 3)];
+        Marshal.Copy(source.data, packed, 0, packed.Length);
+        var result = new Color[source.length];
+        for (var index = 0; index < result.Length; index++)
+        {
+            var offset = index * 3;
+            result[index] = new Color(
+                packed[offset],
+                packed[offset + 1],
+                packed[offset + 2],
+                1f);
+        }
+        return result;
+    }
+
     private void ClearGeneratedContent()
     {
         clickCandidate = false;
@@ -720,15 +743,12 @@ public sealed class IslandViewer : MonoBehaviour
         }
         DestroyUnityObject(seaObject);
         seaObject = null;
-        for (var lod = 0; lod < terrainMaterials.Length; lod++)
-        {
-            terrainMaterials[lod]?.SetTexture("_DetailNormal", null);
-            terrainMaterials[lod]?.SetTexture("_Occlusion", null);
-            DestroyUnityObject(terrainNormalTextures[lod]);
-            DestroyUnityObject(terrainOcclusionTextures[lod]);
-            terrainNormalTextures[lod] = null;
-            terrainOcclusionTextures[lod] = null;
-        }
+        terrainMaterial?.SetTexture("_WorldNormal", null);
+        terrainMaterial?.SetTexture("_Occlusion", null);
+        DestroyUnityObject(terrainNormalTexture);
+        DestroyUnityObject(terrainOcclusionTexture);
+        terrainNormalTexture = null;
+        terrainOcclusionTexture = null;
 
         if (islandHandle != IntPtr.Zero)
         {
@@ -743,6 +763,107 @@ public sealed class IslandViewer : MonoBehaviour
         {
             Destroy(value);
         }
+    }
+
+    private static Texture3D CreateCliffNoiseTexture()
+    {
+        var texture = new Texture3D(
+            CliffNoiseDimension,
+            CliffNoiseDimension,
+            CliffNoiseDimension,
+            TextureFormat.RGBA32,
+            false)
+        {
+            name = "Cliff coherent noise",
+            filterMode = FilterMode.Trilinear,
+            wrapMode = TextureWrapMode.Repeat,
+        };
+        var pixels = new Color[CliffNoiseDimension * CliffNoiseDimension * CliffNoiseDimension];
+        var latticeScale = CliffNoiseLatticePeriod / (float)CliffNoiseDimension;
+        for (var z = 0; z < CliffNoiseDimension; z++)
+        {
+            for (var y = 0; y < CliffNoiseDimension; y++)
+            {
+                for (var x = 0; x < CliffNoiseDimension; x++)
+                {
+                    var sampleX = (x + 0.5f) * latticeScale;
+                    var sampleY = (y + 0.5f) * latticeScale;
+                    var sampleZ = (z + 0.5f) * latticeScale;
+                    var index = x + CliffNoiseDimension * (y + CliffNoiseDimension * z);
+                    pixels[index] = new Color(
+                        PeriodicValueNoise(sampleX, sampleY, sampleZ, 0xA341316Cu),
+                        PeriodicValueNoise(sampleX, sampleY, sampleZ, 0xC8013EA4u),
+                        PeriodicValueNoise(sampleX, sampleY, sampleZ, 0xAD90777Du),
+                        1f);
+                }
+            }
+        }
+        texture.SetPixels(pixels);
+        texture.Apply(false, true);
+        return texture;
+    }
+
+    private static float PeriodicValueNoise(float x, float y, float z, uint seed)
+    {
+        var latticeX = Mathf.FloorToInt(x);
+        var latticeY = Mathf.FloorToInt(y);
+        var latticeZ = Mathf.FloorToInt(z);
+        var x0 = latticeX % CliffNoiseLatticePeriod;
+        var y0 = latticeY % CliffNoiseLatticePeriod;
+        var z0 = latticeZ % CliffNoiseLatticePeriod;
+        var x1 = (x0 + 1) % CliffNoiseLatticePeriod;
+        var y1 = (y0 + 1) % CliffNoiseLatticePeriod;
+        var z1 = (z0 + 1) % CliffNoiseLatticePeriod;
+
+        var fadeX = QuinticFade(x - latticeX);
+        var fadeY = QuinticFade(y - latticeY);
+        var fadeZ = QuinticFade(z - latticeZ);
+        var lowerNear = Mathf.Lerp(
+            LatticeNoise(x0, y0, z0, seed),
+            LatticeNoise(x1, y0, z0, seed),
+            fadeX);
+        var lowerFar = Mathf.Lerp(
+            LatticeNoise(x0, y1, z0, seed),
+            LatticeNoise(x1, y1, z0, seed),
+            fadeX);
+        var upperNear = Mathf.Lerp(
+            LatticeNoise(x0, y0, z1, seed),
+            LatticeNoise(x1, y0, z1, seed),
+            fadeX);
+        var upperFar = Mathf.Lerp(
+            LatticeNoise(x0, y1, z1, seed),
+            LatticeNoise(x1, y1, z1, seed),
+            fadeX);
+        return Mathf.Lerp(
+            Mathf.Lerp(lowerNear, lowerFar, fadeY),
+            Mathf.Lerp(upperNear, upperFar, fadeY),
+            fadeZ);
+    }
+
+    private static float LatticeNoise(int x, int y, int z, uint seed)
+    {
+        unchecked
+        {
+            var value = (uint)x * 0x8DA6B343u;
+            value ^= (uint)y * 0xD8163841u;
+            value ^= (uint)z * 0xCB1AB31Fu;
+            return HashNoise(value ^ seed);
+        }
+    }
+
+    private static float QuinticFade(float value)
+    {
+        return value * value * value * (value * (value * 6f - 15f) + 10f);
+    }
+
+    private static float HashNoise(uint value)
+    {
+        value ^= value >> 16;
+        value *= 0x7FEB352Du;
+        value ^= value >> 15;
+        value *= 0x846CA68Bu;
+        value ^= value >> 16;
+        return (value & 0x00FFFFFFu) / 16777215f;
     }
 
     private static Material CreateMaterial(string shaderName, Color color)
@@ -937,7 +1058,7 @@ public sealed class IslandViewer : MonoBehaviour
     private void ResetOptions()
     {
         maxHeight = 0.2f;
-        waterRatio = MinimumWaterRatio;
+        waterRatio = DefaultWaterRatio;
         slopeMultiplier = 1.3f;
         coastalSlopeMultiplier = 1f;
         noiseMultiplier = 0.0005f;
@@ -982,6 +1103,67 @@ public sealed class IslandViewer : MonoBehaviour
 
         try
         {
+            const int validationMapDimension = 32;
+            var validationMaps = PrepareSurfaceMaps(handle, validationMapDimension);
+            var hasTerrainNormal = false;
+            for (var index = 0; index < validationMaps.normalRgb.Length; index += 3)
+            {
+                if (validationMaps.normalRgb[index] != 127
+                    || validationMaps.normalRgb[index + 1] != 127
+                    || validationMaps.normalRgb[index + 2] != 255)
+                {
+                    hasTerrainNormal = true;
+                    break;
+                }
+            }
+            if (!hasTerrainNormal)
+            {
+                throw new InvalidOperationException(
+                    "Native LOD 0 surface maps contain only a flat normal.");
+            }
+
+            var terrainShader = Shader.Find("Motu/Terrain Unified");
+            if (terrainShader == null
+                || !terrainShader.isSupported
+                || UnityEditor.ShaderUtil.ShaderHasError(terrainShader))
+            {
+                throw new InvalidOperationException(
+                    "The unified terrain shader is missing or unsupported.");
+            }
+            var terrainMaterial = new Material(terrainShader);
+            try
+            {
+                if (!terrainMaterial.HasProperty("_WorldNormal")
+                    || !terrainMaterial.HasProperty("_WorldNormalWeight")
+                    || !terrainMaterial.HasProperty("_Occlusion")
+                    || !terrainMaterial.HasProperty("_CliffNoise3D")
+                    || !terrainMaterial.HasProperty("_CliffNormalStrength"))
+                {
+                    throw new InvalidOperationException(
+                        "The unified terrain shader is missing its shared map properties.");
+                }
+                var cliffNoise = CreateCliffNoiseTexture();
+                try
+                {
+                    terrainMaterial.SetTexture("_CliffNoise3D", cliffNoise);
+                    if (cliffNoise.width != CliffNoiseDimension
+                        || cliffNoise.height != CliffNoiseDimension
+                        || cliffNoise.depth != CliffNoiseDimension)
+                    {
+                        throw new InvalidOperationException(
+                            "The cliff noise texture has invalid dimensions.");
+                    }
+                }
+                finally
+                {
+                    DestroyImmediate(cliffNoise);
+                }
+            }
+            finally
+            {
+                DestroyImmediate(terrainMaterial);
+            }
+
             const float lod0ParentResolution = 64f;
             var area = new MotuNative.ExportArea(
                 24f / lod0ParentResolution,
@@ -1002,7 +1184,8 @@ public sealed class IslandViewer : MonoBehaviour
                         IntPtr.Add(grid.data, index * exportSize));
                     if (nativeMesh.vertices.length == 0
                         || nativeMesh.triangles.length == 0
-                        || nativeMesh.uv.length != nativeMesh.vertices.length)
+                        || nativeMesh.uv.length != nativeMesh.vertices.length
+                        || nativeMesh.material.length != nativeMesh.vertices.length)
                     {
                         throw new InvalidOperationException("A render tile has invalid geometry or UVs.");
                     }
@@ -1069,7 +1252,8 @@ public sealed class IslandViewer : MonoBehaviour
             {
                 if (support.handle == IntPtr.Zero
                     || support.triangles.length == 0
-                    || support.uv.length != support.vertices.length)
+                    || support.uv.length != support.vertices.length
+                    || support.material.length != support.vertices.length)
                 {
                     throw new InvalidOperationException("Native support-collider mesh is invalid.");
                 }
@@ -1084,7 +1268,7 @@ public sealed class IslandViewer : MonoBehaviour
         {
             MotuNative.ReleaseMotu(handle);
         }
-        Debug.Log("Motu native render/support mesh validation passed.");
+        Debug.Log("Motu native mesh and unified terrain material validation passed.");
     }
 #endif
 }

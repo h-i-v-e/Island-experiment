@@ -161,11 +161,11 @@ impl RiverNetwork {
         mesh: &mut Mesh,
         adjacency: &Adjacency,
         material: &mut SurfaceMaterial,
-    ) -> (Vec<River>, Mesh) {
-        let river_mesh = self.build_mesh(mesh, adjacency, material);
+    ) -> (Vec<River>, Mesh, Vec<bool>) {
+        let (river_mesh, river_bed) = self.build_mesh_with_mask(mesh, adjacency, material);
         mesh.calculate_normals();
         self.refresh(mesh);
-        (self.rivers, river_mesh)
+        (self.rivers, river_mesh, river_bed)
     }
 
     fn jiggle(&mut self, mesh: &mut Mesh) {
@@ -353,12 +353,22 @@ impl RiverNetwork {
         }
     }
 
+    #[cfg(test)]
     fn build_mesh(
         &self,
         terrain: &mut Mesh,
         adjacency: &Adjacency,
         material: &mut SurfaceMaterial,
     ) -> Mesh {
+        self.build_mesh_with_mask(terrain, adjacency, material).0
+    }
+
+    fn build_mesh_with_mask(
+        &self,
+        terrain: &mut Mesh,
+        adjacency: &Adjacency,
+        material: &mut SurfaceMaterial,
+    ) -> (Mesh, Vec<bool>) {
         let vertex_count = terrain.vertices.len();
         let perimeter = terrain.perimeter_mask();
         let mut coverage = vec![0_u8; vertex_count];
@@ -458,7 +468,9 @@ impl RiverNetwork {
             material.rescale_to_volume(terrain, loose_volume);
         }
         enforce_sea_plane_clearance(terrain);
-        duplicate_river_topology(terrain, &coverage, &surfaces, &waterfall_lips)
+        let river_bed = river_topology_masks(terrain, &coverage).0;
+        let river_mesh = duplicate_river_topology(terrain, &coverage, &surfaces, &waterfall_lips);
+        (river_mesh, river_bed)
     }
 
     fn refresh(&mut self, mesh: &Mesh) {

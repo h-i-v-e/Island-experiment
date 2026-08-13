@@ -3,7 +3,6 @@ Shader "Motu/Terrain Occlusion"
     Properties
     {
         _Color ("Tint", Color) = (1, 1, 1, 1)
-        _WorldSize ("World Size", Float) = 2000
         [NoScaleOffset] _Occlusion ("Baked Occlusion", 2D) = "white" {}
         _OcclusionStrength ("Occlusion Strength", Range(0, 1)) = 1
     }
@@ -19,7 +18,6 @@ Shader "Motu/Terrain Occlusion"
         sampler2D _Occlusion;
         fixed4 _Color;
         half _OcclusionStrength;
-        float _WorldSize;
 
         struct Input
         {
@@ -34,7 +32,7 @@ Shader "Motu/Terrain Occlusion"
             half bakedOcclusion = lerp(1.0, occlusion, _OcclusionStrength);
             output.Occlusion = bakedOcclusion;
 
-            float elevation = input.worldPos.y * (100.0 / max(_WorldSize, 1.0));
+            float elevation = input.worldPos.y;
             float slope = 1.0 - saturate(input.worldNormal.y);
             fixed3 deep = fixed3(0.08, 0.16, 0.12);
             fixed3 sand = fixed3(0.62, 0.57, 0.34);

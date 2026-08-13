@@ -27,7 +27,8 @@ The generator provides:
   curtains, monotonic confluences, and UVs;
 - high-detail-to-coarse-LOD normal baking and directional ambient occlusion textures;
 - terrain meshes at three levels of detail, normals, one-pass geometrically
-  clipped grid slicing, coarser-LOD edge clamping, and height maps;
+  clipped grid slicing, coarser-LOD edge clamping, height maps, and per-export
+  hardness, loose-cover, and river-bed vertex attributes;
 - one XY-safe support surface shared by simulation, collision, and LOD 0
   rendering, with geometrically clipped tile slicing and LOD edge clamping;
 - tree, bush, and rock placement plus packed foliage and sea-depth maps;
@@ -116,7 +117,11 @@ and can be selected with `MOTU_EXPERIMENTAL_MESH_FLOW=1`.
 Terrain exports include explicit support-anchored UVs. `CreateSupportMesh`
 provides an unambiguous XY-safe collider surface. `CreateMesh` and
 `CreateMeshGrid` now export that same surface for LOD 0, while LOD 1 and LOD 2
-remain their existing support surfaces.
+remain their existing support surfaces. Each sliced terrain export also owns a
+parallel `material` array sampled from the final LOD 0 material field after
+clipping: X is bedrock hardness, Y is normalized loose cover, and Z is final
+river-bed coverage. Sampling after slicing keeps the attributes paired with
+reordered and newly inserted boundary vertices.
 
 River thresholds are standard deviations above mean accumulated flow. Lower
 values select more river sources; higher values produce fewer rivers. The five

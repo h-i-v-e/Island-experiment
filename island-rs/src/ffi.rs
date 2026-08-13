@@ -110,6 +110,7 @@ pub struct ExportMesh {
     pub normals: Vector3ExportArray,
     pub triangles: TriangleExportArray,
     pub uv: Vector2ExportArray,
+    pub material: Vector3ExportArray,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -120,6 +121,7 @@ pub struct ExportMeshWithUv {
     pub normals: Vector3ExportArray,
     pub triangles: TriangleExportArray,
     pub uv: Vector2ExportArray,
+    pub material: Vector3ExportArray,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -246,10 +248,18 @@ fn length_i32(length: usize) -> i32 {
     i32::try_from(length).unwrap_or(i32::MAX)
 }
 
-fn export_mesh(mesh: Box<Mesh>) -> ExportMesh {
-    let handle = Box::into_raw(mesh);
+struct ExportedMesh {
+    mesh: Mesh,
+    material: Vec<Vec3>,
+}
+
+fn export_mesh(mesh: Mesh, material: Vec<Vec3>) -> ExportMesh {
+    debug_assert!(material.is_empty() || material.len() == mesh.vertices.len());
+    let owner = Box::new(ExportedMesh { mesh, material });
+    let handle = Box::into_raw(owner);
     // SAFETY: handle remains owned by the caller until ReleaseMesh.
-    let mesh = unsafe { &*handle };
+    let owner = unsafe { &*handle };
+    let mesh = &owner.mesh;
     ExportMesh {
         handle: handle.cast(),
         vertices: Vector3ExportArray {
@@ -268,13 +278,23 @@ fn export_mesh(mesh: Box<Mesh>) -> ExportMesh {
             data: mesh.uv.as_ptr(),
             length: length_i32(mesh.uv.len()),
         },
+        material: Vector3ExportArray {
+            data: owner.material.as_ptr(),
+            length: length_i32(owner.material.len()),
+        },
     }
 }
 
-fn export_mesh_grid(tiles: Vec<Mesh>) -> ExportMeshGrid {
+fn export_mesh_grid(
+    tiles: Vec<Mesh>,
+    material_values: impl Fn(&Mesh) -> Vec<Vec3>,
+) -> ExportMeshGrid {
     let exports: Vec<ExportMesh> = tiles
         .into_iter()
-        .map(|tile| export_mesh(Box::new(tile)))
+        .map(|tile| {
+            let material = material_values(&tile);
+            export_mesh(tile, material)
+        })
         .collect();
     let owner = Box::new(exports);
     let output = ExportMeshGrid {
@@ -360,7 +380,8 @@ pub unsafe extern "C" fn CreateMesh(
     let Some(sliced) = island.render_mesh_in(lod, bounds, clamp_sides) else {
         return;
     };
-    *output = export_mesh(Box::new(sliced));
+    let material = island.material_values_for(&sliced);
+    *output = export_mesh(sliced, material);
 }
 
 /// Exports the authoritative XY-safe surface for collision and downward
@@ -388,7 +409,8 @@ pub unsafe extern "C" fn CreateSupportMesh(
     let Some(mesh) = island.mesh_in(lod, bounds) else {
         return;
     };
-    *output = export_mesh(Box::new(mesh));
+    let material = island.material_values_for(&mesh);
+    *output = export_mesh(mesh, material);
 }
 
 #[unsafe(no_mangle)]
@@ -417,7 +439,7 @@ pub unsafe extern "C" fn CreateMeshGrid(
     let Some(tiles) = island.render_mesh_grid(lod, bounds, divisions, clamp_sides) else {
         return;
     };
-    *output = export_mesh_grid(tiles);
+    *output = export_mesh_grid(tiles, |tile| island.material_values_for(tile));
 }
 
 #[unsafe(no_mangle)]
@@ -443,7 +465,7 @@ pub unsafe extern "C" fn ReleaseMesh(output: *mut ExportMesh) {
     };
     if !output.handle.is_null() {
         // SAFETY: handle came from export_mesh and is released once.
-        drop(unsafe { Box::from_raw(output.handle.cast::<Mesh>()) });
+        drop(unsafe { Box::from_raw(output.handle.cast::<ExportedMesh>()) });
         *output = ExportMesh::default();
     }
 }
@@ -466,10 +488,10 @@ pub unsafe extern "C" fn CreateRiverMesh(
         // SAFETY: non-null area must point to a readable ExportArea.
         unsafe { (*area).into() }
     };
-    let mesh = Box::new(island.river_mesh().sliced(bounds));
+    let mesh = island.river_mesh().sliced(bounds);
     let uv_data = mesh.uv.as_ptr();
     let uv_length = length_i32(mesh.uv.len());
-    let base = export_mesh(mesh);
+    let base = export_mesh(mesh, Vec::new());
     *output = ExportMeshWithUv {
         handle: base.handle,
         vertices: base.vertices,
@@ -479,6 +501,7 @@ pub unsafe extern "C" fn CreateRiverMesh(
             data: uv_data,
             length: uv_length,
         },
+        material: base.material,
     };
 }
 
@@ -502,7 +525,9 @@ pub unsafe extern "C" fn CreateRiverMeshGrid(
         unsafe { (*area).into() }
     };
     let divisions = usize::try_from(divisions.max(0)).unwrap_or(0);
-    *output = export_mesh_grid(island.river_mesh().sliced_grid(bounds, divisions));
+    *output = export_mesh_grid(island.river_mesh().sliced_grid(bounds, divisions), |_| {
+        Vec::new()
+    });
 }
 
 #[unsafe(no_mangle)]
@@ -516,6 +541,7 @@ pub unsafe extern "C" fn ReleaseMeshWithUV(output: *mut ExportMeshWithUv) {
         normals: output.normals,
         triangles: output.triangles,
         uv: output.uv,
+        material: output.material,
     };
     // SAFETY: base owns the same mesh handle.
     unsafe { ReleaseMesh(&raw mut base) };
@@ -620,7 +646,7 @@ pub unsafe extern "C" fn CreateTreeBillboards(
                 .extend([base, base + 2, base + 1, base + 1, base + 2, base + 3]);
             offset_list.push(i32::try_from(prototype_index).unwrap_or(i32::MAX));
         }
-        output.octants[octant].mesh = export_mesh(Box::new(mesh));
+        output.octants[octant].mesh = export_mesh(mesh, Vec::new());
         output.octants[octant].offsets = offset_list.as_mut_ptr();
     }
     output.offsetsHandle = Box::into_raw(Box::new(BillboardOffsets(offsets))).cast();
@@ -821,6 +847,24 @@ pub extern "C" fn SetLogFile(_path: *const c_char) {}
 mod tests {
     use super::*;
 
+    fn terrain_attributes_match(mesh: &ExportMesh) -> bool {
+        mesh.uv.length == mesh.vertices.length && mesh.material.length == mesh.vertices.length
+    }
+
+    unsafe fn assert_material_channels(mesh: &ExportMesh) {
+        let values = unsafe {
+            std::slice::from_raw_parts(mesh.material.data, mesh.material.length as usize)
+        };
+        if let Some((index, value)) = values.iter().enumerate().find(|(_, value)| {
+            !value.is_finite() || !value.cmpge(Vec3::ZERO).all() || !value.cmple(Vec3::ONE).all()
+        }) {
+            panic!("invalid material value at {index}: {value:?}");
+        }
+        assert!(values.iter().any(|value| value.x > 0.1));
+        assert!(values.iter().any(|value| value.y > 0.1));
+        assert!(values.iter().any(|value| value.z > 0.5));
+    }
+
     #[test]
     fn ffi_allocations_have_matching_release_functions() {
         let options = MotuOptions {
@@ -850,14 +894,15 @@ mod tests {
             CreateMesh(handle, ptr::null(), 2, 0, &raw mut mesh);
             assert!(!mesh.handle.is_null());
             assert!(mesh.triangles.length > 0);
-            assert_eq!(mesh.uv.length, mesh.vertices.length);
+            assert!(terrain_attributes_match(&mesh));
             ReleaseMesh(&raw mut mesh);
 
             let mut support = ExportMesh::default();
             CreateSupportMesh(handle, ptr::null(), 0, &raw mut support);
             assert!(!support.handle.is_null());
             assert!(support.triangles.length > 0);
-            assert_eq!(support.uv.length, support.vertices.length);
+            assert!(terrain_attributes_match(&support));
+            assert_material_channels(&support);
             ReleaseMesh(&raw mut support);
 
             let mut grid = ExportMeshGrid::default();
@@ -866,11 +911,7 @@ mod tests {
             assert_eq!(grid.length, 64);
             let tiles = std::slice::from_raw_parts(grid.data, grid.length as usize);
             assert!(tiles.iter().all(|tile| tile.triangles.length > 0));
-            assert!(
-                tiles
-                    .iter()
-                    .all(|tile| tile.uv.length == tile.vertices.length)
-            );
+            assert!(tiles.iter().all(terrain_attributes_match));
             ReleaseMeshGrid(&raw mut grid);
             assert!(grid.handle.is_null());
 
@@ -884,7 +925,7 @@ mod tests {
             assert!(
                 river_tiles
                     .iter()
-                    .all(|tile| tile.uv.length == tile.vertices.length)
+                    .all(|tile| tile.uv.length == tile.vertices.length && tile.material.length == 0)
             );
             ReleaseMeshGrid(&raw mut river_grid);
             assert!(river_grid.handle.is_null());

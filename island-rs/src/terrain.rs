@@ -150,6 +150,48 @@ impl SurfaceMaterial {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
+struct TerrainMaterialField {
+    values: Vec<Vec3>,
+}
+
+impl TerrainMaterialField {
+    fn from_surface(material: &SurfaceMaterial, river_bed: &[bool]) -> Self {
+        debug_assert_eq!(material.hardnesses().len(), material.depths().len());
+        debug_assert_eq!(river_bed.len(), material.depths().len());
+        let values = material
+            .hardnesses()
+            .iter()
+            .zip(material.depths())
+            .zip(river_bed)
+            .map(|((&hardness, &depth), &is_river_bed)| {
+                let cover = (depth / 0.002).clamp(0.0, 1.0);
+                let cover = cover * cover * (3.0 - 2.0 * cover);
+                Vec3::new(
+                    hardness.clamp(0.0, 1.0),
+                    cover,
+                    if is_river_bed { 1.0 } else { 0.0 },
+                )
+            })
+            .collect();
+        Self { values }
+    }
+
+    fn sample(&self, terrain: &Terrain, point: Vec2) -> Vec3 {
+        sample_mesh_triangle(&terrain.mesh, &terrain.triangle_index, point).map_or_else(
+            || {
+                let nearest = terrain.triangle_index.nearest_vertex(&terrain.mesh, point);
+                self.values[nearest]
+            },
+            |(triangle, weights)| {
+                self.values[triangle[0]] * weights[0]
+                    + self.values[triangle[1]] * weights[1]
+                    + self.values[triangle[2]] * weights[2]
+            },
+        )
+    }
+}
+
 pub(crate) fn projected_vertex_control_areas(mesh: &Mesh) -> Vec<f32> {
     let mut areas = vec![0.0; mesh.vertices.len()];
     for triangle in mesh.triangles.chunks_exact(3) {
@@ -683,6 +725,7 @@ pub struct Island {
     seed: u64,
     options: IslandOptions,
     terrain: Terrain,
+    material: TerrainMaterialField,
     coarser_lods: [Mesh; 2],
     rivers: Vec<River>,
     river_mesh: Mesh,
@@ -714,7 +757,7 @@ impl Island {
         );
         let (lod0, material) = generate_broad_lod0(&lod1, material, context, &mut scratch);
         let (mut lod0, mut material) = generate_detail_lod0(&lod0, material, context, &mut scratch);
-        let (rivers, river_mesh) = {
+        let (rivers, river_mesh, river_bed) = {
             let _timer = StageTimer::new("rivers.final");
             let detail_adjacency = lod0.adjacency();
             let mut final_rivers =
@@ -727,6 +770,8 @@ impl Island {
             correct_lods(&mut lod0, &mut lod1, &mut lod2);
         }
 
+        let material = TerrainMaterialField::from_surface(&material, &river_bed);
+
         let terrain = {
             let _timer = StageTimer::new("terrain.index");
             Terrain::new(lod0)
@@ -735,6 +780,7 @@ impl Island {
             seed,
             options,
             terrain,
+            material,
             coarser_lods: [lod1, lod2],
             rivers,
             river_mesh,
@@ -1031,6 +1077,24 @@ impl Island {
             }
             _ => None,
         }
+    }
+
+    pub(crate) fn material_values_for(&self, mesh: &Mesh) -> Vec<Vec3> {
+        mesh.vertices
+            .iter()
+            .enumerate()
+            .map(|(index, vertex)| {
+                let point = mesh
+                    .uv
+                    .get(index)
+                    .copied()
+                    .unwrap_or_else(|| vertex.truncate())
+                    .clamp(Vec2::ZERO, Vec2::ONE);
+                self.material
+                    .sample(&self.terrain, point)
+                    .clamp(Vec3::ZERO, Vec3::ONE)
+            })
+            .collect()
     }
 }
 
@@ -2425,15 +2489,22 @@ fn bake_surface_maps(
             }
         });
     } else {
-        normal_rgb
-            .chunks_exact_mut(3)
-            .for_each(|pixel| pixel.copy_from_slice(&[127, 127, 255]));
         thread::scope(|scope| {
-            for (chunk, sample_rows) in samples.chunks_mut(rows_per_chunk * width_usize).enumerate()
+            for (chunk, (sample_rows, normal_rows)) in samples
+                .chunks_mut(rows_per_chunk * width_usize)
+                .zip(normal_rgb.chunks_mut(rows_per_chunk * width_usize * 3))
+                .enumerate()
             {
                 let start_y = chunk * rows_per_chunk;
                 scope.spawn(move || {
-                    bake_surface_sample_rows(high_detail, width, height, start_y, sample_rows);
+                    bake_surface_sample_rows(
+                        high_detail,
+                        width,
+                        height,
+                        start_y,
+                        sample_rows,
+                        normal_rows,
+                    );
                 });
             }
         });
@@ -2467,18 +2538,30 @@ fn bake_surface_sample_rows(
     height: u32,
     start_y: usize,
     samples: &mut [SurfaceSample],
+    normal_rgb: &mut [u8],
 ) {
     let width_usize = width as usize;
-    for (local_y, sample_row) in samples.chunks_exact_mut(width_usize).enumerate() {
+    for (local_y, (sample_row, normal_row)) in samples
+        .chunks_exact_mut(width_usize)
+        .zip(normal_rgb.chunks_exact_mut(width_usize * 3))
+        .enumerate()
+    {
         let y = start_y + local_y;
         let v = y as f32 / height.saturating_sub(1).max(1) as f32;
-        for (x, sample) in sample_row.iter_mut().enumerate() {
+        for (x, (sample, normal_pixel)) in sample_row
+            .iter_mut()
+            .zip(normal_row.chunks_exact_mut(3))
+            .enumerate()
+        {
             let u = x as f32 / width.saturating_sub(1).max(1) as f32;
             let (elevation, normal) = high_detail.sample_surface(u, v);
             *sample = SurfaceSample {
                 position: Vec3::new(u, v, elevation),
                 normal,
             };
+            normal_pixel[0] = signed_normal_byte(normal.x);
+            normal_pixel[1] = signed_normal_byte(normal.y);
+            normal_pixel[2] = signed_normal_byte(normal.z);
         }
     }
 }
@@ -2608,10 +2691,10 @@ fn read_f32(reader: &mut impl Read) -> io::Result<f32> {
 mod hydraulic_tests {
     use super::{
         HydraulicErosionSettings, HydraulicExchange, HydraulicShiftLimits, HydraulicTransfer, Mesh,
-        ProjectedFaceAreas, SurfaceMaterial, Vec3, VertexFaceAdjacency, add_surface_noise,
-        apply_hydraulic_transfer, deposition_weight, exchange_sediment, hydraulic_erode,
-        hydraulic_erosion_direction, hydraulic_slope_erosion_weight, local_hydraulic_erosion_cap,
-        noise,
+        ProjectedFaceAreas, SurfaceMaterial, Terrain, TerrainMaterialField, Vec2, Vec3,
+        VertexFaceAdjacency, add_surface_noise, apply_hydraulic_transfer, deposition_weight,
+        exchange_sediment, hydraulic_erode, hydraulic_erosion_direction,
+        hydraulic_slope_erosion_weight, local_hydraulic_erosion_cap, noise,
     };
 
     fn settings() -> HydraulicErosionSettings {
@@ -2928,5 +3011,28 @@ mod hydraulic_tests {
         let cap = local_hydraulic_erosion_cap(&mesh, &adjacency, 0, 10.0);
 
         assert!((cap - shortest_edge * 0.08).abs() < 1.0e-6);
+    }
+
+    #[test]
+    fn terrain_material_field_interpolates_at_export_positions() {
+        let mut mesh = Mesh {
+            vertices: vec![
+                Vec3::new(0.0, 0.0, 0.0),
+                Vec3::new(1.0, 0.0, 0.0),
+                Vec3::new(0.0, 1.0, 0.0),
+            ],
+            normals: Vec::new(),
+            triangles: vec![0, 1, 2],
+            uv: vec![Vec2::ZERO, Vec2::X, Vec2::Y],
+        };
+        mesh.calculate_normals();
+        let terrain = Terrain::new(mesh);
+        let field = TerrainMaterialField {
+            values: vec![Vec3::ZERO, Vec3::X, Vec3::Y],
+        };
+
+        let sample = field.sample(&terrain, Vec2::new(0.25, 0.5));
+
+        assert!(sample.abs_diff_eq(Vec3::new(0.25, 0.5, 0.0), 1.0e-6));
     }
 }

@@ -7,6 +7,7 @@ using UnityEngine;
 
 public sealed class TerrainTileStreamer : MonoBehaviour
 {
+    private static readonly int WorldNormalWeightId = Shader.PropertyToID("_WorldNormalWeight");
     private const int Divisions = 8;
     internal const byte ClampTop = 1;
     internal const byte ClampLeft = 2;
@@ -52,7 +53,8 @@ public sealed class TerrainTileStreamer : MonoBehaviour
     private readonly List<Vector2Int> removalScratch = new List<Vector2Int>(9);
 
     private IntPtr islandHandle;
-    private Material[] materials;
+    private Material terrainMaterial;
+    private MaterialPropertyBlock lod0MaterialProperties;
     private Material riverMaterial;
     private IslandViewer.PreparedMesh[] preparedRiverTiles;
     private float worldSize;
@@ -75,7 +77,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
 
     internal async Task InitializeAsync(
         IntPtr handle,
-        Material[] terrainMaterials,
+        Material sharedTerrainMaterial,
         Material waterMaterial,
         float terrainWorldSize,
         IslandViewer.PreparedMesh[] overviewTiles,
@@ -84,7 +86,9 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         CancellationToken cancellationToken)
     {
         islandHandle = handle;
-        materials = terrainMaterials;
+        terrainMaterial = sharedTerrainMaterial;
+        lod0MaterialProperties = new MaterialPropertyBlock();
+        lod0MaterialProperties.SetFloat(WorldNormalWeightId, 0f);
         riverMaterial = waterMaterial;
         preparedRiverTiles = riverTiles;
         worldSize = terrainWorldSize;
@@ -417,7 +421,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
                     var tileObject = new GameObject($"LOD {lod} tile {localX},{localY}");
                     tileObject.transform.SetParent(root.transform, false);
                     tileObject.AddComponent<MeshFilter>().sharedMesh = mesh;
-                    tileObject.AddComponent<MeshRenderer>().sharedMaterial = materials[lod];
+                    ConfigureTerrainRenderer(tileObject, lod);
                     tiles[index] = new Tile(tileObject, mesh);
                 }
 
@@ -488,7 +492,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
                 var tileObject = new GameObject($"LOD {lod} tile {globalX},{globalY}");
                 tileObject.transform.SetParent(root.transform, false);
                 tileObject.AddComponent<MeshFilter>().sharedMesh = mesh;
-                tileObject.AddComponent<MeshRenderer>().sharedMaterial = materials[lod];
+                ConfigureTerrainRenderer(tileObject, lod);
                 tiles[index] = new Tile(tileObject, mesh);
             }
             return new TileGroup(root, tiles, clampSides);
@@ -501,6 +505,16 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         finally
         {
             MotuNative.ReleaseMeshGrid(ref export);
+        }
+    }
+
+    private void ConfigureTerrainRenderer(GameObject tileObject, int lod)
+    {
+        var renderer = tileObject.AddComponent<MeshRenderer>();
+        renderer.sharedMaterial = terrainMaterial;
+        if (lod == 0)
+        {
+            renderer.SetPropertyBlock(lod0MaterialProperties);
         }
     }
 

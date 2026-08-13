@@ -3,7 +3,6 @@ Shader "Motu/Terrain"
     Properties
     {
         _Color ("Tint", Color) = (1, 1, 1, 1)
-        _WorldSize ("World Size", Float) = 2000
     }
     SubShader
     {
@@ -15,7 +14,6 @@ Shader "Motu/Terrain"
         #pragma target 3.0
 
         fixed4 _Color;
-        float _WorldSize;
 
         struct Input
         {
@@ -25,7 +23,7 @@ Shader "Motu/Terrain"
 
         void Surface(Input input, inout SurfaceOutputStandard output)
         {
-            float elevation = input.worldPos.y * (100.0 / max(_WorldSize, 1.0));
+            float elevation = input.worldPos.y;
             float slope = 1.0 - saturate(input.worldNormal.y);
             fixed3 deep = fixed3(0.08, 0.16, 0.12);
             fixed3 sand = fixed3(0.62, 0.57, 0.34);
