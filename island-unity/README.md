@@ -27,6 +27,9 @@ exposed softer rock into bays and platforms; beach formation conservatively
 redistributes that sediment toward sheltered shorelines. Higher river-threshold
 values produce fewer source rivers. Slider changes take effect when you press
 Generate. Drag to orbit, use the mouse wheel to zoom, and right-drag to pan.
+In first-person mode, terrain, grass, rivers, and sea fade into sky-coloured
+linear distance haze from the camera position to full strength at one kilometre.
+The overview remains haze-free.
 
 LOD 0 displays the same corrected support surface used by terrain queries
 without retaining duplicate render geometry. Hydraulic erosion, coastal
@@ -47,10 +50,23 @@ falls back to a separately exported support tile if Unity cannot cook it. The
 overlay can force support collision for diagnostics. Press M to toggle mesh
 edges. Press Escape to discard
 the refinement groups and return to the 64-tile LOD 2 overview. River surfaces
-are clipped on the same 64x64 LOD 1 boundaries and only the chunks inside the
-active LOD 1 neighbourhood are rendered. Chunks are cached after their first
+are clipped on the same 64x64 LOD 1 boundaries and only chunks whose parent
+cells currently contain active LOD 0 terrain are rendered. Chunks are cached
+after their first
 visit, so revisiting an area only changes visibility. First-person controls are
-WASD, Shift to run, Space to jump, and the mouse to look.
+WASD, Shift to run, Space to jump, and the mouse to look. Press Tab to release
+the cursor for the live grass-brightness slider, then Tab again to resume
+movement and mouse look. Brightness changes apply without regenerating.
+
+In first-person mode, grassy terrain gains a sixteen-layer shell-fur treatment
+around the player. Grass remains at full density for ten metres, then fades
+smoothly to zero over the following ten metres. Only intersecting LOD 0 tiles
+receive grass renderers. The
+shader uses the same material channels and noisy terrain boundaries as the
+ground material, so grass is excluded from cliffs, beaches, river beds, snow,
+and submerged terrain. Beneath the fur, grass ground is exposed as brown soil
+within half a metre of the player and blends back to green over the following
+two metres, making the gaps between nearby blades read as dirt.
 
 Every 8x8 group is geometrically clipped at its tile boundaries. LOD 0 uses an
 attribute-carrying 3D plane clipper, so vertical faces and multiple heights at
@@ -75,8 +91,11 @@ bedrock hardness, green is loose/deposited cover, and blue is final river-bed
 coverage. Rust samples the authoritative final LOD 0 field after each tile is
 clipped, so reordered and newly created boundary vertices receive matching
 values. The unified shader uses these channels to expose harder rock on slopes,
-colour sheltered coastal deposits as beaches, and distinguish rocky from silty
-river beds consistently across all LODs.
+colour sheltered coastal deposits below a noisy one-metre beach line, and treat
+river beds as exposed rock consistently across all LODs. Grass ground uses coherent micro-normal
+relief at six times the stone detail frequency; beach sand uses eight-times finer
+and less strongly perturbed relief. These change nearby lighting without changing
+mesh geometry.
 
 ## Rebuild the native plugin
 

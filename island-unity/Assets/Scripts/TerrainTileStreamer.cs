@@ -8,6 +8,11 @@ using UnityEngine;
 public sealed class TerrainTileStreamer : MonoBehaviour
 {
     private static readonly int WorldNormalWeightId = Shader.PropertyToID("_WorldNormalWeight");
+    private static readonly int GrassEnabledId = Shader.PropertyToID("_GrassEnabled");
+    private static readonly int GrassHeightId = Shader.PropertyToID("_GrassHeight");
+    private static readonly int GrassPlayerPositionId = Shader.PropertyToID("_GrassPlayerPosition");
+    private static readonly int GrassRadiusId = Shader.PropertyToID("_GrassRadius");
+    private const float GrassPositionUpdateDistance = 0.25f;
     private const int Divisions = 8;
     internal const byte ClampTop = 1;
     internal const byte ClampLeft = 2;
@@ -22,6 +27,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
     {
         internal readonly GameObject gameObject;
         internal readonly Mesh mesh;
+        internal GameObject grassObject;
 
         internal Tile(GameObject gameObject, Mesh mesh)
         {
@@ -54,10 +60,14 @@ public sealed class TerrainTileStreamer : MonoBehaviour
 
     private IntPtr islandHandle;
     private Material terrainMaterial;
+    private Material grassMaterial;
     private MaterialPropertyBlock lod0MaterialProperties;
     private Material riverMaterial;
     private IslandViewer.PreparedMesh[] preparedRiverTiles;
     private float worldSize;
+    private float grassBoundsRadius;
+    private Vector3 lastGrassPosition = new Vector3(float.PositiveInfinity, 0f, 0f);
+    private bool grassTilesDirty;
     private TileGroup lod2Group;
     private GameObject riverRoot;
     private MeshCollider currentCollider;
@@ -78,6 +88,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
     internal async Task InitializeAsync(
         IntPtr handle,
         Material sharedTerrainMaterial,
+        Material sharedGrassMaterial,
         Material waterMaterial,
         float terrainWorldSize,
         IslandViewer.PreparedMesh[] overviewTiles,
@@ -87,6 +98,11 @@ public sealed class TerrainTileStreamer : MonoBehaviour
     {
         islandHandle = handle;
         terrainMaterial = sharedTerrainMaterial;
+        grassMaterial = sharedGrassMaterial;
+        terrainMaterial.SetFloat(GrassEnabledId, 0f);
+        grassMaterial.SetFloat(GrassEnabledId, 0f);
+        grassBoundsRadius = grassMaterial.GetFloat(GrassRadiusId)
+            + grassMaterial.GetFloat(GrassHeightId);
         lod0MaterialProperties = new MaterialPropertyBlock();
         lod0MaterialProperties.SetFloat(WorldNormalWeightId, 0f);
         riverMaterial = waterMaterial;
@@ -153,6 +169,10 @@ public sealed class TerrainTileStreamer : MonoBehaviour
 
     public void SetPlayerPosition(Vector3 worldPosition)
     {
+        terrainMaterial.SetVector(GrassPlayerPositionId, worldPosition);
+        terrainMaterial.SetFloat(GrassEnabledId, 1f);
+        grassMaterial.SetVector(GrassPlayerPositionId, worldPosition);
+        grassMaterial.SetFloat(GrassEnabledId, 1f);
         var lod2 = WorldCell(worldPosition, Lod2Resolution);
         var lod1 = WorldCell(worldPosition, Lod1Resolution);
         var lod0 = WorldCell(worldPosition, Lod0Resolution);
@@ -174,13 +194,18 @@ public sealed class TerrainTileStreamer : MonoBehaviour
             MoveCollider(lod0);
             currentLod0 = lod0;
         }
+        UpdateGrassTiles(worldPosition);
     }
 
     public void ClearPlayerFocus()
     {
+        terrainMaterial?.SetFloat(GrassEnabledId, 0f);
+        grassMaterial?.SetFloat(GrassEnabledId, 0f);
+        lastGrassPosition = new Vector3(float.PositiveInfinity, 0f, 0f);
         RemoveCollider();
         foreach (var group in riverGroups.Values)
         {
+            SetGroupTilesActive(group, false);
             group.root?.SetActive(false);
         }
         foreach (var entry in lod0Groups)
@@ -283,7 +308,6 @@ public sealed class TerrainTileStreamer : MonoBehaviour
             DestroyGroup(lod1Groups[key]);
             lod1Groups.Remove(key);
             SetLod2TileActive(key, true);
-            SetRiverGroupActive(key, false);
         }
 
         ForEachNeighbour(center, Lod2Resolution, key =>
@@ -300,7 +324,6 @@ public sealed class TerrainTileStreamer : MonoBehaviour
                 lod1Groups.Add(key, CreateGroup(1, key, Lod2Resolution, clampSides));
             }
             SetLod2TileActive(key, false);
-            SetRiverGroupActive(key, true);
         });
     }
 
@@ -312,6 +335,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
             DestroyGroup(lod0Groups[key]);
             lod0Groups.Remove(key);
             SetLod1TileActive(key, true);
+            SetRiverTileActive(key, false);
         }
 
         ForEachNeighbour(center, Lod1Resolution, key =>
@@ -326,8 +350,10 @@ public sealed class TerrainTileStreamer : MonoBehaviour
             if (!lod0Groups.ContainsKey(key))
             {
                 lod0Groups.Add(key, CreateGroup(0, key, Lod1Resolution, clampSides));
+                grassTilesDirty = true;
             }
             SetLod1TileActive(key, false);
+            SetRiverTileActive(key, true);
         });
     }
 
@@ -518,6 +544,63 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         }
     }
 
+    private void UpdateGrassTiles(Vector3 playerPosition)
+    {
+        var movement = playerPosition - lastGrassPosition;
+        movement.y = 0f;
+        if (!grassTilesDirty
+            && movement.sqrMagnitude
+                < GrassPositionUpdateDistance * GrassPositionUpdateDistance)
+        {
+            return;
+        }
+
+        foreach (var group in lod0Groups.Values)
+        {
+            foreach (var tile in group.tiles)
+            {
+                if (tile != null)
+                {
+                    SetGrassActive(tile, IntersectsGrassRadius(tile.mesh.bounds, playerPosition));
+                }
+            }
+        }
+        lastGrassPosition = playerPosition;
+        grassTilesDirty = false;
+    }
+
+    private bool IntersectsGrassRadius(Bounds bounds, Vector3 playerPosition)
+    {
+        var xDistance = Mathf.Max(
+            Mathf.Abs(playerPosition.x - bounds.center.x) - bounds.extents.x,
+            0f);
+        var zDistance = Mathf.Max(
+            Mathf.Abs(playerPosition.z - bounds.center.z) - bounds.extents.z,
+            0f);
+        return xDistance * xDistance + zDistance * zDistance
+            <= grassBoundsRadius * grassBoundsRadius;
+    }
+
+    private void SetGrassActive(Tile tile, bool active)
+    {
+        if (!active)
+        {
+            tile.grassObject?.SetActive(false);
+            return;
+        }
+        if (tile.grassObject == null)
+        {
+            tile.grassObject = new GameObject("Grass shells");
+            tile.grassObject.transform.SetParent(tile.gameObject.transform, false);
+            tile.grassObject.AddComponent<MeshFilter>().sharedMesh = tile.mesh;
+            var renderer = tile.grassObject.AddComponent<MeshRenderer>();
+            renderer.sharedMaterial = grassMaterial;
+            renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            renderer.receiveShadows = true;
+        }
+        tile.grassObject.SetActive(true);
+    }
+
     private TileGroup CreateRiverGroup(Vector2Int parent)
     {
         GameObject root = null;
@@ -546,6 +629,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
                     tileObject.transform.SetParent(root.transform, false);
                     tileObject.AddComponent<MeshFilter>().sharedMesh = mesh;
                     tileObject.AddComponent<MeshRenderer>().sharedMaterial = riverMaterial;
+                    tileObject.SetActive(false);
                     tiles[tileIndex] = new Tile(tileObject, mesh);
                 }
             }
@@ -558,18 +642,34 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         }
     }
 
-    private void SetRiverGroupActive(Vector2Int key, bool active)
+    private void SetRiverTileActive(Vector2Int key, bool active)
     {
-        if (!riverGroups.TryGetValue(key, out var group))
+        var parent = new Vector2Int(key.x / Divisions, key.y / Divisions);
+        if (!riverGroups.TryGetValue(parent, out var group))
         {
             if (!active)
             {
                 return;
             }
-            group = CreateRiverGroup(key);
-            riverGroups.Add(key, group);
+            group = CreateRiverGroup(parent);
+            riverGroups.Add(parent, group);
         }
-        group.root?.SetActive(active);
+        if (active)
+        {
+            group.root?.SetActive(true);
+        }
+        var localX = key.x % Divisions;
+        var localY = key.y % Divisions;
+        var tile = group.tiles[localY * Divisions + localX];
+        tile?.gameObject.SetActive(active);
+    }
+
+    private static void SetGroupTilesActive(TileGroup group, bool active)
+    {
+        foreach (var tile in group.tiles)
+        {
+            tile?.gameObject.SetActive(active);
+        }
     }
 
     private void MoveCollider(Vector2Int lod0Cell)

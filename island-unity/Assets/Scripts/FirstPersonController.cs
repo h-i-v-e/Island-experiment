@@ -17,6 +17,7 @@ public sealed class FirstPersonController : MonoBehaviour
     private float verticalSpeed;
 
     public bool IsActive { get; private set; }
+    public bool IsCursorReleased { get; private set; }
 
     public void Configure(OrbitCamera overviewCamera)
     {
@@ -49,9 +50,9 @@ public sealed class FirstPersonController : MonoBehaviour
         verticalSpeed = -2f;
         characterController.enabled = true;
         IsActive = true;
+        IsCursorReleased = false;
         enabled = true;
-        Cursor.lockState = CursorLockMode.Locked;
-        Cursor.visible = false;
+        ApplyCursorState();
     }
 
     public void SetTerrainStreamer(TerrainTileStreamer value)
@@ -67,11 +68,11 @@ public sealed class FirstPersonController : MonoBehaviour
         }
 
         IsActive = false;
+        IsCursorReleased = false;
         characterController.enabled = false;
         enabled = false;
         orbitCamera.enabled = true;
-        Cursor.lockState = CursorLockMode.None;
-        Cursor.visible = true;
+        ApplyCursorState();
         terrainStreamer?.ClearPlayerFocus();
     }
 
@@ -82,8 +83,17 @@ public sealed class FirstPersonController : MonoBehaviour
             Exit();
             return;
         }
+        if (Input.GetKeyDown(KeyCode.Tab))
+        {
+            IsCursorReleased = !IsCursorReleased;
+            ApplyCursorState();
+        }
 
         terrainStreamer?.SetPlayerPosition(transform.position);
+        if (IsCursorReleased)
+        {
+            return;
+        }
 
         yaw += Input.GetAxisRaw("Mouse X") * LookSensitivity;
         pitch = Mathf.Clamp(
@@ -114,6 +124,13 @@ public sealed class FirstPersonController : MonoBehaviour
         movement = movement * speed + Vector3.up * verticalSpeed;
         characterController.Move(movement * Time.deltaTime);
         terrainStreamer?.SetPlayerPosition(transform.position);
+    }
+
+    private void ApplyCursorState()
+    {
+        var captureCursor = IsActive && !IsCursorReleased;
+        Cursor.lockState = captureCursor ? CursorLockMode.Locked : CursorLockMode.None;
+        Cursor.visible = !captureCursor;
     }
 
     private static float NormalizePitch(float angle)

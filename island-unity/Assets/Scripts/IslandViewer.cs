@@ -19,6 +19,8 @@ public sealed class IslandViewer : MonoBehaviour
     private const int CliffNoiseDimension = 64;
     private const int CliffNoiseLatticePeriod = 16;
     private const float ClickDragTolerance = 6f;
+    private const float HazeStartDistance = 0f;
+    private const float HazeEndDistance = 1000f;
 
     private IntPtr islandHandle;
     private TerrainTileStreamer terrainStreamer;
@@ -26,6 +28,7 @@ public sealed class IslandViewer : MonoBehaviour
     private Camera viewerCamera;
     private FirstPersonController firstPersonController;
     private Material terrainMaterial;
+    private Material grassMaterial;
     private Texture2D terrainNormalTexture;
     private Texture2D terrainOcclusionTexture;
     private Texture3D cliffNoiseTexture;
@@ -48,6 +51,7 @@ public sealed class IslandViewer : MonoBehaviour
     private float riverBroadSourceThreshold = 1f;
     private float riverLandSourceThreshold = 1.3f;
     private float riverFinalSourceThreshold = 1.6f;
+    private float grassBrightness = 1.35f;
     private string status = "Ready";
     private bool showRivers = true;
     private bool showSea = true;
@@ -59,6 +63,7 @@ public sealed class IslandViewer : MonoBehaviour
     private Stopwatch generationTimer;
     private bool generationInProgress;
     private bool isDestroyed;
+    private bool distanceHazeEnabled;
 
     internal sealed class PreparedMesh
     {
@@ -182,6 +187,9 @@ public sealed class IslandViewer : MonoBehaviour
 
     private void Update()
     {
+        SetDistanceHaze(
+            firstPersonController != null && firstPersonController.IsActive);
+
         if (Input.GetKeyDown(KeyCode.M))
         {
             showMeshEdges = !showMeshEdges;
@@ -227,10 +235,12 @@ public sealed class IslandViewer : MonoBehaviour
     private void OnDestroy()
     {
         isDestroyed = true;
+        SetDistanceHaze(false);
         generationCancellation?.Cancel();
         firstPersonController?.Exit();
         ClearGeneratedContent();
         DestroyUnityObject(terrainMaterial);
+        DestroyUnityObject(grassMaterial);
         DestroyUnityObject(cliffNoiseTexture);
         DestroyUnityObject(riverMaterial);
         DestroyUnityObject(seaMaterial);
@@ -238,8 +248,14 @@ public sealed class IslandViewer : MonoBehaviour
 
     private void BuildEnvironment()
     {
+        var skyColor = new Color(0.49f, 0.68f, 0.82f);
         RenderSettings.ambientMode = AmbientMode.Flat;
         RenderSettings.ambientLight = new Color(0.42f, 0.46f, 0.52f);
+        RenderSettings.fog = false;
+        RenderSettings.fogMode = FogMode.Linear;
+        RenderSettings.fogColor = skyColor;
+        RenderSettings.fogStartDistance = HazeStartDistance;
+        RenderSettings.fogEndDistance = HazeEndDistance;
 
         var lightObject = new GameObject("Sun");
         lightObject.transform.SetParent(transform, false);
@@ -253,7 +269,7 @@ public sealed class IslandViewer : MonoBehaviour
         cameraObject.transform.SetParent(transform, false);
         viewerCamera = cameraObject.AddComponent<Camera>();
         viewerCamera.clearFlags = CameraClearFlags.SolidColor;
-        viewerCamera.backgroundColor = new Color(0.49f, 0.68f, 0.82f);
+        viewerCamera.backgroundColor = skyColor;
         viewerCamera.nearClipPlane = 0.05f;
         viewerCamera.farClipPlane = TerrainScale * 8f;
         var orbitCamera = cameraObject.AddComponent<OrbitCamera>();
@@ -268,8 +284,30 @@ public sealed class IslandViewer : MonoBehaviour
             Color.white);
         cliffNoiseTexture = CreateCliffNoiseTexture();
         terrainMaterial.SetTexture("_CliffNoise3D", cliffNoiseTexture);
+        grassMaterial = CreateMaterial("Motu/Terrain Grass", Color.white);
+        grassMaterial.SetTexture("_CliffNoise3D", cliffNoiseTexture);
+        grassMaterial.SetColor(
+            "_GrassRootColor",
+            new Color(0.14f, 0.34f, 0.11f, 1f));
+        grassMaterial.SetColor(
+            "_GrassTipColor",
+            new Color(0.26f, 0.62f, 0.21f, 1f));
+        grassMaterial.SetFloat("_GrassBrightness", grassBrightness);
+        grassMaterial.SetVector("_GrassLightDirection", -sun.transform.forward);
+        grassMaterial.SetColor("_GrassLightColor", sun.color * sun.intensity);
+        grassMaterial.SetColor("_GrassAmbientColor", RenderSettings.ambientLight);
         riverMaterial = CreateMaterial("Motu/Water", new Color(0.05f, 0.36f, 0.78f, 0.92f));
         seaMaterial = CreateMaterial("Motu/Water", new Color(0.03f, 0.28f, 0.55f, 0.62f));
+    }
+
+    private void SetDistanceHaze(bool enabled)
+    {
+        if (distanceHazeEnabled == enabled && RenderSettings.fog == enabled)
+        {
+            return;
+        }
+        distanceHazeEnabled = enabled;
+        RenderSettings.fog = enabled;
     }
 
     private async void Generate()
@@ -336,6 +374,7 @@ public sealed class IslandViewer : MonoBehaviour
             await terrainStreamer.InitializeAsync(
                 islandHandle,
                 terrainMaterial,
+                grassMaterial,
                 riverMaterial,
                 TerrainScale,
                 prepared.overviewTiles,
@@ -891,9 +930,15 @@ public sealed class IslandViewer : MonoBehaviour
     {
         if (firstPersonController != null && firstPersonController.IsActive)
         {
-            GUILayout.BeginArea(new Rect(16f, 16f, 430f, 82f), GUI.skin.box);
+            GUILayout.BeginArea(new Rect(16f, 16f, 500f, 126f), GUI.skin.box);
             GUILayout.Label("First person: WASD move | Shift run | Space jump | Mouse look");
-            GUILayout.Label("M: toggle mesh edges");
+            GUILayout.Label("M: mesh edges | Tab: release/capture cursor for tuning");
+            SetGrassBrightness(OptionSlider(
+                "Grass brightness",
+                grassBrightness,
+                0.25f,
+                3f,
+                "F2"));
             GUILayout.Label("Escape: return to island overview");
             GUILayout.EndArea();
             GUI.Label(
@@ -902,7 +947,7 @@ public sealed class IslandViewer : MonoBehaviour
             return;
         }
 
-        GUILayout.BeginArea(new Rect(16f, 16f, 500f, 736f), GUI.skin.box);
+        GUILayout.BeginArea(new Rect(16f, 16f, 500f, 760f), GUI.skin.box);
         GUILayout.Label("Motu Rust Island Viewer");
         GUILayout.BeginHorizontal();
         GUILayout.Label("Seed", GUILayout.Width(42f));
@@ -1012,6 +1057,13 @@ public sealed class IslandViewer : MonoBehaviour
         {
             terrainStreamer.UseRenderCollider = useRenderCollider;
         }
+        SetGrassBrightness(OptionSlider(
+            "Grass brightness",
+            grassBrightness,
+            0.25f,
+            3f,
+            "F2"));
+        GUILayout.Label("Grass brightness applies immediately; no regeneration required.");
         var nextRivers = GUILayout.Toggle(showRivers, "Show carved river surfaces");
         var nextSea = GUILayout.Toggle(showSea, "Show sea surface");
         if (nextRivers != showRivers)
@@ -1072,6 +1124,17 @@ public sealed class IslandViewer : MonoBehaviour
         riverBroadSourceThreshold = 1f;
         riverLandSourceThreshold = 1.3f;
         riverFinalSourceThreshold = 1.6f;
+        SetGrassBrightness(1.35f);
+    }
+
+    private void SetGrassBrightness(float value)
+    {
+        if (Mathf.Approximately(grassBrightness, value))
+        {
+            return;
+        }
+        grassBrightness = value;
+        grassMaterial?.SetFloat("_GrassBrightness", value);
     }
 
 #if UNITY_EDITOR
@@ -1137,7 +1200,18 @@ public sealed class IslandViewer : MonoBehaviour
                     || !terrainMaterial.HasProperty("_WorldNormalWeight")
                     || !terrainMaterial.HasProperty("_Occlusion")
                     || !terrainMaterial.HasProperty("_CliffNoise3D")
-                    || !terrainMaterial.HasProperty("_CliffNormalStrength"))
+                    || !terrainMaterial.HasProperty("_CliffNormalStrength")
+                    || !terrainMaterial.HasProperty("_GrassNormalDetailScale")
+                    || !terrainMaterial.HasProperty("_SandNormalDetailScale")
+                    || !terrainMaterial.HasProperty("_GrassNormalStrength")
+                    || !terrainMaterial.HasProperty("_SandNormalStrength")
+                    || !terrainMaterial.HasProperty("_BeachMaximumElevation")
+                    || !terrainMaterial.HasProperty("_RockBoundaryNoiseStrength")
+                    || !terrainMaterial.HasProperty("_GrassPlayerPosition")
+                    || !terrainMaterial.HasProperty("_GroundDirtColor")
+                    || !terrainMaterial.HasProperty("_GroundDirtCoreRadius")
+                    || !terrainMaterial.HasProperty("_GroundDirtFadeWidth")
+                    || !terrainMaterial.HasProperty("_SnowMacroNoiseMetres"))
                 {
                     throw new InvalidOperationException(
                         "The unified terrain shader is missing its shared map properties.");
@@ -1162,6 +1236,38 @@ public sealed class IslandViewer : MonoBehaviour
             finally
             {
                 DestroyImmediate(terrainMaterial);
+            }
+
+            var grassShader = Shader.Find("Motu/Terrain Grass");
+            if (grassShader == null
+                || !grassShader.isSupported
+                || UnityEditor.ShaderUtil.ShaderHasError(grassShader))
+            {
+                throw new InvalidOperationException(
+                    "The terrain grass shader is missing or unsupported.");
+            }
+            var grassMaterial = new Material(grassShader);
+            try
+            {
+                if (!grassMaterial.HasProperty("_CliffNoise3D")
+                    || !grassMaterial.HasProperty("_GrassPlayerPosition")
+                    || !grassMaterial.HasProperty("_GrassRadius")
+                    || !grassMaterial.HasProperty("_GrassHeight")
+                    || !grassMaterial.HasProperty("_GrassBrightness")
+                    || !grassMaterial.HasProperty("_GrassLightDirection")
+                    || !grassMaterial.HasProperty("_GrassLightColor")
+                    || !grassMaterial.HasProperty("_GrassAmbientColor")
+                    || !grassMaterial.HasProperty("_BeachMaximumElevation")
+                    || !grassMaterial.HasProperty("_RockBoundaryNoiseStrength")
+                    || !grassMaterial.HasProperty("_SnowMacroNoiseMetres"))
+                {
+                    throw new InvalidOperationException(
+                        "The terrain grass shader is missing its required properties.");
+                }
+            }
+            finally
+            {
+                DestroyImmediate(grassMaterial);
             }
 
             const float lod0ParentResolution = 64f;

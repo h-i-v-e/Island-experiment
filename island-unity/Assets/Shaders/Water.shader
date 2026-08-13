@@ -16,6 +16,7 @@ Shader "Motu/Water"
             CGPROGRAM
             #pragma vertex Vertex
             #pragma fragment Fragment
+            #pragma multi_compile_fog
             #include "UnityCG.cginc"
 
             struct VertexInput
@@ -28,6 +29,7 @@ Shader "Motu/Water"
             {
                 float4 position : SV_POSITION;
                 float brightness : TEXCOORD0;
+                UNITY_FOG_COORDS(1)
             };
 
             fixed4 _Color;
@@ -38,12 +40,15 @@ Shader "Motu/Water"
                 output.position = UnityObjectToClipPos(input.vertex);
                 float3 normal = UnityObjectToWorldNormal(input.normal);
                 output.brightness = 0.72 + 0.28 * saturate(dot(normal, normalize(float3(0.3, 1.0, 0.2))));
+                UNITY_TRANSFER_FOG(output, output.position);
                 return output;
             }
 
             fixed4 Fragment(VertexOutput input) : SV_Target
             {
-                return fixed4(_Color.rgb * input.brightness, _Color.a);
+                fixed4 color = fixed4(_Color.rgb * input.brightness, _Color.a);
+                UNITY_APPLY_FOG(input.fogCoord, color);
+                return color;
             }
             ENDCG
         }

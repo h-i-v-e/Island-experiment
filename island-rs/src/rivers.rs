@@ -22,6 +22,11 @@ const RIVER_BOUNDARY: u8 = 1 << 7;
 const WATERFALL_LIP_SMOOTHING: f32 = 0.5;
 const RIVER_CHANNEL_DRAINAGE_FLOOR: f32 = 0.30;
 const RIVER_BANK_DRAINAGE_FLOOR: f32 = 0.15;
+// A strict one-ring extremum must stand this far from its neighbours relative
+// to their mean horizontal spacing before the final repair touches it.
+const SHARP_POINT_HEIGHT_RATIO: f32 = 0.35;
+const SHARP_POINT_SMOOTHING: f32 = 0.6;
+const SHARP_POINT_SMOOTHING_PASSES: usize = 2;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RiverNode {
@@ -423,50 +428,20 @@ impl RiverNetwork {
         }
 
         mark_river_boundary(adjacency, &perimeter, &mut coverage);
-        let (under_river, _) = river_topology_masks(terrain, &coverage);
-        if under_river.iter().any(|&is_river| is_river) {
-            let old_volume = material.volume(terrain);
-            let stencils = terrain.tessellate_incident_to(&under_river);
-            material.extend_after_tessellation(old_volume, terrain, &stencils);
-            coverage.reserve(stencils.len());
-            surfaces.reserve(stencils.len());
-            waterfall_lips.reserve(stencils.len());
-            for stencil in stencils {
-                let [a, b] = [stencil.surrounding[0], stencil.surrounding[1]];
-                let midpoint = stencil.vertex;
-                debug_assert_eq!(midpoint as usize, coverage.len());
-                let a = a as usize;
-                let b = b as usize;
-                let selected = coverage[a] != 0 && coverage[b] != 0;
-                coverage.push(if selected {
-                    coverage[a].min(coverage[b])
-                } else {
-                    0
-                });
-                surfaces.push(if selected {
-                    (surfaces[a] + surfaces[b]) * 0.5
-                } else {
-                    0.0
-                });
-                waterfall_lips.push(selected && waterfall_lips[a] && waterfall_lips[b]);
-            }
-            for value in &mut coverage {
-                *value &= !RIVER_BOUNDARY;
-            }
-            let refined_adjacency = terrain.adjacency();
-            let refined_perimeter = terrain.perimeter_mask();
-            mark_river_boundary(&refined_adjacency, &refined_perimeter, &mut coverage);
-            let (under_river, bank) = river_topology_masks(terrain, &coverage);
-            let loose_volume = material.volume(terrain);
-            smooth_river_terrain_vertices(
-                terrain,
-                &refined_adjacency,
-                &under_river,
-                &bank,
-                &surfaces,
-            );
-            material.rescale_to_volume(terrain, loose_volume);
-        }
+        refine_river_terrain(
+            terrain,
+            material,
+            &mut coverage,
+            &mut surfaces,
+            &mut waterfall_lips,
+        );
+        repair_sharp_terrain_points(
+            terrain,
+            material,
+            &mut coverage,
+            &mut surfaces,
+            &mut waterfall_lips,
+        );
         enforce_sea_plane_clearance(terrain);
         let river_bed = river_topology_masks(terrain, &coverage).0;
         let river_mesh = duplicate_river_topology(terrain, &coverage, &surfaces, &waterfall_lips);
@@ -492,6 +467,188 @@ fn enforce_sea_plane_clearance(terrain: &mut Mesh) {
             };
         }
     });
+}
+
+fn refine_river_terrain(
+    terrain: &mut Mesh,
+    material: &mut SurfaceMaterial,
+    coverage: &mut Vec<u8>,
+    surfaces: &mut Vec<f32>,
+    waterfall_lips: &mut Vec<bool>,
+) {
+    let (under_river, _) = river_topology_masks(terrain, coverage);
+    if !under_river.iter().any(|&is_river| is_river) {
+        return;
+    }
+
+    let old_volume = material.volume(terrain);
+    let stencils = terrain.tessellate_incident_to(&under_river);
+    material.extend_after_tessellation(old_volume, terrain, &stencils);
+    coverage.reserve(stencils.len());
+    surfaces.reserve(stencils.len());
+    waterfall_lips.reserve(stencils.len());
+    for stencil in stencils {
+        let [a, b] = [stencil.surrounding[0], stencil.surrounding[1]];
+        debug_assert_eq!(stencil.vertex as usize, coverage.len());
+        let [a, b] = [a as usize, b as usize];
+        let selected = coverage[a] != 0 && coverage[b] != 0;
+        coverage.push(if selected {
+            coverage[a].min(coverage[b])
+        } else {
+            0
+        });
+        surfaces.push(if selected {
+            (surfaces[a] + surfaces[b]) * 0.5
+        } else {
+            0.0
+        });
+        waterfall_lips.push(selected && waterfall_lips[a] && waterfall_lips[b]);
+    }
+    for value in coverage.iter_mut() {
+        *value &= !RIVER_BOUNDARY;
+    }
+    let adjacency = terrain.adjacency();
+    let perimeter = terrain.perimeter_mask();
+    mark_river_boundary(&adjacency, &perimeter, coverage);
+    let (under_river, bank) = river_topology_masks(terrain, coverage);
+    let loose_volume = material.volume(terrain);
+    smooth_river_terrain_vertices(terrain, &adjacency, &under_river, &bank, surfaces);
+    material.rescale_to_volume(terrain, loose_volume);
+}
+
+fn repair_sharp_terrain_points(
+    terrain: &mut Mesh,
+    material: &mut SurfaceMaterial,
+    coverage: &mut Vec<u8>,
+    surfaces: &mut Vec<f32>,
+    waterfall_lips: &mut Vec<bool>,
+) {
+    let adjacency = terrain.adjacency();
+    let perimeter = terrain.perimeter_mask();
+    let sharp = sharp_point_mask(terrain, &adjacency, &perimeter);
+    if !sharp.iter().any(|&is_sharp| is_sharp) {
+        return;
+    }
+
+    let loose_volume = material.volume(terrain);
+    let stencils = terrain.tessellate_incident_to(&sharp);
+    material.extend_after_tessellation(loose_volume, terrain, &stencils);
+
+    let mut patch = sharp;
+    patch.reserve(stencils.len());
+    coverage.reserve(stencils.len());
+    surfaces.reserve(stencils.len());
+    waterfall_lips.reserve(stencils.len());
+    for stencil in stencils {
+        let [a, b] = [
+            stencil.surrounding[0] as usize,
+            stencil.surrounding[1] as usize,
+        ];
+        let count = usize::from(stencil.count);
+        let selected = coverage[a] != 0 && coverage[b] != 0;
+        patch.push(
+            stencil.surrounding[..count]
+                .iter()
+                .any(|&vertex| patch[vertex as usize]),
+        );
+        coverage.push(if selected {
+            coverage[a].min(coverage[b]) & !RIVER_BOUNDARY
+        } else {
+            0
+        });
+        surfaces.push(if selected {
+            (surfaces[a] + surfaces[b]) * 0.5
+        } else {
+            0.0
+        });
+        waterfall_lips.push(selected && waterfall_lips[a] && waterfall_lips[b]);
+    }
+
+    let adjacency = terrain.adjacency();
+    let perimeter = terrain.perimeter_mask();
+    let mut height_scratch = vec![0.0; terrain.vertices.len()];
+    for _ in 0..SHARP_POINT_SMOOTHING_PASSES {
+        smooth_sharp_point_patch(
+            terrain,
+            &adjacency,
+            &perimeter,
+            &patch,
+            coverage,
+            surfaces,
+            &mut height_scratch,
+        );
+    }
+    material.rescale_to_volume(terrain, loose_volume);
+
+    for value in coverage.iter_mut() {
+        *value &= !RIVER_BOUNDARY;
+    }
+    mark_river_boundary(&adjacency, &perimeter, coverage);
+}
+
+fn sharp_point_mask(terrain: &Mesh, adjacency: &Adjacency, perimeter: &[bool]) -> Vec<bool> {
+    terrain
+        .vertices
+        .iter()
+        .enumerate()
+        .map(|(vertex, &position)| {
+            let neighbours = &adjacency[vertex];
+            if perimeter[vertex] || neighbours.len() < 3 {
+                return false;
+            }
+            let (height_total, edge_total, minimum, maximum) = neighbours.iter().copied().fold(
+                (0.0_f32, 0.0_f32, f32::INFINITY, f32::NEG_INFINITY),
+                |(height_total, edge_total, minimum, maximum), neighbour| {
+                    let candidate = terrain.vertices[neighbour];
+                    (
+                        height_total + candidate.z,
+                        edge_total + position.truncate().distance(candidate.truncate()),
+                        minimum.min(candidate.z),
+                        maximum.max(candidate.z),
+                    )
+                },
+            );
+            let inverse_count = 1.0 / neighbours.len() as f32;
+            let mean_height = height_total * inverse_count;
+            let mean_edge = edge_total * inverse_count;
+            let is_extremum = position.z < minimum || position.z > maximum;
+            is_extremum && (position.z - mean_height).abs() > mean_edge * SHARP_POINT_HEIGHT_RATIO
+        })
+        .collect()
+}
+
+fn smooth_sharp_point_patch(
+    terrain: &mut Mesh,
+    adjacency: &Adjacency,
+    perimeter: &[bool],
+    patch: &[bool],
+    coverage: &[u8],
+    surfaces: &[f32],
+    height_scratch: &mut [f32],
+) {
+    // Heights are read from a snapshot so every vertex in a pass observes the
+    // same surface. XY is deliberately preserved: this rounds the spike while
+    // making projected face inversion impossible in the repair stage.
+    height_scratch
+        .iter_mut()
+        .zip(&terrain.vertices)
+        .for_each(|(height, vertex)| *height = vertex.z);
+    for (vertex, position) in terrain.vertices.iter_mut().enumerate() {
+        if !patch[vertex] || perimeter[vertex] || adjacency[vertex].is_empty() {
+            continue;
+        }
+        let neighbour_height = adjacency[vertex]
+            .iter()
+            .map(|&neighbour| height_scratch[neighbour])
+            .sum::<f32>()
+            / adjacency[vertex].len() as f32;
+        let mut smoothed = height_scratch[vertex]
+            + (neighbour_height - height_scratch[vertex]) * SHARP_POINT_SMOOTHING;
+        if coverage[vertex] != 0 && !is_river_boundary(coverage[vertex]) {
+            smoothed = smoothed.min(surfaces[vertex] - RIVER_SURFACE_OFFSET);
+        }
+        position.z = smoothed;
+    }
 }
 
 fn river_reaches_ocean(river: &River, ocean: &[bool]) -> bool {
@@ -1955,6 +2112,71 @@ mod tests {
             SEA_PLANE_CLEARANCE.to_bits()
         );
         assert_eq!(terrain.vertices[4].z.to_bits(), 0.001_f32.to_bits());
+    }
+
+    #[test]
+    fn final_sharp_point_repair_refines_and_rounds_an_isolated_spike() {
+        let points: Vec<Vec2> = (0..=4)
+            .flat_map(|y| (0..=4).map(move |x| Vec2::new(x as f32 / 4.0, y as f32 / 4.0)))
+            .collect();
+        let mut terrain = Mesh::delaunay(&points);
+        let center = points
+            .iter()
+            .position(|point| *point == Vec2::new(0.5, 0.5))
+            .unwrap();
+        terrain.vertices[center].z = 0.2;
+        let original_vertex_count = terrain.vertices.len();
+        let original_height = terrain.vertices[center].z;
+        let mut material = SurfaceMaterial::empty(original_vertex_count);
+        let mut coverage = vec![0; original_vertex_count];
+        let mut surfaces = vec![0.0; original_vertex_count];
+        let mut waterfall_lips = vec![false; original_vertex_count];
+
+        repair_sharp_terrain_points(
+            &mut terrain,
+            &mut material,
+            &mut coverage,
+            &mut surfaces,
+            &mut waterfall_lips,
+        );
+
+        assert!(terrain.vertices.len() > original_vertex_count);
+        assert!(terrain.vertices[center].z < original_height * 0.6);
+        let repaired_adjacency = terrain.adjacency();
+        let repaired_perimeter = terrain.perimeter_mask();
+        assert!(!sharp_point_mask(&terrain, &repaired_adjacency, &repaired_perimeter)[center]);
+        assert_eq!(material.depths().len(), terrain.vertices.len());
+        assert_eq!(coverage.len(), terrain.vertices.len());
+        assert_eq!(surfaces.len(), terrain.vertices.len());
+        assert_eq!(waterfall_lips.len(), terrain.vertices.len());
+    }
+
+    #[test]
+    fn final_sharp_point_repair_leaves_an_inclined_plane_unchanged() {
+        let points: Vec<Vec2> = (0..=4)
+            .flat_map(|y| (0..=4).map(move |x| Vec2::new(x as f32 / 4.0, y as f32 / 4.0)))
+            .collect();
+        let mut terrain = Mesh::delaunay(&points);
+        terrain
+            .vertices
+            .iter_mut()
+            .for_each(|vertex| vertex.z = vertex.x.mul_add(0.2, vertex.y * 0.1));
+        let original = terrain.clone();
+        let vertex_count = terrain.vertices.len();
+        let mut material = SurfaceMaterial::empty(vertex_count);
+        let mut coverage = vec![0; vertex_count];
+        let mut surfaces = vec![0.0; vertex_count];
+        let mut waterfall_lips = vec![false; vertex_count];
+
+        repair_sharp_terrain_points(
+            &mut terrain,
+            &mut material,
+            &mut coverage,
+            &mut surfaces,
+            &mut waterfall_lips,
+        );
+
+        assert_eq!(terrain, original);
     }
 
     #[test]
