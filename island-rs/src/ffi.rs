@@ -151,6 +151,24 @@ pub struct ExportMeshGrid {
 
 #[derive(Clone, Copy, Debug, Default)]
 #[repr(C)]
+pub struct RiverEmitterExport {
+    pub position: Vec3,
+    pub direction: Vec3,
+    pub strength: f32,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+#[repr(C)]
+pub struct ExportRiverEmitters {
+    pub handle: *mut c_void,
+    pub data: *const RiverEmitterExport,
+    pub length: i32,
+}
+
+const _: () = assert!(size_of::<RiverEmitterExport>() == size_of::<[f32; 7]>());
+
+#[derive(Clone, Copy, Debug, Default)]
+#[repr(C)]
 pub struct ExportDecoration {
     pub trees: Vector3ExportArray,
     pub bushes: Vector3ExportArray,
@@ -531,6 +549,52 @@ pub unsafe extern "C" fn CreateRiverMeshGrid(
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn CreateRiverEmitters(
+    handle: *const c_void,
+    sharpness_degrees: f32,
+    spacing_metres: f32,
+    output: *mut ExportRiverEmitters,
+) {
+    let Some(island) = (unsafe { island_ref(handle) }) else {
+        return;
+    };
+    let Some(output) = (unsafe { output.as_mut() }) else {
+        return;
+    };
+    let emitters: Vec<RiverEmitterExport> = island
+        .river_emitters(sharpness_degrees, spacing_metres)
+        .into_iter()
+        .map(|emitter| RiverEmitterExport {
+            position: emitter.position,
+            direction: emitter.direction,
+            strength: emitter.strength,
+        })
+        .collect();
+    let owner = Box::new(emitters);
+    let export = ExportRiverEmitters {
+        handle: ptr::null_mut(),
+        data: owner.as_ptr(),
+        length: length_i32(owner.len()),
+    };
+    *output = ExportRiverEmitters {
+        handle: Box::into_raw(owner).cast(),
+        ..export
+    };
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ReleaseRiverEmitters(output: *mut ExportRiverEmitters) {
+    let Some(output) = (unsafe { output.as_mut() }) else {
+        return;
+    };
+    if !output.handle.is_null() {
+        // SAFETY: handle came from CreateRiverEmitters and is released once.
+        drop(unsafe { Box::from_raw(output.handle.cast::<Vec<RiverEmitterExport>>()) });
+    }
+    *output = ExportRiverEmitters::default();
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn ReleaseMeshWithUV(output: *mut ExportMeshWithUv) {
     let Some(output) = (unsafe { output.as_mut() }) else {
         return;
@@ -865,6 +929,22 @@ mod tests {
         assert!(values.iter().any(|value| value.z > 0.5));
     }
 
+    unsafe fn assert_river_emitters(handle: *const c_void) {
+        let mut output = ExportRiverEmitters::default();
+        unsafe { CreateRiverEmitters(handle, 35.0, 2.0, &raw mut output) };
+        assert!(!output.handle.is_null());
+        assert!(output.length > 0);
+        let values = unsafe { std::slice::from_raw_parts(output.data, output.length as usize) };
+        assert!(values.iter().all(|emitter| {
+            emitter.position.is_finite()
+                && emitter.direction.is_finite()
+                && (emitter.direction.length() - 1.0).abs() < 1.0e-4
+                && (0.0..=1.0).contains(&emitter.strength)
+        }));
+        unsafe { ReleaseRiverEmitters(&raw mut output) };
+        assert!(output.handle.is_null());
+    }
+
     #[test]
     fn ffi_allocations_have_matching_release_functions() {
         let options = MotuOptions {
@@ -929,6 +1009,8 @@ mod tests {
             );
             ReleaseMeshGrid(&raw mut river_grid);
             assert!(river_grid.handle.is_null());
+
+            assert_river_emitters(handle);
 
             let height_map = CreateHeightMap(handle, 16);
             assert!(!height_map.is_null());

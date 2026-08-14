@@ -50,13 +50,39 @@ falls back to a separately exported support tile if Unity cannot cook it. The
 overlay can force support collision for diagnostics. Press M to toggle mesh
 edges. Press Escape to discard
 the refinement groups and return to the 64-tile LOD 2 overview. River surfaces
-are clipped on the same 64x64 LOD 1 boundaries and only chunks whose parent
-cells currently contain active LOD 0 terrain are rendered. Chunks are cached
-after their first
+are clipped on the same 64x64 LOD 1 boundaries and render throughout every
+active LOD 1 group, including its LOD 0 refinement cells. Rivers remain hidden
+where the terrain is still LOD 2. Chunks are cached after their first
 visit, so revisiting an area only changes visibility. First-person controls are
 WASD, Shift to run, Space to jump, and the mouse to look. Press Tab to release
 the cursor for the live grass-brightness slider, then Tab again to resume
 movement and mouse look. Brightness changes apply without regenerating.
+
+Rust also classifies sharp transitions between adjacent final river faces into
+deterministic rough-water locations before the river is sliced. This selects
+the top and bottom lips of waterfalls instead of their coplanar vertical faces.
+Unity copies those records on the
+generation worker and immediately releases the native vector. During upload it
+packs them into the same 64x64 world partition as the LOD 1 river tiles and
+creates a fixed pool of 32 particle systems. In first-person mode the pool
+allows generated rough-water locations to be as close as one metre apart and
+retains locations within 220 metres, queries new locations within 180 metres
+after five metres of movement, and reuses distant slots for meaningfully closer
+waterfalls or constricted river edges. Player movement performs no native call,
+does not scan the full candidate set, and allocates no query collections.
+Particles are cleared in overview mode, when river surfaces are hidden, and on
+regeneration. Origins receive a ten-centimetre vertical clearance above the
+water mesh; their spray direction still follows the exported river normal.
+The spray uses a dedicated alpha-blended shader that renders each billboard as
+a feathered circle rather than exposing its square quad. Launch speed is capped
+at 1.35 metres per second, particles live for 0.7-1.6 seconds, and their
+maximum diameter is 12 centimetres, keeping the effect close to the water.
+Each source now uses a broad 80-degree cone, adds modest random-direction
+variation, and varies launch speed from 40 to 100 percent per particle. This
+breaks up hose-like streams without increasing their maximum travel distance.
+**Show rough-water emitter debug** displays nearby candidates,
+their exported outflow normals, the activation radius, and active assignments
+when Game-view gizmos are enabled.
 
 In first-person mode, grassy terrain gains a sixteen-layer shell-fur treatment
 around the player. Grass remains at full density for ten metres, then fades
@@ -72,7 +98,11 @@ Every 8x8 group is geometrically clipped at its tile boundaries. LOD 0 uses an
 attribute-carrying 3D plane clipper, so vertical faces and multiple heights at
 one XY location survive slicing. Only LOD 0 and LOD 1 edges bordering an active
 lower-detail neighbour are morphed onto that coarser support surface. Edges
-shared by two groups at the same LOD retain their full detail.
+shared by two groups at the same LOD retain their full detail. At final island
+creation, LOD 1 and LOD 2 are each tessellated once more and the inserted
+midpoints are projected onto the final LOD 0 surface. This leaves a smaller
+density and silhouette step between adjacent LODs before Unity applies its
+edge-only transition morph.
 
 Sediment deposition has separate strength and slope controls. At the default
 12-degree limit, deposition is strongest below 4 degrees, fades smoothly
@@ -109,8 +139,8 @@ cp ../island-rs/target/release/libmotu.dylib Assets/Plugins/macOS/
 The included plugin is built for Apple Silicon. Other platforms need their own
 Rust `cdylib` in the corresponding Unity plugin folder.
 
-For an editor compile plus native ABI, streamed tile, UV, support mesh, and
-collider-cooking check, run:
+For an editor compile plus native ABI, streamed tile, UV, support mesh,
+rough-water emitter, and collider-cooking check, run:
 
 ```sh
 /Applications/Unity/Hub/Editor/6000.5.6f1/Unity.app/Contents/MacOS/Unity \

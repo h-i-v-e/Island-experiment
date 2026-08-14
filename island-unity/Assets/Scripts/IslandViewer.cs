@@ -18,9 +18,13 @@ public sealed class IslandViewer : MonoBehaviour
     private const int SurfaceMapDimension = 2048;
     private const int CliffNoiseDimension = 64;
     private const int CliffNoiseLatticePeriod = 16;
+    private const int RiverNoiseDimension = 256;
+    private const int RiverNoiseLatticePeriod = 32;
     private const float ClickDragTolerance = 6f;
     private const float HazeStartDistance = 0f;
     private const float HazeEndDistance = 1000f;
+    private const float RiverEmitterSharpnessDegrees = 35f;
+    private const float RiverEmitterSpacingMetres = 1.5f;
 
     private IntPtr islandHandle;
     private TerrainTileStreamer terrainStreamer;
@@ -32,6 +36,7 @@ public sealed class IslandViewer : MonoBehaviour
     private Texture2D terrainNormalTexture;
     private Texture2D terrainOcclusionTexture;
     private Texture3D cliffNoiseTexture;
+    private Texture2D riverNoiseTexture;
     private Material riverMaterial;
     private Material seaMaterial;
     private string seedText = "666";
@@ -57,6 +62,7 @@ public sealed class IslandViewer : MonoBehaviour
     private bool showSea = true;
     private bool showMeshEdges;
     private bool useRenderCollider = true;
+    private bool showRiverEmitterDebug;
     private bool clickCandidate;
     private Vector2 clickStart;
     private CancellationTokenSource generationCancellation;
@@ -88,6 +94,20 @@ public sealed class IslandViewer : MonoBehaviour
         }
     }
 
+    internal readonly struct PreparedRiverEmitter
+    {
+        internal readonly Vector3 position;
+        internal readonly Vector3 direction;
+        internal readonly float strength;
+
+        internal PreparedRiverEmitter(Vector3 position, Vector3 direction, float strength)
+        {
+            this.position = position;
+            this.direction = direction;
+            this.strength = strength;
+        }
+    }
+
     private sealed class PreparedSurfaceMaps
     {
         internal readonly int dimension;
@@ -108,17 +128,20 @@ public sealed class IslandViewer : MonoBehaviour
         internal readonly PreparedSurfaceMaps surfaceMaps;
         internal readonly PreparedMesh[] overviewTiles;
         internal readonly PreparedMesh[] riverTiles;
+        internal readonly PreparedRiverEmitter[] riverEmitters;
 
         internal PreparedIsland(
             IntPtr handle,
             PreparedSurfaceMaps surfaceMaps,
             PreparedMesh[] overviewTiles,
-            PreparedMesh[] riverTiles)
+            PreparedMesh[] riverTiles,
+            PreparedRiverEmitter[] riverEmitters)
         {
             this.handle = handle;
             this.surfaceMaps = surfaceMaps;
             this.overviewTiles = overviewTiles;
             this.riverTiles = riverTiles;
+            this.riverEmitters = riverEmitters;
         }
 
         internal IntPtr TakeHandle()
@@ -242,6 +265,7 @@ public sealed class IslandViewer : MonoBehaviour
         DestroyUnityObject(terrainMaterial);
         DestroyUnityObject(grassMaterial);
         DestroyUnityObject(cliffNoiseTexture);
+        DestroyUnityObject(riverNoiseTexture);
         DestroyUnityObject(riverMaterial);
         DestroyUnityObject(seaMaterial);
     }
@@ -268,6 +292,7 @@ public sealed class IslandViewer : MonoBehaviour
         var cameraObject = new GameObject("Orbit Camera");
         cameraObject.transform.SetParent(transform, false);
         viewerCamera = cameraObject.AddComponent<Camera>();
+        viewerCamera.depthTextureMode |= DepthTextureMode.Depth;
         viewerCamera.clearFlags = CameraClearFlags.SolidColor;
         viewerCamera.backgroundColor = skyColor;
         viewerCamera.nearClipPlane = 0.05f;
@@ -296,8 +321,31 @@ public sealed class IslandViewer : MonoBehaviour
         grassMaterial.SetVector("_GrassLightDirection", -sun.transform.forward);
         grassMaterial.SetColor("_GrassLightColor", sun.color * sun.intensity);
         grassMaterial.SetColor("_GrassAmbientColor", RenderSettings.ambientLight);
-        riverMaterial = CreateMaterial("Motu/Water", new Color(0.05f, 0.36f, 0.78f, 0.92f));
-        seaMaterial = CreateMaterial("Motu/Water", new Color(0.03f, 0.28f, 0.55f, 0.62f));
+        riverNoiseTexture = CreateRiverNoiseTexture();
+        var waterColor = new Color(0.03f, 0.28f, 0.55f, 1f);
+        const float shallowWaterOpacity = 0.25f;
+        const float fullOpacityDepth = 5f;
+        riverMaterial = CreateMaterial("Motu/Water", waterColor);
+        riverMaterial.SetTexture("_NoiseTex", riverNoiseTexture);
+        riverMaterial.SetFloat("_WhitewaterStrength", 0.9f);
+        riverMaterial.SetFloat("_ShallowOpacity", shallowWaterOpacity);
+        riverMaterial.SetFloat("_OpacityDepth", fullOpacityDepth);
+        riverMaterial.SetColor("_ReflectionColor", skyColor);
+        riverMaterial.SetColor(
+            "_ReflectionHorizonColor",
+            Color.Lerp(skyColor, Color.white, 0.35f));
+        riverMaterial.SetFloat("_ReflectionStrength", 0.45f);
+        riverMaterial.SetFloat("_SunGlintStrength", 0.55f);
+        seaMaterial = CreateMaterial("Motu/Water", waterColor);
+        seaMaterial.SetFloat("_WhitewaterStrength", 0f);
+        seaMaterial.SetFloat("_ShallowOpacity", shallowWaterOpacity);
+        seaMaterial.SetFloat("_OpacityDepth", fullOpacityDepth);
+        seaMaterial.SetColor("_ReflectionColor", skyColor);
+        seaMaterial.SetColor(
+            "_ReflectionHorizonColor",
+            Color.Lerp(skyColor, Color.white, 0.35f));
+        seaMaterial.SetFloat("_ReflectionStrength", 0.65f);
+        seaMaterial.SetFloat("_SunGlintStrength", 0.8f);
     }
 
     private void SetDistanceHaze(bool enabled)
@@ -379,9 +427,11 @@ public sealed class IslandViewer : MonoBehaviour
                 TerrainScale,
                 prepared.overviewTiles,
                 prepared.riverTiles,
+                prepared.riverEmitters,
                 showRivers,
                 cancellation.Token);
             terrainStreamer.UseRenderCollider = useRenderCollider;
+            terrainStreamer.SetRiverEmitterDebug(showRiverEmitterDebug);
             firstPersonController.SetTerrainStreamer(terrainStreamer);
 
             seaObject = GameObject.CreatePrimitive(PrimitiveType.Plane);
@@ -402,6 +452,10 @@ public sealed class IslandViewer : MonoBehaviour
                 terrainStreamer.BaseTriangleCount,
                 generationTimer.Elapsed.TotalSeconds);
             status += " | shared 2048 terrain shading map";
+            status += string.Format(
+                CultureInfo.InvariantCulture,
+                " | {0:N0} rough-water candidates / 32 pooled systems",
+                terrainStreamer.RiverEmitterCandidateCount);
             status += string.Format(
                 CultureInfo.InvariantCulture,
                 " | current LOD 0 render collider (support fallback) | {0:F1} km square",
@@ -453,7 +507,14 @@ public sealed class IslandViewer : MonoBehaviour
             cancellationToken.ThrowIfCancellationRequested();
             var riverTiles = PrepareRiverTiles(handle);
             cancellationToken.ThrowIfCancellationRequested();
-            var result = new PreparedIsland(handle, surfaceMaps, overviewTiles, riverTiles);
+            var riverEmitters = PrepareRiverEmitters(handle);
+            cancellationToken.ThrowIfCancellationRequested();
+            var result = new PreparedIsland(
+                handle,
+                surfaceMaps,
+                overviewTiles,
+                riverTiles,
+                riverEmitters);
             handle = IntPtr.Zero;
             return result;
         }
@@ -532,6 +593,57 @@ public sealed class IslandViewer : MonoBehaviour
         finally
         {
             MotuNative.ReleaseMeshGrid(ref export);
+        }
+    }
+
+    private static PreparedRiverEmitter[] PrepareRiverEmitters(IntPtr handle)
+    {
+        MotuNative.CreateRiverEmitters(
+            handle,
+            RiverEmitterSharpnessDegrees,
+            RiverEmitterSpacingMetres,
+            out var export);
+        try
+        {
+            if (export.handle == IntPtr.Zero || export.length < 0)
+            {
+                throw new InvalidOperationException(
+                    "The Rust rough-water emitter export is invalid.");
+            }
+            if (export.length == 0)
+            {
+                return Array.Empty<PreparedRiverEmitter>();
+            }
+            if (export.data == IntPtr.Zero)
+            {
+                throw new InvalidOperationException(
+                    "The Rust rough-water emitter data is missing.");
+            }
+
+            var result = new PreparedRiverEmitter[export.length];
+            var exportSize = Marshal.SizeOf<MotuNative.RiverEmitterExport>();
+            for (var index = 0; index < export.length; index++)
+            {
+                var native = Marshal.PtrToStructure<MotuNative.RiverEmitterExport>(
+                    IntPtr.Add(export.data, index * exportSize));
+                var position = new Vector3(
+                    (native.position.x - 0.5f) * TerrainScale,
+                    native.position.z * TerrainScale,
+                    (native.position.y - 0.5f) * TerrainScale);
+                var direction = new Vector3(
+                    native.direction.x,
+                    native.direction.z,
+                    native.direction.y).normalized;
+                result[index] = new PreparedRiverEmitter(
+                    position,
+                    direction,
+                    Mathf.Clamp01(native.strength));
+            }
+            return result;
+        }
+        finally
+        {
+            MotuNative.ReleaseRiverEmitters(ref export);
         }
     }
 
@@ -842,6 +954,61 @@ public sealed class IslandViewer : MonoBehaviour
         return texture;
     }
 
+    private static Texture2D CreateRiverNoiseTexture()
+    {
+        var texture = new Texture2D(
+            RiverNoiseDimension,
+            RiverNoiseDimension,
+            TextureFormat.RGBA32,
+            false,
+            true)
+        {
+            name = "River coherent flow noise",
+            filterMode = FilterMode.Bilinear,
+            wrapMode = TextureWrapMode.Repeat,
+        };
+        var pixels = new Color[RiverNoiseDimension * RiverNoiseDimension];
+        var latticeScale = RiverNoiseLatticePeriod / (float)RiverNoiseDimension;
+        for (var y = 0; y < RiverNoiseDimension; y++)
+        {
+            for (var x = 0; x < RiverNoiseDimension; x++)
+            {
+                var sampleX = (x + 0.5f) * latticeScale;
+                var sampleY = (y + 0.5f) * latticeScale;
+                var index = x + RiverNoiseDimension * y;
+                pixels[index] = new Color(
+                    PeriodicRiverNoise(sampleX, sampleY, 0x9E3779B9u),
+                    PeriodicRiverNoise(sampleX, sampleY, 0xD1B54A35u),
+                    0f,
+                    1f);
+            }
+        }
+        texture.SetPixels(pixels);
+        texture.Apply(false, true);
+        return texture;
+    }
+
+    private static float PeriodicRiverNoise(float x, float y, uint seed)
+    {
+        var latticeX = Mathf.FloorToInt(x);
+        var latticeY = Mathf.FloorToInt(y);
+        var x0 = latticeX % RiverNoiseLatticePeriod;
+        var y0 = latticeY % RiverNoiseLatticePeriod;
+        var x1 = (x0 + 1) % RiverNoiseLatticePeriod;
+        var y1 = (y0 + 1) % RiverNoiseLatticePeriod;
+        var fadeX = QuinticFade(x - latticeX);
+        var fadeY = QuinticFade(y - latticeY);
+        var near = Mathf.Lerp(
+            LatticeNoise(x0, y0, 0, seed),
+            LatticeNoise(x1, y0, 0, seed),
+            fadeX);
+        var far = Mathf.Lerp(
+            LatticeNoise(x0, y1, 0, seed),
+            LatticeNoise(x1, y1, 0, seed),
+            fadeX);
+        return Mathf.Lerp(near, far, fadeY);
+    }
+
     private static float PeriodicValueNoise(float x, float y, float z, uint seed)
     {
         var latticeX = Mathf.FloorToInt(x);
@@ -930,7 +1097,7 @@ public sealed class IslandViewer : MonoBehaviour
     {
         if (firstPersonController != null && firstPersonController.IsActive)
         {
-            GUILayout.BeginArea(new Rect(16f, 16f, 500f, 126f), GUI.skin.box);
+            GUILayout.BeginArea(new Rect(16f, 16f, 500f, 150f), GUI.skin.box);
             GUILayout.Label("First person: WASD move | Shift run | Space jump | Mouse look");
             GUILayout.Label("M: mesh edges | Tab: release/capture cursor for tuning");
             SetGrassBrightness(OptionSlider(
@@ -939,6 +1106,14 @@ public sealed class IslandViewer : MonoBehaviour
                 0.25f,
                 3f,
                 "F2"));
+            var firstPersonEmitterDebug = GUILayout.Toggle(
+                showRiverEmitterDebug,
+                "Show rough-water emitter debug");
+            if (firstPersonEmitterDebug != showRiverEmitterDebug)
+            {
+                showRiverEmitterDebug = firstPersonEmitterDebug;
+                terrainStreamer?.SetRiverEmitterDebug(showRiverEmitterDebug);
+            }
             GUILayout.Label("Escape: return to island overview");
             GUILayout.EndArea();
             GUI.Label(
@@ -1065,11 +1240,19 @@ public sealed class IslandViewer : MonoBehaviour
             "F2"));
         GUILayout.Label("Grass brightness applies immediately; no regeneration required.");
         var nextRivers = GUILayout.Toggle(showRivers, "Show carved river surfaces");
+        var nextEmitterDebug = GUILayout.Toggle(
+            showRiverEmitterDebug,
+            "Show rough-water emitter debug");
         var nextSea = GUILayout.Toggle(showSea, "Show sea surface");
         if (nextRivers != showRivers)
         {
             showRivers = nextRivers;
             terrainStreamer?.SetRiversVisible(showRivers);
+        }
+        if (nextEmitterDebug != showRiverEmitterDebug)
+        {
+            showRiverEmitterDebug = nextEmitterDebug;
+            terrainStreamer?.SetRiverEmitterDebug(showRiverEmitterDebug);
         }
         if (nextSea != showSea)
         {
@@ -1207,6 +1390,7 @@ public sealed class IslandViewer : MonoBehaviour
                     || !terrainMaterial.HasProperty("_SandNormalStrength")
                     || !terrainMaterial.HasProperty("_BeachMaximumElevation")
                     || !terrainMaterial.HasProperty("_RockBoundaryNoiseStrength")
+                    || !terrainMaterial.HasProperty("_SandRockSlopeThreshold")
                     || !terrainMaterial.HasProperty("_GrassPlayerPosition")
                     || !terrainMaterial.HasProperty("_GroundDirtColor")
                     || !terrainMaterial.HasProperty("_GroundDirtCoreRadius")
@@ -1236,6 +1420,59 @@ public sealed class IslandViewer : MonoBehaviour
             finally
             {
                 DestroyImmediate(terrainMaterial);
+            }
+
+            var waterShader = Shader.Find("Motu/Water");
+            if (waterShader == null
+                || !waterShader.isSupported
+                || UnityEditor.ShaderUtil.ShaderHasError(waterShader))
+            {
+                throw new InvalidOperationException(
+                    "The animated river-water shader is missing or unsupported.");
+            }
+            var waterMaterial = new Material(waterShader);
+            try
+            {
+                if (!waterMaterial.HasProperty("_NoiseTex")
+                    || !waterMaterial.HasProperty("_CoarseNoiseWorldSize")
+                    || !waterMaterial.HasProperty("_FineNoiseWorldSize")
+                    || !waterMaterial.HasProperty("_CoarseFlowSpeed")
+                    || !waterMaterial.HasProperty("_FineFlowSpeed")
+                    || !waterMaterial.HasProperty("_WorldSize")
+                    || !waterMaterial.HasProperty("_ShallowOpacity")
+                    || !waterMaterial.HasProperty("_OpacityDepth")
+                    || !waterMaterial.HasProperty("_ReflectionColor")
+                    || !waterMaterial.HasProperty("_ReflectionHorizonColor")
+                    || !waterMaterial.HasProperty("_ReflectionStrength")
+                    || !waterMaterial.HasProperty("_ReflectionFresnelPower")
+                    || !waterMaterial.HasProperty("_SunGlintStrength")
+                    || !waterMaterial.HasProperty("_SunGlintSharpness")
+                    || !waterMaterial.HasProperty("_WhitewaterStrength")
+                    || !waterMaterial.HasProperty("_WhitewaterSlopeStart")
+                    || !waterMaterial.HasProperty("_WhitewaterSlopeFull"))
+                {
+                    throw new InvalidOperationException(
+                        "The river-water shader is missing flow or depth properties.");
+                }
+                var riverNoise = CreateRiverNoiseTexture();
+                try
+                {
+                    waterMaterial.SetTexture("_NoiseTex", riverNoise);
+                    if (riverNoise.width != RiverNoiseDimension
+                        || riverNoise.height != RiverNoiseDimension)
+                    {
+                        throw new InvalidOperationException(
+                            "The river noise texture has invalid dimensions.");
+                    }
+                }
+                finally
+                {
+                    DestroyImmediate(riverNoise);
+                }
+            }
+            finally
+            {
+                DestroyImmediate(waterMaterial);
             }
 
             var grassShader = Shader.Find("Motu/Terrain Grass");
@@ -1322,6 +1559,8 @@ public sealed class IslandViewer : MonoBehaviour
                 }
                 var exportSize = Marshal.SizeOf<MotuNative.ExportMesh>();
                 var foundRiverGeometry = false;
+                var minimumRiverV = float.PositiveInfinity;
+                var maximumRiverV = float.NegativeInfinity;
                 for (var index = 0; index < riverGrid.length; index++)
                 {
                     var nativeMesh = Marshal.PtrToStructure<MotuNative.ExportMesh>(
@@ -1336,15 +1575,141 @@ public sealed class IslandViewer : MonoBehaviour
                         throw new InvalidOperationException(
                             "A sliced river tile has invalid UV coordinates.");
                     }
+                    foreach (var riverUv in CopyVector2Array(nativeMesh.uv))
+                    {
+                        if (!IsFinite(riverUv.x) || !IsFinite(riverUv.y))
+                        {
+                            throw new InvalidOperationException(
+                                "A sliced river tile has invalid flow coordinates.");
+                        }
+                        minimumRiverV = Mathf.Min(minimumRiverV, riverUv.y);
+                        maximumRiverV = Mathf.Max(maximumRiverV, riverUv.y);
+                    }
                 }
-                if (!foundRiverGeometry)
+                if (!foundRiverGeometry || maximumRiverV - minimumRiverV < 0.01f)
                 {
-                    throw new InvalidOperationException("Native river grid is unexpectedly empty.");
+                    throw new InvalidOperationException(
+                        "Native river grid is empty or lacks downstream UV progression.");
                 }
             }
             finally
             {
                 MotuNative.ReleaseMeshGrid(ref riverGrid);
+            }
+
+            MotuNative.CreateRiverEmitters(handle, 35f, 2f, out var riverEmitters);
+            try
+            {
+                if (riverEmitters.handle == IntPtr.Zero
+                    || riverEmitters.length < 0
+                    || (riverEmitters.length > 0 && riverEmitters.data == IntPtr.Zero))
+                {
+                    throw new InvalidOperationException(
+                        "Native rough-water emitter ownership is invalid.");
+                }
+                var emitterSize = Marshal.SizeOf<MotuNative.RiverEmitterExport>();
+                if (emitterSize != sizeof(float) * 7)
+                {
+                    throw new InvalidOperationException(
+                        "Native rough-water emitter record layout is invalid.");
+                }
+                for (var index = 0; index < riverEmitters.length; index++)
+                {
+                    var emitter = Marshal.PtrToStructure<MotuNative.RiverEmitterExport>(
+                        IntPtr.Add(riverEmitters.data, index * emitterSize));
+                    var directionLengthSquared = emitter.direction.x * emitter.direction.x
+                        + emitter.direction.y * emitter.direction.y
+                        + emitter.direction.z * emitter.direction.z;
+                    if (!IsFinite(emitter.position.x)
+                        || !IsFinite(emitter.position.y)
+                        || !IsFinite(emitter.position.z)
+                        || emitter.position.x < 0f
+                        || emitter.position.x > 1f
+                        || emitter.position.y < 0f
+                        || emitter.position.y > 1f
+                        || !IsFinite(directionLengthSquared)
+                        || Mathf.Abs(directionLengthSquared - 1f) > 0.001f
+                        || !IsFinite(emitter.strength)
+                        || emitter.strength < 0f
+                        || emitter.strength > 1f)
+                    {
+                        throw new InvalidOperationException(
+                            "A native rough-water emitter record is invalid.");
+                    }
+                }
+            }
+            finally
+            {
+                MotuNative.ReleaseRiverEmitters(ref riverEmitters);
+            }
+            if (riverEmitters.handle != IntPtr.Zero
+                || riverEmitters.data != IntPtr.Zero
+                || riverEmitters.length != 0)
+            {
+                throw new InvalidOperationException(
+                    "Native rough-water emitter release did not clear ownership.");
+            }
+
+            var indexCandidates = new[]
+            {
+                new PreparedRiverEmitter(
+                    new Vector3(-999.9f, 1f, -999.9f),
+                    Vector3.up,
+                    0.25f),
+                new PreparedRiverEmitter(Vector3.zero, Vector3.forward, 0.5f),
+                new PreparedRiverEmitter(
+                    new Vector3(999.9f, 2f, 999.9f),
+                    Vector3.right,
+                    1f),
+            };
+            var emitterIndex = new RiverEmitterIndex(indexCandidates, TerrainScale);
+            var seen = new bool[indexCandidates.Length];
+            for (var y = 0; y < RiverEmitterIndex.Resolution; y++)
+            {
+                for (var x = 0; x < RiverEmitterIndex.Resolution; x++)
+                {
+                    emitterIndex.GetCellRange(x, y, out var start, out var end);
+                    for (var order = start; order < end; order++)
+                    {
+                        var candidateIndex = emitterIndex.CandidateIndexAt(order);
+                        if (candidateIndex < 0
+                            || candidateIndex >= seen.Length
+                            || seen[candidateIndex])
+                        {
+                            throw new InvalidOperationException(
+                                "The rough-water packed index contains an invalid entry.");
+                        }
+                        seen[candidateIndex] = true;
+                    }
+                }
+            }
+            if (Array.Exists(seen, value => !value)
+                || emitterIndex.CellAt(indexCandidates[0].position) != Vector2Int.zero
+                || emitterIndex.CellAt(indexCandidates[2].position)
+                    != new Vector2Int(
+                        RiverEmitterIndex.Resolution - 1,
+                        RiverEmitterIndex.Resolution - 1))
+            {
+                throw new InvalidOperationException(
+                    "The rough-water packed index does not cover the world bounds.");
+            }
+
+            var particleRoot = new GameObject("Rough water pool validation");
+            try
+            {
+                var pool = particleRoot.AddComponent<RiverParticlePool>();
+                pool.Initialize(indexCandidates, TerrainScale, true);
+                if (pool.PoolCount != 32 || pool.CreatedSystemCount != 32)
+                {
+                    throw new InvalidOperationException(
+                        "The rough-water particle pool is not fixed at 32 systems.");
+                }
+                pool.ClearPlayerFocus();
+                pool.DisposePool();
+            }
+            finally
+            {
+                DestroyImmediate(particleRoot);
             }
 
             const float lod0Resolution = 512f;
@@ -1375,6 +1740,11 @@ public sealed class IslandViewer : MonoBehaviour
             MotuNative.ReleaseMotu(handle);
         }
         Debug.Log("Motu native mesh and unified terrain material validation passed.");
+    }
+
+    private static bool IsFinite(float value)
+    {
+        return !float.IsNaN(value) && !float.IsInfinity(value);
     }
 #endif
 }

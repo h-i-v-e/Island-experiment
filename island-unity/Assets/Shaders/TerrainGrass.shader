@@ -26,6 +26,7 @@ Shader "Motu/Terrain Grass"
         _CliffNormalCutoff ("Cliff Up-Normal Cutoff", Range(0, 1)) = 0.55
         _CliffBoundaryNoiseStrength ("Cliff Boundary Noise Strength", Range(0, 0.5)) = 0.30
         _RockBoundaryNoiseStrength ("Rock Boundary Noise Strength", Range(0, 0.4)) = 0.18
+        _SandRockSlopeThreshold ("Sand Rock Slope Threshold", Range(0, 0.5)) = 0.10
         _CliffNoisePeriod ("Cliff Noise Period (metres)", Float) = 160
     }
 

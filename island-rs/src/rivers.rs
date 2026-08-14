@@ -10,7 +10,7 @@ use std::{
 };
 
 use crate::{
-    Adjacency, Mesh, Vec3,
+    Adjacency, Mesh, Vec2, Vec3,
     terrain::{SurfaceMaterial, bedrock_erosion_rate, projected_vertex_control_areas},
 };
 
@@ -260,6 +260,8 @@ impl RiverNetwork {
         let depth_multiplier = 1.0 / (self.max_flow as f32).sqrt().max(1.0);
         let base_width = average_edge_length(mesh, adjacency).max(0.000_25);
         let control_areas = projected_vertex_control_areas(mesh);
+        let waterfall_clearance =
+            WaterfallClearanceIndex::new(&self.rivers, mesh, self.max_flow, base_width);
         let mut terrain = RiverTerrain {
             mesh,
             adjacency,
@@ -271,9 +273,12 @@ impl RiverNetwork {
         let mut budgets = vec![RiverSedimentBudget::default(); self.rivers.len()];
         self.carve_channels(
             &mut terrain,
-            depth_multiplier,
-            base_width,
-            form_deltas,
+            RiverChannelParameters {
+                depth_multiplier,
+                base_width,
+                form_deltas,
+            },
+            &waterfall_clearance,
             &mut known_surfaces,
             &mut budgets,
         );
@@ -288,14 +293,12 @@ impl RiverNetwork {
     fn carve_channels(
         &mut self,
         terrain: &mut RiverTerrain<'_>,
-        depth_multiplier: f32,
-        base_width: f32,
-        form_deltas: bool,
+        channel_parameters: RiverChannelParameters,
+        waterfall_clearance: &WaterfallClearanceIndex,
         known_surfaces: &mut HashMap<usize, f32>,
         budgets: &mut [RiverSedimentBudget],
     ) {
-        let mut gradient_scratch = Vec::new();
-        let mut bank_scratch = BankScratch::new(terrain.mesh.vertices.len());
+        let mut scratch = RiverCarveScratch::new(terrain.mesh.vertices.len());
         for (river_index, budget_output) in budgets.iter_mut().enumerate() {
             let terminal_ocean = river_reaches_ocean(&self.rivers[river_index], &self.ocean);
             let join_vertex = self.rivers[river_index]
@@ -317,17 +320,20 @@ impl RiverNetwork {
                 terrain,
                 nodes,
                 &mut self.waterfalls[river_index],
-                &mut gradient_scratch,
-                &mut bank_scratch,
+                &mut scratch,
                 &self.ocean,
+                WaterfallRelocation {
+                    clearance: waterfall_clearance,
+                    river: river_index,
+                },
                 RiverCarveParameters {
                     downstream_surface,
                     terminal_ocean,
                     max_height: self.max_height,
                     max_flow: self.max_flow,
-                    depth_multiplier,
-                    base_width,
-                    form_waterfall_shelves: !form_deltas,
+                    depth_multiplier: channel_parameters.depth_multiplier,
+                    base_width: channel_parameters.base_width,
+                    form_waterfall_shelves: !channel_parameters.form_deltas,
                 },
             );
             for node in nodes {
@@ -379,18 +385,29 @@ impl RiverNetwork {
         let mut coverage = vec![0_u8; vertex_count];
         let mut owner_distance = vec![u8::MAX; vertex_count];
         let mut surfaces = vec![0.0_f32; vertex_count];
+        let mut river_uv = vec![Vec2::ZERO; vertex_count];
         let mut waterfall_lips = vec![false; vertex_count];
         let mut frontiers: [Vec<RiverMeshCandidate>; MAX_RIVER_RINGS as usize + 1] =
             std::array::from_fn(|_| Vec::new());
 
         for (river, waterfalls) in self.rivers.iter().zip(&self.waterfalls) {
+            let mut distance_along = 0.0;
+            let mut previous_position = None;
             for (index, node) in river.nodes.iter().enumerate() {
+                let water_position = river_node_water_position(terrain, node);
+                if let Some(previous) = previous_position {
+                    distance_along += water_position.distance(previous);
+                }
+                previous_position = Some(water_position);
                 let remaining = river_ring_count(node.flow, self.max_flow);
                 frontiers[remaining as usize].push(RiverMeshCandidate {
                     remaining,
                     distance: 0,
                     surface: node.surface,
                     vertex: node.vertex,
+                    flow_origin: water_position.truncate(),
+                    flow_direction: river_node_flow_direction(terrain, &river.nodes, index),
+                    distance_along,
                     waterfall_lip: waterfalls.get(index).copied().unwrap_or(false),
                 });
             }
@@ -411,6 +428,7 @@ impl RiverNetwork {
                 coverage[candidate.vertex] = candidate_coverage;
                 owner_distance[candidate.vertex] = candidate.distance;
                 surfaces[candidate.vertex] = candidate.surface;
+                river_uv[candidate.vertex] = candidate.uv_at(terrain.vertices[candidate.vertex]);
                 waterfall_lips[candidate.vertex] = candidate.waterfall_lip;
                 if candidate.remaining == 0 {
                     continue;
@@ -421,6 +439,9 @@ impl RiverNetwork {
                         distance: candidate.distance + 1,
                         surface: candidate.surface,
                         vertex: neighbour,
+                        flow_origin: candidate.flow_origin,
+                        flow_direction: candidate.flow_direction,
+                        distance_along: candidate.distance_along,
                         waterfall_lip: candidate.waterfall_lip,
                     });
                 }
@@ -433,6 +454,7 @@ impl RiverNetwork {
             material,
             &mut coverage,
             &mut surfaces,
+            &mut river_uv,
             &mut waterfall_lips,
         );
         repair_sharp_terrain_points(
@@ -440,11 +462,13 @@ impl RiverNetwork {
             material,
             &mut coverage,
             &mut surfaces,
+            &mut river_uv,
             &mut waterfall_lips,
         );
         enforce_sea_plane_clearance(terrain);
         let river_bed = river_topology_masks(terrain, &coverage).0;
-        let river_mesh = duplicate_river_topology(terrain, &coverage, &surfaces, &waterfall_lips);
+        let river_mesh =
+            duplicate_river_topology(terrain, &coverage, &surfaces, &river_uv, &waterfall_lips);
         (river_mesh, river_bed)
     }
 
@@ -474,6 +498,7 @@ fn refine_river_terrain(
     material: &mut SurfaceMaterial,
     coverage: &mut Vec<u8>,
     surfaces: &mut Vec<f32>,
+    river_uv: &mut Vec<Vec2>,
     waterfall_lips: &mut Vec<bool>,
 ) {
     let (under_river, _) = river_topology_masks(terrain, coverage);
@@ -486,6 +511,7 @@ fn refine_river_terrain(
     material.extend_after_tessellation(old_volume, terrain, &stencils);
     coverage.reserve(stencils.len());
     surfaces.reserve(stencils.len());
+    river_uv.reserve(stencils.len());
     waterfall_lips.reserve(stencils.len());
     for stencil in stencils {
         let [a, b] = [stencil.surrounding[0], stencil.surrounding[1]];
@@ -501,6 +527,11 @@ fn refine_river_terrain(
             (surfaces[a] + surfaces[b]) * 0.5
         } else {
             0.0
+        });
+        river_uv.push(if selected {
+            (river_uv[a] + river_uv[b]) * 0.5
+        } else {
+            Vec2::ZERO
         });
         waterfall_lips.push(selected && waterfall_lips[a] && waterfall_lips[b]);
     }
@@ -521,6 +552,7 @@ fn repair_sharp_terrain_points(
     material: &mut SurfaceMaterial,
     coverage: &mut Vec<u8>,
     surfaces: &mut Vec<f32>,
+    river_uv: &mut Vec<Vec2>,
     waterfall_lips: &mut Vec<bool>,
 ) {
     let adjacency = terrain.adjacency();
@@ -538,6 +570,7 @@ fn repair_sharp_terrain_points(
     patch.reserve(stencils.len());
     coverage.reserve(stencils.len());
     surfaces.reserve(stencils.len());
+    river_uv.reserve(stencils.len());
     waterfall_lips.reserve(stencils.len());
     for stencil in stencils {
         let [a, b] = [
@@ -560,6 +593,11 @@ fn repair_sharp_terrain_points(
             (surfaces[a] + surfaces[b]) * 0.5
         } else {
             0.0
+        });
+        river_uv.push(if selected {
+            (river_uv[a] + river_uv[b]) * 0.5
+        } else {
+            Vec2::ZERO
         });
         waterfall_lips.push(selected && waterfall_lips[a] && waterfall_lips[b]);
     }
@@ -692,7 +730,47 @@ struct RiverMeshCandidate {
     distance: u8,
     surface: f32,
     vertex: usize,
+    flow_origin: Vec2,
+    flow_direction: Vec2,
+    distance_along: f32,
     waterfall_lip: bool,
+}
+
+impl RiverMeshCandidate {
+    fn uv_at(self, position: Vec3) -> Vec2 {
+        let offset = position.truncate() - self.flow_origin;
+        let across = Vec2::new(-self.flow_direction.y, self.flow_direction.x);
+        Vec2::new(
+            offset.dot(across),
+            self.distance_along + offset.dot(self.flow_direction),
+        )
+    }
+}
+
+fn river_node_water_position(terrain: &Mesh, node: &RiverNode) -> Vec3 {
+    let position = terrain.vertices[node.vertex];
+    Vec3::new(position.x, position.y, node.surface)
+}
+
+fn river_node_flow_direction(terrain: &Mesh, nodes: &[RiverNode], index: usize) -> Vec2 {
+    let current = terrain.vertices[nodes[index].vertex].truncate();
+    let upstream = index.checked_sub(1).map_or(current, |previous| {
+        terrain.vertices[nodes[previous].vertex].truncate()
+    });
+    let downstream = nodes
+        .get(index + 1)
+        .map_or(current, |next| terrain.vertices[next.vertex].truncate());
+    let central = (downstream - upstream).normalize_or_zero();
+    if central == Vec2::ZERO {
+        let downstream_direction = (downstream - current).normalize_or_zero();
+        if downstream_direction == Vec2::ZERO {
+            (current - upstream).normalize_or_zero()
+        } else {
+            downstream_direction
+        }
+    } else {
+        central
+    }
 }
 
 fn river_ring_count(flow: u32, max_flow: u32) -> u8 {
@@ -820,6 +898,7 @@ fn duplicate_river_topology(
     terrain: &Mesh,
     coverage: &[u8],
     surfaces: &[f32],
+    river_uv: &[Vec2],
     waterfall_lips: &[bool],
 ) -> Mesh {
     let selected_count = coverage.iter().filter(|&&remaining| remaining > 0).count();
@@ -848,6 +927,7 @@ fn duplicate_river_topology(
             mapping[index] = mapped;
             let mapped = mapped as usize;
             out.vertices[mapped].z = out.vertices[mapped].z.min(vertex.z);
+            out.uv[mapped] = (out.uv[mapped] + river_uv[index]) * 0.5;
             out_waterfall_lips[mapped] |= waterfall_lips[index] && !is_river_boundary(remaining);
             continue;
         }
@@ -856,13 +936,7 @@ fn duplicate_river_topology(
         xy_mapping.insert(key, mapped);
         out.vertices.push(vertex);
         out_waterfall_lips.push(waterfall_lips[index] && !is_river_boundary(remaining));
-        out.uv.push(
-            terrain
-                .uv
-                .get(index)
-                .copied()
-                .unwrap_or_else(|| vertex.truncate()),
-        );
+        out.uv.push(river_uv[index]);
     }
 
     for triangle in terrain.triangles.chunks_exact(3) {
@@ -1299,6 +1373,76 @@ struct BankScratch {
     frontier: BinaryHeap<BankCandidate>,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct RiverClearanceNode {
+    river: usize,
+    position: Vec2,
+    half_width: f32,
+}
+
+#[derive(Debug)]
+struct WaterfallClearanceIndex {
+    nodes: Vec<RiverClearanceNode>,
+    base_width: f32,
+    max_flow: u32,
+}
+
+impl WaterfallClearanceIndex {
+    fn new(rivers: &[River], mesh: &Mesh, max_flow: u32, base_width: f32) -> Self {
+        let node_count = rivers.iter().map(|river| river.nodes.len()).sum();
+        let mut nodes = Vec::with_capacity(node_count);
+        for (river, path) in rivers.iter().enumerate() {
+            nodes.extend(path.nodes.iter().map(|node| RiverClearanceNode {
+                river,
+                position: mesh.vertices[node.vertex].truncate(),
+                half_width: river_half_width(node.flow, max_flow, base_width),
+            }));
+        }
+        Self {
+            nodes,
+            base_width,
+            max_flow,
+        }
+    }
+
+    fn conflicts(&self, river: usize, mesh: &Mesh, nodes: &[RiverNode], segment: usize) -> bool {
+        const SHELF_MARGIN: f32 = 1.35;
+        const CHANNEL_MARGIN_EDGES: f32 = 2.0;
+
+        let [start, end] = [nodes[segment], nodes[segment + 1]];
+        let [start_position, end_position] =
+            [start, end].map(|node| mesh.vertices[node.vertex].truncate());
+        let waterfall_half_width =
+            river_half_width(start.flow.max(end.flow), self.max_flow, self.base_width);
+        let waterfall_radius = waterfall_half_width * SHELF_MARGIN;
+        self.nodes.iter().any(|other| {
+            if other.river == river {
+                return false;
+            }
+            let clearance =
+                waterfall_radius + other.half_width + self.base_width * CHANNEL_MARGIN_EDGES;
+            point_segment_distance_squared(other.position, start_position, end_position)
+                < clearance * clearance
+        })
+    }
+}
+
+fn point_segment_distance_squared(point: Vec2, start: Vec2, end: Vec2) -> f32 {
+    let segment = end - start;
+    let length_squared = segment.length_squared();
+    if length_squared <= f32::EPSILON {
+        return point.distance_squared(start);
+    }
+    let progress = ((point - start).dot(segment) / length_squared).clamp(0.0, 1.0);
+    point.distance_squared(segment.mul_add(Vec2::splat(progress), start))
+}
+
+#[derive(Clone, Copy, Debug)]
+struct WaterfallDrop {
+    segment: usize,
+    height: f32,
+}
+
 impl BankScratch {
     fn new(vertex_count: usize) -> Self {
         Self {
@@ -1543,6 +1687,36 @@ fn apply_bank_targets(
 }
 
 #[derive(Clone, Copy, Debug)]
+struct RiverChannelParameters {
+    depth_multiplier: f32,
+    base_width: f32,
+    form_deltas: bool,
+}
+
+#[derive(Debug)]
+struct RiverCarveScratch {
+    gradients: Vec<f32>,
+    waterfall_drops: Vec<WaterfallDrop>,
+    banks: BankScratch,
+}
+
+impl RiverCarveScratch {
+    fn new(vertex_count: usize) -> Self {
+        Self {
+            gradients: Vec::new(),
+            waterfall_drops: Vec::new(),
+            banks: BankScratch::new(vertex_count),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct WaterfallRelocation<'a> {
+    clearance: &'a WaterfallClearanceIndex,
+    river: usize,
+}
+
+#[derive(Clone, Copy, Debug)]
 struct RiverCarveParameters {
     downstream_surface: f32,
     terminal_ocean: bool,
@@ -1557,9 +1731,9 @@ fn shape_and_carve_river(
     terrain: &mut RiverTerrain<'_>,
     nodes: &mut [RiverNode],
     waterfalls: &mut [bool],
-    gradient_scratch: &mut Vec<f32>,
-    bank_scratch: &mut BankScratch,
+    scratch: &mut RiverCarveScratch,
     ocean: &[bool],
+    waterfall_relocation: WaterfallRelocation<'_>,
     parameters: RiverCarveParameters,
 ) -> RiverSedimentBudget {
     let mut surface = parameters.downstream_surface;
@@ -1582,7 +1756,16 @@ fn shape_and_carve_river(
         waterfalls,
         stepped_end,
         parameters.max_height,
-        gradient_scratch,
+        &mut scratch.gradients,
+    );
+    relocate_conflicting_waterfalls(
+        terrain.mesh,
+        nodes,
+        waterfalls,
+        stepped_end,
+        waterfall_relocation.river,
+        waterfall_relocation.clearance,
+        &mut scratch.waterfall_drops,
     );
 
     let mut budget = RiverSedimentBudget::default();
@@ -1603,7 +1786,7 @@ fn shape_and_carve_river(
             waterfalls,
             bed_end,
             parameters,
-            gradient_scratch,
+            &mut scratch.gradients,
             &mut budget,
         );
     }
@@ -1613,7 +1796,7 @@ fn shape_and_carve_river(
         waterfalls,
         parameters,
         &mut budget,
-        bank_scratch,
+        &mut scratch.banks,
         ocean,
     );
     budget
@@ -1744,6 +1927,54 @@ fn form_stepped_profile(
             reach_length = 0.0;
         }
         nodes[index].surface = level.min(natural_surface);
+    }
+}
+
+fn relocate_conflicting_waterfalls(
+    mesh: &Mesh,
+    nodes: &mut [RiverNode],
+    waterfalls: &mut [bool],
+    end: usize,
+    river: usize,
+    clearance: &WaterfallClearanceIndex,
+    scratch: &mut Vec<WaterfallDrop>,
+) {
+    let end = end.min(nodes.len().saturating_sub(1));
+    scratch.clear();
+    scratch.extend(
+        waterfalls[..end]
+            .iter()
+            .enumerate()
+            .filter(|(_, waterfall)| **waterfall)
+            .map(|(segment, _)| WaterfallDrop {
+                segment,
+                height: (nodes[segment].surface - nodes[segment + 1].surface).max(0.0),
+            }),
+    );
+    if scratch.is_empty() {
+        return;
+    }
+
+    waterfalls[..end].fill(false);
+    let mut upstream_limit = end.saturating_sub(1);
+    for drop in scratch.iter_mut().rev() {
+        let original = drop.segment.min(upstream_limit);
+        drop.segment = (0..=original)
+            .rev()
+            .find(|&segment| !clearance.conflicts(river, mesh, nodes, segment))
+            .unwrap_or(original);
+        waterfalls[drop.segment] = true;
+        upstream_limit = drop.segment.saturating_sub(1);
+    }
+
+    let mut level = nodes[end].surface;
+    let mut drop_index = scratch.len();
+    for segment in (0..end).rev() {
+        while drop_index > 0 && scratch[drop_index - 1].segment == segment {
+            level += scratch[drop_index - 1].height;
+            drop_index -= 1;
+        }
+        nodes[segment].surface = level.min(nodes[segment].surface);
     }
 }
 
@@ -2130,6 +2361,7 @@ mod tests {
         let mut material = SurfaceMaterial::empty(original_vertex_count);
         let mut coverage = vec![0; original_vertex_count];
         let mut surfaces = vec![0.0; original_vertex_count];
+        let mut river_uv = vec![Vec2::ZERO; original_vertex_count];
         let mut waterfall_lips = vec![false; original_vertex_count];
 
         repair_sharp_terrain_points(
@@ -2137,6 +2369,7 @@ mod tests {
             &mut material,
             &mut coverage,
             &mut surfaces,
+            &mut river_uv,
             &mut waterfall_lips,
         );
 
@@ -2148,6 +2381,7 @@ mod tests {
         assert_eq!(material.depths().len(), terrain.vertices.len());
         assert_eq!(coverage.len(), terrain.vertices.len());
         assert_eq!(surfaces.len(), terrain.vertices.len());
+        assert_eq!(river_uv.len(), terrain.vertices.len());
         assert_eq!(waterfall_lips.len(), terrain.vertices.len());
     }
 
@@ -2166,6 +2400,7 @@ mod tests {
         let mut material = SurfaceMaterial::empty(vertex_count);
         let mut coverage = vec![0; vertex_count];
         let mut surfaces = vec![0.0; vertex_count];
+        let mut river_uv = vec![Vec2::ZERO; vertex_count];
         let mut waterfall_lips = vec![false; vertex_count];
 
         repair_sharp_terrain_points(
@@ -2173,6 +2408,7 @@ mod tests {
             &mut material,
             &mut coverage,
             &mut surfaces,
+            &mut river_uv,
             &mut waterfall_lips,
         );
 
@@ -2274,6 +2510,62 @@ mod tests {
         assert!(steep_average > gentle_average * 1.35);
         assert!(steep.iter().all(|height| *height <= 0.0036 + 1.0e-7));
         assert!((nodes[20].surface - outlet_surface).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn nearby_river_pushes_a_waterfall_drop_upstream() {
+        let mut mesh = Mesh {
+            vertices: vec![
+                Vec3::new(0.0, 0.0, 0.10),
+                Vec3::new(1.0, 0.0, 0.10),
+                Vec3::new(2.0, 0.0, 0.10),
+                Vec3::new(3.0, 0.0, 0.05),
+                Vec3::new(2.5, 0.02, 0.08),
+            ],
+            ..Mesh::default()
+        };
+        mesh.calculate_normals();
+        let mut nodes: Vec<RiverNode> = (0..4)
+            .map(|vertex| RiverNode {
+                vertex,
+                flow: 10,
+                surface: mesh.vertices[vertex].z,
+                position: mesh.vertices[vertex],
+            })
+            .collect();
+        let rivers = vec![
+            River {
+                nodes: nodes.clone(),
+                join: None,
+            },
+            River {
+                nodes: vec![RiverNode {
+                    vertex: 4,
+                    flow: 10,
+                    surface: mesh.vertices[4].z,
+                    position: mesh.vertices[4],
+                }],
+                join: None,
+            },
+        ];
+        let clearance = WaterfallClearanceIndex::new(&rivers, &mesh, 10, 0.01);
+        let mut waterfalls = vec![false, false, true, false];
+        let mut scratch = Vec::new();
+
+        relocate_conflicting_waterfalls(
+            &mesh,
+            &mut nodes,
+            &mut waterfalls,
+            3,
+            0,
+            &clearance,
+            &mut scratch,
+        );
+
+        assert_eq!(waterfalls, [false, true, false, false]);
+        assert!(!clearance.conflicts(0, &mesh, &nodes, 1));
+        assert!((nodes[0].surface - nodes[3].surface - 0.05).abs() < 1.0e-6);
+        assert!((nodes[2].surface - nodes[3].surface).abs() < 1.0e-6);
     }
 
     #[test]

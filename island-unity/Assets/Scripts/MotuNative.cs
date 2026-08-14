@@ -115,6 +115,22 @@ internal static class MotuNative
     }
 
     [StructLayout(LayoutKind.Sequential)]
+    internal struct RiverEmitterExport
+    {
+        internal NativeVector3 position;
+        internal NativeVector3 direction;
+        internal float strength;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct ExportRiverEmitters
+    {
+        internal IntPtr handle;
+        internal IntPtr data;
+        internal int length;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
     internal struct ExportHeightMapWithSeaLevel
     {
         internal int width;
@@ -174,6 +190,16 @@ internal static class MotuNative
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
     internal static extern void ReleaseMeshWithUV(ref ExportMeshWithUv output);
+
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+    internal static extern void CreateRiverEmitters(
+        IntPtr handle,
+        float sharpnessDegrees,
+        float spacingMetres,
+        out ExportRiverEmitters output);
+
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+    internal static extern void ReleaseRiverEmitters(ref ExportRiverEmitters output);
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
     internal static extern IntPtr CreateHeightMap(IntPtr handle, int resolution);

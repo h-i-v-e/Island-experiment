@@ -42,6 +42,7 @@ half _RiverEdgeBlendWidth;
 half _CliffNormalCutoff;
 half _CliffBoundaryNoiseStrength;
 half _RockBoundaryNoiseStrength;
+half _SandRockSlopeThreshold;
 float _CliffNoisePeriod;
 
 float GrassHash(float2 cell)
@@ -125,17 +126,10 @@ fixed4 GrassFragment(GrassVertexOutput input) : SV_Target
     half looseCover = saturate(input.material.g);
     half riverBed = saturate(input.material.b);
     half slope = 1.0 - saturate(normal.y);
-    half geologyRockWeight = saturate(slope * lerp(1.3, 3.0, hardness));
     half rockBoundaryNoise = clamp(
         broadNoise.b * 0.55 + macroNoise.b * 0.45,
         -1.0,
         1.0);
-    half rockThreshold = 0.5
-        + rockBoundaryNoise * _RockBoundaryNoiseStrength;
-    half geologyRockCoverage = GrassAntialiasedMask(
-        geologyRockWeight - rockThreshold);
-    half exposedRockCoverage = max(geologyRockCoverage, cliffWeight);
-
     half riverNoise = clamp(
         dot(broadNoise, half3(0.577, -0.577, 0.577)),
         -1.0,
@@ -151,9 +145,22 @@ fixed4 GrassFragment(GrassVertexOutput input) : SV_Target
     half coastCoverage = GrassAntialiasedMask(
         _BeachMaximumElevation - noisyBeachElevation);
     half beachDepositCoverage = GrassAntialiasedMask(looseCover - 0.5);
-    half beachCoverage = beachDepositCoverage
+    half beachCandidateCoverage = beachDepositCoverage
         * coastCoverage
-        * (1.0 - riverCoverage)
+        * (1.0 - riverCoverage);
+
+    half geologyRockWeight = saturate(slope * lerp(1.3, 3.0, hardness));
+    half rockThreshold = 0.5
+        + rockBoundaryNoise * _RockBoundaryNoiseStrength;
+    half geologyRockCoverage = GrassAntialiasedMask(
+        geologyRockWeight - rockThreshold);
+    half sandRockThreshold = _SandRockSlopeThreshold
+        + rockBoundaryNoise * _RockBoundaryNoiseStrength * 0.25;
+    half sandRockCoverage = beachCandidateCoverage
+        * GrassAntialiasedMask(slope - sandRockThreshold);
+    geologyRockCoverage = max(geologyRockCoverage, sandRockCoverage);
+    half exposedRockCoverage = max(geologyRockCoverage, cliffWeight);
+    half beachCoverage = beachCandidateCoverage
         * (1.0 - exposedRockCoverage);
     float noisySnowLine = _SnowLine
         + macroNoise.r * _SnowMacroNoiseMetres

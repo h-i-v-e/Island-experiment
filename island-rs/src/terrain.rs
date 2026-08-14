@@ -460,8 +460,13 @@ struct SurfaceSample {
 }
 
 impl Terrain {
+    #[cfg(test)]
     fn new(mesh: Mesh) -> Self {
         let triangle_index = TriangleIndex::new(&mesh);
+        Self::with_index(mesh, triangle_index)
+    }
+
+    fn with_index(mesh: Mesh, triangle_index: TriangleIndex) -> Self {
         Self {
             mesh,
             triangle_index,
@@ -765,16 +770,16 @@ impl Island {
             final_rivers.shape(&mut lod0, &detail_adjacency, &mut material, true, false);
             final_rivers.into_parts(&mut lod0, &detail_adjacency, &mut material)
         };
-        {
+        let lod0_index = {
             let _timer = StageTimer::new("lod.correct");
-            correct_lods(&mut lod0, &mut lod1, &mut lod2);
-        }
+            correct_lods(&mut lod0, &mut lod1, &mut lod2)
+        };
 
         let material = TerrainMaterialField::from_surface(&material, &river_bed);
 
         let terrain = {
             let _timer = StageTimer::new("terrain.index");
-            Terrain::new(lod0)
+            Terrain::with_index(lod0, lod0_index)
         };
         Ok(Self {
             seed,
@@ -822,6 +827,17 @@ impl Island {
     #[must_use]
     pub const fn river_mesh(&self) -> &Mesh {
         &self.river_mesh
+    }
+
+    /// Derives sparse rough-water locations from the authoritative unsliced
+    /// river mesh without retaining a second copy on the island.
+    #[must_use]
+    pub fn river_emitters(
+        &self,
+        sharpness_degrees: f32,
+        spacing_metres: f32,
+    ) -> Vec<crate::RiverEmitter> {
+        crate::extract_river_emitters(&self.river_mesh, sharpness_degrees, spacing_metres)
     }
 
     #[must_use]
@@ -1355,16 +1371,15 @@ fn apply_coastal_stage(
     );
 }
 
-fn correct_lods(lod0: &mut Mesh, lod1: &mut Mesh, lod2: &mut Mesh) {
-    let lod1_vertex_count = lod1.vertices.len();
-    let lod2_vertex_count = lod2.vertices.len();
-    debug_assert!(lod0.vertices.len() >= lod1_vertex_count);
-    debug_assert!(lod1_vertex_count >= lod2_vertex_count);
+fn correct_lods(lod0: &mut Mesh, lod1: &mut Mesh, lod2: &mut Mesh) -> TriangleIndex {
+    let lod1_refinement = lod1.tessellated_attributed();
+    let lod2_refinement = lod2.tessellated_attributed();
+    *lod1 = lod1_refinement.mesh;
+    *lod2 = lod2_refinement.mesh;
 
-    lod1.vertices
-        .copy_from_slice(&lod0.vertices[..lod1_vertex_count]);
-    lod2.vertices
-        .copy_from_slice(&lod0.vertices[..lod2_vertex_count]);
+    let lod0_index = TriangleIndex::new(lod0);
+    pin_refined_lod(lod1, &lod1_refinement.new_vertices, lod0, &lod0_index);
+    pin_refined_lod(lod2, &lod2_refinement.new_vertices, lod0, &lod0_index);
 
     for mesh in [lod0, lod1, lod2] {
         mesh.uv
@@ -1372,6 +1387,29 @@ fn correct_lods(lod0: &mut Mesh, lod1: &mut Mesh, lod2: &mut Mesh) {
             .zip(&mesh.vertices)
             .for_each(|(uv, vertex)| *uv = vertex.truncate());
         mesh.calculate_normals();
+    }
+    lod0_index
+}
+
+fn pin_refined_lod(
+    mesh: &mut Mesh,
+    new_vertices: &[NewVertexStencil],
+    lod0: &Mesh,
+    lod0_index: &TriangleIndex,
+) {
+    let shared_vertex_count = mesh.vertices.len() - new_vertices.len();
+    debug_assert!(lod0.vertices.len() >= shared_vertex_count);
+    mesh.vertices[..shared_vertex_count].copy_from_slice(&lod0.vertices[..shared_vertex_count]);
+
+    for stencil in new_vertices {
+        let [a, b] = [
+            stencil.surrounding[0] as usize,
+            stencil.surrounding[1] as usize,
+        ];
+        debug_assert!(a < shared_vertex_count && b < shared_vertex_count);
+        let point = (mesh.vertices[a].truncate() + mesh.vertices[b].truncate()) * 0.5;
+        let elevation = sample_mesh_surface(lod0, lod0_index, point.x, point.y).0;
+        mesh.vertices[stencil.vertex as usize] = point.extend(elevation);
     }
 }
 
@@ -2691,10 +2729,10 @@ fn read_f32(reader: &mut impl Read) -> io::Result<f32> {
 mod hydraulic_tests {
     use super::{
         HydraulicErosionSettings, HydraulicExchange, HydraulicShiftLimits, HydraulicTransfer, Mesh,
-        ProjectedFaceAreas, SurfaceMaterial, Terrain, TerrainMaterialField, Vec2, Vec3,
-        VertexFaceAdjacency, add_surface_noise, apply_hydraulic_transfer, deposition_weight,
-        exchange_sediment, hydraulic_erode, hydraulic_erosion_direction,
-        hydraulic_slope_erosion_weight, local_hydraulic_erosion_cap, noise,
+        ProjectedFaceAreas, SurfaceMaterial, Terrain, TerrainMaterialField, TriangleIndex, Vec2,
+        Vec3, VertexFaceAdjacency, add_surface_noise, apply_hydraulic_transfer, correct_lods,
+        deposition_weight, exchange_sediment, hydraulic_erode, hydraulic_erosion_direction,
+        hydraulic_slope_erosion_weight, local_hydraulic_erosion_cap, noise, sample_mesh_surface,
     };
 
     fn settings() -> HydraulicErosionSettings {
@@ -3034,5 +3072,36 @@ mod hydraulic_tests {
         let sample = field.sample(&terrain, Vec2::new(0.25, 0.5));
 
         assert!(sample.abs_diff_eq(Vec3::new(0.25, 0.5, 0.0), 1.0e-6));
+    }
+
+    #[test]
+    fn final_lod_correction_refines_and_pins_both_coarser_meshes() {
+        let mut lod2 = Mesh::delaunay(&[Vec2::ZERO, Vec2::X, Vec2::ONE, Vec2::Y]);
+        let mut lod1 = lod2.tessellated();
+        let mut lod0 = lod1.tessellated().tessellated();
+        lod0.vertices.iter_mut().for_each(|vertex| {
+            vertex.z = vertex.x.mul_add(vertex.x * 0.2, vertex.y * vertex.y * 0.1);
+        });
+        lod0.calculate_normals();
+        let lod1_vertex_count = lod1.vertices.len();
+        let lod2_vertex_count = lod2.vertices.len();
+        let lod1_triangle_count = lod1.triangles.len();
+        let lod2_triangle_count = lod2.triangles.len();
+        let lod1_shared = lod0.vertices[..lod1_vertex_count].to_vec();
+        let lod2_shared = lod0.vertices[..lod2_vertex_count].to_vec();
+
+        correct_lods(&mut lod0, &mut lod1, &mut lod2);
+
+        assert_eq!(lod1.triangles.len(), lod1_triangle_count * 4);
+        assert_eq!(lod2.triangles.len(), lod2_triangle_count * 4);
+        assert_eq!(lod1.vertices[..lod1_vertex_count], lod1_shared);
+        assert_eq!(lod2.vertices[..lod2_vertex_count], lod2_shared);
+        let index = TriangleIndex::new(&lod0);
+        for mesh in [&lod1, &lod2] {
+            assert!(mesh.vertices.iter().all(|vertex| {
+                let elevation = sample_mesh_surface(&lod0, &index, vertex.x, vertex.y).0;
+                (elevation - vertex.z).abs() < 1.0e-6
+            }));
+        }
     }
 }

@@ -116,8 +116,12 @@ and can be selected with `MOTU_EXPERIMENTAL_MESH_FLOW=1`.
 
 Terrain exports include explicit support-anchored UVs. `CreateSupportMesh`
 provides an unambiguous XY-safe collider surface. `CreateMesh` and
-`CreateMeshGrid` now export that same surface for LOD 0, while LOD 1 and LOD 2
-remain their existing support surfaces. Each sliced terrain export also owns a
+`CreateMeshGrid` now export that same surface for LOD 0. Before final LOD
+correction, LOD 1 and LOD 2 are each tessellated once more. Their pre-existing
+shared vertices retain the exact final LOD 0 positions, while each inserted
+edge midpoint samples its elevation from the final LOD 0 surface. This reduces
+each adjacent density step without duplicating LOD 0 geometry. Each sliced
+terrain export also owns a
 parallel `material` array sampled from the final LOD 0 material field after
 clipping: X is bedrock hardness, Y is normalized loose cover, and Z is final
 river-bed coverage. Sampling after slicing keeps the attributes paired with
@@ -130,6 +134,22 @@ final-detail routing/carving passes. River excavation consumes loose cover
 before hardness-weighted bedrock, transfers area-weighted sediment volumes
 through tributaries, records alluvial/delta/shelf raises as loose cover, and
 exports the unused balance from the final carve-only outlets.
+
+`CreateRiverEmitters` derives sparse rough-water locations directly from the
+final authoritative, unsliced river mesh. It measures the dihedral angle between
+the two faces sharing each mesh edge and assigns the maximum incident edge
+sharpness to its vertices. Coplanar triangles on the vertical waterfall sheet
+therefore do not qualify, while the changes between a flat reach and the falling
+sheet select the top and bottom waterfall lips. A candidate pair must also span
+a flatter face no steeper than 35 degrees and a steeper face of at least 55
+degrees, preventing ordinary triangulation bends within one slope class from
+becoming spray. Sharp perimeter vertices remain
+eligible through their other shared incident edges, retaining noisy constricted
+river features. Deterministic three-dimensional spacing suppression follows.
+Each compact export record contains position, normalized final vertex normal as
+the outflow direction, and normalized excess sharpness. The returned vector is
+owned by its opaque handle and must be released exactly once with
+`ReleaseRiverEmitters`; the island does not retain a duplicate candidate array.
 
 The default `--seed-points 1024` matches the original generator. Staged uniform,
 land-only, and relief-selective passes produce roughly 500,000 irregular

@@ -32,15 +32,26 @@ typedef struct {
     Vector3ExportArray vertices, normals;
     TriangleExportArray triangles;
     Vector2ExportArray uv;
+    Vector3ExportArray material;
 } ExportMesh;
 typedef struct {
     void *handle;
     Vector3ExportArray vertices, normals;
     TriangleExportArray triangles;
     Vector2ExportArray uv;
+    Vector3ExportArray material;
 } ExportMeshWithUV;
 typedef struct { ExportMesh *data; int32_t length; } ExportMeshArray;
 typedef struct { void *handle; const ExportMesh *data; int32_t length; } ExportMeshGrid;
+typedef struct {
+    Vector3Export position, direction;
+    float strength;
+} RiverEmitterExport;
+typedef struct {
+    void *handle;
+    const RiverEmitterExport *data;
+    int32_t length;
+} ExportRiverEmitters;
 typedef struct { int32_t width, height; float *data; float seaLevel; } ExportHeightMapWithSeaLevel;
 typedef struct { Vector3ExportArray trees, bushes, rocks; } ExportDecoration;
 typedef struct { int32_t offset; float scale; } TreeMeshPrototype;
@@ -64,7 +75,12 @@ MOTU_EXPORT void CreateMeshGrid(const void *handle, const ExportArea *area, int3
 MOTU_EXPORT void ReleaseMeshGrid(ExportMeshGrid *output);
 MOTU_EXPORT void CreateRiverMesh(const void *handle, const ExportArea *area,
                                  ExportMeshWithUV *output);
+MOTU_EXPORT void CreateRiverMeshGrid(const void *handle, const ExportArea *area,
+                                     int32_t divisions, ExportMeshGrid *output);
 MOTU_EXPORT void ReleaseMeshWithUV(ExportMeshWithUV *output);
+MOTU_EXPORT void CreateRiverEmitters(const void *handle, float sharpnessDegrees,
+                                     float spacingMetres, ExportRiverEmitters *output);
+MOTU_EXPORT void ReleaseRiverEmitters(ExportRiverEmitters *output);
 MOTU_EXPORT ExportHeightMapWithSeaLevel *CreateHeightMap(const void *handle, int32_t resolution);
 MOTU_EXPORT void ReleaseHeightMap(ExportHeightMapWithSeaLevel *map);
 MOTU_EXPORT uint8_t *CreateNormalMap(const void *handle, int32_t lod, int32_t dimension);

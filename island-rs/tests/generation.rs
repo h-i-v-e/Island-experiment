@@ -1,7 +1,7 @@
 #![allow(clippy::cast_precision_loss)]
 
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     fs,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -19,6 +19,35 @@ fn small_options() -> IslandOptions {
         terrain_size: 65,
         ..IslandOptions::default()
     }
+}
+
+fn mapped_waterfall_uv_segments(island: &Island) -> usize {
+    let river_uv_by_xy: HashMap<(u32, u32), glam::Vec2> = island
+        .river_mesh()
+        .vertices
+        .iter()
+        .zip(&island.river_mesh().uv)
+        .map(|(vertex, &uv)| ((vertex.x.to_bits(), vertex.y.to_bits()), uv))
+        .collect();
+    island
+        .rivers()
+        .iter()
+        .flat_map(|river| river.nodes.windows(2))
+        .filter(|pair| {
+            let drop = pair[0].surface - pair[1].surface;
+            if drop < 0.001 {
+                return false;
+            }
+            let upstream = (pair[0].position.x.to_bits(), pair[0].position.y.to_bits());
+            let downstream = (pair[1].position.x.to_bits(), pair[1].position.y.to_bits());
+            river_uv_by_xy
+                .get(&upstream)
+                .zip(river_uv_by_xy.get(&downstream))
+                .is_some_and(|(upstream_uv, downstream_uv)| {
+                    downstream_uv.y - upstream_uv.y >= drop * 0.5
+                })
+        })
+        .count()
 }
 
 #[test]
@@ -278,14 +307,19 @@ fn lods_reduce_mesh_density() {
 }
 
 #[test]
-fn coarser_lods_share_final_lod0_vertex_positions() {
+fn coarser_lods_are_refined_and_pinned_to_the_final_lod0_surface() {
     let island = Island::generate(23, small_options()).unwrap();
     let lod0 = island.lod(0).unwrap();
     let lod1 = island.lod(1).unwrap();
     let lod2 = island.lod(2).unwrap();
 
-    assert_eq!(lod1.vertices, lod0.vertices[..lod1.vertices.len()]);
-    assert_eq!(lod2.vertices, lod0.vertices[..lod2.vertices.len()]);
+    assert!(lod0.triangles.len() > lod1.triangles.len());
+    assert!(lod1.triangles.len() > lod2.triangles.len());
+    for mesh in [lod1, lod2] {
+        assert!(mesh.vertices.iter().all(|vertex| {
+            (island.terrain().sample(vertex.x, vertex.y) - vertex.z).abs() < 1.0e-5
+        }));
+    }
 }
 
 #[test]
@@ -538,6 +572,7 @@ fn rivers_are_continuous_flowing_terrain_submeshes_with_waterfalls() {
         .fold(f32::INFINITY, f32::min);
     let largest_drop = substantial_drops.iter().copied().fold(0.0_f32, f32::max);
     assert!(substantial_drops.len() > 2);
+    assert!(mapped_waterfall_uv_segments(&island) > 2);
     assert!(largest_drop > smallest_drop * 1.1);
     assert!(
         island

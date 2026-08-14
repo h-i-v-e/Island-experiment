@@ -166,7 +166,11 @@ impl Mesh {
     /// midpoints between neighbouring faces.
     #[must_use]
     pub fn tessellated(&self) -> Self {
-        self.tessellated_where(|_| true)
+        self.tessellated_attributed().mesh
+    }
+
+    pub(crate) fn tessellated_attributed(&self) -> TessellationResult {
+        self.tessellated_faces_attributed(|_| true)
     }
 
     /// Adds detail to land triangles while conformingly stitching adjacent
@@ -852,6 +856,7 @@ struct BoundarySample {
 struct GridCornerSample {
     height: f32,
     normal: Vec3,
+    uv: Vec2,
 }
 
 fn canonicalize_grid_corners(meshes: &mut [Mesh], bounds: BoundingBox, divisions: usize) {
@@ -879,6 +884,7 @@ fn canonicalize_grid_corners(meshes: &mut [Mesh], bounds: BoundingBox, divisions
                             let candidate = GridCornerSample {
                                 height: vertex.z,
                                 normal: mesh.normals.get(index).copied().unwrap_or(Vec3::Z),
+                                uv: mesh.uv.get(index).copied().unwrap_or(Vec2::new(x, y)),
                             };
                             if canonical.is_none_or(|current| {
                                 corner_sample_order(candidate, current).is_gt()
@@ -904,7 +910,7 @@ fn canonicalize_grid_corners(meshes: &mut [Mesh], bounds: BoundingBox, divisions
                                 *normal = canonical.normal;
                             }
                             if let Some(uv) = mesh.uv.get_mut(index) {
-                                *uv = Vec2::new(x, y);
+                                *uv = canonical.uv;
                             }
                         }
                     }
@@ -1306,6 +1312,30 @@ mod tests {
         assert_eq!(edge(&tiles[0]), edge(&tiles[1]));
         assert!(tiles[0].vertices.iter().all(|vertex| vertex.x <= 0.5));
         assert!(tiles[1].vertices.iter().all(|vertex| vertex.x >= 0.5));
+    }
+
+    #[test]
+    fn grid_slicing_preserves_non_positional_uv_at_grid_corners() {
+        let points: Vec<Vec2> = (0..=3)
+            .flat_map(|y| (0..=3).map(move |x| Vec2::new(x as f32 / 3.0, y as f32 / 3.0)))
+            .collect();
+        let mut mesh = Mesh::delaunay(&points);
+        mesh.uv.fill(Vec2::new(0.6, -0.8));
+        mesh.calculate_normals();
+
+        let tiles = mesh.sliced_grid(BoundingBox::default(), 2);
+
+        assert!(
+            tiles
+                .iter()
+                .all(|tile| tile.uv.len() == tile.vertices.len())
+        );
+        assert!(
+            tiles
+                .iter()
+                .flat_map(|tile| &tile.uv)
+                .all(|uv| uv.distance(Vec2::new(0.6, -0.8)) < 1.0e-6)
+        );
     }
 
     #[test]

@@ -70,6 +70,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
     private bool grassTilesDirty;
     private TileGroup lod2Group;
     private GameObject riverRoot;
+    private RiverParticlePool riverParticlePool;
     private MeshCollider currentCollider;
     private Mesh currentColliderMesh;
     private Vector2Int currentLod2 = new Vector2Int(-1, -1);
@@ -78,6 +79,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
 
     public int BaseVertexCount { get; private set; }
     public int BaseTriangleCount { get; private set; }
+    public int RiverEmitterCandidateCount => riverParticlePool?.CandidateCount ?? 0;
     public bool UseRenderCollider { get; set; } = true;
     internal int Lod1GroupCount => lod1Groups.Count;
     internal int Lod0GroupCount => lod0Groups.Count;
@@ -93,6 +95,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         float terrainWorldSize,
         IslandViewer.PreparedMesh[] overviewTiles,
         IslandViewer.PreparedMesh[] riverTiles,
+        IslandViewer.PreparedRiverEmitter[] riverEmitters,
         bool showRivers,
         CancellationToken cancellationToken)
     {
@@ -116,6 +119,10 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         riverRoot = new GameObject("Rivers");
         riverRoot.transform.SetParent(transform, false);
         riverRoot.transform.localPosition = Vector3.up * 0.025f;
+        var particleRoot = new GameObject("Rough Water Particle Pool");
+        particleRoot.transform.SetParent(riverRoot.transform, false);
+        riverParticlePool = particleRoot.AddComponent<RiverParticlePool>();
+        riverParticlePool.Initialize(riverEmitters, worldSize, showRivers);
         riverRoot.SetActive(showRivers);
         lod2Group = await CreatePreparedGroupAsync(
             2,
@@ -195,6 +202,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
             currentLod0 = lod0;
         }
         UpdateGrassTiles(worldPosition);
+        riverParticlePool?.SetPlayerPosition(worldPosition, lod2);
     }
 
     public void ClearPlayerFocus()
@@ -202,10 +210,10 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         terrainMaterial?.SetFloat(GrassEnabledId, 0f);
         grassMaterial?.SetFloat(GrassEnabledId, 0f);
         lastGrassPosition = new Vector3(float.PositiveInfinity, 0f, 0f);
+        riverParticlePool?.ClearPlayerFocus();
         RemoveCollider();
         foreach (var group in riverGroups.Values)
         {
-            SetGroupTilesActive(group, false);
             group.root?.SetActive(false);
         }
         foreach (var entry in lod0Groups)
@@ -284,6 +292,8 @@ public sealed class TerrainTileStreamer : MonoBehaviour
             DestroyGroup(group);
         }
         riverGroups.Clear();
+        riverParticlePool?.DisposePool();
+        riverParticlePool = null;
         DestroyUnityObject(riverRoot);
         riverRoot = null;
         preparedRiverTiles = null;
@@ -297,7 +307,13 @@ public sealed class TerrainTileStreamer : MonoBehaviour
 
     public void SetRiversVisible(bool visible)
     {
+        riverParticlePool?.SetRiversVisible(visible);
         riverRoot?.SetActive(visible);
+    }
+
+    public void SetRiverEmitterDebug(bool visible)
+    {
+        riverParticlePool?.SetDebugDraw(visible);
     }
 
     private void UpdateLod1Neighborhood(Vector2Int center)
@@ -308,6 +324,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
             DestroyGroup(lod1Groups[key]);
             lod1Groups.Remove(key);
             SetLod2TileActive(key, true);
+            SetRiverGroupActive(key, false);
         }
 
         ForEachNeighbour(center, Lod2Resolution, key =>
@@ -324,6 +341,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
                 lod1Groups.Add(key, CreateGroup(1, key, Lod2Resolution, clampSides));
             }
             SetLod2TileActive(key, false);
+            SetRiverGroupActive(key, true);
         });
     }
 
@@ -335,7 +353,6 @@ public sealed class TerrainTileStreamer : MonoBehaviour
             DestroyGroup(lod0Groups[key]);
             lod0Groups.Remove(key);
             SetLod1TileActive(key, true);
-            SetRiverTileActive(key, false);
         }
 
         ForEachNeighbour(center, Lod1Resolution, key =>
@@ -353,7 +370,6 @@ public sealed class TerrainTileStreamer : MonoBehaviour
                 grassTilesDirty = true;
             }
             SetLod1TileActive(key, false);
-            SetRiverTileActive(key, true);
         });
     }
 
@@ -629,7 +645,6 @@ public sealed class TerrainTileStreamer : MonoBehaviour
                     tileObject.transform.SetParent(root.transform, false);
                     tileObject.AddComponent<MeshFilter>().sharedMesh = mesh;
                     tileObject.AddComponent<MeshRenderer>().sharedMaterial = riverMaterial;
-                    tileObject.SetActive(false);
                     tiles[tileIndex] = new Tile(tileObject, mesh);
                 }
             }
@@ -642,34 +657,18 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         }
     }
 
-    private void SetRiverTileActive(Vector2Int key, bool active)
+    private void SetRiverGroupActive(Vector2Int key, bool active)
     {
-        var parent = new Vector2Int(key.x / Divisions, key.y / Divisions);
-        if (!riverGroups.TryGetValue(parent, out var group))
+        if (!riverGroups.TryGetValue(key, out var group))
         {
             if (!active)
             {
                 return;
             }
-            group = CreateRiverGroup(parent);
-            riverGroups.Add(parent, group);
+            group = CreateRiverGroup(key);
+            riverGroups.Add(key, group);
         }
-        if (active)
-        {
-            group.root?.SetActive(true);
-        }
-        var localX = key.x % Divisions;
-        var localY = key.y % Divisions;
-        var tile = group.tiles[localY * Divisions + localX];
-        tile?.gameObject.SetActive(active);
-    }
-
-    private static void SetGroupTilesActive(TileGroup group, bool active)
-    {
-        foreach (var tile in group.tiles)
-        {
-            tile?.gameObject.SetActive(active);
-        }
+        group.root?.SetActive(active);
     }
 
     private void MoveCollider(Vector2Int lod0Cell)

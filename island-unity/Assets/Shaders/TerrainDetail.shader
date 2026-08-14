@@ -17,6 +17,7 @@ Shader "Motu/Terrain Unified"
         _CliffNormalCutoff ("Cliff Up-Normal Cutoff", Range(0, 1)) = 0.55
         _CliffBoundaryNoiseStrength ("Cliff Boundary Noise Strength", Range(0, 0.5)) = 0.30
         _RockBoundaryNoiseStrength ("Rock Boundary Noise Strength", Range(0, 0.4)) = 0.18
+        _SandRockSlopeThreshold ("Sand Rock Slope Threshold", Range(0, 0.5)) = 0.10
         [NoScaleOffset] _CliffNoise3D ("Cliff 3D Noise", 3D) = "gray" {}
         _CliffNoisePeriod ("Cliff Noise Period (metres)", Float) = 160
         _CliffNoiseDetailScale ("Cliff Detail Frequency", Range(2, 32)) = 16
@@ -87,6 +88,7 @@ Shader "Motu/Terrain Unified"
             half _CliffNormalCutoff;
             half _CliffBoundaryNoiseStrength;
             half _RockBoundaryNoiseStrength;
+            half _SandRockSlopeThreshold;
             float _CliffNoisePeriod;
             half _CliffNoiseDetailScale;
             half _CliffNormalStrength;
@@ -159,19 +161,10 @@ Shader "Motu/Terrain Unified"
                 half hardness = saturate(input.material.r);
                 half looseCover = saturate(input.material.g);
                 half riverBed = saturate(input.material.b);
-                half geologyRockWeight = saturate(
-                    slope * lerp(1.3, 3.0, hardness));
                 half rockBoundaryNoise = clamp(
                     broadNoise.b * 0.55 + macroNoise.b * 0.45,
                     -1.0,
                     1.0);
-                half rockThreshold = 0.5
-                    + rockBoundaryNoise * _RockBoundaryNoiseStrength;
-                half geologyRockCoverage = AntialiasedMask(
-                    geologyRockWeight - rockThreshold);
-                half exposedRockCoverage = max(
-                    geologyRockCoverage,
-                    cliffWeight);
                 half riverNoise = clamp(
                     dot(broadNoise, half3(0.577, -0.577, 0.577)),
                     -1.0,
@@ -185,6 +178,35 @@ Shader "Motu/Terrain Unified"
                     -riverTransition,
                     riverTransition,
                     riverDistance);
+                float noisyBeachElevation = elevation
+                    - broadNoise.b * _BeachEdgeNoiseMetres;
+                half coastCoverage = AntialiasedMask(
+                    _BeachMaximumElevation - noisyBeachElevation);
+                half beachDepositCoverage = AntialiasedMask(
+                    looseCover - 0.5);
+                half beachCandidateCoverage = beachDepositCoverage
+                    * coastCoverage
+                    * (1.0 - riverCoverage);
+
+                half geologyRockWeight = saturate(
+                    slope * lerp(1.3, 3.0, hardness));
+                half rockThreshold = 0.5
+                    + rockBoundaryNoise * _RockBoundaryNoiseStrength;
+                half geologyRockCoverage = AntialiasedMask(
+                    geologyRockWeight - rockThreshold);
+                // Loose beach deposits cannot sustain slopes as steep as
+                // ordinary earth. Use raw geometric slope so underlying
+                // bedrock hardness does not make sand artificially stronger.
+                half sandRockThreshold = _SandRockSlopeThreshold
+                    + rockBoundaryNoise * _RockBoundaryNoiseStrength * 0.25;
+                half sandRockCoverage = beachCandidateCoverage
+                    * AntialiasedMask(slope - sandRockThreshold);
+                geologyRockCoverage = max(
+                    geologyRockCoverage,
+                    sandRockCoverage);
+                half exposedRockCoverage = max(
+                    geologyRockCoverage,
+                    cliffWeight);
 
                 fixed3 deep = fixed3(0.08, 0.16, 0.12);
                 fixed3 sand = fixed3(0.62, 0.57, 0.34);
@@ -202,15 +224,7 @@ Shader "Motu/Terrain Unified"
                 {
                     baseColor = lerp(grass, rock, exposedRockCoverage);
 
-                    float noisyBeachElevation = elevation
-                        - broadNoise.b * _BeachEdgeNoiseMetres;
-                    half coastCoverage = AntialiasedMask(
-                        _BeachMaximumElevation - noisyBeachElevation);
-                    half beachDepositCoverage = AntialiasedMask(
-                        looseCover - 0.5);
-                    beachCoverage = beachDepositCoverage
-                        * coastCoverage
-                        * (1.0 - riverCoverage)
+                    beachCoverage = beachCandidateCoverage
                         * (1.0 - exposedRockCoverage);
                     baseColor = lerp(baseColor, sand, beachCoverage);
 
