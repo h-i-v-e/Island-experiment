@@ -3,11 +3,13 @@
 ## Status
 
 Implementation started on 2026-08-12. Phases 0-2, the main tessellation
-improvements from Phase 3, and parallel surface noise/smoothing/thermal work
-from Phase 4 are implemented. The bounded mesh-flow hydraulic model from Phase
-5 failed visual validation: it retained rivers but lost the characteristic
-hydraulic drainage and ridge relief. The proven path-based model is therefore
-the default again. Mesh flow remains opt-in through
+improvements from Phase 3, and parallel smoothing/thermal work from Phase 4 are
+implemented. The parallel surface-noise work was later removed with the
+normal-directed terrain-noise stage because geology-hardness variation made it
+visually redundant. The bounded mesh-flow hydraulic model from Phase 5 failed
+visual validation: it retained rivers but lost the characteristic hydraulic
+drainage and ridge relief. The proven path-based model is therefore the default
+again. Mesh flow remains opt-in through
 `MOTU_EXPERIMENTAL_MESH_FLOW=1` only for further investigation.
 
 The rejected mesh-flow checkpoint for seed 666 with 1,024 input points was a
@@ -373,9 +375,8 @@ testing.
 
 #### Surface noise
 
-Apply noise independently with indexed parallel iteration over paired vertex
-and normal slices. Noise is a pure function of seed and position, so output can
-remain bit-identical.
+Retired. The normal-directed surface-noise stage was removed after the shared
+geology-hardness field made it visually redundant.
 
 #### Smoothing
 
@@ -565,7 +566,7 @@ expensive merge.
   existing tolerance after each iteration and tessellation.
 - Rivers still form downhill broad valleys, reach the sea, and do not become
   blocked by hydraulic deposits.
-- Fixed-seed visual comparisons retain cliffs, overhang-related normal noise,
+- Fixed-seed visual comparisons retain cliffs, geology-driven variation,
   beaches, headlands, river valleys, waterfalls, and deltas.
 
 ## Phase 6: Derived Assets and Unity Preparation

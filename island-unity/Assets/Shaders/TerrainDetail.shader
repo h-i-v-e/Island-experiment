@@ -158,6 +158,7 @@ Shader "Motu/Terrain Unified"
                 half cutoffNormal = normal.y
                     - cliffBoundaryNoise * _CliffBoundaryNoiseStrength;
                 half cliffWeight = AntialiasedMask(_CliffNormalCutoff - cutoffNormal);
+                half forcedRockCoverage = AntialiasedMask(input.material.r - 1.5);
                 half hardness = saturate(input.material.r);
                 half looseCover = saturate(input.material.g);
                 half riverBed = saturate(input.material.b);
@@ -204,6 +205,9 @@ Shader "Motu/Terrain Unified"
                 geologyRockCoverage = max(
                     geologyRockCoverage,
                     sandRockCoverage);
+                geologyRockCoverage = max(
+                    geologyRockCoverage,
+                    forcedRockCoverage);
                 half exposedRockCoverage = max(
                     geologyRockCoverage,
                     cliffWeight);

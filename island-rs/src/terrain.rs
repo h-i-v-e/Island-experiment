@@ -30,6 +30,8 @@ use crate::{
 };
 
 const DETAIL_DISPLACEMENT_RATIO: f32 = 0.025;
+const SHARP_ROCK_DISPLACEMENT_RATIO: f32 = 0.15;
+const FORCED_ROCK_HARDNESS: f32 = 2.0;
 const HYDRAULIC_EDGE_SHIFT_LIMIT: f32 = 0.08;
 const HYDRAULIC_MIN_PROJECTED_AREA_RATIO: f32 = 0.2;
 const MINIMUM_BEDROCK_EROSION_RATE: f32 = 0.05;
@@ -156,19 +158,25 @@ struct TerrainMaterialField {
 }
 
 impl TerrainMaterialField {
-    fn from_surface(material: &SurfaceMaterial, river_bed: &[bool]) -> Self {
+    fn from_surface(material: &SurfaceMaterial, river_bed: &[bool], forced_rock: &[bool]) -> Self {
         debug_assert_eq!(material.hardnesses().len(), material.depths().len());
         debug_assert_eq!(river_bed.len(), material.depths().len());
+        debug_assert_eq!(forced_rock.len(), material.depths().len());
         let values = material
             .hardnesses()
             .iter()
             .zip(material.depths())
             .zip(river_bed)
-            .map(|((&hardness, &depth), &is_river_bed)| {
+            .zip(forced_rock)
+            .map(|(((&hardness, &depth), &is_river_bed), &is_forced_rock)| {
                 let cover = (depth / 0.002).clamp(0.0, 1.0);
                 let cover = cover * cover * (3.0 - 2.0 * cover);
                 Vec3::new(
-                    hardness.clamp(0.0, 1.0),
+                    if is_forced_rock {
+                        FORCED_ROCK_HARDNESS
+                    } else {
+                        hardness.clamp(0.0, 1.0)
+                    },
                     cover,
                     if is_river_bed { 1.0 } else { 0.0 },
                 )
@@ -215,7 +223,6 @@ pub struct IslandOptions {
     pub water_ratio: f32,
     pub slope_multiplier: f32,
     pub coastal_slope_multiplier: f32,
-    pub noise_multiplier: f32,
     /// Multiplies mesh-native wave erosion and rocky-platform formation.
     pub coastal_erosion_strength: f32,
     /// Controls redistribution of eroded coastal sediment into beaches.
@@ -245,7 +252,6 @@ impl Default for IslandOptions {
             water_ratio: 0.6,
             slope_multiplier: 1.3,
             coastal_slope_multiplier: 1.0,
-            noise_multiplier: 0.0005,
             coastal_erosion_strength: 1.0,
             beach_formation_strength: 1.0,
             hydraulic_erosion_strength: 1.0,
@@ -755,7 +761,6 @@ impl Island {
         let (mut lod1, material) = refine_lod1_again(
             &lod1,
             material,
-            seed,
             options,
             context.river_thresholds[2],
             &mut scratch,
@@ -775,7 +780,8 @@ impl Island {
             correct_lods(&mut lod0, &mut lod1, &mut lod2)
         };
 
-        let material = TerrainMaterialField::from_surface(&material, &river_bed);
+        let forced_rock = sharp_rock_mask(&lod0);
+        let material = TerrainMaterialField::from_surface(&material, &river_bed, &forced_rock);
 
         let terrain = {
             let _timer = StageTimer::new("terrain.index");
@@ -940,14 +946,13 @@ impl Island {
     /// Returns an I/O error if the destination cannot be created or written.
     pub fn save(&self, path: impl AsRef<Path>) -> io::Result<()> {
         let mut file = File::create(path)?;
-        file.write_all(b"MOTURS\0\x09")?;
+        file.write_all(b"MOTURS\0\x0a")?;
         file.write_all(&self.seed.to_le_bytes())?;
         for value in [
             self.options.max_height,
             self.options.water_ratio,
             self.options.slope_multiplier,
             self.options.coastal_slope_multiplier,
-            self.options.noise_multiplier,
             self.options.coastal_erosion_strength,
             self.options.beach_formation_strength,
             self.options.hydraulic_erosion_strength,
@@ -973,7 +978,7 @@ impl Island {
         let mut file = File::open(path)?;
         let mut magic = [0_u8; 8];
         file.read_exact(&mut magic)?;
-        if &magic[..7] != b"MOTURS\0" || !matches!(magic[7], 3..=9) {
+        if &magic[..7] != b"MOTURS\0" || !matches!(magic[7], 3..=10) {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "invalid Motu Rust free-form mesh file",
@@ -984,7 +989,9 @@ impl Island {
         let water_ratio = read_f32(&mut file)?;
         let slope_multiplier = read_f32(&mut file)?;
         let coastal_slope_multiplier = read_f32(&mut file)?;
-        let noise_multiplier = read_f32(&mut file)?;
+        if magic[7] <= 9 {
+            let _obsolete_noise_multiplier = read_f32(&mut file)?;
+        }
         let defaults = IslandOptions::default();
         let coastal_erosion_strength = if magic[7] >= 7 {
             read_f32(&mut file)?
@@ -1016,7 +1023,6 @@ impl Island {
             water_ratio,
             slope_multiplier,
             coastal_slope_multiplier,
-            noise_multiplier,
             coastal_erosion_strength,
             beach_formation_strength,
             hydraulic_erosion_strength,
@@ -1114,6 +1120,24 @@ impl Island {
     }
 }
 
+fn sharp_rock_mask(mesh: &Mesh) -> Vec<bool> {
+    let _timer = StageTimer::new("material.sharp_rock");
+    let adjacency = mesh.adjacency();
+    let perimeter = mesh.perimeter_mask();
+    mesh.vertices
+        .iter()
+        .enumerate()
+        .map(|(vertex, position)| {
+            position.z > 0.0
+                && !perimeter[vertex]
+                && adjacency[vertex].len() >= 3
+                && mesh
+                    .normal_displacement_ratio(&adjacency, vertex)
+                    .is_some_and(|ratio| ratio > SHARP_ROCK_DISPLACEMENT_RATIO)
+        })
+        .collect()
+}
+
 #[derive(Clone, Copy)]
 struct GenerationContext {
     seed: u64,
@@ -1166,12 +1190,6 @@ fn generate_lod2(
     let (mut mesh, mut material) = material.into_tessellated(base, tessellation);
     let adjacency = mesh.adjacency();
     mesh.smooth_with(&adjacency);
-    add_surface_noise(
-        &mut mesh,
-        context.seed ^ 0xa076_1d64_78bd_642f,
-        32.0,
-        context.options.noise_multiplier,
-    );
     hydraulic_erode_stage(
         &mut mesh,
         &adjacency,
@@ -1198,12 +1216,6 @@ fn generate_first_lod1(
     let (mut mesh, mut material) = material.into_tessellated(lod2, tessellation);
     let adjacency = mesh.adjacency();
     mesh.smooth_with(&adjacency);
-    add_surface_noise(
-        &mut mesh,
-        context.seed ^ 0xe703_7ed1_a0b4_28db,
-        64.0,
-        context.options.noise_multiplier * 0.5,
-    );
     hydraulic_erode_stage(
         &mut mesh,
         &adjacency,
@@ -1243,12 +1255,6 @@ fn generate_broad_lod0(
     let tessellation = mesh.tessellated_displaced_attributed(DETAIL_DISPLACEMENT_RATIO);
     (mesh, material) = material.into_tessellated(&mesh, tessellation);
     let adjacency = mesh.adjacency();
-    add_surface_noise(
-        &mut mesh,
-        context.seed ^ 0x5899_65cc_7537_4cc3,
-        128.0,
-        context.options.noise_multiplier * 0.125,
-    );
     hydraulic_erode_stage(
         &mut mesh,
         &adjacency,
@@ -1282,12 +1288,6 @@ fn generate_detail_lod0(
     let tessellation = lod0.tessellated_displaced_attributed(DETAIL_DISPLACEMENT_RATIO);
     let (mut mesh, mut material) = material.into_tessellated(lod0, tessellation);
     let adjacency = mesh.adjacency();
-    add_surface_noise(
-        &mut mesh,
-        context.seed ^ 0x1d8e_4e27_c47d_124f,
-        192.0,
-        context.options.noise_multiplier * 0.0625,
-    );
     hydraulic_erode_stage(
         &mut mesh,
         &adjacency,
@@ -1314,7 +1314,6 @@ fn generate_detail_lod0(
 fn refine_lod1_again(
     lod1: &Mesh,
     material: SurfaceMaterial,
-    seed: u64,
     options: IslandOptions,
     river_threshold: f32,
     scratch: &mut GenerationScratch,
@@ -1324,12 +1323,6 @@ fn refine_lod1_again(
     let (mut refined, mut material) = material.into_tessellated(lod1, tessellation);
     let adjacency = refined.adjacency();
     refined.smooth_with(&adjacency);
-    add_surface_noise(
-        &mut refined,
-        seed ^ 0x8ebc_6af0_9c88_c6e3,
-        96.0,
-        options.noise_multiplier * 0.25,
-    );
     hydraulic_erode_stage(
         &mut refined,
         &adjacency,
@@ -1555,19 +1548,6 @@ fn graph_distances(mesh: &Mesh, adjacency: &Adjacency, target: &[bool]) -> Vec<f
         }
     }
     distances
-}
-
-fn add_surface_noise(mesh: &mut Mesh, seed: u64, frequency: f32, amplitude: f32) {
-    mesh.vertices
-        .par_iter_mut()
-        .zip(mesh.normals.par_iter())
-        .for_each(|(vertex, normal)| {
-            if vertex.z > 0.0 {
-                let displacement =
-                    noise::fractal(seed, vertex.x * frequency, vertex.y * frequency, 4) * amplitude;
-                *vertex += *normal * displacement;
-            }
-        });
 }
 
 fn hydraulic_erode_stage(
@@ -2730,9 +2710,10 @@ mod hydraulic_tests {
     use super::{
         HydraulicErosionSettings, HydraulicExchange, HydraulicShiftLimits, HydraulicTransfer, Mesh,
         ProjectedFaceAreas, SurfaceMaterial, Terrain, TerrainMaterialField, TriangleIndex, Vec2,
-        Vec3, VertexFaceAdjacency, add_surface_noise, apply_hydraulic_transfer, correct_lods,
-        deposition_weight, exchange_sediment, hydraulic_erode, hydraulic_erosion_direction,
-        hydraulic_slope_erosion_weight, local_hydraulic_erosion_cap, noise, sample_mesh_surface,
+        Vec3, VertexFaceAdjacency, apply_hydraulic_transfer, correct_lods, deposition_weight,
+        exchange_sediment, hydraulic_erode, hydraulic_erosion_direction,
+        hydraulic_slope_erosion_weight, local_hydraulic_erosion_cap, sample_mesh_surface,
+        sharp_rock_mask,
     };
 
     fn settings() -> HydraulicErosionSettings {
@@ -2782,22 +2763,37 @@ mod hydraulic_tests {
     }
 
     #[test]
-    fn terrain_noise_displaces_land_along_the_surface_normal() {
-        let normal = Vec3::new(0.6, 0.0, 0.8);
-        let original = Vec3::new(0.3125, 0.4375, 0.5);
-        let mut mesh = Mesh {
-            vertices: vec![original],
-            normals: vec![normal],
-            triangles: Vec::new(),
-            uv: Vec::new(),
-        };
-        let expected = noise::fractal(7, original.x * 32.0, original.y * 32.0, 4) * 0.1;
-        assert!(expected.abs() > 1.0e-6);
+    fn final_sharp_rock_pass_marks_a_protrusion_but_not_an_inclined_plane() {
+        let points: Vec<Vec2> = (0..=4)
+            .flat_map(|y| (0..=4).map(move |x| Vec2::new(x as f32 / 4.0, y as f32 / 4.0)))
+            .collect();
+        let center = points
+            .iter()
+            .position(|point| *point == Vec2::splat(0.5))
+            .unwrap();
+        let mut mesh = Mesh::delaunay(&points);
+        mesh.vertices.iter_mut().for_each(|vertex| vertex.z = 0.05);
+        mesh.vertices[center].z = 0.25;
+        mesh.calculate_normals();
 
-        add_surface_noise(&mut mesh, 7, 32.0, 0.1);
+        let forced_rock = sharp_rock_mask(&mesh);
+        assert!(forced_rock[center]);
+        let material = SurfaceMaterial::empty(mesh.vertices.len());
+        let field = TerrainMaterialField::from_surface(
+            &material,
+            &vec![false; mesh.vertices.len()],
+            &forced_rock,
+        );
+        assert_eq!(
+            field.values[center].x.to_bits(),
+            super::FORCED_ROCK_HARDNESS.to_bits()
+        );
 
-        assert!((mesh.vertices[0] - (original + normal * expected)).length() < 1.0e-6);
-        assert!((mesh.vertices[0].x - original.x).abs() > 1.0e-6);
+        mesh.vertices
+            .iter_mut()
+            .for_each(|vertex| vertex.z = vertex.x.mul_add(0.2, vertex.y * 0.1) + 0.05);
+        mesh.calculate_normals();
+        assert!(!sharp_rock_mask(&mesh).into_iter().any(|marked| marked));
     }
 
     #[test]

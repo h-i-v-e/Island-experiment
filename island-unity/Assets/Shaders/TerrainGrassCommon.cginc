@@ -122,6 +122,7 @@ fixed4 GrassFragment(GrassVertexOutput input) : SV_Target
     half cutoffNormal = normal.y
         - cliffBoundaryNoise * _CliffBoundaryNoiseStrength;
     half cliffWeight = GrassAntialiasedMask(_CliffNormalCutoff - cutoffNormal);
+    half forcedRockCoverage = GrassAntialiasedMask(input.material.r - 1.5);
     half hardness = saturate(input.material.r);
     half looseCover = saturate(input.material.g);
     half riverBed = saturate(input.material.b);
@@ -159,6 +160,7 @@ fixed4 GrassFragment(GrassVertexOutput input) : SV_Target
     half sandRockCoverage = beachCandidateCoverage
         * GrassAntialiasedMask(slope - sandRockThreshold);
     geologyRockCoverage = max(geologyRockCoverage, sandRockCoverage);
+    geologyRockCoverage = max(geologyRockCoverage, forcedRockCoverage);
     half exposedRockCoverage = max(geologyRockCoverage, cliffWeight);
     half beachCoverage = beachCandidateCoverage
         * (1.0 - exposedRockCoverage);

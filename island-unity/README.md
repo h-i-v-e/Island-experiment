@@ -117,10 +117,11 @@ uses its own geometric normals; LOD 1 and LOD 2 use the world-space normal map
 derived from the final LOD 0 terrain.
 
 Terrain mesh colours carry material data rather than a visible tint. Red is
-bedrock hardness, green is loose/deposited cover, and blue is final river-bed
-coverage. Rust samples the authoritative final LOD 0 field after each tile is
-clipped, so reordered and newly created boundary vertices receive matching
-values. The unified shader uses these channels to expose harder rock on slopes,
+bedrock hardness in the `0..1` range, with `2` reserved for sharp vertices that
+the final Rust geometry pass marks as exposed rock; green is loose/deposited
+cover, and blue is final river-bed coverage. Rust samples the authoritative
+final LOD 0 field after each tile is clipped, so reordered and newly created
+boundary vertices receive matching values. The unified shader uses these channels to expose harder rock on slopes,
 colour sheltered coastal deposits below a noisy one-metre beach line, and treat
 river beds as exposed rock consistently across all LODs. Grass ground uses coherent micro-normal
 relief at six times the stone detail frequency; beach sand uses eight-times finer

@@ -57,8 +57,10 @@ terrain replacement.
    radial falloff that guarantees an island surrounded by sea.
 3. Chooses sea coverage by ranking the terrain scores.
 4. Converts the land/sea classification into elevation using graph distance.
-5. Applies staged smoothing, coherent normal-directed surface noise, hydraulic
-   and thermal erosion, river shaping, and adaptive tessellation.
+5. Applies staged smoothing, hydraulic and thermal erosion, river shaping, and
+   adaptive tessellation. The former normal-directed surface-noise passes were
+   removed after the shared geology-hardness field made their visual effect
+   redundant.
 6. Generates the definitive river network and water mesh on LOD0.
 7. Copies shared final LOD0 vertex positions back into LOD1 and LOD2.
 

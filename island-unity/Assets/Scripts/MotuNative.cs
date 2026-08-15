@@ -12,7 +12,6 @@ internal static class MotuNative
         internal float waterRatio;
         internal float slopeMultiplier;
         internal float coastalSlopeMultiplier;
-        internal float noiseMultiplier;
         internal float coastalErosionStrength;
         internal float beachFormationStrength;
         internal float hydraulicErosionStrength;

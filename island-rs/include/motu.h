@@ -16,7 +16,7 @@ extern "C" {
 typedef struct { float x, y, z; } Vector3Export;
 typedef struct { float x, y; } Vector2Export;
 typedef struct {
-    float maxZ, waterRatio, slopeMultiplier, coastalSlopeMultiplier, noiseMultiplier;
+    float maxZ, waterRatio, slopeMultiplier, coastalSlopeMultiplier;
     float coastalErosionStrength, beachFormationStrength;
     float hydraulicErosionStrength, hydraulicDepositionStrength;
     float hydraulicDepositionSlopeDegrees;

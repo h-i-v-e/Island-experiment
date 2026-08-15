@@ -28,7 +28,7 @@ The generator provides:
 - high-detail-to-coarse-LOD normal baking and directional ambient occlusion textures;
 - terrain meshes at three levels of detail, normals, one-pass geometrically
   clipped grid slicing, coarser-LOD edge clamping, height maps, and per-export
-  hardness, loose-cover, and river-bed vertex attributes;
+  hardness/forced-rock, loose-cover, and river-bed vertex attributes;
 - one XY-safe support surface shared by simulation, collision, and LOD 0
   rendering, with geometrically clipped tile slicing and LOD edge clamping;
 - tree, bush, and rock placement plus packed foliage and sea-depth maps;

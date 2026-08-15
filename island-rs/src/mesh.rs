@@ -215,32 +215,47 @@ impl Mesh {
             .vertices
             .iter()
             .enumerate()
-            .map(|(index, &vertex)| {
-                let neighbours = &adjacency[index];
-                if neighbours.is_empty() {
-                    return false;
-                }
-                let (position_total, edge_length_total) = neighbours.iter().fold(
-                    (Vec3::ZERO, 0.0_f32),
-                    |(position_total, edge_length_total), &neighbour| {
-                        let position = self.vertices[neighbour];
-                        (
-                            position_total + position,
-                            edge_length_total + position.distance(vertex),
-                        )
-                    },
-                );
-                let inverse_count = 1.0 / neighbours.len() as f32;
-                let neighbour_average = position_total * inverse_count;
-                let mean_edge_length = edge_length_total * inverse_count;
-                let normal = self.normals.get(index).copied().unwrap_or(Vec3::Z);
-                let normal_displacement = (vertex - neighbour_average).dot(normal).abs();
-                normal_displacement > mean_edge_length * displacement_ratio
+            .map(|(index, _)| {
+                self.normal_displacement_ratio(&adjacency, index)
+                    .is_some_and(|ratio| ratio.abs() > displacement_ratio)
             })
             .collect();
         self.tessellated_faces_attributed(|triangle| {
             triangle.iter().any(|&vertex| displaced[vertex as usize])
         })
+    }
+
+    /// Returns signed displacement along the vertex normal relative to the
+    /// average position of its neighbours, normalized by mean edge length.
+    /// Positive values protrude out of the local surface.
+    pub(crate) fn normal_displacement_ratio(
+        &self,
+        adjacency: &Adjacency,
+        vertex: usize,
+    ) -> Option<f32> {
+        let neighbours = &adjacency[vertex];
+        if neighbours.is_empty() {
+            return None;
+        }
+        let position = self.vertices[vertex];
+        let (position_total, edge_length_total) = neighbours.iter().fold(
+            (Vec3::ZERO, 0.0_f32),
+            |(position_total, edge_length_total), &neighbour| {
+                let neighbour = self.vertices[neighbour];
+                (
+                    position_total + neighbour,
+                    edge_length_total + neighbour.distance(position),
+                )
+            },
+        );
+        let inverse_count = 1.0 / neighbours.len() as f32;
+        let mean_edge_length = edge_length_total * inverse_count;
+        if mean_edge_length <= f32::EPSILON {
+            return None;
+        }
+        let neighbour_average = position_total * inverse_count;
+        let normal = self.normals.get(vertex).copied().unwrap_or(Vec3::Z);
+        Some((position - neighbour_average).dot(normal) / mean_edge_length)
     }
 
     fn tessellated_where(&self, should_split: impl Fn([Vec3; 3]) -> bool) -> Self {

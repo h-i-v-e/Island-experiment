@@ -30,7 +30,6 @@ pub struct MotuOptions {
     pub waterRatio: f32,
     pub slopeMultiplier: f32,
     pub coastalSlopeMultiplier: f32,
-    pub noiseMultiplier: f32,
     pub coastalErosionStrength: f32,
     pub beachFormationStrength: f32,
     pub hydraulicErosionStrength: f32,
@@ -43,7 +42,7 @@ pub struct MotuOptions {
     pub riverFinalSourceThreshold: f32,
 }
 
-const _: () = assert!(size_of::<MotuOptions>() == size_of::<[f32; 15]>());
+const _: () = assert!(size_of::<MotuOptions>() == size_of::<[f32; 14]>());
 
 impl From<MotuOptions> for IslandOptions {
     fn from(value: MotuOptions) -> Self {
@@ -52,7 +51,6 @@ impl From<MotuOptions> for IslandOptions {
             water_ratio: value.waterRatio,
             slope_multiplier: value.slopeMultiplier,
             coastal_slope_multiplier: value.coastalSlopeMultiplier,
-            noise_multiplier: value.noiseMultiplier,
             coastal_erosion_strength: value.coastalErosionStrength,
             beach_formation_strength: value.beachFormationStrength,
             hydraulic_erosion_strength: value.hydraulicErosionStrength,
@@ -920,7 +918,11 @@ mod tests {
             std::slice::from_raw_parts(mesh.material.data, mesh.material.length as usize)
         };
         if let Some((index, value)) = values.iter().enumerate().find(|(_, value)| {
-            !value.is_finite() || !value.cmpge(Vec3::ZERO).all() || !value.cmple(Vec3::ONE).all()
+            !value.is_finite()
+                || !value.cmpge(Vec3::ZERO).all()
+                || value.x > 2.0
+                || value.y > 1.0
+                || value.z > 1.0
         }) {
             panic!("invalid material value at {index}: {value:?}");
         }
@@ -952,7 +954,6 @@ mod tests {
             waterRatio: 0.6,
             slopeMultiplier: 1.3,
             coastalSlopeMultiplier: 1.0,
-            noiseMultiplier: 0.0005,
             coastalErosionStrength: 1.0,
             beachFormationStrength: 1.0,
             hydraulicErosionStrength: 0.25,

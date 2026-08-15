@@ -67,9 +67,9 @@ material_noise(xy) = terrain_noise(seed, xy).height_component()
 ```
 
 The radial falloff must not contribute to hardness. It controls island shape,
-not geology. The later 32/64/96/128/192-frequency surface perturbations must
-also not contribute; otherwise small render-scale bumps would become tiny,
-isolated hard inclusions.
+not geology. The former 32/64/96/128/192-frequency surface perturbations did
+not contribute either and have since been removed; otherwise small
+render-scale bumps would have become tiny, isolated hard inclusions.
 
 The legacy C++ generator used four randomized `NoiseLayer`s for its initial sea
 classification and a binary rock decoration during hydraulic erosion. The Rust

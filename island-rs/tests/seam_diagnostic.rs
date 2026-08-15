@@ -61,7 +61,6 @@ fn two_side_clamps_share_one_coarse_corner_sample() {
         2018,
         IslandOptions {
             terrain_size: 65,
-            noise_multiplier: 0.005,
             ..IslandOptions::default()
         },
     )

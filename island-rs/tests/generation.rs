@@ -344,7 +344,6 @@ fn hydraulic_erosion_does_not_reverse_projected_faces() {
         hydraulic_erosion_strength,
         coastal_erosion_strength: 0.0,
         beach_formation_strength: 0.0,
-        noise_multiplier: 0.0,
         river_lod2_source_threshold: 16.0,
         river_lod1_source_threshold: 16.0,
         river_broad_source_threshold: 16.0,

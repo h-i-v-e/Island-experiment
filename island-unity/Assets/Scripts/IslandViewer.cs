@@ -45,7 +45,6 @@ public sealed class IslandViewer : MonoBehaviour
     private float waterRatio = DefaultWaterRatio;
     private float slopeMultiplier = 1.3f;
     private float coastalSlopeMultiplier = 1f;
-    private float noiseMultiplier = 0.0005f;
     private float coastalErosionStrength = 1f;
     private float beachFormationStrength = 1f;
     private float hydraulicErosionStrength = 1f;
@@ -386,7 +385,6 @@ public sealed class IslandViewer : MonoBehaviour
                 waterRatio = waterRatio,
                 slopeMultiplier = slopeMultiplier,
                 coastalSlopeMultiplier = coastalSlopeMultiplier,
-                noiseMultiplier = noiseMultiplier,
                 coastalErosionStrength = coastalErosionStrength,
                 beachFormationStrength = beachFormationStrength,
                 hydraulicErosionStrength = hydraulicErosionStrength,
@@ -1149,7 +1147,6 @@ public sealed class IslandViewer : MonoBehaviour
             0.1f,
             4f,
             "F2");
-        noiseMultiplier = OptionSlider("Terrain noise", noiseMultiplier, 0f, 0.005f, "F5");
         coastalErosionStrength = OptionSlider(
             "Coastal erosion",
             coastalErosionStrength,
@@ -1296,7 +1293,6 @@ public sealed class IslandViewer : MonoBehaviour
         waterRatio = DefaultWaterRatio;
         slopeMultiplier = 1.3f;
         coastalSlopeMultiplier = 1f;
-        noiseMultiplier = 0.0005f;
         coastalErosionStrength = 1f;
         beachFormationStrength = 1f;
         hydraulicErosionStrength = 1f;
@@ -1329,7 +1325,6 @@ public sealed class IslandViewer : MonoBehaviour
             waterRatio = 0.6f,
             slopeMultiplier = 1.3f,
             coastalSlopeMultiplier = 1f,
-            noiseMultiplier = 0.0005f,
             coastalErosionStrength = 1f,
             beachFormationStrength = 1f,
             hydraulicErosionStrength = 1f,
