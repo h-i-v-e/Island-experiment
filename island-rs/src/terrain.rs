@@ -20,12 +20,12 @@ use rayon::prelude::*;
 
 use crate::{
     Adjacency, BoundingBox, Mesh, Raster, River, Vec2, Vec3,
-    coast::{self, CoastScale, GeologyField},
+    geology::{self, GeologyField},
     mesh::{NewVertexStencil, TessellationResult},
     mesh_clipper::MeshClipper,
     noise,
     profiling::StageTimer,
-    rivers::RiverNetwork,
+    rivers::{RiverNetwork, RiverSourceRule},
     rng::Rng,
 };
 
@@ -223,10 +223,6 @@ pub struct IslandOptions {
     pub water_ratio: f32,
     pub slope_multiplier: f32,
     pub coastal_slope_multiplier: f32,
-    /// Multiplies mesh-native wave erosion and rocky-platform formation.
-    pub coastal_erosion_strength: f32,
-    /// Controls redistribution of eroded coastal sediment into beaches.
-    pub beach_formation_strength: f32,
     /// Multiplies the strength of every staged hydraulic erosion pass.
     /// Zero disables hydraulic erosion while preserving thermal erosion.
     pub hydraulic_erosion_strength: f32,
@@ -234,13 +230,12 @@ pub struct IslandOptions {
     pub hydraulic_deposition_strength: f32,
     /// Slope angle at which hydraulic deposition falls to zero.
     pub hydraulic_deposition_slope_degrees: f32,
-    /// River-source flow thresholds measured in standard deviations above the
-    /// mean flow for each successive mesh-detail stage.
-    pub river_lod2_source_threshold: f32,
-    pub river_lod1_source_threshold: f32,
-    pub river_broad_source_threshold: f32,
-    pub river_land_source_threshold: f32,
-    pub river_final_source_threshold: f32,
+    /// Minimum upstream catchment as a fraction of the current pass's land
+    /// vertices. This keeps source density stable as the mesh is refined.
+    pub river_source_catchment_fraction: f32,
+    /// Multiplies the required source flow as the routed edge approaches
+    /// vertical. One disables the slope penalty.
+    pub river_source_steep_multiplier: f32,
     /// Number of free-form XY seed points used by Delaunay triangulation.
     pub terrain_size: u32,
 }
@@ -252,30 +247,22 @@ impl Default for IslandOptions {
             water_ratio: 0.6,
             slope_multiplier: 1.3,
             coastal_slope_multiplier: 1.0,
-            coastal_erosion_strength: 1.0,
-            beach_formation_strength: 1.0,
             hydraulic_erosion_strength: 1.0,
             hydraulic_deposition_strength: 1.5,
             hydraulic_deposition_slope_degrees: 12.0,
-            river_lod2_source_threshold: 0.35,
-            river_lod1_source_threshold: 0.65,
-            river_broad_source_threshold: 1.0,
-            river_land_source_threshold: 1.3,
-            river_final_source_threshold: 1.6,
+            river_source_catchment_fraction: 0.002,
+            river_source_steep_multiplier: 4.0,
             terrain_size: 1024,
         }
     }
 }
 
 impl IslandOptions {
-    const fn river_source_thresholds(self) -> [f32; 5] {
-        [
-            self.river_lod2_source_threshold,
-            self.river_lod1_source_threshold,
-            self.river_broad_source_threshold,
-            self.river_land_source_threshold,
-            self.river_final_source_threshold,
-        ]
+    const fn river_source_rule(self) -> RiverSourceRule {
+        RiverSourceRule::new(
+            self.river_source_catchment_fraction,
+            self.river_source_steep_multiplier,
+        )
     }
 
     fn validate(self) -> Result<Self, String> {
@@ -598,6 +585,49 @@ fn sample_mesh_triangle(
     })
 }
 
+fn bury_river_banks(mesh: &mut Mesh, terrain: &Mesh, triangle_index: &TriangleIndex) {
+    let banks = mesh.perimeter_mask();
+    mesh.vertices
+        .par_iter_mut()
+        .zip(banks)
+        .filter(|(_, is_bank)| *is_bank)
+        .for_each(|(vertex, _)| {
+            let point = vertex.truncate();
+            let terrain_height = triangle_index
+                .candidates(point)
+                .iter()
+                .filter_map(|&face| {
+                    let offset = face as usize * 3;
+                    let triangle = [
+                        terrain.triangles[offset] as usize,
+                        terrain.triangles[offset + 1] as usize,
+                        terrain.triangles[offset + 2] as usize,
+                    ];
+                    barycentric(
+                        point,
+                        terrain.vertices[triangle[0]].truncate(),
+                        terrain.vertices[triangle[1]].truncate(),
+                        terrain.vertices[triangle[2]].truncate(),
+                    )
+                    .map(|weights| {
+                        weights[0].mul_add(
+                            terrain.vertices[triangle[0]].z,
+                            weights[1].mul_add(
+                                terrain.vertices[triangle[1]].z,
+                                weights[2] * terrain.vertices[triangle[2]].z,
+                            ),
+                        )
+                    })
+                })
+                .min_by(f32::total_cmp)
+                .unwrap_or_else(|| {
+                    terrain.vertices[triangle_index.nearest_vertex(terrain, point)].z
+                });
+            vertex.z = vertex.z.min(terrain_height);
+        });
+    mesh.calculate_normals();
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Decoration {
     Tree,
@@ -755,23 +785,23 @@ impl Island {
         let options = options.validate()?;
         let mut scratch = GenerationScratch::default();
         let (base, material) = generate_base(seed, options, &mut scratch);
-        let context = GenerationContext::new(seed, options);
+        let context = GenerationContext::new(options);
         let (mut lod2, material) = generate_lod2(&base, material, context, &mut scratch);
         let (lod1, material) = generate_first_lod1(&lod2, material, context, &mut scratch);
         let (mut lod1, material) = refine_lod1_again(
             &lod1,
             material,
             options,
-            context.river_thresholds[2],
+            context.river_source_rule,
             &mut scratch,
         );
         let (lod0, material) = generate_broad_lod0(&lod1, material, context, &mut scratch);
         let (mut lod0, mut material) = generate_detail_lod0(&lod0, material, context, &mut scratch);
-        let (rivers, river_mesh, river_bed) = {
+        let (rivers, mut river_mesh, river_bed) = {
             let _timer = StageTimer::new("rivers.final");
             let detail_adjacency = lod0.adjacency();
             let mut final_rivers =
-                RiverNetwork::generate(&mut lod0, &detail_adjacency, context.river_thresholds[4]);
+                RiverNetwork::generate(&mut lod0, &detail_adjacency, context.river_source_rule);
             final_rivers.shape(&mut lod0, &detail_adjacency, &mut material, true, false);
             final_rivers.into_parts(&mut lod0, &detail_adjacency, &mut material)
         };
@@ -779,7 +809,7 @@ impl Island {
             let _timer = StageTimer::new("lod.correct");
             correct_lods(&mut lod0, &mut lod1, &mut lod2)
         };
-
+        bury_river_banks(&mut river_mesh, &lod0, &lod0_index);
         let forced_rock = sharp_rock_mask(&lod0);
         let material = TerrainMaterialField::from_surface(&material, &river_bed, &forced_rock);
 
@@ -946,23 +976,18 @@ impl Island {
     /// Returns an I/O error if the destination cannot be created or written.
     pub fn save(&self, path: impl AsRef<Path>) -> io::Result<()> {
         let mut file = File::create(path)?;
-        file.write_all(b"MOTURS\0\x0a")?;
+        file.write_all(b"MOTURS\0\x0c")?;
         file.write_all(&self.seed.to_le_bytes())?;
         for value in [
             self.options.max_height,
             self.options.water_ratio,
             self.options.slope_multiplier,
             self.options.coastal_slope_multiplier,
-            self.options.coastal_erosion_strength,
-            self.options.beach_formation_strength,
             self.options.hydraulic_erosion_strength,
             self.options.hydraulic_deposition_strength,
             self.options.hydraulic_deposition_slope_degrees,
-            self.options.river_lod2_source_threshold,
-            self.options.river_lod1_source_threshold,
-            self.options.river_broad_source_threshold,
-            self.options.river_land_source_threshold,
-            self.options.river_final_source_threshold,
+            self.options.river_source_catchment_fraction,
+            self.options.river_source_steep_multiplier,
         ] {
             file.write_all(&value.to_le_bytes())?;
         }
@@ -978,7 +1003,7 @@ impl Island {
         let mut file = File::open(path)?;
         let mut magic = [0_u8; 8];
         file.read_exact(&mut magic)?;
-        if &magic[..7] != b"MOTURS\0" || !matches!(magic[7], 3..=10) {
+        if &magic[..7] != b"MOTURS\0" || !matches!(magic[7], 3..=12) {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "invalid Motu Rust free-form mesh file",
@@ -993,16 +1018,10 @@ impl Island {
             let _obsolete_noise_multiplier = read_f32(&mut file)?;
         }
         let defaults = IslandOptions::default();
-        let coastal_erosion_strength = if magic[7] >= 7 {
-            read_f32(&mut file)?
-        } else {
-            defaults.coastal_erosion_strength
-        };
-        let beach_formation_strength = if magic[7] >= 7 {
-            read_f32(&mut file)?
-        } else {
-            defaults.beach_formation_strength
-        };
+        if (7..=11).contains(&magic[7]) {
+            let _obsolete_coastal_erosion_strength = read_f32(&mut file)?;
+            let _obsolete_beach_formation_strength = read_f32(&mut file)?;
+        }
         let hydraulic_erosion_strength = if magic[7] >= 4 {
             read_f32(&mut file)?
         } else {
@@ -1023,19 +1042,18 @@ impl Island {
             water_ratio,
             slope_multiplier,
             coastal_slope_multiplier,
-            coastal_erosion_strength,
-            beach_formation_strength,
             hydraulic_erosion_strength,
             hydraulic_deposition_strength,
             hydraulic_deposition_slope_degrees,
             ..defaults
         };
-        if magic[7] >= 5 {
-            options.river_lod2_source_threshold = read_f32(&mut file)?;
-            options.river_lod1_source_threshold = read_f32(&mut file)?;
-            options.river_broad_source_threshold = read_f32(&mut file)?;
-            options.river_land_source_threshold = read_f32(&mut file)?;
-            options.river_final_source_threshold = read_f32(&mut file)?;
+        if magic[7] >= 11 {
+            options.river_source_catchment_fraction = read_f32(&mut file)?;
+            options.river_source_steep_multiplier = read_f32(&mut file)?;
+        } else if magic[7] >= 5 {
+            for _ in 0..5 {
+                let _obsolete_source_deviation = read_f32(&mut file)?;
+            }
         }
         if magic[7] == 8 {
             let _obsolete_cliff_render_strength = read_f32(&mut file)?;
@@ -1140,9 +1158,8 @@ fn sharp_rock_mask(mesh: &Mesh) -> Vec<bool> {
 
 #[derive(Clone, Copy)]
 struct GenerationContext {
-    seed: u64,
     options: IslandOptions,
-    river_thresholds: [f32; 5],
+    river_source_rule: RiverSourceRule,
 }
 
 #[derive(Default)]
@@ -1152,11 +1169,10 @@ struct GenerationScratch {
 }
 
 impl GenerationContext {
-    fn new(seed: u64, options: IslandOptions) -> Self {
+    fn new(options: IslandOptions) -> Self {
         Self {
-            seed,
             options,
-            river_thresholds: options.river_source_thresholds(),
+            river_source_rule: options.river_source_rule(),
         }
     }
 }
@@ -1199,7 +1215,7 @@ fn generate_lod2(
         scratch,
     );
     erode_mesh(&mut mesh, &adjacency, &mut material, context.options, 4);
-    let mut rivers = RiverNetwork::generate(&mut mesh, &adjacency, context.river_thresholds[0]);
+    let mut rivers = RiverNetwork::generate(&mut mesh, &adjacency, context.river_source_rule);
     rivers.shape(&mut mesh, &adjacency, &mut material, true, true);
     mesh.calculate_normals();
     (mesh, material)
@@ -1225,7 +1241,7 @@ fn generate_first_lod1(
         scratch,
     );
     erode_mesh(&mut mesh, &adjacency, &mut material, context.options, 4);
-    let mut rivers = RiverNetwork::generate(&mut mesh, &adjacency, context.river_thresholds[1]);
+    let mut rivers = RiverNetwork::generate(&mut mesh, &adjacency, context.river_source_rule);
     rivers.shape(&mut mesh, &adjacency, &mut material, false, true);
     mesh.calculate_normals();
     (mesh, material)
@@ -1264,17 +1280,9 @@ fn generate_broad_lod0(
         scratch,
     );
     erode_mesh(&mut mesh, &adjacency, &mut material, context.options, 2);
-    let mut rivers = RiverNetwork::generate(&mut mesh, &adjacency, context.river_thresholds[3]);
+    let mut rivers = RiverNetwork::generate(&mut mesh, &adjacency, context.river_source_rule);
     rivers.shape(&mut mesh, &adjacency, &mut material, true, true);
     mesh.smooth_land_with(&adjacency);
-    apply_coastal_stage(
-        &mut mesh,
-        &mut material,
-        context.seed,
-        context.options,
-        CoastScale::Coarse,
-        1.0,
-    );
     (mesh, material)
 }
 
@@ -1298,14 +1306,6 @@ fn generate_detail_lod0(
     );
     mesh.smooth_land_with(&adjacency);
     mesh.smooth_seabed_with(&adjacency);
-    apply_coastal_stage(
-        &mut mesh,
-        &mut material,
-        context.seed,
-        context.options,
-        CoastScale::Detail,
-        0.55,
-    );
     (mesh, material)
 }
 
@@ -1315,7 +1315,7 @@ fn refine_lod1_again(
     lod1: &Mesh,
     material: SurfaceMaterial,
     options: IslandOptions,
-    river_threshold: f32,
+    river_source_rule: RiverSourceRule,
     scratch: &mut GenerationScratch,
 ) -> (Mesh, SurfaceMaterial) {
     let _timer = StageTimer::new("generation.lod1.refine");
@@ -1332,36 +1332,10 @@ fn refine_lod1_again(
         scratch,
     );
     erode_mesh(&mut refined, &adjacency, &mut material, options, 3);
-    let mut rivers = RiverNetwork::generate(&mut refined, &adjacency, river_threshold);
+    let mut rivers = RiverNetwork::generate(&mut refined, &adjacency, river_source_rule);
     rivers.shape(&mut refined, &adjacency, &mut material, false, true);
     refined.calculate_normals();
     (refined, material)
-}
-
-fn apply_coastal_stage(
-    mesh: &mut Mesh,
-    material: &mut SurfaceMaterial,
-    seed: u64,
-    options: IslandOptions,
-    scale: CoastScale,
-    strength_multiplier: f32,
-) {
-    let _timer = StageTimer::new(match scale {
-        CoastScale::Coarse => "coast.coarse",
-        CoastScale::Detail => "coast.detail",
-    });
-    let scale_seed = match scale {
-        CoastScale::Coarse => seed ^ 0x94d0_49bb_1331_11eb,
-        CoastScale::Detail => seed ^ 0xbf58_476d_1ce4_e5b9,
-    };
-    coast::evolve(
-        mesh,
-        material,
-        scale_seed,
-        options.coastal_erosion_strength * strength_multiplier,
-        options.beach_formation_strength,
-        scale,
-    );
 }
 
 fn correct_lods(lod0: &mut Mesh, lod1: &mut Mesh, lod2: &mut Mesh) -> TriangleIndex {
@@ -1469,7 +1443,7 @@ fn assign_elevations(
             let dx = vertex.x.mul_add(2.0, -1.0);
             let dy = vertex.y.mul_add(2.0, -1.0);
             let radius = dx.hypot(dy);
-            coast::terrain_noise(seed, vertex.truncate()).height_component() + 0.82
+            geology::terrain_noise(seed, vertex.truncate()).height_component() + 0.82
                 - radius.powf(1.65)
         })
         .collect();
@@ -1804,18 +1778,18 @@ struct ThermalTransfer {
     loose: f32,
 }
 
-struct VertexFaceAdjacency {
+pub(crate) struct VertexFaceAdjacency {
     offsets: Vec<usize>,
     faces: Vec<usize>,
 }
 
-struct ProjectedFaceAreas {
+pub(crate) struct ProjectedFaceAreas {
     reference: Vec<f32>,
     current: Vec<f32>,
 }
 
 impl VertexFaceAdjacency {
-    fn new(mesh: &Mesh) -> Self {
+    pub(crate) fn new(mesh: &Mesh) -> Self {
         let mut offsets = vec![0; mesh.vertices.len() + 1];
         for &vertex in &mesh.triangles {
             offsets[vertex as usize + 1] += 1;
@@ -1842,7 +1816,7 @@ impl VertexFaceAdjacency {
 }
 
 impl ProjectedFaceAreas {
-    fn new(mesh: &Mesh) -> Self {
+    pub(crate) fn new(mesh: &Mesh) -> Self {
         let reference: Vec<f32> = (0..mesh.triangles.len() / 3)
             .map(|face| projected_face_area(mesh, face))
             .collect();
@@ -1859,10 +1833,20 @@ impl ProjectedFaceAreas {
         requested_cap: f32,
     ) -> f32 {
         let candidate = mesh.vertices[vertex] - normal * requested_cap;
+        requested_cap * self.safe_move_fraction(mesh, vertex_faces, vertex, candidate)
+    }
+
+    pub(crate) fn safe_move_fraction(
+        &self,
+        mesh: &Mesh,
+        vertex_faces: &VertexFaceAdjacency,
+        vertex: usize,
+        candidate: Vec3,
+    ) -> f32 {
         vertex_faces
             .faces(vertex)
             .iter()
-            .fold(requested_cap, |safe_cap, &face| {
+            .fold(1.0_f32, |safe_fraction, &face| {
                 let reference = self.reference[face];
                 if reference.abs() <= f32::EPSILON {
                     return 0.0;
@@ -1876,15 +1860,20 @@ impl ProjectedFaceAreas {
                 let candidate =
                     projected_face_area_with_vertex(mesh, face, vertex, candidate) * orientation;
                 if candidate >= minimum {
-                    safe_cap
+                    safe_fraction
                 } else {
                     let fraction = ((current - minimum) / (current - candidate)).clamp(0.0, 1.0);
-                    safe_cap.min(requested_cap * fraction)
+                    safe_fraction.min(fraction)
                 }
             })
     }
 
-    fn update_incident(&mut self, mesh: &Mesh, vertex_faces: &VertexFaceAdjacency, vertex: usize) {
+    pub(crate) fn update_incident(
+        &mut self,
+        mesh: &Mesh,
+        vertex_faces: &VertexFaceAdjacency,
+        vertex: usize,
+    ) {
         for &face in vertex_faces.faces(vertex) {
             self.current[face] = projected_face_area(mesh, face);
         }

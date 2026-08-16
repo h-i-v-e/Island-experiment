@@ -13,12 +13,9 @@ The generator provides:
 - staged perimeter-preserving XYZ smoothing between LOD refinement passes;
 - graph-based thermal and hydraulic erosion over compact CSR mesh adjacency;
 - persistent unconsolidated cover and noise-aligned bedrock hardness shared by
-  hydraulic, thermal, coastal, and river-valley erosion;
+  hydraulic, thermal, and river-valley erosion;
 - topology reuse across smoothing, erosion, and river passes at each LOD;
-- conforming land/coast/relief tessellation with coarse seabed preservation;
-- mesh-native coastal evolution with noise-aligned rock hardness, directional
-  wave fetch, headland/bay retreat, wave-cut platforms, conservative longshore
-  sediment transport, and sheltered equilibrium beaches;
+- conforming land/relief tessellation with coarse seabed preservation;
 - sink-safe drainage routing with tributary joins and per-node flow accumulation;
 - river jiggle/corridor smoothing, staged LOD carving, bank incision, graded
   estuaries, tributary sediment transfer, raised alluvial valleys, and connected
@@ -48,32 +45,15 @@ Useful options:
 ```text
 --width <PX> --height <PX> --seed-points <16..4096>
 --water-ratio <FLOAT> --max-height <FLOAT>
---coastal-erosion-strength <FLOAT> --beach-formation-strength <FLOAT>
 --hydraulic-erosion-strength <0..8>
 --hydraulic-deposition-strength <0..4>
 --hydraulic-deposition-slope <1..45>
---cliff-render-strength <FLOAT>
---river-lod2-threshold <SD> --river-lod1-threshold <SD>
---river-broad-threshold <SD> --river-land-threshold <SD>
---river-final-threshold <SD>
+--river-source-catchment <FRACTION>
+--river-source-steep-multiplier <FLOAT>
 ```
 
-The Unity viewer constrains water ratio to `0.60..0.95` and each river-source
-threshold to `0..16`; its coastal controls use `0..4`. The Rust API and CLI do
-not enforce those viewer ranges.
-
-Coastal erosion follows the actual triangle/sea-level contour. It traces wave
-fetch through face adjacency and erodes coherent softer geology derived from
-the same continental/detail noise that creates the initial terrain. Soft rock
-retreats through a broad vertical band, while hard rock receives a narrow,
-stronger toe attack and very little upper-face erosion, retaining steep
-headlands rather than smoothing them into gentle slopes. Beach formation
-redistributes only the removed volume and excludes resistant coast from broad
-profiles. Gentle near-shore sediment is tracked as unconsolidated cover rather
-than inheriting the hardness of the rock beneath it; exposed cover is removed
-rapidly before bedrock erosion begins, while sheltered cover can remain as a
-beach. Both controls default to `1`; setting coastal erosion to `0` bypasses the
-complete coastal stage, including its selective tessellation.
+The Unity viewer constrains water ratio to `0.60..0.95`, river-source catchment
+to `0.02%..2%` of land vertices, and the steep-slope multiplier to `1..8`.
 
 Hydraulic erosion strength is a multiplier over the generator's staged erosion
 profile. The default is `1`; use `0` to disable hydraulic erosion while keeping
@@ -95,7 +75,7 @@ vertex's incident faces, preserving their stage-start orientation and at least
 Hydraulic bedrock resistance uses the same continental/detail noise field as
 the initial terrain. That material identity is sampled once on the base mesh
 and propagated through adaptive tessellation, so coherent hard ridges survive
-while soft basins retreat more quickly. Deposited, thermal, beach, delta, and
+while soft basins retreat more quickly. Deposited, thermal, delta, and
 alluvial material shares a persistent unconsolidated-cover account and is
 removed at the full soft-material rate before the underlying bedrock. Hydraulic
 deposition tracks the sediment actually removed from the terrain. Its strength
@@ -105,7 +85,7 @@ taper smoothly to zero at 12 degrees, and retain sediment on steeper slopes
 until the flow reaches gentler ground.
 
 LOD 0 exports the corrected support surface directly, retaining hydraulic
-erosion, coastal erosion, adaptive terrain tessellation, rivers, and waterfalls
+erosion, adaptive terrain tessellation, rivers, and waterfalls
 without a duplicate display mesh. Tile boundaries facing a coarser LOD still
 morph back only on the requested side.
 
@@ -127,10 +107,13 @@ clipping: X is bedrock hardness, Y is normalized loose cover, and Z is final
 river-bed coverage. Sampling after slicing keeps the attributes paired with
 reordered and newly inserted boundary vertices.
 
-River thresholds are standard deviations above mean accumulated flow. Lower
-values select more river sources; higher values produce fewer rivers. The five
-controls correspond to the successive coarse, medium, broad, land-refined, and
-final-detail routing/carving passes. River excavation consumes loose cover
+River-source selection uses one catchment fraction for every routing pass. Each
+pass multiplies that fraction by its current land-vertex count, so progressively
+denser meshes require proportionally more accumulated flow without separate LOD
+controls. The local required flow rises smoothly with the selected downhill
+edge's steepness; the default multiplier is four near a vertical edge. Lower
+catchment fractions select more sources, while higher values produce fewer.
+River excavation consumes loose cover
 before hardness-weighted bedrock, transfers area-weighted sediment volumes
 through tributaries, records alluvial/delta/shelf raises as loose cover, and
 exports the unused balance from the final carve-only outlets.

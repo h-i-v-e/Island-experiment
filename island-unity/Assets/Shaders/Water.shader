@@ -11,6 +11,10 @@ Shader "Motu/Water"
         _WorldSize ("World Size", Float) = 2000
         _ShallowOpacity ("Shallow Opacity", Range(0, 1)) = 0.25
         _OpacityDepth ("Full Opacity Depth", Float) = 5
+        _EstuaryStrength ("Estuary Silt Strength", Range(0, 1)) = 0
+        _EstuaryColor ("Estuary Silt Color", Color) = (0.325, 0.425, 0.445, 1)
+        _EstuaryBlendHeight ("Estuary Blend Height (metres)", Float) = 2
+        _SeaLevel ("Sea Level", Float) = 0
         _ReflectionColor ("Sky Reflection", Color) = (0.49, 0.68, 0.82, 1)
         _ReflectionHorizonColor ("Horizon Reflection", Color) = (0.68, 0.79, 0.88, 1)
         _ReflectionStrength ("Reflection Strength", Range(0, 1)) = 0.5
@@ -68,6 +72,10 @@ Shader "Motu/Water"
             float _WorldSize;
             half _ShallowOpacity;
             float _OpacityDepth;
+            half _EstuaryStrength;
+            fixed4 _EstuaryColor;
+            float _EstuaryBlendHeight;
+            float _SeaLevel;
             fixed4 _ReflectionColor;
             fixed4 _ReflectionHorizonColor;
             half _ReflectionStrength;
@@ -126,8 +134,30 @@ Shader "Motu/Water"
                     _CameraDepthTexture,
                     UNITY_PROJ_COORD(input.screenPosition)));
                 float waterDepth = max(sceneDepth - input.surfaceEyeDepth, 0.0);
-                half depthOpacity = saturate(waterDepth / max(_OpacityDepth, 0.001));
-                half waterOpacity = lerp(_ShallowOpacity, _Color.a, depthOpacity);
+                float heightAboveSea = max(input.worldPosition.y - _SeaLevel, 0.0);
+                half estuaryWeight = _EstuaryStrength * (
+                    1.0h - smoothstep(
+                        0.0,
+                        max(_EstuaryBlendHeight, 0.001),
+                        heightAboveSea));
+                // Keep the original shallow and opaque endpoints, but make the
+                // depth-buffer gradient span exactly the river surface's height
+                // above sea level. At sea level the span is zero, at one metre
+                // it is one metre, and it is capped by the normal depth span.
+                float normalOpacityDepth = max(_OpacityDepth, 0.001);
+                float heightOpacityDepth = min(
+                    heightAboveSea,
+                    normalOpacityDepth);
+                float opacityDepth = lerp(
+                    normalOpacityDepth,
+                    heightOpacityDepth,
+                    _EstuaryStrength);
+                half depthOpacity = saturate(
+                    waterDepth / max(opacityDepth, 0.001));
+                half waterOpacity = lerp(
+                    _ShallowOpacity,
+                    _Color.a,
+                    depthOpacity);
                 float3 reflectionDirection = reflect(-viewDirection, worldNormal);
                 half skyHeight = saturate(reflectionDirection.y);
                 fixed3 skyReflection = lerp(
@@ -149,6 +179,7 @@ Shader "Motu/Water"
                 half sunGlint = pow(sunAlignment, _SunGlintSharpness)
                     * _SunGlintStrength;
                 water += _LightColor0.rgb * sunGlint;
+                water = lerp(water, _EstuaryColor.rgb, estuaryWeight);
                 fixed4 color = fixed4(
                     lerp(water, fixed3(1.0, 1.0, 1.0), whitewater),
                     saturate(waterOpacity + whitewater * 0.08h));

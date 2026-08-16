@@ -3,8 +3,8 @@
 //! The crate keeps terrain generation independent from its CLI and C ABI. An
 //! [`Island`] owns all generated data; rendering and export methods borrow it.
 
-mod coast;
 mod ffi;
+mod geology;
 mod math;
 mod mesh;
 mod mesh_clipper;

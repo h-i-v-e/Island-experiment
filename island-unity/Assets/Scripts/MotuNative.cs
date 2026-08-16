@@ -12,16 +12,13 @@ internal static class MotuNative
         internal float waterRatio;
         internal float slopeMultiplier;
         internal float coastalSlopeMultiplier;
-        internal float coastalErosionStrength;
-        internal float beachFormationStrength;
+        internal float removedCoastalErosionStrength;
+        internal float removedBeachFormationStrength;
         internal float hydraulicErosionStrength;
         internal float hydraulicDepositionStrength;
         internal float hydraulicDepositionSlopeDegrees;
-        internal float riverLod2SourceThreshold;
-        internal float riverLod1SourceThreshold;
-        internal float riverBroadSourceThreshold;
-        internal float riverLandSourceThreshold;
-        internal float riverFinalSourceThreshold;
+        internal float riverSourceCatchmentFraction;
+        internal float riverSourceSteepMultiplier;
     }
 
     [StructLayout(LayoutKind.Sequential)]

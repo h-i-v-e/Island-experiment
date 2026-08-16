@@ -19,6 +19,7 @@ struct GrassVertexOutput
 };
 
 sampler3D _CliffNoise3D;
+sampler2D _GrassPatchNoise;
 half _GrassEnabled;
 float3 _GrassPlayerPosition;
 float _GrassRadius;
@@ -28,6 +29,7 @@ float _GrassDensity;
 half _GrassBladeWidth;
 fixed4 _GrassRootColor;
 fixed4 _GrassTipColor;
+float _GrassPatchNoiseWorldSize;
 half _GrassBrightness;
 float3 _GrassLightDirection;
 fixed4 _GrassLightColor;
@@ -35,8 +37,8 @@ fixed4 _GrassAmbientColor;
 float _SnowLine;
 float _SnowEdgeNoiseMetres;
 float _SnowMacroNoiseMetres;
-float _BeachEdgeNoiseMetres;
 float _BeachMaximumElevation;
+float _SandPatchNoiseWorldSize;
 half _RiverEdgeNoiseStrength;
 half _RiverEdgeBlendWidth;
 half _CliffNormalCutoff;
@@ -44,6 +46,7 @@ half _CliffBoundaryNoiseStrength;
 half _RockBoundaryNoiseStrength;
 half _SandRockSlopeThreshold;
 float _CliffNoisePeriod;
+half _RockPatchNoiseDetailScale;
 
 float GrassHash(float2 cell)
 {
@@ -142,19 +145,32 @@ fixed4 GrassFragment(GrassVertexOutput input) : SV_Target
         -riverTransition,
         riverTransition,
         riverDistance);
-    float noisyBeachElevation = elevation - broadNoise.b * _BeachEdgeNoiseMetres;
-    half coastCoverage = GrassAntialiasedMask(
-        _BeachMaximumElevation - noisyBeachElevation);
-    half beachDepositCoverage = GrassAntialiasedMask(looseCover - 0.5);
-    half beachCandidateCoverage = beachDepositCoverage
-        * coastCoverage
+    half sandAltitudeRichness = saturate(
+        (_BeachMaximumElevation - elevation)
+            / max(_BeachMaximumElevation, 0.1));
+    half sandRichness = looseCover
+        * sandAltitudeRichness
         * (1.0 - riverCoverage);
+    float2 sandPatchUv = input.surfaceWorldPosition.xz
+        / max(_SandPatchNoiseWorldSize, 0.1)
+        + float2(0.37, 0.73);
+    half2 sandPatchLayers = tex2D(_GrassPatchNoise, sandPatchUv).rg;
+    half sandPatchNoise = sandPatchLayers.r * 0.40
+        + sandPatchLayers.g * 0.60;
+    half beachCandidateCoverage = GrassAntialiasedMask(
+        sandPatchNoise - (1.0 - sandRichness))
+        * step(1.0e-4, sandRichness);
 
     half geologyRockWeight = saturate(slope * lerp(1.3, 3.0, hardness));
-    half rockThreshold = 0.5
-        + rockBoundaryNoise * _RockBoundaryNoiseStrength;
+    half3 rockPatchLayers = tex3D(
+        _CliffNoise3D,
+        input.surfaceWorldPosition / noisePeriod * _RockPatchNoiseDetailScale
+            + float3(0.67, 0.31, 0.91)).rgb;
+    half rockPatchNoise = rockPatchLayers.r * 0.65
+        + rockPatchLayers.g * 0.35;
     half geologyRockCoverage = GrassAntialiasedMask(
-        geologyRockWeight - rockThreshold);
+        rockPatchNoise - (1.0 - geologyRockWeight))
+        * step(1.0e-4, geologyRockWeight);
     half sandRockThreshold = _SandRockSlopeThreshold
         + rockBoundaryNoise * _RockBoundaryNoiseStrength * 0.25;
     half sandRockCoverage = beachCandidateCoverage
@@ -176,6 +192,16 @@ fixed4 GrassFragment(GrassVertexOutput input) : SV_Target
     clip(0.5 - beachCoverage);
     clip(0.5 - riverCoverage);
     clip(0.5 - snowCoverage);
+
+    // Deposit thickness is the soil-richness signal. A dedicated fine,
+    // coherent texture removes every blade at zero richness, then lowers the
+    // noise threshold continuously until rich soil has complete coverage.
+    float2 patchUv = input.surfaceWorldPosition.xz
+        / max(_GrassPatchNoiseWorldSize, 0.1);
+    half2 patchLayers = tex2D(_GrassPatchNoise, patchUv).rg;
+    half patchNoise = patchLayers.r * 0.65 + patchLayers.g * 0.35;
+    clip(looseCover - 1.0e-4);
+    clip(patchNoise - (1.0 - looseCover));
 
     float2 regularCoordinate = input.surfaceWorldPosition.xz
         * max(_GrassDensity, 0.1);

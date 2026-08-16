@@ -22,10 +22,12 @@ remains visible while regeneration runs, and the overlay reports elapsed time.
 Unity texture and mesh objects are then uploaded on the main thread, with the
 64 overview tiles spread across frames to avoid a large upload hitch. Use the
 overlay to regenerate another seed and adjust terrain, coastal evolution,
-hydraulic-erosion, or per-stage river source thresholds. Coastal erosion cuts
+hydraulic-erosion, or river source selection. Coastal erosion cuts
 exposed softer rock into bays and platforms; beach formation conservatively
-redistributes that sediment toward sheltered shorelines. Higher river-threshold
-values produce fewer source rivers. Slider changes take effect when you press
+redistributes that sediment toward sheltered shorelines. Source catchment is a
+percentage of the current pass's land vertices, so one slider remains consistent
+across all mesh densities. A second control suppresses small sources on steep
+slopes while retaining sufficiently large catchments. Slider changes take effect when you press
 Generate. Drag to orbit, use the mouse wheel to zoom, and right-drag to pan.
 In first-person mode, terrain, grass, rivers, and sea fade into sky-coloured
 linear distance haze from the camera position to full strength at one kilometre.

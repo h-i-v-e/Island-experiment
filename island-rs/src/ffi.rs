@@ -30,19 +30,16 @@ pub struct MotuOptions {
     pub waterRatio: f32,
     pub slopeMultiplier: f32,
     pub coastalSlopeMultiplier: f32,
-    pub coastalErosionStrength: f32,
-    pub beachFormationStrength: f32,
+    pub removedCoastalErosionStrength: f32,
+    pub removedBeachFormationStrength: f32,
     pub hydraulicErosionStrength: f32,
     pub hydraulicDepositionStrength: f32,
     pub hydraulicDepositionSlopeDegrees: f32,
-    pub riverLod2SourceThreshold: f32,
-    pub riverLod1SourceThreshold: f32,
-    pub riverBroadSourceThreshold: f32,
-    pub riverLandSourceThreshold: f32,
-    pub riverFinalSourceThreshold: f32,
+    pub riverSourceCatchmentFraction: f32,
+    pub riverSourceSteepMultiplier: f32,
 }
 
-const _: () = assert!(size_of::<MotuOptions>() == size_of::<[f32; 14]>());
+const _: () = assert!(size_of::<MotuOptions>() == size_of::<[f32; 11]>());
 
 impl From<MotuOptions> for IslandOptions {
     fn from(value: MotuOptions) -> Self {
@@ -51,16 +48,11 @@ impl From<MotuOptions> for IslandOptions {
             water_ratio: value.waterRatio,
             slope_multiplier: value.slopeMultiplier,
             coastal_slope_multiplier: value.coastalSlopeMultiplier,
-            coastal_erosion_strength: value.coastalErosionStrength,
-            beach_formation_strength: value.beachFormationStrength,
             hydraulic_erosion_strength: value.hydraulicErosionStrength,
             hydraulic_deposition_strength: value.hydraulicDepositionStrength,
             hydraulic_deposition_slope_degrees: value.hydraulicDepositionSlopeDegrees,
-            river_lod2_source_threshold: value.riverLod2SourceThreshold,
-            river_lod1_source_threshold: value.riverLod1SourceThreshold,
-            river_broad_source_threshold: value.riverBroadSourceThreshold,
-            river_land_source_threshold: value.riverLandSourceThreshold,
-            river_final_source_threshold: value.riverFinalSourceThreshold,
+            river_source_catchment_fraction: value.riverSourceCatchmentFraction,
+            river_source_steep_multiplier: value.riverSourceSteepMultiplier,
             ..Self::default()
         }
     }
@@ -954,16 +946,13 @@ mod tests {
             waterRatio: 0.6,
             slopeMultiplier: 1.3,
             coastalSlopeMultiplier: 1.0,
-            coastalErosionStrength: 1.0,
-            beachFormationStrength: 1.0,
+            removedCoastalErosionStrength: 0.0,
+            removedBeachFormationStrength: 0.0,
             hydraulicErosionStrength: 0.25,
             hydraulicDepositionStrength: 1.5,
             hydraulicDepositionSlopeDegrees: 12.0,
-            riverLod2SourceThreshold: 0.35,
-            riverLod1SourceThreshold: 0.65,
-            riverBroadSourceThreshold: 1.0,
-            riverLandSourceThreshold: 1.3,
-            riverFinalSourceThreshold: 1.6,
+            riverSourceCatchmentFraction: 0.002,
+            riverSourceSteepMultiplier: 4.0,
         };
         // SAFETY: this test passes valid pointers and releases every returned
         // allocation exactly once through its paired ABI function.

@@ -81,14 +81,6 @@ fn parse(arguments: impl Iterator<Item = String>) -> Result<Option<Command>, Str
             "--max-height" => {
                 command.options.max_height = parse_value(&argument, &value(&mut arguments)?)?;
             }
-            "--coastal-erosion-strength" => {
-                command.options.coastal_erosion_strength =
-                    parse_value(&argument, &value(&mut arguments)?)?;
-            }
-            "--beach-formation-strength" => {
-                command.options.beach_formation_strength =
-                    parse_value(&argument, &value(&mut arguments)?)?;
-            }
             "--hydraulic-erosion-strength" => {
                 command.options.hydraulic_erosion_strength =
                     parse_value(&argument, &value(&mut arguments)?)?;
@@ -101,24 +93,12 @@ fn parse(arguments: impl Iterator<Item = String>) -> Result<Option<Command>, Str
                 command.options.hydraulic_deposition_slope_degrees =
                     parse_value(&argument, &value(&mut arguments)?)?;
             }
-            "--river-lod2-threshold" => {
-                command.options.river_lod2_source_threshold =
+            "--river-source-catchment" => {
+                command.options.river_source_catchment_fraction =
                     parse_value(&argument, &value(&mut arguments)?)?;
             }
-            "--river-lod1-threshold" => {
-                command.options.river_lod1_source_threshold =
-                    parse_value(&argument, &value(&mut arguments)?)?;
-            }
-            "--river-broad-threshold" => {
-                command.options.river_broad_source_threshold =
-                    parse_value(&argument, &value(&mut arguments)?)?;
-            }
-            "--river-land-threshold" => {
-                command.options.river_land_source_threshold =
-                    parse_value(&argument, &value(&mut arguments)?)?;
-            }
-            "--river-final-threshold" => {
-                command.options.river_final_source_threshold =
+            "--river-source-steep-multiplier" => {
+                command.options.river_source_steep_multiplier =
                     parse_value(&argument, &value(&mut arguments)?)?;
             }
             _ => return Err(format!("unknown option {argument:?}; use --help for usage")),
@@ -155,21 +135,16 @@ fn print_help() {
            --terrain-size <N>     Alias for --seed-points\n\
            --water-ratio <RATIO>  Water coverage [default: 0.6]\n\
            --max-height <HEIGHT>  Normalized maximum elevation [default: 0.2]\n\
-           --coastal-erosion-strength <S>\n\
-                                  Wave erosion and rocky coast strength [default: 1]\n\
-           --beach-formation-strength <S>\n\
-                                  Sheltered sediment deposition strength [default: 1]\n\
            --hydraulic-erosion-strength <S>\n\
                                   Hydraulic erosion multiplier from 0 to 8 [default: 1]\n\
            --hydraulic-deposition-strength <S>\n\
                                   Gentle-slope deposition rate from 0 to 4 [default: 1.5]\n\
            --hydraulic-deposition-slope <DEGREES>\n\
                                   Angle where deposition reaches zero [default: 12]\n\
-           --river-lod2-threshold <SD>    Coarse river source threshold [default: 0.35]\n\
-           --river-lod1-threshold <SD>    Medium river source threshold [default: 0.65]\n\
-           --river-broad-threshold <SD>   Broad LOD 0 threshold [default: 1.0]\n\
-           --river-land-threshold <SD>    Land-refined threshold [default: 1.3]\n\
-           --river-final-threshold <SD>   Final-detail threshold [default: 1.6]\n\
+           --river-source-catchment <FRACTION>\n\
+                                  Upstream land fraction required [default: 0.002]\n\
+           --river-source-steep-multiplier <S>\n\
+                                  Near-vertical source penalty [default: 4]\n\
            -h, --help             Print help"
     );
 }
@@ -188,18 +163,16 @@ mod tests {
                 "320",
                 "--water-ratio",
                 "0.7",
-                "--coastal-erosion-strength",
-                "2.5",
-                "--beach-formation-strength",
-                "3.0",
                 "--hydraulic-erosion-strength",
                 "1.5",
                 "--hydraulic-deposition-strength",
                 "2.5",
                 "--hydraulic-deposition-slope",
                 "15",
-                "--river-final-threshold",
-                "2.25",
+                "--river-source-catchment",
+                "0.0075",
+                "--river-source-steep-multiplier",
+                "5.25",
             ]
             .into_iter()
             .map(String::from),
@@ -209,12 +182,11 @@ mod tests {
         assert_eq!(command.seed, 42);
         assert_eq!(command.width, 320);
         assert!((command.options.water_ratio - 0.7).abs() < f32::EPSILON);
-        assert!((command.options.coastal_erosion_strength - 2.5).abs() < f32::EPSILON);
-        assert!((command.options.beach_formation_strength - 3.0).abs() < f32::EPSILON);
         assert!((command.options.hydraulic_erosion_strength - 1.5).abs() < f32::EPSILON);
         assert!((command.options.hydraulic_deposition_strength - 2.5).abs() < f32::EPSILON);
         assert!((command.options.hydraulic_deposition_slope_degrees - 15.0).abs() < f32::EPSILON);
-        assert!((command.options.river_final_source_threshold - 2.25).abs() < f32::EPSILON);
+        assert!((command.options.river_source_catchment_fraction - 0.0075).abs() < f32::EPSILON);
+        assert!((command.options.river_source_steep_multiplier - 5.25).abs() < f32::EPSILON);
     }
 
     #[test]

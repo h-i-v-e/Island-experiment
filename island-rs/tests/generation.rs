@@ -50,6 +50,29 @@ fn mapped_waterfall_uv_segments(island: &Island) -> usize {
         .count()
 }
 
+fn assert_river_mesh_bank_and_centreline_clearance(island: &Island) {
+    let banks = island.river_mesh().perimeter_vertices();
+    for &river_vertex in &island.river_mesh().triangles {
+        let river_vertex = river_vertex as usize;
+        let water = island.river_mesh().vertices[river_vertex];
+        let ground = island.terrain().sample(water.x, water.y);
+        if banks.contains(&river_vertex) {
+            assert!(
+                water.z <= ground + 1.0e-6,
+                "river bank climbs terrain at {water:?}; terrain height is {ground}"
+            );
+        }
+    }
+    for node in island.rivers().iter().flat_map(|river| &river.nodes) {
+        assert!(
+            node.position.z <= node.surface - 0.000_01 + 1.0e-6,
+            "river centreline terrain at {:?} is not below surface {}",
+            node.position,
+            node.surface
+        );
+    }
+}
+
 #[test]
 fn generation_is_deterministic() {
     let first = Island::generate(2018, small_options()).unwrap();
@@ -164,33 +187,6 @@ fn hydraulic_erosion_strength_changes_terrain() {
 }
 
 #[test]
-fn coastal_erosion_strength_changes_terrain() {
-    let without_coast = Island::generate(
-        12,
-        IslandOptions {
-            coastal_erosion_strength: 0.0,
-            beach_formation_strength: 0.0,
-            ..small_options()
-        },
-    )
-    .unwrap();
-    let with_coast = Island::generate(
-        12,
-        IslandOptions {
-            coastal_erosion_strength: 2.0,
-            beach_formation_strength: 1.0,
-            ..small_options()
-        },
-    )
-    .unwrap();
-    assert_ne!(
-        without_coast.terrain().vertices(),
-        with_coast.terrain().vertices()
-    );
-    assert!(with_coast.terrain().vertex_count() > without_coast.terrain().vertex_count());
-}
-
-#[test]
 fn rejects_out_of_range_hydraulic_erosion_strength() {
     let error = Island::generate(
         1,
@@ -252,15 +248,12 @@ fn rejects_out_of_range_hydraulic_deposition_options() {
 }
 
 #[test]
-fn river_source_thresholds_change_river_generation() {
+fn river_source_catchment_changes_river_generation() {
     let many_sources = Island::generate(
         53,
         IslandOptions {
-            river_lod2_source_threshold: 0.0,
-            river_lod1_source_threshold: 0.0,
-            river_broad_source_threshold: 0.0,
-            river_land_source_threshold: 0.0,
-            river_final_source_threshold: 0.0,
+            river_source_catchment_fraction: 0.0001,
+            river_source_steep_multiplier: 1.0,
             ..small_options()
         },
     )
@@ -268,11 +261,8 @@ fn river_source_thresholds_change_river_generation() {
     let few_sources = Island::generate(
         53,
         IslandOptions {
-            river_lod2_source_threshold: 16.0,
-            river_lod1_source_threshold: 16.0,
-            river_broad_source_threshold: 16.0,
-            river_land_source_threshold: 16.0,
-            river_final_source_threshold: 16.0,
+            river_source_catchment_fraction: 0.05,
+            river_source_steep_multiplier: 1.0,
             ..small_options()
         },
     )
@@ -283,12 +273,39 @@ fn river_source_thresholds_change_river_generation() {
 }
 
 #[test]
+fn every_final_river_reaches_the_sea_or_joins_one_that_does() {
+    let island = Island::generate(
+        2018,
+        IslandOptions {
+            water_ratio: 0.95,
+            ..IslandOptions::default()
+        },
+    )
+    .unwrap();
+
+    for index in 0..island.rivers().len() {
+        let mut outlet = index;
+        while let Some(join) = island.rivers()[outlet].join {
+            assert!(join < outlet);
+            outlet = join;
+        }
+        assert!(
+            island.rivers()[outlet]
+                .nodes
+                .last()
+                .is_some_and(|node| node.position.z < 0.0),
+            "river {index} terminates on land through outlet {outlet}"
+        );
+    }
+}
+
+#[test]
 fn native_options_are_not_limited_to_viewer_control_ranges() {
     let island = Island::generate(
         1,
         IslandOptions {
             water_ratio: 0.5,
-            river_final_source_threshold: 32.0,
+            river_source_catchment_fraction: 0.1,
             ..small_options()
         },
     );
@@ -342,13 +359,7 @@ fn lod0_render_uses_the_corrected_support_mesh() {
 fn hydraulic_erosion_does_not_reverse_projected_faces() {
     let options = |hydraulic_erosion_strength| IslandOptions {
         hydraulic_erosion_strength,
-        coastal_erosion_strength: 0.0,
-        beach_formation_strength: 0.0,
-        river_lod2_source_threshold: 16.0,
-        river_lod1_source_threshold: 16.0,
-        river_broad_source_threshold: 16.0,
-        river_land_source_threshold: 16.0,
-        river_final_source_threshold: 16.0,
+        river_source_catchment_fraction: 0.05,
         ..small_options()
     };
     let reversed = |mesh: &motu::Mesh| {
@@ -396,11 +407,9 @@ fn terrain_topology_is_free_form_delaunay() {
     let lod1 = island.lod(1).unwrap();
     let lod0 = island.lod(0).unwrap();
     assert!(lod1.triangles.len() > coarse.triangles.len());
-    // The coastal stage adds one conforming refinement ring around the actual
-    // sea-level contour, while inland and deep-sea faces remain adaptive.
     assert!(
         lod1.triangles.len() < coarse.triangles.len() * 48,
-        "coastal refinement grew LOD1 from {} to {} indices",
+        "adaptive refinement grew LOD1 from {} to {} indices",
         coarse.triangles.len(),
         lod1.triangles.len()
     );
@@ -532,6 +541,7 @@ fn rivers_are_continuous_flowing_terrain_submeshes_with_waterfalls() {
             .iter()
             .all(|&vertex| (vertex as usize) < island.river_mesh().vertices.len())
     );
+    assert_river_mesh_bank_and_centreline_clearance(&island);
     let unique_xy: HashSet<(u32, u32)> = island
         .river_mesh()
         .vertices
@@ -605,13 +615,8 @@ fn save_and_load_regenerates_identical_island() {
             hydraulic_erosion_strength: 1.75,
             hydraulic_deposition_strength: 2.25,
             hydraulic_deposition_slope_degrees: 18.0,
-            coastal_erosion_strength: 2.0,
-            beach_formation_strength: 3.0,
-            river_lod2_source_threshold: 0.5,
-            river_lod1_source_threshold: 0.8,
-            river_broad_source_threshold: 1.1,
-            river_land_source_threshold: 1.4,
-            river_final_source_threshold: 1.9,
+            river_source_catchment_fraction: 0.0075,
+            river_source_steep_multiplier: 5.0,
             ..small_options()
         },
     )
@@ -625,4 +630,36 @@ fn save_and_load_regenerates_identical_island() {
     let loaded = Island::load(&path).unwrap();
     fs::remove_file(path).unwrap();
     assert_eq!(island, loaded);
+}
+
+#[test]
+fn version_ten_save_uses_new_river_source_defaults() {
+    let defaults = IslandOptions::default();
+    let mut bytes = b"MOTURS\0\x0a".to_vec();
+    bytes.extend(77_u64.to_le_bytes());
+    for value in [
+        0.2_f32, 0.6, 1.3, 1.0, 1.0, 1.0, 0.0, 1.5, 12.0, 0.35, 0.65, 1.0, 1.3, 1.6,
+    ] {
+        bytes.extend(value.to_le_bytes());
+    }
+    bytes.extend(24_u32.to_le_bytes());
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let path = std::env::temp_dir().join(format!("island-rs-v10-{unique}.motu"));
+    fs::write(&path, bytes).unwrap();
+
+    let loaded = Island::load(&path).unwrap();
+
+    fs::remove_file(path).unwrap();
+    assert_eq!(loaded.seed(), 77);
+    assert_eq!(
+        loaded.options().river_source_catchment_fraction.to_bits(),
+        defaults.river_source_catchment_fraction.to_bits()
+    );
+    assert_eq!(
+        loaded.options().river_source_steep_multiplier.to_bits(),
+        defaults.river_source_steep_multiplier.to_bits()
+    );
 }

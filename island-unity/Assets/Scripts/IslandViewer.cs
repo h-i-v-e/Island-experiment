@@ -14,17 +14,25 @@ public sealed class IslandViewer : MonoBehaviour
     private const float SeaHeight = 0f;
     private const float MinimumWaterRatio = 0.6f;
     private const float DefaultWaterRatio = 0.95f;
-    private const float MaximumRiverSourceThreshold = 16f;
+    private const float MinimumRiverSourceCatchmentFraction = 0.0002f;
+    private const float MaximumRiverSourceCatchmentFraction = 0.02f;
     private const int SurfaceMapDimension = 2048;
     private const int CliffNoiseDimension = 64;
     private const int CliffNoiseLatticePeriod = 16;
     private const int RiverNoiseDimension = 256;
     private const int RiverNoiseLatticePeriod = 32;
+    private const int GrassPatchNoiseDimension = 256;
+    private const int GrassPatchNoiseLatticePeriod = 64;
+    private const float GrassPatchNoiseWorldSizeMetres = 32f;
+    private const float RockPatchNoiseDetailScale = 8f;
+    private const float SandMaximumElevationMetres = 3f;
+    private const float SandPatchNoiseWorldSizeMetres = 32f;
     private const float ClickDragTolerance = 6f;
     private const float HazeStartDistance = 0f;
     private const float HazeEndDistance = 1000f;
     private const float RiverEmitterSharpnessDegrees = 35f;
     private const float RiverEmitterSpacingMetres = 1.5f;
+    private const float EstuaryBlendHeightMetres = 2f;
 
     private IntPtr islandHandle;
     private TerrainTileStreamer terrainStreamer;
@@ -37,6 +45,7 @@ public sealed class IslandViewer : MonoBehaviour
     private Texture2D terrainOcclusionTexture;
     private Texture3D cliffNoiseTexture;
     private Texture2D riverNoiseTexture;
+    private Texture2D grassPatchNoiseTexture;
     private Material riverMaterial;
     private Material seaMaterial;
     private string seedText = "666";
@@ -45,16 +54,11 @@ public sealed class IslandViewer : MonoBehaviour
     private float waterRatio = DefaultWaterRatio;
     private float slopeMultiplier = 1.3f;
     private float coastalSlopeMultiplier = 1f;
-    private float coastalErosionStrength = 1f;
-    private float beachFormationStrength = 1f;
     private float hydraulicErosionStrength = 1f;
     private float hydraulicDepositionStrength = 1.5f;
     private float hydraulicDepositionSlopeDegrees = 12f;
-    private float riverLod2SourceThreshold = 0.35f;
-    private float riverLod1SourceThreshold = 0.65f;
-    private float riverBroadSourceThreshold = 1f;
-    private float riverLandSourceThreshold = 1.3f;
-    private float riverFinalSourceThreshold = 1.6f;
+    private float riverSourceCatchmentFraction = 0.002f;
+    private float riverSourceSteepMultiplier = 4f;
     private float grassBrightness = 1.35f;
     private string status = "Ready";
     private bool showRivers = true;
@@ -265,6 +269,7 @@ public sealed class IslandViewer : MonoBehaviour
         DestroyUnityObject(grassMaterial);
         DestroyUnityObject(cliffNoiseTexture);
         DestroyUnityObject(riverNoiseTexture);
+        DestroyUnityObject(grassPatchNoiseTexture);
         DestroyUnityObject(riverMaterial);
         DestroyUnityObject(seaMaterial);
     }
@@ -310,6 +315,33 @@ public sealed class IslandViewer : MonoBehaviour
         terrainMaterial.SetTexture("_CliffNoise3D", cliffNoiseTexture);
         grassMaterial = CreateMaterial("Motu/Terrain Grass", Color.white);
         grassMaterial.SetTexture("_CliffNoise3D", cliffNoiseTexture);
+        terrainMaterial.SetFloat(
+            "_RockPatchNoiseDetailScale",
+            RockPatchNoiseDetailScale);
+        grassMaterial.SetFloat(
+            "_RockPatchNoiseDetailScale",
+            RockPatchNoiseDetailScale);
+        terrainMaterial.SetFloat(
+            "_BeachMaximumElevation",
+            SandMaximumElevationMetres);
+        grassMaterial.SetFloat(
+            "_BeachMaximumElevation",
+            SandMaximumElevationMetres);
+        terrainMaterial.SetFloat(
+            "_SandPatchNoiseWorldSize",
+            SandPatchNoiseWorldSizeMetres);
+        grassMaterial.SetFloat(
+            "_SandPatchNoiseWorldSize",
+            SandPatchNoiseWorldSizeMetres);
+        grassPatchNoiseTexture = CreateGrassPatchNoiseTexture();
+        terrainMaterial.SetTexture("_GrassPatchNoise", grassPatchNoiseTexture);
+        terrainMaterial.SetFloat(
+            "_GrassPatchNoiseWorldSize",
+            GrassPatchNoiseWorldSizeMetres);
+        grassMaterial.SetTexture("_GrassPatchNoise", grassPatchNoiseTexture);
+        grassMaterial.SetFloat(
+            "_GrassPatchNoiseWorldSize",
+            GrassPatchNoiseWorldSizeMetres);
         grassMaterial.SetColor(
             "_GrassRootColor",
             new Color(0.14f, 0.34f, 0.11f, 1f));
@@ -322,13 +354,21 @@ public sealed class IslandViewer : MonoBehaviour
         grassMaterial.SetColor("_GrassAmbientColor", RenderSettings.ambientLight);
         riverNoiseTexture = CreateRiverNoiseTexture();
         var waterColor = new Color(0.03f, 0.28f, 0.55f, 1f);
+        var sandColor = new Color(0.62f, 0.57f, 0.34f, 1f);
         const float shallowWaterOpacity = 0.25f;
         const float fullOpacityDepth = 5f;
         riverMaterial = CreateMaterial("Motu/Water", waterColor);
+        riverMaterial.renderQueue = (int)RenderQueue.Transparent + 10;
         riverMaterial.SetTexture("_NoiseTex", riverNoiseTexture);
         riverMaterial.SetFloat("_WhitewaterStrength", 0.9f);
         riverMaterial.SetFloat("_ShallowOpacity", shallowWaterOpacity);
         riverMaterial.SetFloat("_OpacityDepth", fullOpacityDepth);
+        riverMaterial.SetFloat("_EstuaryStrength", 1f);
+        riverMaterial.SetColor(
+            "_EstuaryColor",
+            Color.Lerp(sandColor, waterColor, 0.5f));
+        riverMaterial.SetFloat("_EstuaryBlendHeight", EstuaryBlendHeightMetres);
+        riverMaterial.SetFloat("_SeaLevel", SeaHeight);
         riverMaterial.SetColor("_ReflectionColor", skyColor);
         riverMaterial.SetColor(
             "_ReflectionHorizonColor",
@@ -336,9 +376,11 @@ public sealed class IslandViewer : MonoBehaviour
         riverMaterial.SetFloat("_ReflectionStrength", 0.45f);
         riverMaterial.SetFloat("_SunGlintStrength", 0.55f);
         seaMaterial = CreateMaterial("Motu/Water", waterColor);
+        seaMaterial.renderQueue = (int)RenderQueue.Transparent;
         seaMaterial.SetFloat("_WhitewaterStrength", 0f);
         seaMaterial.SetFloat("_ShallowOpacity", shallowWaterOpacity);
         seaMaterial.SetFloat("_OpacityDepth", fullOpacityDepth);
+        seaMaterial.SetFloat("_EstuaryStrength", 0f);
         seaMaterial.SetColor("_ReflectionColor", skyColor);
         seaMaterial.SetColor(
             "_ReflectionHorizonColor",
@@ -385,16 +427,11 @@ public sealed class IslandViewer : MonoBehaviour
                 waterRatio = waterRatio,
                 slopeMultiplier = slopeMultiplier,
                 coastalSlopeMultiplier = coastalSlopeMultiplier,
-                coastalErosionStrength = coastalErosionStrength,
-                beachFormationStrength = beachFormationStrength,
                 hydraulicErosionStrength = hydraulicErosionStrength,
                 hydraulicDepositionStrength = hydraulicDepositionStrength,
                 hydraulicDepositionSlopeDegrees = hydraulicDepositionSlopeDegrees,
-                riverLod2SourceThreshold = riverLod2SourceThreshold,
-                riverLod1SourceThreshold = riverLod1SourceThreshold,
-                riverBroadSourceThreshold = riverBroadSourceThreshold,
-                riverLandSourceThreshold = riverLandSourceThreshold,
-                riverFinalSourceThreshold = riverFinalSourceThreshold,
+                riverSourceCatchmentFraction = riverSourceCatchmentFraction,
+                riverSourceSteepMultiplier = riverSourceSteepMultiplier,
             };
 
             prepared = await Task.Run(
@@ -975,8 +1012,16 @@ public sealed class IslandViewer : MonoBehaviour
                 var sampleY = (y + 0.5f) * latticeScale;
                 var index = x + RiverNoiseDimension * y;
                 pixels[index] = new Color(
-                    PeriodicRiverNoise(sampleX, sampleY, 0x9E3779B9u),
-                    PeriodicRiverNoise(sampleX, sampleY, 0xD1B54A35u),
+                    PeriodicNoise2D(
+                        sampleX,
+                        sampleY,
+                        0x9E3779B9u,
+                        RiverNoiseLatticePeriod),
+                    PeriodicNoise2D(
+                        sampleX,
+                        sampleY,
+                        0xD1B54A35u,
+                        RiverNoiseLatticePeriod),
                     0f,
                     1f);
             }
@@ -986,14 +1031,58 @@ public sealed class IslandViewer : MonoBehaviour
         return texture;
     }
 
-    private static float PeriodicRiverNoise(float x, float y, uint seed)
+    private static Texture2D CreateGrassPatchNoiseTexture()
+    {
+        var texture = new Texture2D(
+            GrassPatchNoiseDimension,
+            GrassPatchNoiseDimension,
+            TextureFormat.RGBA32,
+            true,
+            true)
+        {
+            name = "Grass soil-richness patch noise",
+            filterMode = FilterMode.Trilinear,
+            wrapMode = TextureWrapMode.Repeat,
+            anisoLevel = 2,
+        };
+        var pixels = new Color[GrassPatchNoiseDimension * GrassPatchNoiseDimension];
+        var latticeScale = GrassPatchNoiseLatticePeriod
+            / (float)GrassPatchNoiseDimension;
+        for (var y = 0; y < GrassPatchNoiseDimension; y++)
+        {
+            for (var x = 0; x < GrassPatchNoiseDimension; x++)
+            {
+                var sampleX = (x + 0.5f) * latticeScale;
+                var sampleY = (y + 0.5f) * latticeScale;
+                var index = x + GrassPatchNoiseDimension * y;
+                pixels[index] = new Color(
+                    PeriodicNoise2D(
+                        sampleX,
+                        sampleY,
+                        0xB5297A4Du,
+                        GrassPatchNoiseLatticePeriod),
+                    PeriodicNoise2D(
+                        sampleX,
+                        sampleY,
+                        0x68E31DA4u,
+                        GrassPatchNoiseLatticePeriod),
+                    0f,
+                    1f);
+            }
+        }
+        texture.SetPixels(pixels);
+        texture.Apply(true, true);
+        return texture;
+    }
+
+    private static float PeriodicNoise2D(float x, float y, uint seed, int period)
     {
         var latticeX = Mathf.FloorToInt(x);
         var latticeY = Mathf.FloorToInt(y);
-        var x0 = latticeX % RiverNoiseLatticePeriod;
-        var y0 = latticeY % RiverNoiseLatticePeriod;
-        var x1 = (x0 + 1) % RiverNoiseLatticePeriod;
-        var y1 = (y0 + 1) % RiverNoiseLatticePeriod;
+        var x0 = latticeX % period;
+        var y0 = latticeY % period;
+        var x1 = (x0 + 1) % period;
+        var y1 = (y0 + 1) % period;
         var fadeX = QuinticFade(x - latticeX);
         var fadeY = QuinticFade(y - latticeY);
         var near = Mathf.Lerp(
@@ -1147,19 +1236,6 @@ public sealed class IslandViewer : MonoBehaviour
             0.1f,
             4f,
             "F2");
-        coastalErosionStrength = OptionSlider(
-            "Coastal erosion",
-            coastalErosionStrength,
-            0f,
-            4f,
-            "F2");
-        beachFormationStrength = OptionSlider(
-            "Beach formation",
-            beachFormationStrength,
-            0f,
-            4f,
-            "F2");
-        GUILayout.Label("Erosion cuts exposed rock; beaches settle sediment in shelter.");
         hydraulicErosionStrength = OptionSlider(
             "Hydraulic erosion",
             hydraulicErosionStrength,
@@ -1179,36 +1255,18 @@ public sealed class IslandViewer : MonoBehaviour
             45f,
             "F1");
         GUILayout.Space(4f);
-        GUILayout.Label("River source thresholds (SD; higher = fewer rivers)");
-        riverLod2SourceThreshold = OptionSlider(
-            "Coarse (LOD 2)",
-            riverLod2SourceThreshold,
-            0f,
-            MaximumRiverSourceThreshold,
-            "F2");
-        riverLod1SourceThreshold = OptionSlider(
-            "Medium (LOD 1)",
-            riverLod1SourceThreshold,
-            0f,
-            MaximumRiverSourceThreshold,
-            "F2");
-        riverBroadSourceThreshold = OptionSlider(
-            "Broad LOD 0",
-            riverBroadSourceThreshold,
-            0f,
-            MaximumRiverSourceThreshold,
-            "F2");
-        riverLandSourceThreshold = OptionSlider(
-            "Land-refined LOD 0",
-            riverLandSourceThreshold,
-            0f,
-            MaximumRiverSourceThreshold,
-            "F2");
-        riverFinalSourceThreshold = OptionSlider(
-            "Final detail",
-            riverFinalSourceThreshold,
-            0f,
-            MaximumRiverSourceThreshold,
+        GUILayout.Label("River source selection (higher = fewer rivers)");
+        riverSourceCatchmentFraction = OptionSlider(
+            "Source catchment",
+            riverSourceCatchmentFraction,
+            MinimumRiverSourceCatchmentFraction,
+            MaximumRiverSourceCatchmentFraction,
+            "P2");
+        riverSourceSteepMultiplier = OptionSlider(
+            "Steep slope multiplier",
+            riverSourceSteepMultiplier,
+            1f,
+            8f,
             "F2");
 
         GUILayout.BeginHorizontal();
@@ -1293,16 +1351,11 @@ public sealed class IslandViewer : MonoBehaviour
         waterRatio = DefaultWaterRatio;
         slopeMultiplier = 1.3f;
         coastalSlopeMultiplier = 1f;
-        coastalErosionStrength = 1f;
-        beachFormationStrength = 1f;
         hydraulicErosionStrength = 1f;
         hydraulicDepositionStrength = 1.5f;
         hydraulicDepositionSlopeDegrees = 12f;
-        riverLod2SourceThreshold = 0.35f;
-        riverLod1SourceThreshold = 0.65f;
-        riverBroadSourceThreshold = 1f;
-        riverLandSourceThreshold = 1.3f;
-        riverFinalSourceThreshold = 1.6f;
+        riverSourceCatchmentFraction = 0.002f;
+        riverSourceSteepMultiplier = 4f;
         SetGrassBrightness(1.35f);
     }
 
@@ -1325,16 +1378,11 @@ public sealed class IslandViewer : MonoBehaviour
             waterRatio = 0.6f,
             slopeMultiplier = 1.3f,
             coastalSlopeMultiplier = 1f,
-            coastalErosionStrength = 1f,
-            beachFormationStrength = 1f,
             hydraulicErosionStrength = 1f,
             hydraulicDepositionStrength = 1.5f,
             hydraulicDepositionSlopeDegrees = 12f,
-            riverLod2SourceThreshold = 0.35f,
-            riverLod1SourceThreshold = 0.65f,
-            riverBroadSourceThreshold = 1f,
-            riverLandSourceThreshold = 1.3f,
-            riverFinalSourceThreshold = 1.6f,
+            riverSourceCatchmentFraction = 0.002f,
+            riverSourceSteepMultiplier = 4f,
         };
         var handle = MotuNative.CreateMotu(2018, ref options);
         if (handle == IntPtr.Zero)
@@ -1378,12 +1426,21 @@ public sealed class IslandViewer : MonoBehaviour
                     || !terrainMaterial.HasProperty("_WorldNormalWeight")
                     || !terrainMaterial.HasProperty("_Occlusion")
                     || !terrainMaterial.HasProperty("_CliffNoise3D")
+                    || !terrainMaterial.HasProperty("_RockPatchNoiseDetailScale")
                     || !terrainMaterial.HasProperty("_CliffNormalStrength")
                     || !terrainMaterial.HasProperty("_GrassNormalDetailScale")
                     || !terrainMaterial.HasProperty("_SandNormalDetailScale")
+                    || !terrainMaterial.HasProperty("_SnowNormalDetailScale")
+                    || !terrainMaterial.HasProperty("_DirtNormalStrength")
                     || !terrainMaterial.HasProperty("_GrassNormalStrength")
                     || !terrainMaterial.HasProperty("_SandNormalStrength")
+                    || !terrainMaterial.HasProperty("_SnowNormalStrength")
+                    || !terrainMaterial.HasProperty("_GrassThinDepositColor")
+                    || !terrainMaterial.HasProperty("_GrassThickDepositColor")
+                    || !terrainMaterial.HasProperty("_GrassPatchNoise")
+                    || !terrainMaterial.HasProperty("_GrassPatchNoiseWorldSize")
                     || !terrainMaterial.HasProperty("_BeachMaximumElevation")
+                    || !terrainMaterial.HasProperty("_SandPatchNoiseWorldSize")
                     || !terrainMaterial.HasProperty("_RockBoundaryNoiseStrength")
                     || !terrainMaterial.HasProperty("_SandRockSlopeThreshold")
                     || !terrainMaterial.HasProperty("_GrassPlayerPosition")
@@ -1436,6 +1493,10 @@ public sealed class IslandViewer : MonoBehaviour
                     || !waterMaterial.HasProperty("_WorldSize")
                     || !waterMaterial.HasProperty("_ShallowOpacity")
                     || !waterMaterial.HasProperty("_OpacityDepth")
+                    || !waterMaterial.HasProperty("_EstuaryStrength")
+                    || !waterMaterial.HasProperty("_EstuaryColor")
+                    || !waterMaterial.HasProperty("_EstuaryBlendHeight")
+                    || !waterMaterial.HasProperty("_SeaLevel")
                     || !waterMaterial.HasProperty("_ReflectionColor")
                     || !waterMaterial.HasProperty("_ReflectionHorizonColor")
                     || !waterMaterial.HasProperty("_ReflectionStrength")
@@ -1482,6 +1543,9 @@ public sealed class IslandViewer : MonoBehaviour
             try
             {
                 if (!grassMaterial.HasProperty("_CliffNoise3D")
+                    || !grassMaterial.HasProperty("_RockPatchNoiseDetailScale")
+                    || !grassMaterial.HasProperty("_GrassPatchNoise")
+                    || !grassMaterial.HasProperty("_GrassPatchNoiseWorldSize")
                     || !grassMaterial.HasProperty("_GrassPlayerPosition")
                     || !grassMaterial.HasProperty("_GrassRadius")
                     || !grassMaterial.HasProperty("_GrassHeight")
@@ -1490,11 +1554,27 @@ public sealed class IslandViewer : MonoBehaviour
                     || !grassMaterial.HasProperty("_GrassLightColor")
                     || !grassMaterial.HasProperty("_GrassAmbientColor")
                     || !grassMaterial.HasProperty("_BeachMaximumElevation")
+                    || !grassMaterial.HasProperty("_SandPatchNoiseWorldSize")
                     || !grassMaterial.HasProperty("_RockBoundaryNoiseStrength")
                     || !grassMaterial.HasProperty("_SnowMacroNoiseMetres"))
                 {
                     throw new InvalidOperationException(
                         "The terrain grass shader is missing its required properties.");
+                }
+                var grassPatchNoise = CreateGrassPatchNoiseTexture();
+                try
+                {
+                    grassMaterial.SetTexture("_GrassPatchNoise", grassPatchNoise);
+                    if (grassPatchNoise.width != GrassPatchNoiseDimension
+                        || grassPatchNoise.height != GrassPatchNoiseDimension)
+                    {
+                        throw new InvalidOperationException(
+                            "The grass patch noise texture has invalid dimensions.");
+                    }
+                }
+                finally
+                {
+                    DestroyImmediate(grassPatchNoise);
                 }
             }
             finally

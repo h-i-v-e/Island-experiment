@@ -11,6 +11,8 @@ Shader "Motu/Terrain Grass"
         _GrassBladeWidth ("Grass Blade Width", Range(0.04, 0.5)) = 0.48
         _GrassRootColor ("Grass Root", Color) = (0.14, 0.34, 0.11, 1)
         _GrassTipColor ("Grass Tip", Color) = (0.26, 0.62, 0.21, 1)
+        [NoScaleOffset] _GrassPatchNoise ("Grass Patch Noise", 2D) = "white" {}
+        _GrassPatchNoiseWorldSize ("Grass Patch Repeat (metres)", Float) = 32
         _GrassBrightness ("Grass Brightness", Range(0.25, 3)) = 1.35
         [HideInInspector] _GrassLightDirection ("Light Direction", Vector) = (0, 1, 0, 0)
         [HideInInspector] _GrassLightColor ("Light Color", Color) = (1, 1, 1, 1)
@@ -19,15 +21,16 @@ Shader "Motu/Terrain Grass"
         _SnowLine ("Snow Line (metres)", Float) = 100
         _SnowEdgeNoiseMetres ("Snow Edge Noise (metres)", Range(0, 10)) = 2.5
         _SnowMacroNoiseMetres ("Snow Macro Noise (metres)", Range(0, 40)) = 18
-        _BeachEdgeNoiseMetres ("Beach Edge Noise (metres)", Range(0, 8)) = 2.5
-        _BeachMaximumElevation ("Beach Maximum Elevation (metres)", Float) = 1
+        _BeachMaximumElevation ("Sand Maximum Elevation (metres)", Float) = 3
+        _SandPatchNoiseWorldSize ("Sand Patch Repeat (metres)", Float) = 32
         _RiverEdgeNoiseStrength ("River Edge Noise Strength", Range(0, 0.45)) = 0.20
         _RiverEdgeBlendWidth ("River Edge Blend Width", Range(0.01, 0.5)) = 0.20
         _CliffNormalCutoff ("Cliff Up-Normal Cutoff", Range(0, 1)) = 0.55
         _CliffBoundaryNoiseStrength ("Cliff Boundary Noise Strength", Range(0, 0.5)) = 0.30
-        _RockBoundaryNoiseStrength ("Rock Boundary Noise Strength", Range(0, 0.4)) = 0.18
+        _RockBoundaryNoiseStrength ("Sand Rock Edge Noise Strength", Range(0, 0.4)) = 0.18
         _SandRockSlopeThreshold ("Sand Rock Slope Threshold", Range(0, 0.5)) = 0.10
         _CliffNoisePeriod ("Cliff Noise Period (metres)", Float) = 160
+        _RockPatchNoiseDetailScale ("Rock Mask Detail Frequency", Range(1, 32)) = 8
     }
 
     SubShader

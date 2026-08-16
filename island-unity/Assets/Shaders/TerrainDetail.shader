@@ -10,22 +10,30 @@ Shader "Motu/Terrain Unified"
         _SnowLine ("Snow Line (metres)", Float) = 100
         _SnowEdgeNoiseMetres ("Snow Edge Noise (metres)", Range(0, 10)) = 2.5
         _SnowMacroNoiseMetres ("Snow Macro Noise (metres)", Range(0, 40)) = 18
-        _BeachEdgeNoiseMetres ("Beach Edge Noise (metres)", Range(0, 8)) = 2.5
-        _BeachMaximumElevation ("Beach Maximum Elevation (metres)", Float) = 1
+        _BeachMaximumElevation ("Sand Maximum Elevation (metres)", Float) = 3
+        _SandPatchNoiseWorldSize ("Sand Patch Repeat (metres)", Float) = 32
         _RiverEdgeNoiseStrength ("River Edge Noise Strength", Range(0, 0.45)) = 0.20
         _RiverEdgeBlendWidth ("River Edge Blend Width", Range(0.01, 0.5)) = 0.20
         _CliffNormalCutoff ("Cliff Up-Normal Cutoff", Range(0, 1)) = 0.55
         _CliffBoundaryNoiseStrength ("Cliff Boundary Noise Strength", Range(0, 0.5)) = 0.30
-        _RockBoundaryNoiseStrength ("Rock Boundary Noise Strength", Range(0, 0.4)) = 0.18
+        _RockBoundaryNoiseStrength ("Sand Rock Edge Noise Strength", Range(0, 0.4)) = 0.18
         _SandRockSlopeThreshold ("Sand Rock Slope Threshold", Range(0, 0.5)) = 0.10
         [NoScaleOffset] _CliffNoise3D ("Cliff 3D Noise", 3D) = "gray" {}
         _CliffNoisePeriod ("Cliff Noise Period (metres)", Float) = 160
-        _CliffNoiseDetailScale ("Cliff Detail Frequency", Range(2, 32)) = 16
-        _CliffNormalStrength ("Cliff Normal Strength", Range(0, 0.5)) = 0.12
+        _RockPatchNoiseDetailScale ("Rock Mask Detail Frequency", Range(1, 32)) = 8
+        _CliffNoiseDetailScale ("Rock and Cliff Detail Frequency", Range(2, 32)) = 16
+        _CliffNormalStrength ("Rock and Cliff Normal Strength", Range(0, 0.5)) = 0.12
         _GrassNormalDetailScale ("Grass Detail Frequency", Range(16, 192)) = 96
         _SandNormalDetailScale ("Sand Detail Frequency", Range(32, 1024)) = 768
+        _SnowNormalDetailScale ("Snow Detail Frequency", Range(16, 256)) = 96
+        _DirtNormalStrength ("Bare Dirt Normal Strength", Range(0, 0.5)) = 0.05
         _GrassNormalStrength ("Grass Normal Strength", Range(0, 0.5)) = 0.22
         _SandNormalStrength ("Sand Normal Strength", Range(0, 0.5)) = 0.10
+        _SnowNormalStrength ("Snow Normal Strength", Range(0, 0.5)) = 0.08
+        _GrassThinDepositColor ("Bare Grass Ground", Color) = (0.55, 0.46, 0.28, 1)
+        _GrassThickDepositColor ("Grass-Covered Ground", Color) = (0.20, 0.48, 0.16, 1)
+        [NoScaleOffset] _GrassPatchNoise ("Grass Patch Noise", 2D) = "white" {}
+        _GrassPatchNoiseWorldSize ("Grass Patch Repeat (metres)", Float) = 32
         [HideInInspector] _GrassEnabled ("Local Grass Enabled", Float) = 0
         [HideInInspector] _GrassPlayerPosition ("Player Position", Vector) = (0, 0, 0, 0)
         _GroundDirtColor ("Grass Ground Dirt", Color) = (0.24, 0.14, 0.07, 1)
@@ -74,6 +82,7 @@ Shader "Motu/Terrain Unified"
 
             sampler2D _WorldNormal;
             sampler2D _Occlusion;
+            sampler2D _GrassPatchNoise;
             sampler3D _CliffNoise3D;
             fixed4 _Color;
             half _WorldNormalWeight;
@@ -81,8 +90,8 @@ Shader "Motu/Terrain Unified"
             float _SnowLine;
             float _SnowEdgeNoiseMetres;
             float _SnowMacroNoiseMetres;
-            float _BeachEdgeNoiseMetres;
             float _BeachMaximumElevation;
+            float _SandPatchNoiseWorldSize;
             half _RiverEdgeNoiseStrength;
             half _RiverEdgeBlendWidth;
             half _CliffNormalCutoff;
@@ -90,12 +99,19 @@ Shader "Motu/Terrain Unified"
             half _RockBoundaryNoiseStrength;
             half _SandRockSlopeThreshold;
             float _CliffNoisePeriod;
+            half _RockPatchNoiseDetailScale;
             half _CliffNoiseDetailScale;
             half _CliffNormalStrength;
             half _GrassNormalDetailScale;
             half _SandNormalDetailScale;
+            half _SnowNormalDetailScale;
+            half _DirtNormalStrength;
             half _GrassNormalStrength;
             half _SandNormalStrength;
+            half _SnowNormalStrength;
+            fixed4 _GrassThinDepositColor;
+            fixed4 _GrassThickDepositColor;
+            float _GrassPatchNoiseWorldSize;
             half _GrassEnabled;
             float3 _GrassPlayerPosition;
             fixed4 _GroundDirtColor;
@@ -179,22 +195,38 @@ Shader "Motu/Terrain Unified"
                     -riverTransition,
                     riverTransition,
                     riverDistance);
-                float noisyBeachElevation = elevation
-                    - broadNoise.b * _BeachEdgeNoiseMetres;
-                half coastCoverage = AntialiasedMask(
-                    _BeachMaximumElevation - noisyBeachElevation);
-                half beachDepositCoverage = AntialiasedMask(
-                    looseCover - 0.5);
-                half beachCandidateCoverage = beachDepositCoverage
-                    * coastCoverage
+                // Sand richness combines loose deposited material with height
+                // above the sea. The same progressive texture threshold used
+                // for grass replaces both former hard beach cutoffs.
+                half sandAltitudeRichness = saturate(
+                    (_BeachMaximumElevation - elevation)
+                        / max(_BeachMaximumElevation, 0.1));
+                half sandRichness = looseCover
+                    * sandAltitudeRichness
                     * (1.0 - riverCoverage);
+                float2 sandPatchUv = input.worldPosition.xz
+                    / max(_SandPatchNoiseWorldSize, 0.1)
+                    + float2(0.37, 0.73);
+                half2 sandPatchLayers = tex2D(
+                    _GrassPatchNoise,
+                    sandPatchUv).rg;
+                half sandPatchNoise = sandPatchLayers.r * 0.40
+                    + sandPatchLayers.g * 0.60;
+                half beachCandidateCoverage = AntialiasedMask(
+                    sandPatchNoise - (1.0 - sandRichness))
+                    * step(1.0e-4, sandRichness);
 
                 half geologyRockWeight = saturate(
                     slope * lerp(1.3, 3.0, hardness));
-                half rockThreshold = 0.5
-                    + rockBoundaryNoise * _RockBoundaryNoiseStrength;
+                half3 rockPatchLayers = tex3D(
+                    _CliffNoise3D,
+                    noisePosition * _RockPatchNoiseDetailScale
+                        + float3(0.67, 0.31, 0.91)).rgb;
+                half rockPatchNoise = rockPatchLayers.r * 0.65
+                    + rockPatchLayers.g * 0.35;
                 half geologyRockCoverage = AntialiasedMask(
-                    geologyRockWeight - rockThreshold);
+                    rockPatchNoise - (1.0 - geologyRockWeight))
+                    * step(1.0e-4, geologyRockWeight);
                 // Loose beach deposits cannot sustain slopes as steep as
                 // ordinary earth. Use raw geometric slope so underlying
                 // bedrock hardness does not make sand artificially stronger.
@@ -212,9 +244,27 @@ Shader "Motu/Terrain Unified"
                     geologyRockCoverage,
                     cliffWeight);
 
+                // Use the exact richness/noise boundary that clips the fur
+                // shells, then anti-alias it for the opaque ground surface.
+                float2 grassPatchUv = input.worldPosition.xz
+                    / max(_GrassPatchNoiseWorldSize, 0.1);
+                half2 grassPatchLayers = tex2D(
+                    _GrassPatchNoise,
+                    grassPatchUv).rg;
+                half grassPatchNoise = grassPatchLayers.r * 0.65
+                    + grassPatchLayers.g * 0.35;
+                half furGrassCoverage = AntialiasedMask(
+                    grassPatchNoise - (1.0 - looseCover))
+                    * step(1.0e-4, looseCover);
+
                 fixed3 deep = fixed3(0.08, 0.16, 0.12);
                 fixed3 sand = fixed3(0.62, 0.57, 0.34);
-                fixed3 grass = fixed3(0.20, 0.48, 0.16);
+                // Bare soil is brown; only positions admitted by the fur mask
+                // receive the full established ground-green colour.
+                fixed3 grass = lerp(
+                    _GrassThinDepositColor.rgb,
+                    _GrassThickDepositColor.rgb,
+                    furGrassCoverage);
                 fixed3 rock = fixed3(0.34, 0.32, 0.29);
                 fixed3 snow = fixed3(0.82, 0.84, 0.81);
                 fixed3 baseColor;
@@ -250,6 +300,7 @@ Shader "Motu/Terrain Unified"
                         dirtDistance);
                     half dirtCoverage = _GrassEnabled
                         * grassGroundCoverage
+                        * furGrassCoverage
                         * dirtProximity;
                     baseColor = lerp(
                         baseColor,
@@ -271,9 +322,12 @@ Shader "Motu/Terrain Unified"
                 // normal-cutoff cliffs still override every surface class.
                 baseColor = lerp(baseColor, rock, cliffWeight);
 
+                // Snow owns its visible normal detail instead of inheriting
+                // the coarser stone beneath it. Cliffs remain stone because
+                // snowCoverage already excludes the normal-cutoff cliffs.
                 half stoneNormalCoverage = max(
                     exposedRockCoverage,
-                    riverCoverage);
+                    riverCoverage) * (1.0 - snowCoverage);
                 UNITY_BRANCH
                 if (stoneNormalCoverage > 0.01 && _CliffNormalStrength > 0.0)
                 {
@@ -294,14 +348,20 @@ Shader "Motu/Terrain Unified"
                     * (1.0 - cliffWeight);
                 UNITY_BRANCH
                 if (soilCoverage > 0.01
-                    && max(_GrassNormalStrength, _SandNormalStrength) > 0.0)
+                    && max(
+                        max(_DirtNormalStrength, _GrassNormalStrength),
+                        _SandNormalStrength) > 0.0)
                 {
                     half soilDetailScale = lerp(
                         _GrassNormalDetailScale,
                         _SandNormalDetailScale,
                         saturate(beachCoverage));
-                    half soilNormalStrength = lerp(
+                    half grassOrDirtNormalStrength = lerp(
+                        _DirtNormalStrength,
                         _GrassNormalStrength,
+                        furGrassCoverage);
+                    half soilNormalStrength = lerp(
+                        grassOrDirtNormalStrength,
                         _SandNormalStrength,
                         saturate(beachCoverage));
                     half3 soilNoise = tex3D(
@@ -313,6 +373,20 @@ Shader "Motu/Terrain Unified"
                         normal
                             + soilNoise
                                 * (soilNormalStrength * soilCoverage));
+                }
+
+                UNITY_BRANCH
+                if (snowCoverage > 0.01 && _SnowNormalStrength > 0.0)
+                {
+                    half3 snowNoise = tex3D(
+                        _CliffNoise3D,
+                        noisePosition * _SnowNormalDetailScale
+                            + float3(0.19, 0.89, 0.43)).rgb * 2.0 - 1.0;
+                    snowNoise -= normal * dot(snowNoise, normal);
+                    normal = normalize(
+                        normal
+                            + snowNoise
+                                * (_SnowNormalStrength * snowCoverage));
                 }
 
                 float3 lightDirection = normalize(UnityWorldSpaceLightDir(input.worldPosition));
