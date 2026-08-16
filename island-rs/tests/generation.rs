@@ -248,11 +248,11 @@ fn rejects_out_of_range_hydraulic_deposition_options() {
 }
 
 #[test]
-fn river_source_catchment_changes_river_generation() {
+fn absolute_river_source_catchment_changes_river_generation() {
     let many_sources = Island::generate(
         53,
         IslandOptions {
-            river_source_catchment_fraction: 0.0001,
+            river_source_catchment_hectares: 0.005,
             river_source_steep_multiplier: 1.0,
             ..small_options()
         },
@@ -261,7 +261,7 @@ fn river_source_catchment_changes_river_generation() {
     let few_sources = Island::generate(
         53,
         IslandOptions {
-            river_source_catchment_fraction: 0.05,
+            river_source_catchment_hectares: 5.0,
             river_source_steep_multiplier: 1.0,
             ..small_options()
         },
@@ -283,6 +283,7 @@ fn every_final_river_reaches_the_sea_or_joins_one_that_does() {
     )
     .unwrap();
 
+    assert!(!island.rivers().is_empty());
     for index in 0..island.rivers().len() {
         let mut outlet = index;
         while let Some(join) = island.rivers()[outlet].join {
@@ -305,7 +306,7 @@ fn native_options_are_not_limited_to_viewer_control_ranges() {
         1,
         IslandOptions {
             water_ratio: 0.5,
-            river_source_catchment_fraction: 0.1,
+            river_source_catchment_hectares: 10.0,
             ..small_options()
         },
     );
@@ -359,7 +360,7 @@ fn lod0_render_uses_the_corrected_support_mesh() {
 fn hydraulic_erosion_does_not_reverse_projected_faces() {
     let options = |hydraulic_erosion_strength| IslandOptions {
         hydraulic_erosion_strength,
-        river_source_catchment_fraction: 0.05,
+        river_source_catchment_hectares: 5.0,
         ..small_options()
     };
     let reversed = |mesh: &motu::Mesh| {
@@ -615,9 +616,9 @@ fn save_and_load_regenerates_identical_island() {
             hydraulic_erosion_strength: 1.75,
             hydraulic_deposition_strength: 2.25,
             hydraulic_deposition_slope_degrees: 18.0,
-            river_source_catchment_fraction: 0.0075,
+            river_source_catchment_hectares: 0.75,
             river_source_steep_multiplier: 5.0,
-            river_source_minimum_elevation_metres: 8.5,
+            river_source_elevation_boost: 8.5,
             ..small_options()
         },
     )
@@ -632,10 +633,7 @@ fn save_and_load_regenerates_identical_island() {
     fs::remove_file(path).unwrap();
     assert_eq!(island, loaded);
     assert_eq!(
-        loaded
-            .options()
-            .river_source_minimum_elevation_metres
-            .to_bits(),
+        loaded.options().river_source_elevation_boost.to_bits(),
         8.5_f32.to_bits()
     );
 }
@@ -663,18 +661,69 @@ fn version_ten_save_uses_new_river_source_defaults() {
     fs::remove_file(path).unwrap();
     assert_eq!(loaded.seed(), 77);
     assert_eq!(
-        loaded.options().river_source_catchment_fraction.to_bits(),
-        defaults.river_source_catchment_fraction.to_bits()
+        loaded.options().river_source_catchment_hectares.to_bits(),
+        defaults.river_source_catchment_hectares.to_bits()
     );
     assert_eq!(
         loaded.options().river_source_steep_multiplier.to_bits(),
         defaults.river_source_steep_multiplier.to_bits()
     );
     assert_eq!(
-        loaded
-            .options()
-            .river_source_minimum_elevation_metres
-            .to_bits(),
-        defaults.river_source_minimum_elevation_metres.to_bits()
+        loaded.options().river_source_elevation_boost.to_bits(),
+        defaults.river_source_elevation_boost.to_bits()
+    );
+}
+
+#[test]
+fn version_thirteen_fraction_is_migrated_to_an_absolute_land_area() {
+    let mut bytes = b"MOTURS\0\x0d".to_vec();
+    bytes.extend(78_u64.to_le_bytes());
+    for value in [0.2_f32, 0.95, 1.3, 1.0, 1.0, 1.5, 12.0, 0.002, 4.0, 5.0] {
+        bytes.extend(value.to_le_bytes());
+    }
+    bytes.extend(24_u32.to_le_bytes());
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let path = std::env::temp_dir().join(format!("island-rs-v13-{unique}.motu"));
+    fs::write(&path, bytes).unwrap();
+
+    let loaded = Island::load(&path).unwrap();
+
+    fs::remove_file(path).unwrap();
+    assert_eq!(loaded.seed(), 78);
+    assert!((loaded.options().river_source_catchment_hectares - 0.04).abs() < 1.0e-6);
+    assert_eq!(
+        loaded.options().river_source_elevation_boost.to_bits(),
+        IslandOptions::default()
+            .river_source_elevation_boost
+            .to_bits()
+    );
+}
+
+#[test]
+fn version_fourteen_minimum_elevation_is_replaced_by_the_default_boost() {
+    let mut bytes = b"MOTURS\0\x0e".to_vec();
+    bytes.extend(79_u64.to_le_bytes());
+    for value in [0.2_f32, 0.95, 1.3, 1.0, 1.0, 1.5, 12.0, 0.05, 4.0, 75.0] {
+        bytes.extend(value.to_le_bytes());
+    }
+    bytes.extend(24_u32.to_le_bytes());
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let path = std::env::temp_dir().join(format!("island-rs-v14-{unique}.motu"));
+    fs::write(&path, bytes).unwrap();
+
+    let loaded = Island::load(&path).unwrap();
+    fs::remove_file(path).unwrap();
+
+    assert_eq!(
+        loaded.options().river_source_elevation_boost.to_bits(),
+        IslandOptions::default()
+            .river_source_elevation_boost
+            .to_bits()
     );
 }

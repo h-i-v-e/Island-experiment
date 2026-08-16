@@ -35,9 +35,9 @@ pub struct MotuOptions {
     pub hydraulicErosionStrength: f32,
     pub hydraulicDepositionStrength: f32,
     pub hydraulicDepositionSlopeDegrees: f32,
-    pub riverSourceCatchmentFraction: f32,
+    pub riverSourceCatchmentHectares: f32,
     pub riverSourceSteepMultiplier: f32,
-    pub riverSourceMinimumElevationMetres: f32,
+    pub riverSourceElevationBoost: f32,
 }
 
 const _: () = assert!(size_of::<MotuOptions>() == size_of::<[f32; 12]>());
@@ -52,9 +52,9 @@ impl From<MotuOptions> for IslandOptions {
             hydraulic_erosion_strength: value.hydraulicErosionStrength,
             hydraulic_deposition_strength: value.hydraulicDepositionStrength,
             hydraulic_deposition_slope_degrees: value.hydraulicDepositionSlopeDegrees,
-            river_source_catchment_fraction: value.riverSourceCatchmentFraction,
+            river_source_catchment_hectares: value.riverSourceCatchmentHectares,
             river_source_steep_multiplier: value.riverSourceSteepMultiplier,
-            river_source_minimum_elevation_metres: value.riverSourceMinimumElevationMetres,
+            river_source_elevation_boost: value.riverSourceElevationBoost,
             ..Self::default()
         }
     }
@@ -1037,9 +1037,9 @@ mod tests {
             hydraulicErosionStrength: 0.25,
             hydraulicDepositionStrength: 1.5,
             hydraulicDepositionSlopeDegrees: 12.0,
-            riverSourceCatchmentFraction: 0.002,
+            riverSourceCatchmentHectares: 0.05,
             riverSourceSteepMultiplier: 4.0,
-            riverSourceMinimumElevationMetres: 5.0,
+            riverSourceElevationBoost: 9.0,
         };
         // SAFETY: this test passes valid pointers and releases every returned
         // allocation exactly once through its paired ABI function.

@@ -24,12 +24,15 @@ Unity texture and mesh objects are then uploaded on the main thread, with the
 overlay to regenerate another seed and adjust terrain, coastal evolution,
 hydraulic-erosion, or river source selection. Coastal erosion cuts
 exposed softer rock into bays and platforms; beach formation conservatively
-redistributes that sediment toward sheltered shorelines. Source catchment is a
-percentage of the current pass's land vertices, so one slider remains consistent
-across all mesh densities. A second control suppresses small sources on steep
-slopes while retaining sufficiently large catchments. Slider changes take effect when you press
-Generate. A third source control excludes candidate headwaters below its
-world-space elevation, defaulting to five metres. Drag to orbit, use the mouse
+redistributes that sediment toward sheltered shorelines. Source catchment is an
+absolute drainage area in hectares. Projected vertex areas are accumulated in
+world space, so one slider remains consistent across all mesh densities while
+larger islands can support more rivers. A second control suppresses small sources
+on steep slopes while retaining sufficiently large catchments. Slider changes take effect when you press
+Generate. A third source control continuously lowers the required catchment as
+elevation rises. Its default of nine makes the sea-level requirement ten times
+the requirement at the configured maximum elevation, discouraging short coastal
+rivers without imposing a hard elevation cutoff. Drag to orbit, use the mouse
 wheel to zoom, and right-drag to pan.
 In first-person mode, terrain, grass, rivers, and sea fade into sky-coloured
 linear distance haze from the camera position to full strength at one kilometre.

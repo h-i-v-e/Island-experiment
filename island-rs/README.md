@@ -48,14 +48,14 @@ Useful options:
 --hydraulic-erosion-strength <0..8>
 --hydraulic-deposition-strength <0..4>
 --hydraulic-deposition-slope <1..45>
---river-source-catchment <FRACTION>
+--river-source-catchment-hectares <HECTARES>
 --river-source-steep-multiplier <FLOAT>
---river-source-minimum-elevation <METRES>
+--river-source-elevation-boost <FACTOR>
 ```
 
 The Unity viewer constrains water ratio to `0.60..0.95`, river-source catchment
-to `0.02%..2%` of land vertices, the steep-slope multiplier to `1..8`, and the
-minimum source elevation to `0..100` metres.
+to `0.01..10` hectares, the steep-slope multiplier to `1..8`, and the
+elevation boost to `0..20`.
 
 Hydraulic erosion strength is a multiplier over the generator's staged erosion
 profile. The default is `1`; use `0` to disable hydraulic erosion while keeping
@@ -109,14 +109,18 @@ clipping: X is bedrock hardness, Y is normalized loose cover, and Z is final
 river-bed coverage. Sampling after slicing keeps the attributes paired with
 reordered and newly inserted boundary vertices.
 
-River-source selection uses one catchment fraction for every routing pass. Each
-pass multiplies that fraction by its current land-vertex count, so progressively
-denser meshes require proportionally more accumulated flow without separate LOD
-controls. The local required flow rises smoothly with the selected downhill
-edge's steepness; the default multiplier is four near a vertical edge. Lower
-catchment fractions select more sources, while higher values produce fewer.
-Candidates below the configurable minimum source elevation are excluded; it
-defaults to five metres in the fixed two-kilometre Unity world scale.
+River-source selection uses one absolute catchment area for every routing pass.
+Projected control areas are converted to square metres and accumulated
+downstream alongside the existing vertex flow, so progressively denser meshes
+measure the same physical drainage area without separate LOD controls. The
+local required area rises smoothly with the selected downhill edge's steepness;
+the default multiplier is four near a vertical edge. Lower catchment areas
+select more sources, while higher values produce fewer. The default is `0.05`
+hectares (500 square metres) at the configured maximum elevation. There is no
+hard minimum source elevation. Instead, the elevation boost raises the required
+catchment continuously toward sea level. Its default of nine makes the
+sea-level requirement ten times the high-elevation requirement, suppressing
+short coastal rivers while retaining mountain sources.
 River excavation consumes loose cover
 before hardness-weighted bedrock, transfers area-weighted sediment volumes
 through tributaries, records alluvial/delta/shelf raises as loose cover, and

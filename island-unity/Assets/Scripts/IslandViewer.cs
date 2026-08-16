@@ -14,8 +14,10 @@ public sealed class IslandViewer : MonoBehaviour
     private const float SeaHeight = 0f;
     private const float MinimumWaterRatio = 0.6f;
     private const float DefaultWaterRatio = 0.95f;
-    private const float MinimumRiverSourceCatchmentFraction = 0.0002f;
-    private const float MaximumRiverSourceCatchmentFraction = 0.02f;
+    private const float MinimumRiverSourceCatchmentHectares = 0.01f;
+    private const float MaximumRiverSourceCatchmentHectares = 10f;
+    private const float DefaultRiverSourceCatchmentHectares = 0.05f;
+    private const float DefaultRiverSourceElevationBoost = 9f;
     private const int SurfaceMapDimension = 2048;
     private const int CliffNoiseDimension = 64;
     private const int CliffNoiseLatticePeriod = 16;
@@ -58,9 +60,9 @@ public sealed class IslandViewer : MonoBehaviour
     private float hydraulicErosionStrength = 1f;
     private float hydraulicDepositionStrength = 1.5f;
     private float hydraulicDepositionSlopeDegrees = 12f;
-    private float riverSourceCatchmentFraction = 0.002f;
+    private float riverSourceCatchmentHectares = DefaultRiverSourceCatchmentHectares;
     private float riverSourceSteepMultiplier = 4f;
-    private float riverSourceMinimumElevationMetres = 5f;
+    private float riverSourceElevationBoost = DefaultRiverSourceElevationBoost;
     private float grassBrightness = 1.35f;
     private string status = "Ready";
     private bool showRivers = true;
@@ -450,9 +452,9 @@ public sealed class IslandViewer : MonoBehaviour
                 hydraulicErosionStrength = hydraulicErosionStrength,
                 hydraulicDepositionStrength = hydraulicDepositionStrength,
                 hydraulicDepositionSlopeDegrees = hydraulicDepositionSlopeDegrees,
-                riverSourceCatchmentFraction = riverSourceCatchmentFraction,
+                riverSourceCatchmentHectares = riverSourceCatchmentHectares,
                 riverSourceSteepMultiplier = riverSourceSteepMultiplier,
-                riverSourceMinimumElevationMetres = riverSourceMinimumElevationMetres,
+                riverSourceElevationBoost = riverSourceElevationBoost,
             };
 
             prepared = await Task.Run(
@@ -1329,23 +1331,23 @@ public sealed class IslandViewer : MonoBehaviour
             "F1");
         GUILayout.Space(4f);
         GUILayout.Label("River source selection (higher = fewer rivers)");
-        riverSourceCatchmentFraction = OptionSlider(
-            "Source catchment",
-            riverSourceCatchmentFraction,
-            MinimumRiverSourceCatchmentFraction,
-            MaximumRiverSourceCatchmentFraction,
-            "P2");
+        riverSourceCatchmentHectares = LogOptionSlider(
+            "Source catchment (ha)",
+            riverSourceCatchmentHectares,
+            MinimumRiverSourceCatchmentHectares,
+            MaximumRiverSourceCatchmentHectares,
+            "F2");
         riverSourceSteepMultiplier = OptionSlider(
             "Steep slope multiplier",
             riverSourceSteepMultiplier,
             1f,
             8f,
             "F2");
-        riverSourceMinimumElevationMetres = OptionSlider(
-            "Minimum elevation (m)",
-            riverSourceMinimumElevationMetres,
+        riverSourceElevationBoost = OptionSlider(
+            "Source elevation boost",
+            riverSourceElevationBoost,
             0f,
-            100f,
+            20f,
             "F1");
 
         GUILayout.BeginHorizontal();
@@ -1424,6 +1426,31 @@ public sealed class IslandViewer : MonoBehaviour
         return value;
     }
 
+    private static float LogOptionSlider(
+        string label,
+        float value,
+        float minimum,
+        float maximum,
+        string format)
+    {
+        float logarithmicMinimum = Mathf.Log10(minimum);
+        float logarithmicMaximum = Mathf.Log10(maximum);
+        float logarithmicValue = Mathf.Log10(Mathf.Clamp(value, minimum, maximum));
+        GUILayout.BeginHorizontal();
+        GUILayout.Label(label, GUILayout.Width(138f));
+        logarithmicValue = GUILayout.HorizontalSlider(
+            logarithmicValue,
+            logarithmicMinimum,
+            logarithmicMaximum,
+            GUILayout.Width(255f));
+        value = Mathf.Pow(10f, logarithmicValue);
+        GUILayout.Label(
+            value.ToString(format, CultureInfo.InvariantCulture),
+            GUILayout.Width(66f));
+        GUILayout.EndHorizontal();
+        return value;
+    }
+
     private void ResetOptions()
     {
         maxHeight = 0.2f;
@@ -1433,9 +1460,9 @@ public sealed class IslandViewer : MonoBehaviour
         hydraulicErosionStrength = 1f;
         hydraulicDepositionStrength = 1.5f;
         hydraulicDepositionSlopeDegrees = 12f;
-        riverSourceCatchmentFraction = 0.002f;
+        riverSourceCatchmentHectares = DefaultRiverSourceCatchmentHectares;
         riverSourceSteepMultiplier = 4f;
-        riverSourceMinimumElevationMetres = 5f;
+        riverSourceElevationBoost = DefaultRiverSourceElevationBoost;
         SetGrassBrightness(1.35f);
     }
 
@@ -1461,9 +1488,9 @@ public sealed class IslandViewer : MonoBehaviour
             hydraulicErosionStrength = 1f,
             hydraulicDepositionStrength = 1.5f,
             hydraulicDepositionSlopeDegrees = 12f,
-            riverSourceCatchmentFraction = 0.002f,
+            riverSourceCatchmentHectares = DefaultRiverSourceCatchmentHectares,
             riverSourceSteepMultiplier = 4f,
-            riverSourceMinimumElevationMetres = 5f,
+            riverSourceElevationBoost = DefaultRiverSourceElevationBoost,
         };
         var handle = MotuNative.CreateMotu(2018, ref options);
         if (handle == IntPtr.Zero)

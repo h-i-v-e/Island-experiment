@@ -21,6 +21,7 @@ pub(crate) const RIVER_SURFACE_OFFSET: f32 = 0.000_01;
 // Unity scales the normalized terrain mesh to 2,000 metres across.
 const SEA_PLANE_CLEARANCE: f32 = 0.10 / 2_000.0;
 const RIVER_SOURCE_EXCLUSION_CELL_METRES: f32 = 25.0;
+const SQUARE_METRES_PER_HECTARE: f32 = 10_000.0;
 const MAX_RIVER_RINGS: u8 = 3;
 const RIVER_BOUNDARY: u8 = 1 << 7;
 const WATERFALL_LIP_SMOOTHING: f32 = 0.5;
@@ -34,34 +35,33 @@ const SHARP_POINT_SMOOTHING_PASSES: usize = 2;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct RiverSourceRule {
-    catchment_fraction: f32,
+    catchment_square_metres: f32,
     steep_multiplier: f32,
-    minimum_elevation: f32,
+    elevation_boost: f32,
+    inverse_maximum_elevation: f32,
 }
 
 impl RiverSourceRule {
     pub(crate) const fn new(
-        catchment_fraction: f32,
+        catchment_hectares: f32,
         steep_multiplier: f32,
-        minimum_elevation_metres: f32,
+        elevation_boost: f32,
+        maximum_elevation: f32,
     ) -> Self {
         Self {
-            catchment_fraction,
+            catchment_square_metres: catchment_hectares * SQUARE_METRES_PER_HECTARE,
             steep_multiplier,
-            minimum_elevation: minimum_elevation_metres / ISLAND_WORLD_METRES,
+            elevation_boost,
+            inverse_maximum_elevation: 1.0 / maximum_elevation,
         }
     }
 
-    fn base_flow(self, land_vertex_count: usize) -> u32 {
-        (land_vertex_count as f32 * self.catchment_fraction)
-            .ceil()
-            .max(1.0) as u32
-    }
-
-    fn required_flow(self, base_flow: u32, grade: f32) -> u32 {
+    fn required_catchment(self, grade: f32, elevation: f32) -> f32 {
         let slope_response = grade * grade;
-        let multiplier = (self.steep_multiplier - 1.0).mul_add(slope_response, 1.0);
-        (base_flow as f32 * multiplier).ceil() as u32
+        let slope_multiplier = (self.steep_multiplier - 1.0).mul_add(slope_response, 1.0);
+        let elevation_fraction = (elevation * self.inverse_maximum_elevation).clamp(0.0, 1.0);
+        let elevation_multiplier = self.elevation_boost.mul_add(1.0 - elevation_fraction, 1.0);
+        self.catchment_square_metres * slope_multiplier * elevation_multiplier
     }
 }
 
@@ -151,8 +151,8 @@ impl RiverNetwork {
         let perimeter = mesh.perimeter_mask();
         let ocean = fix_inland_seas(mesh, adjacency);
         let downstream = map_downstream(mesh, adjacency);
-        let flow = calculate_flow(mesh, &downstream);
-        let sources = find_sources(mesh, adjacency, &downstream, &flow, source_rule);
+        let (flow, catchment_areas) = calculate_flow_and_catchment(mesh, &downstream);
+        let sources = find_sources(mesh, adjacency, &downstream, &catchment_areas, source_rule);
         let (mut rivers, join_vertices) = trace_rivers(mesh, adjacency, &flow, &sources, &ocean);
         update_join_flows(&mut rivers, &join_vertices);
         let max_flow = rivers
@@ -1239,37 +1239,48 @@ fn downhill_slope(mesh: &Mesh, from: usize, to: usize) -> f32 {
     (mesh.vertices[from].z - mesh.vertices[to].z) / distance
 }
 
-fn calculate_flow(mesh: &Mesh, downstream: &[usize]) -> Vec<u32> {
+fn calculate_flow_and_catchment(mesh: &Mesh, downstream: &[usize]) -> (Vec<u32>, Vec<f32>) {
     let mut order: Vec<usize> = (0..mesh.vertices.len()).collect();
     order
         .sort_unstable_by(|&left, &right| mesh.vertices[right].z.total_cmp(&mesh.vertices[left].z));
     let mut flow = vec![1_u32; mesh.vertices.len()];
+    let world_area_scale = ISLAND_WORLD_METRES * ISLAND_WORLD_METRES;
+    let mut catchment_areas = projected_vertex_control_areas(mesh);
+    catchment_areas
+        .iter_mut()
+        .zip(&mesh.vertices)
+        .for_each(|(area, vertex)| {
+            *area = if vertex.z > 0.0 {
+                *area * world_area_scale
+            } else {
+                0.0
+            };
+        });
     for vertex in order {
         let next = downstream[vertex];
         if next != vertex {
             flow[next] = flow[next].saturating_add(flow[vertex]);
+            catchment_areas[next] += catchment_areas[vertex];
         }
     }
-    flow
+    (flow, catchment_areas)
 }
 
 fn find_sources(
     mesh: &Mesh,
     adjacency: &Adjacency,
     downstream: &[usize],
-    flow: &[u32],
+    catchment_areas: &[f32],
     rule: RiverSourceRule,
 ) -> Vec<usize> {
-    let land_vertex_count = mesh.vertices.iter().filter(|vertex| vertex.z > 0.0).count();
-    let base_flow = rule.base_flow(land_vertex_count);
     let candidates: Vec<bool> = mesh
         .vertices
         .iter()
         .enumerate()
         .map(|(vertex, position)| {
-            position.z >= rule.minimum_elevation
-                && flow[vertex]
-                    >= rule.required_flow(base_flow, source_grade(mesh, vertex, downstream[vertex]))
+            catchment_areas[vertex]
+                >= rule
+                    .required_catchment(source_grade(mesh, vertex, downstream[vertex]), position.z)
         })
         .collect();
     let mut sources: Vec<usize> = (0..mesh.vertices.len())
@@ -1284,7 +1295,7 @@ fn find_sources(
         mesh.vertices[left]
             .z
             .total_cmp(&mesh.vertices[right].z)
-            .then_with(|| flow[right].cmp(&flow[left]))
+            .then_with(|| catchment_areas[right].total_cmp(&catchment_areas[left]))
     });
     sources.truncate(96);
     sources
@@ -2079,6 +2090,26 @@ struct RiverTerrain<'a> {
 }
 
 impl RiverTerrain<'_> {
+    fn lower_vertex_exactly(
+        &mut self,
+        vertex: usize,
+        depth: f32,
+        budget: &mut RiverSedimentBudget,
+    ) {
+        if depth <= 0.0 {
+            return;
+        }
+        let loose_removed = depth.min(self.material.depths()[vertex]);
+        let bedrock_removed = depth - loose_removed;
+        self.mesh.vertices[vertex].z -= depth;
+        let loose_depth = &mut self.material.depths_mut()[vertex];
+        *loose_depth = (*loose_depth - loose_removed).max(0.0);
+        if *loose_depth < crate::terrain::LOOSE_DEPTH_EPSILON {
+            *loose_depth = 0.0;
+        }
+        budget.record_erosion(loose_removed, bedrock_removed, self.control_areas[vertex]);
+    }
+
     fn carve_vertex(
         &mut self,
         vertex: usize,
@@ -2331,8 +2362,14 @@ fn shape_and_carve_river(
         waterfall_relocation.clearance,
         &mut scratch.waterfall_drops,
     );
-
     let mut budget = RiverSedimentBudget::default();
+    level_confluence_reach(
+        terrain,
+        nodes,
+        waterfalls,
+        parameters.downstream_surface,
+        &mut budget,
+    );
     if parameters.terminal_ocean {
         grade_river_mouth(
             terrain,
@@ -2491,6 +2528,40 @@ fn form_stepped_profile(
             reach_length = 0.0;
         }
         nodes[index].surface = level.min(natural_surface);
+    }
+}
+
+/// Makes the incoming flat reach meet the joined river without a raised lip.
+/// The nearest upstream waterfall absorbs the correction as additional fall,
+/// leaving every earlier terrace unchanged. The later bed and bank passes use
+/// these shifted surfaces, so the same correction is carved into the terrain.
+fn level_confluence_reach(
+    terrain: &mut RiverTerrain<'_>,
+    nodes: &mut [RiverNode],
+    waterfalls: &[bool],
+    downstream_surface: f32,
+    budget: &mut RiverSedimentBudget,
+) {
+    let Some(terminal_surface) = nodes.last().map(|node| node.surface) else {
+        return;
+    };
+    if !downstream_surface.is_finite() {
+        return;
+    }
+
+    let correction = terminal_surface - downstream_surface;
+    if correction <= f32::EPSILON {
+        return;
+    }
+
+    let terminal = nodes.len() - 1;
+    let reach_start = waterfalls[..terminal]
+        .iter()
+        .rposition(|&waterfall| waterfall)
+        .map_or(0, |waterfall| waterfall + 1);
+    for node in &mut nodes[reach_start..] {
+        node.surface -= correction;
+        terrain.lower_vertex_exactly(node.vertex, correction, budget);
     }
 }
 
@@ -2879,12 +2950,37 @@ mod tests {
     }
 
     #[test]
-    fn source_cutoff_scales_with_land_vertex_density() {
-        let rule = RiverSourceRule::new(0.005, 1.0, 5.0);
+    fn source_cutoff_is_an_absolute_world_space_area() {
+        let rule = RiverSourceRule::new(0.5, 1.0, 0.0, 0.2);
 
-        assert_eq!(rule.base_flow(200), 1);
-        assert_eq!(rule.base_flow(2_000), 10);
-        assert_eq!(rule.base_flow(20_000), 100);
+        assert_eq!(
+            rule.required_catchment(0.0, 0.0).to_bits(),
+            5_000_f32.to_bits()
+        );
+        assert_eq!(
+            rule.required_catchment(1.0, 0.2).to_bits(),
+            5_000_f32.to_bits()
+        );
+    }
+
+    #[test]
+    fn catchment_accumulates_projected_land_area_in_square_metres() {
+        let mesh = Mesh {
+            vertices: vec![
+                Vec3::new(0.0, 0.0, 4.0),
+                Vec3::new(1.0, 0.0, 3.0),
+                Vec3::new(1.0, 1.0, 2.0),
+                Vec3::new(0.0, 1.0, 1.0),
+            ],
+            triangles: vec![0, 1, 2, 0, 2, 3],
+            ..Mesh::default()
+        };
+        let downstream = [1, 2, 3, 3];
+
+        let (flow, catchment) = calculate_flow_and_catchment(&mesh, &downstream);
+
+        assert_eq!(flow, [1, 2, 3, 4]);
+        assert!((catchment[3] - ISLAND_WORLD_METRES * ISLAND_WORLD_METRES).abs() < 0.5);
     }
 
     #[test]
@@ -2927,15 +3023,47 @@ mod tests {
 
     #[test]
     fn source_cutoff_rises_smoothly_with_routing_grade() {
-        let rule = RiverSourceRule::new(0.005, 4.0, 5.0);
-        let base_flow = 100;
+        let rule = RiverSourceRule::new(0.5, 4.0, 0.0, 0.2);
 
-        assert_eq!(rule.required_flow(base_flow, 0.0), 100);
-        assert_eq!(rule.required_flow(base_flow, 0.5), 175);
-        assert_eq!(rule.required_flow(base_flow, 1.0), 400);
         assert_eq!(
-            RiverSourceRule::new(0.005, 1.0, 5.0).required_flow(base_flow, 1.0),
-            100
+            rule.required_catchment(0.0, 0.2).to_bits(),
+            5_000_f32.to_bits()
+        );
+        assert_eq!(
+            rule.required_catchment(0.5, 0.2).to_bits(),
+            8_750_f32.to_bits()
+        );
+        assert_eq!(
+            rule.required_catchment(1.0, 0.2).to_bits(),
+            20_000_f32.to_bits()
+        );
+        assert_eq!(
+            RiverSourceRule::new(0.5, 1.0, 0.0, 0.2)
+                .required_catchment(1.0, 0.2)
+                .to_bits(),
+            5_000_f32.to_bits()
+        );
+    }
+
+    #[test]
+    fn source_cutoff_falls_smoothly_with_elevation() {
+        let rule = RiverSourceRule::new(0.5, 1.0, 9.0, 0.2);
+
+        assert_eq!(
+            rule.required_catchment(0.0, 0.0).to_bits(),
+            50_000_f32.to_bits()
+        );
+        assert_eq!(
+            rule.required_catchment(0.0, 0.1).to_bits(),
+            27_500_f32.to_bits()
+        );
+        assert_eq!(
+            rule.required_catchment(0.0, 0.2).to_bits(),
+            5_000_f32.to_bits()
+        );
+        assert_eq!(
+            rule.required_catchment(0.0, 0.4).to_bits(),
+            5_000_f32.to_bits()
         );
     }
 
@@ -2969,40 +3097,40 @@ mod tests {
         };
         let adjacency = mesh.adjacency();
         let downstream = [2, 3, 2, 3];
-        let flow = [5, 20, 30, 40];
+        let catchment_areas = [50_000.0, 200_000.0, 300_000.0, 400_000.0];
 
         let sources = find_sources(
             &mesh,
             &adjacency,
             &downstream,
-            &flow,
-            RiverSourceRule::new(1.0, 1.0, 0.0),
+            &catchment_areas,
+            RiverSourceRule::new(1.0, 1.0, 0.0, 0.2),
         );
 
         assert_eq!(sources, [1, 0]);
     }
 
     #[test]
-    fn sources_below_the_minimum_world_elevation_are_excluded() {
+    fn low_elevation_sources_require_more_catchment_instead_of_being_excluded() {
         let mesh = Mesh {
             vertices: vec![
-                Vec3::new(0.0, 0.0, 4.99 / ISLAND_WORLD_METRES),
-                Vec3::new(1.0, 0.0, 5.0 / ISLAND_WORLD_METRES),
-                Vec3::new(0.0, 1.0, 10.0 / ISLAND_WORLD_METRES),
+                Vec3::new(0.0, 0.0, 0.0),
+                Vec3::new(1.0, 0.0, 0.0),
+                Vec3::new(0.0, 1.0, 0.2),
             ],
             triangles: vec![0, 1, 2],
             ..Mesh::default()
         };
         let adjacency = mesh.adjacency();
         let downstream = [0, 1, 2];
-        let flow = [10, 10, 10];
+        let catchment_areas = [49_999.0, 50_000.0, 5_000.0];
 
         let sources = find_sources(
             &mesh,
             &adjacency,
             &downstream,
-            &flow,
-            RiverSourceRule::new(1.0, 1.0, 5.0),
+            &catchment_areas,
+            RiverSourceRule::new(0.5, 1.0, 9.0, 0.2),
         );
 
         assert_eq!(sources, [1, 2]);
@@ -3223,6 +3351,60 @@ mod tests {
         assert!(steep_average > gentle_average * 1.35);
         assert!(steep.iter().all(|height| *height <= 0.0036 + 1.0e-7));
         assert!((nodes[20].surface - outlet_surface).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn higher_confluence_reach_is_lowered_back_to_the_nearest_waterfall() {
+        let initial_surfaces = [0.8, 0.8, 0.5, 0.5, 0.5];
+        let mut mesh = Mesh {
+            vertices: initial_surfaces
+                .map(|surface| Vec3::new(0.0, 0.0, surface))
+                .to_vec(),
+            ..Mesh::default()
+        };
+        let adjacency = mesh.adjacency();
+        let mut material = SurfaceMaterial::empty(initial_surfaces.len());
+        let bedrock_rates = vec![0.0; initial_surfaces.len()];
+        let control_areas = vec![1.0; initial_surfaces.len()];
+        let mut nodes = initial_surfaces
+            .into_iter()
+            .enumerate()
+            .map(|(vertex, surface)| RiverNode {
+                vertex,
+                flow: 10,
+                surface,
+                position: Vec3::ZERO,
+            })
+            .collect::<Vec<_>>();
+        let waterfalls = [false, true, false, false, false];
+        let mut budget = RiverSedimentBudget::default();
+
+        level_confluence_reach(
+            &mut test_river_terrain(
+                &mut mesh,
+                &adjacency,
+                &mut material,
+                &bedrock_rates,
+                &control_areas,
+            ),
+            &mut nodes,
+            &waterfalls,
+            0.3,
+            &mut budget,
+        );
+
+        let surfaces = nodes.iter().map(|node| node.surface).collect::<Vec<_>>();
+        assert_eq!(surfaces[0].to_bits(), 0.8_f32.to_bits());
+        assert_eq!(surfaces[1].to_bits(), 0.8_f32.to_bits());
+        assert!((surfaces[2] - 0.3).abs() < 1.0e-6);
+        assert!((surfaces[3] - 0.3).abs() < 1.0e-6);
+        assert!((surfaces[4] - 0.3).abs() < 1.0e-6);
+        assert_eq!(mesh.vertices[0].z.to_bits(), 0.8_f32.to_bits());
+        assert_eq!(mesh.vertices[1].z.to_bits(), 0.8_f32.to_bits());
+        assert!((mesh.vertices[2].z - 0.3).abs() < 1.0e-6);
+        assert!((mesh.vertices[3].z - 0.3).abs() < 1.0e-6);
+        assert!((mesh.vertices[4].z - 0.3).abs() < 1.0e-6);
+        assert!((budget.bedrock_eroded - 0.6).abs() < 1.0e-6);
     }
 
     #[test]
@@ -4047,8 +4229,11 @@ mod tests {
         mesh.vertices[0].z = -0.02;
         mesh.vertices[1].z = -0.02;
         let adjacency = mesh.adjacency();
-        let mut network =
-            RiverNetwork::generate(&mut mesh, &adjacency, RiverSourceRule::new(0.0, 1.0, 0.0));
+        let mut network = RiverNetwork::generate(
+            &mut mesh,
+            &adjacency,
+            RiverSourceRule::new(0.0, 1.0, 0.0, 1.0),
+        );
         let mut material = SurfaceMaterial::empty(mesh.vertices.len());
         network.shape(&mut mesh, &adjacency, &mut material, true, true);
         for (index, river) in network.rivers.iter().enumerate() {

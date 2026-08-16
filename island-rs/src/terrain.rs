@@ -19,7 +19,7 @@ use std::{
 use rayon::prelude::*;
 
 use crate::{
-    Adjacency, BoundingBox, Mesh, Raster, River, Vec2, Vec3,
+    Adjacency, BoundingBox, ISLAND_WORLD_METRES, Mesh, Raster, River, Vec2, Vec3,
     geology::{self, GeologyField},
     mesh::{NewVertexStencil, TessellationResult},
     mesh_clipper::MeshClipper,
@@ -230,14 +230,14 @@ pub struct IslandOptions {
     pub hydraulic_deposition_strength: f32,
     /// Slope angle at which hydraulic deposition falls to zero.
     pub hydraulic_deposition_slope_degrees: f32,
-    /// Minimum upstream catchment as a fraction of the current pass's land
-    /// vertices. This keeps source density stable as the mesh is refined.
-    pub river_source_catchment_fraction: f32,
+    /// Minimum upstream drainage area in hectares required for a river source.
+    pub river_source_catchment_hectares: f32,
     /// Multiplies the required source flow as the routed edge approaches
     /// vertical. One disables the slope penalty.
     pub river_source_steep_multiplier: f32,
-    /// Minimum world-space elevation in metres at which a river may begin.
-    pub river_source_minimum_elevation_metres: f32,
+    /// Additional catchment multiplier applied at sea level, fading to zero
+    /// at the configured maximum elevation.
+    pub river_source_elevation_boost: f32,
     /// Number of free-form XY seed points used by Delaunay triangulation.
     pub terrain_size: u32,
 }
@@ -252,9 +252,9 @@ impl Default for IslandOptions {
             hydraulic_erosion_strength: 1.0,
             hydraulic_deposition_strength: 1.5,
             hydraulic_deposition_slope_degrees: 12.0,
-            river_source_catchment_fraction: 0.002,
+            river_source_catchment_hectares: 0.05,
             river_source_steep_multiplier: 4.0,
-            river_source_minimum_elevation_metres: 5.0,
+            river_source_elevation_boost: 9.0,
             terrain_size: 1024,
         }
     }
@@ -263,9 +263,10 @@ impl Default for IslandOptions {
 impl IslandOptions {
     const fn river_source_rule(self) -> RiverSourceRule {
         RiverSourceRule::new(
-            self.river_source_catchment_fraction,
+            self.river_source_catchment_hectares,
             self.river_source_steep_multiplier,
-            self.river_source_minimum_elevation_metres,
+            self.river_source_elevation_boost,
+            self.max_height,
         )
     }
 
@@ -988,7 +989,7 @@ impl Island {
     /// Returns an I/O error if the destination cannot be created or written.
     pub fn save(&self, path: impl AsRef<Path>) -> io::Result<()> {
         let mut file = File::create(path)?;
-        file.write_all(b"MOTURS\0\x0d")?;
+        file.write_all(b"MOTURS\0\x0f")?;
         file.write_all(&self.seed.to_le_bytes())?;
         for value in [
             self.options.max_height,
@@ -998,9 +999,9 @@ impl Island {
             self.options.hydraulic_erosion_strength,
             self.options.hydraulic_deposition_strength,
             self.options.hydraulic_deposition_slope_degrees,
-            self.options.river_source_catchment_fraction,
+            self.options.river_source_catchment_hectares,
             self.options.river_source_steep_multiplier,
-            self.options.river_source_minimum_elevation_metres,
+            self.options.river_source_elevation_boost,
         ] {
             file.write_all(&value.to_le_bytes())?;
         }
@@ -1016,7 +1017,7 @@ impl Island {
         let mut file = File::open(path)?;
         let mut magic = [0_u8; 8];
         file.read_exact(&mut magic)?;
-        if &magic[..7] != b"MOTURS\0" || !matches!(magic[7], 3..=13) {
+        if &magic[..7] != b"MOTURS\0" || !matches!(magic[7], 3..=15) {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "invalid Motu Rust free-form mesh file",
@@ -1061,7 +1062,12 @@ impl Island {
             ..defaults
         };
         if magic[7] >= 11 {
-            options.river_source_catchment_fraction = read_f32(&mut file)?;
+            let stored_catchment = read_f32(&mut file)?;
+            options.river_source_catchment_hectares = if magic[7] >= 14 {
+                stored_catchment
+            } else {
+                legacy_catchment_hectares(stored_catchment, water_ratio)
+            };
             options.river_source_steep_multiplier = read_f32(&mut file)?;
         } else if magic[7] >= 5 {
             for _ in 0..5 {
@@ -1069,7 +1075,10 @@ impl Island {
             }
         }
         if magic[7] >= 13 {
-            options.river_source_minimum_elevation_metres = read_f32(&mut file)?;
+            let stored_elevation_parameter = read_f32(&mut file)?;
+            if magic[7] >= 15 {
+                options.river_source_elevation_boost = stored_elevation_parameter;
+            }
         }
         if magic[7] == 8 {
             let _obsolete_cliff_render_strength = read_f32(&mut file)?;
@@ -2708,6 +2717,14 @@ fn read_f32(reader: &mut impl Read) -> io::Result<f32> {
     let mut bytes = [0_u8; 4];
     reader.read_exact(&mut bytes)?;
     Ok(f32::from_le_bytes(bytes))
+}
+
+fn legacy_catchment_hectares(fraction: f32, water_ratio: f32) -> f32 {
+    const SQUARE_METRES_PER_HECTARE: f32 = 10_000.0;
+
+    let estimated_land_fraction = (1.0 - water_ratio).clamp(0.0, 1.0);
+    fraction * estimated_land_fraction * ISLAND_WORLD_METRES * ISLAND_WORLD_METRES
+        / SQUARE_METRES_PER_HECTARE
 }
 
 #[cfg(test)]
