@@ -60,6 +60,7 @@ public sealed class IslandViewer : MonoBehaviour
     private float hydraulicDepositionSlopeDegrees = 12f;
     private float riverSourceCatchmentFraction = 0.002f;
     private float riverSourceSteepMultiplier = 4f;
+    private float riverSourceMinimumElevationMetres = 5f;
     private float grassBrightness = 1.35f;
     private string status = "Ready";
     private bool showRivers = true;
@@ -451,6 +452,7 @@ public sealed class IslandViewer : MonoBehaviour
                 hydraulicDepositionSlopeDegrees = hydraulicDepositionSlopeDegrees,
                 riverSourceCatchmentFraction = riverSourceCatchmentFraction,
                 riverSourceSteepMultiplier = riverSourceSteepMultiplier,
+                riverSourceMinimumElevationMetres = riverSourceMinimumElevationMetres,
             };
 
             prepared = await Task.Run(
@@ -1339,6 +1341,12 @@ public sealed class IslandViewer : MonoBehaviour
             1f,
             8f,
             "F2");
+        riverSourceMinimumElevationMetres = OptionSlider(
+            "Minimum elevation (m)",
+            riverSourceMinimumElevationMetres,
+            0f,
+            100f,
+            "F1");
 
         GUILayout.BeginHorizontal();
         GUILayout.Space(142f);
@@ -1427,6 +1435,7 @@ public sealed class IslandViewer : MonoBehaviour
         hydraulicDepositionSlopeDegrees = 12f;
         riverSourceCatchmentFraction = 0.002f;
         riverSourceSteepMultiplier = 4f;
+        riverSourceMinimumElevationMetres = 5f;
         SetGrassBrightness(1.35f);
     }
 
@@ -1454,6 +1463,7 @@ public sealed class IslandViewer : MonoBehaviour
             hydraulicDepositionSlopeDegrees = 12f,
             riverSourceCatchmentFraction = 0.002f,
             riverSourceSteepMultiplier = 4f,
+            riverSourceMinimumElevationMetres = 5f,
         };
         var handle = MotuNative.CreateMotu(2018, ref options);
         if (handle == IntPtr.Zero)

@@ -617,6 +617,7 @@ fn save_and_load_regenerates_identical_island() {
             hydraulic_deposition_slope_degrees: 18.0,
             river_source_catchment_fraction: 0.0075,
             river_source_steep_multiplier: 5.0,
+            river_source_minimum_elevation_metres: 8.5,
             ..small_options()
         },
     )
@@ -630,6 +631,13 @@ fn save_and_load_regenerates_identical_island() {
     let loaded = Island::load(&path).unwrap();
     fs::remove_file(path).unwrap();
     assert_eq!(island, loaded);
+    assert_eq!(
+        loaded
+            .options()
+            .river_source_minimum_elevation_metres
+            .to_bits(),
+        8.5_f32.to_bits()
+    );
 }
 
 #[test]
@@ -661,5 +669,12 @@ fn version_ten_save_uses_new_river_source_defaults() {
     assert_eq!(
         loaded.options().river_source_steep_multiplier.to_bits(),
         defaults.river_source_steep_multiplier.to_bits()
+    );
+    assert_eq!(
+        loaded
+            .options()
+            .river_source_minimum_elevation_metres
+            .to_bits(),
+        defaults.river_source_minimum_elevation_metres.to_bits()
     );
 }

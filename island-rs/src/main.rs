@@ -101,6 +101,10 @@ fn parse(arguments: impl Iterator<Item = String>) -> Result<Option<Command>, Str
                 command.options.river_source_steep_multiplier =
                     parse_value(&argument, &value(&mut arguments)?)?;
             }
+            "--river-source-minimum-elevation" => {
+                command.options.river_source_minimum_elevation_metres =
+                    parse_value(&argument, &value(&mut arguments)?)?;
+            }
             _ => return Err(format!("unknown option {argument:?}; use --help for usage")),
         }
     }
@@ -145,6 +149,8 @@ fn print_help() {
                                   Upstream land fraction required [default: 0.002]\n\
            --river-source-steep-multiplier <S>\n\
                                   Near-vertical source penalty [default: 4]\n\
+           --river-source-minimum-elevation <METRES>\n\
+                                  Minimum source elevation [default: 5]\n\
            -h, --help             Print help"
     );
 }
@@ -173,6 +179,8 @@ mod tests {
                 "0.0075",
                 "--river-source-steep-multiplier",
                 "5.25",
+                "--river-source-minimum-elevation",
+                "8.5",
             ]
             .into_iter()
             .map(String::from),
@@ -187,6 +195,7 @@ mod tests {
         assert!((command.options.hydraulic_deposition_slope_degrees - 15.0).abs() < f32::EPSILON);
         assert!((command.options.river_source_catchment_fraction - 0.0075).abs() < f32::EPSILON);
         assert!((command.options.river_source_steep_multiplier - 5.25).abs() < f32::EPSILON);
+        assert!((command.options.river_source_minimum_elevation_metres - 8.5).abs() < f32::EPSILON);
     }
 
     #[test]

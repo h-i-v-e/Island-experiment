@@ -19,6 +19,7 @@ internal static class MotuNative
         internal float hydraulicDepositionSlopeDegrees;
         internal float riverSourceCatchmentFraction;
         internal float riverSourceSteepMultiplier;
+        internal float riverSourceMinimumElevationMetres;
     }
 
     [StructLayout(LayoutKind.Sequential)]

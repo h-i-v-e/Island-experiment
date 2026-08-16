@@ -37,9 +37,10 @@ pub struct MotuOptions {
     pub hydraulicDepositionSlopeDegrees: f32,
     pub riverSourceCatchmentFraction: f32,
     pub riverSourceSteepMultiplier: f32,
+    pub riverSourceMinimumElevationMetres: f32,
 }
 
-const _: () = assert!(size_of::<MotuOptions>() == size_of::<[f32; 11]>());
+const _: () = assert!(size_of::<MotuOptions>() == size_of::<[f32; 12]>());
 
 impl From<MotuOptions> for IslandOptions {
     fn from(value: MotuOptions) -> Self {
@@ -53,6 +54,7 @@ impl From<MotuOptions> for IslandOptions {
             hydraulic_deposition_slope_degrees: value.hydraulicDepositionSlopeDegrees,
             river_source_catchment_fraction: value.riverSourceCatchmentFraction,
             river_source_steep_multiplier: value.riverSourceSteepMultiplier,
+            river_source_minimum_elevation_metres: value.riverSourceMinimumElevationMetres,
             ..Self::default()
         }
     }
@@ -1037,6 +1039,7 @@ mod tests {
             hydraulicDepositionSlopeDegrees: 12.0,
             riverSourceCatchmentFraction: 0.002,
             riverSourceSteepMultiplier: 4.0,
+            riverSourceMinimumElevationMetres: 5.0,
         };
         // SAFETY: this test passes valid pointers and releases every returned
         // allocation exactly once through its paired ABI function.

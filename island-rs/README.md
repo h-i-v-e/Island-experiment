@@ -50,10 +50,12 @@ Useful options:
 --hydraulic-deposition-slope <1..45>
 --river-source-catchment <FRACTION>
 --river-source-steep-multiplier <FLOAT>
+--river-source-minimum-elevation <METRES>
 ```
 
 The Unity viewer constrains water ratio to `0.60..0.95`, river-source catchment
-to `0.02%..2%` of land vertices, and the steep-slope multiplier to `1..8`.
+to `0.02%..2%` of land vertices, the steep-slope multiplier to `1..8`, and the
+minimum source elevation to `0..100` metres.
 
 Hydraulic erosion strength is a multiplier over the generator's staged erosion
 profile. The default is `1`; use `0` to disable hydraulic erosion while keeping
@@ -113,6 +115,8 @@ denser meshes require proportionally more accumulated flow without separate LOD
 controls. The local required flow rises smoothly with the selected downhill
 edge's steepness; the default multiplier is four near a vertical edge. Lower
 catchment fractions select more sources, while higher values produce fewer.
+Candidates below the configurable minimum source elevation are excluded; it
+defaults to five metres in the fixed two-kilometre Unity world scale.
 River excavation consumes loose cover
 before hardness-weighted bedrock, transfers area-weighted sediment volumes
 through tributaries, records alluvial/delta/shelf raises as loose cover, and

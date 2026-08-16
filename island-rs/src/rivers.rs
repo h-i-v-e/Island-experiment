@@ -10,7 +10,7 @@ use std::{
 };
 
 use crate::{
-    Adjacency, Mesh, Vec2, Vec3,
+    Adjacency, ISLAND_WORLD_METRES, Mesh, Vec2, Vec3,
     terrain::{
         ProjectedFaceAreas, SurfaceMaterial, VertexFaceAdjacency, bedrock_erosion_rate,
         projected_vertex_control_areas,
@@ -20,6 +20,7 @@ use crate::{
 pub(crate) const RIVER_SURFACE_OFFSET: f32 = 0.000_01;
 // Unity scales the normalized terrain mesh to 2,000 metres across.
 const SEA_PLANE_CLEARANCE: f32 = 0.10 / 2_000.0;
+const RIVER_SOURCE_EXCLUSION_CELL_METRES: f32 = 25.0;
 const MAX_RIVER_RINGS: u8 = 3;
 const RIVER_BOUNDARY: u8 = 1 << 7;
 const WATERFALL_LIP_SMOOTHING: f32 = 0.5;
@@ -35,13 +36,19 @@ const SHARP_POINT_SMOOTHING_PASSES: usize = 2;
 pub(crate) struct RiverSourceRule {
     catchment_fraction: f32,
     steep_multiplier: f32,
+    minimum_elevation: f32,
 }
 
 impl RiverSourceRule {
-    pub(crate) const fn new(catchment_fraction: f32, steep_multiplier: f32) -> Self {
+    pub(crate) const fn new(
+        catchment_fraction: f32,
+        steep_multiplier: f32,
+        minimum_elevation_metres: f32,
+    ) -> Self {
         Self {
             catchment_fraction,
             steep_multiplier,
+            minimum_elevation: minimum_elevation_metres / ISLAND_WORLD_METRES,
         }
     }
 
@@ -127,6 +134,7 @@ impl River {
 #[derive(Clone, Debug)]
 pub(crate) struct RiverNetwork {
     rivers: Vec<River>,
+    join_vertices: Vec<Option<usize>>,
     waterfalls: Vec<Vec<bool>>,
     max_flow: u32,
     max_height: f32,
@@ -145,8 +153,8 @@ impl RiverNetwork {
         let downstream = map_downstream(mesh, adjacency);
         let flow = calculate_flow(mesh, &downstream);
         let sources = find_sources(mesh, adjacency, &downstream, &flow, source_rule);
-        let mut rivers = trace_rivers(mesh, adjacency, &flow, &sources, &ocean);
-        update_join_flows(&mut rivers);
+        let (mut rivers, join_vertices) = trace_rivers(mesh, adjacency, &flow, &sources, &ocean);
+        update_join_flows(&mut rivers, &join_vertices);
         let max_flow = rivers
             .iter()
             .flat_map(|river| river.nodes.iter())
@@ -164,6 +172,7 @@ impl RiverNetwork {
             .collect();
         Self {
             rivers,
+            join_vertices,
             waterfalls,
             max_flow,
             max_height,
@@ -389,10 +398,7 @@ impl RiverNetwork {
         let mut scratch = RiverCarveScratch::new(terrain.mesh.vertices.len());
         for (river_index, budget_output) in budgets.iter_mut().enumerate() {
             let terminal_ocean = river_reaches_ocean(&self.rivers[river_index], &self.ocean);
-            let join_vertex = self.rivers[river_index]
-                .nodes
-                .last()
-                .map(|node| node.vertex);
+            let join_vertex = self.join_vertices[river_index];
             let downstream_surface = self.rivers[river_index]
                 .join
                 .and_then(|join| self.rivers.get(join))
@@ -1261,7 +1267,7 @@ fn find_sources(
         .iter()
         .enumerate()
         .map(|(vertex, position)| {
-            position.z > 0.0
+            position.z >= rule.minimum_elevation
                 && flow[vertex]
                     >= rule.required_flow(base_flow, source_grade(mesh, vertex, downstream[vertex]))
         })
@@ -1292,82 +1298,480 @@ fn source_grade(mesh: &Mesh, from: usize, to: usize) -> f32 {
     (edge.z.max(0.0) / edge.length().max(f32::EPSILON)).clamp(0.0, 1.0)
 }
 
-fn trace_rivers(
-    mesh: &mut Mesh,
-    adjacency: &Adjacency,
-    flow: &[u32],
-    sources: &[usize],
-    ocean: &[bool],
-) -> Vec<River> {
-    let mut rivers = Vec::<River>::new();
-    let mut occupied = HashMap::<usize, usize>::new();
-    for &source in sources {
-        if occupied.contains_key(&source) {
-            continue;
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct RiverFootprintOwner {
+    river: usize,
+    node: usize,
+    centre: usize,
+    distance: u8,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct RiverFlowMerge {
+    river: usize,
+    join_vertex: usize,
+    incoming_flow: u32,
+}
+
+/// Indexes the adjacency rings that will become river surface, not merely the
+/// centreline. This makes confluences agree with the topology later duplicated
+/// by `build_mesh_with_mask`.
+#[derive(Debug)]
+struct RiverFootprintIndex {
+    owners: Vec<Option<RiverFootprintOwner>>,
+    visited: Vec<u32>,
+    stamp: u32,
+    frontier: Vec<(usize, u8)>,
+}
+
+impl RiverFootprintIndex {
+    fn new(vertex_count: usize) -> Self {
+        Self {
+            owners: vec![None; vertex_count],
+            visited: vec![0; vertex_count],
+            stamp: 0,
+            frontier: Vec::new(),
         }
+    }
+
+    fn touching(
+        &mut self,
+        mesh: &Mesh,
+        adjacency: &Adjacency,
+        centre: usize,
+        rings: u8,
+    ) -> Option<RiverFootprintOwner> {
+        self.begin(centre);
+        let centre_height = mesh.vertices[centre].z;
+        let mut best = None::<(RiverFootprintOwner, u8, f32)>;
+        while let Some((vertex, distance)) = self.frontier.pop() {
+            if self.visited[vertex] == self.stamp {
+                continue;
+            }
+            self.visited[vertex] = self.stamp;
+            if let Some(owner) = self.owners[vertex] {
+                let owner_height = mesh.vertices[owner.centre].z;
+                if owner_height <= centre_height + 1.0e-6 {
+                    let separation = distance.saturating_add(owner.distance);
+                    let drop = (centre_height - owner_height).max(0.0);
+                    let replace = best.is_none_or(|(current, current_separation, current_drop)| {
+                        separation < current_separation
+                            || (separation == current_separation
+                                && (drop < current_drop
+                                    || (drop.to_bits() == current_drop.to_bits()
+                                        && (owner.river, owner.node)
+                                            < (current.river, current.node))))
+                    });
+                    if replace {
+                        best = Some((owner, separation, drop));
+                    }
+                }
+            }
+            if distance == rings {
+                continue;
+            }
+            self.frontier.extend(
+                adjacency[vertex]
+                    .iter()
+                    .map(|&neighbour| (neighbour, distance + 1)),
+            );
+        }
+        best.map(|(owner, _, _)| owner)
+    }
+
+    fn register_river(
+        &mut self,
+        river_index: usize,
+        river: &River,
+        adjacency: &Adjacency,
+        max_flow: u32,
+    ) {
+        for (node_index, node) in river.nodes.iter().enumerate() {
+            self.register_node(
+                RiverFootprintOwner {
+                    river: river_index,
+                    node: node_index,
+                    centre: node.vertex,
+                    distance: 0,
+                },
+                adjacency,
+                river_ring_count(node.flow, max_flow),
+            );
+        }
+    }
+
+    fn register_node(&mut self, owner: RiverFootprintOwner, adjacency: &Adjacency, rings: u8) {
+        self.begin(owner.centre);
+        while let Some((vertex, distance)) = self.frontier.pop() {
+            if self.visited[vertex] == self.stamp {
+                continue;
+            }
+            self.visited[vertex] = self.stamp;
+            let candidate = RiverFootprintOwner { distance, ..owner };
+            let replace = self.owners[vertex].is_none_or(|current| {
+                current.river == owner.river
+                    && (distance < current.distance
+                        || (distance == current.distance && owner.node > current.node))
+            });
+            if replace {
+                self.owners[vertex] = Some(candidate);
+            }
+            if distance == rings {
+                continue;
+            }
+            self.frontier.extend(
+                adjacency[vertex]
+                    .iter()
+                    .map(|&neighbour| (neighbour, distance + 1)),
+            );
+        }
+    }
+
+    fn begin(&mut self, centre: usize) {
+        self.stamp = self.stamp.wrapping_add(1);
+        if self.stamp == 0 {
+            self.visited.fill(0);
+            self.stamp = 1;
+        }
+        self.frontier.clear();
+        self.frontier.push((centre, 0));
+    }
+}
+
+#[derive(Debug)]
+struct TracedRiverPath {
+    vertices: Vec<usize>,
+    join: Option<usize>,
+    join_vertex: Option<usize>,
+}
+
+/// Coarse world-space occupancy used only to reject later river sources near
+/// an accepted river. `Vec<bool>` keeps the fixed grid compact and avoids a
+/// hash lookup in the source loop.
+#[derive(Debug)]
+struct RiverSourceExclusionGrid {
+    minimum_cell_x: i32,
+    minimum_cell_y: i32,
+    width: usize,
+    height: usize,
+    occupied: Vec<bool>,
+}
+
+impl RiverSourceExclusionGrid {
+    fn new(vertices: &[Vec3]) -> Self {
+        let cell_size = Self::cell_size();
+        let mut minimum_cell_x = i32::MAX;
+        let mut minimum_cell_y = i32::MAX;
+        let mut maximum_cell_x = i32::MIN;
+        let mut maximum_cell_y = i32::MIN;
+        for vertex in vertices {
+            let (cell_x, cell_y) = Self::world_cell(*vertex, cell_size);
+            minimum_cell_x = minimum_cell_x.min(cell_x);
+            minimum_cell_y = minimum_cell_y.min(cell_y);
+            maximum_cell_x = maximum_cell_x.max(cell_x);
+            maximum_cell_y = maximum_cell_y.max(cell_y);
+        }
+        let width = (maximum_cell_x - minimum_cell_x + 1) as usize;
+        let height = (maximum_cell_y - minimum_cell_y + 1) as usize;
+        Self {
+            minimum_cell_x,
+            minimum_cell_y,
+            width,
+            height,
+            occupied: vec![false; width * height],
+        }
+    }
+
+    fn contains(&self, position: Vec3) -> bool {
+        let (cell_x, cell_y) = Self::world_cell(position, Self::cell_size());
+        self.index(cell_x, cell_y)
+            .is_some_and(|index| self.occupied[index])
+    }
+
+    fn reserve_path(&mut self, mesh: &Mesh, path: &[usize]) {
+        let cell_size = Self::cell_size();
+        for &vertex in path {
+            let (centre_x, centre_y) = Self::world_cell(mesh.vertices[vertex], cell_size);
+            for cell_y in centre_y - 1..=centre_y + 1 {
+                for cell_x in centre_x - 1..=centre_x + 1 {
+                    if let Some(index) = self.index(cell_x, cell_y) {
+                        self.occupied[index] = true;
+                    }
+                }
+            }
+        }
+    }
+
+    const fn cell_size() -> f32 {
+        RIVER_SOURCE_EXCLUSION_CELL_METRES / ISLAND_WORLD_METRES
+    }
+
+    fn world_cell(position: Vec3, cell_size: f32) -> (i32, i32) {
+        (
+            (position.x / cell_size).floor() as i32,
+            (position.y / cell_size).floor() as i32,
+        )
+    }
+
+    fn index(&self, cell_x: i32, cell_y: i32) -> Option<usize> {
+        let Ok(x) = usize::try_from(cell_x - self.minimum_cell_x) else {
+            return None;
+        };
+        let Ok(y) = usize::try_from(cell_y - self.minimum_cell_y) else {
+            return None;
+        };
+        if x < self.width && y < self.height {
+            Some(y * self.width + x)
+        } else {
+            None
+        }
+    }
+}
+
+struct RiverPathTracer<'a> {
+    mesh: &'a mut Mesh,
+    adjacency: &'a Adjacency,
+    flow: &'a [u32],
+    ocean: &'a [bool],
+    occupied: &'a HashMap<usize, usize>,
+    footprints: &'a mut RiverFootprintIndex,
+    max_flow: u32,
+}
+
+impl RiverPathTracer<'_> {
+    fn trace(&mut self, source: usize) -> TracedRiverPath {
         let mut path = vec![source];
         let mut seen = HashSet::from([source]);
         let mut join = None;
+        let mut join_vertex = None;
         loop {
             let current = *path.last().expect("river path is non-empty");
-            if ocean[current] {
+            if self.ocean[current] {
                 break;
             }
-            if current != source
-                && let Some(&river) = occupied.get(&current)
-            {
-                join = Some(river);
-                break;
+            if current != source {
+                let rings = river_ring_count(self.flow[current], self.max_flow);
+                if let Some(owner) =
+                    self.footprints
+                        .touching(self.mesh, self.adjacency, current, rings)
+                {
+                    join = Some(owner.river);
+                    join_vertex = Some(owner.centre);
+                    break;
+                }
             }
-            let next = adjacency[current]
+            let next = self.adjacency[current]
                 .iter()
                 .copied()
                 .filter(|vertex| !seen.contains(vertex))
-                .filter(|&vertex| mesh.vertices[vertex].z < mesh.vertices[current].z)
+                .filter(|&vertex| self.mesh.vertices[vertex].z < self.mesh.vertices[current].z)
                 .max_by(|&left, &right| {
-                    downhill_slope(mesh, current, left)
-                        .total_cmp(&downhill_slope(mesh, current, right))
+                    downhill_slope(self.mesh, current, left)
+                        .total_cmp(&downhill_slope(self.mesh, current, right))
                 });
             if let Some(next) = next {
                 path.push(next);
                 seen.insert(next);
                 continue;
             }
-            let Some(escape) = escape_sink(mesh, adjacency, current, &seen, &occupied, ocean)
-            else {
+            let Some(escape) = escape_sink(
+                self.mesh,
+                self.adjacency,
+                current,
+                &seen,
+                self.occupied,
+                self.ocean,
+            ) else {
                 break;
             };
-            let sink_height = mesh.vertices[current].z;
+            let sink_height = self.mesh.vertices[current].z;
             for &vertex in escape.iter().skip(1) {
-                mesh.vertices[vertex].z = mesh.vertices[vertex].z.min(sink_height);
+                self.mesh.vertices[vertex].z = self.mesh.vertices[vertex].z.min(sink_height);
                 if seen.insert(vertex) {
                     path.push(vertex);
                 }
             }
         }
+        TracedRiverPath {
+            vertices: path,
+            join,
+            join_vertex,
+        }
+    }
+}
+
+fn trace_rivers(
+    mesh: &mut Mesh,
+    adjacency: &Adjacency,
+    flow: &[u32],
+    sources: &[usize],
+    ocean: &[bool],
+) -> (Vec<River>, Vec<Option<usize>>) {
+    let mut rivers = Vec::<River>::new();
+    let mut join_vertices = Vec::<Option<usize>>::new();
+    let mut occupied = HashMap::<usize, usize>::new();
+    let max_flow = flow.iter().copied().max().unwrap_or(1);
+    let mut footprints = RiverFootprintIndex::new(mesh.vertices.len());
+    let mut source_exclusion = RiverSourceExclusionGrid::new(&mesh.vertices);
+    for &source in sources {
+        if source_exclusion.contains(mesh.vertices[source]) {
+            continue;
+        }
+        let source_rings = river_ring_count(flow[source], max_flow);
+        if let Some(owner) = footprints.touching(mesh, adjacency, source, source_rings) {
+            merge_flow_into_river(
+                &mut footprints,
+                &mut rivers,
+                &join_vertices,
+                adjacency,
+                max_flow,
+                RiverFlowMerge {
+                    river: owner.river,
+                    join_vertex: owner.centre,
+                    incoming_flow: flow[source],
+                },
+            );
+            continue;
+        }
+        let TracedRiverPath {
+            vertices: path,
+            join,
+            join_vertex,
+        } = RiverPathTracer {
+            mesh,
+            adjacency,
+            flow,
+            ocean,
+            occupied: &occupied,
+            footprints: &mut footprints,
+            max_flow,
+        }
+        .trace(source);
         let reaches_outlet = join.is_some() || path.last().is_some_and(|&terminal| ocean[terminal]);
-        if path.len() < 3 || !reaches_outlet {
+        if !reaches_outlet {
+            continue;
+        }
+        if path.len() < 3 {
+            if let (Some(join), Some(join_vertex)) = (join, join_vertex) {
+                let incoming_flow = path.iter().map(|&vertex| flow[vertex]).max().unwrap_or(0);
+                merge_flow_into_river(
+                    &mut footprints,
+                    &mut rivers,
+                    &join_vertices,
+                    adjacency,
+                    max_flow,
+                    RiverFlowMerge {
+                        river: join,
+                        join_vertex,
+                        incoming_flow,
+                    },
+                );
+            }
             continue;
         }
         let river_index = rivers.len();
+        let mut running_flow = 0_u32;
         let nodes = path
             .iter()
             .map(|&vertex| RiverNode {
                 vertex,
-                flow: flow[vertex],
+                flow: {
+                    running_flow = running_flow.max(flow[vertex]);
+                    running_flow
+                },
                 surface: mesh.vertices[vertex].z,
                 position: mesh.vertices[vertex],
             })
-            .collect();
+            .collect::<Vec<_>>();
         for &vertex in path.iter().take(path.len().saturating_sub(1)) {
             occupied.entry(vertex).or_insert(river_index);
         }
+        source_exclusion.reserve_path(mesh, &path);
         rivers.push(River { nodes, join });
+        join_vertices.push(join_vertex);
+        update_join_flow_chain(&mut rivers, &join_vertices, river_index);
+
+        if let Some(join) = join {
+            register_join_chain(&mut footprints, &rivers, adjacency, max_flow, join);
+        }
+        footprints.register_river(river_index, &rivers[river_index], adjacency, max_flow);
     }
-    rivers
+    (rivers, join_vertices)
 }
 
-fn update_join_flows(rivers: &mut [River]) {
+fn merge_flow_into_river(
+    footprints: &mut RiverFootprintIndex,
+    rivers: &mut [River],
+    join_vertices: &[Option<usize>],
+    adjacency: &Adjacency,
+    max_flow: u32,
+    merge: RiverFlowMerge,
+) {
+    update_join_flow_from(
+        rivers,
+        join_vertices,
+        merge.river,
+        merge.join_vertex,
+        merge.incoming_flow,
+    );
+    register_join_chain(footprints, rivers, adjacency, max_flow, merge.river);
+}
+
+fn update_join_flow_chain(rivers: &mut [River], join_vertices: &[Option<usize>], tributary: usize) {
+    let incoming_flow = rivers[tributary].nodes.last().map_or(0, |node| node.flow);
+    if let (Some(join), Some(target)) = (rivers[tributary].join, join_vertices[tributary]) {
+        update_join_flow_from(rivers, join_vertices, join, target, incoming_flow);
+    }
+}
+
+fn update_join_flow_from(
+    rivers: &mut [River],
+    join_vertices: &[Option<usize>],
+    mut river: usize,
+    mut target: usize,
+    mut incoming_flow: u32,
+) {
+    loop {
+        let Some(start) = rivers[river]
+            .nodes
+            .iter()
+            .position(|node| node.vertex == target)
+        else {
+            debug_assert!(
+                false,
+                "river join target is absent from the joined centreline"
+            );
+            break;
+        };
+        for node in &mut rivers[river].nodes[start..] {
+            incoming_flow = incoming_flow.max(node.flow);
+            node.flow = incoming_flow;
+        }
+        let (Some(next), Some(next_target)) = (rivers[river].join, join_vertices[river]) else {
+            break;
+        };
+        river = next;
+        target = next_target;
+    }
+}
+
+fn register_join_chain(
+    footprints: &mut RiverFootprintIndex,
+    rivers: &[River],
+    adjacency: &Adjacency,
+    max_flow: u32,
+    mut river: usize,
+) {
+    loop {
+        footprints.register_river(river, &rivers[river], adjacency, max_flow);
+        let Some(join) = rivers[river].join else {
+            break;
+        };
+        river = join;
+    }
+}
+
+fn update_join_flows(rivers: &mut [River], join_vertices: &[Option<usize>]) {
     for river in rivers.iter_mut() {
         let mut running = 0_u32;
         for node in &mut river.nodes {
@@ -1379,12 +1783,15 @@ fn update_join_flows(rivers: &mut [River]) {
         let Some(join) = rivers[tributary].join else {
             continue;
         };
+        let Some(join_vertex) = join_vertices[tributary] else {
+            continue;
+        };
         let Some(last) = rivers[tributary].nodes.last().copied() else {
             continue;
         };
         let mut joined = false;
         for node in &mut rivers[join].nodes {
-            if node.vertex == last.vertex {
+            if node.vertex == join_vertex {
                 joined = true;
             }
             if joined {
@@ -2473,7 +2880,7 @@ mod tests {
 
     #[test]
     fn source_cutoff_scales_with_land_vertex_density() {
-        let rule = RiverSourceRule::new(0.005, 1.0);
+        let rule = RiverSourceRule::new(0.005, 1.0, 5.0);
 
         assert_eq!(rule.base_flow(200), 1);
         assert_eq!(rule.base_flow(2_000), 10);
@@ -2503,6 +2910,7 @@ mod tests {
                     join: None,
                 },
             ],
+            join_vertices: vec![None, Some(1), None],
             waterfalls: vec![vec![false; 3], vec![false; 2], vec![false; 2]],
             max_flow: 30,
             max_height: 0.2,
@@ -2519,14 +2927,14 @@ mod tests {
 
     #[test]
     fn source_cutoff_rises_smoothly_with_routing_grade() {
-        let rule = RiverSourceRule::new(0.005, 4.0);
+        let rule = RiverSourceRule::new(0.005, 4.0, 5.0);
         let base_flow = 100;
 
         assert_eq!(rule.required_flow(base_flow, 0.0), 100);
         assert_eq!(rule.required_flow(base_flow, 0.5), 175);
         assert_eq!(rule.required_flow(base_flow, 1.0), 400);
         assert_eq!(
-            RiverSourceRule::new(0.005, 1.0).required_flow(base_flow, 1.0),
+            RiverSourceRule::new(0.005, 1.0, 5.0).required_flow(base_flow, 1.0),
             100
         );
     }
@@ -2568,10 +2976,36 @@ mod tests {
             &adjacency,
             &downstream,
             &flow,
-            RiverSourceRule::new(1.0, 1.0),
+            RiverSourceRule::new(1.0, 1.0, 0.0),
         );
 
         assert_eq!(sources, [1, 0]);
+    }
+
+    #[test]
+    fn sources_below_the_minimum_world_elevation_are_excluded() {
+        let mesh = Mesh {
+            vertices: vec![
+                Vec3::new(0.0, 0.0, 4.99 / ISLAND_WORLD_METRES),
+                Vec3::new(1.0, 0.0, 5.0 / ISLAND_WORLD_METRES),
+                Vec3::new(0.0, 1.0, 10.0 / ISLAND_WORLD_METRES),
+            ],
+            triangles: vec![0, 1, 2],
+            ..Mesh::default()
+        };
+        let adjacency = mesh.adjacency();
+        let downstream = [0, 1, 2];
+        let flow = [10, 10, 10];
+
+        let sources = find_sources(
+            &mesh,
+            &adjacency,
+            &downstream,
+            &flow,
+            RiverSourceRule::new(1.0, 1.0, 5.0),
+        );
+
+        assert_eq!(sources, [1, 2]);
     }
 
     #[test]
@@ -3129,6 +3563,7 @@ mod tests {
                 }],
                 join: None,
             }],
+            join_vertices: vec![None],
             waterfalls: vec![vec![false]],
             max_flow: 100,
             max_height: 0.2,
@@ -3171,6 +3606,7 @@ mod tests {
                 }],
                 join: None,
             }],
+            join_vertices: vec![None],
             waterfalls: vec![vec![false]],
             max_flow: 100,
             max_height: 0.2,
@@ -3234,6 +3670,7 @@ mod tests {
                 }],
                 join: None,
             }],
+            join_vertices: vec![None],
             waterfalls: vec![vec![false]],
             max_flow: 100,
             max_height: 0.2,
@@ -3271,6 +3708,7 @@ mod tests {
                 }],
                 join: None,
             }],
+            join_vertices: vec![None],
             waterfalls: vec![vec![false]],
             max_flow: 100,
             max_height: 0.2,
@@ -3373,6 +3811,7 @@ mod tests {
                 }],
                 join: None,
             }],
+            join_vertices: vec![None],
             waterfalls: vec![vec![false]],
             max_flow: 100,
             max_height: 0.2,
@@ -3609,7 +4048,7 @@ mod tests {
         mesh.vertices[1].z = -0.02;
         let adjacency = mesh.adjacency();
         let mut network =
-            RiverNetwork::generate(&mut mesh, &adjacency, RiverSourceRule::new(0.0, 1.0));
+            RiverNetwork::generate(&mut mesh, &adjacency, RiverSourceRule::new(0.0, 1.0, 0.0));
         let mut material = SurfaceMaterial::empty(mesh.vertices.len());
         network.shape(&mut mesh, &adjacency, &mut material, true, true);
         for (index, river) in network.rivers.iter().enumerate() {
@@ -3634,6 +4073,96 @@ mod tests {
     }
 
     #[test]
+    fn rivers_join_when_their_mesh_rings_touch_before_their_centrelines() {
+        let main = [0, 1, 2, 3, 4];
+        let tributary = [5, 6, 7, 8, 9];
+        let shared_bank = 18;
+        let mut vertices = vec![Vec3::new(0.0, 0.0, 3.0); 21];
+        for (step, &centre) in main.iter().enumerate() {
+            vertices[centre] = Vec3::new(step as f32, 0.0, 0.9 - step as f32 * 0.1);
+        }
+        for (step, &centre) in tributary.iter().enumerate() {
+            vertices[centre] = Vec3::new(step as f32, 2.0, 0.9 - step as f32 * 0.1);
+        }
+        vertices[shared_bank] = Vec3::new(4.0, 1.0, 3.0);
+        let mut triangles = Vec::new();
+        for (edge, pair) in main.windows(2).chain(tributary.windows(2)).enumerate() {
+            triangles.extend([pair[0] as u32, pair[1] as u32, (10 + edge) as u32]);
+        }
+        triangles.extend([4, shared_bank as u32, 19, 9, shared_bank as u32, 20]);
+        let mut mesh = Mesh {
+            vertices,
+            triangles,
+            ..Mesh::default()
+        };
+        let adjacency = mesh.adjacency();
+        let mut flow = vec![1; mesh.vertices.len()];
+        for &centre in &tributary {
+            flow[centre] = 2;
+        }
+        flow[10] = 100;
+        let mut ocean = vec![false; mesh.vertices.len()];
+        ocean[*main.last().unwrap()] = true;
+        let (rivers, join_vertices) = trace_rivers(
+            &mut mesh,
+            &adjacency,
+            &flow,
+            &[main[0], tributary[0]],
+            &ocean,
+        );
+
+        assert_eq!(rivers.len(), 2);
+        assert_eq!(rivers[1].join, Some(0));
+        assert_eq!(
+            rivers[1].nodes.last().map(|node| node.vertex),
+            Some(tributary[4])
+        );
+        assert!(!main.contains(&tributary[4]));
+        assert_eq!(join_vertices[1], Some(main[4]));
+        assert_eq!(rivers[0].nodes.last().map(|node| node.flow), Some(2));
+
+        let mut main_footprint = RiverFootprintIndex::new(mesh.vertices.len());
+        main_footprint.register_river(0, &rivers[0], &adjacency, 100);
+        assert!(
+            main_footprint
+                .touching(&mesh, &adjacency, tributary[4], 1)
+                .is_some()
+        );
+        assert!(adjacency[tributary[4]].contains(&shared_bank));
+        assert!(adjacency[main[4]].contains(&shared_bank));
+    }
+
+    #[test]
+    fn later_river_sources_are_rejected_near_an_accepted_river_path() {
+        let separation = 20.0 / ISLAND_WORLD_METRES;
+        let mut mesh = Mesh {
+            vertices: vec![
+                Vec3::new(0.0, 0.0, 0.2),
+                Vec3::new(0.01, 0.0, 0.1),
+                Vec3::new(0.02, 0.0, 0.0),
+                Vec3::new(0.01, -0.01, 0.3),
+                Vec3::new(0.0, separation, 0.2),
+                Vec3::new(0.01, separation, 0.1),
+                Vec3::new(0.02, separation, 0.0),
+                Vec3::new(0.01, separation + 0.01, 0.3),
+            ],
+            triangles: vec![0, 1, 3, 1, 2, 3, 4, 5, 7, 5, 6, 7],
+            ..Mesh::default()
+        };
+        let adjacency = mesh.adjacency();
+        let flow = [3, 4, 5, 1, 3, 4, 5, 1];
+        let mut ocean = [false; 8];
+        ocean[2] = true;
+        ocean[6] = true;
+
+        let (rivers, join_vertices) = trace_rivers(&mut mesh, &adjacency, &flow, &[0, 4], &ocean);
+
+        assert_eq!(rivers.len(), 1);
+        assert_eq!(rivers[0].nodes.first().map(|node| node.vertex), Some(0));
+        assert_eq!(join_vertices, [None]);
+    }
+
+    #[test]
     fn trace_discards_a_landlocked_path_when_no_ocean_route_exists() {
         let mut mesh = Mesh {
             vertices: vec![
@@ -3647,8 +4176,9 @@ mod tests {
         let adjacency = mesh.adjacency();
         let flow = [1, 2, 3];
 
-        let rivers = trace_rivers(&mut mesh, &adjacency, &flow, &[0], &[false; 3]);
+        let (rivers, join_vertices) = trace_rivers(&mut mesh, &adjacency, &flow, &[0], &[false; 3]);
 
         assert!(rivers.is_empty());
+        assert!(join_vertices.is_empty());
     }
 }

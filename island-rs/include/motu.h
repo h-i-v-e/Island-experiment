@@ -21,6 +21,7 @@ typedef struct {
     float hydraulicErosionStrength, hydraulicDepositionStrength;
     float hydraulicDepositionSlopeDegrees;
     float riverSourceCatchmentFraction, riverSourceSteepMultiplier;
+    float riverSourceMinimumElevationMetres;
 } MotuOptions;
 typedef struct { const Vector3Export *data; int32_t length; } Vector3ExportArray;
 typedef struct { const Vector2Export *data; int32_t length; } Vector2ExportArray;

@@ -236,6 +236,8 @@ pub struct IslandOptions {
     /// Multiplies the required source flow as the routed edge approaches
     /// vertical. One disables the slope penalty.
     pub river_source_steep_multiplier: f32,
+    /// Minimum world-space elevation in metres at which a river may begin.
+    pub river_source_minimum_elevation_metres: f32,
     /// Number of free-form XY seed points used by Delaunay triangulation.
     pub terrain_size: u32,
 }
@@ -252,6 +254,7 @@ impl Default for IslandOptions {
             hydraulic_deposition_slope_degrees: 12.0,
             river_source_catchment_fraction: 0.002,
             river_source_steep_multiplier: 4.0,
+            river_source_minimum_elevation_metres: 5.0,
             terrain_size: 1024,
         }
     }
@@ -262,6 +265,7 @@ impl IslandOptions {
         RiverSourceRule::new(
             self.river_source_catchment_fraction,
             self.river_source_steep_multiplier,
+            self.river_source_minimum_elevation_metres,
         )
     }
 
@@ -984,7 +988,7 @@ impl Island {
     /// Returns an I/O error if the destination cannot be created or written.
     pub fn save(&self, path: impl AsRef<Path>) -> io::Result<()> {
         let mut file = File::create(path)?;
-        file.write_all(b"MOTURS\0\x0c")?;
+        file.write_all(b"MOTURS\0\x0d")?;
         file.write_all(&self.seed.to_le_bytes())?;
         for value in [
             self.options.max_height,
@@ -996,6 +1000,7 @@ impl Island {
             self.options.hydraulic_deposition_slope_degrees,
             self.options.river_source_catchment_fraction,
             self.options.river_source_steep_multiplier,
+            self.options.river_source_minimum_elevation_metres,
         ] {
             file.write_all(&value.to_le_bytes())?;
         }
@@ -1011,7 +1016,7 @@ impl Island {
         let mut file = File::open(path)?;
         let mut magic = [0_u8; 8];
         file.read_exact(&mut magic)?;
-        if &magic[..7] != b"MOTURS\0" || !matches!(magic[7], 3..=12) {
+        if &magic[..7] != b"MOTURS\0" || !matches!(magic[7], 3..=13) {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "invalid Motu Rust free-form mesh file",
@@ -1062,6 +1067,9 @@ impl Island {
             for _ in 0..5 {
                 let _obsolete_source_deviation = read_f32(&mut file)?;
             }
+        }
+        if magic[7] >= 13 {
+            options.river_source_minimum_elevation_metres = read_f32(&mut file)?;
         }
         if magic[7] == 8 {
             let _obsolete_cliff_render_strength = read_f32(&mut file)?;

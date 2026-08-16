@@ -28,7 +28,9 @@ redistributes that sediment toward sheltered shorelines. Source catchment is a
 percentage of the current pass's land vertices, so one slider remains consistent
 across all mesh densities. A second control suppresses small sources on steep
 slopes while retaining sufficiently large catchments. Slider changes take effect when you press
-Generate. Drag to orbit, use the mouse wheel to zoom, and right-drag to pan.
+Generate. A third source control excludes candidate headwaters below its
+world-space elevation, defaulting to five metres. Drag to orbit, use the mouse
+wheel to zoom, and right-drag to pan.
 In first-person mode, terrain, grass, rivers, and sea fade into sky-coloured
 linear distance haze from the camera position to full strength at one kilometre.
 The overview remains haze-free.
