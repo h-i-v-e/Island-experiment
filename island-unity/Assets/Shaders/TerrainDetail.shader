@@ -224,8 +224,23 @@ Shader "Motu/Terrain Unified"
                         + float3(0.67, 0.31, 0.91)).rgb;
                 half rockPatchNoise = rockPatchLayers.r * 0.65
                     + rockPatchLayers.g * 0.35;
-                half geologyRockCoverage = AntialiasedMask(
-                    rockPatchNoise - (1.0 - geologyRockWeight))
+                // Treat the coherent rock stencil as a broad blend instead of
+                // a binary threshold. Keep the richness ramp too, so a trace
+                // of slope/hardness cannot produce fully opaque rock flecks.
+                half rockMaskDistance = rockPatchNoise
+                    - (1.0 - geologyRockWeight);
+                half rockBlendWidth = max(
+                    0.20h,
+                    fwidth(rockMaskDistance));
+                half geologyRockCoverage = smoothstep(
+                    -rockBlendWidth,
+                    rockBlendWidth,
+                    rockMaskDistance)
+                    * smoothstep(0.0h, 0.20h, geologyRockWeight);
+                // Grass remains a discrete surface class. Derive its rock
+                // exclusion from the same coherent field, but use only the
+                // pixel-width anti-aliasing band rather than the broad blend.
+                half grassRockCoverage = AntialiasedMask(rockMaskDistance)
                     * step(1.0e-4, geologyRockWeight);
                 // Loose beach deposits cannot sustain slopes as steep as
                 // ordinary earth. Use raw geometric slope so underlying
@@ -240,12 +255,21 @@ Shader "Motu/Terrain Unified"
                 geologyRockCoverage = max(
                     geologyRockCoverage,
                     forcedRockCoverage);
+                grassRockCoverage = max(
+                    grassRockCoverage,
+                    sandRockCoverage);
+                grassRockCoverage = max(
+                    grassRockCoverage,
+                    forcedRockCoverage);
                 half exposedRockCoverage = max(
                     geologyRockCoverage,
                     cliffWeight);
+                half grassExposedRockCoverage = max(
+                    grassRockCoverage,
+                    cliffWeight);
 
-                // Use the exact richness/noise boundary that clips the fur
-                // shells, then anti-alias it for the opaque ground surface.
+                // Recreate the exact richness/noise boundary used to clip the
+                // fur shells.
                 float2 grassPatchUv = input.worldPosition.xz
                     / max(_GrassPatchNoiseWorldSize, 0.1);
                 half2 grassPatchLayers = tex2D(
@@ -253,9 +277,27 @@ Shader "Motu/Terrain Unified"
                     grassPatchUv).rg;
                 half grassPatchNoise = grassPatchLayers.r * 0.65
                     + grassPatchLayers.g * 0.35;
-                half furGrassCoverage = AntialiasedMask(
-                    grassPatchNoise - (1.0 - looseCover))
+                half furGrassPresence = step(
+                    1.0 - looseCover,
+                    grassPatchNoise)
                     * step(1.0e-4, looseCover);
+                half furBeachCoverage = beachCandidateCoverage
+                    * (1.0 - grassExposedRockCoverage);
+                float noisySnowLine = _SnowLine
+                    + macroNoise.r * _SnowMacroNoiseMetres
+                    + broadNoise.g * _SnowEdgeNoiseMetres;
+                half snowCoverage = AntialiasedMask(
+                    elevation - noisySnowLine)
+                    * (1.0 - cliffWeight);
+                // Green means a fur shell actually survives every material
+                // clip. Using the preliminary soil mask here allowed green to
+                // leak through simultaneous soft rock and sand blends.
+                half visibleFurGrass = furGrassPresence
+                    * step(grassExposedRockCoverage, 0.5h)
+                    * step(furBeachCoverage, 0.5h)
+                    * step(riverCoverage, 0.5h)
+                    * step(snowCoverage, 0.5h)
+                    * step(0.0, elevation);
 
                 fixed3 deep = fixed3(0.08, 0.16, 0.12);
                 fixed3 sand = fixed3(0.62, 0.57, 0.34);
@@ -264,7 +306,7 @@ Shader "Motu/Terrain Unified"
                 fixed3 grass = lerp(
                     _GrassThinDepositColor.rgb,
                     _GrassThickDepositColor.rgb,
-                    furGrassCoverage);
+                    visibleFurGrass);
                 fixed3 rock = fixed3(0.34, 0.32, 0.29);
                 fixed3 snow = fixed3(0.82, 0.84, 0.81);
                 fixed3 baseColor;
@@ -276,7 +318,17 @@ Shader "Motu/Terrain Unified"
                 }
                 else
                 {
-                    baseColor = lerp(grass, rock, exposedRockCoverage);
+                    // Only the green ground that actually carries fur grass
+                    // uses the hard rock boundary. Poor exposed soil retains
+                    // the broad soft geology blend.
+                    half grassSurfaceRockCoverage = lerp(
+                        exposedRockCoverage,
+                        grassExposedRockCoverage,
+                        visibleFurGrass);
+                    baseColor = lerp(
+                        grass,
+                        rock,
+                        grassSurfaceRockCoverage);
 
                     beachCoverage = beachCandidateCoverage
                         * (1.0 - exposedRockCoverage);
@@ -287,7 +339,7 @@ Shader "Motu/Terrain Unified"
                         rock,
                         riverCoverage * (1.0 - exposedRockCoverage));
 
-                    grassGroundCoverage = (1.0 - exposedRockCoverage)
+                    grassGroundCoverage = (1.0 - grassSurfaceRockCoverage)
                         * (1.0 - beachCoverage)
                         * (1.0 - riverCoverage);
                     float dirtDistance = distance(
@@ -300,21 +352,28 @@ Shader "Motu/Terrain Unified"
                         dirtDistance);
                     half dirtCoverage = _GrassEnabled
                         * grassGroundCoverage
-                        * furGrassCoverage
+                        * visibleFurGrass
                         * dirtProximity;
                     baseColor = lerp(
                         baseColor,
                         _GroundDirtColor.rgb,
                         dirtCoverage);
                 }
-                // Preserve geology rock as an authoritative base class before
-                // applying the one allowed overlay: high-altitude snow.
-                baseColor = lerp(baseColor, rock, geologyRockCoverage);
-                float noisySnowLine = _SnowLine
-                    + macroNoise.r * _SnowMacroNoiseMetres
-                    + broadNoise.g * _SnowEdgeNoiseMetres;
-                half snowCoverage = AntialiasedMask(elevation - noisySnowLine)
-                    * (1.0 - cliffWeight);
+                // Only green, fur-bearing grass uses the hard stencil. Poor
+                // soil, underwater terrain, sand, and river surfaces retain
+                // the broad soft rock blend.
+                half grassMaterialDomain = step(0.0, elevation)
+                    * (1.0 - beachCandidateCoverage)
+                    * (1.0 - riverCoverage)
+                    * visibleFurGrass;
+                half surfaceGeologyRockCoverage = lerp(
+                    geologyRockCoverage,
+                    grassRockCoverage,
+                    saturate(grassMaterialDomain));
+                baseColor = lerp(
+                    baseColor,
+                    rock,
+                    surfaceGeologyRockCoverage);
                 baseColor = lerp(baseColor, snow, snowCoverage);
 
                 // Geology-classified rock remains authoritative over sediment,
@@ -325,8 +384,11 @@ Shader "Motu/Terrain Unified"
                 // Snow owns its visible normal detail instead of inheriting
                 // the coarser stone beneath it. Cliffs remain stone because
                 // snowCoverage already excludes the normal-cutoff cliffs.
+                half surfaceExposedRockCoverage = max(
+                    surfaceGeologyRockCoverage,
+                    cliffWeight);
                 half stoneNormalCoverage = max(
-                    exposedRockCoverage,
+                    surfaceExposedRockCoverage,
                     riverCoverage) * (1.0 - snowCoverage);
                 UNITY_BRANCH
                 if (stoneNormalCoverage > 0.01 && _CliffNormalStrength > 0.0)
@@ -359,7 +421,7 @@ Shader "Motu/Terrain Unified"
                     half grassOrDirtNormalStrength = lerp(
                         _DirtNormalStrength,
                         _GrassNormalStrength,
-                        furGrassCoverage);
+                        visibleFurGrass);
                     half soilNormalStrength = lerp(
                         grassOrDirtNormalStrength,
                         _SandNormalStrength,

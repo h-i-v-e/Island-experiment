@@ -1,5 +1,6 @@
 #include "UnityCG.cginc"
 #include "Lighting.cginc"
+#include "AutoLight.cginc"
 
 struct GrassVertexInput
 {
@@ -15,7 +16,8 @@ struct GrassVertexOutput
     half3 worldNormal : TEXCOORD1;
     half3 material : TEXCOORD2;
     float3 surfaceWorldPosition : TEXCOORD3;
-    UNITY_FOG_COORDS(4)
+    SHADOW_COORDS(4)
+    UNITY_FOG_COORDS(5)
 };
 
 sampler3D _CliffNoise3D;
@@ -89,6 +91,7 @@ GrassVertexOutput GrassVertex(GrassVertexInput input)
         - worldNormal * (_GrassHeight * GRASS_SHELL_LAYER);
     output.worldNormal = worldNormal;
     output.material = input.material.rgb;
+    TRANSFER_SHADOW_WPOS(output, worldPosition);
     UNITY_TRANSFER_FOG(output, output.pos);
     return output;
 }
@@ -168,8 +171,12 @@ fixed4 GrassFragment(GrassVertexOutput input) : SV_Target
             + float3(0.67, 0.31, 0.91)).rgb;
     half rockPatchNoise = rockPatchLayers.r * 0.65
         + rockPatchLayers.g * 0.35;
-    half geologyRockCoverage = GrassAntialiasedMask(
-        rockPatchNoise - (1.0 - geologyRockWeight))
+    // Grass is a discrete surface class. Use the same coherent rock field as
+    // the ground shader's soft blend, but retain only pixel-width
+    // anti-aliasing so fur and the hard grass/rock ground boundary coincide.
+    half rockMaskDistance = rockPatchNoise
+        - (1.0 - geologyRockWeight);
+    half geologyRockCoverage = GrassAntialiasedMask(rockMaskDistance)
         * step(1.0e-4, geologyRockWeight);
     half sandRockThreshold = _SandRockSlopeThreshold
         + rockBoundaryNoise * _RockBoundaryNoiseStrength * 0.25;
@@ -239,7 +246,11 @@ fixed4 GrassFragment(GrassVertexOutput input) : SV_Target
     half3 lightingNormal = normalize(lerp(normal, half3(0.0, 1.0, 0.0), 0.35));
     half3 lightDirection = normalize(_GrassLightDirection);
     half diffuse = saturate(dot(lightingNormal, lightDirection));
-    half3 direct = _GrassLightColor.rgb * diffuse;
+    UNITY_LIGHT_ATTENUATION(
+        shadowAttenuation,
+        input,
+        input.worldPosition);
+    half3 direct = _GrassLightColor.rgb * diffuse * shadowAttenuation;
     half3 ambient = _GrassAmbientColor.rgb;
     fixed3 grassColor = lerp(
         _GrassRootColor.rgb,

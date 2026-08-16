@@ -4,6 +4,7 @@ Shader "Motu/Water"
     {
         _Color ("Color", Color) = (0.03, 0.28, 0.55, 1)
         [NoScaleOffset] _NoiseTex ("River Noise", 2D) = "black" {}
+        [NoScaleOffset] _SeaMask ("Sea Coast And Silt Mask", 2D) = "black" {}
         _CoarseNoiseWorldSize ("Coarse Noise World Size", Float) = 6
         _FineNoiseWorldSize ("Fine Noise World Size", Float) = 3
         _CoarseFlowSpeed ("Coarse Flow Speed", Float) = 2.25
@@ -64,6 +65,7 @@ Shader "Motu/Water"
 
             fixed4 _Color;
             sampler2D _NoiseTex;
+            sampler2D _SeaMask;
             UNITY_DECLARE_DEPTH_TEXTURE(_CameraDepthTexture);
             float _CoarseNoiseWorldSize;
             float _FineNoiseWorldSize;
@@ -125,11 +127,6 @@ Shader "Motu/Water"
                     _WhitewaterSlopeStart,
                     max(_WhitewaterSlopeFull, _WhitewaterSlopeStart + 0.001h),
                     normalDeviation);
-                half coarseWhitewater = coarseFoam * 0.03h;
-                half fineWhitewater = fineFoam * 0.50h * fineSlopeWhitewater;
-                half layeredWhitewater = coarseWhitewater
-                    + fineWhitewater * (1.0h - coarseWhitewater);
-                half whitewater = saturate(layeredWhitewater * _WhitewaterStrength);
                 float sceneDepth = LinearEyeDepth(SAMPLE_DEPTH_TEXTURE_PROJ(
                     _CameraDepthTexture,
                     UNITY_PROJ_COORD(input.screenPosition)));
@@ -140,6 +137,14 @@ Shader "Motu/Water"
                         0.0,
                         max(_EstuaryBlendHeight, 0.001),
                         heightAboveSea));
+                // The slow broad flow becomes obscured as suspended silt builds
+                // toward the river mouth. Preserve the faster slope-driven layer
+                // so waterfalls retain their movement and white water.
+                half coarseWhitewater = coarseFoam * 0.03h * (1.0h - estuaryWeight);
+                half fineWhitewater = fineFoam * 0.50h * fineSlopeWhitewater;
+                half layeredWhitewater = coarseWhitewater
+                    + fineWhitewater * (1.0h - coarseWhitewater);
+                half whitewater = saturate(layeredWhitewater * _WhitewaterStrength);
                 // Keep the original shallow and opaque endpoints, but make the
                 // depth-buffer gradient span exactly the river surface's height
                 // above sea level. At sea level the span is zero, at one metre
@@ -158,6 +163,12 @@ Shader "Motu/Water"
                     _ShallowOpacity,
                     _Color.a,
                     depthOpacity);
+                // The generated sea mask is normalized over the same two-kilometre
+                // square as the terrain. Its green channel carries the river-mouth
+                // silt plume independently of the red coastal-wave channel.
+                float2 seaMaskUv = saturate(
+                    input.worldPosition.xz / max(_WorldSize, 0.001) + 0.5);
+                half seaSilt = tex2D(_SeaMask, seaMaskUv).g;
                 float3 reflectionDirection = reflect(-viewDirection, worldNormal);
                 half skyHeight = saturate(reflectionDirection.y);
                 fixed3 skyReflection = lerp(
@@ -183,6 +194,10 @@ Shader "Motu/Water"
                 fixed4 color = fixed4(
                     lerp(water, fixed3(1.0, 1.0, 1.0), whitewater),
                     saturate(waterOpacity + whitewater * 0.08h));
+                // At zero preserve the existing sea result exactly. At full silt,
+                // converge on the same opaque silt colour used by river estuaries.
+                color.rgb = lerp(color.rgb, _EstuaryColor.rgb, seaSilt);
+                color.a = lerp(color.a, _EstuaryColor.a, seaSilt);
                 UNITY_APPLY_FOG(input.fogCoord, color);
                 return color;
             }

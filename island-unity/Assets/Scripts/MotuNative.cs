@@ -111,6 +111,15 @@ internal static class MotuNative
     }
 
     [StructLayout(LayoutKind.Sequential)]
+    internal struct ExportSeaMask
+    {
+        internal IntPtr handle;
+        internal int width;
+        internal int height;
+        internal IntPtr rg;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
     internal struct RiverEmitterExport
     {
         internal NativeVector3 position;
@@ -212,4 +221,13 @@ internal static class MotuNative
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
     internal static extern void ReleaseSurfaceMaps(ref ExportSurfaceMaps output);
+
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+    internal static extern void CreateSeaMask(
+        IntPtr handle,
+        int dimension,
+        out ExportSeaMask output);
+
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+    internal static extern void ReleaseSeaMask(ref ExportSeaMask output);
 }

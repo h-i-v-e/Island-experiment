@@ -72,6 +72,13 @@ pub struct River {
     pub join: Option<usize>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct RiverMouth {
+    pub(crate) position: Vec2,
+    pub(crate) downstream: Vec2,
+    pub(crate) flow: u32,
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 struct RiverSedimentBudget {
     carried: f64,
@@ -196,11 +203,62 @@ impl RiverNetwork {
         mesh: &mut Mesh,
         adjacency: &Adjacency,
         material: &mut SurfaceMaterial,
-    ) -> (Vec<River>, Mesh, Vec<bool>) {
+    ) -> (Vec<River>, Mesh, Vec<bool>, Vec<RiverMouth>) {
         let (river_mesh, river_bed) = self.build_mesh_with_mask(mesh, adjacency, material);
         mesh.calculate_normals();
         self.refresh(mesh);
-        (self.rivers, river_mesh, river_bed)
+        let mouths = self.river_mouths();
+        (self.rivers, river_mesh, river_bed, mouths)
+    }
+
+    fn river_mouths(&self) -> Vec<RiverMouth> {
+        let mut mouths = Vec::<RiverMouth>::new();
+        for river in &self.rivers {
+            if river.join.is_some() {
+                continue;
+            }
+            let Some(terminal) = river
+                .nodes
+                .last()
+                .filter(|node| self.ocean.get(node.vertex).copied().unwrap_or(false))
+            else {
+                continue;
+            };
+            let position = terminal.position.truncate();
+            let Some(downstream) = river
+                .nodes
+                .iter()
+                .rev()
+                .skip(1)
+                .map(|node| position - node.position.truncate())
+                .find_map(Vec2::try_normalize)
+            else {
+                continue;
+            };
+            if !position.is_finite() || !downstream.is_finite() {
+                continue;
+            }
+
+            if let Some(existing) = mouths
+                .iter_mut()
+                .find(|mouth| mouth.position.distance_squared(position) <= 1.0e-12)
+            {
+                if terminal.flow > existing.flow {
+                    *existing = RiverMouth {
+                        position,
+                        downstream,
+                        flow: terminal.flow,
+                    };
+                }
+            } else {
+                mouths.push(RiverMouth {
+                    position,
+                    downstream,
+                    flow: terminal.flow,
+                });
+            }
+        }
+        mouths
     }
 
     fn jiggle(&mut self, mesh: &mut Mesh) {
@@ -2420,6 +2478,43 @@ mod tests {
         assert_eq!(rule.base_flow(200), 1);
         assert_eq!(rule.base_flow(2_000), 10);
         assert_eq!(rule.base_flow(20_000), 100);
+    }
+
+    #[test]
+    fn mouths_only_include_main_rivers_reaching_connected_ocean() {
+        let node = |vertex, x, flow| RiverNode {
+            vertex,
+            flow,
+            surface: 0.0,
+            position: Vec3::new(x, 0.5, 0.0),
+        };
+        let network = RiverNetwork {
+            rivers: vec![
+                River {
+                    nodes: vec![node(0, 0.2, 10), node(1, 0.4, 20), node(2, 0.5, 30)],
+                    join: None,
+                },
+                River {
+                    nodes: vec![node(3, 0.3, 5), node(1, 0.4, 10)],
+                    join: Some(0),
+                },
+                River {
+                    nodes: vec![node(4, 0.7, 10), node(5, 0.8, 20)],
+                    join: None,
+                },
+            ],
+            waterfalls: vec![vec![false; 3], vec![false; 2], vec![false; 2]],
+            max_flow: 30,
+            max_height: 0.2,
+            ocean: vec![false, false, true, false, false, false],
+            perimeter: vec![false; 6],
+        };
+
+        let mouths = network.river_mouths();
+        assert_eq!(mouths.len(), 1);
+        assert_eq!(mouths[0].position, Vec2::new(0.5, 0.5));
+        assert_eq!(mouths[0].downstream, Vec2::X);
+        assert_eq!(mouths[0].flow, 30);
     }
 
     #[test]

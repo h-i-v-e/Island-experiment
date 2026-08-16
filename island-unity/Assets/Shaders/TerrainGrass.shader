@@ -42,176 +42,224 @@ Shader "Motu/Terrain Grass"
 
         Pass
         {
+            Tags { "LightMode"="ForwardBase" }
+
             CGPROGRAM
             #define GRASS_SHELL_LAYER 0.0625
             #pragma vertex GrassVertex
             #pragma fragment GrassFragment
             #pragma target 3.0
+            #pragma multi_compile_fwdbase
             #pragma multi_compile_fog
             #include "TerrainGrassCommon.cginc"
             ENDCG
         }
         Pass
         {
+            Tags { "LightMode"="ForwardBase" }
+
             CGPROGRAM
             #define GRASS_SHELL_LAYER 0.125
             #pragma vertex GrassVertex
             #pragma fragment GrassFragment
             #pragma target 3.0
+            #pragma multi_compile_fwdbase
             #pragma multi_compile_fog
             #include "TerrainGrassCommon.cginc"
             ENDCG
         }
         Pass
         {
+            Tags { "LightMode"="ForwardBase" }
+
             CGPROGRAM
             #define GRASS_SHELL_LAYER 0.1875
             #pragma vertex GrassVertex
             #pragma fragment GrassFragment
             #pragma target 3.0
+            #pragma multi_compile_fwdbase
             #pragma multi_compile_fog
             #include "TerrainGrassCommon.cginc"
             ENDCG
         }
         Pass
         {
+            Tags { "LightMode"="ForwardBase" }
+
             CGPROGRAM
             #define GRASS_SHELL_LAYER 0.25
             #pragma vertex GrassVertex
             #pragma fragment GrassFragment
             #pragma target 3.0
+            #pragma multi_compile_fwdbase
             #pragma multi_compile_fog
             #include "TerrainGrassCommon.cginc"
             ENDCG
         }
         Pass
         {
+            Tags { "LightMode"="ForwardBase" }
+
             CGPROGRAM
             #define GRASS_SHELL_LAYER 0.3125
             #pragma vertex GrassVertex
             #pragma fragment GrassFragment
             #pragma target 3.0
+            #pragma multi_compile_fwdbase
             #pragma multi_compile_fog
             #include "TerrainGrassCommon.cginc"
             ENDCG
         }
         Pass
         {
+            Tags { "LightMode"="ForwardBase" }
+
             CGPROGRAM
             #define GRASS_SHELL_LAYER 0.375
             #pragma vertex GrassVertex
             #pragma fragment GrassFragment
             #pragma target 3.0
+            #pragma multi_compile_fwdbase
             #pragma multi_compile_fog
             #include "TerrainGrassCommon.cginc"
             ENDCG
         }
         Pass
         {
+            Tags { "LightMode"="ForwardBase" }
+
             CGPROGRAM
             #define GRASS_SHELL_LAYER 0.4375
             #pragma vertex GrassVertex
             #pragma fragment GrassFragment
             #pragma target 3.0
+            #pragma multi_compile_fwdbase
             #pragma multi_compile_fog
             #include "TerrainGrassCommon.cginc"
             ENDCG
         }
         Pass
         {
+            Tags { "LightMode"="ForwardBase" }
+
             CGPROGRAM
             #define GRASS_SHELL_LAYER 0.5
             #pragma vertex GrassVertex
             #pragma fragment GrassFragment
             #pragma target 3.0
+            #pragma multi_compile_fwdbase
             #pragma multi_compile_fog
             #include "TerrainGrassCommon.cginc"
             ENDCG
         }
         Pass
         {
+            Tags { "LightMode"="ForwardBase" }
+
             CGPROGRAM
             #define GRASS_SHELL_LAYER 0.5625
             #pragma vertex GrassVertex
             #pragma fragment GrassFragment
             #pragma target 3.0
+            #pragma multi_compile_fwdbase
             #pragma multi_compile_fog
             #include "TerrainGrassCommon.cginc"
             ENDCG
         }
         Pass
         {
+            Tags { "LightMode"="ForwardBase" }
+
             CGPROGRAM
             #define GRASS_SHELL_LAYER 0.625
             #pragma vertex GrassVertex
             #pragma fragment GrassFragment
             #pragma target 3.0
+            #pragma multi_compile_fwdbase
             #pragma multi_compile_fog
             #include "TerrainGrassCommon.cginc"
             ENDCG
         }
         Pass
         {
+            Tags { "LightMode"="ForwardBase" }
+
             CGPROGRAM
             #define GRASS_SHELL_LAYER 0.6875
             #pragma vertex GrassVertex
             #pragma fragment GrassFragment
             #pragma target 3.0
+            #pragma multi_compile_fwdbase
             #pragma multi_compile_fog
             #include "TerrainGrassCommon.cginc"
             ENDCG
         }
         Pass
         {
+            Tags { "LightMode"="ForwardBase" }
+
             CGPROGRAM
             #define GRASS_SHELL_LAYER 0.75
             #pragma vertex GrassVertex
             #pragma fragment GrassFragment
             #pragma target 3.0
+            #pragma multi_compile_fwdbase
             #pragma multi_compile_fog
             #include "TerrainGrassCommon.cginc"
             ENDCG
         }
         Pass
         {
+            Tags { "LightMode"="ForwardBase" }
+
             CGPROGRAM
             #define GRASS_SHELL_LAYER 0.8125
             #pragma vertex GrassVertex
             #pragma fragment GrassFragment
             #pragma target 3.0
+            #pragma multi_compile_fwdbase
             #pragma multi_compile_fog
             #include "TerrainGrassCommon.cginc"
             ENDCG
         }
         Pass
         {
+            Tags { "LightMode"="ForwardBase" }
+
             CGPROGRAM
             #define GRASS_SHELL_LAYER 0.875
             #pragma vertex GrassVertex
             #pragma fragment GrassFragment
             #pragma target 3.0
+            #pragma multi_compile_fwdbase
             #pragma multi_compile_fog
             #include "TerrainGrassCommon.cginc"
             ENDCG
         }
         Pass
         {
+            Tags { "LightMode"="ForwardBase" }
+
             CGPROGRAM
             #define GRASS_SHELL_LAYER 0.9375
             #pragma vertex GrassVertex
             #pragma fragment GrassFragment
             #pragma target 3.0
+            #pragma multi_compile_fwdbase
             #pragma multi_compile_fog
             #include "TerrainGrassCommon.cginc"
             ENDCG
         }
         Pass
         {
+            Tags { "LightMode"="ForwardBase" }
+
             CGPROGRAM
             #define GRASS_SHELL_LAYER 1.0
             #pragma vertex GrassVertex
             #pragma fragment GrassFragment
             #pragma target 3.0
+            #pragma multi_compile_fwdbase
             #pragma multi_compile_fog
             #include "TerrainGrassCommon.cginc"
             ENDCG

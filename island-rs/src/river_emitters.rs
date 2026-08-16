@@ -6,9 +6,8 @@
 
 use std::cmp::Ordering;
 
-use crate::{Mesh, Vec3};
+use crate::{ISLAND_WORLD_METRES, Mesh, Vec3};
 
-const ISLAND_WORLD_METRES: f32 = 2_000.0;
 const FLAT_FACE_MAX_SLOPE_DEGREES: f32 = 35.0;
 const STEEP_FACE_MIN_SLOPE_DEGREES: f32 = 55.0;
 

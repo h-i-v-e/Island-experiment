@@ -43,6 +43,11 @@ typedef struct {
 typedef struct { ExportMesh *data; int32_t length; } ExportMeshArray;
 typedef struct { void *handle; const ExportMesh *data; int32_t length; } ExportMeshGrid;
 typedef struct {
+    void *handle;
+    int32_t width, height;
+    const uint8_t *rg;
+} ExportSeaMask;
+typedef struct {
     Vector3Export position, direction;
     float strength;
 } RiverEmitterExport;
@@ -90,6 +95,8 @@ MOTU_EXPORT uint32_t *ExportFoliageData(const void *handle, int32_t dimension);
 MOTU_EXPORT void ReleaseFoliageData(uint32_t *data);
 MOTU_EXPORT float *CreateSeaDepthMap(const void *handle, int32_t dimension);
 MOTU_EXPORT void ReleaseSeaDepthMap(float *data);
+MOTU_EXPORT void CreateSeaMask(const void *handle, int32_t dimension, ExportSeaMask *output);
+MOTU_EXPORT void ReleaseSeaMask(ExportSeaMask *output);
 MOTU_EXPORT void CreateTreeBillboards(const void *handle, const TreeMeshPrototypes *input,
                                       ExportTreeBillboardsArray *output);
 MOTU_EXPORT void ReleaseTreeBillboards(ExportTreeBillboardsArray *output);

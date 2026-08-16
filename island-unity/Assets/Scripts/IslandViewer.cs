@@ -43,6 +43,7 @@ public sealed class IslandViewer : MonoBehaviour
     private Material grassMaterial;
     private Texture2D terrainNormalTexture;
     private Texture2D terrainOcclusionTexture;
+    private Texture2D seaMaskTexture;
     private Texture3D cliffNoiseTexture;
     private Texture2D riverNoiseTexture;
     private Texture2D grassPatchNoiseTexture;
@@ -125,10 +126,23 @@ public sealed class IslandViewer : MonoBehaviour
         }
     }
 
+    private sealed class PreparedSeaMask
+    {
+        internal readonly int dimension;
+        internal readonly byte[] rg;
+
+        internal PreparedSeaMask(int dimension, byte[] rg)
+        {
+            this.dimension = dimension;
+            this.rg = rg;
+        }
+    }
+
     private sealed class PreparedIsland : IDisposable
     {
         internal IntPtr handle;
         internal readonly PreparedSurfaceMaps surfaceMaps;
+        internal readonly PreparedSeaMask seaMask;
         internal readonly PreparedMesh[] overviewTiles;
         internal readonly PreparedMesh[] riverTiles;
         internal readonly PreparedRiverEmitter[] riverEmitters;
@@ -136,12 +150,14 @@ public sealed class IslandViewer : MonoBehaviour
         internal PreparedIsland(
             IntPtr handle,
             PreparedSurfaceMaps surfaceMaps,
+            PreparedSeaMask seaMask,
             PreparedMesh[] overviewTiles,
             PreparedMesh[] riverTiles,
             PreparedRiverEmitter[] riverEmitters)
         {
             this.handle = handle;
             this.surfaceMaps = surfaceMaps;
+            this.seaMask = seaMask;
             this.overviewTiles = overviewTiles;
             this.riverTiles = riverTiles;
             this.riverEmitters = riverEmitters;
@@ -381,6 +397,9 @@ public sealed class IslandViewer : MonoBehaviour
         seaMaterial.SetFloat("_ShallowOpacity", shallowWaterOpacity);
         seaMaterial.SetFloat("_OpacityDepth", fullOpacityDepth);
         seaMaterial.SetFloat("_EstuaryStrength", 0f);
+        seaMaterial.SetColor(
+            "_EstuaryColor",
+            Color.Lerp(sandColor, waterColor, 0.5f));
         seaMaterial.SetColor("_ReflectionColor", skyColor);
         seaMaterial.SetColor(
             "_ReflectionHorizonColor",
@@ -448,6 +467,7 @@ public sealed class IslandViewer : MonoBehaviour
             islandHandle = prepared.TakeHandle();
 
             CreateSurfaceTextures(prepared.surfaceMaps);
+            CreateSeaMaskTexture(prepared.seaMask);
             await Task.Yield();
             cancellation.Token.ThrowIfCancellationRequested();
 
@@ -538,6 +558,8 @@ public sealed class IslandViewer : MonoBehaviour
             cancellationToken.ThrowIfCancellationRequested();
             var surfaceMaps = PrepareSurfaceMaps(handle, SurfaceMapDimension);
             cancellationToken.ThrowIfCancellationRequested();
+            var seaMask = PrepareSeaMask(handle, SurfaceMapDimension);
+            cancellationToken.ThrowIfCancellationRequested();
             var overviewTiles = TerrainTileStreamer.PrepareOverviewTiles(handle);
             cancellationToken.ThrowIfCancellationRequested();
             var riverTiles = PrepareRiverTiles(handle);
@@ -547,6 +569,7 @@ public sealed class IslandViewer : MonoBehaviour
             var result = new PreparedIsland(
                 handle,
                 surfaceMaps,
+                seaMask,
                 overviewTiles,
                 riverTiles,
                 riverEmitters);
@@ -589,6 +612,31 @@ public sealed class IslandViewer : MonoBehaviour
         finally
         {
             MotuNative.ReleaseSurfaceMaps(ref surfaceMaps);
+        }
+    }
+
+    private static PreparedSeaMask PrepareSeaMask(IntPtr handle, int dimension)
+    {
+        MotuNative.CreateSeaMask(handle, dimension, out var seaMask);
+        try
+        {
+            if (seaMask.handle == IntPtr.Zero
+                || seaMask.rg == IntPtr.Zero
+                || seaMask.width != dimension
+                || seaMask.height != dimension)
+            {
+                throw new InvalidOperationException(
+                    "The Rust generator returned an invalid sea coast/silt mask.");
+            }
+
+            var byteCount = checked(dimension * dimension * 2);
+            var rg = new byte[byteCount];
+            Marshal.Copy(seaMask.rg, rg, 0, rg.Length);
+            return new PreparedSeaMask(dimension, rg);
+        }
+        finally
+        {
+            MotuNative.ReleaseSeaMask(ref seaMask);
         }
     }
 
@@ -702,6 +750,26 @@ public sealed class IslandViewer : MonoBehaviour
         }
         terrainMaterial.SetTexture("_WorldNormal", terrainNormalTexture);
         terrainMaterial.SetTexture("_Occlusion", terrainOcclusionTexture);
+    }
+
+    private void CreateSeaMaskTexture(PreparedSeaMask seaMask)
+    {
+        if (!SystemInfo.SupportsTextureFormat(TextureFormat.RG16))
+        {
+            throw new InvalidOperationException(
+                "This graphics device does not support the required RG16 sea mask texture.");
+        }
+        if (!seaMaterial.HasProperty("_SeaMask"))
+        {
+            throw new InvalidOperationException(
+                "The water shader does not expose the generated sea mask.");
+        }
+        seaMaskTexture = CreateSurfaceTexture(
+            "Motu Sea Coast And Silt Mask",
+            seaMask.dimension,
+            TextureFormat.RG16,
+            seaMask.rg);
+        seaMaterial.SetTexture("_SeaMask", seaMaskTexture);
     }
 
     private static Texture2D CreateSurfaceTexture(
@@ -931,10 +999,13 @@ public sealed class IslandViewer : MonoBehaviour
         seaObject = null;
         terrainMaterial?.SetTexture("_WorldNormal", null);
         terrainMaterial?.SetTexture("_Occlusion", null);
+        seaMaterial?.SetTexture("_SeaMask", null);
         DestroyUnityObject(terrainNormalTexture);
         DestroyUnityObject(terrainOcclusionTexture);
+        DestroyUnityObject(seaMaskTexture);
         terrainNormalTexture = null;
         terrainOcclusionTexture = null;
+        seaMaskTexture = null;
 
         if (islandHandle != IntPtr.Zero)
         {
@@ -1394,6 +1465,13 @@ public sealed class IslandViewer : MonoBehaviour
         {
             const int validationMapDimension = 32;
             var validationMaps = PrepareSurfaceMaps(handle, validationMapDimension);
+            var validationSeaMask = PrepareSeaMask(handle, validationMapDimension);
+            if (validationSeaMask.rg.Length
+                != validationMapDimension * validationMapDimension * 2)
+            {
+                throw new InvalidOperationException(
+                    "Native sea mask byte count does not match its RG dimensions.");
+            }
             var hasTerrainNormal = false;
             for (var index = 0; index < validationMaps.normalRgb.Length; index += 3)
             {
@@ -1491,6 +1569,7 @@ public sealed class IslandViewer : MonoBehaviour
                     || !waterMaterial.HasProperty("_CoarseFlowSpeed")
                     || !waterMaterial.HasProperty("_FineFlowSpeed")
                     || !waterMaterial.HasProperty("_WorldSize")
+                    || !waterMaterial.HasProperty("_SeaMask")
                     || !waterMaterial.HasProperty("_ShallowOpacity")
                     || !waterMaterial.HasProperty("_OpacityDepth")
                     || !waterMaterial.HasProperty("_EstuaryStrength")

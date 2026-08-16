@@ -14,7 +14,7 @@ use std::{
     ptr,
 };
 
-use crate::{BoundingBox, Island, IslandOptions, Mesh, SurfaceMaps, Vec2, Vec3};
+use crate::{BoundingBox, Island, IslandOptions, Mesh, SeaMask, SurfaceMaps, Vec2, Vec3};
 
 const _: () = {
     assert!(size_of::<Vec2>() == size_of::<[f32; 2]>());
@@ -122,6 +122,15 @@ pub struct ExportSurfaceMaps {
     pub height: i32,
     pub normalRgb: *const u8,
     pub occlusion: *const u8,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+#[repr(C)]
+pub struct ExportSeaMask {
+    pub handle: *mut c_void,
+    pub width: i32,
+    pub height: i32,
+    pub rg: *const u8,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -326,6 +335,18 @@ fn export_surface_maps(maps: Box<SurfaceMaps>) -> ExportSurfaceMaps {
         height: length_i32(maps.height() as usize),
         normalRgb: maps.normal_rgb().as_ptr(),
         occlusion: maps.occlusion().as_ptr(),
+    }
+}
+
+fn export_sea_mask(mask: Box<SeaMask>) -> ExportSeaMask {
+    let handle = Box::into_raw(mask);
+    // SAFETY: handle remains owned by the caller until ReleaseSeaMask.
+    let mask = unsafe { &*handle };
+    ExportSeaMask {
+        handle: handle.cast(),
+        width: length_i32(mask.width() as usize),
+        height: length_i32(mask.height() as usize),
+        rg: mask.rg().as_ptr(),
     }
 }
 
@@ -816,6 +837,38 @@ pub unsafe extern "C" fn ReleaseSurfaceMaps(output: *mut ExportSurfaceMaps) {
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn CreateSeaMask(
+    handle: *const c_void,
+    dimension: i32,
+    output: *mut ExportSeaMask,
+) {
+    let Some(output) = (unsafe { output.as_mut() }) else {
+        return;
+    };
+    *output = ExportSeaMask::default();
+    let Some(island) = (unsafe { island_ref(handle) }) else {
+        return;
+    };
+    let dimension = u32::try_from(dimension.max(1)).unwrap_or(1);
+    let Some(mask) = island.sea_mask(dimension, dimension) else {
+        return;
+    };
+    *output = export_sea_mask(Box::new(mask));
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ReleaseSeaMask(output: *mut ExportSeaMask) {
+    let Some(output) = (unsafe { output.as_mut() }) else {
+        return;
+    };
+    if !output.handle.is_null() {
+        // SAFETY: handle came from CreateSeaMask and is released once.
+        drop(unsafe { Box::from_raw(output.handle.cast::<SeaMask>()) });
+    }
+    *output = ExportSeaMask::default();
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn CreateNormalMap3DC(
     _handle: *const c_void,
     _lod: i32,
@@ -901,6 +954,21 @@ pub extern "C" fn SetLogFile(_path: *const c_char) {}
 mod tests {
     use super::*;
 
+    #[test]
+    fn null_island_leaves_a_default_sea_mask_export() {
+        let mut output = ExportSeaMask {
+            handle: ptr::dangling_mut::<u8>().cast(),
+            width: 7,
+            height: 9,
+            rg: ptr::dangling(),
+        };
+        unsafe { CreateSeaMask(ptr::null(), 16, &raw mut output) };
+        assert!(output.handle.is_null());
+        assert!(output.rg.is_null());
+        assert_eq!(output.width, 0);
+        assert_eq!(output.height, 0);
+    }
+
     fn terrain_attributes_match(mesh: &ExportMesh) -> bool {
         mesh.uv.length == mesh.vertices.length && mesh.material.length == mesh.vertices.length
     }
@@ -937,6 +1005,22 @@ mod tests {
         }));
         unsafe { ReleaseRiverEmitters(&raw mut output) };
         assert!(output.handle.is_null());
+    }
+
+    unsafe fn assert_sea_mask(handle: *const c_void) {
+        let mut sea_mask = ExportSeaMask::default();
+        unsafe { CreateSeaMask(handle, 16, &raw mut sea_mask) };
+        assert!(!sea_mask.handle.is_null());
+        assert_eq!(sea_mask.width, 16);
+        assert_eq!(sea_mask.height, 16);
+        assert!(!sea_mask.rg.is_null());
+        let pixels = unsafe { std::slice::from_raw_parts(sea_mask.rg, 16 * 16 * 2) };
+        assert_eq!(pixels.len(), 16 * 16 * 2);
+        unsafe { ReleaseSeaMask(&raw mut sea_mask) };
+        assert!(sea_mask.handle.is_null());
+        assert!(sea_mask.rg.is_null());
+        assert_eq!(sea_mask.width, 0);
+        assert_eq!(sea_mask.height, 0);
     }
 
     #[test]
@@ -1020,6 +1104,8 @@ mod tests {
             assert!(!surface_maps.occlusion.is_null());
             ReleaseSurfaceMaps(&raw mut surface_maps);
             assert!(surface_maps.handle.is_null());
+
+            assert_sea_mask(handle);
 
             let foliage = ExportFoliageData(handle, 16);
             assert!(!foliage.is_null());

@@ -25,7 +25,7 @@ use crate::{
     mesh_clipper::MeshClipper,
     noise,
     profiling::StageTimer,
-    rivers::{RiverNetwork, RiverSourceRule},
+    rivers::{RiverMouth, RiverNetwork, RiverSourceRule},
     rng::Rng,
 };
 
@@ -454,7 +454,7 @@ struct SurfaceSample {
 
 impl Terrain {
     #[cfg(test)]
-    fn new(mesh: Mesh) -> Self {
+    pub(crate) fn new(mesh: Mesh) -> Self {
         let triangle_index = TriangleIndex::new(&mesh);
         Self::with_index(mesh, triangle_index)
     }
@@ -769,6 +769,7 @@ pub struct Island {
     material: TerrainMaterialField,
     coarser_lods: [Mesh; 2],
     rivers: Vec<River>,
+    river_mouths: Vec<RiverMouth>,
     river_mesh: Mesh,
     decorations: OnceLock<Decorations>,
 }
@@ -797,7 +798,7 @@ impl Island {
         );
         let (lod0, material) = generate_broad_lod0(&lod1, material, context, &mut scratch);
         let (mut lod0, mut material) = generate_detail_lod0(&lod0, material, context, &mut scratch);
-        let (rivers, mut river_mesh, river_bed) = {
+        let (rivers, mut river_mesh, river_bed, river_mouths) = {
             let _timer = StageTimer::new("rivers.final");
             let detail_adjacency = lod0.adjacency();
             let mut final_rivers =
@@ -824,6 +825,7 @@ impl Island {
             material,
             coarser_lods: [lod1, lod2],
             rivers,
+            river_mouths,
             river_mesh,
             decorations: OnceLock::new(),
         })
@@ -910,6 +912,12 @@ impl Island {
         sample_grid(width, height, |u, v| {
             (-self.terrain.sample(u, v) / (self.options.max_height * 0.28)).clamp(0.0, 1.0)
         })
+    }
+
+    /// Bakes a linear interleaved RG8 texture for coastal waves and river silt.
+    #[must_use]
+    pub fn sea_mask(&self, width: u32, height: u32) -> Option<crate::SeaMask> {
+        crate::sea_mask::bake_sea_mask(&self.terrain, &self.river_mouths, width, height)
     }
 
     /// Bakes high-detail normal corrections and the original directional
