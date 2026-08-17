@@ -22,6 +22,12 @@ Shader "Motu/Water"
         _ReflectionFresnelPower ("Reflection Fresnel Power", Range(1, 8)) = 4
         _SunGlintStrength ("Sun Glint Strength", Range(0, 2)) = 0.7
         _SunGlintSharpness ("Sun Glint Sharpness", Range(8, 256)) = 128
+        _ShoreWaveStrength ("Shore Wave Strength", Range(0, 1)) = 0.35
+        _ShoreWaveSpacing ("Shore Wave Spacing (metres)", Float) = 0.55
+        _ShoreWaveSpeed ("Shore Wave Speed (metres/second)", Float) = 0.35
+        _ShoreWaveDepth ("Shore Wave Depth (metres)", Float) = 2.5
+        _ShoreWaveNoiseWorldSize ("Shore Wave Noise World Size", Float) = 5
+        _ShoreWaveBankDistance ("Use River-Bank Distance", Range(0, 1)) = 0
         _WhitewaterStrength ("Whitewater Strength", Range(0, 1)) = 0
         _WhitewaterSlopeStart ("Whitewater Slope Start", Range(0, 1)) = 0.05
         _WhitewaterSlopeFull ("Whitewater Slope Full", Range(0, 1)) = 0.55
@@ -84,6 +90,12 @@ Shader "Motu/Water"
             half _ReflectionFresnelPower;
             half _SunGlintStrength;
             half _SunGlintSharpness;
+            half _ShoreWaveStrength;
+            float _ShoreWaveSpacing;
+            float _ShoreWaveSpeed;
+            float _ShoreWaveDepth;
+            float _ShoreWaveNoiseWorldSize;
+            half _ShoreWaveBankDistance;
             half _WhitewaterStrength;
             half _WhitewaterSlopeStart;
             half _WhitewaterSlopeFull;
@@ -145,6 +157,54 @@ Shader "Motu/Water"
                 half layeredWhitewater = coarseWhitewater
                     + fineWhitewater * (1.0h - coarseWhitewater);
                 half whitewater = saturate(layeredWhitewater * _WhitewaterStrength);
+                // Sea waves use the eye-depth gap as an approximate distance
+                // along the water normal. River waves instead use the generated
+                // horizontal mesh distance from either bank, avoiding flat-bed
+                // depth bands that flash in unison.
+                half surfaceIncidence = saturate(dot(worldNormal, viewDirection));
+                half viewAxisAlignment = max(
+                    abs(dot(viewDirection, UNITY_MATRIX_V[2].xyz)),
+                    0.05h);
+                float screenShoreDepth = waterDepth
+                    * surfaceIncidence
+                    / viewAxisAlignment;
+                float bankDistance = max(input.riverUv.x, 0.0) * _WorldSize;
+                float shoreDepth = lerp(
+                    screenShoreDepth,
+                    bankDistance,
+                    saturate(_ShoreWaveBankDistance));
+                float shoreSpacing = max(_ShoreWaveSpacing, 0.001);
+                float shoreRange = max(_ShoreWaveDepth, shoreSpacing);
+                float2 shoreNoiseUv = input.worldPosition.xz
+                    / max(_ShoreWaveNoiseWorldSize, 0.001);
+                half shoreNoise = tex2D(_NoiseTex, shoreNoiseUv).r - 0.5h;
+                float shorePhase = (shoreDepth
+                    + _Time.y * _ShoreWaveSpeed
+                    + shoreNoise * shoreSpacing * 0.45) / shoreSpacing;
+                half shoreCrest = smoothstep(
+                    0.72h,
+                    0.98h,
+                    0.5h + 0.5h * cos(shorePhase * 6.2831853));
+                float contactStart = shoreRange * 0.01;
+                float contactEnd = max(
+                    shoreRange * 0.05,
+                    contactStart + 0.0001);
+                half contactFade = smoothstep(
+                    contactStart,
+                    contactEnd,
+                    shoreDepth);
+                half deepFade = 1.0h - smoothstep(
+                    max(shoreRange - shoreSpacing, shoreSpacing),
+                    shoreRange,
+                    shoreDepth);
+                half horizontalSurface = smoothstep(0.65h, 0.96h, verticalAlignment);
+                half shoreWave = saturate(
+                    shoreCrest
+                    * contactFade
+                    * deepFade
+                    * horizontalSurface
+                    * _ShoreWaveStrength);
+                whitewater = whitewater + shoreWave * (1.0h - whitewater);
                 // Keep the original shallow and opaque endpoints, but make the
                 // depth-buffer gradient span exactly the river surface's height
                 // above sea level. At sea level the span is zero, at one metre
@@ -180,8 +240,16 @@ Shader "Motu/Water"
                     _ReflectionFresnelPower);
                 half reflectionWeight = saturate(
                     _ReflectionStrength * lerp(0.08h, 1.0h, fresnel));
-                fixed3 water = lerp(
+                // Silt changes the body of the water, not what the surface
+                // reflects. Apply both river and sea silt before the common
+                // Fresnel reflection so reflection strength remains intact.
+                fixed3 waterBody = lerp(
                     _Color.rgb * input.brightness,
+                    _EstuaryColor.rgb,
+                    estuaryWeight);
+                waterBody = lerp(waterBody, _EstuaryColor.rgb, seaSilt);
+                fixed3 water = lerp(
+                    waterBody,
                     skyReflection,
                     reflectionWeight);
                 half sunAlignment = saturate(dot(
@@ -190,13 +258,11 @@ Shader "Motu/Water"
                 half sunGlint = pow(sunAlignment, _SunGlintSharpness)
                     * _SunGlintStrength;
                 water += _LightColor0.rgb * sunGlint;
-                water = lerp(water, _EstuaryColor.rgb, estuaryWeight);
                 fixed4 color = fixed4(
                     lerp(water, fixed3(1.0, 1.0, 1.0), whitewater),
                     saturate(waterOpacity + whitewater * 0.08h));
-                // At zero preserve the existing sea result exactly. At full silt,
-                // converge on the same opaque silt colour used by river estuaries.
-                color.rgb = lerp(color.rgb, _EstuaryColor.rgb, seaSilt);
+                // Sea silt retains its existing opacity convergence while its
+                // colour now participates beneath reflection just like river silt.
                 color.a = lerp(color.a, _EstuaryColor.a, seaSilt);
                 UNITY_APPLY_FOG(input.fogCoord, color);
                 return color;

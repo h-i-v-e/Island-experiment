@@ -562,8 +562,9 @@ impl RiverNetwork {
         enforce_sea_plane_clearance(terrain, &self.ocean);
         self.keep_centrelines_below_water(terrain);
         let river_bed = river_topology_masks(terrain, &coverage).0;
-        let river_mesh =
+        let mut river_mesh =
             duplicate_river_topology(terrain, &coverage, &surfaces, &river_uv, &waterfall_lips);
+        encode_bank_distance_in_uv(&mut river_mesh);
         (river_mesh, river_bed)
     }
 
@@ -1100,6 +1101,51 @@ fn duplicate_river_topology(
         }
     }
     round_waterfall_lips(out, out_waterfall_lips, minimum_heights)
+}
+
+/// Replaces the river mesh's lateral UV coordinate with the shortest
+/// horizontal mesh distance to a bank. The downstream coordinate remains in V.
+///
+/// This runs on the compact, complete river mesh before it is sliced for Unity,
+/// so generated tiles interpolate one continuous distance field at their seams.
+fn encode_bank_distance_in_uv(mesh: &mut Mesh) {
+    debug_assert_eq!(mesh.uv.len(), mesh.vertices.len());
+    if mesh.vertices.is_empty() || mesh.uv.len() != mesh.vertices.len() {
+        return;
+    }
+
+    let adjacency = mesh.adjacency();
+    let perimeter = mesh.perimeter_mask();
+    let mut distances = vec![f32::INFINITY; mesh.vertices.len()];
+    let mut queue = BinaryHeap::new();
+
+    for (vertex, is_bank) in perimeter.into_iter().enumerate() {
+        if is_bank {
+            distances[vertex] = 0.0;
+            queue.push(RouteState { cost: 0.0, vertex });
+        }
+    }
+
+    while let Some(RouteState { cost, vertex }) = queue.pop() {
+        if cost > distances[vertex] {
+            continue;
+        }
+        let position = mesh.vertices[vertex].truncate();
+        for &neighbour in &adjacency[vertex] {
+            let candidate = cost + position.distance(mesh.vertices[neighbour].truncate());
+            if candidate < distances[neighbour] {
+                distances[neighbour] = candidate;
+                queue.push(RouteState {
+                    cost: candidate,
+                    vertex: neighbour,
+                });
+            }
+        }
+    }
+
+    for (uv, distance) in mesh.uv.iter_mut().zip(distances) {
+        uv.x = distance;
+    }
 }
 
 fn round_waterfall_lips(
@@ -2947,6 +2993,36 @@ mod tests {
             bedrock_rates,
             control_areas,
         }
+    }
+
+    #[test]
+    fn river_uv_u_is_shortest_mesh_distance_from_the_bank() {
+        let points: Vec<Vec2> = (0..=2)
+            .flat_map(|y| (0..=2).map(move |x| Vec2::new(x as f32 * 0.5, y as f32 * 0.5)))
+            .collect();
+        let mut mesh = Mesh::delaunay(&points);
+        mesh.uv = mesh
+            .vertices
+            .iter()
+            .map(|vertex| Vec2::new(-1.0, vertex.y + 3.0))
+            .collect();
+        let downstream = mesh.uv.iter().map(|uv| uv.y).collect::<Vec<_>>();
+        let perimeter = mesh.perimeter_mask();
+        let centre = mesh
+            .vertices
+            .iter()
+            .position(|vertex| vertex.truncate() == Vec2::splat(0.5))
+            .unwrap();
+
+        encode_bank_distance_in_uv(&mut mesh);
+
+        for (vertex, &is_bank) in perimeter.iter().enumerate() {
+            if is_bank {
+                assert_eq!(mesh.uv[vertex].x.to_bits(), 0.0_f32.to_bits());
+            }
+            assert_eq!(mesh.uv[vertex].y.to_bits(), downstream[vertex].to_bits());
+        }
+        assert!((mesh.uv[centre].x - 0.5).abs() < 1.0e-6);
     }
 
     #[test]

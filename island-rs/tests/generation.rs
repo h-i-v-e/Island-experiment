@@ -73,6 +73,23 @@ fn assert_river_mesh_bank_and_centreline_clearance(island: &Island) {
     }
 }
 
+fn assert_river_mesh_bank_distance_uv(island: &Island) {
+    let river_mesh = island.river_mesh();
+    assert!(
+        river_mesh
+            .uv
+            .iter()
+            .all(|uv| uv.x.is_finite() && uv.x >= 0.0)
+    );
+    assert!(river_mesh.uv.iter().any(|uv| uv.x > 0.0));
+    assert!(
+        river_mesh
+            .perimeter_vertices()
+            .iter()
+            .all(|&vertex| river_mesh.uv[vertex].x == 0.0)
+    );
+}
+
 #[test]
 fn generation_is_deterministic() {
     let first = Island::generate(2018, small_options()).unwrap();
@@ -325,6 +342,32 @@ fn lods_reduce_mesh_density() {
 }
 
 #[test]
+fn exported_terrain_is_clipped_five_metres_below_sea_level() {
+    let island = Island::generate(19, small_options()).unwrap();
+    let floor = -5.0 / motu::ISLAND_WORLD_METRES;
+    let source = island.lod(0).unwrap();
+    let support = island.mesh_in(0, BoundingBox::default()).unwrap();
+    let render = island.render_mesh_in(0, BoundingBox::default(), 0).unwrap();
+    let tiles = island
+        .render_mesh_grid(0, BoundingBox::default(), 2, 0)
+        .unwrap();
+
+    assert!(source.vertices.iter().any(|vertex| vertex.z < floor));
+    assert!(support.vertices.len() < source.vertices.len());
+    for mesh in std::iter::once(&support)
+        .chain(std::iter::once(&render))
+        .chain(&tiles)
+    {
+        assert!(mesh.vertices.iter().all(|vertex| vertex.z >= floor));
+        let mut used = vec![false; mesh.vertices.len()];
+        for &vertex in &mesh.triangles {
+            used[vertex as usize] = true;
+        }
+        assert!(used.into_iter().all(std::convert::identity));
+    }
+}
+
+#[test]
 fn coarser_lods_are_refined_and_pinned_to_the_final_lod0_surface() {
     let island = Island::generate(23, small_options()).unwrap();
     let lod0 = island.lod(0).unwrap();
@@ -534,6 +577,7 @@ fn rivers_are_continuous_flowing_terrain_submeshes_with_waterfalls() {
         island.river_mesh().uv.len(),
         island.river_mesh().vertices.len()
     );
+    assert_river_mesh_bank_distance_uv(&island);
     assert!(island.river_mesh().triangles.len() > total_segments * 3);
     assert!(
         island

@@ -108,6 +108,11 @@ parallel `material` array sampled from the final LOD 0 material field after
 clipping: X is bedrock hardness, Y is normalized loose cover, and Z is final
 river-bed coverage. Sampling after slicing keeps the attributes paired with
 reordered and newly inserted boundary vertices.
+All terrain and support exports are also clipped against a horizontal plane
+five metres below sea level. Faces crossing the plane receive shared
+interpolated boundary vertices, while deeper faces and now-unused vertices are
+discarded. The authoritative full terrain remains available for height maps,
+sea-depth masks, river processing, and deterministic saves.
 
 River-source selection uses one absolute catchment area for every routing pass.
 Projected control areas are converted to square metres and accumulated

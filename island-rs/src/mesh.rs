@@ -595,6 +595,69 @@ impl Mesh {
             .sum()
     }
 
+    /// Consumes the mesh and geometrically clips away everything below a
+    /// horizontal plane. Surviving vertices are compacted and shared edge
+    /// intersections are inserted once, retaining normals and UVs.
+    #[must_use]
+    pub(crate) fn clipped_above(self, minimum_z: f32) -> Self {
+        if self.vertices.iter().all(|vertex| vertex.z >= minimum_z) {
+            return self;
+        }
+
+        let has_normals = self.normals.len() == self.vertices.len();
+        let has_uv = self.uv.len() == self.vertices.len();
+        let mut output = Self {
+            vertices: Vec::with_capacity(self.vertices.len()),
+            normals: if has_normals {
+                Vec::with_capacity(self.normals.len())
+            } else {
+                Vec::new()
+            },
+            triangles: Vec::with_capacity(self.triangles.len()),
+            uv: if has_uv {
+                Vec::with_capacity(self.uv.len())
+            } else {
+                Vec::new()
+            },
+        };
+        let mut vertex_remap = vec![u32::MAX; self.vertices.len()];
+        let mut edge_remap = HashMap::<(u32, u32), u32>::new();
+
+        for triangle in self.triangles.chunks_exact(3) {
+            let (polygon, length) = clip_triangle_above(
+                [triangle[0], triangle[1], triangle[2]],
+                &self.vertices,
+                minimum_z,
+            );
+            if length < 3 {
+                continue;
+            }
+            let mut mapped = [0_u32; 4];
+            for (destination, vertex) in mapped[..length].iter_mut().zip(polygon) {
+                *destination = map_height_clip_vertex(
+                    vertex,
+                    minimum_z,
+                    &self,
+                    has_normals,
+                    has_uv,
+                    &mut vertex_remap,
+                    &mut edge_remap,
+                    &mut output,
+                );
+            }
+            for index in 1..length - 1 {
+                let triangle = [mapped[0], mapped[index], mapped[index + 1]];
+                if triangle[0] != triangle[1]
+                    && triangle[1] != triangle[2]
+                    && triangle[2] != triangle[0]
+                {
+                    output.triangles.extend(triangle);
+                }
+            }
+        }
+        output
+    }
+
     #[must_use]
     pub fn sliced(&self, bounds: BoundingBox) -> Self {
         if bounds == BoundingBox::default() {
@@ -723,6 +786,129 @@ struct VertexKey([u32; 3]);
 impl From<Vec3> for VertexKey {
     fn from(value: Vec3) -> Self {
         Self([value.x.to_bits(), value.y.to_bits(), value.z.to_bits()])
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum HeightClipVertex {
+    Existing(u32),
+    Edge {
+        from: u32,
+        to: u32,
+        interpolation: f32,
+    },
+}
+
+fn clip_triangle_above(
+    triangle: [u32; 3],
+    vertices: &[Vec3],
+    minimum_z: f32,
+) -> ([HeightClipVertex; 4], usize) {
+    let mut output = [HeightClipVertex::Existing(0); 4];
+    let mut length = 0;
+    let mut previous = triangle[2];
+    let mut previous_inside = vertices[previous as usize].z >= minimum_z;
+    for current in triangle {
+        let current_inside = vertices[current as usize].z >= minimum_z;
+        if current_inside != previous_inside {
+            let previous_z = vertices[previous as usize].z;
+            let current_z = vertices[current as usize].z;
+            let interpolation = (minimum_z - previous_z) / (current_z - previous_z);
+            let intersection = if interpolation <= f32::EPSILON {
+                HeightClipVertex::Existing(previous)
+            } else if interpolation >= 1.0 - f32::EPSILON {
+                HeightClipVertex::Existing(current)
+            } else {
+                HeightClipVertex::Edge {
+                    from: previous,
+                    to: current,
+                    interpolation,
+                }
+            };
+            push_height_clip_vertex(&mut output, &mut length, intersection);
+        }
+        if current_inside {
+            push_height_clip_vertex(
+                &mut output,
+                &mut length,
+                HeightClipVertex::Existing(current),
+            );
+        }
+        previous = current;
+        previous_inside = current_inside;
+    }
+    if length > 1 && output[0] == output[length - 1] {
+        length -= 1;
+    }
+    (output, length)
+}
+
+fn push_height_clip_vertex(
+    output: &mut [HeightClipVertex; 4],
+    length: &mut usize,
+    vertex: HeightClipVertex,
+) {
+    if *length == 0 || output[*length - 1] != vertex {
+        output[*length] = vertex;
+        *length += 1;
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn map_height_clip_vertex(
+    vertex: HeightClipVertex,
+    minimum_z: f32,
+    source: &Mesh,
+    has_normals: bool,
+    has_uv: bool,
+    vertex_remap: &mut [u32],
+    edge_remap: &mut HashMap<(u32, u32), u32>,
+    output: &mut Mesh,
+) -> u32 {
+    match vertex {
+        HeightClipVertex::Existing(source_vertex) => {
+            let mapped = &mut vertex_remap[source_vertex as usize];
+            if *mapped == u32::MAX {
+                *mapped = output.vertices.len() as u32;
+                output
+                    .vertices
+                    .push(source.vertices[source_vertex as usize]);
+                if has_normals {
+                    output.normals.push(source.normals[source_vertex as usize]);
+                }
+                if has_uv {
+                    output.uv.push(source.uv[source_vertex as usize]);
+                }
+            }
+            *mapped
+        }
+        HeightClipVertex::Edge {
+            from,
+            to,
+            interpolation,
+        } => {
+            let key = ordered_edge(from, to);
+            *edge_remap.entry(key).or_insert_with(|| {
+                let mapped = output.vertices.len() as u32;
+                let mut position = source.vertices[from as usize]
+                    .lerp(source.vertices[to as usize], interpolation);
+                position.z = minimum_z;
+                output.vertices.push(position);
+                if has_normals {
+                    output.normals.push(
+                        source.normals[from as usize]
+                            .lerp(source.normals[to as usize], interpolation)
+                            .normalize_or_zero(),
+                    );
+                }
+                if has_uv {
+                    output
+                        .uv
+                        .push(source.uv[from as usize].lerp(source.uv[to as usize], interpolation));
+                }
+                mapped
+            })
+        }
     }
 }
 
@@ -1298,6 +1484,46 @@ mod tests {
                 .flat_map(|tile| &tile.vertices)
                 .any(|vertex| { *vertex == Vec3::new(0.5, 0.5, 0.0) })
         );
+    }
+
+    #[test]
+    fn height_clipping_compacts_deep_vertices_and_splits_crossing_faces() {
+        let mesh = Mesh {
+            vertices: vec![
+                Vec3::new(0.0, 0.0, 0.0),
+                Vec3::new(1.0, 0.0, -0.01),
+                Vec3::new(1.0, 1.0, -0.01),
+                Vec3::new(0.0, 1.0, 0.0),
+            ],
+            normals: vec![Vec3::Z; 4],
+            triangles: vec![0, 1, 2, 0, 2, 3],
+            uv: vec![Vec2::ZERO, Vec2::X, Vec2::ONE, Vec2::Y],
+        };
+
+        let clipped = mesh.clipped_above(-0.0025);
+
+        assert_eq!(clipped.vertices.len(), 5);
+        assert_eq!(clipped.normals.len(), clipped.vertices.len());
+        assert_eq!(clipped.uv.len(), clipped.vertices.len());
+        assert_eq!(clipped.triangles.len(), 9);
+        assert!(clipped.vertices.iter().all(|vertex| vertex.z >= -0.0025));
+        assert!(
+            clipped
+                .vertices
+                .iter()
+                .any(|vertex| (vertex.z + 0.0025).abs() < f32::EPSILON)
+        );
+        assert!(
+            clipped
+                .triangles
+                .iter()
+                .all(|&vertex| (vertex as usize) < clipped.vertices.len())
+        );
+        let mut used = vec![false; clipped.vertices.len()];
+        for &vertex in &clipped.triangles {
+            used[vertex as usize] = true;
+        }
+        assert!(used.into_iter().all(std::convert::identity));
     }
 
     #[test]

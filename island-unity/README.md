@@ -110,6 +110,10 @@ creation, LOD 1 and LOD 2 are each tessellated once more and the inserted
 midpoints are projected onto the final LOD 0 surface. This leaves a smaller
 density and silhouette step between adjacent LODs before Unity applies its
 edge-only transition morph.
+Terrain render and collider exports are additionally clipped five metres below
+the sea plane. Crossing faces end on a shared interpolated boundary, and deeper
+faces and unused vertices are omitted from Unity without changing the full
+terrain retained by Rust for maps and generation.
 
 Sediment deposition has separate strength and slope controls. At the default
 12-degree limit, deposition is strongest below 4 degrees, fades smoothly

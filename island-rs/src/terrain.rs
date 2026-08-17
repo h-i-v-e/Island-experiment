@@ -10,7 +10,7 @@ use std::{
     collections::BinaryHeap,
     fs::File,
     io::{self, Read, Write},
-    mem::size_of,
+    mem::{self, size_of},
     path::Path,
     sync::OnceLock,
     thread,
@@ -36,6 +36,7 @@ const HYDRAULIC_EDGE_SHIFT_LIMIT: f32 = 0.08;
 const HYDRAULIC_MIN_PROJECTED_AREA_RATIO: f32 = 0.2;
 const MINIMUM_BEDROCK_EROSION_RATE: f32 = 0.05;
 const TRIANGLE_INDEX_OFFSET_BUDGET_BYTES: usize = 32 * 1024 * 1024;
+const TERRAIN_RENDER_FLOOR: f32 = -5.0 / ISLAND_WORLD_METRES;
 pub(crate) const LOOSE_DEPTH_EPSILON: f32 = 1.0e-8;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -1090,18 +1091,19 @@ impl Island {
 
     #[must_use]
     pub fn mesh_in(&self, lod: usize, bounds: BoundingBox) -> Option<Mesh> {
-        self.lod(lod).map(|mesh| mesh.sliced(bounds))
+        self.lod(lod)
+            .map(|mesh| mesh.sliced(bounds).clipped_above(TERRAIN_RENDER_FLOOR))
     }
 
     /// Clips a display mesh while retaining corrected LOD transitions.
     #[must_use]
     pub fn render_mesh_in(&self, lod: usize, bounds: BoundingBox, clamp_sides: u8) -> Option<Mesh> {
-        match lod {
-            0 => Some(MeshClipper::new(self.terrain.mesh()).sliced(
+        let mesh = match lod {
+            0 => MeshClipper::new(self.terrain.mesh()).sliced(
                 bounds,
                 (clamp_sides != 0).then_some(&self.coarser_lods[0]),
                 clamp_sides,
-            )),
+            ),
             1 | 2 => {
                 let mesh = self.lod(lod)?;
                 self.lod(lod + 1).filter(|_| clamp_sides != 0).map_or_else(
@@ -1110,10 +1112,11 @@ impl Island {
                         mesh.sliced_grid_clamped(bounds, 1, coarser, clamp_sides)
                             .pop()
                     },
-                )
+                )?
             }
-            _ => None,
-        }
+            _ => return None,
+        };
+        Some(mesh.clipped_above(TERRAIN_RENDER_FLOOR))
     }
 
     /// Clips a display LOD into one tile batch. The global render mesh is
@@ -1126,22 +1129,26 @@ impl Island {
         divisions: usize,
         clamp_sides: u8,
     ) -> Option<Vec<Mesh>> {
-        match lod {
-            0 => Some(MeshClipper::new(self.terrain.mesh()).sliced_grid(
+        let mut tiles = match lod {
+            0 => MeshClipper::new(self.terrain.mesh()).sliced_grid(
                 bounds,
                 divisions,
                 (clamp_sides != 0).then_some(&self.coarser_lods[0]),
                 clamp_sides,
-            )),
+            ),
             1 | 2 => {
                 let mesh = self.lod(lod)?;
-                Some(self.lod(lod + 1).filter(|_| clamp_sides != 0).map_or_else(
+                self.lod(lod + 1).filter(|_| clamp_sides != 0).map_or_else(
                     || mesh.sliced_grid(bounds, divisions),
                     |coarser| mesh.sliced_grid_clamped(bounds, divisions, coarser, clamp_sides),
-                ))
+                )
             }
-            _ => None,
+            _ => return None,
+        };
+        for tile in &mut tiles {
+            *tile = mem::take(tile).clipped_above(TERRAIN_RENDER_FLOOR);
         }
+        Some(tiles)
     }
 
     pub(crate) fn material_values_for(&self, mesh: &Mesh) -> Vec<Vec3> {

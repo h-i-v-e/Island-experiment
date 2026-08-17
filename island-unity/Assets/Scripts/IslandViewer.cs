@@ -376,6 +376,15 @@ public sealed class IslandViewer : MonoBehaviour
         var sandColor = new Color(0.62f, 0.57f, 0.34f, 1f);
         const float shallowWaterOpacity = 0.25f;
         const float fullOpacityDepth = 5f;
+        const float shoreWaveStrength = 0.35f;
+        const float riverShoreWaveSpeed = -0.07f;
+        const float seaShoreWaveSpeed = 0.35f;
+        const float riverShoreWaveSpacing = 0.11f;
+        const float riverShoreWaveDepth = 0.5f;
+        const float riverShoreWaveNoiseWorldSize = 1f;
+        const float seaShoreWaveSpacing = 0.55f;
+        const float seaShoreWaveDepth = 2.5f;
+        const float seaShoreWaveNoiseWorldSize = 5f;
         riverMaterial = CreateMaterial("Motu/Water", waterColor);
         riverMaterial.renderQueue = (int)RenderQueue.Transparent + 10;
         riverMaterial.SetTexture("_NoiseTex", riverNoiseTexture);
@@ -394,6 +403,15 @@ public sealed class IslandViewer : MonoBehaviour
             Color.Lerp(skyColor, Color.white, 0.35f));
         riverMaterial.SetFloat("_ReflectionStrength", 0.45f);
         riverMaterial.SetFloat("_SunGlintStrength", 0.55f);
+        ConfigureShoreWaves(
+            riverMaterial,
+            riverNoiseTexture,
+            shoreWaveStrength,
+            riverShoreWaveSpacing,
+            riverShoreWaveSpeed,
+            riverShoreWaveDepth,
+            riverShoreWaveNoiseWorldSize,
+            true);
         seaMaterial = CreateMaterial("Motu/Water", waterColor);
         seaMaterial.renderQueue = (int)RenderQueue.Transparent;
         seaMaterial.SetFloat("_WhitewaterStrength", 0f);
@@ -409,6 +427,34 @@ public sealed class IslandViewer : MonoBehaviour
             Color.Lerp(skyColor, Color.white, 0.35f));
         seaMaterial.SetFloat("_ReflectionStrength", 0.65f);
         seaMaterial.SetFloat("_SunGlintStrength", 0.8f);
+        ConfigureShoreWaves(
+            seaMaterial,
+            riverNoiseTexture,
+            shoreWaveStrength,
+            seaShoreWaveSpacing,
+            seaShoreWaveSpeed,
+            seaShoreWaveDepth,
+            seaShoreWaveNoiseWorldSize,
+            false);
+    }
+
+    private static void ConfigureShoreWaves(
+        Material material,
+        Texture noise,
+        float strength,
+        float spacing,
+        float speed,
+        float depth,
+        float noiseWorldSize,
+        bool useBankDistance)
+    {
+        material.SetTexture("_NoiseTex", noise);
+        material.SetFloat("_ShoreWaveStrength", strength);
+        material.SetFloat("_ShoreWaveSpacing", spacing);
+        material.SetFloat("_ShoreWaveSpeed", speed);
+        material.SetFloat("_ShoreWaveDepth", depth);
+        material.SetFloat("_ShoreWaveNoiseWorldSize", noiseWorldSize);
+        material.SetFloat("_ShoreWaveBankDistance", useBankDistance ? 1f : 0f);
     }
 
     private void SetDistanceHaze(bool enabled)
@@ -1619,6 +1665,11 @@ public sealed class IslandViewer : MonoBehaviour
                     || !waterMaterial.HasProperty("_ReflectionFresnelPower")
                     || !waterMaterial.HasProperty("_SunGlintStrength")
                     || !waterMaterial.HasProperty("_SunGlintSharpness")
+                    || !waterMaterial.HasProperty("_ShoreWaveStrength")
+                    || !waterMaterial.HasProperty("_ShoreWaveSpacing")
+                    || !waterMaterial.HasProperty("_ShoreWaveSpeed")
+                    || !waterMaterial.HasProperty("_ShoreWaveDepth")
+                    || !waterMaterial.HasProperty("_ShoreWaveNoiseWorldSize")
                     || !waterMaterial.HasProperty("_WhitewaterStrength")
                     || !waterMaterial.HasProperty("_WhitewaterSlopeStart")
                     || !waterMaterial.HasProperty("_WhitewaterSlopeFull"))
