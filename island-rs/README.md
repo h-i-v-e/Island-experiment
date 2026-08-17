@@ -114,6 +114,16 @@ interpolated boundary vertices, while deeper faces and now-unused vertices are
 discarded. The authoritative full terrain remains available for height maps,
 sea-depth masks, river processing, and deterministic saves.
 
+`CreateTerrainColliderHeightMap` samples the authoritative final LOD 0 surface
+on one global lattice for Unity collision. It accepts 33, 65, or 129 samples
+per logical LOD 1 tile and returns respectively 2049, 4097, or 8193 samples per
+world edge. Adjacent Unity tiles therefore copy their boundary rows and columns
+from identical source indices. The owned export must be released with
+`ReleaseTerrainColliderHeightMap`; sampling is row-parallel while output order
+remains deterministic. This collision representation is a heightfield, so it
+cannot reproduce overhangs, vertical faces, or multiple elevations at one XY
+coordinate.
+
 River-source selection uses one absolute catchment area for every routing pass.
 Projected control areas are converted to square metres and accumulated
 downstream alongside the existing vertex flow, so progressively denser meshes

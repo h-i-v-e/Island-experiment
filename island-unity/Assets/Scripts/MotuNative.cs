@@ -163,13 +163,6 @@ internal static class MotuNative
     internal static extern void ReleaseMesh(ref ExportMesh output);
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern void CreateSupportMesh(
-        IntPtr handle,
-        ref ExportArea area,
-        int lod,
-        out ExportMesh output);
-
-    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
     internal static extern void CreateMeshGrid(
         IntPtr handle,
         ref ExportArea area,
@@ -212,6 +205,14 @@ internal static class MotuNative
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
     internal static extern void ReleaseHeightMap(IntPtr map);
+
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+    internal static extern IntPtr CreateTerrainColliderHeightMap(
+        IntPtr handle,
+        int samplesPerTile);
+
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+    internal static extern void ReleaseTerrainColliderHeightMap(IntPtr map);
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
     internal static extern void CreateSurfaceMaps(

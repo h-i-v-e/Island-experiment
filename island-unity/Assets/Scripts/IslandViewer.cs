@@ -68,7 +68,6 @@ public sealed class IslandViewer : MonoBehaviour
     private bool showRivers = true;
     private bool showSea = true;
     private bool showMeshEdges;
-    private bool useRenderCollider = true;
     private bool showRiverEmitterDebug;
     private bool clickCandidate;
     private Vector2 clickStart;
@@ -141,6 +140,100 @@ public sealed class IslandViewer : MonoBehaviour
         }
     }
 
+    internal sealed class PreparedColliderHeightMap
+    {
+        private const float VerticalSafetyMarginMetres = 1f;
+        private readonly float[] normalizedHeights;
+
+        internal readonly int dimension;
+        internal readonly int samplesPerTile;
+        internal readonly float verticalOrigin;
+        internal readonly float verticalSize;
+        internal readonly float minimumHeight;
+        internal readonly float maximumHeight;
+
+        internal PreparedColliderHeightMap(
+            int mapDimension,
+            int tileSamples,
+            float[] heights,
+            float terrainWorldSize)
+        {
+            var expectedDimension = checked(
+                TerrainTileStreamer.Lod1Resolution * (tileSamples - 1) + 1);
+            if (mapDimension != expectedDimension
+                || heights == null
+                || heights.Length != checked(mapDimension * mapDimension))
+            {
+                throw new InvalidOperationException(
+                    "The terrain-collider height map dimensions are invalid.");
+            }
+
+            dimension = mapDimension;
+            samplesPerTile = tileSamples;
+            normalizedHeights = heights;
+            var minimum = float.PositiveInfinity;
+            var maximum = float.NegativeInfinity;
+            for (var index = 0; index < heights.Length; index++)
+            {
+                var height = heights[index] * terrainWorldSize;
+                if (float.IsNaN(height) || float.IsInfinity(height))
+                {
+                    throw new InvalidOperationException(
+                        "The terrain-collider height map contains a non-finite sample.");
+                }
+                heights[index] = height;
+                minimum = Math.Min(minimum, height);
+                maximum = Math.Max(maximum, height);
+            }
+
+            minimumHeight = minimum;
+            maximumHeight = maximum;
+            verticalOrigin = minimum - VerticalSafetyMarginMetres;
+            verticalSize = Math.Max(
+                maximum - minimum + VerticalSafetyMarginMetres * 2f,
+                VerticalSafetyMarginMetres * 2f);
+            for (var index = 0; index < heights.Length; index++)
+            {
+                heights[index] = (heights[index] - verticalOrigin) / verticalSize;
+            }
+        }
+
+        internal float[,] CopyTileHeights(Vector2Int tile)
+        {
+            if (tile.x < 0
+                || tile.y < 0
+                || tile.x >= TerrainTileStreamer.Lod1Resolution
+                || tile.y >= TerrainTileStreamer.Lod1Resolution)
+            {
+                throw new ArgumentOutOfRangeException(nameof(tile));
+            }
+
+            var result = new float[samplesPerTile, samplesPerTile];
+            var intervalsPerTile = samplesPerTile - 1;
+            var sourceX = tile.x * intervalsPerTile;
+            var sourceY = tile.y * intervalsPerTile;
+            for (var localY = 0; localY < samplesPerTile; localY++)
+            {
+                var sourceOffset = (sourceY + localY) * dimension + sourceX;
+                for (var localX = 0; localX < samplesPerTile; localX++)
+                {
+                    result[localY, localX] = normalizedHeights[sourceOffset + localX];
+                }
+            }
+            return result;
+        }
+
+        internal float WorldHeightAt(int sampleX, int sampleY)
+        {
+            if (sampleX < 0 || sampleY < 0 || sampleX >= dimension || sampleY >= dimension)
+            {
+                throw new ArgumentOutOfRangeException();
+            }
+            return verticalOrigin
+                + normalizedHeights[sampleY * dimension + sampleX] * verticalSize;
+        }
+    }
+
     private sealed class PreparedIsland : IDisposable
     {
         internal IntPtr handle;
@@ -149,6 +242,7 @@ public sealed class IslandViewer : MonoBehaviour
         internal readonly PreparedMesh[] overviewTiles;
         internal readonly PreparedMesh[] riverTiles;
         internal readonly PreparedRiverEmitter[] riverEmitters;
+        internal readonly PreparedColliderHeightMap colliderHeightMap;
 
         internal PreparedIsland(
             IntPtr handle,
@@ -156,7 +250,8 @@ public sealed class IslandViewer : MonoBehaviour
             PreparedSeaMask seaMask,
             PreparedMesh[] overviewTiles,
             PreparedMesh[] riverTiles,
-            PreparedRiverEmitter[] riverEmitters)
+            PreparedRiverEmitter[] riverEmitters,
+            PreparedColliderHeightMap colliderHeightMap)
         {
             this.handle = handle;
             this.surfaceMaps = surfaceMaps;
@@ -164,6 +259,7 @@ public sealed class IslandViewer : MonoBehaviour
             this.overviewTiles = overviewTiles;
             this.riverTiles = riverTiles;
             this.riverEmitters = riverEmitters;
+            this.colliderHeightMap = colliderHeightMap;
         }
 
         internal IntPtr TakeHandle()
@@ -271,8 +367,6 @@ public sealed class IslandViewer : MonoBehaviour
         var ray = viewerCamera.ScreenPointToRay(releasedAt);
         if (terrainStreamer.TryRaycastOverview(ray, out var groundPoint))
         {
-            terrainStreamer.SetPlayerPosition(groundPoint);
-            terrainStreamer.TrySnapToCurrentCollider(groundPoint, out groundPoint);
             firstPersonController.Enter(groundPoint);
         }
     }
@@ -533,9 +627,9 @@ public sealed class IslandViewer : MonoBehaviour
                 prepared.overviewTiles,
                 prepared.riverTiles,
                 prepared.riverEmitters,
+                prepared.colliderHeightMap,
                 showRivers,
                 cancellation.Token);
-            terrainStreamer.UseRenderCollider = useRenderCollider;
             terrainStreamer.SetRiverEmitterDebug(showRiverEmitterDebug);
             firstPersonController.SetTerrainStreamer(terrainStreamer);
 
@@ -563,7 +657,7 @@ public sealed class IslandViewer : MonoBehaviour
                 terrainStreamer.RiverEmitterCandidateCount);
             status += string.Format(
                 CultureInfo.InvariantCulture,
-                " | current LOD 0 render collider (support fallback) | {0:F1} km square",
+                " | 3x3 hidden LOD 1 terrain colliders (65x65 samples each) | {0:F1} km square",
                 TerrainScale / 1000f);
         }
         catch (OperationCanceledException)
@@ -610,6 +704,8 @@ public sealed class IslandViewer : MonoBehaviour
             cancellationToken.ThrowIfCancellationRequested();
             var seaMask = PrepareSeaMask(handle, SurfaceMapDimension);
             cancellationToken.ThrowIfCancellationRequested();
+            var colliderHeightMap = PrepareColliderHeightMap(handle, TerrainScale);
+            cancellationToken.ThrowIfCancellationRequested();
             var overviewTiles = TerrainTileStreamer.PrepareOverviewTiles(handle);
             cancellationToken.ThrowIfCancellationRequested();
             var riverTiles = PrepareRiverTiles(handle);
@@ -622,7 +718,8 @@ public sealed class IslandViewer : MonoBehaviour
                 seaMask,
                 overviewTiles,
                 riverTiles,
-                riverEmitters);
+                riverEmitters,
+                colliderHeightMap);
             handle = IntPtr.Zero;
             return result;
         }
@@ -687,6 +784,48 @@ public sealed class IslandViewer : MonoBehaviour
         finally
         {
             MotuNative.ReleaseSeaMask(ref seaMask);
+        }
+    }
+
+    private static PreparedColliderHeightMap PrepareColliderHeightMap(
+        IntPtr handle,
+        float terrainWorldSize)
+    {
+        var mapPointer = MotuNative.CreateTerrainColliderHeightMap(
+            handle,
+            TerrainTileStreamer.ColliderSamplesPerTile);
+        try
+        {
+            if (mapPointer == IntPtr.Zero)
+            {
+                throw new InvalidOperationException(
+                    "The Rust generator returned a null terrain-collider height map.");
+            }
+            var native = Marshal.PtrToStructure<MotuNative.ExportHeightMapWithSeaLevel>(
+                mapPointer);
+            var expectedDimension = checked(
+                TerrainTileStreamer.Lod1Resolution
+                * (TerrainTileStreamer.ColliderSamplesPerTile - 1)
+                + 1);
+            if (native.data == IntPtr.Zero
+                || native.width != expectedDimension
+                || native.height != expectedDimension)
+            {
+                throw new InvalidOperationException(
+                    "The Rust generator returned invalid terrain-collider height-map data.");
+            }
+
+            var heights = new float[checked(native.width * native.height)];
+            Marshal.Copy(native.data, heights, 0, heights.Length);
+            return new PreparedColliderHeightMap(
+                native.width,
+                TerrainTileStreamer.ColliderSamplesPerTile,
+                heights,
+                terrainWorldSize);
+        }
+        finally
+        {
+            MotuNative.ReleaseTerrainColliderHeightMap(mapPointer);
         }
     }
 
@@ -1407,13 +1546,6 @@ public sealed class IslandViewer : MonoBehaviour
 
         GUILayout.Space(4f);
         showMeshEdges = GUILayout.Toggle(showMeshEdges, "Show mesh edges (wireframe)");
-        useRenderCollider = GUILayout.Toggle(
-            useRenderCollider,
-            "Use true 3D collider (support fallback)");
-        if (terrainStreamer != null)
-        {
-            terrainStreamer.UseRenderCollider = useRenderCollider;
-        }
         SetGrassBrightness(OptionSlider(
             "Grass brightness",
             grassBrightness,
@@ -1775,7 +1907,6 @@ public sealed class IslandViewer : MonoBehaviour
                         throw new InvalidOperationException("A render tile has invalid geometry or UVs.");
                     }
                     var renderMesh = CopyTerrainMesh(nativeMesh, 0);
-                    Physics.BakeMesh(renderMesh.GetEntityId(), false);
                     DestroyImmediate(renderMesh);
                 }
             }
@@ -1954,34 +2085,111 @@ public sealed class IslandViewer : MonoBehaviour
                 DestroyImmediate(particleRoot);
             }
 
-            const float lod0Resolution = 512f;
-            var colliderArea = new MotuNative.ExportArea(
-                192f / lod0Resolution,
-                192f / lod0Resolution,
-                193f / lod0Resolution,
-                193f / lod0Resolution);
-            MotuNative.CreateSupportMesh(handle, ref colliderArea, 0, out var support);
+            const int validationSamplesPerTile = TerrainTileStreamer.ColliderSamplesPerTile;
+            var heightMapPointer = MotuNative.CreateTerrainColliderHeightMap(
+                handle,
+                validationSamplesPerTile);
             try
             {
-                if (support.handle == IntPtr.Zero
-                    || support.triangles.length == 0
-                    || support.uv.length != support.vertices.length
-                    || support.material.length != support.vertices.length)
+                if (heightMapPointer == IntPtr.Zero)
                 {
-                    throw new InvalidOperationException("Native support-collider mesh is invalid.");
+                    throw new InvalidOperationException(
+                        "Native terrain-collider height-map export is null.");
                 }
-                DestroyImmediate(CopyTerrainMesh(support, 0));
+                var nativeHeightMap = Marshal.PtrToStructure<
+                    MotuNative.ExportHeightMapWithSeaLevel>(heightMapPointer);
+                var expectedDimension = TerrainTileStreamer.Lod1Resolution
+                    * (validationSamplesPerTile - 1)
+                    + 1;
+                if (nativeHeightMap.width != expectedDimension
+                    || nativeHeightMap.height != expectedDimension
+                    || nativeHeightMap.data == IntPtr.Zero)
+                {
+                    throw new InvalidOperationException(
+                        "Native terrain-collider height-map dimensions are invalid.");
+                }
+                var heights = new float[checked(expectedDimension * expectedDimension)];
+                Marshal.Copy(nativeHeightMap.data, heights, 0, heights.Length);
+                var preparedHeightMap = new PreparedColliderHeightMap(
+                    expectedDimension,
+                    validationSamplesPerTile,
+                    heights,
+                    TerrainScale);
+                var leftTile = preparedHeightMap.CopyTileHeights(Vector2Int.zero);
+                var rightTile = preparedHeightMap.CopyTileHeights(new Vector2Int(1, 0));
+                for (var row = 0; row < validationSamplesPerTile; row++)
+                {
+                    if (leftTile[row, validationSamplesPerTile - 1] != rightTile[row, 0])
+                    {
+                        throw new InvalidOperationException(
+                            "Adjacent terrain-collider height maps do not share an identical edge.");
+                    }
+                }
+
+                var validationTerrainData = new TerrainData
+                {
+                    heightmapResolution = validationSamplesPerTile,
+                    size = new Vector3(
+                        TerrainScale / TerrainTileStreamer.Lod1Resolution,
+                        preparedHeightMap.verticalSize,
+                        TerrainScale / TerrainTileStreamer.Lod1Resolution),
+                };
+                var validationTerrainObject = new GameObject(
+                    "Terrain collider validation");
+                try
+                {
+                    validationTerrainData.SetHeights(0, 0, leftTile);
+                    validationTerrainObject.transform.position = new Vector3(
+                        -TerrainScale * 0.5f,
+                        preparedHeightMap.verticalOrigin,
+                        -TerrainScale * 0.5f);
+                    var hiddenTerrain = validationTerrainObject.AddComponent<Terrain>();
+                    hiddenTerrain.terrainData = validationTerrainData;
+                    hiddenTerrain.drawHeightmap = false;
+                    hiddenTerrain.enabled = false;
+                    var terrainCollider = validationTerrainObject.AddComponent<TerrainCollider>();
+                    terrainCollider.terrainData = validationTerrainData;
+                    Physics.SyncTransforms();
+                    var tileSize = TerrainScale / TerrainTileStreamer.Lod1Resolution;
+                    var ray = new Ray(
+                        validationTerrainObject.transform.position
+                            + new Vector3(tileSize * 0.5f, TerrainScale, tileSize * 0.5f),
+                        Vector3.down);
+                    if (!terrainCollider.Raycast(ray, out _, TerrainScale * 2f))
+                    {
+                        throw new InvalidOperationException(
+                            "The hidden Unity TerrainCollider did not hit its prepared heightfield.");
+                    }
+                }
+                finally
+                {
+                    DestroyImmediate(validationTerrainObject);
+                    DestroyImmediate(validationTerrainData);
+                }
+
+                var streamingValidationObject = new GameObject(
+                    "Terrain collider neighbourhood validation");
+                try
+                {
+                    streamingValidationObject
+                        .AddComponent<TerrainTileStreamer>()
+                        .ValidateColliderStreaming(preparedHeightMap, TerrainScale);
+                }
+                finally
+                {
+                    DestroyImmediate(streamingValidationObject);
+                }
             }
             finally
             {
-                MotuNative.ReleaseMesh(ref support);
+                MotuNative.ReleaseTerrainColliderHeightMap(heightMapPointer);
             }
         }
         finally
         {
             MotuNative.ReleaseMotu(handle);
         }
-        Debug.Log("Motu native mesh and unified terrain material validation passed.");
+        Debug.Log("Motu native mesh, terrain collider, and material validation passed.");
     }
 
     private static bool IsFinite(float value)

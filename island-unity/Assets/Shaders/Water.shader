@@ -149,6 +149,13 @@ Shader "Motu/Water"
                         0.0,
                         max(_EstuaryBlendHeight, 0.001),
                         heightAboveSea));
+                // The generated sea mask is normalized over the same two-kilometre
+                // square as the terrain. Its green channel carries the river-mouth
+                // silt plume independently of the red coastal-wave channel.
+                float2 seaMaskUv = saturate(
+                    input.worldPosition.xz / max(_WorldSize, 0.001) + 0.5);
+                half seaSilt = tex2D(_SeaMask, seaMaskUv).g;
+                half waveSilt = max(estuaryWeight, seaSilt);
                 // The slow broad flow becomes obscured as suspended silt builds
                 // toward the river mouth. Preserve the faster slope-driven layer
                 // so waterfalls retain their movement and white water.
@@ -203,7 +210,8 @@ Shader "Motu/Water"
                     * contactFade
                     * deepFade
                     * horizontalSurface
-                    * _ShoreWaveStrength);
+                    * _ShoreWaveStrength
+                    * (1.0h - waveSilt));
                 whitewater = whitewater + shoreWave * (1.0h - whitewater);
                 // Keep the original shallow and opaque endpoints, but make the
                 // depth-buffer gradient span exactly the river surface's height
@@ -223,12 +231,6 @@ Shader "Motu/Water"
                     _ShallowOpacity,
                     _Color.a,
                     depthOpacity);
-                // The generated sea mask is normalized over the same two-kilometre
-                // square as the terrain. Its green channel carries the river-mouth
-                // silt plume independently of the red coastal-wave channel.
-                float2 seaMaskUv = saturate(
-                    input.worldPosition.xz / max(_WorldSize, 0.001) + 0.5);
-                half seaSilt = tex2D(_SeaMask, seaMaskUv).g;
                 float3 reflectionDirection = reflect(-viewDirection, worldNormal);
                 half skyHeight = saturate(reflectionDirection.y);
                 fixed3 skyReflection = lerp(

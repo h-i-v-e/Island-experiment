@@ -215,6 +215,25 @@ pub struct ExportHeightMapWithSeaLevel {
     pub seaLevel: f32,
 }
 
+const TERRAIN_COLLIDER_TILE_COUNT: i32 = 64;
+const MIN_TERRAIN_COLLIDER_SAMPLES_PER_TILE: i32 = 33;
+const MAX_TERRAIN_COLLIDER_SAMPLES_PER_TILE: i32 = 129;
+
+fn terrain_collider_heightmap_dimension(samples_per_tile: i32) -> Option<i32> {
+    let intervals_per_tile = samples_per_tile.checked_sub(1)?;
+    let intervals_per_tile = u32::try_from(intervals_per_tile).ok()?;
+    if !(MIN_TERRAIN_COLLIDER_SAMPLES_PER_TILE..=MAX_TERRAIN_COLLIDER_SAMPLES_PER_TILE)
+        .contains(&samples_per_tile)
+        || !intervals_per_tile.is_power_of_two()
+    {
+        return None;
+    }
+
+    TERRAIN_COLLIDER_TILE_COUNT
+        .checked_mul(i32::try_from(intervals_per_tile).ok()?)?
+        .checked_add(1)
+}
+
 #[repr(C)]
 struct BufferHeader {
     length: usize,
@@ -767,6 +786,34 @@ pub unsafe extern "C" fn CreateHeightMap(
     }))
 }
 
+/// Samples the final LOD 0 terrain on one global lattice whose overlapping
+/// rows and columns are shared by all 64x64 Unity terrain-collider tiles.
+///
+/// `samples_per_tile` must be 33, 65, or 129. The returned map owns its data
+/// and must be released exactly once with `ReleaseTerrainColliderHeightMap`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn CreateTerrainColliderHeightMap(
+    handle: *const c_void,
+    samples_per_tile: i32,
+) -> *mut ExportHeightMapWithSeaLevel {
+    let Some(island) = (unsafe { island_ref(handle) }) else {
+        return ptr::null_mut();
+    };
+    let Some(dimension) = terrain_collider_heightmap_dimension(samples_per_tile) else {
+        return ptr::null_mut();
+    };
+    let Ok(dimension_u32) = u32::try_from(dimension) else {
+        return ptr::null_mut();
+    };
+    let data = island.height_map(dimension_u32, dimension_u32);
+    Box::into_raw(Box::new(ExportHeightMapWithSeaLevel {
+        width: dimension,
+        height: dimension,
+        data: leak_buffer(&data),
+        seaLevel: 0.0,
+    }))
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ReleaseHeightMap(map: *mut ExportHeightMapWithSeaLevel) {
     if map.is_null() {
@@ -776,6 +823,12 @@ pub unsafe extern "C" fn ReleaseHeightMap(map: *mut ExportHeightMapWithSeaLevel)
     let map = unsafe { Box::from_raw(map) };
     // SAFETY: data came from leak_buffer and is released once.
     unsafe { release_buffer(map.data) };
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ReleaseTerrainColliderHeightMap(map: *mut ExportHeightMapWithSeaLevel) {
+    // SAFETY: both height-map constructors use the same owned representation.
+    unsafe { ReleaseHeightMap(map) };
 }
 
 #[unsafe(no_mangle)]
@@ -1093,6 +1146,10 @@ mod tests {
             assert!(!height_map.is_null());
             assert_eq!((*height_map).width, 16);
             ReleaseHeightMap(height_map);
+            assert!(CreateTerrainColliderHeightMap(handle, 32).is_null());
+            assert!(CreateTerrainColliderHeightMap(handle, 66).is_null());
+            assert!(CreateTerrainColliderHeightMap(ptr::null(), 65).is_null());
+            ReleaseTerrainColliderHeightMap(ptr::null_mut());
 
             let normal_map = CreateNormalMap(handle, 0, 16);
             assert!(!normal_map.is_null());
@@ -1132,6 +1189,27 @@ mod tests {
             }
 
             ReleaseMotu(handle);
+        }
+    }
+
+    #[test]
+    fn terrain_collider_heightmap_dimensions_share_tile_edges() {
+        assert_eq!(terrain_collider_heightmap_dimension(33), Some(2049));
+        assert_eq!(terrain_collider_heightmap_dimension(65), Some(4097));
+        assert_eq!(terrain_collider_heightmap_dimension(129), Some(8193));
+        assert_eq!(terrain_collider_heightmap_dimension(32), None);
+        assert_eq!(terrain_collider_heightmap_dimension(66), None);
+        assert_eq!(terrain_collider_heightmap_dimension(0), None);
+
+        for samples_per_tile in [33, 65, 129] {
+            let dimension = terrain_collider_heightmap_dimension(samples_per_tile).unwrap();
+            let intervals_per_tile = samples_per_tile - 1;
+            for tile in 0..TERRAIN_COLLIDER_TILE_COUNT - 1 {
+                let right_edge = tile * intervals_per_tile + intervals_per_tile;
+                let next_left_edge = (tile + 1) * intervals_per_tile;
+                assert_eq!(right_edge, next_left_edge);
+                assert!(right_edge < dimension);
+            }
         }
     }
 }

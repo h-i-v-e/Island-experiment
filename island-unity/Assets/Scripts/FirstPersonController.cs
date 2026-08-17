@@ -40,7 +40,17 @@ public sealed class FirstPersonController : MonoBehaviour
 
     public void Enter(Vector3 groundPosition)
     {
-        terrainStreamer?.SetPlayerPosition(groundPosition);
+        if (terrainStreamer == null)
+        {
+            return;
+        }
+        terrainStreamer.SetPlayerPosition(groundPosition);
+        if (!terrainStreamer.TrySnapToCurrentCollider(groundPosition, out groundPosition))
+        {
+            Debug.LogWarning(
+                "First-person entry was cancelled because terrain collision is not ready.");
+            return;
+        }
         orbitCamera.enabled = false;
         characterController.enabled = false;
         transform.position = groundPosition + Vector3.up * EyeHeight;

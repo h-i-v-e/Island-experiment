@@ -910,7 +910,23 @@ impl Island {
 
     #[must_use]
     pub fn height_map(&self, width: u32, height: u32) -> Vec<f32> {
-        sample_grid(width, height, |u, v| self.terrain.sample(u, v))
+        if width == 0 || height == 0 {
+            return Vec::new();
+        }
+
+        let width_usize = width as usize;
+        let mut output = vec![0.0; width_usize * height as usize];
+        output
+            .par_chunks_mut(width_usize)
+            .enumerate()
+            .for_each(|(y, row)| {
+                let v = y as f32 / height.saturating_sub(1).max(1) as f32;
+                for (x, value) in row.iter_mut().enumerate() {
+                    let u = x as f32 / width.saturating_sub(1).max(1) as f32;
+                    *value = self.terrain.sample(u, v);
+                }
+            });
+        output
     }
 
     #[must_use]

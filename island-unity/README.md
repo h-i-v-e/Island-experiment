@@ -51,11 +51,13 @@ using the overlay.
 Click the overview terrain to enter first-person mode. The current LOD 2 tile
 and its neighbours are each split into an 8x8 LOD 1 group. The current LOD 1
 tile and its neighbours are each split again into 8x8 LOD 0 groups. Only the
-current LOD 0 tile has a `MeshCollider`; it moves as the player crosses tile
-boundaries. The collider uses the true-3D tile by default and automatically
-falls back to a separately exported support tile if Unity cannot cook it. The
-overlay can force support collision for diagnostics. Press M to toggle mesh
-edges. Press Escape to discard
+nearby 3x3 LOD 1 neighbourhood has collision. Each logical 31.25-metre square
+uses a hidden Unity `TerrainCollider` backed by a 65x65 heightfield sampled from
+the final LOD 0 surface. The whole-island 4097x4097 source lattice is prepared
+on the generation worker, and adjacent tiles copy the same shared-edge samples.
+Incoming colliders are enabled before outgoing colliders are retired, and
+crossing the finer LOD 0 render boundaries performs no collider cooking or
+replacement. Press M to toggle mesh edges. Press Escape to discard
 the refinement groups and return to the 64-tile LOD 2 overview. River surfaces
 are clipped on the same 64x64 LOD 1 boundaries and render throughout every
 active LOD 1 group, including its LOD 0 refinement cells. Rivers remain hidden
@@ -64,6 +66,11 @@ visit, so revisiting an area only changes visibility. First-person controls are
 WASD, Shift to run, Space to jump, and the mouse to look. Press Tab to release
 the cursor for the live grass-brightness slider, then Tab again to resume
 movement and mouse look. Brightness changes apply without regenerating.
+
+The collision heightfield has one height per horizontal position. It closely
+tracks the generated walkable surface but deliberately cannot represent
+overhangs, vertical faces, caves, or multiple surfaces stacked at the same XZ
+coordinate; those remain visible in the free-form render mesh.
 
 Rust also classifies sharp transitions between adjacent final river faces into
 deterministic rough-water locations before the river is sliced. This selects

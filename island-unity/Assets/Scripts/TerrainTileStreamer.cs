@@ -21,7 +21,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
     private const int NearbyRadius = 1;
     private const int Lod2Resolution = Divisions;
     internal const int Lod1Resolution = Divisions * Divisions;
-    private const int Lod0Resolution = Divisions * Divisions * Divisions;
+    internal const int ColliderSamplesPerTile = 65;
 
     private sealed class Tile
     {
@@ -50,12 +50,31 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         }
     }
 
+    private sealed class ColliderTile
+    {
+        internal readonly GameObject gameObject;
+        internal readonly TerrainData terrainData;
+        internal readonly TerrainCollider collider;
+
+        internal ColliderTile(
+            GameObject gameObject,
+            TerrainData terrainData,
+            TerrainCollider collider)
+        {
+            this.gameObject = gameObject;
+            this.terrainData = terrainData;
+            this.collider = collider;
+        }
+    }
+
     private readonly Dictionary<Vector2Int, TileGroup> lod1Groups =
         new Dictionary<Vector2Int, TileGroup>();
     private readonly Dictionary<Vector2Int, TileGroup> lod0Groups =
         new Dictionary<Vector2Int, TileGroup>();
     private readonly Dictionary<Vector2Int, TileGroup> riverGroups =
         new Dictionary<Vector2Int, TileGroup>();
+    private readonly Dictionary<Vector2Int, ColliderTile> colliderTiles =
+        new Dictionary<Vector2Int, ColliderTile>();
     private readonly List<Vector2Int> removalScratch = new List<Vector2Int>(9);
 
     private IntPtr islandHandle;
@@ -64,26 +83,25 @@ public sealed class TerrainTileStreamer : MonoBehaviour
     private MaterialPropertyBlock lod0MaterialProperties;
     private Material riverMaterial;
     private IslandViewer.PreparedMesh[] preparedRiverTiles;
+    private IslandViewer.PreparedColliderHeightMap colliderHeightMap;
     private float worldSize;
     private float grassBoundsRadius;
     private Vector3 lastGrassPosition = new Vector3(float.PositiveInfinity, 0f, 0f);
     private bool grassTilesDirty;
     private TileGroup lod2Group;
     private GameObject riverRoot;
+    private GameObject colliderRoot;
     private RiverParticlePool riverParticlePool;
-    private MeshCollider currentCollider;
-    private Mesh currentColliderMesh;
     private Vector2Int currentLod2 = new Vector2Int(-1, -1);
     private Vector2Int currentLod1 = new Vector2Int(-1, -1);
-    private Vector2Int currentLod0 = new Vector2Int(-1, -1);
 
     public int BaseVertexCount { get; private set; }
     public int BaseTriangleCount { get; private set; }
     public int RiverEmitterCandidateCount => riverParticlePool?.CandidateCount ?? 0;
-    public bool UseRenderCollider { get; set; } = true;
     internal int Lod1GroupCount => lod1Groups.Count;
     internal int Lod0GroupCount => lod0Groups.Count;
-    internal bool HasCurrentCollider => currentCollider != null;
+    internal int TerrainColliderCount => colliderTiles.Count;
+    internal bool HasCurrentCollider => colliderTiles.Count != 0;
     internal byte Lod1ClampSidesAt(Vector2Int key) => lod1Groups[key].clampSides;
     internal byte Lod0ClampSidesAt(Vector2Int key) => lod0Groups[key].clampSides;
 
@@ -96,6 +114,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         IslandViewer.PreparedMesh[] overviewTiles,
         IslandViewer.PreparedMesh[] riverTiles,
         IslandViewer.PreparedRiverEmitter[] riverEmitters,
+        IslandViewer.PreparedColliderHeightMap preparedColliderHeightMap,
         bool showRivers,
         CancellationToken cancellationToken)
     {
@@ -110,12 +129,21 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         lod0MaterialProperties.SetFloat(WorldNormalWeightId, 0f);
         riverMaterial = waterMaterial;
         preparedRiverTiles = riverTiles;
+        colliderHeightMap = preparedColliderHeightMap;
         worldSize = terrainWorldSize;
         if (preparedRiverTiles == null
             || preparedRiverTiles.Length != Lod1Resolution * Lod1Resolution)
         {
             throw new InvalidOperationException("The prepared river tile batch is invalid.");
         }
+        if (colliderHeightMap == null
+            || colliderHeightMap.samplesPerTile != ColliderSamplesPerTile)
+        {
+            throw new InvalidOperationException(
+                "The prepared terrain-collider height map is invalid.");
+        }
+        colliderRoot = new GameObject("Terrain Colliders (Collision Only)");
+        colliderRoot.transform.SetParent(transform, false);
         riverRoot = new GameObject("Rivers");
         riverRoot.transform.SetParent(transform, false);
         riverRoot.transform.localPosition = Vector3.up * 0.025f;
@@ -182,24 +210,22 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         grassMaterial.SetFloat(GrassEnabledId, 1f);
         var lod2 = WorldCell(worldPosition, Lod2Resolution);
         var lod1 = WorldCell(worldPosition, Lod1Resolution);
-        var lod0 = WorldCell(worldPosition, Lod0Resolution);
 
+        if (lod1 != currentLod1)
+        {
+            // Collision must be live before any potentially expensive render
+            // refinement caused by the same movement.
+            UpdateColliderNeighborhood(lod1);
+        }
         if (lod2 != currentLod2)
         {
-            RemoveCollider();
             UpdateLod1Neighborhood(lod2);
             currentLod2 = lod2;
         }
         if (lod1 != currentLod1)
         {
-            RemoveCollider();
             UpdateLod0Neighborhood(lod1);
             currentLod1 = lod1;
-        }
-        if (lod0 != currentLod0)
-        {
-            MoveCollider(lod0);
-            currentLod0 = lod0;
         }
         UpdateGrassTiles(worldPosition);
         riverParticlePool?.SetPlayerPosition(worldPosition, lod2);
@@ -211,7 +237,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         grassMaterial?.SetFloat(GrassEnabledId, 0f);
         lastGrassPosition = new Vector3(float.PositiveInfinity, 0f, 0f);
         riverParticlePool?.ClearPlayerFocus();
-        RemoveCollider();
+        RemoveAllColliderTiles();
         foreach (var group in riverGroups.Values)
         {
             group.root?.SetActive(false);
@@ -230,7 +256,6 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         lod1Groups.Clear();
         currentLod2 = new Vector2Int(-1, -1);
         currentLod1 = new Vector2Int(-1, -1);
-        currentLod0 = new Vector2Int(-1, -1);
     }
 
     public bool TryRaycastOverview(Ray ray, out Vector3 point)
@@ -271,17 +296,36 @@ public sealed class TerrainTileStreamer : MonoBehaviour
     public bool TrySnapToCurrentCollider(Vector3 approximatePoint, out Vector3 point)
     {
         point = approximatePoint;
-        if (currentCollider == null)
+        if (colliderTiles.Count == 0)
         {
             return false;
         }
         var origin = new Vector3(approximatePoint.x, worldSize, approximatePoint.z);
-        if (!currentCollider.Raycast(new Ray(origin, Vector3.down), out var hit, worldSize * 2f))
+        var ray = new Ray(origin, Vector3.down);
+        var center = WorldCell(approximatePoint, Lod1Resolution);
+        var found = false;
+        var highest = float.NegativeInfinity;
+        var minimumX = Mathf.Max(center.x - 1, 0);
+        var maximumX = Mathf.Min(center.x + 1, Lod1Resolution - 1);
+        var minimumY = Mathf.Max(center.y - 1, 0);
+        var maximumY = Mathf.Min(center.y + 1, Lod1Resolution - 1);
+        for (var y = minimumY; y <= maximumY; y++)
         {
-            return false;
+            for (var x = minimumX; x <= maximumX; x++)
+            {
+                if (!colliderTiles.TryGetValue(new Vector2Int(x, y), out var tile)
+                    || !tile.collider.enabled
+                    || !tile.collider.Raycast(ray, out var hit, worldSize * 2f)
+                    || hit.point.y <= highest)
+                {
+                    continue;
+                }
+                found = true;
+                highest = hit.point.y;
+                point = hit.point;
+            }
         }
-        point = hit.point;
-        return true;
+        return found;
     }
 
     public void Dispose()
@@ -296,7 +340,10 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         riverParticlePool = null;
         DestroyUnityObject(riverRoot);
         riverRoot = null;
+        DestroyUnityObject(colliderRoot);
+        colliderRoot = null;
         preparedRiverTiles = null;
+        colliderHeightMap = null;
         if (lod2Group != null)
         {
             DestroyGroup(lod2Group);
@@ -671,79 +718,130 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         group.root?.SetActive(active);
     }
 
-    private void MoveCollider(Vector2Int lod0Cell)
+    private void UpdateColliderNeighborhood(Vector2Int center)
     {
-        RemoveCollider();
-        var parent = new Vector2Int(lod0Cell.x / Divisions, lod0Cell.y / Divisions);
-        if (!lod0Groups.TryGetValue(parent, out var group))
+        var created = new List<KeyValuePair<Vector2Int, ColliderTile>>(9);
+        try
         {
-            return;
+            var minimumX = Mathf.Max(center.x - NearbyRadius, 0);
+            var maximumX = Mathf.Min(center.x + NearbyRadius, Lod1Resolution - 1);
+            var minimumY = Mathf.Max(center.y - NearbyRadius, 0);
+            var maximumY = Mathf.Min(center.y + NearbyRadius, Lod1Resolution - 1);
+            for (var y = minimumY; y <= maximumY; y++)
+            {
+                for (var x = minimumX; x <= maximumX; x++)
+                {
+                    var key = new Vector2Int(x, y);
+                    if (!colliderTiles.ContainsKey(key))
+                    {
+                        created.Add(new KeyValuePair<Vector2Int, ColliderTile>(
+                            key,
+                            CreateColliderTile(key)));
+                    }
+                }
+            }
         }
-        var localX = lod0Cell.x % Divisions;
-        var localY = lod0Cell.y % Divisions;
-        var tile = group.tiles[localY * Divisions + localX];
+        catch
+        {
+            foreach (var entry in created)
+            {
+                DestroyColliderTile(entry.Value);
+            }
+            throw;
+        }
+
+        // Install the complete incoming set before retiring any old collider.
+        foreach (var entry in created)
+        {
+            colliderTiles.Add(entry.Key, entry.Value);
+        }
+
+        removalScratch.Clear();
+        foreach (var key in colliderTiles.Keys)
+        {
+            if (Mathf.Abs(key.x - center.x) > NearbyRadius
+                || Mathf.Abs(key.y - center.y) > NearbyRadius)
+            {
+                removalScratch.Add(key);
+            }
+        }
+        foreach (var key in removalScratch)
+        {
+            var tile = colliderTiles[key];
+            tile.collider.enabled = false;
+            colliderTiles.Remove(key);
+            DestroyColliderTile(tile);
+        }
+    }
+
+    private ColliderTile CreateColliderTile(Vector2Int key)
+    {
+        var terrainData = new TerrainData
+        {
+            name = $"LOD 1 collision heightfield {key.x},{key.y}",
+            heightmapResolution = ColliderSamplesPerTile,
+        };
+        GameObject tileObject = null;
+        try
+        {
+            if (terrainData.heightmapResolution != ColliderSamplesPerTile)
+            {
+                throw new InvalidOperationException(
+                    $"Unity rejected terrain heightmap resolution {ColliderSamplesPerTile}.");
+            }
+
+            var tileSize = worldSize / Lod1Resolution;
+            terrainData.size = new Vector3(
+                tileSize,
+                colliderHeightMap.verticalSize,
+                tileSize);
+            terrainData.SetHeights(0, 0, colliderHeightMap.CopyTileHeights(key));
+
+            tileObject = new GameObject($"LOD 1 terrain collider {key.x},{key.y}");
+            tileObject.transform.SetParent(colliderRoot.transform, false);
+            tileObject.transform.localPosition = new Vector3(
+                -worldSize * 0.5f + key.x * tileSize,
+                colliderHeightMap.verticalOrigin,
+                -worldSize * 0.5f + key.y * tileSize);
+
+            var hiddenTerrain = tileObject.AddComponent<Terrain>();
+            hiddenTerrain.terrainData = terrainData;
+            hiddenTerrain.allowAutoConnect = false;
+            hiddenTerrain.drawHeightmap = false;
+            hiddenTerrain.drawTreesAndFoliage = false;
+            hiddenTerrain.enabled = false;
+
+            var terrainCollider = tileObject.AddComponent<TerrainCollider>();
+            terrainCollider.terrainData = terrainData;
+            terrainCollider.enabled = true;
+            return new ColliderTile(tileObject, terrainData, terrainCollider);
+        }
+        catch
+        {
+            DestroyUnityObject(tileObject);
+            DestroyUnityObject(terrainData);
+            throw;
+        }
+    }
+
+    private void RemoveAllColliderTiles()
+    {
+        foreach (var tile in colliderTiles.Values)
+        {
+            tile.collider.enabled = false;
+            DestroyColliderTile(tile);
+        }
+        colliderTiles.Clear();
+    }
+
+    private static void DestroyColliderTile(ColliderTile tile)
+    {
         if (tile == null)
         {
             return;
         }
-        if (UseRenderCollider)
-        {
-            try
-            {
-                Physics.BakeMesh(tile.mesh.GetEntityId(), false);
-                currentCollider = tile.gameObject.AddComponent<MeshCollider>();
-                currentCollider.sharedMesh = tile.mesh;
-                return;
-            }
-            catch (Exception exception)
-            {
-                Debug.LogWarning($"Render collider cooking failed; using support terrain: {exception.Message}");
-            }
-        }
-
-        var inverseResolution = 1f / Lod0Resolution;
-        var area = new MotuNative.ExportArea(
-            lod0Cell.x * inverseResolution,
-            lod0Cell.y * inverseResolution,
-            (lod0Cell.x + 1) * inverseResolution,
-            (lod0Cell.y + 1) * inverseResolution);
-        var supportExport = new MotuNative.ExportMesh();
-        var colliderMesh = tile.mesh;
-        try
-        {
-            MotuNative.CreateSupportMesh(islandHandle, ref area, 0, out supportExport);
-            if (supportExport.handle != IntPtr.Zero && supportExport.triangles.length != 0)
-            {
-                currentColliderMesh = IslandViewer.CopyTerrainMesh(supportExport, 0);
-                colliderMesh = currentColliderMesh;
-            }
-        }
-        catch (Exception exception)
-        {
-            Debug.LogWarning($"Support collider export failed; using the render tile: {exception.Message}");
-            DestroyUnityObject(currentColliderMesh);
-            currentColliderMesh = null;
-        }
-        finally
-        {
-            MotuNative.ReleaseMesh(ref supportExport);
-        }
-
-        currentCollider = tile.gameObject.AddComponent<MeshCollider>();
-        currentCollider.sharedMesh = colliderMesh;
-    }
-
-    private void RemoveCollider()
-    {
-        if (currentCollider == null)
-        {
-            return;
-        }
-        currentCollider.enabled = false;
-        DestroyUnityObject(currentCollider);
-        currentCollider = null;
-        DestroyUnityObject(currentColliderMesh);
-        currentColliderMesh = null;
+        DestroyUnityObject(tile.gameObject);
+        DestroyUnityObject(tile.terrainData);
     }
 
     private void SetLod2TileActive(Vector2Int key, bool active)
@@ -777,6 +875,59 @@ public sealed class TerrainTileStreamer : MonoBehaviour
             Mathf.Min(Mathf.FloorToInt(normalizedX * resolution), resolution - 1),
             Mathf.Min(Mathf.FloorToInt(normalizedY * resolution), resolution - 1));
     }
+
+#if UNITY_EDITOR
+    internal void ValidateColliderStreaming(
+        IslandViewer.PreparedColliderHeightMap preparedHeightMap,
+        float terrainWorldSize)
+    {
+        colliderHeightMap = preparedHeightMap;
+        worldSize = terrainWorldSize;
+        colliderRoot = new GameObject("Terrain collider streaming validation");
+        colliderRoot.transform.SetParent(transform, false);
+        try
+        {
+            var firstCenter = new Vector2Int(10, 10);
+            UpdateColliderNeighborhood(firstCenter);
+            if (colliderTiles.Count != 9
+                || !colliderTiles.TryGetValue(firstCenter, out var retainedCenter))
+            {
+                throw new InvalidOperationException(
+                    "The initial terrain-collider neighbourhood is incomplete.");
+            }
+
+            var nextCenter = new Vector2Int(11, 10);
+            UpdateColliderNeighborhood(nextCenter);
+            if (colliderTiles.Count != 9
+                || !colliderTiles.ContainsKey(nextCenter)
+                || !colliderTiles.TryGetValue(firstCenter, out var sharedTile)
+                || !ReferenceEquals(retainedCenter, sharedTile))
+            {
+                throw new InvalidOperationException(
+                    "Terrain-collider transition coverage or tile reuse is invalid.");
+            }
+
+            Physics.SyncTransforms();
+            var tileSize = worldSize / Lod1Resolution;
+            var point = new Vector3(
+                -worldSize * 0.5f + (nextCenter.x + 0.5f) * tileSize,
+                0f,
+                -worldSize * 0.5f + (nextCenter.y + 0.5f) * tileSize);
+            if (!TrySnapToCurrentCollider(point, out _))
+            {
+                throw new InvalidOperationException(
+                    "The transitioned terrain-collider neighbourhood cannot be raycast.");
+            }
+        }
+        finally
+        {
+            RemoveAllColliderTiles();
+            DestroyUnityObject(colliderRoot);
+            colliderRoot = null;
+            colliderHeightMap = null;
+        }
+    }
+#endif
 
     private static bool RayTriangle(
         Ray ray,

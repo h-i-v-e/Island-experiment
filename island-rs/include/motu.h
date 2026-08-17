@@ -88,6 +88,9 @@ MOTU_EXPORT void CreateRiverEmitters(const void *handle, float sharpnessDegrees,
 MOTU_EXPORT void ReleaseRiverEmitters(ExportRiverEmitters *output);
 MOTU_EXPORT ExportHeightMapWithSeaLevel *CreateHeightMap(const void *handle, int32_t resolution);
 MOTU_EXPORT void ReleaseHeightMap(ExportHeightMapWithSeaLevel *map);
+MOTU_EXPORT ExportHeightMapWithSeaLevel *CreateTerrainColliderHeightMap(
+    const void *handle, int32_t samplesPerTile);
+MOTU_EXPORT void ReleaseTerrainColliderHeightMap(ExportHeightMapWithSeaLevel *map);
 MOTU_EXPORT uint8_t *CreateNormalMap(const void *handle, int32_t lod, int32_t dimension);
 MOTU_EXPORT void ReleaseNormalMap(uint8_t *data);
 MOTU_EXPORT uint8_t *CreateNormalMap3DC(const void *handle, int32_t lod, int32_t dimension);

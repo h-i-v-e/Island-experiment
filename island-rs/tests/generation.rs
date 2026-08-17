@@ -502,7 +502,19 @@ fn finest_lod_concentrates_detail_on_land() {
 #[test]
 fn map_exports_have_expected_lengths() {
     let island = Island::generate(23, small_options()).unwrap();
-    assert_eq!(island.height_map(31, 17).len(), 31 * 17);
+    let heights = island.height_map(31, 17);
+    assert_eq!(heights.len(), 31 * 17);
+    assert!(heights.iter().all(|height| height.is_finite()));
+    for (actual, expected) in [
+        (heights[0], island.terrain().sample(0.0, 0.0)),
+        (heights[30], island.terrain().sample(1.0, 0.0)),
+        (heights[16 * 31], island.terrain().sample(0.0, 1.0)),
+        (heights[17 * 31 - 1], island.terrain().sample(1.0, 1.0)),
+    ] {
+        assert!((actual - expected).abs() <= f32::EPSILON);
+    }
+    assert!(island.height_map(0, 17).is_empty());
+    assert!(island.height_map(31, 0).is_empty());
     assert_eq!(island.sea_depth_map(31, 17).len(), 31 * 17);
     assert_eq!(island.normal_map(31, 17).len(), 31 * 17 * 3);
     assert_eq!(island.foliage_map(31).len(), 31 * 31);
