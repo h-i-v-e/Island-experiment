@@ -21,7 +21,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
     private const int NearbyRadius = 1;
     private const int Lod2Resolution = Divisions;
     internal const int Lod1Resolution = Divisions * Divisions;
-    internal const int ColliderSamplesPerTile = 65;
+    internal const int ColliderSamplesPerTile = 129;
 
     private sealed class Tile
     {

@@ -52,8 +52,8 @@ Click the overview terrain to enter first-person mode. The current LOD 2 tile
 and its neighbours are each split into an 8x8 LOD 1 group. The current LOD 1
 tile and its neighbours are each split again into 8x8 LOD 0 groups. Only the
 nearby 3x3 LOD 1 neighbourhood has collision. Each logical 31.25-metre square
-uses a hidden Unity `TerrainCollider` backed by a 65x65 heightfield sampled from
-the final LOD 0 surface. The whole-island 4097x4097 source lattice is prepared
+uses a hidden Unity `TerrainCollider` backed by a 129x129 heightfield sampled from
+the final LOD 0 surface. The whole-island 8193x8193 source lattice is prepared
 on the generation worker, and adjacent tiles copy the same shared-edge samples.
 Incoming colliders are enabled before outgoing colliders are retired, and
 crossing the finer LOD 0 render boundaries performs no collider cooking or

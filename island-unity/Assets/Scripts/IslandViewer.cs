@@ -657,7 +657,7 @@ public sealed class IslandViewer : MonoBehaviour
                 terrainStreamer.RiverEmitterCandidateCount);
             status += string.Format(
                 CultureInfo.InvariantCulture,
-                " | 3x3 hidden LOD 1 terrain colliders (65x65 samples each) | {0:F1} km square",
+                " | 3x3 hidden LOD 1 terrain colliders (129x129 samples each) | {0:F1} km square",
                 TerrainScale / 1000f);
         }
         catch (OperationCanceledException)

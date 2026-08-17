@@ -6,10 +6,10 @@ The core replacement is implemented:
 
 - Rust exports a deterministic, row-parallel global collider heightfield with
   validated 33, 65, and 129-sample tile contracts and paired ownership release.
-- Unity prepares the production 4097x4097 lattice off the main thread, releases
+- Unity prepares the production 8193x8193 lattice off the main thread, releases
   native ownership immediately after copying, and retains one normalized
   managed source array.
-- First-person collision uses a hidden 3x3 set of 65x65 `TerrainCollider`
+- First-person collision uses a hidden 3x3 set of 129x129 `TerrainCollider`
   tiles keyed to LOD 1 cells. Incoming tiles are installed before outgoing
   tiles are disabled and destroyed.
 - First-person entry is gated on successful collider creation and raycast snap;
@@ -72,26 +72,27 @@ approximation.
 Generate one whole-island height lattice from the final LOD 0 surface and split
 it into overlapping per-tile views in Unity.
 
-Initial target:
+Current production target, increased after the 65x65 field visibly floated
+above coarse parts of the free-form surface:
 
 - 64 LOD 1 tiles per world edge;
-- 64 height intervals per tile;
-- 65x65 samples per Unity `TerrainData`;
-- `64 * 64 + 1 = 4097` samples per world edge; and
-- approximately 0.48828125 metres between samples.
+- 128 height intervals per tile;
+- 129x129 samples per Unity `TerrainData`;
+- `64 * 128 + 1 = 8193` samples per world edge; and
+- approximately 0.244140625 metres between samples.
 
 Every tile includes both boundary rows and columns. Adjacent tiles read their
 shared edge from the same global sample indices, making numerical edge equality
 an invariant rather than relying on two independent sampling operations.
 
 The generation worker retains the global height array. It does not create Unity
-objects. A tile's 65x65 `float[,]` is copied only when its hidden terrain is
+objects. A tile's 129x129 `float[,]` is copied only when its hidden terrain is
 materialized on the main thread.
 
-As a measured fallback, also benchmark 33x33 samples per tile, corresponding to
-a 2049x2049 global lattice and approximately 0.9765625-metre spacing. Keep 65x65
-unless profiling shows it misses the performance or memory budget and 33x33
-still meets the collision-error acceptance criteria.
+The previous 65x65 setting corresponds to a 4097x4097 global lattice and
+approximately 0.48828125-metre spacing. A 33x33 setting corresponds to a
+2049x2049 global lattice and approximately 0.9765625-metre spacing. Retain
+129x129 unless profiling shows its generation or memory cost is unacceptable.
 
 ### Shared vertical normalization
 
@@ -159,12 +160,12 @@ keeps overlapping coverage during transitions.
 
 ```text
 Rust final LOD 0 Terrain + TriangleIndex
-    -> sample global 4097x4097 lattice on generation worker
+    -> sample global 8193x8193 lattice on generation worker
     -> FFI-owned float buffer plus dimensions
     -> copy to PreparedColliderHeightMap
     -> release native buffer immediately
     -> retain prepared global samples with PreparedIsland/TerrainTileStreamer
-    -> extract 65x65 shared-edge tile on demand
+    -> extract 129x129 shared-edge tile on demand
     -> create hidden TerrainData + TerrainCollider on Unity main thread
     -> destroy Unity objects on eviction/regeneration/exit
 ```
@@ -210,14 +211,14 @@ Acceptance:
    - contiguous row-major `f32` samples;
    - enough information to validate the world-space elevation convention; and
    - an opaque owner released by a matching function.
-4. Require a `64 * intervalsPerTile + 1` dimension, initially 4097.
+4. Require a `64 * intervalsPerTile + 1` dimension, currently 8193.
 5. Reject invalid dimensions and return a default/null export without leaking.
 6. Parallelize row sampling only if profiling shows this stage is material;
    preserve deterministic output ordering.
 
 Rust tests:
 
-- dimensions and buffer length are correct for 2049 and 4097;
+- dimensions and buffer length are correct for 2049, 4097, and 8193;
 - first/last samples cover normalized 0 and 1 exactly;
 - all samples are finite;
 - selected samples equal direct final LOD 0 surface queries;
@@ -258,11 +259,11 @@ Acceptance:
    `RemoveCollider` with a dictionary keyed by global LOD 1 `Vector2Int` cells.
 2. Add a small collision-tile type that owns the GameObject, `TerrainData`,
    hidden `Terrain`, and `TerrainCollider`.
-3. Extract 65x65 tile samples using:
+3. Extract 129x129 tile samples using:
 
    ```text
-   globalX = tileX * 64 + localX
-   globalY = tileY * 64 + localY
+   globalX = tileX * 128 + localX
+   globalY = tileY * 128 + localY
    ```
 
 4. Normalize heights with the shared world-space vertical range.
@@ -316,8 +317,9 @@ Initial fidelity targets for walkable terrain:
 - maximum edge disagreement <= 0.001 metres.
 
 Cliffs and other non-heightfield geometry must be reported separately rather
-than weakening the walkable-surface target. If 65x65 misses the targets, test
-129x129 on representative tiles before increasing the whole-island lattice.
+than weakening the walkable-surface target. Runtime observation showed the
+65x65 field floating above coarse surface features, so production now uses the
+validated 129x129 field.
 
 Acceptance:
 
@@ -358,7 +360,7 @@ Acceptance:
 Profile a release/development player using the same route and hardware as the
 baseline.
 
-Compare 33x33 and 65x65 tile data for:
+Compare 33x33, 65x65, and 129x129 tile data for:
 
 - generation-worker duration;
 - managed heightfield memory;
@@ -380,8 +382,8 @@ Targets:
   occurring before the controller is enabled and clearly represented in UI
   status.
 
-Choose 33x33 only if it meets fidelity targets and provides a meaningful
-measured advantage. Otherwise retain 65x65.
+Retain 129x129 unless profiling demonstrates an unacceptable cost and a lower
+resolution can meet the fidelity targets without visible floating.
 
 ### Phase 8 - Remove the legacy path and document the limitation
 
