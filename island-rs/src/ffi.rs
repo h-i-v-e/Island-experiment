@@ -83,6 +83,13 @@ pub struct TriangleExportArray {
 
 #[derive(Clone, Copy, Debug, Default)]
 #[repr(C)]
+pub struct UInt32ExportArray {
+    pub data: *const u32,
+    pub length: i32,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+#[repr(C)]
 pub struct ExportArea {
     pub min: Vec3,
     pub max: Vec3,
@@ -174,7 +181,13 @@ pub struct ExportDecoration {
     pub trees: Vector3ExportArray,
     pub bushes: Vector3ExportArray,
     pub rocks: Vector3ExportArray,
+    pub rockAppearanceIds: UInt32ExportArray,
 }
+
+const _: () = assert!(
+    size_of::<ExportDecoration>()
+        == size_of::<Vector3ExportArray>() * 3 + size_of::<UInt32ExportArray>()
+);
 
 #[derive(Clone, Copy, Debug)]
 #[repr(C)]
@@ -665,6 +678,10 @@ pub unsafe extern "C" fn GetDecoration(handle: *const c_void, output: *mut Expor
         rocks: Vector3ExportArray {
             data: decorations.rocks().as_ptr(),
             length: length_i32(decorations.rocks().len()),
+        },
+        rockAppearanceIds: UInt32ExportArray {
+            data: decorations.rock_appearance_ids().as_ptr(),
+            length: length_i32(decorations.rock_appearance_ids().len()),
         },
     };
 }
@@ -1173,6 +1190,8 @@ mod tests {
 
             let mut decoration = ExportDecoration::default();
             GetDecoration(handle, &raw mut decoration);
+            assert_eq!(decoration.rocks.length, decoration.rockAppearanceIds.length);
+            assert!(decoration.rocks.length > 0);
             if decoration.trees.length > 0 {
                 let prototype = TreeMeshPrototype {
                     offset: 0,

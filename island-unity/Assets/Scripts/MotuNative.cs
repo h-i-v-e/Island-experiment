@@ -44,6 +44,13 @@ internal static class MotuNative
     }
 
     [StructLayout(LayoutKind.Sequential)]
+    internal struct UInt32Array
+    {
+        internal IntPtr data;
+        internal int length;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
     internal struct NativeVector3
     {
         internal float x;
@@ -137,6 +144,15 @@ internal static class MotuNative
     }
 
     [StructLayout(LayoutKind.Sequential)]
+    internal struct ExportDecoration
+    {
+        internal Vector3Array trees;
+        internal Vector3Array bushes;
+        internal Vector3Array rocks;
+        internal UInt32Array rockAppearanceIds;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
     internal struct ExportHeightMapWithSeaLevel
     {
         internal int width;
@@ -199,6 +215,11 @@ internal static class MotuNative
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
     internal static extern void ReleaseRiverEmitters(ref ExportRiverEmitters output);
+
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+    internal static extern void GetDecoration(
+        IntPtr handle,
+        out ExportDecoration output);
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
     internal static extern IntPtr CreateHeightMap(IntPtr handle, int resolution);

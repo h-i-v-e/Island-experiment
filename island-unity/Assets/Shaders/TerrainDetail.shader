@@ -3,6 +3,7 @@ Shader "Motu/Terrain Unified"
     Properties
     {
         _Color ("Tint", Color) = (1, 1, 1, 1)
+        _RockColor ("Exposed Rock", Color) = (0.34, 0.32, 0.29, 1)
         [NoScaleOffset] _WorldNormal ("Shared World Normal", 2D) = "bump" {}
         [PerRendererData] _WorldNormalWeight ("World Normal Weight", Float) = 1
         [NoScaleOffset] _Occlusion ("Shared Occlusion", 2D) = "white" {}
@@ -85,6 +86,7 @@ Shader "Motu/Terrain Unified"
             sampler2D _GrassPatchNoise;
             sampler3D _CliffNoise3D;
             fixed4 _Color;
+            fixed4 _RockColor;
             half _WorldNormalWeight;
             half _OcclusionStrength;
             float _SnowLine;
@@ -307,7 +309,7 @@ Shader "Motu/Terrain Unified"
                     _GrassThinDepositColor.rgb,
                     _GrassThickDepositColor.rgb,
                     visibleFurGrass);
-                fixed3 rock = fixed3(0.34, 0.32, 0.29);
+                fixed3 rock = _RockColor.rgb;
                 fixed3 snow = fixed3(0.82, 0.84, 0.81);
                 fixed3 baseColor;
                 half beachCoverage = 0.0;

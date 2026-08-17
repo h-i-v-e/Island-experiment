@@ -92,12 +92,16 @@ public sealed class TerrainTileStreamer : MonoBehaviour
     private GameObject riverRoot;
     private GameObject colliderRoot;
     private RiverParticlePool riverParticlePool;
+    private RockDecorationPool rockDecorationPool;
     private Vector2Int currentLod2 = new Vector2Int(-1, -1);
     private Vector2Int currentLod1 = new Vector2Int(-1, -1);
 
     public int BaseVertexCount { get; private set; }
     public int BaseTriangleCount { get; private set; }
     public int RiverEmitterCandidateCount => riverParticlePool?.CandidateCount ?? 0;
+    public int RockCandidateCount => rockDecorationPool?.CandidateCount ?? 0;
+    public int ActiveRockCount => rockDecorationPool?.ActiveCount ?? 0;
+    public int DroppedRockCount => rockDecorationPool?.DroppedCount ?? 0;
     internal int Lod1GroupCount => lod1Groups.Count;
     internal int Lod0GroupCount => lod0Groups.Count;
     internal int TerrainColliderCount => colliderTiles.Count;
@@ -109,13 +113,16 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         IntPtr handle,
         Material sharedTerrainMaterial,
         Material sharedGrassMaterial,
+        Material sharedRockMaterial,
         Material waterMaterial,
         float terrainWorldSize,
         IslandViewer.PreparedMesh[] overviewTiles,
         IslandViewer.PreparedMesh[] riverTiles,
         IslandViewer.PreparedRiverEmitter[] riverEmitters,
+        IslandViewer.PreparedRockDecoration[] rocks,
         IslandViewer.PreparedColliderHeightMap preparedColliderHeightMap,
         bool showRivers,
+        bool showRocks,
         CancellationToken cancellationToken)
     {
         islandHandle = handle;
@@ -152,6 +159,10 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         riverParticlePool = particleRoot.AddComponent<RiverParticlePool>();
         riverParticlePool.Initialize(riverEmitters, worldSize, showRivers);
         riverRoot.SetActive(showRivers);
+        var rockRoot = new GameObject("Stone and Boulder Pool");
+        rockRoot.transform.SetParent(transform, false);
+        rockDecorationPool = rockRoot.AddComponent<RockDecorationPool>();
+        rockDecorationPool.Initialize(rocks, worldSize, sharedRockMaterial, showRocks);
         lod2Group = await CreatePreparedGroupAsync(
             2,
             Vector2Int.zero,
@@ -227,6 +238,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
             UpdateLod0Neighborhood(lod1);
             currentLod1 = lod1;
         }
+        rockDecorationPool?.SetPlayerPosition(worldPosition, lod1);
         UpdateGrassTiles(worldPosition);
         riverParticlePool?.SetPlayerPosition(worldPosition, lod2);
     }
@@ -237,6 +249,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         grassMaterial?.SetFloat(GrassEnabledId, 0f);
         lastGrassPosition = new Vector3(float.PositiveInfinity, 0f, 0f);
         riverParticlePool?.ClearPlayerFocus();
+        rockDecorationPool?.ClearPlayerFocus();
         RemoveAllColliderTiles();
         foreach (var group in riverGroups.Values)
         {
@@ -338,6 +351,13 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         riverGroups.Clear();
         riverParticlePool?.DisposePool();
         riverParticlePool = null;
+        if (rockDecorationPool != null)
+        {
+            var rockRoot = rockDecorationPool.gameObject;
+            rockDecorationPool.DisposePool();
+            rockDecorationPool = null;
+            DestroyUnityObject(rockRoot);
+        }
         DestroyUnityObject(riverRoot);
         riverRoot = null;
         DestroyUnityObject(colliderRoot);
@@ -361,6 +381,11 @@ public sealed class TerrainTileStreamer : MonoBehaviour
     public void SetRiverEmitterDebug(bool visible)
     {
         riverParticlePool?.SetDebugDraw(visible);
+    }
+
+    public void SetRocksVisible(bool visible)
+    {
+        rockDecorationPool?.SetRocksVisible(visible);
     }
 
     private void UpdateLod1Neighborhood(Vector2Int center)
