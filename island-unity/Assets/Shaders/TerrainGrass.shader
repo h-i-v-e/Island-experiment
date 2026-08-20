@@ -9,8 +9,9 @@ Shader "Motu/Terrain Grass"
         _GrassHeight ("Grass Height (metres)", Range(0.02, 0.5)) = 0.14
         _GrassDensity ("Grass Tufts Per Metre", Range(2, 32)) = 24
         _GrassBladeWidth ("Grass Blade Width", Range(0.04, 0.5)) = 0.48
-        _GrassRootColor ("Grass Root", Color) = (0.14, 0.34, 0.11, 1)
-        _GrassTipColor ("Grass Tip", Color) = (0.26, 0.62, 0.21, 1)
+        _GrassColorA ("Grass Colour A", Color) = (0.18, 0.46, 0.14, 1)
+        _GrassColorB ("Grass Colour B", Color) = (0.34, 0.50, 0.14, 1)
+        _GrassColorNoiseWorldSize ("Grass Colour Noise Repeat (metres)", Float) = 2048
         [NoScaleOffset] _GrassPatchNoise ("Grass Patch Noise", 2D) = "white" {}
         _GrassPatchNoiseWorldSize ("Grass Patch Repeat (metres)", Float) = 32
         _GrassBrightness ("Grass Brightness", Range(0.25, 3)) = 1.35
@@ -18,6 +19,12 @@ Shader "Motu/Terrain Grass"
         [HideInInspector] _GrassLightColor ("Light Color", Color) = (1, 1, 1, 1)
         [HideInInspector] _GrassAmbientColor ("Ambient Color", Color) = (0.42, 0.46, 0.52, 1)
         [NoScaleOffset] _CliffNoise3D ("Terrain 3D Noise", 3D) = "gray" {}
+        [HideInInspector][NoScaleOffset] _RockMaskMap ("Rock / Cliff Mask", 2D) = "gray" {}
+        [HideInInspector] _RockTextureWorldSize ("Rock / Cliff Texture Size", Float) = 4
+        [HideInInspector] _RockHeightBlendStrength ("Rock / Cliff Height Blend Weight", Float) = 0
+        [HideInInspector][NoScaleOffset] _RiverBedMaskMap ("Riverbed Mask", 2D) = "gray" {}
+        [HideInInspector] _RiverBedTextureWorldSize ("Riverbed Texture Size", Float) = 2
+        [HideInInspector] _RiverBedHeightBlendStrength ("Riverbed Height Blend Weight", Float) = 0
         _SnowLine ("Snow Line (metres)", Float) = 100
         _SnowEdgeNoiseMetres ("Snow Edge Noise (metres)", Range(0, 10)) = 2.5
         _SnowMacroNoiseMetres ("Snow Macro Noise (metres)", Range(0, 40)) = 18

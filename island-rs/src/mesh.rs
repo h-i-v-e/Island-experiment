@@ -39,6 +39,16 @@ pub(crate) struct TessellationResult {
     pub new_vertices: Vec<NewVertexStencil>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct SurfaceEdgeUse {
+    edge: u64,
+    face: usize,
+    opposite: u32,
+}
+
+const MAX_SURFACE_EDGE_FLIP_PASSES: usize = 8;
+const SURFACE_QUALITY_EPSILON: f32 = 1.0e-5;
+
 /// Compact compressed-sparse-row mesh connectivity.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Adjacency {
@@ -397,6 +407,122 @@ impl Mesh {
         added
     }
 
+    /// Improves the worst 3D triangle quality by repeatedly flipping local
+    /// diagonals while retaining a valid height-field projection.
+    pub(crate) fn optimize_surface_triangulation(&mut self) -> usize {
+        self.optimize_surface_triangulation_preserving(|_, _| false)
+    }
+
+    /// Surface-aware edge optimization with caller-supplied feature edges.
+    ///
+    /// Vertex indices and attributes remain unchanged. Only pairs of manifold
+    /// faces forming a convex projected quadrilateral are considered, and a
+    /// flip must strictly improve their minimum 3D triangle quality.
+    pub(crate) fn optimize_surface_triangulation_preserving(
+        &mut self,
+        is_protected: impl Fn(u32, u32) -> bool,
+    ) -> usize {
+        self.optimize_surface_triangulation_where_preserving(|_| true, is_protected)
+    }
+
+    /// Surface-aware edge optimization restricted to faces touching selected
+    /// vertices, with caller-supplied feature edges retained.
+    pub(crate) fn optimize_surface_triangulation_where_preserving(
+        &mut self,
+        is_selected: impl Fn(u32) -> bool,
+        is_protected: impl Fn(u32, u32) -> bool,
+    ) -> usize {
+        let _timer = crate::profiling::StageTimer::new("mesh.surface_edge_flips");
+        if self.triangles.len() < 6 {
+            return 0;
+        }
+
+        let face_count = self.triangles.len() / 3;
+        let mut edges = Vec::<SurfaceEdgeUse>::with_capacity(self.triangles.len());
+        let mut changed_faces = vec![false; face_count];
+        let mut total_flips = 0;
+
+        for _ in 0..MAX_SURFACE_EDGE_FLIP_PASSES {
+            edges.clear();
+            for (face, triangle) in self.triangles.chunks_exact(3).enumerate() {
+                let [a, b, c] = [triangle[0], triangle[1], triangle[2]];
+                if ![a, b, c].iter().copied().any(&is_selected) {
+                    continue;
+                }
+                edges.extend([
+                    SurfaceEdgeUse {
+                        edge: packed_edge(a, b),
+                        face,
+                        opposite: c,
+                    },
+                    SurfaceEdgeUse {
+                        edge: packed_edge(b, c),
+                        face,
+                        opposite: a,
+                    },
+                    SurfaceEdgeUse {
+                        edge: packed_edge(c, a),
+                        face,
+                        opposite: b,
+                    },
+                ]);
+            }
+            edges.sort_unstable_by_key(|edge| (edge.edge, edge.face));
+            changed_faces.fill(false);
+            let mut pass_flips = 0;
+            let mut start = 0;
+
+            while start < edges.len() {
+                let edge = edges[start].edge;
+                let end =
+                    edges[start..].partition_point(|candidate| candidate.edge == edge) + start;
+                if end - start == 2 {
+                    let [left, right] = [edges[start], edges[start + 1]];
+                    let a = (edge >> 32) as u32;
+                    let b = edge as u32;
+                    let c = left.opposite;
+                    let d = right.opposite;
+                    if !changed_faces[left.face]
+                        && !changed_faces[right.face]
+                        && c != d
+                        && !is_protected(a, b)
+                        && edges
+                            .binary_search_by_key(&packed_edge(c, d), |candidate| candidate.edge)
+                            .is_err()
+                    {
+                        let left_triangle = triangle_at(&self.triangles, left.face);
+                        let right_triangle = triangle_at(&self.triangles, right.face);
+                        if let Some([candidate_left, candidate_right]) = flipped_triangles(
+                            &self.vertices,
+                            left_triangle,
+                            right_triangle,
+                            [a, b, c, d],
+                        ) {
+                            self.triangles[left.face * 3..left.face * 3 + 3]
+                                .copy_from_slice(&candidate_left);
+                            self.triangles[right.face * 3..right.face * 3 + 3]
+                                .copy_from_slice(&candidate_right);
+                            changed_faces[left.face] = true;
+                            changed_faces[right.face] = true;
+                            pass_flips += 1;
+                        }
+                    }
+                }
+                start = end;
+            }
+
+            total_flips += pass_flips;
+            if pass_flips == 0 {
+                break;
+            }
+        }
+
+        if total_flips > 0 {
+            self.calculate_normals();
+        }
+        total_flips
+    }
+
     /// Applies the original perimeter-preserving Laplacian smoothing rule to
     /// XY position and elevation together.
     pub fn smooth(&mut self) {
@@ -601,7 +727,9 @@ impl Mesh {
     #[must_use]
     pub(crate) fn clipped_above(self, minimum_z: f32) -> Self {
         if self.vertices.iter().all(|vertex| vertex.z >= minimum_z) {
-            return self;
+            let mut output = self;
+            output.remove_unused_vertices();
+            return output;
         }
 
         let has_normals = self.normals.len() == self.vertices.len();
@@ -655,7 +783,44 @@ impl Mesh {
                 }
             }
         }
+        output.remove_unused_vertices();
         output
+    }
+
+    fn remove_unused_vertices(&mut self) {
+        let mut used = vec![false; self.vertices.len()];
+        for &vertex in &self.triangles {
+            used[vertex as usize] = true;
+        }
+        if used.iter().all(|&used| used) {
+            return;
+        }
+
+        let has_normals = self.normals.len() == self.vertices.len();
+        let has_uv = self.uv.len() == self.vertices.len();
+        let mut remap = vec![u32::MAX; self.vertices.len()];
+        let mut vertices = Vec::with_capacity(self.vertices.len());
+        let mut normals = Vec::with_capacity(self.normals.len());
+        let mut uv = Vec::with_capacity(self.uv.len());
+        for (source, (&position, &used)) in self.vertices.iter().zip(&used).enumerate() {
+            if !used {
+                continue;
+            }
+            remap[source] = vertices.len() as u32;
+            vertices.push(position);
+            if has_normals {
+                normals.push(self.normals[source]);
+            }
+            if has_uv {
+                uv.push(self.uv[source]);
+            }
+        }
+        self.triangles
+            .iter_mut()
+            .for_each(|vertex| *vertex = remap[*vertex as usize]);
+        self.vertices = vertices;
+        self.normals = normals;
+        self.uv = uv;
     }
 
     #[must_use]
@@ -814,9 +979,9 @@ fn clip_triangle_above(
             let previous_z = vertices[previous as usize].z;
             let current_z = vertices[current as usize].z;
             let interpolation = (minimum_z - previous_z) / (current_z - previous_z);
-            let intersection = if interpolation <= f32::EPSILON {
+            let intersection = if is_on_height_plane(previous_z, minimum_z) {
                 HeightClipVertex::Existing(previous)
-            } else if interpolation >= 1.0 - f32::EPSILON {
+            } else if is_on_height_plane(current_z, minimum_z) {
                 HeightClipVertex::Existing(current)
             } else {
                 HeightClipVertex::Edge {
@@ -841,6 +1006,10 @@ fn clip_triangle_above(
         length -= 1;
     }
     (output, length)
+}
+
+fn is_on_height_plane(height: f32, plane: f32) -> bool {
+    (height - plane).to_bits().trailing_zeros() >= 31
 }
 
 fn push_height_clip_vertex(
@@ -1363,6 +1532,87 @@ fn packed_edge(a: u32, b: u32) -> u64 {
     (u64::from(a) << 32) | u64::from(b)
 }
 
+fn triangle_at(triangles: &[u32], face: usize) -> [u32; 3] {
+    let offset = face * 3;
+    [
+        triangles[offset],
+        triangles[offset + 1],
+        triangles[offset + 2],
+    ]
+}
+
+fn flipped_triangles(
+    vertices: &[Vec3],
+    current_left: [u32; 3],
+    current_right: [u32; 3],
+    [a, b, c, d]: [u32; 4],
+) -> Option<[[u32; 3]; 2]> {
+    let current_left_area = projected_area_twice(vertices, current_left);
+    let current_right_area = projected_area_twice(vertices, current_right);
+    if current_left_area * current_right_area <= 0.0 {
+        return None;
+    }
+
+    let current_side_c = projected_area_twice(vertices, [a, b, c]);
+    let current_side_d = projected_area_twice(vertices, [a, b, d]);
+    let candidate_side_a = projected_area_twice(vertices, [c, d, a]);
+    let candidate_side_b = projected_area_twice(vertices, [c, d, b]);
+    if current_side_c * current_side_d >= 0.0 || candidate_side_a * candidate_side_b >= 0.0 {
+        return None;
+    }
+
+    let positive_winding = current_left_area > 0.0;
+    let candidate_left = orient_projected_triangle(vertices, [c, d, a], positive_winding)?;
+    let candidate_right = orient_projected_triangle(vertices, [d, c, b], positive_winding)?;
+    let current_area = current_left_area.abs() + current_right_area.abs();
+    let candidate_area = projected_area_twice(vertices, candidate_left).abs()
+        + projected_area_twice(vertices, candidate_right).abs();
+    if (candidate_area - current_area).abs() > current_area.max(1.0e-12) * 1.0e-6 {
+        return None;
+    }
+    let current_quality = surface_triangle_quality(vertices, current_left)
+        .min(surface_triangle_quality(vertices, current_right));
+    let candidate_quality = surface_triangle_quality(vertices, candidate_left)
+        .min(surface_triangle_quality(vertices, candidate_right));
+    (candidate_quality > current_quality + SURFACE_QUALITY_EPSILON)
+        .then_some([candidate_left, candidate_right])
+}
+
+fn orient_projected_triangle(
+    vertices: &[Vec3],
+    mut triangle: [u32; 3],
+    positive: bool,
+) -> Option<[u32; 3]> {
+    let area = projected_area_twice(vertices, triangle);
+    if area == 0.0 || !area.is_finite() {
+        return None;
+    }
+    if (area > 0.0) != positive {
+        triangle.swap(1, 2);
+    }
+    Some(triangle)
+}
+
+fn projected_area_twice(vertices: &[Vec3], triangle: [u32; 3]) -> f64 {
+    let [a, b, c] = triangle.map(|vertex| vertices[vertex as usize]);
+    let first = b - a;
+    let second = c - a;
+    f64::from(first.x).mul_add(
+        f64::from(second.y),
+        -(f64::from(first.y) * f64::from(second.x)),
+    )
+}
+
+fn surface_triangle_quality(vertices: &[Vec3], triangle: [u32; 3]) -> f32 {
+    let [a, b, c] = triangle.map(|vertex| vertices[vertex as usize]);
+    let [ab, bc, ca] = [b - a, c - b, a - c];
+    let squared_edge_sum = ab.length_squared() + bc.length_squared() + ca.length_squared();
+    if squared_edge_sum <= f32::EPSILON || !squared_edge_sum.is_finite() {
+        return 0.0;
+    }
+    (2.0 * 3.0_f32.sqrt() * ab.cross(c - a).length() / squared_edge_sum).clamp(0.0, 1.0)
+}
+
 fn orient_triangle(mut triangle: [usize; 3], points: &[Vec2]) -> [usize; 3] {
     if triangle_area_2d(
         points[triangle[0]],
@@ -1399,8 +1649,23 @@ fn circumcircle_contains(a: Vec2, b: Vec2, c: Vec2, point: Vec2) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{CLAMP_BOTTOM, CLAMP_LEFT, CLAMP_RIGHT, CLAMP_TOP, Mesh};
+    use super::{
+        CLAMP_BOTTOM, CLAMP_LEFT, CLAMP_RIGHT, CLAMP_TOP, Mesh, ordered_edge, projected_area_twice,
+    };
     use crate::{BoundingBox, Vec2, Vec3};
+
+    fn mesh_contains_edge(mesh: &Mesh, a: u32, b: u32) -> bool {
+        let edge = ordered_edge(a, b);
+        mesh.triangles.chunks_exact(3).any(|triangle| {
+            [
+                (triangle[0], triangle[1]),
+                (triangle[1], triangle[2]),
+                (triangle[2], triangle[0]),
+            ]
+            .into_iter()
+            .any(|(a, b)| ordered_edge(a, b) == edge)
+        })
+    }
 
     #[test]
     fn delaunay_covers_square_with_irregular_faces() {
@@ -1459,6 +1724,54 @@ mod tests {
             unique.dedup();
             assert_eq!(unique.len(), count);
         }
+    }
+
+    #[test]
+    fn surface_edge_flips_improve_a_poor_3d_diagonal() {
+        let mut mesh = Mesh {
+            vertices: vec![
+                Vec3::new(0.0, 0.0, 0.0),
+                Vec3::new(2.0, 0.0, 0.0),
+                Vec3::new(2.0, 1.0, 8.0),
+                Vec3::new(0.0, 1.0, 0.0),
+            ],
+            triangles: vec![0, 1, 2, 0, 2, 3],
+            ..Mesh::default()
+        };
+        let projected_area = mesh.surface_area_xy();
+        let triangle_count = mesh.triangles.len();
+
+        let flips = mesh.optimize_surface_triangulation();
+
+        assert_eq!(flips, 1);
+        assert_eq!(mesh.triangles.len(), triangle_count);
+        assert!((mesh.surface_area_xy() - projected_area).abs() < 1.0e-6);
+        assert!(!mesh_contains_edge(&mesh, 0, 2));
+        assert!(mesh_contains_edge(&mesh, 1, 3));
+        assert!(mesh.triangles.chunks_exact(3).all(|triangle| {
+            projected_area_twice(&mesh.vertices, [triangle[0], triangle[1], triangle[2]]) > 0.0
+        }));
+    }
+
+    #[test]
+    fn surface_edge_flips_retain_protected_features() {
+        let mut mesh = Mesh {
+            vertices: vec![
+                Vec3::new(0.0, 0.0, 0.0),
+                Vec3::new(2.0, 0.0, 0.0),
+                Vec3::new(2.0, 1.0, 8.0),
+                Vec3::new(0.0, 1.0, 0.0),
+            ],
+            triangles: vec![0, 1, 2, 0, 2, 3],
+            ..Mesh::default()
+        };
+
+        let flips =
+            mesh.optimize_surface_triangulation_preserving(|a, b| ordered_edge(a, b) == (0, 2));
+
+        assert_eq!(flips, 0);
+        assert!(mesh_contains_edge(&mesh, 0, 2));
+        assert!(!mesh_contains_edge(&mesh, 1, 3));
     }
 
     #[test]
@@ -1524,6 +1837,29 @@ mod tests {
             used[vertex as usize] = true;
         }
         assert!(used.into_iter().all(std::convert::identity));
+    }
+
+    #[test]
+    fn height_clipping_does_not_reuse_an_almost_coplanar_vertex_below_the_plane() {
+        let mesh = Mesh {
+            vertices: vec![
+                Vec3::new(0.0, 0.0, -f32::EPSILON * 0.25),
+                Vec3::new(1.0, 0.0, 0.1),
+                Vec3::new(0.0, 1.0, 0.1),
+            ],
+            triangles: vec![0, 1, 2],
+            ..Mesh::default()
+        };
+
+        let clipped = mesh.clipped_above(0.0);
+
+        assert!(clipped.vertices.iter().all(|vertex| vertex.z >= 0.0));
+        assert!(
+            clipped
+                .vertices
+                .iter()
+                .any(|vertex| vertex.z.to_bits() == 0.0_f32.to_bits())
+        );
     }
 
     #[test]

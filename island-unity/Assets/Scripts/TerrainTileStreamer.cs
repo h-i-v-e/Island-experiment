@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 public sealed class TerrainTileStreamer : MonoBehaviour
 {
@@ -14,6 +15,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
     private static readonly int GrassRadiusId = Shader.PropertyToID("_GrassRadius");
     private const float GrassPositionUpdateDistance = 0.25f;
     private const int Divisions = 8;
+    private const int Lod0Divisions = 1;
     internal const byte ClampTop = 1;
     internal const byte ClampLeft = 2;
     internal const byte ClampBottom = 4;
@@ -27,12 +29,14 @@ public sealed class TerrainTileStreamer : MonoBehaviour
     {
         internal readonly GameObject gameObject;
         internal readonly Mesh mesh;
+        internal readonly Mesh edgeMesh;
         internal GameObject grassObject;
 
-        internal Tile(GameObject gameObject, Mesh mesh)
+        internal Tile(GameObject gameObject, Mesh mesh, Mesh edgeMesh = null)
         {
             this.gameObject = gameObject;
             this.mesh = mesh;
+            this.edgeMesh = edgeMesh;
         }
     }
 
@@ -82,12 +86,15 @@ public sealed class TerrainTileStreamer : MonoBehaviour
     private Material grassMaterial;
     private MaterialPropertyBlock lod0MaterialProperties;
     private Material riverMaterial;
-    private IslandViewer.PreparedMesh[] preparedRiverTiles;
-    private IslandViewer.PreparedColliderHeightMap colliderHeightMap;
+    private Material meshEdgeMaterial;
+    private IslandPreparedMesh[] preparedRiverTiles;
+    private IslandPreparedColliderHeightMap colliderHeightMap;
     private float worldSize;
     private float grassBoundsRadius;
     private Vector3 lastGrassPosition = new Vector3(float.PositiveInfinity, 0f, 0f);
     private bool grassTilesDirty;
+    private bool grassVisible;
+    private bool meshEdgesVisible;
     private TileGroup lod2Group;
     private GameObject riverRoot;
     private GameObject colliderRoot;
@@ -115,13 +122,15 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         Material sharedGrassMaterial,
         Material sharedRockMaterial,
         Material waterMaterial,
+        Material sharedMeshEdgeMaterial,
         float terrainWorldSize,
-        IslandViewer.PreparedMesh[] overviewTiles,
-        IslandViewer.PreparedMesh[] riverTiles,
-        IslandViewer.PreparedRiverEmitter[] riverEmitters,
-        IslandViewer.PreparedRockDecoration[] rocks,
-        IslandViewer.PreparedColliderHeightMap preparedColliderHeightMap,
+        IslandPreparedMesh[] overviewTiles,
+        IslandPreparedMesh[] riverTiles,
+        IslandPreparedRiverEmitter[] riverEmitters,
+        IslandPreparedRockDecoration[] rocks,
+        IslandPreparedColliderHeightMap preparedColliderHeightMap,
         bool showRivers,
+        bool showGrass,
         bool showRocks,
         CancellationToken cancellationToken)
     {
@@ -135,9 +144,11 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         lod0MaterialProperties = new MaterialPropertyBlock();
         lod0MaterialProperties.SetFloat(WorldNormalWeightId, 0f);
         riverMaterial = waterMaterial;
+        meshEdgeMaterial = sharedMeshEdgeMaterial;
         preparedRiverTiles = riverTiles;
         colliderHeightMap = preparedColliderHeightMap;
         worldSize = terrainWorldSize;
+        grassVisible = showGrass;
         if (preparedRiverTiles == null
             || preparedRiverTiles.Length != Lod1Resolution * Lod1Resolution)
         {
@@ -180,7 +191,9 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         }
     }
 
-    internal static IslandViewer.PreparedMesh[] PrepareOverviewTiles(IntPtr handle)
+    internal static IslandPreparedMesh[] PrepareOverviewTiles(
+        IntPtr handle,
+        float terrainWorldSize)
     {
         var area = new MotuNative.ExportArea(0f, 0f, 1f, 1f);
         MotuNative.CreateMeshGrid(handle, ref area, 2, Divisions, 0, out var export);
@@ -194,7 +207,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
                     "The Rust grid slicer returned an invalid overview tile batch.");
             }
 
-            var result = new IslandViewer.PreparedMesh[export.length];
+            var result = new IslandPreparedMesh[export.length];
             var exportSize = Marshal.SizeOf<MotuNative.ExportMesh>();
             for (var index = 0; index < export.length; index++)
             {
@@ -202,7 +215,10 @@ public sealed class TerrainTileStreamer : MonoBehaviour
                     IntPtr.Add(export.data, index * exportSize));
                 if (nativeMesh.handle != IntPtr.Zero && nativeMesh.triangles.length != 0)
                 {
-                    result[index] = IslandViewer.CopyTerrainMeshData(nativeMesh, 2);
+                    result[index] = IslandGenerator.CopyTerrainMeshData(
+                        nativeMesh,
+                        2,
+                        terrainWorldSize);
                 }
             }
             return result;
@@ -215,12 +231,13 @@ public sealed class TerrainTileStreamer : MonoBehaviour
 
     public void SetPlayerPosition(Vector3 worldPosition)
     {
+        var localPosition = transform.InverseTransformPoint(worldPosition);
         terrainMaterial.SetVector(GrassPlayerPositionId, worldPosition);
-        terrainMaterial.SetFloat(GrassEnabledId, 1f);
+        terrainMaterial.SetFloat(GrassEnabledId, grassVisible ? 1f : 0f);
         grassMaterial.SetVector(GrassPlayerPositionId, worldPosition);
-        grassMaterial.SetFloat(GrassEnabledId, 1f);
-        var lod2 = WorldCell(worldPosition, Lod2Resolution);
-        var lod1 = WorldCell(worldPosition, Lod1Resolution);
+        grassMaterial.SetFloat(GrassEnabledId, grassVisible ? 1f : 0f);
+        var lod2 = LocalCell(localPosition, Lod2Resolution);
+        var lod1 = LocalCell(localPosition, Lod1Resolution);
 
         if (lod1 != currentLod1)
         {
@@ -238,9 +255,12 @@ public sealed class TerrainTileStreamer : MonoBehaviour
             UpdateLod0Neighborhood(lod1);
             currentLod1 = lod1;
         }
-        rockDecorationPool?.SetPlayerPosition(worldPosition, lod1);
-        UpdateGrassTiles(worldPosition);
-        riverParticlePool?.SetPlayerPosition(worldPosition, lod2);
+        rockDecorationPool?.SetPlayerPosition(localPosition, lod1);
+        if (grassVisible)
+        {
+            UpdateGrassTiles(localPosition);
+        }
+        riverParticlePool?.SetPlayerPosition(localPosition, lod2);
     }
 
     public void ClearPlayerFocus()
@@ -280,9 +300,12 @@ public sealed class TerrainTileStreamer : MonoBehaviour
             return false;
         }
 
+        var localRay = new Ray(
+            transform.InverseTransformPoint(ray.origin),
+            transform.InverseTransformDirection(ray.direction));
         foreach (var tile in lod2Group.tiles)
         {
-            if (tile == null || !tile.mesh.bounds.IntersectRay(ray))
+            if (tile == null || !tile.mesh.bounds.IntersectRay(localRay))
             {
                 continue;
             }
@@ -291,7 +314,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
             for (var index = 0; index + 2 < triangles.Length; index += 3)
             {
                 if (RayTriangle(
-                    ray,
+                    localRay,
                     vertices[triangles[index]],
                     vertices[triangles[index + 1]],
                     vertices[triangles[index + 2]],
@@ -299,7 +322,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
                     && distance < nearest)
                 {
                     nearest = distance;
-                    point = ray.GetPoint(distance);
+                    point = transform.TransformPoint(localRay.GetPoint(distance));
                 }
             }
         }
@@ -313,9 +336,11 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         {
             return false;
         }
-        var origin = new Vector3(approximatePoint.x, worldSize, approximatePoint.z);
-        var ray = new Ray(origin, Vector3.down);
-        var center = WorldCell(approximatePoint, Lod1Resolution);
+        var localPoint = transform.InverseTransformPoint(approximatePoint);
+        var origin = transform.TransformPoint(
+            new Vector3(localPoint.x, worldSize, localPoint.z));
+        var ray = new Ray(origin, transform.TransformDirection(Vector3.down));
+        var center = LocalCell(localPoint, Lod1Resolution);
         var found = false;
         var highest = float.NegativeInfinity;
         var minimumX = Mathf.Max(center.x - 1, 0);
@@ -378,6 +403,25 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         riverRoot?.SetActive(visible);
     }
 
+    public void SetGrassVisible(bool visible)
+    {
+        if (grassVisible == visible)
+        {
+            return;
+        }
+        grassVisible = visible;
+        terrainMaterial?.SetFloat(GrassEnabledId, visible ? 1f : 0f);
+        grassMaterial?.SetFloat(GrassEnabledId, visible ? 1f : 0f);
+        if (!visible)
+        {
+            SetAllGrassInactive(lod2Group);
+            foreach (var group in lod1Groups.Values) SetAllGrassInactive(group);
+            foreach (var group in lod0Groups.Values) SetAllGrassInactive(group);
+            return;
+        }
+        grassTilesDirty = true;
+    }
+
     public void SetRiverEmitterDebug(bool visible)
     {
         riverParticlePool?.SetDebugDraw(visible);
@@ -386,6 +430,49 @@ public sealed class TerrainTileStreamer : MonoBehaviour
     public void SetRocksVisible(bool visible)
     {
         rockDecorationPool?.SetRocksVisible(visible);
+    }
+
+    public void SetMeshEdgesVisible(bool visible)
+    {
+        meshEdgesVisible = visible;
+    }
+
+    private void LateUpdate()
+    {
+        if (!meshEdgesVisible || meshEdgeMaterial == null)
+        {
+            return;
+        }
+        DrawGroupEdges(lod2Group);
+        foreach (var group in lod1Groups.Values) DrawGroupEdges(group);
+        foreach (var group in lod0Groups.Values) DrawGroupEdges(group);
+    }
+
+    private void DrawGroupEdges(TileGroup group)
+    {
+        if (group?.root == null || !group.root.activeInHierarchy)
+        {
+            return;
+        }
+        foreach (var tile in group.tiles)
+        {
+            if (tile?.edgeMesh == null || !tile.gameObject.activeInHierarchy)
+            {
+                continue;
+            }
+            Graphics.DrawMesh(
+                tile.edgeMesh,
+                tile.gameObject.transform.localToWorldMatrix,
+                meshEdgeMaterial,
+                tile.gameObject.layer,
+                null,
+                0,
+                null,
+                ShadowCastingMode.Off,
+                false,
+                null,
+                LightProbeUsage.Off);
+        }
     }
 
     private void UpdateLod1Neighborhood(Vector2Int center)
@@ -509,7 +596,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
     private async Task<TileGroup> CreatePreparedGroupAsync(
         int lod,
         Vector2Int parent,
-        IslandViewer.PreparedMesh[] preparedMeshes,
+        IslandPreparedMesh[] preparedMeshes,
         CancellationToken cancellationToken)
     {
         if (preparedMeshes == null || preparedMeshes.Length != Divisions * Divisions)
@@ -529,14 +616,14 @@ public sealed class TerrainTileStreamer : MonoBehaviour
                 var preparedMesh = preparedMeshes[index];
                 if (preparedMesh != null)
                 {
-                    var mesh = IslandViewer.CreateTerrainMesh(preparedMesh, lod);
+                    var mesh = IslandGenerator.CreateTerrainMesh(preparedMesh, lod);
                     var localX = index % Divisions;
                     var localY = index / Divisions;
                     var tileObject = new GameObject($"LOD {lod} tile {localX},{localY}");
                     tileObject.transform.SetParent(root.transform, false);
                     tileObject.AddComponent<MeshFilter>().sharedMesh = mesh;
                     ConfigureTerrainRenderer(tileObject, lod);
-                    tiles[index] = new Tile(tileObject, mesh);
+                    tiles[index] = new Tile(tileObject, mesh, CreateEdgeMesh(mesh));
                 }
 
                 // Mesh and tangent uploads must use Unity's main thread. Spreading
@@ -562,6 +649,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         int parentResolution,
         byte clampSides)
     {
+        var divisions = lod == 0 ? Lod0Divisions : Divisions;
         var inverseResolution = 1f / parentResolution;
         var area = new MotuNative.ExportArea(
             parent.x * inverseResolution,
@@ -572,7 +660,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
             islandHandle,
             ref area,
             lod,
-            Divisions,
+            divisions,
             clampSides,
             out var export);
         GameObject root = null;
@@ -581,7 +669,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         {
             if (export.handle == IntPtr.Zero
                 || export.data == IntPtr.Zero
-                || export.length != Divisions * Divisions)
+                || export.length != divisions * divisions)
             {
                 throw new InvalidOperationException("The Rust grid slicer returned an invalid tile batch.");
             }
@@ -598,16 +686,16 @@ public sealed class TerrainTileStreamer : MonoBehaviour
                 {
                     continue;
                 }
-                var mesh = IslandViewer.CopyTerrainMesh(nativeMesh, lod);
-                var localX = index % Divisions;
-                var localY = index / Divisions;
-                var globalX = parent.x * Divisions + localX;
-                var globalY = parent.y * Divisions + localY;
+                var mesh = IslandGenerator.CopyTerrainMesh(nativeMesh, lod, worldSize);
+                var localX = index % divisions;
+                var localY = index / divisions;
+                var globalX = parent.x * divisions + localX;
+                var globalY = parent.y * divisions + localY;
                 var tileObject = new GameObject($"LOD {lod} tile {globalX},{globalY}");
                 tileObject.transform.SetParent(root.transform, false);
                 tileObject.AddComponent<MeshFilter>().sharedMesh = mesh;
                 ConfigureTerrainRenderer(tileObject, lod);
-                tiles[index] = new Tile(tileObject, mesh);
+                tiles[index] = new Tile(tileObject, mesh, CreateEdgeMesh(mesh));
             }
             return new TileGroup(root, tiles, clampSides);
         }
@@ -630,6 +718,63 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         {
             renderer.SetPropertyBlock(lod0MaterialProperties);
         }
+    }
+
+    private static Mesh CreateEdgeMesh(Mesh source)
+    {
+        var triangles = source.GetIndices(0);
+        var uniqueEdges = new HashSet<ulong>(triangles.Length);
+        var lineIndices = new List<int>(triangles.Length);
+        for (var index = 0; index + 2 < triangles.Length; index += 3)
+        {
+            AddUniqueEdge(
+                uniqueEdges,
+                lineIndices,
+                triangles[index],
+                triangles[index + 1]);
+            AddUniqueEdge(
+                uniqueEdges,
+                lineIndices,
+                triangles[index + 1],
+                triangles[index + 2]);
+            AddUniqueEdge(
+                uniqueEdges,
+                lineIndices,
+                triangles[index + 2],
+                triangles[index]);
+        }
+
+        var edgeMesh = new Mesh
+        {
+            name = $"{source.name} Edges",
+            indexFormat = source.indexFormat,
+            vertices = source.vertices,
+            bounds = source.bounds,
+        };
+        edgeMesh.SetIndices(lineIndices, MeshTopology.Lines, 0, false);
+        edgeMesh.UploadMeshData(true);
+        return edgeMesh;
+    }
+
+    private static void AddUniqueEdge(
+        HashSet<ulong> uniqueEdges,
+        List<int> lineIndices,
+        int first,
+        int second)
+    {
+        if (first == second)
+        {
+            return;
+        }
+        var minimum = Mathf.Min(first, second);
+        var maximum = Mathf.Max(first, second);
+        var key = ((ulong)(uint)minimum << 32) | (uint)maximum;
+        if (!uniqueEdges.Add(key))
+        {
+            return;
+        }
+        lineIndices.Add(minimum);
+        lineIndices.Add(maximum);
     }
 
     private void UpdateGrassTiles(Vector3 playerPosition)
@@ -689,6 +834,18 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         tile.grassObject.SetActive(true);
     }
 
+    private static void SetAllGrassInactive(TileGroup group)
+    {
+        if (group == null)
+        {
+            return;
+        }
+        foreach (var tile in group.tiles)
+        {
+            tile?.grassObject?.SetActive(false);
+        }
+    }
+
     private TileGroup CreateRiverGroup(Vector2Int parent)
     {
         GameObject root = null;
@@ -710,7 +867,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
                         continue;
                     }
 
-                    var mesh = IslandViewer.CreateRiverMesh(preparedMesh);
+                    var mesh = IslandGenerator.CreateRiverMesh(preparedMesh);
                     preparedRiverTiles[preparedIndex] = null;
                     var tileIndex = localY * Divisions + localX;
                     var tileObject = new GameObject($"River LOD 1 tile {globalX},{globalY}");
@@ -892,7 +1049,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         }
     }
 
-    private Vector2Int WorldCell(Vector3 position, int resolution)
+    private Vector2Int LocalCell(Vector3 position, int resolution)
     {
         var normalizedX = Mathf.Clamp01(position.x / worldSize + 0.5f);
         var normalizedY = Mathf.Clamp01(position.z / worldSize + 0.5f);
@@ -903,7 +1060,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
 
 #if UNITY_EDITOR
     internal void ValidateColliderStreaming(
-        IslandViewer.PreparedColliderHeightMap preparedHeightMap,
+        IslandPreparedColliderHeightMap preparedHeightMap,
         float terrainWorldSize)
     {
         colliderHeightMap = preparedHeightMap;
@@ -1000,6 +1157,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         {
             if (tile != null)
             {
+                DestroyUnityObject(tile.edgeMesh);
                 DestroyUnityObject(tile.mesh);
             }
         }

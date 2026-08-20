@@ -47,6 +47,7 @@ Shader "Motu/Rock Decoration"
                 UNITY_FOG_COORDS(3)
                 UNITY_VERTEX_INPUT_INSTANCE_ID
                 UNITY_VERTEX_OUTPUT_STEREO
+                float3 islandLocalPosition : TEXCOORD4;
             };
 
             sampler3D _CliffNoise3D;
@@ -54,6 +55,7 @@ Shader "Motu/Rock Decoration"
             float _CliffNoisePeriod;
             half _CliffNoiseDetailScale;
             half _CliffNormalStrength;
+            float4x4 _IslandWorldToLocal;
 
             UNITY_INSTANCING_BUFFER_START(RockProperties)
                 UNITY_DEFINE_INSTANCED_PROP(fixed4, _RockTint)
@@ -68,6 +70,9 @@ Shader "Motu/Rock Decoration"
                 UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(output);
                 output.pos = UnityObjectToClipPos(v.vertex);
                 output.worldPosition = mul(unity_ObjectToWorld, v.vertex).xyz;
+                output.islandLocalPosition = mul(
+                    _IslandWorldToLocal,
+                    float4(output.worldPosition, 1.0)).xyz;
                 output.worldNormal = UnityObjectToWorldNormal(v.normal);
                 TRANSFER_SHADOW(output);
                 UNITY_TRANSFER_FOG(output, output.pos);
@@ -79,7 +84,7 @@ Shader "Motu/Rock Decoration"
                 UNITY_SETUP_INSTANCE_ID(input);
                 float3 normal = normalize(input.worldNormal);
                 float noisePeriod = max(_CliffNoisePeriod, 1.0);
-                float3 noisePosition = input.worldPosition / noisePeriod;
+                float3 noisePosition = input.islandLocalPosition / noisePeriod;
                 half3 broadNoise = tex3D(_CliffNoise3D, noisePosition).rgb * 2.0 - 1.0;
                 half3 detailNoise = tex3D(
                     _CliffNoise3D,

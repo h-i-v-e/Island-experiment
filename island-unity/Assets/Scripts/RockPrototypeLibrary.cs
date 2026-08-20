@@ -94,7 +94,7 @@ internal sealed class RockPrototypeLibrary : IDisposable
         return Mathf.Lerp(FlatSurfaceEmbedRatio, MaximumSlopeEmbedRatio, slopeAmount);
     }
 
-    internal Vector3 SeatPosition(IslandViewer.PreparedRockDecoration candidate)
+    internal Vector3 SeatPosition(IslandPreparedRockDecoration candidate)
     {
         ValidateIndex(candidate.prototypeIndex);
         var support = float.PositiveInfinity;

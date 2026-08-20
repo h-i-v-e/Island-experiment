@@ -18,6 +18,7 @@ struct GrassVertexOutput
     float3 surfaceWorldPosition : TEXCOORD3;
     SHADOW_COORDS(4)
     UNITY_FOG_COORDS(5)
+    float3 islandLocalSurfacePosition : TEXCOORD6;
 };
 
 sampler3D _CliffNoise3D;
@@ -29,8 +30,9 @@ float _GrassFadeWidth;
 float _GrassHeight;
 float _GrassDensity;
 half _GrassBladeWidth;
-fixed4 _GrassRootColor;
-fixed4 _GrassTipColor;
+fixed4 _GrassColorA;
+fixed4 _GrassColorB;
+float _GrassColorNoiseWorldSize;
 float _GrassPatchNoiseWorldSize;
 half _GrassBrightness;
 float3 _GrassLightDirection;
@@ -49,6 +51,7 @@ half _RockBoundaryNoiseStrength;
 half _SandRockSlopeThreshold;
 float _CliffNoisePeriod;
 half _RockPatchNoiseDetailScale;
+float4x4 _IslandWorldToLocal;
 
 float GrassHash(float2 cell)
 {
@@ -89,6 +92,9 @@ GrassVertexOutput GrassVertex(GrassVertexInput input)
     output.worldPosition = worldPosition;
     output.surfaceWorldPosition = worldPosition
         - worldNormal * (_GrassHeight * GRASS_SHELL_LAYER);
+    output.islandLocalSurfacePosition = mul(
+        _IslandWorldToLocal,
+        float4(output.surfaceWorldPosition, 1.0)).xyz;
     output.worldNormal = worldNormal;
     output.material = input.material.rgb;
     TRANSFER_SHADOW_WPOS(output, worldPosition);
@@ -110,14 +116,14 @@ fixed4 GrassFragment(GrassVertexOutput input) : SV_Target
         playerDistance);
 
     half3 normal = normalize(input.worldNormal);
-    float elevation = input.surfaceWorldPosition.y;
+    float elevation = input.islandLocalSurfacePosition.y;
     float noisePeriod = max(_CliffNoisePeriod, 1.0);
     half3 broadNoise = tex3D(
         _CliffNoise3D,
-        input.surfaceWorldPosition / noisePeriod).rgb * 2.0 - 1.0;
+        input.islandLocalSurfacePosition / noisePeriod).rgb * 2.0 - 1.0;
     half3 macroNoise = tex3D(
         _CliffNoise3D,
-        input.surfaceWorldPosition / (noisePeriod * 3.0)
+        input.islandLocalSurfacePosition / (noisePeriod * 3.0)
             + float3(0.23, 0.71, 0.41)).rgb * 2.0 - 1.0;
     // Match the ground shader exactly so grass shells end on the same noisy,
     // world-space material boundary instead of exposing mesh edges.
@@ -154,7 +160,7 @@ fixed4 GrassFragment(GrassVertexOutput input) : SV_Target
     half sandRichness = looseCover
         * sandAltitudeRichness
         * (1.0 - riverCoverage);
-    float2 sandPatchUv = input.surfaceWorldPosition.xz
+    float2 sandPatchUv = input.islandLocalSurfacePosition.xz
         / max(_SandPatchNoiseWorldSize, 0.1)
         + float2(0.37, 0.73);
     half2 sandPatchLayers = tex2D(_GrassPatchNoise, sandPatchUv).rg;
@@ -167,15 +173,14 @@ fixed4 GrassFragment(GrassVertexOutput input) : SV_Target
     half geologyRockWeight = saturate(slope * lerp(1.3, 3.0, hardness));
     half3 rockPatchLayers = tex3D(
         _CliffNoise3D,
-        input.surfaceWorldPosition / noisePeriod * _RockPatchNoiseDetailScale
+        input.islandLocalSurfacePosition / noisePeriod * _RockPatchNoiseDetailScale
             + float3(0.67, 0.31, 0.91)).rgb;
     half rockPatchNoise = rockPatchLayers.r * 0.65
         + rockPatchLayers.g * 0.35;
-    // Grass is a discrete surface class. Use the same coherent rock field as
-    // the ground shader's soft blend, but retain only pixel-width
-    // anti-aliasing so fur and the hard grass/rock ground boundary coincide.
     half rockMaskDistance = rockPatchNoise
         - (1.0 - geologyRockWeight);
+    // Fur is a discrete physical layer: retain the hard rock stencil so no
+    // blades can protrude through visible stones or cliffs.
     half geologyRockCoverage = GrassAntialiasedMask(rockMaskDistance)
         * step(1.0e-4, geologyRockWeight);
     half sandRockThreshold = _SandRockSlopeThreshold
@@ -191,26 +196,22 @@ fixed4 GrassFragment(GrassVertexOutput input) : SV_Target
         + macroNoise.r * _SnowMacroNoiseMetres
         + broadNoise.g * _SnowEdgeNoiseMetres;
     half snowCoverage = GrassAntialiasedMask(elevation - noisySnowLine);
-    // Clip each classification at its visible midpoint. Multiplying the masks
-    // and clipping the result at a low threshold left a thin fur fringe after
-    // the ground had already become cliff, river, beach, or snow.
     clip(elevation);
     clip(0.5 - exposedRockCoverage);
     clip(0.5 - beachCoverage);
-    clip(0.5 - riverCoverage);
     clip(0.5 - snowCoverage);
 
     // Deposit thickness is the soil-richness signal. A dedicated fine,
     // coherent texture removes every blade at zero richness, then lowers the
     // noise threshold continuously until rich soil has complete coverage.
-    float2 patchUv = input.surfaceWorldPosition.xz
+    float2 patchUv = input.islandLocalSurfacePosition.xz
         / max(_GrassPatchNoiseWorldSize, 0.1);
     half2 patchLayers = tex2D(_GrassPatchNoise, patchUv).rg;
     half patchNoise = patchLayers.r * 0.65 + patchLayers.g * 0.35;
     clip(looseCover - 1.0e-4);
     clip(patchNoise - (1.0 - looseCover));
 
-    float2 regularCoordinate = input.surfaceWorldPosition.xz
+    float2 regularCoordinate = input.islandLocalSurfacePosition.xz
         * max(_GrassDensity, 0.1);
     float2 warpCoordinate = regularCoordinate * 0.18;
     float2 domainWarp = float2(
@@ -218,6 +219,10 @@ fixed4 GrassFragment(GrassVertexOutput input) : SV_Target
         GrassValueNoise(warpCoordinate + float2(2.1, 19.4))) - 0.5;
     float2 grassCoordinate = regularCoordinate + domainWarp * 1.65;
     float2 cell = floor(grassCoordinate);
+    // Rivers retain their existing stable whole-blade density fade. Rock,
+    // beach, and snow remain hard exclusions so fur never intersects them.
+    float riverFadeRandom = GrassHash(cell + float2(73.1, 11.9));
+    clip((1.0h - riverCoverage) - riverFadeRandom - 0.001);
     float2 cellOffset = float2(
         GrassHash(cell + 11.3),
         GrassHash(cell + 29.7)) - 0.5;
@@ -252,10 +257,16 @@ fixed4 GrassFragment(GrassVertexOutput input) : SV_Target
         input.worldPosition);
     half3 direct = _GrassLightColor.rgb * diffuse * shadowAttenuation;
     half3 ambient = _GrassAmbientColor.rgb;
+    float2 grassColorUv = input.islandLocalSurfacePosition.xz
+        / max(_GrassColorNoiseWorldSize, 1.0);
+    half grassColorNoise = tex2D(_GrassPatchNoise, grassColorUv).b;
     fixed3 grassColor = lerp(
-        _GrassRootColor.rgb,
-        _GrassTipColor.rgb,
-        GRASS_SHELL_LAYER);
+        _GrassColorA.rgb,
+        _GrassColorB.rgb,
+        smoothstep(0.1h, 0.9h, grassColorNoise));
+    // Preserve darker roots and sunlit tips without changing the spatial
+    // palette selected by the broad coherent colour field.
+    grassColor *= lerp(0.72h, 1.18h, GRASS_SHELL_LAYER);
     // Keep the spatial variation neutral on average so the fur has the same
     // mean albedo as the terrain's base grass colour.
     grassColor *= lerp(0.90, 1.10, GrassHash(cell + 17.0));

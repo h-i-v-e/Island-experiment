@@ -5,16 +5,16 @@ internal sealed class RockDecorationIndex
 {
     internal const int Resolution = TerrainTileStreamer.Lod1Resolution;
 
-    private readonly IslandViewer.PreparedRockDecoration[] candidates;
+    private readonly IslandPreparedRockDecoration[] candidates;
     private readonly int[] cellOffsets;
     private readonly int[] candidateOrder;
     private readonly float worldSize;
 
     internal RockDecorationIndex(
-        IslandViewer.PreparedRockDecoration[] candidates,
+        IslandPreparedRockDecoration[] candidates,
         float worldSize)
     {
-        this.candidates = candidates ?? Array.Empty<IslandViewer.PreparedRockDecoration>();
+        this.candidates = candidates ?? Array.Empty<IslandPreparedRockDecoration>();
         this.worldSize = worldSize;
         var cellCount = Resolution * Resolution;
         var counts = new int[cellCount];
@@ -40,7 +40,7 @@ internal sealed class RockDecorationIndex
     }
 
     internal int Count => candidates.Length;
-    internal IslandViewer.PreparedRockDecoration CandidateAt(int index) => candidates[index];
+    internal IslandPreparedRockDecoration CandidateAt(int index) => candidates[index];
     internal int CandidateIndexAt(int orderIndex) => candidateOrder[orderIndex];
 
     internal void GetCellRange(int x, int y, out int start, out int end)

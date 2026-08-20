@@ -1,48 +1,63 @@
-# Island Unity viewer
+# Island Unity project
 
-A minimal Unity 6 viewer for the Rust project in `../island-rs`. It invokes the
-Rust generator through its C ABI and displays the irregular, detail-tessellated
-terrain and carved river strip directly as Unity meshes.
+A conventional scene-based Unity 6 project for the Rust generator in
+`../island-rs`. The reusable `IslandGenerator` component invokes the Rust C ABI
+and displays the irregular terrain, streamed detail, rivers, sea, vegetation
+shells, rocks, and hidden terrain colliders beneath its GameObject.
 
 ## Open and run
 
 1. Double-click `Open Island Unity.command`. This bypasses a known local
    mismatch between Hub's Licensing Client 1.17.4 and the editor's 1.18.1
    protocol. macOS might ask you to confirm opening it the first time.
-2. Open any empty scene, or create one if Unity prompts you.
-3. Press Play. The viewer bootstraps itself; no scene setup is required.
+2. Open `Assets/Scenes/IslandSandbox.unity`.
+3. Select the **Island** GameObject to inspect the labelled generation,
+   rendering, streaming, decoration, and debug settings.
+4. Press Play. **Generate On Start** creates the configured island.
 
 The project can also be opened normally from Hub after stale licensing clients
 have exited. Use the launcher if Hub reports that it cannot connect to the
 licensing service.
 
+To add an island to another level, create a GameObject, attach
+`IslandGenerator`, assign a player or camera Transform as **Streaming Target**,
+and optionally assign material templates and texture overrides. The component
+never creates a camera or light and never modifies the level's global render
+settings. An empty level therefore remains empty. Runtime materials are cloned
+per island before generated maps are assigned, so project assets are not
+mutated. Tree and plant prefab arrays are visible extension points for the
+upcoming vegetation phase; they are not spawned yet.
+
 Generation builds the island, all three texture sets, the LOD1-clipped river
 tiles, and the 8x8 LOD 2 overview on a background worker. The existing island
-remains visible while regeneration runs, and the overlay reports elapsed time.
+remains visible while regeneration runs, and the component reports elapsed time.
 Unity texture and mesh objects are then uploaded on the main thread, with the
 64 overview tiles spread across frames to avoid a large upload hitch. Use the
-overlay to regenerate another seed and adjust terrain, coastal evolution,
+Inspector to regenerate another seed and adjust terrain, coastal evolution,
 hydraulic-erosion, or river source selection. Coastal erosion cuts
 exposed softer rock into bays and platforms; beach formation conservatively
 redistributes that sediment toward sheltered shorelines. Source catchment is an
 absolute drainage area in hectares. Projected vertex areas are accumulated in
 world space, so one slider remains consistent across all mesh densities while
 larger islands can support more rivers. A second control suppresses small sources
-on steep slopes while retaining sufficiently large catchments. Slider changes take effect when you press
+on steep slopes while retaining sufficiently large catchments. Generation-setting changes take effect when you press
 Generate. A third source control continuously lowers the required catchment as
 elevation rises. Its default of nine makes the sea-level requirement ten times
 the requirement at the configured maximum elevation, discouraging short coastal
 rivers without imposing a hard elevation cutoff. Drag to orbit, use the mouse
 wheel to zoom, and right-drag to pan.
-In first-person mode, terrain, grass, rivers, and sea fade into sky-coloured
-linear distance haze from the camera position to full strength at one kilometre.
-The overview remains haze-free.
+
+The island may be translated and rotated around the Y axis. Generated content,
+streaming cells, colliders, materials, rivers, and decoration remain in the
+component's local coordinate system. Unit scale is currently required; the
+component reports an error rather than silently misaligning physics when a
+different or non-uniform scale is used.
 
 LOD 0 displays the same corrected support surface used by terrain queries
 without retaining duplicate render geometry. Hydraulic erosion, coastal
 erosion, adaptive terrain tessellation, rivers, and waterfalls remain active.
 
-Enable **Show mesh edges (wireframe)** to render the generated triangle edges
+Enable **Show Mesh Edges** to render the generated triangle edges
 without allocating duplicate line meshes. The setting remains active when you
 enter first-person mode and applies automatically to newly streamed LOD tiles.
 Press **M** in either overview or first-person mode to toggle mesh edges without
@@ -64,8 +79,8 @@ active LOD 1 group, including its LOD 0 refinement cells. Rivers remain hidden
 where the terrain is still LOD 2. Chunks are cached after their first
 visit, so revisiting an area only changes visibility. First-person controls are
 WASD, Shift to run, Space to jump, and the mouse to look. Press Tab to release
-the cursor for the live grass-brightness slider, then Tab again to resume
-movement and mouse look. Brightness changes apply without regenerating.
+the cursor for Inspector tuning, then Tab again to resume movement and mouse
+look. Visibility and grass-brightness changes apply without regenerating.
 
 The collision heightfield has one height per horizontal position. It closely
 tracks the generated walkable surface but deliberately cannot represent
@@ -134,6 +149,33 @@ at a tile or LOD boundary. LOD 0 disables the sampled normal per renderer and
 uses its own geometric normals; LOD 1 and LOD 2 use the world-space normal map
 derived from the final LOD 0 terrain.
 
+Rock and riverbed asset textures use a single top-down XZ projection. Their
+procedural fallback colours are derived from the average colours of their
+assigned colour maps when the island's runtime materials are built. Streamed
+stones use the same derived rock colour so they continue to match the cliffs.
+Their colour, authored normal, and occlusion contributions are fully visible on
+horizontal ground and fade together to zero at a configurable surface slope,
+which defaults to 45 degrees for both rock and riverbeds. The packed height map
+shapes the middle of each slope transition without changing either endpoint,
+so raised details retain the authored surface longer while recesses return to
+the procedural surface sooner. Steeper faces therefore retain the original
+solid rock or riverbed colour and procedural noise normal instead of receiving
+a stretched or alternate-axis projection. Packed linear mask maps store height
+in red and occlusion in green. Open
+**Island > Terrain > Pack Height +
+Occlusion Mask**, drag the two grayscale source textures into the window, and
+save the PNG inside `Assets`. The utility temporarily reads the sources as
+uncompressed linear data, restores their import settings, and configures the
+packed output as a linear repeating texture. It can also assign the result
+directly to either mask property on `IslandTerrain.mat`. A missing height input
+uses neutral 50-percent gray; a missing occlusion input uses white.
+
+Grass fur keeps hard rock, beach, and snow exclusions so blades never protrude
+through those surfaces; its river edge retains stable whole-blade stippling.
+The underlying terrain shader is intentionally softer: the same coherent grass
+field blends green ground continuously into bare dirt and the neighbouring
+surface materials.
+
 Terrain mesh colours carry material data rather than a visible tint. Red is
 bedrock hardness in the `0..1` range, with `2` reserved for sharp vertices that
 the final Rust geometry pass marks as exposed rock; green is loose/deposited
@@ -164,5 +206,5 @@ rough-water emitter, and collider-cooking check, run:
 ```sh
 /Applications/Unity/Hub/Editor/6000.5.6f1/Unity.app/Contents/MacOS/Unity \
   -batchmode -nographics -projectPath "$PWD" \
-  -executeMethod IslandViewer.BatchValidateNativeInterop -quit
+  -executeMethod IslandGeneratorValidation.BatchValidateNativeInterop -quit
 ```

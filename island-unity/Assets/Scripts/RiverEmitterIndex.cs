@@ -5,16 +5,16 @@ internal sealed class RiverEmitterIndex
 {
     internal const int Resolution = TerrainTileStreamer.Lod1Resolution;
 
-    private readonly IslandViewer.PreparedRiverEmitter[] candidates;
+    private readonly IslandPreparedRiverEmitter[] candidates;
     private readonly int[] cellOffsets;
     private readonly int[] candidateOrder;
     private readonly float worldSize;
 
     internal RiverEmitterIndex(
-        IslandViewer.PreparedRiverEmitter[] candidates,
+        IslandPreparedRiverEmitter[] candidates,
         float worldSize)
     {
-        this.candidates = candidates ?? Array.Empty<IslandViewer.PreparedRiverEmitter>();
+        this.candidates = candidates ?? Array.Empty<IslandPreparedRiverEmitter>();
         this.worldSize = worldSize;
         var cellCount = Resolution * Resolution;
         var counts = new int[cellCount];
@@ -39,7 +39,7 @@ internal sealed class RiverEmitterIndex
     }
 
     internal int Count => candidates.Length;
-    internal IslandViewer.PreparedRiverEmitter CandidateAt(int index) => candidates[index];
+    internal IslandPreparedRiverEmitter CandidateAt(int index) => candidates[index];
     internal int CandidateIndexAt(int orderIndex) => candidateOrder[orderIndex];
 
     internal void GetCellRange(int x, int y, out int start, out int end)

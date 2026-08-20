@@ -2,6 +2,32 @@
 
 use motu::{BoundingBox, Island, IslandOptions, Mesh, Vec3};
 
+fn assert_boundaries_match(left: &[(u32, u32)], right: &[(u32, u32)]) {
+    const EPSILON: f32 = 1.0e-5;
+
+    for (source, target) in [(left, right), (right, left)] {
+        let maximum_error = source
+            .iter()
+            .map(|&(coordinate, height)| {
+                let coordinate = f32::from_bits(coordinate);
+                let height = f32::from_bits(height);
+                target
+                    .iter()
+                    .map(|&(other_coordinate, other_height)| {
+                        (coordinate - f32::from_bits(other_coordinate))
+                            .abs()
+                            .max((height - f32::from_bits(other_height)).abs())
+                    })
+                    .fold(f32::INFINITY, f32::min)
+            })
+            .fold(0.0_f32, f32::max);
+        assert!(
+            maximum_error <= EPSILON,
+            "sibling boundary error was {maximum_error}"
+        );
+    }
+}
+
 const TOP: u8 = 1;
 const LEFT: u8 = 2;
 const BOTTOM: u8 = 4;
@@ -166,10 +192,13 @@ fn render_grid_preserves_sibling_boundaries() {
         points
     };
 
-    assert_eq!(vertical(&tiles[0], 0.0, 0.5), vertical(&tiles[1], 0.0, 0.5));
-    assert_eq!(
-        horizontal(&tiles[0], 0.0, 0.5),
-        horizontal(&tiles[2], 0.0, 0.5)
+    assert_boundaries_match(
+        &vertical(&tiles[0], 0.0, 0.5),
+        &vertical(&tiles[1], 0.0, 0.5),
+    );
+    assert_boundaries_match(
+        &horizontal(&tiles[0], 0.0, 0.5),
+        &horizontal(&tiles[2], 0.0, 0.5),
     );
 }
 

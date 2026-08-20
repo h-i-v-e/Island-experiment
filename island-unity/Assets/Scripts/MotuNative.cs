@@ -20,6 +20,10 @@ internal static class MotuNative
         internal float riverSourceCatchmentHectares;
         internal float riverSourceSteepMultiplier;
         internal float riverSourceElevationBoost;
+        internal float riverSourceWidthMetres;
+        internal float riverMaximumWidthMetres;
+        internal float riverSourceDepthMetres;
+        internal float riverMaximumDepthMetres;
     }
 
     [StructLayout(LayoutKind.Sequential)]

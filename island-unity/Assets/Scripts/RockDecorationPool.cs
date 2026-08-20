@@ -48,7 +48,7 @@ public sealed class RockDecorationPool : MonoBehaviour
     internal int PrototypeCount => prototypes?.Count ?? 0;
 
     internal void Initialize(
-        IslandViewer.PreparedRockDecoration[] candidates,
+        IslandPreparedRockDecoration[] candidates,
         float worldSize,
         Material rockMaterial,
         bool visible)

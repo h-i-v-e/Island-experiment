@@ -1,0 +1,60 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!21 &2100000
+Material:
+  serializedVersion: 8
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: IslandRiver
+  m_Shader: {fileID: 4800000, guid: 638039db650e4674b4039f58f2cf3c9b, type: 3}
+  m_Parent: {fileID: 0}
+  m_ModifiedSerializedProperties: 0
+  m_ValidKeywords: []
+  m_InvalidKeywords: []
+  m_LightmapFlags: 4
+  m_EnableInstancingVariants: 0
+  m_DoubleSidedGI: 0
+  m_CustomRenderQueue: -1
+  stringTagMap: {}
+  disabledShaderPasses: []
+  m_LockedProperties: 
+  m_SavedProperties:
+    serializedVersion: 3
+    m_TexEnvs:
+    - _NoiseTex:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    m_Ints: []
+    m_Floats:
+    - _CoarseFlowSpeed: 2.25
+    - _CoarseNoiseWorldSize: 6
+    - _EstuaryBlendHeight: 2
+    - _EstuaryStrength: 1
+    - _FineFlowSpeed: 9
+    - _FineNoiseWorldSize: 3
+    - _OpacityDepth: 5
+    - _ReflectionFresnelPower: 4
+    - _ReflectionStrength: 0.45
+    - _SeaLevel: 0
+    - _ShallowOpacity: 0.25
+    - _ShoreWaveDepth: 0.5
+    - _ShoreWaveNoiseWorldSize: 1
+    - _ShoreWaveSpacing: 0.11
+    - _ShoreWaveSpeed: -0.07
+    - _ShoreWaveStrength: 0.35
+    - _SunGlintSharpness: 128
+    - _SunGlintStrength: 0.55
+    - _WhitewaterSlopeFull: 0.55
+    - _WhitewaterSlopeStart: 0.05
+    - _WhitewaterStrength: 0.9
+    - _WorldSize: 2000
+    m_Colors:
+    - _Color: {r: 0.03, g: 0.28, b: 0.55, a: 1}
+    - _EstuaryColor: {r: 0.325, g: 0.425, b: 0.445, a: 1}
+    - _ReflectionColor: {r: 0.49, g: 0.68, b: 0.82, a: 1}
+    - _ReflectionHorizonColor: {r: 0.68, g: 0.79, b: 0.88, a: 1}
+  m_BuildTextureStacks: []
+  m_AllowLocking: 1

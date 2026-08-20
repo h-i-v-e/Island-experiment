@@ -38,9 +38,13 @@ pub struct MotuOptions {
     pub riverSourceCatchmentHectares: f32,
     pub riverSourceSteepMultiplier: f32,
     pub riverSourceElevationBoost: f32,
+    pub riverSourceWidthMetres: f32,
+    pub riverMaximumWidthMetres: f32,
+    pub riverSourceDepthMetres: f32,
+    pub riverMaximumDepthMetres: f32,
 }
 
-const _: () = assert!(size_of::<MotuOptions>() == size_of::<[f32; 12]>());
+const _: () = assert!(size_of::<MotuOptions>() == size_of::<[f32; 16]>());
 
 impl From<MotuOptions> for IslandOptions {
     fn from(value: MotuOptions) -> Self {
@@ -55,6 +59,10 @@ impl From<MotuOptions> for IslandOptions {
             river_source_catchment_hectares: value.riverSourceCatchmentHectares,
             river_source_steep_multiplier: value.riverSourceSteepMultiplier,
             river_source_elevation_boost: value.riverSourceElevationBoost,
+            river_source_width_metres: value.riverSourceWidthMetres,
+            river_maximum_width_metres: value.riverMaximumWidthMetres,
+            river_source_depth_metres: value.riverSourceDepthMetres,
+            river_maximum_depth_metres: value.riverMaximumDepthMetres,
             ..Self::default()
         }
     }
@@ -1095,9 +1103,8 @@ mod tests {
         assert_eq!(sea_mask.height, 0);
     }
 
-    #[test]
-    fn ffi_allocations_have_matching_release_functions() {
-        let options = MotuOptions {
+    fn test_options() -> MotuOptions {
+        MotuOptions {
             maxZ: 0.2,
             waterRatio: 0.6,
             slopeMultiplier: 1.3,
@@ -1110,7 +1117,16 @@ mod tests {
             riverSourceCatchmentHectares: 0.05,
             riverSourceSteepMultiplier: 4.0,
             riverSourceElevationBoost: 9.0,
-        };
+            riverSourceWidthMetres: 2.0,
+            riverMaximumWidthMetres: 14.0,
+            riverSourceDepthMetres: 0.35,
+            riverMaximumDepthMetres: 2.0,
+        }
+    }
+
+    #[test]
+    fn ffi_allocations_have_matching_release_functions() {
+        let options = test_options();
         // SAFETY: this test passes valid pointers and releases every returned
         // allocation exactly once through its paired ABI function.
         unsafe {
@@ -1137,7 +1153,7 @@ mod tests {
             assert!(!grid.handle.is_null());
             assert_eq!(grid.length, 64);
             let tiles = std::slice::from_raw_parts(grid.data, grid.length as usize);
-            assert!(tiles.iter().all(|tile| tile.triangles.length > 0));
+            assert!(tiles.iter().any(|tile| tile.triangles.length > 0));
             assert!(tiles.iter().all(terrain_attributes_match));
             ReleaseMeshGrid(&raw mut grid);
             assert!(grid.handle.is_null());

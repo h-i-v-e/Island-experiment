@@ -56,7 +56,7 @@ public sealed class RiverParticlePool : MonoBehaviour
     }
 
     internal void Initialize(
-        IslandViewer.PreparedRiverEmitter[] candidates,
+        IslandPreparedRiverEmitter[] candidates,
         float worldSize,
         bool visible)
     {

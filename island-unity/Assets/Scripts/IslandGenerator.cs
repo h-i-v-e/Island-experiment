@@ -8,16 +8,10 @@ using UnityEngine;
 using UnityEngine.Rendering;
 using Debug = UnityEngine.Debug;
 
-public sealed class IslandViewer : MonoBehaviour
+public sealed class IslandGenerator : MonoBehaviour
 {
-    private const float TerrainScale = 2000f;
     private const float SeaHeight = 0f;
-    private const float MinimumWaterRatio = 0.6f;
-    private const float DefaultWaterRatio = 0.95f;
-    private const float MinimumRiverSourceCatchmentHectares = 0.01f;
-    private const float MaximumRiverSourceCatchmentHectares = 10f;
-    private const float DefaultRiverSourceCatchmentHectares = 0.05f;
-    private const float DefaultRiverSourceElevationBoost = 9f;
+    private const float ValidationWorldSize = 2000f;
     private const int SurfaceMapDimension = 2048;
     private const int CliffNoiseDimension = 64;
     private const int CliffNoiseLatticePeriod = 16;
@@ -25,23 +19,35 @@ public sealed class IslandViewer : MonoBehaviour
     private const int RiverNoiseLatticePeriod = 32;
     private const int GrassPatchNoiseDimension = 256;
     private const int GrassPatchNoiseLatticePeriod = 64;
-    private const float GrassPatchNoiseWorldSizeMetres = 32f;
+    private const int GrassColourNoiseLatticePeriod = 8;
+    private const int AverageColourSampleDimension = 256;
     private const float RockPatchNoiseDetailScale = 8f;
-    private const float SandMaximumElevationMetres = 3f;
-    private const float SandPatchNoiseWorldSizeMetres = 32f;
-    private const float ClickDragTolerance = 6f;
-    private const float HazeStartDistance = 0f;
-    private const float HazeEndDistance = 1000f;
-    private const float RiverEmitterSharpnessDegrees = 35f;
-    private const float RiverEmitterSpacingMetres = 1.5f;
-    private const float EstuaryBlendHeightMetres = 2f;
-    private static readonly Color RockColor = new Color(0.34f, 0.32f, 0.29f, 1f);
+    private static readonly Color DefaultRockColor = new Color(0.34f, 0.32f, 0.29f, 1f);
+    private static readonly int IslandWorldToLocalId = Shader.PropertyToID(
+        "_IslandWorldToLocal");
 
-    private IntPtr islandHandle;
+    [Header("Lifecycle and Generation")]
+    [SerializeField] private IslandGenerationSettings generation = new IslandGenerationSettings();
+
+    [Header("Rivers")]
+    [SerializeField] private IslandRiverSettings rivers = new IslandRiverSettings();
+
+    [Header("Streaming")]
+    [SerializeField] private IslandStreamingSettings streaming = new IslandStreamingSettings();
+
+    [Header("Rendering and Texture Overrides")]
+    [SerializeField] private IslandRenderingSettings rendering = new IslandRenderingSettings();
+
+    [Header("Decoration Asset Libraries")]
+    [SerializeField] private IslandDecorationSettings decorations = new IslandDecorationSettings();
+
+    [Header("Debug")]
+    [SerializeField] private IslandDebugSettings debugSettings = new IslandDebugSettings();
+
+    private NativeIslandHandle islandHandle;
     private TerrainTileStreamer terrainStreamer;
+    private GameObject runtimeRoot;
     private GameObject seaObject;
-    private Camera viewerCamera;
-    private FirstPersonController firstPersonController;
     private Material terrainMaterial;
     private Material grassMaterial;
     private Texture2D terrainNormalTexture;
@@ -53,439 +59,154 @@ public sealed class IslandViewer : MonoBehaviour
     private Material rockMaterial;
     private Material riverMaterial;
     private Material seaMaterial;
-    private string seedText = "666";
-    private int seed = 666;
-    private float maxHeight = 0.2f;
-    private float waterRatio = DefaultWaterRatio;
-    private float slopeMultiplier = 1.3f;
-    private float coastalSlopeMultiplier = 1f;
-    private float hydraulicErosionStrength = 1f;
-    private float hydraulicDepositionStrength = 1.5f;
-    private float hydraulicDepositionSlopeDegrees = 12f;
-    private float riverSourceCatchmentHectares = DefaultRiverSourceCatchmentHectares;
-    private float riverSourceSteepMultiplier = 4f;
-    private float riverSourceElevationBoost = DefaultRiverSourceElevationBoost;
-    private float grassBrightness = 1.35f;
+    private Material meshEdgeMaterial;
     private string status = "Ready";
-    private bool showRivers = true;
-    private bool showRocks = true;
-    private bool showSea = true;
-    private bool showMeshEdges;
-    private bool showRiverEmitterDebug;
-    private bool clickCandidate;
-    private Vector2 clickStart;
     private CancellationTokenSource generationCancellation;
     private Stopwatch generationTimer;
     private bool generationInProgress;
     private bool isDestroyed;
-    private bool distanceHazeEnabled;
+    private bool hasStarted;
+    private bool ownsCliffNoiseTexture;
+    private bool ownsRiverNoiseTexture;
+    private bool ownsGrassPatchNoiseTexture;
+    private bool? appliedShowRivers;
+    private bool? appliedShowSea;
+    private bool? appliedShowGrass;
+    private bool? appliedShowRocks;
+    private bool? appliedShowMeshEdges;
+    private bool? appliedEmitterDebug;
+    private Color? appliedGrassColourA;
+    private Color? appliedGrassColourB;
+    private float appliedGrassColourNoiseWorldSize = float.NaN;
+    private float appliedGrassBrightness = float.NaN;
 
-    internal sealed class PreparedMesh
-    {
-        internal readonly Vector3[] vertices;
-        internal readonly Vector3[] normals;
-        internal readonly int[] triangles;
-        internal readonly Vector2[] uv;
-        internal readonly Color[] material;
-
-        internal PreparedMesh(
-            Vector3[] vertices,
-            Vector3[] normals,
-            int[] triangles,
-            Vector2[] uv,
-            Color[] material)
-        {
-            this.vertices = vertices;
-            this.normals = normals;
-            this.triangles = triangles;
-            this.uv = uv;
-            this.material = material;
-        }
-    }
-
-    internal readonly struct PreparedRiverEmitter
-    {
-        internal readonly Vector3 position;
-        internal readonly Vector3 direction;
-        internal readonly float strength;
-
-        internal PreparedRiverEmitter(Vector3 position, Vector3 direction, float strength)
-        {
-            this.position = position;
-            this.direction = direction;
-            this.strength = strength;
-        }
-    }
-
-    internal readonly struct PreparedRockDecoration
-    {
-        internal readonly int sourceIndex;
-        internal readonly uint appearanceId;
-        internal readonly Vector3 position;
-        internal readonly Vector3 normal;
-        internal readonly bool isBoulder;
-        internal readonly int prototypeIndex;
-        internal readonly Vector3 scale;
-        internal readonly Quaternion rotation;
-        internal readonly Color tint;
-        internal readonly float embedDepth;
-
-        internal PreparedRockDecoration(
-            int sourceIndex,
-            uint appearanceId,
-            Vector3 position,
-            Vector3 normal,
-            bool isBoulder,
-            int prototypeIndex,
-            Vector3 scale,
-            Quaternion rotation,
-            Color tint,
-            float embedDepth)
-        {
-            this.sourceIndex = sourceIndex;
-            this.appearanceId = appearanceId;
-            this.position = position;
-            this.normal = normal;
-            this.isBoulder = isBoulder;
-            this.prototypeIndex = prototypeIndex;
-            this.scale = scale;
-            this.rotation = rotation;
-            this.tint = tint;
-            this.embedDepth = embedDepth;
-        }
-    }
-
-    private sealed class PreparedSurfaceMaps
-    {
-        internal readonly int dimension;
-        internal readonly byte[] normalRgb;
-        internal readonly byte[] occlusion;
-
-        internal PreparedSurfaceMaps(int dimension, byte[] normalRgb, byte[] occlusion)
-        {
-            this.dimension = dimension;
-            this.normalRgb = normalRgb;
-            this.occlusion = occlusion;
-        }
-    }
-
-    private sealed class PreparedSeaMask
-    {
-        internal readonly int dimension;
-        internal readonly byte[] rg;
-
-        internal PreparedSeaMask(int dimension, byte[] rg)
-        {
-            this.dimension = dimension;
-            this.rg = rg;
-        }
-    }
-
-    internal sealed class PreparedColliderHeightMap
-    {
-        private const float VerticalSafetyMarginMetres = 1f;
-        private readonly float[] normalizedHeights;
-
-        internal readonly int dimension;
-        internal readonly int samplesPerTile;
-        internal readonly float verticalOrigin;
-        internal readonly float verticalSize;
-        internal readonly float minimumHeight;
-        internal readonly float maximumHeight;
-
-        internal PreparedColliderHeightMap(
-            int mapDimension,
-            int tileSamples,
-            float[] heights,
-            float terrainWorldSize)
-        {
-            var expectedDimension = checked(
-                TerrainTileStreamer.Lod1Resolution * (tileSamples - 1) + 1);
-            if (mapDimension != expectedDimension
-                || heights == null
-                || heights.Length != checked(mapDimension * mapDimension))
-            {
-                throw new InvalidOperationException(
-                    "The terrain-collider height map dimensions are invalid.");
-            }
-
-            dimension = mapDimension;
-            samplesPerTile = tileSamples;
-            normalizedHeights = heights;
-            var minimum = float.PositiveInfinity;
-            var maximum = float.NegativeInfinity;
-            for (var index = 0; index < heights.Length; index++)
-            {
-                var height = heights[index] * terrainWorldSize;
-                if (float.IsNaN(height) || float.IsInfinity(height))
-                {
-                    throw new InvalidOperationException(
-                        "The terrain-collider height map contains a non-finite sample.");
-                }
-                heights[index] = height;
-                minimum = Math.Min(minimum, height);
-                maximum = Math.Max(maximum, height);
-            }
-
-            minimumHeight = minimum;
-            maximumHeight = maximum;
-            verticalOrigin = minimum - VerticalSafetyMarginMetres;
-            verticalSize = Math.Max(
-                maximum - minimum + VerticalSafetyMarginMetres * 2f,
-                VerticalSafetyMarginMetres * 2f);
-            for (var index = 0; index < heights.Length; index++)
-            {
-                heights[index] = (heights[index] - verticalOrigin) / verticalSize;
-            }
-        }
-
-        internal float[,] CopyTileHeights(Vector2Int tile)
-        {
-            if (tile.x < 0
-                || tile.y < 0
-                || tile.x >= TerrainTileStreamer.Lod1Resolution
-                || tile.y >= TerrainTileStreamer.Lod1Resolution)
-            {
-                throw new ArgumentOutOfRangeException(nameof(tile));
-            }
-
-            var result = new float[samplesPerTile, samplesPerTile];
-            var intervalsPerTile = samplesPerTile - 1;
-            var sourceX = tile.x * intervalsPerTile;
-            var sourceY = tile.y * intervalsPerTile;
-            for (var localY = 0; localY < samplesPerTile; localY++)
-            {
-                var sourceOffset = (sourceY + localY) * dimension + sourceX;
-                for (var localX = 0; localX < samplesPerTile; localX++)
-                {
-                    result[localY, localX] = normalizedHeights[sourceOffset + localX];
-                }
-            }
-            return result;
-        }
-
-        internal float WorldHeightAt(int sampleX, int sampleY)
-        {
-            if (sampleX < 0 || sampleY < 0 || sampleX >= dimension || sampleY >= dimension)
-            {
-                throw new ArgumentOutOfRangeException();
-            }
-            return verticalOrigin
-                + normalizedHeights[sampleY * dimension + sampleX] * verticalSize;
-        }
-    }
-
-    private sealed class PreparedIsland : IDisposable
-    {
-        internal IntPtr handle;
-        internal readonly PreparedSurfaceMaps surfaceMaps;
-        internal readonly PreparedSeaMask seaMask;
-        internal readonly PreparedMesh[] overviewTiles;
-        internal readonly PreparedMesh[] riverTiles;
-        internal readonly PreparedRiverEmitter[] riverEmitters;
-        internal readonly PreparedRockDecoration[] rocks;
-        internal readonly PreparedColliderHeightMap colliderHeightMap;
-
-        internal PreparedIsland(
-            IntPtr handle,
-            PreparedSurfaceMaps surfaceMaps,
-            PreparedSeaMask seaMask,
-            PreparedMesh[] overviewTiles,
-            PreparedMesh[] riverTiles,
-            PreparedRiverEmitter[] riverEmitters,
-            PreparedRockDecoration[] rocks,
-            PreparedColliderHeightMap colliderHeightMap)
-        {
-            this.handle = handle;
-            this.surfaceMaps = surfaceMaps;
-            this.seaMask = seaMask;
-            this.overviewTiles = overviewTiles;
-            this.riverTiles = riverTiles;
-            this.riverEmitters = riverEmitters;
-            this.rocks = rocks;
-            this.colliderHeightMap = colliderHeightMap;
-        }
-
-        internal IntPtr TakeHandle()
-        {
-            var result = handle;
-            handle = IntPtr.Zero;
-            return result;
-        }
-
-        public void Dispose()
-        {
-            if (handle == IntPtr.Zero)
-            {
-                return;
-            }
-            MotuNative.ReleaseMotu(handle);
-            handle = IntPtr.Zero;
-        }
-    }
-
-    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
-    private static void Bootstrap()
-    {
-        if (FindAnyObjectByType<IslandViewer>() != null)
-        {
-            return;
-        }
-
-        new GameObject("Island Viewer").AddComponent<IslandViewer>();
-    }
+    public bool IsGenerating => generationInProgress;
+    public string Status => status;
+    public float WorldSizeMetres => generation.WorldSizeMetres;
+    public IslandGenerationSettings Generation => generation;
+    public IslandRiverSettings Rivers => rivers;
+    public IslandStreamingSettings Streaming => streaming;
+    public IslandRenderingSettings Rendering => rendering;
+    public IslandDecorationSettings Decorations => decorations;
+    public IslandDebugSettings DebugSettings => debugSettings;
 
     private void Start()
     {
-        BuildEnvironment();
-        Generate();
+        hasStarted = true;
+        if (generation.GenerateOnStart)
+        {
+            Generate();
+        }
     }
 
     private void OnEnable()
     {
-        Camera.onPreRender += BeginCameraRender;
-        Camera.onPostRender += EndCameraRender;
+        Camera.onPreCull += PrepareCameraRender;
+        EnsureActiveCameraDepthTextures();
+        if (hasStarted && generation.GenerateOnStart && terrainStreamer == null)
+        {
+            Generate();
+        }
     }
 
     private void OnDisable()
     {
-        Camera.onPreRender -= BeginCameraRender;
-        Camera.onPostRender -= EndCameraRender;
-        GL.wireframe = false;
+        Camera.onPreCull -= PrepareCameraRender;
+        generationCancellation?.Cancel();
+        ClearGeneratedContent();
     }
 
-    private void BeginCameraRender(Camera camera)
+    private void PrepareCameraRender(Camera camera)
     {
-        if (camera == viewerCamera)
+        EnsureCameraDepthTexture(camera);
+    }
+
+    private static void EnsureCameraDepthTexture(Camera camera)
+    {
+        if (camera != null)
         {
-            GL.wireframe = showMeshEdges;
+            camera.depthTextureMode |= DepthTextureMode.Depth;
         }
     }
 
-    private void EndCameraRender(Camera camera)
+    private static void EnsureActiveCameraDepthTextures()
     {
-        if (camera == viewerCamera)
+        foreach (var camera in Camera.allCameras)
         {
-            GL.wireframe = false;
+            EnsureCameraDepthTexture(camera);
         }
     }
 
     private void Update()
     {
-        SetDistanceHaze(
-            firstPersonController != null && firstPersonController.IsActive);
-
-        if (Input.GetKeyDown(KeyCode.M))
+        var meshEdgeKey = debugSettings.ToggleMeshEdgesKey;
+        if (meshEdgeKey != KeyCode.None && Input.GetKeyDown(meshEdgeKey))
         {
-            showMeshEdges = !showMeshEdges;
+            debugSettings.ShowMeshEdges = !debugSettings.ShowMeshEdges;
         }
-
-        if (firstPersonController == null
-            || firstPersonController.IsActive
-            || terrainStreamer == null
-            || viewerCamera == null)
+        UpdateMaterialTransforms();
+        ApplyLiveSettings();
+        if (terrainStreamer != null && streaming.Target != null)
         {
-            return;
+            terrainStreamer.SetPlayerPosition(streaming.Target.position);
         }
+    }
 
-        if (Input.GetMouseButtonDown(0))
+    private void OnValidate()
+    {
+        if (!HasSupportedTransform())
         {
-            clickStart = Input.mousePosition;
-            var guiPosition = new Vector2(clickStart.x, Screen.height - clickStart.y);
-            clickCandidate = !new Rect(16f, 16f, 500f, 684f).Contains(guiPosition);
-        }
-
-        if (!Input.GetMouseButtonUp(0) || !clickCandidate)
-        {
-            return;
-        }
-
-        clickCandidate = false;
-        var releasedAt = (Vector2)Input.mousePosition;
-        if ((releasedAt - clickStart).sqrMagnitude
-            > ClickDragTolerance * ClickDragTolerance)
-        {
-            return;
-        }
-
-        var ray = viewerCamera.ScreenPointToRay(releasedAt);
-        if (terrainStreamer.TryRaycastOverview(ray, out var groundPoint))
-        {
-            firstPersonController.Enter(groundPoint);
+            Debug.LogWarning(
+                "IslandGenerator currently requires a unit scale and rotation around the Y axis only.",
+                this);
         }
     }
 
     private void OnDestroy()
     {
         isDestroyed = true;
-        SetDistanceHaze(false);
         generationCancellation?.Cancel();
-        firstPersonController?.Exit();
         ClearGeneratedContent();
-        DestroyUnityObject(terrainMaterial);
-        DestroyUnityObject(grassMaterial);
-        DestroyUnityObject(rockMaterial);
-        DestroyUnityObject(cliffNoiseTexture);
-        DestroyUnityObject(riverNoiseTexture);
-        DestroyUnityObject(grassPatchNoiseTexture);
-        DestroyUnityObject(riverMaterial);
-        DestroyUnityObject(seaMaterial);
+        DestroyRuntimeMaterials();
     }
 
-    private void BuildEnvironment()
+    private void BuildRuntimeMaterials()
     {
         var skyColor = new Color(0.49f, 0.68f, 0.82f);
-        RenderSettings.ambientMode = AmbientMode.Flat;
-        RenderSettings.ambientLight = new Color(0.42f, 0.46f, 0.52f);
-        RenderSettings.fog = false;
-        RenderSettings.fogMode = FogMode.Linear;
-        RenderSettings.fogColor = skyColor;
-        RenderSettings.fogStartDistance = HazeStartDistance;
-        RenderSettings.fogEndDistance = HazeEndDistance;
-
-        var lightObject = new GameObject("Sun");
-        lightObject.transform.SetParent(transform, false);
-        lightObject.transform.rotation = Quaternion.Euler(50f, -35f, 0f);
-        var sun = lightObject.AddComponent<Light>();
-        sun.type = LightType.Directional;
-        sun.intensity = 1.25f;
-        sun.color = new Color(1f, 0.94f, 0.82f);
-
-        var cameraObject = new GameObject("Orbit Camera");
-        cameraObject.transform.SetParent(transform, false);
-        viewerCamera = cameraObject.AddComponent<Camera>();
-        viewerCamera.depthTextureMode |= DepthTextureMode.Depth;
-        viewerCamera.clearFlags = CameraClearFlags.SolidColor;
-        viewerCamera.backgroundColor = skyColor;
-        viewerCamera.nearClipPlane = 0.05f;
-        viewerCamera.farClipPlane = TerrainScale * 8f;
-        var orbitCamera = cameraObject.AddComponent<OrbitCamera>();
-        orbitCamera.Configure(
-            new Vector3(0f, maxHeight * TerrainScale * 0.3f, 0f),
-            TerrainScale * 1.15f);
-        firstPersonController = cameraObject.AddComponent<FirstPersonController>();
-        firstPersonController.Configure(orbitCamera);
-
         terrainMaterial = CreateMaterial(
             "Motu/Terrain Unified",
-            Color.white);
-        cliffNoiseTexture = CreateCliffNoiseTexture();
+            Color.white,
+            rendering.TerrainMaterial,
+            generation.WorldSizeMetres);
+        cliffNoiseTexture = rendering.CliffDetailNoise;
+        ownsCliffNoiseTexture = cliffNoiseTexture == null;
+        if (ownsCliffNoiseTexture) cliffNoiseTexture = CreateCliffNoiseTexture();
         terrainMaterial.SetTexture("_CliffNoise3D", cliffNoiseTexture);
-        terrainMaterial.SetColor("_RockColor", RockColor);
-        grassMaterial = CreateMaterial("Motu/Terrain Grass", Color.white);
+        var rockColor = ApplyAverageTextureColor(
+            terrainMaterial,
+            "_RockAlbedoMap",
+            "_RockColor",
+            DefaultRockColor);
+        ApplyAverageTextureColor(
+            terrainMaterial,
+            "_RiverBedAlbedoMap",
+            "_RiverBedColor",
+            DefaultRockColor);
+        grassMaterial = CreateMaterial(
+            "Motu/Terrain Grass",
+            Color.white,
+            rendering.GrassMaterial,
+            generation.WorldSizeMetres);
         grassMaterial.SetTexture("_CliffNoise3D", cliffNoiseTexture);
-        var rockShader = Shader.Find("Motu/Rock Decoration");
-        if (rockShader == null)
-        {
-            throw new InvalidOperationException(
-                "Could not find shader 'Motu/Rock Decoration'.");
-        }
-        rockMaterial = new Material(rockShader)
-        {
-            name = "Shared rock decoration material"
-        };
+        CopyTerrainBlendSettingsToGrass();
+        rockMaterial = CreateMaterial(
+            "Motu/Rock Decoration",
+            rockColor,
+            rendering.RockMaterial,
+            generation.WorldSizeMetres);
+        rockMaterial.name = "Island rock decoration material";
         rockMaterial.enableInstancing = true;
-        rockMaterial.SetColor("_RockColor", RockColor);
+        rockMaterial.SetColor("_RockColor", rockColor);
         rockMaterial.SetTexture("_CliffNoise3D", cliffNoiseTexture);
         rockMaterial.SetFloat(
             "_CliffNoisePeriod",
@@ -504,36 +225,40 @@ public sealed class IslandViewer : MonoBehaviour
             RockPatchNoiseDetailScale);
         terrainMaterial.SetFloat(
             "_BeachMaximumElevation",
-            SandMaximumElevationMetres);
+            rendering.BeachMaximumElevationMetres);
         grassMaterial.SetFloat(
             "_BeachMaximumElevation",
-            SandMaximumElevationMetres);
+            rendering.BeachMaximumElevationMetres);
         terrainMaterial.SetFloat(
             "_SandPatchNoiseWorldSize",
-            SandPatchNoiseWorldSizeMetres);
+            rendering.SandPatchSizeMetres);
         grassMaterial.SetFloat(
             "_SandPatchNoiseWorldSize",
-            SandPatchNoiseWorldSizeMetres);
-        grassPatchNoiseTexture = CreateGrassPatchNoiseTexture();
+            rendering.SandPatchSizeMetres);
+        grassPatchNoiseTexture = rendering.GrassPatchNoise;
+        ownsGrassPatchNoiseTexture = grassPatchNoiseTexture == null;
+        if (ownsGrassPatchNoiseTexture) grassPatchNoiseTexture = CreateGrassPatchNoiseTexture();
         terrainMaterial.SetTexture("_GrassPatchNoise", grassPatchNoiseTexture);
         terrainMaterial.SetFloat(
             "_GrassPatchNoiseWorldSize",
-            GrassPatchNoiseWorldSizeMetres);
+            rendering.GrassPatchSizeMetres);
         grassMaterial.SetTexture("_GrassPatchNoise", grassPatchNoiseTexture);
         grassMaterial.SetFloat(
             "_GrassPatchNoiseWorldSize",
-            GrassPatchNoiseWorldSizeMetres);
+            rendering.GrassPatchSizeMetres);
+        ApplyGrassColourSettings();
+        grassMaterial.SetFloat("_GrassBrightness", rendering.GrassBrightness);
+        var sun = rendering.Sunlight != null ? rendering.Sunlight : RenderSettings.sun;
+        grassMaterial.SetVector(
+            "_GrassLightDirection",
+            sun != null ? -sun.transform.forward : Vector3.down);
         grassMaterial.SetColor(
-            "_GrassRootColor",
-            new Color(0.14f, 0.34f, 0.11f, 1f));
-        grassMaterial.SetColor(
-            "_GrassTipColor",
-            new Color(0.26f, 0.62f, 0.21f, 1f));
-        grassMaterial.SetFloat("_GrassBrightness", grassBrightness);
-        grassMaterial.SetVector("_GrassLightDirection", -sun.transform.forward);
-        grassMaterial.SetColor("_GrassLightColor", sun.color * sun.intensity);
+            "_GrassLightColor",
+            sun != null ? sun.color * sun.intensity : Color.white);
         grassMaterial.SetColor("_GrassAmbientColor", RenderSettings.ambientLight);
-        riverNoiseTexture = CreateRiverNoiseTexture();
+        riverNoiseTexture = rendering.RiverNoise;
+        ownsRiverNoiseTexture = riverNoiseTexture == null;
+        if (ownsRiverNoiseTexture) riverNoiseTexture = CreateRiverNoiseTexture();
         var waterColor = new Color(0.03f, 0.28f, 0.55f, 1f);
         var sandColor = new Color(0.62f, 0.57f, 0.34f, 1f);
         const float shallowWaterOpacity = 0.25f;
@@ -547,7 +272,11 @@ public sealed class IslandViewer : MonoBehaviour
         const float seaShoreWaveSpacing = 0.55f;
         const float seaShoreWaveDepth = 2.5f;
         const float seaShoreWaveNoiseWorldSize = 5f;
-        riverMaterial = CreateMaterial("Motu/Water", waterColor);
+        riverMaterial = CreateMaterial(
+            "Motu/River Water",
+            waterColor,
+            rendering.RiverMaterial,
+            generation.WorldSizeMetres);
         riverMaterial.renderQueue = (int)RenderQueue.Transparent + 10;
         riverMaterial.SetTexture("_NoiseTex", riverNoiseTexture);
         riverMaterial.SetFloat("_WhitewaterStrength", 0.9f);
@@ -557,7 +286,7 @@ public sealed class IslandViewer : MonoBehaviour
         riverMaterial.SetColor(
             "_EstuaryColor",
             Color.Lerp(sandColor, waterColor, 0.5f));
-        riverMaterial.SetFloat("_EstuaryBlendHeight", EstuaryBlendHeightMetres);
+        riverMaterial.SetFloat("_EstuaryBlendHeight", rendering.EstuaryBlendHeightMetres);
         riverMaterial.SetFloat("_SeaLevel", SeaHeight);
         riverMaterial.SetColor("_ReflectionColor", skyColor);
         riverMaterial.SetColor(
@@ -572,16 +301,17 @@ public sealed class IslandViewer : MonoBehaviour
             riverShoreWaveSpacing,
             riverShoreWaveSpeed,
             riverShoreWaveDepth,
-            riverShoreWaveNoiseWorldSize,
-            true);
-        seaMaterial = CreateMaterial("Motu/Water", waterColor);
+            riverShoreWaveNoiseWorldSize);
+        seaMaterial = CreateMaterial(
+            "Motu/Sea Water",
+            waterColor,
+            rendering.SeaMaterial,
+            generation.WorldSizeMetres);
         seaMaterial.renderQueue = (int)RenderQueue.Transparent;
-        seaMaterial.SetFloat("_WhitewaterStrength", 0f);
         seaMaterial.SetFloat("_ShallowOpacity", shallowWaterOpacity);
         seaMaterial.SetFloat("_OpacityDepth", fullOpacityDepth);
-        seaMaterial.SetFloat("_EstuaryStrength", 0f);
         seaMaterial.SetColor(
-            "_EstuaryColor",
+            "_SiltColor",
             Color.Lerp(sandColor, waterColor, 0.5f));
         seaMaterial.SetColor("_ReflectionColor", skyColor);
         seaMaterial.SetColor(
@@ -596,8 +326,47 @@ public sealed class IslandViewer : MonoBehaviour
             seaShoreWaveSpacing,
             seaShoreWaveSpeed,
             seaShoreWaveDepth,
-            seaShoreWaveNoiseWorldSize,
-            false);
+            seaShoreWaveNoiseWorldSize);
+        meshEdgeMaterial = CreateMaterial(
+            "Motu/Mesh Edge Overlay",
+            Color.black,
+            null,
+            generation.WorldSizeMetres);
+        meshEdgeMaterial.renderQueue = (int)RenderQueue.Overlay + 100;
+        meshEdgeMaterial.SetColor("_Color", Color.black);
+        UpdateMaterialTransforms();
+    }
+
+    private void CopyTerrainBlendSettingsToGrass()
+    {
+        CopyMaterialTexture("_RockMaskMap");
+        CopyMaterialFloat("_RockTextureWorldSize");
+        CopyMaterialFloat("_RockHeightBlendStrength");
+        CopyMaterialTexture("_RiverBedMaskMap");
+        CopyMaterialFloat("_RiverBedTextureWorldSize");
+        CopyMaterialFloat("_RiverBedHeightBlendStrength");
+    }
+
+    private void CopyMaterialTexture(string propertyName)
+    {
+        if (terrainMaterial.HasProperty(propertyName)
+            && grassMaterial.HasProperty(propertyName))
+        {
+            grassMaterial.SetTexture(
+                propertyName,
+                terrainMaterial.GetTexture(propertyName));
+        }
+    }
+
+    private void CopyMaterialFloat(string propertyName)
+    {
+        if (terrainMaterial.HasProperty(propertyName)
+            && grassMaterial.HasProperty(propertyName))
+        {
+            grassMaterial.SetFloat(
+                propertyName,
+                terrainMaterial.GetFloat(propertyName));
+        }
     }
 
     private static void ConfigureShoreWaves(
@@ -607,8 +376,7 @@ public sealed class IslandViewer : MonoBehaviour
         float spacing,
         float speed,
         float depth,
-        float noiseWorldSize,
-        bool useBankDistance)
+        float noiseWorldSize)
     {
         material.SetTexture("_NoiseTex", noise);
         material.SetFloat("_ShoreWaveStrength", strength);
@@ -616,66 +384,139 @@ public sealed class IslandViewer : MonoBehaviour
         material.SetFloat("_ShoreWaveSpeed", speed);
         material.SetFloat("_ShoreWaveDepth", depth);
         material.SetFloat("_ShoreWaveNoiseWorldSize", noiseWorldSize);
-        material.SetFloat("_ShoreWaveBankDistance", useBankDistance ? 1f : 0f);
     }
 
-    private void SetDistanceHaze(bool enabled)
+    private bool HasSupportedTransform()
     {
-        if (distanceHazeEnabled == enabled && RenderSettings.fog == enabled)
-        {
-            return;
-        }
-        distanceHazeEnabled = enabled;
-        RenderSettings.fog = enabled;
+        var scale = transform.lossyScale;
+        return Mathf.Approximately(scale.x, 1f)
+            && Mathf.Approximately(scale.y, 1f)
+            && Mathf.Approximately(scale.z, 1f)
+            && Vector3.Dot(transform.up, Vector3.up) > 0.99999f;
     }
 
-    private async void Generate()
+    private void UpdateMaterialTransforms()
+    {
+        var worldToLocal = transform.worldToLocalMatrix;
+        terrainMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
+        grassMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
+        rockMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
+        riverMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
+        seaMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
+    }
+
+    private void ApplyLiveSettings()
+    {
+        if (!appliedGrassColourA.HasValue
+            || !appliedGrassColourB.HasValue
+            || appliedGrassColourA.Value != rendering.GrassColourA
+            || appliedGrassColourB.Value != rendering.GrassColourB
+            || !Mathf.Approximately(
+                appliedGrassColourNoiseWorldSize,
+                rendering.GrassColourNoiseWorldSizeMetres))
+        {
+            ApplyGrassColourSettings();
+        }
+        if (!Mathf.Approximately(appliedGrassBrightness, rendering.GrassBrightness))
+        {
+            appliedGrassBrightness = rendering.GrassBrightness;
+            grassMaterial?.SetFloat("_GrassBrightness", appliedGrassBrightness);
+        }
+        if (appliedShowRivers != rendering.ShowRivers)
+        {
+            appliedShowRivers = rendering.ShowRivers;
+            terrainStreamer?.SetRiversVisible(rendering.ShowRivers);
+        }
+        if (appliedShowSea != rendering.ShowSea)
+        {
+            appliedShowSea = rendering.ShowSea;
+            seaObject?.SetActive(rendering.ShowSea);
+        }
+        if (appliedShowGrass != rendering.ShowGrass)
+        {
+            appliedShowGrass = rendering.ShowGrass;
+            terrainStreamer?.SetGrassVisible(rendering.ShowGrass);
+        }
+        if (appliedShowRocks != rendering.ShowRocks)
+        {
+            appliedShowRocks = rendering.ShowRocks;
+            terrainStreamer?.SetRocksVisible(rendering.ShowRocks);
+        }
+        if (appliedShowMeshEdges != debugSettings.ShowMeshEdges)
+        {
+            appliedShowMeshEdges = debugSettings.ShowMeshEdges;
+            terrainStreamer?.SetMeshEdgesVisible(debugSettings.ShowMeshEdges);
+        }
+        if (appliedEmitterDebug != debugSettings.ShowRoughWaterEmitters)
+        {
+            appliedEmitterDebug = debugSettings.ShowRoughWaterEmitters;
+            terrainStreamer?.SetRiverEmitterDebug(debugSettings.ShowRoughWaterEmitters);
+        }
+    }
+
+    private void ApplyGrassColourSettings()
+    {
+        appliedGrassColourA = rendering.GrassColourA;
+        appliedGrassColourB = rendering.GrassColourB;
+        appliedGrassColourNoiseWorldSize = rendering.GrassColourNoiseWorldSizeMetres;
+        terrainMaterial?.SetColor("_GrassColorA", appliedGrassColourA.Value);
+        terrainMaterial?.SetColor("_GrassColorB", appliedGrassColourB.Value);
+        terrainMaterial?.SetFloat(
+            "_GrassColorNoiseWorldSize",
+            appliedGrassColourNoiseWorldSize);
+        grassMaterial?.SetColor("_GrassColorA", appliedGrassColourA.Value);
+        grassMaterial?.SetColor("_GrassColorB", appliedGrassColourB.Value);
+        grassMaterial?.SetFloat(
+            "_GrassColorNoiseWorldSize",
+            appliedGrassColourNoiseWorldSize);
+    }
+
+    public async void Generate()
     {
         if (generationInProgress)
         {
             return;
         }
-        if (!int.TryParse(seedText, NumberStyles.Integer, CultureInfo.InvariantCulture, out seed))
+        if (!HasSupportedTransform())
         {
-            status = "Seed must be a whole number.";
+            status = "Island transform must use unit scale and Y-axis rotation only.";
+            Debug.LogError(status, this);
             return;
         }
 
         status = "Generating island in background...";
-        firstPersonController?.Exit();
         generationInProgress = true;
         generationTimer = Stopwatch.StartNew();
         var cancellation = new CancellationTokenSource();
         generationCancellation = cancellation;
-        PreparedIsland prepared = null;
+        IslandPreparedData prepared = null;
+        var installationStarted = false;
+        var islandSeed = generation.Seed;
+        var worldSize = generation.WorldSizeMetres;
+        var options = generation.ToNativeOptions(rivers);
+        var emitterSharpness = rivers.RoughWaterSharpnessDegrees;
+        var emitterSpacing = rivers.RoughWaterSpacingMetres;
 
         try
         {
-            var options = new MotuNative.Options
-            {
-                maxZ = maxHeight,
-                waterRatio = waterRatio,
-                slopeMultiplier = slopeMultiplier,
-                coastalSlopeMultiplier = coastalSlopeMultiplier,
-                hydraulicErosionStrength = hydraulicErosionStrength,
-                hydraulicDepositionStrength = hydraulicDepositionStrength,
-                hydraulicDepositionSlopeDegrees = hydraulicDepositionSlopeDegrees,
-                riverSourceCatchmentHectares = riverSourceCatchmentHectares,
-                riverSourceSteepMultiplier = riverSourceSteepMultiplier,
-                riverSourceElevationBoost = riverSourceElevationBoost,
-            };
-
-            prepared = await Task.Run(
-                () => PrepareIsland(seed, options, cancellation.Token),
+            prepared = await IslandGenerationWorker.GenerateAsync(
+                islandSeed,
+                options,
+                worldSize,
+                emitterSharpness,
+                emitterSpacing,
                 cancellation.Token);
             cancellation.Token.ThrowIfCancellationRequested();
-            if (isDestroyed)
+            if (isDestroyed || !isActiveAndEnabled)
             {
                 return;
             }
 
             status = "Uploading generated island...";
+            installationStarted = true;
             ClearGeneratedContent();
+            DestroyRuntimeMaterials();
+            BuildRuntimeMaterials();
             islandHandle = prepared.TakeHandle();
 
             CreateSurfaceTextures(prepared.surfaceMaps);
@@ -683,41 +524,50 @@ public sealed class IslandViewer : MonoBehaviour
             await Task.Yield();
             cancellation.Token.ThrowIfCancellationRequested();
 
+            runtimeRoot = new GameObject("Generated Island");
+            runtimeRoot.transform.SetParent(transform, false);
             var terrainRoot = new GameObject("Terrain Tiles");
-            terrainRoot.transform.SetParent(transform, false);
+            terrainRoot.transform.SetParent(runtimeRoot.transform, false);
             terrainStreamer = terrainRoot.AddComponent<TerrainTileStreamer>();
             await terrainStreamer.InitializeAsync(
-                islandHandle,
+                islandHandle.Value,
                 terrainMaterial,
                 grassMaterial,
                 rockMaterial,
                 riverMaterial,
-                TerrainScale,
+                meshEdgeMaterial,
+                worldSize,
                 prepared.overviewTiles,
                 prepared.riverTiles,
                 prepared.riverEmitters,
                 prepared.rocks,
                 prepared.colliderHeightMap,
-                showRivers,
-                showRocks,
+                rendering.ShowRivers,
+                rendering.ShowGrass,
+                rendering.ShowRocks,
                 cancellation.Token);
-            terrainStreamer.SetRiverEmitterDebug(showRiverEmitterDebug);
-            firstPersonController.SetTerrainStreamer(terrainStreamer);
+            terrainStreamer.SetRiverEmitterDebug(debugSettings.ShowRoughWaterEmitters);
 
             seaObject = GameObject.CreatePrimitive(PrimitiveType.Plane);
             seaObject.name = "Sea";
-            seaObject.transform.SetParent(transform, false);
-            seaObject.transform.position = Vector3.up * SeaHeight;
-            seaObject.transform.localScale = Vector3.one * (TerrainScale / 10f);
+            seaObject.transform.SetParent(runtimeRoot.transform, false);
+            seaObject.transform.localPosition = Vector3.up * SeaHeight;
+            seaObject.transform.localScale = Vector3.one * (worldSize / 10f);
             seaObject.GetComponent<MeshRenderer>().sharedMaterial = seaMaterial;
             DestroyUnityObject(seaObject.GetComponent<Collider>());
-            seaObject.SetActive(showSea);
+            seaObject.SetActive(rendering.ShowSea);
+            ResetAppliedLiveSettings();
+            ApplyLiveSettings();
+            if (streaming.Target != null)
+            {
+                terrainStreamer.SetPlayerPosition(streaming.Target.position);
+            }
 
             generationTimer.Stop();
             status = string.Format(
                 CultureInfo.InvariantCulture,
                 "Seed {0} | 64 LOD 2 tiles | {1:N0} vertices | {2:N0} triangles | {3:F2}s",
-                seed,
+                islandSeed,
                 terrainStreamer.BaseVertexCount,
                 terrainStreamer.BaseTriangleCount,
                 generationTimer.Elapsed.TotalSeconds);
@@ -733,10 +583,14 @@ public sealed class IslandViewer : MonoBehaviour
             status += string.Format(
                 CultureInfo.InvariantCulture,
                 " | 3x3 hidden LOD 1 terrain colliders (129x129 samples each) | {0:F1} km square",
-                TerrainScale / 1000f);
+                worldSize / 1000f);
         }
         catch (OperationCanceledException)
         {
+            if (installationStarted)
+            {
+                ClearGeneratedContent();
+            }
             if (!isDestroyed)
             {
                 status = "Generation cancelled.";
@@ -746,7 +600,10 @@ public sealed class IslandViewer : MonoBehaviour
         {
             status = exception.Message;
             Debug.LogException(exception);
-            ClearGeneratedContent();
+            if (installationStarted)
+            {
+                ClearGeneratedContent();
+            }
         }
         finally
         {
@@ -761,9 +618,89 @@ public sealed class IslandViewer : MonoBehaviour
         }
     }
 
-    private static PreparedIsland PrepareIsland(
+    public void Regenerate(int seed)
+    {
+        generation.Seed = seed;
+        Generate();
+    }
+
+    public void Clear()
+    {
+        generationCancellation?.Cancel();
+        ClearGeneratedContent();
+        status = "Cleared";
+    }
+
+    public void SetStreamingTarget(Transform target)
+    {
+        streaming.Target = target;
+        if (terrainStreamer != null && target != null)
+        {
+            terrainStreamer.SetPlayerPosition(target.position);
+        }
+        else if (target == null)
+        {
+            terrainStreamer?.ClearPlayerFocus();
+        }
+    }
+
+    public void PrepareStreamingAt(Vector3 worldPosition)
+    {
+        terrainStreamer?.SetPlayerPosition(worldPosition);
+    }
+
+    public void ClearStreamingFocus()
+    {
+        terrainStreamer?.ClearPlayerFocus();
+    }
+
+    public bool TryRaycastOverview(Ray worldRay, out Vector3 worldPoint)
+    {
+        if (terrainStreamer != null)
+        {
+            return terrainStreamer.TryRaycastOverview(worldRay, out worldPoint);
+        }
+        worldPoint = default;
+        return false;
+    }
+
+    public bool TrySnapToTerrain(Vector3 approximateWorldPoint, out Vector3 worldPoint)
+    {
+        if (terrainStreamer != null)
+        {
+            return terrainStreamer.TrySnapToCurrentCollider(
+                approximateWorldPoint,
+                out worldPoint);
+        }
+        worldPoint = approximateWorldPoint;
+        return false;
+    }
+
+    public void ConfigureSceneReferences(
+        Transform streamingTarget,
+        Light sunlight,
+        Material terrainTemplate,
+        Material grassTemplate,
+        Material riverTemplate,
+        Material seaTemplate,
+        Material rockTemplate)
+    {
+        streaming.Target = streamingTarget;
+        rendering.Sunlight = sunlight;
+        rendering.AssignMaterialTemplates(
+            terrainTemplate,
+            grassTemplate,
+            riverTemplate,
+            seaTemplate,
+            rockTemplate);
+    }
+
+    internal static IslandPreparedData PrepareIsland(
         int islandSeed,
         MotuNative.Options options,
+        float worldSize,
+        float emitterSharpnessDegrees,
+        float emitterSpacingMetres,
         CancellationToken cancellationToken)
     {
         var handle = MotuNative.CreateMotu(islandSeed, ref options);
@@ -779,17 +716,25 @@ public sealed class IslandViewer : MonoBehaviour
             cancellationToken.ThrowIfCancellationRequested();
             var seaMask = PrepareSeaMask(handle, SurfaceMapDimension);
             cancellationToken.ThrowIfCancellationRequested();
-            var colliderHeightMap = PrepareColliderHeightMap(handle, TerrainScale);
+            var colliderHeightMap = PrepareColliderHeightMap(handle, worldSize);
             cancellationToken.ThrowIfCancellationRequested();
-            var overviewTiles = TerrainTileStreamer.PrepareOverviewTiles(handle);
+            var overviewTiles = TerrainTileStreamer.PrepareOverviewTiles(handle, worldSize);
             cancellationToken.ThrowIfCancellationRequested();
-            var riverTiles = PrepareRiverTiles(handle);
+            var riverTiles = PrepareRiverTiles(handle, worldSize);
             cancellationToken.ThrowIfCancellationRequested();
-            var riverEmitters = PrepareRiverEmitters(handle);
+            var riverEmitters = PrepareRiverEmitters(
+                handle,
+                worldSize,
+                emitterSharpnessDegrees,
+                emitterSpacingMetres);
             cancellationToken.ThrowIfCancellationRequested();
-            var rocks = PrepareRockDecorations(handle, surfaceMaps, islandSeed);
+            var rocks = PrepareRockDecorations(
+                handle,
+                surfaceMaps,
+                islandSeed,
+                worldSize);
             cancellationToken.ThrowIfCancellationRequested();
-            var result = new PreparedIsland(
+            var result = new IslandPreparedData(
                 handle,
                 surfaceMaps,
                 seaMask,
@@ -810,7 +755,7 @@ public sealed class IslandViewer : MonoBehaviour
         }
     }
 
-    private static PreparedSurfaceMaps PrepareSurfaceMaps(
+    private static IslandPreparedSurfaceMaps PrepareSurfaceMaps(
         IntPtr handle,
         int dimension)
     {
@@ -832,7 +777,7 @@ public sealed class IslandViewer : MonoBehaviour
             Marshal.Copy(surfaceMaps.occlusion, occlusionBytes, 0, occlusionBytes.Length);
             var normalBytes = new byte[checked(pixelCount * 3)];
             Marshal.Copy(surfaceMaps.normalRgb, normalBytes, 0, normalBytes.Length);
-            return new PreparedSurfaceMaps(dimension, normalBytes, occlusionBytes);
+            return new IslandPreparedSurfaceMaps(dimension, normalBytes, occlusionBytes);
         }
         finally
         {
@@ -840,7 +785,7 @@ public sealed class IslandViewer : MonoBehaviour
         }
     }
 
-    private static PreparedSeaMask PrepareSeaMask(IntPtr handle, int dimension)
+    private static IslandPreparedSeaMask PrepareSeaMask(IntPtr handle, int dimension)
     {
         MotuNative.CreateSeaMask(handle, dimension, out var seaMask);
         try
@@ -857,7 +802,7 @@ public sealed class IslandViewer : MonoBehaviour
             var byteCount = checked(dimension * dimension * 2);
             var rg = new byte[byteCount];
             Marshal.Copy(seaMask.rg, rg, 0, rg.Length);
-            return new PreparedSeaMask(dimension, rg);
+            return new IslandPreparedSeaMask(dimension, rg);
         }
         finally
         {
@@ -865,7 +810,7 @@ public sealed class IslandViewer : MonoBehaviour
         }
     }
 
-    private static PreparedColliderHeightMap PrepareColliderHeightMap(
+    private static IslandPreparedColliderHeightMap PrepareColliderHeightMap(
         IntPtr handle,
         float terrainWorldSize)
     {
@@ -895,7 +840,7 @@ public sealed class IslandViewer : MonoBehaviour
 
             var heights = new float[checked(native.width * native.height)];
             Marshal.Copy(native.data, heights, 0, heights.Length);
-            return new PreparedColliderHeightMap(
+            return new IslandPreparedColliderHeightMap(
                 native.width,
                 TerrainTileStreamer.ColliderSamplesPerTile,
                 heights,
@@ -907,7 +852,7 @@ public sealed class IslandViewer : MonoBehaviour
         }
     }
 
-    private static PreparedMesh[] PrepareRiverTiles(IntPtr handle)
+    private static IslandPreparedMesh[] PrepareRiverTiles(IntPtr handle, float worldSize)
     {
         var area = new MotuNative.ExportArea(0f, 0f, 1f, 1f);
         MotuNative.CreateRiverMeshGrid(
@@ -927,7 +872,7 @@ public sealed class IslandViewer : MonoBehaviour
                     "The Rust river slicer returned an invalid LOD 1 tile batch.");
             }
 
-            var result = new PreparedMesh[export.length];
+            var result = new IslandPreparedMesh[export.length];
             var exportSize = Marshal.SizeOf<MotuNative.ExportMesh>();
             for (var index = 0; index < export.length; index++)
             {
@@ -935,7 +880,7 @@ public sealed class IslandViewer : MonoBehaviour
                     IntPtr.Add(export.data, index * exportSize));
                 if (nativeMesh.handle != IntPtr.Zero && nativeMesh.triangles.length != 0)
                 {
-                    result[index] = CopyRiverMeshData(nativeMesh);
+                    result[index] = CopyRiverMeshData(nativeMesh, worldSize);
                 }
             }
             return result;
@@ -946,12 +891,16 @@ public sealed class IslandViewer : MonoBehaviour
         }
     }
 
-    private static PreparedRiverEmitter[] PrepareRiverEmitters(IntPtr handle)
+    private static IslandPreparedRiverEmitter[] PrepareRiverEmitters(
+        IntPtr handle,
+        float worldSize,
+        float sharpnessDegrees,
+        float spacingMetres)
     {
         MotuNative.CreateRiverEmitters(
             handle,
-            RiverEmitterSharpnessDegrees,
-            RiverEmitterSpacingMetres,
+            sharpnessDegrees,
+            spacingMetres,
             out var export);
         try
         {
@@ -962,7 +911,7 @@ public sealed class IslandViewer : MonoBehaviour
             }
             if (export.length == 0)
             {
-                return Array.Empty<PreparedRiverEmitter>();
+                return Array.Empty<IslandPreparedRiverEmitter>();
             }
             if (export.data == IntPtr.Zero)
             {
@@ -970,21 +919,21 @@ public sealed class IslandViewer : MonoBehaviour
                     "The Rust rough-water emitter data is missing.");
             }
 
-            var result = new PreparedRiverEmitter[export.length];
+            var result = new IslandPreparedRiverEmitter[export.length];
             var exportSize = Marshal.SizeOf<MotuNative.RiverEmitterExport>();
             for (var index = 0; index < export.length; index++)
             {
                 var native = Marshal.PtrToStructure<MotuNative.RiverEmitterExport>(
                     IntPtr.Add(export.data, index * exportSize));
                 var position = new Vector3(
-                    (native.position.x - 0.5f) * TerrainScale,
-                    native.position.z * TerrainScale,
-                    (native.position.y - 0.5f) * TerrainScale);
+                    (native.position.x - 0.5f) * worldSize,
+                    native.position.z * worldSize,
+                    (native.position.y - 0.5f) * worldSize);
                 var direction = new Vector3(
                     native.direction.x,
                     native.direction.z,
                     native.direction.y).normalized;
-                result[index] = new PreparedRiverEmitter(
+                result[index] = new IslandPreparedRiverEmitter(
                     position,
                     direction,
                     Mathf.Clamp01(native.strength));
@@ -997,10 +946,11 @@ public sealed class IslandViewer : MonoBehaviour
         }
     }
 
-    private static PreparedRockDecoration[] PrepareRockDecorations(
+    private static IslandPreparedRockDecoration[] PrepareRockDecorations(
         IntPtr handle,
-        PreparedSurfaceMaps surfaceMaps,
-        int islandSeed)
+        IslandPreparedSurfaceMaps surfaceMaps,
+        int islandSeed,
+        float worldSize)
     {
         MotuNative.GetDecoration(handle, out var decoration);
         ValidateBorrowedArray(decoration.trees, "tree");
@@ -1014,10 +964,10 @@ public sealed class IslandViewer : MonoBehaviour
         }
         if (decoration.rocks.length == 0)
         {
-            return Array.Empty<PreparedRockDecoration>();
+            return Array.Empty<IslandPreparedRockDecoration>();
         }
 
-        var result = new PreparedRockDecoration[decoration.rocks.length];
+        var result = new IslandPreparedRockDecoration[decoration.rocks.length];
         var nativeSize = Marshal.SizeOf<MotuNative.NativeVector3>();
         for (var sourceIndex = 0; sourceIndex < result.Length; sourceIndex++)
         {
@@ -1039,9 +989,9 @@ public sealed class IslandViewer : MonoBehaviour
             }
 
             var position = new Vector3(
-                (native.x - 0.5f) * TerrainScale,
-                native.z * TerrainScale,
-                (native.y - 0.5f) * TerrainScale);
+                (native.x - 0.5f) * worldSize,
+                native.z * worldSize,
+                (native.y - 0.5f) * worldSize);
             var normal = SampleSurfaceNormal(surfaceMaps, native.x, native.y);
             var random = RockHashState(islandSeed, appearanceId);
             var isBoulder = NextRockRandom(ref random) < 0.15f;
@@ -1083,7 +1033,7 @@ public sealed class IslandViewer : MonoBehaviour
             var tintValue = Mathf.Lerp(0.94f, 1.06f, NextRockRandom(ref random));
             var tint = new Color(tintValue, tintValue, tintValue, 1f);
             var embedDepth = scale.y * RockPrototypeLibrary.EmbedRatioForNormal(normal);
-            result[sourceIndex] = new PreparedRockDecoration(
+            result[sourceIndex] = new IslandPreparedRockDecoration(
                 sourceIndex,
                 appearanceId,
                 position,
@@ -1120,7 +1070,7 @@ public sealed class IslandViewer : MonoBehaviour
     }
 
     private static Vector3 SampleSurfaceNormal(
-        PreparedSurfaceMaps maps,
+        IslandPreparedSurfaceMaps maps,
         float normalizedX,
         float normalizedY)
     {
@@ -1152,7 +1102,7 @@ public sealed class IslandViewer : MonoBehaviour
     }
 
     private static Vector3 DecodeSurfaceNormal(
-        PreparedSurfaceMaps maps,
+        IslandPreparedSurfaceMaps maps,
         int x,
         int y)
     {
@@ -1184,7 +1134,7 @@ public sealed class IslandViewer : MonoBehaviour
         }
     }
 
-    private void CreateSurfaceTextures(PreparedSurfaceMaps surfaceMaps)
+    private void CreateSurfaceTextures(IslandPreparedSurfaceMaps surfaceMaps)
     {
         terrainOcclusionTexture = CreateSurfaceTexture(
             "Motu Shared Terrain Occlusion",
@@ -1206,7 +1156,7 @@ public sealed class IslandViewer : MonoBehaviour
         terrainMaterial.SetTexture("_Occlusion", terrainOcclusionTexture);
     }
 
-    private void CreateSeaMaskTexture(PreparedSeaMask seaMask)
+    private void CreateSeaMaskTexture(IslandPreparedSeaMask seaMask)
     {
         if (!SystemInfo.SupportsTextureFormat(TextureFormat.RG16))
         {
@@ -1247,7 +1197,10 @@ public sealed class IslandViewer : MonoBehaviour
         return texture;
     }
 
-    internal static PreparedMesh CopyTerrainMeshData(MotuNative.ExportMesh source, int lod)
+    internal static IslandPreparedMesh CopyTerrainMeshData(
+        MotuNative.ExportMesh source,
+        int lod,
+        float worldSize)
     {
         return CopyMeshData(
             source.vertices,
@@ -1256,20 +1209,26 @@ public sealed class IslandViewer : MonoBehaviour
             source.uv,
             source.material,
             true,
-            true);
+            true,
+            worldSize);
     }
 
-    internal static Mesh CopyTerrainMesh(MotuNative.ExportMesh source, int lod)
+    internal static Mesh CopyTerrainMesh(
+        MotuNative.ExportMesh source,
+        int lod,
+        float worldSize)
     {
-        return CreateTerrainMesh(CopyTerrainMeshData(source, lod), lod);
+        return CreateTerrainMesh(CopyTerrainMeshData(source, lod, worldSize), lod);
     }
 
-    internal static Mesh CreateTerrainMesh(PreparedMesh source, int lod)
+    internal static Mesh CreateTerrainMesh(IslandPreparedMesh source, int lod)
     {
         return CreateMesh(source, false);
     }
 
-    internal static PreparedMesh CopyRiverMeshData(MotuNative.ExportMesh source)
+    internal static IslandPreparedMesh CopyRiverMeshData(
+        MotuNative.ExportMesh source,
+        float worldSize)
     {
         return CopyMeshData(
             source.vertices,
@@ -1278,30 +1237,32 @@ public sealed class IslandViewer : MonoBehaviour
             source.uv,
             source.material,
             false,
-            false);
+            false,
+            worldSize);
     }
 
-    internal static Mesh CreateRiverMesh(PreparedMesh source)
+    internal static Mesh CreateRiverMesh(IslandPreparedMesh source)
     {
         return CreateMesh(source, false);
     }
 
-    private static PreparedMesh CopyMeshData(
+    private static IslandPreparedMesh CopyMeshData(
         MotuNative.Vector3Array sourceVertices,
         MotuNative.Vector3Array sourceNormals,
         MotuNative.TriangleArray sourceTriangles,
         MotuNative.Vector2Array sourceUv,
         MotuNative.Vector3Array sourceMaterial,
         bool requireMaterial,
-        bool createSurfaceMapCoordinates)
+        bool createSurfaceMapCoordinates,
+        float worldSize)
     {
         if (sourceVertices.data == IntPtr.Zero || sourceVertices.length == 0)
         {
             throw new InvalidOperationException("The Rust generator returned an empty mesh.");
         }
 
-        var vertices = CopyVector3Array(sourceVertices, true);
-        var normals = CopyVector3Array(sourceNormals, false);
+        var vertices = CopyVector3Array(sourceVertices, true, worldSize);
+        var normals = CopyVector3Array(sourceNormals, false, worldSize);
         var triangles = new int[sourceTriangles.length];
         Marshal.Copy(sourceTriangles.data, triangles, 0, triangles.Length);
 
@@ -1320,7 +1281,7 @@ public sealed class IslandViewer : MonoBehaviour
         }
         else if (createSurfaceMapCoordinates)
         {
-            uv = CreateTerrainUv(vertices);
+            uv = CreateTerrainUv(vertices, worldSize);
         }
         else
         {
@@ -1334,10 +1295,10 @@ public sealed class IslandViewer : MonoBehaviour
                 "The Rust terrain export returned invalid material attributes.");
         }
 
-        return new PreparedMesh(vertices, normals, triangles, uv, material);
+        return new IslandPreparedMesh(vertices, normals, triangles, uv, material);
     }
 
-    private static Mesh CreateMesh(PreparedMesh source, bool createTangents)
+    private static Mesh CreateMesh(IslandPreparedMesh source, bool createTangents)
     {
         var mesh = new Mesh
         {
@@ -1368,19 +1329,22 @@ public sealed class IslandViewer : MonoBehaviour
         return mesh;
     }
 
-    private static Vector2[] CreateTerrainUv(Vector3[] vertices)
+    private static Vector2[] CreateTerrainUv(Vector3[] vertices, float worldSize)
     {
         var uv = new Vector2[vertices.Length];
         for (var index = 0; index < vertices.Length; index++)
         {
             uv[index] = new Vector2(
-                vertices[index].x / TerrainScale + 0.5f,
-                vertices[index].z / TerrainScale + 0.5f);
+                vertices[index].x / worldSize + 0.5f,
+                vertices[index].z / worldSize + 0.5f);
         }
         return uv;
     }
 
-    private static Vector3[] CopyVector3Array(MotuNative.Vector3Array source, bool position)
+    private static Vector3[] CopyVector3Array(
+        MotuNative.Vector3Array source,
+        bool position,
+        float worldSize)
     {
         if (source.data == IntPtr.Zero || source.length == 0)
         {
@@ -1397,7 +1361,10 @@ public sealed class IslandViewer : MonoBehaviour
             var y = packed[offset + 1];
             var z = packed[offset + 2];
             result[index] = position
-                ? new Vector3((x - 0.5f) * TerrainScale, z * TerrainScale, (y - 0.5f) * TerrainScale)
+                ? new Vector3(
+                    (x - 0.5f) * worldSize,
+                    z * worldSize,
+                    (y - 0.5f) * worldSize)
                 : new Vector3(x, z, y).normalized;
         }
 
@@ -1441,8 +1408,6 @@ public sealed class IslandViewer : MonoBehaviour
 
     private void ClearGeneratedContent()
     {
-        clickCandidate = false;
-        firstPersonController?.SetTerrainStreamer(null);
         if (terrainStreamer != null)
         {
             terrainStreamer.Dispose();
@@ -1451,6 +1416,8 @@ public sealed class IslandViewer : MonoBehaviour
         }
         DestroyUnityObject(seaObject);
         seaObject = null;
+        DestroyUnityObject(runtimeRoot);
+        runtimeRoot = null;
         terrainMaterial?.SetTexture("_WorldNormal", null);
         terrainMaterial?.SetTexture("_Occlusion", null);
         seaMaterial?.SetTexture("_SeaMask", null);
@@ -1461,11 +1428,48 @@ public sealed class IslandViewer : MonoBehaviour
         terrainOcclusionTexture = null;
         seaMaskTexture = null;
 
-        if (islandHandle != IntPtr.Zero)
-        {
-            MotuNative.ReleaseMotu(islandHandle);
-            islandHandle = IntPtr.Zero;
-        }
+        islandHandle?.Dispose();
+        islandHandle = null;
+        ResetAppliedLiveSettings();
+    }
+
+    private void DestroyRuntimeMaterials()
+    {
+        DestroyUnityObject(terrainMaterial);
+        DestroyUnityObject(grassMaterial);
+        DestroyUnityObject(rockMaterial);
+        DestroyUnityObject(riverMaterial);
+        DestroyUnityObject(seaMaterial);
+        DestroyUnityObject(meshEdgeMaterial);
+        if (ownsCliffNoiseTexture) DestroyUnityObject(cliffNoiseTexture);
+        if (ownsRiverNoiseTexture) DestroyUnityObject(riverNoiseTexture);
+        if (ownsGrassPatchNoiseTexture) DestroyUnityObject(grassPatchNoiseTexture);
+        terrainMaterial = null;
+        grassMaterial = null;
+        rockMaterial = null;
+        riverMaterial = null;
+        seaMaterial = null;
+        meshEdgeMaterial = null;
+        cliffNoiseTexture = null;
+        riverNoiseTexture = null;
+        grassPatchNoiseTexture = null;
+        ownsCliffNoiseTexture = false;
+        ownsRiverNoiseTexture = false;
+        ownsGrassPatchNoiseTexture = false;
+    }
+
+    private void ResetAppliedLiveSettings()
+    {
+        appliedShowRivers = null;
+        appliedShowSea = null;
+        appliedShowGrass = null;
+        appliedShowRocks = null;
+        appliedShowMeshEdges = null;
+        appliedEmitterDebug = null;
+        appliedGrassColourA = null;
+        appliedGrassColourB = null;
+        appliedGrassColourNoiseWorldSize = float.NaN;
+        appliedGrassBrightness = float.NaN;
     }
 
     private static void DestroyUnityObject(UnityEngine.Object value)
@@ -1565,7 +1569,7 @@ public sealed class IslandViewer : MonoBehaviour
             true,
             true)
         {
-            name = "Grass soil-richness patch noise",
+            name = "Grass coverage and broad colour noise",
             filterMode = FilterMode.Trilinear,
             wrapMode = TextureWrapMode.Repeat,
             anisoLevel = 2,
@@ -1573,12 +1577,16 @@ public sealed class IslandViewer : MonoBehaviour
         var pixels = new Color[GrassPatchNoiseDimension * GrassPatchNoiseDimension];
         var latticeScale = GrassPatchNoiseLatticePeriod
             / (float)GrassPatchNoiseDimension;
+        var colourLatticeScale = GrassColourNoiseLatticePeriod
+            / (float)GrassPatchNoiseDimension;
         for (var y = 0; y < GrassPatchNoiseDimension; y++)
         {
             for (var x = 0; x < GrassPatchNoiseDimension; x++)
             {
                 var sampleX = (x + 0.5f) * latticeScale;
                 var sampleY = (y + 0.5f) * latticeScale;
+                var colourSampleX = (x + 0.5f) * colourLatticeScale;
+                var colourSampleY = (y + 0.5f) * colourLatticeScale;
                 var index = x + GrassPatchNoiseDimension * y;
                 pixels[index] = new Color(
                     PeriodicNoise2D(
@@ -1591,7 +1599,11 @@ public sealed class IslandViewer : MonoBehaviour
                         sampleY,
                         0x68E31DA4u,
                         GrassPatchNoiseLatticePeriod),
-                    0f,
+                    PeriodicNoise2D(
+                        colourSampleX,
+                        colourSampleY,
+                        0x1B56C4E9u,
+                        GrassColourNoiseLatticePeriod),
                     1f);
             }
         }
@@ -1684,261 +1696,130 @@ public sealed class IslandViewer : MonoBehaviour
         return (value & 0x00FFFFFFu) / 16777215f;
     }
 
-    private static Material CreateMaterial(string shaderName, Color color)
+    private static Material CreateMaterial(
+        string shaderName,
+        Color color,
+        Material template,
+        float worldSize)
     {
-        var shader = Shader.Find(shaderName) ?? Shader.Find("Standard");
-        if (shader == null)
+        Material material;
+        if (template != null)
         {
-            throw new InvalidOperationException($"Could not find shader '{shaderName}'.");
+            material = new Material(template);
         }
-
-        var material = new Material(shader) { color = color };
-        if (material.HasProperty("_BaseColor"))
+        else
         {
-            material.SetColor("_BaseColor", color);
+            var shader = Shader.Find(shaderName) ?? Shader.Find("Standard");
+            if (shader == null)
+            {
+                throw new InvalidOperationException($"Could not find shader '{shaderName}'.");
+            }
+            material = new Material(shader);
+            material.color = color;
+            if (material.HasProperty("_BaseColor"))
+            {
+                material.SetColor("_BaseColor", color);
+            }
         }
+        material.name = $"{shaderName} (Island Instance)";
         if (material.HasProperty("_WorldSize"))
         {
-            material.SetFloat("_WorldSize", TerrainScale);
+            material.SetFloat("_WorldSize", worldSize);
         }
 
         return material;
     }
 
-    private void OnGUI()
+    private static Color ApplyAverageTextureColor(
+        Material material,
+        string textureProperty,
+        string colorProperty,
+        Color defaultColor)
     {
-        if (firstPersonController != null && firstPersonController.IsActive)
+        if (material == null || !material.HasProperty(colorProperty))
         {
-            GUILayout.BeginArea(new Rect(16f, 16f, 500f, 195f), GUI.skin.box);
-            GUILayout.Label("First person: WASD move | Shift run | Space jump | Mouse look");
-            GUILayout.Label("M: mesh edges | Tab: release/capture cursor for tuning");
-            SetGrassBrightness(OptionSlider(
-                "Grass brightness",
-                grassBrightness,
-                0.25f,
-                3f,
-                "F2"));
-            var firstPersonEmitterDebug = GUILayout.Toggle(
-                showRiverEmitterDebug,
-                "Show rough-water emitter debug");
-            if (firstPersonEmitterDebug != showRiverEmitterDebug)
+            return defaultColor;
+        }
+
+        var fallbackColor = material.GetColor(colorProperty);
+        if (!material.HasProperty(textureProperty))
+        {
+            return fallbackColor;
+        }
+
+        var colorMap = material.GetTexture(textureProperty);
+        if (colorMap == null)
+        {
+            return fallbackColor;
+        }
+
+        var averageColor = CalculateAverageTextureColor(colorMap, fallbackColor);
+        material.SetColor(colorProperty, averageColor);
+        return averageColor;
+    }
+
+    private static Color CalculateAverageTextureColor(Texture texture, Color fallbackColor)
+    {
+        var width = Mathf.Min(Mathf.Max(texture.width, 1), AverageColourSampleDimension);
+        var height = Mathf.Min(Mathf.Max(texture.height, 1), AverageColourSampleDimension);
+        var previousRenderTarget = RenderTexture.active;
+        RenderTexture sampleTarget = null;
+        Texture2D readableSample = null;
+
+        try
+        {
+            sampleTarget = RenderTexture.GetTemporary(
+                width,
+                height,
+                0,
+                RenderTextureFormat.ARGB32,
+                RenderTextureReadWrite.Default);
+            sampleTarget.filterMode = FilterMode.Bilinear;
+            Graphics.Blit(texture, sampleTarget);
+
+            RenderTexture.active = sampleTarget;
+            readableSample = new Texture2D(
+                width,
+                height,
+                TextureFormat.RGBA32,
+                false);
+            readableSample.ReadPixels(new Rect(0f, 0f, width, height), 0, 0, false);
+            readableSample.Apply(false, false);
+
+            var pixels = readableSample.GetPixels32();
+            ulong red = 0;
+            ulong green = 0;
+            ulong blue = 0;
+            foreach (var pixel in pixels)
             {
-                showRiverEmitterDebug = firstPersonEmitterDebug;
-                terrainStreamer?.SetRiverEmitterDebug(showRiverEmitterDebug);
+                red += pixel.r;
+                green += pixel.g;
+                blue += pixel.b;
             }
-            var firstPersonRocks = GUILayout.Toggle(
-                showRocks,
-                "Show stones and boulders");
-            if (firstPersonRocks != showRocks)
+
+            var inverseTotal = 1f / (pixels.Length * 255f);
+            return new Color(
+                red * inverseTotal,
+                green * inverseTotal,
+                blue * inverseTotal,
+                fallbackColor.a);
+        }
+        catch (Exception exception)
+        {
+            Debug.LogWarning(
+                $"Could not calculate the average color of '{texture.name}': "
+                    + exception.Message);
+            return fallbackColor;
+        }
+        finally
+        {
+            RenderTexture.active = previousRenderTarget;
+            DestroyUnityObject(readableSample);
+            if (sampleTarget != null)
             {
-                showRocks = firstPersonRocks;
-                terrainStreamer?.SetRocksVisible(showRocks);
+                RenderTexture.ReleaseTemporary(sampleTarget);
             }
-            if (terrainStreamer != null)
-            {
-                GUILayout.Label(string.Format(
-                    CultureInfo.InvariantCulture,
-                    "Rocks: {0} active | {1} dropped",
-                    terrainStreamer.ActiveRockCount,
-                    terrainStreamer.DroppedRockCount));
-            }
-            GUILayout.Label("Escape: return to island overview");
-            GUILayout.EndArea();
-            GUI.Label(
-                new Rect(Screen.width * 0.5f - 5f, Screen.height * 0.5f - 10f, 20f, 20f),
-                "+");
-            return;
         }
-
-        GUILayout.BeginArea(new Rect(16f, 16f, 500f, 760f), GUI.skin.box);
-        GUILayout.Label("Motu Rust Island Viewer");
-        GUILayout.BeginHorizontal();
-        GUILayout.Label("Seed", GUILayout.Width(42f));
-        seedText = GUILayout.TextField(seedText, GUILayout.Width(110f));
-        var guiWasEnabled = GUI.enabled;
-        GUI.enabled = !generationInProgress;
-        if (GUILayout.Button(
-            generationInProgress ? "Generating..." : "Generate",
-            GUILayout.Width(90f)))
-        {
-            Generate();
-        }
-        GUI.enabled = guiWasEnabled;
-        GUILayout.EndHorizontal();
-
-        GUILayout.Space(4f);
-        GUILayout.Label("Island generation options");
-        maxHeight = OptionSlider("Maximum height", maxHeight, 0.02f, 0.5f, "F3");
-        waterRatio = OptionSlider("Water ratio", waterRatio, MinimumWaterRatio, 0.95f, "F2");
-        slopeMultiplier = OptionSlider("Slope multiplier", slopeMultiplier, 0.2f, 4f, "F2");
-        coastalSlopeMultiplier = OptionSlider(
-            "Coastal slope",
-            coastalSlopeMultiplier,
-            0.1f,
-            4f,
-            "F2");
-        hydraulicErosionStrength = OptionSlider(
-            "Hydraulic erosion",
-            hydraulicErosionStrength,
-            0f,
-            8f,
-            "F2");
-        hydraulicDepositionStrength = OptionSlider(
-            "Sediment deposition",
-            hydraulicDepositionStrength,
-            0f,
-            4f,
-            "F2");
-        hydraulicDepositionSlopeDegrees = OptionSlider(
-            "Deposition slope (deg)",
-            hydraulicDepositionSlopeDegrees,
-            1f,
-            45f,
-            "F1");
-        GUILayout.Space(4f);
-        GUILayout.Label("River source selection (higher = fewer rivers)");
-        riverSourceCatchmentHectares = LogOptionSlider(
-            "Source catchment (ha)",
-            riverSourceCatchmentHectares,
-            MinimumRiverSourceCatchmentHectares,
-            MaximumRiverSourceCatchmentHectares,
-            "F2");
-        riverSourceSteepMultiplier = OptionSlider(
-            "Steep slope multiplier",
-            riverSourceSteepMultiplier,
-            1f,
-            8f,
-            "F2");
-        riverSourceElevationBoost = OptionSlider(
-            "Source elevation boost",
-            riverSourceElevationBoost,
-            0f,
-            20f,
-            "F1");
-
-        GUILayout.BeginHorizontal();
-        GUILayout.Space(142f);
-        if (GUILayout.Button("Reset defaults", GUILayout.Width(110f)))
-        {
-            ResetOptions();
-        }
-        GUILayout.Label("Generate to apply", GUILayout.Width(120f));
-        GUILayout.EndHorizontal();
-
-        GUILayout.Space(4f);
-        showMeshEdges = GUILayout.Toggle(showMeshEdges, "Show mesh edges (wireframe)");
-        SetGrassBrightness(OptionSlider(
-            "Grass brightness",
-            grassBrightness,
-            0.25f,
-            3f,
-            "F2"));
-        GUILayout.Label("Grass brightness applies immediately; no regeneration required.");
-        var nextRivers = GUILayout.Toggle(showRivers, "Show carved river surfaces");
-        var nextEmitterDebug = GUILayout.Toggle(
-            showRiverEmitterDebug,
-            "Show rough-water emitter debug");
-        var nextRocks = GUILayout.Toggle(showRocks, "Show stones and boulders");
-        var nextSea = GUILayout.Toggle(showSea, "Show sea surface");
-        if (nextRivers != showRivers)
-        {
-            showRivers = nextRivers;
-            terrainStreamer?.SetRiversVisible(showRivers);
-        }
-        if (nextEmitterDebug != showRiverEmitterDebug)
-        {
-            showRiverEmitterDebug = nextEmitterDebug;
-            terrainStreamer?.SetRiverEmitterDebug(showRiverEmitterDebug);
-        }
-        if (nextRocks != showRocks)
-        {
-            showRocks = nextRocks;
-            terrainStreamer?.SetRocksVisible(showRocks);
-        }
-        if (nextSea != showSea)
-        {
-            showSea = nextSea;
-            if (seaObject != null) seaObject.SetActive(showSea);
-        }
-
-        var displayedStatus = status;
-        if (generationInProgress && generationTimer != null)
-        {
-            displayedStatus += string.Format(
-                CultureInfo.InvariantCulture,
-                " {0:F1}s",
-                generationTimer.Elapsed.TotalSeconds);
-        }
-        GUILayout.Label(displayedStatus);
-        GUILayout.Label("Click terrain: stream detail + walk   |   Drag: orbit   |   Wheel: zoom");
-        GUILayout.EndArea();
-    }
-
-    private static float OptionSlider(
-        string label,
-        float value,
-        float minimum,
-        float maximum,
-        string format)
-    {
-        GUILayout.BeginHorizontal();
-        GUILayout.Label(label, GUILayout.Width(138f));
-        value = GUILayout.HorizontalSlider(value, minimum, maximum, GUILayout.Width(255f));
-        GUILayout.Label(
-            value.ToString(format, CultureInfo.InvariantCulture),
-            GUILayout.Width(66f));
-        GUILayout.EndHorizontal();
-        return value;
-    }
-
-    private static float LogOptionSlider(
-        string label,
-        float value,
-        float minimum,
-        float maximum,
-        string format)
-    {
-        float logarithmicMinimum = Mathf.Log10(minimum);
-        float logarithmicMaximum = Mathf.Log10(maximum);
-        float logarithmicValue = Mathf.Log10(Mathf.Clamp(value, minimum, maximum));
-        GUILayout.BeginHorizontal();
-        GUILayout.Label(label, GUILayout.Width(138f));
-        logarithmicValue = GUILayout.HorizontalSlider(
-            logarithmicValue,
-            logarithmicMinimum,
-            logarithmicMaximum,
-            GUILayout.Width(255f));
-        value = Mathf.Pow(10f, logarithmicValue);
-        GUILayout.Label(
-            value.ToString(format, CultureInfo.InvariantCulture),
-            GUILayout.Width(66f));
-        GUILayout.EndHorizontal();
-        return value;
-    }
-
-    private void ResetOptions()
-    {
-        maxHeight = 0.2f;
-        waterRatio = DefaultWaterRatio;
-        slopeMultiplier = 1.3f;
-        coastalSlopeMultiplier = 1f;
-        hydraulicErosionStrength = 1f;
-        hydraulicDepositionStrength = 1.5f;
-        hydraulicDepositionSlopeDegrees = 12f;
-        riverSourceCatchmentHectares = DefaultRiverSourceCatchmentHectares;
-        riverSourceSteepMultiplier = 4f;
-        riverSourceElevationBoost = DefaultRiverSourceElevationBoost;
-        SetGrassBrightness(1.35f);
-    }
-
-    private void SetGrassBrightness(float value)
-    {
-        if (Mathf.Approximately(grassBrightness, value))
-        {
-            return;
-        }
-        grassBrightness = value;
-        grassMaterial?.SetFloat("_GrassBrightness", value);
     }
 
 #if UNITY_EDITOR
@@ -1953,9 +1834,9 @@ public sealed class IslandViewer : MonoBehaviour
             hydraulicErosionStrength = 1f,
             hydraulicDepositionStrength = 1.5f,
             hydraulicDepositionSlopeDegrees = 12f,
-            riverSourceCatchmentHectares = DefaultRiverSourceCatchmentHectares,
+            riverSourceCatchmentHectares = 0.05f,
             riverSourceSteepMultiplier = 4f,
-            riverSourceElevationBoost = DefaultRiverSourceElevationBoost,
+            riverSourceElevationBoost = 9f,
         };
         var handle = MotuNative.CreateMotu(2018, ref options);
         if (handle == IntPtr.Zero)
@@ -2006,6 +1887,21 @@ public sealed class IslandViewer : MonoBehaviour
                     || !terrainMaterial.HasProperty("_WorldNormalWeight")
                     || !terrainMaterial.HasProperty("_Occlusion")
                     || !terrainMaterial.HasProperty("_RockColor")
+                    || !terrainMaterial.HasProperty("_RockAlbedoMap")
+                    || !terrainMaterial.HasProperty("_RockNormalMap")
+                    || !terrainMaterial.HasProperty("_RockMaskMap")
+                    || !terrainMaterial.HasProperty("_RockTextureWorldSize")
+                    || !terrainMaterial.HasProperty("_RockNormalMapStrength")
+                    || !terrainMaterial.HasProperty("_RockHeightBlendStrength")
+                    || !terrainMaterial.HasProperty("_RockTextureOcclusionStrength")
+                    || !terrainMaterial.HasProperty("_RiverBedColor")
+                    || !terrainMaterial.HasProperty("_RiverBedAlbedoMap")
+                    || !terrainMaterial.HasProperty("_RiverBedNormalMap")
+                    || !terrainMaterial.HasProperty("_RiverBedMaskMap")
+                    || !terrainMaterial.HasProperty("_RiverBedTextureWorldSize")
+                    || !terrainMaterial.HasProperty("_RiverBedNormalMapStrength")
+                    || !terrainMaterial.HasProperty("_RiverBedHeightBlendStrength")
+                    || !terrainMaterial.HasProperty("_RiverBedTextureOcclusionStrength")
                     || !terrainMaterial.HasProperty("_CliffNoise3D")
                     || !terrainMaterial.HasProperty("_RockPatchNoiseDetailScale")
                     || !terrainMaterial.HasProperty("_CliffNormalStrength")
@@ -2017,7 +1913,9 @@ public sealed class IslandViewer : MonoBehaviour
                     || !terrainMaterial.HasProperty("_SandNormalStrength")
                     || !terrainMaterial.HasProperty("_SnowNormalStrength")
                     || !terrainMaterial.HasProperty("_GrassThinDepositColor")
-                    || !terrainMaterial.HasProperty("_GrassThickDepositColor")
+                    || !terrainMaterial.HasProperty("_GrassColorA")
+                    || !terrainMaterial.HasProperty("_GrassColorB")
+                    || !terrainMaterial.HasProperty("_GrassColorNoiseWorldSize")
                     || !terrainMaterial.HasProperty("_GrassPatchNoise")
                     || !terrainMaterial.HasProperty("_GrassPatchNoiseWorldSize")
                     || !terrainMaterial.HasProperty("_BeachMaximumElevation")
@@ -2082,52 +1980,43 @@ public sealed class IslandViewer : MonoBehaviour
                 DestroyImmediate(validationRockMaterial);
             }
 
-            var waterShader = Shader.Find("Motu/Water");
-            if (waterShader == null
-                || !waterShader.isSupported
-                || UnityEditor.ShaderUtil.ShaderHasError(waterShader))
+            var riverWaterShader = Shader.Find("Motu/River Water");
+            if (riverWaterShader == null
+                || !riverWaterShader.isSupported
+                || UnityEditor.ShaderUtil.ShaderHasError(riverWaterShader))
             {
                 throw new InvalidOperationException(
                     "The animated river-water shader is missing or unsupported.");
             }
-            var waterMaterial = new Material(waterShader);
+            var riverWaterMaterial = new Material(riverWaterShader);
             try
             {
-                if (!waterMaterial.HasProperty("_NoiseTex")
-                    || !waterMaterial.HasProperty("_CoarseNoiseWorldSize")
-                    || !waterMaterial.HasProperty("_FineNoiseWorldSize")
-                    || !waterMaterial.HasProperty("_CoarseFlowSpeed")
-                    || !waterMaterial.HasProperty("_FineFlowSpeed")
-                    || !waterMaterial.HasProperty("_WorldSize")
-                    || !waterMaterial.HasProperty("_SeaMask")
-                    || !waterMaterial.HasProperty("_ShallowOpacity")
-                    || !waterMaterial.HasProperty("_OpacityDepth")
-                    || !waterMaterial.HasProperty("_EstuaryStrength")
-                    || !waterMaterial.HasProperty("_EstuaryColor")
-                    || !waterMaterial.HasProperty("_EstuaryBlendHeight")
-                    || !waterMaterial.HasProperty("_SeaLevel")
-                    || !waterMaterial.HasProperty("_ReflectionColor")
-                    || !waterMaterial.HasProperty("_ReflectionHorizonColor")
-                    || !waterMaterial.HasProperty("_ReflectionStrength")
-                    || !waterMaterial.HasProperty("_ReflectionFresnelPower")
-                    || !waterMaterial.HasProperty("_SunGlintStrength")
-                    || !waterMaterial.HasProperty("_SunGlintSharpness")
-                    || !waterMaterial.HasProperty("_ShoreWaveStrength")
-                    || !waterMaterial.HasProperty("_ShoreWaveSpacing")
-                    || !waterMaterial.HasProperty("_ShoreWaveSpeed")
-                    || !waterMaterial.HasProperty("_ShoreWaveDepth")
-                    || !waterMaterial.HasProperty("_ShoreWaveNoiseWorldSize")
-                    || !waterMaterial.HasProperty("_WhitewaterStrength")
-                    || !waterMaterial.HasProperty("_WhitewaterSlopeStart")
-                    || !waterMaterial.HasProperty("_WhitewaterSlopeFull"))
+                if (!riverWaterMaterial.HasProperty("_NoiseTex")
+                    || !riverWaterMaterial.HasProperty("_CoarseNoiseWorldSize")
+                    || !riverWaterMaterial.HasProperty("_FineNoiseWorldSize")
+                    || !riverWaterMaterial.HasProperty("_CoarseFlowSpeed")
+                    || !riverWaterMaterial.HasProperty("_FineFlowSpeed")
+                    || !riverWaterMaterial.HasProperty("_WorldSize")
+                    || !riverWaterMaterial.HasProperty("_ShallowOpacity")
+                    || !riverWaterMaterial.HasProperty("_OpacityDepth")
+                    || !riverWaterMaterial.HasProperty("_EstuaryStrength")
+                    || !riverWaterMaterial.HasProperty("_EstuaryColor")
+                    || !riverWaterMaterial.HasProperty("_EstuaryBlendHeight")
+                    || !riverWaterMaterial.HasProperty("_SeaLevel")
+                    || !riverWaterMaterial.HasProperty("_ReflectionColor")
+                    || !riverWaterMaterial.HasProperty("_ShoreWaveStrength")
+                    || !riverWaterMaterial.HasProperty("_WhitewaterStrength")
+                    || !riverWaterMaterial.HasProperty("_WhitewaterSlopeStart")
+                    || !riverWaterMaterial.HasProperty("_WhitewaterSlopeFull")
+                    || riverWaterMaterial.HasProperty("_SeaMask"))
                 {
                     throw new InvalidOperationException(
-                        "The river-water shader is missing flow or depth properties.");
+                        "The river-water shader has invalid river or sea properties.");
                 }
                 var riverNoise = CreateRiverNoiseTexture();
                 try
                 {
-                    waterMaterial.SetTexture("_NoiseTex", riverNoise);
+                    riverWaterMaterial.SetTexture("_NoiseTex", riverNoise);
                     if (riverNoise.width != RiverNoiseDimension
                         || riverNoise.height != RiverNoiseDimension)
                     {
@@ -2142,7 +2031,62 @@ public sealed class IslandViewer : MonoBehaviour
             }
             finally
             {
-                DestroyImmediate(waterMaterial);
+                DestroyImmediate(riverWaterMaterial);
+            }
+
+            var seaWaterShader = Shader.Find("Motu/Sea Water");
+            if (seaWaterShader == null
+                || !seaWaterShader.isSupported
+                || UnityEditor.ShaderUtil.ShaderHasError(seaWaterShader))
+            {
+                throw new InvalidOperationException(
+                    "The animated sea-water shader is missing or unsupported.");
+            }
+            var seaWaterMaterial = new Material(seaWaterShader);
+            try
+            {
+                if (!seaWaterMaterial.HasProperty("_NoiseTex")
+                    || !seaWaterMaterial.HasProperty("_SeaMask")
+                    || !seaWaterMaterial.HasProperty("_WorldSize")
+                    || !seaWaterMaterial.HasProperty("_ShallowOpacity")
+                    || !seaWaterMaterial.HasProperty("_OpacityDepth")
+                    || !seaWaterMaterial.HasProperty("_SiltColor")
+                    || !seaWaterMaterial.HasProperty("_ReflectionColor")
+                    || !seaWaterMaterial.HasProperty("_ShoreWaveStrength")
+                    || !seaWaterMaterial.HasProperty("_ShoreWaveSpacing")
+                    || !seaWaterMaterial.HasProperty("_ShoreWaveSpeed")
+                    || !seaWaterMaterial.HasProperty("_ShoreWaveDepth")
+                    || !seaWaterMaterial.HasProperty("_ShoreWaveNoiseWorldSize")
+                    || seaWaterMaterial.HasProperty("_CoarseFlowSpeed")
+                    || seaWaterMaterial.HasProperty("_EstuaryStrength")
+                    || seaWaterMaterial.HasProperty("_WhitewaterStrength"))
+                {
+                    throw new InvalidOperationException(
+                        "The sea-water shader has invalid sea or river properties.");
+                }
+            }
+            finally
+            {
+                DestroyImmediate(seaWaterMaterial);
+            }
+
+            var waterCameraObject = new GameObject("Water depth validation camera");
+            try
+            {
+                var waterCamera = waterCameraObject.AddComponent<Camera>();
+                waterCamera.enabled = false;
+                waterCamera.depthTextureMode = DepthTextureMode.DepthNormals;
+                EnsureCameraDepthTexture(waterCamera);
+                if ((waterCamera.depthTextureMode & DepthTextureMode.Depth) == 0
+                    || (waterCamera.depthTextureMode & DepthTextureMode.DepthNormals) == 0)
+                {
+                    throw new InvalidOperationException(
+                        "Island cameras do not retain the depth texture required by sea waves.");
+                }
+            }
+            finally
+            {
+                DestroyImmediate(waterCameraObject);
             }
 
             var grassShader = Shader.Find("Motu/Terrain Grass");
@@ -2157,9 +2101,18 @@ public sealed class IslandViewer : MonoBehaviour
             try
             {
                 if (!grassMaterial.HasProperty("_CliffNoise3D")
+                    || !grassMaterial.HasProperty("_RockMaskMap")
+                    || !grassMaterial.HasProperty("_RockTextureWorldSize")
+                    || !grassMaterial.HasProperty("_RockHeightBlendStrength")
+                    || !grassMaterial.HasProperty("_RiverBedMaskMap")
+                    || !grassMaterial.HasProperty("_RiverBedTextureWorldSize")
+                    || !grassMaterial.HasProperty("_RiverBedHeightBlendStrength")
                     || !grassMaterial.HasProperty("_RockPatchNoiseDetailScale")
                     || !grassMaterial.HasProperty("_GrassPatchNoise")
                     || !grassMaterial.HasProperty("_GrassPatchNoiseWorldSize")
+                    || !grassMaterial.HasProperty("_GrassColorA")
+                    || !grassMaterial.HasProperty("_GrassColorB")
+                    || !grassMaterial.HasProperty("_GrassColorNoiseWorldSize")
                     || !grassMaterial.HasProperty("_GrassPlayerPosition")
                     || !grassMaterial.HasProperty("_GrassRadius")
                     || !grassMaterial.HasProperty("_GrassHeight")
@@ -2221,7 +2174,7 @@ public sealed class IslandViewer : MonoBehaviour
                     {
                         throw new InvalidOperationException("A render tile has invalid geometry or UVs.");
                     }
-                    var renderMesh = CopyTerrainMesh(nativeMesh, 0);
+                    var renderMesh = CopyTerrainMesh(nativeMesh, 0, ValidationWorldSize);
                     DestroyImmediate(renderMesh);
                 }
             }
@@ -2352,8 +2305,16 @@ public sealed class IslandViewer : MonoBehaviour
             ValidateBorrowedArray(
                 nativeDecoration.rockAppearanceIds,
                 "rock appearance ID");
-            var preparedRocks = PrepareRockDecorations(handle, validationMaps, 2018);
-            var repeatedRocks = PrepareRockDecorations(handle, validationMaps, 2018);
+            var preparedRocks = PrepareRockDecorations(
+                handle,
+                validationMaps,
+                2018,
+                ValidationWorldSize);
+            var repeatedRocks = PrepareRockDecorations(
+                handle,
+                validationMaps,
+                2018,
+                ValidationWorldSize);
             if (preparedRocks.Length == 0
                 || preparedRocks.Length != nativeDecoration.rocks.length
                 || nativeDecoration.rockAppearanceIds.length
@@ -2384,7 +2345,7 @@ public sealed class IslandViewer : MonoBehaviour
                 }
             }
 
-            var rockIndex = new RockDecorationIndex(preparedRocks, TerrainScale);
+            var rockIndex = new RockDecorationIndex(preparedRocks, ValidationWorldSize);
             var seenRocks = new bool[preparedRocks.Length];
             for (var y = 0; y < RockDecorationIndex.Resolution; y++)
             {
@@ -2439,17 +2400,17 @@ public sealed class IslandViewer : MonoBehaviour
 
             var indexCandidates = new[]
             {
-                new PreparedRiverEmitter(
+                new IslandPreparedRiverEmitter(
                     new Vector3(-999.9f, 1f, -999.9f),
                     Vector3.up,
                     0.25f),
-                new PreparedRiverEmitter(Vector3.zero, Vector3.forward, 0.5f),
-                new PreparedRiverEmitter(
+                new IslandPreparedRiverEmitter(Vector3.zero, Vector3.forward, 0.5f),
+                new IslandPreparedRiverEmitter(
                     new Vector3(999.9f, 2f, 999.9f),
                     Vector3.right,
                     1f),
             };
-            var emitterIndex = new RiverEmitterIndex(indexCandidates, TerrainScale);
+            var emitterIndex = new RiverEmitterIndex(indexCandidates, ValidationWorldSize);
             var seen = new bool[indexCandidates.Length];
             for (var y = 0; y < RiverEmitterIndex.Resolution; y++)
             {
@@ -2485,7 +2446,7 @@ public sealed class IslandViewer : MonoBehaviour
             try
             {
                 var pool = particleRoot.AddComponent<RiverParticlePool>();
-                pool.Initialize(indexCandidates, TerrainScale, true);
+                pool.Initialize(indexCandidates, ValidationWorldSize, true);
                 if (pool.PoolCount != 32 || pool.CreatedSystemCount != 32)
                 {
                     throw new InvalidOperationException(
@@ -2524,11 +2485,11 @@ public sealed class IslandViewer : MonoBehaviour
                 }
                 var heights = new float[checked(expectedDimension * expectedDimension)];
                 Marshal.Copy(nativeHeightMap.data, heights, 0, heights.Length);
-                var preparedHeightMap = new PreparedColliderHeightMap(
+                var preparedHeightMap = new IslandPreparedColliderHeightMap(
                     expectedDimension,
                     validationSamplesPerTile,
                     heights,
-                    TerrainScale);
+                    ValidationWorldSize);
                 var leftTile = preparedHeightMap.CopyTileHeights(Vector2Int.zero);
                 var rightTile = preparedHeightMap.CopyTileHeights(new Vector2Int(1, 0));
                 for (var row = 0; row < validationSamplesPerTile; row++)
@@ -2544,9 +2505,9 @@ public sealed class IslandViewer : MonoBehaviour
                 {
                     heightmapResolution = validationSamplesPerTile,
                     size = new Vector3(
-                        TerrainScale / TerrainTileStreamer.Lod1Resolution,
+                        ValidationWorldSize / TerrainTileStreamer.Lod1Resolution,
                         preparedHeightMap.verticalSize,
-                        TerrainScale / TerrainTileStreamer.Lod1Resolution),
+                        ValidationWorldSize / TerrainTileStreamer.Lod1Resolution),
                 };
                 var validationTerrainObject = new GameObject(
                     "Terrain collider validation");
@@ -2554,9 +2515,9 @@ public sealed class IslandViewer : MonoBehaviour
                 {
                     validationTerrainData.SetHeights(0, 0, leftTile);
                     validationTerrainObject.transform.position = new Vector3(
-                        -TerrainScale * 0.5f,
+                        -ValidationWorldSize * 0.5f,
                         preparedHeightMap.verticalOrigin,
-                        -TerrainScale * 0.5f);
+                        -ValidationWorldSize * 0.5f);
                     var hiddenTerrain = validationTerrainObject.AddComponent<Terrain>();
                     hiddenTerrain.terrainData = validationTerrainData;
                     hiddenTerrain.drawHeightmap = false;
@@ -2564,12 +2525,12 @@ public sealed class IslandViewer : MonoBehaviour
                     var terrainCollider = validationTerrainObject.AddComponent<TerrainCollider>();
                     terrainCollider.terrainData = validationTerrainData;
                     Physics.SyncTransforms();
-                    var tileSize = TerrainScale / TerrainTileStreamer.Lod1Resolution;
+                    var tileSize = ValidationWorldSize / TerrainTileStreamer.Lod1Resolution;
                     var ray = new Ray(
                         validationTerrainObject.transform.position
-                            + new Vector3(tileSize * 0.5f, TerrainScale, tileSize * 0.5f),
+                            + new Vector3(tileSize * 0.5f, ValidationWorldSize, tileSize * 0.5f),
                         Vector3.down);
-                    if (!terrainCollider.Raycast(ray, out _, TerrainScale * 2f))
+                    if (!terrainCollider.Raycast(ray, out _, ValidationWorldSize * 2f))
                     {
                         throw new InvalidOperationException(
                             "The hidden Unity TerrainCollider did not hit its prepared heightfield.");
@@ -2587,7 +2548,7 @@ public sealed class IslandViewer : MonoBehaviour
                 {
                     streamingValidationObject
                         .AddComponent<TerrainTileStreamer>()
-                        .ValidateColliderStreaming(preparedHeightMap, TerrainScale);
+                        .ValidateColliderStreaming(preparedHeightMap, ValidationWorldSize);
                 }
                 finally
                 {

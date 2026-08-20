@@ -7,7 +7,7 @@
 
 use std::{
     cmp::Ordering,
-    collections::BinaryHeap,
+    collections::{BinaryHeap, HashSet},
     fs::File,
     io::{self, Read, Write},
     mem::{self, size_of},
@@ -25,7 +25,9 @@ use crate::{
     mesh_clipper::MeshClipper,
     noise,
     profiling::StageTimer,
-    rivers::{RiverMouth, RiverNetwork, RiverSourceRule},
+    rivers::{
+        RiverChannelSettings, RiverMouth, RiverNetwork, RiverSourceRule, encode_bank_distance_in_uv,
+    },
     rng::Rng,
 };
 
@@ -76,7 +78,10 @@ impl SurfaceMaterial {
     fn into_tessellated(mut self, source: &Mesh, tessellation: TessellationResult) -> (Mesh, Self) {
         let old_volume = self.volume(source);
         self.extend_after_tessellation(old_volume, &tessellation.mesh, &tessellation.new_vertices);
-        (tessellation.mesh, self)
+        let mut mesh = tessellation.mesh;
+        mesh.optimize_surface_triangulation();
+        self.rescale_to_volume(&mesh, old_volume);
+        (mesh, self)
     }
 
     pub(crate) fn volume(&self, mesh: &Mesh) -> f64 {
@@ -239,6 +244,14 @@ pub struct IslandOptions {
     /// Additional catchment multiplier applied at sea level, fading to zero
     /// at the configured maximum elevation.
     pub river_source_elevation_boost: f32,
+    /// Full channel width at the lowest represented flow, in metres.
+    pub river_source_width_metres: f32,
+    /// Full channel width at the greatest represented flow, in metres.
+    pub river_maximum_width_metres: f32,
+    /// Nominal bed depth at the lowest represented flow, in metres.
+    pub river_source_depth_metres: f32,
+    /// Nominal bed depth at the greatest represented flow, in metres.
+    pub river_maximum_depth_metres: f32,
     /// Number of free-form XY seed points used by Delaunay triangulation.
     pub terrain_size: u32,
 }
@@ -256,6 +269,10 @@ impl Default for IslandOptions {
             river_source_catchment_hectares: 0.05,
             river_source_steep_multiplier: 4.0,
             river_source_elevation_boost: 9.0,
+            river_source_width_metres: 2.0,
+            river_maximum_width_metres: 14.0,
+            river_source_depth_metres: 0.35,
+            river_maximum_depth_metres: 2.0,
             terrain_size: 1024,
         }
     }
@@ -269,6 +286,15 @@ impl IslandOptions {
             self.river_source_elevation_boost,
             self.max_height,
         )
+    }
+
+    const fn river_channel_settings(self) -> RiverChannelSettings {
+        RiverChannelSettings {
+            source_width: self.river_source_width_metres / ISLAND_WORLD_METRES,
+            maximum_width: self.river_maximum_width_metres / ISLAND_WORLD_METRES,
+            source_depth: self.river_source_depth_metres / ISLAND_WORLD_METRES,
+            maximum_depth: self.river_maximum_depth_metres / ISLAND_WORLD_METRES,
+        }
     }
 
     fn validate(self) -> Result<Self, String> {
@@ -292,6 +318,26 @@ impl IslandOptions {
         }
         if self.terrain_size < 16 || self.terrain_size > 4096 {
             return Err("terrain_size must contain between 16 and 4096 seed points".into());
+        }
+        if !self.river_source_width_metres.is_finite()
+            || !self.river_maximum_width_metres.is_finite()
+            || self.river_source_width_metres <= 0.0
+            || self.river_maximum_width_metres < self.river_source_width_metres
+        {
+            return Err(
+                "river widths must be finite and maximum width must be at least source width"
+                    .into(),
+            );
+        }
+        if !self.river_source_depth_metres.is_finite()
+            || !self.river_maximum_depth_metres.is_finite()
+            || self.river_source_depth_metres <= 0.0
+            || self.river_maximum_depth_metres < self.river_source_depth_metres
+        {
+            return Err(
+                "river depths must be finite and maximum depth must be at least source depth"
+                    .into(),
+            );
         }
         Ok(self)
     }
@@ -1256,20 +1302,51 @@ impl Island {
             &mut scratch,
         );
         let (lod0, material) = generate_broad_lod0(&lod1, material, context, &mut scratch);
-        let (mut lod0, mut material) = generate_detail_lod0(&lod0, material, context, &mut scratch);
-        let (rivers, mut river_mesh, river_bed, river_mouths) = {
+        let (lod0, material) = generate_detail_lod0(&lod0, material, context, &mut scratch);
+        let (mut lod0, mut material, rivers, mut river_mesh, river_bed, river_mouths) = {
             let _timer = StageTimer::new("rivers.final");
-            let detail_adjacency = lod0.adjacency();
-            let mut final_rivers =
-                RiverNetwork::generate(&mut lod0, &detail_adjacency, context.river_source_rule);
-            final_rivers.shape(&mut lod0, &detail_adjacency, &mut material, true, false);
-            final_rivers.into_parts(&mut lod0, &detail_adjacency, &mut material)
+            let mut rejected_waterfall_vertices = HashSet::new();
+            loop {
+                let mut attempt_lod0 = lod0.clone();
+                let mut attempt_material = material.clone();
+                let detail_adjacency = attempt_lod0.adjacency();
+                let mut final_rivers = RiverNetwork::generate(
+                    &mut attempt_lod0,
+                    &detail_adjacency,
+                    context.river_source_rule,
+                );
+                final_rivers.shape_with_settings_and_waterfall_rejections(
+                    &mut attempt_lod0,
+                    &detail_adjacency,
+                    &mut attempt_material,
+                    true,
+                    false,
+                    options.river_channel_settings(),
+                    &rejected_waterfall_vertices,
+                );
+                let (rivers, river_mesh, river_bed, river_mouths, failed_waterfalls) = final_rivers
+                    .into_parts_with_waterfall_failures(&mut attempt_lod0, &mut attempt_material);
+                let rejected_before = rejected_waterfall_vertices.len();
+                rejected_waterfall_vertices.extend(failed_waterfalls);
+                if rejected_waterfall_vertices.len() == rejected_before {
+                    break (
+                        attempt_lod0,
+                        attempt_material,
+                        rivers,
+                        river_mesh,
+                        river_bed,
+                        river_mouths,
+                    );
+                }
+            }
         };
         let lod0_index = {
             let _timer = StageTimer::new("lod.correct");
             correct_lods(&mut lod0, &mut lod1, &mut lod2)
         };
         bury_river_banks(&mut river_mesh, &lod0, &lod0_index);
+        river_mesh = river_mesh.clipped_above(0.0);
+        encode_bank_distance_in_uv(&mut river_mesh);
         let forced_rock = sharp_rock_mask(&lod0);
         let provisional_material =
             TerrainMaterialField::from_surface(&material, &river_bed, &forced_rock);
@@ -1469,7 +1546,7 @@ impl Island {
     /// Returns an I/O error if the destination cannot be created or written.
     pub fn save(&self, path: impl AsRef<Path>) -> io::Result<()> {
         let mut file = File::create(path)?;
-        file.write_all(b"MOTURS\0\x0f")?;
+        file.write_all(b"MOTURS\0\x10")?;
         file.write_all(&self.seed.to_le_bytes())?;
         for value in [
             self.options.max_height,
@@ -1482,6 +1559,10 @@ impl Island {
             self.options.river_source_catchment_hectares,
             self.options.river_source_steep_multiplier,
             self.options.river_source_elevation_boost,
+            self.options.river_source_width_metres,
+            self.options.river_maximum_width_metres,
+            self.options.river_source_depth_metres,
+            self.options.river_maximum_depth_metres,
         ] {
             file.write_all(&value.to_le_bytes())?;
         }
@@ -1497,7 +1578,7 @@ impl Island {
         let mut file = File::open(path)?;
         let mut magic = [0_u8; 8];
         file.read_exact(&mut magic)?;
-        if &magic[..7] != b"MOTURS\0" || !matches!(magic[7], 3..=15) {
+        if &magic[..7] != b"MOTURS\0" || !matches!(magic[7], 3..=16) {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "invalid Motu Rust free-form mesh file",
@@ -1559,6 +1640,12 @@ impl Island {
             if magic[7] >= 15 {
                 options.river_source_elevation_boost = stored_elevation_parameter;
             }
+        }
+        if magic[7] >= 16 {
+            options.river_source_width_metres = read_f32(&mut file)?;
+            options.river_maximum_width_metres = read_f32(&mut file)?;
+            options.river_source_depth_metres = read_f32(&mut file)?;
+            options.river_maximum_depth_metres = read_f32(&mut file)?;
         }
         if magic[7] == 8 {
             let _obsolete_cliff_render_strength = read_f32(&mut file)?;
@@ -1727,7 +1814,14 @@ fn generate_lod2(
     );
     erode_mesh(&mut mesh, &adjacency, &mut material, context.options, 4);
     let mut rivers = RiverNetwork::generate(&mut mesh, &adjacency, context.river_source_rule);
-    rivers.shape(&mut mesh, &adjacency, &mut material, true, true);
+    rivers.shape_with_settings(
+        &mut mesh,
+        &adjacency,
+        &mut material,
+        true,
+        true,
+        context.options.river_channel_settings(),
+    );
     mesh.calculate_normals();
     (mesh, material)
 }
@@ -1753,7 +1847,14 @@ fn generate_first_lod1(
     );
     erode_mesh(&mut mesh, &adjacency, &mut material, context.options, 4);
     let mut rivers = RiverNetwork::generate(&mut mesh, &adjacency, context.river_source_rule);
-    rivers.shape(&mut mesh, &adjacency, &mut material, false, true);
+    rivers.shape_with_settings(
+        &mut mesh,
+        &adjacency,
+        &mut material,
+        false,
+        true,
+        context.options.river_channel_settings(),
+    );
     mesh.calculate_normals();
     (mesh, material)
 }
@@ -1792,7 +1893,14 @@ fn generate_broad_lod0(
     );
     erode_mesh(&mut mesh, &adjacency, &mut material, context.options, 2);
     let mut rivers = RiverNetwork::generate(&mut mesh, &adjacency, context.river_source_rule);
-    rivers.shape(&mut mesh, &adjacency, &mut material, true, true);
+    rivers.shape_with_settings(
+        &mut mesh,
+        &adjacency,
+        &mut material,
+        true,
+        true,
+        context.options.river_channel_settings(),
+    );
     mesh.smooth_land_with(&adjacency);
     (mesh, material)
 }
@@ -1844,7 +1952,14 @@ fn refine_lod1_again(
     );
     erode_mesh(&mut refined, &adjacency, &mut material, options, 3);
     let mut rivers = RiverNetwork::generate(&mut refined, &adjacency, river_source_rule);
-    rivers.shape(&mut refined, &adjacency, &mut material, false, true);
+    rivers.shape_with_settings(
+        &mut refined,
+        &adjacency,
+        &mut material,
+        false,
+        true,
+        options.river_channel_settings(),
+    );
     refined.calculate_normals();
     (refined, material)
 }
@@ -1858,6 +1973,8 @@ fn correct_lods(lod0: &mut Mesh, lod1: &mut Mesh, lod2: &mut Mesh) -> TriangleIn
     let lod0_index = TriangleIndex::new(lod0);
     pin_refined_lod(lod1, &lod1_refinement.new_vertices, lod0, &lod0_index);
     pin_refined_lod(lod2, &lod2_refinement.new_vertices, lod0, &lod0_index);
+    lod1.optimize_surface_triangulation();
+    lod2.optimize_surface_triangulation();
 
     for mesh in [lod0, lod1, lod2] {
         mesh.uv

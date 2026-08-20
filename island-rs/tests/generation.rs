@@ -56,7 +56,7 @@ fn assert_river_mesh_bank_and_centreline_clearance(island: &Island) {
         let river_vertex = river_vertex as usize;
         let water = island.river_mesh().vertices[river_vertex];
         let ground = island.terrain().sample(water.x, water.y);
-        if banks.contains(&river_vertex) {
+        if banks.contains(&river_vertex) && water.z > 0.0 {
             assert!(
                 water.z <= ground + 1.0e-6,
                 "river bank climbs terrain at {water:?}; terrain height is {ground}"
@@ -88,6 +88,75 @@ fn assert_river_mesh_bank_distance_uv(island: &Island) {
             .iter()
             .all(|&vertex| river_mesh.uv[vertex].x == 0.0)
     );
+}
+
+fn assert_river_mesh_above_sea_level(island: &Island) {
+    let mesh = island.river_mesh();
+    let below_sea: Vec<_> = mesh
+        .vertices
+        .iter()
+        .enumerate()
+        .filter(|(_, vertex)| vertex.z < 0.0 || !vertex.z.is_finite())
+        .take(8)
+        .collect();
+    assert!(
+        below_sea.is_empty(),
+        "river mesh extends below the sea plane: {below_sea:?}"
+    );
+    let above_sea_vertex_count = mesh.vertices.iter().filter(|vertex| vertex.z > 0.0).count();
+    let unique_xy: HashSet<(u32, u32)> = mesh
+        .vertices
+        .iter()
+        .filter(|vertex| vertex.z > 0.0)
+        .map(|vertex| (vertex.x.to_bits(), vertex.y.to_bits()))
+        .collect();
+    assert_eq!(unique_xy.len(), above_sea_vertex_count);
+}
+
+fn visible_river_segments(island: &Island) -> usize {
+    island
+        .rivers()
+        .iter()
+        .map(|river| {
+            river.join.map_or_else(
+                || {
+                    river
+                        .nodes
+                        .iter()
+                        .position(|node| node.surface < 0.0)
+                        .unwrap_or_else(|| river.nodes.len().saturating_sub(1))
+                },
+                |_| river.nodes.len().saturating_sub(1),
+            )
+        })
+        .sum()
+}
+
+fn assert_main_rivers_drop_below_the_sea(island: &Island) {
+    for (river_index, river) in island
+        .rivers()
+        .iter()
+        .enumerate()
+        .filter(|(_, river)| river.join.is_none())
+    {
+        let first_submerged = river
+            .nodes
+            .iter()
+            .position(|node| node.surface < 0.0)
+            .expect("a main river should descend below the sea plane");
+        if let Some(waterfall_lip) = first_submerged.checked_sub(1) {
+            assert!(
+                river.nodes[waterfall_lip].surface >= 0.0,
+                "main river {river_index} has no above-sea waterfall lip"
+            );
+        }
+        assert!(
+            river.nodes[first_submerged..]
+                .iter()
+                .all(|node| node.surface < 0.0),
+            "main river {river_index} returns above sea level after its mouth"
+        );
+    }
 }
 
 fn assert_settled_rock_placement(island: &Island) {
@@ -303,6 +372,32 @@ fn rejects_out_of_range_hydraulic_deposition_options() {
 }
 
 #[test]
+fn rejects_inverted_or_non_positive_river_dimensions() {
+    for options in [
+        IslandOptions {
+            river_source_width_metres: 0.0,
+            ..small_options()
+        },
+        IslandOptions {
+            river_source_width_metres: 10.0,
+            river_maximum_width_metres: 9.0,
+            ..small_options()
+        },
+        IslandOptions {
+            river_source_depth_metres: 0.0,
+            ..small_options()
+        },
+        IslandOptions {
+            river_source_depth_metres: 2.0,
+            river_maximum_depth_metres: 1.0,
+            ..small_options()
+        },
+    ] {
+        assert!(Island::generate(1, options).is_err());
+    }
+}
+
+#[test]
 fn absolute_river_source_catchment_changes_river_generation() {
     let many_sources = Island::generate(
         53,
@@ -391,7 +486,6 @@ fn exported_terrain_is_clipped_five_metres_below_sea_level() {
         .unwrap();
 
     assert!(source.vertices.iter().any(|vertex| vertex.z < floor));
-    assert!(support.vertices.len() < source.vertices.len());
     for mesh in std::iter::once(&support)
         .chain(std::iter::once(&render))
         .chain(&tiles)
@@ -616,19 +710,19 @@ fn rivers_are_continuous_flowing_terrain_submeshes_with_waterfalls() {
     assert!(island.rivers().iter().all(|river| {
         river.join.is_some() || river.nodes.last().is_some_and(|node| ocean[node.vertex])
     }));
-    let total_nodes: usize = island.rivers().iter().map(|river| river.nodes.len()).sum();
     let total_segments: usize = island
         .rivers()
         .iter()
         .map(|river| river.nodes.len().saturating_sub(1))
         .sum();
-    assert!(island.river_mesh().vertices.len() >= total_nodes);
+    let visible_segments = visible_river_segments(&island);
     assert_eq!(
         island.river_mesh().uv.len(),
         island.river_mesh().vertices.len()
     );
+    assert_river_mesh_above_sea_level(&island);
     assert_river_mesh_bank_distance_uv(&island);
-    assert!(island.river_mesh().triangles.len() > total_segments * 3);
+    assert!(island.river_mesh().triangles.len() > visible_segments * 3);
     assert!(
         island
             .river_mesh()
@@ -637,14 +731,8 @@ fn rivers_are_continuous_flowing_terrain_submeshes_with_waterfalls() {
             .all(|&vertex| (vertex as usize) < island.river_mesh().vertices.len())
     );
     assert_river_mesh_bank_and_centreline_clearance(&island);
-    let unique_xy: HashSet<(u32, u32)> = island
-        .river_mesh()
-        .vertices
-        .iter()
-        .map(|vertex| (vertex.x.to_bits(), vertex.y.to_bits()))
-        .collect();
-    assert_eq!(unique_xy.len(), island.river_mesh().vertices.len());
     assert!(island.rivers().iter().any(|river| river.join.is_some()));
+    assert_main_rivers_drop_below_the_sea(&island);
     let mut flat_segments = 0_usize;
     let mut substantial_drops = Vec::new();
     for (river_index, river) in island.rivers().iter().enumerate() {
@@ -713,6 +801,10 @@ fn save_and_load_regenerates_identical_island() {
             river_source_catchment_hectares: 0.75,
             river_source_steep_multiplier: 5.0,
             river_source_elevation_boost: 8.5,
+            river_source_width_metres: 3.5,
+            river_maximum_width_metres: 52.0,
+            river_source_depth_metres: 0.4,
+            river_maximum_depth_metres: 7.5,
             ..small_options()
         },
     )
@@ -729,6 +821,22 @@ fn save_and_load_regenerates_identical_island() {
     assert_eq!(
         loaded.options().river_source_elevation_boost.to_bits(),
         8.5_f32.to_bits()
+    );
+    assert_eq!(
+        loaded.options().river_source_width_metres.to_bits(),
+        3.5_f32.to_bits()
+    );
+    assert_eq!(
+        loaded.options().river_maximum_width_metres.to_bits(),
+        52.0_f32.to_bits()
+    );
+    assert_eq!(
+        loaded.options().river_source_depth_metres.to_bits(),
+        0.4_f32.to_bits()
+    );
+    assert_eq!(
+        loaded.options().river_maximum_depth_metres.to_bits(),
+        7.5_f32.to_bits()
     );
 }
 

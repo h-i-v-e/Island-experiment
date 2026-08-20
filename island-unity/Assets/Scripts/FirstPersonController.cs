@@ -11,7 +11,7 @@ public sealed class FirstPersonController : MonoBehaviour
 
     private OrbitCamera orbitCamera;
     private CharacterController characterController;
-    private TerrainTileStreamer terrainStreamer;
+    private IslandGenerator island;
     private float yaw;
     private float pitch;
     private float verticalSpeed;
@@ -19,9 +19,10 @@ public sealed class FirstPersonController : MonoBehaviour
     public bool IsActive { get; private set; }
     public bool IsCursorReleased { get; private set; }
 
-    public void Configure(OrbitCamera overviewCamera)
+    public void Configure(OrbitCamera overviewCamera, IslandGenerator islandGenerator)
     {
         orbitCamera = overviewCamera;
+        island = islandGenerator;
         characterController = GetComponent<CharacterController>();
         if (characterController == null)
         {
@@ -40,12 +41,12 @@ public sealed class FirstPersonController : MonoBehaviour
 
     public void Enter(Vector3 groundPosition)
     {
-        if (terrainStreamer == null)
+        if (island == null)
         {
             return;
         }
-        terrainStreamer.SetPlayerPosition(groundPosition);
-        if (!terrainStreamer.TrySnapToCurrentCollider(groundPosition, out groundPosition))
+        island.PrepareStreamingAt(groundPosition);
+        if (!island.TrySnapToTerrain(groundPosition, out groundPosition))
         {
             Debug.LogWarning(
                 "First-person entry was cancelled because terrain collision is not ready.");
@@ -59,15 +60,16 @@ public sealed class FirstPersonController : MonoBehaviour
         pitch = Mathf.Clamp(pitch, -85f, 85f);
         verticalSpeed = -2f;
         characterController.enabled = true;
+        island.SetStreamingTarget(transform);
         IsActive = true;
         IsCursorReleased = false;
         enabled = true;
         ApplyCursorState();
     }
 
-    public void SetTerrainStreamer(TerrainTileStreamer value)
+    public void SetIsland(IslandGenerator value)
     {
-        terrainStreamer = value;
+        island = value;
     }
 
     public void Exit()
@@ -83,7 +85,7 @@ public sealed class FirstPersonController : MonoBehaviour
         enabled = false;
         orbitCamera.enabled = true;
         ApplyCursorState();
-        terrainStreamer?.ClearPlayerFocus();
+        island?.SetStreamingTarget(null);
     }
 
     private void Update()
@@ -99,7 +101,7 @@ public sealed class FirstPersonController : MonoBehaviour
             ApplyCursorState();
         }
 
-        terrainStreamer?.SetPlayerPosition(transform.position);
+        island?.PrepareStreamingAt(transform.position);
         if (IsCursorReleased)
         {
             return;
@@ -133,7 +135,7 @@ public sealed class FirstPersonController : MonoBehaviour
 
         movement = movement * speed + Vector3.up * verticalSpeed;
         characterController.Move(movement * Time.deltaTime);
-        terrainStreamer?.SetPlayerPosition(transform.position);
+        island?.PrepareStreamingAt(transform.position);
     }
 
     private void ApplyCursorState()

@@ -4,6 +4,22 @@ Shader "Motu/Terrain Unified"
     {
         _Color ("Tint", Color) = (1, 1, 1, 1)
         _RockColor ("Exposed Rock", Color) = (0.34, 0.32, 0.29, 1)
+        [NoScaleOffset] _RockAlbedoMap ("Rock Top Surface Colour", 2D) = "white" {}
+        [NoScaleOffset] _RockNormalMap ("Rock Top Surface Normal", 2D) = "bump" {}
+        [NoScaleOffset] _RockMaskMap ("Rock Top Surface Mask (R Height, G Occlusion)", 2D) = "gray" {}
+        _RockTextureWorldSize ("Rock Top Surface Texture Size (metres)", Float) = 4
+        _RockNormalMapStrength ("Rock Top Surface Normal Strength", Range(0, 2)) = 0
+        _RockHeightBlendStrength ("Rock Slope Blend Height Influence", Range(0, 1)) = 1
+        _RockTextureOcclusionStrength ("Rock Top Surface Texture Occlusion", Range(0, 1)) = 0
+        _RiverBedColor ("Riverbed Tint", Color) = (0.34, 0.32, 0.29, 1)
+        [NoScaleOffset] _RiverBedAlbedoMap ("Riverbed Colour", 2D) = "white" {}
+        [NoScaleOffset] _RiverBedNormalMap ("Riverbed Normal", 2D) = "bump" {}
+        [NoScaleOffset] _RiverBedMaskMap ("Riverbed Mask (R Height, G Occlusion)", 2D) = "gray" {}
+        _RiverBedTextureWorldSize ("Riverbed Texture Size (metres)", Float) = 2
+        _RiverBedNormalMapStrength ("Riverbed Normal Strength", Range(0, 2)) = 0
+        _RiverBedHeightBlendStrength ("Riverbed Slope Blend Height Influence", Range(0, 1)) = 1
+        _RiverBedTextureOcclusionStrength ("Riverbed Texture Occlusion", Range(0, 1)) = 0
+        _TopTextureFadeOutSlope ("Rock and Riverbed Texture Fade-Out Slope (degrees)", Range(1, 89)) = 45
         [NoScaleOffset] _WorldNormal ("Shared World Normal", 2D) = "bump" {}
         [PerRendererData] _WorldNormalWeight ("World Normal Weight", Float) = 1
         [NoScaleOffset] _Occlusion ("Shared Occlusion", 2D) = "white" {}
@@ -32,7 +48,9 @@ Shader "Motu/Terrain Unified"
         _SandNormalStrength ("Sand Normal Strength", Range(0, 0.5)) = 0.10
         _SnowNormalStrength ("Snow Normal Strength", Range(0, 0.5)) = 0.08
         _GrassThinDepositColor ("Bare Grass Ground", Color) = (0.55, 0.46, 0.28, 1)
-        _GrassThickDepositColor ("Grass-Covered Ground", Color) = (0.20, 0.48, 0.16, 1)
+        _GrassColorA ("Grass Colour A", Color) = (0.18, 0.46, 0.14, 1)
+        _GrassColorB ("Grass Colour B", Color) = (0.34, 0.50, 0.14, 1)
+        _GrassColorNoiseWorldSize ("Grass Colour Noise Repeat (metres)", Float) = 2048
         [NoScaleOffset] _GrassPatchNoise ("Grass Patch Noise", 2D) = "white" {}
         _GrassPatchNoiseWorldSize ("Grass Patch Repeat (metres)", Float) = 32
         [HideInInspector] _GrassEnabled ("Local Grass Enabled", Float) = 0
@@ -79,14 +97,31 @@ Shader "Motu/Terrain Unified"
                 SHADOW_COORDS(3)
                 UNITY_FOG_COORDS(4)
                 half3 material : TEXCOORD5;
+                float3 islandLocalPosition : TEXCOORD6;
             };
 
             sampler2D _WorldNormal;
             sampler2D _Occlusion;
             sampler2D _GrassPatchNoise;
+            sampler2D _RockAlbedoMap;
+            sampler2D _RockNormalMap;
+            sampler2D _RockMaskMap;
+            sampler2D _RiverBedAlbedoMap;
+            sampler2D _RiverBedNormalMap;
+            sampler2D _RiverBedMaskMap;
             sampler3D _CliffNoise3D;
             fixed4 _Color;
             fixed4 _RockColor;
+            fixed4 _RiverBedColor;
+            float _RockTextureWorldSize;
+            half _RockNormalMapStrength;
+            half _RockHeightBlendStrength;
+            half _RockTextureOcclusionStrength;
+            float _RiverBedTextureWorldSize;
+            half _RiverBedNormalMapStrength;
+            half _RiverBedHeightBlendStrength;
+            half _RiverBedTextureOcclusionStrength;
+            half _TopTextureFadeOutSlope;
             half _WorldNormalWeight;
             half _OcclusionStrength;
             float _SnowLine;
@@ -112,18 +147,38 @@ Shader "Motu/Terrain Unified"
             half _SandNormalStrength;
             half _SnowNormalStrength;
             fixed4 _GrassThinDepositColor;
-            fixed4 _GrassThickDepositColor;
+            fixed4 _GrassColorA;
+            fixed4 _GrassColorB;
+            float _GrassColorNoiseWorldSize;
             float _GrassPatchNoiseWorldSize;
             half _GrassEnabled;
             float3 _GrassPlayerPosition;
             fixed4 _GroundDirtColor;
             float _GroundDirtCoreRadius;
             float _GroundDirtFadeWidth;
+            float4x4 _IslandWorldToLocal;
 
             half AntialiasedMask(float signedDistance)
             {
                 float transitionWidth = max(fwidth(signedDistance), 1.0e-4);
                 return smoothstep(-transitionWidth, transitionWidth, signedDistance);
+            }
+
+            half HeightModulatedTextureWeight(
+                half slopeWeight,
+                half sampledHeight,
+                half influence)
+            {
+                // Height only shapes the middle of the slope transition. The
+                // zero and one endpoints remain authoritative, keeping level
+                // ground fully textured and the fade-out slope fully old-style.
+                half transitionWindow = 4.0h
+                    * slopeWeight
+                    * (1.0h - slopeWeight);
+                half centredHeight = sampledHeight * 2.0h - 1.0h;
+                return saturate(
+                    slopeWeight
+                        + centredHeight * influence * transitionWindow * 0.5h);
             }
 
             VertexOutput Vertex(VertexInput input)
@@ -132,6 +187,9 @@ Shader "Motu/Terrain Unified"
                 output.pos = UnityObjectToClipPos(input.vertex);
                 output.uv = input.uv;
                 output.worldPosition = mul(unity_ObjectToWorld, input.vertex).xyz;
+                output.islandLocalPosition = mul(
+                    _IslandWorldToLocal,
+                    float4(output.worldPosition, 1.0)).xyz;
                 output.geometricWorldNormal = UnityObjectToWorldNormal(input.normal);
                 output.material = input.material.rgb;
                 TRANSFER_SHADOW(output);
@@ -147,20 +205,50 @@ Shader "Motu/Terrain Unified"
                 {
                     // Rust stores normals as XYZ with Z up. Unity uses XZY with Y up.
                     float3 encoded = tex2D(_WorldNormal, input.uv).rgb;
-                    normal = normalize(float3(
+                    float3 islandLocalNormal = normalize(float3(
                         encoded.r * 2.0 - 1.0,
                         encoded.b * 2.0 - 1.0,
                         encoded.g * 2.0 - 1.0));
+                    normal = normalize(UnityObjectToWorldNormal(islandLocalNormal));
                 }
 
                 half sampledOcclusion = tex2D(_Occlusion, input.uv).r;
                 half occlusion = lerp(1.0, sampledOcclusion, _OcclusionStrength);
+                float3 islandLocalNormal = normalize(mul(
+                    (float3x3)_IslandWorldToLocal,
+                    normal));
+                // Asset textures use one top-down projection only. Fade the
+                // entire authored texture set out before that projection can
+                // stretch across a steep face; vertical terrain then retains
+                // the original solid colour and procedural noisy normal.
+                half topTextureFadeOutUpNormal = cos(radians(
+                    _TopTextureFadeOutSlope));
+                half topTextureSlopeWeight = smoothstep(
+                    topTextureFadeOutUpNormal,
+                    1.0h,
+                    saturate(islandLocalNormal.y));
+                float2 rockUv = input.islandLocalPosition.xz
+                    / max(_RockTextureWorldSize, 0.01);
+                fixed4 rockMaskSample = tex2D(_RockMaskMap, rockUv);
+                float2 riverBedUv = input.islandLocalPosition.xz
+                    / max(_RiverBedTextureWorldSize, 0.01);
+                fixed4 riverBedMaskSample = tex2D(
+                    _RiverBedMaskMap,
+                    riverBedUv);
+                half rockTextureWeight = HeightModulatedTextureWeight(
+                    topTextureSlopeWeight,
+                    rockMaskSample.r,
+                    _RockHeightBlendStrength);
+                half riverBedTextureWeight = HeightModulatedTextureWeight(
+                    topTextureSlopeWeight,
+                    riverBedMaskSample.r,
+                    _RiverBedHeightBlendStrength);
                 // Mesh import scales normalized Rust coordinates into Unity
                 // metres, so world-space Y is already the physical elevation.
-                float elevation = input.worldPosition.y;
+                float elevation = input.islandLocalPosition.y;
                 float slope = 1.0 - saturate(normal.y);
                 float noisePeriod = max(_CliffNoisePeriod, 1.0);
-                float3 noisePosition = input.worldPosition / noisePeriod;
+                float3 noisePosition = input.islandLocalPosition / noisePeriod;
                 half3 broadNoise = tex3D(_CliffNoise3D, noisePosition).rgb * 2.0 - 1.0;
                 half3 macroNoise = tex3D(
                     _CliffNoise3D,
@@ -206,7 +294,7 @@ Shader "Motu/Terrain Unified"
                 half sandRichness = looseCover
                     * sandAltitudeRichness
                     * (1.0 - riverCoverage);
-                float2 sandPatchUv = input.worldPosition.xz
+                float2 sandPatchUv = input.islandLocalPosition.xz
                     / max(_SandPatchNoiseWorldSize, 0.1)
                     + float2(0.37, 0.73);
                 half2 sandPatchLayers = tex2D(
@@ -239,11 +327,6 @@ Shader "Motu/Terrain Unified"
                     rockBlendWidth,
                     rockMaskDistance)
                     * smoothstep(0.0h, 0.20h, geologyRockWeight);
-                // Grass remains a discrete surface class. Derive its rock
-                // exclusion from the same coherent field, but use only the
-                // pixel-width anti-aliasing band rather than the broad blend.
-                half grassRockCoverage = AntialiasedMask(rockMaskDistance)
-                    * step(1.0e-4, geologyRockWeight);
                 // Loose beach deposits cannot sustain slopes as steep as
                 // ordinary earth. Use raw geometric slope so underlying
                 // bedrock hardness does not make sand artificially stronger.
@@ -257,91 +340,92 @@ Shader "Motu/Terrain Unified"
                 geologyRockCoverage = max(
                     geologyRockCoverage,
                     forcedRockCoverage);
-                grassRockCoverage = max(
-                    grassRockCoverage,
-                    sandRockCoverage);
-                grassRockCoverage = max(
-                    grassRockCoverage,
-                    forcedRockCoverage);
                 half exposedRockCoverage = max(
                     geologyRockCoverage,
                     cliffWeight);
-                half grassExposedRockCoverage = max(
-                    grassRockCoverage,
-                    cliffWeight);
 
-                // Recreate the exact richness/noise boundary used to clip the
-                // fur shells.
-                float2 grassPatchUv = input.worldPosition.xz
+                // The fur shader keeps this field as a hard physical stencil.
+                // The ground shader instead broadens the same boundary so the
+                // green surface blends naturally into bare dirt beneath it.
+                float2 grassPatchUv = input.islandLocalPosition.xz
                     / max(_GrassPatchNoiseWorldSize, 0.1);
                 half2 grassPatchLayers = tex2D(
                     _GrassPatchNoise,
                     grassPatchUv).rg;
                 half grassPatchNoise = grassPatchLayers.r * 0.65
                     + grassPatchLayers.g * 0.35;
-                half furGrassPresence = step(
-                    1.0 - looseCover,
-                    grassPatchNoise)
-                    * step(1.0e-4, looseCover);
-                half furBeachCoverage = beachCandidateCoverage
-                    * (1.0 - grassExposedRockCoverage);
+                half grassPatchDistance = grassPatchNoise
+                    - (1.0h - looseCover);
+                half groundGrassBlendWidth = max(
+                    0.18h,
+                    fwidth(grassPatchDistance));
+                half groundGrassPresence = smoothstep(
+                    -groundGrassBlendWidth,
+                    groundGrassBlendWidth,
+                    grassPatchDistance)
+                    * smoothstep(0.0h, 0.20h, looseCover);
+                half groundBeachCoverage = beachCandidateCoverage
+                    * (1.0 - exposedRockCoverage);
                 float noisySnowLine = _SnowLine
                     + macroNoise.r * _SnowMacroNoiseMetres
                     + broadNoise.g * _SnowEdgeNoiseMetres;
                 half snowCoverage = AntialiasedMask(
                     elevation - noisySnowLine)
                     * (1.0 - cliffWeight);
-                // Green means a fur shell actually survives every material
-                // clip. Using the preliminary soil mask here allowed green to
-                // leak through simultaneous soft rock and sand blends.
-                half visibleFurGrass = furGrassPresence
-                    * step(grassExposedRockCoverage, 0.5h)
-                    * step(furBeachCoverage, 0.5h)
-                    * step(riverCoverage, 0.5h)
-                    * step(snowCoverage, 0.5h)
+                half groundGrassCoverage = groundGrassPresence
+                    * (1.0h - exposedRockCoverage)
+                    * (1.0h - groundBeachCoverage)
+                    * (1.0h - riverCoverage)
+                    * (1.0h - snowCoverage)
                     * step(0.0, elevation);
 
                 fixed3 deep = fixed3(0.08, 0.16, 0.12);
                 fixed3 sand = fixed3(0.62, 0.57, 0.34);
-                // Bare soil is brown; only positions admitted by the fur mask
-                // receive the full established ground-green colour.
+                // Ground colour is deliberately softer than the physical fur
+                // mask, blending continuously between bare soil and grass.
+                float2 grassColorUv = input.islandLocalPosition.xz
+                    / max(_GrassColorNoiseWorldSize, 1.0);
+                half grassColorNoise = tex2D(
+                    _GrassPatchNoise,
+                    grassColorUv).b;
+                fixed3 establishedGrassColor = lerp(
+                    _GrassColorA.rgb,
+                    _GrassColorB.rgb,
+                    smoothstep(0.1h, 0.9h, grassColorNoise));
                 fixed3 grass = lerp(
                     _GrassThinDepositColor.rgb,
-                    _GrassThickDepositColor.rgb,
-                    visibleFurGrass);
-                fixed3 rock = _RockColor.rgb;
+                    establishedGrassColor,
+                    groundGrassCoverage);
+                fixed3 rock = lerp(
+                    _RockColor.rgb,
+                    tex2D(_RockAlbedoMap, rockUv).rgb,
+                    rockTextureWeight);
+                fixed3 riverBedSurface = lerp(
+                    _RiverBedColor.rgb,
+                    tex2D(_RiverBedAlbedoMap, riverBedUv).rgb,
+                    riverBedTextureWeight);
                 fixed3 snow = fixed3(0.82, 0.84, 0.81);
                 fixed3 baseColor;
                 half beachCoverage = 0.0;
                 half grassGroundCoverage = 0.0;
+                half riverSurfaceCoverage = riverCoverage
+                    * (1.0h - exposedRockCoverage);
                 if (elevation < 0.0)
                 {
                     baseColor = lerp(deep, sand, saturate((elevation + 8.0) / 8.0));
                 }
                 else
                 {
-                    // Only the green ground that actually carries fur grass
-                    // uses the hard rock boundary. Poor exposed soil retains
-                    // the broad soft geology blend.
-                    half grassSurfaceRockCoverage = lerp(
-                        exposedRockCoverage,
-                        grassExposedRockCoverage,
-                        visibleFurGrass);
                     baseColor = lerp(
                         grass,
                         rock,
-                        grassSurfaceRockCoverage);
+                        exposedRockCoverage);
 
                     beachCoverage = beachCandidateCoverage
                         * (1.0 - exposedRockCoverage);
                     baseColor = lerp(baseColor, sand, beachCoverage);
 
-                    baseColor = lerp(
-                        baseColor,
-                        rock,
-                        riverCoverage * (1.0 - exposedRockCoverage));
-
-                    grassGroundCoverage = (1.0 - grassSurfaceRockCoverage)
+                    grassGroundCoverage = (1.0 - exposedRockCoverage)
                         * (1.0 - beachCoverage)
                         * (1.0 - riverCoverage);
                     float dirtDistance = distance(
@@ -354,24 +438,20 @@ Shader "Motu/Terrain Unified"
                         dirtDistance);
                     half dirtCoverage = _GrassEnabled
                         * grassGroundCoverage
-                        * visibleFurGrass
+                        * groundGrassCoverage
                         * dirtProximity;
                     baseColor = lerp(
                         baseColor,
                         _GroundDirtColor.rgb,
                         dirtCoverage);
                 }
-                // Only green, fur-bearing grass uses the hard stencil. Poor
-                // soil, underwater terrain, sand, and river surfaces retain
-                // the broad soft rock blend.
-                half grassMaterialDomain = step(0.0, elevation)
-                    * (1.0 - beachCandidateCoverage)
-                    * (1.0 - riverCoverage)
-                    * visibleFurGrass;
-                half surfaceGeologyRockCoverage = lerp(
-                    geologyRockCoverage,
-                    grassRockCoverage,
-                    saturate(grassMaterialDomain));
+                // Riverbed height alters riverCoverage above; use that soft
+                // weight directly instead of restoring a binary bank edge.
+                baseColor = lerp(
+                    baseColor,
+                    riverBedSurface,
+                    riverSurfaceCoverage);
+                half surfaceGeologyRockCoverage = geologyRockCoverage;
                 baseColor = lerp(
                     baseColor,
                     rock,
@@ -423,7 +503,7 @@ Shader "Motu/Terrain Unified"
                     half grassOrDirtNormalStrength = lerp(
                         _DirtNormalStrength,
                         _GrassNormalStrength,
-                        visibleFurGrass);
+                        groundGrassCoverage);
                     half soilNormalStrength = lerp(
                         grassOrDirtNormalStrength,
                         _SandNormalStrength,
@@ -452,6 +532,74 @@ Shader "Motu/Terrain Unified"
                             + snowNoise
                                 * (_SnowNormalStrength * snowCoverage));
                 }
+
+                half rockTextureCoverage = surfaceExposedRockCoverage
+                    * (1.0h - snowCoverage)
+                    * rockTextureWeight;
+                half riverTextureCoverage = riverCoverage
+                    * (1.0h - surfaceExposedRockCoverage)
+                    * (1.0h - snowCoverage)
+                    * riverBedTextureWeight;
+                UNITY_BRANCH
+                if (rockTextureCoverage > 0.01h
+                    && _RockNormalMapStrength > 0.0h)
+                {
+                    half3 rockTangentNormal = UnpackNormal(tex2D(
+                        _RockNormalMap,
+                        rockUv));
+                    half3 rockLocalNormal = normalize(half3(
+                        rockTangentNormal.x,
+                        rockTangentNormal.z,
+                        rockTangentNormal.y));
+                    half3 rockWorldNormal = normalize(mul(
+                        (float3x3)unity_ObjectToWorld,
+                        rockLocalNormal));
+                    normal = normalize(lerp(
+                        normal,
+                        rockWorldNormal,
+                        saturate(
+                            rockTextureCoverage
+                                * _RockNormalMapStrength)));
+                }
+                UNITY_BRANCH
+                if (riverTextureCoverage > 0.01h
+                    && _RiverBedNormalMapStrength > 0.0h)
+                {
+                    half3 riverTangentNormal = UnpackNormal(tex2D(
+                        _RiverBedNormalMap,
+                        riverBedUv));
+                    half3 riverLocalNormal = normalize(half3(
+                        riverTangentNormal.x,
+                        riverTangentNormal.z,
+                        riverTangentNormal.y));
+                    half3 riverWorldNormal = normalize(mul(
+                        (float3x3)unity_ObjectToWorld,
+                        riverLocalNormal));
+                    normal = normalize(lerp(
+                        normal,
+                        riverWorldNormal,
+                        saturate(
+                            riverTextureCoverage
+                                * _RiverBedNormalMapStrength)));
+                }
+
+                half rockTextureOcclusion = lerp(
+                    1.0h,
+                    rockMaskSample.g,
+                    _RockTextureOcclusionStrength);
+                half riverTextureOcclusion = lerp(
+                    1.0h,
+                    riverBedMaskSample.g,
+                    _RiverBedTextureOcclusionStrength);
+                half materialTextureOcclusion = lerp(
+                    1.0h,
+                    rockTextureOcclusion,
+                    rockTextureCoverage);
+                materialTextureOcclusion = lerp(
+                    materialTextureOcclusion,
+                    riverTextureOcclusion,
+                    riverTextureCoverage);
+                occlusion *= materialTextureOcclusion;
 
                 float3 lightDirection = normalize(UnityWorldSpaceLightDir(input.worldPosition));
                 UNITY_LIGHT_ATTENUATION(attenuation, input, input.worldPosition);
