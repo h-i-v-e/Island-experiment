@@ -26,7 +26,8 @@ use crate::{
     noise,
     profiling::StageTimer,
     rivers::{
-        RiverChannelSettings, RiverMouth, RiverNetwork, RiverSourceRule, encode_bank_distance_in_uv,
+        RiverChannelSettings, RiverDebugGeometry, RiverMouth, RiverNetwork, RiverSourceRule,
+        encode_bank_distance_in_uv,
     },
     rng::Rng,
 };
@@ -1276,7 +1277,61 @@ pub struct Island {
     rivers: Vec<River>,
     river_mouths: Vec<RiverMouth>,
     river_mesh: Mesh,
+    river_bed_debug_mesh: Mesh,
+    waterfall_face_terrain_debug_mesh: Mesh,
+    waterfall_plane_debug_mesh: Mesh,
+    waterfall_lip_plane_debug_mesh: Mesh,
     decorations: OnceLock<Decorations>,
+}
+
+struct FinalRiverGeneration {
+    lod0: Mesh,
+    material: SurfaceMaterial,
+    rivers: Vec<River>,
+    river_mesh: Mesh,
+    river_bed: Vec<bool>,
+    river_mouths: Vec<RiverMouth>,
+    debug_geometry: RiverDebugGeometry,
+}
+
+fn generate_final_rivers(
+    lod0: &Mesh,
+    material: &SurfaceMaterial,
+    source_rule: RiverSourceRule,
+    channel_settings: RiverChannelSettings,
+) -> FinalRiverGeneration {
+    let _timer = StageTimer::new("rivers.final");
+    let mut rejected_waterfall_vertices = HashSet::new();
+    loop {
+        let mut attempt_lod0 = lod0.clone();
+        let mut attempt_material = material.clone();
+        let detail_adjacency = attempt_lod0.adjacency();
+        let mut network = RiverNetwork::generate(&mut attempt_lod0, &detail_adjacency, source_rule);
+        network.shape_with_settings_and_waterfall_rejections(
+            &mut attempt_lod0,
+            &detail_adjacency,
+            &mut attempt_material,
+            true,
+            false,
+            channel_settings,
+            &rejected_waterfall_vertices,
+        );
+        let (rivers, river_mesh, river_bed, river_mouths, failed, debug_geometry) =
+            network.into_parts_with_waterfall_failures(&mut attempt_lod0, &mut attempt_material);
+        let rejected_before = rejected_waterfall_vertices.len();
+        rejected_waterfall_vertices.extend(failed);
+        if rejected_waterfall_vertices.len() == rejected_before {
+            return FinalRiverGeneration {
+                lod0: attempt_lod0,
+                material: attempt_material,
+                rivers,
+                river_mesh,
+                river_bed,
+                river_mouths,
+                debug_geometry,
+            };
+        }
+    }
 }
 
 impl Island {
@@ -1303,43 +1358,20 @@ impl Island {
         );
         let (lod0, material) = generate_broad_lod0(&lod1, material, context, &mut scratch);
         let (lod0, material) = generate_detail_lod0(&lod0, material, context, &mut scratch);
-        let (mut lod0, mut material, rivers, mut river_mesh, river_bed, river_mouths) = {
-            let _timer = StageTimer::new("rivers.final");
-            let mut rejected_waterfall_vertices = HashSet::new();
-            loop {
-                let mut attempt_lod0 = lod0.clone();
-                let mut attempt_material = material.clone();
-                let detail_adjacency = attempt_lod0.adjacency();
-                let mut final_rivers = RiverNetwork::generate(
-                    &mut attempt_lod0,
-                    &detail_adjacency,
-                    context.river_source_rule,
-                );
-                final_rivers.shape_with_settings_and_waterfall_rejections(
-                    &mut attempt_lod0,
-                    &detail_adjacency,
-                    &mut attempt_material,
-                    true,
-                    false,
-                    options.river_channel_settings(),
-                    &rejected_waterfall_vertices,
-                );
-                let (rivers, river_mesh, river_bed, river_mouths, failed_waterfalls) = final_rivers
-                    .into_parts_with_waterfall_failures(&mut attempt_lod0, &mut attempt_material);
-                let rejected_before = rejected_waterfall_vertices.len();
-                rejected_waterfall_vertices.extend(failed_waterfalls);
-                if rejected_waterfall_vertices.len() == rejected_before {
-                    break (
-                        attempt_lod0,
-                        attempt_material,
-                        rivers,
-                        river_mesh,
-                        river_bed,
-                        river_mouths,
-                    );
-                }
-            }
-        };
+        let FinalRiverGeneration {
+            mut lod0,
+            mut material,
+            rivers,
+            mut river_mesh,
+            river_bed,
+            river_mouths,
+            debug_geometry: river_debug_geometry,
+        } = generate_final_rivers(
+            &lod0,
+            &material,
+            context.river_source_rule,
+            options.river_channel_settings(),
+        );
         let lod0_index = {
             let _timer = StageTimer::new("lod.correct");
             correct_lods(&mut lod0, &mut lod1, &mut lod2)
@@ -1347,6 +1379,12 @@ impl Island {
         bury_river_banks(&mut river_mesh, &lod0, &lod0_index);
         river_mesh = river_mesh.clipped_above(0.0);
         encode_bank_distance_in_uv(&mut river_mesh);
+        let RiverDebugGeometry {
+            river_bed: river_bed_debug_mesh,
+            waterfall_face_terrain: waterfall_face_terrain_debug_mesh,
+            waterfall_foot_planes: waterfall_plane_debug_mesh,
+            waterfall_lip_planes: waterfall_lip_plane_debug_mesh,
+        } = river_debug_geometry;
         let forced_rock = sharp_rock_mask(&lod0);
         let provisional_material =
             TerrainMaterialField::from_surface(&material, &river_bed, &forced_rock);
@@ -1373,6 +1411,10 @@ impl Island {
             rivers,
             river_mouths,
             river_mesh,
+            river_bed_debug_mesh,
+            waterfall_face_terrain_debug_mesh,
+            waterfall_plane_debug_mesh,
+            waterfall_lip_plane_debug_mesh,
             decorations: OnceLock::from(decorations),
         })
     }
@@ -1411,6 +1453,26 @@ impl Island {
     #[must_use]
     pub const fn river_mesh(&self) -> &Mesh {
         &self.river_mesh
+    }
+
+    #[must_use]
+    pub const fn river_bed_debug_mesh(&self) -> &Mesh {
+        &self.river_bed_debug_mesh
+    }
+
+    #[must_use]
+    pub const fn waterfall_face_terrain_debug_mesh(&self) -> &Mesh {
+        &self.waterfall_face_terrain_debug_mesh
+    }
+
+    #[must_use]
+    pub const fn waterfall_plane_debug_mesh(&self) -> &Mesh {
+        &self.waterfall_plane_debug_mesh
+    }
+
+    #[must_use]
+    pub const fn waterfall_lip_plane_debug_mesh(&self) -> &Mesh {
+        &self.waterfall_lip_plane_debug_mesh
     }
 
     /// Derives sparse rough-water locations from the authoritative unsliced

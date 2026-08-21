@@ -720,7 +720,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         }
     }
 
-    private static Mesh CreateEdgeMesh(Mesh source)
+    internal static Mesh CreateEdgeMesh(Mesh source)
     {
         var triangles = source.GetIndices(0);
         var uniqueEdges = new HashSet<ulong>(triangles.Length);

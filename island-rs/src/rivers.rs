@@ -57,6 +57,8 @@ const WATERFALL_REFINEMENT_PASSES: usize = 1;
 const WATERFALL_TARGET_EDGE_LENGTH: f32 = 1.25 / ISLAND_WORLD_METRES;
 const WATERFALL_EDGE_SMOOTHING_PASSES: usize = 6;
 const WATERFALL_EDGE_SMOOTHING: f32 = 0.5;
+const WATERFALL_EDGE_BLEND_RUN: f32 = 2.0 * WATERFALL_TARGET_EDGE_LENGTH;
+const WATERFALL_DEBUG_PLANE_MARGIN: f32 = 2.0 / ISLAND_WORLD_METRES;
 const WATERFALL_SUPPORT_RUN: f32 = 0.75 / ISLAND_WORLD_METRES;
 const WATERFALL_APRON_WIDTH_MULTIPLIER: f32 = 1.75;
 const WATERFALL_LANDING_LENGTH_MULTIPLIER: f32 = 1.5;
@@ -349,8 +351,16 @@ impl RiverNetwork {
         mut self,
         mesh: &mut Mesh,
         material: &mut SurfaceMaterial,
-    ) -> (Vec<River>, Mesh, Vec<bool>, Vec<RiverMouth>, Vec<usize>) {
-        let (river_mesh, river_bed, failed_waterfalls) = self.build_mesh_with_mask(mesh, material);
+    ) -> (
+        Vec<River>,
+        Mesh,
+        Vec<bool>,
+        Vec<RiverMouth>,
+        Vec<usize>,
+        RiverDebugGeometry,
+    ) {
+        let (river_mesh, river_bed, failed_waterfalls, debug_geometry) =
+            self.build_mesh_with_mask(mesh, material);
         mesh.calculate_normals();
         self.refresh(mesh);
         let mouths = self.river_mouths();
@@ -360,6 +370,7 @@ impl RiverNetwork {
             river_bed,
             mouths,
             failed_waterfalls,
+            debug_geometry,
         )
     }
 
@@ -770,12 +781,13 @@ impl RiverNetwork {
         &self,
         terrain: &mut Mesh,
         material: &mut SurfaceMaterial,
-    ) -> (Mesh, Vec<bool>, Vec<usize>) {
+    ) -> (Mesh, Vec<bool>, Vec<usize>, RiverDebugGeometry) {
         let footprint = build_river_footprint(self, terrain, &terrain.adjacency(), true);
         let mut coverage = footprint.coverage;
         let RiverMeshAttributes {
             mut surfaces,
             uv: mut river_uv,
+            mut owners,
             mut waterfall_lips,
             mut target_half_widths,
             mut target_depths,
@@ -786,6 +798,7 @@ impl RiverNetwork {
             &mut coverage,
             &mut surfaces,
             &mut river_uv,
+            &mut owners,
             &mut waterfall_lips,
             &mut target_half_widths,
             &mut target_depths,
@@ -804,6 +817,7 @@ impl RiverNetwork {
             &mut coverage,
             &mut surfaces,
             &mut river_uv,
+            &mut owners,
             &mut waterfall_lips,
             &mut target_half_widths,
             &mut target_depths,
@@ -816,6 +830,7 @@ impl RiverNetwork {
             &mut coverage,
             &mut surfaces,
             &mut river_uv,
+            &mut owners,
             &mut waterfall_lips,
             &mut target_half_widths,
             &mut target_depths,
@@ -864,10 +879,19 @@ impl RiverNetwork {
         );
         enforce_sea_plane_clearance(terrain, &self.ocean);
         smooth_final_waterfall_patches(terrain, &mut surfaces, &waterfall_patches, &coverage);
+        enforce_final_waterfall_edge_relationships(
+            terrain,
+            &mut surfaces,
+            &waterfall_patches,
+            &coverage,
+            &owners,
+            &mut waterfall_constraints,
+        );
         rebuild_final_waterfall_support_mask(
             terrain,
             &waterfall_patches,
             &coverage,
+            &owners,
             &mut waterfall_constraints,
         );
         let failed_waterfalls = if ENABLE_FINAL_WATERFALL_REJECTION {
@@ -875,14 +899,34 @@ impl RiverNetwork {
         } else {
             Vec::new()
         };
-        let (river_mesh, river_bed) = finalize_river_geometry(
+        let (river_mesh, river_bed, river_bed_mesh) = finalize_river_geometry(
             terrain,
             &coverage,
             &surfaces,
             &river_uv,
             &waterfall_constraints,
         );
-        (river_mesh, river_bed, failed_waterfalls)
+        let waterfall_face_terrain =
+            build_waterfall_face_terrain_debug_mesh(terrain, &waterfall_constraints.patch);
+        let waterfall_foot_planes =
+            build_waterfall_debug_plane_mesh(terrain, &waterfall_patches, &coverage, 0.0);
+        let waterfall_lip_planes = build_waterfall_debug_plane_mesh(
+            terrain,
+            &waterfall_patches,
+            &coverage,
+            -WaterfallPatch::face_run(),
+        );
+        (
+            river_mesh,
+            river_bed,
+            failed_waterfalls,
+            RiverDebugGeometry {
+                river_bed: river_bed_mesh,
+                waterfall_face_terrain,
+                waterfall_foot_planes,
+                waterfall_lip_planes,
+            },
+        )
     }
 
     fn refresh(&mut self, mesh: &Mesh) {
@@ -1222,17 +1266,160 @@ fn finalize_river_geometry(
     surfaces: &[f32],
     river_uv: &[Vec2],
     waterfall_constraints: &WaterfallTerrainConstraints,
-) -> (Mesh, Vec<bool>) {
+) -> (Mesh, Vec<bool>, Mesh) {
     // Keep the tessellated river topology fixed after carving and smoothing.
     // Flipping an edge here can connect vertices from opposite sides of the
     // settled channel profile, creating sharp bed ridges or accidental dams.
     terrain.calculate_normals();
     let river_bed = river_topology_masks(terrain, coverage).0;
+    let river_bed_mesh = duplicate_river_bed_topology(terrain, coverage);
     let mut river_mesh =
         duplicate_river_topology(terrain, coverage, surfaces, river_uv, waterfall_constraints)
             .clipped_above(0.0);
     encode_bank_distance_in_uv(&mut river_mesh);
-    (river_mesh, river_bed)
+    (river_mesh, river_bed, river_bed_mesh)
+}
+
+fn duplicate_river_bed_topology(terrain: &Mesh, coverage: &[u8]) -> Mesh {
+    let mut mapping = vec![u32::MAX; terrain.vertices.len()];
+    let mut output = Mesh::default();
+
+    for triangle in terrain.triangles.chunks_exact(3) {
+        if !is_river_bed_triangle(triangle, coverage) {
+            continue;
+        }
+        for &source in triangle {
+            let source = source as usize;
+            let mapped = if mapping[source] == u32::MAX {
+                let mapped = output.vertices.len() as u32;
+                mapping[source] = mapped;
+                output.vertices.push(terrain.vertices[source]);
+                output.normals.push(terrain.normals[source]);
+                output.uv.push(
+                    terrain
+                        .uv
+                        .get(source)
+                        .copied()
+                        .unwrap_or_else(|| terrain.vertices[source].truncate()),
+                );
+                mapped
+            } else {
+                mapping[source]
+            };
+            output.triangles.push(mapped);
+        }
+    }
+    output
+}
+
+fn build_waterfall_face_terrain_debug_mesh(terrain: &Mesh, face_vertices: &[bool]) -> Mesh {
+    debug_assert_eq!(terrain.vertices.len(), face_vertices.len());
+    let mut mapping = vec![u32::MAX; terrain.vertices.len()];
+    let mut output = Mesh::default();
+
+    for triangle in terrain.triangles.chunks_exact(3) {
+        if !triangle
+            .iter()
+            .any(|&vertex| face_vertices[vertex as usize])
+        {
+            continue;
+        }
+
+        for &source in triangle {
+            let source = source as usize;
+            let mapped = if mapping[source] == u32::MAX {
+                let mapped = output.vertices.len() as u32;
+                mapping[source] = mapped;
+                output.vertices.push(terrain.vertices[source]);
+                output.uv.push(
+                    terrain
+                        .uv
+                        .get(source)
+                        .copied()
+                        .unwrap_or_else(|| terrain.vertices[source].truncate()),
+                );
+                mapped
+            } else {
+                mapping[source]
+            };
+            output.triangles.push(mapped);
+        }
+    }
+    output.calculate_normals();
+    output
+}
+
+fn build_waterfall_debug_plane_mesh(
+    terrain: &Mesh,
+    patches: &[WaterfallPatch],
+    coverage: &[u8],
+    along: f32,
+) -> Mesh {
+    if patches.is_empty() {
+        return Mesh::default();
+    }
+
+    let adjacency = terrain.adjacency();
+    let perimeter = terrain.perimeter_mask();
+    let banks = waterfall_bank_mask(&adjacency, &perimeter, coverage);
+    let mut output = Mesh::default();
+
+    for &patch in patches {
+        let selected =
+            waterfall_side_bank_apron_for_patch(terrain, patch, coverage, &adjacency, &banks);
+        let mut lateral_extent = patch.half_width * 1.25;
+        let mut minimum_height = patch.lower_floor.min(patch.lower_surface);
+        let mut maximum_height = patch.upper_surface;
+        for (position, &is_selected) in terrain.vertices.iter().zip(&selected) {
+            if !is_selected {
+                continue;
+            }
+            let (_, lateral) = patch.local_coordinates(position.truncate());
+            lateral_extent = lateral_extent.max(lateral.abs());
+            minimum_height = minimum_height.min(position.z);
+            maximum_height = maximum_height.max(position.z);
+        }
+        lateral_extent += WATERFALL_DEBUG_PLANE_MARGIN;
+        minimum_height -= WATERFALL_DEBUG_PLANE_MARGIN;
+        maximum_height += WATERFALL_DEBUG_PLANE_MARGIN;
+
+        append_waterfall_debug_plane(
+            &mut output,
+            patch,
+            along,
+            lateral_extent,
+            minimum_height,
+            maximum_height,
+        );
+    }
+    output.calculate_normals();
+    output
+}
+
+fn append_waterfall_debug_plane(
+    output: &mut Mesh,
+    patch: WaterfallPatch,
+    along: f32,
+    lateral_extent: f32,
+    minimum_height: f32,
+    maximum_height: f32,
+) {
+    let base = output.vertices.len() as u32;
+    output.vertices.extend([
+        patch.face_plane_point(along, -lateral_extent, minimum_height),
+        patch.face_plane_point(along, lateral_extent, minimum_height),
+        patch.face_plane_point(along, -lateral_extent, maximum_height),
+        patch.face_plane_point(along, lateral_extent, maximum_height),
+    ]);
+    output.uv.extend([
+        Vec2::new(0.0, 0.0),
+        Vec2::new(1.0, 0.0),
+        Vec2::new(0.0, 1.0),
+        Vec2::new(1.0, 1.0),
+    ]);
+    output
+        .triangles
+        .extend([base, base + 2, base + 1, base + 1, base + 2, base + 3]);
 }
 
 fn enforce_sea_plane_clearance(terrain: &mut Mesh, ocean: &[bool]) {
@@ -1495,6 +1682,7 @@ fn refine_river_corridor_mesh(
     coverage: &mut Vec<u8>,
     surfaces: &mut Vec<f32>,
     river_uv: &mut Vec<Vec2>,
+    owners: &mut Vec<Option<RiverOwnerKey>>,
     waterfall_lips: &mut Vec<bool>,
     target_half_widths: &mut Vec<f32>,
     target_depths: &mut Vec<f32>,
@@ -1542,6 +1730,7 @@ fn refine_river_corridor_mesh(
             coverage,
             surfaces,
             river_uv,
+            owners,
             waterfall_lips,
             target_half_widths,
             target_depths,
@@ -1595,6 +1784,7 @@ fn extend_river_attributes_after_tessellation(
     coverage: &mut Vec<u8>,
     surfaces: &mut Vec<f32>,
     river_uv: &mut Vec<Vec2>,
+    owners: &mut Vec<Option<RiverOwnerKey>>,
     waterfall_lips: &mut Vec<bool>,
     target_half_widths: &mut Vec<f32>,
     target_depths: &mut Vec<f32>,
@@ -1602,6 +1792,7 @@ fn extend_river_attributes_after_tessellation(
     coverage.reserve(stencils.len());
     surfaces.reserve(stencils.len());
     river_uv.reserve(stencils.len());
+    owners.reserve(stencils.len());
     waterfall_lips.reserve(stencils.len());
     target_half_widths.reserve(stencils.len());
     target_depths.reserve(stencils.len());
@@ -1612,6 +1803,7 @@ fn extend_river_attributes_after_tessellation(
             stencil.surrounding[1] as usize,
         ];
         let selected = coverage[a] != 0 && coverage[b] != 0;
+        let owner = interpolated_river_owner(owners, surfaces, a, b, selected);
         coverage.push(if selected {
             coverage[a].min(coverage[b]) & !RIVER_BOUNDARY
         } else {
@@ -1627,6 +1819,7 @@ fn extend_river_attributes_after_tessellation(
         } else {
             Vec2::ZERO
         });
+        owners.push(owner);
         waterfall_lips.push(selected && waterfall_lips[a] && waterfall_lips[b]);
         target_half_widths.push(target_half_widths[a].max(target_half_widths[b]));
         target_depths.push(if selected {
@@ -1634,6 +1827,28 @@ fn extend_river_attributes_after_tessellation(
         } else {
             0.0
         });
+    }
+}
+
+fn interpolated_river_owner(
+    owners: &[Option<RiverOwnerKey>],
+    surfaces: &[f32],
+    a: usize,
+    b: usize,
+    selected: bool,
+) -> Option<RiverOwnerKey> {
+    if !selected {
+        return None;
+    }
+    match (owners[a], owners[b]) {
+        (same @ Some(_), other) if same == other => same,
+        (Some(left), Some(right)) => match surfaces[a].total_cmp(&surfaces[b]) {
+            std::cmp::Ordering::Less => Some(left),
+            std::cmp::Ordering::Greater => Some(right),
+            std::cmp::Ordering::Equal => Some(left.min(right)),
+        },
+        (owner @ Some(_), None) | (None, owner @ Some(_)) => owner,
+        (None, None) => None,
     }
 }
 
@@ -1800,6 +2015,7 @@ fn repair_sharp_terrain_points(
     coverage: &mut Vec<u8>,
     surfaces: &mut Vec<f32>,
     river_uv: &mut Vec<Vec2>,
+    owners: &mut Vec<Option<RiverOwnerKey>>,
     waterfall_lips: &mut Vec<bool>,
     target_half_widths: &mut Vec<f32>,
     target_depths: &mut Vec<f32>,
@@ -1820,6 +2036,7 @@ fn repair_sharp_terrain_points(
     coverage.reserve(stencils.len());
     surfaces.reserve(stencils.len());
     river_uv.reserve(stencils.len());
+    owners.reserve(stencils.len());
     waterfall_lips.reserve(stencils.len());
     target_half_widths.reserve(stencils.len());
     target_depths.reserve(stencils.len());
@@ -1830,6 +2047,7 @@ fn repair_sharp_terrain_points(
         ];
         let count = usize::from(stencil.count);
         let selected = coverage[a] != 0 && coverage[b] != 0;
+        let owner = interpolated_river_owner(owners, surfaces, a, b, selected);
         patch.push(
             stencil.surrounding[..count]
                 .iter()
@@ -1850,6 +2068,7 @@ fn repair_sharp_terrain_points(
         } else {
             Vec2::ZERO
         });
+        owners.push(owner);
         waterfall_lips.push(selected && waterfall_lips[a] && waterfall_lips[b]);
         target_half_widths.push(target_half_widths[a].max(target_half_widths[b]));
         target_depths.push(if selected {
@@ -1995,6 +2214,7 @@ struct RiverOwnerKey {
 struct RiverChannelFootprintOwner {
     key: RiverOwnerKey,
     surface: f32,
+    floor_override: Option<f32>,
     flow_origin: Vec2,
     flow_direction: Vec2,
     distance_along: f32,
@@ -2007,6 +2227,7 @@ struct RiverChannelFootprintOwner {
 struct RiverMeshAttributes {
     surfaces: Vec<f32>,
     uv: Vec<Vec2>,
+    owners: Vec<Option<RiverOwnerKey>>,
     waterfall_lips: Vec<bool>,
     target_half_widths: Vec<f32>,
     target_depths: Vec<f32>,
@@ -2019,6 +2240,7 @@ fn river_mesh_attributes(
     let mut attributes = RiverMeshAttributes {
         surfaces: Vec::with_capacity(owners.len()),
         uv: Vec::with_capacity(owners.len()),
+        owners: Vec::with_capacity(owners.len()),
         waterfall_lips: Vec::with_capacity(owners.len()),
         target_half_widths: Vec::with_capacity(owners.len()),
         target_depths: Vec::with_capacity(owners.len()),
@@ -2027,6 +2249,7 @@ fn river_mesh_attributes(
         let Some(owner) = owner else {
             attributes.surfaces.push(0.0);
             attributes.uv.push(Vec2::ZERO);
+            attributes.owners.push(None);
             attributes.waterfall_lips.push(false);
             attributes.target_half_widths.push(0.0);
             attributes.target_depths.push(0.0);
@@ -2035,6 +2258,7 @@ fn river_mesh_attributes(
         let offset = terrain.vertices[vertex].truncate() - owner.flow_origin;
         let across = Vec2::new(-owner.flow_direction.y, owner.flow_direction.x);
         attributes.surfaces.push(owner.surface);
+        attributes.owners.push(Some(owner.key));
         attributes.uv.push(Vec2::new(
             offset.dot(across),
             owner.distance_along + offset.dot(owner.flow_direction),
@@ -2053,6 +2277,14 @@ struct RiverFootprint {
     owner: Vec<Option<RiverChannelFootprintOwner>>,
 }
 
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct RiverDebugGeometry {
+    pub(crate) river_bed: Mesh,
+    pub(crate) waterfall_face_terrain: Mesh,
+    pub(crate) waterfall_foot_planes: Mesh,
+    pub(crate) waterfall_lip_planes: Mesh,
+}
+
 #[derive(Clone, Copy, Debug)]
 struct PlungePool {
     centre: Vec2,
@@ -2063,6 +2295,8 @@ struct PlungePool {
 
 #[derive(Clone, Copy, Debug)]
 struct WaterfallPatch {
+    river: u32,
+    segment: u32,
     upper_vertex: usize,
     upper_centre: Vec2,
     direction: Vec2,
@@ -2084,10 +2318,53 @@ struct WaterfallTerrainConstraints {
     terrain_ceiling: Vec<f32>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum WaterfallPlaneZone {
+    BeforeLip,
+    Face,
+    AfterFoot,
+}
+
 impl WaterfallPatch {
+    fn face_run() -> f32 {
+        2.0 * WATERFALL_TARGET_EDGE_LENGTH
+    }
+
+    fn signed_distance_to_face_plane(self, point: Vec2) -> f32 {
+        (point - self.upper_centre).dot(self.direction)
+    }
+
+    fn plane_zone(self, point: Vec2) -> WaterfallPlaneZone {
+        let along = self.signed_distance_to_face_plane(point);
+        if along < -Self::face_run() - f32::EPSILON {
+            WaterfallPlaneZone::BeforeLip
+        } else if along > f32::EPSILON {
+            WaterfallPlaneZone::AfterFoot
+        } else {
+            WaterfallPlaneZone::Face
+        }
+    }
+
+    fn edge_normal_blend(self, point: Vec2) -> f32 {
+        let along = self.signed_distance_to_face_plane(point);
+        match self.plane_zone(point) {
+            WaterfallPlaneZone::BeforeLip => (-Self::face_run() - along) / WATERFALL_EDGE_BLEND_RUN,
+            WaterfallPlaneZone::Face => 0.0,
+            WaterfallPlaneZone::AfterFoot => 1.0,
+        }
+        .clamp(0.0, 1.0)
+    }
+
     fn local_coordinates(self, point: Vec2) -> (f32, f32) {
         let offset = point - self.upper_centre;
-        (offset.dot(self.direction), offset.dot(self.across))
+        (
+            self.signed_distance_to_face_plane(point),
+            offset.dot(self.across),
+        )
+    }
+
+    fn face_plane_point(self, along: f32, lateral: f32, height: f32) -> Vec3 {
+        (self.upper_centre + self.direction * along + self.across * lateral).extend(height)
     }
 
     fn downstream_extent(self) -> f32 {
@@ -2113,7 +2390,7 @@ impl WaterfallPatch {
 
     fn contains_face_point(self, point: Vec2) -> bool {
         let (along, lateral) = self.local_coordinates(point);
-        (-2.0 * WATERFALL_TARGET_EDGE_LENGTH..=f32::EPSILON).contains(&along)
+        (-Self::face_run()..=f32::EPSILON).contains(&along)
             && lateral.abs() <= self.half_width * 1.25
     }
 
@@ -2125,6 +2402,11 @@ impl WaterfallPatch {
     fn contains_face_flow_band(self, point: Vec2) -> bool {
         let (along, _) = self.local_coordinates(point);
         (-3.0 * WATERFALL_TARGET_EDGE_LENGTH..=WATERFALL_TARGET_EDGE_LENGTH).contains(&along)
+    }
+
+    fn contains_side_constraint_band(self, point: Vec2) -> bool {
+        let (along, _) = self.local_coordinates(point);
+        (-3.0 * WATERFALL_TARGET_EDGE_LENGTH..=self.downstream_extent()).contains(&along)
     }
 
     fn contains_downstream_point(self, point: Vec2) -> bool {
@@ -2158,7 +2440,7 @@ impl WaterfallPatch {
         if along > f32::EPSILON {
             return None;
         }
-        let face_run = 2.0 * WATERFALL_TARGET_EDGE_LENGTH;
+        let face_run = Self::face_run();
         let progress = smoothstep((along + face_run) / face_run);
         Some((self.lower_surface - self.upper_surface).mul_add(progress, self.upper_surface))
     }
@@ -2272,6 +2554,8 @@ fn derive_waterfall_patches(network: &RiverNetwork, terrain: &Mesh) -> Vec<Water
                 })
             });
             patches.push(WaterfallPatch {
+                river: river_index as u32,
+                segment: segment as u32,
                 upper_vertex: upper.vertex,
                 upper_centre,
                 direction,
@@ -2296,6 +2580,7 @@ fn refine_waterfall_terrain(
     coverage: &mut Vec<u8>,
     surfaces: &mut Vec<f32>,
     river_uv: &mut Vec<Vec2>,
+    owners: &mut Vec<Option<RiverOwnerKey>>,
     waterfall_lips: &mut Vec<bool>,
     target_half_widths: &mut Vec<f32>,
     target_depths: &mut Vec<f32>,
@@ -2340,6 +2625,7 @@ fn refine_waterfall_terrain(
             coverage,
             surfaces,
             river_uv,
+            owners,
             waterfall_lips,
             target_half_widths,
             target_depths,
@@ -2353,6 +2639,7 @@ fn refine_waterfall_terrain(
         coverage,
         surfaces,
         river_uv,
+        owners,
         waterfall_lips,
         target_half_widths,
         target_depths,
@@ -2377,6 +2664,7 @@ fn tessellate_final_waterfall_faces(
     coverage: &mut Vec<u8>,
     surfaces: &mut Vec<f32>,
     river_uv: &mut Vec<Vec2>,
+    owners: &mut Vec<Option<RiverOwnerKey>>,
     waterfall_lips: &mut Vec<bool>,
     target_half_widths: &mut Vec<f32>,
     target_depths: &mut Vec<f32>,
@@ -2430,6 +2718,7 @@ fn tessellate_final_waterfall_faces(
         coverage,
         surfaces,
         river_uv,
+        owners,
         waterfall_lips,
         target_half_widths,
         target_depths,
@@ -2645,8 +2934,12 @@ fn smooth_final_waterfall_patches(
         snapshot.copy_from_slice(&terrain.vertices);
     }
 
-    for (vertex, (&is_selected, &remaining)) in selected.iter().zip(coverage).enumerate() {
-        if is_selected && remaining != 0 {
+    let banks = waterfall_bank_mask(&adjacency, &perimeter, coverage);
+    let zones = classify_waterfall_vertices(terrain, patches, coverage, &adjacency, &banks);
+    for (vertex, (&remaining, zone)) in coverage.iter().zip(zones).enumerate() {
+        if remaining != 0
+            && zone.is_some_and(|classification| classification.zone == WaterfallPlaneZone::Face)
+        {
             surfaces[vertex] = terrain.vertices[vertex].z + WATERFALL_WATER_CLEARANCE;
         }
     }
@@ -2661,35 +2954,359 @@ fn smooth_final_waterfall_patches(
     moved.into_iter().filter(|&was_moved| was_moved).count()
 }
 
-/// Rebuilds the waterfall support classification after the final free terrain
-/// smoothing pass. Every covered vertex adjusted by that pass is pinned to its
-/// terrain support; the uncovered apron remains terrain-only. The original
-/// mask was derived before vertices moved, so it cannot safely determine which
-/// finalized water vertices form the fall.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct WaterfallVertexPlaneZone {
+    patch: usize,
+    zone: WaterfallPlaneZone,
+}
+
+fn classify_waterfall_vertices(
+    terrain: &Mesh,
+    patches: &[WaterfallPatch],
+    coverage: &[u8],
+    adjacency: &Adjacency,
+    banks: &[bool],
+) -> Vec<Option<WaterfallVertexPlaneZone>> {
+    let mut zones = vec![None::<WaterfallVertexPlaneZone>; terrain.vertices.len()];
+    for (patch_index, &patch) in patches.iter().enumerate() {
+        let selected =
+            waterfall_side_bank_apron_for_patch(terrain, patch, coverage, adjacency, banks);
+        for (vertex, &is_selected) in selected.iter().enumerate() {
+            if !is_selected {
+                continue;
+            }
+            let candidate = WaterfallVertexPlaneZone {
+                patch: patch_index,
+                zone: patch.plane_zone(terrain.vertices[vertex].truncate()),
+            };
+            let replace = zones[vertex].is_none_or(|current| {
+                candidate.zone == WaterfallPlaneZone::Face
+                    && current.zone != WaterfallPlaneZone::Face
+            });
+            if replace {
+                zones[vertex] = Some(candidate);
+            }
+        }
+    }
+    zones
+}
+
+/// Reconciles the river edge against the two exact waterfall planes. Water
+/// edge vertices between (or touching) the lip and foot planes follow their
+/// terrain support. Outside that interval the relationship is inverted: low
+/// terrain edge vertices are lifted to the hydraulic surface, preventing a
+/// second fall from forming immediately before or after the intended face.
+fn enforce_final_waterfall_edge_relationships(
+    terrain: &mut Mesh,
+    surfaces: &mut [f32],
+    patches: &[WaterfallPatch],
+    coverage: &[u8],
+    owners: &[Option<RiverOwnerKey>],
+    constraints: &mut WaterfallTerrainConstraints,
+) -> usize {
+    debug_assert_eq!(terrain.vertices.len(), surfaces.len());
+    debug_assert_eq!(terrain.vertices.len(), coverage.len());
+    debug_assert_eq!(terrain.vertices.len(), owners.len());
+    if patches.is_empty() {
+        return 0;
+    }
+
+    let adjacency = terrain.adjacency();
+    let perimeter = terrain.perimeter_mask();
+    let banks = waterfall_bank_mask(&adjacency, &perimeter, coverage);
+    let zones = classify_waterfall_vertices(terrain, patches, coverage, &adjacency, &banks);
+    let levels =
+        final_waterfall_channel_levels(terrain, surfaces, patches, coverage, &banks, &zones);
+    let (mut adjusted, reaches) = enforce_waterfall_reach_surface_levels(
+        surfaces,
+        WaterfallReachEnvironment {
+            terrain,
+            patches,
+            levels: &levels,
+            coverage,
+            owners,
+        },
+    );
+    for (water_unclamped, &is_constrained_reach) in constraints
+        .water_unclamped
+        .iter_mut()
+        .zip(&reaches.constrained)
+    {
+        *water_unclamped |= is_constrained_reach;
+    }
+    for (vertex, (position, &ceiling)) in terrain
+        .vertices
+        .iter_mut()
+        .zip(&reaches.downstream_ceiling)
+        .enumerate()
+    {
+        if ceiling.is_finite() && position.z > ceiling {
+            let clamp = if banks[vertex] {
+                1.0 - reaches.normal_blend[vertex]
+            } else {
+                1.0
+            };
+            let target = (ceiling - position.z).mul_add(clamp, position.z);
+            if target.to_bits() != position.z.to_bits() {
+                position.z = target;
+                adjusted += 1;
+            }
+        }
+    }
+
+    for (vertex, zone) in zones.iter().copied().enumerate() {
+        if !banks[vertex] || coverage[vertex] == 0 {
+            continue;
+        }
+        match zone.map(|classification| classification.zone) {
+            Some(WaterfallPlaneZone::Face) => {
+                let target = terrain.vertices[vertex].z + WATERFALL_WATER_CLEARANCE;
+                if surfaces[vertex].to_bits() != target.to_bits() {
+                    surfaces[vertex] = target;
+                    adjusted += 1;
+                }
+            }
+            Some(WaterfallPlaneZone::BeforeLip | WaterfallPlaneZone::AfterFoot) | None
+                if reaches.constrained[vertex] =>
+            {
+                let hydraulic_surface = surfaces[vertex];
+                if !hydraulic_surface.is_finite() {
+                    continue;
+                }
+                let lift = reaches.normal_blend[vertex];
+                if terrain.vertices[vertex].z < hydraulic_surface {
+                    let target = (hydraulic_surface - terrain.vertices[vertex].z)
+                        .mul_add(lift, terrain.vertices[vertex].z);
+                    terrain.vertices[vertex].z = target;
+                    adjusted += 1;
+                }
+            }
+            Some(WaterfallPlaneZone::BeforeLip | WaterfallPlaneZone::AfterFoot) | None => {}
+        }
+    }
+
+    for vertex in 0..terrain.vertices.len() {
+        if coverage[vertex] == 0 || !reaches.constrained[vertex] {
+            continue;
+        }
+        let normal = reaches.normal_blend[vertex];
+        if normal >= 1.0 || !surfaces[vertex].is_finite() {
+            continue;
+        }
+        let hydraulic_surface = surfaces[vertex];
+        let hugging_surface = terrain.vertices[vertex].z + WATERFALL_WATER_CLEARANCE;
+        let target = (hydraulic_surface - hugging_surface).mul_add(normal, hugging_surface);
+        if surfaces[vertex].to_bits() != target.to_bits() {
+            surfaces[vertex] = target;
+            adjusted += 1;
+        }
+    }
+    adjusted
+}
+
+#[derive(Clone, Copy, Debug)]
+struct WaterfallChannelLevels {
+    lip: f32,
+    bottom: f32,
+}
+
+#[derive(Debug)]
+struct WaterfallReachConstraints {
+    constrained: Vec<bool>,
+    downstream_ceiling: Vec<f32>,
+    normal_blend: Vec<f32>,
+}
+
+#[derive(Clone, Copy)]
+struct WaterfallReachEnvironment<'a> {
+    terrain: &'a Mesh,
+    patches: &'a [WaterfallPatch],
+    levels: &'a [WaterfallChannelLevels],
+    coverage: &'a [u8],
+    owners: &'a [Option<RiverOwnerKey>],
+}
+
+fn final_waterfall_channel_levels(
+    terrain: &Mesh,
+    surfaces: &[f32],
+    patches: &[WaterfallPatch],
+    coverage: &[u8],
+    banks: &[bool],
+    zones: &[Option<WaterfallVertexPlaneZone>],
+) -> Vec<WaterfallChannelLevels> {
+    let mut levels = patches
+        .iter()
+        .map(|patch| WaterfallChannelLevels {
+            lip: patch.upper_surface,
+            bottom: patch.lower_surface,
+        })
+        .collect::<Vec<_>>();
+    let mut lip_scores = vec![f32::INFINITY; patches.len()];
+    let mut bottom_scores = vec![f32::INFINITY; patches.len()];
+
+    for (vertex, classification) in zones.iter().copied().enumerate() {
+        let Some(classification) = classification.filter(|classification| {
+            classification.zone == WaterfallPlaneZone::Face
+                && coverage[vertex] != 0
+                && !banks[vertex]
+                && surfaces[vertex].is_finite()
+        }) else {
+            continue;
+        };
+        let patch = patches[classification.patch];
+        let (along, lateral) = patch.local_coordinates(terrain.vertices[vertex].truncate());
+        let lip_score = (along + WaterfallPatch::face_run()).abs().hypot(lateral);
+        if lip_score < lip_scores[classification.patch] {
+            lip_scores[classification.patch] = lip_score;
+            levels[classification.patch].lip = surfaces[vertex];
+        }
+        let bottom_score = along.abs().hypot(lateral);
+        if bottom_score < bottom_scores[classification.patch] {
+            bottom_scores[classification.patch] = bottom_score;
+            levels[classification.patch].bottom = surfaces[vertex];
+        }
+    }
+    levels
+}
+
+fn enforce_waterfall_reach_surface_levels(
+    surfaces: &mut [f32],
+    environment: WaterfallReachEnvironment<'_>,
+) -> (usize, WaterfallReachConstraints) {
+    let WaterfallReachEnvironment {
+        terrain,
+        patches,
+        levels,
+        coverage,
+        owners,
+    } = environment;
+    debug_assert_eq!(patches.len(), levels.len());
+    let mut by_river = HashMap::<u32, Vec<usize>>::new();
+    for (patch_index, patch) in patches.iter().enumerate() {
+        by_river.entry(patch.river).or_default().push(patch_index);
+    }
+    for river_patches in by_river.values_mut() {
+        river_patches.sort_unstable_by_key(|&patch| patches[patch].segment);
+    }
+
+    let mut reaches = WaterfallReachConstraints {
+        constrained: vec![false; terrain.vertices.len()],
+        downstream_ceiling: vec![f32::INFINITY; terrain.vertices.len()],
+        normal_blend: vec![1.0; terrain.vertices.len()],
+    };
+    let mut adjusted = 0;
+    for vertex in 0..terrain.vertices.len() {
+        let Some(owner) = owners[vertex].filter(|_| coverage[vertex] != 0) else {
+            continue;
+        };
+        let Some(river_patches) = by_river.get(&owner.river) else {
+            continue;
+        };
+
+        let point = terrain.vertices[vertex].truncate();
+        let mut previous = None;
+        let mut next = None;
+        let mut on_face = false;
+        for &patch_index in river_patches {
+            let patch = patches[patch_index];
+            match patch.plane_zone(point) {
+                WaterfallPlaneZone::BeforeLip => {
+                    next = Some(patch_index);
+                    break;
+                }
+                WaterfallPlaneZone::Face => {
+                    on_face = true;
+                    break;
+                }
+                WaterfallPlaneZone::AfterFoot => previous = Some(patch_index),
+            }
+        }
+        if on_face || (previous.is_none() && next.is_none()) {
+            continue;
+        }
+
+        reaches.constrained[vertex] = true;
+        let mut normal_blend = 1.0_f32;
+        if let Some(previous) = previous {
+            reaches.downstream_ceiling[vertex] = levels[previous].bottom;
+            normal_blend = normal_blend.min(patches[previous].edge_normal_blend(point));
+        }
+        if let Some(next) = next {
+            normal_blend = normal_blend.min(patches[next].edge_normal_blend(point));
+        }
+        reaches.normal_blend[vertex] = normal_blend;
+        let mut target = surfaces[vertex];
+        if let Some(next) = next {
+            target = target.max(levels[next].lip);
+        }
+        if let Some(previous) = previous {
+            target = target.min(levels[previous].bottom);
+        }
+        if target.to_bits() != surfaces[vertex].to_bits() {
+            surfaces[vertex] = target;
+            adjusted += 1;
+        }
+    }
+    (adjusted, reaches)
+}
+
+fn waterfall_side_bank_apron_for_patch(
+    terrain: &Mesh,
+    patch: WaterfallPatch,
+    coverage: &[u8],
+    adjacency: &Adjacency,
+    banks: &[bool],
+) -> Vec<bool> {
+    let seeds = terrain
+        .vertices
+        .iter()
+        .zip(coverage)
+        .map(|(position, &remaining)| {
+            remaining != 0 && patch.contains_face_point(position.truncate())
+        })
+        .collect::<Vec<_>>();
+    let constraint_band = terrain
+        .vertices
+        .iter()
+        .map(|position| patch.contains_side_constraint_band(position.truncate()))
+        .collect::<Vec<_>>();
+    let eligible = coverage
+        .iter()
+        .zip(&constraint_band)
+        .map(|(&remaining, &inside_band)| remaining != 0 && inside_band)
+        .collect::<Vec<_>>();
+    expand_vertex_mask_to_banks(adjacency, &seeds, &eligible, &constraint_band, banks)
+}
+
+/// Rebuilds waterfall support from the final positions and the exact lip/foot
+/// planes. Only the middle zone is terrain-pinned; vertices before the lip or
+/// after the foot return to ordinary river-water handling.
 fn rebuild_final_waterfall_support_mask(
     terrain: &Mesh,
     patches: &[WaterfallPatch],
     coverage: &[u8],
+    owners: &[Option<RiverOwnerKey>],
     constraints: &mut WaterfallTerrainConstraints,
 ) -> usize {
     debug_assert_eq!(terrain.vertices.len(), coverage.len());
-    let adjacency = terrain.adjacency();
-    let perimeter = terrain.perimeter_mask();
-    let selected =
-        waterfall_face_bank_apron_mask(terrain, patches, coverage, &adjacency, &perimeter);
+    debug_assert_eq!(terrain.vertices.len(), owners.len());
 
     constraints.patch.fill(false);
     constraints.pinned.fill(false);
     constraints.support.fill(false);
     let mut supported = 0;
-    for (vertex, &is_selected) in selected.iter().enumerate() {
-        if !is_selected {
+    for vertex in 0..terrain.vertices.len() {
+        let Some(owner) = owners[vertex].filter(|_| coverage[vertex] != 0) else {
+            continue;
+        };
+        let point = terrain.vertices[vertex].truncate();
+        let is_face = patches.iter().any(|patch| {
+            patch.river == owner.river && patch.plane_zone(point) == WaterfallPlaneZone::Face
+        });
+        if !is_face {
             continue;
         }
         constraints.patch[vertex] = true;
-        if coverage[vertex] == 0 {
-            continue;
-        }
         constraints.pinned[vertex] = true;
         constraints.support[vertex] = true;
         constraints.water_unclamped[vertex] = false;
@@ -3019,17 +3636,8 @@ fn build_river_footprint(
                 distance_along += water_position.distance(previous);
             }
             previous_position = Some(water_position);
-            let section = network
-                .cross_sections
-                .get(river_index)
-                .and_then(|sections| sections.get(node_index))
-                .copied()
-                .unwrap_or_default();
-            let target_half_width = if section.target_half_width > 0.0 {
-                section.target_half_width
-            } else {
-                river_half_width(node.flow, network.max_flow, base_width)
-            };
+            let (target_half_width, target_depth) =
+                river_footprint_dimensions(network, river_index, node_index, base_width);
             let remaining = CHANNEL_FOOTPRINT_RINGS;
             let footprint_owner = RiverChannelFootprintOwner {
                 key: RiverOwnerKey {
@@ -3037,11 +3645,12 @@ fn build_river_footprint(
                     node: node_index as u32,
                 },
                 surface: node.surface,
+                floor_override: None,
                 flow_origin: water_position.truncate(),
                 flow_direction: river_node_flow_direction(terrain, &river.nodes, node_index),
                 distance_along,
                 target_half_width,
-                target_depth: section.required_depth.max(0.0),
+                target_depth,
                 ring_count: remaining,
                 waterfall_lip: waterfalls.get(node_index).copied().unwrap_or(false),
             };
@@ -3053,6 +3662,15 @@ fn build_river_footprint(
             });
         }
     }
+
+    seed_confluence_footprints(
+        network,
+        terrain,
+        adjacency,
+        visible_only,
+        base_width,
+        &mut frontiers[CHANNEL_FOOTPRINT_RINGS as usize],
+    );
 
     for remaining in (0..=CHANNEL_FOOTPRINT_RINGS).rev() {
         while let Some(candidate) = frontiers[remaining as usize].pop() {
@@ -3088,6 +3706,123 @@ fn build_river_footprint(
         coverage,
         ring_distance: owner_distance,
         owner,
+    }
+}
+
+fn river_footprint_dimensions(
+    network: &RiverNetwork,
+    river: usize,
+    node: usize,
+    base_width: f32,
+) -> (f32, f32) {
+    let river_node = network.rivers[river].nodes[node];
+    let section = network
+        .cross_sections
+        .get(river)
+        .and_then(|sections| sections.get(node))
+        .copied()
+        .unwrap_or_default();
+    let half_width = if section.target_half_width > 0.0 {
+        section.target_half_width
+    } else {
+        river_half_width(river_node.flow, network.max_flow, base_width)
+    };
+    (half_width, section.required_depth.max(0.0))
+}
+
+/// Extends a tributary's final one-ring footprint across the short topology
+/// gap used to detect its join. Without these seeds, the late connector carve
+/// cuts only a centreline through dry terrain and the separately shaped river
+/// ends form tall, folded faces around it.
+fn seed_confluence_footprints(
+    network: &RiverNetwork,
+    terrain: &Mesh,
+    adjacency: &Adjacency,
+    visible_only: bool,
+    base_width: f32,
+    frontier: &mut Vec<RiverMeshCandidate>,
+) {
+    for (river_index, river) in network.rivers.iter().enumerate() {
+        let Some(joined_river) = river.join else {
+            continue;
+        };
+        let Some(terminal_index) = river.nodes.len().checked_sub(1) else {
+            continue;
+        };
+        let terminal = river.nodes[terminal_index];
+        let Some(join_vertex) = network.join_vertices.get(river_index).copied().flatten() else {
+            continue;
+        };
+        let Some(join_index) = network.rivers[joined_river]
+            .nodes
+            .iter()
+            .position(|node| node.vertex == join_vertex)
+        else {
+            continue;
+        };
+        if visible_only
+            && (network.river_mesh_ends[river_index].is_some_and(|end| terminal_index > end)
+                || network.river_mesh_ends[joined_river].is_some_and(|end| join_index > end))
+        {
+            continue;
+        }
+        let path = confluence_connector(network, adjacency, terminal.vertex, join_vertex);
+        if path.len() < 3 {
+            continue;
+        }
+
+        let join_node = network.rivers[joined_river].nodes[join_index];
+        let (terminal_width, terminal_depth) =
+            river_footprint_dimensions(network, river_index, terminal_index, base_width);
+        let (join_width, join_depth) =
+            river_footprint_dimensions(network, joined_river, join_index, base_width);
+        let terminal_floor = terminal.surface - terminal_depth;
+        let join_floor = join_node.surface - join_depth;
+        let fallback_direction = (terrain.vertices[join_vertex].truncate()
+            - terrain.vertices[terminal.vertex].truncate())
+        .normalize_or_zero();
+        let mut distance_along = river.nodes.windows(2).fold(0.0, |distance, nodes| {
+            distance
+                + river_node_water_position(terrain, &nodes[0])
+                    .distance(river_node_water_position(terrain, &nodes[1]))
+        });
+        let final_step = path.len() - 1;
+        for step in 1..final_step {
+            let vertex = path[step];
+            distance_along += terrain.vertices[path[step - 1]]
+                .truncate()
+                .distance(terrain.vertices[vertex].truncate());
+            let progress = step as f32 / final_step as f32;
+            let previous = terrain.vertices[path[step - 1]].truncate();
+            let next = terrain.vertices[path[step + 1]].truncate();
+            let direction = (next - previous)
+                .try_normalize()
+                .unwrap_or(fallback_direction);
+            let surface =
+                (join_node.surface - terminal.surface).mul_add(progress, terminal.surface);
+            let floor = (join_floor - terminal_floor).mul_add(progress, terminal_floor);
+            let target_half_width = (join_width - terminal_width).mul_add(progress, terminal_width);
+            frontier.push(RiverMeshCandidate {
+                remaining: CHANNEL_FOOTPRINT_RINGS,
+                distance: 0,
+                vertex,
+                owner: RiverChannelFootprintOwner {
+                    key: RiverOwnerKey {
+                        river: river_index as u32,
+                        node: terminal_index as u32,
+                    },
+                    surface,
+                    floor_override: Some(floor),
+                    flow_origin: terrain.vertices[vertex].truncate(),
+                    flow_direction: direction,
+                    distance_along,
+                    target_half_width,
+                    target_depth: (surface - floor).max(0.0),
+                    ring_count: CHANNEL_FOOTPRINT_RINGS,
+                    waterfall_lip: false,
+                },
+            });
+        }
     }
 }
 
@@ -3351,6 +4086,9 @@ fn river_floor(
     owner: RiverChannelFootprintOwner,
     parameters: RiverChannelParameters,
 ) -> Option<f32> {
+    if let Some(floor) = owner.floor_override {
+        return Some(floor);
+    }
     let river = owner.key.river as usize;
     let node_index = owner.key.node as usize;
     river_node_floor(network, mesh, adjacency, river, node_index, parameters)
@@ -3843,13 +4581,7 @@ fn river_topology_masks(terrain: &Mesh, coverage: &[u8]) -> (Vec<bool>, Vec<bool
     let mut edges = Vec::with_capacity(selected_count.saturating_mul(6));
     let mut under_river = vec![false; terrain.vertices.len()];
     for triangle in terrain.triangles.chunks_exact(3) {
-        let selected = triangle
-            .iter()
-            .all(|&vertex| coverage[vertex as usize] != 0);
-        let boundary_only = triangle
-            .iter()
-            .all(|&vertex| is_river_boundary(coverage[vertex as usize]));
-        if !selected || boundary_only {
+        if !is_river_bed_triangle(triangle, coverage) {
             continue;
         }
         for &vertex in triangle {
@@ -3880,6 +4612,15 @@ fn river_topology_masks(terrain: &Mesh, coverage: &[u8]) -> (Vec<bool>, Vec<bool
         start = end;
     }
     (under_river, bank)
+}
+
+fn is_river_bed_triangle(triangle: &[u32], coverage: &[u8]) -> bool {
+    triangle
+        .iter()
+        .all(|&vertex| coverage[vertex as usize] != 0)
+        && !triangle
+            .iter()
+            .all(|&vertex| is_river_boundary(coverage[vertex as usize]))
 }
 
 fn duplicate_river_topology(
@@ -5557,6 +6298,8 @@ fn planned_waterfall_patch(
         .max(lower_section.achieved_width * 0.5)
         .max(WATERFALL_TARGET_EDGE_LENGTH);
     Some(WaterfallPatch {
+        river: 0,
+        segment: segment as u32,
         upper_vertex: upper.vertex,
         upper_centre: upper_position,
         direction,
@@ -6087,6 +6830,126 @@ mod tests {
     use super::*;
     use crate::Vec2;
 
+    #[test]
+    fn waterfall_debug_plane_is_one_quad_on_the_classification_plane() {
+        let patch = WaterfallPatch {
+            river: 0,
+            segment: 0,
+            upper_vertex: 0,
+            upper_centre: Vec2::new(0.4, 0.6),
+            direction: Vec2::X,
+            across: Vec2::Y,
+            upper_surface: 0.3,
+            lower_surface: 0.1,
+            lower_floor: 0.08,
+            half_width: 0.02,
+            support_run: 0.03,
+            pool: None,
+        };
+        let mut mesh = Mesh::default();
+        append_waterfall_debug_plane(&mut mesh, patch, 0.0, 0.05, 0.04, 0.34);
+
+        assert_eq!(mesh.vertices.len(), 4);
+        assert_eq!(mesh.triangles.len(), 6);
+        assert!(
+            mesh.vertices
+                .iter()
+                .all(
+                    |vertex| patch.signed_distance_to_face_plane(vertex.truncate()).abs() < 1.0e-6
+                )
+        );
+        assert!(mesh.vertices.iter().any(|vertex| {
+            ((vertex.truncate() - patch.upper_centre).dot(patch.across) + 0.05).abs() < 1.0e-6
+                && (vertex.z - 0.04).abs() < 1.0e-6
+        }));
+        assert!(mesh.vertices.iter().any(|vertex| {
+            ((vertex.truncate() - patch.upper_centre).dot(patch.across) - 0.05).abs() < 1.0e-6
+                && (vertex.z - 0.34).abs() < 1.0e-6
+        }));
+
+        let mut lip = Mesh::default();
+        append_waterfall_debug_plane(
+            &mut lip,
+            patch,
+            -WaterfallPatch::face_run(),
+            0.05,
+            0.04,
+            0.34,
+        );
+        assert!(lip.vertices.iter().all(|vertex| {
+            (patch.signed_distance_to_face_plane(vertex.truncate()) + WaterfallPatch::face_run())
+                .abs()
+                < 1.0e-6
+        }));
+        assert_eq!(
+            patch.plane_zone(patch.upper_centre - patch.direction * WaterfallPatch::face_run()),
+            WaterfallPlaneZone::Face
+        );
+        assert_eq!(
+            patch.plane_zone(patch.upper_centre),
+            WaterfallPlaneZone::Face
+        );
+        assert_eq!(
+            patch.plane_zone(
+                patch.upper_centre
+                    - patch.direction * (WaterfallPatch::face_run() + WATERFALL_TARGET_EDGE_LENGTH)
+            ),
+            WaterfallPlaneZone::BeforeLip
+        );
+        assert_eq!(
+            patch.plane_zone(patch.upper_centre + patch.direction * WATERFALL_TARGET_EDGE_LENGTH),
+            WaterfallPlaneZone::AfterFoot
+        );
+    }
+
+    #[test]
+    fn river_bed_debug_mesh_contains_only_selected_bed_triangles() {
+        let mut terrain = Mesh {
+            vertices: vec![
+                Vec3::new(0.0, 0.0, 0.0),
+                Vec3::new(1.0, 0.0, 0.0),
+                Vec3::new(0.0, 1.0, 0.0),
+                Vec3::new(1.0, 1.0, 0.0),
+            ],
+            triangles: vec![0, 1, 2, 1, 3, 2],
+            ..Mesh::default()
+        };
+        terrain.calculate_normals();
+        let debug_mesh = duplicate_river_bed_topology(&terrain, &[2, 2, 2, 0]);
+
+        assert_eq!(debug_mesh.vertices.len(), 3);
+        assert_eq!(debug_mesh.triangles, vec![0, 1, 2]);
+        assert_eq!(debug_mesh.normals.len(), debug_mesh.vertices.len());
+    }
+
+    #[test]
+    fn waterfall_face_terrain_debug_mesh_uses_final_face_vertex_mask() {
+        let run = WaterfallPatch::face_run();
+        let terrain = Mesh {
+            vertices: vec![
+                Vec3::new(-run * 2.0, -1.0, 0.4),
+                Vec3::new(run, -1.0, 0.1),
+                Vec3::new(run, 1.0, 0.1),
+                Vec3::new(-run * 2.0, 1.0, 0.4),
+            ],
+            triangles: vec![0, 1, 3, 3, 1, 2],
+            ..Mesh::default()
+        };
+        let debug_mesh =
+            build_waterfall_face_terrain_debug_mesh(&terrain, &[false, true, false, false]);
+
+        assert!(!debug_mesh.triangles.is_empty());
+        assert_eq!(debug_mesh.normals.len(), debug_mesh.vertices.len());
+        assert_eq!(debug_mesh.triangles.len(), terrain.triangles.len());
+        assert_eq!(debug_mesh.vertices.len(), terrain.vertices.len());
+        assert!(
+            terrain
+                .vertices
+                .iter()
+                .all(|vertex| debug_mesh.vertices.contains(vertex))
+        );
+    }
+
     fn build_test_river_mesh(
         network: &RiverNetwork,
         terrain: &mut Mesh,
@@ -6284,6 +7147,102 @@ mod tests {
             mesh.vertices[downstream_land].z.to_bits(),
             downstream_before.to_bits()
         );
+    }
+
+    #[test]
+    fn final_one_ring_footprint_bridges_an_early_confluence_gap() {
+        let points = (0..3)
+            .flat_map(|y| (0..=6).map(move |x| Vec2::new(x as f32, y as f32)))
+            .collect::<Vec<_>>();
+        let mut triangles = Vec::new();
+        for y in 0..2 {
+            for x in 0..6 {
+                let lower_left = (y * 7 + x) as u32;
+                let lower_right = lower_left + 1;
+                let upper_left = lower_left + 7;
+                let upper_right = upper_left + 1;
+                triangles.extend([
+                    lower_left,
+                    lower_right,
+                    upper_left,
+                    upper_left,
+                    lower_right,
+                    upper_right,
+                ]);
+            }
+        }
+        let mesh = Mesh {
+            vertices: points.iter().map(|point| point.extend(1.0)).collect(),
+            triangles,
+            ..Mesh::default()
+        };
+        let adjacency = mesh.adjacency();
+        let vertex_at = |x: f32, y: f32| {
+            mesh.vertices
+                .iter()
+                .position(|vertex| vertex.truncate() == Vec2::new(x, y))
+                .unwrap()
+        };
+        let join = vertex_at(5.0, 1.0);
+        let terminal = vertex_at(1.0, 1.0);
+        let node = |vertex, surface| RiverNode {
+            vertex,
+            flow: 1,
+            surface,
+            position: mesh.vertices[vertex],
+        };
+        let network = RiverNetwork {
+            rivers: vec![
+                River {
+                    nodes: vec![node(join, 0.4), node(vertex_at(6.0, 1.0), 0.3)],
+                    join: None,
+                },
+                River {
+                    nodes: vec![node(vertex_at(0.0, 1.0), 0.8), node(terminal, 0.4)],
+                    join: Some(0),
+                },
+            ],
+            join_vertices: vec![None, Some(join)],
+            waterfalls: vec![vec![false; 2]; 2],
+            river_mesh_ends: vec![None; 2],
+            max_flow: 1,
+            max_height: 1.0,
+            ocean: vec![false; mesh.vertices.len()],
+            perimeter: mesh.perimeter_mask(),
+            cross_sections: vec![
+                vec![
+                    RiverCrossSection {
+                        target_half_width: 0.4,
+                        required_depth: 0.2,
+                        ..RiverCrossSection::default()
+                    };
+                    2
+                ],
+                vec![
+                    RiverCrossSection {
+                        target_half_width: 0.3,
+                        required_depth: 0.1,
+                        ..RiverCrossSection::default()
+                    };
+                    2
+                ],
+            ],
+        };
+
+        let path = confluence_connector(&network, &adjacency, terminal, join);
+        assert!(path.len() > 3);
+        let footprint = build_river_footprint(&network, &mesh, &adjacency, true);
+
+        assert!(path.iter().all(|&vertex| footprint.coverage[vertex] != 0));
+        assert!(
+            path.iter()
+                .skip(1)
+                .take(path.len() - 2)
+                .all(|&vertex| footprint.ring_distance[vertex] == 0)
+        );
+        let middle = footprint.owner[path[path.len() / 2]].unwrap();
+        assert!(middle.floor_override.is_some());
+        assert!(middle.target_half_width > 0.3 && middle.target_half_width < 0.4);
     }
 
     #[test]
@@ -6708,6 +7667,7 @@ mod tests {
         let mut coverage = vec![0; original_vertex_count];
         let mut surfaces = vec![0.0; original_vertex_count];
         let mut river_uv = vec![Vec2::ZERO; original_vertex_count];
+        let mut owners = vec![None; original_vertex_count];
         let mut waterfall_lips = vec![false; original_vertex_count];
         let mut target_half_widths = vec![0.0; original_vertex_count];
         let mut target_depths = vec![0.0; original_vertex_count];
@@ -6718,6 +7678,7 @@ mod tests {
             &mut coverage,
             &mut surfaces,
             &mut river_uv,
+            &mut owners,
             &mut waterfall_lips,
             &mut target_half_widths,
             &mut target_depths,
@@ -6732,6 +7693,7 @@ mod tests {
         assert_eq!(coverage.len(), terrain.vertices.len());
         assert_eq!(surfaces.len(), terrain.vertices.len());
         assert_eq!(river_uv.len(), terrain.vertices.len());
+        assert_eq!(owners.len(), terrain.vertices.len());
         assert_eq!(waterfall_lips.len(), terrain.vertices.len());
         assert_eq!(target_half_widths.len(), terrain.vertices.len());
         assert_eq!(target_depths.len(), terrain.vertices.len());
@@ -6753,6 +7715,7 @@ mod tests {
         let mut coverage = vec![0; vertex_count];
         let mut surfaces = vec![0.0; vertex_count];
         let mut river_uv = vec![Vec2::ZERO; vertex_count];
+        let mut owners = vec![None; vertex_count];
         let mut waterfall_lips = vec![false; vertex_count];
         let mut target_half_widths = vec![0.0; vertex_count];
         let mut target_depths = vec![0.0; vertex_count];
@@ -6763,6 +7726,7 @@ mod tests {
             &mut coverage,
             &mut surfaces,
             &mut river_uv,
+            &mut owners,
             &mut waterfall_lips,
             &mut target_half_widths,
             &mut target_depths,
@@ -7453,6 +8417,8 @@ mod tests {
         coverage[support] = 2;
         surfaces[support] = 0.35;
         let patch = WaterfallPatch {
+            river: 0,
+            segment: 0,
             upper_vertex: lip,
             upper_centre: Vec2::new(0.25, 0.5),
             direction: Vec2::X,
@@ -7541,6 +8507,8 @@ mod tests {
     #[test]
     fn waterfall_face_is_flat_across_the_channel_and_smooth_along_flow() {
         let patch = WaterfallPatch {
+            river: 0,
+            segment: 0,
             upper_vertex: 0,
             upper_centre: Vec2::ZERO,
             direction: Vec2::X,
@@ -7611,6 +8579,8 @@ mod tests {
             .position(|position| position.truncate() == Vec2::ZERO)
             .unwrap();
         let patch = WaterfallPatch {
+            river: 0,
+            segment: 0,
             upper_vertex,
             upper_centre: Vec2::ZERO,
             direction: Vec2::X,
@@ -7625,6 +8595,7 @@ mod tests {
         let mut material = SurfaceMaterial::empty(terrain.vertices.len());
         let mut coverage = vec![2; terrain.vertices.len()];
         let mut surfaces = vec![0.8; terrain.vertices.len()];
+        let owners = vec![Some(RiverOwnerKey { river: 0, node: 0 }); terrain.vertices.len()];
         let mut waterfall_lips = vec![false; terrain.vertices.len()];
 
         let notch_owners =
@@ -7640,8 +8611,13 @@ mod tests {
         );
         constraints.support.fill(false);
         assert!(
-            rebuild_final_waterfall_support_mask(&terrain, &[patch], &coverage, &mut constraints,)
-                > 0
+            rebuild_final_waterfall_support_mask(
+                &terrain,
+                &[patch],
+                &coverage,
+                &owners,
+                &mut constraints,
+            ) > 0
         );
 
         for y in -2..=2 {
@@ -7719,6 +8695,8 @@ mod tests {
         };
         let vertex_at = |x: usize, y: usize| y * width + x;
         let patch = WaterfallPatch {
+            river: 0,
+            segment: 0,
             upper_vertex: vertex_at(4, 2),
             upper_centre: Vec2::ZERO,
             direction: Vec2::X,
@@ -7805,6 +8783,8 @@ mod tests {
         let apron = vertex_at(Vec2::new(-spacing, spacing * 2.0));
         let outside = vertex_at(Vec2::new(-spacing, spacing * 3.0));
         let patch = WaterfallPatch {
+            river: 0,
+            segment: 0,
             upper_vertex: vertex_at(Vec2::ZERO),
             upper_centre: Vec2::ZERO,
             direction: Vec2::X,
@@ -7828,6 +8808,10 @@ mod tests {
             .vertices
             .iter()
             .map(|position| position.z)
+            .collect::<Vec<_>>();
+        let owners = coverage
+            .iter()
+            .map(|&remaining| (remaining != 0).then_some(RiverOwnerKey { river: 0, node: 0 }))
             .collect::<Vec<_>>();
         let core_height = terrain.vertices[core].z;
         let bank_height = terrain.vertices[bank].z;
@@ -7913,7 +8897,13 @@ mod tests {
             water_unclamped: vec![false; terrain.vertices.len()],
             terrain_ceiling: vec![f32::INFINITY; terrain.vertices.len()],
         };
-        rebuild_final_waterfall_support_mask(&terrain, &[patch], &coverage, &mut constraints);
+        rebuild_final_waterfall_support_mask(
+            &terrain,
+            &[patch],
+            &coverage,
+            &owners,
+            &mut constraints,
+        );
 
         assert_eq!(terrain.vertices, smoothed_positions);
         assert!(constraints.patch[core]);
@@ -7943,6 +8933,305 @@ mod tests {
     }
 
     #[test]
+    fn final_waterfall_edges_switch_relationship_at_the_lip_and_foot_planes() {
+        let spacing = WATERFALL_TARGET_EDGE_LENGTH;
+        let points = (-3..=3)
+            .flat_map(|y| (-4..=4).map(move |x| Vec2::new(x as f32 * spacing, y as f32 * spacing)))
+            .collect::<Vec<_>>();
+        let mut triangles = Vec::new();
+        for y in 0..6 {
+            for x in 0..8 {
+                let lower_left = (y * 9 + x) as u32;
+                let lower_right = lower_left + 1;
+                let upper_left = lower_left + 9;
+                let upper_right = upper_left + 1;
+                triangles.extend([
+                    lower_left,
+                    lower_right,
+                    upper_left,
+                    upper_left,
+                    lower_right,
+                    upper_right,
+                ]);
+            }
+        }
+        let mut terrain = Mesh {
+            vertices: points.iter().map(|point| point.extend(0.1)).collect(),
+            triangles,
+            uv: points,
+            ..Mesh::default()
+        };
+        let mut coverage = terrain
+            .vertices
+            .iter()
+            .map(|position| u8::from(position.y.abs() <= spacing * 1.01) * 2)
+            .collect::<Vec<_>>();
+        mark_river_boundary(
+            &terrain.adjacency(),
+            &terrain.perimeter_mask(),
+            &mut coverage,
+        );
+        let vertex_at = |x: i32, y: i32| {
+            let target = Vec2::new(x as f32 * spacing, y as f32 * spacing);
+            terrain
+                .vertices
+                .iter()
+                .position(|position| position.truncate().distance_squared(target) < 1.0e-12)
+                .unwrap()
+        };
+        let patch = WaterfallPatch {
+            river: 0,
+            segment: 2,
+            upper_vertex: vertex_at(0, 0),
+            upper_centre: Vec2::ZERO,
+            direction: Vec2::X,
+            across: Vec2::Y,
+            upper_surface: 0.8,
+            lower_surface: 0.2,
+            lower_floor: 0.15,
+            half_width: spacing * 1.1,
+            support_run: spacing,
+            pool: None,
+        };
+        let upstream = [vertex_at(-3, 0), vertex_at(-3, 1), vertex_at(-3, 2)];
+        let downstream = [vertex_at(1, 0), vertex_at(1, 1), vertex_at(1, 2)];
+        let before_first = [vertex_at(-4, 0), vertex_at(-4, 1), vertex_at(-4, 2)];
+        let after_last = [vertex_at(3, 0), vertex_at(3, 1), vertex_at(3, 2)];
+        let lip = [vertex_at(-2, 0), vertex_at(-2, 1), vertex_at(-2, 2)];
+        let face = [vertex_at(-1, 0), vertex_at(-1, 1), vertex_at(-1, 2)];
+        let foot = [vertex_at(0, 0), vertex_at(0, 1), vertex_at(0, 2)];
+        let outside = [vertex_at(-3, 3), vertex_at(1, 3)];
+        let mut surfaces = vec![0.5; terrain.vertices.len()];
+        for &vertex in &upstream {
+            surfaces[vertex] = patch.upper_surface;
+        }
+        for &vertex in &downstream {
+            surfaces[vertex] = patch.lower_surface;
+        }
+        for &vertex in &before_first {
+            surfaces[vertex] = 0.1;
+        }
+        for &vertex in &after_last {
+            surfaces[vertex] = 0.9;
+        }
+        surfaces[lip[0]] = patch.upper_surface;
+        surfaces[foot[0]] = patch.lower_surface;
+        let mut owners = coverage
+            .iter()
+            .map(|&remaining| (remaining != 0).then_some(RiverOwnerKey { river: 0, node: 2 }))
+            .collect::<Vec<_>>();
+        for &vertex in &downstream[..2] {
+            owners[vertex] = Some(RiverOwnerKey { river: 0, node: 1 });
+        }
+        owners[before_first[1]] = Some(RiverOwnerKey { river: 0, node: 3 });
+        terrain.vertices[upstream[0]].z = 0.95;
+        terrain.vertices[downstream[0]].z = 0.9;
+        terrain.vertices[after_last[0]].z = 0.9;
+        let mut constraints = WaterfallTerrainConstraints {
+            patch: vec![false; terrain.vertices.len()],
+            pinned: vec![false; terrain.vertices.len()],
+            support: vec![false; terrain.vertices.len()],
+            water_unclamped: vec![false; terrain.vertices.len()],
+            terrain_ceiling: vec![f32::INFINITY; terrain.vertices.len()],
+        };
+
+        assert!(
+            enforce_final_waterfall_edge_relationships(
+                &mut terrain,
+                &mut surfaces,
+                &[patch],
+                &coverage,
+                &owners,
+                &mut constraints,
+            ) > 0
+        );
+
+        assert_eq!(
+            terrain.vertices[upstream[0]].z.to_bits(),
+            0.95_f32.to_bits()
+        );
+        let first_step_blend = patch.edge_normal_blend(terrain.vertices[upstream[1]].truncate());
+        assert!((first_step_blend - 0.5).abs() < f32::EPSILON);
+        let expected_upstream_bank = (patch.upper_surface - 0.1).mul_add(first_step_blend, 0.1);
+        assert!((terrain.vertices[upstream[1]].z - expected_upstream_bank).abs() < f32::EPSILON);
+        assert_eq!(terrain.vertices[upstream[2]].z.to_bits(), 0.1_f32.to_bits());
+        assert!((terrain.vertices[downstream[0]].z - patch.lower_surface).abs() <= f32::EPSILON);
+        let downstream_blend = patch.edge_normal_blend(terrain.vertices[downstream[1]].truncate());
+        assert!((downstream_blend - 1.0).abs() < f32::EPSILON);
+        let expected_downstream_bank = (patch.lower_surface - 0.1).mul_add(downstream_blend, 0.1);
+        assert!(
+            (terrain.vertices[downstream[1]].z - expected_downstream_bank).abs() < f32::EPSILON
+        );
+        assert_eq!(
+            terrain.vertices[downstream[2]].z.to_bits(),
+            0.1_f32.to_bits()
+        );
+        let outer_plane_blend =
+            patch.edge_normal_blend(terrain.vertices[before_first[0]].truncate());
+        assert!((outer_plane_blend - 1.0).abs() < f32::EPSILON);
+        let expected_before_first_terrain =
+            (patch.upper_surface - 0.1).mul_add(outer_plane_blend, 0.1);
+        let expected_before_first_surface = (patch.upper_surface
+            - (expected_before_first_terrain + WATERFALL_WATER_CLEARANCE))
+            .mul_add(
+                outer_plane_blend,
+                expected_before_first_terrain + WATERFALL_WATER_CLEARANCE,
+            );
+        assert!((surfaces[before_first[0]] - expected_before_first_surface).abs() < f32::EPSILON);
+        assert!(
+            (terrain.vertices[before_first[1]].z - expected_before_first_terrain).abs()
+                < f32::EPSILON
+        );
+        assert_eq!(
+            surfaces[after_last[0]].to_bits(),
+            patch.lower_surface.to_bits()
+        );
+        assert!((terrain.vertices[after_last[0]].z - patch.lower_surface).abs() <= f32::EPSILON);
+        assert!((terrain.vertices[after_last[1]].z - patch.lower_surface).abs() <= f32::EPSILON);
+        for vertices in [&lip, &face, &foot] {
+            assert_eq!(terrain.vertices[vertices[0]].z.to_bits(), 0.1_f32.to_bits());
+            assert_eq!(terrain.vertices[vertices[1]].z.to_bits(), 0.1_f32.to_bits());
+            assert_eq!(terrain.vertices[vertices[2]].z.to_bits(), 0.1_f32.to_bits());
+            assert!(
+                (surfaces[vertices[1]] - (0.1 + WATERFALL_WATER_CLEARANCE)).abs() < f32::EPSILON
+            );
+        }
+        assert!(
+            outside
+                .iter()
+                .all(|&vertex| terrain.vertices[vertex].z.to_bits() == 0.1_f32.to_bits())
+        );
+
+        rebuild_final_waterfall_support_mask(
+            &terrain,
+            &[patch],
+            &coverage,
+            &owners,
+            &mut constraints,
+        );
+        assert!(constraints.water_unclamped[before_first[0]]);
+        assert!(constraints.water_unclamped[after_last[0]]);
+        let water = duplicate_river_topology(
+            &terrain,
+            &coverage,
+            &surfaces,
+            &vec![Vec2::ZERO; terrain.vertices.len()],
+            &constraints,
+        );
+        let downstream_water = water
+            .vertices
+            .iter()
+            .find(|position| {
+                position
+                    .truncate()
+                    .distance_squared(terrain.vertices[after_last[0]].truncate())
+                    < 1.0e-12
+            })
+            .unwrap();
+        let upstream_water = water
+            .vertices
+            .iter()
+            .find(|position| {
+                position
+                    .truncate()
+                    .distance_squared(terrain.vertices[upstream[0]].truncate())
+                    < 1.0e-12
+            })
+            .unwrap();
+        let expected_upstream_surface = (patch.upper_surface
+            - (terrain.vertices[upstream[0]].z + WATERFALL_WATER_CLEARANCE))
+            .mul_add(
+                first_step_blend,
+                terrain.vertices[upstream[0]].z + WATERFALL_WATER_CLEARANCE,
+            );
+        assert!(
+            (upstream_water.z - (expected_upstream_surface + RIVER_SURFACE_OFFSET)).abs()
+                < f32::EPSILON
+        );
+        assert!(upstream_water.z < terrain.vertices[upstream[0]].z);
+        assert!(
+            (downstream_water.z - (patch.lower_surface + RIVER_SURFACE_OFFSET)).abs()
+                < f32::EPSILON,
+            "downstream water {}, expected {}, hydraulic surface {}",
+            downstream_water.z,
+            patch.lower_surface + RIVER_SURFACE_OFFSET,
+            surfaces[after_last[0]],
+        );
+        assert!(downstream_water.z > terrain.vertices[after_last[0]].z);
+    }
+
+    #[test]
+    fn river_reach_is_bounded_by_the_next_lip_and_previous_waterfall_bottom() {
+        let terrain = Mesh {
+            vertices: [-3.0, 1.0, 2.0, 11.0, 2.0]
+                .into_iter()
+                .map(|x| Vec3::new(x, 0.0, 0.0))
+                .collect(),
+            ..Mesh::default()
+        };
+        let first = WaterfallPatch {
+            river: 0,
+            segment: 1,
+            upper_vertex: 0,
+            upper_centre: Vec2::ZERO,
+            direction: Vec2::X,
+            across: Vec2::Y,
+            upper_surface: 0.8,
+            lower_surface: 0.6,
+            lower_floor: 0.55,
+            half_width: WATERFALL_TARGET_EDGE_LENGTH,
+            support_run: WATERFALL_TARGET_EDGE_LENGTH,
+            pool: None,
+        };
+        let second = WaterfallPatch {
+            segment: 4,
+            upper_centre: Vec2::splat(10.0),
+            upper_surface: 0.4,
+            lower_surface: 0.2,
+            lower_floor: 0.15,
+            ..first
+        };
+        let coverage = vec![2; terrain.vertices.len()];
+        let owners = [
+            Some(RiverOwnerKey { river: 0, node: 0 }),
+            Some(RiverOwnerKey { river: 0, node: 2 }),
+            Some(RiverOwnerKey { river: 0, node: 3 }),
+            Some(RiverOwnerKey { river: 0, node: 5 }),
+            Some(RiverOwnerKey { river: 1, node: 2 }),
+        ];
+        let levels = [
+            WaterfallChannelLevels {
+                lip: first.upper_surface,
+                bottom: first.lower_surface,
+            },
+            WaterfallChannelLevels {
+                lip: second.upper_surface,
+                bottom: second.lower_surface,
+            },
+        ];
+        let mut surfaces = vec![0.1, 0.9, 0.1, 0.5, 0.7];
+
+        let (adjusted, reaches) = enforce_waterfall_reach_surface_levels(
+            &mut surfaces,
+            WaterfallReachEnvironment {
+                terrain: &terrain,
+                patches: &[first, second],
+                levels: &levels,
+                coverage: &coverage,
+                owners: &owners,
+            },
+        );
+
+        assert_eq!(adjusted, 4);
+        assert_eq!(surfaces, vec![0.8, 0.6, 0.4, 0.2, 0.7]);
+        assert_eq!(reaches.constrained, vec![true, true, true, true, false]);
+        assert_eq!(
+            reaches.downstream_ceiling,
+            vec![f32::INFINITY, 0.6, 0.6, 0.2, f32::INFINITY]
+        );
+    }
+
+    #[test]
     fn final_waterfall_face_refinement_is_unconditional_and_reprojects_the_face() {
         let spacing = WATERFALL_TARGET_EDGE_LENGTH * 0.25;
         let points = [
@@ -7958,6 +9247,8 @@ mod tests {
             ..Mesh::default()
         };
         let patch = WaterfallPatch {
+            river: 0,
+            segment: 0,
             upper_vertex: 1,
             upper_centre: Vec2::ZERO,
             direction: Vec2::X,
@@ -7974,6 +9265,7 @@ mod tests {
         let mut coverage = vec![2; original_vertices];
         let mut surfaces = vec![0.3; original_vertices];
         let mut river_uv = vec![Vec2::ZERO; original_vertices];
+        let mut owners = vec![Some(RiverOwnerKey { river: 0, node: 0 }); original_vertices];
         let mut waterfall_lips = vec![false; original_vertices];
         let mut target_half_widths = vec![patch.half_width; original_vertices];
         let mut target_depths = vec![0.05; original_vertices];
@@ -7985,6 +9277,7 @@ mod tests {
             &mut coverage,
             &mut surfaces,
             &mut river_uv,
+            &mut owners,
             &mut waterfall_lips,
             &mut target_half_widths,
             &mut target_depths,
@@ -8961,6 +10254,7 @@ mod tests {
         let mut material = SurfaceMaterial::empty(original_vertex_count);
         let mut surfaces = vec![0.05; original_vertex_count];
         let mut river_uv = vec![Vec2::ZERO; original_vertex_count];
+        let mut owners = vec![None; original_vertex_count];
         let mut waterfall_lips = vec![false; original_vertex_count];
         let mut target_half_widths = vec![2.0 / ISLAND_WORLD_METRES; original_vertex_count];
         let mut target_depths = vec![0.5 / ISLAND_WORLD_METRES; original_vertex_count];
@@ -8971,6 +10265,7 @@ mod tests {
             &mut coverage,
             &mut surfaces,
             &mut river_uv,
+            &mut owners,
             &mut waterfall_lips,
             &mut target_half_widths,
             &mut target_depths,
@@ -8982,6 +10277,7 @@ mod tests {
         assert_eq!(coverage.len(), terrain.vertices.len());
         assert_eq!(surfaces.len(), terrain.vertices.len());
         assert_eq!(river_uv.len(), terrain.vertices.len());
+        assert_eq!(owners.len(), terrain.vertices.len());
         assert_eq!(waterfall_lips.len(), terrain.vertices.len());
         assert_eq!(target_half_widths.len(), terrain.vertices.len());
         assert_eq!(target_depths.len(), terrain.vertices.len());

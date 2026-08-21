@@ -292,10 +292,27 @@ public sealed class IslandDebugSettings
         + "Set to None to disable the shortcut.")]
     [SerializeField] private KeyCode toggleMeshEdgesKey = KeyCode.M;
 
+    [Tooltip(
+        "Display the exact generated river-bed topology in black and the "
+        + "terrain sliced between waterfall planes in orange, with foot planes "
+        + "in red and lip planes in yellow.")]
+    [SerializeField] private bool showRiverDebugGeometry = true;
+
+    [Tooltip(
+        "Key used in Play Mode to toggle the river-bed and waterfall-plane overlays. "
+        + "Set to None to disable the shortcut.")]
+    [SerializeField] private KeyCode toggleRiverDebugGeometryKey = KeyCode.N;
+
     [Tooltip("Display rough-water emitter debug markers.")]
     [SerializeField] private bool showRoughWaterEmitters;
 
     public bool ShowMeshEdges { get => showMeshEdges; set => showMeshEdges = value; }
     public KeyCode ToggleMeshEdgesKey => toggleMeshEdgesKey;
+    public bool ShowRiverDebugGeometry
+    {
+        get => showRiverDebugGeometry;
+        set => showRiverDebugGeometry = value;
+    }
+    public KeyCode ToggleRiverDebugGeometryKey => toggleRiverDebugGeometryKey;
     public bool ShowRoughWaterEmitters { get => showRoughWaterEmitters; set => showRoughWaterEmitters = value; }
 }
