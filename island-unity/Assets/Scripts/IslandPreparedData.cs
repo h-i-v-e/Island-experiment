@@ -203,6 +203,10 @@ internal sealed class IslandPreparedData : IDisposable
     internal readonly IslandPreparedSeaMask seaMask;
     internal readonly IslandPreparedMesh[] overviewTiles;
     internal readonly IslandPreparedMesh[] riverTiles;
+    internal readonly IslandPreparedMesh riverBedDebugMesh;
+    internal readonly IslandPreparedMesh waterfallFaceTerrainDebugMesh;
+    internal readonly IslandPreparedMesh waterfallPlaneDebugMesh;
+    internal readonly IslandPreparedMesh waterfallLipPlaneDebugMesh;
     internal readonly IslandPreparedRiverEmitter[] riverEmitters;
     internal readonly IslandPreparedRockDecoration[] rocks;
     internal readonly IslandPreparedColliderHeightMap colliderHeightMap;
@@ -213,6 +217,10 @@ internal sealed class IslandPreparedData : IDisposable
         IslandPreparedSeaMask seaMask,
         IslandPreparedMesh[] overviewTiles,
         IslandPreparedMesh[] riverTiles,
+        IslandPreparedMesh riverBedDebugMesh,
+        IslandPreparedMesh waterfallFaceTerrainDebugMesh,
+        IslandPreparedMesh waterfallPlaneDebugMesh,
+        IslandPreparedMesh waterfallLipPlaneDebugMesh,
         IslandPreparedRiverEmitter[] riverEmitters,
         IslandPreparedRockDecoration[] rocks,
         IslandPreparedColliderHeightMap colliderHeightMap)
@@ -222,6 +230,10 @@ internal sealed class IslandPreparedData : IDisposable
         this.seaMask = seaMask;
         this.overviewTiles = overviewTiles;
         this.riverTiles = riverTiles;
+        this.riverBedDebugMesh = riverBedDebugMesh;
+        this.waterfallFaceTerrainDebugMesh = waterfallFaceTerrainDebugMesh;
+        this.waterfallPlaneDebugMesh = waterfallPlaneDebugMesh;
+        this.waterfallLipPlaneDebugMesh = waterfallLipPlaneDebugMesh;
         this.riverEmitters = riverEmitters;
         this.rocks = rocks;
         this.colliderHeightMap = colliderHeightMap;

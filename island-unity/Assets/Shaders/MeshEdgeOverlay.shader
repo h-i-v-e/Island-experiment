@@ -3,6 +3,7 @@ Shader "Motu/Mesh Edge Overlay"
     Properties
     {
         _Color ("Edge Colour", Color) = (0, 0, 0, 1)
+        [Enum(UnityEngine.Rendering.CompareFunction)] _ZTest ("Depth Test", Float) = 4
     }
 
     SubShader
@@ -19,7 +20,7 @@ Shader "Motu/Mesh Edge Overlay"
             Cull Off
             Lighting Off
             ZWrite Off
-            ZTest LEqual
+            ZTest [_ZTest]
             Offset -1, -1
             Blend Off
 
