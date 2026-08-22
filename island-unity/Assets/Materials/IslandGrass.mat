@@ -41,7 +41,6 @@ Material:
         m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
-    - _BeachMaximumElevation: 3
     - _CliffBoundaryNoiseStrength: 0.3
     - _CliffNoisePeriod: 160
     - _CliffNormalCutoff: 0.55

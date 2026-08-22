@@ -34,6 +34,7 @@ typedef struct {
     Vector3ExportArray vertices, normals;
     TriangleExportArray triangles;
     Vector2ExportArray uv;
+    /* RGB: bedrock/forced rock, loose cover, sea proximity (1 through 2 m, 0 at 20 m). */
     Vector3ExportArray material;
 } ExportMesh;
 typedef struct {

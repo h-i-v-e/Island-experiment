@@ -246,12 +246,6 @@ public sealed class IslandGenerator : MonoBehaviour
             "_RockPatchNoiseDetailScale",
             RockPatchNoiseDetailScale);
         terrainMaterial.SetFloat(
-            "_BeachMaximumElevation",
-            rendering.BeachMaximumElevationMetres);
-        grassMaterial.SetFloat(
-            "_BeachMaximumElevation",
-            rendering.BeachMaximumElevationMetres);
-        terrainMaterial.SetFloat(
             "_SandPatchNoiseWorldSize",
             rendering.SandPatchSizeMetres);
         grassMaterial.SetFloat(
@@ -2070,7 +2064,6 @@ public sealed class IslandGenerator : MonoBehaviour
                     || !terrainMaterial.HasProperty("_GrassWindSpeed")
                     || !terrainMaterial.HasProperty("_GrassWindWorldSize")
                     || !terrainMaterial.HasProperty("_GrassWindNormalStrength")
-                    || !terrainMaterial.HasProperty("_BeachMaximumElevation")
                     || !terrainMaterial.HasProperty("_SandPatchNoiseWorldSize")
                     || !terrainMaterial.HasProperty("_RockBoundaryNoiseStrength")
                     || !terrainMaterial.HasProperty("_SandRockSlopeThreshold")
@@ -2281,7 +2274,6 @@ public sealed class IslandGenerator : MonoBehaviour
                     || !grassMaterial.HasProperty("_GrassLightDirection")
                     || !grassMaterial.HasProperty("_GrassLightColor")
                     || !grassMaterial.HasProperty("_GrassAmbientColor")
-                    || !grassMaterial.HasProperty("_BeachMaximumElevation")
                     || !grassMaterial.HasProperty("_SandPatchNoiseWorldSize")
                     || !grassMaterial.HasProperty("_RockBoundaryNoiseStrength")
                     || !grassMaterial.HasProperty("_SnowMacroNoiseMetres"))

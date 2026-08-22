@@ -47,7 +47,6 @@ fixed4 _GrassAmbientColor;
 float _SnowLine;
 float _SnowEdgeNoiseMetres;
 float _SnowMacroNoiseMetres;
-float _BeachMaximumElevation;
 float _SandPatchNoiseWorldSize;
 half _RiverEdgeNoiseStrength;
 half _RiverEdgeBlendWidth;
@@ -182,10 +181,8 @@ fixed4 GrassFragment(GrassVertexOutput input) : SV_Target
     half hardness = saturate(input.material.r);
     half looseCover = saturate(input.material.g);
     half slope = 1.0 - saturate(normal.y);
-    half sandAltitudeRichness = saturate(
-        (_BeachMaximumElevation - elevation)
-            / max(_BeachMaximumElevation, 0.1));
-    half sandRichness = looseCover * sandAltitudeRichness;
+    half seaProximity = saturate(input.material.b);
+    half sandRichness = looseCover * seaProximity;
     float2 sandPatchUv = input.islandLocalSurfacePosition.xz
         / max(_SandPatchNoiseWorldSize, 0.1)
         + float2(0.37, 0.73);

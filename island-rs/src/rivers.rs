@@ -49,9 +49,10 @@ use geometry::{
 };
 pub(crate) use rocks::append_settled_rocks;
 use rocks::generate_river_rock_mesh;
+pub(crate) use tracing::fix_inland_seas;
 use tracing::{
     RouteState, WaterfallClearanceIndex, calculate_flow_and_catchment, find_sources,
-    fix_inland_seas, map_downstream, trace_rivers, update_join_flows,
+    map_downstream, trace_rivers, update_join_flows,
 };
 use waterfalls::{
     WaterfallPatch, WaterfallTerrainConstraints, derive_waterfall_patches,
@@ -288,8 +289,18 @@ impl RiverNetwork {
         adjacency: &Adjacency,
         source_rule: RiverSourceRule,
     ) -> Self {
-        let perimeter = mesh.perimeter_mask();
         let ocean = fix_inland_seas(mesh, adjacency);
+        Self::generate_with_ocean(mesh, adjacency, source_rule, ocean)
+    }
+
+    pub(crate) fn generate_with_ocean(
+        mesh: &mut Mesh,
+        adjacency: &Adjacency,
+        source_rule: RiverSourceRule,
+        ocean: Vec<bool>,
+    ) -> Self {
+        debug_assert_eq!(ocean.len(), mesh.vertices.len());
+        let perimeter = mesh.perimeter_mask();
         let downstream = map_downstream(mesh, adjacency);
         let (flow, catchment_areas) = calculate_flow_and_catchment(mesh, &downstream);
         let sources = find_sources(mesh, adjacency, &downstream, &catchment_areas, source_rule);

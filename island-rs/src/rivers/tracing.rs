@@ -4,7 +4,7 @@ use super::{
     projected_vertex_control_areas, river_half_width, river_ring_count,
 };
 
-pub(super) fn fix_inland_seas(mesh: &mut Mesh, adjacency: &Adjacency) -> Vec<bool> {
+pub(crate) fn fix_inland_seas(mesh: &mut Mesh, adjacency: &Adjacency) -> Vec<bool> {
     let mut ocean = vec![false; mesh.vertices.len()];
     let corner = mesh
         .vertices

@@ -27,7 +27,6 @@ Shader "Motu/Terrain Unified"
         _SnowLine ("Snow Line (metres)", Float) = 100
         _SnowEdgeNoiseMetres ("Snow Edge Noise (metres)", Range(0, 10)) = 2.5
         _SnowMacroNoiseMetres ("Snow Macro Noise (metres)", Range(0, 40)) = 18
-        _BeachMaximumElevation ("Sand Maximum Elevation (metres)", Float) = 3
         _SandPatchNoiseWorldSize ("Sand Patch Repeat (metres)", Float) = 32
         _RiverEdgeNoiseStrength ("River Edge Noise Strength", Range(0, 0.45)) = 0.20
         _RiverEdgeBlendWidth ("River Edge Blend Width", Range(0.01, 0.5)) = 0.20
@@ -132,7 +131,6 @@ Shader "Motu/Terrain Unified"
             float _SnowLine;
             float _SnowEdgeNoiseMetres;
             float _SnowMacroNoiseMetres;
-            float _BeachMaximumElevation;
             float _SandPatchNoiseWorldSize;
             half _RiverEdgeNoiseStrength;
             half _RiverEdgeBlendWidth;
@@ -334,14 +332,13 @@ Shader "Motu/Terrain Unified"
                 // Retain the legacy river-texture properties on existing
                 // materials, but river beds no longer select that surface.
                 half riverCoverage = 0.0h;
-                // Sand richness combines loose deposited material with height
-                // above the sea. The same progressive texture threshold used
-                // for grass replaces both former hard beach cutoffs.
-                half sandAltitudeRichness = saturate(
-                    (_BeachMaximumElevation - elevation)
-                        / max(_BeachMaximumElevation, 0.1));
+                // The exported blue channel stays one through two metres from
+                // the connected sea, then fades to zero at twenty metres.
+                // Keep loose cover and the progressive noise threshold so the
+                // beach boundary remains naturally broken up.
+                half seaProximity = saturate(input.material.b);
                 half sandRichness = looseCover
-                    * sandAltitudeRichness
+                    * seaProximity
                     * (1.0 - riverCoverage);
                 float2 sandPatchUv = input.islandLocalPosition.xz
                     / max(_SandPatchNoiseWorldSize, 0.1)

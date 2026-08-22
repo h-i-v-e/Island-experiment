@@ -189,7 +189,6 @@ MonoBehaviour:
     grassWindSpeedMetresPerSecond: 1.8
     grassWindGustSizeMetres: 12
     grassWindNormalStrength: 0.35
-    beachMaximumElevationMetres: 3
     sandPatchSizeMetres: 32
     grassPatchSizeMetres: 32
     estuaryBlendHeightMetres: 2

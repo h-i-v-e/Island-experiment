@@ -33,7 +33,6 @@ Shader "Motu/Terrain Grass"
         _SnowLine ("Snow Line (metres)", Float) = 100
         _SnowEdgeNoiseMetres ("Snow Edge Noise (metres)", Range(0, 10)) = 2.5
         _SnowMacroNoiseMetres ("Snow Macro Noise (metres)", Range(0, 40)) = 18
-        _BeachMaximumElevation ("Sand Maximum Elevation (metres)", Float) = 3
         _SandPatchNoiseWorldSize ("Sand Patch Repeat (metres)", Float) = 32
         _RiverEdgeNoiseStrength ("River Edge Noise Strength", Range(0, 0.45)) = 0.20
         _RiverEdgeBlendWidth ("River Edge Blend Width", Range(0.01, 0.5)) = 0.20

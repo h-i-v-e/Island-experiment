@@ -194,14 +194,19 @@ field blends green ground continuously into bare dirt and the neighbouring
 surface materials.
 
 Terrain mesh colours carry material data rather than a visible tint. Red is
-normalized bedrock hardness, green is loose/deposited cover, and blue is
-reserved. Sharp terrain and all river-bed vertices instead receive the one-hot
-forced-rock colour `(1, 0, 0)`, so no dirt or grass channel competes with rock.
+normalized bedrock hardness, green is loose/deposited cover, and blue is a
+cached distance-from-sea strength. Blue is one on connected-sea vertices and
+remains one through two metres of LOD 0 mesh edges, then fades linearly to zero
+at twenty metres; it is calculated
+before final river tracing and carving, then interpolated onto any vertices the
+river refinement adds. Sharp terrain and all river-bed vertices force red to
+one and green to zero while retaining the blue coastal value.
 Rust samples the authoritative final LOD 0 field after each tile is clipped, so
 reordered and newly created boundary vertices receive matching values. The
 unified shader uses these channels to expose harder rock on slopes, colour
-sheltered coastal deposits below a noisy one-metre beach line, and treat river
-beds as exposed rock consistently across all LODs. Grass ground uses coherent micro-normal
+loose coastal deposits within the twenty-metre sea-proximity field behind the
+same coherent noise boundary, and treat river beds as exposed rock consistently
+across all LODs. Grass ground uses coherent micro-normal
 relief at six times the stone detail frequency; beach sand uses eight-times finer
 and less strongly perturbed relief. These change nearby lighting without changing
 mesh geometry.

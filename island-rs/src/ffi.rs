@@ -1130,7 +1130,8 @@ mod tests {
         }
         assert!(values.iter().any(|value| value.x > 0.1));
         assert!(values.iter().any(|value| value.y > 0.1));
-        assert!(values.iter().all(|value| value.z == 0.0));
+        assert!(values.iter().any(|value| value.z > 0.9));
+        assert!(values.iter().any(|value| value.z == 0.0));
     }
 
     unsafe fn assert_river_emitters(handle: *const c_void) {

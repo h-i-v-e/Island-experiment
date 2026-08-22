@@ -1,14 +1,17 @@
 use super::{
     Adjacency, BinaryHeap, BoundingBox, DETAIL_DISPLACEMENT_RATIO, Decorations, File, GeologyField,
-    HashSet, HydraulicScratch, IndexedParallelIterator, IslandOptions, Mesh, MeshClipper,
-    NewVertexStencil, OnceLock, Ordering, ParallelIterator, ParallelSliceMut, Path, Raster, Read,
-    River, RiverChannelSettings, RiverDebugGeometry, RiverMouth, RiverNetwork, RiverSourceRule,
-    Rng, SHARP_ROCK_DISPLACEMENT_RATIO, StageTimer, SurfaceMaps, SurfaceMaterial,
+    HashSet, HydraulicScratch, ISLAND_WORLD_METRES, IndexedParallelIterator, IslandOptions, Mesh,
+    MeshClipper, NewVertexStencil, OnceLock, Ordering, ParallelIterator, ParallelSliceMut, Path,
+    Raster, Read, River, RiverChannelSettings, RiverDebugGeometry, RiverMouth, RiverNetwork,
+    RiverSourceRule, Rng, SHARP_ROCK_DISPLACEMENT_RATIO, StageTimer, SurfaceMaps, SurfaceMaterial,
     TERRAIN_RENDER_FLOOR, Terrain, TerrainMaterialField, TriangleIndex, Vec2, Vec3, Write,
     append_settled_rocks, bake_surface_maps, bury_river_banks, clear_loose_soil,
-    encode_bank_distance_in_uv, erode_mesh, geology, hydraulic_erode_stage, io,
+    encode_bank_distance_in_uv, erode_mesh, fix_inland_seas, geology, hydraulic_erode_stage, io,
     legacy_catchment_hectares, mem, noise, sample_grid, sample_mesh_surface,
 };
+
+const SEA_PROXIMITY_FULL_STRENGTH_METRES: f32 = 2.0;
+const SEA_PROXIMITY_ZERO_STRENGTH_METRES: f32 = 20.0;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Island {
@@ -170,12 +173,25 @@ pub(super) fn generate_final_rivers(
     channel_settings: RiverChannelSettings,
 ) -> FinalRiverGeneration {
     let _timer = StageTimer::new("rivers.final");
+    let mut prepared_lod0 = lod0.clone();
+    let detail_adjacency = prepared_lod0.adjacency();
+    let ocean = fix_inland_seas(&mut prepared_lod0, &detail_adjacency);
+    let mut prepared_material = material.clone();
+    prepared_material.set_sea_proximity(sea_proximity_strengths(
+        &prepared_lod0,
+        &detail_adjacency,
+        &ocean,
+    ));
     let mut rejected_waterfall_vertices = HashSet::new();
     loop {
-        let mut attempt_lod0 = lod0.clone();
-        let mut attempt_material = material.clone();
-        let detail_adjacency = attempt_lod0.adjacency();
-        let mut network = RiverNetwork::generate(&mut attempt_lod0, &detail_adjacency, source_rule);
+        let mut attempt_lod0 = prepared_lod0.clone();
+        let mut attempt_material = prepared_material.clone();
+        let mut network = RiverNetwork::generate_with_ocean(
+            &mut attempt_lod0,
+            &detail_adjacency,
+            source_rule,
+            ocean.clone(),
+        );
         network.shape_with_settings_and_waterfall_rejections(
             &mut attempt_lod0,
             &detail_adjacency,
@@ -1021,4 +1037,51 @@ pub(super) fn graph_distances(mesh: &Mesh, adjacency: &Adjacency, target: &[bool
         }
     }
     distances
+}
+
+fn sea_proximity_strengths(mesh: &Mesh, adjacency: &Adjacency, sea: &[bool]) -> Vec<f32> {
+    let full_strength_distance = SEA_PROXIMITY_FULL_STRENGTH_METRES / ISLAND_WORLD_METRES;
+    let fade_distance = (SEA_PROXIMITY_ZERO_STRENGTH_METRES - SEA_PROXIMITY_FULL_STRENGTH_METRES)
+        / ISLAND_WORLD_METRES;
+    graph_distances(mesh, adjacency, sea)
+        .into_iter()
+        .map(|distance| (1.0 - (distance - full_strength_distance) / fade_distance).clamp(0.0, 1.0))
+        .collect()
+}
+
+#[cfg(test)]
+mod sea_proximity_tests {
+    use super::*;
+
+    #[test]
+    fn sea_proximity_stays_full_for_two_metres_then_fades_to_twenty() {
+        let distances_metres = [0.0_f32, 2.0, 11.0, 20.0, 30.0];
+        let row_spacing = 1.0 / ISLAND_WORLD_METRES;
+        let mesh = Mesh {
+            vertices: distances_metres
+                .into_iter()
+                .flat_map(|distance_metres| {
+                    let x = distance_metres / ISLAND_WORLD_METRES;
+                    [Vec3::new(x, 0.0, 0.0), Vec3::new(x, row_spacing, 0.0)]
+                })
+                .collect(),
+            triangles: vec![
+                0, 2, 3, 0, 3, 1, 2, 4, 5, 2, 5, 3, 4, 6, 7, 4, 7, 5, 6, 8, 9, 6, 9, 7,
+            ],
+            ..Mesh::default()
+        };
+        let adjacency = mesh.adjacency();
+        let sea = [
+            true, true, false, false, false, false, false, false, false, false,
+        ];
+
+        let strengths = sea_proximity_strengths(&mesh, &adjacency, &sea);
+
+        for (column, expected) in [1.0_f32, 1.0, 0.5, 0.0, 0.0].into_iter().enumerate() {
+            for row in 0..2 {
+                let actual = strengths[column * 2 + row];
+                assert!((actual - expected).abs() < 1.0e-6);
+            }
+        }
+    }
 }

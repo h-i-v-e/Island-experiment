@@ -211,10 +211,6 @@ public sealed class IslandRenderingSettings
     [Range(0f, 1f)]
     [SerializeField] private float grassWindNormalStrength = 0.35f;
 
-    [Tooltip("Highest terrain elevation that can render as beach sand, in metres.")]
-    [Min(0f)]
-    [SerializeField] private float beachMaximumElevationMetres = 3f;
-
     [Tooltip("World-space size of coherent sand patches, in metres.")]
     [Min(0.1f)]
     [SerializeField] private float sandPatchSizeMetres = 32f;
@@ -283,7 +279,6 @@ public sealed class IslandRenderingSettings
         get => Mathf.Clamp01(grassWindNormalStrength);
         set => grassWindNormalStrength = Mathf.Clamp01(value);
     }
-    internal float BeachMaximumElevationMetres => Mathf.Max(beachMaximumElevationMetres, 0f);
     internal float SandPatchSizeMetres => Mathf.Max(sandPatchSizeMetres, 0.1f);
     internal float GrassPatchSizeMetres => Mathf.Max(grassPatchSizeMetres, 0.1f);
     internal float EstuaryBlendHeightMetres => Mathf.Max(estuaryBlendHeightMetres, 0f);
