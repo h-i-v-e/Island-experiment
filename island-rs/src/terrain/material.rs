@@ -1,6 +1,6 @@
 use super::{
-    GeologyField, Mesh, NewVertexStencil, Terrain, TessellationResult, Vec2, Vec3,
-    sample_mesh_triangle,
+    EdgeSplitStencil, GeologyField, Mesh, NewVertexStencil, Terrain, TessellationResult, Vec2,
+    Vec3, sample_mesh_triangle,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -116,6 +116,28 @@ impl SurfaceMaterial {
         debug_assert_eq!(self.bedrock_hardness.len(), mesh.vertices.len());
         debug_assert_eq!(self.sea_proximity.len(), mesh.vertices.len());
         self.rescale_to_volume(mesh, old_volume);
+    }
+
+    pub(crate) fn extend_after_edge_splits(&mut self, stencils: &[EdgeSplitStencil]) {
+        self.deposited_depth.reserve(stencils.len());
+        self.bedrock_hardness.reserve(stencils.len());
+        self.sea_proximity.reserve(stencils.len());
+        for stencil in stencils {
+            debug_assert_eq!(stencil.vertex as usize, self.deposited_depth.len());
+            let [a, b] = stencil.edge.map(|vertex| vertex as usize);
+            let t = stencil.interpolation;
+            self.deposited_depth.push(
+                (self.deposited_depth[b] - self.deposited_depth[a])
+                    .mul_add(t, self.deposited_depth[a]),
+            );
+            self.bedrock_hardness.push(
+                (self.bedrock_hardness[b] - self.bedrock_hardness[a])
+                    .mul_add(t, self.bedrock_hardness[a]),
+            );
+            self.sea_proximity.push(
+                (self.sea_proximity[b] - self.sea_proximity[a]).mul_add(t, self.sea_proximity[a]),
+            );
+        }
     }
 
     pub(crate) fn rescale_to_volume(&mut self, mesh: &Mesh, target_volume: f64) {

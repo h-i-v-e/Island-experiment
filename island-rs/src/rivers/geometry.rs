@@ -1,13 +1,13 @@
 use super::{
     Adjacency, BinaryHeap, ENABLE_FINAL_WATERFALL_REJECTION, FINAL_RIVER_PROFILE_ATTRACTION,
-    FINAL_RIVER_RELAXATION, FINAL_RIVER_RELAXATION_PASSES, HashMap, MAXIMUM_RIVER_BANK_BLEND_WIDTH,
-    MAXIMUM_RIVER_EDGE_LENGTH, MINIMUM_RIVER_BANK_BLEND_WIDTH, MINIMUM_RIVER_EDGE_LENGTH, Mesh,
-    PRECARVE_CONFLUENCE_CONNECTOR_RINGS, PRECARVE_VALLEY_CENTRE_DEPTH, PRECARVE_VALLEY_OUTER_RINGS,
-    PRECARVE_WATERFALL_BANK_RINGS, PRECARVE_WATERFALL_OUTER_RINGS,
-    RIVER_BANK_BLEND_HALF_WIDTH_MULTIPLIER, RIVER_BOUNDARY, RIVER_CHANNEL_CLEARANCE_SMOOTHING,
-    RIVER_CHANNEL_CORE_BLEND, RIVER_REFINEMENT_APRON_RINGS, RIVER_REFINEMENT_PASSES,
-    RIVER_SURFACE_OFFSET, River, RiverNetwork, RiverSedimentBudget, RouteState,
-    SEA_PLANE_CLEARANCE, SHARP_POINT_HEIGHT_RATIO, SHARP_POINT_SMOOTHING,
+    FINAL_RIVER_RELAXATION, FINAL_RIVER_RELAXATION_PASSES, HashMap, HashSet,
+    MAXIMUM_RIVER_BANK_BLEND_WIDTH, MAXIMUM_RIVER_EDGE_LENGTH, MINIMUM_RIVER_BANK_BLEND_WIDTH,
+    MINIMUM_RIVER_EDGE_LENGTH, Mesh, PRECARVE_CONFLUENCE_CONNECTOR_RINGS,
+    PRECARVE_VALLEY_CENTRE_DEPTH, PRECARVE_VALLEY_OUTER_RINGS, PRECARVE_WATERFALL_BANK_RINGS,
+    PRECARVE_WATERFALL_OUTER_RINGS, RIVER_BANK_BLEND_HALF_WIDTH_MULTIPLIER, RIVER_BOUNDARY,
+    RIVER_CHANNEL_CLEARANCE_SMOOTHING, RIVER_CHANNEL_CORE_BLEND, RIVER_REFINEMENT_APRON_RINGS,
+    RIVER_REFINEMENT_PASSES, RIVER_SURFACE_OFFSET, River, RiverNetwork, RiverSedimentBudget,
+    RouteState, SEA_PLANE_CLEARANCE, SHARP_POINT_HEIGHT_RATIO, SHARP_POINT_SMOOTHING,
     SHARP_POINT_SMOOTHING_PASSES, SurfaceMaterial, Vec2, VecDeque,
     WATERFALL_FINAL_SMOOTHING_PASSES, WATERFALL_TARGET_EDGE_LENGTH, WaterfallPatch,
     WaterfallTerrainConstraints, build_river_footprint, derive_waterfall_patches,
@@ -18,6 +18,9 @@ use super::{
     smooth_final_waterfall_patches, smooth_pinned_waterfall_terrain, smoothstep,
     squish_waterfall_downstream_spikes,
 };
+use crate::mesh::{EdgeSplitStencil, NewVertexStencil};
+
+const COAST_PROJECTED_AREA_EPSILON: f32 = 1.0e-12;
 
 pub(super) fn lower_precarve_river_valleys(
     network: &RiverNetwork,
@@ -843,6 +846,279 @@ pub(super) fn interpolated_river_owner(
     }
 }
 
+fn lerp_scalar(a: f32, b: f32, interpolation: f32) -> f32 {
+    (b - a).mul_add(interpolation, a)
+}
+
+fn extend_waterfall_constraints_after_edge_splits(
+    constraints: &mut WaterfallTerrainConstraints,
+    stencils: &[EdgeSplitStencil],
+) {
+    for stencil in stencils {
+        debug_assert_eq!(stencil.vertex as usize, constraints.patch.len());
+        let [a, b] = stencil.edge.map(|vertex| vertex as usize);
+        constraints
+            .patch
+            .push(constraints.patch[a] || constraints.patch[b]);
+        constraints
+            .pinned
+            .push(constraints.pinned[a] || constraints.pinned[b]);
+        constraints
+            .support
+            .push(constraints.support[a] || constraints.support[b]);
+        constraints
+            .water_unclamped
+            .push(constraints.water_unclamped[a] || constraints.water_unclamped[b]);
+        constraints.terrain_ceiling.push(interpolate_ceiling(
+            constraints.terrain_ceiling[a],
+            constraints.terrain_ceiling[b],
+            stencil.interpolation,
+        ));
+    }
+}
+
+fn extend_waterfall_constraints_after_tessellation(
+    constraints: &mut WaterfallTerrainConstraints,
+    stencils: &[NewVertexStencil],
+) {
+    for stencil in stencils {
+        debug_assert_eq!(stencil.vertex as usize, constraints.patch.len());
+        let [a, b] = [
+            stencil.surrounding[0] as usize,
+            stencil.surrounding[1] as usize,
+        ];
+        constraints
+            .patch
+            .push(constraints.patch[a] || constraints.patch[b]);
+        constraints
+            .pinned
+            .push(constraints.pinned[a] || constraints.pinned[b]);
+        constraints
+            .support
+            .push(constraints.support[a] || constraints.support[b]);
+        constraints
+            .water_unclamped
+            .push(constraints.water_unclamped[a] || constraints.water_unclamped[b]);
+        constraints.terrain_ceiling.push(interpolate_ceiling(
+            constraints.terrain_ceiling[a],
+            constraints.terrain_ceiling[b],
+            0.5,
+        ));
+    }
+}
+
+fn interpolate_ceiling(a: f32, b: f32, interpolation: f32) -> f32 {
+    match (a.is_finite(), b.is_finite()) {
+        (true, true) => lerp_scalar(a, b, interpolation),
+        (true, false) => a,
+        (false, true) => b,
+        (false, false) => f32::INFINITY,
+    }
+}
+
+fn coast_edge(a: u32, b: u32) -> (u32, u32) {
+    if a < b { (a, b) } else { (b, a) }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct CoastlinePath {
+    vertices: Vec<u32>,
+    closed: bool,
+}
+
+fn coastline_paths(edges: &[[u32; 2]]) -> Result<Vec<CoastlinePath>, String> {
+    let mut adjacency = HashMap::<u32, Vec<u32>>::new();
+    for &[a, b] in edges {
+        if a == b {
+            return Err(format!("degenerate coastline edge at vertex {a}"));
+        }
+        adjacency.entry(a).or_default().push(b);
+        adjacency.entry(b).or_default().push(a);
+    }
+    for neighbours in adjacency.values_mut() {
+        neighbours.sort_unstable();
+    }
+    for (&vertex, neighbours) in &adjacency {
+        if !(1..=2).contains(&neighbours.len()) {
+            return Err(format!(
+                "coastline vertex {vertex} has degree {}, expected 1 or 2",
+                neighbours.len()
+            ));
+        }
+    }
+
+    let mut remaining = edges
+        .iter()
+        .map(|&[a, b]| coast_edge(a, b))
+        .collect::<HashSet<_>>();
+    let mut paths = Vec::new();
+    let mut endpoints = adjacency
+        .iter()
+        .filter_map(|(&vertex, neighbours)| (neighbours.len() == 1).then_some(vertex))
+        .collect::<Vec<_>>();
+    endpoints.sort_unstable();
+    for start in endpoints {
+        let neighbours = &adjacency[&start];
+        if neighbours.len() != 1 || !remaining.contains(&coast_edge(start, neighbours[0])) {
+            continue;
+        }
+        let mut vertices = vec![start];
+        let (mut previous, mut current) = (start, neighbours[0]);
+        remaining.remove(&coast_edge(previous, current));
+        loop {
+            vertices.push(current);
+            let candidates = &adjacency[&current];
+            let Some(next) = candidates.iter().copied().find(|&next| next != previous) else {
+                break;
+            };
+            if !remaining.remove(&coast_edge(current, next)) {
+                return Err(format!(
+                    "coastline path revisited or missed edge {current}-{next}"
+                ));
+            }
+            previous = current;
+            current = next;
+        }
+        paths.push(CoastlinePath {
+            vertices,
+            closed: false,
+        });
+    }
+    while let Some(&(start, first)) = remaining.iter().min() {
+        let mut vertices = vec![start];
+        let (mut previous, mut current) = (start, first);
+        remaining.remove(&coast_edge(previous, current));
+        while current != start {
+            vertices.push(current);
+            let neighbours = &adjacency[&current];
+            let next = if neighbours[0] == previous {
+                neighbours[1]
+            } else {
+                neighbours[0]
+            };
+            if !remaining.remove(&coast_edge(current, next)) {
+                return Err(format!(
+                    "coastline loop revisited or missed edge {current}-{next}"
+                ));
+            }
+            previous = current;
+            current = next;
+        }
+        if vertices.len() < 3 {
+            return Err("coastline loop has fewer than three vertices".to_owned());
+        }
+        paths.push(CoastlinePath {
+            vertices,
+            closed: true,
+        });
+    }
+    Ok(paths)
+}
+
+fn refine_coastline_paths(
+    paths: &[CoastlinePath],
+    stencils: &[NewVertexStencil],
+) -> Result<Vec<CoastlinePath>, String> {
+    let midpoints = stencils
+        .iter()
+        .map(|stencil| {
+            (
+                coast_edge(stencil.surrounding[0], stencil.surrounding[1]),
+                stencil.vertex,
+            )
+        })
+        .collect::<HashMap<_, _>>();
+    paths
+        .iter()
+        .map(|path| {
+            let edge_count = if path.closed {
+                path.vertices.len()
+            } else {
+                path.vertices.len().saturating_sub(1)
+            };
+            let mut refined = Vec::with_capacity(path.vertices.len() + edge_count);
+            for index in 0..edge_count {
+                let a = path.vertices[index];
+                let b = path.vertices[(index + 1) % path.vertices.len()];
+                refined.push(a);
+                let midpoint = midpoints
+                    .get(&coast_edge(a, b))
+                    .copied()
+                    .ok_or_else(|| format!("coastline edge {a}-{b} was not tessellated"))?;
+                refined.push(midpoint);
+            }
+            if !path.closed {
+                refined.push(*path.vertices.last().expect("non-empty coastline path"));
+            }
+            Ok(CoastlinePath {
+                vertices: refined,
+                closed: path.closed,
+            })
+        })
+        .collect()
+}
+
+fn smooth_coastline_paths_xy(terrain: &mut Mesh, paths: &[CoastlinePath], protected: &[bool]) {
+    let source = terrain.vertices.clone();
+    let perimeter = terrain.perimeter_mask();
+    let mut candidates = vec![None; source.len()];
+    for path in paths {
+        for index in 0..path.vertices.len() {
+            let vertex = path.vertices[index] as usize;
+            if perimeter[vertex]
+                || protected[vertex]
+                || (!path.closed && (index == 0 || index + 1 == path.vertices.len()))
+            {
+                continue;
+            }
+            let previous = source
+                [path.vertices[(index + path.vertices.len() - 1) % path.vertices.len()] as usize];
+            let current = source[vertex];
+            let next = source[path.vertices[(index + 1) % path.vertices.len()] as usize];
+            candidates[vertex] =
+                Some((previous.truncate() + current.truncate() + next.truncate()) / 3.0);
+        }
+    }
+
+    loop {
+        let mut rejected = Vec::new();
+        for triangle in terrain.triangles.chunks_exact(3) {
+            let vertices = [triangle[0], triangle[1], triangle[2]];
+            let original = vertices.map(|vertex| source[vertex as usize].truncate());
+            let moved = vertices.map(|vertex| {
+                candidates[vertex as usize].unwrap_or(source[vertex as usize].truncate())
+            });
+            let original_area = (original[1] - original[0]).perp_dot(original[2] - original[0]);
+            let moved_area = (moved[1] - moved[0]).perp_dot(moved[2] - moved[0]);
+            if moved_area.abs() <= COAST_PROJECTED_AREA_EPSILON || original_area * moved_area <= 0.0
+            {
+                rejected.extend(
+                    triangle
+                        .iter()
+                        .copied()
+                        .filter(|&vertex| candidates[vertex as usize].is_some()),
+                );
+            }
+        }
+        if rejected.is_empty() {
+            break;
+        }
+        rejected.sort_unstable();
+        rejected.dedup();
+        for vertex in rejected {
+            candidates[vertex as usize] = None;
+        }
+    }
+
+    for (position, candidate) in terrain.vertices.iter_mut().zip(candidates) {
+        if let Some(xy) = candidate {
+            position.x = xy.x;
+            position.y = xy.y;
+        }
+    }
+    terrain.calculate_normals();
+}
+
 pub(super) fn river_corridor_apron_mask(
     adjacency: &Adjacency,
     coverage: &[u8],
@@ -1281,6 +1557,48 @@ impl RiverMeshBuffers {
     pub(super) fn extend_after_tessellation(&mut self, stencils: &[crate::mesh::NewVertexStencil]) {
         extend_river_attributes_after_tessellation(stencils, self);
     }
+
+    fn extend_after_edge_splits(&mut self, stencils: &[EdgeSplitStencil]) {
+        self.coverage.reserve(stencils.len());
+        self.surfaces.reserve(stencils.len());
+        self.river_uv.reserve(stencils.len());
+        self.owners.reserve(stencils.len());
+        self.waterfall_lips.reserve(stencils.len());
+        self.target_half_widths.reserve(stencils.len());
+        self.target_depths.reserve(stencils.len());
+        for stencil in stencils {
+            debug_assert_eq!(stencil.vertex as usize, self.coverage.len());
+            let [a, b] = stencil.edge.map(|vertex| vertex as usize);
+            let selected = self.coverage[a] != 0 && self.coverage[b] != 0;
+            let owner = interpolated_river_owner(&self.owners, &self.surfaces, a, b, selected);
+            let t = stencil.interpolation;
+            self.coverage.push(if selected {
+                self.coverage[a].min(self.coverage[b]) & !RIVER_BOUNDARY
+            } else {
+                0
+            });
+            self.surfaces.push(if selected {
+                lerp_scalar(self.surfaces[a], self.surfaces[b], t)
+            } else {
+                0.0
+            });
+            self.river_uv.push(if selected {
+                self.river_uv[a].lerp(self.river_uv[b], t)
+            } else {
+                Vec2::ZERO
+            });
+            self.owners.push(owner);
+            self.waterfall_lips
+                .push(selected && self.waterfall_lips[a] && self.waterfall_lips[b]);
+            self.target_half_widths
+                .push(self.target_half_widths[a].max(self.target_half_widths[b]));
+            self.target_depths.push(if selected {
+                lerp_scalar(self.target_depths[a], self.target_depths[b], t)
+            } else {
+                0.0
+            });
+        }
+    }
 }
 
 pub(super) fn river_mesh_attributes(
@@ -1334,6 +1652,65 @@ pub(super) struct BuiltRiverGeometry {
     pub(super) failed_waterfalls: Vec<usize>,
 }
 
+fn constrain_final_sea_plane_topology(
+    terrain: &mut Mesh,
+    material: &mut SurfaceMaterial,
+    buffers: &mut RiverMeshBuffers,
+    constraints: &mut WaterfallTerrainConstraints,
+) {
+    let loose_volume = material.volume(terrain);
+    let constrained = terrain.constrain_height_plane(0.0);
+    if constrained.edges.is_empty() {
+        return;
+    }
+
+    material.extend_after_edge_splits(&constrained.splits);
+    buffers.extend_after_edge_splits(&constrained.splits);
+    extend_waterfall_constraints_after_edge_splits(constraints, &constrained.splits);
+    let paths = coastline_paths(&constrained.edges)
+        .expect("generated sea-plane contour must consist of manifold paths");
+    let perimeter = terrain.perimeter_mask();
+    for path in &paths {
+        if !path.closed {
+            let first = path.vertices[0] as usize;
+            let last = *path.vertices.last().expect("non-empty coastline path") as usize;
+            assert!(
+                perimeter[first] && perimeter[last],
+                "an open sea-plane contour may only terminate on the mesh perimeter"
+            );
+        }
+    }
+
+    let mut coast_vertices = vec![false; terrain.vertices.len()];
+    for path in &paths {
+        for &vertex in &path.vertices {
+            coast_vertices[vertex as usize] = true;
+        }
+    }
+    let stencils = terrain.tessellate_incident_to(&coast_vertices);
+    material.extend_after_tessellation(loose_volume, terrain, &stencils);
+    buffers.extend_after_tessellation(&stencils);
+    extend_waterfall_constraints_after_tessellation(constraints, &stencils);
+    let paths = refine_coastline_paths(&paths, &stencils)
+        .expect("every constrained coastline edge must be tessellated");
+    let protected = constraints
+        .patch
+        .iter()
+        .zip(&constraints.pinned)
+        .zip(&constraints.support)
+        .map(|((&patch, &pinned), &support)| patch || pinned || support)
+        .collect::<Vec<_>>();
+    smooth_coastline_paths_xy(terrain, &paths, &protected);
+
+    let adjacency = terrain.adjacency();
+    let perimeter = terrain.perimeter_mask();
+    buffers
+        .coverage
+        .iter_mut()
+        .for_each(|coverage| *coverage &= !RIVER_BOUNDARY);
+    mark_river_boundary(&adjacency, &perimeter, &mut buffers.coverage);
+}
+
 pub(super) struct RiverGeometryBuilder<'a> {
     network: &'a RiverNetwork,
     terrain: &'a mut Mesh,
@@ -1366,6 +1743,7 @@ impl<'a> RiverGeometryBuilder<'a> {
         let mut constraints = self.refine_waterfalls(&patches);
         self.finish_channel(&constraints);
         self.finish_waterfalls(&patches, &mut constraints);
+        self.constrain_coastline(&patches, &mut constraints);
         self.assemble(&patches, &constraints)
     }
 
@@ -1461,6 +1839,27 @@ impl<'a> RiverGeometryBuilder<'a> {
         );
     }
 
+    fn constrain_coastline(
+        &mut self,
+        patches: &[WaterfallPatch],
+        constraints: &mut WaterfallTerrainConstraints,
+    ) {
+        enforce_sea_plane_clearance(self.terrain, &self.network.ocean);
+        constrain_final_sea_plane_topology(
+            self.terrain,
+            self.material,
+            &mut self.buffers,
+            constraints,
+        );
+        rebuild_final_waterfall_support_mask(
+            self.terrain,
+            patches,
+            &self.buffers.coverage,
+            &self.buffers.owners,
+            constraints,
+        );
+    }
+
     fn assemble(
         self,
         patches: &[WaterfallPatch],
@@ -1488,6 +1887,80 @@ impl<'a> RiverGeometryBuilder<'a> {
             river_bed,
             river_rock_mesh,
             failed_waterfalls,
+        }
+    }
+}
+
+#[cfg(test)]
+mod coastline_tests {
+    use super::{CoastlinePath, Mesh, Vec2, coastline_paths, smooth_coastline_paths_xy};
+    use crate::Vec3;
+
+    #[test]
+    fn coastline_edges_form_closed_loops_independent_of_order() {
+        let paths = coastline_paths(&[[2, 3], [0, 1], [3, 0], [1, 2]]).unwrap();
+
+        assert_eq!(paths.len(), 1);
+        assert!(paths[0].closed);
+        assert_eq!(paths[0].vertices.len(), 4);
+        assert!(paths[0].vertices.iter().all(|vertex| *vertex < 4));
+    }
+
+    #[test]
+    fn coastline_edges_may_end_at_the_mesh_perimeter() {
+        let paths = coastline_paths(&[[2, 3], [0, 1], [1, 2]]).unwrap();
+
+        assert_eq!(paths.len(), 1);
+        assert!(!paths[0].closed);
+        assert_eq!(paths[0].vertices.len(), 4);
+        assert!(paths[0].vertices.iter().all(|vertex| *vertex < 4));
+    }
+
+    #[test]
+    fn coastline_xy_smoothing_is_one_simultaneous_three_point_average() {
+        let mut mesh = Mesh {
+            vertices: vec![
+                Vec3::new(-2.0, -2.0, -1.0),
+                Vec3::new(2.0, -2.0, -1.0),
+                Vec3::new(2.0, 2.0, -1.0),
+                Vec3::new(-2.0, 2.0, -1.0),
+                Vec3::new(-0.8, -0.6, 0.0),
+                Vec3::new(0.7, -0.8, 0.0),
+                Vec3::new(0.9, 0.7, 0.0),
+                Vec3::new(-0.6, 0.9, 0.0),
+                Vec3::new(0.0, 0.0, 1.0),
+            ],
+            normals: Vec::new(),
+            triangles: vec![
+                0, 1, 5, 0, 5, 4, 1, 2, 6, 1, 6, 5, 2, 3, 7, 2, 7, 6, 3, 0, 4, 3, 4, 7, 4, 5, 8, 5,
+                6, 8, 6, 7, 8, 7, 4, 8,
+            ],
+            uv: Vec::new(),
+        };
+        let source = mesh.vertices.clone();
+        let coast_loop = vec![4_u32, 5, 6, 7];
+        let expected = (0..coast_loop.len())
+            .map(|index| {
+                let previous = source[coast_loop[(index + coast_loop.len() - 1) % 4] as usize];
+                let current = source[coast_loop[index] as usize];
+                let next = source[coast_loop[(index + 1) % 4] as usize];
+                (previous.truncate() + current.truncate() + next.truncate()) / 3.0
+            })
+            .collect::<Vec<Vec2>>();
+
+        smooth_coastline_paths_xy(
+            &mut mesh,
+            &[CoastlinePath {
+                vertices: coast_loop.clone(),
+                closed: true,
+            }],
+            &[false; 9],
+        );
+
+        assert_eq!(&mesh.vertices[..4], &source[..4]);
+        for (&vertex, expected) in coast_loop.iter().zip(expected) {
+            assert!(mesh.vertices[vertex as usize].truncate().distance(expected) < 1.0e-6);
+            assert!(mesh.vertices[vertex as usize].z.abs() < f32::EPSILON);
         }
     }
 }

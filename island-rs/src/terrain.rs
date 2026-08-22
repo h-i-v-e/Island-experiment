@@ -21,7 +21,7 @@ use rayon::prelude::*;
 use crate::{
     Adjacency, BoundingBox, ISLAND_WORLD_METRES, Mesh, Raster, River, Vec2, Vec3,
     geology::{self, GeologyField},
-    mesh::{NewVertexStencil, TessellationResult},
+    mesh::{EdgeSplitStencil, NewVertexStencil, TessellationResult},
     mesh_clipper::MeshClipper,
     noise,
     profiling::StageTimer,

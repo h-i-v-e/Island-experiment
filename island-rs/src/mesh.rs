@@ -33,6 +33,19 @@ pub(crate) struct NewVertexStencil {
     pub count: u8,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct EdgeSplitStencil {
+    pub(crate) vertex: u32,
+    pub(crate) edge: [u32; 2],
+    pub(crate) interpolation: f32,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct HeightConstraintResult {
+    pub(crate) splits: Vec<EdgeSplitStencil>,
+    pub(crate) edges: Vec<[u32; 2]>,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct TessellationResult {
     pub mesh: Mesh,
@@ -405,6 +418,48 @@ impl Mesh {
         self.triangles = triangles;
         self.normals.clear();
         added
+    }
+
+    pub(crate) fn constrain_height_plane(&mut self, height: f32) -> HeightConstraintResult {
+        let source_triangles = std::mem::take(&mut self.triangles);
+        let mut triangles = Vec::with_capacity(source_triangles.len() * 2);
+        let mut intersections = HashMap::<(u32, u32), u32>::new();
+        let mut result = HeightConstraintResult::default();
+
+        for triangle in source_triangles.chunks_exact(3) {
+            let triangle = [triangle[0], triangle[1], triangle[2]];
+            let heights = triangle.map(|vertex| self.vertices[vertex as usize].z - height);
+            let crosses = heights.iter().any(|value| *value > 0.0)
+                && heights.iter().any(|value| *value < 0.0);
+            if !crosses {
+                triangles.extend(triangle);
+                continue;
+            }
+
+            let land = clip_triangle_to_height_side(
+                self,
+                triangle,
+                height,
+                true,
+                &mut intersections,
+                &mut result.splits,
+            );
+            let sea = clip_triangle_to_height_side(
+                self,
+                triangle,
+                height,
+                false,
+                &mut intersections,
+                &mut result.splits,
+            );
+            triangulate_convex_polygon(&land, &mut triangles);
+            triangulate_convex_polygon(&sea, &mut triangles);
+        }
+
+        self.triangles = triangles;
+        result.edges = height_plane_boundary_edges(self, height);
+        self.normals.clear();
+        result
     }
 
     /// Improves the worst 3D triangle quality by repeatedly flipping local
@@ -1401,6 +1456,123 @@ fn add_stencil_opposite(stencil: &mut NewVertexStencil, opposite: u32) {
     }
 }
 
+fn height_intersection_vertex(
+    mesh: &mut Mesh,
+    a: u32,
+    b: u32,
+    height: f32,
+    intersections: &mut HashMap<(u32, u32), u32>,
+    splits: &mut Vec<EdgeSplitStencil>,
+) -> u32 {
+    let edge = ordered_edge(a, b);
+    if let Some(&vertex) = intersections.get(&edge) {
+        return vertex;
+    }
+    let [edge_a, edge_b] = [edge.0 as usize, edge.1 as usize];
+    let [a_height, b_height] = [
+        mesh.vertices[edge_a].z - height,
+        mesh.vertices[edge_b].z - height,
+    ];
+    let interpolation = (a_height / (a_height - b_height)).clamp(0.0, 1.0);
+    let vertex = mesh.vertices.len() as u32;
+    let mut position = mesh.vertices[edge_a].lerp(mesh.vertices[edge_b], interpolation);
+    position.z = height;
+    mesh.vertices.push(position);
+    if !mesh.uv.is_empty() {
+        mesh.uv
+            .push(mesh.uv[edge_a].lerp(mesh.uv[edge_b], interpolation));
+    }
+    splits.push(EdgeSplitStencil {
+        vertex,
+        edge: [edge.0, edge.1],
+        interpolation,
+    });
+    intersections.insert(edge, vertex);
+    vertex
+}
+
+fn clip_triangle_to_height_side(
+    mesh: &mut Mesh,
+    triangle: [u32; 3],
+    height: f32,
+    keep_above: bool,
+    intersections: &mut HashMap<(u32, u32), u32>,
+    splits: &mut Vec<EdgeSplitStencil>,
+) -> Vec<u32> {
+    let mut output = Vec::with_capacity(4);
+    for index in 0..3 {
+        let current = triangle[index];
+        let next = triangle[(index + 1) % 3];
+        let current_height = mesh.vertices[current as usize].z - height;
+        let next_height = mesh.vertices[next as usize].z - height;
+        let current_inside = if keep_above {
+            current_height >= 0.0
+        } else {
+            current_height <= 0.0
+        };
+        let next_inside = if keep_above {
+            next_height >= 0.0
+        } else {
+            next_height <= 0.0
+        };
+        if current_inside {
+            output.push(current);
+        }
+        if current_inside != next_inside && current_height != 0.0 && next_height != 0.0 {
+            output.push(height_intersection_vertex(
+                mesh,
+                current,
+                next,
+                height,
+                intersections,
+                splits,
+            ));
+        }
+    }
+    output.dedup();
+    output
+}
+
+fn triangulate_convex_polygon(polygon: &[u32], triangles: &mut Vec<u32>) {
+    for index in 1..polygon.len().saturating_sub(1) {
+        let triangle = [polygon[0], polygon[index], polygon[index + 1]];
+        if triangle[0] != triangle[1] && triangle[1] != triangle[2] && triangle[2] != triangle[0] {
+            triangles.extend(triangle);
+        }
+    }
+}
+
+#[allow(clippy::float_cmp)] // Exact equality identifies vertices explicitly snapped to the plane.
+fn height_plane_boundary_edges(mesh: &Mesh, height: f32) -> Vec<[u32; 2]> {
+    let mut sides = HashMap::<(u32, u32), u8>::new();
+    for triangle in mesh.triangles.chunks_exact(3) {
+        for [a, b, opposite] in [
+            [triangle[0], triangle[1], triangle[2]],
+            [triangle[1], triangle[2], triangle[0]],
+            [triangle[2], triangle[0], triangle[1]],
+        ] {
+            if mesh.vertices[a as usize].z != height || mesh.vertices[b as usize].z != height {
+                continue;
+            }
+            let opposite_height = mesh.vertices[opposite as usize].z - height;
+            let side = if opposite_height > 0.0 {
+                1
+            } else if opposite_height < 0.0 {
+                2
+            } else {
+                0
+            };
+            *sides.entry(ordered_edge(a, b)).or_default() |= side;
+        }
+    }
+    let mut edges = sides
+        .into_iter()
+        .filter_map(|((a, b), sides)| (sides == 3).then_some([a, b]))
+        .collect::<Vec<_>>();
+    edges.sort_unstable();
+    edges
+}
+
 fn midpoint(
     a: u32,
     b: u32,
@@ -1695,6 +1867,48 @@ mod tests {
         let tessellated = mesh.tessellated();
         assert_eq!(tessellated.triangles.len(), mesh.triangles.len() * 4);
         assert_eq!(tessellated.vertices.len(), 9);
+    }
+
+    #[test]
+    fn height_plane_constraint_reuses_crossings_and_builds_contour_edges() {
+        let mut mesh = Mesh {
+            vertices: vec![
+                Vec3::new(-1.0, -1.0, -1.0),
+                Vec3::new(1.0, -1.0, -1.0),
+                Vec3::new(1.0, 1.0, -1.0),
+                Vec3::new(-1.0, 1.0, -1.0),
+                Vec3::new(0.0, 0.0, 1.0),
+            ],
+            normals: Vec::new(),
+            triangles: vec![0, 1, 4, 1, 2, 4, 2, 3, 4, 3, 0, 4],
+            uv: Vec::new(),
+        };
+
+        let constrained = mesh.constrain_height_plane(0.0);
+
+        assert_eq!(constrained.splits.len(), 4);
+        assert_eq!(constrained.edges.len(), 4);
+        assert!(
+            constrained
+                .splits
+                .iter()
+                .all(|split| mesh.vertices[split.vertex as usize].z == 0.0)
+        );
+        assert!(
+            constrained
+                .edges
+                .iter()
+                .all(|&[a, b]| mesh_contains_edge(&mesh, a, b))
+        );
+        assert!(mesh.triangles.chunks_exact(3).all(|triangle| {
+            let heights = [
+                mesh.vertices[triangle[0] as usize].z,
+                mesh.vertices[triangle[1] as usize].z,
+                mesh.vertices[triangle[2] as usize].z,
+            ];
+            !(heights.iter().any(|height| *height > 0.0)
+                && heights.iter().any(|height| *height < 0.0))
+        }));
     }
 
     #[test]

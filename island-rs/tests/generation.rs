@@ -211,7 +211,7 @@ fn generation_is_deterministic_across_worker_counts() {
 }
 
 #[test]
-fn final_terrain_has_ten_centimetres_clearance_from_the_sea_plane() {
+fn final_terrain_has_an_explicit_sea_plane_coastline() {
     let island = Island::generate(
         2018,
         IslandOptions {
@@ -220,15 +220,17 @@ fn final_terrain_has_ten_centimetres_clearance_from_the_sea_plane() {
         },
     )
     .unwrap();
-    let clearance = 0.10 / 2_000.0;
-
-    assert!(
-        island
-            .terrain()
-            .vertices()
-            .iter()
-            .all(|vertex| vertex.z <= -clearance || vertex.z >= clearance)
-    );
+    let terrain = island.lod(0).unwrap();
+    let vertices = &terrain.vertices;
+    assert!(vertices.iter().any(|vertex| vertex.z.to_bits() == 0));
+    assert!(terrain.triangles.chunks_exact(3).all(|triangle| {
+        let heights = [
+            vertices[triangle[0] as usize].z,
+            vertices[triangle[1] as usize].z,
+            vertices[triangle[2] as usize].z,
+        ];
+        !(heights.iter().any(|height| *height > 0.0) && heights.iter().any(|height| *height < 0.0))
+    }));
 }
 
 #[test]
