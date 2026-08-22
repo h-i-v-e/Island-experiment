@@ -13,10 +13,11 @@ use super::{
     WaterfallTerrainConstraints, build_river_footprint, derive_waterfall_patches,
     detect_failed_final_waterfalls, duplicate_river_topology, encode_bank_distance_in_uv,
     enforce_final_waterfall_edge_relationships, enforce_waterfall_downstream_ceiling,
-    is_river_bed_triangle, is_river_boundary, mark_river_boundary, pin_waterfalls_to_terrain,
-    rebuild_final_waterfall_support_mask, recess_waterfall_notches, river_topology_masks,
-    smooth_final_waterfall_patches, smooth_pinned_waterfall_terrain, smoothstep,
-    squish_waterfall_downstream_spikes, waterfall_bank_mask, waterfall_side_bank_apron_for_patch,
+    generate_river_rock_mesh, is_river_bed_triangle, is_river_boundary, mark_river_boundary,
+    pin_waterfalls_to_terrain, rebuild_final_waterfall_support_mask, recess_waterfall_notches,
+    river_topology_masks, smooth_final_waterfall_patches, smooth_pinned_waterfall_terrain,
+    smoothstep, squish_waterfall_downstream_spikes, waterfall_bank_mask,
+    waterfall_side_bank_apron_for_patch,
 };
 
 pub(super) fn lower_precarve_river_valleys(
@@ -1481,10 +1482,19 @@ pub(crate) struct RiverDebugGeometry {
     pub(crate) waterfall_lip_planes: Mesh,
 }
 
+pub(super) struct BuiltRiverGeometry {
+    pub(super) river_mesh: Mesh,
+    pub(super) river_bed: Vec<bool>,
+    pub(super) river_rock_mesh: Mesh,
+    pub(super) failed_waterfalls: Vec<usize>,
+    pub(super) debug_geometry: RiverDebugGeometry,
+}
+
 pub(super) struct RiverGeometryBuilder<'a> {
     network: &'a RiverNetwork,
     terrain: &'a mut Mesh,
     material: &'a mut SurfaceMaterial,
+    seed: u64,
     buffers: RiverMeshBuffers,
 }
 
@@ -1493,6 +1503,7 @@ impl<'a> RiverGeometryBuilder<'a> {
         network: &'a RiverNetwork,
         terrain: &'a mut Mesh,
         material: &'a mut SurfaceMaterial,
+        seed: u64,
     ) -> Self {
         let footprint = build_river_footprint(network, terrain, &terrain.adjacency(), true);
         let attributes = river_mesh_attributes(terrain, &footprint.owner);
@@ -1500,11 +1511,12 @@ impl<'a> RiverGeometryBuilder<'a> {
             network,
             terrain,
             material,
+            seed,
             buffers: RiverMeshBuffers::new(footprint.coverage, attributes),
         }
     }
 
-    pub(super) fn build(mut self) -> (Mesh, Vec<bool>, Vec<usize>, RiverDebugGeometry) {
+    pub(super) fn build(mut self) -> BuiltRiverGeometry {
         self.refine_channel();
         let patches = derive_waterfall_patches(self.network, self.terrain);
         let mut constraints = self.refine_waterfalls(&patches);
@@ -1609,7 +1621,7 @@ impl<'a> RiverGeometryBuilder<'a> {
         self,
         patches: &[WaterfallPatch],
         constraints: &WaterfallTerrainConstraints,
-    ) -> (Mesh, Vec<bool>, Vec<usize>, RiverDebugGeometry) {
+    ) -> BuiltRiverGeometry {
         let failed_waterfalls = if ENABLE_FINAL_WATERFALL_REJECTION {
             detect_failed_final_waterfalls(self.terrain, patches, &self.buffers.coverage)
         } else {
@@ -1622,6 +1634,11 @@ impl<'a> RiverGeometryBuilder<'a> {
             &self.buffers.river_uv,
             constraints,
         );
+        let river_rock_mesh = if failed_waterfalls.is_empty() {
+            generate_river_rock_mesh(self.seed, self.terrain, &self.buffers.coverage)
+        } else {
+            Mesh::default()
+        };
         let debug_geometry = RiverDebugGeometry {
             river_bed: river_bed_mesh,
             waterfall_face_terrain: build_waterfall_face_terrain_debug_mesh(
@@ -1641,6 +1658,12 @@ impl<'a> RiverGeometryBuilder<'a> {
                 -WaterfallPatch::face_run(),
             ),
         };
-        (river_mesh, river_bed, failed_waterfalls, debug_geometry)
+        BuiltRiverGeometry {
+            river_mesh,
+            river_bed,
+            river_rock_mesh,
+            failed_waterfalls,
+            debug_geometry,
+        }
     }
 }

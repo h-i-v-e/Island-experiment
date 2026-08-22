@@ -10,7 +10,8 @@ use std::{
 };
 
 use crate::{
-    Adjacency, ISLAND_WORLD_METRES, Mesh, Vec2, Vec3,
+    Adjacency, ISLAND_WORLD_METRES, Mesh, Vec2, Vec3, noise,
+    rng::Rng,
     terrain::{
         ProjectedFaceAreas, SurfaceMaterial, VertexFaceAdjacency, bedrock_erosion_rate,
         projected_vertex_control_areas,
@@ -20,6 +21,7 @@ use crate::{
 mod carving;
 mod channel;
 mod geometry;
+mod rocks;
 mod tracing;
 mod waterfalls;
 
@@ -40,11 +42,12 @@ use channel::{
 };
 pub(crate) use geometry::RiverDebugGeometry;
 use geometry::{
-    RiverChannelFootprintOwner, RiverFootprint, RiverGeometryBuilder, RiverMeshBuffers,
-    RiverOwnerKey, apply_known_surfaces, confluence_connector, finalize_river_budgets,
-    lower_precarve_river_valleys, raise_precarve_waterfall_shoulders, river_reaches_ocean,
-    transfer_tributary_budgets,
+    BuiltRiverGeometry, RiverChannelFootprintOwner, RiverFootprint, RiverGeometryBuilder,
+    RiverMeshBuffers, RiverOwnerKey, apply_known_surfaces, confluence_connector,
+    finalize_river_budgets, lower_precarve_river_valleys, raise_precarve_waterfall_shoulders,
+    river_reaches_ocean, transfer_tributary_budgets,
 };
+use rocks::generate_river_rock_mesh;
 use tracing::{
     RouteState, WaterfallClearanceIndex, calculate_flow_and_catchment, find_sources,
     fix_inland_seas, map_downstream, trace_rivers, update_join_flows,
@@ -60,6 +63,16 @@ use waterfalls::{
 
 #[cfg(test)]
 mod tests;
+
+pub(crate) struct RiverParts {
+    pub(crate) rivers: Vec<River>,
+    pub(crate) river_mesh: Mesh,
+    pub(crate) river_bed: Vec<bool>,
+    pub(crate) river_rock_mesh: Mesh,
+    pub(crate) mouths: Vec<RiverMouth>,
+    pub(crate) failed_waterfalls: Vec<usize>,
+    pub(crate) debug_geometry: RiverDebugGeometry,
+}
 
 pub(crate) const RIVER_SURFACE_OFFSET: f32 = 0.000_01;
 // Unity scales the normalized terrain mesh to 2,000 metres across.
@@ -396,27 +409,21 @@ impl RiverNetwork {
         mut self,
         mesh: &mut Mesh,
         material: &mut SurfaceMaterial,
-    ) -> (
-        Vec<River>,
-        Mesh,
-        Vec<bool>,
-        Vec<RiverMouth>,
-        Vec<usize>,
-        RiverDebugGeometry,
-    ) {
-        let (river_mesh, river_bed, failed_waterfalls, debug_geometry) =
-            self.build_mesh_with_mask(mesh, material);
+        seed: u64,
+    ) -> RiverParts {
+        let geometry = self.build_mesh_with_mask(mesh, material, seed);
         mesh.calculate_normals();
         self.refresh(mesh);
         let mouths = self.river_mouths();
-        (
-            self.rivers,
-            river_mesh,
-            river_bed,
+        RiverParts {
+            rivers: self.rivers,
+            river_mesh: geometry.river_mesh,
+            river_bed: geometry.river_bed,
+            river_rock_mesh: geometry.river_rock_mesh,
             mouths,
-            failed_waterfalls,
-            debug_geometry,
-        )
+            failed_waterfalls: geometry.failed_waterfalls,
+            debug_geometry: geometry.debug_geometry,
+        }
     }
 
     fn river_mouths(&self) -> Vec<RiverMouth> {
@@ -836,15 +843,16 @@ impl RiverNetwork {
         _adjacency: &Adjacency,
         material: &mut SurfaceMaterial,
     ) -> Mesh {
-        self.build_mesh_with_mask(terrain, material).0
+        self.build_mesh_with_mask(terrain, material, 0).river_mesh
     }
 
     fn build_mesh_with_mask(
         &self,
         terrain: &mut Mesh,
         material: &mut SurfaceMaterial,
-    ) -> (Mesh, Vec<bool>, Vec<usize>, RiverDebugGeometry) {
-        RiverGeometryBuilder::new(self, terrain, material).build()
+        seed: u64,
+    ) -> BuiltRiverGeometry {
+        RiverGeometryBuilder::new(self, terrain, material, seed).build()
     }
 
     fn refresh(&mut self, mesh: &Mesh) {

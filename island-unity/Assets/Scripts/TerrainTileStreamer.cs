@@ -77,6 +77,8 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         new Dictionary<Vector2Int, TileGroup>();
     private readonly Dictionary<Vector2Int, TileGroup> riverGroups =
         new Dictionary<Vector2Int, TileGroup>();
+    private readonly Dictionary<Vector2Int, TileGroup> riverRockGroups =
+        new Dictionary<Vector2Int, TileGroup>();
     private readonly Dictionary<Vector2Int, ColliderTile> colliderTiles =
         new Dictionary<Vector2Int, ColliderTile>();
     private readonly List<Vector2Int> removalScratch = new List<Vector2Int>(9);
@@ -86,8 +88,10 @@ public sealed class TerrainTileStreamer : MonoBehaviour
     private Material grassMaterial;
     private MaterialPropertyBlock lod0MaterialProperties;
     private Material riverMaterial;
+    private Material rockMaterial;
     private Material meshEdgeMaterial;
     private IslandPreparedMesh[] preparedRiverTiles;
+    private IslandPreparedMesh[] preparedRiverRockTiles;
     private IslandPreparedColliderHeightMap colliderHeightMap;
     private float worldSize;
     private float grassBoundsRadius;
@@ -97,6 +101,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
     private bool meshEdgesVisible;
     private TileGroup lod2Group;
     private GameObject riverRoot;
+    private GameObject riverRockRoot;
     private GameObject colliderRoot;
     private RiverParticlePool riverParticlePool;
     private RockDecorationPool rockDecorationPool;
@@ -126,6 +131,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         float terrainWorldSize,
         IslandPreparedMesh[] overviewTiles,
         IslandPreparedMesh[] riverTiles,
+        IslandPreparedMesh[] riverRockTiles,
         IslandPreparedRiverEmitter[] riverEmitters,
         IslandPreparedRockDecoration[] rocks,
         IslandPreparedColliderHeightMap preparedColliderHeightMap,
@@ -144,8 +150,10 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         lod0MaterialProperties = new MaterialPropertyBlock();
         lod0MaterialProperties.SetFloat(WorldNormalWeightId, 0f);
         riverMaterial = waterMaterial;
+        rockMaterial = sharedRockMaterial;
         meshEdgeMaterial = sharedMeshEdgeMaterial;
         preparedRiverTiles = riverTiles;
+        preparedRiverRockTiles = riverRockTiles;
         colliderHeightMap = preparedColliderHeightMap;
         worldSize = terrainWorldSize;
         grassVisible = showGrass;
@@ -153,6 +161,11 @@ public sealed class TerrainTileStreamer : MonoBehaviour
             || preparedRiverTiles.Length != Lod1Resolution * Lod1Resolution)
         {
             throw new InvalidOperationException("The prepared river tile batch is invalid.");
+        }
+        if (preparedRiverRockTiles == null
+            || preparedRiverRockTiles.Length != Lod1Resolution * Lod1Resolution)
+        {
+            throw new InvalidOperationException("The prepared river-rock tile batch is invalid.");
         }
         if (colliderHeightMap == null
             || colliderHeightMap.samplesPerTile != ColliderSamplesPerTile)
@@ -170,6 +183,9 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         riverParticlePool = particleRoot.AddComponent<RiverParticlePool>();
         riverParticlePool.Initialize(riverEmitters, worldSize, showRivers);
         riverRoot.SetActive(showRivers);
+        riverRockRoot = new GameObject("River Stones and Boulders");
+        riverRockRoot.transform.SetParent(transform, false);
+        riverRockRoot.SetActive(showRocks);
         var rockRoot = new GameObject("Stone and Boulder Pool");
         rockRoot.transform.SetParent(transform, false);
         rockDecorationPool = rockRoot.AddComponent<RockDecorationPool>();
@@ -275,6 +291,10 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         {
             group.root?.SetActive(false);
         }
+        foreach (var group in riverRockGroups.Values)
+        {
+            group.root?.SetActive(false);
+        }
         foreach (var entry in lod0Groups)
         {
             SetLod1TileActive(entry.Key, true);
@@ -374,6 +394,11 @@ public sealed class TerrainTileStreamer : MonoBehaviour
             DestroyGroup(group);
         }
         riverGroups.Clear();
+        foreach (var group in riverRockGroups.Values)
+        {
+            DestroyGroup(group);
+        }
+        riverRockGroups.Clear();
         riverParticlePool?.DisposePool();
         riverParticlePool = null;
         if (rockDecorationPool != null)
@@ -385,9 +410,12 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         }
         DestroyUnityObject(riverRoot);
         riverRoot = null;
+        DestroyUnityObject(riverRockRoot);
+        riverRockRoot = null;
         DestroyUnityObject(colliderRoot);
         colliderRoot = null;
         preparedRiverTiles = null;
+        preparedRiverRockTiles = null;
         colliderHeightMap = null;
         if (lod2Group != null)
         {
@@ -430,6 +458,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
     public void SetRocksVisible(bool visible)
     {
         rockDecorationPool?.SetRocksVisible(visible);
+        riverRockRoot?.SetActive(visible);
     }
 
     public void SetMeshEdgesVisible(bool visible)
@@ -484,6 +513,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
             lod1Groups.Remove(key);
             SetLod2TileActive(key, true);
             SetRiverGroupActive(key, false);
+            SetRiverRockGroupActive(key, false);
         }
 
         ForEachNeighbour(center, Lod2Resolution, key =>
@@ -501,6 +531,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
             }
             SetLod2TileActive(key, false);
             SetRiverGroupActive(key, true);
+            SetRiverRockGroupActive(key, true);
         });
     }
 
@@ -848,12 +879,37 @@ public sealed class TerrainTileStreamer : MonoBehaviour
 
     private TileGroup CreateRiverGroup(Vector2Int parent)
     {
+        return CreatePreparedFeatureGroup(
+            parent,
+            preparedRiverTiles,
+            riverRoot,
+            riverMaterial,
+            "River");
+    }
+
+    private TileGroup CreateRiverRockGroup(Vector2Int parent)
+    {
+        return CreatePreparedFeatureGroup(
+            parent,
+            preparedRiverRockTiles,
+            riverRockRoot,
+            rockMaterial,
+            "River rock");
+    }
+
+    private static TileGroup CreatePreparedFeatureGroup(
+        Vector2Int parent,
+        IslandPreparedMesh[] preparedTiles,
+        GameObject featureRoot,
+        Material material,
+        string label)
+    {
         GameObject root = null;
         var tiles = new Tile[Divisions * Divisions];
         try
         {
-            root = new GameObject($"River group {parent.x},{parent.y}");
-            root.transform.SetParent(riverRoot.transform, false);
+            root = new GameObject($"{label} group {parent.x},{parent.y}");
+            root.transform.SetParent(featureRoot.transform, false);
             for (var localY = 0; localY < Divisions; localY++)
             {
                 for (var localX = 0; localX < Divisions; localX++)
@@ -861,19 +917,19 @@ public sealed class TerrainTileStreamer : MonoBehaviour
                     var globalX = parent.x * Divisions + localX;
                     var globalY = parent.y * Divisions + localY;
                     var preparedIndex = globalY * Lod1Resolution + globalX;
-                    var preparedMesh = preparedRiverTiles[preparedIndex];
+                    var preparedMesh = preparedTiles[preparedIndex];
                     if (preparedMesh == null)
                     {
                         continue;
                     }
 
                     var mesh = IslandGenerator.CreateRiverMesh(preparedMesh);
-                    preparedRiverTiles[preparedIndex] = null;
+                    preparedTiles[preparedIndex] = null;
                     var tileIndex = localY * Divisions + localX;
-                    var tileObject = new GameObject($"River LOD 1 tile {globalX},{globalY}");
+                    var tileObject = new GameObject($"{label} LOD 1 tile {globalX},{globalY}");
                     tileObject.transform.SetParent(root.transform, false);
                     tileObject.AddComponent<MeshFilter>().sharedMesh = mesh;
-                    tileObject.AddComponent<MeshRenderer>().sharedMaterial = riverMaterial;
+                    tileObject.AddComponent<MeshRenderer>().sharedMaterial = material;
                     tiles[tileIndex] = new Tile(tileObject, mesh);
                 }
             }
@@ -896,6 +952,20 @@ public sealed class TerrainTileStreamer : MonoBehaviour
             }
             group = CreateRiverGroup(key);
             riverGroups.Add(key, group);
+        }
+        group.root?.SetActive(active);
+    }
+
+    private void SetRiverRockGroupActive(Vector2Int key, bool active)
+    {
+        if (!riverRockGroups.TryGetValue(key, out var group))
+        {
+            if (!active)
+            {
+                return;
+            }
+            group = CreateRiverRockGroup(key);
+            riverRockGroups.Add(key, group);
         }
         group.root?.SetActive(active);
     }

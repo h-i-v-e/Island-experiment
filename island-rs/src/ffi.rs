@@ -658,6 +658,32 @@ pub unsafe extern "C" fn CreateRiverMeshGrid(
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn CreateRiverRockMeshGrid(
+    handle: *const c_void,
+    area: *const ExportArea,
+    divisions: i32,
+    output: *mut ExportMeshGrid,
+) {
+    let Some(island) = (unsafe { island_ref(handle) }) else {
+        return;
+    };
+    let Some(output) = (unsafe { output.as_mut() }) else {
+        return;
+    };
+    let bounds = if area.is_null() {
+        BoundingBox::default()
+    } else {
+        // SAFETY: non-null area must point to a readable ExportArea.
+        unsafe { (*area).into() }
+    };
+    let divisions = usize::try_from(divisions.max(0)).unwrap_or(0);
+    *output = export_mesh_grid(
+        island.river_rock_mesh().sliced_grid(bounds, divisions),
+        |_| Vec::new(),
+    );
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn CreateRiverEmitters(
     handle: *const c_void,
     sharpness_degrees: f32,
@@ -1228,6 +1254,20 @@ mod tests {
             );
             ReleaseMeshGrid(&raw mut river_grid);
             assert!(river_grid.handle.is_null());
+
+            let mut river_rock_grid = ExportMeshGrid::default();
+            CreateRiverRockMeshGrid(handle, ptr::null(), 8, &raw mut river_rock_grid);
+            assert!(!river_rock_grid.handle.is_null());
+            assert_eq!(river_rock_grid.length, 64);
+            let river_rock_tiles =
+                std::slice::from_raw_parts(river_rock_grid.data, river_rock_grid.length as usize);
+            assert!(river_rock_tiles.iter().all(|tile| {
+                tile.normals.length == tile.vertices.length
+                    && tile.uv.length == 0
+                    && tile.material.length == 0
+            }));
+            ReleaseMeshGrid(&raw mut river_rock_grid);
+            assert!(river_rock_grid.handle.is_null());
 
             let mut river_bed_debug = ExportMesh::default();
             CreateRiverBedDebugMesh(handle, &raw mut river_bed_debug);

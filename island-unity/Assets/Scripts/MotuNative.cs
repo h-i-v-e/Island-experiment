@@ -228,6 +228,13 @@ internal static class MotuNative
         out ExportMeshGrid output);
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+    internal static extern void CreateRiverRockMeshGrid(
+        IntPtr handle,
+        ref ExportArea area,
+        int divisions,
+        out ExportMeshGrid output);
+
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
     internal static extern void ReleaseMeshWithUV(ref ExportMeshWithUv output);
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]

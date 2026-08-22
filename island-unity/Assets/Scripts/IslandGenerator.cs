@@ -599,6 +599,7 @@ public sealed class IslandGenerator : MonoBehaviour
                 worldSize,
                 prepared.overviewTiles,
                 prepared.riverTiles,
+                prepared.riverRockTiles,
                 prepared.riverEmitters,
                 prepared.rocks,
                 prepared.colliderHeightMap,
@@ -782,6 +783,8 @@ public sealed class IslandGenerator : MonoBehaviour
             cancellationToken.ThrowIfCancellationRequested();
             var riverTiles = PrepareRiverTiles(handle, worldSize);
             cancellationToken.ThrowIfCancellationRequested();
+            var riverRockTiles = PrepareRiverRockTiles(handle, worldSize);
+            cancellationToken.ThrowIfCancellationRequested();
             var riverBedDebugMesh = PrepareRiverBedDebugMesh(handle, worldSize);
             var waterfallFaceTerrainDebugMesh = PrepareWaterfallFaceTerrainDebugMesh(
                 handle,
@@ -807,6 +810,7 @@ public sealed class IslandGenerator : MonoBehaviour
                 seaMask,
                 overviewTiles,
                 riverTiles,
+                riverRockTiles,
                 riverBedDebugMesh,
                 waterfallFaceTerrainDebugMesh,
                 waterfallPlaneDebugMesh,
@@ -941,6 +945,45 @@ public sealed class IslandGenerator : MonoBehaviour
             {
                 throw new InvalidOperationException(
                     "The Rust river slicer returned an invalid LOD 1 tile batch.");
+            }
+
+            var result = new IslandPreparedMesh[export.length];
+            var exportSize = Marshal.SizeOf<MotuNative.ExportMesh>();
+            for (var index = 0; index < export.length; index++)
+            {
+                var nativeMesh = Marshal.PtrToStructure<MotuNative.ExportMesh>(
+                    IntPtr.Add(export.data, index * exportSize));
+                if (nativeMesh.handle != IntPtr.Zero && nativeMesh.triangles.length != 0)
+                {
+                    result[index] = CopyRiverMeshData(nativeMesh, worldSize);
+                }
+            }
+            return result;
+        }
+        finally
+        {
+            MotuNative.ReleaseMeshGrid(ref export);
+        }
+    }
+
+    private static IslandPreparedMesh[] PrepareRiverRockTiles(IntPtr handle, float worldSize)
+    {
+        var area = new MotuNative.ExportArea(0f, 0f, 1f, 1f);
+        MotuNative.CreateRiverRockMeshGrid(
+            handle,
+            ref area,
+            TerrainTileStreamer.Lod1Resolution,
+            out var export);
+        try
+        {
+            var expectedLength = TerrainTileStreamer.Lod1Resolution
+                * TerrainTileStreamer.Lod1Resolution;
+            if (export.handle == IntPtr.Zero
+                || export.data == IntPtr.Zero
+                || export.length != expectedLength)
+            {
+                throw new InvalidOperationException(
+                    "The Rust river-rock slicer returned an invalid LOD 1 tile batch.");
             }
 
             var result = new IslandPreparedMesh[export.length];
@@ -2460,6 +2503,41 @@ public sealed class IslandGenerator : MonoBehaviour
             finally
             {
                 MotuNative.ReleaseMeshGrid(ref riverGrid);
+            }
+
+            MotuNative.CreateRiverRockMeshGrid(
+                handle,
+                ref riverArea,
+                riverResolution,
+                out var riverRockGrid);
+            try
+            {
+                if (riverRockGrid.handle == IntPtr.Zero
+                    || riverRockGrid.data == IntPtr.Zero
+                    || riverRockGrid.length != riverResolution * riverResolution)
+                {
+                    throw new InvalidOperationException(
+                        "Native river-rock grid layout is invalid.");
+                }
+                var exportSize = Marshal.SizeOf<MotuNative.ExportMesh>();
+                for (var index = 0; index < riverRockGrid.length; index++)
+                {
+                    var nativeMesh = Marshal.PtrToStructure<MotuNative.ExportMesh>(
+                        IntPtr.Add(riverRockGrid.data, index * exportSize));
+                    if (nativeMesh.triangles.length == 0)
+                    {
+                        continue;
+                    }
+                    if (nativeMesh.normals.length != nativeMesh.vertices.length)
+                    {
+                        throw new InvalidOperationException(
+                            "A sliced river-rock tile has invalid normals.");
+                    }
+                }
+            }
+            finally
+            {
+                MotuNative.ReleaseMeshGrid(ref riverRockGrid);
             }
 
             MotuNative.CreateRiverEmitters(handle, 35f, 2f, out var riverEmitters);

@@ -20,6 +20,7 @@ pub struct Island {
     pub(super) rivers: Vec<River>,
     pub(super) river_mouths: Vec<RiverMouth>,
     pub(super) river_mesh: Mesh,
+    pub(super) river_rock_mesh: Mesh,
     pub(super) river_bed_debug_mesh: Mesh,
     pub(super) waterfall_face_terrain_debug_mesh: Mesh,
     pub(super) waterfall_plane_debug_mesh: Mesh,
@@ -33,6 +34,7 @@ pub(super) struct FinalRiverGeneration {
     pub(super) rivers: Vec<River>,
     pub(super) river_mesh: Mesh,
     pub(super) river_bed: Vec<bool>,
+    pub(super) river_rock_mesh: Mesh,
     pub(super) river_mouths: Vec<RiverMouth>,
     pub(super) debug_geometry: RiverDebugGeometry,
 }
@@ -161,6 +163,7 @@ impl<R: Read> SavedIslandReader<R> {
 }
 
 pub(super) fn generate_final_rivers(
+    seed: u64,
     lod0: &Mesh,
     material: &SurfaceMaterial,
     source_rule: RiverSourceRule,
@@ -182,19 +185,23 @@ pub(super) fn generate_final_rivers(
             channel_settings,
             &rejected_waterfall_vertices,
         );
-        let (rivers, river_mesh, river_bed, river_mouths, failed, debug_geometry) =
-            network.into_parts_with_waterfall_failures(&mut attempt_lod0, &mut attempt_material);
+        let parts = network.into_parts_with_waterfall_failures(
+            &mut attempt_lod0,
+            &mut attempt_material,
+            seed,
+        );
         let rejected_before = rejected_waterfall_vertices.len();
-        rejected_waterfall_vertices.extend(failed);
+        rejected_waterfall_vertices.extend(parts.failed_waterfalls);
         if rejected_waterfall_vertices.len() == rejected_before {
             return FinalRiverGeneration {
                 lod0: attempt_lod0,
                 material: attempt_material,
-                rivers,
-                river_mesh,
-                river_bed,
-                river_mouths,
-                debug_geometry,
+                rivers: parts.rivers,
+                river_mesh: parts.river_mesh,
+                river_bed: parts.river_bed,
+                river_rock_mesh: parts.river_rock_mesh,
+                river_mouths: parts.mouths,
+                debug_geometry: parts.debug_geometry,
             };
         }
     }
@@ -230,9 +237,11 @@ impl Island {
             rivers,
             mut river_mesh,
             river_bed,
+            river_rock_mesh,
             river_mouths,
             debug_geometry: river_debug_geometry,
         } = generate_final_rivers(
+            seed,
             &lod0,
             &material,
             context.river_source_rule,
@@ -277,6 +286,7 @@ impl Island {
             rivers,
             river_mouths,
             river_mesh,
+            river_rock_mesh,
             river_bed_debug_mesh,
             waterfall_face_terrain_debug_mesh,
             waterfall_plane_debug_mesh,
@@ -319,6 +329,11 @@ impl Island {
     #[must_use]
     pub const fn river_mesh(&self) -> &Mesh {
         &self.river_mesh
+    }
+
+    #[must_use]
+    pub const fn river_rock_mesh(&self) -> &Mesh {
+        &self.river_rock_mesh
     }
 
     #[must_use]
