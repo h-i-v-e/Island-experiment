@@ -322,6 +322,7 @@ public sealed class RiverParticlePool : MonoBehaviour
     private Slot CreateSlot(int slotIndex)
     {
         var slotObject = new GameObject($"Rough water emitter {slotIndex}");
+        slotObject.layer = gameObject.layer;
         slotObject.transform.SetParent(transform, false);
         var particles = slotObject.AddComponent<ParticleSystem>();
         var main = particles.main;

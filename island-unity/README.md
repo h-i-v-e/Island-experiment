@@ -3,7 +3,9 @@
 A conventional scene-based Unity 6 project for the Rust generator in
 `../island-rs`. The reusable `IslandGenerator` component invokes the Rust C ABI
 and displays the irregular terrain, streamed detail, rivers, sea, vegetation
-shells, rocks, and hidden terrain colliders beneath its GameObject.
+shells, rocks, and hidden terrain colliders beneath its GameObject. River-bed
+stones and physically settled dropped rocks share one native-generated,
+tile-streamed mesh; rocks no longer use a separate GameObject renderer pool.
 
 ## Open and run
 
@@ -154,13 +156,17 @@ procedural fallback colours are derived from the average colours of their
 assigned colour maps when the island's runtime materials are built. Streamed
 stones use the same derived rock colour so they continue to match the cliffs.
 Their colour, authored normal, and occlusion contributions are fully visible on
-horizontal ground and fade together to zero at a configurable surface slope,
-which defaults to 45 degrees for both rock and riverbeds. The packed height map
-shapes the middle of each slope transition without changing either endpoint,
-so raised details retain the authored surface longer while recesses return to
-the procedural surface sooner. Steeper faces therefore retain the original
-solid rock or riverbed colour and procedural noise normal instead of receiving
-a stretched or alternate-axis projection. Packed linear mask maps store height
+horizontal ground and fade together into the simpler procedural stone through
+a broad slope band. Macro-scale coherent 3D noise perturbs that blend most near
+steep faces, while an additional mid-scale layer forms irregular patches of
+authored and simple stone across flat rock to break up repeated top-down
+textures. The configured fade slope defaults to 45 degrees, and the broadened
+transition reaches farther onto steep terrain. The packed height map
+shapes the middle of each transition without changing either endpoint, so
+raised details retain the authored surface longer while recesses return to the
+procedural surface sooner. Steeper faces therefore retain the original solid
+rock colour and procedural noise normal instead of receiving a stretched or
+alternate-axis projection. Packed linear mask maps store height
 in red and occlusion in green. Open
 **Island > Terrain > Pack Height +
 Occlusion Mask**, drag the two grayscale source textures into the window, and
@@ -177,16 +183,41 @@ field blends green ground continuously into bare dirt and the neighbouring
 surface materials.
 
 Terrain mesh colours carry material data rather than a visible tint. Red is
-bedrock hardness in the `0..1` range, with `2` reserved for sharp vertices that
-the final Rust geometry pass marks as exposed rock; green is loose/deposited
-cover, and blue is final river-bed coverage. Rust samples the authoritative
-final LOD 0 field after each tile is clipped, so reordered and newly created
-boundary vertices receive matching values. The unified shader uses these channels to expose harder rock on slopes,
-colour sheltered coastal deposits below a noisy one-metre beach line, and treat
-river beds as exposed rock consistently across all LODs. Grass ground uses coherent micro-normal
+normalized bedrock hardness, green is loose/deposited cover, and blue is
+reserved. Sharp terrain and all river-bed vertices instead receive the one-hot
+forced-rock colour `(1, 0, 0)`, so no dirt or grass channel competes with rock.
+Rust samples the authoritative final LOD 0 field after each tile is clipped, so
+reordered and newly created boundary vertices receive matching values. The
+unified shader uses these channels to expose harder rock on slopes, colour
+sheltered coastal deposits below a noisy one-metre beach line, and treat river
+beds as exposed rock consistently across all LODs. Grass ground uses coherent micro-normal
 relief at six times the stone detail frequency; beach sand uses eight-times finer
 and less strongly perturbed relief. These change nearby lighting without changing
 mesh geometry.
+
+The sandbox camera also runs real-time screen-space ambient occlusion in the
+Built-in Render Pipeline. It reconstructs nearby opaque geometry from the
+camera depth-normal texture, evaluates a fixed sphere-sample kernel at half
+resolution, and applies a depth- and normal-aware blur before transparent water
+is drawn. This adds live contact shading to terrain folds, cliff joins, and
+streamed rocks without baking another island texture. Tune the
+`RealTimeAmbientOcclusion` component on **Main Camera**: `Intensity` controls
+darkening, `Radius` is the world-space reach in metres, and `Quality` selects
+6, 10, or 12 samples. Disable `Half Resolution` for the sharpest result at a
+higher GPU cost; setting `Intensity` to zero bypasses the effect.
+
+The same camera drives a half-resolution planar reflection camera mirrored
+across the island's sea plane. It renders opaque terrain, vegetation, and rocks
+into a reusable HDR texture before the viewer camera draws the water. Sea water
+samples that scene reflection with animated ripple distortion and Fresnel
+falloff; river water blends it in only through the near-sea estuary band because
+the inland river and waterfall surfaces do not share the sea's reflection
+plane. The generated sea, river tiles, and rough-water particles use Unity's
+`Water` layer, which the reflection camera excludes to prevent water from
+reflecting itself. Tune `Resolution Scale`, `Clip Plane Offset`, and
+`Reflection Layers` on `PlanarWaterReflection` on **Main Camera**. The existing
+sky-colour reflection remains the fallback outside the reflection texture or
+when the component is disabled.
 
 ## Rebuild the native plugin
 

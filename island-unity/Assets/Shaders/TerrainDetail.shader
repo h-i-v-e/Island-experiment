@@ -223,10 +223,6 @@ Shader "Motu/Terrain Unified"
                 // the original solid colour and procedural noisy normal.
                 half topTextureFadeOutUpNormal = cos(radians(
                     _TopTextureFadeOutSlope));
-                half topTextureSlopeWeight = smoothstep(
-                    topTextureFadeOutUpNormal,
-                    1.0h,
-                    saturate(islandLocalNormal.y));
                 float2 rockUv = input.islandLocalPosition.xz
                     / max(_RockTextureWorldSize, 0.01);
                 fixed4 rockMaskSample = tex2D(_RockMaskMap, rockUv);
@@ -235,14 +231,6 @@ Shader "Motu/Terrain Unified"
                 fixed4 riverBedMaskSample = tex2D(
                     _RiverBedMaskMap,
                     riverBedUv);
-                half rockTextureWeight = HeightModulatedTextureWeight(
-                    topTextureSlopeWeight,
-                    rockMaskSample.r,
-                    _RockHeightBlendStrength);
-                half riverBedTextureWeight = HeightModulatedTextureWeight(
-                    topTextureSlopeWeight,
-                    riverBedMaskSample.r,
-                    _RiverBedHeightBlendStrength);
                 // Mesh import scales normalized Rust coordinates into Unity
                 // metres, so world-space Y is already the physical elevation.
                 float elevation = input.islandLocalPosition.y;
@@ -254,6 +242,48 @@ Shader "Motu/Terrain Unified"
                     _CliffNoise3D,
                     noisePosition * (1.0 / 3.0)
                         + float3(0.23, 0.71, 0.41)).rgb * 2.0 - 1.0;
+                half3 rockPatchLayers = tex3D(
+                    _CliffNoise3D,
+                    noisePosition * _RockPatchNoiseDetailScale
+                        + float3(0.67, 0.31, 0.91)).rgb;
+                half3 bankDetailNoise = tex3D(
+                    _CliffNoise3D,
+                    noisePosition * (_RockPatchNoiseDetailScale * 4.0)
+                        + float3(0.11, 0.83, 0.47)).rgb * 2.0 - 1.0;
+                // Blend the repeated top-down texture into the simpler stone
+                // over a wider slope band. Broad and mid-scale coherent patches
+                // remain active on flat tops to break up visible repetition.
+                half localUpNormal = saturate(islandLocalNormal.y);
+                half simpleStoneBlendNoise = clamp(
+                    macroNoise.r * 0.20
+                        + broadNoise.g * 0.25
+                        + (rockPatchLayers.g * 2.0h - 1.0h) * 0.55,
+                    -1.0,
+                    1.0);
+                half noisyTextureUpNormal = saturate(
+                    localUpNormal
+                        + simpleStoneBlendNoise
+                            * 0.16h
+                            * (1.0h - localUpNormal));
+                half topTextureBlendStart = saturate(
+                    topTextureFadeOutUpNormal - 0.20h);
+                half topTextureSlopeWeight = smoothstep(
+                    topTextureBlendStart,
+                    1.0h,
+                    noisyTextureUpNormal);
+                half flatTexturePatchWeight = lerp(
+                    0.0h,
+                    1.0h,
+                    smoothstep(-0.65h, 0.65h, simpleStoneBlendNoise));
+                topTextureSlopeWeight *= flatTexturePatchWeight;
+                half rockTextureWeight = HeightModulatedTextureWeight(
+                    topTextureSlopeWeight,
+                    rockMaskSample.r,
+                    _RockHeightBlendStrength);
+                half riverBedTextureWeight = HeightModulatedTextureWeight(
+                    topTextureSlopeWeight,
+                    riverBedMaskSample.r,
+                    _RiverBedHeightBlendStrength);
                 // Signed world-space noise shifts both sides of the cutoff.
                 // This prevents a linear interpolant from drawing the
                 // underlying terrain triangles into the material boundary.
@@ -264,27 +294,34 @@ Shader "Motu/Terrain Unified"
                 half cutoffNormal = normal.y
                     - cliffBoundaryNoise * _CliffBoundaryNoiseStrength;
                 half cliffWeight = AntialiasedMask(_CliffNormalCutoff - cutoffNormal);
-                half forcedRockCoverage = AntialiasedMask(input.material.r - 1.5);
-                half hardness = saturate(input.material.r);
-                half looseCover = saturate(input.material.g);
-                half riverBed = saturate(input.material.b);
                 half rockBoundaryNoise = clamp(
                     broadNoise.b * 0.55 + macroNoise.b * 0.45,
                     -1.0,
                     1.0);
-                half riverNoise = clamp(
-                    dot(broadNoise, half3(0.577, -0.577, 0.577)),
+                half forcedRockBoundaryNoise = clamp(
+                    (rockPatchLayers.b * 2.0h - 1.0h) * 0.35h
+                        + bankDetailNoise.r * 0.65h,
                     -1.0,
                     1.0);
-                half riverThreshold = 0.5 + riverNoise * _RiverEdgeNoiseStrength;
-                half riverDistance = riverBed - riverThreshold;
-                half riverTransition = max(
-                    _RiverEdgeBlendWidth,
-                    fwidth(riverDistance));
-                half riverCoverage = smoothstep(
-                    -riverTransition,
-                    riverTransition,
-                    riverDistance);
+                // Exact maximum hardness is the one-hot forced-rock value.
+                // Two finer coherent scales push river banks around inside the
+                // interpolation band instead of following straight mesh edges.
+                half forcedRockBlendWidth = max(_RiverEdgeBlendWidth, 0.001h);
+                half forcedRockBlendStart = saturate(
+                    1.0h
+                        - forcedRockBlendWidth
+                        + forcedRockBoundaryNoise
+                            * forcedRockBlendWidth
+                            * 0.75h);
+                half forcedRockCoverage = smoothstep(
+                    forcedRockBlendStart,
+                    1.0h,
+                    input.material.r);
+                half hardness = saturate(input.material.r);
+                half looseCover = saturate(input.material.g);
+                // Retain the legacy river-texture properties on existing
+                // materials, but river beds no longer select that surface.
+                half riverCoverage = 0.0h;
                 // Sand richness combines loose deposited material with height
                 // above the sea. The same progressive texture threshold used
                 // for grass replaces both former hard beach cutoffs.
@@ -308,10 +345,6 @@ Shader "Motu/Terrain Unified"
 
                 half geologyRockWeight = saturate(
                     slope * lerp(1.3, 3.0, hardness));
-                half3 rockPatchLayers = tex3D(
-                    _CliffNoise3D,
-                    noisePosition * _RockPatchNoiseDetailScale
-                        + float3(0.67, 0.31, 0.91)).rgb;
                 half rockPatchNoise = rockPatchLayers.r * 0.65
                     + rockPatchLayers.g * 0.35;
                 // Treat the coherent rock stencil as a broad blend instead of

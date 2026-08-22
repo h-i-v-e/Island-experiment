@@ -47,6 +47,7 @@ use geometry::{
     finalize_river_budgets, lower_precarve_river_valleys, raise_precarve_waterfall_shoulders,
     river_reaches_ocean, transfer_tributary_budgets,
 };
+pub(crate) use rocks::append_settled_rocks;
 use rocks::generate_river_rock_mesh;
 use tracing::{
     RouteState, WaterfallClearanceIndex, calculate_flow_and_catchment, find_sources,

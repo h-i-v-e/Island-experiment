@@ -15,6 +15,8 @@ Shader "Motu/Sea Water"
         _ReflectionFresnelPower ("Reflection Fresnel Power", Range(1, 8)) = 4
         _SunGlintStrength ("Sun Glint Strength", Range(0, 2)) = 0.8
         _SunGlintSharpness ("Sun Glint Sharpness", Range(8, 256)) = 128
+        [HideInInspector] _PlanarReflectionWeight ("Planar Reflection Weight", Range(0, 1)) = 1
+        _PlanarReflectionDistortion ("Reflection Ripple Distortion", Range(0, 0.03)) = 0.008
         _ShoreWaveStrength ("Shore Wave Strength", Range(0, 1)) = 0.35
         _ShoreWaveSpacing ("Shore Wave Spacing (metres)", Float) = 0.55
         _ShoreWaveSpeed ("Shore Wave Speed (metres/second)", Float) = 0.35
@@ -153,10 +155,22 @@ Shader "Motu/Sea Water"
                     _Color.rgb * input.brightness,
                     _SiltColor.rgb,
                     seaSilt);
+                float2 reflectionNoiseUv = input.islandLocalPosition.xz / 8.0;
+                half2 reflectionRipple = half2(
+                    tex2D(
+                        _NoiseTex,
+                        reflectionNoiseUv + float2(_Time.y * 0.025, 0.0)).r,
+                    tex2D(
+                        _NoiseTex,
+                        reflectionNoiseUv.yx + float2(0.0, _Time.y * 0.02)).g)
+                    - 0.5h;
                 fixed3 water = MotuShadeWater(
                     waterBody,
                     worldNormal,
-                    viewDirection);
+                    viewDirection,
+                    input.worldPosition,
+                    reflectionRipple,
+                    1.0h);
                 half waterOpacity = MotuWaterOpacity(
                     waterDepth,
                     _OpacityDepth);

@@ -105,9 +105,11 @@ edge midpoint samples its elevation from the final LOD 0 surface. This reduces
 each adjacent density step without duplicating LOD 0 geometry. Each sliced
 terrain export also owns a
 parallel `material` array sampled from the final LOD 0 material field after
-clipping: X is bedrock hardness, Y is normalized loose cover, and Z is final
-river-bed coverage. Sampling after slicing keeps the attributes paired with
-reordered and newly inserted boundary vertices.
+clipping: ordinary terrain uses X for normalized bedrock hardness and Y for
+normalized loose cover. River-bed and sharp-terrain vertices instead use the
+one-hot forced-rock value `(1, 0, 0)`, leaving no competing soil material
+channels. Sampling after slicing keeps the attributes paired with reordered and
+newly inserted boundary vertices.
 All terrain and support exports are also clipped against a horizontal plane
 five metres below sea level. Faces crossing the plane receive shared
 interpolated boundary vertices, while deeper faces and now-unused vertices are

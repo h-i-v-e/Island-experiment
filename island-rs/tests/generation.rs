@@ -6,7 +6,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use motu::{BoundingBox, ISLAND_WORLD_METRES, Island, IslandOptions, write_png};
+use motu::{BoundingBox, Island, IslandOptions, write_png};
 
 #[test]
 fn public_vectors_are_glam_types() {
@@ -159,40 +159,19 @@ fn assert_main_rivers_drop_below_the_sea(island: &Island) {
     }
 }
 
-fn assert_settled_rock_placement(island: &Island) {
-    let decorations = island.decorations();
-    let rocks = decorations.rocks();
-    let appearance_ids = decorations.rock_appearance_ids();
-    assert!(!rocks.is_empty(), "expected settled rock decorations");
-    assert_eq!(rocks.len(), appearance_ids.len());
-    assert_eq!(
-        appearance_ids.iter().copied().collect::<HashSet<_>>().len(),
-        appearance_ids.len(),
-        "settled rock appearance IDs must remain unique after culling"
-    );
-    let neighbour_distance_squared = (20.0 / ISLAND_WORLD_METRES).powi(2);
-    let mut clustered_count = 0;
-    let sample_stride = (rocks.len() / 256).max(1);
-    for (index, &rock) in rocks.iter().enumerate() {
-        assert!(rock.is_finite());
-        assert!((0.0..=1.0).contains(&rock.x) && (0.0..=1.0).contains(&rock.y));
-        assert!(
-            island.terrain().sample_normal(rock.x, rock.y).z >= 25.0_f32.to_radians().cos(),
-            "settled rock {rock:?} is on a slope steeper than 25 degrees"
-        );
-        if index % sample_stride != 0 {
-            continue;
-        }
-        let has_nearby_rock = rocks.iter().enumerate().any(|(other, point)| {
-            other != index
-                && point.truncate().distance_squared(rock.truncate()) <= neighbour_distance_squared
-        });
-        clustered_count += usize::from(has_nearby_rock);
-    }
-    let sampled_count = rocks.len().div_ceil(sample_stride);
+fn assert_combined_rock_mesh(island: &Island) {
+    let rocks = island.river_rock_mesh();
     assert!(
-        clustered_count * 10 >= sampled_count * 9,
-        "at least 90 percent of sampled rocks should have a nearby cluster neighbour"
+        !rocks.triangles.is_empty(),
+        "expected generated rock geometry"
+    );
+    assert_eq!(rocks.normals.len(), rocks.vertices.len());
+    assert!(rocks.uv.is_empty());
+    assert!(rocks.vertices.iter().all(|vertex| vertex.is_finite()));
+    assert!(
+        u32::try_from(rocks.vertices.len()).is_ok_and(|vertex_count| {
+            rocks.triangles.iter().all(|index| *index < vertex_count)
+        })
     );
 }
 
@@ -200,9 +179,10 @@ fn assert_settled_rock_placement(island: &Island) {
 fn generation_is_deterministic() {
     let first = Island::generate(2018, small_options()).unwrap();
     let second = Island::generate(2018, small_options()).unwrap();
-    assert_settled_rock_placement(&first);
+    assert_combined_rock_mesh(&first);
     assert_eq!(first.terrain(), second.terrain());
     assert_eq!(first.rivers(), second.rivers());
+    assert_eq!(first.river_rock_mesh(), second.river_rock_mesh());
     assert_eq!(first.decorations(), second.decorations());
 }
 

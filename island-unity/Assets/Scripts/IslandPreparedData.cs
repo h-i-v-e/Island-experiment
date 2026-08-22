@@ -38,44 +38,6 @@ internal readonly struct IslandPreparedRiverEmitter
     }
 }
 
-internal readonly struct IslandPreparedRockDecoration
-{
-    internal readonly int sourceIndex;
-    internal readonly uint appearanceId;
-    internal readonly Vector3 position;
-    internal readonly Vector3 normal;
-    internal readonly bool isBoulder;
-    internal readonly int prototypeIndex;
-    internal readonly Vector3 scale;
-    internal readonly Quaternion rotation;
-    internal readonly Color tint;
-    internal readonly float embedDepth;
-
-    internal IslandPreparedRockDecoration(
-        int sourceIndex,
-        uint appearanceId,
-        Vector3 position,
-        Vector3 normal,
-        bool isBoulder,
-        int prototypeIndex,
-        Vector3 scale,
-        Quaternion rotation,
-        Color tint,
-        float embedDepth)
-    {
-        this.sourceIndex = sourceIndex;
-        this.appearanceId = appearanceId;
-        this.position = position;
-        this.normal = normal;
-        this.isBoulder = isBoulder;
-        this.prototypeIndex = prototypeIndex;
-        this.scale = scale;
-        this.rotation = rotation;
-        this.tint = tint;
-        this.embedDepth = embedDepth;
-    }
-}
-
 internal sealed class IslandPreparedSurfaceMaps
 {
     internal readonly int dimension;
@@ -209,7 +171,6 @@ internal sealed class IslandPreparedData : IDisposable
     internal readonly IslandPreparedMesh waterfallPlaneDebugMesh;
     internal readonly IslandPreparedMesh waterfallLipPlaneDebugMesh;
     internal readonly IslandPreparedRiverEmitter[] riverEmitters;
-    internal readonly IslandPreparedRockDecoration[] rocks;
     internal readonly IslandPreparedColliderHeightMap colliderHeightMap;
 
     internal IslandPreparedData(
@@ -224,7 +185,6 @@ internal sealed class IslandPreparedData : IDisposable
         IslandPreparedMesh waterfallPlaneDebugMesh,
         IslandPreparedMesh waterfallLipPlaneDebugMesh,
         IslandPreparedRiverEmitter[] riverEmitters,
-        IslandPreparedRockDecoration[] rocks,
         IslandPreparedColliderHeightMap colliderHeightMap)
     {
         this.handle = new NativeIslandHandle(handle);
@@ -238,7 +198,6 @@ internal sealed class IslandPreparedData : IDisposable
         this.waterfallPlaneDebugMesh = waterfallPlaneDebugMesh;
         this.waterfallLipPlaneDebugMesh = waterfallLipPlaneDebugMesh;
         this.riverEmitters = riverEmitters;
-        this.rocks = rocks;
         this.colliderHeightMap = colliderHeightMap;
     }
 

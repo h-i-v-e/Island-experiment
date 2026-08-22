@@ -146,7 +146,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 494ce666a94ee4c6e9493874155d27be, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::IslandGenerator
   generation:
     generateOnStart: 1
@@ -183,7 +183,7 @@ MonoBehaviour:
     grassColourA: {r: 0.22766812, g: 0.5188679, b: 0.20803666, a: 1}
     grassColourB: {r: 0.3297426, g: 0.5566038, b: 0.107645065, a: 1}
     grassColourNoiseWorldSizeMetres: 128
-    grassBrightness: 1.35
+    grassBrightness: 1
     beachMaximumElevationMetres: 3
     sandPatchSizeMetres: 32
     grassPatchSizeMetres: 32
@@ -194,11 +194,13 @@ MonoBehaviour:
     showGrass: 1
     showRocks: 1
   decorations:
-    stoneAndBoulderPrefabs: []
     treePrefabs: []
     plantPrefabs: []
   debugSettings:
     showMeshEdges: 0
+    toggleMeshEdgesKey: 109
+    showRiverDebugGeometry: 1
+    toggleRiverDebugGeometryKey: 110
     showRoughWaterEmitters: 0
 --- !u!4 &22168521
 Transform:
@@ -322,6 +324,8 @@ GameObject:
   m_Component:
   - component: {fileID: 1299534587}
   - component: {fileID: 1299534586}
+  - component: {fileID: 1299534589}
+  - component: {fileID: 1299534588}
   - component: {fileID: 1299534585}
   - component: {fileID: 1299534584}
   - component: {fileID: 1299534583}
@@ -343,7 +347,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: e6652aa5064ad4ca29d5befd6a6808e3, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::IslandDemoController
   island: {fileID: 22168520}
   viewerCamera: {fileID: 1299534586}
@@ -447,6 +451,41 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1299534588
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1299534581}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1fb33a94a2d54312be5cc35a27c195c8, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::RealTimeAmbientOcclusion
+  ambientOcclusionShader: {fileID: 4800000, guid: 905578e82ce344a0a1ee384ea7ed1bb4, type: 3}
+  quality: 2
+  intensity: 0.3
+  radius: 0.1
+  halfResolution: 1
+--- !u!114 &1299534589
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1299534581}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9d60ab4e4fc443b5a2c6dc6c9f1fca01, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::PlanarWaterReflection
+  reflectionPlane: {fileID: 22168521}
+  resolutionScale: 0.5
+  clipPlaneOffset: 0.07
+  reflectionLayers:
+    serializedVersion: 2
+    m_Bits: 4294967295
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0

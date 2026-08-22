@@ -947,8 +947,8 @@ pub(super) fn triangle_bin_bounds(
 #[cfg(test)]
 mod hydraulic_tests {
     use super::super::{
-        FORCED_ROCK_HARDNESS, Terrain, TerrainMaterialField, TriangleIndex, correct_lods,
-        sample_mesh_surface, sharp_rock_mask,
+        Terrain, TerrainMaterialField, TriangleIndex, correct_lods, sample_mesh_surface,
+        sharp_rock_mask,
     };
     use super::*;
 
@@ -1020,10 +1020,7 @@ mod hydraulic_tests {
             &vec![false; mesh.vertices.len()],
             &forced_rock,
         );
-        assert_eq!(
-            field.values[center].x.to_bits(),
-            FORCED_ROCK_HARDNESS.to_bits()
-        );
+        assert_eq!(field.values[center].x.to_bits(), 1.0_f32.to_bits());
 
         mesh.vertices
             .iter_mut()

@@ -21,6 +21,8 @@ Shader "Motu/River Water"
         _ReflectionFresnelPower ("Reflection Fresnel Power", Range(1, 8)) = 4
         _SunGlintStrength ("Sun Glint Strength", Range(0, 2)) = 0.55
         _SunGlintSharpness ("Sun Glint Sharpness", Range(8, 256)) = 128
+        [HideInInspector] _PlanarReflectionWeight ("Planar Reflection Weight", Range(0, 1)) = 1
+        _PlanarReflectionDistortion ("Reflection Ripple Distortion", Range(0, 0.03)) = 0.006
         _ShoreWaveStrength ("Bank Wave Strength", Range(0, 1)) = 0.35
         _ShoreWaveSpacing ("Bank Wave Spacing (metres)", Float) = 0.11
         _ShoreWaveSpeed ("Bank Wave Speed (metres/second)", Float) = -0.07
@@ -215,7 +217,10 @@ Shader "Motu/River Water"
                 fixed3 water = MotuShadeWater(
                     waterBody,
                     worldNormal,
-                    viewDirection);
+                    viewDirection,
+                    input.worldPosition,
+                    half2(coarseNoise, fineNoise) - 0.5h,
+                    estuaryWeight);
                 fixed4 color = fixed4(
                     lerp(water, fixed3(1.0, 1.0, 1.0), whitewater),
                     saturate(waterOpacity + whitewater * 0.08h));

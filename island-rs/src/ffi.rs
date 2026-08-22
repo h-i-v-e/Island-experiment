@@ -91,13 +91,6 @@ pub struct TriangleExportArray {
 
 #[derive(Clone, Copy, Debug, Default)]
 #[repr(C)]
-pub struct UInt32ExportArray {
-    pub data: *const u32,
-    pub length: i32,
-}
-
-#[derive(Clone, Copy, Debug, Default)]
-#[repr(C)]
 pub struct ExportArea {
     pub min: Vec3,
     pub max: Vec3,
@@ -188,14 +181,9 @@ const _: () = assert!(size_of::<RiverEmitterExport>() == size_of::<[f32; 7]>());
 pub struct ExportDecoration {
     pub trees: Vector3ExportArray,
     pub bushes: Vector3ExportArray,
-    pub rocks: Vector3ExportArray,
-    pub rockAppearanceIds: UInt32ExportArray,
 }
 
-const _: () = assert!(
-    size_of::<ExportDecoration>()
-        == size_of::<Vector3ExportArray>() * 3 + size_of::<UInt32ExportArray>()
-);
+const _: () = assert!(size_of::<ExportDecoration>() == size_of::<Vector3ExportArray>() * 2);
 
 #[derive(Clone, Copy, Debug)]
 #[repr(C)]
@@ -765,14 +753,6 @@ pub unsafe extern "C" fn GetDecoration(handle: *const c_void, output: *mut Expor
             data: decorations.bushes().as_ptr(),
             length: length_i32(decorations.bushes().len()),
         },
-        rocks: Vector3ExportArray {
-            data: decorations.rocks().as_ptr(),
-            length: length_i32(decorations.rocks().len()),
-        },
-        rockAppearanceIds: UInt32ExportArray {
-            data: decorations.rock_appearance_ids().as_ptr(),
-            length: length_i32(decorations.rock_appearance_ids().len()),
-        },
     };
 }
 
@@ -1142,7 +1122,7 @@ mod tests {
         if let Some((index, value)) = values.iter().enumerate().find(|(_, value)| {
             !value.is_finite()
                 || !value.cmpge(Vec3::ZERO).all()
-                || value.x > 2.0
+                || value.x > 1.0
                 || value.y > 1.0
                 || value.z > 1.0
         }) {
@@ -1150,7 +1130,7 @@ mod tests {
         }
         assert!(values.iter().any(|value| value.x > 0.1));
         assert!(values.iter().any(|value| value.y > 0.1));
-        assert!(values.iter().any(|value| value.z > 0.5));
+        assert!(values.iter().all(|value| value.z == 0.0));
     }
 
     unsafe fn assert_river_emitters(handle: *const c_void) {
@@ -1206,6 +1186,79 @@ mod tests {
         }
     }
 
+    unsafe fn assert_river_exports(handle: *const c_void) {
+        let mut river_grid = ExportMeshGrid::default();
+        unsafe { CreateRiverMeshGrid(handle, ptr::null(), 8, &raw mut river_grid) };
+        assert!(!river_grid.handle.is_null());
+        assert_eq!(river_grid.length, 64);
+        let river_tiles =
+            unsafe { std::slice::from_raw_parts(river_grid.data, river_grid.length as usize) };
+        assert!(river_tiles.iter().any(|tile| tile.triangles.length > 0));
+        assert!(
+            river_tiles
+                .iter()
+                .all(|tile| tile.uv.length == tile.vertices.length && tile.material.length == 0)
+        );
+        unsafe { ReleaseMeshGrid(&raw mut river_grid) };
+        assert!(river_grid.handle.is_null());
+
+        let mut river_rock_grid = ExportMeshGrid::default();
+        unsafe { CreateRiverRockMeshGrid(handle, ptr::null(), 8, &raw mut river_rock_grid) };
+        assert!(!river_rock_grid.handle.is_null());
+        assert_eq!(river_rock_grid.length, 64);
+        let river_rock_tiles = unsafe {
+            std::slice::from_raw_parts(river_rock_grid.data, river_rock_grid.length as usize)
+        };
+        assert!(river_rock_tiles.iter().all(|tile| {
+            tile.normals.length == tile.vertices.length
+                && tile.uv.length == 0
+                && tile.material.length == 0
+        }));
+        unsafe { ReleaseMeshGrid(&raw mut river_rock_grid) };
+        assert!(river_rock_grid.handle.is_null());
+
+        let mut river_bed_debug = ExportMesh::default();
+        unsafe { CreateRiverBedDebugMesh(handle, &raw mut river_bed_debug) };
+        assert!(!river_bed_debug.handle.is_null());
+        assert!(river_bed_debug.triangles.length > 0);
+        assert_eq!(
+            river_bed_debug.normals.length,
+            river_bed_debug.vertices.length
+        );
+        unsafe { ReleaseMesh(&raw mut river_bed_debug) };
+
+        let mut waterfall_face_terrain_debug = ExportMesh::default();
+        unsafe {
+            CreateWaterfallFaceTerrainDebugMesh(handle, &raw mut waterfall_face_terrain_debug);
+        };
+        assert!(!waterfall_face_terrain_debug.handle.is_null());
+        assert_eq!(
+            waterfall_face_terrain_debug.normals.length,
+            waterfall_face_terrain_debug.vertices.length
+        );
+        unsafe { ReleaseMesh(&raw mut waterfall_face_terrain_debug) };
+
+        let mut waterfall_plane_debug = ExportMesh::default();
+        unsafe { CreateWaterfallPlaneDebugMesh(handle, &raw mut waterfall_plane_debug) };
+        assert!(!waterfall_plane_debug.handle.is_null());
+        assert_eq!(
+            waterfall_plane_debug.normals.length,
+            waterfall_plane_debug.vertices.length
+        );
+        unsafe { ReleaseMesh(&raw mut waterfall_plane_debug) };
+
+        let mut waterfall_lip_plane_debug = ExportMesh::default();
+        unsafe { CreateWaterfallLipPlaneDebugMesh(handle, &raw mut waterfall_lip_plane_debug) };
+        assert!(!waterfall_lip_plane_debug.handle.is_null());
+        assert_eq!(
+            waterfall_lip_plane_debug.normals.length,
+            waterfall_lip_plane_debug.vertices.length
+        );
+        unsafe { ReleaseMesh(&raw mut waterfall_lip_plane_debug) };
+
+        unsafe { assert_river_emitters(handle) };
+    }
+
     #[test]
     fn ffi_allocations_have_matching_release_functions() {
         let options = test_options();
@@ -1240,73 +1293,7 @@ mod tests {
             ReleaseMeshGrid(&raw mut grid);
             assert!(grid.handle.is_null());
 
-            let mut river_grid = ExportMeshGrid::default();
-            CreateRiverMeshGrid(handle, ptr::null(), 8, &raw mut river_grid);
-            assert!(!river_grid.handle.is_null());
-            assert_eq!(river_grid.length, 64);
-            let river_tiles =
-                std::slice::from_raw_parts(river_grid.data, river_grid.length as usize);
-            assert!(river_tiles.iter().any(|tile| tile.triangles.length > 0));
-            assert!(
-                river_tiles
-                    .iter()
-                    .all(|tile| tile.uv.length == tile.vertices.length && tile.material.length == 0)
-            );
-            ReleaseMeshGrid(&raw mut river_grid);
-            assert!(river_grid.handle.is_null());
-
-            let mut river_rock_grid = ExportMeshGrid::default();
-            CreateRiverRockMeshGrid(handle, ptr::null(), 8, &raw mut river_rock_grid);
-            assert!(!river_rock_grid.handle.is_null());
-            assert_eq!(river_rock_grid.length, 64);
-            let river_rock_tiles =
-                std::slice::from_raw_parts(river_rock_grid.data, river_rock_grid.length as usize);
-            assert!(river_rock_tiles.iter().all(|tile| {
-                tile.normals.length == tile.vertices.length
-                    && tile.uv.length == 0
-                    && tile.material.length == 0
-            }));
-            ReleaseMeshGrid(&raw mut river_rock_grid);
-            assert!(river_rock_grid.handle.is_null());
-
-            let mut river_bed_debug = ExportMesh::default();
-            CreateRiverBedDebugMesh(handle, &raw mut river_bed_debug);
-            assert!(!river_bed_debug.handle.is_null());
-            assert!(river_bed_debug.triangles.length > 0);
-            assert_eq!(
-                river_bed_debug.normals.length,
-                river_bed_debug.vertices.length
-            );
-            ReleaseMesh(&raw mut river_bed_debug);
-
-            let mut waterfall_face_terrain_debug = ExportMesh::default();
-            CreateWaterfallFaceTerrainDebugMesh(handle, &raw mut waterfall_face_terrain_debug);
-            assert!(!waterfall_face_terrain_debug.handle.is_null());
-            assert_eq!(
-                waterfall_face_terrain_debug.normals.length,
-                waterfall_face_terrain_debug.vertices.length
-            );
-            ReleaseMesh(&raw mut waterfall_face_terrain_debug);
-
-            let mut waterfall_plane_debug = ExportMesh::default();
-            CreateWaterfallPlaneDebugMesh(handle, &raw mut waterfall_plane_debug);
-            assert!(!waterfall_plane_debug.handle.is_null());
-            assert_eq!(
-                waterfall_plane_debug.normals.length,
-                waterfall_plane_debug.vertices.length
-            );
-            ReleaseMesh(&raw mut waterfall_plane_debug);
-
-            let mut waterfall_lip_plane_debug = ExportMesh::default();
-            CreateWaterfallLipPlaneDebugMesh(handle, &raw mut waterfall_lip_plane_debug);
-            assert!(!waterfall_lip_plane_debug.handle.is_null());
-            assert_eq!(
-                waterfall_lip_plane_debug.normals.length,
-                waterfall_lip_plane_debug.vertices.length
-            );
-            ReleaseMesh(&raw mut waterfall_lip_plane_debug);
-
-            assert_river_emitters(handle);
+            assert_river_exports(handle);
 
             let height_map = CreateHeightMap(handle, 16);
             assert!(!height_map.is_null());
@@ -1339,8 +1326,6 @@ mod tests {
 
             let mut decoration = ExportDecoration::default();
             GetDecoration(handle, &raw mut decoration);
-            assert_eq!(decoration.rocks.length, decoration.rockAppearanceIds.length);
-            assert!(decoration.rocks.length > 0);
             if decoration.trees.length > 0 {
                 let prototype = TreeMeshPrototype {
                     offset: 0,

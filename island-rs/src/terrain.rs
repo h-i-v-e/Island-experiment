@@ -27,7 +27,7 @@ use crate::{
     profiling::StageTimer,
     rivers::{
         RiverChannelSettings, RiverDebugGeometry, RiverMouth, RiverNetwork, RiverSourceRule,
-        encode_bank_distance_in_uv,
+        append_settled_rocks, encode_bank_distance_in_uv,
     },
     rng::Rng,
 };
@@ -39,6 +39,7 @@ mod material;
 mod sampling;
 mod surface_maps;
 
+pub(crate) use decorations::SettledRock;
 use decorations::clear_loose_soil;
 pub use decorations::{Decoration, Decorations};
 use erosion::{
@@ -60,7 +61,6 @@ use surface_maps::bake_surface_maps;
 
 const DETAIL_DISPLACEMENT_RATIO: f32 = 0.025;
 const SHARP_ROCK_DISPLACEMENT_RATIO: f32 = 0.15;
-const FORCED_ROCK_HARDNESS: f32 = 2.0;
 const HYDRAULIC_EDGE_SHIFT_LIMIT: f32 = 0.08;
 const HYDRAULIC_MIN_PROJECTED_AREA_RATIO: f32 = 0.2;
 const MINIMUM_BEDROCK_EROSION_RATE: f32 = 0.05;

@@ -57,6 +57,9 @@ public static class IslandProjectSetup
         camera.backgroundColor = new Color(0.49f, 0.68f, 0.82f);
         camera.nearClipPlane = 0.05f;
         camera.farClipPlane = island.WorldSizeMetres * 8f;
+        var waterReflection = cameraObject.AddComponent<PlanarWaterReflection>();
+        waterReflection.Configure(island.transform);
+        cameraObject.AddComponent<RealTimeAmbientOcclusion>();
         cameraObject.AddComponent<AudioListener>();
         var orbit = cameraObject.AddComponent<OrbitCamera>();
         var firstPerson = cameraObject.AddComponent<FirstPersonController>();

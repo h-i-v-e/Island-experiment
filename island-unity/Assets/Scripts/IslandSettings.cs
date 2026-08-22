@@ -267,16 +267,12 @@ public sealed class IslandRenderingSettings
 [Serializable]
 public sealed class IslandDecorationSettings
 {
-    [Tooltip("Optional authored stone and boulder prefabs. Reserved for the prefab-backed rock pool phase.")]
-    [SerializeField] private GameObject[] stoneAndBoulderPrefabs = Array.Empty<GameObject>();
-
     [Tooltip("Tree prefabs reserved for the vegetation placement phase.")]
     [SerializeField] private GameObject[] treePrefabs = Array.Empty<GameObject>();
 
     [Tooltip("Plant and shrub prefabs reserved for the vegetation placement phase.")]
     [SerializeField] private GameObject[] plantPrefabs = Array.Empty<GameObject>();
 
-    public GameObject[] StoneAndBoulderPrefabs => stoneAndBoulderPrefabs;
     public GameObject[] TreePrefabs => treePrefabs;
     public GameObject[] PlantPrefabs => plantPrefabs;
 }

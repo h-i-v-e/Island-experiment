@@ -1,6 +1,7 @@
 use std::{collections::HashMap, sync::OnceLock};
 
 use super::{ISLAND_WORLD_METRES, Mesh, Rng, Vec2, Vec3, is_river_bed_triangle, noise};
+use crate::terrain::SettledRock;
 
 const ROCK_SEED_SALT: u64 = 0x72a4_6f63_6b73_21d9;
 const DENSITY_NOISE_SCALE_METRES: f32 = 5.0;
@@ -170,6 +171,26 @@ impl<'a> RiverRockGenerator<'a> {
 
 pub(super) fn generate_river_rock_mesh(seed: u64, terrain: &Mesh, coverage: &[u8]) -> Mesh {
     RiverRockGenerator::new(seed, terrain, coverage).generate()
+}
+
+pub(crate) fn append_settled_rocks(seed: u64, rocks: &[SettledRock], output: &mut Mesh) {
+    for rock in rocks {
+        let mut rng = Rng::new(
+            (u64::from(seed as u32) << 32) ^ u64::from(rock.appearance_id) ^ ROCK_SEED_SALT,
+        );
+        append_rock(
+            output,
+            RockPlacement {
+                position: rock.anchor,
+                normal: rock.normal,
+                face_normal_z: rock.normal.z,
+                radius: rock.radius,
+                boulder: rock.boulder,
+            },
+            &mut rng,
+        );
+    }
+    output.calculate_normals();
 }
 
 fn projected_area(vertices: [Vec3; 3]) -> f32 {
@@ -397,6 +418,47 @@ mod tests {
                 .triangles
                 .iter()
                 .all(|index| *index < first.vertices.len() as u32)
+        );
+    }
+
+    #[test]
+    fn settled_rocks_are_appended_to_the_existing_mesh() {
+        let existing = RockPlacement {
+            position: Vec3::new(0.1, 0.1, 0.02),
+            normal: Vec3::Z,
+            face_normal_z: 1.0,
+            radius: 0.1 / ISLAND_WORLD_METRES,
+            boulder: false,
+        };
+        let mut output = Mesh::default();
+        append_rock(&mut output, existing, &mut Rng::new(7));
+        output.calculate_normals();
+        let original_vertices = output.vertices.len();
+        let original_triangles = output.triangles.len();
+        let settled = [SettledRock {
+            anchor: Vec3::new(0.2, 0.2, 0.03),
+            normal: Vec3::Z,
+            radius: 0.2 / ISLAND_WORLD_METRES,
+            boulder: true,
+            appearance_id: 11,
+        }];
+
+        append_settled_rocks(42, &settled, &mut output);
+
+        let prototype = rock_prototype();
+        assert_eq!(
+            output.vertices.len(),
+            original_vertices + prototype.vertices.len()
+        );
+        assert_eq!(
+            output.triangles.len(),
+            original_triangles + prototype.triangles.len()
+        );
+        assert_eq!(output.normals.len(), output.vertices.len());
+        assert!(
+            output.triangles[original_triangles..]
+                .iter()
+                .all(|index| *index >= original_vertices as u32)
         );
     }
 

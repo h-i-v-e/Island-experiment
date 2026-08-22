@@ -74,14 +74,25 @@ fn waterfall_debug_plane_is_one_quad_on_the_classification_plane() {
     let lip = patch.upper_centre - patch.direction * WaterfallPatch::face_run();
     let blend_midpoint = lip - patch.direction * (WATERFALL_EDGE_BLEND_RUN * 0.5);
     let blend_end = lip - patch.direction * WATERFALL_EDGE_BLEND_RUN;
-    assert_eq!(patch.upstream_pin_smoothing_weight(lip), 1.0);
+    assert_eq!(
+        patch.upstream_pin_smoothing_weight(lip).to_bits(),
+        1.0_f32.to_bits()
+    );
     let midpoint_weight = patch.upstream_pin_smoothing_weight(blend_midpoint);
     assert!(
         (midpoint_weight - 0.5).abs() < 1.0e-4,
         "midpoint weight {midpoint_weight}"
     );
-    assert_eq!(patch.upstream_pin_smoothing_weight(blend_end), 0.0);
-    assert_eq!(patch.upstream_pin_smoothing_weight(patch.upper_centre), 0.0);
+    assert_eq!(
+        patch.upstream_pin_smoothing_weight(blend_end).to_bits(),
+        0.0_f32.to_bits()
+    );
+    assert_eq!(
+        patch
+            .upstream_pin_smoothing_weight(patch.upper_centre)
+            .to_bits(),
+        0.0_f32.to_bits()
+    );
     assert!(patch.contains_upstream_pin_blend(lip));
     assert!(patch.contains_upstream_pin_blend(blend_midpoint));
     assert!(patch.contains_upstream_pin_blend(blend_end));
@@ -2330,11 +2341,17 @@ fn final_waterfall_edges_switch_relationship_at_the_lip_and_foot_planes() {
         before_first.map(|vertex| smoothed_terrain.vertices[vertex]),
         blend_end_before
     );
-    assert_eq!(smoothed_surfaces[upstream[0]], interior_surface_before);
-    assert_eq!(smoothed_surfaces[upstream[2]], apron_surface_before);
     assert_eq!(
-        smoothed_surfaces[upstream[1]],
-        smoothed_terrain.vertices[upstream[1]].z + WATERFALL_WATER_CLEARANCE
+        smoothed_surfaces[upstream[0]].to_bits(),
+        interior_surface_before.to_bits()
+    );
+    assert_eq!(
+        smoothed_surfaces[upstream[2]].to_bits(),
+        apron_surface_before.to_bits()
+    );
+    assert_eq!(
+        smoothed_surfaces[upstream[1]].to_bits(),
+        (smoothed_terrain.vertices[upstream[1]].z + WATERFALL_WATER_CLEARANCE).to_bits()
     );
     assert_eq!(smoothed_terrain.triangles, triangles_before);
 }

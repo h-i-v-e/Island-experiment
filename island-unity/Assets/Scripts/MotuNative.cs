@@ -48,13 +48,6 @@ internal static class MotuNative
     }
 
     [StructLayout(LayoutKind.Sequential)]
-    internal struct UInt32Array
-    {
-        internal IntPtr data;
-        internal int length;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
     internal struct NativeVector3
     {
         internal float x;
@@ -152,8 +145,6 @@ internal static class MotuNative
     {
         internal Vector3Array trees;
         internal Vector3Array bushes;
-        internal Vector3Array rocks;
-        internal UInt32Array rockAppearanceIds;
     }
 
     [StructLayout(LayoutKind.Sequential)]

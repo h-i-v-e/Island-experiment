@@ -14,9 +14,16 @@ pub enum Decoration {
 pub struct Decorations {
     pub(super) trees: Vec<Vec3>,
     pub(super) bushes: Vec<Vec3>,
-    pub(super) rocks: Vec<Vec3>,
-    pub(super) rock_appearance_ids: Vec<u32>,
     pub(super) cleared_soil_vertices: Vec<u32>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct SettledRock {
+    pub(crate) anchor: Vec3,
+    pub(crate) normal: Vec3,
+    pub(crate) radius: f32,
+    pub(crate) boulder: bool,
+    pub(crate) appearance_id: u32,
 }
 
 pub(super) const ROCK_BODY_COUNT_MULTIPLIER: usize = 7;
@@ -128,16 +135,6 @@ impl Decorations {
         &self.bushes
     }
 
-    #[must_use]
-    pub fn rocks(&self) -> &[Vec3] {
-        &self.rocks
-    }
-
-    #[must_use]
-    pub fn rock_appearance_ids(&self) -> &[u32] {
-        &self.rock_appearance_ids
-    }
-
     pub(super) fn cleared_soil_vertices(&self) -> &[u32] {
         &self.cleared_soil_vertices
     }
@@ -148,7 +145,7 @@ impl Decorations {
         material: &TerrainMaterialField,
         rivers: &[River],
         target: usize,
-    ) -> Self {
+    ) -> (Self, Vec<SettledRock>) {
         let _timer = StageTimer::new("decorations.lazy");
         let mut rng = Rng::new(seed ^ 0xe703_7ed1_a0b4_28db);
         let mut out = Self::default();
@@ -183,12 +180,10 @@ impl Decorations {
                 out.bushes.push(point);
             }
         }
-        (
-            out.rocks,
-            out.rock_appearance_ids,
-            out.cleared_soil_vertices,
-        ) = generate_settled_rocks(seed, terrain, material, target * ROCK_BODY_COUNT_MULTIPLIER);
-        out
+        let (settled_rocks, cleared_soil_vertices) =
+            generate_settled_rocks(seed, terrain, material, target * ROCK_BODY_COUNT_MULTIPLIER);
+        out.cleared_soil_vertices = cleared_soil_vertices;
+        (out, settled_rocks)
     }
 }
 
@@ -256,13 +251,12 @@ pub(super) fn generate_settled_rocks(
     terrain: &Terrain,
     material: &TerrainMaterialField,
     body_target: usize,
-) -> (Vec<Vec3>, Vec<u32>, Vec<u32>) {
+) -> (Vec<SettledRock>, Vec<u32>) {
     let _timer = StageTimer::new("decorations.rock_settling");
     let mut bodies = spawn_rock_bodies(seed, terrain, body_target);
     simulate_rock_bodies(terrain, &mut bodies);
 
     let mut rocks = Vec::with_capacity(bodies.len());
-    let mut appearance_ids = Vec::with_capacity(bodies.len());
     let mut cleared_soil_vertices = Vec::new();
     for body in bodies {
         if !body.supported || !body.centre.is_finite() {
@@ -286,7 +280,7 @@ pub(super) fn generate_settled_rocks(
             + material.values[triangle[2]] * weights[2];
         let terrain_centre_height = terrain_height + body.radius / normal.z.max(0.2);
         let piled = body.centre.z > terrain_centre_height + body.radius * 0.35;
-        if surface_material.z < 0.9 && !is_rock_habitat(surface_material) {
+        if !is_rock_habitat(surface_material) {
             cleared_soil_vertices.extend(triangle.map(|vertex| vertex as u32));
         }
         let anchor_height = if piled {
@@ -298,12 +292,17 @@ pub(super) fn generate_settled_rocks(
         if !anchor.is_finite() {
             continue;
         }
-        rocks.push(anchor);
-        appearance_ids.push(body.appearance_id);
+        rocks.push(SettledRock {
+            anchor,
+            normal,
+            radius: body.radius,
+            boulder: rock_is_boulder(seed, body.appearance_id),
+            appearance_id: body.appearance_id,
+        });
     }
     cleared_soil_vertices.sort_unstable();
     cleared_soil_vertices.dedup();
-    (rocks, appearance_ids, cleared_soil_vertices)
+    (rocks, cleared_soil_vertices)
 }
 
 pub(super) fn spawn_rock_bodies(seed: u64, terrain: &Terrain, target: usize) -> Vec<RockBody> {
@@ -407,6 +406,14 @@ pub(super) fn sample_triangle(a: Vec3, b: Vec3, c: Vec3, rng: &mut Rng) -> Vec3 
 }
 
 pub(super) fn rock_collision_radius(seed: u64, appearance_id: u32) -> f32 {
+    rock_appearance(seed, appearance_id).1
+}
+
+fn rock_is_boulder(seed: u64, appearance_id: u32) -> bool {
+    rock_appearance(seed, appearance_id).0
+}
+
+fn rock_appearance(seed: u64, appearance_id: u32) -> (bool, f32) {
     let state = (u64::from(seed as u32) << 32) ^ u64::from(appearance_id) ^ ROCK_APPEARANCE_DOMAIN;
     let mut rng = Rng::new(state);
     let is_boulder = rng.unit() < 0.15;
@@ -422,11 +429,11 @@ pub(super) fn rock_collision_radius(seed: u64, appearance_id: u32) -> f32 {
             ROCK_STONE_MAXIMUM_DIAMETER_METRES,
         )
     };
-    diameter_metres * 0.5 / ISLAND_WORLD_METRES
+    (is_boulder, diameter_metres * 0.5 / ISLAND_WORLD_METRES)
 }
 
 pub(super) fn is_rock_habitat(material: Vec3) -> bool {
-    material.x > 1.5 || material.y <= ROCK_POOR_SOIL_MAXIMUM_COVER
+    material.x >= 1.0 || material.y <= ROCK_POOR_SOIL_MAXIMUM_COVER
 }
 
 pub(super) fn is_rock_drop_source(normal: Vec3) -> bool {
@@ -598,7 +605,7 @@ mod decoration_tests {
     pub(super) fn existing_rock_habitat_does_not_require_soil_clearing() {
         let poor_soil = Vec3::new(0.2, ROCK_POOR_SOIL_MAXIMUM_COVER, 0.0);
         let grass = Vec3::new(0.9, 0.8, 0.0);
-        let forced_rock = Vec3::new(2.0, 0.8, 0.0);
+        let forced_rock = Vec3::X;
 
         assert!(is_rock_habitat(poor_soil));
         assert!(is_rock_habitat(forced_rock));

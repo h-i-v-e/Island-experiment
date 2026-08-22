@@ -310,6 +310,8 @@ public sealed class IslandGenerator : MonoBehaviour
             "_ReflectionHorizonColor",
             Color.Lerp(skyColor, Color.white, 0.35f));
         riverMaterial.SetFloat("_ReflectionStrength", 0.45f);
+        riverMaterial.SetFloat("_PlanarReflectionWeight", 1f);
+        riverMaterial.SetFloat("_PlanarReflectionDistortion", 0.006f);
         riverMaterial.SetFloat("_SunGlintStrength", 0.55f);
         ConfigureShoreWaves(
             riverMaterial,
@@ -335,6 +337,8 @@ public sealed class IslandGenerator : MonoBehaviour
             "_ReflectionHorizonColor",
             Color.Lerp(skyColor, Color.white, 0.35f));
         seaMaterial.SetFloat("_ReflectionStrength", 0.65f);
+        seaMaterial.SetFloat("_PlanarReflectionWeight", 1f);
+        seaMaterial.SetFloat("_PlanarReflectionDistortion", 0.008f);
         seaMaterial.SetFloat("_SunGlintStrength", 0.8f);
         ConfigureShoreWaves(
             seaMaterial,
@@ -601,7 +605,6 @@ public sealed class IslandGenerator : MonoBehaviour
                 prepared.riverTiles,
                 prepared.riverRockTiles,
                 prepared.riverEmitters,
-                prepared.rocks,
                 prepared.colliderHeightMap,
                 rendering.ShowRivers,
                 rendering.ShowGrass,
@@ -611,6 +614,11 @@ public sealed class IslandGenerator : MonoBehaviour
 
             seaObject = GameObject.CreatePrimitive(PrimitiveType.Plane);
             seaObject.name = "Sea";
+            var waterLayer = LayerMask.NameToLayer("Water");
+            if (waterLayer >= 0)
+            {
+                seaObject.layer = waterLayer;
+            }
             seaObject.transform.SetParent(runtimeRoot.transform, false);
             seaObject.transform.localPosition = Vector3.up * SeaHeight;
             seaObject.transform.localScale = Vector3.one * (worldSize / 10f);
@@ -637,10 +645,6 @@ public sealed class IslandGenerator : MonoBehaviour
                 CultureInfo.InvariantCulture,
                 " | {0:N0} rough-water candidates / 32 pooled systems",
                 terrainStreamer.RiverEmitterCandidateCount);
-            status += string.Format(
-                CultureInfo.InvariantCulture,
-                " | {0:N0} rock candidates / 128 pooled renderers",
-                terrainStreamer.RockCandidateCount);
             status += string.Format(
                 CultureInfo.InvariantCulture,
                 " | 3x3 hidden LOD 1 terrain colliders (129x129 samples each) | {0:F1} km square",
@@ -798,12 +802,6 @@ public sealed class IslandGenerator : MonoBehaviour
                 emitterSharpnessDegrees,
                 emitterSpacingMetres);
             cancellationToken.ThrowIfCancellationRequested();
-            var rocks = PrepareRockDecorations(
-                handle,
-                surfaceMaps,
-                islandSeed,
-                worldSize);
-            cancellationToken.ThrowIfCancellationRequested();
             var result = new IslandPreparedData(
                 handle,
                 surfaceMaps,
@@ -816,7 +814,6 @@ public sealed class IslandGenerator : MonoBehaviour
                 waterfallPlaneDebugMesh,
                 waterfallLipPlaneDebugMesh,
                 riverEmitters,
-                rocks,
                 colliderHeightMap);
             handle = IntPtr.Zero;
             return result;
@@ -1129,108 +1126,6 @@ public sealed class IslandGenerator : MonoBehaviour
         }
     }
 
-    private static IslandPreparedRockDecoration[] PrepareRockDecorations(
-        IntPtr handle,
-        IslandPreparedSurfaceMaps surfaceMaps,
-        int islandSeed,
-        float worldSize)
-    {
-        MotuNative.GetDecoration(handle, out var decoration);
-        ValidateBorrowedArray(decoration.trees, "tree");
-        ValidateBorrowedArray(decoration.bushes, "bush");
-        ValidateBorrowedArray(decoration.rocks, "rock");
-        ValidateBorrowedArray(decoration.rockAppearanceIds, "rock appearance ID");
-        if (decoration.rockAppearanceIds.length != decoration.rocks.length)
-        {
-            throw new InvalidOperationException(
-                "Native rock positions and appearance IDs have different lengths.");
-        }
-        if (decoration.rocks.length == 0)
-        {
-            return Array.Empty<IslandPreparedRockDecoration>();
-        }
-
-        var result = new IslandPreparedRockDecoration[decoration.rocks.length];
-        var nativeSize = Marshal.SizeOf<MotuNative.NativeVector3>();
-        for (var sourceIndex = 0; sourceIndex < result.Length; sourceIndex++)
-        {
-            var native = Marshal.PtrToStructure<MotuNative.NativeVector3>(
-                IntPtr.Add(decoration.rocks.data, sourceIndex * nativeSize));
-            var appearanceId = unchecked((uint)Marshal.ReadInt32(
-                decoration.rockAppearanceIds.data,
-                sourceIndex * sizeof(uint)));
-            if (!IsFinite(native.x)
-                || !IsFinite(native.y)
-                || !IsFinite(native.z)
-                || native.x < 0f
-                || native.x > 1f
-                || native.y < 0f
-                || native.y > 1f)
-            {
-                throw new InvalidOperationException(
-                    $"Native rock decoration {sourceIndex} has an invalid position.");
-            }
-
-            var position = new Vector3(
-                (native.x - 0.5f) * worldSize,
-                native.z * worldSize,
-                (native.y - 0.5f) * worldSize);
-            var normal = SampleSurfaceNormal(surfaceMaps, native.x, native.y);
-            var random = RockHashState(islandSeed, appearanceId);
-            var isBoulder = NextRockRandom(ref random) < 0.15f;
-            var classPrototypeCount = isBoulder
-                ? RockPrototypeLibrary.BoulderCount
-                : RockPrototypeLibrary.StoneCount;
-            var classPrototypeOffset = isBoulder ? RockPrototypeLibrary.StoneCount : 0;
-            var prototypeIndex = classPrototypeOffset
-                + Mathf.Min(
-                    Mathf.FloorToInt(NextRockRandom(ref random) * classPrototypeCount),
-                    classPrototypeCount - 1);
-            var diameter = isBoulder
-                ? Mathf.Lerp(
-                    RockPrototypeLibrary.BoulderMinimumDiameter,
-                    RockPrototypeLibrary.BoulderMaximumDiameter,
-                    NextRockRandom(ref random))
-                : Mathf.Lerp(
-                    RockPrototypeLibrary.StoneMinimumDiameter,
-                    RockPrototypeLibrary.StoneMaximumDiameter,
-                    NextRockRandom(ref random));
-            var depthRatio = Mathf.Lerp(0.74f, 1.0f, NextRockRandom(ref random));
-            var verticalRatio = isBoulder
-                ? Mathf.Lerp(0.70f, 1.20f, NextRockRandom(ref random))
-                : Mathf.Lerp(0.35f, 0.75f, NextRockRandom(ref random));
-            var scale = new Vector3(diameter, diameter * verticalRatio, diameter * depthRatio);
-            var alignment = Quaternion.FromToRotation(Vector3.up, normal);
-            var yaw = Quaternion.AngleAxis(NextRockRandom(ref random) * 360f, normal);
-            var tangent = Vector3.Cross(normal, Vector3.right);
-            if (tangent.sqrMagnitude < 1.0e-6f)
-            {
-                tangent = Vector3.Cross(normal, Vector3.forward);
-            }
-            tangent.Normalize();
-            var maximumTilt = isBoulder ? 8f : 12f;
-            var tilt = Quaternion.AngleAxis(
-                Mathf.Lerp(-maximumTilt, maximumTilt, NextRockRandom(ref random)),
-                tangent);
-            var rotation = tilt * yaw * alignment;
-            var tintValue = Mathf.Lerp(0.94f, 1.06f, NextRockRandom(ref random));
-            var tint = new Color(tintValue, tintValue, tintValue, 1f);
-            var embedDepth = scale.y * RockPrototypeLibrary.EmbedRatioForNormal(normal);
-            result[sourceIndex] = new IslandPreparedRockDecoration(
-                sourceIndex,
-                appearanceId,
-                position,
-                normal,
-                isBoulder,
-                prototypeIndex,
-                scale,
-                rotation,
-                tint,
-                embedDepth);
-        }
-        return result;
-    }
-
     private static void ValidateBorrowedArray(
         MotuNative.Vector3Array values,
         string label)
@@ -1239,81 +1134,6 @@ public sealed class IslandGenerator : MonoBehaviour
         {
             throw new InvalidOperationException(
                 $"The native {label} decoration array is invalid.");
-        }
-    }
-
-    private static void ValidateBorrowedArray(
-        MotuNative.UInt32Array values,
-        string label)
-    {
-        if (values.length < 0 || (values.length > 0 && values.data == IntPtr.Zero))
-        {
-            throw new InvalidOperationException($"Native {label} array is invalid.");
-        }
-    }
-
-    private static Vector3 SampleSurfaceNormal(
-        IslandPreparedSurfaceMaps maps,
-        float normalizedX,
-        float normalizedY)
-    {
-        var sampleX = Mathf.Clamp01(normalizedX) * (maps.dimension - 1);
-        var sampleY = Mathf.Clamp01(normalizedY) * (maps.dimension - 1);
-        var x0 = Mathf.FloorToInt(sampleX);
-        var y0 = Mathf.FloorToInt(sampleY);
-        var x1 = Mathf.Min(x0 + 1, maps.dimension - 1);
-        var y1 = Mathf.Min(y0 + 1, maps.dimension - 1);
-        var tx = sampleX - x0;
-        var ty = sampleY - y0;
-        var lower = Vector3.Lerp(
-            DecodeSurfaceNormal(maps, x0, y0),
-            DecodeSurfaceNormal(maps, x1, y0),
-            tx);
-        var upper = Vector3.Lerp(
-            DecodeSurfaceNormal(maps, x0, y1),
-            DecodeSurfaceNormal(maps, x1, y1),
-            tx);
-        var normal = Vector3.Lerp(lower, upper, ty);
-        if (!IsFinite(normal.x)
-            || !IsFinite(normal.y)
-            || !IsFinite(normal.z)
-            || normal.sqrMagnitude < 1.0e-8f)
-        {
-            return Vector3.up;
-        }
-        return normal.normalized;
-    }
-
-    private static Vector3 DecodeSurfaceNormal(
-        IslandPreparedSurfaceMaps maps,
-        int x,
-        int y)
-    {
-        var offset = (y * maps.dimension + x) * 3;
-        var rustX = maps.normalRgb[offset] * (2f / 255f) - 1f;
-        var rustY = maps.normalRgb[offset + 1] * (2f / 255f) - 1f;
-        var rustZ = maps.normalRgb[offset + 2] * (2f / 255f) - 1f;
-        return new Vector3(rustX, rustZ, rustY);
-    }
-
-    private static ulong RockHashState(int islandSeed, uint appearanceId)
-    {
-        return unchecked(
-            ((ulong)(uint)islandSeed << 32)
-            ^ appearanceId
-            ^ 0xD1B54A32D192ED03UL);
-    }
-
-    private static float NextRockRandom(ref ulong state)
-    {
-        unchecked
-        {
-            state += 0x9E3779B97F4A7C15UL;
-            var value = state;
-            value = (value ^ (value >> 30)) * 0xBF58476D1CE4E5B9UL;
-            value = (value ^ (value >> 27)) * 0x94D049BB133111EBUL;
-            value ^= value >> 31;
-            return (value >> 40) * (1f / 16777216f);
         }
     }
 
@@ -2104,6 +1924,10 @@ public sealed class IslandGenerator : MonoBehaviour
             riverSourceCatchmentHectares = 0.05f,
             riverSourceSteepMultiplier = 4f,
             riverSourceElevationBoost = 9f,
+            riverSourceWidthMetres = 2f,
+            riverMaximumWidthMetres = 14f,
+            riverSourceDepthMetres = 0.35f,
+            riverMaximumDepthMetres = 2f,
         };
         var handle = MotuNative.CreateMotu(2018, ref options);
         if (handle == IntPtr.Zero)
@@ -2271,6 +2095,8 @@ public sealed class IslandGenerator : MonoBehaviour
                     || !riverWaterMaterial.HasProperty("_EstuaryBlendHeight")
                     || !riverWaterMaterial.HasProperty("_SeaLevel")
                     || !riverWaterMaterial.HasProperty("_ReflectionColor")
+                    || !riverWaterMaterial.HasProperty("_PlanarReflectionWeight")
+                    || !riverWaterMaterial.HasProperty("_PlanarReflectionDistortion")
                     || !riverWaterMaterial.HasProperty("_ShoreWaveStrength")
                     || !riverWaterMaterial.HasProperty("_WhitewaterStrength")
                     || !riverWaterMaterial.HasProperty("_WhitewaterSlopeStart")
@@ -2319,6 +2145,8 @@ public sealed class IslandGenerator : MonoBehaviour
                     || !seaWaterMaterial.HasProperty("_OpacityDepth")
                     || !seaWaterMaterial.HasProperty("_SiltColor")
                     || !seaWaterMaterial.HasProperty("_ReflectionColor")
+                    || !seaWaterMaterial.HasProperty("_PlanarReflectionWeight")
+                    || !seaWaterMaterial.HasProperty("_PlanarReflectionDistortion")
                     || !seaWaterMaterial.HasProperty("_ShoreWaveStrength")
                     || !seaWaterMaterial.HasProperty("_ShoreWaveSpacing")
                     || !seaWaterMaterial.HasProperty("_ShoreWaveSpeed")
@@ -2520,6 +2348,7 @@ public sealed class IslandGenerator : MonoBehaviour
                         "Native river-rock grid layout is invalid.");
                 }
                 var exportSize = Marshal.SizeOf<MotuNative.ExportMesh>();
+                var foundRockGeometry = false;
                 for (var index = 0; index < riverRockGrid.length; index++)
                 {
                     var nativeMesh = Marshal.PtrToStructure<MotuNative.ExportMesh>(
@@ -2528,11 +2357,17 @@ public sealed class IslandGenerator : MonoBehaviour
                     {
                         continue;
                     }
+                    foundRockGeometry = true;
                     if (nativeMesh.normals.length != nativeMesh.vertices.length)
                     {
                         throw new InvalidOperationException(
                             "A sliced river-rock tile has invalid normals.");
                     }
+                }
+                if (!foundRockGeometry)
+                {
+                    throw new InvalidOperationException(
+                        "Native combined rock grid contains no geometry.");
                 }
             }
             finally
@@ -2594,8 +2429,7 @@ public sealed class IslandGenerator : MonoBehaviour
             }
 
             if (Marshal.SizeOf<MotuNative.ExportDecoration>()
-                != Marshal.SizeOf<MotuNative.Vector3Array>() * 3
-                    + Marshal.SizeOf<MotuNative.UInt32Array>())
+                != Marshal.SizeOf<MotuNative.Vector3Array>() * 2)
             {
                 throw new InvalidOperationException(
                     "Native decoration export layout is invalid.");
@@ -2603,102 +2437,6 @@ public sealed class IslandGenerator : MonoBehaviour
             MotuNative.GetDecoration(handle, out var nativeDecoration);
             ValidateBorrowedArray(nativeDecoration.trees, "tree");
             ValidateBorrowedArray(nativeDecoration.bushes, "bush");
-            ValidateBorrowedArray(nativeDecoration.rocks, "rock");
-            ValidateBorrowedArray(
-                nativeDecoration.rockAppearanceIds,
-                "rock appearance ID");
-            var preparedRocks = PrepareRockDecorations(
-                handle,
-                validationMaps,
-                2018,
-                ValidationWorldSize);
-            var repeatedRocks = PrepareRockDecorations(
-                handle,
-                validationMaps,
-                2018,
-                ValidationWorldSize);
-            if (preparedRocks.Length == 0
-                || preparedRocks.Length != nativeDecoration.rocks.length
-                || nativeDecoration.rockAppearanceIds.length
-                    != nativeDecoration.rocks.length
-                || repeatedRocks.Length != preparedRocks.Length)
-            {
-                throw new InvalidOperationException(
-                    "Native rock decorations are empty or changed while borrowed.");
-            }
-            for (var index = 0; index < preparedRocks.Length; index++)
-            {
-                var first = preparedRocks[index];
-                var second = repeatedRocks[index];
-                if (first.sourceIndex != index
-                    || first.sourceIndex != second.sourceIndex
-                    || first.appearanceId != second.appearanceId
-                    || first.prototypeIndex != second.prototypeIndex
-                    || first.isBoulder != second.isBoulder
-                    || first.position != second.position
-                    || first.normal != second.normal
-                    || first.scale != second.scale
-                    || first.rotation != second.rotation
-                    || first.tint != second.tint
-                    || first.embedDepth != second.embedDepth)
-                {
-                    throw new InvalidOperationException(
-                        "Prepared rock decoration appearance is not deterministic.");
-                }
-            }
-
-            var rockIndex = new RockDecorationIndex(preparedRocks, ValidationWorldSize);
-            var seenRocks = new bool[preparedRocks.Length];
-            for (var y = 0; y < RockDecorationIndex.Resolution; y++)
-            {
-                for (var x = 0; x < RockDecorationIndex.Resolution; x++)
-                {
-                    rockIndex.GetCellRange(x, y, out var start, out var end);
-                    for (var order = start; order < end; order++)
-                    {
-                        var candidateIndex = rockIndex.CandidateIndexAt(order);
-                        if (candidateIndex < 0
-                            || candidateIndex >= seenRocks.Length
-                            || seenRocks[candidateIndex])
-                        {
-                            throw new InvalidOperationException(
-                                "The rock packed index contains an invalid entry.");
-                        }
-                        seenRocks[candidateIndex] = true;
-                    }
-                }
-            }
-            if (Array.Exists(seenRocks, value => !value))
-            {
-                throw new InvalidOperationException(
-                    "The rock packed index does not contain every candidate.");
-            }
-
-            using (var prototypes = new RockPrototypeLibrary())
-            {
-                if (prototypes.Count != RockPrototypeLibrary.PrototypeCount)
-                {
-                    throw new InvalidOperationException(
-                        "The rock prototype library has an invalid size.");
-                }
-                for (var index = 0; index < prototypes.Count; index++)
-                {
-                    var mesh = prototypes.MeshAt(index);
-                    if (mesh.vertexCount != RockPrototypeLibrary.ExpectedVertexCount
-                        || mesh.GetIndexCount(0) / 3
-                            != RockPrototypeLibrary.ExpectedTriangleCount)
-                    {
-                        throw new InvalidOperationException(
-                            "A rock prototype has invalid topology.");
-                    }
-                }
-                var seated = prototypes.SeatPosition(preparedRocks[0]);
-                if (!IsFinite(seated.x) || !IsFinite(seated.y) || !IsFinite(seated.z))
-                {
-                    throw new InvalidOperationException(
-                        "A prepared rock could not be seated against its surface normal.");
-                }
-            }
 
             var indexCandidates = new[]
             {

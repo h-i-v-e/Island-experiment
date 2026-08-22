@@ -5,9 +5,9 @@ use super::{
     River, RiverChannelSettings, RiverDebugGeometry, RiverMouth, RiverNetwork, RiverSourceRule,
     Rng, SHARP_ROCK_DISPLACEMENT_RATIO, StageTimer, SurfaceMaps, SurfaceMaterial,
     TERRAIN_RENDER_FLOOR, Terrain, TerrainMaterialField, TriangleIndex, Vec2, Vec3, Write,
-    bake_surface_maps, bury_river_banks, clear_loose_soil, encode_bank_distance_in_uv, erode_mesh,
-    geology, hydraulic_erode_stage, io, legacy_catchment_hectares, mem, noise, sample_grid,
-    sample_mesh_surface,
+    append_settled_rocks, bake_surface_maps, bury_river_banks, clear_loose_soil,
+    encode_bank_distance_in_uv, erode_mesh, geology, hydraulic_erode_stage, io,
+    legacy_catchment_hectares, mem, noise, sample_grid, sample_mesh_surface,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -237,7 +237,7 @@ impl Island {
             rivers,
             mut river_mesh,
             river_bed,
-            river_rock_mesh,
+            mut river_rock_mesh,
             river_mouths,
             debug_geometry: river_debug_geometry,
         } = generate_final_rivers(
@@ -268,13 +268,14 @@ impl Island {
             let _timer = StageTimer::new("terrain.index");
             Terrain::with_index(lod0, lod0_index)
         };
-        let decorations = Decorations::generate(
+        let (decorations, settled_rocks) = Decorations::generate(
             seed,
             &terrain,
             &provisional_material,
             &rivers,
             options.terrain_size as usize * 4,
         );
+        append_settled_rocks(seed, &settled_rocks, &mut river_rock_mesh);
         clear_loose_soil(&mut material, decorations.cleared_soil_vertices());
         let material = TerrainMaterialField::from_surface(&material, &river_bed, &forced_rock);
         Ok(Self {
@@ -469,7 +470,6 @@ impl Island {
         let decorations = self.decorations();
         put(&mut map, &decorations.trees, 24, 255);
         put(&mut map, &decorations.bushes, 16, 210);
-        put(&mut map, &decorations.rocks, 8, 255);
         for y in 0..dimension {
             for x in 0..dimension {
                 let u = x as f32 / dimension.saturating_sub(1).max(1) as f32;

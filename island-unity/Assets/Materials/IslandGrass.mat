@@ -46,17 +46,18 @@ Material:
     - _CliffNoisePeriod: 160
     - _CliffNormalCutoff: 0.55
     - _GrassBladeWidth: 0.48
-    - _GrassBrightness: 1.35
+    - _GrassBrightness: 1
+    - _GrassColorNoiseWorldSize: 2048
     - _GrassDensity: 24
     - _GrassEnabled: 0
     - _GrassFadeWidth: 10
     - _GrassHeight: 0.14
     - _GrassPatchNoiseWorldSize: 32
     - _GrassRadius: 20
-    - _RiverEdgeBlendWidth: 0.2
-    - _RiverEdgeNoiseStrength: 0.2
     - _RiverBedHeightBlendStrength: 0
     - _RiverBedTextureWorldSize: 2
+    - _RiverEdgeBlendWidth: 0.2
+    - _RiverEdgeNoiseStrength: 0.2
     - _RockBoundaryNoiseStrength: 0.18
     - _RockHeightBlendStrength: 0
     - _RockPatchNoiseDetailScale: 8
@@ -68,6 +69,8 @@ Material:
     - _SnowMacroNoiseMetres: 18
     m_Colors:
     - _GrassAmbientColor: {r: 0.42, g: 0.46, b: 0.52, a: 1}
+    - _GrassColorA: {r: 0.18, g: 0.46, b: 0.14, a: 1}
+    - _GrassColorB: {r: 0.34, g: 0.5, b: 0.14, a: 1}
     - _GrassLightColor: {r: 1, g: 1, b: 1, a: 1}
     - _GrassLightDirection: {r: 0, g: 1, b: 0, a: 0}
     - _GrassPlayerPosition: {r: 0, g: 0, b: 0, a: 0}

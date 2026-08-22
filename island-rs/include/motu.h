@@ -60,7 +60,7 @@ typedef struct {
     int32_t length;
 } ExportRiverEmitters;
 typedef struct { int32_t width, height; float *data; float seaLevel; } ExportHeightMapWithSeaLevel;
-typedef struct { Vector3ExportArray trees, bushes, rocks; } ExportDecoration;
+typedef struct { Vector3ExportArray trees, bushes; } ExportDecoration;
 typedef struct { int32_t offset; float scale; } TreeMeshPrototype;
 typedef struct { const TreeMeshPrototype *prototypes; int32_t length; } TreeMeshPrototypes;
 typedef struct { ExportMesh mesh; int32_t *offsets; } ExportTreeBillboards;

@@ -104,16 +104,12 @@ public sealed class TerrainTileStreamer : MonoBehaviour
     private GameObject riverRockRoot;
     private GameObject colliderRoot;
     private RiverParticlePool riverParticlePool;
-    private RockDecorationPool rockDecorationPool;
     private Vector2Int currentLod2 = new Vector2Int(-1, -1);
     private Vector2Int currentLod1 = new Vector2Int(-1, -1);
 
     public int BaseVertexCount { get; private set; }
     public int BaseTriangleCount { get; private set; }
     public int RiverEmitterCandidateCount => riverParticlePool?.CandidateCount ?? 0;
-    public int RockCandidateCount => rockDecorationPool?.CandidateCount ?? 0;
-    public int ActiveRockCount => rockDecorationPool?.ActiveCount ?? 0;
-    public int DroppedRockCount => rockDecorationPool?.DroppedCount ?? 0;
     internal int Lod1GroupCount => lod1Groups.Count;
     internal int Lod0GroupCount => lod0Groups.Count;
     internal int TerrainColliderCount => colliderTiles.Count;
@@ -133,7 +129,6 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         IslandPreparedMesh[] riverTiles,
         IslandPreparedMesh[] riverRockTiles,
         IslandPreparedRiverEmitter[] riverEmitters,
-        IslandPreparedRockDecoration[] rocks,
         IslandPreparedColliderHeightMap preparedColliderHeightMap,
         bool showRivers,
         bool showGrass,
@@ -176,20 +171,22 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         colliderRoot = new GameObject("Terrain Colliders (Collision Only)");
         colliderRoot.transform.SetParent(transform, false);
         riverRoot = new GameObject("Rivers");
+        var waterLayer = LayerMask.NameToLayer("Water");
+        if (waterLayer >= 0)
+        {
+            riverRoot.layer = waterLayer;
+        }
         riverRoot.transform.SetParent(transform, false);
         riverRoot.transform.localPosition = Vector3.up * 0.025f;
         var particleRoot = new GameObject("Rough Water Particle Pool");
+        particleRoot.layer = riverRoot.layer;
         particleRoot.transform.SetParent(riverRoot.transform, false);
         riverParticlePool = particleRoot.AddComponent<RiverParticlePool>();
         riverParticlePool.Initialize(riverEmitters, worldSize, showRivers);
         riverRoot.SetActive(showRivers);
-        riverRockRoot = new GameObject("River Stones and Boulders");
+        riverRockRoot = new GameObject("Stones and Boulders");
         riverRockRoot.transform.SetParent(transform, false);
         riverRockRoot.SetActive(showRocks);
-        var rockRoot = new GameObject("Stone and Boulder Pool");
-        rockRoot.transform.SetParent(transform, false);
-        rockDecorationPool = rockRoot.AddComponent<RockDecorationPool>();
-        rockDecorationPool.Initialize(rocks, worldSize, sharedRockMaterial, showRocks);
         lod2Group = await CreatePreparedGroupAsync(
             2,
             Vector2Int.zero,
@@ -271,7 +268,6 @@ public sealed class TerrainTileStreamer : MonoBehaviour
             UpdateLod0Neighborhood(lod1);
             currentLod1 = lod1;
         }
-        rockDecorationPool?.SetPlayerPosition(localPosition, lod1);
         if (grassVisible)
         {
             UpdateGrassTiles(localPosition);
@@ -285,7 +281,6 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         grassMaterial?.SetFloat(GrassEnabledId, 0f);
         lastGrassPosition = new Vector3(float.PositiveInfinity, 0f, 0f);
         riverParticlePool?.ClearPlayerFocus();
-        rockDecorationPool?.ClearPlayerFocus();
         RemoveAllColliderTiles();
         foreach (var group in riverGroups.Values)
         {
@@ -401,13 +396,6 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         riverRockGroups.Clear();
         riverParticlePool?.DisposePool();
         riverParticlePool = null;
-        if (rockDecorationPool != null)
-        {
-            var rockRoot = rockDecorationPool.gameObject;
-            rockDecorationPool.DisposePool();
-            rockDecorationPool = null;
-            DestroyUnityObject(rockRoot);
-        }
         DestroyUnityObject(riverRoot);
         riverRoot = null;
         DestroyUnityObject(riverRockRoot);
@@ -457,7 +445,6 @@ public sealed class TerrainTileStreamer : MonoBehaviour
 
     public void SetRocksVisible(bool visible)
     {
-        rockDecorationPool?.SetRocksVisible(visible);
         riverRockRoot?.SetActive(visible);
     }
 
@@ -909,6 +896,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         try
         {
             root = new GameObject($"{label} group {parent.x},{parent.y}");
+            root.layer = featureRoot.layer;
             root.transform.SetParent(featureRoot.transform, false);
             for (var localY = 0; localY < Divisions; localY++)
             {
@@ -927,6 +915,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
                     preparedTiles[preparedIndex] = null;
                     var tileIndex = localY * Divisions + localX;
                     var tileObject = new GameObject($"{label} LOD 1 tile {globalX},{globalY}");
+                    tileObject.layer = featureRoot.layer;
                     tileObject.transform.SetParent(root.transform, false);
                     tileObject.AddComponent<MeshFilter>().sharedMesh = mesh;
                     tileObject.AddComponent<MeshRenderer>().sharedMaterial = material;

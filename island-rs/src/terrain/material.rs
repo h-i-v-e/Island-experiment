@@ -1,6 +1,6 @@
 use super::{
-    FORCED_ROCK_HARDNESS, GeologyField, Mesh, NewVertexStencil, Terrain, TessellationResult, Vec2,
-    Vec3, sample_mesh_triangle,
+    GeologyField, Mesh, NewVertexStencil, Terrain, TessellationResult, Vec2, Vec3,
+    sample_mesh_triangle,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -147,15 +147,11 @@ impl TerrainMaterialField {
             .map(|(((&hardness, &depth), &is_river_bed), &is_forced_rock)| {
                 let cover = (depth / 0.002).clamp(0.0, 1.0);
                 let cover = cover * cover * (3.0 - 2.0 * cover);
-                Vec3::new(
-                    if is_forced_rock {
-                        FORCED_ROCK_HARDNESS
-                    } else {
-                        hardness.clamp(0.0, 1.0)
-                    },
-                    cover,
-                    if is_river_bed { 1.0 } else { 0.0 },
-                )
+                if is_river_bed || is_forced_rock {
+                    Vec3::X
+                } else {
+                    Vec3::new(hardness.clamp(0.0, 1.0), cover, 0.0)
+                }
             })
             .collect();
         Self { values }
@@ -190,4 +186,27 @@ pub(crate) fn projected_vertex_control_areas(mesh: &Mesh) -> Vec<f32> {
         }
     }
     areas
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn river_bed_vertices_are_exported_as_forced_rock() {
+        let material = SurfaceMaterial {
+            deposited_depth: vec![0.0, 0.002, 0.001],
+            bedrock_hardness: vec![0.25, 0.5, 0.75],
+        };
+
+        let field = TerrainMaterialField::from_surface(
+            &material,
+            &[true, false, false],
+            &[false, true, false],
+        );
+
+        assert_eq!(field.values[0], Vec3::X);
+        assert_eq!(field.values[1], Vec3::X);
+        assert_eq!(field.values[2], Vec3::new(0.75, 0.5, 0.0));
+    }
 }
