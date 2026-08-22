@@ -15,6 +15,11 @@ Shader "Motu/Terrain Grass"
         [NoScaleOffset] _GrassPatchNoise ("Grass Patch Noise", 2D) = "white" {}
         _GrassPatchNoiseWorldSize ("Grass Patch Repeat (metres)", Float) = 32
         _GrassBrightness ("Grass Brightness", Range(0.25, 3)) = 1.35
+        _GrassWindDirection ("Grass Wind Direction", Vector) = (1, 0, 0.35, 0)
+        _GrassWindStrength ("Grass Wind Bend (metres)", Range(0, 0.25)) = 0.07
+        _GrassWindSpeed ("Grass Wind Speed (metres/second)", Range(0, 10)) = 1.8
+        _GrassWindWorldSize ("Grass Wind Gust Size (metres)", Range(1, 64)) = 12
+        _GrassWindNormalStrength ("Grass Wind Normal Strength", Range(0, 1)) = 0.35
         [HideInInspector] _GrassLightDirection ("Light Direction", Vector) = (0, 1, 0, 0)
         [HideInInspector] _GrassLightColor ("Light Color", Color) = (1, 1, 1, 1)
         [HideInInspector] _GrassAmbientColor ("Ambient Color", Color) = (0.42, 0.46, 0.52, 1)

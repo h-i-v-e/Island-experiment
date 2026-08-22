@@ -192,6 +192,25 @@ public sealed class IslandRenderingSettings
     [Range(0.25f, 3f)]
     [SerializeField] private float grassBrightness = 1.35f;
 
+    [Tooltip("Horizontal world-space direction used by the animated grass wind.")]
+    [SerializeField] private Vector2 grassWindDirection = new Vector2(1f, 0.35f);
+
+    [Tooltip("Maximum horizontal bend at the tips of the fur grass, in metres.")]
+    [Range(0f, 0.25f)]
+    [SerializeField] private float grassWindStrengthMetres = 0.07f;
+
+    [Tooltip("Speed at which coherent gusts travel across the grass, in metres per second.")]
+    [Range(0f, 10f)]
+    [SerializeField] private float grassWindSpeedMetresPerSecond = 1.8f;
+
+    [Tooltip("World-space size of the broad moving grass gusts, in metres.")]
+    [Range(1f, 64f)]
+    [SerializeField] private float grassWindGustSizeMetres = 12f;
+
+    [Tooltip("How strongly the moving wind field perturbs fur-grass lighting normals.")]
+    [Range(0f, 1f)]
+    [SerializeField] private float grassWindNormalStrength = 0.35f;
+
     [Tooltip("Highest terrain elevation that can render as beach sand, in metres.")]
     [Min(0f)]
     [SerializeField] private float beachMaximumElevationMetres = 3f;
@@ -239,6 +258,31 @@ public sealed class IslandRenderingSettings
         set => grassColourNoiseWorldSizeMetres = Mathf.Max(value, 1f);
     }
     public float GrassBrightness { get => grassBrightness; set => grassBrightness = Mathf.Clamp(value, 0.25f, 3f); }
+    public Vector2 GrassWindDirection
+    {
+        get => grassWindDirection;
+        set => grassWindDirection = value;
+    }
+    public float GrassWindStrengthMetres
+    {
+        get => Mathf.Clamp(grassWindStrengthMetres, 0f, 0.25f);
+        set => grassWindStrengthMetres = Mathf.Clamp(value, 0f, 0.25f);
+    }
+    public float GrassWindSpeedMetresPerSecond
+    {
+        get => Mathf.Clamp(grassWindSpeedMetresPerSecond, 0f, 10f);
+        set => grassWindSpeedMetresPerSecond = Mathf.Clamp(value, 0f, 10f);
+    }
+    public float GrassWindGustSizeMetres
+    {
+        get => Mathf.Clamp(grassWindGustSizeMetres, 1f, 64f);
+        set => grassWindGustSizeMetres = Mathf.Clamp(value, 1f, 64f);
+    }
+    public float GrassWindNormalStrength
+    {
+        get => Mathf.Clamp01(grassWindNormalStrength);
+        set => grassWindNormalStrength = Mathf.Clamp01(value);
+    }
     internal float BeachMaximumElevationMetres => Mathf.Max(beachMaximumElevationMetres, 0f);
     internal float SandPatchSizeMetres => Mathf.Max(sandPatchSizeMetres, 0.1f);
     internal float GrassPatchSizeMetres => Mathf.Max(grassPatchSizeMetres, 0.1f);

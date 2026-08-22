@@ -125,6 +125,17 @@ and submerged terrain. Beneath the fur, grass ground is exposed as brown soil
 within half a metre of the player and blends back to green over the following
 two metres, making the gaps between nearby blades read as dirt.
 
+The fur shells bend in a coherent world-space wind field sampled from the same
+generated grass-noise texture used for coverage and broad colour variation.
+Gusts advect along the configured direction, bend progressively from fixed
+roots to flexible tips, and perturb the lighting normals with the same moving
+noise so highlights travel with the geometry. Beyond the fur radius, the
+ordinary terrain grass uses that identical advected field to perturb only its
+grass-covered lighting normals; non-grass materials remain still, and moving
+highlights continue seamlessly into the distance. Wind direction, maximum tip
+bend, speed, gust size, and normal strength are live controls in the island's
+Rendering settings and do not require regeneration.
+
 Every 8x8 group is geometrically clipped at its tile boundaries. LOD 0 uses an
 attribute-carrying 3D plane clipper, so vertical faces and multiple heights at
 one XY location survive slicing. Only LOD 0 and LOD 1 edges bordering an active

@@ -91,6 +91,11 @@ public sealed class IslandGenerator : MonoBehaviour
     private Color? appliedGrassColourB;
     private float appliedGrassColourNoiseWorldSize = float.NaN;
     private float appliedGrassBrightness = float.NaN;
+    private Vector2 appliedGrassWindDirection = new Vector2(float.NaN, float.NaN);
+    private float appliedGrassWindStrength = float.NaN;
+    private float appliedGrassWindSpeed = float.NaN;
+    private float appliedGrassWindGustSize = float.NaN;
+    private float appliedGrassWindNormalStrength = float.NaN;
 
     public bool IsGenerating => generationInProgress;
     public string Status => status;
@@ -265,6 +270,7 @@ public sealed class IslandGenerator : MonoBehaviour
             rendering.GrassPatchSizeMetres);
         ApplyGrassColourSettings();
         grassMaterial.SetFloat("_GrassBrightness", rendering.GrassBrightness);
+        ApplyGrassWindSettings();
         var sun = rendering.Sunlight != null ? rendering.Sunlight : RenderSettings.sun;
         grassMaterial.SetVector(
             "_GrassLightDirection",
@@ -473,6 +479,22 @@ public sealed class IslandGenerator : MonoBehaviour
             appliedGrassBrightness = rendering.GrassBrightness;
             grassMaterial?.SetFloat("_GrassBrightness", appliedGrassBrightness);
         }
+        if (appliedGrassWindDirection != rendering.GrassWindDirection
+            || !Mathf.Approximately(
+                appliedGrassWindStrength,
+                rendering.GrassWindStrengthMetres)
+            || !Mathf.Approximately(
+                appliedGrassWindSpeed,
+                rendering.GrassWindSpeedMetresPerSecond)
+            || !Mathf.Approximately(
+                appliedGrassWindGustSize,
+                rendering.GrassWindGustSizeMetres)
+            || !Mathf.Approximately(
+                appliedGrassWindNormalStrength,
+                rendering.GrassWindNormalStrength))
+        {
+            ApplyGrassWindSettings();
+        }
         if (appliedShowRivers != rendering.ShowRivers)
         {
             appliedShowRivers = rendering.ShowRivers;
@@ -528,6 +550,35 @@ public sealed class IslandGenerator : MonoBehaviour
         grassMaterial?.SetFloat(
             "_GrassColorNoiseWorldSize",
             appliedGrassColourNoiseWorldSize);
+    }
+
+    private void ApplyGrassWindSettings()
+    {
+        appliedGrassWindDirection = rendering.GrassWindDirection;
+        appliedGrassWindStrength = rendering.GrassWindStrengthMetres;
+        appliedGrassWindSpeed = rendering.GrassWindSpeedMetresPerSecond;
+        appliedGrassWindGustSize = rendering.GrassWindGustSizeMetres;
+        appliedGrassWindNormalStrength = rendering.GrassWindNormalStrength;
+        var direction = new Vector4(
+            appliedGrassWindDirection.x,
+            0f,
+            appliedGrassWindDirection.y,
+            0f);
+        ApplyGrassWindSettingsToMaterial(terrainMaterial, direction);
+        ApplyGrassWindSettingsToMaterial(grassMaterial, direction);
+    }
+
+    private void ApplyGrassWindSettingsToMaterial(
+        Material material,
+        Vector4 direction)
+    {
+        material?.SetVector("_GrassWindDirection", direction);
+        material?.SetFloat("_GrassWindStrength", appliedGrassWindStrength);
+        material?.SetFloat("_GrassWindSpeed", appliedGrassWindSpeed);
+        material?.SetFloat("_GrassWindWorldSize", appliedGrassWindGustSize);
+        material?.SetFloat(
+            "_GrassWindNormalStrength",
+            appliedGrassWindNormalStrength);
     }
 
     public async void Generate()
@@ -1557,6 +1608,11 @@ public sealed class IslandGenerator : MonoBehaviour
         appliedGrassColourB = null;
         appliedGrassColourNoiseWorldSize = float.NaN;
         appliedGrassBrightness = float.NaN;
+        appliedGrassWindDirection = new Vector2(float.NaN, float.NaN);
+        appliedGrassWindStrength = float.NaN;
+        appliedGrassWindSpeed = float.NaN;
+        appliedGrassWindGustSize = float.NaN;
+        appliedGrassWindNormalStrength = float.NaN;
     }
 
     private static void DestroyUnityObject(UnityEngine.Object value)
@@ -2009,6 +2065,11 @@ public sealed class IslandGenerator : MonoBehaviour
                     || !terrainMaterial.HasProperty("_GrassColorNoiseWorldSize")
                     || !terrainMaterial.HasProperty("_GrassPatchNoise")
                     || !terrainMaterial.HasProperty("_GrassPatchNoiseWorldSize")
+                    || !terrainMaterial.HasProperty("_GrassWindDirection")
+                    || !terrainMaterial.HasProperty("_GrassWindStrength")
+                    || !terrainMaterial.HasProperty("_GrassWindSpeed")
+                    || !terrainMaterial.HasProperty("_GrassWindWorldSize")
+                    || !terrainMaterial.HasProperty("_GrassWindNormalStrength")
                     || !terrainMaterial.HasProperty("_BeachMaximumElevation")
                     || !terrainMaterial.HasProperty("_SandPatchNoiseWorldSize")
                     || !terrainMaterial.HasProperty("_RockBoundaryNoiseStrength")
@@ -2212,6 +2273,11 @@ public sealed class IslandGenerator : MonoBehaviour
                     || !grassMaterial.HasProperty("_GrassRadius")
                     || !grassMaterial.HasProperty("_GrassHeight")
                     || !grassMaterial.HasProperty("_GrassBrightness")
+                    || !grassMaterial.HasProperty("_GrassWindDirection")
+                    || !grassMaterial.HasProperty("_GrassWindStrength")
+                    || !grassMaterial.HasProperty("_GrassWindSpeed")
+                    || !grassMaterial.HasProperty("_GrassWindWorldSize")
+                    || !grassMaterial.HasProperty("_GrassWindNormalStrength")
                     || !grassMaterial.HasProperty("_GrassLightDirection")
                     || !grassMaterial.HasProperty("_GrassLightColor")
                     || !grassMaterial.HasProperty("_GrassAmbientColor")

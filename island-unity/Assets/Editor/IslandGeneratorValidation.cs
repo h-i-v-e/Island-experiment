@@ -39,6 +39,65 @@ public static class IslandGeneratorValidation
         Debug.Log("Planar water reflection camera and shader configuration passed.");
     }
 
+    public static void BatchValidateGrassWind()
+    {
+        var scene = EditorSceneManager.OpenScene(SandboxScenePath);
+        if (!scene.IsValid())
+        {
+            throw new InvalidOperationException("The island sandbox scene could not be opened.");
+        }
+        var islands = UnityEngine.Object.FindObjectsByType<IslandGenerator>(
+            FindObjectsInactive.Include);
+        if (islands.Length != 1
+            || islands[0].Rendering.GrassWindDirection.sqrMagnitude < 1.0e-4f
+            || islands[0].Rendering.GrassWindStrengthMetres <= 0f
+            || islands[0].Rendering.GrassWindSpeedMetresPerSecond <= 0f
+            || islands[0].Rendering.GrassWindGustSizeMetres <= 0f
+            || islands[0].Rendering.GrassWindNormalStrength <= 0f)
+        {
+            throw new InvalidOperationException(
+                "The sandbox grass wind settings are missing or disabled.");
+        }
+
+        var shader = Shader.Find("Motu/Terrain Grass");
+        var terrainShader = Shader.Find("Motu/Terrain Unified");
+        if (shader == null
+            || terrainShader == null
+            || !shader.isSupported
+            || !terrainShader.isSupported
+            || ShaderUtil.ShaderHasError(shader)
+            || ShaderUtil.ShaderHasError(terrainShader))
+        {
+            throw new InvalidOperationException(
+                "A wind-enabled grass or terrain shader is missing or unsupported.");
+        }
+        var material = new Material(shader);
+        var terrainMaterial = new Material(terrainShader);
+        try
+        {
+            if (!material.HasProperty("_GrassWindDirection")
+                || !material.HasProperty("_GrassWindStrength")
+                || !material.HasProperty("_GrassWindSpeed")
+                || !material.HasProperty("_GrassWindWorldSize")
+                || !material.HasProperty("_GrassWindNormalStrength")
+                || !terrainMaterial.HasProperty("_GrassWindDirection")
+                || !terrainMaterial.HasProperty("_GrassWindStrength")
+                || !terrainMaterial.HasProperty("_GrassWindSpeed")
+                || !terrainMaterial.HasProperty("_GrassWindWorldSize")
+                || !terrainMaterial.HasProperty("_GrassWindNormalStrength"))
+            {
+                throw new InvalidOperationException(
+                    "The near or far grass shader is missing its wind controls.");
+            }
+        }
+        finally
+        {
+            UnityEngine.Object.DestroyImmediate(material);
+            UnityEngine.Object.DestroyImmediate(terrainMaterial);
+        }
+        Debug.Log("Near and far grass wind-normal controls passed validation.");
+    }
+
     private static void ValidateSandboxScene()
     {
         var scene = EditorSceneManager.OpenScene(SandboxScenePath);

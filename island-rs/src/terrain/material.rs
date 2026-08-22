@@ -44,10 +44,7 @@ impl SurfaceMaterial {
     ) -> (Mesh, Self) {
         let old_volume = self.volume(source);
         self.extend_after_tessellation(old_volume, &tessellation.mesh, &tessellation.new_vertices);
-        let mut mesh = tessellation.mesh;
-        mesh.optimize_surface_triangulation();
-        self.rescale_to_volume(&mesh, old_volume);
-        (mesh, self)
+        (tessellation.mesh, self)
     }
 
     pub(crate) fn volume(&self, mesh: &Mesh) -> f64 {
@@ -191,6 +188,36 @@ pub(crate) fn projected_vertex_control_areas(mesh: &Mesh) -> Vec<f32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tessellated_material_transfer_preserves_mesh_topology() {
+        let source = Mesh {
+            vertices: vec![
+                Vec3::new(0.0, 0.0, 0.0),
+                Vec3::new(2.0, 0.0, 0.0),
+                Vec3::new(2.0, 1.0, 8.0),
+                Vec3::new(0.0, 1.0, 0.0),
+            ],
+            triangles: vec![0, 1, 2, 0, 2, 3],
+            ..Mesh::default()
+        };
+        let expected_triangles = source.triangles.clone();
+        let mut flippable = source.clone();
+        assert_eq!(flippable.optimize_surface_triangulation(), 1);
+
+        let material = SurfaceMaterial {
+            deposited_depth: vec![0.01; source.vertices.len()],
+            bedrock_hardness: vec![0.5; source.vertices.len()],
+        };
+        let tessellation = TessellationResult {
+            mesh: source.clone(),
+            new_vertices: Vec::new(),
+        };
+
+        let (mesh, _) = material.into_tessellated(&source, tessellation);
+
+        assert_eq!(mesh.triangles, expected_triangles);
+    }
 
     #[test]
     fn river_bed_vertices_are_exported_as_forced_rock() {

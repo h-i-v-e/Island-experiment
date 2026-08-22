@@ -184,6 +184,11 @@ MonoBehaviour:
     grassColourB: {r: 0.3297426, g: 0.5566038, b: 0.107645065, a: 1}
     grassColourNoiseWorldSizeMetres: 128
     grassBrightness: 1
+    grassWindDirection: {x: 1, y: 0.35}
+    grassWindStrengthMetres: 0.07
+    grassWindSpeedMetresPerSecond: 1.8
+    grassWindGustSizeMetres: 12
+    grassWindNormalStrength: 0.35
     beachMaximumElevationMetres: 3
     sandPatchSizeMetres: 32
     grassPatchSizeMetres: 32

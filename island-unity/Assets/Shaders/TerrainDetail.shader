@@ -53,6 +53,11 @@ Shader "Motu/Terrain Unified"
         _GrassColorNoiseWorldSize ("Grass Colour Noise Repeat (metres)", Float) = 2048
         [NoScaleOffset] _GrassPatchNoise ("Grass Patch Noise", 2D) = "white" {}
         _GrassPatchNoiseWorldSize ("Grass Patch Repeat (metres)", Float) = 32
+        [HideInInspector] _GrassWindDirection ("Grass Wind Direction", Vector) = (1, 0, 0.35, 0)
+        [HideInInspector] _GrassWindStrength ("Grass Wind Bend (metres)", Range(0, 0.25)) = 0.07
+        [HideInInspector] _GrassWindSpeed ("Grass Wind Speed (metres/second)", Range(0, 10)) = 1.8
+        [HideInInspector] _GrassWindWorldSize ("Grass Wind Gust Size (metres)", Range(1, 64)) = 12
+        [HideInInspector] _GrassWindNormalStrength ("Grass Wind Normal Strength", Range(0, 1)) = 0.35
         [HideInInspector] _GrassEnabled ("Local Grass Enabled", Float) = 0
         [HideInInspector] _GrassPlayerPosition ("Player Position", Vector) = (0, 0, 0, 0)
         _GroundDirtColor ("Grass Ground Dirt", Color) = (0.24, 0.14, 0.07, 1)
@@ -151,12 +156,19 @@ Shader "Motu/Terrain Unified"
             fixed4 _GrassColorB;
             float _GrassColorNoiseWorldSize;
             float _GrassPatchNoiseWorldSize;
+            float4 _GrassWindDirection;
+            float _GrassWindStrength;
+            float _GrassWindSpeed;
+            float _GrassWindWorldSize;
+            half _GrassWindNormalStrength;
             half _GrassEnabled;
             float3 _GrassPlayerPosition;
             fixed4 _GroundDirtColor;
             float _GroundDirtCoreRadius;
             float _GroundDirtFadeWidth;
             float4x4 _IslandWorldToLocal;
+
+            #include "GrassWindCommon.cginc"
 
             half AntialiasedMask(float signedDistance)
             {
@@ -615,6 +627,27 @@ Shader "Motu/Terrain Unified"
                             riverTextureCoverage
                                 * _RiverBedNormalMapStrength)));
                 }
+
+                // Distant ground grass has no fur geometry, so carry the same
+                // advected wind field into its lighting normal. Restrict the
+                // perturbation to the final grass material coverage so sand,
+                // snow, rock, and riverbed shading remain stationary.
+                float3 groundWind = MotuGrassWindSample(input.worldPosition.xz);
+                float3 horizontalGroundWind = float3(
+                    groundWind.x,
+                    0.0,
+                    groundWind.z);
+                float3 tangentGroundWind = horizontalGroundWind
+                    - normal * dot(horizontalGroundWind, normal);
+                tangentGroundWind *= rsqrt(max(
+                    dot(tangentGroundWind, tangentGroundWind),
+                    1.0e-4));
+                normal = normalize(
+                    normal
+                        + tangentGroundWind
+                            * (groundWind.y
+                                * _GrassWindNormalStrength
+                                * groundGrassCoverage));
 
                 half rockTextureOcclusion = lerp(
                     1.0h,

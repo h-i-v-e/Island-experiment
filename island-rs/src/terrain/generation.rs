@@ -738,6 +738,9 @@ pub(super) fn generate_broad_lod0(
     let _timer = StageTimer::new("generation.lod0.broad");
     let tessellation = lod1.tessellated_displaced_attributed(DETAIL_DISPLACEMENT_RATIO);
     let (mut mesh, mut material) = material.into_tessellated(lod1, tessellation);
+    let deposited_volume = material.volume(&mesh);
+    mesh.optimize_surface_triangulation();
+    material.rescale_to_volume(&mesh, deposited_volume);
     let adjacency = mesh.adjacency();
     mesh.smooth_with(&adjacency);
     hydraulic_erode_stage(
@@ -843,8 +846,6 @@ pub(super) fn correct_lods(lod0: &mut Mesh, lod1: &mut Mesh, lod2: &mut Mesh) ->
     let lod0_index = TriangleIndex::new(lod0);
     pin_refined_lod(lod1, &lod1_refinement.new_vertices, lod0, &lod0_index);
     pin_refined_lod(lod2, &lod2_refinement.new_vertices, lod0, &lod0_index);
-    lod1.optimize_surface_triangulation();
-    lod2.optimize_surface_triangulation();
 
     for mesh in [lod0, lod1, lod2] {
         mesh.uv

@@ -54,6 +54,10 @@ Material:
     - _GrassHeight: 0.14
     - _GrassPatchNoiseWorldSize: 32
     - _GrassRadius: 20
+    - _GrassWindWorldSize: 12
+    - _GrassWindNormalStrength: 0.35
+    - _GrassWindSpeed: 1.8
+    - _GrassWindStrength: 0.07
     - _RiverBedHeightBlendStrength: 0
     - _RiverBedTextureWorldSize: 2
     - _RiverEdgeBlendWidth: 0.2
@@ -74,6 +78,7 @@ Material:
     - _GrassLightColor: {r: 1, g: 1, b: 1, a: 1}
     - _GrassLightDirection: {r: 0, g: 1, b: 0, a: 0}
     - _GrassPlayerPosition: {r: 0, g: 0, b: 0, a: 0}
+    - _GrassWindDirection: {r: 1, g: 0, b: 0.35, a: 0}
     - _GrassRootColor: {r: 0.14, g: 0.34, b: 0.11, a: 1}
     - _GrassTipColor: {r: 0.26, g: 0.62, b: 0.21, a: 1}
   m_BuildTextureStacks: []

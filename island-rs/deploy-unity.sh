@@ -34,7 +34,17 @@ if [ ! -f "$library" ]; then
 fi
 
 mkdir -p "$plugin_dir"
-install -m 755 "$library" "$destination"
+temporary=$(mktemp "$plugin_dir/.libmotu.dylib.XXXXXX")
+cleanup() {
+    if [ -n "$temporary" ]; then
+        rm -f "$temporary"
+    fi
+}
+trap cleanup EXIT HUP INT TERM
+
+install -m 755 "$library" "$temporary"
+mv -f "$temporary" "$destination"
+temporary=
 
 if ! cmp -s "$library" "$destination"; then
     echo "error: deployed library does not match the build artifact" >&2

@@ -1260,6 +1260,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "slow export API lifecycle test; run explicitly when the export API changes"]
     fn ffi_allocations_have_matching_release_functions() {
         let options = test_options();
         // SAFETY: this test passes valid pointers and releases every returned

@@ -19,6 +19,7 @@ struct GrassVertexOutput
     SHADOW_COORDS(4)
     UNITY_FOG_COORDS(5)
     float3 islandLocalSurfacePosition : TEXCOORD6;
+    half3 windLightingOffset : TEXCOORD7;
 };
 
 sampler3D _CliffNoise3D;
@@ -35,6 +36,11 @@ fixed4 _GrassColorB;
 float _GrassColorNoiseWorldSize;
 float _GrassPatchNoiseWorldSize;
 half _GrassBrightness;
+float4 _GrassWindDirection;
+float _GrassWindStrength;
+float _GrassWindSpeed;
+float _GrassWindWorldSize;
+half _GrassWindNormalStrength;
 float3 _GrassLightDirection;
 fixed4 _GrassLightColor;
 fixed4 _GrassAmbientColor;
@@ -52,6 +58,8 @@ half _SandRockSlopeThreshold;
 float _CliffNoisePeriod;
 half _RockPatchNoiseDetailScale;
 float4x4 _IslandWorldToLocal;
+
+#include "GrassWindCommon.cginc"
 
 float GrassHash(float2 cell)
 {
@@ -86,16 +94,25 @@ GrassVertexOutput GrassVertex(GrassVertexInput input)
 {
     GrassVertexOutput output;
     half3 worldNormal = normalize(UnityObjectToWorldNormal(input.normal));
-    float3 worldPosition = mul(unity_ObjectToWorld, input.vertex).xyz;
-    worldPosition += worldNormal * (_GrassHeight * GRASS_SHELL_LAYER);
+    float3 surfaceWorldPosition = mul(unity_ObjectToWorld, input.vertex).xyz;
+    float3 windSample = MotuGrassWindSample(surfaceWorldPosition.xz);
+    float3 horizontalWind = float3(windSample.x, 0.0, windSample.z);
+    float3 tangentWind = horizontalWind
+        - worldNormal * dot(horizontalWind, worldNormal);
+    tangentWind *= rsqrt(max(dot(tangentWind, tangentWind), 1.0e-4));
+    float shellCurve = GRASS_SHELL_LAYER * GRASS_SHELL_LAYER;
+    float3 worldPosition = surfaceWorldPosition
+        + worldNormal * (_GrassHeight * GRASS_SHELL_LAYER)
+        + tangentWind * (_GrassWindStrength * windSample.y * shellCurve);
     output.pos = UnityWorldToClipPos(worldPosition);
     output.worldPosition = worldPosition;
-    output.surfaceWorldPosition = worldPosition
-        - worldNormal * (_GrassHeight * GRASS_SHELL_LAYER);
+    output.surfaceWorldPosition = surfaceWorldPosition;
     output.islandLocalSurfacePosition = mul(
         _IslandWorldToLocal,
-        float4(output.surfaceWorldPosition, 1.0)).xyz;
+        float4(surfaceWorldPosition, 1.0)).xyz;
     output.worldNormal = worldNormal;
+    output.windLightingOffset = tangentWind
+        * (windSample.y * GRASS_SHELL_LAYER);
     output.material = input.material.rgb;
     TRANSFER_SHADOW_WPOS(output, worldPosition);
     UNITY_TRANSFER_FOG(output, output.pos);
@@ -249,7 +266,9 @@ fixed4 GrassFragment(GrassVertexOutput input) : SV_Target
     bladeRadius *= lerp(0.72, 1.18, edgeNoise);
     clip(bladeRadius - length(cellPosition));
 
-    half3 lightingNormal = normalize(lerp(normal, half3(0.0, 1.0, 0.0), 0.35));
+    half3 lightingNormal = normalize(
+        lerp(normal, half3(0.0, 1.0, 0.0), 0.35)
+            + input.windLightingOffset * _GrassWindNormalStrength);
     half3 lightDirection = normalize(_GrassLightDirection);
     half diffuse = saturate(dot(lightingNormal, lightDirection));
     UNITY_LIGHT_ATTENUATION(
