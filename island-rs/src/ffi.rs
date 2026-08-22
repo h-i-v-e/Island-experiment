@@ -565,62 +565,6 @@ pub unsafe extern "C" fn CreateRiverMesh(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn CreateRiverBedDebugMesh(handle: *const c_void, output: *mut ExportMesh) {
-    let Some(island) = (unsafe { island_ref(handle) }) else {
-        return;
-    };
-    let Some(output) = (unsafe { output.as_mut() }) else {
-        return;
-    };
-    *output = export_mesh(island.river_bed_debug_mesh().clone(), Vec::new());
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn CreateWaterfallFaceTerrainDebugMesh(
-    handle: *const c_void,
-    output: *mut ExportMesh,
-) {
-    let Some(island) = (unsafe { island_ref(handle) }) else {
-        return;
-    };
-    let Some(output) = (unsafe { output.as_mut() }) else {
-        return;
-    };
-    *output = export_mesh(
-        island.waterfall_face_terrain_debug_mesh().clone(),
-        Vec::new(),
-    );
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn CreateWaterfallPlaneDebugMesh(
-    handle: *const c_void,
-    output: *mut ExportMesh,
-) {
-    let Some(island) = (unsafe { island_ref(handle) }) else {
-        return;
-    };
-    let Some(output) = (unsafe { output.as_mut() }) else {
-        return;
-    };
-    *output = export_mesh(island.waterfall_plane_debug_mesh().clone(), Vec::new());
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn CreateWaterfallLipPlaneDebugMesh(
-    handle: *const c_void,
-    output: *mut ExportMesh,
-) {
-    let Some(island) = (unsafe { island_ref(handle) }) else {
-        return;
-    };
-    let Some(output) = (unsafe { output.as_mut() }) else {
-        return;
-    };
-    *output = export_mesh(island.waterfall_lip_plane_debug_mesh().clone(), Vec::new());
-}
-
-#[unsafe(no_mangle)]
 pub unsafe extern "C" fn CreateRiverMeshGrid(
     handle: *const c_void,
     area: *const ExportArea,
@@ -1217,45 +1161,6 @@ mod tests {
         }));
         unsafe { ReleaseMeshGrid(&raw mut river_rock_grid) };
         assert!(river_rock_grid.handle.is_null());
-
-        let mut river_bed_debug = ExportMesh::default();
-        unsafe { CreateRiverBedDebugMesh(handle, &raw mut river_bed_debug) };
-        assert!(!river_bed_debug.handle.is_null());
-        assert!(river_bed_debug.triangles.length > 0);
-        assert_eq!(
-            river_bed_debug.normals.length,
-            river_bed_debug.vertices.length
-        );
-        unsafe { ReleaseMesh(&raw mut river_bed_debug) };
-
-        let mut waterfall_face_terrain_debug = ExportMesh::default();
-        unsafe {
-            CreateWaterfallFaceTerrainDebugMesh(handle, &raw mut waterfall_face_terrain_debug);
-        };
-        assert!(!waterfall_face_terrain_debug.handle.is_null());
-        assert_eq!(
-            waterfall_face_terrain_debug.normals.length,
-            waterfall_face_terrain_debug.vertices.length
-        );
-        unsafe { ReleaseMesh(&raw mut waterfall_face_terrain_debug) };
-
-        let mut waterfall_plane_debug = ExportMesh::default();
-        unsafe { CreateWaterfallPlaneDebugMesh(handle, &raw mut waterfall_plane_debug) };
-        assert!(!waterfall_plane_debug.handle.is_null());
-        assert_eq!(
-            waterfall_plane_debug.normals.length,
-            waterfall_plane_debug.vertices.length
-        );
-        unsafe { ReleaseMesh(&raw mut waterfall_plane_debug) };
-
-        let mut waterfall_lip_plane_debug = ExportMesh::default();
-        unsafe { CreateWaterfallLipPlaneDebugMesh(handle, &raw mut waterfall_lip_plane_debug) };
-        assert!(!waterfall_lip_plane_debug.handle.is_null());
-        assert_eq!(
-            waterfall_lip_plane_debug.normals.length,
-            waterfall_lip_plane_debug.vertices.length
-        );
-        unsafe { ReleaseMesh(&raw mut waterfall_lip_plane_debug) };
 
         unsafe { assert_river_emitters(handle) };
     }

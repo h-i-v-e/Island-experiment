@@ -1,7 +1,7 @@
 use super::{
     Adjacency, ENABLE_WATERFALL_PLUNGE_POOLS, HashMap, ISLAND_WORLD_METRES, Mesh, RIVER_BOUNDARY,
     RIVER_SURFACE_OFFSET, RiverMeshBuffers, RiverNetwork, RiverOwnerKey, SEA_PLANE_CLEARANCE,
-    SurfaceMaterial, Vec2, Vec3, VecDeque, WATERFALL_APRON_WIDTH_MULTIPLIER,
+    SurfaceMaterial, Vec2, VecDeque, WATERFALL_APRON_WIDTH_MULTIPLIER,
     WATERFALL_DOWNSTREAM_SPIKE_ALLOWANCE, WATERFALL_DOWNSTREAM_SPIKE_PASSES,
     WATERFALL_EDGE_BLEND_RUN, WATERFALL_EDGE_SMOOTHING, WATERFALL_EDGE_SMOOTHING_PASSES,
     WATERFALL_FINAL_BANK_DROP_FRACTION, WATERFALL_FINAL_BANK_EDGE_DROP_FRACTION,
@@ -108,10 +108,6 @@ impl WaterfallPatch {
             self.signed_distance_to_face_plane(point),
             offset.dot(self.across),
         )
-    }
-
-    pub(super) fn face_plane_point(self, along: f32, lateral: f32, height: f32) -> Vec3 {
-        (self.upper_centre + self.direction * along + self.across * lateral).extend(height)
     }
 
     pub(super) fn downstream_extent(self) -> f32 {

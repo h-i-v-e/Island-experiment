@@ -198,10 +198,16 @@ fixed4 GrassFragment(GrassVertexOutput input) : SV_Target
         + rockPatchLayers.g * 0.35;
     half rockMaskDistance = rockPatchNoise
         - (1.0 - geologyRockWeight);
-    // Fur is a discrete physical layer: retain the hard rock stencil so no
-    // blades can protrude through visible stones or cliffs.
-    half geologyRockCoverage = GrassAntialiasedMask(rockMaskDistance)
-        * step(1.0e-4, geologyRockWeight);
+    // Match the distant terrain's broad visual rock coverage exactly, then
+    // treat that coverage as a hard physical exclusion for the fur below.
+    half rockBlendWidth = max(
+        0.20h,
+        fwidth(rockMaskDistance));
+    half geologyRockCoverage = smoothstep(
+        -rockBlendWidth,
+        rockBlendWidth,
+        rockMaskDistance)
+        * smoothstep(0.0h, 0.20h, geologyRockWeight);
     half sandRockThreshold = _SandRockSlopeThreshold
         + rockBoundaryNoise * _RockBoundaryNoiseStrength * 0.25;
     half sandRockCoverage = beachCandidateCoverage
@@ -216,7 +222,7 @@ fixed4 GrassFragment(GrassVertexOutput input) : SV_Target
         + broadNoise.g * _SnowEdgeNoiseMetres;
     half snowCoverage = GrassAntialiasedMask(elevation - noisySnowLine);
     clip(elevation);
-    clip(0.5 - exposedRockCoverage);
+    clip(0.01h - exposedRockCoverage);
     clip(0.5 - beachCoverage);
     clip(0.5 - snowCoverage);
 
@@ -247,10 +253,6 @@ fixed4 GrassFragment(GrassVertexOutput input) : SV_Target
     float2 leanDirection = float2(cos(leanAngle), sin(leanAngle));
     cellPosition -= leanDirection
         * (GRASS_SHELL_LAYER * GRASS_SHELL_LAYER * 0.18);
-    // Fade whole blades with stable per-cell dithering. Removing individual
-    // shell layers here produces visible rings centred on the player.
-    float fadeRandom = GrassHash(cell + float2(41.7, 19.3));
-    clip(radialWeight - fadeRandom - 0.001);
     float randomHeight = lerp(0.55, 1.0, GrassHash(cell));
     clip(randomHeight - GRASS_SHELL_LAYER);
     float bladeRadius = lerp(
@@ -288,7 +290,11 @@ fixed4 GrassFragment(GrassVertexOutput input) : SV_Target
     // mean albedo as the terrain's base grass colour.
     grassColor *= lerp(0.90, 1.10, GrassHash(cell + 17.0));
     grassColor *= _GrassBrightness;
-    fixed4 color = fixed4(grassColor * (ambient + direct), 1.0);
+    // Blend the complete fur volume into the distant ground grass without
+    // dropping randomly selected blades at the edge of the player radius.
+    fixed4 color = fixed4(
+        grassColor * (ambient + direct),
+        radialWeight);
     UNITY_APPLY_FOG(input.fogCoord, color);
     return color;
 }

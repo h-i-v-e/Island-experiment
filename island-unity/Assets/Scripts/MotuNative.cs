@@ -192,26 +192,6 @@ internal static class MotuNative
         out ExportMeshWithUv output);
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern void CreateRiverBedDebugMesh(
-        IntPtr handle,
-        out ExportMesh output);
-
-    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern void CreateWaterfallFaceTerrainDebugMesh(
-        IntPtr handle,
-        out ExportMesh output);
-
-    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern void CreateWaterfallPlaneDebugMesh(
-        IntPtr handle,
-        out ExportMesh output);
-
-    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern void CreateWaterfallLipPlaneDebugMesh(
-        IntPtr handle,
-        out ExportMesh output);
-
-    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
     internal static extern void CreateRiverMeshGrid(
         IntPtr handle,
         ref ExportArea area,

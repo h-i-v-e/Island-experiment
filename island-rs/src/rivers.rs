@@ -40,7 +40,6 @@ use channel::{
     shape_channel_ring_vertices, smooth_river_corridor, target_cross_sections,
     update_achieved_cross_sections,
 };
-pub(crate) use geometry::RiverDebugGeometry;
 use geometry::{
     BuiltRiverGeometry, RiverChannelFootprintOwner, RiverFootprint, RiverGeometryBuilder,
     RiverMeshBuffers, RiverOwnerKey, apply_known_surfaces, confluence_connector,
@@ -60,7 +59,7 @@ use waterfalls::{
     enforce_waterfall_downstream_ceiling, expand_vertex_mask_through_river_to_banks,
     pin_waterfalls_to_terrain, rebuild_final_waterfall_support_mask, recess_waterfall_notches,
     smooth_final_waterfall_patches, smooth_pinned_waterfall_terrain, smoothstep,
-    squish_waterfall_downstream_spikes, waterfall_bank_mask, waterfall_side_bank_apron_for_patch,
+    squish_waterfall_downstream_spikes,
 };
 
 #[cfg(test)]
@@ -73,7 +72,6 @@ pub(crate) struct RiverParts {
     pub(crate) river_rock_mesh: Mesh,
     pub(crate) mouths: Vec<RiverMouth>,
     pub(crate) failed_waterfalls: Vec<usize>,
-    pub(crate) debug_geometry: RiverDebugGeometry,
 }
 
 pub(crate) const RIVER_SURFACE_OFFSET: f32 = 0.000_01;
@@ -118,7 +116,6 @@ const WATERFALL_FINAL_SMOOTHING_PASSES: usize = 2;
 const WATERFALL_EDGE_SMOOTHING_PASSES: usize = 6;
 const WATERFALL_EDGE_SMOOTHING: f32 = 0.5;
 const WATERFALL_EDGE_BLEND_RUN: f32 = 2.0 * WATERFALL_TARGET_EDGE_LENGTH;
-const WATERFALL_DEBUG_PLANE_MARGIN: f32 = 2.0 / ISLAND_WORLD_METRES;
 const WATERFALL_SUPPORT_RUN: f32 = 0.75 / ISLAND_WORLD_METRES;
 const WATERFALL_APRON_WIDTH_MULTIPLIER: f32 = 1.75;
 const WATERFALL_LANDING_LENGTH_MULTIPLIER: f32 = 1.5;
@@ -434,7 +431,6 @@ impl RiverNetwork {
             river_rock_mesh: geometry.river_rock_mesh,
             mouths,
             failed_waterfalls: geometry.failed_waterfalls,
-            debug_geometry: geometry.debug_geometry,
         }
     }
 

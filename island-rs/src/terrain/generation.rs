@@ -2,12 +2,12 @@ use super::{
     Adjacency, BinaryHeap, BoundingBox, DETAIL_DISPLACEMENT_RATIO, Decorations, File, GeologyField,
     HashSet, HydraulicScratch, ISLAND_WORLD_METRES, IndexedParallelIterator, IslandOptions, Mesh,
     MeshClipper, NewVertexStencil, OnceLock, Ordering, ParallelIterator, ParallelSliceMut, Path,
-    Raster, Read, River, RiverChannelSettings, RiverDebugGeometry, RiverMouth, RiverNetwork,
-    RiverSourceRule, Rng, SHARP_ROCK_DISPLACEMENT_RATIO, StageTimer, SurfaceMaps, SurfaceMaterial,
-    TERRAIN_RENDER_FLOOR, Terrain, TerrainMaterialField, TriangleIndex, Vec2, Vec3, Write,
-    append_settled_rocks, bake_surface_maps, bury_river_banks, clear_loose_soil,
-    encode_bank_distance_in_uv, erode_mesh, fix_inland_seas, geology, hydraulic_erode_stage, io,
-    legacy_catchment_hectares, mem, noise, sample_grid, sample_mesh_surface,
+    Raster, Read, River, RiverChannelSettings, RiverMouth, RiverNetwork, RiverSourceRule, Rng,
+    SHARP_ROCK_DISPLACEMENT_RATIO, StageTimer, SurfaceMaps, SurfaceMaterial, TERRAIN_RENDER_FLOOR,
+    Terrain, TerrainMaterialField, TriangleIndex, Vec2, Vec3, Write, append_settled_rocks,
+    bake_surface_maps, bury_river_banks, clear_loose_soil, encode_bank_distance_in_uv, erode_mesh,
+    fix_inland_seas, geology, hydraulic_erode_stage, io, legacy_catchment_hectares, mem, noise,
+    sample_grid, sample_mesh_surface,
 };
 
 const SEA_PROXIMITY_FULL_STRENGTH_METRES: f32 = 2.0;
@@ -24,10 +24,6 @@ pub struct Island {
     pub(super) river_mouths: Vec<RiverMouth>,
     pub(super) river_mesh: Mesh,
     pub(super) river_rock_mesh: Mesh,
-    pub(super) river_bed_debug_mesh: Mesh,
-    pub(super) waterfall_face_terrain_debug_mesh: Mesh,
-    pub(super) waterfall_plane_debug_mesh: Mesh,
-    pub(super) waterfall_lip_plane_debug_mesh: Mesh,
     pub(super) decorations: OnceLock<Decorations>,
 }
 
@@ -39,7 +35,6 @@ pub(super) struct FinalRiverGeneration {
     pub(super) river_bed: Vec<bool>,
     pub(super) river_rock_mesh: Mesh,
     pub(super) river_mouths: Vec<RiverMouth>,
-    pub(super) debug_geometry: RiverDebugGeometry,
 }
 
 struct SavedIslandReader<R> {
@@ -217,7 +212,6 @@ pub(super) fn generate_final_rivers(
                 river_bed: parts.river_bed,
                 river_rock_mesh: parts.river_rock_mesh,
                 river_mouths: parts.mouths,
-                debug_geometry: parts.debug_geometry,
             };
         }
     }
@@ -255,7 +249,6 @@ impl Island {
             river_bed,
             mut river_rock_mesh,
             river_mouths,
-            debug_geometry: river_debug_geometry,
         } = generate_final_rivers(
             seed,
             &lod0,
@@ -270,12 +263,6 @@ impl Island {
         bury_river_banks(&mut river_mesh, &lod0, &lod0_index);
         river_mesh = river_mesh.clipped_above(0.0);
         encode_bank_distance_in_uv(&mut river_mesh);
-        let RiverDebugGeometry {
-            river_bed: river_bed_debug_mesh,
-            waterfall_face_terrain: waterfall_face_terrain_debug_mesh,
-            waterfall_foot_planes: waterfall_plane_debug_mesh,
-            waterfall_lip_planes: waterfall_lip_plane_debug_mesh,
-        } = river_debug_geometry;
         let forced_rock = sharp_rock_mask(&lod0);
         let provisional_material =
             TerrainMaterialField::from_surface(&material, &river_bed, &forced_rock);
@@ -304,10 +291,6 @@ impl Island {
             river_mouths,
             river_mesh,
             river_rock_mesh,
-            river_bed_debug_mesh,
-            waterfall_face_terrain_debug_mesh,
-            waterfall_plane_debug_mesh,
-            waterfall_lip_plane_debug_mesh,
             decorations: OnceLock::from(decorations),
         })
     }
@@ -351,26 +334,6 @@ impl Island {
     #[must_use]
     pub const fn river_rock_mesh(&self) -> &Mesh {
         &self.river_rock_mesh
-    }
-
-    #[must_use]
-    pub const fn river_bed_debug_mesh(&self) -> &Mesh {
-        &self.river_bed_debug_mesh
-    }
-
-    #[must_use]
-    pub const fn waterfall_face_terrain_debug_mesh(&self) -> &Mesh {
-        &self.waterfall_face_terrain_debug_mesh
-    }
-
-    #[must_use]
-    pub const fn waterfall_plane_debug_mesh(&self) -> &Mesh {
-        &self.waterfall_plane_debug_mesh
-    }
-
-    #[must_use]
-    pub const fn waterfall_lip_plane_debug_mesh(&self) -> &Mesh {
-        &self.waterfall_lip_plane_debug_mesh
     }
 
     /// Derives sparse rough-water locations from the authoritative unsliced

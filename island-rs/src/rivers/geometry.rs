@@ -8,16 +8,15 @@ use super::{
     RIVER_CHANNEL_CORE_BLEND, RIVER_REFINEMENT_APRON_RINGS, RIVER_REFINEMENT_PASSES,
     RIVER_SURFACE_OFFSET, River, RiverNetwork, RiverSedimentBudget, RouteState,
     SEA_PLANE_CLEARANCE, SHARP_POINT_HEIGHT_RATIO, SHARP_POINT_SMOOTHING,
-    SHARP_POINT_SMOOTHING_PASSES, SurfaceMaterial, Vec2, VecDeque, WATERFALL_DEBUG_PLANE_MARGIN,
+    SHARP_POINT_SMOOTHING_PASSES, SurfaceMaterial, Vec2, VecDeque,
     WATERFALL_FINAL_SMOOTHING_PASSES, WATERFALL_TARGET_EDGE_LENGTH, WaterfallPatch,
     WaterfallTerrainConstraints, build_river_footprint, derive_waterfall_patches,
     detect_failed_final_waterfalls, duplicate_river_topology, encode_bank_distance_in_uv,
     enforce_final_waterfall_edge_relationships, enforce_waterfall_downstream_ceiling,
-    generate_river_rock_mesh, is_river_bed_triangle, is_river_boundary, mark_river_boundary,
-    pin_waterfalls_to_terrain, rebuild_final_waterfall_support_mask, recess_waterfall_notches,
-    river_topology_masks, smooth_final_waterfall_patches, smooth_pinned_waterfall_terrain,
-    smoothstep, squish_waterfall_downstream_spikes, waterfall_bank_mask,
-    waterfall_side_bank_apron_for_patch,
+    generate_river_rock_mesh, is_river_boundary, mark_river_boundary, pin_waterfalls_to_terrain,
+    rebuild_final_waterfall_support_mask, recess_waterfall_notches, river_topology_masks,
+    smooth_final_waterfall_patches, smooth_pinned_waterfall_terrain, smoothstep,
+    squish_waterfall_downstream_spikes,
 };
 
 pub(super) fn lower_precarve_river_valleys(
@@ -264,163 +263,17 @@ pub(super) fn finalize_river_geometry(
     surfaces: &[f32],
     river_uv: &[Vec2],
     waterfall_constraints: &WaterfallTerrainConstraints,
-) -> (Mesh, Vec<bool>, Mesh) {
+) -> (Mesh, Vec<bool>) {
     // Keep the tessellated river topology fixed after carving and smoothing.
     // Flipping an edge here can connect vertices from opposite sides of the
     // settled channel profile, creating sharp bed ridges or accidental dams.
     terrain.calculate_normals();
     let river_bed = river_topology_masks(terrain, coverage).0;
-    let river_bed_mesh = duplicate_river_bed_topology(terrain, coverage);
     let mut river_mesh =
         duplicate_river_topology(terrain, coverage, surfaces, river_uv, waterfall_constraints)
             .clipped_above(0.0);
     encode_bank_distance_in_uv(&mut river_mesh);
-    (river_mesh, river_bed, river_bed_mesh)
-}
-
-pub(super) fn duplicate_river_bed_topology(terrain: &Mesh, coverage: &[u8]) -> Mesh {
-    let mut mapping = vec![u32::MAX; terrain.vertices.len()];
-    let mut output = Mesh::default();
-
-    for triangle in terrain.triangles.chunks_exact(3) {
-        if !is_river_bed_triangle(triangle, coverage) {
-            continue;
-        }
-        for &source in triangle {
-            let source = source as usize;
-            let mapped = if mapping[source] == u32::MAX {
-                let mapped = output.vertices.len() as u32;
-                mapping[source] = mapped;
-                output.vertices.push(terrain.vertices[source]);
-                output.normals.push(terrain.normals[source]);
-                output.uv.push(
-                    terrain
-                        .uv
-                        .get(source)
-                        .copied()
-                        .unwrap_or_else(|| terrain.vertices[source].truncate()),
-                );
-                mapped
-            } else {
-                mapping[source]
-            };
-            output.triangles.push(mapped);
-        }
-    }
-    output
-}
-
-pub(super) fn build_waterfall_face_terrain_debug_mesh(
-    terrain: &Mesh,
-    face_vertices: &[bool],
-) -> Mesh {
-    debug_assert_eq!(terrain.vertices.len(), face_vertices.len());
-    let mut mapping = vec![u32::MAX; terrain.vertices.len()];
-    let mut output = Mesh::default();
-
-    for triangle in terrain.triangles.chunks_exact(3) {
-        if !triangle
-            .iter()
-            .any(|&vertex| face_vertices[vertex as usize])
-        {
-            continue;
-        }
-
-        for &source in triangle {
-            let source = source as usize;
-            let mapped = if mapping[source] == u32::MAX {
-                let mapped = output.vertices.len() as u32;
-                mapping[source] = mapped;
-                output.vertices.push(terrain.vertices[source]);
-                output.uv.push(
-                    terrain
-                        .uv
-                        .get(source)
-                        .copied()
-                        .unwrap_or_else(|| terrain.vertices[source].truncate()),
-                );
-                mapped
-            } else {
-                mapping[source]
-            };
-            output.triangles.push(mapped);
-        }
-    }
-    output.calculate_normals();
-    output
-}
-
-pub(super) fn build_waterfall_debug_plane_mesh(
-    terrain: &Mesh,
-    patches: &[WaterfallPatch],
-    coverage: &[u8],
-    along: f32,
-) -> Mesh {
-    if patches.is_empty() {
-        return Mesh::default();
-    }
-
-    let adjacency = terrain.adjacency();
-    let perimeter = terrain.perimeter_mask();
-    let banks = waterfall_bank_mask(&adjacency, &perimeter, coverage);
-    let mut output = Mesh::default();
-
-    for &patch in patches {
-        let selected =
-            waterfall_side_bank_apron_for_patch(terrain, patch, coverage, &adjacency, &banks);
-        let mut lateral_extent = patch.half_width * 1.25;
-        let mut minimum_height = patch.lower_floor.min(patch.lower_surface);
-        let mut maximum_height = patch.upper_surface;
-        for (position, &is_selected) in terrain.vertices.iter().zip(&selected) {
-            if !is_selected {
-                continue;
-            }
-            let (_, lateral) = patch.local_coordinates(position.truncate());
-            lateral_extent = lateral_extent.max(lateral.abs());
-            minimum_height = minimum_height.min(position.z);
-            maximum_height = maximum_height.max(position.z);
-        }
-        lateral_extent += WATERFALL_DEBUG_PLANE_MARGIN;
-        minimum_height -= WATERFALL_DEBUG_PLANE_MARGIN;
-        maximum_height += WATERFALL_DEBUG_PLANE_MARGIN;
-
-        append_waterfall_debug_plane(
-            &mut output,
-            patch,
-            along,
-            lateral_extent,
-            minimum_height,
-            maximum_height,
-        );
-    }
-    output.calculate_normals();
-    output
-}
-
-pub(super) fn append_waterfall_debug_plane(
-    output: &mut Mesh,
-    patch: WaterfallPatch,
-    along: f32,
-    lateral_extent: f32,
-    minimum_height: f32,
-    maximum_height: f32,
-) {
-    let base = output.vertices.len() as u32;
-    output.vertices.extend([
-        patch.face_plane_point(along, -lateral_extent, minimum_height),
-        patch.face_plane_point(along, lateral_extent, minimum_height),
-        patch.face_plane_point(along, -lateral_extent, maximum_height),
-        patch.face_plane_point(along, lateral_extent, maximum_height),
-    ]);
-    output.uv.extend([
-        Vec2::new(0.0, 0.0),
-        Vec2::new(1.0, 0.0),
-        Vec2::new(0.0, 1.0),
-        Vec2::new(1.0, 1.0),
-    ]);
-    output
-        .triangles
-        .extend([base, base + 2, base + 1, base + 1, base + 2, base + 3]);
+    (river_mesh, river_bed)
 }
 
 pub(super) fn enforce_sea_plane_clearance(terrain: &mut Mesh, ocean: &[bool]) {
@@ -1474,20 +1327,11 @@ pub(super) struct RiverFootprint {
     pub(super) owner: Vec<Option<RiverChannelFootprintOwner>>,
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
-pub(crate) struct RiverDebugGeometry {
-    pub(crate) river_bed: Mesh,
-    pub(crate) waterfall_face_terrain: Mesh,
-    pub(crate) waterfall_foot_planes: Mesh,
-    pub(crate) waterfall_lip_planes: Mesh,
-}
-
 pub(super) struct BuiltRiverGeometry {
     pub(super) river_mesh: Mesh,
     pub(super) river_bed: Vec<bool>,
     pub(super) river_rock_mesh: Mesh,
     pub(super) failed_waterfalls: Vec<usize>,
-    pub(super) debug_geometry: RiverDebugGeometry,
 }
 
 pub(super) struct RiverGeometryBuilder<'a> {
@@ -1627,7 +1471,7 @@ impl<'a> RiverGeometryBuilder<'a> {
         } else {
             Vec::new()
         };
-        let (river_mesh, river_bed, river_bed_mesh) = finalize_river_geometry(
+        let (river_mesh, river_bed) = finalize_river_geometry(
             self.terrain,
             &self.buffers.coverage,
             &self.buffers.surfaces,
@@ -1639,31 +1483,11 @@ impl<'a> RiverGeometryBuilder<'a> {
         } else {
             Mesh::default()
         };
-        let debug_geometry = RiverDebugGeometry {
-            river_bed: river_bed_mesh,
-            waterfall_face_terrain: build_waterfall_face_terrain_debug_mesh(
-                self.terrain,
-                &constraints.patch,
-            ),
-            waterfall_foot_planes: build_waterfall_debug_plane_mesh(
-                self.terrain,
-                patches,
-                &self.buffers.coverage,
-                0.0,
-            ),
-            waterfall_lip_planes: build_waterfall_debug_plane_mesh(
-                self.terrain,
-                patches,
-                &self.buffers.coverage,
-                -WaterfallPatch::face_run(),
-            ),
-        };
         BuiltRiverGeometry {
             river_mesh,
             river_bed,
             river_rock_mesh,
             failed_waterfalls,
-            debug_geometry,
         }
     }
 }

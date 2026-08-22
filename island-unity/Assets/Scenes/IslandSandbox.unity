@@ -203,8 +203,6 @@ MonoBehaviour:
   debugSettings:
     showMeshEdges: 0
     toggleMeshEdgesKey: 109
-    showRiverDebugGeometry: 1
-    toggleRiverDebugGeometryKey: 110
     showRoughWaterEmitters: 0
 --- !u!4 &22168521
 Transform:

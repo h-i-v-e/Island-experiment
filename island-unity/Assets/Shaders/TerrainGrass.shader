@@ -46,10 +46,11 @@ Shader "Motu/Terrain Grass"
 
     SubShader
     {
-        Tags { "RenderType"="TransparentCutout" "Queue"="AlphaTest+10" }
+        Tags { "RenderType"="Transparent" "Queue"="Transparent" }
         LOD 350
         Cull Off
-        ZWrite On
+        ZWrite Off
+        Blend SrcAlpha OneMinusSrcAlpha
 
         Pass
         {

@@ -5,7 +5,7 @@ use super::{carving::*, channel::*, geometry::*, tracing::*, waterfalls::*};
 use crate::Vec2;
 
 #[test]
-fn waterfall_debug_plane_is_one_quad_on_the_classification_plane() {
+fn waterfall_plane_zones_and_upstream_blend_follow_the_classification_plane() {
     let patch = WaterfallPatch {
         river: 0,
         segment: 0,
@@ -20,38 +20,6 @@ fn waterfall_debug_plane_is_one_quad_on_the_classification_plane() {
         support_run: 0.03,
         pool: None,
     };
-    let mut mesh = Mesh::default();
-    append_waterfall_debug_plane(&mut mesh, patch, 0.0, 0.05, 0.04, 0.34);
-
-    assert_eq!(mesh.vertices.len(), 4);
-    assert_eq!(mesh.triangles.len(), 6);
-    assert!(
-        mesh.vertices
-            .iter()
-            .all(|vertex| patch.signed_distance_to_face_plane(vertex.truncate()).abs() < 1.0e-6)
-    );
-    assert!(mesh.vertices.iter().any(|vertex| {
-        ((vertex.truncate() - patch.upper_centre).dot(patch.across) + 0.05).abs() < 1.0e-6
-            && (vertex.z - 0.04).abs() < 1.0e-6
-    }));
-    assert!(mesh.vertices.iter().any(|vertex| {
-        ((vertex.truncate() - patch.upper_centre).dot(patch.across) - 0.05).abs() < 1.0e-6
-            && (vertex.z - 0.34).abs() < 1.0e-6
-    }));
-
-    let mut lip = Mesh::default();
-    append_waterfall_debug_plane(
-        &mut lip,
-        patch,
-        -WaterfallPatch::face_run(),
-        0.05,
-        0.04,
-        0.34,
-    );
-    assert!(lip.vertices.iter().all(|vertex| {
-        (patch.signed_distance_to_face_plane(vertex.truncate()) + WaterfallPatch::face_run()).abs()
-            < 1.0e-6
-    }));
     assert_eq!(
         patch.plane_zone(patch.upper_centre - patch.direction * WaterfallPatch::face_run()),
         WaterfallPlaneZone::Face
@@ -97,54 +65,6 @@ fn waterfall_debug_plane_is_one_quad_on_the_classification_plane() {
     assert!(patch.contains_upstream_pin_blend(blend_midpoint));
     assert!(patch.contains_upstream_pin_blend(blend_end));
     assert!(!patch.contains_upstream_pin_blend(patch.upper_centre));
-}
-
-#[test]
-fn river_bed_debug_mesh_contains_only_selected_bed_triangles() {
-    let mut terrain = Mesh {
-        vertices: vec![
-            Vec3::new(0.0, 0.0, 0.0),
-            Vec3::new(1.0, 0.0, 0.0),
-            Vec3::new(0.0, 1.0, 0.0),
-            Vec3::new(1.0, 1.0, 0.0),
-        ],
-        triangles: vec![0, 1, 2, 1, 3, 2],
-        ..Mesh::default()
-    };
-    terrain.calculate_normals();
-    let debug_mesh = duplicate_river_bed_topology(&terrain, &[2, 2, 2, 0]);
-
-    assert_eq!(debug_mesh.vertices.len(), 3);
-    assert_eq!(debug_mesh.triangles, vec![0, 1, 2]);
-    assert_eq!(debug_mesh.normals.len(), debug_mesh.vertices.len());
-}
-
-#[test]
-fn waterfall_face_terrain_debug_mesh_uses_final_face_vertex_mask() {
-    let run = WaterfallPatch::face_run();
-    let terrain = Mesh {
-        vertices: vec![
-            Vec3::new(-run * 2.0, -1.0, 0.4),
-            Vec3::new(run, -1.0, 0.1),
-            Vec3::new(run, 1.0, 0.1),
-            Vec3::new(-run * 2.0, 1.0, 0.4),
-        ],
-        triangles: vec![0, 1, 3, 3, 1, 2],
-        ..Mesh::default()
-    };
-    let debug_mesh =
-        build_waterfall_face_terrain_debug_mesh(&terrain, &[false, true, false, false]);
-
-    assert!(!debug_mesh.triangles.is_empty());
-    assert_eq!(debug_mesh.normals.len(), debug_mesh.vertices.len());
-    assert_eq!(debug_mesh.triangles.len(), terrain.triangles.len());
-    assert_eq!(debug_mesh.vertices.len(), terrain.vertices.len());
-    assert!(
-        terrain
-            .vertices
-            .iter()
-            .all(|vertex| debug_mesh.vertices.contains(vertex))
-    );
 }
 
 fn build_test_river_mesh(

@@ -423,8 +423,8 @@ Shader "Motu/Terrain Unified"
 
                 fixed3 deep = fixed3(0.08, 0.16, 0.12);
                 fixed3 sand = fixed3(0.62, 0.57, 0.34);
-                // Ground colour is deliberately softer than the physical fur
-                // mask, blending continuously between bare soil and grass.
+                // Soil still blends continuously, but established green grass
+                // uses the same hard visible-rock cutoff as the fur layer.
                 float2 grassColorUv = input.islandLocalPosition.xz
                     / max(_GrassColorNoiseWorldSize, 1.0);
                 half grassColorNoise = tex2D(
@@ -434,10 +434,12 @@ Shader "Motu/Terrain Unified"
                     _GrassColorA.rgb,
                     _GrassColorB.rgb,
                     smoothstep(0.1h, 0.9h, grassColorNoise));
+                half groundGrassColorCoverage = groundGrassCoverage
+                    * (1.0h - step(0.01h, exposedRockCoverage));
                 fixed3 grass = lerp(
                     _GrassThinDepositColor.rgb,
                     establishedGrassColor,
-                    groundGrassCoverage);
+                    groundGrassColorCoverage);
                 fixed3 rock = lerp(
                     _RockColor.rgb,
                     tex2D(_RockAlbedoMap, rockUv).rgb,

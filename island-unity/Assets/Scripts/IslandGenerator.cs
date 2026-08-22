@@ -60,17 +60,6 @@ public sealed class IslandGenerator : MonoBehaviour
     private Material riverMaterial;
     private Material seaMaterial;
     private Material meshEdgeMaterial;
-    private Material waterfallFaceTerrainDebugMaterial;
-    private Material waterfallPlaneDebugMaterial;
-    private Material waterfallLipPlaneDebugMaterial;
-    private GameObject riverBedDebugOverlay;
-    private GameObject waterfallFaceTerrainDebugOverlay;
-    private GameObject waterfallPlaneDebugOverlay;
-    private GameObject waterfallLipPlaneDebugOverlay;
-    private Mesh riverBedDebugWireMesh;
-    private Mesh waterfallFaceTerrainDebugWireMesh;
-    private Mesh waterfallPlaneDebugWireMesh;
-    private Mesh waterfallLipPlaneDebugWireMesh;
     private string status = "Ready";
     private CancellationTokenSource generationCancellation;
     private Stopwatch generationTimer;
@@ -85,7 +74,6 @@ public sealed class IslandGenerator : MonoBehaviour
     private bool? appliedShowGrass;
     private bool? appliedShowRocks;
     private bool? appliedShowMeshEdges;
-    private bool? appliedShowRiverDebugGeometry;
     private bool? appliedEmitterDebug;
     private Color? appliedGrassColourA;
     private Color? appliedGrassColourB;
@@ -160,11 +148,6 @@ public sealed class IslandGenerator : MonoBehaviour
         if (meshEdgeKey != KeyCode.None && Input.GetKeyDown(meshEdgeKey))
         {
             debugSettings.ShowMeshEdges = !debugSettings.ShowMeshEdges;
-        }
-        var riverDebugKey = debugSettings.ToggleRiverDebugGeometryKey;
-        if (riverDebugKey != KeyCode.None && Input.GetKeyDown(riverDebugKey))
-        {
-            debugSettings.ShowRiverDebugGeometry = !debugSettings.ShowRiverDebugGeometry;
         }
         UpdateMaterialTransforms();
         ApplyLiveSettings();
@@ -356,35 +339,6 @@ public sealed class IslandGenerator : MonoBehaviour
         meshEdgeMaterial.renderQueue = (int)RenderQueue.Overlay + 100;
         meshEdgeMaterial.SetColor("_Color", Color.black);
         meshEdgeMaterial.SetFloat("_ZTest", (float)CompareFunction.LessEqual);
-        var waterfallFaceTerrainDebugColor = new Color(1f, 0.45f, 0f, 1f);
-        waterfallFaceTerrainDebugMaterial = CreateMaterial(
-            "Motu/Mesh Edge Overlay",
-            waterfallFaceTerrainDebugColor,
-            null,
-            generation.WorldSizeMetres);
-        waterfallFaceTerrainDebugMaterial.renderQueue = (int)RenderQueue.Overlay + 500;
-        waterfallFaceTerrainDebugMaterial.SetColor(
-            "_Color",
-            waterfallFaceTerrainDebugColor);
-        waterfallFaceTerrainDebugMaterial.SetFloat(
-            "_ZTest",
-            (float)CompareFunction.Always);
-        waterfallPlaneDebugMaterial = CreateMaterial(
-            "Motu/Mesh Edge Overlay",
-            Color.red,
-            null,
-            generation.WorldSizeMetres);
-        waterfallPlaneDebugMaterial.renderQueue = (int)RenderQueue.Overlay + 110;
-        waterfallPlaneDebugMaterial.SetColor("_Color", Color.red);
-        waterfallPlaneDebugMaterial.SetFloat("_ZTest", (float)CompareFunction.Always);
-        waterfallLipPlaneDebugMaterial = CreateMaterial(
-            "Motu/Mesh Edge Overlay",
-            Color.yellow,
-            null,
-            generation.WorldSizeMetres);
-        waterfallLipPlaneDebugMaterial.renderQueue = (int)RenderQueue.Overlay + 120;
-        waterfallLipPlaneDebugMaterial.SetColor("_Color", Color.yellow);
-        waterfallLipPlaneDebugMaterial.SetFloat("_ZTest", (float)CompareFunction.Always);
         UpdateMaterialTransforms();
     }
 
@@ -514,14 +468,6 @@ public sealed class IslandGenerator : MonoBehaviour
             appliedShowMeshEdges = debugSettings.ShowMeshEdges;
             terrainStreamer?.SetMeshEdgesVisible(debugSettings.ShowMeshEdges);
         }
-        if (appliedShowRiverDebugGeometry != debugSettings.ShowRiverDebugGeometry)
-        {
-            appliedShowRiverDebugGeometry = debugSettings.ShowRiverDebugGeometry;
-            riverBedDebugOverlay?.SetActive(debugSettings.ShowRiverDebugGeometry);
-            waterfallFaceTerrainDebugOverlay?.SetActive(debugSettings.ShowRiverDebugGeometry);
-            waterfallPlaneDebugOverlay?.SetActive(debugSettings.ShowRiverDebugGeometry);
-            waterfallLipPlaneDebugOverlay?.SetActive(debugSettings.ShowRiverDebugGeometry);
-        }
         if (appliedEmitterDebug != debugSettings.ShowRoughWaterEmitters)
         {
             appliedEmitterDebug = debugSettings.ShowRoughWaterEmitters;
@@ -630,11 +576,6 @@ public sealed class IslandGenerator : MonoBehaviour
 
             runtimeRoot = new GameObject("Generated Island");
             runtimeRoot.transform.SetParent(transform, false);
-            CreateRiverDebugOverlays(
-                prepared.riverBedDebugMesh,
-                prepared.waterfallFaceTerrainDebugMesh,
-                prepared.waterfallPlaneDebugMesh,
-                prepared.waterfallLipPlaneDebugMesh);
             var terrainRoot = new GameObject("Terrain Tiles");
             terrainRoot.transform.SetParent(runtimeRoot.transform, false);
             terrainStreamer = terrainRoot.AddComponent<TerrainTileStreamer>();
@@ -834,13 +775,6 @@ public sealed class IslandGenerator : MonoBehaviour
             cancellationToken.ThrowIfCancellationRequested();
             var riverRockTiles = PrepareRiverRockTiles(handle, worldSize);
             cancellationToken.ThrowIfCancellationRequested();
-            var riverBedDebugMesh = PrepareRiverBedDebugMesh(handle, worldSize);
-            var waterfallFaceTerrainDebugMesh = PrepareWaterfallFaceTerrainDebugMesh(
-                handle,
-                worldSize);
-            var waterfallPlaneDebugMesh = PrepareWaterfallPlaneDebugMesh(handle, worldSize);
-            var waterfallLipPlaneDebugMesh = PrepareWaterfallLipPlaneDebugMesh(handle, worldSize);
-            cancellationToken.ThrowIfCancellationRequested();
             var riverEmitters = PrepareRiverEmitters(
                 handle,
                 worldSize,
@@ -854,10 +788,6 @@ public sealed class IslandGenerator : MonoBehaviour
                 overviewTiles,
                 riverTiles,
                 riverRockTiles,
-                riverBedDebugMesh,
-                waterfallFaceTerrainDebugMesh,
-                waterfallPlaneDebugMesh,
-                waterfallLipPlaneDebugMesh,
                 riverEmitters,
                 colliderHeightMap);
             handle = IntPtr.Zero;
@@ -1044,75 +974,6 @@ public sealed class IslandGenerator : MonoBehaviour
         finally
         {
             MotuNative.ReleaseMeshGrid(ref export);
-        }
-    }
-
-    private static IslandPreparedMesh PrepareRiverBedDebugMesh(
-        IntPtr handle,
-        float worldSize)
-    {
-        MotuNative.CreateRiverBedDebugMesh(handle, out var export);
-        return PrepareDebugMesh(ref export, worldSize, "river-bed");
-    }
-
-    private static IslandPreparedMesh PrepareWaterfallFaceTerrainDebugMesh(
-        IntPtr handle,
-        float worldSize)
-    {
-        MotuNative.CreateWaterfallFaceTerrainDebugMesh(handle, out var export);
-        return PrepareDebugMesh(ref export, worldSize, "waterfall-face-terrain");
-    }
-
-    private static IslandPreparedMesh PrepareWaterfallPlaneDebugMesh(
-        IntPtr handle,
-        float worldSize)
-    {
-        MotuNative.CreateWaterfallPlaneDebugMesh(handle, out var export);
-        return PrepareDebugMesh(ref export, worldSize, "waterfall-plane");
-    }
-
-    private static IslandPreparedMesh PrepareWaterfallLipPlaneDebugMesh(
-        IntPtr handle,
-        float worldSize)
-    {
-        MotuNative.CreateWaterfallLipPlaneDebugMesh(handle, out var export);
-        return PrepareDebugMesh(ref export, worldSize, "waterfall-lip-plane");
-    }
-
-    private static IslandPreparedMesh PrepareDebugMesh(
-        ref MotuNative.ExportMesh export,
-        float worldSize,
-        string geometryName)
-    {
-        try
-        {
-            if (export.handle == IntPtr.Zero)
-            {
-                throw new InvalidOperationException(
-                    $"The Rust {geometryName} debug export has no owner.");
-            }
-            if (export.triangles.length == 0)
-            {
-                Debug.LogWarning($"Motu debug mesh '{geometryName}' exported no triangles.");
-                return null;
-            }
-            if (export.vertices.data == IntPtr.Zero
-                || export.normals.data == IntPtr.Zero
-                || export.triangles.data == IntPtr.Zero)
-            {
-                throw new InvalidOperationException(
-                    $"The Rust {geometryName} debug export is incomplete.");
-            }
-            var prepared = CopyRiverMeshData(export, worldSize);
-            Debug.Log(
-                $"Motu debug mesh '{geometryName}': "
-                + $"{prepared.vertices.Length} vertices, "
-                + $"{prepared.triangles.Length / 3} triangles.");
-            return prepared;
-        }
-        finally
-        {
-            MotuNative.ReleaseMesh(ref export);
         }
     }
 
@@ -1454,71 +1315,6 @@ public sealed class IslandGenerator : MonoBehaviour
         return result;
     }
 
-    private void CreateRiverDebugOverlays(
-        IslandPreparedMesh riverBed,
-        IslandPreparedMesh waterfallFaceTerrain,
-        IslandPreparedMesh waterfallFootPlanes,
-        IslandPreparedMesh waterfallLipPlanes)
-    {
-        riverBedDebugOverlay = CreateDebugWireOverlay(
-            "River Bed Debug (Black)",
-            riverBed,
-            meshEdgeMaterial,
-            out riverBedDebugWireMesh);
-        waterfallFaceTerrainDebugOverlay = CreateDebugWireOverlay(
-            "Waterfall Face Terrain Debug (Orange)",
-            waterfallFaceTerrain,
-            waterfallFaceTerrainDebugMaterial,
-            out waterfallFaceTerrainDebugWireMesh,
-            0.1f);
-        waterfallPlaneDebugOverlay = CreateDebugWireOverlay(
-            "Waterfall Foot Planes Debug (Red)",
-            waterfallFootPlanes,
-            waterfallPlaneDebugMaterial,
-            out waterfallPlaneDebugWireMesh);
-        waterfallLipPlaneDebugOverlay = CreateDebugWireOverlay(
-            "Waterfall Lip Planes Debug (Yellow)",
-            waterfallLipPlanes,
-            waterfallLipPlaneDebugMaterial,
-            out waterfallLipPlaneDebugWireMesh);
-    }
-
-    private GameObject CreateDebugWireOverlay(
-        string objectName,
-        IslandPreparedMesh prepared,
-        Material material,
-        out Mesh wireMesh,
-        float verticalOffsetMetres = 0f)
-    {
-        wireMesh = null;
-        if (prepared == null)
-        {
-            return null;
-        }
-
-        var triangleMesh = CreateRiverMesh(prepared);
-        try
-        {
-            wireMesh = TerrainTileStreamer.CreateEdgeMesh(triangleMesh);
-            wireMesh.name = objectName;
-        }
-        finally
-        {
-            DestroyUnityObject(triangleMesh);
-        }
-
-        var overlay = new GameObject(objectName);
-        overlay.transform.SetParent(runtimeRoot.transform, false);
-        overlay.transform.localPosition = Vector3.up * verticalOffsetMetres;
-        overlay.AddComponent<MeshFilter>().sharedMesh = wireMesh;
-        var renderer = overlay.AddComponent<MeshRenderer>();
-        renderer.sharedMaterial = material;
-        renderer.shadowCastingMode = ShadowCastingMode.Off;
-        renderer.receiveShadows = false;
-        overlay.SetActive(debugSettings.ShowRiverDebugGeometry);
-        return overlay;
-    }
-
     private void ClearGeneratedContent()
     {
         if (terrainStreamer != null)
@@ -1529,18 +1325,6 @@ public sealed class IslandGenerator : MonoBehaviour
         }
         DestroyUnityObject(seaObject);
         seaObject = null;
-        DestroyUnityObject(riverBedDebugWireMesh);
-        DestroyUnityObject(waterfallFaceTerrainDebugWireMesh);
-        DestroyUnityObject(waterfallPlaneDebugWireMesh);
-        DestroyUnityObject(waterfallLipPlaneDebugWireMesh);
-        riverBedDebugWireMesh = null;
-        waterfallFaceTerrainDebugWireMesh = null;
-        waterfallPlaneDebugWireMesh = null;
-        waterfallLipPlaneDebugWireMesh = null;
-        riverBedDebugOverlay = null;
-        waterfallFaceTerrainDebugOverlay = null;
-        waterfallPlaneDebugOverlay = null;
-        waterfallLipPlaneDebugOverlay = null;
         DestroyUnityObject(runtimeRoot);
         runtimeRoot = null;
         terrainMaterial?.SetTexture("_WorldNormal", null);
@@ -1566,9 +1350,6 @@ public sealed class IslandGenerator : MonoBehaviour
         DestroyUnityObject(riverMaterial);
         DestroyUnityObject(seaMaterial);
         DestroyUnityObject(meshEdgeMaterial);
-        DestroyUnityObject(waterfallFaceTerrainDebugMaterial);
-        DestroyUnityObject(waterfallPlaneDebugMaterial);
-        DestroyUnityObject(waterfallLipPlaneDebugMaterial);
         if (ownsCliffNoiseTexture) DestroyUnityObject(cliffNoiseTexture);
         if (ownsRiverNoiseTexture) DestroyUnityObject(riverNoiseTexture);
         if (ownsGrassPatchNoiseTexture) DestroyUnityObject(grassPatchNoiseTexture);
@@ -1578,9 +1359,6 @@ public sealed class IslandGenerator : MonoBehaviour
         riverMaterial = null;
         seaMaterial = null;
         meshEdgeMaterial = null;
-        waterfallFaceTerrainDebugMaterial = null;
-        waterfallPlaneDebugMaterial = null;
-        waterfallLipPlaneDebugMaterial = null;
         cliffNoiseTexture = null;
         riverNoiseTexture = null;
         grassPatchNoiseTexture = null;
@@ -1596,7 +1374,6 @@ public sealed class IslandGenerator : MonoBehaviour
         appliedShowGrass = null;
         appliedShowRocks = null;
         appliedShowMeshEdges = null;
-        appliedShowRiverDebugGeometry = null;
         appliedEmitterDebug = null;
         appliedGrassColourA = null;
         appliedGrassColourB = null;
