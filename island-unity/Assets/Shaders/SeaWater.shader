@@ -4,11 +4,10 @@ Shader "Motu/Sea Water"
     {
         _Color ("Water Colour", Color) = (0.03, 0.28, 0.55, 1)
         [NoScaleOffset] _NoiseTex ("Shore Noise", 2D) = "black" {}
-        [NoScaleOffset] _SeaMask ("Sea Coast And Silt Mask", 2D) = "black" {}
+        [NoScaleOffset] _SeaMask ("Sea Depth And Land Distance", 2D) = "black" {}
         _WorldSize ("World Size", Float) = 2000
         _ShallowOpacity ("Shallow Opacity", Range(0, 1)) = 0.25
         _OpacityDepth ("Full Opacity Depth", Float) = 5
-        _SiltColor ("Sea Silt Colour", Color) = (0.325, 0.425, 0.445, 1)
         _ReflectionColor ("Sky Reflection", Color) = (0.49, 0.68, 0.82, 1)
         _ReflectionHorizonColor ("Horizon Reflection", Color) = (0.68, 0.79, 0.88, 1)
         _ReflectionStrength ("Reflection Strength", Range(0, 1)) = 0.65
@@ -22,6 +21,8 @@ Shader "Motu/Sea Water"
         _ShoreWaveSpeed ("Shore Wave Speed (metres/second)", Float) = 0.35
         _ShoreWaveDepth ("Shore Wave Depth (metres)", Float) = 2.5
         _ShoreWaveNoiseWorldSize ("Shore Wave Noise World Size", Float) = 5
+        _ShoreWaveIncomingStrength ("Incoming Shore Wave Strength", Range(0, 1)) = 0.65
+        _ShoreWaveEchoStrength ("Reverse Shore Echo Strength", Range(0, 1)) = 0.45
     }
 
     SubShader
@@ -64,13 +65,15 @@ Shader "Motu/Sea Water"
             sampler2D _NoiseTex;
             sampler2D _SeaMask;
             float _WorldSize;
-            fixed4 _SiltColor;
             half _ShoreWaveStrength;
             float _ShoreWaveSpacing;
             float _ShoreWaveSpeed;
             float _ShoreWaveDepth;
             float _ShoreWaveNoiseWorldSize;
+            half _ShoreWaveIncomingStrength;
+            half _ShoreWaveEchoStrength;
             static const float SeaMaskDepthMetres = 5.0;
+            static const float SeaMaskLandDistanceMetres = 16.0;
 
             VertexOutput Vertex(VertexInput input)
             {
@@ -106,55 +109,77 @@ Shader "Motu/Sea Water"
                 float2 seaMaskUv = saturate(
                     input.islandLocalPosition.xz / max(_WorldSize, 0.001) + 0.5);
                 half2 seaMask = tex2D(_SeaMask, seaMaskUv).rg;
-                half coastWaveWeight = seaMask.r;
-                half seaSilt = seaMask.g;
 
-                // The generated red channel is one at sea level and reaches
-                // zero at five metres of seabed depth. Reconstruct metres from
-                // that stable field so wave contours no longer depend on the
-                // camera depth buffer or view angle.
-                float shoreDepth = (1.0h - coastWaveWeight)
+                // Mix depth and land proximity for incoming waves to break up
+                // broad, uniformly shallow shelves. Land distance separately
+                // drives a weaker echo travelling back offshore.
+                half incomingProximity = (seaMask.r + (1.0h - seaMask.g)) * 0.5h;
+                float incomingDistance = (1.0h - incomingProximity)
                     * SeaMaskDepthMetres;
+                float landDistance = seaMask.g * SeaMaskLandDistanceMetres;
                 float shoreSpacing = max(_ShoreWaveSpacing, 0.001);
                 float shoreRange = max(_ShoreWaveDepth, shoreSpacing);
+                float echoRange = max(SeaMaskLandDistanceMetres, shoreSpacing);
+                float echoSpacing = shoreSpacing * echoRange / shoreRange;
                 float2 shoreNoiseUv = input.islandLocalPosition.xz
                     / max(_ShoreWaveNoiseWorldSize, 0.001);
                 half shoreNoise = tex2D(_NoiseTex, shoreNoiseUv).r - 0.5h;
-                float shorePhase = (shoreDepth
+                float incomingPhase = (incomingDistance
                     + _Time.y * _ShoreWaveSpeed
                     + shoreNoise * shoreSpacing * 0.45) / shoreSpacing;
-                half shoreCrest = smoothstep(
+                float echoPhase = (landDistance
+                    - _Time.y * _ShoreWaveSpeed
+                    + shoreNoise * echoSpacing * 0.45) / echoSpacing;
+                half incomingCrest = smoothstep(
                     0.72h,
                     0.98h,
-                    0.5h + 0.5h * cos(shorePhase * 6.2831853));
+                    0.5h + 0.5h * cos(incomingPhase * 6.2831853));
+                half echoCrest = smoothstep(
+                    0.72h,
+                    0.98h,
+                    0.5h + 0.5h * cos(echoPhase * 6.2831853));
                 float contactStart = shoreRange * 0.01;
                 float contactEnd = max(
                     shoreRange * 0.05,
                     contactStart + 0.0001);
-                half contactFade = smoothstep(
+                half incomingContactFade = smoothstep(
                     contactStart,
                     contactEnd,
-                    shoreDepth);
-                half deepFade = 1.0h - smoothstep(
+                    incomingDistance);
+                half incomingDeepFade = 1.0h - smoothstep(
                     max(shoreRange - shoreSpacing, shoreSpacing),
                     shoreRange,
-                    shoreDepth);
+                    incomingDistance);
+                float echoContactStart = echoRange * 0.01;
+                float echoContactEnd = max(
+                    echoRange * 0.05,
+                    echoContactStart + 0.0001);
+                half echoContactFade = smoothstep(
+                    echoContactStart,
+                    echoContactEnd,
+                    landDistance);
+                half echoDeepFade = 1.0h - smoothstep(
+                    max(echoRange - echoSpacing, echoSpacing),
+                    echoRange,
+                    landDistance);
                 half horizontalSurface = smoothstep(
                     0.65h,
                     0.96h,
                     abs(worldNormal.y));
+                half incomingWave = incomingCrest
+                    * incomingContactFade
+                    * incomingDeepFade
+                    * _ShoreWaveIncomingStrength;
+                half echoWave = echoCrest
+                    * echoContactFade
+                    * echoDeepFade
+                    * _ShoreWaveEchoStrength;
                 half shoreWave = saturate(
-                    shoreCrest
-                    * contactFade
-                    * deepFade
+                    (incomingWave + echoWave)
                     * horizontalSurface
-                    * _ShoreWaveStrength
-                    * (1.0h - seaSilt));
+                    * _ShoreWaveStrength);
 
-                fixed3 waterBody = lerp(
-                    _Color.rgb * input.brightness,
-                    _SiltColor.rgb,
-                    seaSilt);
+                fixed3 waterBody = _Color.rgb * input.brightness;
                 float2 reflectionNoiseUv = input.islandLocalPosition.xz / 8.0;
                 half2 reflectionRipple = half2(
                     tex2D(
@@ -177,7 +202,6 @@ Shader "Motu/Sea Water"
                 fixed4 color = fixed4(
                     lerp(water, fixed3(1.0, 1.0, 1.0), shoreWave),
                     saturate(waterOpacity + shoreWave * 0.08h));
-                color.a = lerp(color.a, _SiltColor.a, seaSilt);
                 UNITY_APPLY_FOG(input.fogCoord, color);
                 return color;
             }

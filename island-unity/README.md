@@ -236,10 +236,21 @@ reflecting itself. Tune `Resolution Scale`, `Clip Plane Offset`, and
 sky-colour reflection remains the fallback outside the reflection texture or
 when the component is disabled.
 
-Sea-wave phase and shoreline fading use the generated sea mask's red channel,
-which encodes seabed depth from sea level through five metres. This keeps wave
-contours fixed to the island rather than reconstructing their depth from the
-camera Z buffer; camera depth remains responsible only for water opacity.
+Incoming sea waves average the sea mask's red depth proximity with inverted
+green land proximity, breaking up coherent flashing across broad shallow water.
+Green stores distance from land over sixteen metres and also drives a separate,
+weaker wave echo travelling back offshore across that full range. Echo spacing
+is scaled by the ratio between its sixteen-metre range and the incoming range,
+so both trains contain approximately the same number of broad waves and retain
+the same physical travel speed. Their individually reduced strengths are added,
+making crossings brighter than either wave alone. Tune `Incoming Shore Wave
+Strength` and `Reverse Shore Echo Strength` on the sea material independently.
+Wave contours remain independent of the camera Z buffer; camera depth is
+responsible only for water opacity. The former river-mouth and estuary silt
+coloration has been removed. Depth and accumulated-edge land distance are both
+barycentrically interpolated over the final planar LOD 0 triangles. The land
+distance field is constructed only after every island generation stage has
+finished.
 
 ## Rebuild the native plugin
 

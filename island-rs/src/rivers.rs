@@ -70,7 +70,6 @@ pub(crate) struct RiverParts {
     pub(crate) river_mesh: Mesh,
     pub(crate) river_bed: Vec<bool>,
     pub(crate) river_rock_mesh: Mesh,
-    pub(crate) mouths: Vec<RiverMouth>,
     pub(crate) failed_waterfalls: Vec<usize>,
 }
 
@@ -186,13 +185,6 @@ pub struct RiverNode {
 pub struct River {
     pub nodes: Vec<RiverNode>,
     pub join: Option<usize>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct RiverMouth {
-    pub(crate) position: Vec2,
-    pub(crate) downstream: Vec2,
-    pub(crate) flow: u32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -423,75 +415,13 @@ impl RiverNetwork {
         let geometry = self.build_mesh_with_mask(mesh, material, seed);
         mesh.calculate_normals();
         self.refresh(mesh);
-        let mouths = self.river_mouths();
         RiverParts {
             rivers: self.rivers,
             river_mesh: geometry.river_mesh,
             river_bed: geometry.river_bed,
             river_rock_mesh: geometry.river_rock_mesh,
-            mouths,
             failed_waterfalls: geometry.failed_waterfalls,
         }
-    }
-
-    fn river_mouths(&self) -> Vec<RiverMouth> {
-        let mut mouths = Vec::<RiverMouth>::new();
-        for (river_index, river) in self.rivers.iter().enumerate() {
-            if river.join.is_some() {
-                continue;
-            }
-            let Some(path_terminal) = river
-                .nodes
-                .last()
-                .filter(|node| self.ocean.get(node.vertex).copied().unwrap_or(false))
-            else {
-                continue;
-            };
-            let mouth_index = self.river_mesh_ends[river_index]
-                .unwrap_or_else(|| river.nodes.len().saturating_sub(1))
-                .min(river.nodes.len().saturating_sub(1));
-            let terminal = &river.nodes[mouth_index];
-            let position = terminal.position.truncate();
-            let downstream = river
-                .nodes
-                .iter()
-                .skip(mouth_index + 1)
-                .map(|node| node.position.truncate() - position)
-                .find_map(Vec2::try_normalize)
-                .or_else(|| {
-                    river.nodes[..mouth_index]
-                        .iter()
-                        .rev()
-                        .map(|node| position - node.position.truncate())
-                        .find_map(Vec2::try_normalize)
-                });
-            let Some(downstream) = downstream else {
-                continue;
-            };
-            if !position.is_finite() || !downstream.is_finite() {
-                continue;
-            }
-
-            if let Some(existing) = mouths
-                .iter_mut()
-                .find(|mouth| mouth.position.distance_squared(position) <= 1.0e-12)
-            {
-                if path_terminal.flow > existing.flow {
-                    *existing = RiverMouth {
-                        position,
-                        downstream,
-                        flow: path_terminal.flow,
-                    };
-                }
-            } else {
-                mouths.push(RiverMouth {
-                    position,
-                    downstream,
-                    flow: path_terminal.flow,
-                });
-            }
-        }
-        mouths
     }
 
     fn jiggle(&mut self, mesh: &mut Mesh) {

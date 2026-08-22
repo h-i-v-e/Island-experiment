@@ -554,51 +554,6 @@ fn catchment_accumulates_projected_land_area_in_square_metres() {
 }
 
 #[test]
-fn mouths_only_include_main_rivers_reaching_connected_ocean() {
-    let node = |vertex, x, flow| RiverNode {
-        vertex,
-        flow,
-        surface: 0.0,
-        position: Vec3::new(x, 0.5, 0.0),
-    };
-    let network = RiverNetwork {
-        rivers: vec![
-            River {
-                nodes: vec![
-                    node(0, 0.2, 10),
-                    node(1, 0.4, 20),
-                    node(2, 0.5, 30),
-                    node(6, 0.6, 40),
-                ],
-                join: None,
-            },
-            River {
-                nodes: vec![node(3, 0.3, 5), node(1, 0.4, 10)],
-                join: Some(0),
-            },
-            River {
-                nodes: vec![node(4, 0.7, 10), node(5, 0.8, 20)],
-                join: None,
-            },
-        ],
-        join_vertices: vec![None, Some(1), None],
-        waterfalls: vec![vec![false; 4], vec![false; 2], vec![false; 2]],
-        river_mesh_ends: vec![Some(2), None, None],
-        max_flow: 40,
-        max_height: 0.2,
-        ocean: vec![false, false, true, false, false, false, true],
-        perimeter: vec![false; 7],
-        cross_sections: Vec::new(),
-    };
-
-    let mouths = network.river_mouths();
-    assert_eq!(mouths.len(), 1);
-    assert_eq!(mouths[0].position, Vec2::new(0.5, 0.5));
-    assert_eq!(mouths[0].downstream, Vec2::X);
-    assert_eq!(mouths[0].flow, 40);
-}
-
-#[test]
 fn source_cutoff_rises_smoothly_with_routing_grade() {
     let rule = RiverSourceRule::new(0.5, 4.0, 0.0, 0.2);
 

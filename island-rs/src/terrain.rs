@@ -26,7 +26,7 @@ use crate::{
     noise,
     profiling::StageTimer,
     rivers::{
-        RiverChannelSettings, RiverMouth, RiverNetwork, RiverSourceRule, append_settled_rocks,
+        RiverChannelSettings, RiverNetwork, RiverSourceRule, append_settled_rocks,
         encode_bank_distance_in_uv, fix_inland_seas,
     },
     rng::Rng,

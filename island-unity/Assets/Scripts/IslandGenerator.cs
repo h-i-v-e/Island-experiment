@@ -283,9 +283,6 @@ public sealed class IslandGenerator : MonoBehaviour
         riverMaterial.SetFloat("_ShallowOpacity", shallowWaterOpacity);
         riverMaterial.SetFloat("_OpacityDepth", fullOpacityDepth);
         riverMaterial.SetFloat("_EstuaryStrength", 1f);
-        riverMaterial.SetColor(
-            "_EstuaryColor",
-            Color.Lerp(sandColor, waterColor, 0.5f));
         riverMaterial.SetFloat("_EstuaryBlendHeight", rendering.EstuaryBlendHeightMetres);
         riverMaterial.SetFloat("_SeaLevel", SeaHeight);
         riverMaterial.SetColor("_ReflectionColor", skyColor);
@@ -312,9 +309,6 @@ public sealed class IslandGenerator : MonoBehaviour
         seaMaterial.renderQueue = (int)RenderQueue.Transparent;
         seaMaterial.SetFloat("_ShallowOpacity", shallowWaterOpacity);
         seaMaterial.SetFloat("_OpacityDepth", fullOpacityDepth);
-        seaMaterial.SetColor(
-            "_SiltColor",
-            Color.Lerp(sandColor, waterColor, 0.5f));
         seaMaterial.SetColor("_ReflectionColor", skyColor);
         seaMaterial.SetColor(
             "_ReflectionHorizonColor",
@@ -843,7 +837,7 @@ public sealed class IslandGenerator : MonoBehaviour
                 || seaMask.height != dimension)
             {
                 throw new InvalidOperationException(
-                    "The Rust generator returned an invalid sea coast/silt mask.");
+                    "The Rust generator returned an invalid sea depth/land-distance mask.");
             }
 
             var byteCount = checked(dimension * dimension * 2);
@@ -1078,7 +1072,7 @@ public sealed class IslandGenerator : MonoBehaviour
                 "The water shader does not expose the generated sea mask.");
         }
         seaMaskTexture = CreateSurfaceTexture(
-            "Motu Sea Coast And Silt Mask",
+            "Motu Sea Depth And Land Distance",
             seaMask.dimension,
             TextureFormat.RG16,
             seaMask.rg);
@@ -1765,13 +1759,28 @@ public sealed class IslandGenerator : MonoBehaviour
         try
         {
             const int validationMapDimension = 32;
+            const int validationSeaMaskDimension = 128;
             var validationMaps = PrepareSurfaceMaps(handle, validationMapDimension);
-            var validationSeaMask = PrepareSeaMask(handle, validationMapDimension);
+            var validationSeaMask = PrepareSeaMask(handle, validationSeaMaskDimension);
             if (validationSeaMask.rg.Length
-                != validationMapDimension * validationMapDimension * 2)
+                != validationSeaMaskDimension * validationSeaMaskDimension * 2)
             {
                 throw new InvalidOperationException(
                     "Native sea mask byte count does not match its RG dimensions.");
+            }
+            var hasOffshoreLandDistance = false;
+            for (var index = 1; index < validationSeaMask.rg.Length; index += 2)
+            {
+                if (validationSeaMask.rg[index] != 0)
+                {
+                    hasOffshoreLandDistance = true;
+                    break;
+                }
+            }
+            if (!hasOffshoreLandDistance)
+            {
+                throw new InvalidOperationException(
+                    "Native sea mask contains no offshore land-distance coverage.");
             }
             var hasTerrainNormal = false;
             for (var index = 0; index < validationMaps.normalRgb.Length; index += 3)
@@ -1922,7 +1931,6 @@ public sealed class IslandGenerator : MonoBehaviour
                     || !riverWaterMaterial.HasProperty("_ShallowOpacity")
                     || !riverWaterMaterial.HasProperty("_OpacityDepth")
                     || !riverWaterMaterial.HasProperty("_EstuaryStrength")
-                    || !riverWaterMaterial.HasProperty("_EstuaryColor")
                     || !riverWaterMaterial.HasProperty("_EstuaryBlendHeight")
                     || !riverWaterMaterial.HasProperty("_SeaLevel")
                     || !riverWaterMaterial.HasProperty("_ReflectionColor")
@@ -1974,7 +1982,6 @@ public sealed class IslandGenerator : MonoBehaviour
                     || !seaWaterMaterial.HasProperty("_WorldSize")
                     || !seaWaterMaterial.HasProperty("_ShallowOpacity")
                     || !seaWaterMaterial.HasProperty("_OpacityDepth")
-                    || !seaWaterMaterial.HasProperty("_SiltColor")
                     || !seaWaterMaterial.HasProperty("_ReflectionColor")
                     || !seaWaterMaterial.HasProperty("_PlanarReflectionWeight")
                     || !seaWaterMaterial.HasProperty("_PlanarReflectionDistortion")
@@ -1982,6 +1989,8 @@ public sealed class IslandGenerator : MonoBehaviour
                     || !seaWaterMaterial.HasProperty("_ShoreWaveSpacing")
                     || !seaWaterMaterial.HasProperty("_ShoreWaveSpeed")
                     || !seaWaterMaterial.HasProperty("_ShoreWaveDepth")
+                    || !seaWaterMaterial.HasProperty("_ShoreWaveIncomingStrength")
+                    || !seaWaterMaterial.HasProperty("_ShoreWaveEchoStrength")
                     || !seaWaterMaterial.HasProperty("_ShoreWaveNoiseWorldSize")
                     || seaWaterMaterial.HasProperty("_CoarseFlowSpeed")
                     || seaWaterMaterial.HasProperty("_EstuaryStrength")

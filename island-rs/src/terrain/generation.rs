@@ -2,7 +2,7 @@ use super::{
     Adjacency, BinaryHeap, BoundingBox, DETAIL_DISPLACEMENT_RATIO, Decorations, File, GeologyField,
     HashSet, HydraulicScratch, ISLAND_WORLD_METRES, IndexedParallelIterator, IslandOptions, Mesh,
     MeshClipper, NewVertexStencil, OnceLock, Ordering, ParallelIterator, ParallelSliceMut, Path,
-    Raster, Read, River, RiverChannelSettings, RiverMouth, RiverNetwork, RiverSourceRule, Rng,
+    Raster, Read, River, RiverChannelSettings, RiverNetwork, RiverSourceRule, Rng,
     SHARP_ROCK_DISPLACEMENT_RATIO, StageTimer, SurfaceMaps, SurfaceMaterial, TERRAIN_RENDER_FLOOR,
     Terrain, TerrainMaterialField, TriangleIndex, Vec2, Vec3, Write, append_settled_rocks,
     bake_surface_maps, bury_river_banks, clear_loose_soil, encode_bank_distance_in_uv, erode_mesh,
@@ -21,7 +21,7 @@ pub struct Island {
     pub(super) material: TerrainMaterialField,
     pub(super) coarser_lods: [Mesh; 2],
     pub(super) rivers: Vec<River>,
-    pub(super) river_mouths: Vec<RiverMouth>,
+    pub(super) distance_to_land: Vec<f32>,
     pub(super) river_mesh: Mesh,
     pub(super) river_rock_mesh: Mesh,
     pub(super) decorations: OnceLock<Decorations>,
@@ -34,7 +34,6 @@ pub(super) struct FinalRiverGeneration {
     pub(super) river_mesh: Mesh,
     pub(super) river_bed: Vec<bool>,
     pub(super) river_rock_mesh: Mesh,
-    pub(super) river_mouths: Vec<RiverMouth>,
 }
 
 struct SavedIslandReader<R> {
@@ -211,7 +210,6 @@ pub(super) fn generate_final_rivers(
                 river_mesh: parts.river_mesh,
                 river_bed: parts.river_bed,
                 river_rock_mesh: parts.river_rock_mesh,
-                river_mouths: parts.mouths,
             };
         }
     }
@@ -248,7 +246,6 @@ impl Island {
             mut river_mesh,
             river_bed,
             mut river_rock_mesh,
-            river_mouths,
         } = generate_final_rivers(
             seed,
             &lod0,
@@ -281,6 +278,16 @@ impl Island {
         append_settled_rocks(seed, &settled_rocks, &mut river_rock_mesh);
         clear_loose_soil(&mut material, decorations.cleared_soil_vertices());
         let material = TerrainMaterialField::from_surface(&material, &river_bed, &forced_rock);
+        let distance_to_land = {
+            let _timer = StageTimer::new("sea_mask.distance_to_land");
+            let land: Vec<bool> = terrain
+                .mesh()
+                .vertices
+                .iter()
+                .map(|vertex| vertex.z >= 0.0)
+                .collect();
+            graph_distances(terrain.mesh(), &terrain.mesh().adjacency(), &land)
+        };
         Ok(Self {
             seed,
             options,
@@ -288,7 +295,7 @@ impl Island {
             material,
             coarser_lods: [lod1, lod2],
             rivers,
-            river_mouths,
+            distance_to_land,
             river_mesh,
             river_rock_mesh,
             decorations: OnceLock::from(decorations),
@@ -399,10 +406,10 @@ impl Island {
         })
     }
 
-    /// Bakes a linear interleaved RG8 texture for coastal waves and river silt.
+    /// Bakes a linear interleaved RG8 texture for coastal waves and distance to land.
     #[must_use]
     pub fn sea_mask(&self, width: u32, height: u32) -> Option<crate::SeaMask> {
-        crate::sea_mask::bake_sea_mask(&self.terrain, &self.river_mouths, width, height)
+        crate::sea_mask::bake_sea_mask(&self.terrain, &self.distance_to_land, width, height)
     }
 
     /// Bakes high-detail normal corrections and the original directional

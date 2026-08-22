@@ -11,8 +11,7 @@ Shader "Motu/River Water"
         _WorldSize ("World Size", Float) = 2000
         _ShallowOpacity ("Shallow Opacity", Range(0, 1)) = 0.25
         _OpacityDepth ("Full Opacity Depth", Float) = 5
-        _EstuaryStrength ("Estuary Silt Strength", Range(0, 1)) = 1
-        _EstuaryColor ("Estuary Silt Colour", Color) = (0.325, 0.425, 0.445, 1)
+        _EstuaryStrength ("Estuary Transition Strength", Range(0, 1)) = 1
         _EstuaryBlendHeight ("Estuary Blend Height (metres)", Float) = 2
         _SeaLevel ("Sea Level", Float) = 0
         _ReflectionColor ("Sky Reflection", Color) = (0.49, 0.68, 0.82, 1)
@@ -79,7 +78,6 @@ Shader "Motu/River Water"
             float _FineFlowSpeed;
             float _WorldSize;
             half _EstuaryStrength;
-            fixed4 _EstuaryColor;
             float _EstuaryBlendHeight;
             float _SeaLevel;
             half _ShoreWaveStrength;
@@ -210,10 +208,7 @@ Shader "Motu/River Water"
                 half waterOpacity = MotuWaterOpacity(
                     waterDepth,
                     opacityDepth);
-                fixed3 waterBody = lerp(
-                    _Color.rgb * input.brightness,
-                    _EstuaryColor.rgb,
-                    estuaryWeight);
+                fixed3 waterBody = _Color.rgb * input.brightness;
                 fixed3 water = MotuShadeWater(
                     waterBody,
                     worldNormal,

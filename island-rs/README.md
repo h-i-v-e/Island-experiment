@@ -28,7 +28,8 @@ The generator provides:
   hardness/forced-rock, loose-cover, and river-bed vertex attributes;
 - one XY-safe support surface shared by simulation, collision, and LOD 0
   rendering, with geometrically clipped tile slicing and LOD edge clamping;
-- tree, bush, and rock placement plus packed foliage and sea-depth maps;
+- tree, bush, and rock placement plus packed foliage, sea-depth maps, and a
+  final-terrain RG sea mask carrying coastal wave depth and distance from land;
 - flat spatial triangle indexing, parallel RGB rendering, and a built-in PNG encoder;
 - save/load of reproducible generator inputs;
 - a `cdylib` exposing the principal Unity-facing C ABI allocation/release pairs,

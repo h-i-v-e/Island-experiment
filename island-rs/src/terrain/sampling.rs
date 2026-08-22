@@ -246,6 +246,20 @@ impl Terrain {
         )
     }
 
+    pub(crate) fn sample_vertex_scalar(&self, values: &[f32], u: f32, v: f32) -> f32 {
+        debug_assert_eq!(values.len(), self.mesh.vertices.len());
+        let point = Vec2::new(u.clamp(0.0, 1.0), v.clamp(0.0, 1.0));
+        sample_mesh_triangle(&self.mesh, &self.triangle_index, point).map_or_else(
+            || values[self.triangle_index.nearest_vertex(&self.mesh, point)],
+            |(triangle, weights)| {
+                weights[0].mul_add(
+                    values[triangle[0]],
+                    weights[1].mul_add(values[triangle[1]], weights[2] * values[triangle[2]]),
+                )
+            },
+        )
+    }
+
     pub(crate) fn sample_surface(&self, u: f32, v: f32) -> (f32, Vec3) {
         sample_mesh_surface(&self.mesh, &self.triangle_index, u, v)
     }
