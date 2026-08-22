@@ -205,8 +205,9 @@ Rust samples the authoritative final LOD 0 field after each tile is clipped, so
 reordered and newly created boundary vertices receive matching values. The
 unified shader uses these channels to expose harder rock on slopes, colour
 loose coastal deposits within the twenty-metre sea-proximity field behind the
-same coherent noise boundary, and treat river beds as exposed rock consistently
-across all LODs. Grass ground uses coherent micro-normal
+same coherent noise boundary, retain full sand eligibility through two metres
+of elevation, and fade that eligibility to zero at four metres. River beds are
+treated as exposed rock consistently across all LODs. Grass ground uses coherent micro-normal
 relief at six times the stone detail frequency; beach sand uses eight-times finer
 and less strongly perturbed relief. These change nearby lighting without changing
 mesh geometry.

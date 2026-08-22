@@ -337,8 +337,13 @@ Shader "Motu/Terrain Unified"
                 // Keep loose cover and the progressive noise threshold so the
                 // beach boundary remains naturally broken up.
                 half seaProximity = saturate(input.material.b);
+                half sandAltitudeWeight = 1.0h - smoothstep(
+                    2.0h,
+                    4.0h,
+                    elevation);
                 half sandRichness = looseCover
                     * seaProximity
+                    * sandAltitudeWeight
                     * (1.0 - riverCoverage);
                 float2 sandPatchUv = input.islandLocalPosition.xz
                     / max(_SandPatchNoiseWorldSize, 0.1)
