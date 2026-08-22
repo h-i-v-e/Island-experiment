@@ -236,6 +236,11 @@ reflecting itself. Tune `Resolution Scale`, `Clip Plane Offset`, and
 sky-colour reflection remains the fallback outside the reflection texture or
 when the component is disabled.
 
+Sea-wave phase and shoreline fading use the generated sea mask's red channel,
+which encodes seabed depth from sea level through five metres. This keeps wave
+contours fixed to the island rather than reconstructing their depth from the
+camera Z buffer; camera depth remains responsible only for water opacity.
+
 ## Rebuild the native plugin
 
 On macOS, after changing `island-rs`, run:

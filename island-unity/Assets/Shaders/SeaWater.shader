@@ -70,6 +70,7 @@ Shader "Motu/Sea Water"
             float _ShoreWaveSpeed;
             float _ShoreWaveDepth;
             float _ShoreWaveNoiseWorldSize;
+            static const float SeaMaskDepthMetres = 5.0;
 
             VertexOutput Vertex(VertexInput input)
             {
@@ -104,17 +105,16 @@ Shader "Motu/Sea Water"
 
                 float2 seaMaskUv = saturate(
                     input.islandLocalPosition.xz / max(_WorldSize, 0.001) + 0.5);
-                half seaSilt = tex2D(_SeaMask, seaMaskUv).g;
+                half2 seaMask = tex2D(_SeaMask, seaMaskUv).rg;
+                half coastWaveWeight = seaMask.r;
+                half seaSilt = seaMask.g;
 
-                // Eye-depth is converted to an approximate distance along the
-                // horizontal water surface so crests advance out from the coast.
-                half surfaceIncidence = saturate(dot(worldNormal, viewDirection));
-                half viewAxisAlignment = max(
-                    abs(dot(viewDirection, UNITY_MATRIX_V[2].xyz)),
-                    0.05h);
-                float shoreDepth = waterDepth
-                    * surfaceIncidence
-                    / viewAxisAlignment;
+                // The generated red channel is one at sea level and reaches
+                // zero at five metres of seabed depth. Reconstruct metres from
+                // that stable field so wave contours no longer depend on the
+                // camera depth buffer or view angle.
+                float shoreDepth = (1.0h - coastWaveWeight)
+                    * SeaMaskDepthMetres;
                 float shoreSpacing = max(_ShoreWaveSpacing, 0.001);
                 float shoreRange = max(_ShoreWaveDepth, shoreSpacing);
                 float2 shoreNoiseUv = input.islandLocalPosition.xz
