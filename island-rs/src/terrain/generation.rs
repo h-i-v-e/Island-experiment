@@ -573,7 +573,10 @@ impl Island {
         Some(tiles)
     }
 
-    pub(crate) fn material_values_for(&self, mesh: &Mesh) -> Vec<Vec3> {
+    /// Per-vertex material weights for `mesh`: x = bedrock hardness, y = loose
+    /// cover, z = sea proximity. Sampled through each vertex's UV, so any mesh
+    /// derived from this island (full, sliced, or tiled) is accepted.
+    pub fn material_values_for(&self, mesh: &Mesh) -> Vec<Vec3> {
         mesh.vertices
             .iter()
             .enumerate()
