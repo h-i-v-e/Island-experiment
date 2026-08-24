@@ -214,7 +214,10 @@ Variants: {}
 Views: {}
 
 In the viewer, H shows and hides the parameter panel and F switches between
-flying and walking. See README.md for the rest of the controls.",
+flying and walking. Flying steers with the mouse buttons and leaves the cursor
+free; walking captures it and looks with no button held, Shift sprints, Space
+jumps, and Escape hands the cursor back until you click. See README.md for the
+rest of the controls.",
         options::help_lines(),
         island_gen::variant_names(),
         ViewPose::names()

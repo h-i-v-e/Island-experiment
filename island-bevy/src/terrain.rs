@@ -33,7 +33,9 @@ fn spawn_terrain(
         base: StandardMaterial::default(),
         extension: TerrainExtension::new(island.options.max_height, ISLAND_WORLD_METRES),
     });
-    if let Some(mesh) = convert::terrain_mesh(&island.terrain, &island.materials) {
+    if let Some(mesh) =
+        convert::terrain_mesh(&island.terrain, &island.materials, &island.river_wetness)
+    {
         commands.spawn((
             Name::new("Terrain"),
             IslandEntity,

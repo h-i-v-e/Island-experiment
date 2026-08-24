@@ -11,7 +11,7 @@
     pbr_fragment::pbr_input_from_standard_material,
     pbr_functions::{alpha_discard, apply_pbr_lighting, main_pass_post_lighting_processing},
 }
-#import island_bevy::noise::{fbm, fbm_gradient, noise, noise_gradient, perturb}
+#import island_bevy::noise::{band_limit, fbm, fbm_gradient, fbm_gradient_limited, noise, noise_gradient, perturb}
 
 // Linear-space band colours, each written above as the sRGB triple it came
 // from. These are the generator's own preview palette in island-rs/src/raster.rs
@@ -36,9 +36,28 @@ const REGION_METRES: f32 = 430.0;
 const PATCH_METRES: f32 = 34.0;
 const GRAIN_METRES: f32 = 2.4;
 const MICRO_METRES: f32 = 0.42;
-/// How far the macro field is allowed to drag the finer layers sideways. Well
-/// under `REGION_METRES` so the warp cannot fold the domain over itself.
-const WARP_METRES: f32 = 55.0;
+/// How far the macro field is allowed to drag the finer layers sideways.
+///
+/// What has to stay small is the gradient of that drag, not the drag itself:
+/// the field it is taken from turns over every hundred metres or so, so tens of
+/// metres of it stretch the domain being dragged by as much as the domain
+/// itself, and the finer layers arrive combed into filaments along wherever the
+/// stretch runs. At this much the warp is a perturbation, which is all the job
+/// asks of it — the lattice underneath is already aperiodic, and the frequency
+/// jitter below does more against repetition than the offset ever did.
+const WARP_METRES: f32 = 14.0;
+
+/// The widest ratio the detail layers are sampled at between the two screen
+/// axes. Four is enough that ground the view runs along keeps its own texture
+/// and short of where the same texture starts reading as strokes.
+const DETAIL_ANISOTROPY: f32 = 4.0;
+/// Cosines of the incidence relief is down to its floor at and back to full at:
+/// about four and twenty-four degrees off edge-on.
+const GRAZING_INCIDENCE: f32 = 0.07;
+const FACING_INCIDENCE: f32 = 0.40;
+/// What is left of the relief edge-on. Not zero, or a slope seen along itself
+/// would go to flat paint where the one beside it is still ground.
+const GRAZING_RELIEF: f32 = 0.30;
 
 /// Roughness each band answers with before any variation.
 const ROUGHNESS_ROCK: f32 = 0.90;
@@ -49,6 +68,11 @@ const ROUGHNESS_SNOW: f32 = 0.62;
 const ROUGHNESS_WET: f32 = 0.22;
 const REFLECTANCE_DRY: f32 = 0.04;
 const REFLECTANCE_WET: f32 = 0.30;
+/// How far down the tideline and a river bank each take the ground under them.
+/// A bank stops well short of the tideline's soak: it is damp ground beside
+/// running water, not a surface the sea has just left.
+const ALBEDO_TIDELINE: f32 = 0.55;
+const ALBEDO_BANK: f32 = 0.74;
 
 struct TerrainSettings {
     /// Metres of elevation standing for the generator's normalized height 1.
@@ -69,11 +93,14 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
 
     // The colour attribute carries the generator's raw material triple, not a
     // colour: x is bedrock hardness (exactly one means forced rock), y is loose
-    // cover, z is sea proximity. The fallback matches the one in `convert`.
+    // cover, z is sea proximity. Alpha is the renderer's own measurement of how
+    // near the vertex stands to running water. The fallback matches `convert`.
 #ifdef VERTEX_COLORS
     let weights = clamp(in.color.rgb, vec3<f32>(0.0), vec3<f32>(1.0));
+    let river_proximity = clamp(in.color.a, 0.0, 1.0);
 #else
     let weights = vec3<f32>(0.5, 1.0, 0.0);
+    let river_proximity = 0.0;
 #endif
 
     let world = in.world_position.xyz;
@@ -85,15 +112,44 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     let slope = clamp(1.0 - normal.y, 0.0, 1.0);
     let range = length(world - view.world_position);
 
+    // How square-on the ground is seen, from edge-on at zero. What answers to it
+    // is relief, further down.
+    let facing = smoothstep(
+        GRAZING_INCIDENCE,
+        FACING_INCIDENCE,
+        abs(dot(normalize(view.world_position - world), normal)),
+    );
+
     // One macro field carries three jobs: the hundred-metre albedo drift, the
     // phase every finer layer is offset by, and the frequency each is jittered
     // with. Both offset and jitter vary continuously, so no two regions of the
     // island present the same pattern at any distance.
     let region = fbm_gradient(world / REGION_METRES, 3);
     let detail_point = (world + region.yzw * WARP_METRES) * (0.86 + region.x * 0.28);
+    // How far one pixel of screen carries in the space the finer layers are
+    // read in — taken off that space itself rather than off world metres,
+    // because range, incidence, the jitter and the warp's own stretch all move
+    // it and only the last is invisible from the world side.
+    //
+    // Edge-on, the two screen axes disagree by orders of magnitude, and which
+    // of them a layer is held to decides what the ground looks like: the long
+    // one filters the pattern away and leaves flat paint, the short one keeps
+    // every bit of it and the eye reads what is left as strokes drawn along the
+    // view. Capping the ratio between them keeps some of both, the same
+    // bargain anisotropic texture filtering strikes.
+    let along = length(dpdx(detail_point));
+    let across = length(dpdy(detail_point));
+    let detail_footprint = max(
+        min(along, across),
+        max(along, across) / DETAIL_ANISOTROPY,
+    );
 
     let patchiness = fbm(detail_point / PATCH_METRES, 3);
-    let grain = fbm_gradient(detail_point / GRAIN_METRES, 3);
+    let grain = fbm_gradient_limited(
+        detail_point / GRAIN_METRES,
+        3,
+        detail_footprint / GRAIN_METRES,
+    );
 
     // Slope and cover are nudged, never replaced: the generator stays the
     // authority on what is rock, cover and shore.
@@ -125,9 +181,13 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     // by terrain draws contour lines rather than rock. Only a face steep enough
     // to expose a bed shows one.
     let bedding = detail_point + grain.yzw * 9.0;
-    let strata = noise(
-        vec3<f32>(bedding.x, bedding.y * (5.0 + height * 26.0), bedding.z) / 22.0,
-    ) - 0.5;
+    let bed_tightness = 5.0 + height * 26.0;
+    // The bed spacing is what this layer has to be sampled against. Across the
+    // face it runs over twenty metres, but a bed is under a metre thick where
+    // the massif is highest, and that is the part a grazing view cannot hold.
+    let strata = (noise(
+        vec3<f32>(bedding.x, bedding.y * bed_tightness, bedding.z) / 22.0,
+    ) - 0.5) * band_limit(22.0 / bed_tightness, detail_footprint);
     let mineral = mix(ROCK_COOL, ROCK_WARM, clamp(strata + region.x * 0.7 + 0.15, 0.0, 1.0));
     var rock = mix(ROCK, mineral, 0.70) * (1.0 + strata * (0.16 + broken_slope * 0.44));
 
@@ -141,9 +201,11 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     var sand = SAND * (1.0 + mottle * 0.12);
     let snow = SNOW * (1.0 + mottle * 0.05);
 
-    // Sub-metre grain, only close enough that it resolves. Beyond that it is
-    // below a pixel and only feeds the temporal resolve with noise.
-    let near = 1.0 - smoothstep(0.0, settings.detail_range * 0.22, range);
+    // Sub-metre grain, only where it still resolves: inside the range it was
+    // given, and inside the pixel footprint as well, which is what takes it off
+    // ground the view runs along rather than looks at.
+    let near = band_limit(MICRO_METRES, detail_footprint)
+        * (1.0 - smoothstep(0.0, settings.detail_range * 0.22, range));
     var micro_gradient = vec3<f32>(0.0);
     if near > 0.01 {
         let micro = noise_gradient(detail_point / MICRO_METRES);
@@ -177,15 +239,29 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         + ROUGHNESS_SNOW * snow_band
         + mottle * 0.14 * rock_band;
 
-    // The waterline stays damp. River banks want the same treatment, but that
-    // needs a per-vertex river distance the renderer is not given.
-    let wet = sea * (1.0 - smoothstep(0.0, max(settings.wet_band, 0.1), max(metres, 0.0)));
-    albedo *= mix(1.0, 0.55, wet);
+    // The waterline stays damp, and so does a river bank. Sea proximity places
+    // the first; the second arrives per vertex, because the generator publishes
+    // channels rather than a distance to them and a fragment cannot measure
+    // one. Squaring holds the band close to the water instead of spreading it
+    // over the whole range it was measured across, and the metre-scale layer
+    // breaks its edge, so what ends is ground and not a contour line.
+    let tideline = sea * (1.0 - smoothstep(0.0, max(settings.wet_band, 0.1), max(metres, 0.0)));
+    let damp = clamp(river_proximity + mottle * 0.30, 0.0, 1.0);
+    let bank = damp * damp;
+    let wet = max(tideline, bank);
+    albedo *= mix(1.0, ALBEDO_TIDELINE, tideline) * mix(1.0, ALBEDO_BANK, bank);
     roughness = mix(roughness, ROUGHNESS_WET, wet * 0.85);
 
     // Rock carries full relief and snow none, because a bumped normal on a snow
-    // field only sparkles. All of it fades with distance for the same reason.
+    // field only sparkles. All of it fades with distance for the same reason,
+    // and with the incidence for a stronger one: a bump answers the sun out of
+    // all proportion to the relief it stands for once the surface is edge-on,
+    // where a normal that is texture face-on swings between lit and unlit. The
+    // metre scale of that swing is what draws the ground into strokes along the
+    // view. Albedo does not have the same problem and keeps its own detail, so
+    // ground the view runs along stays ground rather than going flat.
     let relief = (rock_band + sand_band * 0.7 + ground_band * 0.7)
+        * mix(GRAZING_RELIEF, 1.0, facing)
         * (1.0 - smoothstep(settings.detail_range * 0.45, settings.detail_range, range));
     // The sub-metre gradient is steeper per metre than the metre-scale one by
     // the ratio of their wavelengths, so it enters far weaker than it reads.

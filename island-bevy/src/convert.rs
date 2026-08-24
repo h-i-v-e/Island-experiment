@@ -85,15 +85,23 @@ pub fn render_mesh(source: &motu::Mesh) -> Option<Mesh> {
 
 /// Converts a terrain mesh and stores the generator's raw material weights in
 /// [`Mesh::ATTRIBUTE_COLOR`]: x is bedrock hardness (exactly one means forced
-/// rock), y is loose cover and z is sea proximity. Nothing here decides what
-/// the ground looks like; `terrain.wgsl` is the only authority on that.
+/// rock), y is loose cover and z is sea proximity. Alpha carries the renderer's
+/// own river-bank proximity, which is the one channel the generator's triple
+/// leaves free. Nothing here decides what the ground looks like;
+/// `terrain.wgsl` is the only authority on that.
 #[must_use]
-pub fn terrain_mesh(source: &motu::Mesh, materials: &[motu::Vec3]) -> Option<Mesh> {
+pub fn terrain_mesh(
+    source: &motu::Mesh,
+    materials: &[motu::Vec3],
+    river_wetness: &[f32],
+) -> Option<Mesh> {
     let mut mesh = render_mesh(source)?;
     let weights: Vec<[f32; 4]> = (0..source.vertices.len())
         .map(|index| {
             let material = materials.get(index).copied().unwrap_or(DEFAULT_MATERIAL);
-            [material.x, material.y, material.z, 1.0]
+            // A vertex the wetness pass never reached is dry ground.
+            let wetness = river_wetness.get(index).copied().unwrap_or(0.0);
+            [material.x, material.y, material.z, wetness]
         })
         .collect();
     mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, weights);

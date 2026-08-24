@@ -1,10 +1,12 @@
 //! Off-thread island generation and the handoff resource every renderer reads.
 
+use std::time::Instant;
+
 use bevy::{
     prelude::*,
     tasks::{AsyncComputeTaskPool, Task, block_on, poll_once},
 };
-use motu::{ISLAND_WORLD_METRES, Island, IslandOptions, Mesh, Vec3};
+use motu::{ISLAND_WORLD_METRES, Island, IslandOptions, Mesh, River, Vec2, Vec3};
 
 use crate::{cache, options};
 
@@ -37,6 +39,15 @@ pub const DEFAULT_VARIANT: &str = VARIANTS[0].0;
 /// eye reads while standing on them, which is all walk mode asks of it.
 pub const HEIGHT_GRID: u32 = 512;
 
+/// How far from a river's own water edge the ground still reads as damp, and
+/// how far above the water beside it.
+///
+/// Twelve metres is about as wide as the flood plain the generator carves; three
+/// metres clears its deepest channel, so a bank is damp to its lip and no
+/// further and a terrace standing over one is dry.
+const RIVER_WET_METRES: f32 = 12.0;
+const RIVER_WET_RISE_METRES: f32 = 3.0;
+
 /// The option overrides one named variant applies.
 #[derive(Clone, Copy, Debug)]
 struct Variant {
@@ -50,7 +61,12 @@ pub fn apply_variant(name: &str, options: &mut IslandOptions) -> Result<(), Stri
     let (_, overrides) = VARIANTS
         .iter()
         .find(|(variant, _)| *variant == name)
-        .ok_or_else(|| format!("unknown variant {name:?}; expected one of {}", variant_names()))?;
+        .ok_or_else(|| {
+            format!(
+                "unknown variant {name:?}; expected one of {}",
+                variant_names()
+            )
+        })?;
     if let Some(variant) = overrides {
         options.hydraulic_erosion_strength = variant.hydraulic_erosion_strength;
         options.coastal_slope_multiplier = variant.coastal_slope_multiplier;
@@ -132,6 +148,11 @@ pub struct IslandData {
     /// of its vertices each: bedrock hardness, loose cover, sea proximity.
     pub terrain: Mesh,
     pub materials: Vec<Vec3>,
+    /// How near each terrain vertex stands to running water, one per terrain
+    /// vertex: 1 at a channel's own water edge, 0 at [`RIVER_WET_METRES`] out
+    /// from it or [`RIVER_WET_RISE_METRES`] above it. Measured here because the
+    /// generator publishes channels, not a distance to them.
+    pub river_wetness: Vec<f32>,
     pub river_mesh: Mesh,
     pub river_rock_mesh: Mesh,
     /// Decoration points, `(u, v, height)` in normalized island space.
@@ -150,9 +171,19 @@ impl IslandData {
     fn new(island: &Island) -> Self {
         let terrain = island.lod(0).cloned().unwrap_or_default();
         let decorations = island.decorations();
+        let started = Instant::now();
+        let banks = WetBanks::new(island);
+        let river_wetness = banks.measure(&terrain);
+        info!(
+            "river wetness: {} terrain vertices against {} above-sea channel segments in {:.0} ms",
+            terrain.vertices.len(),
+            banks.segments.len(),
+            started.elapsed().as_secs_f32() * 1_000.0,
+        );
         Self {
             options: island.options(),
             materials: island.material_values_for(&terrain),
+            river_wetness,
             terrain,
             river_mesh: island.river_mesh().clone(),
             river_rock_mesh: island.river_rock_mesh().clone(),
@@ -193,6 +224,190 @@ impl IslandData {
         let far = sample(below, column).lerp(sample(below, right), along);
         near.lerp(far, down) * ISLAND_WORLD_METRES
     }
+}
+
+/// One stretch of above-sea river as the wetness pass reads it: the two ends of
+/// a centreline segment in normalized island XY, the water surface at each, and
+/// the channel's own half width there.
+#[derive(Clone, Copy)]
+struct WetSegment {
+    from: Vec2,
+    to: Vec2,
+    from_surface: f32,
+    to_surface: f32,
+    from_half_width: f32,
+    to_half_width: f32,
+}
+
+impl WetSegment {
+    /// How wet this one segment leaves a terrain vertex. Distance runs from the
+    /// water's edge rather than from the centreline, so a wide channel wets its
+    /// banks no harder than a narrow one does, and a vertex standing well over
+    /// the water beside it is dry however close it is horizontally.
+    fn wetness(&self, vertex: Vec3) -> f32 {
+        let point = vertex.truncate();
+        let along = self.to - self.from;
+        let length = along.length_squared();
+        let travelled = if length > f32::EPSILON {
+            ((point - self.from).dot(along) / length).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let closest = self.from + along * travelled;
+        let half_width = self.from_half_width.lerp(self.to_half_width, travelled);
+        let edge = (closest.distance(point) - half_width).max(0.0);
+        let rise = (vertex.z - self.from_surface.lerp(self.to_surface, travelled)).max(0.0);
+        let near = 1.0 - (edge / normalized(RIVER_WET_METRES)).min(1.0);
+        let low = 1.0 - (rise / normalized(RIVER_WET_RISE_METRES)).min(1.0);
+        near * low
+    }
+
+    /// The half extent of everything this segment can wet, which is what the
+    /// lattice registers it over.
+    fn reach(&self) -> f32 {
+        self.from_half_width.max(self.to_half_width) + normalized(RIVER_WET_METRES)
+    }
+}
+
+/// Metres as the fraction of the island square the generator works in.
+fn normalized(metres: f32) -> f32 {
+    metres / ISLAND_WORLD_METRES
+}
+
+/// Every above-sea channel segment on one island, on a uniform lattice over the
+/// island square.
+///
+/// Each cell holds every segment close enough to wet a point inside it, so a
+/// vertex reads one cell and nothing else. Cells are a wetness range across,
+/// which leaves most of them empty on an island whose channels run through a
+/// few valleys, and that is what keeps a pass over two million vertices to
+/// milliseconds without a thread pool.
+struct WetBanks {
+    segments: Vec<WetSegment>,
+    cells: Vec<Vec<u32>>,
+    span: usize,
+}
+
+impl WetBanks {
+    fn new(island: &Island) -> Self {
+        let segments = wet_segments(island);
+        // One cell per wetness range, and at least one cell whatever the range.
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let span = (1.0 / normalized(RIVER_WET_METRES)).ceil().max(1.0) as usize;
+        let mut banks = Self {
+            segments,
+            cells: vec![Vec::new(); span * span],
+            span,
+        };
+        for (index, segment) in banks.segments.iter().enumerate() {
+            let reach = segment.reach();
+            let low = segment.from.min(segment.to) - reach;
+            let high = segment.from.max(segment.to) + reach;
+            let (left, top) = (cell_index(low.x, span), cell_index(low.y, span));
+            let (right, bottom) = (cell_index(high.x, span), cell_index(high.y, span));
+            for row in top..=bottom {
+                for column in left..=right {
+                    #[allow(clippy::cast_possible_truncation)]
+                    banks.cells[row * span + column].push(index as u32);
+                }
+            }
+        }
+        banks
+    }
+
+    /// One proximity per terrain vertex, in the mesh's own order.
+    fn measure(&self, terrain: &Mesh) -> Vec<f32> {
+        if self.segments.is_empty() {
+            return vec![0.0; terrain.vertices.len()];
+        }
+        terrain
+            .vertices
+            .iter()
+            .map(|&vertex| {
+                let row = cell_index(vertex.y, self.span);
+                let column = cell_index(vertex.x, self.span);
+                self.cells[row * self.span + column]
+                    .iter()
+                    .map(|&index| self.segments[index as usize].wetness(vertex))
+                    .fold(0.0, f32::max)
+            })
+            .collect()
+    }
+}
+
+/// The lattice cell a normalized coordinate falls in. Anything off the island
+/// square holds the edge cell, which is where the terrain square ends anyway.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn cell_index(coordinate: f32, span: usize) -> usize {
+    #[allow(clippy::cast_precision_loss)]
+    let last = (span - 1) as f32;
+    (coordinate * last.max(1.0)).clamp(0.0, last) as usize
+}
+
+/// Every segment of every channel whose water surface stands above the sea at
+/// both of its ends. A reach that has already dropped to sea level is left to
+/// the waterline damp the shader applies from sea proximity.
+fn wet_segments(island: &Island) -> Vec<WetSegment> {
+    let options = island.options();
+    let source = normalized(options.river_source_width_metres);
+    let maximum = normalized(options.river_maximum_width_metres);
+    let mut segments = Vec::new();
+    for river in island.rivers() {
+        let widths = half_widths(river, source, maximum);
+        for (index, pair) in river.nodes.windows(2).enumerate() {
+            let (from, to) = (pair[0], pair[1]);
+            if from.surface <= 0.0 || to.surface <= 0.0 {
+                continue;
+            }
+            segments.push(WetSegment {
+                from: from.position.truncate(),
+                to: to.position.truncate(),
+                from_surface: from.surface,
+                to_surface: to.surface,
+                from_half_width: widths[index],
+                to_half_width: widths[index + 1],
+            });
+        }
+    }
+    segments
+}
+
+/// The generator's own channel half width at every node of one river, from the
+/// flow and the path position it publishes.
+///
+/// `rivers::target_cross_sections` widens a channel from the source width to
+/// the maximum by the greater of how far along it a node stands and how much of
+/// the terminal flow it carries, and never narrows it again downstream. This is
+/// that rule, so the water edge the wetness measures from is the one the
+/// generator carved to.
+#[allow(clippy::cast_precision_loss)]
+fn half_widths(river: &River, source: f32, maximum: f32) -> Vec<f32> {
+    let source_flow = river
+        .nodes
+        .first()
+        .map_or(0.0, |node| (node.flow as f32).sqrt());
+    let terminal_flow = river
+        .nodes
+        .last()
+        .map_or(source_flow, |node| (node.flow as f32).sqrt());
+    let flow_span = terminal_flow - source_flow;
+    let path_span = river.nodes.len().saturating_sub(1).max(1) as f32;
+    let mut growth = 0.0_f32;
+    river
+        .nodes
+        .iter()
+        .enumerate()
+        .map(|(index, node)| {
+            let along = index as f32 / path_span;
+            let by_flow = if flow_span > f32::EPSILON {
+                ((node.flow as f32).sqrt() - source_flow) / flow_span
+            } else {
+                along
+            };
+            growth = growth.max(f32::midpoint(by_flow.clamp(0.0, 1.0), along));
+            source.lerp(maximum, growth) * 0.5
+        })
+        .collect()
 }
 
 /// The finished island. Replaced whole on every rebuild.

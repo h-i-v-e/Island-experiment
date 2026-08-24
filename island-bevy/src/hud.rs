@@ -22,7 +22,7 @@ use bevy_egui::{
 use motu::IslandOptions;
 
 use crate::{
-    camera::{CameraMode, UiHasInput, WALK_KEY},
+    camera::{CameraMode, UiFocus, WALK_KEY},
     hash::mix,
     island_gen::{GenerationSettings, GenerationStatus, IslandReady, Regenerate},
     options::{self, Group, PARAMETERS, TERRAIN_SIZE_FLAG, TERRAIN_SIZE_RANGE},
@@ -74,7 +74,10 @@ impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((EguiPlugin::default(), FrameTimeDiagnosticsPlugin::default()))
             .add_systems(Startup, install)
-            .add_systems(Update, (toggle, read_frame_rate, report_command_line))
+            .add_systems(
+                Update,
+                (toggle, close_for_walking, read_frame_rate, report_command_line),
+            )
             .add_systems(EguiPrimaryContextPass, (draw_panel, draw_frame_rate))
             // After the pass that decides it, so the camera reads the answer to
             // the frame just drawn on the next one.
@@ -98,7 +101,7 @@ fn install(mut commands: Commands, settings: Res<GenerationSettings>) {
     });
 }
 
-fn toggle(keys: Res<ButtonInput<KeyCode>>, ui: Res<UiHasInput>, mut hud: ResMut<Hud>) {
+fn toggle(keys: Res<ButtonInput<KeyCode>>, ui: Res<UiFocus>, mut hud: ResMut<Hud>) {
     if keys.just_pressed(HUD_KEY) && !ui.keyboard {
         hud.visible = !hud.visible;
     }
@@ -130,10 +133,22 @@ fn report_command_line(
 
 /// The panel owns the pointer whenever it is under it and the keyboard whenever
 /// a field is being typed into, and says so here rather than acting on it, so
-/// the camera stays the one place movement is decided.
-fn hand_input_over(wants: Res<EguiWantsInput>, mut ui: ResMut<UiHasInput>) {
+/// the camera stays the one place movement is decided. Being on screen at all
+/// is the third claim, and the one walking answers by giving its captured
+/// cursor back.
+fn hand_input_over(wants: Res<EguiWantsInput>, hud: Res<Hud>, mut ui: ResMut<UiFocus>) {
     ui.pointer = wants.wants_any_pointer_input();
     ui.keyboard = wants.wants_any_keyboard_input();
+    ui.shown = hud.visible;
+}
+
+/// Walking captures the cursor, so a panel left open behind it could never be
+/// clicked. Taking to foot closes it, and `H` opens it again and takes the
+/// cursor back for as long as it is up: on foot the panel is a pause screen.
+fn close_for_walking(mode: Res<CameraMode>, mut hud: ResMut<Hud>) {
+    if mode.is_changed() && *mode == CameraMode::Walk {
+        hud.visible = false;
+    }
 }
 
 /// The letter on the key. `KeyCode` names a letter key `KeyH`, and the panel is
@@ -201,15 +216,20 @@ fn draw_panel(
 
             ui.separator();
             ui.label(
-                egui::RichText::new(format!(
-                    "{} hides this panel  ·  {} switches to {}",
-                    key_name(HUD_KEY),
-                    key_name(WALK_KEY),
-                    match *mode {
-                        CameraMode::Fly => "walking",
-                        CameraMode::Walk => "flying",
-                    }
-                ))
+                egui::RichText::new(match *mode {
+                    CameraMode::Fly => format!(
+                        "{} hides this panel  ·  {} walks",
+                        key_name(HUD_KEY),
+                        key_name(WALK_KEY)
+                    ),
+                    // Walking is holding its cursor here for as long as the
+                    // panel is up, so hiding it is also how the walk resumes.
+                    CameraMode::Walk => format!(
+                        "{} hides this panel and looks again  ·  {} flies",
+                        key_name(HUD_KEY),
+                        key_name(WALK_KEY)
+                    ),
+                })
                 .small()
                 .weak(),
             );

@@ -27,8 +27,8 @@ use crate::{hash::mix, island_gen::IslandData, options};
 /// when this file's format changes: entries written before the bump then hash
 /// to a different key, so none of them is ever read again.
 ///
-/// 2 added the walk-mode height grid.
-const CACHE_FORMAT_VERSION: u32 = 2;
+/// 2 added the walk-mode height grid, 3 the per-vertex river wetness.
+const CACHE_FORMAT_VERSION: u32 = 3;
 
 const MAGIC: &[u8; 8] = b"MOTUBVY\0";
 /// Distinguishes a cache key from the crate's other hashed values.
@@ -108,6 +108,7 @@ pub fn read(path: &Path, seed: u64, options: &IslandOptions) -> Option<IslandDat
     let rivers = reader.u32()?;
     let terrain = reader.mesh()?;
     let materials = reader.points()?;
+    let river_wetness = reader.scalars()?;
     let river_mesh = reader.mesh()?;
     let river_rock_mesh = reader.mesh()?;
     let trees = reader.points()?;
@@ -122,6 +123,7 @@ pub fn read(path: &Path, seed: u64, options: &IslandOptions) -> Option<IslandDat
         options: *options,
         terrain,
         materials,
+        river_wetness,
         river_mesh,
         river_rock_mesh,
         trees,
@@ -150,6 +152,8 @@ pub fn write(path: &Path, seed: u64, data: &IslandData) -> io::Result<()> {
     writer.write_all(&data.rivers.to_le_bytes())?;
     write_mesh(&mut writer, &data.terrain)?;
     write_points(&mut writer, &data.materials)?;
+    write_count(&mut writer, data.river_wetness.len())?;
+    write_scalars(&mut writer, &data.river_wetness)?;
     write_mesh(&mut writer, &data.river_mesh)?;
     write_mesh(&mut writer, &data.river_rock_mesh)?;
     write_points(&mut writer, &data.trees)?;
@@ -306,6 +310,7 @@ mod tests {
                 Vec3::new(0.0, 0.5, 1.0),
                 Vec3::new(0.125, 0.25, 0.5),
             ],
+            river_wetness: vec![0.0, 1.0, 0.375],
             river_mesh: Mesh {
                 vertices: vec![Vec3::X, Vec3::Y],
                 normals: vec![Vec3::Z],
@@ -332,9 +337,12 @@ mod tests {
         write(&path, 42, &data).unwrap();
         let read_back = read(&path, 42, &data.options);
         assert_eq!(read_back, Some(data.clone()));
-        // The height grid crosses as written: walk mode stands on these values,
-        // and a shifted or truncated grid would only show as sunken ground.
-        assert_eq!(read_back.unwrap().heights, data.heights);
+        // The two per-vertex arrays cross as written. Both are read back by
+        // index against another array, so a shift or a truncation in either
+        // would only show as ground that is wet or sunken somewhere else.
+        let read_back = read_back.unwrap();
+        assert_eq!(read_back.heights, data.heights);
+        assert_eq!(read_back.river_wetness, data.river_wetness);
         // The same entry read under other inputs is a miss, not other geometry.
         assert_eq!(read(&path, 43, &data.options), None);
         assert_eq!(read(&path, 42, &IslandOptions::default()), None);

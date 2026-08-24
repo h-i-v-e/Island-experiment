@@ -281,7 +281,10 @@ mod tests {
             let mut options = IslandOptions::default();
             let mut defaults = IslandOptions::default();
             *(parameter.field)(&mut options) = 12.5;
-            for other in PARAMETERS.iter().filter(|entry| entry.flag != parameter.flag) {
+            for other in PARAMETERS
+                .iter()
+                .filter(|entry| entry.flag != parameter.flag)
+            {
                 assert!(
                     (*(other.field)(&mut options) - *(other.field)(&mut defaults)).abs()
                         < f32::EPSILON,
@@ -338,7 +341,11 @@ mod tests {
         let line = command_line(666, &IslandOptions::default());
         assert!(line.starts_with("--seed 666 --terrain-size 1024"));
         for parameter in &PARAMETERS {
-            assert!(line.contains(parameter.flag), "{} is missing", parameter.flag);
+            assert!(
+                line.contains(parameter.flag),
+                "{} is missing",
+                parameter.flag
+            );
         }
     }
 }

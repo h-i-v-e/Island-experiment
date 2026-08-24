@@ -72,9 +72,10 @@ Entries live in `target/island-cache/`, one file per island, named after a hash
 of the seed and every generator option. Changing any of them is a different
 island and so a different file; nothing is ever invalidated in place, and the
 directory only grows. `cargo clean` clears it, and so does deleting the
-directory. Each entry is the finished meshes, material weights, decoration
-points and walk mode's height grid in a flat binary layout — tens of megabytes
-at terrain size 256, of which the grid is 1 MiB — and is read on the same
+directory. Each entry is the finished meshes, material weights, per-vertex
+river wetness, decoration points and walk mode's height grid in a flat binary
+layout — tens of megabytes at terrain size 256, of which the grid is 1 MiB and
+the wetness one float per terrain vertex — and is read on the same
 background task generation would have run on, so no frame ever waits on it.
 The HUD's rebuilds read it too, which is what brings a parameter set you have
 already visited back in milliseconds.
@@ -85,8 +86,8 @@ oversized or otherwise damaged file, or one written by an earlier format
 version — is a miss, and the island is generated and the entry rewritten. The
 format version is mixed into the key as well as written into the entry, so
 entries from before a bump are never even opened, let alone read as damage. The
-current version is 2, which added the height grid. The log says which happened
-on every run and on every rebuild:
+current version is 3, which added the per-vertex river wetness; 2 added the
+height grid. The log says which happened on every run and on every rebuild:
 
 ```
 island cache hit: /…/target/island-cache/6a1f….bin
@@ -136,50 +137,73 @@ channel's 100, which is why its wider views stand closer in.
 
 ## Controls
 
-The camera has two movement modes, flying and walking, and `F` switches between
-them. It starts flying, on the pose `--view` names, which is `overview`: about
-1.6 km out at 700 m, framing the whole 2 km island.
+The camera has two movement modes, and `F` switches between them. It starts
+flying, on the pose `--view` names, which is `overview`: about 1.6 km out at
+700 m, framing the whole 2 km island.
+
+The two take the mouse on opposite terms, because they are used for opposite
+things. **Flying** is an editor view of the island: the cursor stays free and
+the scene is steered with the buttons. **Walking** is a person on the ground, so
+it follows the conventions a person already has for that: the cursor is captured
+and the mouse looks with no button held.
 
 | Input | Flying | Walking |
 | --- | --- | --- |
-| `W` `A` `S` `D` | Move on the view plane at 220 m/s | Walk along the ground at 1.5 m/s |
-| `Shift` | Move down | Jog, at 4.5 m/s |
-| `Space` | Move up | — |
-| Left mouse held | Pan: drag the ground along under the cursor, altitude unchanged | — |
-| Right mouse held | Look around; the cursor is grabbed and hidden | Same |
-| Scroll wheel | Zoom along the view direction; 60 m per wheel line, less per trackpad pixel | A long stride along the heading; the eye stays on the ground |
+| Mouse | Only with a button held, below | Looks, always, no button held |
+| `W` `A` `S` `D` | Move on the view plane at 220 m/s | Move along the ground relative to the view, at 1.5 m/s |
+| `Shift` | Move down | Sprint, at 3 m/s |
+| `Space` | Move up | Jump, about 1 m |
+| Left mouse | Held: pan, dragging the ground along under the cursor | Click: take the cursor back after `Esc` |
+| Right mouse | Held: look around, cursor captured | — |
+| Scroll wheel | Dolly along the view direction; 60 m per wheel line, less per trackpad pixel | — |
 | `F` | Start walking | Take off |
 | `R` | Return to the `--view` pose | Return to the `--view` pose, flying |
-| `H` | Show or hide the parameter panel | Same |
-| `Esc` | Release the cursor | Same |
+| `H` | Show or hide the parameter panel | Show or hide it, handing the cursor over and taking it back |
+| `Esc` | Release the cursor | Release the cursor; looking stops until you click |
 
-`H` and `F` are the only two bindings the HUD and walk mode add. While a panel
-field has the keyboard, or the pointer is over the panel, neither the camera
-nor either toggle sees the input.
+`H` and `F` are the only two bindings walk mode and the panel add. While a panel
+field has the keyboard, or the pointer is over the panel, neither the camera nor
+either toggle sees the input.
 
 ### Walking
 
-`F` puts the eye 1.8 m over the ground directly under it and holds it there
-whatever else moved the camera that frame, so a scroll dolly slides along the
-ground rather than lifting off it. `R` returns to the `--view` pose and to
-flying, since the named poses are all in the air.
+`F` captures and hides the cursor straight away and seats the eye 1.8 m over the
+ground directly under it, however high the camera was. From then on the mouse
+looks, `W` `A` `S` `D` moves along the ground relative to where you are facing,
+`Shift` sprints and `Space` jumps. The wheel does nothing: a person does not
+dolly. `F` again, or `R`, hands the cursor back and returns to flying — the
+named poses are all in the air.
 
-The ground comes from a 512 by 512 grid of the generator's own `height_map`,
-sampled bilinearly. That is one height every 3.9 m across the two kilometre
-island and 1 MiB in the cache entry, a few per cent of an entry that already
-runs to tens of megabytes. Cliff faces smooth into ramps at that spacing, which
-for walking around is what you want; every valley, ridge and riverbed the eye
-reads at head height is there.
+The cursor is given up in two other places, and taken back afterwards:
+
+- `Esc` releases it and looking stops. A left click anywhere in the scene takes
+  it again.
+- Opening the parameter panel releases it for as long as the panel is up, since
+  a captured cursor could never reach the panel to click it. Closing the panel
+  takes it back without spending a click. Entering walk mode closes an open
+  panel for the same reason: on foot the panel behaves like a pause screen.
+
+Jumping is a launch speed that reaches about a metre under gravity, integrated
+each frame and floored at the ground under the walker, so a jump onto rising
+ground lands on it rather than passing through. Steering stays live in the air.
+Walking itself never leaves the surface: sampled bilinearly the ground has no
+vertical faces to fall down, so following it is the whole of walking.
+
+The ground comes from a 512 by 512 grid of the generator's own `height_map`.
+That is one height every 3.9 m across the two kilometre island and 1 MiB in the
+cache entry, a few per cent of an entry that already runs to tens of megabytes.
+Cliff faces smooth into ramps at that spacing, which for walking around is what
+you want; every valley, ridge and riverbed the eye reads at head height is
+there.
 
 Water is not swum. A step that would put the walker in more than a metre of
-water is refused, and the two axes are then tried on their own so the shoreline
-turns the walk along itself rather than stopping it dead. The generated shelf
-runs one to three metres deep across the whole square, so the sea is what stops
-a walk at the waterline. Ground already deeper than that — the camera dropped
-into walk mode over open water, or dollied out past the terrain square — is
-stood on at one metre rather than sunk into, which leaves the eye 0.8 m over the
-sea. Off the square the grid clamps to its edge, so there is nothing to fall
-through.
+water is refused — in the air as much as on the ground — and the two axes are
+then tried on their own so the shoreline turns the walk along itself rather than
+stopping it dead. The generated shelf runs one to three metres deep across the
+whole square, so the sea is what stops a walk at the waterline. Ground already
+deeper than that, where walk mode was entered over open water, is stood on at
+one metre rather than sunk into, which leaves the eye 0.8 m over the sea. Off
+the square the grid clamps to its edge, so there is nothing to fall through.
 
 ## Parameter panel
 
@@ -288,8 +312,44 @@ them:
 Slope, height and cover modifiers refine the generator's weights; they never
 replace them. Roughness follows the band — rock 0.90, grass 0.85, sand 0.70 —
 and the shoreline darkens and smooths within a couple of metres of the sea
-plane. River banks want the same wetness but need a per-vertex river distance
-the renderer is not given.
+plane. River banks take the same treatment more lightly, from a proximity to
+running water measured per vertex; see below.
+
+Every layer is held to what one pixel can actually resolve. The footprint is
+taken off the warped detail space itself, with `dpdx`/`dpdy`, so range,
+incidence, the frequency jitter and the warp's own local stretch all count
+towards it, and each octave of the metre-scale layer fades out as the footprint
+reaches its own wavelength. The ratio between the two screen axes is capped at
+four to one: filtering to the long axis alone leaves flat paint on ground the
+view runs along, and filtering to the short one leaves every bit of the pattern
+there for the eye to read as strokes drawn along the view. Detail relief is
+also faded by the incidence itself, down to a third of it edge-on, because a
+bumped normal answers the sun far out of proportion to the relief it stands for
+once the surface is seen edge-on. Albedo keeps its own detail throughout.
+
+The macro layer's domain warp drags the finer ones by 14 m rather than the 55 m
+it was first given. What has to stay small is the gradient of that offset, not
+its size: the warp field turns over every hundred metres or so, so tens of
+metres of drag stretched the domain by as much as the domain itself, and the
+finer layers arrived combed into long filaments that a grazing view then drew
+out into smears.
+
+### River banks
+
+The generator publishes channels, not a distance to them, so `island_gen`
+measures one at build time. Every above-sea segment of every channel — both
+ends' water surface over zero — goes onto a uniform lattice one wetness range
+across, widened from the centreline by the generator's own cross-section rule
+so the distance runs from the water's edge rather than from the middle. Each
+terrain vertex then reads one cell and takes the nearest segment's proximity: 1
+at the water's edge, 0 at 12 m out from it or 3 m above the water beside it.
+That is 1.67 M vertices against 273 segments in 8 ms at terrain size 1024, so
+it rides on the generation task without a thread pool of its own.
+
+The result travels in the free alpha channel of the terrain's vertex colours,
+and `terrain.wgsl` squares it, breaks its edge with the metre-scale layer and
+uses it to darken the ground a little and smooth its roughness — a quarter of
+the way, against the tideline's near half. Damp banks, not black stripes.
 
 The merged river-rock body is 6–22 cm stones with the occasional 65 cm boulder.
 `convert::rock_mesh` hashes world position on a 20 cm lattice into a per-body
@@ -332,10 +392,44 @@ distance; and it only breaks white where the surface grade is steep, which is
 what makes the generator's waterfalls read as falling water rather than as
 tilted sheets.
 
+## Vegetation
+
 Trees and bushes keep one merged mesh each and one shared white
 `StandardMaterial`. Bark, canopy and shrub tones ride in the mesh's vertex
 colours, which is what leaves the trunk bark coloured under a material that
 knows nothing about either. A shared material handle cannot carry a
-per-instance tint, so per-plant variation is baked into four meshes per class,
+per-instance tint, so per-plant variation is baked into eight meshes per class,
 selected by the same deterministic hash as scale and yaw; each class batches
 once per variant rather than once in total.
+
+A variant is a shape and a tone together, and both shapes are built rather than
+loaded — nothing in this crate reads an asset file. A tree is either three cone
+tiers of falling radius or four merged lobes, over a trunk the variant's own
+hash leans by up to six degrees and spreads the tiers or lobes by up to a
+seventh either way. A bush is two or three flattened lobes. Both tree shapes are
+built inside one seventeen-metre envelope, which is the cone that stands in for
+them at range.
+
+| Tier | Range | Tree | Bush |
+| --- | --- | --- | --- |
+| Near | 0 to 220 m | 187 vertices | 135 vertices |
+| Far | 220 m to 3.2 km | 29 vertices | 28 vertices |
+
+Every plant is two entities at the same transform, one per tier, each carrying
+the `VisibilityRange` that hands over to the other; Bevy dithers across the 30 m
+they share, so the swap has no frame it happens on. The far end is a backstop
+against a camera taken out to sea rather than a working cull — `overview` stands
+1.7 km off the island's centre and 3.1 km from its far shore, and frames every
+plant on it.
+
+The near tier casts into the shadow cascades and the far tier does not, because
+a canopy 220 m out casts less than a pixel and there are thousands of them.
+Contact shadows go on seating both.
+
+At terrain size 1024 the island carries 1904 trees and 1936 bushes, so the class
+is 7,680 entities against the 3,840 one tier would be. From `overview`, where
+every plant is past the handover, that is 109 k vertices where drawing the full
+mesh everywhere would be 520 k. Neither is measurable beside the terrain's own
+1.67 M: the frame sits at 25 ms on an M3 Pro at 2560x1440 with the tiers on, off,
+and with vegetation shadows on or off. The tiers and the shadow range are
+headroom for denser planting, not a saving the current density needs.

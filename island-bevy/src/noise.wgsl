@@ -116,6 +116,38 @@ fn fbm_gradient(point: vec3<f32>, octaves: i32) -> vec4<f32> {
     return vec4<f32>(total, gradient) / normalization;
 }
 
+/// How much of a layer of this wavelength survives a sampling footprint of
+/// `footprint`, both in the same space. Past half a wavelength no two samples
+/// land on the same feature any more, so what is left is not detail: it is
+/// noise the temporal resolve averages along whichever direction the footprint
+/// is longest in, and draws out as a streak.
+fn band_limit(wavelength: f32, footprint: f32) -> f32 {
+    return 1.0 - smoothstep(wavelength * 0.15, wavelength * 0.5, footprint);
+}
+
+/// [`fbm_gradient`] with every octave faded out as the footprint reaches it. A
+/// filtered octave contributes its own mean and no gradient at all, so the sum
+/// keeps its value and loses only the relief it could no longer resolve.
+/// `footprint` is in the same space as `point`, where the first octave has
+/// wavelength one.
+fn fbm_gradient_limited(point: vec3<f32>, octaves: i32, footprint: f32) -> vec4<f32> {
+    var total = 0.0;
+    var gradient = vec3<f32>(0.0);
+    var normalization = 0.0;
+    var amplitude = 1.0;
+    var frequency = 1.0;
+    for (var octave = 0; octave < octaves; octave += 1) {
+        let survives = band_limit(1.0 / frequency, footprint);
+        let octave_sample = noise_gradient(point * frequency);
+        total += amplitude * mix(0.5, octave_sample.x, survives);
+        gradient += (amplitude * frequency * survives) * octave_sample.yzw;
+        normalization += amplitude;
+        amplitude *= 0.5;
+        frequency *= 2.0;
+    }
+    return vec4<f32>(total, gradient) / normalization;
+}
+
 /// Bends a unit normal along the part of a height gradient that lies in the
 /// surface, which needs no tangent frame and so behaves the same on a cliff as
 /// on flat ground. The bend is capped because a normal that crosses the horizon
