@@ -14,8 +14,8 @@ is a second consumer of that data, not a second generator.
 cargo run --release -- --seed 42 --terrain-size 256
 ```
 
-The window opens immediately and shows `Generating island… seed N` while the
-island builds on a background task pool.
+The window opens immediately and shows `Generating island...` while the island
+builds on a background task pool.
 
 | Option | Default | Notes |
 | --- | --- | --- |
@@ -30,11 +30,12 @@ island builds on a background task pool.
 
 | Input | Action |
 | --- | --- |
-| `W` `A` `S` `D` | Move on the view plane |
+| `W` `A` `S` `D` | Move on the view plane at 220 m/s |
 | `Space` / `Shift` | Move up / down |
-| `Ctrl` | Hold for a 4x speed boost |
+| Left mouse held | Pan: drag the ground along under the cursor, altitude unchanged |
 | Right mouse held | Look around; the cursor is grabbed and hidden |
-| Scroll wheel | Scale travel speed |
+| Scroll wheel | Zoom along the view direction; 60 m per wheel line, less per trackpad pixel |
+| `R` | Return to the opening view |
 | `Esc` | Release the cursor |
 
 The camera starts about 1.6 km out at 700 m, framing the whole 2 km island.

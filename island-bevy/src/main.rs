@@ -20,7 +20,7 @@ use motu::IslandOptions;
 use crate::{
     camera::FlyCameraPlugin,
     island_gen::{GenerationSettings, IslandGenPlugin},
-    lighting::LightingPlugin,
+    lighting::{LightingPlugin, SKY_COLOUR},
     screenshot::ScreenshotPlugin,
     terrain::TerrainPlugin,
     vegetation::VegetationPlugin,
@@ -63,13 +63,13 @@ fn main() {
     let mut app = App::new();
     app.add_plugins(DefaultPlugins.set(WindowPlugin {
         primary_window: Some(Window {
-            title: format!("Motu island - seed {}", command.seed),
+            title: String::from("Motu island"),
             resolution: WindowResolution::new(1280, 720),
             ..default()
         }),
         ..default()
     }))
-    .insert_resource(ClearColor(Color::srgb(0.53, 0.68, 0.85)))
+    .insert_resource(ClearColor(SKY_COLOUR))
     .insert_resource(GenerationSettings {
         seed: command.seed,
         options: command.options,

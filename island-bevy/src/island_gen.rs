@@ -44,11 +44,11 @@ fn start_generation(mut commands: Commands, settings: Res<GenerationSettings>) {
     commands.spawn((Name::new("Island generation"), GenerationTask(task)));
 }
 
-fn spawn_loading_notice(mut commands: Commands, settings: Res<GenerationSettings>) {
+fn spawn_loading_notice(mut commands: Commands) {
     commands.spawn((
         Name::new("Loading notice"),
         LoadingNotice,
-        Text::new(format!("Generating island… seed {}", settings.seed)),
+        Text::new("Generating island..."),
         TextFont::from_font_size(26.0),
         TextColor(Color::WHITE),
         Node {

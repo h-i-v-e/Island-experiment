@@ -6,6 +6,10 @@ use bevy::{
 };
 use motu::ISLAND_WORLD_METRES;
 
+/// The empty sky. The clear colour and the camera's distance fog have to agree
+/// on it or the fogged horizon shows up as a band against the background.
+pub const SKY_COLOUR: Color = Color::srgb(0.53, 0.68, 0.85);
+
 pub struct LightingPlugin;
 
 impl Plugin for LightingPlugin {
