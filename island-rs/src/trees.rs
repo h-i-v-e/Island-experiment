@@ -47,6 +47,7 @@ impl RingPlane {
 struct TreeOptions {
     maximum_child_branches: u8,
     trunk_sections: u8,
+    single_section_trunk_base: bool,
     maximum_branch_depth: u8,
     trunk_radius_metres: f32,
     trunk_section_length_metres: f32,
@@ -65,6 +66,7 @@ impl Default for TreeOptions {
         Self {
             maximum_child_branches: 8,
             trunk_sections: 10,
+            single_section_trunk_base: true,
             maximum_branch_depth: 4,
             trunk_radius_metres: 0.68,
             trunk_section_length_metres: 1.0,
@@ -111,6 +113,7 @@ impl TreeOptions {
 #[derive(Debug)]
 struct GrowingAxis {
     ring: [u32; CROSS_SECTION_VERTICES],
+    trunk_base_emitted: bool,
     centre: Vec3,
     direction: Vec3,
     x_axis: Vec3,
@@ -124,6 +127,46 @@ struct GrowingAxis {
     root_taper_scale: f32,
     taper_scale: f32,
     depth: u8,
+}
+
+impl GrowingAxis {
+    fn continuation(
+        &self,
+        ring: [u32; CROSS_SECTION_VERTICES],
+        trunk_base_emitted: bool,
+        step: AxisStep,
+        spawned_face: Option<u8>,
+    ) -> Self {
+        Self {
+            ring,
+            trunk_base_emitted,
+            centre: step.centre,
+            direction: step.direction,
+            x_axis: step.x_axis,
+            radius: step.radius,
+            section_length: step.section_length,
+            remaining_sections: step.remaining_sections,
+            section_budget: self.section_budget,
+            sections_grown: self.sections_grown.saturating_add(1),
+            direct_children: self.direct_children + u8::from(spawned_face.is_some()),
+            previous_branch_face: spawned_face.or(self.previous_branch_face),
+            root_taper_scale: self.root_taper_scale,
+            taper_scale: step.taper_scale,
+            depth: self.depth,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct AxisStep {
+    centre: Vec3,
+    direction: Vec3,
+    x_axis: Vec3,
+    radius: f32,
+    section_length: f32,
+    taper_scale: f32,
+    remaining_sections: u8,
+    continues: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -188,6 +231,7 @@ struct GrowthRateRecord {
 #[derive(Clone, Debug, Default, PartialEq)]
 struct TreeGenerationStats {
     child_branches: u8,
+    collapsed_trunk_rings: u8,
     branches: Vec<BranchRecord>,
     directions: Vec<DirectionRecord>,
     growth_rates: Vec<GrowthRateRecord>,
@@ -228,6 +272,7 @@ impl TreeGenerator {
         generator.terminal_rings.push(ring);
         generator.pending.push_back(GrowingAxis {
             ring,
+            trunk_base_emitted: !options.single_section_trunk_base,
             centre,
             direction: Vec3::Z,
             x_axis: Vec3::X,
@@ -317,28 +362,40 @@ impl TreeGenerator {
         let section_length = axis.section_length;
         let taper_scale = self.next_taper_scale(axis);
         let remaining_sections = axis.remaining_sections.saturating_sub(1);
-        let probability = branch_probability(
-            axis.sections_grown,
-            axis.section_budget,
-            self.options.branch_probability,
-        );
-        let branches_needed = self
-            .options
-            .maximum_child_branches
-            .saturating_sub(self.stats.child_branches);
-        let must_spawn_to_reach_cap = axis.depth == 0 && branches_needed > remaining_sections;
-        let trunk_has_branch_clearance = axis.depth > 0
-            || axis.centre.z * ISLAND_WORLD_METRES
-                >= self.options.minimum_trunk_branch_height_metres;
-        let will_spawn_branch = self.stats.child_branches < self.options.maximum_child_branches
-            && axis.depth < self.options.maximum_branch_depth
-            && trunk_has_branch_clearance
-            && (must_spawn_to_reach_cap || self.rng.unit() < probability);
+        let will_spawn_branch = self.should_spawn_child(axis, remaining_sections);
+
+        let step = AxisStep {
+            centre,
+            direction,
+            x_axis,
+            radius,
+            section_length,
+            taper_scale,
+            remaining_sections,
+            continues: remaining_sections > 0
+                && radius * ISLAND_WORLD_METRES >= self.options.minimum_radius_metres
+                && section_length * ISLAND_WORLD_METRES
+                    >= self.options.minimum_section_length_metres,
+        };
+
+        // Keep simulating hidden trunk steps so bend, taper, and branch
+        // placement remain unchanged, while delaying their mesh emission.
+        if axis.depth == 0 && !axis.trunk_base_emitted && !will_spawn_branch && step.continues {
+            self.pending
+                .push_back(axis.continuation(axis.ring, false, step, None));
+            return;
+        }
+
+        let lower_ring = if axis.depth == 0 && !axis.trunk_base_emitted && will_spawn_branch {
+            self.emit_single_section_trunk_base(axis)
+        } else {
+            axis.ring
+        };
         let ring = self.append_ring(centre, x_axis, next_y_axis, radius, taper_scale);
 
         let spawned_face = if will_spawn_branch {
             self.spawn_child(ChildSource {
-                lower_ring: &axis.ring,
+                lower_ring: &lower_ring,
                 upper_ring: &ring,
                 direction,
                 radius,
@@ -353,32 +410,54 @@ impl TreeGenerator {
             None
         };
         if spawned_face.is_none() {
-            connect_rings(&mut self.wood.triangles, &axis.ring, &ring);
+            connect_rings(&mut self.wood.triangles, &lower_ring, &ring);
+            if axis.depth == 0 && !axis.trunk_base_emitted {
+                self.stats.collapsed_trunk_rings = axis.sections_grown;
+            }
         }
-        let direct_children = axis.direct_children + u8::from(spawned_face.is_some());
-        let continues = remaining_sections > 0
-            && radius * ISLAND_WORLD_METRES >= self.options.minimum_radius_metres
-            && section_length * ISLAND_WORLD_METRES >= self.options.minimum_section_length_metres;
-        if continues {
-            self.pending.push_back(GrowingAxis {
-                ring,
-                centre,
-                direction,
-                x_axis,
-                radius,
-                section_length,
-                remaining_sections,
-                section_budget: axis.section_budget,
-                sections_grown: axis.sections_grown.saturating_add(1),
-                direct_children,
-                previous_branch_face: spawned_face.or(axis.previous_branch_face),
-                root_taper_scale: axis.root_taper_scale,
-                taper_scale,
-                depth: axis.depth,
-            });
+        if step.continues {
+            self.pending
+                .push_back(axis.continuation(ring, true, step, spawned_face));
         } else {
             self.terminal_rings.push(ring);
         }
+    }
+
+    fn emit_single_section_trunk_base(
+        &mut self,
+        axis: &GrowingAxis,
+    ) -> [u32; CROSS_SECTION_VERTICES] {
+        let y_axis = axis.direction.cross(axis.x_axis).normalize_or_zero();
+        let lower_ring = self.append_ring(
+            axis.centre,
+            axis.x_axis,
+            y_axis,
+            axis.radius,
+            axis.taper_scale,
+        );
+        connect_rings(&mut self.wood.triangles, &axis.ring, &lower_ring);
+        self.stats.collapsed_trunk_rings = axis.sections_grown.saturating_sub(1);
+        lower_ring
+    }
+
+    fn should_spawn_child(&mut self, axis: &GrowingAxis, remaining_sections: u8) -> bool {
+        let probability = branch_probability(
+            axis.sections_grown,
+            axis.section_budget,
+            self.options.branch_probability,
+        );
+        let branches_needed = self
+            .options
+            .maximum_child_branches
+            .saturating_sub(self.stats.child_branches);
+        let must_reach_cap = axis.depth == 0 && branches_needed > remaining_sections;
+        let has_clearance = axis.depth > 0
+            || axis.centre.z * ISLAND_WORLD_METRES
+                >= self.options.minimum_trunk_branch_height_metres;
+        self.stats.child_branches < self.options.maximum_child_branches
+            && axis.depth < self.options.maximum_branch_depth
+            && has_clearance
+            && (must_reach_cap || self.rng.unit() < probability)
     }
 
     fn spawn_child(&mut self, parent: ChildSource<'_>) -> Option<u8> {
@@ -428,6 +507,7 @@ impl TreeGenerator {
         let section_budget = parent.remaining_sections.clamp(2, 5);
         self.pending.push_back(GrowingAxis {
             ring,
+            trunk_base_emitted: true,
             centre: origin,
             direction,
             x_axis,
@@ -885,6 +965,41 @@ mod tests {
                             >= options.minimum_trunk_branch_height_metres
                 }),
                 "seed {seed} has a main-trunk branch below the clearance height"
+            );
+        }
+    }
+
+    #[test]
+    fn clear_trunk_base_is_one_section_and_omits_intermediate_rings() {
+        let compact_options = TreeOptions::default();
+        let mut detailed_options = compact_options;
+        detailed_options.single_section_trunk_base = false;
+
+        for seed in 0..64 {
+            let (compact, compact_stats) = TreeGenerator::new(seed, compact_options).generate(seed);
+            let (detailed, detailed_stats) =
+                TreeGenerator::new(seed, detailed_options).generate(seed);
+            let omitted_rings = usize::from(compact_stats.collapsed_trunk_rings);
+            let omitted_lod1_triangles = omitted_rings * CROSS_SECTION_VERTICES * 2;
+
+            assert!(
+                omitted_rings > 0,
+                "seed {seed} did not simplify its trunk base"
+            );
+            assert_eq!(compact_stats.branches, detailed_stats.branches);
+            assert_eq!(compact_stats.directions, detailed_stats.directions);
+            assert_eq!(compact_stats.growth_rates, detailed_stats.growth_rates);
+            assert_eq!(compact_stats.taper, detailed_stats.taper);
+            assert_eq!(compact.foliage_supports, detailed.foliage_supports);
+            assert_eq!(
+                detailed.lod1_wood.triangles.len() / 3 - compact.lod1_wood.triangles.len() / 3,
+                omitted_lod1_triangles,
+                "seed {seed} did not remove exactly one ring of faces per omitted ring"
+            );
+            assert_eq!(
+                detailed.lod0_wood.triangles.len() / 3 - compact.lod0_wood.triangles.len() / 3,
+                omitted_lod1_triangles * 4,
+                "seed {seed} did not preserve the expected tessellated reduction"
             );
         }
     }

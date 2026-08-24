@@ -12,17 +12,20 @@ use crate::{ISLAND_WORLD_METRES, Mesh, Vec2, Vec3, noise};
 const FOLIAGE_SEED_DOMAIN: u64 = 0x636c_7573_7465_7265;
 const ALPHA_EDGE_MAX_METRES: f32 = 6.0;
 const ALPHA_CIRCUMRADIUS_MAX_METRES: f32 = 4.5;
-const MINIMUM_HEIGHT_METRES: f32 = 1.8;
-const HEIGHT_PER_SPREAD_METRES: f32 = 0.07;
-const MAX_SPREAD_HEIGHT_METRES: f32 = 2.1;
-const BOUNDARY_EXPANSION_METRES: f32 = 0.85;
-const MID_RING_SCALE: f32 = 1.12;
-const TOP_RING_SCALE: f32 = 0.98;
-const TOP_TIP_CLEARANCE_METRES: f32 = 0.50;
-const TOP_MAXIMUM_SLOPE: f32 = 0.72;
+const MINIMUM_HEIGHT_METRES: f32 = 2.5;
+const HEIGHT_PER_SPREAD_METRES: f32 = 0.10;
+const MAX_SPREAD_HEIGHT_METRES: f32 = 3.0;
+const BOUNDARY_EXPANSION_METRES: f32 = 2.0;
+const MID_RING_SCALE: f32 = 1.32;
+const TOP_RING_SCALE: f32 = 1.16;
+const TOP_TIP_CLEARANCE_METRES: f32 = 0.85;
+const TOP_MAXIMUM_SLOPE: f32 = 0.48;
 const TOP_SHOULDER_PROPAGATION_ITERATIONS: usize = 8;
 const LOD0_DISPLACEMENT_METRES: f32 = 0.12;
-const LOD0_BILLOW_METRES: f32 = 0.32;
+const LOD0_BILLOW_METRES: f32 = 0.55;
+const LOD0_SMOOTHING_ITERATIONS: usize = 4;
+const LOD0_COARSE_SMOOTHING_AMOUNT: f32 = 0.12;
+const LOD0_SUBDIVISION_SMOOTHING_AMOUNT: f32 = 0.42;
 const CONTROL_HEIGHT_SMOOTHING_ITERATIONS: usize = 3;
 const CONTROL_HEIGHT_SMOOTHING_AMOUNT: f32 = 0.45;
 const TOP_HEIGHT_SMOOTHING_ITERATIONS: usize = 6;
@@ -36,10 +39,10 @@ const TEST_GEOMETRY_EPSILON: f32 = 1.0e-18;
 
 /// The two foliage streams for one spatial canopy patch.
 ///
-/// `lod1` is the authoritative control mesh.  LOD0 retains its vertices at
-/// the beginning of the subdivided stream, which makes the correspondence
-/// vector an identity map while allowing the new midpoint vertices to carry
-/// the extra detail.
+/// LOD0 retains the LOD1 vertices at the beginning of its subdivided stream.
+/// After smoothing, those corresponding vertices are synchronized so the two
+/// levels share the rounded coarse silhouette while LOD0 keeps the additional
+/// midpoint detail.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct ClusterFoliageMeshes {
     pub(crate) lod0: Mesh,
@@ -122,6 +125,8 @@ pub(crate) fn generate_cluster_foliage(
     if lod1.triangles.is_empty() {
         return Err("cluster foliage support footprint has no surface".to_owned());
     }
+    support_vertices.sort_unstable();
+    support_vertices.dedup();
     lod1.calculate_normals();
 
     let lod1_to_lod0: Vec<u32> = (0..lod1.vertices.len())
@@ -131,7 +136,11 @@ pub(crate) fn generate_cluster_foliage(
         .collect::<Result<_, _>>()?;
     let tessellated = lod1.tessellated_attributed();
     let mut lod0 = tessellated.mesh;
-    smooth_subdivision_vertices(&mut lod0, lod1.vertices.len());
+    smooth_subdivision_vertices(&mut lod0, lod1.vertices.len(), &support_vertices);
+    for (lod1_vertex, &lod0_vertex) in lod1_to_lod0.iter().enumerate() {
+        lod1.vertices[lod1_vertex] = lod0.vertices[lod0_vertex as usize];
+    }
+    lod1.calculate_normals();
     lod0.calculate_normals();
     displace_subdivision_vertices(
         &mut lod0,
@@ -733,14 +742,21 @@ fn crown_peak_weight(position: Vec2, crowns: &[CrownShape]) -> f32 {
         .fold(0.0_f32, f32::max)
 }
 
-fn smooth_subdivision_vertices(mesh: &mut Mesh, coarse_vertex_count: usize) {
+fn smooth_subdivision_vertices(
+    mesh: &mut Mesh,
+    coarse_vertex_count: usize,
+    support_vertices: &[usize],
+) {
     if mesh.vertices.len() <= coarse_vertex_count {
         return;
     }
-    for _ in 0..2 {
-        let adjacency = mesh.adjacency();
+    let adjacency = mesh.adjacency();
+    for _ in 0..LOD0_SMOOTHING_ITERATIONS {
         let previous = mesh.vertices.clone();
-        for vertex in coarse_vertex_count..mesh.vertices.len() {
+        for vertex in 0..mesh.vertices.len() {
+            if support_vertices.binary_search(&vertex).is_ok() {
+                continue;
+            }
             let neighbours = &adjacency[vertex];
             if neighbours.is_empty() {
                 continue;
@@ -749,7 +765,12 @@ fn smooth_subdivision_vertices(mesh: &mut Mesh, coarse_vertex_count: usize) {
                 .iter()
                 .fold(Vec3::ZERO, |total, &neighbour| total + previous[neighbour])
                 / neighbours.len() as f32;
-            mesh.vertices[vertex] = previous[vertex].lerp(average, 0.30);
+            let amount = if vertex < coarse_vertex_count {
+                LOD0_COARSE_SMOOTHING_AMOUNT
+            } else {
+                LOD0_SUBDIVISION_SMOOTHING_AMOUNT
+            };
+            mesh.vertices[vertex] = previous[vertex].lerp(average, amount);
         }
     }
 }
@@ -763,13 +784,9 @@ fn displace_subdivision_vertices(
     if new_vertices.is_empty() {
         return;
     }
-    let support_vertices = support_vertices
-        .iter()
-        .copied()
-        .collect::<std::collections::BTreeSet<_>>();
     for stencil in new_vertices {
         let vertex = stencil.vertex as usize;
-        if support_vertices.contains(&vertex) || vertex >= mesh.vertices.len() {
+        if support_vertices.binary_search(&vertex).is_ok() || vertex >= mesh.vertices.len() {
             continue;
         }
         let position = mesh.vertices[vertex];
@@ -970,7 +987,7 @@ mod tests {
     }
 
     #[test]
-    fn canopy_boundary_extends_beyond_outer_branch_tips() {
+    fn canopy_billows_well_beyond_and_above_outer_branch_tips() {
         let crowns = sample_crowns();
         let outermost_tip = crowns
             .iter()
@@ -984,12 +1001,32 @@ mod tests {
             .iter()
             .map(|vertex| vertex.x)
             .fold(f32::MIN, f32::max);
+        let highest_tip = crowns
+            .iter()
+            .flat_map(|crown| crown.tips)
+            .map(|tip| tip.z)
+            .fold(f32::MIN, f32::max);
+        let highest_canopy = foliage
+            .lod1
+            .vertices
+            .iter()
+            .map(|vertex| vertex.z)
+            .fold(f32::MIN, f32::max);
 
-        assert!(outermost_canopy > outermost_tip + metres(0.50));
+        assert!(
+            outermost_canopy > outermost_tip + metres(1.0),
+            "canopy extends only {:.2}m beyond its outer tip",
+            (outermost_canopy - outermost_tip) * ISLAND_WORLD_METRES
+        );
+        assert!(
+            highest_canopy > highest_tip + metres(1.5),
+            "canopy rises only {:.2}m above its highest tip",
+            (highest_canopy - highest_tip) * ISLAND_WORLD_METRES
+        );
     }
 
     #[test]
-    fn lod0_is_subdivided_and_preserves_coarse_vertices() {
+    fn lod0_is_subdivided_and_shares_its_smoothed_coarse_vertices() {
         let foliage = generate_cluster_foliage(12, &sample_crowns()).expect("valid foliage");
         assert!(foliage.lod0.triangles.len() > foliage.lod1.triangles.len());
         assert_eq!(foliage.lod1_to_lod0.len(), foliage.lod1.vertices.len());
@@ -1000,6 +1037,28 @@ mod tests {
                 foliage.lod0.vertices[lod0_vertex as usize]
             );
         }
+    }
+
+    #[test]
+    fn subdivision_smoothing_rounds_coarse_and_new_vertices_but_pins_supports() {
+        let mut mesh = Mesh {
+            vertices: vec![
+                Vec3::new(0.0, 0.0, 2.0),
+                Vec3::new(-1.0, -1.0, 0.0),
+                Vec3::new(1.0, -1.0, 0.0),
+                Vec3::new(0.0, 1.0, 0.0),
+                Vec3::new(0.0, 0.0, -1.0),
+            ],
+            triangles: vec![0, 1, 4, 1, 2, 4, 2, 3, 4, 3, 0, 4],
+            ..Mesh::default()
+        };
+        let original = mesh.vertices.clone();
+
+        smooth_subdivision_vertices(&mut mesh, 4, &[0]);
+
+        assert_eq!(mesh.vertices[0], original[0]);
+        assert_ne!(mesh.vertices[1], original[1]);
+        assert_ne!(mesh.vertices[4], original[4]);
     }
 
     #[test]
