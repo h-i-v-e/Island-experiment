@@ -11,9 +11,11 @@ use bevy::{
 use crate::island_gen::GeneratedIsland;
 
 /// Frames and seconds to hold after the island appears, so render pipelines
-/// finish compiling and the meshes reach the GPU before the capture.
-const SETTLE_FRAMES: u32 = 30;
-const SETTLE_SECONDS: f32 = 2.0;
+/// finish compiling and the meshes reach the GPU before the capture. The
+/// atmosphere, occlusion, contact shadow and bloom pipelines all compile on
+/// first use, and temporal anti-aliasing needs a run of frames to converge.
+const SETTLE_FRAMES: u32 = 120;
+const SETTLE_SECONDS: f32 = 5.0;
 /// Frames to wait after the file appears, covering the tail of the write.
 const FLUSH_FRAMES: u32 = 5;
 /// Frames after the request before the capture is treated as failed.

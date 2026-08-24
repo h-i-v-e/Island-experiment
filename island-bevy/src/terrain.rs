@@ -1,8 +1,13 @@
 //! Solid ground: the LOD 0 terrain surface and the settled river rocks.
 
 use bevy::prelude::*;
+use motu::ISLAND_WORLD_METRES;
 
-use crate::{convert, island_gen::GeneratedIsland};
+use crate::{
+    convert,
+    island_gen::GeneratedIsland,
+    surface::{RockExtension, RockMaterial, TerrainExtension, TerrainMaterial},
+};
 
 pub struct TerrainPlugin;
 
@@ -18,23 +23,20 @@ impl Plugin for TerrainPlugin {
 fn spawn_terrain(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut terrains: ResMut<Assets<TerrainMaterial>>,
+    mut rocks: ResMut<Assets<RockMaterial>>,
     island: Res<GeneratedIsland>,
 ) {
     let island = &island.0;
 
-    // Vertex colour carries the whole palette, so the base colour stays white
-    // and the surface reads as dry ground rather than polished stone.
-    let ground = materials.add(StandardMaterial {
-        base_color: Color::WHITE,
-        perceptual_roughness: 0.95,
-        reflectance: 0.05,
-        ..default()
+    // The extension writes base colour, roughness and reflectance outright, so
+    // what the base material still decides is only how the surface is drawn:
+    // opaque, single-sided, shadow casting and receiving.
+    let ground = terrains.add(TerrainMaterial {
+        base: StandardMaterial::default(),
+        extension: TerrainExtension::new(island.options.max_height, ISLAND_WORLD_METRES),
     });
-    if let Some(mesh) = island
-        .lod(0)
-        .and_then(|lod| convert::terrain_mesh(island, lod))
-    {
+    if let Some(mesh) = convert::terrain_mesh(&island.terrain, &island.materials) {
         commands.spawn((
             Name::new("Terrain"),
             Mesh3d(meshes.add(mesh)),
@@ -45,13 +47,11 @@ fn spawn_terrain(
         warn!("island has no LOD 0 terrain mesh");
     }
 
-    let stone = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.40, 0.39, 0.37),
-        perceptual_roughness: 0.9,
-        reflectance: 0.08,
-        ..default()
+    let stone = rocks.add(RockMaterial {
+        base: StandardMaterial::default(),
+        extension: RockExtension::default(),
     });
-    if let Some(mesh) = convert::render_mesh(island.river_rock_mesh()) {
+    if let Some(mesh) = convert::rock_mesh(&island.river_rock_mesh) {
         commands.spawn((
             Name::new("River rocks"),
             Mesh3d(meshes.add(mesh)),

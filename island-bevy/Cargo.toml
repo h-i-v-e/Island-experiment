@@ -12,7 +12,13 @@ name = "island-bevy"
 path = "src/main.rs"
 
 [dependencies]
-bevy = { version = "0.19", default-features = false, features = ["3d", "ui"] }
+# bluenoise_texture replaces the placeholder noise the screen-space passes fall
+# back to; contact shadows and ambient occlusion both sample it.
+bevy = { version = "0.19", default-features = false, features = [
+    "3d",
+    "ui",
+    "bluenoise_texture",
+] }
 island-rs = { path = "../island-rs" }
 
 [profile.dev]
