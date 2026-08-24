@@ -918,7 +918,7 @@ mod tests {
         let samples = collect_samples(42, &supports);
         assert_eq!(
             supports.len(),
-            crowns.iter().map(|crown| crown.tips.len()).sum()
+            crowns.iter().map(|crown| crown.tips.len()).sum::<usize>()
         );
         assert_eq!(samples.len(), supports.len());
 

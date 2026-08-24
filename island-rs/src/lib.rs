@@ -12,6 +12,7 @@ mod mesh;
 mod mesh_clipper;
 mod noise;
 mod png;
+pub mod procedural_textures;
 mod profiling;
 mod raster;
 mod river_emitters;
@@ -26,6 +27,10 @@ pub use glam::{Vec2, Vec3};
 pub use math::BoundingBox;
 pub use mesh::{Adjacency, Mesh};
 pub use png::write_png;
+pub use procedural_textures::{
+    OutputManifest, OutputOptions, OutputProfile, TextureError, TextureRecipe, TextureSet,
+    generate_texture_set, write_texture_set,
+};
 pub use raster::Raster;
 pub use river_emitters::{RiverEmitter, extract_river_emitters};
 pub use rivers::{River, RiverNode};
