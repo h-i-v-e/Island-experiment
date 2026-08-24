@@ -20,13 +20,15 @@ use std::{
 
 use motu::{IslandOptions, Mesh, Vec2, Vec3};
 
-use crate::{hash::mix, island_gen::IslandData};
+use crate::{hash::mix, island_gen::IslandData, options};
 
 /// Mixed into every key and written into every entry. Bump it when the
 /// generator's output changes, when the layout of `IslandOptions` changes, or
 /// when this file's format changes: entries written before the bump then hash
 /// to a different key, so none of them is ever read again.
-const CACHE_FORMAT_VERSION: u32 = 1;
+///
+/// 2 added the walk-mode height grid.
+const CACHE_FORMAT_VERSION: u32 = 2;
 
 const MAGIC: &[u8; 8] = b"MOTUBVY\0";
 /// Distinguishes a cache key from the crate's other hashed values.
@@ -39,33 +41,22 @@ const MAX_ENTRY_BYTES: u64 = 2 << 30;
 /// Every count and scalar in the format is one of these.
 const WORD: usize = size_of::<u32>();
 
-/// The number of `IslandOptions` fields [`option_words`] lists.
-const OPTION_WORDS: usize = 15;
+/// The number of `IslandOptions` fields [`option_words`] yields: every scalar
+/// parameter in the table, then `terrain_size`.
+const OPTION_WORDS: usize = options::PARAMETERS.len() + 1;
 
-/// Every `IslandOptions` field, in declaration order, as the bit patterns the
-/// key hashes and an entry stores.
-///
-/// The list has to match `IslandOptions` by hand: a field added there and
-/// forgotten here is not a compile error, and two islands differing only in
-/// that field would then share one entry.
+/// Every `IslandOptions` field, in table order, as the bit patterns the key
+/// hashes and an entry stores. Driving it off the parameter table is what keeps
+/// a field added to `IslandOptions` from silently sharing an entry with the
+/// island it differs from.
 fn option_words(options: &IslandOptions) -> [u32; OPTION_WORDS] {
-    [
-        options.max_height.to_bits(),
-        options.water_ratio.to_bits(),
-        options.slope_multiplier.to_bits(),
-        options.coastal_slope_multiplier.to_bits(),
-        options.hydraulic_erosion_strength.to_bits(),
-        options.hydraulic_deposition_strength.to_bits(),
-        options.hydraulic_deposition_slope_degrees.to_bits(),
-        options.river_source_catchment_hectares.to_bits(),
-        options.river_source_steep_multiplier.to_bits(),
-        options.river_source_elevation_boost.to_bits(),
-        options.river_source_width_metres.to_bits(),
-        options.river_maximum_width_metres.to_bits(),
-        options.river_source_depth_metres.to_bits(),
-        options.river_maximum_depth_metres.to_bits(),
-        options.terrain_size,
-    ]
+    let mut copy = *options;
+    let mut words = [0; OPTION_WORDS];
+    for (word, parameter) in words.iter_mut().zip(&options::PARAMETERS) {
+        *word = (parameter.field)(&mut copy).to_bits();
+    }
+    words[OPTION_WORDS - 1] = options.terrain_size;
+    words
 }
 
 /// Hashes the exact inputs one island is generated from. Bit patterns rather
@@ -121,6 +112,7 @@ pub fn read(path: &Path, seed: u64, options: &IslandOptions) -> Option<IslandDat
     let river_rock_mesh = reader.mesh()?;
     let trees = reader.points()?;
     let bushes = reader.points()?;
+    let heights = reader.scalars()?;
     // Anything left over means the entry was written to a layout this file no
     // longer reads, whatever version it claims.
     if !reader.bytes.is_empty() {
@@ -134,6 +126,7 @@ pub fn read(path: &Path, seed: u64, options: &IslandOptions) -> Option<IslandDat
         river_rock_mesh,
         trees,
         bushes,
+        heights,
         rivers,
     })
 }
@@ -161,6 +154,8 @@ pub fn write(path: &Path, seed: u64, data: &IslandData) -> io::Result<()> {
     write_mesh(&mut writer, &data.river_rock_mesh)?;
     write_points(&mut writer, &data.trees)?;
     write_points(&mut writer, &data.bushes)?;
+    write_count(&mut writer, data.heights.len())?;
+    write_scalars(&mut writer, &data.heights)?;
     writer
         .into_inner()
         .map_err(io::IntoInnerError::into_error)?;
@@ -255,6 +250,10 @@ impl<'a> Reader<'a> {
         })
     }
 
+    fn scalars(&mut self) -> Option<Vec<f32>> {
+        self.array(WORD, Self::f32)
+    }
+
     /// Field order matches [`write_mesh`], and struct expressions evaluate in
     /// the order written.
     fn mesh(&mut self) -> Option<Mesh> {
@@ -321,6 +320,7 @@ mod tests {
             },
             trees: vec![Vec3::new(0.1, 0.2, 0.3), Vec3::new(0.4, 0.5, 0.6)],
             bushes: vec![Vec3::new(0.7, 0.8, 0.9)],
+            heights: vec![-0.01, 0.0, 0.125, 0.5, -0.25],
             rivers: 7,
         }
     }
@@ -330,7 +330,11 @@ mod tests {
         let path = scratch("round-trip");
         let data = island();
         write(&path, 42, &data).unwrap();
-        assert_eq!(read(&path, 42, &data.options), Some(data.clone()));
+        let read_back = read(&path, 42, &data.options);
+        assert_eq!(read_back, Some(data.clone()));
+        // The height grid crosses as written: walk mode stands on these values,
+        // and a shifted or truncated grid would only show as sunken ground.
+        assert_eq!(read_back.unwrap().heights, data.heights);
         // The same entry read under other inputs is a miss, not other geometry.
         assert_eq!(read(&path, 43, &data.options), None);
         assert_eq!(read(&path, 42, &IslandOptions::default()), None);

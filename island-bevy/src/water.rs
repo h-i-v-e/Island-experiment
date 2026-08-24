@@ -7,7 +7,7 @@ use motu::ISLAND_WORLD_METRES;
 
 use crate::{
     convert,
-    island_gen::GeneratedIsland,
+    island_gen::{GeneratedIsland, IslandEntity, IslandReady},
     surface::{OceanExtension, OceanMaterial, RiverExtension, RiverMaterial},
 };
 
@@ -21,10 +21,8 @@ pub struct WaterPlugin;
 
 impl Plugin for WaterPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, spawn_sea).add_systems(
-            Update,
-            spawn_rivers.run_if(resource_added::<GeneratedIsland>),
-        );
+        app.add_systems(Startup, spawn_sea)
+            .add_systems(Update, spawn_rivers.run_if(on_message::<IslandReady>));
     }
 }
 
@@ -80,6 +78,7 @@ fn spawn_rivers(
     });
     commands.spawn((
         Name::new("Rivers"),
+        IslandEntity,
         Mesh3d(meshes.add(mesh)),
         MeshMaterial3d(material),
         Transform::default(),

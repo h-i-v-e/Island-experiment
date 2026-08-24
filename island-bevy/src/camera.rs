@@ -1,11 +1,13 @@
-//! Free-flying observer camera, the named poses it opens on, and the view
-//! stack the scene is rendered through.
+//! Observer camera in its two movement modes, the named poses it opens on, and
+//! the view stack the scene is rendered through.
 //!
-//! WASD moves on the view plane, Space and Shift move along world up and down,
-//! holding the left mouse button drags the ground along under the cursor,
-//! holding the right mouse button looks around with the cursor grabbed, the
-//! scroll wheel zooms along the view direction, R returns to the pose `--view`
-//! selected, and Escape releases the cursor.
+//! Flying, WASD moves on the view plane and Space and Shift move along world up
+//! and down. Walking, WASD moves along the ground with the eye held a little
+//! under two metres over it and Shift breaks into a jog. F switches between
+//! them. In both, holding the left mouse button drags the ground along under
+//! the cursor, holding the right mouse button looks around with the cursor
+//! grabbed, the scroll wheel dollies along the view direction, R returns to the
+//! pose `--view` selected and to flying, and Escape releases the cursor.
 
 use std::f32::consts::FRAC_PI_2;
 
@@ -21,6 +23,8 @@ use bevy::{
     window::{CursorGrabMode, CursorOptions, PrimaryWindow},
 };
 use motu::ISLAND_WORLD_METRES;
+
+use crate::island_gen::GeneratedIsland;
 
 /// The named capture poses. The first entry is the default. Everything below
 /// `overview` was framed on seed 666 at terrain size 1024, which is where the
@@ -163,6 +167,19 @@ const CONTACT_SHADOW_THICKNESS: f32 = 0.4;
 /// intensity stays well under the natural preset's own 0.15.
 const BLOOM_INTENSITY: f32 = 0.05;
 
+/// Switches between flying and walking.
+pub const WALK_KEY: KeyCode = KeyCode::KeyF;
+/// Eye height over the ground on foot.
+const EYE_HEIGHT: f32 = 1.8;
+const WALK_SPEED: f32 = 1.5;
+const JOG_SPEED: f32 = 4.5;
+/// How deep the water may be underfoot. A step that would cross into anything
+/// deeper is refused, and ground already below this is stood on at this depth
+/// rather than sunk into, which puts the eye 0.8 m over the sea: chest deep.
+/// The generated shelf runs one to three metres down across the whole square,
+/// so the sea itself is what stops a walk at the shoreline.
+const WADE_DEPTH: f32 = 1.0;
+
 /// One entry in the preset table: the pose the view frames by default, and the
 /// poses that replace it whole under the generation variants that move its
 /// subject somewhere else.
@@ -224,13 +241,49 @@ pub struct FlyCamera {
     looking: bool,
 }
 
+/// Which of the two movement modes the camera is in.
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CameraMode {
+    #[default]
+    Fly,
+    Walk,
+}
+
+/// Whether the mouse and the keyboard belong to an on-screen panel this frame
+/// rather than to the camera. Always present and left clear when nothing draws
+/// a panel, which is what keeps the camera off the HUD's own drags and typing
+/// without the camera knowing what draws it.
+#[derive(Resource, Clone, Copy, Debug, Default)]
+pub struct UiHasInput {
+    pub pointer: bool,
+    pub keyboard: bool,
+}
+
 pub struct FlyCameraPlugin;
 
 impl Plugin for FlyCameraPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ViewPose>()
+            .init_resource::<CameraMode>()
+            .init_resource::<UiHasInput>()
             .add_systems(Startup, spawn_camera)
-            .add_systems(Update, (grab_cursor, look, pan, fly, zoom, reset));
+            // Chained because the ground clamp has to see every move the frame
+            // made: walking, dollying and the mode switch all move the eye.
+            .add_systems(
+                Update,
+                (
+                    grab_cursor,
+                    switch_mode,
+                    look,
+                    pan,
+                    fly,
+                    walk,
+                    zoom,
+                    reset,
+                    stay_on_ground,
+                )
+                    .chain(),
+            );
     }
 }
 
@@ -290,6 +343,7 @@ fn spawn_camera(mut commands: Commands, pose: Res<ViewPose>) {
 fn grab_cursor(
     mouse: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
+    ui: Res<UiHasInput>,
     mut cursors: Query<&mut CursorOptions, With<PrimaryWindow>>,
     mut cameras: Query<&mut FlyCamera>,
 ) {
@@ -297,7 +351,10 @@ fn grab_cursor(
         return;
     };
     let release = keys.just_pressed(KeyCode::Escape) || mouse.just_released(MouseButton::Right);
-    let looking = if mouse.just_pressed(MouseButton::Right) {
+    // A press that lands on the panel belongs to it; a release always reaches
+    // the camera, or a drag that wandered over the panel would leave the
+    // cursor grabbed with nothing steering it.
+    let looking = if mouse.just_pressed(MouseButton::Right) && !ui.pointer {
         true
     } else if release {
         false
@@ -336,9 +393,16 @@ fn look(motion: Res<AccumulatedMouseMotion>, mut cameras: Query<(&mut FlyCamera,
 fn pan(
     mouse: Res<ButtonInput<MouseButton>>,
     motion: Res<AccumulatedMouseMotion>,
+    mode: Res<CameraMode>,
+    ui: Res<UiHasInput>,
     windows: Query<&Window, With<PrimaryWindow>>,
     mut cameras: Query<(&FlyCamera, &mut Transform)>,
 ) {
+    // Panning slides the eye over the ground, which is the one thing walking is
+    // for, so on foot the drag does nothing.
+    if *mode == CameraMode::Walk || ui.pointer {
+        return;
+    }
     if !mouse.pressed(MouseButton::Left) || motion.delta == Vec2::ZERO {
         return;
     }
@@ -374,8 +438,13 @@ fn ground_axis(direction: Vec3) -> Option<Vec3> {
 fn fly(
     keys: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,
+    mode: Res<CameraMode>,
+    ui: Res<UiHasInput>,
     mut cameras: Query<&mut Transform, With<FlyCamera>>,
 ) {
+    if *mode == CameraMode::Walk || ui.keyboard {
+        return;
+    }
     for mut transform in &mut cameras {
         let forward = *transform.forward();
         let right = *transform.right();
@@ -406,8 +475,14 @@ fn fly(
 }
 
 /// Scrolling up dollies along the view direction. Line and pixel deltas arrive
-/// on wildly different scales, so each carries its own step.
-fn zoom(scroll: Res<AccumulatedMouseScroll>, mut cameras: Query<&mut Transform, With<FlyCamera>>) {
+/// on wildly different scales, so each carries its own step. On foot the dolly
+/// still runs, and the ground clamp puts the eye straight back down, so what is
+/// left of it is a long stride along the heading.
+fn zoom(
+    scroll: Res<AccumulatedMouseScroll>,
+    ui: Res<UiHasInput>,
+    mut cameras: Query<(&FlyCamera, &mut Transform)>,
+) {
     if scroll.delta.y == 0.0 {
         return;
     }
@@ -416,27 +491,131 @@ fn zoom(scroll: Res<AccumulatedMouseScroll>, mut cameras: Query<&mut Transform, 
         MouseScrollUnit::Pixel => ZOOM_PER_PIXEL,
     };
     let distance = scroll.delta.y * step;
-    for mut transform in &mut cameras {
+    for (camera, mut transform) in &mut cameras {
+        // Looking grabs the cursor where it stood, so the panel would go on
+        // reporting the pointer as its own for as long as the look lasted. A
+        // camera that already owns the mouse keeps the wheel with it.
+        if ui.pointer && !camera.looking {
+            continue;
+        }
         let forward = *transform.forward();
         transform.translation += forward * distance;
     }
 }
 
 /// The stored angles have to come back with the pose, or the next look resumes
-/// from wherever the camera had been left. Whether the cursor is grabbed is a
-/// separate question the reset does not answer.
+/// from wherever the camera had been left. A named pose is a flying pose, so
+/// the reset also puts the camera back in the air. Whether the cursor is
+/// grabbed is a separate question the reset does not answer.
 fn reset(
     keys: Res<ButtonInput<KeyCode>>,
     pose: Res<ViewPose>,
+    ui: Res<UiHasInput>,
+    mut mode: ResMut<CameraMode>,
     mut cameras: Query<(&mut FlyCamera, &mut Transform)>,
 ) {
-    if !keys.just_pressed(KeyCode::KeyR) {
+    if !keys.just_pressed(KeyCode::KeyR) || ui.keyboard {
         return;
     }
+    *mode = CameraMode::Fly;
     for (mut camera, mut transform) in &mut cameras {
         *transform = pose.transform();
         let (yaw, pitch) = heading(transform.rotation);
         camera.yaw = yaw;
         camera.pitch = pitch;
+    }
+}
+
+fn switch_mode(keys: Res<ButtonInput<KeyCode>>, ui: Res<UiHasInput>, mut mode: ResMut<CameraMode>) {
+    if !keys.just_pressed(WALK_KEY) || ui.keyboard {
+        return;
+    }
+    *mode = match *mode {
+        CameraMode::Fly => CameraMode::Walk,
+        CameraMode::Walk => CameraMode::Fly,
+    };
+    info!("camera mode: {:?}", *mode);
+}
+
+/// Walking moves in the horizontal plane at a pace a person keeps, with Shift
+/// breaking into a jog rather than descending as it does in the air.
+///
+/// A step that would put the walker in water deeper than [`WADE_DEPTH`] is
+/// refused. The two axes are then tried on their own, so a shoreline turns the
+/// walk along itself instead of stopping it dead.
+fn walk(
+    keys: Res<ButtonInput<KeyCode>>,
+    time: Res<Time>,
+    mode: Res<CameraMode>,
+    ui: Res<UiHasInput>,
+    island: Option<Res<GeneratedIsland>>,
+    mut cameras: Query<&mut Transform, With<FlyCamera>>,
+) {
+    if *mode == CameraMode::Fly || ui.keyboard {
+        return;
+    }
+    let jogging = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
+    let speed = if jogging { JOG_SPEED } else { WALK_SPEED };
+    for mut transform in &mut cameras {
+        let forward = ground_axis(*transform.forward())
+            .or_else(|| ground_axis(*transform.up()))
+            .unwrap_or(Vec3::NEG_Z);
+        let right = ground_axis(*transform.right()).unwrap_or(Vec3::X);
+        let mut direction = Vec3::ZERO;
+        if keys.pressed(KeyCode::KeyW) {
+            direction += forward;
+        }
+        if keys.pressed(KeyCode::KeyS) {
+            direction -= forward;
+        }
+        if keys.pressed(KeyCode::KeyD) {
+            direction += right;
+        }
+        if keys.pressed(KeyCode::KeyA) {
+            direction -= right;
+        }
+        let Some(direction) = direction.try_normalize() else {
+            continue;
+        };
+        let step = direction * speed * time.delta_secs();
+        let from = transform.translation;
+        let wadeable = |to: Vec3| {
+            island
+                .as_ref()
+                .is_none_or(|island| island.0.ground_height(to.x, to.z) >= -WADE_DEPTH)
+        };
+        for candidate in [
+            from + step,
+            from + Vec3::new(step.x, 0.0, 0.0),
+            from + Vec3::new(0.0, 0.0, step.z),
+        ] {
+            if wadeable(candidate) {
+                transform.translation = candidate;
+                break;
+            }
+        }
+    }
+}
+
+/// Holds the eye one person's height over the ground under it, whatever moved
+/// it this frame. Ground below [`WADE_DEPTH`] is stood on at that depth rather
+/// than sunk into, so a camera left over open sea or off the terrain square
+/// floats at the waterline instead of falling away under it.
+fn stay_on_ground(
+    mode: Res<CameraMode>,
+    island: Option<Res<GeneratedIsland>>,
+    mut cameras: Query<&mut Transform, With<FlyCamera>>,
+) {
+    if *mode == CameraMode::Fly {
+        return;
+    }
+    let Some(island) = island else {
+        return;
+    };
+    for mut transform in &mut cameras {
+        let ground = island
+            .0
+            .ground_height(transform.translation.x, transform.translation.z);
+        transform.translation.y = ground.max(-WADE_DEPTH) + EYE_HEIGHT;
     }
 }

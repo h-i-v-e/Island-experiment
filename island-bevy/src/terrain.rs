@@ -5,7 +5,7 @@ use motu::ISLAND_WORLD_METRES;
 
 use crate::{
     convert,
-    island_gen::GeneratedIsland,
+    island_gen::{GeneratedIsland, IslandEntity, IslandReady},
     surface::{RockExtension, RockMaterial, TerrainExtension, TerrainMaterial},
 };
 
@@ -13,10 +13,7 @@ pub struct TerrainPlugin;
 
 impl Plugin for TerrainPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
-            Update,
-            spawn_terrain.run_if(resource_added::<GeneratedIsland>),
-        );
+        app.add_systems(Update, spawn_terrain.run_if(on_message::<IslandReady>));
     }
 }
 
@@ -39,6 +36,7 @@ fn spawn_terrain(
     if let Some(mesh) = convert::terrain_mesh(&island.terrain, &island.materials) {
         commands.spawn((
             Name::new("Terrain"),
+            IslandEntity,
             Mesh3d(meshes.add(mesh)),
             MeshMaterial3d(ground),
             Transform::default(),
@@ -54,6 +52,7 @@ fn spawn_terrain(
     if let Some(mesh) = convert::rock_mesh(&island.river_rock_mesh) {
         commands.spawn((
             Name::new("River rocks"),
+            IslandEntity,
             Mesh3d(meshes.add(mesh)),
             MeshMaterial3d(stone),
             Transform::default(),

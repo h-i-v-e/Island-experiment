@@ -15,7 +15,7 @@ use bevy::{light::NotShadowCaster, mesh::VertexAttributeValues, prelude::*};
 use crate::{
     convert::island_to_world,
     hash::{choice, mix, unit},
-    island_gen::GeneratedIsland,
+    island_gen::{GeneratedIsland, IslandEntity, IslandReady},
 };
 
 const TRUNK_RADIUS: f32 = 0.6;
@@ -58,10 +58,7 @@ pub struct VegetationPlugin;
 
 impl Plugin for VegetationPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
-            Update,
-            spawn_vegetation.run_if(resource_added::<GeneratedIsland>),
-        );
+        app.add_systems(Update, spawn_vegetation.run_if(on_message::<IslandReady>));
     }
 }
 
@@ -96,6 +93,7 @@ fn spawn_vegetation(
         .map(|(index, point)| {
             let hash = mix(index as u64, TREE_SALT);
             (
+                IslandEntity,
                 Mesh3d(tree_meshes[choice(hash, tree_meshes.len())].clone()),
                 MeshMaterial3d(plant.clone()),
                 placement(hash, *point, TREE_SALT, 0.75, 0.55),
@@ -110,6 +108,7 @@ fn spawn_vegetation(
         .map(|(index, point)| {
             let hash = mix(index as u64, BUSH_SALT);
             (
+                IslandEntity,
                 Mesh3d(bush_meshes[choice(hash, bush_meshes.len())].clone()),
                 MeshMaterial3d(plant.clone()),
                 placement(hash, *point, BUSH_SALT, 0.7, 0.7),

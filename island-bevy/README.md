@@ -2,7 +2,8 @@
 
 A Bevy viewer for the `island-rs` procedural island generator. It generates an
 island in process, converts the generator's meshes into Bevy meshes, and renders
-terrain, sea, rivers, river rocks and vegetation in one flyable 3D scene.
+terrain, sea, rivers, river rocks and vegetation in one 3D scene you can fly
+over or walk around.
 
 The generator is deterministic, so a given seed produces exactly the geometry,
 material weights and decoration points the Unity pipeline consumes. This crate
@@ -15,7 +16,8 @@ cargo run --release -- --seed 42
 ```
 
 The window opens immediately and shows `Generating island...` while the island
-builds on a background task pool.
+builds on a background task pool. Press `H` for the parameter panel, which
+generates a new island without a restart, and `F` to walk on the one you have.
 
 Options are applied in the order given, so a later one wins: `--variant eroded
 --max-height 0.3` keeps the variant's erosion and takes the spelled-out height.
@@ -23,14 +25,41 @@ Options are applied in the order given, so a later one wins: `--variant eroded
 | Option | Default | Notes |
 | --- | --- | --- |
 | `--seed <N>` | `666` | Generation seed. |
-| `--terrain-size <N>` | `1024` | Delaunay seed-point count. The first generation takes roughly 30 s, then the cache makes repeat launches fast; `128` or `256` iterate quickly. |
-| `--max-height <HEIGHT>` | `0.2` | Normalized maximum elevation. |
-| `--water-ratio <RATIO>` | `0.6` | Water coverage. |
+| `--terrain-size <N>` | `1024` | Delaunay seed-point count, 16 to 4096. The first generation takes roughly 30 s, then the cache makes repeat launches fast; `128` or `256` iterate quickly. |
 | `--variant <NAME>` | `default` | Named generation variant; see below. |
 | `--view <NAME>` | `overview` | Named camera pose to open on and to reset to; see below. |
 | `--screenshot <PATH>` | — | Render, capture one PNG once the island has settled, then exit. |
-| `--no-cache` | off | Generate even when a cached island matches these inputs; the entry is rewritten either way. See below. |
+| `--no-cache` | off | Generate even when a cached island matches these inputs; the entry is rewritten either way. Applies to the HUD's rebuilds as well as to the first island. See below. |
 | `-h`, `--help` | — | Print usage. |
+
+Every one of the generator's fifteen parameters has a flag of its own, so any
+island the HUD finds can be reopened from the command line. `--help` prints
+them with the range the HUD offers each over. The flags themselves are not held
+to those ranges — only `Island::generate` rejects a value, and only for the
+parameters it validates.
+
+| Group | Flags | Default |
+| --- | --- | --- |
+| Terrain | `--terrain-size` | `1024` |
+| | `--max-height` | `0.2` |
+| | `--water-ratio` | `0.6` |
+| | `--slope-multiplier` | `1.3` |
+| | `--coastal-slope-multiplier` | `1.0` |
+| Hydraulics | `--hydraulic-erosion-strength` | `1.0` |
+| | `--hydraulic-deposition-strength` | `1.5` |
+| | `--hydraulic-deposition-slope-degrees` | `12.0` |
+| Rivers | `--river-source-catchment-hectares` | `0.05` |
+| | `--river-source-steep-multiplier` | `4.0` |
+| | `--river-source-elevation-boost` | `9.0` |
+| | `--river-source-width-metres` | `2.0` |
+| | `--river-maximum-width-metres` | `14.0` |
+| | `--river-source-depth-metres` | `0.35` |
+| | `--river-maximum-depth-metres` | `2.0` |
+
+`src/options.rs` holds all fifteen in one table — the flag, the HUD's range and
+the field — and the parser, the help text, the HUD's sliders, the command line
+the HUD reports and the cache key all walk it. A parameter added to
+`IslandOptions` is added there once.
 
 ### Cache
 
@@ -43,16 +72,21 @@ Entries live in `target/island-cache/`, one file per island, named after a hash
 of the seed and every generator option. Changing any of them is a different
 island and so a different file; nothing is ever invalidated in place, and the
 directory only grows. `cargo clean` clears it, and so does deleting the
-directory. Each entry is the finished meshes, material weights and decoration
-points in a flat binary layout — tens of megabytes at terrain size 256 — and is
-read on the same background task generation would have run on, so the first
-frame never waits on it.
+directory. Each entry is the finished meshes, material weights, decoration
+points and walk mode's height grid in a flat binary layout — tens of megabytes
+at terrain size 256, of which the grid is 1 MiB — and is read on the same
+background task generation would have run on, so no frame ever waits on it.
+The HUD's rebuilds read it too, which is what brings a parameter set you have
+already visited back in milliseconds.
 
 An entry is only read when the seed and all fifteen options recorded in it
 match the run asking for it exactly. Anything else — a missing, truncated,
 oversized or otherwise damaged file, or one written by an earlier format
 version — is a miss, and the island is generated and the entry rewritten. The
-log says which happened on every run:
+format version is mixed into the key as well as written into the entry, so
+entries from before a bump are never even opened, let alone read as damage. The
+current version is 2, which added the height grid. The log says which happened
+on every run and on every rebuild:
 
 ```
 island cache hit: /…/target/island-cache/6a1f….bin
@@ -102,18 +136,85 @@ channel's 100, which is why its wider views stand closer in.
 
 ## Controls
 
-| Input | Action |
-| --- | --- |
-| `W` `A` `S` `D` | Move on the view plane at 220 m/s |
-| `Space` / `Shift` | Move up / down |
-| Left mouse held | Pan: drag the ground along under the cursor, altitude unchanged |
-| Right mouse held | Look around; the cursor is grabbed and hidden |
-| Scroll wheel | Zoom along the view direction; 60 m per wheel line, less per trackpad pixel |
-| `R` | Return to the `--view` pose |
-| `Esc` | Release the cursor |
+The camera has two movement modes, flying and walking, and `F` switches between
+them. It starts flying, on the pose `--view` names, which is `overview`: about
+1.6 km out at 700 m, framing the whole 2 km island.
 
-The camera starts on the pose `--view` names, which is `overview`: about 1.6 km
-out at 700 m, framing the whole 2 km island.
+| Input | Flying | Walking |
+| --- | --- | --- |
+| `W` `A` `S` `D` | Move on the view plane at 220 m/s | Walk along the ground at 1.5 m/s |
+| `Shift` | Move down | Jog, at 4.5 m/s |
+| `Space` | Move up | — |
+| Left mouse held | Pan: drag the ground along under the cursor, altitude unchanged | — |
+| Right mouse held | Look around; the cursor is grabbed and hidden | Same |
+| Scroll wheel | Zoom along the view direction; 60 m per wheel line, less per trackpad pixel | A long stride along the heading; the eye stays on the ground |
+| `F` | Start walking | Take off |
+| `R` | Return to the `--view` pose | Return to the `--view` pose, flying |
+| `H` | Show or hide the parameter panel | Same |
+| `Esc` | Release the cursor | Same |
+
+`H` and `F` are the only two bindings the HUD and walk mode add. While a panel
+field has the keyboard, or the pointer is over the panel, neither the camera
+nor either toggle sees the input.
+
+### Walking
+
+`F` puts the eye 1.8 m over the ground directly under it and holds it there
+whatever else moved the camera that frame, so a scroll dolly slides along the
+ground rather than lifting off it. `R` returns to the `--view` pose and to
+flying, since the named poses are all in the air.
+
+The ground comes from a 512 by 512 grid of the generator's own `height_map`,
+sampled bilinearly. That is one height every 3.9 m across the two kilometre
+island and 1 MiB in the cache entry, a few per cent of an entry that already
+runs to tens of megabytes. Cliff faces smooth into ramps at that spacing, which
+for walking around is what you want; every valley, ridge and riverbed the eye
+reads at head height is there.
+
+Water is not swum. A step that would put the walker in more than a metre of
+water is refused, and the two axes are then tried on their own so the shoreline
+turns the walk along itself rather than stopping it dead. The generated shelf
+runs one to three metres deep across the whole square, so the sea is what stops
+a walk at the waterline. Ground already deeper than that — the camera dropped
+into walk mode over open water, or dollied out past the terrain square — is
+stood on at one metre rather than sunk into, which leaves the eye 0.8 m over the
+sea. Off the square the grid clamps to its edge, so there is nothing to fall
+through.
+
+## Parameter panel
+
+`H` shows and hides a panel carrying the seed and all fifteen generator
+parameters, so an island can be hunted for without restarting. Sliders span the
+range each parameter is useful over — the generator's own limits where it
+validates one, working ranges otherwise — and each is labelled with the flag
+that reproduces it.
+
+Nothing regenerates while a slider moves. Generation takes seconds to a couple
+of minutes, so the panel edits a draft and **Regenerate** hands the whole draft
+over at once. The button dims while a build runs, and the status line above it
+counts the seconds. The island on screen stays up the whole time; when the new
+one lands, every entity the old one spawned is despawned and the new set is
+spawned in the same frame.
+
+Under the button is the argument list that reproduces the island on screen, with
+a copy button. The same line goes to the log on every build:
+
+```
+island arguments: --seed 666 --terrain-size 128 --max-height 0.2 …
+```
+
+Rebuilds read the cache like any other generation, so a parameter set you have
+already visited comes back in tens of milliseconds rather than seconds. A
+rebuild whose parameters the generator rejects leaves the island on screen alone
+and reports the error on the panel; only a first island that cannot be generated
+is fatal.
+
+A small dimmed frames-per-second readout sits in the bottom-left corner,
+smoothed and refreshed twice a second. It is always on and is not part of the
+`H` toggle.
+
+The panel is drawn with [`bevy_egui`](https://crates.io/crates/bevy_egui), the
+crate's only dependency outside `bevy` and `island-rs`.
 
 ## Screenshots
 
@@ -125,6 +226,17 @@ The app waits for the island, then holds several seconds while the atmosphere,
 occlusion, contact-shadow and bloom pipelines compile and the temporal
 anti-aliasing converges, writes the PNG, and exits. A non-zero exit code means
 the capture never landed.
+
+A capture run stays out of the way of whatever else is open. Its window never
+takes the keyboard, and neither the panel nor the frame-rate readout is built at
+all under `--screenshot`, so no capture can carry either of them whatever the
+`H` toggle was last left at.
+
+The window does still appear. A capture reads that window's own surface back,
+and macOS only keeps a surface current while the window is composited, so
+`Window { visible: false, .. }`, minimizing it and `WindowLevel::AlwaysOnBottom`
+each produce a valid PNG of solid black. Each was tried on its own. Opening
+unfocused is as far as it can go and still capture.
 
 ## Rendering
 
