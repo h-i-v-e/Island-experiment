@@ -13,6 +13,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
     private static readonly int GrassHeightId = Shader.PropertyToID("_GrassHeight");
     private static readonly int GrassPlayerPositionId = Shader.PropertyToID("_GrassPlayerPosition");
     private static readonly int GrassRadiusId = Shader.PropertyToID("_GrassRadius");
+    private static readonly int GrassFadeWidthId = Shader.PropertyToID("_GrassFadeWidth");
     private const float GrassPositionUpdateDistance = 0.25f;
     private const int Divisions = 8;
     private const int Lod0Divisions = 1;
@@ -86,6 +87,8 @@ public sealed class TerrainTileStreamer : MonoBehaviour
     private IntPtr islandHandle;
     private Material terrainMaterial;
     private Material grassMaterial;
+    private Material treeWoodMaterial;
+    private Material treeFoliageMaterial;
     private MaterialPropertyBlock lod0MaterialProperties;
     private Material riverMaterial;
     private Material rockMaterial;
@@ -104,6 +107,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
     private GameObject riverRockRoot;
     private GameObject colliderRoot;
     private RiverParticlePool riverParticlePool;
+    private ForestTileStreamer forestStreamer;
     private Vector2Int currentLod2 = new Vector2Int(-1, -1);
     private Vector2Int currentLod1 = new Vector2Int(-1, -1);
 
@@ -114,6 +118,9 @@ public sealed class TerrainTileStreamer : MonoBehaviour
     internal int Lod0GroupCount => lod0Groups.Count;
     internal int TerrainColliderCount => colliderTiles.Count;
     internal bool HasCurrentCollider => colliderTiles.Count != 0;
+    internal int ForestLod2TileCount => forestStreamer?.ActiveLod2TileCount ?? 0;
+    internal int ForestLod1GroupCount => forestStreamer?.Lod1GroupCount ?? 0;
+    internal int ForestLod0GroupCount => forestStreamer?.Lod0GroupCount ?? 0;
     internal byte Lod1ClampSidesAt(Vector2Int key) => lod1Groups[key].clampSides;
     internal byte Lod0ClampSidesAt(Vector2Int key) => lod0Groups[key].clampSides;
 
@@ -122,24 +129,39 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         Material sharedTerrainMaterial,
         Material sharedGrassMaterial,
         Material sharedRockMaterial,
+        Material sharedTreeWoodMaterial,
+        Material sharedTreeFoliageMaterial,
         Material waterMaterial,
         Material sharedMeshEdgeMaterial,
         float terrainWorldSize,
         IslandPreparedMesh[] overviewTiles,
         IslandPreparedMesh[] riverTiles,
         IslandPreparedMesh[] riverRockTiles,
+        IslandPreparedForestData preparedForest,
         IslandPreparedRiverEmitter[] riverEmitters,
         IslandPreparedColliderHeightMap preparedColliderHeightMap,
         bool showRivers,
         bool showGrass,
         bool showRocks,
+        bool showForests,
         CancellationToken cancellationToken)
     {
         islandHandle = handle;
         terrainMaterial = sharedTerrainMaterial;
         grassMaterial = sharedGrassMaterial;
+        treeWoodMaterial = sharedTreeWoodMaterial;
+        treeFoliageMaterial = sharedTreeFoliageMaterial;
         terrainMaterial.SetFloat(GrassEnabledId, 0f);
         grassMaterial.SetFloat(GrassEnabledId, 0f);
+        if (treeFoliageMaterial != null)
+        {
+            treeFoliageMaterial.SetFloat(
+                GrassRadiusId,
+                grassMaterial.GetFloat(GrassRadiusId));
+            treeFoliageMaterial.SetFloat(
+                GrassFadeWidthId,
+                grassMaterial.GetFloat(GrassFadeWidthId));
+        }
         grassBoundsRadius = grassMaterial.GetFloat(GrassRadiusId)
             + grassMaterial.GetFloat(GrassHeightId);
         lod0MaterialProperties = new MaterialPropertyBlock();
@@ -149,6 +171,10 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         meshEdgeMaterial = sharedMeshEdgeMaterial;
         preparedRiverTiles = riverTiles;
         preparedRiverRockTiles = riverRockTiles;
+        if (preparedForest == null)
+        {
+            throw new InvalidOperationException("The prepared forest batch is missing.");
+        }
         colliderHeightMap = preparedColliderHeightMap;
         worldSize = terrainWorldSize;
         grassVisible = showGrass;
@@ -187,6 +213,14 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         riverRockRoot = new GameObject("Stones and Boulders");
         riverRockRoot.transform.SetParent(transform, false);
         riverRockRoot.SetActive(showRocks);
+        forestStreamer = new ForestTileStreamer();
+        forestStreamer.Initialize(
+            transform,
+            treeFoliageMaterial,
+            treeWoodMaterial,
+            meshEdgeMaterial,
+            preparedForest,
+            showForests);
         lod2Group = await CreatePreparedGroupAsync(
             2,
             Vector2Int.zero,
@@ -249,6 +283,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         terrainMaterial.SetFloat(GrassEnabledId, grassVisible ? 1f : 0f);
         grassMaterial.SetVector(GrassPlayerPositionId, worldPosition);
         grassMaterial.SetFloat(GrassEnabledId, grassVisible ? 1f : 0f);
+        treeFoliageMaterial?.SetVector(GrassPlayerPositionId, worldPosition);
         var lod2 = LocalCell(localPosition, Lod2Resolution);
         var lod1 = LocalCell(localPosition, Lod1Resolution);
 
@@ -260,11 +295,13 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         }
         if (lod2 != currentLod2)
         {
+            forestStreamer?.UpdateLod1Neighborhood(lod2);
             UpdateLod1Neighborhood(lod2);
             currentLod2 = lod2;
         }
         if (lod1 != currentLod1)
         {
+            forestStreamer?.UpdateLod0Neighborhood(lod1);
             UpdateLod0Neighborhood(lod1);
             currentLod1 = lod1;
         }
@@ -277,6 +314,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
 
     public void ClearPlayerFocus()
     {
+        forestStreamer?.ClearPlayerFocus();
         terrainMaterial?.SetFloat(GrassEnabledId, 0f);
         grassMaterial?.SetFloat(GrassEnabledId, 0f);
         lastGrassPosition = new Vector3(float.PositiveInfinity, 0f, 0f);
@@ -396,6 +434,8 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         riverRockGroups.Clear();
         riverParticlePool?.DisposePool();
         riverParticlePool = null;
+        forestStreamer?.Dispose();
+        forestStreamer = null;
         DestroyUnityObject(riverRoot);
         riverRoot = null;
         DestroyUnityObject(riverRockRoot);
@@ -405,6 +445,8 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         preparedRiverTiles = null;
         preparedRiverRockTiles = null;
         colliderHeightMap = null;
+        treeWoodMaterial = null;
+        treeFoliageMaterial = null;
         if (lod2Group != null)
         {
             DestroyGroup(lod2Group);
@@ -448,9 +490,19 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         riverRockRoot?.SetActive(visible);
     }
 
+    public void SetForestsVisible(bool visible)
+    {
+        forestStreamer?.SetVisible(visible);
+    }
+
     public void SetMeshEdgesVisible(bool visible)
     {
         meshEdgesVisible = visible;
+    }
+
+    public void SetTreeMeshEdgesVisible(bool visible)
+    {
+        forestStreamer?.SetMeshEdgesVisible(visible);
     }
 
     private void LateUpdate()

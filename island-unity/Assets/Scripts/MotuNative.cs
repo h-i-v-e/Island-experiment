@@ -26,6 +26,22 @@ internal static class MotuNative
         internal float riverMaximumDepthMetres;
     }
 
+    // Forest controls are kept in a separate native block so the historical
+    // MotuOptions ABI remains the 16-float terrain contract. The byte fields
+    // intentionally use the platform's natural C/Rust alignment (three bytes
+    // of padding before each following float).
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct ForestOptions
+    {
+        internal float patchSizeMetres;
+        internal float noiseThreshold;
+        internal byte noiseOctaves;
+        internal float snowlineMetres;
+        internal byte prototypeCount;
+        internal float minimumScale;
+        internal float maximumScale;
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     internal struct Vector3Array
     {
@@ -160,7 +176,21 @@ internal static class MotuNative
     internal static extern IntPtr CreateMotu(int seed, ref Options options);
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+    internal static extern IntPtr CreateMotuWithForest(
+        int seed,
+        ref Options options,
+        ref ForestOptions forestOptions);
+
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
     internal static extern void ReleaseMotu(IntPtr handle);
+
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+    internal static extern void CreateProceduralTree(
+        int seed,
+        out ExportMesh lod0Wood,
+        out ExportMesh lod0Foliage,
+        out ExportMesh lod1Wood,
+        out ExportMesh lod1Foliage);
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
     internal static extern void CreateMesh(
@@ -207,6 +237,22 @@ internal static class MotuNative
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
     internal static extern void ReleaseMeshWithUV(ref ExportMeshWithUv output);
+
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+    internal static extern void CreateForestWoodMeshGrid(
+        IntPtr handle,
+        ref ExportArea area,
+        int visualLod,
+        int divisions,
+        out ExportMeshGrid output);
+
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+    internal static extern void CreateForestFoliageMeshGrid(
+        IntPtr handle,
+        ref ExportArea area,
+        int visualLod,
+        int divisions,
+        out ExportMeshGrid output);
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
     internal static extern void CreateRiverEmitters(

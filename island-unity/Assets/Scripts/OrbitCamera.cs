@@ -2,6 +2,9 @@ using UnityEngine;
 
 public sealed class OrbitCamera : MonoBehaviour
 {
+    private const float MinimumPitch = 8f;
+    private const float MaximumPitch = 85f;
+
     private Vector3 target;
     private float distance;
     private float minimumDistance;
@@ -18,12 +21,29 @@ public sealed class OrbitCamera : MonoBehaviour
         ApplyTransform();
     }
 
+    public void OrbitByDegrees(float yawDegrees, float pitchDegrees = 0f)
+    {
+        yaw += yawDegrees;
+        pitch = Mathf.Clamp(pitch + pitchDegrees, MinimumPitch, MaximumPitch);
+        ApplyTransform();
+    }
+
+    public void ResetOrientation()
+    {
+        yaw = 35f;
+        pitch = 42f;
+        ApplyTransform();
+    }
+
     private void LateUpdate()
     {
         if (Input.GetMouseButton(0))
         {
             yaw += Input.GetAxis("Mouse X") * 4f;
-            pitch = Mathf.Clamp(pitch - Input.GetAxis("Mouse Y") * 4f, 8f, 85f);
+            pitch = Mathf.Clamp(
+                pitch - Input.GetAxis("Mouse Y") * 4f,
+                MinimumPitch,
+                MaximumPitch);
         }
 
         if (Input.GetMouseButton(1))

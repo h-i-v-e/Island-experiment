@@ -88,6 +88,7 @@ public sealed class IslandDemoController : MonoBehaviour
             GUILayout.Label("First person: WASD move | Shift run | Space jump | Mouse look");
             GUILayout.Label(
                 $"{island.DebugSettings.ToggleMeshEdgesKey}: mesh edges | "
+                + $"{island.DebugSettings.ToggleTreeMeshEdgesKey}: tree wireframe | "
                 + "Tab: release cursor | Escape: overview");
             GUILayout.Label(island.Status);
             GUILayout.EndArea();
@@ -108,7 +109,8 @@ public sealed class IslandDemoController : MonoBehaviour
         GUILayout.EndHorizontal();
         GUILayout.Label(
             "Click terrain: walk | Drag: orbit | Wheel: zoom | "
-            + $"{island.DebugSettings.ToggleMeshEdgesKey}: mesh edges");
+            + $"{island.DebugSettings.ToggleMeshEdgesKey}: mesh edges | "
+            + $"{island.DebugSettings.ToggleTreeMeshEdgesKey}: tree wireframe");
         GUILayout.EndArea();
     }
 }

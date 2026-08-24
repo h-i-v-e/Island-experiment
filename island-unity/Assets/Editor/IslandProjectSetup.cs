@@ -10,6 +10,8 @@ public static class IslandProjectSetup
 {
     private const string ScenePath = "Assets/Scenes/IslandSandbox.unity";
     private const string MaterialFolder = "Assets/Materials";
+    private const string TreeWoodMaterialPath = "Assets/Materials/TreeWood.mat";
+    private const string TreeFoliageMaterialPath = "Assets/Materials/TreeFoliage.mat";
 
     [MenuItem("Island/Create or Refresh Sandbox Level")]
     public static void CreateConventionalProjectAssets()
@@ -33,6 +35,13 @@ public static class IslandProjectSetup
             $"{MaterialFolder}/IslandRock.mat",
             "Motu/Rock Decoration");
         rock.enableInstancing = true;
+        var treeWood = AssetDatabase.LoadAssetAtPath<Material>(TreeWoodMaterialPath);
+        var treeFoliage = AssetDatabase.LoadAssetAtPath<Material>(TreeFoliageMaterialPath);
+        if (treeWood == null || treeFoliage == null)
+        {
+            throw new InvalidOperationException(
+                "Create or refresh the TreeSandbox materials before creating the island sandbox.");
+        }
 
         var scene = EditorSceneManager.NewScene(
             NewSceneSetup.EmptyScene,
@@ -46,6 +55,7 @@ public static class IslandProjectSetup
         sunObject.transform.rotation = Quaternion.Euler(50f, -35f, 0f);
         var sun = sunObject.AddComponent<Light>();
         sun.type = LightType.Directional;
+        sun.shadows = LightShadows.Soft;
         sun.intensity = 1.25f;
         sun.color = new Color(1f, 0.94f, 0.82f);
 
@@ -73,7 +83,9 @@ public static class IslandProjectSetup
             grass,
             river,
             sea,
-            rock);
+            rock,
+            treeWood,
+            treeFoliage);
 
         RenderSettings.ambientMode = AmbientMode.Flat;
         RenderSettings.ambientLight = new Color(0.42f, 0.46f, 0.52f);

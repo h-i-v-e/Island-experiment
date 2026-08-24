@@ -139,6 +139,10 @@ impl Decorations {
         &self.cleared_soil_vertices
     }
 
+    pub(super) fn set_tree_anchors(&mut self, anchors: impl IntoIterator<Item = Vec3>) {
+        self.trees = anchors.into_iter().collect();
+    }
+
     pub(super) fn generate(
         seed: u64,
         terrain: &Terrain,
@@ -440,7 +444,7 @@ pub(super) fn is_rock_drop_source(normal: Vec3) -> bool {
     normal.is_finite() && normal.z.abs() <= ROCK_DROP_SOURCE_MAXIMUM_NORMAL_Z
 }
 
-pub(super) fn clear_loose_soil(material: &mut SurfaceMaterial, vertices: &[u32]) {
+pub(crate) fn clear_loose_soil(material: &mut SurfaceMaterial, vertices: &[u32]) {
     for &vertex in vertices {
         if let Some(depth) = material.depths_mut().get_mut(vertex as usize) {
             *depth = 0.0;

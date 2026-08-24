@@ -169,6 +169,14 @@ MonoBehaviour:
     maximumDepthMetres: 0.8
     roughWaterSharpnessDegrees: 35
     roughWaterSpacingMetres: 1.5
+  forest:
+    showForests: 1
+    forestPatchSizeMetres: 200
+    forestNoiseThreshold: 0.62
+    snowlineMetres: 100
+    forestPrototypeCount: 8
+    minimumTreeScale: 0.85
+    maximumTreeScale: 1.15
   streaming:
     target: {fileID: 1299534587}
   rendering:
@@ -177,6 +185,8 @@ MonoBehaviour:
     riverMaterial: {fileID: 2100000, guid: 671058ee1a245424e91a25c139b2be33, type: 2}
     seaMaterial: {fileID: 2100000, guid: f7e64c96dada84bf1bae7f46e0e94f50, type: 2}
     rockMaterial: {fileID: 2100000, guid: f808a7e2f1bde4fcd8f35b7bcae174a5, type: 2}
+    treeWoodMaterial: {fileID: 0}
+    treeFoliageMaterial: {fileID: 0}
     cliffDetailNoise: {fileID: 0}
     riverNoise: {fileID: 0}
     grassPatchNoise: {fileID: 0}
@@ -203,6 +213,8 @@ MonoBehaviour:
   debugSettings:
     showMeshEdges: 0
     toggleMeshEdgesKey: 109
+    showTreeMeshEdges: 0
+    toggleTreeMeshEdgesKey: 110
     showRoughWaterEmitters: 0
 --- !u!4 &22168521
 Transform:
@@ -253,7 +265,7 @@ Light:
   m_InnerSpotAngle: 21.802082
   m_CookieSize2D: {x: 0.5, y: 0.5}
   m_Shadows:
-    m_Type: 0
+    m_Type: 2
     m_Resolution: -1
     m_CustomResolution: -1
     m_Strength: 1
@@ -365,7 +377,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 2132f91b666942e2aca86f59828c11c9, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::FirstPersonController
 --- !u!114 &1299534584
 MonoBehaviour:
@@ -377,7 +389,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: b0d555b110ff048cfa172402b03dc05f, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::OrbitCamera
 --- !u!81 &1299534585
 AudioListener:

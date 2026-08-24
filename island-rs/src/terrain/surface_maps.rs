@@ -1,5 +1,5 @@
 use super::{
-    Mesh, StageTimer, SurfaceMaps, SurfaceSample, Terrain, TriangleIndex, Vec3,
+    Mesh, StageTimer, SurfaceMaps, SurfaceSample, Terrain, TriangleIndex, Vec2, Vec3,
     sample_mesh_surface, thread,
 };
 
@@ -21,6 +21,9 @@ pub(super) const OCCLUSION_OFFSETS: [(isize, isize); 15] = [
     (8, 2),
 ];
 
+const CANOPY_OCCLUSION_VALUE: u8 = 112;
+const PROJECTED_TRIANGLE_EPSILON: f32 = 1.0e-5;
+
 #[derive(Clone, Copy)]
 struct SurfaceMapSampler<'a> {
     high_detail: &'a Terrain,
@@ -38,6 +41,7 @@ struct DetailMapBaker<'a> {
 pub(super) fn bake_surface_maps(
     high_detail: &Terrain,
     target: Option<&Mesh>,
+    low_poly_canopy: Option<&Mesh>,
     width: u32,
     height: u32,
 ) -> SurfaceMaps {
@@ -102,6 +106,9 @@ pub(super) fn bake_surface_maps(
             });
         }
     });
+    if let Some(canopy) = low_poly_canopy {
+        project_canopy_occlusion(&mut occlusion, canopy, width_usize, height_usize);
+    }
 
     SurfaceMaps {
         width,
@@ -109,6 +116,100 @@ pub(super) fn bake_surface_maps(
         normal_rgb,
         occlusion,
     }
+}
+
+/// Projects the coarse canopy vertically into the terrain occlusion map.
+///
+/// The low-poly forest mesh is borrowed directly and the existing map is
+/// darkened in place, so baking does not duplicate the island-wide canopy.
+fn project_canopy_occlusion(occlusion: &mut [u8], canopy: &Mesh, width: usize, height: usize) {
+    if width == 0 || height == 0 || occlusion.len() != width.saturating_mul(height) {
+        return;
+    }
+    let pixel_scale = Vec2::new(
+        width.saturating_sub(1) as f32,
+        height.saturating_sub(1) as f32,
+    );
+    for triangle in canopy.triangles.chunks_exact(3) {
+        let &[first, second, third] = triangle else {
+            continue;
+        };
+        let (Some(first), Some(second), Some(third)) = (
+            canopy.vertices.get(first as usize),
+            canopy.vertices.get(second as usize),
+            canopy.vertices.get(third as usize),
+        ) else {
+            continue;
+        };
+        let projected = [
+            first.truncate() * pixel_scale,
+            second.truncate() * pixel_scale,
+            third.truncate() * pixel_scale,
+        ];
+        rasterize_canopy_triangle(occlusion, width, height, projected);
+    }
+}
+
+fn rasterize_canopy_triangle(
+    occlusion: &mut [u8],
+    width: usize,
+    height: usize,
+    triangle: [Vec2; 3],
+) {
+    if triangle.iter().any(|vertex| !vertex.is_finite()) {
+        return;
+    }
+    let area = projected_edge(triangle[0], triangle[1], triangle[2]);
+    if area.abs() <= PROJECTED_TRIANGLE_EPSILON {
+        return;
+    }
+    let maximum_x = width - 1;
+    let maximum_y = height - 1;
+    let minimum_pixel_x = triangle
+        .iter()
+        .map(|vertex| vertex.x)
+        .fold(f32::INFINITY, f32::min)
+        .floor()
+        .clamp(0.0, maximum_x as f32) as usize;
+    let maximum_pixel_x = triangle
+        .iter()
+        .map(|vertex| vertex.x)
+        .fold(f32::NEG_INFINITY, f32::max)
+        .ceil()
+        .clamp(0.0, maximum_x as f32) as usize;
+    let minimum_pixel_y = triangle
+        .iter()
+        .map(|vertex| vertex.y)
+        .fold(f32::INFINITY, f32::min)
+        .floor()
+        .clamp(0.0, maximum_y as f32) as usize;
+    let maximum_pixel_y = triangle
+        .iter()
+        .map(|vertex| vertex.y)
+        .fold(f32::NEG_INFINITY, f32::max)
+        .ceil()
+        .clamp(0.0, maximum_y as f32) as usize;
+
+    for y in minimum_pixel_y..=maximum_pixel_y {
+        for x in minimum_pixel_x..=maximum_pixel_x {
+            let point = Vec2::new(x as f32, y as f32);
+            let edges = [
+                projected_edge(triangle[0], triangle[1], point),
+                projected_edge(triangle[1], triangle[2], point),
+                projected_edge(triangle[2], triangle[0], point),
+            ];
+            let has_negative = edges.iter().any(|&edge| edge < -PROJECTED_TRIANGLE_EPSILON);
+            let has_positive = edges.iter().any(|&edge| edge > PROJECTED_TRIANGLE_EPSILON);
+            if !has_negative || !has_positive {
+                let pixel = &mut occlusion[y * width + x];
+                *pixel = (*pixel).min(CANOPY_OCCLUSION_VALUE);
+            }
+        }
+    }
+}
+
+fn projected_edge(start: Vec2, end: Vec2, point: Vec2) -> f32 {
+    (point.x - start.x).mul_add(end.y - start.y, -(point.y - start.y) * (end.x - start.x))
 }
 
 pub(super) fn surface_map_thread_count(pixel_count: usize, height: usize) -> usize {
@@ -220,5 +321,31 @@ pub(super) fn bake_occlusion_rows(
                 *value = ((1.0 - total / count as f32) * 255.0).clamp(0.0, 255.0) as u8;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn low_poly_canopy_projects_into_existing_occlusion() {
+        let canopy = Mesh {
+            vertices: vec![
+                Vec3::new(0.25, 0.25, 0.20),
+                Vec3::new(0.75, 0.25, 0.20),
+                Vec3::new(0.50, 0.75, 0.20),
+            ],
+            triangles: vec![0, 1, 2],
+            ..Mesh::default()
+        };
+        let mut occlusion = vec![u8::MAX; 81];
+        occlusion[4 * 9 + 4] = 96;
+
+        project_canopy_occlusion(&mut occlusion, &canopy, 9, 9);
+
+        assert_eq!(occlusion[2 * 9 + 4], CANOPY_OCCLUSION_VALUE);
+        assert_eq!(occlusion[4 * 9 + 4], 96);
+        assert_eq!(occlusion[8 * 9 + 8], u8::MAX);
     }
 }
