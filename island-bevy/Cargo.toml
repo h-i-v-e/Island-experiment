@@ -1,0 +1,39 @@
+[workspace]
+
+[package]
+name = "island-bevy"
+version = "0.1.0"
+edition = "2024"
+description = "Bevy viewer for the deterministic Motu island generator"
+license = "UNLICENSED"
+
+[[bin]]
+name = "island-bevy"
+path = "src/main.rs"
+
+[dependencies]
+# bluenoise_texture replaces the placeholder noise the screen-space passes fall
+# back to; contact shadows and ambient occlusion both sample it.
+bevy = { version = "0.19", default-features = false, features = [
+    "3d",
+    "ui",
+    "bluenoise_texture",
+] }
+# The parameter panel and the frame-rate readout, and nothing else; it is not
+# added at all under --screenshot. Its major version tracks Bevy's, so it moves
+# with the `bevy` line above rather than on its own.
+bevy_egui = "0.42"
+island-rs = { path = "../island-rs" }
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+all = "warn"
+pedantic = "warn"
