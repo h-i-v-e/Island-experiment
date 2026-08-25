@@ -164,7 +164,7 @@ impl RiverSourceRule {
         }
     }
 
-    fn required_catchment(self, grade: f32, elevation: f32) -> f32 {
+    pub(crate) fn required_catchment(self, grade: f32, elevation: f32) -> f32 {
         let slope_response = grade * grade;
         let slope_multiplier = (self.steep_multiplier - 1.0).mul_add(slope_response, 1.0);
         let elevation_fraction = (elevation * self.inverse_maximum_elevation).clamp(0.0, 1.0);

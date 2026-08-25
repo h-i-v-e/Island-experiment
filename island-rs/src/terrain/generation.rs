@@ -179,6 +179,19 @@ pub(super) fn generate_final_rivers(
         &detail_adjacency,
         &ocean,
     ));
+    if std::env::var_os("MOTU_EXPERIMENTAL_GPU_RIVERS").is_some() {
+        #[cfg(feature = "gpu-rivers")]
+        return super::gpu_river_field::generate_gpu_rivers(
+            seed,
+            prepared_lod0,
+            prepared_material,
+            source_rule,
+            channel_settings,
+        )
+        .unwrap_or_else(|error| panic!("experimental GPU river generation failed: {error}"));
+        #[cfg(not(feature = "gpu-rivers"))]
+        panic!("MOTU_EXPERIMENTAL_GPU_RIVERS requires --features gpu-rivers");
+    }
     let mut rejected_waterfall_vertices = HashSet::new();
     loop {
         let mut attempt_lod0 = prepared_lod0.clone();

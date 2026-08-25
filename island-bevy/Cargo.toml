@@ -13,7 +13,7 @@ path = "src/main.rs"
 
 [dependencies]
 bevy = { version = "0.19", default-features = false, features = ["3d", "ui"] }
-island-rs = { path = "../island-rs" }
+island-rs = { path = "../island-rs", features = ["gpu-erosion", "gpu-rivers", "gpu-rocks"] }
 
 [profile.dev]
 opt-level = 1
