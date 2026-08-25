@@ -254,7 +254,7 @@ pub(super) fn generate_settled_rocks(
 ) -> (Vec<SettledRock>, Vec<u32>) {
     let _timer = StageTimer::new("decorations.rock_settling");
     let mut bodies = spawn_rock_bodies(seed, terrain, body_target);
-    simulate_rock_bodies(terrain, &mut bodies);
+    settle_rock_bodies(terrain, &mut bodies);
 
     let mut rocks = Vec::with_capacity(bodies.len());
     let mut cleared_soil_vertices = Vec::new();
@@ -302,7 +302,30 @@ pub(super) fn generate_settled_rocks(
     }
     cleared_soil_vertices.sort_unstable();
     cleared_soil_vertices.dedup();
+    if std::env::var_os("MOTU_GPU_ROCK_STATS").is_some()
+        && std::env::var_os("MOTU_EXPERIMENTAL_GPU_ROCK_SETTLING").is_some()
+    {
+        eprintln!(
+            "gpu-rock-output rocks={} cleared_soil_vertices={}",
+            rocks.len(),
+            cleared_soil_vertices.len(),
+        );
+    }
     (rocks, cleared_soil_vertices)
+}
+
+fn settle_rock_bodies(terrain: &Terrain, bodies: &mut [RockBody]) {
+    if std::env::var_os("MOTU_EXPERIMENTAL_GPU_ROCK_SETTLING").is_some() {
+        #[cfg(feature = "gpu-rocks")]
+        {
+            super::gpu_rock_settling::simulate_rock_bodies_gpu(terrain, bodies)
+                .unwrap_or_else(|error| panic!("GPU rock settling failed: {error}"));
+            return;
+        }
+        #[cfg(not(feature = "gpu-rocks"))]
+        panic!("MOTU_EXPERIMENTAL_GPU_ROCK_SETTLING requires --features gpu-rocks");
+    }
+    simulate_rock_bodies(terrain, bodies);
 }
 
 pub(super) fn spawn_rock_bodies(seed: u64, terrain: &Terrain, target: usize) -> Vec<RockBody> {

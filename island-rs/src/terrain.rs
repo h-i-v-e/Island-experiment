@@ -38,6 +38,8 @@ mod flux_erosion;
 mod generation;
 #[cfg(feature = "gpu-erosion")]
 mod gpu_particle_erosion;
+#[cfg(feature = "gpu-rocks")]
+mod gpu_rock_settling;
 mod material;
 mod particle_erosion;
 mod sampling;
