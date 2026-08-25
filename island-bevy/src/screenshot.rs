@@ -45,7 +45,7 @@ use bevy::{
         view::screenshot::{Screenshot, save_to_disk},
     },
 };
-use motu::IslandOptions;
+use motu::{GenerationMethod, IslandOptions};
 
 use crate::{
     budget::RenderBudget,
@@ -308,6 +308,7 @@ fn write_metadata(path: &std::path::Path, recorded: &Recorded) {
     let metadata = Metadata {
         seed: recorded.settings.seed,
         options: recorded.settings.options,
+        method: recorded.settings.method,
         variant: recorded.names.variant.clone(),
         view: recorded.names.view.clone(),
         pose: *recorded.pose,
@@ -331,6 +332,7 @@ fn write_metadata(path: &std::path::Path, recorded: &Recorded) {
 struct Metadata {
     seed: u64,
     options: IslandOptions,
+    method: GenerationMethod,
     variant: String,
     view: String,
     pose: ViewPose,
@@ -363,6 +365,7 @@ impl Metadata {
             ),
             format!("seed: {}", self.seed),
             format!("terrain-size: {}", self.options.terrain_size),
+            format!("generation-method: {}", self.method),
             format!("variant: {}", self.variant),
             format!(
                 "non-default-options: {}",
@@ -396,7 +399,7 @@ fn vector(value: Vec3) -> String {
 
 #[cfg(test)]
 mod tests {
-    use motu::IslandOptions;
+    use motu::{GenerationMethod, IslandOptions};
 
     use super::{
         CAPTURE_FORMAT, CAPTURE_RESOLUTION, DebugView, Metadata, TextureFormat, UVec2, Vec3,
@@ -411,6 +414,7 @@ mod tests {
                 max_height: 0.35,
                 ..IslandOptions::default()
             },
+            method: GenerationMethod::Gpu,
             variant: String::from("eroded"),
             view: String::from("stream"),
             pose: ViewPose {
@@ -443,6 +447,7 @@ mod tests {
                 "crate",
                 "seed",
                 "terrain-size",
+                "generation-method",
                 "variant",
                 "non-default-options",
                 "view",

@@ -3,8 +3,8 @@ use std::{num::NonZeroU64, sync::mpsc, time::Instant};
 use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
 
-use super::erosion::{HydraulicErosionSettings, VertexFaceAdjacency};
-use super::{Adjacency, IslandOptions, Mesh, SurfaceMaterial, Vec3};
+use super::super::erosion::{HydraulicErosionSettings, VertexFaceAdjacency};
+use super::super::{Adjacency, IslandOptions, Mesh, SurfaceMaterial, Vec3};
 
 const WORKGROUP_SIZE: u32 = 64;
 const PARAM_WORDS: usize = 64;
@@ -29,7 +29,7 @@ struct GpuMaterialState {
 }
 
 #[derive(Default)]
-pub(super) struct GpuParticleErosionScratch {
+pub(in crate::terrain) struct GpuParticleErosionScratch {
     context: Option<GpuContext>,
     topology: Vec<u32>,
     order: Vec<usize>,
@@ -93,7 +93,7 @@ impl PrototypeSettings {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(super) fn erode_particle_batches_gpu(
+pub(in crate::terrain) fn erode_particle_batches_gpu(
     mesh: &mut Mesh,
     adjacency: &Adjacency,
     material: &mut SurfaceMaterial,
@@ -286,7 +286,7 @@ impl GpuContext {
         });
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("motu GPU particle erosion shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("particle_erosion.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(include_str!("erosion.wgsl").into()),
         });
         let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("motu GPU particle erosion pipeline"),

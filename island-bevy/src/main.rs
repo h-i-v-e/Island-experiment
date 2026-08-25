@@ -33,7 +33,7 @@ use bevy::{
     window::{ExitCondition, WindowResolution},
     winit::WinitPlugin,
 };
-use motu::IslandOptions;
+use motu::{GenerationMethod, IslandOptions};
 
 use crate::{
     budget::BudgetPlugin,
@@ -65,6 +65,7 @@ pub const WINDOW_RESOLUTION: UVec2 = UVec2::new(1280, 720);
 struct Command {
     seed: u64,
     options: IslandOptions,
+    method: GenerationMethod,
     view: ViewPose,
     /// The `--view` and `--variant` names the pose and the options above were
     /// resolved from. Neither resolved value carries its own name, and a
@@ -85,6 +86,7 @@ impl Default for Command {
                 terrain_size: 1024,
                 ..IslandOptions::default()
             },
+            method: GenerationMethod::Cpu,
             view: ViewPose::default(),
             view_name: String::from(camera::DEFAULT_VIEW),
             variant_name: String::from(island_gen::DEFAULT_VARIANT),
@@ -157,6 +159,7 @@ fn main() {
         .insert_resource(GenerationSettings {
             seed: command.seed,
             options: command.options,
+            method: command.method,
             cache_reads: !command.no_cache,
         })
         .add_plugins((
@@ -221,6 +224,9 @@ fn parse(arguments: impl Iterator<Item = String>) -> Result<Option<Command>, Str
             options::TERRAIN_SIZE_FLAG => {
                 command.options.terrain_size = parse_value(&argument, &value(&mut arguments)?)?;
             }
+            options::GENERATION_METHOD_FLAG => {
+                command.method = parse_value(&argument, &value(&mut arguments)?)?;
+            }
             "--variant" => {
                 variant = value(&mut arguments)?;
                 island_gen::apply_variant(&variant, &mut command.options)?;
@@ -276,6 +282,8 @@ Options:
   --terrain-size <N>      Delaunay seed-point count, 16 to 4096 [default: 1024]
                           first generation takes about 30 s, then the cache
                           makes repeat launches fast; use 128 or 256 to iterate
+  --generation-method <METHOD>
+                          Terrain generation method: cpu or gpu [default: cpu]
   --variant <NAME>        Named generation variant [default: default]
   --view <NAME>           Camera pose to open on and to reset to [default: overview]
                           The river and stream views carry a pose per variant,
@@ -326,7 +334,7 @@ cursor back until you click. See README.md for the rest of the controls.",
 
 #[cfg(test)]
 mod tests {
-    use motu::IslandOptions;
+    use motu::{GenerationMethod, IslandOptions};
 
     use super::{DebugView, ViewPose, Weather, options, parse};
 
@@ -356,10 +364,11 @@ mod tests {
             river_maximum_depth_metres: 3.5,
             terrain_size: 512,
         };
-        let line = options::command_line(4242, &found);
+        let line = options::command_line(4242, &found, GenerationMethod::Gpu);
         let reopened = command(&line.split(' ').collect::<Vec<_>>()).unwrap();
         assert_eq!(reopened.seed, 4242);
         assert_eq!(reopened.options, found);
+        assert_eq!(reopened.method, GenerationMethod::Gpu);
     }
 
     /// An unknown flag is reported as unknown even though it stands where a
@@ -385,6 +394,7 @@ mod tests {
         .unwrap();
         assert_eq!(command.seed, 42);
         assert_eq!(command.options.terrain_size, 128);
+        assert_eq!(command.method, GenerationMethod::Cpu);
         assert_eq!(
             command.screenshot.as_deref(),
             Some(std::path::Path::new("out.png"))
@@ -401,6 +411,12 @@ mod tests {
     fn rejects_unknown_options() {
         let error = command(&["--wat"]).unwrap_err();
         assert!(error.contains("unknown option"));
+    }
+
+    #[test]
+    fn rejects_unknown_generation_methods() {
+        let error = command(&["--generation-method", "cuda"]).unwrap_err();
+        assert!(error.contains("expected cpu or gpu"), "{error}");
     }
 
     #[test]

@@ -8,7 +8,7 @@
 
 use std::fmt::Write as _;
 
-use motu::IslandOptions;
+use motu::{GenerationMethod, IslandOptions};
 
 /// Where a parameter appears in the HUD. Table order is `IslandOptions`
 /// declaration order, which the cache key depends on; the group is what the
@@ -194,6 +194,7 @@ pub const PARAMETERS: [Parameter; 14] = [
 
 pub const SEED_FLAG: &str = "--seed";
 pub const TERRAIN_SIZE_FLAG: &str = "--terrain-size";
+pub const GENERATION_METHOD_FLAG: &str = "--generation-method";
 /// The seed-point count `Island::generate` validates against.
 pub const TERRAIN_SIZE_RANGE: std::ops::RangeInclusive<u32> = 16..=4096;
 
@@ -222,11 +223,11 @@ pub fn reconcile(options: &mut IslandOptions) {
 /// parameter is spelled out rather than only those away from their defaults, so
 /// the line stands on its own however the defaults later move.
 #[must_use]
-pub fn command_line(seed: u64, options: &IslandOptions) -> String {
+pub fn command_line(seed: u64, options: &IslandOptions, method: GenerationMethod) -> String {
     let mut options = *options;
     let mut line = format!(
-        "{SEED_FLAG} {seed} {TERRAIN_SIZE_FLAG} {}",
-        options.terrain_size
+        "{SEED_FLAG} {seed} {TERRAIN_SIZE_FLAG} {} {GENERATION_METHOD_FLAG} {method}",
+        options.terrain_size,
     );
     for parameter in &PARAMETERS {
         let value = *(parameter.field)(&mut options);
@@ -281,7 +282,7 @@ pub fn help_lines() -> String {
 
 #[cfg(test)]
 mod tests {
-    use motu::IslandOptions;
+    use motu::{GenerationMethod, IslandOptions};
 
     use super::{PARAMETERS, command_line, non_default, parameter, reconcile};
 
@@ -377,8 +378,9 @@ mod tests {
     /// HUD could not be opened again from the command line.
     #[test]
     fn the_command_line_names_every_parameter() {
-        let line = command_line(666, &IslandOptions::default());
+        let line = command_line(666, &IslandOptions::default(), GenerationMethod::Cpu);
         assert!(line.starts_with("--seed 666 --terrain-size 1024"));
+        assert!(line.contains("--generation-method cpu"));
         for parameter in &PARAMETERS {
             assert!(
                 line.contains(parameter.flag),

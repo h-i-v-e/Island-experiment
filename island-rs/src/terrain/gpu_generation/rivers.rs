@@ -13,13 +13,13 @@ use bytemuck::{Pod, Zeroable};
 use rayon::prelude::*;
 use wgpu::util::DeviceExt;
 
-use super::{Mesh, SurfaceMaterial, TriangleIndex, Vec2, Vec3, sample_mesh_surface};
+use super::super::{Mesh, SurfaceMaterial, TriangleIndex, Vec2, Vec3, sample_mesh_surface};
 use crate::{
     ISLAND_WORLD_METRES, River, RiverNode,
     rivers::{RiverChannelSettings, RiverSourceRule},
 };
 
-use super::generation::FinalRiverGeneration;
+use super::super::generation::FinalRiverGeneration;
 
 const WORKGROUP_SIZE: u32 = 64;
 const DEFAULT_GRID_DIMENSION: usize = 512;
@@ -84,7 +84,7 @@ struct GpuRiverReadback {
     vertices: Vec<GpuRiverVertex>,
 }
 
-pub(super) fn generate_gpu_rivers(
+pub(in crate::terrain) fn generate_gpu_rivers(
     seed: u64,
     mut lod0: Mesh,
     mut material: SurfaceMaterial,
@@ -228,7 +228,7 @@ fn build_river_mesh(terrain: &Mesh, river_bed: &[bool], output: &[GpuRiverVertex
         river.vertices.push(Vec3::new(vertex.x, vertex.y, surface));
         river.uv.push(Vec2::new(0.0, gpu.attributes[1]));
     }
-    for triangle in terrain.triangles.chunks_exact(3) {
+    for triangle in terrain.triangles.as_chunks::<3>().0 {
         let mapped = [
             mapping[triangle[0] as usize],
             mapping[triangle[1] as usize],
@@ -400,7 +400,7 @@ impl GpuRiverContext {
         });
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("motu GPU river shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("river_field.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(include_str!("rivers.wgsl").into()),
         });
         Ok(Self {
             initialize_pipeline: create_pipeline(

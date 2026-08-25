@@ -37,7 +37,7 @@ bevy = { version = "0.19", default-features = false, features = [
 # added at all under --screenshot. Its major version tracks Bevy's, so it moves
 # with the `bevy` line above rather than on its own.
 bevy_egui = "0.42"
-island-rs = { path = "../island-rs", features = ["gpu-erosion", "gpu-rivers", "gpu-rocks"] }
+island-rs = { path = "../island-rs", features = ["gpu-generation"] }
 
 [profile.dev]
 opt-level = 1

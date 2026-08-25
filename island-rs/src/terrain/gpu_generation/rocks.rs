@@ -3,7 +3,7 @@ use std::{sync::mpsc, time::Instant};
 use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
 
-use super::{Terrain, decorations::RockBody};
+use super::super::{Terrain, decorations::RockBody};
 use crate::Vec3;
 
 const WORKGROUP_SIZE: u32 = 64;
@@ -69,7 +69,7 @@ struct TopologyLayout {
     index_faces: u32,
 }
 
-pub(super) fn simulate_rock_bodies_gpu(
+pub(in crate::terrain) fn simulate_rock_bodies_gpu(
     terrain: &Terrain,
     bodies: &mut [RockBody],
 ) -> Result<(), String> {
@@ -151,14 +151,14 @@ fn prepare_inputs(
         ],
         physics: [
             time_step,
-            super::decorations::ROCK_GRAVITY,
+            super::super::decorations::ROCK_GRAVITY,
             0.998,
-            super::decorations::ROCK_CONTACT_DAMPING,
+            super::super::decorations::ROCK_CONTACT_DAMPING,
         ],
         contact: [
-            super::decorations::ROCK_RESTITUTION,
+            super::super::decorations::ROCK_RESTITUTION,
             POSITION_RELAXATION,
-            super::decorations::ROCK_MINIMUM_SETTLED_NORMAL_Z,
+            super::super::decorations::ROCK_MINIMUM_SETTLED_NORMAL_Z,
             0.0,
         ],
     };
@@ -223,7 +223,7 @@ impl GpuRockContext {
         });
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("motu GPU rock settling shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("rock_settling.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(include_str!("rocks.wgsl").into()),
         });
         let integrate_pipeline =
             create_pipeline(&device, &pipeline_layout, &shader, "integrate", "integrate");

@@ -18,7 +18,7 @@ use std::{
     process,
 };
 
-use motu::{IslandOptions, Mesh, Vec2, Vec3};
+use motu::{GenerationMethod, IslandOptions, Mesh, Vec2, Vec3};
 
 use crate::{
     chunk::{self, ChunkTier, TIERS, TerrainChunk},
@@ -27,10 +27,10 @@ use crate::{
     options,
 };
 
-/// Mixed into every key and written into every entry. Bump it when the
-/// generator's output changes, when the layout of `IslandOptions` changes, or
-/// when this file's format changes: entries written before the bump then hash
-/// to a different key, so none of them is ever read again.
+/// Mixed into every key and written into every entry. Bump it only when the
+/// serialized layout changes; generation-method changes use separate
+/// directories, and ordinary algorithm changes are handled by clearing this
+/// development cache.
 ///
 /// 2 added the walk-mode height grid, 3 the per-vertex river wetness, 4 the
 /// river drops — which also widen the wetness around a plunge pool, so entries
@@ -88,12 +88,15 @@ pub fn key(seed: u64, options: &IslandOptions) -> u64 {
     mix(u64::from(chunk::SKIRT_METRES.to_bits()), state)
 }
 
-/// Where the entry for one key lives.
+/// Where the entry for one method and key lives. CPU and GPU generation may
+/// produce different geometry from identical inputs, so each method owns its
+/// own cache namespace.
 #[must_use]
-pub fn path(key: u64) -> PathBuf {
+pub fn path(method: GenerationMethod, key: u64) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("target")
         .join("island-cache")
+        .join(method.as_str())
         .join(format!("{key:016x}.bin"))
 }
 
@@ -364,9 +367,9 @@ impl<'a> Reader<'a> {
 mod tests {
     use std::{env, fs};
 
-    use motu::{IslandOptions, Mesh, Vec2, Vec3};
+    use motu::{GenerationMethod, IslandOptions, Mesh, Vec2, Vec3};
 
-    use super::{ChunkTier, IslandData, RiverDrop, TIERS, TerrainChunk, key, read, write};
+    use super::{ChunkTier, IslandData, RiverDrop, TIERS, TerrainChunk, key, path, read, write};
 
     /// One chunk whose three levels are all different lengths, so a level read
     /// out of order cannot still parse.
@@ -562,5 +565,21 @@ mod tests {
         ] {
             assert_ne!(base, key(1, &changed), "{changed:?} kept the key");
         }
+    }
+
+    #[test]
+    fn generation_methods_have_separate_cache_directories() {
+        let key = key(1, &IslandOptions::default());
+        let cpu = path(GenerationMethod::Cpu, key);
+        let gpu = path(GenerationMethod::Gpu, key);
+        assert_ne!(cpu, gpu);
+        assert_eq!(
+            cpu.parent().and_then(std::path::Path::file_name),
+            Some(std::ffi::OsStr::new("cpu"))
+        );
+        assert_eq!(
+            gpu.parent().and_then(std::path::Path::file_name),
+            Some(std::ffi::OsStr::new("gpu"))
+        );
     }
 }

@@ -1,16 +1,15 @@
-#[cfg(feature = "gpu-erosion")]
+#[cfg(feature = "gpu-generation")]
 use super::GpuParticleErosionScratch;
 use super::{
     Adjacency, BinaryHeap, BoundingBox, DETAIL_DISPLACEMENT_RATIO, Decorations, File,
-    FluxErosionScratch, GeologyField, HashSet, HydraulicScratch, ISLAND_WORLD_METRES,
+    GenerationMethod, GeologyField, HashSet, HydraulicScratch, ISLAND_WORLD_METRES,
     IndexedParallelIterator, IslandOptions, Mesh, MeshClipper, NewVertexStencil, OnceLock,
-    Ordering, ParallelIterator, ParallelSliceMut, ParticleErosionScratch, Path, Raster, Read,
-    River, RiverChannelSettings, RiverNetwork, RiverSourceRule, Rng, SHARP_ROCK_DISPLACEMENT_RATIO,
-    StageTimer, SurfaceMaps, SurfaceMaterial, TERRAIN_RENDER_FLOOR, Terrain, TerrainMaterialField,
-    TriangleIndex, Vec2, Vec3, Write, append_settled_rocks, bake_surface_maps, bury_river_banks,
-    clear_loose_soil, encode_bank_distance_in_uv, erode_mesh, fix_inland_seas, geology,
-    hydraulic_erode_stage, io, legacy_catchment_hectares, mem, noise, sample_grid,
-    sample_mesh_surface,
+    Ordering, ParallelIterator, ParallelSliceMut, Path, Raster, Read, River, RiverChannelSettings,
+    RiverNetwork, RiverSourceRule, Rng, SHARP_ROCK_DISPLACEMENT_RATIO, StageTimer, SurfaceMaps,
+    SurfaceMaterial, TERRAIN_RENDER_FLOOR, Terrain, TerrainMaterialField, TriangleIndex, Vec2,
+    Vec3, Write, append_settled_rocks, bake_surface_maps, bury_river_banks, clear_loose_soil,
+    encode_bank_distance_in_uv, erode_mesh, fix_inland_seas, geology, hydraulic_erode_stage, io,
+    legacy_catchment_hectares, mem, noise, sample_grid, sample_mesh_surface,
 };
 use crate::forest::{
     ForestGenerationStats, ForestMeshKind, ForestMeshes, ForestOptions, generate_forest,
@@ -193,6 +192,7 @@ pub(super) fn generate_final_rivers(
     material: &SurfaceMaterial,
     source_rule: RiverSourceRule,
     channel_settings: RiverChannelSettings,
+    method: GenerationMethod,
 ) -> FinalRiverGeneration {
     let _timer = StageTimer::new("rivers.final");
     let mut prepared_lod0 = lod0.clone();
@@ -204,9 +204,9 @@ pub(super) fn generate_final_rivers(
         &detail_adjacency,
         &ocean,
     ));
-    if std::env::var_os("MOTU_EXPERIMENTAL_GPU_RIVERS").is_some() {
-        #[cfg(feature = "gpu-rivers")]
-        return super::gpu_river_field::generate_gpu_rivers(
+    if method == GenerationMethod::Gpu {
+        #[cfg(feature = "gpu-generation")]
+        return super::gpu_generation::generate_gpu_rivers(
             seed,
             prepared_lod0,
             prepared_material,
@@ -214,8 +214,8 @@ pub(super) fn generate_final_rivers(
             channel_settings,
         )
         .unwrap_or_else(|error| panic!("experimental GPU river generation failed: {error}"));
-        #[cfg(not(feature = "gpu-rivers"))]
-        panic!("MOTU_EXPERIMENTAL_GPU_RIVERS requires --features gpu-rivers");
+        #[cfg(not(feature = "gpu-generation"))]
+        unreachable!("GPU availability is checked before generation starts");
     }
     let mut rejected_waterfall_vertices = HashSet::new();
     loop {
@@ -267,6 +267,20 @@ impl Island {
         Self::generate_with_forest(seed, options, ForestOptions::default())
     }
 
+    /// Generates an island with an explicit CPU or GPU implementation.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the requested method is unavailable or an option
+    /// is invalid.
+    pub fn generate_with_method(
+        seed: u64,
+        options: IslandOptions,
+        method: GenerationMethod,
+    ) -> Result<Self, String> {
+        Self::generate_with_forest_and_method(seed, options, ForestOptions::default(), method)
+    }
+
     /// Generates an island with explicit deterministic forest controls.
     ///
     /// Keeping the forest value separate from the historical native terrain
@@ -283,10 +297,24 @@ impl Island {
         options: IslandOptions,
         forest_options: ForestOptions,
     ) -> Result<Self, String> {
+        Self::generate_with_forest_and_method(seed, options, forest_options, GenerationMethod::Cpu)
+    }
+
+    fn generate_with_forest_and_method(
+        seed: u64,
+        options: IslandOptions,
+        forest_options: ForestOptions,
+        method: GenerationMethod,
+    ) -> Result<Self, String> {
+        if !method.is_available() {
+            return Err(format!(
+                "{method} generation requires the gpu-generation Cargo feature"
+            ));
+        }
         let _timer = StageTimer::new("island.generate");
         let options = options.validate()?;
         let forest_options = forest_options.validate()?;
-        let mut scratch = GenerationScratch::default();
+        let mut scratch = GenerationScratch::new(method);
         let (base, material) = generate_base(seed, options, &mut scratch);
         let context = GenerationContext::new(options);
         let (mut lod2, material) = generate_lod2(&base, material, context, &mut scratch);
@@ -313,6 +341,7 @@ impl Island {
             &material,
             context.river_source_rule,
             options.river_channel_settings(),
+            method,
         );
         let lod0_index = {
             let _timer = StageTimer::new("lod.correct");
@@ -335,6 +364,7 @@ impl Island {
             &provisional_material,
             &rivers,
             options.terrain_size as usize * 4,
+            method,
         );
         append_settled_rocks(seed, &settled_rocks, &mut river_rock_mesh);
         clear_loose_soil(&mut material, decorations.cleared_soil_vertices());
@@ -751,12 +781,20 @@ pub(super) struct GenerationContext {
 
 #[derive(Default)]
 pub(super) struct GenerationScratch {
+    pub(super) method: GenerationMethod,
     pub(super) hydraulic: HydraulicScratch,
-    pub(super) flux_erosion: FluxErosionScratch,
-    #[cfg(feature = "gpu-erosion")]
+    #[cfg(feature = "gpu-generation")]
     pub(super) gpu_particle_erosion: GpuParticleErosionScratch,
-    pub(super) particle_erosion: ParticleErosionScratch,
     pub(super) bedrock_rates: Vec<f32>,
+}
+
+impl GenerationScratch {
+    fn new(method: GenerationMethod) -> Self {
+        Self {
+            method,
+            ..Self::default()
+        }
+    }
 }
 
 impl GenerationContext {

@@ -35,7 +35,9 @@ pub use raster::Raster;
 pub use river_emitters::{RiverEmitter, extract_river_emitters};
 pub use rivers::{River, RiverNode};
 pub use sea_mask::SeaMask;
-pub use terrain::{Decoration, Decorations, Island, IslandOptions, SurfaceMaps, Terrain};
+pub use terrain::{
+    Decoration, Decorations, GenerationMethod, Island, IslandOptions, SurfaceMaps, Terrain,
+};
 pub use trees::{TreeMeshes, generate_tree};
 
 /// Width represented by one normalized island coordinate in Unity.

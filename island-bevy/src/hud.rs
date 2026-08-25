@@ -24,7 +24,7 @@ use bevy_egui::{
     EguiContexts, EguiPlugin, EguiPostUpdateSet, EguiPrimaryContextPass, EguiTextureHandle,
     EguiUserTextures, egui, input::EguiWantsInput,
 };
-use motu::IslandOptions;
+use motu::{GenerationMethod, IslandOptions};
 
 use crate::{
     budget::RenderBudget,
@@ -173,6 +173,7 @@ struct Hud {
     /// Generate, or an archetype card, is pressed.
     seed: u64,
     options: IslandOptions,
+    method: GenerationMethod,
     /// The argument list that reproduces the island on screen, rebuilt when one
     /// lands rather than from the draft, which has usually moved on. The copy
     /// button puts it on the clipboard.
@@ -240,7 +241,8 @@ fn install(mut commands: Commands, settings: Res<GenerationSettings>) {
         visible: true,
         seed: settings.seed,
         options: settings.options,
-        command_line: options::command_line(settings.seed, &settings.options),
+        method: settings.method,
+        command_line: options::command_line(settings.seed, &settings.options, settings.method),
         fps: 0.0,
         next_reading: 0.0,
         tab: Tab::Form,
@@ -305,7 +307,7 @@ fn report_command_line(
     mut hud: ResMut<Hud>,
 ) {
     if ready.read().next().is_some() {
-        hud.command_line = options::command_line(settings.seed, &settings.options);
+        hud.command_line = options::command_line(settings.seed, &settings.options, settings.method);
     }
 }
 
@@ -596,6 +598,7 @@ fn draw_command_bar(
                         ui.label(caps("// WORLD FORGE", 11.0, DIM_TEXT));
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             draw_generate(ui, &hud, running, &mut requests);
+                            draw_generation_method(ui, &mut hud, running, &mut requests);
                         });
                     });
                     let rect = ui.max_rect();
@@ -651,6 +654,45 @@ fn draw_generate(
         requests.write(Regenerate {
             seed: hud.seed,
             options: hud.options,
+            method: hud.method,
+        });
+    }
+}
+
+/// The build method is a true A/B switch: changing it immediately requests the
+/// same draft from the other implementation. Once both entries are cached the
+/// view can move between them without regenerating either island.
+fn draw_generation_method(
+    ui: &mut egui::Ui,
+    hud: &mut Hud,
+    running: bool,
+    requests: &mut MessageWriter<Regenerate>,
+) {
+    let mut selected = hud.method;
+    ui.horizontal(|ui| {
+        ui.label(caps("METHOD", 9.0, DIM_TEXT));
+        for method in GenerationMethod::ALL {
+            let tooltip = match method {
+                GenerationMethod::Cpu => "Jerome's original CPU generation method",
+                GenerationMethod::Gpu => "Experimental GPU compute generation method",
+            };
+            let button =
+                egui::Button::new(caps(method.label(), 9.0, TEXT)).selected(selected == method);
+            if ui
+                .add_enabled(!running, button)
+                .on_hover_text(tooltip)
+                .clicked()
+            {
+                selected = method;
+            }
+        }
+    });
+    if selected != hud.method {
+        hud.method = selected;
+        requests.write(Regenerate {
+            seed: hud.seed,
+            options: hud.options,
+            method: hud.method,
         });
     }
 }
@@ -740,6 +782,7 @@ fn draw_cards(
                     requests.write(Regenerate {
                         seed: hud.seed,
                         options: hud.options,
+                        method: hud.method,
                     });
                 }
                 if index % CARD_COLUMNS == CARD_COLUMNS - 1 {
@@ -1167,13 +1210,20 @@ fn draw_generation_strip(mut contexts: EguiContexts, hud: Res<Hud>, status: Res<
 
 fn status_line(status: &GenerationStatus) -> String {
     match (status.built, status.took) {
-        (Some((seed, options)), Some(took)) => format!(
-            "seed {seed} · size {} · built in {}",
-            options.terrain_size,
+        (Some(built), Some(took)) => format!(
+            "{} · seed {} · size {} · built in {}",
+            built.method.label(),
+            built.seed,
+            built.options.terrain_size,
             duration(took)
         ),
-        (Some((seed, options)), None) => {
-            format!("seed {seed} · size {}", options.terrain_size)
+        (Some(built), None) => {
+            format!(
+                "{} · seed {} · size {}",
+                built.method.label(),
+                built.seed,
+                built.options.terrain_size
+            )
         }
         _ => String::from("waiting for the first island"),
     }

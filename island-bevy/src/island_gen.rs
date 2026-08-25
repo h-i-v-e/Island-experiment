@@ -6,7 +6,10 @@ use bevy::{
     prelude::*,
     tasks::{AsyncComputeTaskPool, Task, block_on, poll_once},
 };
-use motu::{ISLAND_WORLD_METRES, Island, IslandOptions, Mesh, River, RiverNode, Vec2, Vec3};
+use motu::{
+    GenerationMethod, ISLAND_WORLD_METRES, Island, IslandOptions, Mesh, River, RiverNode, Vec2,
+    Vec3,
+};
 
 use crate::{
     cache,
@@ -129,6 +132,7 @@ pub fn variant_names() -> String {
 pub struct GenerationSettings {
     pub seed: u64,
     pub options: IslandOptions,
+    pub method: GenerationMethod,
     /// False under `--no-cache`, for the session rather than for one run. A
     /// fresh entry is still written, so the next ordinary run finds one.
     pub cache_reads: bool,
@@ -141,7 +145,7 @@ pub struct GenerationStatus {
     /// Seconds the run in flight has been going, or `None` between runs.
     pub elapsed: Option<f32>,
     /// The inputs the island on screen was built from, once one exists.
-    pub built: Option<(u64, IslandOptions)>,
+    pub built: Option<Regenerate>,
     /// How long that build took.
     pub took: Option<f32>,
     /// The last failure, kept until a run succeeds. Only ever set once an
@@ -162,6 +166,7 @@ impl GenerationStatus {
 pub struct Regenerate {
     pub seed: u64,
     pub options: IslandOptions,
+    pub method: GenerationMethod,
 }
 
 /// A new island has just landed in [`GeneratedIsland`]. Renderer plugins spawn
@@ -918,16 +923,17 @@ fn start(commands: &mut Commands, settings: GenerationSettings, status: &mut Gen
     let GenerationSettings {
         seed,
         options,
+        method,
         cache_reads,
     } = settings;
     info!(
-        "generating island: seed {seed}, terrain size {}",
-        options.terrain_size
+        "generating {method} island: seed {seed}, terrain size {}",
+        options.terrain_size,
     );
     // The cache read runs on the task as well: an entry is tens of megabytes,
     // and no frame should wait on that any more than on generation.
-    let task =
-        AsyncComputeTaskPool::get().spawn(async move { island_data(seed, options, cache_reads) });
+    let task = AsyncComputeTaskPool::get()
+        .spawn(async move { island_data(seed, options, method, cache_reads) });
     commands.spawn((Name::new("Island generation"), GenerationTask(task)));
     status.elapsed = Some(0.0);
 }
@@ -951,6 +957,7 @@ fn accept_requests(
     }
     settings.seed = request.seed;
     settings.options = request.options;
+    settings.method = request.method;
     let requested = *settings;
     start(&mut commands, requested, &mut status);
 }
@@ -958,8 +965,13 @@ fn accept_requests(
 /// Reads the cached geometry if there is any, and otherwise generates it and
 /// leaves an entry behind. A cache that cannot be read or written only ever
 /// costs time, so nothing here is fatal but a failed generation.
-fn island_data(seed: u64, options: IslandOptions, cache_reads: bool) -> Result<IslandData, String> {
-    let path = cache::path(cache::key(seed, &options));
+fn island_data(
+    seed: u64,
+    options: IslandOptions,
+    method: GenerationMethod,
+    cache_reads: bool,
+) -> Result<IslandData, String> {
+    let path = cache::path(method, cache::key(seed, &options));
     if !cache_reads {
         info!("island cache bypassed: --no-cache");
     } else if let Some(data) = cache::read(&path, seed, &options) {
@@ -968,7 +980,7 @@ fn island_data(seed: u64, options: IslandOptions, cache_reads: bool) -> Result<I
     } else {
         info!("island cache miss: {}", path.display());
     }
-    let data = IslandData::new(&Island::generate(seed, options)?);
+    let data = IslandData::new(&Island::generate_with_method(seed, options, method)?);
     match cache::write(&path, seed, &data) {
         Ok(()) => info!("island cache written: {}", path.display()),
         Err(error) => warn!(
@@ -1018,14 +1030,18 @@ fn poll_generation(
                 );
                 info!(
                     "island arguments: {}",
-                    options::command_line(settings.seed, &settings.options)
+                    options::command_line(settings.seed, &settings.options, settings.method)
                 );
                 for entity in &replaced {
                     commands.entity(entity).despawn();
                 }
                 commands.insert_resource(GeneratedIsland(data));
                 ready.write(IslandReady);
-                status.built = Some((settings.seed, settings.options));
+                status.built = Some(Regenerate {
+                    seed: settings.seed,
+                    options: settings.options,
+                    method: settings.method,
+                });
                 status.took = elapsed;
                 status.failure = None;
             }

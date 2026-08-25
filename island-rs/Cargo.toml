@@ -22,9 +22,7 @@ wgpu = { version = "29.0.4", optional = true }
 
 [features]
 default = []
-gpu-erosion = ["dep:bytemuck", "dep:pollster", "dep:wgpu"]
-gpu-rocks = ["dep:bytemuck", "dep:pollster", "dep:wgpu"]
-gpu-rivers = ["dep:bytemuck", "dep:pollster", "dep:wgpu"]
+gpu-generation = ["dep:bytemuck", "dep:pollster", "dep:wgpu"]
 profiling = []
 
 [[bin]]
