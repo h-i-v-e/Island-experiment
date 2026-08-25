@@ -11,10 +11,39 @@ internal static class IslandGenerationWorker
         float emitterSpacingMetres,
         CancellationToken cancellationToken)
     {
+        return GenerateAsync(
+            seed,
+            options,
+            new MotuNative.ForestOptions
+            {
+                patchSizeMetres = 200f * 2000f / worldSize,
+                noiseThreshold = 0.62f,
+                noiseOctaves = 4,
+                snowlineMetres = 100f * 2000f / worldSize,
+                prototypeCount = 8,
+                minimumScale = 0.85f,
+                maximumScale = 1.15f,
+            },
+            worldSize,
+            emitterSharpnessDegrees,
+            emitterSpacingMetres,
+            cancellationToken);
+    }
+
+    internal static Task<IslandPreparedData> GenerateAsync(
+        int seed,
+        MotuNative.Options options,
+        MotuNative.ForestOptions forestOptions,
+        float worldSize,
+        float emitterSharpnessDegrees,
+        float emitterSpacingMetres,
+        CancellationToken cancellationToken)
+    {
         return Task.Run(
             () => IslandGenerator.PrepareIsland(
                 seed,
                 options,
+                forestOptions,
                 worldSize,
                 emitterSharpnessDegrees,
                 emitterSpacingMetres,

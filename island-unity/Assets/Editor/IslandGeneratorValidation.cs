@@ -13,7 +13,19 @@ public static class IslandGeneratorValidation
     {
         IslandGenerator.BatchValidateNativeInterop();
         ValidateSandboxScene();
+        ValidateRealtimeShadowRender();
         Debug.Log("IslandGenerator component, sandbox level, and native validation passed.");
+    }
+
+    public static void BatchValidateRealtimeShadows()
+    {
+        var scene = EditorSceneManager.OpenScene(SandboxScenePath);
+        if (!scene.IsValid())
+        {
+            throw new InvalidOperationException("The island sandbox scene could not be opened.");
+        }
+        ValidateRealtimeShadowRender();
+        Debug.Log("Tree and grass real-time shadow shader variants passed validation.");
     }
 
     public static void BatchValidateRealTimeAmbientOcclusion()
@@ -117,6 +129,13 @@ public static class IslandGeneratorValidation
         {
             throw new InvalidOperationException(
                 "The sandbox IslandGenerator has no streaming target.");
+        }
+        if (island.Rendering.Sunlight == null
+            || island.Rendering.Sunlight.type != LightType.Directional
+            || island.Rendering.Sunlight.shadows != LightShadows.Soft)
+        {
+            throw new InvalidOperationException(
+                "The sandbox directional sunlight does not have soft shadows enabled.");
         }
         if (island.Rendering.TerrainMaterial == null
             || island.Rendering.GrassMaterial == null
@@ -308,6 +327,128 @@ public static class IslandGeneratorValidation
             UnityEngine.Object.DestroyImmediate(cameraObject);
             UnityEngine.Object.DestroyImmediate(planeObject);
         }
+    }
+
+    private static void ValidateRealtimeShadowRender()
+    {
+        var woodShader = Shader.Find("Motu/Tree Wood");
+        var foliageShader = Shader.Find("Motu/Tree Foliage");
+        var grassShader = Shader.Find("Motu/Terrain Grass");
+        if (woodShader == null || foliageShader == null || grassShader == null)
+        {
+            throw new InvalidOperationException(
+                "A tree or grass shader required for shadow validation is missing.");
+        }
+
+        var root = new GameObject("Real-time shadow shader validation");
+        var cameraObject = new GameObject("Real-time shadow validation camera");
+        var lightObject = new GameObject("Real-time shadow validation light");
+        var target = new RenderTexture(128, 128, 24);
+        var materials = new[]
+        {
+            new Material(woodShader),
+            new Material(foliageShader),
+            new Material(grassShader),
+        };
+        if (materials[2].renderQueue != (int)UnityEngine.Rendering.RenderQueue.AlphaTest)
+        {
+            throw new InvalidOperationException(
+                "The grass shader must be alpha-tested so its fur shells receive shadows.");
+        }
+        var originalShadows = QualitySettings.shadows;
+        var originalShadowDistance = QualitySettings.shadowDistance;
+        try
+        {
+            QualitySettings.shadows = ShadowQuality.All;
+            QualitySettings.shadowDistance = 50f;
+
+            var light = lightObject.AddComponent<Light>();
+            light.type = LightType.Directional;
+            light.shadows = LightShadows.Soft;
+            lightObject.transform.rotation = Quaternion.Euler(50f, -35f, 0f);
+
+            var camera = cameraObject.AddComponent<Camera>();
+            camera.enabled = false;
+            camera.renderingPath = RenderingPath.Forward;
+            camera.depthTextureMode = DepthTextureMode.Depth;
+            camera.targetTexture = target;
+            cameraObject.transform.position = new Vector3(0f, 3f, -8f);
+            cameraObject.transform.LookAt(new Vector3(0f, 1f, 0f));
+
+            CreateShadowValidationPrimitive(
+                PrimitiveType.Cube,
+                "Wood",
+                new Vector3(-2f, 1f, 0f),
+                materials[0],
+                root.transform);
+            CreateShadowValidationPrimitive(
+                PrimitiveType.Sphere,
+                "Foliage",
+                new Vector3(0f, 1f, 0f),
+                materials[1],
+                root.transform);
+            materials[2].SetFloat("_GrassEnabled", 1f);
+            materials[2].SetVector("_GrassPlayerPosition", Vector4.zero);
+            materials[2].SetFloat("_GrassRadius", 50f);
+            CreateShadowValidationPrimitive(
+                PrimitiveType.Plane,
+                "Grass",
+                new Vector3(2f, 0f, 0f),
+                materials[2],
+                root.transform);
+
+            var shadowVariants = new ShaderVariantCollection();
+            foreach (var shader in new[] { woodShader, foliageShader, grassShader })
+            {
+                shadowVariants.Add(new ShaderVariantCollection.ShaderVariant(
+                    shader,
+                    UnityEngine.Rendering.PassType.ForwardBase,
+                    "DIRECTIONAL",
+                    "SHADOWS_SCREEN"));
+            }
+            shadowVariants.WarmUp();
+
+            target.Create();
+            camera.Render();
+
+            if (ShaderUtil.ShaderHasError(woodShader)
+                || ShaderUtil.ShaderHasError(foliageShader)
+                || ShaderUtil.ShaderHasError(grassShader))
+            {
+                throw new InvalidOperationException(
+                    "A tree or grass shader failed to compile with real-time shadows enabled.");
+            }
+        }
+        finally
+        {
+            QualitySettings.shadows = originalShadows;
+            QualitySettings.shadowDistance = originalShadowDistance;
+            target.Release();
+            UnityEngine.Object.DestroyImmediate(target);
+            foreach (var material in materials)
+            {
+                UnityEngine.Object.DestroyImmediate(material);
+            }
+            UnityEngine.Object.DestroyImmediate(lightObject);
+            UnityEngine.Object.DestroyImmediate(cameraObject);
+            UnityEngine.Object.DestroyImmediate(root);
+        }
+    }
+
+    private static void CreateShadowValidationPrimitive(
+        PrimitiveType primitiveType,
+        string name,
+        Vector3 position,
+        Material material,
+        Transform parent)
+    {
+        var primitive = GameObject.CreatePrimitive(primitiveType);
+        primitive.name = name;
+        primitive.transform.SetParent(parent, false);
+        primitive.transform.position = position;
+        var renderer = primitive.GetComponent<Renderer>();
+        renderer.sharedMaterial = material;
+        renderer.receiveShadows = true;
     }
 
     private static void InvokePrivateLifecycleMethod(

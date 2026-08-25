@@ -14,7 +14,11 @@ use std::{
     ptr,
 };
 
-use crate::{BoundingBox, Island, IslandOptions, Mesh, SeaMask, SurfaceMaps, Vec2, Vec3};
+use crate::forest::ForestMeshKind;
+use crate::{
+    BoundingBox, ForestOptions, Island, IslandOptions, Mesh, SeaMask, SurfaceMaps, Vec2, Vec3,
+    generate_tree,
+};
 
 const _: () = {
     assert!(size_of::<Vec2>() == size_of::<[f32; 2]>());
@@ -46,6 +50,23 @@ pub struct MotuOptions {
 
 const _: () = assert!(size_of::<MotuOptions>() == size_of::<[f32; 16]>());
 
+#[derive(Clone, Copy, Debug)]
+#[repr(C)]
+pub struct MotuForestOptions {
+    pub patchSizeMetres: f32,
+    pub noiseThreshold: f32,
+    pub noiseOctaves: u8,
+    pub snowlineMetres: f32,
+    pub prototypeCount: u8,
+    pub minimumScale: f32,
+    pub maximumScale: f32,
+}
+
+const _: () = {
+    assert!(size_of::<MotuForestOptions>() == size_of::<[u8; 28]>());
+    assert!(align_of::<MotuForestOptions>() == align_of::<f32>());
+};
+
 impl From<MotuOptions> for IslandOptions {
     fn from(value: MotuOptions) -> Self {
         Self {
@@ -64,6 +85,20 @@ impl From<MotuOptions> for IslandOptions {
             river_source_depth_metres: value.riverSourceDepthMetres,
             river_maximum_depth_metres: value.riverMaximumDepthMetres,
             ..Self::default()
+        }
+    }
+}
+
+impl From<MotuForestOptions> for ForestOptions {
+    fn from(value: MotuForestOptions) -> Self {
+        Self {
+            patch_size_metres: value.patchSizeMetres,
+            noise_threshold: value.noiseThreshold,
+            noise_octaves: value.noiseOctaves,
+            snowline_metres: value.snowlineMetres,
+            prototype_count: value.prototypeCount,
+            minimum_scale: value.minimumScale,
+            maximum_scale: value.maximumScale,
         }
     }
 }
@@ -227,6 +262,9 @@ pub struct ExportHeightMapWithSeaLevel {
 const TERRAIN_COLLIDER_TILE_COUNT: i32 = 64;
 const MIN_TERRAIN_COLLIDER_SAMPLES_PER_TILE: i32 = 33;
 const MAX_TERRAIN_COLLIDER_SAMPLES_PER_TILE: i32 = 129;
+// Forest grids own one `ExportedMesh` allocation per tile. Keep malformed or
+// hostile ABI requests bounded before the fixed-grid owner is allocated.
+const MAX_FOREST_GRID_DIVISIONS: usize = 256;
 
 fn terrain_collider_heightmap_dimension(samples_per_tile: i32) -> Option<i32> {
     let intervals_per_tile = samples_per_tile.checked_sub(1)?;
@@ -241,6 +279,48 @@ fn terrain_collider_heightmap_dimension(samples_per_tile: i32) -> Option<i32> {
     TERRAIN_COLLIDER_TILE_COUNT
         .checked_mul(i32::try_from(intervals_per_tile).ok()?)?
         .checked_add(1)
+}
+
+fn forest_grid_arguments(
+    area: *const ExportArea,
+    visual_lod: i32,
+    divisions: i32,
+) -> Option<(BoundingBox, usize, usize, usize)> {
+    let visual_lod = usize::try_from(visual_lod).ok()?;
+    if visual_lod > 2 {
+        return None;
+    }
+    let divisions = usize::try_from(divisions).ok()?;
+    if divisions == 0 || divisions > MAX_FOREST_GRID_DIVISIONS {
+        return None;
+    }
+    let tile_count = divisions.checked_mul(divisions)?;
+    i32::try_from(tile_count).ok()?;
+
+    let bounds = if area.is_null() {
+        BoundingBox::default()
+    } else {
+        // SAFETY: the caller promises a readable ExportArea when non-null.
+        unsafe { (*area).into() }
+    };
+    let finite = [
+        bounds.min.x,
+        bounds.min.y,
+        bounds.min.z,
+        bounds.max.x,
+        bounds.max.y,
+        bounds.max.z,
+    ]
+    .into_iter()
+    .all(f32::is_finite);
+    if !finite
+        || bounds.max.x <= bounds.min.x
+        || bounds.max.y <= bounds.min.y
+        || bounds.max.z < bounds.min.z
+    {
+        return None;
+    }
+    Some((bounds, visual_lod, divisions, tile_count))
 }
 
 #[repr(C)]
@@ -355,6 +435,18 @@ fn export_mesh_grid(
     }
 }
 
+fn export_forest_mesh_grid(tiles: Vec<Mesh>, expected_length: usize) -> Option<ExportMeshGrid> {
+    // A forest accessor may represent the all-empty LOD2 wood stream with an
+    // empty source vector. Expand only that representation; every other
+    // length mismatch is rejected so the ABI always publishes a fixed grid.
+    let tiles = match tiles.len() {
+        length if length == expected_length => tiles,
+        0 => vec![Mesh::default(); expected_length],
+        _ => return None,
+    };
+    Some(export_mesh_grid(tiles, |_| Vec::new()))
+}
+
 fn export_surface_maps(maps: Box<SurfaceMaps>) -> ExportSurfaceMaps {
     let handle = Box::into_raw(maps);
     // SAFETY: handle remains owned by the caller until ReleaseSurfaceMaps.
@@ -407,11 +499,81 @@ pub unsafe extern "C" fn CreateMotu(seed: i32, options: *const MotuOptions) -> *
     })
 }
 
+/// Creates an island using the historical terrain options plus explicit
+/// forest controls. `CreateMotu` remains the compatibility entry point and
+/// uses validated Rust forest defaults.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn CreateMotuWithForest(
+    seed: i32,
+    options: *const MotuOptions,
+    forest_options: *const MotuForestOptions,
+) -> *mut c_void {
+    let options = if options.is_null() {
+        IslandOptions::default()
+    } else {
+        // SAFETY: non-null options must point to a readable MotuOptions.
+        unsafe { (*options).into() }
+    };
+    let forest_options = if forest_options.is_null() {
+        ForestOptions::default()
+    } else {
+        // SAFETY: non-null forest_options must point to a readable
+        // MotuForestOptions.
+        unsafe { (*forest_options).into() }
+    };
+    Island::generate_with_forest(u64::from(seed.cast_unsigned()), options, forest_options)
+        .map_or(ptr::null_mut(), |island| {
+            Box::into_raw(Box::new(island)).cast()
+        })
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ReleaseMotu(handle: *mut c_void) {
     if !handle.is_null() {
         // SAFETY: handle came from CreateMotu or LoadMotu and is released once.
         drop(unsafe { Box::from_raw(handle.cast::<Island>()) });
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn CreateProceduralTree(
+    seed: i32,
+    lod0_wood_output: *mut ExportMesh,
+    lod0_foliage_output: *mut ExportMesh,
+    lod1_wood_output: *mut ExportMesh,
+    lod1_foliage_output: *mut ExportMesh,
+) {
+    let outputs = [
+        lod0_wood_output,
+        lod0_foliage_output,
+        lod1_wood_output,
+        lod1_foliage_output,
+    ];
+    if outputs.iter().any(|output| output.is_null())
+        || outputs
+            .iter()
+            .enumerate()
+            .any(|(index, output)| outputs[index + 1..].contains(output))
+    {
+        return;
+    }
+    // SAFETY: all pointers are non-null, distinct, and promised writable by
+    // the caller. Defaults make every early observation safely releasable.
+    for output in outputs {
+        unsafe { output.write(ExportMesh::default()) };
+    }
+    let tree = generate_tree(u64::from(seed.cast_unsigned()));
+    let lod0_wood = export_mesh(tree.lod0_wood, Vec::new());
+    let lod0_foliage = export_mesh(tree.lod0_foliage, Vec::new());
+    let lod1_wood = export_mesh(tree.lod1_wood, Vec::new());
+    let lod1_foliage = export_mesh(tree.lod1_foliage, Vec::new());
+    // SAFETY: output ownership transfers to the caller and each independent
+    // handle must subsequently be passed to ReleaseMesh exactly once.
+    unsafe {
+        lod0_wood_output.write(lod0_wood);
+        lod0_foliage_output.write(lod0_foliage);
+        lod1_wood_output.write(lod1_wood);
+        lod1_foliage_output.write(lod1_foliage);
     }
 }
 
@@ -587,6 +749,76 @@ pub unsafe extern "C" fn CreateRiverMeshGrid(
     *output = export_mesh_grid(island.river_mesh().sliced_grid(bounds, divisions), |_| {
         Vec::new()
     });
+}
+
+/// Exports whole-tree owner tiles for the requested visual wood LOD.
+///
+/// Visual LOD mapping is owned by `Island`: LOD0 and LOD1 select the matching
+/// combined streams while LOD2 is a fixed, empty grid. Every successful call
+/// publishes exactly `divisions * divisions` releasable mesh entries.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn CreateForestWoodMeshGrid(
+    handle: *const c_void,
+    area: *const ExportArea,
+    visual_lod: i32,
+    divisions: i32,
+    output: *mut ExportMeshGrid,
+) {
+    let Some(output) = (unsafe { output.as_mut() }) else {
+        return;
+    };
+    *output = ExportMeshGrid::default();
+    let Some(island) = (unsafe { island_ref(handle) }) else {
+        return;
+    };
+    let Some((bounds, visual_lod, divisions, tile_count)) =
+        forest_grid_arguments(area, visual_lod, divisions)
+    else {
+        return;
+    };
+    let Some(tiles) = island.forest_mesh_grid(ForestMeshKind::Wood, visual_lod, bounds, divisions)
+    else {
+        return;
+    };
+    let Some(export) = export_forest_mesh_grid(tiles, tile_count) else {
+        return;
+    };
+    *output = export;
+}
+
+/// Exports whole-cluster owner tiles for the requested visual foliage LOD.
+///
+/// Visual LOD2 and LOD1 intentionally share the low-poly foliage stream. The
+/// island accessor performs that mapping and returns a fixed owner grid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn CreateForestFoliageMeshGrid(
+    handle: *const c_void,
+    area: *const ExportArea,
+    visual_lod: i32,
+    divisions: i32,
+    output: *mut ExportMeshGrid,
+) {
+    let Some(output) = (unsafe { output.as_mut() }) else {
+        return;
+    };
+    *output = ExportMeshGrid::default();
+    let Some(island) = (unsafe { island_ref(handle) }) else {
+        return;
+    };
+    let Some((bounds, visual_lod, divisions, tile_count)) =
+        forest_grid_arguments(area, visual_lod, divisions)
+    else {
+        return;
+    };
+    let Some(tiles) =
+        island.forest_mesh_grid(ForestMeshKind::Foliage, visual_lod, bounds, divisions)
+    else {
+        return;
+    };
+    let Some(export) = export_forest_mesh_grid(tiles, tile_count) else {
+        return;
+    };
+    *output = export;
 }
 
 #[unsafe(no_mangle)]
@@ -1041,6 +1273,150 @@ mod tests {
     use super::*;
 
     #[test]
+    fn forest_grid_invalid_inputs_leave_a_default_export() {
+        let invalid_areas = [
+            ExportArea {
+                min: Vec3::new(f32::NAN, 0.0, f32::MIN),
+                max: Vec3::new(1.0, 1.0, f32::MAX),
+            },
+            ExportArea {
+                min: Vec3::new(0.0, 0.0, f32::MIN),
+                max: Vec3::new(0.0, 1.0, f32::MAX),
+            },
+            ExportArea {
+                min: Vec3::new(0.0, 0.0, 1.0),
+                max: Vec3::new(1.0, 1.0, 0.0),
+            },
+        ];
+        for area in invalid_areas {
+            assert!(forest_grid_arguments(&raw const area, 0, 8).is_none());
+        }
+
+        for (visual_lod, divisions) in [
+            (3, 8),
+            (-1, 8),
+            (0, 0),
+            (0, -2),
+            (0, i32::MAX),
+            (
+                0,
+                i32::try_from(MAX_FOREST_GRID_DIVISIONS + 1).unwrap_or(i32::MAX),
+            ),
+        ] {
+            assert!(forest_grid_arguments(ptr::null(), visual_lod, divisions).is_none());
+        }
+
+        assert!(forest_grid_arguments(ptr::null(), 0, 8).is_some());
+
+        let mut output = ExportMeshGrid {
+            handle: ptr::dangling_mut(),
+            data: ptr::dangling(),
+            length: 13,
+        };
+        unsafe {
+            CreateForestFoliageMeshGrid(ptr::null(), ptr::null(), 0, 8, &raw mut output);
+        }
+        assert!(output.handle.is_null());
+        assert!(output.data.is_null());
+        assert_eq!(output.length, 0);
+    }
+
+    #[test]
+    fn forest_grid_rejects_non_finite_bounds_directly() {
+        let area = ExportArea {
+            min: Vec3::new(0.0, 0.0, f32::INFINITY),
+            max: Vec3::new(1.0, 1.0, f32::MAX),
+        };
+        assert!(forest_grid_arguments(&raw const area, 0, 8).is_none());
+    }
+
+    #[test]
+    fn forest_grid_null_output_is_safe() {
+        unsafe {
+            CreateForestWoodMeshGrid(ptr::null(), ptr::null(), 0, 8, ptr::null_mut());
+        }
+    }
+
+    #[test]
+    fn forest_grid_default_bounds_are_valid() {
+        let (bounds, visual_lod, divisions, tile_count) =
+            forest_grid_arguments(ptr::null(), 2, 8).expect("default bounds are valid");
+        assert_eq!(visual_lod, 2);
+        assert_eq!(divisions, 8);
+        assert_eq!(tile_count, 64);
+        assert_eq!(bounds, BoundingBox::default());
+    }
+
+    /*
+     * Keep the valid-argument FFI call separate from the direct validation
+     * tests above: a null island should still reset the output without
+     * allocating a grid.
+     */
+    #[test]
+    fn forest_grid_null_island_leaves_a_default_export() {
+        let mut output = ExportMeshGrid {
+            handle: ptr::dangling_mut(),
+            data: ptr::dangling(),
+            length: 13,
+        };
+        unsafe {
+            CreateForestWoodMeshGrid(ptr::null(), ptr::null(), 0, 8, &raw mut output);
+        }
+        assert!(output.handle.is_null());
+        assert!(output.data.is_null());
+        assert_eq!(output.length, 0);
+    }
+
+    #[test]
+    fn forest_grid_valid_lifecycle_on_a_small_island() {
+        let terrain_options = IslandOptions {
+            terrain_size: 16,
+            ..IslandOptions::default()
+        };
+        let forest_options = ForestOptions {
+            noise_threshold: 1.0,
+            prototype_count: 1,
+            ..ForestOptions::default()
+        };
+        let island = Island::generate_with_forest(2018, terrain_options, forest_options)
+            .expect("small island generation should succeed");
+        let handle = Box::into_raw(Box::new(island)).cast::<c_void>();
+
+        // SAFETY: handle is a freshly allocated Island and each output is a
+        // distinct writable value released through its paired grid function.
+        unsafe {
+            let mut wood_lod2 = ExportMeshGrid::default();
+            CreateForestWoodMeshGrid(handle, ptr::null(), 2, 2, &raw mut wood_lod2);
+            assert!(!wood_lod2.handle.is_null());
+            assert_eq!(wood_lod2.length, 4);
+            let wood_tiles = std::slice::from_raw_parts(wood_lod2.data, 4);
+            assert!(wood_tiles.iter().all(|tile| {
+                !tile.handle.is_null()
+                    && tile.vertices.length == 0
+                    && tile.normals.length == 0
+                    && tile.triangles.length == 0
+            }));
+
+            let mut foliage_lod1 = ExportMeshGrid::default();
+            let mut foliage_lod2 = ExportMeshGrid::default();
+            CreateForestFoliageMeshGrid(handle, ptr::null(), 1, 2, &raw mut foliage_lod1);
+            CreateForestFoliageMeshGrid(handle, ptr::null(), 2, 2, &raw mut foliage_lod2);
+            assert!(!foliage_lod1.handle.is_null());
+            assert!(!foliage_lod2.handle.is_null());
+            assert_eq!(foliage_lod1.length, 4);
+            assert_eq!(foliage_lod2.length, 4);
+            ReleaseMeshGrid(&raw mut wood_lod2);
+            assert!(wood_lod2.handle.is_null());
+            assert!(!foliage_lod1.handle.is_null());
+            ReleaseMeshGrid(&raw mut foliage_lod1);
+            ReleaseMeshGrid(&raw mut foliage_lod2);
+            assert!(foliage_lod1.handle.is_null());
+            assert!(foliage_lod2.handle.is_null());
+            ReleaseMotu(handle);
+        }
+    }
+
+    #[test]
     fn null_island_leaves_a_default_sea_mask_export() {
         let mut output = ExportSeaMask {
             handle: ptr::dangling_mut::<u8>().cast(),
@@ -1131,6 +1507,42 @@ mod tests {
         }
     }
 
+    fn test_forest_options() -> MotuForestOptions {
+        MotuForestOptions {
+            patchSizeMetres: 200.0,
+            noiseThreshold: 0.62,
+            noiseOctaves: 4,
+            snowlineMetres: 100.0,
+            prototypeCount: 8,
+            minimumScale: 0.85,
+            maximumScale: 1.15,
+        }
+    }
+
+    #[test]
+    fn motu_forest_options_forward_settings() {
+        let forest = ForestOptions::from(test_forest_options());
+        assert!((forest.patch_size_metres - 200.0).abs() < f32::EPSILON);
+        assert!((forest.noise_threshold - 0.62).abs() < f32::EPSILON);
+        assert_eq!(forest.noise_octaves, 4);
+        assert!((forest.snowline_metres - 100.0).abs() < f32::EPSILON);
+        assert_eq!(forest.prototype_count, 8);
+        assert!((forest.minimum_scale - 0.85).abs() < f32::EPSILON);
+        assert!((forest.maximum_scale - 1.15).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn invalid_forest_options_reject_island_creation() {
+        let options = test_options();
+        let mut forest_options = test_forest_options();
+        forest_options.noiseThreshold = f32::NAN;
+        // SAFETY: the options pointer is valid for this call; validation must
+        // reject it before terrain generation allocates an island.
+        let handle =
+            unsafe { CreateMotuWithForest(2018, &raw const options, &raw const forest_options) };
+        assert!(handle.is_null());
+    }
+
     unsafe fn assert_river_exports(handle: *const c_void) {
         let mut river_grid = ExportMeshGrid::default();
         unsafe { CreateRiverMeshGrid(handle, ptr::null(), 8, &raw mut river_grid) };
@@ -1167,12 +1579,42 @@ mod tests {
 
     #[test]
     #[ignore = "slow export API lifecycle test; run explicitly when the export API changes"]
+    #[allow(clippy::too_many_lines)]
     fn ffi_allocations_have_matching_release_functions() {
         let options = test_options();
+        let mut forest_options = test_forest_options();
+        // Keep this broad allocation smoke test focused on ABI ownership. The
+        // small-island test above exercises the same forest grids without
+        // asking the historical terrain fixture to assemble a large forest.
+        forest_options.noiseThreshold = 1.0;
+        forest_options.prototypeCount = 1;
         // SAFETY: this test passes valid pointers and releases every returned
         // allocation exactly once through its paired ABI function.
         unsafe {
-            let handle = CreateMotu(2018, &raw const options);
+            let mut tree_lod0_wood = ExportMesh::default();
+            let mut tree_lod0_foliage = ExportMesh::default();
+            let mut tree_lod1_wood = ExportMesh::default();
+            let mut tree_lod1_foliage = ExportMesh::default();
+            CreateProceduralTree(
+                2018,
+                &raw mut tree_lod0_wood,
+                &raw mut tree_lod0_foliage,
+                &raw mut tree_lod1_wood,
+                &raw mut tree_lod1_foliage,
+            );
+            for tree_mesh in [
+                &raw mut tree_lod0_wood,
+                &raw mut tree_lod0_foliage,
+                &raw mut tree_lod1_wood,
+                &raw mut tree_lod1_foliage,
+            ] {
+                assert!(!(*tree_mesh).handle.is_null());
+                assert!((*tree_mesh).triangles.length > 0);
+                assert_eq!((*tree_mesh).vertices.length, (*tree_mesh).normals.length);
+                ReleaseMesh(tree_mesh);
+            }
+
+            let handle = CreateMotuWithForest(2018, &raw const options, &raw const forest_options);
             assert!(!handle.is_null());
 
             let mut mesh = ExportMesh::default();
@@ -1199,6 +1641,48 @@ mod tests {
             assert!(tiles.iter().all(terrain_attributes_match));
             ReleaseMeshGrid(&raw mut grid);
             assert!(grid.handle.is_null());
+
+            let mut forest_wood_lod2 = ExportMeshGrid::default();
+            CreateForestWoodMeshGrid(handle, ptr::null(), 2, 8, &raw mut forest_wood_lod2);
+            assert!(!forest_wood_lod2.handle.is_null());
+            assert_eq!(forest_wood_lod2.length, 64);
+            let forest_wood_lod2_tiles =
+                std::slice::from_raw_parts(forest_wood_lod2.data, forest_wood_lod2.length as usize);
+            assert!(forest_wood_lod2_tiles.iter().all(|tile| {
+                tile.vertices.length == 0
+                    && tile.normals.length == 0
+                    && tile.triangles.length == 0
+                    && tile.uv.length == 0
+            }));
+
+            let mut forest_foliage_lod1 = ExportMeshGrid::default();
+            let mut forest_foliage_lod2 = ExportMeshGrid::default();
+            CreateForestFoliageMeshGrid(handle, ptr::null(), 1, 8, &raw mut forest_foliage_lod1);
+            CreateForestFoliageMeshGrid(handle, ptr::null(), 2, 8, &raw mut forest_foliage_lod2);
+            assert!(!forest_foliage_lod1.handle.is_null());
+            assert!(!forest_foliage_lod2.handle.is_null());
+            assert_eq!(forest_foliage_lod1.length, 64);
+            assert_eq!(forest_foliage_lod2.length, 64);
+            let foliage_lod1_tiles = std::slice::from_raw_parts(forest_foliage_lod1.data, 64);
+            let foliage_lod2_tiles = std::slice::from_raw_parts(forest_foliage_lod2.data, 64);
+            assert!(
+                foliage_lod1_tiles
+                    .iter()
+                    .zip(foliage_lod2_tiles)
+                    .all(|(lod1, lod2)| {
+                        lod1.vertices.length == lod2.vertices.length
+                            && lod1.normals.length == lod2.normals.length
+                            && lod1.triangles.length == lod2.triangles.length
+                            && lod1.uv.length == lod2.uv.length
+                    })
+            );
+            ReleaseMeshGrid(&raw mut forest_wood_lod2);
+            assert!(forest_wood_lod2.handle.is_null());
+            assert!(!forest_foliage_lod1.handle.is_null());
+            ReleaseMeshGrid(&raw mut forest_foliage_lod1);
+            ReleaseMeshGrid(&raw mut forest_foliage_lod2);
+            assert!(forest_foliage_lod1.handle.is_null());
+            assert!(forest_foliage_lod2.handle.is_null());
 
             assert_river_exports(handle);
 
@@ -1249,6 +1733,50 @@ mod tests {
             }
 
             ReleaseMotu(handle);
+        }
+    }
+
+    #[test]
+    fn procedural_tree_exports_independently_releasable_meshes() {
+        // SAFETY: the test supplies distinct writable outputs and releases
+        // both handles exactly once.
+        unsafe {
+            let mut untouched = ExportMesh::default();
+            CreateProceduralTree(
+                7,
+                &raw mut untouched,
+                ptr::null_mut(),
+                ptr::null_mut(),
+                ptr::null_mut(),
+            );
+            assert!(untouched.handle.is_null());
+
+            let mut lod0_wood = ExportMesh::default();
+            let mut lod0_foliage = ExportMesh::default();
+            let mut lod1_wood = ExportMesh::default();
+            let mut lod1_foliage = ExportMesh::default();
+            CreateProceduralTree(
+                7,
+                &raw mut lod0_wood,
+                &raw mut lod0_foliage,
+                &raw mut lod1_wood,
+                &raw mut lod1_foliage,
+            );
+            assert!(lod0_wood.vertices.length > lod1_wood.vertices.length);
+            assert!(lod0_foliage.vertices.length > lod1_foliage.vertices.length);
+            for tree_mesh in [
+                &raw mut lod0_wood,
+                &raw mut lod0_foliage,
+                &raw mut lod1_wood,
+                &raw mut lod1_foliage,
+            ] {
+                assert!(!(*tree_mesh).handle.is_null());
+                assert!((*tree_mesh).vertices.length > 0);
+                assert_eq!((*tree_mesh).vertices.length, (*tree_mesh).normals.length);
+                assert!((*tree_mesh).triangles.length > 0);
+                ReleaseMesh(tree_mesh);
+                assert!((*tree_mesh).handle.is_null());
+            }
         }
     }
 

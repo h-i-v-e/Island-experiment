@@ -36,27 +36,27 @@ Material:
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _RiverBedAlbedoMap:
-        m_Texture: {fileID: 2800000, guid: 4752948ce4a827145b75ce9870cf06a5, type: 3}
+        m_Texture: {fileID: 2800000, guid: 2838bd30a22fe466dbba1b852314419b, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _RiverBedMaskMap:
-        m_Texture: {fileID: 2800000, guid: 327e2211ae4014db9bc41196328682fd, type: 3}
+        m_Texture: {fileID: 2800000, guid: 1300fd3321269452c80f04401f6b2859, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _RiverBedNormalMap:
-        m_Texture: {fileID: 2800000, guid: 1d3084613ffe3064085889a1384cc38e, type: 3}
+        m_Texture: {fileID: 2800000, guid: 95988f0b5ffa3481fa5023322fc2802d, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _RockAlbedoMap:
-        m_Texture: {fileID: 2800000, guid: ecee726e5ef1913449655a648f9c05a2, type: 3}
+        m_Texture: {fileID: 2800000, guid: 4bb6e5ffbc016437d99ce7a772b6e9a3, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _RockMaskMap:
-        m_Texture: {fileID: 2800000, guid: 143de118b6451496d9cd78487d97d08a, type: 3}
+        m_Texture: {fileID: 2800000, guid: 8debe006fa0694fc095bd1d12a83d88f, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _RockNormalMap:
-        m_Texture: {fileID: 2800000, guid: 70a1aff3a894d934185a07b19f40d829, type: 3}
+        m_Texture: {fileID: 2800000, guid: 83fb888bc96db48a5be664ffc7ecc59c, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _WorldNormal:
@@ -81,7 +81,7 @@ Material:
     - _OcclusionStrength: 0.25
     - _RiverBedHeightBlendStrength: 1
     - _RiverBedNormalMapStrength: 1
-    - _RiverBedTextureOcclusionStrength: 1
+    - _RiverBedTextureOcclusionStrength: 0.65
     - _RiverBedTextureWorldSize: 2
     - _RiverEdgeBlendWidth: 0.2
     - _RiverEdgeNoiseStrength: 0.2
@@ -89,7 +89,7 @@ Material:
     - _RockHeightBlendStrength: 1
     - _RockNormalMapStrength: 1
     - _RockPatchNoiseDetailScale: 8
-    - _RockTextureOcclusionStrength: 0
+    - _RockTextureOcclusionStrength: 0.5
     - _RockTextureWorldSize: 4
     - _SandNormalDetailScale: 768
     - _SandNormalStrength: 0.1

@@ -64,6 +64,43 @@ internal sealed class IslandPreparedSeaMask
     }
 }
 
+internal sealed class IslandPreparedForestData
+{
+    internal readonly IslandPreparedMesh[] lod2FoliageTiles;
+    internal readonly IslandPreparedMesh[] lod1FoliageTiles;
+    internal readonly IslandPreparedMesh[] lod1WoodTiles;
+    internal readonly IslandPreparedMesh[] lod0FoliageTiles;
+    internal readonly IslandPreparedMesh[] lod0WoodTiles;
+
+    internal IslandPreparedForestData(
+        IslandPreparedMesh[] lod2FoliageTiles,
+        IslandPreparedMesh[] lod1FoliageTiles,
+        IslandPreparedMesh[] lod1WoodTiles,
+        IslandPreparedMesh[] lod0FoliageTiles,
+        IslandPreparedMesh[] lod0WoodTiles)
+    {
+        ValidateLength(lod2FoliageTiles, ForestTileStreamer.Lod2TileCount);
+        ValidateLength(lod1FoliageTiles, ForestTileStreamer.Lod1TileCount);
+        ValidateLength(lod1WoodTiles, ForestTileStreamer.Lod1TileCount);
+        ValidateLength(lod0FoliageTiles, ForestTileStreamer.Lod1TileCount);
+        ValidateLength(lod0WoodTiles, ForestTileStreamer.Lod1TileCount);
+        this.lod2FoliageTiles = lod2FoliageTiles;
+        this.lod1FoliageTiles = lod1FoliageTiles;
+        this.lod1WoodTiles = lod1WoodTiles;
+        this.lod0FoliageTiles = lod0FoliageTiles;
+        this.lod0WoodTiles = lod0WoodTiles;
+    }
+
+    private static void ValidateLength(IslandPreparedMesh[] tiles, int expectedLength)
+    {
+        if (tiles == null || tiles.Length != expectedLength)
+        {
+            throw new InvalidOperationException(
+                $"The prepared forest batch must contain {expectedLength} tiles.");
+        }
+    }
+}
+
 internal sealed class IslandPreparedColliderHeightMap
 {
     private const float VerticalSafetyMarginMetres = 1f;
@@ -166,6 +203,7 @@ internal sealed class IslandPreparedData : IDisposable
     internal readonly IslandPreparedMesh[] overviewTiles;
     internal readonly IslandPreparedMesh[] riverTiles;
     internal readonly IslandPreparedMesh[] riverRockTiles;
+    internal readonly IslandPreparedForestData forest;
     internal readonly IslandPreparedRiverEmitter[] riverEmitters;
     internal readonly IslandPreparedColliderHeightMap colliderHeightMap;
 
@@ -176,6 +214,7 @@ internal sealed class IslandPreparedData : IDisposable
         IslandPreparedMesh[] overviewTiles,
         IslandPreparedMesh[] riverTiles,
         IslandPreparedMesh[] riverRockTiles,
+        IslandPreparedForestData forest,
         IslandPreparedRiverEmitter[] riverEmitters,
         IslandPreparedColliderHeightMap colliderHeightMap)
     {
@@ -185,6 +224,7 @@ internal sealed class IslandPreparedData : IDisposable
         this.overviewTiles = overviewTiles;
         this.riverTiles = riverTiles;
         this.riverRockTiles = riverRockTiles;
+        this.forest = forest ?? throw new ArgumentNullException(nameof(forest));
         this.riverEmitters = riverEmitters;
         this.colliderHeightMap = colliderHeightMap;
     }

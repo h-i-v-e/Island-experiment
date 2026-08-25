@@ -130,6 +130,12 @@ fixed4 GrassFragment(GrassVertexOutput input) : SV_Target
         _GrassRadius - fadeWidth,
         _GrassRadius,
         playerDistance);
+    float2 radialFadeCell = floor(
+        input.islandLocalSurfacePosition.xz * max(_GrassDensity, 0.1));
+    // Alpha-tested shells can write camera depth and receive Unity's
+    // screen-space shadows. Fade complete blade columns with stable world-space
+    // stippling so all shells in a tuft appear and disappear together.
+    clip(radialWeight - GrassHash(radialFadeCell + float2(43.17, 19.73)));
 
     half3 normal = normalize(input.worldNormal);
     float elevation = input.islandLocalSurfacePosition.y;
@@ -296,11 +302,9 @@ fixed4 GrassFragment(GrassVertexOutput input) : SV_Target
     // mean albedo as the terrain's base grass colour.
     grassColor *= lerp(0.90, 1.10, GrassHash(cell + 17.0));
     grassColor *= _GrassBrightness;
-    // Blend the complete fur volume into the distant ground grass without
-    // dropping randomly selected blades at the edge of the player radius.
     fixed4 color = fixed4(
         grassColor * (ambient + direct),
-        radialWeight);
+        1.0);
     UNITY_APPLY_FOG(input.fogCoord, color);
     return color;
 }
