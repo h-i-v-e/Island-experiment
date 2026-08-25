@@ -2853,6 +2853,7 @@ fn channel_targets_only_widen_and_deepen_downstream() {
         source_depth: 0.001,
         maximum_depth: 0.01,
     };
+    let published_widths = river.target_half_widths(settings.source_width, settings.maximum_width);
     let sections = target_cross_sections(&[river], settings);
 
     assert!(sections[0].windows(2).all(|pair| pair[0].target_half_width
@@ -2865,6 +2866,12 @@ fn channel_targets_only_widen_and_deepen_downstream() {
     assert_eq!(
         sections[0].last().unwrap().target_half_width.to_bits(),
         (settings.maximum_width * 0.5).to_bits()
+    );
+    assert!(
+        published_widths
+            .iter()
+            .zip(&sections[0])
+            .all(|(width, section)| width.to_bits() == section.target_half_width.to_bits())
     );
 }
 

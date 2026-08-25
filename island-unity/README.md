@@ -7,6 +7,11 @@ shells, rocks, and hidden terrain colliders beneath its GameObject. River-bed
 stones and physically settled dropped rocks share one native-generated,
 tile-streamed mesh; rocks no longer use a separate GameObject renderer pool.
 
+The Unity C ABI deliberately remains on the primary CPU generation method. The
+default `gpu-generation` Rust feature compiles the experimental GPU method for
+safe Rust consumers, and the Bevy viewer exposes it for comparison, but Unity
+does not select it or change its existing generation behavior.
+
 ## Open and run
 
 1. Double-click `Open Island Unity.command`. This bypasses a known local

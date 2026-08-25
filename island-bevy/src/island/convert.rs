@@ -12,7 +12,10 @@ use bevy::{
 };
 use motu::ISLAND_WORLD_METRES;
 
-use crate::hash::{mix, unit};
+use crate::{
+    hash::{lattice_key_3, mix, unit},
+    island_gen::DropIndex,
+};
 
 /// The material triple stands for a vertex the generator gave no material to:
 /// middling bedrock under full cover, away from the sea. `terrain.wgsl` falls
@@ -44,13 +47,25 @@ pub fn island_to_world(x: f32, y: f32, z: f32) -> Vec3 {
 /// Returns `None` for meshes the generator left empty.
 #[must_use]
 pub fn render_mesh(source: &motu::Mesh) -> Option<Mesh> {
+    render_mesh_at(source, Vec3::ZERO)
+}
+
+/// The same, with every position taken relative to a world-space origin the
+/// caller will put on the entity's transform.
+///
+/// Whole-island meshes pass [`Vec3::ZERO`] and stay in world space. A terrain
+/// chunk cannot: Bevy reads the level-of-detail crossfade distance off the
+/// entity's translation, so a chunk has to stand where it is rather than at the
+/// island's centre.
+#[must_use]
+pub fn render_mesh_at(source: &motu::Mesh, origin: Vec3) -> Option<Mesh> {
     if source.triangles.is_empty() || source.vertices.is_empty() {
         return None;
     }
     let positions: Vec<[f32; 3]> = source
         .vertices
         .iter()
-        .map(|vertex| island_to_world(vertex.x, vertex.y, vertex.z).to_array())
+        .map(|vertex| (island_to_world(vertex.x, vertex.y, vertex.z) - origin).to_array())
         .collect();
     let normals: Vec<[f32; 3]> = source
         .normals
@@ -67,7 +82,11 @@ pub fn render_mesh(source: &motu::Mesh) -> Option<Mesh> {
     let baked_normals = normals.len() == source.vertices.len();
     let mut mesh = Mesh::new(
         PrimitiveTopology::TriangleList,
-        RenderAssetUsages::default(),
+        // Generated geometry is immutable after insertion. Render-only usage
+        // lets Bevy move its large buffers into extraction instead of cloning
+        // and retaining a second main-world copy; bounds are calculated before
+        // extraction removes the source asset.
+        RenderAssetUsages::RENDER_WORLD,
     );
     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
     if baked_normals {
@@ -94,8 +113,9 @@ pub fn terrain_mesh(
     source: &motu::Mesh,
     materials: &[motu::Vec3],
     river_wetness: &[f32],
+    origin: Vec3,
 ) -> Option<Mesh> {
-    let mut mesh = render_mesh(source)?;
+    let mut mesh = render_mesh_at(source, origin)?;
     let weights: Vec<[f32; 4]> = (0..source.vertices.len())
         .map(|index| {
             let material = materials.get(index).copied().unwrap_or(DEFAULT_MATERIAL);
@@ -108,21 +128,40 @@ pub fn terrain_mesh(
     Some(mesh)
 }
 
+/// Converts the river water surface and stores what each of its vertices knows
+/// about the nearest fall in [`Mesh::ATTRIBUTE_COLOR`], which the generator
+/// leaves free on this mesh: the approach to a lip, the falling face and how
+/// far down it the vertex stands, the plunge below a foot, and the fall's own
+/// height. `river.wgsl` is the only authority on what those become.
+#[must_use]
+pub fn river_mesh(source: &motu::Mesh, drops: &DropIndex) -> Option<Mesh> {
+    let mut mesh = render_mesh(source)?;
+    let field: Vec<[f32; 4]> = source
+        .vertices
+        .iter()
+        .map(|&vertex| drops.field(vertex).to_array())
+        .collect();
+    mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, field);
+    Some(mesh)
+}
+
 /// Converts the merged river-rock mesh and hashes a deterministic albedo tint
 /// into [`Mesh::ATTRIBUTE_COLOR`]. The bodies arrive already merged, so a
 /// vertex attribute is the finest per-body signal the renderer can carry.
+/// Alpha carries how much spray from the nearest fall stands on the stone,
+/// which is the one channel a tint leaves free.
 #[must_use]
-pub fn rock_mesh(source: &motu::Mesh) -> Option<Mesh> {
+pub fn rock_mesh(source: &motu::Mesh, drops: &DropIndex) -> Option<Mesh> {
     let mut mesh = render_mesh(source)?;
     let tints: Vec<[f32; 4]> = source
         .vertices
         .iter()
-        .map(|vertex| {
+        .map(|&vertex| {
             let cell = island_to_world(vertex.x, vertex.y, vertex.z) / ROCK_TINT_CELL;
             let hash = mix(cell_key(cell), ROCK_TINT_SALT);
             let shade = 0.40f32.mul_add(unit(hash), 0.70);
             let tint = ROCK_TINT_COOL.lerp(ROCK_TINT_WARM, unit(mix(hash, ROCK_TINT_SALT))) * shade;
-            [tint.x, tint.y, tint.z, 1.0]
+            [tint.x, tint.y, tint.z, drops.spray(vertex)]
         })
         .collect();
     mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, tints);
@@ -133,9 +172,11 @@ pub fn rock_mesh(source: &motu::Mesh) -> Option<Mesh> {
 /// axes can cancel.
 fn cell_key(point: Vec3) -> u64 {
     let cell = point.floor().as_i64vec3();
-    cell.x.cast_unsigned().wrapping_mul(0x9e37_79b9_7f4a_7c15)
-        ^ cell.y.cast_unsigned().wrapping_mul(0xc2b2_ae3d_27d4_eb4f)
-        ^ cell.z.cast_unsigned().wrapping_mul(0x1656_67b1_9e37_79f9)
+    lattice_key_3(
+        cell.x.cast_unsigned(),
+        cell.y.cast_unsigned(),
+        cell.z.cast_unsigned(),
+    )
 }
 
 /// The source winding is counter-clockwise in the island XY plane, which the

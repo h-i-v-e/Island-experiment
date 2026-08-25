@@ -4,12 +4,15 @@ An idiomatic Rust conversion of the Motu procedural-island project. It retains
 the original free-form terrain model: random XY seed points are triangulated
 with Bowyer-Watson Delaunay, and finer LODs are produced by shared-edge triangle
 tessellation. It is a self-contained crate with no third-party runtime or build
-dependencies beyond `glam`, which provides the public and internal `Vec2` and
-`Vec3` math types.
+service. The primary CPU implementation does not use a graphics API; the
+default `gpu-generation` Cargo feature includes `wgpu` for native compute and
+can be omitted from CPU-only builds.
 
 The generator provides:
 
 - deterministic seeded free-form terrain with configurable water coverage and elevation;
+- an explicitly selected GPU generation method for hydraulic erosion, rivers,
+  and settled rocks, while retaining the original CPU method as the default;
 - staged perimeter-preserving XYZ smoothing between LOD refinement passes;
 - graph-based thermal and hydraulic erosion over compact CSR mesh adjacency;
 - persistent unconsolidated cover and noise-aligned bedrock hardness shared by
@@ -53,6 +56,42 @@ Useful options:
 --river-source-steep-multiplier <FLOAT>
 --river-source-elevation-boost <FACTOR>
 ```
+
+## Generation methods
+
+`Island::generate` and `Island::generate_with_forest` always use the primary CPU
+implementation. Normal builds include the GPU code, but applications still
+select it explicitly when they want the experimental path:
+
+```toml
+island-rs = { path = "../island-rs" }
+```
+
+```rust
+use motu::{GenerationMethod, Island, IslandOptions};
+
+let island = Island::generate_with_method(
+    666,
+    IslandOptions::default(),
+    GenerationMethod::Gpu,
+)
+.expect("GPU generation failed");
+```
+
+Use `--no-default-features` for a CPU-only build without the `wgpu`, `pollster`,
+or `bytemuck` dependencies.
+
+The GPU implementation is an alternative terrain model, not a parallel rewrite
+of the CPU instructions. It performs GPU-native particle erosion, grid-based
+drainage and channel carving, and spatial rock settling, targeting a similar
+natural character rather than identical meshes. GPU adapter or execution
+failures are returned through the existing generation `Result`.
+
+Generated islands retain their method. Version 18 saves persist that method so
+loading regenerates through the same implementation; older saves load as CPU.
+A CPU-only build returns an error when asked to load a GPU save. The Unity C ABI
+continues to use CPU generation. The Bevy viewer enables the feature and
+provides the runtime comparison UI.
 
 The Unity viewer constrains water ratio to `0.60..0.95`, river-source catchment
 to `0.01..10` hectares, the steep-slope multiplier to `1..8`, and the

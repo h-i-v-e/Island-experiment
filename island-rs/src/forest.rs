@@ -1999,7 +1999,7 @@ mod tests {
     }
 
     #[test]
-    fn custom_forest_options_round_trip_through_version_seventeen_save() {
+    fn custom_forest_options_round_trip_through_current_save() {
         let options = ForestOptions {
             patch_size_metres: 173.0,
             noise_threshold: 0.71,

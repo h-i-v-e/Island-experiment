@@ -1,10 +1,17 @@
 use super::{
-    Adjacency, GenerationScratch, HYDRAULIC_EDGE_SHIFT_LIMIT, HYDRAULIC_MIN_PROJECTED_AREA_RATIO,
-    IndexedParallelIterator, IntoParallelIterator, IntoParallelRefMutIterator, IslandOptions,
-    LOOSE_DEPTH_EPSILON, MINIMUM_BEDROCK_EROSION_RATE, Mesh, ParallelIterator, StageTimer,
-    SurfaceMaterial, Vec2, Vec3,
+    Adjacency, GenerationMethod, GenerationScratch, HYDRAULIC_EDGE_SHIFT_LIMIT,
+    HYDRAULIC_MIN_PROJECTED_AREA_RATIO, IndexedParallelIterator, IntoParallelIterator,
+    IntoParallelRefMutIterator, IslandOptions, LOOSE_DEPTH_EPSILON, MINIMUM_BEDROCK_EROSION_RATE,
+    Mesh, ParallelIterator, StageTimer, SurfaceMaterial, Vec2, Vec3,
 };
 
+#[cfg_attr(
+    not(feature = "gpu-generation"),
+    allow(
+        clippy::unnecessary_wraps,
+        reason = "the GPU implementation adds fallible device and readback work"
+    )
+)]
 pub(super) fn hydraulic_erode_stage(
     mesh: &mut Mesh,
     adjacency: &Adjacency,
@@ -12,7 +19,7 @@ pub(super) fn hydraulic_erode_stage(
     stage_strength: f32,
     options: IslandOptions,
     scratch: &mut GenerationScratch,
-) {
+) -> Result<(), String> {
     let _timer = StageTimer::new("hydraulic.stage");
     scratch.bedrock_rates.clear();
     scratch.bedrock_rates.extend(
@@ -21,6 +28,24 @@ pub(super) fn hydraulic_erode_stage(
             .iter()
             .map(|&hardness| bedrock_erosion_rate(hardness)),
     );
+    #[cfg(feature = "gpu-generation")]
+    if scratch.method == GenerationMethod::Gpu {
+        super::gpu_generation::erode_particle_batches_gpu(
+            mesh,
+            adjacency,
+            material,
+            &scratch.bedrock_rates,
+            stage_strength,
+            options,
+            &mut scratch.gpu_particle_erosion,
+        )?;
+        return Ok(());
+    }
+    #[cfg(not(feature = "gpu-generation"))]
+    if scratch.method == GenerationMethod::Gpu {
+        scratch.method.require_available()?;
+    }
+
     if std::env::var_os("MOTU_EXPERIMENTAL_MESH_FLOW").is_some() {
         hydraulic_erode_with_scratch(
             mesh,
@@ -41,6 +66,7 @@ pub(super) fn hydraulic_erode_stage(
             HydraulicErosionSettings::new(stage_strength, options),
         );
     }
+    Ok(())
 }
 
 /// Proven sequential hydraulic model. Each source path observes the terrain

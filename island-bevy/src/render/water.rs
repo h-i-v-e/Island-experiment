@@ -6,8 +6,7 @@ use bevy::prelude::*;
 use motu::ISLAND_WORLD_METRES;
 
 use crate::{
-    convert,
-    island_gen::{GeneratedIsland, IslandEntity, IslandReady},
+    island_gen::{IslandEntity, IslandReady, PreparedMeshes},
     surface::{OceanExtension, OceanMaterial, RiverExtension, RiverMaterial},
 };
 
@@ -62,9 +61,9 @@ fn spawn_rivers(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<RiverMaterial>>,
-    island: Res<GeneratedIsland>,
+    mut prepared: ResMut<PreparedMeshes>,
 ) {
-    let Some(mesh) = convert::render_mesh(&island.0.river_mesh) else {
+    let Some(mesh) = prepared.river.take() else {
         return;
     };
     let material = materials.add(RiverMaterial {

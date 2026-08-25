@@ -8,7 +8,7 @@
 
 use std::fmt::Write as _;
 
-use motu::IslandOptions;
+use motu::{GenerationMethod, IslandOptions};
 
 /// Where a parameter appears in the HUD. Table order is `IslandOptions`
 /// declaration order, which the cache key depends on; the group is what the
@@ -194,6 +194,7 @@ pub const PARAMETERS: [Parameter; 14] = [
 
 pub const SEED_FLAG: &str = "--seed";
 pub const TERRAIN_SIZE_FLAG: &str = "--terrain-size";
+pub const GENERATION_METHOD_FLAG: &str = "--generation-method";
 /// The seed-point count `Island::generate` validates against.
 pub const TERRAIN_SIZE_RANGE: std::ops::RangeInclusive<u32> = 16..=4096;
 
@@ -222,11 +223,11 @@ pub fn reconcile(options: &mut IslandOptions) {
 /// parameter is spelled out rather than only those away from their defaults, so
 /// the line stands on its own however the defaults later move.
 #[must_use]
-pub fn command_line(seed: u64, options: &IslandOptions) -> String {
+pub fn command_line(seed: u64, options: &IslandOptions, method: GenerationMethod) -> String {
     let mut options = *options;
     let mut line = format!(
-        "{SEED_FLAG} {seed} {TERRAIN_SIZE_FLAG} {}",
-        options.terrain_size
+        "{SEED_FLAG} {seed} {TERRAIN_SIZE_FLAG} {} {GENERATION_METHOD_FLAG} {method}",
+        options.terrain_size,
     );
     for parameter in &PARAMETERS {
         let value = *(parameter.field)(&mut options);
@@ -235,6 +236,27 @@ pub fn command_line(seed: u64, options: &IslandOptions) -> String {
         let _ = write!(line, " {} {value}", parameter.flag);
     }
     line
+}
+
+/// Only the parameters one option set moved off the generator's own defaults,
+/// as `--flag value` pairs in table order. Empty for the default island.
+///
+/// This is the half of [`command_line`] a capture's metadata records: the whole
+/// list is what reproduces an island, but what is worth reading beside an image
+/// is which handful of parameters this one was not the default at.
+#[must_use]
+pub fn non_default(options: &IslandOptions) -> String {
+    let mut options = *options;
+    let mut defaults = IslandOptions::default();
+    PARAMETERS
+        .iter()
+        .filter_map(|parameter| {
+            let value = *(parameter.field)(&mut options);
+            let default = *(parameter.field)(&mut defaults);
+            ((value - default).abs() > f32::EPSILON).then(|| format!("{} {value}", parameter.flag))
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// One `--flag <RANGE>` line per parameter, for the help text.
@@ -259,9 +281,25 @@ pub fn help_lines() -> String {
 
 #[cfg(test)]
 mod tests {
-    use motu::IslandOptions;
+    use std::mem::size_of;
 
-    use super::{PARAMETERS, command_line, parameter, reconcile};
+    use motu::{GenerationMethod, IslandOptions};
+
+    use super::{PARAMETERS, command_line, non_default, parameter, reconcile};
+
+    /// `IslandOptions` is `repr(C)` and consists only of the table's `f32`
+    /// fields followed by `terrain_size`. Together with the accessor-identity
+    /// test below, this makes a newly added field fail until the table covers
+    /// it, which keeps the cache key complete.
+    #[test]
+    fn parameter_table_covers_the_whole_options_layout() {
+        let table_bytes = (PARAMETERS.len() + 1) * size_of::<u32>();
+        assert_eq!(
+            size_of::<IslandOptions>(),
+            table_bytes,
+            "IslandOptions changed without a matching PARAMETERS entry"
+        );
+    }
 
     /// The table is what the cache key, the parser and the HUD all read, so a
     /// duplicate flag or a field listed twice would quietly merge two
@@ -334,12 +372,30 @@ mod tests {
         assert!((options.river_maximum_depth_metres - 3.0).abs() < f32::EPSILON);
     }
 
+    /// A capture's metadata records what its island was not the default at, so
+    /// the default island has to report nothing and a moved parameter has to
+    /// report itself and no other.
+    #[test]
+    fn only_the_moved_parameters_are_reported() {
+        assert_eq!(non_default(&IslandOptions::default()), "");
+        let moved = IslandOptions {
+            max_height: 0.35,
+            river_maximum_width_metres: 22.0,
+            ..IslandOptions::default()
+        };
+        assert_eq!(
+            non_default(&moved),
+            "--max-height 0.35 --river-maximum-width-metres 22"
+        );
+    }
+
     /// The reported line has to name every parameter, or an island found in the
     /// HUD could not be opened again from the command line.
     #[test]
     fn the_command_line_names_every_parameter() {
-        let line = command_line(666, &IslandOptions::default());
+        let line = command_line(666, &IslandOptions::default(), GenerationMethod::Cpu);
         assert!(line.starts_with("--seed 666 --terrain-size 1024"));
+        assert!(line.contains("--generation-method cpu"));
         for parameter in &PARAMETERS {
             assert!(
                 line.contains(parameter.flag),

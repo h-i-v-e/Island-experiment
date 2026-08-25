@@ -12,6 +12,13 @@
     pbr_functions::{alpha_discard, apply_pbr_lighting, main_pass_post_lighting_processing},
 }
 #import island_bevy::noise::{band_limit, fbm, fbm_gradient, fbm_gradient_limited, noise, noise_gradient, perturb}
+#import island_bevy::debug
+
+// Only defined when the chunk this fragment belongs to is inside the crossfade
+// between two levels of detail, which is also the only time the function exists.
+#ifdef VISIBILITY_RANGE_DITHER
+#import bevy_pbr::pbr_functions::visibility_range_dither;
+#endif
 
 // Linear-space band colours, each written above as the sRGB triple it came
 // from. These are the generator's own preview palette in island-rs/src/raster.rs
@@ -83,12 +90,47 @@ struct TerrainSettings {
     normal_strength: f32,
     /// Metres above the sea plane the waterline damp reaches.
     wet_band: f32,
+    /// Metres one square of the terrain grid is across, and the level of detail
+    /// this material draws. Only `debug::CHUNKS` reads either.
+    chunk_metres: f32,
+    lod_level: u32,
+    /// The diagnostic channel this surface answers with, or `debug::OFF`.
+    debug_view: u32,
 }
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> settings: TerrainSettings;
 
+/// Which square of the terrain grid a fragment stands in, and which level of
+/// detail is drawing it.
+///
+/// The level is the material's own: the ground is one material per level, so a
+/// fragment knows what drew it without anything per-instance. The square comes
+/// off the world position, because the grid divides the island square evenly
+/// and nothing else has to be carried to recover it. The two chequer tones are
+/// what make a seam readable — two chunks at one level meet with no line at
+/// all, and a chunk drawn at another level is a different hue outright.
+fn chunk_readout(world: vec3<f32>) -> vec3<f32> {
+    let square = floor(world.xz / settings.chunk_metres);
+    let chequer = select(0.62, 1.0, (i32(square.x) + i32(square.y)) % 2 == 0);
+    var level = vec3<f32>(0.15, 0.85, 0.25);
+    if settings.lod_level == 1u {
+        level = vec3<f32>(0.95, 0.62, 0.10);
+    } else if settings.lod_level >= 2u {
+        level = vec3<f32>(0.90, 0.15, 0.15);
+    }
+    return level * chequer;
+}
+
 @fragment
 fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> FragmentOutput {
+    // Two levels of one chunk are both drawn across the margin they share, each
+    // keeping the pixels the other discards. The prepass answers the same way
+    // through Bevy's own shader, so depth, motion vectors and the shadow
+    // cascades all see the same half of each.
+#ifdef VISIBILITY_RANGE_DITHER
+    visibility_range_dither(in.position, in.visibility_range_dither);
+#endif
+
     var pbr_input = pbr_input_from_standard_material(in, is_front);
 
     // The colour attribute carries the generator's raw material triple, not a
@@ -111,6 +153,25 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     let height = clamp(metres / max(settings.max_height, 1.0), 0.0, 1.0);
     let slope = clamp(1.0 - normal.y, 0.0, 1.0);
     let range = length(world - view.world_position);
+
+    // The three channels this surface answers `--debug-view` with, taken off
+    // the raw inputs before anything below refines them. They are only applied
+    // at the very end: an early return here would leave every `dpdx` under it
+    // in non-uniform control flow, and the one frame a diagnostic capture costs
+    // is not the frame worth saving.
+    var readout = vec3<f32>(0.0);
+    var diagnosing = true;
+    if settings.debug_view == debug::WEIGHTS {
+        readout = weights;
+    } else if settings.debug_view == debug::WETNESS {
+        readout = debug::ramp(river_proximity);
+    } else if settings.debug_view == debug::SLOPE {
+        readout = debug::ramp(slope);
+    } else if settings.debug_view == debug::CHUNKS {
+        readout = chunk_readout(world);
+    } else {
+        diagnosing = false;
+    }
 
     // How square-on the ground is seen, from edge-on at zero. What answers to it
     // is relief, further down.
@@ -276,5 +337,8 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     var out: FragmentOutput;
     out.color = apply_pbr_lighting(pbr_input);
     out.color = main_pass_post_lighting_processing(pbr_input, out.color);
+    if diagnosing {
+        out.color = vec4<f32>(readout, 1.0);
+    }
     return out;
 }

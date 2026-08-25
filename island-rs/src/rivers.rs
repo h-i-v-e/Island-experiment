@@ -164,7 +164,7 @@ impl RiverSourceRule {
         }
     }
 
-    fn required_catchment(self, grade: f32, elevation: f32) -> f32 {
+    pub(crate) fn required_catchment(self, grade: f32, elevation: f32) -> f32 {
         let slope_response = grade * grade;
         let slope_multiplier = (self.steep_multiplier - 1.0).mul_add(slope_response, 1.0);
         let elevation_fraction = (elevation * self.inverse_maximum_elevation).clamp(0.0, 1.0);
@@ -185,6 +185,19 @@ pub struct RiverNode {
 pub struct River {
     pub nodes: Vec<RiverNode>,
     pub join: Option<usize>,
+}
+
+impl River {
+    /// The target channel half width at every node, using the same monotone
+    /// flow-and-path growth rule the terrain carving pass uses.
+    ///
+    /// The returned widths use the same unit as the two inputs, so callers may
+    /// ask in metres or in normalized island coordinates without conversion
+    /// inside the rule.
+    #[must_use]
+    pub fn target_half_widths(&self, source_width: f32, maximum_width: f32) -> Vec<f32> {
+        channel::target_half_widths(self, source_width, maximum_width)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

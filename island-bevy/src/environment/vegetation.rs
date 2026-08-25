@@ -17,18 +17,28 @@
 //! mesh and one the cone that stands in for it, each with the
 //! [`VisibilityRange`] that hands over to the other. Bevy dithers across the
 //! margin they share, so the swap has no frame it happens on.
+//!
+//! The plants are not loose in the world: each tier of each region of the
+//! terrain grid has a parent entity, and every plant hangs off the parent for
+//! its region and tier. A parent whose whole region stands outside its tier's
+//! range is hidden, and Bevy's visibility propagation then skips the subtree
+//! rather than testing thousands of instances that cannot be drawn. See
+//! [`ScatterGroup`].
 
-use std::f32::consts::TAU;
-
-use bevy::{
-    camera::visibility::VisibilityRange, light::NotShadowCaster, mesh::VertexAttributeValues,
-    prelude::*,
-};
+use std::{f32::consts::TAU, ops::Range};
 
 use crate::{
+    budget::BudgetItem,
+    chunk,
     convert::island_to_world,
     hash::{choice, mix, unit},
     island_gen::{GeneratedIsland, IslandEntity, IslandReady},
+};
+use bevy::{
+    camera::visibility::{VisibilityRange, VisibilitySystems},
+    light::NotShadowCaster,
+    mesh::VertexAttributeValues,
+    prelude::*,
 };
 
 /// Trunk dimensions in metres, before the per-plant scale.
@@ -100,6 +110,13 @@ const NEAR_DITHER: f32 = 30.0;
 const FAR_METRES: f32 = 3_200.0;
 const FAR_DITHER: f32 = 400.0;
 
+/// Regions along each edge of the island that the scatter is grouped on.
+///
+/// The terrain's own grid, so a group covers exactly one chunk's square and the
+/// two answer the frustum with the same granularity. At eight divisions that is
+/// 250 m and about sixty plants a group.
+const GROUPS: u32 = chunk::DIVISIONS;
+
 const TREE_SALT: u64 = 0x54c1_9b0e_a3f7_2d41;
 const BUSH_SALT: u64 = 0x9f27_3b6d_1c85_ea07;
 const PAINT_SALT: u64 = 0x2a7f_e315_c840_9db6;
@@ -139,11 +156,68 @@ const BUSH_SHAPES: usize = BUSH_LOBES.len();
 const TREE_VARIANTS: usize = TREE_SHAPES * CANOPY_TONES.len();
 const BUSH_VARIANTS: usize = BUSH_SHAPES * SHRUB_TONES.len();
 
+/// One tier of one region of the scatter, as the thing that is culled.
+///
+/// Frustum culling and [`VisibilityRange`] both work one entity at a time, and
+/// at terrain size 1024 that is 7,680 of them, every frame, most of which are
+/// nowhere near the range they are drawn over. A group stands for all the
+/// plants of one tier inside one square of the terrain grid: the sphere that
+/// holds every one of their origins, and the range that tier is drawn over.
+///
+/// Hiding the parent is exact rather than approximate. Bevy measures a plant's
+/// range against its own translation, so a group whose sphere does not reach
+/// the tier's range holds nothing that could be drawn — and nothing that could
+/// cast into the shadow cascades either, which take the same range from the
+/// same camera.
+#[derive(Component)]
+struct ScatterGroup {
+    /// The centre of the group's plant origins, and the furthest any of them
+    /// stands from it.
+    centre: Vec3,
+    radius: f32,
+    /// The distances this tier is drawn over, dither margins included.
+    range: Range<f32>,
+}
+
+impl ScatterGroup {
+    /// Whether any plant in the group can be inside its tier's range.
+    fn reaches(&self, eye: Vec3) -> bool {
+        let distance = eye.distance(self.centre);
+        distance + self.radius >= self.range.start && distance - self.radius <= self.range.end
+    }
+}
+
 pub struct VegetationPlugin;
 
 impl Plugin for VegetationPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, spawn_vegetation.run_if(on_message::<IslandReady>));
+        app.add_systems(Update, spawn_vegetation.run_if(on_message::<IslandReady>))
+            // Before the propagation that carries a hidden parent down to its
+            // plants, and so before the visibility pass that would otherwise
+            // test each of them.
+            .add_systems(
+                PostUpdate,
+                cull_groups.before(VisibilitySystems::VisibilityPropagate),
+            );
+    }
+}
+
+/// Hides every group with nothing left to draw. The camera has no parent, so
+/// its own transform is already its world position.
+fn cull_groups(
+    cameras: Query<&Transform, With<Camera3d>>,
+    mut groups: Query<(&ScatterGroup, &mut Visibility)>,
+) {
+    let Ok(camera) = cameras.single() else {
+        return;
+    };
+    let eye = camera.translation;
+    for (group, mut visibility) in &mut groups {
+        visibility.set_if_neq(if group.reaches(eye) {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        });
     }
 }
 
@@ -162,17 +236,24 @@ fn spawn_vegetation(
         reflectance: 0.03,
         ..default()
     });
-    let tree_near: Vec<Handle<Mesh>> = (0..TREE_VARIANTS)
-        .map(|variant| meshes.add(tree_mesh(variant)))
+    // The vertex count crosses with the handle: the budget census reads it off
+    // the entity rather than looking the mesh asset up thousands of times a
+    // frame.
+    let add = |meshes: &mut Assets<Mesh>, mesh: Mesh| {
+        let vertices = u32::try_from(mesh.count_vertices()).unwrap_or(u32::MAX);
+        (meshes.add(mesh), vertices)
+    };
+    let tree_near: Vec<(Handle<Mesh>, u32)> = (0..TREE_VARIANTS)
+        .map(|variant| add(&mut meshes, tree_mesh(variant)))
         .collect();
-    let tree_far: Vec<Handle<Mesh>> = (0..TREE_VARIANTS)
-        .map(|variant| meshes.add(tree_impostor(variant)))
+    let tree_far: Vec<(Handle<Mesh>, u32)> = (0..TREE_VARIANTS)
+        .map(|variant| add(&mut meshes, tree_impostor(variant)))
         .collect();
-    let bush_near: Vec<Handle<Mesh>> = (0..BUSH_VARIANTS)
-        .map(|variant| meshes.add(bush_mesh(variant)))
+    let bush_near: Vec<(Handle<Mesh>, u32)> = (0..BUSH_VARIANTS)
+        .map(|variant| add(&mut meshes, bush_mesh(variant)))
         .collect();
-    let bush_far: Vec<Handle<Mesh>> = (0..BUSH_VARIANTS)
-        .map(|variant| meshes.add(bush_impostor(variant)))
+    let bush_far: Vec<(Handle<Mesh>, u32)> = (0..BUSH_VARIANTS)
+        .map(|variant| add(&mut meshes, bush_impostor(variant)))
         .collect();
 
     // A canopy inside the near range is metres across and stands over ground
@@ -180,50 +261,191 @@ fn spawn_vegetation(
     // anything else. Past the handover the same canopy is a few pixels and its
     // shadow is under one, and there are thousands of them, so the impostors
     // stay out of the shadow passes and the contact shadows go on seating them.
-    let mut near = Vec::with_capacity(island.trees.len() + island.bushes.len());
-    let mut far = Vec::with_capacity(near.capacity());
-    for (index, point) in island.trees.iter().enumerate() {
-        let hash = mix(index as u64, TREE_SALT);
-        let variant = choice(hash, TREE_VARIANTS);
-        let placement = placement(hash, *point, TREE_SALT, 0.75, 0.55);
-        near.push((
-            IslandEntity,
-            Mesh3d(tree_near[variant].clone()),
-            MeshMaterial3d(plant.clone()),
+    //
+    // Both tiers are collected per region rather than as one flat list, because
+    // what is spawned is a subtree per region and not a plant per world.
+    let regions = (GROUPS * GROUPS) as usize;
+    let mut near: Vec<Vec<NearPlant>> = (0..regions).map(|_| Vec::new()).collect();
+    let mut far: Vec<Vec<FarPlant>> = (0..regions).map(|_| Vec::new()).collect();
+    let mut origins: Vec<Vec<Vec3>> = (0..regions).map(|_| Vec::new()).collect();
+    scatter(
+        &island.trees,
+        PlantScatter {
+            salt: TREE_SALT,
+            near: &tree_near,
+            far: &tree_far,
+            minimum: 0.75,
+            spread: 0.55,
+        },
+        &plant,
+        &mut origins,
+        &mut near,
+        &mut far,
+    );
+    scatter(
+        &island.bushes,
+        PlantScatter {
+            salt: BUSH_SALT,
+            near: &bush_near,
+            far: &bush_far,
+            minimum: 0.7,
+            spread: 0.7,
+        },
+        &plant,
+        &mut origins,
+        &mut near,
+        &mut far,
+    );
+
+    let groups = spawn_groups(&mut commands, &origins, &mut near, &mut far);
+    info!(
+        "vegetation: {} trees and {} bushes over {groups} scatter groups",
+        island.trees.len(),
+        island.bushes.len()
+    );
+}
+
+/// The class-specific inputs for the otherwise identical scatter pass.
+struct PlantScatter<'a> {
+    salt: u64,
+    near: &'a [(Handle<Mesh>, u32)],
+    far: &'a [(Handle<Mesh>, u32)],
+    minimum: f32,
+    spread: f32,
+}
+
+fn scatter(
+    points: &[motu::Vec3],
+    class: PlantScatter<'_>,
+    material: &Handle<StandardMaterial>,
+    origins: &mut [Vec<Vec3>],
+    near: &mut [Vec<NearPlant>],
+    far: &mut [Vec<FarPlant>],
+) {
+    debug_assert_eq!(class.near.len(), class.far.len());
+    for (index, &point) in points.iter().enumerate() {
+        let hash = mix(index as u64, class.salt);
+        let variant = choice(hash, class.near.len());
+        let placement = placement(hash, point, class.salt, class.minimum, class.spread);
+        let region = region(point);
+        origins[region].push(placement.translation);
+        near[region].push((
+            BudgetItem::scatter(class.near[variant].1),
+            Mesh3d(class.near[variant].0.clone()),
+            MeshMaterial3d(material.clone()),
             placement,
             near_tier(),
         ));
-        far.push((
-            IslandEntity,
-            Mesh3d(tree_far[variant].clone()),
-            MeshMaterial3d(plant.clone()),
+        far[region].push((
+            BudgetItem::scatter(class.far[variant].1),
+            Mesh3d(class.far[variant].0.clone()),
+            MeshMaterial3d(material.clone()),
             placement,
             far_tier(),
             NotShadowCaster,
         ));
     }
-    for (index, point) in island.bushes.iter().enumerate() {
-        let hash = mix(index as u64, BUSH_SALT);
-        let variant = choice(hash, BUSH_VARIANTS);
-        let placement = placement(hash, *point, BUSH_SALT, 0.7, 0.7);
-        near.push((
-            IslandEntity,
-            Mesh3d(bush_near[variant].clone()),
-            MeshMaterial3d(plant.clone()),
-            placement,
-            near_tier(),
-        ));
-        far.push((
-            IslandEntity,
-            Mesh3d(bush_far[variant].clone()),
-            MeshMaterial3d(plant.clone()),
-            placement,
-            far_tier(),
-            NotShadowCaster,
-        ));
+}
+
+/// Puts one parent per tier over every region that has plants in it, and hangs
+/// that region's plants off them. Returns how many parents were spawned.
+fn spawn_groups(
+    commands: &mut Commands,
+    origins: &[Vec<Vec3>],
+    near: &mut [Vec<NearPlant>],
+    far: &mut [Vec<FarPlant>],
+) -> usize {
+    let mut groups = 0;
+    for (index, origins) in origins.iter().enumerate() {
+        let Some((centre, radius)) = sphere(origins) else {
+            continue;
+        };
+        let place = u32::try_from(index).unwrap_or(0);
+        let (column, row) = (place % GROUPS, place / GROUPS);
+        let mut group = |tier: &str, range: Range<f32>| {
+            groups += 1;
+            commands
+                .spawn((
+                    Name::new(format!("Scatter {column},{row} {tier}")),
+                    IslandEntity,
+                    BudgetItem::group(),
+                    ScatterGroup {
+                        centre,
+                        radius,
+                        range,
+                    },
+                    // The plants keep their own world placement, so the parent
+                    // sits at the origin and carries only the visibility its
+                    // subtree inherits.
+                    Transform::default(),
+                    Visibility::default(),
+                ))
+                .id()
+        };
+        let near_group = group("near", 0.0..(NEAR_METRES + NEAR_DITHER));
+        let far_group = group("far", NEAR_METRES..(FAR_METRES + FAR_DITHER));
+        commands.spawn_batch(
+            std::mem::take(&mut near[index])
+                .into_iter()
+                .map(move |plant| (plant, ChildOf(near_group))),
+        );
+        commands.spawn_batch(
+            std::mem::take(&mut far[index])
+                .into_iter()
+                .map(move |plant| (plant, ChildOf(far_group))),
+        );
     }
-    commands.spawn_batch(near);
-    commands.spawn_batch(far);
+    groups
+}
+
+/// One plant of each tier, as the bundle it is spawned from. Written out
+/// because the two lists are built per region and a `Vec` needs the type.
+type NearPlant = (
+    BudgetItem,
+    Mesh3d,
+    MeshMaterial3d<StandardMaterial>,
+    Transform,
+    VisibilityRange,
+);
+type FarPlant = (
+    BudgetItem,
+    Mesh3d,
+    MeshMaterial3d<StandardMaterial>,
+    Transform,
+    VisibilityRange,
+    NotShadowCaster,
+);
+
+/// The smallest sphere around a set of points that a centre-and-radius pair can
+/// state: the centre of their bounding box, and the furthest of them from it.
+/// `None` for a region with no plants in it, which needs no group at all.
+fn sphere(points: &[Vec3]) -> Option<(Vec3, f32)> {
+    let mut low = *points.first()?;
+    let mut high = low;
+    for &point in points {
+        low = low.min(point);
+        high = high.max(point);
+    }
+    let centre = low.midpoint(high);
+    let radius = points
+        .iter()
+        .map(|point| centre.distance(*point))
+        .fold(0.0, f32::max);
+    Some((centre, radius))
+}
+
+/// The region a decoration point falls in. The grid is the terrain's own, so a
+/// scatter group covers exactly one terrain chunk's square.
+fn region(point: motu::Vec3) -> usize {
+    let divisions = f32::from(u8::try_from(GROUPS).unwrap_or(u8::MAX));
+    let cell = |coordinate: f32| {
+        // Clamped into the grid before the cast, so nothing here can truncate,
+        // lose a sign or index past the last region.
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let cell = (coordinate * divisions).clamp(0.0, divisions - 1.0) as usize;
+        cell
+    };
+    cell(point.y) * GROUPS as usize + cell(point.x)
 }
 
 /// The range a full mesh is drawn over: everything up to the handover.
@@ -424,4 +646,87 @@ fn paint(mesh: &mut Mesh, tone: [f32; 3], volume: f32) {
         })
         .collect();
     mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colours);
+}
+
+#[cfg(test)]
+mod tests {
+    use motu::ISLAND_WORLD_METRES;
+
+    use super::{
+        FAR_DITHER, FAR_METRES, GROUPS, NEAR_DITHER, NEAR_METRES, ScatterGroup, Vec3, far_tier,
+        near_tier, region, sphere,
+    };
+
+    /// A group may only be hidden when nothing inside it could be drawn. The
+    /// tier ranges and the group sphere are the same two numbers Bevy measures
+    /// a plant against, so the check has to answer for every plant the sphere
+    /// holds — including the nearest and furthest of them.
+    #[test]
+    fn a_group_is_only_hidden_when_every_plant_in_it_is_out_of_range() {
+        let group = |range| ScatterGroup {
+            centre: Vec3::ZERO,
+            radius: 120.0,
+            range,
+        };
+        let near = group(0.0..(NEAR_METRES + NEAR_DITHER));
+        // A plant on the near face of the sphere is still inside the near
+        // tier's range, so the group stays up even though its centre is past
+        // the handover.
+        assert!(near.reaches(Vec3::new(NEAR_METRES + NEAR_DITHER + 100.0, 0.0, 0.0)));
+        assert!(!near.reaches(Vec3::new(NEAR_METRES + NEAR_DITHER + 130.0, 0.0, 0.0)));
+
+        let far = group(NEAR_METRES..(FAR_METRES + FAR_DITHER));
+        // Standing inside the region, the impostors of its own plants are all
+        // nearer than the handover and none of them is drawn.
+        assert!(!far.reaches(Vec3::ZERO));
+        assert!(far.reaches(Vec3::new(NEAR_METRES, 0.0, 0.0)));
+    }
+
+    /// The two tiers have to meet exactly, or the range a group is kept over
+    /// would leave a band with neither tier in it.
+    #[test]
+    fn the_group_ranges_are_the_tiers_own() {
+        assert_eq!(near_tier().end_margin, far_tier().start_margin);
+        assert!(near_tier().start_margin.start.abs() < f32::EPSILON);
+        assert!(far_tier().end_margin.end >= FAR_METRES);
+    }
+
+    /// Every decoration point lands in the region its coordinates name, and a
+    /// point on or past an edge lands inside the grid rather than off it.
+    #[test]
+    fn a_point_falls_in_the_region_that_covers_it() {
+        let last = GROUPS as usize - 1;
+        assert_eq!(region(motu::Vec3::new(0.0, 0.0, 0.0)), 0);
+        assert_eq!(
+            region(motu::Vec3::new(1.0, 1.0, 0.0)),
+            last * GROUPS as usize + last
+        );
+        assert_eq!(region(motu::Vec3::new(0.99, 0.0, 0.0)), last);
+        // The generator clamps its decorations to the square, but a point on
+        // the far edge must not index past the grid either way.
+        assert_eq!(
+            region(motu::Vec3::new(2.0, 2.0, 0.0)),
+            last * GROUPS as usize + last
+        );
+    }
+
+    /// The sphere has to hold every point it was built from, or a group could
+    /// be hidden with a plant of its own still in range.
+    #[test]
+    fn the_group_sphere_holds_every_plant() {
+        let points = [
+            Vec3::new(-100.0, 4.0, -100.0),
+            Vec3::new(120.0, 60.0, 30.0),
+            Vec3::new(0.0, -2.0, 110.0),
+        ];
+        let (centre, radius) = sphere(&points).expect("three points make a sphere");
+        for point in points {
+            assert!(centre.distance(point) <= radius + 1.0e-3, "{point:?}");
+        }
+        // And a region the generator planted nothing in needs no group.
+        assert!(sphere(&[]).is_none());
+        // The sphere is a fraction of the island, or grouping would cull
+        // nothing: a region is one chunk square across.
+        assert!(radius < ISLAND_WORLD_METRES / f32::from(u8::try_from(GROUPS).unwrap()));
+    }
 }

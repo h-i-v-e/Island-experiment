@@ -6,7 +6,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use motu::{BoundingBox, Island, IslandOptions, write_png};
+use motu::{BoundingBox, GenerationMethod, Island, IslandOptions, write_png};
 
 #[test]
 fn public_vectors_are_glam_types() {
@@ -184,6 +184,25 @@ fn generation_is_deterministic() {
     assert_eq!(first.rivers(), second.rivers());
     assert_eq!(first.river_rock_mesh(), second.river_rock_mesh());
     assert_eq!(first.decorations(), second.decorations());
+}
+
+#[test]
+fn explicit_cpu_method_preserves_the_primary_generator() {
+    let options = IslandOptions {
+        terrain_size: 24,
+        ..IslandOptions::default()
+    };
+    let primary = Island::generate(2018, options).unwrap();
+    let explicit = Island::generate_with_method(2018, options, GenerationMethod::Cpu).unwrap();
+    assert_eq!(primary, explicit);
+}
+
+#[cfg(not(feature = "gpu-generation"))]
+#[test]
+fn unavailable_gpu_method_returns_an_error() {
+    let error =
+        Island::generate_with_method(2018, small_options(), GenerationMethod::Gpu).unwrap_err();
+    assert!(error.contains("gpu-generation"), "{error}");
 }
 
 #[test]
@@ -769,6 +788,7 @@ fn save_and_load_regenerates_identical_island() {
     let loaded = Island::load(&path).unwrap();
     fs::remove_file(path).unwrap();
     assert_eq!(island, loaded);
+    assert_eq!(loaded.generation_method(), GenerationMethod::Cpu);
     assert_eq!(
         loaded.options().river_source_elevation_boost.to_bits(),
         8.5_f32.to_bits()
