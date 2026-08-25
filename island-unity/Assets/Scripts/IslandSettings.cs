@@ -1,6 +1,15 @@
 using System;
 using UnityEngine;
 
+public enum IslandGenerationMethod : byte
+{
+    [InspectorName("CPU")]
+    Cpu = 0,
+
+    [InspectorName("GPU")]
+    Gpu = 1,
+}
+
 [Serializable]
 public sealed class IslandGenerationSettings
 {
@@ -8,6 +17,10 @@ public sealed class IslandGenerationSettings
 
     [Tooltip("Generate this island automatically when the level enters Play Mode.")]
     [SerializeField] private bool generateOnStart = true;
+
+    [Tooltip(
+        "Terrain implementation used when generating. GPU accelerates erosion and settled rocks; rivers and waterfalls use the established CPU builder.")]
+    [SerializeField] private IslandGenerationMethod generationMethod = IslandGenerationMethod.Gpu;
 
     [Tooltip("Deterministic seed used by the native island generator.")]
     [SerializeField] private int seed = 666;
@@ -45,6 +58,10 @@ public sealed class IslandGenerationSettings
     [SerializeField] private float depositionMaximumSlopeDegrees = 12f;
 
     public bool GenerateOnStart => generateOnStart;
+    public IslandGenerationMethod GenerationMethod => generationMethod;
+    public string GenerationMethodLabel => generationMethod == IslandGenerationMethod.Gpu
+        ? "GPU"
+        : "CPU";
     public int Seed { get => seed; set => seed = value; }
     public float WorldSizeMetres => Mathf.Max(worldSizeMetres, 100f);
     public float MaximumHeightMetres => Mathf.Clamp(

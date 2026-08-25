@@ -750,7 +750,9 @@ fn draw_generation_method(
         for method in GenerationMethod::ALL {
             let tooltip = match method {
                 GenerationMethod::Cpu => "Primary CPU generation method",
-                GenerationMethod::Gpu => "Experimental GPU compute generation method",
+                GenerationMethod::Gpu => {
+                    "GPU erosion and rock settling with CPU rivers and waterfalls"
+                }
             };
             let button =
                 egui::Button::new(caps(method.label(), 9.0, TEXT)).selected(selected == method);

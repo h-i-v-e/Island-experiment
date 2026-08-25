@@ -94,7 +94,7 @@ impl<R: Read> SavedIslandReader<R> {
             return Ok(GenerationMethod::Cpu);
         }
         let tag = self.read_u8()?;
-        GenerationMethod::from_save_tag(tag).ok_or_else(|| {
+        GenerationMethod::from_tag(tag).ok_or_else(|| {
             io::Error::new(
                 io::ErrorKind::InvalidData,
                 format!("unknown generation method tag {tag}"),
@@ -206,7 +206,6 @@ pub(super) fn generate_final_rivers(
     material: &SurfaceMaterial,
     source_rule: RiverSourceRule,
     channel_settings: RiverChannelSettings,
-    method: GenerationMethod,
 ) -> Result<FinalRiverGeneration, String> {
     let _timer = StageTimer::new("rivers.final");
     let mut prepared_lod0 = lod0.clone();
@@ -218,22 +217,6 @@ pub(super) fn generate_final_rivers(
         &detail_adjacency,
         &ocean,
     ));
-    if method == GenerationMethod::Gpu {
-        #[cfg(feature = "gpu-generation")]
-        return super::gpu_generation::generate_gpu_rivers(
-            seed,
-            prepared_lod0,
-            prepared_material,
-            source_rule,
-            channel_settings,
-        )
-        .map_err(|error| format!("GPU river generation failed: {error}"));
-        #[cfg(not(feature = "gpu-generation"))]
-        {
-            method.require_available()?;
-            unreachable!("the GPU method is unavailable without its feature");
-        }
-    }
     let mut rejected_waterfall_vertices = HashSet::new();
     loop {
         let mut attempt_lod0 = prepared_lod0.clone();
@@ -317,7 +300,14 @@ impl Island {
         Self::generate_with_forest_and_method(seed, options, forest_options, GenerationMethod::Cpu)
     }
 
-    fn generate_with_forest_and_method(
+    /// Generates an island with explicit forest controls and implementation.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the requested method is unavailable, either
+    /// option block is invalid, or the selected implementation cannot
+    /// complete generation.
+    pub fn generate_with_forest_and_method(
         seed: u64,
         options: IslandOptions,
         forest_options: ForestOptions,
@@ -354,7 +344,6 @@ impl Island {
             &material,
             context.river_source_rule,
             options.river_channel_settings(),
-            method,
         )?;
         let lod0_index = {
             let _timer = StageTimer::new("lod.correct");
@@ -675,7 +664,7 @@ impl Island {
         file.write_all(&[self.forest_options.prototype_count])?;
         file.write_all(&self.forest_options.minimum_scale.to_le_bytes())?;
         file.write_all(&self.forest_options.maximum_scale.to_le_bytes())?;
-        file.write_all(&[self.generation_method.save_tag()])
+        file.write_all(&[self.generation_method.tag()])
     }
 
     /// Loads a saved seed/options file and deterministically regenerates it.

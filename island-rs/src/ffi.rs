@@ -16,8 +16,8 @@ use std::{
 
 use crate::forest::ForestMeshKind;
 use crate::{
-    BoundingBox, ForestOptions, Island, IslandOptions, Mesh, SeaMask, SurfaceMaps, Vec2, Vec3,
-    generate_tree,
+    BoundingBox, ForestOptions, GenerationMethod, Island, IslandOptions, Mesh, SeaMask,
+    SurfaceMaps, Vec2, Vec3, generate_tree,
 };
 
 const _: () = {
@@ -508,6 +508,36 @@ pub unsafe extern "C" fn CreateMotuWithForest(
     options: *const MotuOptions,
     forest_options: *const MotuForestOptions,
 ) -> *mut c_void {
+    // SAFETY: this compatibility entry point forwards the caller's pointers
+    // unchanged and deliberately preserves the historical CPU behavior.
+    unsafe {
+        CreateMotuWithForestAndMethod(seed, options, forest_options, GenerationMethod::Cpu.tag())
+    }
+}
+
+/// Reports whether a tagged generation method is compiled into this library.
+/// Unknown tags are unavailable.
+#[unsafe(no_mangle)]
+pub extern "C" fn IsMotuGenerationMethodAvailable(generation_method: u8) -> u8 {
+    u8::from(
+        GenerationMethod::from_tag(generation_method).is_some_and(GenerationMethod::is_available),
+    )
+}
+
+/// Creates an island with explicit forest controls and generation method.
+///
+/// Method tags share the stable `GenerationMethod` representation: zero is
+/// CPU and one is GPU. Unknown or unavailable methods return a null handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn CreateMotuWithForestAndMethod(
+    seed: i32,
+    options: *const MotuOptions,
+    forest_options: *const MotuForestOptions,
+    generation_method: u8,
+) -> *mut c_void {
+    let Some(generation_method) = GenerationMethod::from_tag(generation_method) else {
+        return ptr::null_mut();
+    };
     let options = if options.is_null() {
         IslandOptions::default()
     } else {
@@ -521,10 +551,15 @@ pub unsafe extern "C" fn CreateMotuWithForest(
         // MotuForestOptions.
         unsafe { (*forest_options).into() }
     };
-    Island::generate_with_forest(u64::from(seed.cast_unsigned()), options, forest_options)
-        .map_or(ptr::null_mut(), |island| {
-            Box::into_raw(Box::new(island)).cast()
-        })
+    Island::generate_with_forest_and_method(
+        u64::from(seed.cast_unsigned()),
+        options,
+        forest_options,
+        generation_method,
+    )
+    .map_or(ptr::null_mut(), |island| {
+        Box::into_raw(Box::new(island)).cast()
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -1532,14 +1567,42 @@ mod tests {
     }
 
     #[test]
+    fn generation_method_availability_matches_compiled_features() {
+        assert_eq!(
+            IsMotuGenerationMethodAvailable(GenerationMethod::Cpu.tag()),
+            1
+        );
+        assert_eq!(
+            IsMotuGenerationMethodAvailable(GenerationMethod::Gpu.tag()),
+            u8::from(cfg!(feature = "gpu-generation"))
+        );
+        assert_eq!(IsMotuGenerationMethodAvailable(u8::MAX), 0);
+    }
+
+    #[test]
+    fn invalid_generation_method_rejects_island_creation() {
+        // SAFETY: the invalid method is rejected before either null option
+        // pointer needs to be read.
+        let handle =
+            unsafe { CreateMotuWithForestAndMethod(2018, ptr::null(), ptr::null(), u8::MAX) };
+        assert!(handle.is_null());
+    }
+
+    #[test]
     fn invalid_forest_options_reject_island_creation() {
         let options = test_options();
         let mut forest_options = test_forest_options();
         forest_options.noiseThreshold = f32::NAN;
         // SAFETY: the options pointer is valid for this call; validation must
         // reject it before terrain generation allocates an island.
-        let handle =
-            unsafe { CreateMotuWithForest(2018, &raw const options, &raw const forest_options) };
+        let handle = unsafe {
+            CreateMotuWithForestAndMethod(
+                2018,
+                &raw const options,
+                &raw const forest_options,
+                GenerationMethod::Cpu.tag(),
+            )
+        };
         assert!(handle.is_null());
     }
 

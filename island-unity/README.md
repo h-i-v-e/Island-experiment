@@ -7,10 +7,14 @@ shells, rocks, and hidden terrain colliders beneath its GameObject. River-bed
 stones and physically settled dropped rocks share one native-generated,
 tile-streamed mesh; rocks no longer use a separate GameObject renderer pool.
 
-The Unity C ABI deliberately remains on the primary CPU generation method. The
-default `gpu-generation` Rust feature compiles the experimental GPU method for
-safe Rust consumers, and the Bevy viewer exposes it for comparison, but Unity
-does not select it or change its existing generation behavior.
+The `IslandGenerator` generation settings expose the primary CPU method and the
+hybrid GPU method. GPU accelerates erosion and settled-rock simulation, then
+uses the established CPU river, waterfall and river-mesh pipeline. New
+components and the sandbox select GPU by default; choose CPU in the Inspector
+for CPU erosion as well. The native plugin keeps the historical CPU-only entry
+points for compatibility while Unity uses the method-aware entry point. GPU
+adapter or execution failures are reported as generation failures and are
+never silently replaced with a different terrain.
 
 ## Open and run
 
@@ -20,7 +24,8 @@ does not select it or change its existing generation behavior.
 2. Open `Assets/Scenes/IslandSandbox.unity`.
 3. Select the **Island** GameObject to inspect the labelled generation,
    rendering, streaming, decoration, and debug settings.
-4. Press Play. **Generate On Start** creates the configured island.
+4. Press Play. **Generate On Start** creates the configured island with the
+   selected generation method; the sandbox defaults to **GPU**.
 
 The project can also be opened normally from Hub after stale licensing clients
 have exited. Use the launcher if Hub reports that it cannot connect to the
@@ -259,15 +264,17 @@ finished.
 
 ## Rebuild the native plugin
 
-On macOS, after changing `island-rs`, run:
+On macOS, after changing `island-rs`, run the deployment helper. It explicitly
+builds with the `gpu-generation` feature, atomically installs the library, and
+checks the installed bytes:
 
 ```sh
-cargo build --release --manifest-path ../island-rs/Cargo.toml
-cp ../island-rs/target/release/libmotu.dylib Assets/Plugins/macOS/
+../island-rs/deploy-unity.sh
 ```
 
 The included plugin is built for Apple Silicon. Other platforms need their own
-Rust `cdylib` in the corresponding Unity plugin folder.
+Rust `cdylib` in the corresponding Unity plugin folder. Restart Unity after
+deployment because the editor does not hot-reload native libraries.
 
 For an editor compile plus native ABI, streamed tile, UV, support mesh,
 rough-water emitter, and collider-cooking check, run:

@@ -150,6 +150,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::IslandGenerator
   generation:
     generateOnStart: 1
+    generationMethod: 1
     seed: 666
     worldSizeMetres: 2000
     maximumHeightMetres: 400

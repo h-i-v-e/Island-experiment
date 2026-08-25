@@ -182,6 +182,17 @@ internal static class MotuNative
         ref ForestOptions forestOptions);
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+    internal static extern IntPtr CreateMotuWithForestAndMethod(
+        int seed,
+        ref Options options,
+        ref ForestOptions forestOptions,
+        IslandGenerationMethod generationMethod);
+
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+    internal static extern byte IsMotuGenerationMethodAvailable(
+        IslandGenerationMethod generationMethod);
+
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
     internal static extern void ReleaseMotu(IntPtr handle);
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]

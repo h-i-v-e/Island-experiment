@@ -5,9 +5,10 @@ island in process, converts the generator's meshes into Bevy meshes, and renders
 terrain, sea, rivers, river rocks and vegetation in one 3D scene you can fly
 over or walk around.
 
-CPU generation is the same deterministic primary implementation consumed by
-the Unity pipeline. The viewer also includes the experimental GPU method, which
-targets a comparable natural result rather than identical geometry.
+CPU generation is the deterministic primary implementation consumed by the
+Unity pipeline. The viewer also includes a hybrid method with GPU erosion and
+rock settling. Both methods use the same established CPU river and waterfall
+builder.
 
 ## Running
 
@@ -29,8 +30,8 @@ Options are applied in the order given, so a later one wins: `--variant eroded
 | Option | Default | Notes |
 | --- | --- | --- |
 | `--seed <N>` | `666` | Generation seed. |
-| `--terrain-size <N>` | `1024` | Delaunay seed-point count, 16 to 4096. CPU generation at 1024 takes roughly 30 s; the experimental GPU path can complete in a few seconds on tested Apple silicon. Cached repeats are fast, and `128` or `256` iterate quickly. |
-| `--generation-method <METHOD>` | `cpu` | `cpu` uses the primary generator; `gpu` selects the experimental GPU-native erosion, river, and rock stages. |
+| `--terrain-size <N>` | `1024` | Delaunay seed-point count, 16 to 4096. CPU generation at 1024 takes roughly 30 s; GPU erosion is hardware-dependent. Cached repeats are fast, and `128` or `256` iterate quickly. |
+| `--generation-method <METHOD>` | `cpu` | `cpu` uses the primary generator; `gpu` selects GPU erosion and rock settling followed by the same CPU rivers and waterfalls. |
 | `--variant <NAME>` | `default` | Named generation variant; see below. |
 | `--view <NAME>` | `overview` | Named camera pose to open on and to reset to; see below. |
 | `--weather <NAME>` | `clear` | Named weather look: sun, haze, cloud and its ground shadow, mist and grade as one set; see below. |
@@ -98,11 +99,11 @@ match the run asking for it exactly. The chunk grid's own divisions and skirt
 depth are mixed into the key as well: neither is a generator option and neither
 would otherwise retire an entry that holds ground cut into other squares.
 Anything else — a missing, truncated, oversized or otherwise damaged file, or
-one written with an incompatible binary layout — is a miss, and the island is
-generated and the entry rewritten. The existing format marker protects binary
-layout compatibility only; ordinary generator changes are handled by clearing
-the development cache. The log says which path was used on every run and every
-rebuild:
+one written with an incompatible cache contract — is a miss, and the island is
+generated and the entry rewritten. Contract version 8 retires the earlier GPU
+river geometry automatically; appearance-only generator iteration can still be
+handled by clearing the development cache. The log says which path was used on
+every run and every rebuild:
 
 ```
 island cache hit: /…/target/island-cache/cpu/6a1f….bin

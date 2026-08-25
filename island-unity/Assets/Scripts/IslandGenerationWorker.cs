@@ -5,6 +5,7 @@ internal static class IslandGenerationWorker
 {
     internal static Task<IslandPreparedData> GenerateAsync(
         int seed,
+        IslandGenerationMethod generationMethod,
         MotuNative.Options options,
         float worldSize,
         float emitterSharpnessDegrees,
@@ -13,6 +14,7 @@ internal static class IslandGenerationWorker
     {
         return GenerateAsync(
             seed,
+            generationMethod,
             options,
             new MotuNative.ForestOptions
             {
@@ -32,6 +34,7 @@ internal static class IslandGenerationWorker
 
     internal static Task<IslandPreparedData> GenerateAsync(
         int seed,
+        IslandGenerationMethod generationMethod,
         MotuNative.Options options,
         MotuNative.ForestOptions forestOptions,
         float worldSize,
@@ -42,6 +45,7 @@ internal static class IslandGenerationWorker
         return Task.Run(
             () => IslandGenerator.PrepareIsland(
                 seed,
+                generationMethod,
                 options,
                 forestOptions,
                 worldSize,

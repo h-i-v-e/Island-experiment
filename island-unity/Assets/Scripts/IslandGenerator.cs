@@ -597,7 +597,16 @@ public sealed class IslandGenerator : MonoBehaviour
             return;
         }
 
-        status = "Generating island in background...";
+        var generationMethod = generation.GenerationMethod;
+        var generationMethodLabel = generation.GenerationMethodLabel;
+        if (MotuNative.IsMotuGenerationMethodAvailable(generationMethod) == 0)
+        {
+            status = $"{generationMethodLabel} generation is not available in the native plugin.";
+            Debug.LogError(status, this);
+            return;
+        }
+
+        status = $"Generating island on {generationMethodLabel} in background...";
         generationInProgress = true;
         generationTimer = Stopwatch.StartNew();
         var cancellation = new CancellationTokenSource();
@@ -615,6 +624,7 @@ public sealed class IslandGenerator : MonoBehaviour
         {
             prepared = await IslandGenerationWorker.GenerateAsync(
                 islandSeed,
+                generationMethod,
                 options,
                 forestOptions,
                 worldSize,
@@ -690,7 +700,8 @@ public sealed class IslandGenerator : MonoBehaviour
             generationTimer.Stop();
             status = string.Format(
                 CultureInfo.InvariantCulture,
-                "Seed {0} | 64 LOD 2 tiles | {1:N0} vertices | {2:N0} triangles | {3:F2}s",
+                "{0} | Seed {1} | 64 LOD 2 tiles | {2:N0} vertices | {3:N0} triangles | {4:F2}s",
+                generationMethodLabel,
                 islandSeed,
                 terrainStreamer.BaseVertexCount,
                 terrainStreamer.BaseTriangleCount,
@@ -821,6 +832,7 @@ public sealed class IslandGenerator : MonoBehaviour
 
     internal static IslandPreparedData PrepareIsland(
         int islandSeed,
+        IslandGenerationMethod generationMethod,
         MotuNative.Options options,
         float worldSize,
         float emitterSharpnessDegrees,
@@ -839,6 +851,7 @@ public sealed class IslandGenerator : MonoBehaviour
         };
         return PrepareIsland(
             islandSeed,
+            generationMethod,
             options,
             forestOptions,
             worldSize,
@@ -849,6 +862,7 @@ public sealed class IslandGenerator : MonoBehaviour
 
     internal static IslandPreparedData PrepareIsland(
         int islandSeed,
+        IslandGenerationMethod generationMethod,
         MotuNative.Options options,
         MotuNative.ForestOptions forestOptions,
         float worldSize,
@@ -856,13 +870,15 @@ public sealed class IslandGenerator : MonoBehaviour
         float emitterSpacingMetres,
         CancellationToken cancellationToken)
     {
-        var handle = MotuNative.CreateMotuWithForest(
+        var handle = MotuNative.CreateMotuWithForestAndMethod(
             islandSeed,
             ref options,
-            ref forestOptions);
+            ref forestOptions,
+            generationMethod);
         if (handle == IntPtr.Zero)
         {
-            throw new InvalidOperationException("The Rust generator returned a null island handle.");
+            throw new InvalidOperationException(
+                $"The Rust {generationMethod.ToString().ToUpperInvariant()} generator returned a null island handle.");
         }
 
         try
@@ -2038,6 +2054,12 @@ public sealed class IslandGenerator : MonoBehaviour
             throw new InvalidOperationException(
                 "Managed native option layouts do not match their ABI contracts.");
         }
+        if (MotuNative.IsMotuGenerationMethodAvailable(IslandGenerationMethod.Cpu) == 0
+            || MotuNative.IsMotuGenerationMethodAvailable(IslandGenerationMethod.Gpu) == 0)
+        {
+            throw new InvalidOperationException(
+                "The native plugin does not expose both CPU and GPU generation methods.");
+        }
         var options = new MotuNative.Options
         {
             maxZ = 0.2f,
@@ -2065,10 +2087,11 @@ public sealed class IslandGenerator : MonoBehaviour
             minimumScale = 0.85f,
             maximumScale = 1.15f,
         };
-        var handle = MotuNative.CreateMotuWithForest(
+        var handle = MotuNative.CreateMotuWithForestAndMethod(
             2018,
             ref options,
-            ref forestOptions);
+            ref forestOptions,
+            IslandGenerationMethod.Gpu);
         if (handle == IntPtr.Zero)
         {
             throw new InvalidOperationException("Native validation could not generate an island.");
@@ -2544,11 +2567,11 @@ public sealed class IslandGenerator : MonoBehaviour
             try
             {
                 if (riverEmitters.handle == IntPtr.Zero
-                    || riverEmitters.length < 0
-                    || (riverEmitters.length > 0 && riverEmitters.data == IntPtr.Zero))
+                    || riverEmitters.length <= 0
+                    || riverEmitters.data == IntPtr.Zero)
                 {
                     throw new InvalidOperationException(
-                        "Native rough-water emitter ownership is invalid.");
+                        "Native river mesh has no valid waterfall or rough-water emitters.");
                 }
                 var emitterSize = Marshal.SizeOf<MotuNative.RiverEmitterExport>();
                 if (emitterSize != sizeof(float) * 7)
@@ -2769,7 +2792,8 @@ public sealed class IslandGenerator : MonoBehaviour
         {
             MotuNative.ReleaseMotu(handle);
         }
-        Debug.Log("Motu native mesh, terrain collider, and material validation passed.");
+        Debug.Log(
+            "Motu GPU erosion, CPU rivers/waterfalls, GPU rocks, terrain collider, and material validation passed.");
     }
 
     private static void ValidateTreeSurfaceShader(string shaderName, string label)

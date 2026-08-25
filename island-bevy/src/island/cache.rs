@@ -27,10 +27,11 @@ use crate::{
     options,
 };
 
-/// Mixed into every key and written into every entry. Bump it only when the
-/// serialized layout changes; generation-method changes use separate
-/// directories, and ordinary algorithm changes are handled by clearing this
-/// development cache.
+/// Mixed into every key and written into every entry. Bump it when the
+/// serialized layout changes or when loading old geometry would violate a new
+/// generation contract. Generation methods use separate directories, while
+/// appearance-only iteration can still be handled by clearing this development
+/// cache locally.
 ///
 /// 2 added the walk-mode height grid, 3 the per-vertex river wetness, 4 the
 /// river drops — which also widen the wetness around a plunge pool, so entries
@@ -38,8 +39,10 @@ use crate::{
 /// island-wide terrain mesh with the chunk grid at three levels of detail, and
 /// 6 took the skirt off the outside of that grid, where there is no neighbour
 /// to close a seam with, and 7 records the pre-skirt surface elevation span
-/// used to place every level of one chunk at the same representative height.
-const CACHE_FORMAT_VERSION: u32 = 7;
+/// used to place every level of one chunk at the same representative height,
+/// and 8 retires GPU-river entries now that GPU generation uses the established
+/// CPU river and waterfall builder.
+const CACHE_FORMAT_VERSION: u32 = 8;
 
 const MAGIC: &[u8; 8] = b"MOTUBVY\0";
 /// Distinguishes a cache key from the crate's other hashed values.

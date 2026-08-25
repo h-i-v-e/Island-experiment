@@ -3,7 +3,9 @@ use std::{fmt, str::FromStr};
 /// Selects the implementation used to build an island.
 ///
 /// CPU generation is always available and remains the default. GPU generation
-/// is available when the crate is built with the `gpu-generation` feature.
+/// accelerates hydraulic erosion and rock settling while retaining the CPU
+/// river and waterfall builder. It is available when the crate is built with
+/// the `gpu-generation` feature.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum GenerationMethod {
     #[default]
@@ -44,14 +46,14 @@ impl GenerationMethod {
             .ok_or_else(|| format!("{self} generation requires the gpu-generation Cargo feature"))
     }
 
-    pub(super) const fn save_tag(self) -> u8 {
+    pub(crate) const fn tag(self) -> u8 {
         match self {
             Self::Cpu => 0,
             Self::Gpu => 1,
         }
     }
 
-    pub(super) const fn from_save_tag(tag: u8) -> Option<Self> {
+    pub(crate) const fn from_tag(tag: u8) -> Option<Self> {
         match tag {
             0 => Some(Self::Cpu),
             1 => Some(Self::Gpu),
@@ -88,10 +90,7 @@ mod tests {
     fn method_names_round_trip() {
         for method in GenerationMethod::ALL {
             assert_eq!(method.as_str().parse(), Ok(method));
-            assert_eq!(
-                GenerationMethod::from_save_tag(method.save_tag()),
-                Some(method)
-            );
+            assert_eq!(GenerationMethod::from_tag(method.tag()), Some(method));
         }
     }
 

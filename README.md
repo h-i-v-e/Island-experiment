@@ -10,20 +10,23 @@ renderers.
   CPU/GPU comparison switch.
 - [`island-unity`](island-unity/) contains the reusable Unity 6
   `IslandGenerator` component, sandbox level, streamed terrain LODs,
-  first-person sample controls, the Apple Silicon native plugin, and the
+  first-person sample controls, a CPU/GPU generation selector, the Apple
+  Silicon native plugin, and the
   [Procedural Material Studio](island-unity/PROCEDURAL_MATERIAL_STUDIO.md).
 
 ## Experimental GPU generation
 
 The original CPU generator remains the primary runtime implementation. The
 default `island-rs` Cargo feature `gpu-generation` includes GPU-native hydraulic
-erosion, river generation, and rock settling. It targets a convincing natural
-result rather than byte-for-byte parity with CPU output. CPU-only consumers can
-omit that code with `--no-default-features`.
+erosion and rock settling. Both methods use the established CPU river and
+waterfall builder, preserving its connected channels and geometric waterfall
+contracts. GPU-eroded terrain still differs from CPU output. CPU-only consumers
+can omit the compute code with `--no-default-features`.
 
 `island-bevy` builds both methods and exposes **CPU** and **GPU** buttons in the
-header for direct A/B comparison. The same choice is available on the command
-line:
+header for direct A/B comparison. Unity exposes the same selector in the
+`IslandGenerator` generation settings and its sandbox defaults to GPU. The
+choice is also available on the Bevy command line:
 
 ```sh
 cd island-bevy

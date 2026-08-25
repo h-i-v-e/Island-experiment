@@ -11,8 +11,8 @@ can be omitted from CPU-only builds.
 The generator provides:
 
 - deterministic seeded free-form terrain with configurable water coverage and elevation;
-- an explicitly selected GPU generation method for hydraulic erosion, rivers,
-  and settled rocks, while retaining the original CPU method as the default;
+- an explicitly selected GPU generation method for hydraulic erosion and
+  settled rocks, while retaining the established CPU rivers and waterfalls;
 - staged perimeter-preserving XYZ smoothing between LOD refinement passes;
 - graph-based thermal and hydraulic erosion over compact CSR mesh adjacency;
 - persistent unconsolidated cover and noise-aligned bedrock hardness shared by
@@ -81,17 +81,18 @@ let island = Island::generate_with_method(
 Use `--no-default-features` for a CPU-only build without the `wgpu`, `pollster`,
 or `bytemuck` dependencies.
 
-The GPU implementation is an alternative terrain model, not a parallel rewrite
-of the CPU instructions. It performs GPU-native particle erosion, grid-based
-drainage and channel carving, and spatial rock settling, targeting a similar
-natural character rather than identical meshes. GPU adapter or execution
-failures are returned through the existing generation `Result`.
+The GPU implementation accelerates particle erosion and spatial rock settling,
+targeting a similar natural character rather than identical terrain. After
+erosion it deliberately uses the established CPU drainage, channel carving,
+river-mesh and waterfall pipeline. GPU adapter or execution failures are
+returned through the existing generation `Result`.
 
 Generated islands retain their method. Version 18 saves persist that method so
 loading regenerates through the same implementation; older saves load as CPU.
 A CPU-only build returns an error when asked to load a GPU save. The Unity C ABI
-continues to use CPU generation. The Bevy viewer enables the feature and
-provides the runtime comparison UI.
+keeps its historical CPU entry points and also exposes a method-aware entry
+point for Unity's serialized CPU/GPU selector. Both viewers include the feature
+in normal builds.
 
 The Unity viewer constrains water ratio to `0.60..0.95`, river-source catchment
 to `0.01..10` hectares, the steep-slope multiplier to `1..8`, and the
