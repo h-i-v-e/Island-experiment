@@ -886,12 +886,8 @@ pub struct GeneratedIsland(pub IslandData);
 #[derive(Component)]
 struct GenerationTask(Task<Result<IslandData, String>>);
 
-#[derive(Component)]
-struct LoadingNotice;
-
-/// What an arriving island replaces: the notice that stood in for the first
-/// one, and everything the island before it spawned.
-type Replaced = Or<(With<LoadingNotice>, With<IslandEntity>)>;
+/// What an arriving island replaces: everything the island before it spawned.
+type Replaced = With<IslandEntity>;
 
 pub struct IslandGenPlugin;
 
@@ -900,7 +896,7 @@ impl Plugin for IslandGenPlugin {
         app.init_resource::<GenerationStatus>()
             .add_message::<Regenerate>()
             .add_message::<IslandReady>()
-            .add_systems(Startup, (start_first_generation, spawn_loading_notice))
+            .add_systems(Startup, start_first_generation)
             .add_systems(
                 PreUpdate,
                 (track_elapsed, poll_generation, accept_requests).chain(),
@@ -981,31 +977,6 @@ fn island_data(seed: u64, options: IslandOptions, cache_reads: bool) -> Result<I
         ),
     }
     Ok(data)
-}
-
-/// Only the first generation has one: every later build keeps the island it
-/// replaces on screen, and the HUD is what reports that one is running.
-fn spawn_loading_notice(mut commands: Commands) {
-    commands.spawn((
-        Name::new("Loading notice"),
-        LoadingNotice,
-        Text::new("Generating island..."),
-        TextFont::from_font_size(26.0),
-        TextColor(Color::WHITE),
-        // The notice sits over the atmosphere's brightest band, near the
-        // horizon, which white on its own does not clear.
-        TextShadow::default(),
-        // Clear of the left column the HUD anchors its toggle and its panel to,
-        // so the two never stack. Nothing sees this under `--screenshot`, which
-        // opens no window; with the HUD up the generation strip reports the
-        // same run from the top centre.
-        Node {
-            position_type: PositionType::Absolute,
-            left: Val::Px(388.0),
-            top: Val::Px(24.0),
-            ..default()
-        },
-    ));
 }
 
 fn track_elapsed(time: Res<Time>, mut status: ResMut<GenerationStatus>) {

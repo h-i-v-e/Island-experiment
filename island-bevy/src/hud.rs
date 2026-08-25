@@ -1125,22 +1125,17 @@ fn draw_toggle_chip(mut contexts: EguiContexts, mut hud: ResMut<Hud>) {
 }
 
 /// Top centre, under the bar, and only while there is something to say: a
-/// build in flight, or the failure the last one ended in. A rebuild leaves the
-/// island on screen and takes seconds to minutes, so the one thing the strip
-/// is for is that the viewer never looks idle while it is working — including
-/// with the HUD shut, which is why this is not part of it.
+/// build in flight — the opening one included — or the failure the last one
+/// ended in. A build leaves whatever is on screen there and takes seconds to
+/// minutes, so the one thing the strip is for is that the viewer never looks
+/// idle while it is working — including with the HUD shut, which is why this
+/// is not part of it.
 fn draw_generation_strip(mut contexts: EguiContexts, hud: Res<Hud>, status: Res<GenerationStatus>) {
     let Ok(context) = contexts.ctx_mut() else {
         return;
     };
     let spinning = status.elapsed.is_some();
     let notice = if let Some(elapsed) = status.elapsed {
-        // Only for a rebuild. The opening build has nothing on screen to hold
-        // the viewer's eye against, so a banner over an empty sea would be the
-        // one thing there was to read.
-        if status.built.is_none() {
-            return;
-        }
         (format!("GENERATING ISLAND · {elapsed:.0} S"), TEXT)
     } else if let Some(failure) = &status.failure {
         (format!("GENERATION FAILED · {failure}"), FAILURE_COLOUR)
