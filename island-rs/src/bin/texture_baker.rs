@@ -1,43 +1,28 @@
-//! Standalone procedural texture baker.
-//!
-//! Recipe parsing and generation stay in `island-rs`; this binary only owns
-//! command-line concerns, JSON loading, and reporting.  That keeps the same
-//! deterministic generator available to in-process callers.
+//! Standalone procedural texture baker and editor protocol endpoint.
 
-use std::{env, error::Error, fs, path::PathBuf, process, time::Instant};
+#![allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 
-use motu::procedural_textures::encoding::{
-    TextureSetImages, write_texture_set as write_encoded_texture_set,
+use std::{
+    env,
+    error::Error,
+    fs, io,
+    path::{Component, Path, PathBuf},
+    process,
+    time::Instant,
 };
-use motu::{OutputOptions, OutputProfile, TextureRecipe, generate_texture_set};
-use serde_json::Value;
+
+use motu::procedural_textures::{
+    EditorEnvelope, MaterialEvaluation, OutputOptions, OutputProfile, TextureRecipe,
+    editor_protocol::{self, Diagnostic},
+    encoding::{
+        OutputDimensions, PixelFormat, TextureSetImages, encode_png_bytes,
+        write_texture_set as write_encoded_texture_set,
+    },
+    evaluate_material, generate_texture_set, texture_set_from_evaluation,
+};
+use serde_json::{Value, json};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-
-#[derive(Debug)]
-struct Command {
-    recipe: Option<PathBuf>,
-    output: Option<PathBuf>,
-    profile: OutputProfile,
-    force: bool,
-    seed: Option<u64>,
-    width: Option<u32>,
-    height: Option<u32>,
-}
-
-impl Default for Command {
-    fn default() -> Self {
-        Self {
-            recipe: None,
-            output: None,
-            profile: OutputProfile::Separate,
-            force: false,
-            seed: None,
-            width: None,
-            height: None,
-        }
-    }
-}
 
 fn main() {
     match run() {
@@ -50,33 +35,225 @@ fn main() {
 }
 
 fn run() -> Result<(), Box<dyn Error>> {
-    let arguments = env::args().skip(1);
-    let command = match parse(arguments)? {
+    match parse(env::args().skip(1))? {
         ParseResult::Help => {
             print_help();
-            return Ok(());
+            Ok(())
         }
         ParseResult::Version => {
             println!("island-texture-baker {VERSION}");
-            return Ok(());
+            Ok(())
         }
-        ParseResult::Command(command) => command,
+        ParseResult::Bake(command) => run_bake(&command),
+        ParseResult::Schema => print_editor_envelope(&schema_envelope()),
+        ParseResult::Validate { recipe } => print_editor_envelope(&validate_command(&recipe)),
+        ParseResult::Preview {
+            recipe,
+            output,
+            size,
+        } => print_editor_envelope(&preview_command(&recipe, &output, size)),
+    }
+}
+
+#[derive(Debug)]
+struct BakeCommand {
+    recipe: PathBuf,
+    output: PathBuf,
+    profile: OutputProfile,
+    force: bool,
+    seed: Option<u64>,
+    width: Option<u32>,
+    height: Option<u32>,
+}
+
+#[derive(Debug)]
+enum ParseResult {
+    Help,
+    Version,
+    Bake(BakeCommand),
+    Schema,
+    Validate {
+        recipe: PathBuf,
+    },
+    Preview {
+        recipe: PathBuf,
+        output: PathBuf,
+        size: u32,
+    },
+}
+
+fn parse(mut arguments: impl Iterator<Item = String>) -> Result<ParseResult, String> {
+    let Some(first) = arguments.next() else {
+        return Err("--recipe is required; use --help for usage".into());
     };
+    if first == "-h" || first == "--help" {
+        return Ok(ParseResult::Help);
+    }
+    if first == "-V" || first == "--version" {
+        return Ok(ParseResult::Version);
+    }
+    match first.as_str() {
+        "schema" => parse_schema(arguments),
+        "validate" => parse_validate(arguments),
+        "preview" => parse_preview(arguments),
+        "bake" => parse_bake(arguments),
+        _ => parse_bake(std::iter::once(first).chain(arguments)),
+    }
+}
 
-    let recipe_path = command.recipe.as_deref().ok_or("--recipe is required")?;
-    let output = command.output.as_deref().ok_or("--output is required")?;
-    let recipe_bytes = fs::read(recipe_path)
-        .map_err(|error| format!("could not read recipe {}: {error}", recipe_path.display()))?;
-    let recipe = load_recipe(&recipe_bytes, &command)?;
+fn parse_schema(arguments: impl Iterator<Item = String>) -> Result<ParseResult, String> {
+    for argument in arguments {
+        if argument != "--json" && argument != "-h" && argument != "--help" {
+            return Err(format!("unknown schema option {argument:?}"));
+        }
+        if argument == "-h" || argument == "--help" {
+            return Ok(ParseResult::Help);
+        }
+    }
+    Ok(ParseResult::Schema)
+}
 
+fn parse_validate(mut arguments: impl Iterator<Item = String>) -> Result<ParseResult, String> {
+    let mut recipe = None;
+    while let Some(argument) = arguments.next() {
+        match argument.as_str() {
+            "--recipe" => recipe = Some(next_value(&mut arguments, "--recipe")?),
+            "--json" => {}
+            "-h" | "--help" => return Ok(ParseResult::Help),
+            _ => return Err(format!("unknown validate option {argument:?}")),
+        }
+    }
+    Ok(ParseResult::Validate {
+        recipe: PathBuf::from(recipe.ok_or("--recipe is required")?),
+    })
+}
+
+fn parse_preview(mut arguments: impl Iterator<Item = String>) -> Result<ParseResult, String> {
+    let mut recipe = None;
+    let mut output = None;
+    let mut size = 256;
+    while let Some(argument) = arguments.next() {
+        match argument.as_str() {
+            "--recipe" => recipe = Some(next_value(&mut arguments, "--recipe")?),
+            "--output" | "-o" => output = Some(next_value(&mut arguments, "--output")?),
+            "--size" => size = parse_value("--size", &next_value(&mut arguments, "--size")?)?,
+            "--json" => {}
+            "-h" | "--help" => return Ok(ParseResult::Help),
+            _ => return Err(format!("unknown preview option {argument:?}")),
+        }
+    }
+    if size == 0 {
+        return Err("--size must be greater than zero".into());
+    }
+    Ok(ParseResult::Preview {
+        recipe: PathBuf::from(recipe.ok_or("--recipe is required")?),
+        output: PathBuf::from(output.ok_or("--output is required")?),
+        size,
+    })
+}
+
+fn parse_bake(mut arguments: impl Iterator<Item = String>) -> Result<ParseResult, String> {
+    let mut recipe = None;
+    let mut output = None;
+    let mut profile = OutputProfile::Separate;
+    let mut force = false;
+    let mut seed = None;
+    let mut width = None;
+    let mut height = None;
+    while let Some(argument) = arguments.next() {
+        match argument.as_str() {
+            "--recipe" => recipe = Some(next_value(&mut arguments, "--recipe")?),
+            "--output" | "-o" => output = Some(next_value(&mut arguments, "--output")?),
+            "--profile" => {
+                profile = next_value(&mut arguments, "--profile")?
+                    .parse::<OutputProfile>()
+                    .map_err(|error| error.to_string())?;
+            }
+            "--force" => force = true,
+            "--seed" => {
+                seed = Some(parse_value(
+                    "--seed",
+                    &next_value(&mut arguments, "--seed")?,
+                )?);
+            }
+            "--width" => {
+                width = Some(parse_value(
+                    "--width",
+                    &next_value(&mut arguments, "--width")?,
+                )?);
+            }
+            "--height" => {
+                height = Some(parse_value(
+                    "--height",
+                    &next_value(&mut arguments, "--height")?,
+                )?);
+            }
+            "-h" | "--help" => return Ok(ParseResult::Help),
+            _ => return Err(format!("unknown option {argument:?}; use --help for usage")),
+        }
+    }
+    if width == Some(0) || height == Some(0) {
+        return Err("image width and height must be greater than zero".into());
+    }
+    Ok(ParseResult::Bake(BakeCommand {
+        recipe: PathBuf::from(recipe.ok_or("--recipe is required")?),
+        output: PathBuf::from(output.ok_or("--output is required")?),
+        profile,
+        force,
+        seed,
+        width,
+        height,
+    }))
+}
+
+fn next_value(
+    arguments: &mut impl Iterator<Item = String>,
+    option: &str,
+) -> Result<String, String> {
+    arguments
+        .next()
+        .ok_or_else(|| format!("{option} requires a value"))
+}
+
+fn parse_value<T>(option: &str, value: &str) -> Result<T, String>
+where
+    T: std::str::FromStr,
+    T::Err: std::fmt::Display,
+{
+    value
+        .parse()
+        .map_err(|error| format!("invalid value for {option}: {error}"))
+}
+
+fn run_bake(command: &BakeCommand) -> Result<(), Box<dyn Error>> {
+    let bytes = fs::read(&command.recipe).map_err(|error| {
+        format!(
+            "could not read recipe {}: {error}",
+            command.recipe.display()
+        )
+    })?;
+    let mut document: Value = serde_json::from_slice(&bytes)?;
+    if let Some(seed) = command.seed {
+        document["seed"] = Value::from(seed);
+    }
+    if let Some(width) = command.width {
+        document["width"] = Value::from(width);
+    }
+    if let Some(height) = command.height {
+        document["height"] = Value::from(height);
+    }
+    let recipe: TextureRecipe = serde_json::from_value(document)?;
     let started = Instant::now();
     let textures = generate_texture_set(&recipe)?;
-    let options = OutputOptions {
-        profile: command.profile,
-        force: command.force,
-    };
     let images = TextureSetImages::from_texture_set(&textures);
-    let manifest = write_encoded_texture_set(&images, output, &options)?;
+    let manifest = write_encoded_texture_set(
+        &images,
+        &command.output,
+        &OutputOptions {
+            profile: command.profile,
+            force: command.force,
+        },
+    )?;
     println!(
         "baked {} ({}x{}, seed {}) in {:.2?}",
         manifest.name,
@@ -91,117 +268,327 @@ fn run() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn load_recipe(bytes: &[u8], command: &Command) -> Result<TextureRecipe, Box<dyn Error>> {
-    let mut document: Value = serde_json::from_slice(bytes)
-        .map_err(|error| format!("recipe is not valid UTF-8 JSON: {error}"))?;
-    apply_overrides(&mut document, command)?;
-    Ok(serde_json::from_value(document)?)
+fn read_recipe(path: &Path) -> Result<TextureRecipe, Diagnostic> {
+    let bytes = fs::read(path).map_err(|error| Diagnostic {
+        pointer: String::new(),
+        severity: "error",
+        code: "recipe.read",
+        message: format!("could not read recipe {}: {error}", path.display()),
+    })?;
+    serde_json::from_slice(&bytes).map_err(|error| Diagnostic {
+        pointer: String::new(),
+        severity: "error",
+        code: "recipe.parse",
+        message: error.to_string(),
+    })
 }
 
-fn apply_overrides(document: &mut Value, command: &Command) -> Result<(), Box<dyn Error>> {
-    let object = document
-        .as_object_mut()
-        .ok_or("recipe root must be a JSON object")?;
-    if let Some(seed) = command.seed {
-        object.insert("seed".into(), Value::from(seed));
-    }
-
-    if let Some(width) = command.width {
-        set_dimension(object, "width", width)?;
-    }
-    if let Some(height) = command.height {
-        set_dimension(object, "height", height)?;
-    }
-    Ok(())
+fn schema_envelope() -> EditorEnvelope {
+    let mut envelope = EditorEnvelope::success();
+    envelope.schema = Some(editor_protocol::schema_document());
+    envelope
 }
 
-fn set_dimension(
-    root: &mut serde_json::Map<String, Value>,
-    key: &str,
-    value: u32,
-) -> Result<(), Box<dyn Error>> {
-    // Recipes written with the initial schema use top-level width/height;
-    // accepting a nested `dimensions` object makes the CLI tolerant of the
-    // common engine-facing representation without weakening deserialization.
-    if root.contains_key(key) {
-        root.insert(key.into(), Value::from(value));
-    } else {
-        root.entry("dimensions")
-            .or_insert_with(|| Value::Object(serde_json::Map::new()))
-            .as_object_mut()
-            .ok_or("recipe dimensions must be a JSON object")?
-            .insert(key.into(), Value::from(value));
-    }
-    Ok(())
-}
-
-enum ParseResult {
-    Help,
-    Version,
-    Command(Command),
-}
-
-fn parse(arguments: impl Iterator<Item = String>) -> Result<ParseResult, String> {
-    let mut command = Command {
-        profile: OutputProfile::Separate,
-        ..Command::default()
+fn validate_command(path: &Path) -> EditorEnvelope {
+    let recipe = match read_recipe(path) {
+        Ok(recipe) => recipe,
+        Err(diagnostic) => {
+            return EditorEnvelope {
+                success: false,
+                diagnostics: vec![diagnostic],
+                ..EditorEnvelope::default()
+            };
+        }
     };
-    let mut arguments = arguments.peekable();
-    while let Some(argument) = arguments.next() {
-        let value = |arguments: &mut std::iter::Peekable<_>| {
-            arguments
-                .next()
-                .ok_or_else(|| format!("{argument} requires a value"))
+    let mut envelope = EditorEnvelope::success();
+    envelope.recipe_hash = editor_protocol::recipe_hash(&recipe).ok();
+    envelope.diagnostics = editor_protocol::validate_diagnostics(&recipe);
+    envelope.success = envelope.diagnostics.is_empty();
+    envelope
+}
+
+fn preview_command(path: &Path, output: &Path, size: u32) -> EditorEnvelope {
+    let recipe = match read_recipe(path) {
+        Ok(recipe) => recipe,
+        Err(diagnostic) => {
+            return EditorEnvelope {
+                success: false,
+                diagnostics: vec![diagnostic],
+                ..EditorEnvelope::default()
+            };
+        }
+    };
+    let mut preview_recipe = recipe.clone();
+    preview_recipe.width = size;
+    preview_recipe.height = size;
+    let source_recipe_hash = editor_protocol::recipe_hash(&recipe).ok();
+    let diagnostics = editor_protocol::validate_diagnostics(&preview_recipe);
+    if !diagnostics.is_empty() {
+        return EditorEnvelope {
+            success: false,
+            diagnostics,
+            recipe_hash: source_recipe_hash.clone(),
+            ..EditorEnvelope::default()
         };
-        match argument.as_str() {
-            "-h" | "--help" => return Ok(ParseResult::Help),
-            "-V" | "--version" => return Ok(ParseResult::Version),
-            "--recipe" => command.recipe = Some(PathBuf::from(value(&mut arguments)?)),
-            "--output" | "-o" => command.output = Some(PathBuf::from(value(&mut arguments)?)),
-            "--profile" => {
-                command.profile = value(&mut arguments)?
-                    .parse::<OutputProfile>()
-                    .map_err(|error| error.to_string())?;
+    }
+    if let Err(error) = clear_previous_preview(output, &preview_recipe.name) {
+        return EditorEnvelope::failure("preview.cleanup", error.to_string());
+    }
+    let started = Instant::now();
+    let evaluation = match evaluate_material(&preview_recipe) {
+        Ok(evaluation) => evaluation,
+        Err(error) => return EditorEnvelope::failure("preview.evaluate", error.to_string()),
+    };
+    let evaluate_ms = started.elapsed().as_secs_f64() * 1000.0;
+    let textures = match texture_set_from_evaluation(&preview_recipe, &evaluation) {
+        Ok(textures) => textures,
+        Err(error) => return EditorEnvelope::failure("preview.generate", error.to_string()),
+    };
+    let manifest = match write_encoded_texture_set(
+        &TextureSetImages::from_texture_set(&textures),
+        output,
+        &OutputOptions {
+            profile: OutputProfile::MotuUnityTerrain,
+            force: true,
+        },
+    ) {
+        Ok(manifest) => manifest,
+        Err(error) => return EditorEnvelope::failure("preview.write", error.to_string()),
+    };
+    let mut generated_maps = manifest
+        .maps
+        .iter()
+        .map(|map| serde_json::to_value(map).unwrap_or_else(|_| json!({})))
+        .collect::<Vec<_>>();
+    if let Err(error) = write_layer_maps(output, &preview_recipe, &evaluation, &mut generated_maps)
+    {
+        return EditorEnvelope::failure("preview.layer_maps", error.to_string());
+    }
+    if let Err(error) = write_raw_height(
+        output,
+        &preview_recipe,
+        &evaluation,
+        &manifest.metadata.recipe_hash,
+        &mut generated_maps,
+    ) {
+        return EditorEnvelope::failure("preview.raw_height", error.to_string());
+    }
+    if let Err(error) = write_preview_manifest(output, &preview_recipe, &manifest, &generated_maps)
+    {
+        return EditorEnvelope::failure("preview.manifest", error.to_string());
+    }
+    let mut envelope = EditorEnvelope::success();
+    envelope.recipe_hash = source_recipe_hash;
+    envelope.generated_maps = generated_maps;
+    envelope.timings_ms.insert("evaluate".into(), evaluate_ms);
+    envelope.timings_ms.insert(
+        "write".into(),
+        started.elapsed().as_secs_f64() * 1000.0 - evaluate_ms,
+    );
+    envelope.timings = envelope.timings_ms.clone();
+    envelope
+}
+
+fn write_preview_manifest(
+    output: &Path,
+    recipe: &TextureRecipe,
+    manifest: &motu::procedural_textures::OutputManifest,
+    generated_maps: &[Value],
+) -> Result<(), io::Error> {
+    let bytes = serde_json::to_vec_pretty(&json!({
+        "kind": "procedural_material_preview",
+        "complete": true,
+        "recipe_hash": manifest.metadata.recipe_hash,
+        "width": recipe.width,
+        "height": recipe.height,
+        "maps": generated_maps,
+    }))
+    .map_err(|error| io::Error::other(error.to_string()))?;
+    atomic_write(&output.join("preview.manifest.json"), &bytes)
+}
+
+fn clear_previous_preview(output: &Path, name: &str) -> Result<(), io::Error> {
+    let marker = output.join("preview.manifest.json");
+    if !marker.is_file() {
+        return Ok(());
+    }
+    let previous: Value = serde_json::from_slice(&fs::read(&marker)?)
+        .map_err(|error| io::Error::other(error.to_string()))?;
+    let mut paths = Vec::new();
+    if let Some(maps) = previous.get("maps").and_then(Value::as_array) {
+        for map in maps {
+            if let Some(file) = map.get("file").and_then(Value::as_str) {
+                paths.push(preview_manifest_path(output, file)?);
             }
-            "--force" => command.force = true,
-            "--seed" => command.seed = Some(parse_value(&argument, &value(&mut arguments)?)?),
-            "--width" => command.width = Some(parse_value(&argument, &value(&mut arguments)?)?),
-            "--height" => {
-                command.height = Some(parse_value(&argument, &value(&mut arguments)?)?);
+            if let Some(metadata) = map.get("metadata").and_then(Value::as_str) {
+                paths.push(preview_manifest_path(output, metadata)?);
             }
-            _ => return Err(format!("unknown option {argument:?}; use --help for usage")),
         }
     }
-    if command.recipe.is_none() {
-        return Err("--recipe is required; use --help for usage".into());
+    paths.push(preview_manifest_path(
+        output,
+        &format!("{name}.texture-set.json"),
+    )?);
+    for path in paths {
+        if path.is_file() {
+            fs::remove_file(path)?;
+        }
     }
-    if command.output.is_none() {
-        return Err("--output is required; use --help for usage".into());
-    }
-    if command.width == Some(0) || command.height == Some(0) {
-        return Err("image width and height must be greater than zero".into());
-    }
-    Ok(ParseResult::Command(command))
+    fs::remove_file(marker)
 }
 
-fn parse_value<T>(option: &str, input: &str) -> Result<T, String>
-where
-    T: std::str::FromStr,
-    T::Err: std::fmt::Display,
-{
-    input
-        .parse()
-        .map_err(|error| format!("invalid value for {option}: {error}"))
+fn preview_manifest_path(output: &Path, relative: &str) -> Result<PathBuf, io::Error> {
+    let relative_path = Path::new(relative);
+    if relative_path.as_os_str().is_empty()
+        || relative_path.is_absolute()
+        || relative_path.components().any(|component| {
+            matches!(
+                component,
+                Component::ParentDir | Component::RootDir | Component::Prefix(_)
+            )
+        })
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("preview manifest path {relative:?} is not relative to the output directory"),
+        ));
+    }
+
+    let output_root = fs::canonicalize(output)?;
+    let candidate = output.join(relative_path);
+    let contained_path = match fs::canonicalize(&candidate) {
+        Ok(path) => path,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            let parent = candidate.parent().unwrap_or(output);
+            fs::canonicalize(parent)?
+        }
+        Err(error) => return Err(error),
+    };
+    if !contained_path.starts_with(&output_root) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("preview manifest path {relative:?} resolves outside the output directory"),
+        ));
+    }
+    Ok(candidate)
+}
+
+fn write_layer_maps(
+    output: &Path,
+    recipe: &TextureRecipe,
+    evaluation: &MaterialEvaluation,
+    generated_maps: &mut Vec<Value>,
+) -> Result<(), io::Error> {
+    let dimensions = OutputDimensions {
+        width: recipe.width,
+        height: recipe.height,
+    };
+    for diagnostic in &evaluation.layers.layers {
+        for (suffix, values) in [
+            ("raw", diagnostic.raw.as_slice()),
+            ("remapped", diagnostic.remapped.as_slice()),
+            ("mask", diagnostic.mask.as_slice()),
+        ] {
+            let pixels = normalize_scalar(values);
+            let filename = format!("{}_layer_{}_{}.png", recipe.name, diagnostic.id, suffix);
+            let bytes = encode_png_bytes(dimensions, PixelFormat::Gray8, &pixels)
+                .map_err(|error| io::Error::other(error.to_string()))?;
+            atomic_write(&output.join(&filename), &bytes)?;
+            generated_maps.push(json!({
+                "file": filename,
+                "format": "Gray8",
+                "kind": format!("layer_{suffix}"),
+                "width": recipe.width,
+                "height": recipe.height,
+            }));
+        }
+    }
+    Ok(())
+}
+
+fn write_raw_height(
+    output: &Path,
+    recipe: &TextureRecipe,
+    evaluation: &MaterialEvaluation,
+    recipe_hash: &str,
+    generated_maps: &mut Vec<Value>,
+) -> Result<(), io::Error> {
+    let range = motu::procedural_textures::packing::HeightRange::new(
+        recipe.displacement.minimum_m,
+        recipe.displacement.maximum_m,
+        recipe.displacement.base_m,
+    )
+    .map_err(|error| io::Error::other(format!("{error:?}")))?;
+    let pixels =
+        motu::procedural_textures::packing::quantize_height(&evaluation.layers.field, range)
+            .map_err(|error| io::Error::other(format!("{error:?}")))?;
+    let mut bytes = Vec::with_capacity(pixels.pixels().len() * 2);
+    for pixel in pixels.pixels() {
+        bytes.extend_from_slice(&pixel.to_le_bytes());
+    }
+    let filename = format!("{}_preview_height.r16", recipe.name);
+    atomic_write(&output.join(&filename), &bytes)?;
+    let metadata_name = format!("{}_preview_height.json", recipe.name);
+    let metadata = serde_json::to_vec_pretty(&json!({
+        "file": filename,
+        "width": recipe.width,
+        "height": recipe.height,
+        "endianness": "little",
+        "row_order": "top_to_bottom",
+        "minimum_m": range.minimum,
+        "maximum_m": range.maximum,
+        "base_m": range.neutral,
+        "recipe_hash": recipe_hash,
+    }))
+    .map_err(|error| io::Error::other(error.to_string()))?;
+    atomic_write(&output.join(&metadata_name), &metadata)?;
+    generated_maps.push(json!({
+        "file": filename,
+        "metadata": metadata_name,
+        "format": "R16",
+        "kind": "raw_height",
+    }));
+    Ok(())
+}
+
+fn normalize_scalar(values: &[f32]) -> Vec<u8> {
+    let (minimum, maximum) = values.iter().fold(
+        (f32::INFINITY, f32::NEG_INFINITY),
+        |(minimum, maximum), value| (minimum.min(*value), maximum.max(*value)),
+    );
+    let span = (maximum - minimum).max(f32::EPSILON);
+    values
+        .iter()
+        .map(|value| (((*value - minimum) / span).clamp(0.0, 1.0) * 255.0).round() as u8)
+        .collect()
+}
+
+fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), io::Error> {
+    let temporary = path.with_extension(format!(
+        "{}.tmp-{}",
+        path.extension()
+            .and_then(|extension| extension.to_str())
+            .unwrap_or("bin"),
+        process::id()
+    ));
+    fs::write(&temporary, bytes)?;
+    fs::rename(temporary, path)?;
+    Ok(())
+}
+
+fn print_editor_envelope(envelope: &EditorEnvelope) -> Result<(), Box<dyn Error>> {
+    println!("{}", envelope.to_json()?);
+    Ok(())
 }
 
 fn print_help() {
     println!(
         "island-texture-baker {VERSION}\n\n\
-         Usage: island-texture-baker --recipe <FILE> --output <DIR> [OPTIONS]\n\n\
-         Required:\n\
-           --recipe <FILE>       UTF-8 JSON texture recipe\n\
-           -o, --output <DIR>    Destination directory\n\n\
-         Options:\n\
+         Bake: island-texture-baker --recipe <FILE> --output <DIR> [OPTIONS]\n\
+         Editor: island-texture-baker schema --json\n\
+                 island-texture-baker validate --recipe <FILE> --json\n\
+                 island-texture-baker preview --recipe <FILE> --output <DIR> --size 256\n\n\
+         Bake options:\n\
            --profile <PROFILE>   separate (default) or motu_unity_terrain\n\
            --seed <N>            Override recipe seed\n\
            --width <PX>          Override recipe width\n\
@@ -214,63 +601,145 @@ fn print_help() {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::*;
 
     #[test]
-    fn parses_required_arguments_and_overrides() {
-        let ParseResult::Command(command) = parse(
-            [
-                "--recipe",
-                "stone.json",
-                "--output",
-                "out",
-                "--seed",
-                "42",
-                "--width",
-                "128",
-                "--profile",
-                "motu_unity_terrain",
-                "--force",
-            ]
-            .into_iter()
-            .map(String::from),
+    fn parses_editor_commands() {
+        assert!(matches!(
+            parse(["schema", "--json"].into_iter().map(String::from)),
+            Ok(ParseResult::Schema)
+        ));
+        assert!(matches!(
+            parse(
+                ["validate", "--recipe", "stone.json", "--json"]
+                    .into_iter()
+                    .map(String::from)
+            ),
+            Ok(ParseResult::Validate { .. })
+        ));
+        assert!(matches!(
+            parse(
+                [
+                    "preview",
+                    "--recipe",
+                    "stone.json",
+                    "--output",
+                    "out",
+                    "--size",
+                    "128",
+                    "--json"
+                ]
+                .into_iter()
+                .map(String::from)
+            ),
+            Ok(ParseResult::Preview { size: 128, .. })
+        ));
+    }
+
+    #[test]
+    fn parses_direct_bake_invocation_without_subcommand() {
+        let ParseResult::Bake(command) = parse(
+            ["--recipe", "stone.json", "--output", "out", "--seed", "42"]
+                .into_iter()
+                .map(String::from),
         )
         .unwrap() else {
-            panic!("expected command");
+            panic!("expected bake command");
         };
         assert_eq!(command.seed, Some(42));
-        assert_eq!(command.width, Some(128));
-        assert_eq!(command.profile, OutputProfile::MotuUnityTerrain);
-        assert!(command.force);
     }
 
     #[test]
-    fn help_and_version_do_not_require_paths() {
-        assert!(matches!(
-            parse(["--help".into()].into_iter()),
-            Ok(ParseResult::Help)
-        ));
-        assert!(matches!(
-            parse(["--version".into()].into_iter()),
-            Ok(ParseResult::Version)
-        ));
+    fn scalar_normalization_is_finite() {
+        assert_eq!(normalize_scalar(&[2.0, 2.0]), vec![0, 0]);
+        assert_eq!(normalize_scalar(&[-1.0, 1.0]), vec![0, 255]);
     }
 
     #[test]
-    fn applies_top_level_and_nested_dimension_overrides() {
-        let mut top_level = serde_json::json!({"seed": 1, "width": 2, "height": 3});
-        let command = Command {
-            width: Some(8),
-            height: Some(9),
-            ..Command::default()
-        };
-        apply_overrides(&mut top_level, &command).unwrap();
-        assert_eq!(top_level["width"], 8);
-        assert_eq!(top_level["height"], 9);
+    fn preview_cleanup_rejects_parent_paths_before_deleting_anything() {
+        let output = unique_preview_dir("parent");
+        let outside = output
+            .parent()
+            .expect("temporary output has a parent")
+            .join(format!("island-preview-outside-{}", process::id()));
+        fs::write(output.join("safe.png"), b"safe").unwrap();
+        fs::write(&outside, b"outside").unwrap();
+        fs::write(
+            output.join("preview.manifest.json"),
+            serde_json::to_vec(&json!({
+                "maps": [
+                    {"file": "safe.png"},
+                    {"file": format!("../{}", outside.file_name().unwrap().to_string_lossy())}
+                ]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
 
-        let mut nested = serde_json::json!({"seed": 1, "dimensions": {"width": 2, "height": 3}});
-        apply_overrides(&mut nested, &command).unwrap();
-        assert_eq!(nested["dimensions"]["width"], 8);
-        assert_eq!(nested["dimensions"]["height"], 9);
+        let error = clear_previous_preview(&output, "stone").unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+        assert!(output.join("safe.png").is_file());
+        assert!(outside.is_file());
+
+        let _ = fs::remove_file(outside);
+        let _ = fs::remove_dir_all(output);
+    }
+
+    #[test]
+    fn preview_cleanup_rejects_absolute_paths() {
+        let output = unique_preview_dir("absolute");
+        let outside = output
+            .parent()
+            .expect("temporary output has a parent")
+            .join(format!("island-preview-absolute-{}.png", process::id()));
+        fs::write(&outside, b"outside").unwrap();
+        fs::write(
+            output.join("preview.manifest.json"),
+            serde_json::to_vec(&json!({"maps": [{"file": outside}]})).unwrap(),
+        )
+        .unwrap();
+
+        let error = clear_previous_preview(&output, "stone").unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+        assert!(outside.is_file());
+
+        let _ = fs::remove_file(outside);
+        let _ = fs::remove_dir_all(output);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn preview_cleanup_rejects_symlink_paths_outside_output() {
+        use std::os::unix::fs::symlink;
+
+        let output = unique_preview_dir("symlink");
+        let outside = output
+            .parent()
+            .expect("temporary output has a parent")
+            .join(format!("island-preview-symlink-target-{}", process::id()));
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(outside.join("escape.png"), b"outside").unwrap();
+        symlink(&outside, output.join("linked")).unwrap();
+        fs::write(
+            output.join("preview.manifest.json"),
+            serde_json::to_vec(&json!({"maps": [{"file": "linked/escape.png"}]})).unwrap(),
+        )
+        .unwrap();
+
+        let error = clear_previous_preview(&output, "stone").unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+        assert!(outside.join("escape.png").is_file());
+
+        let _ = fs::remove_dir_all(output);
+        let _ = fs::remove_dir_all(outside);
+    }
+
+    fn unique_preview_dir(stem: &str) -> PathBuf {
+        let output = env::temp_dir().join(format!("island-preview-{stem}-{}", process::id()));
+        let _ = fs::remove_dir_all(&output);
+        fs::create_dir_all(&output).unwrap();
+        output
     }
 }

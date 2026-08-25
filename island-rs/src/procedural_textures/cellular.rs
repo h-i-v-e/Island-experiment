@@ -88,10 +88,77 @@ pub fn sample(seed: u64, position: [f32; 2], period: Period2D, jitter: f32) -> C
         position[0].rem_euclid(period.x as f32),
         position[1].rem_euclid(period.y as f32),
     ];
+    let (_, nearest, second) = candidate_neighbours(seed, wrapped_position, period, jitter);
+
+    cellular_sample(nearest, second, None)
+}
+
+/// Samples a cell with an exact, corner-rounded distance to its Voronoi edge.
+///
+/// This is kept crate-local because the general cellular source intentionally
+/// retains its cheaper F2-minus-F1 approximation. Rounded pebbles need all
+/// nearby bisectors so polygon corners can be pulled inward smoothly.
+pub(crate) fn sample_rounded_edge(
+    seed: u64,
+    position: [f32; 2],
+    period: Period2D,
+    jitter: f32,
+    corner_rounding: f32,
+) -> CellularSample {
+    if !position[0].is_finite() || !position[1].is_finite() {
+        return sample(seed, position, period, jitter);
+    }
+    let jitter = if jitter.is_finite() {
+        jitter.clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    let wrapped_position = [
+        position[0].rem_euclid(period.x as f32),
+        position[1].rem_euclid(period.y as f32),
+    ];
+    let (candidates, nearest, second) =
+        candidate_neighbours(seed, wrapped_position, period, jitter);
+    let mut nearest_boundary = f32::INFINITY;
+    let mut second_boundary = f32::INFINITY;
+    for candidate in candidates {
+        if candidate.cell_x == nearest.cell_x && candidate.cell_y == nearest.cell_y {
+            continue;
+        }
+        let feature_offset = [
+            candidate.feature_x - nearest.feature_x,
+            candidate.feature_y - nearest.feature_y,
+        ];
+        let feature_distance = feature_offset[0].hypot(feature_offset[1]);
+        if feature_distance <= f32::EPSILON {
+            continue;
+        }
+        let boundary_distance =
+            (candidate.distance_squared - nearest.distance_squared) / (2.0 * feature_distance);
+        if boundary_distance < nearest_boundary {
+            second_boundary = nearest_boundary;
+            nearest_boundary = boundary_distance;
+        } else if boundary_distance < second_boundary {
+            second_boundary = boundary_distance;
+        }
+    }
+    let edge_distance =
+        smooth_min(nearest_boundary, second_boundary, corner_rounding.max(0.0)).max(0.0);
+    cellular_sample(nearest, second, Some(edge_distance))
+}
+
+fn candidate_neighbours(
+    seed: u64,
+    wrapped_position: [f32; 2],
+    period: Period2D,
+    jitter: f32,
+) -> ([Candidate; 9], Candidate, Candidate) {
     let base_x = wrapped_position[0].floor() as i64;
     let base_y = wrapped_position[1].floor() as i64;
+    let mut candidates = [Candidate::empty(); 9];
     let mut nearest = Candidate::empty();
     let mut second = Candidate::empty();
+    let mut candidate_index = 0;
 
     for offset_y in -1_i64..=1 {
         for offset_x in -1_i64..=1 {
@@ -107,7 +174,11 @@ pub fn sample(seed: u64, position: [f32; 2], period: Period2D, jitter: f32) -> C
                 cell_y,
                 cell_id: feature.cell_id,
                 cell_value: feature.cell_value,
+                feature_x: feature.x,
+                feature_y: feature.y,
             };
+            candidates[candidate_index] = candidate;
+            candidate_index += 1;
 
             if candidate.is_nearer_than(nearest) {
                 second = nearest;
@@ -118,9 +189,18 @@ pub fn sample(seed: u64, position: [f32; 2], period: Period2D, jitter: f32) -> C
         }
     }
 
+    (candidates, nearest, second)
+}
+
+fn cellular_sample(
+    nearest: Candidate,
+    second: Candidate,
+    edge_distance: Option<f32>,
+) -> CellularSample {
     let nearest_distance = nearest.distance_squared.sqrt();
     let second_nearest_distance = second.distance_squared.sqrt();
-    let edge_distance = ((second_nearest_distance - nearest_distance) * 0.5).max(0.0);
+    let edge_distance = edge_distance
+        .unwrap_or_else(|| ((second_nearest_distance - nearest_distance) * 0.5).max(0.0));
     CellularSample {
         cell_id: nearest.cell_id,
         cell_x: nearest.cell_x,
@@ -130,6 +210,14 @@ pub fn sample(seed: u64, position: [f32; 2], period: Period2D, jitter: f32) -> C
         edge_distance,
         cell_value: nearest.cell_value,
     }
+}
+
+fn smooth_min(a: f32, b: f32, smoothing: f32) -> f32 {
+    if smoothing <= f32::EPSILON || !b.is_finite() {
+        return a.min(b);
+    }
+    let blend = (0.5 + 0.5 * (b - a) / smoothing).clamp(0.0, 1.0);
+    b + (a - b) * blend - smoothing * blend * (1.0 - blend)
 }
 
 /// Samples a cellular metric after scaling normalized tile coordinates by an
@@ -191,6 +279,8 @@ struct Candidate {
     cell_y: i64,
     cell_id: u64,
     cell_value: f32,
+    feature_x: f32,
+    feature_y: f32,
 }
 
 impl Candidate {
@@ -201,6 +291,8 @@ impl Candidate {
             cell_y: 0,
             cell_id: 0,
             cell_value: 0.0,
+            feature_x: 0.0,
+            feature_y: 0.0,
         }
     }
 
@@ -234,7 +326,9 @@ fn feature_point(
 
 #[cfg(test)]
 mod tests {
-    use super::{CellularMetric, cell_value, distance, distance_to_edge, sample};
+    use super::{
+        CellularMetric, cell_value, distance, distance_to_edge, sample, sample_rounded_edge,
+    };
     use crate::procedural_textures::periodic::Period2D;
 
     #[test]
@@ -276,5 +370,30 @@ mod tests {
             sample.edge_distance
         );
         assert_eq!(cell_value(7, point, period, 0.4), sample.cell_value);
+    }
+
+    #[test]
+    fn rounded_edges_are_periodic_and_pull_voronoi_corners_inward() {
+        let period = Period2D::new(7, 5).expect("non-empty period");
+        let point = [2.375, 3.125];
+        let original = sample_rounded_edge(41, point, period, 0.8, 0.2);
+        let wrapped = sample_rounded_edge(
+            41,
+            [point[0] + period.x as f32, point[1] + period.y as f32],
+            period,
+            0.8,
+            0.2,
+        );
+        assert_eq!(original.cell_id, wrapped.cell_id);
+        assert_eq!(original.edge_distance, wrapped.edge_distance);
+
+        let corner_was_rounded = (0..64).any(|index| {
+            let x = (index % 8) as f32 * period.x as f32 / 8.0 + 0.03125;
+            let y = (index / 8) as f32 * period.y as f32 / 8.0 + 0.03125;
+            let hard = sample_rounded_edge(41, [x, y], period, 0.8, 0.0);
+            let rounded = sample_rounded_edge(41, [x, y], period, 0.8, 0.2);
+            rounded.edge_distance + 1.0e-4 < hard.edge_distance
+        });
+        assert!(corner_was_rounded);
     }
 }

@@ -405,6 +405,14 @@ public sealed class IslandDebugSettings
         + "Set to None to disable the shortcut.")]
     [SerializeField] private KeyCode toggleTreeMeshEdgesKey = KeyCode.N;
 
+    [Tooltip("Display a smoothed frame-rate counter in the top-right corner.")]
+    [SerializeField] private bool showFrameRate;
+
+    [Tooltip(
+        "Key used in Play Mode to toggle the frame-rate counter. "
+        + "Set to None to disable the shortcut.")]
+    [SerializeField] private KeyCode toggleFrameRateKey = KeyCode.F;
+
     [Tooltip("Display rough-water emitter debug markers.")]
     [SerializeField] private bool showRoughWaterEmitters;
 
@@ -412,5 +420,7 @@ public sealed class IslandDebugSettings
     public KeyCode ToggleMeshEdgesKey => toggleMeshEdgesKey;
     public bool ShowTreeMeshEdges { get => showTreeMeshEdges; set => showTreeMeshEdges = value; }
     public KeyCode ToggleTreeMeshEdgesKey => toggleTreeMeshEdgesKey;
+    public bool ShowFrameRate { get => showFrameRate; set => showFrameRate = value; }
+    public KeyCode ToggleFrameRateKey => toggleFrameRateKey;
     public bool ShowRoughWaterEmitters { get => showRoughWaterEmitters; set => showRoughWaterEmitters = value; }
 }

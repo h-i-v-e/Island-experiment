@@ -51,7 +51,7 @@ impl std::str::FromStr for OutputProfile {
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value {
             "separate" => Ok(Self::Separate),
-            "motu_unity_terrain" | "motu-unity-terrain" | "unity" => Ok(Self::MotuUnityTerrain),
+            "motu_unity_terrain" => Ok(Self::MotuUnityTerrain),
             _ => Err(OutputError::InvalidInput(format!(
                 "unknown output profile {value:?}; expected separate or motu_unity_terrain"
             ))),
@@ -114,7 +114,6 @@ impl OutputDimensions {
 /// loading a Rust type or the original recipe file.
 #[derive(Debug, Clone, Serialize)]
 pub struct TextureMetadata {
-    pub recipe_schema_version: u32,
     pub generator_algorithm_version: String,
     pub recipe_hash: String,
     pub seed: u64,
@@ -132,7 +131,6 @@ pub struct TextureMetadata {
 impl Default for TextureMetadata {
     fn default() -> Self {
         Self {
-            recipe_schema_version: 1,
             generator_algorithm_version: "1".into(),
             recipe_hash: String::new(),
             seed: 0,
@@ -209,7 +207,6 @@ impl<'a> TextureSetImages<'a> {
             normal_rgb8: Cow::Owned(flatten_rgb8(textures.normal.pixels())),
             occlusion_gray8: Cow::Borrowed(textures.occlusion.pixels()),
             metadata: TextureMetadata {
-                recipe_schema_version: core_metadata.schema_version,
                 generator_algorithm_version: core_metadata.algorithm_version.to_string(),
                 recipe_hash: core_metadata.recipe_hash.clone(),
                 seed: core_metadata.seed,
@@ -469,22 +466,20 @@ pub fn write_texture_set(
     let normal = encode_png_bytes(dimensions, PixelFormat::Rgb8, &images.normal_rgb8)?;
     let occlusion = encode_png_bytes(dimensions, PixelFormat::Gray8, &images.occlusion_gray8)?;
     let mut maps = Vec::with_capacity(filenames.len());
-    let output_maps = [
+    let mut output_maps = vec![
         (&filenames[0], PixelFormat::Rgb8, "sRGB", albedo),
         (&filenames[1], PixelFormat::Gray16, "linear", height),
         (&filenames[2], PixelFormat::Rgb8, "linear", normal),
         (&filenames[3], PixelFormat::Gray8, "linear", occlusion),
     ];
-    for (filename, format, color_space, bytes) in output_maps {
-        let path = destination.join(filename);
-        write_png_bytes(&path, &bytes)?;
+    for (filename, format, color_space, bytes) in &output_maps {
         maps.push(ManifestMap {
-            file: filename.clone(),
+            file: (*filename).clone(),
             format: format.as_str().into(),
-            color_space: color_space.into(),
+            color_space: (*color_space).into(),
             width: dimensions.width,
             height: dimensions.height,
-            sha256: sha256_hex(&bytes),
+            sha256: sha256_hex(bytes),
         });
     }
 
@@ -492,14 +487,14 @@ pub fn write_texture_set(
         let packed = pack_unity_mask(&images.height_gray16, &images.occlusion_gray8);
         let bytes = encode_png_bytes(dimensions, PixelFormat::Rgba8, &packed)?;
         let filename = &filenames[4];
-        write_png_bytes(&destination.join(filename), &bytes)?;
+        output_maps.push((filename, PixelFormat::Rgba8, "linear", bytes));
         maps.push(ManifestMap {
             file: filename.clone(),
             format: PixelFormat::Rgba8.as_str().into(),
             color_space: "linear".into(),
             width: dimensions.width,
             height: dimensions.height,
-            sha256: sha256_hex(&bytes),
+            sha256: sha256_hex(&output_maps[4].3),
         });
         Some(BTreeSet::from([
             "R=height_8bit".into(),
@@ -525,7 +520,18 @@ pub fn write_texture_set(
     })?;
     let mut manifest_bytes = serde_json::to_vec_pretty(&manifest)?;
     manifest_bytes.push(b'\n');
-    write_png_bytes(&destination.join(manifest_name), &manifest_bytes)?;
+    let staging = temporary_directory(destination_parent(destination), "texture-set-staging")?;
+    let write_result = (|| {
+        for (filename, _, _, bytes) in &output_maps {
+            write_png_bytes(&staging.join(filename), bytes)?;
+        }
+        write_png_bytes(&staging.join(manifest_name), &manifest_bytes)?;
+        commit_staged_set(destination, &staging, &filenames)
+    })();
+    if let Err(error) = write_result {
+        let _ = fs::remove_dir_all(&staging);
+        return Err(error);
+    }
     Ok(manifest)
 }
 
@@ -600,39 +606,44 @@ fn prepare_destination<'a>(
     expected_names: impl Iterator<Item = &'a str>,
     force: bool,
 ) -> Result<(), OutputError> {
-    if destination.exists() {
-        if !destination.is_dir() {
+    let expected: BTreeSet<&str> = expected_names.collect();
+    match fs::symlink_metadata(destination) {
+        Ok(metadata) if metadata.file_type().is_dir() => {}
+        Ok(_) => {
             return Err(OutputError::Io(io::Error::new(
                 io::ErrorKind::AlreadyExists,
                 format!("output path {} is not a directory", destination.display()),
             )));
         }
-    } else {
-        fs::create_dir_all(destination)?;
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            fs::create_dir_all(destination_parent(destination))?;
+        }
+        Err(error) => return Err(error.into()),
     }
 
-    let expected: BTreeSet<&str> = expected_names.collect();
     let mut existing = BTreeSet::new();
-    for entry in fs::read_dir(destination)? {
-        let entry = entry?;
-        let file_type = entry.file_type()?;
-        if !file_type.is_file() {
-            return Err(OutputError::InvalidInput(format!(
-                "output directory {} contains a non-file entry {}; refusing to write",
-                destination.display(),
-                entry.file_name().to_string_lossy()
-            )));
+    if destination.is_dir() {
+        for entry in fs::read_dir(destination)? {
+            let entry = entry?;
+            let file_type = entry.file_type()?;
+            if !file_type.is_file() {
+                return Err(OutputError::InvalidInput(format!(
+                    "output directory {} contains a non-file entry {}; refusing to write",
+                    destination.display(),
+                    entry.file_name().to_string_lossy()
+                )));
+            }
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if !expected.contains(name.as_ref()) {
+                return Err(OutputError::InvalidInput(format!(
+                    "output directory {} contains unrelated file {}; refusing to write",
+                    destination.display(),
+                    name
+                )));
+            }
+            existing.insert(name.into_owned());
         }
-        let name = entry.file_name();
-        let name = name.to_string_lossy();
-        if !expected.contains(name.as_ref()) {
-            return Err(OutputError::InvalidInput(format!(
-                "output directory {} contains unrelated file {}; refusing to write",
-                destination.display(),
-                name
-            )));
-        }
-        existing.insert(name.into_owned());
     }
     if !existing.is_empty() && !force {
         return Err(OutputError::InvalidInput(format!(
@@ -640,19 +651,67 @@ fn prepare_destination<'a>(
             destination.display()
         )));
     }
-    if force
-        && let Some(manifest_name) = expected
-            .iter()
-            .find(|name| name.ends_with(".texture-set.json"))
-    {
-        let manifest_path = destination.join(manifest_name);
-        if manifest_path.is_file() {
-            // Invalidate the completion marker before replacing any map. A
-            // later failure must not leave a stale completion marker.
-            fs::remove_file(manifest_path)?;
+    Ok(())
+}
+
+fn destination_parent(destination: &Path) -> &Path {
+    destination
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."))
+}
+
+/// Commit a completely staged set without ever renaming over an existing
+/// path.  Moving the old directory aside first makes replacement work on
+/// platforms where `rename` refuses to overwrite an existing directory, and
+/// retaining the backup until the new directory is in place gives us a
+/// rollback point if the second rename fails.
+fn commit_staged_set(
+    destination: &Path,
+    staging: &Path,
+    expected_names: &[String],
+) -> Result<(), OutputError> {
+    for filename in expected_names {
+        let path = staging.join(filename);
+        let metadata = fs::symlink_metadata(&path).map_err(|error| {
+            io::Error::new(
+                error.kind(),
+                format!("staged output {} is missing: {error}", path.display()),
+            )
+        })?;
+        if !metadata.file_type().is_file() {
+            return Err(OutputError::InvalidInput(format!(
+                "staged output {} is not a regular file",
+                path.display()
+            )));
         }
     }
-    Ok(())
+
+    if !destination.exists() {
+        fs::rename(staging, destination)?;
+        return Ok(());
+    }
+
+    let backup = temporary_path(destination_parent(destination), "texture-set-backup")?;
+    fs::rename(destination, &backup)?;
+
+    match fs::rename(staging, destination) {
+        Ok(()) => {
+            // The old directory is no longer needed.  This is intentionally
+            // done only after the replacement directory has been installed.
+            fs::remove_dir_all(&backup)?;
+            Ok(())
+        }
+        Err(error) => {
+            let rollback = fs::rename(&backup, destination);
+            match rollback {
+                Ok(()) => Err(error.into()),
+                Err(rollback_error) => Err(OutputError::Io(io::Error::other(format!(
+                    "could not install staged output: {error}; rollback also failed: {rollback_error}"
+                )))),
+            }
+        }
+    }
 }
 
 fn temporary_sibling(path: &Path) -> Result<(PathBuf, File), io::Error> {
@@ -686,6 +745,46 @@ fn temporary_sibling(path: &Path) -> Result<(PathBuf, File), io::Error> {
         format!(
             "could not allocate a temporary sibling for {}",
             path.display()
+        ),
+    ))
+}
+
+fn temporary_directory(parent: &Path, stem: &str) -> Result<PathBuf, io::Error> {
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |duration| duration.as_nanos());
+    for attempt in 0..32_u32 {
+        let candidate = parent.join(format!(".{stem}-{}-{timestamp}-{attempt}", process::id()));
+        match fs::create_dir(&candidate) {
+            Ok(()) => return Ok(candidate),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Err(io::Error::new(
+        io::ErrorKind::AlreadyExists,
+        format!(
+            "could not allocate a temporary directory in {}",
+            parent.display()
+        ),
+    ))
+}
+
+fn temporary_path(parent: &Path, stem: &str) -> Result<PathBuf, io::Error> {
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |duration| duration.as_nanos());
+    for attempt in 0..32_u32 {
+        let candidate = parent.join(format!(".{stem}-{}-{timestamp}-{attempt}", process::id()));
+        if !candidate.exists() {
+            return Ok(candidate);
+        }
+    }
+    Err(io::Error::new(
+        io::ErrorKind::AlreadyExists,
+        format!(
+            "could not allocate a temporary path in {}",
+            parent.display()
         ),
     ))
 }
@@ -788,7 +887,73 @@ mod tests {
             ..OutputOptions::default()
         };
         write_texture_set(&images, &root, &options).unwrap();
+        let first_albedo = fs::read(root.join("stone_albedo.png")).unwrap();
+        assert!(fs::read_dir(&root).unwrap().all(|entry| {
+            let name = entry.unwrap().file_name();
+            !name.to_string_lossy().contains("texture-set-")
+        }));
+
+        let changed_images = TextureSetImages::new(
+            "stone",
+            OutputDimensions {
+                width: 1,
+                height: 1,
+            },
+            &[4, 5, 6],
+            &[0x1234],
+            &[128, 128, 255],
+            &[255],
+            TextureMetadata::default(),
+        );
+        write_texture_set(&changed_images, &root, &options).unwrap();
+        assert_ne!(
+            first_albedo,
+            fs::read(root.join("stone_albedo.png")).unwrap()
+        );
+        assert!(fs::read_dir(&root).unwrap().all(|entry| {
+            let name = entry.unwrap().file_name();
+            !name.to_string_lossy().contains("texture-set-")
+        }));
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn staged_set_preflight_preserves_destination_when_a_file_is_missing() {
+        let root = unique_test_dir("texture-transaction");
+        let destination = root.join("destination");
+        let staging = root.join("staging");
+        fs::create_dir_all(&destination).unwrap();
+        fs::create_dir_all(&staging).unwrap();
+        fs::write(destination.join("stone_albedo.png"), b"old").unwrap();
+        fs::write(staging.join("stone_albedo.png"), b"new").unwrap();
+        let expected = vec![
+            "stone_albedo.png".to_string(),
+            "stone.texture-set.json".to_string(),
+        ];
+
+        let error = commit_staged_set(&destination, &staging, &expected).unwrap_err();
+        assert!(error.to_string().contains("stone.texture-set.json"));
+        assert_eq!(
+            fs::read(destination.join("stone_albedo.png")).unwrap(),
+            b"old"
+        );
+        assert!(staging.is_dir());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn output_profile_parser_accepts_only_documented_names() {
+        assert_eq!(
+            "separate".parse::<OutputProfile>().unwrap(),
+            OutputProfile::Separate
+        );
+        assert_eq!(
+            "motu_unity_terrain".parse::<OutputProfile>().unwrap(),
+            OutputProfile::MotuUnityTerrain
+        );
+        for alias in ["motu-unity-terrain", "unity"] {
+            assert!(alias.parse::<OutputProfile>().is_err());
+        }
     }
 
     fn unique_test_dir(stem: &str) -> PathBuf {

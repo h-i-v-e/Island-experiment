@@ -1,5 +1,4 @@
 {
-  "schema_version": 1,
   "name": "RoundedRiverStones",
   "seed": 1337,
   "width": 2048,
@@ -20,18 +19,49 @@
     "sand_amplitude": 0.009,
     "edge_softness": 0.08
   },
-  "surface_layers": [
+  "layers": [
     {
-      "kind": { "kind": "value" },
-      "frequency": 7.0,
-      "amplitude": 0.008,
-      "octaves": 2,
-      "lacunarity": 2.0,
-      "gain": 0.5,
-      "offset": [0.0, 0.0],
-      "seed_domain": 203,
-      "blend": { "kind": "add" },
-      "cellular_jitter": 0.25
+      "id": "riverbed-colour-and-relief",
+      "name": "Riverbed colour and relief",
+      "enabled": true,
+      "source": {
+        "kind": "value",
+        "frequency": 7,
+        "octaves": 2,
+        "lacunarity": 2.0,
+        "gain": 0.5,
+        "offset": [0.0, 0.0],
+        "seed_domain": 203,
+        "domain_warp": null
+      },
+      "remap": {
+        "input_min": -1.0,
+        "input_max": 1.0,
+        "invert": false,
+        "contrast": 1.0,
+        "bias": 0.0,
+        "clamp": true
+      },
+      "mask": null,
+      "outputs": {
+        "height": {
+          "enabled": true,
+          "blend": { "kind": "add" },
+          "strength_m": 0.008
+        },
+        "albedo": {
+          "enabled": false,
+          "blend": "mix",
+          "strength": 0.12,
+          "colour_map": {
+            "kind": "gradient",
+            "stops": [
+              { "position": 0.0, "colour": [0.30, 0.34, 0.31] },
+              { "position": 1.0, "colour": [0.48, 0.42, 0.31] }
+            ]
+          }
+        }
+      }
     }
   ],
   "normal_convention": "open_gl",

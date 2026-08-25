@@ -15,7 +15,7 @@
     clippy::missing_panics_doc
 )]
 
-use super::{cellular, cracked_stone, noise, periodic, recipe, rounded_stones};
+use super::{cracked_stone, noise, periodic, recipe, rounded_stones};
 
 /// A finite, periodic texture extent in pixels and physical metres.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -199,12 +199,21 @@ impl FieldProgram {
         HeightField::new(dimensions, values)
     }
 
-    /// Builds and evaluates a field directly from the versioned recipe
-    /// material variant, then folds its optional surface layers in order.
+    /// Builds and evaluates a field directly from the current recipe
+    /// material variant, then folds its ordered height layers.
     /// Recipe validation remains the responsibility of the recipe boundary;
     /// this method still rejects non-finite or structurally unsafe values
     /// before allocating output pixels.
     pub fn evaluate_recipe(recipe: &recipe::TextureRecipe) -> Result<HeightField, FieldError> {
+        let mut field = Self::evaluate_base_recipe(recipe)?;
+        super::layer_stack::apply_height_layers(&mut field, &recipe.layers, recipe.seed)?;
+        Ok(field)
+    }
+
+    /// Evaluates only the specialised root material pass.
+    pub(crate) fn evaluate_base_recipe(
+        recipe: &recipe::TextureRecipe,
+    ) -> Result<HeightField, FieldError> {
         let dimensions = FieldDimensions::new(
             recipe.width,
             recipe.height,
@@ -280,9 +289,7 @@ impl FieldProgram {
                 edge_softness: *edge_softness,
             }),
         };
-        let mut field = program.evaluate(dimensions, recipe.seed)?;
-        apply_surface_layers(&mut field, &recipe.surface_layers, recipe.seed)?;
-        Ok(field)
+        program.evaluate(dimensions, recipe.seed)
     }
 }
 
@@ -412,163 +419,6 @@ pub(crate) fn lerp(a: f32, b: f32, amount: f32) -> f32 {
 pub(crate) fn wrap_index(value: i32, period: u32) -> u32 {
     debug_assert!(period > 0);
     value.rem_euclid(period as i32) as u32
-}
-
-fn apply_surface_layers(
-    field: &mut HeightField,
-    layers: &[recipe::NoiseLayer],
-    seed: u64,
-) -> Result<(), FieldError> {
-    if layers.len() > recipe::MAX_SURFACE_LAYERS {
-        return Err(FieldError::NonFiniteParameter);
-    }
-    let dimensions = field.dimensions();
-    for layer in layers {
-        if !layer.frequency.is_finite()
-            || !layer.amplitude.is_finite()
-            || layer.frequency <= 0.0
-            || !layer.offset.iter().all(|value| value.is_finite())
-        {
-            return Err(FieldError::NonFiniteParameter);
-        }
-        let frequency = layer.frequency.round().max(1.0);
-        let frequency =
-            u32::try_from(frequency as u64).map_err(|_| FieldError::NonFiniteParameter)?;
-        let period = periodic::Period2D::new(frequency, frequency)
-            .map_err(|_| FieldError::NonFiniteParameter)?;
-        for y in 0..dimensions.height {
-            let v = (y as f32 + 0.5) / dimensions.height as f32;
-            for x in 0..dimensions.width {
-                let u = (x as f32 + 0.5) / dimensions.width as f32;
-                let value = sample_noise_layer(layer, seed, [u, v], period)? * layer.amplitude;
-                let index = y as usize * dimensions.width as usize + x as usize;
-                let previous = field.values[index];
-                field.values[index] = match &layer.blend {
-                    recipe::BlendOperation::Replace => value,
-                    recipe::BlendOperation::Add => previous + value,
-                    recipe::BlendOperation::Subtract => previous - value,
-                    recipe::BlendOperation::Multiply => previous * value,
-                    recipe::BlendOperation::Minimum => previous.min(value),
-                    recipe::BlendOperation::Maximum => previous.max(value),
-                    recipe::BlendOperation::Lerp { amount } => {
-                        if !amount.is_finite() {
-                            return Err(FieldError::NonFiniteParameter);
-                        }
-                        lerp(previous, value, amount.clamp(0.0, 1.0))
-                    }
-                    recipe::BlendOperation::LerpByMask { mask } => {
-                        let mask_value = sample_noise_layer(mask, seed, [u, v], period)?;
-                        lerp(previous, value, mask_value.clamp(0.0, 1.0))
-                    }
-                };
-            }
-        }
-    }
-    if field.values.iter().any(|value| !value.is_finite()) {
-        return Err(FieldError::NonFiniteParameter);
-    }
-    Ok(())
-}
-
-fn sample_noise_layer(
-    layer: &recipe::NoiseLayer,
-    seed: u64,
-    uv: [f32; 2],
-    period: periodic::Period2D,
-) -> Result<f32, FieldError> {
-    let frequency = layer.frequency.round().max(1.0);
-    let mut position = [
-        uv[0] * frequency + layer.offset[0] * frequency,
-        uv[1] * frequency + layer.offset[1] * frequency,
-    ];
-    let layer_seed = seed ^ layer.seed_domain;
-    if let Some(warp) = layer.domain_warp {
-        if !warp.amplitude.is_finite()
-            || !warp.frequency.is_finite()
-            || !warp.lacunarity.is_finite()
-            || !warp.gain.is_finite()
-            || warp.frequency <= 0.0
-        {
-            return Err(FieldError::NonFiniteParameter);
-        }
-        position = noise::domain_warp(
-            layer_seed ^ warp.seed_domain,
-            position,
-            period,
-            warp.amplitude,
-            warp.frequency,
-            warp.octaves,
-            warp.lacunarity,
-            warp.gain,
-        );
-    }
-    sample_noise_kind(&layer.kind, layer_seed, position, period, layer)
-}
-
-fn sample_noise_kind(
-    kind: &recipe::NoiseKind,
-    seed: u64,
-    position: [f32; 2],
-    period: periodic::Period2D,
-    layer: &recipe::NoiseLayer,
-) -> Result<f32, FieldError> {
-    let value = match kind {
-        recipe::NoiseKind::Value => noise::value(seed, position, period),
-        recipe::NoiseKind::Fbm => noise::fbm(
-            seed,
-            position,
-            period,
-            layer.octaves,
-            layer.lacunarity,
-            layer.gain,
-        ),
-        recipe::NoiseKind::Billow => noise::billow(
-            seed,
-            position,
-            period,
-            layer.octaves,
-            layer.lacunarity,
-            layer.gain,
-        ),
-        recipe::NoiseKind::Ridged => noise::ridged(
-            seed,
-            position,
-            period,
-            layer.octaves,
-            layer.lacunarity,
-            layer.gain,
-        ),
-        recipe::NoiseKind::CellularDistance => {
-            cellular::sample(seed, position, period, layer.cellular_jitter).nearest_distance
-        }
-        recipe::NoiseKind::CellularDistanceToEdge => {
-            cellular::sample(seed, position, period, layer.cellular_jitter).edge_distance
-        }
-        recipe::NoiseKind::CellularValue => {
-            cellular::sample(seed, position, period, layer.cellular_jitter).cell_value
-        }
-        recipe::NoiseKind::DomainWarp {
-            source,
-            warp,
-            amplitude,
-        } => {
-            if !amplitude.is_finite() {
-                return Err(FieldError::NonFiniteParameter);
-            }
-            let displacement =
-                sample_noise_kind(warp, seed ^ 0x44_4f_4d_41_49_4e, position, period, layer)?;
-            let warped = [
-                position[0] + displacement * amplitude,
-                position[1] + displacement * amplitude,
-            ];
-            sample_noise_kind(source, seed ^ 0x53_4f_55_52_43_45, warped, period, layer)?
-        }
-    };
-    if value.is_finite() {
-        Ok(value)
-    } else {
-        Err(FieldError::NonFiniteParameter)
-    }
 }
 
 #[cfg(test)]

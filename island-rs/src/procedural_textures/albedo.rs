@@ -93,6 +93,67 @@ pub fn generate_albedo_with_occlusion(
     .map_err(AlbedoError::from)
 }
 
+/// Builds the base albedo pass in linear RGB without applying occlusion.
+///
+/// Layered albedo bindings use this buffer so colour routing happens before
+/// the optional final AO influence and before sRGB quantization.
+pub fn generate_linear_albedo(
+    field: &HeightField,
+    config: AlbedoConfig,
+    seed: u64,
+) -> Result<Vec<[f32; 3]>, AlbedoError> {
+    validate(config)?;
+    let dimensions = field.dimensions();
+    let mut pixels = Vec::with_capacity(dimensions.pixel_count());
+    for y in 0..dimensions.height {
+        for x in 0..dimensions.width {
+            pixels.push(albedo_at_linear(field, x, y, config, seed, None));
+        }
+    }
+    Ok(pixels)
+}
+
+/// Applies the configured subtle AO influence to an existing linear albedo
+/// buffer.  This is deliberately separate from layer routing.
+pub fn apply_occlusion_linear(
+    pixels: &mut [[f32; 3]],
+    dimensions: super::field_program::FieldDimensions,
+    config: AlbedoConfig,
+    occlusion: &OcclusionImage,
+) -> Result<(), AlbedoError> {
+    validate(config)?;
+    if occlusion.width() != dimensions.width || occlusion.height() != dimensions.height {
+        return Err(AlbedoError::OcclusionDimensionsMismatch);
+    }
+    if pixels.len() != dimensions.pixel_count() {
+        return Err(AlbedoError::OcclusionDimensionsMismatch);
+    }
+    for (index, colour) in pixels.iter_mut().enumerate() {
+        let open = f32::from(occlusion.pixels()[index]) / 255.0;
+        let factor = 1.0 - config.occlusion_influence * (1.0 - open);
+        for channel in colour {
+            *channel = (*channel * factor).clamp(0.0, 1.0);
+        }
+    }
+    Ok(())
+}
+
+/// Encodes a linear RGB buffer as the shared sRGB RGB8 image.
+pub fn encode_linear_albedo(
+    dimensions: super::field_program::FieldDimensions,
+    pixels: &[[f32; 3]],
+) -> Result<AlbedoImage, AlbedoError> {
+    if pixels.len() != dimensions.pixel_count() {
+        return Err(AlbedoError::OcclusionDimensionsMismatch);
+    }
+    let pixels = pixels.iter().map(|pixel| pixel.map(encode_srgb)).collect();
+    Rgb8Image::new(
+        TextureDimensions::new(dimensions.width, dimensions.height)?,
+        pixels,
+    )
+    .map_err(AlbedoError::from)
+}
+
 /// Computes one linear-RGB albedo sample before colour-space conversion.
 #[must_use]
 pub fn albedo_at_linear(

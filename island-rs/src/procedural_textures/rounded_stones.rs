@@ -12,6 +12,8 @@ use super::field_program::{
 };
 use super::{cellular, periodic};
 
+const PROFILE_SAMPLES_PER_CELL: u32 = 16;
+
 /// Controls for the rounded river-stone height model.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RoundedStonesConfig {
@@ -52,30 +54,32 @@ pub fn generate_height_values(
     dimensions: FieldDimensions,
     seed: u64,
 ) -> Result<Vec<f32>, FieldError> {
-    validate(config)?;
+    validate(config, dimensions)?;
+    let cell_profiles = cell_profiles(config, seed)?;
     let mut values = vec![0.0; dimensions.pixel_count()];
     for y in 0..dimensions.height {
         let v = (y as f32 + 0.5) / dimensions.height as f32;
         for x in 0..dimensions.width {
             let u = (x as f32 + 0.5) / dimensions.width as f32;
-            let metrics = stone_metrics(config, seed, u, v);
-            let cell_bias =
-                hash_signed(seed, metrics.cell_x, metrics.cell_y, 0x5354_4f4e_455f_4249)
-                    * config.stone_variation;
-            let radius_bias =
-                hash_signed(seed, metrics.cell_x, metrics.cell_y, 0x5354_4f4e_455f_5241)
-                    .mul_add(0.22, 1.0);
-            let radius = config.stone_radius * radius_bias;
-            let angle = hash_signed(seed, metrics.cell_x, metrics.cell_y, 0x5354_4f4e_455f_414e)
-                * std::f32::consts::PI;
-            let (sin, cos) = angle.sin_cos();
-            let local_x = metrics.local_x * cos - metrics.local_y * sin;
-            let local_y = metrics.local_x * sin + metrics.local_y * cos;
-            let distance = (local_x * config.anisotropy).hypot(local_y / config.anisotropy);
-            let interior = 1.0 - smoothstep(radius, radius + config.edge_softness, distance);
-            // A soft dome keeps stones rounded, while the interior mask leaves
-            // deliberate, lower gaps rather than filling the entire tile.
-            let dome = (1.0 - (distance / radius.max(f32::EPSILON)).powi(2)).clamp(0.0, 1.0);
+            let sample = stone_sample(config, seed, u, v);
+            let cell_bias = hash_signed(seed, sample.cell_x, sample.cell_y, 0x5354_4f4e_455f_4249)
+                * config.stone_variation;
+            let inset = (0.5 - config.stone_radius).max(0.0);
+            let inner_distance = (sample.edge_distance - inset).max(0.0);
+            let profile = cell_profiles[sample.cell_index];
+            let edge_radius = (profile.edge_radius - inset).max(f32::EPSILON);
+            let edge_softness = config.edge_softness.min(edge_radius * 0.75);
+            let interior = smoothstep(0.0, edge_softness.max(f32::EPSILON), inner_distance);
+            let normalized_depth = (inner_distance / edge_radius).clamp(0.0, 1.0);
+            // Distance from the inset Voronoi boundary is the raster equivalent
+            // of separating each polygon, insetting it, and smoothing its sides.
+            // A radial hemisphere rounds away the raw polygon's medial ridges;
+            // retaining part of the boundary profile keeps each outline irregular.
+            let boundary_dome = (normalized_depth * std::f32::consts::FRAC_PI_2).sin();
+            let radial_distance =
+                (sample.nearest_distance / profile.radial_radius.max(f32::EPSILON)).clamp(0.0, 1.0);
+            let radial_dome = (1.0 - radial_distance * radial_distance).sqrt();
+            let dome = (radial_dome * 0.8 + boundary_dome * 0.2).powf(config.anisotropy);
             let stone = interior * dome;
             let sand = fbm(
                 seed.wrapping_add(17),
@@ -108,14 +112,21 @@ pub fn generate_height_values(
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-struct StoneMetrics {
+struct StoneSample {
+    cell_index: usize,
     cell_x: i32,
     cell_y: i32,
-    local_x: f32,
-    local_y: f32,
+    nearest_distance: f32,
+    edge_distance: f32,
 }
 
-fn stone_metrics(config: RoundedStonesConfig, seed: u64, u: f32, v: f32) -> StoneMetrics {
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct CellProfile {
+    edge_radius: f32,
+    radial_radius: f32,
+}
+
+fn stone_sample(config: RoundedStonesConfig, seed: u64, u: f32, v: f32) -> StoneSample {
     let warp_x = periodic_value(
         seed.wrapping_add(23),
         u * 2.0,
@@ -136,20 +147,60 @@ fn stone_metrics(config: RoundedStonesConfig, seed: u64, u: f32, v: f32) -> Ston
     let query_y = (v + warp_y / config.cells_y as f32) * config.cells_y as f32;
     let period =
         periodic::Period2D::new(config.cells_x, config.cells_y).expect("validated cellular period");
-    let sample = cellular::sample(seed, [query_x, query_y], period, config.cell_jitter);
-    let nearest_cell = (sample.cell_x as i32, sample.cell_y as i32);
-    let nearest_origin = (sample.cell_x as f32 + 0.5, sample.cell_y as f32 + 0.5);
-    StoneMetrics {
-        cell_x: nearest_cell.0,
-        cell_y: nearest_cell.1,
-        local_x: query_x - nearest_origin.0,
-        local_y: query_y - nearest_origin.1,
+    let sample = cellular::sample_rounded_edge(
+        seed,
+        [query_x, query_y],
+        period,
+        config.cell_jitter,
+        config.edge_softness * 2.5,
+    );
+    let cell_x = sample.cell_x.rem_euclid(i64::from(config.cells_x)) as i32;
+    let cell_y = sample.cell_y.rem_euclid(i64::from(config.cells_y)) as i32;
+    StoneSample {
+        cell_index: cell_y as usize * config.cells_x as usize + cell_x as usize,
+        cell_x,
+        cell_y,
+        nearest_distance: sample.nearest_distance,
+        edge_distance: sample.edge_distance,
     }
 }
 
-fn validate(config: RoundedStonesConfig) -> Result<(), FieldError> {
+fn cell_profiles(config: RoundedStonesConfig, seed: u64) -> Result<Vec<CellProfile>, FieldError> {
+    let profile_width = config
+        .cells_x
+        .checked_mul(PROFILE_SAMPLES_PER_CELL)
+        .ok_or(FieldError::DimensionOverflow)?;
+    let profile_height = config
+        .cells_y
+        .checked_mul(PROFILE_SAMPLES_PER_CELL)
+        .ok_or(FieldError::DimensionOverflow)?;
+    let cell_count = usize::try_from(config.cells_x)
+        .ok()
+        .and_then(|width| {
+            usize::try_from(config.cells_y)
+                .ok()
+                .and_then(|height| width.checked_mul(height))
+        })
+        .ok_or(FieldError::DimensionOverflow)?;
+    let mut profiles = vec![CellProfile::default(); cell_count];
+    for y in 0..profile_height {
+        let v = (y as f32 + 0.5) / profile_height as f32;
+        for x in 0..profile_width {
+            let u = (x as f32 + 0.5) / profile_width as f32;
+            let sample = stone_sample(config, seed, u, v);
+            let profile = &mut profiles[sample.cell_index];
+            profile.edge_radius = profile.edge_radius.max(sample.edge_distance);
+            profile.radial_radius = profile.radial_radius.max(sample.nearest_distance);
+        }
+    }
+    Ok(profiles)
+}
+
+fn validate(config: RoundedStonesConfig, dimensions: FieldDimensions) -> Result<(), FieldError> {
     if config.cells_x == 0
         || config.cells_y == 0
+        || config.cells_x > dimensions.width
+        || config.cells_y > dimensions.height
         || config.cell_jitter < 0.0
         || config.cell_jitter > 1.0
         || config.warp_amplitude < 0.0
@@ -221,6 +272,60 @@ mod tests {
                 5,
             ),
             Err(FieldError::NonFiniteParameter)
+        );
+    }
+
+    #[test]
+    fn rounded_stones_leave_a_gap_on_both_sides_of_cell_boundaries() {
+        let dimensions = FieldDimensions::new(256, 256, 2.0, 2.0).expect("dimensions");
+        let config = RoundedStonesConfig {
+            sand_amplitude: 0.0,
+            stone_variation: 0.0,
+            ..RoundedStonesConfig::default()
+        };
+        let values = generate_height_values(config, dimensions, 17).expect("height");
+        let mut boundary_pairs = 0;
+
+        for y in 0..dimensions.height {
+            for x in 0..dimensions.width {
+                let index = y as usize * dimensions.width as usize + x as usize;
+                let u = (x as f32 + 0.5) / dimensions.width as f32;
+                let v = (y as f32 + 0.5) / dimensions.height as f32;
+                let current = stone_sample(config, 17, u, v);
+                for (neighbour_x, neighbour_y) in [
+                    ((x + 1) % dimensions.width, y),
+                    (x, (y + 1) % dimensions.height),
+                ] {
+                    let neighbour_u = (neighbour_x as f32 + 0.5) / dimensions.width as f32;
+                    let neighbour_v = (neighbour_y as f32 + 0.5) / dimensions.height as f32;
+                    let neighbour = stone_sample(config, 17, neighbour_u, neighbour_v);
+                    if current.cell_index == neighbour.cell_index {
+                        continue;
+                    }
+                    let neighbour_index =
+                        neighbour_y as usize * dimensions.width as usize + neighbour_x as usize;
+                    assert!((values[index] - config.gap_height).abs() <= f32::EPSILON);
+                    assert!((values[neighbour_index] - config.gap_height).abs() <= f32::EPSILON);
+                    boundary_pairs += 1;
+                }
+            }
+        }
+
+        assert!(
+            boundary_pairs > 100,
+            "expected many independent Voronoi cells"
+        );
+    }
+
+    #[test]
+    fn cell_profiles_are_resolution_independent_and_cover_every_cell() {
+        let config = RoundedStonesConfig::default();
+        let profiles = cell_profiles(config, 29).expect("cell profiles");
+        assert_eq!(profiles.len(), (config.cells_x * config.cells_y) as usize);
+        assert!(
+            profiles
+                .iter()
+                .all(|profile| profile.edge_radius > 0.0 && profile.radial_radius > 0.0)
         );
     }
 }

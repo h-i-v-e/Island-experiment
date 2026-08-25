@@ -162,6 +162,11 @@ public sealed class IslandGenerator : MonoBehaviour
         {
             debugSettings.ShowTreeMeshEdges = !debugSettings.ShowTreeMeshEdges;
         }
+        var frameRateKey = debugSettings.ToggleFrameRateKey;
+        if (frameRateKey != KeyCode.None && Input.GetKeyDown(frameRateKey))
+        {
+            debugSettings.ShowFrameRate = !debugSettings.ShowFrameRate;
+        }
         UpdateMaterialTransforms();
         ApplyLiveSettings();
         if (terrainStreamer != null && streaming.Target != null)

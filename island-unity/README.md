@@ -277,3 +277,12 @@ rough-water emitter, and collider-cooking check, run:
   -batchmode -nographics -projectPath "$PWD" \
   -executeMethod IslandGeneratorValidation.BatchValidateNativeInterop -quit
 ```
+
+## Procedural Material Studio
+
+Open `Island > Terrain > Procedural Material Studio` to create and edit the
+engine-neutral Rust texture recipes without hand-editing JSON. The studio has
+schema-driven material and layer controls, cancellable cached previews, a lit
+plane/sphere view, validated atomic saves, and transactional bake/import and
+material assignment. See [PROCEDURAL_MATERIAL_STUDIO.md](PROCEDURAL_MATERIAL_STUDIO.md)
+for the workflow and validation command.

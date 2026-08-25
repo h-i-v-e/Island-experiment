@@ -1,10 +1,8 @@
-//! Versioned, serde-ready texture recipes.
+//! The single current procedural-material document format.
 //!
-//! The recipe model intentionally carries plain configuration values rather
-//! than references to a renderer or to a field evaluator.  The generation
-//! boundary can therefore convert a material variant into the appropriate
-//! field program without making JSON parsing depend on Unity, Bevy or image
-//! codecs.
+//! The recipe is deliberately a plain serde model. It describes an ordered
+//! stack, while the evaluator remains in Rust so Unity and other consumers do
+//! not need to reproduce sampling or blend rules.
 
 #![allow(clippy::missing_errors_doc)]
 
@@ -12,18 +10,19 @@ use serde::{Deserialize, Serialize};
 
 pub use super::image::NormalConvention;
 
-/// Current recipe schema accepted by the Phase 1 validator.
-pub const CURRENT_SCHEMA_VERSION: u32 = 1;
-/// Maximum number of recursive/stacked surface layers accepted by validation.
-pub const MAX_SURFACE_LAYERS: usize = 64;
+/// Maximum number of ordered material layers accepted by validation.
+pub const MAX_LAYERS: usize = 64;
 /// Maximum number of output profiles in one recipe.
 pub const MAX_OUTPUT_PROFILES: usize = 4;
+/// Maximum number of colour stops in one layer gradient.
+pub const MAX_GRADIENT_STOPS: usize = 32;
+/// Maximum number of scalar remap control points.
+pub const MAX_REMAP_POINTS: usize = 16;
 
 /// Root JSON recipe for one periodic generated texture set.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct TextureRecipe {
-    /// Version of this JSON schema.
-    pub schema_version: u32,
     /// Human-readable and file-safe output name.
     pub name: String,
     /// Root random seed. Individual layers derive independent domains from it.
@@ -33,16 +32,13 @@ pub struct TextureRecipe {
     /// Output height in pixels.
     pub height: u32,
     /// Physical tile width in metres.
-    #[serde(alias = "tile_width_m")]
     pub physical_tile_width_m: f32,
     /// Physical tile height in metres.
-    #[serde(alias = "tile_height_m")]
     pub physical_tile_height_m: f32,
-    /// Height/material model to evaluate.
+    /// Specialised base height/material model.
     pub material: MaterialModel,
-    /// Additional surface-noise layers blended into the authoritative field.
-    #[serde(default, alias = "surface_noise_layers")]
-    pub surface_layers: Vec<NoiseLayer>,
+    /// Ordered scalar layer stack.
+    pub layers: Vec<MaterialLayer>,
     /// Tangent normal green-channel convention.
     pub normal_convention: NormalConvention,
     /// Dimensionless normal relief multiplier.
@@ -51,19 +47,393 @@ pub struct TextureRecipe {
     pub displacement: DisplacementSettings,
     /// Material-local AO quality and response.
     pub occlusion: OcclusionRecipeSettings,
-    /// Lighting-free albedo controls.
+    /// Lighting-free base albedo controls.
     pub albedo: AlbedoSettings,
     /// Requested downstream output profiles.
     pub output_profiles: Vec<OutputProfile>,
 }
 
-/// A material/height-field model selected by a recipe.
+/// A named, ordered layer with independent height and albedo routing.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct MaterialLayer {
+    /// Stable identifier used by later-layer masks.
+    pub id: String,
+    /// Artist-facing label.
+    pub name: String,
+    /// Disabled layers remain in the document and can still be inspected.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Scalar source and source-specific controls.
+    pub source: ScalarSource,
+    /// Scalar remapping applied before either output binding.
+    #[serde(default)]
+    pub remap: ScalarRemap,
+    /// Optional opacity/mask source.
+    #[serde(default)]
+    pub mask: Option<LayerMask>,
+    /// Independent height and albedo output bindings.
+    pub outputs: LayerOutputs,
+}
+
+impl Default for MaterialLayer {
+    fn default() -> Self {
+        Self {
+            id: "layer".into(),
+            name: "Layer".into(),
+            enabled: true,
+            source: ScalarSource::default(),
+            remap: ScalarRemap::default(),
+            mask: None,
+            outputs: LayerOutputs::default(),
+        }
+    }
+}
+
+/// Scalar source and its common sampling controls.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ScalarSource {
+    /// Primitive source kind.
+    pub kind: SourceKind,
+    /// Whole-number lattice cells per tile.
+    #[serde(default = "default_frequency")]
+    pub frequency: u32,
+    /// Fractal octave count for fBM, billow and ridged sources.
+    #[serde(default = "default_octaves")]
+    pub octaves: u8,
+    /// Frequency multiplier between octaves.
+    #[serde(default = "default_lacunarity")]
+    pub lacunarity: f32,
+    /// Amplitude multiplier between octaves.
+    #[serde(default = "default_gain")]
+    pub gain: f32,
+    /// Tile-space coordinate offset.
+    #[serde(default)]
+    pub offset: [f32; 2],
+    /// Independent random seed domain for this source.
+    #[serde(default)]
+    pub seed_domain: u64,
+    /// Optional explicit periodic domain warp modifier.
+    #[serde(default)]
+    pub domain_warp: Option<DomainWarpSettings>,
+    /// Jitter for cellular source kinds.
+    #[serde(default = "default_cell_jitter")]
+    pub cellular_jitter: f32,
+}
+
+impl Default for ScalarSource {
+    fn default() -> Self {
+        Self {
+            kind: SourceKind::Value,
+            frequency: default_frequency(),
+            octaves: default_octaves(),
+            lacunarity: default_lacunarity(),
+            gain: default_gain(),
+            offset: [0.0, 0.0],
+            seed_domain: 0,
+            domain_warp: None,
+            cellular_jitter: default_cell_jitter(),
+        }
+    }
+}
+
+/// Primitive scalar source kinds.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SourceKind {
+    /// Interpolated periodic value noise.
+    #[default]
+    Value,
+    /// Normalized fractal Brownian motion.
+    Fbm,
+    /// Absolute-value fBM remapped to `[-1, 1]`.
+    Billow,
+    /// Inverted absolute-value fBM remapped to `[-1, 1]`.
+    Ridged,
+    /// Cellular nearest-feature distance.
+    CellularDistance,
+    /// Cellular distance-to-edge approximation.
+    CellularDistanceToEdge,
+    /// Stable per-cell random value.
+    CellularValue,
+}
+
+impl SourceKind {
+    #[must_use]
+    pub const fn is_cellular(self) -> bool {
+        matches!(
+            self,
+            Self::CellularDistance | Self::CellularDistanceToEdge | Self::CellularValue
+        )
+    }
+
+    #[must_use]
+    pub const fn is_fractal(self) -> bool {
+        matches!(self, Self::Fbm | Self::Billow | Self::Ridged)
+    }
+}
+
+/// Settings for one explicit periodic coordinate warp modifier.
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(deny_unknown_fields)]
+pub struct DomainWarpSettings {
+    /// Coordinate displacement in lattice units.
+    #[serde(default = "default_warp_amplitude")]
+    pub amplitude: f32,
+    /// Warp source frequency in cells per tile.
+    #[serde(default = "default_frequency")]
+    pub frequency: u32,
+    /// Warp fBM octave count.
+    #[serde(default = "default_warp_octaves")]
+    pub octaves: u8,
+    /// Warp octave frequency multiplier.
+    #[serde(default = "default_lacunarity")]
+    pub lacunarity: f32,
+    /// Warp octave amplitude multiplier.
+    #[serde(default = "default_gain")]
+    pub gain: f32,
+    /// Independent random domain for the warp.
+    #[serde(default)]
+    pub seed_domain: u64,
+}
+
+impl Default for DomainWarpSettings {
+    fn default() -> Self {
+        Self {
+            amplitude: default_warp_amplitude(),
+            frequency: default_frequency(),
+            octaves: default_warp_octaves(),
+            lacunarity: default_lacunarity(),
+            gain: default_gain(),
+            seed_domain: 0,
+        }
+    }
+}
+
+/// Scalar remapping before routing a source into outputs or masks.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ScalarRemap {
+    /// Lower bound selected from the raw source range.
+    #[serde(default = "default_input_min")]
+    pub input_min: f32,
+    /// Upper bound selected from the raw source range.
+    #[serde(default = "default_input_max")]
+    pub input_max: f32,
+    /// Reverse the mapped scalar after range selection.
+    #[serde(default)]
+    pub invert: bool,
+    /// Monotonic contrast around the midpoint.
+    #[serde(default = "default_contrast")]
+    pub contrast: f32,
+    /// Bias applied after contrast.
+    #[serde(default)]
+    pub bias: f32,
+    /// Clamp the mapped scalar to `[0, 1]`.
+    #[serde(default = "default_true")]
+    pub clamp: bool,
+    /// Optional ordered monotonic curve control points.
+    #[serde(default)]
+    pub curve: Option<Vec<RemapPoint>>,
+}
+
+impl Default for ScalarRemap {
+    fn default() -> Self {
+        Self {
+            input_min: default_input_min(),
+            input_max: default_input_max(),
+            invert: false,
+            contrast: default_contrast(),
+            bias: 0.0,
+            clamp: true,
+            curve: None,
+        }
+    }
+}
+
+/// One scalar remap curve control point.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct RemapPoint {
+    /// Input position in the normalized scalar domain.
+    pub position: f32,
+    /// Output value at this position.
+    pub value: f32,
+}
+
+/// Layer mask source. A layer reference is valid only for an earlier layer.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum LayerMask {
+    /// Use the layer's own remapped scalar as opacity.
+    Own,
+    /// Evaluate an inline source and remap it as opacity.
+    Noise {
+        source: ScalarSource,
+        #[serde(default)]
+        remap: ScalarRemap,
+    },
+    /// Use an earlier layer's remapped scalar as opacity.
+    Layer {
+        layer_id: String,
+        #[serde(default)]
+        remap: ScalarRemap,
+    },
+}
+
+/// Independent routing bindings for one material layer.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct LayerOutputs {
+    /// Physical displacement binding.
+    #[serde(default)]
+    pub height: HeightOutput,
+    /// Lighting-free colour binding.
+    #[serde(default)]
+    pub albedo: AlbedoOutput,
+}
+
+/// Height output binding for one layer.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct HeightOutput {
+    /// Whether this output is active.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Height blend operation.
+    #[serde(default)]
+    pub blend: HeightBlend,
+    /// Physical layer strength in metres.
+    #[serde(default = "default_height_strength")]
+    pub strength_m: f32,
+}
+
+impl Default for HeightOutput {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            blend: HeightBlend::Add,
+            strength_m: default_height_strength(),
+        }
+    }
+}
+
+/// Height blend operation.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum HeightBlend {
+    /// Replace the accumulated field with this layer's physical value.
+    Replace,
+    /// Add this layer's physical value.
+    #[default]
+    Add,
+    /// Subtract this layer's physical value.
+    Subtract,
+    /// Multiply by this layer's physical value.
+    Multiply,
+    /// Keep the lower value.
+    Minimum,
+    /// Keep the higher value.
+    Maximum,
+    /// Interpolate from the accumulated value to this layer's value.
+    Lerp { amount: f32 },
+}
+
+/// Albedo output binding for one layer.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct AlbedoOutput {
+    /// Whether this output is active.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Albedo blend operation.
+    #[serde(default)]
+    pub blend: AlbedoBlend,
+    /// Opacity/strength in `[0, 1]`.
+    #[serde(default = "default_albedo_strength")]
+    pub strength: f32,
+    /// Scalar-to-linear-RGB map.
+    #[serde(default)]
+    pub colour_map: ColourMap,
+    /// Optional hue rotation influence in normalized turns.
+    #[serde(default)]
+    pub hue_influence: f32,
+    /// Optional saturation influence.
+    #[serde(default)]
+    pub saturation_influence: f32,
+    /// Optional value/brightness influence.
+    #[serde(default)]
+    pub value_influence: f32,
+}
+
+impl Default for AlbedoOutput {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            blend: AlbedoBlend::Mix,
+            strength: default_albedo_strength(),
+            colour_map: ColourMap::default(),
+            hue_influence: 0.0,
+            saturation_influence: 0.0,
+            value_influence: 0.0,
+        }
+    }
+}
+
+/// Albedo blend operation.
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AlbedoBlend {
+    /// Replace the accumulated colour, respecting output strength.
+    Replace,
+    /// Interpolate to the mapped colour.
+    #[default]
+    Mix,
+    /// Multiply by the mapped colour.
+    Multiply,
+    /// Add the mapped colour.
+    Add,
+    /// Apply a standard overlay response.
+    Overlay,
+}
+
+/// Scalar-to-colour map.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ColourMap {
+    /// Two-colour linear ramp.
+    Ramp { first: [f32; 3], second: [f32; 3] },
+    /// Ordered multi-stop linear gradient.
+    Gradient { stops: Vec<GradientStop> },
+}
+
+impl Default for ColourMap {
+    fn default() -> Self {
+        Self::Ramp {
+            first: default_base_color(),
+            second: default_warm_color(),
+        }
+    }
+}
+
+/// One linear-RGB gradient stop.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct GradientStop {
+    /// Position in the normalized scalar domain.
+    pub position: f32,
+    /// Linear RGB colour.
+    pub colour: [f32; 3],
+}
+
+/// Base material/height-field model selected by a recipe.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum MaterialModel {
     /// General-purpose fBM material experimentation.
     LayeredNoise {
-        #[serde(default = "default_frequency")]
+        #[serde(default = "default_frequency_f32")]
         frequency: f32,
         #[serde(default = "default_amplitude")]
         amplitude: f32,
@@ -133,7 +503,7 @@ pub enum MaterialModel {
 impl Default for MaterialModel {
     fn default() -> Self {
         Self::LayeredNoise {
-            frequency: default_frequency(),
+            frequency: default_frequency_f32(),
             amplitude: default_amplitude(),
             octaves: default_octaves(),
             lacunarity: default_lacunarity(),
@@ -143,8 +513,7 @@ impl Default for MaterialModel {
     }
 }
 
-/// Plain public parameters for converting a layered recipe into a field
-/// evaluator.  It deliberately does not depend on `field_program.rs`.
+/// Plain parameters for the layered base evaluator.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LayeredNoiseRecipeConfig {
     pub frequency: f32,
@@ -155,8 +524,7 @@ pub struct LayeredNoiseRecipeConfig {
     pub offset: f32,
 }
 
-/// Plain public parameters for converting a cracked-stone recipe into a field
-/// evaluator.
+/// Plain parameters for the cracked-stone evaluator.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CrackedStoneRecipeConfig {
     pub cells_x: u32,
@@ -173,8 +541,7 @@ pub struct CrackedStoneRecipeConfig {
     pub broad_variation: f32,
 }
 
-/// Plain public parameters for converting a rounded-stones recipe into a
-/// field evaluator.
+/// Plain parameters for the rounded-stones evaluator.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RoundedStonesRecipeConfig {
     pub cells_x: u32,
@@ -286,150 +653,9 @@ impl MaterialModel {
     }
 }
 
-/// A source field and its blend controls.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-pub struct NoiseLayer {
-    /// Primitive source selected by the tagged `kind` enum.
-    pub kind: NoiseKind,
-    /// Frequency in lattice cells per physical tile.
-    #[serde(default = "default_frequency")]
-    pub frequency: f32,
-    /// Signed contribution to the field.
-    #[serde(default = "default_amplitude")]
-    pub amplitude: f32,
-    /// Fractal octave count for fBM/billow/ridged kinds.
-    #[serde(default = "default_octaves")]
-    pub octaves: u8,
-    /// Frequency multiplier between octaves.
-    #[serde(default = "default_lacunarity")]
-    pub lacunarity: f32,
-    /// Amplitude multiplier between octaves.
-    #[serde(default = "default_gain")]
-    pub gain: f32,
-    /// Tile-space coordinate offset.
-    #[serde(default)]
-    pub offset: [f32; 2],
-    /// Independent random seed domain for this layer.
-    #[serde(default)]
-    pub seed_domain: u64,
-    /// Operation used to combine this layer with the accumulated field.
-    #[serde(default)]
-    pub blend: BlendOperation,
-    /// Optional broad domain warp applied to the layer source.
-    #[serde(default)]
-    pub domain_warp: Option<DomainWarpSettings>,
-    /// Jitter for cellular source kinds.
-    #[serde(default = "default_cell_jitter")]
-    pub cellular_jitter: f32,
-}
-
-impl Default for NoiseLayer {
-    fn default() -> Self {
-        Self {
-            kind: NoiseKind::Value,
-            frequency: default_frequency(),
-            amplitude: default_amplitude(),
-            octaves: default_octaves(),
-            lacunarity: default_lacunarity(),
-            gain: default_gain(),
-            offset: [0.0, 0.0],
-            seed_domain: 0,
-            blend: BlendOperation::Replace,
-            domain_warp: None,
-            cellular_jitter: default_cell_jitter(),
-        }
-    }
-}
-
-/// Primitive scalar source available to a [`NoiseLayer`].
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum NoiseKind {
-    /// Interpolated periodic value noise.
-    Value,
-    /// Normalized fractal Brownian motion.
-    Fbm,
-    /// Absolute-value fBM remapped to `[-1, 1]`.
-    Billow,
-    /// Inverted absolute-value fBM remapped to `[-1, 1]`.
-    Ridged,
-    /// Cellular nearest-feature distance.
-    CellularDistance,
-    /// Cellular distance-to-edge approximation.
-    CellularDistanceToEdge,
-    /// Stable per-cell random value.
-    CellularValue,
-    /// A recursively selected source evaluated after a periodic coordinate
-    /// warp. The warp source uses the same lattice period as the source.
-    DomainWarp {
-        source: Box<NoiseKind>,
-        warp: Box<NoiseKind>,
-        #[serde(default = "default_warp_amplitude")]
-        amplitude: f32,
-    },
-}
-
-/// Operation used while folding noise layers into an accumulated field.
-#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum BlendOperation {
-    /// Replace the accumulated field with this layer.
-    #[default]
-    Replace,
-    /// Add this layer.
-    Add,
-    /// Subtract this layer.
-    Subtract,
-    /// Multiply by this layer.
-    Multiply,
-    /// Keep the lower value.
-    Minimum,
-    /// Keep the higher value.
-    Maximum,
-    /// Fixed-amount interpolation from the accumulated field to this layer.
-    Lerp { amount: f32 },
-    /// Generated-mask interpolation from the accumulated field to this layer.
-    LerpByMask { mask: Box<NoiseLayer> },
-}
-
-/// Settings for an optional periodic coordinate warp.
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
-pub struct DomainWarpSettings {
-    /// Coordinate displacement in lattice units.
-    #[serde(default = "default_warp_amplitude")]
-    pub amplitude: f32,
-    /// Warp source frequency in cells per tile.
-    #[serde(default = "default_frequency")]
-    pub frequency: f32,
-    /// Warp fBM octave count.
-    #[serde(default = "default_warp_octaves")]
-    pub octaves: u8,
-    /// Warp octave frequency multiplier.
-    #[serde(default = "default_lacunarity")]
-    pub lacunarity: f32,
-    /// Warp octave amplitude multiplier.
-    #[serde(default = "default_gain")]
-    pub gain: f32,
-    /// Independent random domain for the warp.
-    #[serde(default)]
-    pub seed_domain: u64,
-}
-
-impl Default for DomainWarpSettings {
-    fn default() -> Self {
-        Self {
-            amplitude: default_warp_amplitude(),
-            frequency: default_frequency(),
-            octaves: default_warp_octaves(),
-            lacunarity: default_lacunarity(),
-            gain: default_gain(),
-            seed_domain: 0,
-        }
-    }
-}
-
 /// Physical height range stored in metadata and used by quantization.
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct DisplacementSettings {
     /// Minimum represented linear height in metres.
     pub minimum_m: f32,
@@ -455,29 +681,22 @@ impl Default for DisplacementSettings {
 
 /// Material-local occlusion controls.
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct OcclusionRecipeSettings {
-    /// Number of fixed horizon directions.
     #[serde(default = "default_ao_directions")]
     pub directions: u8,
-    /// Samples per horizon direction.
     #[serde(default = "default_ao_samples")]
     pub samples: u8,
-    /// Initial sample radius in pixels.
     #[serde(default = "default_ao_radius")]
     pub radius: f32,
-    /// Largest radius multiplier relative to `radius`.
     #[serde(default = "default_ao_max_radius")]
     pub max_radius: f32,
-    /// Cavity response strength.
     #[serde(default = "default_cavity_strength")]
     pub cavity_strength: f32,
-    /// Horizon response strength.
     #[serde(default = "default_horizon_strength")]
     pub horizon_strength: f32,
-    /// Final response power.
     #[serde(default = "default_ao_power")]
     pub power: f32,
-    /// How cavity and horizon terms are combined.
     #[serde(default)]
     pub combine: OcclusionCombine,
 }
@@ -499,7 +718,7 @@ impl Default for OcclusionRecipeSettings {
 
 /// Cavity/horizon combination policy.
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum OcclusionCombine {
     /// Multiply independent openness terms.
     #[default]
@@ -515,32 +734,24 @@ pub enum OcclusionCombine {
 
 /// Lighting-free linear albedo controls.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct AlbedoSettings {
-    /// Primary cool/warm base colour in linear RGB.
     #[serde(default = "default_base_color")]
     pub base_color: [f32; 3],
-    /// Secondary palette colour in linear RGB.
     #[serde(default = "default_warm_color")]
     pub warm_color: [f32; 3],
-    /// Optional larger palette. Empty means use `base_color` and `warm_color`.
     #[serde(default)]
     pub palette: Vec<[f32; 3]>,
-    /// Broad colour variation.
     #[serde(default = "default_albedo_variation")]
     pub variation: f32,
-    /// Darkening inside deep cracks.
     #[serde(default = "default_crack_darkening")]
     pub crack_darkening: f32,
-    /// Shoulder variation amount.
     #[serde(default = "default_shoulder_variation")]
     pub shoulder_variation: f32,
-    /// Sparse mineral-fleck density.
     #[serde(default = "default_mineral_density")]
     pub mineral_density: f32,
-    /// Mineral-fleck brightness.
     #[serde(default = "default_mineral_brightness")]
     pub mineral_brightness: f32,
-    /// Optional indirect-occlusion influence, deliberately kept subtle.
     #[serde(default = "default_occlusion_influence")]
     pub occlusion_influence: f32,
 }
@@ -575,7 +786,11 @@ fn default_true() -> bool {
     true
 }
 
-fn default_frequency() -> f32 {
+fn default_frequency() -> u32 {
+    1
+}
+
+fn default_frequency_f32() -> f32 {
     1.0
 }
 
@@ -685,6 +900,26 @@ fn default_edge_softness() -> f32 {
 
 fn default_warp_amplitude() -> f32 {
     0.15
+}
+
+fn default_input_min() -> f32 {
+    -1.0
+}
+
+fn default_input_max() -> f32 {
+    1.0
+}
+
+fn default_contrast() -> f32 {
+    1.0
+}
+
+fn default_height_strength() -> f32 {
+    0.01
+}
+
+fn default_albedo_strength() -> f32 {
+    0.3
 }
 
 fn default_ao_directions() -> u8 {

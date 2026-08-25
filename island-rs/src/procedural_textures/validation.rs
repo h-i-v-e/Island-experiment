@@ -1,16 +1,17 @@
-//! Full recipe validation before any bake allocates output files.
+//! Structural and numeric validation for the current material document.
 
 #![allow(clippy::missing_errors_doc, clippy::too_many_lines)]
 
 use core::fmt;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use super::{
     image::{ImageError, TextureDimensions},
     recipe::{
-        AlbedoSettings, BlendOperation, CURRENT_SCHEMA_VERSION, DomainWarpSettings,
-        MAX_OUTPUT_PROFILES, MAX_SURFACE_LAYERS, MaterialModel, NoiseKind, NoiseLayer,
-        OcclusionCombine, OcclusionRecipeSettings, OutputProfile, TextureRecipe,
+        AlbedoSettings, ColourMap, DisplacementSettings, DomainWarpSettings, GradientStop,
+        HeightBlend, LayerMask, MAX_GRADIENT_STOPS, MAX_LAYERS, MAX_OUTPUT_PROFILES,
+        MAX_REMAP_POINTS, MaterialLayer, MaterialModel, OcclusionCombine, OcclusionRecipeSettings,
+        OutputProfile, RemapPoint, ScalarRemap, ScalarSource, TextureRecipe,
     },
 };
 
@@ -22,85 +23,138 @@ pub const MAX_AO_DIRECTIONS: u8 = 32;
 pub const MAX_AO_SAMPLES: u8 = 16;
 /// Maximum radius for one local AO lookup in output pixels.
 pub const MAX_AO_RADIUS: f32 = 4096.0;
-/// Maximum recursive depth of a domain-warp or mask source.
-pub const MAX_NOISE_DEPTH: usize = 16;
 
-/// One precise reason a recipe cannot be baked.
+/// One precise reason a recipe cannot be evaluated.
 #[derive(Clone, Debug, PartialEq)]
 pub enum RecipeValidationError {
-    /// The schema version is not supported by this generator.
-    UnsupportedSchemaVersion { found: u32, supported: u32 },
-    /// The output name is empty or consists only of whitespace.
     EmptyName,
-    /// The output name contains path/control characters.
-    InvalidName { name: String },
-    /// An image axis is zero.
-    ZeroDimensions { width: u32, height: u32 },
-    /// The image pixel count cannot fit in `usize`.
-    DimensionOverflow { width: u32, height: u32 },
-    /// A physical tile axis is negative.
-    NegativePhysicalTileSize { axis: &'static str, value: f32 },
-    /// A physical tile axis is zero or otherwise unusable.
-    NonPositivePhysicalTileSize { axis: &'static str, value: f32 },
-    /// A named numeric recipe value is NaN or infinite.
-    NonFinite { path: String },
-    /// A frequency must be strictly positive.
-    InvalidFrequency { path: String, value: f32 },
-    /// A cellular field was configured with zero frequency.
-    ZeroCellularFrequency { path: String },
-    /// An octave count is outside the documented safety range.
+    InvalidName {
+        name: String,
+    },
+    ZeroDimensions {
+        width: u32,
+        height: u32,
+    },
+    DimensionOverflow {
+        width: u32,
+        height: u32,
+    },
+    NegativePhysicalTileSize {
+        axis: &'static str,
+        value: f32,
+    },
+    NonPositivePhysicalTileSize {
+        axis: &'static str,
+        value: f32,
+    },
+    NonFinite {
+        path: String,
+    },
+    InvalidFrequency {
+        path: String,
+        value: u32,
+    },
     OctavesOutOfRange {
         path: String,
         found: u8,
         maximum: u8,
     },
-    /// A parameter expected to be non-negative is negative.
-    NegativeParameter { path: String, value: f32 },
-    /// A parameter expected to be in a normalized interval is outside it.
-    NormalizedParameterOutOfRange { path: String, value: f32 },
-    /// A positive parameter is zero or negative.
-    NonPositiveParameter { path: String, value: f32 },
-    /// The displacement range is empty or has its bounds reversed.
+    NegativeParameter {
+        path: String,
+        value: f32,
+    },
+    NormalizedParameterOutOfRange {
+        path: String,
+        value: f32,
+    },
+    NonPositiveParameter {
+        path: String,
+        value: f32,
+    },
     InvalidDisplacementRange {
         minimum: f32,
         maximum: f32,
         base: f32,
     },
-    /// A fixed AO direction count is outside safe limits.
-    OcclusionDirectionsOutOfRange { found: u8, minimum: u8, maximum: u8 },
-    /// A per-direction AO sample count is outside safe limits.
-    OcclusionSamplesOutOfRange { found: u8, minimum: u8, maximum: u8 },
-    /// An AO radius is outside safe limits.
-    OcclusionRadiusOutOfRange { path: &'static str, value: f32 },
-    /// No output profile was requested.
+    OcclusionDirectionsOutOfRange {
+        found: u8,
+        minimum: u8,
+        maximum: u8,
+    },
+    OcclusionSamplesOutOfRange {
+        found: u8,
+        minimum: u8,
+        maximum: u8,
+    },
+    OcclusionRadiusOutOfRange {
+        path: &'static str,
+        value: f32,
+    },
     MissingOutputProfile,
-    /// Too many profiles make one recipe ambiguous/unsafe.
-    TooManyOutputProfiles { found: usize, maximum: usize },
-    /// Too many surface layers make one recipe unsafe to evaluate.
-    TooManySurfaceLayers { found: usize, maximum: usize },
-    /// The same profile was listed more than once.
-    DuplicateOutputProfile { profile: OutputProfile },
-    /// A blend mask or generated output would reuse a path/name.
-    OutputNameCollision { name: String },
-    /// A palette or colour channel is malformed.
-    InvalidColour { path: String, value: f32 },
-    /// A weighted AO combination has no usable weight.
-    InvalidOcclusionWeights { cavity: f32, horizon: f32 },
-    /// A nested source exceeded the recursion safety limit.
-    NoiseNestingTooDeep { path: String, maximum: usize },
-    /// An image constructor returned a more specific dimension failure.
+    TooManyOutputProfiles {
+        found: usize,
+        maximum: usize,
+    },
+    TooManyLayers {
+        found: usize,
+        maximum: usize,
+    },
+    DuplicateLayerId {
+        id: String,
+    },
+    InvalidLayerId {
+        path: String,
+        id: String,
+    },
+    MissingLayerReference {
+        path: String,
+        id: String,
+    },
+    ForwardLayerReference {
+        path: String,
+        id: String,
+    },
+    DuplicateOutputProfile {
+        profile: OutputProfile,
+    },
+    OutputNameCollision {
+        name: String,
+    },
+    InvalidColour {
+        path: String,
+        value: f32,
+    },
+    InvalidOcclusionWeights {
+        cavity: f32,
+        horizon: f32,
+    },
+    InvalidRemapRange {
+        path: String,
+        minimum: f32,
+        maximum: f32,
+    },
+    TooManyRemapPoints {
+        path: String,
+        found: usize,
+        maximum: usize,
+    },
+    InvalidRemapCurve {
+        path: String,
+    },
+    TooManyGradientStops {
+        path: String,
+        found: usize,
+        maximum: usize,
+    },
+    InvalidGradient {
+        path: String,
+    },
     Image(ImageError),
 }
 
 impl fmt::Display for RecipeValidationError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::UnsupportedSchemaVersion { found, supported } => {
-                write!(
-                    formatter,
-                    "schema version {found} is unsupported (expected {supported})"
-                )
-            }
             Self::EmptyName => formatter.write_str("recipe name must not be empty"),
             Self::InvalidName { name } => {
                 write!(formatter, "recipe name is not file-safe: {name:?}")
@@ -124,27 +178,28 @@ impl fmt::Display for RecipeValidationError {
                 write!(formatter, "physical tile {axis} must be positive ({value})")
             }
             Self::NonFinite { path } => write!(formatter, "{path} must be finite"),
-            Self::InvalidFrequency { path, value } | Self::NonPositiveParameter { path, value } => {
-                write!(formatter, "{path} must be positive ({value})")
-            }
-            Self::ZeroCellularFrequency { path } => {
-                write!(formatter, "cellular frequency at {path} must not be zero")
+            Self::InvalidFrequency { path, value } => {
+                write!(
+                    formatter,
+                    "{path} must be a non-zero whole-number frequency ({value})"
+                )
             }
             Self::OctavesOutOfRange {
                 path,
                 found,
                 maximum,
-            } => {
-                write!(
-                    formatter,
-                    "{path} has {found} octaves; maximum is {maximum}"
-                )
-            }
+            } => write!(
+                formatter,
+                "{path} has {found} octaves; maximum is {maximum}"
+            ),
             Self::NegativeParameter { path, value } => {
                 write!(formatter, "{path} must not be negative ({value})")
             }
             Self::NormalizedParameterOutOfRange { path, value } => {
                 write!(formatter, "{path} must be in [0, 1] ({value})")
+            }
+            Self::NonPositiveParameter { path, value } => {
+                write!(formatter, "{path} must be positive ({value})")
             }
             Self::InvalidDisplacementRange {
                 minimum,
@@ -185,10 +240,20 @@ impl fmt::Display for RecipeValidationError {
                     "{found} output profiles exceed the maximum of {maximum}"
                 )
             }
-            Self::TooManySurfaceLayers { found, maximum } => {
+            Self::TooManyLayers { found, maximum } => {
+                write!(formatter, "{found} layers exceed the maximum of {maximum}")
+            }
+            Self::DuplicateLayerId { id } => write!(formatter, "layer id {id:?} is repeated"),
+            Self::InvalidLayerId { path, id } => {
+                write!(formatter, "{path} has an invalid stable id {id:?}")
+            }
+            Self::MissingLayerReference { path, id } => {
+                write!(formatter, "{path} references missing layer {id:?}")
+            }
+            Self::ForwardLayerReference { path, id } => {
                 write!(
                     formatter,
-                    "{found} surface layers exceed the maximum of {maximum}"
+                    "{path} must reference an earlier layer, not {id:?}"
                 )
             }
             Self::DuplicateOutputProfile { profile } => {
@@ -212,8 +277,26 @@ impl fmt::Display for RecipeValidationError {
                     "occlusion weights are unusable: {cavity} + {horizon}"
                 )
             }
-            Self::NoiseNestingTooDeep { path, maximum } => {
-                write!(formatter, "noise nesting at {path} exceeds depth {maximum}")
+            Self::InvalidRemapRange {
+                path,
+                minimum,
+                maximum,
+            } => write!(formatter, "{path} range is invalid ({minimum}..{maximum})"),
+            Self::TooManyRemapPoints {
+                path,
+                found,
+                maximum,
+            } => write!(formatter, "{path} has {found} points; maximum is {maximum}"),
+            Self::InvalidRemapCurve { path } => {
+                write!(formatter, "{path} must be monotonic and finite")
+            }
+            Self::TooManyGradientStops {
+                path,
+                found,
+                maximum,
+            } => write!(formatter, "{path} has {found} stops; maximum is {maximum}"),
+            Self::InvalidGradient { path } => {
+                write!(formatter, "{path} must be ordered and finite")
             }
             Self::Image(error) => error.fmt(formatter),
         }
@@ -222,14 +305,14 @@ impl fmt::Display for RecipeValidationError {
 
 impl std::error::Error for RecipeValidationError {}
 
-/// An aggregate of all recipe issues found in one validation pass.
+/// Aggregate of all issues found during one deterministic validation pass.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct RecipeValidationErrors {
     issues: Vec<RecipeValidationError>,
 }
 
 impl RecipeValidationErrors {
-    /// Returns all collected issues in deterministic traversal order.
+    /// Returns all collected issues in traversal order.
     #[must_use]
     pub fn issues(&self) -> &[RecipeValidationError] {
         &self.issues
@@ -266,7 +349,7 @@ impl fmt::Display for RecipeValidationErrors {
 
 impl std::error::Error for RecipeValidationErrors {}
 
-/// Validates all structural, numeric and output-safety constraints.
+/// Validates all structural, numeric and reference constraints.
 pub fn validate_recipe(recipe: &TextureRecipe) -> Result<(), RecipeValidationErrors> {
     let mut errors = RecipeValidationErrors::default();
     validate_root(recipe, &mut errors);
@@ -278,27 +361,21 @@ pub fn validate_recipe(recipe: &TextureRecipe) -> Result<(), RecipeValidationErr
 }
 
 fn validate_root(recipe: &TextureRecipe, errors: &mut RecipeValidationErrors) {
-    if recipe.schema_version != CURRENT_SCHEMA_VERSION {
-        errors.push(RecipeValidationError::UnsupportedSchemaVersion {
-            found: recipe.schema_version,
-            supported: CURRENT_SCHEMA_VERSION,
-        });
-    }
-
     validate_name(&recipe.name, errors);
     validate_dimensions(recipe.width, recipe.height, errors);
     validate_tile_size("width", recipe.physical_tile_width_m, errors);
     validate_tile_size("height", recipe.physical_tile_height_m, errors);
     validate_material(&recipe.material, errors);
 
-    if recipe.surface_layers.len() > MAX_SURFACE_LAYERS {
-        errors.push(RecipeValidationError::TooManySurfaceLayers {
-            found: recipe.surface_layers.len(),
-            maximum: MAX_SURFACE_LAYERS,
+    if recipe.layers.len() > MAX_LAYERS {
+        errors.push(RecipeValidationError::TooManyLayers {
+            found: recipe.layers.len(),
+            maximum: MAX_LAYERS,
         });
     }
-    for (index, layer) in recipe.surface_layers.iter().enumerate() {
-        validate_layer(layer, &format!("surface_layers[{index}]"), errors, 0);
+    let ids = collect_layer_ids(&recipe.layers, errors);
+    for (index, layer) in recipe.layers.iter().enumerate() {
+        validate_layer(layer, index, &ids, errors);
     }
 
     validate_finite("normal_scale", recipe.normal_scale, errors);
@@ -312,6 +389,38 @@ fn validate_root(recipe: &TextureRecipe, errors: &mut RecipeValidationErrors) {
     validate_occlusion(&recipe.occlusion, errors);
     validate_albedo(&recipe.albedo, errors);
     validate_output_profiles(&recipe.name, &recipe.output_profiles, errors);
+}
+
+fn collect_layer_ids(
+    layers: &[MaterialLayer],
+    errors: &mut RecipeValidationErrors,
+) -> HashMap<String, usize> {
+    let mut ids = HashMap::with_capacity(layers.len());
+    for (index, layer) in layers.iter().enumerate() {
+        let path = format!("/layers/{index}/id");
+        if layer.id.trim().is_empty()
+            || layer.id == "."
+            || layer.id == ".."
+            || layer.id.contains('/')
+            || layer.id.contains('\\')
+            || layer.id.chars().any(char::is_control)
+            || !layer
+                .id
+                .chars()
+                .all(|character| character.is_ascii_alphanumeric() || "_-.".contains(character))
+        {
+            errors.push(RecipeValidationError::InvalidLayerId {
+                path,
+                id: layer.id.clone(),
+            });
+        }
+        if ids.insert(layer.id.clone(), index).is_some() {
+            errors.push(RecipeValidationError::DuplicateLayerId {
+                id: layer.id.clone(),
+            });
+        }
+    }
+    ids
 }
 
 fn validate_name(name: &str, errors: &mut RecipeValidationErrors) {
@@ -369,7 +478,8 @@ fn validate_material(material: &MaterialModel, errors: &mut RecipeValidationErro
             gain,
             offset,
         } => {
-            validate_frequency("material.frequency", *frequency, errors, false);
+            validate_finite("material.frequency", *frequency, errors);
+            validate_positive("material.frequency", *frequency, errors);
             validate_finite("material.amplitude", *amplitude, errors);
             validate_octaves("material.octaves", *octaves, errors);
             validate_positive("material.lacunarity", *lacunarity, errors);
@@ -436,102 +546,226 @@ fn validate_material(material: &MaterialModel, errors: &mut RecipeValidationErro
 }
 
 fn validate_layer(
-    layer: &NoiseLayer,
-    path: &str,
+    layer: &MaterialLayer,
+    index: usize,
+    ids: &HashMap<String, usize>,
     errors: &mut RecipeValidationErrors,
-    depth: usize,
 ) {
-    validate_frequency(
-        &format!("{path}.frequency"),
-        layer.frequency,
-        errors,
-        layer.kind.is_cellular(),
-    );
-    validate_finite(&format!("{path}.amplitude"), layer.amplitude, errors);
-    validate_octaves(&format!("{path}.octaves"), layer.octaves, errors);
-    validate_positive(&format!("{path}.lacunarity"), layer.lacunarity, errors);
-    validate_finite(&format!("{path}.gain"), layer.gain, errors);
-    for (axis, value) in [("x", layer.offset[0]), ("y", layer.offset[1])] {
-        validate_finite(&format!("{path}.offset.{axis}"), value, errors);
-    }
-    validate_normalized(
-        &format!("{path}.cellular_jitter"),
-        layer.cellular_jitter,
+    let path = format!("/layers/{index}");
+    validate_source(&layer.source, &format!("{path}/source"), errors);
+    validate_remap(&layer.remap, &format!("{path}/remap"), errors);
+    validate_mask(
+        layer.mask.as_ref(),
+        index,
+        ids,
+        &format!("{path}/mask"),
         errors,
     );
-
-    if let Some(warp) = layer.domain_warp {
-        validate_domain_warp(warp, &format!("{path}.domain_warp"), errors);
-    }
-    validate_noise_kind(&layer.kind, &format!("{path}.kind"), errors, depth);
-    validate_blend(&layer.blend, &format!("{path}.blend"), errors, depth);
+    validate_outputs(&layer.outputs, &format!("{path}/outputs"), errors);
 }
 
-fn validate_noise_kind(
-    kind: &NoiseKind,
-    path: &str,
-    errors: &mut RecipeValidationErrors,
-    depth: usize,
-) {
-    if depth > MAX_NOISE_DEPTH {
-        errors.push(RecipeValidationError::NoiseNestingTooDeep {
-            path: path.into(),
-            maximum: MAX_NOISE_DEPTH,
+fn validate_source(source: &ScalarSource, path: &str, errors: &mut RecipeValidationErrors) {
+    if source.frequency == 0 {
+        errors.push(RecipeValidationError::InvalidFrequency {
+            path: format!("{path}/frequency"),
+            value: source.frequency,
         });
-        return;
     }
-    if let NoiseKind::DomainWarp {
-        source,
-        warp,
-        amplitude,
-    } = kind
-    {
-        validate_nonnegative(&format!("{path}.amplitude"), *amplitude, errors);
-        validate_noise_kind(source, &format!("{path}.source"), errors, depth + 1);
-        validate_noise_kind(warp, &format!("{path}.warp"), errors, depth + 1);
+    if source.kind.is_fractal() {
+        validate_octaves(&format!("{path}/octaves"), source.octaves, errors);
+        validate_positive(&format!("{path}/lacunarity"), source.lacunarity, errors);
+        validate_finite(&format!("{path}/gain"), source.gain, errors);
     }
-}
-
-fn validate_blend(
-    blend: &BlendOperation,
-    path: &str,
-    errors: &mut RecipeValidationErrors,
-    depth: usize,
-) {
-    match blend {
-        BlendOperation::Lerp { amount } => {
-            validate_normalized(path, *amount, errors);
-        }
-        BlendOperation::LerpByMask { mask } => {
-            validate_layer(mask, &format!("{path}.mask"), errors, depth + 1);
-        }
-        _ => {}
+    for (axis, value) in [("x", source.offset[0]), ("y", source.offset[1])] {
+        validate_finite(&format!("{path}/offset/{axis}"), value, errors);
+    }
+    if source.kind.is_cellular() {
+        validate_normalized(
+            &format!("{path}/cellular_jitter"),
+            source.cellular_jitter,
+            errors,
+        );
+    }
+    if let Some(warp) = source.domain_warp {
+        validate_domain_warp(warp, &format!("{path}/domain_warp"), errors);
     }
 }
 
 fn validate_domain_warp(warp: DomainWarpSettings, path: &str, errors: &mut RecipeValidationErrors) {
-    validate_nonnegative(&format!("{path}.amplitude"), warp.amplitude, errors);
-    validate_frequency(&format!("{path}.frequency"), warp.frequency, errors, false);
-    validate_octaves(&format!("{path}.octaves"), warp.octaves, errors);
-    validate_positive(&format!("{path}.lacunarity"), warp.lacunarity, errors);
-    validate_finite(&format!("{path}.gain"), warp.gain, errors);
+    validate_nonnegative(&format!("{path}/amplitude"), warp.amplitude, errors);
+    if warp.frequency == 0 {
+        errors.push(RecipeValidationError::InvalidFrequency {
+            path: format!("{path}/frequency"),
+            value: warp.frequency,
+        });
+    }
+    validate_octaves(&format!("{path}/octaves"), warp.octaves, errors);
+    validate_positive(&format!("{path}/lacunarity"), warp.lacunarity, errors);
+    validate_finite(&format!("{path}/gain"), warp.gain, errors);
 }
 
-fn validate_displacement(
-    displacement: &super::recipe::DisplacementSettings,
+fn validate_remap(remap: &ScalarRemap, path: &str, errors: &mut RecipeValidationErrors) {
+    validate_finite(&format!("{path}/input_min"), remap.input_min, errors);
+    validate_finite(&format!("{path}/input_max"), remap.input_max, errors);
+    if remap.input_max <= remap.input_min {
+        errors.push(RecipeValidationError::InvalidRemapRange {
+            path: path.into(),
+            minimum: remap.input_min,
+            maximum: remap.input_max,
+        });
+    }
+    validate_finite(&format!("{path}/contrast"), remap.contrast, errors);
+    validate_finite(&format!("{path}/bias"), remap.bias, errors);
+    if let Some(points) = &remap.curve {
+        if points.len() > MAX_REMAP_POINTS {
+            errors.push(RecipeValidationError::TooManyRemapPoints {
+                path: format!("{path}/curve"),
+                found: points.len(),
+                maximum: MAX_REMAP_POINTS,
+            });
+        }
+        validate_curve(points, &format!("{path}/curve"), errors);
+    }
+}
+
+fn validate_curve(points: &[RemapPoint], path: &str, errors: &mut RecipeValidationErrors) {
+    let mut previous_position = None;
+    let mut previous_value = None;
+    for point in points {
+        let valid = point.position.is_finite()
+            && point.value.is_finite()
+            && (0.0..=1.0).contains(&point.position)
+            && previous_position.is_none_or(|value| point.position > value)
+            && previous_value.is_none_or(|value| point.value >= value);
+        if !valid {
+            errors.push(RecipeValidationError::InvalidRemapCurve { path: path.into() });
+            break;
+        }
+        previous_position = Some(point.position);
+        previous_value = Some(point.value);
+    }
+}
+
+fn validate_mask(
+    mask: Option<&LayerMask>,
+    index: usize,
+    ids: &HashMap<String, usize>,
+    path: &str,
     errors: &mut RecipeValidationErrors,
 ) {
-    validate_finite("displacement.minimum_m", displacement.minimum_m, errors);
-    validate_finite("displacement.maximum_m", displacement.maximum_m, errors);
-    validate_finite("displacement.base_m", displacement.base_m, errors);
-    if displacement.minimum_m >= displacement.maximum_m
-        || displacement.base_m < displacement.minimum_m
-        || displacement.base_m > displacement.maximum_m
+    match mask {
+        Some(LayerMask::Noise { source, remap }) => {
+            validate_source(source, &format!("{path}/source"), errors);
+            validate_remap(remap, &format!("{path}/remap"), errors);
+        }
+        Some(LayerMask::Layer { layer_id, remap }) => {
+            validate_remap(remap, &format!("{path}/remap"), errors);
+            match ids.get(layer_id) {
+                None => errors.push(RecipeValidationError::MissingLayerReference {
+                    path: format!("{path}/layer_id"),
+                    id: layer_id.clone(),
+                }),
+                Some(&target) if target >= index => {
+                    errors.push(RecipeValidationError::ForwardLayerReference {
+                        path: format!("{path}/layer_id"),
+                        id: layer_id.clone(),
+                    });
+                }
+                Some(_) => {}
+            }
+        }
+        Some(LayerMask::Own) | None => {}
+    }
+}
+
+fn validate_outputs(
+    outputs: &super::recipe::LayerOutputs,
+    path: &str,
+    errors: &mut RecipeValidationErrors,
+) {
+    let height = &outputs.height;
+    validate_finite(
+        &format!("{path}/height/strength_m"),
+        height.strength_m,
+        errors,
+    );
+    if let HeightBlend::Lerp { amount } = height.blend {
+        validate_normalized(&format!("{path}/height/blend/amount"), amount, errors);
+    }
+    let albedo = &outputs.albedo;
+    validate_normalized(&format!("{path}/albedo/strength"), albedo.strength, errors);
+    for (suffix, value) in [
+        ("hue_influence", albedo.hue_influence),
+        ("saturation_influence", albedo.saturation_influence),
+        ("value_influence", albedo.value_influence),
+    ] {
+        validate_finite(&format!("{path}/albedo/{suffix}"), value, errors);
+        if !(-1.0..=1.0).contains(&value) {
+            errors.push(RecipeValidationError::NormalizedParameterOutOfRange {
+                path: format!("{path}/albedo/{suffix}"),
+                value,
+            });
+        }
+    }
+    validate_colour_map(
+        &albedo.colour_map,
+        &format!("{path}/albedo/colour_map"),
+        errors,
+    );
+}
+
+fn validate_colour_map(map: &ColourMap, path: &str, errors: &mut RecipeValidationErrors) {
+    match map {
+        ColourMap::Ramp { first, second } => {
+            validate_colour(&format!("{path}/first"), *first, errors);
+            validate_colour(&format!("{path}/second"), *second, errors);
+        }
+        ColourMap::Gradient { stops } => {
+            if stops.len() < 2 {
+                errors.push(RecipeValidationError::InvalidGradient { path: path.into() });
+            }
+            if stops.len() > MAX_GRADIENT_STOPS {
+                errors.push(RecipeValidationError::TooManyGradientStops {
+                    path: format!("{path}/stops"),
+                    found: stops.len(),
+                    maximum: MAX_GRADIENT_STOPS,
+                });
+            }
+            validate_gradient_stops(stops, path, errors);
+        }
+    }
+}
+
+fn validate_gradient_stops(
+    stops: &[GradientStop],
+    path: &str,
+    errors: &mut RecipeValidationErrors,
+) {
+    let mut previous = None;
+    for stop in stops {
+        if !stop.position.is_finite()
+            || !(0.0..=1.0).contains(&stop.position)
+            || previous.is_some_and(|position| stop.position <= position)
+        {
+            errors.push(RecipeValidationError::InvalidGradient { path: path.into() });
+        }
+        validate_colour(&format!("{path}/stops/colour"), stop.colour, errors);
+        previous = Some(stop.position);
+    }
+}
+
+fn validate_displacement(settings: &DisplacementSettings, errors: &mut RecipeValidationErrors) {
+    validate_finite("displacement.minimum_m", settings.minimum_m, errors);
+    validate_finite("displacement.maximum_m", settings.maximum_m, errors);
+    validate_finite("displacement.base_m", settings.base_m, errors);
+    if settings.minimum_m >= settings.maximum_m
+        || settings.base_m < settings.minimum_m
+        || settings.base_m > settings.maximum_m
     {
         errors.push(RecipeValidationError::InvalidDisplacementRange {
-            minimum: displacement.minimum_m,
-            maximum: displacement.maximum_m,
-            base: displacement.base_m,
+            minimum: settings.minimum_m,
+            maximum: settings.maximum_m,
+            base: settings.base_m,
         });
     }
 }
@@ -590,8 +824,8 @@ fn validate_occlusion(settings: &OcclusionRecipeSettings, errors: &mut RecipeVal
 
 fn validate_albedo(settings: &AlbedoSettings, errors: &mut RecipeValidationErrors) {
     for (name, colour) in [
-        ("base_color", settings.base_color),
-        ("warm_color", settings.warm_color),
+        ("albedo.base_color", settings.base_color),
+        ("albedo.warm_color", settings.warm_color),
     ] {
         validate_colour(name, colour, errors);
     }
@@ -654,8 +888,6 @@ fn validate_output_profiles(
         }
     }
     if recipe_name.ends_with('.') {
-        // A trailing dot is accepted by some filesystems but aliases to the
-        // same stem on others, so reject the collision-prone name early.
         errors.push(RecipeValidationError::OutputNameCollision {
             name: recipe_name.into(),
         });
@@ -701,19 +933,6 @@ fn validate_normalized(path: &str, value: f32, errors: &mut RecipeValidationErro
     }
 }
 
-fn validate_frequency(path: &str, value: f32, errors: &mut RecipeValidationErrors, cellular: bool) {
-    if !value.is_finite() {
-        errors.push(RecipeValidationError::NonFinite { path: path.into() });
-    } else if value == 0.0 && cellular {
-        errors.push(RecipeValidationError::ZeroCellularFrequency { path: path.into() });
-    } else if value <= 0.0 {
-        errors.push(RecipeValidationError::InvalidFrequency {
-            path: path.into(),
-            value,
-        });
-    }
-}
-
 fn validate_octaves(path: &str, value: u8, errors: &mut RecipeValidationErrors) {
     if value == 0 || value > MAX_OCTAVES {
         errors.push(RecipeValidationError::OctavesOutOfRange {
@@ -733,27 +952,16 @@ fn validate_nonzero(path: &str, value: u32, errors: &mut RecipeValidationErrors)
     }
 }
 
-impl NoiseKind {
-    fn is_cellular(&self) -> bool {
-        matches!(
-            self,
-            Self::CellularDistance | Self::CellularDistanceToEdge | Self::CellularValue
-        )
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{RecipeValidationError, validate_recipe};
-    use crate::procedural_textures::image::NormalConvention;
+    use super::*;
     use crate::procedural_textures::recipe::{
-        AlbedoSettings, DisplacementSettings, MaterialModel, NoiseKind, NoiseLayer,
-        OcclusionRecipeSettings, OutputProfile, TextureRecipe,
+        AlbedoSettings, DisplacementSettings, HeightOutput, LayerOutputs, MaterialLayer,
+        OcclusionRecipeSettings, ScalarSource,
     };
 
     fn valid_recipe() -> TextureRecipe {
         TextureRecipe {
-            schema_version: 1,
             name: "test-texture".into(),
             seed: 42,
             width: 32,
@@ -761,8 +969,8 @@ mod tests {
             physical_tile_width_m: 4.0,
             physical_tile_height_m: 4.0,
             material: MaterialModel::default(),
-            surface_layers: Vec::new(),
-            normal_convention: NormalConvention::OpenGl,
+            layers: Vec::new(),
+            normal_convention: super::super::image::NormalConvention::OpenGl,
             normal_scale: 1.0,
             displacement: DisplacementSettings::default(),
             occlusion: OcclusionRecipeSettings::default(),
@@ -777,60 +985,73 @@ mod tests {
     }
 
     #[test]
-    fn invalid_dimensions_and_schema_are_rejected() {
+    fn duplicate_and_forward_layer_references_are_rejected() {
         let mut recipe = valid_recipe();
-        recipe.schema_version = 99;
-        recipe.width = 0;
-        let errors = validate_recipe(&recipe).expect_err("invalid recipe");
-        assert!(errors.issues().iter().any(|issue| matches!(
-            issue,
-            RecipeValidationError::UnsupportedSchemaVersion { .. }
-        )));
-        assert!(
-            errors
-                .issues()
-                .iter()
-                .any(|issue| matches!(issue, RecipeValidationError::ZeroDimensions { .. }))
-        );
-    }
-
-    #[test]
-    fn cellular_zero_frequency_and_octave_limit_are_rejected() {
-        let mut recipe = valid_recipe();
-        recipe.surface_layers.push(NoiseLayer {
-            kind: NoiseKind::CellularDistance,
-            frequency: 0.0,
-            octaves: 17,
-            ..NoiseLayer::default()
+        let mut first = MaterialLayer {
+            id: "first".into(),
+            source: ScalarSource::default(),
+            outputs: LayerOutputs {
+                height: HeightOutput {
+                    enabled: true,
+                    ..HeightOutput::default()
+                },
+                ..LayerOutputs::default()
+            },
+            ..MaterialLayer::default()
+        };
+        first.mask = Some(LayerMask::Layer {
+            layer_id: "later".into(),
+            remap: ScalarRemap::default(),
         });
-        let errors = validate_recipe(&recipe).expect_err("invalid source layer");
+        recipe.layers = vec![
+            first,
+            MaterialLayer {
+                id: "later".into(),
+                ..MaterialLayer::default()
+            },
+        ];
+        let errors = validate_recipe(&recipe).expect_err("forward mask");
         assert!(
             errors
                 .issues()
                 .iter()
-                .any(|issue| matches!(issue, RecipeValidationError::ZeroCellularFrequency { .. }))
+                .any(|issue| matches!(issue, RecipeValidationError::ForwardLayerReference { .. }))
         );
+        recipe.layers[1].id = "first".into();
         assert!(
-            errors
+            validate_recipe(&recipe)
+                .expect_err("duplicate id")
                 .issues()
                 .iter()
-                .any(|issue| matches!(issue, RecipeValidationError::OctavesOutOfRange { .. }))
+                .any(|issue| matches!(issue, RecipeValidationError::DuplicateLayerId { .. }))
         );
     }
 
     #[test]
-    fn unsafe_occlusion_settings_are_rejected() {
+    fn remap_curves_must_be_monotonic() {
         let mut recipe = valid_recipe();
-        recipe.occlusion.samples = 0;
-        recipe.occlusion.radius = f32::INFINITY;
-        let errors = validate_recipe(&recipe).expect_err("invalid AO");
-        assert!(errors.issues().iter().any(|issue| matches!(
-            issue,
-            RecipeValidationError::OcclusionSamplesOutOfRange { .. }
-        )));
-        assert!(errors.issues().iter().any(|issue| matches!(
-            issue,
-            RecipeValidationError::OcclusionRadiusOutOfRange { .. }
-        )));
+        recipe.layers.push(MaterialLayer {
+            remap: ScalarRemap {
+                curve: Some(vec![
+                    RemapPoint {
+                        position: 0.0,
+                        value: 0.8,
+                    },
+                    RemapPoint {
+                        position: 0.5,
+                        value: 0.2,
+                    },
+                ]),
+                ..ScalarRemap::default()
+            },
+            ..MaterialLayer::default()
+        });
+        assert!(
+            validate_recipe(&recipe)
+                .expect_err("non-monotonic curve")
+                .issues()
+                .iter()
+                .any(|issue| matches!(issue, RecipeValidationError::InvalidRemapCurve { .. }))
+        );
     }
 }

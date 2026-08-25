@@ -7,9 +7,11 @@
 pub mod albedo;
 pub mod cellular;
 pub mod cracked_stone;
+pub mod editor_protocol;
 pub mod encoding;
 pub mod field_program;
 pub mod image;
+pub mod layer_stack;
 pub mod noise;
 pub mod normal;
 pub mod occlusion;
@@ -23,19 +25,22 @@ use std::{fmt, path::Path};
 
 use albedo::AlbedoConfig;
 use encoding::TextureSetImages;
-use field_program::FieldProgram;
 use occlusion::{OcclusionCombine, OcclusionSettings};
 use packing::HeightRange;
 
+pub use editor_protocol::{
+    Diagnostic, EDITABLE_METADATA, EditorEnvelope, PropertyMetadata, metadata_coverage,
+    schema_document,
+};
 pub use encoding::{ManifestMap, OutputManifest, OutputOptions, OutputProfile, PixelFormat};
 pub use image::{
     FloatImage, Gray8Image, Gray16Image, Image, ImageError, NormalConvention, Rgb8Image,
     Rgba8Image, TextureDimensions, TextureMetadata, TextureSet,
 };
 pub use recipe::{
-    AlbedoSettings, BlendOperation, CURRENT_SCHEMA_VERSION, DisplacementSettings,
-    DomainWarpSettings, MaterialModel, NoiseKind, NoiseLayer, OcclusionRecipeSettings,
-    TextureRecipe,
+    AlbedoBlend, AlbedoOutput, AlbedoSettings, ColourMap, DisplacementSettings, DomainWarpSettings,
+    GradientStop, HeightBlend, HeightOutput, LayerMask, LayerOutputs, MaterialLayer, MaterialModel,
+    OcclusionRecipeSettings, RemapPoint, ScalarRemap, ScalarSource, SourceKind, TextureRecipe,
 };
 pub use validation::{RecipeValidationError, RecipeValidationErrors, validate_recipe};
 
@@ -96,6 +101,41 @@ texture_error_from!(packing::PackingError, Packing);
 texture_error_from!(ImageError, Image);
 texture_error_from!(encoding::OutputError, Output);
 
+/// Shared unquantized material evaluation used by both final bake and editor
+/// preview. Keeping the layer diagnostics here lets a preview inspect raw,
+/// remapped and masked maps without a second noise implementation.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MaterialEvaluation {
+    /// Final height and per-layer scalar diagnostics.
+    pub layers: layer_stack::LayerEvaluation,
+    /// Final material-local occlusion.
+    pub occlusion: occlusion::OcclusionImage,
+    /// Final linear-RGB albedo before sRGB encoding.
+    pub albedo_linear: Vec<[f32; 3]>,
+}
+
+/// Evaluates the shared unquantized field and albedo passes.
+///
+/// # Errors
+///
+/// Returns validation, field, occlusion or albedo errors before a map is
+/// allocated for output.
+pub fn evaluate_material(recipe: &TextureRecipe) -> Result<MaterialEvaluation, TextureError> {
+    validate_recipe(recipe)?;
+    let layers = layer_stack::evaluate_recipe(recipe)?;
+    let field = &layers.field;
+    let occlusion = occlusion::derive_occlusion(field, occlusion_settings(recipe))?;
+    let config = albedo_config(recipe);
+    let mut albedo_linear = albedo::generate_linear_albedo(field, config, recipe.seed)?;
+    layers.apply_albedo(&recipe.layers, &mut albedo_linear)?;
+    albedo::apply_occlusion_linear(&mut albedo_linear, field.dimensions(), config, &occlusion)?;
+    Ok(MaterialEvaluation {
+        layers,
+        occlusion,
+        albedo_linear,
+    })
+}
+
 /// Generates a complete owned texture set from one validated recipe.
 ///
 /// # Errors
@@ -103,58 +143,34 @@ texture_error_from!(encoding::OutputError, Output);
 /// Returns an error when validation fails or any field, map, quantization, or
 /// metadata pass cannot produce a valid texture set.
 pub fn generate_texture_set(recipe: &TextureRecipe) -> Result<TextureSet, TextureError> {
-    validate_recipe(recipe)?;
+    let evaluated = evaluate_material(recipe)?;
+    texture_set_from_evaluation(recipe, &evaluated)
+}
 
-    let field = FieldProgram::evaluate_recipe(recipe)?;
-    let occlusion = occlusion::derive_occlusion(
-        &field,
-        OcclusionSettings {
-            directions: recipe.occlusion.directions,
-            samples: recipe.occlusion.samples,
-            radius: recipe.occlusion.radius,
-            max_radius: recipe.occlusion.max_radius,
-            cavity_strength: recipe.occlusion.cavity_strength,
-            horizon_strength: recipe.occlusion.horizon_strength,
-            power: recipe.occlusion.power,
-            combine: match recipe.occlusion.combine {
-                recipe::OcclusionCombine::Multiply => OcclusionCombine::Multiply,
-                recipe::OcclusionCombine::WeightedMinimum {
-                    cavity_weight,
-                    horizon_weight,
-                } => OcclusionCombine::WeightedMinimum {
-                    cavity_weight,
-                    horizon_weight,
-                },
-            },
-        },
-    )?;
-    let normal = normal::derive_normals(&field, recipe.normal_scale, recipe.normal_convention)?;
-    let albedo = albedo::generate_albedo_with_occlusion(
-        &field,
-        AlbedoConfig {
-            base_color: recipe.albedo.base_color,
-            warm_color: recipe.albedo.warm_color,
-            variation: recipe.albedo.variation,
-            crack_darkening: recipe.albedo.crack_darkening,
-            shoulder_variation: recipe.albedo.shoulder_variation,
-            mineral_density: recipe.albedo.mineral_density,
-            mineral_brightness: recipe.albedo.mineral_brightness,
-            occlusion_influence: recipe.albedo.occlusion_influence,
-        },
-        recipe.seed,
-        Some(&occlusion),
-    )?;
+/// Encodes one shared material evaluation into the final map set.
+///
+/// # Errors
+///
+/// Returns normal, packing, image or serialization errors at the output
+/// boundary.
+pub fn texture_set_from_evaluation(
+    recipe: &TextureRecipe,
+    evaluated: &MaterialEvaluation,
+) -> Result<TextureSet, TextureError> {
+    let field = &evaluated.layers.field;
+    let occlusion = &evaluated.occlusion;
+    let normal = normal::derive_normals(field, recipe.normal_scale, recipe.normal_convention)?;
+    let albedo = albedo::encode_linear_albedo(field.dimensions(), &evaluated.albedo_linear)?;
     let range = HeightRange::new(
         recipe.displacement.minimum_m,
         recipe.displacement.maximum_m,
         recipe.displacement.base_m,
     )?;
-    let height = packing::quantize_height(&field, range)?;
+    let height = packing::quantize_height(field, range)?;
     let recipe_hash = encoding::normalized_recipe_hash(recipe)?;
     let metadata = TextureMetadata {
         name: recipe.name.clone(),
         recipe_hash,
-        schema_version: recipe.schema_version,
         algorithm_version: TEXTURE_ALGORITHM_VERSION,
         seed: recipe.seed,
         physical_tile_size_m: [recipe.physical_tile_width_m, recipe.physical_tile_height_m],
@@ -164,7 +180,42 @@ pub fn generate_texture_set(recipe: &TextureRecipe) -> Result<TextureSet, Textur
         displacement: recipe.displacement.displacement_map,
         normal_convention: recipe.normal_convention,
     };
-    TextureSet::new(albedo, height, normal, occlusion, metadata).map_err(TextureError::from)
+    TextureSet::new(albedo, height, normal, occlusion.clone(), metadata).map_err(TextureError::from)
+}
+
+fn albedo_config(recipe: &TextureRecipe) -> AlbedoConfig {
+    AlbedoConfig {
+        base_color: recipe.albedo.base_color,
+        warm_color: recipe.albedo.warm_color,
+        variation: recipe.albedo.variation,
+        crack_darkening: recipe.albedo.crack_darkening,
+        shoulder_variation: recipe.albedo.shoulder_variation,
+        mineral_density: recipe.albedo.mineral_density,
+        mineral_brightness: recipe.albedo.mineral_brightness,
+        occlusion_influence: recipe.albedo.occlusion_influence,
+    }
+}
+
+fn occlusion_settings(recipe: &TextureRecipe) -> OcclusionSettings {
+    OcclusionSettings {
+        directions: recipe.occlusion.directions,
+        samples: recipe.occlusion.samples,
+        radius: recipe.occlusion.radius,
+        max_radius: recipe.occlusion.max_radius,
+        cavity_strength: recipe.occlusion.cavity_strength,
+        horizon_strength: recipe.occlusion.horizon_strength,
+        power: recipe.occlusion.power,
+        combine: match recipe.occlusion.combine {
+            recipe::OcclusionCombine::Multiply => OcclusionCombine::Multiply,
+            recipe::OcclusionCombine::WeightedMinimum {
+                cavity_weight,
+                horizon_weight,
+            } => OcclusionCombine::WeightedMinimum {
+                cavity_weight,
+                horizon_weight,
+            },
+        },
+    }
 }
 
 /// Writes a complete texture set as portable PNG files and a final manifest.
@@ -188,7 +239,6 @@ mod tests {
 
     fn recipe() -> TextureRecipe {
         serde_json::from_value(serde_json::json!({
-            "schema_version": 1,
             "name": "test_stone",
             "seed": 42,
             "width": 32,
@@ -196,7 +246,7 @@ mod tests {
             "physical_tile_width_m": 4.0,
             "physical_tile_height_m": 4.0,
             "material": { "kind": "cracked_stone" },
-            "surface_layers": [],
+            "layers": [],
             "normal_convention": "open_gl",
             "normal_scale": 1.0,
             "displacement": {

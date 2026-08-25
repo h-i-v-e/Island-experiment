@@ -10,7 +10,8 @@ renderers.
   CPU/GPU comparison switch.
 - [`island-unity`](island-unity/) contains the reusable Unity 6
   `IslandGenerator` component, sandbox level, streamed terrain LODs,
-  first-person sample controls, and the Apple Silicon native plugin.
+  first-person sample controls, the Apple Silicon native plugin, and the
+  [Procedural Material Studio](island-unity/PROCEDURAL_MATERIAL_STUDIO.md).
 
 ## Experimental GPU generation
 

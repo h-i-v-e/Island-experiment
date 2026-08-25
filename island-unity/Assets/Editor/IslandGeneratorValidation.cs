@@ -125,6 +125,18 @@ public static class IslandGeneratorValidation
                 $"The sandbox scene must contain exactly one IslandGenerator; found {islands.Length}.");
         }
         var island = islands[0];
+        if (island.DebugSettings.ToggleFrameRateKey == KeyCode.None)
+        {
+            throw new InvalidOperationException(
+                "The sandbox frame-rate display has no Play Mode toggle key.");
+        }
+        var demoControllers = UnityEngine.Object.FindObjectsByType<IslandDemoController>(
+            FindObjectsInactive.Include);
+        if (demoControllers.Length != 1)
+        {
+            throw new InvalidOperationException(
+                $"The sandbox scene must contain one runtime debug HUD; found {demoControllers.Length}.");
+        }
         if (island.Streaming.Target == null)
         {
             throw new InvalidOperationException(

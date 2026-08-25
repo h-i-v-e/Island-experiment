@@ -109,7 +109,7 @@ creation to a loaded Unity native plugin.
 ## Data flow
 
 ```text
-versioned recipe
+current recipe document
       |
       v
 periodic noise and cellular samplers
@@ -224,15 +224,15 @@ Recipes will be UTF-8 JSON using `serde` and `serde_json`. JSON is not the most
 compact format, but it is easy to generate and inspect from Unity, Bevy, Godot,
 Unreal build tools and ordinary scripts.
 
-Every recipe must contain:
+Every recipe must contain one unambiguous current document shape:
 
-- `schema_version`;
 - human-readable `name`;
 - `seed`;
 - width and height;
 - physical tile width and height in metres;
 - a material model and its parameters;
-- surface-noise layers;
+- an ordered `layers` stack with stable IDs, scalar sources, remapping and
+  independent height/albedo output bindings;
 - normal convention;
 - normal and displacement scale;
 - occlusion settings;
@@ -258,7 +258,7 @@ Noise types available to recipes will initially be:
 - per-cell random values;
 - domain-warped variants of the preceding fields.
 
-Layer blend operations will be:
+Height layer blend operations will be:
 
 - replace;
 - add and subtract;
@@ -266,9 +266,17 @@ Layer blend operations will be:
 - minimum and maximum;
 - lerp by a fixed amount or a generated mask.
 
-Each noise layer can specify frequency, amplitude, octaves, lacunarity, gain,
-offset, seed domain and optional domain warp. Frequencies must be meaningful in
-tile space rather than accidentally depending on output resolution.
+Albedo layer bindings use `replace`, `mix`, `multiply`, `add` or `overlay`,
+with an independent unitless strength and a two-colour ramp or multi-stop
+linear-RGB gradient.
+
+Each scalar source can specify frequency, octaves, lacunarity, gain, offset,
+seed domain, cellular settings and an optional explicit domain warp. A layer's
+remap is applied once before its value is routed to height and/or albedo;
+height strength is expressed in metres and albedo strength is unitless.
+Frequencies must be meaningful in tile space rather than accidentally
+depending on output resolution. A mask may reference only an earlier layer by
+stable ID.
 
 Recipe validation must reject:
 
@@ -277,7 +285,7 @@ Recipe validation must reject:
 - non-finite numeric values;
 - negative physical tile sizes;
 - zero cellular frequency;
-- unsupported schema versions;
+- unknown or malformed current-format fields;
 - octave counts over a documented safety limit;
 - AO sample counts or radii outside safe limits;
 - output paths or names that would collide within one texture set.
@@ -872,7 +880,7 @@ clean checkout afterward.
 ## Definition of done
 
 - `island-rs` exposes an engine-neutral, documented texture-generation API.
-- A standalone Rust CLI generates textures from versioned JSON recipes.
+- A standalone Rust CLI generates textures from the current JSON recipes.
 - Cracked-stone and rounded-river-stone recipes are committed.
 - Albedo, 16-bit height, normal, occlusion and Unity-packed mask outputs are
   deterministic and seamless.

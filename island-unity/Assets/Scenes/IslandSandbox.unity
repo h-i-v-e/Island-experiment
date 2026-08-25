@@ -215,6 +215,8 @@ MonoBehaviour:
     toggleMeshEdgesKey: 109
     showTreeMeshEdges: 0
     toggleTreeMeshEdgesKey: 110
+    showFrameRate: 0
+    toggleFrameRateKey: 102
     showRoughWaterEmitters: 0
 --- !u!4 &22168521
 Transform:

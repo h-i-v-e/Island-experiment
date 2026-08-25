@@ -7,9 +7,8 @@
     "height": 2048
   },
   "metadata": {
-    "recipe_schema_version": 1,
     "generator_algorithm_version": "1",
-    "recipe_hash": "01f036b0f608bd3ba0bab5a96c74a19c5d11eb2b0f21316fbb6276197d16f5d8",
+    "recipe_hash": "5196c44fbe4bdf62a39eff41af0f2aa38a0e0e77ea0c6d19c36e33931449ee2c",
     "seed": 666,
     "physical_tile_width_m": 4.0,
     "physical_tile_height_m": 4.0,

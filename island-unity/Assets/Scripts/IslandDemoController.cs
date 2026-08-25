@@ -3,7 +3,8 @@ using UnityEngine;
 public sealed class IslandDemoController : MonoBehaviour
 {
     private const float ClickDragTolerance = 6f;
-    private static readonly Rect PanelRect = new Rect(16f, 16f, 500f, 155f);
+    private const float FrameRateSampleSeconds = 0.25f;
+    private static readonly Rect PanelRect = new Rect(16f, 16f, 500f, 180f);
 
     [SerializeField] private IslandGenerator island;
     [SerializeField] private Camera viewerCamera;
@@ -12,6 +13,9 @@ public sealed class IslandDemoController : MonoBehaviour
 
     private bool clickCandidate;
     private Vector2 clickStart;
+    private float frameRateSampleTime;
+    private int frameRateSampleFrames;
+    private string frameRateText = "FPS: --";
 
     public void Configure(
         IslandGenerator islandGenerator,
@@ -42,6 +46,7 @@ public sealed class IslandDemoController : MonoBehaviour
 
     private void Update()
     {
+        UpdateFrameRate();
         if (firstPersonController == null
             || firstPersonController.IsActive
             || island == null
@@ -76,11 +81,38 @@ public sealed class IslandDemoController : MonoBehaviour
         }
     }
 
+    private void UpdateFrameRate()
+    {
+        var deltaTime = Time.unscaledDeltaTime;
+        if (deltaTime <= 0f)
+        {
+            return;
+        }
+
+        frameRateSampleTime += deltaTime;
+        frameRateSampleFrames++;
+        if (frameRateSampleTime < FrameRateSampleSeconds)
+        {
+            return;
+        }
+
+        frameRateText = $"FPS: {Mathf.RoundToInt(frameRateSampleFrames / frameRateSampleTime)}";
+        frameRateSampleTime = 0f;
+        frameRateSampleFrames = 0;
+    }
+
     private void OnGUI()
     {
         if (island == null)
         {
             return;
+        }
+        if (island.DebugSettings.ShowFrameRate)
+        {
+            GUI.Label(
+                new Rect(Mathf.Max(16f, Screen.width - 116f), 16f, 100f, 28f),
+                frameRateText,
+                GUI.skin.box);
         }
         if (firstPersonController != null && firstPersonController.IsActive)
         {
@@ -89,7 +121,8 @@ public sealed class IslandDemoController : MonoBehaviour
             GUILayout.Label(
                 $"{island.DebugSettings.ToggleMeshEdgesKey}: mesh edges | "
                 + $"{island.DebugSettings.ToggleTreeMeshEdgesKey}: tree wireframe | "
-                + "Tab: release cursor | Escape: overview");
+                + $"{island.DebugSettings.ToggleFrameRateKey}: frame rate");
+            GUILayout.Label("Tab: release cursor | Escape: overview");
             GUILayout.Label(island.Status);
             GUILayout.EndArea();
             GUI.Label(
@@ -108,9 +141,11 @@ public sealed class IslandDemoController : MonoBehaviour
         GUI.enabled = true;
         GUILayout.EndHorizontal();
         GUILayout.Label(
-            "Click terrain: walk | Drag: orbit | Wheel: zoom | "
-            + $"{island.DebugSettings.ToggleMeshEdgesKey}: mesh edges | "
-            + $"{island.DebugSettings.ToggleTreeMeshEdgesKey}: tree wireframe");
+            "Click terrain: walk | Drag: orbit | Wheel: zoom");
+        GUILayout.Label(
+            $"{island.DebugSettings.ToggleMeshEdgesKey}: mesh edges | "
+            + $"{island.DebugSettings.ToggleTreeMeshEdgesKey}: tree wireframe | "
+            + $"{island.DebugSettings.ToggleFrameRateKey}: frame rate");
         GUILayout.EndArea();
     }
 }

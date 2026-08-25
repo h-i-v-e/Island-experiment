@@ -97,6 +97,32 @@ The Unity viewer constrains water ratio to `0.60..0.95`, river-source catchment
 to `0.01..10` hectares, the steep-slope multiplier to `1..8`, and the
 elevation boost to `0..20`.
 
+## Engine-neutral procedural textures
+
+The `island-texture-baker` binary generates deterministic albedo, height,
+normal, occlusion and optional packed-mask maps from the current JSON recipes
+in `texture-recipes/`. Rust owns the recipe shape and evaluator; Unity and
+other engines can edit the same document without reimplementing noise or
+material logic. The root `material` and `albedo` blocks define the base pass,
+while the ordered `layers` stack routes each scalar source independently to
+height and/or albedo through remapping, masks and output bindings.
+
+Bake a committed recipe from the repository root:
+
+```sh
+cargo run --release \
+  --manifest-path island-rs/Cargo.toml \
+  --bin island-texture-baker -- \
+  --recipe island-rs/texture-recipes/cracked-stone.json \
+  --output island-unity/Assets/Generated/Textures/CrackedStone \
+  --profile motu_unity_terrain
+```
+
+The editor protocol uses the same executable for machine-readable schema,
+validation and resolution-limited previews. Preview output belongs under a
+temporary directory such as `Library/ProceduralMaterialPreview/`; only an
+explicit bake writes under Unity's `Assets/Generated/Textures`.
+
 Hydraulic erosion strength is a multiplier over the generator's staged erosion
 profile. The default is `1`; use `0` to disable hydraulic erosion while keeping
 thermal erosion and river carving enabled. Through 45 degrees material retreats

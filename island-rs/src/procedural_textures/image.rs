@@ -289,8 +289,6 @@ pub struct TextureMetadata {
     pub name: String,
     /// SHA-256 of the normalized effective recipe.
     pub recipe_hash: String,
-    /// Recipe schema version used for this output.
-    pub schema_version: u32,
     /// Generator algorithm version used for this output.
     pub algorithm_version: u32,
     /// Seed used by all source fields.
@@ -315,7 +313,6 @@ impl Default for TextureMetadata {
         Self {
             name: "ProceduralTexture".into(),
             recipe_hash: String::new(),
-            schema_version: 1,
             algorithm_version: 1,
             seed: 0,
             physical_tile_size_m: [1.0, 1.0],
