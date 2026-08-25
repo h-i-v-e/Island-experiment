@@ -25,11 +25,10 @@
 //! material carries before it does.
 
 use bevy::{
-    asset::embedded_asset,
     pbr::{ExtendedMaterial, MaterialExtension, MaterialPlugin},
     prelude::*,
     render::render_resource::{AsBindGroup, ShaderType},
-    shader::{ShaderRef, load_shader_library},
+    shader::ShaderRef,
 };
 
 /// The terrain surface: the generator's material triple per vertex, every band,
@@ -110,13 +109,7 @@ pub struct SurfaceMaterialsPlugin;
 
 impl Plugin for SurfaceMaterialsPlugin {
     fn build(&self, app: &mut App) {
-        load_shader_library!(app, "noise.wgsl");
-        load_shader_library!(app, "debug.wgsl");
-        embedded_asset!(app, "terrain.wgsl");
-        embedded_asset!(app, "rock.wgsl");
-        embedded_asset!(app, "ocean.wgsl");
-        embedded_asset!(app, "river.wgsl");
-        embedded_asset!(app, "spray.wgsl");
+        crate::shaders::load_surface(app);
         app.add_plugins((
             MaterialPlugin::<TerrainMaterial>::default(),
             MaterialPlugin::<RockMaterial>::default(),
@@ -179,7 +172,7 @@ impl TerrainExtension {
 
 impl MaterialExtension for TerrainExtension {
     fn fragment_shader() -> ShaderRef {
-        "embedded://island_bevy/terrain.wgsl".into()
+        "embedded://island_bevy/shaders/terrain.wgsl".into()
     }
 }
 
@@ -216,7 +209,7 @@ impl Default for RockExtension {
 
 impl MaterialExtension for RockExtension {
     fn fragment_shader() -> ShaderRef {
-        "embedded://island_bevy/rock.wgsl".into()
+        "embedded://island_bevy/shaders/rock.wgsl".into()
     }
 }
 
@@ -267,7 +260,7 @@ impl Default for OceanExtension {
 
 impl MaterialExtension for OceanExtension {
     fn fragment_shader() -> ShaderRef {
-        "embedded://island_bevy/ocean.wgsl".into()
+        "embedded://island_bevy/shaders/ocean.wgsl".into()
     }
 }
 
@@ -320,7 +313,7 @@ impl RiverExtension {
 
 impl MaterialExtension for RiverExtension {
     fn fragment_shader() -> ShaderRef {
-        "embedded://island_bevy/river.wgsl".into()
+        "embedded://island_bevy/shaders/river.wgsl".into()
     }
 }
 
@@ -347,10 +340,10 @@ pub struct SprayExtension {
 
 impl MaterialExtension for SprayExtension {
     fn vertex_shader() -> ShaderRef {
-        "embedded://island_bevy/spray.wgsl".into()
+        "embedded://island_bevy/shaders/spray.wgsl".into()
     }
 
     fn fragment_shader() -> ShaderRef {
-        "embedded://island_bevy/spray.wgsl".into()
+        "embedded://island_bevy/shaders/spray.wgsl".into()
     }
 }

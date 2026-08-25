@@ -23,7 +23,7 @@
     forward_io::{VertexOutput, FragmentOutput},
     mesh_view_bindings::view,
 }
-#import island_bevy::noise::fbm
+#import island_bevy::noise::hash
 #import island_bevy::debug
 
 /// One over pi, taking an illuminance in lux to the radiance a lambertian
@@ -78,6 +78,8 @@ struct CloudSettings {
     fade_start: f32,
     fade_range: f32,
     detail_metres: f32,
+    /// Fine-detail lattice cells across one bounded drift period.
+    detail_period: f32,
     /// The diagnostic channel in force, or `debug::OFF`. The layer carries no
     /// channel of its own, and no diagnostic of the ground should be read
     /// through cloud, so any channel at all takes it out of the frame.
@@ -88,6 +90,57 @@ struct CloudSettings {
 @group(#{MATERIAL_BIND_GROUP}) @binding(101) var field: texture_2d<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(102) var field_sampler: sampler;
 
+fn detail_hash(cell: vec3<f32>) -> f32 {
+    let period = max(settings.detail_period, 1.0);
+    let wrapped = vec3<f32>(
+        cell.x - floor(cell.x / period) * period,
+        cell.y,
+        cell.z - floor(cell.z / period) * period,
+    );
+    return hash(wrapped);
+}
+
+/// Fine cloud noise whose two projected axes close over the same spatial
+/// period as the moving base field. The altitude axis is already small and
+/// remains aperiodic, which keeps looks at different heights distinct.
+fn detail_noise(point: vec3<f32>) -> f32 {
+    let cell = floor(point);
+    let offset = point - cell;
+    let blend = offset * offset * offset * (offset * (offset * 6.0 - 15.0) + 10.0);
+
+    let x00 = mix(detail_hash(cell), detail_hash(cell + vec3<f32>(1.0, 0.0, 0.0)), blend.x);
+    let x10 = mix(
+        detail_hash(cell + vec3<f32>(0.0, 1.0, 0.0)),
+        detail_hash(cell + vec3<f32>(1.0, 1.0, 0.0)),
+        blend.x,
+    );
+    let x01 = mix(
+        detail_hash(cell + vec3<f32>(0.0, 0.0, 1.0)),
+        detail_hash(cell + vec3<f32>(1.0, 0.0, 1.0)),
+        blend.x,
+    );
+    let x11 = mix(
+        detail_hash(cell + vec3<f32>(0.0, 1.0, 1.0)),
+        detail_hash(cell + vec3<f32>(1.0, 1.0, 1.0)),
+        blend.x,
+    );
+    return mix(mix(x00, x10, blend.y), mix(x01, x11, blend.y), blend.z);
+}
+
+fn detail_fbm(point: vec3<f32>, octaves: i32) -> f32 {
+    var total = 0.0;
+    var normalization = 0.0;
+    var amplitude = 1.0;
+    var sample_point = point;
+    for (var octave = 0; octave < octaves; octave += 1) {
+        total += amplitude * detail_noise(sample_point);
+        normalization += amplitude;
+        amplitude *= 0.5;
+        sample_point *= 2.0;
+    }
+    return total / normalization;
+}
+
 @fragment
 fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> FragmentOutput {
     let world = in.world_position.xyz;
@@ -96,10 +149,11 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     // into the light's local space, then across its own two-unit tile. The
     // sampler wraps, so nothing has to be brought back into range here.
     let local = world - settings.light_origin;
-    let plane = vec2<f32>(
+    let light_plane = vec2<f32>(
         dot(local, settings.light_right),
         dot(local, settings.light_up),
-    ) * settings.tile_scale;
+    );
+    let plane = light_plane * settings.tile_scale;
     let uv = plane * vec2<f32>(-0.5, 0.5) + 0.5;
     let sunlight = textureSample(field, field_sampler, uv).r;
     let covered = clamp((1.0 - sunlight) / max(settings.shadow, 1.0e-3), 0.0, 1.0);
@@ -107,7 +161,10 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     // The detail is proportional, so clear sky stays clear and a core stays a
     // core; only the edges, where the field is already between the two, break
     // up. Read on the layer's own plane, so it drifts with the field above it.
-    let detail = fbm(vec3<f32>(local.x, world.y, local.z) / settings.detail_metres, 3);
+    let detail = detail_fbm(
+        vec3<f32>(light_plane.x, world.y, light_plane.y) / settings.detail_metres,
+        3,
+    );
     let density = clamp(covered * (1.0 + (detail - 0.5) * DETAIL_STRENGTH), 0.0, 1.0);
 
     // Transmission through the thickness: an edge passes almost everything, a

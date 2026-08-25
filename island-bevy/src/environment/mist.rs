@@ -26,8 +26,9 @@ use motu::ISLAND_WORLD_METRES;
 
 use crate::{
     convert::island_to_world,
-    hash::{mix, unit},
+    hash::{lattice_key_3, mix, unit},
     island_gen::{GeneratedIsland, HEIGHT_GRID, IslandEntity, IslandReady, RiverDrop},
+    math::{octave_sum, smoothstep},
     weather::Weather,
 };
 
@@ -190,23 +191,15 @@ fn density_volume() -> Image {
 fn fade(along: f32) -> f32 {
     let inward = along.min(1.0 - along) * 2.0;
     let progress = (inward / DENSITY_MARGIN).clamp(0.0, 1.0);
-    progress * progress * (3.0 - 2.0 * progress)
+    smoothstep(0.0, 1.0, progress)
 }
 
 /// Tiling three-dimensional value noise, summed. Tiling only so the volume has
 /// no discontinuity of its own; the envelope is what actually ends it.
 fn blobs(point: Vec3) -> f32 {
-    let mut total = 0.0;
-    let mut normalization = 0.0;
-    let mut amplitude = 1.0;
-    let mut period = DENSITY_CELLS;
-    for octave in 0..DENSITY_OCTAVES {
-        total += amplitude * cell_noise(point, period, mix(u64::from(octave), DENSITY_SALT));
-        normalization += amplitude;
-        amplitude *= 0.5;
-        period *= 2;
-    }
-    total / normalization
+    octave_sum(DENSITY_CELLS, DENSITY_OCTAVES, |octave, period| {
+        cell_noise(point, period, mix(u64::from(octave), DENSITY_SALT))
+    })
 }
 
 fn cell_noise(point: Vec3, period: u32, salt: u64) -> f32 {
@@ -215,20 +208,21 @@ fn cell_noise(point: Vec3, period: u32, salt: u64) -> f32 {
     let scaled = point * cells;
     let base = scaled.floor();
     let blend = scaled - base;
-    let smooth = blend * blend * (Vec3::splat(3.0) - 2.0 * blend);
+    let smooth = Vec3::new(
+        smoothstep(0.0, 1.0, blend.x),
+        smoothstep(0.0, 1.0, blend.y),
+        smoothstep(0.0, 1.0, blend.z),
+    );
     #[allow(clippy::cast_possible_truncation)]
     let base = base.as_i64vec3();
     let corner = |x: i64, y: i64, z: i64| {
         let wrap = |value: i64| value.rem_euclid(i64::from(period)).cast_unsigned();
-        let cell = wrap(x).wrapping_mul(0x9e37_79b9_7f4a_7c15)
-            ^ wrap(y).wrapping_mul(0xc2b2_ae3d_27d4_eb4f)
-            ^ wrap(z).wrapping_mul(0x1656_67b1_9e37_79f9);
+        let cell = lattice_key_3(wrap(x), wrap(y), wrap(z));
         unit(mix(cell, salt))
     };
     let face = |z: i64| {
         let near = corner(base.x, base.y, z).lerp(corner(base.x + 1, base.y, z), smooth.x);
-        let far =
-            corner(base.x, base.y + 1, z).lerp(corner(base.x + 1, base.y + 1, z), smooth.x);
+        let far = corner(base.x, base.y + 1, z).lerp(corner(base.x + 1, base.y + 1, z), smooth.x);
         near.lerp(far, smooth.y)
     };
     face(base.z).lerp(face(base.z + 1), smooth.z)
@@ -246,7 +240,7 @@ fn place_mist(
     density: Res<MistDensity>,
     volumes: Query<Entity, With<FogVolume>>,
 ) {
-    let arrived = ready.read().next().is_some();
+    let arrived = ready.read().last().is_some();
     if !arrived && *applied == Some(*weather) {
         return;
     }
@@ -302,7 +296,10 @@ fn place_mist(
             falls += 1;
         }
     }
-    info!("mist: {placed} valley volumes and {falls} at falls, under {}", look.name);
+    info!(
+        "mist: {placed} valley volumes and {falls} at falls, under {}",
+        look.name
+    );
 }
 
 /// One placed volume: where its box sits and how big it is.
@@ -431,9 +428,7 @@ fn fall_volumes(drops: &[RiverDrop]) -> Vec<(Transform, f32)> {
 mod tests {
     use motu::ISLAND_WORLD_METRES;
 
-    use super::{
-        HEIGHT_GRID, VALLEY_CEILING_METRES, VALLEY_FLOOR_METRES, VALLEY_LIMIT, hollows,
-    };
+    use super::{HEIGHT_GRID, VALLEY_CEILING_METRES, VALLEY_FLOOR_METRES, VALLEY_LIMIT, hollows};
 
     /// A grid with one narrow gully cut across an otherwise high plateau. The
     /// gully is the only hollow on it, so that is where every volume has to go.
@@ -445,7 +440,11 @@ mod tests {
                 let column = (index % span) as f32 / span as f32;
                 // 180 m plateau, with a channel 20 m above the sea down the
                 // middle fifteenth of the square.
-                let metres = if (column - 0.5).abs() < 0.033 { 20.0 } else { 180.0 };
+                let metres = if (column - 0.5).abs() < 0.033 {
+                    20.0
+                } else {
+                    180.0
+                };
                 metres / ISLAND_WORLD_METRES
             })
             .collect()

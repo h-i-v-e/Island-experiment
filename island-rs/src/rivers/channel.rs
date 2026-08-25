@@ -277,6 +277,10 @@ pub(super) fn river_candidate_wins(
                     && candidate.owner.key < current.key)))
 }
 
+#[allow(
+    clippy::manual_midpoint,
+    reason = "the generator's established floating-point order is evidence-sensitive"
+)]
 pub(super) fn target_cross_sections(
     rivers: &[River],
     settings: RiverChannelSettings,
@@ -284,35 +288,13 @@ pub(super) fn target_cross_sections(
     rivers
         .iter()
         .map(|river| {
-            let mut downstream_growth = 0.0_f32;
-            let source_flow = river
-                .nodes
-                .first()
-                .map_or(0.0, |node| (node.flow as f32).sqrt());
-            let terminal_flow = river
-                .nodes
-                .last()
-                .map_or(source_flow, |node| (node.flow as f32).sqrt());
-            let flow_span = terminal_flow - source_flow;
-            let path_span = river.nodes.len().saturating_sub(1).max(1) as f32;
-            river
-                .nodes
-                .iter()
-                .enumerate()
-                .map(|(index, node)| {
-                    let path_growth = index as f32 / path_span;
-                    let flow_growth = if flow_span > f32::EPSILON {
-                        ((node.flow as f32).sqrt() - source_flow) / flow_span
-                    } else {
-                        path_growth
-                    };
-                    let local_growth = (flow_growth.clamp(0.0, 1.0) + path_growth) * 0.5;
-                    downstream_growth = downstream_growth.max(local_growth);
+            target_growths(river)
+                .map(|growth| {
                     let target_half_width = 0.5
                         * (settings.source_width
-                            + (settings.maximum_width - settings.source_width) * downstream_growth);
+                            + (settings.maximum_width - settings.source_width) * growth);
                     let nominal_depth = settings.source_depth
-                        + (settings.maximum_depth - settings.source_depth) * downstream_growth;
+                        + (settings.maximum_depth - settings.source_depth) * growth;
                     RiverCrossSection {
                         target_half_width,
                         nominal_depth,
@@ -322,6 +304,50 @@ pub(super) fn target_cross_sections(
                 })
                 .collect()
         })
+        .collect()
+}
+
+/// The monotone source-to-mouth growth used by both carving and public width
+/// reporting. Width and depth each apply their own endpoints to this one rule.
+#[allow(
+    clippy::manual_midpoint,
+    reason = "the generator's established floating-point order is evidence-sensitive"
+)]
+fn target_growths(river: &River) -> impl Iterator<Item = f32> + '_ {
+    let mut downstream_growth = 0.0_f32;
+    let source_flow = river
+        .nodes
+        .first()
+        .map_or(0.0, |node| (node.flow as f32).sqrt());
+    let terminal_flow = river
+        .nodes
+        .last()
+        .map_or(source_flow, |node| (node.flow as f32).sqrt());
+    let flow_span = terminal_flow - source_flow;
+    let path_span = river.nodes.len().saturating_sub(1).max(1) as f32;
+    river.nodes.iter().enumerate().map(move |(index, node)| {
+        let path_growth = index as f32 / path_span;
+        let flow_growth = if flow_span > f32::EPSILON {
+            ((node.flow as f32).sqrt() - source_flow) / flow_span
+        } else {
+            path_growth
+        };
+        // Preserve the generator's established arithmetic order exactly;
+        // downstream terrain and save/replay evidence are sensitive to a
+        // one-ULP change here.
+        let local_growth = (flow_growth.clamp(0.0, 1.0) + path_growth) * 0.5;
+        downstream_growth = downstream_growth.max(local_growth);
+        downstream_growth
+    })
+}
+
+#[allow(
+    clippy::manual_midpoint,
+    reason = "matches target_cross_sections bit for bit for downstream consumers"
+)]
+pub(super) fn target_half_widths(river: &River, source_width: f32, maximum_width: f32) -> Vec<f32> {
+    target_growths(river)
+        .map(|growth| 0.5 * (source_width + (maximum_width - source_width) * growth))
         .collect()
 }
 

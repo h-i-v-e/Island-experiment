@@ -43,9 +43,7 @@ pub(super) fn hydraulic_erode_stage(
     }
     #[cfg(not(feature = "gpu-generation"))]
     if scratch.method == GenerationMethod::Gpu {
-        return Err(String::from(
-            "GPU generation requires the gpu-generation Cargo feature",
-        ));
+        scratch.method.require_available()?;
     }
 
     if std::env::var_os("MOTU_EXPERIMENTAL_MESH_FLOW").is_some() {

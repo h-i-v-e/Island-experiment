@@ -76,6 +76,9 @@ const STEPPER: f32 = 17.0;
 /// Distinguishes the randomized seed from the crate's other hashed values.
 const SEED_SALT: u64 = 0x1f0b_75c2_e4a9_3d68;
 
+/// The title shown when the draft is not one of the curated presets.
+const CUSTOM_DRAFT_TITLE: &str = "CUSTOM ISLAND";
+
 /// The palette: deep navy panels over the sea, off-white text a stop under
 /// paper so a panel against a bright horizon does not glare, cyan for
 /// selection and focus, and amber kept for the one primary action.
@@ -104,43 +107,43 @@ const CONTROL_CORNER: u8 = 4;
 const THUMBNAILS: [(&str, &[u8]); 10] = [
     (
         "The Spires",
-        include_bytes!("../assets/preset-thumbs/the-spires.png"),
+        include_bytes!("../../assets/preset-thumbs/the-spires.png"),
     ),
     (
         "Lone Cone",
-        include_bytes!("../assets/preset-thumbs/lone-cone.png"),
+        include_bytes!("../../assets/preset-thumbs/lone-cone.png"),
     ),
     (
         "Stone Tower",
-        include_bytes!("../assets/preset-thumbs/stone-tower.png"),
+        include_bytes!("../../assets/preset-thumbs/stone-tower.png"),
     ),
     (
         "Snowcap Massif",
-        include_bytes!("../assets/preset-thumbs/snowcap-massif.png"),
+        include_bytes!("../../assets/preset-thumbs/snowcap-massif.png"),
     ),
     (
         "Gullied Ridges",
-        include_bytes!("../assets/preset-thumbs/gullied-ridges.png"),
+        include_bytes!("../../assets/preset-thumbs/gullied-ridges.png"),
     ),
     (
         "Uncut Dome",
-        include_bytes!("../assets/preset-thumbs/uncut-dome.png"),
+        include_bytes!("../../assets/preset-thumbs/uncut-dome.png"),
     ),
     (
         "River Country",
-        include_bytes!("../assets/preset-thumbs/river-country.png"),
+        include_bytes!("../../assets/preset-thumbs/river-country.png"),
     ),
     (
         "Silted Shore",
-        include_bytes!("../assets/preset-thumbs/silted-shore.png"),
+        include_bytes!("../../assets/preset-thumbs/silted-shore.png"),
     ),
     (
         "Tidal Flats",
-        include_bytes!("../assets/preset-thumbs/tidal-flats.png"),
+        include_bytes!("../../assets/preset-thumbs/tidal-flats.png"),
     ),
     (
         "Bare Atoll",
-        include_bytes!("../assets/preset-thumbs/bare-atoll.png"),
+        include_bytes!("../../assets/preset-thumbs/bare-atoll.png"),
     ),
 ];
 
@@ -166,14 +169,52 @@ impl Tab {
     }
 }
 
+/// A decimal seed being edited by the inspector.
+///
+/// The text is kept across frames so an incomplete edit can stay on screen,
+/// while `value` says whether the current text is a complete `u64`. Keeping
+/// the integer path separate from egui's numeric controls is important: those
+/// controls edit through `f64` and cannot represent every seed.
+struct SeedDraft {
+    text: String,
+    value: Option<u64>,
+}
+
+impl SeedDraft {
+    fn new(value: u64) -> Self {
+        Self {
+            text: value.to_string(),
+            value: Some(value),
+        }
+    }
+
+    fn value(&self) -> Option<u64> {
+        self.value
+    }
+
+    fn reparse(&mut self) {
+        self.value = self.text.parse().ok();
+    }
+
+    fn set(&mut self, value: u64) {
+        self.text = value.to_string();
+        self.value = Some(value);
+    }
+}
+
 #[derive(Resource)]
 struct Hud {
     visible: bool,
     /// The values the controls edit. Nothing generates from them until
     /// Generate, or an archetype card, is pressed.
-    seed: u64,
+    seed: SeedDraft,
     options: IslandOptions,
     method: GenerationMethod,
+    /// Index into `PRESETS` when the current draft matches one. Recomputed
+    /// only after an edit, not in each place that displays the answer.
+    matched_preset: Option<usize>,
+    /// The cached uppercase title drawn in the command bar.
+    draft_title: String,
     /// The argument list that reproduces the island on screen, rebuilt when one
     /// lands rather than from the draft, which has usually moved on. The copy
     /// button puts it on the clipboard.
@@ -183,6 +224,53 @@ struct Hud {
     next_reading: f32,
     tab: Tab,
     archetypes_open: bool,
+}
+
+impl Hud {
+    fn new(seed: u64, options: IslandOptions, method: GenerationMethod) -> Self {
+        let mut hud = Self {
+            visible: true,
+            seed: SeedDraft::new(seed),
+            options,
+            method,
+            matched_preset: None,
+            draft_title: String::new(),
+            command_line: options::command_line(seed, &options, method),
+            fps: 0.0,
+            next_reading: 0.0,
+            tab: Tab::Form,
+            archetypes_open: true,
+        };
+        hud.refresh_preset();
+        hud
+    }
+
+    /// Refreshes both views of preset identity together, after the draft has
+    /// actually changed.
+    fn refresh_preset(&mut self) {
+        self.matched_preset = self.seed.value().and_then(|seed| {
+            PRESETS.iter().position(|preset| {
+                seed == preset.seed && self.options == preset.options(self.options.terrain_size)
+            })
+        });
+        let title = self
+            .matched_preset
+            .map_or(CUSTOM_DRAFT_TITLE, |index| PRESETS[index].name);
+        self.draft_title.clear();
+        self.draft_title.push_str(title);
+        self.draft_title.make_ascii_uppercase();
+    }
+
+    /// The single handoff used by every HUD action. An incomplete or
+    /// out-of-range seed has no request, so the visible text can never build a
+    /// different, previously valid island.
+    fn regenerate(&self) -> Option<Regenerate> {
+        Some(Regenerate {
+            seed: self.seed.value()?,
+            options: self.options,
+            method: self.method,
+        })
+    }
 }
 
 /// One egui texture per preset, in `PRESETS` order, with the handle that keeps
@@ -237,17 +325,7 @@ impl Plugin for HudPlugin {
 /// The draft opens on whatever the command line asked for, so the HUD and the
 /// island agree from the first frame.
 fn install(mut commands: Commands, settings: Res<GenerationSettings>) {
-    commands.insert_resource(Hud {
-        visible: true,
-        seed: settings.seed,
-        options: settings.options,
-        method: settings.method,
-        command_line: options::command_line(settings.seed, &settings.options, settings.method),
-        fps: 0.0,
-        next_reading: 0.0,
-        tab: Tab::Form,
-        archetypes_open: true,
-    });
+    commands.insert_resource(Hud::new(settings.seed, settings.options, settings.method));
 }
 
 /// Decodes the embedded captures into textures once, at startup. A capture
@@ -422,12 +500,10 @@ fn tooltip(description: &str, flag: &str) -> String {
     }
 }
 
-/// The preset the draft currently is, if it is one: the same comparison a card
-/// uses to light up, read again by the command bar to name the world.
-fn matching_preset(hud: &Hud) -> Option<&'static Preset> {
-    PRESETS.iter().find(|preset| {
-        hud.seed == preset.seed && hud.options == preset.options(hud.options.terrain_size)
-    })
+/// The cached preset the draft currently is, if it is one. Both the command
+/// bar and the cards read this answer, so their labels cannot drift apart.
+fn matching_preset(hud: &Hud) -> Option<usize> {
+    hud.matched_preset
 }
 
 /// The dark translucent look, installed once on the context that draws it.
@@ -602,10 +678,9 @@ fn draw_command_bar(
                         });
                     });
                     let rect = ui.max_rect();
-                    let name = matching_preset(&hud).map_or("CUSTOM ISLAND", |preset| preset.name);
                     ui.put(
                         egui::Rect::from_center_size(rect.center(), egui::vec2(320.0, 18.0)),
-                        egui::Label::new(caps(&name.to_uppercase(), 12.0, TEXT).strong()),
+                        egui::Label::new(caps(&hud.draft_title, 12.0, TEXT).strong()),
                     );
                     // The bar's one edge: a hairline along its foot.
                     let edge = rect.expand2(egui::vec2(14.0, 8.0));
@@ -623,6 +698,7 @@ fn draw_generate(
     running: bool,
     requests: &mut MessageWriter<Regenerate>,
 ) {
+    let valid_seed = hud.seed.value().is_some();
     // Scoped, so the amber stays on this one button rather than leaking into
     // whatever the row draws after it.
     let clicked = ui
@@ -645,17 +721,18 @@ fn draw_generate(
                     .color(AMBER_TEXT),
             )
             .min_size(egui::vec2(112.0, 26.0));
-            ui.add_enabled(!running, button)
-                .on_hover_text("rebuild the island from the draft")
+            let hover = if valid_seed {
+                "rebuild the island from the draft"
+            } else {
+                "enter a decimal seed from 0 to 18446744073709551615 first"
+            };
+            ui.add_enabled(!running && valid_seed, button)
+                .on_hover_text(hover)
                 .clicked()
         })
         .inner;
-    if clicked {
-        requests.write(Regenerate {
-            seed: hud.seed,
-            options: hud.options,
-            method: hud.method,
-        });
+    if clicked && let Some(request) = hud.regenerate() {
+        requests.write(request);
     }
 }
 
@@ -688,11 +765,9 @@ fn draw_generation_method(
     });
     if selected != hud.method {
         hud.method = selected;
-        requests.write(Regenerate {
-            seed: hud.seed,
-            options: hud.options,
-            method: hud.method,
-        });
+        if let Some(request) = hud.regenerate() {
+            requests.write(request);
+        }
     }
 }
 
@@ -764,25 +839,24 @@ fn draw_cards(
     running: bool,
     requests: &mut MessageWriter<Regenerate>,
 ) {
+    let matched_preset = matching_preset(hud);
     egui::Grid::new("archetype cards")
         .num_columns(CARD_COLUMNS)
         .spacing([CARD_SPACING, CARD_SPACING])
         .show(ui, |ui| {
             for (index, preset) in PRESETS.iter().enumerate() {
-                let selected = hud.seed == preset.seed
-                    && hud.options == preset.options(hud.options.terrain_size);
+                let selected = matched_preset == Some(index);
                 let thumbnail = thumbnails
                     .entries
                     .get(index)
                     .and_then(|entry| entry.as_ref().map(|(id, _)| *id));
                 if preset_card(ui, preset, thumbnail, selected, !running) {
-                    hud.seed = preset.seed;
+                    hud.seed.set(preset.seed);
                     hud.options = preset.options(hud.options.terrain_size);
-                    requests.write(Regenerate {
-                        seed: hud.seed,
-                        options: hud.options,
-                        method: hud.method,
-                    });
+                    hud.refresh_preset();
+                    if let Some(request) = hud.regenerate() {
+                        requests.write(request);
+                    }
                 }
                 if index % CARD_COLUMNS == CARD_COLUMNS - 1 {
                     ui.end_row();
@@ -874,6 +948,8 @@ fn draw_inspector(
     let body_height =
         (context.content_rect().height() - BAR_CLEARANCE - MARGIN - BOTTOM_CLEARANCE - 118.0)
             .max(BODY_MINIMUM_HEIGHT);
+    let previous_seed = hud.seed.value();
+    let previous_options = hud.options;
     egui::Window::new("sculpt")
         .anchor(egui::Align2::RIGHT_TOP, [-MARGIN, BAR_CLEARANCE])
         .default_width(INSPECTOR_WIDTH)
@@ -900,6 +976,9 @@ fn draw_inspector(
             ui.separator();
             draw_footer(ui, &hud, &status);
         });
+    if hud.seed.value() != previous_seed || hud.options != previous_options {
+        hud.refresh_preset();
+    }
 }
 
 /// Four titles across the panel, the live one underlined in the accent: the
@@ -1053,14 +1132,33 @@ fn stepper(ui: &mut egui::Ui, label: &str) -> bool {
 /// The value everything else is hashed from: dragged or typed, or replaced
 /// whole by RANDOMIZE beside it. Randomizing moves only the draft — Generate
 /// is still the one thing that builds.
-fn seed_row(ui: &mut egui::Ui, seed: &mut u64) {
+fn seed_row(ui: &mut egui::Ui, seed: &mut SeedDraft) {
     let hover = "Which island of this shape you get. Same seed, same island, \
                  every time.";
     ui.add_space(4.0);
     ui.label(caps("SEED", 9.5, DIM_TEXT)).on_hover_text(hover);
     ui.horizontal(|ui| {
-        ui.add_sized([SLIDER_WIDTH, 18.0], egui::DragValue::new(seed).speed(1.0))
-            .on_hover_text(hover);
+        let colour = if seed.value().is_some() {
+            TEXT
+        } else {
+            FAILURE_COLOUR
+        };
+        let response = ui.add_sized(
+            [SLIDER_WIDTH, 18.0],
+            egui::TextEdit::singleline(&mut seed.text)
+                .font(egui::TextStyle::Monospace)
+                .text_color(colour)
+                .char_limit(20),
+        );
+        if response.changed() {
+            seed.reparse();
+        }
+        if seed.value().is_some() {
+            response.on_hover_text(hover);
+        } else {
+            response
+                .on_hover_text("A seed must be a decimal integer from 0 to 18446744073709551615");
+        }
         // The rest of the row, out to the edge the other rows' steppers reach.
         if ui
             .add_sized(
@@ -1070,7 +1168,7 @@ fn seed_row(ui: &mut egui::Ui, seed: &mut u64) {
             .on_hover_text("Pick a seed nobody chose; Generate builds it")
             .clicked()
         {
-            *seed = random_seed();
+            seed.set(random_seed());
         }
     });
 }
@@ -1438,7 +1536,59 @@ fn view_button(ui: &mut egui::Ui, icon: ViewIcon, selected: bool) -> egui::Respo
 
 #[cfg(test)]
 mod tests {
-    use super::{PARAMETERS, PRESETS, THUMBNAILS, describe};
+    use motu::{GenerationMethod, IslandOptions};
+
+    use super::{
+        CUSTOM_DRAFT_TITLE, Hud, PARAMETERS, PRESETS, SeedDraft, THUMBNAILS, describe,
+        matching_preset,
+    };
+
+    /// Decimal editing never sends a seed through `f64`: values on either
+    /// side of its exact-integer boundary, including the full `u64` maximum,
+    /// round-trip digit for digit.
+    #[test]
+    fn seed_draft_preserves_every_u64_bit() {
+        for value in [9_007_199_254_740_991, 9_007_199_254_740_993, u64::MAX] {
+            let mut draft = SeedDraft::new(0);
+            draft.text = value.to_string();
+            draft.reparse();
+            assert_eq!(draft.text, value.to_string());
+            assert_eq!(draft.value(), Some(value));
+        }
+
+        let mut draft = SeedDraft::new(0);
+        draft.text = String::from("18446744073709551616");
+        draft.reparse();
+        assert_eq!(draft.value(), None);
+    }
+
+    /// Preset identity, its command-bar title and every regeneration request
+    /// are all derived from the same cached draft state.
+    #[test]
+    fn cached_preset_and_regeneration_cannot_drift() {
+        let preset = &PRESETS[0];
+        let options = preset.options(512);
+        let mut hud = Hud::new(preset.seed, options, GenerationMethod::Cpu);
+        assert_eq!(matching_preset(&hud), Some(0));
+        assert_eq!(hud.draft_title, preset.name.to_ascii_uppercase());
+        let request = hud.regenerate().expect("preset seed is valid");
+        assert_eq!(request.seed, preset.seed);
+        assert_eq!(request.options, options);
+
+        hud.options = IslandOptions {
+            max_height: options.max_height + 0.01,
+            ..options
+        };
+        hud.refresh_preset();
+        assert!(matching_preset(&hud).is_none());
+        assert_eq!(hud.draft_title, CUSTOM_DRAFT_TITLE);
+
+        hud.seed.text.clear();
+        hud.seed.reparse();
+        hud.refresh_preset();
+        assert!(hud.regenerate().is_none());
+        assert!(matching_preset(&hud).is_none());
+    }
 
     /// The card table is keyed by preset name, so a preset renamed or added
     /// without a capture would quietly lose its picture.

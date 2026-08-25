@@ -14,6 +14,8 @@ use motu::{
 use crate::{
     cache,
     chunk::{self, ChunkTier, TerrainChunk},
+    convert::{self, island_to_world},
+    math::smoothstep,
     options,
 };
 
@@ -101,18 +103,28 @@ struct Variant {
     coastal_slope_multiplier: f32,
 }
 
-/// Looks a `--variant` name up and applies its overrides in place, leaving
-/// every other option as the caller left it.
-pub fn apply_variant(name: &str, options: &mut IslandOptions) -> Result<(), String> {
-    let (_, overrides) = VARIANTS
+/// Replaces the fields owned by a named variant, leaving every other option as
+/// the caller left it. Resetting the owned fields explicitly matters even when
+/// a variant writes the same value as `base`: a later variant must still undo
+/// that write according to command-line order.
+pub fn replace_variant(
+    name: &str,
+    base: &IslandOptions,
+    options: &mut IslandOptions,
+) -> Result<(), String> {
+    let overrides = VARIANTS
         .iter()
         .find(|(variant, _)| *variant == name)
+        .map(|(_, overrides)| *overrides)
         .ok_or_else(|| {
             format!(
                 "unknown variant {name:?}; expected one of {}",
                 variant_names()
             )
         })?;
+
+    options.hydraulic_erosion_strength = base.hydraulic_erosion_strength;
+    options.coastal_slope_multiplier = base.coastal_slope_multiplier;
     if let Some(variant) = overrides {
         options.hydraulic_erosion_strength = variant.hydraulic_erosion_strength;
         options.coastal_slope_multiplier = variant.coastal_slope_multiplier;
@@ -219,7 +231,7 @@ pub struct IslandData {
 impl IslandData {
     /// Built on the generation task, which is also what moves the generator's
     /// lazy decoration pass and the terrain slicing off the main thread.
-    fn new(island: &Island) -> Self {
+    fn new(island: &Island) -> (Self, DropIndex) {
         let decorations = island.decorations();
         let started = Instant::now();
         let river_drops = river_drops(island);
@@ -241,7 +253,7 @@ impl IslandData {
             river_drops.len(),
             started.elapsed().as_secs_f32() * 1_000.0,
         );
-        Self {
+        let data = Self {
             options: island.options(),
             terrain_chunks,
             river_mesh: island.river_mesh().clone(),
@@ -251,7 +263,8 @@ impl IslandData {
             bushes: decorations.bushes().to_vec(),
             heights: island.height_map(HEIGHT_GRID, HEIGHT_GRID),
             rivers: u32::try_from(island.rivers().len()).unwrap_or(u32::MAX),
-        }
+        };
+        (data, drops)
     }
 
     /// Vertices across every chunk at one level of detail, which is what the
@@ -322,8 +335,13 @@ fn terrain_chunks(island: &Island, banks: &WetBanks, drops: &DropIndex) -> Vec<T
             let bounds = chunk::bounds(column, row);
             let sides = chunk::interior_sides(column, row);
             let mut tiers = Vec::with_capacity(chunk::TIERS);
+            let (mut surface_low, mut surface_high) = (f32::MAX, f32::MIN);
             for level in &mut levels {
                 let mut mesh = level.get_mut(index).map(std::mem::take).unwrap_or_default();
+                for vertex in &mesh.vertices {
+                    surface_low = surface_low.min(vertex.z);
+                    surface_high = surface_high.max(vertex.z);
+                }
                 let mut materials = island.material_values_for(&mesh);
                 let mut river_wetness = banks.measure(&mesh, drops);
                 for source in chunk::skirt(&mut mesh, bounds, depth, sides) {
@@ -340,6 +358,8 @@ fn terrain_chunks(island: &Island, banks: &WetBanks, drops: &DropIndex) -> Vec<T
             chunks.push(TerrainChunk {
                 column,
                 row,
+                surface_low,
+                surface_high,
                 tiers: tiers
                     .try_into()
                     .expect("one tier is built per level of detail"),
@@ -431,36 +451,71 @@ impl DropField {
 /// vertex reads one cell instead of the whole list, which is what keeps a pass
 /// over a two-million-vertex terrain to milliseconds without a thread pool.
 pub struct DropIndex {
-    drops: Vec<RiverDrop>,
+    drops: Lattice<RiverDrop>,
+}
+
+/// Values registered over the uniform cells their reach intersects.
+///
+/// Both river drops and wet bank segments use the same index shape; only the
+/// value and the function that reports its bounds differ.
+struct Lattice<T> {
+    values: Vec<T>,
     cells: Vec<Vec<u32>>,
     span: usize,
 }
 
-impl DropIndex {
-    #[must_use]
-    pub fn new(drops: &[RiverDrop]) -> Self {
-        // One cell per plunge range, and at least one cell whatever the range.
+impl<T> Lattice<T> {
+    fn over(values: Vec<T>, cell_metres: f32, bounds: impl Fn(&T) -> (Vec2, Vec2)) -> Self {
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let span = (1.0 / normalized(DROP_PLUNGE_METRES)).ceil().max(1.0) as usize;
-        let mut index = Self {
-            drops: drops.to_vec(),
-            cells: vec![Vec::new(); span * span],
-            span,
-        };
-        for (drop, position) in index.drops.iter().enumerate() {
-            let reach = position.reach();
-            let low = position.lip.truncate().min(position.foot.truncate()) - reach;
-            let high = position.lip.truncate().max(position.foot.truncate()) + reach;
+        let span = (1.0 / normalized(cell_metres)).ceil().max(1.0) as usize;
+        let mut cells = vec![Vec::new(); span * span];
+        for (index, value) in values.iter().enumerate() {
+            let (low, high) = bounds(value);
             let (left, top) = (cell_index(low.x, span), cell_index(low.y, span));
             let (right, bottom) = (cell_index(high.x, span), cell_index(high.y, span));
             for row in top..=bottom {
                 for column in left..=right {
                     #[allow(clippy::cast_possible_truncation)]
-                    index.cells[row * span + column].push(drop as u32);
+                    cells[row * span + column].push(index as u32);
                 }
             }
         }
-        index
+        Self {
+            values,
+            cells,
+            span,
+        }
+    }
+
+    fn nearby(&self, point: Vec2) -> impl Iterator<Item = &T> {
+        let row = cell_index(point.y, self.span);
+        let column = cell_index(point.x, self.span);
+        self.cells[row * self.span + column]
+            .iter()
+            .map(|&index| &self.values[index as usize])
+    }
+
+    fn is_empty(&self) -> bool {
+        self.values.is_empty()
+    }
+
+    fn len(&self) -> usize {
+        self.values.len()
+    }
+}
+
+impl DropIndex {
+    #[must_use]
+    pub fn new(drops: &[RiverDrop]) -> Self {
+        Self {
+            drops: Lattice::over(drops.to_vec(), DROP_PLUNGE_METRES, |drop| {
+                let reach = drop.reach();
+                (
+                    drop.lip.truncate().min(drop.foot.truncate()) - reach,
+                    drop.lip.truncate().max(drop.foot.truncate()) + reach,
+                )
+            }),
+        }
     }
 
     #[must_use]
@@ -470,11 +525,7 @@ impl DropIndex {
 
     /// The drops that can reach a normalized island-space point.
     fn nearby(&self, point: Vec2) -> impl Iterator<Item = RiverDrop> + '_ {
-        let row = cell_index(point.y, self.span);
-        let column = cell_index(point.x, self.span);
-        self.cells[row * self.span + column]
-            .iter()
-            .map(|&drop| self.drops[drop as usize])
+        self.drops.nearby(point).copied()
     }
 
     /// What a water-surface vertex carries. The three proximities are taken
@@ -592,6 +643,11 @@ impl RiverDrop {
 
 /// Metres from a point to a segment, all in normalized island space.
 fn segment_distance(point: Vec2, from: Vec2, to: Vec2) -> f32 {
+    closest_on_segment(point, from, to).0.distance(point)
+}
+
+/// The closest point on a segment and its parameter from `from` to `to`.
+fn closest_on_segment(point: Vec2, from: Vec2, to: Vec2) -> (Vec2, f32) {
     let along = to - from;
     let length = along.length_squared();
     let travelled = if length > f32::EPSILON {
@@ -599,18 +655,7 @@ fn segment_distance(point: Vec2, from: Vec2, to: Vec2) -> f32 {
     } else {
         0.0
     };
-    (from + along * travelled).distance(point)
-}
-
-/// The same curve WGSL's `smoothstep` is, so the values baked here and the ones
-/// the shaders derive answer alike.
-fn smoothstep(low: f32, high: f32, value: f32) -> f32 {
-    let span = high - low;
-    if span.abs() <= f32::EPSILON {
-        return f32::from(value >= high);
-    }
-    let progress = ((value - low) / span).clamp(0.0, 1.0);
-    progress * progress * (3.0 - 2.0 * progress)
+    (from + along * travelled, travelled)
 }
 
 /// Every fall on every channel of one island.
@@ -632,7 +677,7 @@ fn river_drops(island: &Island) -> Vec<RiverDrop> {
 fn drops_of(rivers: &[River], source: f32, maximum: f32) -> Vec<RiverDrop> {
     let mut drops = Vec::new();
     for river in rivers {
-        let widths = half_widths(river, source, maximum);
+        let widths = river.target_half_widths(source, maximum);
         let nodes = &river.nodes;
         let mut segment = 0;
         while segment + 1 < nodes.len() {
@@ -713,14 +758,7 @@ impl WetSegment {
     /// the water beside it is dry however close it is horizontally.
     fn wetness(&self, vertex: Vec3) -> f32 {
         let point = vertex.truncate();
-        let along = self.to - self.from;
-        let length = along.length_squared();
-        let travelled = if length > f32::EPSILON {
-            ((point - self.from).dot(along) / length).clamp(0.0, 1.0)
-        } else {
-            0.0
-        };
-        let closest = self.from + along * travelled;
+        let (closest, travelled) = closest_on_segment(point, self.from, self.to);
         let half_width = self.from_half_width.lerp(self.to_half_width, travelled);
         let edge = (closest.distance(point) - half_width).max(0.0);
         let rise = (vertex.z - self.from_surface.lerp(self.to_surface, travelled)).max(0.0);
@@ -750,9 +788,7 @@ fn normalized(metres: f32) -> f32 {
 /// few valleys, and that is what keeps a pass over two million vertices to
 /// milliseconds without a thread pool.
 struct WetBanks {
-    segments: Vec<WetSegment>,
-    cells: Vec<Vec<u32>>,
-    span: usize,
+    segments: Lattice<WetSegment>,
 }
 
 impl WetBanks {
@@ -762,28 +798,15 @@ impl WetBanks {
 
     /// The lattice over a segment list, which is what the tests can build.
     fn over(segments: Vec<WetSegment>) -> Self {
-        // One cell per wetness range, and at least one cell whatever the range.
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let span = (1.0 / normalized(RIVER_WET_METRES)).ceil().max(1.0) as usize;
-        let mut banks = Self {
-            segments,
-            cells: vec![Vec::new(); span * span],
-            span,
-        };
-        for (index, segment) in banks.segments.iter().enumerate() {
-            let reach = segment.reach();
-            let low = segment.from.min(segment.to) - reach;
-            let high = segment.from.max(segment.to) + reach;
-            let (left, top) = (cell_index(low.x, span), cell_index(low.y, span));
-            let (right, bottom) = (cell_index(high.x, span), cell_index(high.y, span));
-            for row in top..=bottom {
-                for column in left..=right {
-                    #[allow(clippy::cast_possible_truncation)]
-                    banks.cells[row * span + column].push(index as u32);
-                }
-            }
+        Self {
+            segments: Lattice::over(segments, RIVER_WET_METRES, |segment| {
+                let reach = segment.reach();
+                (
+                    segment.from.min(segment.to) - reach,
+                    segment.from.max(segment.to) + reach,
+                )
+            }),
         }
-        banks
     }
 
     /// One proximity per terrain vertex, in the mesh's own order. Ground beside
@@ -798,11 +821,9 @@ impl WetBanks {
             .vertices
             .iter()
             .map(|&vertex| {
-                let row = cell_index(vertex.y, self.span);
-                let column = cell_index(vertex.x, self.span);
-                self.cells[row * self.span + column]
-                    .iter()
-                    .map(|&index| self.segments[index as usize].wetness(vertex))
+                self.segments
+                    .nearby(vertex.truncate())
+                    .map(|segment| segment.wetness(vertex))
                     .fold(drops.spray(vertex), f32::max)
             })
             .collect()
@@ -818,78 +839,115 @@ fn cell_index(coordinate: f32, span: usize) -> usize {
     (coordinate * last.max(1.0)).clamp(0.0, last) as usize
 }
 
-/// Every segment of every channel whose water surface stands above the sea at
-/// both of its ends. A reach that has already dropped to sea level is left to
-/// the waterline damp the shader applies from sea proximity.
+/// Every above-sea part of every channel segment. A reach that crosses the
+/// waterline is clipped at the crossing so its final bank remains wet right up
+/// to the mouth; only the already-submerged part is left to sea proximity.
 fn wet_segments(island: &Island) -> Vec<WetSegment> {
     let options = island.options();
     let source = normalized(options.river_source_width_metres);
     let maximum = normalized(options.river_maximum_width_metres);
     let mut segments = Vec::new();
     for river in island.rivers() {
-        let widths = half_widths(river, source, maximum);
+        let widths = river.target_half_widths(source, maximum);
         for (index, pair) in river.nodes.windows(2).enumerate() {
             let (from, to) = (pair[0], pair[1]);
-            if from.surface <= 0.0 || to.surface <= 0.0 {
-                continue;
+            if let Some(segment) = wet_segment(from, to, widths[index], widths[index + 1]) {
+                segments.push(segment);
             }
-            segments.push(WetSegment {
-                from: from.position.truncate(),
-                to: to.position.truncate(),
-                from_surface: from.surface,
-                to_surface: to.surface,
-                from_half_width: widths[index],
-                to_half_width: widths[index + 1],
-            });
         }
     }
     segments
 }
 
-/// The generator's own channel half width at every node of one river, from the
-/// flow and the path position it publishes.
-///
-/// `rivers::target_cross_sections` widens a channel from the source width to
-/// the maximum by the greater of how far along it a node stands and how much of
-/// the terminal flow it carries, and never narrows it again downstream. This is
-/// that rule, so the water edge the wetness measures from is the one the
-/// generator carved to.
-#[allow(clippy::cast_precision_loss)]
-fn half_widths(river: &River, source: f32, maximum: f32) -> Vec<f32> {
-    let source_flow = river
-        .nodes
-        .first()
-        .map_or(0.0, |node| (node.flow as f32).sqrt());
-    let terminal_flow = river
-        .nodes
-        .last()
-        .map_or(source_flow, |node| (node.flow as f32).sqrt());
-    let flow_span = terminal_flow - source_flow;
-    let path_span = river.nodes.len().saturating_sub(1).max(1) as f32;
-    let mut growth = 0.0_f32;
-    river
-        .nodes
-        .iter()
-        .enumerate()
-        .map(|(index, node)| {
-            let along = index as f32 / path_span;
-            let by_flow = if flow_span > f32::EPSILON {
-                ((node.flow as f32).sqrt() - source_flow) / flow_span
-            } else {
-                along
-            };
-            growth = growth.max(f32::midpoint(by_flow.clamp(0.0, 1.0), along));
-            source.lerp(maximum, growth) * 0.5
-        })
-        .collect()
+/// The above-sea share of one channel segment, if it has one.
+fn wet_segment(
+    from: RiverNode,
+    to: RiverNode,
+    from_half_width: f32,
+    to_half_width: f32,
+) -> Option<WetSegment> {
+    if from.surface <= 0.0 && to.surface <= 0.0 {
+        return None;
+    }
+    let mut segment = WetSegment {
+        from: from.position.truncate(),
+        to: to.position.truncate(),
+        from_surface: from.surface,
+        to_surface: to.surface,
+        from_half_width,
+        to_half_width,
+    };
+    if from.surface <= 0.0 || to.surface <= 0.0 {
+        let crossing = from.surface / (from.surface - to.surface);
+        let point = from.position.lerp(to.position, crossing).truncate();
+        let half_width = from_half_width.lerp(to_half_width, crossing);
+        if from.surface <= 0.0 {
+            segment.from = point;
+            segment.from_surface = 0.0;
+            segment.from_half_width = half_width;
+        } else {
+            segment.to = point;
+            segment.to_surface = 0.0;
+            segment.to_half_width = half_width;
+        }
+    }
+    Some(segment)
 }
 
 /// The finished island. Replaced whole on every rebuild.
 #[derive(Resource)]
 pub struct GeneratedIsland(pub IslandData);
 
+/// Render meshes prepared on the generation task and consumed once by the
+/// spawn systems. Keeping them separate leaves [`IslandData`] as the plain,
+/// cacheable generator payload while the expensive attribute conversion stays
+/// off the main thread.
+#[derive(Resource)]
+pub struct PreparedMeshes {
+    pub terrain: Vec<[Option<bevy::prelude::Mesh>; chunk::TIERS]>,
+    pub river: Option<bevy::prelude::Mesh>,
+    pub river_rocks: Option<bevy::prelude::Mesh>,
+}
+
+struct PreparedIsland {
+    data: IslandData,
+    meshes: PreparedMeshes,
+}
+
+impl PreparedIsland {
+    fn new(data: IslandData, drops: &DropIndex) -> Self {
+        let started = Instant::now();
+        let terrain = data
+            .terrain_chunks
+            .iter()
+            .map(|chunk| {
+                let centre = chunk::origin(chunk);
+                let origin = island_to_world(centre.x, centre.y, centre.z);
+                std::array::from_fn(|level| {
+                    let tier = &chunk.tiers[level];
+                    convert::terrain_mesh(&tier.mesh, &tier.materials, &tier.river_wetness, origin)
+                })
+            })
+            .collect();
+        let river = convert::river_mesh(&data.river_mesh, drops);
+        let river_rocks = convert::rock_mesh(&data.river_rock_mesh, drops);
+        info!(
+            "render meshes prepared off-thread in {:.0} ms",
+            started.elapsed().as_secs_f32() * 1_000.0
+        );
+        Self {
+            data,
+            meshes: PreparedMeshes {
+                terrain,
+                river,
+                river_rocks,
+            },
+        }
+    }
+}
+
 #[derive(Component)]
-struct GenerationTask(Task<Result<IslandData, String>>);
+struct GenerationTask(Task<Result<PreparedIsland, String>>);
 
 /// What an arriving island replaces: everything the island before it spawned.
 type Replaced = With<IslandEntity>;
@@ -932,8 +990,10 @@ fn start(commands: &mut Commands, settings: GenerationSettings, status: &mut Gen
     );
     // The cache read runs on the task as well: an entry is tens of megabytes,
     // and no frame should wait on that any more than on generation.
-    let task = AsyncComputeTaskPool::get()
-        .spawn(async move { island_data(seed, options, method, cache_reads) });
+    let task = AsyncComputeTaskPool::get().spawn(async move {
+        island_data(seed, options, method, cache_reads)
+            .map(|(data, drops)| PreparedIsland::new(data, &drops))
+    });
     commands.spawn((Name::new("Island generation"), GenerationTask(task)));
     status.elapsed = Some(0.0);
 }
@@ -970,17 +1030,18 @@ fn island_data(
     options: IslandOptions,
     method: GenerationMethod,
     cache_reads: bool,
-) -> Result<IslandData, String> {
+) -> Result<(IslandData, DropIndex), String> {
     let path = cache::path(method, cache::key(seed, &options));
     if !cache_reads {
         info!("island cache bypassed: --no-cache");
     } else if let Some(data) = cache::read(&path, seed, &options) {
         info!("island cache hit: {}", path.display());
-        return Ok(data);
+        let drops = DropIndex::new(&data.river_drops);
+        return Ok((data, drops));
     } else {
         info!("island cache miss: {}", path.display());
     }
-    let data = IslandData::new(&Island::generate_with_method(seed, options, method)?);
+    let (data, drops) = IslandData::new(&Island::generate_with_method(seed, options, method)?);
     match cache::write(&path, seed, &data) {
         Ok(()) => info!("island cache written: {}", path.display()),
         Err(error) => warn!(
@@ -988,7 +1049,7 @@ fn island_data(
             path.display()
         ),
     }
-    Ok(data)
+    Ok((data, drops))
 }
 
 fn track_elapsed(time: Res<Time>, mut status: ResMut<GenerationStatus>) {
@@ -1018,7 +1079,8 @@ fn poll_generation(
         commands.entity(entity).despawn();
         let elapsed = status.elapsed.take();
         match result {
-            Ok(data) => {
+            Ok(prepared) => {
+                let PreparedIsland { data, meshes } = prepared;
                 info!(
                     "island ready: {} chunks over {} terrain vertices at LOD 0, {} rivers, \
                      {} trees, {} bushes",
@@ -1036,6 +1098,7 @@ fn poll_generation(
                     commands.entity(entity).despawn();
                 }
                 commands.insert_resource(GeneratedIsland(data));
+                commands.insert_resource(meshes);
                 ready.write(IslandReady);
                 status.built = Some(Regenerate {
                     seed: settings.seed,
@@ -1065,7 +1128,7 @@ mod tests {
 
     use super::{
         DROP_FALL_FLOOR, DROP_PLUNGE_METRES, DropIndex, HEIGHT_GRID, IslandData, RiverDrop,
-        WetBanks, WetSegment, drops_of, normalized,
+        WetBanks, WetSegment, closest_on_segment, drops_of, normalized, wet_segment,
     };
     use crate::chunk;
 
@@ -1208,7 +1271,10 @@ mod tests {
                 compared += 1;
             }
         }
-        assert!(compared > surface.vertices.len(), "{compared} vertices compared");
+        assert!(
+            compared > surface.vertices.len(),
+            "{compared} vertices compared"
+        );
     }
 
     /// One channel running east along `y == 0.5`, given as `(metres travelled,
@@ -1235,6 +1301,33 @@ mod tests {
 
     fn drops(profile: &[(f32, f32)]) -> Vec<RiverDrop> {
         drops_of(&[channel(profile)], normalized(2.0), normalized(14.0))
+    }
+
+    #[test]
+    fn a_mouth_segment_is_clipped_at_the_waterline() {
+        let river = channel(&[(0.0, 1.5), (20.0, -0.5)]);
+        let segment = wet_segment(river.nodes[0], river.nodes[1], 0.001, 0.003)
+            .expect("the upstream part is above sea");
+        assert!((segment.to_surface).abs() < f32::EPSILON);
+        assert!((segment.to.x - (0.25 + 15.0 / ISLAND_WORLD_METRES)).abs() < 1.0e-6);
+        assert!((segment.to_half_width - 0.0025).abs() < 1.0e-6);
+    }
+
+    #[test]
+    fn closest_segment_projection_reports_the_same_point_and_parameter() {
+        let (closest, travelled) =
+            closest_on_segment(Vec2::new(0.25, 1.0), Vec2::ZERO, Vec2::new(1.0, 0.0));
+        assert_eq!(closest, Vec2::new(0.25, 0.0));
+        assert!((travelled - 0.25).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn shader_fall_floor_matches_the_baked_drop_field() {
+        let expected = format!("const FALL_FLOOR: f32 = {DROP_FALL_FLOOR};");
+        assert!(
+            include_str!("../shaders/river.wgsl").contains(&expected),
+            "missing {expected:?}"
+        );
     }
 
     /// A face the generator cut as four short steps is one fall, not four. Four

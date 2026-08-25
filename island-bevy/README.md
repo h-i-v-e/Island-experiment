@@ -63,7 +63,7 @@ parameters it validates.
 | | `--river-source-depth-metres` | `0.35` |
 | | `--river-maximum-depth-metres` | `2.0` |
 
-`src/options.rs` holds all fifteen in one table — the flag, the HUD's range and
+`src/app/options.rs` holds all fifteen in one table — the flag, the HUD's range and
 the field — and the parser, the help text, the HUD's sliders, the command line
 the HUD reports and the cache key all walk it. A parameter added to
 `IslandOptions` is added there once.
@@ -113,7 +113,7 @@ island cache miss: /…/target/island-cache/gpu/6a1f….bin
 entry. Reach for it when the generator itself has changed — a new island under
 an unchanged seed and options would otherwise keep reading the old geometry
 back. Delete `target/island-cache/` after algorithm changes; change the format
-marker in `src/cache.rs` only when the serialized layout changes.
+marker in `src/island/cache.rs` only when the serialized layout changes.
 
 ### Variants
 
@@ -176,7 +176,7 @@ against, and `docs/captures/phase-i` at `clear` A/Bs directly against
 | `valley-mist` | 15° up, raking across the island | Mie ×2.2 | 16% cover at 2200 m, 34% shadow | Pooled in the drainage, and at falls | +0.45 EV, warm, shadows lifted |
 | `overcast` | 64° up, undimmed above the deck | Mie ×3.2 | 96% cover at 1400 m, 90% shadow | Light in the hollows, and at falls | +0.40 EV, desaturated, shadows lifted |
 
-`src/weather.rs` holds all four in one table — sun, aerosol, cloud, mist and
+`src/environment/weather.rs` holds all four in one table — sun, aerosol, cloud, mist and
 `ColorGrading` together — and `lighting`, `clouds`, `mist`, the camera and the
 capture sidecar all read it. A look added there is added once.
 
@@ -323,7 +323,7 @@ rebuild in the same frame — the point of a preset is that it is one press — 
 the button stays lit while the island on screen is that preset. A preset does
 not carry `terrain_size`: it opens at whatever size the viewer is already
 running, so the same ten can be flipped through in seconds at 256 and revisited
-at 1024 later. `src/presets.rs` is the table, and `docs/captures/showcase/` is
+at 1024 later. `src/app/presets.rs` is the table, and `docs/captures/showcase/` is
 an overview of each at 1024 with its parameters written out.
 
 **Parameters** is the seed and all fifteen generator parameters, so an island
@@ -536,7 +536,7 @@ takes the whole cloud out of the frame instead of leaving a diagnostic of the
 water at the foot of a fall to be read through it.
 
 The channel is a `u32` on each material extension, written every frame by
-`src/capture.rs` alongside the water clock; zero is ordinary shading, which is
+`src/render/capture.rs` alongside the water clock; zero is ordinary shading, which is
 what a material carries before anything writes to it. The scalar ramp runs
 black, blue, green, white rather than through grey, because a diagnostic goes
 through the same exposure and ACES curve the scene does and a grey ramp loses
@@ -789,11 +789,11 @@ cascades, the depth and motion-vector prepasses, screen-space occlusion,
 contact shadows and aerial perspective working; only the forward stage is the
 crate's own, and only the spray replaces the vertex half of it. There are no
 texture assets: every detail layer is hash-lattice value noise evaluated in
-world space, from `src/noise.wgsl`.
+world space, from `src/shaders/noise.wgsl`.
 
 The terrain mesh carries the generator's raw material triple from
 `Island::material_values_for` in `Mesh::ATTRIBUTE_COLOR` — bedrock hardness,
-loose cover, sea proximity — and `src/terrain.wgsl` is the only authority on
+loose cover, sea proximity — and `src/shaders/terrain.wgsl` is the only authority on
 what that becomes. It reads elevation and slope from world position and normal,
 resolves the bands that follow `island-rs/src/raster.rs`, and layers on top of
 them:
@@ -856,7 +856,7 @@ The merged river-rock body is 6–22 cm stones with the occasional 65 cm boulder
 `convert::rock_mesh` hashes world position on a 20 cm lattice into a per-body
 albedo tint, which is as close to per-instance as one merged mesh allows, and
 puts the same spray measurement in the one channel that tint leaves free.
-`src/rock.wgsl` adds mineral colour, roughness variation and centimetre relief
+`src/shaders/rock.wgsl` adds mineral colour, roughness variation and centimetre relief
 that fades out past 25 m, and darkens and smooths whatever a fall is wetting.
 
 ## Water materials
@@ -874,7 +874,7 @@ three extinctions. View-angle Fresnel and foam combine with it as independent
 chances of the ray not carrying the bottom to the eye, and the sun glitter is
 the ordinary specular lobe over a low, noise-varied roughness.
 
-`src/ocean.wgsl` shades the sea plane from world-space XZ, since the quad's own
+`src/shaders/ocean.wgsl` shades the sea plane from world-space XZ, since the quad's own
 UVs are a meaningless stretch. Three drifting noise layers at 46 m, 7.4 m and
 1.3 m carry the wave slope, each dropped once it is finer than a pixel and
 replaced by roughness. The absorption saturates towards the same deep tone the
@@ -893,7 +893,7 @@ stretch up, so a beach several hundred metres long carries several of them and
 a cove twenty metres across carries part of one. Between them that is what
 stopped every cove and plunge pool on the island from being outlined in white.
 
-`src/river.wgsl` runs on the generator's channel parametrisation instead:
+`src/shaders/river.wgsl` runs on the generator's channel parametrisation instead:
 `uv.y` is distance travelled downstream and `uv.x` is distance to the nearest
 bank, both normalized island units. Screen derivatives of the downstream
 coordinate recover the flow direction in the world, which per-vertex tangents
@@ -961,8 +961,8 @@ and the same spray, so a plunge pool reads as one damp hollow.
 
 ### Spray
 
-`src/spray.rs` builds one merged mesh of camera-facing quads, four vertices per
-droplet, and `src/spray.wgsl` throws each one on the GPU: launch point in the
+`src/environment/spray.rs` builds one merged mesh of camera-facing quads, four vertices per
+droplet, and `src/shaders/spray.wgsl` throws each one on the GPU: launch point in the
 position attribute, launch velocity in the normal, quad corner in the UV, and
 phase, size, life and brightness in the colour. The vertex stage evaluates a
 ballistic arc from the same water clock both water surfaces animate on, so

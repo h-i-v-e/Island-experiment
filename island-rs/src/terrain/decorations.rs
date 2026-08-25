@@ -343,9 +343,7 @@ fn settle_rock_bodies(
             return Ok(());
         }
         #[cfg(not(feature = "gpu-generation"))]
-        return Err(String::from(
-            "GPU generation requires the gpu-generation Cargo feature",
-        ));
+        return method.require_available();
     }
     simulate_rock_bodies(terrain, bodies);
     Ok(())

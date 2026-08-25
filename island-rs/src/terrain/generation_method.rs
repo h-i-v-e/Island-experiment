@@ -38,6 +38,12 @@ impl GenerationMethod {
         }
     }
 
+    pub(crate) fn require_available(self) -> Result<(), String> {
+        self.is_available()
+            .then_some(())
+            .ok_or_else(|| format!("{self} generation requires the gpu-generation Cargo feature"))
+    }
+
     pub(super) const fn save_tag(self) -> u8 {
         match self {
             Self::Cpu => 0,
@@ -87,5 +93,17 @@ mod tests {
                 Some(method)
             );
         }
+    }
+
+    #[cfg(not(feature = "gpu-generation"))]
+    #[test]
+    fn unavailable_gpu_message_has_one_authority() {
+        assert_eq!(
+            GenerationMethod::Gpu.require_available(),
+            Err(String::from(
+                "gpu generation requires the gpu-generation Cargo feature"
+            ))
+        );
+        assert_eq!(GenerationMethod::Cpu.require_available(), Ok(()));
     }
 }

@@ -23,6 +23,7 @@ use bevy::{
         Atmosphere, DirectionalLight, VolumetricFog, VolumetricLight, atmosphere::ScatteringMedium,
         light_consts::lux,
     },
+    math::DVec3,
     pbr::AtmosphereSettings,
     prelude::*,
     render::view::{ColorGrading, ColorGradingGlobal, ColorGradingSection},
@@ -31,6 +32,7 @@ use bevy::{
 use crate::{
     camera::FlyCamera,
     capture::WaterClock,
+    clouds::DRIFT_WRAP_METRES,
     lighting::{MEDIUM_RESOLUTION, Sun},
 };
 
@@ -335,7 +337,12 @@ impl Weather {
     pub fn named(name: &str) -> Result<Self, String> {
         Self::all()
             .find(|weather| weather.label() == name)
-            .ok_or_else(|| format!("unknown weather {name:?}; expected one of {}", Self::names()))
+            .ok_or_else(|| {
+                format!(
+                    "unknown weather {name:?}; expected one of {}",
+                    Self::names()
+                )
+            })
     }
 
     /// The look names in table order, for help text and parse errors.
@@ -506,9 +513,11 @@ const MIST_STEPS: u32 = 40;
 /// The whole field — the layer in the sky and the shadow on the ground — is one
 /// pattern projected along the sun, and the sun's own translation is where that
 /// projection is centred. A directional light takes nothing else from its
-/// position: the cascades are built from its rotation alone. So moving the sun
-/// sideways moves the clouds and their shadows together, exactly, with no
-/// second copy of the offset to keep in step.
+/// position: the cascades are built from its rotation alone. World-space wind
+/// is projected onto the light's right/up plane and each coordinate is wrapped
+/// over the shared field/detail period before that origin is reconstructed.
+/// The bounded translation therefore moves clouds and shadows together without
+/// a reset at the water shader clock's own wrap.
 ///
 /// The clock is the one `--screenshot` freezes, so a capture catches the layer
 /// where the last capture of the same command left it.
@@ -522,8 +531,12 @@ fn drift_clouds(
         return;
     };
     let drift = if look.has_clouds() {
-        let travelled = look.clouds.wind * clock.0;
-        Vec3::new(travelled.x, 0.0, travelled.y)
+        cloud_drift(
+            look.clouds.wind,
+            clock.elapsed_seconds(),
+            *transform.right(),
+            *transform.up(),
+        )
     } else {
         Vec3::ZERO
     };
@@ -532,9 +545,50 @@ fn drift_clouds(
     }
 }
 
+fn centred_wrap(value: f64, period: f64) -> f64 {
+    (value + period * 0.5).rem_euclid(period) - period * 0.5
+}
+
+/// The bounded light-plane origin equivalent to a world-space wind journey.
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "each projected offset is bounded to thirty kilometres before conversion"
+)]
+fn cloud_drift(wind: Vec2, seconds: f64, right: Vec3, up: Vec3) -> Vec3 {
+    let travelled = DVec3::new(
+        f64::from(wind.x) * seconds,
+        0.0,
+        f64::from(wind.y) * seconds,
+    );
+    let period = f64::from(DRIFT_WRAP_METRES);
+    let along_right = centred_wrap(travelled.dot(right.as_dvec3()), period) as f32;
+    let along_up = centred_wrap(travelled.dot(up.as_dvec3()), period) as f32;
+    right * along_right + up * along_up
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{LOOKS, Weather, is_neutral};
+    use bevy::prelude::{Transform, Vec2, Vec3};
+
+    use super::{DRIFT_WRAP_METRES, LOOKS, Weather, centred_wrap, cloud_drift, is_neutral};
+
+    #[test]
+    fn cloud_drift_is_bounded_in_the_rotated_projection_plane() {
+        let rotation = Transform::default()
+            .looking_to(Vec3::new(-0.3, -0.55, -0.78), Vec3::Y)
+            .rotation;
+        let (right, up) = (rotation * Vec3::X, rotation * Vec3::Y);
+        let drift = cloud_drift(Vec2::new(7.5, -3.0), 123_456.75, right, up);
+        let half_period = DRIFT_WRAP_METRES * 0.5;
+        assert!(drift.dot(right).abs() <= half_period + 0.01);
+        assert!(drift.dot(up).abs() <= half_period + 0.01);
+
+        let period = f64::from(DRIFT_WRAP_METRES);
+        assert!(
+            (centred_wrap(12.5 + period * 7.0, period) - centred_wrap(12.5, period)).abs()
+                < f64::EPSILON
+        );
+    }
 
     /// The names are what the flag, the help text, the HUD and the capture
     /// sidecar all spell a look with, so a duplicate would quietly merge two of
@@ -543,7 +597,9 @@ mod tests {
     fn every_look_is_listed_once() {
         for (index, look) in LOOKS.iter().enumerate() {
             assert!(
-                LOOKS[..index].iter().all(|earlier| earlier.name != look.name),
+                LOOKS[..index]
+                    .iter()
+                    .all(|earlier| earlier.name != look.name),
                 "{} is listed twice",
                 look.name
             );

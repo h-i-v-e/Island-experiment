@@ -369,7 +369,11 @@ impl Metadata {
             format!("variant: {}", self.variant),
             format!(
                 "non-default-options: {}",
-                if moved.is_empty() { "none" } else { moved.as_str() }
+                if moved.is_empty() {
+                    "none"
+                } else {
+                    moved.as_str()
+                }
             ),
             format!("view: {}", self.view),
             format!("eye: {}", vector(self.pose.eye)),
@@ -479,7 +483,10 @@ mod tests {
             "resolution: 2560x1440",
             "adapter: Apple M3 Pro (Metal)",
         ] {
-            assert!(text.contains(expected), "{expected} is missing from\n{text}");
+            assert!(
+                text.contains(expected),
+                "{expected} is missing from\n{text}"
+            );
         }
         // The same inputs have to spell the same file, or a diff between two
         // captures would report the sidecar rather than the capture.
@@ -496,20 +503,33 @@ mod tests {
         let clear = metadata.text();
         assert!(clear.contains("weather: clear"), "{clear}");
         assert!(
-            clear.contains(&format!("renderer: {}", super::camera::RENDER_FEATURES.join(", "))),
+            clear.contains(&format!(
+                "renderer: {}",
+                super::camera::RENDER_FEATURES.join(", ")
+            )),
             "{clear}"
         );
 
         metadata.weather = Weather::named("overcast").expect("overcast is in the table");
         let overcast = metadata.text();
         assert!(overcast.contains("weather: overcast"), "{overcast}");
-        for feature in ["clouds", "cloud-shadows", "volumetric-fog", "colour-grading"] {
-            assert!(overcast.contains(feature), "{feature} is missing\n{overcast}");
+        for feature in [
+            "clouds",
+            "cloud-shadows",
+            "volumetric-fog",
+            "colour-grading",
+        ] {
+            assert!(
+                overcast.contains(feature),
+                "{feature} is missing\n{overcast}"
+            );
         }
         // And it was lit from somewhere else, which is the point of a look.
         assert_ne!(
             clear.lines().find(|line| line.starts_with("sun-direction")),
-            overcast.lines().find(|line| line.starts_with("sun-direction"))
+            overcast
+                .lines()
+                .find(|line| line.starts_with("sun-direction"))
         );
     }
 

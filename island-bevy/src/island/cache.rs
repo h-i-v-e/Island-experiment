@@ -37,8 +37,9 @@ use crate::{
 /// written under 3 no longer describe the same ground — 5 replaced the one
 /// island-wide terrain mesh with the chunk grid at three levels of detail, and
 /// 6 took the skirt off the outside of that grid, where there is no neighbour
-/// to close a seam with.
-const CACHE_FORMAT_VERSION: u32 = 6;
+/// to close a seam with, and 7 records the pre-skirt surface elevation span
+/// used to place every level of one chunk at the same representative height.
+const CACHE_FORMAT_VERSION: u32 = 7;
 
 const MAGIC: &[u8; 8] = b"MOTUBVY\0";
 /// Distinguishes a cache key from the crate's other hashed values.
@@ -188,6 +189,7 @@ fn write_chunks(writer: &mut impl Write, chunks: &[TerrainChunk]) -> io::Result<
     for chunk in chunks {
         writer.write_all(&chunk.column.to_le_bytes())?;
         writer.write_all(&chunk.row.to_le_bytes())?;
+        write_scalars(writer, &[chunk.surface_low, chunk.surface_high])?;
         for tier in &chunk.tiers {
             write_mesh(writer, &tier.mesh)?;
             write_points(writer, &tier.materials)?;
@@ -326,24 +328,44 @@ impl<'a> Reader<'a> {
     }
 
     /// Field order matches [`write_chunks`]. The stride is the shortest a chunk
-    /// can be — its two grid coordinates, and one length prefix for each of the
-    /// six arrays a level of detail carries — so a corrupt count is rejected
-    /// before anything is reserved for it.
+    /// can be — its two grid coordinates, its two surface bounds, and one
+    /// length prefix for each of the six arrays a level of detail carries — so
+    /// a corrupt count is rejected before anything is reserved for it.
     fn chunks(&mut self) -> Option<Vec<TerrainChunk>> {
-        self.array((2 + TIERS * 6) * WORD, |reader| {
+        self.array((4 + TIERS * 6) * WORD, |reader| {
             let column = reader.u32()?;
             let row = reader.u32()?;
+            let surface_low = reader.f32()?;
+            let surface_high = reader.f32()?;
+            let empty_bounds = surface_low.to_bits() == f32::MAX.to_bits()
+                && surface_high.to_bits() == f32::MIN.to_bits();
+            if !surface_low.is_finite()
+                || !surface_high.is_finite()
+                || (surface_low > surface_high && !empty_bounds)
+            {
+                return None;
+            }
             let mut tiers = Vec::with_capacity(TIERS);
             for _ in 0..TIERS {
+                let mesh = reader.mesh()?;
+                let materials = reader.points()?;
+                let river_wetness = reader.scalars()?;
+                if materials.len() != mesh.vertices.len()
+                    || river_wetness.len() != mesh.vertices.len()
+                {
+                    return None;
+                }
                 tiers.push(ChunkTier {
-                    mesh: reader.mesh()?,
-                    materials: reader.points()?,
-                    river_wetness: reader.scalars()?,
+                    mesh,
+                    materials,
+                    river_wetness,
                 });
             }
             Some(TerrainChunk {
                 column,
                 row,
+                surface_low,
+                surface_high,
                 tiers: tiers.try_into().ok()?,
             })
         })
@@ -352,14 +374,27 @@ impl<'a> Reader<'a> {
     /// Field order matches [`write_mesh`], and struct expressions evaluate in
     /// the order written.
     fn mesh(&mut self) -> Option<Mesh> {
-        Some(Mesh {
+        let mesh = Mesh {
             vertices: self.points()?,
             normals: self.points()?,
             triangles: self.array(WORD, Self::u32)?,
             uv: self.array(2 * WORD, |reader| {
                 Some(Vec2::new(reader.f32()?, reader.f32()?))
             })?,
-        })
+        };
+        let vertices = mesh.vertices.len();
+        let attributes_match = |length| length == 0 || length == vertices;
+        if !mesh.triangles.len().is_multiple_of(3)
+            || !mesh
+                .triangles
+                .iter()
+                .all(|&index| usize::try_from(index).is_ok_and(|index| index < vertices))
+            || !attributes_match(mesh.normals.len())
+            || !attributes_match(mesh.uv.len())
+        {
+            return None;
+        }
+        Some(mesh)
     }
 }
 
@@ -390,14 +425,14 @@ mod tests {
                         .collect(),
                 },
                 materials: (0..count).map(|index| Vec3::splat(index as f32)).collect(),
-                // One shorter than the vertices, which no real chunk is, so a
-                // shift between the two arrays shows.
-                river_wetness: vec![0.25; count.saturating_sub(1)],
+                river_wetness: vec![0.25; count],
             }
         };
         TerrainChunk {
             column,
             row,
+            surface_low: -0.02 - row as f32 * 0.01,
+            surface_high: 0.2 + column as f32 * 0.01,
             tiers: std::array::from_fn(tier),
         }
     }
@@ -426,7 +461,7 @@ mod tests {
             terrain_chunks: vec![chunk(0, 0), chunk(1, 0), chunk(0, 1)],
             river_mesh: Mesh {
                 vertices: vec![Vec3::X, Vec3::Y],
-                normals: vec![Vec3::Z],
+                normals: vec![Vec3::Z; 2],
                 triangles: vec![0, 1, 0],
                 uv: vec![Vec2::new(1.0, 2.0), Vec2::new(3.0, 4.0)],
             },
@@ -476,9 +511,15 @@ mod tests {
         // where the near view draws.
         assert_eq!(read_back.terrain_chunks.len(), 3);
         for (read_back, original) in read_back.terrain_chunks.iter().zip(&data.terrain_chunks) {
-            assert_eq!((read_back.column, read_back.row), (original.column, original.row));
+            assert_eq!(
+                (read_back.column, read_back.row),
+                (original.column, original.row)
+            );
             for level in 0..TIERS {
-                assert_eq!(read_back.tiers[level], original.tiers[level], "level {level}");
+                assert_eq!(
+                    read_back.tiers[level], original.tiers[level],
+                    "level {level}"
+                );
             }
         }
         // Every drop is nine scalars in one flat run, so a field crossing out
@@ -529,6 +570,114 @@ mod tests {
 
         fs::remove_file(&path).unwrap();
         assert_eq!(read(&path, 42, &data.options), None, "a missing entry");
+    }
+
+    /// Index buffers and optional per-vertex attributes cross the cache as
+    /// independent arrays, so damage to one must not be handed to Bevy as a
+    /// different mesh shape.
+    #[test]
+    fn a_structurally_invalid_mesh_is_a_miss() {
+        let path = scratch("invalid-mesh");
+        let original = island();
+        for (name, mesh) in [
+            ("out-of-bounds index", {
+                let mut mesh = original.river_mesh.clone();
+                mesh.triangles[1] = u32::MAX;
+                mesh
+            }),
+            ("incomplete triangle", {
+                let mut mesh = original.river_mesh.clone();
+                mesh.triangles.pop();
+                mesh
+            }),
+            ("partial normals", {
+                let mut mesh = original.river_mesh.clone();
+                mesh.normals.pop();
+                mesh
+            }),
+            ("partial UVs", {
+                let mut mesh = original.river_mesh.clone();
+                mesh.uv.pop();
+                mesh
+            }),
+        ] {
+            let mut data = original.clone();
+            data.river_mesh = mesh;
+            write(&path, 42, &data).unwrap();
+            assert_eq!(read(&path, 42, &data.options), None, "accepted {name}");
+        }
+
+        fs::remove_file(path).unwrap();
+    }
+
+    /// Terrain material and wetness values are indexed by terrain vertex and
+    /// have no meaningful fallback in a cached, already-generated chunk.
+    #[test]
+    fn mismatched_chunk_vertex_fields_are_a_miss() {
+        let path = scratch("invalid-chunk-fields");
+        let original = island();
+
+        for wetness in [false, true] {
+            let mut data = original.clone();
+            let tier = &mut data.terrain_chunks[0].tiers[0];
+            if wetness {
+                tier.river_wetness.pop();
+            } else {
+                tier.materials.pop();
+            }
+            write(&path, 42, &data).unwrap();
+            assert_eq!(
+                read(&path, 42, &data.options),
+                None,
+                "accepted mismatched {}",
+                if wetness { "wetness" } else { "materials" }
+            );
+        }
+
+        fs::remove_file(path).unwrap();
+    }
+
+    /// The chunk origin uses these bounds directly in an entity transform; a
+    /// corrupt non-finite word must remain a cache miss. The inverted finite
+    /// MAX/MIN pair used by an empty chunk is deliberately still valid.
+    #[test]
+    fn invalid_chunk_surface_bounds_are_a_miss() {
+        let path = scratch("invalid-chunk-bounds");
+        let original = island();
+
+        for high in [false, true] {
+            let mut data = original.clone();
+            if high {
+                data.terrain_chunks[0].surface_high = f32::INFINITY;
+            } else {
+                data.terrain_chunks[0].surface_low = f32::NAN;
+            }
+            write(&path, 42, &data).unwrap();
+            assert_eq!(
+                read(&path, 42, &data.options),
+                None,
+                "accepted a non-finite {} bound",
+                if high { "high" } else { "low" }
+            );
+        }
+
+        let mut inverted = original.clone();
+        inverted.terrain_chunks[0].surface_low = 0.5;
+        inverted.terrain_chunks[0].surface_high = 0.2;
+        write(&path, 42, &inverted).unwrap();
+        assert_eq!(
+            read(&path, 42, &inverted.options),
+            None,
+            "accepted inverted non-empty bounds"
+        );
+
+        let mut empty = original.clone();
+        empty.terrain_chunks[0].surface_low = f32::MAX;
+        empty.terrain_chunks[0].surface_high = f32::MIN;
+        write(&path, 42, &empty).unwrap();
+        assert_eq!(read(&path, 42, &empty.options), Some(empty));
+
+        fs::remove_file(path).unwrap();
     }
 
     /// Offsets into the header the damage tests reach for: the magic, then the

@@ -27,18 +27,18 @@
 
 use std::{f32::consts::TAU, ops::Range};
 
-use bevy::{
-    camera::visibility::{VisibilityRange, VisibilitySystems},
-    light::NotShadowCaster,
-    mesh::VertexAttributeValues,
-    prelude::*,
-};
 use crate::{
     budget::BudgetItem,
     chunk,
     convert::island_to_world,
     hash::{choice, mix, unit},
     island_gen::{GeneratedIsland, IslandEntity, IslandReady},
+};
+use bevy::{
+    camera::visibility::{VisibilityRange, VisibilitySystems},
+    light::NotShadowCaster,
+    mesh::VertexAttributeValues,
+    prelude::*,
 };
 
 /// Trunk dimensions in metres, before the per-plant scale.
@@ -268,50 +268,34 @@ fn spawn_vegetation(
     let mut near: Vec<Vec<NearPlant>> = (0..regions).map(|_| Vec::new()).collect();
     let mut far: Vec<Vec<FarPlant>> = (0..regions).map(|_| Vec::new()).collect();
     let mut origins: Vec<Vec<Vec3>> = (0..regions).map(|_| Vec::new()).collect();
-    for (index, point) in island.trees.iter().enumerate() {
-        let hash = mix(index as u64, TREE_SALT);
-        let variant = choice(hash, TREE_VARIANTS);
-        let placement = placement(hash, *point, TREE_SALT, 0.75, 0.55);
-        let region = region(*point);
-        origins[region].push(placement.translation);
-        near[region].push((
-            BudgetItem::scatter(tree_near[variant].1),
-            Mesh3d(tree_near[variant].0.clone()),
-            MeshMaterial3d(plant.clone()),
-            placement,
-            near_tier(),
-        ));
-        far[region].push((
-            BudgetItem::scatter(tree_far[variant].1),
-            Mesh3d(tree_far[variant].0.clone()),
-            MeshMaterial3d(plant.clone()),
-            placement,
-            far_tier(),
-            NotShadowCaster,
-        ));
-    }
-    for (index, point) in island.bushes.iter().enumerate() {
-        let hash = mix(index as u64, BUSH_SALT);
-        let variant = choice(hash, BUSH_VARIANTS);
-        let placement = placement(hash, *point, BUSH_SALT, 0.7, 0.7);
-        let region = region(*point);
-        origins[region].push(placement.translation);
-        near[region].push((
-            BudgetItem::scatter(bush_near[variant].1),
-            Mesh3d(bush_near[variant].0.clone()),
-            MeshMaterial3d(plant.clone()),
-            placement,
-            near_tier(),
-        ));
-        far[region].push((
-            BudgetItem::scatter(bush_far[variant].1),
-            Mesh3d(bush_far[variant].0.clone()),
-            MeshMaterial3d(plant.clone()),
-            placement,
-            far_tier(),
-            NotShadowCaster,
-        ));
-    }
+    scatter(
+        &island.trees,
+        PlantScatter {
+            salt: TREE_SALT,
+            near: &tree_near,
+            far: &tree_far,
+            minimum: 0.75,
+            spread: 0.55,
+        },
+        &plant,
+        &mut origins,
+        &mut near,
+        &mut far,
+    );
+    scatter(
+        &island.bushes,
+        PlantScatter {
+            salt: BUSH_SALT,
+            near: &bush_near,
+            far: &bush_far,
+            minimum: 0.7,
+            spread: 0.7,
+        },
+        &plant,
+        &mut origins,
+        &mut near,
+        &mut far,
+    );
 
     let groups = spawn_groups(&mut commands, &origins, &mut near, &mut far);
     info!(
@@ -319,6 +303,48 @@ fn spawn_vegetation(
         island.trees.len(),
         island.bushes.len()
     );
+}
+
+/// The class-specific inputs for the otherwise identical scatter pass.
+struct PlantScatter<'a> {
+    salt: u64,
+    near: &'a [(Handle<Mesh>, u32)],
+    far: &'a [(Handle<Mesh>, u32)],
+    minimum: f32,
+    spread: f32,
+}
+
+fn scatter(
+    points: &[motu::Vec3],
+    class: PlantScatter<'_>,
+    material: &Handle<StandardMaterial>,
+    origins: &mut [Vec<Vec3>],
+    near: &mut [Vec<NearPlant>],
+    far: &mut [Vec<FarPlant>],
+) {
+    debug_assert_eq!(class.near.len(), class.far.len());
+    for (index, &point) in points.iter().enumerate() {
+        let hash = mix(index as u64, class.salt);
+        let variant = choice(hash, class.near.len());
+        let placement = placement(hash, point, class.salt, class.minimum, class.spread);
+        let region = region(point);
+        origins[region].push(placement.translation);
+        near[region].push((
+            BudgetItem::scatter(class.near[variant].1),
+            Mesh3d(class.near[variant].0.clone()),
+            MeshMaterial3d(material.clone()),
+            placement,
+            near_tier(),
+        ));
+        far[region].push((
+            BudgetItem::scatter(class.far[variant].1),
+            Mesh3d(class.far[variant].0.clone()),
+            MeshMaterial3d(material.clone()),
+            placement,
+            far_tier(),
+            NotShadowCaster,
+        ));
+    }
 }
 
 /// Puts one parent per tier over every region that has plants in it, and hangs
@@ -671,11 +697,17 @@ mod tests {
     fn a_point_falls_in_the_region_that_covers_it() {
         let last = GROUPS as usize - 1;
         assert_eq!(region(motu::Vec3::new(0.0, 0.0, 0.0)), 0);
-        assert_eq!(region(motu::Vec3::new(1.0, 1.0, 0.0)), last * GROUPS as usize + last);
+        assert_eq!(
+            region(motu::Vec3::new(1.0, 1.0, 0.0)),
+            last * GROUPS as usize + last
+        );
         assert_eq!(region(motu::Vec3::new(0.99, 0.0, 0.0)), last);
         // The generator clamps its decorations to the square, but a point on
         // the far edge must not index past the grid either way.
-        assert_eq!(region(motu::Vec3::new(2.0, 2.0, 0.0)), last * GROUPS as usize + last);
+        assert_eq!(
+            region(motu::Vec3::new(2.0, 2.0, 0.0)),
+            last * GROUPS as usize + last
+        );
     }
 
     /// The sphere has to hold every point it was built from, or a group could

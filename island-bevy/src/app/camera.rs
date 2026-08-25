@@ -362,6 +362,29 @@ pub struct FlyCamera {
     walk: WalkState,
 }
 
+impl FlyCamera {
+    /// A camera placed outright starts aligned with that pose and carries no
+    /// motion or orbit state from anywhere else.
+    fn at(rotation: Quat) -> Self {
+        let (yaw, pitch) = heading(rotation);
+        Self {
+            yaw,
+            pitch,
+            looking: false,
+            orbit: None,
+            velocity: Vec3::ZERO,
+            walk: WalkState::default(),
+        }
+    }
+
+    /// Reads the stored heading back from a transform after another control
+    /// path has placed the camera, and spends any flight it was carrying.
+    fn resync(&mut self, rotation: Quat) {
+        (self.yaw, self.pitch) = heading(rotation);
+        self.velocity = Vec3::ZERO;
+    }
+}
+
 /// What walking carries between frames. Reset whole every time walking is
 /// entered, so a mode left mid-jump or mid-Escape does not resume that way.
 #[derive(Default)]
@@ -441,7 +464,7 @@ fn heading(rotation: Quat) -> (f32, f32) {
 
 fn spawn_camera(mut commands: Commands, pose: Res<ViewPose>, capture: Option<Res<CaptureTarget>>) {
     let transform = pose.transform();
-    let (yaw, pitch) = heading(transform.rotation);
+    let controller = FlyCamera::at(transform.rotation);
     let mut camera = commands.spawn((
         Name::new("Fly camera"),
         Camera3d::default(),
@@ -478,14 +501,7 @@ fn spawn_camera(mut commands: Commands, pose: Res<ViewPose>, capture: Option<Res
             ..Bloom::NATURAL
         },
         transform,
-        FlyCamera {
-            yaw,
-            pitch,
-            looking: false,
-            orbit: None,
-            velocity: Vec3::ZERO,
-            walk: WalkState::default(),
-        },
+        controller,
     ));
     // A capture run has no window to render into, so the whole stack above
     // draws into an offscreen image instead. Every other run leaves the
@@ -504,24 +520,26 @@ fn grab_cursor(
     keys: Res<ButtonInput<KeyCode>>,
     mode: Res<CameraMode>,
     ui: Res<UiFocus>,
-    mut cursors: Query<&mut CursorOptions, With<PrimaryWindow>>,
+    mut windows: Query<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
     mut cameras: Query<&mut FlyCamera>,
 ) {
     let Ok(mut camera) = cameras.single_mut() else {
         return;
     };
+    // A mouse-button release sent while the app is unfocused is not replayed
+    // on return, so focus state itself must end a held look.
+    let focused = windows.single().map_or(true, |(window, _)| window.focused);
     let switched = mode.is_changed();
     let looking = match *mode {
         // A press that lands on the panel belongs to it; a release always
         // reaches the camera, or a drag that wandered over the panel would
         // leave the cursor grabbed with nothing steering it.
         CameraMode::Fly => {
-            if switched {
+            if switched || !focused {
                 false
             } else if mouse.just_pressed(MouseButton::Right) && !ui.pointer {
                 true
-            } else if keys.just_pressed(KeyCode::Escape)
-                || mouse.just_released(MouseButton::Right)
+            } else if keys.just_pressed(KeyCode::Escape) || mouse.just_released(MouseButton::Right)
             {
                 false
             } else {
@@ -538,14 +556,14 @@ fn grab_cursor(
             } else if mouse.just_pressed(MouseButton::Left) && !ui.pointer && !ui.shown {
                 camera.walk.released = false;
             }
-            !camera.walk.released && !ui.shown
+            focused && !camera.walk.released && !ui.shown
         }
     };
     if looking == camera.looking {
         return;
     }
     camera.looking = looking;
-    if let Ok(mut cursor) = cursors.single_mut() {
+    if let Ok((_, mut cursor)) = windows.single_mut() {
         cursor.grab_mode = if looking {
             CursorGrabMode::Locked
         } else {
@@ -610,15 +628,13 @@ fn orbit(
 ) {
     let viewport_width = windows
         .single()
-        .map_or(FALLBACK_VIEWPORT_WIDTH, Window::width);
+        .map_or(FALLBACK_VIEWPORT_WIDTH, Window::width)
+        .max(1.0);
     let radians_per_pixel = ORBIT_PER_WINDOW / viewport_width;
     for (mut camera, mut transform) in &mut cameras {
         if *mode == CameraMode::Walk || !camera.looking {
             if camera.orbit.take().is_some() {
-                let (yaw, pitch) = heading(transform.rotation);
-                camera.yaw = yaw;
-                camera.pitch = pitch;
-                camera.velocity = Vec3::ZERO;
+                camera.resync(transform.rotation);
             }
             continue;
         }
@@ -750,7 +766,8 @@ fn pan(
     }
     let viewport_height = windows
         .single()
-        .map_or(FALLBACK_VIEWPORT_HEIGHT, Window::height);
+        .map_or(FALLBACK_VIEWPORT_HEIGHT, Window::height)
+        .max(1.0);
     for (camera, mut transform) in &mut cameras {
         if camera.looking {
             continue;
@@ -777,6 +794,26 @@ fn ground_axis(direction: Vec3) -> Option<Vec3> {
     Vec3::new(direction.x, 0.0, direction.z).try_normalize()
 }
 
+/// The movement keys shared by flight and walking. Vertical flight remains a
+/// separate concern at its call site, so changing a horizontal binding cannot
+/// make the two modes drift apart.
+fn wasd(keys: &ButtonInput<KeyCode>, forward: Vec3, right: Vec3) -> Vec3 {
+    let mut direction = Vec3::ZERO;
+    if keys.pressed(KeyCode::KeyW) {
+        direction += forward;
+    }
+    if keys.pressed(KeyCode::KeyS) {
+        direction -= forward;
+    }
+    if keys.pressed(KeyCode::KeyD) {
+        direction += right;
+    }
+    if keys.pressed(KeyCode::KeyA) {
+        direction -= right;
+    }
+    direction
+}
+
 /// The keys ask for a velocity rather than for a step, and the one being
 /// carried moves towards it at a fixed rate. A key released asks for nothing,
 /// so the same rate is what brings the camera back to rest; the ramp is
@@ -800,18 +837,7 @@ fn fly(
         // freezing what the camera was already carrying, so a burst of typing
         // lands the camera instead of parking it mid-flight.
         if !ui.keyboard {
-            if keys.pressed(KeyCode::KeyW) {
-                direction += forward;
-            }
-            if keys.pressed(KeyCode::KeyS) {
-                direction -= forward;
-            }
-            if keys.pressed(KeyCode::KeyD) {
-                direction += right;
-            }
-            if keys.pressed(KeyCode::KeyA) {
-                direction -= right;
-            }
+            direction = wasd(&keys, forward, right);
             if keys.pressed(KeyCode::Space) {
                 direction += Vec3::Y;
             }
@@ -853,7 +879,24 @@ fn zoom(
             continue;
         }
         let forward = *transform.forward();
+        let distance = camera.orbit.map_or(distance, |pivot| {
+            dolly_distance(distance, transform.translation, pivot, forward)
+        });
         transform.translation += forward * distance;
+    }
+}
+
+/// Holds an orbiting eye on its side of the pivot. Pulling away remains
+/// unrestricted; pushing in stops one minimum view-depth short.
+fn dolly_distance(requested: f32, eye: Vec3, pivot: Vec3, forward: Vec3) -> f32 {
+    if requested <= 0.0 {
+        return requested;
+    }
+    let pivot_depth = (pivot - eye).dot(forward);
+    if pivot_depth <= 0.0 {
+        requested
+    } else {
+        requested.min((pivot_depth - ORBIT_MIN_DISTANCE).max(0.0))
     }
 }
 
@@ -875,12 +918,9 @@ fn reset(
     mode.set_if_neq(CameraMode::Fly);
     for (mut camera, mut transform) in &mut cameras {
         *transform = pose.transform();
-        let (yaw, pitch) = heading(transform.rotation);
-        camera.yaw = yaw;
-        camera.pitch = pitch;
         // A pose is a place, not a heading with speed behind it: whatever the
         // camera was carrying would otherwise fly it straight back off the pose.
-        camera.velocity = Vec3::ZERO;
+        camera.resync(transform.rotation);
         // Reset under a held right button leaves the drag running, and the
         // ground it was turning around is not in front of the pose it landed
         // on. Dropping the pivot has the next frame of that drag pick one off
@@ -929,7 +969,7 @@ fn walk(
     island: Option<Res<GeneratedIsland>>,
     mut cameras: Query<&mut Transform, With<FlyCamera>>,
 ) {
-    if *mode == CameraMode::Fly || ui.keyboard {
+    if *mode == CameraMode::Fly || ui.keyboard || ui.shown {
         return;
     }
     let sprinting = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
@@ -939,19 +979,7 @@ fn walk(
             .or_else(|| ground_axis(*transform.up()))
             .unwrap_or(Vec3::NEG_Z);
         let right = ground_axis(*transform.right()).unwrap_or(Vec3::X);
-        let mut direction = Vec3::ZERO;
-        if keys.pressed(KeyCode::KeyW) {
-            direction += forward;
-        }
-        if keys.pressed(KeyCode::KeyS) {
-            direction -= forward;
-        }
-        if keys.pressed(KeyCode::KeyD) {
-            direction += right;
-        }
-        if keys.pressed(KeyCode::KeyA) {
-            direction -= right;
-        }
+        let direction = wasd(&keys, forward, right);
         let Some(direction) = direction.try_normalize() else {
             continue;
         };
@@ -983,7 +1011,7 @@ fn jump(
     ui: Res<UiFocus>,
     mut cameras: Query<&mut FlyCamera>,
 ) {
-    if *mode == CameraMode::Fly || ui.keyboard || !keys.just_pressed(KeyCode::Space) {
+    if *mode == CameraMode::Fly || ui.keyboard || ui.shown || !keys.just_pressed(KeyCode::Space) {
         return;
     }
     for mut camera in &mut cameras {
@@ -1010,10 +1038,11 @@ fn jump(
 fn stand_on_ground(
     time: Res<Time>,
     mode: Res<CameraMode>,
+    ui: Res<UiFocus>,
     island: Option<Res<GeneratedIsland>>,
     mut cameras: Query<(&mut FlyCamera, &mut Transform)>,
 ) {
-    if *mode == CameraMode::Fly {
+    if *mode == CameraMode::Fly || ui.shown {
         return;
     }
     let Some(island) = island else {
@@ -1092,8 +1121,9 @@ mod tests {
 
     use super::{
         CameraMode, FALLBACK_VIEWPORT_WIDTH, FlyCamera, ORBIT_FALLBACK_DISTANCE,
-        ORBIT_MAX_ELEVATION, ORBIT_MIN_ELEVATION, ORBIT_PER_WINDOW, ORBIT_PIVOT_RANGE, UiFocus,
-        WalkState, grab_cursor, heading, orbit, orbited, pivot_ahead,
+        ORBIT_MAX_ELEVATION, ORBIT_MIN_DISTANCE, ORBIT_MIN_ELEVATION, ORBIT_PER_WINDOW,
+        ORBIT_PIVOT_RANGE, UiFocus, WalkState, dolly_distance, grab_cursor, heading, orbit,
+        orbited, pivot_ahead,
     };
 
     /// The flat sea, which is what a pivot falls back to wherever the generated
@@ -1135,8 +1165,14 @@ mod tests {
         let pivot = pivot_ahead(eye, Vec3::new(0.0, -1.0, -1.0), ramp);
         // The ray drops a metre per metre and the ramp climbs half of one, so
         // they meet where 100 - t = t / 2.
-        assert!((pivot.z + 200.0 / 3.0).abs() < 0.1, "{pivot} missed the ramp");
-        assert!((pivot.y - ramp(pivot.x, pivot.z)).abs() < 0.1, "{pivot} is off the ramp");
+        assert!(
+            (pivot.z + 200.0 / 3.0).abs() < 0.1,
+            "{pivot} missed the ramp"
+        );
+        assert!(
+            (pivot.y - ramp(pivot.x, pivot.z)).abs() < 0.1,
+            "{pivot} is off the ramp"
+        );
     }
 
     /// A ray that never comes down cannot be marched to anything, so the pivot
@@ -1147,8 +1183,14 @@ mod tests {
         let pivot = pivot_ahead(eye, Vec3::new(0.0, 0.5, -1.0), sea);
         assert!(pivot.y.abs() < f32::EPSILON, "{pivot} is not on the sea");
         let ahead = (pivot - eye).length();
-        assert!(ahead > ORBIT_FALLBACK_DISTANCE * 0.5, "{ahead} m is not ahead");
-        assert!(ahead < ORBIT_FALLBACK_DISTANCE * 1.5, "{ahead} m is too far");
+        assert!(
+            ahead > ORBIT_FALLBACK_DISTANCE * 0.5,
+            "{ahead} m is not ahead"
+        );
+        assert!(
+            ahead < ORBIT_FALLBACK_DISTANCE * 1.5,
+            "{ahead} m is too far"
+        );
     }
 
     /// A view flat enough that the surface is further off than the march looks
@@ -1157,7 +1199,10 @@ mod tests {
     fn a_grazing_view_gives_up_inside_its_range() {
         let eye = Vec3::new(0.0, 100.0, 0.0);
         let pivot = pivot_ahead(eye, Vec3::new(0.0, -0.001, -1.0), sea);
-        assert!((pivot - eye).length() < ORBIT_PIVOT_RANGE * 0.5, "{pivot} is out of range");
+        assert!(
+            (pivot - eye).length() < ORBIT_PIVOT_RANGE * 0.5,
+            "{pivot} is out of range"
+        );
     }
 
     /// The arm is what the wheel changes, never the drag: an orbit turns the
@@ -1216,11 +1261,28 @@ mod tests {
         assert_eq!(orbited(pivot, pivot, 1.0, 1.0), pivot);
     }
 
+    #[test]
+    fn dolly_stops_before_crossing_the_orbit_pivot() {
+        let eye = Vec3::new(0.0, 0.0, 100.0);
+        let travel = dolly_distance(120.0, eye, Vec3::ZERO, Vec3::NEG_Z);
+        assert!((travel - (100.0 - ORBIT_MIN_DISTANCE)).abs() < 1.0e-5);
+        assert!((dolly_distance(-60.0, eye, Vec3::ZERO, Vec3::NEG_Z) + 60.0).abs() < f32::EPSILON);
+
+        // A fallback pivot can sit off the view ray after it is dropped onto
+        // the terrain. Clamp by its depth, not by the longer diagonal arm.
+        let off_axis_eye = Vec3::new(10.0, 0.0, 100.0);
+        let travel = dolly_distance(120.0, off_axis_eye, Vec3::ZERO, Vec3::NEG_Z);
+        assert!((travel - (100.0 - ORBIT_MIN_DISTANCE)).abs() < 1.0e-5);
+    }
+
     /// The documented feel of the drag: half a window width is a quarter turn.
     #[test]
     fn half_a_window_width_is_a_quarter_turn() {
         let turn = ORBIT_PER_WINDOW / FALLBACK_VIEWPORT_WIDTH * (FALLBACK_VIEWPORT_WIDTH * 0.5);
-        assert!((turn - FRAC_PI_2).abs() < 1e-6, "{turn} radians is not a quarter turn");
+        assert!(
+            (turn - FRAC_PI_2).abs() < 1e-6,
+            "{turn} radians is not a quarter turn"
+        );
     }
 
     /// What the camera is left carrying after a frame, which is what the next
@@ -1316,7 +1378,11 @@ mod tests {
 
         // A quarter of the fallback width is 45° of turn; dragged right, which
         // carries the eye round to its own left.
-        frame(&mut app, true, Vec2::new(FALLBACK_VIEWPORT_WIDTH * 0.25, 0.0));
+        frame(
+            &mut app,
+            true,
+            Vec2::new(FALLBACK_VIEWPORT_WIDTH * 0.25, 0.0),
+        );
         let (turned, held) = state(&mut app);
         assert_eq!(held.pivot, Some(pivot), "the pivot moved mid-drag");
         let arm = turned.translation - pivot;
@@ -1343,7 +1409,10 @@ mod tests {
         assert_eq!(after.velocity, Vec3::ZERO);
         let (yaw, pitch) = heading(settled.rotation);
         assert!((after.yaw - yaw).abs() < 1e-5, "the yaw is out of step");
-        assert!((after.pitch - pitch).abs() < 1e-5, "the pitch is out of step");
+        assert!(
+            (after.pitch - pitch).abs() < 1e-5,
+            "the pitch is out of step"
+        );
     }
 
     /// Dragging down tips the island down and lifts the eye over it, and the
@@ -1355,7 +1424,11 @@ mod tests {
         let (_, pressed) = state(&mut app);
         let pivot = pressed.pivot.expect("the press picks a pivot");
 
-        frame(&mut app, true, Vec2::new(0.0, FALLBACK_VIEWPORT_WIDTH * 0.1));
+        frame(
+            &mut app,
+            true,
+            Vec2::new(0.0, FALLBACK_VIEWPORT_WIDTH * 0.1),
+        );
         let (lifted, _) = state(&mut app);
         assert!(
             elevation(pivot, lifted.translation) > FRAC_PI_2 * 0.5,

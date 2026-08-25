@@ -14,7 +14,7 @@
 //! number nothing in the scene decides, written into the same blocks, switching
 //! the surfaces that carry a channel over to it and leaving the rest shaded.
 
-use bevy::prelude::*;
+use bevy::{asset::AssetEvent, prelude::*};
 
 use crate::surface::{OceanMaterial, RiverMaterial, SprayMaterial, TerrainMaterial};
 
@@ -28,9 +28,33 @@ use crate::surface::{OceanMaterial, RiverMaterial, SprayMaterial, TerrainMateria
 /// than the still, undrifted field the shaders start from.
 pub const FROZEN_SECONDS: f32 = 27.5;
 
-/// The seconds both water shaders take their motion from.
+/// Seconds before the shared animation clock returns to zero.
+///
+/// Twenty thousand seconds is a common multiple of the spray lifetimes and the
+/// water shaders' five-hundred-second blended phases. Cloud drift uses the
+/// clock's separate high-precision elapsed value and wraps spatially in its
+/// rotated projection plane. Keeping the shader value below this bound
+/// preserves sub-frame precision and keeps the time axes handed to the lattice
+/// hashes inside their useful range, however long the viewer itself stays open.
+pub const WATER_CLOCK_WRAP_SECONDS: f32 = 20_000.0;
+
+/// The bounded seconds the water shaders take their motion from, followed by
+/// high-precision elapsed seconds for CPU-side cloud projection. The latter is
+/// reduced spatially before it reaches a transform and never enters a shader.
 #[derive(Resource, Clone, Copy, Debug, Default)]
-pub struct WaterClock(pub f32);
+pub struct WaterClock(pub f32, f64);
+
+impl WaterClock {
+    fn at(seconds: f32) -> Self {
+        Self(seconds, f64::from(seconds))
+    }
+
+    /// Elapsed session time before the shader clock's bounded wrap.
+    #[must_use]
+    pub fn elapsed_seconds(self) -> f64 {
+        self.1
+    }
+}
 
 /// One diagnostic channel, or ordinary shading.
 ///
@@ -151,9 +175,13 @@ pub struct CapturePlugin {
 
 impl Plugin for CapturePlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(WaterClock(if self.frozen { FROZEN_SECONDS } else { 0.0 }))
-            .insert_resource(self.debug_view)
-            .add_systems(Update, write_settings);
+        app.insert_resource(WaterClock::at(if self.frozen {
+            FROZEN_SECONDS
+        } else {
+            0.0
+        }))
+        .insert_resource(self.debug_view)
+        .add_systems(Update, write_settings);
         if !self.frozen {
             app.add_systems(Update, advance_clock.before(write_settings));
         }
@@ -161,28 +189,47 @@ impl Plugin for CapturePlugin {
 }
 
 fn advance_clock(time: Res<Time>, mut clock: ResMut<WaterClock>) {
-    clock.0 += time.delta_secs();
+    clock.1 += time.delta_secs_f64();
+    clock.0 = wrap_clock(clock.0 + time.delta_secs());
 }
 
-/// Writes both values into every surface material, every frame and without
-/// asking whether either has moved.
+fn wrap_clock(seconds: f32) -> f32 {
+    seconds.rem_euclid(WATER_CLOCK_WRAP_SECONDS)
+}
+
+/// Writes the animated values into every water material each frame, and the
+/// diagnostic value into terrain only when it changes or a material arrives.
 ///
-/// Change detection would be wrong here rather than merely thrifty: a frozen
-/// clock never changes again after the frame it is inserted on, and the rivers
-/// are spawned seconds later, when the island lands. Guarding on the resources
-/// would leave that material running at zero for the whole capture. Four small
-/// uniform blocks a frame is not a cost worth a rule that has an exception.
+/// A frozen clock never changes again after the frame it is inserted on, and
+/// the rivers are spawned seconds later, when the island lands, so the animated
+/// materials deliberately remain unconditional. Terrain has no animated value:
+/// its added-asset messages cover that late-spawn case without marking every
+/// LOD material modified and rebuilding its bind group on every frame.
 fn write_settings(
     clock: Res<WaterClock>,
     view: Res<DebugView>,
+    mut terrain_events: MessageReader<AssetEvent<TerrainMaterial>>,
     mut terrains: ResMut<Assets<TerrainMaterial>>,
     mut oceans: ResMut<Assets<OceanMaterial>>,
     mut rivers: ResMut<Assets<RiverMaterial>>,
     mut sprays: ResMut<Assets<SprayMaterial>>,
 ) {
     let flag = view.flag();
-    for (_, material) in terrains.iter_mut() {
-        material.extension.settings.debug_view = flag;
+    if view.is_changed() {
+        // The full pass already covers every material named by an added event;
+        // drain the reader so those events are not replayed next frame.
+        for _ in terrain_events.read() {}
+        for (_, material) in terrains.iter_mut() {
+            material.extension.settings.debug_view = flag;
+        }
+    } else {
+        for event in terrain_events.read() {
+            if let AssetEvent::Added { id } = event
+                && let Some(mut material) = terrains.get_mut(*id)
+            {
+                material.extension.settings.debug_view = flag;
+            }
+        }
     }
     for (_, material) in oceans.iter_mut() {
         material.extension.settings.water_time = clock.0;
@@ -200,7 +247,7 @@ fn write_settings(
 
 #[cfg(test)]
 mod tests {
-    use super::DebugView;
+    use super::{DebugView, WATER_CLOCK_WRAP_SECONDS, wrap_clock};
 
     /// The names are what the flag, the help text, the HUD and the capture
     /// sidecar all spell a view with, and the flags are what the shaders switch
@@ -228,5 +275,21 @@ mod tests {
         for view in DebugView::ALL {
             assert!(error.contains(view.label()), "{error}");
         }
+    }
+
+    #[test]
+    fn water_clock_stays_in_its_precise_interval() {
+        assert_eq!(
+            wrap_clock(WATER_CLOCK_WRAP_SECONDS).to_bits(),
+            0.0_f32.to_bits()
+        );
+        assert_eq!(
+            wrap_clock(WATER_CLOCK_WRAP_SECONDS + 0.25).to_bits(),
+            0.25_f32.to_bits()
+        );
+        assert_eq!(
+            wrap_clock(-0.25).to_bits(),
+            (WATER_CLOCK_WRAP_SECONDS - 0.25).to_bits()
+        );
     }
 }

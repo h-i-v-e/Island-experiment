@@ -31,22 +31,22 @@
 //! of the crate hashes, and there are no asset files.
 
 use bevy::{
-    asset::{RenderAssetUsages, embedded_asset},
+    asset::{AssetEventSystems, RenderAssetUsages},
     ecs::system::SystemParam,
     image::{ImageAddressMode, ImageFilterMode, ImageSampler, ImageSamplerDescriptor},
     light::{DirectionalLightTexture, NotShadowCaster},
     pbr::{ExtendedMaterial, MaterialExtension, MaterialPlugin},
     prelude::*,
-    render::render_resource::{
-        AsBindGroup, Extent3d, ShaderType, TextureDimension, TextureFormat,
-    },
+    render::render_resource::{AsBindGroup, Extent3d, ShaderType, TextureDimension, TextureFormat},
     shader::ShaderRef,
+    transform::TransformSystems,
 };
 
 use crate::{
     capture::DebugView,
-    hash::{mix, unit},
+    hash::{lattice_key_2, mix, unit},
     lighting::Sun,
+    math::{octave_sum, smoothstep},
     weather::{CloudLook, Weather},
 };
 
@@ -62,6 +62,10 @@ const FIELD_RESOLUTION: u32 = 512;
 /// and the layer that reaches out to the horizon repeats eight times across
 /// itself — far enough out that the distance fade has taken most of it.
 const TILE_METRES: f32 = 10_000.0;
+/// Spatial period used to keep cloud drift bounded in the rotated light plane.
+/// Three base-field tiles are exactly 125 fine-detail cells, so both layers
+/// join when either projected axis wraps.
+pub(crate) const DRIFT_WRAP_METRES: f32 = TILE_METRES * 3.0;
 /// Lattice cells across the tile in the first octave, and how many octaves
 /// follow it. Eight cells over ten kilometres puts the largest cloud feature at
 /// about 1.2 km and the smallest at 150 m, which is the range a trade cumulus
@@ -97,14 +101,21 @@ const LAYER_FADE_START: f32 = 8.0e3;
 const LAYER_FADE_RANGE: f32 = 1.8e4;
 /// Metres of the finer noise the fragment stage adds over the sampled field.
 const DETAIL_METRES: f32 = 240.0;
+const DETAIL_LATTICE_PERIOD: f32 = DRIFT_WRAP_METRES / DETAIL_METRES;
 
 pub struct CloudPlugin;
 
 impl Plugin for CloudPlugin {
     fn build(&self, app: &mut App) {
-        embedded_asset!(app, "cloud.wgsl");
+        crate::shaders::load_cloud(app);
         app.add_plugins(MaterialPlugin::<CloudMaterial>::default())
-            .add_systems(Update, (sync_layer, write_settings).chain());
+            .add_systems(Update, sync_layer)
+            .add_systems(
+                PostUpdate,
+                write_settings
+                    .after(TransformSystems::Propagate)
+                    .before(AssetEventSystems),
+            );
     }
 }
 
@@ -124,6 +135,7 @@ fn sync_layer(
     mut commands: Commands,
     weather: Res<Weather>,
     mut applied: Local<Option<Weather>>,
+    mut fields: Local<Vec<(Weather, Handle<Image>)>>,
     mut built: Built,
     layers: Query<Entity, With<CloudLayer>>,
     mut suns: Query<(Entity, &mut Transform), With<Sun>>,
@@ -148,7 +160,14 @@ fn sync_layer(
     // the only thing that scales it is the light's own transform. A directional
     // light takes nothing else from its scale.
     sun_transform.scale = Vec3::splat(TILE_METRES * 0.5);
-    let image = built.images.add(field_image(&look.clouds));
+    let image = fields
+        .iter()
+        .find_map(|(cached, image)| (*cached == *weather).then(|| image.clone()))
+        .unwrap_or_else(|| {
+            let image = built.images.add(field_image(&look.clouds));
+            fields.push((*weather, image.clone()));
+            image
+        });
     commands.entity(sun).insert(DirectionalLightTexture {
         image: image.clone(),
         tiled: true,
@@ -189,14 +208,14 @@ struct Built<'w> {
     materials: ResMut<'w, Assets<CloudMaterial>>,
 }
 
-/// Writes the projection the sun is currently at, and the diagnostic channel,
-/// into the layer's material every frame.
+/// Writes the propagated projection the sun is currently at, and the diagnostic
+/// channel, into the layer's material every frame.
 ///
-/// The sun drifts, so the basis the layer reads the field through moves with
-/// it, and the two are only registered while they agree. Written without asking
-/// whether anything moved, for the same reason `capture` writes the water clock
-/// that way: the layer is spawned frames after the sun exists and change
-/// detection would leave it on whatever the first frame held.
+/// The sun drifts, so the basis the layer reads the field through moves with it,
+/// and the two are only registered while they agree. This runs after transform
+/// propagation, from the same `GlobalTransform` the directional-light texture
+/// is extracted with, so neither the first frame nor a look switch sees a stale
+/// basis. It stays unconditional because a layer can spawn after the sun.
 fn write_settings(
     view: Res<DebugView>,
     weather: Res<Weather>,
@@ -318,17 +337,9 @@ fn coverage_threshold(samples: &[f32], coverage: f32) -> f32 {
 
 /// The tiling field itself, over the unit tile.
 fn field(u: f32, v: f32) -> f32 {
-    let mut total = 0.0;
-    let mut normalization = 0.0;
-    let mut amplitude = 1.0;
-    let mut period = FIELD_CELLS;
-    for octave in 0..FIELD_OCTAVES {
-        total += amplitude * value_noise(u, v, period, mix(u64::from(octave), OCTAVE_SALT));
-        normalization += amplitude;
-        amplitude *= 0.5;
-        period *= 2;
-    }
-    total / normalization
+    octave_sum(FIELD_CELLS, FIELD_OCTAVES, |octave, period| {
+        value_noise(u, v, period, mix(u64::from(octave), OCTAVE_SALT))
+    })
 }
 
 /// Value noise on a lattice that wraps at `period` cells, quintic-interpolated
@@ -352,23 +363,12 @@ fn lattice(column: i64, row: i64, period: u32, salt: u64) -> f32 {
     let period = i64::from(period);
     let column = column.rem_euclid(period).cast_unsigned();
     let row = row.rem_euclid(period).cast_unsigned();
-    let cell = column.wrapping_mul(0x9e37_79b9_7f4a_7c15) ^ row.wrapping_mul(0xc2b2_ae3d_27d4_eb4f);
+    let cell = lattice_key_2(column, row);
     unit(mix(cell, FIELD_SALT ^ salt))
 }
 
 fn quintic(t: f32) -> f32 {
     t * t * t * (t * (t * 6.0 - 15.0) + 10.0)
-}
-
-/// The same curve WGSL's `smoothstep` is, so the field baked here and the shape
-/// the layer derives from it answer alike.
-fn smoothstep(low: f32, high: f32, value: f32) -> f32 {
-    let span = high - low;
-    if span.abs() <= f32::EPSILON {
-        return f32::from(value >= high);
-    }
-    let progress = ((value - low) / span).clamp(0.0, 1.0);
-    progress * progress * (3.0 - 2.0 * progress)
 }
 
 /// Uniform block shared with `cloud.wgsl`. The three light vectors together are
@@ -394,6 +394,8 @@ pub struct CloudSettings {
     pub fade_start: f32,
     pub fade_range: f32,
     pub detail_metres: f32,
+    /// Fine-detail lattice cells across one bounded drift period.
+    pub detail_period: f32,
     /// The diagnostic channel in force, or zero. The layer carries no channel
     /// of its own and answers every one of them by leaving the frame.
     pub debug_view: u32,
@@ -420,6 +422,7 @@ impl CloudExtension {
                 fade_start: LAYER_FADE_START,
                 fade_range: LAYER_FADE_RANGE,
                 detail_metres: DETAIL_METRES,
+                detail_period: DETAIL_LATTICE_PERIOD,
                 ..CloudSettings::default()
             },
             field,
@@ -429,13 +432,16 @@ impl CloudExtension {
 
 impl MaterialExtension for CloudExtension {
     fn fragment_shader() -> ShaderRef {
-        "embedded://island_bevy/cloud.wgsl".into()
+        "embedded://island_bevy/shaders/cloud.wgsl".into()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{FIELD_RESOLUTION, coverage_threshold, field, value_noise};
+    use super::{
+        DETAIL_LATTICE_PERIOD, DETAIL_METRES, DRIFT_WRAP_METRES, FIELD_RESOLUTION,
+        coverage_threshold, field, value_noise,
+    };
 
     fn samples() -> Vec<f32> {
         let span = FIELD_RESOLUTION as usize;
@@ -448,6 +454,16 @@ mod tests {
             }
         }
         samples
+    }
+
+    #[test]
+    fn cloud_drift_period_closes_both_detail_scales() {
+        assert_eq!(
+            (DRIFT_WRAP_METRES / DETAIL_METRES).to_bits(),
+            DETAIL_LATTICE_PERIOD.to_bits()
+        );
+        assert_eq!(DETAIL_LATTICE_PERIOD.fract().to_bits(), 0.0_f32.to_bits());
+        assert!(include_str!("../shaders/cloud.wgsl").contains("detail_period: f32"));
     }
 
     /// The field is read by two things that must agree, and one of them wraps

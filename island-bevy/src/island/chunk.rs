@@ -94,6 +94,11 @@ pub struct ChunkTier {
 pub struct TerrainChunk {
     pub column: u32,
     pub row: u32,
+    /// Elevation span of the sliced ground before its skirts are hung. Kept
+    /// explicitly because the apron vertices sit below the terrain and must
+    /// not move the shared LOD/culling origin down with them.
+    pub surface_low: f32,
+    pub surface_high: f32,
     /// Finest first, so the index is the LOD level.
     pub tiers: [ChunkTier; TIERS],
 }
@@ -124,16 +129,11 @@ impl TerrainChunk {
 #[must_use]
 pub fn origin(chunk: &TerrainChunk) -> Vec3 {
     let square = bounds(chunk.column, chunk.row);
-    let (mut low, mut high) = (f32::MAX, f32::MIN);
-    for vertex in chunk.tiers.iter().flat_map(|tier| &tier.mesh.vertices) {
-        low = low.min(vertex.z);
-        high = high.max(vertex.z);
-    }
     Vec3::new(
         f32::midpoint(square.min.x, square.max.x),
         f32::midpoint(square.min.y, square.max.y),
-        if low <= high {
-            f32::midpoint(low, high)
+        if chunk.surface_low <= chunk.surface_high {
+            f32::midpoint(chunk.surface_low, chunk.surface_high)
         } else {
             0.0
         },
@@ -253,18 +253,8 @@ pub fn skirt(mesh: &mut Mesh, bounds: BoundingBox, depth: f32, sides: u8) -> Vec
             };
             let (under_from, under_to) = (below(from), below(to));
             apron.extend([
-                from,
-                to,
-                under_to,
-                from,
-                under_to,
-                under_from,
-                from,
-                under_to,
-                to,
-                from,
-                under_from,
-                under_to,
+                from, to, under_to, from, under_to, under_from, from, under_to, to, from,
+                under_from, under_to,
             ]);
         }
     }
@@ -348,7 +338,12 @@ mod tests {
         let mut mesh = quad();
         let triangles = mesh.triangles.len();
         let depth = skirt_depth();
-        let sources = skirt(&mut mesh, BoundingBox::new(Vec3::ZERO, Vec3::ONE), depth, ALL_SIDES);
+        let sources = skirt(
+            &mut mesh,
+            BoundingBox::new(Vec3::ZERO, Vec3::ONE),
+            depth,
+            ALL_SIDES,
+        );
 
         // Four corners, each hung once however many edges meet there.
         assert_eq!(sources, vec![0, 1, 2, 3]);
@@ -375,10 +370,18 @@ mod tests {
     fn an_edge_across_the_square_is_not_a_border() {
         let mut mesh = quad();
         // The diagonal runs from (0,0) to (1,1): corner to opposite corner.
-        skirt(&mut mesh, BoundingBox::new(Vec3::ZERO, Vec3::ONE), 0.01, ALL_SIDES);
+        skirt(
+            &mut mesh,
+            BoundingBox::new(Vec3::ZERO, Vec3::ONE),
+            0.01,
+            ALL_SIDES,
+        );
         let hung = mesh.vertices.len() - 4;
         for triangle in mesh.triangles[6..].as_chunks::<3>().0 {
-            let low = triangle.iter().filter(|&&index| index as usize >= hung).count();
+            let low = triangle
+                .iter()
+                .filter(|&&index| index as usize >= hung)
+                .count();
             assert!(low == 1 || low == 2, "{triangle:?} is not a skirt quad");
         }
         // Eight quads would mean the diagonal grew one; four is one per side.
@@ -389,7 +392,15 @@ mod tests {
     #[test]
     fn an_empty_chunk_grows_nothing() {
         let mut mesh = Mesh::default();
-        assert!(skirt(&mut mesh, BoundingBox::new(Vec3::ZERO, Vec3::ONE), 0.01, ALL_SIDES).is_empty());
+        assert!(
+            skirt(
+                &mut mesh,
+                BoundingBox::new(Vec3::ZERO, Vec3::ONE),
+                0.01,
+                ALL_SIDES
+            )
+            .is_empty()
+        );
         assert!(mesh.vertices.is_empty());
     }
 

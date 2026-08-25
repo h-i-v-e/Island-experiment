@@ -19,9 +19,10 @@ use motu::ISLAND_WORLD_METRES;
 
 use crate::{
     budget::BudgetItem,
+    capture::DebugView,
     chunk::{self, TerrainChunk},
-    convert::{self, island_to_world},
-    island_gen::{DropIndex, GeneratedIsland, IslandEntity, IslandReady},
+    convert::island_to_world,
+    island_gen::{GeneratedIsland, IslandEntity, IslandReady, PreparedMeshes},
     surface::{RockExtension, RockMaterial, TerrainExtension, TerrainMaterial},
 };
 
@@ -68,6 +69,8 @@ fn spawn_terrain(
     mut terrains: ResMut<Assets<TerrainMaterial>>,
     mut rocks: ResMut<Assets<RockMaterial>>,
     island: Res<GeneratedIsland>,
+    mut prepared: ResMut<PreparedMeshes>,
+    view: Res<DebugView>,
 ) {
     let island = &island.0;
 
@@ -77,23 +80,35 @@ fn spawn_terrain(
     // of detail rather than one in total: every chunk of a level shares its
     // handle and batches with the rest, and the level is the one thing a
     // fragment cannot work out for itself.
-    let chunk_metres = ISLAND_WORLD_METRES / f32::from(u8::try_from(chunk::DIVISIONS).unwrap_or(1));
+    let divisions =
+        u8::try_from(chunk::DIVISIONS).expect("the terrain grid fits in the shader uniform");
+    let chunk_metres = ISLAND_WORLD_METRES / f32::from(divisions);
     let ground: Vec<Handle<TerrainMaterial>> = (0..chunk::TIERS)
         .map(|level| {
+            let mut extension = TerrainExtension::new(
+                island.options.max_height,
+                ISLAND_WORLD_METRES,
+                chunk_metres,
+                u32::try_from(level).unwrap_or(0),
+            );
+            // Asset events are flushed after Update. Seed the current view at
+            // construction so a newly spawned diagnostic island cannot draw
+            // one ordinary-shading frame before `capture` observes its Added
+            // event on the next Update.
+            extension.settings.debug_view = view.flag();
             terrains.add(TerrainMaterial {
                 base: StandardMaterial::default(),
-                extension: TerrainExtension::new(
-                    island.options.max_height,
-                    ISLAND_WORLD_METRES,
-                    chunk_metres,
-                    u32::try_from(level).unwrap_or(0),
-                ),
+                extension,
             })
         })
         .collect();
     let mut spawned = 0;
-    for chunk in &island.terrain_chunks {
-        spawned += spawn_chunk(&mut commands, &mut meshes, &ground, chunk);
+    for (index, chunk) in island.terrain_chunks.iter().enumerate() {
+        let Some(rendered) = prepared.terrain.get_mut(index) else {
+            warn!("missing prepared meshes for terrain chunk {index}");
+            continue;
+        };
+        spawned += spawn_chunk(&mut commands, &mut meshes, &ground, chunk, rendered);
     }
     if spawned == 0 {
         warn!("island has no terrain chunks");
@@ -112,10 +127,7 @@ fn spawn_terrain(
         base: StandardMaterial::default(),
         extension: RockExtension::default(),
     });
-    if let Some(mesh) = convert::rock_mesh(
-        &island.river_rock_mesh,
-        &DropIndex::new(&island.river_drops),
-    ) {
+    if let Some(mesh) = prepared.river_rocks.take() {
         commands.spawn((
             Name::new("River rocks"),
             IslandEntity,
@@ -133,17 +145,13 @@ fn spawn_chunk(
     meshes: &mut Assets<Mesh>,
     ground: &[Handle<TerrainMaterial>],
     chunk: &TerrainChunk,
+    rendered: &mut [Option<Mesh>; chunk::TIERS],
 ) -> usize {
     let centre = chunk::origin(chunk);
     let origin = island_to_world(centre.x, centre.y, centre.z);
     let mut spawned = 0;
-    for (level, tier_geometry) in chunk.tiers.iter().enumerate() {
-        let Some(mesh) = convert::terrain_mesh(
-            &tier_geometry.mesh,
-            &tier_geometry.materials,
-            &tier_geometry.river_wetness,
-            origin,
-        ) else {
+    for (level, mesh) in rendered.iter_mut().enumerate() {
+        let Some(mesh) = mesh.take() else {
             continue;
         };
         let vertices = u32::try_from(mesh.count_vertices()).unwrap_or(u32::MAX);
@@ -229,8 +237,14 @@ mod tests {
     fn every_margin_is_a_crossfade() {
         for level in 0..chunk::TIERS {
             let range = tier(level);
-            assert!(range.end_margin.end > range.end_margin.start, "level {level}");
-            assert!(range.end_margin.start >= range.start_margin.end, "level {level}");
+            assert!(
+                range.end_margin.end > range.end_margin.start,
+                "level {level}"
+            );
+            assert!(
+                range.end_margin.start >= range.start_margin.end,
+                "level {level}"
+            );
         }
     }
 }

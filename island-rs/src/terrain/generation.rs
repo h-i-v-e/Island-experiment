@@ -229,9 +229,10 @@ pub(super) fn generate_final_rivers(
         )
         .map_err(|error| format!("GPU river generation failed: {error}"));
         #[cfg(not(feature = "gpu-generation"))]
-        return Err(String::from(
-            "GPU generation requires the gpu-generation Cargo feature",
-        ));
+        {
+            method.require_available()?;
+            unreachable!("the GPU method is unavailable without its feature");
+        }
     }
     let mut rejected_waterfall_vertices = HashSet::new();
     loop {
@@ -322,11 +323,7 @@ impl Island {
         forest_options: ForestOptions,
         method: GenerationMethod,
     ) -> Result<Self, String> {
-        if !method.is_available() {
-            return Err(format!(
-                "{method} generation requires the gpu-generation Cargo feature"
-            ));
-        }
+        method.require_available()?;
         let _timer = StageTimer::new("island.generate");
         let options = options.validate()?;
         let forest_options = forest_options.validate()?;

@@ -46,6 +46,11 @@ const RIPPLE_HEADING: vec2<f32> = vec2<f32>(0.208, 0.978);
 /// Lattice units per second the third noise axis advances. Without it every
 /// layer is a rigid sheet sliding past instead of a sea state evolving.
 const EVOLVE: f32 = 0.055;
+/// The bounded phase used by every aperiodic wave field, and the end of that
+/// phase spent dissolving into its next copy. This keeps both drift and evolve
+/// coordinates inside the lattice hash's useful range without a visible reset.
+const WATER_PHASE_SECONDS: f32 = 500.0;
+const WATER_PHASE_BLEND_SECONDS: f32 = 20.0;
 
 /// Fresnel reflectance of water at normal incidence, and the `reflectance`
 /// parameter that reproduces it through Bevy's `0.16 * r * r` remapping.
@@ -141,9 +146,35 @@ struct OceanSettings {
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> settings: OceanSettings;
 
+fn water_phase() -> f32 {
+    return settings.water_time - floor(settings.water_time / WATER_PHASE_SECONDS) * WATER_PHASE_SECONDS;
+}
+
+fn phase_blend(time: f32) -> f32 {
+    return smoothstep(
+        WATER_PHASE_SECONDS - WATER_PHASE_BLEND_SECONDS,
+        WATER_PHASE_SECONDS,
+        time,
+    );
+}
+
 /// One drifting layer, as `(value, world slope)`. The third lattice axis
 /// carries time so the field evolves as it travels; its derivative is dropped
 /// because it is not a direction in the world.
+fn layer_at(
+    point: vec2<f32>,
+    heading: vec2<f32>,
+    wavelength: f32,
+    amplitude: f32,
+    speed: f32,
+    time: f32,
+) -> vec4<f32> {
+    let drift = (point - heading * (speed * time)) / wavelength;
+    let sample = noise_gradient(vec3<f32>(drift.x, time * EVOLVE, drift.y));
+    let slope = amplitude / wavelength;
+    return vec4<f32>(sample.x, sample.y * slope, 0.0, sample.w * slope);
+}
+
 fn layer(
     point: vec2<f32>,
     heading: vec2<f32>,
@@ -151,10 +182,54 @@ fn layer(
     amplitude: f32,
     speed: f32,
 ) -> vec4<f32> {
-    let drift = (point - heading * (speed * settings.water_time)) / wavelength;
-    let sample = noise_gradient(vec3<f32>(drift.x, settings.water_time * EVOLVE, drift.y));
-    let slope = amplitude / wavelength;
-    return vec4<f32>(sample.x, sample.y * slope, 0.0, sample.w * slope);
+    let time = water_phase();
+    let current = layer_at(point, heading, wavelength, amplitude, speed, time);
+    let blend = phase_blend(time);
+    if blend <= 0.0 {
+        return current;
+    }
+    let wrapped = layer_at(
+        point,
+        heading,
+        wavelength,
+        amplitude,
+        speed,
+        time - WATER_PHASE_SECONDS,
+    );
+    return mix(current, wrapped, blend);
+}
+
+fn advected_noise_at(
+    point: vec2<f32>,
+    heading: vec2<f32>,
+    wavelength: f32,
+    speed: f32,
+    time: f32,
+) -> f32 {
+    let drift = (point - heading * (speed * time)) / wavelength;
+    return noise(vec3<f32>(drift.x, time * EVOLVE, drift.y));
+}
+
+fn advected_noise(
+    point: vec2<f32>,
+    heading: vec2<f32>,
+    wavelength: f32,
+    speed: f32,
+) -> f32 {
+    let time = water_phase();
+    let current = advected_noise_at(point, heading, wavelength, speed, time);
+    let blend = phase_blend(time);
+    if blend <= 0.0 {
+        return current;
+    }
+    let wrapped = advected_noise_at(
+        point,
+        heading,
+        wavelength,
+        speed,
+        time - WATER_PHASE_SECONDS,
+    );
+    return mix(current, wrapped, blend);
 }
 
 @fragment
@@ -229,9 +304,12 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         // shoaling at all, or whether this is water standing against a wall.
         band *= smoothstep(SURF_BED_LEVEL_LOW, SURF_BED_LEVEL_HIGH, bottom.y);
 #endif
-        let drift = (world.xz - CHOP_HEADING * (SURF_BREAK_SPEED * settings.water_time))
-            / SURF_BREAK_METRES;
-        let broken = noise(vec3<f32>(drift.x, settings.water_time * EVOLVE, drift.y));
+        let broken = advected_noise(
+            world.xz,
+            CHOP_HEADING,
+            SURF_BREAK_METRES,
+            SURF_BREAK_SPEED,
+        );
         let crest = mix(
             SURF_CREST_FLOOR,
             1.0,
@@ -268,7 +346,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     pbr_input.material.base_color = vec4<f32>(albedo, clamp(alpha, 0.0, 1.0));
     pbr_input.material.perceptual_roughness = clamp(
         mix(settings.roughness, ROUGHNESS_FLAT, 1.0 - swell_near)
-            + (chop.x - 0.5) * 0.05
+            + (chop.x - 0.5) * 0.05 * chop_near
             + foam * 0.55,
         0.05,
         1.0,

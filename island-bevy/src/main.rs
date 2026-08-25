@@ -3,27 +3,21 @@
 // Bevy systems receive their parameters by value; the lint fires on every one.
 #![allow(clippy::needless_pass_by_value)]
 
-mod budget;
-mod cache;
-mod camera;
-mod capture;
-mod chunk;
-mod clouds;
-mod convert;
+mod app;
+mod environment;
 mod hash;
-mod hud;
-mod island_gen;
-mod lighting;
-mod mist;
-mod options;
-mod presets;
-mod screenshot;
-mod spray;
-mod surface;
-mod terrain;
-mod vegetation;
-mod water;
-mod weather;
+mod island;
+mod math;
+mod render;
+mod shaders;
+
+// Keep the original crate-level module paths stable while the source tree is
+// grouped by ownership. Internal callers can continue to use `crate::camera`,
+// `crate::surface`, and so on without treating folder names as API.
+pub(crate) use app::{camera, hud, options, presets, screenshot};
+pub(crate) use environment::{clouds, lighting, mist, spray, vegetation, weather};
+pub(crate) use island::{cache, chunk, convert, island_gen};
+pub(crate) use render::{budget, capture, surface, terrain, water};
 
 use std::{env, path::PathBuf, process, time::Duration};
 
@@ -209,6 +203,9 @@ fn main() {
 /// once every argument has been read.
 fn parse(arguments: impl Iterator<Item = String>) -> Result<Option<Command>, String> {
     let mut command = Command::default();
+    // A later variant replaces the earlier variant's own writes without
+    // erasing unrelated options the user supplied between them.
+    let variant_base = command.options;
     let mut view = String::from(camera::DEFAULT_VIEW);
     let mut variant = String::from(island_gen::DEFAULT_VARIANT);
     let mut arguments = arguments.peekable();
@@ -228,8 +225,9 @@ fn parse(arguments: impl Iterator<Item = String>) -> Result<Option<Command>, Str
                 command.method = parse_value(&argument, &value(&mut arguments)?)?;
             }
             "--variant" => {
-                variant = value(&mut arguments)?;
-                island_gen::apply_variant(&variant, &mut command.options)?;
+                let selected = value(&mut arguments)?;
+                island_gen::replace_variant(&selected, &variant_base, &mut command.options)?;
+                variant = selected;
             }
             "--view" => view = value(&mut arguments)?,
             "--weather" => command.weather = Weather::named(&value(&mut arguments)?)?,
@@ -478,6 +476,75 @@ mod tests {
         assert!((overridden.max_height - 0.3).abs() < f32::EPSILON);
         assert!(
             (overridden.hydraulic_erosion_strength - eroded.hydraulic_erosion_strength).abs()
+                < f32::EPSILON
+        );
+    }
+
+    /// A named variant describes one coherent set of overrides. Replacing it
+    /// with `default` must remove the first variant's writes as well as its
+    /// name, and selecting it again must restore exactly the same set.
+    #[test]
+    fn a_later_variant_replaces_the_earlier_variant() {
+        let defaults = command(&[]).unwrap().options;
+        let eroded = command(&["--variant", "eroded"]).unwrap().options;
+
+        let restored = command(&["--variant", "eroded", "--variant", "default"]).unwrap();
+        assert_eq!(restored.options, defaults);
+        assert_eq!(restored.variant_name, "default");
+
+        let selected_again = command(&[
+            "--variant",
+            "eroded",
+            "--variant",
+            "default",
+            "--variant",
+            "eroded",
+        ])
+        .unwrap();
+        assert_eq!(selected_again.options, eroded);
+        assert_eq!(selected_again.variant_name, "eroded");
+    }
+
+    /// Variant replacement touches only variant-owned fields, while an
+    /// explicit value targeting one of those fields still wins or loses by
+    /// its position in the argument list.
+    #[test]
+    fn variant_replacement_preserves_left_to_right_option_order() {
+        let defaults = command(&[]).unwrap().options;
+        let eroded = command(&["--variant", "eroded"]).unwrap().options;
+
+        let before = command(&["--hydraulic-erosion-strength", "2", "--variant", "eroded"])
+            .unwrap()
+            .options;
+        assert!(
+            (before.hydraulic_erosion_strength - eroded.hydraulic_erosion_strength).abs()
+                < f32::EPSILON
+        );
+
+        let after = command(&["--variant", "eroded", "--hydraulic-erosion-strength", "2"])
+            .unwrap()
+            .options;
+        assert!((after.hydraulic_erosion_strength - 2.0).abs() < f32::EPSILON);
+
+        let replaced = command(&[
+            "--variant",
+            "eroded",
+            "--max-height",
+            "0.3",
+            "--hydraulic-erosion-strength",
+            "2",
+            "--variant",
+            "default",
+        ])
+        .unwrap()
+        .options;
+        assert!((replaced.max_height - 0.3).abs() < f32::EPSILON);
+        assert!(
+            (replaced.hydraulic_erosion_strength - defaults.hydraulic_erosion_strength).abs()
+                < f32::EPSILON
+        );
+        assert!(
+            (replaced.coastal_slope_multiplier - defaults.coastal_slope_multiplier).abs()
                 < f32::EPSILON
         );
     }

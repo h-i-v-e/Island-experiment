@@ -81,6 +81,12 @@ const CHURN_SPEED: f32 = 1.30;
 /// Lattice units per second the flow layers' third axis advances, so a reach
 /// evolves as it travels instead of running as one rigid belt.
 const EVOLVE: f32 = 0.09;
+/// The bounded phase used by every aperiodic water field, and the end of that
+/// phase spent dissolving into its next copy. Five hundred seconds keeps even
+/// the fastest, shortest flow layer inside the lattice hash's useful domain;
+/// the blend makes the reset continuous rather than moving every crest at once.
+const WATER_PHASE_SECONDS: f32 = 500.0;
+const WATER_PHASE_BLEND_SECONDS: f32 = 20.0;
 /// Metres the lateral world coordinate is wrapped over.
 ///
 /// The flow layers need a coordinate that runs across a channel without
@@ -215,18 +221,33 @@ struct RiverSettings {
 /// lattice axis carries time; its derivative is dropped because it is not a
 /// direction on the surface. `phase` offsets that axis, which is what lets one
 /// layer be sampled twice without the two samples evolving together.
-fn flow_layer(
-    along: f32,
+fn water_phase() -> f32 {
+    return settings.water_time - floor(settings.water_time / WATER_PHASE_SECONDS) * WATER_PHASE_SECONDS;
+}
+
+fn phase_blend(time: f32) -> f32 {
+    return smoothstep(
+        WATER_PHASE_SECONDS - WATER_PHASE_BLEND_SECONDS,
+        WATER_PHASE_SECONDS,
+        time,
+    );
+}
+
+fn flow_layer_at(
+    downstream: f32,
+    speed: f32,
     across: f32,
     wave_along: f32,
     wave_across: f32,
     amplitude: f32,
     phase: f32,
+    time: f32,
 ) -> vec3<f32> {
+    let along = downstream - speed * time;
     let sample = noise_gradient(vec3<f32>(
         along / wave_along,
         across / wave_across,
-        settings.water_time * EVOLVE + phase,
+        time * EVOLVE + phase,
     ));
     return vec3<f32>(
         sample.x,
@@ -244,23 +265,134 @@ fn flow_layer(
 /// ever closes, and splitting their time axes as well keeps the pair from
 /// beating in and out together — which is what one layer sampled twice at the
 /// same instant would do.
-fn flow_pair(
-    along: f32,
+fn flow_pair_at(
+    downstream: f32,
+    speed: f32,
     across: f32,
     wave_along: f32,
     wave_across: f32,
     amplitude: f32,
+    time: f32,
 ) -> vec3<f32> {
-    let first = flow_layer(along, across, wave_along, wave_across, amplitude * 0.5, 0.0);
-    let second = flow_layer(
-        along + wave_along * 0.5,
+    let first = flow_layer_at(
+        downstream,
+        speed,
+        across,
+        wave_along,
+        wave_across,
+        amplitude * 0.5,
+        0.0,
+        time,
+    );
+    let second = flow_layer_at(
+        downstream + wave_along * 0.5,
+        speed,
         across + wave_across * 0.5,
         wave_along,
         wave_across,
         amplitude * 0.5,
         0.5,
+        time,
     );
     return vec3<f32>((first.x + second.x) * 0.5, first.y + second.y, first.z + second.z);
+}
+
+fn flow_pair(
+    downstream: f32,
+    speed: f32,
+    across: f32,
+    wave_along: f32,
+    wave_across: f32,
+    amplitude: f32,
+) -> vec3<f32> {
+    let time = water_phase();
+    let current = flow_pair_at(downstream, speed, across, wave_along, wave_across, amplitude, time);
+    let blend = phase_blend(time);
+    if blend <= 0.0 {
+        return current;
+    }
+    let wrapped = flow_pair_at(
+        downstream,
+        speed,
+        across,
+        wave_along,
+        wave_across,
+        amplitude,
+        time - WATER_PHASE_SECONDS,
+    );
+    return mix(current, wrapped, blend);
+}
+
+fn flow_noise_at(
+    downstream: f32,
+    speed: f32,
+    across: f32,
+    wave_along: f32,
+    wave_across: f32,
+    evolution: f32,
+    time: f32,
+    transposed: bool,
+) -> f32 {
+    let along = (downstream - speed * time) / wave_along;
+    let lateral = across / wave_across;
+    let evolved = time * EVOLVE * evolution;
+    if transposed {
+        return noise(vec3<f32>(lateral, along, evolved));
+    }
+    return noise(vec3<f32>(along, lateral, evolved));
+}
+
+fn flow_noise(
+    downstream: f32,
+    speed: f32,
+    across: f32,
+    wave_along: f32,
+    wave_across: f32,
+    evolution: f32,
+    transposed: bool,
+) -> f32 {
+    let time = water_phase();
+    let current = flow_noise_at(
+        downstream,
+        speed,
+        across,
+        wave_along,
+        wave_across,
+        evolution,
+        time,
+        transposed,
+    );
+    let blend = phase_blend(time);
+    if blend <= 0.0 {
+        return current;
+    }
+    let wrapped = flow_noise_at(
+        downstream,
+        speed,
+        across,
+        wave_along,
+        wave_across,
+        evolution,
+        time - WATER_PHASE_SECONDS,
+        transposed,
+    );
+    return mix(current, wrapped, blend);
+}
+
+fn world_layer_at(world: vec3<f32>, speed: f32, wavelength: f32, time: f32) -> vec4<f32> {
+    let drift = world - vec3<f32>(0.0, time * speed, 0.0);
+    return noise_gradient(drift / wavelength);
+}
+
+fn world_layer(world: vec3<f32>, speed: f32, wavelength: f32) -> vec4<f32> {
+    let time = water_phase();
+    let current = world_layer_at(world, speed, wavelength, time);
+    let blend = phase_blend(time);
+    if blend <= 0.0 {
+        return current;
+    }
+    let wrapped = world_layer_at(world, speed, wavelength, time - WATER_PHASE_SECONDS);
+    return mix(current, wrapped, blend);
 }
 
 @fragment
@@ -318,9 +450,9 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     let dissipated = exp(-PLUNGE_RANGE / PLUNGE_DECAY);
     let tail = max(exp(-travelled / PLUNGE_DECAY) - dissipated, 0.0) / (1.0 - dissipated);
     let churn = tail * (1.0 - falling);
+    let remaining = max(1.0 - falling - churn, 0.0);
     let running = max(smoothstep(RUN_GRADE_LOW, RUN_GRADE_HIGH, grade), approach)
-        * (1.0 - falling)
-        * (1.0 - churn);
+        * remaining;
     let calm = max(1.0 - falling - churn - running, 0.0);
 
     // v is the only channel coordinate that increases monotonically along a
@@ -335,7 +467,19 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     } else if grade > 1.0e-3 {
         flow = normalize(vec3<f32>(normal.x, 0.0, normal.z));
     }
-    let across = normalize(cross(normal, flow));
+    var across = cross(normal, flow);
+    if length(across) <= 1.0e-9 {
+        // An exactly vertical fallback flow can be parallel to the surface
+        // normal. Pick a stable tangent in that degenerate derivative lane
+        // rather than normalizing a zero cross product into NaNs.
+        let reference = select(
+            vec3<f32>(0.0, 1.0, 0.0),
+            vec3<f32>(1.0, 0.0, 0.0),
+            abs(normal.y) > 0.9,
+        );
+        across = cross(normal, reference);
+    }
+    across = normalize(across);
 
     // Where a fragment stands across the channel, signed and unfolded. The bank
     // distance still decides what happens at an edge; this decides what the
@@ -349,18 +493,25 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     // a fall. Neither of the last two shows on the reaches where the shear
     // between neighbouring speeds would.
     let speed = settings.flow_speed + max(grade, falling * 0.85) * settings.grade_speed;
-    let calm_phase = downstream - settings.flow_speed * settings.water_time;
-    let rushed = downstream - speed * settings.water_time;
-    let ripple = flow_pair(calm_phase, bank, RIPPLE_ALONG, RIPPLE_ACROSS, RIPPLE_AMPLITUDE);
+    let ripple = flow_pair(
+        downstream,
+        settings.flow_speed,
+        bank,
+        RIPPLE_ALONG,
+        RIPPLE_ACROSS,
+        RIPPLE_AMPLITUDE,
+    );
     let rush = flow_pair(
-        rushed,
+        downstream,
+        speed,
         sideways,
         RUSH_ALONG,
         RUSH_ACROSS,
         RUSH_AMPLITUDE * grade * (1.0 - falling),
     );
     let streak = flow_pair(
-        rushed,
+        downstream,
+        speed,
         sideways,
         STREAK_ALONG,
         STREAK_ACROSS,
@@ -373,8 +524,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         // Drifting along world up rather than any surface direction: the layer
         // exists to break the flow layers up, and a channel is thin enough that
         // its own height barely moves across one.
-        let drift = world - vec3<f32>(0.0, settings.water_time * CHOP_SPEED, 0.0);
-        let chop = noise_gradient(drift / CHOP_METRES);
+        let chop = world_layer(world, CHOP_SPEED, CHOP_METRES);
         let amplitude = CHOP_AMPLITUDE / CHOP_METRES * near;
         slope += vec3<f32>(chop.y, 0.0, chop.w) * amplitude;
     }
@@ -385,11 +535,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     // phase D drew. Sampled only where there is a sheet to break.
     var lanes = 0.5;
     if falling > 0.01 {
-        lanes = noise(vec3<f32>(
-            rushed / LANE_ALONG,
-            sideways / LANE_ACROSS,
-            settings.water_time * EVOLVE * 1.5,
-        ));
+        lanes = flow_noise(downstream, speed, sideways, LANE_ALONG, LANE_ACROSS, 1.5, false);
     }
 
     // The receiving water. Read in world space and drifting upward rather than
@@ -397,8 +543,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     // throws is what travels, further down.
     var boil = 0.0;
     if churn > 0.01 {
-        let rising = world - vec3<f32>(0.0, settings.water_time * CHURN_SPEED, 0.0);
-        let turning = noise_gradient(rising / CHURN_METRES);
+        let turning = world_layer(world, CHURN_SPEED, CHURN_METRES);
         boil = turning.x;
         let amplitude = CHURN_AMPLITUDE / CHURN_METRES * churn * (0.45 + strength * 0.55);
         slope += vec3<f32>(turning.y, 0.0, turning.w) * amplitude;
@@ -443,11 +588,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     // Generated at the foot and advected downstream at the surface's own speed,
     // so what the eye follows is foam leaving the fall rather than a stain
     // lying on the water under it.
-    let carried = noise(vec3<f32>(
-        rushed / CARRY_ALONG,
-        sideways / CARRY_ACROSS,
-        settings.water_time * EVOLVE * 2.0,
-    ));
+    let carried = flow_noise(downstream, speed, sideways, CARRY_ALONG, CARRY_ACROSS, 2.0, false);
     let plunge_foam = churn
         * (0.45 + strength * 0.55)
         * clamp(smoothstep(CARRY_LOW, CARRY_HIGH, carried) + boil * 0.30, 0.0, 1.0);
@@ -476,11 +617,10 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     // the fall, so what leaves the rock is a set of ribbons rather than a
     // rectangle with two straight sides.
     if falling > 0.01 {
-        let tear = noise(vec3<f32>(
-            sideways / TEAR_ACROSS,
-            rushed / TEAR_ALONG,
-            settings.water_time * EVOLVE,
-        ));
+        // The tear field historically carries across-channel distance on the
+        // first lattice axis; preserve that orientation while its second axis
+        // is advected downstream.
+        let tear = flow_noise(downstream, speed, sideways, TEAR_ALONG, TEAR_ACROSS, 1.0, true);
         let torn = smoothstep(0.0, TEAR_METRES * (0.20 + tear * 1.60), bank);
         alpha *= mix(1.0, torn, falling);
     }

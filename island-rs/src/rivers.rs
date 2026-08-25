@@ -187,6 +187,19 @@ pub struct River {
     pub join: Option<usize>,
 }
 
+impl River {
+    /// The target channel half width at every node, using the same monotone
+    /// flow-and-path growth rule the terrain carving pass uses.
+    ///
+    /// The returned widths use the same unit as the two inputs, so callers may
+    /// ask in metres or in normalized island coordinates without conversion
+    /// inside the rule.
+    #[must_use]
+    pub fn target_half_widths(&self, source_width: f32, maximum_width: f32) -> Vec<f32> {
+        channel::target_half_widths(self, source_width, maximum_width)
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct RiverChannelSettings {
     pub(crate) source_width: f32,

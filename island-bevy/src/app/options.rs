@@ -253,8 +253,7 @@ pub fn non_default(options: &IslandOptions) -> String {
         .filter_map(|parameter| {
             let value = *(parameter.field)(&mut options);
             let default = *(parameter.field)(&mut defaults);
-            ((value - default).abs() > f32::EPSILON)
-                .then(|| format!("{} {value}", parameter.flag))
+            ((value - default).abs() > f32::EPSILON).then(|| format!("{} {value}", parameter.flag))
         })
         .collect::<Vec<_>>()
         .join(" ")
@@ -282,9 +281,25 @@ pub fn help_lines() -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::mem::size_of;
+
     use motu::{GenerationMethod, IslandOptions};
 
     use super::{PARAMETERS, command_line, non_default, parameter, reconcile};
+
+    /// `IslandOptions` is `repr(C)` and consists only of the table's `f32`
+    /// fields followed by `terrain_size`. Together with the accessor-identity
+    /// test below, this makes a newly added field fail until the table covers
+    /// it, which keeps the cache key complete.
+    #[test]
+    fn parameter_table_covers_the_whole_options_layout() {
+        let table_bytes = (PARAMETERS.len() + 1) * size_of::<u32>();
+        assert_eq!(
+            size_of::<IslandOptions>(),
+            table_bytes,
+            "IslandOptions changed without a matching PARAMETERS entry"
+        );
+    }
 
     /// The table is what the cache key, the parser and the HUD all read, so a
     /// duplicate flag or a field listed twice would quietly merge two

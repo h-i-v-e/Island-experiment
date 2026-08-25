@@ -25,7 +25,7 @@ use motu::ISLAND_WORLD_METRES;
 
 use crate::{
     convert::island_to_world,
-    hash::{mix, unit},
+    hash::{choice, mix, unit},
     island_gen::{GeneratedIsland, IslandEntity, IslandReady, RiverDrop},
     surface::{SprayExtension, SprayMaterial},
 };
@@ -45,14 +45,17 @@ const RISE_SPEED: f32 = 0.80;
 const RISE_STRENGTH: f32 = 1.50;
 const DRIFT_SPEED: f32 = 0.90;
 const SIDEWAYS_SPEED: f32 = 0.50;
-/// Seconds a droplet lasts, and the metres across it opens at. Both are a range
-/// the droplet's own hash picks from, or the cloud reads as one object.
+/// Seconds a droplet lasts, and the metres across it opens at. Both vary by the
+/// droplet's own hash, or the cloud reads as one object.
 ///
 /// Big and faint rather than small and solid: what the eye reads as mist is
 /// many overlapping veils, and a droplet small enough to be seen whole is a
 /// sprite whatever it is drawn with.
-const LIFE_SECONDS: f32 = 0.75;
-const LIFE_SPREAD: f32 = 0.80;
+///
+/// Each life is an exact binary fraction and an exact divisor of
+/// `capture::WATER_CLOCK_WRAP_SECONDS`. The phase therefore joins at the shared
+/// clock wrap rather than making every droplet restart at once.
+const LIFE_SECONDS: [f32; 4] = [0.781_25, 1.0, 1.25, 1.562_5];
 const SIZE_METRES: f32 = 0.35;
 const SIZE_SPREAD: f32 = 0.55;
 /// How far downstream of the foot and how far up from the water a droplet may
@@ -63,9 +66,22 @@ const SIZE_SPREAD: f32 = 0.55;
 const LAUNCH_ALONG_METRES: f32 = 1.2;
 const LAUNCH_RISE_METRES: f32 = 0.4;
 const LAUNCH_ACROSS_METRES: f32 = 2.5;
-/// Metres the mesh's own bounds are grown by past the launch points, which is
-/// further than any arc these speeds and lives can carry a droplet.
-const CLOUD_MARGIN: f32 = 9.0;
+/// The shader-side ballistic and growth constants repeated here so the mesh's
+/// CPU-side culling bound covers the geometry the vertex stage creates.
+const GRAVITY: f32 = 9.81;
+const OPEN_SIZE: f32 = 0.45;
+const SIZE_GROWTH: f32 = 1.60;
+const MAX_LIFE_SECONDS: f32 = LIFE_SECONDS[LIFE_SECONDS.len() - 1];
+/// The furthest a minimum-rise droplet falls by the end of the longest life.
+const MAX_FALL_METRES: f32 =
+    0.5 * GRAVITY * MAX_LIFE_SECONDS * MAX_LIFE_SECONDS - RISE_SPEED * MAX_LIFE_SECONDS;
+/// A camera-facing quad can put both of its axes onto one world-space axis, so
+/// its maximum AABB reach is the grown half-size times sqrt(2).
+const MAX_QUAD_REACH_METRES: f32 =
+    std::f32::consts::SQRT_2 * (SIZE_METRES + SIZE_SPREAD) * (OPEN_SIZE + SIZE_GROWTH);
+/// Metres the launch-point bounds are grown by. Vertical fall is the largest
+/// ballistic excursion; adding the worst quad reach covers its visible corner.
+const CLOUD_MARGIN: f32 = MAX_FALL_METRES + MAX_QUAD_REACH_METRES;
 
 /// Distinguishes spray from the crate's other hashed values.
 const SPRAY_SALT: u64 = 0x53c7_1a94_e60d_2fb5;
@@ -139,7 +155,7 @@ fn cloud(drops: &[RiverDrop]) -> Option<(Mesh, Aabb)> {
             let traits = [
                 unit(mix(hash, 0x11)),
                 SIZE_METRES + SIZE_SPREAD * unit(mix(hash, 0x22)),
-                LIFE_SECONDS + LIFE_SPREAD * unit(mix(hash, 0x33)),
+                LIFE_SECONDS[choice(mix(hash, 0x33), LIFE_SECONDS.len())],
                 0.55 + 0.45 * strength,
             ];
             #[allow(clippy::cast_possible_truncation)]
@@ -198,4 +214,32 @@ fn launch_velocity(drop: RiverDrop, strength: f32, hash: u64) -> Vec3 {
     downstream * (DRIFT_SPEED * unit(mix(hash, 0x52)))
         + sideways * (SIDEWAYS_SPEED * (unit(mix(hash, 0x53)) * 2.0 - 1.0))
         + Vec3::Y * rise
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CLOUD_MARGIN, LIFE_SECONDS, MAX_FALL_METRES, MAX_QUAD_REACH_METRES};
+    use crate::capture::WATER_CLOCK_WRAP_SECONDS;
+
+    #[test]
+    fn spray_cycles_and_bounds_cover_the_clock_wrap() {
+        for life in LIFE_SECONDS {
+            assert_eq!(
+                (WATER_CLOCK_WRAP_SECONDS / life).fract().to_bits(),
+                0.0_f32.to_bits()
+            );
+        }
+        const {
+            assert!(CLOUD_MARGIN >= MAX_FALL_METRES + MAX_QUAD_REACH_METRES);
+            assert!(CLOUD_MARGIN > 13.0);
+        }
+        let shader = include_str!("../shaders/spray.wgsl");
+        for constant in [
+            "const GRAVITY: f32 = 9.81;",
+            "const OPEN: f32 = 0.45;",
+            "const GROWTH: f32 = 1.60;",
+        ] {
+            assert!(shader.contains(constant), "missing {constant:?}");
+        }
+    }
 }

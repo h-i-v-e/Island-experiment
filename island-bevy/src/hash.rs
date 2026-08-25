@@ -27,3 +27,15 @@ pub fn choice(hash: u64, count: usize) -> usize {
         (hash & 0xffff) as usize % count.max(1)
     }
 }
+
+/// Combines two wrapped lattice coordinates without letting axes cancel.
+#[must_use]
+pub fn lattice_key_2(x: u64, y: u64) -> u64 {
+    x.wrapping_mul(0x9e37_79b9_7f4a_7c15) ^ y.wrapping_mul(0xc2b2_ae3d_27d4_eb4f)
+}
+
+/// Combines three wrapped lattice coordinates without letting axes cancel.
+#[must_use]
+pub fn lattice_key_3(x: u64, y: u64, z: u64) -> u64 {
+    lattice_key_2(x, y) ^ z.wrapping_mul(0x1656_67b1_9e37_79f9)
+}

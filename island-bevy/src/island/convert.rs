@@ -13,7 +13,7 @@ use bevy::{
 use motu::ISLAND_WORLD_METRES;
 
 use crate::{
-    hash::{mix, unit},
+    hash::{lattice_key_3, mix, unit},
     island_gen::DropIndex,
 };
 
@@ -82,7 +82,11 @@ pub fn render_mesh_at(source: &motu::Mesh, origin: Vec3) -> Option<Mesh> {
     let baked_normals = normals.len() == source.vertices.len();
     let mut mesh = Mesh::new(
         PrimitiveTopology::TriangleList,
-        RenderAssetUsages::default(),
+        // Generated geometry is immutable after insertion. Render-only usage
+        // lets Bevy move its large buffers into extraction instead of cloning
+        // and retaining a second main-world copy; bounds are calculated before
+        // extraction removes the source asset.
+        RenderAssetUsages::RENDER_WORLD,
     );
     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
     if baked_normals {
@@ -168,9 +172,11 @@ pub fn rock_mesh(source: &motu::Mesh, drops: &DropIndex) -> Option<Mesh> {
 /// axes can cancel.
 fn cell_key(point: Vec3) -> u64 {
     let cell = point.floor().as_i64vec3();
-    cell.x.cast_unsigned().wrapping_mul(0x9e37_79b9_7f4a_7c15)
-        ^ cell.y.cast_unsigned().wrapping_mul(0xc2b2_ae3d_27d4_eb4f)
-        ^ cell.z.cast_unsigned().wrapping_mul(0x1656_67b1_9e37_79f9)
+    lattice_key_3(
+        cell.x.cast_unsigned(),
+        cell.y.cast_unsigned(),
+        cell.z.cast_unsigned(),
+    )
 }
 
 /// The source winding is counter-clockwise in the island XY plane, which the
