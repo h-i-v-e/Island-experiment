@@ -670,7 +670,6 @@ fn draw_generation_method(
 ) {
     let mut selected = hud.method;
     ui.horizontal(|ui| {
-        ui.label(caps("METHOD", 9.0, DIM_TEXT));
         for method in GenerationMethod::ALL {
             let tooltip = match method {
                 GenerationMethod::Cpu => "Jerome's original CPU generation method",
