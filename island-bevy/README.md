@@ -5,9 +5,9 @@ island in process, converts the generator's meshes into Bevy meshes, and renders
 terrain, sea, rivers, river rocks and vegetation in one 3D scene you can fly
 over or walk around.
 
-The generator is deterministic, so a given seed produces exactly the geometry,
-material weights and decoration points the Unity pipeline consumes. This crate
-is a second consumer of that data, not a second generator.
+CPU generation is the same deterministic primary implementation consumed by
+the Unity pipeline. The viewer also includes the experimental GPU method, which
+targets a comparable natural result rather than identical geometry.
 
 ## Running
 
@@ -19,6 +19,9 @@ The window opens immediately and shows `Generating island...` while the island
 builds on a background task pool. Press `H`, or the `☰` button in the corner,
 for the menu panel: ten showcase presets and every generator parameter, which
 generate a new island without a restart, and `F` to walk on the one you have.
+The **CPU** and **GPU** buttons in the header regenerate the same draft through
+the selected method, making a direct A/B comparison possible once both results
+are cached.
 
 Options are applied in the order given, so a later one wins: `--variant eroded
 --max-height 0.3` keeps the variant's erosion and takes the spelled-out height.
@@ -26,7 +29,8 @@ Options are applied in the order given, so a later one wins: `--variant eroded
 | Option | Default | Notes |
 | --- | --- | --- |
 | `--seed <N>` | `666` | Generation seed. |
-| `--terrain-size <N>` | `1024` | Delaunay seed-point count, 16 to 4096. The first generation takes roughly 30 s, then the cache makes repeat launches fast; `128` or `256` iterate quickly. |
+| `--terrain-size <N>` | `1024` | Delaunay seed-point count, 16 to 4096. CPU generation at 1024 takes roughly 30 s; the experimental GPU path can complete in a few seconds on tested Apple silicon. Cached repeats are fast, and `128` or `256` iterate quickly. |
+| `--generation-method <METHOD>` | `cpu` | `cpu` uses the primary generator; `gpu` selects the experimental GPU-native erosion, river, and rock stages. |
 | `--variant <NAME>` | `default` | Named generation variant; see below. |
 | `--view <NAME>` | `overview` | Named camera pose to open on and to reset to; see below. |
 | `--weather <NAME>` | `clear` | Named weather look: sun, haze, cloud and its ground shadow, mist and grade as one set; see below. |
@@ -66,16 +70,19 @@ the HUD reports and the cache key all walk it. A parameter added to
 
 ### Cache
 
-Generation is deterministic but slow — seconds at terrain size 256, about half
-a minute at 1024 — and nothing about it changes between launches, so the
-geometry the renderer reads is cached on disk and a repeat launch skips the
-generator entirely.
+Generation is deterministic within a selected method but expensive — CPU takes
+seconds at terrain size 256 and about half a minute at 1024, while GPU timing is
+hardware-dependent — so the geometry the renderer reads is cached on disk and
+a repeat launch skips the generator entirely.
 
-Entries live in `target/island-cache/`, one file per island, named after a hash
-of the seed and every generator option. Changing any of them is a different
-island and so a different file; nothing is ever invalidated in place, and the
-directory only grows. `cargo clean` clears it, and so does deleting the
-directory. Each entry is the finished meshes, material weights, per-vertex
+Entries live under `target/island-cache/cpu/` and
+`target/island-cache/gpu/`, one file per island, named after a hash of the seed
+and every generator option. Identical inputs therefore keep independent CPU and
+GPU results without putting the method or an algorithm version into the key.
+Changing an input is a different island and so a different file; nothing is
+invalidated in place, and the directories only grow. `cargo clean` clears them,
+and so does deleting `target/island-cache/`. Each entry is the finished meshes,
+material weights, per-vertex
 river wetness, decoration points and walk mode's height grid in a flat binary
 layout — tens of megabytes at terrain size 256, of which the grid is 1 MiB and
 the wetness one float per terrain vertex — and is read on the same
@@ -90,27 +97,23 @@ An entry is only read when the seed and all fifteen options recorded in it
 match the run asking for it exactly. The chunk grid's own divisions and skirt
 depth are mixed into the key as well: neither is a generator option and neither
 would otherwise retire an entry that holds ground cut into other squares.
-Anything else — a missing, truncated,
-oversized or otherwise damaged file, or one written by an earlier format
-version — is a miss, and the island is generated and the entry rewritten. The
-format version is mixed into the key as well as written into the entry, so
-entries from before a bump are never even opened, let alone read as damage. The
-current version is 6, which took the skirt off the outside of the chunk grid,
-where there is no neighbour to close a seam with; 5 replaced the one
-island-wide terrain mesh with the grid at three levels of detail, 4 added the
-river drops and widened the wetness around a plunge pool, 3 added the
-per-vertex river wetness and 2 the height grid. The log says which happened on every run and on every rebuild:
+Anything else — a missing, truncated, oversized or otherwise damaged file, or
+one written with an incompatible binary layout — is a miss, and the island is
+generated and the entry rewritten. The existing format marker protects binary
+layout compatibility only; ordinary generator changes are handled by clearing
+the development cache. The log says which path was used on every run and every
+rebuild:
 
 ```
-island cache hit: /…/target/island-cache/6a1f….bin
-island cache miss: /…/target/island-cache/6a1f….bin
+island cache hit: /…/target/island-cache/cpu/6a1f….bin
+island cache miss: /…/target/island-cache/gpu/6a1f….bin
 ```
 
 `--no-cache` skips the read and generates unconditionally, then writes a fresh
 entry. Reach for it when the generator itself has changed — a new island under
 an unchanged seed and options would otherwise keep reading the old geometry
-back. Bumping `CACHE_FORMAT_VERSION` in `src/cache.rs` retires every existing
-entry at once and is the durable answer to the same problem.
+back. Delete `target/island-cache/` after algorithm changes; change the format
+marker in `src/cache.rs` only when the serialized layout changes.
 
 ### Variants
 
@@ -306,6 +309,7 @@ so the middle of the frame — which is the island — is never behind a control
   always in the same place.
 - **Left, under it**: the menu panel, which `H` and that button show and hide.
 - **Top centre**, only while there is something to say: the generation strip.
+- **Top right**, always: the CPU/GPU method switch and the generate button.
 - **Bottom left**, always: the frame rate and the draw census.
 
 The panel is three collapsing sections over a pinned footer. The sections scroll
@@ -343,7 +347,7 @@ the island on screen onto the system clipboard — the same line the log carries
 on every build:
 
 ```
-island arguments: --seed 666 --terrain-size 128 --max-height 0.2 …
+island arguments: --seed 666 --terrain-size 128 --generation-method cpu --max-height 0.2 …
 ```
 
 Under the two buttons is what the island on screen was built from and how long
@@ -467,6 +471,7 @@ actually differs about the two captures.
 crate: island-bevy 0.1.0
 seed: 666
 terrain-size: 128
+generation-method: cpu
 variant: default
 non-default-options: none
 view: stream
@@ -491,6 +496,7 @@ keeps a sidecar written before weather existed comparable with one written
 after; a named look appends `clouds`, `cloud-shadows`, `volumetric-fog` and
 `colour-grading` as it uses them.
 
+`generation-method` records the CPU/GPU implementation used for the terrain.
 `non-default-options` is the `--flag value` pairs this island's generator
 options differ from the defaults by, or `none`; the full reproducing line is
 what the HUD and the log already print. `adapter` comes from

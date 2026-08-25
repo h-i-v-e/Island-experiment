@@ -37,6 +37,21 @@ impl GenerationMethod {
             Self::Gpu => cfg!(feature = "gpu-generation"),
         }
     }
+
+    pub(super) const fn save_tag(self) -> u8 {
+        match self {
+            Self::Cpu => 0,
+            Self::Gpu => 1,
+        }
+    }
+
+    pub(super) const fn from_save_tag(tag: u8) -> Option<Self> {
+        match tag {
+            0 => Some(Self::Cpu),
+            1 => Some(Self::Gpu),
+            _ => None,
+        }
+    }
 }
 
 impl fmt::Display for GenerationMethod {
@@ -67,6 +82,10 @@ mod tests {
     fn method_names_round_trip() {
         for method in GenerationMethod::ALL {
             assert_eq!(method.as_str().parse(), Ok(method));
+            assert_eq!(
+                GenerationMethod::from_save_tag(method.save_tag()),
+                Some(method)
+            );
         }
     }
 }

@@ -150,7 +150,7 @@ impl Decorations {
         rivers: &[River],
         target: usize,
         method: GenerationMethod,
-    ) -> (Self, Vec<SettledRock>) {
+    ) -> Result<(Self, Vec<SettledRock>), String> {
         let _timer = StageTimer::new("decorations.lazy");
         let mut rng = Rng::new(seed ^ 0xe703_7ed1_a0b4_28db);
         let mut out = Self::default();
@@ -191,9 +191,9 @@ impl Decorations {
             material,
             target * ROCK_BODY_COUNT_MULTIPLIER,
             method,
-        );
+        )?;
         out.cleared_soil_vertices = cleared_soil_vertices;
-        (out, settled_rocks)
+        Ok((out, settled_rocks))
     }
 }
 
@@ -262,10 +262,10 @@ pub(super) fn generate_settled_rocks(
     material: &TerrainMaterialField,
     body_target: usize,
     method: GenerationMethod,
-) -> (Vec<SettledRock>, Vec<u32>) {
+) -> Result<(Vec<SettledRock>, Vec<u32>), String> {
     let _timer = StageTimer::new("decorations.rock_settling");
     let mut bodies = spawn_rock_bodies(seed, terrain, body_target);
-    settle_rock_bodies(terrain, &mut bodies, method);
+    settle_rock_bodies(terrain, &mut bodies, method)?;
 
     let mut rocks = Vec::with_capacity(bodies.len());
     let mut cleared_soil_vertices = Vec::new();
@@ -320,21 +320,35 @@ pub(super) fn generate_settled_rocks(
             cleared_soil_vertices.len(),
         );
     }
-    (rocks, cleared_soil_vertices)
+    Ok((rocks, cleared_soil_vertices))
 }
 
-fn settle_rock_bodies(terrain: &Terrain, bodies: &mut [RockBody], method: GenerationMethod) {
+#[cfg_attr(
+    not(feature = "gpu-generation"),
+    allow(
+        clippy::unnecessary_wraps,
+        reason = "the GPU implementation adds fallible device and readback work"
+    )
+)]
+fn settle_rock_bodies(
+    terrain: &Terrain,
+    bodies: &mut [RockBody],
+    method: GenerationMethod,
+) -> Result<(), String> {
     if method == GenerationMethod::Gpu {
         #[cfg(feature = "gpu-generation")]
         {
             super::gpu_generation::simulate_rock_bodies_gpu(terrain, bodies)
-                .unwrap_or_else(|error| panic!("GPU rock settling failed: {error}"));
-            return;
+                .map_err(|error| format!("GPU rock settling failed: {error}"))?;
+            return Ok(());
         }
         #[cfg(not(feature = "gpu-generation"))]
-        unreachable!("GPU availability is checked before generation starts");
+        return Err(String::from(
+            "GPU generation requires the gpu-generation Cargo feature",
+        ));
     }
     simulate_rock_bodies(terrain, bodies);
+    Ok(())
 }
 
 pub(super) fn spawn_rock_bodies(seed: u64, terrain: &Terrain, target: usize) -> Vec<RockBody> {

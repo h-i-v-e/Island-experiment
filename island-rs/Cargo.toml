@@ -21,7 +21,7 @@ sha2 = "0.10.9"
 wgpu = { version = "29.0.4", optional = true }
 
 [features]
-default = []
+default = ["gpu-generation"]
 gpu-generation = ["dep:bytemuck", "dep:pollster", "dep:wgpu"]
 profiling = []
 

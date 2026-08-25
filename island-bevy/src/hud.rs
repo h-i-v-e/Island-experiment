@@ -672,7 +672,7 @@ fn draw_generation_method(
     ui.horizontal(|ui| {
         for method in GenerationMethod::ALL {
             let tooltip = match method {
-                GenerationMethod::Cpu => "Jerome's original CPU generation method",
+                GenerationMethod::Cpu => "Primary CPU generation method",
                 GenerationMethod::Gpu => "Experimental GPU compute generation method",
             };
             let button =

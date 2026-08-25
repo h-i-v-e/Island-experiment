@@ -788,6 +788,7 @@ fn save_and_load_regenerates_identical_island() {
     let loaded = Island::load(&path).unwrap();
     fs::remove_file(path).unwrap();
     assert_eq!(island, loaded);
+    assert_eq!(loaded.generation_method(), GenerationMethod::Cpu);
     assert_eq!(
         loaded.options().river_source_elevation_boost.to_bits(),
         8.5_f32.to_bits()

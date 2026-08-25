@@ -5,6 +5,13 @@ use super::{
     Mesh, ParallelIterator, StageTimer, SurfaceMaterial, Vec2, Vec3,
 };
 
+#[cfg_attr(
+    not(feature = "gpu-generation"),
+    allow(
+        clippy::unnecessary_wraps,
+        reason = "the GPU implementation adds fallible device and readback work"
+    )
+)]
 pub(super) fn hydraulic_erode_stage(
     mesh: &mut Mesh,
     adjacency: &Adjacency,
@@ -12,7 +19,7 @@ pub(super) fn hydraulic_erode_stage(
     stage_strength: f32,
     options: IslandOptions,
     scratch: &mut GenerationScratch,
-) {
+) -> Result<(), String> {
     let _timer = StageTimer::new("hydraulic.stage");
     scratch.bedrock_rates.clear();
     scratch.bedrock_rates.extend(
@@ -31,11 +38,15 @@ pub(super) fn hydraulic_erode_stage(
             stage_strength,
             options,
             &mut scratch.gpu_particle_erosion,
-        );
-        return;
+        )?;
+        return Ok(());
     }
     #[cfg(not(feature = "gpu-generation"))]
-    debug_assert_eq!(scratch.method, GenerationMethod::Cpu);
+    if scratch.method == GenerationMethod::Gpu {
+        return Err(String::from(
+            "GPU generation requires the gpu-generation Cargo feature",
+        ));
+    }
 
     if std::env::var_os("MOTU_EXPERIMENTAL_MESH_FLOW").is_some() {
         hydraulic_erode_with_scratch(
@@ -57,6 +68,7 @@ pub(super) fn hydraulic_erode_stage(
             HydraulicErosionSettings::new(stage_strength, options),
         );
     }
+    Ok(())
 }
 
 /// Proven sequential hydraulic model. Each source path observes the terrain

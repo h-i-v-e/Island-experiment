@@ -101,29 +101,29 @@ pub(in crate::terrain) fn erode_particle_batches_gpu(
     stage_strength: f32,
     options: IslandOptions,
     scratch: &mut GpuParticleErosionScratch,
-) {
+) -> Result<(), String> {
     if mesh.vertices.is_empty() {
-        return;
+        return Ok(());
     }
     let prototype = PrototypeSettings::new(stage_strength, options);
     if prototype.hydraulic.erosion_strength == 0.0 {
-        return;
+        return Ok(());
     }
     let started = Instant::now();
     if scratch.context.is_none() {
         scratch.context = Some(
             GpuContext::new()
-                .unwrap_or_else(|error| panic!("failed to initialize GPU erosion: {error}")),
+                .map_err(|error| format!("failed to initialize GPU erosion: {error}"))?,
         );
     }
     scratch.prepare(mesh, adjacency, material, bedrock_rates, prototype);
     let context = scratch
         .context
         .as_ref()
-        .expect("GPU context was initialized");
+        .ok_or_else(|| String::from("GPU erosion context was not initialized"))?;
     context
         .erode(mesh, material, prototype, scratch)
-        .unwrap_or_else(|error| panic!("GPU particle erosion failed: {error}"));
+        .map_err(|error| format!("GPU particle erosion failed: {error}"))?;
     if std::env::var_os("MOTU_GPU_EROSION_STATS").is_some() {
         eprintln!(
             "gpu-particle-erosion adapter={:?} vertices={} batches={} elapsed_ms={:.3}",
@@ -133,6 +133,7 @@ pub(in crate::terrain) fn erode_particle_batches_gpu(
             started.elapsed().as_secs_f64() * 1_000.0,
         );
     }
+    Ok(())
 }
 
 impl GpuParticleErosionScratch {
@@ -611,7 +612,8 @@ mod tests {
             0.8,
             IslandOptions::default(),
             &mut GpuParticleErosionScratch::default(),
-        );
+        )
+        .unwrap();
 
         assert_ne!(mesh.vertices, before);
         assert!(mesh.vertices.iter().all(|vertex| vertex.is_finite()));

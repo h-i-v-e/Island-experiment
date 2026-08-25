@@ -22,6 +22,7 @@ const SEA_PROXIMITY_ZERO_STRENGTH_METRES: f32 = 20.0;
 pub struct Island {
     pub(super) seed: u64,
     pub(super) options: IslandOptions,
+    pub(super) generation_method: GenerationMethod,
     pub(super) terrain: Terrain,
     pub(super) material: TerrainMaterialField,
     pub(super) coarser_lods: [Mesh; 2],
@@ -53,7 +54,7 @@ impl<R: Read> SavedIslandReader<R> {
     fn new(mut source: R) -> io::Result<Self> {
         let mut magic = [0_u8; 8];
         source.read_exact(&mut magic)?;
-        if &magic[..7] != b"MOTURS\0" || !matches!(magic[7], 3..=17) {
+        if &magic[..7] != b"MOTURS\0" || !matches!(magic[7], 3..=18) {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "invalid Motu Rust free-form mesh file",
@@ -86,6 +87,19 @@ impl<R: Read> SavedIslandReader<R> {
             ForestOptions::default()
         };
         Ok((options, forest_options))
+    }
+
+    fn read_generation_method(&mut self) -> io::Result<GenerationMethod> {
+        if self.version < 18 {
+            return Ok(GenerationMethod::Cpu);
+        }
+        let tag = self.read_u8()?;
+        GenerationMethod::from_save_tag(tag).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("unknown generation method tag {tag}"),
+            )
+        })
     }
 
     fn read_terrain_options(&mut self) -> io::Result<IslandOptions> {
@@ -193,7 +207,7 @@ pub(super) fn generate_final_rivers(
     source_rule: RiverSourceRule,
     channel_settings: RiverChannelSettings,
     method: GenerationMethod,
-) -> FinalRiverGeneration {
+) -> Result<FinalRiverGeneration, String> {
     let _timer = StageTimer::new("rivers.final");
     let mut prepared_lod0 = lod0.clone();
     let detail_adjacency = prepared_lod0.adjacency();
@@ -213,9 +227,11 @@ pub(super) fn generate_final_rivers(
             source_rule,
             channel_settings,
         )
-        .unwrap_or_else(|error| panic!("experimental GPU river generation failed: {error}"));
+        .map_err(|error| format!("GPU river generation failed: {error}"));
         #[cfg(not(feature = "gpu-generation"))]
-        unreachable!("GPU availability is checked before generation starts");
+        return Err(String::from(
+            "GPU generation requires the gpu-generation Cargo feature",
+        ));
     }
     let mut rejected_waterfall_vertices = HashSet::new();
     loop {
@@ -244,14 +260,14 @@ pub(super) fn generate_final_rivers(
         let rejected_before = rejected_waterfall_vertices.len();
         rejected_waterfall_vertices.extend(parts.failed_waterfalls);
         if rejected_waterfall_vertices.len() == rejected_before {
-            return FinalRiverGeneration {
+            return Ok(FinalRiverGeneration {
                 lod0: attempt_lod0,
                 material: attempt_material,
                 rivers: parts.rivers,
                 river_mesh: parts.river_mesh,
                 river_bed: parts.river_bed,
                 river_rock_mesh: parts.river_rock_mesh,
-            };
+            });
         }
     }
 }
@@ -271,8 +287,8 @@ impl Island {
     ///
     /// # Errors
     ///
-    /// Returns an error when the requested method is unavailable or an option
-    /// is invalid.
+    /// Returns an error when the requested method is unavailable, an option is
+    /// invalid, or the selected implementation cannot complete generation.
     pub fn generate_with_method(
         seed: u64,
         options: IslandOptions,
@@ -315,19 +331,19 @@ impl Island {
         let options = options.validate()?;
         let forest_options = forest_options.validate()?;
         let mut scratch = GenerationScratch::new(method);
-        let (base, material) = generate_base(seed, options, &mut scratch);
+        let (base, material) = generate_base(seed, options, &mut scratch)?;
         let context = GenerationContext::new(options);
-        let (mut lod2, material) = generate_lod2(&base, material, context, &mut scratch);
-        let (lod1, material) = generate_first_lod1(&lod2, material, context, &mut scratch);
+        let (mut lod2, material) = generate_lod2(&base, material, context, &mut scratch)?;
+        let (lod1, material) = generate_first_lod1(&lod2, material, context, &mut scratch)?;
         let (mut lod1, material) = refine_lod1_again(
             &lod1,
             material,
             options,
             context.river_source_rule,
             &mut scratch,
-        );
-        let (lod0, material) = generate_broad_lod0(&lod1, material, context, &mut scratch);
-        let (lod0, material) = generate_detail_lod0(&lod0, material, context, &mut scratch);
+        )?;
+        let (lod0, material) = generate_broad_lod0(&lod1, material, context, &mut scratch)?;
+        let (lod0, material) = generate_detail_lod0(&lod0, material, context, &mut scratch)?;
         let FinalRiverGeneration {
             mut lod0,
             mut material,
@@ -342,7 +358,7 @@ impl Island {
             context.river_source_rule,
             options.river_channel_settings(),
             method,
-        );
+        )?;
         let lod0_index = {
             let _timer = StageTimer::new("lod.correct");
             correct_lods(&mut lod0, &mut lod1, &mut lod2)
@@ -365,7 +381,7 @@ impl Island {
             &rivers,
             options.terrain_size as usize * 4,
             method,
-        );
+        )?;
         append_settled_rocks(seed, &settled_rocks, &mut river_rock_mesh);
         clear_loose_soil(&mut material, decorations.cleared_soil_vertices());
         let (forest, forest_stats) = generate_forest(
@@ -393,6 +409,7 @@ impl Island {
         Ok(Self {
             seed,
             options,
+            generation_method: method,
             terrain,
             material,
             coarser_lods: [lod1, lod2],
@@ -415,6 +432,11 @@ impl Island {
     #[must_use]
     pub const fn options(&self) -> IslandOptions {
         self.options
+    }
+
+    #[must_use]
+    pub const fn generation_method(&self) -> GenerationMethod {
+        self.generation_method
     }
 
     #[must_use]
@@ -628,7 +650,7 @@ impl Island {
     /// Returns an I/O error if the destination cannot be created or written.
     pub fn save(&self, path: impl AsRef<Path>) -> io::Result<()> {
         let mut file = File::create(path)?;
-        file.write_all(b"MOTURS\0\x11")?;
+        file.write_all(b"MOTURS\0\x12")?;
         file.write_all(&self.seed.to_le_bytes())?;
         for value in [
             self.options.max_height,
@@ -655,7 +677,8 @@ impl Island {
         file.write_all(&self.forest_options.snowline_metres.to_le_bytes())?;
         file.write_all(&[self.forest_options.prototype_count])?;
         file.write_all(&self.forest_options.minimum_scale.to_le_bytes())?;
-        file.write_all(&self.forest_options.maximum_scale.to_le_bytes())
+        file.write_all(&self.forest_options.maximum_scale.to_le_bytes())?;
+        file.write_all(&[self.generation_method.save_tag()])
     }
 
     /// Loads a saved seed/options file and deterministically regenerates it.
@@ -667,7 +690,8 @@ impl Island {
         let mut reader = SavedIslandReader::new(File::open(path)?)?;
         let seed = reader.read_u64()?;
         let (options, forest_options) = reader.read_options()?;
-        Self::generate_with_forest(seed, options, forest_options)
+        let method = reader.read_generation_method()?;
+        Self::generate_with_forest_and_method(seed, options, forest_options, method)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
     }
 
@@ -810,7 +834,7 @@ pub(super) fn generate_base(
     seed: u64,
     options: IslandOptions,
     scratch: &mut GenerationScratch,
-) -> (Mesh, SurfaceMaterial) {
+) -> Result<(Mesh, SurfaceMaterial), String> {
     let _timer = StageTimer::new("generation.base");
     let points = create_seed_points(seed, options.terrain_size as usize);
     let mut mesh = Mesh::delaunay(&points);
@@ -818,10 +842,10 @@ pub(super) fn generate_base(
     let adjacency = mesh.adjacency();
     let geology = assign_elevations(&mut mesh, &adjacency, seed, options);
     material.initialize_geology(&mesh, geology);
-    hydraulic_erode_stage(&mut mesh, &adjacency, &mut material, 0.45, options, scratch);
+    hydraulic_erode_stage(&mut mesh, &adjacency, &mut material, 0.45, options, scratch)?;
     erode_mesh(&mut mesh, &adjacency, &mut material, options, 5);
     mesh.calculate_normals();
-    (mesh, material)
+    Ok((mesh, material))
 }
 
 pub(super) fn generate_lod2(
@@ -829,7 +853,7 @@ pub(super) fn generate_lod2(
     material: SurfaceMaterial,
     context: GenerationContext,
     scratch: &mut GenerationScratch,
-) -> (Mesh, SurfaceMaterial) {
+) -> Result<(Mesh, SurfaceMaterial), String> {
     let _timer = StageTimer::new("generation.lod2");
     let tessellation = base.tessellated_displaced_attributed(DETAIL_DISPLACEMENT_RATIO);
     let (mut mesh, mut material) = material.into_tessellated(base, tessellation);
@@ -842,7 +866,7 @@ pub(super) fn generate_lod2(
         0.55,
         context.options,
         scratch,
-    );
+    )?;
     erode_mesh(&mut mesh, &adjacency, &mut material, context.options, 4);
     let mut rivers = RiverNetwork::generate(&mut mesh, &adjacency, context.river_source_rule);
     rivers.shape_with_settings(
@@ -854,7 +878,7 @@ pub(super) fn generate_lod2(
         context.options.river_channel_settings(),
     );
     mesh.calculate_normals();
-    (mesh, material)
+    Ok((mesh, material))
 }
 
 pub(super) fn generate_first_lod1(
@@ -862,7 +886,7 @@ pub(super) fn generate_first_lod1(
     material: SurfaceMaterial,
     context: GenerationContext,
     scratch: &mut GenerationScratch,
-) -> (Mesh, SurfaceMaterial) {
+) -> Result<(Mesh, SurfaceMaterial), String> {
     let _timer = StageTimer::new("generation.lod1.first");
     let tessellation = lod2.tessellated_displaced_attributed(DETAIL_DISPLACEMENT_RATIO);
     let (mut mesh, mut material) = material.into_tessellated(lod2, tessellation);
@@ -875,7 +899,7 @@ pub(super) fn generate_first_lod1(
         0.65,
         context.options,
         scratch,
-    );
+    )?;
     erode_mesh(&mut mesh, &adjacency, &mut material, context.options, 4);
     let mut rivers = RiverNetwork::generate(&mut mesh, &adjacency, context.river_source_rule);
     rivers.shape_with_settings(
@@ -887,7 +911,7 @@ pub(super) fn generate_first_lod1(
         context.options.river_channel_settings(),
     );
     mesh.calculate_normals();
-    (mesh, material)
+    Ok((mesh, material))
 }
 
 pub(super) fn generate_broad_lod0(
@@ -895,7 +919,7 @@ pub(super) fn generate_broad_lod0(
     material: SurfaceMaterial,
     context: GenerationContext,
     scratch: &mut GenerationScratch,
-) -> (Mesh, SurfaceMaterial) {
+) -> Result<(Mesh, SurfaceMaterial), String> {
     let _timer = StageTimer::new("generation.lod0.broad");
     let tessellation = lod1.tessellated_displaced_attributed(DETAIL_DISPLACEMENT_RATIO);
     let (mut mesh, mut material) = material.into_tessellated(lod1, tessellation);
@@ -911,7 +935,7 @@ pub(super) fn generate_broad_lod0(
         0.8,
         context.options,
         scratch,
-    );
+    )?;
     mesh.calculate_normals();
 
     let tessellation = mesh.tessellated_displaced_attributed(DETAIL_DISPLACEMENT_RATIO);
@@ -924,7 +948,7 @@ pub(super) fn generate_broad_lod0(
         0.75,
         context.options,
         scratch,
-    );
+    )?;
     erode_mesh(&mut mesh, &adjacency, &mut material, context.options, 2);
     let mut rivers = RiverNetwork::generate(&mut mesh, &adjacency, context.river_source_rule);
     rivers.shape_with_settings(
@@ -936,7 +960,7 @@ pub(super) fn generate_broad_lod0(
         context.options.river_channel_settings(),
     );
     mesh.smooth_land_with(&adjacency);
-    (mesh, material)
+    Ok((mesh, material))
 }
 
 pub(super) fn generate_detail_lod0(
@@ -944,7 +968,7 @@ pub(super) fn generate_detail_lod0(
     material: SurfaceMaterial,
     context: GenerationContext,
     scratch: &mut GenerationScratch,
-) -> (Mesh, SurfaceMaterial) {
+) -> Result<(Mesh, SurfaceMaterial), String> {
     let _timer = StageTimer::new("generation.lod0.detail");
     let tessellation = lod0.tessellated_displaced_attributed(DETAIL_DISPLACEMENT_RATIO);
     let (mut mesh, mut material) = material.into_tessellated(lod0, tessellation);
@@ -956,10 +980,10 @@ pub(super) fn generate_detail_lod0(
         0.5,
         context.options,
         scratch,
-    );
+    )?;
     mesh.smooth_land_with(&adjacency);
     mesh.smooth_seabed_with(&adjacency);
-    (mesh, material)
+    Ok((mesh, material))
 }
 
 /// Runs the second adaptive LOD1 shaping pass while keeping flatter faces at
@@ -970,7 +994,7 @@ pub(super) fn refine_lod1_again(
     options: IslandOptions,
     river_source_rule: RiverSourceRule,
     scratch: &mut GenerationScratch,
-) -> (Mesh, SurfaceMaterial) {
+) -> Result<(Mesh, SurfaceMaterial), String> {
     let _timer = StageTimer::new("generation.lod1.refine");
     let tessellation = lod1.tessellated_displaced_attributed(DETAIL_DISPLACEMENT_RATIO);
     let (mut refined, mut material) = material.into_tessellated(lod1, tessellation);
@@ -983,7 +1007,7 @@ pub(super) fn refine_lod1_again(
         0.7,
         options,
         scratch,
-    );
+    )?;
     erode_mesh(&mut refined, &adjacency, &mut material, options, 3);
     let mut rivers = RiverNetwork::generate(&mut refined, &adjacency, river_source_rule);
     rivers.shape_with_settings(
@@ -995,7 +1019,7 @@ pub(super) fn refine_lod1_again(
         options.river_channel_settings(),
     );
     refined.calculate_normals();
-    (refined, material)
+    Ok((refined, material))
 }
 
 pub(super) fn correct_lods(lod0: &mut Mesh, lod1: &mut Mesh, lod2: &mut Mesh) -> TriangleIndex {
@@ -1247,5 +1271,27 @@ mod sea_proximity_tests {
         let (_, forest_options) = reader.read_options().unwrap();
 
         assert_eq!(forest_options, ForestOptions::default());
+    }
+
+    #[test]
+    fn saved_generation_methods_are_backward_compatible() {
+        let mut current = SavedIslandReader::new(Cursor::new(b"MOTURS\0\x12\x01")).unwrap();
+        assert_eq!(
+            current.read_generation_method().unwrap(),
+            GenerationMethod::Gpu
+        );
+
+        let mut legacy = SavedIslandReader::new(Cursor::new(b"MOTURS\0\x11")).unwrap();
+        assert_eq!(
+            legacy.read_generation_method().unwrap(),
+            GenerationMethod::Cpu
+        );
+    }
+
+    #[test]
+    fn saved_generation_method_rejects_unknown_tags() {
+        let mut reader = SavedIslandReader::new(Cursor::new(b"MOTURS\0\x12\xff")).unwrap();
+        let error = reader.read_generation_method().unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
     }
 }
