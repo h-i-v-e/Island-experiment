@@ -1,0 +1,70 @@
+{
+  "output_format_version": "1",
+  "profile": "motu_unity_terrain",
+  "name": "RoundedRiverStones",
+  "dimensions": {
+    "width": 2048,
+    "height": 2048
+  },
+  "metadata": {
+    "recipe_schema_version": 1,
+    "generator_algorithm_version": "1",
+    "recipe_hash": "f9300aecf74c41a5cbbaa3190ee6202a2b7882d8d8bc6df2f82c684ee1327029",
+    "seed": 1337,
+    "physical_tile_width_m": 2.0,
+    "physical_tile_height_m": 2.0,
+    "height_min_m": -0.05,
+    "height_max_m": 0.16,
+    "neutral_height_m": 0.0,
+    "displacement_map": true,
+    "normal_convention": "open_gl"
+  },
+  "maps": [
+    {
+      "file": "RoundedRiverStones_albedo.png",
+      "format": "RGB8",
+      "color_space": "sRGB",
+      "width": 2048,
+      "height": 2048,
+      "sha256": "34abb49c3c1e1a71509599aebf10df28037d1f3de4b9d7ba28ff5e87e8b74e20"
+    },
+    {
+      "file": "RoundedRiverStones_height.png",
+      "format": "Gray16",
+      "color_space": "linear",
+      "width": 2048,
+      "height": 2048,
+      "sha256": "100e10da280832f34dacfd5c28bb01a0c1499ffc6caab677522882e236865b12"
+    },
+    {
+      "file": "RoundedRiverStones_normal.png",
+      "format": "RGB8",
+      "color_space": "linear",
+      "width": 2048,
+      "height": 2048,
+      "sha256": "518b2b82514e5eb1c1f4993c602122eaaab0371ff84e1596af1694a455c4b0cb"
+    },
+    {
+      "file": "RoundedRiverStones_occlusion.png",
+      "format": "Gray8",
+      "color_space": "linear",
+      "width": 2048,
+      "height": 2048,
+      "sha256": "7606447a577d5a625455e508f727c535e2eb1c46349efacde218cbf6359178ff"
+    },
+    {
+      "file": "RoundedRiverStones_mask.png",
+      "format": "RGBA8",
+      "color_space": "linear",
+      "width": 2048,
+      "height": 2048,
+      "sha256": "cdb868353cfaf8b67b51d1290a4a74801caa6b2a854b2ccb7c192f4e84e0e973"
+    }
+  ],
+  "packed_channels": [
+    "A=opaque_one",
+    "B=unused_zero",
+    "G=occlusion",
+    "R=height_8bit"
+  ]
+}

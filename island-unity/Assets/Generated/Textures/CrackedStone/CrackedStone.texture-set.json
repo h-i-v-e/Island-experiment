@@ -1,0 +1,70 @@
+{
+  "output_format_version": "1",
+  "profile": "motu_unity_terrain",
+  "name": "CrackedStone",
+  "dimensions": {
+    "width": 2048,
+    "height": 2048
+  },
+  "metadata": {
+    "recipe_schema_version": 1,
+    "generator_algorithm_version": "1",
+    "recipe_hash": "01f036b0f608bd3ba0bab5a96c74a19c5d11eb2b0f21316fbb6276197d16f5d8",
+    "seed": 666,
+    "physical_tile_width_m": 4.0,
+    "physical_tile_height_m": 4.0,
+    "height_min_m": -0.2,
+    "height_max_m": 0.2,
+    "neutral_height_m": 0.0,
+    "displacement_map": true,
+    "normal_convention": "open_gl"
+  },
+  "maps": [
+    {
+      "file": "CrackedStone_albedo.png",
+      "format": "RGB8",
+      "color_space": "sRGB",
+      "width": 2048,
+      "height": 2048,
+      "sha256": "9ef6c1f2dd85f468b56b70f5fc576e3e39073dd3de14f7010d42e91cd1c19318"
+    },
+    {
+      "file": "CrackedStone_height.png",
+      "format": "Gray16",
+      "color_space": "linear",
+      "width": 2048,
+      "height": 2048,
+      "sha256": "34bf09a81e7d9f2bc2151c6335eedee35ee54e8c625596eeddad92486d76d647"
+    },
+    {
+      "file": "CrackedStone_normal.png",
+      "format": "RGB8",
+      "color_space": "linear",
+      "width": 2048,
+      "height": 2048,
+      "sha256": "6da83171f02318b825adc818771357268b0688a7987981af891b80ce6590dc1d"
+    },
+    {
+      "file": "CrackedStone_occlusion.png",
+      "format": "Gray8",
+      "color_space": "linear",
+      "width": 2048,
+      "height": 2048,
+      "sha256": "3036fe69f818472c70f623654ea9600df3c2f545a2e4997f31c56c60e826742c"
+    },
+    {
+      "file": "CrackedStone_mask.png",
+      "format": "RGBA8",
+      "color_space": "linear",
+      "width": 2048,
+      "height": 2048,
+      "sha256": "45a55266ce2d0deb7f23437ed3e3492fc8896c95ac4355514394f9df7362b641"
+    }
+  ],
+  "packed_channels": [
+    "A=opaque_one",
+    "B=unused_zero",
+    "G=occlusion",
+    "R=height_8bit"
+  ]
+}

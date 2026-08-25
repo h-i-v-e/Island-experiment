@@ -40,6 +40,10 @@ impl SurfaceMaterial {
         &mut self.deposited_depth
     }
 
+    pub(crate) fn sea_proximities(&self) -> &[f32] {
+        &self.sea_proximity
+    }
+
     pub(crate) fn hardnesses(&self) -> &[f32] {
         &self.bedrock_hardness
     }

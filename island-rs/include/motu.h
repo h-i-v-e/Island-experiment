@@ -25,6 +25,15 @@ typedef struct {
     float riverSourceWidthMetres, riverMaximumWidthMetres;
     float riverSourceDepthMetres, riverMaximumDepthMetres;
 } MotuOptions;
+/* Forest options use the same natural C layout as Rust's repr(C) block. */
+typedef struct {
+    float patchSizeMetres;
+    float noiseThreshold;
+    uint8_t noiseOctaves;
+    float snowlineMetres;
+    uint8_t prototypeCount;
+    float minimumScale, maximumScale;
+} MotuForestOptions;
 typedef struct { const Vector3Export *data; int32_t length; } Vector3ExportArray;
 typedef struct { const Vector2Export *data; int32_t length; } Vector2ExportArray;
 typedef struct { const int32_t *data; int32_t length; } TriangleExportArray;
@@ -68,9 +77,14 @@ typedef struct { ExportMesh mesh; int32_t *offsets; } ExportTreeBillboards;
 typedef struct { ExportTreeBillboards octants[8]; void *offsetsHandle; } ExportTreeBillboardsArray;
 
 MOTU_EXPORT void *CreateMotu(int32_t seed, const MotuOptions *options);
+MOTU_EXPORT void *CreateMotuWithForest(int32_t seed, const MotuOptions *options,
+                                        const MotuForestOptions *forestOptions);
 MOTU_EXPORT void *LoadMotu(const char *filePath);
 MOTU_EXPORT void SaveMotu(const void *handle, const char *filePath);
 MOTU_EXPORT void ReleaseMotu(void *handle);
+MOTU_EXPORT void CreateProceduralTree(int32_t seed, ExportMesh *lod0Wood,
+                                      ExportMesh *lod0Foliage, ExportMesh *lod1Wood,
+                                      ExportMesh *lod1Foliage);
 MOTU_EXPORT void GetDecoration(const void *handle, ExportDecoration *output);
 MOTU_EXPORT void CreateMesh(const void *handle, const ExportArea *area, int32_t lod,
                             uint8_t clampSides, ExportMesh *output);
@@ -86,6 +100,12 @@ MOTU_EXPORT void CreateRiverMesh(const void *handle, const ExportArea *area,
 MOTU_EXPORT void CreateRiverMeshGrid(const void *handle, const ExportArea *area,
                                      int32_t divisions, ExportMeshGrid *output);
 MOTU_EXPORT void ReleaseMeshWithUV(ExportMeshWithUV *output);
+MOTU_EXPORT void CreateForestWoodMeshGrid(const void *handle, const ExportArea *area,
+                                          int32_t visualLod, int32_t divisions,
+                                          ExportMeshGrid *output);
+MOTU_EXPORT void CreateForestFoliageMeshGrid(const void *handle, const ExportArea *area,
+                                             int32_t visualLod, int32_t divisions,
+                                             ExportMeshGrid *output);
 MOTU_EXPORT void CreateRiverEmitters(const void *handle, float sharpnessDegrees,
                                      float spacingMetres, ExportRiverEmitters *output);
 MOTU_EXPORT void ReleaseRiverEmitters(ExportRiverEmitters *output);

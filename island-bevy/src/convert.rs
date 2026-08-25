@@ -10,7 +10,28 @@ use bevy::{
     mesh::{Indices, PrimitiveTopology},
     prelude::*,
 };
-use motu::{ISLAND_WORLD_METRES, Island};
+use motu::ISLAND_WORLD_METRES;
+
+use crate::{
+    hash::{mix, unit},
+    island_gen::DropIndex,
+};
+
+/// The material triple stands for a vertex the generator gave no material to:
+/// middling bedrock under full cover, away from the sea. `terrain.wgsl` falls
+/// back to the same values when the attribute is missing entirely.
+const DEFAULT_MATERIAL: motu::Vec3 = motu::Vec3::new(0.5, 1.0, 0.0);
+
+/// Metres of world space one river-rock tint is held constant over. The
+/// generator settles stones of six to twenty-two centimetres, so a cell this
+/// size usually covers one body and the hashed tint reads as per-rock rather
+/// than per-vertex.
+const ROCK_TINT_CELL: f32 = 0.2;
+const ROCK_TINT_SALT: u64 = 0x6d1b_7c04_9a3e_5f82;
+/// The cool and warm ends the rock tint swings between. Their mean is one, so
+/// the swing changes the mineral without moving the material's average albedo.
+const ROCK_TINT_COOL: Vec3 = Vec3::new(0.94, 0.97, 1.03);
+const ROCK_TINT_WARM: Vec3 = Vec3::new(1.08, 1.00, 0.91);
 
 /// Maps a normalized island-space point onto the Bevy world.
 #[must_use]
@@ -26,13 +47,25 @@ pub fn island_to_world(x: f32, y: f32, z: f32) -> Vec3 {
 /// Returns `None` for meshes the generator left empty.
 #[must_use]
 pub fn render_mesh(source: &motu::Mesh) -> Option<Mesh> {
+    render_mesh_at(source, Vec3::ZERO)
+}
+
+/// The same, with every position taken relative to a world-space origin the
+/// caller will put on the entity's transform.
+///
+/// Whole-island meshes pass [`Vec3::ZERO`] and stay in world space. A terrain
+/// chunk cannot: Bevy reads the level-of-detail crossfade distance off the
+/// entity's translation, so a chunk has to stand where it is rather than at the
+/// island's centre.
+#[must_use]
+pub fn render_mesh_at(source: &motu::Mesh, origin: Vec3) -> Option<Mesh> {
     if source.triangles.is_empty() || source.vertices.is_empty() {
         return None;
     }
     let positions: Vec<[f32; 3]> = source
         .vertices
         .iter()
-        .map(|vertex| island_to_world(vertex.x, vertex.y, vertex.z).to_array())
+        .map(|vertex| (island_to_world(vertex.x, vertex.y, vertex.z) - origin).to_array())
         .collect();
     let normals: Vec<[f32; 3]> = source
         .normals
@@ -65,29 +98,79 @@ pub fn render_mesh(source: &motu::Mesh) -> Option<Mesh> {
     Some(mesh)
 }
 
-/// Converts a terrain mesh and bakes the generator's material weights into
-/// [`Mesh::ATTRIBUTE_COLOR`].
+/// Converts a terrain mesh and stores the generator's raw material weights in
+/// [`Mesh::ATTRIBUTE_COLOR`]: x is bedrock hardness (exactly one means forced
+/// rock), y is loose cover and z is sea proximity. Alpha carries the renderer's
+/// own river-bank proximity, which is the one channel the generator's triple
+/// leaves free. Nothing here decides what the ground looks like;
+/// `terrain.wgsl` is the only authority on that.
 #[must_use]
-pub fn terrain_mesh(island: &Island, source: &motu::Mesh) -> Option<Mesh> {
-    let mut mesh = render_mesh(source)?;
-    let palette = Palette::new();
-    let materials = island.material_values_for(source);
-    let max_height = island.options().max_height.max(f32::EPSILON);
-    let colours: Vec<[f32; 4]> = source
-        .vertices
-        .iter()
-        .enumerate()
-        .map(|(index, vertex)| {
-            let normal_z = source.normals.get(index).map_or(1.0, |normal| normal.z);
-            let material = materials
-                .get(index)
-                .copied()
-                .unwrap_or(motu::Vec3::new(0.5, 1.0, 0.0));
-            palette.shade(vertex.z, normal_z, material, max_height)
+pub fn terrain_mesh(
+    source: &motu::Mesh,
+    materials: &[motu::Vec3],
+    river_wetness: &[f32],
+    origin: Vec3,
+) -> Option<Mesh> {
+    let mut mesh = render_mesh_at(source, origin)?;
+    let weights: Vec<[f32; 4]> = (0..source.vertices.len())
+        .map(|index| {
+            let material = materials.get(index).copied().unwrap_or(DEFAULT_MATERIAL);
+            // A vertex the wetness pass never reached is dry ground.
+            let wetness = river_wetness.get(index).copied().unwrap_or(0.0);
+            [material.x, material.y, material.z, wetness]
         })
         .collect();
-    mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colours);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, weights);
     Some(mesh)
+}
+
+/// Converts the river water surface and stores what each of its vertices knows
+/// about the nearest fall in [`Mesh::ATTRIBUTE_COLOR`], which the generator
+/// leaves free on this mesh: the approach to a lip, the falling face and how
+/// far down it the vertex stands, the plunge below a foot, and the fall's own
+/// height. `river.wgsl` is the only authority on what those become.
+#[must_use]
+pub fn river_mesh(source: &motu::Mesh, drops: &DropIndex) -> Option<Mesh> {
+    let mut mesh = render_mesh(source)?;
+    let field: Vec<[f32; 4]> = source
+        .vertices
+        .iter()
+        .map(|&vertex| drops.field(vertex).to_array())
+        .collect();
+    mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, field);
+    Some(mesh)
+}
+
+/// Converts the merged river-rock mesh and hashes a deterministic albedo tint
+/// into [`Mesh::ATTRIBUTE_COLOR`]. The bodies arrive already merged, so a
+/// vertex attribute is the finest per-body signal the renderer can carry.
+/// Alpha carries how much spray from the nearest fall stands on the stone,
+/// which is the one channel a tint leaves free.
+#[must_use]
+pub fn rock_mesh(source: &motu::Mesh, drops: &DropIndex) -> Option<Mesh> {
+    let mut mesh = render_mesh(source)?;
+    let tints: Vec<[f32; 4]> = source
+        .vertices
+        .iter()
+        .map(|&vertex| {
+            let cell = island_to_world(vertex.x, vertex.y, vertex.z) / ROCK_TINT_CELL;
+            let hash = mix(cell_key(cell), ROCK_TINT_SALT);
+            let shade = 0.40f32.mul_add(unit(hash), 0.70);
+            let tint = ROCK_TINT_COOL.lerp(ROCK_TINT_WARM, unit(mix(hash, ROCK_TINT_SALT))) * shade;
+            [tint.x, tint.y, tint.z, drops.spray(vertex)]
+        })
+        .collect();
+    mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, tints);
+    Some(mesh)
+}
+
+/// One integer lattice cell as a hash input. The multipliers are odd so no two
+/// axes can cancel.
+fn cell_key(point: Vec3) -> u64 {
+    let cell = point.floor().as_i64vec3();
+    cell.x.cast_unsigned().wrapping_mul(0x9e37_79b9_7f4a_7c15)
+        ^ cell.y.cast_unsigned().wrapping_mul(0xc2b2_ae3d_27d4_eb4f)
+        ^ cell.z.cast_unsigned().wrapping_mul(0x1656_67b1_9e37_79f9)
 }
 
 /// The source winding is counter-clockwise in the island XY plane, which the
@@ -99,90 +182,4 @@ fn reversed_triangles(triangles: &[u32]) -> Vec<u32> {
         .iter()
         .flat_map(|triangle| [triangle[0], triangle[2], triangle[1]])
         .collect()
-}
-
-/// Linear-space terrain bands mirroring the generator's own preview palette in
-/// `island-rs/src/raster.rs` and the material weighting the Unity terrain
-/// shader applies on top of it.
-struct Palette {
-    deep: Vec3,
-    seabed: Vec3,
-    sand: Vec3,
-    dirt: Vec3,
-    grass_low: Vec3,
-    grass_high: Vec3,
-    rock: Vec3,
-    snow: Vec3,
-}
-
-impl Palette {
-    fn new() -> Self {
-        Self {
-            deep: linear(0.04, 0.17, 0.30),
-            seabed: linear(0.50, 0.48, 0.35),
-            sand: linear(0.761, 0.698, 0.463),
-            dirt: linear(0.42, 0.34, 0.22),
-            grass_low: linear(0.188, 0.463, 0.165),
-            grass_high: linear(0.322, 0.365, 0.165),
-            rock: linear(0.439, 0.412, 0.357),
-            snow: linear(0.922, 0.933, 0.941),
-        }
-    }
-
-    /// Shades one vertex from its island-space elevation, the up component of
-    /// its island-space normal, and the generator's material triple: x is
-    /// bedrock hardness (exactly one means forced rock), y is loose cover, and
-    /// z is sea proximity.
-    fn shade(
-        &self,
-        elevation: f32,
-        normal_z: f32,
-        material: motu::Vec3,
-        max_height: f32,
-    ) -> [f32; 4] {
-        let metres = elevation * ISLAND_WORLD_METRES;
-        if elevation <= 0.0 {
-            let depth = smoothstep(0.0, 6.0, -metres);
-            return rgba(self.seabed.lerp(self.deep, depth));
-        }
-
-        let hardness = material.x.clamp(0.0, 1.0);
-        let cover = material.y.clamp(0.0, 1.0);
-        let sea_proximity = material.z.clamp(0.0, 1.0);
-        let height = (elevation / max_height).clamp(0.0, 1.0);
-        let slope = (1.0 - normal_z).clamp(0.0, 1.0);
-
-        // Thin deposits expose bare dirt; established cover greens with height.
-        let grass = self.grass_low.lerp(self.grass_high, height);
-        let ground = self.dirt.lerp(grass, smoothstep(0.05, 0.70, cover));
-
-        // Beaches need loose material within a few metres of the open sea.
-        let shore = 1.0 - smoothstep(2.0, 6.0, metres);
-        let sand_richness = cover * sea_proximity * shore;
-        let mut colour = ground.lerp(self.sand, smoothstep(0.08, 0.45, sand_richness));
-
-        // Forced rock is a one-hot maximum; harder bedrock breaks out at
-        // shallower angles, and alpine ground turns bare well below the snow.
-        let forced_rock = smoothstep(0.97, 1.0, hardness);
-        let geology_rock = smoothstep(0.20, 0.60, slope * (1.3 + hardness * 1.7));
-        let alpine_rock = smoothstep(0.55, 0.80, height);
-        colour = colour.lerp(self.rock, forced_rock.max(geology_rock).max(alpine_rock));
-
-        let snow = smoothstep(0.72, 1.0, height) * (1.0 - slope).clamp(0.0, 1.0);
-        rgba(colour.lerp(self.snow, snow))
-    }
-}
-
-fn linear(red: f32, green: f32, blue: f32) -> Vec3 {
-    let colour = LinearRgba::from(Srgba::rgb(red, green, blue));
-    Vec3::new(colour.red, colour.green, colour.blue)
-}
-
-fn rgba(colour: Vec3) -> [f32; 4] {
-    [colour.x, colour.y, colour.z, 1.0]
-}
-
-fn smoothstep(low: f32, high: f32, value: f32) -> f32 {
-    let interpolation = ((value - low) / (high - low)).clamp(0.0, 1.0);
-    interpolation * interpolation * (3.0 - 2.0 * interpolation)
 }

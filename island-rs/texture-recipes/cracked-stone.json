@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "name": "CrackedStone",
+  "seed": 666,
+  "width": 2048,
+  "height": 2048,
+  "physical_tile_width_m": 4.0,
+  "physical_tile_height_m": 4.0,
+  "material": {
+    "kind": "cracked_stone",
+    "cells_x": 9,
+    "cells_y": 8,
+    "cell_jitter": 0.72,
+    "warp_amplitude": 0.26,
+    "crack_width": 0.035,
+    "shoulder_width": 0.18,
+    "crack_depth": 0.13,
+    "slab_variation": 0.035,
+    "fracture_probability": 0.28,
+    "fracture_depth": 0.045,
+    "surface_amplitude": 0.014,
+    "broad_variation": 0.018
+  },
+  "surface_layers": [
+    {
+      "kind": { "kind": "fbm" },
+      "frequency": 3.0,
+      "amplitude": 0.012,
+      "octaves": 3,
+      "lacunarity": 2.0,
+      "gain": 0.5,
+      "offset": [0.0, 0.0],
+      "seed_domain": 101,
+      "blend": { "kind": "add" },
+      "cellular_jitter": 0.25
+    }
+  ],
+  "normal_convention": "open_gl",
+  "normal_scale": 1.0,
+  "displacement": {
+    "minimum_m": -0.2,
+    "maximum_m": 0.2,
+    "base_m": 0.0,
+    "displacement_map": true
+  },
+  "occlusion": {
+    "directions": 8,
+    "samples": 6,
+    "radius": 1.0,
+    "max_radius": 8.0,
+    "cavity_strength": 1.5,
+    "horizon_strength": 0.85,
+    "power": 1.0,
+    "combine": { "kind": "multiply" }
+  },
+  "albedo": {
+    "base_color": [0.25, 0.27, 0.24],
+    "warm_color": [0.42, 0.36, 0.28],
+    "palette": [
+      [0.25, 0.27, 0.24],
+      [0.34, 0.34, 0.30],
+      [0.42, 0.36, 0.28]
+    ],
+    "variation": 0.58,
+    "crack_darkening": 0.48,
+    "shoulder_variation": 0.06,
+    "mineral_density": 0.0,
+    "mineral_brightness": 0.12,
+    "occlusion_influence": 0.08
+  },
+  "output_profiles": ["separate", "motu_unity_terrain"]
+}

@@ -1,0 +1,223 @@
+//! Deterministic, engine-neutral procedural material texture generation.
+//!
+//! Recipes are borrowed for generation and the returned [`TextureSet`] owns
+//! every finished image. File output is a separate borrowed operation, so an
+//! engine can upload the typed buffers directly without encoding PNG files.
+
+pub mod albedo;
+pub mod cellular;
+pub mod cracked_stone;
+pub mod encoding;
+pub mod field_program;
+pub mod image;
+pub mod noise;
+pub mod normal;
+pub mod occlusion;
+pub mod packing;
+pub mod periodic;
+pub mod recipe;
+pub mod rounded_stones;
+pub mod validation;
+
+use std::{fmt, path::Path};
+
+use albedo::AlbedoConfig;
+use encoding::TextureSetImages;
+use field_program::FieldProgram;
+use occlusion::{OcclusionCombine, OcclusionSettings};
+use packing::HeightRange;
+
+pub use encoding::{ManifestMap, OutputManifest, OutputOptions, OutputProfile, PixelFormat};
+pub use image::{
+    FloatImage, Gray8Image, Gray16Image, Image, ImageError, NormalConvention, Rgb8Image,
+    Rgba8Image, TextureDimensions, TextureMetadata, TextureSet,
+};
+pub use recipe::{
+    AlbedoSettings, BlendOperation, CURRENT_SCHEMA_VERSION, DisplacementSettings,
+    DomainWarpSettings, MaterialModel, NoiseKind, NoiseLayer, OcclusionRecipeSettings,
+    TextureRecipe,
+};
+pub use validation::{RecipeValidationError, RecipeValidationErrors, validate_recipe};
+
+/// Version of the deterministic texture-generation algorithm.
+pub const TEXTURE_ALGORITHM_VERSION: u32 = 1;
+
+/// Errors returned by the high-level generation and file-output boundary.
+#[derive(Debug)]
+pub enum TextureError {
+    Validation(RecipeValidationErrors),
+    Field(field_program::FieldError),
+    Normal(normal::NormalError),
+    Occlusion(occlusion::OcclusionError),
+    Albedo(albedo::AlbedoError),
+    Packing(packing::PackingError),
+    Image(ImageError),
+    Output(encoding::OutputError),
+}
+
+impl fmt::Display for TextureError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Validation(error) => write!(formatter, "invalid texture recipe: {error}"),
+            Self::Field(error) => write!(formatter, "height-field generation failed: {error:?}"),
+            Self::Normal(error) => write!(formatter, "normal generation failed: {error:?}"),
+            Self::Occlusion(error) => write!(formatter, "occlusion generation failed: {error:?}"),
+            Self::Albedo(error) => write!(formatter, "albedo generation failed: {error:?}"),
+            Self::Packing(error) => write!(formatter, "height packing failed: {error:?}"),
+            Self::Image(error) => write!(formatter, "texture image is invalid: {error}"),
+            Self::Output(error) => error.fmt(formatter),
+        }
+    }
+}
+
+impl std::error::Error for TextureError {}
+
+impl From<RecipeValidationErrors> for TextureError {
+    fn from(error: RecipeValidationErrors) -> Self {
+        Self::Validation(error)
+    }
+}
+
+macro_rules! texture_error_from {
+    ($source:ty, $variant:ident) => {
+        impl From<$source> for TextureError {
+            fn from(error: $source) -> Self {
+                Self::$variant(error)
+            }
+        }
+    };
+}
+
+texture_error_from!(field_program::FieldError, Field);
+texture_error_from!(normal::NormalError, Normal);
+texture_error_from!(occlusion::OcclusionError, Occlusion);
+texture_error_from!(albedo::AlbedoError, Albedo);
+texture_error_from!(packing::PackingError, Packing);
+texture_error_from!(ImageError, Image);
+texture_error_from!(encoding::OutputError, Output);
+
+/// Generates a complete owned texture set from one validated recipe.
+///
+/// # Errors
+///
+/// Returns an error when validation fails or any field, map, quantization, or
+/// metadata pass cannot produce a valid texture set.
+pub fn generate_texture_set(recipe: &TextureRecipe) -> Result<TextureSet, TextureError> {
+    validate_recipe(recipe)?;
+
+    let field = FieldProgram::evaluate_recipe(recipe)?;
+    let occlusion = occlusion::derive_occlusion(
+        &field,
+        OcclusionSettings {
+            directions: recipe.occlusion.directions,
+            samples: recipe.occlusion.samples,
+            radius: recipe.occlusion.radius,
+            max_radius: recipe.occlusion.max_radius,
+            cavity_strength: recipe.occlusion.cavity_strength,
+            horizon_strength: recipe.occlusion.horizon_strength,
+            power: recipe.occlusion.power,
+            combine: match recipe.occlusion.combine {
+                recipe::OcclusionCombine::Multiply => OcclusionCombine::Multiply,
+                recipe::OcclusionCombine::WeightedMinimum {
+                    cavity_weight,
+                    horizon_weight,
+                } => OcclusionCombine::WeightedMinimum {
+                    cavity_weight,
+                    horizon_weight,
+                },
+            },
+        },
+    )?;
+    let normal = normal::derive_normals(&field, recipe.normal_scale, recipe.normal_convention)?;
+    let albedo = albedo::generate_albedo_with_occlusion(
+        &field,
+        AlbedoConfig {
+            base_color: recipe.albedo.base_color,
+            warm_color: recipe.albedo.warm_color,
+            variation: recipe.albedo.variation,
+            crack_darkening: recipe.albedo.crack_darkening,
+            shoulder_variation: recipe.albedo.shoulder_variation,
+            mineral_density: recipe.albedo.mineral_density,
+            mineral_brightness: recipe.albedo.mineral_brightness,
+            occlusion_influence: recipe.albedo.occlusion_influence,
+        },
+        recipe.seed,
+        Some(&occlusion),
+    )?;
+    let range = HeightRange::new(
+        recipe.displacement.minimum_m,
+        recipe.displacement.maximum_m,
+        recipe.displacement.base_m,
+    )?;
+    let height = packing::quantize_height(&field, range)?;
+    let recipe_hash = encoding::normalized_recipe_hash(recipe)?;
+    let metadata = TextureMetadata {
+        name: recipe.name.clone(),
+        recipe_hash,
+        schema_version: recipe.schema_version,
+        algorithm_version: TEXTURE_ALGORITHM_VERSION,
+        seed: recipe.seed,
+        physical_tile_size_m: [recipe.physical_tile_width_m, recipe.physical_tile_height_m],
+        minimum_height_m: range.minimum,
+        maximum_height_m: range.maximum,
+        base_height_m: range.neutral,
+        displacement: recipe.displacement.displacement_map,
+        normal_convention: recipe.normal_convention,
+    };
+    TextureSet::new(albedo, height, normal, occlusion, metadata).map_err(TextureError::from)
+}
+
+/// Writes a complete texture set as portable PNG files and a final manifest.
+///
+/// # Errors
+///
+/// Returns an error when the destination is unsafe to replace or a map cannot
+/// be encoded or written atomically.
+pub fn write_texture_set(
+    textures: &TextureSet,
+    destination: &Path,
+    options: &OutputOptions,
+) -> Result<OutputManifest, TextureError> {
+    let images = TextureSetImages::from_texture_set(textures);
+    encoding::write_texture_set(&images, destination, options).map_err(TextureError::from)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn recipe() -> TextureRecipe {
+        serde_json::from_value(serde_json::json!({
+            "schema_version": 1,
+            "name": "test_stone",
+            "seed": 42,
+            "width": 32,
+            "height": 32,
+            "physical_tile_width_m": 4.0,
+            "physical_tile_height_m": 4.0,
+            "material": { "kind": "cracked_stone" },
+            "surface_layers": [],
+            "normal_convention": "open_gl",
+            "normal_scale": 1.0,
+            "displacement": {
+                "minimum_m": -0.2,
+                "maximum_m": 0.2,
+                "base_m": 0.0,
+                "displacement_map": true
+            },
+            "occlusion": {},
+            "albedo": {},
+            "output_profiles": ["motu_unity_terrain"]
+        }))
+        .expect("recipe")
+    }
+
+    #[test]
+    fn generation_is_deterministic_and_maps_share_dimensions() {
+        let recipe = recipe();
+        let first = generate_texture_set(&recipe).expect("first bake");
+        let second = generate_texture_set(&recipe).expect("second bake");
+        assert_eq!(first, second);
+        assert_eq!(first.dimensions, TextureDimensions::new(32, 32).unwrap());
+    }
+}

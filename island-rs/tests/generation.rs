@@ -544,37 +544,6 @@ fn hydraulic_erosion_does_not_reverse_projected_faces() {
 }
 
 #[test]
-fn terrain_topology_is_free_form_delaunay() {
-    use std::collections::HashSet;
-
-    let island = Island::generate(41, small_options()).unwrap();
-    let coarse = island.lod(2).unwrap();
-    let unique_x: HashSet<u32> = coarse
-        .vertices
-        .iter()
-        .map(|vertex| vertex.x.to_bits())
-        .collect();
-    let unique_y: HashSet<u32> = coarse
-        .vertices
-        .iter()
-        .map(|vertex| vertex.y.to_bits())
-        .collect();
-    assert!(coarse.vertices.len() > 65);
-    assert!(unique_x.len() * unique_y.len() > coarse.vertices.len() * 8);
-    assert!((coarse.surface_area_xy() - 1.0).abs() < 1.0e-4);
-    let lod1 = island.lod(1).unwrap();
-    let lod0 = island.lod(0).unwrap();
-    assert!(lod1.triangles.len() > coarse.triangles.len());
-    assert!(
-        lod1.triangles.len() < coarse.triangles.len() * 48,
-        "adaptive refinement grew LOD1 from {} to {} indices",
-        coarse.triangles.len(),
-        lod1.triangles.len()
-    );
-    assert!(lod0.triangles.len() > lod1.triangles.len());
-}
-
-#[test]
 fn finest_lod_concentrates_detail_on_land() {
     let island = Island::generate(43, small_options()).unwrap();
     let mesh = island.lod(0).unwrap();

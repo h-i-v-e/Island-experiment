@@ -32,6 +32,9 @@ public sealed class IslandGenerator : MonoBehaviour
     [Header("Rivers")]
     [SerializeField] private IslandRiverSettings rivers = new IslandRiverSettings();
 
+    [Header("Forest")]
+    [SerializeField] private IslandForestSettings forest = new IslandForestSettings();
+
     [Header("Streaming")]
     [SerializeField] private IslandStreamingSettings streaming = new IslandStreamingSettings();
 
@@ -60,6 +63,8 @@ public sealed class IslandGenerator : MonoBehaviour
     private Material riverMaterial;
     private Material seaMaterial;
     private Material meshEdgeMaterial;
+    private Material treeWoodMaterial;
+    private Material treeFoliageMaterial;
     private string status = "Ready";
     private CancellationTokenSource generationCancellation;
     private Stopwatch generationTimer;
@@ -73,7 +78,9 @@ public sealed class IslandGenerator : MonoBehaviour
     private bool? appliedShowSea;
     private bool? appliedShowGrass;
     private bool? appliedShowRocks;
+    private bool? appliedShowForests;
     private bool? appliedShowMeshEdges;
+    private bool? appliedShowTreeMeshEdges;
     private bool? appliedEmitterDebug;
     private Color? appliedGrassColourA;
     private Color? appliedGrassColourB;
@@ -90,6 +97,7 @@ public sealed class IslandGenerator : MonoBehaviour
     public float WorldSizeMetres => generation.WorldSizeMetres;
     public IslandGenerationSettings Generation => generation;
     public IslandRiverSettings Rivers => rivers;
+    public IslandForestSettings Forest => forest;
     public IslandStreamingSettings Streaming => streaming;
     public IslandRenderingSettings Rendering => rendering;
     public IslandDecorationSettings Decorations => decorations;
@@ -149,6 +157,11 @@ public sealed class IslandGenerator : MonoBehaviour
         {
             debugSettings.ShowMeshEdges = !debugSettings.ShowMeshEdges;
         }
+        var treeMeshEdgeKey = debugSettings.ToggleTreeMeshEdgesKey;
+        if (treeMeshEdgeKey != KeyCode.None && Input.GetKeyDown(treeMeshEdgeKey))
+        {
+            debugSettings.ShowTreeMeshEdges = !debugSettings.ShowTreeMeshEdges;
+        }
         UpdateMaterialTransforms();
         ApplyLiveSettings();
         if (terrainStreamer != null && streaming.Target != null)
@@ -204,6 +217,21 @@ public sealed class IslandGenerator : MonoBehaviour
             generation.WorldSizeMetres);
         grassMaterial.SetTexture("_CliffNoise3D", cliffNoiseTexture);
         CopyTerrainBlendSettingsToGrass();
+        ApplySnowlineSettings();
+        treeWoodMaterial = CreateMaterial(
+            "Motu/Tree Wood",
+            new Color(0.24f, 0.105f, 0.045f, 1f),
+            rendering.TreeWoodMaterial,
+            generation.WorldSizeMetres);
+        treeWoodMaterial.SetTexture("_CliffNoise3D", cliffNoiseTexture);
+        treeWoodMaterial.enableInstancing = true;
+        treeFoliageMaterial = CreateMaterial(
+            "Motu/Tree Foliage",
+            new Color(0.08f, 0.28f, 0.055f, 1f),
+            rendering.TreeFoliageMaterial,
+            generation.WorldSizeMetres);
+        treeFoliageMaterial.SetTexture("_CliffNoise3D", cliffNoiseTexture);
+        treeFoliageMaterial.enableInstancing = true;
         rockMaterial = CreateMaterial(
             "Motu/Rock Decoration",
             rockColor,
@@ -346,6 +374,19 @@ public sealed class IslandGenerator : MonoBehaviour
         CopyMaterialFloat("_RiverBedHeightBlendStrength");
     }
 
+    private void ApplySnowlineSettings()
+    {
+        var snowline = forest.SnowlineMetres;
+        if (terrainMaterial != null && terrainMaterial.HasProperty("_SnowLine"))
+        {
+            terrainMaterial.SetFloat("_SnowLine", snowline);
+        }
+        if (grassMaterial != null && grassMaterial.HasProperty("_SnowLine"))
+        {
+            grassMaterial.SetFloat("_SnowLine", snowline);
+        }
+    }
+
     private void CopyMaterialTexture(string propertyName)
     {
         if (terrainMaterial.HasProperty(propertyName)
@@ -402,6 +443,8 @@ public sealed class IslandGenerator : MonoBehaviour
         rockMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
         riverMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
         seaMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
+        treeWoodMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
+        treeFoliageMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
     }
 
     private void ApplyLiveSettings()
@@ -457,10 +500,31 @@ public sealed class IslandGenerator : MonoBehaviour
             appliedShowRocks = rendering.ShowRocks;
             terrainStreamer?.SetRocksVisible(rendering.ShowRocks);
         }
+        var snowline = forest.SnowlineMetres;
+        var terrainSnowlineChanged = terrainMaterial != null
+            && terrainMaterial.HasProperty("_SnowLine")
+            && !Mathf.Approximately(terrainMaterial.GetFloat("_SnowLine"), snowline);
+        var grassSnowlineChanged = grassMaterial != null
+            && grassMaterial.HasProperty("_SnowLine")
+            && !Mathf.Approximately(grassMaterial.GetFloat("_SnowLine"), snowline);
+        if (terrainSnowlineChanged || grassSnowlineChanged)
+        {
+            ApplySnowlineSettings();
+        }
+        if (appliedShowForests != forest.ShowForests)
+        {
+            appliedShowForests = forest.ShowForests;
+            terrainStreamer?.SetForestsVisible(forest.ShowForests);
+        }
         if (appliedShowMeshEdges != debugSettings.ShowMeshEdges)
         {
             appliedShowMeshEdges = debugSettings.ShowMeshEdges;
             terrainStreamer?.SetMeshEdgesVisible(debugSettings.ShowMeshEdges);
+        }
+        if (appliedShowTreeMeshEdges != debugSettings.ShowTreeMeshEdges)
+        {
+            appliedShowTreeMeshEdges = debugSettings.ShowTreeMeshEdges;
+            terrainStreamer?.SetTreeMeshEdgesVisible(debugSettings.ShowTreeMeshEdges);
         }
         if (appliedEmitterDebug != debugSettings.ShowRoughWaterEmitters)
         {
@@ -538,6 +602,7 @@ public sealed class IslandGenerator : MonoBehaviour
         var islandSeed = generation.Seed;
         var worldSize = generation.WorldSizeMetres;
         var options = generation.ToNativeOptions(rivers);
+        var forestOptions = generation.ToNativeForestOptions(forest);
         var emitterSharpness = rivers.RoughWaterSharpnessDegrees;
         var emitterSpacing = rivers.RoughWaterSpacingMetres;
 
@@ -546,6 +611,7 @@ public sealed class IslandGenerator : MonoBehaviour
             prepared = await IslandGenerationWorker.GenerateAsync(
                 islandSeed,
                 options,
+                forestOptions,
                 worldSize,
                 emitterSharpness,
                 emitterSpacing,
@@ -578,17 +644,21 @@ public sealed class IslandGenerator : MonoBehaviour
                 terrainMaterial,
                 grassMaterial,
                 rockMaterial,
+                treeWoodMaterial,
+                treeFoliageMaterial,
                 riverMaterial,
                 meshEdgeMaterial,
                 worldSize,
                 prepared.overviewTiles,
                 prepared.riverTiles,
                 prepared.riverRockTiles,
+                prepared.forest,
                 prepared.riverEmitters,
                 prepared.colliderHeightMap,
                 rendering.ShowRivers,
                 rendering.ShowGrass,
                 rendering.ShowRocks,
+                forest.ShowForests,
                 cancellation.Token);
             terrainStreamer.SetRiverEmitterDebug(debugSettings.ShowRoughWaterEmitters);
 
@@ -728,7 +798,9 @@ public sealed class IslandGenerator : MonoBehaviour
         Material grassTemplate,
         Material riverTemplate,
         Material seaTemplate,
-        Material rockTemplate)
+        Material rockTemplate,
+        Material treeWoodTemplate = null,
+        Material treeFoliageTemplate = null)
     {
         streaming.Target = streamingTarget;
         rendering.Sunlight = sunlight;
@@ -737,7 +809,9 @@ public sealed class IslandGenerator : MonoBehaviour
             grassTemplate,
             riverTemplate,
             seaTemplate,
-            rockTemplate);
+            rockTemplate,
+            treeWoodTemplate,
+            treeFoliageTemplate);
     }
 
     internal static IslandPreparedData PrepareIsland(
@@ -748,7 +822,39 @@ public sealed class IslandGenerator : MonoBehaviour
         float emitterSpacingMetres,
         CancellationToken cancellationToken)
     {
-        var handle = MotuNative.CreateMotu(islandSeed, ref options);
+        var forestOptions = new MotuNative.ForestOptions
+        {
+            patchSizeMetres = 200f * 2000f / worldSize,
+            noiseThreshold = 0.62f,
+            noiseOctaves = 4,
+            snowlineMetres = 100f * 2000f / worldSize,
+            prototypeCount = 8,
+            minimumScale = 0.85f,
+            maximumScale = 1.15f,
+        };
+        return PrepareIsland(
+            islandSeed,
+            options,
+            forestOptions,
+            worldSize,
+            emitterSharpnessDegrees,
+            emitterSpacingMetres,
+            cancellationToken);
+    }
+
+    internal static IslandPreparedData PrepareIsland(
+        int islandSeed,
+        MotuNative.Options options,
+        MotuNative.ForestOptions forestOptions,
+        float worldSize,
+        float emitterSharpnessDegrees,
+        float emitterSpacingMetres,
+        CancellationToken cancellationToken)
+    {
+        var handle = MotuNative.CreateMotuWithForest(
+            islandSeed,
+            ref options,
+            ref forestOptions);
         if (handle == IntPtr.Zero)
         {
             throw new InvalidOperationException("The Rust generator returned a null island handle.");
@@ -769,6 +875,8 @@ public sealed class IslandGenerator : MonoBehaviour
             cancellationToken.ThrowIfCancellationRequested();
             var riverRockTiles = PrepareRiverRockTiles(handle, worldSize);
             cancellationToken.ThrowIfCancellationRequested();
+            var forest = PrepareForestData(handle, worldSize);
+            cancellationToken.ThrowIfCancellationRequested();
             var riverEmitters = PrepareRiverEmitters(
                 handle,
                 worldSize,
@@ -782,6 +890,7 @@ public sealed class IslandGenerator : MonoBehaviour
                 overviewTiles,
                 riverTiles,
                 riverRockTiles,
+                forest,
                 riverEmitters,
                 colliderHeightMap);
             handle = IntPtr.Zero;
@@ -971,6 +1080,165 @@ public sealed class IslandGenerator : MonoBehaviour
         }
     }
 
+    private static IslandPreparedForestData PrepareForestData(
+        IntPtr handle,
+        float worldSize)
+    {
+        return new IslandPreparedForestData(
+            PrepareForestMeshGrid(handle, worldSize, 2, ForestTileStreamer.Lod2Resolution, false),
+            PrepareForestMeshGrid(handle, worldSize, 1, ForestTileStreamer.Lod1Resolution, false),
+            PrepareForestMeshGrid(handle, worldSize, 1, ForestTileStreamer.Lod1Resolution, true),
+            PrepareForestMeshGrid(handle, worldSize, 0, ForestTileStreamer.Lod1Resolution, false),
+            PrepareForestMeshGrid(handle, worldSize, 0, ForestTileStreamer.Lod1Resolution, true));
+    }
+
+    private static IslandPreparedMesh[] PrepareForestMeshGrid(
+        IntPtr handle,
+        float worldSize,
+        int visualLod,
+        int divisions,
+        bool wood)
+    {
+        if (divisions <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(divisions));
+        }
+
+        var area = new MotuNative.ExportArea(0f, 0f, 1f, 1f);
+        MotuNative.ExportMeshGrid export;
+        if (wood)
+        {
+            MotuNative.CreateForestWoodMeshGrid(
+                handle,
+                ref area,
+                visualLod,
+                divisions,
+                out export);
+        }
+        else
+        {
+            MotuNative.CreateForestFoliageMeshGrid(
+                handle,
+                ref area,
+                visualLod,
+                divisions,
+                out export);
+        }
+
+        try
+        {
+            var expectedLength = checked(divisions * divisions);
+            if (export.handle == IntPtr.Zero
+                || export.data == IntPtr.Zero
+                || export.length != expectedLength)
+            {
+                throw new InvalidOperationException(
+                    $"The Rust forest {(wood ? "wood" : "foliage")} grid returned an invalid "
+                    + $"LOD {visualLod} batch.");
+            }
+
+            var result = new IslandPreparedMesh[export.length];
+            var exportSize = Marshal.SizeOf<MotuNative.ExportMesh>();
+            for (var index = 0; index < export.length; index++)
+            {
+                var nativeMesh = Marshal.PtrToStructure<MotuNative.ExportMesh>(
+                    IntPtr.Add(export.data, index * exportSize));
+                if (nativeMesh.handle == IntPtr.Zero)
+                {
+                    ValidateEmptyForestMesh(nativeMesh, visualLod, index);
+                    continue;
+                }
+                if (nativeMesh.vertices.length == 0
+                    && nativeMesh.normals.length == 0
+                    && nativeMesh.triangles.length == 0)
+                {
+                    continue;
+                }
+                ValidateForestNativeMesh(nativeMesh, visualLod, index);
+                var prepared = CopyGeneratedMeshData(nativeMesh, worldSize);
+                ValidatePreparedForestMesh(prepared, visualLod, index);
+                result[index] = prepared;
+            }
+            return result;
+        }
+        finally
+        {
+            MotuNative.ReleaseMeshGrid(ref export);
+        }
+    }
+
+    private static void ValidateEmptyForestMesh(
+        MotuNative.ExportMesh mesh,
+        int visualLod,
+        int index)
+    {
+        if (mesh.vertices.length != 0
+            || mesh.normals.length != 0
+            || mesh.triangles.length != 0
+            || mesh.uv.length != 0
+            || mesh.material.length != 0)
+        {
+            throw new InvalidOperationException(
+                $"The Rust forest tile {index} at LOD {visualLod} has data without ownership.");
+        }
+    }
+
+    private static void ValidateForestNativeMesh(
+        MotuNative.ExportMesh mesh,
+        int visualLod,
+        int index)
+    {
+        if (mesh.vertices.length <= 0
+            || mesh.vertices.data == IntPtr.Zero
+            || mesh.normals.length != mesh.vertices.length
+            || mesh.normals.data == IntPtr.Zero
+            || mesh.triangles.length <= 0
+            || mesh.triangles.length % 3 != 0
+            || mesh.triangles.data == IntPtr.Zero
+            || (mesh.uv.length != 0 && mesh.uv.length != mesh.vertices.length)
+            || (mesh.uv.length != 0 && mesh.uv.data == IntPtr.Zero)
+            || (mesh.material.length != 0 && mesh.material.length != mesh.vertices.length)
+            || (mesh.material.length != 0 && mesh.material.data == IntPtr.Zero))
+        {
+            throw new InvalidOperationException(
+                $"The Rust forest tile {index} at LOD {visualLod} has invalid mesh attributes.");
+        }
+    }
+
+    private static void ValidatePreparedForestMesh(
+        IslandPreparedMesh mesh,
+        int visualLod,
+        int index)
+    {
+        if (mesh == null
+            || mesh.vertices.Length == 0
+            || mesh.normals.Length != mesh.vertices.Length
+            || mesh.triangles.Length == 0
+            || mesh.triangles.Length % 3 != 0
+            || (mesh.uv.Length != 0 && mesh.uv.Length != mesh.vertices.Length))
+        {
+            throw new InvalidOperationException(
+                $"The copied forest tile {index} at LOD {visualLod} is invalid.");
+        }
+        for (var vertex = 0; vertex < mesh.vertices.Length; vertex++)
+        {
+            if (!IsFinite(mesh.vertices[vertex]) || !IsFinite(mesh.normals[vertex]))
+            {
+                throw new InvalidOperationException(
+                    $"The copied forest tile {index} at LOD {visualLod} contains a non-finite value.");
+            }
+        }
+        for (var triangle = 0; triangle < mesh.triangles.Length; triangle++)
+        {
+            if (mesh.triangles[triangle] < 0
+                || mesh.triangles[triangle] >= mesh.vertices.Length)
+            {
+                throw new InvalidOperationException(
+                    $"The copied forest tile {index} at LOD {visualLod} has an invalid triangle index.");
+            }
+        }
+    }
+
     private static IslandPreparedRiverEmitter[] PrepareRiverEmitters(
         IntPtr handle,
         float worldSize,
@@ -1145,6 +1413,26 @@ public sealed class IslandGenerator : MonoBehaviour
     }
 
     internal static Mesh CreateRiverMesh(IslandPreparedMesh source)
+    {
+        return CreateMesh(source, false);
+    }
+
+    internal static IslandPreparedMesh CopyGeneratedMeshData(
+        MotuNative.ExportMesh source,
+        float worldSize)
+    {
+        return CopyMeshData(
+            source.vertices,
+            source.normals,
+            source.triangles,
+            source.uv,
+            source.material,
+            false,
+            false,
+            worldSize);
+    }
+
+    internal static Mesh CreateGeneratedMesh(IslandPreparedMesh source)
     {
         return CreateMesh(source, false);
     }
@@ -1341,6 +1629,8 @@ public sealed class IslandGenerator : MonoBehaviour
         DestroyUnityObject(terrainMaterial);
         DestroyUnityObject(grassMaterial);
         DestroyUnityObject(rockMaterial);
+        DestroyUnityObject(treeWoodMaterial);
+        DestroyUnityObject(treeFoliageMaterial);
         DestroyUnityObject(riverMaterial);
         DestroyUnityObject(seaMaterial);
         DestroyUnityObject(meshEdgeMaterial);
@@ -1350,6 +1640,8 @@ public sealed class IslandGenerator : MonoBehaviour
         terrainMaterial = null;
         grassMaterial = null;
         rockMaterial = null;
+        treeWoodMaterial = null;
+        treeFoliageMaterial = null;
         riverMaterial = null;
         seaMaterial = null;
         meshEdgeMaterial = null;
@@ -1367,7 +1659,9 @@ public sealed class IslandGenerator : MonoBehaviour
         appliedShowSea = null;
         appliedShowGrass = null;
         appliedShowRocks = null;
+        appliedShowForests = null;
         appliedShowMeshEdges = null;
+        appliedShowTreeMeshEdges = null;
         appliedEmitterDebug = null;
         appliedGrassColourA = null;
         appliedGrassColourB = null;
@@ -1388,7 +1682,7 @@ public sealed class IslandGenerator : MonoBehaviour
         }
     }
 
-    private static Texture3D CreateCliffNoiseTexture()
+    internal static Texture3D CreateCliffNoiseTexture()
     {
         var texture = new Texture3D(
             CliffNoiseDimension,
@@ -1733,6 +2027,12 @@ public sealed class IslandGenerator : MonoBehaviour
 #if UNITY_EDITOR
     public static void BatchValidateNativeInterop()
     {
+        if (Marshal.SizeOf<MotuNative.Options>() != sizeof(float) * 16
+            || Marshal.SizeOf<MotuNative.ForestOptions>() != 28)
+        {
+            throw new InvalidOperationException(
+                "Managed native option layouts do not match their ABI contracts.");
+        }
         var options = new MotuNative.Options
         {
             maxZ = 0.2f,
@@ -1750,7 +2050,20 @@ public sealed class IslandGenerator : MonoBehaviour
             riverSourceDepthMetres = 0.35f,
             riverMaximumDepthMetres = 2f,
         };
-        var handle = MotuNative.CreateMotu(2018, ref options);
+        var forestOptions = new MotuNative.ForestOptions
+        {
+            patchSizeMetres = 200f,
+            noiseThreshold = 0.62f,
+            noiseOctaves = 4,
+            snowlineMetres = 100f,
+            prototypeCount = 8,
+            minimumScale = 0.85f,
+            maximumScale = 1.15f,
+        };
+        var handle = MotuNative.CreateMotuWithForest(
+            2018,
+            ref options,
+            ref forestOptions);
         if (handle == IntPtr.Zero)
         {
             throw new InvalidOperationException("Native validation could not generate an island.");
@@ -1910,6 +2223,9 @@ public sealed class IslandGenerator : MonoBehaviour
             {
                 DestroyImmediate(validationRockMaterial);
             }
+
+            ValidateTreeSurfaceShader("Motu/Tree Wood", "wood");
+            ValidateTreeSurfaceShader("Motu/Tree Foliage", "foliage");
 
             var riverWaterShader = Shader.Find("Motu/River Water");
             if (riverWaterShader == null
@@ -2449,6 +2765,83 @@ public sealed class IslandGenerator : MonoBehaviour
             MotuNative.ReleaseMotu(handle);
         }
         Debug.Log("Motu native mesh, terrain collider, and material validation passed.");
+    }
+
+    private static void ValidateTreeSurfaceShader(string shaderName, string label)
+    {
+        var shader = Shader.Find(shaderName);
+        if (shader == null
+            || !shader.isSupported
+            || UnityEditor.ShaderUtil.ShaderHasError(shader))
+        {
+            throw new InvalidOperationException(
+                $"The tree {label} shader is missing or unsupported.");
+        }
+        var material = new Material(shader);
+        var noise = CreateCliffNoiseTexture();
+        try
+        {
+            if (!material.HasProperty("_BaseColor")
+                || !material.HasProperty("_LightColor")
+                || !material.HasProperty("_CliffNoise3D")
+                || !material.HasProperty("_TreeNoisePeriod")
+                || !material.HasProperty("_TreeNoiseDetailScale")
+                || !material.HasProperty("_TreeNoiseFineScale")
+                || !material.HasProperty("_TreeNormalStrength")
+                || !material.HasProperty("_TreeHueVariationDegrees"))
+            {
+                throw new InvalidOperationException(
+                    $"The tree {label} shader is missing its layered-noise properties.");
+            }
+            if (label == "foliage"
+                && (!material.HasProperty("_CanopyCoverage")
+                    || !material.HasProperty("_CanopyEdgeSoftness")
+                    || !material.HasProperty("_AlphaCutoff")
+                    || !material.HasProperty("_FoliageFurHeight")
+                    || !material.HasProperty("_FoliageLeafWorldSize")
+                    || !material.HasProperty("_FoliageLeafCoverage")
+                    || !material.HasProperty("_FoliageLeafEdgeSoftness")
+                    || !material.HasProperty("_GrassPlayerPosition")
+                    || !material.HasProperty("_GrassRadius")
+                    || !material.HasProperty("_GrassFadeWidth")))
+            {
+                throw new InvalidOperationException(
+                    "The tree foliage shader is missing its canopy or fur properties.");
+            }
+            if (label == "foliage" && material.passCount != 10)
+            {
+                throw new InvalidOperationException(
+                    "The tree foliage shader must contain one canopy pass, eight fur passes, "
+                    + "and one shadow pass.");
+            }
+            if (label == "foliage"
+                && (material.renderQueue != (int)RenderQueue.AlphaTest
+                    || material.FindPass("ShadowCaster") < 0))
+            {
+                throw new InvalidOperationException(
+                    "The tree foliage shader must expose an alpha-tested shadow caster.");
+            }
+            if (label == "foliage")
+            {
+                ForestTileStreamer.ValidateLowPolyCanopyShadowProxy(material);
+            }
+            material.SetTexture("_CliffNoise3D", noise);
+            if (material.GetTexture("_CliffNoise3D") != noise)
+            {
+                throw new InvalidOperationException(
+                    $"The tree {label} shader did not retain its 3D noise texture.");
+            }
+        }
+        finally
+        {
+            DestroyImmediate(noise);
+            DestroyImmediate(material);
+        }
+    }
+
+    private static bool IsFinite(Vector3 value)
+    {
+        return IsFinite(value.x) && IsFinite(value.y) && IsFinite(value.z);
     }
 
     private static bool IsFinite(float value)

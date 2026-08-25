@@ -12,6 +12,9 @@ use super::{
     hydraulic_erode_stage, io, legacy_catchment_hectares, mem, noise, sample_grid,
     sample_mesh_surface,
 };
+use crate::forest::{
+    ForestGenerationStats, ForestMeshKind, ForestMeshes, ForestOptions, generate_forest,
+};
 
 const SEA_PROXIMITY_FULL_STRENGTH_METRES: f32 = 2.0;
 const SEA_PROXIMITY_ZERO_STRENGTH_METRES: f32 = 20.0;
@@ -27,6 +30,9 @@ pub struct Island {
     pub(super) distance_to_land: Vec<f32>,
     pub(super) river_mesh: Mesh,
     pub(super) river_rock_mesh: Mesh,
+    pub(super) forest: ForestMeshes,
+    pub(super) forest_stats: ForestGenerationStats,
+    pub(super) forest_options: ForestOptions,
     pub(super) decorations: OnceLock<Decorations>,
 }
 
@@ -48,7 +54,7 @@ impl<R: Read> SavedIslandReader<R> {
     fn new(mut source: R) -> io::Result<Self> {
         let mut magic = [0_u8; 8];
         source.read_exact(&mut magic)?;
-        if &magic[..7] != b"MOTURS\0" || !matches!(magic[7], 3..=16) {
+        if &magic[..7] != b"MOTURS\0" || !matches!(magic[7], 3..=17) {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "invalid Motu Rust free-form mesh file",
@@ -60,14 +66,27 @@ impl<R: Read> SavedIslandReader<R> {
         })
     }
 
-    fn read_options(&mut self) -> io::Result<IslandOptions> {
+    fn read_options(&mut self) -> io::Result<(IslandOptions, ForestOptions)> {
         let mut options = self.read_terrain_options()?;
         self.read_river_options(&mut options)?;
         if self.version == 8 {
             self.discard_f32()?;
         }
         options.terrain_size = self.read_u32()?;
-        Ok(options)
+        let forest_options = if self.version >= 17 {
+            ForestOptions {
+                patch_size_metres: self.read_f32()?,
+                noise_threshold: self.read_f32()?,
+                noise_octaves: self.read_u8()?,
+                snowline_metres: self.read_f32()?,
+                prototype_count: self.read_u8()?,
+                minimum_scale: self.read_f32()?,
+                maximum_scale: self.read_f32()?,
+            }
+        } else {
+            ForestOptions::default()
+        };
+        Ok((options, forest_options))
     }
 
     fn read_terrain_options(&mut self) -> io::Result<IslandOptions> {
@@ -155,6 +174,12 @@ impl<R: Read> SavedIslandReader<R> {
         Ok(u32::from_le_bytes(bytes))
     }
 
+    fn read_u8(&mut self) -> io::Result<u8> {
+        let mut byte = [0_u8; 1];
+        self.source.read_exact(&mut byte)?;
+        Ok(byte[0])
+    }
+
     fn read_f32(&mut self) -> io::Result<f32> {
         let mut bytes = [0_u8; 4];
         self.source.read_exact(&mut bytes)?;
@@ -239,8 +264,28 @@ impl Island {
     /// Returns an error when an option is non-finite or outside its supported
     /// range.
     pub fn generate(seed: u64, options: IslandOptions) -> Result<Self, String> {
+        Self::generate_with_forest(seed, options, ForestOptions::default())
+    }
+
+    /// Generates an island with explicit deterministic forest controls.
+    ///
+    /// Keeping the forest value separate from the historical native terrain
+    /// option block lets callers tune forest coverage without changing the
+    /// native terrain fields.  It is owned by the generated island and is
+    /// included in the versioned save format.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when either terrain or forest options are invalid, or
+    /// when final mesh data cannot satisfy the forest ownership contracts.
+    pub fn generate_with_forest(
+        seed: u64,
+        options: IslandOptions,
+        forest_options: ForestOptions,
+    ) -> Result<Self, String> {
         let _timer = StageTimer::new("island.generate");
         let options = options.validate()?;
+        let forest_options = forest_options.validate()?;
         let mut scratch = GenerationScratch::default();
         let (base, material) = generate_base(seed, options, &mut scratch);
         let context = GenerationContext::new(options);
@@ -284,7 +329,7 @@ impl Island {
             let _timer = StageTimer::new("terrain.index");
             Terrain::with_index(lod0, lod0_index)
         };
-        let (decorations, settled_rocks) = Decorations::generate(
+        let (mut decorations, settled_rocks) = Decorations::generate(
             seed,
             &terrain,
             &provisional_material,
@@ -293,6 +338,17 @@ impl Island {
         );
         append_settled_rocks(seed, &settled_rocks, &mut river_rock_mesh);
         clear_loose_soil(&mut material, decorations.cleared_soil_vertices());
+        let (forest, forest_stats) = generate_forest(
+            seed,
+            terrain.mesh(),
+            crate::forest::ForestSurface {
+                river_bed: &river_bed,
+                deposited_depths: material.depths(),
+                sea_proximity: material.sea_proximities(),
+            },
+            forest_options,
+        )?;
+        decorations.set_tree_anchors(forest.placements().iter().map(|placement| placement.anchor));
         let material = TerrainMaterialField::from_surface(&material, &river_bed, &forced_rock);
         let distance_to_land = {
             let _timer = StageTimer::new("sea_mask.distance_to_land");
@@ -314,6 +370,9 @@ impl Island {
             distance_to_land,
             river_mesh,
             river_rock_mesh,
+            forest,
+            forest_stats,
+            forest_options,
             decorations: OnceLock::from(decorations),
         })
     }
@@ -326,6 +385,11 @@ impl Island {
     #[must_use]
     pub const fn options(&self) -> IslandOptions {
         self.options
+    }
+
+    #[must_use]
+    pub const fn forest_options(&self) -> ForestOptions {
+        self.forest_options
     }
 
     #[must_use]
@@ -357,6 +421,48 @@ impl Island {
     #[must_use]
     pub const fn river_rock_mesh(&self) -> &Mesh {
         &self.river_rock_mesh
+    }
+
+    pub(crate) fn forest_mesh_grid(
+        &self,
+        kind: ForestMeshKind,
+        visual_lod: usize,
+        bounds: BoundingBox,
+        divisions: usize,
+    ) -> Option<Vec<Mesh>> {
+        self.forest.mesh_grid(kind, visual_lod, bounds, divisions)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn forest_wood_mesh_grid(
+        &self,
+        visual_lod: usize,
+        bounds: BoundingBox,
+        divisions: usize,
+    ) -> Option<Vec<Mesh>> {
+        self.forest_mesh_grid(ForestMeshKind::Wood, visual_lod, bounds, divisions)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn forest_foliage_mesh_grid(
+        &self,
+        visual_lod: usize,
+        bounds: BoundingBox,
+        divisions: usize,
+    ) -> Option<Vec<Mesh>> {
+        self.forest_mesh_grid(ForestMeshKind::Foliage, visual_lod, bounds, divisions)
+    }
+
+    #[must_use]
+    #[allow(dead_code)]
+    pub(crate) fn forest_meshes(&self) -> &ForestMeshes {
+        &self.forest
+    }
+
+    #[must_use]
+    #[allow(dead_code)]
+    pub(crate) fn forest_stats(&self) -> &ForestGenerationStats {
+        &self.forest_stats
     }
 
     /// Derives sparse rough-water locations from the authoritative unsliced
@@ -428,14 +534,15 @@ impl Island {
         crate::sea_mask::bake_sea_mask(&self.terrain, &self.distance_to_land, width, height)
     }
 
-    /// Bakes high-detail normal corrections and the original directional
-    /// occlusion kernel for a target terrain LOD.
+    /// Bakes high-detail normal corrections, directional terrain occlusion,
+    /// and vertically projected low-poly canopy occlusion for a target LOD.
     #[must_use]
     pub fn surface_maps(&self, lod: usize, width: u32, height: u32) -> Option<SurfaceMaps> {
         let target = self.lod(lod)?;
         Some(bake_surface_maps(
             &self.terrain,
             (lod != 0).then_some(target),
+            self.forest.mesh(ForestMeshKind::Foliage, 2),
             width.max(1),
             height.max(1),
         ))
@@ -491,7 +598,7 @@ impl Island {
     /// Returns an I/O error if the destination cannot be created or written.
     pub fn save(&self, path: impl AsRef<Path>) -> io::Result<()> {
         let mut file = File::create(path)?;
-        file.write_all(b"MOTURS\0\x10")?;
+        file.write_all(b"MOTURS\0\x11")?;
         file.write_all(&self.seed.to_le_bytes())?;
         for value in [
             self.options.max_height,
@@ -511,7 +618,14 @@ impl Island {
         ] {
             file.write_all(&value.to_le_bytes())?;
         }
-        file.write_all(&self.options.terrain_size.to_le_bytes())
+        file.write_all(&self.options.terrain_size.to_le_bytes())?;
+        file.write_all(&self.forest_options.patch_size_metres.to_le_bytes())?;
+        file.write_all(&self.forest_options.noise_threshold.to_le_bytes())?;
+        file.write_all(&[self.forest_options.noise_octaves])?;
+        file.write_all(&self.forest_options.snowline_metres.to_le_bytes())?;
+        file.write_all(&[self.forest_options.prototype_count])?;
+        file.write_all(&self.forest_options.minimum_scale.to_le_bytes())?;
+        file.write_all(&self.forest_options.maximum_scale.to_le_bytes())
     }
 
     /// Loads a saved seed/options file and deterministically regenerates it.
@@ -522,8 +636,8 @@ impl Island {
     pub fn load(path: impl AsRef<Path>) -> io::Result<Self> {
         let mut reader = SavedIslandReader::new(File::open(path)?)?;
         let seed = reader.read_u64()?;
-        let options = reader.read_options()?;
-        Self::generate(seed, options)
+        let (options, forest_options) = reader.read_options()?;
+        Self::generate_with_forest(seed, options, forest_options)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
     }
 
@@ -1044,6 +1158,8 @@ fn sea_proximity_strengths(mesh: &Mesh, adjacency: &Adjacency, sea: &[bool]) -> 
 
 #[cfg(test)]
 mod sea_proximity_tests {
+    use std::io::Cursor;
+
     use super::*;
 
     #[test]
@@ -1076,5 +1192,22 @@ mod sea_proximity_tests {
                 assert!((actual - expected).abs() < 1.0e-6);
             }
         }
+    }
+
+    #[test]
+    fn version_sixteen_payload_uses_default_forest_options() {
+        let mut bytes = b"MOTURS\0\x10".to_vec();
+        bytes.extend(77_u64.to_le_bytes());
+        for value in [
+            0.2_f32, 0.6, 1.3, 1.0, 1.0, 1.5, 12.0, 0.05, 4.0, 9.0, 2.0, 14.0, 0.35, 2.0,
+        ] {
+            bytes.extend(value.to_le_bytes());
+        }
+        bytes.extend(24_u32.to_le_bytes());
+
+        let mut reader = SavedIslandReader::new(Cursor::new(bytes)).unwrap();
+        let (_, forest_options) = reader.read_options().unwrap();
+
+        assert_eq!(forest_options, ForestOptions::default());
     }
 }
