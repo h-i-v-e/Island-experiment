@@ -34,8 +34,12 @@ use crate::{
 
 mod decorations;
 mod erosion;
+mod flux_erosion;
 mod generation;
+#[cfg(feature = "gpu-erosion")]
+mod gpu_particle_erosion;
 mod material;
+mod particle_erosion;
 mod sampling;
 mod surface_maps;
 
@@ -47,12 +51,16 @@ use erosion::{
     triangle_bin_bounds,
 };
 pub(crate) use erosion::{ProjectedFaceAreas, VertexFaceAdjacency, bedrock_erosion_rate};
+use flux_erosion::FluxErosionScratch;
 use generation::GenerationScratch;
 pub use generation::Island;
 #[cfg(test)]
 use generation::{correct_lods, sharp_rock_mask};
+#[cfg(feature = "gpu-erosion")]
+use gpu_particle_erosion::GpuParticleErosionScratch;
 use material::TerrainMaterialField;
 pub(crate) use material::{SurfaceMaterial, projected_vertex_control_areas};
+use particle_erosion::ParticleErosionScratch;
 pub use sampling::{SurfaceMaps, Terrain};
 use sampling::{
     SurfaceSample, TriangleIndex, bury_river_banks, sample_mesh_surface, sample_mesh_triangle,

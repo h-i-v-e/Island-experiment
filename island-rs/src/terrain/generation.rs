@@ -1,13 +1,16 @@
+#[cfg(feature = "gpu-erosion")]
+use super::GpuParticleErosionScratch;
 use super::{
-    Adjacency, BinaryHeap, BoundingBox, DETAIL_DISPLACEMENT_RATIO, Decorations, File, GeologyField,
-    HashSet, HydraulicScratch, ISLAND_WORLD_METRES, IndexedParallelIterator, IslandOptions, Mesh,
-    MeshClipper, NewVertexStencil, OnceLock, Ordering, ParallelIterator, ParallelSliceMut, Path,
-    Raster, Read, River, RiverChannelSettings, RiverNetwork, RiverSourceRule, Rng,
-    SHARP_ROCK_DISPLACEMENT_RATIO, StageTimer, SurfaceMaps, SurfaceMaterial, TERRAIN_RENDER_FLOOR,
-    Terrain, TerrainMaterialField, TriangleIndex, Vec2, Vec3, Write, append_settled_rocks,
-    bake_surface_maps, bury_river_banks, clear_loose_soil, encode_bank_distance_in_uv, erode_mesh,
-    fix_inland_seas, geology, hydraulic_erode_stage, io, legacy_catchment_hectares, mem, noise,
-    sample_grid, sample_mesh_surface,
+    Adjacency, BinaryHeap, BoundingBox, DETAIL_DISPLACEMENT_RATIO, Decorations, File,
+    FluxErosionScratch, GeologyField, HashSet, HydraulicScratch, ISLAND_WORLD_METRES,
+    IndexedParallelIterator, IslandOptions, Mesh, MeshClipper, NewVertexStencil, OnceLock,
+    Ordering, ParallelIterator, ParallelSliceMut, ParticleErosionScratch, Path, Raster, Read,
+    River, RiverChannelSettings, RiverNetwork, RiverSourceRule, Rng, SHARP_ROCK_DISPLACEMENT_RATIO,
+    StageTimer, SurfaceMaps, SurfaceMaterial, TERRAIN_RENDER_FLOOR, Terrain, TerrainMaterialField,
+    TriangleIndex, Vec2, Vec3, Write, append_settled_rocks, bake_surface_maps, bury_river_banks,
+    clear_loose_soil, encode_bank_distance_in_uv, erode_mesh, fix_inland_seas, geology,
+    hydraulic_erode_stage, io, legacy_catchment_hectares, mem, noise, sample_grid,
+    sample_mesh_surface,
 };
 
 const SEA_PROXIMITY_FULL_STRENGTH_METRES: f32 = 2.0;
@@ -622,6 +625,10 @@ pub(super) struct GenerationContext {
 #[derive(Default)]
 pub(super) struct GenerationScratch {
     pub(super) hydraulic: HydraulicScratch,
+    pub(super) flux_erosion: FluxErosionScratch,
+    #[cfg(feature = "gpu-erosion")]
+    pub(super) gpu_particle_erosion: GpuParticleErosionScratch,
+    pub(super) particle_erosion: ParticleErosionScratch,
     pub(super) bedrock_rates: Vec<f32>,
 }
 
