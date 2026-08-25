@@ -29,6 +29,9 @@ bevy = { version = "0.19", default-features = false, features = [
     "bluenoise_texture",
     "pbr_clustered_decals",
     "pbr_light_textures",
+    # The HUD's preset thumbnails are PNG captures embedded in the binary, and
+    # this is the decoder that turns them into textures at startup.
+    "png",
 ] }
 # The parameter panel and the frame-rate readout, and nothing else; it is not
 # added at all under --screenshot. Its major version tracks Bevy's, so it moves
