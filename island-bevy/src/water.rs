@@ -7,7 +7,7 @@ use motu::ISLAND_WORLD_METRES;
 
 use crate::{
     convert,
-    island_gen::{GeneratedIsland, IslandEntity, IslandReady},
+    island_gen::{DropIndex, GeneratedIsland, IslandEntity, IslandReady},
     surface::{OceanExtension, OceanMaterial, RiverExtension, RiverMaterial},
 };
 
@@ -64,7 +64,9 @@ fn spawn_rivers(
     mut materials: ResMut<Assets<RiverMaterial>>,
     island: Res<GeneratedIsland>,
 ) {
-    let Some(mesh) = convert::render_mesh(&island.0.river_mesh) else {
+    let Some(mesh) =
+        convert::river_mesh(&island.0.river_mesh, &DropIndex::new(&island.0.river_drops))
+    else {
         return;
     };
     let material = materials.add(RiverMaterial {

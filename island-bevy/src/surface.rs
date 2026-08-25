@@ -1,18 +1,28 @@
 //! Shader materials for every generated surface: the ground and rock the island
-//! is built from, and the two waters that stand over them.
+//! is built from, the two waters that stand over them, and the mist a fall
+//! throws into the air above both.
 //!
-//! All four extend `StandardMaterial` rather than replacing it, so the whole
+//! All five extend `StandardMaterial` rather than replacing it, so the whole
 //! lighting stack — shadow cascades, the depth and motion-vector prepasses,
 //! screen-space occlusion, contact shadows and aerial perspective — keeps
-//! working; only the forward fragment stage is ours. They are four extensions
-//! rather than one behind a mode switch because they answer different
-//! questions; what they have in common is the noise library, and that is shared
-//! as WGSL.
+//! working; only the forward stage is ours, and only the spray replaces the
+//! vertex half of it. They are five extensions rather than one behind a mode
+//! switch because they answer different questions; what they have in common is
+//! the noise library, and that is shared as WGSL.
 //!
 //! The two water extensions read the opaque depth prepass to recover how far
 //! the view ray runs through water before it reaches the bottom. That is only
 //! sound because they blend: a blended surface is never written to the prepass,
 //! so what a water fragment finds there is always the solid ground under it.
+//! The spray blends for the same reason and gains the same exemption, which is
+//! also why its vertex stage may move a droplet without a prepass to keep in
+//! step with.
+//!
+//! Four of the five settings blocks end in fields the app writes rather than
+//! the material: the seconds the waters and the spray animate from, and the
+//! diagnostic channel `--debug-view` switches the output to. `capture` owns
+//! both and writes them in every frame; the values here are only what a
+//! material carries before it does.
 
 use bevy::{
     asset::embedded_asset,
@@ -31,6 +41,8 @@ pub type RockMaterial = ExtendedMaterial<StandardMaterial, RockExtension>;
 pub type OceanMaterial = ExtendedMaterial<StandardMaterial, OceanExtension>;
 /// The generator's river surface: flow, bed, banks and drops.
 pub type RiverMaterial = ExtendedMaterial<StandardMaterial, RiverExtension>;
+/// The droplet cloud at the foot of a fall.
+pub type SprayMaterial = ExtendedMaterial<StandardMaterial, SprayExtension>;
 
 /// Metres of world space past which the terrain's metre-scale relief is gone.
 /// Beyond this the layer is under a pixel wide and only feeds the temporal
@@ -99,21 +111,23 @@ pub struct SurfaceMaterialsPlugin;
 impl Plugin for SurfaceMaterialsPlugin {
     fn build(&self, app: &mut App) {
         load_shader_library!(app, "noise.wgsl");
+        load_shader_library!(app, "debug.wgsl");
         embedded_asset!(app, "terrain.wgsl");
         embedded_asset!(app, "rock.wgsl");
         embedded_asset!(app, "ocean.wgsl");
         embedded_asset!(app, "river.wgsl");
+        embedded_asset!(app, "spray.wgsl");
         app.add_plugins((
             MaterialPlugin::<TerrainMaterial>::default(),
             MaterialPlugin::<RockMaterial>::default(),
             MaterialPlugin::<OceanMaterial>::default(),
             MaterialPlugin::<RiverMaterial>::default(),
+            MaterialPlugin::<SprayMaterial>::default(),
         ));
     }
 }
 
-/// Uniform block shared with `terrain.wgsl`. Four floats because a uniform
-/// binding is sized in whole sixteen-byte units.
+/// Uniform block shared with `terrain.wgsl`.
 #[derive(Clone, Copy, Debug, Reflect, ShaderType)]
 pub struct TerrainSettings {
     /// Metres of elevation standing for the generator's normalized height 1.
@@ -121,6 +135,18 @@ pub struct TerrainSettings {
     pub detail_range: f32,
     pub normal_strength: f32,
     pub wet_band: f32,
+    /// Metres one chunk of the terrain grid is across. Only the chunk
+    /// diagnostic reads it, and it is what lets the shader recover which square
+    /// a fragment stands in from its world position alone.
+    pub chunk_metres: f32,
+    /// The level of detail this material draws. The ground is one material per
+    /// level rather than one in total, because a chunk cannot tell the shader
+    /// anything itself — a shared handle carries no per-instance value — and
+    /// the chunk diagnostic has to name the level it is looking at.
+    pub lod_level: u32,
+    /// The diagnostic channel the fragment output is switched to, or zero.
+    /// Written by `capture`; `debug.wgsl` spells the numbering.
+    pub debug_view: u32,
 }
 
 /// Terrain extension bindings. The macro blend arrives on the mesh instead:
@@ -129,19 +155,23 @@ pub struct TerrainSettings {
 #[derive(Asset, AsBindGroup, Clone, Debug, Reflect)]
 pub struct TerrainExtension {
     #[uniform(100)]
-    settings: TerrainSettings,
+    pub settings: TerrainSettings,
 }
 
 impl TerrainExtension {
-    /// `max_height` is the generator's normalized maximum elevation.
+    /// `max_height` is the generator's normalized maximum elevation, and
+    /// `chunk_metres` how wide one square of the terrain grid is.
     #[must_use]
-    pub fn new(max_height: f32, world_metres: f32) -> Self {
+    pub fn new(max_height: f32, world_metres: f32, chunk_metres: f32, lod_level: u32) -> Self {
         Self {
             settings: TerrainSettings {
                 max_height: (max_height * world_metres).max(1.0),
                 detail_range: TERRAIN_DETAIL_RANGE,
                 normal_strength: TERRAIN_NORMAL_STRENGTH,
                 wet_band: TERRAIN_WET_BAND,
+                chunk_metres: chunk_metres.max(1.0),
+                lod_level,
+                debug_view: 0,
             },
         }
     }
@@ -201,6 +231,10 @@ pub struct OceanSettings {
     pub shore_depth: f32,
     pub haze_start: f32,
     pub haze_range: f32,
+    /// Seconds every wave layer drifts and evolves by. Written by `capture`.
+    pub water_time: f32,
+    /// The diagnostic channel the fragment output is switched to, or zero.
+    pub debug_view: u32,
 }
 
 /// Ocean extension bindings. The sea is one quad whose UVs are a meaningless
@@ -209,7 +243,7 @@ pub struct OceanSettings {
 #[derive(Asset, AsBindGroup, Clone, Debug, Reflect)]
 pub struct OceanExtension {
     #[uniform(100)]
-    settings: OceanSettings,
+    pub settings: OceanSettings,
 }
 
 impl Default for OceanExtension {
@@ -224,6 +258,8 @@ impl Default for OceanExtension {
                 shore_depth: OCEAN_SHORE_DEPTH,
                 haze_start: OCEAN_HAZE_START,
                 haze_range: OCEAN_HAZE_RANGE,
+                water_time: 0.0,
+                debug_view: 0,
             },
         }
     }
@@ -247,6 +283,10 @@ pub struct RiverSettings {
     pub foam_grade: f32,
     pub detail_range: f32,
     pub wave_strength: f32,
+    /// Seconds the surface has been running for. Written by `capture`.
+    pub water_time: f32,
+    /// The diagnostic channel the fragment output is switched to, or zero.
+    pub debug_view: u32,
 }
 
 /// River extension bindings. `Mesh::ATTRIBUTE_UV_0` carries the generator's own
@@ -255,7 +295,7 @@ pub struct RiverSettings {
 #[derive(Asset, AsBindGroup, Clone, Debug, Reflect)]
 pub struct RiverExtension {
     #[uniform(100)]
-    settings: RiverSettings,
+    pub settings: RiverSettings,
 }
 
 impl RiverExtension {
@@ -271,6 +311,8 @@ impl RiverExtension {
                 foam_grade: RIVER_FOAM_GRADE,
                 detail_range: RIVER_DETAIL_RANGE,
                 wave_strength: RIVER_WAVE_STRENGTH,
+                water_time: 0.0,
+                debug_view: 0,
             },
         }
     }
@@ -279,5 +321,36 @@ impl RiverExtension {
 impl MaterialExtension for RiverExtension {
     fn fragment_shader() -> ShaderRef {
         "embedded://island_bevy/river.wgsl".into()
+    }
+}
+
+/// Uniform block shared with `spray.wgsl`.
+#[derive(Clone, Copy, Debug, Default, Reflect, ShaderType)]
+pub struct SpraySettings {
+    /// Seconds every droplet is on its arc from. Written by `capture`.
+    pub water_time: f32,
+    /// The diagnostic channel in force, or zero. Written by `capture`; the
+    /// spray answers every one of them by leaving the frame.
+    pub debug_view: u32,
+}
+
+/// Spray extension bindings. Every droplet is a quad whose attributes are its
+/// own launch: `Mesh::ATTRIBUTE_POSITION` is where it leaves the water,
+/// `ATTRIBUTE_NORMAL` how fast and which way, `ATTRIBUTE_UV_0` which corner of
+/// the quad the vertex is, and `ATTRIBUTE_COLOR` the phase, size, life and
+/// brightness that make it its own.
+#[derive(Asset, AsBindGroup, Clone, Debug, Default, Reflect)]
+pub struct SprayExtension {
+    #[uniform(100)]
+    pub settings: SpraySettings,
+}
+
+impl MaterialExtension for SprayExtension {
+    fn vertex_shader() -> ShaderRef {
+        "embedded://island_bevy/spray.wgsl".into()
+    }
+
+    fn fragment_shader() -> ShaderRef {
+        "embedded://island_bevy/spray.wgsl".into()
     }
 }

@@ -237,6 +237,28 @@ pub fn command_line(seed: u64, options: &IslandOptions) -> String {
     line
 }
 
+/// Only the parameters one option set moved off the generator's own defaults,
+/// as `--flag value` pairs in table order. Empty for the default island.
+///
+/// This is the half of [`command_line`] a capture's metadata records: the whole
+/// list is what reproduces an island, but what is worth reading beside an image
+/// is which handful of parameters this one was not the default at.
+#[must_use]
+pub fn non_default(options: &IslandOptions) -> String {
+    let mut options = *options;
+    let mut defaults = IslandOptions::default();
+    PARAMETERS
+        .iter()
+        .filter_map(|parameter| {
+            let value = *(parameter.field)(&mut options);
+            let default = *(parameter.field)(&mut defaults);
+            ((value - default).abs() > f32::EPSILON)
+                .then(|| format!("{} {value}", parameter.flag))
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// One `--flag <RANGE>` line per parameter, for the help text.
 #[must_use]
 pub fn help_lines() -> String {
@@ -261,7 +283,7 @@ pub fn help_lines() -> String {
 mod tests {
     use motu::IslandOptions;
 
-    use super::{PARAMETERS, command_line, parameter, reconcile};
+    use super::{PARAMETERS, command_line, non_default, parameter, reconcile};
 
     /// The table is what the cache key, the parser and the HUD all read, so a
     /// duplicate flag or a field listed twice would quietly merge two
@@ -332,6 +354,23 @@ mod tests {
         reconcile(&mut options);
         assert!((options.river_maximum_width_metres - 20.0).abs() < f32::EPSILON);
         assert!((options.river_maximum_depth_metres - 3.0).abs() < f32::EPSILON);
+    }
+
+    /// A capture's metadata records what its island was not the default at, so
+    /// the default island has to report nothing and a moved parameter has to
+    /// report itself and no other.
+    #[test]
+    fn only_the_moved_parameters_are_reported() {
+        assert_eq!(non_default(&IslandOptions::default()), "");
+        let moved = IslandOptions {
+            max_height: 0.35,
+            river_maximum_width_metres: 22.0,
+            ..IslandOptions::default()
+        };
+        assert_eq!(
+            non_default(&moved),
+            "--max-height 0.35 --river-maximum-width-metres 22"
+        );
     }
 
     /// The reported line has to name every parameter, or an island found in the

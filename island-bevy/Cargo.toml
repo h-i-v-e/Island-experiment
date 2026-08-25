@@ -14,10 +14,21 @@ path = "src/main.rs"
 [dependencies]
 # bluenoise_texture replaces the placeholder noise the screen-space passes fall
 # back to; contact shadows and ambient occlusion both sample it.
+#
+# The cloud shadow is a `DirectionalLightTexture`, and neither of the two
+# features it needs is part of `3d`. Light textures ride the clustered-decal
+# binding array, so `pbr_clustered_decals` is what builds that array at all and
+# `pbr_light_textures` is what makes the lighting stage sample it; with only the
+# first the component is extracted and then never read. Both are features of a
+# dependency already here rather than new ones, and together they are what puts
+# cloud shadows on every surface at once — foliage, rock and both waters
+# included — instead of only on the four that have a shader of ours.
 bevy = { version = "0.19", default-features = false, features = [
     "3d",
     "ui",
     "bluenoise_texture",
+    "pbr_clustered_decals",
+    "pbr_light_textures",
 ] }
 # The parameter panel and the frame-rate readout, and nothing else; it is not
 # added at all under --screenshot. Its major version tracks Bevy's, so it moves

@@ -1,6 +1,8 @@
 // River rocks. The generator hands over one merged mesh, so the only per-body
-// signal available is the deterministic tint `convert` hashes into the colour
-// attribute; everything finer is world-space noise.
+// signal available is what `convert` writes into the colour attribute: a
+// deterministic tint in the three colour channels, and in alpha how much spray
+// from the nearest fall stands on the stone. Everything finer is world-space
+// noise.
 
 #import bevy_pbr::{
     forward_io::{VertexOutput, FragmentOutput},
@@ -20,6 +22,14 @@ const STONE_WARM: vec3<f32> = vec3<f32>(0.15487, 0.11280, 0.06838); // 0.43, 0.3
 const GRAIN_METRES: f32 = 0.055;
 const MICRO_METRES: f32 = 0.011;
 
+/// How far down soaked stone takes its own albedo and the roughness it
+/// converges on. The same bargain `terrain.wgsl` strikes for a river bank, a
+/// little harder: a boulder at the foot of a fall is running with water rather
+/// than merely damp. Reflectance is left where the base material put it, so
+/// dry stone anywhere on the island is untouched by this.
+const ALBEDO_WET: f32 = 0.62;
+const ROUGHNESS_WET: f32 = 0.16;
+
 struct RockSettings {
     /// Metres at which the sub-metre layer has faded out entirely.
     detail_range: f32,
@@ -36,8 +46,10 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
 
 #ifdef VERTEX_COLORS
     let tint = in.color.rgb;
+    let spray = clamp(in.color.a, 0.0, 1.0);
 #else
     let tint = vec3<f32>(1.0);
+    let spray = 0.0;
 #endif
 
     let world = in.world_position.xyz;
@@ -61,9 +73,22 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         gradient += micro.yzw * 0.22 * closeness;
     }
 
+    // Spray soaks the stone around a fall. The grain breaks its edge, the same
+    // way the terrain's own mottle breaks a bank's, so what ends is wet stone
+    // and not a disc laid over it.
+    let wet = clamp(spray + (grain.x - 0.5) * 0.35, 0.0, 1.0);
+    albedo *= mix(1.0, ALBEDO_WET, wet);
+
     pbr_input.material.base_color = vec4<f32>(albedo, 1.0);
-    pbr_input.material.perceptual_roughness =
-        clamp(settings.roughness + (grain.x - 0.5) * settings.roughness_spread, 0.2, 1.0);
+    pbr_input.material.perceptual_roughness = clamp(
+        mix(
+            settings.roughness + (grain.x - 0.5) * settings.roughness_spread,
+            ROUGHNESS_WET,
+            wet * 0.85,
+        ),
+        0.1,
+        1.0,
+    );
     pbr_input.N = perturb(normal, gradient, settings.normal_strength);
     pbr_input.material.base_color = alpha_discard(pbr_input.material, pbr_input.material.base_color);
 

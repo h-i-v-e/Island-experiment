@@ -20,15 +20,25 @@ use std::{
 
 use motu::{IslandOptions, Mesh, Vec2, Vec3};
 
-use crate::{hash::mix, island_gen::IslandData, options};
+use crate::{
+    chunk::{self, ChunkTier, TIERS, TerrainChunk},
+    hash::mix,
+    island_gen::{IslandData, RiverDrop},
+    options,
+};
 
 /// Mixed into every key and written into every entry. Bump it when the
 /// generator's output changes, when the layout of `IslandOptions` changes, or
 /// when this file's format changes: entries written before the bump then hash
 /// to a different key, so none of them is ever read again.
 ///
-/// 2 added the walk-mode height grid, 3 the per-vertex river wetness.
-const CACHE_FORMAT_VERSION: u32 = 3;
+/// 2 added the walk-mode height grid, 3 the per-vertex river wetness, 4 the
+/// river drops — which also widen the wetness around a plunge pool, so entries
+/// written under 3 no longer describe the same ground — 5 replaced the one
+/// island-wide terrain mesh with the chunk grid at three levels of detail, and
+/// 6 took the skirt off the outside of that grid, where there is no neighbour
+/// to close a seam with.
+const CACHE_FORMAT_VERSION: u32 = 6;
 
 const MAGIC: &[u8; 8] = b"MOTUBVY\0";
 /// Distinguishes a cache key from the crate's other hashed values.
@@ -62,6 +72,11 @@ fn option_words(options: &IslandOptions) -> [u32; OPTION_WORDS] {
 /// Hashes the exact inputs one island is generated from. Bit patterns rather
 /// than the floats themselves, so the key is total: no value compares unequal
 /// to itself.
+///
+/// The chunk grid is one of those inputs. It is not a generator parameter and
+/// not part of this file's layout, so neither the options nor the format
+/// version would retire an entry when it moves — and an entry written under
+/// another grid holds ground cut into other squares, with other skirts on it.
 #[must_use]
 pub fn key(seed: u64, options: &IslandOptions) -> u64 {
     let mut state = mix(u64::from(CACHE_FORMAT_VERSION), KEY_SALT);
@@ -69,7 +84,8 @@ pub fn key(seed: u64, options: &IslandOptions) -> u64 {
     for word in option_words(options) {
         state = mix(u64::from(word), state);
     }
-    state
+    state = mix(u64::from(chunk::DIVISIONS), state);
+    mix(u64::from(chunk::SKIRT_METRES.to_bits()), state)
 }
 
 /// Where the entry for one key lives.
@@ -106,11 +122,10 @@ pub fn read(path: &Path, seed: u64, options: &IslandOptions) -> Option<IslandDat
         }
     }
     let rivers = reader.u32()?;
-    let terrain = reader.mesh()?;
-    let materials = reader.points()?;
-    let river_wetness = reader.scalars()?;
+    let terrain_chunks = reader.chunks()?;
     let river_mesh = reader.mesh()?;
     let river_rock_mesh = reader.mesh()?;
+    let river_drops = reader.drops()?;
     let trees = reader.points()?;
     let bushes = reader.points()?;
     let heights = reader.scalars()?;
@@ -121,11 +136,10 @@ pub fn read(path: &Path, seed: u64, options: &IslandOptions) -> Option<IslandDat
     }
     Some(IslandData {
         options: *options,
-        terrain,
-        materials,
-        river_wetness,
+        terrain_chunks,
         river_mesh,
         river_rock_mesh,
+        river_drops,
         trees,
         bushes,
         heights,
@@ -150,12 +164,10 @@ pub fn write(path: &Path, seed: u64, data: &IslandData) -> io::Result<()> {
         writer.write_all(&word.to_le_bytes())?;
     }
     writer.write_all(&data.rivers.to_le_bytes())?;
-    write_mesh(&mut writer, &data.terrain)?;
-    write_points(&mut writer, &data.materials)?;
-    write_count(&mut writer, data.river_wetness.len())?;
-    write_scalars(&mut writer, &data.river_wetness)?;
+    write_chunks(&mut writer, &data.terrain_chunks)?;
     write_mesh(&mut writer, &data.river_mesh)?;
     write_mesh(&mut writer, &data.river_rock_mesh)?;
+    write_drops(&mut writer, &data.river_drops)?;
     write_points(&mut writer, &data.trees)?;
     write_points(&mut writer, &data.bushes)?;
     write_count(&mut writer, data.heights.len())?;
@@ -164,6 +176,23 @@ pub fn write(path: &Path, seed: u64, data: &IslandData) -> io::Result<()> {
         .into_inner()
         .map_err(io::IntoInnerError::into_error)?;
     fs::rename(&temporary, path)
+}
+
+/// The grid position, then every level of detail in order, in the order
+/// [`Reader::chunks`] reads them back.
+fn write_chunks(writer: &mut impl Write, chunks: &[TerrainChunk]) -> io::Result<()> {
+    write_count(writer, chunks.len())?;
+    for chunk in chunks {
+        writer.write_all(&chunk.column.to_le_bytes())?;
+        writer.write_all(&chunk.row.to_le_bytes())?;
+        for tier in &chunk.tiers {
+            write_mesh(writer, &tier.mesh)?;
+            write_points(writer, &tier.materials)?;
+            write_count(writer, tier.river_wetness.len())?;
+            write_scalars(writer, &tier.river_wetness)?;
+        }
+    }
+    Ok(())
 }
 
 fn write_mesh(writer: &mut impl Write, mesh: &Mesh) -> io::Result<()> {
@@ -176,6 +205,28 @@ fn write_mesh(writer: &mut impl Write, mesh: &Mesh) -> io::Result<()> {
     write_count(writer, mesh.uv.len())?;
     for uv in &mesh.uv {
         write_scalars(writer, &[uv.x, uv.y])?;
+    }
+    Ok(())
+}
+
+/// Nine scalars each, in the order [`Reader::drops`] reads them back.
+fn write_drops(writer: &mut impl Write, drops: &[RiverDrop]) -> io::Result<()> {
+    write_count(writer, drops.len())?;
+    for drop in drops {
+        write_scalars(
+            writer,
+            &[
+                drop.lip.x,
+                drop.lip.y,
+                drop.lip.z,
+                drop.foot.x,
+                drop.foot.y,
+                drop.foot.z,
+                drop.direction.x,
+                drop.direction.y,
+                drop.half_width,
+            ],
+        )?;
     }
     Ok(())
 }
@@ -258,6 +309,43 @@ impl<'a> Reader<'a> {
         self.array(WORD, Self::f32)
     }
 
+    /// Field order matches [`write_drops`], and struct expressions evaluate in
+    /// the order written.
+    fn drops(&mut self) -> Option<Vec<RiverDrop>> {
+        self.array(9 * WORD, |reader| {
+            Some(RiverDrop {
+                lip: Vec3::new(reader.f32()?, reader.f32()?, reader.f32()?),
+                foot: Vec3::new(reader.f32()?, reader.f32()?, reader.f32()?),
+                direction: Vec2::new(reader.f32()?, reader.f32()?),
+                half_width: reader.f32()?,
+            })
+        })
+    }
+
+    /// Field order matches [`write_chunks`]. The stride is the shortest a chunk
+    /// can be — its two grid coordinates, and one length prefix for each of the
+    /// six arrays a level of detail carries — so a corrupt count is rejected
+    /// before anything is reserved for it.
+    fn chunks(&mut self) -> Option<Vec<TerrainChunk>> {
+        self.array((2 + TIERS * 6) * WORD, |reader| {
+            let column = reader.u32()?;
+            let row = reader.u32()?;
+            let mut tiers = Vec::with_capacity(TIERS);
+            for _ in 0..TIERS {
+                tiers.push(ChunkTier {
+                    mesh: reader.mesh()?,
+                    materials: reader.points()?,
+                    river_wetness: reader.scalars()?,
+                });
+            }
+            Some(TerrainChunk {
+                column,
+                row,
+                tiers: tiers.try_into().ok()?,
+            })
+        })
+    }
+
     /// Field order matches [`write_mesh`], and struct expressions evaluate in
     /// the order written.
     fn mesh(&mut self) -> Option<Mesh> {
@@ -278,7 +366,38 @@ mod tests {
 
     use motu::{IslandOptions, Mesh, Vec2, Vec3};
 
-    use super::{IslandData, key, read, write};
+    use super::{ChunkTier, IslandData, RiverDrop, TIERS, TerrainChunk, key, read, write};
+
+    /// One chunk whose three levels are all different lengths, so a level read
+    /// out of order cannot still parse.
+    // Every count here is a handful, so nothing crossing to f32 loses a digit.
+    #[allow(clippy::cast_precision_loss)]
+    fn chunk(column: u32, row: u32) -> TerrainChunk {
+        let tier = |level: usize| {
+            let count = level + 1;
+            ChunkTier {
+                mesh: Mesh {
+                    vertices: (0..count)
+                        .map(|index| Vec3::splat(index as f32 + column as f32))
+                        .collect(),
+                    normals: vec![Vec3::Z; count],
+                    triangles: vec![0; count * 3],
+                    uv: (0..count)
+                        .map(|index| Vec2::new(index as f32, row as f32))
+                        .collect(),
+                },
+                materials: (0..count).map(|index| Vec3::splat(index as f32)).collect(),
+                // One shorter than the vertices, which no real chunk is, so a
+                // shift between the two arrays shows.
+                river_wetness: vec![0.25; count.saturating_sub(1)],
+            }
+        };
+        TerrainChunk {
+            column,
+            row,
+            tiers: std::array::from_fn(tier),
+        }
+    }
 
     /// A path of its own per test, so the suite never touches the real cache
     /// and its own entries cannot collide when tests run in parallel.
@@ -298,19 +417,10 @@ mod tests {
                 max_height: 0.3,
                 ..IslandOptions::default()
             },
-            terrain: Mesh {
-                vertices: vec![Vec3::ZERO, Vec3::X, Vec3::Y, Vec3::Z],
-                normals: vec![Vec3::Z, Vec3::Z, Vec3::Z, Vec3::Z],
-                triangles: vec![0, 1, 2, 0, 2, 3],
-                uv: vec![Vec2::ZERO, Vec2::X, Vec2::Y, Vec2::new(0.25, 0.75)],
-            },
-            materials: vec![
-                Vec3::new(0.5, 1.0, 0.0),
-                Vec3::new(1.0, 0.0, 0.25),
-                Vec3::new(0.0, 0.5, 1.0),
-                Vec3::new(0.125, 0.25, 0.5),
-            ],
-            river_wetness: vec![0.0, 1.0, 0.375],
+            // Three chunks rather than a full grid: the format stores the count
+            // it was written with, and the reader is what the round trip has to
+            // hold, not the grid size.
+            terrain_chunks: vec![chunk(0, 0), chunk(1, 0), chunk(0, 1)],
             river_mesh: Mesh {
                 vertices: vec![Vec3::X, Vec3::Y],
                 normals: vec![Vec3::Z],
@@ -323,6 +433,22 @@ mod tests {
                 triangles: Vec::new(),
                 uv: Vec::new(),
             },
+            // Two drops, no two fields alike, so a scalar written or read out
+            // of order lands somewhere the assertions can see it.
+            river_drops: vec![
+                RiverDrop {
+                    lip: Vec3::new(0.11, 0.12, 0.013),
+                    foot: Vec3::new(0.14, 0.15, 0.006),
+                    direction: Vec2::new(0.6, 0.8),
+                    half_width: 0.001_25,
+                },
+                RiverDrop {
+                    lip: Vec3::new(0.71, 0.72, 0.043),
+                    foot: Vec3::new(0.73, 0.74, 0.021),
+                    direction: Vec2::new(-1.0, 0.0),
+                    half_width: 0.003_5,
+                },
+            ],
             trees: vec![Vec3::new(0.1, 0.2, 0.3), Vec3::new(0.4, 0.5, 0.6)],
             bushes: vec![Vec3::new(0.7, 0.8, 0.9)],
             heights: vec![-0.01, 0.0, 0.125, 0.5, -0.25],
@@ -342,7 +468,19 @@ mod tests {
         // would only show as ground that is wet or sunken somewhere else.
         let read_back = read_back.unwrap();
         assert_eq!(read_back.heights, data.heights);
-        assert_eq!(read_back.river_wetness, data.river_wetness);
+        // Every chunk crosses with its grid position and all three of its
+        // levels, in order: a level read out of order would put coarse ground
+        // where the near view draws.
+        assert_eq!(read_back.terrain_chunks.len(), 3);
+        for (read_back, original) in read_back.terrain_chunks.iter().zip(&data.terrain_chunks) {
+            assert_eq!((read_back.column, read_back.row), (original.column, original.row));
+            for level in 0..TIERS {
+                assert_eq!(read_back.tiers[level], original.tiers[level], "level {level}");
+            }
+        }
+        // Every drop is nine scalars in one flat run, so a field crossing out
+        // of order would still parse and would place a fall somewhere else.
+        assert_eq!(read_back.river_drops, data.river_drops);
         // The same entry read under other inputs is a miss, not other geometry.
         assert_eq!(read(&path, 43, &data.options), None);
         assert_eq!(read(&path, 42, &IslandOptions::default()), None);
@@ -376,8 +514,7 @@ mod tests {
                 bytes
             }),
             ("oversized array count", {
-                // The count of the terrain mesh's vertices, which is the first
-                // array past the header.
+                // The chunk count, which is the first array past the header.
                 let mut bytes = sound.clone();
                 bytes[ARRAYS_START..ARRAYS_START + 4].copy_from_slice(&u32::MAX.to_le_bytes());
                 bytes

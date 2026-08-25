@@ -3,42 +3,76 @@
 // Bevy systems receive their parameters by value; the lint fires on every one.
 #![allow(clippy::needless_pass_by_value)]
 
+mod budget;
 mod cache;
 mod camera;
+mod capture;
+mod chunk;
+mod clouds;
 mod convert;
 mod hash;
 mod hud;
 mod island_gen;
 mod lighting;
+mod mist;
 mod options;
+mod presets;
 mod screenshot;
+mod spray;
 mod surface;
 mod terrain;
 mod vegetation;
 mod water;
+mod weather;
 
-use std::{env, path::PathBuf, process};
+use std::{env, path::PathBuf, process, time::Duration};
 
-use bevy::{prelude::*, window::WindowResolution};
+use bevy::{
+    app::ScheduleRunnerPlugin,
+    prelude::*,
+    window::{ExitCondition, WindowResolution},
+    winit::WinitPlugin,
+};
 use motu::IslandOptions;
 
 use crate::{
+    budget::BudgetPlugin,
     camera::{FlyCameraPlugin, ViewPose},
+    capture::{CapturePlugin, DebugView},
+    clouds::CloudPlugin,
     hud::HudPlugin,
     island_gen::{GenerationSettings, IslandGenPlugin},
     lighting::LightingPlugin,
+    mist::MistPlugin,
     screenshot::ScreenshotPlugin,
+    spray::SprayPlugin,
     surface::SurfaceMaterialsPlugin,
     terrain::TerrainPlugin,
     vegetation::VegetationPlugin,
     water::WaterPlugin,
+    weather::{Weather, WeatherPlugin},
 };
+
+/// The size the viewer's window opens at, in logical pixels.
+///
+/// A capture no longer opens one and states its own size instead, so this is
+/// the only place the two can disagree; `screenshot` holds them to the same
+/// aspect ratio, which is what keeps a `--view` framing the same thing on
+/// screen as in its capture.
+pub const WINDOW_RESOLUTION: UVec2 = UVec2::new(1280, 720);
 
 #[derive(Debug)]
 struct Command {
     seed: u64,
     options: IslandOptions,
     view: ViewPose,
+    /// The `--view` and `--variant` names the pose and the options above were
+    /// resolved from. Neither resolved value carries its own name, and a
+    /// capture's metadata has to report both.
+    view_name: String,
+    variant_name: String,
+    weather: Weather,
+    debug_view: DebugView,
     screenshot: Option<PathBuf>,
     no_cache: bool,
 }
@@ -52,6 +86,10 @@ impl Default for Command {
                 ..IslandOptions::default()
             },
             view: ViewPose::default(),
+            view_name: String::from(camera::DEFAULT_VIEW),
+            variant_name: String::from(island_gen::DEFAULT_VARIANT),
+            weather: Weather::default(),
+            debug_view: DebugView::default(),
             screenshot: None,
             no_cache: false,
         }
@@ -73,49 +111,87 @@ fn main() {
 
     let capturing = command.screenshot.is_some();
     let mut app = App::new();
-    app.add_plugins(DefaultPlugins.set(WindowPlugin {
-        primary_window: Some(Window {
-            title: String::from("Motu island"),
-            resolution: WindowResolution::new(1280, 720),
-            // A capture run is not the person's own work, so its window never
-            // takes the keyboard: whatever was being typed into stays the
-            // window typing goes to, and the capture runs beside it.
-            //
-            // It cannot go further than that. A capture reads the window's own
-            // surface back, and macOS only keeps a surface current while the
-            // window is composited, so `visible: false`, minimizing it and
-            // `WindowLevel::AlwaysOnBottom` each produce a valid PNG of solid
-            // black — verified, one at a time, on this machine. Staying
-            // unfocused is the most that can be given up and still capture.
-            focused: !capturing,
+    // A capture run opens nothing at all: no primary window is asked for, so
+    // winit's event loop is left out with it and `screenshot`'s offscreen image
+    // is what the camera renders into. Nothing is composited, so a capture can
+    // neither be raised over the work in front of it nor come back solid black
+    // — which is what reading a window surface back used to risk, macOS keeping
+    // a surface current only while its window is on screen. `visible: false`,
+    // minimizing and `WindowLevel::AlwaysOnBottom` were each tried against that
+    // and each produced a valid PNG of black; not having a surface is what
+    // settles it.
+    let mut plugins = DefaultPlugins.set(if capturing {
+        WindowPlugin {
+            primary_window: None,
+            // With no window to close, the run ends on the AppExit the capture
+            // writes for itself and not before.
+            exit_condition: ExitCondition::DontExit,
             ..default()
-        }),
-        ..default()
-    }))
+        }
+    } else {
+        WindowPlugin {
+            primary_window: Some(Window {
+                title: String::from("Motu island"),
+                resolution: WindowResolution::new(WINDOW_RESOLUTION.x, WINDOW_RESOLUTION.y),
+                ..default()
+            }),
+            ..default()
+        }
+    });
+    if capturing {
+        plugins = plugins.disable::<WinitPlugin>();
+    }
+    app.add_plugins(plugins);
+    if capturing {
+        // The winit runner went with the event loop, so the frames need
+        // driving. Zero wait runs them as fast as the renderer will take them,
+        // and every part of the settle is counted in frames, so how quickly
+        // they arrive is not something the capture can read.
+        app.add_plugins(ScheduleRunnerPlugin::run_loop(Duration::ZERO));
+    }
     // The atmosphere covers the whole background, so the clear colour is only
     // ever seen if the GPU cannot run it.
-    .insert_resource(ClearColor(Color::BLACK))
-    .insert_resource(command.view)
-    .insert_resource(GenerationSettings {
-        seed: command.seed,
-        options: command.options,
-        cache_reads: !command.no_cache,
-    })
-    .add_plugins((
-        IslandGenPlugin,
-        // Ground and water both draw through it, so the material registry is
-        // registered once here rather than by whichever of them runs first.
-        SurfaceMaterialsPlugin,
-        TerrainPlugin,
-        WaterPlugin,
-        VegetationPlugin,
-        FlyCameraPlugin,
-        LightingPlugin,
-    ));
+    app.insert_resource(ClearColor(Color::BLACK))
+        .insert_resource(command.view)
+        .insert_resource(command.weather)
+        .insert_resource(GenerationSettings {
+            seed: command.seed,
+            options: command.options,
+            cache_reads: !command.no_cache,
+        })
+        .add_plugins((
+            IslandGenPlugin,
+            // Counts what the culling stages left standing, which is what the
+            // capture log and the panel both report.
+            BudgetPlugin,
+            // Ground and water both draw through it, so the material registry is
+            // registered once here rather than by whichever of them runs first.
+            SurfaceMaterialsPlugin,
+            TerrainPlugin,
+            WaterPlugin,
+            SprayPlugin,
+            VegetationPlugin,
+            FlyCameraPlugin,
+            LightingPlugin,
+            // The named look, and the two things it builds: the cloud layer and
+            // the shadow it hangs off the sun, and the mist in the valleys.
+            WeatherPlugin,
+            CloudPlugin,
+            MistPlugin,
+            // A capture freezes the water clock; every other run advances it.
+            CapturePlugin {
+                debug_view: command.debug_view,
+                frozen: capturing,
+            },
+        ));
     if let Some(path) = command.screenshot {
         // The HUD is left out rather than hidden: nothing that is never built
         // can end up in a frame.
-        app.add_plugins(ScreenshotPlugin { path });
+        app.add_plugins(ScreenshotPlugin {
+            path,
+            view: command.view_name,
+            variant: command.variant_name,
+        });
     } else {
         app.add_plugins(HudPlugin);
     }
@@ -150,6 +226,10 @@ fn parse(arguments: impl Iterator<Item = String>) -> Result<Option<Command>, Str
                 island_gen::apply_variant(&variant, &mut command.options)?;
             }
             "--view" => view = value(&mut arguments)?,
+            "--weather" => command.weather = Weather::named(&value(&mut arguments)?)?,
+            "--debug-view" => {
+                command.debug_view = DebugView::named(&value(&mut arguments)?)?;
+            }
             "--screenshot" => command.screenshot = Some(PathBuf::from(value(&mut arguments)?)),
             "--no-cache" => command.no_cache = true,
             // Every remaining generator parameter is spelled by the table, so
@@ -166,6 +246,8 @@ fn parse(arguments: impl Iterator<Item = String>) -> Result<Option<Command>, Str
         }
     }
     command.view = ViewPose::named(&view, &variant)?;
+    command.view_name = view;
+    command.variant_name = variant;
     Ok(Some(command))
 }
 
@@ -198,9 +280,21 @@ Options:
   --view <NAME>           Camera pose to open on and to reset to [default: overview]
                           The river and stream views carry a pose per variant,
                           so --variant moves them onto that island's channels
+  --weather <NAME>        Named weather look [default: clear]. Sun, haze, cloud
+                          and its ground shadow, valley and waterfall mist and
+                          the grade, as one set. `clear` is the renderer with
+                          none of them, and the baseline the rest are read
+                          against; the HUD offers the same list
+  --debug-view <NAME>     Switch the terrain and water surfaces to one
+                          diagnostic channel [default: off]. The HUD offers the
+                          same list; a capture can be taken of any of them
   --screenshot <PATH>     Capture one PNG once the island has settled, then exit
-                          The window never takes the keyboard and no HUD is
-                          built, so a capture stays out of whatever else is open
+                          Nothing opens: the scene renders into an offscreen
+                          2560x1440 image and no HUD is built, so a capture
+                          stays out of whatever else is on screen. The water
+                          clock is frozen and the settle is a fixed frame count,
+                          so one command captures the same frame twice.
+                          <PATH>.txt records every input
   --no-cache              Generate even when a cached island matches these
                           inputs; the entry is rewritten either way. Applies to
                           the HUD's rebuilds as well as to the first island
@@ -212,15 +306,21 @@ ranges; a value outside either is still accepted here.
 {}
 Variants: {}
 Views: {}
+Weather: {}
+Debug views: {}
 
-In the viewer, H shows and hides the parameter panel and F switches between
-flying and walking. Flying steers with the mouse buttons and leaves the cursor
-free; walking captures it and looks with no button held, Shift sprints, Space
-jumps, and Escape hands the cursor back until you click. See README.md for the
-rest of the controls.",
+In the viewer, H and the corner button both show and hide the menu panel — ten
+showcase presets, every generator parameter, the weather and debug lists, and a
+button that copies the arguments for the island on screen — and F switches
+between flying and walking. Flying steers with the mouse buttons, leaves the
+cursor free and will not go through the ground; walking captures the cursor and
+looks with no button held, Shift sprints, Space jumps, and Escape hands the
+cursor back until you click. See README.md for the rest of the controls.",
         options::help_lines(),
         island_gen::variant_names(),
-        ViewPose::names()
+        ViewPose::names(),
+        Weather::names(),
+        DebugView::names()
     );
 }
 
@@ -228,7 +328,7 @@ rest of the controls.",
 mod tests {
     use motu::IslandOptions;
 
-    use super::{ViewPose, options, parse};
+    use super::{DebugView, ViewPose, Weather, options, parse};
 
     fn command(arguments: &[&str]) -> Result<super::Command, String> {
         parse(arguments.iter().copied().map(String::from)).map(Option::unwrap)
@@ -371,5 +471,68 @@ mod tests {
         let error = command(&["--variant", "flooded"]).unwrap_err();
         assert!(error.contains("unknown variant"));
         assert!(error.contains("eroded"));
+    }
+
+    /// Ordinary shading unless a channel was asked for by name.
+    #[test]
+    fn selects_a_debug_view() {
+        assert_eq!(command(&[]).unwrap().debug_view, DebugView::Off);
+        for view in DebugView::ALL {
+            let command = command(&["--debug-view", view.label()]).unwrap();
+            assert_eq!(command.debug_view, view);
+        }
+    }
+
+    /// A misspelled channel has to stop the run. A capture that quietly carried
+    /// the ordinary scene instead would be read as the diagnostic it was asked
+    /// for.
+    #[test]
+    fn rejects_unknown_debug_views() {
+        let error = command(&["--debug-view", "curvature"]).unwrap_err();
+        assert!(error.contains("unknown debug view"), "{error}");
+        assert!(error.contains("weights"), "{error}");
+        assert!(error.contains("depth"), "{error}");
+    }
+
+    /// Every look is selectable by name, and the one a run opens on when none
+    /// is asked for is `clear` — which is the renderer without weather, and so
+    /// the baseline every capture taken before it existed is still read
+    /// against.
+    #[test]
+    fn selects_a_named_weather_look() {
+        assert_eq!(command(&[]).unwrap().weather, Weather::default());
+        assert_eq!(command(&[]).unwrap().weather.label(), "clear");
+        for weather in Weather::all() {
+            let command = command(&["--weather", weather.label()]).unwrap();
+            assert_eq!(command.weather, weather);
+        }
+        assert_ne!(
+            command(&["--weather", "overcast"]).unwrap().weather,
+            Weather::default()
+        );
+    }
+
+    /// A misspelled look has to stop the run with the valid ones listed. A
+    /// capture that quietly carried `clear` instead would be read as the look
+    /// it was asked for.
+    #[test]
+    fn rejects_unknown_weather() {
+        let error = command(&["--weather", "sunny"]).unwrap_err();
+        assert!(error.contains("unknown weather"), "{error}");
+        for weather in Weather::all() {
+            assert!(error.contains(weather.label()), "{error}");
+        }
+    }
+
+    /// The capture metadata reports the names, not the pose and the option
+    /// overrides they resolved to, so the parser has to keep both.
+    #[test]
+    fn keeps_the_view_and_variant_names() {
+        let defaults = command(&[]).unwrap();
+        assert_eq!(defaults.view_name, "overview");
+        assert_eq!(defaults.variant_name, "default");
+        let named = command(&["--view", "stream", "--variant", "eroded"]).unwrap();
+        assert_eq!(named.view_name, "stream");
+        assert_eq!(named.variant_name, "eroded");
     }
 }

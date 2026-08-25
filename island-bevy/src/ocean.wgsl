@@ -9,13 +9,14 @@
 
 #import bevy_pbr::{
     forward_io::{VertexOutput, FragmentOutput},
-    mesh_view_bindings::{view, globals},
+    mesh_view_bindings::view,
     pbr_fragment::pbr_input_from_standard_material,
     pbr_functions::{alpha_discard, apply_pbr_lighting, main_pass_post_lighting_processing},
     prepass_utils,
     view_transformations::depth_ndc_to_view_z,
 }
 #import island_bevy::noise::{noise, noise_gradient, perturb}
+#import island_bevy::debug
 
 // Linear-space water tones, each written above as the sRGB triple it came from.
 // DEEP is the generator's own deep-water preview colour, the one the terrain
@@ -67,11 +68,50 @@ const LIGHTLESS: f32 = 1.0e4;
 /// generator's shelf is flat enough that a band measured in depth instead would
 /// reach hundreds of metres offshore and fill every cove.
 const SURF_METRES: f32 = 3.0;
+/// How level the bottom has to be under the surf for there to be any.
+///
+/// Surf is a wave running out of water on a shoaling bottom. Shallow water over
+/// a wall is not that: it is still water standing against rock, and the phase D
+/// captures ringed every steep-sided cove and plunge pool with an unbroken
+/// white contour because depth alone could not tell the two apart. These are
+/// the cosines of about eighty and fifty-five degrees off level: this
+/// generator's coastal apron is steeper under the waterline than a real beach
+/// is, so the gate is set to catch a wall and nothing gentler. What separates a
+/// shore from a pool is the swell below.
+const SURF_BED_LEVEL_LOW: f32 = 0.18;
+const SURF_BED_LEVEL_HIGH: f32 = 0.56;
 /// Wavelength the surf is broken at. Short enough that the band is ragged from
 /// standing height, which is the only distance at which a continuous white
 /// ribbon along a coastline reads as drawn on.
-const SURF_BREAK_METRES: f32 = 2.2;
+const SURF_BREAK_METRES: f32 = 3.2;
 const SURF_BREAK_SPEED: f32 = 0.55;
+/// Where a length of crest counts as breaking, and the most opaque one gets.
+///
+/// Surf is a wave that has run out of water, so it arrives as lengths of broken
+/// crest with gaps between them and never as a ribbon following the waterline.
+/// The band below says where surf is possible at all; this says where one is
+/// actually breaking. Phase D multiplied the two and then saturated the result,
+/// which turned every shallow margin — a beach, a cove, a plunge pool — into
+/// one continuous white outline.
+/// The floor is what the water between two broken crests still carries. It has
+/// to be low: a floor high enough to see is a contour again, only fainter.
+const SURF_CREST_LOW: f32 = 0.44;
+const SURF_CREST_HIGH: f32 = 0.80;
+const SURF_CREST_FLOOR: f32 = 0.12;
+const SURF_PEAK: f32 = 0.95;
+/// Where the swell has to stand for a wave to be arriving at all.
+///
+/// This is what separates a shore from a pool, which nothing local to a
+/// fragment can: surf is the swell running out of water, so it arrives in
+/// stretches as long as the swell itself and leaves gaps of the same length
+/// between them. A beach several hundred metres long carries several of those
+/// stretches and reads as surf; a cove twenty metres across carries part of one
+/// and can no longer be outlined by it.
+/// The floor is what a shore under a trough still carries, which is a trace
+/// rather than a band.
+const SURF_SWELL_LOW: f32 = 0.34;
+const SURF_SWELL_HIGH: f32 = 0.68;
+const SURF_SWELL_FLOOR: f32 = 0.10;
 
 struct OceanSettings {
     /// Extinction per metre of water travelled along the view ray.
@@ -90,6 +130,13 @@ struct OceanSettings {
     /// the metres it takes to finish.
     haze_start: f32,
     haze_range: f32,
+    /// Seconds the sea has been running for. The app owns this rather than the
+    /// shader reading `globals.time`, because a capture has to answer the same
+    /// way twice and wall-clock time depends on how long the frames before it
+    /// took.
+    water_time: f32,
+    /// The diagnostic channel this surface answers with, or `debug::OFF`.
+    debug_view: u32,
 }
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> settings: OceanSettings;
@@ -104,8 +151,8 @@ fn layer(
     amplitude: f32,
     speed: f32,
 ) -> vec4<f32> {
-    let drift = (point - heading * (speed * globals.time)) / wavelength;
-    let sample = noise_gradient(vec3<f32>(drift.x, globals.time * EVOLVE, drift.y));
+    let drift = (point - heading * (speed * settings.water_time)) / wavelength;
+    let sample = noise_gradient(vec3<f32>(drift.x, settings.water_time * EVOLVE, drift.y));
     let slope = amplitude / wavelength;
     return vec4<f32>(sample.x, sample.y * slope, 0.0, sample.w * slope);
 }
@@ -178,11 +225,24 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         let bottom = prepass_utils::prepass_normal(in.position, 0u);
         let shorewards = under * bottom.y / max(length(bottom.xz), 1.0e-3);
         band *= 1.0 - smoothstep(0.0, SURF_METRES, shorewards);
+        // The same normal answers the other half of it: whether the bottom is
+        // shoaling at all, or whether this is water standing against a wall.
+        band *= smoothstep(SURF_BED_LEVEL_LOW, SURF_BED_LEVEL_HIGH, bottom.y);
 #endif
-        let drift = (world.xz - CHOP_HEADING * (SURF_BREAK_SPEED * globals.time))
+        let drift = (world.xz - CHOP_HEADING * (SURF_BREAK_SPEED * settings.water_time))
             / SURF_BREAK_METRES;
-        let broken = noise(vec3<f32>(drift.x, globals.time * EVOLVE, drift.y));
-        foam = smoothstep(0.25, 0.80, band * (0.45 + broken * 1.10));
+        let broken = noise(vec3<f32>(drift.x, settings.water_time * EVOLVE, drift.y));
+        let crest = mix(
+            SURF_CREST_FLOOR,
+            1.0,
+            smoothstep(SURF_CREST_LOW, SURF_CREST_HIGH, broken),
+        );
+        let arriving = mix(
+            SURF_SWELL_FLOOR,
+            1.0,
+            smoothstep(SURF_SWELL_LOW, SURF_SWELL_HIGH, swell.x),
+        );
+        foam = band * crest * arriving * SURF_PEAK;
         albedo = mix(albedo, FOAM, foam);
     }
 
@@ -224,5 +284,12 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     var out: FragmentOutput;
     out.color = apply_pbr_lighting(pbr_input);
     out.color = main_pass_post_lighting_processing(pbr_input, out.color);
+    // The one channel the sea carries: how much of the bottom the column over
+    // it has already absorbed, which is the number every other decision above
+    // is taken from. Written opaque, or a diagnostic of the water would arrive
+    // blended with the ground it is measuring.
+    if settings.debug_view == debug::DEPTH {
+        out.color = vec4<f32>(debug::ramp(absorbed), 1.0);
+    }
     return out;
 }
