@@ -8,7 +8,7 @@
 
 use bevy::{
     asset::RenderAssetUsages,
-    image::{Image, ImageSampler},
+    image::{Image, ImageAddressMode, ImageSampler, ImageSamplerDescriptor},
     render::render_resource::{Extent3d, TextureDimension, TextureFormat},
 };
 use motu::procedural_textures::{
@@ -70,11 +70,7 @@ fn convert_preview_with_packed_mask(
     nearest: bool,
 ) -> ConvertedPreviewImages {
     let dimensions = textures.dimensions();
-    let sampler = if nearest {
-        ImageSampler::nearest()
-    } else {
-        ImageSampler::linear()
-    };
+    let sampler = repeating_sampler(nearest);
     let albedo = rgba_image(
         dimensions,
         textures
@@ -164,6 +160,16 @@ fn convert_preview_with_packed_mask(
     }
 }
 
+fn repeating_sampler(nearest: bool) -> ImageSampler {
+    let mut descriptor = if nearest {
+        ImageSamplerDescriptor::nearest()
+    } else {
+        ImageSamplerDescriptor::linear()
+    };
+    descriptor.set_address_mode(ImageAddressMode::Repeat);
+    ImageSampler::Descriptor(descriptor)
+}
+
 #[derive(Clone, Copy)]
 enum ScalarDisplayRange {
     Signed,
@@ -226,6 +232,7 @@ fn scalar_image(
 
 #[cfg(test)]
 mod tests {
+    use bevy::image::ImageFilterMode;
     use motu::procedural_textures::{
         FloatImage, Gray8Image, Gray16Image, NormalConvention, PreviewMaps, PreviewTimings,
         Rgb8Image, Rgba8Image, TextureDimensions, TextureMetadata, TextureSet,
@@ -235,6 +242,16 @@ mod tests {
 
     fn image_bytes(image: &Image) -> &[u8] {
         image.data.as_deref().expect("CPU image data")
+    }
+
+    fn assert_repeating_sampler(image: &Image, expected_filter: ImageFilterMode) {
+        let ImageSampler::Descriptor(descriptor) = &image.sampler else {
+            panic!("preview image must have an explicit sampler");
+        };
+        assert_eq!(descriptor.address_mode_u, ImageAddressMode::Repeat);
+        assert_eq!(descriptor.address_mode_v, ImageAddressMode::Repeat);
+        assert_eq!(descriptor.mag_filter, expected_filter);
+        assert_eq!(descriptor.min_filter, expected_filter);
     }
 
     #[test]
@@ -307,7 +324,6 @@ mod tests {
             image_bytes(converted.layer_mask.as_ref().unwrap())[rgba],
             204
         );
-
         let preview = PreviewMaps {
             textures,
             packed_mask: Some(
@@ -331,5 +347,49 @@ mod tests {
             &image_bytes(&converted.packed_mask)[..4],
             &[200, 201, 202, 203]
         );
+        assert_repeating_sampler(&converted.packed_mask, ImageFilterMode::Nearest);
+    }
+
+    #[test]
+    fn linear_preview_maps_repeat_across_tile_boundaries() {
+        let dimensions = TextureDimensions::new(1, 1).unwrap();
+        let textures = TextureSet::new(
+            Rgb8Image::new(dimensions, vec![[1, 2, 3]]).unwrap(),
+            Gray16Image::new(dimensions, vec![4]).unwrap(),
+            Rgb8Image::new(dimensions, vec![[5, 6, 7]]).unwrap(),
+            Gray8Image::new(dimensions, vec![8]).unwrap(),
+            TextureMetadata::default(),
+        )
+        .unwrap();
+        let raw = FloatImage::new(dimensions, vec![0.0]).unwrap();
+        let selected_layer = LayerImageSet {
+            raw: &raw,
+            remapped: &raw,
+            mask: &raw,
+        };
+
+        let converted = convert_preview(&textures, Some(selected_layer), false);
+        for image in [
+            &converted.albedo,
+            &converted.height,
+            &converted.normal,
+            &converted.occlusion,
+            &converted.packed_mask,
+            &converted.depth,
+            converted.layer_raw.as_ref().unwrap(),
+            converted.layer_remapped.as_ref().unwrap(),
+            converted.layer_mask.as_ref().unwrap(),
+        ] {
+            assert_repeating_sampler(image, ImageFilterMode::Linear);
+        }
+    }
+
+    #[test]
+    fn nearest_sampler_also_repeats_across_tile_boundaries() {
+        let image = Image {
+            sampler: repeating_sampler(true),
+            ..Default::default()
+        };
+        assert_repeating_sampler(&image, ImageFilterMode::Nearest);
     }
 }
