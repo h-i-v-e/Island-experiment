@@ -3846,6 +3846,7 @@ fn river_mesh_extraction_refines_the_authoritative_terrain_topology() {
         cross_sections: Vec::new(),
     };
     let original_vertices = terrain.vertices.clone();
+    let original_perimeter = terrain.perimeter_mask();
     let adjacency = terrain.adjacency();
 
     let river_mesh = build_test_river_mesh(&network, &mut terrain, &adjacency);
@@ -3854,7 +3855,22 @@ fn river_mesh_extraction_refines_the_authoritative_terrain_topology() {
         terrain.vertices[..original_vertices.len()]
             .iter()
             .zip(&original_vertices)
-            .all(|(refined, original)| refined.truncate() == original.truncate())
+            .zip(&original_perimeter)
+            .filter(|(_, perimeter)| **perimeter)
+            .all(|((refined, original), _)| refined.truncate() == original.truncate())
+    );
+    assert_eq!(
+        terrain.vertices[center].truncate(),
+        original_vertices[center].truncate()
+    );
+    assert!(
+        terrain.vertices[..original_vertices.len()]
+            .iter()
+            .zip(&original_vertices)
+            .zip(&original_perimeter)
+            .any(|((refined, original), &perimeter)| {
+                !perimeter && refined.truncate() != original.truncate()
+            })
     );
     assert!(
         river_mesh

@@ -13,14 +13,18 @@ use super::{
     WaterfallTerrainConstraints, build_river_footprint, derive_waterfall_patches,
     detect_failed_final_waterfalls, duplicate_river_topology, encode_bank_distance_in_uv,
     enforce_final_waterfall_edge_relationships, enforce_waterfall_downstream_ceiling,
-    generate_river_rock_mesh, is_river_boundary, mark_river_boundary, pin_waterfalls_to_terrain,
-    rebuild_final_waterfall_support_mask, recess_waterfall_notches, river_topology_masks,
-    smooth_final_waterfall_patches, smooth_pinned_waterfall_terrain, smoothstep,
-    squish_waterfall_downstream_spikes,
+    generate_river_rock_mesh, is_river_bed_triangle, is_river_boundary, mark_river_boundary,
+    pin_waterfalls_to_terrain, rebuild_final_waterfall_support_mask, recess_waterfall_notches,
+    river_topology_masks, smooth_final_waterfall_patches, smooth_pinned_waterfall_terrain,
+    smoothstep, squish_waterfall_downstream_spikes,
 };
 use crate::mesh::{EdgeSplitStencil, NewVertexStencil};
 
-const COAST_PROJECTED_AREA_EPSILON: f32 = 1.0e-12;
+const XY_PROJECTED_AREA_EPSILON: f32 = 1.0e-12;
+const RIVER_BANK_XY_SMOOTHING_PASSES: usize = 2;
+const RIVER_BANK_XY_SMOOTHING_STRENGTH: f32 = 0.45;
+const RIVER_BANK_MAXIMUM_WIDTH_MOVE: f32 = 0.18;
+const RIVER_BANK_MAXIMUM_EDGE_MOVE: f32 = 0.35;
 
 pub(super) fn lower_precarve_river_valleys(
     network: &RiverNetwork,
@@ -1095,7 +1099,11 @@ fn refine_coastline_paths(
 }
 
 fn smooth_coastline_paths_xy(terrain: &mut Mesh, paths: &[CoastlinePath], protected: &[bool]) {
-    let source = terrain.vertices.clone();
+    let source = terrain
+        .vertices
+        .iter()
+        .map(|position| position.truncate())
+        .collect::<Vec<_>>();
     let perimeter = terrain.perimeter_mask();
     let mut candidates = vec![None; source.len()];
     for path in paths {
@@ -1111,23 +1119,25 @@ fn smooth_coastline_paths_xy(terrain: &mut Mesh, paths: &[CoastlinePath], protec
                 [path.vertices[(index + path.vertices.len() - 1) % path.vertices.len()] as usize];
             let current = source[vertex];
             let next = source[path.vertices[(index + 1) % path.vertices.len()] as usize];
-            candidates[vertex] =
-                Some((previous.truncate() + current.truncate() + next.truncate()) / 3.0);
+            candidates[vertex] = Some((previous + current + next) / 3.0);
         }
     }
 
+    reject_unsafe_xy_candidates(terrain, &source, &mut candidates);
+    apply_xy_candidates(terrain, candidates);
+}
+
+fn reject_unsafe_xy_candidates(terrain: &Mesh, source: &[Vec2], candidates: &mut [Option<Vec2>]) {
     loop {
         let mut rejected = Vec::new();
         for triangle in terrain.triangles.chunks_exact(3) {
             let vertices = [triangle[0], triangle[1], triangle[2]];
-            let original = vertices.map(|vertex| source[vertex as usize].truncate());
-            let moved = vertices.map(|vertex| {
-                candidates[vertex as usize].unwrap_or(source[vertex as usize].truncate())
-            });
+            let original = vertices.map(|vertex| source[vertex as usize]);
+            let moved = vertices
+                .map(|vertex| candidates[vertex as usize].unwrap_or(source[vertex as usize]));
             let original_area = (original[1] - original[0]).perp_dot(original[2] - original[0]);
             let moved_area = (moved[1] - moved[0]).perp_dot(moved[2] - moved[0]);
-            if moved_area.abs() <= COAST_PROJECTED_AREA_EPSILON || original_area * moved_area <= 0.0
-            {
+            if moved_area.abs() <= XY_PROJECTED_AREA_EPSILON || original_area * moved_area <= 0.0 {
                 rejected.extend(
                     triangle
                         .iter()
@@ -1145,14 +1155,139 @@ fn smooth_coastline_paths_xy(terrain: &mut Mesh, paths: &[CoastlinePath], protec
             candidates[vertex as usize] = None;
         }
     }
+}
 
-    for (position, candidate) in terrain.vertices.iter_mut().zip(candidates) {
+fn apply_xy_candidates(terrain: &mut Mesh, candidates: Vec<Option<Vec2>>) -> usize {
+    let mut moved = 0;
+    for (vertex, candidate) in candidates.into_iter().enumerate() {
         if let Some(xy) = candidate {
+            let position = &mut terrain.vertices[vertex];
             position.x = xy.x;
             position.y = xy.y;
+            moved += 1;
         }
     }
     terrain.calculate_normals();
+    moved
+}
+
+fn river_bank_edges(terrain: &Mesh, coverage: &[u8]) -> Vec<[u32; 2]> {
+    let mut edges = Vec::new();
+    for triangle in terrain.triangles.chunks_exact(3) {
+        if !is_river_bed_triangle(triangle, coverage) {
+            continue;
+        }
+        for [a, b] in [
+            [triangle[0], triangle[1]],
+            [triangle[1], triangle[2]],
+            [triangle[2], triangle[0]],
+        ] {
+            let [a, b] = if a < b { [a, b] } else { [b, a] };
+            edges.push((u64::from(a) << 32) | u64::from(b));
+        }
+    }
+    edges.sort_unstable();
+
+    let mut boundary = Vec::new();
+    let mut start = 0;
+    while start < edges.len() {
+        let edge = edges[start];
+        let mut end = start + 1;
+        while end < edges.len() && edges[end] == edge {
+            end += 1;
+        }
+        if end - start == 1 {
+            boundary.push([(edge >> 32) as u32, edge as u32]);
+        }
+        start = end;
+    }
+    boundary
+}
+
+fn smooth_river_banks_xy(
+    terrain: &mut Mesh,
+    coverage: &[u8],
+    target_half_widths: &[f32],
+    hydraulic_protected: &[bool],
+) -> usize {
+    debug_assert_eq!(terrain.vertices.len(), coverage.len());
+    debug_assert_eq!(terrain.vertices.len(), target_half_widths.len());
+    debug_assert_eq!(terrain.vertices.len(), hydraulic_protected.len());
+
+    let edges = river_bank_edges(terrain, coverage);
+    if edges.is_empty() {
+        return 0;
+    }
+    let mut bank_adjacency = vec![Vec::<usize>::new(); terrain.vertices.len()];
+    for [a, b] in edges {
+        bank_adjacency[a as usize].push(b as usize);
+        bank_adjacency[b as usize].push(a as usize);
+    }
+    for neighbours in &mut bank_adjacency {
+        neighbours.sort_unstable();
+    }
+
+    let perimeter = terrain.perimeter_mask();
+    let anchors = bank_adjacency
+        .iter()
+        .enumerate()
+        .map(|(vertex, neighbours)| {
+            !neighbours.is_empty()
+                && (neighbours.len() != 2 || perimeter[vertex] || hydraulic_protected[vertex])
+        })
+        .collect::<Vec<_>>();
+    let mut fixed = anchors.clone();
+    for (vertex, &anchor) in anchors.iter().enumerate() {
+        if anchor {
+            for &neighbour in &bank_adjacency[vertex] {
+                fixed[neighbour] = true;
+            }
+        }
+    }
+
+    let mut moved = vec![false; terrain.vertices.len()];
+    for _ in 0..RIVER_BANK_XY_SMOOTHING_PASSES {
+        let source = terrain
+            .vertices
+            .iter()
+            .map(|position| position.truncate())
+            .collect::<Vec<_>>();
+        let mut candidates = vec![None; terrain.vertices.len()];
+        for (vertex, neighbours) in bank_adjacency.iter().enumerate() {
+            if fixed[vertex] || neighbours.len() != 2 {
+                continue;
+            }
+            let current = source[vertex];
+            let previous = source[neighbours[0]];
+            let next = source[neighbours[1]];
+            let displacement =
+                ((previous + next) * 0.5 - current) * RIVER_BANK_XY_SMOOTHING_STRENGTH;
+            let shortest_edge = current.distance(previous).min(current.distance(next));
+            let width_limit = target_half_widths[vertex] * RIVER_BANK_MAXIMUM_WIDTH_MOVE;
+            let maximum_move = (shortest_edge * RIVER_BANK_MAXIMUM_EDGE_MOVE).min(width_limit);
+            let distance = displacement.length();
+            if maximum_move <= f32::EPSILON || distance <= f32::EPSILON {
+                continue;
+            }
+            let safe_displacement = if distance > maximum_move {
+                displacement * (maximum_move / distance)
+            } else {
+                displacement
+            };
+            candidates[vertex] = Some(current + safe_displacement);
+        }
+        reject_unsafe_xy_candidates(terrain, &source, &mut candidates);
+        for (vertex, candidate) in candidates.iter().enumerate() {
+            moved[vertex] |= candidate.is_some();
+            if !terrain.uv.is_empty()
+                && let Some(xy) = candidate
+            {
+                terrain.uv[vertex] = *xy;
+            }
+        }
+        apply_xy_candidates(terrain, candidates);
+    }
+    moved.into_iter().filter(|&was_moved| was_moved).count()
 }
 
 pub(super) fn river_corridor_apron_mask(
@@ -1780,6 +1915,7 @@ impl<'a> RiverGeometryBuilder<'a> {
         self.finish_channel(&constraints);
         self.finish_waterfalls(&patches, &mut constraints);
         self.constrain_coastline(&patches, &mut constraints);
+        self.smooth_river_banks(&constraints);
         self.assemble(&patches, &constraints)
     }
 
@@ -1896,6 +2032,25 @@ impl<'a> RiverGeometryBuilder<'a> {
         );
     }
 
+    fn smooth_river_banks(&mut self, constraints: &WaterfallTerrainConstraints) {
+        let hydraulic_protected = constraints
+            .patch
+            .iter()
+            .zip(&constraints.pinned)
+            .zip(&constraints.support)
+            .zip(&self.buffers.waterfall_lips)
+            .map(|(((&patch, &pinned), &support), &waterfall_lip)| {
+                patch || pinned || support || waterfall_lip
+            })
+            .collect::<Vec<_>>();
+        smooth_river_banks_xy(
+            self.terrain,
+            &self.buffers.coverage,
+            &self.buffers.target_half_widths,
+            &hydraulic_protected,
+        );
+    }
+
     fn assemble(
         self,
         patches: &[WaterfallPatch],
@@ -1929,8 +2084,41 @@ impl<'a> RiverGeometryBuilder<'a> {
 
 #[cfg(test)]
 mod coastline_tests {
-    use super::{CoastlinePath, Mesh, Vec2, coastline_paths, smooth_coastline_paths_xy};
+    use super::{
+        CoastlinePath, Mesh, Vec2, coastline_paths, smooth_coastline_paths_xy,
+        smooth_river_banks_xy,
+    };
     use crate::Vec3;
+
+    fn river_bank_fixture() -> (Mesh, Vec<u8>) {
+        let vertices = vec![
+            Vec3::new(-2.0, -2.0, -1.0),
+            Vec3::new(2.0, -2.0, -1.0),
+            Vec3::new(2.0, 2.0, -1.0),
+            Vec3::new(-2.0, 2.0, -1.0),
+            Vec3::new(-0.8, -0.6, 0.0),
+            Vec3::new(0.7, -0.8, 0.0),
+            Vec3::new(0.9, 0.7, 0.0),
+            Vec3::new(-0.6, 0.9, 0.0),
+            Vec3::new(0.0, 0.0, -0.2),
+        ];
+        let uv = vertices
+            .iter()
+            .map(|position| position.truncate())
+            .collect();
+        let mesh = Mesh {
+            vertices,
+            normals: Vec::new(),
+            triangles: vec![
+                0, 1, 5, 0, 5, 4, 1, 2, 6, 1, 6, 5, 2, 3, 7, 2, 7, 6, 3, 0, 4, 3, 4, 7, 4, 5, 8, 5,
+                6, 8, 6, 7, 8, 7, 4, 8,
+            ],
+            uv,
+        };
+        let mut coverage = vec![0; mesh.vertices.len()];
+        coverage[4..].fill(1);
+        (mesh, coverage)
+    }
 
     #[test]
     fn coastline_edges_form_closed_loops_independent_of_order() {
@@ -1998,5 +2186,44 @@ mod coastline_tests {
             assert!(mesh.vertices[vertex as usize].truncate().distance(expected) < 1.0e-6);
             assert!(mesh.vertices[vertex as usize].z.abs() < f32::EPSILON);
         }
+    }
+
+    #[test]
+    fn river_bank_xy_smoothing_rounds_the_shared_terrain_and_water_outline() {
+        let (mut mesh, coverage) = river_bank_fixture();
+        let source = mesh.vertices.clone();
+        let moved = smooth_river_banks_xy(&mut mesh, &coverage, &[1.0; 9], &[false; 9]);
+
+        assert_eq!(moved, 4);
+        assert_eq!(&mesh.vertices[..4], &source[..4]);
+        for (vertex, original) in source.iter().enumerate().take(8).skip(4) {
+            assert_ne!(mesh.vertices[vertex].truncate(), original.truncate());
+            assert!((mesh.vertices[vertex].z - original.z).abs() <= f32::EPSILON);
+            assert_eq!(mesh.uv[vertex], mesh.vertices[vertex].truncate());
+        }
+        for triangle in mesh.triangles.chunks_exact(3) {
+            let vertices = [triangle[0], triangle[1], triangle[2]];
+            let original = vertices.map(|vertex| source[vertex as usize].truncate());
+            let smoothed = vertices.map(|vertex| mesh.vertices[vertex as usize].truncate());
+            let original_area = (original[1] - original[0]).perp_dot(original[2] - original[0]);
+            let smoothed_area = (smoothed[1] - smoothed[0]).perp_dot(smoothed[2] - smoothed[0]);
+            assert!(original_area * smoothed_area > 0.0);
+        }
+    }
+
+    #[test]
+    fn river_bank_xy_smoothing_keeps_a_buffer_around_hydraulic_anchors() {
+        let (mut mesh, coverage) = river_bank_fixture();
+        let source = mesh.vertices.clone();
+        let mut protected = vec![false; mesh.vertices.len()];
+        protected[4] = true;
+
+        let moved = smooth_river_banks_xy(&mut mesh, &coverage, &[1.0; 9], &protected);
+
+        assert_eq!(moved, 1);
+        for vertex in [4, 5, 7] {
+            assert_eq!(mesh.vertices[vertex], source[vertex]);
+        }
+        assert_ne!(mesh.vertices[6], source[6]);
     }
 }
