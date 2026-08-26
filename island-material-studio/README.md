@@ -25,7 +25,8 @@ there are no `mod.rs` files.
 
 The editor provides:
 
-- complete typed base-material and layer-stack editing;
+- complete typed base-material and layer-stack editing, including previous-height
+  masks with physical bottom/top thresholds;
 - asynchronous native Open and Save As selectors filtered to JSON recipes;
 - bounded snapshot undo/redo and dirty-document protection;
 - debounced 128, 256, or 512-pixel background previews with stale-result

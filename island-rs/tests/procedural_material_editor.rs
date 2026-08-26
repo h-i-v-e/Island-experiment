@@ -6,7 +6,8 @@ use std::{
 };
 
 use motu::procedural_textures::{
-    OutputOptions, OutputProfile, TextureRecipe, generate_texture_set, write_texture_set,
+    LayerMask, MaterialLayer, OutputOptions, OutputProfile, TextureRecipe, evaluate_material,
+    generate_texture_set, write_texture_set,
 };
 use serde_json::Value;
 
@@ -113,6 +114,43 @@ fn committed_recipes_retain_the_locked_128_pixel_map_hashes() {
             .collect::<Vec<_>>();
         assert_eq!(actual_hashes, expected_hashes, "{recipe_name} changed");
     }
+}
+
+#[test]
+fn previous_height_mask_tracks_the_rounded_stone_base_field() {
+    let mut recipe = load_recipe("rounded-river-stones.json");
+    recipe.width = 64;
+    recipe.height = 64;
+    recipe.layers = vec![MaterialLayer {
+        id: "gap-colour".into(),
+        name: "Gap colour".into(),
+        mask: Some(LayerMask::PreviousHeight {
+            bottom_m: 0.0,
+            top_m: 0.02,
+            invert: true,
+        }),
+        ..MaterialLayer::default()
+    }];
+
+    let evaluation = evaluate_material(&recipe).expect("evaluate rounded stones");
+    let heights = evaluation.layers.field.values();
+    let mask = &evaluation.layers.layers[0].mask;
+    let low_count = heights
+        .iter()
+        .zip(mask)
+        .filter(|(height, opacity)| **height <= 0.0 && **opacity >= 1.0 - f32::EPSILON)
+        .count();
+    let high_count = heights
+        .iter()
+        .zip(mask)
+        .filter(|(height, opacity)| **height >= 0.02 && **opacity <= f32::EPSILON)
+        .count();
+
+    assert!(low_count > 100, "expected the inverted mask to select gaps");
+    assert!(
+        high_count > 100,
+        "expected the inverted mask to reject stone tops"
+    );
 }
 
 #[test]

@@ -443,28 +443,43 @@ fn mask_editor(
     let current = match mask {
         None => 0,
         Some(LayerMask::Own) => 1,
-        Some(LayerMask::Noise { .. }) => 2,
-        Some(LayerMask::Layer { .. }) => 3,
+        Some(LayerMask::PreviousHeight { .. }) => 2,
+        Some(LayerMask::Noise { .. }) => 3,
+        Some(LayerMask::Layer { .. }) => 4,
     };
     let mut selected = current;
     egui::ComboBox::from_label("Mask kind")
-        .selected_text(["None", "Own scalar", "Noise", "Earlier layer"][selected])
+        .selected_text(
+            [
+                "None",
+                "Own scalar",
+                "Previous height",
+                "Noise",
+                "Earlier layer",
+            ][selected],
+        )
         .show_ui(ui, |ui| {
             ui.selectable_value(&mut selected, 0, "None");
             ui.selectable_value(&mut selected, 1, "Own scalar");
-            ui.selectable_value(&mut selected, 2, "Noise");
-            ui.selectable_value(&mut selected, 3, "Earlier layer");
+            ui.selectable_value(&mut selected, 2, "Previous height");
+            ui.selectable_value(&mut selected, 3, "Noise");
+            ui.selectable_value(&mut selected, 4, "Earlier layer");
         });
     let mut changed = false;
     if selected != current {
         *mask = match selected {
             0 => None,
             1 => Some(LayerMask::Own),
-            2 => Some(LayerMask::Noise {
+            2 => Some(LayerMask::PreviousHeight {
+                bottom_m: -0.01,
+                top_m: 0.01,
+                invert: false,
+            }),
+            3 => Some(LayerMask::Noise {
                 source: ScalarSource::default(),
                 remap: ScalarRemap::default(),
             }),
-            3 => Some(LayerMask::Layer {
+            4 => Some(LayerMask::Layer {
                 layer_id: earlier_layers
                     .iter()
                     .next_back()
@@ -477,6 +492,15 @@ fn mask_editor(
     }
     match mask {
         None | Some(LayerMask::Own) => {}
+        Some(LayerMask::PreviousHeight {
+            bottom_m,
+            top_m,
+            invert,
+        }) => {
+            changed |= f32_row(ui, "Bottom height (m)", bottom_m, 0.001);
+            changed |= f32_row(ui, "Top height (m)", top_m, 0.001);
+            changed |= ui.checkbox(invert, "Invert (select low areas)").changed();
+        }
         Some(LayerMask::Noise { source, remap }) => {
             changed |= source_editor(ui, source);
             changed |= remap_editor(ui, remap);

@@ -654,6 +654,19 @@ fn validate_mask(
     errors: &mut RecipeValidationErrors,
 ) {
     match mask {
+        Some(LayerMask::PreviousHeight {
+            bottom_m, top_m, ..
+        }) => {
+            validate_finite(&format!("{path}/bottom_m"), *bottom_m, errors);
+            validate_finite(&format!("{path}/top_m"), *top_m, errors);
+            if top_m <= bottom_m {
+                errors.push(RecipeValidationError::InvalidRemapRange {
+                    path: path.into(),
+                    minimum: *bottom_m,
+                    maximum: *top_m,
+                });
+            }
+        }
         Some(LayerMask::Noise { source, remap }) => {
             validate_source(source, &format!("{path}/source"), errors);
             validate_remap(remap, &format!("{path}/remap"), errors);
@@ -1025,6 +1038,26 @@ mod tests {
                 .iter()
                 .any(|issue| matches!(issue, RecipeValidationError::DuplicateLayerId { .. }))
         );
+    }
+
+    #[test]
+    fn previous_height_mask_requires_an_ordered_finite_range() {
+        let mut recipe = valid_recipe();
+        recipe.layers.push(MaterialLayer {
+            mask: Some(LayerMask::PreviousHeight {
+                bottom_m: 0.02,
+                top_m: 0.01,
+                invert: false,
+            }),
+            ..MaterialLayer::default()
+        });
+
+        let errors = validate_recipe(&recipe).expect_err("reversed height mask range");
+        assert!(errors.issues().iter().any(|issue| matches!(
+            issue,
+            RecipeValidationError::InvalidRemapRange { path, .. }
+                if path == "/layers/0/mask"
+        )));
     }
 
     #[test]

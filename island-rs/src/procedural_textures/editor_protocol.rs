@@ -634,12 +634,27 @@ pub const EDITABLE_METADATA: &[PropertyMetadata] = &[
     PropertyMetadata {
         pointer: "/layers/*/mask/kind",
         label: "Mask kind",
-        tooltip: "Own, inline-noise or earlier-layer opacity mask",
+        tooltip: "Own scalar, previous height, inline-noise or earlier-layer opacity mask",
     },
     PropertyMetadata {
         pointer: "/layers/*/mask/layer_id",
         label: "Mask layer",
         tooltip: "Earlier layer stable ID",
+    },
+    PropertyMetadata {
+        pointer: "/layers/*/mask/bottom_m",
+        label: "Mask bottom height",
+        tooltip: "Previous height mapped to zero opacity",
+    },
+    PropertyMetadata {
+        pointer: "/layers/*/mask/top_m",
+        label: "Mask top height",
+        tooltip: "Previous height mapped to full opacity",
+    },
+    PropertyMetadata {
+        pointer: "/layers/*/mask/invert",
+        label: "Invert height mask",
+        tooltip: "Select low areas instead of high areas",
     },
     PropertyMetadata {
         pointer: "/layers/*/mask/source",
@@ -852,6 +867,7 @@ pub fn schema_document() -> Value {
                 "oneOf": [
                     {"type": "null"},
                     {"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {"kind": {"const": "own"}}},
+                    {"type": "object", "additionalProperties": false, "required": ["kind", "bottom_m", "top_m"], "properties": {"kind": {"const": "previous_height"}, "bottom_m": {"type": "number"}, "top_m": {"type": "number"}, "invert": {"type": "boolean"}}},
                     {"type": "object", "additionalProperties": false, "required": ["kind", "source"], "properties": {"kind": {"const": "noise"}, "source": {"$ref": "#/$defs/source"}, "remap": {"$ref": "#/$defs/remap"}}},
                     {"type": "object", "additionalProperties": false, "required": ["kind", "layer_id"], "properties": {"kind": {"const": "layer"}, "layer_id": {"type": "string"}, "remap": {"$ref": "#/$defs/remap"}}}
                 ]
@@ -1044,6 +1060,17 @@ fn metadata_value(item: &PropertyMetadata) -> Value {
         }
         "/layers/*/remap/clamp" | "/layers/*/mask/remap/clamp" => (json!(true), None, None),
         "/layers/*/remap/curve" | "/layers/*/mask/remap/curve" => (Value::Null, None, None),
+        "/layers/*/mask/bottom_m" => (
+            json!(-0.01),
+            Some([-f32::MAX as f64, f32::MAX as f64]),
+            Some("m"),
+        ),
+        "/layers/*/mask/top_m" => (
+            json!(0.01),
+            Some([-f32::MAX as f64, f32::MAX as f64]),
+            Some("m"),
+        ),
+        "/layers/*/mask/invert" => (json!(false), None, None),
         "/layers/*/outputs/height/enabled" => (json!(false), None, None),
         "/layers/*/outputs/height/strength_m" => (
             json!(0.01),
@@ -1171,6 +1198,7 @@ fn metadata_type(pointer: &str) -> &'static str {
         | "/layers/*/remap/clamp"
         | "/layers/*/mask/remap/invert"
         | "/layers/*/mask/remap/clamp"
+        | "/layers/*/mask/invert"
         | "/layers/*/outputs/height/enabled"
         | "/layers/*/outputs/albedo/enabled" => "boolean",
         "/layers/*/source/offset" | "/layers/*/mask/source/offset" => "array",
@@ -1223,7 +1251,7 @@ fn metadata_enum(pointer: &str) -> Option<Value> {
             Some(json!(["replace", "mix", "multiply", "add", "overlay"]))
         }
         "/layers/*/outputs/albedo/colour_map/kind" => Some(json!(["ramp", "gradient"])),
-        "/layers/*/mask/kind" => Some(json!(["own", "noise", "layer"])),
+        "/layers/*/mask/kind" => Some(json!(["own", "previous_height", "noise", "layer"])),
         _ => None,
     }
 }
@@ -1414,6 +1442,13 @@ mod tests {
                 .is_some_and(|required| required.iter().any(|name| name == "layers"))
         );
         assert!(schema["metadata"][0].get("default").is_some());
+        assert!(
+            schema["$defs"]["mask"]["oneOf"]
+                .as_array()
+                .is_some_and(|variants| variants.iter().any(|variant| {
+                    variant["properties"]["kind"]["const"] == "previous_height"
+                }))
+        );
     }
 
     #[test]

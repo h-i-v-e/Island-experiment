@@ -90,7 +90,7 @@ pub fn evaluate_layers(
             .iter()
             .map(|&value| apply_remap(&layer.remap, value))
             .collect::<Vec<_>>();
-        let mask = evaluate_mask(layer, &remapped, &diagnostics, dimensions, seed)?;
+        let mask = evaluate_mask(layer, &remapped, &field, &diagnostics, dimensions, seed)?;
         if mask.len() != pixel_count {
             return Err(FieldError::DimensionOverflow);
         }
@@ -226,6 +226,7 @@ fn sample_source(
 fn evaluate_mask(
     layer: &MaterialLayer,
     own_remapped: &[f32],
+    previous_height: &HeightField,
     previous: &[LayerDiagnostic],
     dimensions: field_program::FieldDimensions,
     seed: u64,
@@ -235,6 +236,18 @@ fn evaluate_mask(
         Some(LayerMask::Own) => Ok(own_remapped
             .iter()
             .map(|value| value.clamp(0.0, 1.0))
+            .collect()),
+        Some(LayerMask::PreviousHeight {
+            bottom_m,
+            top_m,
+            invert,
+        }) => Ok(previous_height
+            .values()
+            .iter()
+            .map(|&height| {
+                let mask = field_program::smoothstep(*bottom_m, *top_m, height);
+                if *invert { 1.0 - mask } else { mask }
+            })
             .collect()),
         Some(LayerMask::Noise { source, remap }) => {
             let raw = evaluate_source_map(source, dimensions, seed)?;
@@ -570,6 +583,35 @@ mod tests {
         };
         let evaluation = evaluate_layers(base(), &[first, second], 42).expect("layers");
         assert_eq!(evaluation.layers[0].remapped, evaluation.layers[1].mask);
+    }
+
+    #[test]
+    fn previous_height_mask_reads_the_incoming_physical_height_field() {
+        let dimensions = FieldDimensions::new(4, 1, 4.0, 1.0).expect("dimensions");
+        let incoming =
+            HeightField::new(dimensions, vec![-0.02, 0.0, 0.01, 0.02]).expect("incoming height");
+        let high = MaterialLayer {
+            id: "high".into(),
+            mask: Some(LayerMask::PreviousHeight {
+                bottom_m: 0.0,
+                top_m: 0.02,
+                invert: false,
+            }),
+            ..MaterialLayer::default()
+        };
+        let low = MaterialLayer {
+            id: "low".into(),
+            mask: Some(LayerMask::PreviousHeight {
+                bottom_m: 0.0,
+                top_m: 0.02,
+                invert: true,
+            }),
+            ..MaterialLayer::default()
+        };
+
+        let evaluation = evaluate_layers(incoming, &[high, low], 42).expect("layers");
+        assert_eq!(evaluation.layers[0].mask, [0.0, 0.0, 0.5, 1.0]);
+        assert_eq!(evaluation.layers[1].mask, [1.0, 1.0, 0.5, 0.0]);
     }
 
     #[test]

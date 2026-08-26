@@ -268,6 +268,16 @@ pub struct RemapPoint {
 pub enum LayerMask {
     /// Use the layer's own remapped scalar as opacity.
     Own,
+    /// Remap the accumulated physical height immediately before this layer.
+    PreviousHeight {
+        /// Height at or below which the mask is zero, in metres.
+        bottom_m: f32,
+        /// Height at or above which the mask is one, in metres.
+        top_m: f32,
+        /// Select lower heights instead of higher heights.
+        #[serde(default)]
+        invert: bool,
+    },
     /// Evaluate an inline source and remap it as opacity.
     Noise {
         source: ScalarSource,

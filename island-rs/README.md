@@ -106,7 +106,10 @@ in `texture-recipes/`. Rust owns the recipe shape and evaluator; Unity and
 other engines can edit the same document without reimplementing noise or
 material logic. The root `material` and `albedo` blocks define the base pass,
 while the ordered `layers` stack routes each scalar source independently to
-height and/or albedo through remapping, masks and output bindings.
+height and/or albedo through remapping, masks and output bindings. A layer can
+mask itself from the accumulated physical height immediately before that layer,
+using editable bottom/top heights and optional inversion; this lets a colour-only
+layer select low gaps in a generated stone field without creating a feedback loop.
 
 Bake a committed recipe from the repository root:
 
