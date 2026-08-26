@@ -7,7 +7,7 @@ use bevy::{
     render::view::screenshot::{Screenshot, save_to_disk},
     window::{ExitCondition, WindowResolution},
 };
-use bevy_egui::EguiPlugin;
+use bevy_egui::{EguiGlobalSettings, EguiPlugin, PrimaryEguiContext};
 
 use crate::{
     bake::BakePlugin,
@@ -102,13 +102,24 @@ pub fn run(options: RunOptions) -> AppExit {
         ..default()
     }))
     .add_plugins((
-        EguiPlugin::default(),
+        EguiPlugin {
+            // bevy_egui does not support bindless textures on Metal. Opt out
+            // up front instead of requesting them and logging a fallback.
+            bindless_mode_array_size: None,
+            ..default()
+        },
         PreviewPlugin,
         LitPreviewPlugin,
         BakePlugin,
         StudioUiPlugin,
     ))
     .insert_resource(ClearColor(Color::srgb(0.025, 0.032, 0.04)))
+    .insert_resource(EguiGlobalSettings {
+        // The app owns a window camera and an off-screen lit-preview camera.
+        // Automatic selection can attach the primary UI to the latter.
+        auto_create_primary_context: false,
+        ..default()
+    })
     .insert_resource(DocumentResource(document))
     .insert_resource(preview_state)
     .insert_resource(ui_state)
@@ -145,10 +156,7 @@ fn queue_initial_preview(document: Res<DocumentResource>, mut preview: ResMut<Pr
 }
 
 fn setup_primary_camera(mut commands: Commands) {
-    // bevy_egui attaches its primary context to a camera that targets the
-    // primary window. The lit preview camera renders to an image and cannot
-    // double as the desktop UI camera.
-    commands.spawn(Camera2d);
+    commands.spawn((Camera2d, PrimaryEguiContext));
 }
 
 fn persist_settings(
