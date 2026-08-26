@@ -8,6 +8,10 @@ renderers.
 - [`island-bevy`](island-bevy/) is the interactive Bevy viewer, including
   cinematic rendering, generation controls, repeatable captures, and a runtime
   CPU/GPU comparison switch.
+- [`island-material-studio`](island-material-studio/) is the standalone Bevy
+  procedural-material authoring application. It edits the same typed JSON
+  recipes as the baker and Unity studio, previews them in 2D and with lit
+  parallax mapping, and bakes through the shared transactional writer.
 - [`island-unity`](island-unity/) contains the reusable Unity 6
   `IslandGenerator` component, sandbox level, streamed terrain LODs,
   first-person sample controls, a CPU/GPU generation selector, the Apple
@@ -35,3 +39,17 @@ cargo run --release -- --generation-method gpu --seed 666
 
 CPU and GPU results use separate cache directories. See each project README for
 its build, API, cache, and compatibility details.
+
+## Procedural Material Studio
+
+Run the standalone editor without Unity:
+
+```sh
+cargo run --release \
+  --manifest-path island-material-studio/Cargo.toml -- \
+  --recipe island-rs/texture-recipes/rounded-river-stones.json
+```
+
+The studio calls `island-rs` directly in process. Preview and final bake use
+the same evaluator as `island-texture-baker`; parallax mapping is used only for
+the lit height preview and does not alter baked height bytes.

@@ -12,13 +12,14 @@ use std::{
 };
 
 use motu::procedural_textures::{
-    EditorEnvelope, MaterialEvaluation, OutputOptions, OutputProfile, TextureRecipe,
+    EditorEnvelope, OutputOptions, OutputProfile, TextureRecipe,
     editor_protocol::{self, Diagnostic},
     encoding::{
         OutputDimensions, PixelFormat, TextureSetImages, encode_png_bytes,
         write_texture_set as write_encoded_texture_set,
     },
-    evaluate_material, generate_texture_set, texture_set_from_evaluation,
+    evaluate_material, generate_preview, generate_texture_set, layer_preview_maps,
+    preview::{LayerPreviewMaps, PreviewSettings},
 };
 use serde_json::{Value, json};
 
@@ -335,17 +336,23 @@ fn preview_command(path: &Path, output: &Path, size: u32) -> EditorEnvelope {
         return EditorEnvelope::failure("preview.cleanup", error.to_string());
     }
     let started = Instant::now();
-    let evaluation = match evaluate_material(&preview_recipe) {
-        Ok(evaluation) => evaluation,
-        Err(error) => return EditorEnvelope::failure("preview.evaluate", error.to_string()),
-    };
-    let evaluate_ms = started.elapsed().as_secs_f64() * 1000.0;
-    let textures = match texture_set_from_evaluation(&preview_recipe, &evaluation) {
-        Ok(textures) => textures,
+    let preview = match generate_preview(&preview_recipe, &PreviewSettings::default()) {
+        Ok(preview) => preview,
         Err(error) => return EditorEnvelope::failure("preview.generate", error.to_string()),
     };
+    // The CLI historically emits diagnostics for every layer. Keep that
+    // protocol contract while the in-process preview result retains only the
+    // selected layer to avoid allocating all diagnostic maps for UI callers.
+    let evaluation = match evaluate_material(&preview_recipe) {
+        Ok(evaluation) => evaluation,
+        Err(error) => return EditorEnvelope::failure("preview.layer_maps", error.to_string()),
+    };
+    let layer_maps = match layer_preview_maps(&evaluation) {
+        Ok(layer_maps) => layer_maps,
+        Err(error) => return EditorEnvelope::failure("preview.layer_maps", error.to_string()),
+    };
     let manifest = match write_encoded_texture_set(
-        &TextureSetImages::from_texture_set(&textures),
+        &TextureSetImages::from_texture_set(&preview.textures),
         output,
         &OutputOptions {
             profile: OutputProfile::MotuUnityTerrain,
@@ -360,14 +367,14 @@ fn preview_command(path: &Path, output: &Path, size: u32) -> EditorEnvelope {
         .iter()
         .map(|map| serde_json::to_value(map).unwrap_or_else(|_| json!({})))
         .collect::<Vec<_>>();
-    if let Err(error) = write_layer_maps(output, &preview_recipe, &evaluation, &mut generated_maps)
+    if let Err(error) = write_layer_maps(output, &preview_recipe, &layer_maps, &mut generated_maps)
     {
         return EditorEnvelope::failure("preview.layer_maps", error.to_string());
     }
     if let Err(error) = write_raw_height(
         output,
         &preview_recipe,
-        &evaluation,
+        &preview.textures,
         &manifest.metadata.recipe_hash,
         &mut generated_maps,
     ) {
@@ -380,10 +387,12 @@ fn preview_command(path: &Path, output: &Path, size: u32) -> EditorEnvelope {
     let mut envelope = EditorEnvelope::success();
     envelope.recipe_hash = source_recipe_hash;
     envelope.generated_maps = generated_maps;
-    envelope.timings_ms.insert("evaluate".into(), evaluate_ms);
+    envelope
+        .timings_ms
+        .insert("evaluate".into(), preview.timings_ms.evaluate_ms);
     envelope.timings_ms.insert(
         "write".into(),
-        started.elapsed().as_secs_f64() * 1000.0 - evaluate_ms,
+        started.elapsed().as_secs_f64() * 1000.0 - preview.timings_ms.evaluate_ms,
     );
     envelope.timings = envelope.timings_ms.clone();
     envelope
@@ -476,21 +485,21 @@ fn preview_manifest_path(output: &Path, relative: &str) -> Result<PathBuf, io::E
 fn write_layer_maps(
     output: &Path,
     recipe: &TextureRecipe,
-    evaluation: &MaterialEvaluation,
+    layer_maps: &[(String, LayerPreviewMaps)],
     generated_maps: &mut Vec<Value>,
 ) -> Result<(), io::Error> {
     let dimensions = OutputDimensions {
         width: recipe.width,
         height: recipe.height,
     };
-    for diagnostic in &evaluation.layers.layers {
+    for (id, layer_maps) in layer_maps {
         for (suffix, values) in [
-            ("raw", diagnostic.raw.as_slice()),
-            ("remapped", diagnostic.remapped.as_slice()),
-            ("mask", diagnostic.mask.as_slice()),
+            ("raw", layer_maps.raw.pixels()),
+            ("remapped", layer_maps.remapped.pixels()),
+            ("mask", layer_maps.mask.pixels()),
         ] {
             let pixels = normalize_scalar(values);
-            let filename = format!("{}_layer_{}_{}.png", recipe.name, diagnostic.id, suffix);
+            let filename = format!("{}_layer_{}_{}.png", recipe.name, id, suffix);
             let bytes = encode_png_bytes(dimensions, PixelFormat::Gray8, &pixels)
                 .map_err(|error| io::Error::other(error.to_string()))?;
             atomic_write(&output.join(&filename), &bytes)?;
@@ -509,7 +518,7 @@ fn write_layer_maps(
 fn write_raw_height(
     output: &Path,
     recipe: &TextureRecipe,
-    evaluation: &MaterialEvaluation,
+    textures: &motu::procedural_textures::TextureSet,
     recipe_hash: &str,
     generated_maps: &mut Vec<Value>,
 ) -> Result<(), io::Error> {
@@ -519,9 +528,7 @@ fn write_raw_height(
         recipe.displacement.base_m,
     )
     .map_err(|error| io::Error::other(format!("{error:?}")))?;
-    let pixels =
-        motu::procedural_textures::packing::quantize_height(&evaluation.layers.field, range)
-            .map_err(|error| io::Error::other(format!("{error:?}")))?;
+    let pixels = &textures.height;
     let mut bytes = Vec::with_capacity(pixels.pixels().len() * 2);
     for pixel in pixels.pixels() {
         bytes.extend_from_slice(&pixel.to_le_bytes());

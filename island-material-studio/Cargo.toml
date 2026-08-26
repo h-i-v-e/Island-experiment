@@ -1,0 +1,35 @@
+[workspace]
+
+[package]
+name = "island-material-studio"
+version = "0.1.0"
+edition = "2024"
+description = "Standalone Bevy authoring application for island-rs procedural materials"
+license = "UNLICENSED"
+
+[dependencies]
+# Keep the renderer on the same major/minor lines as island-bevy.  The core
+# document, history, file and settings modules do not import either crate.
+bevy = { version = "0.19", default-features = false, features = [
+    "3d",
+    "ui",
+    "png",
+] }
+bevy_egui = "0.42"
+island-rs = { path = "../island-rs", default-features = false }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
+sha2 = "0.10.9"
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+all = "warn"
+pedantic = "warn"

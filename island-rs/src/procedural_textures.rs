@@ -17,6 +17,7 @@ pub mod normal;
 pub mod occlusion;
 pub mod packing;
 pub mod periodic;
+pub mod preview;
 pub mod recipe;
 pub mod rounded_stones;
 pub mod validation;
@@ -30,12 +31,16 @@ use packing::HeightRange;
 
 pub use editor_protocol::{
     Diagnostic, EDITABLE_METADATA, EditorEnvelope, PropertyMetadata, metadata_coverage,
-    schema_document,
+    property_metadata, schema_document,
 };
 pub use encoding::{ManifestMap, OutputManifest, OutputOptions, OutputProfile, PixelFormat};
 pub use image::{
     FloatImage, Gray8Image, Gray16Image, Image, ImageError, NormalConvention, Rgb8Image,
     Rgba8Image, TextureDimensions, TextureMetadata, TextureSet,
+};
+pub use preview::{
+    LayerPreviewMaps, PreviewMaps, PreviewSettings, PreviewTimings, generate_preview,
+    layer_preview_maps,
 };
 pub use recipe::{
     AlbedoBlend, AlbedoOutput, AlbedoSettings, ColourMap, DisplacementSettings, DomainWarpSettings,

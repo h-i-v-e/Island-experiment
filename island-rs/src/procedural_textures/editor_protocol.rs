@@ -728,6 +728,38 @@ pub const EDITABLE_METADATA: &[PropertyMetadata] = &[
     },
 ];
 
+/// Looks up the Rust-owned metadata for one recipe property.
+///
+/// Concrete array indices are accepted for the wildcard entries used by the
+/// schema (for example, `/layers/0/source` matches
+/// `/layers/*/source`). The returned metadata borrows the static table and
+/// does not allocate or serialize the schema.
+#[must_use]
+pub fn property_metadata(pointer: &str) -> Option<&'static PropertyMetadata> {
+    EDITABLE_METADATA
+        .iter()
+        .find(|item| item.pointer == pointer)
+        .or_else(|| {
+            EDITABLE_METADATA
+                .iter()
+                .find(|item| pointer_matches(item.pointer, pointer))
+        })
+}
+
+fn pointer_matches(pattern: &str, pointer: &str) -> bool {
+    let mut pattern_segments = pattern.split('/');
+    let mut pointer_segments = pointer.split('/');
+    loop {
+        match (pattern_segments.next(), pointer_segments.next()) {
+            (None, None) => return true,
+            (Some("*"), Some(segment)) if !segment.is_empty() => {}
+            (Some(pattern_segment), Some(pointer_segment))
+                if pattern_segment == pointer_segment => {}
+            _ => return false,
+        }
+    }
+}
+
 /// Returns the generated schema and the Rust UI metadata table.
 #[must_use]
 #[allow(clippy::too_many_lines)]
@@ -1391,5 +1423,14 @@ mod tests {
         });
         assert_eq!(pointer, "/material/frequency");
         assert_eq!(json_pointer("albedo.palette[2]"), "/albedo/palette/2");
+    }
+
+    #[test]
+    fn property_metadata_borrows_exact_and_indexed_entries() {
+        let exact = property_metadata("/name").expect("name metadata");
+        assert_eq!(exact.pointer, "/name");
+        let indexed = property_metadata("/layers/0/source").expect("layer source metadata");
+        assert_eq!(indexed.pointer, "/layers/*/source");
+        assert!(property_metadata("/unknown").is_none());
     }
 }

@@ -2,14 +2,13 @@
 
 ## Status
 
-This document plans a standalone Rust desktop version of Procedural Material
-Studio. It is a plan only; it does not change the current recipe format,
-generated textures, Unity editor, or Bevy island viewer.
+Implemented on 26 August 2026 as the standalone `island-material-studio`
+crate. The implementation retains the existing recipe format, generated
+texture bytes, Unity editor, and Bevy island viewer contracts. This document
+now records the architecture and acceptance criteria used for the build.
 
-The current worktree is already carrying uncommitted procedural-material and
-Unity work. Implementation must preserve that work, establish baselines from
-the worktree as it exists when implementation begins, and keep unrelated Unity
-assets out of scope.
+Unrelated Unity assets that were already present in the worktree remained out
+of scope and were not included in the studio commits.
 
 ## Desired outcome
 
