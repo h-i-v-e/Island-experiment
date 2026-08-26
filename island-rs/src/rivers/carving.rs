@@ -216,14 +216,13 @@ pub(super) fn shape_and_carve_river(
     }
 }
 
-pub(super) fn prepare_river_profile(
+pub(super) fn form_river_profile(
     environment: RiverProfileEnvironment<'_>,
     nodes: &mut [RiverNode],
     waterfalls: &mut [bool],
-    waterfall_relocation: WaterfallRelocation<'_>,
     parameters: RiverCarveParameters<'_>,
-    scratch: &mut RiverProfileScratch,
-) -> (Option<RiverMouthTransition>, bool) {
+    gradient_scratch: &mut Vec<f32>,
+) -> Option<usize> {
     let mut surface = parameters.downstream_surface;
     let mut water_surface = parameters.downstream_surface;
     for (index, node) in nodes.iter_mut().enumerate().rev() {
@@ -254,21 +253,9 @@ pub(super) fn prepare_river_profile(
         parameters.cross_sections,
         profile_end,
         parameters.max_height,
-        &mut scratch.gradients,
+        gradient_scratch,
     );
-    let waterfalls_valid = relocate_conflicting_waterfalls(
-        environment.mesh,
-        nodes,
-        waterfalls,
-        profile_end,
-        waterfall_relocation,
-        parameters.cross_sections,
-        &mut scratch.waterfall_drops,
-    );
-    (
-        ocean_entry.map(|ocean_entry| river_mouth_transition(ocean_entry, waterfalls)),
-        waterfalls_valid,
-    )
+    ocean_entry
 }
 
 pub(super) fn river_depth(
@@ -445,6 +432,56 @@ pub(super) fn form_stepped_profile(
         }
         nodes[index].surface = level.min(natural_surface);
     }
+}
+
+/// Lowers the terrace containing `anchor` back to its preceding waterfall or
+/// source. If the new level would make the receiver rise downstream, the
+/// correction crosses successive terraces until the original profile is no
+/// higher than `target_surface` again.
+///
+/// Returns whether the correction reached the river's terminal node.
+pub(super) fn lower_profile_reach_through_confluence(
+    nodes: &mut [RiverNode],
+    waterfalls: &mut [bool],
+    anchor: usize,
+    target_surface: f32,
+) -> bool {
+    let Some(anchor_surface) = nodes.get(anchor).map(|node| node.surface) else {
+        return false;
+    };
+    if !target_surface.is_finite() || anchor_surface <= target_surface + f32::EPSILON {
+        return false;
+    }
+
+    let reach_start = waterfalls[..anchor.min(waterfalls.len())]
+        .iter()
+        .rposition(|&waterfall| waterfall)
+        .map_or(0, |waterfall| waterfall + 1);
+    let mut reach_end = anchor;
+    while nodes
+        .get(reach_end + 1)
+        .is_some_and(|node| node.surface > target_surface + f32::EPSILON)
+    {
+        reach_end += 1;
+    }
+
+    for node in &mut nodes[reach_start..=reach_end] {
+        node.surface = node.surface.min(target_surface);
+    }
+
+    let affected_segment_start = reach_start.saturating_sub(1);
+    let affected_segment_end = (reach_end + 1)
+        .min(nodes.len().saturating_sub(1))
+        .min(waterfalls.len());
+    for segment in affected_segment_start..affected_segment_end {
+        if waterfalls[segment]
+            && nodes[segment].surface <= nodes[segment + 1].surface + f32::EPSILON
+        {
+            waterfalls[segment] = false;
+        }
+    }
+
+    reach_end + 1 == nodes.len()
 }
 
 pub(super) fn enforce_gentle_river_profile(

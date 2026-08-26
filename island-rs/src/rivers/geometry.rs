@@ -92,6 +92,42 @@ pub(super) fn lower_precarve_river_valleys(
     lowered
 }
 
+/// Pulls the coarse river footprint below its reconciled hydraulic profile
+/// before channel rings or waterfall support are built. This prevents the
+/// final water mesh from being clamped back to stale, higher terrain after a
+/// confluence lowers an existing receiver terrace.
+pub(super) fn lower_precarve_river_corridors_to_profiles(
+    network: &RiverNetwork,
+    mesh: &mut Mesh,
+    adjacency: &Adjacency,
+) -> usize {
+    let footprint = build_river_footprint(network, mesh, adjacency, false);
+    let (_, banks) = river_topology_masks(mesh, &footprint.coverage);
+    let mut lowered = 0;
+    for (vertex, owner) in footprint.owner.iter().copied().enumerate() {
+        let Some(owner) = owner else {
+            continue;
+        };
+        if network.perimeter.get(vertex).copied().unwrap_or(true)
+            || network.ocean.get(vertex).copied().unwrap_or(true)
+            || !owner.surface.is_finite()
+        {
+            continue;
+        }
+        let clearance = if banks[vertex] {
+            0.0
+        } else {
+            RIVER_SURFACE_OFFSET
+        };
+        let target = owner.surface - clearance;
+        if mesh.vertices[vertex].z > target {
+            mesh.vertices[vertex].z = target;
+            lowered += 1;
+        }
+    }
+    lowered
+}
+
 #[derive(Clone, Copy)]
 pub(super) struct WaterfallShoulderCandidate {
     pub(super) vertex: usize,

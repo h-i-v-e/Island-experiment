@@ -29,7 +29,8 @@ use carving::{
     DeltaScratch, RiverCarveOptions, RiverCarveParameters, RiverCarveScratch,
     RiverChannelParameters, RiverProfileEnvironment, RiverProfileScratch, RiverTerrain,
     WaterfallRelocation, WaterfallSiteEnvironment, average_edge_length, create_delta,
-    enforce_gentle_river_profile, prepare_river_profile, shape_and_carve_river,
+    enforce_gentle_river_profile, form_river_profile, lower_profile_reach_through_confluence,
+    relocate_conflicting_waterfalls, river_mouth_transition, shape_and_carve_river,
     unfitted_river_depth,
 };
 pub(crate) use channel::encode_bank_distance_in_uv;
@@ -43,8 +44,9 @@ use channel::{
 use geometry::{
     BuiltRiverGeometry, RiverChannelFootprintOwner, RiverFootprint, RiverGeometryBuilder,
     RiverMeshBuffers, RiverOwnerKey, apply_known_surfaces, confluence_connector,
-    finalize_river_budgets, lower_precarve_river_valleys, raise_precarve_waterfall_shoulders,
-    river_reaches_ocean, transfer_tributary_budgets,
+    finalize_river_budgets, lower_precarve_river_corridors_to_profiles,
+    lower_precarve_river_valleys, raise_precarve_waterfall_shoulders, river_reaches_ocean,
+    transfer_tributary_budgets,
 };
 pub(crate) use rocks::append_settled_rocks;
 use rocks::generate_river_rock_mesh;
@@ -582,6 +584,8 @@ impl RiverNetwork {
         lower_precarve_river_valleys(self, mesh, adjacency);
         raise_precarve_waterfall_shoulders(self, mesh, adjacency);
         self.refresh_after_vertical_displacement(mesh);
+        lower_precarve_river_corridors_to_profiles(self, mesh, adjacency);
+        self.refresh(mesh);
         if !options.form_deltas {
             let loose_volume = material.volume(mesh);
             self.form_channel_rings(mesh, adjacency);
@@ -666,22 +670,14 @@ impl RiverNetwork {
         footprint: &RiverFootprint,
         rejected_waterfall_vertices: Option<&HashSet<usize>>,
     ) -> Vec<bool> {
-        let environment = RiverProfileEnvironment {
-            mesh,
-            adjacency,
-            ocean: &self.ocean,
-        };
-        let site_environment =
-            rejected_waterfall_vertices.map(|rejected| WaterfallSiteEnvironment {
-                adjacency,
-                coverage: &footprint.coverage,
-                ocean: &self.ocean,
-                perimeter: &self.perimeter,
-                rejected,
-            });
         let mut scratch = RiverProfileScratch::default();
-        let mut invalid = vec![false; self.rivers.len()];
-        for (river_index, failed) in invalid.iter_mut().enumerate() {
+        let mut ocean_entries = vec![None; self.rivers.len()];
+        for (river_index, ocean_entry) in ocean_entries.iter_mut().enumerate() {
+            let environment = RiverProfileEnvironment {
+                mesh,
+                adjacency,
+                ocean: &self.ocean,
+            };
             let terminal_ocean = river_reaches_ocean(&self.rivers[river_index], &self.ocean);
             let join_vertex = self.join_vertices[river_index];
             let downstream_surface = self.rivers[river_index]
@@ -694,30 +690,113 @@ impl RiverNetwork {
                         .find(|node| Some(node.vertex) == join_vertex)
                 })
                 .map_or(f32::NEG_INFINITY, |node| node.surface);
-            let parameters = RiverCarveParameters {
-                downstream_surface,
-                terminal_ocean,
-                max_height: self.max_height,
-                max_flow: self.max_flow,
-                depth_multiplier: channel_parameters.depth_multiplier,
-                cross_sections: &self.cross_sections[river_index],
-            };
-            let (mouth, waterfalls_valid) = prepare_river_profile(
+            *ocean_entry = form_river_profile(
                 environment,
                 &mut self.rivers[river_index].nodes,
                 &mut self.waterfalls[river_index],
+                RiverCarveParameters {
+                    downstream_surface,
+                    terminal_ocean,
+                    max_height: self.max_height,
+                    max_flow: self.max_flow,
+                    depth_multiplier: channel_parameters.depth_multiplier,
+                    cross_sections: &self.cross_sections[river_index],
+                },
+                &mut scratch.gradients,
+            );
+        }
+        // Join targets always have lower indices than their tributaries. Walk
+        // upstream branches first so a later, lower sibling cannot invalidate
+        // an already-reconciled confluence on their shared receiver.
+        self.reconcile_confluence_profiles();
+
+        let mut invalid = vec![false; self.rivers.len()];
+        for (river_index, failed) in invalid.iter_mut().enumerate() {
+            let profile_end = ocean_entries[river_index].map_or_else(
+                || self.rivers[river_index].nodes.len().saturating_sub(1),
+                |ocean_entry| ocean_entry.saturating_sub(1),
+            );
+            let site_environment =
+                rejected_waterfall_vertices.map(|rejected| WaterfallSiteEnvironment {
+                    adjacency,
+                    coverage: &footprint.coverage,
+                    ocean: &self.ocean,
+                    perimeter: &self.perimeter,
+                    rejected,
+                });
+            let waterfalls_valid = relocate_conflicting_waterfalls(
+                mesh,
+                &mut self.rivers[river_index].nodes,
+                &mut self.waterfalls[river_index],
+                profile_end,
                 WaterfallRelocation {
                     clearance: waterfall_clearance,
                     site: site_environment,
                     river: river_index,
                 },
-                parameters,
-                &mut scratch,
+                &self.cross_sections[river_index],
+                &mut scratch.waterfall_drops,
             );
-            self.river_mesh_ends[river_index] = mouth.map(|mouth| mouth.river_mesh_end);
+            self.river_mesh_ends[river_index] = ocean_entries[river_index].map(|ocean_entry| {
+                river_mouth_transition(ocean_entry, &self.waterfalls[river_index]).river_mesh_end
+            });
             *failed = !waterfalls_valid;
         }
         invalid
+    }
+
+    fn reconcile_confluence_profiles(&mut self) {
+        for river_index in (0..self.rivers.len()).rev() {
+            self.reconcile_confluence_profile(river_index);
+        }
+    }
+
+    fn reconcile_confluence_profile(&mut self, mut incoming_river: usize) {
+        loop {
+            let Some(receiver) = self.rivers[incoming_river].join else {
+                return;
+            };
+            let Some(join_vertex) = self.join_vertices[incoming_river] else {
+                return;
+            };
+            let Some(incoming_terminal) = self.rivers[incoming_river].nodes.len().checked_sub(1)
+            else {
+                return;
+            };
+            let Some(receiver_join) = self.rivers[receiver]
+                .nodes
+                .iter()
+                .position(|node| node.vertex == join_vertex)
+            else {
+                return;
+            };
+            let incoming_surface = self.rivers[incoming_river].nodes[incoming_terminal].surface;
+            let receiver_surface = self.rivers[receiver].nodes[receiver_join].surface;
+
+            if incoming_surface > receiver_surface + f32::EPSILON {
+                lower_profile_reach_through_confluence(
+                    &mut self.rivers[incoming_river].nodes,
+                    &mut self.waterfalls[incoming_river],
+                    incoming_terminal,
+                    receiver_surface,
+                );
+                return;
+            }
+            if receiver_surface <= incoming_surface + f32::EPSILON {
+                return;
+            }
+
+            let reached_terminal = lower_profile_reach_through_confluence(
+                &mut self.rivers[receiver].nodes,
+                &mut self.waterfalls[receiver],
+                receiver_join,
+                incoming_surface,
+            );
+            if !reached_terminal {
+                return;
+            }
+            incoming_river = receiver;
+        }
     }
 
     fn carve_channels(

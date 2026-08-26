@@ -166,6 +166,114 @@ fn pre_carve_valley_gently_lowers_several_rings_around_the_course() {
 }
 
 #[test]
+fn reconciled_profile_pulls_terrain_and_water_below_the_stale_corridor() {
+    let width = 7;
+    let points = (0..width)
+        .flat_map(|y| (0..width).map(move |x| Vec2::new(x as f32, y as f32)))
+        .collect::<Vec<_>>();
+    let mut triangles = Vec::new();
+    for y in 0..width - 1 {
+        for x in 0..width - 1 {
+            let lower_left = (y * width + x) as u32;
+            let lower_right = lower_left + 1;
+            let upper_left = lower_left + width as u32;
+            let upper_right = upper_left + 1;
+            triangles.extend([
+                lower_left,
+                lower_right,
+                upper_left,
+                upper_left,
+                lower_right,
+                upper_right,
+            ]);
+        }
+    }
+    let mut mesh = Mesh {
+        vertices: points.iter().map(|point| point.extend(1.0)).collect(),
+        triangles,
+        ..Mesh::default()
+    };
+    let node = |x: usize| {
+        let vertex = 3 * width + x;
+        RiverNode {
+            vertex,
+            flow: 10,
+            surface: 0.25,
+            position: mesh.vertices[vertex],
+        }
+    };
+    let network = RiverNetwork {
+        rivers: vec![River {
+            nodes: (1..width - 1).map(node).collect(),
+            join: None,
+        }],
+        join_vertices: vec![None],
+        waterfalls: vec![vec![false; width - 2]],
+        river_mesh_ends: vec![None],
+        max_flow: 10,
+        max_height: 1.0,
+        ocean: vec![false; mesh.vertices.len()],
+        perimeter: vec![false; mesh.vertices.len()],
+        cross_sections: vec![vec![
+            RiverCrossSection {
+                target_half_width: 1.0,
+                required_depth: 0.1,
+                ..RiverCrossSection::default()
+            };
+            width - 2
+        ]],
+    };
+    let adjacency = mesh.adjacency();
+
+    assert!(lower_precarve_river_corridors_to_profiles(&network, &mut mesh, &adjacency) > 0);
+
+    let footprint = build_river_footprint(&network, &mesh, &adjacency, false);
+    let attributes = river_mesh_attributes(&mesh, &footprint.owner);
+    let buffers = RiverMeshBuffers::new(footprint.coverage, attributes);
+    let protected = vec![false; mesh.vertices.len()];
+    let perimeter = mesh.perimeter_mask();
+    lift_river_banks_to_surface(
+        &mut mesh,
+        &adjacency,
+        &buffers.coverage,
+        &buffers.surfaces,
+        &buffers.target_half_widths,
+        RiverBankLiftMasks {
+            ocean: &network.ocean,
+            perimeter: &perimeter,
+            protected: &protected,
+        },
+    );
+    for (vertex, owner) in footprint.owner.iter().copied().enumerate() {
+        if let Some(owner) = owner {
+            assert!(mesh.vertices[vertex].z <= owner.surface + f32::EPSILON);
+        }
+    }
+
+    let constraints = WaterfallTerrainConstraints {
+        patch: protected.clone(),
+        pinned: protected.clone(),
+        support: protected.clone(),
+        water_unclamped: protected,
+        terrain_ceiling: vec![f32::INFINITY; mesh.vertices.len()],
+    };
+    let river_mesh = duplicate_river_topology(
+        &mesh,
+        &buffers.coverage,
+        &buffers.surfaces,
+        &buffers.river_uv,
+        &constraints,
+    );
+    assert!(!river_mesh.vertices.is_empty());
+    assert!(
+        river_mesh
+            .vertices
+            .iter()
+            .all(|vertex| vertex.z <= 0.25 + RIVER_SURFACE_OFFSET + f32::EPSILON)
+    );
+}
+
+#[test]
 fn pre_carve_waterfall_shoulders_raise_low_banks_without_moving_the_channel() {
     let points = (0..=10)
         .flat_map(|y| (0..=8).map(move |x| Vec2::new(x as f32, y as f32)))
@@ -1037,6 +1145,155 @@ fn higher_confluence_reach_is_lowered_back_to_the_nearest_waterfall() {
     assert!((mesh.vertices[3].z - 0.3).abs() < 1.0e-6);
     assert!((mesh.vertices[4].z - 0.3).abs() < 1.0e-6);
     assert!((budget.bedrock_eroded - 0.6).abs() < 1.0e-6);
+}
+
+#[test]
+fn lower_joined_river_reaches_previous_waterfall_and_keeps_flow_downhill() {
+    let mut nodes = [0.9, 0.9, 0.7, 0.7, 0.5, 0.5]
+        .into_iter()
+        .enumerate()
+        .map(|(vertex, surface)| RiverNode {
+            vertex,
+            flow: 10,
+            surface,
+            position: Vec3::new(vertex as f32, 0.0, surface),
+        })
+        .collect::<Vec<_>>();
+    let mut waterfalls = vec![false, true, false, true, false, false];
+
+    let reached_terminal =
+        lower_profile_reach_through_confluence(&mut nodes, &mut waterfalls, 2, 0.6);
+
+    let surfaces = nodes.iter().map(|node| node.surface).collect::<Vec<_>>();
+    assert_eq!(surfaces, [0.9, 0.9, 0.6, 0.6, 0.5, 0.5]);
+    assert!(!reached_terminal);
+    assert!(waterfalls[1]);
+    assert!(waterfalls[3]);
+    assert!(surfaces.windows(2).all(|pair| pair[0] >= pair[1]));
+}
+
+#[test]
+fn confluence_lowering_crosses_and_clears_consumed_waterfalls() {
+    let mut nodes = [0.9, 0.9, 0.7, 0.7, 0.5]
+        .into_iter()
+        .enumerate()
+        .map(|(vertex, surface)| RiverNode {
+            vertex,
+            flow: 10,
+            surface,
+            position: Vec3::new(vertex as f32, 0.0, surface),
+        })
+        .collect::<Vec<_>>();
+    let mut waterfalls = vec![false, true, false, true, false];
+
+    let reached_terminal =
+        lower_profile_reach_through_confluence(&mut nodes, &mut waterfalls, 2, 0.4);
+
+    let surfaces = nodes.iter().map(|node| node.surface).collect::<Vec<_>>();
+    assert_eq!(surfaces, [0.9, 0.9, 0.4, 0.4, 0.4]);
+    assert!(reached_terminal);
+    assert!(waterfalls[1]);
+    assert!(!waterfalls[3]);
+    assert!(surfaces.windows(2).all(|pair| pair[0] >= pair[1]));
+}
+
+#[test]
+fn confluence_lowering_propagates_through_a_join_chain() {
+    let node = |vertex, surface| RiverNode {
+        vertex,
+        flow: 10,
+        surface,
+        position: Vec3::new(vertex as f32, 0.0, surface),
+    };
+    let mut network = RiverNetwork {
+        rivers: vec![
+            River {
+                nodes: vec![node(0, 0.7), node(1, 0.7)],
+                join: None,
+            },
+            River {
+                nodes: vec![node(2, 0.9), node(3, 0.9)],
+                join: Some(0),
+            },
+            River {
+                nodes: vec![node(4, 0.5), node(5, 0.5)],
+                join: Some(1),
+            },
+        ],
+        join_vertices: vec![None, Some(1), Some(3)],
+        waterfalls: vec![vec![false; 2]; 3],
+        river_mesh_ends: vec![None; 3],
+        max_flow: 10,
+        max_height: 1.0,
+        ocean: vec![false; 6],
+        perimeter: vec![false; 6],
+        cross_sections: vec![vec![RiverCrossSection::default(); 2]; 3],
+    };
+
+    network.reconcile_confluence_profile(2);
+
+    assert!(
+        network.rivers[0]
+            .nodes
+            .iter()
+            .all(|node| node.surface.to_bits() == 0.5_f32.to_bits())
+    );
+    assert!(
+        network.rivers[1]
+            .nodes
+            .iter()
+            .all(|node| node.surface.to_bits() == 0.5_f32.to_bits())
+    );
+    assert!(
+        network.rivers[2]
+            .nodes
+            .iter()
+            .all(|node| node.surface.to_bits() == 0.5_f32.to_bits())
+    );
+}
+
+#[test]
+fn lower_sibling_tributary_sets_the_shared_confluence_level() {
+    let node = |vertex, surface| RiverNode {
+        vertex,
+        flow: 10,
+        surface,
+        position: Vec3::new(vertex as f32, 0.0, surface),
+    };
+    let mut network = RiverNetwork {
+        rivers: vec![
+            River {
+                nodes: vec![node(0, 0.7), node(1, 0.7)],
+                join: None,
+            },
+            River {
+                nodes: vec![node(2, 0.8), node(3, 0.8)],
+                join: Some(0),
+            },
+            River {
+                nodes: vec![node(4, 0.5), node(5, 0.5)],
+                join: Some(0),
+            },
+        ],
+        join_vertices: vec![None, Some(1), Some(1)],
+        waterfalls: vec![vec![false; 2]; 3],
+        river_mesh_ends: vec![None; 3],
+        max_flow: 10,
+        max_height: 1.0,
+        ocean: vec![false; 6],
+        perimeter: vec![false; 6],
+        cross_sections: vec![vec![RiverCrossSection::default(); 2]; 3],
+    };
+
+    network.reconcile_confluence_profiles();
+
+    assert!(
+        network
+            .rivers
+            .iter()
+            .flat_map(|river| &river.nodes)
+            .all(|node| node.surface.to_bits() == 0.5_f32.to_bits())
+    );
 }
 
 #[test]
@@ -4014,6 +4271,17 @@ fn routed_rivers_have_monotonic_surfaces_and_valid_joins() {
     network.shape(&mut mesh, &adjacency, &mut material, true, true);
     for (index, river) in network.rivers.iter().enumerate() {
         assert!(river.join.is_none_or(|join| join < index));
+        if let (Some(join), Some(join_vertex), Some(terminal)) =
+            (river.join, network.join_vertices[index], river.nodes.last())
+        {
+            let joined_surface = network.rivers[join]
+                .nodes
+                .iter()
+                .find(|node| node.vertex == join_vertex)
+                .map(|node| node.surface)
+                .expect("join vertex belongs to the receiving river");
+            assert!((terminal.surface - joined_surface).abs() <= 1.0e-6);
+        }
         let mut outlet = index;
         while let Some(join) = network.rivers[outlet].join {
             outlet = join;
