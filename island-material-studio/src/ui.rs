@@ -10,10 +10,15 @@ pub(crate) mod toolbar;
 
 use std::path::{Path, PathBuf};
 
-use bevy::{app::AppExit, prelude::*, window::WindowCloseRequested};
+use bevy::{
+    app::AppExit,
+    prelude::*,
+    tasks::{IoTaskPool, Task, futures::check_ready},
+    window::WindowCloseRequested,
+};
 use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
 use motu::procedural_textures::editor_protocol;
-use rfd::FileDialog;
+use rfd::AsyncFileDialog;
 
 use crate::{
     app::DocumentResource,
@@ -116,6 +121,7 @@ pub struct UiState {
     pending_destructive: Option<DeferredAction>,
     external_conflict: bool,
     recipe_gesture_active: bool,
+    file_dialog: Option<PendingFileDialog>,
 }
 
 impl Default for UiState {
@@ -135,6 +141,7 @@ impl Default for UiState {
             pending_destructive: None,
             external_conflict: false,
             recipe_gesture_active: false,
+            file_dialog: None,
         }
     }
 }
@@ -146,6 +153,26 @@ enum DeferredAction {
     Revert,
     Quit,
 }
+
+#[derive(Clone, Debug)]
+enum SaveContinuation {
+    None,
+    Deferred(DeferredAction),
+    ResolveConflict,
+}
+
+#[derive(Clone, Debug)]
+enum FileDialogIntent {
+    Open,
+    SaveAs(SaveContinuation),
+}
+
+struct FileDialogCompletion {
+    intent: FileDialogIntent,
+    path: Option<PathBuf>,
+}
+
+struct PendingFileDialog(Task<FileDialogCompletion>);
 
 pub struct StudioUiPlugin;
 
@@ -187,6 +214,16 @@ fn draw_studio(
             .record_successful_bake(success.recipe_hash.clone());
         state.status = format!("Bake complete: {}", success.manifest_path.display());
         bake.last_success = Some(success);
+    }
+    if let Some(completion) = poll_file_dialog(&mut state) {
+        handle_file_dialog_completion(
+            completion,
+            &mut document.0,
+            &mut state,
+            &mut diagnostics,
+            &mut preview_state,
+            &mut exit,
+        );
     }
 
     let source_path = document
@@ -334,31 +371,16 @@ fn handle_action(
 ) {
     match action {
         UiAction::New => destructive_or_defer(document, state, DeferredAction::New),
-        UiAction::Open => {
-            if let Some(path) = pick_recipe_to_open(document) {
-                if document.is_dirty() {
-                    state.pending_destructive = Some(DeferredAction::Open(path));
-                } else if let Err(error) = execute_deferred(
-                    DeferredAction::Open(path),
-                    document,
-                    state,
-                    diagnostics,
-                    preview,
-                    exit,
-                ) {
-                    report_document_error(error, state);
-                }
-            }
-        }
+        UiAction::Open => start_open_dialog(document, state),
         UiAction::Save => match document.save() {
             Ok(()) => state.status = "Recipe saved".into(),
             Err(DocumentError::NoSourcePath) => {
-                save_as_from_dialog(document, state, None);
+                start_save_dialog(document, state, None, SaveContinuation::None);
             }
             Err(error) => report_document_error(error, state),
         },
         UiAction::SaveAs => {
-            save_as_from_dialog(document, state, None);
+            start_save_dialog(document, state, None, SaveContinuation::None);
         }
         UiAction::Revert => destructive_or_defer(document, state, DeferredAction::Revert),
         UiAction::Quit => destructive_or_defer(document, state, DeferredAction::Quit),
@@ -469,19 +491,12 @@ fn draw_dirty_prompt(
                             }
                         }
                         Err(DocumentError::NoSourcePath) => {
-                            if save_as_from_dialog(document, state, None) {
-                                state.pending_destructive = None;
-                                if let Err(error) = execute_deferred(
-                                    action.clone(),
-                                    document,
-                                    state,
-                                    diagnostics,
-                                    preview,
-                                    exit,
-                                ) {
-                                    report_document_error(error, state);
-                                }
-                            }
+                            start_save_dialog(
+                                document,
+                                state,
+                                None,
+                                SaveContinuation::Deferred(action.clone()),
+                            );
                         }
                         Err(error) => report_document_error(error, state),
                     }
@@ -527,14 +542,13 @@ fn draw_conflict_prompt(
                     }
                     state.external_conflict = false;
                 }
-                if ui.button("Save As").clicked()
-                    && save_as_from_dialog(
+                if ui.button("Save As").clicked() {
+                    start_save_dialog(
                         document,
                         state,
                         Some(&format!("{}-copy.json", document.recipe().name)),
-                    )
-                {
-                    state.external_conflict = false;
+                        SaveContinuation::ResolveConflict,
+                    );
                 }
                 if ui.button("Overwrite").clicked() {
                     match document.save_overwrite() {
@@ -550,16 +564,30 @@ fn draw_conflict_prompt(
         });
 }
 
-fn pick_recipe_to_open(document: &StudioDocument) -> Option<PathBuf> {
-    let dialog = recipe_dialog("Open procedural material recipe", document.source_path());
-    dialog.pick_file()
+fn start_open_dialog(document: &StudioDocument, state: &mut UiState) {
+    if state.file_dialog.is_some() {
+        return;
+    }
+    let future =
+        recipe_dialog("Open procedural material recipe", document.source_path()).pick_file();
+    state.file_dialog = Some(PendingFileDialog(IoTaskPool::get().spawn(async move {
+        FileDialogCompletion {
+            intent: FileDialogIntent::Open,
+            path: future.await.map(PathBuf::from),
+        }
+    })));
+    state.status = "Choose a procedural material recipe…".into();
 }
 
-fn save_as_from_dialog(
-    document: &mut StudioDocument,
+fn start_save_dialog(
+    document: &StudioDocument,
     state: &mut UiState,
     suggested_name: Option<&str>,
-) -> bool {
+    continuation: SaveContinuation,
+) {
+    if state.file_dialog.is_some() {
+        return;
+    }
     let default_name = format!("{}.json", document.recipe().name);
     let source = document.source_path();
     let dialog = recipe_dialog("Save procedural material recipe", source).set_file_name(
@@ -570,29 +598,80 @@ fn save_as_from_dialog(
                 .unwrap_or(&default_name)
         }),
     );
-    let Some(path) = dialog.save_file().map(ensure_json_extension) else {
-        return false;
-    };
-    match document.save_as(&path) {
-        Ok(()) => {
-            state.status = format!("Saved {}", path.display());
-            true
+    let future = dialog.save_file();
+    state.file_dialog = Some(PendingFileDialog(IoTaskPool::get().spawn(async move {
+        FileDialogCompletion {
+            intent: FileDialogIntent::SaveAs(continuation),
+            path: future.await.map(PathBuf::from),
         }
-        Err(error) => {
-            report_document_error(error, state);
-            false
-        }
-    }
+    })));
+    state.status = "Choose where to save the recipe…".into();
 }
 
-fn recipe_dialog(title: &str, source: Option<&Path>) -> FileDialog {
-    let mut dialog = FileDialog::new()
+fn recipe_dialog(title: &str, source: Option<&Path>) -> AsyncFileDialog {
+    let mut dialog = AsyncFileDialog::new()
         .set_title(title)
         .add_filter("Procedural material recipe", &["json"]);
     if let Some(directory) = source.and_then(Path::parent) {
         dialog = dialog.set_directory(directory);
     }
     dialog
+}
+
+fn poll_file_dialog(state: &mut UiState) -> Option<FileDialogCompletion> {
+    let completion = state
+        .file_dialog
+        .as_mut()
+        .and_then(|dialog| check_ready(&mut dialog.0))?;
+    state.file_dialog = None;
+    Some(completion)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn handle_file_dialog_completion(
+    completion: FileDialogCompletion,
+    document: &mut StudioDocument,
+    state: &mut UiState,
+    diagnostics: &mut diagnostics::DiagnosticsState,
+    preview: &mut PreviewState,
+    exit: &mut MessageWriter<AppExit>,
+) {
+    let Some(path) = completion.path else {
+        state.status = "File selection cancelled".into();
+        return;
+    };
+    match completion.intent {
+        FileDialogIntent::Open => {
+            let action = DeferredAction::Open(path);
+            if document.is_dirty() {
+                state.pending_destructive = Some(action);
+            } else if let Err(error) =
+                execute_deferred(action, document, state, diagnostics, preview, exit)
+            {
+                report_document_error(error, state);
+            }
+        }
+        FileDialogIntent::SaveAs(continuation) => {
+            let path = ensure_json_extension(path);
+            if let Err(error) = document.save_as(&path) {
+                report_document_error(error, state);
+                return;
+            }
+            state.status = format!("Saved {}", path.display());
+            match continuation {
+                SaveContinuation::None => {}
+                SaveContinuation::Deferred(action) => {
+                    state.pending_destructive = None;
+                    if let Err(error) =
+                        execute_deferred(action, document, state, diagnostics, preview, exit)
+                    {
+                        report_document_error(error, state);
+                    }
+                }
+                SaveContinuation::ResolveConflict => state.external_conflict = false,
+            }
+        }
+    }
 }
 
 fn ensure_json_extension(path: PathBuf) -> PathBuf {

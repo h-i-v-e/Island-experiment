@@ -26,7 +26,7 @@ there are no `mod.rs` files.
 The editor provides:
 
 - complete typed base-material and layer-stack editing;
-- native Open and Save As file selectors filtered to JSON recipes;
+- asynchronous native Open and Save As selectors filtered to JSON recipes;
 - bounded snapshot undo/redo and dirty-document protection;
 - debounced 128, 256, or 512-pixel background previews with stale-result
   rejection and an eight-entry CPU cache;
