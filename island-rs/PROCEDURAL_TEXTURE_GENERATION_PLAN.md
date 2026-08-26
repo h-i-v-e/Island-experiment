@@ -2,8 +2,8 @@
 
 ## Objective
 
-Build a deterministic procedural texture baker in Rust that can replace the
-Cartoon Ground and Floor Textures assets currently used by the Unity terrain.
+Build a deterministic procedural texture baker in Rust that replaces the
+legacy imported terrain-texture assets formerly used by the Unity terrain.
 The same Rust library must be usable in process by other renderers, while a
 standalone command-line tool must be able to produce ordinary image files for
 engines that do not call Rust directly.
@@ -12,7 +12,7 @@ The first visual target is an independently generated cracked-stone surface
 with the same useful characteristics as the current rock treatment: large
 irregular slabs, narrow branching cracks, rounded crack shoulders, quiet
 surface variation and readable relief. A second rounded-stone preset is needed
-for the riverbed before the whole Cartoon Textures directory can be removed.
+for the riverbed so the imported texture dependency can be removed.
 
 Every material will be generated from one authoritative periodic height field.
 Normal and occlusion maps will be derived from that height field rather than
@@ -21,17 +21,13 @@ and bright in the occlusion map.
 
 ## Current state and dependency boundary
 
-The Unity terrain material currently references more of the imported pack than
-the name `CrackedStoneA` suggests:
+The Unity terrain material now uses the generated material sets:
 
-- `_RockAlbedoMap` uses `BaseColor/CrackedStoneB.png`.
-- `_RockNormalMap` uses `NormalMaps/CrackedStoneA_n.png`.
-- `_RockMaskMap` uses `RockMaskMap.png`, whose red and green channels carry
-  height and occlusion.
-- `_RiverBedAlbedoMap` and `_RiverBedNormalMap` use the pack's `Stones` maps.
-- `_RiverBedMaskMap` is another locally packed height/occlusion texture.
-- `_RockTextureOcclusionStrength` is currently zero, so new rock occlusion will
-  not become visible until that material setting is deliberately retuned.
+- `_RockAlbedoMap`, `_RockNormalMap`, and `_RockMaskMap` use the generated
+  cracked-stone colour, normal, height, and occlusion outputs.
+- `_RiverBedAlbedoMap`, `_RiverBedNormalMap`, and `_RiverBedMaskMap` use the
+  generated rounded-river-stone outputs.
+- Both material occlusion channels are enabled and deliberately tuned.
 
 The Unity shader contract is already suitable for generated textures:
 
@@ -173,6 +169,7 @@ flow should follow this shape:
 ```rust
 pub fn generate_texture_set(
     recipe: &TextureRecipe,
+    normal_convention: NormalConvention,
 ) -> Result<TextureSet, TextureError>;
 
 pub fn write_texture_set(
@@ -233,7 +230,6 @@ Every recipe must contain one unambiguous current document shape:
 - a material model and its parameters;
 - an ordered `layers` stack with stable IDs, scalar sources, remapping and
   independent height/albedo output bindings;
-- normal convention;
 - normal and displacement scale;
 - occlusion settings;
 - albedo palette and variation settings;
@@ -548,12 +544,14 @@ Add an `island-texture-baker` binary with this initial interface:
 ```text
 island-texture-baker \
   --recipe island-rs/texture-recipes/cracked-stone.json \
-  --output island-unity/Assets/Generated/Textures/CrackedStone
+  --output island-unity/Assets/Generated/Textures/CrackedStone \
+  --normal-convention direct-x
 ```
 
 Required behavior:
 
 - validate the full recipe before creating output files;
+- require the calling engine or tool to select the normal convention;
 - create the destination directory when its parent exists;
 - write each image to a temporary sibling and rename it into place;
 - write the manifest last so its presence means the set completed;
@@ -807,9 +805,9 @@ Exit gate: neither rock nor riverbed materials reference imported pack assets.
 ### Phase 7: Remove the dependency
 
 - Search all scenes, prefabs, materials, scripts and metadata for the imported
-  asset GUIDs and `Cartoon Textures` paths.
+  legacy imported asset GUIDs and paths.
 - Confirm every replacement texture and `.meta` file is committed.
-- Remove the imported Cartoon Textures directory and its root `.meta` file.
+- Remove the imported texture directory and its root `.meta` file.
 - Remove or update only the third-party notice entries that apply exclusively
   to that package.
 - Open the project from a clean checkout and verify no missing references.
@@ -890,6 +888,6 @@ clean checkout afterward.
   merely written to an unused channel.
 - Rust formatting, tests and strict Clippy pass.
 - Unity shader compilation and batch validation pass.
-- A clean checkout contains no unresolved Cartoon Textures GUIDs or paths.
-- The Cartoon Ground and Floor Textures package can be removed without changing
-  terrain or riverbed material functionality.
+- A clean checkout contains no unresolved legacy texture GUIDs or paths.
+- The legacy imported texture package can be removed without changing terrain
+  or riverbed material functionality.

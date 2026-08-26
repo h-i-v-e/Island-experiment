@@ -50,7 +50,6 @@ public sealed class ProceduralMaterialSchema
         schema.AddFallback("/physical_tile_width_m", "Tile width", "Physical width of one repeating tile", "number", 0.001, 1000, "m");
         schema.AddFallback("/physical_tile_height_m", "Tile height", "Physical height of one repeating tile", "number", 0.001, 1000, "m");
         schema.AddFallback("/material/kind", "Base material", "Rust-owned base height generator", "string");
-        schema.AddFallback("/normal_convention", "Normal convention", "Tangent-space normal convention", "string");
         schema.AddFallback("/normal_scale", "Normal scale", "Normal strength", "number", 0, 8);
         schema.AddFallback("/displacement/minimum_m", "Minimum displacement", "Minimum displacement", "number", -100, 100, "m");
         schema.AddFallback("/displacement/maximum_m", "Maximum displacement", "Maximum displacement", "number", -100, 100, "m");

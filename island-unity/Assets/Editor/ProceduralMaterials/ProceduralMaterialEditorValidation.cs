@@ -18,7 +18,13 @@ using Debug = UnityEngine.Debug;
 /// </summary>
 public static class ProceduralMaterialEditorValidation
 {
-    private static readonly string[] Recipes = { "cracked-stone.json", "rounded-river-stones.json" };
+    private static readonly string[] Recipes =
+    {
+        "Bark.json",
+        "PlateBark.json",
+        "cracked-stone.json",
+        "rounded-river-stones.json"
+    };
     private static readonly string[] SourceKinds =
     {
         "value", "fbm", "billow", "ridged", "cellular_distance", "cellular_distance_to_edge", "cellular_value"
@@ -48,7 +54,7 @@ public static class ProceduralMaterialEditorValidation
                 ValidateRecipe(baker, schema, recipe, validationRoot);
             }
             ValidatePreviewMapClassification();
-            Debug.Log("Procedural Material Studio integration validation passed for both committed recipes.");
+            Debug.Log("Procedural Material Studio integration validation passed for all committed recipes.");
         }
         finally
         {
@@ -223,7 +229,17 @@ public static class ProceduralMaterialEditorValidation
         var output = Path.Combine(validationRoot, Path.GetFileNameWithoutExtension(recipe) + "-preview");
         var snapshot = Path.Combine(validationRoot, Path.GetFileNameWithoutExtension(recipe) + "-snapshot.json");
         File.WriteAllText(snapshot, document.CurrentJson, new UTF8Encoding(false));
-        var envelope = RunBaker(baker, "preview", "--recipe", snapshot, "--output", output, "--size", "64");
+        var envelope = RunBaker(
+            baker,
+            "preview",
+            "--recipe",
+            snapshot,
+            "--output",
+            output,
+            "--size",
+            "64",
+            "--normal-convention",
+            "direct-x");
         RequireSuccessfulEnvelope(envelope, recipe + " preview");
         var result = new RustTextureBakerClient.BakerResult(
             RustTextureBakerClient.RequestKind.Preview,
@@ -304,9 +320,9 @@ public static class ProceduralMaterialEditorValidation
             if (samples == 0) throw new InvalidOperationException(recipe + " normal orientation validation found no relief samples.");
             var direct = directScore / samples;
             var invertedGreen = invertedGreenScore / samples;
-            if (invertedGreen < 0.9 || invertedGreen <= direct + 0.5)
+            if (direct < 0.9 || direct <= invertedGreen + 0.5)
             {
-                throw new InvalidOperationException(recipe + " OpenGL normal map did not align with Unity's height-map orientation.");
+                throw new InvalidOperationException(recipe + " DirectX normal map did not align with Unity's height-map orientation.");
             }
         }
         finally

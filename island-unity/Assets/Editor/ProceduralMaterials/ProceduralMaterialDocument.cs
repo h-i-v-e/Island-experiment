@@ -530,7 +530,6 @@ public sealed class ProceduralMaterialDocument : ScriptableObject, ISerializatio
       }
     }
   ],
-  'normal_convention': 'open_gl',
   'normal_scale': 1.0,
   'displacement': { 'minimum_m': -0.2, 'maximum_m': 0.2, 'base_m': 0.0, 'displacement_map': true },
   'occlusion': { 'directions': 8, 'samples': 6, 'radius': 1.0, 'max_radius': 8.0, 'cavity_strength': 1.5, 'horizon_strength': 0.85, 'power': 1.0, 'combine': { 'kind': 'multiply' } },

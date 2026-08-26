@@ -4,14 +4,23 @@ use std::{
 };
 
 use crate::{
-    ISLAND_WORLD_METRES, Mesh, Vec3,
+    ISLAND_WORLD_METRES, Mesh, Vec2, Vec3,
     clustered_foliage::{FoliageCrown, generate_cluster_foliage},
+    noise,
     rng::Rng,
 };
 
 const TREE_SEED_SALT: u64 = 0x7472_6565_5f77_6f6f;
+const WOOD_IRREGULARITY_DOMAIN: u64 = 0x776f_6f64_5f69_7272;
 const MINIMUM_UPWARD_DIRECTION: f32 = 0.12;
 const CROSS_SECTION_VERTICES: usize = 4;
+const TRUNK_BASE_FLARE_SCALE: f32 = 1.32;
+const TRUNK_BUTTRESS_VARIATION: f32 = 0.12;
+const BRANCH_OPENING_RADIUS_RATIO: f32 = 0.78;
+const BRANCH_COLLAR_LENGTH_RATIO: f32 = 0.22;
+const LOD0_TRIANGLE_DESCENDANT_MULTIPLIER: usize = 16;
+const LOD0_WOOD_IRREGULARITY_METRES: f32 = 0.025;
+const LOD0_WOOD_IRREGULARITY_SCALE_METRES: f32 = 0.42;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct TreeMeshes {
@@ -47,7 +56,7 @@ impl RingPlane {
 struct TreeOptions {
     maximum_child_branches: u8,
     trunk_sections: u8,
-    single_section_trunk_base: bool,
+    single_section_between_branches: bool,
     maximum_branch_depth: u8,
     trunk_radius_metres: f32,
     trunk_section_length_metres: f32,
@@ -66,7 +75,7 @@ impl Default for TreeOptions {
         Self {
             maximum_child_branches: 8,
             trunk_sections: 10,
-            single_section_trunk_base: true,
+            single_section_between_branches: true,
             maximum_branch_depth: 4,
             trunk_radius_metres: 0.68,
             trunk_section_length_metres: 1.0,
@@ -77,7 +86,7 @@ impl Default for TreeOptions {
             bend: 0.09,
             phototropism: 0.32,
             maximum_twist_radians: FRAC_PI_4,
-            tip_radius_scale: 0.2,
+            tip_radius_scale: 0.18,
         }
     }
 }
@@ -113,7 +122,7 @@ impl TreeOptions {
 #[derive(Debug)]
 struct GrowingAxis {
     ring: [u32; CROSS_SECTION_VERTICES],
-    trunk_base_emitted: bool,
+    unmeshed_sections: u8,
     centre: Vec3,
     direction: Vec3,
     x_axis: Vec3,
@@ -133,13 +142,13 @@ impl GrowingAxis {
     fn continuation(
         &self,
         ring: [u32; CROSS_SECTION_VERTICES],
-        trunk_base_emitted: bool,
+        unmeshed_sections: u8,
         step: AxisStep,
         spawned_face: Option<u8>,
     ) -> Self {
         Self {
             ring,
-            trunk_base_emitted,
+            unmeshed_sections,
             centre: step.centre,
             direction: step.direction,
             x_axis: step.x_axis,
@@ -190,9 +199,11 @@ struct BranchRecord {
     source_normal: Vec3,
     direction: Vec3,
     parent_radius: f32,
+    opening_radius: f32,
     radius: f32,
     parent_section_length: f32,
     section_length: f32,
+    collar_length: f32,
     root_taper_scale: f32,
     opening_radius_error: f32,
 }
@@ -209,6 +220,36 @@ struct TaperRing {
     centre: Vec3,
     vertices: [u32; CROSS_SECTION_VERTICES],
     scale: f32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct TubeSegment {
+    lower: [u32; CROSS_SECTION_VERTICES],
+    upper: [u32; CROSS_SECTION_VERTICES],
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct TriangleSpan {
+    index_start: usize,
+    index_count: usize,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct BranchJunction {
+    parent_lower: [u32; CROSS_SECTION_VERTICES],
+    parent_upper: [u32; CROSS_SECTION_VERTICES],
+    branch_ring: [u32; CROSS_SECTION_VERTICES],
+    connector_triangles: TriangleSpan,
+    parent_bark_axis: Vec2,
+}
+
+impl BranchJunction {
+    fn owns_connector(self, edge: [u32; 2]) -> bool {
+        let is_parent =
+            |vertex| self.parent_lower.contains(&vertex) || self.parent_upper.contains(&vertex);
+        (self.branch_ring.contains(&edge[0]) && is_parent(edge[1]))
+            || (self.branch_ring.contains(&edge[1]) && is_parent(edge[0]))
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -231,7 +272,7 @@ struct GrowthRateRecord {
 #[derive(Clone, Debug, Default, PartialEq)]
 struct TreeGenerationStats {
     child_branches: u8,
-    collapsed_trunk_rings: u8,
+    collapsed_intermediate_rings: u16,
     branches: Vec<BranchRecord>,
     directions: Vec<DirectionRecord>,
     growth_rates: Vec<GrowthRateRecord>,
@@ -239,10 +280,13 @@ struct TreeGenerationStats {
 }
 
 struct TreeGenerator {
+    seed: u64,
     options: TreeOptions,
     rng: Rng,
     pending: VecDeque<GrowingAxis>,
     taper_rings: Vec<TaperRing>,
+    tube_segments: Vec<TubeSegment>,
+    branch_junctions: Vec<BranchJunction>,
     terminal_rings: Vec<[u32; CROSS_SECTION_VERTICES]>,
     wood: Mesh,
     stats: TreeGenerationStats,
@@ -252,10 +296,13 @@ impl TreeGenerator {
     fn new(seed: u64, options: TreeOptions) -> Self {
         debug_assert!(options.is_valid());
         let mut generator = Self {
+            seed,
             options,
             rng: Rng::new(seed ^ TREE_SEED_SALT),
             pending: VecDeque::new(),
             taper_rings: Vec::new(),
+            tube_segments: Vec::new(),
+            branch_junctions: Vec::new(),
             terminal_rings: Vec::new(),
             wood: Mesh::default(),
             stats: TreeGenerationStats::default(),
@@ -268,11 +315,26 @@ impl TreeGenerator {
             options.trunk_radius_metres * generator.rng.range(0.82, 1.18) / ISLAND_WORLD_METRES;
         let section_length = options.trunk_section_length_metres * generator.rng.range(0.82, 1.18)
             / ISLAND_WORLD_METRES;
-        let ring = generator.append_ring(centre, Vec3::X, Vec3::Y, radius, 1.0);
+        let ring = generator.append_ring(
+            centre,
+            Vec3::Z,
+            Vec3::X,
+            Vec3::Y,
+            radius,
+            TRUNK_BASE_FLARE_SCALE,
+        );
+        for (side, &vertex) in ring.iter().enumerate() {
+            let side = u16::try_from(side).expect("trunk side fits u16");
+            let variation =
+                noise::value(seed ^ WOOD_IRREGULARITY_DOMAIN, f32::from(side) * 1.37, 0.0);
+            let position = generator.wood.vertices[vertex as usize];
+            generator.wood.vertices[vertex as usize] =
+                centre + (position - centre) * (1.0 + variation * TRUNK_BUTTRESS_VARIATION);
+        }
         generator.terminal_rings.push(ring);
         generator.pending.push_back(GrowingAxis {
             ring,
-            trunk_base_emitted: !options.single_section_trunk_base,
+            unmeshed_sections: 0,
             centre,
             direction: Vec3::Z,
             x_axis: Vec3::X,
@@ -296,19 +358,27 @@ impl TreeGenerator {
         }
         self.apply_taper();
         // Terminal rings are the authoritative branch-tip supports. Capture
-        // them after tapering but before wood LOD smoothing can move vertices.
+        // them after tapering but before wood LOD tube projection can move
+        // newly tessellated vertices.
         let foliage_supports: Vec<Vec3> = self
             .terminal_rings
             .iter()
             .skip(1)
             .map(|ring| ring_barycentre(&self.wood, ring))
             .collect();
-        let wood = build_mesh_lods(self.wood, &self.terminal_rings);
+        let wood = build_mesh_lods(
+            self.wood,
+            &self.terminal_rings,
+            &self.tube_segments,
+            &self.branch_junctions,
+            self.seed,
+        );
         let foliage = generate_cluster_foliage(
             foliage_seed,
             &[FoliageCrown {
                 trunk: Vec3::ZERO,
                 tips: &foliage_supports,
+                scale: 1.0,
             }],
         )
         .unwrap_or_else(|error| panic!("single-tree foliage generation failed: {error}"));
@@ -378,20 +448,26 @@ impl TreeGenerator {
                     >= self.options.minimum_section_length_metres,
         };
 
-        // Keep simulating hidden trunk steps so bend, taper, and branch
-        // placement remain unchanged, while delaying their mesh emission.
-        if axis.depth == 0 && !axis.trunk_base_emitted && !will_spawn_branch && step.continues {
-            self.pending
-                .push_back(axis.continuation(axis.ring, false, step, None));
+        // Keep simulating hidden growth steps so bend, taper, and branch
+        // placement remain unchanged. Their intermediate rings are omitted,
+        // leaving one four-sided span between branch junctions before LOD 0
+        // tessellation and weighted tube projection.
+        if self.options.single_section_between_branches && !will_spawn_branch && step.continues {
+            self.pending.push_back(axis.continuation(
+                axis.ring,
+                axis.unmeshed_sections.saturating_add(1),
+                step,
+                None,
+            ));
             return;
         }
 
-        let lower_ring = if axis.depth == 0 && !axis.trunk_base_emitted && will_spawn_branch {
-            self.emit_single_section_trunk_base(axis)
+        let lower_ring = if will_spawn_branch && axis.unmeshed_sections > 0 {
+            self.emit_branch_interval_end(axis)
         } else {
             axis.ring
         };
-        let ring = self.append_ring(centre, x_axis, next_y_axis, radius, taper_scale);
+        let ring = self.append_ring(centre, direction, x_axis, next_y_axis, radius, taper_scale);
 
         let spawned_face = if will_spawn_branch {
             self.spawn_child(ChildSource {
@@ -410,33 +486,37 @@ impl TreeGenerator {
             None
         };
         if spawned_face.is_none() {
-            connect_rings(&mut self.wood.triangles, &lower_ring, &ring);
-            if axis.depth == 0 && !axis.trunk_base_emitted {
-                self.stats.collapsed_trunk_rings = axis.sections_grown;
+            self.connect_tube_segment(lower_ring, ring);
+            if !will_spawn_branch {
+                self.stats.collapsed_intermediate_rings = self
+                    .stats
+                    .collapsed_intermediate_rings
+                    .saturating_add(u16::from(axis.unmeshed_sections));
             }
         }
         if step.continues {
             self.pending
-                .push_back(axis.continuation(ring, true, step, spawned_face));
+                .push_back(axis.continuation(ring, 0, step, spawned_face));
         } else {
             self.terminal_rings.push(ring);
         }
     }
 
-    fn emit_single_section_trunk_base(
-        &mut self,
-        axis: &GrowingAxis,
-    ) -> [u32; CROSS_SECTION_VERTICES] {
+    fn emit_branch_interval_end(&mut self, axis: &GrowingAxis) -> [u32; CROSS_SECTION_VERTICES] {
         let y_axis = axis.direction.cross(axis.x_axis).normalize_or_zero();
         let lower_ring = self.append_ring(
             axis.centre,
+            axis.direction,
             axis.x_axis,
             y_axis,
             axis.radius,
             axis.taper_scale,
         );
-        connect_rings(&mut self.wood.triangles, &axis.ring, &lower_ring);
-        self.stats.collapsed_trunk_rings = axis.sections_grown.saturating_sub(1);
+        self.connect_tube_segment(axis.ring, lower_ring);
+        self.stats.collapsed_intermediate_rings = self
+            .stats
+            .collapsed_intermediate_rings
+            .saturating_add(u16::from(axis.unmeshed_sections.saturating_sub(1)));
         lower_ring
     }
 
@@ -461,16 +541,7 @@ impl TreeGenerator {
     }
 
     fn spawn_child(&mut self, parent: ChildSource<'_>) -> Option<u8> {
-        let face_normals: [Vec3; CROSS_SECTION_VERTICES] = std::array::from_fn(|face| {
-            let next = (face + 1) % CROSS_SECTION_VERTICES;
-            let lower_left = self.wood.vertices[parent.lower_ring[face] as usize];
-            let lower_right = self.wood.vertices[parent.lower_ring[next] as usize];
-            let upper_left = self.wood.vertices[parent.upper_ring[face] as usize];
-            let upper_right = self.wood.vertices[parent.upper_ring[next] as usize];
-            let across = (lower_right - lower_left) + (upper_right - upper_left);
-            let along = (upper_left - lower_left) + (upper_right - lower_right);
-            across.cross(along).normalize_or(parent.direction)
-        });
+        let face_normals = branch_face_normals(&self.wood, parent);
         let upward_faces = eligible_branch_faces(face_normals, parent.depth);
         let face = branch_face(
             self.rng.next_u64(),
@@ -488,27 +559,59 @@ impl TreeGenerator {
             .normalize_or(parent.direction);
         let direction = face_normals[face];
         let origin = (lower_left + lower_right + upper_left + upper_right) * 0.25;
-        let radius = parent.radius;
+        let radius = parent.radius * child_radius_ratio(parent.depth);
+        let opening_radius = parent.radius * BRANCH_OPENING_RADIUS_RATIO;
         let section_length = parent.section_length;
+        let collar_length = section_length * BRANCH_COLLAR_LENGTH_RATIO;
         let root_taper_scale = (parent.lower_taper_scale + parent.upper_taper_scale) * 0.5;
         let x_axis = (-across - along).normalize_or(Vec3::X);
         let y_axis = direction.cross(x_axis).normalize_or_zero();
-        let ring = self.append_ring(origin, x_axis, y_axis, radius, root_taper_scale);
-        connect_rings_with_opening(
+        let opening_ring = self.append_ring(
+            origin,
+            direction,
+            x_axis,
+            y_axis,
+            opening_radius,
+            root_taper_scale,
+        );
+        let collar_centre = origin + direction * collar_length;
+        let ring = self.append_ring(
+            collar_centre,
+            direction,
+            x_axis,
+            y_axis,
+            radius,
+            root_taper_scale,
+        );
+        let connector_triangles = connect_rings_with_opening(
             &mut self.wood.triangles,
             parent.lower_ring,
             parent.upper_ring,
             face,
-            &ring,
+            &opening_ring,
         );
-        let opening_radius_error = ring.iter().fold(0.0_f32, |error, &vertex| {
-            error.max(((self.wood.vertices[vertex as usize] - origin).length() - radius).abs())
+        self.connect_tube_segment(opening_ring, ring);
+        self.tube_segments.push(TubeSegment {
+            lower: *parent.lower_ring,
+            upper: *parent.upper_ring,
+        });
+        self.branch_junctions.push(BranchJunction {
+            parent_lower: *parent.lower_ring,
+            parent_upper: *parent.upper_ring,
+            branch_ring: opening_ring,
+            connector_triangles,
+            parent_bark_axis: encode_bark_axis(parent.direction),
+        });
+        let opening_radius_error = opening_ring.iter().fold(0.0_f32, |error, &vertex| {
+            error.max(
+                ((self.wood.vertices[vertex as usize] - origin).length() - opening_radius).abs(),
+            )
         });
         let section_budget = parent.remaining_sections.clamp(2, 5);
         self.pending.push_back(GrowingAxis {
             ring,
-            trunk_base_emitted: true,
-            centre: origin,
+            unmeshed_sections: 0,
+            centre: collar_centre,
             direction,
             x_axis,
             radius,
@@ -529,9 +632,11 @@ impl TreeGenerator {
             source_normal: direction,
             direction,
             parent_radius: parent.radius,
+            opening_radius,
             radius,
             parent_section_length: parent.section_length,
             section_length,
+            collar_length,
             root_taper_scale,
             opening_radius_error,
         });
@@ -541,6 +646,7 @@ impl TreeGenerator {
     fn append_ring(
         &mut self,
         centre: Vec3,
+        direction: Vec3,
         x_axis: Vec3,
         y_axis: Vec3,
         radius: f32,
@@ -548,6 +654,8 @@ impl TreeGenerator {
     ) -> [u32; CROSS_SECTION_VERTICES] {
         let first = u32::try_from(self.wood.vertices.len()).expect("tree mesh fits u32 indices");
         self.wood.vertices.reserve(CROSS_SECTION_VERTICES);
+        self.wood.uv.reserve(CROSS_SECTION_VERTICES);
+        let bark_axis = encode_bark_axis(direction);
         let ring_size = u16::try_from(CROSS_SECTION_VERTICES).expect("ring size fits u16");
         for side in 0..CROSS_SECTION_VERTICES {
             let side_index = u16::try_from(side).expect("tree ring vertex count fits u16");
@@ -555,6 +663,7 @@ impl TreeGenerator {
             self.wood
                 .vertices
                 .push(centre + (x_axis * angle.cos() + y_axis * angle.sin()) * radius);
+            self.wood.uv.push(bark_axis);
         }
         let ring = std::array::from_fn(|offset| {
             first + u32::try_from(offset).expect("tree ring fits u32 indices")
@@ -565,6 +674,15 @@ impl TreeGenerator {
             scale: taper_scale,
         });
         ring
+    }
+
+    fn connect_tube_segment(
+        &mut self,
+        lower: [u32; CROSS_SECTION_VERTICES],
+        upper: [u32; CROSS_SECTION_VERTICES],
+    ) {
+        connect_rings(&mut self.wood.triangles, &lower, &upper);
+        self.tube_segments.push(TubeSegment { lower, upper });
     }
 
     fn apply_taper(&mut self) {
@@ -593,17 +711,102 @@ impl TreeGenerator {
     }
 }
 
-fn build_mesh_lods(mut lod1: Mesh, terminal_rings: &[[u32; CROSS_SECTION_VERTICES]]) -> MeshLods {
-    let lod1_to_lod0 = (0..lod1.vertices.len())
+fn branch_face_normals(mesh: &Mesh, parent: ChildSource<'_>) -> [Vec3; CROSS_SECTION_VERTICES] {
+    std::array::from_fn(|face| {
+        let next = (face + 1) % CROSS_SECTION_VERTICES;
+        let lower_left = mesh.vertices[parent.lower_ring[face] as usize];
+        let lower_right = mesh.vertices[parent.lower_ring[next] as usize];
+        let upper_left = mesh.vertices[parent.upper_ring[face] as usize];
+        let upper_right = mesh.vertices[parent.upper_ring[next] as usize];
+        let across = (lower_right - lower_left) + (upper_right - upper_left);
+        let along = (upper_left - lower_left) + (upper_right - lower_right);
+        across.cross(along).normalize_or(parent.direction)
+    })
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct TubeProjectionSegment {
+    source: TubeSegment,
+    lower_centre: Vec3,
+    upper_centre: Vec3,
+    lower_radius: f32,
+    upper_radius: f32,
+}
+
+impl TubeProjectionSegment {
+    fn from_mesh(mesh: &Mesh, source: TubeSegment) -> Self {
+        Self {
+            source,
+            lower_centre: ring_barycentre(mesh, &source.lower),
+            upper_centre: ring_barycentre(mesh, &source.upper),
+            lower_radius: ring_average_radius(mesh, &source.lower),
+            upper_radius: ring_average_radius(mesh, &source.upper),
+        }
+    }
+
+    fn edge_membership(self, edge: [u32; 2]) -> u8 {
+        edge.into_iter()
+            .filter(|vertex| {
+                self.source.lower.contains(vertex) || self.source.upper.contains(vertex)
+            })
+            .count()
+            .try_into()
+            .expect("a tessellated edge has two endpoints")
+    }
+
+    fn projected_surface(self, position: Vec3) -> Option<(Vec3, f32)> {
+        let centreline = self.upper_centre - self.lower_centre;
+        let length_squared = centreline.length_squared();
+        if length_squared <= f32::EPSILON {
+            return None;
+        }
+        let raw_progress = (position - self.lower_centre).dot(centreline) / length_squared;
+        let progress = raw_progress.clamp(0.0, 1.0);
+        let centre = self.lower_centre.lerp(self.upper_centre, progress);
+        let axis = centreline / length_squared.sqrt();
+        let from_centre = position - centre;
+        let radial = from_centre - axis * from_centre.dot(axis);
+        let radial_length = radial.length();
+        let radius = (self.upper_radius - self.lower_radius)
+            .mul_add(progress, self.lower_radius)
+            .max(f32::EPSILON);
+        if radial_length <= f32::EPSILON {
+            return None;
+        }
+        let target = centre + radial * (radius / radial_length);
+        let surface_error = (radial_length - radius).abs() / radius;
+        let axial_error = (raw_progress - progress).abs() * centreline.length() / radius;
+        let confidence = 1.0 / (1.0 + surface_error * surface_error + axial_error * axial_error);
+        Some((target, confidence))
+    }
+}
+
+fn build_mesh_lods(
+    mut lod1: Mesh,
+    terminal_rings: &[[u32; CROSS_SECTION_VERTICES]],
+    tube_segments: &[TubeSegment],
+    branch_junctions: &[BranchJunction],
+    seed: u64,
+) -> MeshLods {
+    let mut lod1_to_lod0 = (0..lod1.vertices.len())
         .map(|vertex| u32::try_from(vertex).expect("tree mesh fits u32 indices"))
         .collect::<Vec<_>>();
     let terminal_planes = terminal_rings
         .iter()
         .map(|ring| ring_plane(&lod1, ring))
         .collect::<Vec<_>>();
+    let tube_projections = tube_segments
+        .iter()
+        .map(|&segment| TubeProjectionSegment::from_mesh(&lod1, segment))
+        .collect::<Vec<_>>();
     let tessellated = lod1.tessellated_attributed();
     let mut lod0 = tessellated.mesh;
-    smooth_all_vertices(&mut lod0);
+    round_new_wood_vertices(
+        &mut lod0,
+        &tessellated.new_vertices,
+        &tube_projections,
+        branch_junctions,
+    );
     pin_terminal_rings(
         &mut lod0,
         terminal_rings,
@@ -613,12 +816,104 @@ fn build_mesh_lods(mut lod1: Mesh, terminal_rings: &[[u32; CROSS_SECTION_VERTICE
     for (lod1_vertex, &lod0_vertex) in lod1_to_lod0.iter().enumerate() {
         lod1.vertices[lod1_vertex] = lod0.vertices[lod0_vertex as usize];
     }
+    lod0 = lod0.tessellated();
+    let bark_axes = lod0.uv.clone();
+    lod0.smooth();
+    lod0.uv = bark_axes;
+    displace_lod0_wood(&mut lod0, seed);
     lod0.calculate_normals();
     lod1.calculate_normals();
+    split_bark_connector_seams(&mut lod0, &mut lod1, &mut lod1_to_lod0, branch_junctions);
     MeshLods {
         lod0,
         lod1,
         lod1_to_lod0,
+    }
+}
+
+fn split_bark_connector_seams(
+    lod0: &mut Mesh,
+    lod1: &mut Mesh,
+    lod1_to_lod0: &mut Vec<u32>,
+    branch_junctions: &[BranchJunction],
+) {
+    for junction in branch_junctions {
+        let lod1_duplicates = split_bark_connector_patch(lod1, *junction, 1);
+        let lod0_duplicates =
+            split_bark_connector_patch(lod0, *junction, LOD0_TRIANGLE_DESCENDANT_MULTIPLIER);
+
+        for (lod1_source, lod1_duplicate) in lod1_duplicates {
+            debug_assert_eq!(lod1_duplicate as usize, lod1_to_lod0.len());
+            let lod0_source = lod1_to_lod0[lod1_source as usize];
+            let lod0_duplicate = lod0_duplicates
+                .iter()
+                .find_map(|&(source, duplicate)| (source == lod0_source).then_some(duplicate))
+                .expect("connector source vertex has a matching LOD0 duplicate");
+            lod1_to_lod0.push(lod0_duplicate);
+        }
+    }
+}
+
+fn split_bark_connector_patch(
+    mesh: &mut Mesh,
+    junction: BranchJunction,
+    triangle_descendant_multiplier: usize,
+) -> Vec<(u32, u32)> {
+    debug_assert_eq!(mesh.vertices.len(), mesh.normals.len());
+    debug_assert_eq!(mesh.vertices.len(), mesh.uv.len());
+    let index_start = junction.connector_triangles.index_start * triangle_descendant_multiplier;
+    let index_count = junction.connector_triangles.index_count * triangle_descendant_multiplier;
+    let index_end = index_start + index_count;
+    debug_assert!(index_end <= mesh.triangles.len());
+
+    let mut duplicates = Vec::<(u32, u32)>::new();
+    for triangle_slot in index_start..index_end {
+        let source = mesh.triangles[triangle_slot];
+        let duplicate = duplicates
+            .iter()
+            .find_map(|&(candidate, duplicate)| (candidate == source).then_some(duplicate))
+            .unwrap_or_else(|| {
+                let source_index = source as usize;
+                let duplicate = u32::try_from(mesh.vertices.len())
+                    .expect("tree connector vertex count fits u32");
+                mesh.vertices.push(mesh.vertices[source_index]);
+                mesh.normals.push(mesh.normals[source_index]);
+                mesh.uv.push(junction.parent_bark_axis);
+                duplicates.push((source, duplicate));
+                duplicate
+            });
+        mesh.triangles[triangle_slot] = duplicate;
+    }
+    duplicates
+}
+
+fn displace_lod0_wood(mesh: &mut Mesh, seed: u64) {
+    mesh.calculate_normals();
+    let perimeter = mesh.perimeter_mask();
+    let frequency = ISLAND_WORLD_METRES / LOD0_WOOD_IRREGULARITY_SCALE_METRES;
+    let amplitude = LOD0_WOOD_IRREGULARITY_METRES / ISLAND_WORLD_METRES;
+    for ((position, normal), &is_perimeter) in
+        mesh.vertices.iter_mut().zip(&mesh.normals).zip(&perimeter)
+    {
+        if is_perimeter {
+            continue;
+        }
+        let point = *position * frequency;
+        let signal = (noise::fractal(seed ^ WOOD_IRREGULARITY_DOMAIN, point.x, point.y, 3)
+            + noise::fractal(
+                seed ^ WOOD_IRREGULARITY_DOMAIN.rotate_left(19),
+                point.y,
+                point.z,
+                3,
+            )
+            + noise::fractal(
+                seed ^ WOOD_IRREGULARITY_DOMAIN.rotate_left(43),
+                point.z,
+                point.x,
+                3,
+            ))
+            / 3.0;
+        *position += *normal * amplitude * signal;
     }
 }
 
@@ -627,6 +922,15 @@ fn ring_barycentre(mesh: &Mesh, ring: &[u32; CROSS_SECTION_VERTICES]) -> Vec3 {
         total + mesh.vertices[vertex as usize]
     });
     let vertex_count = u16::try_from(CROSS_SECTION_VERTICES).expect("terminal ring size fits u16");
+    total / f32::from(vertex_count)
+}
+
+fn ring_average_radius(mesh: &Mesh, ring: &[u32; CROSS_SECTION_VERTICES]) -> f32 {
+    let centre = ring_barycentre(mesh, ring);
+    let total = ring.iter().fold(0.0, |total, &vertex| {
+        total + mesh.vertices[vertex as usize].distance(centre)
+    });
+    let vertex_count = u16::try_from(CROSS_SECTION_VERTICES).expect("tree ring size fits u16");
     total / f32::from(vertex_count)
 }
 
@@ -670,22 +974,60 @@ fn tessellated_edge_vertex(
         .vertex
 }
 
-fn smooth_all_vertices(mesh: &mut Mesh) {
-    let adjacency = mesh.adjacency();
-    mesh.vertices = mesh
-        .vertices
+fn round_new_wood_vertices(
+    mesh: &mut Mesh,
+    new_vertices: &[crate::mesh::NewVertexStencil],
+    tubes: &[TubeProjectionSegment],
+    branch_junctions: &[BranchJunction],
+) {
+    for stencil in new_vertices {
+        let edge = [stencil.surrounding[0], stencil.surrounding[1]];
+        let position = mesh.vertices[stencil.vertex as usize];
+        if let Some(target) = rounded_tube_target(position, edge, tubes, branch_junctions) {
+            mesh.vertices[stencil.vertex as usize] = target;
+        }
+    }
+}
+
+fn rounded_tube_target(
+    position: Vec3,
+    edge: [u32; 2],
+    tubes: &[TubeProjectionSegment],
+    branch_junctions: &[BranchJunction],
+) -> Option<Vec3> {
+    if let Some(branch_ring) = branch_junctions
         .iter()
-        .enumerate()
-        .map(|(vertex, &position)| {
-            let neighbours = &adjacency[vertex];
-            let total = neighbours.iter().fold(position, |total, &neighbour| {
-                total + mesh.vertices[neighbour]
-            });
-            let count = u16::try_from(neighbours.len() + 1).expect("tree vertex degree fits u16");
-            total / f32::from(count)
-        })
-        .collect();
-    mesh.calculate_normals();
+        .find(|junction| junction.owns_connector(edge))
+        .map(|junction| junction.branch_ring)
+        && let Some(branch_tube) = tubes.iter().find(|tube| tube.source.lower == branch_ring)
+    {
+        return branch_tube
+            .projected_surface(position)
+            .map(|(target, _)| target);
+    }
+    // Ordinary tessellation edges have both endpoints in one tube segment,
+    // which must remain authoritative over neighbouring spans that share only
+    // a ring vertex. Shared ring edges between consecutive spans retain the
+    // confidence-weighted transition below.
+    let strongest_membership = tubes
+        .iter()
+        .map(|tube| tube.edge_membership(edge))
+        .max()
+        .unwrap_or_default();
+    if strongest_membership == 0 {
+        return None;
+    }
+    let (weighted_target, total_weight) = tubes
+        .iter()
+        .filter(|tube| tube.edge_membership(edge) == strongest_membership)
+        .filter_map(|tube| tube.projected_surface(position))
+        .fold(
+            (Vec3::ZERO, 0.0_f32),
+            |(weighted_target, total_weight), (target, weight)| {
+                (weighted_target + target * weight, total_weight + weight)
+            },
+        );
+    (total_weight > f32::EPSILON).then_some(weighted_target / total_weight)
 }
 
 fn connect_rings(
@@ -713,7 +1055,7 @@ fn connect_rings_with_opening(
     upper: &[u32; CROSS_SECTION_VERTICES],
     opening_face: usize,
     opening: &[u32; CROSS_SECTION_VERTICES],
-) {
+) -> TriangleSpan {
     triangles.reserve((CROSS_SECTION_VERTICES - 1) * 6 + CROSS_SECTION_VERTICES * 6);
     for side in 0..CROSS_SECTION_VERTICES {
         if side == opening_face {
@@ -742,6 +1084,7 @@ fn connect_rings_with_opening(
         inner_upper_right,
         inner_upper_left,
     ] = *opening;
+    let connector_start = triangles.len();
     append_quad(
         triangles,
         lower_left,
@@ -770,6 +1113,10 @@ fn connect_rings_with_opening(
         inner_lower_left,
         inner_upper_left,
     );
+    TriangleSpan {
+        index_start: connector_start,
+        index_count: triangles.len() - connector_start,
+    }
 }
 
 fn append_quad(triangles: &mut Vec<u32>, a: u32, b: u32, c: u32, d: u32) {
@@ -798,7 +1145,42 @@ fn axis_taper_scale(
 ) -> f32 {
     let progress = f32::from(sections_grown.min(section_budget)) / f32::from(section_budget.max(1));
     let tip_scale = root_scale * tip_radius_scale;
-    (tip_scale - root_scale).mul_add(progress, root_scale)
+    let eased_progress = progress.powf(1.8);
+    (tip_scale - root_scale).mul_add(eased_progress, root_scale)
+}
+
+fn child_radius_ratio(parent_depth: u8) -> f32 {
+    (0.66 - f32::from(parent_depth) * 0.04).max(0.54)
+}
+
+pub(crate) fn encode_bark_axis(axis: Vec3) -> Vec2 {
+    let axis = axis.normalize_or(Vec3::Z);
+    let projected = axis / (axis.x.abs() + axis.y.abs() + axis.z.abs()).max(f32::EPSILON);
+    let folded = if projected.z < 0.0 {
+        Vec2::new(
+            (1.0 - projected.y.abs()) * projected.x.signum(),
+            (1.0 - projected.x.abs()) * projected.y.signum(),
+        )
+    } else {
+        projected.truncate()
+    };
+    folded * 0.5 + Vec2::splat(0.5)
+}
+
+pub(crate) fn decode_bark_axis(encoded: Vec2) -> Vec3 {
+    let unfolded = encoded * 2.0 - Vec2::ONE;
+    let mut axis = Vec3::new(
+        unfolded.x,
+        unfolded.y,
+        1.0 - unfolded.x.abs() - unfolded.y.abs(),
+    );
+    if axis.z < 0.0 {
+        let x = (1.0 - axis.y.abs()) * axis.x.signum();
+        let y = (1.0 - axis.x.abs()) * axis.y.signum();
+        axis.x = x;
+        axis.y = y;
+    }
+    axis.normalize_or(Vec3::Z)
 }
 
 fn branch_probability(sections_grown: u8, section_budget: u8, range: [f32; 2]) -> f32 {
@@ -970,21 +1352,21 @@ mod tests {
     }
 
     #[test]
-    fn clear_trunk_base_is_one_section_and_omits_intermediate_rings() {
+    fn every_interval_between_branch_junctions_omits_intermediate_rings() {
         let compact_options = TreeOptions::default();
         let mut detailed_options = compact_options;
-        detailed_options.single_section_trunk_base = false;
+        detailed_options.single_section_between_branches = false;
 
         for seed in 0..64 {
             let (compact, compact_stats) = TreeGenerator::new(seed, compact_options).generate(seed);
             let (detailed, detailed_stats) =
                 TreeGenerator::new(seed, detailed_options).generate(seed);
-            let omitted_rings = usize::from(compact_stats.collapsed_trunk_rings);
+            let omitted_rings = usize::from(compact_stats.collapsed_intermediate_rings);
             let omitted_lod1_triangles = omitted_rings * CROSS_SECTION_VERTICES * 2;
 
             assert!(
                 omitted_rings > 0,
-                "seed {seed} did not simplify its trunk base"
+                "seed {seed} did not simplify its branch intervals"
             );
             assert_eq!(compact_stats.branches, detailed_stats.branches);
             assert_eq!(compact_stats.directions, detailed_stats.directions);
@@ -998,7 +1380,7 @@ mod tests {
             );
             assert_eq!(
                 detailed.lod0_wood.triangles.len() / 3 - compact.lod0_wood.triangles.len() / 3,
-                omitted_lod1_triangles * 4,
+                omitted_lod1_triangles * 16,
                 "seed {seed} did not preserve the expected tessellated reduction"
             );
         }
@@ -1147,6 +1529,7 @@ mod tests {
         let options = TreeOptions::default();
         let (_, stats) = generated(2018);
 
+        assert!((options.tip_radius_scale - 0.18).abs() < f32::EPSILON);
         assert!(!stats.taper.is_empty());
         assert!(stats.taper.iter().all(|sample| {
             sample.current < sample.previous
@@ -1165,52 +1548,153 @@ mod tests {
                 .abs()
                 < 1.0e-7
         );
-    }
-
-    #[test]
-    fn lod0_tessellation_and_smoothing_projects_back_to_lod1_equivalents() {
-        let (tree, _) = generated(2018);
-        for (lod0, lod1, equivalents) in [
-            (&tree.lod0_wood, &tree.lod1_wood, &tree.wood_lod1_to_lod0),
-            (
-                &tree.lod0_foliage,
-                &tree.lod1_foliage,
-                &tree.foliage_lod1_to_lod0,
-            ),
-        ] {
-            assert_eq!(lod0.triangles.len(), lod1.triangles.len() * 4);
-            assert_eq!(equivalents.len(), lod1.vertices.len());
-            assert!(
-                equivalents
-                    .iter()
-                    .enumerate()
-                    .all(|(lod1_vertex, &lod0_vertex)| {
-                        lod0_vertex as usize == lod1_vertex
-                            && lod1.vertices[lod1_vertex] == lod0.vertices[lod0_vertex as usize]
-                    })
-            );
-        }
-
-        let mut triangle = Mesh {
-            vertices: vec![
-                Vec3::ZERO,
-                Vec3::new(3.0, 0.0, 0.0),
-                Vec3::new(6.0, 0.0, 0.0),
-            ],
-            triangles: vec![0, 1, 2],
-            ..Mesh::default()
-        };
-        smooth_all_vertices(&mut triangle);
         assert!(
-            triangle
-                .vertices
-                .iter()
-                .all(|&vertex| vertex == Vec3::X * 3.0)
+            axis_taper_scale(1.0, 2, 4, options.tip_radius_scale)
+                > (1.0 + options.tip_radius_scale) * 0.5
         );
     }
 
     #[test]
-    fn terminal_ring_vertices_are_pinned_to_their_pre_smoothing_plane() {
+    fn lod0_wood_receives_two_tessellations_and_a_free_smooth() {
+        let (tree, _) = generated(2018);
+        assert_eq!(
+            tree.lod0_wood.triangles.len(),
+            tree.lod1_wood.triangles.len() * 16
+        );
+        assert_eq!(tree.wood_lod1_to_lod0.len(), tree.lod1_wood.vertices.len());
+        assert!(
+            tree.wood_lod1_to_lod0
+                .iter()
+                .all(|&lod0_vertex| (lod0_vertex as usize) < tree.lod0_wood.vertices.len())
+        );
+        assert!(
+            tree.wood_lod1_to_lod0
+                .iter()
+                .enumerate()
+                .all(|(lod1_vertex, &lod0_vertex)| {
+                    tree.lod1_wood.uv[lod1_vertex] == tree.lod0_wood.uv[lod0_vertex as usize]
+                })
+        );
+        assert!(
+            tree.wood_lod1_to_lod0
+                .iter()
+                .enumerate()
+                .any(|(lod1_vertex, &lod0_vertex)| lod0_vertex as usize != lod1_vertex)
+        );
+        assert!(
+            tree.wood_lod1_to_lod0
+                .iter()
+                .enumerate()
+                .any(|(lod1_vertex, &lod0_vertex)| {
+                    tree.lod1_wood.vertices[lod1_vertex]
+                        != tree.lod0_wood.vertices[lod0_vertex as usize]
+                })
+        );
+    }
+
+    #[test]
+    fn lod0_foliage_preserves_lod1_equivalents() {
+        let (tree, _) = generated(2018);
+        assert!(tree.lod0_foliage.triangles.len() > tree.lod1_foliage.triangles.len());
+        assert!(tree.lod0_foliage.triangles.len() < tree.lod1_foliage.triangles.len() * 4);
+        assert_eq!(
+            tree.foliage_lod1_to_lod0.len(),
+            tree.lod1_foliage.vertices.len()
+        );
+        assert!(
+            tree.foliage_lod1_to_lod0
+                .iter()
+                .enumerate()
+                .all(|(lod1_vertex, &lod0_vertex)| {
+                    lod0_vertex as usize == lod1_vertex
+                        && tree.lod1_foliage.vertices[lod1_vertex]
+                            == tree.lod0_foliage.vertices[lod0_vertex as usize]
+                })
+        );
+    }
+
+    #[test]
+    fn tessellated_square_ring_edges_are_projected_out_to_the_tube_radius() {
+        let lower = [0, 1, 2, 3];
+        let upper = [4, 5, 6, 7];
+        let mut source = Mesh {
+            vertices: vec![
+                Vec3::X,
+                Vec3::Y,
+                -Vec3::X,
+                -Vec3::Y,
+                Vec3::X + Vec3::Z * 2.0,
+                Vec3::Y + Vec3::Z * 2.0,
+                -Vec3::X + Vec3::Z * 2.0,
+                -Vec3::Y + Vec3::Z * 2.0,
+            ],
+            ..Mesh::default()
+        };
+        connect_rings(&mut source.triangles, &lower, &upper);
+        let segment = TubeSegment { lower, upper };
+        let tube = TubeProjectionSegment::from_mesh(&source, segment);
+        let tessellated = source.tessellated_attributed();
+        let midpoint = tessellated_edge_vertex([lower[0], lower[1]], &tessellated.new_vertices);
+        let midpoint_before = tessellated.mesh.vertices[midpoint as usize];
+        let mut rounded = tessellated.mesh;
+
+        round_new_wood_vertices(&mut rounded, &tessellated.new_vertices, &[tube], &[]);
+
+        assert!((midpoint_before.length() - std::f32::consts::FRAC_1_SQRT_2).abs() < 1.0e-7);
+        assert!((rounded.vertices[midpoint as usize].length() - 1.0).abs() < 1.0e-7);
+        assert_eq!(&rounded.vertices[..source.vertices.len()], &source.vertices);
+    }
+
+    #[test]
+    fn branch_ring_projection_owns_parent_child_junction_edges() {
+        let parent = TubeProjectionSegment {
+            source: TubeSegment {
+                lower: [0, 1, 2, 3],
+                upper: [4, 5, 6, 7],
+            },
+            lower_centre: -Vec3::Z,
+            upper_centre: Vec3::Z,
+            lower_radius: 1.0,
+            upper_radius: 1.0,
+        };
+        let child = TubeProjectionSegment {
+            source: TubeSegment {
+                lower: [8, 9, 10, 11],
+                upper: [12, 13, 14, 15],
+            },
+            lower_centre: Vec3::ZERO,
+            upper_centre: Vec3::X * 2.0,
+            lower_radius: 1.0,
+            upper_radius: 1.0,
+        };
+        let position = Vec3::splat(0.5);
+        let parent_target = parent
+            .projected_surface(position)
+            .expect("point projects onto parent tube")
+            .0;
+        let child_target = child
+            .projected_surface(position)
+            .expect("point projects onto child tube")
+            .0;
+        let junction = BranchJunction {
+            parent_lower: parent.source.lower,
+            parent_upper: parent.source.upper,
+            branch_ring: child.source.lower,
+            connector_triangles: TriangleSpan {
+                index_start: 0,
+                index_count: 0,
+            },
+            parent_bark_axis: encode_bark_axis(Vec3::Z),
+        };
+        let junction_target = rounded_tube_target(position, [0, 8], &[parent, child], &[junction])
+            .expect("junction edge uses the branch ring target");
+
+        assert!((junction_target - parent_target).length() > 0.1);
+        assert!((junction_target - child_target).length() < 1.0e-7);
+    }
+
+    #[test]
+    fn terminal_ring_vertices_are_pinned_to_their_pre_projection_plane() {
         let lower = [0, 1, 2, 3];
         let upper = [4, 5, 6, 7];
         let mut mesh = Mesh {
@@ -1228,7 +1712,7 @@ mod tests {
         };
         connect_rings(&mut mesh.triangles, &lower, &upper);
 
-        let lods = build_mesh_lods(mesh, &[lower]);
+        let lods = build_mesh_lods(mesh, &[lower], &[TubeSegment { lower, upper }], &[], 0);
         let mut edge_uses = HashMap::<(u32, u32), usize>::new();
         for triangle in lods.lod0.triangles.chunks_exact(3) {
             for (a, b) in [
@@ -1252,7 +1736,7 @@ mod tests {
             lower_boundary.extend([a, b]);
         }
 
-        assert_eq!(lower_boundary.len(), CROSS_SECTION_VERTICES * 2);
+        assert_eq!(lower_boundary.len(), CROSS_SECTION_VERTICES * 4);
         assert!(
             lower_boundary
                 .iter()
@@ -1272,6 +1756,15 @@ mod tests {
 
         assert_ne!(first.lod0_wood.vertices, second.lod0_wood.vertices);
         for tree in [&first, &second] {
+            assert_eq!(tree.lod0_wood.uv.len(), tree.lod0_wood.vertices.len());
+            assert_eq!(tree.lod1_wood.uv.len(), tree.lod1_wood.vertices.len());
+            assert!(
+                tree.lod0_wood
+                    .uv
+                    .iter()
+                    .chain(&tree.lod1_wood.uv)
+                    .all(|&axis| decode_bark_axis(axis).is_normalized())
+            );
             for mesh in [
                 &tree.lod0_wood,
                 &tree.lod0_foliage,
@@ -1308,24 +1801,105 @@ mod tests {
                 && branch.source_normal.is_normalized()
                 && branch.source_normal.z >= 0.0
                 && (branch.direction - branch.source_normal).length() < 1.0e-7
-                && (branch.radius - branch.parent_radius).abs() < f32::EPSILON
+                && (branch.opening_radius - branch.parent_radius * BRANCH_OPENING_RADIUS_RATIO)
+                    .abs()
+                    < f32::EPSILON
+                && (branch.radius - branch.parent_radius * child_radius_ratio(branch.parent_depth))
+                    .abs()
+                    < f32::EPSILON
+                && branch.radius < branch.opening_radius
+                && branch.opening_radius < branch.parent_radius
                 && (branch.section_length - branch.parent_section_length).abs() < f32::EPSILON
+                && (branch.collar_length
+                    - branch.parent_section_length * BRANCH_COLLAR_LENGTH_RATIO)
+                    .abs()
+                    < f32::EPSILON
                 && branch.opening_radius_error < 1.0e-7
         }));
     }
 
     #[test]
-    fn generated_wood_has_only_the_intended_open_axis_ends() {
+    fn bark_axis_encoding_round_trips_branch_directions() {
+        for direction in [
+            Vec3::X,
+            Vec3::Y,
+            Vec3::Z,
+            -Vec3::X,
+            Vec3::new(0.3, -0.4, 0.8).normalize(),
+            Vec3::new(-0.2, 0.7, -0.5).normalize(),
+        ] {
+            assert!((decode_bark_axis(encode_bark_axis(direction)) - direction).length() < 1.0e-6);
+        }
+    }
+
+    #[test]
+    fn connector_patch_duplicates_only_its_shading_vertices() {
+        let original_uv = vec![
+            encode_bark_axis(Vec3::X),
+            encode_bark_axis(Vec3::Y),
+            encode_bark_axis(Vec3::X),
+            encode_bark_axis(Vec3::Y),
+        ];
+        let mut mesh = Mesh {
+            vertices: vec![Vec3::ZERO, Vec3::X, Vec3::Y, Vec3::ONE],
+            normals: vec![Vec3::Z; 4],
+            triangles: vec![0, 1, 2, 0, 2, 3],
+            uv: original_uv.clone(),
+        };
+        let parent_axis = encode_bark_axis(Vec3::Z);
+        let duplicates = split_bark_connector_patch(
+            &mut mesh,
+            BranchJunction {
+                parent_lower: [0; CROSS_SECTION_VERTICES],
+                parent_upper: [0; CROSS_SECTION_VERTICES],
+                branch_ring: [0; CROSS_SECTION_VERTICES],
+                connector_triangles: TriangleSpan {
+                    index_start: 0,
+                    index_count: 3,
+                },
+                parent_bark_axis: parent_axis,
+            },
+            1,
+        );
+
+        assert_eq!(duplicates, vec![(0, 4), (1, 5), (2, 6)]);
+        assert_eq!(&mesh.triangles[..3], &[4, 5, 6]);
+        assert_eq!(&mesh.triangles[3..], &[0, 2, 3]);
+        assert_eq!(&mesh.uv[..4], &original_uv);
+        for &(source, duplicate) in &duplicates {
+            assert_eq!(
+                mesh.vertices[duplicate as usize],
+                mesh.vertices[source as usize]
+            );
+            assert_eq!(
+                mesh.normals[duplicate as usize],
+                mesh.normals[source as usize]
+            );
+            assert_eq!(mesh.uv[duplicate as usize], parent_axis);
+        }
+    }
+
+    #[test]
+    fn generated_wood_is_geometrically_watertight_across_bark_seams() {
         for seed in 0..64 {
             let (tree, stats) = generated(seed);
-            let mut edge_uses = HashMap::<(u32, u32), usize>::new();
+            let vertex_key = |vertex: u32| {
+                tree.lod1_wood.vertices[vertex as usize]
+                    .to_array()
+                    .map(f32::to_bits)
+            };
+            let mut edge_uses = HashMap::<([u32; 3], [u32; 3]), usize>::new();
             for triangle in tree.lod1_wood.triangles.chunks_exact(3) {
                 for (a, b) in [
                     (triangle[0], triangle[1]),
                     (triangle[1], triangle[2]),
                     (triangle[2], triangle[0]),
                 ] {
-                    *edge_uses.entry((a.min(b), a.max(b))).or_default() += 1;
+                    let a = vertex_key(a);
+                    let b = vertex_key(b);
+                    *edge_uses
+                        .entry(if a < b { (a, b) } else { (b, a) })
+                        .or_default() += 1;
                 }
             }
             assert!(

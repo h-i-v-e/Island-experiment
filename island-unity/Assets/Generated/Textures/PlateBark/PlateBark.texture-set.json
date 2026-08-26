@@ -1,0 +1,69 @@
+{
+  "output_format_version": "1",
+  "profile": "motu_unity_terrain",
+  "name": "PlateBark",
+  "dimensions": {
+    "width": 1024,
+    "height": 1024
+  },
+  "metadata": {
+    "generator_algorithm_version": "1",
+    "recipe_hash": "c7101c3672fd939316a5b7a6f7ae124c84317e45161db0e802db2229dfe4b7d1",
+    "seed": 24017,
+    "physical_tile_width_m": 1.2,
+    "physical_tile_height_m": 1.6,
+    "height_min_m": -0.13,
+    "height_max_m": 0.075,
+    "neutral_height_m": 0.0,
+    "displacement_map": true,
+    "normal_convention": "direct_x"
+  },
+  "maps": [
+    {
+      "file": "PlateBark_albedo.png",
+      "format": "RGB8",
+      "color_space": "sRGB",
+      "width": 1024,
+      "height": 1024,
+      "sha256": "2d6f17fdfdbb0578d90ab9b7540885cf4861d56b56147c2d571872f74d61c4e1"
+    },
+    {
+      "file": "PlateBark_height.png",
+      "format": "Gray16",
+      "color_space": "linear",
+      "width": 1024,
+      "height": 1024,
+      "sha256": "e6d3f4617549a21d4d4d26987bf174c7da90033437f739eacd15f8faaef82130"
+    },
+    {
+      "file": "PlateBark_normal.png",
+      "format": "RGB8",
+      "color_space": "linear",
+      "width": 1024,
+      "height": 1024,
+      "sha256": "33e56c4ba70852a76639fb33fbad68a651d237ee1547425d66edbabb383f72cf"
+    },
+    {
+      "file": "PlateBark_occlusion.png",
+      "format": "Gray8",
+      "color_space": "linear",
+      "width": 1024,
+      "height": 1024,
+      "sha256": "2553a8dacea4ee38799977d2a038e0f50517f147ed1294d33250321252bb544e"
+    },
+    {
+      "file": "PlateBark_mask.png",
+      "format": "RGBA8",
+      "color_space": "linear",
+      "width": 1024,
+      "height": 1024,
+      "sha256": "791f372acbf652f591890fd56879cb1a81042cf1a904fa5b16279a3ec6b8ac9f"
+    }
+  ],
+  "packed_channels": [
+    "A=opaque_one",
+    "B=unused_zero",
+    "G=occlusion",
+    "R=height_8bit"
+  ]
+}

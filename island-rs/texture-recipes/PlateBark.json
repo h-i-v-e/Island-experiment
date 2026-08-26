@@ -1,0 +1,246 @@
+{
+  "name": "PlateBark",
+  "seed": 24017,
+  "width": 1024,
+  "height": 1024,
+  "physical_tile_width_m": 1.2,
+  "physical_tile_height_m": 1.6,
+  "material": {
+    "kind": "cracked_stone",
+    "cells_x": 18,
+    "cells_y": 7,
+    "cell_jitter": 0.72,
+    "warp_amplitude": 0.24,
+    "crack_width": 0.022,
+    "shoulder_width": 0.14,
+    "crack_depth": 0.105,
+    "slab_variation": 0.018,
+    "fracture_probability": 0.48,
+    "fracture_depth": 0.038,
+    "surface_amplitude": 0.011,
+    "broad_variation": 0.014
+  },
+  "layers": [
+    {
+      "id": "plate-face-roughness",
+      "name": "Plate face roughness",
+      "enabled": true,
+      "source": {
+        "kind": "ridged",
+        "frequency": 22,
+        "octaves": 4,
+        "lacunarity": 2.0,
+        "gain": 0.48,
+        "offset": [0.0, 0.0],
+        "seed_domain": 6021,
+        "domain_warp": {
+          "amplitude": 0.18,
+          "frequency": 4,
+          "octaves": 2,
+          "lacunarity": 2.0,
+          "gain": 0.5,
+          "seed_domain": 6022
+        },
+        "cellular_jitter": 0.25
+      },
+      "remap": {
+        "input_min": -1.0,
+        "input_max": 1.0,
+        "invert": false,
+        "contrast": 1.15,
+        "bias": 0.0,
+        "clamp": true,
+        "curve": null
+      },
+      "mask": {
+        "kind": "previous_height",
+        "bottom_m": -0.045,
+        "top_m": -0.008,
+        "invert": false
+      },
+      "outputs": {
+        "height": {
+          "enabled": true,
+          "blend": { "kind": "add" },
+          "strength_m": 0.007
+        },
+        "albedo": {
+          "enabled": true,
+          "blend": "overlay",
+          "strength": 0.18,
+          "colour_map": {
+            "kind": "gradient",
+            "stops": [
+              { "position": 0.0, "colour": [0.09, 0.065, 0.042] },
+              { "position": 0.55, "colour": [0.18, 0.125, 0.076] },
+              { "position": 1.0, "colour": [0.31, 0.22, 0.13] }
+            ]
+          },
+          "hue_influence": 0.0,
+          "saturation_influence": 0.0,
+          "value_influence": 0.0
+        }
+      }
+    },
+    {
+      "id": "lichen-patches",
+      "name": "Lichen patches",
+      "enabled": true,
+      "source": {
+        "kind": "fbm",
+        "frequency": 5,
+        "octaves": 5,
+        "lacunarity": 2.0,
+        "gain": 0.52,
+        "offset": [0.17, -0.29],
+        "seed_domain": 7341,
+        "domain_warp": {
+          "amplitude": 0.42,
+          "frequency": 3,
+          "octaves": 3,
+          "lacunarity": 2.0,
+          "gain": 0.5,
+          "seed_domain": 7342
+        },
+        "cellular_jitter": 0.25
+      },
+      "remap": {
+        "input_min": -0.12,
+        "input_max": 0.5,
+        "invert": false,
+        "contrast": 1.45,
+        "bias": -0.08,
+        "clamp": true,
+        "curve": [
+          { "position": 0.0, "value": 0.0 },
+          { "position": 0.45, "value": 0.08 },
+          { "position": 0.62, "value": 0.72 },
+          { "position": 1.0, "value": 1.0 }
+        ]
+      },
+      "mask": {
+        "kind": "previous_height",
+        "bottom_m": -0.038,
+        "top_m": -0.004,
+        "invert": false
+      },
+      "outputs": {
+        "height": {
+          "enabled": true,
+          "blend": { "kind": "add" },
+          "strength_m": 0.0025
+        },
+        "albedo": {
+          "enabled": true,
+          "blend": "mix",
+          "strength": 0.82,
+          "colour_map": {
+            "kind": "gradient",
+            "stops": [
+              { "position": 0.0, "colour": [0.105, 0.074, 0.046] },
+              { "position": 0.46, "colour": [0.13, 0.105, 0.071] },
+              { "position": 0.63, "colour": [0.16, 0.205, 0.145] },
+              { "position": 0.82, "colour": [0.235, 0.29, 0.205] },
+              { "position": 1.0, "colour": [0.34, 0.39, 0.28] }
+            ]
+          },
+          "hue_influence": 0.0,
+          "saturation_influence": 0.0,
+          "value_influence": 0.0
+        }
+      }
+    },
+    {
+      "id": "lichen-granulation",
+      "name": "Lichen granulation",
+      "enabled": true,
+      "source": {
+        "kind": "cellular_value",
+        "frequency": 42,
+        "octaves": 1,
+        "lacunarity": 2.0,
+        "gain": 0.5,
+        "offset": [0.0, 0.0],
+        "seed_domain": 8117,
+        "domain_warp": null,
+        "cellular_jitter": 0.78
+      },
+      "remap": {
+        "input_min": -1.0,
+        "input_max": 1.0,
+        "invert": false,
+        "contrast": 1.25,
+        "bias": 0.0,
+        "clamp": true,
+        "curve": null
+      },
+      "mask": {
+        "kind": "layer",
+        "layer_id": "lichen-patches",
+        "remap": {
+          "input_min": 0.52,
+          "input_max": 0.88,
+          "invert": false,
+          "contrast": 1.0,
+          "bias": 0.0,
+          "clamp": true,
+          "curve": null
+        }
+      },
+      "outputs": {
+        "height": {
+          "enabled": true,
+          "blend": { "kind": "add" },
+          "strength_m": 0.0015
+        },
+        "albedo": {
+          "enabled": true,
+          "blend": "overlay",
+          "strength": 0.2,
+          "colour_map": {
+            "kind": "ramp",
+            "first": [0.12, 0.16, 0.105],
+            "second": [0.38, 0.43, 0.315]
+          },
+          "hue_influence": 0.0,
+          "saturation_influence": 0.0,
+          "value_influence": 0.0
+        }
+      }
+    }
+  ],
+  "normal_scale": 1.15,
+  "displacement": {
+    "minimum_m": -0.13,
+    "maximum_m": 0.075,
+    "base_m": 0.0,
+    "displacement_map": true
+  },
+  "occlusion": {
+    "directions": 12,
+    "samples": 8,
+    "radius": 0.7,
+    "max_radius": 5.0,
+    "cavity_strength": 1.75,
+    "horizon_strength": 0.95,
+    "power": 1.15,
+    "combine": { "kind": "multiply" }
+  },
+  "albedo": {
+    "base_color": [0.105, 0.074, 0.046],
+    "warm_color": [0.245, 0.155, 0.085],
+    "palette": [
+      [0.078, 0.052, 0.032],
+      [0.125, 0.082, 0.048],
+      [0.19, 0.12, 0.067],
+      [0.285, 0.19, 0.11]
+    ],
+    "variation": 0.42,
+    "crack_darkening": 0.68,
+    "shoulder_variation": 0.12,
+    "mineral_density": 0.035,
+    "mineral_brightness": 0.22,
+    "occlusion_influence": 0.16
+  },
+  "output_profiles": ["separate", "motu_unity_terrain"]
+}

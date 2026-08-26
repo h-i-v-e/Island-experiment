@@ -6,8 +6,8 @@ use std::{
 };
 
 use motu::procedural_textures::{
-    LayerMask, MaterialLayer, OutputOptions, OutputProfile, TextureRecipe, evaluate_material,
-    generate_texture_set, write_texture_set,
+    LayerMask, MaterialLayer, NormalConvention, OutputOptions, OutputProfile, TextureRecipe,
+    evaluate_material, generate_texture_set, validate_recipe, write_texture_set,
 };
 use serde_json::Value;
 
@@ -48,6 +48,19 @@ fn recipe_path(name: &str) -> PathBuf {
 fn load_recipe(name: &str) -> TextureRecipe {
     serde_json::from_slice(&fs::read(recipe_path(name)).expect("read committed recipe"))
         .expect("load current recipe shape")
+}
+
+#[test]
+fn all_committed_recipes_use_the_current_valid_schema() {
+    for recipe_name in [
+        "Bark.json",
+        "PlateBark.json",
+        "cracked-stone.json",
+        "rounded-river-stones.json",
+    ] {
+        let recipe = load_recipe(recipe_name);
+        validate_recipe(&recipe).unwrap_or_else(|error| panic!("{recipe_name}: {error}"));
+    }
 }
 
 fn run_baker(arguments: &[&str]) -> Output {
@@ -96,7 +109,8 @@ fn committed_recipes_retain_the_locked_128_pixel_map_hashes() {
         let mut recipe = load_recipe(recipe_name);
         recipe.width = GOLDEN_SIZE;
         recipe.height = GOLDEN_SIZE;
-        let textures = generate_texture_set(&recipe).expect("generate committed recipe");
+        let textures = generate_texture_set(&recipe, NormalConvention::OpenGl)
+            .expect("generate committed recipe");
         let directory = TestDirectory::new(recipe_name.trim_end_matches(".json"));
         let manifest = write_texture_set(
             &textures,
@@ -202,6 +216,8 @@ fn editor_cli_schema_validation_preview_and_failure_envelopes_are_valid_json() {
             preview_path,
             "--size",
             "64",
+            "--normal-convention",
+            "direct-x",
         ]);
         assert!(preview.status.success());
         let preview = json_stdout(&preview);
@@ -265,6 +281,8 @@ fn preview_maps_match_a_final_bake_at_the_same_resolution() {
         preview.path().to_str().expect("UTF-8 preview path"),
         "--size",
         "64",
+        "--normal-convention",
+        "open-gl",
     ]);
     assert!(preview_output.status.success());
     assert_eq!(json_stdout(&preview_output)["success"], true);
@@ -279,6 +297,8 @@ fn preview_maps_match_a_final_bake_at_the_same_resolution() {
         "64",
         "--height",
         "64",
+        "--normal-convention",
+        "open-gl",
     ]);
     assert!(
         bake_output.status.success(),

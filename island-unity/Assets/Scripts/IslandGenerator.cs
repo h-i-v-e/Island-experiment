@@ -65,6 +65,7 @@ public sealed class IslandGenerator : MonoBehaviour
     private Material meshEdgeMaterial;
     private Material treeWoodMaterial;
     private Material treeFoliageMaterial;
+    private Material treeLod0FoliageMaterial;
     private string status = "Ready";
     private CancellationTokenSource generationCancellation;
     private Stopwatch generationTimer;
@@ -236,7 +237,14 @@ public sealed class IslandGenerator : MonoBehaviour
             rendering.TreeFoliageMaterial,
             generation.WorldSizeMetres);
         treeFoliageMaterial.SetTexture("_CliffNoise3D", cliffNoiseTexture);
+        treeFoliageMaterial.SetFloat("_CullMode", (float)CullMode.Back);
         treeFoliageMaterial.enableInstancing = true;
+        treeLod0FoliageMaterial = new Material(treeFoliageMaterial)
+        {
+            name = "Island tree LOD0 foliage material",
+        };
+        treeLod0FoliageMaterial.SetFloat("_CullMode", (float)CullMode.Off);
+        treeLod0FoliageMaterial.enableInstancing = true;
         rockMaterial = CreateMaterial(
             "Motu/Rock Decoration",
             rockColor,
@@ -450,6 +458,7 @@ public sealed class IslandGenerator : MonoBehaviour
         seaMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
         treeWoodMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
         treeFoliageMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
+        treeLod0FoliageMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
     }
 
     private void ApplyLiveSettings()
@@ -661,6 +670,7 @@ public sealed class IslandGenerator : MonoBehaviour
                 rockMaterial,
                 treeWoodMaterial,
                 treeFoliageMaterial,
+                treeLod0FoliageMaterial,
                 riverMaterial,
                 meshEdgeMaterial,
                 worldSize,
@@ -846,8 +856,8 @@ public sealed class IslandGenerator : MonoBehaviour
             noiseOctaves = 4,
             snowlineMetres = 100f * 2000f / worldSize,
             prototypeCount = 8,
-            minimumScale = 0.85f,
-            maximumScale = 1.15f,
+            minimumScale = 1f,
+            maximumScale = 2f,
         };
         return PrepareIsland(
             islandSeed,
@@ -1175,9 +1185,9 @@ public sealed class IslandGenerator : MonoBehaviour
                 {
                     continue;
                 }
-                ValidateForestNativeMesh(nativeMesh, visualLod, index);
+                ValidateForestNativeMesh(nativeMesh, visualLod, index, wood);
                 var prepared = CopyGeneratedMeshData(nativeMesh, worldSize);
-                ValidatePreparedForestMesh(prepared, visualLod, index);
+                ValidatePreparedForestMesh(prepared, visualLod, index, wood);
                 result[index] = prepared;
             }
             return result;
@@ -1207,7 +1217,8 @@ public sealed class IslandGenerator : MonoBehaviour
     private static void ValidateForestNativeMesh(
         MotuNative.ExportMesh mesh,
         int visualLod,
-        int index)
+        int index,
+        bool wood)
     {
         if (mesh.vertices.length <= 0
             || mesh.vertices.data == IntPtr.Zero
@@ -1219,7 +1230,8 @@ public sealed class IslandGenerator : MonoBehaviour
             || (mesh.uv.length != 0 && mesh.uv.length != mesh.vertices.length)
             || (mesh.uv.length != 0 && mesh.uv.data == IntPtr.Zero)
             || (mesh.material.length != 0 && mesh.material.length != mesh.vertices.length)
-            || (mesh.material.length != 0 && mesh.material.data == IntPtr.Zero))
+            || (mesh.material.length != 0 && mesh.material.data == IntPtr.Zero)
+            || (wood && mesh.material.length != mesh.vertices.length))
         {
             throw new InvalidOperationException(
                 $"The Rust forest tile {index} at LOD {visualLod} has invalid mesh attributes.");
@@ -1229,14 +1241,16 @@ public sealed class IslandGenerator : MonoBehaviour
     private static void ValidatePreparedForestMesh(
         IslandPreparedMesh mesh,
         int visualLod,
-        int index)
+        int index,
+        bool wood)
     {
         if (mesh == null
             || mesh.vertices.Length == 0
             || mesh.normals.Length != mesh.vertices.Length
             || mesh.triangles.Length == 0
             || mesh.triangles.Length % 3 != 0
-            || (mesh.uv.Length != 0 && mesh.uv.Length != mesh.vertices.Length))
+            || (mesh.uv.Length != 0 && mesh.uv.Length != mesh.vertices.Length)
+            || (wood && mesh.material.Length != mesh.vertices.Length))
         {
             throw new InvalidOperationException(
                 $"The copied forest tile {index} at LOD {visualLod} is invalid.");
@@ -1652,6 +1666,7 @@ public sealed class IslandGenerator : MonoBehaviour
         DestroyUnityObject(rockMaterial);
         DestroyUnityObject(treeWoodMaterial);
         DestroyUnityObject(treeFoliageMaterial);
+        DestroyUnityObject(treeLod0FoliageMaterial);
         DestroyUnityObject(riverMaterial);
         DestroyUnityObject(seaMaterial);
         DestroyUnityObject(meshEdgeMaterial);
@@ -1663,6 +1678,7 @@ public sealed class IslandGenerator : MonoBehaviour
         rockMaterial = null;
         treeWoodMaterial = null;
         treeFoliageMaterial = null;
+        treeLod0FoliageMaterial = null;
         riverMaterial = null;
         seaMaterial = null;
         meshEdgeMaterial = null;
@@ -2084,8 +2100,8 @@ public sealed class IslandGenerator : MonoBehaviour
             noiseOctaves = 4,
             snowlineMetres = 100f,
             prototypeCount = 8,
-            minimumScale = 0.85f,
-            maximumScale = 1.15f,
+            minimumScale = 1f,
+            maximumScale = 2f,
         };
         var handle = MotuNative.CreateMotuWithForestAndMethod(
             2018,
@@ -2809,6 +2825,7 @@ public sealed class IslandGenerator : MonoBehaviour
                 $"The tree {label} shader is missing or unsupported.");
         }
         var material = new Material(shader);
+        Material lod0Material = null;
         var noise = CreateCliffNoiseTexture();
         try
         {
@@ -2824,6 +2841,61 @@ public sealed class IslandGenerator : MonoBehaviour
                 throw new InvalidOperationException(
                     $"The tree {label} shader is missing its layered-noise properties.");
             }
+            if (label == "wood"
+                && (!material.HasProperty("_BarkAlbedoMap")
+                    || !material.HasProperty("_BarkHeightMap")
+                    || !material.HasProperty("_BarkNormalMap")
+                    || !material.HasProperty("_BarkOcclusionMap")
+                    || !material.HasProperty("_BarkTileWidthMetres")
+                    || !material.HasProperty("_BarkTileHeightMetres")
+                    || !material.HasProperty("_BarkNormalMapStrength")
+                    || !material.HasProperty("_BarkParallaxStrengthMetres")
+                    || !material.HasProperty("_BarkOcclusionStrength")
+                    || !material.HasProperty("_BarkAmbientFloor")
+                    || !material.HasProperty("_WorldSize")))
+            {
+                throw new InvalidOperationException(
+                    "The tree wood shader is missing its directional bark properties.");
+            }
+            if (label == "wood")
+            {
+                var authoredMaterial = UnityEditor.AssetDatabase.LoadAssetAtPath<Material>(
+                    "Assets/Materials/TreeWood.mat");
+                var expectedAlbedo = UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>(
+                    "Assets/Generated/Textures/PlateBark/PlateBark_albedo.png");
+                var expectedHeight = UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>(
+                    "Assets/Generated/Textures/PlateBark/PlateBark_height.png");
+                var expectedNormal = UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>(
+                    "Assets/Generated/Textures/PlateBark/PlateBark_normal.png");
+                var expectedOcclusion = UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>(
+                    "Assets/Generated/Textures/PlateBark/PlateBark_occlusion.png");
+                var normalImporter = UnityEditor.AssetImporter.GetAtPath(
+                    "Assets/Generated/Textures/PlateBark/PlateBark_normal.png")
+                    as UnityEditor.TextureImporter;
+                if (authoredMaterial == null
+                    || authoredMaterial.shader != shader
+                    || authoredMaterial.GetTexture("_BarkAlbedoMap") != expectedAlbedo
+                    || authoredMaterial.GetTexture("_BarkHeightMap") != expectedHeight
+                    || authoredMaterial.GetTexture("_BarkNormalMap") != expectedNormal
+                    || authoredMaterial.GetTexture("_BarkOcclusionMap") != expectedOcclusion
+                    || !Mathf.Approximately(
+                        authoredMaterial.GetFloat("_BarkTileWidthMetres"),
+                        1.2f)
+                    || !Mathf.Approximately(
+                        authoredMaterial.GetFloat("_BarkTileHeightMetres"),
+                        1.6f)
+                    || !Mathf.Approximately(
+                        authoredMaterial.GetFloat("_BarkParallaxStrengthMetres"),
+                        0.05f)
+                    || normalImporter == null
+                    || normalImporter.textureType != UnityEditor.TextureImporterType.NormalMap
+                    || normalImporter.flipGreenChannel
+                    || normalImporter.wrapMode != TextureWrapMode.Repeat)
+                {
+                    throw new InvalidOperationException(
+                        "The tree wood material is not using the imported Plate Bark recipe maps.");
+                }
+            }
             if (label == "foliage"
                 && (!material.HasProperty("_CanopyCoverage")
                     || !material.HasProperty("_CanopyEdgeSoftness")
@@ -2832,6 +2904,7 @@ public sealed class IslandGenerator : MonoBehaviour
                     || !material.HasProperty("_FoliageLeafWorldSize")
                     || !material.HasProperty("_FoliageLeafCoverage")
                     || !material.HasProperty("_FoliageLeafEdgeSoftness")
+                    || !material.HasProperty("_CullMode")
                     || !material.HasProperty("_GrassPlayerPosition")
                     || !material.HasProperty("_GrassRadius")
                     || !material.HasProperty("_GrassFadeWidth")))
@@ -2854,7 +2927,12 @@ public sealed class IslandGenerator : MonoBehaviour
             }
             if (label == "foliage")
             {
-                ForestTileStreamer.ValidateLowPolyCanopyShadowProxy(material);
+                material.SetFloat("_CullMode", (float)CullMode.Back);
+                lod0Material = new Material(material);
+                lod0Material.SetFloat("_CullMode", (float)CullMode.Off);
+                ForestTileStreamer.ValidateLowPolyCanopyShadowProxy(
+                    material,
+                    lod0Material);
             }
             material.SetTexture("_CliffNoise3D", noise);
             if (material.GetTexture("_CliffNoise3D") != noise)
@@ -2866,6 +2944,7 @@ public sealed class IslandGenerator : MonoBehaviour
         finally
         {
             DestroyImmediate(noise);
+            DestroyImmediate(lod0Material);
             DestroyImmediate(material);
         }
     }

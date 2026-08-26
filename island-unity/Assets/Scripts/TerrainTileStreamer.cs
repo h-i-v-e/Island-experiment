@@ -89,6 +89,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
     private Material grassMaterial;
     private Material treeWoodMaterial;
     private Material treeFoliageMaterial;
+    private Material treeLod0FoliageMaterial;
     private MaterialPropertyBlock lod0MaterialProperties;
     private Material riverMaterial;
     private Material rockMaterial;
@@ -131,6 +132,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         Material sharedRockMaterial,
         Material sharedTreeWoodMaterial,
         Material sharedTreeFoliageMaterial,
+        Material sharedTreeLod0FoliageMaterial,
         Material waterMaterial,
         Material sharedMeshEdgeMaterial,
         float terrainWorldSize,
@@ -151,6 +153,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         grassMaterial = sharedGrassMaterial;
         treeWoodMaterial = sharedTreeWoodMaterial;
         treeFoliageMaterial = sharedTreeFoliageMaterial;
+        treeLod0FoliageMaterial = sharedTreeLod0FoliageMaterial;
         terrainMaterial.SetFloat(GrassEnabledId, 0f);
         grassMaterial.SetFloat(GrassEnabledId, 0f);
         if (treeFoliageMaterial != null)
@@ -159,6 +162,15 @@ public sealed class TerrainTileStreamer : MonoBehaviour
                 GrassRadiusId,
                 grassMaterial.GetFloat(GrassRadiusId));
             treeFoliageMaterial.SetFloat(
+                GrassFadeWidthId,
+                grassMaterial.GetFloat(GrassFadeWidthId));
+        }
+        if (treeLod0FoliageMaterial != null)
+        {
+            treeLod0FoliageMaterial.SetFloat(
+                GrassRadiusId,
+                grassMaterial.GetFloat(GrassRadiusId));
+            treeLod0FoliageMaterial.SetFloat(
                 GrassFadeWidthId,
                 grassMaterial.GetFloat(GrassFadeWidthId));
         }
@@ -217,6 +229,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         forestStreamer.Initialize(
             transform,
             treeFoliageMaterial,
+            treeLod0FoliageMaterial,
             treeWoodMaterial,
             meshEdgeMaterial,
             preparedForest,
@@ -284,6 +297,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         grassMaterial.SetVector(GrassPlayerPositionId, worldPosition);
         grassMaterial.SetFloat(GrassEnabledId, grassVisible ? 1f : 0f);
         treeFoliageMaterial?.SetVector(GrassPlayerPositionId, worldPosition);
+        treeLod0FoliageMaterial?.SetVector(GrassPlayerPositionId, worldPosition);
         var lod2 = LocalCell(localPosition, Lod2Resolution);
         var lod1 = LocalCell(localPosition, Lod1Resolution);
 
@@ -447,6 +461,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         colliderHeightMap = null;
         treeWoodMaterial = null;
         treeFoliageMaterial = null;
+        treeLod0FoliageMaterial = null;
         if (lod2Group != null)
         {
             DestroyGroup(lod2Group);

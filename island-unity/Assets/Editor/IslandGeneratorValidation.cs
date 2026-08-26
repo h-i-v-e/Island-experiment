@@ -158,7 +158,8 @@ public static class IslandGeneratorValidation
             || island.Rendering.GrassMaterial == null
             || island.Rendering.RiverMaterial == null
             || island.Rendering.SeaMaterial == null
-            || island.Rendering.RockMaterial == null)
+            || island.Rendering.RockMaterial == null
+            || island.Rendering.TreeWoodMaterial == null)
         {
             throw new InvalidOperationException(
                 "The sandbox IslandGenerator is missing a default material template.");
@@ -168,6 +169,16 @@ public static class IslandGeneratorValidation
         {
             throw new InvalidOperationException(
                 "The sandbox river and sea materials do not use their dedicated shaders.");
+        }
+        var treeWood = island.Rendering.TreeWoodMaterial;
+        if (treeWood.shader.name != "Motu/Tree Wood"
+            || treeWood.GetTexture("_BarkAlbedoMap") == null
+            || treeWood.GetTexture("_BarkHeightMap") == null
+            || treeWood.GetTexture("_BarkNormalMap") == null
+            || treeWood.GetTexture("_BarkOcclusionMap") == null)
+        {
+            throw new InvalidOperationException(
+                "The sandbox tree wood template is missing its authored Bark recipe maps.");
         }
         ValidateRealTimeAmbientOcclusion();
         ValidatePlanarWaterReflections();

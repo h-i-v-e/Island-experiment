@@ -4,6 +4,8 @@
     clippy::cast_sign_loss
 )]
 
+pub(crate) const FRACTAL_LACUNARITY: f32 = 2.03;
+
 fn mix(mut value: u64) -> u64 {
     value ^= value >> 30;
     value = value.wrapping_mul(0xbf58_476d_1ce4_e5b9);
@@ -50,7 +52,7 @@ pub fn fractal(seed: u64, x: f32, y: f32, octaves: u8) -> f32 {
             y * frequency,
         ) * amplitude;
         weight += amplitude;
-        frequency *= 2.03;
+        frequency *= FRACTAL_LACUNARITY;
         amplitude *= 0.5;
     }
     total / weight

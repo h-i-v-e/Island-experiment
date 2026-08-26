@@ -5,8 +5,7 @@
 use bevy_egui::egui;
 use motu::procedural_textures::{
     AlbedoBlend, ColourMap, DomainWarpSettings, GradientStop, HeightBlend, LayerMask,
-    MaterialLayer, MaterialModel, NormalConvention, RemapPoint, ScalarRemap, ScalarSource,
-    SourceKind, TextureRecipe,
+    MaterialLayer, MaterialModel, RemapPoint, ScalarRemap, ScalarSource, SourceKind, TextureRecipe,
     recipe::{OcclusionCombine, OutputProfile as RecipeOutputProfile},
 };
 
@@ -69,15 +68,6 @@ fn draw_base(ui: &mut egui::Ui, recipe: &mut TextureRecipe) -> bool {
                 )
                 .changed();
             changed |= f32_row(ui, "Normal scale", &mut recipe.normal_scale, 0.01);
-            let mut direct_x = recipe.normal_convention == NormalConvention::DirectX;
-            if ui.checkbox(&mut direct_x, "DirectX normal Y").changed() {
-                recipe.normal_convention = if direct_x {
-                    NormalConvention::DirectX
-                } else {
-                    NormalConvention::OpenGl
-                };
-                changed = true;
-            }
         });
     egui::CollapsingHeader::new("Occlusion")
         .default_open(false)

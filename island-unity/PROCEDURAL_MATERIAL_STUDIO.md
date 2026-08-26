@@ -23,7 +23,8 @@ auto-preview.
 
 ## Authoring workflow
 
-1. Open `cracked-stone.json`, `rounded-river-stones.json`, or create a recipe.
+1. Open `Bark.json`, `PlateBark.json`, `cracked-stone.json`,
+   `rounded-river-stones.json`, or create a recipe.
 2. Edit the base material and output settings in the middle inspector.
 3. Add, duplicate, rename, enable, delete or drag layers in the left stack.
 4. Select a source, remap its scalar, then route it independently to height,
@@ -67,11 +68,17 @@ cargo build --release --locked \
   -quit
 ```
 
-This loads Rust schema metadata, validates both committed recipes, builds their
+This loads Rust schema metadata, validates all committed recipes, builds their
 schema-driven forms, exercises JSON Pointer edits and Unity Undo, verifies
 atomic save/reload and external-change detection, renders 64-pixel previews
 through the release baker, inspects their maps/timings/completion manifests and
-confirms previews remain outside `Assets`.
+confirms previews remain outside `Assets`. The Plate Bark recipe is also baked
+into `Assets/Generated/Textures/PlateBark` for the branch-axis tree wood
+material; its 1.2 by 1.6 metre physical tile, albedo, height, normal and
+occlusion maps are consumed without conventional mesh UVs. Normal convention
+is not stored in recipes;
+the Unity client requests DirectX normals for previews and final bakes, while
+the generated manifest records that engine-owned choice.
 
 ## Troubleshooting
 

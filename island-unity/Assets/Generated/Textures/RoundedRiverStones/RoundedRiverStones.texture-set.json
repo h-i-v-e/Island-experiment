@@ -8,7 +8,7 @@
   },
   "metadata": {
     "generator_algorithm_version": "1",
-    "recipe_hash": "b0c69ba7b9846eeed331f45cd5b7befc5e3750f9cf1689df64dd567c5e3c1aa2",
+    "recipe_hash": "ff059d2a6819e5e92d4ff8d0c265ca2a0eed5c89f63bd5dba3a440765266d286",
     "seed": 1337,
     "physical_tile_width_m": 2.0,
     "physical_tile_height_m": 2.0,
@@ -16,7 +16,7 @@
     "height_max_m": 0.015,
     "neutral_height_m": 0.0,
     "displacement_map": true,
-    "normal_convention": "open_gl"
+    "normal_convention": "direct_x"
   },
   "maps": [
     {
@@ -41,7 +41,7 @@
       "color_space": "linear",
       "width": 2048,
       "height": 2048,
-      "sha256": "76b02771423f6c800adf32cfccd0d6991a17c4c6cd4928d377dee90f14bc82bd"
+      "sha256": "5e90cb9dc5b65929a381699e83ea6a726ea666ccdb8ddcaccf8995919fc12b1d"
     },
     {
       "file": "RoundedRiverStones_occlusion.png",

@@ -13,7 +13,8 @@ use bevy::{
 };
 use bevy_egui::{EguiTextureHandle, EguiUserTextures, egui};
 use motu::procedural_textures::{
-    PreviewMaps, PreviewSettings, TextureRecipe, editor_protocol, generate_preview, validate_recipe,
+    NormalConvention, PreviewMaps, PreviewSettings, TextureRecipe, editor_protocol,
+    generate_preview, validate_recipe,
 };
 
 use crate::preview_images::{LayerImageSet, convert_preview_maps};
@@ -268,6 +269,7 @@ fn drive_preview_tasks(mut state: ResMut<PreviewState>) {
     state.running = Some(RunningPreview(AsyncComputeTaskPool::get().spawn(
         async move {
             let settings = PreviewSettings {
+                normal_convention: NormalConvention::OpenGl,
                 selected_layer_id: request.key.selected_layer_id.clone(),
             };
             PreviewResponse {
@@ -401,7 +403,14 @@ mod tests {
     #[test]
     fn cache_is_bounded_and_keys_include_selected_layer() {
         let maps = Arc::new(
-            generate_preview(&recipe(), &PreviewSettings::default()).expect("preview fixture"),
+            generate_preview(
+                &recipe(),
+                &PreviewSettings {
+                    normal_convention: NormalConvention::OpenGl,
+                    selected_layer_id: None,
+                },
+            )
+            .expect("preview fixture"),
         );
         let mut state = PreviewState::default();
         for index in 0..10 {
@@ -429,7 +438,14 @@ mod tests {
         recipe.width = PreviewResolution::default().pixels();
         recipe.height = PreviewResolution::default().pixels();
         let maps = Arc::new(
-            generate_preview(&recipe, &PreviewSettings::default()).expect("preview fixture"),
+            generate_preview(
+                &recipe,
+                &PreviewSettings {
+                    normal_convention: NormalConvention::OpenGl,
+                    selected_layer_id: None,
+                },
+            )
+            .expect("preview fixture"),
         );
         let mut state = PreviewState::default();
         state.request(recipe.clone(), 1, None, false);

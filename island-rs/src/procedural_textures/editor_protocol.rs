@@ -117,11 +117,6 @@ pub const EDITABLE_METADATA: &[PropertyMetadata] = &[
         tooltip: "Tangent relief multiplier",
     },
     PropertyMetadata {
-        pointer: "/normal_convention",
-        label: "Normal convention",
-        tooltip: "Tangent-space green-channel convention",
-    },
-    PropertyMetadata {
         pointer: "/material",
         label: "Material",
         tooltip: "Specialised base material",
@@ -790,7 +785,7 @@ pub fn schema_document() -> Value {
         "additionalProperties": false,
         "required": [
             "name", "seed", "width", "height", "physical_tile_width_m",
-            "physical_tile_height_m", "material", "layers", "normal_convention",
+            "physical_tile_height_m", "material", "layers",
             "normal_scale", "displacement", "occlusion", "albedo", "output_profiles"
         ],
         "properties": {
@@ -802,7 +797,6 @@ pub fn schema_document() -> Value {
             "physical_tile_height_m": {"type": "number", "exclusiveMinimum": 0},
             "material": {"$ref": "#/$defs/material"},
             "layers": {"type": "array", "items": {"$ref": "#/$defs/layer"}},
-            "normal_convention": {"enum": ["open_gl", "direct_x"]},
             "normal_scale": {"type": "number", "minimum": 0},
             "displacement": {"$ref": "#/$defs/displacement"},
             "occlusion": {"$ref": "#/$defs/occlusion"},
@@ -965,7 +959,6 @@ fn metadata_value(item: &PropertyMetadata) -> Value {
             (json!(1.0), Some([f64::EPSILON, f32::MAX as f64]), Some("m"))
         }
         "/normal_scale" => (json!(1.0), Some([0.0, f32::MAX as f64]), None),
-        "/normal_convention" => (json!("open_gl"), None, None),
         "/layers/*/id" => (json!("layer"), None, None),
         "/layers/*/name" => (json!("Layer"), None, None),
         "/layers/*/enabled" => (json!(true), None, None),
@@ -1173,7 +1166,6 @@ fn metadata_type(pointer: &str) -> &'static str {
         | "/layers/*/source/kind"
         | "/layers/*/mask/source/kind"
         | "/layers/*/outputs/albedo/blend"
-        | "/normal_convention"
         | "/material/kind"
         | "/layers/*/mask/kind"
         | "/layers/*/mask/layer_id"
@@ -1232,7 +1224,6 @@ fn metadata_type(pointer: &str) -> &'static str {
 
 fn metadata_enum(pointer: &str) -> Option<Value> {
     match pointer {
-        "/normal_convention" => Some(json!(["open_gl", "direct_x"])),
         "/material/kind" => Some(json!(["layered_noise", "cracked_stone", "rounded_stones"])),
         "/output_profiles" => Some(json!(["separate", "motu_unity_terrain"])),
         "/layers/*/source/kind" | "/layers/*/mask/source/kind" => Some(json!([

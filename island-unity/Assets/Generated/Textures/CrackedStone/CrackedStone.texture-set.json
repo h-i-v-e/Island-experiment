@@ -8,7 +8,7 @@
   },
   "metadata": {
     "generator_algorithm_version": "1",
-    "recipe_hash": "5196c44fbe4bdf62a39eff41af0f2aa38a0e0e77ea0c6d19c36e33931449ee2c",
+    "recipe_hash": "1f006afc4eba5bc5aa0d29ae9f6e56710f0559ba93f5401ab1f9ec56ef536820",
     "seed": 666,
     "physical_tile_width_m": 4.0,
     "physical_tile_height_m": 4.0,
@@ -16,7 +16,7 @@
     "height_max_m": 0.2,
     "neutral_height_m": 0.0,
     "displacement_map": true,
-    "normal_convention": "open_gl"
+    "normal_convention": "direct_x"
   },
   "maps": [
     {
@@ -41,7 +41,7 @@
       "color_space": "linear",
       "width": 2048,
       "height": 2048,
-      "sha256": "6da83171f02318b825adc818771357268b0688a7987981af891b80ce6590dc1d"
+      "sha256": "fb299b70c54d422507fcb9310664b60f00159347ef149edbd501592b75ae502c"
     },
     {
       "file": "CrackedStone_occlusion.png",

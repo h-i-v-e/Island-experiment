@@ -9,6 +9,28 @@ document calls forest placement "deferred", this document defines the work
 that is to happen after the standalone tree generator and its LOD0/LOD1 wood
 and foliage outputs are validated.
 
+## Scale-aware placement revision — 2026-08-26
+
+Tree scale is now derived from coherent coverage relative to the configured
+forest threshold. Coverage at the threshold maps to the configured minimum;
+coverage `1.0` maps to the configured maximum. The next finer octave perturbs
+the middle of that range and fades to zero at both endpoints, preserving the
+exact minimum and maximum while adding local variation. Default placement scale
+is `1.0` through `2.0`, replacing the unrelated per-tree random `0.85` through
+`1.15` range.
+
+The same scale is carried into each foliage crown. Branch-tip supports,
+connection limits, crown padding, canopy height, boundary expansion, and tip
+clearance all scale together; a uniformly doubled tree therefore produces a
+uniformly doubled coarse canopy rather than a large trunk inside a mostly
+fixed-size foliage shell.
+
+Each accepted tree reserves a centre-to-centre clearance of `3 metres *
+scale`. A pair is rejected when its distance is within the larger of its two
+clearances, so both trees' individual zones are respected. Higher coarse
+coverage still wins contested positions. Changing the forest threshold now
+intentionally remaps tree scale and its corresponding clearance.
+
 ## Implementation status — 2026-08-24
 
 The code phases in this plan are implemented. The verified state is:
@@ -83,8 +105,8 @@ The placement and rendering contract is:
    no incident triangle remains undisplaced.
 5. Resolve displaced candidates by descending coherent-noise coverage. Reject
    a candidate when its final anchor is beach, or when any already accepted
-   final anchor is at most 2 metres
-   away in XY, regardless of terrain adjacency. Break equal-coverage ties by
+   final anchor is within the larger tree's `3 metres * scale` clearance in XY,
+   regardless of terrain adjacency. Break equal-coverage ties by
    ascending vertex index, then emit accepted placements in ascending vertex
    order. Do not apply a target count, separate random thinning, or silent
    geometry cap.
@@ -121,9 +143,13 @@ global mesh before export prevents duplicate candidates on tile boundaries.
 
 ### Tree anchor
 
-The tree root anchor is the exact final LOD0 vertex position. The tree grows
-toward Rust world Z/Unity world Y. A tree may receive a seeded yaw rotation and
-uniform scale, but it must not be tilted to match the terrain normal.
+The tree root anchor is the deterministic final position selected from the
+LOD0 vertex fan. The tree grows toward Rust world Z/Unity world Y. A tree may
+receive a seeded yaw rotation and uniform scale, but it must not be tilted to
+match the terrain normal. During wood assembly, every open trunk-base vertex
+is sampled against the final LOD0 surface at its transformed XY position. This
+conforms the root perimeter to slopes without bending the whole tree or moving
+its foliage supports.
 
 ### Sea
 
@@ -232,8 +258,10 @@ Initial tuning values, to be confirmed visually and with geometry counts:
 - normalized threshold: begin around `0.62`;
 - comparison: strictly `>` rather than `>=`.
 
-The threshold is the population control. Raising it must produce a subset of
-the placements produced by a lower threshold.
+The threshold controls both population and the start of the scale ramp.
+Raising it removes candidates below the new cutoff and remaps retained scales;
+because clearance follows scale, the final accepted spacing set may also
+change.
 
 ## Displaced anchors and actual exclusion zone
 
@@ -244,22 +272,21 @@ vertex fan, and one selects an interpolation amount in `[0, 0.5)`. Interpolate
 the complete XYZ position toward that triangle's centroid so the root stays on
 the source face while straight vertex rows are broken up.
 
-Insert accepted final anchors into a spatial hash with 2-metre cells. Reject
-each candidate when any anchor in its cell or the eight neighbouring cells is
-at most 2 metres away in XY. This is a physical exclusion zone and does not
-depend on whether the two source vertices share a terrain edge.
+Insert accepted final anchors into a spatial hash whose cell size is the
+maximum configured `3 metres * scale` clearance. Reject each candidate when an
+accepted neighbour is within the larger tree's clearance. This is a physical
+exclusion zone and does not depend on whether the two source vertices share a
+terrain edge.
 
 The higher-noise candidate wins a contested pair; equal coverage is resolved
-by lower terrain vertex index. This priority is independent of the configured
-threshold, preserving the rule that raising the threshold produces a subset
-of the lower-threshold forest. Accepted placements are sorted back into
+by lower terrain vertex index. Accepted placements are sorted back into
 ascending terrain vertex order before appearance generation and mesh assembly.
 
-Changing only the threshold must not change the displaced anchor, yaw, scale,
-prototype choice, or tree geometry of retained placements. Therefore all
-placement variation is derived independently from stable keys, not from a
-sequential RNG whose state depends on how many earlier candidates were
-rejected.
+Changing only the threshold does not change a retained tree's displaced anchor,
+yaw, prototype choice, or prototype geometry. It intentionally remaps scale
+between the configured minimum and maximum, which also changes the scale-aware
+clearance. All stochastic variation remains derived independently from stable
+keys rather than a sequential RNG.
 
 ## Configuration
 
@@ -392,7 +419,7 @@ Use this diagnostic precedence:
 6. zero-soil vertex;
 7. shader beach at the final displaced anchor;
 8. forest noise not above threshold;
-9. final displaced anchor within 2 metres of an accepted final anchor;
+9. final displaced anchor within the larger tree's scale-aware clearance;
 10. accepted.
 
 Noise may be evaluated later in the implementation for performance, provided
@@ -479,13 +506,15 @@ and LOD1 geometry. For each accepted placement:
 1. Fetch its selected prototype.
 2. Apply uniform scale around the prototype root.
 3. Rotate positions and normals around world Z by the seeded yaw.
-4. Translate positions to the exact LOD0 anchor.
-5. Append LOD0 wood to combined LOD0 wood.
-6. Append LOD0 foliage to combined LOD0 foliage.
-7. Append LOD1 wood to combined LOD1 wood.
-8. Append LOD1 foliage to combined LOD1 foliage.
-9. Offset triangle indices with checked arithmetic.
-10. Record the four contiguous ranges for that placed tree.
+4. Translate positions to the final anchor.
+5. Pin each open wood base vertex to the final terrain height at its transformed
+   XY position, then recalculate the assembled wood normals.
+6. Append LOD0 wood to combined LOD0 wood.
+7. Append LOD0 foliage to combined LOD0 foliage.
+8. Append LOD1 wood to combined LOD1 wood.
+9. Append LOD1 foliage to combined LOD1 foliage.
+10. Offset triangle indices with checked arithmetic.
+11. Record the four contiguous ranges for that placed tree.
 
 Introduce a small mesh-appender helper that owns the repeated index-offset,
 reserve, transform, and validation logic. Do not pass several parallel mesh
@@ -661,7 +690,8 @@ performance tuning task, not part of the required visibility matrix.
   once unless the actual final-anchor exclusion zone rejects it.
 - No other vertex is accepted.
 - Noise equal to the threshold is rejected; noise greater than it is accepted.
-- Raising the threshold produces a subset of the lower-threshold placements.
+- Coverage at the threshold maps to minimum scale and coverage `1.0` maps to
+  maximum scale.
 - A sea-level and a below-sea vertex are rejected.
 - A vertex exactly below snowline can be accepted; one at snowline is rejected.
 - A 22-degree vertex can be accepted; a vertex just steeper is rejected.
@@ -679,8 +709,10 @@ performance tuning task, not part of the required visibility matrix.
   eligibility.
 - Beach material inputs are interpolated to the displaced anchor rather than
   sampled only at its source vertex.
-- No two accepted final anchors are at most 2 metres apart in XY, regardless
-  of their source vertices' topology.
+- No accepted final anchor lies inside either tree's `3 metres * scale`
+  clearance in XY, regardless of source-vertex topology.
+- Scale is deterministic, remains within the configured range, and combines
+  coarse forest coverage with its next finer octave.
 - Of two competing candidates, the higher-noise vertex wins; equal coverage is
   resolved by lower terrain vertex index.
 - Physically close non-adjacent source vertices are covered by the same
@@ -692,7 +724,8 @@ performance tuning task, not part of the required visibility matrix.
 - Same island seed, terrain, masks, rocks, and forest options produce identical
   placements and meshes.
 - Representative different seeds produce different coherent forest regions.
-- Changing only the threshold leaves retained placement appearance unchanged.
+- Changing only the threshold remaps scale while retaining stable yaw,
+  prototype choice, and displaced anchor for trees present in both results.
 - Placement order is ascending terrain vertex index.
 
 ### Combined geometry
@@ -703,7 +736,8 @@ performance tuning task, not part of the required visibility matrix.
 - Every triangle index is in range.
 - Wood ranges contain only wood geometry.
 - Foliage ranges contain only foliage geometry.
-- Uniform scale/yaw/translation produce the expected transformed root.
+- Uniform scale/yaw/translation produce the expected transformed root, and
+  every open base vertex matches the sampled final terrain height.
 - Every tree range is copied whole into exactly one owner tile.
 - No tree is geometrically clipped at a tile boundary.
 
@@ -794,8 +828,8 @@ If the result is too expensive, permitted tuning controls are:
 - optimize tile preparation and lifetime.
 
 Do not silently drop additional eligible vertices or introduce a second random
-thinning pass. The actual 2-metre final-anchor exclusion zone is the only
-spacing pass; any broader spacing rule must be an explicit requirement change.
+thinning pass. The scale-aware final-anchor clearance is the only spacing pass;
+any broader spacing rule must be an explicit requirement change.
 
 Checked capacity or index overflow must return a descriptive error containing
 the accepted tree count and projected mesh size. It must never wrap, panic at
@@ -821,9 +855,9 @@ an opaque conversion, or leave a partially published FFI result.
 - Generate final `TreePlacement` records from high-noise vertices after the
   sea, snowline, slope, river-marker, and zero-soil exclusions; then displace
   anchors toward deterministic fan centroids, reject shader beach at the final
-  anchor, and apply the actual 2-metre exclusion zone. Do not assemble island
+  anchor, and apply the scale-aware exclusion zone. Do not assemble island
   forest meshes yet.
-- Add completeness, exclusion, determinism, soil-ordering, and threshold-subset
+- Add completeness, exclusion, determinism, soil-ordering, and threshold-scale
   tests.
 - Add diagnostic counts and inspect several generated seeds.
 
@@ -903,8 +937,8 @@ Unity:
 This forest phase is complete only when all of the following are demonstrated:
 
 - The accepted placement set is every eligible high-noise final LOD0 vertex
-  except candidates removed by the shader beach rule or deterministic 2-metre final-anchor
-  exclusion zone, with no count cap or other thinning.
+  except candidates removed by the shader beach rule or deterministic,
+  scale-aware final-anchor exclusion zone, with no count cap or other thinning.
 - All habitat exclusions are enforced: sea, a marked river vertex, zero soil,
   slopes over 22 degrees, snowline, and shader-classified beach; deterministic
   fan displacement and the final-anchor exclusion zone are then applied to the

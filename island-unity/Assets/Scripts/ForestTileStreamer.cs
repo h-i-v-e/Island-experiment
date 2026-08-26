@@ -75,6 +75,7 @@ internal sealed class ForestTileStreamer : IDisposable
     private GameObject woodRoot;
     private GameObject canopyShadowRoot;
     private Material foliageMaterial;
+    private Material lod0FoliageMaterial;
     private Material woodMaterial;
     private Material meshEdgeMaterial;
     private IslandPreparedMesh[] preparedLod2Foliage;
@@ -93,6 +94,7 @@ internal sealed class ForestTileStreamer : IDisposable
     internal void Initialize(
         Transform parent,
         Material sharedFoliageMaterial,
+        Material sharedLod0FoliageMaterial,
         Material sharedWoodMaterial,
         Material sharedMeshEdgeMaterial,
         IslandPreparedForestData prepared,
@@ -110,7 +112,9 @@ internal sealed class ForestTileStreamer : IDisposable
         {
             throw new ArgumentNullException(nameof(prepared));
         }
-        if (sharedFoliageMaterial == null || sharedWoodMaterial == null)
+        if (sharedFoliageMaterial == null
+            || sharedLod0FoliageMaterial == null
+            || sharedWoodMaterial == null)
         {
             throw new InvalidOperationException(
                 "Forest wood and foliage materials must be available before streaming.");
@@ -122,6 +126,7 @@ internal sealed class ForestTileStreamer : IDisposable
         }
 
         foliageMaterial = sharedFoliageMaterial;
+        lod0FoliageMaterial = sharedLod0FoliageMaterial;
         woodMaterial = sharedWoodMaterial;
         meshEdgeMaterial = sharedMeshEdgeMaterial;
         preparedLod2Foliage = prepared.lod2FoliageTiles;
@@ -326,6 +331,7 @@ internal sealed class ForestTileStreamer : IDisposable
         woodRoot = null;
         canopyShadowRoot = null;
         foliageMaterial = null;
+        lod0FoliageMaterial = null;
         woodMaterial = null;
         meshEdgeMaterial = null;
         preparedLod2Foliage = null;
@@ -352,6 +358,7 @@ internal sealed class ForestTileStreamer : IDisposable
                 var tile = CreateTile(
                     prepared,
                     null,
+                    foliageMaterial,
                     foliageRoot.transform,
                     woodRoot.transform,
                     $"Forest LOD 2 tile {x},{y}");
@@ -390,6 +397,7 @@ internal sealed class ForestTileStreamer : IDisposable
                         CreateTile(
                             foliage,
                             wood,
+                            foliageMaterial,
                             group.foliageRoot.transform,
                             group.woodRoot.transform,
                             $"Forest LOD 1 tile {key.x},{key.y}"));
@@ -419,6 +427,7 @@ internal sealed class ForestTileStreamer : IDisposable
                     CreateTile(
                         foliage,
                         wood,
+                        lod0FoliageMaterial,
                         group.foliageRoot.transform,
                         group.woodRoot.transform,
                         $"Forest LOD 0 tile {key.x},{key.y}"));
@@ -452,6 +461,7 @@ internal sealed class ForestTileStreamer : IDisposable
     private Tile CreateTile(
         IslandPreparedMesh foliage,
         IslandPreparedMesh wood,
+        Material tileFoliageMaterial,
         Transform foliageParent,
         Transform woodParent,
         string name)
@@ -466,12 +476,12 @@ internal sealed class ForestTileStreamer : IDisposable
             if (foliage != null)
             {
                 foliageMesh = CreateForestMesh(foliage, $"{name} foliage");
-                ExpandFoliageBounds(foliageMesh, foliageMaterial);
+                ExpandFoliageBounds(foliageMesh, tileFoliageMaterial);
                 foliageObject = CreateRendererObject(
                     $"{name} foliage",
                     foliageParent,
                     foliageMesh,
-                    foliageMaterial,
+                    tileFoliageMaterial,
                     ShadowCastingMode.Off);
             }
             if (wood != null)
@@ -573,7 +583,9 @@ internal sealed class ForestTileStreamer : IDisposable
     }
 
 #if UNITY_EDITOR
-    internal static void ValidateLowPolyCanopyShadowProxy(Material material)
+    internal static void ValidateLowPolyCanopyShadowProxy(
+        Material material,
+        Material lod0Material)
     {
         var parent = new GameObject("Canopy shadow proxy validation");
         var streamer = new ForestTileStreamer();
@@ -597,13 +609,24 @@ internal sealed class ForestTileStreamer : IDisposable
                 Array.Empty<Color>());
             var lod2 = new IslandPreparedMesh[Lod2TileCount];
             lod2[0] = lowPolyCanopy;
+            var lod1 = new IslandPreparedMesh[Lod1TileCount];
+            lod1[0] = lowPolyCanopy;
+            var lod0 = new IslandPreparedMesh[Lod1TileCount];
+            lod0[0] = lowPolyCanopy;
             var prepared = new IslandPreparedForestData(
                 lod2,
+                lod1,
                 new IslandPreparedMesh[Lod1TileCount],
-                new IslandPreparedMesh[Lod1TileCount],
-                new IslandPreparedMesh[Lod1TileCount],
+                lod0,
                 new IslandPreparedMesh[Lod1TileCount]);
-            streamer.Initialize(parent.transform, material, material, material, prepared, true);
+            streamer.Initialize(
+                parent.transform,
+                material,
+                lod0Material,
+                material,
+                material,
+                prepared,
+                true);
             var renderers = streamer.Root.GetComponentsInChildren<MeshRenderer>(true);
             if (renderers.Length != 2
                 || Array.FindAll(
@@ -618,6 +641,16 @@ internal sealed class ForestTileStreamer : IDisposable
             {
                 throw new InvalidOperationException(
                     "The forest did not create one shared low-poly canopy shadow proxy.");
+            }
+            streamer.UpdateLod1Neighborhood(Vector2Int.zero);
+            streamer.UpdateLod0Neighborhood(Vector2Int.zero);
+            var lod0Renderer = Array.Find(
+                streamer.Root.GetComponentsInChildren<MeshRenderer>(true),
+                renderer => renderer.gameObject.name == "Forest LOD 0 tile 0,0 foliage");
+            if (lod0Renderer == null || lod0Renderer.sharedMaterial != lod0Material)
+            {
+                throw new InvalidOperationException(
+                    "The forest did not assign its double-sided material to LOD0 foliage.");
             }
         }
         finally

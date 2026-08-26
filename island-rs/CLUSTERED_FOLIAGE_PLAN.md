@@ -4,9 +4,9 @@
 
 Replace per-tree foliage shells with one deterministic canopy drape per fine
 streaming patch. Branch tips are the only projected control points. The coarse
-drape is the authoritative control mesh: LOD0 is a subdivided, smoothed,
-coherently displaced form of that mesh, while LOD1 and LOD2 use the coarse
-topology directly.
+drape is the authoritative control mesh: LOD0 selectively subdivides, smooths,
+and coherently displaces only its perimeter band, while LOD1 and LOD2 use the
+coarse topology directly.
 
 The canopy change affects foliage generation and foliage batch ownership only.
 A subsequent placement revision changes tree spacing independently; terrain
@@ -146,10 +146,15 @@ For each canopy patch:
    multiple closed blobs within the same logical cluster mesh range. Do not join
    them with a long artificial neck.
 6. Construct the visible volume from the footprint:
-   - exact branch-tip centres preserve support-point heights while surrounding
-     samples are relaxed in Z to remove spikes;
-   - a wider, irregular middle ring creates crown volume;
-   - a contracted upper ring breaks up the silhouette;
+   - exact branch-tip centres remain interior underside support anchors while
+     surrounding samples are relaxed in Z to remove spikes;
+   - expand separate bottom, middle, and top visual boundary controls beyond
+     those supports, then apply two deterministic Chaikin corner-cutting passes
+     to each closed loop;
+   - join the support cap to the rounded bottom and top outlines with annular
+     strips, so no pinned branch tip can remain a visible silhouette corner;
+   - the wider irregular middle outline creates crown volume and the contracted
+     upper outline breaks up the silhouette;
    - crown peaks are derived from the member trees and major support groups;
    - shallow saddles between tree crowns keep individual crowns legible.
 7. Produce consistently wound closed triangles, finite positions, valid u32
@@ -159,21 +164,26 @@ For each canopy patch:
 
 ## Phase 4: derive LOD0 from the control blob
 
-1. Apply one Loop-subdivision pass to every coarse blob triangle. One pass is
-   the initial production budget because it multiplies triangle count by about
-   four; a second pass is not enabled until measured.
-2. Preserve component boundaries and classify constrained vertices:
-   branch-tip underside supports, footprint seams, and crown peaks.
-3. Smooth newly created and unconstrained vertices with bounded iterations.
+1. Retain the separately rounded bottom, middle, and top visual perimeter-ring
+   indices produced by each coarse blob component. Branch-tip support vertices
+   are deliberately not classified as perimeter vertices.
+2. Apply one conforming subdivision pass only to triangles incident to those
+   perimeter vertices. Adjoining untouched cap triangles are stitched to the
+   new shared-edge midpoints without subdividing the cap interior.
+3. Preserve component boundaries and classify constrained vertices. Only the
+   interior branch-tip underside anchors are pinned; the visible outline is
+   free to relax.
+4. Smooth only retained perimeter vertices and newly created perimeter-band
+   vertices with bounded iterations. Interior coarse cap vertices remain fixed.
    Constrained support vertices must stay attached to their source positions,
    and smoothing must not shrink the footprint excessively.
-4. Apply low-amplitude coherent displacement after smoothing:
+5. Apply low-amplitude coherent displacement after smoothing:
    - strongest on upper and side surfaces;
    - reduced on the underside;
    - zero or near-zero at pinned branch-tip supports;
    - seeded by the island and cluster identity in a dedicated domain.
-5. Recalculate smooth normals after displacement.
-6. Verify that LOD0 and the control blob retain compatible overall bounds and
+6. Recalculate smooth normals after displacement.
+7. Verify that LOD0 and the control blob retain compatible overall bounds and
    silhouette so LOD transitions do not visibly jump.
 
 ## Phase 5: combined streams and owner grids
@@ -218,7 +228,8 @@ required.
 - Coarse blobs are deterministic, finite, closed, consistently wound, and have
   valid indices and normals.
 - Multiple alpha-shape components remain separate geometry inside one range.
-- LOD0 has more triangles than coarse foliage and is derived from it.
+- LOD0 has more triangles than coarse foliage but fewer than full-blob
+  tessellation; the untouched cap interior retains its coarse topology.
 - Pinned supports remain within tolerance after smoothing and displacement.
 - Cluster ranges exactly cover their combined streams without overlap.
 - Foliage owner grids copy whole clusters once; wood grids still copy whole

@@ -31,8 +31,11 @@ The generator provides:
   hardness/forced-rock, loose-cover, and river-bed vertex attributes;
 - one XY-safe support surface shared by simulation, collision, and LOD 0
   rendering, with geometrically clipped tile slicing and LOD edge clamping;
-- tree, bush, and rock placement plus packed foliage, sea-depth maps, and a
-  final-terrain RG sea mask carrying coastal wave depth and distance from land;
+- tree, bush, and rock placement plus packed foliage; coarse tree wood keeps
+  one four-sided span between branch junctions before LOD0 tessellation and
+  junction-aware tube projection;
+- sea-depth maps and a final-terrain RG sea mask carrying coastal wave depth
+  and distance from land;
 - flat spatial triangle indexing, parallel RGB rendering, and a built-in PNG encoder;
 - save/load of reproducible generator inputs;
 - a `cdylib` exposing the principal Unity-facing C ABI allocation/release pairs,
@@ -119,8 +122,12 @@ cargo run --release \
   --bin island-texture-baker -- \
   --recipe island-rs/texture-recipes/cracked-stone.json \
   --output island-unity/Assets/Generated/Textures/CrackedStone \
-  --profile motu_unity_terrain
+  --profile motu_unity_terrain \
+  --normal-convention direct-x
 ```
+
+The recipe remains engine-neutral: callers select `open-gl` or `direct-x` at
+generation time, and the output manifest records the requested convention.
 
 The editor protocol uses the same executable for machine-readable schema,
 validation and resolution-limited previews. Preview output belongs under a

@@ -17,6 +17,7 @@ Shader "Motu/Tree Foliage"
         _FoliageLeafWorldSize ("Broad Leaf Texture Size (metres)", Range(0.1, 4)) = 1.25
         _FoliageLeafCoverage ("Leaf Shell Coverage", Range(0, 1)) = 0.72
         _FoliageLeafEdgeSoftness ("Leaf Edge Softness", Range(0.001, 0.25)) = 0.08
+        [Enum(UnityEngine.Rendering.CullMode)] _CullMode ("Base Surface Culling", Float) = 2
         [HideInInspector] _GrassPlayerPosition ("Player Position", Vector) = (0, 0, 0, 0)
         _GrassRadius ("Foliage Fur Outer Radius (metres)", Float) = 20
         _GrassFadeWidth ("Foliage Fur Edge Fade (metres)", Range(0.1, 20)) = 10
@@ -30,6 +31,7 @@ Shader "Motu/Tree Foliage"
         Pass
         {
             Tags { "LightMode"="ForwardBase" }
+            Cull [_CullMode]
             AlphaToMask On
 
             CGPROGRAM

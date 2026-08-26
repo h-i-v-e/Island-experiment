@@ -17,15 +17,16 @@ use std::{
 };
 
 use crate::{
-    BoundingBox, ISLAND_WORLD_METRES, Mesh, Vec2, Vec3,
+    BoundingBox, ISLAND_WORLD_METRES, Mesh, Vec2, Vec3, Vec4,
     clustered_foliage::{ClusterFoliageMeshes, FoliageCrown, generate_cluster_foliage},
     noise,
-    terrain::LOOSE_DEPTH_EPSILON,
-    trees::{TreeMeshes, generate_tree},
+    terrain::{LOOSE_DEPTH_EPSILON, Terrain},
+    trees::{TreeMeshes, decode_bark_axis, encode_bark_axis, generate_tree},
 };
 
 const FOREST_FOLIAGE_DOMAIN: u64 = 0x4f46_4f4c_4941_4745;
 const CANOPY_PATCH_RESOLUTION: usize = 64;
+const DEFAULT_FOREST_NOISE_THRESHOLD: f32 = 0.62;
 
 /// Physical and deterministic controls for forest generation.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -43,12 +44,12 @@ impl Default for ForestOptions {
     fn default() -> Self {
         Self {
             patch_size_metres: 200.0,
-            noise_threshold: 0.62,
+            noise_threshold: DEFAULT_FOREST_NOISE_THRESHOLD,
             noise_octaves: 4,
             snowline_metres: 100.0,
             prototype_count: 8,
-            minimum_scale: 0.85,
-            maximum_scale: 1.15,
+            minimum_scale: 1.0,
+            maximum_scale: 2.0,
         }
     }
 }
@@ -95,11 +96,11 @@ pub(crate) const FOREST_NOISE_DOMAIN: u64 = 0x8c2d_4e7a_51b3_9f06;
 const FOREST_PLACEMENT_DOMAIN: u64 = 0x1f3d_5b79_a7c9_e2d4;
 const FOREST_PROTOTYPE_DOMAIN: u64 = 0x6a09_e667_f3bc_c909;
 const FOREST_YAW_DOMAIN: u64 = 0x243f_6a88_85a3_08d3;
-const FOREST_SCALE_DOMAIN: u64 = 0x1319_8a2e_0370_7344;
 const FOREST_ANCHOR_FAN_DOMAIN: u64 = 0xa409_3822_299f_31d0;
 const FOREST_ANCHOR_OFFSET_DOMAIN: u64 = 0x082e_fa98_ec4e_6c89;
-pub(crate) const TREE_EXCLUSION_RADIUS_METRES: f32 = 2.0;
+pub(crate) const TREE_CLEARANCE_PER_SCALE_METRES: f32 = 3.0;
 const EXCLUSION_NUMERICAL_EPSILON_METRES: f32 = 0.001;
+const FOREST_SCALE_FINE_OCTAVE_WEIGHT: f32 = 0.2;
 const SHADER_SAND_PATCH_SIZE_METRES: f32 = 32.0;
 const SHADER_PATCH_NOISE_LATTICE_PERIOD: i32 = 64;
 const SHADER_PATCH_NOISE_RED_SEED: u32 = 0xb529_7a4d;
@@ -119,6 +120,17 @@ pub(crate) struct ForestSurface<'a> {
 pub(crate) enum ForestMeshKind {
     Wood,
     Foliage,
+}
+
+/// One owner-grid tile and its optional shader sidecar.
+///
+/// Wood stores the normalized island-space root of each owning tree in RGB;
+/// alpha is `0.5` so Unity can distinguish the stream from its default white
+/// vertex colour. Foliage does not need the sidecar and leaves it empty.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct ForestMeshTile {
+    pub(crate) mesh: Mesh,
+    pub(crate) material: Vec<Vec4>,
 }
 
 /// A contiguous source range belonging to one complete placed tree.
@@ -169,6 +181,7 @@ struct PlacementCandidate {
     terrain_vertex: usize,
     anchor: Vec3,
     coverage: f32,
+    scale: f32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -244,30 +257,37 @@ struct DisplacedAnchor {
     centroid_fraction: f32,
 }
 
+#[derive(Clone, Copy)]
+struct AcceptedTreeAnchor {
+    position: Vec2,
+    clearance: f32,
+}
+
 /// Spatial hash of final displaced anchors. A candidate is accepted only when
-/// no previously accepted higher-priority anchor occupies its true 2-metre
-/// exclusion zone.
+/// no previously accepted higher-priority anchor occupies either tree's
+/// scale-aware clearance zone.
 struct TreeExclusionZone {
-    cells: HashMap<(i64, i64), Vec<Vec2>>,
+    cells: HashMap<(i64, i64), Vec<AcceptedTreeAnchor>>,
     cell_size: f32,
-    radius_squared: f32,
 }
 
 impl TreeExclusionZone {
-    fn new() -> Self {
-        let cell_size = TREE_EXCLUSION_RADIUS_METRES / ISLAND_WORLD_METRES;
-        let comparison_radius = (TREE_EXCLUSION_RADIUS_METRES + EXCLUSION_NUMERICAL_EPSILON_METRES)
+    fn new(maximum_scale: f32) -> Self {
+        let cell_size = (TREE_CLEARANCE_PER_SCALE_METRES * maximum_scale
+            + EXCLUSION_NUMERICAL_EPSILON_METRES)
             / ISLAND_WORLD_METRES;
         Self {
             cells: HashMap::new(),
             cell_size,
-            radius_squared: comparison_radius * comparison_radius,
         }
     }
 
-    fn accept(&mut self, anchor: Vec3) -> bool {
-        let anchor = anchor.truncate();
-        let (cell_x, cell_y) = self.cell(anchor);
+    fn accept(&mut self, position: Vec3, scale: f32) -> bool {
+        let position = position.truncate();
+        let clearance = (TREE_CLEARANCE_PER_SCALE_METRES * scale
+            + EXCLUSION_NUMERICAL_EPSILON_METRES)
+            / ISLAND_WORLD_METRES;
+        let (cell_x, cell_y) = self.cell(position);
         for delta_y in -1_i64..=1 {
             for delta_x in -1_i64..=1 {
                 if self
@@ -275,7 +295,9 @@ impl TreeExclusionZone {
                     .get(&(cell_x + delta_x, cell_y + delta_y))
                     .is_some_and(|anchors| {
                         anchors.iter().any(|accepted| {
-                            accepted.distance_squared(anchor) <= self.radius_squared
+                            let pair_clearance = clearance.max(accepted.clearance);
+                            accepted.position.distance_squared(position)
+                                <= pair_clearance * pair_clearance
                         })
                     })
                 {
@@ -283,7 +305,13 @@ impl TreeExclusionZone {
                 }
             }
         }
-        self.cells.entry((cell_x, cell_y)).or_default().push(anchor);
+        self.cells
+            .entry((cell_x, cell_y))
+            .or_default()
+            .push(AcceptedTreeAnchor {
+                position,
+                clearance,
+            });
         true
     }
 
@@ -361,16 +389,16 @@ impl ForestMeshes {
         visual_lod: usize,
         bounds: BoundingBox,
         divisions: usize,
-    ) -> Option<Vec<Mesh>> {
+    ) -> Option<Vec<ForestMeshTile>> {
         if divisions == 0 || !valid_grid_bounds(bounds) {
             return None;
         }
         let tile_count = divisions.checked_mul(divisions)?;
         if kind == ForestMeshKind::Wood && visual_lod == 2 {
-            return Some(vec![Mesh::default(); tile_count]);
+            return Some(vec![ForestMeshTile::default(); tile_count]);
         }
         let source = self.mesh(kind, visual_lod)?;
-        let mut tiles = vec![Mesh::default(); tile_count];
+        let mut tiles = vec![ForestMeshTile::default(); tile_count];
         let span = Vec2::new(bounds.max.x - bounds.min.x, bounds.max.y - bounds.min.y);
         match kind {
             ForestMeshKind::Wood => {
@@ -382,7 +410,12 @@ impl ForestMeshes {
                     let tile_y = owner_coordinate(tree.anchor.y, bounds.min.y, span.y, divisions);
                     let tile = tile_y * divisions + tile_x;
                     let range = tree_range(tree, visual_lod)?;
-                    append_range(&mut tiles[tile], source, range).ok()?;
+                    let vertex_start = tiles[tile].mesh.vertices.len();
+                    append_range(&mut tiles[tile].mesh, source, range).ok()?;
+                    let vertex_count = tiles[tile].mesh.vertices.len() - vertex_start;
+                    tiles[tile]
+                        .material
+                        .extend(std::iter::repeat_n(tree.anchor.extend(0.5), vertex_count));
                 }
             }
             ForestMeshKind::Foliage => {
@@ -396,7 +429,7 @@ impl ForestMeshes {
                         owner_coordinate(cluster.owner_anchor.y, bounds.min.y, span.y, divisions);
                     let tile = tile_y * divisions + tile_x;
                     let range = cluster_range(cluster, visual_lod)?;
-                    append_range(&mut tiles[tile], source, range).ok()?;
+                    append_range(&mut tiles[tile].mesh, source, range).ok()?;
                 }
             }
         }
@@ -439,14 +472,14 @@ impl ForestGenerationStats {
 /// terrain data.
 pub(crate) fn generate_forest(
     island_seed: u64,
-    terrain: &Mesh,
+    terrain: &Terrain,
     surface: ForestSurface<'_>,
     options: ForestOptions,
 ) -> Result<(ForestMeshes, ForestGenerationStats), String> {
     let options = options.validate()?;
-    let (placements, stats) = select_placements(island_seed, terrain, surface, options)?;
+    let (placements, stats) = select_placements(island_seed, terrain.mesh(), surface, options)?;
     let prototypes = generate_prototypes(island_seed, options)?;
-    let meshes = assemble_forest(island_seed, &placements, &prototypes)?;
+    let meshes = assemble_forest(island_seed, &placements, &prototypes, terrain)?;
     debug_assert_eq!(stats.accepted_trees, meshes.trees.len());
     Ok((meshes, stats))
 }
@@ -475,7 +508,8 @@ pub(crate) fn select_placements(
         &mut stats,
     );
     prioritize_candidates(&mut candidates);
-    let accepted = select_candidates_outside_exclusion_zone(candidates, &mut stats);
+    let accepted =
+        select_candidates_outside_exclusion_zone(candidates, options.maximum_scale, &mut stats);
     let placements = build_placements(island_seed, accepted, options)?;
     stats.accepted_trees = placements.len();
     debug_assert_eq!(
@@ -603,19 +637,45 @@ fn collect_candidates(
             stats.below_or_equal_noise_threshold += 1;
             continue;
         }
+        let scale = coherent_tree_scale(island_seed, point_metres, coverage, options);
         candidates.push(PlacementCandidate {
             terrain_vertex: index,
             anchor: displaced.position,
             coverage,
+            scale,
         });
     }
     candidates
 }
 
+fn coherent_tree_scale(
+    island_seed: u64,
+    point_metres: Vec2,
+    coverage: f32,
+    options: ForestOptions,
+) -> f32 {
+    let fine_frequency = noise::FRACTAL_LACUNARITY.powi(i32::from(options.noise_octaves));
+    let fine_raw = noise::value(
+        (island_seed ^ FOREST_NOISE_DOMAIN).wrapping_add(u64::from(options.noise_octaves)),
+        point_metres.x / options.patch_size_metres * fine_frequency,
+        point_metres.y / options.patch_size_metres * fine_frequency,
+    );
+    let fine = fine_raw.mul_add(0.5, 0.5).clamp(0.0, 1.0);
+    let coverage_above_threshold = ((coverage - options.noise_threshold)
+        / (1.0 - options.noise_threshold).max(f32::EPSILON))
+    .clamp(0.0, 1.0);
+    let fine_variation = (fine - 0.5)
+        * FOREST_SCALE_FINE_OCTAVE_WEIGHT
+        * 4.0
+        * coverage_above_threshold
+        * (1.0 - coverage_above_threshold);
+    let scale_signal = (coverage_above_threshold + fine_variation).clamp(0.0, 1.0);
+    (options.maximum_scale - options.minimum_scale).mul_add(scale_signal, options.minimum_scale)
+}
+
 fn prioritize_candidates(candidates: &mut [PlacementCandidate]) {
-    // Higher-coverage vertices own contested exclusion zones first. This keeps
-    // threshold tuning monotonic: if a retained candidate passes a higher
-    // threshold, every candidate that could block it also passes.
+    // Higher-coverage vertices own contested exclusion zones first, keeping
+    // the largest cluster-centre trees in preference to fringe trees.
     candidates.sort_unstable_by(|left, right| {
         right
             .coverage
@@ -626,12 +686,13 @@ fn prioritize_candidates(candidates: &mut [PlacementCandidate]) {
 
 fn select_candidates_outside_exclusion_zone(
     candidates: Vec<PlacementCandidate>,
+    maximum_scale: f32,
     stats: &mut ForestGenerationStats,
 ) -> Vec<PlacementCandidate> {
-    let mut exclusion_zone = TreeExclusionZone::new();
+    let mut exclusion_zone = TreeExclusionZone::new(maximum_scale);
     let mut accepted = Vec::new();
     for candidate in candidates {
-        if !exclusion_zone.accept(candidate.anchor) {
+        if !exclusion_zone.accept(candidate.anchor, candidate.scale) {
             stats.exclusion_zone += 1;
             continue;
         }
@@ -656,15 +717,13 @@ fn build_placements(
             .map_err(|_| "forest terrain vertex index does not fit in u64".to_owned())?;
         let placement_key = stable_key(island_seed, index_u64, FOREST_PLACEMENT_DOMAIN);
         let yaw_key = stable_key(placement_key, index_u64, FOREST_YAW_DOMAIN);
-        let scale_key = stable_key(placement_key, index_u64, FOREST_SCALE_DOMAIN);
         let prototype_key = stable_key(placement_key, index_u64, FOREST_PROTOTYPE_DOMAIN);
         placements.push(TreePlacement {
             terrain_vertex: u32::try_from(index)
                 .map_err(|_| "forest terrain vertex index does not fit in u32".to_owned())?,
             anchor: candidate.anchor,
             yaw_radians: stable_unit(yaw_key) * TAU,
-            scale: (options.maximum_scale - options.minimum_scale)
-                .mul_add(stable_unit(scale_key), options.minimum_scale),
+            scale: candidate.scale,
             prototype: u8::try_from(prototype_key % u64::from(options.prototype_count))
                 .map_err(|_| "forest prototype index does not fit in u8".to_owned())?,
         });
@@ -873,6 +932,7 @@ fn assemble_forest(
     island_seed: u64,
     placements: &[TreePlacement],
     prototypes: &[TreeMeshes],
+    terrain: &Terrain,
 ) -> Result<ForestMeshes, String> {
     let clusters = build_clusters(placements);
     let foliage_meshes =
@@ -889,7 +949,7 @@ fn assemble_forest(
     out.clusters
         .try_reserve(clusters.len())
         .map_err(|error| format!("forest cluster-range allocation failed: {error}"))?;
-    append_tree_ranges(&mut out, placements, prototypes)?;
+    append_tree_ranges(&mut out, placements, prototypes, terrain)?;
     append_cluster_ranges(&mut out, &clusters, foliage_meshes)?;
     Ok(out)
 }
@@ -933,6 +993,7 @@ fn generate_cluster_foliage_meshes(
             crowns.push(FoliageCrown {
                 trunk: placements[tree_index].anchor,
                 tips,
+                scale: placements[tree_index].scale,
             });
         }
         let cluster_seed = stable_key(
@@ -1012,13 +1073,24 @@ fn append_tree_ranges(
     out: &mut ForestMeshes,
     placements: &[TreePlacement],
     prototypes: &[TreeMeshes],
+    terrain: &Terrain,
 ) -> Result<(), String> {
     for placement in placements {
         let prototype = prototypes
             .get(usize::from(placement.prototype))
             .ok_or_else(|| format!("forest prototype {} is unavailable", placement.prototype))?;
-        let lod0_wood = append_transformed(&mut out.lod0_wood, &prototype.lod0_wood, *placement)?;
-        let lod1_wood = append_transformed(&mut out.lod1_wood, &prototype.lod1_wood, *placement)?;
+        let lod0_wood = append_transformed_to_terrain(
+            &mut out.lod0_wood,
+            &prototype.lod0_wood,
+            *placement,
+            terrain,
+        )?;
+        let lod1_wood = append_transformed_to_terrain(
+            &mut out.lod1_wood,
+            &prototype.lod1_wood,
+            *placement,
+            terrain,
+        )?;
         out.trees.push(ForestTreeRanges {
             terrain_vertex: placement.terrain_vertex,
             anchor: placement.anchor,
@@ -1027,6 +1099,8 @@ fn append_tree_ranges(
             lod1_wood,
         });
     }
+    out.lod0_wood.calculate_normals();
+    out.lod1_wood.calculate_normals();
     Ok(())
 }
 
@@ -1059,6 +1133,8 @@ struct MeshAppender<'a> {
     anchor: Vec3,
     yaw_radians: f32,
     scale: f32,
+    transform_uv_as_axis: bool,
+    terrain: Option<&'a Terrain>,
 }
 
 impl MeshAppender<'_> {
@@ -1110,19 +1186,27 @@ impl MeshAppender<'_> {
         }
         let (sin, cos) = self.yaw_radians.sin_cos();
         for (&position, &normal) in source.vertices.iter().zip(&source.normals) {
-            self.destination.vertices.push(transform_position(
-                position,
-                self.anchor,
-                self.scale,
-                sin,
-                cos,
-            ));
+            let mut transformed = transform_position(position, self.anchor, self.scale, sin, cos);
+            if let Some(terrain) = self.terrain
+                && position.z.abs() <= f32::EPSILON
+            {
+                transformed.z = terrain.sample(transformed.x, transformed.y);
+            }
+            self.destination.vertices.push(transformed);
             self.destination
                 .normals
                 .push(transform_normal(normal, sin, cos));
         }
         if !source.uv.is_empty() {
-            self.destination.uv.extend_from_slice(&source.uv);
+            if self.transform_uv_as_axis {
+                self.destination.uv.extend(
+                    source.uv.iter().map(|&uv| {
+                        encode_bark_axis(transform_normal(decode_bark_axis(uv), sin, cos))
+                    }),
+                );
+            } else {
+                self.destination.uv.extend_from_slice(&source.uv);
+            }
         }
         let vertex_start_u32 = u32::try_from(vertex_start)
             .map_err(|_| "forest vertex start does not fit in u32".to_owned())?;
@@ -1149,6 +1233,7 @@ impl MeshAppender<'_> {
     }
 }
 
+#[cfg(test)]
 fn append_transformed(
     destination: &mut Mesh,
     source: &Mesh,
@@ -1159,6 +1244,25 @@ fn append_transformed(
         anchor: placement.anchor,
         yaw_radians: placement.yaw_radians,
         scale: placement.scale,
+        transform_uv_as_axis: true,
+        terrain: None,
+    }
+    .append(source)
+}
+
+fn append_transformed_to_terrain(
+    destination: &mut Mesh,
+    source: &Mesh,
+    placement: TreePlacement,
+    terrain: &Terrain,
+) -> Result<MeshRange, String> {
+    MeshAppender {
+        destination,
+        anchor: placement.anchor,
+        yaw_radians: placement.yaw_radians,
+        scale: placement.scale,
+        transform_uv_as_axis: true,
+        terrain: Some(terrain),
     }
     .append(source)
 }
@@ -1169,6 +1273,8 @@ fn append_identity(destination: &mut Mesh, source: &Mesh) -> Result<MeshRange, S
         anchor: Vec3::ZERO,
         yaw_radians: 0.0,
         scale: 1.0,
+        transform_uv_as_axis: false,
+        terrain: None,
     }
     .append(source)
 }
@@ -1302,7 +1408,7 @@ mod tests {
         time::{SystemTime, UNIX_EPOCH},
     };
 
-    use crate::terrain::{Island, IslandOptions};
+    use crate::terrain::{Island, IslandOptions, Terrain};
 
     use super::*;
 
@@ -1405,6 +1511,45 @@ mod tests {
         )
         .mul_add(0.5, 0.5)
         .clamp(0.0, 1.0)
+    }
+
+    #[test]
+    fn coherent_scale_combines_forest_coverage_with_the_next_finer_octave() {
+        let seed = 2018;
+        let options = ForestOptions::default();
+        let point_metres = Vec2::new(347.0, 829.0);
+        let coverage = 0.7_f32;
+        let fine_frequency = noise::FRACTAL_LACUNARITY.powi(i32::from(options.noise_octaves));
+        let fine = noise::value(
+            (seed ^ FOREST_NOISE_DOMAIN).wrapping_add(u64::from(options.noise_octaves)),
+            point_metres.x / options.patch_size_metres * fine_frequency,
+            point_metres.y / options.patch_size_metres * fine_frequency,
+        )
+        .mul_add(0.5, 0.5)
+        .clamp(0.0, 1.0);
+        let coverage_above_threshold =
+            (coverage - options.noise_threshold) / (1.0 - options.noise_threshold);
+        let fine_variation = (fine - 0.5)
+            * FOREST_SCALE_FINE_OCTAVE_WEIGHT
+            * 4.0
+            * coverage_above_threshold
+            * (1.0 - coverage_above_threshold);
+        let expected_signal = coverage_above_threshold + fine_variation;
+        let expected = (options.maximum_scale - options.minimum_scale)
+            .mul_add(expected_signal, options.minimum_scale);
+        let actual = coherent_tree_scale(seed, point_metres, coverage, options);
+
+        assert_eq!(actual.to_bits(), expected.to_bits());
+        assert!((options.minimum_scale..=options.maximum_scale).contains(&actual));
+        assert!(coherent_tree_scale(seed, point_metres, 0.9, options) > actual);
+        assert_eq!(
+            coherent_tree_scale(seed, point_metres, options.noise_threshold, options).to_bits(),
+            options.minimum_scale.to_bits()
+        );
+        assert_eq!(
+            coherent_tree_scale(seed, point_metres, 1.0, options).to_bits(),
+            options.maximum_scale.to_bits()
+        );
     }
 
     fn placement(terrain_vertex: u32, x_metres: f32, y_metres: f32) -> TreePlacement {
@@ -1622,6 +1767,7 @@ mod tests {
         x_metres: f32,
         y_metres: f32,
         coverage: f32,
+        scale: f32,
     ) -> PlacementCandidate {
         PlacementCandidate {
             terrain_vertex,
@@ -1631,19 +1777,20 @@ mod tests {
                 0.02,
             ),
             coverage,
+            scale,
         }
     }
 
     #[test]
     fn actual_exclusion_zone_rejects_close_nonadjacent_candidates() {
         let mut candidates = vec![
-            candidate(7, 0.0, 0.0, 0.9),
-            candidate(3, 1.0, 0.0, 0.8),
-            candidate(11, 4.0, 0.0, 0.7),
+            candidate(7, 0.0, 0.0, 0.9, 1.0),
+            candidate(3, 1.0, 0.0, 0.8, 1.0),
+            candidate(11, 4.0, 0.0, 0.7, 1.0),
         ];
         prioritize_candidates(&mut candidates);
         let mut stats = ForestGenerationStats::default();
-        let accepted = select_candidates_outside_exclusion_zone(candidates, &mut stats);
+        let accepted = select_candidates_outside_exclusion_zone(candidates, 1.0, &mut stats);
 
         assert_eq!(
             accepted
@@ -1656,15 +1803,15 @@ mod tests {
     }
 
     #[test]
-    fn actual_exclusion_zone_includes_the_two_metre_boundary() {
+    fn actual_exclusion_zone_includes_scaled_clearance_boundary() {
         let mut candidates = vec![
-            candidate(0, 0.0, 0.0, 0.9),
-            candidate(1, TREE_EXCLUSION_RADIUS_METRES, 0.0, 0.8),
-            candidate(2, 4.0, 0.0, 0.7),
+            candidate(0, 0.0, 0.0, 0.9, 2.0),
+            candidate(1, TREE_CLEARANCE_PER_SCALE_METRES * 2.0, 0.0, 0.8, 1.0),
+            candidate(2, 12.0, 0.0, 0.7, 1.0),
         ];
         prioritize_candidates(&mut candidates);
         let mut stats = ForestGenerationStats::default();
-        let accepted = select_candidates_outside_exclusion_zone(candidates, &mut stats);
+        let accepted = select_candidates_outside_exclusion_zone(candidates, 2.0, &mut stats);
 
         assert_eq!(
             accepted
@@ -1673,6 +1820,21 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![0, 2]
         );
+        assert_eq!(stats.exclusion_zone, 1);
+    }
+
+    #[test]
+    fn candidate_scale_clearance_applies_even_when_the_existing_tree_is_smaller() {
+        let mut candidates = vec![
+            candidate(0, 0.0, 0.0, 0.9, 1.0),
+            candidate(1, 5.0, 0.0, 0.8, 2.0),
+        ];
+        prioritize_candidates(&mut candidates);
+        let mut stats = ForestGenerationStats::default();
+        let accepted = select_candidates_outside_exclusion_zone(candidates, 2.0, &mut stats);
+
+        assert_eq!(accepted.len(), 1);
+        assert_eq!(accepted[0].terrain_vertex, 0);
         assert_eq!(stats.exclusion_zone, 1);
     }
 
@@ -1817,15 +1979,12 @@ mod tests {
     }
 
     #[test]
-    fn threshold_only_removes_placements_without_changing_appearance() {
+    fn threshold_remaps_retained_scales_without_changing_other_appearance() {
         let metre = 1.0 / ISLAND_WORLD_METRES;
         let vertices = (0..32)
-            .map(|index| Vec3::new(0.1 + index as f32 * metre, 0.2, 0.02))
+            .map(|index| Vec3::new(0.1 + index as f32 * 10.0 * metre, 0.2, 0.02))
             .collect::<Vec<_>>();
-        let mut terrain = flat_mesh(&vertices);
-        terrain.triangles = (0..30_u32)
-            .flat_map(|index| [index, index + 1, index + 2])
-            .collect();
+        let terrain = flat_mesh(&vertices);
         let base = ForestOptions {
             noise_threshold: 0.0,
             ..ForestOptions::default()
@@ -1854,6 +2013,7 @@ mod tests {
         )
         .unwrap();
         assert!(subset.len() <= all.len());
+        let mut changed_scale = false;
         for retained in subset {
             let original = all
                 .iter()
@@ -1863,12 +2023,14 @@ mod tests {
                 retained.yaw_radians.to_bits(),
                 original.yaw_radians.to_bits()
             );
-            assert_eq!(retained.scale.to_bits(), original.scale.to_bits());
+            assert!(retained.scale <= original.scale);
+            changed_scale |= retained.scale.to_bits() != original.scale.to_bits();
             assert_eq!(retained.prototype, original.prototype);
             assert_eq!(retained.anchor.x.to_bits(), original.anchor.x.to_bits());
             assert_eq!(retained.anchor.y.to_bits(), original.anchor.y.to_bits());
             assert_eq!(retained.anchor.z.to_bits(), original.anchor.z.to_bits());
         }
+        assert!(changed_scale);
     }
 
     #[test]
@@ -1917,8 +2079,23 @@ mod tests {
             .mesh_grid(ForestMeshKind::Foliage, 2, bounds, 2)
             .unwrap();
         assert_eq!(tiles.len(), 4);
-        assert_eq!(tiles[3].vertices.len(), 2);
-        assert_eq!(tiles[3].triangles, vec![0, 1, 1]);
+        assert_eq!(tiles[3].mesh.vertices.len(), 2);
+        assert_eq!(tiles[3].mesh.triangles, vec![0, 1, 1]);
+        assert!(tiles[3].material.is_empty());
+
+        let wood_tiles = forest
+            .mesh_grid(ForestMeshKind::Wood, 1, bounds, 2)
+            .unwrap();
+        assert_eq!(
+            wood_tiles[3].material.len(),
+            wood_tiles[3].mesh.vertices.len()
+        );
+        assert!(
+            wood_tiles[3]
+                .material
+                .iter()
+                .all(|&anchor| anchor == Vec4::new(0.5, 0.5, 0.2, 0.5))
+        );
     }
 
     fn simple_tree_mesh() -> Mesh {
@@ -1931,8 +2108,57 @@ mod tests {
     }
 
     #[test]
+    fn transformed_wood_rotates_its_encoded_bark_axis() {
+        let mut source = simple_tree_mesh();
+        source.uv = vec![encode_bark_axis(Vec3::X); source.vertices.len()];
+        let mut destination = Mesh::default();
+        append_transformed(
+            &mut destination,
+            &source,
+            TreePlacement {
+                terrain_vertex: 0,
+                anchor: Vec3::ZERO,
+                yaw_radians: std::f32::consts::FRAC_PI_2,
+                scale: 1.0,
+                prototype: 0,
+            },
+        )
+        .unwrap();
+
+        assert!(
+            destination
+                .uv
+                .iter()
+                .all(|&axis| (decode_bark_axis(axis) - Vec3::Y).length() < 1.0e-6)
+        );
+    }
+
+    #[test]
+    fn identity_append_preserves_non_axis_uvs() {
+        let mut source = simple_tree_mesh();
+        source.uv = vec![
+            Vec2::new(0.1, 0.9),
+            Vec2::new(0.2, 0.8),
+            Vec2::new(0.3, 0.7),
+        ];
+        let mut destination = Mesh::default();
+        append_identity(&mut destination, &source).unwrap();
+
+        assert_eq!(destination.uv, source.uv);
+    }
+
+    #[test]
     fn assembly_transforms_and_rebases_each_tree_range_deterministically() {
-        let source = simple_tree_mesh();
+        let source = Mesh {
+            vertices: vec![
+                Vec3::ZERO,
+                Vec3::new(0.1, 0.0, 0.0),
+                Vec3::new(0.0, 0.0, 0.2),
+            ],
+            normals: vec![Vec3::Z; 3],
+            triangles: vec![0, 1, 2],
+            ..Mesh::default()
+        };
         let prototype = TreeMeshes {
             lod0_wood: source.clone(),
             lod0_foliage: source.clone(),
@@ -1948,34 +2174,57 @@ mod tests {
         let placements = [
             TreePlacement {
                 terrain_vertex: 4,
-                anchor: Vec3::new(5.0, 6.0, 7.0),
+                anchor: Vec3::new(0.25, 0.25, 0.25),
                 yaw_radians: std::f32::consts::FRAC_PI_2,
                 scale: 2.0,
                 prototype: 0,
             },
             TreePlacement {
                 terrain_vertex: 9,
-                anchor: Vec3::new(1.0, 2.0, 3.0),
+                anchor: Vec3::new(0.5, 0.25, 0.5),
                 yaw_radians: 0.0,
                 scale: 1.0,
                 prototype: 0,
             },
         ];
-        let first = assemble_forest(2018, &placements, std::slice::from_ref(&prototype)).unwrap();
-        let second = assemble_forest(2018, &placements, &[prototype]).unwrap();
+        let terrain = Terrain::new(Mesh {
+            vertices: vec![
+                Vec3::new(0.0, 0.0, 0.0),
+                Vec3::new(1.0, 0.0, 1.0),
+                Vec3::new(0.0, 1.0, 0.0),
+                Vec3::new(1.0, 1.0, 1.0),
+            ],
+            normals: vec![Vec3::new(-1.0, 0.0, 1.0).normalize(); 4],
+            triangles: vec![0, 1, 2, 1, 3, 2],
+            ..Mesh::default()
+        });
+        let first = assemble_forest(
+            2018,
+            &placements,
+            std::slice::from_ref(&prototype),
+            &terrain,
+        )
+        .unwrap();
+        let second = assemble_forest(2018, &placements, &[prototype], &terrain).unwrap();
         assert_eq!(first, second);
         assert_eq!(first.trees.len(), 2);
         assert_eq!(first.trees[0].lod0_wood.vertex_start, 0);
         assert_eq!(first.trees[1].lod0_wood.vertex_start, 3);
         assert_eq!(first.lod0_wood.triangles, vec![0, 1, 2, 3, 4, 5]);
-        assert!((first.lod0_wood.vertices[1] - Vec3::new(5.0, 8.0, 7.0)).length() < 1.0e-6);
-        assert_eq!(first.lod0_wood.vertices[3], Vec3::new(1.0, 2.0, 3.0));
+        assert!((first.lod0_wood.vertices[1] - Vec3::new(0.25, 0.45, 0.25)).length() < 1.0e-6);
+        assert_eq!(first.lod0_wood.vertices[3], Vec3::new(0.5, 0.25, 0.5));
+        assert_eq!(first.lod0_wood.vertices[4], Vec3::new(0.6, 0.25, 0.6));
 
-        let terrain = flat_mesh(&[
-            Vec3::new(0.37, 0.41, 0.02),
-            Vec3::new(0.52, 0.41, 0.02),
-            Vec3::new(0.37, 0.56, 0.02),
-        ]);
+        let terrain = Terrain::new(Mesh {
+            vertices: vec![
+                Vec3::new(0.37, 0.41, 0.02),
+                Vec3::new(0.52, 0.41, 0.02),
+                Vec3::new(0.37, 0.56, 0.02),
+            ],
+            normals: vec![Vec3::Z; 3],
+            triangles: vec![0, 1, 2],
+            ..Mesh::default()
+        });
         let options = ForestOptions {
             prototype_count: 1,
             noise_threshold: 0.0,

@@ -1,5 +1,6 @@
 using System;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 [ExecuteAlways]
 public sealed class ProceduralTreePreview : MonoBehaviour
@@ -26,6 +27,7 @@ public sealed class ProceduralTreePreview : MonoBehaviour
     private MeshRenderer foliageRenderer;
     private Material runtimeWoodMaterial;
     private Material runtimeFoliageMaterial;
+    private Material runtimeLod0FoliageMaterial;
     private Texture3D surfaceNoiseTexture;
     private bool generating;
     private bool showingLod1;
@@ -42,9 +44,9 @@ public sealed class ProceduralTreePreview : MonoBehaviour
     {
         if (runtimeFoliageMaterial != null && previewCamera != null)
         {
-            runtimeFoliageMaterial.SetVector(
-                "_GrassPlayerPosition",
-                previewCamera.transform.position);
+            var cameraPosition = previewCamera.transform.position;
+            runtimeFoliageMaterial.SetVector("_GrassPlayerPosition", cameraPosition);
+            runtimeLod0FoliageMaterial?.SetVector("_GrassPlayerPosition", cameraPosition);
         }
         if (Input.GetKeyDown(KeyCode.L))
         {
@@ -105,10 +107,10 @@ public sealed class ProceduralTreePreview : MonoBehaviour
                 out lod0Foliage,
                 out lod1Wood,
                 out lod1Foliage);
-            ValidateNativeMesh(lod0Wood, "LOD0 wood");
-            ValidateNativeMesh(lod0Foliage, "LOD0 foliage");
-            ValidateNativeMesh(lod1Wood, "LOD1 wood");
-            ValidateNativeMesh(lod1Foliage, "LOD1 foliage");
+            ValidateNativeMesh(lod0Wood, "LOD0 wood", true);
+            ValidateNativeMesh(lod0Foliage, "LOD0 foliage", false);
+            ValidateNativeMesh(lod1Wood, "LOD1 wood", true);
+            ValidateNativeMesh(lod1Foliage, "LOD1 foliage", false);
 
             var preparedWood = IslandGenerator.CopyGeneratedMeshData(
                 lod0Wood,
@@ -122,12 +124,12 @@ public sealed class ProceduralTreePreview : MonoBehaviour
             var preparedLod1Foliage = IslandGenerator.CopyGeneratedMeshData(
                 lod1Foliage,
                 NativeWorldSizeMetres);
-            ValidatePreparedMesh(preparedWood);
-            ValidatePreparedMesh(preparedFoliage);
-            ValidatePreparedMesh(preparedLod1Wood);
-            ValidatePreparedMesh(preparedLod1Foliage);
-            ValidateLodPair(preparedWood, preparedLod1Wood, "wood");
-            ValidateLodPair(preparedFoliage, preparedLod1Foliage, "foliage");
+            ValidatePreparedMesh(preparedWood, true);
+            ValidatePreparedMesh(preparedFoliage, false);
+            ValidatePreparedMesh(preparedLod1Wood, true);
+            ValidatePreparedMesh(preparedLod1Foliage, false);
+            ValidateLodPair(preparedWood, preparedLod1Wood, "wood", 16, false);
+            ValidateLodPair(preparedFoliage, preparedLod1Foliage, "foliage", 4, true);
             ReleaseGeneratedMeshes();
             lod0WoodMesh = CreatePreviewMesh(preparedWood, $"Procedural Tree LOD0 Wood {seed}");
             lod1WoodMesh = CreatePreviewMesh(
@@ -220,6 +222,12 @@ public sealed class ProceduralTreePreview : MonoBehaviour
         {
             foliageFilter.sharedMesh = showingLod1 ? lod1FoliageMesh : lod0FoliageMesh;
         }
+        if (foliageRenderer != null)
+        {
+            foliageRenderer.sharedMaterial = showingLod1
+                ? runtimeFoliageMaterial
+                : runtimeLod0FoliageMaterial;
+        }
     }
 
     private void EnsureMeshObject(
@@ -250,6 +258,7 @@ public sealed class ProceduralTreePreview : MonoBehaviour
     {
         if (runtimeWoodMaterial != null
             && runtimeFoliageMaterial != null
+            && runtimeLod0FoliageMaterial != null
             && surfaceNoiseTexture != null)
         {
             return;
@@ -259,11 +268,19 @@ public sealed class ProceduralTreePreview : MonoBehaviour
         surfaceNoiseTexture.hideFlags = HideFlags.HideAndDontSave;
         runtimeWoodMaterial = CreateRuntimeMaterial(woodMaterial, surfaceNoiseTexture);
         runtimeFoliageMaterial = CreateRuntimeMaterial(foliageMaterial, surfaceNoiseTexture);
+        runtimeFoliageMaterial.SetFloat("_CullMode", (float)CullMode.Back);
+        runtimeLod0FoliageMaterial = new Material(runtimeFoliageMaterial)
+        {
+            name = $"{foliageMaterial.name} LOD0 Preview Runtime",
+            hideFlags = HideFlags.HideAndDontSave,
+        };
+        runtimeLod0FoliageMaterial.SetFloat("_CullMode", (float)CullMode.Off);
+        runtimeLod0FoliageMaterial.enableInstancing = true;
         if (previewCamera != null)
         {
-            runtimeFoliageMaterial.SetVector(
-                "_GrassPlayerPosition",
-                previewCamera.transform.position);
+            var cameraPosition = previewCamera.transform.position;
+            runtimeFoliageMaterial.SetVector("_GrassPlayerPosition", cameraPosition);
+            runtimeLod0FoliageMaterial.SetVector("_GrassPlayerPosition", cameraPosition);
         }
     }
 
@@ -276,6 +293,10 @@ public sealed class ProceduralTreePreview : MonoBehaviour
         };
         material.SetTexture("_CliffNoise3D", noise);
         material.SetMatrix("_IslandWorldToLocal", Matrix4x4.identity);
+        if (material.HasProperty("_WorldSize"))
+        {
+            material.SetFloat("_WorldSize", NativeWorldSizeMetres);
+        }
         material.enableInstancing = true;
         return material;
     }
@@ -284,9 +305,11 @@ public sealed class ProceduralTreePreview : MonoBehaviour
     {
         DestroyPreviewObject(runtimeWoodMaterial);
         DestroyPreviewObject(runtimeFoliageMaterial);
+        DestroyPreviewObject(runtimeLod0FoliageMaterial);
         DestroyPreviewObject(surfaceNoiseTexture);
         runtimeWoodMaterial = null;
         runtimeFoliageMaterial = null;
+        runtimeLod0FoliageMaterial = null;
         surfaceNoiseTexture = null;
     }
 
@@ -329,8 +352,15 @@ public sealed class ProceduralTreePreview : MonoBehaviour
         previewCamera.farClipPlane = Mathf.Max(distance * 5f, 20f);
     }
 
-    private static void ValidatePreparedMesh(IslandPreparedMesh mesh)
+    private static void ValidatePreparedMesh(IslandPreparedMesh mesh, bool requireUv)
     {
+        if (requireUv
+            && (mesh.uv.Length != mesh.vertices.Length
+                || mesh.material.Length != mesh.vertices.Length))
+        {
+            throw new InvalidOperationException(
+                "The generated tree wood is missing its branch-local bark data.");
+        }
         for (var index = 0; index < mesh.vertices.Length; index++)
         {
             if (!IsFinite(mesh.vertices[index]) || !IsFinite(mesh.normals[index]))
@@ -349,13 +379,18 @@ public sealed class ProceduralTreePreview : MonoBehaviour
         }
     }
 
-    private static void ValidateNativeMesh(MotuNative.ExportMesh mesh, string label)
+    private static void ValidateNativeMesh(
+        MotuNative.ExportMesh mesh,
+        string label,
+        bool requireUv)
     {
         if (mesh.handle == IntPtr.Zero
             || mesh.vertices.length <= 0
             || mesh.normals.length != mesh.vertices.length
             || mesh.triangles.length <= 0
-            || mesh.triangles.length % 3 != 0)
+            || mesh.triangles.length % 3 != 0
+            || (requireUv && mesh.uv.length != mesh.vertices.length)
+            || (requireUv && mesh.material.length != mesh.vertices.length))
         {
             throw new InvalidOperationException(
                 $"The native tree generator returned an invalid {label} mesh.");
@@ -365,12 +400,18 @@ public sealed class ProceduralTreePreview : MonoBehaviour
     private static void ValidateLodPair(
         IslandPreparedMesh lod0,
         IslandPreparedMesh lod1,
-        string label)
+        string label,
+        int triangleMultiplier,
+        bool requireSharedVertices)
     {
         if (lod0.vertices.Length <= lod1.vertices.Length
-            || lod0.triangles.Length != lod1.triangles.Length * 4)
+            || lod0.triangles.Length != lod1.triangles.Length * triangleMultiplier)
         {
             throw new InvalidOperationException($"The tree {label} LOD topology is invalid.");
+        }
+        if (!requireSharedVertices)
+        {
+            return;
         }
         for (var vertex = 0; vertex < lod1.vertices.Length; vertex++)
         {

@@ -9,7 +9,8 @@ cargo run --release \
   --bin island-texture-baker -- \
   --recipe island-rs/texture-recipes/cracked-stone.json \
   --output island-unity/Assets/Generated/Textures/CrackedStone \
-  --profile motu_unity_terrain
+  --profile motu_unity_terrain \
+  --normal-convention direct-x
 ~~~
 
 separate writes albedo, Gray16 height, tangent normal, and Gray8 occlusion
@@ -82,12 +83,11 @@ to height, albedo, both or neither; height strength is expressed in metres,
 while albedo strength is unitless. Layers are evaluated in order, and a mask
 may only refer to an earlier layer by stable `id`.
 
-The two committed recipes are the canonical examples. They retain their
-specialised cracked-stone and rounded-stone base materials and their converted
-layers reproduce the existing appearance. Their albedo bindings are present
-but disabled for that baseline; an editor can enable one to route the same
-scalar into an explicit colour variation without coupling either output to a
-renderer.
+The committed recipes are canonical examples. `cracked-stone.json` and
+`rounded-river-stones.json` retain their converted baseline appearances;
+`Bark.json` and `PlateBark.json` demonstrate editable tree-bark treatments.
+The plate-bark variant combines vertically elongated fissured slabs, rough
+faces and layered lichen without introducing an engine-specific recipe type.
 
 ## Editor protocol
 
@@ -99,8 +99,13 @@ island-texture-baker validate \
   --recipe island-rs/texture-recipes/cracked-stone.json --json
 island-texture-baker preview \
   --recipe island-rs/texture-recipes/cracked-stone.json \
-  --output /tmp/procedural-material-preview --size 256
+  --output /tmp/procedural-material-preview --size 256 \
+  --normal-convention open-gl
 ```
+
+Normal convention is intentionally not recipe state. Each bake or preview
+caller must request `open-gl` or `direct-x`; the generated manifest records the
+choice so an engine can verify what it received.
 
 These commands return machine-readable JSON on standard output. Human
 progress belongs on standard error. Preview overrides only the requested

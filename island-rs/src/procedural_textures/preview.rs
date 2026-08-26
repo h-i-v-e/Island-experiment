@@ -9,14 +9,16 @@ use std::time::Instant;
 use super::{
     MaterialEvaluation, TextureError, TextureRecipe, TextureSet,
     encoding::normalized_recipe_hash,
-    image::{FloatImage, Rgba8Image, TextureDimensions},
+    image::{FloatImage, NormalConvention, Rgba8Image, TextureDimensions},
     layer_stack::LayerDiagnostic,
     texture_set_from_evaluation,
 };
 
 /// Settings that affect one generated preview without changing the recipe.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PreviewSettings {
+    /// Tangent-space convention requested by the rendering engine.
+    pub normal_convention: NormalConvention,
     /// Stable layer identifier whose raw, remapped, and mask maps should be
     /// returned for inspection.
     pub selected_layer_id: Option<String>,
@@ -82,7 +84,8 @@ pub fn generate_preview(
     let evaluate_ms = elapsed_ms(evaluation_started);
 
     let texture_started = Instant::now();
-    let textures = texture_set_from_evaluation(effective_recipe, &evaluation)?;
+    let textures =
+        texture_set_from_evaluation(effective_recipe, &evaluation, settings.normal_convention)?;
     let packed_mask = Some(packed_mask_from_texture_set(&textures)?);
     let dimensions = textures.dimensions;
     let selected_layer = selected_layer_maps(
@@ -212,7 +215,6 @@ mod tests {
                     "height": { "enabled": true, "strength_m": 0.01 }
                 }
             }],
-            "normal_convention": "open_gl",
             "normal_scale": 1.0,
             "displacement": {
                 "minimum_m": -0.2,
@@ -233,11 +235,13 @@ mod tests {
         let preview = generate_preview(
             &recipe,
             &PreviewSettings {
+                normal_convention: NormalConvention::OpenGl,
                 selected_layer_id: Some("detail".into()),
             },
         )
         .expect("preview");
-        let final_set = generate_texture_set(&recipe).expect("final texture set");
+        let final_set =
+            generate_texture_set(&recipe, NormalConvention::OpenGl).expect("final texture set");
         assert_eq!(preview.textures, final_set);
         assert_eq!(preview.recipe_hash, final_set.metadata.recipe_hash);
         assert_eq!(
@@ -261,6 +265,7 @@ mod tests {
         let preview = generate_preview(
             &recipe,
             &PreviewSettings {
+                normal_convention: NormalConvention::OpenGl,
                 selected_layer_id: Some("missing".into()),
             },
         )
@@ -285,7 +290,14 @@ mod tests {
     #[test]
     fn packed_mask_uses_final_height_bytes() {
         let recipe = recipe();
-        let preview = generate_preview(&recipe, &PreviewSettings::default()).expect("preview");
+        let preview = generate_preview(
+            &recipe,
+            &PreviewSettings {
+                normal_convention: NormalConvention::OpenGl,
+                selected_layer_id: None,
+            },
+        )
+        .expect("preview");
         let packed = preview.packed_mask.expect("packed mask");
         for ((&height, &occlusion), pixel) in preview
             .textures
@@ -300,8 +312,7 @@ mod tests {
     }
 
     #[test]
-    fn preview_settings_default_has_no_selected_layer() {
-        assert_eq!(PreviewSettings::default().selected_layer_id, None);
+    fn recipe_retains_output_profile_without_engine_normal_state() {
         assert_eq!(recipe().output_profiles.len(), 1);
     }
 }

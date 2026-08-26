@@ -156,14 +156,14 @@ MonoBehaviour:
     maximumHeightMetres: 400
     waterRatio: 0.8
     inlandSlopeMultiplier: 0.51
-    coastalSlopeMultiplier: 2
-    hydraulicErosionStrength: 0.48
+    coastalSlopeMultiplier: 1
+    hydraulicErosionStrength: 4
     sedimentDepositionStrength: 1.5
     depositionMaximumSlopeDegrees: 12
   rivers:
     sourceCatchmentHectares: 0.05
     steepSourceMultiplier: 4
-    sourceElevationBoost: 9
+    sourceElevationBoost: 16
     sourceWidthMetres: 1
     maximumWidthMetres: 4
     sourceDepthMetres: 0.2
@@ -173,11 +173,11 @@ MonoBehaviour:
   forest:
     showForests: 1
     forestPatchSizeMetres: 200
-    forestNoiseThreshold: 0.62
-    snowlineMetres: 100
-    forestPrototypeCount: 8
-    minimumTreeScale: 0.85
-    maximumTreeScale: 1.15
+    forestNoiseThreshold: 0.7
+    snowlineMetres: 200
+    forestPrototypeCount: 64
+    minimumTreeScale: 1
+    maximumTreeScale: 3
   streaming:
     target: {fileID: 1299534587}
   rendering:
@@ -186,7 +186,7 @@ MonoBehaviour:
     riverMaterial: {fileID: 2100000, guid: 671058ee1a245424e91a25c139b2be33, type: 2}
     seaMaterial: {fileID: 2100000, guid: f7e64c96dada84bf1bae7f46e0e94f50, type: 2}
     rockMaterial: {fileID: 2100000, guid: f808a7e2f1bde4fcd8f35b7bcae174a5, type: 2}
-    treeWoodMaterial: {fileID: 0}
+    treeWoodMaterial: {fileID: 2100000, guid: 1d502ab988fe44d8681ee8654656a33a, type: 2}
     treeFoliageMaterial: {fileID: 0}
     cliffDetailNoise: {fileID: 0}
     riverNoise: {fileID: 0}

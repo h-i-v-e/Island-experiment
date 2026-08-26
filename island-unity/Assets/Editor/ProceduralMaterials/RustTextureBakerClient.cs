@@ -20,6 +20,7 @@ public sealed class RustTextureBakerClient : IDisposable
     private const string ExecutablePreference = "Island.ProceduralMaterialStudio.BakerExecutable";
     private const string CargoPreference = "Island.ProceduralMaterialStudio.UseCargoFallback";
     private const string PreviewRoot = "Library/ProceduralMaterialPreview";
+    private const string UnityNormalConvention = "direct-x";
 
     private PendingRequest pendingPreview;
     private readonly List<PendingRequest> requests = new List<PendingRequest>();
@@ -353,6 +354,8 @@ public sealed class RustTextureBakerClient : IDisposable
                 arguments.Add(outputDirectory);
                 arguments.Add("--size");
                 arguments.Add(size.ToString());
+                arguments.Add("--normal-convention");
+                arguments.Add(UnityNormalConvention);
                 arguments.Add("--json");
                 break;
             case RequestKind.Bake:
@@ -361,6 +364,8 @@ public sealed class RustTextureBakerClient : IDisposable
                 arguments.Add(recipePath);
                 arguments.Add("--output");
                 arguments.Add(outputDirectory);
+                arguments.Add("--normal-convention");
+                arguments.Add(UnityNormalConvention);
                 if (!string.IsNullOrWhiteSpace(profile))
                 {
                     arguments.Add("--profile");

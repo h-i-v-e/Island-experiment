@@ -2,14 +2,25 @@ Shader "Motu/Tree Wood"
 {
     Properties
     {
-        _BaseColor ("Dark Bark", Color) = (0.24, 0.105, 0.045, 1)
-        _LightColor ("Light Bark", Color) = (0.43, 0.22, 0.09, 1)
-        _BarkContrast ("Bark Colour Variation", Range(0, 1)) = 0.35
+        _BaseColor ("Dark Bark", Color) = (0.16, 0.085, 0.045, 1)
+        _LightColor ("Light Bark", Color) = (0.42, 0.28, 0.14, 1)
+        _BarkContrast ("Bark Colour Variation", Range(0, 1)) = 0.42
+        [NoScaleOffset] _BarkAlbedoMap ("Bark Recipe Albedo", 2D) = "gray" {}
+        [NoScaleOffset] _BarkHeightMap ("Bark Recipe Height", 2D) = "gray" {}
+        [NoScaleOffset] _BarkNormalMap ("Bark Recipe Normal", 2D) = "bump" {}
+        [NoScaleOffset] _BarkOcclusionMap ("Bark Recipe Occlusion", 2D) = "white" {}
+        _BarkTileWidthMetres ("Bark Tile Width (metres)", Float) = 1
+        _BarkTileHeightMetres ("Bark Tile Height (metres)", Float) = 1
+        _BarkNormalMapStrength ("Bark Recipe Normal Strength", Range(0, 2)) = 0.7
+        _BarkParallaxStrengthMetres ("Bark Recipe Parallax (metres)", Range(0, 0.08)) = 0.05
+        _BarkOcclusionStrength ("Bark Recipe Occlusion Strength", Range(0, 1)) = 0.7
+        _BarkAmbientFloor ("Bark Ambient Floor", Range(0, 0.5)) = 0.16
+        [HideInInspector] _WorldSize ("Island World Size", Float) = 2000
         [NoScaleOffset] _CliffNoise3D ("Tree Surface Noise", 3D) = "gray" {}
         _TreeNoisePeriod ("Bark Noise Period (metres)", Float) = 7
         _TreeNoiseDetailScale ("Bark Detail Frequency", Range(1, 16)) = 4
         _TreeNoiseFineScale ("Bark Fine Frequency", Range(2, 48)) = 18
-        _TreeNormalStrength ("Bark Normal Strength", Range(0, 0.5)) = 0.18
+        _TreeNormalStrength ("Bark Normal Strength", Range(0, 0.5)) = 0.14
         _TreeHueVariationDegrees ("Bark Hue Variation", Range(0, 30)) = 8
     }
 
@@ -39,6 +50,8 @@ Shader "Motu/Tree Wood"
             {
                 float4 vertex : POSITION;
                 float3 normal : NORMAL;
+                float2 barkAxis : TEXCOORD0;
+                float4 treeData : COLOR;
                 UNITY_VERTEX_INPUT_INSTANCE_ID
             };
 
@@ -50,6 +63,8 @@ Shader "Motu/Tree Wood"
                 SHADOW_COORDS(2)
                 UNITY_FOG_COORDS(3)
                 float3 islandLocalPosition : TEXCOORD4;
+                float2 barkAxis : TEXCOORD5;
+                float4 treeData : TEXCOORD6;
                 UNITY_VERTEX_INPUT_INSTANCE_ID
                 UNITY_VERTEX_OUTPUT_STEREO
             };
@@ -57,6 +72,180 @@ Shader "Motu/Tree Wood"
             fixed4 _BaseColor;
             fixed4 _LightColor;
             half _BarkContrast;
+            sampler2D _BarkAlbedoMap;
+            sampler2D _BarkHeightMap;
+            sampler2D _BarkNormalMap;
+            sampler2D _BarkOcclusionMap;
+            float _BarkTileWidthMetres;
+            float _BarkTileHeightMetres;
+            half _BarkNormalMapStrength;
+            half _BarkParallaxStrengthMetres;
+            half _BarkOcclusionStrength;
+            half _BarkAmbientFloor;
+            float _WorldSize;
+
+            struct BarkRecipeSample
+            {
+                fixed3 albedo;
+                half3 worldNormal;
+                half occlusion;
+            };
+
+            float3 DecodeBarkAxis(float2 encoded)
+            {
+                float2 unfolded = encoded * 2.0 - 1.0;
+                float3 axis = float3(
+                    unfolded.x,
+                    unfolded.y,
+                    1.0 - abs(unfolded.x) - abs(unfolded.y));
+                if (axis.z < 0.0)
+                {
+                    axis.xy = (1.0 - abs(axis.yx)) * sign(axis.xy);
+                }
+                return normalize(axis);
+            }
+
+            half3 StrengthenRecipeNormal(half3 normal)
+            {
+                normal.xy *= _BarkNormalMapStrength;
+                normal.z = sqrt(saturate(1.0 - dot(normal.xy, normal.xy)));
+                return normalize(normal);
+            }
+
+            float2 ParallaxBarkUv(
+                float2 uv,
+                float2 tileSizeMetres,
+                float2 viewDirectionAlongSurface,
+                half viewDepth)
+            {
+                UNITY_BRANCH
+                if (_BarkParallaxStrengthMetres <= 0.0h)
+                {
+                    return uv;
+                }
+
+                float2 rayOffset = viewDirectionAlongSurface
+                    / max(tileSizeMetres, float2(0.01, 0.01))
+                    * (_BarkParallaxStrengthMetres / max(viewDepth, 0.2h));
+                const half layerStep = 0.125h;
+                float2 uvStep = rayOffset * layerStep;
+                float2 currentUv = uv;
+                half currentLayer = 0.0h;
+                half surfaceDepth = 1.0h - tex2D(_BarkHeightMap, currentUv).r;
+                [unroll]
+                for (int stepIndex = 0; stepIndex < 8; ++stepIndex)
+                {
+                    if (currentLayer >= surfaceDepth)
+                    {
+                        break;
+                    }
+                    currentUv -= uvStep;
+                    currentLayer += layerStep;
+                    surfaceDepth = 1.0h - tex2D(_BarkHeightMap, currentUv).r;
+                }
+
+                float2 previousUv = currentUv + uvStep;
+                half previousLayer = max(currentLayer - layerStep, 0.0h);
+                half previousSurfaceDepth = 1.0h
+                    - tex2D(_BarkHeightMap, previousUv).r;
+                half afterDepth = surfaceDepth - currentLayer;
+                half beforeDepth = previousSurfaceDepth - previousLayer;
+                half denominator = afterDepth - beforeDepth;
+                half interpolation = abs(denominator) > 1.0e-4h
+                    ? saturate(afterDepth / denominator)
+                    : 0.0h;
+                return lerp(currentUv, previousUv, interpolation);
+            }
+
+            BarkRecipeSample SampleBarkRecipe(
+                float3 barkPosition,
+                float3 worldPosition,
+                half3 geometricWorldNormal,
+                float3 barkAxis)
+            {
+                float3 tangentFromUp = cross(float3(0.0, 1.0, 0.0), barkAxis);
+                float3 tangentFromSide = cross(float3(1.0, 0.0, 0.0), barkAxis);
+                float verticalBlend = smoothstep(0.80, 0.98, abs(barkAxis.y));
+                float3 tangent = normalize(lerp(
+                    tangentFromUp,
+                    tangentFromSide,
+                    verticalBlend));
+                float3 bitangent = normalize(cross(barkAxis, tangent));
+                half3 worldAxis = normalize(UnityObjectToWorldDir(barkAxis));
+                half3 worldTangent = normalize(UnityObjectToWorldDir(tangent));
+                half3 worldBitangent = normalize(UnityObjectToWorldDir(bitangent));
+
+                half tangentFacing = dot(geometricWorldNormal, worldTangent);
+                half bitangentFacing = dot(geometricWorldNormal, worldBitangent);
+                half tangentSign = tangentFacing < 0.0 ? -1.0 : 1.0;
+                half bitangentSign = bitangentFacing < 0.0 ? -1.0 : 1.0;
+                float along = dot(barkPosition, barkAxis)
+                    / max(_BarkTileHeightMetres, 0.01);
+
+                float3 tangentProjectionU = bitangent * tangentSign;
+                float3 bitangentProjectionU = -tangent * bitangentSign;
+                float2 tangentUv = float2(
+                    dot(barkPosition, tangentProjectionU)
+                        / max(_BarkTileWidthMetres, 0.01),
+                    along);
+                float2 bitangentUv = float2(
+                    dot(barkPosition, bitangentProjectionU)
+                        / max(_BarkTileWidthMetres, 0.01),
+                    along);
+
+                half3 viewDirection = normalize(UnityWorldSpaceViewDir(worldPosition));
+                float2 tileSizeMetres = float2(
+                    _BarkTileWidthMetres,
+                    _BarkTileHeightMetres);
+                tangentUv = ParallaxBarkUv(
+                    tangentUv,
+                    tileSizeMetres,
+                    float2(
+                        dot(viewDirection, worldBitangent * tangentSign),
+                        dot(viewDirection, worldAxis)),
+                    abs(dot(viewDirection, worldTangent * tangentSign)));
+                bitangentUv = ParallaxBarkUv(
+                    bitangentUv,
+                    tileSizeMetres,
+                    float2(
+                        dot(viewDirection, -worldTangent * bitangentSign),
+                        dot(viewDirection, worldAxis)),
+                    abs(dot(viewDirection, worldBitangent * bitangentSign)));
+
+                half tangentWeight = pow(abs(tangentFacing), 4.0);
+                half bitangentWeight = pow(abs(bitangentFacing), 4.0);
+                half weightTotal = max(tangentWeight + bitangentWeight, 1.0e-4);
+                tangentWeight /= weightTotal;
+                bitangentWeight /= weightTotal;
+
+                fixed3 tangentAlbedo = tex2D(_BarkAlbedoMap, tangentUv).rgb;
+                fixed3 bitangentAlbedo = tex2D(_BarkAlbedoMap, bitangentUv).rgb;
+                half tangentOcclusion = tex2D(_BarkOcclusionMap, tangentUv).r;
+                half bitangentOcclusion = tex2D(_BarkOcclusionMap, bitangentUv).r;
+                half3 tangentNormal = StrengthenRecipeNormal(
+                    UnpackNormal(tex2D(_BarkNormalMap, tangentUv)));
+                half3 bitangentNormal = StrengthenRecipeNormal(
+                    UnpackNormal(tex2D(_BarkNormalMap, bitangentUv)));
+
+                half3 tangentWorldNormal = normalize(
+                    worldBitangent * tangentSign * tangentNormal.x
+                    + worldAxis * tangentNormal.y
+                    + worldTangent * tangentSign * tangentNormal.z);
+                half3 bitangentWorldNormal = normalize(
+                    -worldTangent * bitangentSign * bitangentNormal.x
+                    + worldAxis * bitangentNormal.y
+                    + worldBitangent * bitangentSign * bitangentNormal.z);
+
+                BarkRecipeSample sample;
+                sample.albedo = tangentAlbedo * tangentWeight
+                    + bitangentAlbedo * bitangentWeight;
+                sample.worldNormal = normalize(
+                    tangentWorldNormal * tangentWeight
+                    + bitangentWorldNormal * bitangentWeight);
+                sample.occlusion = tangentOcclusion * tangentWeight
+                    + bitangentOcclusion * bitangentWeight;
+                return sample;
+            }
 
             VertexOutput Vertex(VertexInput input)
             {
@@ -71,6 +260,8 @@ Shader "Motu/Tree Wood"
                     _IslandWorldToLocal,
                     float4(output.worldPosition, 1.0)).xyz;
                 output.worldNormal = UnityObjectToWorldNormal(input.normal);
+                output.barkAxis = input.barkAxis;
+                output.treeData = input.treeData;
                 TRANSFER_SHADOW(output);
                 UNITY_TRANSFER_FOG(output, output.pos);
                 return output;
@@ -79,24 +270,40 @@ Shader "Motu/Tree Wood"
             fixed4 Fragment(VertexOutput input) : SV_Target
             {
                 UNITY_SETUP_INSTANCE_ID(input);
-                half3 normal = normalize(input.worldNormal);
+                half3 geometricNormal = normalize(input.worldNormal);
                 MotuTreeNoiseSample noise = MotuSampleTreeNoise(
                     input.islandLocalPosition);
-                normal = MotuPerturbTreeNormal(normal, noise);
-                half irregular = noise.broad.r * 0.25
-                    + noise.detail.g * 0.45
-                    + noise.fine.g * 0.30;
-                half bark = saturate(
-                    0.5 + irregular * _BarkContrast);
+
+                // Rust stores branch axes as X/Y/Z; Unity imports the geometry
+                // as X/Z/Y. Reconstruct that same island-local direction here.
+                float3 rustAxis = DecodeBarkAxis(input.barkAxis);
+                float3 barkAxis = normalize(float3(rustAxis.x, rustAxis.z, rustAxis.y));
+                float hasTreeRoot = 1.0 - step(0.01, abs(input.treeData.w - 0.5));
+                float3 treeRoot = float3(
+                    (input.treeData.x - 0.5) * _WorldSize,
+                    input.treeData.z * _WorldSize,
+                    (input.treeData.y - 0.5) * _WorldSize);
+                float3 barkPosition = input.islandLocalPosition - treeRoot * hasTreeRoot;
+                BarkRecipeSample bark = SampleBarkRecipe(
+                    barkPosition,
+                    input.worldPosition,
+                    geometricNormal,
+                    barkAxis);
+                half3 normal = bark.worldNormal;
+                half broadVariation = 1.0 + noise.broad.r * _BarkContrast * 0.12;
                 fixed3 albedo = MotuRotateTreeHue(
-                    lerp(_BaseColor.rgb, _LightColor.rgb, bark),
-                    noise.hue);
-                half3 ambient = ShadeSH9(half4(normal, 1.0));
+                    saturate(bark.albedo * broadVariation),
+                    noise.hue * 0.25);
+                half occlusion = lerp(1.0, bark.occlusion, _BarkOcclusionStrength);
+                half3 ambient = max(
+                    ShadeSH9(half4(normal, 1.0)),
+                    half3(_BarkAmbientFloor, _BarkAmbientFloor, _BarkAmbientFloor));
                 half3 lightDirection = normalize(UnityWorldSpaceLightDir(input.worldPosition));
                 half diffuse = saturate(dot(normal, lightDirection));
                 UNITY_LIGHT_ATTENUATION(attenuation, input, input.worldPosition);
                 fixed4 result = fixed4(
-                    albedo * (ambient + _LightColor0.rgb * diffuse * attenuation),
+                    albedo * (ambient * occlusion
+                        + _LightColor0.rgb * diffuse * attenuation),
                     1.0);
                 UNITY_APPLY_FOG(input.fogCoord, result);
                 return result;

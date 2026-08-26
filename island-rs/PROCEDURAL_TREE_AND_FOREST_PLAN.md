@@ -150,12 +150,15 @@ ring and extrude subsequent branch sections from them. Do not add a cap,
 overlapping tube, or hidden junction geometry: the parent and child share the
 opening edges as one manifold mesh.
 
-After all axes, openings, and triangles are complete, apply taper as one
-final geometry pass. The trunk starts at scale 1.0 and each axis interpolates
-to 20% of its inherited root scale at its tip. A child opening inherits the
-parent scale halfway along its attachment section, so its first ring remains
-continuous with the parent before narrowing toward its own tip. Deform each
-recorded ring once around its stored centre, then calculate wood normals.
+After all axes, openings, and triangles are complete, apply taper as one final
+geometry pass. The trunk starts at scale 1.0 and each axis uses an eased curve
+to retain its body before reaching 18% of its inherited root scale at the tip.
+A child starts with a short collar: its opening is 78% of the parent radius,
+then narrows to 54-66% (depending on depth) before regular growth begins. This
+keeps the join broad without making every offshoot as thick as its parent. The
+trunk root receives a 32% flare with restrained deterministic buttress
+asymmetry. Deform each recorded ring once around its stored centre, then
+calculate wood normals.
 
 At the terminal centre of every axis, including the main trunk, append one
 oriented cube to the separate foliage mesh. Centre the cube's bottom face on
@@ -166,30 +169,53 @@ mesh so each adds only eight vertices and twelve triangles.
 
 Treat the completed tapered wood and cube foliage meshes as LOD1 topology and
 record an explicit LOD1-to-LOD0 vertex index map for each. Build LOD0 by
-tessellating every triangle into four with shared edge midpoints, then perform
-one simultaneous smoothing pass in which every vertex becomes the average of
-itself and all unique one-ring neighbours. Preserve the original vertices at
-their indices during tessellation. Before smoothing, record the plane through
-the barycentre of every open wood end ring. After smoothing, project the ring's
-original vertices and its tessellated boundary-edge midpoints back onto that
-plane. For each foliage ball, also pin the new vertex at the centre of its
-tessellated bottom face to the final smoothed barycentre of its associated wood
-terminal ring. Finally copy each smoothed LOD0 position through the recorded
-map onto its LOD1 equivalent and recalculate normals on all four meshes.
+tessellating every triangle into four with shared edge midpoints. Keep every
+original rectangular-cage vertex fixed. Project only the new wood vertices
+radially onto the radius interpolated along their source tube segment. When a
+source edge bridges the parent surface and child opening, make the child branch
+ring authoritative and project directly onto its root tube. Parent-only and
+child-only edges retain their corresponding tube projections, avoiding a
+pinched average at the branch base. Record the plane through the barycentre of
+every open wood end ring before projection, then project the ring and its
+tessellated boundary-edge midpoints back onto that plane. Preserve this shaped
+mesh as LOD1, then tessellate the LOD0 wood a second time and apply one free
+Laplacian smoothing pass. The smoother preserves the open trunk and branch-tip
+perimeters while relaxing every interior wood vertex into a rounder joined
+surface. Apply a small deterministic normal displacement to non-perimeter LOD0
+vertices so the silhouette is not mechanically perfect. Foliage retains its
+own clustered subdivision and support-pinning pass. Finally retain the explicit
+topological LOD1-to-LOD0 correspondence and recalculate normals on all four
+meshes.
 
 Leave the trunk base and every terminal axis ring open: those ends are hidden
 by the ground or foliage, and omitting their caps keeps the wood mesh cheaper.
 Recalculate area-weighted normals once after the complete tree is built, not
-after every section. Leave bark UV generation out of milestone one unless the
-chosen wood shader requires it; a world-space/triplanar material avoids
-premature UV design.
+after every section. Use the wood UV stream for an octahedrally encoded local
+branch axis. Preserve it through tessellation and smoothing, rotate it during
+forest placement, and decode it in Unity so warped bark grooves, cracks, and
+normal detail run along each branch rather than through the tree as isotropic
+blobs. Keep connector ownership through both LOD refinements. After geometry
+smoothing, displacement, and normal calculation are complete, duplicate only
+the coincident vertices used by each parent-to-collar connector patch and give
+those duplicates the parent axis. The child tube keeps its own axis, preventing
+direction interpolation from stretching bark across the join without changing
+the watertight silhouette or smooth normals. Foliage keeps its existing UV
+semantics. The Unity wood shader uses that decoded axis to project the baked
+`Bark.json` one-metre tile in two branch-local planes, blending around the
+rounded cross-section. Each streamed wood vertex also carries its owning tree
+root through the existing material sidecar. Projection is evaluated relative
+to that root rather than the absolute island coordinate, preventing small
+changes in a bent axis from multiplying a hundreds-of-metres world offset into
+compressed or diagonal bark. Its authored albedo, height/parallax, normal and
+occlusion maps replace the former synthetic crack pattern while broad 3D noise
+remains only as low-amplitude per-tree colour variation.
 
 ## Initial parameter ranges
 
 Keep all values in a `TreeOptions::default()` rather than scattering constants.
 The first visual pass can start around:
 
-- 8 vertices per ring;
+- 4 vertices per ring;
 - 8 child branches;
 - trunk diameter: 1.1-1.6 metres;
 - first trunk section: 0.8-1.2 metres;
@@ -198,7 +224,7 @@ The first visual pass can start around:
 - child nominal section length: exactly the parent's nominal section length;
 - topology-generation radius multiplier: 1.0;
 - per-section nominal length multiplier: 1.0 until taper is introduced later;
-- final tip radius: 20% of each axis's inherited root radius;
+- final tip radius: 18% of each axis's inherited root radius;
 - child-branch probability: 5% on the first section, increasing linearly to
   100% on the final section;
 - post-emergence child phototropism: 32% of the remaining bend toward world Z;

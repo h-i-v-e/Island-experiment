@@ -202,11 +202,11 @@ public sealed class IslandForestSettings
 
     [Tooltip("Minimum uniform scale for accepted trees. Regenerate to apply.")]
     [Min(0.01f)]
-    [SerializeField] private float minimumTreeScale = 0.85f;
+    [SerializeField] private float minimumTreeScale = 1f;
 
     [Tooltip("Maximum uniform scale for accepted trees. Regenerate to apply.")]
     [Min(0.01f)]
-    [SerializeField] private float maximumTreeScale = 1.15f;
+    [SerializeField] private float maximumTreeScale = 2f;
 
     public bool ShowForests { get => showForests; set => showForests = value; }
     internal float ForestPatchSizeMetres => Mathf.Max(forestPatchSizeMetres, 32f);

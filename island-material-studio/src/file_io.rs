@@ -394,7 +394,6 @@ mod tests {
             physical_tile_height_m: 1.0,
             material: MaterialModel::default(),
             layers: Vec::new(),
-            normal_convention: motu::procedural_textures::NormalConvention::default(),
             normal_scale: 1.0,
             displacement: DisplacementSettings::default(),
             occlusion: OcclusionRecipeSettings::default(),

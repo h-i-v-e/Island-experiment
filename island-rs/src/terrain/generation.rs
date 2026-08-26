@@ -372,7 +372,7 @@ impl Island {
         clear_loose_soil(&mut material, decorations.cleared_soil_vertices());
         let (forest, forest_stats) = generate_forest(
             seed,
-            terrain.mesh(),
+            &terrain,
             crate::forest::ForestSurface {
                 river_bed: &river_bed,
                 deposited_depths: material.depths(),
@@ -467,7 +467,7 @@ impl Island {
         visual_lod: usize,
         bounds: BoundingBox,
         divisions: usize,
-    ) -> Option<Vec<Mesh>> {
+    ) -> Option<Vec<crate::forest::ForestMeshTile>> {
         self.forest.mesh_grid(kind, visual_lod, bounds, divisions)
     }
 
@@ -477,7 +477,7 @@ impl Island {
         visual_lod: usize,
         bounds: BoundingBox,
         divisions: usize,
-    ) -> Option<Vec<Mesh>> {
+    ) -> Option<Vec<crate::forest::ForestMeshTile>> {
         self.forest_mesh_grid(ForestMeshKind::Wood, visual_lod, bounds, divisions)
     }
 
@@ -487,7 +487,7 @@ impl Island {
         visual_lod: usize,
         bounds: BoundingBox,
         divisions: usize,
-    ) -> Option<Vec<Mesh>> {
+    ) -> Option<Vec<crate::forest::ForestMeshTile>> {
         self.forest_mesh_grid(ForestMeshKind::Foliage, visual_lod, bounds, divisions)
     }
 

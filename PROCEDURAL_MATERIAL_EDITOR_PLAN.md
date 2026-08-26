@@ -362,7 +362,8 @@ Keep the current bake invocation and add explicit editor commands:
 ```text
 island-texture-baker schema --json
 island-texture-baker validate --recipe <file> --json
-island-texture-baker preview --recipe <file> --output <temp-dir> --size 256
+island-texture-baker preview --recipe <file> --output <temp-dir> --size 256 \
+  --normal-convention <open-gl|direct-x>
 ```
 
 All editor-facing commands return a JSON envelope containing success,

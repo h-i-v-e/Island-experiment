@@ -8,8 +8,6 @@
 
 use serde::{Deserialize, Serialize};
 
-pub use super::image::NormalConvention;
-
 /// Maximum number of ordered material layers accepted by validation.
 pub const MAX_LAYERS: usize = 64;
 /// Maximum number of output profiles in one recipe.
@@ -39,8 +37,6 @@ pub struct TextureRecipe {
     pub material: MaterialModel,
     /// Ordered scalar layer stack.
     pub layers: Vec<MaterialLayer>,
-    /// Tangent normal green-channel convention.
-    pub normal_convention: NormalConvention,
     /// Dimensionless normal relief multiplier.
     pub normal_scale: f32,
     /// Physical height range and interpretation.

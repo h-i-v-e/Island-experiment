@@ -12,7 +12,7 @@ use std::{
 };
 
 use motu::procedural_textures::{
-    EditorEnvelope, OutputOptions, OutputProfile, TextureRecipe,
+    EditorEnvelope, NormalConvention, OutputOptions, OutputProfile, TextureRecipe,
     editor_protocol::{self, Diagnostic},
     encoding::{
         OutputDimensions, PixelFormat, TextureSetImages, encode_png_bytes,
@@ -52,7 +52,8 @@ fn run() -> Result<(), Box<dyn Error>> {
             recipe,
             output,
             size,
-        } => print_editor_envelope(&preview_command(&recipe, &output, size)),
+            normal_convention,
+        } => print_editor_envelope(&preview_command(&recipe, &output, size, normal_convention)),
     }
 }
 
@@ -65,6 +66,7 @@ struct BakeCommand {
     seed: Option<u64>,
     width: Option<u32>,
     height: Option<u32>,
+    normal_convention: NormalConvention,
 }
 
 #[derive(Debug)]
@@ -80,6 +82,7 @@ enum ParseResult {
         recipe: PathBuf,
         output: PathBuf,
         size: u32,
+        normal_convention: NormalConvention,
     },
 }
 
@@ -133,11 +136,18 @@ fn parse_preview(mut arguments: impl Iterator<Item = String>) -> Result<ParseRes
     let mut recipe = None;
     let mut output = None;
     let mut size = 256;
+    let mut normal_convention = None;
     while let Some(argument) = arguments.next() {
         match argument.as_str() {
             "--recipe" => recipe = Some(next_value(&mut arguments, "--recipe")?),
             "--output" | "-o" => output = Some(next_value(&mut arguments, "--output")?),
             "--size" => size = parse_value("--size", &next_value(&mut arguments, "--size")?)?,
+            "--normal-convention" => {
+                normal_convention = Some(parse_normal_convention(&next_value(
+                    &mut arguments,
+                    "--normal-convention",
+                )?)?);
+            }
             "--json" => {}
             "-h" | "--help" => return Ok(ParseResult::Help),
             _ => return Err(format!("unknown preview option {argument:?}")),
@@ -150,6 +160,7 @@ fn parse_preview(mut arguments: impl Iterator<Item = String>) -> Result<ParseRes
         recipe: PathBuf::from(recipe.ok_or("--recipe is required")?),
         output: PathBuf::from(output.ok_or("--output is required")?),
         size,
+        normal_convention: normal_convention.ok_or("--normal-convention is required")?,
     })
 }
 
@@ -161,6 +172,7 @@ fn parse_bake(mut arguments: impl Iterator<Item = String>) -> Result<ParseResult
     let mut seed = None;
     let mut width = None;
     let mut height = None;
+    let mut normal_convention = None;
     while let Some(argument) = arguments.next() {
         match argument.as_str() {
             "--recipe" => recipe = Some(next_value(&mut arguments, "--recipe")?),
@@ -189,6 +201,12 @@ fn parse_bake(mut arguments: impl Iterator<Item = String>) -> Result<ParseResult
                     &next_value(&mut arguments, "--height")?,
                 )?);
             }
+            "--normal-convention" => {
+                normal_convention = Some(parse_normal_convention(&next_value(
+                    &mut arguments,
+                    "--normal-convention",
+                )?)?);
+            }
             "-h" | "--help" => return Ok(ParseResult::Help),
             _ => return Err(format!("unknown option {argument:?}; use --help for usage")),
         }
@@ -204,7 +222,18 @@ fn parse_bake(mut arguments: impl Iterator<Item = String>) -> Result<ParseResult
         seed,
         width,
         height,
+        normal_convention: normal_convention.ok_or("--normal-convention is required")?,
     }))
+}
+
+fn parse_normal_convention(value: &str) -> Result<NormalConvention, String> {
+    match value {
+        "open-gl" | "open_gl" => Ok(NormalConvention::OpenGl),
+        "direct-x" | "direct_x" => Ok(NormalConvention::DirectX),
+        _ => Err(format!(
+            "invalid value for --normal-convention: {value}; expected open-gl or direct-x"
+        )),
+    }
 }
 
 fn next_value(
@@ -245,7 +274,7 @@ fn run_bake(command: &BakeCommand) -> Result<(), Box<dyn Error>> {
     }
     let recipe: TextureRecipe = serde_json::from_value(document)?;
     let started = Instant::now();
-    let textures = generate_texture_set(&recipe)?;
+    let textures = generate_texture_set(&recipe, command.normal_convention)?;
     let images = TextureSetImages::from_texture_set(&textures);
     let manifest = write_encoded_texture_set(
         &images,
@@ -308,7 +337,12 @@ fn validate_command(path: &Path) -> EditorEnvelope {
     envelope
 }
 
-fn preview_command(path: &Path, output: &Path, size: u32) -> EditorEnvelope {
+fn preview_command(
+    path: &Path,
+    output: &Path,
+    size: u32,
+    normal_convention: NormalConvention,
+) -> EditorEnvelope {
     let recipe = match read_recipe(path) {
         Ok(recipe) => recipe,
         Err(diagnostic) => {
@@ -336,7 +370,13 @@ fn preview_command(path: &Path, output: &Path, size: u32) -> EditorEnvelope {
         return EditorEnvelope::failure("preview.cleanup", error.to_string());
     }
     let started = Instant::now();
-    let preview = match generate_preview(&preview_recipe, &PreviewSettings::default()) {
+    let preview = match generate_preview(
+        &preview_recipe,
+        &PreviewSettings {
+            normal_convention,
+            selected_layer_id: None,
+        },
+    ) {
         Ok(preview) => preview,
         Err(error) => return EditorEnvelope::failure("preview.generate", error.to_string()),
     };
@@ -594,12 +634,14 @@ fn print_help() {
          Bake: island-texture-baker --recipe <FILE> --output <DIR> [OPTIONS]\n\
          Editor: island-texture-baker schema --json\n\
                  island-texture-baker validate --recipe <FILE> --json\n\
-                 island-texture-baker preview --recipe <FILE> --output <DIR> --size 256\n\n\
+                 island-texture-baker preview --recipe <FILE> --output <DIR> --size 256 --normal-convention <CONVENTION>\n\n\
          Bake options:\n\
            --profile <PROFILE>   separate (default) or motu_unity_terrain\n\
            --seed <N>            Override recipe seed\n\
            --width <PX>          Override recipe width\n\
            --height <PX>         Override recipe height\n\
+           --normal-convention <CONVENTION>\n\
+                                 open-gl or direct-x (required for bake and preview)\n\
            --force               Replace an existing generated set\n\
            -h, --help            Print help\n\
            -V, --version         Print version"
@@ -636,6 +678,8 @@ mod tests {
                     "out",
                     "--size",
                     "128",
+                    "--normal-convention",
+                    "open-gl",
                     "--json"
                 ]
                 .into_iter()
@@ -648,14 +692,46 @@ mod tests {
     #[test]
     fn parses_direct_bake_invocation_without_subcommand() {
         let ParseResult::Bake(command) = parse(
-            ["--recipe", "stone.json", "--output", "out", "--seed", "42"]
-                .into_iter()
-                .map(String::from),
+            [
+                "--recipe",
+                "stone.json",
+                "--output",
+                "out",
+                "--seed",
+                "42",
+                "--normal-convention",
+                "direct-x",
+            ]
+            .into_iter()
+            .map(String::from),
         )
         .unwrap() else {
             panic!("expected bake command");
         };
         assert_eq!(command.seed, Some(42));
+        assert_eq!(command.normal_convention, NormalConvention::DirectX);
+    }
+
+    #[test]
+    fn generation_commands_require_the_callers_normal_convention() {
+        assert_eq!(
+            parse(
+                ["--recipe", "stone.json", "--output", "out"]
+                    .into_iter()
+                    .map(String::from)
+            )
+            .unwrap_err(),
+            "--normal-convention is required"
+        );
+        assert_eq!(
+            parse(
+                ["preview", "--recipe", "stone.json", "--output", "out"]
+                    .into_iter()
+                    .map(String::from)
+            )
+            .unwrap_err(),
+            "--normal-convention is required"
+        );
     }
 
     #[test]

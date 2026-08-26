@@ -147,9 +147,12 @@ pub fn evaluate_material(recipe: &TextureRecipe) -> Result<MaterialEvaluation, T
 ///
 /// Returns an error when validation fails or any field, map, quantization, or
 /// metadata pass cannot produce a valid texture set.
-pub fn generate_texture_set(recipe: &TextureRecipe) -> Result<TextureSet, TextureError> {
+pub fn generate_texture_set(
+    recipe: &TextureRecipe,
+    normal_convention: NormalConvention,
+) -> Result<TextureSet, TextureError> {
     let evaluated = evaluate_material(recipe)?;
-    texture_set_from_evaluation(recipe, &evaluated)
+    texture_set_from_evaluation(recipe, &evaluated, normal_convention)
 }
 
 /// Encodes one shared material evaluation into the final map set.
@@ -161,10 +164,11 @@ pub fn generate_texture_set(recipe: &TextureRecipe) -> Result<TextureSet, Textur
 pub fn texture_set_from_evaluation(
     recipe: &TextureRecipe,
     evaluated: &MaterialEvaluation,
+    normal_convention: NormalConvention,
 ) -> Result<TextureSet, TextureError> {
     let field = &evaluated.layers.field;
     let occlusion = &evaluated.occlusion;
-    let normal = normal::derive_normals(field, recipe.normal_scale, recipe.normal_convention)?;
+    let normal = normal::derive_normals(field, recipe.normal_scale, normal_convention)?;
     let albedo = albedo::encode_linear_albedo(field.dimensions(), &evaluated.albedo_linear)?;
     let range = HeightRange::new(
         recipe.displacement.minimum_m,
@@ -183,7 +187,7 @@ pub fn texture_set_from_evaluation(
         maximum_height_m: range.maximum,
         base_height_m: range.neutral,
         displacement: recipe.displacement.displacement_map,
-        normal_convention: recipe.normal_convention,
+        normal_convention,
     };
     TextureSet::new(albedo, height, normal, occlusion.clone(), metadata).map_err(TextureError::from)
 }
@@ -252,7 +256,6 @@ mod tests {
             "physical_tile_height_m": 4.0,
             "material": { "kind": "cracked_stone" },
             "layers": [],
-            "normal_convention": "open_gl",
             "normal_scale": 1.0,
             "displacement": {
                 "minimum_m": -0.2,
@@ -270,9 +273,27 @@ mod tests {
     #[test]
     fn generation_is_deterministic_and_maps_share_dimensions() {
         let recipe = recipe();
-        let first = generate_texture_set(&recipe).expect("first bake");
-        let second = generate_texture_set(&recipe).expect("second bake");
+        let first = generate_texture_set(&recipe, NormalConvention::OpenGl).expect("first bake");
+        let second = generate_texture_set(&recipe, NormalConvention::OpenGl).expect("second bake");
         assert_eq!(first, second);
         assert_eq!(first.dimensions, TextureDimensions::new(32, 32).unwrap());
+    }
+
+    #[test]
+    fn caller_selects_normal_convention_without_changing_recipe_content() {
+        let recipe = recipe();
+        let open_gl = generate_texture_set(&recipe, NormalConvention::OpenGl).expect("OpenGL");
+        let direct_x = generate_texture_set(&recipe, NormalConvention::DirectX).expect("DirectX");
+
+        assert_eq!(open_gl.albedo, direct_x.albedo);
+        assert_eq!(open_gl.height, direct_x.height);
+        assert_eq!(open_gl.occlusion, direct_x.occlusion);
+        assert_eq!(open_gl.metadata.recipe_hash, direct_x.metadata.recipe_hash);
+        assert_eq!(open_gl.metadata.normal_convention, NormalConvention::OpenGl);
+        assert_eq!(
+            direct_x.metadata.normal_convention,
+            NormalConvention::DirectX
+        );
+        assert_ne!(open_gl.normal, direct_x.normal);
     }
 }

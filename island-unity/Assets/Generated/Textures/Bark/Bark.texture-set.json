@@ -1,0 +1,69 @@
+{
+  "output_format_version": "1",
+  "profile": "motu_unity_terrain",
+  "name": "Bark",
+  "dimensions": {
+    "width": 256,
+    "height": 256
+  },
+  "metadata": {
+    "generator_algorithm_version": "1",
+    "recipe_hash": "2d9ceea0611307d2c839e9b4c87587d3c8cc480c8c2046ffa803470fe00ffcdc",
+    "seed": 0,
+    "physical_tile_width_m": 1.0,
+    "physical_tile_height_m": 1.0,
+    "height_min_m": -0.2,
+    "height_max_m": 0.2,
+    "neutral_height_m": 0.0,
+    "displacement_map": true,
+    "normal_convention": "direct_x"
+  },
+  "maps": [
+    {
+      "file": "Bark_albedo.png",
+      "format": "RGB8",
+      "color_space": "sRGB",
+      "width": 256,
+      "height": 256,
+      "sha256": "ce5a074c5be695a44726227a3776f24e4ca5fa92219006cce81f88c88e9d98dc"
+    },
+    {
+      "file": "Bark_height.png",
+      "format": "Gray16",
+      "color_space": "linear",
+      "width": 256,
+      "height": 256,
+      "sha256": "b875074d10f310852c07915a43a4de22a48c628061af0e8628300ff3d70b2461"
+    },
+    {
+      "file": "Bark_normal.png",
+      "format": "RGB8",
+      "color_space": "linear",
+      "width": 256,
+      "height": 256,
+      "sha256": "f4362ab22877c32c43066dd9d90873017d6c64f21982242400f8fe2f13ee8dae"
+    },
+    {
+      "file": "Bark_occlusion.png",
+      "format": "Gray8",
+      "color_space": "linear",
+      "width": 256,
+      "height": 256,
+      "sha256": "9c7846444001a63d9974622735ae34c4e125c409655975eee2c64aca81946c7d"
+    },
+    {
+      "file": "Bark_mask.png",
+      "format": "RGBA8",
+      "color_space": "linear",
+      "width": 256,
+      "height": 256,
+      "sha256": "43176724c8220c33b63b02f726b1c8417e2362223a538ac8114d509dc1db8bec"
+    }
+  ],
+  "packed_channels": [
+    "A=opaque_one",
+    "B=unused_zero",
+    "G=occlusion",
+    "R=height_8bit"
+  ]
+}

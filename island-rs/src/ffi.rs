@@ -14,7 +14,7 @@ use std::{
     ptr,
 };
 
-use crate::forest::ForestMeshKind;
+use crate::forest::{ForestMeshKind, ForestMeshTile};
 use crate::{
     BoundingBox, ForestOptions, GenerationMethod, Island, IslandOptions, Mesh, SeaMask,
     SurfaceMaps, Vec2, Vec3, Vec4, generate_tree,
@@ -443,16 +443,36 @@ fn export_mesh_grid(
     }
 }
 
-fn export_forest_mesh_grid(tiles: Vec<Mesh>, expected_length: usize) -> Option<ExportMeshGrid> {
+fn export_forest_mesh_grid(
+    tiles: Vec<ForestMeshTile>,
+    expected_length: usize,
+) -> Option<ExportMeshGrid> {
     // A forest accessor may represent the all-empty LOD2 wood stream with an
     // empty source vector. Expand only that representation; every other
     // length mismatch is rejected so the ABI always publishes a fixed grid.
     let tiles = match tiles.len() {
         length if length == expected_length => tiles,
-        0 => vec![Mesh::default(); expected_length],
+        0 => vec![ForestMeshTile::default(); expected_length],
         _ => return None,
     };
-    Some(export_mesh_grid(tiles, |_| Vec::new()))
+    let exports: Vec<ExportMesh> = tiles
+        .into_iter()
+        .map(|tile| export_mesh(tile.mesh, tile.material))
+        .collect();
+    let owner = Box::new(exports);
+    let output = ExportMeshGrid {
+        handle: ptr::null_mut(),
+        data: owner.as_ptr(),
+        length: length_i32(owner.len()),
+    };
+    Some(ExportMeshGrid {
+        handle: Box::into_raw(owner).cast(),
+        ..output
+    })
+}
+
+fn procedural_tree_root_material(mesh: &Mesh) -> Vec<Vec4> {
+    vec![Vec4::new(0.0, 0.0, 0.0, 0.5); mesh.vertices.len()]
 }
 
 fn export_surface_maps(maps: Box<SurfaceMaps>) -> ExportSurfaceMaps {
@@ -606,9 +626,11 @@ pub unsafe extern "C" fn CreateProceduralTree(
         unsafe { output.write(ExportMesh::default()) };
     }
     let tree = generate_tree(u64::from(seed.cast_unsigned()));
-    let lod0_wood = export_mesh(tree.lod0_wood, Vec::new());
+    let lod0_wood_material = procedural_tree_root_material(&tree.lod0_wood);
+    let lod1_wood_material = procedural_tree_root_material(&tree.lod1_wood);
+    let lod0_wood = export_mesh(tree.lod0_wood, lod0_wood_material);
     let lod0_foliage = export_mesh(tree.lod0_foliage, Vec::new());
-    let lod1_wood = export_mesh(tree.lod1_wood, Vec::new());
+    let lod1_wood = export_mesh(tree.lod1_wood, lod1_wood_material);
     let lod1_foliage = export_mesh(tree.lod1_foliage, Vec::new());
     // SAFETY: output ownership transfers to the caller and each independent
     // handle must subsequently be passed to ReleaseMesh exactly once.
@@ -1838,6 +1860,10 @@ mod tests {
             );
             assert!(lod0_wood.vertices.length > lod1_wood.vertices.length);
             assert!(lod0_foliage.vertices.length > lod1_foliage.vertices.length);
+            assert_eq!(lod0_wood.material.length, lod0_wood.vertices.length);
+            assert_eq!(lod1_wood.material.length, lod1_wood.vertices.length);
+            assert_eq!(lod0_foliage.material.length, 0);
+            assert_eq!(lod1_foliage.material.length, 0);
             for tree_mesh in [
                 &raw mut lod0_wood,
                 &raw mut lod0_foliage,

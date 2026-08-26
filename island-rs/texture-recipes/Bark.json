@@ -1,0 +1,130 @@
+{
+  "name": "Bark",
+  "seed": 0,
+  "width": 256,
+  "height": 256,
+  "physical_tile_width_m": 1.0,
+  "physical_tile_height_m": 1.0,
+  "material": {
+    "kind": "cracked_stone",
+    "cells_x": 16,
+    "cells_y": 5,
+    "cell_jitter": 0.5,
+    "warp_amplitude": 0.0,
+    "crack_width": 0.035,
+    "shoulder_width": 0.18,
+    "crack_depth": 0.13,
+    "slab_variation": 0.005,
+    "fracture_probability": 0.1,
+    "fracture_depth": 0.045,
+    "surface_amplitude": 0.014,
+    "broad_variation": 0.018
+  },
+  "layers": [
+    {
+      "id": "layer",
+      "name": "Layer 1",
+      "enabled": true,
+      "source": {
+        "kind": "fbm",
+        "frequency": 8,
+        "octaves": 4,
+        "lacunarity": 2.0,
+        "gain": 0.5,
+        "offset": [
+          0.0,
+          0.0
+        ],
+        "seed_domain": 0,
+        "domain_warp": null,
+        "cellular_jitter": 0.25
+      },
+      "remap": {
+        "input_min": -1.0,
+        "input_max": 1.0,
+        "invert": false,
+        "contrast": 1.0,
+        "bias": 0.0,
+        "clamp": true,
+        "curve": null
+      },
+      "mask": {
+        "kind": "previous_height",
+        "bottom_m": 0.0025,
+        "top_m": 0.005,
+        "invert": true
+      },
+      "outputs": {
+        "height": {
+          "enabled": false,
+          "blend": {
+            "kind": "add"
+          },
+          "strength_m": 0.01
+        },
+        "albedo": {
+          "enabled": true,
+          "blend": "replace",
+          "strength": 1.0,
+          "colour_map": {
+            "kind": "ramp",
+            "first": [
+              0.24735233,
+              0.57951343,
+              0.081271835
+            ],
+            "second": [
+              0.011324799,
+              0.062082686,
+              0.029984096
+            ]
+          },
+          "hue_influence": 0.0,
+          "saturation_influence": 0.0,
+          "value_influence": 0.0
+        }
+      }
+    }
+  ],
+  "normal_scale": 1.0,
+  "displacement": {
+    "minimum_m": -0.2,
+    "maximum_m": 0.2,
+    "base_m": 0.0,
+    "displacement_map": true
+  },
+  "occlusion": {
+    "directions": 8,
+    "samples": 6,
+    "radius": 1.0,
+    "max_radius": 8.0,
+    "cavity_strength": 1.5,
+    "horizon_strength": 0.85,
+    "power": 1.0,
+    "combine": {
+      "kind": "multiply"
+    }
+  },
+  "albedo": {
+    "base_color": [
+      0.15015782,
+      0.11176652,
+      0.07344936
+    ],
+    "warm_color": [
+      0.058825575,
+      0.05380845,
+      0.04711895
+    ],
+    "palette": [],
+    "variation": 0.12,
+    "crack_darkening": 0.28,
+    "shoulder_variation": 0.06,
+    "mineral_density": 0.0,
+    "mineral_brightness": 0.25,
+    "occlusion_influence": 0.08
+  },
+  "output_profiles": [
+    "separate"
+  ]
+}

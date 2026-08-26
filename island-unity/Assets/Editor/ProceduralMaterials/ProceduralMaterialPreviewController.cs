@@ -814,8 +814,9 @@ public sealed class ProceduralMaterialPreviewController : IDisposable
             : null;
         previewMaterial.SetTexture("_BumpMap", normal);
         previewMaterial.SetFloat("_UseNormal", useLitNormal && normal != null ? 1f : 0f);
-        var directXNormal = string.Equals(document?.Root["normal_convention"]?.Value<string>(), "direct_x", StringComparison.OrdinalIgnoreCase);
-        previewMaterial.SetFloat("_NormalGreenSign", directXNormal ? 1f : -1f);
+        // Unity requests DirectX normals from the baker, so the preview does
+        // not need a recipe-dependent green-channel conversion.
+        previewMaterial.SetFloat("_NormalGreenSign", 1f);
         var occlusionPath = ResolveMapPath(entry, "Occlusion");
         var occlusion = !string.IsNullOrWhiteSpace(occlusionPath) && File.Exists(occlusionPath)
             ? entry.GetTexture(occlusionPath)

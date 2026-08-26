@@ -7,7 +7,8 @@ use bevy::{
     tasks::{AsyncComputeTaskPool, Task, futures::check_ready},
 };
 use motu::procedural_textures::{
-    OutputOptions, OutputProfile, TextureRecipe, generate_texture_set, write_texture_set,
+    NormalConvention, OutputOptions, OutputProfile, TextureRecipe, generate_texture_set,
+    write_texture_set,
 };
 
 /// Successful bake information displayed by the status panel.
@@ -133,7 +134,8 @@ fn drive_bake(mut state: ResMut<BakeState>) {
     state.status = "Generating final texture set…".into();
     state.running = Some(BakeTask(AsyncComputeTaskPool::get().spawn(async move {
         let started = Instant::now();
-        let textures = generate_texture_set(&request.recipe).map_err(|error| error.to_string())?;
+        let textures = generate_texture_set(&request.recipe, NormalConvention::OpenGl)
+            .map_err(|error| error.to_string())?;
         let manifest = write_texture_set(&textures, &request.output, &request.options)
             .map_err(|error| error.to_string())?;
         Ok(BakeSuccess {

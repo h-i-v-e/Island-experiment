@@ -15,9 +15,13 @@ const ALPHA_CIRCUMRADIUS_MAX_METRES: f32 = 4.5;
 const MINIMUM_HEIGHT_METRES: f32 = 2.5;
 const HEIGHT_PER_SPREAD_METRES: f32 = 0.10;
 const MAX_SPREAD_HEIGHT_METRES: f32 = 3.0;
+const BOTTOM_RING_SCALE: f32 = 1.12;
+const BOTTOM_BOUNDARY_EXPANSION_METRES: f32 = 1.0;
 const BOUNDARY_EXPANSION_METRES: f32 = 2.0;
 const MID_RING_SCALE: f32 = 1.32;
 const TOP_RING_SCALE: f32 = 1.16;
+const TOP_BOUNDARY_EXPANSION_METRES: f32 = 0.75;
+const BOUNDARY_ROUNDING_PASSES: usize = 2;
 const TOP_TIP_CLEARANCE_METRES: f32 = 0.85;
 const TOP_MAXIMUM_SLOPE: f32 = 0.48;
 const TOP_SHOULDER_PROPAGATION_ITERATIONS: usize = 8;
@@ -56,12 +60,14 @@ pub(crate) struct ClusterFoliageMeshes {
 pub(crate) struct FoliageCrown<'a> {
     pub(crate) trunk: Vec3,
     pub(crate) tips: &'a [Vec3],
+    pub(crate) scale: f32,
 }
 
 #[derive(Clone, Copy, Debug)]
 struct Support {
     position: Vec3,
     crown: usize,
+    scale: f32,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -101,7 +107,7 @@ pub(crate) fn generate_cluster_foliage(
 
     let points = delaunay_points(&samples);
     let delaunay = Mesh::delaunay(&points);
-    let mut alpha_triangles = alpha_triangles(&delaunay, &samples);
+    let mut alpha_triangles = alpha_triangles(&delaunay, &samples, &supports);
     ensure_support_centres(&mut alpha_triangles, &samples, &supports);
     if alpha_triangles.is_empty() {
         return Err("cluster foliage support footprint has no valid triangles".to_owned());
@@ -110,6 +116,7 @@ pub(crate) fn generate_cluster_foliage(
     let components = triangle_components(&alpha_triangles);
     let mut lod1 = Mesh::default();
     let mut support_vertices = Vec::new();
+    let mut perimeter_vertices = Vec::new();
     for component in components {
         append_component(
             &mut lod1,
@@ -120,6 +127,7 @@ pub(crate) fn generate_cluster_foliage(
             &supports,
             &crown_shapes,
             &mut support_vertices,
+            &mut perimeter_vertices,
         )?;
     }
     if lod1.triangles.is_empty() {
@@ -127,6 +135,8 @@ pub(crate) fn generate_cluster_foliage(
     }
     support_vertices.sort_unstable();
     support_vertices.dedup();
+    perimeter_vertices.sort_unstable();
+    perimeter_vertices.dedup();
     lod1.calculate_normals();
 
     let lod1_to_lod0: Vec<u32> = (0..lod1.vertices.len())
@@ -134,20 +144,26 @@ pub(crate) fn generate_cluster_foliage(
             u32::try_from(vertex).map_err(|_| "cluster foliage exceeds u32 vertex capacity")
         })
         .collect::<Result<_, _>>()?;
-    let tessellated = lod1.tessellated_attributed();
-    let mut lod0 = tessellated.mesh;
-    smooth_subdivision_vertices(&mut lod0, lod1.vertices.len(), &support_vertices);
+    let coarse_vertex_count = lod1.vertices.len();
+    let mut perimeter_mask = vec![false; coarse_vertex_count];
+    for &vertex in &perimeter_vertices {
+        perimeter_mask[vertex] = true;
+    }
+    let mut lod0 = lod1.clone();
+    let new_vertices = lod0.tessellate_incident_to(&perimeter_mask);
+    lod0.calculate_normals();
+    smooth_perimeter_vertices(
+        &mut lod0,
+        coarse_vertex_count,
+        &perimeter_vertices,
+        &support_vertices,
+    );
     for (lod1_vertex, &lod0_vertex) in lod1_to_lod0.iter().enumerate() {
         lod1.vertices[lod1_vertex] = lod0.vertices[lod0_vertex as usize];
     }
     lod1.calculate_normals();
     lod0.calculate_normals();
-    displace_subdivision_vertices(
-        &mut lod0,
-        seed,
-        &tessellated.new_vertices,
-        &support_vertices,
-    );
+    displace_subdivision_vertices(&mut lod0, seed, &new_vertices, &support_vertices);
     lod0.calculate_normals();
 
     Ok(ClusterFoliageMeshes {
@@ -163,6 +179,9 @@ fn validate_crowns(crowns: &[FoliageCrown<'_>]) -> Result<(), String> {
             return Err(format!(
                 "foliage crown {crown_index} has a non-finite trunk"
             ));
+        }
+        if !crown.scale.is_finite() || crown.scale <= 0.0 {
+            return Err(format!("foliage crown {crown_index} has an invalid scale"));
         }
         for (tip_index, tip) in crown.tips.iter().enumerate() {
             if !tip.is_finite() {
@@ -182,12 +201,14 @@ fn collect_supports(crowns: &[FoliageCrown<'_>]) -> Vec<Support> {
             supports.push(Support {
                 position: crown.trunk,
                 crown: crown_index,
+                scale: crown.scale,
             });
             continue;
         }
         supports.extend(crown.tips.iter().map(|&position| Support {
             position,
             crown: crown_index,
+            scale: crown.scale,
         }));
     }
     supports
@@ -205,7 +226,8 @@ fn crown_shapes(crowns: &[FoliageCrown<'_>], supports: &[Support]) -> Vec<CrownS
                 .fold(0.0_f32, f32::max);
             CrownShape {
                 trunk: crown.trunk,
-                radius: (spread + metres(1.5)).clamp(metres(2.0), metres(8.0)),
+                radius: (spread + metres(1.5) * crown.scale)
+                    .clamp(metres(2.0) * crown.scale, metres(8.0) * crown.scale),
             }
         })
         .collect()
@@ -265,9 +287,7 @@ fn delaunay_points(samples: &[Sample]) -> Vec<Vec2> {
         .collect()
 }
 
-fn alpha_triangles(delaunay: &Mesh, samples: &[Sample]) -> Vec<[usize; 3]> {
-    let edge_limit = ALPHA_EDGE_MAX_METRES;
-    let circumradius_limit = ALPHA_CIRCUMRADIUS_MAX_METRES;
+fn alpha_triangles(delaunay: &Mesh, samples: &[Sample], supports: &[Support]) -> Vec<[usize; 3]> {
     let mut triangles = Vec::new();
     for triangle in delaunay.triangles.chunks_exact(3) {
         let indices = [
@@ -280,17 +300,24 @@ fn alpha_triangles(delaunay: &Mesh, samples: &[Sample]) -> Vec<[usize; 3]> {
         }
         let [a, b, c] =
             indices.map(|index| samples[index].position.truncate() * ISLAND_WORLD_METRES);
+        let scale = indices
+            .iter()
+            .map(|&index| supports[samples[index].support].scale)
+            .fold(0.0_f32, f32::max);
         let area_twice = (b - a).perp_dot(c - a);
-        if area_twice.abs() <= ALPHA_AREA_EPSILON_METRES2 {
+        if area_twice.abs() <= ALPHA_AREA_EPSILON_METRES2 * scale * scale {
             continue;
         }
         let edge_lengths = [a.distance(b), b.distance(c), c.distance(a)];
-        if edge_lengths.iter().any(|&length| length > edge_limit) {
+        if edge_lengths
+            .iter()
+            .any(|&length| length > ALPHA_EDGE_MAX_METRES * scale)
+        {
             continue;
         }
         let circumradius =
             edge_lengths[0] * edge_lengths[1] * edge_lengths[2] / (2.0 * area_twice.abs());
-        if circumradius > circumradius_limit {
+        if circumradius > ALPHA_CIRCUMRADIUS_MAX_METRES * scale {
             continue;
         }
         let oriented = if area_twice > 0.0 {
@@ -417,6 +444,7 @@ fn append_component(
     supports: &[Support],
     crown_shapes: &[CrownShape],
     support_vertices: &mut Vec<usize>,
+    perimeter_vertices: &mut Vec<usize>,
 ) -> Result<(), String> {
     let mut sample_indices = component
         .iter()
@@ -448,10 +476,7 @@ fn append_component(
                 .distance(component_centroid)
         })
         .fold(0.0_f32, f32::max);
-    let height = (MINIMUM_HEIGHT_METRES
-        + (component_spread * ISLAND_WORLD_METRES * HEIGHT_PER_SPREAD_METRES)
-            .min(MAX_SPREAD_HEIGHT_METRES))
-        / ISLAND_WORLD_METRES;
+    let component_spread_metres = component_spread * ISLAND_WORLD_METRES;
 
     let mut component_triangles = Vec::with_capacity(component.len());
     for &triangle_index in component {
@@ -468,7 +493,6 @@ fn append_component(
     if boundary.is_empty() {
         return Ok(());
     }
-
     let adjacency = triangle_adjacency(sample_indices.len(), &component_triangles);
     let support_centres = sample_indices
         .iter()
@@ -499,13 +523,15 @@ fn append_component(
         let support_height = samples[sample_indices[local]].position.z;
         position.z = position.z.min(support_height);
     }
-    let boundary_outward = boundary_outward_directions(&bottom_positions, &boundary);
+    let boundary_loops = ordered_boundary_loops(&boundary, &bottom_positions)?;
 
     let mut top_positions = Vec::with_capacity(sample_indices.len());
     for local in 0..sample_indices.len() {
         let sample_index = sample_indices[local];
         let base = bottom_positions[local];
         let support = samples[sample_index].position;
+        let scale = supports[samples[sample_index].support].scale;
+        let height = component_height(component_spread_metres, scale);
         let radial = base.truncate() - component_centroid;
         let irregular_scale = 1.0
             + (hash_unit(seed ^ FOLIAGE_SEED_DOMAIN, sample_index as u64, 0x71, 0) - 0.5) * 0.10;
@@ -513,7 +539,7 @@ fn append_component(
         let peak = crown_peak_weight(base.truncate(), crown_shapes);
         let support_peak = hash_unit(seed ^ FOLIAGE_SEED_DOMAIN, sample_index as u64, 0x72, 0);
         let lift = height * (0.66 + 0.18 * peak + 0.03 * (support_peak - 0.5));
-        let top_height = (base.z + lift).max(support.z + metres(TOP_TIP_CLEARANCE_METRES));
+        let top_height = (base.z + lift).max(support.z + metres(TOP_TIP_CLEARANCE_METRES) * scale);
         top_positions.push(Vec3::new(upper_xy.x, upper_xy.y, top_height));
     }
     smooth_control_heights(
@@ -524,10 +550,12 @@ fn append_component(
         TOP_HEIGHT_SMOOTHING_AMOUNT,
     );
     for (local, position) in top_positions.iter_mut().enumerate() {
-        let support_height = samples[sample_indices[local]].position.z;
+        let sample = samples[sample_indices[local]];
+        let support_height = sample.position.z;
+        let scale = supports[sample.support].scale;
         position.z = position
             .z
-            .max(support_height + metres(TOP_TIP_CLEARANCE_METRES));
+            .max(support_height + metres(TOP_TIP_CLEARANCE_METRES) * scale);
     }
     raise_top_shoulders(
         &mut top_positions,
@@ -536,8 +564,6 @@ fn append_component(
         TOP_MAXIMUM_SLOPE,
     );
 
-    let mut middle_index = BTreeMap::new();
-    let mut top_index = BTreeMap::new();
     for (local, &is_support_centre) in support_centres.iter().enumerate() {
         let position = bottom_positions[local];
         mesh.vertices.push(position);
@@ -547,36 +573,6 @@ fn append_component(
     }
     let top_base = mesh.vertices.len();
     mesh.vertices.extend(top_positions.iter().copied());
-    for (local, &is_support_centre) in support_centres.iter().enumerate() {
-        top_index.insert(local, top_base + local);
-        if is_support_centre {
-            // A top vertex is not a support constraint, but retaining the
-            // index in the set lets the displacement pass keep the peak seam
-            // quiet when it lies on a support centre.
-            support_vertices.push(top_base + local);
-        }
-    }
-    for &(a, b, _) in &boundary {
-        for local in [a, b] {
-            if middle_index.contains_key(&local) {
-                continue;
-            }
-            let sample_index = sample_indices[local];
-            let position = bottom_positions[local];
-            let radial = position.truncate() - component_centroid;
-            let jitter =
-                (hash_unit(seed ^ FOLIAGE_SEED_DOMAIN, sample_index as u64, 0x73, 0) - 0.5) * 0.08;
-            let middle_xy = component_centroid
-                + radial * (MID_RING_SCALE + jitter)
-                + boundary_outward[local] * metres(BOUNDARY_EXPANSION_METRES);
-            let peak = crown_peak_weight(position.truncate(), crown_shapes);
-            let lift = height * (0.18 + 0.08 * peak);
-            let index = mesh.vertices.len();
-            mesh.vertices
-                .push(Vec3::new(middle_xy.x, middle_xy.y, position.z + lift));
-            middle_index.insert(local, index);
-        }
-    }
 
     for triangle in &component_triangles {
         let a = u32::try_from(base_index + triangle[0])
@@ -598,23 +594,32 @@ fn append_component(
         ]);
     }
 
-    for &(a, b, _) in &boundary {
-        let bottom_a = u32::try_from(base_index + a)
-            .map_err(|_| "cluster foliage exceeds u32 triangle capacity".to_owned())?;
-        let bottom_b = u32::try_from(base_index + b)
-            .map_err(|_| "cluster foliage exceeds u32 triangle capacity".to_owned())?;
-        let top_a = u32::try_from(top_index[&a])
-            .map_err(|_| "cluster foliage exceeds u32 triangle capacity".to_owned())?;
-        let top_b = u32::try_from(top_index[&b])
-            .map_err(|_| "cluster foliage exceeds u32 triangle capacity".to_owned())?;
-        let middle_a = u32::try_from(middle_index[&a])
-            .map_err(|_| "cluster foliage exceeds u32 triangle capacity".to_owned())?;
-        let middle_b = u32::try_from(middle_index[&b])
-            .map_err(|_| "cluster foliage exceeds u32 triangle capacity".to_owned())?;
-        append_quad(&mut mesh.triangles, bottom_a, bottom_b, middle_b, middle_a);
-        append_quad(&mut mesh.triangles, middle_a, middle_b, top_b, top_a);
+    for boundary_loop in boundary_loops {
+        append_rounded_boundary(
+            mesh,
+            seed,
+            &boundary_loop,
+            base_index,
+            top_base,
+            &sample_indices,
+            &bottom_positions,
+            &top_positions,
+            samples,
+            supports,
+            crown_shapes,
+            component_centroid,
+            component_spread_metres,
+            perimeter_vertices,
+        )?;
     }
     Ok(())
+}
+
+fn component_height(component_spread_metres: f32, scale: f32) -> f32 {
+    (MINIMUM_HEIGHT_METRES * scale
+        + (component_spread_metres * HEIGHT_PER_SPREAD_METRES)
+            .min(MAX_SPREAD_HEIGHT_METRES * scale))
+        / ISLAND_WORLD_METRES
 }
 
 fn triangle_adjacency(vertex_count: usize, triangles: &[[usize; 3]]) -> Vec<Vec<usize>> {
@@ -692,23 +697,6 @@ fn raise_top_shoulders(
     }
 }
 
-fn boundary_outward_directions(
-    positions: &[Vec3],
-    boundary: &[(usize, usize, usize)],
-) -> Vec<Vec2> {
-    let mut outward_directions = vec![Vec2::ZERO; positions.len()];
-    for &(a, b, _) in boundary {
-        let edge = positions[b].truncate() - positions[a].truncate();
-        let outward = Vec2::new(edge.y, -edge.x).normalize_or_zero();
-        outward_directions[a] += outward;
-        outward_directions[b] += outward;
-    }
-    for outward in &mut outward_directions {
-        *outward = outward.normalize_or_zero();
-    }
-    outward_directions
-}
-
 fn boundary_edges(triangles: &[[usize; 3]]) -> Vec<(usize, usize, usize)> {
     let mut edges = BTreeMap::<(usize, usize), (usize, usize, usize)>::new();
     for triangle in triangles {
@@ -727,6 +715,273 @@ fn boundary_edges(triangles: &[[usize; 3]]) -> Vec<(usize, usize, usize)> {
     edges.into_values().filter(|entry| entry.2 == 1).collect()
 }
 
+fn ordered_boundary_loops(
+    boundary: &[(usize, usize, usize)],
+    positions: &[Vec3],
+) -> Result<Vec<Vec<usize>>, String> {
+    let mut remaining = boundary
+        .iter()
+        .map(|&(start, end, _)| (start, end))
+        .collect::<Vec<_>>();
+    remaining.sort_unstable();
+    let mut loops = Vec::new();
+    while !remaining.is_empty() {
+        let (start, mut current) = remaining.remove(0);
+        let mut previous = start;
+        let mut boundary_loop = vec![start];
+        while current != start {
+            boundary_loop.push(current);
+            let Some((edge_index, next)) = remaining
+                .iter()
+                .enumerate()
+                .filter(|(_, (candidate_start, _))| *candidate_start == current)
+                .min_by(|(_, (_, left)), (_, (_, right))| {
+                    boundary_turn(previous, current, *left, positions)
+                        .total_cmp(&boundary_turn(previous, current, *right, positions))
+                        .then_with(|| left.cmp(right))
+                })
+                .map(|(index, &(_, end))| (index, end))
+            else {
+                return Err("cluster foliage boundary does not form closed loops".to_owned());
+            };
+            remaining.remove(edge_index);
+            if boundary_loop.len() > boundary.len() {
+                return Err("cluster foliage boundary traversal did not terminate".to_owned());
+            }
+            previous = current;
+            current = next;
+        }
+        if boundary_loop.len() < 3 {
+            return Err("cluster foliage boundary loop has fewer than three vertices".to_owned());
+        }
+        loops.push(boundary_loop);
+    }
+    Ok(loops)
+}
+
+fn boundary_turn(previous: usize, current: usize, next: usize, positions: &[Vec3]) -> f32 {
+    let reverse = (positions[previous] - positions[current])
+        .truncate()
+        .normalize_or_zero();
+    let outgoing = (positions[next] - positions[current])
+        .truncate()
+        .normalize_or_zero();
+    let counter_clockwise = reverse.perp_dot(outgoing).atan2(reverse.dot(outgoing));
+    (-counter_clockwise).rem_euclid(TAU)
+}
+
+fn loop_outward_directions(positions: &[Vec3], boundary_loop: &[usize]) -> Vec<Vec2> {
+    (0..boundary_loop.len())
+        .map(|index| {
+            let previous = positions
+                [boundary_loop[(index + boundary_loop.len() - 1) % boundary_loop.len()]]
+            .truncate();
+            let current = positions[boundary_loop[index]].truncate();
+            let next = positions[boundary_loop[(index + 1) % boundary_loop.len()]].truncate();
+            let incoming = current - previous;
+            let outgoing = next - current;
+            (Vec2::new(incoming.y, -incoming.x).normalize_or_zero()
+                + Vec2::new(outgoing.y, -outgoing.x).normalize_or_zero())
+            .normalize_or_zero()
+        })
+        .collect()
+}
+
+#[allow(clippy::too_many_arguments)]
+fn append_rounded_boundary(
+    mesh: &mut Mesh,
+    seed: u64,
+    boundary_loop: &[usize],
+    base_index: usize,
+    top_base: usize,
+    sample_indices: &[usize],
+    bottom_positions: &[Vec3],
+    top_positions: &[Vec3],
+    samples: &[Sample],
+    supports: &[Support],
+    crown_shapes: &[CrownShape],
+    component_centroid: Vec2,
+    component_spread_metres: f32,
+    perimeter_vertices: &mut Vec<usize>,
+) -> Result<(), String> {
+    let outward_directions = loop_outward_directions(bottom_positions, boundary_loop);
+    let mut bottom_controls = Vec::with_capacity(boundary_loop.len());
+    let mut middle_controls = Vec::with_capacity(boundary_loop.len());
+    let mut top_controls = Vec::with_capacity(boundary_loop.len());
+    for (&local, &outward) in boundary_loop.iter().zip(&outward_directions) {
+        let sample_index = sample_indices[local];
+        let position = bottom_positions[local];
+        let scale = supports[samples[sample_index].support].scale;
+        let radial = position.truncate() - component_centroid;
+        let bottom_xy = component_centroid
+            + radial * BOTTOM_RING_SCALE
+            + outward * metres(BOTTOM_BOUNDARY_EXPANSION_METRES) * scale;
+        bottom_controls.push(Vec3::new(bottom_xy.x, bottom_xy.y, position.z));
+
+        let height = component_height(component_spread_metres, scale);
+        let jitter =
+            (hash_unit(seed ^ FOLIAGE_SEED_DOMAIN, sample_index as u64, 0x73, 0) - 0.5) * 0.08;
+        let middle_xy = component_centroid
+            + radial * (MID_RING_SCALE + jitter)
+            + outward * metres(BOUNDARY_EXPANSION_METRES) * scale;
+        let peak = crown_peak_weight(position.truncate(), crown_shapes);
+        let lift = height * (0.18 + 0.08 * peak);
+        middle_controls.push(Vec3::new(middle_xy.x, middle_xy.y, position.z + lift));
+
+        let top = top_positions[local];
+        let top_xy = top.truncate() + outward * metres(TOP_BOUNDARY_EXPANSION_METRES) * scale;
+        top_controls.push(Vec3::new(top_xy.x, top_xy.y, top.z));
+    }
+
+    let mut rounded_bottom = rounded_closed_ring(&bottom_controls, BOUNDARY_ROUNDING_PASSES);
+    let mut rounded_middle = rounded_closed_ring(&middle_controls, BOUNDARY_ROUNDING_PASSES);
+    let mut rounded_top = rounded_closed_ring(&top_controls, BOUNDARY_ROUNDING_PASSES);
+    let rotation = rounded_bottom
+        .iter()
+        .enumerate()
+        .min_by(|(_, left), (_, right)| {
+            left.distance_squared(bottom_controls[0])
+                .total_cmp(&right.distance_squared(bottom_controls[0]))
+        })
+        .map_or(0, |(index, _)| index);
+    rounded_bottom.rotate_left(rotation);
+    rounded_middle.rotate_left(rotation);
+    rounded_top.rotate_left(rotation);
+
+    let bottom_ring = append_ring_vertices(mesh, &rounded_bottom)?;
+    let middle_ring = append_ring_vertices(mesh, &rounded_middle)?;
+    let top_ring = append_ring_vertices(mesh, &rounded_top)?;
+    let inner_bottom = boundary_loop
+        .iter()
+        .map(|&local| {
+            u32::try_from(base_index + local)
+                .map_err(|_| "cluster foliage exceeds u32 triangle capacity".to_owned())
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let inner_top = boundary_loop
+        .iter()
+        .map(|&local| {
+            u32::try_from(top_base + local)
+                .map_err(|_| "cluster foliage exceeds u32 triangle capacity".to_owned())
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    append_ring_annulus(&mut mesh.triangles, &inner_bottom, &bottom_ring, false);
+    append_ring_annulus(&mut mesh.triangles, &inner_top, &top_ring, true);
+    append_ring_sides(&mut mesh.triangles, &bottom_ring, &middle_ring);
+    append_ring_sides(&mut mesh.triangles, &middle_ring, &top_ring);
+    perimeter_vertices.extend(
+        bottom_ring
+            .iter()
+            .chain(&middle_ring)
+            .chain(&top_ring)
+            .map(|&index| index as usize),
+    );
+    Ok(())
+}
+
+fn rounded_closed_ring(controls: &[Vec3], passes: usize) -> Vec<Vec3> {
+    let mut rounded = controls.to_vec();
+    for _ in 0..passes {
+        let mut next = Vec::with_capacity(rounded.len() * 2);
+        for index in 0..rounded.len() {
+            let current = rounded[index];
+            let following = rounded[(index + 1) % rounded.len()];
+            next.push(current.lerp(following, 0.25));
+            next.push(current.lerp(following, 0.75));
+        }
+        rounded = next;
+    }
+    rounded
+}
+
+fn append_ring_vertices(mesh: &mut Mesh, positions: &[Vec3]) -> Result<Vec<u32>, String> {
+    let first = u32::try_from(mesh.vertices.len())
+        .map_err(|_| "cluster foliage exceeds u32 vertex capacity".to_owned())?;
+    let count = u32::try_from(positions.len())
+        .map_err(|_| "cluster foliage exceeds u32 vertex capacity".to_owned())?;
+    let end = first
+        .checked_add(count)
+        .ok_or_else(|| "cluster foliage exceeds u32 vertex capacity".to_owned())?;
+    mesh.vertices.extend_from_slice(positions);
+    Ok((first..end).collect())
+}
+
+fn append_ring_annulus(triangles: &mut Vec<u32>, inner: &[u32], outer: &[u32], upward: bool) {
+    let mut inner_step = 0;
+    let mut outer_step = 0;
+    while inner_step < inner.len() || outer_step < outer.len() {
+        let inner_next_progress = (inner_step + 1) * outer.len();
+        let outer_next_progress = (outer_step + 1) * inner.len();
+        let inner_current = inner[inner_step % inner.len()];
+        let outer_current = outer[outer_step % outer.len()];
+        match inner_next_progress.cmp(&outer_next_progress) {
+            std::cmp::Ordering::Less => {
+                append_oriented_triangle(
+                    triangles,
+                    [
+                        inner_current,
+                        outer_current,
+                        inner[(inner_step + 1) % inner.len()],
+                    ],
+                    upward,
+                );
+                inner_step += 1;
+            }
+            std::cmp::Ordering::Greater => {
+                append_oriented_triangle(
+                    triangles,
+                    [
+                        inner_current,
+                        outer_current,
+                        outer[(outer_step + 1) % outer.len()],
+                    ],
+                    upward,
+                );
+                outer_step += 1;
+            }
+            std::cmp::Ordering::Equal => {
+                let inner_next = inner[(inner_step + 1) % inner.len()];
+                let outer_next = outer[(outer_step + 1) % outer.len()];
+                append_oriented_triangle(
+                    triangles,
+                    [inner_current, outer_current, outer_next],
+                    upward,
+                );
+                append_oriented_triangle(
+                    triangles,
+                    [inner_current, outer_next, inner_next],
+                    upward,
+                );
+                inner_step += 1;
+                outer_step += 1;
+            }
+        }
+    }
+}
+
+fn append_oriented_triangle(triangles: &mut Vec<u32>, triangle: [u32; 3], forward: bool) {
+    if forward {
+        triangles.extend(triangle);
+    } else {
+        triangles.extend([triangle[0], triangle[2], triangle[1]]);
+    }
+}
+
+fn append_ring_sides(triangles: &mut Vec<u32>, lower: &[u32], upper: &[u32]) {
+    debug_assert_eq!(lower.len(), upper.len());
+    for index in 0..lower.len() {
+        let next = (index + 1) % lower.len();
+        append_quad(
+            triangles,
+            lower[index],
+            lower[next],
+            upper[next],
+            upper[index],
+        );
+    }
+}
+
 fn append_quad(triangles: &mut Vec<u32>, a: u32, b: u32, c: u32, d: u32) {
     triangles.extend([a, b, c, a, c, d]);
 }
@@ -742,9 +997,10 @@ fn crown_peak_weight(position: Vec2, crowns: &[CrownShape]) -> f32 {
         .fold(0.0_f32, f32::max)
 }
 
-fn smooth_subdivision_vertices(
+fn smooth_perimeter_vertices(
     mesh: &mut Mesh,
     coarse_vertex_count: usize,
+    perimeter_vertices: &[usize],
     support_vertices: &[usize],
 ) {
     if mesh.vertices.len() <= coarse_vertex_count {
@@ -754,7 +1010,9 @@ fn smooth_subdivision_vertices(
     for _ in 0..LOD0_SMOOTHING_ITERATIONS {
         let previous = mesh.vertices.clone();
         for vertex in 0..mesh.vertices.len() {
-            if support_vertices.binary_search(&vertex).is_ok() {
+            let is_perimeter =
+                vertex >= coarse_vertex_count || perimeter_vertices.binary_search(&vertex).is_ok();
+            if !is_perimeter || support_vertices.binary_search(&vertex).is_ok() {
                 continue;
             }
             let neighbours = &adjacency[vertex];
@@ -858,10 +1116,12 @@ mod tests {
             FoliageCrown {
                 trunk: Vec3::new(m(0.0), m(0.0), m(4.0)),
                 tips: tips_a,
+                scale: 1.0,
             },
             FoliageCrown {
                 trunk: Vec3::new(m(3.0), m(0.0), m(4.1)),
                 tips: tips_b,
+                scale: 1.0,
             },
         ]
     }
@@ -912,6 +1172,40 @@ mod tests {
     }
 
     #[test]
+    fn coarse_canopy_scales_uniformly_with_its_tree() {
+        let tips = [
+            Vec3::new(m(-2.0), m(0.0), m(8.0)),
+            Vec3::new(m(0.0), m(2.0), m(8.5)),
+            Vec3::new(m(2.0), m(-1.0), m(8.2)),
+        ];
+        let scaled_tips = tips.map(|tip| tip * 2.0);
+        let base = generate_cluster_foliage(
+            42,
+            &[FoliageCrown {
+                trunk: Vec3::ZERO,
+                tips: &tips,
+                scale: 1.0,
+            }],
+        )
+        .expect("valid base foliage");
+        let scaled = generate_cluster_foliage(
+            42,
+            &[FoliageCrown {
+                trunk: Vec3::ZERO,
+                tips: &scaled_tips,
+                scale: 2.0,
+            }],
+        )
+        .expect("valid scaled foliage");
+
+        assert_eq!(scaled.lod1.triangles, base.lod1.triangles);
+        assert_eq!(scaled.lod1.vertices.len(), base.lod1.vertices.len());
+        for (&base_vertex, &scaled_vertex) in base.lod1.vertices.iter().zip(&scaled.lod1.vertices) {
+            assert!((scaled_vertex - base_vertex * 2.0).length() < 1.0e-6);
+        }
+    }
+
+    #[test]
     fn branch_tips_are_the_only_projected_control_samples() {
         let crowns = sample_crowns();
         let supports = collect_supports(&crowns);
@@ -923,7 +1217,50 @@ mod tests {
         assert_eq!(samples.len(), supports.len());
 
         let foliage = generate_cluster_foliage(42, &crowns).expect("valid foliage");
-        assert!(foliage.lod1.triangles.len() / 3 <= supports.len() * 8);
+        assert!(foliage.lod1.vertices.len() > supports.len());
+    }
+
+    #[test]
+    fn chaikin_boundary_replaces_control_corners_with_a_rounded_loop() {
+        let controls = [
+            Vec3::new(-1.0, -1.0, 0.0),
+            Vec3::new(1.0, -1.0, 0.0),
+            Vec3::new(1.0, 1.0, 0.0),
+            Vec3::new(-1.0, 1.0, 0.0),
+        ];
+
+        let rounded = rounded_closed_ring(&controls, BOUNDARY_ROUNDING_PASSES);
+
+        assert_eq!(rounded.len(), controls.len() * 4);
+        assert!(
+            rounded
+                .iter()
+                .all(|vertex| controls.iter().all(|control| vertex != control))
+        );
+        for index in 0..rounded.len() {
+            let incoming =
+                (rounded[index] - rounded[(index + rounded.len() - 1) % rounded.len()]).normalize();
+            let outgoing = (rounded[(index + 1) % rounded.len()] - rounded[index]).normalize();
+            assert!(incoming.dot(outgoing) > 0.5);
+        }
+    }
+
+    #[test]
+    fn touching_boundary_loops_remain_independent() {
+        let positions = [
+            Vec3::new(-1.0, 0.0, 0.0),
+            Vec3::new(1.0, 0.0, 0.0),
+            Vec3::ZERO,
+            Vec3::new(-1.0, 1.0, 0.0),
+            Vec3::new(1.0, -1.0, 0.0),
+        ];
+        let boundary = boundary_edges(&[[0, 2, 3], [1, 2, 4]]);
+
+        let loops = ordered_boundary_loops(&boundary, &positions)
+            .expect("point-touching loops have deterministic continuations");
+
+        assert_eq!(loops.len(), 2);
+        assert!(loops.iter().all(|boundary_loop| boundary_loop.len() == 3));
     }
 
     #[test]
@@ -1040,7 +1377,7 @@ mod tests {
     }
 
     #[test]
-    fn subdivision_smoothing_rounds_coarse_and_new_vertices_but_pins_supports() {
+    fn perimeter_smoothing_moves_only_the_boundary_band_and_pins_supports() {
         let mut mesh = Mesh {
             vertices: vec![
                 Vec3::new(0.0, 0.0, 2.0),
@@ -1054,11 +1391,41 @@ mod tests {
         };
         let original = mesh.vertices.clone();
 
-        smooth_subdivision_vertices(&mut mesh, 4, &[0]);
+        smooth_perimeter_vertices(&mut mesh, 4, &[1, 3], &[0]);
 
         assert_eq!(mesh.vertices[0], original[0]);
         assert_ne!(mesh.vertices[1], original[1]);
+        assert_eq!(mesh.vertices[2], original[2]);
         assert_ne!(mesh.vertices[4], original[4]);
+    }
+
+    #[test]
+    fn lod0_refines_less_geometry_than_full_blob_tessellation() {
+        let tips = (-2..=2)
+            .flat_map(|y| {
+                (-2..=2).map(move |x| {
+                    Vec3::new(
+                        m(x as f32),
+                        m(y as f32),
+                        m(8.0 + (x * x + y * y) as f32 * 0.02),
+                    )
+                })
+            })
+            .collect::<Vec<_>>();
+        let foliage = generate_cluster_foliage(
+            27,
+            &[FoliageCrown {
+                trunk: Vec3::ZERO,
+                tips: &tips,
+                scale: 1.0,
+            }],
+        )
+        .expect("valid foliage");
+        let fully_tessellated = foliage.lod1.tessellated();
+
+        assert!(foliage.lod0.vertices.len() > foliage.lod1.vertices.len());
+        assert!(foliage.lod0.vertices.len() < fully_tessellated.vertices.len());
+        assert!(foliage.lod0.triangles.len() < fully_tessellated.triangles.len());
     }
 
     #[test]
@@ -1077,10 +1444,12 @@ mod tests {
             FoliageCrown {
                 trunk: Vec3::new(m(-20.0), m(0.0), m(3.0)),
                 tips: &tips_a,
+                scale: 1.0,
             },
             FoliageCrown {
                 trunk: Vec3::new(m(20.0), m(0.0), m(3.0)),
                 tips: &tips_b,
+                scale: 1.0,
             },
         ];
         let foliage = generate_cluster_foliage(4, &crowns).expect("valid foliage");
@@ -1157,6 +1526,7 @@ mod tests {
             &[FoliageCrown {
                 trunk: Vec3::ZERO,
                 tips: &tips,
+                scale: 1.0,
             }],
         );
         assert!(invalid.is_err());

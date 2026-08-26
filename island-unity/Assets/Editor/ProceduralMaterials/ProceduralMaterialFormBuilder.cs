@@ -38,7 +38,6 @@ public sealed class ProceduralMaterialFormBuilder
         root.Add(material);
 
         var output = Foldout("Output and lighting-independent maps", false);
-        AddEnum(output, document, "/normal_convention", onEdit, new[] { "open_gl", "direct_x" });
         AddNumber(output, document, "/normal_scale", onEdit);
         AddObjectLeaves(output, document, "/displacement", onEdit, Array.Empty<string>());
         AddObjectLeaves(output, document, "/occlusion", onEdit, new[] { "combine" });
