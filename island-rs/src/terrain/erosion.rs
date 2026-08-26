@@ -1,3 +1,5 @@
+#[cfg(test)]
+use super::Vec4;
 use super::{
     Adjacency, GenerationMethod, GenerationScratch, HYDRAULIC_EDGE_SHIFT_LIMIT,
     HYDRAULIC_MIN_PROJECTED_AREA_RATIO, IndexedParallelIterator, IntoParallelIterator,
@@ -1321,12 +1323,12 @@ mod hydraulic_tests {
         mesh.calculate_normals();
         let terrain = Terrain::new(mesh);
         let field = TerrainMaterialField {
-            values: vec![Vec3::ZERO, Vec3::X, Vec3::Y],
+            values: vec![Vec4::ZERO, Vec4::X, Vec4::Y],
         };
 
         let sample = field.sample(&terrain, Vec2::new(0.25, 0.5));
 
-        assert!(sample.abs_diff_eq(Vec3::new(0.25, 0.5, 0.0), 1.0e-6));
+        assert!(sample.abs_diff_eq(Vec4::new(0.25, 0.5, 0.0, 0.0), 1.0e-6));
     }
 
     #[test]

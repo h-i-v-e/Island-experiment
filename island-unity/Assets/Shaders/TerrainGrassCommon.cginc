@@ -14,7 +14,7 @@ struct GrassVertexOutput
     float4 pos : SV_POSITION;
     float3 worldPosition : TEXCOORD0;
     half3 worldNormal : TEXCOORD1;
-    half3 material : TEXCOORD2;
+    half4 material : TEXCOORD2;
     float3 surfaceWorldPosition : TEXCOORD3;
     SHADOW_COORDS(4)
     UNITY_FOG_COORDS(5)
@@ -112,7 +112,7 @@ GrassVertexOutput GrassVertex(GrassVertexInput input)
     output.worldNormal = worldNormal;
     output.windLightingOffset = tangentWind
         * (windSample.y * GRASS_SHELL_LAYER);
-    output.material = input.material.rgb;
+    output.material = input.material;
     TRANSFER_SHADOW_WPOS(output, worldPosition);
     UNITY_TRANSFER_FOG(output, output.pos);
     return output;
@@ -187,14 +187,29 @@ fixed4 GrassFragment(GrassVertexOutput input) : SV_Target
     half hardness = saturate(input.material.r);
     half looseCover = saturate(input.material.g);
     half slope = 1.0 - saturate(normal.y);
-    half seaProximity = saturate(input.material.b);
+    half riverBed = saturate(input.material.b);
+    half riverNoise = clamp(
+        dot(broadNoise, half3(0.577h, -0.577h, 0.577h)),
+        -1.0h,
+        1.0h);
+    half riverThreshold = 0.5h + riverNoise * _RiverEdgeNoiseStrength;
+    half riverDistance = riverBed - riverThreshold;
+    half riverTransition = max(
+        _RiverEdgeBlendWidth,
+        fwidth(riverDistance));
+    half riverCoverage = smoothstep(
+        -riverTransition,
+        riverTransition,
+        riverDistance);
+    half seaProximity = saturate(input.material.a);
     half sandAltitudeWeight = 1.0h - smoothstep(
         2.0h,
         4.0h,
         elevation);
     half sandRichness = looseCover
         * seaProximity
-        * sandAltitudeWeight;
+        * sandAltitudeWeight
+        * (1.0h - riverCoverage);
     float2 sandPatchUv = input.islandLocalSurfacePosition.xz
         / max(_SandPatchNoiseWorldSize, 0.1)
         + float2(0.37, 0.73);
@@ -256,6 +271,8 @@ fixed4 GrassFragment(GrassVertexOutput input) : SV_Target
         GrassValueNoise(warpCoordinate + float2(2.1, 19.4))) - 0.5;
     float2 grassCoordinate = regularCoordinate + domainWarp * 1.65;
     float2 cell = floor(grassCoordinate);
+    half riverFadeRandom = GrassHash(cell + float2(73.1, 11.9));
+    clip((1.0h - riverCoverage) - riverFadeRandom - 0.001h);
     float2 cellOffset = float2(
         GrassHash(cell + 11.3),
         GrassHash(cell + 29.7)) - 0.5;

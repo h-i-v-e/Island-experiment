@@ -135,6 +135,13 @@ and submerged terrain. Beneath the fur, grass ground is exposed as brown soil
 within half a metre of the player and blends back to green over the following
 two metres, making the gaps between nearby blades read as dirt.
 
+Terrain vertex colours carry hardness/forced rock in red, loose cover in green,
+river bed in blue, and cached sea proximity in alpha. The ground shader uses
+the generated packed height channels for short view-dependent parallax-
+occlusion ray marches on authored
+rock and rounded-river-stone surfaces; albedo, normals, height and occlusion all
+share the same shifted repeating UVs.
+
 The fur shells bend in a coherent world-space wind field sampled from the same
 generated grass-noise texture used for coverage and broad colour variation.
 Gusts advect along the configured direction, bend progressively from fixed
@@ -183,9 +190,11 @@ steep faces, while an additional mid-scale layer forms irregular patches of
 authored and simple stone across flat rock to break up repeated top-down
 textures. The configured fade slope defaults to 45 degrees, and the broadened
 transition reaches farther onto steep terrain. The packed height map
-shapes the middle of each transition without changing either endpoint, so
-raised details retain the authored surface longer while recesses return to the
-procedural surface sooner. Steeper faces therefore retain the original solid
+shapes the middle of each projection transition without changing either
+endpoint, so raised details retain the authored surface longer while recesses
+return to the procedural surface sooner. It also shapes the riverbed boundary,
+letting raised pebbles carry into the bank while low gaps reveal the underlying
+ground sooner. Steeper faces therefore retain the original solid
 rock colour and procedural noise normal instead of receiving a stretched or
 alternate-axis projection. Packed linear mask maps store height
 in red and occlusion in green. Open

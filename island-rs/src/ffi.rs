@@ -17,7 +17,7 @@ use std::{
 use crate::forest::ForestMeshKind;
 use crate::{
     BoundingBox, ForestOptions, GenerationMethod, Island, IslandOptions, Mesh, SeaMask,
-    SurfaceMaps, Vec2, Vec3, generate_tree,
+    SurfaceMaps, Vec2, Vec3, Vec4, generate_tree,
 };
 
 const _: () = {
@@ -25,6 +25,7 @@ const _: () = {
     assert!(align_of::<Vec2>() == align_of::<f32>());
     assert!(size_of::<Vec3>() == size_of::<[f32; 3]>());
     assert!(align_of::<Vec3>() == align_of::<f32>());
+    assert!(size_of::<Vec4>() == size_of::<[f32; 4]>());
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -112,6 +113,13 @@ pub struct Vector3ExportArray {
 
 #[derive(Clone, Copy, Debug, Default)]
 #[repr(C)]
+pub struct Vector4ExportArray {
+    pub data: *const Vec4,
+    pub length: i32,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+#[repr(C)]
 pub struct Vector2ExportArray {
     pub data: *const Vec2,
     pub length: i32,
@@ -145,7 +153,7 @@ pub struct ExportMesh {
     pub normals: Vector3ExportArray,
     pub triangles: TriangleExportArray,
     pub uv: Vector2ExportArray,
-    pub material: Vector3ExportArray,
+    pub material: Vector4ExportArray,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -156,7 +164,7 @@ pub struct ExportMeshWithUv {
     pub normals: Vector3ExportArray,
     pub triangles: TriangleExportArray,
     pub uv: Vector2ExportArray,
-    pub material: Vector3ExportArray,
+    pub material: Vector4ExportArray,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -377,10 +385,10 @@ fn length_i32(length: usize) -> i32 {
 
 struct ExportedMesh {
     mesh: Mesh,
-    material: Vec<Vec3>,
+    material: Vec<Vec4>,
 }
 
-fn export_mesh(mesh: Mesh, material: Vec<Vec3>) -> ExportMesh {
+fn export_mesh(mesh: Mesh, material: Vec<Vec4>) -> ExportMesh {
     debug_assert!(material.is_empty() || material.len() == mesh.vertices.len());
     let owner = Box::new(ExportedMesh { mesh, material });
     let handle = Box::into_raw(owner);
@@ -405,7 +413,7 @@ fn export_mesh(mesh: Mesh, material: Vec<Vec3>) -> ExportMesh {
             data: mesh.uv.as_ptr(),
             length: length_i32(mesh.uv.len()),
         },
-        material: Vector3ExportArray {
+        material: Vector4ExportArray {
             data: owner.material.as_ptr(),
             length: length_i32(owner.material.len()),
         },
@@ -414,7 +422,7 @@ fn export_mesh(mesh: Mesh, material: Vec<Vec3>) -> ExportMesh {
 
 fn export_mesh_grid(
     tiles: Vec<Mesh>,
-    material_values: impl Fn(&Mesh) -> Vec<Vec3>,
+    material_values: impl Fn(&Mesh) -> Vec<Vec4>,
 ) -> ExportMeshGrid {
     let exports: Vec<ExportMesh> = tiles
         .into_iter()
@@ -1476,10 +1484,11 @@ mod tests {
         };
         if let Some((index, value)) = values.iter().enumerate().find(|(_, value)| {
             !value.is_finite()
-                || !value.cmpge(Vec3::ZERO).all()
+                || !value.cmpge(Vec4::ZERO).all()
                 || value.x > 1.0
                 || value.y > 1.0
                 || value.z > 1.0
+                || value.w > 1.0
         }) {
             panic!("invalid material value at {index}: {value:?}");
         }
@@ -1487,6 +1496,8 @@ mod tests {
         assert!(values.iter().any(|value| value.y > 0.1));
         assert!(values.iter().any(|value| value.z > 0.9));
         assert!(values.iter().any(|value| value.z == 0.0));
+        assert!(values.iter().any(|value| value.w > 0.9));
+        assert!(values.iter().any(|value| value.w == 0.0));
     }
 
     unsafe fn assert_river_emitters(handle: *const c_void) {

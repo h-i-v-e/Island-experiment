@@ -1463,7 +1463,7 @@ public sealed class IslandGenerator : MonoBehaviour
         MotuNative.Vector3Array sourceNormals,
         MotuNative.TriangleArray sourceTriangles,
         MotuNative.Vector2Array sourceUv,
-        MotuNative.Vector3Array sourceMaterial,
+        MotuNative.Vector4Array sourceMaterial,
         bool requireMaterial,
         bool createSurfaceMapCoordinates,
         float worldSize)
@@ -1596,24 +1596,24 @@ public sealed class IslandGenerator : MonoBehaviour
         return result;
     }
 
-    private static Color[] CopyMaterialArray(MotuNative.Vector3Array source)
+    private static Color[] CopyMaterialArray(MotuNative.Vector4Array source)
     {
         if (source.data == IntPtr.Zero || source.length == 0)
         {
             return Array.Empty<Color>();
         }
 
-        var packed = new float[checked(source.length * 3)];
+        var packed = new float[checked(source.length * 4)];
         Marshal.Copy(source.data, packed, 0, packed.Length);
         var result = new Color[source.length];
         for (var index = 0; index < result.Length; index++)
         {
-            var offset = index * 3;
+            var offset = index * 4;
             result[index] = new Color(
                 packed[offset],
                 packed[offset + 1],
                 packed[offset + 2],
-                1f);
+                packed[offset + 3]);
         }
         return result;
     }
@@ -2160,6 +2160,7 @@ public sealed class IslandGenerator : MonoBehaviour
                     || !terrainMaterial.HasProperty("_RockMaskMap")
                     || !terrainMaterial.HasProperty("_RockTextureWorldSize")
                     || !terrainMaterial.HasProperty("_RockNormalMapStrength")
+                    || !terrainMaterial.HasProperty("_RockParallaxDepth")
                     || !terrainMaterial.HasProperty("_RockHeightBlendStrength")
                     || !terrainMaterial.HasProperty("_RockTextureOcclusionStrength")
                     || !terrainMaterial.HasProperty("_RiverBedColor")
@@ -2168,6 +2169,7 @@ public sealed class IslandGenerator : MonoBehaviour
                     || !terrainMaterial.HasProperty("_RiverBedMaskMap")
                     || !terrainMaterial.HasProperty("_RiverBedTextureWorldSize")
                     || !terrainMaterial.HasProperty("_RiverBedNormalMapStrength")
+                    || !terrainMaterial.HasProperty("_RiverBedParallaxDepth")
                     || !terrainMaterial.HasProperty("_RiverBedHeightBlendStrength")
                     || !terrainMaterial.HasProperty("_RiverBedTextureOcclusionStrength")
                     || !terrainMaterial.HasProperty("_CliffNoise3D")

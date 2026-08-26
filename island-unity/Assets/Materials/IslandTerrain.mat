@@ -81,6 +81,7 @@ Material:
     - _OcclusionStrength: 0.25
     - _RiverBedHeightBlendStrength: 1
     - _RiverBedNormalMapStrength: 1
+    - _RiverBedParallaxDepth: 0.025
     - _RiverBedTextureOcclusionStrength: 0.65
     - _RiverBedTextureWorldSize: 2
     - _RiverEdgeBlendWidth: 0.2
@@ -88,6 +89,7 @@ Material:
     - _RockBoundaryNoiseStrength: 0.18
     - _RockHeightBlendStrength: 1
     - _RockNormalMapStrength: 1
+    - _RockParallaxDepth: 0.05
     - _RockPatchNoiseDetailScale: 8
     - _RockTextureOcclusionStrength: 0.5
     - _RockTextureWorldSize: 4

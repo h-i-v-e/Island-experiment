@@ -291,7 +291,7 @@ pub(super) fn generate_settled_rocks(
             + material.values[triangle[2]] * weights[2];
         let terrain_centre_height = terrain_height + body.radius / normal.z.max(0.2);
         let piled = body.centre.z > terrain_centre_height + body.radius * 0.35;
-        if !is_rock_habitat(surface_material) {
+        if !is_rock_habitat(surface_material.truncate()) {
             cleared_soil_vertices.extend(triangle.map(|vertex| vertex as u32));
         }
         let anchor_height = if piled {

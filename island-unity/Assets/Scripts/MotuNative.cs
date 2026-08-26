@@ -50,6 +50,13 @@ internal static class MotuNative
     }
 
     [StructLayout(LayoutKind.Sequential)]
+    internal struct Vector4Array
+    {
+        internal IntPtr data;
+        internal int length;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
     internal struct Vector2Array
     {
         internal IntPtr data;
@@ -99,7 +106,7 @@ internal static class MotuNative
         internal Vector3Array normals;
         internal TriangleArray triangles;
         internal Vector2Array uv;
-        internal Vector3Array material;
+        internal Vector4Array material;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -110,7 +117,7 @@ internal static class MotuNative
         internal Vector3Array normals;
         internal TriangleArray triangles;
         internal Vector2Array uv;
-        internal Vector3Array material;
+        internal Vector4Array material;
     }
 
     [StructLayout(LayoutKind.Sequential)]

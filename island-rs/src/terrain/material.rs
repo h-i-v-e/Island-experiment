@@ -1,6 +1,8 @@
+#[cfg(test)]
+use super::Vec3;
 use super::{
     EdgeSplitStencil, GeologyField, Mesh, NewVertexStencil, Terrain, TessellationResult, Vec2,
-    Vec3, sample_mesh_triangle,
+    Vec4, sample_mesh_triangle,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -164,7 +166,7 @@ impl SurfaceMaterial {
 
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct TerrainMaterialField {
-    pub(super) values: Vec<Vec3>,
+    pub(super) values: Vec<Vec4>,
 }
 
 impl TerrainMaterialField {
@@ -188,10 +190,11 @@ impl TerrainMaterialField {
                 |((((&hardness, &depth), &sea_proximity), &is_river_bed), &is_forced_rock)| {
                     let cover = (depth / 0.002).clamp(0.0, 1.0);
                     let cover = cover * cover * (3.0 - 2.0 * cover);
-                    if is_river_bed || is_forced_rock {
-                        Vec3::new(1.0, 0.0, sea_proximity)
+                    let river_bed = if is_river_bed { 1.0 } else { 0.0 };
+                    if is_forced_rock {
+                        Vec4::new(1.0, 0.0, river_bed, sea_proximity)
                     } else {
-                        Vec3::new(hardness.clamp(0.0, 1.0), cover, sea_proximity)
+                        Vec4::new(hardness.clamp(0.0, 1.0), cover, river_bed, sea_proximity)
                     }
                 },
             )
@@ -199,7 +202,7 @@ impl TerrainMaterialField {
         Self { values }
     }
 
-    pub(super) fn sample(&self, terrain: &Terrain, point: Vec2) -> Vec3 {
+    pub(super) fn sample(&self, terrain: &Terrain, point: Vec2) -> Vec4 {
         sample_mesh_triangle(&terrain.mesh, &terrain.triangle_index, point).map_or_else(
             || {
                 let nearest = terrain.triangle_index.nearest_vertex(&terrain.mesh, point);
@@ -293,7 +296,7 @@ mod tests {
     }
 
     #[test]
-    fn river_bed_vertices_are_exported_as_forced_rock() {
+    fn river_bed_and_forced_rock_use_independent_channels() {
         let material = SurfaceMaterial {
             deposited_depth: vec![0.0, 0.002, 0.001],
             bedrock_hardness: vec![0.25, 0.5, 0.75],
@@ -306,8 +309,8 @@ mod tests {
             &[false, true, false],
         );
 
-        assert_eq!(field.values[0], Vec3::new(1.0, 0.0, 1.0));
-        assert_eq!(field.values[1], Vec3::new(1.0, 0.0, 0.5));
-        assert_eq!(field.values[2], Vec3::new(0.75, 0.5, 0.0));
+        assert_eq!(field.values[0], Vec4::new(0.25, 0.0, 1.0, 1.0));
+        assert_eq!(field.values[1], Vec4::new(1.0, 0.0, 0.0, 0.5));
+        assert_eq!(field.values[2], Vec4::new(0.75, 0.5, 0.0, 0.0));
     }
 }

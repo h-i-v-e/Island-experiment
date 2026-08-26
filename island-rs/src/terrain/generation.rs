@@ -7,7 +7,7 @@ use super::{
     Ordering, ParallelIterator, ParallelSliceMut, Path, Raster, Read, River, RiverChannelSettings,
     RiverNetwork, RiverSourceRule, Rng, SHARP_ROCK_DISPLACEMENT_RATIO, StageTimer, SurfaceMaps,
     SurfaceMaterial, TERRAIN_RENDER_FLOOR, Terrain, TerrainMaterialField, TriangleIndex, Vec2,
-    Vec3, Write, append_settled_rocks, bake_surface_maps, bury_river_banks, clear_loose_soil,
+    Vec3, Vec4, Write, append_settled_rocks, bake_surface_maps, bury_river_banks, clear_loose_soil,
     encode_bank_distance_in_uv, erode_mesh, fix_inland_seas, geology, hydraulic_erode_stage, io,
     legacy_catchment_hectares, mem, noise, sample_grid, sample_mesh_surface,
 };
@@ -743,10 +743,10 @@ impl Island {
         Some(tiles)
     }
 
-    /// Per-vertex material weights for `mesh`: x = bedrock hardness, y = loose
-    /// cover, z = sea proximity. Sampled through each vertex's UV, so any mesh
-    /// derived from this island (full, sliced, or tiled) is accepted.
-    pub fn material_values_for(&self, mesh: &Mesh) -> Vec<Vec3> {
+    /// Per-vertex material weights for `mesh`: x = bedrock hardness or forced
+    /// rock, y = loose cover, z = river bed, w = sea proximity. Sampled through
+    /// each vertex's UV, so any mesh derived from this island is accepted.
+    pub fn material_values_for(&self, mesh: &Mesh) -> Vec<Vec4> {
         mesh.vertices
             .iter()
             .enumerate()
@@ -759,7 +759,7 @@ impl Island {
                     .clamp(Vec2::ZERO, Vec2::ONE);
                 self.material
                     .sample(&self.terrain, point)
-                    .clamp(Vec3::ZERO, Vec3::ONE)
+                    .clamp(Vec4::ZERO, Vec4::ONE)
             })
             .collect()
     }

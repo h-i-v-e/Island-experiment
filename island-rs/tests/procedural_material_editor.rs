@@ -84,10 +84,10 @@ fn committed_recipes_retain_the_locked_128_pixel_map_hashes() {
             "rounded-river-stones.json",
             [
                 "e24789a54569d84ae21f4443281ef6eae5a8fed6c8e8f033f53b9f879b7231cb",
-                "bdbd5fc03e4bbf88b1ed0f22dd9f3aee8e74430286a6e801bb5fdedb8ef93b8d",
+                "ae0e92cd4de04c32975ef2fa58ccf0b1656a0377fc0bbb1b4cee15a1b43dce09",
                 "2e11eb58cd16aa7f0e7e50cc4a278eaf1363a6e93900c77e56699a03c190871c",
                 "f735d58824b221134e2da0e1ca719cf75e019a79fd1276c8c15f8190c1538799",
-                "51d3515b41b234c941ae979900856991236b189dacab2eb5e504a04d5a3df08c",
+                "5367b3a657d7dbfbe9fee568e4c045303fcddea0a95b6510550e5953391fa11d",
             ],
         ),
     ];

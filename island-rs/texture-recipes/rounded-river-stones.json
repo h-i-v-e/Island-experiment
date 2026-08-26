@@ -96,8 +96,8 @@
   "normal_convention": "open_gl",
   "normal_scale": 1.0,
   "displacement": {
-    "minimum_m": -0.05,
-    "maximum_m": 0.16,
+    "minimum_m": 0.0,
+    "maximum_m": 0.015,
     "base_m": 0.0,
     "displacement_map": true
   },

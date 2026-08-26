@@ -9,6 +9,7 @@ Shader "Motu/Terrain Unified"
         [NoScaleOffset] _RockMaskMap ("Rock Top Surface Mask (R Height, G Occlusion)", 2D) = "gray" {}
         _RockTextureWorldSize ("Rock Top Surface Texture Size (metres)", Float) = 4
         _RockNormalMapStrength ("Rock Top Surface Normal Strength", Range(0, 2)) = 0
+        _RockParallaxDepth ("Rock Top Surface Parallax Depth (metres)", Range(0, 0.15)) = 0.05
         _RockHeightBlendStrength ("Rock Slope Blend Height Influence", Range(0, 1)) = 1
         _RockTextureOcclusionStrength ("Rock Top Surface Texture Occlusion", Range(0, 1)) = 0
         _RiverBedColor ("Riverbed Tint", Color) = (0.34, 0.32, 0.29, 1)
@@ -17,7 +18,8 @@ Shader "Motu/Terrain Unified"
         [NoScaleOffset] _RiverBedMaskMap ("Riverbed Mask (R Height, G Occlusion)", 2D) = "gray" {}
         _RiverBedTextureWorldSize ("Riverbed Texture Size (metres)", Float) = 2
         _RiverBedNormalMapStrength ("Riverbed Normal Strength", Range(0, 2)) = 0
-        _RiverBedHeightBlendStrength ("Riverbed Slope Blend Height Influence", Range(0, 1)) = 1
+        _RiverBedParallaxDepth ("Riverbed Parallax Depth (metres)", Range(0, 0.1)) = 0.025
+        _RiverBedHeightBlendStrength ("Riverbed Height Blend Influence", Range(0, 1)) = 1
         _RiverBedTextureOcclusionStrength ("Riverbed Texture Occlusion", Range(0, 1)) = 0
         _TopTextureFadeOutSlope ("Rock and Riverbed Texture Fade-Out Slope (degrees)", Range(1, 89)) = 45
         [NoScaleOffset] _WorldNormal ("Shared World Normal", 2D) = "bump" {}
@@ -100,7 +102,7 @@ Shader "Motu/Terrain Unified"
                 float3 geometricWorldNormal : TEXCOORD2;
                 SHADOW_COORDS(3)
                 UNITY_FOG_COORDS(4)
-                half3 material : TEXCOORD5;
+                half4 material : TEXCOORD5;
                 float3 islandLocalPosition : TEXCOORD6;
             };
 
@@ -119,10 +121,12 @@ Shader "Motu/Terrain Unified"
             fixed4 _RiverBedColor;
             float _RockTextureWorldSize;
             half _RockNormalMapStrength;
+            float _RockParallaxDepth;
             half _RockHeightBlendStrength;
             half _RockTextureOcclusionStrength;
             float _RiverBedTextureWorldSize;
             half _RiverBedNormalMapStrength;
+            float _RiverBedParallaxDepth;
             half _RiverBedHeightBlendStrength;
             half _RiverBedTextureOcclusionStrength;
             half _TopTextureFadeOutSlope;
@@ -191,6 +195,56 @@ Shader "Motu/Terrain Unified"
                         + centredHeight * influence * transitionWindow * 0.5h);
             }
 
+            float2 ParallaxUv(
+                float2 uv,
+                sampler2D maskMap,
+                float textureWorldSize,
+                float depthMetres,
+                float3 localViewDirection,
+                half projectionWeight)
+            {
+                projectionWeight = saturate(projectionWeight);
+                UNITY_BRANCH
+                if (depthMetres <= 0.0 || projectionWeight <= 0.001h)
+                {
+                    return uv;
+                }
+                float grazingSafeUp = max(abs(localViewDirection.y), 0.2);
+                float2 viewOffset = localViewDirection.xz / grazingSafeUp;
+                float depthInTiles = depthMetres
+                    / max(textureWorldSize, 0.01);
+                float2 rayOffset = viewOffset
+                    * (depthInTiles * projectionWeight);
+                const half layerStep = 0.125h;
+                float2 uvStep = rayOffset * layerStep;
+                float2 currentUv = uv;
+                half currentLayer = 0.0h;
+                half surfaceDepth = 1.0h - tex2D(maskMap, currentUv).r;
+                [unroll]
+                for (int stepIndex = 0; stepIndex < 8; ++stepIndex)
+                {
+                    if (currentLayer >= surfaceDepth)
+                    {
+                        break;
+                    }
+                    currentUv -= uvStep;
+                    currentLayer += layerStep;
+                    surfaceDepth = 1.0h - tex2D(maskMap, currentUv).r;
+                }
+
+                float2 previousUv = currentUv + uvStep;
+                half previousLayer = max(currentLayer - layerStep, 0.0h);
+                half previousSurfaceDepth = 1.0h
+                    - tex2D(maskMap, previousUv).r;
+                half afterDepth = surfaceDepth - currentLayer;
+                half beforeDepth = previousSurfaceDepth - previousLayer;
+                half interpolationDenominator = afterDepth - beforeDepth;
+                half interpolation = abs(interpolationDenominator) > 1.0e-4h
+                    ? saturate(afterDepth / interpolationDenominator)
+                    : 0.0h;
+                return lerp(currentUv, previousUv, interpolation);
+            }
+
             VertexOutput Vertex(VertexInput input)
             {
                 VertexOutput output;
@@ -201,7 +255,7 @@ Shader "Motu/Terrain Unified"
                     _IslandWorldToLocal,
                     float4(output.worldPosition, 1.0)).xyz;
                 output.geometricWorldNormal = UnityObjectToWorldNormal(input.normal);
-                output.material = input.material.rgb;
+                output.material = input.material;
                 TRANSFER_SHADOW(output);
                 UNITY_TRANSFER_FOG(output, output.pos);
                 return output;
@@ -235,12 +289,8 @@ Shader "Motu/Terrain Unified"
                     _TopTextureFadeOutSlope));
                 float2 rockUv = input.islandLocalPosition.xz
                     / max(_RockTextureWorldSize, 0.01);
-                fixed4 rockMaskSample = tex2D(_RockMaskMap, rockUv);
                 float2 riverBedUv = input.islandLocalPosition.xz
                     / max(_RiverBedTextureWorldSize, 0.01);
-                fixed4 riverBedMaskSample = tex2D(
-                    _RiverBedMaskMap,
-                    riverBedUv);
                 // Mesh import scales normalized Rust coordinates into Unity
                 // metres, so world-space Y is already the physical elevation.
                 float elevation = input.islandLocalPosition.y;
@@ -277,7 +327,7 @@ Shader "Motu/Terrain Unified"
                             * (1.0h - localUpNormal));
                 half topTextureBlendStart = saturate(
                     topTextureFadeOutUpNormal - 0.20h);
-                half topTextureSlopeWeight = smoothstep(
+                half topProjectionWeight = smoothstep(
                     topTextureBlendStart,
                     1.0h,
                     noisyTextureUpNormal);
@@ -285,13 +335,36 @@ Shader "Motu/Terrain Unified"
                     0.0h,
                     1.0h,
                     smoothstep(-0.65h, 0.65h, simpleStoneBlendNoise));
-                topTextureSlopeWeight *= flatTexturePatchWeight;
+                half rockTextureSlopeWeight = topProjectionWeight
+                    * flatTexturePatchWeight;
+                half riverBedTextureSlopeWeight = topProjectionWeight;
+                float3 localViewDirection = normalize(mul(
+                    (float3x3)_IslandWorldToLocal,
+                    UnityWorldSpaceViewDir(input.worldPosition)));
+                rockUv = ParallaxUv(
+                    rockUv,
+                    _RockMaskMap,
+                    _RockTextureWorldSize,
+                    _RockParallaxDepth,
+                    localViewDirection,
+                    rockTextureSlopeWeight);
+                riverBedUv = ParallaxUv(
+                    riverBedUv,
+                    _RiverBedMaskMap,
+                    _RiverBedTextureWorldSize,
+                    _RiverBedParallaxDepth,
+                    localViewDirection,
+                    riverBedTextureSlopeWeight * saturate(input.material.b));
+                fixed4 rockMaskSample = tex2D(_RockMaskMap, rockUv);
+                fixed4 riverBedMaskSample = tex2D(
+                    _RiverBedMaskMap,
+                    riverBedUv);
                 half rockTextureWeight = HeightModulatedTextureWeight(
-                    topTextureSlopeWeight,
+                    rockTextureSlopeWeight,
                     rockMaskSample.r,
                     _RockHeightBlendStrength);
                 half riverBedTextureWeight = HeightModulatedTextureWeight(
-                    topTextureSlopeWeight,
+                    riverBedTextureSlopeWeight,
                     riverBedMaskSample.r,
                     _RiverBedHeightBlendStrength);
                 // Signed world-space noise shifts both sides of the cutoff.
@@ -329,14 +402,30 @@ Shader "Motu/Terrain Unified"
                     input.material.r);
                 half hardness = saturate(input.material.r);
                 half looseCover = saturate(input.material.g);
-                // Retain the legacy river-texture properties on existing
-                // materials, but river beds no longer select that surface.
-                half riverCoverage = 0.0h;
-                // The exported blue channel stays one through two metres from
+                half riverBed = saturate(input.material.b);
+                half riverNoise = clamp(
+                    dot(broadNoise, half3(0.577h, -0.577h, 0.577h)),
+                    -1.0h,
+                    1.0h);
+                half riverThreshold = 0.5h
+                    + riverNoise * _RiverEdgeNoiseStrength;
+                half riverDistance = riverBed - riverThreshold;
+                half riverTransition = max(
+                    _RiverEdgeBlendWidth,
+                    fwidth(riverDistance));
+                half riverHeightDistance = riverDistance
+                    + (riverBedMaskSample.r * 2.0h - 1.0h)
+                        * riverTransition
+                        * _RiverBedHeightBlendStrength;
+                half riverCoverage = smoothstep(
+                    -riverTransition,
+                    riverTransition,
+                    riverHeightDistance);
+                // The exported alpha channel stays one through two metres from
                 // the connected sea, then fades to zero at twenty metres.
                 // Keep loose cover and the progressive noise threshold so the
                 // beach boundary remains naturally broken up.
-                half seaProximity = saturate(input.material.b);
+                half seaProximity = saturate(input.material.a);
                 half sandAltitudeWeight = 1.0h - smoothstep(
                     2.0h,
                     4.0h,
@@ -494,8 +583,8 @@ Shader "Motu/Terrain Unified"
                         _GroundDirtColor.rgb,
                         dirtCoverage);
                 }
-                // Riverbed height alters riverCoverage above; use that soft
-                // weight directly instead of restoring a binary bank edge.
+                // Use the height-shaped coverage directly instead of
+                // restoring a binary bank edge.
                 baseColor = lerp(
                     baseColor,
                     riverBedSurface,

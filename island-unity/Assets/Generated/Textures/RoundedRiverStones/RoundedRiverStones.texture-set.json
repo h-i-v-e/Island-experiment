@@ -8,12 +8,12 @@
   },
   "metadata": {
     "generator_algorithm_version": "1",
-    "recipe_hash": "469bb159e7b83b314a34508dade4e1dc1fd04936c4fa6a5a635d39109eca853b",
+    "recipe_hash": "b0c69ba7b9846eeed331f45cd5b7befc5e3750f9cf1689df64dd567c5e3c1aa2",
     "seed": 1337,
     "physical_tile_width_m": 2.0,
     "physical_tile_height_m": 2.0,
-    "height_min_m": -0.05,
-    "height_max_m": 0.16,
+    "height_min_m": 0.0,
+    "height_max_m": 0.015,
     "neutral_height_m": 0.0,
     "displacement_map": true,
     "normal_convention": "open_gl"
@@ -25,7 +25,7 @@
       "color_space": "sRGB",
       "width": 2048,
       "height": 2048,
-      "sha256": "a2150ed74ac03d78370e662de1850c14cf618a9956b28babe8f3af272f93fd1c"
+      "sha256": "a5a7e343ac1cc3fa30896e27ceb4d04cf5cae3631cf4c467c89a7bc587c78b60"
     },
     {
       "file": "RoundedRiverStones_height.png",
@@ -33,7 +33,7 @@
       "color_space": "linear",
       "width": 2048,
       "height": 2048,
-      "sha256": "49aff5c0068679ac0497e5b6ee90c1d1d923fc4303c0d8d5d54afef858d57f62"
+      "sha256": "6151c43454c6264ee8a9b25005c857ba9eb97e592703b988f35fd4627ca67237"
     },
     {
       "file": "RoundedRiverStones_normal.png",
@@ -41,7 +41,7 @@
       "color_space": "linear",
       "width": 2048,
       "height": 2048,
-      "sha256": "90353cbe4cf212f88152b84b8189685454fcb171e07d2c0ba3b1b927871b82cd"
+      "sha256": "76b02771423f6c800adf32cfccd0d6991a17c4c6cd4928d377dee90f14bc82bd"
     },
     {
       "file": "RoundedRiverStones_occlusion.png",
@@ -49,7 +49,7 @@
       "color_space": "linear",
       "width": 2048,
       "height": 2048,
-      "sha256": "bad1004b197febb7446f749cf00de0f48ff825e5c54450f0633814f8ca6ce60e"
+      "sha256": "f99f9df0106c0b11ab654ab85cf3514a4abad39110334e5627298d3f0445ce74"
     },
     {
       "file": "RoundedRiverStones_mask.png",
@@ -57,7 +57,7 @@
       "color_space": "linear",
       "width": 2048,
       "height": 2048,
-      "sha256": "b768e0473030facbca5c86b5d8883d15f087d515ee97c8cf518dc894e8b886ca"
+      "sha256": "ff65747100cd47e439c9b557feaa2e7bb24c5b647018f0a57ce6e84c511fb170"
     }
   ],
   "packed_channels": [

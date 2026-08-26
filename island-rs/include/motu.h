@@ -14,6 +14,7 @@ extern "C" {
 #endif
 
 typedef struct { float x, y, z; } Vector3Export;
+typedef struct { float x, y, z, w; } Vector4Export;
 typedef struct { float x, y; } Vector2Export;
 typedef struct {
     float maxZ, waterRatio, slopeMultiplier, coastalSlopeMultiplier;
@@ -35,6 +36,7 @@ typedef struct {
     float minimumScale, maximumScale;
 } MotuForestOptions;
 typedef struct { const Vector3Export *data; int32_t length; } Vector3ExportArray;
+typedef struct { const Vector4Export *data; int32_t length; } Vector4ExportArray;
 typedef struct { const Vector2Export *data; int32_t length; } Vector2ExportArray;
 typedef struct { const int32_t *data; int32_t length; } TriangleExportArray;
 typedef struct { Vector3Export min, max; } ExportArea;
@@ -43,15 +45,15 @@ typedef struct {
     Vector3ExportArray vertices, normals;
     TriangleExportArray triangles;
     Vector2ExportArray uv;
-    /* RGB: bedrock/forced rock, loose cover, sea proximity (1 through 2 m, 0 at 20 m). */
-    Vector3ExportArray material;
+    /* RGBA: bedrock/forced rock, loose cover, river bed, sea proximity. */
+    Vector4ExportArray material;
 } ExportMesh;
 typedef struct {
     void *handle;
     Vector3ExportArray vertices, normals;
     TriangleExportArray triangles;
     Vector2ExportArray uv;
-    Vector3ExportArray material;
+    Vector4ExportArray material;
 } ExportMeshWithUV;
 typedef struct { ExportMesh *data; int32_t length; } ExportMeshArray;
 typedef struct { void *handle; const ExportMesh *data; int32_t length; } ExportMeshGrid;

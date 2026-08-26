@@ -19,7 +19,7 @@ use std::{
 use rayon::prelude::*;
 
 use crate::{
-    Adjacency, BoundingBox, ISLAND_WORLD_METRES, Mesh, Raster, River, Vec2, Vec3,
+    Adjacency, BoundingBox, ISLAND_WORLD_METRES, Mesh, Raster, River, Vec2, Vec3, Vec4,
     geology::{self, GeologyField},
     mesh::{EdgeSplitStencil, NewVertexStencil, TessellationResult},
     mesh_clipper::MeshClipper,

@@ -25,7 +25,7 @@ mod terrain;
 mod trees;
 
 pub use forest::ForestOptions;
-pub use glam::{Vec2, Vec3};
+pub use glam::{Vec2, Vec3, Vec4};
 pub use math::BoundingBox;
 pub use mesh::{Adjacency, Mesh};
 pub use png::write_png;

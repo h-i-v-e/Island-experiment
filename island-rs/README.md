@@ -176,13 +176,14 @@ each adjacent density step without duplicating LOD 0 geometry. Each sliced
 terrain export also owns a
 parallel `material` array sampled from the final LOD 0 material field after
 clipping: ordinary terrain uses X for normalized bedrock hardness and Y for
-normalized loose cover. Z is a cached sea-proximity strength computed over LOD
-0 mesh edges before final river tracing and carving: connected-sea vertices are
-one through the first two world metres, then fade linearly to zero at twenty
-world metres. River-bed and
-sharp-terrain vertices force X to one and Y to zero while retaining this Z
-proximity. Sampling after slicing keeps the attributes paired with reordered
-and newly inserted boundary vertices.
+normalized loose cover. Z is the river-bed mask. W is a cached sea-proximity
+strength computed over LOD 0 mesh edges before final river tracing and carving:
+connected-sea vertices are one through the first two world metres, then fade
+linearly to zero at twenty world metres. Sharp-terrain vertices force X to one
+and Y to zero; river-bed vertices retain their material hardness and cover so
+the two surface classes remain independently blendable. Sampling after slicing
+keeps the attributes paired with reordered and newly inserted boundary
+vertices.
 All terrain and support exports are also clipped against a horizontal plane
 five metres below sea level. Faces crossing the plane receive shared
 interpolated boundary vertices, while deeper faces and now-unused vertices are
