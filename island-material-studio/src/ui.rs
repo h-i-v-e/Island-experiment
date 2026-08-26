@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 use bevy::{app::AppExit, prelude::*, window::WindowCloseRequested};
 use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
 use motu::procedural_textures::editor_protocol;
+use rfd::FileDialog;
 
 use crate::{
     app::DocumentResource,
@@ -112,7 +113,6 @@ pub struct UiState {
     pub hover_pixel: Option<[u32; 2]>,
     pub status: String,
     pub focused_pointer: Option<String>,
-    path_prompt: Option<PathPrompt>,
     pending_destructive: Option<DeferredAction>,
     external_conflict: bool,
     recipe_gesture_active: bool,
@@ -132,24 +132,11 @@ impl Default for UiState {
             hover_pixel: None,
             status: "Ready".into(),
             focused_pointer: None,
-            path_prompt: None,
             pending_destructive: None,
             external_conflict: false,
             recipe_gesture_active: false,
         }
     }
-}
-
-#[derive(Clone, Debug)]
-struct PathPrompt {
-    purpose: PathPurpose,
-    value: String,
-}
-
-#[derive(Clone, Copy, Debug)]
-enum PathPurpose {
-    Open,
-    SaveAs,
 }
 
 #[derive(Clone, Debug)]
@@ -324,14 +311,6 @@ fn draw_studio(
             &mut exit,
         );
     }
-    draw_path_prompt(
-        context,
-        &mut document.0,
-        &mut state,
-        &mut diagnostics,
-        &mut preview_state,
-        &mut exit,
-    );
     draw_dirty_prompt(
         context,
         &mut document.0,
@@ -356,32 +335,30 @@ fn handle_action(
     match action {
         UiAction::New => destructive_or_defer(document, state, DeferredAction::New),
         UiAction::Open => {
-            state.path_prompt = Some(PathPrompt {
-                purpose: PathPurpose::Open,
-                value: document
-                    .source_path()
-                    .and_then(Path::parent)
-                    .map_or_else(String::new, |path| path.display().to_string()),
-            });
+            if let Some(path) = pick_recipe_to_open(document) {
+                if document.is_dirty() {
+                    state.pending_destructive = Some(DeferredAction::Open(path));
+                } else if let Err(error) = execute_deferred(
+                    DeferredAction::Open(path),
+                    document,
+                    state,
+                    diagnostics,
+                    preview,
+                    exit,
+                ) {
+                    report_document_error(error, state);
+                }
+            }
         }
         UiAction::Save => match document.save() {
             Ok(()) => state.status = "Recipe saved".into(),
             Err(DocumentError::NoSourcePath) => {
-                state.path_prompt = Some(PathPrompt {
-                    purpose: PathPurpose::SaveAs,
-                    value: format!("{}.json", document.recipe().name),
-                });
+                save_as_from_dialog(document, state, None);
             }
             Err(error) => report_document_error(error, state),
         },
         UiAction::SaveAs => {
-            state.path_prompt = Some(PathPrompt {
-                purpose: PathPurpose::SaveAs,
-                value: document.source_path().map_or_else(
-                    || format!("{}.json", document.recipe().name),
-                    |path| path.display().to_string(),
-                ),
-            });
+            save_as_from_dialog(document, state, None);
         }
         UiAction::Revert => destructive_or_defer(document, state, DeferredAction::Revert),
         UiAction::Quit => destructive_or_defer(document, state, DeferredAction::Quit),
@@ -452,77 +429,6 @@ fn destructive_or_defer(document: &StudioDocument, state: &mut UiState, action: 
 }
 
 #[allow(clippy::too_many_arguments)]
-fn draw_path_prompt(
-    context: &egui::Context,
-    document: &mut StudioDocument,
-    state: &mut UiState,
-    diagnostics: &mut diagnostics::DiagnosticsState,
-    preview: &mut PreviewState,
-    exit: &mut MessageWriter<AppExit>,
-) {
-    let Some(mut prompt) = state.path_prompt.take() else {
-        return;
-    };
-    let mut keep = true;
-    egui::Window::new(match prompt.purpose {
-        PathPurpose::Open => "Open recipe",
-        PathPurpose::SaveAs => "Save recipe as",
-    })
-    .collapsible(false)
-    .resizable(false)
-    .show(context, |ui| {
-        ui.label("JSON recipe path");
-        ui.add_sized([520.0, 24.0], egui::TextEdit::singleline(&mut prompt.value));
-        ui.horizontal(|ui| {
-            if ui.button("Cancel").clicked() {
-                keep = false;
-            }
-            if ui.button("Continue").clicked() {
-                let path = PathBuf::from(prompt.value.trim());
-                match prompt.purpose {
-                    PathPurpose::Open => {
-                        if document.is_dirty() {
-                            state.pending_destructive = Some(DeferredAction::Open(path));
-                        } else if let Err(error) = execute_deferred(
-                            DeferredAction::Open(path),
-                            document,
-                            state,
-                            diagnostics,
-                            preview,
-                            exit,
-                        ) {
-                            report_document_error(error, state);
-                        }
-                    }
-                    PathPurpose::SaveAs => match document.save_as(&path) {
-                        Ok(()) => {
-                            state.status = format!("Saved {}", path.display());
-                            if let Some(action) = state.pending_destructive.take()
-                                && let Err(error) = execute_deferred(
-                                    action,
-                                    document,
-                                    state,
-                                    diagnostics,
-                                    preview,
-                                    exit,
-                                )
-                            {
-                                report_document_error(error, state);
-                            }
-                        }
-                        Err(error) => report_document_error(error, state),
-                    },
-                }
-                keep = false;
-            }
-        });
-    });
-    if keep {
-        state.path_prompt = Some(prompt);
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
 fn draw_dirty_prompt(
     context: &egui::Context,
     document: &mut StudioDocument,
@@ -563,10 +469,19 @@ fn draw_dirty_prompt(
                             }
                         }
                         Err(DocumentError::NoSourcePath) => {
-                            state.path_prompt = Some(PathPrompt {
-                                purpose: PathPurpose::SaveAs,
-                                value: format!("{}.json", document.recipe().name),
-                            });
+                            if save_as_from_dialog(document, state, None) {
+                                state.pending_destructive = None;
+                                if let Err(error) = execute_deferred(
+                                    action.clone(),
+                                    document,
+                                    state,
+                                    diagnostics,
+                                    preview,
+                                    exit,
+                                ) {
+                                    report_document_error(error, state);
+                                }
+                            }
                         }
                         Err(error) => report_document_error(error, state),
                     }
@@ -612,11 +527,13 @@ fn draw_conflict_prompt(
                     }
                     state.external_conflict = false;
                 }
-                if ui.button("Save As").clicked() {
-                    state.path_prompt = Some(PathPrompt {
-                        purpose: PathPurpose::SaveAs,
-                        value: format!("{}-copy.json", document.recipe().name),
-                    });
+                if ui.button("Save As").clicked()
+                    && save_as_from_dialog(
+                        document,
+                        state,
+                        Some(&format!("{}-copy.json", document.recipe().name)),
+                    )
+                {
                     state.external_conflict = false;
                 }
                 if ui.button("Overwrite").clicked() {
@@ -631,6 +548,59 @@ fn draw_conflict_prompt(
                 }
             });
         });
+}
+
+fn pick_recipe_to_open(document: &StudioDocument) -> Option<PathBuf> {
+    let dialog = recipe_dialog("Open procedural material recipe", document.source_path());
+    dialog.pick_file()
+}
+
+fn save_as_from_dialog(
+    document: &mut StudioDocument,
+    state: &mut UiState,
+    suggested_name: Option<&str>,
+) -> bool {
+    let default_name = format!("{}.json", document.recipe().name);
+    let source = document.source_path();
+    let dialog = recipe_dialog("Save procedural material recipe", source).set_file_name(
+        suggested_name.unwrap_or_else(|| {
+            source
+                .and_then(Path::file_name)
+                .and_then(|name| name.to_str())
+                .unwrap_or(&default_name)
+        }),
+    );
+    let Some(path) = dialog.save_file().map(ensure_json_extension) else {
+        return false;
+    };
+    match document.save_as(&path) {
+        Ok(()) => {
+            state.status = format!("Saved {}", path.display());
+            true
+        }
+        Err(error) => {
+            report_document_error(error, state);
+            false
+        }
+    }
+}
+
+fn recipe_dialog(title: &str, source: Option<&Path>) -> FileDialog {
+    let mut dialog = FileDialog::new()
+        .set_title(title)
+        .add_filter("Procedural material recipe", &["json"]);
+    if let Some(directory) = source.and_then(Path::parent) {
+        dialog = dialog.set_directory(directory);
+    }
+    dialog
+}
+
+fn ensure_json_extension(path: PathBuf) -> PathBuf {
+    if path.extension().is_none() {
+        path.with_extension("json")
+    } else {
+        path
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -695,6 +665,18 @@ mod tests {
             PreviewTab::ALL
                 .iter()
                 .any(|(tab, _)| *tab == PreviewTab::Lit)
+        );
+    }
+
+    #[test]
+    fn save_dialog_adds_a_missing_json_extension() {
+        assert_eq!(
+            ensure_json_extension(PathBuf::from("stone")),
+            PathBuf::from("stone.json")
+        );
+        assert_eq!(
+            ensure_json_extension(PathBuf::from("stone.recipe")),
+            PathBuf::from("stone.recipe")
         );
     }
 }
