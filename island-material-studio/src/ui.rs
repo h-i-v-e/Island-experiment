@@ -568,12 +568,13 @@ fn start_open_dialog(document: &StudioDocument, state: &mut UiState) {
     if state.file_dialog.is_some() {
         return;
     }
-    let future =
-        recipe_dialog("Open procedural material recipe", document.source_path()).pick_file();
+    let dialog = recipe_dialog("Open procedural material recipe", document.source_path());
     state.file_dialog = Some(PendingFileDialog(IoTaskPool::get().spawn(async move {
         FileDialogCompletion {
             intent: FileDialogIntent::Open,
-            path: future.await.map(PathBuf::from),
+            // Constructing the macOS modal future dispatches to the main
+            // queue, so this call must also happen outside Bevy's callback.
+            path: dialog.pick_file().await.map(PathBuf::from),
         }
     })));
     state.status = "Choose a procedural material recipe…".into();
@@ -598,11 +599,10 @@ fn start_save_dialog(
                 .unwrap_or(&default_name)
         }),
     );
-    let future = dialog.save_file();
     state.file_dialog = Some(PendingFileDialog(IoTaskPool::get().spawn(async move {
         FileDialogCompletion {
             intent: FileDialogIntent::SaveAs(continuation),
-            path: future.await.map(PathBuf::from),
+            path: dialog.save_file().await.map(PathBuf::from),
         }
     })));
     state.status = "Choose where to save the recipe…".into();
