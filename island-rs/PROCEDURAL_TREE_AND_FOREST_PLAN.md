@@ -12,6 +12,12 @@ tree containing only its trunk and branches, export that wood mesh to Unity,
 and display it in a dedicated `TreeSandbox` scene. Do not place forests on the
 island or generate foliage yet.
 
+The current implementation has progressed beyond that historical milestone.
+It now produces deterministic upright, rounded, and spreading growth habits.
+Primary branches rise from their selected parent faces, child axes use shorter
+internodes and thinner allometric radii, and the forest chooses varied
+prototypes within coherent habit patches.
+
 ## Existing project seams
 
 The implementation should extend the existing architecture rather than make a

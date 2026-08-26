@@ -118,12 +118,6 @@ Shader "Motu/Tree Wood"
                 float2 viewDirectionAlongSurface,
                 half viewDepth)
             {
-                UNITY_BRANCH
-                if (_BarkParallaxStrengthMetres <= 0.0h)
-                {
-                    return uv;
-                }
-
                 float2 rayOffset = viewDirectionAlongSurface
                     / max(tileSizeMetres, float2(0.01, 0.01))
                     * (_BarkParallaxStrengthMetres / max(viewDepth, 0.2h));

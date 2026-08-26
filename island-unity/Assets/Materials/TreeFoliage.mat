@@ -34,9 +34,11 @@ Material:
     - _CanopyEdgeSoftness: 0.08
     - _CullMode: 2
     - _FoliageFurHeight: 0.45
+    - _FoliageAmbientFloor: 0.12
     - _FoliageLeafCoverage: 0.72
     - _FoliageLeafEdgeSoftness: 0.08
     - _FoliageLeafWorldSize: 1.25
+    - _FoliageTranslucency: 0.38
     - _GrassFadeWidth: 10
     - _GrassRadius: 20
     - _TreeHueVariationDegrees: 16
@@ -45,8 +47,9 @@ Material:
     - _TreeNoisePeriod: 24
     - _TreeNormalStrength: 0.24
     m_Colors:
-    - _BaseColor: {r: 0.08, g: 0.28, b: 0.055, a: 1}
+    - _BaseColor: {r: 0.045, g: 0.16, b: 0.035, a: 1}
     - _GrassPlayerPosition: {r: 0, g: 0, b: 0, a: 0}
-    - _LightColor: {r: 0.22, g: 0.55, b: 0.12, a: 1}
+    - _LightColor: {r: 0.28, g: 0.48, b: 0.16, a: 1}
+    - _TranslucencyColor: {r: 0.3, g: 0.42, b: 0.1, a: 1}
   m_BuildTextureStacks: []
   m_AllowLocking: 1

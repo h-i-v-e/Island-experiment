@@ -25,6 +25,9 @@ struct FoliageFurVertexOutput
 
 fixed4 _BaseColor;
 fixed4 _LightColor;
+fixed4 _TranslucencyColor;
+half _FoliageTranslucency;
+half _FoliageAmbientFloor;
 half _CanopyCoverage;
 half _CanopyEdgeSoftness;
 half _AlphaCutoff;
@@ -132,9 +135,15 @@ fixed4 FoliageFurFragment(FoliageFurVertexOutput input) : SV_Target
         surfaceNoise.hue);
     albedo *= lerp(0.88h, 1.12h, FOLIAGE_SHELL_LAYER);
     fixed4 result = fixed4(
-        albedo
-            * (ShadeSH9(half4(normal, 1.0h))
-                + _LightColor0.rgb * diffuse * attenuation),
+        MotuShadeFoliage(
+            albedo,
+            normal,
+            lightDirection,
+            _LightColor0.rgb,
+            attenuation,
+            _TranslucencyColor.rgb,
+            _FoliageTranslucency,
+            _FoliageAmbientFloor),
         radialWeight * leafAlpha * materialAlpha);
     UNITY_APPLY_FOG(input.fogCoord, result);
     return result;

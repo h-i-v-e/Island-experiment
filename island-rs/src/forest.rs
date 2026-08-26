@@ -21,7 +21,7 @@ use crate::{
     clustered_foliage::{ClusterFoliageMeshes, FoliageCrown, generate_cluster_foliage},
     noise,
     terrain::{LOOSE_DEPTH_EPSILON, Terrain},
-    trees::{TreeMeshes, decode_bark_axis, encode_bark_axis, generate_tree},
+    trees::{TreeHabit, TreeMeshes, decode_bark_axis, encode_bark_axis, generate_tree_with_habit},
 };
 
 const FOREST_FOLIAGE_DOMAIN: u64 = 0x4f46_4f4c_4941_4745;
@@ -101,6 +101,8 @@ const FOREST_ANCHOR_OFFSET_DOMAIN: u64 = 0x082e_fa98_ec4e_6c89;
 pub(crate) const TREE_CLEARANCE_PER_SCALE_METRES: f32 = 3.0;
 const EXCLUSION_NUMERICAL_EPSILON_METRES: f32 = 0.001;
 const FOREST_SCALE_FINE_OCTAVE_WEIGHT: f32 = 0.2;
+const FOREST_HABIT_DOMAIN: u64 = 0x666f_7265_7374_6874;
+const FOREST_HABIT_PATCH_METRES: f32 = 90.0;
 const SHADER_SAND_PATCH_SIZE_METRES: f32 = 32.0;
 const SHADER_PATCH_NOISE_LATTICE_PERIOD: i32 = 64;
 const SHADER_PATCH_NOISE_RED_SEED: u32 = 0xb529_7a4d;
@@ -718,17 +720,48 @@ fn build_placements(
         let placement_key = stable_key(island_seed, index_u64, FOREST_PLACEMENT_DOMAIN);
         let yaw_key = stable_key(placement_key, index_u64, FOREST_YAW_DOMAIN);
         let prototype_key = stable_key(placement_key, index_u64, FOREST_PROTOTYPE_DOMAIN);
+        let prototype = coherent_prototype(
+            island_seed,
+            candidate.anchor,
+            prototype_key,
+            options.prototype_count,
+        );
         placements.push(TreePlacement {
             terrain_vertex: u32::try_from(index)
                 .map_err(|_| "forest terrain vertex index does not fit in u32".to_owned())?,
             anchor: candidate.anchor,
             yaw_radians: stable_unit(yaw_key) * TAU,
             scale: candidate.scale,
-            prototype: u8::try_from(prototype_key % u64::from(options.prototype_count))
-                .map_err(|_| "forest prototype index does not fit in u8".to_owned())?,
+            prototype,
         });
     }
     Ok(placements)
+}
+
+fn coherent_prototype(
+    island_seed: u64,
+    anchor: Vec3,
+    variation_key: u64,
+    prototype_count: u8,
+) -> u8 {
+    if prototype_count < 3 {
+        return u8::try_from(variation_key % u64::from(prototype_count))
+            .expect("prototype modulus fits u8");
+    }
+    let point_metres = anchor.truncate() * ISLAND_WORLD_METRES;
+    let habit_signal = noise::fractal(
+        island_seed ^ FOREST_HABIT_DOMAIN,
+        point_metres.x / FOREST_HABIT_PATCH_METRES,
+        point_metres.y / FOREST_HABIT_PATCH_METRES,
+        2,
+    )
+    .mul_add(0.5, 0.5)
+    .clamp(0.0, 1.0 - f32::EPSILON);
+    let habit = (habit_signal * 3.0).floor() as u8;
+    let variants = (prototype_count - 1 - habit) / 3 + 1;
+    habit
+        + 3 * u8::try_from(variation_key % u64::from(variants))
+            .expect("prototype variant modulus fits u8")
 }
 
 /// Groups all placed trees in each fine streaming cell into one canopy input.
@@ -923,7 +956,10 @@ fn generate_prototypes(seed: u64, options: ForestOptions) -> Result<Vec<TreeMesh
             u64::from(prototype),
             FOREST_PROTOTYPE_DOMAIN,
         );
-        prototypes.push(generate_tree(prototype_seed));
+        prototypes.push(generate_tree_with_habit(
+            prototype_seed,
+            TreeHabit::from_index(prototype),
+        ));
     }
     Ok(prototypes)
 }
@@ -1404,6 +1440,7 @@ fn owner_coordinate(value: f32, minimum: f32, span: f32, divisions: usize) -> us
 #[cfg(test)]
 mod tests {
     use std::{
+        collections::HashSet,
         fs,
         time::{SystemTime, UNIX_EPOCH},
     };
@@ -1550,6 +1587,21 @@ mod tests {
             coherent_tree_scale(seed, point_metres, 1.0, options).to_bits(),
             options.maximum_scale.to_bits()
         );
+    }
+
+    #[test]
+    fn coherent_habit_patches_keep_local_variants_in_one_growth_family() {
+        let anchor = Vec3::new(0.37, 0.41, 0.02);
+        let prototypes = (0..32)
+            .map(|variation| coherent_prototype(2018, anchor, variation, 64))
+            .collect::<Vec<_>>();
+        let habit = prototypes[0] % 3;
+
+        assert!(prototypes.iter().all(|prototype| prototype % 3 == habit));
+        assert!(prototypes.iter().all(|&prototype| prototype < 64));
+        assert!(prototypes.iter().copied().collect::<HashSet<_>>().len() > 1);
+        assert!(coherent_prototype(2018, anchor, 7, 1) < 1);
+        assert!(coherent_prototype(2018, anchor, 7, 2) < 2);
     }
 
     fn placement(terrain_vertex: u32, x_metres: f32, y_metres: f32) -> TreePlacement {

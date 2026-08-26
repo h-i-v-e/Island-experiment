@@ -177,7 +177,7 @@ MonoBehaviour:
     snowlineMetres: 200
     forestPrototypeCount: 64
     minimumTreeScale: 1
-    maximumTreeScale: 3
+    maximumTreeScale: 2
   streaming:
     target: {fileID: 1299534587}
   rendering:

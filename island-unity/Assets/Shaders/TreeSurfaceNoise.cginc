@@ -60,6 +60,27 @@ half3 MotuRotateTreeHue(half3 color, half hueSignal)
             + greyAxis * dot(greyAxis, color) * (1.0 - cosine));
 }
 
+half3 MotuShadeFoliage(
+    half3 albedo,
+    half3 normal,
+    half3 lightDirection,
+    half3 lightColor,
+    half attenuation,
+    half3 transmissionColor,
+    half translucency,
+    half ambientFloor)
+{
+    half facing = dot(normal, lightDirection);
+    half wrappedDiffuse = saturate((facing + 0.28h) / 1.28h);
+    half backLighting = pow(saturate(-facing), 2.0h) * translucency;
+    half3 ambient = max(
+        ShadeSH9(half4(normal, 1.0h)),
+        half3(ambientFloor, ambientFloor, ambientFloor));
+    half3 directLight = lightColor * attenuation;
+    return albedo * (ambient + directLight * wrappedDiffuse)
+        + transmissionColor * directLight * backLighting;
+}
+
 half MotuTreeCanopyAlpha(
     float3 islandLocalPosition,
     half canopyCoverage,

@@ -11,6 +11,7 @@ use crate::{
 };
 
 const TREE_SEED_SALT: u64 = 0x7472_6565_5f77_6f6f;
+const TREE_SHAPE_SEED_SALT: u64 = 0x7472_6565_5f73_6870;
 const WOOD_IRREGULARITY_DOMAIN: u64 = 0x776f_6f64_5f69_7272;
 const MINIMUM_UPWARD_DIRECTION: f32 = 0.12;
 const CROSS_SECTION_VERTICES: usize = 4;
@@ -68,6 +69,25 @@ struct TreeOptions {
     phototropism: f32,
     maximum_twist_radians: f32,
     tip_radius_scale: f32,
+    child_upward_bias: f32,
+    child_section_length_ratio: f32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TreeHabit {
+    Upright,
+    Rounded,
+    Spreading,
+}
+
+impl TreeHabit {
+    pub(crate) fn from_index(index: u8) -> Self {
+        match index % 3 {
+            0 => Self::Upright,
+            1 => Self::Rounded,
+            _ => Self::Spreading,
+        }
+    }
 }
 
 impl Default for TreeOptions {
@@ -87,11 +107,85 @@ impl Default for TreeOptions {
             phototropism: 0.32,
             maximum_twist_radians: FRAC_PI_4,
             tip_radius_scale: 0.18,
+            child_upward_bias: 0.36,
+            child_section_length_ratio: 0.82,
         }
     }
 }
 
 impl TreeOptions {
+    fn for_seed(seed: u64) -> Self {
+        let mut rng = Rng::new(seed ^ TREE_SHAPE_SEED_SALT);
+        let habit = TreeHabit::from_index(
+            u8::try_from(rng.next_u64() % 3).expect("tree habit modulus fits u8"),
+        );
+        Self::for_habit_with_rng(habit, &mut rng)
+    }
+
+    fn for_habit(seed: u64, habit: TreeHabit) -> Self {
+        let mut rng = Rng::new(seed ^ TREE_SHAPE_SEED_SALT);
+        let _ = rng.next_u64();
+        Self::for_habit_with_rng(habit, &mut rng)
+    }
+
+    fn for_habit_with_rng(habit: TreeHabit, rng: &mut Rng) -> Self {
+        let mut options = match habit {
+            TreeHabit::Upright => Self {
+                maximum_child_branches: 10,
+                trunk_sections: 12,
+                maximum_branch_depth: 3,
+                trunk_radius_metres: 0.48,
+                trunk_section_length_metres: 1.05,
+                minimum_trunk_branch_height_metres: 3.2,
+                branch_probability: [0.03, 0.86],
+                bend: 0.055,
+                phototropism: 0.55,
+                maximum_twist_radians: 0.58,
+                tip_radius_scale: 0.12,
+                child_upward_bias: 0.50,
+                child_section_length_ratio: 0.76,
+                ..Self::default()
+            },
+            TreeHabit::Rounded => Self {
+                maximum_child_branches: 9,
+                trunk_sections: 10,
+                maximum_branch_depth: 3,
+                trunk_radius_metres: 0.55,
+                trunk_section_length_metres: 0.98,
+                minimum_trunk_branch_height_metres: 2.5,
+                branch_probability: [0.07, 0.92],
+                bend: 0.09,
+                phototropism: 0.38,
+                maximum_twist_radians: FRAC_PI_4,
+                tip_radius_scale: 0.14,
+                child_upward_bias: 0.36,
+                child_section_length_ratio: 0.82,
+                ..Self::default()
+            },
+            TreeHabit::Spreading => Self {
+                maximum_child_branches: 8,
+                trunk_sections: 9,
+                maximum_branch_depth: 3,
+                trunk_radius_metres: 0.62,
+                trunk_section_length_metres: 0.94,
+                minimum_trunk_branch_height_metres: 2.0,
+                branch_probability: [0.12, 0.96],
+                bend: 0.13,
+                phototropism: 0.24,
+                maximum_twist_radians: FRAC_PI_4,
+                tip_radius_scale: 0.16,
+                child_upward_bias: 0.22,
+                child_section_length_ratio: 0.90,
+                ..Self::default()
+            },
+        };
+        options.trunk_radius_metres *= rng.range(0.90, 1.10);
+        options.trunk_section_length_metres *= rng.range(0.92, 1.08);
+        options.bend *= rng.range(0.88, 1.12);
+        debug_assert!(options.is_valid());
+        options
+    }
+
     fn is_valid(self) -> bool {
         self.maximum_child_branches <= 64
             && self.trunk_sections > 0
@@ -108,6 +202,8 @@ impl TreeOptions {
                 self.phototropism,
                 self.maximum_twist_radians,
                 self.tip_radius_scale,
+                self.child_upward_bias,
+                self.child_section_length_ratio,
             ]
             .into_iter()
             .all(|value| value.is_finite() && value > 0.0)
@@ -116,6 +212,8 @@ impl TreeOptions {
             && self.phototropism <= 1.0
             && self.maximum_twist_radians <= FRAC_PI_4
             && self.tip_radius_scale < 1.0
+            && self.child_upward_bias < 1.0
+            && self.child_section_length_ratio <= 1.0
     }
 }
 
@@ -549,19 +647,18 @@ impl TreeGenerator {
             upward_faces,
         )?;
         let next = (face + 1) % CROSS_SECTION_VERTICES;
-        let lower_left = self.wood.vertices[parent.lower_ring[face] as usize];
-        let lower_right = self.wood.vertices[parent.lower_ring[next] as usize];
-        let upper_left = self.wood.vertices[parent.upper_ring[face] as usize];
-        let upper_right = self.wood.vertices[parent.upper_ring[next] as usize];
+        let [lower_left, lower_right, upper_left, upper_right] =
+            branch_face_corners(&self.wood, &parent, face, next);
         let across =
             ((lower_right - lower_left) + (upper_right - upper_left)).normalize_or(Vec3::X);
         let along = ((upper_left - lower_left) + (upper_right - lower_right))
             .normalize_or(parent.direction);
-        let direction = face_normals[face];
+        let source_normal = face_normals[face];
+        let direction = branch_direction(source_normal, self.options.child_upward_bias);
         let origin = (lower_left + lower_right + upper_left + upper_right) * 0.25;
         let radius = parent.radius * child_radius_ratio(parent.depth);
         let opening_radius = parent.radius * BRANCH_OPENING_RADIUS_RATIO;
-        let section_length = parent.section_length;
+        let section_length = parent.section_length * self.options.child_section_length_ratio;
         let collar_length = section_length * BRANCH_COLLAR_LENGTH_RATIO;
         let root_taper_scale = (parent.lower_taper_scale + parent.upper_taper_scale) * 0.5;
         let x_axis = (-across - along).normalize_or(Vec3::X);
@@ -629,7 +726,7 @@ impl TreeGenerator {
         self.stats.branches.push(BranchRecord {
             parent_depth: parent.depth,
             origin,
-            source_normal: direction,
+            source_normal,
             direction,
             parent_radius: parent.radius,
             opening_radius,
@@ -709,6 +806,20 @@ impl TreeGenerator {
         });
         current
     }
+}
+
+fn branch_face_corners(
+    mesh: &Mesh,
+    parent: &ChildSource<'_>,
+    face: usize,
+    next: usize,
+) -> [Vec3; 4] {
+    [
+        mesh.vertices[parent.lower_ring[face] as usize],
+        mesh.vertices[parent.lower_ring[next] as usize],
+        mesh.vertices[parent.upper_ring[face] as usize],
+        mesh.vertices[parent.upper_ring[next] as usize],
+    ]
 }
 
 fn branch_face_normals(mesh: &Mesh, parent: ChildSource<'_>) -> [Vec3; CROSS_SECTION_VERTICES] {
@@ -1137,6 +1248,10 @@ fn bend_toward_light(previous: Vec3, random_direction: Vec3, strength: f32) -> V
     horizontal * (1.0 - z * z).max(0.0).sqrt() + Vec3::Z * z
 }
 
+fn branch_direction(source_normal: Vec3, upward_bias: f32) -> Vec3 {
+    (source_normal * (1.0 - upward_bias) + Vec3::Z * upward_bias).normalize_or(Vec3::Z)
+}
+
 fn axis_taper_scale(
     root_scale: f32,
     sections_grown: u8,
@@ -1150,7 +1265,7 @@ fn axis_taper_scale(
 }
 
 fn child_radius_ratio(parent_depth: u8) -> f32 {
-    (0.66 - f32::from(parent_depth) * 0.04).max(0.54)
+    (0.56 - f32::from(parent_depth) * 0.05).max(0.44)
 }
 
 pub(crate) fn encode_bark_axis(axis: Vec3) -> Vec2 {
@@ -1256,7 +1371,13 @@ fn twisted_x_axis(x_axis: Vec3, direction: Vec3, radians: f32) -> Vec3 {
 
 #[must_use]
 pub fn generate_tree(seed: u64) -> TreeMeshes {
-    TreeGenerator::new(seed, TreeOptions::default())
+    TreeGenerator::new(seed, TreeOptions::for_seed(seed))
+        .generate(seed)
+        .0
+}
+
+pub(crate) fn generate_tree_with_habit(seed: u64, habit: TreeHabit) -> TreeMeshes {
+    TreeGenerator::new(seed, TreeOptions::for_habit(seed, habit))
         .generate(seed)
         .0
 }
@@ -1268,7 +1389,7 @@ mod tests {
     use super::*;
 
     fn generated(seed: u64) -> (TreeMeshes, TreeGenerationStats) {
-        TreeGenerator::new(seed, TreeOptions::default()).generate(seed)
+        TreeGenerator::new(seed, TreeOptions::for_seed(seed)).generate(seed)
     }
 
     #[test]
@@ -1277,8 +1398,12 @@ mod tests {
         let second = generated(42);
 
         assert_eq!(first, second);
-        assert_eq!(first.1.child_branches, 8);
-        assert_eq!(first.1.branches.len(), 8);
+        let options = TreeOptions::for_seed(42);
+        assert_eq!(first.1.child_branches, options.maximum_child_branches);
+        assert_eq!(
+            first.1.branches.len(),
+            usize::from(options.maximum_child_branches)
+        );
         assert_eq!(first.0.foliage_supports.len(), first.1.branches.len() + 1);
         assert!(
             first
@@ -1294,10 +1419,37 @@ mod tests {
             let (_, stats) = generated(seed);
             assert_eq!(
                 stats.child_branches,
-                TreeOptions::default().maximum_child_branches,
+                TreeOptions::for_seed(seed).maximum_child_branches,
                 "seed {seed} did not reach the branch cap"
             );
         }
+    }
+
+    #[test]
+    fn prototype_seeds_cover_upright_rounded_and_spreading_habits() {
+        let options = (0..128).map(TreeOptions::for_seed).collect::<Vec<_>>();
+        let section_counts = options
+            .iter()
+            .map(|options| options.trunk_sections)
+            .collect::<HashSet<_>>();
+
+        assert_eq!(section_counts, HashSet::from([9, 10, 12]));
+        assert!(options.iter().all(|options| options.is_valid()));
+        assert!(
+            options
+                .iter()
+                .any(|options| options.child_upward_bias >= 0.5)
+        );
+        assert!(
+            options
+                .iter()
+                .any(|options| options.child_upward_bias <= 0.22)
+        );
+        assert!(
+            options
+                .iter()
+                .all(|options| options.child_section_length_ratio < 1.0)
+        );
     }
 
     #[test]
@@ -1336,9 +1488,8 @@ mod tests {
 
     #[test]
     fn main_trunk_keeps_two_metres_clear_of_branches() {
-        let options = TreeOptions::default();
-
         for seed in 0..256 {
+            let options = TreeOptions::for_seed(seed);
             let (_, stats) = generated(seed);
             assert!(
                 stats.branches.iter().all(|branch| {
@@ -1526,10 +1677,10 @@ mod tests {
 
     #[test]
     fn final_pass_tapers_every_axis_from_its_inherited_root_to_tip() {
-        let options = TreeOptions::default();
+        let options = TreeOptions::for_seed(2018);
         let (_, stats) = generated(2018);
 
-        assert!((options.tip_radius_scale - 0.18).abs() < f32::EPSILON);
+        assert!((0.0..1.0).contains(&options.tip_radius_scale));
         assert!(!stats.taper.is_empty());
         assert!(stats.taper.iter().all(|sample| {
             sample.current < sample.previous
@@ -1792,15 +1943,20 @@ mod tests {
     }
 
     #[test]
-    fn branches_use_square_openings_and_source_face_normals() {
+    fn branches_use_square_openings_and_rise_from_the_source_face() {
         let (_, stats) = generated(7);
+        let options = TreeOptions::for_seed(7);
 
         assert_eq!(CROSS_SECTION_VERTICES, 4);
         assert!(stats.branches.iter().all(|branch| {
             branch.origin.is_finite()
                 && branch.source_normal.is_normalized()
                 && branch.source_normal.z >= 0.0
-                && (branch.direction - branch.source_normal).length() < 1.0e-7
+                && (branch.direction
+                    - branch_direction(branch.source_normal, options.child_upward_bias))
+                .length()
+                    < 1.0e-7
+                && branch.direction.z > branch.source_normal.z
                 && (branch.opening_radius - branch.parent_radius * BRANCH_OPENING_RADIUS_RATIO)
                     .abs()
                     < f32::EPSILON
@@ -1809,10 +1965,11 @@ mod tests {
                     < f32::EPSILON
                 && branch.radius < branch.opening_radius
                 && branch.opening_radius < branch.parent_radius
-                && (branch.section_length - branch.parent_section_length).abs() < f32::EPSILON
-                && (branch.collar_length
-                    - branch.parent_section_length * BRANCH_COLLAR_LENGTH_RATIO)
+                && (branch.section_length
+                    - branch.parent_section_length * options.child_section_length_ratio)
                     .abs()
+                    < f32::EPSILON
+                && (branch.collar_length - branch.section_length * BRANCH_COLLAR_LENGTH_RATIO).abs()
                     < f32::EPSILON
                 && branch.opening_radius_error < 1.0e-7
         }));

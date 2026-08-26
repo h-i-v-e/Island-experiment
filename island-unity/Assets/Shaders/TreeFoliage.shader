@@ -2,8 +2,11 @@ Shader "Motu/Tree Foliage"
 {
     Properties
     {
-        _BaseColor ("Shadow Green", Color) = (0.08, 0.28, 0.055, 1)
-        _LightColor ("Sunlit Green", Color) = (0.22, 0.55, 0.12, 1)
+        _BaseColor ("Shadow Green", Color) = (0.045, 0.16, 0.035, 1)
+        _LightColor ("Sunlit Green", Color) = (0.28, 0.48, 0.16, 1)
+        _TranslucencyColor ("Leaf Transmitted Light", Color) = (0.30, 0.42, 0.10, 1)
+        _FoliageTranslucency ("Leaf Translucency", Range(0, 1)) = 0.38
+        _FoliageAmbientFloor ("Foliage Ambient Floor", Range(0, 0.5)) = 0.12
         [NoScaleOffset] _CliffNoise3D ("Tree Surface Noise", 3D) = "gray" {}
         _TreeNoisePeriod ("Canopy Noise Period (metres)", Float) = 24
         _TreeNoiseDetailScale ("Canopy Detail Frequency", Range(1, 16)) = 5
@@ -68,6 +71,9 @@ Shader "Motu/Tree Foliage"
 
             fixed4 _BaseColor;
             fixed4 _LightColor;
+            fixed4 _TranslucencyColor;
+            half _FoliageTranslucency;
+            half _FoliageAmbientFloor;
             half _CanopyCoverage;
             half _CanopyEdgeSoftness;
             half _AlphaCutoff;
@@ -116,9 +122,15 @@ Shader "Motu/Tree Foliage"
                     lerp(_BaseColor.rgb, _LightColor.rgb, lightBlend),
                     noise.hue);
                 fixed4 result = fixed4(
-                    albedo
-                        * (ShadeSH9(half4(normal, 1.0))
-                            + _LightColor0.rgb * diffuse * attenuation),
+                    MotuShadeFoliage(
+                        albedo,
+                        normal,
+                        lightDirection,
+                        _LightColor0.rgb,
+                        attenuation,
+                        _TranslucencyColor.rgb,
+                        _FoliageTranslucency,
+                        _FoliageAmbientFloor),
                     alpha);
                 UNITY_APPLY_FOG(input.fogCoord, result);
                 return result;

@@ -474,13 +474,19 @@ Use separate subdomains for:
 - any future colour/wind phase.
 
 Do not use the forest-mask noise value as a random seed. Forest membership and
-tree appearance must remain independent controls.
+tree appearance must remain independent controls. Growth habit is the one
+deliberate spatial exception: sample a separate 90-metre coherent field to
+form patches of upright, rounded, and spreading trees, then use the placement
+key to select a distinct prototype within that habit. This avoids both random
+species confetti and repeated identical trees.
 
 ## Prototype library
 
-Generate a small deterministic prototype library once per island rather than
-running the full branching algorithm separately for every placement. Begin
-with 8 or 16 prototypes and expose the count through validated options.
+Generate a deterministic prototype library once per island rather than running
+the full branching algorithm separately for every placement. Prototype indices
+cycle through upright, rounded, and spreading habits; each habit varies trunk
+allometry, crown height, bend, branch elevation, internode length, and taper.
+Expose the count through validated options.
 
 The existing tree generator already produces:
 
@@ -713,6 +719,8 @@ performance tuning task, not part of the required visibility matrix.
   clearance in XY, regardless of source-vertex topology.
 - Scale is deterministic, remains within the configured range, and combines
   coarse forest coverage with its next finer octave.
+- Nearby prototype choices share one coherent growth habit while retaining
+  different geometry, yaw, and scale.
 - Of two competing candidates, the higher-noise vertex wins; equal coverage is
   resolved by lower terrain vertex index.
 - Physically close non-adjacent source vertices are covered by the same
