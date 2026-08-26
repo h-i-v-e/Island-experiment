@@ -91,45 +91,36 @@ pub fn run(options: RunOptions) -> AppExit {
     preview_state.status = "Preview has not been generated".into();
 
     let mut app = App::new();
-    app.add_plugins(DefaultPlugins.set(WindowPlugin {
-        primary_window: Some(Window {
-            title: "Procedural Material Studio".into(),
-            resolution: WindowResolution::new(window_size.x, window_size.y),
+    app.add_plugins(DefaultPlugins.set(window_plugin(window_size)))
+        .add_plugins((
+            EguiPlugin {
+                // bevy_egui does not support bindless textures on Metal. Opt out
+                // up front instead of requesting them and logging a fallback.
+                bindless_mode_array_size: None,
+                ..default()
+            },
+            PreviewPlugin,
+            LitPreviewPlugin,
+            BakePlugin,
+            StudioUiPlugin,
+        ))
+        .insert_resource(ClearColor(Color::srgb(0.025, 0.032, 0.04)))
+        .insert_resource(EguiGlobalSettings {
+            // The app owns a window camera and an off-screen lit-preview camera.
+            // Automatic selection can attach the primary UI to the latter.
+            auto_create_primary_context: false,
             ..default()
-        }),
-        // The UI resolves dirty-document close requests explicitly.
-        exit_condition: ExitCondition::DontExit,
-        ..default()
-    }))
-    .add_plugins((
-        EguiPlugin {
-            // bevy_egui does not support bindless textures on Metal. Opt out
-            // up front instead of requesting them and logging a fallback.
-            bindless_mode_array_size: None,
-            ..default()
-        },
-        PreviewPlugin,
-        LitPreviewPlugin,
-        BakePlugin,
-        StudioUiPlugin,
-    ))
-    .insert_resource(ClearColor(Color::srgb(0.025, 0.032, 0.04)))
-    .insert_resource(EguiGlobalSettings {
-        // The app owns a window camera and an off-screen lit-preview camera.
-        // Automatic selection can attach the primary UI to the latter.
-        auto_create_primary_context: false,
-        ..default()
-    })
-    .insert_resource(DocumentResource(document))
-    .insert_resource(preview_state)
-    .insert_resource(ui_state)
-    .insert_resource(PersistedSettings {
-        path: settings_path,
-        last_saved: settings,
-        timer: Timer::new(Duration::from_secs(1), TimerMode::Repeating),
-    })
-    .add_systems(Startup, (setup_primary_camera, queue_initial_preview))
-    .add_systems(Update, persist_settings);
+        })
+        .insert_resource(DocumentResource(document))
+        .insert_resource(preview_state)
+        .insert_resource(ui_state)
+        .insert_resource(PersistedSettings {
+            path: settings_path,
+            last_saved: settings,
+            timer: Timer::new(Duration::from_secs(1), TimerMode::Repeating),
+        })
+        .add_systems(Startup, (setup_primary_camera, queue_initial_preview))
+        .add_systems(Update, persist_settings);
     if let Some(path) = options.screenshot_path {
         if path.is_file()
             && let Err(error) = fs::remove_file(&path)
@@ -144,6 +135,22 @@ pub fn run(options: RunOptions) -> AppExit {
         .add_systems(Update, capture_when_ready);
     }
     app.run()
+}
+
+fn window_plugin(window_size: UVec2) -> WindowPlugin {
+    WindowPlugin {
+        primary_window: Some(Window {
+            title: "Procedural Material Studio".into(),
+            resolution: WindowResolution::new(window_size.x, window_size.y),
+            ..default()
+        }),
+        // The UI resolves dirty-document close requests explicitly.
+        exit_condition: ExitCondition::DontExit,
+        // Keep the native window alive while that UI asks Save/Discard/Cancel.
+        // Bevy's default closer would otherwise despawn it independently.
+        close_when_requested: false,
+        ..default()
+    }
 }
 
 fn queue_initial_preview(document: Res<DocumentResource>, mut preview: ResMut<PreviewState>) {
@@ -252,5 +259,17 @@ const fn preview_tab_name(tab: PreviewTab) -> &'static str {
         PreviewTab::LayerRemapped => "layer_remapped",
         PreviewTab::LayerMask => "layer_mask",
         PreviewTab::Lit => "lit",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn custom_close_guard_retains_the_native_window() {
+        let plugin = window_plugin(WINDOW_SIZE);
+        assert!(!plugin.close_when_requested);
+        assert!(matches!(plugin.exit_condition, ExitCondition::DontExit));
     }
 }
