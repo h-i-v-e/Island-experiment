@@ -7,17 +7,17 @@
   "physical_tile_height_m": 2.0,
   "material": {
     "kind": "rounded_stones",
-    "cells_x": 13,
-    "cells_y": 11,
-    "stone_radius": 0.38,
-    "cell_jitter": 0.76,
+    "cells_x": 24,
+    "cells_y": 24,
+    "stone_radius": 0.375,
+    "cell_jitter": 1.0,
     "warp_amplitude": 0.22,
-    "anisotropy": 1.18,
-    "stone_height": 0.12,
-    "stone_variation": 0.045,
-    "gap_height": -0.012,
-    "sand_amplitude": 0.009,
-    "edge_softness": 0.08
+    "anisotropy": 2.0,
+    "stone_height": 0.01,
+    "stone_variation": 0.005,
+    "gap_height": 0.0,
+    "sand_amplitude": 0.0,
+    "edge_softness": 0.15
   },
   "layers": [
     {
@@ -25,14 +25,18 @@
       "name": "Riverbed colour and relief",
       "enabled": true,
       "source": {
-        "kind": "value",
+        "kind": "billow",
         "frequency": 7,
         "octaves": 2,
         "lacunarity": 2.0,
         "gain": 0.5,
-        "offset": [0.0, 0.0],
+        "offset": [
+          0.0,
+          0.0
+        ],
         "seed_domain": 203,
-        "domain_warp": null
+        "domain_warp": null,
+        "cellular_jitter": 0.25
       },
       "remap": {
         "input_min": -1.0,
@@ -40,26 +44,51 @@
         "invert": false,
         "contrast": 1.0,
         "bias": 0.0,
-        "clamp": true
+        "clamp": true,
+        "curve": null
       },
-      "mask": null,
+      "mask": {
+        "kind": "previous_height",
+        "bottom_m": 0.0,
+        "top_m": 0.005,
+        "invert": true
+      },
       "outputs": {
         "height": {
-          "enabled": true,
-          "blend": { "kind": "add" },
+          "enabled": false,
+          "blend": {
+            "kind": "add"
+          },
           "strength_m": 0.008
         },
         "albedo": {
-          "enabled": false,
+          "enabled": true,
           "blend": "mix",
-          "strength": 0.12,
+          "strength": 1.0,
           "colour_map": {
             "kind": "gradient",
             "stops": [
-              { "position": 0.0, "colour": [0.30, 0.34, 0.31] },
-              { "position": 1.0, "colour": [0.48, 0.42, 0.31] }
+              {
+                "position": 0.0,
+                "colour": [
+                  0.32836577,
+                  0.32228044,
+                  0.16510175
+                ]
+              },
+              {
+                "position": 1.0,
+                "colour": [
+                  0.29678044,
+                  0.21382919,
+                  0.17126423
+                ]
+              }
             ]
-          }
+          },
+          "hue_influence": 0.0,
+          "saturation_influence": 0.0,
+          "value_influence": 0.0
         }
       }
     }
@@ -80,15 +109,37 @@
     "cavity_strength": 1.8,
     "horizon_strength": 1.0,
     "power": 1.0,
-    "combine": { "kind": "multiply" }
+    "combine": {
+      "kind": "multiply"
+    }
   },
   "albedo": {
-    "base_color": [0.30, 0.34, 0.31],
-    "warm_color": [0.48, 0.42, 0.31],
+    "base_color": [
+      0.3,
+      0.34,
+      0.31
+    ],
+    "warm_color": [
+      0.48,
+      0.42000002,
+      0.31
+    ],
     "palette": [
-      [0.30, 0.34, 0.31],
-      [0.39, 0.40, 0.34],
-      [0.48, 0.42, 0.31]
+      [
+        0.3,
+        0.34,
+        0.31
+      ],
+      [
+        0.38999996,
+        0.4,
+        0.34
+      ],
+      [
+        0.48,
+        0.42000002,
+        0.31
+      ]
     ],
     "variation": 0.68,
     "crack_darkening": 0.2,
@@ -97,5 +148,8 @@
     "mineral_brightness": 0.12,
     "occlusion_influence": 0.06
   },
-  "output_profiles": ["separate", "motu_unity_terrain"]
+  "output_profiles": [
+    "separate",
+    "motu_unity_terrain"
+  ]
 }

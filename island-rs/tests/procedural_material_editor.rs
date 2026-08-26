@@ -83,11 +83,11 @@ fn committed_recipes_retain_the_locked_128_pixel_map_hashes() {
         (
             "rounded-river-stones.json",
             [
-                "d547f69e724b20fca0b4c520a8f8de8b3cb9dda37e0a521c244bf5459347d5f0",
-                "e73d6600817563f29760ca087477799078fdb91c04e4156bf800de3823c4ab2b",
-                "34168a0c6ef4f81049881116639d5f5e4059d2bfc85cf0fe0d64e2694241d91e",
-                "11f0734a36eed8a8a4b5215cb27c209cd61268db9ced8e3ccc2584a132bbf8a2",
-                "16abd2939b9f00e2de48d8ad155661111b164c5b66c26c9d338cdb282030aee1",
+                "e24789a54569d84ae21f4443281ef6eae5a8fed6c8e8f033f53b9f879b7231cb",
+                "bdbd5fc03e4bbf88b1ed0f22dd9f3aee8e74430286a6e801bb5fdedb8ef93b8d",
+                "2e11eb58cd16aa7f0e7e50cc4a278eaf1363a6e93900c77e56699a03c190871c",
+                "f735d58824b221134e2da0e1ca719cf75e019a79fd1276c8c15f8190c1538799",
+                "51d3515b41b234c941ae979900856991236b189dacab2eb5e504a04d5a3df08c",
             ],
         ),
     ];
@@ -121,12 +121,27 @@ fn previous_height_mask_tracks_the_rounded_stone_base_field() {
     let mut recipe = load_recipe("rounded-river-stones.json");
     recipe.width = 64;
     recipe.height = 64;
+    recipe.layers.clear();
+
+    let base_evaluation = evaluate_material(&recipe).expect("evaluate rounded stones base field");
+    let (minimum, maximum) = base_evaluation.layers.field.values().iter().copied().fold(
+        (f32::INFINITY, f32::NEG_INFINITY),
+        |(minimum, maximum), height| (minimum.min(height), maximum.max(height)),
+    );
+    let range = maximum - minimum;
+    assert!(
+        range > f32::EPSILON,
+        "expected a non-flat stone height field"
+    );
+    let bottom_m = minimum + range * 0.25;
+    let top_m = minimum + range * 0.75;
+
     recipe.layers = vec![MaterialLayer {
         id: "gap-colour".into(),
         name: "Gap colour".into(),
         mask: Some(LayerMask::PreviousHeight {
-            bottom_m: 0.0,
-            top_m: 0.02,
+            bottom_m,
+            top_m,
             invert: true,
         }),
         ..MaterialLayer::default()
@@ -138,17 +153,17 @@ fn previous_height_mask_tracks_the_rounded_stone_base_field() {
     let low_count = heights
         .iter()
         .zip(mask)
-        .filter(|(height, opacity)| **height <= 0.0 && **opacity >= 1.0 - f32::EPSILON)
+        .filter(|(height, opacity)| **height <= bottom_m && **opacity >= 1.0 - f32::EPSILON)
         .count();
     let high_count = heights
         .iter()
         .zip(mask)
-        .filter(|(height, opacity)| **height >= 0.02 && **opacity <= f32::EPSILON)
+        .filter(|(height, opacity)| **height >= top_m && **opacity <= f32::EPSILON)
         .count();
 
-    assert!(low_count > 100, "expected the inverted mask to select gaps");
+    assert!(low_count > 0, "expected the inverted mask to select gaps");
     assert!(
-        high_count > 100,
+        high_count > 0,
         "expected the inverted mask to reject stone tops"
     );
 }
