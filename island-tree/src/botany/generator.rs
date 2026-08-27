@@ -16,6 +16,7 @@ use std::f32::consts::{PI, TAU};
 use motu::{Mesh, Vec2, Vec3};
 
 use super::{
+    harakeke::generate_harakeke_prototype,
     model::{
         AXIS_POINTS, Axis, AxisGraph, BarkVertex, BotanicalPrototype, BotanicalRecipe,
         BotanicalSpecies, BotanicalTexture, FOLIAGE_PAD_ARCHETYPE_COUNT, FoliagePad,
@@ -47,7 +48,7 @@ const KILL_RADIUS_METRES: f32 = 0.58;
 const MIN_NODE_SPACING_METRES: f32 = 0.34;
 const MIN_FINE_SHOOTS_PER_TERMINAL: usize = 3;
 const MAX_FINE_SHOOTS_PER_TERMINAL: usize = 7;
-const MAX_SECONDARY_FINE_SHOOTS_PER_TERMINAL: usize = 2;
+const MAX_SECONDARY_FINE_SHOOTS_PER_TERMINAL: usize = 3;
 const MIN_LEAVES_FOR_SECONDARY_FINE_SHOOT: usize = 6;
 const SECONDARY_FINE_SHOOT_MIN_VIGOUR: f32 = 0.44;
 const MAX_PREVIOUS_FLUSH_LEAVES_PER_SHOOT: usize = 4;
@@ -102,6 +103,7 @@ pub fn generate_botanical_prototype(
     match recipe.species {
         BotanicalSpecies::Pohutukawa => generate_pohutukawa_prototype(seed, recipe),
         BotanicalSpecies::Nikau => generate_nikau_prototype(seed, recipe),
+        BotanicalSpecies::Harakeke => generate_harakeke_prototype(seed, recipe),
     }
 }
 
@@ -843,7 +845,7 @@ fn generate_fine_organs(
     let mut leaves = Vec::with_capacity(capacity);
     let mut shoot_tips = Vec::with_capacity(
         terminal_count
-            .saturating_mul(MAX_FINE_SHOOTS_PER_TERMINAL)
+            .saturating_mul(MAX_FINE_SHOOTS_PER_TERMINAL + MAX_SECONDARY_FINE_SHOOTS_PER_TERMINAL)
             .saturating_add(MAX_EPICORMIC_SHOOTS),
     );
     let mut microtwigs = Mesh::default();
@@ -1436,7 +1438,7 @@ fn retained_secondary_fine_shoot_count(vigour: f32, primary_count: usize) -> usi
     let response = ((vigour - SECONDARY_FINE_SHOOT_MIN_VIGOUR)
         / (1.0 - SECONDARY_FINE_SHOOT_MIN_VIGOUR))
         .clamp(0.0, 1.0);
-    (primary_count as f32 * 0.46 * response)
+    (primary_count as f32 * 0.62 * response)
         .round()
         .max(1.0)
         .min((primary_count / 2).min(MAX_SECONDARY_FINE_SHOOTS_PER_TERMINAL) as f32) as usize
@@ -2778,7 +2780,7 @@ fn pad_mesh(seed: u64) -> Mesh {
     let source = pad_leaf_mesh();
     let mut rng = Rng::new(seed);
     let mut result = Mesh::default();
-    for spray in 0..5 {
+    for spray in 0..6 {
         append_pad_spray(&mut result, &source, &mut rng, spray);
     }
     result.calculate_normals();
@@ -3483,8 +3485,16 @@ mod tests {
                 generate_botanical_prototype(seed, BotanicalRecipe::default()).expect("prototype");
             assert_eq!(first, second);
             assert!(first.graph.axes.len() <= 512);
-            assert!(first.leaves.len() <= 30_000);
-            assert!(first.foliage_pads.len() <= 512);
+            assert!(
+                (18_000..=30_000).contains(&first.leaves.len()),
+                "seed {seed} generated {} near leaves",
+                first.leaves.len()
+            );
+            assert!(
+                (300..=512).contains(&first.foliage_pads.len()),
+                "seed {seed} generated {} middle foliage pads",
+                first.foliage_pads.len()
+            );
             assert_mesh(&first.wood);
             assert_mesh(&first.wood_scars);
             assert_mesh(&first.microtwigs);
@@ -4157,6 +4167,7 @@ mod tests {
             assert!((0.0..=1.0).contains(&pad.light_exposure));
         }
         for archetype in &prototype.foliage_pad_archetypes {
+            assert!(archetype.vertices.len() >= 700);
             assert!(archetype.vertices.len() <= 1_000);
             assert!(archetype.triangles.len() <= 4_000);
         }

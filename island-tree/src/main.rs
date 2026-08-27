@@ -160,8 +160,10 @@ impl ReviewView {
     }
 
     fn frame(self, prototype: &BotanicalPrototype) -> ReviewFrame {
-        if prototype.species == BotanicalSpecies::Nikau {
-            return nikau_review_frame(self, prototype);
+        match prototype.species {
+            BotanicalSpecies::Nikau => return nikau_review_frame(self, prototype),
+            BotanicalSpecies::Harakeke => return harakeke_review_frame(self, prototype),
+            BotanicalSpecies::Pohutukawa => {}
         }
         if self == Self::Scar {
             return scar_review_frame(&prototype.wood_scars);
@@ -222,6 +224,37 @@ fn nikau_review_frame(view: ReviewView, prototype: &BotanicalPrototype) -> Revie
         ReviewView::Frond | ReviewView::Junction => {
             unreachable!("specialist nīkau view returns above")
         }
+    };
+    ReviewFrame::new(eye, target, Vec3::Y)
+}
+
+fn harakeke_review_frame(view: ReviewView, prototype: &BotanicalPrototype) -> ReviewFrame {
+    let height = prototype
+        .leaves
+        .iter()
+        .map(|leaf| leaf.length_metres)
+        .fold(1.5_f32, f32::max);
+    let (eye, target) = match view {
+        ReviewView::Whole => (
+            Vec3::new(height * 2.35, height * 0.68, height * 2.55),
+            Vec3::new(0.0, height * 0.43, 0.0),
+        ),
+        ReviewView::WholeQuarter => (
+            Vec3::new(-height * 2.50, height * 0.72, height * 2.25),
+            Vec3::new(0.0, height * 0.43, 0.0),
+        ),
+        ReviewView::Crown | ReviewView::Scar | ReviewView::Epicormic => (
+            Vec3::new(height * 1.70, height * 1.05, height * 1.82),
+            Vec3::new(0.0, height * 0.62, 0.0),
+        ),
+        ReviewView::Detail | ReviewView::Leaf | ReviewView::Tip | ReviewView::Frond => (
+            Vec3::new(height * 1.25, height * 0.72, height * 1.18),
+            Vec3::new(0.0, height * 0.58, 0.0),
+        ),
+        ReviewView::Root | ReviewView::Junction => (
+            Vec3::new(height * 1.12, height * 0.32, height * 1.20),
+            Vec3::new(0.0, height * 0.16, 0.0),
+        ),
     };
     ReviewFrame::new(eye, target, Vec3::Y)
 }
@@ -1858,9 +1891,10 @@ fn parse(arguments: impl Iterator<Item = String>) -> Result<Option<Settings>, St
                 species = match value(&mut arguments)?.as_str() {
                     "pohutukawa" => BotanicalSpecies::Pohutukawa,
                     "nikau" => BotanicalSpecies::Nikau,
+                    "harakeke" => BotanicalSpecies::Harakeke,
                     other => {
                         return Err(format!(
-                            "unknown species {other:?}; expected pohutukawa or nikau"
+                            "unknown species {other:?}; expected pohutukawa, nikau, or harakeke"
                         ));
                     }
                 };
@@ -1921,7 +1955,7 @@ fn print_help() {
         "tree-lab [OPTIONS]\n\n\
          With no screenshot path, opens the interactive Tree Studio.\n\n\
          --seed <N>             deterministic prototype seed [42]\n\
-         --species <NAME>       pohutukawa or nikau [pohutukawa]\n\
+         --species <NAME>       pohutukawa, nikau, or harakeke [pohutukawa]\n\
          --lod <near|middle|far>\n\
                                 tree representation [near]\n\
          --view <NAME>          whole, whole-quarter, crown, detail, leaf, tip, root, scar, epicormic, junction, or frond [whole]\n\
@@ -2002,6 +2036,18 @@ mod tests {
         assert_eq!(
             settings.recipe,
             BotanicalRecipe::for_species(BotanicalSpecies::Nikau)
+        );
+    }
+
+    #[test]
+    fn parses_harakeke_species_recipe() {
+        let settings = parse(strings(&["--species", "harakeke"]))
+            .expect("valid command")
+            .expect("settings");
+        assert_eq!(settings.recipe.species, BotanicalSpecies::Harakeke);
+        assert_eq!(
+            settings.recipe,
+            BotanicalRecipe::for_species(BotanicalSpecies::Harakeke)
         );
     }
 

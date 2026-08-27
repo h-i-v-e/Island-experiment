@@ -657,7 +657,6 @@ fn draw_form(ui: &mut egui::Ui, studio: &mut StudioState) {
             for species in BotanicalSpecies::ALL {
                 ui.selectable_value(&mut studio.recipe.species, species, species.label());
             }
-            ui.add_enabled(false, egui::Label::new("Bush recipes · planned"));
         });
     if studio.recipe.species != previous_species {
         studio.recipe = BotanicalRecipe::for_species(studio.recipe.species);
@@ -692,12 +691,16 @@ fn draw_form(ui: &mut egui::Ui, studio: &mut StudioState) {
     let (height_range, radius_range) = match studio.recipe.species {
         BotanicalSpecies::Pohutukawa => (5.0..=14.0, 0.25..=1.35),
         BotanicalSpecies::Nikau => (4.5..=10.0, 0.14..=0.34),
+        BotanicalSpecies::Harakeke => (1.2..=3.0, 0.20..=0.55),
     };
     slider_f32(
         ui,
         &mut studio.recipe.trunk_height_metres,
         height_range,
-        "Trunk height",
+        match studio.recipe.species {
+            BotanicalSpecies::Harakeke => "Plant height",
+            BotanicalSpecies::Pohutukawa | BotanicalSpecies::Nikau => "Trunk height",
+        },
         " m",
     );
     let radius_max = (studio.recipe.trunk_height_metres * 0.19).min(*radius_range.end());
@@ -706,7 +709,10 @@ fn draw_form(ui: &mut egui::Ui, studio: &mut StudioState) {
         ui,
         &mut studio.recipe.trunk_radius_metres,
         *radius_range.start()..=radius_max,
-        "Trunk radius",
+        match studio.recipe.species {
+            BotanicalSpecies::Harakeke => "Clump radius",
+            BotanicalSpecies::Pohutukawa | BotanicalSpecies::Nikau => "Trunk radius",
+        },
         " m",
     );
 
@@ -757,16 +763,28 @@ fn draw_branching(ui: &mut egui::Ui, studio: &mut StudioState) {
                 .color(DIM_TEXT),
             );
         }
+        BotanicalSpecies::Harakeke => {
+            section(ui, "CLUMP STRUCTURE");
+            ui.add(egui::Slider::new(&mut studio.recipe.primary_count, 4..=16).text("Leaf fans"));
+            ui.label(
+                egui::RichText::new(
+                    "Each fan grows from a basal rhizome; overlapping fan planes build the mature clump rather than a radial grass tuft.",
+                )
+                .small()
+                .color(DIM_TEXT),
+            );
+        }
     }
 }
 
 fn draw_foliage(ui: &mut egui::Ui, studio: &mut StudioState, settings: &mut Settings) {
     section(ui, "LEAF LOAD");
-    let leaf_label = match studio.recipe.species {
-        BotanicalSpecies::Pohutukawa => "Leaves per terminal",
-        BotanicalSpecies::Nikau => "Leaflet pairs per frond",
+    let (leaf_range, leaf_label) = match studio.recipe.species {
+        BotanicalSpecies::Pohutukawa => (8..=64, "Leaves per terminal"),
+        BotanicalSpecies::Nikau => (8..=64, "Leaflet pairs per frond"),
+        BotanicalSpecies::Harakeke => (9..=18, "Leaves per fan"),
     };
-    ui.add(egui::Slider::new(&mut studio.recipe.leaves_per_terminal, 8..=64).text(leaf_label));
+    ui.add(egui::Slider::new(&mut studio.recipe.leaves_per_terminal, leaf_range).text(leaf_label));
     ui.checkbox(&mut studio.foliage, "Show foliage");
     ui.add_enabled_ui(studio.lod == ReviewLod::Near, |ui| {
         ui.checkbox(&mut studio.fine_shoots, "Fine shoots and buds");

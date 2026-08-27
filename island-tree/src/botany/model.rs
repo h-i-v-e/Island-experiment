@@ -21,16 +21,18 @@ pub enum BotanicalSpecies {
     #[default]
     Pohutukawa,
     Nikau,
+    Harakeke,
 }
 
 impl BotanicalSpecies {
-    pub const ALL: [Self; 2] = [Self::Pohutukawa, Self::Nikau];
+    pub const ALL: [Self; 3] = [Self::Pohutukawa, Self::Nikau, Self::Harakeke];
 
     #[must_use]
     pub const fn label(self) -> &'static str {
         match self {
             Self::Pohutukawa => "Pōhutukawa · mature tree",
             Self::Nikau => "Nīkau · mature palm",
+            Self::Harakeke => "Harakeke · mature flax clump",
         }
     }
 
@@ -39,6 +41,7 @@ impl BotanicalSpecies {
         match self {
             Self::Pohutukawa => "Metrosideros excelsa",
             Self::Nikau => "Rhopalostylis sapida",
+            Self::Harakeke => "Phormium tenax",
         }
     }
 }
@@ -86,6 +89,16 @@ impl BotanicalRecipe {
                 terminals_per_secondary: 3,
                 leaves_per_terminal: 48,
             },
+            BotanicalSpecies::Harakeke => Self {
+                version: RECIPE_VERSION,
+                species,
+                trunk_height_metres: 2.35,
+                trunk_radius_metres: 0.34,
+                primary_count: 8,
+                secondaries_per_primary: 3,
+                terminals_per_secondary: 3,
+                leaves_per_terminal: 9,
+            },
         }
     }
 
@@ -107,11 +120,18 @@ impl BotanicalRecipe {
         let primary_is_bounded = match self.species {
             BotanicalSpecies::Pohutukawa => (5..=10).contains(&self.primary_count),
             BotanicalSpecies::Nikau => (12..=24).contains(&self.primary_count),
+            BotanicalSpecies::Harakeke => (4..=16).contains(&self.primary_count),
+        };
+        let leaves_are_bounded = match self.species {
+            BotanicalSpecies::Harakeke => (9..=18).contains(&self.leaves_per_terminal),
+            BotanicalSpecies::Pohutukawa | BotanicalSpecies::Nikau => {
+                (8..=64).contains(&self.leaves_per_terminal)
+            }
         };
         if !primary_is_bounded
             || !(3..=8).contains(&self.secondaries_per_primary)
             || !(3..=8).contains(&self.terminals_per_secondary)
-            || !(8..=64).contains(&self.leaves_per_terminal)
+            || !leaves_are_bounded
         {
             return Err("botanical axis or leaf counts are outside their bounds".into());
         }

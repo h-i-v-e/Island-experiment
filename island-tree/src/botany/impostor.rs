@@ -16,6 +16,7 @@ use super::model::{BotanicalPrototype, BotanicalTexture};
 const TILE_SIZE: u32 = 256;
 const ATLAS_WIDTH: u32 = TILE_SIZE * 2;
 const PADDING_PIXELS: f32 = 12.0;
+const LEAF_SPINE_POINTS: usize = 7;
 
 /// A two-view transparent atlas and the physical bounds its cards occupy.
 #[derive(Clone, Debug, PartialEq)]
@@ -70,10 +71,10 @@ impl Bounds {
             .iter()
             .flat_map(|axis| axis.points_metres)
             .chain(prototype.leaves.iter().flat_map(|leaf| {
-                [
-                    leaf.blade_base_metres,
-                    leaf.blade_base_metres + leaf.direction * leaf.length_metres,
-                ]
+                prototype.leaf_archetypes[usize::from(leaf.archetype)]
+                    .vertices
+                    .iter()
+                    .map(|vertex| leaf_vertex(*leaf, *vertex))
             }))
             .for_each(|point| bounds.include(point));
         if !bounds.front_min.is_finite() {
@@ -164,6 +165,7 @@ pub fn generate_botanical_impostor(prototype: &BotanicalPrototype) -> BotanicalI
     for view in [View::Front, View::Side] {
         rasterize_view(&mut rgba, prototype, Projection::new(view, bounds, scale));
     }
+    dilate_transparent_rgb(&mut rgba, 3);
     let card_span = TILE_SIZE as f32 / scale;
     let vertical_centre = f32::midpoint(bounds.bottom, bounds.top);
     BotanicalImpostor {
@@ -201,18 +203,117 @@ fn rasterize_view(rgba: &mut [u8], prototype: &BotanicalPrototype, projection: P
             );
         }
     }
+    let leaf_spines = prototype.leaf_archetypes.each_ref().map(leaf_spine);
     for leaf in &prototype.leaves {
-        let tip = leaf.blade_base_metres + leaf.direction * leaf.length_metres;
         let green = (82.0 + leaf.light_exposure * 42.0 - leaf.age * 13.0).clamp(55.0, 132.0);
-        let colour = [(green * 0.48) as u8, green as u8, (green * 0.38) as u8, 190];
-        draw_capsule(
-            rgba,
-            projection,
-            projection.point(leaf.blade_base_metres),
-            projection.point(tip),
-            (leaf.width_metres * projection.scale * 0.55).max(0.72),
-            colour,
-        );
+        let colour = [(green * 0.48) as u8, green as u8, (green * 0.38) as u8, 198];
+        let spine = leaf_spines[usize::from(leaf.archetype)];
+        for (segment, points) in spine.windows(2).enumerate() {
+            let fraction = (segment as f32 + 0.5) / (LEAF_SPINE_POINTS - 1) as f32;
+            let taper = (fraction * std::f32::consts::PI)
+                .sin()
+                .max(0.0)
+                .powf(0.34)
+                .max(0.24);
+            draw_capsule(
+                rgba,
+                projection,
+                projection.point(leaf_vertex(*leaf, points[0])),
+                projection.point(leaf_vertex(*leaf, points[1])),
+                (leaf.width_metres * projection.scale * 0.52 * taper).max(0.62),
+                colour,
+            );
+        }
+    }
+}
+
+fn leaf_spine(archetype: &motu::Mesh) -> [Vec3; LEAF_SPINE_POINTS] {
+    std::array::from_fn(|sample| {
+        let target = sample as f32 / (LEAF_SPINE_POINTS - 1) as f32;
+        let nearest = archetype
+            .vertices
+            .iter()
+            .map(|vertex| (vertex.x - target).abs())
+            .fold(f32::INFINITY, f32::min);
+        let (sum, count) =
+            archetype
+                .vertices
+                .iter()
+                .fold((Vec3::ZERO, 0_u32), |(sum, count), vertex| {
+                    if ((vertex.x - target).abs() - nearest).abs() < 0.000_1 {
+                        (sum + *vertex, count + 1)
+                    } else {
+                        (sum, count)
+                    }
+                });
+        if count == 0 {
+            Vec3::new(target, 0.0, 0.0)
+        } else {
+            sum / count as f32
+        }
+    })
+}
+
+fn leaf_vertex(leaf: super::model::LeafOrgan, vertex: Vec3) -> Vec3 {
+    let direction = leaf.direction.normalize_or(Vec3::X);
+    let normal = leaf.normal.normalize_or(Vec3::Z);
+    let transverse = direction.cross(normal).normalize_or(Vec3::Y);
+    leaf.blade_base_metres
+        + direction * vertex.x * leaf.length_metres
+        + normal * vertex.z * leaf.length_metres
+        + transverse * vertex.y * leaf.width_metres
+}
+
+fn dilate_transparent_rgb(rgba: &mut [u8], iterations: usize) {
+    let mut source = rgba.to_vec();
+    for _ in 0..iterations {
+        source.copy_from_slice(rgba);
+        for y in 0..TILE_SIZE {
+            for x in 0..ATLAS_WIDTH {
+                let index = ((y * ATLAS_WIDTH + x) * 4) as usize;
+                if source[index + 3] != 0 {
+                    continue;
+                }
+                let tile_min = x / TILE_SIZE * TILE_SIZE;
+                let tile_max = tile_min + TILE_SIZE - 1;
+                let mut sum = [0_u32; 3];
+                let mut count = 0_u32;
+                for offset_y in -1_i32..=1 {
+                    for offset_x in -1_i32..=1 {
+                        if offset_x == 0 && offset_y == 0 {
+                            continue;
+                        }
+                        let neighbour_x = x.cast_signed() + offset_x;
+                        let neighbour_y = y.cast_signed() + offset_y;
+                        if neighbour_x < tile_min.cast_signed()
+                            || neighbour_x > tile_max.cast_signed()
+                            || !(0..TILE_SIZE.cast_signed()).contains(&neighbour_y)
+                        {
+                            continue;
+                        }
+                        let neighbour = ((neighbour_y.cast_unsigned() * ATLAS_WIDTH
+                            + neighbour_x.cast_unsigned())
+                            * 4) as usize;
+                        if source[neighbour + 3] == 0
+                            && source[neighbour..neighbour + 3]
+                                .iter()
+                                .all(|channel| *channel == 0)
+                        {
+                            continue;
+                        }
+                        for channel in 0..3 {
+                            sum[channel] += u32::from(source[neighbour + channel]);
+                        }
+                        count += 1;
+                    }
+                }
+                for channel in 0..3 {
+                    if let Some(average) = sum[channel].checked_div(count) {
+                        rgba[index + channel] = average as u8;
+                    }
+                }
+            }
+        }
     }
 }
 

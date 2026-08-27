@@ -1,6 +1,7 @@
 //! Renderer-neutral procedural tree generation and botanical data.
 
 pub(crate) mod generator;
+mod harakeke;
 pub(crate) mod impostor;
 pub(crate) mod model;
 mod nikau;
