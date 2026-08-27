@@ -320,20 +320,30 @@ impl StudioState {
         }))
     }
 
-    fn next_request(&mut self, live: &Settings) -> Option<RegenerateTree> {
-        if !self.is_dirty(live) {
-            return None;
-        }
-        let fingerprint = DraftFingerprint {
+    fn fingerprint(&self) -> Option<DraftFingerprint> {
+        Some(DraftFingerprint {
             seed: self.seed?,
             recipe: self.recipe,
             lod: self.lod,
             foliage: self.foliage,
             fine_shoots: self.fine_shoots,
-        };
+        })
+    }
+
+    fn next_request(&mut self, live: &Settings) -> Option<RegenerateTree> {
+        if !self.is_dirty(live) {
+            return None;
+        }
+        let fingerprint = self.fingerprint()?;
         if self.last_requested == Some(fingerprint) {
             return None;
         }
+        self.last_requested = Some(fingerprint);
+        self.request(live)
+    }
+
+    fn request_now(&mut self, live: &Settings) -> Option<RegenerateTree> {
+        let fingerprint = self.fingerprint()?;
         self.last_requested = Some(fingerprint);
         self.request(live)
     }
@@ -356,12 +366,12 @@ impl StudioState {
 }
 
 fn request_tree_rebuild(
-    studio: &StudioState,
+    studio: &mut StudioState,
     settings: &Settings,
     status: &mut TreeBuildStatus,
     requests: &mut MessageWriter<RegenerateTree>,
 ) {
-    if let Some(request) = studio.request(settings) {
+    if let Some(request) = studio.request_now(settings) {
         status.error = None;
         status.generating = true;
         status.notice_seconds = 0.0;
@@ -1394,6 +1404,28 @@ mod tests {
         assert!(studio.next_request(&settings).is_none());
         studio.recipe.primary_count = 7;
         assert!(studio.next_request(&settings).is_some());
+    }
+
+    #[test]
+    fn immediate_rebuild_does_not_queue_the_same_draft_twice() {
+        let settings = Settings {
+            seed: 42,
+            recipe: BotanicalRecipe::default(),
+            lod: ReviewLod::Near,
+            view: ReviewView::Whole,
+            light: ReviewLight::Front,
+            foliage: true,
+            fine_shoots: true,
+            wind_phase: 0.0,
+            wind_strength: 0.0,
+            screenshot: None,
+            capture_ui: false,
+        };
+        let mut studio = StudioState::new(&settings);
+        studio.recipe.primary_count = 8;
+
+        assert!(studio.request_now(&settings).is_some());
+        assert!(studio.next_request(&settings).is_none());
     }
 
     #[test]

@@ -47,8 +47,9 @@ use bevy::{
 };
 use island_tree::{
     Axis, AxisGraph, BarkMaterial, BarkMaterialPlugin, BarkVertex, BotanicalPrototype,
-    BotanicalRecipe, BotanicalSpecies, BotanicalTexture, FoliagePad, LEAF_ARCHETYPE_COUNT,
-    LeafMaterial, LeafMaterialPlugin, LeafOrgan, ReproductiveOrgan, ReproductiveState,
+    BotanicalRecipe, BotanicalSpecies, BotanicalTexture, FOLIAGE_PAD_ARCHETYPE_COUNT, FoliagePad,
+    LEAF_ARCHETYPE_COUNT, LeafMaterial, LeafMaterialPlugin, LeafOrgan,
+    REPRODUCTIVE_ARCHETYPE_COUNT, ReproductiveOrgan, ReproductiveState, SHOOT_TIP_ARCHETYPE_COUNT,
     ShootTipOrgan, ShootTipState, compile_botanical_impostor, generate_botanical_prototype,
     generate_nikau_frond_prototype,
 };
@@ -1136,7 +1137,7 @@ fn build_shoot_tip_materials(
 
 fn build_reproductive_materials(
     materials: &mut Assets<StandardMaterial>,
-) -> [Handle<StandardMaterial>; 2] {
+) -> [Handle<StandardMaterial>; REPRODUCTIVE_ARCHETYPE_COUNT] {
     [
         Color::srgb(0.68, 0.30, 0.46),
         Color::srgb(0.66, 0.075, 0.035),
@@ -1154,8 +1155,8 @@ fn build_reproductive_materials(
 fn spawn_reproductive_organs(
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,
-    materials: &[Handle<StandardMaterial>; 2],
-    archetypes: [MotuMesh; 2],
+    materials: &[Handle<StandardMaterial>; REPRODUCTIVE_ARCHETYPE_COUNT],
+    archetypes: [MotuMesh; REPRODUCTIVE_ARCHETYPE_COUNT],
     organs: Vec<ReproductiveOrgan>,
     skeleton: &WindSkeleton,
 ) {
@@ -1182,7 +1183,7 @@ fn spawn_shoot_tips(
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,
     materials: &[Handle<StandardMaterial>; 3],
-    archetypes: [MotuMesh; 2],
+    archetypes: [MotuMesh; SHOOT_TIP_ARCHETYPE_COUNT],
     tips: Vec<ShootTipOrgan>,
     skeleton: &WindSkeleton,
 ) {
@@ -1356,12 +1357,12 @@ fn spawn_pads(
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,
     materials: &[[Handle<LeafMaterial>; LEAF_PIGMENT_MATERIAL_COUNT]; LEAF_EXPOSURE_MATERIAL_COUNT],
-    archetypes: [MotuMesh; 2],
+    archetypes: [MotuMesh; FOLIAGE_PAD_ARCHETYPE_COUNT],
     pads: Vec<FoliagePad>,
     skeleton: &WindSkeleton,
 ) {
     let tints = [[0.92, 1.0, 0.87, 1.0], [0.82, 0.94, 0.77, 1.0]];
-    let handles: [_; 2] = std::array::from_fn(|index| {
+    let handles: [_; FOLIAGE_PAD_ARCHETYPE_COUNT] = std::array::from_fn(|index| {
         meshes.add(bevy_mesh(&archetypes[index], Some(tints[index]), None))
     });
     for pad in pads {

@@ -1,4 +1,4 @@
-//! Deterministic pōhutukawa generation and Bevy rendering.
+//! Deterministic generation and Bevy rendering for New Zealand native vegetation.
 //!
 //! The library owns the recipe, organ graph, generated meshes and textures,
 //! and static Bevy compilation. The sibling `tree-lab` binary is only a visual

@@ -24,11 +24,12 @@ use crate::botany::{
     generate_botanical_prototype,
     impostor::{BotanicalImpostor, generate_botanical_impostor},
     model::{
-        BarkVertex, BotanicalPrototype, BotanicalRecipe, BotanicalTexture, FoliagePad, LeafOrgan,
+        BarkVertex, BotanicalPrototype, BotanicalRecipe, BotanicalTexture,
+        FOLIAGE_PAD_ARCHETYPE_COUNT, FoliagePad, LEAF_ARCHETYPE_COUNT, LeafOrgan,
     },
 };
 
-const LEAF_ARCHETYPE_TINTS: [[f32; 3]; 8] = [
+const LEAF_ARCHETYPE_TINTS: [[f32; 3]; LEAF_ARCHETYPE_COUNT] = [
     [1.00, 1.00, 1.00],
     [0.96, 1.00, 0.94],
     [1.00, 0.97, 0.88],
@@ -357,7 +358,10 @@ fn merge_wood(
     Ok(())
 }
 
-fn compiled_leaf_mesh(archetypes: &[MotuMesh; 8], leaves: &[LeafOrgan]) -> Result<Mesh, String> {
+fn compiled_leaf_mesh(
+    archetypes: &[MotuMesh; LEAF_ARCHETYPE_COUNT],
+    leaves: &[LeafOrgan],
+) -> Result<Mesh, String> {
     let vertices = leaves.iter().try_fold(0_usize, |count, leaf| {
         count
             .checked_add(archetypes[usize::from(leaf.archetype)].vertices.len())
@@ -420,7 +424,10 @@ fn compiled_leaf_mesh(archetypes: &[MotuMesh; 8], leaves: &[LeafOrgan]) -> Resul
     Ok(mesh)
 }
 
-fn compiled_pad_mesh(archetypes: &[MotuMesh; 2], pads: &[FoliagePad]) -> Result<Mesh, String> {
+fn compiled_pad_mesh(
+    archetypes: &[MotuMesh; FOLIAGE_PAD_ARCHETYPE_COUNT],
+    pads: &[FoliagePad],
+) -> Result<Mesh, String> {
     let vertices = pads.iter().try_fold(0_usize, |count, pad| {
         count
             .checked_add(archetypes[usize::from(pad.archetype)].vertices.len())
