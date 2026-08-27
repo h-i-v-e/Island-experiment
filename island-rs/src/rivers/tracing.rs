@@ -1,8 +1,33 @@
 use super::{
     Adjacency, BinaryHeap, HashMap, HashSet, ISLAND_WORLD_METRES, MAX_RIVER_RINGS, Mesh, Ordering,
     RIVER_SOURCE_EXCLUSION_CELL_METRES, River, RiverNode, RiverSourceRule, Vec2, Vec3,
-    projected_vertex_control_areas, river_half_width, river_ring_count,
+    average_edge_length, noise, projected_vertex_control_areas, river_half_width, river_ring_count,
 };
+
+const RIVER_MEANDER_NOISE_SEED: u64 = 0x6d65_616e_6465_7273;
+const RIVER_MEANDER_NOISE_OCTAVES: u8 = 2;
+const RIVER_MEANDER_WAVELENGTH_EDGE_MULTIPLIER: f32 = 10.0;
+const RIVER_MEANDER_HEIGHT_EDGE_MULTIPLIER: f32 = 0.025;
+
+#[derive(Clone, Copy, Debug)]
+pub(super) struct RiverMeanderScale {
+    pub(super) wavelength: f32,
+    pub(super) height: f32,
+}
+
+impl RiverMeanderScale {
+    pub(super) fn from_average_edge_length(edge_length: f32) -> Self {
+        let edge_length = edge_length.max(f32::EPSILON);
+        Self {
+            wavelength: edge_length * RIVER_MEANDER_WAVELENGTH_EDGE_MULTIPLIER,
+            height: edge_length * RIVER_MEANDER_HEIGHT_EDGE_MULTIPLIER,
+        }
+    }
+
+    fn from_mesh(mesh: &Mesh, adjacency: &Adjacency) -> Self {
+        Self::from_average_edge_length(average_edge_length(mesh, adjacency))
+    }
+}
 
 pub(crate) fn fix_inland_seas(mesh: &mut Mesh, adjacency: &Adjacency) -> Vec<bool> {
     let mut ocean = vec![false; mesh.vertices.len()];
@@ -61,6 +86,36 @@ pub(super) fn downhill_slope(mesh: &Mesh, from: usize, to: usize) -> f32 {
         .length()
         .max(f32::EPSILON);
     (mesh.vertices[from].z - mesh.vertices[to].z) / distance
+}
+
+pub(super) fn river_effective_height(
+    mesh: &Mesh,
+    vertex: usize,
+    seed: u64,
+    meander_scale: RiverMeanderScale,
+) -> f32 {
+    let position = mesh.vertices[vertex].truncate() / meander_scale.wavelength;
+    let meander = noise::fractal(
+        seed ^ RIVER_MEANDER_NOISE_SEED,
+        position.x,
+        position.y,
+        RIVER_MEANDER_NOISE_OCTAVES,
+    );
+    meander.mul_add(meander_scale.height, mesh.vertices[vertex].z)
+}
+
+pub(super) fn river_route_score(
+    mesh: &Mesh,
+    from: usize,
+    to: usize,
+    seed: u64,
+    meander_scale: RiverMeanderScale,
+    from_effective_height: f32,
+) -> f32 {
+    let distance = (mesh.vertices[from].truncate() - mesh.vertices[to].truncate())
+        .length()
+        .max(f32::EPSILON);
+    (from_effective_height - river_effective_height(mesh, to, seed, meander_scale)) / distance
 }
 
 pub(super) fn calculate_flow_and_catchment(
@@ -379,6 +434,8 @@ pub(super) struct RiverPathTracer<'a> {
     pub(super) occupied: &'a HashMap<usize, usize>,
     pub(super) footprints: &'a mut RiverFootprintIndex,
     pub(super) max_flow: u32,
+    pub(super) seed: u64,
+    pub(super) meander_scale: RiverMeanderScale,
 }
 
 /// Detects when a growing centreline returns within its own future channel
@@ -467,7 +524,9 @@ impl RiverPathTracer<'_> {
                     break;
                 }
             }
-            let mut next = None;
+            let current_effective_height =
+                river_effective_height(self.mesh, current, self.seed, self.meander_scale);
+            let mut next = None::<(usize, f32)>;
             for &candidate in &self.adjacency[current] {
                 if seen.contains(&candidate)
                     || self.mesh.vertices[candidate].z >= self.mesh.vertices[current].z
@@ -487,15 +546,19 @@ impl RiverPathTracer<'_> {
                 ) {
                     continue;
                 }
-                let replace = next.is_none_or(|current_best| {
-                    downhill_slope(self.mesh, current, candidate)
-                        > downhill_slope(self.mesh, current, current_best)
-                });
-                if replace {
-                    next = Some(candidate);
+                let score = river_route_score(
+                    self.mesh,
+                    current,
+                    candidate,
+                    self.seed,
+                    self.meander_scale,
+                    current_effective_height,
+                );
+                if next.is_none_or(|(_, current_best)| score > current_best) {
+                    next = Some((candidate, score));
                 }
             }
-            if let Some(next) = next {
+            if let Some((next, _)) = next {
                 path.push(next);
                 seen.insert(next);
                 self_contact.register(next, path.len() - 1);
@@ -543,11 +606,13 @@ pub(super) fn trace_rivers(
     flow: &[u32],
     sources: &[usize],
     ocean: &[bool],
+    seed: u64,
 ) -> (Vec<River>, Vec<Option<usize>>) {
     let mut rivers = Vec::<River>::new();
     let mut join_vertices = Vec::<Option<usize>>::new();
     let mut occupied = HashMap::<usize, usize>::new();
     let max_flow = flow.iter().copied().max().unwrap_or(1);
+    let meander_scale = RiverMeanderScale::from_mesh(mesh, adjacency);
     let mut footprints = RiverFootprintIndex::new(mesh.vertices.len());
     let mut source_exclusion = RiverSourceExclusionGrid::new(&mesh.vertices);
     for &source in sources {
@@ -582,6 +647,8 @@ pub(super) fn trace_rivers(
             occupied: &occupied,
             footprints: &mut footprints,
             max_flow,
+            seed,
+            meander_scale,
         }
         .trace(source);
         let reaches_outlet = join.is_some() || path.last().is_some_and(|&terminal| ocean[terminal]);

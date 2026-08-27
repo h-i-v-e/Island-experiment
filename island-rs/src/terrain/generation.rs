@@ -226,6 +226,7 @@ pub(super) fn generate_final_rivers(
             &detail_adjacency,
             source_rule,
             ocean.clone(),
+            seed,
         );
         network.shape_with_settings_and_waterfall_rejections(
             &mut attempt_lod0,
@@ -319,16 +320,10 @@ impl Island {
         let forest_options = forest_options.validate()?;
         let mut scratch = GenerationScratch::new(method);
         let (base, material) = generate_base(seed, options, &mut scratch)?;
-        let context = GenerationContext::new(options);
+        let context = GenerationContext::new(seed, options);
         let (mut lod2, material) = generate_lod2(&base, material, context, &mut scratch)?;
         let (lod1, material) = generate_first_lod1(&lod2, material, context, &mut scratch)?;
-        let (mut lod1, material) = refine_lod1_again(
-            &lod1,
-            material,
-            options,
-            context.river_source_rule,
-            &mut scratch,
-        )?;
+        let (mut lod1, material) = refine_lod1_again(&lod1, material, context, &mut scratch)?;
         let (lod0, material) = generate_broad_lod0(&lod1, material, context, &mut scratch)?;
         let (lod0, material) = generate_detail_lod0(&lod0, material, context, &mut scratch)?;
         let FinalRiverGeneration {
@@ -785,6 +780,7 @@ pub(super) fn sharp_rock_mask(mesh: &Mesh) -> Vec<bool> {
 
 #[derive(Clone, Copy)]
 pub(super) struct GenerationContext {
+    pub(super) seed: u64,
     pub(super) options: IslandOptions,
     pub(super) river_source_rule: RiverSourceRule,
 }
@@ -808,8 +804,9 @@ impl GenerationScratch {
 }
 
 impl GenerationContext {
-    pub(super) fn new(options: IslandOptions) -> Self {
+    pub(super) fn new(seed: u64, options: IslandOptions) -> Self {
         Self {
+            seed,
             options,
             river_source_rule: options.river_source_rule(),
         }
@@ -854,7 +851,12 @@ pub(super) fn generate_lod2(
         scratch,
     )?;
     erode_mesh(&mut mesh, &adjacency, &mut material, context.options, 4);
-    let mut rivers = RiverNetwork::generate(&mut mesh, &adjacency, context.river_source_rule);
+    let mut rivers = RiverNetwork::generate(
+        &mut mesh,
+        &adjacency,
+        context.river_source_rule,
+        context.seed,
+    );
     rivers.shape_with_settings(
         &mut mesh,
         &adjacency,
@@ -887,7 +889,12 @@ pub(super) fn generate_first_lod1(
         scratch,
     )?;
     erode_mesh(&mut mesh, &adjacency, &mut material, context.options, 4);
-    let mut rivers = RiverNetwork::generate(&mut mesh, &adjacency, context.river_source_rule);
+    let mut rivers = RiverNetwork::generate(
+        &mut mesh,
+        &adjacency,
+        context.river_source_rule,
+        context.seed,
+    );
     rivers.shape_with_settings(
         &mut mesh,
         &adjacency,
@@ -936,7 +943,12 @@ pub(super) fn generate_broad_lod0(
         scratch,
     )?;
     erode_mesh(&mut mesh, &adjacency, &mut material, context.options, 2);
-    let mut rivers = RiverNetwork::generate(&mut mesh, &adjacency, context.river_source_rule);
+    let mut rivers = RiverNetwork::generate(
+        &mut mesh,
+        &adjacency,
+        context.river_source_rule,
+        context.seed,
+    );
     rivers.shape_with_settings(
         &mut mesh,
         &adjacency,
@@ -977,8 +989,7 @@ pub(super) fn generate_detail_lod0(
 pub(super) fn refine_lod1_again(
     lod1: &Mesh,
     material: SurfaceMaterial,
-    options: IslandOptions,
-    river_source_rule: RiverSourceRule,
+    context: GenerationContext,
     scratch: &mut GenerationScratch,
 ) -> Result<(Mesh, SurfaceMaterial), String> {
     let _timer = StageTimer::new("generation.lod1.refine");
@@ -991,18 +1002,23 @@ pub(super) fn refine_lod1_again(
         &adjacency,
         &mut material,
         0.7,
-        options,
+        context.options,
         scratch,
     )?;
-    erode_mesh(&mut refined, &adjacency, &mut material, options, 3);
-    let mut rivers = RiverNetwork::generate(&mut refined, &adjacency, river_source_rule);
+    erode_mesh(&mut refined, &adjacency, &mut material, context.options, 3);
+    let mut rivers = RiverNetwork::generate(
+        &mut refined,
+        &adjacency,
+        context.river_source_rule,
+        context.seed,
+    );
     rivers.shape_with_settings(
         &mut refined,
         &adjacency,
         &mut material,
         false,
         true,
-        options.river_channel_settings(),
+        context.options.river_channel_settings(),
     );
     refined.calculate_normals();
     Ok((refined, material))

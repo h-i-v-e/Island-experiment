@@ -292,9 +292,10 @@ impl RiverNetwork {
         mesh: &mut Mesh,
         adjacency: &Adjacency,
         source_rule: RiverSourceRule,
+        seed: u64,
     ) -> Self {
         let ocean = fix_inland_seas(mesh, adjacency);
-        Self::generate_with_ocean(mesh, adjacency, source_rule, ocean)
+        Self::generate_with_ocean(mesh, adjacency, source_rule, ocean, seed)
     }
 
     pub(crate) fn generate_with_ocean(
@@ -302,13 +303,15 @@ impl RiverNetwork {
         adjacency: &Adjacency,
         source_rule: RiverSourceRule,
         ocean: Vec<bool>,
+        seed: u64,
     ) -> Self {
         debug_assert_eq!(ocean.len(), mesh.vertices.len());
         let perimeter = mesh.perimeter_mask();
         let downstream = map_downstream(mesh, adjacency);
         let (flow, catchment_areas) = calculate_flow_and_catchment(mesh, &downstream);
         let sources = find_sources(mesh, adjacency, &downstream, &catchment_areas, source_rule);
-        let (mut rivers, join_vertices) = trace_rivers(mesh, adjacency, &flow, &sources, &ocean);
+        let (mut rivers, join_vertices) =
+            trace_rivers(mesh, adjacency, &flow, &sources, &ocean, seed);
         update_join_flows(&mut rivers, &join_vertices);
         let max_flow = rivers
             .iter()

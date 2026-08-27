@@ -724,6 +724,47 @@ fn source_grade_uses_the_routed_edge_and_handles_sinks() {
 }
 
 #[test]
+fn effective_height_noise_can_select_a_gentler_edge_on_flat_but_not_steep_terrain() {
+    let mut mesh = Mesh {
+        vertices: vec![
+            Vec3::new(0.0, 0.0, 0.1),
+            Vec3::new(0.01, 0.0, 0.099_99),
+            Vec3::new(0.0, 0.01, 0.099_985),
+        ],
+        ..Mesh::default()
+    };
+    let meander_scale = RiverMeanderScale::from_average_edge_length(0.01);
+    let seed = (0..1_024)
+        .find(|&seed| {
+            let current_height = river_effective_height(&mesh, 0, seed, meander_scale);
+            river_route_score(&mesh, 0, 1, seed, meander_scale, current_height)
+                > river_route_score(&mesh, 0, 2, seed, meander_scale, current_height)
+        })
+        .expect("at least one seed should bias the flat route away from its steepest edge");
+
+    mesh.vertices[1].z = 0.098;
+    mesh.vertices[2].z = 0.096;
+    let current_height = river_effective_height(&mesh, 0, seed, meander_scale);
+
+    assert!(
+        river_route_score(&mesh, 0, 2, seed, meander_scale, current_height)
+            > river_route_score(&mesh, 0, 1, seed, meander_scale, current_height)
+    );
+}
+
+#[test]
+fn meander_noise_scale_is_directly_proportional_to_average_edge_length() {
+    let coarse = RiverMeanderScale::from_average_edge_length(0.02);
+    let fine = RiverMeanderScale::from_average_edge_length(0.01);
+
+    assert_eq!(
+        coarse.wavelength.to_bits(),
+        (fine.wavelength * 2.0).to_bits()
+    );
+    assert_eq!(coarse.height.to_bits(), (fine.height * 2.0).to_bits());
+}
+
+#[test]
 fn sources_are_the_upstream_boundary_of_local_candidates() {
     let mesh = Mesh {
         vertices: vec![
@@ -4282,6 +4323,7 @@ fn routed_rivers_have_monotonic_surfaces_and_valid_joins() {
         &mut mesh,
         &adjacency,
         RiverSourceRule::new(0.0, 1.0, 0.0, 1.0),
+        0,
     );
     let mut material = SurfaceMaterial::empty(mesh.vertices.len());
     network.shape(&mut mesh, &adjacency, &mut material, true, true);
@@ -4370,6 +4412,7 @@ fn rivers_join_when_their_mesh_rings_touch_before_their_centrelines() {
         &flow,
         &[main[0], tributary[0]],
         &ocean,
+        0,
     );
 
     assert_eq!(rivers.len(), 2);
@@ -4416,7 +4459,7 @@ fn later_river_sources_are_rejected_near_an_accepted_river_path() {
     ocean[2] = true;
     ocean[6] = true;
 
-    let (rivers, join_vertices) = trace_rivers(&mut mesh, &adjacency, &flow, &[0, 4], &ocean);
+    let (rivers, join_vertices) = trace_rivers(&mut mesh, &adjacency, &flow, &[0, 4], &ocean, 0);
 
     assert_eq!(rivers.len(), 1);
     assert_eq!(rivers[0].nodes.first().map(|node| node.vertex), Some(0));
@@ -4437,7 +4480,7 @@ fn trace_discards_a_landlocked_path_when_no_ocean_route_exists() {
     let adjacency = mesh.adjacency();
     let flow = [1, 2, 3];
 
-    let (rivers, join_vertices) = trace_rivers(&mut mesh, &adjacency, &flow, &[0], &[false; 3]);
+    let (rivers, join_vertices) = trace_rivers(&mut mesh, &adjacency, &flow, &[0], &[false; 3], 0);
 
     assert!(rivers.is_empty());
     assert!(join_vertices.is_empty());
