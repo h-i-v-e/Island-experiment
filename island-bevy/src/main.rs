@@ -24,7 +24,7 @@ use std::{env, path::PathBuf, process, time::Duration};
 use bevy::{
     app::ScheduleRunnerPlugin,
     prelude::*,
-    window::{ExitCondition, WindowResolution},
+    window::{ExitCondition, PresentMode, WindowResolution},
     winit::WinitPlugin,
 };
 use island_tree::{BarkMaterialPlugin, LeafMaterialPlugin};
@@ -130,6 +130,7 @@ fn main() {
             primary_window: Some(Window {
                 title: String::from("Motu island"),
                 resolution: WindowResolution::new(WINDOW_RESOLUTION.x, WINDOW_RESOLUTION.y),
+                present_mode: PresentMode::AutoNoVsync,
                 ..default()
             }),
             ..default()

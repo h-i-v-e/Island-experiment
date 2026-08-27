@@ -25,8 +25,11 @@ use bevy::{
     camera::{Exposure, Hdr},
     core_pipeline::tonemapping::Tonemapping,
     input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll, MouseScrollUnit},
-    light::AtmosphereEnvironmentMapLight,
-    pbr::{AtmosphereSettings, ContactShadows, ScreenSpaceAmbientOcclusion},
+    light::{AtmosphereEnvironmentMapLight, ShadowFilteringMethod},
+    pbr::{
+        AtmosphereSettings, ContactShadows, ScreenSpaceAmbientOcclusion,
+        ScreenSpaceAmbientOcclusionQualityLevel,
+    },
     post_process::bloom::Bloom,
     prelude::*,
     window::{CursorGrabMode, CursorOptions, PrimaryWindow},
@@ -496,12 +499,18 @@ fn spawn_camera(mut commands: Commands, pose: Res<ViewPose>, capture: Option<Res
         AtmosphereSettings::default(),
         // The same atmosphere as an environment map, which is what fills
         // crevices now that there is no uniform ambient term.
-        AtmosphereEnvironmentMapLight::default(),
+        AtmosphereEnvironmentMapLight {
+            size: UVec2::splat(256),
+            ..default()
+        },
         // Temporal anti-aliasing needs multisampling off, and repays it by
         // resolving the stochastic occlusion and contact shadow passes.
-        Msaa::Off,
+        (ShadowFilteringMethod::Temporal, Msaa::Off),
         TemporalAntiAliasing::default(),
-        ScreenSpaceAmbientOcclusion::default(),
+        ScreenSpaceAmbientOcclusion {
+            quality_level: ScreenSpaceAmbientOcclusionQualityLevel::Medium,
+            ..default()
+        },
         ContactShadows {
             length: CONTACT_SHADOW_LENGTH,
             thickness: CONTACT_SHADOW_THICKNESS,
