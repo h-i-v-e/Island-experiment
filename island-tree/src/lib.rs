@@ -5,22 +5,18 @@
 //! review shell, while landscape placement and culling stay with the island
 //! renderer.
 
-mod bark_material;
-mod generator;
-mod leaf_material;
-mod model;
-mod random;
-mod renderer;
+mod botany;
+mod render;
 
-pub use bark_material::{BarkMaterial, BarkMaterialPlugin};
-pub use generator::generate_botanical_prototype;
-pub use leaf_material::{LeafMaterial, LeafMaterialPlugin};
-pub use model::{
-    Axis, AxisGraph, BarkVertex, BotanicalPrototype, BotanicalRecipe, BotanicalTexture,
-    FOLIAGE_PAD_ARCHETYPE_COUNT, FoliagePad, LEAF_ARCHETYPE_COUNT, LeafOrgan,
-    SHOOT_TIP_ARCHETYPE_COUNT, ShootTipOrgan, ShootTipState,
+pub use botany::{
+    Axis, AxisGraph, BarkVertex, BotanicalImpostor, BotanicalPrototype, BotanicalRecipe,
+    BotanicalTexture, FOLIAGE_PAD_ARCHETYPE_COUNT, FoliagePad, LEAF_ARCHETYPE_COUNT, LeafOrgan,
+    SHOOT_TIP_ARCHETYPE_COUNT, ShootTipOrgan, ShootTipState, generate_botanical_impostor,
+    generate_botanical_prototype,
 };
-pub use renderer::{
-    CompiledTreePart, CompiledTreePrototype, compile_static_middle_prototype_with_recipe,
+pub use render::{
+    BarkMaterial, BarkMaterialPlugin, CompiledTreeImpostor, CompiledTreePart,
+    CompiledTreePrototype, LeafMaterial, LeafMaterialPlugin, compile_botanical_impostor,
+    compile_static_impostor_with_recipe, compile_static_middle_prototype_with_recipe,
     compile_static_prototype, compile_static_prototype_with_recipe,
 };

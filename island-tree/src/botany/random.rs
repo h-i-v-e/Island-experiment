@@ -1,3 +1,5 @@
+//! Portable deterministic randomness for botanical generation.
+
 #![allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
 
 /// Small deterministic generator used to keep tree seeds portable across

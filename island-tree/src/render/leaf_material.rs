@@ -33,7 +33,7 @@ impl Plugin for LeafMaterialPlugin {
         load_internal_asset!(
             app,
             LEAF_MATERIAL_SHADER_HANDLE,
-            "leaf_material.wgsl",
+            "shaders/leaf_material.wgsl",
             Shader::from_wgsl
         );
         app.add_plugins(MaterialPlugin::<LeafMaterial>::default());

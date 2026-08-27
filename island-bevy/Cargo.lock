@@ -3370,6 +3370,7 @@ name = "island-tree"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "bevy_egui",
  "island-rs",
 ]
 

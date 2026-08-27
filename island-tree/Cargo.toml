@@ -17,6 +17,7 @@ bevy = { version = "0.19", default-features = false, features = [
     "bluenoise_texture",
     "png",
 ] }
+bevy_egui = "0.42"
 island-rs = { path = "../island-rs", default-features = false }
 
 [profile.dev]

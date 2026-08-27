@@ -11,15 +11,21 @@ use bevy::{
     image::{ImageAddressMode, ImageFilterMode, ImageSampler, ImageSamplerDescriptor},
     mesh::{Indices, PrimitiveTopology},
     pbr::StandardMaterial,
-    prelude::{Color, Image, Mat3, Mesh, Quat, Transform, Vec3},
+    prelude::{AlphaMode, Color, Image, Mat3, Mesh, Quat, Transform, Vec3},
     render::render_resource::{Extent3d, TextureDimension, TextureFormat},
 };
 use motu::Mesh as MotuMesh;
 
 use super::{
-    BarkMaterial, BarkVertex, BotanicalPrototype, BotanicalRecipe, BotanicalTexture, FoliagePad,
-    LeafMaterial, LeafOrgan, bark_material::BarkMaterialExtension, generate_botanical_prototype,
-    leaf_material::LeafMaterialExtension,
+    bark_material::{BarkMaterial, BarkMaterialExtension},
+    leaf_material::{LeafMaterial, LeafMaterialExtension},
+};
+use crate::botany::{
+    generate_botanical_prototype,
+    impostor::{BotanicalImpostor, generate_botanical_impostor},
+    model::{
+        BarkVertex, BotanicalPrototype, BotanicalRecipe, BotanicalTexture, FoliagePad, LeafOrgan,
+    },
 };
 
 const LEAF_ARCHETYPE_TINTS: [[f32; 3]; 8] = [
@@ -46,6 +52,110 @@ pub struct CompiledTreePart<M: Asset> {
 pub struct CompiledTreePrototype {
     pub wood: CompiledTreePart<BarkMaterial>,
     pub foliage: CompiledTreePart<LeafMaterial>,
+}
+
+/// One crossed-card far representation with its generated transparent atlas.
+#[derive(Clone, Debug)]
+pub struct CompiledTreeImpostor {
+    pub mesh: Handle<Mesh>,
+    pub material: Handle<StandardMaterial>,
+    pub atlas: Handle<Image>,
+    pub vertices: u32,
+}
+
+/// Generates and compiles a deterministic far-distance image impostor.
+///
+/// # Errors
+///
+/// Returns the generator's recipe error or a mesh error if tangent generation
+/// fails for the crossed cards.
+pub fn compile_static_impostor_with_recipe(
+    seed: u64,
+    recipe: BotanicalRecipe,
+    meshes: &mut Assets<Mesh>,
+    images: &mut Assets<Image>,
+    materials: &mut Assets<StandardMaterial>,
+) -> Result<CompiledTreeImpostor, String> {
+    let prototype = generate_botanical_prototype(seed, recipe)?;
+    compile_botanical_impostor(&prototype, meshes, images, materials)
+}
+
+/// Compiles an already-generated prototype without generating it twice.
+///
+/// # Errors
+///
+/// Returns a mesh error if tangent generation fails for the crossed cards.
+pub fn compile_botanical_impostor(
+    prototype: &BotanicalPrototype,
+    meshes: &mut Assets<Mesh>,
+    images: &mut Assets<Image>,
+    materials: &mut Assets<StandardMaterial>,
+) -> Result<CompiledTreeImpostor, String> {
+    let impostor = generate_botanical_impostor(prototype);
+    let mesh = impostor_mesh(&impostor)?;
+    let vertices = vertex_count(&mesh);
+    let atlas = images.add(texture_image(impostor.albedo, false, true));
+    let material = materials.add(StandardMaterial {
+        base_color: Color::WHITE,
+        base_color_texture: Some(atlas.clone()),
+        alpha_mode: AlphaMode::Mask(0.22),
+        perceptual_roughness: 1.0,
+        reflectance: 0.0,
+        unlit: true,
+        double_sided: true,
+        cull_mode: None,
+        ..Default::default()
+    });
+    Ok(CompiledTreeImpostor {
+        mesh: meshes.add(mesh),
+        material,
+        atlas,
+        vertices,
+    })
+}
+
+fn impostor_mesh(impostor: &BotanicalImpostor) -> Result<Mesh, String> {
+    let bottom = impostor.bottom_metres;
+    let top = impostor.top_metres;
+    let front_left = impostor.front_centre_metres - impostor.front_width_metres * 0.5;
+    let front_right = impostor.front_centre_metres + impostor.front_width_metres * 0.5;
+    let side_near = impostor.side_centre_metres - impostor.side_width_metres * 0.5;
+    let side_far = impostor.side_centre_metres + impostor.side_width_metres * 0.5;
+    let positions = vec![
+        [front_left, bottom, 0.0],
+        [front_right, bottom, 0.0],
+        [front_right, top, 0.0],
+        [front_left, top, 0.0],
+        [0.0, bottom, side_near],
+        [0.0, bottom, side_far],
+        [0.0, top, side_far],
+        [0.0, top, side_near],
+    ];
+    let normals = [[0.0, 0.0, 1.0]; 4]
+        .into_iter()
+        .chain([[1.0, 0.0, 0.0]; 4])
+        .collect::<Vec<_>>();
+    let uv = vec![
+        [0.0, 1.0],
+        [0.5, 1.0],
+        [0.5, 0.0],
+        [0.0, 0.0],
+        [0.5, 1.0],
+        [1.0, 1.0],
+        [1.0, 0.0],
+        [0.5, 0.0],
+    ];
+    let mut mesh = Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::default(),
+    );
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uv);
+    mesh.insert_indices(Indices::U32(vec![0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7]));
+    mesh.generate_tangents()
+        .map_err(|error| format!("could not generate impostor tangents: {error}"))?;
+    Ok(mesh)
 }
 
 /// Generates and compiles one deterministic static tree for repeated placement.

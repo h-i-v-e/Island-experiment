@@ -1,7 +1,7 @@
-//! Offline visual laboratory for one renderer-neutral procedural pōhutukawa.
+//! Interactive and offline visual laboratory for procedural vegetation.
 //!
-//! The binary never creates a window. Every run renders into an offscreen
-//! target, writes one PNG, and exits after the temporal stack settles.
+//! A normal run opens the tree studio. `--screenshot` keeps the repeatable
+//! headless capture path used by visual acceptance.
 
 #![allow(
     clippy::cast_possible_truncation,
@@ -11,7 +11,14 @@
     clippy::too_many_arguments
 )]
 
-use std::{env, fs, path::PathBuf, process, time::Duration};
+mod studio;
+
+use std::{
+    env, fs,
+    path::PathBuf,
+    process,
+    time::{Duration, Instant},
+};
 
 use bevy::{
     anti_alias::taa::TemporalAntiAliasing,
@@ -21,8 +28,8 @@ use bevy::{
     core_pipeline::tonemapping::Tonemapping,
     image::{ImageAddressMode, ImageFilterMode, ImageSampler, ImageSamplerDescriptor},
     light::{
-        Atmosphere, AtmosphereEnvironmentMapLight, GlobalAmbientLight, TransmittedShadowReceiver,
-        atmosphere::ScatteringMedium,
+        Atmosphere, AtmosphereEnvironmentMapLight, GlobalAmbientLight, NotShadowCaster,
+        TransmittedShadowReceiver, atmosphere::ScatteringMedium,
     },
     mesh::{
         Indices, PrimitiveTopology, VertexAttributeValues,
@@ -35,13 +42,14 @@ use bevy::{
         render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages},
         view::screenshot::{Screenshot, save_to_disk},
     },
-    window::{ExitCondition, WindowPlugin},
+    window::{ExitCondition, PresentMode, WindowPlugin, WindowResolution},
     winit::WinitPlugin,
 };
 use island_tree::{
     Axis, AxisGraph, BarkMaterial, BarkMaterialPlugin, BarkVertex, BotanicalPrototype,
     BotanicalRecipe, BotanicalTexture, FoliagePad, LEAF_ARCHETYPE_COUNT, LeafMaterial,
-    LeafMaterialPlugin, LeafOrgan, ShootTipOrgan, ShootTipState, generate_botanical_prototype,
+    LeafMaterialPlugin, LeafOrgan, ShootTipOrgan, ShootTipState, compile_botanical_impostor,
+    generate_botanical_prototype,
 };
 use motu::Mesh as MotuMesh;
 
@@ -58,14 +66,28 @@ enum ReviewLod {
     #[default]
     Near,
     Middle,
+    Far,
 }
 
 impl ReviewLod {
+    const ALL: [Self; 3] = [Self::Near, Self::Middle, Self::Far];
+
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Near => "LOD 0 · Near",
+            Self::Middle => "LOD 1 · Middle",
+            Self::Far => "LOD 2 · Far impostor",
+        }
+    }
+
     fn parse(value: &str) -> Result<Self, String> {
         match value {
             "near" => Ok(Self::Near),
             "middle" => Ok(Self::Middle),
-            _ => Err(format!("unknown LOD {value:?}; expected near or middle")),
+            "far" => Ok(Self::Far),
+            _ => Err(format!(
+                "unknown LOD {value:?}; expected near, middle, or far"
+            )),
         }
     }
 }
@@ -86,6 +108,34 @@ enum ReviewView {
 }
 
 impl ReviewView {
+    const ALL: [Self; 10] = [
+        Self::Whole,
+        Self::WholeQuarter,
+        Self::Crown,
+        Self::Detail,
+        Self::Leaf,
+        Self::Tip,
+        Self::Root,
+        Self::Scar,
+        Self::Epicormic,
+        Self::Junction,
+    ];
+
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Whole => "Whole",
+            Self::WholeQuarter => "Quarter",
+            Self::Crown => "Crown",
+            Self::Detail => "Detail",
+            Self::Leaf => "Leaf",
+            Self::Tip => "Tip",
+            Self::Root => "Root",
+            Self::Scar => "Scar",
+            Self::Epicormic => "Epicormic",
+            Self::Junction => "Junction",
+        }
+    }
+
     fn parse(value: &str) -> Result<Self, String> {
         match value {
             "whole" => Ok(Self::Whole),
@@ -104,15 +154,15 @@ impl ReviewView {
         }
     }
 
-    fn transform(self, prototype: &BotanicalPrototype) -> Transform {
+    fn frame(self, prototype: &BotanicalPrototype) -> ReviewFrame {
         if self == Self::Scar {
-            return scar_review_transform(&prototype.wood_scars);
+            return scar_review_frame(&prototype.wood_scars);
         }
         if self == Self::Epicormic {
-            return epicormic_review_transform(prototype);
+            return epicormic_review_frame(prototype);
         }
         if self == Self::Junction {
-            return junction_review_transform(prototype);
+            return junction_review_frame(prototype);
         }
         let (eye, target) = match self {
             Self::Whole => (Vec3::new(16.6, 6.0, 18.4), Vec3::new(0.0, 4.6, 0.0)),
@@ -126,11 +176,42 @@ impl ReviewView {
                 unreachable!("specialist views return above")
             }
         };
-        Transform::from_translation(eye).looking_at(target, Vec3::Y)
+        ReviewFrame::new(eye, target, Vec3::Y)
     }
 }
 
-fn junction_review_transform(prototype: &BotanicalPrototype) -> Transform {
+#[derive(Clone, Copy, Debug)]
+struct ReviewFrame {
+    transform: Transform,
+    target: Vec3,
+}
+
+impl ReviewFrame {
+    fn new(eye: Vec3, target: Vec3, up: Vec3) -> Self {
+        Self {
+            transform: Transform::from_translation(eye).looking_at(target, up),
+            target,
+        }
+    }
+}
+
+#[derive(Resource)]
+struct ReviewFrames([(ReviewView, ReviewFrame); ReviewView::ALL.len()]);
+
+impl ReviewFrames {
+    fn new(prototype: &BotanicalPrototype) -> Self {
+        Self(ReviewView::ALL.map(|view| (view, view.frame(prototype))))
+    }
+
+    fn get(&self, view: ReviewView) -> ReviewFrame {
+        self.0
+            .iter()
+            .find_map(|(candidate, frame)| (*candidate == view).then_some(*frame))
+            .expect("every review view has a frame")
+    }
+}
+
+fn junction_review_frame(prototype: &BotanicalPrototype) -> ReviewFrame {
     let candidate = prototype
         .graph
         .axes
@@ -148,18 +229,20 @@ fn junction_review_transform(prototype: &BotanicalPrototype) -> Transform {
         })
         .max_by(|left, right| left.0.radii_metres[0].total_cmp(&right.0.radii_metres[0]));
     let Some((child, parent_direction, child_direction)) = candidate else {
-        return Transform::from_translation(Vec3::new(4.2, 6.4, 4.5))
-            .looking_at(Vec3::new(0.2, 5.7, 0.0), Vec3::Y);
+        return ReviewFrame::new(Vec3::new(4.2, 6.4, 4.5), Vec3::new(0.2, 5.7, 0.0), Vec3::Y);
     };
     let target = convert(child.points_metres[0] + child_direction * (child.radii_metres[0] * 0.45));
     let broadside = convert(parent_direction.cross(child_direction)).normalize_or(Vec3::X);
     let up = convert(parent_direction).normalize_or(Vec3::Y);
     let distance = (child.radii_metres[0] * 13.0).clamp(2.4, 4.2);
-    Transform::from_translation(target + broadside * distance + up * distance * 0.12)
-        .looking_at(target, up)
+    ReviewFrame::new(
+        target + broadside * distance + up * distance * 0.12,
+        target,
+        up,
+    )
 }
 
-fn epicormic_review_transform(prototype: &BotanicalPrototype) -> Transform {
+fn epicormic_review_frame(prototype: &BotanicalPrototype) -> ReviewFrame {
     let epicormic_leaves = prototype
         .leaves
         .iter()
@@ -174,20 +257,17 @@ fn epicormic_review_transform(prototype: &BotanicalPrototype) -> Transform {
         )
     });
     if count == 0 {
-        return Transform::from_translation(Vec3::new(4.4, 1.7, 4.7))
-            .looking_at(Vec3::new(0.0, 0.75, 0.0), Vec3::Y);
+        return ReviewFrame::new(Vec3::new(4.4, 1.7, 4.7), Vec3::new(0.0, 0.75, 0.0), Vec3::Y);
     }
     let target = convert(centre / count as f32);
     let outward = Vec3::new(target.x, 0.0, target.z).normalize_or(Vec3::X);
-    Transform::from_translation(target + outward * 1.05 + Vec3::Y * 0.16)
-        .looking_at(target, Vec3::Y)
+    ReviewFrame::new(target + outward * 1.05 + Vec3::Y * 0.16, target, Vec3::Y)
 }
 
-fn scar_review_transform(wood_scars: &MotuMesh) -> Transform {
+fn scar_review_frame(wood_scars: &MotuMesh) -> ReviewFrame {
     const SCAR_VERTICES: usize = 18;
     let Some(vertices) = wood_scars.vertices.get(..SCAR_VERTICES) else {
-        return Transform::from_translation(Vec3::new(4.2, 6.4, 4.5))
-            .looking_at(Vec3::new(0.2, 5.7, 0.0), Vec3::Y);
+        return ReviewFrame::new(Vec3::new(4.2, 6.4, 4.5), Vec3::new(0.2, 5.7, 0.0), Vec3::Y);
     };
     let ring_centre = vertices[1..]
         .iter()
@@ -201,7 +281,7 @@ fn scar_review_transform(wood_scars: &MotuMesh) -> Transform {
     } else {
         Vec3::Y
     };
-    Transform::from_translation(target + outward * 0.42 + up * 0.025).looking_at(target, up)
+    ReviewFrame::new(target + outward * 0.42 + up * 0.025, target, up)
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -213,6 +293,16 @@ enum ReviewLight {
 }
 
 impl ReviewLight {
+    const ALL: [Self; 3] = [Self::Front, Self::Back, Self::Grazing];
+
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Front => "Front",
+            Self::Back => "Backlit",
+            Self::Grazing => "Grazing",
+        }
+    }
+
     fn parse(value: &str) -> Result<Self, String> {
         match value {
             "front" => Ok(Self::Front),
@@ -237,6 +327,7 @@ impl ReviewLight {
 #[derive(Resource, Clone, Debug, PartialEq)]
 struct Settings {
     seed: u64,
+    recipe: BotanicalRecipe,
     lod: ReviewLod,
     view: ReviewView,
     light: ReviewLight,
@@ -244,8 +335,58 @@ struct Settings {
     fine_shoots: bool,
     wind_phase: f32,
     wind_strength: f32,
-    screenshot: PathBuf,
+    screenshot: Option<PathBuf>,
+    capture_ui: bool,
 }
+
+#[derive(Component)]
+struct TreeRoot;
+
+#[derive(Component)]
+struct ReviewCamera {
+    target: Vec3,
+}
+
+#[derive(Component)]
+struct ReviewSun;
+
+#[derive(Component)]
+struct ReviewGround;
+
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct TreeMetrics {
+    axes: usize,
+    leaves: usize,
+    shoot_tips: usize,
+    foliage_pads: usize,
+    wood_triangles: usize,
+    scar_triangles: usize,
+    generation_millis: u128,
+}
+
+impl TreeMetrics {
+    fn new(prototype: &BotanicalPrototype, generation_millis: u128) -> Self {
+        Self {
+            axes: prototype.graph.axes.len(),
+            leaves: prototype.leaves.len(),
+            shoot_tips: prototype.shoot_tips.len(),
+            foliage_pads: prototype.foliage_pads.len(),
+            wood_triangles: prototype.wood.triangles.len() / 3,
+            scar_triangles: prototype.wood_scars.triangles.len() / 3,
+            generation_millis,
+        }
+    }
+}
+
+#[derive(Resource, Debug, Default)]
+struct TreeBuildStatus {
+    error: Option<String>,
+    generating: bool,
+    notice_seconds: f32,
+}
+
+#[derive(Message, Clone, Debug)]
+struct RegenerateTree(Settings);
 
 #[derive(Component)]
 struct WindJoint {
@@ -307,24 +448,44 @@ fn main() {
             process::exit(2);
         }
     };
+    let capturing = settings.screenshot.is_some();
     let mut app = App::new();
-    let plugins = DefaultPlugins
-        .set(WindowPlugin {
+    let mut plugins = DefaultPlugins.set(if capturing {
+        WindowPlugin {
             primary_window: None,
             exit_condition: ExitCondition::DontExit,
             ..default()
-        })
-        .disable::<WinitPlugin>();
+        }
+    } else {
+        WindowPlugin {
+            primary_window: Some(Window {
+                title: "Island Tree Studio".into(),
+                resolution: WindowResolution::new(1440, 900),
+                present_mode: PresentMode::AutoNoVsync,
+                ..default()
+            }),
+            ..default()
+        }
+    });
+    if capturing {
+        plugins = plugins.disable::<WinitPlugin>();
+    }
     app.add_plugins(plugins)
         .add_plugins(BarkMaterialPlugin)
         .add_plugins(LeafMaterialPlugin)
-        .add_plugins(ScheduleRunnerPlugin::run_loop(Duration::ZERO))
         .insert_resource(ClearColor(Color::srgb(0.72, 0.82, 0.88)))
         .insert_resource(GlobalAmbientLight::NONE)
         .insert_resource(settings.clone());
-    install_capture(&mut app, settings.screenshot.clone());
+    if let Some(path) = settings.screenshot.clone() {
+        app.add_plugins(ScheduleRunnerPlugin::run_loop(Duration::ZERO));
+        install_capture(&mut app, path);
+        app.add_systems(Update, capture.after(apply_wind));
+    }
+    if !capturing || settings.capture_ui {
+        app.add_plugins(studio::TreeStudioPlugin);
+    }
     app.add_systems(Startup, setup)
-        .add_systems(Update, (apply_wind, capture).chain())
+        .add_systems(Update, apply_wind)
         .run();
 }
 
@@ -347,7 +508,7 @@ fn install_capture(app: &mut App, path: PathBuf) {
 fn setup(
     mut commands: Commands,
     settings: Res<Settings>,
-    target: Res<CaptureTarget>,
+    target: Option<Res<CaptureTarget>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut bark_materials: ResMut<Assets<BarkMaterial>>,
@@ -356,13 +517,85 @@ fn setup(
     mut images: ResMut<Assets<Image>>,
     mut mediums: ResMut<Assets<ScatteringMedium>>,
 ) {
-    if let Err(error) = fs::remove_file(&target.path)
+    if let Some(target) = target.as_deref()
+        && let Err(error) = fs::remove_file(&target.path)
         && error.kind() != std::io::ErrorKind::NotFound
     {
         warn!("could not remove stale {}: {error}", target.path.display());
     }
-    let prototype = generate_botanical_prototype(settings.seed, BotanicalRecipe::default())
+    let (prototype, metrics) = generate_review_prototype(&settings)
         .unwrap_or_else(|error| panic!("botanical prototype failed: {error}"));
+    log_prototype(&settings, &prototype, metrics);
+    let frames = ReviewFrames::new(&prototype);
+    let camera_frame = frames.get(settings.view);
+    spawn_tree(
+        &mut commands,
+        &mut meshes,
+        &mut materials,
+        &mut bark_materials,
+        &mut leaf_materials,
+        &mut inverse_bindposes,
+        &mut images,
+        &settings,
+        prototype,
+    );
+    commands.insert_resource(frames);
+    commands.insert_resource(metrics);
+    commands.init_resource::<TreeBuildStatus>();
+    spawn_stage(&mut commands, &mut meshes, &mut materials);
+    spawn_lighting(&mut commands, &settings, &mut mediums);
+    let mut camera = commands.spawn((
+        Name::new("Tree review camera"),
+        ReviewCamera {
+            target: camera_frame.target,
+        },
+        Camera3d::default(),
+        Projection::Perspective(PerspectiveProjection {
+            fov: 45.0_f32.to_radians(),
+            near: 0.1,
+            far: 150.0,
+            ..default()
+        }),
+        Hdr,
+        Exposure {
+            ev100: Exposure::EV100_SUNLIGHT - 2.4,
+        },
+        Tonemapping::AcesFitted,
+        AtmosphereSettings::default(),
+        AtmosphereEnvironmentMapLight {
+            intensity: 1.8,
+            size: UVec2::new(256, 256),
+            ..default()
+        },
+        Msaa::Off,
+        TemporalAntiAliasing::default(),
+        ScreenSpaceAmbientOcclusion::default(),
+        ContactShadows {
+            length: 2.5,
+            thickness: 0.35,
+            ..default()
+        },
+        Bloom {
+            intensity: 0.025,
+            ..Bloom::NATURAL
+        },
+        camera_frame.transform,
+    ));
+    if let Some(target) = target {
+        camera.insert(RenderTarget::Image(target.image.clone().into()));
+    }
+}
+
+fn generate_review_prototype(
+    settings: &Settings,
+) -> Result<(BotanicalPrototype, TreeMetrics), String> {
+    let started = Instant::now();
+    let prototype = generate_botanical_prototype(settings.seed, settings.recipe)?;
+    let metrics = TreeMetrics::new(&prototype, started.elapsed().as_millis());
+    Ok((prototype, metrics))
+}
+
+fn log_prototype(settings: &Settings, prototype: &BotanicalPrototype, metrics: TreeMetrics) {
     let exposure_counts = prototype
         .leaves
         .iter()
@@ -383,17 +616,54 @@ fn setup(
             counts
         });
     info!(
-        "seed {}: {} axes, {} leaves, exposure bins {:?}, tip states {:?}, {} foliage pads, {} wood triangles, {} scar triangles",
+        "seed {}: {} axes, {} leaves, exposure bins {:?}, tip states {:?}, {} foliage pads, {} wood triangles, {} scar triangles in {} ms",
         settings.seed,
-        prototype.graph.axes.len(),
-        prototype.leaves.len(),
+        metrics.axes,
+        metrics.leaves,
         exposure_counts,
         tip_counts,
-        prototype.foliage_pads.len(),
-        prototype.wood.triangles.len() / 3,
-        prototype.wood_scars.triangles.len() / 3
+        metrics.foliage_pads,
+        metrics.wood_triangles,
+        metrics.scar_triangles,
+        metrics.generation_millis,
     );
-    let camera_transform = settings.view.transform(&prototype);
+}
+
+fn regenerate_tree(
+    mut commands: Commands,
+    mut requests: MessageReader<RegenerateTree>,
+    roots: Query<Entity, With<TreeRoot>>,
+    mut settings: ResMut<Settings>,
+    mut frames: ResMut<ReviewFrames>,
+    mut metrics: ResMut<TreeMetrics>,
+    mut status: ResMut<TreeBuildStatus>,
+    mut cameras: Query<(&mut ReviewCamera, &mut Transform), Without<ReviewSun>>,
+    mut suns: Query<&mut Transform, (With<ReviewSun>, Without<ReviewCamera>)>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut bark_materials: ResMut<Assets<BarkMaterial>>,
+    mut leaf_materials: ResMut<Assets<LeafMaterial>>,
+    mut inverse_bindposes: ResMut<Assets<SkinnedMeshInverseBindposes>>,
+    mut images: ResMut<Assets<Image>>,
+) {
+    let Some(RegenerateTree(request)) = requests.read().last().cloned() else {
+        return;
+    };
+    let (prototype, next_metrics) = match generate_review_prototype(&request) {
+        Ok(generated) => generated,
+        Err(error) => {
+            status.error = Some(error);
+            status.generating = false;
+            status.notice_seconds = 0.0;
+            return;
+        }
+    };
+    log_prototype(&request, &prototype, next_metrics);
+    let next_frames = ReviewFrames::new(&prototype);
+    let frame = next_frames.get(request.view);
+    for root in &roots {
+        commands.entity(root).despawn();
+    }
     spawn_tree(
         &mut commands,
         &mut meshes,
@@ -402,48 +672,25 @@ fn setup(
         &mut leaf_materials,
         &mut inverse_bindposes,
         &mut images,
-        &settings,
+        &request,
         prototype,
     );
-    spawn_stage(&mut commands, &mut meshes, &mut materials);
-    spawn_lighting(&mut commands, &settings, &mut mediums);
-    commands.spawn((
-        Name::new("Tree review camera"),
-        Camera3d::default(),
-        Projection::Perspective(PerspectiveProjection {
-            fov: 45.0_f32.to_radians(),
-            near: 0.1,
-            far: 150.0,
-            ..default()
-        }),
-        Hdr,
-        Exposure {
-            ev100: Exposure::EV100_SUNLIGHT - 1.65,
-        },
-        Tonemapping::AcesFitted,
-        AtmosphereSettings::default(),
-        AtmosphereEnvironmentMapLight {
-            intensity: 1.15,
-            size: UVec2::new(256, 256),
-            ..default()
-        },
-        Msaa::Off,
-        TemporalAntiAliasing::default(),
-        ScreenSpaceAmbientOcclusion::default(),
-        ContactShadows {
-            length: 2.5,
-            thickness: 0.35,
-            ..default()
-        },
-        Bloom {
-            intensity: 0.025,
-            ..Bloom::NATURAL
-        },
-        camera_transform,
-        RenderTarget::Image(target.image.clone().into()),
-    ));
+    for (mut camera, mut transform) in &mut cameras {
+        camera.target = frame.target;
+        *transform = frame.transform;
+    }
+    for mut transform in &mut suns {
+        *transform = Transform::default().looking_to(request.light.direction(), Vec3::Y);
+    }
+    *settings = request;
+    *frames = next_frames;
+    *metrics = next_metrics;
+    status.error = None;
+    status.generating = false;
+    status.notice_seconds = 0.8;
 }
 
+#[allow(clippy::too_many_lines)]
 fn spawn_tree(
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,
@@ -455,6 +702,26 @@ fn spawn_tree(
     settings: &Settings,
     prototype: BotanicalPrototype,
 ) {
+    let tree_root = commands
+        .spawn((
+            Name::new("Generated pōhutukawa"),
+            TreeRoot,
+            Transform::default(),
+            Visibility::default(),
+        ))
+        .id();
+    if settings.lod == ReviewLod::Far {
+        let impostor = compile_botanical_impostor(&prototype, meshes, images, materials)
+            .unwrap_or_else(|error| panic!("tree impostor failed: {error}"));
+        commands.spawn((
+            Name::new("Pōhutukawa generated far impostor"),
+            Mesh3d(impostor.mesh),
+            MeshMaterial3d(impostor.material),
+            NotShadowCaster,
+            ChildOf(tree_root),
+        ));
+        return;
+    }
     let BotanicalPrototype {
         graph,
         wood,
@@ -476,7 +743,13 @@ fn spawn_tree(
         leaf_albedo,
         leaf_metallic_roughness,
     } = prototype;
-    let skeleton = spawn_wind_skeleton(commands, inverse_bindposes, &graph, settings.seed);
+    let skeleton = spawn_wind_skeleton(
+        commands,
+        inverse_bindposes,
+        &graph,
+        settings.seed,
+        tree_root,
+    );
     let wood_material = build_bark_material(
         images,
         bark_materials,
@@ -501,6 +774,7 @@ fn spawn_tree(
         wood_material,
         &graph,
         &skeleton,
+        tree_root,
     );
     spawn_scaffold_scars(
         commands,
@@ -511,6 +785,7 @@ fn spawn_tree(
         wood_scar_albedo,
         &graph,
         &skeleton,
+        tree_root,
     );
     spawn_microtwigs(
         commands,
@@ -520,6 +795,7 @@ fn spawn_tree(
         microtwig_material,
         &graph,
         &skeleton,
+        tree_root,
     );
     if settings.fine_shoots && settings.lod == ReviewLod::Near {
         spawn_shoot_tips(
@@ -551,6 +827,7 @@ fn spawn_tree(
             foliage_pads,
             &skeleton,
         ),
+        ReviewLod::Far => unreachable!("far LOD returns before organ compilation"),
     }
 }
 
@@ -562,6 +839,7 @@ fn spawn_wood(
     material: Handle<BarkMaterial>,
     graph: &AxisGraph,
     skeleton: &WindSkeleton,
+    tree_root: Entity,
 ) {
     let skin = skin_weights(&wood, graph, skeleton);
     commands.spawn((
@@ -572,6 +850,7 @@ fn spawn_wood(
             inverse_bindposes: skeleton.inverse_bindposes.clone(),
             joints: skeleton.joints.clone(),
         },
+        ChildOf(tree_root),
     ));
 }
 
@@ -583,6 +862,7 @@ fn spawn_microtwigs(
     material: Option<Handle<BarkMaterial>>,
     graph: &AxisGraph,
     skeleton: &WindSkeleton,
+    tree_root: Entity,
 ) {
     let Some(material) = material else {
         return;
@@ -596,6 +876,7 @@ fn spawn_microtwigs(
             inverse_bindposes: skeleton.inverse_bindposes.clone(),
             joints: skeleton.joints.clone(),
         },
+        ChildOf(tree_root),
     ));
 }
 
@@ -608,6 +889,7 @@ fn spawn_scaffold_scars(
     albedo: BotanicalTexture,
     graph: &AxisGraph,
     skeleton: &WindSkeleton,
+    tree_root: Entity,
 ) {
     if scars.vertices.is_empty() {
         return;
@@ -629,6 +911,7 @@ fn spawn_scaffold_scars(
             inverse_bindposes: skeleton.inverse_bindposes.clone(),
             joints: skeleton.joints.clone(),
         },
+        ChildOf(tree_root),
     ));
 }
 
@@ -962,6 +1245,7 @@ fn spawn_wind_skeleton(
     inverse_bindposes: &mut Assets<SkinnedMeshInverseBindposes>,
     graph: &AxisGraph,
     seed: u64,
+    tree_root: Entity,
 ) -> WindSkeleton {
     let plan = skeleton_plan(graph, seed);
     let mut joints = Vec::with_capacity(plan.selected_axes.len());
@@ -994,6 +1278,8 @@ fn spawn_wind_skeleton(
             .id();
         if let Some(parent) = plan.parent_joints[joint] {
             commands.entity(entity).insert(ChildOf(joints[parent]));
+        } else {
+            commands.entity(entity).insert(ChildOf(tree_root));
         }
         joints.push(entity);
     }
@@ -1103,6 +1389,7 @@ fn spawn_stage(
 ) {
     commands.spawn((
         Name::new("Review ground"),
+        ReviewGround,
         Mesh3d(meshes.add(Plane3d::default().mesh().size(120.0, 120.0))),
         MeshMaterial3d(materials.add(StandardMaterial {
             base_color: Color::srgb(0.21, 0.18, 0.12),
@@ -1127,6 +1414,7 @@ fn spawn_lighting(
     ));
     commands.spawn((
         Name::new("Sun"),
+        ReviewSun,
         DirectionalLight {
             color: Color::WHITE,
             illuminance: 92_000.0,
@@ -1333,6 +1621,7 @@ fn parse(arguments: impl Iterator<Item = String>) -> Result<Option<Settings>, St
     let mut wind_phase = 0.0_f32;
     let mut wind_strength = 0.0_f32;
     let mut screenshot = None;
+    let mut capture_ui = false;
     while let Some(argument) = arguments.next() {
         let value = |arguments: &mut std::iter::Peekable<_>| {
             arguments
@@ -1359,6 +1648,7 @@ fn parse(arguments: impl Iterator<Item = String>) -> Result<Option<Settings>, St
                     .map_err(|_| "--wind-strength must be a number from 0 to 1".to_owned())?;
             }
             "--screenshot" => screenshot = Some(PathBuf::from(value(&mut arguments)?)),
+            "--capture-ui" => capture_ui = true,
             "--wood-only" => foliage = false,
             "--scaffold-only" => {
                 foliage = false;
@@ -1377,9 +1667,12 @@ fn parse(arguments: impl Iterator<Item = String>) -> Result<Option<Settings>, St
     if !wind_strength.is_finite() || !(0.0..=1.0).contains(&wind_strength) {
         return Err("--wind-strength must be a number from 0 to 1".to_owned());
     }
-    let screenshot = screenshot.ok_or("--screenshot is required; tree-lab never opens a window")?;
+    if capture_ui && screenshot.is_none() {
+        return Err("--capture-ui requires --screenshot <PATH>".to_owned());
+    }
     Ok(Some(Settings {
         seed,
+        recipe: BotanicalRecipe::default(),
         lod,
         view,
         light,
@@ -1388,14 +1681,17 @@ fn parse(arguments: impl Iterator<Item = String>) -> Result<Option<Settings>, St
         wind_phase,
         wind_strength,
         screenshot,
+        capture_ui,
     }))
 }
 
 fn print_help() {
     println!(
-        "tree-lab --screenshot <PATH> [OPTIONS]\n\n\
+        "tree-lab [OPTIONS]\n\n\
+         With no screenshot path, opens the interactive Tree Studio.\n\n\
          --seed <N>             deterministic prototype seed [42]\n\
-         --lod <near|middle>    foliage representation [near]\n\
+         --lod <near|middle|far>\n\
+                                tree representation [near]\n\
          --view <NAME>          whole, whole-quarter, crown, detail, leaf, tip, root, scar, epicormic, or junction [whole]\n\
          --light <front|back|grazing>\n\
                                 review-light direction [front]\n\
@@ -1403,7 +1699,8 @@ fn print_help() {
          --wind-strength <0..1> branch motion and leaf flutter amount [0]\n\
          --wood-only            omit foliage\n\
          --scaffold-only        omit foliage and fine shoots\n\
-         --screenshot <PATH>    required offscreen PNG output"
+         --screenshot <PATH>    render one headless PNG and exit\n\
+         --capture-ui           include the Tree Studio HUD in that PNG"
     );
 }
 
@@ -1443,7 +1740,16 @@ mod tests {
         assert!(settings.fine_shoots);
         assert_eq!(settings.wind_phase.to_bits(), 0.25_f32.to_bits());
         assert_eq!(settings.wind_strength.to_bits(), 0.7_f32.to_bits());
-        assert_eq!(settings.screenshot, PathBuf::from("tree.png"));
+        assert_eq!(settings.screenshot, Some(PathBuf::from("tree.png")));
+        assert!(!settings.capture_ui);
+    }
+
+    #[test]
+    fn parses_generated_far_impostor_lod() {
+        let settings = parse(strings(&["--lod", "far"]))
+            .expect("valid command")
+            .expect("settings");
+        assert_eq!(settings.lod, ReviewLod::Far);
     }
 
     #[test]
@@ -1657,8 +1963,30 @@ mod tests {
     }
 
     #[test]
-    fn refuses_any_run_without_an_offscreen_target() {
-        let error = parse(strings(&["--seed", "42"])).expect_err("missing screenshot must fail");
-        assert!(error.contains("never opens a window"));
+    fn defaults_to_an_interactive_run_without_a_screenshot() {
+        let settings = parse(strings(&["--seed", "42"]))
+            .expect("interactive command")
+            .expect("settings");
+        assert_eq!(settings.seed, 42);
+        assert_eq!(settings.recipe, BotanicalRecipe::default());
+        assert_eq!(settings.screenshot, None);
+        assert!(!settings.capture_ui);
+    }
+
+    #[test]
+    fn ui_capture_requires_and_preserves_a_screenshot_target() {
+        let error = parse(strings(&["--capture-ui"]))
+            .expect_err("a UI capture without an image target must fail");
+        assert!(error.contains("requires --screenshot"));
+
+        let settings = parse(strings(&[
+            "--screenshot",
+            "tree-studio.png",
+            "--capture-ui",
+        ]))
+        .expect("UI capture command")
+        .expect("settings");
+        assert!(settings.capture_ui);
+        assert_eq!(settings.screenshot, Some(PathBuf::from("tree-studio.png")));
     }
 }

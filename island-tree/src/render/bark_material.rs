@@ -33,7 +33,7 @@ impl Plugin for BarkMaterialPlugin {
         load_internal_asset!(
             app,
             BARK_MATERIAL_SHADER_HANDLE,
-            "bark_material.wgsl",
+            "shaders/bark_material.wgsl",
             Shader::from_wgsl
         );
         app.add_plugins(MaterialPlugin::<BarkMaterial>::default());
