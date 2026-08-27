@@ -486,11 +486,14 @@ fn compiled_pad_mesh(archetypes: &[MotuMesh; 2], pads: &[FoliagePad]) -> Result<
 fn leaf_transform(leaf: LeafOrgan) -> Transform {
     let direction = convert(leaf.direction).normalize_or(Vec3::X);
     let normal = convert(leaf.normal).normalize_or(Vec3::Y);
-    let transverse = normal.cross(direction).normalize_or(Vec3::Z);
+    let transverse = direction.cross(normal).normalize_or(Vec3::Z);
     Transform {
         translation: convert(leaf.blade_base_metres),
-        rotation: Quat::from_mat3(&Mat3::from_cols(direction, transverse, normal)),
-        scale: Vec3::new(leaf.length_metres, leaf.width_metres, leaf.length_metres),
+        rotation: Quat::from_mat3(&Mat3::from_cols(direction, normal, transverse)),
+        // Archetype vertices are converted from botanical Y-up to Bevy Y-up
+        // before this transform is applied: width moves from Y to Z and the
+        // normal-displacement axis moves from Z to Y.
+        scale: Vec3::new(leaf.length_metres, leaf.length_metres, leaf.width_metres),
     }
 }
 
@@ -653,7 +656,12 @@ fn smoothstep(value: f32) -> f32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{BotanicalRecipe, compiled_leaf_mesh, generate_botanical_prototype};
+    use bevy::prelude::Vec3;
+
+    use super::{
+        BotanicalRecipe, compiled_leaf_mesh, convert, generate_botanical_prototype, leaf_transform,
+    };
+    use crate::LeafOrgan;
 
     #[test]
     fn static_foliage_compiles_every_leaf_into_one_mesh() {
@@ -671,5 +679,35 @@ mod tests {
         let mesh = compiled_leaf_mesh(&prototype.leaf_archetypes, &prototype.leaves)
             .expect("the reference tree foliage should compile");
         assert_eq!(mesh.count_vertices(), expected);
+    }
+
+    #[test]
+    fn compiled_leaf_transform_maps_converted_width_and_normal_axes() {
+        let leaf = LeafOrgan {
+            axis: 0,
+            blade_base_metres: motu::Vec3::ZERO,
+            direction: motu::Vec3::X,
+            normal: motu::Vec3::Z,
+            length_metres: 0.24,
+            width_metres: 0.08,
+            archetype: 0,
+            age: 0.5,
+            light_exposure: 0.5,
+            variation: 0.0,
+        };
+        let transform = leaf_transform(leaf);
+        assert_eq!(transform.scale, Vec3::new(0.24, 0.24, 0.08));
+        assert!(
+            (transform.rotation * Vec3::Y)
+                .normalize()
+                .dot(convert(leaf.normal))
+                > 0.999
+        );
+        assert!(
+            (transform.rotation * Vec3::Z)
+                .normalize()
+                .dot(convert(motu::Vec3::Y))
+                > 0.999
+        );
     }
 }

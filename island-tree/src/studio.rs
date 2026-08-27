@@ -14,7 +14,7 @@ use bevy::{
     prelude::*,
 };
 use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui, input::EguiWantsInput};
-use island_tree::BotanicalRecipe;
+use island_tree::{BotanicalRecipe, BotanicalSpecies};
 
 use super::{
     RegenerateTree, ReviewCamera, ReviewFrames, ReviewGround, ReviewLight, ReviewLod, ReviewSun,
@@ -287,6 +287,20 @@ impl StudioState {
     }
 }
 
+fn request_tree_rebuild(
+    studio: &StudioState,
+    settings: &Settings,
+    status: &mut TreeBuildStatus,
+    requests: &mut MessageWriter<RegenerateTree>,
+) {
+    if let Some(request) = studio.request(settings) {
+        status.error = None;
+        status.generating = true;
+        status.notice_seconds = 0.0;
+        requests.write(request);
+    }
+}
+
 fn install(mut commands: Commands, settings: Res<Settings>) {
     commands.insert_resource(StudioState::new(&settings));
 }
@@ -373,9 +387,18 @@ fn draw_hud(
         &mut settings,
         &frames,
         &mut cameras,
-        &status,
+        &mut status,
+        &mut requests,
     );
-    draw_inspection_selector(context, &mut studio, &mut settings, &frames, &mut cameras);
+    draw_inspection_selector(
+        context,
+        &mut studio,
+        &mut settings,
+        &frames,
+        &mut status,
+        &mut cameras,
+        &mut requests,
+    );
     draw_inspector(
         context,
         &mut studio,
@@ -406,7 +429,8 @@ fn draw_command_bar(
     settings: &mut Settings,
     frames: &ReviewFrames,
     cameras: &mut Query<(&mut ReviewCamera, &mut Transform), Without<ReviewSun>>,
-    status: &TreeBuildStatus,
+    status: &mut TreeBuildStatus,
+    requests: &mut MessageWriter<RegenerateTree>,
 ) {
     let width = (context.content_rect().width() - 24.0).max(420.0);
     egui::Window::new("tree studio command bar")
@@ -419,7 +443,11 @@ fn draw_command_bar(
             ui.horizontal(|ui| {
                 ui.label(caps("ISLAND TREE STUDIO", 15.0, TEXT).strong());
                 ui.separator();
-                ui.label(caps("PŌHUTUKAWA", 11.0, ACCENT));
+                ui.label(caps(
+                    settings.recipe.species.scientific_name(),
+                    11.0,
+                    ACCENT,
+                ));
                 if status.error.is_none() {
                     ui.label(caps("LIVE · AUTO", 10.0, DIM_TEXT));
                 }
@@ -428,7 +456,8 @@ fn draw_command_bar(
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.button("Reset").clicked() {
-                        studio.recipe = BotanicalRecipe::default();
+                        let leaves_isolated_frond = settings.view == ReviewView::Frond;
+                        studio.recipe = BotanicalRecipe::for_species(studio.recipe.species);
                         studio.lod = ReviewLod::Near;
                         studio.foliage = true;
                         studio.fine_shoots = true;
@@ -437,6 +466,9 @@ fn draw_command_bar(
                         if let Ok((mut camera, mut transform)) = cameras.single_mut() {
                             camera.target = frame.target;
                             *transform = frame.transform;
+                        }
+                        if leaves_isolated_frond {
+                            request_tree_rebuild(studio, settings, status, requests);
                         }
                     }
                 });
@@ -449,7 +481,9 @@ fn draw_inspection_selector(
     studio: &mut StudioState,
     settings: &mut Settings,
     frames: &ReviewFrames,
+    status: &mut TreeBuildStatus,
     cameras: &mut Query<(&mut ReviewCamera, &mut Transform), Without<ReviewSun>>,
+    requests: &mut MessageWriter<RegenerateTree>,
 ) {
     let body_height =
         (context.content_rect().height() - BAR_CLEARANCE - BOTTOM_CLEARANCE - 72.0).max(160.0);
@@ -496,6 +530,9 @@ fn draw_inspection_selector(
                                         button = button.fill(ACCENT);
                                     }
                                     if ui.add_sized([101.0, 28.0], button).clicked() {
+                                        let crosses_frond_boundary = (settings.view
+                                            == ReviewView::Frond)
+                                            != (view == ReviewView::Frond);
                                         settings.view = view;
                                         let frame = frames.get(view);
                                         if let Ok((mut camera, mut transform)) =
@@ -503,6 +540,13 @@ fn draw_inspection_selector(
                                         {
                                             camera.target = frame.target;
                                             *transform = frame.transform;
+                                        }
+                                        if crosses_frond_boundary
+                                            && settings.recipe.species == BotanicalSpecies::Nikau
+                                        {
+                                            request_tree_rebuild(
+                                                studio, settings, status, requests,
+                                            );
                                         }
                                     }
                                     if index % 2 == 1 {
@@ -513,7 +557,7 @@ fn draw_inspection_selector(
                     });
                 ui.add_space(2.0);
                 ui.separator();
-                ui.label(caps("10 INSPECTION VIEWS", 9.0, DIM_TEXT));
+                ui.label(caps("11 INSPECTION VIEWS", 9.0, DIM_TEXT));
             }
         });
 }
@@ -605,13 +649,19 @@ fn draw_tabs(ui: &mut egui::Ui, tab: &mut StudioTab) {
 
 fn draw_form(ui: &mut egui::Ui, studio: &mut StudioState) {
     section(ui, "PLANT FAMILY");
+    let previous_species = studio.recipe.species;
     egui::ComboBox::from_id_salt("plant family")
-        .selected_text("Pōhutukawa · mature tree")
+        .selected_text(studio.recipe.species.label())
         .width(ui.available_width())
         .show_ui(ui, |ui| {
-            let _ = ui.selectable_label(true, "Pōhutukawa · mature tree");
+            for species in BotanicalSpecies::ALL {
+                ui.selectable_value(&mut studio.recipe.species, species, species.label());
+            }
             ui.add_enabled(false, egui::Label::new("Bush recipes · planned"));
         });
+    if studio.recipe.species != previous_species {
+        studio.recipe = BotanicalRecipe::for_species(studio.recipe.species);
+    }
 
     section(ui, "SEED");
     ui.horizontal(|ui| {
@@ -639,19 +689,23 @@ fn draw_form(ui: &mut egui::Ui, studio: &mut StudioState) {
     }
 
     section(ui, "PROPORTIONS");
+    let (height_range, radius_range) = match studio.recipe.species {
+        BotanicalSpecies::Pohutukawa => (5.0..=14.0, 0.25..=1.35),
+        BotanicalSpecies::Nikau => (4.5..=10.0, 0.14..=0.34),
+    };
     slider_f32(
         ui,
         &mut studio.recipe.trunk_height_metres,
-        5.0..=14.0,
+        height_range,
         "Trunk height",
         " m",
     );
-    let radius_max = (studio.recipe.trunk_height_metres * 0.19).min(1.35);
+    let radius_max = (studio.recipe.trunk_height_metres * 0.19).min(*radius_range.end());
     studio.recipe.trunk_radius_metres = studio.recipe.trunk_radius_metres.min(radius_max);
     slider_f32(
         ui,
         &mut studio.recipe.trunk_radius_metres,
-        0.25..=radius_max,
+        *radius_range.start()..=radius_max,
         "Trunk radius",
         " m",
     );
@@ -675,24 +729,44 @@ fn draw_form(ui: &mut egui::Ui, studio: &mut StudioState) {
 }
 
 fn draw_branching(ui: &mut egui::Ui, studio: &mut StudioState) {
-    section(ui, "CROWN STRUCTURE");
-    ui.add(egui::Slider::new(&mut studio.recipe.primary_count, 5..=10).text("Primary limbs"));
-    ui.add(
-        egui::Slider::new(&mut studio.recipe.secondaries_per_primary, 3..=8)
-            .text("Secondary limbs"),
-    );
-    ui.add(
-        egui::Slider::new(&mut studio.recipe.terminals_per_secondary, 3..=8)
-            .text("Terminal shoots"),
-    );
+    match studio.recipe.species {
+        BotanicalSpecies::Pohutukawa => {
+            section(ui, "CROWN STRUCTURE");
+            ui.add(
+                egui::Slider::new(&mut studio.recipe.primary_count, 5..=10).text("Primary limbs"),
+            );
+            ui.add(
+                egui::Slider::new(&mut studio.recipe.secondaries_per_primary, 3..=8)
+                    .text("Secondary limbs"),
+            );
+            ui.add(
+                egui::Slider::new(&mut studio.recipe.terminals_per_secondary, 3..=8)
+                    .text("Terminal shoots"),
+            );
+        }
+        BotanicalSpecies::Nikau => {
+            section(ui, "FROND CROWN");
+            ui.add(
+                egui::Slider::new(&mut studio.recipe.primary_count, 12..=24).text("Live fronds"),
+            );
+            ui.label(
+                egui::RichText::new(
+                    "Fronds follow a deterministic age spiral: young spears rise through the centre while older leaves arch around the crownshaft.",
+                )
+                .small()
+                .color(DIM_TEXT),
+            );
+        }
+    }
 }
 
 fn draw_foliage(ui: &mut egui::Ui, studio: &mut StudioState, settings: &mut Settings) {
     section(ui, "LEAF LOAD");
-    ui.add(
-        egui::Slider::new(&mut studio.recipe.leaves_per_terminal, 8..=64)
-            .text("Leaves per terminal"),
-    );
+    let leaf_label = match studio.recipe.species {
+        BotanicalSpecies::Pohutukawa => "Leaves per terminal",
+        BotanicalSpecies::Nikau => "Leaflet pairs per frond",
+    };
+    ui.add(egui::Slider::new(&mut studio.recipe.leaves_per_terminal, 8..=64).text(leaf_label));
     ui.checkbox(&mut studio.foliage, "Show foliage");
     ui.add_enabled_ui(studio.lod == ReviewLod::Near, |ui| {
         ui.checkbox(&mut studio.fine_shoots, "Fine shoots and buds");

@@ -10,9 +10,10 @@ mod render;
 
 pub use botany::{
     Axis, AxisGraph, BarkVertex, BotanicalImpostor, BotanicalPrototype, BotanicalRecipe,
-    BotanicalTexture, FOLIAGE_PAD_ARCHETYPE_COUNT, FoliagePad, LEAF_ARCHETYPE_COUNT, LeafOrgan,
-    SHOOT_TIP_ARCHETYPE_COUNT, ShootTipOrgan, ShootTipState, generate_botanical_impostor,
-    generate_botanical_prototype,
+    BotanicalSpecies, BotanicalTexture, FOLIAGE_PAD_ARCHETYPE_COUNT, FoliagePad,
+    LEAF_ARCHETYPE_COUNT, LeafOrgan, REPRODUCTIVE_ARCHETYPE_COUNT, ReproductiveOrgan,
+    ReproductiveState, SHOOT_TIP_ARCHETYPE_COUNT, ShootTipOrgan, ShootTipState,
+    generate_botanical_impostor, generate_botanical_prototype, generate_nikau_frond_prototype,
 };
 pub use render::{
     BarkMaterial, BarkMaterialPlugin, CompiledTreeImpostor, CompiledTreePart,

@@ -18,9 +18,10 @@ use motu::{Mesh, Vec2, Vec3};
 use super::{
     model::{
         AXIS_POINTS, Axis, AxisGraph, BarkVertex, BotanicalPrototype, BotanicalRecipe,
-        BotanicalTexture, FOLIAGE_PAD_ARCHETYPE_COUNT, FoliagePad, LEAF_ARCHETYPE_COUNT, LeafOrgan,
-        SHOOT_TIP_ARCHETYPE_COUNT, ShootTipOrgan, ShootTipState,
+        BotanicalSpecies, BotanicalTexture, FOLIAGE_PAD_ARCHETYPE_COUNT, FoliagePad,
+        LEAF_ARCHETYPE_COUNT, LeafOrgan, SHOOT_TIP_ARCHETYPE_COUNT, ShootTipOrgan, ShootTipState,
     },
+    nikau::generate_nikau_prototype,
     random::Rng,
 };
 
@@ -73,8 +74,8 @@ const CANOPY_LIGHT_STEP_METRES: f32 = CANOPY_LIGHT_CELL_METRES * 0.5;
 const CANOPY_EXTINCTION: f32 = 2.35;
 const POHUTUKAWA_LEAF_LENGTH_RANGE_METRES: (f32, f32) = (0.060, 0.105);
 const POHUTUKAWA_LEAF_LENGTH_BOUNDS_METRES: (f32, f32) = (0.050, 0.120);
-const MIDDLE_PROXY_LEAF_LENGTH_RANGE: (f32, f32) = (0.23, 0.33);
-const MIDDLE_PROXY_LEAF_WIDTH_RANGE: (f32, f32) = (0.22, 0.32);
+const MIDDLE_PROXY_LEAF_LENGTH_RANGE: (f32, f32) = (0.18, 0.25);
+const MIDDLE_PROXY_LEAF_WIDTH_RANGE: (f32, f32) = (0.13, 0.18);
 const CANOPY_SKY_DIRECTIONS: [Vec3; 9] = [
     Vec3::new(0.0, 0.0, 1.0),
     Vec3::new(0.573_576, 0.0, 0.819_152),
@@ -98,6 +99,16 @@ pub fn generate_botanical_prototype(
     recipe: BotanicalRecipe,
 ) -> Result<BotanicalPrototype, String> {
     let recipe = recipe.validate()?;
+    match recipe.species {
+        BotanicalSpecies::Pohutukawa => generate_pohutukawa_prototype(seed, recipe),
+        BotanicalSpecies::Nikau => generate_nikau_prototype(seed, recipe),
+    }
+}
+
+fn generate_pohutukawa_prototype(
+    seed: u64,
+    recipe: BotanicalRecipe,
+) -> Result<BotanicalPrototype, String> {
     let graph = generate_graph(seed, recipe)?;
     let FineOrgans {
         microtwigs,
@@ -108,6 +119,7 @@ pub fn generate_botanical_prototype(
     let foliage_pads = generate_foliage_pads(&graph, &leaves);
     let (wood, wood_bark, wood_scars) = generate_wood(seed, &graph)?;
     Ok(BotanicalPrototype {
+        species: recipe.species,
         graph,
         wood,
         wood_bark,
@@ -117,9 +129,11 @@ pub fn generate_botanical_prototype(
         microtwig_bark,
         leaf_archetypes: leaf_archetypes(),
         shoot_tip_archetypes: shoot_tip_archetypes(),
+        reproductive_archetypes: std::array::from_fn(|_| Mesh::default()),
         foliage_pad_archetypes: foliage_pad_archetypes(),
         leaves,
         shoot_tips,
+        reproductive_organs: Vec::new(),
         foliage_pads,
         bark_albedo: bark_texture(seed ^ TEXTURE_SEED_DOMAIN),
         bark_normal: bark_normal_texture(seed ^ TEXTURE_SEED_DOMAIN),
@@ -157,6 +171,7 @@ struct CrownEnvironment {
     shape_axis: f32,
     major_radius_metres: f32,
     minor_radius_metres: f32,
+    half_height_metres: f32,
     lee_extension: f32,
     upper_lean_metres: f32,
     gap_direction: f32,
@@ -168,10 +183,11 @@ fn crown_environment(seed: u64, storm_direction: f32) -> CrownEnvironment {
     CrownEnvironment {
         storm_direction,
         shape_axis: storm_direction + rng.range(-0.82, 0.82),
-        major_radius_metres: rng.range(6.3, 7.1),
-        minor_radius_metres: rng.range(4.7, 5.7),
-        lee_extension: rng.range(0.08, 0.20),
-        upper_lean_metres: rng.range(0.45, 1.15),
+        major_radius_metres: rng.range(7.4, 8.5),
+        minor_radius_metres: rng.range(5.2, 6.2),
+        half_height_metres: rng.range(2.55, 3.15),
+        lee_extension: rng.range(0.12, 0.28),
+        upper_lean_metres: rng.range(0.55, 1.35),
         gap_direction: storm_direction + rng.range(-0.58, 0.58),
         gap_half_width: rng.range(0.32, 0.52),
     }
@@ -179,9 +195,11 @@ fn crown_environment(seed: u64, storm_direction: f32) -> CrownEnvironment {
 
 fn generate_competition_graph(seed: u64, recipe: BotanicalRecipe) -> Result<AxisGraph, String> {
     let mut rng = Rng::new(seed ^ BOTANICAL_SEED_DOMAIN);
-    let drift = Vec3::new(rng.range(-0.38, 0.38), rng.range(-0.24, 0.24), 0.0);
-    let trunk = trunk_axis(recipe, drift);
     let storm_direction = rng.range(-PI, PI);
+    let wind = Vec3::new(storm_direction.cos(), storm_direction.sin(), 0.0);
+    let crosswind = Vec3::new(-wind.y, wind.x, 0.0);
+    let drift = -wind * rng.range(0.45, 1.05) + crosswind * rng.range(-0.28, 0.28);
+    let trunk = trunk_axis(recipe, drift);
     let environment = crown_environment(seed, storm_direction);
     let attraction_count = usize::from(recipe.primary_count)
         * usize::from(recipe.secondaries_per_primary)
@@ -232,7 +250,7 @@ fn crown_seeds(
     (0..seed_count)
         .map(|seed| {
             let level = seed as f32 / (seed_count - 1) as f32;
-            let attachment = 0.28 + level * 0.48 + rng.range(-0.018, 0.018);
+            let attachment = 0.18 + level * 0.38 + rng.range(-0.018, 0.018);
             let azimuth = seed as f32 * 2.399_963_1 + rng.range(-0.28, 0.28);
             let horizontal = Vec3::new(azimuth.cos(), azimuth.sin(), 0.0);
             let wind_alignment = (azimuth - environment.storm_direction).cos();
@@ -243,14 +261,14 @@ fn crown_seeds(
             let (position, trunk_tangent, _) = trunk.sample(attachment);
             let leader = seed + 1 == seed_count;
             let horizontal_weight = if leader {
-                0.38
+                0.70
             } else {
-                (1.0 - windward * 0.28 + leeward * 0.12) * if in_gap { 0.58 } else { 1.0 }
+                (1.0 - windward * 0.30 + leeward * 0.16) * if in_gap { 0.62 } else { 1.0 }
             };
             let mut apical_weight = if leader {
-                rng.range(0.72, 0.92)
+                rng.range(0.48, 0.62)
             } else {
-                rng.range(0.16, 0.34) + level * 0.12
+                rng.range(0.10, 0.24) + level * 0.08
             };
             if in_gap && !leader {
                 apical_weight += 0.20;
@@ -259,13 +277,13 @@ fn crown_seeds(
                 position,
                 direction: (horizontal * horizontal_weight
                     + trunk_tangent * apical_weight
-                    + Vec3::Z * level * 0.12)
+                    + Vec3::Z * level * 0.05)
                     .normalize_or(Vec3::Z),
                 parent: None,
                 depth: 0,
                 children: 0,
                 exposure: (0.72 + level * 0.22 - windward * 0.14).clamp(0.2, 1.0),
-                apical_control: if leader { 1.0 } else { 0.10 + level * 0.18 },
+                apical_control: if leader { 0.58 } else { 0.06 + level * 0.12 },
             }
         })
         .collect()
@@ -307,29 +325,34 @@ fn crown_attractions(
         let windward = wind_alignment.max(0.0);
         let leeward = (-wind_alignment).max(0.0);
         let lobe = 0.98
-            + (sector * 3.0 + environment.shape_axis * 0.37).sin() * 0.12
-            + (sector * 5.0 - environment.shape_axis * 0.21).sin() * 0.08;
-        let upper_taper = 1.0 - unit.z.max(0.0) * 0.12;
+            + (sector * 3.0 + environment.shape_axis * 0.37).sin() * 0.18
+            + (sector * 5.0 - environment.shape_axis * 0.21).sin() * 0.09;
+        let vertical_profile = 1.0 + (-unit.z).max(0.0) * 0.12 - unit.z.max(0.0) * 0.08;
         let wind_scale = 1.0 - windward * 0.16 + leeward * environment.lee_extension;
         let horizontal = (major_axis * unit.dot(major_axis) * environment.major_radius_metres
             + minor_axis * unit.dot(minor_axis) * environment.minor_radius_metres)
             * lobe
-            * upper_taper
+            * vertical_profile
             * wind_scale;
         let upper_lean =
             -wind * environment.upper_lean_metres * unit.z.mul_add(0.74, 0.26).clamp(0.0, 1.0);
+        let lobe_height = (sector * 2.0 + environment.shape_axis * 0.41).sin() * 0.34
+            + (sector * 5.0 - environment.shape_axis * 0.19).sin() * 0.16;
         let position = horizontal
             + upper_lean
-            + Vec3::Z * recipe.trunk_height_metres.mul_add(0.68, unit.z * 4.15)
+            + Vec3::Z
+                * (recipe.trunk_height_metres * 0.58
+                    + unit.z * environment.half_height_metres
+                    + lobe_height)
             + drift * (0.45 + unit.z.max(0.0) * 0.55);
         let radial = position.x.hypot(position.y);
-        let protected_core = radial < 1.05 && position.z < recipe.trunk_height_metres * 0.82;
+        let protected_core = radial < 1.05 && position.z < recipe.trunk_height_metres * 0.68;
         let storm_gap = (sector - environment.gap_direction).cos()
             > environment.gap_half_width.cos()
             && unit.z > -0.30
             && radial > 1.6
             && rng.unit() > 0.20;
-        if position.z > 2.5 && !protected_core && !storm_gap {
+        if position.z > 1.75 && !protected_core && !storm_gap {
             points.push(position);
         }
     }
@@ -368,14 +391,14 @@ fn colonise_crown(
             let wind = Vec3::new(storm_direction.cos(), storm_direction.sin(), 0.0);
             let direction = (average * 1.35
                 + nodes[index].direction * 0.82
-                + Vec3::Z * (rng.range(0.04, 0.18) + nodes[index].apical_control * 0.12)
+                + Vec3::Z * (rng.range(-0.02, 0.09) + nodes[index].apical_control * 0.08)
                 - wind * rng.range(0.0, 0.08) * (1.0 - nodes[index].apical_control * 0.25))
                 .normalize_or(nodes[index].direction);
             if has_similar_child(nodes, index, direction) {
                 continue;
             }
             let step =
-                rng.range(0.62, 0.88) * (1.0 - f32::from(nodes[index].depth).min(12.0) * 0.012);
+                rng.range(0.68, 0.94) * (1.0 - f32::from(nodes[index].depth).min(12.0) * 0.012);
             let position = nodes[index].position + direction * step;
             if separated(position, nodes, &candidates) {
                 candidates.push(GrowthNode {
@@ -464,10 +487,10 @@ fn append_growth_axes(
         };
         let load_radius = f32::from(loads[node_index])
             .sqrt()
-            .mul_add(0.030, 0.026)
-            .clamp(0.034, 0.34);
+            .mul_add(0.040, 0.034)
+            .clamp(0.042, 0.40);
         let root_radius = load_radius.min(match order {
-            1 => 0.30,
+            1 => 0.40,
             2 => 0.14,
             _ => 0.058,
         });
@@ -1293,11 +1316,7 @@ fn append_leaves_on_shoot(
             + fan * rng.range(0.74, 0.92)
             + Vec3::Z * (rng.range(0.08, 0.20) + plan.cohort.upward_bias))
             .normalize_or(fan);
-        let projected_sky = (Vec3::Z - direction * direction.z).normalize_or(Vec3::Z);
-        let cross_roll = tangent.cross(direction).normalize_or(Vec3::Y);
-        let sky_weight = (plan.cohort.sky_alignment + rng.range(-0.055, 0.055)).clamp(0.62, 1.0);
-        let roll = (plan.cohort.roll_bias + rng.range(-0.11, 0.11)).clamp(-0.36, 0.36);
-        let normal = (projected_sky * sky_weight + cross_roll * roll).normalize_or(projected_sky);
+        let normal = pohutukawa_leaf_normal(direction, tangent, local_index, plan.cohort, rng);
         let paired_offset = if local_index.is_multiple_of(2) {
             -0.006
         } else {
@@ -1324,6 +1343,41 @@ fn append_leaves_on_shoot(
             variation,
         });
     }
+}
+
+fn pohutukawa_leaf_normal(
+    direction: Vec3,
+    tangent: Vec3,
+    local_index: usize,
+    cohort: FoliageCohort,
+    rng: &mut Rng,
+) -> Vec3 {
+    let sky = (Vec3::Z - direction * direction.z).normalize_or(Vec3::Z);
+    let lateral = direction
+        .cross(sky)
+        .normalize_or(tangent.cross(direction).normalize_or(Vec3::Y));
+    // Mature pōhutukawa foliage forms dense, wind-combed terminal sprays. The
+    // blade planes are biased toward the sky but are not a horizontal shell:
+    // opposite leaves open into shallow alternating Vs, with exposed cohorts
+    // carrying the largest inclination. This distribution became necessary
+    // once the renderer stopped swapping blade width and surface relief.
+    let pair_sign = if local_index.is_multiple_of(2) {
+        -1.0
+    } else {
+        1.0
+    };
+    let alternate_sign = if (local_index / 2).is_multiple_of(2) {
+        -1.0
+    } else {
+        1.0
+    };
+    let inclination = (0.82
+        + (1.0 - cohort.sky_alignment) * 1.82
+        + cohort.roll_bias.abs() * 0.42
+        + rng.range(-0.14, 0.28))
+    .clamp(0.65, 1.44);
+    let signed_inclination = pair_sign * inclination + alternate_sign * cohort.roll_bias * 0.42;
+    (sky * signed_inclination.cos() + lateral * signed_inclination.sin()).normalize_or(sky)
 }
 
 fn append_previous_flush_leaves(
@@ -1519,12 +1573,12 @@ fn leaf_dimensions(rng: &mut Rng, productive: f32, archetype: u8, cohort_scale: 
             POHUTUKAWA_LEAF_LENGTH_BOUNDS_METRES.1,
         );
     let aspect_ratio = match archetype {
-        1 | 5 => rng.range(2.7, 3.2),
-        2 | 6 => rng.range(2.0, 2.6),
-        3 | 7 => rng.range(2.2, 2.9),
-        _ => rng.range(2.35, 2.95),
+        1 | 5 => rng.range(2.05, 2.55),
+        2 | 6 => rng.range(1.70, 2.15),
+        3 | 7 => rng.range(1.80, 2.35),
+        _ => rng.range(1.85, 2.35),
     };
-    (length, length / aspect_ratio)
+    (length, (length / aspect_ratio).clamp(0.018, 0.060))
 }
 
 #[derive(Debug)]
@@ -2724,7 +2778,7 @@ fn pad_mesh(seed: u64) -> Mesh {
     let source = pad_leaf_mesh();
     let mut rng = Rng::new(seed);
     let mut result = Mesh::default();
-    for spray in 0..3 {
+    for spray in 0..5 {
         append_pad_spray(&mut result, &source, &mut rng, spray);
     }
     result.calculate_normals();
@@ -2732,8 +2786,8 @@ fn pad_mesh(seed: u64) -> Mesh {
 }
 
 fn pad_leaf_mesh() -> Mesh {
-    const STATIONS: usize = 9;
-    const COLUMNS: [f32; 5] = [-1.0, -0.52, 0.0, 0.52, 1.0];
+    const STATIONS: usize = 5;
+    const COLUMNS: [f32; 3] = [-1.0, 0.0, 1.0];
     let mut mesh = Mesh::default();
     for station in 0..STATIONS {
         let x = station as f32 / (STATIONS - 1) as f32;
@@ -2788,8 +2842,8 @@ fn append_pad_spray(destination: &mut Mesh, source: &Mesh, rng: &mut Rng, spray:
         base_phase.cos() * rng.range(0.04, 0.20),
         base_phase.sin() * rng.range(0.06, 0.22),
     );
-    for node in 0..3 {
-        let station = 0.22 + node as f32 * 0.29 + rng.range(-0.025, 0.025);
+    for node in 0..4 {
+        let station = 0.16 + node as f32 * 0.22 + rng.range(-0.022, 0.022);
         let node_phase = base_phase + node as f32 * PI * 0.5 + rng.range(-0.10, 0.10);
         let fan = spray_up * node_phase.cos() + spray_side * node_phase.sin();
         for pair in [-1.0_f32, 1.0] {
@@ -2814,7 +2868,7 @@ fn append_pad_spray(destination: &mut Mesh, source: &Mesh, rng: &mut Rng, spray:
                 rng.range(
                     MIDDLE_PROXY_LEAF_LENGTH_RANGE.0,
                     MIDDLE_PROXY_LEAF_LENGTH_RANGE.1,
-                ) + node as f32 * 0.012,
+                ) + node as f32 * 0.008,
                 rng.range(
                     MIDDLE_PROXY_LEAF_WIDTH_RANGE.0,
                     MIDDLE_PROXY_LEAF_WIDTH_RANGE.1,
@@ -3511,7 +3565,7 @@ mod tests {
                 && prototype.graph.axes[leaf.axis as usize].alive
                 && (0.05..=0.12).contains(&leaf.length_metres)
                 && (0.015..=0.060).contains(&leaf.width_metres)
-                && (2.0..=3.2).contains(&(leaf.length_metres / leaf.width_metres))
+                && (1.70..=2.55).contains(&(leaf.length_metres / leaf.width_metres))
                 && (0.0..=1.0).contains(&leaf.light_exposure)
         }));
         let epicormic_leaf_count = prototype
@@ -3586,7 +3640,24 @@ mod tests {
         let mean_length = total_length / count as f32;
         let mean_width = total_width / count as f32;
         assert!((0.065..=0.090).contains(&mean_length));
-        assert!((0.022..=0.035).contains(&mean_width));
+        assert!((0.028..=0.045).contains(&mean_width));
+    }
+
+    #[test]
+    fn pohutukawa_leaf_planes_form_oblique_terminal_sprays() {
+        let prototype =
+            generate_botanical_prototype(42, BotanicalRecipe::default()).expect("prototype");
+        let oblique = prototype
+            .leaves
+            .iter()
+            .filter(|leaf| {
+                assert!(leaf.direction.dot(leaf.normal).abs() < 1.0e-4);
+                let sky = (Vec3::Z - leaf.direction * leaf.direction.z).normalize_or(Vec3::Z);
+                let inclination = leaf.normal.dot(sky).clamp(-1.0, 1.0).acos();
+                (0.55..=1.54).contains(&inclination)
+            })
+            .count();
+        assert!(oblique * 4 > prototype.leaves.len() * 3);
     }
 
     #[test]
@@ -3717,12 +3788,62 @@ mod tests {
         for seed in [3, 42, 666, 2026, 9_001] {
             let environment = crown_environment(seed, 0.37);
             assert_eq!(environment, crown_environment(seed, 0.37));
-            assert!((6.3..=7.1).contains(&environment.major_radius_metres));
-            assert!((4.7..=5.7).contains(&environment.minor_radius_metres));
+            assert!((7.4..=8.5).contains(&environment.major_radius_metres));
+            assert!((5.2..=6.2).contains(&environment.minor_radius_metres));
             assert!(environment.major_radius_metres > environment.minor_radius_metres);
-            assert!((0.08..=0.20).contains(&environment.lee_extension));
-            assert!((0.45..=1.15).contains(&environment.upper_lean_metres));
+            assert!((2.55..=3.15).contains(&environment.half_height_metres));
+            assert!((0.12..=0.28).contains(&environment.lee_extension));
+            assert!((0.55..=1.35).contains(&environment.upper_lean_metres));
             assert!((0.32..=0.52).contains(&environment.gap_half_width));
+        }
+    }
+
+    #[test]
+    fn pohutukawa_crowns_are_broad_low_forking_coastal_forms() {
+        for seed in [3, 17, 42, 81, 137, 233, 377, 512, 666, 1_001, 2_026, 9_001] {
+            let graph = generate_competition_graph(seed, BotanicalRecipe::default())
+                .expect("competition graph");
+            let tips: Vec<_> = graph
+                .axes
+                .iter()
+                .filter(|axis| axis.order == 3)
+                .map(|axis| axis.points_metres[AXIS_POINTS - 1])
+                .collect();
+            let vertical_extent = tips.iter().map(|tip| tip.z).fold(
+                (f32::INFINITY, f32::NEG_INFINITY),
+                |(minimum, maximum), z| (minimum.min(z), maximum.max(z)),
+            );
+            let horizontal_diameter = tips
+                .iter()
+                .enumerate()
+                .flat_map(|(index, left)| {
+                    tips[index + 1..].iter().map(move |right| (*left, *right))
+                })
+                .map(|(left, right)| {
+                    let separation = left - right;
+                    separation.x.hypot(separation.y)
+                })
+                .fold(0.0, f32::max);
+            let crown_height = vertical_extent.1 - vertical_extent.0;
+            assert!(
+                horizontal_diameter / crown_height.max(0.001) >= 1.55,
+                "seed {seed} crown is not broad enough: diameter {horizontal_diameter}, height {crown_height}"
+            );
+
+            let trunk_height = graph.axes[0].points_metres[AXIS_POINTS - 1].z;
+            let low_scaffolds = graph
+                .axes
+                .iter()
+                .filter(|axis| {
+                    axis.order == 1
+                        && axis.parent == Some(0)
+                        && axis.points_metres[0].z <= trunk_height * 0.38
+                })
+                .count();
+            assert!(
+                low_scaffolds >= 2,
+                "seed {seed} has only {low_scaffolds} low scaffold limbs"
+            );
         }
     }
 
@@ -3738,12 +3859,12 @@ mod tests {
                 metrics.aspect
             );
             assert!(
-                (0.45..=1.50).contains(&metrics.horizontal_offset_metres),
+                (0.45..=2.60).contains(&metrics.horizontal_offset_metres),
                 "seed {seed} crown offset {} is outside the species gate",
                 metrics.horizontal_offset_metres
             );
             assert!(
-                (0.53..=0.93).contains(&metrics.leader_efficiency),
+                (0.38..=0.88).contains(&metrics.leader_efficiency),
                 "seed {seed} leader efficiency {} is outside the species gate",
                 metrics.leader_efficiency
             );
@@ -3753,7 +3874,7 @@ mod tests {
                 metrics.leader_alignment
             );
             assert!(
-                metrics.largest_vertical_gap <= 0.065,
+                metrics.largest_vertical_gap <= 0.075,
                 "seed {seed} vertical gap {} is outside the species gate",
                 metrics.largest_vertical_gap
             );

@@ -11,13 +11,43 @@ use motu::{Mesh, Vec3};
 pub const LEAF_ARCHETYPE_COUNT: usize = 8;
 pub const FOLIAGE_PAD_ARCHETYPE_COUNT: usize = 2;
 pub const SHOOT_TIP_ARCHETYPE_COUNT: usize = 2;
+pub const REPRODUCTIVE_ARCHETYPE_COUNT: usize = 2;
 pub(super) const AXIS_POINTS: usize = 5;
 const RECIPE_VERSION: u16 = 1;
 
-/// Bounded physical controls for one mature, wind-exposed pōhutukawa.
+/// Species architectures available through the shared botanical prototype.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum BotanicalSpecies {
+    #[default]
+    Pohutukawa,
+    Nikau,
+}
+
+impl BotanicalSpecies {
+    pub const ALL: [Self; 2] = [Self::Pohutukawa, Self::Nikau];
+
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Pohutukawa => "Pōhutukawa · mature tree",
+            Self::Nikau => "Nīkau · mature palm",
+        }
+    }
+
+    #[must_use]
+    pub const fn scientific_name(self) -> &'static str {
+        match self {
+            Self::Pohutukawa => "Metrosideros excelsa",
+            Self::Nikau => "Rhopalostylis sapida",
+        }
+    }
+}
+
+/// Bounded physical controls for one mature procedural plant.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BotanicalRecipe {
     pub version: u16,
+    pub species: BotanicalSpecies,
     pub trunk_height_metres: f32,
     pub trunk_radius_metres: f32,
     pub primary_count: u8,
@@ -28,19 +58,37 @@ pub struct BotanicalRecipe {
 
 impl Default for BotanicalRecipe {
     fn default() -> Self {
-        Self {
-            version: RECIPE_VERSION,
-            trunk_height_metres: 8.8,
-            trunk_radius_metres: 0.58,
-            primary_count: 9,
-            secondaries_per_primary: 6,
-            terminals_per_secondary: 8,
-            leaves_per_terminal: 64,
-        }
+        Self::for_species(BotanicalSpecies::Pohutukawa)
     }
 }
 
 impl BotanicalRecipe {
+    #[must_use]
+    pub const fn for_species(species: BotanicalSpecies) -> Self {
+        match species {
+            BotanicalSpecies::Pohutukawa => Self {
+                version: RECIPE_VERSION,
+                species,
+                trunk_height_metres: 7.2,
+                trunk_radius_metres: 0.58,
+                primary_count: 9,
+                secondaries_per_primary: 6,
+                terminals_per_secondary: 8,
+                leaves_per_terminal: 64,
+            },
+            BotanicalSpecies::Nikau => Self {
+                version: RECIPE_VERSION,
+                species,
+                trunk_height_metres: 5.4,
+                trunk_radius_metres: 0.24,
+                primary_count: 17,
+                secondaries_per_primary: 3,
+                terminals_per_secondary: 3,
+                leaves_per_terminal: 48,
+            },
+        }
+    }
+
     pub(super) fn validate(self) -> Result<Self, String> {
         if self.version != RECIPE_VERSION {
             return Err(format!(
@@ -56,7 +104,11 @@ impl BotanicalRecipe {
         {
             return Err("botanical trunk dimensions are outside their bounds".into());
         }
-        if !(5..=10).contains(&self.primary_count)
+        let primary_is_bounded = match self.species {
+            BotanicalSpecies::Pohutukawa => (5..=10).contains(&self.primary_count),
+            BotanicalSpecies::Nikau => (12..=24).contains(&self.primary_count),
+        };
+        if !primary_is_bounded
             || !(3..=8).contains(&self.secondaries_per_primary)
             || !(3..=8).contains(&self.terminals_per_secondary)
             || !(8..=64).contains(&self.leaves_per_terminal)
@@ -135,6 +187,24 @@ pub enum ShootTipState {
     Broken,
 }
 
+/// One bounded flowering or fruiting cluster attached below a palm crown.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ReproductiveOrgan {
+    pub axis: u32,
+    pub base_metres: Vec3,
+    pub direction: Vec3,
+    pub length_metres: f32,
+    pub radius_metres: f32,
+    pub state: ReproductiveState,
+    pub variation: f32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReproductiveState {
+    Flower,
+    Fruit,
+}
+
 /// One twig-local middle-distance instance derived from the terminal's real
 /// leaf envelope. The extents use the pad's direction, normal, and transverse
 /// frame rather than world axes. Renderers share exactly two porous meshes.
@@ -170,6 +240,7 @@ pub struct BarkVertex {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct BotanicalPrototype {
+    pub species: BotanicalSpecies,
     pub graph: AxisGraph,
     pub wood: Mesh,
     pub wood_bark: Vec<BarkVertex>,
@@ -186,9 +257,11 @@ pub struct BotanicalPrototype {
     pub microtwig_bark: Vec<BarkVertex>,
     pub leaf_archetypes: [Mesh; LEAF_ARCHETYPE_COUNT],
     pub shoot_tip_archetypes: [Mesh; SHOOT_TIP_ARCHETYPE_COUNT],
+    pub reproductive_archetypes: [Mesh; REPRODUCTIVE_ARCHETYPE_COUNT],
     pub foliage_pad_archetypes: [Mesh; FOLIAGE_PAD_ARCHETYPE_COUNT],
     pub leaves: Vec<LeafOrgan>,
     pub shoot_tips: Vec<ShootTipOrgan>,
+    pub reproductive_organs: Vec<ReproductiveOrgan>,
     pub foliage_pads: Vec<FoliagePad>,
     pub bark_albedo: BotanicalTexture,
     pub bark_normal: BotanicalTexture,

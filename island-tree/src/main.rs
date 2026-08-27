@@ -47,9 +47,10 @@ use bevy::{
 };
 use island_tree::{
     Axis, AxisGraph, BarkMaterial, BarkMaterialPlugin, BarkVertex, BotanicalPrototype,
-    BotanicalRecipe, BotanicalTexture, FoliagePad, LEAF_ARCHETYPE_COUNT, LeafMaterial,
-    LeafMaterialPlugin, LeafOrgan, ShootTipOrgan, ShootTipState, compile_botanical_impostor,
-    generate_botanical_prototype,
+    BotanicalRecipe, BotanicalSpecies, BotanicalTexture, FoliagePad, LEAF_ARCHETYPE_COUNT,
+    LeafMaterial, LeafMaterialPlugin, LeafOrgan, ReproductiveOrgan, ReproductiveState,
+    ShootTipOrgan, ShootTipState, compile_botanical_impostor, generate_botanical_prototype,
+    generate_nikau_frond_prototype,
 };
 use motu::Mesh as MotuMesh;
 
@@ -98,6 +99,7 @@ enum ReviewView {
     Whole,
     WholeQuarter,
     Crown,
+    Frond,
     Detail,
     Leaf,
     Tip,
@@ -108,10 +110,11 @@ enum ReviewView {
 }
 
 impl ReviewView {
-    const ALL: [Self; 10] = [
+    const ALL: [Self; 11] = [
         Self::Whole,
         Self::WholeQuarter,
         Self::Crown,
+        Self::Frond,
         Self::Detail,
         Self::Leaf,
         Self::Tip,
@@ -126,6 +129,7 @@ impl ReviewView {
             Self::Whole => "Whole",
             Self::WholeQuarter => "Quarter",
             Self::Crown => "Crown",
+            Self::Frond => "Frond",
             Self::Detail => "Detail",
             Self::Leaf => "Leaf",
             Self::Tip => "Tip",
@@ -141,6 +145,7 @@ impl ReviewView {
             "whole" => Ok(Self::Whole),
             "whole-quarter" => Ok(Self::WholeQuarter),
             "crown" => Ok(Self::Crown),
+            "frond" => Ok(Self::Frond),
             "detail" => Ok(Self::Detail),
             "leaf" => Ok(Self::Leaf),
             "tip" => Ok(Self::Tip),
@@ -149,12 +154,15 @@ impl ReviewView {
             "epicormic" => Ok(Self::Epicormic),
             "junction" => Ok(Self::Junction),
             _ => Err(format!(
-                "unknown view {value:?}; expected whole, whole-quarter, crown, detail, leaf, tip, root, scar, epicormic, or junction"
+                "unknown view {value:?}; expected whole, whole-quarter, crown, frond, detail, leaf, tip, root, scar, epicormic, or junction"
             )),
         }
     }
 
     fn frame(self, prototype: &BotanicalPrototype) -> ReviewFrame {
+        if prototype.species == BotanicalSpecies::Nikau {
+            return nikau_review_frame(self, prototype);
+        }
         if self == Self::Scar {
             return scar_review_frame(&prototype.wood_scars);
         }
@@ -167,7 +175,7 @@ impl ReviewView {
         let (eye, target) = match self {
             Self::Whole => (Vec3::new(16.6, 6.0, 18.4), Vec3::new(0.0, 4.6, 0.0)),
             Self::WholeQuarter => (Vec3::new(-18.4, 6.0, 16.6), Vec3::new(0.0, 4.6, 0.0)),
-            Self::Crown => (Vec3::new(9.8, 8.1, 10.7), Vec3::new(0.0, 6.7, 0.0)),
+            Self::Crown | Self::Frond => (Vec3::new(9.8, 8.1, 10.7), Vec3::new(0.0, 6.7, 0.0)),
             Self::Detail => (Vec3::new(4.2, 6.4, 4.5), Vec3::new(0.2, 5.7, 0.0)),
             Self::Leaf => (Vec3::new(7.2, 7.8, 6.3), Vec3::new(3.2, 7.2, 2.4)),
             Self::Tip => (Vec3::new(4.65, 7.45, 3.75), Vec3::new(3.2, 7.2, 2.4)),
@@ -178,6 +186,99 @@ impl ReviewView {
         };
         ReviewFrame::new(eye, target, Vec3::Y)
     }
+}
+
+fn nikau_review_frame(view: ReviewView, prototype: &BotanicalPrototype) -> ReviewFrame {
+    if view == ReviewView::Frond {
+        return nikau_frond_review_frame(prototype);
+    }
+    if view == ReviewView::Junction {
+        return nikau_junction_review_frame(prototype);
+    }
+    let top = prototype
+        .graph
+        .axes
+        .iter()
+        .flat_map(|axis| axis.points_metres)
+        .map(|point| point.z)
+        .fold(0.0_f32, f32::max);
+    let crown = (top - 1.15).max(5.0);
+    let (eye, target) = match view {
+        ReviewView::Whole => (Vec3::new(9.5, 1.80, 11.5), Vec3::new(0.0, top * 0.52, 0.0)),
+        ReviewView::WholeQuarter => (Vec3::new(-11.5, 1.80, 9.5), Vec3::new(0.0, top * 0.52, 0.0)),
+        ReviewView::Crown | ReviewView::Scar | ReviewView::Epicormic => (
+            Vec3::new(5.8, crown - 1.60, 6.4),
+            Vec3::new(0.0, crown + 0.20, 0.0),
+        ),
+        ReviewView::Detail => (
+            Vec3::new(4.6, crown - 0.15, 5.2),
+            Vec3::new(0.0, crown, 0.0),
+        ),
+        ReviewView::Leaf | ReviewView::Tip => (
+            Vec3::new(5.2, crown + 0.55, 4.7),
+            Vec3::new(1.5, crown + 0.35, 1.1),
+        ),
+        ReviewView::Root => (Vec3::new(3.2, 1.35, 3.6), Vec3::new(0.0, 0.72, 0.0)),
+        ReviewView::Frond | ReviewView::Junction => {
+            unreachable!("specialist nīkau view returns above")
+        }
+    };
+    ReviewFrame::new(eye, target, Vec3::Y)
+}
+
+fn nikau_junction_review_frame(prototype: &BotanicalPrototype) -> ReviewFrame {
+    let Some(trunk) = prototype.graph.axes.first() else {
+        return ReviewFrame::new(Vec3::new(1.0, 5.0, 1.0), Vec3::Y * 5.5, Vec3::Y);
+    };
+    let junction = convert(
+        *trunk
+            .points_metres
+            .last()
+            .expect("botanical axes always contain points"),
+    );
+    ReviewFrame::new(
+        junction + Vec3::new(1.15, -0.72, 1.30),
+        junction + Vec3::Y * 0.10,
+        Vec3::Y,
+    )
+}
+
+fn nikau_frond_review_frame(prototype: &BotanicalPrototype) -> ReviewFrame {
+    let Some(axis) = prototype.graph.axes.first() else {
+        return ReviewFrame::new(Vec3::new(5.0, 3.0, 5.0), Vec3::Y * 3.0, Vec3::Y);
+    };
+    let (sum, count) =
+        prototype
+            .leaves
+            .iter()
+            .fold((motu::Vec3::ZERO, 0_u32), |(sum, count), leaf| {
+                (
+                    sum + leaf.blade_base_metres + leaf.direction * (leaf.length_metres * 0.5),
+                    count + 1,
+                )
+            });
+    let tip = *axis
+        .points_metres
+        .last()
+        .expect("botanical axes always contain points");
+    let centre = if count == 0 {
+        (axis.points_metres[0] + tip) * 0.5
+    } else {
+        sum / count as f32
+    };
+    let frond_direction = (tip - axis.points_metres[0]).normalize_or(motu::Vec3::X);
+    let broadside = frond_direction
+        .cross(motu::Vec3::Z)
+        .normalize_or(motu::Vec3::Y);
+    let plane_normal = broadside.cross(frond_direction).normalize_or(motu::Vec3::Z);
+    let target = convert(centre);
+    // Inspect almost normal to the frond plane. An oblique broadside view looks
+    // down the pinnae and turns even narrow blades into an unreadable stack of
+    // cards; the slight offset retains enough fold and rachis depth to judge
+    // the procedural surface.
+    let eye = convert(centre + plane_normal * 4.3 - frond_direction * 0.85 + broadside * 1.8);
+    let image_up = convert(frond_direction.lerp(broadside, 0.55)).normalize_or(Vec3::Z);
+    ReviewFrame::new(eye, target, image_up)
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -542,8 +643,11 @@ fn setup(
     commands.insert_resource(frames);
     commands.insert_resource(metrics);
     commands.init_resource::<TreeBuildStatus>();
-    spawn_stage(&mut commands, &mut meshes, &mut materials);
-    spawn_lighting(&mut commands, &settings, &mut mediums);
+    let ground = spawn_stage(&mut commands, &mut meshes, &mut materials);
+    if settings.view == ReviewView::Frond {
+        commands.entity(ground).insert(Visibility::Hidden);
+    }
+    spawn_lighting(&mut commands, &settings, camera_frame, &mut mediums);
     let mut camera = commands.spawn((
         Name::new("Tree review camera"),
         ReviewCamera {
@@ -590,7 +694,13 @@ fn generate_review_prototype(
     settings: &Settings,
 ) -> Result<(BotanicalPrototype, TreeMetrics), String> {
     let started = Instant::now();
-    let prototype = generate_botanical_prototype(settings.seed, settings.recipe)?;
+    let prototype = if settings.view == ReviewView::Frond
+        && settings.recipe.species == BotanicalSpecies::Nikau
+    {
+        generate_nikau_frond_prototype(settings.seed, settings.recipe)?
+    } else {
+        generate_botanical_prototype(settings.seed, settings.recipe)?
+    };
     let metrics = TreeMetrics::new(&prototype, started.elapsed().as_millis());
     Ok((prototype, metrics))
 }
@@ -639,6 +749,7 @@ fn regenerate_tree(
     mut status: ResMut<TreeBuildStatus>,
     mut cameras: Query<(&mut ReviewCamera, &mut Transform), Without<ReviewSun>>,
     mut suns: Query<&mut Transform, (With<ReviewSun>, Without<ReviewCamera>)>,
+    mut grounds: Query<&mut Visibility, With<ReviewGround>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut bark_materials: ResMut<Assets<BarkMaterial>>,
@@ -680,7 +791,15 @@ fn regenerate_tree(
         *transform = frame.transform;
     }
     for mut transform in &mut suns {
-        *transform = Transform::default().looking_to(request.light.direction(), Vec3::Y);
+        *transform =
+            Transform::default().looking_to(review_light_direction(&request, frame), Vec3::Y);
+    }
+    for mut visibility in &mut grounds {
+        *visibility = if request.view == ReviewView::Frond {
+            Visibility::Hidden
+        } else {
+            Visibility::Visible
+        };
     }
     *settings = request;
     *frames = next_frames;
@@ -702,9 +821,10 @@ fn spawn_tree(
     settings: &Settings,
     prototype: BotanicalPrototype,
 ) {
+    let species_name = prototype.species.scientific_name();
     let tree_root = commands
         .spawn((
-            Name::new("Generated pōhutukawa"),
+            Name::new(format!("Generated {species_name}")),
             TreeRoot,
             Transform::default(),
             Visibility::default(),
@@ -714,7 +834,7 @@ fn spawn_tree(
         let impostor = compile_botanical_impostor(&prototype, meshes, images, materials)
             .unwrap_or_else(|error| panic!("tree impostor failed: {error}"));
         commands.spawn((
-            Name::new("Pōhutukawa generated far impostor"),
+            Name::new(format!("{species_name} generated far impostor")),
             Mesh3d(impostor.mesh),
             MeshMaterial3d(impostor.material),
             NotShadowCaster,
@@ -723,6 +843,7 @@ fn spawn_tree(
         return;
     }
     let BotanicalPrototype {
+        species: _,
         graph,
         wood,
         wood_bark,
@@ -732,9 +853,11 @@ fn spawn_tree(
         microtwig_bark,
         leaf_archetypes,
         shoot_tip_archetypes,
+        reproductive_archetypes,
         foliage_pad_archetypes,
         leaves,
         shoot_tips,
+        reproductive_organs,
         foliage_pads,
         bark_albedo,
         bark_normal,
@@ -764,6 +887,7 @@ fn spawn_tree(
     let leaf_materials =
         build_leaf_materials(leaf_materials, &leaf_texture, &leaf_metallic_roughness);
     let shoot_tip_materials = build_shoot_tip_materials(materials);
+    let reproductive_materials = build_reproductive_materials(materials);
     let microtwig_material =
         (settings.fine_shoots && settings.lod == ReviewLod::Near).then(|| wood_material.clone());
     spawn_wood(
@@ -807,6 +931,16 @@ fn spawn_tree(
             &skeleton,
         );
     }
+    if settings.lod == ReviewLod::Near {
+        spawn_reproductive_organs(
+            commands,
+            meshes,
+            &reproductive_materials,
+            reproductive_archetypes,
+            reproductive_organs,
+            &skeleton,
+        );
+    }
     if !settings.foliage {
         return;
     }
@@ -843,7 +977,7 @@ fn spawn_wood(
 ) {
     let skin = skin_weights(&wood, graph, skeleton);
     commands.spawn((
-        Name::new("Pōhutukawa wood"),
+        Name::new("Generated tree wood"),
         Mesh3d(meshes.add(bevy_wood_mesh(&wood, &bark, Some(&skin)))),
         MeshMaterial3d(material),
         SkinnedMesh {
@@ -864,12 +998,15 @@ fn spawn_microtwigs(
     skeleton: &WindSkeleton,
     tree_root: Entity,
 ) {
+    if twigs.vertices.is_empty() {
+        return;
+    }
     let Some(material) = material else {
         return;
     };
     let skin = skin_weights(&twigs, graph, skeleton);
     commands.spawn((
-        Name::new("Pōhutukawa microtwigs"),
+        Name::new("Generated fine twigs"),
         Mesh3d(meshes.add(bevy_wood_mesh(&twigs, &bark, Some(&skin)))),
         MeshMaterial3d(material),
         SkinnedMesh {
@@ -904,7 +1041,7 @@ fn spawn_scaffold_scars(
         ..default()
     });
     commands.spawn((
-        Name::new("Pōhutukawa weathered scaffold scars"),
+        Name::new("Generated weathered scaffold scars"),
         Mesh3d(meshes.add(bevy_mesh(&scars, None, Some(&skin)))),
         MeshMaterial3d(material),
         SkinnedMesh {
@@ -962,6 +1099,50 @@ fn build_shoot_tip_materials(
             ..default()
         })
     })
+}
+
+fn build_reproductive_materials(
+    materials: &mut Assets<StandardMaterial>,
+) -> [Handle<StandardMaterial>; 2] {
+    [
+        Color::srgb(0.68, 0.30, 0.46),
+        Color::srgb(0.66, 0.075, 0.035),
+    ]
+    .map(|base_color| {
+        materials.add(StandardMaterial {
+            base_color,
+            perceptual_roughness: 0.62,
+            reflectance: 0.30,
+            ..default()
+        })
+    })
+}
+
+fn spawn_reproductive_organs(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &[Handle<StandardMaterial>; 2],
+    archetypes: [MotuMesh; 2],
+    organs: Vec<ReproductiveOrgan>,
+    skeleton: &WindSkeleton,
+) {
+    let handles = archetypes.map(|mesh| meshes.add(bevy_mesh(&mesh, None, None)));
+    for organ in organs {
+        let archetype = match organ.state {
+            ReproductiveState::Flower => 0,
+            ReproductiveState::Fruit => 1,
+        };
+        let joint = skeleton.axis_to_joint[organ.axis as usize];
+        let mut transform = reproductive_transform(organ);
+        transform.translation -= skeleton.origins[joint];
+        commands.spawn((
+            Name::new("Nīkau reproductive cluster"),
+            Mesh3d(handles[archetype].clone()),
+            MeshMaterial3d(materials[archetype].clone()),
+            transform,
+            ChildOf(skeleton.joints[joint]),
+        ));
+    }
 }
 
 fn spawn_shoot_tips(
@@ -1386,23 +1567,26 @@ fn spawn_stage(
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
-) {
-    commands.spawn((
-        Name::new("Review ground"),
-        ReviewGround,
-        Mesh3d(meshes.add(Plane3d::default().mesh().size(120.0, 120.0))),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Color::srgb(0.21, 0.18, 0.12),
-            perceptual_roughness: 0.98,
-            reflectance: 0.015,
-            ..default()
-        })),
-    ));
+) -> Entity {
+    commands
+        .spawn((
+            Name::new("Review ground"),
+            ReviewGround,
+            Mesh3d(meshes.add(Plane3d::default().mesh().size(120.0, 120.0))),
+            MeshMaterial3d(materials.add(StandardMaterial {
+                base_color: Color::srgb(0.21, 0.18, 0.12),
+                perceptual_roughness: 0.98,
+                reflectance: 0.015,
+                ..default()
+            })),
+        ))
+        .id()
 }
 
 fn spawn_lighting(
     commands: &mut Commands,
     settings: &Settings,
+    frame: ReviewFrame,
     mediums: &mut Assets<ScatteringMedium>,
 ) {
     commands.spawn((
@@ -1422,8 +1606,16 @@ fn spawn_lighting(
             contact_shadows_enabled: true,
             ..default()
         },
-        Transform::default().looking_to(settings.light.direction(), Vec3::Y),
+        Transform::default().looking_to(review_light_direction(settings, frame), Vec3::Y),
     ));
+}
+
+fn review_light_direction(settings: &Settings, frame: ReviewFrame) -> Vec3 {
+    if settings.view == ReviewView::Frond && settings.light == ReviewLight::Front {
+        (frame.target - frame.transform.translation).normalize_or(settings.light.direction())
+    } else {
+        settings.light.direction()
+    }
 }
 
 fn capture(
@@ -1561,11 +1753,17 @@ fn smoothstep(value: f32) -> f32 {
 fn leaf_transform(leaf: LeafOrgan) -> Transform {
     let direction = convert(leaf.direction).normalize_or(Vec3::X);
     let normal = convert(leaf.normal).normalize_or(Vec3::Y);
-    let transverse = normal.cross(direction).normalize_or(Vec3::Z);
+    // Coordinate conversion is a Y/Z reflection, so the converted transverse
+    // axis is direction × normal (the opposite cross-product order to the
+    // botanical-space construction).
+    let transverse = direction.cross(normal).normalize_or(Vec3::Z);
     Transform {
         translation: convert(leaf.blade_base_metres),
-        rotation: Quat::from_mat3(&Mat3::from_cols(direction, transverse, normal)),
-        scale: Vec3::new(leaf.length_metres, leaf.width_metres, leaf.length_metres),
+        rotation: Quat::from_mat3(&Mat3::from_cols(direction, normal, transverse)),
+        // Botanical meshes use X=length, Y=width, Z=normal displacement.
+        // `bevy_mesh` converts that basis to X=length, Y=normal, Z=width,
+        // so the non-uniform scale must follow the converted axes too.
+        scale: Vec3::new(leaf.length_metres, leaf.length_metres, leaf.width_metres),
     }
 }
 
@@ -1583,6 +1781,27 @@ fn shoot_tip_transform(tip: ShootTipOrgan) -> Transform {
         rotation: Quat::from_mat3(&Mat3::from_cols(direction, transverse, normal))
             * Quat::from_rotation_x(tip.variation),
         scale: Vec3::new(tip.length_metres, tip.radius_metres, tip.radius_metres),
+    }
+}
+
+fn reproductive_transform(organ: ReproductiveOrgan) -> Transform {
+    let direction = convert(organ.direction).normalize_or(-Vec3::Y);
+    let reference = if direction.dot(Vec3::Y).abs() < 0.88 {
+        Vec3::Y
+    } else {
+        Vec3::Z
+    };
+    let transverse = direction.cross(reference).normalize_or(Vec3::Z);
+    let normal = direction.cross(transverse).normalize_or(Vec3::Y);
+    Transform {
+        translation: convert(organ.base_metres),
+        rotation: Quat::from_mat3(&Mat3::from_cols(direction, transverse, normal))
+            * Quat::from_rotation_x(organ.variation),
+        scale: Vec3::new(
+            organ.length_metres,
+            organ.radius_metres,
+            organ.radius_metres,
+        ),
     }
 }
 
@@ -1622,6 +1841,7 @@ fn parse(arguments: impl Iterator<Item = String>) -> Result<Option<Settings>, St
     let mut wind_strength = 0.0_f32;
     let mut screenshot = None;
     let mut capture_ui = false;
+    let mut species = BotanicalSpecies::default();
     while let Some(argument) = arguments.next() {
         let value = |arguments: &mut std::iter::Peekable<_>| {
             arguments
@@ -1633,6 +1853,17 @@ fn parse(arguments: impl Iterator<Item = String>) -> Result<Option<Settings>, St
                 seed = value(&mut arguments)?
                     .parse()
                     .map_err(|_| "--seed must be an unsigned integer".to_owned())?;
+            }
+            "--species" => {
+                species = match value(&mut arguments)?.as_str() {
+                    "pohutukawa" => BotanicalSpecies::Pohutukawa,
+                    "nikau" => BotanicalSpecies::Nikau,
+                    other => {
+                        return Err(format!(
+                            "unknown species {other:?}; expected pohutukawa or nikau"
+                        ));
+                    }
+                };
             }
             "--lod" => lod = ReviewLod::parse(&value(&mut arguments)?)?,
             "--view" => view = ReviewView::parse(&value(&mut arguments)?)?,
@@ -1672,7 +1903,7 @@ fn parse(arguments: impl Iterator<Item = String>) -> Result<Option<Settings>, St
     }
     Ok(Some(Settings {
         seed,
-        recipe: BotanicalRecipe::default(),
+        recipe: BotanicalRecipe::for_species(species),
         lod,
         view,
         light,
@@ -1690,9 +1921,10 @@ fn print_help() {
         "tree-lab [OPTIONS]\n\n\
          With no screenshot path, opens the interactive Tree Studio.\n\n\
          --seed <N>             deterministic prototype seed [42]\n\
+         --species <NAME>       pohutukawa or nikau [pohutukawa]\n\
          --lod <near|middle|far>\n\
                                 tree representation [near]\n\
-         --view <NAME>          whole, whole-quarter, crown, detail, leaf, tip, root, scar, epicormic, or junction [whole]\n\
+         --view <NAME>          whole, whole-quarter, crown, detail, leaf, tip, root, scar, epicormic, junction, or frond [whole]\n\
          --light <front|back|grazing>\n\
                                 review-light direction [front]\n\
          --wind-phase <0..1>    deterministic point in the wind cycle [0]\n\
@@ -1750,6 +1982,27 @@ mod tests {
             .expect("valid command")
             .expect("settings");
         assert_eq!(settings.lod, ReviewLod::Far);
+    }
+
+    #[test]
+    fn parses_standalone_frond_view() {
+        let settings = parse(strings(&["--species", "nikau", "--view", "frond"]))
+            .expect("valid command")
+            .expect("settings");
+        assert_eq!(settings.recipe.species, BotanicalSpecies::Nikau);
+        assert_eq!(settings.view, ReviewView::Frond);
+    }
+
+    #[test]
+    fn parses_nikau_species_recipe() {
+        let settings = parse(strings(&["--species", "nikau"]))
+            .expect("valid command")
+            .expect("settings");
+        assert_eq!(settings.recipe.species, BotanicalSpecies::Nikau);
+        assert_eq!(
+            settings.recipe,
+            BotanicalRecipe::for_species(BotanicalSpecies::Nikau)
+        );
     }
 
     #[test]
@@ -1813,18 +2066,18 @@ mod tests {
             variation: 0.0,
         };
         let transform = leaf_transform(leaf);
-        assert_eq!(transform.scale, Vec3::new(0.24, 0.08, 0.24));
+        assert_eq!(transform.scale, Vec3::new(0.24, 0.24, 0.08));
         assert!(
-            (transform.rotation * Vec3::Z)
+            (transform.rotation * Vec3::Y)
                 .normalize()
                 .dot(convert(leaf.normal))
                 > 0.999
         );
         assert!(
-            (transform.rotation * Vec3::Y)
-                .dot(convert(leaf.normal))
-                .abs()
-                < 1.0e-5
+            (transform.rotation * Vec3::Z)
+                .normalize()
+                .dot(convert(motu::Vec3::Y))
+                > 0.999
         );
     }
 

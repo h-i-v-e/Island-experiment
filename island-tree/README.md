@@ -1,7 +1,8 @@
 # Island Tree
 
-Deterministic procedural pōhutukawa generation, Bevy render compilation, and a
-standalone interactive and headless visual laboratory.
+Deterministic procedural New Zealand tree generation, Bevy render compilation,
+and a standalone interactive and headless visual laboratory. The species-first
+generator currently includes mature pōhutukawa and nīkau palm architectures.
 
 The crate owns the complete tree prototype boundary:
 
@@ -37,20 +38,24 @@ its valid controls change, while view, wind, lighting, and review-biome changes
 update without rebuilding tree geometry. A collapsible showcase rail provides
 the inspection views, and lighting separates direct sun, exposure, and sky fill
 so shaded crowns can be reviewed without clipping sunlit bark. The plant-family
-boundary starts with mature pōhutukawa and deliberately leaves room for future
-bush recipes. The three review LODs cover full leaves, middle-distance foliage
-pads, and an eight-vertex far impostor whose transparent front/side atlas is
-generated deterministically from the same botanical organs. Interactive runs
-use Bevy's `AutoNoVsync` present mode so the FPS meter is not capped by display
-refresh.
+selector switches between separate pōhutukawa and nīkau growth programs rather
+than reskinning one shared silhouette. The three review LODs cover full leaves,
+middle-distance foliage pads, and an eight-vertex far impostor whose transparent
+front/side atlas is generated deterministically from the same botanical organs.
+Interactive runs use Bevy's `AutoNoVsync` present mode so the FPS meter is not
+capped by display refresh.
 
 Render a review image without opening a window:
 
 ```sh
 cargo run --release \
   --manifest-path island-tree/Cargo.toml --bin tree-lab -- \
-  --screenshot /tmp/tree.png --view whole --seed 666
+  --species nikau --screenshot /tmp/tree.png --view whole --seed 666
 ```
+
+`--species` accepts `pohutukawa` (the default) or `nikau`.
+For nīkau, `--view frond` generates and frames one mature procedural frond as a
+standalone prototype, which is useful for close silhouette and leaflet review.
 
 Add `--capture-ui` to the same command to include the interactive HUD in the
 offscreen PNG for layout regression checks, still without opening a window.
