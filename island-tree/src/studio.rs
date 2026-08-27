@@ -7,13 +7,18 @@
 )]
 
 use bevy::{
+    asset::RenderAssetUsages,
     camera::Exposure,
     diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin},
+    image::{CompressedImageFormats, ImageSampler, ImageType},
     input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll, MouseScrollUnit},
     light::{Atmosphere, AtmosphereEnvironmentMapLight},
     prelude::*,
 };
-use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui, input::EguiWantsInput};
+use bevy_egui::{
+    EguiContexts, EguiPlugin, EguiPrimaryContextPass, EguiTextureHandle, EguiUserTextures, egui,
+    input::EguiWantsInput,
+};
 use island_tree::{BotanicalRecipe, BotanicalSpecies};
 
 use super::{
@@ -27,6 +32,69 @@ const BAR_CLEARANCE: f32 = 76.0;
 const BOTTOM_CLEARANCE: f32 = 56.0;
 const INSPECTOR_WIDTH: f32 = 318.0;
 const DEFAULT_WIND_STRENGTH: f32 = 0.35;
+const HERO_CARD_WIDTH: f32 = 188.0;
+const SHOWCASE_WIDTH: f32 = HERO_CARD_WIDTH;
+const HERO_THUMBNAIL_HEIGHT: f32 = 120.0;
+const HERO_CARD_HEIGHT: f32 = HERO_THUMBNAIL_HEIGHT + 18.0;
+const CONTROL_CORNER: u8 = 4;
+const SHOWCASE_VIEWS: [ReviewView; 3] = [ReviewView::Whole, ReviewView::Crown, ReviewView::Detail];
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct HeroPreset {
+    name: &'static str,
+    character: &'static str,
+    seed: u64,
+    recipe: BotanicalRecipe,
+    thumbnail: &'static [u8],
+}
+
+impl HeroPreset {
+    fn matches(self, studio: &StudioState) -> bool {
+        studio.seed == Some(self.seed)
+            && studio.recipe == self.recipe
+            && studio.lod == ReviewLod::Near
+            && studio.foliage
+            && studio.fine_shoots
+    }
+
+    fn apply(self, studio: &mut StudioState) {
+        studio.seed_text = self.seed.to_string();
+        studio.seed = Some(self.seed);
+        studio.recipe = self.recipe;
+        studio.lod = ReviewLod::Near;
+        studio.foliage = true;
+        studio.fine_shoots = true;
+    }
+}
+
+const HERO_PRESETS: [HeroPreset; 3] = [
+    HeroPreset {
+        name: "Pōhutukawa",
+        character: "Broad, wind-shaped coastal canopy · seed 42",
+        seed: 42,
+        recipe: BotanicalRecipe::for_species(BotanicalSpecies::Pohutukawa),
+        thumbnail: include_bytes!("../assets/showcase/pohutukawa.png"),
+    },
+    HeroPreset {
+        name: "Nīkau",
+        character: "Layered native palm crown · seed 42",
+        seed: 42,
+        recipe: BotanicalRecipe::for_species(BotanicalSpecies::Nikau),
+        thumbnail: include_bytes!("../assets/showcase/nikau.png"),
+    },
+    HeroPreset {
+        name: "Harakeke",
+        character: "Mature overlapping flax fans · seed 42",
+        seed: 42,
+        recipe: BotanicalRecipe::for_species(BotanicalSpecies::Harakeke),
+        thumbnail: include_bytes!("../assets/showcase/harakeke.png"),
+    },
+];
+
+#[derive(Resource)]
+struct HeroThumbnails {
+    entries: [Option<(egui::TextureId, Handle<Image>)>; HERO_PRESETS.len()],
+}
 
 type SunQuery<'world, 'state> = Query<
     'world,
@@ -64,7 +132,7 @@ impl Plugin for TreeStudioPlugin {
             FrameTimeDiagnosticsPlugin::default(),
         ))
         .add_message::<RegenerateTree>()
-        .add_systems(Startup, install)
+        .add_systems(Startup, (install, load_hero_thumbnails))
         .add_systems(
             Update,
             (
@@ -305,6 +373,28 @@ fn install(mut commands: Commands, settings: Res<Settings>) {
     commands.insert_resource(StudioState::new(&settings));
 }
 
+fn load_hero_thumbnails(
+    mut commands: Commands,
+    mut images: ResMut<Assets<Image>>,
+    mut textures: ResMut<EguiUserTextures>,
+) {
+    let entries = HERO_PRESETS.map(|preset| {
+        let image = Image::from_buffer(
+            preset.thumbnail,
+            ImageType::Extension("png"),
+            CompressedImageFormats::NONE,
+            true,
+            ImageSampler::linear(),
+            RenderAssetUsages::RENDER_WORLD,
+        )
+        .ok()?;
+        let handle = images.add(image);
+        let id = textures.add_image(EguiTextureHandle::Strong(handle.clone()));
+        Some((id, handle))
+    });
+    commands.insert_resource(HeroThumbnails { entries });
+}
+
 fn apply_theme(mut contexts: EguiContexts, mut installed: Local<bool>) {
     if *installed {
         return;
@@ -350,6 +440,7 @@ fn draw_hud(
     mut studio: ResMut<StudioState>,
     mut settings: ResMut<Settings>,
     frames: Res<ReviewFrames>,
+    thumbnails: Res<HeroThumbnails>,
     metrics: Res<TreeMetrics>,
     mut status: ResMut<TreeBuildStatus>,
     mut cameras: Query<(&mut ReviewCamera, &mut Transform), Without<ReviewSun>>,
@@ -395,6 +486,7 @@ fn draw_hud(
         &mut studio,
         &mut settings,
         &frames,
+        &thumbnails,
         &mut status,
         &mut cameras,
         &mut requests,
@@ -481,6 +573,7 @@ fn draw_inspection_selector(
     studio: &mut StudioState,
     settings: &mut Settings,
     frames: &ReviewFrames,
+    thumbnails: &HeroThumbnails,
     status: &mut TreeBuildStatus,
     cameras: &mut Query<(&mut ReviewCamera, &mut Transform), Without<ReviewSun>>,
     requests: &mut MessageWriter<RegenerateTree>,
@@ -489,14 +582,14 @@ fn draw_inspection_selector(
         (context.content_rect().height() - BAR_CLEARANCE - BOTTOM_CLEARANCE - 72.0).max(160.0);
     egui::Window::new("tree showcase")
         .anchor(egui::Align2::LEFT_TOP, [MARGIN, BAR_CLEARANCE])
-        .default_width(214.0)
-        .max_width(214.0)
+        .default_width(SHOWCASE_WIDTH)
+        .max_width(SHOWCASE_WIDTH)
         .title_bar(false)
         .resizable(false)
         .collapsible(false)
         .frame(panel_frame(212))
         .show(context, |ui| {
-            ui.set_width(214.0);
+            ui.set_width(SHOWCASE_WIDTH);
             ui.horizontal(|ui| {
                 ui.label(caps("TREE SHOWCASE", 11.0, TEXT));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -516,50 +609,116 @@ fn draw_inspection_selector(
                 egui::ScrollArea::vertical()
                     .max_height(body_height)
                     .show(ui, |ui| {
-                        egui::Grid::new("showcase views")
-                            .num_columns(2)
-                            .spacing([6.0, 6.0])
-                            .show(ui, |ui| {
-                                for (index, view) in ReviewView::ALL.into_iter().enumerate() {
-                                    let selected = settings.view == view;
-                                    let colour = if selected { PANEL } else { TEXT };
-                                    let mut button = egui::Button::new(
-                                        egui::RichText::new(view.label()).size(10.0).color(colour),
-                                    );
-                                    if selected {
-                                        button = button.fill(ACCENT);
-                                    }
-                                    if ui.add_sized([101.0, 28.0], button).clicked() {
-                                        let crosses_frond_boundary = (settings.view
-                                            == ReviewView::Frond)
-                                            != (view == ReviewView::Frond);
-                                        settings.view = view;
-                                        let frame = frames.get(view);
-                                        if let Ok((mut camera, mut transform)) =
-                                            cameras.single_mut()
-                                        {
-                                            camera.target = frame.target;
-                                            *transform = frame.transform;
-                                        }
-                                        if crosses_frond_boundary
-                                            && settings.recipe.species == BotanicalSpecies::Nikau
-                                        {
-                                            request_tree_rebuild(
-                                                studio, settings, status, requests,
-                                            );
-                                        }
-                                    }
-                                    if index % 2 == 1 {
-                                        ui.end_row();
+                        for (index, preset) in HERO_PRESETS.into_iter().enumerate() {
+                            let thumbnail = thumbnails.entries[index]
+                                .as_ref()
+                                .map(|(texture, _)| *texture);
+                            if hero_card(ui, preset, thumbnail, preset.matches(studio)) {
+                                let leaves_isolated_frond = settings.view == ReviewView::Frond
+                                    && settings.recipe.species == BotanicalSpecies::Nikau;
+                                preset.apply(studio);
+                                set_camera_view(ReviewView::Whole, settings, frames, cameras);
+                                if leaves_isolated_frond {
+                                    request_tree_rebuild(studio, settings, status, requests);
+                                }
+                            }
+                            ui.add_space(6.0);
+                        }
+
+                        ui.separator();
+                        ui.label(caps("CAMERA", 9.5, DIM_TEXT));
+                        ui.horizontal(|ui| {
+                            for view in SHOWCASE_VIEWS {
+                                let selected = settings.view == view;
+                                let colour = if selected { PANEL } else { TEXT };
+                                let mut button = egui::Button::new(
+                                    egui::RichText::new(view.label()).size(9.0).color(colour),
+                                );
+                                if selected {
+                                    button = button.fill(ACCENT);
+                                }
+                                if ui.add_sized([58.0, 24.0], button).clicked() {
+                                    let leaves_isolated_frond = settings.view == ReviewView::Frond
+                                        && settings.recipe.species == BotanicalSpecies::Nikau;
+                                    set_camera_view(view, settings, frames, cameras);
+                                    if leaves_isolated_frond {
+                                        request_tree_rebuild(studio, settings, status, requests);
                                     }
                                 }
-                            });
+                            }
+                        });
                     });
                 ui.add_space(2.0);
                 ui.separator();
-                ui.label(caps("11 INSPECTION VIEWS", 9.0, DIM_TEXT));
+                ui.label(caps("3 HERO SPECIMENS · 3 CAMERA VIEWS", 8.5, DIM_TEXT));
             }
         });
+}
+
+fn hero_card(
+    ui: &mut egui::Ui,
+    preset: HeroPreset,
+    thumbnail: Option<egui::TextureId>,
+    selected: bool,
+) -> bool {
+    let (rect, response) = ui.allocate_exact_size(
+        egui::vec2(HERO_CARD_WIDTH, HERO_CARD_HEIGHT),
+        egui::Sense::click(),
+    );
+    let image_rect =
+        egui::Rect::from_min_size(rect.min, egui::vec2(HERO_CARD_WIDTH, HERO_THUMBNAIL_HEIGHT));
+    if let Some(texture) = thumbnail {
+        egui::Image::new((texture, image_rect.size()))
+            .corner_radius(CONTROL_CORNER)
+            .paint_at(ui, image_rect);
+    }
+    let painter = ui.painter();
+    let stroke = if selected {
+        egui::Stroke::new(1.5, ACCENT)
+    } else if response.hovered() {
+        egui::Stroke::new(1.0, translucent(ACCENT, 170))
+    } else {
+        hairline()
+    };
+    painter.rect_stroke(
+        image_rect,
+        CONTROL_CORNER,
+        stroke,
+        egui::StrokeKind::Outside,
+    );
+    if selected {
+        let badge = image_rect.right_top() + egui::vec2(-10.0, 10.0);
+        painter.circle_filled(badge, 7.0, ACCENT);
+        painter.text(
+            badge,
+            egui::Align2::CENTER_CENTER,
+            "✔",
+            egui::FontId::proportional(9.0),
+            PANEL,
+        );
+    }
+    painter.text(
+        rect.center_bottom(),
+        egui::Align2::CENTER_BOTTOM,
+        preset.name.to_uppercase(),
+        egui::FontId::proportional(9.0),
+        if selected { TEXT } else { DIM_TEXT },
+    );
+    response.on_hover_text(preset.character).clicked()
+}
+
+fn set_camera_view(
+    view: ReviewView,
+    settings: &mut Settings,
+    frames: &ReviewFrames,
+    cameras: &mut Query<(&mut ReviewCamera, &mut Transform), Without<ReviewSun>>,
+) {
+    settings.view = view;
+    let frame = frames.get(view);
+    if let Ok((mut camera, mut transform)) = cameras.single_mut() {
+        camera.target = frame.target;
+        *transform = frame.transform;
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1261,5 +1420,60 @@ mod tests {
         studio.set_wind_animation(&mut settings, false);
         studio.set_wind_animation(&mut settings, true);
         assert!((settings.wind_strength - 0.62).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn showcase_has_one_embedded_hero_for_each_species() {
+        assert_eq!(HERO_PRESETS.len(), BotanicalSpecies::ALL.len());
+        for species in BotanicalSpecies::ALL {
+            let matches = HERO_PRESETS
+                .iter()
+                .filter(|preset| preset.recipe.species == species)
+                .count();
+            assert_eq!(matches, 1, "{species:?} should have exactly one hero");
+        }
+        for preset in HERO_PRESETS {
+            assert!(!preset.name.is_empty());
+            assert!(!preset.character.is_empty());
+            assert!(!preset.thumbnail.is_empty());
+        }
+    }
+
+    #[test]
+    fn hero_application_restores_a_complete_near_lod_draft() {
+        let settings = Settings {
+            seed: 7,
+            recipe: BotanicalRecipe::for_species(BotanicalSpecies::Nikau),
+            lod: ReviewLod::Far,
+            view: ReviewView::Detail,
+            light: ReviewLight::Front,
+            foliage: false,
+            fine_shoots: false,
+            wind_phase: 0.0,
+            wind_strength: 0.0,
+            screenshot: None,
+            capture_ui: false,
+        };
+        let mut studio = StudioState::new(&settings);
+        let hero = HERO_PRESETS[2];
+        hero.apply(&mut studio);
+
+        assert!(hero.matches(&studio));
+        let request = studio.request(&settings).expect("hero seed is valid").0;
+        assert_eq!(request.seed, hero.seed);
+        assert_eq!(request.recipe, hero.recipe);
+        assert_eq!(request.lod, ReviewLod::Near);
+        assert!(request.foliage);
+        assert!(request.fine_shoots);
+        assert_eq!(studio.recipe.species, BotanicalSpecies::Harakeke);
+    }
+
+    #[test]
+    fn showcase_exposes_only_three_general_purpose_camera_views() {
+        assert_eq!(SHOWCASE_VIEWS.len(), 3);
+        assert_eq!(SHOWCASE_VIEWS[0], ReviewView::Whole);
+        assert!(SHOWCASE_VIEWS.contains(&ReviewView::Crown));
+        assert!(SHOWCASE_VIEWS.contains(&ReviewView::Detail));
+        assert!(!SHOWCASE_VIEWS.contains(&ReviewView::Frond));
     }
 }
