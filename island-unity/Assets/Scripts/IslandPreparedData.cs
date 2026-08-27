@@ -8,19 +8,22 @@ internal sealed class IslandPreparedMesh
     internal readonly int[] triangles;
     internal readonly Vector2[] uv;
     internal readonly Color[] material;
+    internal readonly Vector2[] environment;
 
     internal IslandPreparedMesh(
         Vector3[] vertices,
         Vector3[] normals,
         int[] triangles,
         Vector2[] uv,
-        Color[] material)
+        Color[] material,
+        Vector2[] environment)
     {
         this.vertices = vertices;
         this.normals = normals;
         this.triangles = triangles;
         this.uv = uv;
         this.material = material;
+        this.environment = environment;
     }
 }
 

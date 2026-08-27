@@ -54,6 +54,7 @@ fn load_recipe(name: &str) -> TextureRecipe {
 fn all_committed_recipes_use_the_current_valid_schema() {
     for recipe_name in [
         "Bark.json",
+        "ForestFloor.json",
         "PlateBark.json",
         "cracked-stone.json",
         "rounded-river-stones.json",

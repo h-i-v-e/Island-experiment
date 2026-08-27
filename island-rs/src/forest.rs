@@ -439,6 +439,36 @@ impl ForestMeshes {
     }
 }
 
+/// Marks the terrain triangle supporting each accepted tree. Tree anchors are
+/// displaced toward one deterministic incident face, so reconstructing that
+/// same face gives the exact forest-floor ownership without a radius guess.
+pub(crate) fn forest_floor_mask(
+    island_seed: u64,
+    terrain: &Mesh,
+    placements: &[TreePlacement],
+) -> Vec<bool> {
+    let selected_faces = SelectedFanFaces::new(island_seed, terrain);
+    let mut forest_floor = vec![false; terrain.vertices.len()];
+    for placement in placements {
+        let terrain_vertex = placement.terrain_vertex as usize;
+        if terrain_vertex >= forest_floor.len() {
+            debug_assert!(
+                false,
+                "forest placement references an invalid terrain vertex"
+            );
+            continue;
+        }
+        let Some(face) = selected_faces.get(terrain_vertex) else {
+            forest_floor[terrain_vertex] = true;
+            continue;
+        };
+        for vertex in face.vertices {
+            forest_floor[vertex] = true;
+        }
+    }
+    forest_floor
+}
+
 /// Mutually exclusive diagnostics for final-LOD0 placement.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct ForestGenerationStats {
@@ -1494,6 +1524,27 @@ mod tests {
             }
             .validate()
             .is_err()
+        );
+    }
+
+    #[test]
+    fn forest_floor_marks_the_selected_support_triangle() {
+        let terrain = Mesh {
+            vertices: vec![Vec3::ZERO, Vec3::X, Vec3::Y],
+            triangles: vec![0, 1, 2],
+            ..Mesh::default()
+        };
+        let placement = TreePlacement {
+            terrain_vertex: 0,
+            anchor: Vec3::new(0.1, 0.1, 0.0),
+            yaw_radians: 0.0,
+            scale: 1.0,
+            prototype: 0,
+        };
+
+        assert_eq!(
+            forest_floor_mask(2018, &terrain, &[placement]),
+            vec![true, true, true]
         );
     }
 

@@ -154,6 +154,7 @@ pub struct ExportMesh {
     pub triangles: TriangleExportArray,
     pub uv: Vector2ExportArray,
     pub material: Vector4ExportArray,
+    pub environment: Vector2ExportArray,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -165,6 +166,7 @@ pub struct ExportMeshWithUv {
     pub triangles: TriangleExportArray,
     pub uv: Vector2ExportArray,
     pub material: Vector4ExportArray,
+    pub environment: Vector2ExportArray,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -386,11 +388,17 @@ fn length_i32(length: usize) -> i32 {
 struct ExportedMesh {
     mesh: Mesh,
     material: Vec<Vec4>,
+    environment: Vec<Vec2>,
 }
 
-fn export_mesh(mesh: Mesh, material: Vec<Vec4>) -> ExportMesh {
+fn export_mesh(mesh: Mesh, material: Vec<Vec4>, environment: Vec<Vec2>) -> ExportMesh {
     debug_assert!(material.is_empty() || material.len() == mesh.vertices.len());
-    let owner = Box::new(ExportedMesh { mesh, material });
+    debug_assert!(environment.is_empty() || environment.len() == mesh.vertices.len());
+    let owner = Box::new(ExportedMesh {
+        mesh,
+        material,
+        environment,
+    });
     let handle = Box::into_raw(owner);
     // SAFETY: handle remains owned by the caller until ReleaseMesh.
     let owner = unsafe { &*handle };
@@ -417,18 +425,24 @@ fn export_mesh(mesh: Mesh, material: Vec<Vec4>) -> ExportMesh {
             data: owner.material.as_ptr(),
             length: length_i32(owner.material.len()),
         },
+        environment: Vector2ExportArray {
+            data: owner.environment.as_ptr(),
+            length: length_i32(owner.environment.len()),
+        },
     }
 }
 
 fn export_mesh_grid(
     tiles: Vec<Mesh>,
     material_values: impl Fn(&Mesh) -> Vec<Vec4>,
+    environment_values: impl Fn(&Mesh) -> Vec<Vec2>,
 ) -> ExportMeshGrid {
     let exports: Vec<ExportMesh> = tiles
         .into_iter()
         .map(|tile| {
             let material = material_values(&tile);
-            export_mesh(tile, material)
+            let environment = environment_values(&tile);
+            export_mesh(tile, material, environment)
         })
         .collect();
     let owner = Box::new(exports);
@@ -457,7 +471,7 @@ fn export_forest_mesh_grid(
     };
     let exports: Vec<ExportMesh> = tiles
         .into_iter()
-        .map(|tile| export_mesh(tile.mesh, tile.material))
+        .map(|tile| export_mesh(tile.mesh, tile.material, Vec::new()))
         .collect();
     let owner = Box::new(exports);
     let output = ExportMeshGrid {
@@ -628,10 +642,10 @@ pub unsafe extern "C" fn CreateProceduralTree(
     let tree = generate_tree(u64::from(seed.cast_unsigned()));
     let lod0_wood_material = procedural_tree_root_material(&tree.lod0_wood);
     let lod1_wood_material = procedural_tree_root_material(&tree.lod1_wood);
-    let lod0_wood = export_mesh(tree.lod0_wood, lod0_wood_material);
-    let lod0_foliage = export_mesh(tree.lod0_foliage, Vec::new());
-    let lod1_wood = export_mesh(tree.lod1_wood, lod1_wood_material);
-    let lod1_foliage = export_mesh(tree.lod1_foliage, Vec::new());
+    let lod0_wood = export_mesh(tree.lod0_wood, lod0_wood_material, Vec::new());
+    let lod0_foliage = export_mesh(tree.lod0_foliage, Vec::new(), Vec::new());
+    let lod1_wood = export_mesh(tree.lod1_wood, lod1_wood_material, Vec::new());
+    let lod1_foliage = export_mesh(tree.lod1_foliage, Vec::new(), Vec::new());
     // SAFETY: output ownership transfers to the caller and each independent
     // handle must subsequently be passed to ReleaseMesh exactly once.
     unsafe {
@@ -667,7 +681,8 @@ pub unsafe extern "C" fn CreateMesh(
         return;
     };
     let material = island.material_values_for(&sliced);
-    *output = export_mesh(sliced, material);
+    let environment = island.environment_values_for(&sliced);
+    *output = export_mesh(sliced, material, environment);
 }
 
 /// Exports the authoritative XY-safe surface for collision and downward
@@ -696,7 +711,8 @@ pub unsafe extern "C" fn CreateSupportMesh(
         return;
     };
     let material = island.material_values_for(&mesh);
-    *output = export_mesh(mesh, material);
+    let environment = island.environment_values_for(&mesh);
+    *output = export_mesh(mesh, material, environment);
 }
 
 #[unsafe(no_mangle)]
@@ -725,7 +741,11 @@ pub unsafe extern "C" fn CreateMeshGrid(
     let Some(tiles) = island.render_mesh_grid(lod, bounds, divisions, clamp_sides) else {
         return;
     };
-    *output = export_mesh_grid(tiles, |tile| island.material_values_for(tile));
+    *output = export_mesh_grid(
+        tiles,
+        |tile| island.material_values_for(tile),
+        |tile| island.environment_values_for(tile),
+    );
 }
 
 #[unsafe(no_mangle)]
@@ -777,7 +797,7 @@ pub unsafe extern "C" fn CreateRiverMesh(
     let mesh = island.river_mesh().sliced(bounds);
     let uv_data = mesh.uv.as_ptr();
     let uv_length = length_i32(mesh.uv.len());
-    let base = export_mesh(mesh, Vec::new());
+    let base = export_mesh(mesh, Vec::new(), Vec::new());
     *output = ExportMeshWithUv {
         handle: base.handle,
         vertices: base.vertices,
@@ -788,6 +808,7 @@ pub unsafe extern "C" fn CreateRiverMesh(
             length: uv_length,
         },
         material: base.material,
+        environment: base.environment,
     };
 }
 
@@ -811,9 +832,11 @@ pub unsafe extern "C" fn CreateRiverMeshGrid(
         unsafe { (*area).into() }
     };
     let divisions = usize::try_from(divisions.max(0)).unwrap_or(0);
-    *output = export_mesh_grid(island.river_mesh().sliced_grid(bounds, divisions), |_| {
-        Vec::new()
-    });
+    *output = export_mesh_grid(
+        island.river_mesh().sliced_grid(bounds, divisions),
+        |_| Vec::new(),
+        |_| Vec::new(),
+    );
 }
 
 /// Exports whole-tree owner tiles for the requested visual wood LOD.
@@ -909,6 +932,7 @@ pub unsafe extern "C" fn CreateRiverRockMeshGrid(
     *output = export_mesh_grid(
         island.river_rock_mesh().sliced_grid(bounds, divisions),
         |_| Vec::new(),
+        |_| Vec::new(),
     );
 }
 
@@ -970,6 +994,7 @@ pub unsafe extern "C" fn ReleaseMeshWithUV(output: *mut ExportMeshWithUv) {
         triangles: output.triangles,
         uv: output.uv,
         material: output.material,
+        environment: output.environment,
     };
     // SAFETY: base owns the same mesh handle.
     unsafe { ReleaseMesh(&raw mut base) };
@@ -1070,7 +1095,7 @@ pub unsafe extern "C" fn CreateTreeBillboards(
                 .extend([base, base + 2, base + 1, base + 1, base + 2, base + 3]);
             offset_list.push(i32::try_from(prototype_index).unwrap_or(i32::MAX));
         }
-        output.octants[octant].mesh = export_mesh(mesh, Vec::new());
+        output.octants[octant].mesh = export_mesh(mesh, Vec::new(), Vec::new());
         output.octants[octant].offsets = offset_list.as_mut_ptr();
     }
     output.offsetsHandle = Box::into_raw(Box::new(BillboardOffsets(offsets))).cast();
@@ -1497,7 +1522,9 @@ mod tests {
     }
 
     fn terrain_attributes_match(mesh: &ExportMesh) -> bool {
-        mesh.uv.length == mesh.vertices.length && mesh.material.length == mesh.vertices.length
+        mesh.uv.length == mesh.vertices.length
+            && mesh.material.length == mesh.vertices.length
+            && mesh.environment.length == mesh.vertices.length
     }
 
     unsafe fn assert_material_channels(mesh: &ExportMesh) {
@@ -1520,6 +1547,20 @@ mod tests {
         assert!(values.iter().any(|value| value.z == 0.0));
         assert!(values.iter().any(|value| value.w > 0.9));
         assert!(values.iter().any(|value| value.w == 0.0));
+    }
+
+    unsafe fn assert_environment_channels(mesh: &ExportMesh) {
+        let values = unsafe {
+            std::slice::from_raw_parts(mesh.environment.data, mesh.environment.length as usize)
+        };
+        if let Some((index, value)) = values.iter().enumerate().find(|(_, value)| {
+            !value.is_finite() || !value.cmpge(Vec2::ZERO).all() || value.x > 1.0 || value.y > 1.0
+        }) {
+            panic!("invalid environment value at {index}: {value:?}");
+        }
+        assert!(values.iter().any(|value| value.x > 0.9));
+        assert!(values.iter().any(|value| value.x == 0.0));
+        assert!(values.iter().any(|value| value.y == 0.0));
     }
 
     unsafe fn assert_river_emitters(handle: *const c_void) {
@@ -1726,6 +1767,7 @@ mod tests {
             assert!(support.triangles.length > 0);
             assert!(terrain_attributes_match(&support));
             assert_material_channels(&support);
+            assert_environment_channels(&support);
             ReleaseMesh(&raw mut support);
 
             let mut grid = ExportMeshGrid::default();

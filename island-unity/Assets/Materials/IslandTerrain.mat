@@ -31,6 +31,18 @@ Material:
         m_Texture: {fileID: 0}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
+    - _ForestFloorAlbedoMap:
+        m_Texture: {fileID: 2800000, guid: d6893eedc4e34593838bbc6f7009ee61, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _ForestFloorMaskMap:
+        m_Texture: {fileID: 2800000, guid: 7236176240204f73ae79b80780a7976b, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _ForestFloorNormalMap:
+        m_Texture: {fileID: 2800000, guid: f1cc95c47689469198078874b31696a7, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
     - _Occlusion:
         m_Texture: {fileID: 0}
         m_Scale: {x: 1, y: 1}
@@ -71,6 +83,13 @@ Material:
     - _CliffNormalCutoff: 0.55
     - _CliffNormalStrength: 0.12
     - _DirtNormalStrength: 0.05
+    - _ForestFloorEdgeBlendWidth: 0.035
+    - _ForestFloorEdgeNoiseStrength: 0.22
+    - _ForestFloorHeightBlendStrength: 1
+    - _ForestFloorNormalMapStrength: 1
+    - _ForestFloorParallaxDepth: 0.018
+    - _ForestFloorTextureOcclusionStrength: 0.7
+    - _ForestFloorTextureWorldSize: 2
     - _GrassColorNoiseWorldSize: 2048
     - _GrassEnabled: 0
     - _GrassNormalDetailScale: 96
@@ -103,9 +122,14 @@ Material:
     - _SnowNormalDetailScale: 96
     - _SnowNormalStrength: 0.08
     - _TopTextureFadeOutSlope: 45
+    - _WetBankBlendExponent: 0.45
+    - _WetDarkening: 0.48
+    - _WetSmoothness: 0.65
+    - _WetSpecularStrength: 0.55
     - _WorldNormalWeight: 1
     m_Colors:
     - _Color: {r: 1, g: 1, b: 1, a: 1}
+    - _ForestFloorColor: {r: 1, g: 1, b: 1, a: 1}
     - _GrassColorA: {r: 0.18, g: 0.46, b: 0.14, a: 1}
     - _GrassColorB: {r: 0.34, g: 0.5, b: 0.14, a: 1}
     - _GrassPlayerPosition: {r: 0, g: 0, b: 0, a: 0}

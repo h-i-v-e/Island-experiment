@@ -606,7 +606,8 @@ internal sealed class ForestTileStreamer : IDisposable
                 },
                 new[] { 0, 1, 2 },
                 Array.Empty<Vector2>(),
-                Array.Empty<Color>());
+                Array.Empty<Color>(),
+                Array.Empty<Vector2>());
             var lod2 = new IslandPreparedMesh[Lod2TileCount];
             lod2[0] = lowPolyCanopy;
             var lod1 = new IslandPreparedMesh[Lod1TileCount];

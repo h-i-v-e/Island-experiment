@@ -107,6 +107,7 @@ internal static class MotuNative
         internal TriangleArray triangles;
         internal Vector2Array uv;
         internal Vector4Array material;
+        internal Vector2Array environment;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -118,6 +119,7 @@ internal static class MotuNative
         internal TriangleArray triangles;
         internal Vector2Array uv;
         internal Vector4Array material;
+        internal Vector2Array environment;
     }
 
     [StructLayout(LayoutKind.Sequential)]

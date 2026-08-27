@@ -57,8 +57,8 @@ use generation::{correct_lods, sharp_rock_mask};
 pub use generation_method::GenerationMethod;
 #[cfg(feature = "gpu-generation")]
 use gpu_generation::GpuParticleErosionScratch;
-use material::TerrainMaterialField;
 pub(crate) use material::{SurfaceMaterial, projected_vertex_control_areas};
+use material::{TerrainEnvironmentField, TerrainMaterialField};
 pub use sampling::{SurfaceMaps, Terrain};
 use sampling::{
     SurfaceSample, TriangleIndex, bury_river_banks, sample_mesh_surface, sample_mesh_triangle,

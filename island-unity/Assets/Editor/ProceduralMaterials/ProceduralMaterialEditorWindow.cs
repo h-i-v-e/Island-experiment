@@ -192,7 +192,12 @@ public sealed class ProceduralMaterialEditorWindow : EditorWindow
         }
         if (assignmentTarget != null)
         {
-            assignmentTarget.choices = new List<string> { "Rock", "Riverbed" };
+            assignmentTarget.choices = new List<string>
+            {
+                "Rock",
+                "Riverbed",
+                "Forest Floor"
+            };
             assignmentTarget.value = "Rock";
         }
         if (outputField != null) outputField.value = OutputRootAssetPath + "/CrackedStone";
@@ -1401,10 +1406,21 @@ public sealed class ProceduralMaterialEditorWindow : EditorWindow
         {
             throw new InvalidOperationException("Material assignment could not load the complete albedo, normal, and packed mask map set after import.");
         }
-        var rock = string.Equals(assignmentTarget?.value, "Rock", StringComparison.OrdinalIgnoreCase);
-        var albedoProperty = rock ? "_RockAlbedoMap" : "_RiverBedAlbedoMap";
-        var normalProperty = rock ? "_RockNormalMap" : "_RiverBedNormalMap";
-        var maskProperty = rock ? "_RockMaskMap" : "_RiverBedMaskMap";
+        var target = assignmentTarget?.value;
+        var propertyPrefix = string.Equals(
+            target,
+            "Rock",
+            StringComparison.OrdinalIgnoreCase)
+                ? "_Rock"
+                : string.Equals(
+                    target,
+                    "Forest Floor",
+                    StringComparison.OrdinalIgnoreCase)
+                        ? "_ForestFloor"
+                        : "_RiverBed";
+        var albedoProperty = propertyPrefix + "AlbedoMap";
+        var normalProperty = propertyPrefix + "NormalMap";
+        var maskProperty = propertyPrefix + "MaskMap";
         if (!material.HasProperty(albedoProperty) || !material.HasProperty(normalProperty) || !material.HasProperty(maskProperty)) throw new InvalidOperationException("Material does not expose the selected terrain texture properties.");
         Undo.RecordObject(material, "Assign procedural terrain textures");
         material.SetTexture(albedoProperty, albedo);

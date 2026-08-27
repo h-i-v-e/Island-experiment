@@ -6,6 +6,7 @@ struct GrassVertexInput
 {
     float4 vertex : POSITION;
     float3 normal : NORMAL;
+    float2 environment : TEXCOORD1;
     float4 material : COLOR;
 };
 
@@ -19,11 +20,12 @@ struct GrassVertexOutput
     SHADOW_COORDS(4)
     UNITY_FOG_COORDS(5)
     float3 islandLocalSurfacePosition : TEXCOORD6;
-    half3 windLightingOffset : TEXCOORD7;
+    half4 windLightingAndForestFloor : TEXCOORD7;
 };
 
 sampler3D _CliffNoise3D;
 sampler2D _GrassPatchNoise;
+sampler2D _ForestFloorMaskMap;
 half _GrassEnabled;
 float3 _GrassPlayerPosition;
 float _GrassRadius;
@@ -56,6 +58,11 @@ half _RockBoundaryNoiseStrength;
 half _SandRockSlopeThreshold;
 float _CliffNoisePeriod;
 half _RockPatchNoiseDetailScale;
+float _ForestFloorTextureWorldSize;
+half _ForestFloorHeightBlendStrength;
+half _ForestFloorEdgeNoiseStrength;
+half _ForestFloorEdgeBlendWidth;
+half _TopTextureFadeOutSlope;
 float4x4 _IslandWorldToLocal;
 
 #include "GrassWindCommon.cginc"
@@ -89,6 +96,20 @@ half GrassAntialiasedMask(float signedDistance)
     return smoothstep(-transitionWidth, transitionWidth, signedDistance);
 }
 
+half GrassHeightModulatedTextureWeight(
+    half slopeWeight,
+    half sampledHeight,
+    half influence)
+{
+    half transitionWindow = 4.0h
+        * slopeWeight
+        * (1.0h - slopeWeight);
+    half centredHeight = sampledHeight * 2.0h - 1.0h;
+    return saturate(
+        slopeWeight
+            + centredHeight * influence * transitionWindow * 0.5h);
+}
+
 GrassVertexOutput GrassVertex(GrassVertexInput input)
 {
     GrassVertexOutput output;
@@ -110,8 +131,9 @@ GrassVertexOutput GrassVertex(GrassVertexInput input)
         _IslandWorldToLocal,
         float4(surfaceWorldPosition, 1.0)).xyz;
     output.worldNormal = worldNormal;
-    output.windLightingOffset = tangentWind
-        * (windSample.y * GRASS_SHELL_LAYER);
+    output.windLightingAndForestFloor = half4(
+        tangentWind * (windSample.y * GRASS_SHELL_LAYER),
+        input.environment.x);
     output.material = input.material;
     TRANSFER_SHADOW_WPOS(output, worldPosition);
     UNITY_TRANSFER_FOG(output, output.pos);
@@ -136,7 +158,6 @@ fixed4 GrassFragment(GrassVertexOutput input) : SV_Target
     // screen-space shadows. Fade complete blade columns with stable world-space
     // stippling so all shells in a tuft appear and disappear together.
     clip(radialWeight - GrassHash(radialFadeCell + float2(43.17, 19.73)));
-
     half3 normal = normalize(input.worldNormal);
     float elevation = input.islandLocalSurfacePosition.y;
     float noisePeriod = max(_CliffNoisePeriod, 1.0);
@@ -248,10 +269,72 @@ fixed4 GrassFragment(GrassVertexOutput input) : SV_Target
         + macroNoise.r * _SnowMacroNoiseMetres
         + broadNoise.g * _SnowEdgeNoiseMetres;
     half snowCoverage = GrassAntialiasedMask(elevation - noisySnowLine);
+
+    // Use the terrain shader's authored forest-floor projection and height
+    // shaping before excluding fur. The previous raw-mask stipple let grass
+    // columns appear over the visible material blend as the close grass pass
+    // faded in, because it did not describe the rendered boundary.
+    half topTextureFadeOutUpNormal = cos(radians(
+        _TopTextureFadeOutSlope));
+    half localUpNormal = saturate(normal.y);
+    half simpleStoneBlendNoise = clamp(
+        macroNoise.r * 0.20h
+            + broadNoise.g * 0.25h
+            + (rockPatchLayers.g * 2.0h - 1.0h) * 0.55h,
+        -1.0h,
+        1.0h);
+    half noisyTextureUpNormal = saturate(
+        localUpNormal
+            + simpleStoneBlendNoise
+                * 0.16h
+                * (1.0h - localUpNormal));
+    half topTextureBlendStart = saturate(
+        topTextureFadeOutUpNormal - 0.20h);
+    half forestFloorProjectionWeight = smoothstep(
+        topTextureBlendStart,
+        1.0h,
+        noisyTextureUpNormal);
+    float2 forestFloorUv = input.islandLocalSurfacePosition.xz
+        / max(_ForestFloorTextureWorldSize, 0.01);
+    half forestFloorHeight = tex2D(
+        _ForestFloorMaskMap,
+        forestFloorUv).r;
+    half forestFloorTextureWeight = GrassHeightModulatedTextureWeight(
+        forestFloorProjectionWeight,
+        forestFloorHeight,
+        _ForestFloorHeightBlendStrength);
+    half forestFloorBoundaryNoise = clamp(
+        bankDetailNoise.g * 0.70h
+            + bankDetailNoise.b * 0.30h,
+        -1.0h,
+        1.0h);
+    half forestFloorDistance = saturate(
+        input.windLightingAndForestFloor.w)
+        - (0.5h
+            + forestFloorBoundaryNoise
+                * _ForestFloorEdgeNoiseStrength);
+    half forestFloorTransition = max(
+        _ForestFloorEdgeBlendWidth,
+        fwidth(forestFloorDistance));
+    half forestFloorSource = smoothstep(
+        -forestFloorTransition,
+        forestFloorTransition,
+        forestFloorDistance);
+    half forestFloorCoverage = forestFloorSource
+        * forestFloorTextureWeight
+        * (1.0h - exposedRockCoverage)
+        * (1.0h - beachCoverage)
+        * (1.0h - riverCoverage)
+        * (1.0h - snowCoverage)
+        * step(0.0h, elevation);
     clip(elevation);
     clip(0.01h - exposedRockCoverage);
     clip(0.5 - beachCoverage);
     clip(0.5 - snowCoverage);
+    // Cut the fur at the same coherent midpoint used by the visible surface.
+    // The narrow antialiased colour band remains underneath, without sparse
+    // blades or flat green extending onto the forest-floor side.
+    clip(0.5h - forestFloorCoverage);
 
     // Deposit thickness is the soil-richness signal. A dedicated fine,
     // coherent texture removes every blade at zero richness, then lowers the
@@ -296,7 +379,7 @@ fixed4 GrassFragment(GrassVertexOutput input) : SV_Target
 
     half3 lightingNormal = normalize(
         lerp(normal, half3(0.0, 1.0, 0.0), 0.35)
-            + input.windLightingOffset * _GrassWindNormalStrength);
+            + input.windLightingAndForestFloor.xyz * _GrassWindNormalStrength);
     half3 lightDirection = normalize(_GrassLightDirection);
     half diffuse = saturate(dot(lightingNormal, lightDirection));
     UNITY_LIGHT_ATTENUATION(

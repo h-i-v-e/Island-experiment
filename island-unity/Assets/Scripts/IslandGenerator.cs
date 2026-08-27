@@ -385,6 +385,12 @@ public sealed class IslandGenerator : MonoBehaviour
         CopyMaterialTexture("_RiverBedMaskMap");
         CopyMaterialFloat("_RiverBedTextureWorldSize");
         CopyMaterialFloat("_RiverBedHeightBlendStrength");
+        CopyMaterialTexture("_ForestFloorMaskMap");
+        CopyMaterialFloat("_ForestFloorTextureWorldSize");
+        CopyMaterialFloat("_ForestFloorHeightBlendStrength");
+        CopyMaterialFloat("_ForestFloorEdgeNoiseStrength");
+        CopyMaterialFloat("_ForestFloorEdgeBlendWidth");
+        CopyMaterialFloat("_TopTextureFadeOutSlope");
     }
 
     private void ApplySnowlineSettings()
@@ -1207,7 +1213,8 @@ public sealed class IslandGenerator : MonoBehaviour
             || mesh.normals.length != 0
             || mesh.triangles.length != 0
             || mesh.uv.length != 0
-            || mesh.material.length != 0)
+            || mesh.material.length != 0
+            || mesh.environment.length != 0)
         {
             throw new InvalidOperationException(
                 $"The Rust forest tile {index} at LOD {visualLod} has data without ownership.");
@@ -1231,6 +1238,7 @@ public sealed class IslandGenerator : MonoBehaviour
             || (mesh.uv.length != 0 && mesh.uv.data == IntPtr.Zero)
             || (mesh.material.length != 0 && mesh.material.length != mesh.vertices.length)
             || (mesh.material.length != 0 && mesh.material.data == IntPtr.Zero)
+            || mesh.environment.length != 0
             || (wood && mesh.material.length != mesh.vertices.length))
         {
             throw new InvalidOperationException(
@@ -1250,6 +1258,7 @@ public sealed class IslandGenerator : MonoBehaviour
             || mesh.triangles.Length == 0
             || mesh.triangles.Length % 3 != 0
             || (mesh.uv.Length != 0 && mesh.uv.Length != mesh.vertices.Length)
+            || mesh.environment.Length != 0
             || (wood && mesh.material.Length != mesh.vertices.Length))
         {
             throw new InvalidOperationException(
@@ -1414,6 +1423,7 @@ public sealed class IslandGenerator : MonoBehaviour
             source.triangles,
             source.uv,
             source.material,
+            source.environment,
             true,
             true,
             worldSize);
@@ -1442,6 +1452,7 @@ public sealed class IslandGenerator : MonoBehaviour
             source.triangles,
             source.uv,
             source.material,
+            source.environment,
             false,
             false,
             worldSize);
@@ -1462,6 +1473,7 @@ public sealed class IslandGenerator : MonoBehaviour
             source.triangles,
             source.uv,
             source.material,
+            source.environment,
             false,
             false,
             worldSize);
@@ -1478,6 +1490,7 @@ public sealed class IslandGenerator : MonoBehaviour
         MotuNative.TriangleArray sourceTriangles,
         MotuNative.Vector2Array sourceUv,
         MotuNative.Vector4Array sourceMaterial,
+        MotuNative.Vector2Array sourceEnvironment,
         bool requireMaterial,
         bool createSurfaceMapCoordinates,
         float worldSize)
@@ -1521,7 +1534,17 @@ public sealed class IslandGenerator : MonoBehaviour
                 "The Rust terrain export returned invalid material attributes.");
         }
 
-        return new IslandPreparedMesh(vertices, normals, triangles, uv, material);
+        var environment = sourceEnvironment.data != IntPtr.Zero
+            && sourceEnvironment.length == vertices.Length
+                ? CopyVector2Array(sourceEnvironment)
+                : Array.Empty<Vector2>();
+        if (requireMaterial && environment.Length != vertices.Length)
+        {
+            throw new InvalidOperationException(
+                "The Rust terrain export returned invalid environment attributes.");
+        }
+
+        return new IslandPreparedMesh(vertices, normals, triangles, uv, material, environment);
     }
 
     private static Mesh CreateMesh(IslandPreparedMesh source, bool createTangents)
@@ -1544,6 +1567,11 @@ public sealed class IslandGenerator : MonoBehaviour
         if (source.material.Length == source.vertices.Length)
         {
             mesh.colors = source.material;
+        }
+        if (source.environment.Length == source.vertices.Length)
+        {
+            // Rust environment attributes use UV1: x = forest floor, y = reserved.
+            mesh.uv2 = source.environment;
         }
         if (createTangents)
         {
@@ -2156,6 +2184,74 @@ public sealed class IslandGenerator : MonoBehaviour
                     "Native LOD 0 surface maps contain only a flat normal.");
             }
 
+            MotuNative.CreateMesh(
+                handle,
+                IntPtr.Zero,
+                0,
+                0,
+                out var environmentMeshExport);
+            try
+            {
+                if (environmentMeshExport.environment.length
+                    != environmentMeshExport.vertices.length)
+                {
+                    throw new InvalidOperationException(
+                        "Native LOD 0 terrain has invalid environment attributes.");
+                }
+                var nativeEnvironment = CopyVector2Array(
+                    environmentMeshExport.environment);
+                var nativeMaximumForestFloor = 0f;
+                var nativeForestFloorVertices = 0;
+                foreach (var environment in nativeEnvironment)
+                {
+                    nativeMaximumForestFloor = Mathf.Max(
+                        nativeMaximumForestFloor,
+                        environment.x);
+                    if (environment.x > 0.01f) nativeForestFloorVertices++;
+                }
+                if (nativeMaximumForestFloor < 0.99f
+                    || nativeForestFloorVertices == 0)
+                {
+                    throw new InvalidOperationException(
+                        "Native LOD 0 terrain contains no forest-floor vertices.");
+                }
+                var uploadedEnvironmentMesh = CopyTerrainMesh(
+                    environmentMeshExport,
+                    0,
+                    ValidationWorldSize);
+                try
+                {
+                    var uploadedEnvironment = uploadedEnvironmentMesh.uv2;
+                    var uploadedMaximumForestFloor = 0f;
+                    foreach (var environment in uploadedEnvironment)
+                    {
+                        uploadedMaximumForestFloor = Mathf.Max(
+                            uploadedMaximumForestFloor,
+                            environment.x);
+                    }
+                    if (uploadedEnvironment.Length
+                            != uploadedEnvironmentMesh.vertexCount
+                        || uploadedMaximumForestFloor < 0.99f)
+                    {
+                        throw new InvalidOperationException(
+                            "Unity did not retain the native forest-floor values in UV1.");
+                    }
+                    Debug.Log(
+                        $"Forest-floor validation: {nativeForestFloorVertices}/"
+                            + $"{nativeEnvironment.Length} LOD 0 vertices are marked; "
+                            + $"native/uploaded maximum {nativeMaximumForestFloor:F2}/"
+                            + $"{uploadedMaximumForestFloor:F2}.");
+                }
+                finally
+                {
+                    DestroyImmediate(uploadedEnvironmentMesh);
+                }
+            }
+            finally
+            {
+                MotuNative.ReleaseMesh(ref environmentMeshExport);
+            }
+
             var terrainShader = Shader.Find("Motu/Terrain Unified");
             if (terrainShader == null
                 || !terrainShader.isSupported
@@ -2188,6 +2284,21 @@ public sealed class IslandGenerator : MonoBehaviour
                     || !terrainMaterial.HasProperty("_RiverBedParallaxDepth")
                     || !terrainMaterial.HasProperty("_RiverBedHeightBlendStrength")
                     || !terrainMaterial.HasProperty("_RiverBedTextureOcclusionStrength")
+                    || !terrainMaterial.HasProperty("_ForestFloorColor")
+                    || !terrainMaterial.HasProperty("_ForestFloorAlbedoMap")
+                    || !terrainMaterial.HasProperty("_ForestFloorNormalMap")
+                    || !terrainMaterial.HasProperty("_ForestFloorMaskMap")
+                    || !terrainMaterial.HasProperty("_ForestFloorTextureWorldSize")
+                    || !terrainMaterial.HasProperty("_ForestFloorNormalMapStrength")
+                    || !terrainMaterial.HasProperty("_ForestFloorParallaxDepth")
+                    || !terrainMaterial.HasProperty("_ForestFloorHeightBlendStrength")
+                    || !terrainMaterial.HasProperty("_ForestFloorTextureOcclusionStrength")
+                    || !terrainMaterial.HasProperty("_ForestFloorEdgeNoiseStrength")
+                    || !terrainMaterial.HasProperty("_ForestFloorEdgeBlendWidth")
+                    || !terrainMaterial.HasProperty("_WetBankBlendExponent")
+                    || !terrainMaterial.HasProperty("_WetDarkening")
+                    || !terrainMaterial.HasProperty("_WetSmoothness")
+                    || !terrainMaterial.HasProperty("_WetSpecularStrength")
                     || !terrainMaterial.HasProperty("_CliffNoise3D")
                     || !terrainMaterial.HasProperty("_RockPatchNoiseDetailScale")
                     || !terrainMaterial.HasProperty("_CliffNormalStrength")
@@ -2220,6 +2331,52 @@ public sealed class IslandGenerator : MonoBehaviour
                 {
                     throw new InvalidOperationException(
                         "The unified terrain shader is missing its shared map properties.");
+                }
+                var authoredTerrainMaterial = UnityEditor.AssetDatabase.LoadAssetAtPath<Material>(
+                    "Assets/Materials/IslandTerrain.mat");
+                var expectedForestFloorAlbedo =
+                    UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>(
+                        "Assets/Generated/Textures/ForestFloor/ForestFloor_albedo.png");
+                var expectedForestFloorNormal =
+                    UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>(
+                        "Assets/Generated/Textures/ForestFloor/ForestFloor_normal.png");
+                var expectedForestFloorMask =
+                    UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>(
+                        "Assets/Generated/Textures/ForestFloor/ForestFloor_mask.png");
+                var forestFloorAlbedoImporter = UnityEditor.AssetImporter.GetAtPath(
+                    "Assets/Generated/Textures/ForestFloor/ForestFloor_albedo.png")
+                    as UnityEditor.TextureImporter;
+                var forestFloorNormalImporter = UnityEditor.AssetImporter.GetAtPath(
+                    "Assets/Generated/Textures/ForestFloor/ForestFloor_normal.png")
+                    as UnityEditor.TextureImporter;
+                var forestFloorMaskImporter = UnityEditor.AssetImporter.GetAtPath(
+                    "Assets/Generated/Textures/ForestFloor/ForestFloor_mask.png")
+                    as UnityEditor.TextureImporter;
+                if (authoredTerrainMaterial == null
+                    || authoredTerrainMaterial.shader != terrainShader
+                    || authoredTerrainMaterial.GetTexture("_ForestFloorAlbedoMap")
+                        != expectedForestFloorAlbedo
+                    || authoredTerrainMaterial.GetTexture("_ForestFloorNormalMap")
+                        != expectedForestFloorNormal
+                    || authoredTerrainMaterial.GetTexture("_ForestFloorMaskMap")
+                        != expectedForestFloorMask
+                    || !Mathf.Approximately(
+                        authoredTerrainMaterial.GetFloat("_ForestFloorTextureWorldSize"),
+                        2f)
+                    || forestFloorAlbedoImporter == null
+                    || !forestFloorAlbedoImporter.sRGBTexture
+                    || forestFloorAlbedoImporter.wrapMode != TextureWrapMode.Repeat
+                    || forestFloorNormalImporter == null
+                    || forestFloorNormalImporter.textureType
+                        != UnityEditor.TextureImporterType.NormalMap
+                    || forestFloorNormalImporter.flipGreenChannel
+                    || forestFloorNormalImporter.wrapMode != TextureWrapMode.Repeat
+                    || forestFloorMaskImporter == null
+                    || forestFloorMaskImporter.sRGBTexture
+                    || forestFloorMaskImporter.wrapMode != TextureWrapMode.Repeat)
+                {
+                    throw new InvalidOperationException(
+                        "The terrain material is not using the imported Forest Floor recipe maps.");
                 }
                 var cliffNoise = CreateCliffNoiseTexture();
                 try
@@ -2404,6 +2561,12 @@ public sealed class IslandGenerator : MonoBehaviour
                     || !grassMaterial.HasProperty("_RiverBedMaskMap")
                     || !grassMaterial.HasProperty("_RiverBedTextureWorldSize")
                     || !grassMaterial.HasProperty("_RiverBedHeightBlendStrength")
+                    || !grassMaterial.HasProperty("_ForestFloorMaskMap")
+                    || !grassMaterial.HasProperty("_ForestFloorTextureWorldSize")
+                    || !grassMaterial.HasProperty("_ForestFloorHeightBlendStrength")
+                    || !grassMaterial.HasProperty("_ForestFloorEdgeNoiseStrength")
+                    || !grassMaterial.HasProperty("_ForestFloorEdgeBlendWidth")
+                    || !grassMaterial.HasProperty("_TopTextureFadeOutSlope")
                     || !grassMaterial.HasProperty("_RockPatchNoiseDetailScale")
                     || !grassMaterial.HasProperty("_GrassPatchNoise")
                     || !grassMaterial.HasProperty("_GrassPatchNoiseWorldSize")
@@ -2471,11 +2634,19 @@ public sealed class IslandGenerator : MonoBehaviour
                     if (nativeMesh.vertices.length == 0
                         || nativeMesh.triangles.length == 0
                         || nativeMesh.uv.length != nativeMesh.vertices.length
-                        || nativeMesh.material.length != nativeMesh.vertices.length)
+                        || nativeMesh.material.length != nativeMesh.vertices.length
+                        || nativeMesh.environment.length != nativeMesh.vertices.length)
                     {
-                        throw new InvalidOperationException("A render tile has invalid geometry or UVs.");
+                        throw new InvalidOperationException(
+                            "A render tile has invalid geometry or vertex attributes.");
                     }
                     var renderMesh = CopyTerrainMesh(nativeMesh, 0, ValidationWorldSize);
+                    if (renderMesh.uv2.Length != renderMesh.vertexCount)
+                    {
+                        DestroyImmediate(renderMesh);
+                        throw new InvalidOperationException(
+                            "A render tile did not upload forest-floor UV1 data.");
+                    }
                     DestroyImmediate(renderMesh);
                 }
             }

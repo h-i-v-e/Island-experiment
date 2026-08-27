@@ -6,13 +6,15 @@ use super::{
     IndexedParallelIterator, IslandOptions, Mesh, MeshClipper, NewVertexStencil, OnceLock,
     Ordering, ParallelIterator, ParallelSliceMut, Path, Raster, Read, River, RiverChannelSettings,
     RiverNetwork, RiverSourceRule, Rng, SHARP_ROCK_DISPLACEMENT_RATIO, StageTimer, SurfaceMaps,
-    SurfaceMaterial, TERRAIN_RENDER_FLOOR, Terrain, TerrainMaterialField, TriangleIndex, Vec2,
-    Vec3, Vec4, Write, append_settled_rocks, bake_surface_maps, bury_river_banks, clear_loose_soil,
-    encode_bank_distance_in_uv, erode_mesh, fix_inland_seas, geology, hydraulic_erode_stage, io,
-    legacy_catchment_hectares, mem, noise, sample_grid, sample_mesh_surface,
+    SurfaceMaterial, TERRAIN_RENDER_FLOOR, Terrain, TerrainEnvironmentField, TerrainMaterialField,
+    TriangleIndex, Vec2, Vec3, Vec4, Write, append_settled_rocks, bake_surface_maps,
+    bury_river_banks, clear_loose_soil, encode_bank_distance_in_uv, erode_mesh, fix_inland_seas,
+    geology, hydraulic_erode_stage, io, legacy_catchment_hectares, mem, noise, sample_grid,
+    sample_mesh_surface,
 };
 use crate::forest::{
-    ForestGenerationStats, ForestMeshKind, ForestMeshes, ForestOptions, generate_forest,
+    ForestGenerationStats, ForestMeshKind, ForestMeshes, ForestOptions, forest_floor_mask,
+    generate_forest,
 };
 
 const SEA_PROXIMITY_FULL_STRENGTH_METRES: f32 = 2.0;
@@ -25,6 +27,7 @@ pub struct Island {
     pub(super) generation_method: GenerationMethod,
     pub(super) terrain: Terrain,
     pub(super) material: TerrainMaterialField,
+    pub(super) environment: TerrainEnvironmentField,
     pub(super) coarser_lods: [Mesh; 2],
     pub(super) rivers: Vec<River>,
     pub(super) distance_to_land: Vec<f32>,
@@ -376,6 +379,8 @@ impl Island {
             forest_options,
         )?;
         decorations.set_tree_anchors(forest.placements().iter().map(|placement| placement.anchor));
+        let forest_floor = forest_floor_mask(seed, terrain.mesh(), forest.placements());
+        let environment = TerrainEnvironmentField::from_forest_floor(&forest_floor);
         let material = TerrainMaterialField::from_surface(&material, &river_bed, &forced_rock);
         let distance_to_land = {
             let _timer = StageTimer::new("sea_mask.distance_to_land");
@@ -393,6 +398,7 @@ impl Island {
             generation_method: method,
             terrain,
             material,
+            environment,
             coarser_lods: [lod1, lod2],
             rivers,
             distance_to_land,
@@ -755,6 +761,27 @@ impl Island {
                 self.material
                     .sample(&self.terrain, point)
                     .clamp(Vec4::ZERO, Vec4::ONE)
+            })
+            .collect()
+    }
+
+    /// Per-vertex environment values for `mesh`: x = forest floor, y =
+    /// reserved. Values use the same authoritative LOD0 sampling path as the
+    /// established material channels.
+    pub fn environment_values_for(&self, mesh: &Mesh) -> Vec<Vec2> {
+        mesh.vertices
+            .iter()
+            .enumerate()
+            .map(|(index, vertex)| {
+                let point = mesh
+                    .uv
+                    .get(index)
+                    .copied()
+                    .unwrap_or_else(|| vertex.truncate())
+                    .clamp(Vec2::ZERO, Vec2::ONE);
+                self.environment
+                    .sample(&self.terrain, point)
+                    .clamp(Vec2::ZERO, Vec2::ONE)
             })
             .collect()
     }

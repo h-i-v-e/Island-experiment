@@ -1,0 +1,428 @@
+{
+  "name": "ForestFloor",
+  "seed": 58021,
+  "width": 1024,
+  "height": 1024,
+  "physical_tile_width_m": 2.0,
+  "physical_tile_height_m": 2.0,
+  "material": {
+    "kind": "layered_noise",
+    "frequency": 5.0,
+    "amplitude": 0.004,
+    "octaves": 4,
+    "lacunarity": 2.05,
+    "gain": 0.48,
+    "offset": -0.002
+  },
+  "layers": [
+    {
+      "id": "damp-soil",
+      "name": "Damp soil undulation",
+      "enabled": true,
+      "source": {
+        "kind": "fbm",
+        "frequency": 3,
+        "octaves": 4,
+        "lacunarity": 2.0,
+        "gain": 0.5,
+        "offset": [0.0, 0.0],
+        "seed_domain": 1101,
+        "domain_warp": {
+          "amplitude": 0.28,
+          "frequency": 2,
+          "octaves": 3,
+          "lacunarity": 2.0,
+          "gain": 0.5,
+          "seed_domain": 1102
+        },
+        "cellular_jitter": 0.25
+      },
+      "remap": {
+        "input_min": -1.0,
+        "input_max": 1.0,
+        "invert": false,
+        "contrast": 1.0,
+        "bias": 0.0,
+        "clamp": true,
+        "curve": null
+      },
+      "mask": null,
+      "outputs": {
+        "height": {
+          "enabled": true,
+          "blend": { "kind": "add" },
+          "strength_m": 0.006
+        },
+        "albedo": {
+          "enabled": true,
+          "blend": "mix",
+          "strength": 0.72,
+          "colour_map": {
+            "kind": "gradient",
+            "stops": [
+              { "position": 0.0, "colour": [0.035, 0.026, 0.017] },
+              { "position": 0.48, "colour": [0.075, 0.052, 0.029] },
+              { "position": 1.0, "colour": [0.13, 0.086, 0.043] }
+            ]
+          },
+          "hue_influence": 0.0,
+          "saturation_influence": 0.0,
+          "value_influence": 0.0
+        }
+      }
+    },
+    {
+      "id": "leaf-litter",
+      "name": "Separated leaf litter",
+      "enabled": true,
+      "source": {
+        "kind": "cellular_distance",
+        "frequency": 28,
+        "octaves": 1,
+        "lacunarity": 2.0,
+        "gain": 0.5,
+        "offset": [0.0, 0.0],
+        "seed_domain": 2201,
+        "domain_warp": {
+          "amplitude": 0.24,
+          "frequency": 4,
+          "octaves": 3,
+          "lacunarity": 2.0,
+          "gain": 0.5,
+          "seed_domain": 2202
+        },
+        "cellular_jitter": 0.92
+      },
+      "remap": {
+        "input_min": 0.08,
+        "input_max": 0.58,
+        "invert": true,
+        "contrast": 1.2,
+        "bias": -0.04,
+        "clamp": true,
+        "curve": [
+          { "position": 0.0, "value": 0.0 },
+          { "position": 0.28, "value": 0.02 },
+          { "position": 0.48, "value": 0.38 },
+          { "position": 0.68, "value": 0.88 },
+          { "position": 1.0, "value": 1.0 }
+        ]
+      },
+      "mask": { "kind": "own" },
+      "outputs": {
+        "height": {
+          "enabled": true,
+          "blend": { "kind": "add" },
+          "strength_m": 0.009
+        },
+        "albedo": {
+          "enabled": true,
+          "blend": "mix",
+          "strength": 0.9,
+          "colour_map": {
+            "kind": "gradient",
+            "stops": [
+              { "position": 0.0, "colour": [0.055, 0.037, 0.019] },
+              { "position": 0.42, "colour": [0.16, 0.085, 0.028] },
+              { "position": 0.72, "colour": [0.27, 0.145, 0.047] },
+              { "position": 1.0, "colour": [0.38, 0.235, 0.085] }
+            ]
+          },
+          "hue_influence": 0.0,
+          "saturation_influence": 0.0,
+          "value_influence": 0.0
+        }
+      }
+    },
+    {
+      "id": "leaf-colour-variation",
+      "name": "Leaf colour variation",
+      "enabled": true,
+      "source": {
+        "kind": "cellular_value",
+        "frequency": 28,
+        "octaves": 1,
+        "lacunarity": 2.0,
+        "gain": 0.5,
+        "offset": [0.0, 0.0],
+        "seed_domain": 2201,
+        "domain_warp": {
+          "amplitude": 0.24,
+          "frequency": 4,
+          "octaves": 3,
+          "lacunarity": 2.0,
+          "gain": 0.5,
+          "seed_domain": 2202
+        },
+        "cellular_jitter": 0.92
+      },
+      "remap": {
+        "input_min": -1.0,
+        "input_max": 1.0,
+        "invert": false,
+        "contrast": 1.1,
+        "bias": 0.0,
+        "clamp": true,
+        "curve": null
+      },
+      "mask": {
+        "kind": "layer",
+        "layer_id": "leaf-litter",
+        "remap": {
+          "input_min": 0.18,
+          "input_max": 0.72,
+          "invert": false,
+          "contrast": 1.0,
+          "bias": 0.0,
+          "clamp": true,
+          "curve": null
+        }
+      },
+      "outputs": {
+        "height": {
+          "enabled": false,
+          "blend": { "kind": "add" },
+          "strength_m": 0.001
+        },
+        "albedo": {
+          "enabled": true,
+          "blend": "mix",
+          "strength": 0.64,
+          "colour_map": {
+            "kind": "gradient",
+            "stops": [
+              { "position": 0.0, "colour": [0.105, 0.045, 0.018] },
+              { "position": 0.28, "colour": [0.22, 0.075, 0.024] },
+              { "position": 0.56, "colour": [0.34, 0.16, 0.035] },
+              { "position": 0.78, "colour": [0.24, 0.22, 0.055] },
+              { "position": 1.0, "colour": [0.105, 0.14, 0.043] }
+            ]
+          },
+          "hue_influence": 0.0,
+          "saturation_influence": 0.0,
+          "value_influence": 0.0
+        }
+      }
+    },
+    {
+      "id": "decomposed-fibres",
+      "name": "Decomposed leaf fibres",
+      "enabled": true,
+      "source": {
+        "kind": "ridged",
+        "frequency": 72,
+        "octaves": 3,
+        "lacunarity": 2.1,
+        "gain": 0.46,
+        "offset": [0.11, -0.07],
+        "seed_domain": 3301,
+        "domain_warp": {
+          "amplitude": 0.16,
+          "frequency": 9,
+          "octaves": 2,
+          "lacunarity": 2.0,
+          "gain": 0.5,
+          "seed_domain": 3302
+        },
+        "cellular_jitter": 0.25
+      },
+      "remap": {
+        "input_min": -0.45,
+        "input_max": 0.75,
+        "invert": false,
+        "contrast": 1.25,
+        "bias": -0.05,
+        "clamp": true,
+        "curve": null
+      },
+      "mask": {
+        "kind": "layer",
+        "layer_id": "leaf-litter",
+        "remap": {
+          "input_min": 0.12,
+          "input_max": 0.82,
+          "invert": false,
+          "contrast": 1.0,
+          "bias": 0.0,
+          "clamp": true,
+          "curve": null
+        }
+      },
+      "outputs": {
+        "height": {
+          "enabled": true,
+          "blend": { "kind": "add" },
+          "strength_m": 0.0012
+        },
+        "albedo": {
+          "enabled": true,
+          "blend": "overlay",
+          "strength": 0.22,
+          "colour_map": {
+            "kind": "ramp",
+            "first": [0.075, 0.045, 0.02],
+            "second": [0.42, 0.27, 0.095]
+          },
+          "hue_influence": 0.0,
+          "saturation_influence": 0.0,
+          "value_influence": 0.0
+        }
+      }
+    },
+    {
+      "id": "moss-patches",
+      "name": "Moss patches",
+      "enabled": true,
+      "source": {
+        "kind": "fbm",
+        "frequency": 4,
+        "octaves": 5,
+        "lacunarity": 2.0,
+        "gain": 0.52,
+        "offset": [-0.19, 0.23],
+        "seed_domain": 4401,
+        "domain_warp": {
+          "amplitude": 0.46,
+          "frequency": 3,
+          "octaves": 3,
+          "lacunarity": 2.0,
+          "gain": 0.5,
+          "seed_domain": 4402
+        },
+        "cellular_jitter": 0.25
+      },
+      "remap": {
+        "input_min": 0.05,
+        "input_max": 0.62,
+        "invert": false,
+        "contrast": 1.45,
+        "bias": -0.12,
+        "clamp": true,
+        "curve": [
+          { "position": 0.0, "value": 0.0 },
+          { "position": 0.48, "value": 0.02 },
+          { "position": 0.66, "value": 0.52 },
+          { "position": 0.82, "value": 0.9 },
+          { "position": 1.0, "value": 1.0 }
+        ]
+      },
+      "mask": { "kind": "own" },
+      "outputs": {
+        "height": {
+          "enabled": true,
+          "blend": { "kind": "add" },
+          "strength_m": 0.003
+        },
+        "albedo": {
+          "enabled": true,
+          "blend": "mix",
+          "strength": 0.74,
+          "colour_map": {
+            "kind": "gradient",
+            "stops": [
+              { "position": 0.0, "colour": [0.055, 0.045, 0.018] },
+              { "position": 0.48, "colour": [0.075, 0.09, 0.025] },
+              { "position": 0.72, "colour": [0.13, 0.19, 0.045] },
+              { "position": 1.0, "colour": [0.22, 0.29, 0.075] }
+            ]
+          },
+          "hue_influence": 0.0,
+          "saturation_influence": 0.0,
+          "value_influence": 0.0
+        }
+      }
+    },
+    {
+      "id": "moss-grain",
+      "name": "Moss grain",
+      "enabled": true,
+      "source": {
+        "kind": "cellular_value",
+        "frequency": 96,
+        "octaves": 1,
+        "lacunarity": 2.0,
+        "gain": 0.5,
+        "offset": [0.0, 0.0],
+        "seed_domain": 5501,
+        "domain_warp": null,
+        "cellular_jitter": 0.84
+      },
+      "remap": {
+        "input_min": -1.0,
+        "input_max": 1.0,
+        "invert": false,
+        "contrast": 1.35,
+        "bias": 0.0,
+        "clamp": true,
+        "curve": null
+      },
+      "mask": {
+        "kind": "layer",
+        "layer_id": "moss-patches",
+        "remap": {
+          "input_min": 0.42,
+          "input_max": 0.88,
+          "invert": false,
+          "contrast": 1.0,
+          "bias": 0.0,
+          "clamp": true,
+          "curve": null
+        }
+      },
+      "outputs": {
+        "height": {
+          "enabled": true,
+          "blend": { "kind": "add" },
+          "strength_m": 0.0008
+        },
+        "albedo": {
+          "enabled": true,
+          "blend": "overlay",
+          "strength": 0.2,
+          "colour_map": {
+            "kind": "ramp",
+            "first": [0.065, 0.08, 0.022],
+            "second": [0.31, 0.37, 0.105]
+          },
+          "hue_influence": 0.0,
+          "saturation_influence": 0.0,
+          "value_influence": 0.0
+        }
+      }
+    }
+  ],
+  "normal_scale": 1.15,
+  "displacement": {
+    "minimum_m": -0.018,
+    "maximum_m": 0.024,
+    "base_m": 0.0,
+    "displacement_map": true
+  },
+  "occlusion": {
+    "directions": 12,
+    "samples": 8,
+    "radius": 0.55,
+    "max_radius": 5.0,
+    "cavity_strength": 1.55,
+    "horizon_strength": 0.78,
+    "power": 1.05,
+    "combine": { "kind": "multiply" }
+  },
+  "albedo": {
+    "base_color": [0.052, 0.038, 0.022],
+    "warm_color": [0.15, 0.09, 0.038],
+    "palette": [
+      [0.04, 0.029, 0.017],
+      [0.085, 0.052, 0.025],
+      [0.16, 0.09, 0.034],
+      [0.22, 0.16, 0.052]
+    ],
+    "variation": 0.48,
+    "crack_darkening": 0.34,
+    "shoulder_variation": 0.035,
+    "mineral_density": 0.012,
+    "mineral_brightness": 0.08,
+    "occlusion_influence": 0.14
+  },
+  "output_profiles": ["separate", "motu_unity_terrain"]
+}

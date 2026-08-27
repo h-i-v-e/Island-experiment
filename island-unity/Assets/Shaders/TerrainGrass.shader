@@ -30,6 +30,12 @@ Shader "Motu/Terrain Grass"
         [HideInInspector][NoScaleOffset] _RiverBedMaskMap ("Riverbed Mask", 2D) = "gray" {}
         [HideInInspector] _RiverBedTextureWorldSize ("Riverbed Texture Size", Float) = 2
         [HideInInspector] _RiverBedHeightBlendStrength ("Riverbed Height Blend Weight", Float) = 0
+        [HideInInspector][NoScaleOffset] _ForestFloorMaskMap ("Forest Floor Mask", 2D) = "gray" {}
+        [HideInInspector] _ForestFloorTextureWorldSize ("Forest Floor Texture Size", Float) = 2
+        [HideInInspector] _ForestFloorHeightBlendStrength ("Forest Floor Height Blend Weight", Float) = 1
+        [HideInInspector] _ForestFloorEdgeNoiseStrength ("Forest Floor Edge Noise Strength", Float) = 0.22
+        [HideInInspector] _ForestFloorEdgeBlendWidth ("Forest Floor Edge Blend Width", Float) = 0.035
+        [HideInInspector] _TopTextureFadeOutSlope ("Top Texture Fade-Out Slope", Float) = 45
         _SnowLine ("Snow Line (metres)", Float) = 100
         _SnowEdgeNoiseMetres ("Snow Edge Noise (metres)", Range(0, 10)) = 2.5
         _SnowMacroNoiseMetres ("Snow Macro Noise (metres)", Range(0, 40)) = 18

@@ -217,6 +217,37 @@ impl TerrainMaterialField {
     }
 }
 
+/// Additional terrain vertex signals exported independently from the four
+/// established material channels: x = forest floor, y = reserved.
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct TerrainEnvironmentField {
+    pub(super) values: Vec<Vec2>,
+}
+
+impl TerrainEnvironmentField {
+    pub(super) fn from_forest_floor(forest_floor: &[bool]) -> Self {
+        let values = forest_floor
+            .iter()
+            .map(|&forest_floor| Vec2::new(f32::from(forest_floor), 0.0))
+            .collect();
+        Self { values }
+    }
+
+    pub(super) fn sample(&self, terrain: &Terrain, point: Vec2) -> Vec2 {
+        sample_mesh_triangle(&terrain.mesh, &terrain.triangle_index, point).map_or_else(
+            || {
+                let nearest = terrain.triangle_index.nearest_vertex(&terrain.mesh, point);
+                self.values[nearest]
+            },
+            |(triangle, weights)| {
+                self.values[triangle[0]] * weights[0]
+                    + self.values[triangle[1]] * weights[1]
+                    + self.values[triangle[2]] * weights[2]
+            },
+        )
+    }
+}
+
 pub(crate) fn projected_vertex_control_areas(mesh: &Mesh) -> Vec<f32> {
     let mut areas = vec![0.0; mesh.vertices.len()];
     for triangle in mesh.triangles.chunks_exact(3) {
@@ -312,5 +343,14 @@ mod tests {
         assert_eq!(field.values[0], Vec4::new(0.25, 0.0, 1.0, 1.0));
         assert_eq!(field.values[1], Vec4::new(1.0, 0.0, 0.0, 0.5));
         assert_eq!(field.values[2], Vec4::new(0.75, 0.5, 0.0, 0.0));
+    }
+
+    #[test]
+    fn environment_records_only_forest_floor() {
+        let field = TerrainEnvironmentField::from_forest_floor(&[false, true, false]);
+
+        assert_eq!(field.values[0], Vec2::ZERO);
+        assert_eq!(field.values[1], Vec2::X);
+        assert_eq!(field.values[2], Vec2::ZERO);
     }
 }

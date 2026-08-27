@@ -1,0 +1,69 @@
+{
+  "output_format_version": "1",
+  "profile": "motu_unity_terrain",
+  "name": "ForestFloor",
+  "dimensions": {
+    "width": 1024,
+    "height": 1024
+  },
+  "metadata": {
+    "generator_algorithm_version": "1",
+    "recipe_hash": "0b97c2427ce93c179c5f93cdcdd19b51315bc5134291e13f0bdbcde817ddfbd0",
+    "seed": 58021,
+    "physical_tile_width_m": 2.0,
+    "physical_tile_height_m": 2.0,
+    "height_min_m": -0.018,
+    "height_max_m": 0.024,
+    "neutral_height_m": 0.0,
+    "displacement_map": true,
+    "normal_convention": "direct_x"
+  },
+  "maps": [
+    {
+      "file": "ForestFloor_albedo.png",
+      "format": "RGB8",
+      "color_space": "sRGB",
+      "width": 1024,
+      "height": 1024,
+      "sha256": "a03fed398a1d0d81f5ba3c6cfc344cc0e2727dfb79d33c0729f3dd52d9e16f0f"
+    },
+    {
+      "file": "ForestFloor_height.png",
+      "format": "Gray16",
+      "color_space": "linear",
+      "width": 1024,
+      "height": 1024,
+      "sha256": "ad80c5b3fc669058f634f13095ea8f15bd8aa2bb750e95410ab5c5027e606079"
+    },
+    {
+      "file": "ForestFloor_normal.png",
+      "format": "RGB8",
+      "color_space": "linear",
+      "width": 1024,
+      "height": 1024,
+      "sha256": "114cf49c21b52c8a45658ea812c8de4039d95b6e1851e90f8f845433ea0ed671"
+    },
+    {
+      "file": "ForestFloor_occlusion.png",
+      "format": "Gray8",
+      "color_space": "linear",
+      "width": 1024,
+      "height": 1024,
+      "sha256": "9c36902dba0d58adcb285fbf7cc560c9b1a37a9e96eb9ef424184846b1913538"
+    },
+    {
+      "file": "ForestFloor_mask.png",
+      "format": "RGBA8",
+      "color_space": "linear",
+      "width": 1024,
+      "height": 1024,
+      "sha256": "7a1e078de8bbd40527f8d0ebe9771223c254d357dc05504c78eaa689f03d1f14"
+    }
+  ],
+  "packed_channels": [
+    "A=opaque_one",
+    "B=unused_zero",
+    "G=occlusion",
+    "R=height_8bit"
+  ]
+}
