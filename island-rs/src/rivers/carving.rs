@@ -452,9 +452,10 @@ pub(super) fn lower_profile_reach_through_confluence(
     let Some(anchor_surface) = nodes.get(anchor).map(|node| node.surface) else {
         return false;
     };
-    if !target_surface.is_finite() || anchor_surface <= target_surface + f32::EPSILON {
+    if !target_surface.is_finite() {
         return false;
     }
+    let target_surface = target_surface.min(anchor_surface);
 
     let reach_start = waterfalls[..anchor.min(waterfalls.len())]
         .iter()
@@ -466,6 +467,9 @@ pub(super) fn lower_profile_reach_through_confluence(
         .is_some_and(|node| node.surface > target_surface + f32::EPSILON)
     {
         reach_end += 1;
+    }
+    if reach_end == anchor && anchor_surface <= target_surface + f32::EPSILON {
+        return false;
     }
 
     for node in &mut nodes[reach_start..=reach_end] {

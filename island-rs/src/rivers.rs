@@ -35,18 +35,17 @@ use carving::{
 };
 pub(crate) use channel::encode_bank_distance_in_uv;
 use channel::{
-    apply_averaged, build_river_footprint, carve_confluence_connectors, carve_river_corridor,
-    duplicate_river_topology, is_river_bed_triangle, is_river_boundary, lower_river_surroundings,
-    mark_river_boundary, river_half_width, river_ring_count, river_topology_masks,
-    shape_channel_ring_vertices, smooth_river_corridor, target_cross_sections,
-    update_achieved_cross_sections,
+    ConfluenceCarveTarget, apply_averaged, build_river_footprint, carve_confluence_connectors,
+    carve_river_corridor, duplicate_river_topology, is_river_bed_triangle, is_river_boundary,
+    lower_river_surroundings, mark_river_boundary, record_confluence_carve_target,
+    river_half_width, river_ring_count, river_topology_masks, shape_channel_ring_vertices,
+    smooth_river_corridor, target_cross_sections, update_achieved_cross_sections,
 };
 use geometry::{
     BuiltRiverGeometry, RiverChannelFootprintOwner, RiverFootprint, RiverGeometryBuilder,
-    RiverMeshBuffers, RiverOwnerKey, apply_known_surfaces, confluence_connector,
-    finalize_river_budgets, lower_precarve_river_corridors_to_profiles,
-    lower_precarve_river_valleys, raise_precarve_waterfall_shoulders, river_reaches_ocean,
-    transfer_tributary_budgets,
+    RiverMeshBuffers, RiverOwnerKey, confluence_connector, finalize_river_budgets,
+    lower_precarve_river_corridors_to_profiles, lower_precarve_river_valleys,
+    raise_precarve_waterfall_shoulders, river_reaches_ocean, transfer_tributary_budgets,
 };
 pub(crate) use rocks::append_settled_rocks;
 use rocks::generate_river_rock_mesh;
@@ -587,6 +586,11 @@ impl RiverNetwork {
         lower_precarve_river_valleys(self, mesh, adjacency);
         raise_precarve_waterfall_shoulders(self, mesh, adjacency);
         self.refresh_after_vertical_displacement(mesh);
+        // Valley and waterfall-shoulder shaping can move the incoming and
+        // receiving centrelines by different amounts. Reconcile again after
+        // those displacements so the detailed corridor, connector, and water
+        // topology inherit one continuous downhill profile at every join.
+        self.reconcile_confluence_profiles();
         lower_precarve_river_corridors_to_profiles(self, mesh, adjacency);
         self.refresh(mesh);
         if !options.form_deltas {
@@ -639,14 +643,81 @@ impl RiverNetwork {
             &carve,
         );
         carve_confluence_connectors(self, terrain, &footprint, channel_parameters, &mut budgets);
+        self.reconcile_carved_confluence_profiles(terrain, &known_surfaces, &mut budgets);
         transfer_tributary_budgets(&self.rivers, &mut budgets);
         if form_deltas {
             self.deposit_deltas(terrain, &mut budgets);
         }
         finalize_river_budgets(&self.rivers, &mut budgets);
-        apply_known_surfaces(&mut self.rivers, &known_surfaces);
         if !form_deltas {
             self.enforce_gentle_final_profiles(terrain.mesh);
+        }
+    }
+
+    /// Reapplies shared-node and confluence constraints after every river has
+    /// been carved. Both operations are one-sided lowerings, so the matching
+    /// bed vertices can follow the water profile without disturbing an
+    /// already lower channel.
+    fn reconcile_carved_confluence_profiles(
+        &mut self,
+        terrain: &mut RiverTerrain<'_>,
+        known_surfaces: &HashMap<usize, f32>,
+        budgets: &mut [RiverSedimentBudget],
+    ) -> usize {
+        let previous_surfaces = self
+            .rivers
+            .iter()
+            .flat_map(|river| river.nodes.iter().map(|node| node.surface))
+            .collect::<Vec<_>>();
+        self.apply_known_surface_profiles(known_surfaces);
+        self.reconcile_confluence_profiles();
+
+        let mut targets = vec![None::<ConfluenceCarveTarget>; terrain.mesh.vertices.len()];
+        for ((river_index, node), previous_surface) in self
+            .rivers
+            .iter()
+            .enumerate()
+            .flat_map(|(river_index, river)| {
+                river.nodes.iter().map(move |node| (river_index, node))
+            })
+            .zip(previous_surfaces)
+        {
+            let lowering = previous_surface - node.surface;
+            if lowering <= f32::EPSILON {
+                continue;
+            }
+            let target = terrain.mesh.vertices[node.vertex].z - lowering;
+            record_confluence_carve_target(&mut targets, node.vertex, target, river_index);
+        }
+
+        let mut lowered = 0;
+        for (vertex, target) in targets.into_iter().enumerate() {
+            let Some(target) = target else {
+                continue;
+            };
+            let depth = terrain.mesh.vertices[vertex].z - target.height;
+            if depth > f32::EPSILON {
+                terrain.lower_vertex_exactly(vertex, depth, &mut budgets[target.river]);
+                lowered += 1;
+            }
+        }
+        lowered
+    }
+
+    fn apply_known_surface_profiles(&mut self, known_surfaces: &HashMap<usize, f32>) {
+        for (river, waterfalls) in self.rivers.iter_mut().zip(&mut self.waterfalls) {
+            for node_index in 0..river.nodes.len() {
+                let vertex = river.nodes[node_index].vertex;
+                let Some(&surface) = known_surfaces.get(&vertex) else {
+                    continue;
+                };
+                lower_profile_reach_through_confluence(
+                    &mut river.nodes,
+                    waterfalls,
+                    node_index,
+                    surface,
+                );
+            }
         }
     }
 
@@ -779,25 +850,18 @@ impl RiverNetwork {
             };
             let incoming_surface = self.rivers[incoming_river].nodes[incoming_terminal].surface;
             let receiver_surface = self.rivers[receiver].nodes[receiver_join].surface;
-
-            if incoming_surface > receiver_surface + f32::EPSILON {
-                lower_profile_reach_through_confluence(
-                    &mut self.rivers[incoming_river].nodes,
-                    &mut self.waterfalls[incoming_river],
-                    incoming_terminal,
-                    receiver_surface,
-                );
-                return;
-            }
-            if receiver_surface <= incoming_surface + f32::EPSILON {
-                return;
-            }
-
+            let target_surface = incoming_surface.min(receiver_surface);
+            lower_profile_reach_through_confluence(
+                &mut self.rivers[incoming_river].nodes,
+                &mut self.waterfalls[incoming_river],
+                incoming_terminal,
+                target_surface,
+            );
             let reached_terminal = lower_profile_reach_through_confluence(
                 &mut self.rivers[receiver].nodes,
                 &mut self.waterfalls[receiver],
                 receiver_join,
-                incoming_surface,
+                target_surface,
             );
             if !reached_terminal {
                 return;

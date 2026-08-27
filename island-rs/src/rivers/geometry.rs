@@ -301,10 +301,12 @@ pub(super) fn confluence_connector(
 }
 
 pub(super) fn finalize_river_geometry(
+    network: &RiverNetwork,
     terrain: &mut Mesh,
     coverage: &[u8],
     surfaces: &[f32],
     river_uv: &[Vec2],
+    owners: &[Option<RiverOwnerKey>],
     waterfall_constraints: &WaterfallTerrainConstraints,
 ) -> (Mesh, Vec<bool>) {
     // Keep the tessellated river topology fixed after carving and smoothing.
@@ -312,11 +314,58 @@ pub(super) fn finalize_river_geometry(
     // settled channel profile, creating sharp bed ridges or accidental dams.
     terrain.calculate_normals();
     let river_bed = river_topology_masks(terrain, coverage).0;
-    let mut river_mesh =
-        duplicate_river_topology(terrain, coverage, surfaces, river_uv, waterfall_constraints)
-            .clipped_above(0.0);
+    let visible_coverage = visible_river_water_coverage(network, terrain, coverage, owners);
+    let mut river_mesh = duplicate_river_topology(
+        terrain,
+        &visible_coverage,
+        surfaces,
+        river_uv,
+        waterfall_constraints,
+    )
+    .clipped_above(0.0);
     encode_bank_distance_in_uv(&mut river_mesh);
     (river_mesh, river_bed)
+}
+
+/// Hands the carved, submerged side of a final river mouth to the sea plane.
+///
+/// The unfiltered coverage remains authoritative for the bed and its material;
+/// only the visible water topology ends here. The final coastline constraint
+/// has already split crossing faces at `z = 0`, so rebuilding the boundary
+/// produces an exact shoreline edge without discarding inland channels whose
+/// beds happen to sit below sea level.
+pub(super) fn visible_river_water_coverage(
+    network: &RiverNetwork,
+    terrain: &Mesh,
+    coverage: &[u8],
+    owners: &[Option<RiverOwnerKey>],
+) -> Vec<u8> {
+    debug_assert_eq!(terrain.vertices.len(), coverage.len());
+    debug_assert_eq!(terrain.vertices.len(), owners.len());
+
+    let mut visible = coverage.to_vec();
+    for (vertex, remaining) in visible.iter_mut().enumerate() {
+        let belongs_to_submerged_mouth = owners[vertex].is_some_and(|owner| {
+            network
+                .river_mesh_ends
+                .get(owner.river as usize)
+                .copied()
+                .flatten()
+                .is_some_and(|end| owner.node as usize >= end)
+        });
+        if terrain.vertices[vertex].z < 0.0 && belongs_to_submerged_mouth {
+            *remaining = 0;
+        } else {
+            *remaining &= !RIVER_BOUNDARY;
+        }
+    }
+
+    mark_river_boundary(
+        &terrain.adjacency(),
+        &terrain.perimeter_mask(),
+        &mut visible,
+    );
+    visible
 }
 
 pub(super) fn enforce_sea_plane_clearance(terrain: &mut Mesh, ocean: &[bool]) {
@@ -1641,16 +1690,6 @@ pub(super) fn finalize_river_budgets(rivers: &[River], budgets: &mut [RiverSedim
     }
 }
 
-pub(super) fn apply_known_surfaces(rivers: &mut [River], known_surfaces: &HashMap<usize, f32>) {
-    for river in rivers {
-        for node in &mut river.nodes {
-            if let Some(surface) = known_surfaces.get(&node.vertex) {
-                node.surface = node.surface.min(*surface);
-            }
-        }
-    }
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) struct RiverOwnerKey {
     pub(super) river: u32,
@@ -2062,10 +2101,12 @@ impl<'a> RiverGeometryBuilder<'a> {
             Vec::new()
         };
         let (river_mesh, river_bed) = finalize_river_geometry(
+            self.network,
             self.terrain,
             &self.buffers.coverage,
             &self.buffers.surfaces,
             &self.buffers.river_uv,
+            &self.buffers.owners,
             constraints,
         );
         let river_rock_mesh = if failed_waterfalls.is_empty() {
