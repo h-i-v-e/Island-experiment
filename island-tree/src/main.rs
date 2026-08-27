@@ -1160,18 +1160,23 @@ fn spawn_reproductive_organs(
     organs: Vec<ReproductiveOrgan>,
     skeleton: &WindSkeleton,
 ) {
-    let handles = archetypes.map(|mesh| meshes.add(bevy_mesh(&mesh, None, None)));
+    let mut used_archetypes = [false; REPRODUCTIVE_ARCHETYPE_COUNT];
+    for organ in &organs {
+        used_archetypes[reproductive_archetype_index(organ.state)] = true;
+    }
+    let handles =
+        upload_used_archetypes(meshes, &archetypes, used_archetypes, "reproductive organ");
     for organ in organs {
-        let archetype = match organ.state {
-            ReproductiveState::Flower => 0,
-            ReproductiveState::Fruit => 1,
+        let archetype = reproductive_archetype_index(organ.state);
+        let Some(mesh) = handles[archetype].as_ref() else {
+            continue;
         };
         let joint = skeleton.axis_to_joint[organ.axis as usize];
         let mut transform = reproductive_transform(organ);
         transform.translation -= skeleton.origins[joint];
         commands.spawn((
             Name::new("Nīkau reproductive cluster"),
-            Mesh3d(handles[archetype].clone()),
+            Mesh3d(mesh.clone()),
             MeshMaterial3d(materials[archetype].clone()),
             transform,
             ChildOf(skeleton.joints[joint]),
@@ -1187,23 +1192,70 @@ fn spawn_shoot_tips(
     tips: Vec<ShootTipOrgan>,
     skeleton: &WindSkeleton,
 ) {
-    let handles = archetypes.map(|mesh| meshes.add(bevy_mesh(&mesh, None, None)));
+    let mut used_archetypes = [false; SHOOT_TIP_ARCHETYPE_COUNT];
+    for tip in &tips {
+        used_archetypes[shoot_tip_archetype_index(tip.state)] = true;
+    }
+    let handles = upload_used_archetypes(meshes, &archetypes, used_archetypes, "shoot tip");
     for tip in tips {
-        let (archetype, material) = match tip.state {
-            ShootTipState::ActiveBud => (0, 0),
-            ShootTipState::DormantBud => (0, 1),
-            ShootTipState::Broken => (1, 2),
+        let archetype = shoot_tip_archetype_index(tip.state);
+        let material = shoot_tip_material_index(tip.state);
+        let Some(mesh) = handles[archetype].as_ref() else {
+            continue;
         };
         let joint = skeleton.axis_to_joint[tip.axis as usize];
         let mut transform = shoot_tip_transform(tip);
         transform.translation -= skeleton.origins[joint];
         commands.spawn((
-            Mesh3d(handles[archetype].clone()),
+            Mesh3d(mesh.clone()),
             MeshMaterial3d(materials[material].clone()),
             transform,
             ChildOf(skeleton.joints[joint]),
         ));
     }
+}
+
+const fn reproductive_archetype_index(state: ReproductiveState) -> usize {
+    match state {
+        ReproductiveState::Flower => 0,
+        ReproductiveState::Fruit => 1,
+    }
+}
+
+const fn shoot_tip_archetype_index(state: ShootTipState) -> usize {
+    match state {
+        ShootTipState::ActiveBud | ShootTipState::DormantBud => 0,
+        ShootTipState::Broken => 1,
+    }
+}
+
+const fn shoot_tip_material_index(state: ShootTipState) -> usize {
+    match state {
+        ShootTipState::ActiveBud => 0,
+        ShootTipState::DormantBud => 1,
+        ShootTipState::Broken => 2,
+    }
+}
+
+fn upload_used_archetypes<const N: usize>(
+    meshes: &mut Assets<Mesh>,
+    archetypes: &[MotuMesh; N],
+    used: [bool; N],
+    label: &'static str,
+) -> [Option<Handle<Mesh>>; N] {
+    std::array::from_fn(|index| {
+        if !used[index] {
+            return None;
+        }
+
+        let archetype = &archetypes[index];
+        if archetype.vertices.is_empty() || archetype.triangles.is_empty() {
+            warn!("{label} archetype {index} has no renderable geometry; skipping");
+            return None;
+        }
+
+        Some(meshes.add(bevy_mesh(archetype, None, None)))
+    })
 }
 
 fn build_leaf_materials(
@@ -1977,6 +2029,28 @@ mod tests {
 
     fn strings<'a>(values: &'a [&'a str]) -> impl Iterator<Item = String> + 'a {
         values.iter().map(|value| (*value).to_owned())
+    }
+
+    #[test]
+    fn unused_empty_archetypes_are_not_uploaded() {
+        let mut meshes = Assets::<Mesh>::default();
+        let archetypes = std::array::from_fn(|_| MotuMesh::default());
+
+        let handles = upload_used_archetypes(&mut meshes, &archetypes, [false; 2], "test");
+
+        assert!(handles.iter().all(Option::is_none));
+        assert!(meshes.is_empty());
+    }
+
+    #[test]
+    fn selected_empty_archetype_is_rejected_before_bevy_upload() {
+        let mut meshes = Assets::<Mesh>::default();
+        let archetypes = std::array::from_fn(|_| MotuMesh::default());
+
+        let handles = upload_used_archetypes(&mut meshes, &archetypes, [true, false], "test");
+
+        assert!(handles.iter().all(Option::is_none));
+        assert!(meshes.is_empty());
     }
 
     #[test]
