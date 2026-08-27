@@ -169,6 +169,7 @@ pub(super) fn shape_and_carve_river(
     waterfalls: &mut [bool],
     scratch: &mut RiverCarveScratch,
     ocean: &[bool],
+    carve_submerged_mouth: bool,
     parameters: RiverCarveParameters<'_>,
 ) -> RiverCarveResult {
     let ocean_entry = parameters
@@ -199,7 +200,7 @@ pub(super) fn shape_and_carve_river(
             &mut budget,
         );
     }
-    if let Some(mouth) = mouth {
+    if let Some(mouth) = mouth.filter(|_| carve_submerged_mouth) {
         carve_submerged_river_mouth(
             terrain,
             nodes,
@@ -212,7 +213,9 @@ pub(super) fn shape_and_carve_river(
     }
     RiverCarveResult {
         budget,
-        river_mesh_end: mouth.map(|mouth| mouth.river_mesh_end),
+        river_mesh_end: mouth
+            .filter(|_| carve_submerged_mouth)
+            .map(|mouth| mouth.river_mesh_end),
     }
 }
 

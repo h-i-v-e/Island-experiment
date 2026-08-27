@@ -606,6 +606,9 @@ impl RiverNetwork {
 
     fn carve_prepared_channels(&mut self, terrain: &mut RiverTerrain<'_>, form_deltas: bool) {
         let depth_multiplier = 1.0 / (self.max_flow as f32).sqrt().max(1.0);
+        // Intermediate passes establish the broad valley and delta. Only the
+        // detailed final pass should force the submerged mouth below sea level.
+        let carve_submerged_mouths = !form_deltas;
         let mut known_surfaces = HashMap::<usize, f32>::new();
         let mut budgets = vec![RiverSedimentBudget::default(); self.rivers.len()];
         self.carve_channels(
@@ -613,6 +616,7 @@ impl RiverNetwork {
             RiverChannelParameters { depth_multiplier },
             &mut known_surfaces,
             &mut budgets,
+            carve_submerged_mouths,
         );
         let footprint = build_river_footprint(self, terrain.mesh, terrain.adjacency, false);
         let channel_parameters = RiverChannelParameters { depth_multiplier };
@@ -808,6 +812,7 @@ impl RiverNetwork {
         channel_parameters: RiverChannelParameters,
         known_surfaces: &mut HashMap<usize, f32>,
         budgets: &mut [RiverSedimentBudget],
+        carve_submerged_mouths: bool,
     ) {
         let mut scratch = RiverCarveScratch::new(terrain.mesh.vertices.len());
         for (river_index, budget_output) in budgets.iter_mut().enumerate() {
@@ -831,6 +836,7 @@ impl RiverNetwork {
                 &mut self.waterfalls[river_index],
                 &mut scratch,
                 &self.ocean,
+                carve_submerged_mouths,
                 RiverCarveParameters {
                     downstream_surface,
                     terminal_ocean,

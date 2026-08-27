@@ -4169,6 +4169,67 @@ fn river_without_a_waterfall_is_carved_entirely_below_the_sea_plane() {
 }
 
 #[test]
+fn intermediate_pass_does_not_carve_the_submerged_river_mouth() {
+    let original_vertices: Vec<Vec3> = (0..6)
+        .map(|index| Vec3::new(index as f32 * 0.01, 0.5, 0.06 - index as f32 * 0.008))
+        .collect();
+    let mut mesh = Mesh {
+        vertices: original_vertices.clone(),
+        ..Mesh::default()
+    };
+    let mut nodes: Vec<RiverNode> = mesh
+        .vertices
+        .iter()
+        .copied()
+        .enumerate()
+        .map(|(vertex, position)| RiverNode {
+            vertex,
+            flow: 10,
+            surface: position.z,
+            position,
+        })
+        .collect();
+    let original_surfaces: Vec<f32> = nodes.iter().map(|node| node.surface).collect();
+    let mut waterfalls = vec![false; nodes.len()];
+    let ocean: Vec<bool> = (0..nodes.len()).map(|index| index >= 4).collect();
+    let mut material = SurfaceMaterial::empty(mesh.vertices.len());
+    let bedrock_rates = vec![1.0; mesh.vertices.len()];
+    let control_areas = vec![1.0; mesh.vertices.len()];
+    let adjacency = mesh.adjacency();
+    let mut terrain = test_river_terrain(
+        &mut mesh,
+        &adjacency,
+        &mut material,
+        &bedrock_rates,
+        &control_areas,
+    );
+    let result = shape_and_carve_river(
+        &mut terrain,
+        &mut nodes,
+        &mut waterfalls,
+        &mut RiverCarveScratch::new(original_vertices.len()),
+        &ocean,
+        false,
+        RiverCarveParameters {
+            downstream_surface: f32::NEG_INFINITY,
+            terminal_ocean: true,
+            max_height: 0.2,
+            max_flow: 10,
+            depth_multiplier: 1.0,
+            cross_sections: &[],
+        },
+    );
+
+    assert_eq!(terrain.mesh.vertices, original_vertices);
+    assert_eq!(
+        nodes.iter().map(|node| node.surface).collect::<Vec<_>>(),
+        original_surfaces
+    );
+    assert_eq!(result.river_mesh_end, None);
+    assert_eq!(result.budget.carried.to_bits(), 0.0_f64.to_bits());
+}
+
+#[test]
 fn delta_builds_a_raised_valley_and_spreads_offshore() {
     let mut points = Vec::new();
     for y in 0..5 {
