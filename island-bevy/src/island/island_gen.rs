@@ -342,7 +342,15 @@ fn terrain_chunks(island: &Island, banks: &WetBanks, drops: &DropIndex) -> Vec<T
                     surface_low = surface_low.min(vertex.z);
                     surface_high = surface_high.max(vertex.z);
                 }
-                let mut materials = island.material_values_for(&mesh);
+                // The generator now exposes a fourth historical-height lane for
+                // renderers that consume it. Bevy's current terrain contract and
+                // cache still carry the established material triple, so keep that
+                // boundary explicit until the terrain shader adopts the new lane.
+                let mut materials: Vec<Vec3> = island
+                    .material_values_for(&mesh)
+                    .into_iter()
+                    .map(|material| Vec3::new(material.x, material.y, material.z))
+                    .collect();
                 let mut river_wetness = banks.measure(&mesh, drops);
                 for source in chunk::skirt(&mut mesh, bounds, depth, sides) {
                     let source = source as usize;

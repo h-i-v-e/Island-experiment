@@ -1,22 +1,20 @@
 //! Trees and bushes placed from the generator's decoration points.
 //!
-//! Bark, canopy and shrub tones all ride in the mesh's vertex colours, so one
-//! white material renders every part of every plant and Bevy can batch the
-//! instances. A shared material handle cannot carry a per-instance tint, so the
-//! per-plant variation is baked into a small set of meshes instead: each class
-//! batches once per variant rather than once in total. Everything else is
-//! derived from the decoration index, so the scene stays as deterministic as
-//! the island it decorates.
+//! Mature trees use the reviewed procedural pōhutukawa model. One bounded
+//! prototype is compiled into a merged wood draw and a merged foliage-pad draw,
+//! then shared by every placement so Bevy can instance both. Bushes and distant
+//! trees keep vertex-coloured low-detail meshes under one white material.
+//! Everything is derived from the island seed and decoration index.
 //!
-//! A variant is a shape and a tone together, and the shapes are built rather
-//! than loaded: cone tiers and merged lobes over a leaning trunk, with the
-//! variant's own hash spreading the tiers and setting the lean. There are no
-//! asset files anywhere in this crate.
+//! The generator emits far more tree points than mature spreading crowns can
+//! occupy. A deterministic one-in-sixty-four subset becomes pōhutukawa; the
+//! unused points remain open for future understorey rather than producing an
+//! overlapping wall of trunks. There are no external tree assets.
 //!
-//! Every plant is two entities at the same transform, one carrying the full
-//! mesh and one the cone that stands in for it, each with the
-//! [`VisibilityRange`] that hands over to the other. Bevy dithers across the
-//! margin they share, so the swap has no frame it happens on.
+//! Each mature tree has three dithered levels: merged botanical wood and
+//! foliage inside gameplay distance, a coarse spreading broadleaf mesh through
+//! the middle tier, and a non-shadow-casting copy at landscape distance.
+//! Bushes retain the original two-tier handover.
 //!
 //! The plants are not loose in the world: each tier of each region of the
 //! terrain grid has a parent entity, and every plant hangs off the parent for
@@ -29,16 +27,22 @@ use std::{f32::consts::TAU, ops::Range};
 
 use crate::{
     budget::BudgetItem,
+    camera::ViewPose,
     chunk,
     convert::island_to_world,
     hash::{choice, mix, unit},
-    island_gen::{GeneratedIsland, IslandEntity, IslandReady},
+    island_gen::{GeneratedIsland, GenerationSettings, IslandEntity, IslandReady},
 };
 use bevy::{
     camera::visibility::{VisibilityRange, VisibilitySystems},
-    light::NotShadowCaster,
+    ecs::system::SystemParam,
+    light::{NotShadowCaster, TransmittedShadowReceiver},
     mesh::VertexAttributeValues,
     prelude::*,
+};
+use island_tree::{
+    BarkMaterial, BotanicalRecipe, CompiledTreePrototype, LeafMaterial,
+    compile_static_middle_prototype_with_recipe,
 };
 
 /// Trunk dimensions in metres, before the per-plant scale.
@@ -49,10 +53,6 @@ const TRUNK_HEIGHT: f32 = 6.0;
 /// makes obvious.
 const TRUNK_LEAN: f32 = 0.10;
 
-/// The cone tiers a conifer is merged from: the height its base sits at, its
-/// radius and its own height, in metres. The last one tops out at seventeen,
-/// which is the envelope the impostor is cut to.
-const CONIFER_TIERS: [(f32, f32, f32); 3] = [(4.4, 3.60, 6.6), (8.2, 2.75, 5.6), (12.0, 1.70, 5.0)];
 /// The lobes a broadleaf canopy is merged from: centre and radius in metres.
 /// Lower and wider than the conifer, and none of them concentric, so the
 /// silhouette breaks up against the sky. The first sits on the trunk's axis and
@@ -77,12 +77,6 @@ const BUSH_LOBES: [&[(Vec3, f32)]; 2] = [
     ],
 ];
 
-/// The cone one tree becomes past [`NEAR_METRES`]: base, radius and height in
-/// metres, cut to the envelope both shapes are built inside so nothing moves
-/// across the handover.
-const IMPOSTOR_BASE: f32 = 4.6;
-const IMPOSTOR_RADIUS: f32 = 3.7;
-const IMPOSTOR_HEIGHT: f32 = 12.2;
 /// A canopy is as much gap as leaf, so what stands in for one at range is
 /// darker than the leaf it averages.
 const IMPOSTOR_SHADE: f32 = 0.86;
@@ -90,9 +84,7 @@ const IMPOSTOR_SHADE: f32 = 0.86;
 /// Sides each lathe-turned part is built with. The trunk is only ever read from
 /// arm's length, a canopy tier from a field away, and an impostor from a
 /// two hundred, where seven sides already hold a round silhouette.
-const TRUNK_SIDES: u32 = 10;
 const IMPOSTOR_TRUNK_SIDES: u32 = 3;
-const TIER_SIDES: u32 = 12;
 const LOBE_SIDES: u32 = 8;
 const LOBE_RINGS: u32 = 5;
 const IMPOSTOR_SIDES: u32 = 7;
@@ -103,6 +95,11 @@ const SHRUB_RINGS: u32 = 3;
 /// run the two dither across.
 const NEAR_METRES: f32 = 220.0;
 const NEAR_DITHER: f32 = 30.0;
+/// Full botanical geometry is only perceptually useful at gameplay distance.
+/// Selected trees hand over to the shared broadleaf forest mesh across this
+/// interval; unselected trees use that mesh throughout the near tier.
+const DETAIL_METRES: f32 = 95.0;
+const DETAIL_DITHER: f32 = 20.0;
 /// Where the impostor itself stops. `overview` stands 1.7 km off the island's
 /// centre and 3.1 km from its far shore, so this is a backstop against a camera
 /// taken out to sea rather than a working cull: every plant the capture poses
@@ -149,12 +146,15 @@ const BARK_VOLUME: f32 = 0.25;
 /// Per-vertex break-up, so a lathe-turned surface does not read as one.
 const LEAF_JITTER: f32 = 0.10;
 
-/// Shape and tone together, which is what one baked mesh carries. Two shapes
-/// and four tones stay few enough that each class still batches per variant.
-const TREE_SHAPES: usize = 2;
 const BUSH_SHAPES: usize = BUSH_LOBES.len();
-const TREE_VARIANTS: usize = TREE_SHAPES * CANOPY_TONES.len();
 const BUSH_VARIANTS: usize = BUSH_SHAPES * SHRUB_TONES.len();
+/// A bounded handful of generated trees breaks repeated silhouette and bark
+/// without giving every placement unique geometry or textures.
+const PROCEDURAL_TREE_VARIANTS: usize = 1;
+/// Decoration density was authored for small placeholder trees. One in sixty-
+/// four points becomes a mature spreading tree; the unused points remain
+/// available to a later understorey pass rather than overlapping large crowns.
+const PROCEDURAL_TREE_PLACEMENT_MASK: u64 = 0b11_1111;
 
 /// One tier of one region of the scatter, as the thing that is culled.
 ///
@@ -202,6 +202,18 @@ impl Plugin for VegetationPlugin {
     }
 }
 
+/// Mutable renderer registries used only while an island's shared vegetation
+/// assets are compiled. Grouping them keeps the Bevy system boundary explicit
+/// without passing ownership of any registry beyond this frame.
+#[derive(SystemParam)]
+struct VegetationAssets<'w> {
+    meshes: ResMut<'w, Assets<Mesh>>,
+    materials: ResMut<'w, Assets<StandardMaterial>>,
+    images: ResMut<'w, Assets<Image>>,
+    bark_materials: ResMut<'w, Assets<BarkMaterial>>,
+    leaf_materials: ResMut<'w, Assets<LeafMaterial>>,
+}
+
 /// Hides every group with nothing left to draw. The camera has no parent, so
 /// its own transform is already its world position.
 fn cull_groups(
@@ -223,14 +235,15 @@ fn cull_groups(
 
 fn spawn_vegetation(
     mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut assets: VegetationAssets,
     island: Res<GeneratedIsland>,
+    settings: Res<GenerationSettings>,
+    pose: Res<ViewPose>,
 ) {
     let island = &island.0;
     // White, because every tone is in the vertex colours the material
     // multiplies through.
-    let plant = materials.add(StandardMaterial {
+    let plant = assets.materials.add(StandardMaterial {
         base_color: Color::WHITE,
         perceptual_roughness: 0.92,
         reflectance: 0.03,
@@ -243,17 +256,31 @@ fn spawn_vegetation(
         let vertices = u32::try_from(mesh.count_vertices()).unwrap_or(u32::MAX);
         (meshes.add(mesh), vertices)
     };
-    let tree_near: Vec<(Handle<Mesh>, u32)> = (0..TREE_VARIANTS)
-        .map(|variant| add(&mut meshes, tree_mesh(variant)))
+    let tree_near: Vec<CompiledTreePrototype> = (0..PROCEDURAL_TREE_VARIANTS)
+        .map(|variant| {
+            let seed = mix(settings.seed, TREE_SALT ^ variant as u64);
+            compile_static_middle_prototype_with_recipe(
+                seed,
+                BotanicalRecipe {
+                    leaves_per_terminal: 32,
+                    ..BotanicalRecipe::default()
+                },
+                &mut assets.meshes,
+                &mut assets.images,
+                &mut assets.bark_materials,
+                &mut assets.leaf_materials,
+            )
+            .unwrap_or_else(|error| panic!("procedural tree {variant} failed: {error}"))
+        })
         .collect();
-    let tree_far: Vec<(Handle<Mesh>, u32)> = (0..TREE_VARIANTS)
-        .map(|variant| add(&mut meshes, tree_impostor(variant)))
+    let tree_far: Vec<(Handle<Mesh>, u32)> = (0..PROCEDURAL_TREE_VARIANTS)
+        .map(|variant| add(&mut assets.meshes, pohutukawa_impostor(variant)))
         .collect();
     let bush_near: Vec<(Handle<Mesh>, u32)> = (0..BUSH_VARIANTS)
-        .map(|variant| add(&mut meshes, bush_mesh(variant)))
+        .map(|variant| add(&mut assets.meshes, bush_mesh(variant)))
         .collect();
     let bush_far: Vec<(Handle<Mesh>, u32)> = (0..BUSH_VARIANTS)
-        .map(|variant| add(&mut meshes, bush_impostor(variant)))
+        .map(|variant| add(&mut assets.meshes, bush_impostor(variant)))
         .collect();
 
     // A canopy inside the near range is metres across and stands over ground
@@ -266,22 +293,25 @@ fn spawn_vegetation(
     // what is spawned is a subtree per region and not a plant per world.
     let regions = (GROUPS * GROUPS) as usize;
     let mut near: Vec<Vec<NearPlant>> = (0..regions).map(|_| Vec::new()).collect();
+    let mut near_wood: Vec<Vec<NearWoodPlant>> = (0..regions).map(|_| Vec::new()).collect();
+    let mut near_foliage: Vec<Vec<NearFoliagePlant>> = (0..regions).map(|_| Vec::new()).collect();
     let mut far: Vec<Vec<FarPlant>> = (0..regions).map(|_| Vec::new()).collect();
     let mut origins: Vec<Vec<Vec3>> = (0..regions).map(|_| Vec::new()).collect();
-    scatter(
-        &island.trees,
-        PlantScatter {
-            salt: TREE_SALT,
+    let tree_scatter = {
+        let lods = TreeRenderLods {
             near: &tree_near,
             far: &tree_far,
-            minimum: 0.75,
-            spread: 0.55,
-        },
-        &plant,
-        &mut origins,
-        &mut near,
-        &mut far,
-    );
+            far_material: &plant,
+        };
+        let mut buffers = TreeScatterBuffers {
+            origins: &mut origins,
+            coarse: &mut near,
+            wood: &mut near_wood,
+            foliage: &mut near_foliage,
+            far: &mut far,
+        };
+        scatter_trees(&island.trees, lods, &mut buffers, pose.eye)
+    };
     scatter(
         &island.bushes,
         PlantScatter {
@@ -297,12 +327,122 @@ fn spawn_vegetation(
         &mut far,
     );
 
-    let groups = spawn_groups(&mut commands, &origins, &mut near, &mut far);
+    let groups = spawn_groups(
+        &mut commands,
+        &origins,
+        &mut near,
+        &mut near_wood,
+        &mut near_foliage,
+        &mut far,
+    );
     info!(
-        "vegetation: {} trees and {} bushes over {groups} scatter groups",
+        "vegetation: {} mature procedural trees from {} decoration points ({} shared variants), and {} bushes over {groups} scatter groups",
+        tree_scatter.placed,
         island.trees.len(),
+        tree_near.len(),
         island.bushes.len()
     );
+    if let Some(nearest) = tree_scatter.nearest {
+        info!(
+            "nearest procedural tree to camera: {:.1} m at {:.1}, {:.1}, {:.1}",
+            nearest.distance, nearest.position.x, nearest.position.y, nearest.position.z
+        );
+    }
+    for (variant, tree) in tree_near.iter().enumerate() {
+        info!(
+            "procedural tree variant {variant}: {} wood vertices + {} foliage vertices",
+            tree.wood.vertices, tree.foliage.vertices
+        );
+    }
+}
+
+fn scatter_trees(
+    points: &[motu::Vec3],
+    lods: TreeRenderLods<'_>,
+    buffers: &mut TreeScatterBuffers<'_>,
+    eye: Vec3,
+) -> TreeScatter {
+    debug_assert_eq!(lods.near.len(), lods.far.len());
+    let mut result = TreeScatter::default();
+    for (index, &point) in points.iter().enumerate() {
+        let hash = mix(index as u64, TREE_SALT);
+        if !place_procedural_tree(hash) {
+            continue;
+        }
+        let variant = choice(hash, lods.near.len());
+        let placement = placement(hash, point, TREE_SALT, 0.78, 0.42);
+        let region = region(point);
+        buffers.origins[region].push(placement.translation);
+        result.placed += 1;
+        let distance = eye.distance(placement.translation);
+        if result
+            .nearest
+            .is_none_or(|nearest| distance < nearest.distance)
+        {
+            result.nearest = Some(NearestTree {
+                distance,
+                position: placement.translation,
+            });
+        }
+        buffers.coarse[region].push((
+            BudgetItem::scatter(lods.far[variant].1),
+            Mesh3d(lods.far[variant].0.clone()),
+            MeshMaterial3d(lods.far_material.clone()),
+            placement,
+            middle_tier(),
+        ));
+        buffers.wood[region].push((
+            BudgetItem::scatter(lods.near[variant].wood.vertices),
+            Mesh3d(lods.near[variant].wood.mesh.clone()),
+            MeshMaterial3d(lods.near[variant].wood.material.clone()),
+            placement,
+            detail_tier(),
+        ));
+        buffers.foliage[region].push((
+            BudgetItem::scatter(lods.near[variant].foliage.vertices),
+            Mesh3d(lods.near[variant].foliage.mesh.clone()),
+            MeshMaterial3d(lods.near[variant].foliage.material.clone()),
+            TransmittedShadowReceiver,
+            placement,
+            detail_tier(),
+        ));
+        buffers.far[region].push((
+            BudgetItem::scatter(lods.far[variant].1),
+            Mesh3d(lods.far[variant].0.clone()),
+            MeshMaterial3d(lods.far_material.clone()),
+            placement,
+            far_tier(),
+            NotShadowCaster,
+        ));
+    }
+    result
+}
+
+#[derive(Clone, Copy)]
+struct TreeRenderLods<'a> {
+    near: &'a [CompiledTreePrototype],
+    far: &'a [(Handle<Mesh>, u32)],
+    far_material: &'a Handle<StandardMaterial>,
+}
+
+struct TreeScatterBuffers<'a> {
+    origins: &'a mut [Vec<Vec3>],
+    coarse: &'a mut [Vec<NearPlant>],
+    wood: &'a mut [Vec<NearWoodPlant>],
+    foliage: &'a mut [Vec<NearFoliagePlant>],
+    far: &'a mut [Vec<FarPlant>],
+}
+
+#[derive(Clone, Copy, Debug)]
+struct NearestTree {
+    distance: f32,
+    position: Vec3,
+}
+
+#[derive(Debug, Default)]
+struct TreeScatter {
+    placed: usize,
+    nearest: Option<NearestTree>,
 }
 
 /// The class-specific inputs for the otherwise identical scatter pass.
@@ -353,6 +493,8 @@ fn spawn_groups(
     commands: &mut Commands,
     origins: &[Vec<Vec3>],
     near: &mut [Vec<NearPlant>],
+    near_wood: &mut [Vec<NearWoodPlant>],
+    near_foliage: &mut [Vec<NearFoliagePlant>],
     far: &mut [Vec<FarPlant>],
 ) -> usize {
     let mut groups = 0;
@@ -382,12 +524,23 @@ fn spawn_groups(
                 ))
                 .id()
         };
+        let detail_group = group("detail", 0.0..(DETAIL_METRES + DETAIL_DITHER));
         let near_group = group("near", 0.0..(NEAR_METRES + NEAR_DITHER));
         let far_group = group("far", NEAR_METRES..(FAR_METRES + FAR_DITHER));
         commands.spawn_batch(
             std::mem::take(&mut near[index])
                 .into_iter()
                 .map(move |plant| (plant, ChildOf(near_group))),
+        );
+        commands.spawn_batch(
+            std::mem::take(&mut near_wood[index])
+                .into_iter()
+                .map(move |plant| (plant, ChildOf(detail_group))),
+        );
+        commands.spawn_batch(
+            std::mem::take(&mut near_foliage[index])
+                .into_iter()
+                .map(move |plant| (plant, ChildOf(detail_group))),
         );
         commands.spawn_batch(
             std::mem::take(&mut far[index])
@@ -404,6 +557,21 @@ type NearPlant = (
     BudgetItem,
     Mesh3d,
     MeshMaterial3d<StandardMaterial>,
+    Transform,
+    VisibilityRange,
+);
+type NearWoodPlant = (
+    BudgetItem,
+    Mesh3d,
+    MeshMaterial3d<BarkMaterial>,
+    Transform,
+    VisibilityRange,
+);
+type NearFoliagePlant = (
+    BudgetItem,
+    Mesh3d,
+    MeshMaterial3d<LeafMaterial>,
+    TransmittedShadowReceiver,
     Transform,
     VisibilityRange,
 );
@@ -457,6 +625,22 @@ fn near_tier() -> VisibilityRange {
     }
 }
 
+fn detail_tier() -> VisibilityRange {
+    VisibilityRange {
+        start_margin: 0.0..0.0,
+        end_margin: DETAIL_METRES..(DETAIL_METRES + DETAIL_DITHER),
+        use_aabb: false,
+    }
+}
+
+fn middle_tier() -> VisibilityRange {
+    VisibilityRange {
+        start_margin: DETAIL_METRES..(DETAIL_METRES + DETAIL_DITHER),
+        end_margin: NEAR_METRES..(NEAR_METRES + NEAR_DITHER),
+        use_aabb: false,
+    }
+}
+
 /// The range its impostor is drawn over. The start has to be the other tier's
 /// end exactly, or the dither leaves a gap or a doubling.
 fn far_tier() -> VisibilityRange {
@@ -475,63 +659,8 @@ fn placement(hash: u64, point: motu::Vec3, salt: u64, minimum: f32, spread: f32)
         .with_scale(Vec3::splat(scale))
 }
 
-/// Trunk and canopy are baked into one mesh so each tree stays a single entity.
-/// They are painted before the merge, which is what leaves the trunk bark
-/// coloured under a material that knows nothing about either.
-fn tree_mesh(variant: usize) -> Mesh {
-    let hash = mix(variant as u64, SHAPE_SALT);
-    // The tiers or lobes of one variant all take the same spread, so a variant
-    // stays one tree rather than a stack of unrelated parts.
-    let spread = 0.24f32.mul_add(unit(hash), 0.88);
-    let lean = Quat::from_rotation_z(TRUNK_LEAN * (unit(mix(hash, SHAPE_SALT)) - 0.5));
-
-    let mut mesh = Mesh::from(
-        Cylinder::new(TRUNK_RADIUS, TRUNK_HEIGHT)
-            .mesh()
-            .resolution(TRUNK_SIDES),
-    )
-    .translated_by(Vec3::Y * TRUNK_HEIGHT * 0.5)
-    .rotated_by(lean);
-    paint(&mut mesh, BARK_TONE, BARK_VOLUME);
-
-    let mut canopy = if variant.is_multiple_of(TREE_SHAPES) {
-        conifer_canopy(spread)
-    } else {
-        broadleaf_canopy(spread)
-    }
-    .rotated_by(lean);
-    paint(
-        &mut canopy,
-        CANOPY_TONES[variant / TREE_SHAPES],
-        CANOPY_VOLUME,
-    );
-    mesh.merge(&canopy)
-        .expect("trunk and canopy share the same vertex layout");
-    mesh
-}
-
-/// Stacked cones of falling radius. Each tier's base is inside the one below
-/// it, so the joins never show as a step.
-fn conifer_canopy(spread: f32) -> Mesh {
-    let tier = |(base, radius, height): (f32, f32, f32)| {
-        Mesh::from(
-            Cone::new(radius * spread, height)
-                .mesh()
-                .resolution(TIER_SIDES),
-        )
-        .translated_by(Vec3::Y * height.mul_add(0.5, base))
-    };
-    let mut canopy = tier(CONIFER_TIERS[0]);
-    for &next in &CONIFER_TIERS[1..] {
-        canopy
-            .merge(&tier(next))
-            .expect("every tier is built the same way");
-    }
-    canopy
-}
-
-fn broadleaf_canopy(spread: f32) -> Mesh {
-    merged_lobes(&BROADLEAF_LOBES, spread, LOBE_SIDES, LOBE_RINGS, 1.0)
+fn place_procedural_tree(hash: u64) -> bool {
+    mix(hash, SHAPE_SALT) & PROCEDURAL_TREE_PLACEMENT_MASK == 0
 }
 
 fn bush_mesh(variant: usize) -> Mesh {
@@ -574,31 +703,30 @@ fn merged_lobes(
     merged
 }
 
-/// What a tree is past the handover: the cone both shapes are built inside,
-/// over a trunk of three sides. A trunk is a few pixels wide at this range and
-/// would cost nothing to leave out, but a canopy standing on the ground with no
-/// stem under it is what the eye notices instead.
-fn tree_impostor(variant: usize) -> Mesh {
+/// A coarse low, spreading broadleaf silhouette for the generated tree's far
+/// tier. It deliberately keeps no leaf cards or bark material work once the
+/// crown is only a few pixels across.
+fn pohutukawa_impostor(variant: usize) -> Mesh {
+    let hash = mix(variant as u64, SHAPE_SALT);
+    let spread = 0.18f32.mul_add(unit(hash), 0.92);
+    let lean = Quat::from_rotation_z(TRUNK_LEAN * (unit(mix(hash, TREE_SALT)) - 0.5));
     let mut mesh = Mesh::from(
         Cylinder::new(TRUNK_RADIUS, TRUNK_HEIGHT)
             .mesh()
             .resolution(IMPOSTOR_TRUNK_SIDES),
     )
-    .translated_by(Vec3::Y * TRUNK_HEIGHT * 0.5);
+    .translated_by(Vec3::Y * TRUNK_HEIGHT * 0.5)
+    .rotated_by(lean);
     paint(&mut mesh, BARK_TONE, BARK_VOLUME);
-    let mut canopy = Mesh::from(
-        Cone::new(IMPOSTOR_RADIUS, IMPOSTOR_HEIGHT)
-            .mesh()
-            .resolution(IMPOSTOR_SIDES),
-    )
-    .translated_by(Vec3::Y * IMPOSTOR_HEIGHT.mul_add(0.5, IMPOSTOR_BASE));
+    let mut canopy =
+        merged_lobes(&BROADLEAF_LOBES, spread, IMPOSTOR_SIDES, SHRUB_RINGS, 0.82).rotated_by(lean);
     paint(
         &mut canopy,
-        shaded(CANOPY_TONES[variant / TREE_SHAPES]),
+        shaded(CANOPY_TONES[variant % CANOPY_TONES.len()]),
         CANOPY_VOLUME,
     );
     mesh.merge(&canopy)
-        .expect("trunk and canopy share the same vertex layout");
+        .expect("impostor trunk and canopy share the same vertex layout");
     mesh
 }
 

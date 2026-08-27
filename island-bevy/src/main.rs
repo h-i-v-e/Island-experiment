@@ -27,6 +27,7 @@ use bevy::{
     window::{ExitCondition, WindowResolution},
     winit::WinitPlugin,
 };
+use island_tree::{BarkMaterialPlugin, LeafMaterialPlugin};
 use motu::{GenerationMethod, IslandOptions};
 
 use crate::{
@@ -157,6 +158,8 @@ fn main() {
             cache_reads: !command.no_cache,
         })
         .add_plugins((
+            BarkMaterialPlugin,
+            LeafMaterialPlugin,
             IslandGenPlugin,
             // Counts what the culling stages left standing, which is what the
             // capture log and the panel both report.
