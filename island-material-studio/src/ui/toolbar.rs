@@ -112,6 +112,9 @@ pub(crate) fn draw(
         ui.horizontal(|ui| {
             ui.label("Output directory");
             ui.text_edit_singleline(&mut bake.output_directory);
+            if ui.button("Choose…").clicked() {
+                actions.push(UiAction::ChooseBakeOutput);
+            }
         });
         egui::ComboBox::from_label("Profile")
             .selected_text(match bake.profile {

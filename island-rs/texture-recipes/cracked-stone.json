@@ -1,6 +1,13 @@
 {
   "name": "CrackedStone",
   "seed": 666,
+  "parameters": {
+    "stone_colour": {
+      "kind": "colour",
+      "default": [0.25, 0.27, 0.24],
+      "description": "Engine-supplied local stone colour"
+    }
+  },
   "width": 2048,
   "height": 2048,
   "physical_tile_width_m": 4.0,
@@ -57,8 +64,14 @@
           "colour_map": {
             "kind": "gradient",
             "stops": [
-              { "position": 0.0, "colour": [0.25, 0.27, 0.24] },
-              { "position": 1.0, "colour": [0.42, 0.36, 0.28] }
+              {
+                "position": 0.0,
+                "colour": { "parameter": "stone_colour" }
+              },
+              {
+                "position": 1.0,
+                "colour": { "parameter": "stone_colour" }
+              }
             ]
           }
         }
@@ -83,12 +96,12 @@
     "combine": { "kind": "multiply" }
   },
   "albedo": {
-    "base_color": [0.25, 0.27, 0.24],
-    "warm_color": [0.42, 0.36, 0.28],
+    "base_color": { "parameter": "stone_colour" },
+    "warm_color": { "parameter": "stone_colour" },
     "palette": [
-      [0.25, 0.27, 0.24],
-      [0.34, 0.34, 0.30],
-      [0.42, 0.36, 0.28]
+      { "parameter": "stone_colour" },
+      { "parameter": "stone_colour" },
+      { "parameter": "stone_colour" }
     ],
     "variation": 0.58,
     "crack_darkening": 0.48,

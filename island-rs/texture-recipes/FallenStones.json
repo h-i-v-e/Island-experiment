@@ -1,0 +1,473 @@
+{
+  "name": "FallenStones",
+  "seed": 73127,
+  "parameters": {
+    "dirt_colour": {
+      "kind": "colour",
+      "default": [0.09, 0.05500002, 0.025999999],
+      "description": "Engine-supplied exposed soil colour"
+    },
+    "stone_colour": {
+      "kind": "colour",
+      "default": [0.22, 0.20999998, 0.19],
+      "description": "Engine-supplied fallen stone colour"
+    }
+  },
+  "width": 1024,
+  "height": 1024,
+  "physical_tile_width_m": 2.0,
+  "physical_tile_height_m": 2.0,
+  "material": {
+    "kind": "layered_noise",
+    "frequency": 5.0,
+    "amplitude": 0.04,
+    "octaves": 4,
+    "lacunarity": 2.05,
+    "gain": 0.48,
+    "offset": -0.002
+  },
+  "layers": [
+    {
+      "id": "packed-dirt",
+      "name": "Packed dirt",
+      "enabled": true,
+      "source": {
+        "kind": "fbm",
+        "frequency": 4,
+        "octaves": 4,
+        "lacunarity": 2.0,
+        "gain": 0.5,
+        "offset": [
+          0.0,
+          0.0
+        ],
+        "seed_domain": 1101,
+        "domain_warp": {
+          "amplitude": 0.24,
+          "frequency": 2,
+          "octaves": 3,
+          "lacunarity": 2.0,
+          "gain": 0.5,
+          "seed_domain": 1102
+        },
+        "cellular_jitter": 0.25
+      },
+      "remap": {
+        "input_min": -1.0,
+        "input_max": 1.0,
+        "invert": false,
+        "contrast": 1.0,
+        "bias": 0.0,
+        "clamp": true,
+        "curve": null
+      },
+      "mask": null,
+      "outputs": {
+        "height": {
+          "enabled": false,
+          "blend": {
+            "kind": "add"
+          },
+          "strength_m": 0.005
+        },
+        "albedo": {
+          "enabled": true,
+          "blend": "mix",
+          "strength": 1.0,
+          "colour_map": {
+            "kind": "gradient",
+            "stops": [
+              {
+                "position": 0.0,
+                "colour": { "parameter": "dirt_colour" }
+              },
+              {
+                "position": 0.48,
+                "colour": { "parameter": "dirt_colour" }
+              },
+              {
+                "position": 1.0,
+                "colour": { "parameter": "dirt_colour" }
+              }
+            ]
+          },
+          "hue_influence": 0.0,
+          "saturation_influence": 0.0,
+          "value_influence": 0.0
+        }
+      }
+    },
+    {
+      "id": "stone-clusters",
+      "name": "Coherent stone clusters",
+      "enabled": false,
+      "source": {
+        "kind": "fbm",
+        "frequency": 5,
+        "octaves": 5,
+        "lacunarity": 2.0,
+        "gain": 0.52,
+        "offset": [
+          0.17,
+          -0.23
+        ],
+        "seed_domain": 2201,
+        "domain_warp": {
+          "amplitude": 0.3,
+          "frequency": 4,
+          "octaves": 3,
+          "lacunarity": 2.0,
+          "gain": 0.5,
+          "seed_domain": 2202
+        },
+        "cellular_jitter": 0.25
+      },
+      "remap": {
+        "input_min": -0.3,
+        "input_max": 0.55,
+        "invert": false,
+        "contrast": 1.1,
+        "bias": 0.03,
+        "clamp": true,
+        "curve": [
+          {
+            "position": 0.0,
+            "value": 0.0
+          },
+          {
+            "position": 0.28,
+            "value": 0.0
+          },
+          {
+            "position": 0.42,
+            "value": 0.18
+          },
+          {
+            "position": 0.6,
+            "value": 0.82
+          },
+          {
+            "position": 1.0,
+            "value": 1.0
+          }
+        ]
+      },
+      "mask": null,
+      "outputs": {
+        "height": {
+          "enabled": false,
+          "blend": {
+            "kind": "add"
+          },
+          "strength_m": 0.0
+        },
+        "albedo": {
+          "enabled": false,
+          "blend": "mix",
+          "strength": 0.0,
+          "colour_map": {
+            "kind": "ramp",
+            "first": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "second": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          },
+          "hue_influence": 0.0,
+          "saturation_influence": 0.0,
+          "value_influence": 0.0
+        }
+      }
+    },
+    {
+      "id": "small-stones",
+      "name": "Small separated stones",
+      "enabled": true,
+      "source": {
+        "kind": "cellular_distance",
+        "frequency": 12,
+        "octaves": 1,
+        "lacunarity": 2.0,
+        "gain": 0.5,
+        "offset": [
+          0.0,
+          0.0
+        ],
+        "seed_domain": 3301,
+        "domain_warp": {
+          "amplitude": 0.06,
+          "frequency": 2,
+          "octaves": 3,
+          "lacunarity": 2.0,
+          "gain": 0.5,
+          "seed_domain": 3302
+        },
+        "cellular_jitter": 0.96
+      },
+      "remap": {
+        "input_min": 0.06,
+        "input_max": 0.38,
+        "invert": true,
+        "contrast": 1.25,
+        "bias": -0.03,
+        "clamp": true,
+        "curve": [
+          {
+            "position": 0.0,
+            "value": 0.0
+          },
+          {
+            "position": 0.38,
+            "value": 0.02
+          },
+          {
+            "position": 0.56,
+            "value": 0.32
+          },
+          {
+            "position": 0.74,
+            "value": 0.82
+          },
+          {
+            "position": 1.0,
+            "value": 1.0
+          }
+        ]
+      },
+      "mask": {
+        "kind": "own"
+      },
+      "outputs": {
+        "height": {
+          "enabled": true,
+          "blend": {
+            "kind": "add"
+          },
+          "strength_m": 0.01
+        },
+        "albedo": {
+          "enabled": true,
+          "blend": "mix",
+          "strength": 1.0,
+          "colour_map": {
+            "kind": "gradient",
+            "stops": [
+              {
+                "position": 0.0,
+                "colour": { "parameter": "dirt_colour" }
+              },
+              {
+                "position": 0.42,
+                "colour": { "parameter": "dirt_colour" }
+              },
+              {
+                "position": 0.76,
+                "colour": { "parameter": "stone_colour" }
+              },
+              {
+                "position": 1.0,
+                "colour": { "parameter": "stone_colour" }
+              }
+            ]
+          },
+          "hue_influence": 0.0,
+          "saturation_influence": 0.0,
+          "value_influence": 0.0
+        }
+      }
+    },
+    {
+      "id": "stone-colour-variation",
+      "name": "Individual stone colour",
+      "enabled": false,
+      "source": {
+        "kind": "cellular_value",
+        "frequency": 38,
+        "octaves": 1,
+        "lacunarity": 2.0,
+        "gain": 0.5,
+        "offset": [
+          0.0,
+          0.0
+        ],
+        "seed_domain": 3301,
+        "domain_warp": {
+          "amplitude": 0.18,
+          "frequency": 7,
+          "octaves": 3,
+          "lacunarity": 2.0,
+          "gain": 0.5,
+          "seed_domain": 3302
+        },
+        "cellular_jitter": 0.96
+      },
+      "remap": {
+        "input_min": -1.0,
+        "input_max": 1.0,
+        "invert": false,
+        "contrast": 1.1,
+        "bias": 0.0,
+        "clamp": true,
+        "curve": null
+      },
+      "mask": {
+        "kind": "layer",
+        "layer_id": "small-stones",
+        "remap": {
+          "input_min": 0.24,
+          "input_max": 0.78,
+          "invert": false,
+          "contrast": 1.0,
+          "bias": 0.0,
+          "clamp": true,
+          "curve": null
+        }
+      },
+      "outputs": {
+        "height": {
+          "enabled": false,
+          "blend": {
+            "kind": "add"
+          },
+          "strength_m": 0.0
+        },
+        "albedo": {
+          "enabled": true,
+          "blend": "mix",
+          "strength": 0.3,
+          "colour_map": {
+            "kind": "gradient",
+            "stops": [
+              {
+                "position": 0.0,
+                "colour": { "parameter": "stone_colour" }
+              },
+              {
+                "position": 0.36,
+                "colour": { "parameter": "stone_colour" }
+              },
+              {
+                "position": 0.68,
+                "colour": { "parameter": "stone_colour" }
+              },
+              {
+                "position": 1.0,
+                "colour": { "parameter": "stone_colour" }
+              }
+            ]
+          },
+          "hue_influence": 0.0,
+          "saturation_influence": 0.0,
+          "value_influence": 0.0
+        }
+      }
+    },
+    {
+      "id": "dirt-grain",
+      "name": "Fine dirt between stones",
+      "enabled": false,
+      "source": {
+        "kind": "ridged",
+        "frequency": 86,
+        "octaves": 3,
+        "lacunarity": 2.1,
+        "gain": 0.46,
+        "offset": [
+          -0.13,
+          0.09
+        ],
+        "seed_domain": 4401,
+        "domain_warp": {
+          "amplitude": 0.14,
+          "frequency": 11,
+          "octaves": 2,
+          "lacunarity": 2.0,
+          "gain": 0.5,
+          "seed_domain": 4402
+        },
+        "cellular_jitter": 0.25
+      },
+      "remap": {
+        "input_min": -0.45,
+        "input_max": 0.78,
+        "invert": false,
+        "contrast": 1.2,
+        "bias": -0.05,
+        "clamp": true,
+        "curve": null
+      },
+      "mask": {
+        "kind": "previous_height",
+        "bottom_m": -0.02,
+        "top_m": 0.006,
+        "invert": true
+      },
+      "outputs": {
+        "height": {
+          "enabled": true,
+          "blend": {
+            "kind": "maximum"
+          },
+          "strength_m": 0.01
+        },
+        "albedo": {
+          "enabled": true,
+          "blend": "overlay",
+          "strength": 0.24,
+          "colour_map": {
+            "kind": "ramp",
+            "first": { "parameter": "dirt_colour" },
+            "second": { "parameter": "dirt_colour" }
+          },
+          "hue_influence": 0.0,
+          "saturation_influence": 0.0,
+          "value_influence": 0.0
+        }
+      }
+    }
+  ],
+  "normal_scale": 1.1,
+  "displacement": {
+    "minimum_m": -0.014,
+    "maximum_m": 0.032,
+    "base_m": 0.0,
+    "displacement_map": true
+  },
+  "occlusion": {
+    "directions": 12,
+    "samples": 8,
+    "radius": 0.7,
+    "max_radius": 6.0,
+    "cavity_strength": 1.7,
+    "horizon_strength": 0.88,
+    "power": 1.0,
+    "combine": {
+      "kind": "multiply"
+    }
+  },
+  "albedo": {
+    "base_color": { "parameter": "dirt_colour" },
+    "warm_color": { "parameter": "dirt_colour" },
+    "palette": [
+      { "parameter": "dirt_colour" },
+      { "parameter": "dirt_colour" },
+      { "parameter": "dirt_colour" },
+      { "parameter": "dirt_colour" }
+    ],
+    "variation": 0.52,
+    "crack_darkening": 0.28,
+    "shoulder_variation": 0.045,
+    "mineral_density": 0.008,
+    "mineral_brightness": 0.08,
+    "occlusion_influence": 0.12
+  },
+  "output_profiles": [
+    "separate",
+    "motu_unity_terrain"
+  ]
+}

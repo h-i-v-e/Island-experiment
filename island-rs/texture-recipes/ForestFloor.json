@@ -1,6 +1,13 @@
 {
   "name": "ForestFloor",
   "seed": 58021,
+  "parameters": {
+    "dirt_colour": {
+      "kind": "colour",
+      "default": [0.052, 0.038, 0.022],
+      "description": "Engine-supplied forest soil colour"
+    }
+  },
   "width": 1024,
   "height": 1024,
   "physical_tile_width_m": 2.0,
@@ -56,13 +63,22 @@
         "albedo": {
           "enabled": true,
           "blend": "mix",
-          "strength": 0.72,
+          "strength": 1.0,
           "colour_map": {
             "kind": "gradient",
             "stops": [
-              { "position": 0.0, "colour": [0.035, 0.026, 0.017] },
-              { "position": 0.48, "colour": [0.075, 0.052, 0.029] },
-              { "position": 1.0, "colour": [0.13, 0.086, 0.043] }
+              {
+                "position": 0.0,
+                "colour": { "parameter": "dirt_colour" }
+              },
+              {
+                "position": 0.48,
+                "colour": { "parameter": "dirt_colour" }
+              },
+              {
+                "position": 1.0,
+                "colour": { "parameter": "dirt_colour" }
+              }
             ]
           },
           "hue_influence": 0.0,
@@ -409,20 +425,20 @@
     "combine": { "kind": "multiply" }
   },
   "albedo": {
-    "base_color": [0.052, 0.038, 0.022],
-    "warm_color": [0.15, 0.09, 0.038],
+    "base_color": { "parameter": "dirt_colour" },
+    "warm_color": { "parameter": "dirt_colour" },
     "palette": [
-      [0.04, 0.029, 0.017],
-      [0.085, 0.052, 0.025],
-      [0.16, 0.09, 0.034],
-      [0.22, 0.16, 0.052]
+      { "parameter": "dirt_colour" },
+      { "parameter": "dirt_colour" },
+      { "parameter": "dirt_colour" },
+      { "parameter": "dirt_colour" }
     ],
-    "variation": 0.48,
-    "crack_darkening": 0.34,
-    "shoulder_variation": 0.035,
-    "mineral_density": 0.012,
+    "variation": 0.0,
+    "crack_darkening": 0.0,
+    "shoulder_variation": 0.0,
+    "mineral_density": 0.0,
     "mineral_brightness": 0.08,
-    "occlusion_influence": 0.14
+    "occlusion_influence": 0.0
   },
   "output_profiles": ["separate", "motu_unity_terrain"]
 }

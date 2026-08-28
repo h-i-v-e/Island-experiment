@@ -150,7 +150,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::IslandGenerator
   generation:
     generateOnStart: 1
-    generationMethod: 1
     seed: 666
     worldSizeMetres: 2000
     maximumHeightMetres: 400
@@ -181,6 +180,11 @@ MonoBehaviour:
   streaming:
     target: {fileID: 1299534587}
   rendering:
+    dirtColour: {r: 0.81960785, g: 0.6745098, b: 0.39607844, a: 1}
+    stoneColour: {r: 0.4627451, g: 0.49803922, b: 0.42352942, a: 1}
+    randomizeMaterialColours: 1
+    materialColourVariation: 0.14
+    materialTextureResolution: 1024
     terrainMaterial: {fileID: 2100000, guid: 19640f4fc7648482eac75d61d694f95b, type: 2}
     grassMaterial: {fileID: 2100000, guid: 9c87f7d08551e4ae2b4dfa30af8c3f01, type: 2}
     riverMaterial: {fileID: 2100000, guid: 671058ee1a245424e91a25c139b2be33, type: 2}

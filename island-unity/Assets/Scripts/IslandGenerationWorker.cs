@@ -5,16 +5,16 @@ internal static class IslandGenerationWorker
 {
     internal static Task<IslandPreparedData> GenerateAsync(
         int seed,
-        IslandGenerationMethod generationMethod,
         MotuNative.Options options,
         float worldSize,
         float emitterSharpnessDegrees,
         float emitterSpacingMetres,
+        IslandMaterialColours materialColours,
+        int materialTextureResolution,
         CancellationToken cancellationToken)
     {
         return GenerateAsync(
             seed,
-            generationMethod,
             options,
             new MotuNative.ForestOptions
             {
@@ -29,28 +29,32 @@ internal static class IslandGenerationWorker
             worldSize,
             emitterSharpnessDegrees,
             emitterSpacingMetres,
+            materialColours,
+            materialTextureResolution,
             cancellationToken);
     }
 
     internal static Task<IslandPreparedData> GenerateAsync(
         int seed,
-        IslandGenerationMethod generationMethod,
         MotuNative.Options options,
         MotuNative.ForestOptions forestOptions,
         float worldSize,
         float emitterSharpnessDegrees,
         float emitterSpacingMetres,
+        IslandMaterialColours materialColours,
+        int materialTextureResolution,
         CancellationToken cancellationToken)
     {
         return Task.Run(
             () => IslandGenerator.PrepareIsland(
                 seed,
-                generationMethod,
                 options,
                 forestOptions,
                 worldSize,
                 emitterSharpnessDegrees,
                 emitterSpacingMetres,
+                materialColours,
+                materialTextureResolution,
                 cancellationToken),
             cancellationToken);
     }

@@ -133,7 +133,7 @@ public sealed class IslandDemoController : MonoBehaviour
 
         GUILayout.BeginArea(PanelRect, GUI.skin.box);
         GUILayout.Label("Procedural Island Sandbox");
-        GUILayout.Label($"Generation method: {island.Generation.GenerationMethodLabel}");
+        GUILayout.Label("Generation method: CPU");
         GUILayout.Label(island.Status);
         GUILayout.BeginHorizontal();
         GUI.enabled = !island.IsGenerating;

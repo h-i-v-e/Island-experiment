@@ -20,7 +20,7 @@ use crate::{
 /// The material triple stands for a vertex the generator gave no material to:
 /// middling bedrock under full cover, away from the sea. `terrain.wgsl` falls
 /// back to the same values when the attribute is missing entirely.
-const DEFAULT_MATERIAL: motu::Vec3 = motu::Vec3::new(0.5, 1.0, 0.0);
+const DEFAULT_MATERIAL: motu::Vec4 = motu::Vec4::new(0.5, 1.0, 0.0, 0.0);
 
 /// Metres of world space one river-rock tint is held constant over. The
 /// generator settles stones of six to twenty-two centimetres, so a cell this
@@ -104,27 +104,43 @@ pub fn render_mesh_at(source: &motu::Mesh, origin: Vec3) -> Option<Mesh> {
 
 /// Converts a terrain mesh and stores the generator's raw material weights in
 /// [`Mesh::ATTRIBUTE_COLOR`]: x is bedrock hardness (exactly one means forced
-/// rock), y is loose cover and z is sea proximity. Alpha carries the renderer's
-/// own river-bank proximity, which is the one channel the generator's triple
-/// leaves free. Nothing here decides what the ground looks like;
+/// rock), y is loose cover, z is river bed and w is sea proximity. UV A carries
+/// the independent forest-floor and settled-stone switches, and UV B carries
+/// renderer-measured river-bank proximity. Nothing here decides what the ground looks like;
 /// `terrain.wgsl` is the only authority on that.
 #[must_use]
 pub fn terrain_mesh(
     source: &motu::Mesh,
-    materials: &[motu::Vec3],
+    materials: &[motu::Vec4],
+    environment: &[motu::Vec2],
     river_wetness: &[f32],
     origin: Vec3,
 ) -> Option<Mesh> {
     let mut mesh = render_mesh_at(source, origin)?;
     let weights: Vec<[f32; 4]> = (0..source.vertices.len())
         .map(|index| {
-            let material = materials.get(index).copied().unwrap_or(DEFAULT_MATERIAL);
-            // A vertex the wetness pass never reached is dry ground.
-            let wetness = river_wetness.get(index).copied().unwrap_or(0.0);
-            [material.x, material.y, material.z, wetness]
+            materials
+                .get(index)
+                .copied()
+                .unwrap_or(DEFAULT_MATERIAL)
+                .to_array()
         })
         .collect();
+    let environment: Vec<[f32; 2]> = (0..source.vertices.len())
+        .map(|index| {
+            environment
+                .get(index)
+                .copied()
+                .unwrap_or_default()
+                .to_array()
+        })
+        .collect();
+    let wetness: Vec<[f32; 2]> = (0..source.vertices.len())
+        .map(|index| [river_wetness.get(index).copied().unwrap_or(0.0), 0.0])
+        .collect();
     mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, weights);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, environment);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_1, wetness);
     Some(mesh)
 }
 

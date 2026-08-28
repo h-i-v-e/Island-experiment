@@ -2,7 +2,7 @@ Shader "Motu/Rock Decoration"
 {
     Properties
     {
-        _RockColor ("Rock Color", Color) = (0.34, 0.32, 0.29, 1)
+        _RockColor ("Rock Color", Color) = (0.30, 0.32, 0.29, 1)
         [PerRendererData] _RockTint ("Rock Tint", Color) = (1, 1, 1, 1)
         [NoScaleOffset] _CliffNoise3D ("Rock 3D Noise", 3D) = "gray" {}
         _CliffNoisePeriod ("Rock Noise Period (metres)", Float) = 160

@@ -20,9 +20,9 @@ public sealed class IslandGenerator : MonoBehaviour
     private const int GrassPatchNoiseDimension = 256;
     private const int GrassPatchNoiseLatticePeriod = 64;
     private const int GrassColourNoiseLatticePeriod = 8;
-    private const int AverageColourSampleDimension = 256;
+    private const string DualMaterialMaskPackingShaderName =
+        "Hidden/Motu/Pack Dual Material Masks";
     private const float RockPatchNoiseDetailScale = 8f;
-    private static readonly Color DefaultRockColor = new Color(0.34f, 0.32f, 0.29f, 1f);
     private static readonly int IslandWorldToLocalId = Shader.PropertyToID(
         "_IslandWorldToLocal");
 
@@ -59,6 +59,9 @@ public sealed class IslandGenerator : MonoBehaviour
     private Texture3D cliffNoiseTexture;
     private Texture2D riverNoiseTexture;
     private Texture2D grassPatchNoiseTexture;
+    private RenderTexture rockRiverMaskTexture;
+    private RenderTexture forestStonesMaskTexture;
+    private Texture2D[] proceduralMaterialTextures = Array.Empty<Texture2D>();
     private Material rockMaterial;
     private Material riverMaterial;
     private Material seaMaterial;
@@ -194,7 +197,7 @@ public sealed class IslandGenerator : MonoBehaviour
         DestroyRuntimeMaterials();
     }
 
-    private void BuildRuntimeMaterials()
+    private void BuildRuntimeMaterials(IslandPreparedMaterialTextures materialTextures)
     {
         var skyColor = new Color(0.49f, 0.68f, 0.82f);
         terrainMaterial = CreateMaterial(
@@ -202,20 +205,29 @@ public sealed class IslandGenerator : MonoBehaviour
             Color.white,
             rendering.TerrainMaterial,
             generation.WorldSizeMetres);
+        InstallProceduralMaterialTextures(terrainMaterial, materialTextures);
         cliffNoiseTexture = rendering.CliffDetailNoise;
         ownsCliffNoiseTexture = cliffNoiseTexture == null;
         if (ownsCliffNoiseTexture) cliffNoiseTexture = CreateCliffNoiseTexture();
         terrainMaterial.SetTexture("_CliffNoise3D", cliffNoiseTexture);
-        var rockColor = ApplyAverageTextureColor(
-            terrainMaterial,
-            "_RockAlbedoMap",
-            "_RockColor",
-            DefaultRockColor);
-        ApplyAverageTextureColor(
-            terrainMaterial,
-            "_RiverBedAlbedoMap",
-            "_RiverBedColor",
-            DefaultRockColor);
+        var dirtColor = materialTextures.colours.dirt;
+        var rockColor = materialTextures.colours.stone;
+        terrainMaterial.SetColor("_RockColor", rockColor);
+        terrainMaterial.SetColor("_RiverBedColor", rockColor);
+        terrainMaterial.SetColor("_GroundDirtColor", dirtColor);
+        terrainMaterial.SetColor("_GrassThinDepositColor", dirtColor);
+        terrainMaterial.SetColor("_ForestFloorColor", Color.white);
+        terrainMaterial.SetColor("_StonesColor", Color.white);
+        rockRiverMaskTexture = CreatePackedMaterialMask(
+            terrainMaterial.GetTexture("_RockMaskMap"),
+            terrainMaterial.GetTexture("_RiverBedMaskMap"),
+            "Island rock and river packed mask");
+        forestStonesMaskTexture = CreatePackedMaterialMask(
+            terrainMaterial.GetTexture("_ForestFloorMaskMap"),
+            terrainMaterial.GetTexture("_StonesMaskMap"),
+            "Island forest floor and fallen stones packed mask");
+        terrainMaterial.SetTexture("_RockRiverMaskMap", rockRiverMaskTexture);
+        terrainMaterial.SetTexture("_ForestStonesMaskMap", forestStonesMaskTexture);
         grassMaterial = CreateMaterial(
             "Motu/Terrain Grass",
             Color.white,
@@ -379,17 +391,19 @@ public sealed class IslandGenerator : MonoBehaviour
 
     private void CopyTerrainBlendSettingsToGrass()
     {
-        CopyMaterialTexture("_RockMaskMap");
         CopyMaterialFloat("_RockTextureWorldSize");
         CopyMaterialFloat("_RockHeightBlendStrength");
-        CopyMaterialTexture("_RiverBedMaskMap");
         CopyMaterialFloat("_RiverBedTextureWorldSize");
         CopyMaterialFloat("_RiverBedHeightBlendStrength");
-        CopyMaterialTexture("_ForestFloorMaskMap");
+        CopyMaterialTexture("_ForestStonesMaskMap");
         CopyMaterialFloat("_ForestFloorTextureWorldSize");
         CopyMaterialFloat("_ForestFloorHeightBlendStrength");
         CopyMaterialFloat("_ForestFloorEdgeNoiseStrength");
         CopyMaterialFloat("_ForestFloorEdgeBlendWidth");
+        CopyMaterialFloat("_StonesTextureWorldSize");
+        CopyMaterialFloat("_StonesHeightBlendStrength");
+        CopyMaterialFloat("_StonesEdgeNoiseStrength");
+        CopyMaterialFloat("_StonesEdgeBlendWidth");
         CopyMaterialFloat("_TopTextureFadeOutSlope");
     }
 
@@ -612,16 +626,7 @@ public sealed class IslandGenerator : MonoBehaviour
             return;
         }
 
-        var generationMethod = generation.GenerationMethod;
-        var generationMethodLabel = generation.GenerationMethodLabel;
-        if (MotuNative.IsMotuGenerationMethodAvailable(generationMethod) == 0)
-        {
-            status = $"{generationMethodLabel} generation is not available in the native plugin.";
-            Debug.LogError(status, this);
-            return;
-        }
-
-        status = $"Generating island on {generationMethodLabel} in background...";
+        status = "Generating island on CPU in background...";
         generationInProgress = true;
         generationTimer = Stopwatch.StartNew();
         var cancellation = new CancellationTokenSource();
@@ -634,17 +639,20 @@ public sealed class IslandGenerator : MonoBehaviour
         var forestOptions = generation.ToNativeForestOptions(forest);
         var emitterSharpness = rivers.RoughWaterSharpnessDegrees;
         var emitterSpacing = rivers.RoughWaterSpacingMetres;
+        var materialColours = rendering.SelectMaterialColours(islandSeed);
+        var materialTextureResolution = rendering.MaterialTextureResolution;
 
         try
         {
             prepared = await IslandGenerationWorker.GenerateAsync(
                 islandSeed,
-                generationMethod,
                 options,
                 forestOptions,
                 worldSize,
                 emitterSharpness,
                 emitterSpacing,
+                materialColours,
+                materialTextureResolution,
                 cancellation.Token);
             cancellation.Token.ThrowIfCancellationRequested();
             if (isDestroyed || !isActiveAndEnabled)
@@ -656,7 +664,7 @@ public sealed class IslandGenerator : MonoBehaviour
             installationStarted = true;
             ClearGeneratedContent();
             DestroyRuntimeMaterials();
-            BuildRuntimeMaterials();
+            BuildRuntimeMaterials(prepared.materialTextures);
             islandHandle = prepared.TakeHandle();
 
             CreateSurfaceTextures(prepared.surfaceMaps);
@@ -716,8 +724,7 @@ public sealed class IslandGenerator : MonoBehaviour
             generationTimer.Stop();
             status = string.Format(
                 CultureInfo.InvariantCulture,
-                "{0} | Seed {1} | 64 LOD 2 tiles | {2:N0} vertices | {3:N0} triangles | {4:F2}s",
-                generationMethodLabel,
+                "CPU | Seed {0} | 64 LOD 2 tiles | {1:N0} vertices | {2:N0} triangles | {3:F2}s",
                 islandSeed,
                 terrainStreamer.BaseVertexCount,
                 terrainStreamer.BaseTriangleCount,
@@ -737,6 +744,7 @@ public sealed class IslandGenerator : MonoBehaviour
             if (installationStarted)
             {
                 ClearGeneratedContent();
+                DestroyRuntimeMaterials();
             }
             if (!isDestroyed)
             {
@@ -750,6 +758,7 @@ public sealed class IslandGenerator : MonoBehaviour
             if (installationStarted)
             {
                 ClearGeneratedContent();
+                DestroyRuntimeMaterials();
             }
         }
         finally
@@ -848,11 +857,12 @@ public sealed class IslandGenerator : MonoBehaviour
 
     internal static IslandPreparedData PrepareIsland(
         int islandSeed,
-        IslandGenerationMethod generationMethod,
         MotuNative.Options options,
         float worldSize,
         float emitterSharpnessDegrees,
         float emitterSpacingMetres,
+        IslandMaterialColours materialColours,
+        int materialTextureResolution,
         CancellationToken cancellationToken)
     {
         var forestOptions = new MotuNative.ForestOptions
@@ -867,34 +877,35 @@ public sealed class IslandGenerator : MonoBehaviour
         };
         return PrepareIsland(
             islandSeed,
-            generationMethod,
             options,
             forestOptions,
             worldSize,
             emitterSharpnessDegrees,
             emitterSpacingMetres,
+            materialColours,
+            materialTextureResolution,
             cancellationToken);
     }
 
     internal static IslandPreparedData PrepareIsland(
         int islandSeed,
-        IslandGenerationMethod generationMethod,
         MotuNative.Options options,
         MotuNative.ForestOptions forestOptions,
         float worldSize,
         float emitterSharpnessDegrees,
         float emitterSpacingMetres,
+        IslandMaterialColours materialColours,
+        int materialTextureResolution,
         CancellationToken cancellationToken)
     {
-        var handle = MotuNative.CreateMotuWithForestAndMethod(
+        var handle = MotuNative.CreateMotuWithForest(
             islandSeed,
             ref options,
-            ref forestOptions,
-            generationMethod);
+            ref forestOptions);
         if (handle == IntPtr.Zero)
         {
             throw new InvalidOperationException(
-                $"The Rust {generationMethod.ToString().ToUpperInvariant()} generator returned a null island handle.");
+                "The Rust CPU generator returned a null island handle.");
         }
 
         try
@@ -903,6 +914,10 @@ public sealed class IslandGenerator : MonoBehaviour
             var surfaceMaps = PrepareSurfaceMaps(handle, SurfaceMapDimension);
             cancellationToken.ThrowIfCancellationRequested();
             var seaMask = PrepareSeaMask(handle, SurfaceMapDimension);
+            cancellationToken.ThrowIfCancellationRequested();
+            var materialTextures = PrepareMaterialTextures(
+                materialColours,
+                materialTextureResolution);
             cancellationToken.ThrowIfCancellationRequested();
             var colliderHeightMap = PrepareColliderHeightMap(handle, worldSize);
             cancellationToken.ThrowIfCancellationRequested();
@@ -929,7 +944,8 @@ public sealed class IslandGenerator : MonoBehaviour
                 riverRockTiles,
                 forest,
                 riverEmitters,
-                colliderHeightMap);
+                colliderHeightMap,
+                materialTextures);
             handle = IntPtr.Zero;
             return result;
         }
@@ -995,6 +1011,81 @@ public sealed class IslandGenerator : MonoBehaviour
         {
             MotuNative.ReleaseSeaMask(ref seaMask);
         }
+    }
+
+    private static IslandPreparedMaterialTextures PrepareMaterialTextures(
+        IslandMaterialColours colours,
+        int resolution)
+    {
+        var inputs = colours.ToNative();
+        var options = new MotuNative.MaterialBakeOptions
+        {
+            width = checked((uint)resolution),
+            height = checked((uint)resolution),
+            normalConvention = 1,
+            materialMask = 0x0f,
+            reserved = 0,
+        };
+        var succeeded = MotuNative.BakeMotuMaterialTextures(
+            ref inputs,
+            ref options,
+            out var textures);
+        try
+        {
+            if (succeeded == 0 || textures.handle == IntPtr.Zero)
+            {
+                throw new InvalidOperationException(
+                    "The Rust procedural material library could not bake the requested textures.");
+            }
+            return new IslandPreparedMaterialTextures(
+                colours,
+                CopyMaterialTexture(textures.rock, resolution, "rock"),
+                CopyMaterialTexture(textures.riverBed, resolution, "river bed"),
+                CopyMaterialTexture(textures.forestFloor, resolution, "forest floor"),
+                CopyMaterialTexture(textures.fallenStones, resolution, "fallen stones"));
+        }
+        finally
+        {
+            MotuNative.ReleaseMaterialTextureSet(ref textures);
+        }
+    }
+
+    private static IslandPreparedMaterialTexture CopyMaterialTexture(
+        MotuNative.ExportMaterialTexture source,
+        int resolution,
+        string label)
+    {
+        var pixels = checked(resolution * resolution);
+        if (source.width != resolution
+            || source.height != resolution
+            || source.albedoRgb.data == IntPtr.Zero
+            || source.albedoRgb.length != checked(pixels * 3)
+            || source.normalRgb.data == IntPtr.Zero
+            || source.normalRgb.length != checked(pixels * 3)
+            || source.heightR16.data == IntPtr.Zero
+            || source.heightR16.length != checked(pixels * 2)
+            || source.occlusion.data == IntPtr.Zero
+            || source.occlusion.length != pixels)
+        {
+            throw new InvalidOperationException(
+                $"The Rust generator returned invalid {label} material textures.");
+        }
+
+        var albedo = new byte[source.albedoRgb.length];
+        var normal = new byte[source.normalRgb.length];
+        var height = new byte[source.heightR16.length];
+        var occlusion = new byte[source.occlusion.length];
+        Marshal.Copy(source.albedoRgb.data, albedo, 0, albedo.Length);
+        Marshal.Copy(source.normalRgb.data, normal, 0, normal.Length);
+        Marshal.Copy(source.heightR16.data, height, 0, height.Length);
+        Marshal.Copy(source.occlusion.data, occlusion, 0, occlusion.Length);
+        return new IslandPreparedMaterialTexture(
+            resolution,
+            resolution,
+            albedo,
+            normal,
+            height,
+            occlusion);
     }
 
     private static IslandPreparedColliderHeightMap PrepareColliderHeightMap(
@@ -1412,6 +1503,134 @@ public sealed class IslandGenerator : MonoBehaviour
         return texture;
     }
 
+    private void InstallProceduralMaterialTextures(
+        Material material,
+        IslandPreparedMaterialTextures textures)
+    {
+        proceduralMaterialTextures = new Texture2D[12];
+        InstallProceduralMaterial(
+            material,
+            textures.rock,
+            "Rock",
+            "_RockAlbedoMap",
+            "_RockNormalMap",
+            "_RockMaskMap",
+            0);
+        InstallProceduralMaterial(
+            material,
+            textures.riverBed,
+            "River bed",
+            "_RiverBedAlbedoMap",
+            "_RiverBedNormalMap",
+            "_RiverBedMaskMap",
+            3);
+        InstallProceduralMaterial(
+            material,
+            textures.forestFloor,
+            "Forest floor",
+            "_ForestFloorAlbedoMap",
+            "_ForestFloorNormalMap",
+            "_ForestFloorMaskMap",
+            6);
+        InstallProceduralMaterial(
+            material,
+            textures.fallenStones,
+            "Fallen stones",
+            "_StonesAlbedoMap",
+            "_StonesNormalMap",
+            "_StonesMaskMap",
+            9);
+    }
+
+    private void InstallProceduralMaterial(
+        Material material,
+        IslandPreparedMaterialTexture source,
+        string label,
+        string albedoProperty,
+        string normalProperty,
+        string maskProperty,
+        int textureOffset)
+    {
+        if (!material.HasProperty(albedoProperty)
+            || !material.HasProperty(normalProperty)
+            || !material.HasProperty(maskProperty))
+        {
+            throw new InvalidOperationException(
+                $"The terrain shader does not expose the {label} procedural texture contract.");
+        }
+
+        var albedo = CreateProceduralRgbTexture(
+            $"Island {label} albedo",
+            source,
+            source.albedoRgb,
+            false);
+        proceduralMaterialTextures[textureOffset] = albedo;
+        var normal = CreateProceduralRgbTexture(
+            $"Island {label} normal",
+            source,
+            source.normalRgb,
+            true);
+        proceduralMaterialTextures[textureOffset + 1] = normal;
+        var mask = CreateProceduralMaskTexture($"Island {label} mask", source);
+        proceduralMaterialTextures[textureOffset + 2] = mask;
+        material.SetTexture(albedoProperty, albedo);
+        material.SetTexture(normalProperty, normal);
+        material.SetTexture(maskProperty, mask);
+    }
+
+    private static Texture2D CreateProceduralRgbTexture(
+        string textureName,
+        IslandPreparedMaterialTexture source,
+        byte[] pixels,
+        bool linear)
+    {
+        var texture = new Texture2D(
+            source.width,
+            source.height,
+            TextureFormat.RGB24,
+            true,
+            linear)
+        {
+            name = textureName,
+            filterMode = FilterMode.Trilinear,
+            wrapMode = TextureWrapMode.Repeat,
+            anisoLevel = 4,
+        };
+        texture.SetPixelData(pixels, 0);
+        texture.Apply(true, true);
+        return texture;
+    }
+
+    private static Texture2D CreateProceduralMaskTexture(
+        string textureName,
+        IslandPreparedMaterialTexture source)
+    {
+        var pixels = checked(source.width * source.height);
+        var packed = new byte[checked(pixels * 4)];
+        for (var index = 0; index < pixels; index++)
+        {
+            packed[index * 4] = source.heightR16[index * 2 + 1];
+            packed[index * 4 + 1] = source.occlusion[index];
+            packed[index * 4 + 2] = 0;
+            packed[index * 4 + 3] = byte.MaxValue;
+        }
+        var texture = new Texture2D(
+            source.width,
+            source.height,
+            TextureFormat.RGBA32,
+            true,
+            true)
+        {
+            name = textureName,
+            filterMode = FilterMode.Trilinear,
+            wrapMode = TextureWrapMode.Repeat,
+            anisoLevel = 4,
+        };
+        texture.SetPixelData(packed, 0);
+        texture.Apply(true, true);
+        return texture;
+    }
+
     internal static IslandPreparedMesh CopyTerrainMeshData(
         MotuNative.ExportMesh source,
         int lod,
@@ -1570,7 +1789,7 @@ public sealed class IslandGenerator : MonoBehaviour
         }
         if (source.environment.Length == source.vertices.Length)
         {
-            // Rust environment attributes use UV1: x = forest floor, y = reserved.
+            // Rust environment attributes use UV1: x = forest floor, y = stones.
             mesh.uv2 = source.environment;
         }
         if (createTangents)
@@ -1689,6 +1908,17 @@ public sealed class IslandGenerator : MonoBehaviour
 
     private void DestroyRuntimeMaterials()
     {
+        terrainMaterial?.SetTexture("_RockRiverMaskMap", null);
+        terrainMaterial?.SetTexture("_ForestStonesMaskMap", null);
+        grassMaterial?.SetTexture("_ForestStonesMaskMap", null);
+        if (rockRiverMaskTexture != null) rockRiverMaskTexture.Release();
+        if (forestStonesMaskTexture != null) forestStonesMaskTexture.Release();
+        DestroyUnityObject(rockRiverMaskTexture);
+        DestroyUnityObject(forestStonesMaskTexture);
+        foreach (var texture in proceduralMaterialTextures)
+        {
+            DestroyUnityObject(texture);
+        }
         DestroyUnityObject(terrainMaterial);
         DestroyUnityObject(grassMaterial);
         DestroyUnityObject(rockMaterial);
@@ -1713,6 +1943,9 @@ public sealed class IslandGenerator : MonoBehaviour
         cliffNoiseTexture = null;
         riverNoiseTexture = null;
         grassPatchNoiseTexture = null;
+        rockRiverMaskTexture = null;
+        forestStonesMaskTexture = null;
+        proceduralMaterialTextures = Array.Empty<Texture2D>();
         ownsCliffNoiseTexture = false;
         ownsRiverNoiseTexture = false;
         ownsGrassPatchNoiseTexture = false;
@@ -1997,112 +2230,156 @@ public sealed class IslandGenerator : MonoBehaviour
         return material;
     }
 
-    private static Color ApplyAverageTextureColor(
-        Material material,
-        string textureProperty,
-        string colorProperty,
-        Color defaultColor)
+    private static RenderTexture CreatePackedMaterialMask(
+        Texture firstMask,
+        Texture secondMask,
+        string textureName)
     {
-        if (material == null || !material.HasProperty(colorProperty))
+        firstMask ??= Texture2D.grayTexture;
+        secondMask ??= Texture2D.grayTexture;
+        var packingShader = Shader.Find(DualMaterialMaskPackingShaderName);
+        if (packingShader == null || !packingShader.isSupported)
         {
-            return defaultColor;
+            throw new InvalidOperationException(
+                $"Could not use shader '{DualMaterialMaskPackingShaderName}'.");
+        }
+        if (!SystemInfo.SupportsRenderTextureFormat(RenderTextureFormat.ARGB32))
+        {
+            throw new InvalidOperationException(
+                "The graphics device cannot create linear RGBA8 material masks.");
         }
 
-        var fallbackColor = material.GetColor(colorProperty);
-        if (!material.HasProperty(textureProperty))
+        var width = Mathf.Max(Mathf.Max(firstMask.width, secondMask.width), 1);
+        var height = Mathf.Max(Mathf.Max(firstMask.height, secondMask.height), 1);
+        var packedMask = new RenderTexture(
+            width,
+            height,
+            0,
+            RenderTextureFormat.ARGB32,
+            RenderTextureReadWrite.Linear)
         {
-            return fallbackColor;
-        }
-
-        var colorMap = material.GetTexture(textureProperty);
-        if (colorMap == null)
-        {
-            return fallbackColor;
-        }
-
-        var averageColor = CalculateAverageTextureColor(colorMap, fallbackColor);
-        material.SetColor(colorProperty, averageColor);
-        return averageColor;
-    }
-
-    private static Color CalculateAverageTextureColor(Texture texture, Color fallbackColor)
-    {
-        var width = Mathf.Min(Mathf.Max(texture.width, 1), AverageColourSampleDimension);
-        var height = Mathf.Min(Mathf.Max(texture.height, 1), AverageColourSampleDimension);
-        var previousRenderTarget = RenderTexture.active;
-        RenderTexture sampleTarget = null;
-        Texture2D readableSample = null;
-
+            name = textureName,
+            dimension = TextureDimension.Tex2D,
+            useMipMap = true,
+            autoGenerateMips = false,
+            filterMode = FilterMode.Trilinear,
+            wrapMode = TextureWrapMode.Repeat,
+            anisoLevel = 1,
+            hideFlags = HideFlags.DontSave,
+        };
+        Material packingMaterial = null;
         try
         {
-            sampleTarget = RenderTexture.GetTemporary(
-                width,
-                height,
-                0,
-                RenderTextureFormat.ARGB32,
-                RenderTextureReadWrite.Default);
-            sampleTarget.filterMode = FilterMode.Bilinear;
-            Graphics.Blit(texture, sampleTarget);
-
-            RenderTexture.active = sampleTarget;
-            readableSample = new Texture2D(
-                width,
-                height,
-                TextureFormat.RGBA32,
-                false);
-            readableSample.ReadPixels(new Rect(0f, 0f, width, height), 0, 0, false);
-            readableSample.Apply(false, false);
-
-            var pixels = readableSample.GetPixels32();
-            ulong red = 0;
-            ulong green = 0;
-            ulong blue = 0;
-            foreach (var pixel in pixels)
+            if (!packedMask.Create())
             {
-                red += pixel.r;
-                green += pixel.g;
-                blue += pixel.b;
+                throw new InvalidOperationException(
+                    $"Could not allocate runtime material mask '{textureName}'.");
             }
-
-            var inverseTotal = 1f / (pixels.Length * 255f);
-            return new Color(
-                red * inverseTotal,
-                green * inverseTotal,
-                blue * inverseTotal,
-                fallbackColor.a);
+            packingMaterial = new Material(packingShader)
+            {
+                name = "Dual material mask packer",
+                hideFlags = HideFlags.DontSave,
+            };
+            packingMaterial.SetTexture("_SecondMask", secondMask);
+            Graphics.Blit(firstMask, packedMask, packingMaterial, 0);
+            packedMask.GenerateMips();
+            return packedMask;
         }
-        catch (Exception exception)
+        catch
         {
-            Debug.LogWarning(
-                $"Could not calculate the average color of '{texture.name}': "
-                    + exception.Message);
-            return fallbackColor;
+            packedMask.Release();
+            DestroyUnityObject(packedMask);
+            throw;
         }
         finally
         {
-            RenderTexture.active = previousRenderTarget;
-            DestroyUnityObject(readableSample);
-            if (sampleTarget != null)
+            if (Application.isPlaying)
             {
-                RenderTexture.ReleaseTemporary(sampleTarget);
+                DestroyUnityObject(packingMaterial);
+            }
+            else
+            {
+                DestroyImmediate(packingMaterial);
             }
         }
     }
 
 #if UNITY_EDITOR
+    private static void ValidateDualMaterialMaskPacking()
+    {
+        var packingShader = Shader.Find(DualMaterialMaskPackingShaderName);
+        if (packingShader == null
+            || !packingShader.isSupported
+            || UnityEditor.ShaderUtil.ShaderHasError(packingShader))
+        {
+            throw new InvalidOperationException(
+                "The runtime dual-material mask packing shader is missing or unsupported.");
+        }
+        if (SystemInfo.graphicsDeviceType == GraphicsDeviceType.Null)
+        {
+            return;
+        }
+
+        var firstValue = new Color(0.125f, 0.25f, 0.9f, 0.8f);
+        var secondValue = new Color(0.5f, 0.75f, 0.7f, 0.6f);
+        var first = new Texture2D(2, 2, TextureFormat.RGBA32, false, true);
+        var second = new Texture2D(2, 2, TextureFormat.RGBA32, false, true);
+        RenderTexture packed = null;
+        Texture2D readable = null;
+        var previousRenderTarget = RenderTexture.active;
+        try
+        {
+            first.SetPixels(new[] { firstValue, firstValue, firstValue, firstValue });
+            second.SetPixels(new[] { secondValue, secondValue, secondValue, secondValue });
+            first.Apply(false, false);
+            second.Apply(false, false);
+            packed = CreatePackedMaterialMask(first, second, "Mask packing validation");
+            if (!packed.IsCreated()
+                || packed.width != 2
+                || packed.height != 2
+                || packed.mipmapCount < 2
+                || packed.sRGB)
+            {
+                throw new InvalidOperationException(
+                    "The runtime packed material mask has invalid texture settings.");
+            }
+
+            RenderTexture.active = packed;
+            readable = new Texture2D(1, 1, TextureFormat.RGBA32, false, true);
+            readable.ReadPixels(new Rect(0f, 0f, 1f, 1f), 0, 0, false);
+            readable.Apply(false, false);
+            var result = readable.GetPixel(0, 0);
+            const float tolerance = 2f / 255f;
+            if (Mathf.Abs(result.r - firstValue.r) > tolerance
+                || Mathf.Abs(result.g - firstValue.g) > tolerance
+                || Mathf.Abs(result.b - secondValue.r) > tolerance
+                || Mathf.Abs(result.a - secondValue.g) > tolerance)
+            {
+                throw new InvalidOperationException(
+                    "The runtime material mask did not preserve the RG/BA channel contract: "
+                        + $"received ({result.r:F4}, {result.g:F4}, "
+                        + $"{result.b:F4}, {result.a:F4}).");
+            }
+        }
+        finally
+        {
+            RenderTexture.active = previousRenderTarget;
+            if (packed != null) packed.Release();
+            DestroyImmediate(packed);
+            DestroyImmediate(readable);
+            DestroyImmediate(first);
+            DestroyImmediate(second);
+        }
+    }
+
     public static void BatchValidateNativeInterop()
     {
+        ValidateDualMaterialMaskPacking();
         if (Marshal.SizeOf<MotuNative.Options>() != sizeof(float) * 16
             || Marshal.SizeOf<MotuNative.ForestOptions>() != 28)
         {
             throw new InvalidOperationException(
                 "Managed native option layouts do not match their ABI contracts.");
-        }
-        if (MotuNative.IsMotuGenerationMethodAvailable(IslandGenerationMethod.Cpu) == 0
-            || MotuNative.IsMotuGenerationMethodAvailable(IslandGenerationMethod.Gpu) == 0)
-        {
-            throw new InvalidOperationException(
-                "The native plugin does not expose both CPU and GPU generation methods.");
         }
         var options = new MotuNative.Options
         {
@@ -2131,11 +2408,10 @@ public sealed class IslandGenerator : MonoBehaviour
             minimumScale = 1f,
             maximumScale = 2f,
         };
-        var handle = MotuNative.CreateMotuWithForestAndMethod(
+        var handle = MotuNative.CreateMotuWithForest(
             2018,
             ref options,
-            ref forestOptions,
-            IslandGenerationMethod.Gpu);
+            ref forestOptions);
         if (handle == IntPtr.Zero)
         {
             throw new InvalidOperationException("Native validation could not generate an island.");
@@ -2201,19 +2477,27 @@ public sealed class IslandGenerator : MonoBehaviour
                 var nativeEnvironment = CopyVector2Array(
                     environmentMeshExport.environment);
                 var nativeMaximumForestFloor = 0f;
+                var nativeMaximumStones = 0f;
                 var nativeForestFloorVertices = 0;
+                var nativeStoneVertices = 0;
                 foreach (var environment in nativeEnvironment)
                 {
                     nativeMaximumForestFloor = Mathf.Max(
                         nativeMaximumForestFloor,
                         environment.x);
                     if (environment.x > 0.01f) nativeForestFloorVertices++;
+                    nativeMaximumStones = Mathf.Max(
+                        nativeMaximumStones,
+                        environment.y);
+                    if (environment.y > 0.01f) nativeStoneVertices++;
                 }
                 if (nativeMaximumForestFloor < 0.99f
-                    || nativeForestFloorVertices == 0)
+                    || nativeForestFloorVertices == 0
+                    || nativeMaximumStones < 0.99f
+                    || nativeStoneVertices == 0)
                 {
                     throw new InvalidOperationException(
-                        "Native LOD 0 terrain contains no forest-floor vertices.");
+                        "Native LOD 0 terrain is missing environment switches.");
                 }
                 var uploadedEnvironmentMesh = CopyTerrainMesh(
                     environmentMeshExport,
@@ -2223,24 +2507,32 @@ public sealed class IslandGenerator : MonoBehaviour
                 {
                     var uploadedEnvironment = uploadedEnvironmentMesh.uv2;
                     var uploadedMaximumForestFloor = 0f;
+                    var uploadedMaximumStones = 0f;
                     foreach (var environment in uploadedEnvironment)
                     {
                         uploadedMaximumForestFloor = Mathf.Max(
                             uploadedMaximumForestFloor,
                             environment.x);
+                        uploadedMaximumStones = Mathf.Max(
+                            uploadedMaximumStones,
+                            environment.y);
                     }
                     if (uploadedEnvironment.Length
                             != uploadedEnvironmentMesh.vertexCount
-                        || uploadedMaximumForestFloor < 0.99f)
+                        || uploadedMaximumForestFloor < 0.99f
+                        || uploadedMaximumStones < 0.99f)
                     {
                         throw new InvalidOperationException(
-                            "Unity did not retain the native forest-floor values in UV1.");
+                            "Unity did not retain the native environment values in UV1.");
                     }
                     Debug.Log(
                         $"Forest-floor validation: {nativeForestFloorVertices}/"
                             + $"{nativeEnvironment.Length} LOD 0 vertices are marked; "
                             + $"native/uploaded maximum {nativeMaximumForestFloor:F2}/"
-                            + $"{uploadedMaximumForestFloor:F2}.");
+                            + $"{uploadedMaximumForestFloor:F2}. Stones: "
+                            + $"{nativeStoneVertices}/{nativeEnvironment.Length}; "
+                            + $"native/uploaded maximum {nativeMaximumStones:F2}/"
+                            + $"{uploadedMaximumStones:F2}.");
                 }
                 finally
                 {
@@ -2270,6 +2562,7 @@ public sealed class IslandGenerator : MonoBehaviour
                     || !terrainMaterial.HasProperty("_RockAlbedoMap")
                     || !terrainMaterial.HasProperty("_RockNormalMap")
                     || !terrainMaterial.HasProperty("_RockMaskMap")
+                    || !terrainMaterial.HasProperty("_RockRiverMaskMap")
                     || !terrainMaterial.HasProperty("_RockTextureWorldSize")
                     || !terrainMaterial.HasProperty("_RockNormalMapStrength")
                     || !terrainMaterial.HasProperty("_RockParallaxDepth")
@@ -2288,6 +2581,7 @@ public sealed class IslandGenerator : MonoBehaviour
                     || !terrainMaterial.HasProperty("_ForestFloorAlbedoMap")
                     || !terrainMaterial.HasProperty("_ForestFloorNormalMap")
                     || !terrainMaterial.HasProperty("_ForestFloorMaskMap")
+                    || !terrainMaterial.HasProperty("_ForestStonesMaskMap")
                     || !terrainMaterial.HasProperty("_ForestFloorTextureWorldSize")
                     || !terrainMaterial.HasProperty("_ForestFloorNormalMapStrength")
                     || !terrainMaterial.HasProperty("_ForestFloorParallaxDepth")
@@ -2295,6 +2589,17 @@ public sealed class IslandGenerator : MonoBehaviour
                     || !terrainMaterial.HasProperty("_ForestFloorTextureOcclusionStrength")
                     || !terrainMaterial.HasProperty("_ForestFloorEdgeNoiseStrength")
                     || !terrainMaterial.HasProperty("_ForestFloorEdgeBlendWidth")
+                    || !terrainMaterial.HasProperty("_StonesColor")
+                    || !terrainMaterial.HasProperty("_StonesAlbedoMap")
+                    || !terrainMaterial.HasProperty("_StonesNormalMap")
+                    || !terrainMaterial.HasProperty("_StonesMaskMap")
+                    || !terrainMaterial.HasProperty("_StonesTextureWorldSize")
+                    || !terrainMaterial.HasProperty("_StonesNormalMapStrength")
+                    || !terrainMaterial.HasProperty("_StonesParallaxDepth")
+                    || !terrainMaterial.HasProperty("_StonesHeightBlendStrength")
+                    || !terrainMaterial.HasProperty("_StonesTextureOcclusionStrength")
+                    || !terrainMaterial.HasProperty("_StonesEdgeNoiseStrength")
+                    || !terrainMaterial.HasProperty("_StonesEdgeBlendWidth")
                     || !terrainMaterial.HasProperty("_WetBankBlendExponent")
                     || !terrainMaterial.HasProperty("_WetDarkening")
                     || !terrainMaterial.HasProperty("_WetSmoothness")
@@ -2343,6 +2648,15 @@ public sealed class IslandGenerator : MonoBehaviour
                 var expectedForestFloorMask =
                     UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>(
                         "Assets/Generated/Textures/ForestFloor/ForestFloor_mask.png");
+                var expectedStonesAlbedo =
+                    UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>(
+                        "Assets/Generated/Textures/FallenStones/FallenStones_albedo.png");
+                var expectedStonesNormal =
+                    UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>(
+                        "Assets/Generated/Textures/FallenStones/FallenStones_normal.png");
+                var expectedStonesMask =
+                    UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>(
+                        "Assets/Generated/Textures/FallenStones/FallenStones_mask.png");
                 var forestFloorAlbedoImporter = UnityEditor.AssetImporter.GetAtPath(
                     "Assets/Generated/Textures/ForestFloor/ForestFloor_albedo.png")
                     as UnityEditor.TextureImporter;
@@ -2351,6 +2665,15 @@ public sealed class IslandGenerator : MonoBehaviour
                     as UnityEditor.TextureImporter;
                 var forestFloorMaskImporter = UnityEditor.AssetImporter.GetAtPath(
                     "Assets/Generated/Textures/ForestFloor/ForestFloor_mask.png")
+                    as UnityEditor.TextureImporter;
+                var stonesAlbedoImporter = UnityEditor.AssetImporter.GetAtPath(
+                    "Assets/Generated/Textures/FallenStones/FallenStones_albedo.png")
+                    as UnityEditor.TextureImporter;
+                var stonesNormalImporter = UnityEditor.AssetImporter.GetAtPath(
+                    "Assets/Generated/Textures/FallenStones/FallenStones_normal.png")
+                    as UnityEditor.TextureImporter;
+                var stonesMaskImporter = UnityEditor.AssetImporter.GetAtPath(
+                    "Assets/Generated/Textures/FallenStones/FallenStones_mask.png")
                     as UnityEditor.TextureImporter;
                 if (authoredTerrainMaterial == null
                     || authoredTerrainMaterial.shader != terrainShader
@@ -2373,10 +2696,30 @@ public sealed class IslandGenerator : MonoBehaviour
                     || forestFloorNormalImporter.wrapMode != TextureWrapMode.Repeat
                     || forestFloorMaskImporter == null
                     || forestFloorMaskImporter.sRGBTexture
-                    || forestFloorMaskImporter.wrapMode != TextureWrapMode.Repeat)
+                    || forestFloorMaskImporter.wrapMode != TextureWrapMode.Repeat
+                    || authoredTerrainMaterial.GetTexture("_StonesAlbedoMap")
+                        != expectedStonesAlbedo
+                    || authoredTerrainMaterial.GetTexture("_StonesNormalMap")
+                        != expectedStonesNormal
+                    || authoredTerrainMaterial.GetTexture("_StonesMaskMap")
+                        != expectedStonesMask
+                    || !Mathf.Approximately(
+                        authoredTerrainMaterial.GetFloat("_StonesTextureWorldSize"),
+                        2f)
+                    || stonesAlbedoImporter == null
+                    || !stonesAlbedoImporter.sRGBTexture
+                    || stonesAlbedoImporter.wrapMode != TextureWrapMode.Repeat
+                    || stonesNormalImporter == null
+                    || stonesNormalImporter.textureType
+                        != UnityEditor.TextureImporterType.NormalMap
+                    || stonesNormalImporter.flipGreenChannel
+                    || stonesNormalImporter.wrapMode != TextureWrapMode.Repeat
+                    || stonesMaskImporter == null
+                    || stonesMaskImporter.sRGBTexture
+                    || stonesMaskImporter.wrapMode != TextureWrapMode.Repeat)
                 {
                     throw new InvalidOperationException(
-                        "The terrain material is not using the imported Forest Floor recipe maps.");
+                        "The terrain material is not using the imported Forest Floor and Fallen Stones recipe maps.");
                 }
                 var cliffNoise = CreateCliffNoiseTexture();
                 try
@@ -2561,11 +2904,15 @@ public sealed class IslandGenerator : MonoBehaviour
                     || !grassMaterial.HasProperty("_RiverBedMaskMap")
                     || !grassMaterial.HasProperty("_RiverBedTextureWorldSize")
                     || !grassMaterial.HasProperty("_RiverBedHeightBlendStrength")
-                    || !grassMaterial.HasProperty("_ForestFloorMaskMap")
+                    || !grassMaterial.HasProperty("_ForestStonesMaskMap")
                     || !grassMaterial.HasProperty("_ForestFloorTextureWorldSize")
                     || !grassMaterial.HasProperty("_ForestFloorHeightBlendStrength")
                     || !grassMaterial.HasProperty("_ForestFloorEdgeNoiseStrength")
                     || !grassMaterial.HasProperty("_ForestFloorEdgeBlendWidth")
+                    || !grassMaterial.HasProperty("_StonesTextureWorldSize")
+                    || !grassMaterial.HasProperty("_StonesHeightBlendStrength")
+                    || !grassMaterial.HasProperty("_StonesEdgeNoiseStrength")
+                    || !grassMaterial.HasProperty("_StonesEdgeBlendWidth")
                     || !grassMaterial.HasProperty("_TopTextureFadeOutSlope")
                     || !grassMaterial.HasProperty("_RockPatchNoiseDetailScale")
                     || !grassMaterial.HasProperty("_GrassPatchNoise")
@@ -2982,7 +3329,7 @@ public sealed class IslandGenerator : MonoBehaviour
             MotuNative.ReleaseMotu(handle);
         }
         Debug.Log(
-            "Motu GPU erosion, CPU rivers/waterfalls, GPU rocks, terrain collider, and material validation passed.");
+            "Motu CPU generation, terrain collider, and material validation passed.");
     }
 
     private static void ValidateTreeSurfaceShader(string shaderName, string label)

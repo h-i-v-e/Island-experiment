@@ -7,14 +7,10 @@ shells, rocks, and hidden terrain colliders beneath its GameObject. River-bed
 stones and physically settled dropped rocks share one native-generated,
 tile-streamed mesh; rocks no longer use a separate GameObject renderer pool.
 
-The `IslandGenerator` generation settings expose the primary CPU method and the
-hybrid GPU method. GPU accelerates erosion and settled-rock simulation, then
-uses the established CPU river, waterfall and river-mesh pipeline. New
-components and the sandbox select GPU by default; choose CPU in the Inspector
-for CPU erosion as well. The native plugin keeps the historical CPU-only entry
-points for compatibility while Unity uses the method-aware entry point. GPU
-adapter or execution failures are reported as generation failures and are
-never silently replaced with a different terrain.
+The `IslandGenerator` always uses the primary CPU method. Unity does not expose
+the experimental GPU generator, and its native plugin is built without the GPU
+feature so erosion, rivers, waterfalls, and settled rocks all follow the CPU
+generation path.
 
 ## Open and run
 
@@ -24,8 +20,7 @@ never silently replaced with a different terrain.
 2. Open `Assets/Scenes/IslandSandbox.unity`.
 3. Select the **Island** GameObject to inspect the labelled generation,
    rendering, streaming, decoration, and debug settings.
-4. Press Play. **Generate On Start** creates the configured island with the
-   selected generation method; the sandbox defaults to **GPU**.
+4. Press Play. **Generate On Start** creates the configured island on the CPU.
 
 The project can also be opened normally from Hub after stale licensing clients
 have exited. Use the launcher if Hub reports that it cannot connect to the
@@ -179,32 +174,32 @@ at a tile or LOD boundary. LOD 0 disables the sampled normal per renderer and
 uses its own geometric normals; LOD 1 and LOD 2 use the world-space normal map
 derived from the final LOD 0 terrain.
 
-Rock and riverbed asset textures use a single top-down XZ projection. Their
-procedural fallback colours are derived from the average colours of their
-assigned colour maps when the island's runtime materials are built. Streamed
-stones use the same derived rock colour so they continue to match the cliffs.
-Their colour, authored normal, and occlusion contributions are fully visible on
-horizontal ground and fade together into the simpler procedural stone through
-a broad slope band. Macro-scale coherent 3D noise perturbs that blend most near
-steep faces, while an additional mid-scale layer forms irregular patches of
-authored and simple stone across flat rock to break up repeated top-down
-textures. The configured fade slope defaults to 45 degrees, and the broadened
-transition reaches farther onto steep terrain. The packed height map
-shapes the middle of each projection transition without changing either
-endpoint, so raised details retain the authored surface longer while recesses
-return to the procedural surface sooner. It also shapes the riverbed boundary,
-letting raised pebbles carry into the bank while low gaps reveal the underlying
-ground sooner. Steeper faces therefore retain the original solid
-rock colour and procedural noise normal instead of receiving a stretched or
-alternate-axis projection. Packed linear mask maps store height
-in red and occlusion in green. Open
-**Island > Terrain > Pack Height +
-Occlusion Mask**, drag the two grayscale source textures into the window, and
-save the PNG inside `Assets`. The utility temporarily reads the sources as
-uncompressed linear data, restores their import settings, and configures the
-packed output as a linear repeating texture. It can also assign the result
-directly to either mask property on `IslandTerrain.mat`. A missing height input
-uses neutral 50-percent gray; a missing occlusion input uses white.
+Rock, riverbed, forest-floor, and fallen-stones textures are baked in memory by
+the Rust library for each island and use a single top-down XZ projection. Unity
+selects deterministic linear dirt and stone colours first, passes those values
+to the background bake, and uses the same values for shader fallbacks. Settled
+rocks mark their supporting terrain through UV1.y; that
+switch selects the dedicated `FallenStones` recipe, whose coherent gravel
+clusters sit on packed dirt and exclude close grass using the same noisy,
+height-shaped boundary.
+
+Authored colour, normal, height, and occlusion are fully visible on horizontal
+ground. Rock fades into simpler procedural stone through a broad slope band;
+macro-scale coherent 3D noise perturbs that blend, while an additional
+mid-scale layer breaks up repeated top-down rock textures. The configured fade
+slope defaults to 45 degrees. Packed height shapes the middle of material
+transitions without changing either endpoint, so raised details retain the
+authored surface longer while recesses reveal the underlying ground sooner.
+Steeper faces therefore avoid stretched top-down textures. Each authored linear
+mask stores height in red and occlusion in green. At startup Unity combines the
+rock and river masks as `RG/BA`, then does the same for forest floor and fallen
+stones. The runtime terrain shader consequently uses two mask samplers instead
+of four while each material retains its own UV scale and parallax sampling.
+The generated render textures are linear where appropriate, repeating,
+mipmapped, and released whenever runtime materials are rebuilt or destroyed.
+Texture upload and dual-mask packing happen on Unity's main thread only; recipe
+evaluation happens in the existing generation worker. Runtime islands do not
+depend on Unity editor bake windows or files under `Assets/Generated/Textures`.
 
 Grass fur keeps hard rock, beach, and snow exclusions so blades never protrude
 through those surfaces; its river edge retains stable whole-blade stippling.
@@ -213,20 +208,21 @@ field blends green ground continuously into bare dirt and the neighbouring
 surface materials.
 
 Terrain mesh colours carry material data rather than a visible tint. Red is
-normalized bedrock hardness, green is loose/deposited cover, and blue is a
-cached distance-from-sea strength. Blue is one on connected-sea vertices and
+normalized bedrock hardness, green is loose/deposited cover, blue marks river
+bed, and alpha is cached distance-from-sea strength. Alpha is one on connected-sea vertices and
 remains one through two metres of LOD 0 mesh edges, then fades linearly to zero
 at twenty metres; it is calculated
 before final river tracing and carving, then interpolated onto any vertices the
-river refinement adds. Sharp terrain and all river-bed vertices force red to
-one and green to zero while retaining the blue coastal value.
+river refinement adds. Sharp terrain forces red to one and green to zero while
+retaining the independent river-bed and coastal values.
 Rust samples the authoritative final LOD 0 field after each tile is clipped, so
 reordered and newly created boundary vertices receive matching values. The
 unified shader uses these channels to expose harder rock on slopes, colour
 loose coastal deposits within the twenty-metre sea-proximity field behind the
 same coherent noise boundary, retain full sand eligibility through two metres
-of elevation, and fade that eligibility to zero at four metres. River beds are
-treated as exposed rock consistently across all LODs. Grass ground uses coherent micro-normal
+of elevation, and fade that eligibility to zero at four metres. A separate
+two-channel UV field marks forest-floor and fallen-stone support triangles.
+Grass ground uses coherent micro-normal
 relief at six times the stone detail frequency; beach sand uses eight-times finer
 and less strongly perturbed relief. These change nearby lighting without changing
 mesh geometry.
@@ -274,8 +270,8 @@ finished.
 ## Rebuild the native plugin
 
 On macOS, after changing `island-rs`, run the deployment helper. It explicitly
-builds with the `gpu-generation` feature, atomically installs the library, and
-checks the installed bytes:
+builds without the experimental GPU feature, atomically installs the library,
+and checks the installed bytes:
 
 ```sh
 ../island-rs/deploy-unity.sh
@@ -293,12 +289,3 @@ rough-water emitter, and collider-cooking check, run:
   -batchmode -nographics -projectPath "$PWD" \
   -executeMethod IslandGeneratorValidation.BatchValidateNativeInterop -quit
 ```
-
-## Procedural Material Studio
-
-Open `Island > Terrain > Procedural Material Studio` to create and edit the
-engine-neutral Rust texture recipes without hand-editing JSON. The studio has
-schema-driven material and layer controls, cancellable cached previews, a lit
-plane/sphere view, validated atomic saves, and transactional bake/import and
-material assignment. See [PROCEDURAL_MATERIAL_STUDIO.md](PROCEDURAL_MATERIAL_STUDIO.md)
-for the workflow and validation command.

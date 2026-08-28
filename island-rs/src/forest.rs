@@ -113,6 +113,8 @@ pub(crate) const MINIMUM_NORMAL_Z: f32 = 0.927_183_87;
 #[derive(Clone, Copy)]
 pub(crate) struct ForestSurface<'a> {
     pub(crate) river_bed: &'a [bool],
+    /// Sorted final-LOD0 vertices supporting settled stones.
+    pub(crate) stones: &'a [u32],
     pub(crate) deposited_depths: &'a [f32],
     pub(crate) sea_proximity: &'a [f32],
 }
@@ -478,6 +480,7 @@ pub(crate) struct ForestGenerationStats {
     pub(crate) snowline: usize,
     pub(crate) slope: usize,
     pub(crate) river_bed: usize,
+    pub(crate) stones: usize,
     pub(crate) zero_soil: usize,
     pub(crate) beach: usize,
     pub(crate) below_or_equal_noise_threshold: usize,
@@ -493,6 +496,7 @@ impl ForestGenerationStats {
             + self.snowline
             + self.slope
             + self.river_bed
+            + self.stones
             + self.zero_soil
             + self.beach
             + self.below_or_equal_noise_threshold
@@ -567,6 +571,14 @@ fn validate_placement_inputs(terrain: &Mesh, surface: ForestSurface<'_>) -> Resu
             surface.river_bed.len()
         ));
     }
+    if surface
+        .stones
+        .iter()
+        .any(|&vertex| vertex as usize >= vertex_count)
+        || !surface.stones.windows(2).all(|pair| pair[0] < pair[1])
+    {
+        return Err("forest final LOD0 stones must be sorted, unique, and in range".into());
+    }
     if surface.deposited_depths.len() != vertex_count {
         return Err(format!(
             "forest final LOD0 vertices/deposited-depth length mismatch: {} != {}",
@@ -633,6 +645,10 @@ fn collect_candidates(
         // belongs in this decision.
         if surface.river_bed[index] {
             stats.river_bed += 1;
+            continue;
+        }
+        if surface.stones.binary_search(&(index as u32)).is_ok() {
+            stats.stones += 1;
             continue;
         }
         if depth <= LOOSE_DEPTH_EPSILON {
@@ -1494,6 +1510,7 @@ mod tests {
     ) -> ForestSurface<'a> {
         ForestSurface {
             river_bed,
+            stones: &[],
             deposited_depths,
             sea_proximity,
         }
@@ -1849,10 +1866,9 @@ mod tests {
     }
 
     #[test]
-    fn settled_rock_soil_clearing_is_visible_to_forest_selection() {
+    fn zero_soil_is_visible_to_forest_selection() {
         let mut material = crate::terrain::SurfaceMaterial::empty(1);
-        material.depths_mut()[0] = 1.0;
-        crate::terrain::clear_loose_soil(&mut material, &[0]);
+        material.depths_mut()[0] = 0.0;
         let terrain = flat_mesh(&[Vec3::new(0.37, 0.41, 0.02)]);
         let (_, stats) = select_placements(
             2018,
@@ -1862,6 +1878,26 @@ mod tests {
         )
         .unwrap();
         assert_eq!(stats.zero_soil, 1);
+        assert_eq!(stats.accepted_trees, 0);
+    }
+
+    #[test]
+    fn settled_stone_vertices_are_excluded_without_mutating_soil() {
+        let terrain = flat_mesh(&[Vec3::new(0.37, 0.41, 0.02)]);
+        let (_, stats) = select_placements(
+            2018,
+            &terrain,
+            ForestSurface {
+                river_bed: &[false],
+                stones: &[0],
+                deposited_depths: &[1.0],
+                sea_proximity: &[0.0],
+            },
+            eligible_test_options(),
+        )
+        .unwrap();
+
+        assert_eq!(stats.stones, 1);
         assert_eq!(stats.accepted_trees, 0);
     }
 

@@ -22,7 +22,7 @@ use rfd::AsyncFileDialog;
 
 use crate::{
     app::DocumentResource,
-    bake::BakeState,
+    bake::{BakeCompletion, BakeState},
     document::{DocumentError, StudioDocument},
     preview::{PreviewAssets, PreviewResolution, PreviewState},
     preview_scene::{LitPreviewControls, LitPreviewTarget},
@@ -86,6 +86,7 @@ pub enum UiAction {
     Validate,
     Preview,
     Bake,
+    ChooseBakeOutput,
     SetAutoPreview(bool),
     SetPreviewResolution(PreviewResolution),
     SelectLayer(Option<String>),
@@ -165,6 +166,7 @@ enum SaveContinuation {
 enum FileDialogIntent {
     Open,
     SaveAs(SaveContinuation),
+    BakeOutput,
 }
 
 struct FileDialogCompletion {
@@ -208,12 +210,16 @@ fn draw_studio(
             .layer_id(egui::LayerId::background())
             .max_rect(context.viewport_rect()),
     );
-    if let Some(success) = bake.take_success() {
-        document
-            .0
-            .record_successful_bake(success.recipe_hash.clone());
-        state.status = format!("Bake complete: {}", success.manifest_path.display());
-        bake.last_success = Some(success);
+    if let Some(completion) = bake.take_completion() {
+        match completion {
+            BakeCompletion::Succeeded(success) => {
+                document.0.record_successful_bake(success.recipe_hash);
+                state.status = format!("Bake complete: {}", success.manifest_path.display());
+            }
+            BakeCompletion::Failed(error) => {
+                state.status = format!("Bake failed: {error}");
+            }
+        }
     }
     if let Some(completion) = poll_file_dialog(&mut state) {
         handle_file_dialog_completion(
@@ -222,6 +228,7 @@ fn draw_studio(
             &mut state,
             &mut diagnostics,
             &mut preview_state,
+            &mut bake,
             &mut exit,
         );
     }
@@ -405,10 +412,14 @@ fn handle_action(
             };
         }
         UiAction::Preview => queue_preview(document, preview, true),
-        UiAction::Bake => match bake.request(document.recipe_snapshot()) {
-            Ok(()) => state.status = "Final bake queued".into(),
-            Err(error) => state.status = error,
-        },
+        UiAction::Bake => {
+            if bake.output_directory.trim().is_empty() {
+                start_bake_output_dialog(document, state, bake);
+            } else {
+                request_bake(document, state, bake);
+            }
+        }
+        UiAction::ChooseBakeOutput => start_bake_output_dialog(document, state, bake),
         UiAction::SetAutoPreview(enabled) => preview.auto_preview = enabled,
         UiAction::SetPreviewResolution(resolution) => {
             preview.resolution = resolution;
@@ -608,6 +619,36 @@ fn start_save_dialog(
     state.status = "Choose where to save the recipe…".into();
 }
 
+fn start_bake_output_dialog(document: &StudioDocument, state: &mut UiState, bake: &BakeState) {
+    if state.file_dialog.is_some() {
+        return;
+    }
+    let mut dialog = AsyncFileDialog::new().set_title("Choose texture-set output directory");
+    if !bake.output_directory.trim().is_empty() {
+        dialog = dialog.set_directory(Path::new(bake.output_directory.trim()));
+    } else if let Some(directory) = document.source_path().and_then(Path::parent) {
+        dialog = dialog.set_directory(directory);
+    }
+    state.file_dialog = Some(PendingFileDialog(IoTaskPool::get().spawn(async move {
+        FileDialogCompletion {
+            intent: FileDialogIntent::BakeOutput,
+            path: dialog.pick_folder().await.map(PathBuf::from),
+        }
+    })));
+    state.status = "Choose the texture-set output directory…".into();
+}
+
+fn request_bake(document: &StudioDocument, state: &mut UiState, bake: &mut BakeState) {
+    match bake.request(document.recipe_snapshot()) {
+        Ok(()) => state.status = "Final bake queued".into(),
+        Err(error) => {
+            state.status.clone_from(&error);
+            bake.status = "Bake was not started".into();
+            bake.error = Some(error);
+        }
+    }
+}
+
 fn recipe_dialog(title: &str, source: Option<&Path>) -> AsyncFileDialog {
     let mut dialog = AsyncFileDialog::new()
         .set_title(title)
@@ -634,6 +675,7 @@ fn handle_file_dialog_completion(
     state: &mut UiState,
     diagnostics: &mut diagnostics::DiagnosticsState,
     preview: &mut PreviewState,
+    bake: &mut BakeState,
     exit: &mut MessageWriter<AppExit>,
 ) {
     let Some(path) = completion.path else {
@@ -670,6 +712,10 @@ fn handle_file_dialog_completion(
                 }
                 SaveContinuation::ResolveConflict => state.external_conflict = false,
             }
+        }
+        FileDialogIntent::BakeOutput => {
+            bake.output_directory = path.display().to_string();
+            request_bake(document, state, bake);
         }
     }
 }

@@ -1,15 +1,6 @@
 using System;
 using UnityEngine;
 
-public enum IslandGenerationMethod : byte
-{
-    [InspectorName("CPU")]
-    Cpu = 0,
-
-    [InspectorName("GPU")]
-    Gpu = 1,
-}
-
 [Serializable]
 public sealed class IslandGenerationSettings
 {
@@ -17,10 +8,6 @@ public sealed class IslandGenerationSettings
 
     [Tooltip("Generate this island automatically when the level enters Play Mode.")]
     [SerializeField] private bool generateOnStart = true;
-
-    [Tooltip(
-        "Terrain implementation used when generating. GPU accelerates erosion and settled rocks; rivers and waterfalls use the established CPU builder.")]
-    [SerializeField] private IslandGenerationMethod generationMethod = IslandGenerationMethod.Gpu;
 
     [Tooltip("Deterministic seed used by the native island generator.")]
     [SerializeField] private int seed = 666;
@@ -58,10 +45,6 @@ public sealed class IslandGenerationSettings
     [SerializeField] private float depositionMaximumSlopeDegrees = 12f;
 
     public bool GenerateOnStart => generateOnStart;
-    public IslandGenerationMethod GenerationMethod => generationMethod;
-    public string GenerationMethodLabel => generationMethod == IslandGenerationMethod.Gpu
-        ? "GPU"
-        : "CPU";
     public int Seed { get => seed; set => seed = value; }
     public float WorldSizeMetres => Mathf.Max(worldSizeMetres, 100f);
     public float MaximumHeightMetres => Mathf.Clamp(
@@ -229,6 +212,23 @@ public sealed class IslandStreamingSettings
 [Serializable]
 public sealed class IslandRenderingSettings
 {
+    [Tooltip("Base linear-RGB colour passed to dirt recipe parameters and terrain shader fallbacks.")]
+    [SerializeField] private Color dirtColour = new Color(0.09f, 0.055f, 0.026f, 1f);
+
+    [Tooltip("Base linear-RGB colour passed to stone recipe parameters and terrain shader fallbacks.")]
+    [SerializeField] private Color stoneColour = new Color(0.30f, 0.32f, 0.29f, 1f);
+
+    [Tooltip("Derive a deterministic dirt/stone variation from the island seed before requesting textures.")]
+    [SerializeField] private bool randomizeMaterialColours = true;
+
+    [Tooltip("Maximum engine-side linear colour variation applied per island.")]
+    [Range(0f, 0.35f)]
+    [SerializeField] private float materialColourVariation = 0.14f;
+
+    [Tooltip("Runtime resolution requested from the Rust procedural material library.")]
+    [Range(128, 2048)]
+    [SerializeField] private int materialTextureResolution = 1024;
+
     [Tooltip("Optional terrain material template. A per-island copy is created at runtime.")]
     [SerializeField] private Material terrainMaterial;
 
@@ -370,6 +370,50 @@ public sealed class IslandRenderingSettings
     public bool ShowSea { get => showSea; set => showSea = value; }
     public bool ShowGrass { get => showGrass; set => showGrass = value; }
     public bool ShowRocks { get => showRocks; set => showRocks = value; }
+    internal int MaterialTextureResolution => Mathf.Clamp(
+        Mathf.ClosestPowerOfTwo(materialTextureResolution),
+        128,
+        2048);
+
+    internal IslandMaterialColours SelectMaterialColours(int islandSeed)
+    {
+        var dirt = ClampLinearColour(dirtColour);
+        var stone = ClampLinearColour(stoneColour);
+        if (!randomizeMaterialColours || materialColourVariation <= 0f)
+        {
+            return new IslandMaterialColours(dirt, stone);
+        }
+
+        var random = new System.Random(unchecked(islandSeed * 1103515245 + 12345));
+        dirt = VaryLinearColour(dirt, random, materialColourVariation, 0.45f);
+        stone = VaryLinearColour(stone, random, materialColourVariation * 0.72f, 0.18f);
+        return new IslandMaterialColours(dirt, stone);
+    }
+
+    private static Color VaryLinearColour(
+        Color colour,
+        System.Random random,
+        float amount,
+        float warmth)
+    {
+        var brightness = 1f + ((float)random.NextDouble() * 2f - 1f) * amount;
+        var temperature = ((float)random.NextDouble() * 2f - 1f) * amount * warmth;
+        var greenShift = ((float)random.NextDouble() * 2f - 1f) * amount * 0.18f;
+        return ClampLinearColour(new Color(
+            colour.r * brightness * (1f + temperature),
+            colour.g * brightness * (1f + greenShift),
+            colour.b * brightness * (1f - temperature),
+            1f));
+    }
+
+    private static Color ClampLinearColour(Color colour)
+    {
+        return new Color(
+            Mathf.Clamp01(colour.r),
+            Mathf.Clamp01(colour.g),
+            Mathf.Clamp01(colour.b),
+            1f);
+    }
 
     internal void AssignMaterialTemplates(
         Material terrain,

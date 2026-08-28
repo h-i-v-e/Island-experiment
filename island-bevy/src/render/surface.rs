@@ -140,6 +140,10 @@ pub struct TerrainSettings {
     /// The diagnostic channel the fragment output is switched to, or zero.
     /// Written by `capture`; `debug.wgsl` spells the numbering.
     pub debug_view: u32,
+    /// Engine-selected linear colours also used as fallbacks while authoring
+    /// and as the recipe anchors supplied to the runtime baker.
+    pub dirt_colour: Vec4,
+    pub stone_colour: Vec4,
 }
 
 /// Terrain extension bindings. The macro blend arrives on the mesh instead:
@@ -149,13 +153,28 @@ pub struct TerrainSettings {
 pub struct TerrainExtension {
     #[uniform(100)]
     pub settings: TerrainSettings,
+    #[texture(101)]
+    #[sampler(102)]
+    pub material_albedo: Handle<Image>,
+    #[texture(103)]
+    #[sampler(104)]
+    pub material_normal: Handle<Image>,
+    #[texture(105)]
+    #[sampler(106)]
+    pub material_mask: Handle<Image>,
 }
 
 impl TerrainExtension {
     /// `max_height` is the generator's normalized maximum elevation, and
     /// `chunk_metres` how wide one square of the terrain grid is.
     #[must_use]
-    pub fn new(max_height: f32, world_metres: f32, chunk_metres: f32, lod_level: u32) -> Self {
+    pub fn new(
+        max_height: f32,
+        world_metres: f32,
+        chunk_metres: f32,
+        lod_level: u32,
+        atlases: &crate::material_textures::MaterialAtlases,
+    ) -> Self {
         Self {
             settings: TerrainSettings {
                 max_height: (max_height * world_metres).max(1.0),
@@ -165,7 +184,12 @@ impl TerrainExtension {
                 chunk_metres: chunk_metres.max(1.0),
                 lod_level,
                 debug_view: 0,
+                dirt_colour: atlases.dirt_colour.extend(1.0),
+                stone_colour: atlases.stone_colour.extend(1.0),
             },
+            material_albedo: atlases.albedo.clone(),
+            material_normal: atlases.normal.clone(),
+            material_mask: atlases.mask.clone(),
         }
     }
 }

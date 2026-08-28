@@ -92,6 +92,26 @@ pub const EDITABLE_METADATA: &[PropertyMetadata] = &[
         tooltip: "Deterministic root seed",
     },
     PropertyMetadata {
+        pointer: "/parameters",
+        label: "Parameters",
+        tooltip: "Typed values callers may override before baking",
+    },
+    PropertyMetadata {
+        pointer: "/parameters/*/kind",
+        label: "Parameter type",
+        tooltip: "Type accepted by this recipe parameter",
+    },
+    PropertyMetadata {
+        pointer: "/parameters/*/default",
+        label: "Parameter default",
+        tooltip: "Linear RGB value used when the caller supplies no override",
+    },
+    PropertyMetadata {
+        pointer: "/parameters/*/description",
+        label: "Parameter description",
+        tooltip: "Artist-facing purpose of this parameter",
+    },
+    PropertyMetadata {
         pointer: "/width",
         label: "Width",
         tooltip: "Output width in pixels",
@@ -791,6 +811,12 @@ pub fn schema_document() -> Value {
         "properties": {
             "name": {"type": "string"},
             "seed": {"type": "integer", "minimum": 0},
+            "parameters": {
+                "type": "object",
+                "maxProperties": 32,
+                "propertyNames": {"pattern": "^[a-z][a-z0-9_]{0,63}$"},
+                "additionalProperties": {"$ref": "#/$defs/parameter_definition"}
+            },
             "width": {"type": "integer", "minimum": 1},
             "height": {"type": "integer", "minimum": 1},
             "physical_tile_width_m": {"type": "number", "exclusiveMinimum": 0},
@@ -872,7 +898,32 @@ pub fn schema_document() -> Value {
                     {"type": "object", "additionalProperties": false, "required": ["kind", "amount"], "properties": {"kind": {"const": "lerp"}, "amount": {"type": "number", "minimum": 0, "maximum": 1}}}
                 ]
             },
-            "colour": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"type": "number", "minimum": 0, "maximum": 1}},
+            "linear_colour": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"type": "number", "minimum": 0, "maximum": 1}},
+            "parameter_definition": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["kind", "default"],
+                "properties": {
+                    "kind": {"const": "colour"},
+                    "default": {"$ref": "#/$defs/linear_colour"},
+                    "description": {"type": "string"}
+                }
+            },
+            "colour_reference": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["parameter"],
+                "properties": {
+                    "parameter": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$"},
+                    "base": {"$ref": "#/$defs/linear_colour"}
+                }
+            },
+            "colour": {
+                "oneOf": [
+                    {"$ref": "#/$defs/linear_colour"},
+                    {"$ref": "#/$defs/colour_reference"}
+                ]
+            },
             "gradient_stop": {
                 "type": "object",
                 "additionalProperties": false,
@@ -954,6 +1005,10 @@ fn metadata_value(item: &PropertyMetadata) -> Value {
         "/seed" | "/layers/*/source/seed_domain" | "/layers/*/mask/source/seed_domain" => {
             (json!(0), Some([0.0, u64::MAX as f64]), None)
         }
+        "/parameters" => (json!({}), None, None),
+        "/parameters/*/kind" => (json!("colour"), None, None),
+        "/parameters/*/default" => (json!([0.25, 0.27, 0.24]), Some([0.0, 1.0]), None),
+        "/parameters/*/description" => (json!(""), None, None),
         "/width" | "/height" => (json!(256), Some([1.0, u32::MAX as f64]), Some("pixels")),
         "/physical_tile_width_m" | "/physical_tile_height_m" => {
             (json!(1.0), Some([f64::EPSILON, f32::MAX as f64]), Some("m"))
@@ -1161,6 +1216,8 @@ fn metadata_value(item: &PropertyMetadata) -> Value {
 fn metadata_type(pointer: &str) -> &'static str {
     match pointer {
         "/name"
+        | "/parameters/*/kind"
+        | "/parameters/*/description"
         | "/layers/*/id"
         | "/layers/*/name"
         | "/layers/*/source/kind"
@@ -1208,6 +1265,7 @@ fn metadata_type(pointer: &str) -> &'static str {
         | "/occlusion"
         | "/occlusion/combine"
         | "/albedo" => "object",
+        "/parameters" => "object",
         "/layers/*/remap/curve" | "/layers/*/mask/remap/curve" => "array",
         "/layers/*/outputs/albedo/colour_map/first"
         | "/layers/*/outputs/albedo/colour_map/second" => "array",
@@ -1215,7 +1273,8 @@ fn metadata_type(pointer: &str) -> &'static str {
         | "/layers/*/outputs/albedo/colour_map/stops/*/colour"
         | "/albedo/base_color"
         | "/albedo/warm_color"
-        | "/albedo/palette" => "array",
+        | "/albedo/palette"
+        | "/parameters/*/default" => "array",
         "/displacement/displacement_map" => "boolean",
         "/occlusion/directions" | "/occlusion/samples" => "integer",
         _ => "number",
@@ -1224,6 +1283,7 @@ fn metadata_type(pointer: &str) -> &'static str {
 
 fn metadata_enum(pointer: &str) -> Option<Value> {
     match pointer {
+        "/parameters/*/kind" => Some(json!(["colour"])),
         "/material/kind" => Some(json!(["layered_noise", "cracked_stone", "rounded_stones"])),
         "/output_profiles" => Some(json!(["separate", "motu_unity_terrain"])),
         "/layers/*/source/kind" | "/layers/*/mask/source/kind" => Some(json!([
@@ -1353,6 +1413,15 @@ fn issue_pointer_code(issue: &RecipeValidationError) -> (String, &'static str) {
             ("/output_profiles".into(), "output_profiles.too_many")
         }
         RecipeValidationError::TooManyLayers { .. } => ("/layers".into(), "layers.too_many"),
+        RecipeValidationError::TooManyParameters { .. } => {
+            ("/parameters".into(), "parameters.too_many")
+        }
+        RecipeValidationError::InvalidParameterName { name } => {
+            (format!("/parameters/{name}"), "parameters.name")
+        }
+        RecipeValidationError::MissingParameterReference { path, .. } => {
+            (json_pointer(path), "parameters.reference")
+        }
         RecipeValidationError::DuplicateLayerId { .. } => ("/layers".into(), "layers.duplicate_id"),
         RecipeValidationError::InvalidLayerId { path, .. }
         | RecipeValidationError::MissingLayerReference { path, .. }

@@ -2,10 +2,13 @@
 
 #![allow(clippy::too_many_lines)]
 
+use std::collections::BTreeMap;
+
 use bevy_egui::egui;
 use motu::procedural_textures::{
-    AlbedoBlend, ColourMap, DomainWarpSettings, GradientStop, HeightBlend, LayerMask,
-    MaterialLayer, MaterialModel, RemapPoint, ScalarRemap, ScalarSource, SourceKind, TextureRecipe,
+    AlbedoBlend, ColourMap, ColourParameterReference, ColourValue, DomainWarpSettings,
+    GradientStop, HeightBlend, LayerMask, LinearRgb, MaterialLayer, MaterialModel,
+    ParameterDefinition, RemapPoint, ScalarRemap, ScalarSource, SourceKind, TextureRecipe,
     recipe::{OcclusionCombine, OutputProfile as RecipeOutputProfile},
 };
 
@@ -25,9 +28,10 @@ pub fn draw(
         );
         return false;
     };
+    let parameters = &recipe.parameters;
     let (earlier_layers, selected_and_after) = recipe.layers.split_at_mut(index);
     let layer = &mut selected_and_after[0];
-    draw_layer(ui, layer, earlier_layers)
+    draw_layer(ui, layer, earlier_layers, parameters)
 }
 
 fn draw_base(ui: &mut egui::Ui, recipe: &mut TextureRecipe) -> bool {
@@ -54,6 +58,11 @@ fn draw_base(ui: &mut egui::Ui, recipe: &mut TextureRecipe) -> bool {
         .default_open(true)
         .show(ui, |ui| {
             changed |= material_editor(ui, &mut recipe.material);
+        });
+    egui::CollapsingHeader::new("Recipe parameters")
+        .default_open(true)
+        .show(ui, |ui| {
+            changed |= parameter_editor(ui, &mut recipe.parameters);
         });
     egui::CollapsingHeader::new("Displacement and normals")
         .default_open(true)
@@ -117,9 +126,19 @@ fn draw_base(ui: &mut egui::Ui, recipe: &mut TextureRecipe) -> bool {
     egui::CollapsingHeader::new("Albedo")
         .default_open(false)
         .show(ui, |ui| {
-            changed |= colour_row(ui, "Base colour", &mut recipe.albedo.base_color);
-            changed |= colour_row(ui, "Warm colour", &mut recipe.albedo.warm_color);
-            changed |= palette_editor(ui, &mut recipe.albedo.palette);
+            changed |= colour_value_row(
+                ui,
+                "Base colour",
+                &mut recipe.albedo.base_color,
+                &recipe.parameters,
+            );
+            changed |= colour_value_row(
+                ui,
+                "Warm colour",
+                &mut recipe.albedo.warm_color,
+                &recipe.parameters,
+            );
+            changed |= palette_editor(ui, &mut recipe.albedo.palette, &recipe.parameters);
             changed |= f32_row(ui, "Variation", &mut recipe.albedo.variation, 0.01);
             changed |= f32_row(
                 ui,
@@ -270,6 +289,7 @@ fn draw_layer(
     ui: &mut egui::Ui,
     layer: &mut MaterialLayer,
     earlier_layers: &[MaterialLayer],
+    parameters: &BTreeMap<String, ParameterDefinition>,
 ) -> bool {
     let mut changed = false;
     ui.heading("Layer inspector");
@@ -309,7 +329,7 @@ fn draw_layer(
                 .changed();
             changed |= albedo_blend_editor(ui, &mut layer.outputs.albedo.blend);
             changed |= f32_row(ui, "Strength", &mut layer.outputs.albedo.strength, 0.01);
-            changed |= colour_map_editor(ui, &mut layer.outputs.albedo.colour_map);
+            changed |= colour_map_editor(ui, &mut layer.outputs.albedo.colour_map, parameters);
             changed |= f32_row(
                 ui,
                 "Hue influence",
@@ -576,7 +596,11 @@ fn albedo_blend_editor(ui: &mut egui::Ui, blend: &mut AlbedoBlend) -> bool {
     )
 }
 
-fn colour_map_editor(ui: &mut egui::Ui, map: &mut ColourMap) -> bool {
+fn colour_map_editor(
+    ui: &mut egui::Ui,
+    map: &mut ColourMap,
+    parameters: &BTreeMap<String, ParameterDefinition>,
+) -> bool {
     let current = usize::from(matches!(map, ColourMap::Gradient { .. }));
     let mut selected = current;
     egui::ComboBox::from_label("Colour map")
@@ -594,11 +618,11 @@ fn colour_map_editor(ui: &mut egui::Ui, map: &mut ColourMap) -> bool {
                 stops: vec![
                     GradientStop {
                         position: 0.0,
-                        colour: [0.2; 3],
+                        colour: [0.2; 3].into(),
                     },
                     GradientStop {
                         position: 1.0,
-                        colour: [0.8; 3],
+                        colour: [0.8; 3].into(),
                     },
                 ],
             }
@@ -606,19 +630,19 @@ fn colour_map_editor(ui: &mut egui::Ui, map: &mut ColourMap) -> bool {
     }
     match map {
         ColourMap::Ramp { first, second } => {
-            changed |= colour_row(ui, "First", first);
-            changed |= colour_row(ui, "Second", second);
+            changed |= colour_value_row(ui, "First", first, parameters);
+            changed |= colour_value_row(ui, "Second", second, parameters);
         }
         ColourMap::Gradient { stops } => {
             let mut remove = None;
             for (index, stop) in stops.iter_mut().enumerate() {
                 ui.horizontal(|ui| {
                     changed |= f32_row(ui, "At", &mut stop.position, 0.01);
-                    changed |= ui.color_edit_button_rgb(&mut stop.colour).changed();
                     if ui.small_button("×").clicked() {
                         remove = Some(index);
                     }
                 });
+                changed |= colour_value_row(ui, "Colour", &mut stop.colour, parameters);
             }
             if let Some(index) = remove {
                 stops.remove(index);
@@ -627,7 +651,7 @@ fn colour_map_editor(ui: &mut egui::Ui, map: &mut ColourMap) -> bool {
             if stops.len() < 32 && ui.button("+ Gradient stop").clicked() {
                 stops.push(GradientStop {
                     position: 0.5,
-                    colour: [0.5; 3],
+                    colour: [0.5; 3].into(),
                 });
                 changed = true;
             }
@@ -636,23 +660,28 @@ fn colour_map_editor(ui: &mut egui::Ui, map: &mut ColourMap) -> bool {
     changed
 }
 
-fn palette_editor(ui: &mut egui::Ui, colours: &mut Vec<[f32; 3]>) -> bool {
+fn palette_editor(
+    ui: &mut egui::Ui,
+    colours: &mut Vec<ColourValue>,
+    parameters: &BTreeMap<String, ParameterDefinition>,
+) -> bool {
     let mut changed = false;
     let mut remove = None;
     for (index, colour) in colours.iter_mut().enumerate() {
         ui.horizontal(|ui| {
-            changed |= ui.color_edit_button_rgb(colour).changed();
+            ui.label(format!("Colour {}", index + 1));
             if ui.small_button("×").clicked() {
                 remove = Some(index);
             }
         });
+        changed |= colour_value_row(ui, "Value", colour, parameters);
     }
     if let Some(index) = remove {
         colours.remove(index);
         changed = true;
     }
     if ui.button("+ Palette colour").clicked() {
-        colours.push([0.5; 3]);
+        colours.push([0.5; 3].into());
         changed = true;
     }
     changed
@@ -705,12 +734,141 @@ fn text_row(ui: &mut egui::Ui, label: &str, value: &mut String) -> bool {
     .inner
 }
 
-fn colour_row(ui: &mut egui::Ui, label: &str, value: &mut [f32; 3]) -> bool {
+fn colour_value_row(
+    ui: &mut egui::Ui,
+    label: &str,
+    value: &mut ColourValue,
+    parameters: &BTreeMap<String, ParameterDefinition>,
+) -> bool {
+    let was_parameter = matches!(value, ColourValue::Parameter(_));
+    let mut use_parameter = was_parameter;
+    let mut changed = false;
     ui.horizontal(|ui| {
         ui.label(label);
-        ui.color_edit_button_rgb(value).changed()
-    })
-    .inner
+        egui::ComboBox::from_id_salt((label, std::ptr::from_ref(value)))
+            .selected_text(if use_parameter {
+                "Parameter"
+            } else {
+                "Literal"
+            })
+            .show_ui(ui, |ui| {
+                changed |= ui
+                    .selectable_value(&mut use_parameter, false, "Literal")
+                    .changed();
+                changed |= ui
+                    .selectable_value(&mut use_parameter, true, "Parameter")
+                    .changed();
+            });
+    });
+    if use_parameter != was_parameter {
+        *value = if use_parameter {
+            let base = value.as_resolved().unwrap_or(LinearRgb::new(0.5, 0.5, 0.5));
+            ColourValue::Parameter(ColourParameterReference {
+                parameter: parameters.keys().next().cloned().unwrap_or_default(),
+                base: Some(base),
+            })
+        } else {
+            let literal = match value {
+                ColourValue::Literal(colour) => *colour,
+                ColourValue::Parameter(reference) => reference
+                    .base
+                    .or_else(|| {
+                        parameters
+                            .get(&reference.parameter)
+                            .map(ParameterDefinition::default_colour)
+                    })
+                    .unwrap_or(LinearRgb::new(0.5, 0.5, 0.5)),
+            };
+            ColourValue::Literal(literal)
+        };
+        changed = true;
+    }
+
+    match value {
+        ColourValue::Literal(colour) => {
+            changed |= ui.color_edit_button_rgb(&mut colour.0).changed();
+        }
+        ColourValue::Parameter(reference) => {
+            egui::ComboBox::from_label("Parameter")
+                .selected_text(if reference.parameter.is_empty() {
+                    "Select…"
+                } else {
+                    &reference.parameter
+                })
+                .show_ui(ui, |ui| {
+                    for name in parameters.keys() {
+                        changed |= ui
+                            .selectable_value(&mut reference.parameter, name.clone(), name)
+                            .changed();
+                    }
+                });
+            let mut preserve_base = reference.base.is_some();
+            if ui
+                .checkbox(&mut preserve_base, "Preserve authored variation")
+                .changed()
+            {
+                reference.base = preserve_base.then(|| {
+                    parameters.get(&reference.parameter).map_or(
+                        LinearRgb::new(0.5, 0.5, 0.5),
+                        ParameterDefinition::default_colour,
+                    )
+                });
+                changed = true;
+            }
+            if let Some(base) = &mut reference.base {
+                ui.horizontal(|ui| {
+                    ui.label("Authored base");
+                    changed |= ui.color_edit_button_rgb(&mut base.0).changed();
+                });
+            }
+        }
+    }
+    changed
+}
+
+fn parameter_editor(
+    ui: &mut egui::Ui,
+    parameters: &mut BTreeMap<String, ParameterDefinition>,
+) -> bool {
+    let mut changed = false;
+    let mut remove = None;
+    for (name, definition) in parameters.iter_mut() {
+        ui.separator();
+        ui.horizontal(|ui| {
+            ui.strong(name);
+            if ui.small_button("Remove").clicked() {
+                remove = Some(name.clone());
+            }
+        });
+        match definition {
+            ParameterDefinition::Colour {
+                default,
+                description,
+            } => {
+                changed |= ui.color_edit_button_rgb(&mut default.0).changed();
+                changed |= text_row(ui, "Description", description);
+            }
+        }
+    }
+    if let Some(name) = remove {
+        parameters.remove(&name);
+        changed = true;
+    }
+    if parameters.len() < 32 && ui.button("+ Colour parameter").clicked() {
+        let name = (1..=parameters.len() + 1)
+            .map(|index| format!("colour_{index}"))
+            .find(|name| !parameters.contains_key(name))
+            .expect("finite parameter map always has a free generated name");
+        parameters.insert(
+            name,
+            ParameterDefinition::Colour {
+                default: LinearRgb::new(0.5, 0.5, 0.5),
+                description: String::new(),
+            },
+        );
+        changed = true;
+    }
+    changed
 }
 
 fn f32_row(ui: &mut egui::Ui, label: &str, value: &mut f32, speed: f64) -> bool {

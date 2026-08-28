@@ -449,14 +449,13 @@ mod tests {
         );
         let mut state = PreviewState::default();
         state.request(recipe.clone(), 1, None, false);
-        state.cache_insert(
-            PreviewKey {
-                recipe_hash: maps.recipe_hash.clone(),
-                dimensions: [state.resolution.pixels(), state.resolution.pixels()],
-                selected_layer_id: None,
-            },
-            Arc::clone(&maps),
-        );
+        let cached_key = state
+            .pending
+            .as_ref()
+            .expect("first preview is pending")
+            .key
+            .clone();
+        state.cache_insert(cached_key, Arc::clone(&maps));
         state.request(recipe, 2, None, false);
         assert!(state.pending.is_none());
         assert_eq!(state.ready.as_ref().map(|ready| ready.0), Some(2));

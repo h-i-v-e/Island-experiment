@@ -1,6 +1,6 @@
 use super::{
-    GenerationMethod, ISLAND_WORLD_METRES, Mesh, River, Rng, StageTimer, SurfaceMaterial, Terrain,
-    TerrainMaterialField, Vec2, Vec3, bin_coordinate, noise, sample_mesh_triangle,
+    GenerationMethod, ISLAND_WORLD_METRES, Mesh, River, Rng, StageTimer, Terrain, Vec2, Vec3,
+    bin_coordinate, noise, sample_mesh_triangle,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -14,7 +14,7 @@ pub enum Decoration {
 pub struct Decorations {
     pub(super) trees: Vec<Vec3>,
     pub(super) bushes: Vec<Vec3>,
-    pub(super) cleared_soil_vertices: Vec<u32>,
+    pub(super) stone_vertices: Vec<u32>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -43,7 +43,6 @@ pub(super) const ROCK_SLEEP_SPEED: f32 = 0.06 / ISLAND_WORLD_METRES;
 pub(super) const ROCK_WAKE_SPEED: f32 = 0.20 / ISLAND_WORLD_METRES;
 pub(super) const ROCK_SLEEP_STEPS: u8 = 24;
 pub(super) const ROCK_COLLISION_GRID_DIMENSION: usize = 256;
-pub(super) const ROCK_POOR_SOIL_MAXIMUM_COVER: f32 = 0.18;
 pub(super) const ROCK_MINIMUM_SETTLED_NORMAL_Z: f32 = 0.906_307_8;
 pub(super) const ROCK_DROP_SOURCE_MAXIMUM_NORMAL_Z: f32 = std::f32::consts::FRAC_1_SQRT_2;
 pub(super) const ROCK_APPEARANCE_DOMAIN: u64 = 0xd1b5_4a32_d192_ed03;
@@ -135,8 +134,8 @@ impl Decorations {
         &self.bushes
     }
 
-    pub(super) fn cleared_soil_vertices(&self) -> &[u32] {
-        &self.cleared_soil_vertices
+    pub(super) fn stone_vertices(&self) -> &[u32] {
+        &self.stone_vertices
     }
 
     pub(super) fn set_tree_anchors(&mut self, anchors: impl IntoIterator<Item = Vec3>) {
@@ -146,7 +145,6 @@ impl Decorations {
     pub(super) fn generate(
         seed: u64,
         terrain: &Terrain,
-        material: &TerrainMaterialField,
         rivers: &[River],
         target: usize,
         method: GenerationMethod,
@@ -185,14 +183,9 @@ impl Decorations {
                 out.bushes.push(point);
             }
         }
-        let (settled_rocks, cleared_soil_vertices) = generate_settled_rocks(
-            seed,
-            terrain,
-            material,
-            target * ROCK_BODY_COUNT_MULTIPLIER,
-            method,
-        )?;
-        out.cleared_soil_vertices = cleared_soil_vertices;
+        let (settled_rocks, stone_vertices) =
+            generate_settled_rocks(seed, terrain, target * ROCK_BODY_COUNT_MULTIPLIER, method)?;
+        out.stone_vertices = stone_vertices;
         Ok((out, settled_rocks))
     }
 }
@@ -259,7 +252,6 @@ impl RockCollisionGrid {
 pub(super) fn generate_settled_rocks(
     seed: u64,
     terrain: &Terrain,
-    material: &TerrainMaterialField,
     body_target: usize,
     method: GenerationMethod,
 ) -> Result<(Vec<SettledRock>, Vec<u32>), String> {
@@ -268,7 +260,7 @@ pub(super) fn generate_settled_rocks(
     settle_rock_bodies(terrain, &mut bodies, method)?;
 
     let mut rocks = Vec::with_capacity(bodies.len());
-    let mut cleared_soil_vertices = Vec::new();
+    let mut stone_vertices = Vec::new();
     for body in bodies {
         if !body.supported || !body.centre.is_finite() {
             continue;
@@ -281,19 +273,14 @@ pub(super) fn generate_settled_rocks(
         if normal.z < ROCK_MINIMUM_SETTLED_NORMAL_Z {
             continue;
         }
-        let Some((triangle, weights)) =
+        let Some((triangle, _)) =
             sample_mesh_triangle(&terrain.mesh, &terrain.triangle_index, point)
         else {
             continue;
         };
-        let surface_material = material.values[triangle[0]] * weights[0]
-            + material.values[triangle[1]] * weights[1]
-            + material.values[triangle[2]] * weights[2];
         let terrain_centre_height = terrain_height + body.radius / normal.z.max(0.2);
         let piled = body.centre.z > terrain_centre_height + body.radius * 0.35;
-        if !is_rock_habitat(surface_material.truncate()) {
-            cleared_soil_vertices.extend(triangle.map(|vertex| vertex as u32));
-        }
+        stone_vertices.extend(triangle.map(|vertex| vertex as u32));
         let anchor_height = if piled {
             (body.centre.z - body.radius).max(terrain_height)
         } else {
@@ -311,16 +298,16 @@ pub(super) fn generate_settled_rocks(
             appearance_id: body.appearance_id,
         });
     }
-    cleared_soil_vertices.sort_unstable();
-    cleared_soil_vertices.dedup();
+    stone_vertices.sort_unstable();
+    stone_vertices.dedup();
     if method == GenerationMethod::Gpu && std::env::var_os("MOTU_GPU_ROCK_STATS").is_some() {
         eprintln!(
-            "gpu-rock-output rocks={} cleared_soil_vertices={}",
+            "gpu-rock-output rocks={} stone_vertices={}",
             rocks.len(),
-            cleared_soil_vertices.len(),
+            stone_vertices.len(),
         );
     }
-    Ok((rocks, cleared_soil_vertices))
+    Ok((rocks, stone_vertices))
 }
 
 #[cfg_attr(
@@ -476,20 +463,8 @@ fn rock_appearance(seed: u64, appearance_id: u32) -> (bool, f32) {
     (is_boulder, diameter_metres * 0.5 / ISLAND_WORLD_METRES)
 }
 
-pub(super) fn is_rock_habitat(material: Vec3) -> bool {
-    material.x >= 1.0 || material.y <= ROCK_POOR_SOIL_MAXIMUM_COVER
-}
-
 pub(super) fn is_rock_drop_source(normal: Vec3) -> bool {
     normal.is_finite() && normal.z.abs() <= ROCK_DROP_SOURCE_MAXIMUM_NORMAL_Z
-}
-
-pub(crate) fn clear_loose_soil(material: &mut SurfaceMaterial, vertices: &[u32]) {
-    for &vertex in vertices {
-        if let Some(depth) = material.depths_mut().get_mut(vertex as usize) {
-            *depth = 0.0;
-        }
-    }
 }
 
 pub(super) fn inside_decoration_bounds(point: Vec2) -> bool {
@@ -646,17 +621,6 @@ mod decoration_tests {
     use super::*;
 
     #[test]
-    pub(super) fn existing_rock_habitat_does_not_require_soil_clearing() {
-        let poor_soil = Vec3::new(0.2, ROCK_POOR_SOIL_MAXIMUM_COVER, 0.0);
-        let grass = Vec3::new(0.9, 0.8, 0.0);
-        let forced_rock = Vec3::X;
-
-        assert!(is_rock_habitat(poor_soil));
-        assert!(is_rock_habitat(forced_rock));
-        assert!(!is_rock_habitat(grass));
-    }
-
-    #[test]
     pub(super) fn drop_sources_are_steep_faces() {
         assert!(is_rock_drop_source(Vec3::new(0.8, 0.0, 0.6)));
         assert!(is_rock_drop_source(Vec3::X));
@@ -778,17 +742,7 @@ mod decoration_tests {
     }
 
     #[test]
-    pub(super) fn clearing_a_support_triangle_removes_all_three_soil_depths() {
-        let mut material = SurfaceMaterial::empty(4);
-        material.depths_mut().fill(0.25);
-
-        clear_loose_soil(&mut material, &[0, 2, 3]);
-
-        assert_eq!(material.depths(), &[0.0, 0.25, 0.0, 0.0]);
-    }
-
-    #[test]
-    pub(super) fn generated_grass_settlements_clear_the_exported_vertex_cover() {
+    pub(super) fn generated_settlements_export_stones_without_clearing_vertex_cover() {
         let island = Island::generate(
             2018,
             IslandOptions {
@@ -797,13 +751,18 @@ mod decoration_tests {
             },
         )
         .unwrap();
-        let cleared = island.decorations().cleared_soil_vertices();
+        let stones = island.decorations().stone_vertices();
 
-        assert!(!cleared.is_empty());
+        assert!(!stones.is_empty());
         assert!(
-            cleared
+            stones
                 .iter()
-                .all(|&vertex| island.material.values[vertex as usize].y == 0.0)
+                .all(|&vertex| island.environment.values[vertex as usize].y > 0.99)
+        );
+        assert!(
+            stones
+                .iter()
+                .any(|&vertex| island.material.values[vertex as usize].y > 0.0)
         );
     }
 

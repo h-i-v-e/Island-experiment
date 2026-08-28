@@ -218,18 +218,23 @@ impl TerrainMaterialField {
 }
 
 /// Additional terrain vertex signals exported independently from the four
-/// established material channels: x = forest floor, y = reserved.
+/// established material channels: x = forest floor, y = settled stones.
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct TerrainEnvironmentField {
     pub(super) values: Vec<Vec2>,
 }
 
 impl TerrainEnvironmentField {
-    pub(super) fn from_forest_floor(forest_floor: &[bool]) -> Self {
-        let values = forest_floor
+    pub(super) fn from_masks(forest_floor: &[bool], stone_vertices: &[u32]) -> Self {
+        let mut values = forest_floor
             .iter()
             .map(|&forest_floor| Vec2::new(f32::from(forest_floor), 0.0))
-            .collect();
+            .collect::<Vec<_>>();
+        for &vertex in stone_vertices {
+            if let Some(value) = values.get_mut(vertex as usize) {
+                value.y = 1.0;
+            }
+        }
         Self { values }
     }
 
@@ -346,11 +351,11 @@ mod tests {
     }
 
     #[test]
-    fn environment_records_only_forest_floor() {
-        let field = TerrainEnvironmentField::from_forest_floor(&[false, true, false]);
+    fn environment_records_forest_floor_and_stones_independently() {
+        let field = TerrainEnvironmentField::from_masks(&[false, true, false], &[0, 1]);
 
-        assert_eq!(field.values[0], Vec2::ZERO);
-        assert_eq!(field.values[1], Vec2::X);
+        assert_eq!(field.values[0], Vec2::Y);
+        assert_eq!(field.values[1], Vec2::ONE);
         assert_eq!(field.values[2], Vec2::ZERO);
     }
 }

@@ -1,6 +1,18 @@
 {
   "name": "RoundedRiverStones",
   "seed": 1337,
+  "parameters": {
+    "dirt_colour": {
+      "kind": "colour",
+      "default": [0.29678044, 0.21382919, 0.17126423],
+      "description": "Engine-supplied river sediment colour"
+    },
+    "stone_colour": {
+      "kind": "colour",
+      "default": [0.3, 0.34, 0.31],
+      "description": "Engine-supplied local stone colour"
+    }
+  },
   "width": 2048,
   "height": 2048,
   "physical_tile_width_m": 2.0,
@@ -70,19 +82,11 @@
             "stops": [
               {
                 "position": 0.0,
-                "colour": [
-                  0.32836577,
-                  0.32228044,
-                  0.16510175
-                ]
+                "colour": { "parameter": "stone_colour" }
               },
               {
                 "position": 1.0,
-                "colour": [
-                  0.29678044,
-                  0.21382919,
-                  0.17126423
-                ]
+                "colour": { "parameter": "dirt_colour" }
               }
             ]
           },
@@ -113,32 +117,12 @@
     }
   },
   "albedo": {
-    "base_color": [
-      0.3,
-      0.34,
-      0.31
-    ],
-    "warm_color": [
-      0.48,
-      0.42000002,
-      0.31
-    ],
+    "base_color": { "parameter": "stone_colour" },
+    "warm_color": { "parameter": "stone_colour" },
     "palette": [
-      [
-        0.3,
-        0.34,
-        0.31
-      ],
-      [
-        0.38999996,
-        0.4,
-        0.34
-      ],
-      [
-        0.48,
-        0.42000002,
-        0.31
-      ]
+      { "parameter": "stone_colour" },
+      { "parameter": "stone_colour" },
+      { "parameter": "stone_colour" }
     ],
     "variation": 0.68,
     "crack_darkening": 0.2,

@@ -27,14 +27,19 @@ The editor provides:
 
 - complete typed base-material and layer-stack editing, including previous-height
   masks with physical bottom/top thresholds;
+- typed colour-parameter declarations and literal/parameter bindings with
+  optional authored colour anchors;
 - asynchronous native Open and Save As selectors filtered to JSON recipes;
 - bounded snapshot undo/redo and dirty-document protection;
 - debounced 128, 256, or 512-pixel background previews with stale-result
   rejection and an eight-entry CPU cache;
 - albedo, height, normal, AO, packed-mask, and selected-layer diagnostics;
 - tiled 2D inspection and a lit sphere/plane preview using Bevy parallax;
-- explicit background baking through `generate_texture_set` and the existing
-  transactional `write_texture_set` boundary.
+- a native output-folder selector when Bake is pressed;
+- explicit background baking through the shared parameter-resolving generation
+  path and the existing
+  transactional `write_texture_set` boundary, with completion and failure
+  details surfaced in the main status panel.
 
 During development, the intended launch shape is:
 

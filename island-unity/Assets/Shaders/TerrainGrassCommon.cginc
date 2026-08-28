@@ -21,11 +21,12 @@ struct GrassVertexOutput
     UNITY_FOG_COORDS(5)
     float3 islandLocalSurfacePosition : TEXCOORD6;
     half4 windLightingAndForestFloor : TEXCOORD7;
+    half stones : TEXCOORD8;
 };
 
 sampler3D _CliffNoise3D;
 sampler2D _GrassPatchNoise;
-sampler2D _ForestFloorMaskMap;
+sampler2D _ForestStonesMaskMap;
 half _GrassEnabled;
 float3 _GrassPlayerPosition;
 float _GrassRadius;
@@ -62,6 +63,10 @@ float _ForestFloorTextureWorldSize;
 half _ForestFloorHeightBlendStrength;
 half _ForestFloorEdgeNoiseStrength;
 half _ForestFloorEdgeBlendWidth;
+float _StonesTextureWorldSize;
+half _StonesHeightBlendStrength;
+half _StonesEdgeNoiseStrength;
+half _StonesEdgeBlendWidth;
 half _TopTextureFadeOutSlope;
 float4x4 _IslandWorldToLocal;
 
@@ -134,6 +139,7 @@ GrassVertexOutput GrassVertex(GrassVertexInput input)
     output.windLightingAndForestFloor = half4(
         tangentWind * (windSample.y * GRASS_SHELL_LAYER),
         input.environment.x);
+    output.stones = input.environment.y;
     output.material = input.material;
     TRANSFER_SHADOW_WPOS(output, worldPosition);
     UNITY_TRANSFER_FOG(output, output.pos);
@@ -297,7 +303,7 @@ fixed4 GrassFragment(GrassVertexOutput input) : SV_Target
     float2 forestFloorUv = input.islandLocalSurfacePosition.xz
         / max(_ForestFloorTextureWorldSize, 0.01);
     half forestFloorHeight = tex2D(
-        _ForestFloorMaskMap,
+        _ForestStonesMaskMap,
         forestFloorUv).r;
     half forestFloorTextureWeight = GrassHeightModulatedTextureWeight(
         forestFloorProjectionWeight,
@@ -327,6 +333,27 @@ fixed4 GrassFragment(GrassVertexOutput input) : SV_Target
         * (1.0h - riverCoverage)
         * (1.0h - snowCoverage)
         * step(0.0h, elevation);
+    half stonesBoundaryNoise = clamp(
+        bankDetailNoise.r * 0.45h
+            + bankDetailNoise.b * 0.55h,
+        -1.0h,
+        1.0h);
+    half stonesDistance = saturate(input.stones)
+        - (0.5h + stonesBoundaryNoise * _StonesEdgeNoiseStrength);
+    half stonesTransition = max(
+        _StonesEdgeBlendWidth,
+        fwidth(stonesDistance));
+    half stonesSource = smoothstep(
+        -stonesTransition,
+        stonesTransition,
+        stonesDistance);
+    half stonesCoverage = stonesSource
+        * (1.0h - exposedRockCoverage)
+        * (1.0h - beachCoverage)
+        * (1.0h - riverCoverage)
+        * (1.0h - snowCoverage)
+        * (1.0h - forestFloorCoverage)
+        * step(0.0h, elevation);
     clip(elevation);
     clip(0.01h - exposedRockCoverage);
     clip(0.5 - beachCoverage);
@@ -335,6 +362,7 @@ fixed4 GrassFragment(GrassVertexOutput input) : SV_Target
     // The narrow antialiased colour band remains underneath, without sparse
     // blades or flat green extending onto the forest-floor side.
     clip(0.5h - forestFloorCoverage);
+    clip(0.5h - stonesCoverage);
 
     // Deposit thickness is the soil-richness signal. A dedicated fine,
     // coherent texture removes every blade at zero richness, then lowers the

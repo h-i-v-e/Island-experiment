@@ -693,6 +693,7 @@ fn default_texture_recipe() -> TextureRecipe {
     TextureRecipe {
         name: "UntitledMaterial".into(),
         seed: 0,
+        parameters: std::collections::BTreeMap::new(),
         width: 128,
         height: 128,
         physical_tile_width_m: 1.0,
@@ -730,6 +731,7 @@ mod tests {
         TextureRecipe {
             name: "document-test".into(),
             seed: 3,
+            parameters: std::collections::BTreeMap::new(),
             width: 4,
             height: 4,
             physical_tile_width_m: 1.0,

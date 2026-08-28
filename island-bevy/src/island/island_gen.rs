@@ -7,14 +7,16 @@ use bevy::{
     tasks::{AsyncComputeTaskPool, Task, block_on, poll_once},
 };
 use motu::{
-    GenerationMethod, ISLAND_WORLD_METRES, Island, IslandOptions, Mesh, River, RiverNode, Vec2,
-    Vec3,
+    GenerationMethod, ISLAND_WORLD_METRES, Island, IslandMaterialTextures, IslandOptions,
+    LinearRgb, MaterialSelection, Mesh, NormalConvention, River, RiverNode,
+    RuntimeMaterialBakeOptions, RuntimeMaterialInputs, Vec2, Vec3, bake_island_materials,
 };
 
 use crate::{
     cache,
     chunk::{self, ChunkTier, TerrainChunk},
     convert::{self, island_to_world},
+    hash::{mix, unit},
     math::smoothstep,
     options,
 };
@@ -47,6 +49,14 @@ pub const DEFAULT_VARIANT: &str = VARIANTS[0].0;
 /// smooths cliff faces into walkable ramps and holds every valley and ridge the
 /// eye reads while standing on them, which is all walk mode asks of it.
 pub const HEIGHT_GRID: u32 = 512;
+
+/// Runtime material resolution selected by this engine. Recipes are baked on
+/// the island task and uploaded only after the complete group arrives.
+const MATERIAL_TEXTURE_SIZE: u32 = 512;
+const DIRT_BASE: LinearRgb = LinearRgb::new(0.09, 0.055, 0.026);
+const STONE_BASE: LinearRgb = LinearRgb::new(0.25, 0.27, 0.24);
+const DIRT_PALETTE_SALT: u64 = 0x3a11_a61d_81c4_59e7;
+const STONE_PALETTE_SALT: u64 = 0x5e2b_754a_91d8_03cf;
 
 /// How far from a river's own water edge the ground still reads as damp, and
 /// how far above the water beside it.
@@ -343,15 +353,18 @@ fn terrain_chunks(island: &Island, banks: &WetBanks, drops: &DropIndex) -> Vec<T
                     surface_high = surface_high.max(vertex.z);
                 }
                 let mut materials = island.material_values_for(&mesh);
+                let mut environment = island.environment_values_for(&mesh);
                 let mut river_wetness = banks.measure(&mesh, drops);
                 for source in chunk::skirt(&mut mesh, bounds, depth, sides) {
                     let source = source as usize;
                     materials.push(materials[source]);
+                    environment.push(environment[source]);
                     river_wetness.push(river_wetness[source]);
                 }
                 tiers.push(ChunkTier {
                     mesh,
                     materials,
+                    environment,
                     river_wetness,
                 });
             }
@@ -909,13 +922,21 @@ pub struct PreparedMeshes {
     pub river_rocks: Option<bevy::prelude::Mesh>,
 }
 
+/// Complete CPU texture group waiting for one atomic main-world upload.
+#[derive(Resource)]
+pub struct PreparedMaterialTextures {
+    pub inputs: RuntimeMaterialInputs,
+    pub textures: Option<IslandMaterialTextures>,
+}
+
 struct PreparedIsland {
     data: IslandData,
     meshes: PreparedMeshes,
+    materials: PreparedMaterialTextures,
 }
 
 impl PreparedIsland {
-    fn new(data: IslandData, drops: &DropIndex) -> Self {
+    fn new(data: IslandData, drops: &DropIndex, seed: u64) -> Result<Self, String> {
         let started = Instant::now();
         let terrain = data
             .terrain_chunks
@@ -925,7 +946,13 @@ impl PreparedIsland {
                 let origin = island_to_world(centre.x, centre.y, centre.z);
                 std::array::from_fn(|level| {
                     let tier = &chunk.tiers[level];
-                    convert::terrain_mesh(&tier.mesh, &tier.materials, &tier.river_wetness, origin)
+                    convert::terrain_mesh(
+                        &tier.mesh,
+                        &tier.materials,
+                        &tier.environment,
+                        &tier.river_wetness,
+                        origin,
+                    )
                 })
             })
             .collect();
@@ -935,15 +962,56 @@ impl PreparedIsland {
             "render meshes prepared off-thread in {:.0} ms",
             started.elapsed().as_secs_f32() * 1_000.0
         );
-        Self {
+        let inputs = select_material_inputs(seed);
+        let material_started = Instant::now();
+        let textures = bake_island_materials(
+            &inputs,
+            &RuntimeMaterialBakeOptions {
+                width: Some(MATERIAL_TEXTURE_SIZE),
+                height: Some(MATERIAL_TEXTURE_SIZE),
+                normal_convention: NormalConvention::OpenGl,
+                materials: MaterialSelection::ALL,
+            },
+        )
+        .map_err(|error| format!("could not bake runtime materials: {error}"))?;
+        info!(
+            "runtime materials: {} maps at {MATERIAL_TEXTURE_SIZE}x{MATERIAL_TEXTURE_SIZE} in {:.0} ms",
+            textures.materials.len(),
+            material_started.elapsed().as_secs_f32() * 1_000.0,
+        );
+        Ok(Self {
             data,
             meshes: PreparedMeshes {
                 terrain,
                 river,
                 river_rocks,
             },
-        }
+            materials: PreparedMaterialTextures {
+                inputs,
+                textures: Some(textures),
+            },
+        })
     }
+}
+
+/// The Bevy viewer owns its palette policy. The procedural library receives
+/// only these explicit linear values and has no dependency on the island seed.
+fn select_material_inputs(seed: u64) -> RuntimeMaterialInputs {
+    fn varied(base: LinearRgb, hash: u64, amount: f32, warmth: f32) -> LinearRgb {
+        let brightness = 1.0 + (unit(hash) * 2.0 - 1.0) * amount;
+        let temperature = (unit(mix(hash, 1)) * 2.0 - 1.0) * amount * warmth;
+        let green = (unit(mix(hash, 2)) * 2.0 - 1.0) * amount * 0.18;
+        let [red, base_green, blue] = base.channels();
+        LinearRgb::new(
+            (red * brightness * (1.0 + temperature)).clamp(0.0, 1.0),
+            (base_green * brightness * (1.0 + green)).clamp(0.0, 1.0),
+            (blue * brightness * (1.0 - temperature)).clamp(0.0, 1.0),
+        )
+    }
+    RuntimeMaterialInputs::new(
+        varied(DIRT_BASE, mix(seed, DIRT_PALETTE_SALT), 0.14, 0.45),
+        varied(STONE_BASE, mix(seed, STONE_PALETTE_SALT), 0.10, 0.18),
+    )
 }
 
 #[derive(Component)]
@@ -992,7 +1060,7 @@ fn start(commands: &mut Commands, settings: GenerationSettings, status: &mut Gen
     // and no frame should wait on that any more than on generation.
     let task = AsyncComputeTaskPool::get().spawn(async move {
         island_data(seed, options, method, cache_reads)
-            .map(|(data, drops)| PreparedIsland::new(data, &drops))
+            .and_then(|(data, drops)| PreparedIsland::new(data, &drops, seed))
     });
     commands.spawn((Name::new("Island generation"), GenerationTask(task)));
     status.elapsed = Some(0.0);
@@ -1080,7 +1148,11 @@ fn poll_generation(
         let elapsed = status.elapsed.take();
         match result {
             Ok(prepared) => {
-                let PreparedIsland { data, meshes } = prepared;
+                let PreparedIsland {
+                    data,
+                    meshes,
+                    materials,
+                } = prepared;
                 info!(
                     "island ready: {} chunks over {} terrain vertices at LOD 0, {} rivers, \
                      {} trees, {} bushes",
@@ -1099,6 +1171,7 @@ fn poll_generation(
                 }
                 commands.insert_resource(GeneratedIsland(data));
                 commands.insert_resource(meshes);
+                commands.insert_resource(materials);
                 ready.write(IslandReady);
                 status.built = Some(Regenerate {
                     seed: settings.seed,

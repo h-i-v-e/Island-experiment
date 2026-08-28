@@ -568,7 +568,7 @@ output remains reproducible.
 ## Unity adapter
 
 After the Rust CLI and the cracked-stone output are stable, extend the existing
-terrain mask editor or add a focused `ProceduralTextureBakerWindow` under
+terrain mask editor or add a focused standalone material-studio UI outside
 `island-unity/Assets/Editor`.
 
 The Unity code will:

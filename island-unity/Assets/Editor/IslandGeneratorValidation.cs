@@ -125,11 +125,6 @@ public static class IslandGeneratorValidation
                 $"The sandbox scene must contain exactly one IslandGenerator; found {islands.Length}.");
         }
         var island = islands[0];
-        if (island.Generation.GenerationMethod != IslandGenerationMethod.Gpu)
-        {
-            throw new InvalidOperationException(
-                "The sandbox must use the GPU terrain-generation method by default.");
-        }
         if (island.DebugSettings.ToggleFrameRateKey == KeyCode.None)
         {
             throw new InvalidOperationException(
