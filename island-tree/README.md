@@ -2,7 +2,8 @@
 
 Deterministic procedural New Zealand tree generation, Bevy render compilation,
 and a standalone interactive and headless visual laboratory. The species-first
-generator currently includes mature pōhutukawa and nīkau palm architectures.
+generator currently includes mature pōhutukawa, nīkau palm, harakeke,
+mānuka brush, kauri, and rimu architectures.
 
 The crate owns the complete tree prototype boundary:
 
@@ -35,15 +36,23 @@ across Form, Branch, Foliage, Light, and Biome tabs; seed randomisation lives
 beside the seed; frame and geometry telemetry stays quietly at bottom left; and
 camera controls sit at bottom centre. The draft recipe rebuilds only when
 its valid controls change, while view, wind, lighting, and review-biome changes
-update without rebuilding tree geometry. A collapsible showcase rail applies
-deterministic hero configurations for pōhutukawa, nīkau, and harakeke from
+update without rebuilding tree geometry. Form and Branch expose species-aware
+labels for crown or fan spread, branch or blade droop, and each plant's stem
+character; these values are part of the deterministic botanical recipe rather
+than studio-only presentation state. A collapsible showcase rail applies
+six deterministic hero configurations in a compact two-column grid from
 generated thumbnails, with Whole, Crown, and Detail camera shortcuts beneath
 them. Lighting separates direct sun, exposure, and sky fill so shaded crowns can
 be reviewed without clipping sunlit bark. The plant-family selector switches
 between separate growth programs rather than reskinning one shared silhouette.
-The three review LODs cover full leaves,
-middle-distance foliage pads, and an eight-vertex far impostor whose transparent
-front/side atlas is generated deterministically from the same botanical organs.
+The three review LODs cover full leaves, middle-distance foliage pads, and an
+eight-vertex far impostor. Interactive inspection enables camera-distance LOD
+by default: Bevy dithers across species-scaled handover bands as the camera
+dollies away, while the HUD reports the current tier or blend. The transparent
+front/side impostor atlas is baked deterministically from the same botanical
+organs and generated bark and leaf colour maps, with a depth buffer preserving
+branch gaps and front-to-back material variation instead of flattening the
+crown into a single green proxy.
 Interactive runs use Bevy's `AutoNoVsync` present mode so the FPS meter is not
 capped by display refresh.
 
@@ -55,7 +64,8 @@ cargo run --release \
   --species nikau --screenshot /tmp/tree.png --view whole --seed 666
 ```
 
-`--species` accepts `pohutukawa` (the default), `nikau`, or `harakeke`.
+`--species` accepts `pohutukawa` (the default), `nikau`, `harakeke`, `manuka`,
+`kauri`, or `rimu`.
 For nīkau, `--view frond` generates and frames one mature procedural frond as a
 standalone prototype, which is useful for close silhouette and leaflet review.
 

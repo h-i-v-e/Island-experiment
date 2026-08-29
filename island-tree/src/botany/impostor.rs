@@ -11,7 +11,7 @@
 
 use motu::Vec3;
 
-use super::model::{BotanicalPrototype, BotanicalTexture};
+use super::model::{BotanicalPrototype, BotanicalTexture, ReproductiveState};
 
 const TILE_SIZE: u32 = 256;
 const ATLAS_WIDTH: u32 = TILE_SIZE * 2;
@@ -41,6 +41,13 @@ impl View {
         match self {
             Self::Front => point.x,
             Self::Side => point.y,
+        }
+    }
+
+    fn depth(self, point: Vec3) -> f32 {
+        match self {
+            Self::Front => point.y,
+            Self::Side => point.x,
         }
     }
 }
@@ -75,6 +82,12 @@ impl Bounds {
                     .vertices
                     .iter()
                     .map(|vertex| leaf_vertex(*leaf, *vertex))
+            }))
+            .chain(prototype.reproductive_organs.iter().flat_map(|organ| {
+                [
+                    organ.base_metres,
+                    organ.base_metres + organ.direction * organ.length_metres,
+                ]
             }))
             .for_each(|point| bounds.include(point));
         if !bounds.front_min.is_finite() {
@@ -163,7 +176,13 @@ pub fn generate_botanical_impostor(prototype: &BotanicalPrototype) -> BotanicalI
     let scale = Projection::scale(bounds);
     let mut rgba = vec![0_u8; (ATLAS_WIDTH * TILE_SIZE * 4) as usize];
     for view in [View::Front, View::Side] {
-        rasterize_view(&mut rgba, prototype, Projection::new(view, bounds, scale));
+        let mut depth = vec![f32::NEG_INFINITY; (ATLAS_WIDTH * TILE_SIZE) as usize];
+        rasterize_view(
+            &mut rgba,
+            &mut depth,
+            prototype,
+            Projection::new(view, bounds, scale),
+        );
     }
     dilate_transparent_rgb(&mut rgba, 3);
     let card_span = TILE_SIZE as f32 / scale;
@@ -183,21 +202,33 @@ pub fn generate_botanical_impostor(prototype: &BotanicalPrototype) -> BotanicalI
     }
 }
 
-fn rasterize_view(rgba: &mut [u8], prototype: &BotanicalPrototype, projection: Projection) {
+fn rasterize_view(
+    rgba: &mut [u8],
+    depth: &mut [f32],
+    prototype: &BotanicalPrototype,
+    projection: Projection,
+) {
+    let height = (projection.scale.recip() * TILE_SIZE as f32).max(0.1);
     for axis in &prototype.graph.axes {
-        let colour = match axis.order {
-            0 => [112, 101, 84, 255],
-            1 => [96, 89, 73, 255],
-            _ => [78, 75, 61, 245],
-        };
         for (segment, points) in axis.points_metres.windows(2).enumerate() {
             let radius =
                 axis.radii_metres[segment].max(axis.radii_metres[segment + 1]) * projection.scale;
+            let fraction = points[0].z / height;
+            let sample = sample_texture(
+                &prototype.bark_albedo,
+                (f32::from(axis.order) * 0.173 + segment as f32 * 0.117).fract(),
+                fraction.fract(),
+            );
+            let tangent = (points[1] - points[0]).normalize_or(Vec3::Z);
+            let shade = (0.64 + tangent.z.abs() * 0.24 + axis.exposure * 0.12)
+                * (1.0 - f32::from(axis.order.min(3)) * 0.055);
+            let colour = shaded(sample, shade, 255);
             draw_capsule(
                 rgba,
+                depth,
                 projection,
-                projection.point(points[0]),
-                projection.point(points[1]),
+                points[0],
+                points[1],
                 radius.max(0.65),
                 colour,
             );
@@ -205,8 +236,6 @@ fn rasterize_view(rgba: &mut [u8], prototype: &BotanicalPrototype, projection: P
     }
     let leaf_spines = prototype.leaf_archetypes.each_ref().map(leaf_spine);
     for leaf in &prototype.leaves {
-        let green = (82.0 + leaf.light_exposure * 42.0 - leaf.age * 13.0).clamp(55.0, 132.0);
-        let colour = [(green * 0.48) as u8, green as u8, (green * 0.38) as u8, 198];
         let spine = leaf_spines[usize::from(leaf.archetype)];
         for (segment, points) in spine.windows(2).enumerate() {
             let fraction = (segment as f32 + 0.5) / (LEAF_SPINE_POINTS - 1) as f32;
@@ -215,16 +244,63 @@ fn rasterize_view(rgba: &mut [u8], prototype: &BotanicalPrototype, projection: P
                 .max(0.0)
                 .powf(0.34)
                 .max(0.24);
+            let start = leaf_vertex(*leaf, points[0]);
+            let end = leaf_vertex(*leaf, points[1]);
+            let tile = f32::from(leaf.archetype % 4);
+            let atlas_u = f32::midpoint(tile % 2.0, 0.5);
+            let atlas_v = f32::midpoint((tile / 2.0).floor(), fraction);
+            let sample = sample_texture(&prototype.leaf_albedo, atlas_u, atlas_v);
+            let normal = leaf.normal.normalize_or(Vec3::Z);
+            let sun = Vec3::new(-0.42, -0.58, 0.70).normalize_or(Vec3::Z);
+            let facing = normal.dot(sun).abs();
+            let shade = 0.50 + facing * 0.24 + leaf.light_exposure * 0.24 - leaf.age * 0.055;
+            let colour = shaded(sample, shade, sample[3].max(210));
             draw_capsule(
                 rgba,
+                depth,
                 projection,
-                projection.point(leaf_vertex(*leaf, points[0])),
-                projection.point(leaf_vertex(*leaf, points[1])),
+                start,
+                end,
                 (leaf.width_metres * projection.scale * 0.52 * taper).max(0.62),
                 colour,
             );
         }
     }
+    for organ in &prototype.reproductive_organs {
+        let start = organ.base_metres;
+        let end = start + organ.direction * organ.length_metres;
+        let colour = match organ.state {
+            ReproductiveState::Flower => [150, 38, 28, 245],
+            ReproductiveState::Fruit => [82, 48, 28, 255],
+        };
+        draw_capsule(
+            rgba,
+            depth,
+            projection,
+            start,
+            end,
+            (organ.radius_metres * projection.scale * 0.38).max(0.72),
+            colour,
+        );
+    }
+}
+
+fn sample_texture(texture: &BotanicalTexture, u: f32, v: f32) -> [u8; 4] {
+    let x = (u.clamp(0.0, 1.0) * texture.width.saturating_sub(1) as f32).round() as u32;
+    let y = (v.clamp(0.0, 1.0) * texture.height.saturating_sub(1) as f32).round() as u32;
+    let index = ((y * texture.width + x) * 4) as usize;
+    texture.rgba[index..index + 4]
+        .try_into()
+        .expect("botanical textures contain complete RGBA pixels")
+}
+
+fn shaded(sample: [u8; 4], intensity: f32, alpha: u8) -> [u8; 4] {
+    let mut colour = sample;
+    for channel in &mut colour[..3] {
+        *channel = (f32::from(*channel) * intensity).clamp(0.0, 255.0) as u8;
+    }
+    colour[3] = alpha;
+    colour
 }
 
 fn leaf_spine(archetype: &motu::Mesh) -> [Vec3; LEAF_SPINE_POINTS] {
@@ -319,12 +395,17 @@ fn dilate_transparent_rgb(rgba: &mut [u8], iterations: usize) {
 
 fn draw_capsule(
     rgba: &mut [u8],
+    depth: &mut [f32],
     projection: Projection,
-    start: [f32; 2],
-    end: [f32; 2],
+    world_start: Vec3,
+    world_end: Vec3,
     radius: f32,
     colour: [u8; 4],
 ) {
+    let start = projection.point(world_start);
+    let end = projection.point(world_end);
+    let start_depth = projection.view.depth(world_start);
+    let end_depth = projection.view.depth(world_end);
     let (tile_min, tile_max) = projection.x_bounds();
     let min_x = ((start[0].min(end[0]) - radius).floor() as i32).clamp(tile_min, tile_max);
     let max_x = ((start[0].max(end[0]) + radius).ceil() as i32).clamp(tile_min, tile_max);
@@ -354,34 +435,27 @@ fn draw_capsule(
             let distance = dx.mul_add(dx, dy * dy).sqrt();
             if distance <= outer {
                 let coverage = (outer - distance).clamp(0.0, 1.0);
-                blend_pixel(rgba, x as u32, y as u32, colour, coverage);
+                let pixel = (y as u32 * ATLAS_WIDTH + x as u32) as usize;
+                let surface_depth = (end_depth - start_depth).mul_add(along, start_depth);
+                if surface_depth >= depth[pixel] {
+                    depth[pixel] = surface_depth;
+                    write_pixel(rgba, x as u32, y as u32, colour, coverage);
+                }
             }
         }
     }
 }
 
-fn blend_pixel(rgba: &mut [u8], x: u32, y: u32, colour: [u8; 4], coverage: f32) {
+fn write_pixel(rgba: &mut [u8], x: u32, y: u32, colour: [u8; 4], coverage: f32) {
     let index = ((y * ATLAS_WIDTH + x) * 4) as usize;
-    let source_alpha = f32::from(colour[3]) / 255.0 * coverage;
-    let destination_alpha = f32::from(rgba[index + 3]) / 255.0;
-    let output_alpha = source_alpha + destination_alpha * (1.0 - source_alpha);
-    if output_alpha <= f32::EPSILON {
-        return;
-    }
-    for channel in 0..3 {
-        let source = f32::from(colour[channel]) / 255.0;
-        let destination = f32::from(rgba[index + channel]) / 255.0;
-        rgba[index + channel] = (((source * source_alpha
-            + destination * destination_alpha * (1.0 - source_alpha))
-            / output_alpha)
-            * 255.0)
-            .round() as u8;
-    }
-    rgba[index + 3] = (output_alpha * 255.0).round() as u8;
+    rgba[index..index + 3].copy_from_slice(&colour[..3]);
+    rgba[index + 3] = (f32::from(colour[3]) * coverage).round() as u8;
 }
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
     use super::*;
     use crate::{BotanicalRecipe, generate_botanical_prototype};
 
@@ -396,6 +470,12 @@ mod tests {
         let pixels = first.albedo.rgba.as_chunks::<4>().0;
         assert!(pixels.iter().any(|pixel| pixel[3] == 0));
         assert!(pixels.iter().any(|pixel| pixel[3] > 0));
+        let visible_tones: HashSet<_> = pixels
+            .iter()
+            .filter(|pixel| pixel[3] > 0)
+            .map(|pixel| [pixel[0], pixel[1], pixel[2]])
+            .collect();
+        assert!(visible_tones.len() > 64);
         assert!(first.front_width_metres > 1.0);
         assert!(first.side_width_metres > 1.0);
         assert!((first.front_width_metres - first.side_width_metres).abs() < f32::EPSILON);

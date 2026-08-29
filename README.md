@@ -12,10 +12,10 @@ renderers.
   procedural-material authoring application. It edits the same typed JSON
   recipes as the baker and Unity studio, previews them in 2D and with lit
   parallax mapping, and bakes through the shared transactional writer.
-- [`island-tree`](island-tree/) owns the deterministic pōhutukawa generator,
-  its Bevy material and static-mesh compiler, and the interactive `tree-lab`
-  editor with repeatable headless captures. Landscape placement policy remains
-  in `island-bevy`.
+- [`island-tree`](island-tree/) owns deterministic procedural pōhutukawa,
+  nīkau, harakeke, mānuka, kauri, and rimu generators, their Bevy materials and
+  static-mesh compiler, and the interactive `tree-lab` editor with repeatable
+  headless captures. Landscape placement policy remains in `island-bevy`.
 - [`island-unity`](island-unity/) contains the reusable Unity 6
   `IslandGenerator` component, sandbox level, streamed terrain LODs,
   first-person sample controls, a CPU/GPU generation selector, the Apple

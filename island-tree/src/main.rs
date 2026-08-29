@@ -24,7 +24,7 @@ use bevy::{
     anti_alias::taa::TemporalAntiAliasing,
     app::ScheduleRunnerPlugin,
     asset::RenderAssetUsages,
-    camera::{Exposure, Hdr, RenderTarget},
+    camera::{Exposure, Hdr, RenderTarget, visibility::VisibilityRange},
     core_pipeline::tonemapping::Tonemapping,
     image::{ImageAddressMode, ImageFilterMode, ImageSampler, ImageSamplerDescriptor},
     light::{
@@ -92,6 +92,13 @@ impl ReviewLod {
             )),
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum ReviewLodSelection {
+    #[default]
+    Fixed,
+    Automatic,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -164,6 +171,9 @@ impl ReviewView {
         match prototype.species {
             BotanicalSpecies::Nikau => return nikau_review_frame(self, prototype),
             BotanicalSpecies::Harakeke => return harakeke_review_frame(self, prototype),
+            BotanicalSpecies::Manuka | BotanicalSpecies::Kauri | BotanicalSpecies::Rimu => {
+                return woody_species_review_frame(self, prototype);
+            }
             BotanicalSpecies::Pohutukawa => {}
         }
         if self == Self::Scar {
@@ -255,6 +265,74 @@ fn harakeke_review_frame(view: ReviewView, prototype: &BotanicalPrototype) -> Re
         ReviewView::Root | ReviewView::Junction => (
             Vec3::new(height * 1.12, height * 0.32, height * 1.20),
             Vec3::new(0.0, height * 0.16, 0.0),
+        ),
+    };
+    ReviewFrame::new(eye, target, Vec3::Y)
+}
+
+fn woody_species_review_frame(view: ReviewView, prototype: &BotanicalPrototype) -> ReviewFrame {
+    let (minimum, maximum) = prototype
+        .graph
+        .axes
+        .iter()
+        .flat_map(|axis| axis.points_metres)
+        .fold(
+            (
+                motu::Vec3::splat(f32::INFINITY),
+                motu::Vec3::splat(f32::NEG_INFINITY),
+            ),
+            |(minimum, maximum), point| (minimum.min(point), maximum.max(point)),
+        );
+    let centre = (minimum + maximum) * 0.5;
+    let height = maximum.z.max(1.0);
+    let radius = ((maximum.x - minimum.x).max(maximum.y - minimum.y) * 0.5).max(height * 0.12);
+    let height_distance = if prototype.species == BotanicalSpecies::Manuka {
+        height * 1.50
+    } else {
+        height * 1.35
+    };
+    let distance = (radius * 2.25).max(height_distance);
+    let crown_height = if matches!(
+        prototype.species,
+        BotanicalSpecies::Kauri | BotanicalSpecies::Rimu
+    ) {
+        height * 0.82
+    } else {
+        height * 0.58
+    };
+    let target_at = |z: f32| convert(motu::Vec3::new(centre.x, centre.y, z));
+    let (eye, target) = match view {
+        ReviewView::Whole => (
+            target_at(height * 0.48) + Vec3::new(distance * 0.74, height * 0.05, distance),
+            target_at(height * 0.48),
+        ),
+        ReviewView::WholeQuarter => (
+            target_at(height * 0.48) + Vec3::new(-distance, height * 0.07, distance * 0.72),
+            target_at(height * 0.48),
+        ),
+        ReviewView::Crown | ReviewView::Frond | ReviewView::Epicormic => (
+            target_at(crown_height) + Vec3::new(radius * 1.7, radius * 0.18, radius * 1.9),
+            target_at(crown_height),
+        ),
+        ReviewView::Detail | ReviewView::Junction | ReviewView::Scar => (
+            target_at(crown_height) + Vec3::new(radius * 1.18, radius * 0.08, radius * 1.30),
+            target_at(crown_height),
+        ),
+        ReviewView::Leaf | ReviewView::Tip => {
+            let leaf = prototype.leaves.iter().max_by(|left, right| {
+                left.blade_base_metres
+                    .z
+                    .total_cmp(&right.blade_base_metres.z)
+            });
+            let target = leaf.map_or_else(
+                || target_at(crown_height),
+                |leaf| convert(leaf.blade_base_metres + leaf.direction * leaf.length_metres * 0.5),
+            );
+            (target + Vec3::new(0.55, 0.24, 0.62), target)
+        }
+        ReviewView::Root => (
+            target_at(height * 0.035) + Vec3::new(radius * 1.30, radius * 0.36, radius * 1.42),
+            target_at(height * 0.035),
         ),
     };
     ReviewFrame::new(eye, target, Vec3::Y)
@@ -468,6 +546,7 @@ struct Settings {
     light: ReviewLight,
     foliage: bool,
     fine_shoots: bool,
+    lod_selection: ReviewLodSelection,
     wind_phase: f32,
     wind_strength: f32,
     screenshot: Option<PathBuf>,
@@ -476,6 +555,57 @@ struct Settings {
 
 #[derive(Component)]
 struct TreeRoot;
+
+#[derive(Component, Clone)]
+struct TreeLodRange(VisibilityRange);
+
+#[derive(Clone, Debug, PartialEq)]
+struct TreeLodProfile {
+    near: std::ops::Range<f32>,
+    middle: std::ops::Range<f32>,
+    far: std::ops::Range<f32>,
+}
+
+impl TreeLodProfile {
+    fn from_height(height: f32) -> Self {
+        let near_start = (height * 3.0).clamp(18.0, 60.0);
+        let near_dither = (height * 0.55).clamp(4.0, 12.0);
+        let middle_start = (height * 6.0).clamp(45.0, 100.0);
+        let middle_dither = (height * 0.80).clamp(8.0, 18.0);
+        Self {
+            near: near_start..near_start + near_dither,
+            middle: middle_start..middle_start + middle_dither,
+            far: 250.0..280.0,
+        }
+    }
+
+    fn range(&self, lod: ReviewLod) -> VisibilityRange {
+        let (start_margin, end_margin) = match lod {
+            ReviewLod::Near => (0.0..0.0, self.near.clone()),
+            ReviewLod::Middle => (self.near.clone(), self.middle.clone()),
+            ReviewLod::Far => (self.middle.clone(), self.far.clone()),
+        };
+        VisibilityRange {
+            start_margin,
+            end_margin,
+            use_aabb: false,
+        }
+    }
+
+    fn status(&self, distance: f32) -> &'static str {
+        if self.near.contains(&distance) {
+            "LOD 0 → LOD 1 blend"
+        } else if self.middle.contains(&distance) {
+            "LOD 1 → LOD 2 blend"
+        } else if distance < self.near.start {
+            "LOD 0 · full geometry"
+        } else if distance < self.middle.start {
+            "LOD 1 · foliage pads"
+        } else {
+            "LOD 2 · content impostor"
+        }
+    }
+}
 
 #[derive(Component)]
 struct ReviewCamera {
@@ -620,8 +750,29 @@ fn main() {
         app.add_plugins(studio::TreeStudioPlugin);
     }
     app.add_systems(Startup, setup)
-        .add_systems(Update, apply_wind)
+        .add_systems(Update, (assign_tree_lod_ranges, apply_wind))
         .run();
+}
+
+fn assign_tree_lod_ranges(
+    mut commands: Commands,
+    added_meshes: Query<(Entity, &ChildOf), Added<Mesh3d>>,
+    parents: Query<&ChildOf>,
+    ranges: Query<&TreeLodRange>,
+) {
+    for (entity, parent) in &added_meshes {
+        let mut ancestor = parent.parent();
+        loop {
+            if let Ok(range) = ranges.get(ancestor) {
+                commands.entity(entity).insert(range.0.clone());
+                break;
+            }
+            let Ok(parent) = parents.get(ancestor) else {
+                break;
+            };
+            ancestor = parent.parent();
+        }
+    }
 }
 
 fn install_capture(app: &mut App, path: PathBuf) {
@@ -691,7 +842,7 @@ fn setup(
         Projection::Perspective(PerspectiveProjection {
             fov: 45.0_f32.to_radians(),
             near: 0.1,
-            far: 150.0,
+            far: 320.0,
             ..default()
         }),
         Hdr,
@@ -855,15 +1006,71 @@ fn spawn_tree(
     settings: &Settings,
     prototype: BotanicalPrototype,
 ) {
+    if settings.lod_selection == ReviewLodSelection::Fixed {
+        spawn_tree_lod(
+            commands,
+            meshes,
+            materials,
+            bark_materials,
+            leaf_materials,
+            inverse_bindposes,
+            images,
+            settings,
+            prototype,
+            None,
+        );
+        return;
+    }
+
+    let profile = TreeLodProfile::from_height(settings.recipe.trunk_height_metres);
+    let near = prototype.clone();
+    let middle = prototype.clone();
+    for (lod, prototype) in [
+        (ReviewLod::Near, near),
+        (ReviewLod::Middle, middle),
+        (ReviewLod::Far, prototype),
+    ] {
+        let mut tier_settings = settings.clone();
+        tier_settings.lod = lod;
+        spawn_tree_lod(
+            commands,
+            meshes,
+            materials,
+            bark_materials,
+            leaf_materials,
+            inverse_bindposes,
+            images,
+            &tier_settings,
+            prototype,
+            Some(profile.range(lod)),
+        );
+    }
+}
+
+#[allow(clippy::too_many_lines)]
+fn spawn_tree_lod(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    bark_materials: &mut Assets<BarkMaterial>,
+    leaf_materials: &mut Assets<LeafMaterial>,
+    inverse_bindposes: &mut Assets<SkinnedMeshInverseBindposes>,
+    images: &mut Assets<Image>,
+    settings: &Settings,
+    prototype: BotanicalPrototype,
+    range: Option<VisibilityRange>,
+) {
     let species_name = prototype.species.scientific_name();
-    let tree_root = commands
-        .spawn((
-            Name::new(format!("Generated {species_name}")),
-            TreeRoot,
-            Transform::default(),
-            Visibility::default(),
-        ))
-        .id();
+    let mut root = commands.spawn((
+        Name::new(format!("Generated {species_name} {}", settings.lod.label())),
+        TreeRoot,
+        Transform::default(),
+        Visibility::default(),
+    ));
+    if let Some(range) = range {
+        root.insert(TreeLodRange(range));
+    }
+    let tree_root = root.id();
     if settings.lod == ReviewLod::Far {
         let impostor = compile_botanical_impostor(&prototype, meshes, images, materials)
             .unwrap_or_else(|error| panic!("tree impostor failed: {error}"));
@@ -877,7 +1084,7 @@ fn spawn_tree(
         return;
     }
     let BotanicalPrototype {
-        species: _,
+        species,
         graph,
         wood,
         wood_bark,
@@ -921,7 +1128,7 @@ fn spawn_tree(
     let leaf_materials =
         build_leaf_materials(leaf_materials, &leaf_texture, &leaf_metallic_roughness);
     let shoot_tip_materials = build_shoot_tip_materials(materials);
-    let reproductive_materials = build_reproductive_materials(materials);
+    let reproductive_materials = build_reproductive_materials(materials, species);
     let microtwig_material =
         (settings.fine_shoots && settings.lod == ReviewLod::Near).then(|| wood_material.clone());
     spawn_wood(
@@ -1137,12 +1344,20 @@ fn build_shoot_tip_materials(
 
 fn build_reproductive_materials(
     materials: &mut Assets<StandardMaterial>,
+    species: BotanicalSpecies,
 ) -> [Handle<StandardMaterial>; REPRODUCTIVE_ARCHETYPE_COUNT] {
-    [
-        Color::srgb(0.68, 0.30, 0.46),
-        Color::srgb(0.66, 0.075, 0.035),
-    ]
-    .map(|base_color| {
+    let colours = if species == BotanicalSpecies::Harakeke {
+        [
+            Color::srgb(0.43, 0.055, 0.022),
+            Color::srgb(0.20, 0.12, 0.055),
+        ]
+    } else {
+        [
+            Color::srgb(0.68, 0.30, 0.46),
+            Color::srgb(0.66, 0.075, 0.035),
+        ]
+    };
+    colours.map(|base_color| {
         materials.add(StandardMaterial {
             base_color,
             perceptual_roughness: 0.62,
@@ -1175,7 +1390,7 @@ fn spawn_reproductive_organs(
         let mut transform = reproductive_transform(organ);
         transform.translation -= skeleton.origins[joint];
         commands.spawn((
-            Name::new("Nīkau reproductive cluster"),
+            Name::new("Procedural reproductive cluster"),
             Mesh3d(mesh.clone()),
             MeshMaterial3d(materials[archetype].clone()),
             transform,
@@ -1945,9 +2160,12 @@ fn parse(arguments: impl Iterator<Item = String>) -> Result<Option<Settings>, St
                     "pohutukawa" => BotanicalSpecies::Pohutukawa,
                     "nikau" => BotanicalSpecies::Nikau,
                     "harakeke" => BotanicalSpecies::Harakeke,
+                    "manuka" => BotanicalSpecies::Manuka,
+                    "kauri" => BotanicalSpecies::Kauri,
+                    "rimu" => BotanicalSpecies::Rimu,
                     other => {
                         return Err(format!(
-                            "unknown species {other:?}; expected pohutukawa, nikau, or harakeke"
+                            "unknown species {other:?}; expected pohutukawa, nikau, harakeke, manuka, kauri, or rimu"
                         ));
                     }
                 };
@@ -1988,6 +2206,7 @@ fn parse(arguments: impl Iterator<Item = String>) -> Result<Option<Settings>, St
     if capture_ui && screenshot.is_none() {
         return Err("--capture-ui requires --screenshot <PATH>".to_owned());
     }
+    let auto_lod = screenshot.is_none() || capture_ui;
     Ok(Some(Settings {
         seed,
         recipe: BotanicalRecipe::for_species(species),
@@ -1996,6 +2215,11 @@ fn parse(arguments: impl Iterator<Item = String>) -> Result<Option<Settings>, St
         light,
         foliage,
         fine_shoots,
+        lod_selection: if auto_lod {
+            ReviewLodSelection::Automatic
+        } else {
+            ReviewLodSelection::Fixed
+        },
         wind_phase,
         wind_strength,
         screenshot,
@@ -2008,9 +2232,9 @@ fn print_help() {
         "tree-lab [OPTIONS]\n\n\
          With no screenshot path, opens the interactive Tree Studio.\n\n\
          --seed <N>             deterministic prototype seed [42]\n\
-         --species <NAME>       pohutukawa, nikau, or harakeke [pohutukawa]\n\
+         --species <NAME>       pohutukawa, nikau, harakeke, manuka, or kauri [pohutukawa]\n\
          --lod <near|middle|far>\n\
-                                tree representation [near]\n\
+                                fixed headless representation [near]; interactive runs auto-LOD\n\
          --view <NAME>          whole, whole-quarter, crown, detail, leaf, tip, root, scar, epicormic, junction, or frond [whole]\n\
          --light <front|back|grazing>\n\
                                 review-light direction [front]\n\
@@ -2083,6 +2307,7 @@ mod tests {
         assert_eq!(settings.wind_strength.to_bits(), 0.7_f32.to_bits());
         assert_eq!(settings.screenshot, Some(PathBuf::from("tree.png")));
         assert!(!settings.capture_ui);
+        assert_eq!(settings.lod_selection, ReviewLodSelection::Fixed);
     }
 
     #[test]
@@ -2124,6 +2349,21 @@ mod tests {
             settings.recipe,
             BotanicalRecipe::for_species(BotanicalSpecies::Harakeke)
         );
+    }
+
+    #[test]
+    fn parses_new_woody_species_recipes() {
+        for (name, species) in [
+            ("manuka", BotanicalSpecies::Manuka),
+            ("kauri", BotanicalSpecies::Kauri),
+            ("rimu", BotanicalSpecies::Rimu),
+        ] {
+            let settings = parse(strings(&["--species", name]))
+                .expect("valid species command")
+                .expect("settings");
+            assert_eq!(settings.recipe.species, species);
+            assert_eq!(settings.recipe, BotanicalRecipe::for_species(species));
+        }
     }
 
     #[test]
@@ -2345,6 +2585,7 @@ mod tests {
         assert_eq!(settings.recipe, BotanicalRecipe::default());
         assert_eq!(settings.screenshot, None);
         assert!(!settings.capture_ui);
+        assert_eq!(settings.lod_selection, ReviewLodSelection::Automatic);
     }
 
     #[test]
@@ -2361,6 +2602,25 @@ mod tests {
         .expect("UI capture command")
         .expect("settings");
         assert!(settings.capture_ui);
+        assert_eq!(settings.lod_selection, ReviewLodSelection::Automatic);
         assert_eq!(settings.screenshot, Some(PathBuf::from("tree-studio.png")));
+    }
+
+    #[test]
+    fn automatic_tree_lods_share_complete_dither_handoffs() {
+        for height in [2.35, 4.2, 7.2, 24.0] {
+            let profile = TreeLodProfile::from_height(height);
+            let ranges = [
+                profile.range(ReviewLod::Near),
+                profile.range(ReviewLod::Middle),
+                profile.range(ReviewLod::Far),
+            ];
+            assert_eq!(ranges[0].end_margin, ranges[1].start_margin);
+            assert_eq!(ranges[1].end_margin, ranges[2].start_margin);
+            assert!(ranges.iter().all(|range| {
+                range.end_margin.end > range.end_margin.start
+                    && range.end_margin.start >= range.start_margin.end
+            }));
+        }
     }
 }

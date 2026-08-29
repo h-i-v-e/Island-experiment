@@ -3,9 +3,12 @@
 pub(crate) mod generator;
 mod harakeke;
 pub(crate) mod impostor;
+mod kauri;
+mod manuka;
 pub(crate) mod model;
 mod nikau;
 mod random;
+mod rimu;
 
 pub use generator::generate_botanical_prototype;
 pub use impostor::{BotanicalImpostor, generate_botanical_impostor};

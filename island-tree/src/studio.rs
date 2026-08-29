@@ -22,8 +22,9 @@ use bevy_egui::{
 use island_tree::{BotanicalRecipe, BotanicalSpecies};
 
 use super::{
-    RegenerateTree, ReviewCamera, ReviewFrames, ReviewGround, ReviewLight, ReviewLod, ReviewSun,
-    ReviewView, Settings, TreeBuildStatus, TreeMetrics, regenerate_tree,
+    RegenerateTree, ReviewCamera, ReviewFrames, ReviewGround, ReviewLight, ReviewLod,
+    ReviewLodSelection, ReviewSun, ReviewView, Settings, TreeBuildStatus, TreeLodProfile,
+    TreeMetrics, regenerate_tree,
 };
 
 const FPS_INTERVAL: f32 = 0.5;
@@ -32,9 +33,10 @@ const BAR_CLEARANCE: f32 = 76.0;
 const BOTTOM_CLEARANCE: f32 = 56.0;
 const INSPECTOR_WIDTH: f32 = 318.0;
 const DEFAULT_WIND_STRENGTH: f32 = 0.35;
-const HERO_CARD_WIDTH: f32 = 188.0;
-const SHOWCASE_WIDTH: f32 = HERO_CARD_WIDTH;
-const HERO_THUMBNAIL_HEIGHT: f32 = 120.0;
+const HERO_CARD_WIDTH: f32 = 88.0;
+const SHOWCASE_COLUMN_GAP: f32 = 8.0;
+const SHOWCASE_WIDTH: f32 = HERO_CARD_WIDTH * 2.0 + SHOWCASE_COLUMN_GAP;
+const HERO_THUMBNAIL_HEIGHT: f32 = 56.0;
 const HERO_CARD_HEIGHT: f32 = HERO_THUMBNAIL_HEIGHT + 18.0;
 const CONTROL_CORNER: u8 = 4;
 const SHOWCASE_VIEWS: [ReviewView; 3] = [ReviewView::Whole, ReviewView::Crown, ReviewView::Detail];
@@ -67,7 +69,7 @@ impl HeroPreset {
     }
 }
 
-const HERO_PRESETS: [HeroPreset; 3] = [
+const HERO_PRESETS: [HeroPreset; 6] = [
     HeroPreset {
         name: "Pōhutukawa",
         character: "Broad, wind-shaped coastal canopy · seed 42",
@@ -88,6 +90,27 @@ const HERO_PRESETS: [HeroPreset; 3] = [
         seed: 42,
         recipe: BotanicalRecipe::for_species(BotanicalSpecies::Harakeke),
         thumbnail: include_bytes!("../assets/showcase/harakeke.png"),
+    },
+    HeroPreset {
+        name: "Mānuka",
+        character: "Clear bole and wind-shaped umbrella crown · seed 73",
+        seed: 73,
+        recipe: BotanicalRecipe::for_species(BotanicalSpecies::Manuka),
+        thumbnail: include_bytes!("../assets/showcase/manuka.png"),
+    },
+    HeroPreset {
+        name: "Kauri",
+        character: "Monumental bole with terminal crown tufts · seed 88",
+        seed: 88,
+        recipe: BotanicalRecipe::for_species(BotanicalSpecies::Kauri),
+        thumbnail: include_bytes!("../assets/showcase/kauri.png"),
+    },
+    HeroPreset {
+        name: "Rimu",
+        character: "Conical podocarp with weeping curtains · seed 61",
+        seed: 61,
+        recipe: BotanicalRecipe::for_species(BotanicalSpecies::Rimu),
+        thumbnail: include_bytes!("../assets/showcase/rimu.png"),
     },
 ];
 
@@ -110,6 +133,7 @@ struct DraftFingerprint {
     lod: ReviewLod,
     foliage: bool,
     fine_shoots: bool,
+    auto_lod: bool,
 }
 
 const PANEL: egui::Color32 = egui::Color32::from_rgb(7, 14, 21);
@@ -253,10 +277,12 @@ struct StudioState {
     lod: ReviewLod,
     foliage: bool,
     fine_shoots: bool,
+    auto_lod: bool,
     animate_wind: bool,
     wind_speed: f32,
     fps: f64,
     next_fps_reading: f32,
+    camera_distance: f32,
     light_tone: LightTone,
     sun_illuminance: f32,
     biome: BiomeLook,
@@ -278,10 +304,12 @@ impl StudioState {
             lod: settings.lod,
             foliage: settings.foliage,
             fine_shoots: settings.fine_shoots,
+            auto_lod: settings.lod_selection == ReviewLodSelection::Automatic,
             animate_wind: settings.wind_strength > 0.0,
             wind_speed: 0.12,
             fps: 0.0,
             next_fps_reading: 0.0,
+            camera_distance: 0.0,
             light_tone: LightTone::Neutral,
             sun_illuminance: 92_000.0,
             biome: BiomeLook::CoastalHeadland,
@@ -302,6 +330,7 @@ impl StudioState {
             || self.lod != settings.lod
             || self.foliage != settings.foliage
             || self.fine_shoots != settings.fine_shoots
+            || self.auto_lod != (settings.lod_selection == ReviewLodSelection::Automatic)
     }
 
     fn request(&self, live: &Settings) -> Option<RegenerateTree> {
@@ -313,6 +342,11 @@ impl StudioState {
             light: live.light,
             foliage: self.foliage,
             fine_shoots: self.fine_shoots,
+            lod_selection: if self.auto_lod {
+                ReviewLodSelection::Automatic
+            } else {
+                ReviewLodSelection::Fixed
+            },
             wind_phase: live.wind_phase,
             wind_strength: live.wind_strength,
             screenshot: None,
@@ -327,6 +361,7 @@ impl StudioState {
             lod: self.lod,
             foliage: self.foliage,
             fine_shoots: self.fine_shoots,
+            auto_lod: self.auto_lod,
         })
     }
 
@@ -561,6 +596,7 @@ fn draw_command_bar(
                         let leaves_isolated_frond = settings.view == ReviewView::Frond;
                         studio.recipe = BotanicalRecipe::for_species(studio.recipe.species);
                         studio.lod = ReviewLod::Near;
+                        studio.auto_lod = true;
                         studio.foliage = true;
                         studio.fine_shoots = true;
                         settings.view = ReviewView::Whole;
@@ -619,21 +655,36 @@ fn draw_inspection_selector(
                 egui::ScrollArea::vertical()
                     .max_height(body_height)
                     .show(ui, |ui| {
-                        for (index, preset) in HERO_PRESETS.into_iter().enumerate() {
-                            let thumbnail = thumbnails.entries[index]
-                                .as_ref()
-                                .map(|(texture, _)| *texture);
-                            if hero_card(ui, preset, thumbnail, preset.matches(studio)) {
-                                let leaves_isolated_frond = settings.view == ReviewView::Frond
-                                    && settings.recipe.species == BotanicalSpecies::Nikau;
-                                preset.apply(studio);
-                                set_camera_view(ReviewView::Whole, settings, frames, cameras);
-                                if leaves_isolated_frond {
-                                    request_tree_rebuild(studio, settings, status, requests);
+                        egui::Grid::new("tree showcase grid")
+                            .num_columns(2)
+                            .spacing([SHOWCASE_COLUMN_GAP, 6.0])
+                            .show(ui, |ui| {
+                                for (index, preset) in HERO_PRESETS.into_iter().enumerate() {
+                                    let thumbnail = thumbnails.entries[index]
+                                        .as_ref()
+                                        .map(|(texture, _)| *texture);
+                                    if hero_card(ui, preset, thumbnail, preset.matches(studio)) {
+                                        let leaves_isolated_frond = settings.view
+                                            == ReviewView::Frond
+                                            && settings.recipe.species == BotanicalSpecies::Nikau;
+                                        preset.apply(studio);
+                                        set_camera_view(
+                                            ReviewView::Whole,
+                                            settings,
+                                            frames,
+                                            cameras,
+                                        );
+                                        if leaves_isolated_frond {
+                                            request_tree_rebuild(
+                                                studio, settings, status, requests,
+                                            );
+                                        }
+                                    }
+                                    if index % 2 == 1 {
+                                        ui.end_row();
+                                    }
                                 }
-                            }
-                            ui.add_space(6.0);
-                        }
+                            });
 
                         ui.separator();
                         ui.label(caps("CAMERA", 9.5, DIM_TEXT));
@@ -647,7 +698,7 @@ fn draw_inspection_selector(
                                 if selected {
                                     button = button.fill(ACCENT);
                                 }
-                                if ui.add_sized([58.0, 24.0], button).clicked() {
+                                if ui.add_sized([55.0, 24.0], button).clicked() {
                                     let leaves_isolated_frond = settings.view == ReviewView::Frond
                                         && settings.recipe.species == BotanicalSpecies::Nikau;
                                     set_camera_view(view, settings, frames, cameras);
@@ -660,7 +711,7 @@ fn draw_inspection_selector(
                     });
                 ui.add_space(2.0);
                 ui.separator();
-                ui.label(caps("3 HERO SPECIMENS · 3 CAMERA VIEWS", 8.5, DIM_TEXT));
+                ui.label(caps("6 HERO SPECIMENS · 3 CAMERA VIEWS", 8.5, DIM_TEXT));
             }
         });
 }
@@ -861,6 +912,9 @@ fn draw_form(ui: &mut egui::Ui, studio: &mut StudioState) {
         BotanicalSpecies::Pohutukawa => (5.0..=14.0, 0.25..=1.35),
         BotanicalSpecies::Nikau => (4.5..=10.0, 0.14..=0.34),
         BotanicalSpecies::Harakeke => (1.2..=3.0, 0.20..=0.55),
+        BotanicalSpecies::Manuka => (2.0..=8.0, 0.04..=0.24),
+        BotanicalSpecies::Kauri => (14.0..=40.0, 0.70..=3.20),
+        BotanicalSpecies::Rimu => (10.0..=36.0, 0.30..=1.40),
     };
     slider_f32(
         ui,
@@ -868,7 +922,11 @@ fn draw_form(ui: &mut egui::Ui, studio: &mut StudioState) {
         height_range,
         match studio.recipe.species {
             BotanicalSpecies::Harakeke => "Plant height",
-            BotanicalSpecies::Pohutukawa | BotanicalSpecies::Nikau => "Trunk height",
+            BotanicalSpecies::Pohutukawa
+            | BotanicalSpecies::Nikau
+            | BotanicalSpecies::Manuka
+            | BotanicalSpecies::Kauri
+            | BotanicalSpecies::Rimu => "Trunk height",
         },
         " m",
     );
@@ -880,23 +938,58 @@ fn draw_form(ui: &mut egui::Ui, studio: &mut StudioState) {
         *radius_range.start()..=radius_max,
         match studio.recipe.species {
             BotanicalSpecies::Harakeke => "Clump radius",
-            BotanicalSpecies::Pohutukawa | BotanicalSpecies::Nikau => "Trunk radius",
+            BotanicalSpecies::Pohutukawa
+            | BotanicalSpecies::Nikau
+            | BotanicalSpecies::Manuka
+            | BotanicalSpecies::Kauri
+            | BotanicalSpecies::Rimu => "Trunk radius",
         },
         " m",
     );
 
+    section(ui, "STEM CHARACTER");
+    let trunk_label = match studio.recipe.species {
+        BotanicalSpecies::Pohutukawa => "Coastal distortion",
+        BotanicalSpecies::Nikau | BotanicalSpecies::Rimu => "Trunk lean",
+        BotanicalSpecies::Harakeke => "Clump lean",
+        BotanicalSpecies::Manuka => "Trunk gnarl",
+        BotanicalSpecies::Kauri => "Buttress character",
+    };
+    slider_f32(
+        ui,
+        &mut studio.recipe.trunk_character,
+        0.0..=1.0,
+        trunk_label,
+        "",
+    );
+
     section(ui, "LEVEL OF DETAIL");
-    egui::ComboBox::from_id_salt("tree lod")
-        .selected_text(studio.lod.label())
-        .width(ui.available_width())
-        .show_ui(ui, |ui| {
-            for lod in ReviewLod::ALL {
-                ui.selectable_value(&mut studio.lod, lod, lod.label());
-            }
-        });
+    ui.checkbox(&mut studio.auto_lod, "Auto LOD by camera distance");
+    ui.add_enabled_ui(!studio.auto_lod, |ui| {
+        egui::ComboBox::from_id_salt("tree lod")
+            .selected_text(studio.lod.label())
+            .width(ui.available_width())
+            .show_ui(ui, |ui| {
+                for lod in ReviewLod::ALL {
+                    ui.selectable_value(&mut studio.lod, lod, lod.label());
+                }
+            });
+    });
+    if studio.auto_lod {
+        let profile = TreeLodProfile::from_height(studio.recipe.trunk_height_metres);
+        ui.label(
+            egui::RichText::new(format!(
+                "{:.1} m · {}",
+                studio.camera_distance,
+                profile.status(studio.camera_distance)
+            ))
+            .small()
+            .color(ACCENT),
+        );
+    }
     ui.label(
         egui::RichText::new(
-            "LOD 0 uses full leaves; LOD 1 uses canopy pads; LOD 2 uses an eight-vertex generated image impostor.",
+            "Auto mode dithers full leaves into canopy pads, then into an eight-vertex content-derived image impostor as the camera dollies away.",
         )
         .small()
         .color(DIM_TEXT),
@@ -943,7 +1036,71 @@ fn draw_branching(ui: &mut egui::Ui, studio: &mut StudioState) {
                 .color(DIM_TEXT),
             );
         }
+        BotanicalSpecies::Manuka => {
+            section(ui, "UMBRELLA CROWN");
+            ui.add(
+                egui::Slider::new(&mut studio.recipe.primary_count, 4..=12).text("Crown scaffolds"),
+            );
+            ui.add(
+                egui::Slider::new(&mut studio.recipe.secondaries_per_primary, 3..=8)
+                    .text("Lateral sprays"),
+            );
+            ui.add(
+                egui::Slider::new(&mut studio.recipe.terminals_per_secondary, 3..=8)
+                    .text("Flowering shoots"),
+            );
+        }
+        BotanicalSpecies::Kauri => {
+            section(ui, "EMERGENT CROWN");
+            ui.add(
+                egui::Slider::new(&mut studio.recipe.primary_count, 8..=18).text("Scaffold limbs"),
+            );
+            ui.add(
+                egui::Slider::new(&mut studio.recipe.secondaries_per_primary, 3..=8)
+                    .text("Crown branches"),
+            );
+            ui.add(
+                egui::Slider::new(&mut studio.recipe.terminals_per_secondary, 3..=8)
+                    .text("Foliage sprays"),
+            );
+        }
+        BotanicalSpecies::Rimu => {
+            section(ui, "WEEPING CROWN");
+            ui.add(egui::Slider::new(&mut studio.recipe.primary_count, 8..=18).text("Crown tiers"));
+            ui.add(
+                egui::Slider::new(&mut studio.recipe.secondaries_per_primary, 3..=8)
+                    .text("Drooping branches"),
+            );
+            ui.add(
+                egui::Slider::new(&mut studio.recipe.terminals_per_secondary, 3..=8)
+                    .text("Weeping branchlets"),
+            );
+        }
     }
+
+    section(ui, "SPECIES CHARACTER");
+    let (spread_label, droop_label) = match studio.recipe.species {
+        BotanicalSpecies::Pohutukawa => ("Canopy breadth", "Lower-limb sweep"),
+        BotanicalSpecies::Nikau => ("Crown spread", "Mature frond droop"),
+        BotanicalSpecies::Harakeke => ("Fan spread", "Blade droop"),
+        BotanicalSpecies::Manuka => ("Umbrella spread", "Branch droop"),
+        BotanicalSpecies::Kauri => ("Crown spread", "Branch sag"),
+        BotanicalSpecies::Rimu => ("Crown spread", "Weeping habit"),
+    };
+    slider_f32(
+        ui,
+        &mut studio.recipe.crown_spread,
+        0.0..=1.0,
+        spread_label,
+        "",
+    );
+    slider_f32(
+        ui,
+        &mut studio.recipe.branch_droop,
+        0.0..=1.0,
+        droop_label,
+        "",
+    );
 }
 
 fn draw_foliage(ui: &mut egui::Ui, studio: &mut StudioState, settings: &mut Settings) {
@@ -952,10 +1109,13 @@ fn draw_foliage(ui: &mut egui::Ui, studio: &mut StudioState, settings: &mut Sett
         BotanicalSpecies::Pohutukawa => (8..=64, "Leaves per terminal"),
         BotanicalSpecies::Nikau => (8..=64, "Leaflet pairs per frond"),
         BotanicalSpecies::Harakeke => (9..=18, "Leaves per fan"),
+        BotanicalSpecies::Manuka => (8..=64, "Leaves per flowering shoot"),
+        BotanicalSpecies::Kauri => (8..=32, "Tufts per branch tip"),
+        BotanicalSpecies::Rimu => (8..=40, "Foliage sprays per branchlet"),
     };
     ui.add(egui::Slider::new(&mut studio.recipe.leaves_per_terminal, leaf_range).text(leaf_label));
     ui.checkbox(&mut studio.foliage, "Show foliage");
-    ui.add_enabled_ui(studio.lod == ReviewLod::Near, |ui| {
+    ui.add_enabled_ui(studio.auto_lod || studio.lod == ReviewLod::Near, |ui| {
         ui.checkbox(&mut studio.fine_shoots, "Fine shoots and buds");
     });
 
@@ -1281,38 +1441,39 @@ fn inspect_camera(
     motion: Res<AccumulatedMouseMotion>,
     scroll: Res<AccumulatedMouseScroll>,
     wants_input: Res<EguiWantsInput>,
+    mut studio: ResMut<StudioState>,
     mut cameras: Query<(&mut ReviewCamera, &mut Transform)>,
 ) {
-    if wants_input.wants_any_pointer_input() {
-        return;
-    }
+    let can_manipulate = !wants_input.wants_any_pointer_input();
     for (mut camera, mut transform) in &mut cameras {
         let mut offset = transform.translation - camera.target;
         let mut distance = offset.length().max(0.35);
-        if mouse.pressed(MouseButton::Right) && motion.delta != Vec2::ZERO {
+        if can_manipulate && mouse.pressed(MouseButton::Right) && motion.delta != Vec2::ZERO {
             let yaw = offset.x.atan2(offset.z) - motion.delta.x * 0.006;
             let pitch = ((offset.y / distance).clamp(-1.0, 1.0).asin() + motion.delta.y * 0.005)
                 .clamp(-1.45, 1.45);
             let (vertical, horizontal) = pitch.sin_cos();
             let (across, forward) = yaw.sin_cos();
             offset = distance * Vec3::new(horizontal * across, vertical, horizontal * forward);
-        } else if mouse.pressed(MouseButton::Middle) && motion.delta != Vec2::ZERO {
+        } else if can_manipulate && mouse.pressed(MouseButton::Middle) && motion.delta != Vec2::ZERO
+        {
             let scale = distance * 0.0018;
             let shift =
                 (-*transform.right() * motion.delta.x + *transform.up() * motion.delta.y) * scale;
             camera.target += shift;
             transform.translation += shift;
         }
-        if scroll.delta.y.abs() > f32::EPSILON {
+        if can_manipulate && scroll.delta.y.abs() > f32::EPSILON {
             let sensitivity = match scroll.unit {
                 MouseScrollUnit::Line => 0.12,
                 MouseScrollUnit::Pixel => 0.002,
             };
-            distance = (distance * (-scroll.delta.y * sensitivity).exp()).clamp(0.35, 100.0);
+            distance = (distance * (-scroll.delta.y * sensitivity).exp()).clamp(0.35, 180.0);
             offset = offset.normalize_or(Vec3::Z) * distance;
         }
         transform.translation = camera.target + offset;
         *transform = transform.looking_at(camera.target, Vec3::Y);
+        studio.camera_distance = distance;
     }
 }
 
@@ -1354,6 +1515,7 @@ mod tests {
             light: ReviewLight::Front,
             foliage: true,
             fine_shoots: true,
+            lod_selection: ReviewLodSelection::Automatic,
             wind_phase: 0.0,
             wind_strength: 0.0,
             screenshot: None,
@@ -1375,6 +1537,7 @@ mod tests {
             light: ReviewLight::Front,
             foliage: true,
             fine_shoots: true,
+            lod_selection: ReviewLodSelection::Automatic,
             wind_phase: 0.0,
             wind_strength: 0.0,
             screenshot: None,
@@ -1393,6 +1556,7 @@ mod tests {
             light: ReviewLight::Front,
             foliage: true,
             fine_shoots: true,
+            lod_selection: ReviewLodSelection::Automatic,
             wind_phase: 0.0,
             wind_strength: 0.0,
             screenshot: None,
@@ -1416,6 +1580,7 @@ mod tests {
             light: ReviewLight::Front,
             foliage: true,
             fine_shoots: true,
+            lod_selection: ReviewLodSelection::Automatic,
             wind_phase: 0.0,
             wind_strength: 0.0,
             screenshot: None,
@@ -1438,6 +1603,7 @@ mod tests {
             light: ReviewLight::Front,
             foliage: true,
             fine_shoots: true,
+            lod_selection: ReviewLodSelection::Automatic,
             wind_phase: 0.0,
             wind_strength: 0.0,
             screenshot: None,
@@ -1481,6 +1647,7 @@ mod tests {
             light: ReviewLight::Front,
             foliage: false,
             fine_shoots: false,
+            lod_selection: ReviewLodSelection::Automatic,
             wind_phase: 0.0,
             wind_strength: 0.0,
             screenshot: None,

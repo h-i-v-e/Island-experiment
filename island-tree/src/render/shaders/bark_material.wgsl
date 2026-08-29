@@ -4,6 +4,11 @@
     pbr_functions::{alpha_discard, apply_pbr_lighting, main_pass_post_lighting_processing},
 }
 
+
+#ifdef VISIBILITY_RANGE_DITHER
+#import bevy_pbr::pbr_functions::visibility_range_dither;
+#endif
+
 fn smooth_response(value: f32) -> f32 {
     return value * value * (3.0 - 2.0 * value);
 }
@@ -13,6 +18,9 @@ fn fragment(
     in: VertexOutput,
     @builtin(front_facing) is_front: bool,
 ) -> FragmentOutput {
+#ifdef VISIBILITY_RANGE_DITHER
+    visibility_range_dither(in.position, in.visibility_range_dither);
+#endif
     var pbr_input = pbr_input_from_standard_material(in, is_front);
     var maturity = 1.0;
 

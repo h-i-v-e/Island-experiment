@@ -13,7 +13,7 @@ pub const FOLIAGE_PAD_ARCHETYPE_COUNT: usize = 2;
 pub const SHOOT_TIP_ARCHETYPE_COUNT: usize = 2;
 pub const REPRODUCTIVE_ARCHETYPE_COUNT: usize = 2;
 pub(super) const AXIS_POINTS: usize = 5;
-const RECIPE_VERSION: u16 = 1;
+const RECIPE_VERSION: u16 = 2;
 
 /// Species architectures available through the shared botanical prototype.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -22,10 +22,20 @@ pub enum BotanicalSpecies {
     Pohutukawa,
     Nikau,
     Harakeke,
+    Manuka,
+    Kauri,
+    Rimu,
 }
 
 impl BotanicalSpecies {
-    pub const ALL: [Self; 3] = [Self::Pohutukawa, Self::Nikau, Self::Harakeke];
+    pub const ALL: [Self; 6] = [
+        Self::Pohutukawa,
+        Self::Nikau,
+        Self::Harakeke,
+        Self::Manuka,
+        Self::Kauri,
+        Self::Rimu,
+    ];
 
     #[must_use]
     pub const fn label(self) -> &'static str {
@@ -33,6 +43,9 @@ impl BotanicalSpecies {
             Self::Pohutukawa => "Pōhutukawa · mature tree",
             Self::Nikau => "Nīkau · mature palm",
             Self::Harakeke => "Harakeke · mature flax clump",
+            Self::Manuka => "Mānuka · coastal umbrella tree",
+            Self::Kauri => "Kauri · emergent ancient tree",
+            Self::Rimu => "Rimu · weeping forest conifer",
         }
     }
 
@@ -42,6 +55,9 @@ impl BotanicalSpecies {
             Self::Pohutukawa => "Metrosideros excelsa",
             Self::Nikau => "Rhopalostylis sapida",
             Self::Harakeke => "Phormium tenax",
+            Self::Manuka => "Leptospermum scoparium",
+            Self::Kauri => "Agathis australis",
+            Self::Rimu => "Dacrydium cupressinum",
         }
     }
 }
@@ -57,6 +73,12 @@ pub struct BotanicalRecipe {
     pub secondaries_per_primary: u8,
     pub terminals_per_secondary: u8,
     pub leaves_per_terminal: u8,
+    /// Horizontal extent of the mature crown or basal fan, from compact to broad.
+    pub crown_spread: f32,
+    /// Downward curvature of branches, fronds or strap leaves.
+    pub branch_droop: f32,
+    /// Species-specific stem character, such as coastal lean, gnarl or buttressing.
+    pub trunk_character: f32,
 }
 
 impl Default for BotanicalRecipe {
@@ -78,6 +100,9 @@ impl BotanicalRecipe {
                 secondaries_per_primary: 6,
                 terminals_per_secondary: 8,
                 leaves_per_terminal: 64,
+                crown_spread: 0.5,
+                branch_droop: 0.5,
+                trunk_character: 0.5,
             },
             BotanicalSpecies::Nikau => Self {
                 version: RECIPE_VERSION,
@@ -88,6 +113,9 @@ impl BotanicalRecipe {
                 secondaries_per_primary: 3,
                 terminals_per_secondary: 3,
                 leaves_per_terminal: 48,
+                crown_spread: 0.5,
+                branch_droop: 0.5,
+                trunk_character: 0.5,
             },
             BotanicalSpecies::Harakeke => Self {
                 version: RECIPE_VERSION,
@@ -98,8 +126,62 @@ impl BotanicalRecipe {
                 secondaries_per_primary: 3,
                 terminals_per_secondary: 3,
                 leaves_per_terminal: 9,
+                crown_spread: 0.5,
+                branch_droop: 0.5,
+                trunk_character: 0.5,
+            },
+            BotanicalSpecies::Manuka => Self {
+                version: RECIPE_VERSION,
+                species,
+                trunk_height_metres: 4.2,
+                trunk_radius_metres: 0.075,
+                primary_count: 7,
+                secondaries_per_primary: 6,
+                terminals_per_secondary: 6,
+                leaves_per_terminal: 26,
+                crown_spread: 0.5,
+                branch_droop: 0.5,
+                trunk_character: 0.5,
+            },
+            BotanicalSpecies::Kauri => Self {
+                version: RECIPE_VERSION,
+                species,
+                trunk_height_metres: 24.0,
+                trunk_radius_metres: 1.65,
+                primary_count: 16,
+                secondaries_per_primary: 5,
+                terminals_per_secondary: 3,
+                leaves_per_terminal: 10,
+                crown_spread: 0.5,
+                branch_droop: 0.5,
+                trunk_character: 0.5,
+            },
+            BotanicalSpecies::Rimu => Self {
+                version: RECIPE_VERSION,
+                species,
+                trunk_height_metres: 18.0,
+                trunk_radius_metres: 0.55,
+                primary_count: 16,
+                secondaries_per_primary: 6,
+                terminals_per_secondary: 5,
+                leaves_per_terminal: 16,
+                crown_spread: 0.5,
+                branch_droop: 0.5,
+                trunk_character: 0.5,
             },
         }
+    }
+
+    pub(super) fn crown_spread_scale(self) -> f32 {
+        self.crown_spread.mul_add(0.6, 0.7)
+    }
+
+    pub(super) fn branch_droop_scale(self) -> f32 {
+        self.branch_droop.mul_add(1.2, 0.4)
+    }
+
+    pub(super) fn trunk_character_scale(self) -> f32 {
+        self.trunk_character.mul_add(1.4, 0.3)
     }
 
     pub(super) fn validate(self) -> Result<Self, String> {
@@ -111,9 +193,15 @@ impl BotanicalRecipe {
         }
         if !self.trunk_height_metres.is_finite()
             || !self.trunk_radius_metres.is_finite()
+            || !self.crown_spread.is_finite()
+            || !self.branch_droop.is_finite()
+            || !self.trunk_character.is_finite()
             || self.trunk_height_metres <= 0.0
             || self.trunk_radius_metres <= 0.0
             || self.trunk_radius_metres >= self.trunk_height_metres * 0.2
+            || !(0.0..=1.0).contains(&self.crown_spread)
+            || !(0.0..=1.0).contains(&self.branch_droop)
+            || !(0.0..=1.0).contains(&self.trunk_character)
         {
             return Err("botanical trunk dimensions are outside their bounds".into());
         }
@@ -121,12 +209,18 @@ impl BotanicalRecipe {
             BotanicalSpecies::Pohutukawa => (5..=10).contains(&self.primary_count),
             BotanicalSpecies::Nikau => (12..=24).contains(&self.primary_count),
             BotanicalSpecies::Harakeke => (4..=16).contains(&self.primary_count),
+            BotanicalSpecies::Manuka => (4..=12).contains(&self.primary_count),
+            BotanicalSpecies::Kauri | BotanicalSpecies::Rimu => {
+                (8..=18).contains(&self.primary_count)
+            }
         };
         let leaves_are_bounded = match self.species {
             BotanicalSpecies::Harakeke => (9..=18).contains(&self.leaves_per_terminal),
-            BotanicalSpecies::Pohutukawa | BotanicalSpecies::Nikau => {
-                (8..=64).contains(&self.leaves_per_terminal)
-            }
+            BotanicalSpecies::Pohutukawa
+            | BotanicalSpecies::Nikau
+            | BotanicalSpecies::Manuka
+            | BotanicalSpecies::Kauri
+            | BotanicalSpecies::Rimu => (8..=64).contains(&self.leaves_per_terminal),
         };
         if !primary_is_bounded
             || !(3..=8).contains(&self.secondaries_per_primary)
@@ -172,6 +266,9 @@ pub struct AxisGraph {
     pub axes: Vec<Axis>,
 }
 
+/// Placement of a bounded foliage archetype. For broad-leaved species this is
+/// one blade; small-leaved species may use a short botanical spray so the near
+/// representation remains legible without creating an entity per tiny leaf.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LeafOrgan {
     pub axis: u32,
@@ -247,6 +344,43 @@ pub struct BotanicalTexture {
     pub width: u32,
     pub height: u32,
     pub rgba: Vec<u8>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{BotanicalRecipe, BotanicalSpecies};
+
+    #[test]
+    fn every_species_recipe_has_neutral_bounded_character_controls() {
+        for species in BotanicalSpecies::ALL {
+            let recipe = BotanicalRecipe::for_species(species);
+            assert!((recipe.crown_spread_scale() - 1.0).abs() < f32::EPSILON);
+            assert!((recipe.branch_droop_scale() - 1.0).abs() < f32::EPSILON);
+            assert!((recipe.trunk_character_scale() - 1.0).abs() < f32::EPSILON);
+            assert!(recipe.validate().is_ok());
+        }
+    }
+
+    #[test]
+    fn character_controls_reject_non_finite_or_unbounded_values() {
+        let mut recipe = BotanicalRecipe {
+            crown_spread: 1.01,
+            ..BotanicalRecipe::default()
+        };
+        assert!(recipe.validate().is_err());
+
+        recipe = BotanicalRecipe {
+            branch_droop: -0.01,
+            ..BotanicalRecipe::default()
+        };
+        assert!(recipe.validate().is_err());
+
+        recipe = BotanicalRecipe {
+            trunk_character: f32::NAN,
+            ..BotanicalRecipe::default()
+        };
+        assert!(recipe.validate().is_err());
+    }
 }
 
 /// Renderer-neutral bark state aligned one-to-one with a wood mesh's vertices.

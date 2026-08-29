@@ -4,6 +4,10 @@
     pbr_functions::{alpha_discard, apply_pbr_lighting, main_pass_post_lighting_processing},
 }
 
+#ifdef VISIBILITY_RANGE_DITHER
+#import bevy_pbr::pbr_functions::visibility_range_dither;
+#endif
+
 const LEAF_ATLAS_INSET: f32 = 1.0 / 256.0;
 
 fn leaf_hash(value: f32) -> f32 {
@@ -130,6 +134,9 @@ fn fragment(
     in: VertexOutput,
     @builtin(front_facing) is_front: bool,
 ) -> FragmentOutput {
+#ifdef VISIBILITY_RANGE_DITHER
+    visibility_range_dither(in.position, in.visibility_range_dither);
+#endif
     var pbr_input = pbr_input_from_standard_material(in, is_front);
     let uv = leaf_local_uv(in.uv);
     let atlas_tile = dot(floor(in.uv * 2.0), vec2<f32>(1.0, 2.0));

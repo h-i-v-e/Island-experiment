@@ -160,7 +160,9 @@ fn nikau_graph(recipe: BotanicalRecipe, rng: &mut Rng) -> AxisGraph {
 
 fn trunk_axis(recipe: BotanicalRecipe, rng: &mut Rng) -> Axis {
     let phase = rng.range(0.0, TAU);
-    let lean = Vec3::new(phase.cos(), phase.sin(), 0.0) * rng.range(0.10, 0.24);
+    let lean = Vec3::new(phase.cos(), phase.sin(), 0.0)
+        * rng.range(0.10, 0.24)
+        * recipe.trunk_character_scale();
     let points_metres = std::array::from_fn(|index| {
         let t = index as f32 / (AXIS_POINTS - 1) as f32;
         let wind_curve =
@@ -215,8 +217,9 @@ fn frond_axis(recipe: BotanicalRecipe, crownshaft: Axis, index: usize, rng: &mut
     let radial = Vec3::new(phase.cos(), phase.sin(), 0.0);
     let tangent = Vec3::new(-phase.sin(), phase.cos(), 0.0);
     let length = (3.12 + age.sqrt() * 0.82) * rng.range(0.94, 1.06);
-    let elevation = (1.43 - age * 1.24 + rng.range(-0.075, 0.075)).clamp(0.12, 1.48);
-    let droop = 0.025 + age.powf(1.45) * 0.72;
+    let elevation = (1.32 - age * 1.15 + rng.range(-0.075, 0.075)).clamp(0.10, 1.38);
+    let spread = recipe.crown_spread_scale();
+    let droop = (0.025 + age.powf(1.45) * 0.72) * recipe.branch_droop_scale();
     let crown_top = crownshaft.points_metres[AXIS_POINTS - 1];
     let origin = crown_top - Vec3::Z * (0.03 + age * 0.62) + radial * (0.04 + age * 0.10);
     let points_metres = std::array::from_fn(|point| {
@@ -224,7 +227,7 @@ fn frond_axis(recipe: BotanicalRecipe, crownshaft: Axis, index: usize, rng: &mut
         let outward = elevation.cos() * t;
         let rise = elevation.sin().mul_add(t, -droop * t.powf(2.15));
         origin
-            + radial * length * outward
+            + radial * length * outward * spread
             + tangent * length * rng.range(-0.012, 0.012) * (t * PI).sin()
             + Vec3::Z * length * rise
     });
@@ -932,6 +935,11 @@ mod tests {
             2
         );
         assert!(first.graph.axes.iter().all(|axis| axis.order <= 1));
+        let youngest_frond = first.graph.axes[2];
+        let youngest_chord =
+            youngest_frond.points_metres[AXIS_POINTS - 1] - youngest_frond.points_metres[0];
+        let youngest_horizontal = Vec3::new(youngest_chord.x, youngest_chord.y, 0.0).length();
+        assert!(youngest_horizontal > youngest_chord.length() * 0.20);
         let trunk_tip = first.graph.axes[0].points_metres[AXIS_POINTS - 1];
         let crownshaft_base = first.graph.axes[1].points_metres[0];
         assert!(crownshaft_base.z < trunk_tip.z);

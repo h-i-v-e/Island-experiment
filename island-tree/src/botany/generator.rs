@@ -17,6 +17,8 @@ use motu::{Mesh, Vec2, Vec3};
 
 use super::{
     harakeke::generate_harakeke_prototype,
+    kauri::generate_kauri_prototype,
+    manuka::generate_manuka_prototype,
     model::{
         AXIS_POINTS, Axis, AxisGraph, BarkVertex, BotanicalPrototype, BotanicalRecipe,
         BotanicalSpecies, BotanicalTexture, FOLIAGE_PAD_ARCHETYPE_COUNT, FoliagePad,
@@ -24,6 +26,7 @@ use super::{
     },
     nikau::generate_nikau_prototype,
     random::Rng,
+    rimu::generate_rimu_prototype,
 };
 
 const BOTANICAL_SEED_DOMAIN: u64 = 0x626f_7461_6e69_6361;
@@ -104,6 +107,9 @@ pub fn generate_botanical_prototype(
         BotanicalSpecies::Pohutukawa => generate_pohutukawa_prototype(seed, recipe),
         BotanicalSpecies::Nikau => generate_nikau_prototype(seed, recipe),
         BotanicalSpecies::Harakeke => generate_harakeke_prototype(seed, recipe),
+        BotanicalSpecies::Manuka => generate_manuka_prototype(seed, recipe),
+        BotanicalSpecies::Kauri => generate_kauri_prototype(seed, recipe),
+        BotanicalSpecies::Rimu => generate_rimu_prototype(seed, recipe),
     }
 }
 
@@ -178,20 +184,23 @@ struct CrownEnvironment {
     upper_lean_metres: f32,
     gap_direction: f32,
     gap_half_width: f32,
+    lower_droop_metres: f32,
 }
 
-fn crown_environment(seed: u64, storm_direction: f32) -> CrownEnvironment {
+fn crown_environment(seed: u64, storm_direction: f32, recipe: BotanicalRecipe) -> CrownEnvironment {
     let mut rng = Rng::new(seed ^ CROWN_ENVIRONMENT_SEED_DOMAIN);
+    let spread = recipe.crown_spread_scale();
     CrownEnvironment {
         storm_direction,
         shape_axis: storm_direction + rng.range(-0.82, 0.82),
-        major_radius_metres: rng.range(7.4, 8.5),
-        minor_radius_metres: rng.range(5.2, 6.2),
+        major_radius_metres: rng.range(7.4, 8.5) * spread,
+        minor_radius_metres: rng.range(5.2, 6.2) * spread,
         half_height_metres: rng.range(2.55, 3.15),
         lee_extension: rng.range(0.12, 0.28),
-        upper_lean_metres: rng.range(0.55, 1.35),
+        upper_lean_metres: rng.range(0.55, 1.35) * recipe.trunk_character_scale(),
         gap_direction: storm_direction + rng.range(-0.58, 0.58),
         gap_half_width: rng.range(0.32, 0.52),
+        lower_droop_metres: (recipe.branch_droop_scale() - 1.0) * 1.35,
     }
 }
 
@@ -202,7 +211,7 @@ fn generate_competition_graph(seed: u64, recipe: BotanicalRecipe) -> Result<Axis
     let crosswind = Vec3::new(-wind.y, wind.x, 0.0);
     let drift = -wind * rng.range(0.45, 1.05) + crosswind * rng.range(-0.28, 0.28);
     let trunk = trunk_axis(recipe, drift);
-    let environment = crown_environment(seed, storm_direction);
+    let environment = crown_environment(seed, storm_direction, recipe);
     let attraction_count = usize::from(recipe.primary_count)
         * usize::from(recipe.secondaries_per_primary)
         * usize::from(recipe.terminals_per_secondary);
@@ -227,9 +236,10 @@ fn trunk_axis(recipe: BotanicalRecipe, drift: Vec3) -> Axis {
         points_metres: std::array::from_fn(|index| {
             let t = index as f32 / (AXIS_POINTS - 1) as f32;
             let bend = t * t;
+            let character = recipe.trunk_character_scale();
             Vec3::new(
-                drift.x * bend + (t * PI).sin() * 0.12,
-                drift.y * bend + (t * 1.7 * PI).sin() * 0.08,
+                drift.x * bend * character + (t * PI).sin() * 0.12 * character,
+                drift.y * bend * character + (t * 1.7 * PI).sin() * 0.08 * character,
                 recipe.trunk_height_metres * t,
             )
         }),
@@ -345,7 +355,8 @@ fn crown_attractions(
             + Vec3::Z
                 * (recipe.trunk_height_metres * 0.58
                     + unit.z * environment.half_height_metres
-                    + lobe_height)
+                    + lobe_height
+                    - (-unit.z).max(0.0) * environment.lower_droop_metres)
             + drift * (0.45 + unit.z.max(0.0) * 0.55);
         let radial = position.x.hypot(position.y);
         let protected_core = radial < 1.05 && position.z < recipe.trunk_height_metres * 0.68;
@@ -1689,7 +1700,7 @@ fn estimate_leaf_exposure(leaves: &mut [LeafOrgan]) -> Result<(), String> {
     Ok(())
 }
 
-fn generate_foliage_pads(graph: &AxisGraph, leaves: &[LeafOrgan]) -> Vec<FoliagePad> {
+pub(super) fn generate_foliage_pads(graph: &AxisGraph, leaves: &[LeafOrgan]) -> Vec<FoliagePad> {
     graph
         .axes
         .iter()
@@ -1753,7 +1764,10 @@ fn generate_foliage_pads(graph: &AxisGraph, leaves: &[LeafOrgan]) -> Vec<Foliage
         .collect()
 }
 
-fn generate_wood(seed: u64, graph: &AxisGraph) -> Result<(Mesh, Vec<BarkVertex>, Mesh), String> {
+pub(super) fn generate_wood(
+    seed: u64,
+    graph: &AxisGraph,
+) -> Result<(Mesh, Vec<BarkVertex>, Mesh), String> {
     let mut mesh = Mesh::default();
     let mut bark = Vec::new();
     for run in branch_runs(graph) {
@@ -2772,7 +2786,7 @@ fn leaf_atlas_uv(tile: u8, local: Vec2) -> Vec2 {
     )
 }
 
-fn foliage_pad_archetypes() -> [Mesh; FOLIAGE_PAD_ARCHETYPE_COUNT] {
+pub(super) fn foliage_pad_archetypes() -> [Mesh; FOLIAGE_PAD_ARCHETYPE_COUNT] {
     [pad_mesh(0x8d3a_6f11), pad_mesh(0x51c2_e7a9)]
 }
 
@@ -3796,8 +3810,9 @@ mod tests {
     #[test]
     fn crown_environment_is_deterministic_asymmetric_and_bounded() {
         for seed in [3, 42, 666, 2026, 9_001] {
-            let environment = crown_environment(seed, 0.37);
-            assert_eq!(environment, crown_environment(seed, 0.37));
+            let recipe = BotanicalRecipe::default();
+            let environment = crown_environment(seed, 0.37, recipe);
+            assert_eq!(environment, crown_environment(seed, 0.37, recipe));
             assert!((7.4..=8.5).contains(&environment.major_radius_metres));
             assert!((5.2..=6.2).contains(&environment.minor_radius_metres));
             assert!(environment.major_radius_metres > environment.minor_radius_metres);

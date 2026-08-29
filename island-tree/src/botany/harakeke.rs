@@ -23,6 +23,7 @@ use super::{
     model::{
         AXIS_POINTS, Axis, AxisGraph, BarkVertex, BotanicalPrototype, BotanicalRecipe,
         BotanicalTexture, FOLIAGE_PAD_ARCHETYPE_COUNT, FoliagePad, LEAF_ARCHETYPE_COUNT, LeafOrgan,
+        REPRODUCTIVE_ARCHETYPE_COUNT, ReproductiveOrgan, ReproductiveState,
     },
     random::Rng,
 };
@@ -138,6 +139,7 @@ pub(super) fn generate_harakeke_prototype(
     let (graph, fans) = harakeke_graph(recipe, &mut rng);
     let leaves = harakeke_leaves(recipe, &fans, &mut rng)?;
     let foliage_pads = harakeke_foliage_pads(recipe, &fans);
+    let reproductive_organs = harakeke_reproductive_organs(recipe, &fans, &mut rng)?;
     let (wood, wood_bark) = basal_sheaths(recipe, &fans)?;
     Ok(BotanicalPrototype {
         species: recipe.species,
@@ -150,11 +152,11 @@ pub(super) fn generate_harakeke_prototype(
         microtwig_bark: Vec::new(),
         leaf_archetypes: harakeke_leaf_archetypes(),
         shoot_tip_archetypes: std::array::from_fn(|_| Mesh::default()),
-        reproductive_archetypes: std::array::from_fn(|_| Mesh::default()),
+        reproductive_archetypes: harakeke_reproductive_archetypes(),
         foliage_pad_archetypes: harakeke_pad_archetypes(),
         leaves,
         shoot_tips: Vec::new(),
-        reproductive_organs: Vec::new(),
+        reproductive_organs,
         foliage_pads,
         bark_albedo: harakeke_base_albedo(seed),
         bark_normal: flat_normal_texture(TEXTURE_SIZE),
@@ -186,6 +188,51 @@ struct Fan {
     variation: f32,
 }
 
+fn harakeke_reproductive_organs(
+    recipe: BotanicalRecipe,
+    fans: &[Fan],
+    rng: &mut Rng,
+) -> Result<Vec<ReproductiveOrgan>, String> {
+    let mut candidates: Vec<_> = fans.iter().enumerate().collect();
+    candidates.sort_by(|(_, left), (_, right)| right.maturity.total_cmp(&left.maturity));
+    let stalk_count = fans.len().div_ceil(3).clamp(2, 3);
+    let mut organs = Vec::with_capacity(stalk_count * 2);
+    for (stalk_index, (fan_index, fan)) in candidates.into_iter().take(stalk_count).enumerate() {
+        let axis =
+            u32::try_from(fan_index + 1).map_err(|_| "harakeke flower stalk axis exceeds u32")?;
+        let centred_rank = stalk_index as f32 - (stalk_count - 1) as f32 * 0.5;
+        let lateral_offset = centred_rank * 0.22;
+        let base_metres = fan.base
+            + fan.lateral * lateral_offset
+            + fan.heading * (centred_rank * 0.07 + rng.range(-0.045, 0.045))
+            + Vec3::Z * 0.035;
+        let direction =
+            (Vec3::Z + fan.lean * fan.lean_strength * 0.12 + fan.lateral * centred_rank * 0.065)
+                .normalize_or(Vec3::Z);
+        let length_metres = recipe.trunk_height_metres * rng.range(1.42, 1.70);
+        // This is the transverse scale for the complete branched
+        // inflorescence, not the physical peduncle radius. The shared
+        // archetype keeps the actual stalk itself under 20 mm thick.
+        let radius_metres = rng.range(0.135, 0.165);
+        let variation = stalk_index as f32 * 1.18 - 0.42 + rng.range(-0.12, 0.12);
+        // The dark scape and red blooms are separate shared archetypes with
+        // identical transforms. This keeps their materials botanical without
+        // multiplying scene entities by individual branch or flower count.
+        for state in [ReproductiveState::Fruit, ReproductiveState::Flower] {
+            organs.push(ReproductiveOrgan {
+                axis,
+                base_metres,
+                direction,
+                length_metres,
+                radius_metres,
+                state,
+                variation,
+            });
+        }
+    }
+    Ok(organs)
+}
+
 fn harakeke_graph(recipe: BotanicalRecipe, rng: &mut Rng) -> (AxisGraph, Vec<Fan>) {
     let fan_count = usize::from(recipe.primary_count);
     let mut fans = Vec::with_capacity(fan_count);
@@ -215,12 +262,14 @@ fn harakeke_graph(recipe: BotanicalRecipe, rng: &mut Rng) -> (AxisGraph, Vec<Fan
     // keep almost one plane, so several fans are seen edge-on together instead
     // of each facing its own direction.
     let mut bearing = rng.range(0.0, TAU);
+    let spread = recipe.crown_spread_scale();
     while fans.len() < fan_count {
         bearing += rng.range(1.05, 2.95);
         let chain_direction = Vec3::new(bearing.cos(), bearing.sin(), 0.0);
         // Blades splay along the rhizome, so the plane normal is across it.
         let plane_phase = bearing + PI * 0.5 + rng.range(-0.22, 0.22);
-        let chain_root = chain_direction * recipe.trunk_radius_metres * rng.range(0.05, 0.62);
+        let chain_root =
+            chain_direction * recipe.trunk_radius_metres * rng.range(0.05, 0.62) * spread;
         let chain_length = (2 + (rng.unit() * 1.9) as usize).min(fan_count - fans.len());
 
         for step in 0..chain_length {
@@ -239,6 +288,7 @@ fn harakeke_graph(recipe: BotanicalRecipe, rng: &mut Rng) -> (AxisGraph, Vec<Fan
                     * recipe.trunk_radius_metres
                     * step as f32
                     * rng.range(0.44, 0.86)
+                    * spread
                 + heading * recipe.trunk_radius_metres * rng.range(-0.20, 0.20)
                 + Vec3::Z * rng.range(0.010, 0.045);
             let outward = (base - Vec3::Z * base.z)
@@ -246,7 +296,8 @@ fn harakeke_graph(recipe: BotanicalRecipe, rng: &mut Rng) -> (AxisGraph, Vec<Fan
                 .unwrap_or(chain_direction);
             let lean = (outward * 0.62 + clump_lean * 0.55 + heading * rng.range(-0.25, 0.25))
                 .normalize_or(outward);
-            let lean_strength = rng.range(0.05, 0.16) * (0.65 + maturity * 0.55);
+            let lean_strength =
+                rng.range(0.05, 0.16) * (0.65 + maturity * 0.55) * recipe.trunk_character_scale();
             let height_metres = recipe.trunk_height_metres * (0.095 + maturity * 0.080);
 
             let fan = Fan {
@@ -290,7 +341,8 @@ fn harakeke_leaves(
 ) -> Result<Vec<LeafOrgan>, String> {
     let leaves_per_fan = usize::from(recipe.leaves_per_terminal);
     let outermost = leaves_per_fan.saturating_sub(1).max(1) as f32;
-    let base_spread = recipe.trunk_radius_metres * 0.16;
+    let base_spread = recipe.trunk_radius_metres * 0.16 * recipe.crown_spread_scale();
+    let droop = recipe.branch_droop_scale();
     let mut leaves = Vec::with_capacity(fans.len().saturating_mul(leaves_per_fan));
     for (fan_index, fan) in fans.iter().enumerate() {
         let axis_id = u32::try_from(fan_index + 1).map_err(|_| "harakeke fan index exceeds u32")?;
@@ -311,8 +363,8 @@ fn harakeke_leaves(
                 + fan.lean * fan.lean_strength * 1.40)
                 .normalize_or(fan.lateral * side);
             let elevation = (1.49
-                - splay.powf(1.25) * fan.maturity * 1.05
-                - lean_alignment * fan.lean_strength * 1.60
+                - splay.powf(1.25) * fan.maturity * 1.05 * droop
+                - lean_alignment * fan.lean_strength * 1.60 * droop
                 + rng.range(-0.14, 0.14))
             // Keep even the oldest blade's shared decurve above its own base.
             // Lower angles let the cohort-3 archetype curl underground and
@@ -607,6 +659,119 @@ fn proxy_fan_mesh(droop: f32) -> Mesh {
     }
     mesh.calculate_normals();
     mesh
+}
+
+fn harakeke_reproductive_archetypes() -> [Mesh; REPRODUCTIVE_ARCHETYPE_COUNT] {
+    [flowering_scape_mesh(), seed_scape_mesh()]
+}
+
+fn flowering_scape_mesh() -> Mesh {
+    let mut mesh = Mesh::default();
+    for_each_scape_branch(|branch_index, _base, middle, tip| {
+        for flower_index in 0..10 {
+            let fraction = 0.36 + flower_index as f32 / 9.0 * 0.62;
+            let flower_base = middle.lerp(tip, fraction);
+            let outward = (tip - middle).normalize_or(Vec3::Y);
+            let lift = if (branch_index + flower_index).is_multiple_of(3) {
+                0.0145
+            } else {
+                0.0115
+            };
+            let flower_tip = flower_base + Vec3::X * lift + outward * 0.055;
+            append_tapered_tube(&mut mesh, flower_base, flower_tip, 0.045, 0.070, 7);
+        }
+    });
+    mesh.calculate_normals();
+    mesh
+}
+
+fn seed_scape_mesh() -> Mesh {
+    let mut mesh = Mesh::default();
+    append_tapered_tube(&mut mesh, Vec3::ZERO, Vec3::X, 0.058, 0.030, 7);
+    for_each_scape_branch(|_, base, middle, tip| {
+        append_tapered_tube(&mut mesh, base, middle, 0.035, 0.026, 6);
+        append_tapered_tube(&mut mesh, middle, tip, 0.026, 0.015, 6);
+    });
+    mesh.calculate_normals();
+    mesh
+}
+
+fn for_each_scape_branch(mut visit: impl FnMut(usize, Vec3, Vec3, Vec3)) {
+    let mut branch_index = 0;
+    for tier in 0_usize..7 {
+        let x = 0.34 + tier as f32 * 0.082;
+        let scale = 1.0 - tier as f32 * 0.070;
+        let side = if tier.is_multiple_of(2) { -1.0 } else { 1.0 };
+        let depth = (tier as f32 * 1.71).sin() * 0.48;
+        let base = Vec3::new(x, side * 0.035, 0.0);
+        let middle = Vec3::new(x + 0.022, side * 1.02 * scale, depth * 0.35 * scale);
+        let tip = Vec3::new(
+            x + 0.075 + tier as f32 * 0.003,
+            side * 2.85 * scale,
+            depth * scale,
+        );
+        visit(branch_index, base, middle, tip);
+        branch_index += 1;
+
+        if matches!(tier, 1 | 4) {
+            let opposite_scale = 0.64 + tier as f32 * 0.025;
+            let opposite_base = Vec3::new(x + 0.020, -side * 0.030, 0.0);
+            let opposite_middle = Vec3::new(
+                x + 0.038,
+                -side * 0.94 * scale * opposite_scale,
+                -depth * 0.24 * scale,
+            );
+            let opposite_tip = Vec3::new(
+                x + 0.086,
+                -side * 2.55 * scale * opposite_scale,
+                -depth * 0.58 * scale,
+            );
+            visit(branch_index, opposite_base, opposite_middle, opposite_tip);
+            branch_index += 1;
+        }
+    }
+}
+
+fn append_tapered_tube(
+    mesh: &mut Mesh,
+    start: Vec3,
+    end: Vec3,
+    start_radius: f32,
+    end_radius: f32,
+    sides: usize,
+) {
+    let direction = (end - start).normalize_or(Vec3::X);
+    let reference = if direction.z.abs() < 0.88 {
+        Vec3::Z
+    } else {
+        Vec3::Y
+    };
+    let first = direction.cross(reference).normalize_or(Vec3::Y);
+    let second = direction.cross(first).normalize_or(Vec3::Z);
+    let offset = u32::try_from(mesh.vertices.len()).expect("harakeke flower mesh fits u32");
+    for ring in 0..2 {
+        let centre = if ring == 0 { start } else { end };
+        let radius = if ring == 0 { start_radius } else { end_radius };
+        for side in 0..=sides {
+            let angle = side as f32 / sides as f32 * TAU;
+            let offset = first * angle.cos() * radius + second * angle.sin() * radius;
+            // The organ transform scales local X by stalk height and Y/Z by
+            // crown width. Compressing transverse X here keeps horizontal
+            // branches and flowers round instead of stretching them into
+            // vertical fins under that deliberately anisotropic transform.
+            let offset = Vec3::new(offset.x * 0.038, offset.y, offset.z);
+            mesh.vertices.push(centre + offset);
+            mesh.uv
+                .push(Vec2::new(side as f32 / sides as f32, ring as f32));
+        }
+    }
+    let stride = sides + 1;
+    for side in 0..sides {
+        let lower = offset + side as u32;
+        let upper = lower + stride as u32;
+        mesh.triangles
+            .extend([lower, upper, lower + 1, lower + 1, upper, upper + 1]);
+    }
 }
 
 fn basal_sheaths(recipe: BotanicalRecipe, fans: &[Fan]) -> Result<(Mesh, Vec<BarkVertex>), String> {
@@ -940,6 +1105,25 @@ mod tests {
                 .iter()
                 .all(|leaf| leaf.blade_base_metres.z < 0.18)
         );
+        assert!((4..=6).contains(&first.reproductive_organs.len()));
+        assert!(first.reproductive_organs.len().is_multiple_of(2));
+        assert!(
+            first
+                .reproductive_organs
+                .iter()
+                .any(|organ| organ.state == ReproductiveState::Flower)
+        );
+        assert!(
+            first
+                .reproductive_archetypes
+                .iter()
+                .all(|mesh| !mesh.vertices.is_empty())
+        );
+        assert!(first.reproductive_organs.iter().all(|organ| {
+            organ.base_metres.z < 0.20
+                && organ.length_metres > recipe.trunk_height_metres * 1.4
+                && organ.length_metres < recipe.trunk_height_metres * 1.8
+        }));
     }
 
     #[test]
