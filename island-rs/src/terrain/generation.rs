@@ -1,6 +1,6 @@
 #[cfg(feature = "gpu-generation")]
 use super::GpuParticleErosionScratch;
-use super::coastal_cliffs::CoastalCliffExperiment;
+use super::coastal_uplift;
 use super::{
     Adjacency, BinaryHeap, BoundingBox, DETAIL_DISPLACEMENT_RATIO, Decorations, File,
     GenerationMethod, GeologyField, HashSet, HydraulicScratch, ISLAND_WORLD_METRES,
@@ -10,8 +10,8 @@ use super::{
     SurfaceMaterial, TERRAIN_RENDER_FLOOR, Terrain, TerrainEnvironmentField, TerrainMaterialField,
     TriangleIndex, Vec2, Vec3, Vec4, Write, append_settled_rocks, bake_surface_maps,
     bury_river_banks, encode_bank_distance_in_uv, erode_mesh, fix_inland_seas, geology,
-    hydraulic_erode_stage, io, legacy_catchment_hectares, mem, noise, sample_grid,
-    sample_mesh_surface,
+    hydraulic_erode_stage, hydraulic_erode_stage_depositing_across_sea, io,
+    legacy_catchment_hectares, mem, noise, sample_grid, sample_mesh_surface,
 };
 use crate::forest::{
     ForestGenerationStats, ForestMeshKind, ForestMeshes, ForestOptions, forest_floor_mask,
@@ -988,18 +988,16 @@ pub(super) fn generate_broad_lod0(
 
 pub(super) fn generate_detail_lod0(
     mut lod0: Mesh,
-    material: SurfaceMaterial,
+    mut material: SurfaceMaterial,
     context: GenerationContext,
     scratch: &mut GenerationScratch,
 ) -> Result<(Mesh, SurfaceMaterial), String> {
     let _timer = StageTimer::new("generation.lod0.detail");
-    let coast = CoastalCliffExperiment::prepare(&mut lod0)?;
+    coastal_uplift::prepare(&mut lod0, &mut material);
     let tessellation = lod0.tessellated_displaced_attributed(DETAIL_DISPLACEMENT_RATIO);
     let (mut mesh, mut material) = material.into_tessellated(&lod0, tessellation);
-    coast.raise_beaches(&mut mesh);
-    mesh.calculate_normals();
     let adjacency = mesh.adjacency();
-    hydraulic_erode_stage(
+    hydraulic_erode_stage_depositing_across_sea(
         &mut mesh,
         &adjacency,
         &mut material,

@@ -1010,12 +1010,12 @@ fn coast_edge(a: u32, b: u32) -> (u32, u32) {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct CoastlinePath {
-    pub(crate) vertices: Vec<u32>,
-    pub(crate) closed: bool,
+struct CoastlinePath {
+    vertices: Vec<u32>,
+    closed: bool,
 }
 
-pub(crate) fn coastline_paths(edges: &[[u32; 2]]) -> Result<Vec<CoastlinePath>, String> {
+fn coastline_paths(edges: &[[u32; 2]]) -> Result<Vec<CoastlinePath>, String> {
     let mut adjacency = HashMap::<u32, Vec<u32>>::new();
     for &[a, b] in edges {
         if a == b {

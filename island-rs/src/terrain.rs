@@ -32,7 +32,7 @@ use crate::{
     rng::Rng,
 };
 
-mod coastal_cliffs;
+mod coastal_uplift;
 mod decorations;
 mod erosion;
 mod generation;
@@ -47,7 +47,7 @@ pub(crate) use decorations::SettledRock;
 pub use decorations::{Decoration, Decorations};
 use erosion::{
     HydraulicScratch, barycentric, bin_coordinate, erode_mesh, hydraulic_erode_stage,
-    triangle_bin_bounds,
+    hydraulic_erode_stage_depositing_across_sea, triangle_bin_bounds,
 };
 pub(crate) use erosion::{ProjectedFaceAreas, VertexFaceAdjacency, bedrock_erosion_rate};
 use generation::GenerationScratch;

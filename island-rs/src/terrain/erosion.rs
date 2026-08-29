@@ -22,6 +22,59 @@ pub(super) fn hydraulic_erode_stage(
     options: IslandOptions,
     scratch: &mut GenerationScratch,
 ) -> Result<(), String> {
+    hydraulic_erode_stage_with_sea(
+        mesh,
+        adjacency,
+        material,
+        stage_strength,
+        options,
+        scratch,
+        false,
+    )
+}
+
+#[cfg_attr(
+    not(feature = "gpu-generation"),
+    allow(
+        clippy::unnecessary_wraps,
+        reason = "the GPU implementation adds fallible device and readback work"
+    )
+)]
+pub(super) fn hydraulic_erode_stage_depositing_across_sea(
+    mesh: &mut Mesh,
+    adjacency: &Adjacency,
+    material: &mut SurfaceMaterial,
+    stage_strength: f32,
+    options: IslandOptions,
+    scratch: &mut GenerationScratch,
+) -> Result<(), String> {
+    hydraulic_erode_stage_with_sea(
+        mesh,
+        adjacency,
+        material,
+        stage_strength,
+        options,
+        scratch,
+        true,
+    )
+}
+
+#[cfg_attr(
+    not(feature = "gpu-generation"),
+    allow(
+        clippy::unnecessary_wraps,
+        reason = "the GPU implementation adds fallible device and readback work"
+    )
+)]
+fn hydraulic_erode_stage_with_sea(
+    mesh: &mut Mesh,
+    adjacency: &Adjacency,
+    material: &mut SurfaceMaterial,
+    stage_strength: f32,
+    options: IslandOptions,
+    scratch: &mut GenerationScratch,
+    include_sea: bool,
+) -> Result<(), String> {
     let _timer = StageTimer::new("hydraulic.stage");
     scratch.bedrock_rates.clear();
     scratch.bedrock_rates.extend(
@@ -31,7 +84,7 @@ pub(super) fn hydraulic_erode_stage(
             .map(|&hardness| bedrock_erosion_rate(hardness)),
     );
     #[cfg(feature = "gpu-generation")]
-    if scratch.method == GenerationMethod::Gpu {
+    if scratch.method == GenerationMethod::Gpu && !include_sea {
         super::gpu_generation::erode_particle_batches_gpu(
             mesh,
             adjacency,
@@ -54,7 +107,7 @@ pub(super) fn hydraulic_erode_stage(
             adjacency,
             material,
             &scratch.bedrock_rates,
-            false,
+            include_sea,
             HydraulicErosionSettings::new(stage_strength, options),
             &mut scratch.hydraulic,
         );
@@ -64,7 +117,7 @@ pub(super) fn hydraulic_erode_stage(
             adjacency,
             material,
             &scratch.bedrock_rates,
-            false,
+            include_sea,
             HydraulicErosionSettings::new(stage_strength, options),
         );
     }
@@ -392,9 +445,9 @@ impl<'a> HydraulicEroder<'a> {
             direction,
             edge_cap,
         );
-        let available_material = if self.include_sea {
-            f32::INFINITY
-        } else if direction.z > 0.0 {
+        // Sea-inclusive stages may transport and deposit sediment underwater,
+        // but neither land nor seabed may be eroded through the sea plane.
+        let available_material = if direction.z > 0.0 {
             self.mesh.vertices[current].z.max(0.0) / direction.z
         } else {
             0.0
@@ -486,7 +539,7 @@ impl<'a> HydraulicEroder<'a> {
     fn apply_flow(&mut self, scratch: &mut HydraulicScratch) {
         for order_index in 0..scratch.order.len() {
             let current = scratch.order[order_index];
-            if self.mesh.vertices[current].z <= 0.0 {
+            if self.mesh.vertices[current].z <= 0.0 && !self.include_sea {
                 continue;
             }
             let next = scratch.downstream[current];
@@ -1024,6 +1077,46 @@ mod hydraulic_tests {
         assert!((gentle - 1.0).abs() < f32::EPSILON);
         assert!(transition > 0.0 && transition < gentle);
         assert!(steep.abs() < f32::EPSILON);
+    }
+
+    #[test]
+    pub(super) fn sea_inclusive_path_carries_deposition_below_sea_level() {
+        let terrain = Mesh {
+            vertices: vec![
+                Vec3::new(0.0, 0.0, 0.12),
+                Vec3::new(1.0, 0.0, 0.06),
+                Vec3::new(0.0, 1.0, -0.04),
+                Vec3::new(1.0, 1.0, -0.1),
+            ],
+            triangles: vec![0, 1, 2, 1, 3, 2],
+            ..Mesh::default()
+        };
+        let adjacency = terrain.adjacency();
+        let bedrock_rates = vec![1.0; terrain.vertices.len()];
+        let erode = |include_sea| {
+            let mut mesh = terrain.clone();
+            let mut material = SurfaceMaterial::empty(mesh.vertices.len());
+            hydraulic_erode_reference(
+                &mut mesh,
+                &adjacency,
+                &mut material,
+                &bedrock_rates,
+                include_sea,
+                settings(),
+            );
+            (mesh, material)
+        };
+
+        let (_, land_only) = erode(false);
+        let (submerged_deposition, across_sea) = erode(true);
+        assert!(land_only.depths()[2..].iter().all(|depth| *depth == 0.0));
+        assert!(across_sea.depths()[2..].iter().any(|depth| *depth > 0.0));
+        assert!(
+            submerged_deposition.vertices[2..]
+                .iter()
+                .zip(&terrain.vertices[2..])
+                .all(|(after, before)| after.z >= before.z)
+        );
     }
 
     #[test]

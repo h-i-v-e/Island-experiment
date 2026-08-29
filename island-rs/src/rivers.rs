@@ -47,7 +47,6 @@ use geometry::{
     lower_precarve_river_corridors_to_profiles, lower_precarve_river_valleys,
     raise_precarve_waterfall_shoulders, river_reaches_ocean, transfer_tributary_budgets,
 };
-pub(crate) use geometry::{CoastlinePath, coastline_paths};
 pub(crate) use rocks::append_settled_rocks;
 use rocks::generate_river_rock_mesh;
 pub(crate) use tracing::fix_inland_seas;
