@@ -988,8 +988,8 @@ pub fn schema_document() -> Value {
                 ]
             },
             "layered_noise_material": {"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {"kind": {"const": "layered_noise"}, "frequency": {"type": "number", "exclusiveMinimum": 0}, "amplitude": {"type": "number"}, "octaves": {"type": "integer", "minimum": 1, "maximum": 16}, "lacunarity": {"type": "number", "exclusiveMinimum": 0}, "gain": {"type": "number"}, "offset": {"type": "number"}}},
-            "cracked_stone_material": {"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {"kind": {"const": "cracked_stone"}, "cells_x": {"type": "integer", "minimum": 1}, "cells_y": {"type": "integer", "minimum": 1}, "cell_jitter": {"type": "number", "minimum": 0, "maximum": 1}, "warp_amplitude": {"type": "number", "minimum": 0}, "crack_width": {"type": "number", "minimum": 0}, "shoulder_width": {"type": "number", "minimum": 0}, "crack_depth": {"type": "number", "minimum": 0}, "slab_variation": {"type": "number", "minimum": 0}, "fracture_probability": {"type": "number", "minimum": 0, "maximum": 1}, "fracture_depth": {"type": "number", "minimum": 0}, "surface_amplitude": {"type": "number", "minimum": 0}, "broad_variation": {"type": "number", "minimum": 0}}},
-            "rounded_stones_material": {"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {"kind": {"const": "rounded_stones"}, "cells_x": {"type": "integer", "minimum": 1}, "cells_y": {"type": "integer", "minimum": 1}, "stone_radius": {"type": "number", "exclusiveMinimum": 0}, "cell_jitter": {"type": "number", "minimum": 0, "maximum": 1}, "warp_amplitude": {"type": "number", "minimum": 0}, "anisotropy": {"type": "number", "exclusiveMinimum": 0}, "stone_height": {"type": "number", "minimum": 0}, "stone_variation": {"type": "number", "minimum": 0}, "gap_height": {"type": "number"}, "sand_amplitude": {"type": "number", "minimum": 0}, "edge_softness": {"type": "number", "minimum": 0}}},
+            "cracked_stone_material": {"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {"kind": {"const": "cracked_stone"}, "cells_x": {"type": "integer", "minimum": 1}, "cells_y": {"type": "integer", "minimum": 1}, "cell_jitter": {"type": "number", "minimum": 0, "maximum": 1}, "warp_amplitude": {"type": "number", "minimum": 0, "maximum": 0.45}, "crack_width": {"type": "number", "exclusiveMinimum": 0}, "shoulder_width": {"type": "number", "minimum": 0}, "crack_depth": {"type": "number", "minimum": 0}, "slab_variation": {"type": "number", "minimum": 0}, "fracture_probability": {"type": "number", "minimum": 0, "maximum": 1}, "fracture_depth": {"type": "number", "minimum": 0}, "surface_amplitude": {"type": "number", "minimum": 0}, "broad_variation": {"type": "number", "minimum": 0}}},
+            "rounded_stones_material": {"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {"kind": {"const": "rounded_stones"}, "cells_x": {"type": "integer", "minimum": 1}, "cells_y": {"type": "integer", "minimum": 1}, "stone_radius": {"type": "number", "exclusiveMinimum": 0, "maximum": 1}, "cell_jitter": {"type": "number", "minimum": 0, "maximum": 1}, "warp_amplitude": {"type": "number", "minimum": 0, "maximum": 0.4}, "anisotropy": {"type": "number", "exclusiveMinimum": 0}, "stone_height": {"type": "number", "minimum": 0}, "stone_variation": {"type": "number", "minimum": 0}, "gap_height": {"type": "number"}, "sand_amplitude": {"type": "number", "minimum": 0}, "edge_softness": {"type": "number", "exclusiveMinimum": 0}}},
             "displacement": {"type": "object", "additionalProperties": false, "required": ["minimum_m", "maximum_m", "base_m"], "properties": {"minimum_m": {"type": "number"}, "maximum_m": {"type": "number"}, "base_m": {"type": "number"}, "displacement_map": {"type": "boolean"}}},
             "occlusion": {"type": "object", "additionalProperties": false, "properties": {"directions": {"type": "integer", "minimum": 1, "maximum": 32}, "samples": {"type": "integer", "minimum": 1, "maximum": 16}, "radius": {"type": "number", "minimum": 0}, "max_radius": {"type": "number", "minimum": 0}, "cavity_strength": {"type": "number", "minimum": 0}, "horizon_strength": {"type": "number", "minimum": 0}, "power": {"type": "number", "exclusiveMinimum": 0}, "combine": {"oneOf": [{"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {"kind": {"const": "multiply"}}}, {"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {"kind": {"const": "weighted_minimum"}, "cavity_weight": {"type": "number", "minimum": 0, "maximum": 1}, "horizon_weight": {"type": "number", "minimum": 0, "maximum": 1}}}]}}},
             "albedo": {"type": "object", "additionalProperties": false, "properties": {"base_color": {"$ref": "#/$defs/colour"}, "warm_color": {"$ref": "#/$defs/colour"}, "palette": {"type": "array", "items": {"$ref": "#/$defs/colour"}}, "variation": {"type": "number", "minimum": 0}, "crack_darkening": {"type": "number", "minimum": 0}, "shoulder_variation": {"type": "number", "minimum": 0}, "mineral_density": {"type": "number", "minimum": 0}, "mineral_brightness": {"type": "number", "minimum": 0}, "occlusion_influence": {"type": "number", "minimum": 0}}}
@@ -1036,8 +1036,8 @@ fn metadata_value(item: &PropertyMetadata) -> Value {
             (json!(8), Some([1.0, u32::MAX as f64]), Some("cells"))
         }
         "/material/cell_jitter" => (json!(0.25), Some([0.0, 1.0]), None),
-        "/material/warp_amplitude" => (json!(0.15), Some([0.0, f32::MAX as f64]), None),
-        "/material/crack_width" => (json!(0.035), Some([0.0, f32::MAX as f64]), None),
+        "/material/warp_amplitude" => (json!(0.15), Some([0.0, 0.45]), None),
+        "/material/crack_width" => (json!(0.035), Some([f64::EPSILON, f32::MAX as f64]), None),
         "/material/shoulder_width" => (json!(0.18), Some([0.0, f32::MAX as f64]), None),
         "/material/crack_depth" => (json!(0.13), Some([0.0, f32::MAX as f64]), None),
         "/material/slab_variation" => (json!(0.035), Some([0.0, f32::MAX as f64]), None),
@@ -1045,7 +1045,7 @@ fn metadata_value(item: &PropertyMetadata) -> Value {
         "/material/fracture_depth" => (json!(0.045), Some([0.0, f32::MAX as f64]), None),
         "/material/surface_amplitude" => (json!(0.014), Some([0.0, f32::MAX as f64]), None),
         "/material/broad_variation" => (json!(0.018), Some([0.0, f32::MAX as f64]), None),
-        "/material/stone_radius" => (json!(0.36), Some([f64::EPSILON, f32::MAX as f64]), None),
+        "/material/stone_radius" => (json!(0.36), Some([f64::EPSILON, 1.0]), None),
         "/material/anisotropy" => (json!(1.0), Some([f64::EPSILON, f32::MAX as f64]), None),
         "/material/stone_height" => (json!(0.12), Some([0.0, f32::MAX as f64]), None),
         "/material/stone_variation" => (json!(0.045), Some([0.0, f32::MAX as f64]), None),
@@ -1055,7 +1055,7 @@ fn metadata_value(item: &PropertyMetadata) -> Value {
             None,
         ),
         "/material/sand_amplitude" => (json!(0.009), Some([0.0, f32::MAX as f64]), None),
-        "/material/edge_softness" => (json!(0.08), Some([0.0, f32::MAX as f64]), None),
+        "/material/edge_softness" => (json!(0.08), Some([f64::EPSILON, f32::MAX as f64]), None),
         "/layers" => (json!([]), None, None),
         "/layers/*/source/kind" | "/layers/*/mask/source/kind" => (json!("value"), None, None),
         "/layers/*/source/frequency" | "/layers/*/mask/source/frequency" => {
@@ -1391,7 +1391,10 @@ fn issue_pointer_code(issue: &RecipeValidationError) -> (String, &'static str) {
         }
         RecipeValidationError::NegativeParameter { path, .. }
         | RecipeValidationError::NormalizedParameterOutOfRange { path, .. }
-        | RecipeValidationError::NonPositiveParameter { path, .. } => {
+        | RecipeValidationError::NonPositiveParameter { path, .. }
+        | RecipeValidationError::ParameterBelowMinimum { path, .. }
+        | RecipeValidationError::ParameterAboveMaximum { path, .. }
+        | RecipeValidationError::IntegerParameterAboveMaximum { path, .. } => {
             (json_pointer(path), "number.out_of_range")
         }
         RecipeValidationError::InvalidDisplacementRange { .. } => {

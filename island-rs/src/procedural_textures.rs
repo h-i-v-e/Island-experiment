@@ -49,9 +49,11 @@ pub use preview::{
     generate_preview_with_parameters, layer_preview_maps,
 };
 pub use recipe::{
-    AlbedoBlend, AlbedoOutput, AlbedoSettings, ColourMap, DisplacementSettings, DomainWarpSettings,
-    GradientStop, HeightBlend, HeightOutput, LayerMask, LayerOutputs, MaterialLayer, MaterialModel,
-    OcclusionRecipeSettings, RemapPoint, ScalarRemap, ScalarSource, SourceKind, TextureRecipe,
+    AlbedoBlend, AlbedoOutput, AlbedoSettings, CRACKED_STONE_MAX_WARP_AMPLITUDE, ColourMap,
+    DisplacementSettings, DomainWarpSettings, GradientStop, HeightBlend, HeightOutput, LayerMask,
+    LayerOutputs, MaterialLayer, MaterialModel, OcclusionRecipeSettings, ROUNDED_STONES_MAX_RADIUS,
+    ROUNDED_STONES_MAX_WARP_AMPLITUDE, RemapPoint, ScalarRemap, ScalarSource, SourceKind,
+    TextureRecipe,
 };
 pub use runtime_materials::{
     IslandMaterialKind, IslandMaterialTextures, MaterialBakeIdentity, MaterialSelection,

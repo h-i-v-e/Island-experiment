@@ -212,16 +212,19 @@ public sealed class IslandStreamingSettings
 [Serializable]
 public sealed class IslandRenderingSettings
 {
-    [Tooltip("Base linear-RGB colour passed to dirt recipe parameters and terrain shader fallbacks.")]
+    [Tooltip("Base dirt colour shared by recipe textures and terrain shader fallbacks.")]
     [SerializeField] private Color dirtColour = new Color(0.09f, 0.055f, 0.026f, 1f);
 
-    [Tooltip("Base linear-RGB colour passed to stone recipe parameters and terrain shader fallbacks.")]
+    [Tooltip("Base stone colour shared by recipe textures and terrain shader fallbacks.")]
     [SerializeField] private Color stoneColour = new Color(0.30f, 0.32f, 0.29f, 1f);
 
-    [Tooltip("Derive a deterministic dirt/stone variation from the island seed before requesting textures.")]
+    [Tooltip("Base sand colour shared by the beach recipe and terrain shader fallback.")]
+    [SerializeField] private Color sandColour = new Color(0.62f, 0.57f, 0.34f, 1f);
+
+    [Tooltip("Derive deterministic dirt, stone, and sand variations from the island seed before requesting textures.")]
     [SerializeField] private bool randomizeMaterialColours = true;
 
-    [Tooltip("Maximum engine-side linear colour variation applied per island.")]
+    [Tooltip("Maximum engine-side colour variation applied per island.")]
     [Range(0f, 0.35f)]
     [SerializeField] private float materialColourVariation = 0.14f;
 
@@ -379,15 +382,17 @@ public sealed class IslandRenderingSettings
     {
         var dirt = ClampLinearColour(dirtColour);
         var stone = ClampLinearColour(stoneColour);
+        var sand = ClampLinearColour(sandColour);
         if (!randomizeMaterialColours || materialColourVariation <= 0f)
         {
-            return new IslandMaterialColours(dirt, stone);
+            return new IslandMaterialColours(dirt, stone, sand);
         }
 
         var random = new System.Random(unchecked(islandSeed * 1103515245 + 12345));
         dirt = VaryLinearColour(dirt, random, materialColourVariation, 0.45f);
         stone = VaryLinearColour(stone, random, materialColourVariation * 0.72f, 0.18f);
-        return new IslandMaterialColours(dirt, stone);
+        sand = VaryLinearColour(sand, random, materialColourVariation * 0.65f, 0.30f);
+        return new IslandMaterialColours(dirt, stone, sand);
     }
 
     private static Color VaryLinearColour(

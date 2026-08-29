@@ -8,7 +8,7 @@ use bevy::{
 };
 use motu::{IslandMaterialKind, IslandMaterialTextures, RuntimeMaterialInputs, TextureSet};
 
-/// Three 2x2 atlases keep the complete four-material set to three texture and
+/// Three 3x2 atlases keep the complete six-material set to three texture and
 /// three sampler bindings, which stays comfortably below Metal's limits.
 pub struct MaterialAtlases {
     pub albedo: Handle<Image>,
@@ -16,6 +16,7 @@ pub struct MaterialAtlases {
     pub mask: Handle<Image>,
     pub dirt_colour: Vec3,
     pub stone_colour: Vec3,
+    pub sand_colour: Vec3,
 }
 
 pub fn upload(
@@ -25,8 +26,8 @@ pub fn upload(
 ) -> Result<MaterialAtlases, String> {
     let first = textures
         .materials
-        .get(&IslandMaterialKind::Rock)
-        .ok_or_else(|| String::from("runtime material group has no rock texture"))?;
+        .get(&IslandMaterialKind::Dirt)
+        .ok_or_else(|| String::from("runtime material group has no dirt texture"))?;
     let dimensions = first.dimensions();
     for kind in IslandMaterialKind::ALL {
         let texture = textures
@@ -43,7 +44,7 @@ pub fn upload(
 
     let width = dimensions
         .width
-        .checked_mul(2)
+        .checked_mul(3)
         .ok_or_else(|| String::from("material atlas width overflow"))?;
     let height = dimensions
         .height
@@ -76,12 +77,14 @@ pub fn upload(
 
     let dirt = inputs.dirt_colour.channels();
     let stone = inputs.stone_colour.channels();
+    let sand = inputs.sand_colour.channels();
     Ok(MaterialAtlases {
         albedo: images.add(image(width, height, albedo, TextureFormat::Rgba8UnormSrgb)),
         normal: images.add(image(width, height, normal, TextureFormat::Rgba8Unorm)),
         mask: images.add(image(width, height, mask, TextureFormat::Rgba8Unorm)),
         dirt_colour: Vec3::from_array(dirt),
         stone_colour: Vec3::from_array(stone),
+        sand_colour: Vec3::from_array(sand),
     })
 }
 
@@ -100,10 +103,12 @@ fn write_slot(
     map: SlotMap,
 ) {
     let (slot_x, slot_y) = match kind {
-        IslandMaterialKind::Rock => (0, 0),
-        IslandMaterialKind::RiverBed => (1, 0),
-        IslandMaterialKind::ForestFloor => (0, 1),
-        IslandMaterialKind::FallenStones => (1, 1),
+        IslandMaterialKind::Dirt => (0, 0),
+        IslandMaterialKind::ForestFloor => (1, 0),
+        IslandMaterialKind::Rock => (2, 0),
+        IslandMaterialKind::RiverBed => (0, 1),
+        IslandMaterialKind::Beach => (1, 1),
+        IslandMaterialKind::FallenStones => (2, 1),
     };
     let width = texture.dimensions.width;
     let height = texture.dimensions.height;
@@ -174,6 +179,7 @@ mod tests {
             &RuntimeMaterialInputs::new(
                 LinearRgb::new(0.1, 0.06, 0.03),
                 LinearRgb::new(0.25, 0.27, 0.24),
+                LinearRgb::new(0.54, 0.45, 0.18),
             ),
             &RuntimeMaterialBakeOptions {
                 width: Some(64),
@@ -183,9 +189,9 @@ mod tests {
             },
         )
         .unwrap();
-        let mut atlas = vec![0; 128 * 128 * 4];
+        let mut atlas = vec![0; 192 * 128 * 4];
         for (kind, texture) in &textures.materials {
-            write_slot(&mut atlas, 128, *kind, texture, SlotMap::Albedo);
+            write_slot(&mut atlas, 192, *kind, texture, SlotMap::Albedo);
         }
         assert!(atlas.chunks_exact(4).all(|pixel| pixel[3] == 255));
     }

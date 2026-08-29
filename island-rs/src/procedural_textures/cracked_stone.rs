@@ -10,7 +10,7 @@
 use super::field_program::{
     FieldDimensions, FieldError, LayeredField, fbm, hash_signed, periodic_value, smoothstep,
 };
-use super::{cellular, periodic};
+use super::{cellular, periodic, recipe::CRACKED_STONE_MAX_WARP_AMPLITUDE};
 
 /// Controls for the cracked-stone height model.
 ///
@@ -198,7 +198,7 @@ fn validate(config: CrackedStoneConfig) -> Result<(), FieldError> {
         || config.cell_jitter < 0.0
         || config.cell_jitter > 1.0
         || config.warp_amplitude < 0.0
-        || config.warp_amplitude > 0.45
+        || config.warp_amplitude > CRACKED_STONE_MAX_WARP_AMPLITUDE
         || config.crack_width <= 0.0
         || config.shoulder_width < config.crack_width
         || config.crack_depth < 0.0

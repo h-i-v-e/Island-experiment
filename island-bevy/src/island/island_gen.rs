@@ -55,8 +55,10 @@ pub const HEIGHT_GRID: u32 = 512;
 const MATERIAL_TEXTURE_SIZE: u32 = 512;
 const DIRT_BASE: LinearRgb = LinearRgb::new(0.09, 0.055, 0.026);
 const STONE_BASE: LinearRgb = LinearRgb::new(0.25, 0.27, 0.24);
+const SAND_BASE: LinearRgb = LinearRgb::new(0.53982, 0.44515, 0.18138);
 const DIRT_PALETTE_SALT: u64 = 0x3a11_a61d_81c4_59e7;
 const STONE_PALETTE_SALT: u64 = 0x5e2b_754a_91d8_03cf;
+const SAND_PALETTE_SALT: u64 = 0xc6d4_710b_4f2a_893e;
 
 /// How far from a river's own water edge the ground still reads as damp, and
 /// how far above the water beside it.
@@ -1011,6 +1013,7 @@ fn select_material_inputs(seed: u64) -> RuntimeMaterialInputs {
     RuntimeMaterialInputs::new(
         varied(DIRT_BASE, mix(seed, DIRT_PALETTE_SALT), 0.14, 0.45),
         varied(STONE_BASE, mix(seed, STONE_PALETTE_SALT), 0.10, 0.18),
+        varied(SAND_BASE, mix(seed, SAND_PALETTE_SALT), 0.09, 0.30),
     )
 }
 

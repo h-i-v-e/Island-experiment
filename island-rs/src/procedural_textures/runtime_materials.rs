@@ -16,14 +16,20 @@ use super::{
 pub struct RuntimeMaterialInputs {
     pub dirt_colour: LinearRgb,
     pub stone_colour: LinearRgb,
+    pub sand_colour: LinearRgb,
 }
 
 impl RuntimeMaterialInputs {
     #[must_use]
-    pub const fn new(dirt_colour: LinearRgb, stone_colour: LinearRgb) -> Self {
+    pub const fn new(
+        dirt_colour: LinearRgb,
+        stone_colour: LinearRgb,
+        sand_colour: LinearRgb,
+    ) -> Self {
         Self {
             dirt_colour,
             stone_colour,
+            sand_colour,
         }
     }
 
@@ -31,6 +37,7 @@ impl RuntimeMaterialInputs {
         for (name, colour) in [
             ("dirt_colour", self.dirt_colour),
             ("stone_colour", self.stone_colour),
+            ("sand_colour", self.sand_colour),
         ] {
             if !colour.is_valid() {
                 return Err(RuntimeMaterialBakeError::InvalidInputColour {
@@ -50,6 +57,9 @@ impl RuntimeMaterialInputs {
         if recipe.parameters.contains_key("stone_colour") {
             values.insert_colour("stone_colour", self.stone_colour);
         }
+        if recipe.parameters.contains_key("sand_colour") {
+            values.insert_colour("sand_colour", self.sand_colour);
+        }
         values
     }
 }
@@ -59,26 +69,32 @@ impl RuntimeMaterialInputs {
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 #[repr(u8)]
 pub enum IslandMaterialKind {
-    Rock = 0,
-    RiverBed = 1,
-    ForestFloor = 2,
-    FallenStones = 3,
+    Dirt = 0,
+    ForestFloor = 1,
+    Rock = 2,
+    RiverBed = 3,
+    Beach = 4,
+    FallenStones = 5,
 }
 
 impl IslandMaterialKind {
-    pub const ALL: [Self; 4] = [
+    pub const ALL: [Self; 6] = [
+        Self::Dirt,
+        Self::ForestFloor,
         Self::Rock,
         Self::RiverBed,
-        Self::ForestFloor,
+        Self::Beach,
         Self::FallenStones,
     ];
 
     #[must_use]
     pub const fn name(self) -> &'static str {
         match self {
+            Self::Dirt => "dirt",
+            Self::ForestFloor => "forest_floor",
             Self::Rock => "rock",
             Self::RiverBed => "river_bed",
-            Self::ForestFloor => "forest_floor",
+            Self::Beach => "beach",
             Self::FallenStones => "fallen_stones",
         }
     }
@@ -89,26 +105,32 @@ impl IslandMaterialKind {
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct MaterialSelection {
+    pub dirt: bool,
+    pub forest_floor: bool,
     pub rock: bool,
     pub river_bed: bool,
-    pub forest_floor: bool,
+    pub beach: bool,
     pub fallen_stones: bool,
 }
 
 impl MaterialSelection {
     pub const ALL: Self = Self {
+        dirt: true,
+        forest_floor: true,
         rock: true,
         river_bed: true,
-        forest_floor: true,
+        beach: true,
         fallen_stones: true,
     };
 
     #[must_use]
     pub const fn includes(self, kind: IslandMaterialKind) -> bool {
         match kind {
+            IslandMaterialKind::Dirt => self.dirt,
+            IslandMaterialKind::ForestFloor => self.forest_floor,
             IslandMaterialKind::Rock => self.rock,
             IslandMaterialKind::RiverBed => self.river_bed,
-            IslandMaterialKind::ForestFloor => self.forest_floor,
+            IslandMaterialKind::Beach => self.beach,
             IslandMaterialKind::FallenStones => self.fallen_stones,
         }
     }
@@ -280,27 +302,33 @@ fn embedded_recipe(
 }
 
 fn recipe_cell(material: IslandMaterialKind) -> &'static OnceLock<Result<TextureRecipe, String>> {
+    static DIRT: OnceLock<Result<TextureRecipe, String>> = OnceLock::new();
+    static FOREST_FLOOR: OnceLock<Result<TextureRecipe, String>> = OnceLock::new();
     static ROCK: OnceLock<Result<TextureRecipe, String>> = OnceLock::new();
     static RIVER_BED: OnceLock<Result<TextureRecipe, String>> = OnceLock::new();
-    static FOREST_FLOOR: OnceLock<Result<TextureRecipe, String>> = OnceLock::new();
+    static BEACH: OnceLock<Result<TextureRecipe, String>> = OnceLock::new();
     static FALLEN_STONES: OnceLock<Result<TextureRecipe, String>> = OnceLock::new();
     match material {
+        IslandMaterialKind::Dirt => &DIRT,
+        IslandMaterialKind::ForestFloor => &FOREST_FLOOR,
         IslandMaterialKind::Rock => &ROCK,
         IslandMaterialKind::RiverBed => &RIVER_BED,
-        IslandMaterialKind::ForestFloor => &FOREST_FLOOR,
+        IslandMaterialKind::Beach => &BEACH,
         IslandMaterialKind::FallenStones => &FALLEN_STONES,
     }
 }
 
 const fn recipe_json(material: IslandMaterialKind) -> &'static str {
     match material {
+        IslandMaterialKind::Dirt => include_str!("../../texture-recipes/Dirt.json"),
+        IslandMaterialKind::ForestFloor => {
+            include_str!("../../texture-recipes/ForestFloor.json")
+        }
         IslandMaterialKind::Rock => include_str!("../../texture-recipes/cracked-stone.json"),
         IslandMaterialKind::RiverBed => {
             include_str!("../../texture-recipes/rounded-river-stones.json")
         }
-        IslandMaterialKind::ForestFloor => {
-            include_str!("../../texture-recipes/ForestFloor.json")
-        }
+        IslandMaterialKind::Beach => include_str!("../../texture-recipes/Beach.json"),
         IslandMaterialKind::FallenStones => {
             include_str!("../../texture-recipes/FallenStones.json")
         }
@@ -313,12 +341,13 @@ fn bake_identity(
     materials: &BTreeMap<IslandMaterialKind, TextureSet>,
 ) -> String {
     let mut hasher = Sha256::new();
-    hasher.update(b"motu-runtime-material-bake-v1");
+    hasher.update(b"motu-runtime-material-bake-v3");
     for channel in inputs
         .dirt_colour
         .channels()
         .into_iter()
         .chain(inputs.stone_colour.channels())
+        .chain(inputs.sand_colour.channels())
     {
         hasher.update(channel.to_le_bytes());
     }
@@ -340,6 +369,7 @@ mod tests {
         RuntimeMaterialInputs::new(
             LinearRgb::new(0.12, 0.07, 0.03),
             LinearRgb::new(0.35, 0.34, 0.30),
+            LinearRgb::new(0.34, 0.28, 0.09),
         )
     }
 
@@ -359,6 +389,11 @@ mod tests {
         assert!(result.materials.values().all(|textures| {
             textures.dimensions.width == 64 && textures.dimensions.height == 64
         }));
+        assert!(
+            result.materials.values().all(|textures| {
+                textures.metadata.normal_convention == NormalConvention::DirectX
+            })
+        );
         assert_eq!(result.identity.hash.len(), 64);
     }
 
@@ -368,6 +403,7 @@ mod tests {
             &RuntimeMaterialInputs::new(
                 LinearRgb::new(f32::NAN, 0.2, 0.3),
                 LinearRgb::new(0.4, 0.4, 0.4),
+                LinearRgb::new(0.3, 0.25, 0.1),
             ),
             &RuntimeMaterialBakeOptions::default(),
         )
@@ -387,15 +423,18 @@ mod tests {
             &RuntimeMaterialInputs::new(
                 LinearRgb::new(1.0, 0.0, 0.0),
                 LinearRgb::new(0.0, 0.0, 1.0),
+                LinearRgb::new(0.5, 0.4, 0.2),
             ),
             &RuntimeMaterialBakeOptions {
                 width: Some(64),
                 height: Some(64),
                 normal_convention: NormalConvention::DirectX,
                 materials: MaterialSelection {
+                    dirt: false,
+                    forest_floor: false,
                     rock: false,
                     river_bed: false,
-                    forest_floor: false,
+                    beach: false,
                     fallen_stones: true,
                 },
             },
@@ -423,15 +462,18 @@ mod tests {
             &RuntimeMaterialInputs::new(
                 LinearRgb::new(1.0, 0.0, 1.0),
                 LinearRgb::new(0.0, 1.0, 1.0),
+                LinearRgb::new(0.5, 0.4, 0.2),
             ),
             &RuntimeMaterialBakeOptions {
                 width: Some(64),
                 height: Some(64),
                 normal_convention: NormalConvention::DirectX,
                 materials: MaterialSelection {
+                    dirt: false,
+                    forest_floor: true,
                     rock: false,
                     river_bed: false,
-                    forest_floor: true,
+                    beach: false,
                     fallen_stones: false,
                 },
             },
@@ -456,15 +498,18 @@ mod tests {
             &RuntimeMaterialInputs::new(
                 LinearRgb::new(0.25, 0.25, 0.25),
                 LinearRgb::new(0.25, 0.25, 0.25),
+                LinearRgb::new(0.5, 0.4, 0.2),
             ),
             &RuntimeMaterialBakeOptions {
                 width: Some(64),
                 height: Some(64),
                 normal_convention: NormalConvention::DirectX,
                 materials: MaterialSelection {
+                    dirt: false,
+                    forest_floor: false,
                     rock: true,
                     river_bed: true,
-                    forest_floor: false,
+                    beach: false,
                     fallen_stones: false,
                 },
             },
@@ -483,5 +528,76 @@ mod tests {
                 kind.name()
             );
         }
+    }
+
+    #[test]
+    fn beach_uses_the_engine_sand_colour() {
+        let sand = LinearRgb::new(0.05, 0.35, 0.75);
+        let result = bake_island_materials(
+            &RuntimeMaterialInputs::new(
+                LinearRgb::new(0.1, 0.1, 0.1),
+                LinearRgb::new(0.2, 0.2, 0.2),
+                sand,
+            ),
+            &RuntimeMaterialBakeOptions {
+                width: Some(64),
+                height: Some(64),
+                normal_convention: NormalConvention::DirectX,
+                materials: MaterialSelection {
+                    dirt: false,
+                    forest_floor: false,
+                    rock: false,
+                    river_bed: false,
+                    beach: true,
+                    fallen_stones: false,
+                },
+            },
+        )
+        .expect("beach runtime bake");
+        assert!(
+            result.materials[&IslandMaterialKind::Beach]
+                .albedo
+                .pixels()
+                .iter()
+                .all(|pixel| pixel[2] > pixel[1] && pixel[1] > pixel[0]),
+            "beach albedo must retain the supplied sand hue"
+        );
+    }
+
+    #[test]
+    fn sand_colour_changes_the_runtime_bake_identity() {
+        let options = RuntimeMaterialBakeOptions {
+            width: Some(32),
+            height: Some(32),
+            normal_convention: NormalConvention::DirectX,
+            materials: MaterialSelection {
+                dirt: false,
+                forest_floor: false,
+                rock: false,
+                river_bed: false,
+                beach: true,
+                fallen_stones: false,
+            },
+        };
+        let first = bake_island_materials(
+            &RuntimeMaterialInputs::new(
+                LinearRgb::new(0.1, 0.1, 0.1),
+                LinearRgb::new(0.2, 0.2, 0.2),
+                LinearRgb::new(0.3, 0.25, 0.1),
+            ),
+            &options,
+        )
+        .expect("first beach runtime bake");
+        let second = bake_island_materials(
+            &RuntimeMaterialInputs::new(
+                LinearRgb::new(0.1, 0.1, 0.1),
+                LinearRgb::new(0.2, 0.2, 0.2),
+                LinearRgb::new(0.6, 0.5, 0.2),
+            ),
+            &options,
+        )
+        .expect("second beach runtime bake");
+
+        assert_ne!(first.identity, second.identity);
     }
 }

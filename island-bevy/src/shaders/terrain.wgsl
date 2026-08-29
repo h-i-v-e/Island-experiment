@@ -25,7 +25,6 @@
 // and are the only place terrain colour is decided.
 const DEEP: vec3<f32> = vec3<f32>(0.00310, 0.02452, 0.07324);       // 0.04, 0.17, 0.30
 const SEABED: vec3<f32> = vec3<f32>(0.21404, 0.19599, 0.10048);     // 0.50, 0.48, 0.35
-const SAND: vec3<f32> = vec3<f32>(0.53982, 0.44515, 0.18138);       // 0.761, 0.698, 0.463
 const DIRT: vec3<f32> = vec3<f32>(0.14732, 0.09463, 0.03968);       // 0.42, 0.34, 0.22
 const GRASS_LOW: vec3<f32> = vec3<f32>(0.02949, 0.18138, 0.02323);  // 0.188, 0.463, 0.165
 const GRASS_HIGH: vec3<f32> = vec3<f32>(0.08461, 0.10965, 0.02323); // 0.322, 0.365, 0.165
@@ -98,6 +97,7 @@ struct TerrainSettings {
     debug_view: u32,
     dirt_colour: vec4<f32>,
     stone_colour: vec4<f32>,
+    sand_colour: vec4<f32>,
 }
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> settings: TerrainSettings;
@@ -111,7 +111,12 @@ struct TerrainSettings {
 fn material_atlas_uv(uv: vec2<f32>, slot: vec2<f32>) -> vec2<f32> {
     let dimensions = vec2<f32>(textureDimensions(material_albedo));
     let inset = 0.5 / dimensions;
-    return clamp((fract(uv) + slot) * 0.5, slot * 0.5 + inset, (slot + 1.0) * 0.5 - inset);
+    let grid = vec2<f32>(3.0, 2.0);
+    return clamp(
+        (fract(uv) + slot) / grid,
+        slot / grid + inset,
+        (slot + 1.0) / grid - inset,
+    );
 }
 
 fn material_colour(uv: vec2<f32>, slot: vec2<f32>) -> vec3<f32> {
@@ -291,27 +296,42 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     let mottle = grain.x - 0.5;
     ground *= (1.0 + mottle * 0.40 + (patchiness - 0.5) * 0.30) * (0.82 + region.x * 0.30);
     rock *= 1.0 + mottle * 0.24;
-    var sand = SAND * (1.0 + mottle * 0.12);
+    var sand = settings.sand_colour.rgb * (1.0 + mottle * 0.12);
     let snow = SNOW * (1.0 + mottle * 0.05);
 
-    // Four baked materials share three 2x2 atlases: rock, river bed, forest
-    // floor, fallen stones. Their masks height-blend the coherent per-vertex
+    // Six baked materials share three 3x2 atlases: dirt, forest floor, rock,
+    // river bed, beach, fallen stones. Their masks height-blend the coherent per-vertex
     // boundaries rather than replacing those authoritative fields.
+    let dirt_uv = world.xz / 2.0;
+    let forest_uv = world.xz / 2.0;
     let rock_uv = world.xz / 4.0;
-    let river_uv = world.xz / 2.5;
-    let forest_uv = world.xz / 3.0;
+    let river_uv = world.xz / 2.0;
+    let beach_uv = world.xz / 3.0;
     let stones_uv = world.xz / 2.0;
-    let rock_surface = material_surface(rock_uv, vec2<f32>(0.0, 0.0));
-    let river_surface = material_surface(river_uv, vec2<f32>(1.0, 0.0));
-    let forest_surface = material_surface(forest_uv, vec2<f32>(0.0, 1.0));
-    let stones_surface = material_surface(stones_uv, vec2<f32>(1.0, 1.0));
+    let dirt_surface = material_surface(dirt_uv, vec2<f32>(0.0, 0.0));
+    let forest_surface = material_surface(forest_uv, vec2<f32>(1.0, 0.0));
+    let rock_surface = material_surface(rock_uv, vec2<f32>(2.0, 0.0));
+    let river_surface = material_surface(river_uv, vec2<f32>(0.0, 1.0));
+    let beach_surface = material_surface(beach_uv, vec2<f32>(1.0, 1.0));
+    let stones_surface = material_surface(stones_uv, vec2<f32>(2.0, 1.0));
     let river_material_weight = smoothstep(0.10, 0.90, river_bed + (river_surface.z - 0.5) * 0.22);
     let forest_material_weight = smoothstep(0.10, 0.90, environment.x + (forest_surface.z - 0.5) * 0.22);
     let stones_material_weight = smoothstep(0.10, 0.90, environment.y + (stones_surface.z - 0.5) * 0.22);
-    rock = mix(rock, material_colour(rock_uv, vec2<f32>(0.0, 0.0)), 0.88);
-    sand = mix(sand, material_colour(river_uv, vec2<f32>(1.0, 0.0)), river_material_weight);
-    ground = mix(ground, material_colour(forest_uv, vec2<f32>(0.0, 1.0)), forest_material_weight);
-    ground = mix(ground, material_colour(stones_uv, vec2<f32>(1.0, 1.0)), stones_material_weight);
+    let beach_material_weight = smoothstep(
+        0.28,
+        0.72,
+        patchiness + (region.y - 0.5) * 0.30,
+    );
+    ground = mix(ground, material_colour(dirt_uv, vec2<f32>(0.0, 0.0)), 0.75);
+    rock = mix(rock, material_colour(rock_uv, vec2<f32>(2.0, 0.0)), 0.88);
+    sand = mix(
+        sand,
+        material_colour(beach_uv, vec2<f32>(1.0, 1.0)),
+        beach_material_weight,
+    );
+    sand = mix(sand, material_colour(river_uv, vec2<f32>(0.0, 1.0)), river_material_weight);
+    ground = mix(ground, material_colour(forest_uv, vec2<f32>(1.0, 0.0)), forest_material_weight);
+    ground = mix(ground, material_colour(stones_uv, vec2<f32>(2.0, 1.0)), stones_material_weight);
 
     // Sub-metre grain, only where it still resolves: inside the range it was
     // given, and inside the pixel footprint as well, which is what takes it off
@@ -350,8 +370,13 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         + ROUGHNESS_SAND * sand_band
         + ROUGHNESS_SNOW * snow_band
         + mottle * 0.14 * rock_band;
+    let base_baked_occlusion = mix(
+        dirt_surface.w,
+        mix(1.0, beach_surface.w, beach_material_weight),
+        sand_band,
+    );
     let baked_occlusion = mix(
-        mix(1.0, rock_surface.w, rock_band),
+        mix(base_baked_occlusion, rock_surface.w, rock_band),
         mix(
             mix(river_surface.w, forest_surface.w, forest_material_weight),
             stones_surface.w,
@@ -392,8 +417,13 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     pbr_input.material.base_color = vec4<f32>(albedo, 1.0);
     pbr_input.material.perceptual_roughness = clamp(roughness, 0.15, 1.0);
     pbr_input.material.reflectance = vec3<f32>(mix(REFLECTANCE_DRY, REFLECTANCE_WET, wet));
+    let base_baked_tangent_xy = mix(
+        dirt_surface.xy,
+        beach_surface.xy * beach_material_weight,
+        sand_band,
+    );
     let baked_tangent_xy = mix(
-        mix(rock_surface.xy, river_surface.xy, river_material_weight),
+        mix(base_baked_tangent_xy, rock_surface.xy, rock_band),
         mix(forest_surface.xy, stones_surface.xy, stones_material_weight),
         max(forest_material_weight, stones_material_weight),
     );

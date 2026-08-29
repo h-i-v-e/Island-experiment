@@ -71,23 +71,36 @@ internal readonly struct IslandMaterialColours
 {
     internal readonly Color dirt;
     internal readonly Color stone;
+    internal readonly Color sand;
 
-    internal IslandMaterialColours(Color dirt, Color stone)
+    internal IslandMaterialColours(Color dirt, Color stone, Color sand)
     {
         this.dirt = new Color(dirt.r, dirt.g, dirt.b, 1f);
         this.stone = new Color(stone.r, stone.g, stone.b, 1f);
+        this.sand = new Color(sand.r, sand.g, sand.b, 1f);
     }
 
     internal MotuNative.MaterialInputs ToNative()
     {
+        // Unity's authored material colours are display-space values in this
+        // Gamma colour-space project. The procedural texture library accepts
+        // linear RGB and performs the sRGB encoding when it produces albedo
+        // bytes, so decode exactly once at the engine/library boundary. This
+        // keeps the baked texture colour equal to the shader fallback colour.
+        var linearDirt = dirt.linear;
+        var linearStone = stone.linear;
+        var linearSand = sand.linear;
         return new MotuNative.MaterialInputs
         {
-            dirtRed = dirt.r,
-            dirtGreen = dirt.g,
-            dirtBlue = dirt.b,
-            stoneRed = stone.r,
-            stoneGreen = stone.g,
-            stoneBlue = stone.b,
+            dirtRed = linearDirt.r,
+            dirtGreen = linearDirt.g,
+            dirtBlue = linearDirt.b,
+            stoneRed = linearStone.r,
+            stoneGreen = linearStone.g,
+            stoneBlue = linearStone.b,
+            sandRed = linearSand.r,
+            sandGreen = linearSand.g,
+            sandBlue = linearSand.b,
         };
     }
 }
@@ -96,6 +109,9 @@ internal sealed class IslandPreparedMaterialTexture
 {
     internal readonly int width;
     internal readonly int height;
+    internal readonly float minimumHeight;
+    internal readonly float maximumHeight;
+    internal readonly float baseHeight;
     internal readonly byte[] albedoRgb;
     internal readonly byte[] normalRgb;
     internal readonly byte[] heightR16;
@@ -104,6 +120,9 @@ internal sealed class IslandPreparedMaterialTexture
     internal IslandPreparedMaterialTexture(
         int width,
         int height,
+        float minimumHeight,
+        float maximumHeight,
+        float baseHeight,
         byte[] albedoRgb,
         byte[] normalRgb,
         byte[] heightR16,
@@ -112,6 +131,15 @@ internal sealed class IslandPreparedMaterialTexture
         var pixels = checked(width * height);
         if (width <= 0
             || height <= 0
+            || float.IsNaN(minimumHeight)
+            || float.IsInfinity(minimumHeight)
+            || float.IsNaN(maximumHeight)
+            || float.IsInfinity(maximumHeight)
+            || float.IsNaN(baseHeight)
+            || float.IsInfinity(baseHeight)
+            || maximumHeight <= minimumHeight
+            || baseHeight < minimumHeight
+            || baseHeight > maximumHeight
             || albedoRgb == null
             || albedoRgb.Length != checked(pixels * 3)
             || normalRgb == null
@@ -126,32 +154,44 @@ internal sealed class IslandPreparedMaterialTexture
         }
         this.width = width;
         this.height = height;
+        this.minimumHeight = minimumHeight;
+        this.maximumHeight = maximumHeight;
+        this.baseHeight = baseHeight;
         this.albedoRgb = albedoRgb;
         this.normalRgb = normalRgb;
         this.heightR16 = heightR16;
         this.occlusion = occlusion;
     }
+
+    internal float NormalizedBaseHeight =>
+        Mathf.Clamp01((baseHeight - minimumHeight) / (maximumHeight - minimumHeight));
 }
 
 internal sealed class IslandPreparedMaterialTextures
 {
     internal readonly IslandMaterialColours colours;
+    internal readonly IslandPreparedMaterialTexture dirt;
+    internal readonly IslandPreparedMaterialTexture forestFloor;
     internal readonly IslandPreparedMaterialTexture rock;
     internal readonly IslandPreparedMaterialTexture riverBed;
-    internal readonly IslandPreparedMaterialTexture forestFloor;
+    internal readonly IslandPreparedMaterialTexture beach;
     internal readonly IslandPreparedMaterialTexture fallenStones;
 
     internal IslandPreparedMaterialTextures(
         IslandMaterialColours colours,
+        IslandPreparedMaterialTexture dirt,
+        IslandPreparedMaterialTexture forestFloor,
         IslandPreparedMaterialTexture rock,
         IslandPreparedMaterialTexture riverBed,
-        IslandPreparedMaterialTexture forestFloor,
+        IslandPreparedMaterialTexture beach,
         IslandPreparedMaterialTexture fallenStones)
     {
         this.colours = colours;
+        this.dirt = dirt ?? throw new ArgumentNullException(nameof(dirt));
+        this.forestFloor = forestFloor ?? throw new ArgumentNullException(nameof(forestFloor));
         this.rock = rock ?? throw new ArgumentNullException(nameof(rock));
         this.riverBed = riverBed ?? throw new ArgumentNullException(nameof(riverBed));
-        this.forestFloor = forestFloor ?? throw new ArgumentNullException(nameof(forestFloor));
+        this.beach = beach ?? throw new ArgumentNullException(nameof(beach));
         this.fallenStones = fallenStones ?? throw new ArgumentNullException(nameof(fallenStones));
     }
 }

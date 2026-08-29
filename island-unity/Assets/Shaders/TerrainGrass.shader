@@ -24,22 +24,20 @@ Shader "Motu/Terrain Grass"
         [HideInInspector] _GrassLightColor ("Light Color", Color) = (1, 1, 1, 1)
         [HideInInspector] _GrassAmbientColor ("Ambient Color", Color) = (0.42, 0.46, 0.52, 1)
         [NoScaleOffset] _CliffNoise3D ("Terrain 3D Noise", 3D) = "gray" {}
-        [HideInInspector][NoScaleOffset] _RockMaskMap ("Rock / Cliff Mask", 2D) = "gray" {}
-        [HideInInspector] _RockTextureWorldSize ("Rock / Cliff Texture Size", Float) = 4
-        [HideInInspector] _RockHeightBlendStrength ("Rock / Cliff Height Blend Weight", Float) = 0
-        [HideInInspector][NoScaleOffset] _RiverBedMaskMap ("Riverbed Mask", 2D) = "gray" {}
-        [HideInInspector] _RiverBedTextureWorldSize ("Riverbed Texture Size", Float) = 2
-        [HideInInspector] _RiverBedHeightBlendStrength ("Riverbed Height Blend Weight", Float) = 0
-        [HideInInspector][NoScaleOffset] _ForestStonesMaskMap ("Runtime Forest + Stones Mask", 2D) = "gray" {}
-        [HideInInspector] _ForestFloorTextureWorldSize ("Forest Floor Texture Size", Float) = 2
-        [HideInInspector] _ForestFloorHeightBlendStrength ("Forest Floor Height Blend Weight", Float) = 1
+        [HideInInspector][NoScaleOffset] _TerrainMaskArray ("Runtime Terrain Height + Occlusion Array", 2DArray) = "" {}
+        [HideInInspector] _TerrainLayerWorldSizesA ("Layer Sizes: Dirt Forest Rock River", Vector) = (2, 2, 4, 2)
+        [HideInInspector] _TerrainLayerWorldSizesB ("Layer Sizes: Beach Stones", Vector) = (3, 2, 0, 0)
+        [HideInInspector] _TerrainHeightInfluencesA ("Height Influence: Dirt Forest Rock River", Vector) = (1, 1, 1, 1)
+        [HideInInspector] _TerrainHeightInfluencesB ("Height Influence: Beach Stones", Vector) = (0.65, 0.65, 0, 0)
+        [HideInInspector] _TerrainHeightBlendDepth ("Height Blend Depth", Float) = 0.18
+        [HideInInspector] _TopTextureFadeOutSlope ("Procedural Stone Slope (degrees)", Float) = 45
+        [HideInInspector] _SteepStoneBlendWidth ("Stone Slope Blend Width (degrees)", Float) = 8
         [HideInInspector] _ForestFloorEdgeNoiseStrength ("Forest Floor Edge Noise Strength", Float) = 0.22
         [HideInInspector] _ForestFloorEdgeBlendWidth ("Forest Floor Edge Blend Width", Float) = 0.035
-        [HideInInspector] _StonesTextureWorldSize ("Fallen Stones Texture Size", Float) = 2
-        [HideInInspector] _StonesHeightBlendStrength ("Fallen Stones Height Blend Weight", Float) = 1
         [HideInInspector] _StonesEdgeNoiseStrength ("Fallen Stones Edge Noise Strength", Float) = 0.22
-        [HideInInspector] _StonesEdgeBlendWidth ("Fallen Stones Edge Blend Width", Float) = 0.035
-        [HideInInspector] _TopTextureFadeOutSlope ("Top Texture Fade-Out Slope", Float) = 45
+        [HideInInspector] _StonesEdgeBlendWidth ("Fallen Stones Edge Blend Width", Float) = 0.16
+        [HideInInspector] _BeachEdgeNoiseStrength ("Beach Edge Noise Strength", Float) = 0.18
+        [HideInInspector] _BeachEdgeBlendWidth ("Beach Edge Blend Width", Float) = 0.18
         _SnowLine ("Snow Line (metres)", Float) = 100
         _SnowEdgeNoiseMetres ("Snow Edge Noise (metres)", Range(0, 10)) = 2.5
         _SnowMacroNoiseMetres ("Snow Macro Noise (metres)", Range(0, 40)) = 18
@@ -69,7 +67,7 @@ Shader "Motu/Terrain Grass"
             #define GRASS_SHELL_LAYER 0.0625
             #pragma vertex GrassVertex
             #pragma fragment GrassFragment
-            #pragma target 3.0
+            #pragma target 3.5
             #pragma multi_compile_fwdbase
             #pragma multi_compile_fog
             #include "TerrainGrassCommon.cginc"
@@ -83,7 +81,7 @@ Shader "Motu/Terrain Grass"
             #define GRASS_SHELL_LAYER 0.125
             #pragma vertex GrassVertex
             #pragma fragment GrassFragment
-            #pragma target 3.0
+            #pragma target 3.5
             #pragma multi_compile_fwdbase
             #pragma multi_compile_fog
             #include "TerrainGrassCommon.cginc"
@@ -97,7 +95,7 @@ Shader "Motu/Terrain Grass"
             #define GRASS_SHELL_LAYER 0.1875
             #pragma vertex GrassVertex
             #pragma fragment GrassFragment
-            #pragma target 3.0
+            #pragma target 3.5
             #pragma multi_compile_fwdbase
             #pragma multi_compile_fog
             #include "TerrainGrassCommon.cginc"
@@ -111,7 +109,7 @@ Shader "Motu/Terrain Grass"
             #define GRASS_SHELL_LAYER 0.25
             #pragma vertex GrassVertex
             #pragma fragment GrassFragment
-            #pragma target 3.0
+            #pragma target 3.5
             #pragma multi_compile_fwdbase
             #pragma multi_compile_fog
             #include "TerrainGrassCommon.cginc"
@@ -125,7 +123,7 @@ Shader "Motu/Terrain Grass"
             #define GRASS_SHELL_LAYER 0.3125
             #pragma vertex GrassVertex
             #pragma fragment GrassFragment
-            #pragma target 3.0
+            #pragma target 3.5
             #pragma multi_compile_fwdbase
             #pragma multi_compile_fog
             #include "TerrainGrassCommon.cginc"
@@ -139,7 +137,7 @@ Shader "Motu/Terrain Grass"
             #define GRASS_SHELL_LAYER 0.375
             #pragma vertex GrassVertex
             #pragma fragment GrassFragment
-            #pragma target 3.0
+            #pragma target 3.5
             #pragma multi_compile_fwdbase
             #pragma multi_compile_fog
             #include "TerrainGrassCommon.cginc"
@@ -153,7 +151,7 @@ Shader "Motu/Terrain Grass"
             #define GRASS_SHELL_LAYER 0.4375
             #pragma vertex GrassVertex
             #pragma fragment GrassFragment
-            #pragma target 3.0
+            #pragma target 3.5
             #pragma multi_compile_fwdbase
             #pragma multi_compile_fog
             #include "TerrainGrassCommon.cginc"
@@ -167,7 +165,7 @@ Shader "Motu/Terrain Grass"
             #define GRASS_SHELL_LAYER 0.5
             #pragma vertex GrassVertex
             #pragma fragment GrassFragment
-            #pragma target 3.0
+            #pragma target 3.5
             #pragma multi_compile_fwdbase
             #pragma multi_compile_fog
             #include "TerrainGrassCommon.cginc"
@@ -181,7 +179,7 @@ Shader "Motu/Terrain Grass"
             #define GRASS_SHELL_LAYER 0.5625
             #pragma vertex GrassVertex
             #pragma fragment GrassFragment
-            #pragma target 3.0
+            #pragma target 3.5
             #pragma multi_compile_fwdbase
             #pragma multi_compile_fog
             #include "TerrainGrassCommon.cginc"
@@ -195,7 +193,7 @@ Shader "Motu/Terrain Grass"
             #define GRASS_SHELL_LAYER 0.625
             #pragma vertex GrassVertex
             #pragma fragment GrassFragment
-            #pragma target 3.0
+            #pragma target 3.5
             #pragma multi_compile_fwdbase
             #pragma multi_compile_fog
             #include "TerrainGrassCommon.cginc"
@@ -209,7 +207,7 @@ Shader "Motu/Terrain Grass"
             #define GRASS_SHELL_LAYER 0.6875
             #pragma vertex GrassVertex
             #pragma fragment GrassFragment
-            #pragma target 3.0
+            #pragma target 3.5
             #pragma multi_compile_fwdbase
             #pragma multi_compile_fog
             #include "TerrainGrassCommon.cginc"
@@ -223,7 +221,7 @@ Shader "Motu/Terrain Grass"
             #define GRASS_SHELL_LAYER 0.75
             #pragma vertex GrassVertex
             #pragma fragment GrassFragment
-            #pragma target 3.0
+            #pragma target 3.5
             #pragma multi_compile_fwdbase
             #pragma multi_compile_fog
             #include "TerrainGrassCommon.cginc"
@@ -237,7 +235,7 @@ Shader "Motu/Terrain Grass"
             #define GRASS_SHELL_LAYER 0.8125
             #pragma vertex GrassVertex
             #pragma fragment GrassFragment
-            #pragma target 3.0
+            #pragma target 3.5
             #pragma multi_compile_fwdbase
             #pragma multi_compile_fog
             #include "TerrainGrassCommon.cginc"
@@ -251,7 +249,7 @@ Shader "Motu/Terrain Grass"
             #define GRASS_SHELL_LAYER 0.875
             #pragma vertex GrassVertex
             #pragma fragment GrassFragment
-            #pragma target 3.0
+            #pragma target 3.5
             #pragma multi_compile_fwdbase
             #pragma multi_compile_fog
             #include "TerrainGrassCommon.cginc"
@@ -265,7 +263,7 @@ Shader "Motu/Terrain Grass"
             #define GRASS_SHELL_LAYER 0.9375
             #pragma vertex GrassVertex
             #pragma fragment GrassFragment
-            #pragma target 3.0
+            #pragma target 3.5
             #pragma multi_compile_fwdbase
             #pragma multi_compile_fog
             #include "TerrainGrassCommon.cginc"
@@ -279,7 +277,7 @@ Shader "Motu/Terrain Grass"
             #define GRASS_SHELL_LAYER 1.0
             #pragma vertex GrassVertex
             #pragma fragment GrassFragment
-            #pragma target 3.0
+            #pragma target 3.5
             #pragma multi_compile_fwdbase
             #pragma multi_compile_fog
             #include "TerrainGrassCommon.cginc"

@@ -197,6 +197,7 @@ pub struct ExportSeaMask {
 pub struct MotuMaterialInputs {
     pub dirtColour: [f32; 3],
     pub stoneColour: [f32; 3],
+    pub sandColour: [f32; 3],
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -215,14 +216,14 @@ impl Default for MotuMaterialBakeOptions {
             width: 1024,
             height: 1024,
             normalConvention: 1,
-            materialMask: 0x0f,
+            materialMask: 0x3f,
             reserved: [0; 2],
         }
     }
 }
 
 const _: () = {
-    assert!(size_of::<MotuMaterialInputs>() == size_of::<[f32; 6]>());
+    assert!(size_of::<MotuMaterialInputs>() == size_of::<[f32; 9]>());
     assert!(size_of::<MotuMaterialBakeOptions>() == 12);
 };
 
@@ -238,6 +239,9 @@ pub struct ByteExportArray {
 pub struct ExportMaterialTexture {
     pub width: i32,
     pub height: i32,
+    pub minimumHeight: f32,
+    pub maximumHeight: f32,
+    pub baseHeight: f32,
     pub albedoRgb: ByteExportArray,
     pub normalRgb: ByteExportArray,
     pub heightR16: ByteExportArray,
@@ -248,9 +252,11 @@ pub struct ExportMaterialTexture {
 #[repr(C)]
 pub struct ExportMaterialTextureSet {
     pub handle: *mut c_void,
+    pub dirt: ExportMaterialTexture,
+    pub forestFloor: ExportMaterialTexture,
     pub rock: ExportMaterialTexture,
     pub riverBed: ExportMaterialTexture,
-    pub forestFloor: ExportMaterialTexture,
+    pub beach: ExportMaterialTexture,
     pub fallenStones: ExportMaterialTexture,
 }
 
@@ -258,6 +264,9 @@ pub struct ExportMaterialTextureSet {
 struct FfiMaterialTexture {
     width: i32,
     height: i32,
+    minimum_height: f32,
+    maximum_height: f32,
+    base_height: f32,
     albedo_rgb: Vec<u8>,
     normal_rgb: Vec<u8>,
     height_r16: Vec<u8>,
@@ -266,9 +275,11 @@ struct FfiMaterialTexture {
 
 #[derive(Debug, Default)]
 struct FfiMaterialTextureSet {
+    dirt: Option<FfiMaterialTexture>,
+    forest_floor: Option<FfiMaterialTexture>,
     rock: Option<FfiMaterialTexture>,
     river_bed: Option<FfiMaterialTexture>,
-    forest_floor: Option<FfiMaterialTexture>,
+    beach: Option<FfiMaterialTexture>,
     fallen_stones: Option<FfiMaterialTexture>,
 }
 
@@ -723,13 +734,18 @@ pub unsafe extern "C" fn BakeMotuMaterialTextures(
         _ => return 0,
     };
     let selection = MaterialSelection {
+        dirt: options.materialMask & 0x10 != 0,
+        forest_floor: options.materialMask & 0x04 != 0,
         rock: options.materialMask & 0x01 != 0,
         river_bed: options.materialMask & 0x02 != 0,
-        forest_floor: options.materialMask & 0x04 != 0,
+        beach: options.materialMask & 0x20 != 0,
         fallen_stones: options.materialMask & 0x08 != 0,
     };
-    let request =
-        RuntimeMaterialInputs::new(LinearRgb(inputs.dirtColour), LinearRgb(inputs.stoneColour));
+    let request = RuntimeMaterialInputs::new(
+        LinearRgb(inputs.dirtColour),
+        LinearRgb(inputs.stoneColour),
+        LinearRgb(inputs.sandColour),
+    );
     let Ok(baked) = bake_island_materials(
         &request,
         &RuntimeMaterialBakeOptions {
@@ -748,9 +764,11 @@ pub unsafe extern "C" fn BakeMotuMaterialTextures(
             return 0;
         };
         match kind {
+            IslandMaterialKind::Dirt => owned.dirt = Some(texture),
+            IslandMaterialKind::ForestFloor => owned.forest_floor = Some(texture),
             IslandMaterialKind::Rock => owned.rock = Some(texture),
             IslandMaterialKind::RiverBed => owned.river_bed = Some(texture),
-            IslandMaterialKind::ForestFloor => owned.forest_floor = Some(texture),
+            IslandMaterialKind::Beach => owned.beach = Some(texture),
             IslandMaterialKind::FallenStones => owned.fallen_stones = Some(texture),
         }
     }
@@ -758,9 +776,11 @@ pub unsafe extern "C" fn BakeMotuMaterialTextures(
     let boxed = Box::new(owned);
     let exported = ExportMaterialTextureSet {
         handle: ptr::null_mut(),
+        dirt: export_material_texture(boxed.dirt.as_ref()),
+        forestFloor: export_material_texture(boxed.forest_floor.as_ref()),
         rock: export_material_texture(boxed.rock.as_ref()),
         riverBed: export_material_texture(boxed.river_bed.as_ref()),
-        forestFloor: export_material_texture(boxed.forest_floor.as_ref()),
+        beach: export_material_texture(boxed.beach.as_ref()),
         fallenStones: export_material_texture(boxed.fallen_stones.as_ref()),
     };
     let handle = Box::into_raw(boxed).cast();
@@ -790,6 +810,18 @@ pub unsafe extern "C" fn ReleaseMaterialTextureSet(output: *mut ExportMaterialTe
 fn ffi_material_texture(textures: &TextureSet) -> Result<FfiMaterialTexture, ()> {
     let width = i32::try_from(textures.dimensions.width).map_err(|_| ())?;
     let height = i32::try_from(textures.dimensions.height).map_err(|_| ())?;
+    let minimum_height = textures.metadata.minimum_height_m;
+    let maximum_height = textures.metadata.maximum_height_m;
+    let base_height = textures.metadata.base_height_m;
+    if !minimum_height.is_finite()
+        || !maximum_height.is_finite()
+        || !base_height.is_finite()
+        || maximum_height <= minimum_height
+        || base_height < minimum_height
+        || base_height > maximum_height
+    {
+        return Err(());
+    }
     let albedo_rgb = textures
         .albedo
         .pixels()
@@ -820,6 +852,9 @@ fn ffi_material_texture(textures: &TextureSet) -> Result<FfiMaterialTexture, ()>
     Ok(FfiMaterialTexture {
         width,
         height,
+        minimum_height,
+        maximum_height,
+        base_height,
         albedo_rgb,
         normal_rgb,
         height_r16,
@@ -834,6 +869,9 @@ fn export_material_texture(texture: Option<&FfiMaterialTexture>) -> ExportMateri
     ExportMaterialTexture {
         width: texture.width,
         height: texture.height,
+        minimumHeight: texture.minimum_height,
+        maximumHeight: texture.maximum_height,
+        baseHeight: texture.base_height,
         albedoRgb: export_bytes(&texture.albedo_rgb),
         normalRgb: export_bytes(&texture.normal_rgb),
         heightR16: export_bytes(&texture.height_r16),
@@ -1603,12 +1641,13 @@ mod tests {
         let inputs = MotuMaterialInputs {
             dirtColour: [0.1, 0.06, 0.03],
             stoneColour: [0.25, 0.27, 0.24],
+            sandColour: [0.34, 0.28, 0.09],
         };
         let options = MotuMaterialBakeOptions {
             width: 64,
             height: 64,
             normalConvention: 1,
-            materialMask: 0x0f,
+            materialMask: 0x3f,
             reserved: [0; 2],
         };
         let mut output = ExportMaterialTextureSet::default();
@@ -1620,12 +1659,17 @@ mod tests {
         assert_eq!(succeeded, 1);
         assert!(!output.handle.is_null());
         for texture in [
+            output.dirt,
+            output.forestFloor,
             output.rock,
             output.riverBed,
-            output.forestFloor,
+            output.beach,
             output.fallenStones,
         ] {
             assert_eq!((texture.width, texture.height), (64, 64));
+            assert!(texture.minimumHeight < texture.maximumHeight);
+            assert!(texture.baseHeight >= texture.minimumHeight);
+            assert!(texture.baseHeight <= texture.maximumHeight);
             assert_eq!(texture.albedoRgb.length, 64 * 64 * 3);
             assert_eq!(texture.normalRgb.length, 64 * 64 * 3);
             assert_eq!(texture.heightR16.length, 64 * 64 * 2);
@@ -1635,6 +1679,22 @@ mod tests {
             assert!(!texture.heightR16.data.is_null());
             assert!(!texture.occlusion.data.is_null());
         }
+        assert_eq!(
+            (
+                output.fallenStones.minimumHeight,
+                output.fallenStones.maximumHeight,
+                output.fallenStones.baseHeight,
+            ),
+            (-0.014, 0.032, 0.0),
+        );
+        assert_eq!(
+            (
+                output.riverBed.minimumHeight,
+                output.riverBed.maximumHeight,
+                output.riverBed.baseHeight,
+            ),
+            (0.0, 0.015, 0.0),
+        );
         // SAFETY: output owns the still-live handle returned above.
         unsafe { ReleaseMaterialTextureSet(&raw mut output) };
         assert!(output.handle.is_null());
@@ -1646,12 +1706,13 @@ mod tests {
         let inputs = MotuMaterialInputs {
             dirtColour: [f32::NAN, 0.06, 0.03],
             stoneColour: [0.25, 0.27, 0.24],
+            sandColour: [0.34, 0.28, 0.09],
         };
         let options = MotuMaterialBakeOptions {
             width: 8,
             height: 8,
             normalConvention: 0,
-            materialMask: 0x0f,
+            materialMask: 0x3f,
             reserved: [0; 2],
         };
         let mut output = ExportMaterialTextureSet {

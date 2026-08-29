@@ -1,0 +1,297 @@
+{
+  "name": "Dirt",
+  "seed": 41017,
+  "parameters": {
+    "dirt_colour": {
+      "kind": "colour",
+      "default": [
+        0.09,
+        0.05500002,
+        0.025999999
+      ],
+      "description": "Engine-supplied exposed soil colour"
+    }
+  },
+  "width": 1024,
+  "height": 1024,
+  "physical_tile_width_m": 2.0,
+  "physical_tile_height_m": 2.0,
+  "material": {
+    "kind": "cracked_stone",
+    "cells_x": 16,
+    "cells_y": 16,
+    "cell_jitter": 1.0,
+    "warp_amplitude": 0.45,
+    "crack_width": 0.035,
+    "shoulder_width": 0.18,
+    "crack_depth": 0.13,
+    "slab_variation": 0.0,
+    "fracture_probability": 0.28,
+    "fracture_depth": 0.045,
+    "surface_amplitude": 0.014,
+    "broad_variation": 0.018
+  },
+  "layers": [
+    {
+      "id": "soil-height",
+      "name": "Coherent soil height",
+      "enabled": true,
+      "source": {
+        "kind": "fbm",
+        "frequency": 5,
+        "octaves": 4,
+        "lacunarity": 2.0,
+        "gain": 0.5,
+        "offset": [
+          0.0,
+          0.0
+        ],
+        "seed_domain": 4101,
+        "domain_warp": {
+          "amplitude": 0.18,
+          "frequency": 2,
+          "octaves": 2,
+          "lacunarity": 2.0,
+          "gain": 0.5,
+          "seed_domain": 4102
+        },
+        "cellular_jitter": 0.25
+      },
+      "remap": {
+        "input_min": -1.0,
+        "input_max": 1.0,
+        "invert": false,
+        "contrast": 1.0,
+        "bias": 0.0,
+        "clamp": true,
+        "curve": null
+      },
+      "mask": null,
+      "outputs": {
+        "height": {
+          "enabled": true,
+          "blend": {
+            "kind": "maximum"
+          },
+          "strength_m": 0.008
+        },
+        "albedo": {
+          "enabled": true,
+          "blend": "mix",
+          "strength": 1.0,
+          "colour_map": {
+            "kind": "gradient",
+            "stops": [
+              {
+                "position": 0.0,
+                "colour": {
+                  "parameter": "dirt_colour"
+                }
+              },
+              {
+                "position": 1.0,
+                "colour": {
+                  "parameter": "dirt_colour"
+                }
+              }
+            ]
+          },
+          "hue_influence": 0.0,
+          "saturation_influence": 0.0,
+          "value_influence": 0.0
+        }
+      }
+    },
+    {
+      "id": "layer",
+      "name": "rubble",
+      "enabled": true,
+      "source": {
+        "kind": "cellular_distance",
+        "frequency": 64,
+        "octaves": 4,
+        "lacunarity": 2.0,
+        "gain": 0.5,
+        "offset": [
+          0.0,
+          0.0
+        ],
+        "seed_domain": 0,
+        "domain_warp": null,
+        "cellular_jitter": 1.0
+      },
+      "remap": {
+        "input_min": 0.0,
+        "input_max": 1.0,
+        "invert": false,
+        "contrast": 1.0,
+        "bias": 0.0,
+        "clamp": true,
+        "curve": null
+      },
+      "mask": null,
+      "outputs": {
+        "height": {
+          "enabled": true,
+          "blend": {
+            "kind": "subtract"
+          },
+          "strength_m": 0.01
+        },
+        "albedo": {
+          "enabled": false,
+          "blend": "overlay",
+          "strength": 1.0,
+          "colour_map": {
+            "kind": "gradient",
+            "stops": [
+              {
+                "position": 0.0,
+                "colour": [
+                  0.2,
+                  0.2,
+                  0.2
+                ]
+              },
+              {
+                "position": 1.0,
+                "colour": [
+                  0.8,
+                  0.8,
+                  0.8
+                ]
+              }
+            ]
+          },
+          "hue_influence": 1.0,
+          "saturation_influence": 1.0,
+          "value_influence": 1.0
+        }
+      }
+    },
+    {
+      "id": "layer-2",
+      "name": "Layer 3",
+      "enabled": true,
+      "source": {
+        "kind": "billow",
+        "frequency": 4,
+        "octaves": 4,
+        "lacunarity": 2.0,
+        "gain": 0.5,
+        "offset": [
+          0.0,
+          0.0
+        ],
+        "seed_domain": 0,
+        "domain_warp": null,
+        "cellular_jitter": 0.25
+      },
+      "remap": {
+        "input_min": -1.0,
+        "input_max": 1.0,
+        "invert": false,
+        "contrast": 1.0,
+        "bias": 0.0,
+        "clamp": true,
+        "curve": null
+      },
+      "mask": {
+        "kind": "layer",
+        "layer_id": "layer",
+        "remap": {
+          "input_min": 0.4,
+          "input_max": 0.7,
+          "invert": true,
+          "contrast": 1.0,
+          "bias": 0.0,
+          "clamp": true,
+          "curve": null
+        }
+      },
+      "outputs": {
+        "height": {
+          "enabled": false,
+          "blend": {
+            "kind": "add"
+          },
+          "strength_m": 0.01
+        },
+        "albedo": {
+          "enabled": true,
+          "blend": "multiply",
+          "strength": 0.5,
+          "colour_map": {
+            "kind": "gradient",
+            "stops": [
+              {
+                "position": 0.0,
+                "colour": [
+                  0.0,
+                  0.0,
+                  0.0
+                ]
+              },
+              {
+                "position": 1.0,
+                "colour": [
+                  1.0,
+                  1.0,
+                  1.0
+                ]
+              }
+            ]
+          },
+          "hue_influence": 0.0,
+          "saturation_influence": 0.0,
+          "value_influence": 0.0
+        }
+      }
+    }
+  ],
+  "normal_scale": 1.0,
+  "displacement": {
+    "minimum_m": -0.02,
+    "maximum_m": 0.02,
+    "base_m": 0.0,
+    "displacement_map": true
+  },
+  "occlusion": {
+    "directions": 8,
+    "samples": 6,
+    "radius": 0.4,
+    "max_radius": 4.0,
+    "cavity_strength": 1.0,
+    "horizon_strength": 0.55,
+    "power": 1.0,
+    "combine": {
+      "kind": "multiply"
+    }
+  },
+  "albedo": {
+    "base_color": {
+      "parameter": "dirt_colour"
+    },
+    "warm_color": {
+      "parameter": "dirt_colour"
+    },
+    "palette": [
+      {
+        "parameter": "dirt_colour"
+      },
+      {
+        "parameter": "dirt_colour"
+      }
+    ],
+    "variation": 0.0,
+    "crack_darkening": 0.0,
+    "shoulder_variation": 0.0,
+    "mineral_density": 0.0,
+    "mineral_brightness": 0.0,
+    "occlusion_influence": 0.0
+  },
+  "output_profiles": [
+    "separate",
+    "motu_unity_terrain"
+  ]
+}

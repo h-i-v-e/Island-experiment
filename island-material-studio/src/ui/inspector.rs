@@ -6,9 +6,11 @@ use std::collections::BTreeMap;
 
 use bevy_egui::egui;
 use motu::procedural_textures::{
-    AlbedoBlend, ColourMap, ColourParameterReference, ColourValue, DomainWarpSettings,
-    GradientStop, HeightBlend, LayerMask, LinearRgb, MaterialLayer, MaterialModel,
-    ParameterDefinition, RemapPoint, ScalarRemap, ScalarSource, SourceKind, TextureRecipe,
+    AlbedoBlend, CRACKED_STONE_MAX_WARP_AMPLITUDE, ColourMap, ColourParameterReference,
+    ColourValue, DomainWarpSettings, GradientStop, HeightBlend, LayerMask, LinearRgb,
+    MaterialLayer, MaterialModel, ParameterDefinition, ROUNDED_STONES_MAX_RADIUS,
+    ROUNDED_STONES_MAX_WARP_AMPLITUDE, RemapPoint, ScalarRemap, ScalarSource, SourceKind,
+    TextureRecipe,
     recipe::{OcclusionCombine, OutputProfile as RecipeOutputProfile},
 };
 
@@ -237,9 +239,27 @@ fn material_editor(ui: &mut egui::Ui, material: &mut MaterialModel) -> bool {
             changed |= u32_row(ui, "Cells X", cells_x, 1.0);
             changed |= u32_row(ui, "Cells Y", cells_y, 1.0);
             changed |= f32_row(ui, "Cell jitter", cell_jitter, 0.01);
-            changed |= f32_row(ui, "Warp amplitude", warp_amplitude, 0.01);
-            changed |= f32_row(ui, "Crack width", crack_width, 0.001);
-            changed |= f32_row(ui, "Shoulder width", shoulder_width, 0.001);
+            changed |= f32_row_range(
+                ui,
+                "Warp amplitude",
+                warp_amplitude,
+                0.01,
+                0.0..=f64::from(CRACKED_STONE_MAX_WARP_AMPLITUDE),
+            );
+            changed |= f32_row_range(
+                ui,
+                "Crack width",
+                crack_width,
+                0.001,
+                f64::EPSILON..=f64::from(f32::MAX),
+            );
+            changed |= f32_row_range(
+                ui,
+                "Shoulder width",
+                shoulder_width,
+                0.001,
+                f64::from(*crack_width)..=f64::from(f32::MAX),
+            );
             changed |= f32_row(ui, "Crack depth", crack_depth, 0.001);
             changed |= f32_row(ui, "Slab variation", slab_variation, 0.001);
             changed |= f32_row(ui, "Fracture probability", fracture_probability, 0.01);
@@ -262,15 +282,39 @@ fn material_editor(ui: &mut egui::Ui, material: &mut MaterialModel) -> bool {
         } => {
             changed |= u32_row(ui, "Cells X", cells_x, 1.0);
             changed |= u32_row(ui, "Cells Y", cells_y, 1.0);
-            changed |= f32_row(ui, "Pebble size", stone_radius, 0.01);
+            changed |= f32_row_range(
+                ui,
+                "Pebble size",
+                stone_radius,
+                0.01,
+                f64::EPSILON..=f64::from(ROUNDED_STONES_MAX_RADIUS),
+            );
             changed |= f32_row(ui, "Cell jitter", cell_jitter, 0.01);
-            changed |= f32_row(ui, "Warp amplitude", warp_amplitude, 0.01);
+            changed |= f32_row_range(
+                ui,
+                "Warp amplitude",
+                warp_amplitude,
+                0.01,
+                0.0..=f64::from(ROUNDED_STONES_MAX_WARP_AMPLITUDE),
+            );
             changed |= f32_row(ui, "Dome roundness", anisotropy, 0.01);
             changed |= f32_row(ui, "Stone height", stone_height, 0.001);
             changed |= f32_row(ui, "Stone variation", stone_variation, 0.001);
-            changed |= f32_row(ui, "Gap height", gap_height, 0.001);
+            changed |= f32_row_range(
+                ui,
+                "Gap height",
+                gap_height,
+                0.001,
+                f64::from(f32::MIN)..=f64::from(*stone_height),
+            );
             changed |= f32_row(ui, "Sand amplitude", sand_amplitude, 0.001);
-            changed |= f32_row(ui, "Edge softness", edge_softness, 0.001);
+            changed |= f32_row_range(
+                ui,
+                "Edge softness",
+                edge_softness,
+                0.001,
+                f64::EPSILON..=f64::from(f32::MAX),
+            );
         }
     }
     changed
@@ -872,9 +916,41 @@ fn parameter_editor(
 }
 
 fn f32_row(ui: &mut egui::Ui, label: &str, value: &mut f32, speed: f64) -> bool {
+    f32_row_control(ui, label, value, speed, None)
+}
+
+fn f32_row_range(
+    ui: &mut egui::Ui,
+    label: &str,
+    value: &mut f32,
+    speed: f64,
+    range: std::ops::RangeInclusive<f64>,
+) -> bool {
+    f32_row_control(ui, label, value, speed, Some(range))
+}
+
+fn f32_row_control(
+    ui: &mut egui::Ui,
+    label: &str,
+    value: &mut f32,
+    speed: f64,
+    range: Option<std::ops::RangeInclusive<f64>>,
+) -> bool {
+    let previous = *value;
     ui.horizontal(|ui| {
         ui.label(label);
-        ui.add(egui::DragValue::new(value).speed(speed)).changed()
+        let mut control = egui::DragValue::new(value).speed(speed);
+        if let Some(range) = range {
+            control = control.range(range);
+        }
+        let changed = ui.add(control).changed();
+        if changed && !value.is_finite() {
+            *value = previous;
+            ui.colored_label(egui::Color32::LIGHT_RED, "Finite number required");
+            false
+        } else {
+            changed
+        }
     })
     .inner
 }

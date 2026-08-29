@@ -1,0 +1,145 @@
+{
+  "name": "Beach",
+  "seed": 52023,
+  "parameters": {
+    "sand_colour": {
+      "kind": "colour",
+      "default": [
+        0.34239164,
+        0.28464663,
+        0.09462963
+      ],
+      "description": "Engine-supplied beach sand colour"
+    }
+  },
+  "width": 1024,
+  "height": 1024,
+  "physical_tile_width_m": 3.0,
+  "physical_tile_height_m": 3.0,
+  "material": {
+    "kind": "layered_noise",
+    "frequency": 5.0,
+    "amplitude": 0.004,
+    "octaves": 4,
+    "lacunarity": 2.0,
+    "gain": 0.5,
+    "offset": 0.0
+  },
+  "layers": [
+    {
+      "id": "sand-height",
+      "name": "Coherent sand height",
+      "enabled": true,
+      "source": {
+        "kind": "ridged",
+        "frequency": 16,
+        "octaves": 4,
+        "lacunarity": 2.0,
+        "gain": 0.48,
+        "offset": [
+          0.0,
+          0.0
+        ],
+        "seed_domain": 5201,
+        "domain_warp": {
+          "amplitude": 0.16,
+          "frequency": 2,
+          "octaves": 2,
+          "lacunarity": 2.0,
+          "gain": 0.5,
+          "seed_domain": 5202
+        },
+        "cellular_jitter": 0.25
+      },
+      "remap": {
+        "input_min": -1.0,
+        "input_max": 1.0,
+        "invert": false,
+        "contrast": 1.0,
+        "bias": 0.0,
+        "clamp": true,
+        "curve": null
+      },
+      "mask": null,
+      "outputs": {
+        "height": {
+          "enabled": true,
+          "blend": {
+            "kind": "add"
+          },
+          "strength_m": 0.006
+        },
+        "albedo": {
+          "enabled": true,
+          "blend": "mix",
+          "strength": 1.0,
+          "colour_map": {
+            "kind": "gradient",
+            "stops": [
+              {
+                "position": 0.0,
+                "colour": {
+                  "parameter": "sand_colour"
+                }
+              },
+              {
+                "position": 1.0,
+                "colour": {
+                  "parameter": "sand_colour"
+                }
+              }
+            ]
+          },
+          "hue_influence": 0.0,
+          "saturation_influence": 0.0,
+          "value_influence": 0.0
+        }
+      }
+    }
+  ],
+  "normal_scale": 1.0,
+  "displacement": {
+    "minimum_m": -0.015,
+    "maximum_m": 0.015,
+    "base_m": 0.0,
+    "displacement_map": true
+  },
+  "occlusion": {
+    "directions": 8,
+    "samples": 6,
+    "radius": 0.45,
+    "max_radius": 4.0,
+    "cavity_strength": 0.8,
+    "horizon_strength": 0.45,
+    "power": 1.0,
+    "combine": {
+      "kind": "multiply"
+    }
+  },
+  "albedo": {
+    "base_color": {
+      "parameter": "sand_colour"
+    },
+    "warm_color": {
+      "parameter": "sand_colour"
+    },
+    "palette": [
+      {
+        "parameter": "sand_colour"
+      },
+      {
+        "parameter": "sand_colour"
+      }
+    ],
+    "variation": 0.0,
+    "crack_darkening": 0.0,
+    "shoulder_variation": 0.0,
+    "mineral_density": 0.0,
+    "mineral_brightness": 0.0,
+    "occlusion_influence": 0.0
+  },
+  "output_profiles": [
+    "separate",
+    "motu_unity_terrain"
+  ]
+}

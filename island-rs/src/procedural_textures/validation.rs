@@ -11,10 +11,11 @@ use super::{
         ColourValue, LinearRgb, MAX_PARAMETER_NAME_LEN, MAX_RECIPE_PARAMETERS, ParameterDefinition,
     },
     recipe::{
-        AlbedoSettings, ColourMap, DisplacementSettings, DomainWarpSettings, GradientStop,
-        HeightBlend, LayerMask, MAX_GRADIENT_STOPS, MAX_LAYERS, MAX_OUTPUT_PROFILES,
-        MAX_REMAP_POINTS, MaterialLayer, MaterialModel, OcclusionCombine, OcclusionRecipeSettings,
-        OutputProfile, RemapPoint, ScalarRemap, ScalarSource, TextureRecipe,
+        AlbedoSettings, CRACKED_STONE_MAX_WARP_AMPLITUDE, ColourMap, DisplacementSettings,
+        DomainWarpSettings, GradientStop, HeightBlend, LayerMask, MAX_GRADIENT_STOPS, MAX_LAYERS,
+        MAX_OUTPUT_PROFILES, MAX_REMAP_POINTS, MaterialLayer, MaterialModel, OcclusionCombine,
+        OcclusionRecipeSettings, OutputProfile, ROUNDED_STONES_MAX_RADIUS,
+        ROUNDED_STONES_MAX_WARP_AMPLITUDE, RemapPoint, ScalarRemap, ScalarSource, TextureRecipe,
     },
 };
 
@@ -73,6 +74,21 @@ pub enum RecipeValidationError {
     NonPositiveParameter {
         path: String,
         value: f32,
+    },
+    ParameterBelowMinimum {
+        path: String,
+        value: f32,
+        minimum: f32,
+    },
+    ParameterAboveMaximum {
+        path: String,
+        value: f32,
+        maximum: f32,
+    },
+    IntegerParameterAboveMaximum {
+        path: String,
+        value: u32,
+        maximum: u32,
     },
     InvalidDisplacementRange {
         minimum: f32,
@@ -215,6 +231,21 @@ impl fmt::Display for RecipeValidationError {
             Self::NonPositiveParameter { path, value } => {
                 write!(formatter, "{path} must be positive ({value})")
             }
+            Self::ParameterBelowMinimum {
+                path,
+                value,
+                minimum,
+            } => write!(formatter, "{path} must be at least {minimum} ({value})"),
+            Self::ParameterAboveMaximum {
+                path,
+                value,
+                maximum,
+            } => write!(formatter, "{path} must not exceed {maximum} ({value})"),
+            Self::IntegerParameterAboveMaximum {
+                path,
+                value,
+                maximum,
+            } => write!(formatter, "{path} must not exceed {maximum} ({value})"),
             Self::InvalidDisplacementRange {
                 minimum,
                 maximum,
@@ -389,7 +420,7 @@ fn validate_root(recipe: &TextureRecipe, errors: &mut RecipeValidationErrors) {
     validate_dimensions(recipe.width, recipe.height, errors);
     validate_tile_size("width", recipe.physical_tile_width_m, errors);
     validate_tile_size("height", recipe.physical_tile_height_m, errors);
-    validate_material(&recipe.material, errors);
+    validate_material(&recipe.material, recipe.width, recipe.height, errors);
     validate_parameters(&recipe.parameters, errors);
 
     if recipe.layers.len() > MAX_LAYERS {
@@ -522,7 +553,12 @@ fn validate_tile_size(axis: &'static str, value: f32, errors: &mut RecipeValidat
     }
 }
 
-fn validate_material(material: &MaterialModel, errors: &mut RecipeValidationErrors) {
+fn validate_material(
+    material: &MaterialModel,
+    width: u32,
+    height: u32,
+    errors: &mut RecipeValidationErrors,
+) {
     match material {
         MaterialModel::LayeredNoise {
             frequency,
@@ -558,8 +594,20 @@ fn validate_material(material: &MaterialModel, errors: &mut RecipeValidationErro
             validate_nonzero("material.cells_y", *cells_y, errors);
             validate_normalized("material.cell_jitter", *cell_jitter, errors);
             validate_nonnegative("material.warp_amplitude", *warp_amplitude, errors);
-            validate_nonnegative("material.crack_width", *crack_width, errors);
+            validate_maximum(
+                "material.warp_amplitude",
+                *warp_amplitude,
+                CRACKED_STONE_MAX_WARP_AMPLITUDE,
+                errors,
+            );
+            validate_positive("material.crack_width", *crack_width, errors);
             validate_nonnegative("material.shoulder_width", *shoulder_width, errors);
+            validate_minimum(
+                "material.shoulder_width",
+                *shoulder_width,
+                *crack_width,
+                errors,
+            );
             validate_nonnegative("material.crack_depth", *crack_depth, errors);
             validate_nonnegative("material.slab_variation", *slab_variation, errors);
             validate_normalized(
@@ -586,15 +634,30 @@ fn validate_material(material: &MaterialModel, errors: &mut RecipeValidationErro
         } => {
             validate_nonzero("material.cells_x", *cells_x, errors);
             validate_nonzero("material.cells_y", *cells_y, errors);
+            validate_integer_maximum("material.cells_x", *cells_x, width, errors);
+            validate_integer_maximum("material.cells_y", *cells_y, height, errors);
             validate_positive("material.stone_radius", *stone_radius, errors);
+            validate_maximum(
+                "material.stone_radius",
+                *stone_radius,
+                ROUNDED_STONES_MAX_RADIUS,
+                errors,
+            );
             validate_normalized("material.cell_jitter", *cell_jitter, errors);
             validate_nonnegative("material.warp_amplitude", *warp_amplitude, errors);
+            validate_maximum(
+                "material.warp_amplitude",
+                *warp_amplitude,
+                ROUNDED_STONES_MAX_WARP_AMPLITUDE,
+                errors,
+            );
             validate_positive("material.anisotropy", *anisotropy, errors);
             validate_nonnegative("material.stone_height", *stone_height, errors);
             validate_nonnegative("material.stone_variation", *stone_variation, errors);
             validate_finite("material.gap_height", *gap_height, errors);
+            validate_maximum("material.gap_height", *gap_height, *stone_height, errors);
             validate_nonnegative("material.sand_amplitude", *sand_amplitude, errors);
-            validate_nonnegative("material.edge_softness", *edge_softness, errors);
+            validate_positive("material.edge_softness", *edge_softness, errors);
         }
     }
 }
@@ -1043,6 +1106,41 @@ fn validate_nonnegative(path: &str, value: f32, errors: &mut RecipeValidationErr
     }
 }
 
+fn validate_minimum(path: &str, value: f32, minimum: f32, errors: &mut RecipeValidationErrors) {
+    if value.is_finite() && minimum.is_finite() && value < minimum {
+        errors.push(RecipeValidationError::ParameterBelowMinimum {
+            path: path.into(),
+            value,
+            minimum,
+        });
+    }
+}
+
+fn validate_maximum(path: &str, value: f32, maximum: f32, errors: &mut RecipeValidationErrors) {
+    if value.is_finite() && maximum.is_finite() && value > maximum {
+        errors.push(RecipeValidationError::ParameterAboveMaximum {
+            path: path.into(),
+            value,
+            maximum,
+        });
+    }
+}
+
+fn validate_integer_maximum(
+    path: &str,
+    value: u32,
+    maximum: u32,
+    errors: &mut RecipeValidationErrors,
+) {
+    if value > maximum {
+        errors.push(RecipeValidationError::IntegerParameterAboveMaximum {
+            path: path.into(),
+            value,
+            maximum,
+        });
+    }
+}
+
 fn validate_normalized(path: &str, value: f32, errors: &mut RecipeValidationErrors) {
     if !value.is_finite() {
         errors.push(RecipeValidationError::NonFinite { path: path.into() });
@@ -1194,5 +1292,69 @@ mod tests {
                 .iter()
                 .any(|issue| matches!(issue, RecipeValidationError::InvalidRemapCurve { .. }))
         );
+    }
+
+    #[test]
+    fn rounded_stone_evaluator_limits_are_reported_by_validation() {
+        let mut recipe = valid_recipe();
+        recipe.material = serde_json::from_value(serde_json::json!({
+            "kind": "rounded_stones",
+            "cells_x": 33,
+            "stone_radius": 1.1,
+            "warp_amplitude": 0.41,
+            "stone_height": 0.1,
+            "gap_height": 0.2,
+            "edge_softness": 0.0
+        }))
+        .expect("rounded-stone fixture");
+
+        let errors = validate_recipe(&recipe).expect_err("unsafe rounded-stone parameters");
+        assert!(errors.issues().iter().any(|issue| matches!(
+            issue,
+            RecipeValidationError::IntegerParameterAboveMaximum { path, .. }
+                if path == "material.cells_x"
+        )));
+        for path in [
+            "material.stone_radius",
+            "material.warp_amplitude",
+            "material.gap_height",
+        ] {
+            assert!(errors.issues().iter().any(|issue| matches!(
+                issue,
+                RecipeValidationError::ParameterAboveMaximum {
+                    path: issue_path,
+                    ..
+                } if issue_path == path
+            )));
+        }
+        assert!(errors.issues().iter().any(|issue| matches!(
+            issue,
+            RecipeValidationError::NonPositiveParameter { path, .. }
+                if path == "material.edge_softness"
+        )));
+    }
+
+    #[test]
+    fn cracked_stone_evaluator_limits_are_reported_by_validation() {
+        let mut recipe = valid_recipe();
+        recipe.material = serde_json::from_value(serde_json::json!({
+            "kind": "cracked_stone",
+            "warp_amplitude": 0.46,
+            "crack_width": 0.2,
+            "shoulder_width": 0.1
+        }))
+        .expect("cracked-stone fixture");
+
+        let errors = validate_recipe(&recipe).expect_err("unsafe cracked-stone parameters");
+        assert!(errors.issues().iter().any(|issue| matches!(
+            issue,
+            RecipeValidationError::ParameterAboveMaximum { path, .. }
+                if path == "material.warp_amplitude"
+        )));
+        assert!(errors.issues().iter().any(|issue| matches!(
+            issue,
+            RecipeValidationError::ParameterBelowMinimum { path, .. }
+                if path == "material.shoulder_width"
+        )));
     }
 }

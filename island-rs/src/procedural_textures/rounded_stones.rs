@@ -10,7 +10,10 @@
 use super::field_program::{
     FieldDimensions, FieldError, LayeredField, fbm, hash_signed, periodic_value, smoothstep,
 };
-use super::{cellular, periodic};
+use super::{
+    cellular, periodic,
+    recipe::{ROUNDED_STONES_MAX_RADIUS, ROUNDED_STONES_MAX_WARP_AMPLITUDE},
+};
 
 const PROFILE_SAMPLES_PER_CELL: u32 = 16;
 
@@ -204,9 +207,9 @@ fn validate(config: RoundedStonesConfig, dimensions: FieldDimensions) -> Result<
         || config.cell_jitter < 0.0
         || config.cell_jitter > 1.0
         || config.warp_amplitude < 0.0
-        || config.warp_amplitude > 0.4
+        || config.warp_amplitude > ROUNDED_STONES_MAX_WARP_AMPLITUDE
         || config.stone_radius <= 0.0
-        || config.stone_radius > 1.0
+        || config.stone_radius > ROUNDED_STONES_MAX_RADIUS
         || config.anisotropy <= 0.0
         || config.stone_height < 0.0
         || config.stone_variation < 0.0

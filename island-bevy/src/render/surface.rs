@@ -144,6 +144,7 @@ pub struct TerrainSettings {
     /// and as the recipe anchors supplied to the runtime baker.
     pub dirt_colour: Vec4,
     pub stone_colour: Vec4,
+    pub sand_colour: Vec4,
 }
 
 /// Terrain extension bindings. The macro blend arrives on the mesh instead:
@@ -186,6 +187,7 @@ impl TerrainExtension {
                 debug_view: 0,
                 dirt_colour: atlases.dirt_colour.extend(1.0),
                 stone_colour: atlases.stone_colour.extend(1.0),
+                sand_colour: atlases.sand_colour.extend(1.0),
             },
             material_albedo: atlases.albedo.clone(),
             material_normal: atlases.normal.clone(),

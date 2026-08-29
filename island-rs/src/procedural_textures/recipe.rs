@@ -20,6 +20,12 @@ pub const MAX_OUTPUT_PROFILES: usize = 4;
 pub const MAX_GRADIENT_STOPS: usize = 32;
 /// Maximum number of scalar remap control points.
 pub const MAX_REMAP_POINTS: usize = 16;
+/// Largest coordinate warp supported by the cracked-stone evaluator.
+pub const CRACKED_STONE_MAX_WARP_AMPLITUDE: f32 = 0.45;
+/// Largest coordinate warp supported by the rounded-stone evaluator.
+pub const ROUNDED_STONES_MAX_WARP_AMPLITUDE: f32 = 0.4;
+/// Largest cell-relative radius supported by the rounded-stone evaluator.
+pub const ROUNDED_STONES_MAX_RADIUS: f32 = 1.0;
 
 /// Root JSON recipe for one periodic generated texture set.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]

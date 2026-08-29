@@ -19,7 +19,7 @@ Material:
   m_CustomRenderQueue: -1
   stringTagMap: {}
   disabledShaderPasses: []
-  m_LockedProperties: 
+  m_LockedProperties:
   m_SavedProperties:
     serializedVersion: 3
     m_TexEnvs:
@@ -31,19 +31,19 @@ Material:
         m_Texture: {fileID: 0}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
-    - _RiverBedMaskMap:
-        m_Texture: {fileID: 0}
-        m_Scale: {x: 1, y: 1}
-        m_Offset: {x: 0, y: 0}
-    - _RockMaskMap:
+    - _TerrainMaskArray:
         m_Texture: {fileID: 0}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
+    - _BeachEdgeBlendWidth: 0.18
+    - _BeachEdgeNoiseStrength: 0.18
     - _CliffBoundaryNoiseStrength: 0.3
     - _CliffNoisePeriod: 160
     - _CliffNormalCutoff: 0.55
+    - _ForestFloorEdgeBlendWidth: 0.035
+    - _ForestFloorEdgeNoiseStrength: 0.22
     - _GrassBladeWidth: 0.48
     - _GrassBrightness: 1
     - _GrassColorNoiseWorldSize: 2048
@@ -53,23 +53,24 @@ Material:
     - _GrassHeight: 0.14
     - _GrassPatchNoiseWorldSize: 32
     - _GrassRadius: 20
-    - _GrassWindWorldSize: 12
     - _GrassWindNormalStrength: 0.35
     - _GrassWindSpeed: 1.8
     - _GrassWindStrength: 0.07
-    - _RiverBedHeightBlendStrength: 0
-    - _RiverBedTextureWorldSize: 2
+    - _GrassWindWorldSize: 12
     - _RiverEdgeBlendWidth: 0.2
     - _RiverEdgeNoiseStrength: 0.2
     - _RockBoundaryNoiseStrength: 0.18
-    - _RockHeightBlendStrength: 0
     - _RockPatchNoiseDetailScale: 8
-    - _RockTextureWorldSize: 4
     - _SandPatchNoiseWorldSize: 32
     - _SandRockSlopeThreshold: 0.1
     - _SnowEdgeNoiseMetres: 2.5
     - _SnowLine: 100
     - _SnowMacroNoiseMetres: 18
+    - _StonesEdgeBlendWidth: 0.16
+    - _StonesEdgeNoiseStrength: 0.22
+    - _SteepStoneBlendWidth: 8
+    - _TerrainHeightBlendDepth: 0.18
+    - _TopTextureFadeOutSlope: 45
     m_Colors:
     - _GrassAmbientColor: {r: 0.42, g: 0.46, b: 0.52, a: 1}
     - _GrassColorA: {r: 0.18, g: 0.46, b: 0.14, a: 1}
@@ -78,7 +79,9 @@ Material:
     - _GrassLightDirection: {r: 0, g: 1, b: 0, a: 0}
     - _GrassPlayerPosition: {r: 0, g: 0, b: 0, a: 0}
     - _GrassWindDirection: {r: 1, g: 0, b: 0.35, a: 0}
-    - _GrassRootColor: {r: 0.14, g: 0.34, b: 0.11, a: 1}
-    - _GrassTipColor: {r: 0.26, g: 0.62, b: 0.21, a: 1}
+    - _TerrainHeightInfluencesA: {r: 1, g: 1, b: 1, a: 1}
+    - _TerrainHeightInfluencesB: {r: 0.65, g: 0.65, b: 0, a: 0}
+    - _TerrainLayerWorldSizesA: {r: 2, g: 2, b: 4, a: 2}
+    - _TerrainLayerWorldSizesB: {r: 3, g: 2, b: 0, a: 0}
   m_BuildTextureStacks: []
   m_AllowLocking: 1

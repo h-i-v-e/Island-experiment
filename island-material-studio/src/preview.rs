@@ -401,6 +401,33 @@ mod tests {
     }
 
     #[test]
+    fn evaluator_limits_are_rejected_before_preview_generation() {
+        let mut invalid: TextureRecipe = serde_json::from_str(include_str!(
+            "../../island-rs/texture-recipes/rounded-river-stones.json"
+        ))
+        .unwrap();
+        if let motu::procedural_textures::MaterialModel::RoundedStones {
+            cells_x,
+            edge_softness,
+            ..
+        } = &mut invalid.material
+        {
+            *cells_x = PreviewResolution::default().pixels() + 1;
+            *edge_softness = 0.0;
+        }
+
+        let mut state = PreviewState::default();
+        state.request(invalid, 1, None, false);
+
+        assert!(state.pending.is_none());
+        assert!(state.desired_key.is_none());
+        let error = state.error.expect("validation diagnostic");
+        assert!(error.contains("material.cells_x"));
+        assert!(error.contains("material.edge_softness"));
+        assert!(!error.contains("NonFiniteParameter"));
+    }
+
+    #[test]
     fn cache_is_bounded_and_keys_include_selected_layer() {
         let maps = Arc::new(
             generate_preview(

@@ -158,6 +158,9 @@ internal static class MotuNative
         internal float stoneRed;
         internal float stoneGreen;
         internal float stoneBlue;
+        internal float sandRed;
+        internal float sandGreen;
+        internal float sandBlue;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -182,6 +185,9 @@ internal static class MotuNative
     {
         internal int width;
         internal int height;
+        internal float minimumHeight;
+        internal float maximumHeight;
+        internal float baseHeight;
         internal ByteArray albedoRgb;
         internal ByteArray normalRgb;
         internal ByteArray heightR16;
@@ -192,9 +198,11 @@ internal static class MotuNative
     internal struct ExportMaterialTextureSet
     {
         internal IntPtr handle;
+        internal ExportMaterialTexture dirt;
+        internal ExportMaterialTexture forestFloor;
         internal ExportMaterialTexture rock;
         internal ExportMaterialTexture riverBed;
-        internal ExportMaterialTexture forestFloor;
+        internal ExportMaterialTexture beach;
         internal ExportMaterialTexture fallenStones;
     }
 
