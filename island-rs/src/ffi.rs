@@ -20,8 +20,8 @@ use crate::procedural_textures::{
     RuntimeMaterialInputs, TextureSet, bake_island_materials,
 };
 use crate::{
-    BoundingBox, ForestOptions, GenerationMethod, Island, IslandOptions, Mesh, SeaMask,
-    SurfaceMaps, Vec2, Vec3, Vec4, generate_tree,
+    BoundingBox, ForestOptions, GenerationMethod, ISLAND_WORLD_METRES, Island, IslandOptions, Mesh,
+    SeaMask, SurfaceMaps, Vec2, Vec3, Vec4, generate_tree,
 };
 
 const _: () = {
@@ -584,6 +584,16 @@ fn procedural_tree_root_material(mesh: &Mesh) -> Vec<Vec4> {
     vec![Vec4::new(0.0, 0.0, 0.0, 0.5); mesh.vertices.len()]
 }
 
+fn encode_foliage_ground_distances(mesh: &mut Mesh, root_height: f32) {
+    mesh.uv.clear();
+    mesh.uv.extend(mesh.vertices.iter().map(|vertex| {
+        Vec2::new(
+            ((vertex.z - root_height) * ISLAND_WORLD_METRES).max(0.0),
+            0.0,
+        )
+    }));
+}
+
 fn export_surface_maps(maps: Box<SurfaceMaps>) -> ExportSurfaceMaps {
     let handle = Box::into_raw(maps);
     // SAFETY: handle remains owned by the caller until ReleaseSurfaceMaps.
@@ -913,13 +923,17 @@ pub unsafe extern "C" fn CreateProceduralTree(
     for output in outputs {
         unsafe { output.write(ExportMesh::default()) };
     }
-    let tree = generate_tree(u64::from(seed.cast_unsigned()));
+    let mut tree = generate_tree(u64::from(seed.cast_unsigned()));
     let lod0_wood_material = procedural_tree_root_material(&tree.lod0_wood);
     let lod1_wood_material = procedural_tree_root_material(&tree.lod1_wood);
+    let lod0_foliage_material = procedural_tree_root_material(&tree.lod0_foliage);
+    let lod1_foliage_material = procedural_tree_root_material(&tree.lod1_foliage);
+    encode_foliage_ground_distances(&mut tree.lod0_foliage, 0.0);
+    encode_foliage_ground_distances(&mut tree.lod1_foliage, 0.0);
     let lod0_wood = export_mesh(tree.lod0_wood, lod0_wood_material, Vec::new());
-    let lod0_foliage = export_mesh(tree.lod0_foliage, Vec::new(), Vec::new());
+    let lod0_foliage = export_mesh(tree.lod0_foliage, lod0_foliage_material, Vec::new());
     let lod1_wood = export_mesh(tree.lod1_wood, lod1_wood_material, Vec::new());
-    let lod1_foliage = export_mesh(tree.lod1_foliage, Vec::new(), Vec::new());
+    let lod1_foliage = export_mesh(tree.lod1_foliage, lod1_foliage_material, Vec::new());
     // SAFETY: output ownership transfers to the caller and each independent
     // handle must subsequently be passed to ReleaseMesh exactly once.
     unsafe {
@@ -2270,8 +2284,10 @@ mod tests {
             assert!(lod0_foliage.vertices.length > lod1_foliage.vertices.length);
             assert_eq!(lod0_wood.material.length, lod0_wood.vertices.length);
             assert_eq!(lod1_wood.material.length, lod1_wood.vertices.length);
-            assert_eq!(lod0_foliage.material.length, 0);
-            assert_eq!(lod1_foliage.material.length, 0);
+            assert_eq!(lod0_foliage.material.length, lod0_foliage.vertices.length);
+            assert_eq!(lod1_foliage.material.length, lod1_foliage.vertices.length);
+            assert_eq!(lod0_foliage.uv.length, lod0_foliage.vertices.length);
+            assert_eq!(lod1_foliage.uv.length, lod1_foliage.vertices.length);
             for tree_mesh in [
                 &raw mut lod0_wood,
                 &raw mut lod0_foliage,

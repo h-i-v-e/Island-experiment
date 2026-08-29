@@ -301,6 +301,10 @@ public sealed class IslandGenerator : MonoBehaviour
         grassMaterial.SetFloat(
             "_GrassPatchNoiseWorldSize",
             rendering.GrassPatchSizeMetres);
+        treeWoodMaterial.SetTexture("_GrassPatchNoise", grassPatchNoiseTexture);
+        treeLod1WoodMaterial.SetTexture("_GrassPatchNoise", grassPatchNoiseTexture);
+        treeFoliageMaterial.SetTexture("_GrassPatchNoise", grassPatchNoiseTexture);
+        treeLod0FoliageMaterial.SetTexture("_GrassPatchNoise", grassPatchNoiseTexture);
         ApplyGrassColourSettings();
         grassMaterial.SetFloat("_GrassBrightness", rendering.GrassBrightness);
         ApplyGrassWindSettings();
@@ -644,6 +648,10 @@ public sealed class IslandGenerator : MonoBehaviour
         ApplyGrassWindSettingsToMaterial(terrainLod1Material, direction);
         ApplyGrassWindSettingsToMaterial(terrainLod2Material, direction);
         ApplyGrassWindSettingsToMaterial(grassMaterial, direction);
+        ApplyGrassWindSettingsToMaterial(treeWoodMaterial, direction);
+        ApplyGrassWindSettingsToMaterial(treeLod1WoodMaterial, direction);
+        ApplyGrassWindSettingsToMaterial(treeFoliageMaterial, direction);
+        ApplyGrassWindSettingsToMaterial(treeLod0FoliageMaterial, direction);
     }
 
     private void ApplyGrassWindSettingsToMaterial(
@@ -1388,15 +1396,15 @@ public sealed class IslandGenerator : MonoBehaviour
             || mesh.triangles.length <= 0
             || mesh.triangles.length % 3 != 0
             || mesh.triangles.data == IntPtr.Zero
-            || (mesh.uv.length != 0 && mesh.uv.length != mesh.vertices.length)
-            || (mesh.uv.length != 0 && mesh.uv.data == IntPtr.Zero)
-            || (mesh.material.length != 0 && mesh.material.length != mesh.vertices.length)
-            || (mesh.material.length != 0 && mesh.material.data == IntPtr.Zero)
-            || mesh.environment.length != 0
-            || (wood && mesh.material.length != mesh.vertices.length))
+            || mesh.uv.length != mesh.vertices.length
+            || mesh.uv.data == IntPtr.Zero
+            || mesh.material.length != mesh.vertices.length
+            || mesh.material.data == IntPtr.Zero
+            || mesh.environment.length != 0)
         {
             throw new InvalidOperationException(
-                $"The Rust forest tile {index} at LOD {visualLod} has invalid mesh attributes.");
+                $"The Rust forest {(wood ? "wood" : "foliage")} tile {index} at LOD "
+                + $"{visualLod} has invalid mesh attributes.");
         }
     }
 
@@ -1411,12 +1419,13 @@ public sealed class IslandGenerator : MonoBehaviour
             || mesh.normals.Length != mesh.vertices.Length
             || mesh.triangles.Length == 0
             || mesh.triangles.Length % 3 != 0
-            || (mesh.uv.Length != 0 && mesh.uv.Length != mesh.vertices.Length)
+            || mesh.uv.Length != mesh.vertices.Length
             || mesh.environment.Length != 0
-            || (wood && mesh.material.Length != mesh.vertices.Length))
+            || mesh.material.Length != mesh.vertices.Length)
         {
             throw new InvalidOperationException(
-                $"The copied forest tile {index} at LOD {visualLod} is invalid.");
+                $"The copied forest {(wood ? "wood" : "foliage")} tile {index} at LOD "
+                + $"{visualLod} is invalid.");
         }
         for (var vertex = 0; vertex < mesh.vertices.Length; vertex++)
         {
@@ -3109,7 +3118,16 @@ public sealed class IslandGenerator : MonoBehaviour
                 || !material.HasProperty("_TreeNoiseDetailScale")
                 || !material.HasProperty("_TreeNoiseFineScale")
                 || !material.HasProperty("_TreeNormalStrength")
-                || !material.HasProperty("_TreeHueVariationDegrees"))
+                || !material.HasProperty("_TreeHueVariationDegrees")
+                || !material.HasProperty("_WorldSize")
+                || !material.HasProperty("_GrassPatchNoise")
+                || !material.HasProperty("_GrassWindDirection")
+                || !material.HasProperty("_GrassWindStrength")
+                || !material.HasProperty("_GrassWindSpeed")
+                || !material.HasProperty("_GrassWindWorldSize")
+                || !material.HasProperty("_TreeWindStrengthMultiplier")
+                || !material.HasProperty("_TreeWindBasePinHeight")
+                || !material.HasProperty("_TreeWindFullBendHeight"))
             {
                 throw new InvalidOperationException(
                     $"The tree {label} shader is missing its layered-noise properties.");
@@ -3240,10 +3258,19 @@ public sealed class IslandGenerator : MonoBehaviour
         {
             if (material.passCount != 2
                 || material.FindPass("ShadowCaster") < 0
-                || material.renderQueue != (int)RenderQueue.AlphaTest)
+                || material.renderQueue != (int)RenderQueue.AlphaTest
+                || !material.HasProperty("_WorldSize")
+                || !material.HasProperty("_GrassPatchNoise")
+                || !material.HasProperty("_GrassWindDirection")
+                || !material.HasProperty("_GrassWindStrength")
+                || !material.HasProperty("_GrassWindSpeed")
+                || !material.HasProperty("_GrassWindWorldSize")
+                || !material.HasProperty("_TreeWindStrengthMultiplier")
+                || !material.HasProperty("_TreeWindBasePinHeight")
+                || !material.HasProperty("_TreeWindFullBendHeight"))
             {
                 throw new InvalidOperationException(
-                    "Distant foliage must contain only its base canopy and unchanged shadow pass.");
+                    "Distant foliage is missing its base, wind, or shadow contract.");
             }
         }
         finally

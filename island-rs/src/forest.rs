@@ -128,9 +128,10 @@ pub(crate) enum ForestMeshKind {
 
 /// One owner-grid tile and its optional shader sidecar.
 ///
-/// Wood stores the normalized island-space root of each owning tree in RGB;
-/// alpha is `0.5` so Unity can distinguish the stream from its default white
-/// vertex colour. Foliage does not need the sidecar and leaves it empty.
+/// Wood stores the normalized island-space root of each owning tree in RGB.
+/// Foliage stores the nearest member-tree root in RGB and its height above
+/// that root, in metres, in UV.x. Alpha is `0.5` so Unity can distinguish
+/// either colour stream from its default white vertex colour.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct ForestMeshTile {
     pub(crate) mesh: Mesh,
@@ -433,12 +434,61 @@ impl ForestMeshes {
                         owner_coordinate(cluster.owner_anchor.y, bounds.min.y, span.y, divisions);
                     let tile = tile_y * divisions + tile_x;
                     let range = cluster_range(cluster, visual_lod)?;
-                    append_range(&mut tiles[tile].mesh, source, range).ok()?;
+                    let source_vertex_start = usize::try_from(range.vertex_start).ok()?;
+                    let source_vertices = source
+                        .vertices
+                        .get(source_vertex_start..range.vertex_end()?)?;
+                    let output = &mut tiles[tile];
+                    let destination_vertex_start = output.mesh.vertices.len();
+                    append_range(&mut output.mesh, source, range).ok()?;
+                    let destination_vertex_end = output.mesh.vertices.len();
+                    if output.mesh.uv.len() == destination_vertex_start {
+                        output.mesh.uv.resize(destination_vertex_end, Vec2::ZERO);
+                    } else if output.mesh.uv.len() != destination_vertex_end {
+                        return None;
+                    }
+                    for (offset, &vertex) in source_vertices.iter().enumerate() {
+                        let tree_root = nearest_member_tree_anchor(
+                            &self.trees,
+                            &cluster.member_tree_indices,
+                            vertex,
+                        )?;
+                        let height_metres =
+                            ((vertex.z - tree_root.z) * ISLAND_WORLD_METRES).max(0.0);
+                        output.material.push(tree_root.extend(0.5));
+                        output.mesh.uv[destination_vertex_start + offset] =
+                            Vec2::new(height_metres, 0.0);
+                    }
                 }
             }
         }
         Some(tiles)
     }
+}
+
+fn nearest_member_tree_anchor(
+    trees: &[ForestTreeRanges],
+    member_tree_indices: &[usize],
+    vertex: Vec3,
+) -> Option<Vec3> {
+    let (&first_index, remaining_indices) = member_tree_indices.split_first()?;
+    let first = trees.get(first_index)?.anchor;
+    let point = vertex.truncate();
+    remaining_indices.iter().try_fold(first, |nearest, &index| {
+        let candidate = trees.get(index)?.anchor;
+        Some(
+            if candidate
+                .truncate()
+                .distance_squared(point)
+                .total_cmp(&nearest.truncate().distance_squared(point))
+                .is_lt()
+            {
+                candidate
+            } else {
+                nearest
+            },
+        )
+    })
 }
 
 /// Marks the terrain triangle supporting each accepted tree. Tree anchors are
@@ -2220,7 +2270,11 @@ mod tests {
         assert_eq!(tiles.len(), 4);
         assert_eq!(tiles[3].mesh.vertices.len(), 2);
         assert_eq!(tiles[3].mesh.triangles, vec![0, 1, 1]);
-        assert!(tiles[3].material.is_empty());
+        assert_eq!(tiles[3].material, vec![Vec4::new(0.5, 0.5, 0.2, 0.5); 2]);
+        assert_eq!(
+            tiles[3].mesh.uv,
+            vec![Vec2::ZERO, Vec2::new(0.8 * ISLAND_WORLD_METRES, 0.0)]
+        );
 
         let wood_tiles = forest
             .mesh_grid(ForestMeshKind::Wood, 1, bounds, 2)
@@ -2234,6 +2288,79 @@ mod tests {
                 .material
                 .iter()
                 .all(|&anchor| anchor == Vec4::new(0.5, 0.5, 0.2, 0.5))
+        );
+    }
+
+    #[test]
+    fn foliage_wind_data_uses_the_nearest_tree_root_per_vertex() {
+        let source = Mesh {
+            vertices: vec![
+                Vec3::new(0.2, 0.25, 0.5),
+                Vec3::new(0.3, 0.25, 0.6),
+                Vec3::new(0.7, 0.25, 0.7),
+                Vec3::new(0.8, 0.25, 0.8),
+            ],
+            normals: vec![Vec3::Z; 4],
+            triangles: vec![0, 1, 2, 1, 3, 2],
+            ..Mesh::default()
+        };
+        let range = MeshRange {
+            vertex_start: 0,
+            vertex_count: 4,
+            triangle_start: 0,
+            triangle_count: 6,
+        };
+        let left = Vec3::new(0.25, 0.25, 0.1);
+        let right = Vec3::new(0.75, 0.25, 0.2);
+        let forest = ForestMeshes {
+            lod1_foliage: source,
+            trees: vec![
+                ForestTreeRanges {
+                    anchor: left,
+                    ..ForestTreeRanges::default()
+                },
+                ForestTreeRanges {
+                    anchor: right,
+                    ..ForestTreeRanges::default()
+                },
+            ],
+            clusters: vec![ForestClusterRanges {
+                owner_anchor: Vec3::new(0.5, 0.25, 0.15),
+                member_tree_indices: vec![0, 1],
+                lod1_foliage: range,
+                ..ForestClusterRanges::default()
+            }],
+            ..ForestMeshes::default()
+        };
+
+        let tile = forest
+            .mesh_grid(
+                ForestMeshKind::Foliage,
+                1,
+                BoundingBox::new(Vec3::new(0.0, 0.0, f32::MIN), Vec3::new(1.0, 1.0, f32::MAX)),
+                1,
+            )
+            .unwrap()
+            .pop()
+            .unwrap();
+
+        assert_eq!(
+            tile.material,
+            vec![
+                left.extend(0.5),
+                left.extend(0.5),
+                right.extend(0.5),
+                right.extend(0.5),
+            ]
+        );
+        assert_eq!(
+            tile.mesh.uv,
+            vec![
+                Vec2::new(0.4 * ISLAND_WORLD_METRES, 0.0),
+                Vec2::new(0.5 * ISLAND_WORLD_METRES, 0.0),
+                Vec2::new(0.5 * ISLAND_WORLD_METRES, 0.0),
+                Vec2::new(0.6 * ISLAND_WORLD_METRES, 0.0),
+            ]
         );
     }
 

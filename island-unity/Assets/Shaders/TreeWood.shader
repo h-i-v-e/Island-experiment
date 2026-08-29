@@ -22,6 +22,14 @@ Shader "Motu/Tree Wood"
         _TreeNoiseFineScale ("Bark Fine Frequency", Range(2, 48)) = 18
         _TreeNormalStrength ("Bark Normal Strength", Range(0, 0.5)) = 0.14
         _TreeHueVariationDegrees ("Bark Hue Variation", Range(0, 30)) = 8
+        [NoScaleOffset] [HideInInspector] _GrassPatchNoise ("Shared Wind Noise", 2D) = "white" {}
+        [HideInInspector] _GrassWindDirection ("Wind Direction", Vector) = (1, 0, 0.35, 0)
+        [HideInInspector] _GrassWindStrength ("Grass Wind Strength", Float) = 0.07
+        [HideInInspector] _GrassWindSpeed ("Wind Speed", Float) = 1.8
+        [HideInInspector] _GrassWindWorldSize ("Wind Gust Size", Float) = 12
+        _TreeWindStrengthMultiplier ("Tree Wind Strength", Range(0, 10)) = 5
+        _TreeWindBasePinHeight ("Pinned Trunk Height (metres)", Range(0, 4)) = 0.6
+        _TreeWindFullBendHeight ("Full Bend Height (metres)", Range(1, 24)) = 9
     }
 
     SubShader
@@ -46,6 +54,7 @@ Shader "Motu/Tree Wood"
             #include "Lighting.cginc"
             #include "AutoLight.cginc"
             #include "TreeSurfaceNoise.cginc"
+            #include "TreeWindCommon.cginc"
 
             struct VertexInput
             {
@@ -83,8 +92,6 @@ Shader "Motu/Tree Wood"
             half _BarkParallaxStrengthMetres;
             half _BarkOcclusionStrength;
             half _BarkAmbientFloor;
-            float _WorldSize;
-
             struct BarkRecipeSample
             {
                 fixed3 albedo;
@@ -251,12 +258,19 @@ Shader "Motu/Tree Wood"
                 UNITY_INITIALIZE_OUTPUT(VertexOutput, output);
                 UNITY_TRANSFER_INSTANCE_ID(input, output);
                 UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(output);
-                output.pos = UnityObjectToClipPos(input.vertex);
-                output.worldPosition = mul(unity_ObjectToWorld, input.vertex).xyz;
+                float3 surfaceWorldPosition = mul(unity_ObjectToWorld, input.vertex).xyz;
                 output.islandLocalPosition = mul(
                     _IslandWorldToLocal,
-                    float4(output.worldPosition, 1.0)).xyz;
-                output.worldNormal = UnityObjectToWorldNormal(input.normal);
+                    float4(surfaceWorldPosition, 1.0)).xyz;
+                float3 windOffset = MotuTreeWindOffset(
+                    surfaceWorldPosition,
+                    output.islandLocalPosition,
+                    input.treeData);
+                output.worldPosition = surfaceWorldPosition + windOffset;
+                output.pos = UnityWorldToClipPos(output.worldPosition);
+                output.worldNormal = MotuTreeWindNormal(
+                    UnityObjectToWorldNormal(input.normal),
+                    windOffset);
                 output.barkAxis = input.barkAxis;
                 output.treeData = input.treeData;
                 TRANSFER_SHADOW(output);
@@ -275,11 +289,8 @@ Shader "Motu/Tree Wood"
                 // as X/Z/Y. Reconstruct that same island-local direction here.
                 float3 rustAxis = DecodeBarkAxis(input.barkAxis);
                 float3 barkAxis = normalize(float3(rustAxis.x, rustAxis.z, rustAxis.y));
-                float hasTreeRoot = 1.0 - step(0.01, abs(input.treeData.w - 0.5));
-                float3 treeRoot = float3(
-                    (input.treeData.x - 0.5) * _WorldSize,
-                    input.treeData.z * _WorldSize,
-                    (input.treeData.y - 0.5) * _WorldSize);
+                float hasTreeRoot = MotuHasTreeRoot(input.treeData);
+                float3 treeRoot = MotuDecodeTreeRoot(input.treeData);
                 float3 barkPosition = input.islandLocalPosition - treeRoot * hasTreeRoot;
                 BarkRecipeSample bark = SampleBarkRecipe(
                     barkPosition,
@@ -322,11 +333,15 @@ Shader "Motu/Tree Wood"
             #pragma multi_compile_instancing
 
             #include "UnityCG.cginc"
+            #include "Lighting.cginc"
+            #include "TreeSurfaceNoise.cginc"
+            #include "TreeWindCommon.cginc"
 
             struct ShadowInput
             {
                 float4 vertex : POSITION;
                 float3 normal : NORMAL;
+                float4 treeData : COLOR;
                 UNITY_VERTEX_INPUT_INSTANCE_ID
             };
 
@@ -341,6 +356,15 @@ Shader "Motu/Tree Wood"
                 ShadowOutput output;
                 UNITY_SETUP_INSTANCE_ID(v);
                 UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(output);
+                float3 worldPosition = mul(unity_ObjectToWorld, v.vertex).xyz;
+                float3 islandLocalPosition = mul(
+                    _IslandWorldToLocal,
+                    float4(worldPosition, 1.0)).xyz;
+                float3 windOffset = MotuTreeWindOffset(
+                    worldPosition,
+                    islandLocalPosition,
+                    v.treeData);
+                v.vertex.xyz += mul((float3x3)unity_WorldToObject, windOffset);
                 TRANSFER_SHADOW_CASTER_NORMALOFFSET(output)
                 return output;
             }

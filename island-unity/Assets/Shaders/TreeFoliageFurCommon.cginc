@@ -2,11 +2,14 @@
 #include "Lighting.cginc"
 #include "AutoLight.cginc"
 #include "TreeSurfaceNoise.cginc"
+#include "TreeWindCommon.cginc"
 
 struct FoliageFurVertexInput
 {
     float4 vertex : POSITION;
     float3 normal : NORMAL;
+    float4 treeData : COLOR;
+    float2 windData : TEXCOORD0;
     UNITY_VERTEX_INPUT_INSTANCE_ID
 };
 
@@ -46,17 +49,26 @@ FoliageFurVertexOutput FoliageFurVertex(FoliageFurVertexInput input)
     UNITY_INITIALIZE_OUTPUT(FoliageFurVertexOutput, output);
     UNITY_TRANSFER_INSTANCE_ID(input, output);
     UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(output);
-    half3 worldNormal = normalize(UnityObjectToWorldNormal(input.normal));
-    float3 surfaceWorldPosition = mul(unity_ObjectToWorld, input.vertex).xyz;
+    float3 originalWorldPosition = mul(unity_ObjectToWorld, input.vertex).xyz;
+    float3 islandLocalPosition = mul(
+        _IslandWorldToLocal,
+        float4(originalWorldPosition, 1.0)).xyz;
+    float3 windOffset = MotuTreeWindOffsetAtHeight(
+        originalWorldPosition,
+        islandLocalPosition,
+        input.treeData,
+        input.windData.x);
+    half3 worldNormal = MotuTreeWindNormal(
+        normalize(UnityObjectToWorldNormal(input.normal)),
+        windOffset);
+    float3 surfaceWorldPosition = originalWorldPosition + windOffset;
     float3 worldPosition = surfaceWorldPosition
         + worldNormal * (_FoliageFurHeight * FOLIAGE_SHELL_LAYER);
     output.pos = UnityWorldToClipPos(worldPosition);
     output.worldPosition = worldPosition;
     output.surfaceWorldPosition = surfaceWorldPosition;
     output.worldNormal = worldNormal;
-    output.islandLocalSurfacePosition = mul(
-        _IslandWorldToLocal,
-        float4(surfaceWorldPosition, 1.0)).xyz;
+    output.islandLocalSurfacePosition = islandLocalPosition;
     TRANSFER_SHADOW_WPOS(output, worldPosition);
     UNITY_TRANSFER_FOG(output, output.pos);
     return output;

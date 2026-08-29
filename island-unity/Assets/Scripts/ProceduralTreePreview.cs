@@ -108,9 +108,9 @@ public sealed class ProceduralTreePreview : MonoBehaviour
                 out lod1Wood,
                 out lod1Foliage);
             ValidateNativeMesh(lod0Wood, "LOD0 wood", true);
-            ValidateNativeMesh(lod0Foliage, "LOD0 foliage", false);
+            ValidateNativeMesh(lod0Foliage, "LOD0 foliage", true);
             ValidateNativeMesh(lod1Wood, "LOD1 wood", true);
-            ValidateNativeMesh(lod1Foliage, "LOD1 foliage", false);
+            ValidateNativeMesh(lod1Foliage, "LOD1 foliage", true);
 
             var preparedWood = IslandGenerator.CopyGeneratedMeshData(
                 lod0Wood,
@@ -125,9 +125,9 @@ public sealed class ProceduralTreePreview : MonoBehaviour
                 lod1Foliage,
                 NativeWorldSizeMetres);
             ValidatePreparedMesh(preparedWood, true);
-            ValidatePreparedMesh(preparedFoliage, false);
+            ValidatePreparedMesh(preparedFoliage, true);
             ValidatePreparedMesh(preparedLod1Wood, true);
-            ValidatePreparedMesh(preparedLod1Foliage, false);
+            ValidatePreparedMesh(preparedLod1Foliage, true);
             ValidateLodPair(preparedWood, preparedLod1Wood, "wood", 16, false);
             ValidateLodPair(preparedFoliage, preparedLod1Foliage, "foliage", 4, true);
             ReleaseGeneratedMeshes();
@@ -354,12 +354,11 @@ public sealed class ProceduralTreePreview : MonoBehaviour
 
     private static void ValidatePreparedMesh(IslandPreparedMesh mesh, bool requireUv)
     {
-        if (requireUv
-            && (mesh.uv.Length != mesh.vertices.Length
-                || mesh.material.Length != mesh.vertices.Length))
+        if (mesh.material.Length != mesh.vertices.Length
+            || (requireUv && mesh.uv.Length != mesh.vertices.Length))
         {
             throw new InvalidOperationException(
-                "The generated tree wood is missing its branch-local bark data.");
+                "The generated tree is missing its root, bark-axis, or wind-height data.");
         }
         for (var index = 0; index < mesh.vertices.Length; index++)
         {
@@ -390,7 +389,8 @@ public sealed class ProceduralTreePreview : MonoBehaviour
             || mesh.triangles.length <= 0
             || mesh.triangles.length % 3 != 0
             || (requireUv && mesh.uv.length != mesh.vertices.length)
-            || (requireUv && mesh.material.length != mesh.vertices.length))
+            || mesh.material.length != mesh.vertices.length
+            || mesh.material.data == IntPtr.Zero)
         {
             throw new InvalidOperationException(
                 $"The native tree generator returned an invalid {label} mesh.");

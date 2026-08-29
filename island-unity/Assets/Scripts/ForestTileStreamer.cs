@@ -486,6 +486,7 @@ internal sealed class ForestTileStreamer : IDisposable
             {
                 foliageMesh = CreateForestMesh(foliage, $"{name} foliage");
                 ExpandFoliageBounds(foliageMesh, tileFoliageMaterial);
+                ExpandWindBounds(foliageMesh, tileFoliageMaterial);
                 foliageObject = CreateRendererObject(
                     $"{name} foliage",
                     foliageParent,
@@ -496,6 +497,7 @@ internal sealed class ForestTileStreamer : IDisposable
             if (wood != null)
             {
                 woodMesh = CreateForestMesh(wood, $"{name} wood");
+                ExpandWindBounds(woodMesh, tileWoodMaterial);
                 woodObject = CreateRendererObject(
                     $"{name} wood",
                     woodParent,
@@ -534,6 +536,29 @@ internal sealed class ForestTileStreamer : IDisposable
         }
         var bounds = mesh.bounds;
         bounds.Expand(Mathf.Max(material.GetFloat("_FoliageFurHeight"), 0f) * 2f);
+        mesh.bounds = bounds;
+    }
+
+    private static void ExpandWindBounds(Mesh mesh, Material material)
+    {
+        if (mesh == null
+            || material == null
+            || !material.HasProperty("_GrassWindStrength")
+            || !material.HasProperty("_TreeWindStrengthMultiplier"))
+        {
+            return;
+        }
+        const float MaximumGrassWindStrength = 0.25f;
+        var maximumOffset = Mathf.Max(
+                material.GetFloat("_GrassWindStrength"),
+                MaximumGrassWindStrength)
+            * Mathf.Max(material.GetFloat("_TreeWindStrengthMultiplier"), 0f);
+        if (maximumOffset <= 0f)
+        {
+            return;
+        }
+        var bounds = mesh.bounds;
+        bounds.Expand(new Vector3(maximumOffset * 2f, 0f, maximumOffset * 2f));
         mesh.bounds = bounds;
     }
 

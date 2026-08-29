@@ -24,6 +24,15 @@ Shader "Motu/Tree Foliage"
         [HideInInspector] _GrassPlayerPosition ("Player Position", Vector) = (0, 0, 0, 0)
         _GrassRadius ("Foliage Fur Outer Radius (metres)", Float) = 20
         _GrassFadeWidth ("Foliage Fur Edge Fade (metres)", Range(0.1, 20)) = 10
+        [HideInInspector] _WorldSize ("Island World Size", Float) = 2000
+        [NoScaleOffset] [HideInInspector] _GrassPatchNoise ("Shared Wind Noise", 2D) = "white" {}
+        [HideInInspector] _GrassWindDirection ("Wind Direction", Vector) = (1, 0, 0.35, 0)
+        [HideInInspector] _GrassWindStrength ("Grass Wind Strength", Float) = 0.07
+        [HideInInspector] _GrassWindSpeed ("Wind Speed", Float) = 1.8
+        [HideInInspector] _GrassWindWorldSize ("Wind Gust Size", Float) = 12
+        _TreeWindStrengthMultiplier ("Tree Wind Strength", Range(0, 10)) = 5
+        _TreeWindBasePinHeight ("Pinned Trunk Height (metres)", Range(0, 4)) = 0.6
+        _TreeWindFullBendHeight ("Full Bend Height (metres)", Range(1, 24)) = 9
     }
 
     SubShader
@@ -49,11 +58,14 @@ Shader "Motu/Tree Foliage"
             #include "Lighting.cginc"
             #include "AutoLight.cginc"
             #include "TreeSurfaceNoise.cginc"
+            #include "TreeWindCommon.cginc"
 
             struct VertexInput
             {
                 float4 vertex : POSITION;
                 float3 normal : NORMAL;
+                float4 treeData : COLOR;
+                float2 windData : TEXCOORD0;
                 UNITY_VERTEX_INPUT_INSTANCE_ID
             };
 
@@ -85,12 +97,20 @@ Shader "Motu/Tree Foliage"
                 UNITY_INITIALIZE_OUTPUT(VertexOutput, output);
                 UNITY_TRANSFER_INSTANCE_ID(input, output);
                 UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(output);
-                output.pos = UnityObjectToClipPos(input.vertex);
-                output.worldPosition = mul(unity_ObjectToWorld, input.vertex).xyz;
+                float3 surfaceWorldPosition = mul(unity_ObjectToWorld, input.vertex).xyz;
                 output.islandLocalPosition = mul(
                     _IslandWorldToLocal,
-                    float4(output.worldPosition, 1.0)).xyz;
-                output.worldNormal = UnityObjectToWorldNormal(input.normal);
+                    float4(surfaceWorldPosition, 1.0)).xyz;
+                float3 windOffset = MotuTreeWindOffsetAtHeight(
+                    surfaceWorldPosition,
+                    output.islandLocalPosition,
+                    input.treeData,
+                    input.windData.x);
+                output.worldPosition = surfaceWorldPosition + windOffset;
+                output.pos = UnityWorldToClipPos(output.worldPosition);
+                output.worldNormal = MotuTreeWindNormal(
+                    UnityObjectToWorldNormal(input.normal),
+                    windOffset);
                 TRANSFER_SHADOW(output);
                 UNITY_TRANSFER_FOG(output, output.pos);
                 return output;
@@ -307,6 +327,7 @@ Shader "Motu/Tree Foliage"
 
             #include "UnityCG.cginc"
             #include "TreeSurfaceNoise.cginc"
+            #include "TreeWindCommon.cginc"
 
             fixed4 _BaseColor;
             fixed4 _LightColor;
@@ -318,6 +339,8 @@ Shader "Motu/Tree Foliage"
             {
                 float4 vertex : POSITION;
                 float3 normal : NORMAL;
+                float4 treeData : COLOR;
+                float2 windData : TEXCOORD0;
                 UNITY_VERTEX_INPUT_INSTANCE_ID
             };
 
@@ -334,11 +357,18 @@ Shader "Motu/Tree Foliage"
                 UNITY_SETUP_INSTANCE_ID(v);
                 UNITY_INITIALIZE_OUTPUT(ShadowOutput, output);
                 UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(output);
-                TRANSFER_SHADOW_CASTER_NORMALOFFSET(output)
                 float3 worldPosition = mul(unity_ObjectToWorld, v.vertex).xyz;
-                output.islandLocalPosition = mul(
+                float3 islandLocalPosition = mul(
                     _IslandWorldToLocal,
                     float4(worldPosition, 1.0)).xyz;
+                float3 windOffset = MotuTreeWindOffsetAtHeight(
+                    worldPosition,
+                    islandLocalPosition,
+                    v.treeData,
+                    v.windData.x);
+                v.vertex.xyz += mul((float3x3)unity_WorldToObject, windOffset);
+                TRANSFER_SHADOW_CASTER_NORMALOFFSET(output)
+                output.islandLocalPosition = islandLocalPosition;
                 return output;
             }
 
