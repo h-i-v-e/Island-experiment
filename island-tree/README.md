@@ -45,14 +45,16 @@ generated thumbnails, with Whole, Crown, and Detail camera shortcuts beneath
 them. Lighting separates direct sun, exposure, and sky fill so shaded crowns can
 be reviewed without clipping sunlit bark. The plant-family selector switches
 between separate growth programs rather than reskinning one shared silhouette.
-The three review LODs cover full leaves, middle-distance foliage pads, and an
-eight-vertex far impostor. Interactive inspection enables camera-distance LOD
+The three review LODs cover full leaves, middle-distance foliage pads, and a
+32-vertex far impostor. Interactive inspection enables camera-distance LOD
 by default: Bevy dithers across species-scaled handover bands as the camera
 dollies away, while the HUD reports the current tier or blend. The transparent
-front/side impostor atlas is baked deterministically from the same botanical
-organs and generated bark and leaf colour maps, with a depth buffer preserving
-branch gaps and front-to-back material variation instead of flattening the
-crown into a single green proxy.
+eight-angle impostor atlas is baked deterministically from the generated wood
+triangles, botanical organs, and bark and leaf colour maps. A depth buffer preserves
+branch gaps and front-to-back material variation. Its shader keeps all
+candidates on one camera-facing plane and dithers between the two nearest
+object-relative views, avoiding both a generic green proxy and alpha-blended
+double images.
 Interactive runs use Bevy's `AutoNoVsync` present mode so the FPS meter is not
 capped by display refresh.
 

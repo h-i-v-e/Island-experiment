@@ -26,6 +26,7 @@ use bevy::{
     asset::RenderAssetUsages,
     camera::{Exposure, Hdr, RenderTarget, visibility::VisibilityRange},
     core_pipeline::tonemapping::Tonemapping,
+    ecs::system::SystemParam,
     image::{ImageAddressMode, ImageFilterMode, ImageSampler, ImageSamplerDescriptor},
     light::{
         Atmosphere, AtmosphereEnvironmentMapLight, GlobalAmbientLight, NotShadowCaster,
@@ -48,10 +49,10 @@ use bevy::{
 use island_tree::{
     Axis, AxisGraph, BarkMaterial, BarkMaterialPlugin, BarkVertex, BotanicalPrototype,
     BotanicalRecipe, BotanicalSpecies, BotanicalTexture, FOLIAGE_PAD_ARCHETYPE_COUNT, FoliagePad,
-    LEAF_ARCHETYPE_COUNT, LeafMaterial, LeafMaterialPlugin, LeafOrgan,
-    REPRODUCTIVE_ARCHETYPE_COUNT, ReproductiveOrgan, ReproductiveState, SHOOT_TIP_ARCHETYPE_COUNT,
-    ShootTipOrgan, ShootTipState, compile_botanical_impostor, generate_botanical_prototype,
-    generate_nikau_frond_prototype,
+    ImpostorMaterial, ImpostorMaterialPlugin, LEAF_ARCHETYPE_COUNT, LeafMaterial,
+    LeafMaterialPlugin, LeafOrgan, REPRODUCTIVE_ARCHETYPE_COUNT, ReproductiveOrgan,
+    ReproductiveState, SHOOT_TIP_ARCHETYPE_COUNT, ShootTipOrgan, ShootTipState,
+    compile_botanical_impostor, generate_botanical_prototype, generate_nikau_frond_prototype,
 };
 use motu::Mesh as MotuMesh;
 
@@ -62,6 +63,15 @@ const CAPTURE_TIMEOUT_FRAMES: u32 = 900;
 const MAX_WIND_JOINTS: usize = 256;
 const LEAF_EXPOSURE_MATERIAL_COUNT: usize = 3;
 const LEAF_PIGMENT_MATERIAL_COUNT: usize = 3;
+
+/// Mutable material registries used while compiling a regenerated tree.
+#[derive(SystemParam)]
+struct TreeMaterialAssets<'w> {
+    standard: ResMut<'w, Assets<StandardMaterial>>,
+    impostor: ResMut<'w, Assets<ImpostorMaterial>>,
+    bark: ResMut<'w, Assets<BarkMaterial>>,
+    leaf: ResMut<'w, Assets<LeafMaterial>>,
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 enum ReviewLod {
@@ -738,6 +748,7 @@ fn main() {
     app.add_plugins(plugins)
         .add_plugins(BarkMaterialPlugin)
         .add_plugins(LeafMaterialPlugin)
+        .add_plugins(ImpostorMaterialPlugin)
         .insert_resource(ClearColor(Color::srgb(0.72, 0.82, 0.88)))
         .insert_resource(GlobalAmbientLight::NONE)
         .insert_resource(settings.clone());
@@ -796,9 +807,7 @@ fn setup(
     settings: Res<Settings>,
     target: Option<Res<CaptureTarget>>,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut bark_materials: ResMut<Assets<BarkMaterial>>,
-    mut leaf_materials: ResMut<Assets<LeafMaterial>>,
+    mut material_assets: TreeMaterialAssets,
     mut inverse_bindposes: ResMut<Assets<SkinnedMeshInverseBindposes>>,
     mut images: ResMut<Assets<Image>>,
     mut mediums: ResMut<Assets<ScatteringMedium>>,
@@ -817,9 +826,10 @@ fn setup(
     spawn_tree(
         &mut commands,
         &mut meshes,
-        &mut materials,
-        &mut bark_materials,
-        &mut leaf_materials,
+        &mut material_assets.standard,
+        &mut material_assets.impostor,
+        &mut material_assets.bark,
+        &mut material_assets.leaf,
         &mut inverse_bindposes,
         &mut images,
         &settings,
@@ -828,7 +838,7 @@ fn setup(
     commands.insert_resource(frames);
     commands.insert_resource(metrics);
     commands.init_resource::<TreeBuildStatus>();
-    let ground = spawn_stage(&mut commands, &mut meshes, &mut materials);
+    let ground = spawn_stage(&mut commands, &mut meshes, &mut material_assets.standard);
     if settings.view == ReviewView::Frond {
         commands.entity(ground).insert(Visibility::Hidden);
     }
@@ -936,9 +946,7 @@ fn regenerate_tree(
     mut suns: Query<&mut Transform, (With<ReviewSun>, Without<ReviewCamera>)>,
     mut grounds: Query<&mut Visibility, With<ReviewGround>>,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut bark_materials: ResMut<Assets<BarkMaterial>>,
-    mut leaf_materials: ResMut<Assets<LeafMaterial>>,
+    mut material_assets: TreeMaterialAssets,
     mut inverse_bindposes: ResMut<Assets<SkinnedMeshInverseBindposes>>,
     mut images: ResMut<Assets<Image>>,
 ) {
@@ -963,9 +971,10 @@ fn regenerate_tree(
     spawn_tree(
         &mut commands,
         &mut meshes,
-        &mut materials,
-        &mut bark_materials,
-        &mut leaf_materials,
+        &mut material_assets.standard,
+        &mut material_assets.impostor,
+        &mut material_assets.bark,
+        &mut material_assets.leaf,
         &mut inverse_bindposes,
         &mut images,
         &request,
@@ -999,6 +1008,7 @@ fn spawn_tree(
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
+    impostor_materials: &mut Assets<ImpostorMaterial>,
     bark_materials: &mut Assets<BarkMaterial>,
     leaf_materials: &mut Assets<LeafMaterial>,
     inverse_bindposes: &mut Assets<SkinnedMeshInverseBindposes>,
@@ -1011,6 +1021,7 @@ fn spawn_tree(
             commands,
             meshes,
             materials,
+            impostor_materials,
             bark_materials,
             leaf_materials,
             inverse_bindposes,
@@ -1036,6 +1047,7 @@ fn spawn_tree(
             commands,
             meshes,
             materials,
+            impostor_materials,
             bark_materials,
             leaf_materials,
             inverse_bindposes,
@@ -1052,6 +1064,7 @@ fn spawn_tree_lod(
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
+    impostor_materials: &mut Assets<ImpostorMaterial>,
     bark_materials: &mut Assets<BarkMaterial>,
     leaf_materials: &mut Assets<LeafMaterial>,
     inverse_bindposes: &mut Assets<SkinnedMeshInverseBindposes>,
@@ -1072,7 +1085,7 @@ fn spawn_tree_lod(
     }
     let tree_root = root.id();
     if settings.lod == ReviewLod::Far {
-        let impostor = compile_botanical_impostor(&prototype, meshes, images, materials)
+        let impostor = compile_botanical_impostor(&prototype, meshes, images, impostor_materials)
             .unwrap_or_else(|error| panic!("tree impostor failed: {error}"));
         commands.spawn((
             Name::new(format!("{species_name} generated far impostor")),

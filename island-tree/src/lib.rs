@@ -17,7 +17,8 @@ pub use botany::{
 };
 pub use render::{
     BarkMaterial, BarkMaterialPlugin, CompiledTreeImpostor, CompiledTreePart,
-    CompiledTreePrototype, LeafMaterial, LeafMaterialPlugin, compile_botanical_impostor,
-    compile_static_impostor_with_recipe, compile_static_middle_prototype_with_recipe,
-    compile_static_prototype, compile_static_prototype_with_recipe,
+    CompiledTreePrototype, ImpostorMaterial, ImpostorMaterialPlugin, LeafMaterial,
+    LeafMaterialPlugin, compile_botanical_impostor, compile_static_impostor_with_recipe,
+    compile_static_middle_prototype_with_recipe, compile_static_prototype,
+    compile_static_prototype_with_recipe,
 };

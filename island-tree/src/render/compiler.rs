@@ -9,6 +9,7 @@
 use bevy::{
     asset::{Asset, Assets, Handle, RenderAssetUsages},
     image::{ImageAddressMode, ImageFilterMode, ImageSampler, ImageSamplerDescriptor},
+    material::OpaqueRendererMethod,
     mesh::{Indices, PrimitiveTopology},
     pbr::StandardMaterial,
     prelude::{AlphaMode, Color, Image, Mat3, Mesh, Quat, Transform, Vec3},
@@ -18,11 +19,15 @@ use motu::Mesh as MotuMesh;
 
 use super::{
     bark_material::{BarkMaterial, BarkMaterialExtension},
+    impostor_material::{ImpostorMaterial, ImpostorMaterialExtension},
     leaf_material::{LeafMaterial, LeafMaterialExtension},
 };
 use crate::botany::{
     generate_botanical_prototype,
-    impostor::{BotanicalImpostor, generate_botanical_impostor},
+    impostor::{
+        BotanicalImpostor, IMPOSTOR_ATLAS_COLUMNS, IMPOSTOR_VIEW_COUNT, ImpostorView,
+        generate_botanical_impostor,
+    },
     model::{
         BarkVertex, BotanicalPrototype, BotanicalRecipe, BotanicalTexture,
         FOLIAGE_PAD_ARCHETYPE_COUNT, FoliagePad, LEAF_ARCHETYPE_COUNT, LeafOrgan,
@@ -55,11 +60,11 @@ pub struct CompiledTreePrototype {
     pub foliage: CompiledTreePart<LeafMaterial>,
 }
 
-/// One crossed-card far representation with its generated transparent atlas.
+/// One multi-angle far representation with its generated transparent atlas.
 #[derive(Clone, Debug)]
 pub struct CompiledTreeImpostor {
     pub mesh: Handle<Mesh>,
-    pub material: Handle<StandardMaterial>,
+    pub material: Handle<ImpostorMaterial>,
     pub atlas: Handle<Image>,
     pub vertices: u32,
 }
@@ -68,14 +73,13 @@ pub struct CompiledTreeImpostor {
 ///
 /// # Errors
 ///
-/// Returns the generator's recipe error or a mesh error if tangent generation
-/// fails for the crossed cards.
+/// Returns the generator's recipe error or an impostor mesh assembly error.
 pub fn compile_static_impostor_with_recipe(
     seed: u64,
     recipe: BotanicalRecipe,
     meshes: &mut Assets<Mesh>,
     images: &mut Assets<Image>,
-    materials: &mut Assets<StandardMaterial>,
+    materials: &mut Assets<ImpostorMaterial>,
 ) -> Result<CompiledTreeImpostor, String> {
     let prototype = generate_botanical_prototype(seed, recipe)?;
     compile_botanical_impostor(&prototype, meshes, images, materials)
@@ -85,27 +89,30 @@ pub fn compile_static_impostor_with_recipe(
 ///
 /// # Errors
 ///
-/// Returns a mesh error if tangent generation fails for the crossed cards.
+/// Returns an error if the generated view mesh exceeds Bevy's index range.
 pub fn compile_botanical_impostor(
     prototype: &BotanicalPrototype,
     meshes: &mut Assets<Mesh>,
     images: &mut Assets<Image>,
-    materials: &mut Assets<StandardMaterial>,
+    materials: &mut Assets<ImpostorMaterial>,
 ) -> Result<CompiledTreeImpostor, String> {
     let impostor = generate_botanical_impostor(prototype);
     let mesh = impostor_mesh(&impostor)?;
     let vertices = vertex_count(&mesh);
     let atlas = images.add(texture_image(impostor.albedo, false, true));
-    let material = materials.add(StandardMaterial {
-        base_color: Color::WHITE,
-        base_color_texture: Some(atlas.clone()),
-        alpha_mode: AlphaMode::Mask(0.22),
-        perceptual_roughness: 1.0,
-        reflectance: 0.0,
-        unlit: true,
-        double_sided: true,
-        cull_mode: None,
-        ..Default::default()
+    let material = materials.add(ImpostorMaterial {
+        base: StandardMaterial {
+            base_color: Color::WHITE,
+            base_color_texture: Some(atlas.clone()),
+            alpha_mode: AlphaMode::Mask(0.22),
+            perceptual_roughness: 1.0,
+            reflectance: 0.0,
+            unlit: true,
+            double_sided: false,
+            opaque_render_method: OpaqueRendererMethod::Forward,
+            ..Default::default()
+        },
+        extension: ImpostorMaterialExtension::default(),
     });
     Ok(CompiledTreeImpostor {
         mesh: meshes.add(mesh),
@@ -118,34 +125,42 @@ pub fn compile_botanical_impostor(
 fn impostor_mesh(impostor: &BotanicalImpostor) -> Result<Mesh, String> {
     let bottom = impostor.bottom_metres;
     let top = impostor.top_metres;
-    let front_left = impostor.front_centre_metres - impostor.front_width_metres * 0.5;
-    let front_right = impostor.front_centre_metres + impostor.front_width_metres * 0.5;
-    let side_near = impostor.side_centre_metres - impostor.side_width_metres * 0.5;
-    let side_far = impostor.side_centre_metres + impostor.side_width_metres * 0.5;
-    let positions = vec![
-        [front_left, bottom, 0.0],
-        [front_right, bottom, 0.0],
-        [front_right, top, 0.0],
-        [front_left, top, 0.0],
-        [0.0, bottom, side_near],
-        [0.0, bottom, side_far],
-        [0.0, top, side_far],
-        [0.0, top, side_near],
-    ];
-    let normals = [[0.0, 0.0, 1.0]; 4]
-        .into_iter()
-        .chain([[1.0, 0.0, 0.0]; 4])
-        .collect::<Vec<_>>();
-    let uv = vec![
-        [0.0, 1.0],
-        [0.5, 1.0],
-        [0.5, 0.0],
-        [0.0, 0.0],
-        [0.5, 1.0],
-        [1.0, 1.0],
-        [1.0, 0.0],
-        [0.5, 0.0],
-    ];
+    let half_width = impostor.card_width_metres * 0.5;
+    let mut positions = Vec::with_capacity(IMPOSTOR_VIEW_COUNT * 4);
+    let mut normals = Vec::with_capacity(IMPOSTOR_VIEW_COUNT * 4);
+    let mut uv = Vec::with_capacity(IMPOSTOR_VIEW_COUNT * 4);
+    let mut indices = Vec::with_capacity(IMPOSTOR_VIEW_COUNT * 6);
+    let atlas_columns =
+        usize::try_from(IMPOSTOR_ATLAS_COLUMNS).expect("impostor atlas column count fits usize");
+    let u_bounds = [0.0, 0.25, 0.5, 0.75, 1.0];
+    let v_bounds = [0.0, 0.5, 1.0];
+    for (index, centre) in impostor.view_centres_metres.into_iter().enumerate() {
+        let view = ImpostorView::at(index);
+        let left = centre - half_width;
+        let right = centre + half_width;
+        positions.extend([
+            [left, bottom, 0.0],
+            [right, bottom, 0.0],
+            [right, top, 0.0],
+            [left, top, 0.0],
+        ]);
+        normals.extend([[view.forward[0], 0.0, view.forward[1]]; 4]);
+        let column = index % atlas_columns;
+        let row = index / atlas_columns;
+        let u_min = u_bounds[column];
+        let u_max = u_bounds[column + 1];
+        let v_min = v_bounds[row];
+        let v_max = v_bounds[row + 1];
+        uv.extend([
+            [u_min, v_max],
+            [u_max, v_max],
+            [u_max, v_min],
+            [u_min, v_min],
+        ]);
+        let base = u32::try_from(index * 4)
+            .map_err(|_| String::from("impostor view index exceeds u32"))?;
+        indices.extend([base, base + 1, base + 2, base, base + 2, base + 3]);
+    }
     let mut mesh = Mesh::new(
         PrimitiveTopology::TriangleList,
         RenderAssetUsages::default(),
@@ -153,9 +168,7 @@ fn impostor_mesh(impostor: &BotanicalImpostor) -> Result<Mesh, String> {
     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
     mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
     mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uv);
-    mesh.insert_indices(Indices::U32(vec![0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7]));
-    mesh.generate_tangents()
-        .map_err(|error| format!("could not generate impostor tangents: {error}"))?;
+    mesh.insert_indices(Indices::U32(indices));
     Ok(mesh)
 }
 
