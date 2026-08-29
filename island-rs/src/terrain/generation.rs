@@ -1,5 +1,6 @@
 #[cfg(feature = "gpu-generation")]
 use super::GpuParticleErosionScratch;
+use super::coastal_cliffs::CoastalCliffExperiment;
 use super::{
     Adjacency, BinaryHeap, BoundingBox, DETAIL_DISPLACEMENT_RATIO, Decorations, File,
     GenerationMethod, GeologyField, HashSet, HydraulicScratch, ISLAND_WORLD_METRES,
@@ -328,7 +329,7 @@ impl Island {
         let (lod1, material) = generate_first_lod1(&lod2, material, context, &mut scratch)?;
         let (mut lod1, material) = refine_lod1_again(&lod1, material, context, &mut scratch)?;
         let (lod0, material) = generate_broad_lod0(&lod1, material, context, &mut scratch)?;
-        let (lod0, material) = generate_detail_lod0(&lod0, material, context, &mut scratch)?;
+        let (lod0, material) = generate_detail_lod0(lod0, material, context, &mut scratch)?;
         let FinalRiverGeneration {
             mut lod0,
             material,
@@ -986,14 +987,17 @@ pub(super) fn generate_broad_lod0(
 }
 
 pub(super) fn generate_detail_lod0(
-    lod0: &Mesh,
+    mut lod0: Mesh,
     material: SurfaceMaterial,
     context: GenerationContext,
     scratch: &mut GenerationScratch,
 ) -> Result<(Mesh, SurfaceMaterial), String> {
     let _timer = StageTimer::new("generation.lod0.detail");
+    let coast = CoastalCliffExperiment::prepare(&mut lod0)?;
     let tessellation = lod0.tessellated_displaced_attributed(DETAIL_DISPLACEMENT_RATIO);
-    let (mut mesh, mut material) = material.into_tessellated(lod0, tessellation);
+    let (mut mesh, mut material) = material.into_tessellated(&lod0, tessellation);
+    coast.raise_beaches(&mut mesh);
+    mesh.calculate_normals();
     let adjacency = mesh.adjacency();
     hydraulic_erode_stage(
         &mut mesh,

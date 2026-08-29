@@ -32,6 +32,7 @@ use crate::{
     rng::Rng,
 };
 
+mod coastal_cliffs;
 mod decorations;
 mod erosion;
 mod generation;
