@@ -422,6 +422,8 @@ fn colour_map_sample(map: &ColourMap, value: f32) -> [f32; 3] {
     let value = value.clamp(0.0, 1.0);
     match map {
         ColourMap::Ramp { first, second } => {
+            let first = resolved_colour(first);
+            let second = resolved_colour(second);
             std::array::from_fn(|index| field_program::lerp(first[index], second[index], value))
         }
         ColourMap::Gradient { stops } => {
@@ -429,13 +431,13 @@ fn colour_map_sample(map: &ColourMap, value: f32) -> [f32; 3] {
                 return [0.0; 3];
             };
             let Some(last) = stops.last() else {
-                return first.colour;
+                return resolved_colour(&first.colour);
             };
             if value <= first.position {
-                return first.colour;
+                return resolved_colour(&first.colour);
             }
             if value >= last.position {
-                return last.colour;
+                return resolved_colour(&last.colour);
             }
             for pair in stops.windows(2) {
                 let [left, right] = pair else {
@@ -443,14 +445,23 @@ fn colour_map_sample(map: &ColourMap, value: f32) -> [f32; 3] {
                 };
                 if value <= right.position {
                     let amount = (value - left.position) / (right.position - left.position);
+                    let left_colour = resolved_colour(&left.colour);
+                    let right_colour = resolved_colour(&right.colour);
                     return std::array::from_fn(|index| {
-                        field_program::lerp(left.colour[index], right.colour[index], amount)
+                        field_program::lerp(left_colour[index], right_colour[index], amount)
                     });
                 }
             }
-            last.colour
+            resolved_colour(&last.colour)
         }
     }
+}
+
+fn resolved_colour(colour: &super::parameters::ColourValue) -> [f32; 3] {
+    colour
+        .as_resolved()
+        .expect("parameter references must be resolved before layer evaluation")
+        .channels()
 }
 
 fn apply_hsv_influence(colour: &mut [f32; 3], hue: f32, saturation: f32, value: f32) {
@@ -695,8 +706,8 @@ mod tests {
                         blend,
                         strength: 0.8,
                         colour_map: ColourMap::Ramp {
-                            first: [1.0, 0.0, 0.0],
-                            second: [1.0, 0.0, 0.0],
+                            first: [1.0, 0.0, 0.0].into(),
+                            second: [1.0, 0.0, 0.0].into(),
                         },
                         ..AlbedoOutput::default()
                     },
@@ -735,8 +746,8 @@ mod tests {
                         enabled: albedo_enabled,
                         strength: 1.0,
                         colour_map: ColourMap::Ramp {
-                            first: [0.0, 0.0, 0.0],
-                            second: [1.0, 1.0, 1.0],
+                            first: [0.0, 0.0, 0.0].into(),
+                            second: [1.0, 1.0, 1.0].into(),
                         },
                         ..AlbedoOutput::default()
                     },

@@ -12,13 +12,15 @@ use std::{
 };
 
 use motu::procedural_textures::{
-    EditorEnvelope, NormalConvention, OutputOptions, OutputProfile, TextureRecipe,
+    EditorEnvelope, LinearRgb, NormalConvention, OutputOptions, OutputProfile,
+    RecipeParameterValues, TextureRecipe,
     editor_protocol::{self, Diagnostic},
     encoding::{
         OutputDimensions, PixelFormat, TextureSetImages, encode_png_bytes,
         write_texture_set as write_encoded_texture_set,
     },
-    evaluate_material, generate_preview, generate_texture_set, layer_preview_maps,
+    evaluate_material_with_parameters, generate_preview_with_parameters,
+    generate_texture_set_with_parameters, layer_preview_maps,
     preview::{LayerPreviewMaps, PreviewSettings},
 };
 use serde_json::{Value, json};
@@ -53,7 +55,16 @@ fn run() -> Result<(), Box<dyn Error>> {
             output,
             size,
             normal_convention,
-        } => print_editor_envelope(&preview_command(&recipe, &output, size, normal_convention)),
+            parameters,
+            set_colours,
+        } => print_editor_envelope(&preview_command(
+            &recipe,
+            &output,
+            size,
+            normal_convention,
+            parameters.as_deref(),
+            &set_colours,
+        )),
     }
 }
 
@@ -67,6 +78,8 @@ struct BakeCommand {
     width: Option<u32>,
     height: Option<u32>,
     normal_convention: NormalConvention,
+    parameters: Option<PathBuf>,
+    set_colours: Vec<(String, LinearRgb)>,
 }
 
 #[derive(Debug)]
@@ -83,6 +96,8 @@ enum ParseResult {
         output: PathBuf,
         size: u32,
         normal_convention: NormalConvention,
+        parameters: Option<PathBuf>,
+        set_colours: Vec<(String, LinearRgb)>,
     },
 }
 
@@ -137,6 +152,8 @@ fn parse_preview(mut arguments: impl Iterator<Item = String>) -> Result<ParseRes
     let mut output = None;
     let mut size = 256;
     let mut normal_convention = None;
+    let mut parameters = None;
+    let mut set_colours = Vec::new();
     while let Some(argument) = arguments.next() {
         match argument.as_str() {
             "--recipe" => recipe = Some(next_value(&mut arguments, "--recipe")?),
@@ -146,6 +163,15 @@ fn parse_preview(mut arguments: impl Iterator<Item = String>) -> Result<ParseRes
                 normal_convention = Some(parse_normal_convention(&next_value(
                     &mut arguments,
                     "--normal-convention",
+                )?)?);
+            }
+            "--parameters" => {
+                parameters = Some(PathBuf::from(next_value(&mut arguments, "--parameters")?));
+            }
+            "--set-colour" => {
+                set_colours.push(parse_colour_override(&next_value(
+                    &mut arguments,
+                    "--set-colour",
                 )?)?);
             }
             "--json" => {}
@@ -161,6 +187,8 @@ fn parse_preview(mut arguments: impl Iterator<Item = String>) -> Result<ParseRes
         output: PathBuf::from(output.ok_or("--output is required")?),
         size,
         normal_convention: normal_convention.ok_or("--normal-convention is required")?,
+        parameters,
+        set_colours,
     })
 }
 
@@ -173,6 +201,8 @@ fn parse_bake(mut arguments: impl Iterator<Item = String>) -> Result<ParseResult
     let mut width = None;
     let mut height = None;
     let mut normal_convention = None;
+    let mut parameters = None;
+    let mut set_colours = Vec::new();
     while let Some(argument) = arguments.next() {
         match argument.as_str() {
             "--recipe" => recipe = Some(next_value(&mut arguments, "--recipe")?),
@@ -207,6 +237,15 @@ fn parse_bake(mut arguments: impl Iterator<Item = String>) -> Result<ParseResult
                     "--normal-convention",
                 )?)?);
             }
+            "--parameters" => {
+                parameters = Some(PathBuf::from(next_value(&mut arguments, "--parameters")?));
+            }
+            "--set-colour" => {
+                set_colours.push(parse_colour_override(&next_value(
+                    &mut arguments,
+                    "--set-colour",
+                )?)?);
+            }
             "-h" | "--help" => return Ok(ParseResult::Help),
             _ => return Err(format!("unknown option {argument:?}; use --help for usage")),
         }
@@ -223,6 +262,8 @@ fn parse_bake(mut arguments: impl Iterator<Item = String>) -> Result<ParseResult
         width,
         height,
         normal_convention: normal_convention.ok_or("--normal-convention is required")?,
+        parameters,
+        set_colours,
     }))
 }
 
@@ -234,6 +275,29 @@ fn parse_normal_convention(value: &str) -> Result<NormalConvention, String> {
             "invalid value for --normal-convention: {value}; expected open-gl or direct-x"
         )),
     }
+}
+
+fn parse_colour_override(value: &str) -> Result<(String, LinearRgb), String> {
+    let (name, encoded) = value
+        .split_once('=')
+        .ok_or_else(|| "--set-colour expects NAME=#RRGGBB".to_owned())?;
+    if name.is_empty() || encoded.len() != 7 || !encoded.starts_with('#') {
+        return Err("--set-colour expects NAME=#RRGGBB".into());
+    }
+    let channel = |range: std::ops::Range<usize>| -> Result<f32, String> {
+        let byte = u8::from_str_radix(&encoded[range], 16)
+            .map_err(|_| "--set-colour expects hexadecimal #RRGGBB".to_owned())?;
+        let srgb = f32::from(byte) / 255.0;
+        Ok(if srgb <= 0.040_45 {
+            srgb / 12.92
+        } else {
+            ((srgb + 0.055) / 1.055).powf(2.4)
+        })
+    };
+    Ok((
+        name.to_owned(),
+        LinearRgb::new(channel(1..3)?, channel(3..5)?, channel(5..7)?),
+    ))
 }
 
 fn next_value(
@@ -273,8 +337,10 @@ fn run_bake(command: &BakeCommand) -> Result<(), Box<dyn Error>> {
         document["height"] = Value::from(height);
     }
     let recipe: TextureRecipe = serde_json::from_value(document)?;
+    let parameters = read_parameters(command.parameters.as_deref(), &command.set_colours)?;
     let started = Instant::now();
-    let textures = generate_texture_set(&recipe, command.normal_convention)?;
+    let textures =
+        generate_texture_set_with_parameters(&recipe, &parameters, command.normal_convention)?;
     let images = TextureSetImages::from_texture_set(&textures);
     let manifest = write_encoded_texture_set(
         &images,
@@ -296,6 +362,27 @@ fn run_bake(command: &BakeCommand) -> Result<(), Box<dyn Error>> {
         println!("  {}  sha256={}", map.file, map.sha256);
     }
     Ok(())
+}
+
+fn read_parameters(
+    path: Option<&Path>,
+    set_colours: &[(String, LinearRgb)],
+) -> Result<RecipeParameterValues, Box<dyn Error>> {
+    let mut values = if let Some(path) = path {
+        let bytes = fs::read(path).map_err(|error| {
+            io::Error::other(format!(
+                "could not read parameter file {}: {error}",
+                path.display()
+            ))
+        })?;
+        serde_json::from_slice(&bytes)?
+    } else {
+        RecipeParameterValues::new()
+    };
+    for (name, colour) in set_colours {
+        values.insert_colour(name.clone(), *colour);
+    }
+    Ok(values)
 }
 
 fn read_recipe(path: &Path) -> Result<TextureRecipe, Diagnostic> {
@@ -342,6 +429,8 @@ fn preview_command(
     output: &Path,
     size: u32,
     normal_convention: NormalConvention,
+    parameter_path: Option<&Path>,
+    set_colours: &[(String, LinearRgb)],
 ) -> EditorEnvelope {
     let recipe = match read_recipe(path) {
         Ok(recipe) => recipe,
@@ -357,6 +446,10 @@ fn preview_command(
     preview_recipe.width = size;
     preview_recipe.height = size;
     let source_recipe_hash = editor_protocol::recipe_hash(&recipe).ok();
+    let parameters = match read_parameters(parameter_path, set_colours) {
+        Ok(parameters) => parameters,
+        Err(error) => return EditorEnvelope::failure("parameters.read", error.to_string()),
+    };
     let diagnostics = editor_protocol::validate_diagnostics(&preview_recipe);
     if !diagnostics.is_empty() {
         return EditorEnvelope {
@@ -370,8 +463,9 @@ fn preview_command(
         return EditorEnvelope::failure("preview.cleanup", error.to_string());
     }
     let started = Instant::now();
-    let preview = match generate_preview(
+    let preview = match generate_preview_with_parameters(
         &preview_recipe,
+        &parameters,
         &PreviewSettings {
             normal_convention,
             selected_layer_id: None,
@@ -383,7 +477,7 @@ fn preview_command(
     // The CLI historically emits diagnostics for every layer. Keep that
     // protocol contract while the in-process preview result retains only the
     // selected layer to avoid allocating all diagnostic maps for UI callers.
-    let evaluation = match evaluate_material(&preview_recipe) {
+    let evaluation = match evaluate_material_with_parameters(&preview_recipe, &parameters) {
         Ok(evaluation) => evaluation,
         Err(error) => return EditorEnvelope::failure("preview.layer_maps", error.to_string()),
     };
@@ -640,6 +734,8 @@ fn print_help() {
            --seed <N>            Override recipe seed\n\
            --width <PX>          Override recipe width\n\
            --height <PX>         Override recipe height\n\
+           --parameters <FILE>   Typed JSON parameter override map\n\
+           --set-colour <N=#RGB> Override one colour using sRGB #RRGGBB\n\
            --normal-convention <CONVENTION>\n\
                                  open-gl or direct-x (required for bake and preview)\n\
            --force               Replace an existing generated set\n\

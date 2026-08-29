@@ -1,0 +1,69 @@
+{
+  "output_format_version": "1",
+  "profile": "motu_unity_terrain",
+  "name": "FallenStones",
+  "dimensions": {
+    "width": 1024,
+    "height": 1024
+  },
+  "metadata": {
+    "generator_algorithm_version": "1",
+    "recipe_hash": "6b0f67c2238b7f32af4bff80fb0c706db0a7c0878d28f3eeceb3a6071a4b887b",
+    "seed": 73127,
+    "physical_tile_width_m": 2.0,
+    "physical_tile_height_m": 2.0,
+    "height_min_m": -0.014,
+    "height_max_m": 0.032,
+    "neutral_height_m": 0.0,
+    "displacement_map": true,
+    "normal_convention": "direct_x"
+  },
+  "maps": [
+    {
+      "file": "FallenStones_albedo.png",
+      "format": "RGB8",
+      "color_space": "sRGB",
+      "width": 1024,
+      "height": 1024,
+      "sha256": "ae245c494002dd5994a03dd5b137048cfe5b1211893ce45e8f8995100a4158bd"
+    },
+    {
+      "file": "FallenStones_height.png",
+      "format": "Gray16",
+      "color_space": "linear",
+      "width": 1024,
+      "height": 1024,
+      "sha256": "53af022b1b092d3dc26af8e98c96ed2d9df40043ef2e3a71d6619d74c214ea9a"
+    },
+    {
+      "file": "FallenStones_normal.png",
+      "format": "RGB8",
+      "color_space": "linear",
+      "width": 1024,
+      "height": 1024,
+      "sha256": "b0660bf04209293ffe6399e8a419b846f0b493f41c303a6e5e6b854ec0cfbea3"
+    },
+    {
+      "file": "FallenStones_occlusion.png",
+      "format": "Gray8",
+      "color_space": "linear",
+      "width": 1024,
+      "height": 1024,
+      "sha256": "9eb11e8993099dc6cb6f80dc76d9783862291d5a37abf384cc9fb6bf02d41a7e"
+    },
+    {
+      "file": "FallenStones_mask.png",
+      "format": "RGBA8",
+      "color_space": "linear",
+      "width": 1024,
+      "height": 1024,
+      "sha256": "799f4d53761d230e893afa11077cef859bde82e2ac54a4c40fd61a458186a5d8"
+    }
+  ],
+  "packed_channels": [
+    "A=opaque_one",
+    "B=unused_zero",
+    "G=occlusion",
+    "R=height_8bit"
+  ]
+}

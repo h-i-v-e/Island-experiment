@@ -3,10 +3,13 @@
 #![allow(clippy::missing_errors_doc, clippy::too_many_lines)]
 
 use core::fmt;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use super::{
     image::{ImageError, TextureDimensions},
+    parameters::{
+        ColourValue, LinearRgb, MAX_PARAMETER_NAME_LEN, MAX_RECIPE_PARAMETERS, ParameterDefinition,
+    },
     recipe::{
         AlbedoSettings, ColourMap, DisplacementSettings, DomainWarpSettings, GradientStop,
         HeightBlend, LayerMask, MAX_GRADIENT_STOPS, MAX_LAYERS, MAX_OUTPUT_PROFILES,
@@ -98,6 +101,17 @@ pub enum RecipeValidationError {
     TooManyLayers {
         found: usize,
         maximum: usize,
+    },
+    TooManyParameters {
+        found: usize,
+        maximum: usize,
+    },
+    InvalidParameterName {
+        name: String,
+    },
+    MissingParameterReference {
+        path: String,
+        name: String,
     },
     DuplicateLayerId {
         id: String,
@@ -243,6 +257,16 @@ impl fmt::Display for RecipeValidationError {
             Self::TooManyLayers { found, maximum } => {
                 write!(formatter, "{found} layers exceed the maximum of {maximum}")
             }
+            Self::TooManyParameters { found, maximum } => write!(
+                formatter,
+                "{found} recipe parameters exceed the maximum of {maximum}"
+            ),
+            Self::InvalidParameterName { name } => {
+                write!(formatter, "recipe parameter name is invalid: {name:?}")
+            }
+            Self::MissingParameterReference { path, name } => {
+                write!(formatter, "{path} references missing parameter {name:?}")
+            }
             Self::DuplicateLayerId { id } => write!(formatter, "layer id {id:?} is repeated"),
             Self::InvalidLayerId { path, id } => {
                 write!(formatter, "{path} has an invalid stable id {id:?}")
@@ -366,6 +390,7 @@ fn validate_root(recipe: &TextureRecipe, errors: &mut RecipeValidationErrors) {
     validate_tile_size("width", recipe.physical_tile_width_m, errors);
     validate_tile_size("height", recipe.physical_tile_height_m, errors);
     validate_material(&recipe.material, errors);
+    validate_parameters(&recipe.parameters, errors);
 
     if recipe.layers.len() > MAX_LAYERS {
         errors.push(RecipeValidationError::TooManyLayers {
@@ -375,7 +400,7 @@ fn validate_root(recipe: &TextureRecipe, errors: &mut RecipeValidationErrors) {
     }
     let ids = collect_layer_ids(&recipe.layers, errors);
     for (index, layer) in recipe.layers.iter().enumerate() {
-        validate_layer(layer, index, &ids, errors);
+        validate_layer(layer, index, &ids, &recipe.parameters, errors);
     }
 
     validate_finite("normal_scale", recipe.normal_scale, errors);
@@ -387,7 +412,7 @@ fn validate_root(recipe: &TextureRecipe, errors: &mut RecipeValidationErrors) {
     }
     validate_displacement(&recipe.displacement, errors);
     validate_occlusion(&recipe.occlusion, errors);
-    validate_albedo(&recipe.albedo, errors);
+    validate_albedo(&recipe.albedo, &recipe.parameters, errors);
     validate_output_profiles(&recipe.name, &recipe.output_profiles, errors);
 }
 
@@ -437,6 +462,35 @@ fn validate_name(name: &str, errors: &mut RecipeValidationErrors) {
         errors.push(RecipeValidationError::InvalidName {
             name: name.to_owned(),
         });
+    }
+}
+
+fn validate_parameters(
+    parameters: &BTreeMap<String, ParameterDefinition>,
+    errors: &mut RecipeValidationErrors,
+) {
+    if parameters.len() > MAX_RECIPE_PARAMETERS {
+        errors.push(RecipeValidationError::TooManyParameters {
+            found: parameters.len(),
+            maximum: MAX_RECIPE_PARAMETERS,
+        });
+    }
+    for (name, definition) in parameters {
+        if name.is_empty()
+            || name.len() > MAX_PARAMETER_NAME_LEN
+            || !name.chars().enumerate().all(|(index, character)| {
+                character.is_ascii_lowercase()
+                    || character.is_ascii_digit() && index > 0
+                    || character == '_' && index > 0
+            })
+        {
+            errors.push(RecipeValidationError::InvalidParameterName { name: name.clone() });
+        }
+        match definition {
+            ParameterDefinition::Colour { default, .. } => {
+                validate_linear_rgb(&format!("parameters.{name}.default"), *default, errors);
+            }
+        }
     }
 }
 
@@ -549,6 +603,7 @@ fn validate_layer(
     layer: &MaterialLayer,
     index: usize,
     ids: &HashMap<String, usize>,
+    parameters: &BTreeMap<String, ParameterDefinition>,
     errors: &mut RecipeValidationErrors,
 ) {
     let path = format!("/layers/{index}");
@@ -561,7 +616,12 @@ fn validate_layer(
         &format!("{path}/mask"),
         errors,
     );
-    validate_outputs(&layer.outputs, &format!("{path}/outputs"), errors);
+    validate_outputs(
+        &layer.outputs,
+        &format!("{path}/outputs"),
+        parameters,
+        errors,
+    );
 }
 
 fn validate_source(source: &ScalarSource, path: &str, errors: &mut RecipeValidationErrors) {
@@ -694,6 +754,7 @@ fn validate_mask(
 fn validate_outputs(
     outputs: &super::recipe::LayerOutputs,
     path: &str,
+    parameters: &BTreeMap<String, ParameterDefinition>,
     errors: &mut RecipeValidationErrors,
 ) {
     let height = &outputs.height;
@@ -723,15 +784,21 @@ fn validate_outputs(
     validate_colour_map(
         &albedo.colour_map,
         &format!("{path}/albedo/colour_map"),
+        parameters,
         errors,
     );
 }
 
-fn validate_colour_map(map: &ColourMap, path: &str, errors: &mut RecipeValidationErrors) {
+fn validate_colour_map(
+    map: &ColourMap,
+    path: &str,
+    parameters: &BTreeMap<String, ParameterDefinition>,
+    errors: &mut RecipeValidationErrors,
+) {
     match map {
         ColourMap::Ramp { first, second } => {
-            validate_colour(&format!("{path}/first"), *first, errors);
-            validate_colour(&format!("{path}/second"), *second, errors);
+            validate_colour_value(&format!("{path}/first"), first, parameters, errors);
+            validate_colour_value(&format!("{path}/second"), second, parameters, errors);
         }
         ColourMap::Gradient { stops } => {
             if stops.len() < 2 {
@@ -744,7 +811,7 @@ fn validate_colour_map(map: &ColourMap, path: &str, errors: &mut RecipeValidatio
                     maximum: MAX_GRADIENT_STOPS,
                 });
             }
-            validate_gradient_stops(stops, path, errors);
+            validate_gradient_stops(stops, path, parameters, errors);
         }
     }
 }
@@ -752,6 +819,7 @@ fn validate_colour_map(map: &ColourMap, path: &str, errors: &mut RecipeValidatio
 fn validate_gradient_stops(
     stops: &[GradientStop],
     path: &str,
+    parameters: &BTreeMap<String, ParameterDefinition>,
     errors: &mut RecipeValidationErrors,
 ) {
     let mut previous = None;
@@ -762,7 +830,12 @@ fn validate_gradient_stops(
         {
             errors.push(RecipeValidationError::InvalidGradient { path: path.into() });
         }
-        validate_colour(&format!("{path}/stops/colour"), stop.colour, errors);
+        validate_colour_value(
+            &format!("{path}/stops/colour"),
+            &stop.colour,
+            parameters,
+            errors,
+        );
         previous = Some(stop.position);
     }
 }
@@ -835,12 +908,16 @@ fn validate_occlusion(settings: &OcclusionRecipeSettings, errors: &mut RecipeVal
     }
 }
 
-fn validate_albedo(settings: &AlbedoSettings, errors: &mut RecipeValidationErrors) {
+fn validate_albedo(
+    settings: &AlbedoSettings,
+    parameters: &BTreeMap<String, ParameterDefinition>,
+    errors: &mut RecipeValidationErrors,
+) {
     for (name, colour) in [
-        ("albedo.base_color", settings.base_color),
-        ("albedo.warm_color", settings.warm_color),
+        ("albedo.base_color", &settings.base_color),
+        ("albedo.warm_color", &settings.warm_color),
     ] {
-        validate_colour(name, colour, errors);
+        validate_colour_value(name, colour, parameters, errors);
     }
     if settings.palette.len() > 8 {
         errors.push(RecipeValidationError::OutputNameCollision {
@@ -848,7 +925,12 @@ fn validate_albedo(settings: &AlbedoSettings, errors: &mut RecipeValidationError
         });
     }
     for (index, colour) in settings.palette.iter().enumerate() {
-        validate_colour(&format!("albedo.palette[{index}]"), *colour, errors);
+        validate_colour_value(
+            &format!("albedo.palette[{index}]"),
+            colour,
+            parameters,
+            errors,
+        );
     }
     for (path, value) in [
         ("albedo.variation", settings.variation),
@@ -875,6 +957,32 @@ fn validate_colour(path: &str, colour: [f32; 3], errors: &mut RecipeValidationEr
                 path: format!("{path}[{channel}]"),
                 value,
             });
+        }
+    }
+}
+
+fn validate_linear_rgb(path: &str, colour: LinearRgb, errors: &mut RecipeValidationErrors) {
+    validate_colour(path, colour.channels(), errors);
+}
+
+fn validate_colour_value(
+    path: &str,
+    colour: &ColourValue,
+    parameters: &BTreeMap<String, ParameterDefinition>,
+    errors: &mut RecipeValidationErrors,
+) {
+    match colour {
+        ColourValue::Literal(colour) => validate_linear_rgb(path, *colour, errors),
+        ColourValue::Parameter(reference) => {
+            if !parameters.contains_key(&reference.parameter) {
+                errors.push(RecipeValidationError::MissingParameterReference {
+                    path: path.into(),
+                    name: reference.parameter.clone(),
+                });
+            }
+            if let Some(base) = reference.base {
+                validate_linear_rgb(&format!("{path}.base"), base, errors);
+            }
         }
     }
 }
@@ -977,6 +1085,7 @@ mod tests {
         TextureRecipe {
             name: "test-texture".into(),
             seed: 42,
+            parameters: BTreeMap::new(),
             width: 32,
             height: 16,
             physical_tile_width_m: 4.0,

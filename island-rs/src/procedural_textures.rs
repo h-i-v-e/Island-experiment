@@ -16,10 +16,12 @@ pub mod noise;
 pub mod normal;
 pub mod occlusion;
 pub mod packing;
+pub mod parameters;
 pub mod periodic;
 pub mod preview;
 pub mod recipe;
 pub mod rounded_stones;
+pub mod runtime_materials;
 pub mod validation;
 
 use std::{fmt, path::Path};
@@ -38,14 +40,23 @@ pub use image::{
     FloatImage, Gray8Image, Gray16Image, Image, ImageError, NormalConvention, Rgb8Image,
     Rgba8Image, TextureDimensions, TextureMetadata, TextureSet,
 };
+pub use parameters::{
+    ColourParameterReference, ColourValue, LinearRgb, ParameterDefinition, ParameterValue,
+    RecipeParameterError, RecipeParameterErrors, RecipeParameterValues, ResolvedTextureRecipe,
+};
 pub use preview::{
     LayerPreviewMaps, PreviewMaps, PreviewSettings, PreviewTimings, generate_preview,
-    layer_preview_maps,
+    generate_preview_with_parameters, layer_preview_maps,
 };
 pub use recipe::{
     AlbedoBlend, AlbedoOutput, AlbedoSettings, ColourMap, DisplacementSettings, DomainWarpSettings,
     GradientStop, HeightBlend, HeightOutput, LayerMask, LayerOutputs, MaterialLayer, MaterialModel,
     OcclusionRecipeSettings, RemapPoint, ScalarRemap, ScalarSource, SourceKind, TextureRecipe,
+};
+pub use runtime_materials::{
+    IslandMaterialKind, IslandMaterialTextures, MaterialBakeIdentity, MaterialSelection,
+    RuntimeMaterialBakeError, RuntimeMaterialBakeOptions, RuntimeMaterialInputs,
+    bake_island_materials,
 };
 pub use validation::{RecipeValidationError, RecipeValidationErrors, validate_recipe};
 
@@ -56,6 +67,7 @@ pub const TEXTURE_ALGORITHM_VERSION: u32 = 1;
 #[derive(Debug)]
 pub enum TextureError {
     Validation(RecipeValidationErrors),
+    Parameters(RecipeParameterErrors),
     Field(field_program::FieldError),
     Normal(normal::NormalError),
     Occlusion(occlusion::OcclusionError),
@@ -69,6 +81,7 @@ impl fmt::Display for TextureError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Validation(error) => write!(formatter, "invalid texture recipe: {error}"),
+            Self::Parameters(error) => write!(formatter, "invalid texture parameters: {error}"),
             Self::Field(error) => write!(formatter, "height-field generation failed: {error:?}"),
             Self::Normal(error) => write!(formatter, "normal generation failed: {error:?}"),
             Self::Occlusion(error) => write!(formatter, "occlusion generation failed: {error:?}"),
@@ -85,6 +98,12 @@ impl std::error::Error for TextureError {}
 impl From<RecipeValidationErrors> for TextureError {
     fn from(error: RecipeValidationErrors) -> Self {
         Self::Validation(error)
+    }
+}
+
+impl From<RecipeParameterErrors> for TextureError {
+    fn from(error: RecipeParameterErrors) -> Self {
+        Self::Parameters(error)
     }
 }
 
@@ -127,6 +146,45 @@ pub struct MaterialEvaluation {
 /// allocated for output.
 pub fn evaluate_material(recipe: &TextureRecipe) -> Result<MaterialEvaluation, TextureError> {
     validate_recipe(recipe)?;
+    let resolved = parameters::resolve_validated_recipe(recipe, &RecipeParameterValues::new())?;
+    evaluate_resolved_material(&resolved)
+}
+
+/// Resolves explicit caller values and evaluates the shared unquantized maps.
+///
+/// # Errors
+///
+/// Returns recipe, parameter-resolution, field, occlusion, or albedo errors.
+pub fn evaluate_material_with_parameters(
+    recipe: &TextureRecipe,
+    parameters: &RecipeParameterValues,
+) -> Result<MaterialEvaluation, TextureError> {
+    let resolved = resolve_texture_recipe(recipe, parameters)?;
+    evaluate_resolved_material(&resolved)
+}
+
+/// Resolves and validates one recipe without evaluating any pixels.
+///
+/// # Errors
+///
+/// Returns recipe validation or strict parameter-resolution errors.
+pub fn resolve_texture_recipe(
+    recipe: &TextureRecipe,
+    parameters: &RecipeParameterValues,
+) -> Result<ResolvedTextureRecipe, TextureError> {
+    validate_recipe(recipe)?;
+    parameters::resolve_validated_recipe(recipe, parameters).map_err(TextureError::from)
+}
+
+/// Evaluates a recipe whose parameter references have already been resolved.
+///
+/// # Errors
+///
+/// Returns field, occlusion, or albedo evaluation errors.
+pub fn evaluate_resolved_material(
+    resolved: &ResolvedTextureRecipe,
+) -> Result<MaterialEvaluation, TextureError> {
+    let recipe = resolved.recipe();
     let layers = layer_stack::evaluate_recipe(recipe)?;
     let field = &layers.field;
     let occlusion = occlusion::derive_occlusion(field, occlusion_settings(recipe))?;
@@ -151,8 +209,23 @@ pub fn generate_texture_set(
     recipe: &TextureRecipe,
     normal_convention: NormalConvention,
 ) -> Result<TextureSet, TextureError> {
-    let evaluated = evaluate_material(recipe)?;
-    texture_set_from_evaluation(recipe, &evaluated, normal_convention)
+    generate_texture_set_with_parameters(recipe, &RecipeParameterValues::new(), normal_convention)
+}
+
+/// Generates a complete owned texture set with explicit caller parameter
+/// values. The input maps are borrowed and the returned images are owned.
+///
+/// # Errors
+///
+/// Returns validation, parameter-resolution, evaluation, or map errors.
+pub fn generate_texture_set_with_parameters(
+    recipe: &TextureRecipe,
+    parameters: &RecipeParameterValues,
+    normal_convention: NormalConvention,
+) -> Result<TextureSet, TextureError> {
+    let resolved = resolve_texture_recipe(recipe, parameters)?;
+    let evaluated = evaluate_resolved_material(&resolved)?;
+    texture_set_from_resolved_evaluation(&resolved, &evaluated, normal_convention)
 }
 
 /// Encodes one shared material evaluation into the final map set.
@@ -166,6 +239,21 @@ pub fn texture_set_from_evaluation(
     evaluated: &MaterialEvaluation,
     normal_convention: NormalConvention,
 ) -> Result<TextureSet, TextureError> {
+    let resolved = resolve_texture_recipe(recipe, &RecipeParameterValues::new())?;
+    texture_set_from_resolved_evaluation(&resolved, evaluated, normal_convention)
+}
+
+/// Encodes an evaluation produced from the same resolved recipe.
+///
+/// # Errors
+///
+/// Returns normal, packing, image, or metadata errors.
+pub fn texture_set_from_resolved_evaluation(
+    resolved: &ResolvedTextureRecipe,
+    evaluated: &MaterialEvaluation,
+    normal_convention: NormalConvention,
+) -> Result<TextureSet, TextureError> {
+    let recipe = resolved.recipe();
     let field = &evaluated.layers.field;
     let occlusion = &evaluated.occlusion;
     let normal = normal::derive_normals(field, recipe.normal_scale, normal_convention)?;
@@ -180,6 +268,7 @@ pub fn texture_set_from_evaluation(
     let metadata = TextureMetadata {
         name: recipe.name.clone(),
         recipe_hash,
+        parameter_hash: resolved.parameter_hash().to_owned(),
         algorithm_version: TEXTURE_ALGORITHM_VERSION,
         seed: recipe.seed,
         physical_tile_size_m: [recipe.physical_tile_width_m, recipe.physical_tile_height_m],
@@ -194,8 +283,8 @@ pub fn texture_set_from_evaluation(
 
 fn albedo_config(recipe: &TextureRecipe) -> AlbedoConfig {
     AlbedoConfig {
-        base_color: recipe.albedo.base_color,
-        warm_color: recipe.albedo.warm_color,
+        base_color: resolved_colour(&recipe.albedo.base_color),
+        warm_color: resolved_colour(&recipe.albedo.warm_color),
         variation: recipe.albedo.variation,
         crack_darkening: recipe.albedo.crack_darkening,
         shoulder_variation: recipe.albedo.shoulder_variation,
@@ -203,6 +292,13 @@ fn albedo_config(recipe: &TextureRecipe) -> AlbedoConfig {
         mineral_brightness: recipe.albedo.mineral_brightness,
         occlusion_influence: recipe.albedo.occlusion_influence,
     }
+}
+
+fn resolved_colour(colour: &ColourValue) -> [f32; 3] {
+    colour
+        .as_resolved()
+        .expect("parameter references must be resolved before material evaluation")
+        .channels()
 }
 
 fn occlusion_settings(recipe: &TextureRecipe) -> OcclusionSettings {

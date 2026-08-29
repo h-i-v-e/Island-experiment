@@ -8,8 +8,8 @@ use super::{
     RiverNetwork, RiverSourceRule, Rng, SHARP_ROCK_DISPLACEMENT_RATIO, StageTimer, SurfaceMaps,
     SurfaceMaterial, TERRAIN_RENDER_FLOOR, Terrain, TerrainEnvironmentField, TerrainMaterialField,
     TriangleIndex, Vec2, Vec3, Vec4, Write, append_settled_rocks, bake_surface_maps,
-    bury_river_banks, clear_loose_soil, encode_bank_distance_in_uv, erode_mesh, fix_inland_seas,
-    geology, hydraulic_erode_stage, io, legacy_catchment_hectares, mem, noise, sample_grid,
+    bury_river_banks, encode_bank_distance_in_uv, erode_mesh, fix_inland_seas, geology,
+    hydraulic_erode_stage, io, legacy_catchment_hectares, mem, noise, sample_grid,
     sample_mesh_surface,
 };
 use crate::forest::{
@@ -331,7 +331,7 @@ impl Island {
         let (lod0, material) = generate_detail_lod0(&lod0, material, context, &mut scratch)?;
         let FinalRiverGeneration {
             mut lod0,
-            mut material,
+            material,
             rivers,
             mut river_mesh,
             river_bed,
@@ -351,9 +351,6 @@ impl Island {
         river_mesh = river_mesh.clipped_above(0.0);
         encode_bank_distance_in_uv(&mut river_mesh);
         let forced_rock = sharp_rock_mask(&lod0);
-        let provisional_material =
-            TerrainMaterialField::from_surface(&material, &river_bed, &forced_rock);
-
         let terrain = {
             let _timer = StageTimer::new("terrain.index");
             Terrain::with_index(lod0, lod0_index)
@@ -361,18 +358,17 @@ impl Island {
         let (mut decorations, settled_rocks) = Decorations::generate(
             seed,
             &terrain,
-            &provisional_material,
             &rivers,
             options.terrain_size as usize * 4,
             method,
         )?;
         append_settled_rocks(seed, &settled_rocks, &mut river_rock_mesh);
-        clear_loose_soil(&mut material, decorations.cleared_soil_vertices());
         let (forest, forest_stats) = generate_forest(
             seed,
             &terrain,
             crate::forest::ForestSurface {
                 river_bed: &river_bed,
+                stones: decorations.stone_vertices(),
                 deposited_depths: material.depths(),
                 sea_proximity: material.sea_proximities(),
             },
@@ -380,7 +376,8 @@ impl Island {
         )?;
         decorations.set_tree_anchors(forest.placements().iter().map(|placement| placement.anchor));
         let forest_floor = forest_floor_mask(seed, terrain.mesh(), forest.placements());
-        let environment = TerrainEnvironmentField::from_forest_floor(&forest_floor);
+        let environment =
+            TerrainEnvironmentField::from_masks(&forest_floor, decorations.stone_vertices());
         let material = TerrainMaterialField::from_surface(&material, &river_bed, &forced_rock);
         let distance_to_land = {
             let _timer = StageTimer::new("sea_mask.distance_to_land");
@@ -765,8 +762,8 @@ impl Island {
             .collect()
     }
 
-    /// Per-vertex environment values for `mesh`: x = forest floor, y =
-    /// reserved. Values use the same authoritative LOD0 sampling path as the
+    /// Per-vertex environment values for `mesh`: x = forest floor, y = stones.
+    /// Values use the same authoritative LOD0 sampling path as the
     /// established material channels.
     pub fn environment_values_for(&self, mesh: &Mesh) -> Vec<Vec2> {
         mesh.vertices

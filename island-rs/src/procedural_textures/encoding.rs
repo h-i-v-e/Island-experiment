@@ -23,7 +23,7 @@ use sha2::{Digest, Sha256};
 /// Version of the file-output contract.  This is separate from the
 /// generator's algorithm version: changing PNG naming or manifest fields is a
 /// compatibility change even when the source field stays the same.
-pub const OUTPUT_FORMAT_VERSION: &str = "1";
+pub const OUTPUT_FORMAT_VERSION: &str = "2";
 
 /// The profiles currently supported by the standalone baker.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -116,6 +116,7 @@ impl OutputDimensions {
 pub struct TextureMetadata {
     pub generator_algorithm_version: String,
     pub recipe_hash: String,
+    pub parameter_hash: String,
     pub seed: u64,
     pub physical_tile_width_m: f32,
     pub physical_tile_height_m: f32,
@@ -133,6 +134,7 @@ impl Default for TextureMetadata {
         Self {
             generator_algorithm_version: "1".into(),
             recipe_hash: String::new(),
+            parameter_hash: String::new(),
             seed: 0,
             physical_tile_width_m: 1.0,
             physical_tile_height_m: 1.0,
@@ -209,6 +211,7 @@ impl<'a> TextureSetImages<'a> {
             metadata: TextureMetadata {
                 generator_algorithm_version: core_metadata.algorithm_version.to_string(),
                 recipe_hash: core_metadata.recipe_hash.clone(),
+                parameter_hash: core_metadata.parameter_hash.clone(),
                 seed: core_metadata.seed,
                 physical_tile_width_m: core_metadata.physical_tile_size_m[0],
                 physical_tile_height_m: core_metadata.physical_tile_size_m[1],
@@ -526,6 +529,7 @@ pub fn write_texture_set(
             write_png_bytes(&staging.join(filename), bytes)?;
         }
         write_png_bytes(&staging.join(manifest_name), &manifest_bytes)?;
+        preserve_expected_sidecars(destination, &staging, &filenames)?;
         commit_staged_set(destination, &staging, &filenames)
     })();
     if let Err(error) = write_result {
@@ -635,14 +639,20 @@ fn prepare_destination<'a>(
             }
             let name = entry.file_name();
             let name = name.to_string_lossy();
-            if !expected.contains(name.as_ref()) {
+            let is_expected_output = expected.contains(name.as_ref());
+            let is_expected_sidecar = name
+                .strip_suffix(".meta")
+                .is_some_and(|output_name| expected.contains(output_name));
+            if !is_expected_output && !is_expected_sidecar {
                 return Err(OutputError::InvalidInput(format!(
                     "output directory {} contains unrelated file {}; refusing to write",
                     destination.display(),
                     name
                 )));
             }
-            existing.insert(name.into_owned());
+            if is_expected_output {
+                existing.insert(name.into_owned());
+            }
         }
     }
     if !existing.is_empty() && !force {
@@ -650,6 +660,37 @@ fn prepare_destination<'a>(
             "output directory {} already contains generated files; pass --force to replace them",
             destination.display()
         )));
+    }
+    Ok(())
+}
+
+/// Carry engine-owned metadata for this generated set through the atomic
+/// directory swap. Only sidecars whose basename is one of the exact expected
+/// outputs pass `prepare_destination`; unrelated files remain a hard error.
+fn preserve_expected_sidecars(
+    destination: &Path,
+    staging: &Path,
+    expected_names: &[String],
+) -> Result<(), OutputError> {
+    if !destination.is_dir() {
+        return Ok(());
+    }
+    for filename in expected_names {
+        let sidecar_name = format!("{filename}.meta");
+        let source = destination.join(&sidecar_name);
+        match fs::symlink_metadata(&source) {
+            Ok(metadata) if metadata.file_type().is_file() => {
+                fs::copy(&source, staging.join(sidecar_name))?;
+            }
+            Ok(_) => {
+                return Err(OutputError::InvalidInput(format!(
+                    "generated sidecar {} is not a regular file",
+                    source.display()
+                )));
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
     }
     Ok(())
 }
@@ -868,6 +909,7 @@ mod tests {
     fn force_is_required_for_existing_generated_files() {
         let root = unique_test_dir("texture-force");
         fs::write(root.join("stone_albedo.png"), b"old").unwrap();
+        fs::write(root.join("stone_albedo.png.meta"), b"stable-guid").unwrap();
         let images = TextureSetImages::new(
             "stone",
             OutputDimensions {
@@ -887,6 +929,10 @@ mod tests {
             ..OutputOptions::default()
         };
         write_texture_set(&images, &root, &options).unwrap();
+        assert_eq!(
+            fs::read(root.join("stone_albedo.png.meta")).unwrap(),
+            b"stable-guid"
+        );
         let first_albedo = fs::read(root.join("stone_albedo.png")).unwrap();
         assert!(fs::read_dir(&root).unwrap().all(|entry| {
             let name = entry.unwrap().file_name();
@@ -914,6 +960,39 @@ mod tests {
             let name = entry.unwrap().file_name();
             !name.to_string_lossy().contains("texture-set-")
         }));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn force_still_rejects_an_unrelated_sidecar() {
+        let root = unique_test_dir("texture-unrelated-sidecar");
+        fs::write(
+            root.join("notes.txt.meta"),
+            b"not generated output metadata",
+        )
+        .unwrap();
+        let images = TextureSetImages::new(
+            "stone",
+            OutputDimensions {
+                width: 1,
+                height: 1,
+            },
+            &[1, 2, 3],
+            &[0x1234],
+            &[128, 128, 255],
+            &[255],
+            TextureMetadata::default(),
+        );
+        let error = write_texture_set(
+            &images,
+            &root,
+            &OutputOptions {
+                force: true,
+                ..OutputOptions::default()
+            },
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("notes.txt.meta"));
         let _ = fs::remove_dir_all(root);
     }
 

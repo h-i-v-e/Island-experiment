@@ -11,7 +11,6 @@ use super::{
     encoding::normalized_recipe_hash,
     image::{FloatImage, NormalConvention, Rgba8Image, TextureDimensions},
     layer_stack::LayerDiagnostic,
-    texture_set_from_evaluation,
 };
 
 /// Settings that affect one generated preview without changing the recipe.
@@ -78,14 +77,35 @@ pub fn generate_preview(
     effective_recipe: &TextureRecipe,
     settings: &PreviewSettings,
 ) -> Result<PreviewMaps, TextureError> {
+    generate_preview_with_parameters(
+        effective_recipe,
+        &super::RecipeParameterValues::new(),
+        settings,
+    )
+}
+
+/// Generates a preview using explicit caller parameter overrides.
+///
+/// # Errors
+///
+/// Returns validation, resolution, evaluation, or map-conversion errors.
+pub fn generate_preview_with_parameters(
+    effective_recipe: &TextureRecipe,
+    parameters: &super::RecipeParameterValues,
+    settings: &PreviewSettings,
+) -> Result<PreviewMaps, TextureError> {
     let started = Instant::now();
     let evaluation_started = Instant::now();
-    let evaluation = super::evaluate_material(effective_recipe)?;
+    let resolved = super::resolve_texture_recipe(effective_recipe, parameters)?;
+    let evaluation = super::evaluate_resolved_material(&resolved)?;
     let evaluate_ms = elapsed_ms(evaluation_started);
 
     let texture_started = Instant::now();
-    let textures =
-        texture_set_from_evaluation(effective_recipe, &evaluation, settings.normal_convention)?;
+    let textures = super::texture_set_from_resolved_evaluation(
+        &resolved,
+        &evaluation,
+        settings.normal_convention,
+    )?;
     let packed_mask = Some(packed_mask_from_texture_set(&textures)?);
     let dimensions = textures.dimensions;
     let selected_layer = selected_layer_maps(
@@ -105,7 +125,7 @@ pub fn generate_preview(
     // of the hot path and use the metadata that all maps carry.
     let recipe_hash = textures.metadata.recipe_hash.clone();
     debug_assert_eq!(
-        normalized_recipe_hash(effective_recipe).ok().as_deref(),
+        normalized_recipe_hash(resolved.recipe()).ok().as_deref(),
         Some(recipe_hash.as_str())
     );
 

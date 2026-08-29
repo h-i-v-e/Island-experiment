@@ -18,7 +18,7 @@ use std::{
     process,
 };
 
-use motu::{GenerationMethod, IslandOptions, Mesh, Vec2, Vec3};
+use motu::{GenerationMethod, IslandOptions, Mesh, Vec2, Vec3, Vec4};
 
 use crate::{
     chunk::{self, ChunkTier, TIERS, TerrainChunk},
@@ -41,8 +41,9 @@ use crate::{
 /// to close a seam with, and 7 records the pre-skirt surface elevation span
 /// used to place every level of one chunk at the same representative height,
 /// and 8 retires GPU-river entries now that GPU generation uses the established
-/// CPU river and waterfall builder.
-const CACHE_FORMAT_VERSION: u32 = 8;
+/// CPU river and waterfall builder. 9 carries the fourth material channel and
+/// the independent forest-floor/stone pair.
+const CACHE_FORMAT_VERSION: u32 = 9;
 
 const MAGIC: &[u8; 8] = b"MOTUBVY\0";
 /// Distinguishes a cache key from the crate's other hashed values.
@@ -195,7 +196,8 @@ fn write_chunks(writer: &mut impl Write, chunks: &[TerrainChunk]) -> io::Result<
         write_scalars(writer, &[chunk.surface_low, chunk.surface_high])?;
         for tier in &chunk.tiers {
             write_mesh(writer, &tier.mesh)?;
-            write_points(writer, &tier.materials)?;
+            write_vec4s(writer, &tier.materials)?;
+            write_vec2s(writer, &tier.environment)?;
             write_count(writer, tier.river_wetness.len())?;
             write_scalars(writer, &tier.river_wetness)?;
         }
@@ -243,6 +245,22 @@ fn write_points(writer: &mut impl Write, points: &[Vec3]) -> io::Result<()> {
     write_count(writer, points.len())?;
     for point in points {
         write_scalars(writer, &[point.x, point.y, point.z])?;
+    }
+    Ok(())
+}
+
+fn write_vec2s(writer: &mut impl Write, values: &[Vec2]) -> io::Result<()> {
+    write_count(writer, values.len())?;
+    for value in values {
+        write_scalars(writer, &[value.x, value.y])?;
+    }
+    Ok(())
+}
+
+fn write_vec4s(writer: &mut impl Write, values: &[Vec4]) -> io::Result<()> {
+    write_count(writer, values.len())?;
+    for value in values {
+        write_scalars(writer, &[value.x, value.y, value.z, value.w])?;
     }
     Ok(())
 }
@@ -313,6 +331,23 @@ impl<'a> Reader<'a> {
         })
     }
 
+    fn vec2s(&mut self) -> Option<Vec<Vec2>> {
+        self.array(2 * WORD, |reader| {
+            Some(Vec2::new(reader.f32()?, reader.f32()?))
+        })
+    }
+
+    fn vec4s(&mut self) -> Option<Vec<Vec4>> {
+        self.array(4 * WORD, |reader| {
+            Some(Vec4::new(
+                reader.f32()?,
+                reader.f32()?,
+                reader.f32()?,
+                reader.f32()?,
+            ))
+        })
+    }
+
     fn scalars(&mut self) -> Option<Vec<f32>> {
         self.array(WORD, Self::f32)
     }
@@ -332,10 +367,10 @@ impl<'a> Reader<'a> {
 
     /// Field order matches [`write_chunks`]. The stride is the shortest a chunk
     /// can be — its two grid coordinates, its two surface bounds, and one
-    /// length prefix for each of the six arrays a level of detail carries — so
+    /// length prefix for each of the seven arrays a level of detail carries — so
     /// a corrupt count is rejected before anything is reserved for it.
     fn chunks(&mut self) -> Option<Vec<TerrainChunk>> {
-        self.array((4 + TIERS * 6) * WORD, |reader| {
+        self.array((4 + TIERS * 7) * WORD, |reader| {
             let column = reader.u32()?;
             let row = reader.u32()?;
             let surface_low = reader.f32()?;
@@ -351,9 +386,11 @@ impl<'a> Reader<'a> {
             let mut tiers = Vec::with_capacity(TIERS);
             for _ in 0..TIERS {
                 let mesh = reader.mesh()?;
-                let materials = reader.points()?;
+                let materials = reader.vec4s()?;
+                let environment = reader.vec2s()?;
                 let river_wetness = reader.scalars()?;
                 if materials.len() != mesh.vertices.len()
+                    || environment.len() != mesh.vertices.len()
                     || river_wetness.len() != mesh.vertices.len()
                 {
                     return None;
@@ -361,6 +398,7 @@ impl<'a> Reader<'a> {
                 tiers.push(ChunkTier {
                     mesh,
                     materials,
+                    environment,
                     river_wetness,
                 });
             }
@@ -405,7 +443,7 @@ impl<'a> Reader<'a> {
 mod tests {
     use std::{env, fs};
 
-    use motu::{GenerationMethod, IslandOptions, Mesh, Vec2, Vec3};
+    use motu::{GenerationMethod, IslandOptions, Mesh, Vec2, Vec3, Vec4};
 
     use super::{ChunkTier, IslandData, RiverDrop, TIERS, TerrainChunk, key, path, read, write};
 
@@ -427,7 +465,8 @@ mod tests {
                         .map(|index| Vec2::new(index as f32, row as f32))
                         .collect(),
                 },
-                materials: (0..count).map(|index| Vec3::splat(index as f32)).collect(),
+                materials: (0..count).map(|index| Vec4::splat(index as f32)).collect(),
+                environment: vec![Vec2::new(0.5, 0.75); count],
                 river_wetness: vec![0.25; count],
             }
         };

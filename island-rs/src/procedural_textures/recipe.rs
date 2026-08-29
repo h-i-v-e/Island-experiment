@@ -6,7 +6,11 @@
 
 #![allow(clippy::missing_errors_doc)]
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
+
+use super::parameters::{ColourValue, LinearRgb, ParameterDefinition};
 
 /// Maximum number of ordered material layers accepted by validation.
 pub const MAX_LAYERS: usize = 64;
@@ -25,6 +29,9 @@ pub struct TextureRecipe {
     pub name: String,
     /// Root random seed. Individual layers derive independent domains from it.
     pub seed: u64,
+    /// Typed values that callers may override before evaluation.
+    #[serde(default)]
+    pub parameters: BTreeMap<String, ParameterDefinition>,
     /// Output width in pixels.
     pub width: u32,
     /// Output height in pixels.
@@ -409,7 +416,10 @@ pub enum AlbedoBlend {
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ColourMap {
     /// Two-colour linear ramp.
-    Ramp { first: [f32; 3], second: [f32; 3] },
+    Ramp {
+        first: ColourValue,
+        second: ColourValue,
+    },
     /// Ordered multi-stop linear gradient.
     Gradient { stops: Vec<GradientStop> },
 }
@@ -417,20 +427,20 @@ pub enum ColourMap {
 impl Default for ColourMap {
     fn default() -> Self {
         Self::Ramp {
-            first: default_base_color(),
-            second: default_warm_color(),
+            first: default_base_colour_value(),
+            second: default_warm_colour_value(),
         }
     }
 }
 
 /// One linear-RGB gradient stop.
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct GradientStop {
     /// Position in the normalized scalar domain.
     pub position: f32,
     /// Linear RGB colour.
-    pub colour: [f32; 3],
+    pub colour: ColourValue,
 }
 
 /// Base material/height-field model selected by a recipe.
@@ -742,12 +752,12 @@ pub enum OcclusionCombine {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct AlbedoSettings {
-    #[serde(default = "default_base_color")]
-    pub base_color: [f32; 3],
-    #[serde(default = "default_warm_color")]
-    pub warm_color: [f32; 3],
+    #[serde(default = "default_base_colour_value")]
+    pub base_color: ColourValue,
+    #[serde(default = "default_warm_colour_value")]
+    pub warm_color: ColourValue,
     #[serde(default)]
-    pub palette: Vec<[f32; 3]>,
+    pub palette: Vec<ColourValue>,
     #[serde(default = "default_albedo_variation")]
     pub variation: f32,
     #[serde(default = "default_crack_darkening")]
@@ -765,8 +775,8 @@ pub struct AlbedoSettings {
 impl Default for AlbedoSettings {
     fn default() -> Self {
         Self {
-            base_color: default_base_color(),
-            warm_color: default_warm_color(),
+            base_color: default_base_colour_value(),
+            warm_color: default_warm_colour_value(),
             palette: Vec::new(),
             variation: default_albedo_variation(),
             crack_darkening: default_crack_darkening(),
@@ -966,6 +976,14 @@ fn default_base_color() -> [f32; 3] {
 
 fn default_warm_color() -> [f32; 3] {
     [0.42, 0.36, 0.28]
+}
+
+fn default_base_colour_value() -> ColourValue {
+    ColourValue::Literal(LinearRgb(default_base_color()))
+}
+
+fn default_warm_colour_value() -> ColourValue {
+    ColourValue::Literal(LinearRgb(default_warm_color()))
 }
 
 fn default_albedo_variation() -> f32 {

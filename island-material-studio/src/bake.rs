@@ -20,6 +20,14 @@ pub struct BakeSuccess {
     pub map_count: usize,
 }
 
+/// One newly completed bake, consumed once by the UI while `last_success`
+/// remains available for persistent status details.
+#[derive(Clone, Debug)]
+pub enum BakeCompletion {
+    Succeeded(BakeSuccess),
+    Failed(String),
+}
+
 #[derive(Clone, Debug)]
 struct BakeRequest {
     recipe: TextureRecipe,
@@ -38,6 +46,7 @@ pub struct BakeState {
     pub status: String,
     pub last_success: Option<BakeSuccess>,
     pub error: Option<String>,
+    completion: Option<BakeCompletion>,
     pending: Option<BakeRequest>,
     running: Option<BakeTask>,
 }
@@ -51,6 +60,7 @@ impl Default for BakeState {
             status: "No bake has run".into(),
             last_success: None,
             error: None,
+            completion: None,
             pending: None,
             running: None,
         }
@@ -90,9 +100,9 @@ impl BakeState {
         self.running.is_some() || self.pending.is_some()
     }
 
-    /// Takes a newly completed bake so the document can record its hash.
-    pub fn take_success(&mut self) -> Option<BakeSuccess> {
-        self.last_success.take()
+    /// Takes one newly completed result for main-status reporting.
+    pub fn take_completion(&mut self) -> Option<BakeCompletion> {
+        self.completion.take()
     }
 }
 
@@ -117,11 +127,13 @@ fn drive_bake(mut state: ResMut<BakeState>) {
                     success.map_count, success.elapsed_ms
                 );
                 state.error = None;
-                state.last_success = Some(success);
+                state.last_success = Some(success.clone());
+                state.completion = Some(BakeCompletion::Succeeded(success));
             }
             Err(error) => {
                 state.status = "Bake failed; existing generated files were preserved".into();
-                state.error = Some(error);
+                state.error = Some(error.clone());
+                state.completion = Some(BakeCompletion::Failed(error));
             }
         }
     }
@@ -160,5 +172,27 @@ mod tests {
         ))
         .unwrap();
         assert!(BakeState::default().request(recipe).is_err());
+    }
+
+    #[test]
+    fn completion_is_reported_once_without_discarding_last_success() {
+        let success = BakeSuccess {
+            recipe_hash: "recipe-hash".into(),
+            manifest_path: PathBuf::from("stone.texture-set.json"),
+            elapsed_ms: 12.0,
+            map_count: 5,
+        };
+        let mut state = BakeState {
+            last_success: Some(success.clone()),
+            completion: Some(BakeCompletion::Succeeded(success)),
+            ..BakeState::default()
+        };
+
+        assert!(matches!(
+            state.take_completion(),
+            Some(BakeCompletion::Succeeded(_))
+        ));
+        assert!(state.take_completion().is_none());
+        assert!(state.last_success.is_some());
     }
 }

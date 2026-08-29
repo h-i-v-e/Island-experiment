@@ -3,7 +3,7 @@ Shader "Motu/Terrain Unified"
     Properties
     {
         _Color ("Tint", Color) = (1, 1, 1, 1)
-        _RockColor ("Exposed Rock", Color) = (0.34, 0.32, 0.29, 1)
+        _RockColor ("Exposed Rock", Color) = (0.30, 0.32, 0.29, 1)
         [NoScaleOffset] _RockAlbedoMap ("Rock Top Surface Colour", 2D) = "white" {}
         [NoScaleOffset] _RockNormalMap ("Rock Top Surface Normal", 2D) = "bump" {}
         [NoScaleOffset] _RockMaskMap ("Rock Top Surface Mask (R Height, G Occlusion)", 2D) = "gray" {}
@@ -12,7 +12,7 @@ Shader "Motu/Terrain Unified"
         _RockParallaxDepth ("Rock Top Surface Parallax Depth (metres)", Range(0, 0.15)) = 0.05
         _RockHeightBlendStrength ("Rock Slope Blend Height Influence", Range(0, 1)) = 1
         _RockTextureOcclusionStrength ("Rock Top Surface Texture Occlusion", Range(0, 1)) = 0
-        _RiverBedColor ("Riverbed Tint", Color) = (0.34, 0.32, 0.29, 1)
+        _RiverBedColor ("Riverbed Tint", Color) = (0.30, 0.32, 0.29, 1)
         [NoScaleOffset] _RiverBedAlbedoMap ("Riverbed Colour", 2D) = "white" {}
         [NoScaleOffset] _RiverBedNormalMap ("Riverbed Normal", 2D) = "bump" {}
         [NoScaleOffset] _RiverBedMaskMap ("Riverbed Mask (R Height, G Occlusion)", 2D) = "gray" {}
@@ -32,6 +32,19 @@ Shader "Motu/Terrain Unified"
         _ForestFloorTextureOcclusionStrength ("Forest Floor Texture Occlusion", Range(0, 1)) = 0.7
         _ForestFloorEdgeNoiseStrength ("Forest Floor Edge Noise Strength", Range(0, 0.45)) = 0.22
         _ForestFloorEdgeBlendWidth ("Forest Floor Edge Blend Width", Range(0.01, 0.5)) = 0.035
+        _StonesColor ("Fallen Stones Tint", Color) = (1, 1, 1, 1)
+        [NoScaleOffset] _StonesAlbedoMap ("Fallen Stones Colour", 2D) = "white" {}
+        [NoScaleOffset] _StonesNormalMap ("Fallen Stones Normal", 2D) = "bump" {}
+        [NoScaleOffset] _StonesMaskMap ("Fallen Stones Mask (R Height, G Occlusion)", 2D) = "gray" {}
+        [HideInInspector][NoScaleOffset] _RockRiverMaskMap ("Runtime Rock + River Mask", 2D) = "gray" {}
+        [HideInInspector][NoScaleOffset] _ForestStonesMaskMap ("Runtime Forest + Stones Mask", 2D) = "gray" {}
+        _StonesTextureWorldSize ("Fallen Stones Texture Size (metres)", Float) = 2
+        _StonesNormalMapStrength ("Fallen Stones Normal Strength", Range(0, 2)) = 1
+        _StonesParallaxDepth ("Fallen Stones Parallax Depth (metres)", Range(0, 0.08)) = 0.025
+        _StonesHeightBlendStrength ("Fallen Stones Height Blend Influence", Range(0, 1)) = 1
+        _StonesTextureOcclusionStrength ("Fallen Stones Texture Occlusion", Range(0, 1)) = 0.75
+        _StonesEdgeNoiseStrength ("Fallen Stones Edge Noise Strength", Range(0, 0.45)) = 0.22
+        _StonesEdgeBlendWidth ("Fallen Stones Edge Blend Width", Range(0.01, 0.5)) = 0.035
         _WetBankBlendExponent ("Wet Bank Blend Exponent", Range(0.2, 1)) = 0.45
         _WetDarkening ("Wet Surface Darkening", Range(0, 0.75)) = 0.48
         _WetSmoothness ("Wet Surface Smoothness", Range(0, 1)) = 0.65
@@ -63,7 +76,7 @@ Shader "Motu/Terrain Unified"
         _GrassNormalStrength ("Grass Normal Strength", Range(0, 0.5)) = 0.22
         _SandNormalStrength ("Sand Normal Strength", Range(0, 0.5)) = 0.10
         _SnowNormalStrength ("Snow Normal Strength", Range(0, 0.5)) = 0.08
-        _GrassThinDepositColor ("Bare Grass Ground", Color) = (0.55, 0.46, 0.28, 1)
+        _GrassThinDepositColor ("Poor Soil", Color) = (0.09, 0.055, 0.026, 1)
         _GrassColorA ("Grass Colour A", Color) = (0.18, 0.46, 0.14, 1)
         _GrassColorB ("Grass Colour B", Color) = (0.34, 0.50, 0.14, 1)
         _GrassColorNoiseWorldSize ("Grass Colour Noise Repeat (metres)", Float) = 2048
@@ -76,7 +89,7 @@ Shader "Motu/Terrain Unified"
         [HideInInspector] _GrassWindNormalStrength ("Grass Wind Normal Strength", Range(0, 1)) = 0.35
         [HideInInspector] _GrassEnabled ("Local Grass Enabled", Float) = 0
         [HideInInspector] _GrassPlayerPosition ("Player Position", Vector) = (0, 0, 0, 0)
-        _GroundDirtColor ("Grass Ground Dirt", Color) = (0.24, 0.14, 0.07, 1)
+        _GroundDirtColor ("Dirt", Color) = (0.09, 0.055, 0.026, 1)
         _GroundDirtCoreRadius ("Dirt Core Radius (metres)", Float) = 0.5
         _GroundDirtFadeWidth ("Dirt Fade Width (metres)", Float) = 2
     }
@@ -120,7 +133,8 @@ Shader "Motu/Terrain Unified"
                 UNITY_FOG_COORDS(4)
                 half4 material : TEXCOORD5;
                 float3 islandLocalPosition : TEXCOORD6;
-                half forestFloor : TEXCOORD7;
+                // x = forest floor, y = settled stones.
+                half2 environment : TEXCOORD7;
             };
 
             sampler2D _WorldNormal;
@@ -128,13 +142,14 @@ Shader "Motu/Terrain Unified"
             sampler2D _GrassPatchNoise;
             sampler2D _RockAlbedoMap;
             sampler2D _RockNormalMap;
-            sampler2D _RockMaskMap;
+            sampler2D _RockRiverMaskMap;
             sampler2D _RiverBedAlbedoMap;
             sampler2D _RiverBedNormalMap;
-            sampler2D _RiverBedMaskMap;
             sampler2D _ForestFloorAlbedoMap;
             sampler2D _ForestFloorNormalMap;
-            sampler2D _ForestFloorMaskMap;
+            sampler2D _StonesAlbedoMap;
+            sampler2D _StonesNormalMap;
+            sampler2D _ForestStonesMaskMap;
             sampler3D _CliffNoise3D;
             fixed4 _Color;
             fixed4 _RockColor;
@@ -157,6 +172,14 @@ Shader "Motu/Terrain Unified"
             half _ForestFloorTextureOcclusionStrength;
             half _ForestFloorEdgeNoiseStrength;
             half _ForestFloorEdgeBlendWidth;
+            fixed4 _StonesColor;
+            float _StonesTextureWorldSize;
+            half _StonesNormalMapStrength;
+            float _StonesParallaxDepth;
+            half _StonesHeightBlendStrength;
+            half _StonesTextureOcclusionStrength;
+            half _StonesEdgeNoiseStrength;
+            half _StonesEdgeBlendWidth;
             half _WetBankBlendExponent;
             half _WetDarkening;
             half _WetSmoothness;
@@ -230,6 +253,7 @@ Shader "Motu/Terrain Unified"
             float2 ParallaxUv(
                 float2 uv,
                 sampler2D maskMap,
+                half4 heightChannel,
                 float textureWorldSize,
                 float depthMetres,
                 float3 localViewDirection,
@@ -251,7 +275,8 @@ Shader "Motu/Terrain Unified"
                 float2 uvStep = rayOffset * layerStep;
                 float2 currentUv = uv;
                 half currentLayer = 0.0h;
-                half surfaceDepth = 1.0h - tex2D(maskMap, currentUv).r;
+                half surfaceDepth = 1.0h
+                    - dot(tex2D(maskMap, currentUv), heightChannel);
                 [unroll]
                 for (int stepIndex = 0; stepIndex < 8; ++stepIndex)
                 {
@@ -261,13 +286,14 @@ Shader "Motu/Terrain Unified"
                     }
                     currentUv -= uvStep;
                     currentLayer += layerStep;
-                    surfaceDepth = 1.0h - tex2D(maskMap, currentUv).r;
+                    surfaceDepth = 1.0h
+                        - dot(tex2D(maskMap, currentUv), heightChannel);
                 }
 
                 float2 previousUv = currentUv + uvStep;
                 half previousLayer = max(currentLayer - layerStep, 0.0h);
                 half previousSurfaceDepth = 1.0h
-                    - tex2D(maskMap, previousUv).r;
+                    - dot(tex2D(maskMap, previousUv), heightChannel);
                 half afterDepth = surfaceDepth - currentLayer;
                 half beforeDepth = previousSurfaceDepth - previousLayer;
                 half interpolationDenominator = afterDepth - beforeDepth;
@@ -288,7 +314,7 @@ Shader "Motu/Terrain Unified"
                     float4(output.worldPosition, 1.0)).xyz;
                 output.geometricWorldNormal = UnityObjectToWorldNormal(input.normal);
                 output.material = input.material;
-                output.forestFloor = input.environment.x;
+                output.environment = input.environment;
                 TRANSFER_SHADOW(output);
                 UNITY_TRANSFER_FOG(output, output.pos);
                 return output;
@@ -326,6 +352,8 @@ Shader "Motu/Terrain Unified"
                     / max(_RiverBedTextureWorldSize, 0.01);
                 float2 forestFloorUv = input.islandLocalPosition.xz
                     / max(_ForestFloorTextureWorldSize, 0.01);
+                float2 stonesUv = input.islandLocalPosition.xz
+                    / max(_StonesTextureWorldSize, 0.01);
                 // Mesh import scales normalized Rust coordinates into Unity
                 // metres, so world-space Y is already the physical elevation.
                 float elevation = input.islandLocalPosition.y;
@@ -373,6 +401,19 @@ Shader "Motu/Terrain Unified"
                 half rockTextureSlopeWeight = topProjectionWeight
                     * flatTexturePatchWeight;
                 half riverBedTextureSlopeWeight = topProjectionWeight;
+                // Fallen stones use the same coherent textured/basic-surface
+                // breakup as exposed rock, with independent noise channels so
+                // the two material classes do not reveal one shared stencil.
+                half stonesTextureBlendNoise = clamp(
+                    macroNoise.b * 0.20h
+                        + broadNoise.r * 0.25h
+                        + (rockPatchLayers.b * 2.0h - 1.0h) * 0.55h,
+                    -1.0h,
+                    1.0h);
+                half stonesTexturePatchWeight = smoothstep(
+                    -0.65h,
+                    0.65h,
+                    stonesTextureBlendNoise);
                 // Turn the interpolated tree-support switch into the same kind
                 // of fine coherent boundary used by the other terrain classes.
                 // Keeping this formula byte-for-byte aligned with the grass
@@ -382,7 +423,7 @@ Shader "Motu/Terrain Unified"
                         + bankDetailNoise.b * 0.30h,
                     -1.0h,
                     1.0h);
-                half forestFloorDistance = saturate(input.forestFloor)
+                half forestFloorDistance = saturate(input.environment.x)
                     - (0.5h
                         + forestFloorBoundaryNoise
                             * _ForestFloorEdgeNoiseStrength);
@@ -393,38 +434,78 @@ Shader "Motu/Terrain Unified"
                     -forestFloorTransition,
                     forestFloorTransition,
                     forestFloorDistance);
+                // Use a different coherent combination from the forest floor,
+                // while retaining the same boundary construction in the grass
+                // shader so the fur ends precisely at the visible stone patch.
+                half stonesBoundaryNoise = clamp(
+                    bankDetailNoise.r * 0.45h
+                        + bankDetailNoise.b * 0.55h,
+                    -1.0h,
+                    1.0h);
+                half stonesDistance = saturate(input.environment.y)
+                    - (0.5h
+                        + stonesBoundaryNoise * _StonesEdgeNoiseStrength);
+                half stonesTransition = max(
+                    _StonesEdgeBlendWidth,
+                    fwidth(stonesDistance));
+                half stonesSource = smoothstep(
+                    -stonesTransition,
+                    stonesTransition,
+                    stonesDistance);
                 half forestFloorTextureSlopeWeight = topProjectionWeight;
+                half stonesTextureSlopeWeight = topProjectionWeight
+                    * stonesTexturePatchWeight;
                 float3 localViewDirection = normalize(mul(
                     (float3x3)_IslandWorldToLocal,
                     UnityWorldSpaceViewDir(input.worldPosition)));
                 rockUv = ParallaxUv(
                     rockUv,
-                    _RockMaskMap,
+                    _RockRiverMaskMap,
+                    half4(1.0h, 0.0h, 0.0h, 0.0h),
                     _RockTextureWorldSize,
                     _RockParallaxDepth,
                     localViewDirection,
                     rockTextureSlopeWeight);
                 riverBedUv = ParallaxUv(
                     riverBedUv,
-                    _RiverBedMaskMap,
+                    _RockRiverMaskMap,
+                    half4(0.0h, 0.0h, 1.0h, 0.0h),
                     _RiverBedTextureWorldSize,
                     _RiverBedParallaxDepth,
                     localViewDirection,
                     riverBedTextureSlopeWeight * saturate(input.material.b));
                 forestFloorUv = ParallaxUv(
                     forestFloorUv,
-                    _ForestFloorMaskMap,
+                    _ForestStonesMaskMap,
+                    half4(1.0h, 0.0h, 0.0h, 0.0h),
                     _ForestFloorTextureWorldSize,
                     _ForestFloorParallaxDepth,
                     localViewDirection,
                     forestFloorTextureSlopeWeight * forestFloorSource);
-                fixed4 rockMaskSample = tex2D(_RockMaskMap, rockUv);
-                fixed4 riverBedMaskSample = tex2D(
-                    _RiverBedMaskMap,
+                stonesUv = ParallaxUv(
+                    stonesUv,
+                    _ForestStonesMaskMap,
+                    half4(0.0h, 0.0h, 1.0h, 0.0h),
+                    _StonesTextureWorldSize,
+                    _StonesParallaxDepth,
+                    localViewDirection,
+                    stonesTextureSlopeWeight * stonesSource);
+                fixed4 rockPackedMaskSample = tex2D(
+                    _RockRiverMaskMap,
+                    rockUv);
+                fixed4 riverPackedMaskSample = tex2D(
+                    _RockRiverMaskMap,
                     riverBedUv);
-                fixed4 forestFloorMaskSample = tex2D(
-                    _ForestFloorMaskMap,
+                fixed4 forestPackedMaskSample = tex2D(
+                    _ForestStonesMaskMap,
                     forestFloorUv);
+                fixed4 stonesPackedMaskSample = tex2D(
+                    _ForestStonesMaskMap,
+                    stonesUv);
+                half2 rockMaskSample = rockPackedMaskSample.rg;
+                half2 riverBedMaskSample = riverPackedMaskSample.ba;
+                half2 forestFloorMaskSample = forestPackedMaskSample.rg;
+                half2 stonesMaskSample = stonesPackedMaskSample.ba;
                 half rockTextureWeight = HeightModulatedTextureWeight(
                     rockTextureSlopeWeight,
                     rockMaskSample.r,
@@ -437,6 +518,10 @@ Shader "Motu/Terrain Unified"
                     forestFloorTextureSlopeWeight,
                     forestFloorMaskSample.r,
                     _ForestFloorHeightBlendStrength);
+                half stonesTextureWeight = HeightModulatedTextureWeight(
+                    stonesTextureSlopeWeight,
+                    stonesMaskSample.r,
+                    _StonesHeightBlendStrength);
                 // Signed world-space noise shifts both sides of the cutoff.
                 // This prevents a linear interpolant from drawing the
                 // underlying terrain triangles into the material boundary.
@@ -584,6 +669,20 @@ Shader "Motu/Terrain Unified"
                     * (1.0h - riverCoverage)
                     * (1.0h - snowCoverage)
                     * step(0.0, elevation);
+                half forestFloorCoverage = forestFloorSource
+                    * forestFloorTextureWeight
+                    * (1.0h - exposedRockCoverage)
+                    * (1.0h - groundBeachCoverage)
+                    * (1.0h - riverCoverage)
+                    * (1.0h - snowCoverage)
+                    * step(0.0h, elevation);
+                half stonesCoverage = stonesSource
+                    * (1.0h - exposedRockCoverage)
+                    * (1.0h - groundBeachCoverage)
+                    * (1.0h - riverCoverage)
+                    * (1.0h - snowCoverage)
+                    * (1.0h - forestFloorCoverage)
+                    * step(0.0h, elevation);
 
                 fixed3 deep = fixed3(0.08, 0.16, 0.12);
                 fixed3 sand = fixed3(0.62, 0.57, 0.34);
@@ -599,9 +698,14 @@ Shader "Motu/Terrain Unified"
                     _GrassColorB.rgb,
                     smoothstep(0.1h, 0.9h, grassColorNoise));
                 half groundGrassColorCoverage = groundGrassCoverage
+                    * (1.0h - stonesCoverage)
                     * (1.0h - step(0.01h, exposedRockCoverage));
-                fixed3 grass = lerp(
+                fixed3 grassBase = lerp(
                     _GrassThinDepositColor.rgb,
+                    _GroundDirtColor.rgb,
+                    stonesCoverage);
+                fixed3 grass = lerp(
+                    grassBase,
                     establishedGrassColor,
                     groundGrassColorCoverage);
                 fixed3 rock = lerp(
@@ -618,13 +722,6 @@ Shader "Motu/Terrain Unified"
                 half grassGroundCoverage = 0.0;
                 half riverSurfaceCoverage = riverCoverage
                     * (1.0h - exposedRockCoverage);
-                half forestFloorCoverage = forestFloorSource
-                    * forestFloorTextureWeight
-                    * (1.0h - exposedRockCoverage)
-                    * (1.0h - groundBeachCoverage)
-                    * (1.0h - riverCoverage)
-                    * (1.0h - snowCoverage)
-                    * step(0.0h, elevation);
                 if (elevation < 0.0)
                 {
                     baseColor = lerp(deep, sand, saturate((elevation + 8.0) / 8.0));
@@ -667,7 +764,16 @@ Shader "Motu/Terrain Unified"
                     baseColor,
                     forestFloorSurface,
                     forestFloorCoverage);
-                grassGroundCoverage *= 1.0h - forestFloorCoverage;
+                baseColor = lerp(
+                    baseColor,
+                    lerp(
+                        _GroundDirtColor.rgb,
+                        tex2D(_StonesAlbedoMap, stonesUv).rgb
+                            * _StonesColor.rgb,
+                        stonesTextureSlopeWeight),
+                    stonesCoverage);
+                grassGroundCoverage *= (1.0h - forestFloorCoverage)
+                    * (1.0h - stonesCoverage);
                 // Use the height-shaped coverage directly instead of
                 // restoring a binary bank edge.
                 baseColor = lerp(
@@ -725,7 +831,8 @@ Shader "Motu/Terrain Unified"
                 half soilCoverage = max(beachCoverage, grassGroundCoverage)
                     * (1.0 - snowCoverage)
                     * (1.0 - cliffWeight)
-                    * (1.0 - forestFloorCoverage);
+                    * (1.0 - forestFloorCoverage)
+                    * (1.0 - stonesCoverage);
                 UNITY_BRANCH
                 if (soilCoverage > 0.01
                     && max(
@@ -777,6 +884,8 @@ Shader "Motu/Terrain Unified"
                     * (1.0h - snowCoverage)
                     * riverBedTextureWeight;
                 half forestFloorTextureCoverage = forestFloorCoverage;
+                half stonesTextureCoverage = stonesCoverage
+                    * stonesTextureWeight;
                 UNITY_BRANCH
                 if (rockTextureCoverage > 0.01h
                     && _RockNormalMapStrength > 0.0h)
@@ -840,6 +949,27 @@ Shader "Motu/Terrain Unified"
                             forestFloorTextureCoverage
                                 * _ForestFloorNormalMapStrength)));
                 }
+                UNITY_BRANCH
+                if (stonesTextureCoverage > 0.01h
+                    && _StonesNormalMapStrength > 0.0h)
+                {
+                    half3 stonesTangentNormal = UnpackNormal(tex2D(
+                        _StonesNormalMap,
+                        stonesUv));
+                    half3 stonesLocalNormal = normalize(half3(
+                        stonesTangentNormal.x,
+                        stonesTangentNormal.z,
+                        stonesTangentNormal.y));
+                    half3 stonesWorldNormal = normalize(mul(
+                        (float3x3)unity_ObjectToWorld,
+                        stonesLocalNormal));
+                    normal = normalize(lerp(
+                        normal,
+                        stonesWorldNormal,
+                        saturate(
+                            stonesTextureCoverage
+                                * _StonesNormalMapStrength)));
+                }
 
                 // Distant ground grass has no fur geometry, so carry the same
                 // advected wind field into its lighting normal. Restrict the
@@ -874,6 +1004,10 @@ Shader "Motu/Terrain Unified"
                     1.0h,
                     forestFloorMaskSample.g,
                     _ForestFloorTextureOcclusionStrength);
+                half stonesTextureOcclusion = lerp(
+                    1.0h,
+                    stonesMaskSample.g,
+                    _StonesTextureOcclusionStrength);
                 half materialTextureOcclusion = lerp(
                     1.0h,
                     rockTextureOcclusion,
@@ -886,6 +1020,10 @@ Shader "Motu/Terrain Unified"
                     materialTextureOcclusion,
                     forestFloorTextureOcclusion,
                     forestFloorTextureCoverage);
+                materialTextureOcclusion = lerp(
+                    materialTextureOcclusion,
+                    stonesTextureOcclusion,
+                    stonesTextureCoverage);
                 occlusion *= materialTextureOcclusion;
 
                 float3 lightDirection = normalize(UnityWorldSpaceLightDir(input.worldPosition));

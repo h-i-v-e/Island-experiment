@@ -388,6 +388,7 @@ mod tests {
         TextureRecipe {
             name: "file-io-test".into(),
             seed: 9,
+            parameters: std::collections::BTreeMap::new(),
             width: 4,
             height: 3,
             physical_tile_width_m: 1.0,

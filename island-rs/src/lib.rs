@@ -30,10 +30,15 @@ pub use math::BoundingBox;
 pub use mesh::{Adjacency, Mesh};
 pub use png::write_png;
 pub use procedural_textures::{
-    LayerPreviewMaps, MaterialEvaluation, OutputManifest, OutputOptions, OutputProfile,
-    PreviewMaps, PreviewSettings, PreviewTimings, TextureError, TextureRecipe, TextureSet,
-    evaluate_material, generate_preview, generate_texture_set, layer_preview_maps,
-    property_metadata, texture_set_from_evaluation, write_texture_set,
+    IslandMaterialKind, IslandMaterialTextures, LayerPreviewMaps, LinearRgb, MaterialBakeIdentity,
+    MaterialEvaluation, MaterialSelection, NormalConvention, OutputManifest, OutputOptions,
+    OutputProfile, ParameterDefinition, ParameterValue, PreviewMaps, PreviewSettings,
+    PreviewTimings, RecipeParameterValues, RuntimeMaterialBakeError, RuntimeMaterialBakeOptions,
+    RuntimeMaterialInputs, TextureError, TextureRecipe, TextureSet, bake_island_materials,
+    evaluate_material, evaluate_material_with_parameters, generate_preview,
+    generate_preview_with_parameters, generate_texture_set, generate_texture_set_with_parameters,
+    layer_preview_maps, property_metadata, resolve_texture_recipe, texture_set_from_evaluation,
+    write_texture_set,
 };
 pub use raster::Raster;
 pub use river_emitters::{RiverEmitter, extract_river_emitters};

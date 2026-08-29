@@ -17,7 +17,7 @@ mod shaders;
 pub(crate) use app::{camera, hud, options, presets, screenshot};
 pub(crate) use environment::{clouds, lighting, mist, spray, vegetation, weather};
 pub(crate) use island::{cache, chunk, convert, island_gen};
-pub(crate) use render::{budget, capture, surface, terrain, water};
+pub(crate) use render::{budget, capture, material_textures, surface, terrain, water};
 
 use std::{env, path::PathBuf, process, time::Duration};
 

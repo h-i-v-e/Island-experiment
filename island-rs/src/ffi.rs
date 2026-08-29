@@ -15,6 +15,10 @@ use std::{
 };
 
 use crate::forest::{ForestMeshKind, ForestMeshTile};
+use crate::procedural_textures::{
+    IslandMaterialKind, LinearRgb, MaterialSelection, NormalConvention, RuntimeMaterialBakeOptions,
+    RuntimeMaterialInputs, TextureSet, bake_island_materials,
+};
 use crate::{
     BoundingBox, ForestOptions, GenerationMethod, Island, IslandOptions, Mesh, SeaMask,
     SurfaceMaps, Vec2, Vec3, Vec4, generate_tree,
@@ -186,6 +190,86 @@ pub struct ExportSeaMask {
     pub width: i32,
     pub height: i32,
     pub rg: *const u8,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+#[repr(C)]
+pub struct MotuMaterialInputs {
+    pub dirtColour: [f32; 3],
+    pub stoneColour: [f32; 3],
+}
+
+#[derive(Clone, Copy, Debug)]
+#[repr(C)]
+pub struct MotuMaterialBakeOptions {
+    pub width: u32,
+    pub height: u32,
+    pub normalConvention: u8,
+    pub materialMask: u8,
+    pub reserved: [u8; 2],
+}
+
+impl Default for MotuMaterialBakeOptions {
+    fn default() -> Self {
+        Self {
+            width: 1024,
+            height: 1024,
+            normalConvention: 1,
+            materialMask: 0x0f,
+            reserved: [0; 2],
+        }
+    }
+}
+
+const _: () = {
+    assert!(size_of::<MotuMaterialInputs>() == size_of::<[f32; 6]>());
+    assert!(size_of::<MotuMaterialBakeOptions>() == 12);
+};
+
+#[derive(Clone, Copy, Debug, Default)]
+#[repr(C)]
+pub struct ByteExportArray {
+    pub data: *const u8,
+    pub length: i32,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+#[repr(C)]
+pub struct ExportMaterialTexture {
+    pub width: i32,
+    pub height: i32,
+    pub albedoRgb: ByteExportArray,
+    pub normalRgb: ByteExportArray,
+    pub heightR16: ByteExportArray,
+    pub occlusion: ByteExportArray,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+#[repr(C)]
+pub struct ExportMaterialTextureSet {
+    pub handle: *mut c_void,
+    pub rock: ExportMaterialTexture,
+    pub riverBed: ExportMaterialTexture,
+    pub forestFloor: ExportMaterialTexture,
+    pub fallenStones: ExportMaterialTexture,
+}
+
+#[derive(Debug)]
+struct FfiMaterialTexture {
+    width: i32,
+    height: i32,
+    albedo_rgb: Vec<u8>,
+    normal_rgb: Vec<u8>,
+    height_r16: Vec<u8>,
+    occlusion: Vec<u8>,
+}
+
+#[derive(Debug, Default)]
+struct FfiMaterialTextureSet {
+    rock: Option<FfiMaterialTexture>,
+    river_bed: Option<FfiMaterialTexture>,
+    forest_floor: Option<FfiMaterialTexture>,
+    fallen_stones: Option<FfiMaterialTexture>,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -609,6 +693,158 @@ pub unsafe extern "C" fn ReleaseMotu(handle: *mut c_void) {
     if !handle.is_null() {
         // SAFETY: handle came from CreateMotu or LoadMotu and is released once.
         drop(unsafe { Box::from_raw(handle.cast::<Island>()) });
+    }
+}
+
+/// Bakes engine-selected runtime material colours into owned texture buffers.
+/// The returned handle owns every pointer until `ReleaseMaterialTextureSet`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn BakeMotuMaterialTextures(
+    inputs: *const MotuMaterialInputs,
+    options: *const MotuMaterialBakeOptions,
+    output: *mut ExportMaterialTextureSet,
+) -> u8 {
+    if inputs.is_null() || options.is_null() || output.is_null() {
+        return 0;
+    }
+    // SAFETY: all pointers were checked and the caller supplies readable C
+    // structs plus one writable output struct for the duration of this call.
+    let inputs = unsafe { *inputs };
+    // SAFETY: see above.
+    let options = unsafe { *options };
+    // SAFETY: output is non-null and writable by contract.
+    unsafe { *output = ExportMaterialTextureSet::default() };
+    if options.width == 0 || options.height == 0 {
+        return 0;
+    }
+    let normal_convention = match options.normalConvention {
+        0 => NormalConvention::OpenGl,
+        1 => NormalConvention::DirectX,
+        _ => return 0,
+    };
+    let selection = MaterialSelection {
+        rock: options.materialMask & 0x01 != 0,
+        river_bed: options.materialMask & 0x02 != 0,
+        forest_floor: options.materialMask & 0x04 != 0,
+        fallen_stones: options.materialMask & 0x08 != 0,
+    };
+    let request =
+        RuntimeMaterialInputs::new(LinearRgb(inputs.dirtColour), LinearRgb(inputs.stoneColour));
+    let Ok(baked) = bake_island_materials(
+        &request,
+        &RuntimeMaterialBakeOptions {
+            width: Some(options.width),
+            height: Some(options.height),
+            normal_convention,
+            materials: selection,
+        },
+    ) else {
+        return 0;
+    };
+
+    let mut owned = FfiMaterialTextureSet::default();
+    for (kind, textures) in baked.materials {
+        let Ok(texture) = ffi_material_texture(&textures) else {
+            return 0;
+        };
+        match kind {
+            IslandMaterialKind::Rock => owned.rock = Some(texture),
+            IslandMaterialKind::RiverBed => owned.river_bed = Some(texture),
+            IslandMaterialKind::ForestFloor => owned.forest_floor = Some(texture),
+            IslandMaterialKind::FallenStones => owned.fallen_stones = Some(texture),
+        }
+    }
+
+    let boxed = Box::new(owned);
+    let exported = ExportMaterialTextureSet {
+        handle: ptr::null_mut(),
+        rock: export_material_texture(boxed.rock.as_ref()),
+        riverBed: export_material_texture(boxed.river_bed.as_ref()),
+        forestFloor: export_material_texture(boxed.forest_floor.as_ref()),
+        fallenStones: export_material_texture(boxed.fallen_stones.as_ref()),
+    };
+    let handle = Box::into_raw(boxed).cast();
+    // SAFETY: output is non-null and writable by contract.
+    unsafe {
+        *output = ExportMaterialTextureSet { handle, ..exported };
+    }
+    1
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ReleaseMaterialTextureSet(output: *mut ExportMaterialTextureSet) {
+    if output.is_null() {
+        return;
+    }
+    // SAFETY: output is non-null and points to the C result struct.
+    let handle = unsafe { (*output).handle };
+    if !handle.is_null() {
+        // SAFETY: the handle was returned by BakeMotuMaterialTextures and is
+        // released exactly once through this function.
+        drop(unsafe { Box::from_raw(handle.cast::<FfiMaterialTextureSet>()) });
+    }
+    // SAFETY: output remains writable for the duration of this call.
+    unsafe { *output = ExportMaterialTextureSet::default() };
+}
+
+fn ffi_material_texture(textures: &TextureSet) -> Result<FfiMaterialTexture, ()> {
+    let width = i32::try_from(textures.dimensions.width).map_err(|_| ())?;
+    let height = i32::try_from(textures.dimensions.height).map_err(|_| ())?;
+    let albedo_rgb = textures
+        .albedo
+        .pixels()
+        .iter()
+        .flat_map(|pixel| *pixel)
+        .collect::<Vec<_>>();
+    let normal_rgb = textures
+        .normal
+        .pixels()
+        .iter()
+        .flat_map(|pixel| *pixel)
+        .collect::<Vec<_>>();
+    let height_r16 = textures
+        .height
+        .pixels()
+        .iter()
+        .flat_map(|pixel| pixel.to_le_bytes())
+        .collect::<Vec<_>>();
+    let occlusion = textures.occlusion.pixels().to_vec();
+    for length in [
+        albedo_rgb.len(),
+        normal_rgb.len(),
+        height_r16.len(),
+        occlusion.len(),
+    ] {
+        i32::try_from(length).map_err(|_| ())?;
+    }
+    Ok(FfiMaterialTexture {
+        width,
+        height,
+        albedo_rgb,
+        normal_rgb,
+        height_r16,
+        occlusion,
+    })
+}
+
+fn export_material_texture(texture: Option<&FfiMaterialTexture>) -> ExportMaterialTexture {
+    let Some(texture) = texture else {
+        return ExportMaterialTexture::default();
+    };
+    ExportMaterialTexture {
+        width: texture.width,
+        height: texture.height,
+        albedoRgb: export_bytes(&texture.albedo_rgb),
+        normalRgb: export_bytes(&texture.normal_rgb),
+        heightR16: export_bytes(&texture.height_r16),
+        occlusion: export_bytes(&texture.occlusion),
+    }
+}
+
+fn export_bytes(bytes: &[u8]) -> ByteExportArray {
+    ByteExportArray {
+        data: bytes.as_ptr(),
+        length: i32::try_from(bytes.len()).expect("FFI material byte lengths were checked"),
     }
 }
 
@@ -1363,6 +1599,74 @@ mod tests {
     use super::*;
 
     #[test]
+    fn runtime_material_ffi_owns_all_buffers_until_one_release() {
+        let inputs = MotuMaterialInputs {
+            dirtColour: [0.1, 0.06, 0.03],
+            stoneColour: [0.25, 0.27, 0.24],
+        };
+        let options = MotuMaterialBakeOptions {
+            width: 64,
+            height: 64,
+            normalConvention: 1,
+            materialMask: 0x0f,
+            reserved: [0; 2],
+        };
+        let mut output = ExportMaterialTextureSet::default();
+        // SAFETY: all inputs and the output remain live through the call, and
+        // the returned allocation is released once below.
+        let succeeded = unsafe {
+            BakeMotuMaterialTextures(&raw const inputs, &raw const options, &raw mut output)
+        };
+        assert_eq!(succeeded, 1);
+        assert!(!output.handle.is_null());
+        for texture in [
+            output.rock,
+            output.riverBed,
+            output.forestFloor,
+            output.fallenStones,
+        ] {
+            assert_eq!((texture.width, texture.height), (64, 64));
+            assert_eq!(texture.albedoRgb.length, 64 * 64 * 3);
+            assert_eq!(texture.normalRgb.length, 64 * 64 * 3);
+            assert_eq!(texture.heightR16.length, 64 * 64 * 2);
+            assert_eq!(texture.occlusion.length, 64 * 64);
+            assert!(!texture.albedoRgb.data.is_null());
+            assert!(!texture.normalRgb.data.is_null());
+            assert!(!texture.heightR16.data.is_null());
+            assert!(!texture.occlusion.data.is_null());
+        }
+        // SAFETY: output owns the still-live handle returned above.
+        unsafe { ReleaseMaterialTextureSet(&raw mut output) };
+        assert!(output.handle.is_null());
+        assert!(output.rock.albedoRgb.data.is_null());
+    }
+
+    #[test]
+    fn runtime_material_ffi_rejects_invalid_requests_without_a_handle() {
+        let inputs = MotuMaterialInputs {
+            dirtColour: [f32::NAN, 0.06, 0.03],
+            stoneColour: [0.25, 0.27, 0.24],
+        };
+        let options = MotuMaterialBakeOptions {
+            width: 8,
+            height: 8,
+            normalConvention: 0,
+            materialMask: 0x0f,
+            reserved: [0; 2],
+        };
+        let mut output = ExportMaterialTextureSet {
+            handle: ptr::dangling_mut(),
+            ..ExportMaterialTextureSet::default()
+        };
+        // SAFETY: readable request values and one writable output are provided.
+        let succeeded = unsafe {
+            BakeMotuMaterialTextures(&raw const inputs, &raw const options, &raw mut output)
+        };
+        assert_eq!(succeeded, 0);
+        assert!(output.handle.is_null());
+    }
+
+    #[test]
     fn forest_grid_invalid_inputs_leave_a_default_export() {
         let invalid_areas = [
             ExportArea {
@@ -1560,6 +1864,7 @@ mod tests {
         }
         assert!(values.iter().any(|value| value.x > 0.9));
         assert!(values.iter().any(|value| value.x == 0.0));
+        assert!(values.iter().any(|value| value.y > 0.9));
         assert!(values.iter().any(|value| value.y == 0.0));
     }
 

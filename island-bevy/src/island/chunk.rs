@@ -20,7 +20,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use motu::{BoundingBox, ISLAND_WORLD_METRES, Mesh, Vec3};
+use motu::{BoundingBox, ISLAND_WORLD_METRES, Mesh, Vec2, Vec3, Vec4};
 
 /// Chunks along each edge of the island square.
 ///
@@ -82,9 +82,11 @@ pub fn interior_sides(column: u32, row: u32) -> u8 {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ChunkTier {
     pub mesh: Mesh,
-    /// The generator's material triple per vertex: bedrock hardness, loose
-    /// cover, sea proximity.
-    pub materials: Vec<Vec3>,
+    /// The generator's material channels per vertex: bedrock hardness, loose
+    /// cover, river bed, and sea proximity.
+    pub materials: Vec<Vec4>,
+    /// Independent forest-floor and settled-stone switches.
+    pub environment: Vec<Vec2>,
     /// The renderer's own proximity to running water, per vertex.
     pub river_wetness: Vec<f32>,
 }

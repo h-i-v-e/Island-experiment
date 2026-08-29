@@ -96,9 +96,34 @@ struct TerrainSettings {
     lod_level: u32,
     /// The diagnostic channel this surface answers with, or `debug::OFF`.
     debug_view: u32,
+    dirt_colour: vec4<f32>,
+    stone_colour: vec4<f32>,
 }
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> settings: TerrainSettings;
+@group(#{MATERIAL_BIND_GROUP}) @binding(101) var material_albedo: texture_2d<f32>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(102) var material_albedo_sampler: sampler;
+@group(#{MATERIAL_BIND_GROUP}) @binding(103) var material_normal: texture_2d<f32>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(104) var material_normal_sampler: sampler;
+@group(#{MATERIAL_BIND_GROUP}) @binding(105) var material_mask: texture_2d<f32>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(106) var material_mask_sampler: sampler;
+
+fn material_atlas_uv(uv: vec2<f32>, slot: vec2<f32>) -> vec2<f32> {
+    let dimensions = vec2<f32>(textureDimensions(material_albedo));
+    let inset = 0.5 / dimensions;
+    return clamp((fract(uv) + slot) * 0.5, slot * 0.5 + inset, (slot + 1.0) * 0.5 - inset);
+}
+
+fn material_colour(uv: vec2<f32>, slot: vec2<f32>) -> vec3<f32> {
+    return textureSample(material_albedo, material_albedo_sampler, material_atlas_uv(uv, slot)).rgb;
+}
+
+fn material_surface(uv: vec2<f32>, slot: vec2<f32>) -> vec4<f32> {
+    let atlas_uv = material_atlas_uv(uv, slot);
+    let tangent_normal = textureSample(material_normal, material_normal_sampler, atlas_uv).xyz * 2.0 - 1.0;
+    let mask = textureSample(material_mask, material_mask_sampler, atlas_uv).rg;
+    return vec4<f32>(tangent_normal.xy, mask);
+}
 
 /// Which square of the terrain grid a fragment stands in, and which level of
 /// detail is drawing it.
@@ -133,15 +158,21 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
 
     var pbr_input = pbr_input_from_standard_material(in, is_front);
 
-    // The colour attribute carries the generator's raw material triple, not a
-    // colour: x is bedrock hardness (exactly one means forced rock), y is loose
-    // cover, z is sea proximity. Alpha is the renderer's own measurement of how
-    // near the vertex stands to running water. The fallback matches `convert`.
+    // Colour carries hardness, cover, river-bed and sea-proximity. UV A carries
+    // forest floor and settled stones; UV B carries river-bank proximity.
 #ifdef VERTEX_COLORS
-    let weights = clamp(in.color.rgb, vec3<f32>(0.0), vec3<f32>(1.0));
-    let river_proximity = clamp(in.color.a, 0.0, 1.0);
+    let weights = clamp(in.color, vec4<f32>(0.0), vec4<f32>(1.0));
 #else
-    let weights = vec3<f32>(0.5, 1.0, 0.0);
+    let weights = vec4<f32>(0.5, 1.0, 0.0, 0.0);
+#endif
+#ifdef VERTEX_UVS_A
+    let environment = clamp(in.uv, vec2<f32>(0.0), vec2<f32>(1.0));
+#else
+    let environment = vec2<f32>(0.0);
+#endif
+#ifdef VERTEX_UVS_B
+    let river_proximity = clamp(in.uv_b.x, 0.0, 1.0);
+#else
     let river_proximity = 0.0;
 #endif
 
@@ -162,7 +193,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     var readout = vec3<f32>(0.0);
     var diagnosing = true;
     if settings.debug_view == debug::WEIGHTS {
-        readout = weights;
+        readout = weights.xyz;
     } else if settings.debug_view == debug::WETNESS {
         readout = debug::ramp(river_proximity);
     } else if settings.debug_view == debug::SLOPE {
@@ -216,7 +247,8 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     // authority on what is rock, cover and shore.
     let hardness = weights.x;
     let cover = clamp(weights.y + (patchiness - 0.5) * 0.18, 0.0, 1.0);
-    let sea = weights.z;
+    let river_bed = weights.z;
+    let sea = weights.w;
     let broken_slope = clamp(slope + (grain.x - 0.5) * 0.07, 0.0, 1.0);
 
     // Bands, thresholds unchanged from the palette this replaces. How far cover
@@ -228,7 +260,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         GRASS_DRY,
         clamp(0.40 + region.x * 0.52 + (patchiness - 0.5) * 0.40, 0.0, 1.0),
     );
-    var ground = mix(DIRT, grass, smoothstep(0.05, 0.70, cover));
+    var ground = mix(settings.dirt_colour.rgb, grass, smoothstep(0.05, 0.70, cover));
     let shore = 1.0 - smoothstep(2.0, 6.0, metres);
     let sand_weight = smoothstep(0.08, 0.45, cover * sea * shore);
     let forced_rock = smoothstep(0.97, 1.0, hardness);
@@ -261,6 +293,25 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     rock *= 1.0 + mottle * 0.24;
     var sand = SAND * (1.0 + mottle * 0.12);
     let snow = SNOW * (1.0 + mottle * 0.05);
+
+    // Four baked materials share three 2x2 atlases: rock, river bed, forest
+    // floor, fallen stones. Their masks height-blend the coherent per-vertex
+    // boundaries rather than replacing those authoritative fields.
+    let rock_uv = world.xz / 4.0;
+    let river_uv = world.xz / 2.5;
+    let forest_uv = world.xz / 3.0;
+    let stones_uv = world.xz / 2.0;
+    let rock_surface = material_surface(rock_uv, vec2<f32>(0.0, 0.0));
+    let river_surface = material_surface(river_uv, vec2<f32>(1.0, 0.0));
+    let forest_surface = material_surface(forest_uv, vec2<f32>(0.0, 1.0));
+    let stones_surface = material_surface(stones_uv, vec2<f32>(1.0, 1.0));
+    let river_material_weight = smoothstep(0.10, 0.90, river_bed + (river_surface.z - 0.5) * 0.22);
+    let forest_material_weight = smoothstep(0.10, 0.90, environment.x + (forest_surface.z - 0.5) * 0.22);
+    let stones_material_weight = smoothstep(0.10, 0.90, environment.y + (stones_surface.z - 0.5) * 0.22);
+    rock = mix(rock, material_colour(rock_uv, vec2<f32>(0.0, 0.0)), 0.88);
+    sand = mix(sand, material_colour(river_uv, vec2<f32>(1.0, 0.0)), river_material_weight);
+    ground = mix(ground, material_colour(forest_uv, vec2<f32>(0.0, 1.0)), forest_material_weight);
+    ground = mix(ground, material_colour(stones_uv, vec2<f32>(1.0, 1.0)), stones_material_weight);
 
     // Sub-metre grain, only where it still resolves: inside the range it was
     // given, and inside the pixel footprint as well, which is what takes it off
@@ -299,6 +350,16 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         + ROUGHNESS_SAND * sand_band
         + ROUGHNESS_SNOW * snow_band
         + mottle * 0.14 * rock_band;
+    let baked_occlusion = mix(
+        mix(1.0, rock_surface.w, rock_band),
+        mix(
+            mix(river_surface.w, forest_surface.w, forest_material_weight),
+            stones_surface.w,
+            stones_material_weight,
+        ),
+        max(max(river_material_weight, forest_material_weight), stones_material_weight),
+    );
+    albedo *= mix(1.0, baked_occlusion, 0.38);
 
     // The waterline stays damp, and so does a river bank. Sea proximity places
     // the first; the second arrives per vertex, because the generator publishes
@@ -331,7 +392,16 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     pbr_input.material.base_color = vec4<f32>(albedo, 1.0);
     pbr_input.material.perceptual_roughness = clamp(roughness, 0.15, 1.0);
     pbr_input.material.reflectance = vec3<f32>(mix(REFLECTANCE_DRY, REFLECTANCE_WET, wet));
-    pbr_input.N = perturb(normal, gradient, settings.normal_strength * relief);
+    let baked_tangent_xy = mix(
+        mix(rock_surface.xy, river_surface.xy, river_material_weight),
+        mix(forest_surface.xy, stones_surface.xy, stones_material_weight),
+        max(forest_material_weight, stones_material_weight),
+    );
+    let baked_z = sqrt(max(1.0 - dot(baked_tangent_xy, baked_tangent_xy), 0.0));
+    let baked_world_normal = normalize(vec3<f32>(baked_tangent_xy.x, baked_z, baked_tangent_xy.y));
+    let baked_normal_weight = (rock_band + sand_band + ground_band) * abs(normal.y) * 0.42;
+    let authored_normal = normalize(mix(normal, baked_world_normal, baked_normal_weight));
+    pbr_input.N = perturb(authored_normal, gradient, settings.normal_strength * relief);
     pbr_input.material.base_color = alpha_discard(pbr_input.material, pbr_input.material.base_color);
 
     var out: FragmentOutput;

@@ -67,6 +67,95 @@ internal sealed class IslandPreparedSeaMask
     }
 }
 
+internal readonly struct IslandMaterialColours
+{
+    internal readonly Color dirt;
+    internal readonly Color stone;
+
+    internal IslandMaterialColours(Color dirt, Color stone)
+    {
+        this.dirt = new Color(dirt.r, dirt.g, dirt.b, 1f);
+        this.stone = new Color(stone.r, stone.g, stone.b, 1f);
+    }
+
+    internal MotuNative.MaterialInputs ToNative()
+    {
+        return new MotuNative.MaterialInputs
+        {
+            dirtRed = dirt.r,
+            dirtGreen = dirt.g,
+            dirtBlue = dirt.b,
+            stoneRed = stone.r,
+            stoneGreen = stone.g,
+            stoneBlue = stone.b,
+        };
+    }
+}
+
+internal sealed class IslandPreparedMaterialTexture
+{
+    internal readonly int width;
+    internal readonly int height;
+    internal readonly byte[] albedoRgb;
+    internal readonly byte[] normalRgb;
+    internal readonly byte[] heightR16;
+    internal readonly byte[] occlusion;
+
+    internal IslandPreparedMaterialTexture(
+        int width,
+        int height,
+        byte[] albedoRgb,
+        byte[] normalRgb,
+        byte[] heightR16,
+        byte[] occlusion)
+    {
+        var pixels = checked(width * height);
+        if (width <= 0
+            || height <= 0
+            || albedoRgb == null
+            || albedoRgb.Length != checked(pixels * 3)
+            || normalRgb == null
+            || normalRgb.Length != checked(pixels * 3)
+            || heightR16 == null
+            || heightR16.Length != checked(pixels * 2)
+            || occlusion == null
+            || occlusion.Length != pixels)
+        {
+            throw new InvalidOperationException(
+                "The native procedural material texture data is invalid.");
+        }
+        this.width = width;
+        this.height = height;
+        this.albedoRgb = albedoRgb;
+        this.normalRgb = normalRgb;
+        this.heightR16 = heightR16;
+        this.occlusion = occlusion;
+    }
+}
+
+internal sealed class IslandPreparedMaterialTextures
+{
+    internal readonly IslandMaterialColours colours;
+    internal readonly IslandPreparedMaterialTexture rock;
+    internal readonly IslandPreparedMaterialTexture riverBed;
+    internal readonly IslandPreparedMaterialTexture forestFloor;
+    internal readonly IslandPreparedMaterialTexture fallenStones;
+
+    internal IslandPreparedMaterialTextures(
+        IslandMaterialColours colours,
+        IslandPreparedMaterialTexture rock,
+        IslandPreparedMaterialTexture riverBed,
+        IslandPreparedMaterialTexture forestFloor,
+        IslandPreparedMaterialTexture fallenStones)
+    {
+        this.colours = colours;
+        this.rock = rock ?? throw new ArgumentNullException(nameof(rock));
+        this.riverBed = riverBed ?? throw new ArgumentNullException(nameof(riverBed));
+        this.forestFloor = forestFloor ?? throw new ArgumentNullException(nameof(forestFloor));
+        this.fallenStones = fallenStones ?? throw new ArgumentNullException(nameof(fallenStones));
+    }
+}
+
 internal sealed class IslandPreparedForestData
 {
     internal readonly IslandPreparedMesh[] lod2FoliageTiles;
@@ -209,6 +298,7 @@ internal sealed class IslandPreparedData : IDisposable
     internal readonly IslandPreparedForestData forest;
     internal readonly IslandPreparedRiverEmitter[] riverEmitters;
     internal readonly IslandPreparedColliderHeightMap colliderHeightMap;
+    internal readonly IslandPreparedMaterialTextures materialTextures;
 
     internal IslandPreparedData(
         IntPtr handle,
@@ -219,7 +309,8 @@ internal sealed class IslandPreparedData : IDisposable
         IslandPreparedMesh[] riverRockTiles,
         IslandPreparedForestData forest,
         IslandPreparedRiverEmitter[] riverEmitters,
-        IslandPreparedColliderHeightMap colliderHeightMap)
+        IslandPreparedColliderHeightMap colliderHeightMap,
+        IslandPreparedMaterialTextures materialTextures)
     {
         this.handle = new NativeIslandHandle(handle);
         this.surfaceMaps = surfaceMaps;
@@ -230,6 +321,8 @@ internal sealed class IslandPreparedData : IDisposable
         this.forest = forest ?? throw new ArgumentNullException(nameof(forest));
         this.riverEmitters = riverEmitters;
         this.colliderHeightMap = colliderHeightMap;
+        this.materialTextures = materialTextures
+            ?? throw new ArgumentNullException(nameof(materialTextures));
     }
 
     internal NativeIslandHandle TakeHandle()

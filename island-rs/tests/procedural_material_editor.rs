@@ -54,6 +54,7 @@ fn load_recipe(name: &str) -> TextureRecipe {
 fn all_committed_recipes_use_the_current_valid_schema() {
     for recipe_name in [
         "Bark.json",
+        "FallenStones.json",
         "ForestFloor.json",
         "PlateBark.json",
         "cracked-stone.json",
@@ -313,6 +314,52 @@ fn preview_maps_match_a_final_bake_at_the_same_resolution() {
             fs::read(preview.path().join(&filename)).expect("read preview map"),
             fs::read(bake.path().join(&filename)).expect("read final map"),
             "{suffix} preview differed from final bake"
+        );
+    }
+}
+
+#[test]
+fn cli_colour_override_changes_only_albedo_derived_output() {
+    let recipe = recipe_path("cracked-stone.json");
+    let recipe = recipe.to_str().expect("UTF-8 recipe path");
+    let defaults = TestDirectory::new("parameter-defaults");
+    let overridden = TestDirectory::new("parameter-override");
+    let bake = |output: &TestDirectory, extra: &[&str]| {
+        let mut arguments = vec![
+            "--recipe",
+            recipe,
+            "--output",
+            output.path().to_str().expect("UTF-8 output path"),
+            "--profile",
+            "motu_unity_terrain",
+            "--width",
+            "64",
+            "--height",
+            "64",
+            "--normal-convention",
+            "open-gl",
+        ];
+        arguments.extend_from_slice(extra);
+        let result = run_baker(&arguments);
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+    };
+    bake(&defaults, &[]);
+    bake(&overridden, &["--set-colour", "stone_colour=#805f40"]);
+
+    assert_ne!(
+        fs::read(defaults.path().join("CrackedStone_albedo.png")).unwrap(),
+        fs::read(overridden.path().join("CrackedStone_albedo.png")).unwrap()
+    );
+    for suffix in ["height", "normal", "occlusion", "mask"] {
+        let filename = format!("CrackedStone_{suffix}.png");
+        assert_eq!(
+            fs::read(defaults.path().join(&filename)).unwrap(),
+            fs::read(overridden.path().join(&filename)).unwrap(),
+            "{suffix} changed under a colour-only override"
         );
     }
 }

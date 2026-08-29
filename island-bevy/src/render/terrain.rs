@@ -22,7 +22,10 @@ use crate::{
     capture::DebugView,
     chunk::{self, TerrainChunk},
     convert::island_to_world,
-    island_gen::{GeneratedIsland, IslandEntity, IslandReady, PreparedMeshes},
+    island_gen::{
+        GeneratedIsland, IslandEntity, IslandReady, PreparedMaterialTextures, PreparedMeshes,
+    },
+    material_textures,
     surface::{RockExtension, RockMaterial, TerrainExtension, TerrainMaterial},
 };
 
@@ -63,16 +66,34 @@ impl Plugin for TerrainPlugin {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn spawn_terrain(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
+    mut images: ResMut<Assets<Image>>,
     mut terrains: ResMut<Assets<TerrainMaterial>>,
     mut rocks: ResMut<Assets<RockMaterial>>,
     island: Res<GeneratedIsland>,
     mut prepared: ResMut<PreparedMeshes>,
+    mut prepared_materials: ResMut<PreparedMaterialTextures>,
     view: Res<DebugView>,
 ) {
     let island = &island.0;
+    let Some(material_textures) = prepared_materials.textures.take() else {
+        error!("the arriving island has no complete runtime material texture group");
+        return;
+    };
+    let atlases = match material_textures::upload(
+        &mut images,
+        prepared_materials.inputs,
+        material_textures,
+    ) {
+        Ok(atlases) => atlases,
+        Err(error) => {
+            error!("could not upload runtime terrain materials: {error}");
+            return;
+        }
+    };
 
     // The extension writes base colour, roughness and reflectance outright, so
     // what the base material still decides is only how the surface is drawn:
@@ -90,6 +111,7 @@ fn spawn_terrain(
                 ISLAND_WORLD_METRES,
                 chunk_metres,
                 u32::try_from(level).unwrap_or(0),
+                &atlases,
             );
             // Asset events are flushed after Update. Seed the current view at
             // construction so a newly spawned diagnostic island cannot draw

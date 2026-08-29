@@ -150,6 +150,55 @@ internal static class MotuNative
     }
 
     [StructLayout(LayoutKind.Sequential)]
+    internal struct MaterialInputs
+    {
+        internal float dirtRed;
+        internal float dirtGreen;
+        internal float dirtBlue;
+        internal float stoneRed;
+        internal float stoneGreen;
+        internal float stoneBlue;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct MaterialBakeOptions
+    {
+        internal uint width;
+        internal uint height;
+        internal byte normalConvention;
+        internal byte materialMask;
+        internal ushort reserved;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct ByteArray
+    {
+        internal IntPtr data;
+        internal int length;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct ExportMaterialTexture
+    {
+        internal int width;
+        internal int height;
+        internal ByteArray albedoRgb;
+        internal ByteArray normalRgb;
+        internal ByteArray heightR16;
+        internal ByteArray occlusion;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct ExportMaterialTextureSet
+    {
+        internal IntPtr handle;
+        internal ExportMaterialTexture rock;
+        internal ExportMaterialTexture riverBed;
+        internal ExportMaterialTexture forestFloor;
+        internal ExportMaterialTexture fallenStones;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
     internal struct RiverEmitterExport
     {
         internal NativeVector3 position;
@@ -189,17 +238,6 @@ internal static class MotuNative
         int seed,
         ref Options options,
         ref ForestOptions forestOptions);
-
-    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern IntPtr CreateMotuWithForestAndMethod(
-        int seed,
-        ref Options options,
-        ref ForestOptions forestOptions,
-        IslandGenerationMethod generationMethod);
-
-    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern byte IsMotuGenerationMethodAvailable(
-        IslandGenerationMethod generationMethod);
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
     internal static extern void ReleaseMotu(IntPtr handle);
@@ -321,4 +359,14 @@ internal static class MotuNative
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
     internal static extern void ReleaseSeaMask(ref ExportSeaMask output);
+
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+    internal static extern byte BakeMotuMaterialTextures(
+        ref MaterialInputs inputs,
+        ref MaterialBakeOptions options,
+        out ExportMaterialTextureSet output);
+
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+    internal static extern void ReleaseMaterialTextureSet(
+        ref ExportMaterialTextureSet output);
 }

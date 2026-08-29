@@ -43,7 +43,6 @@ mod sampling;
 mod surface_maps;
 
 pub(crate) use decorations::SettledRock;
-pub(crate) use decorations::clear_loose_soil;
 pub use decorations::{Decoration, Decorations};
 use erosion::{
     HydraulicScratch, barycentric, bin_coordinate, erode_mesh, hydraulic_erode_stage,
