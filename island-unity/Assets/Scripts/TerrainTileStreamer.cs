@@ -31,6 +31,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         internal readonly GameObject gameObject;
         internal readonly Mesh mesh;
         internal readonly Mesh edgeMesh;
+        internal int[] batchIndices;
         internal GameObject grassObject;
 
         internal Tile(GameObject gameObject, Mesh mesh, Mesh edgeMesh = null)
@@ -46,6 +47,13 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         internal readonly GameObject root;
         internal readonly Tile[] tiles;
         internal readonly byte clampSides;
+        // Coarse tiles retain independent active flags for LOD transitions and
+        // debug edges, but share one vertex buffer and renderer. Refinement
+        // only rebuilds this index list; it never recombines vertex data.
+        internal readonly List<int> activeBatchIndices = new List<int>();
+        internal GameObject batchObject;
+        internal Mesh batchMesh;
+        internal bool batchDirty;
 
         internal TileGroup(GameObject root, Tile[] tiles, byte clampSides)
         {
@@ -86,8 +94,11 @@ public sealed class TerrainTileStreamer : MonoBehaviour
 
     private IntPtr islandHandle;
     private Material terrainMaterial;
+    private Material terrainLod1Material;
+    private Material terrainLod2Material;
     private Material grassMaterial;
     private Material treeWoodMaterial;
+    private Material treeLod1WoodMaterial;
     private Material treeFoliageMaterial;
     private Material treeLod0FoliageMaterial;
     private MaterialPropertyBlock lod0MaterialProperties;
@@ -128,9 +139,12 @@ public sealed class TerrainTileStreamer : MonoBehaviour
     internal async Task InitializeAsync(
         IntPtr handle,
         Material sharedTerrainMaterial,
+        Material sharedTerrainLod1Material,
+        Material sharedTerrainLod2Material,
         Material sharedGrassMaterial,
         Material sharedRockMaterial,
         Material sharedTreeWoodMaterial,
+        Material sharedTreeLod1WoodMaterial,
         Material sharedTreeFoliageMaterial,
         Material sharedTreeLod0FoliageMaterial,
         Material waterMaterial,
@@ -150,8 +164,11 @@ public sealed class TerrainTileStreamer : MonoBehaviour
     {
         islandHandle = handle;
         terrainMaterial = sharedTerrainMaterial;
+        terrainLod1Material = sharedTerrainLod1Material;
+        terrainLod2Material = sharedTerrainLod2Material;
         grassMaterial = sharedGrassMaterial;
         treeWoodMaterial = sharedTreeWoodMaterial;
+        treeLod1WoodMaterial = sharedTreeLod1WoodMaterial;
         treeFoliageMaterial = sharedTreeFoliageMaterial;
         treeLod0FoliageMaterial = sharedTreeLod0FoliageMaterial;
         terrainMaterial.SetFloat(GrassEnabledId, 0f);
@@ -231,6 +248,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
             treeFoliageMaterial,
             treeLod0FoliageMaterial,
             treeWoodMaterial,
+            treeLod1WoodMaterial,
             meshEdgeMaterial,
             preparedForest,
             showForests);
@@ -348,12 +366,14 @@ public sealed class TerrainTileStreamer : MonoBehaviour
             DestroyGroup(entry.Value);
         }
         lod0Groups.Clear();
+        RebuildDirtyLod1Batches();
         foreach (var entry in lod1Groups)
         {
             SetLod2TileActive(entry.Key, true);
             DestroyGroup(entry.Value);
         }
         lod1Groups.Clear();
+        RebuildTerrainBatchIfDirty(lod2Group);
         currentLod2 = new Vector2Int(-1, -1);
         currentLod1 = new Vector2Int(-1, -1);
     }
@@ -460,8 +480,11 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         preparedRiverRockTiles = null;
         colliderHeightMap = null;
         treeWoodMaterial = null;
+        treeLod1WoodMaterial = null;
         treeFoliageMaterial = null;
         treeLod0FoliageMaterial = null;
+        terrainLod1Material = null;
+        terrainLod2Material = null;
         if (lod2Group != null)
         {
             DestroyGroup(lod2Group);
@@ -587,6 +610,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
             SetRiverGroupActive(key, true);
             SetRiverRockGroupActive(key, true);
         });
+        RebuildTerrainBatchIfDirty(lod2Group);
     }
 
     private void UpdateLod0Neighborhood(Vector2Int center)
@@ -615,6 +639,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
             }
             SetLod1TileActive(key, false);
         });
+        RebuildDirtyLod1Batches();
     }
 
     private void CollectOutsideNeighborhood(
@@ -707,7 +732,6 @@ public sealed class TerrainTileStreamer : MonoBehaviour
                     var tileObject = new GameObject($"LOD {lod} tile {localX},{localY}");
                     tileObject.transform.SetParent(root.transform, false);
                     tileObject.AddComponent<MeshFilter>().sharedMesh = mesh;
-                    ConfigureTerrainRenderer(tileObject, lod);
                     tiles[index] = new Tile(tileObject, mesh, CreateEdgeMesh(mesh));
                 }
 
@@ -719,7 +743,9 @@ public sealed class TerrainTileStreamer : MonoBehaviour
                     await Task.Yield();
                 }
             }
-            return new TileGroup(root, tiles, 0);
+            var group = new TileGroup(root, tiles, 0);
+            ConfigureTerrainBatch(group, lod);
+            return group;
         }
         catch
         {
@@ -779,10 +805,15 @@ public sealed class TerrainTileStreamer : MonoBehaviour
                 var tileObject = new GameObject($"LOD {lod} tile {globalX},{globalY}");
                 tileObject.transform.SetParent(root.transform, false);
                 tileObject.AddComponent<MeshFilter>().sharedMesh = mesh;
-                ConfigureTerrainRenderer(tileObject, lod);
+                if (lod == 0)
+                {
+                    ConfigureTerrainRenderer(tileObject);
+                }
                 tiles[index] = new Tile(tileObject, mesh, CreateEdgeMesh(mesh));
             }
-            return new TileGroup(root, tiles, clampSides);
+            var group = new TileGroup(root, tiles, clampSides);
+            ConfigureTerrainBatch(group, lod);
+            return group;
         }
         catch
         {
@@ -795,13 +826,137 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         }
     }
 
-    private void ConfigureTerrainRenderer(GameObject tileObject, int lod)
+    private void ConfigureTerrainRenderer(GameObject tileObject)
     {
         var renderer = tileObject.AddComponent<MeshRenderer>();
         renderer.sharedMaterial = terrainMaterial;
-        if (lod == 0)
+        renderer.SetPropertyBlock(lod0MaterialProperties);
+    }
+
+    private void ConfigureTerrainBatch(TileGroup group, int lod)
+    {
+        if (group == null || lod == 0)
         {
-            renderer.SetPropertyBlock(lod0MaterialProperties);
+            return;
+        }
+
+        var instances = new List<CombineInstance>(group.tiles.Length);
+        var vertexOffset = 0;
+        var totalIndexCount = 0;
+        foreach (var tile in group.tiles)
+        {
+            if (tile == null)
+            {
+                continue;
+            }
+            var sourceIndices = tile.mesh.GetIndices(0);
+            tile.batchIndices = new int[sourceIndices.Length];
+            for (var index = 0; index < sourceIndices.Length; index++)
+            {
+                tile.batchIndices[index] = sourceIndices[index] + vertexOffset;
+            }
+            totalIndexCount = checked(totalIndexCount + sourceIndices.Length);
+            instances.Add(new CombineInstance
+            {
+                mesh = tile.mesh,
+                subMeshIndex = 0,
+                transform = Matrix4x4.identity,
+            });
+            vertexOffset = checked(vertexOffset + tile.mesh.vertexCount);
+        }
+
+        if (instances.Count == 0)
+        {
+            return;
+        }
+
+        GameObject batchObject = null;
+        Mesh batchMesh = null;
+        try
+        {
+            batchMesh = new Mesh
+            {
+                name = $"Terrain LOD {lod} combined batch",
+                indexFormat = vertexOffset > ushort.MaxValue
+                    ? IndexFormat.UInt32
+                    : IndexFormat.UInt16,
+            };
+            batchMesh.CombineMeshes(instances.ToArray(), true, false, false);
+            batchMesh.UploadMeshData(false);
+
+            batchObject = new GameObject($"Terrain LOD {lod} combined batch");
+            batchObject.layer = group.root.layer;
+            batchObject.transform.SetParent(group.root.transform, false);
+            batchObject.AddComponent<MeshFilter>().sharedMesh = batchMesh;
+            batchObject.AddComponent<MeshRenderer>().sharedMaterial = lod == 1
+                ? terrainLod1Material
+                : terrainLod2Material;
+
+            group.batchObject = batchObject;
+            group.batchMesh = batchMesh;
+            group.activeBatchIndices.Capacity = totalIndexCount;
+            group.batchDirty = true;
+            RebuildTerrainBatchIfDirty(group);
+        }
+        catch
+        {
+            DestroyUnityObject(batchObject);
+            DestroyUnityObject(batchMesh);
+            throw;
+        }
+    }
+
+    private static void SetBatchedTileActive(
+        TileGroup group,
+        int tileIndex,
+        bool active)
+    {
+        if (group == null
+            || tileIndex < 0
+            || tileIndex >= group.tiles.Length)
+        {
+            return;
+        }
+        var tile = group.tiles[tileIndex];
+        if (tile == null || tile.gameObject.activeSelf == active)
+        {
+            return;
+        }
+        tile.gameObject.SetActive(active);
+        if (group.batchMesh != null)
+        {
+            group.batchDirty = true;
+        }
+    }
+
+    private static void RebuildTerrainBatchIfDirty(TileGroup group)
+    {
+        if (group?.batchMesh == null || !group.batchDirty)
+        {
+            return;
+        }
+        group.activeBatchIndices.Clear();
+        foreach (var tile in group.tiles)
+        {
+            if (tile?.batchIndices != null && tile.gameObject.activeSelf)
+            {
+                group.activeBatchIndices.AddRange(tile.batchIndices);
+            }
+        }
+        group.batchMesh.SetIndices(
+            group.activeBatchIndices,
+            MeshTopology.Triangles,
+            0,
+            false);
+        group.batchObject.SetActive(group.activeBatchIndices.Count != 0);
+        group.batchDirty = false;
+    }
+
+    private void RebuildDirtyLod1Batches()
+    {
+        foreach (var group in lod1Groups.Values)
+        {
+            RebuildTerrainBatchIfDirty(group);
         }
     }
 
@@ -1154,11 +1309,10 @@ public sealed class TerrainTileStreamer : MonoBehaviour
 
     private void SetLod2TileActive(Vector2Int key, bool active)
     {
-        var tile = lod2Group?.tiles[key.y * Divisions + key.x];
-        if (tile != null)
-        {
-            tile.gameObject.SetActive(active);
-        }
+        SetBatchedTileActive(
+            lod2Group,
+            key.y * Divisions + key.x,
+            active);
     }
 
     private void SetLod1TileActive(Vector2Int key, bool active)
@@ -1168,11 +1322,10 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         {
             return;
         }
-        var tile = group.tiles[(key.y % Divisions) * Divisions + key.x % Divisions];
-        if (tile != null)
-        {
-            tile.gameObject.SetActive(active);
-        }
+        SetBatchedTileActive(
+            group,
+            (key.y % Divisions) * Divisions + key.x % Divisions,
+            active);
     }
 
     private Vector2Int LocalCell(Vector3 position, int resolution)
@@ -1185,6 +1338,105 @@ public sealed class TerrainTileStreamer : MonoBehaviour
     }
 
 #if UNITY_EDITOR
+    internal static void ValidateTerrainRenderBatching(Material material)
+    {
+        if (material == null)
+        {
+            throw new ArgumentNullException(nameof(material));
+        }
+
+        var host = new GameObject("Terrain render batching validation host");
+        TileGroup group = null;
+        try
+        {
+            var streamer = host.AddComponent<TerrainTileStreamer>();
+            streamer.terrainMaterial = material;
+            streamer.terrainLod1Material = material;
+            streamer.terrainLod2Material = material;
+            var root = new GameObject("Terrain render batching validation group");
+            root.transform.SetParent(host.transform, false);
+            var tiles = new Tile[2];
+            for (var index = 0; index < tiles.Length; index++)
+            {
+                var tileObject = new GameObject($"Terrain validation tile {index}");
+                tileObject.transform.SetParent(root.transform, false);
+                var mesh = CreateBatchValidationMesh(index * 2f);
+                tileObject.AddComponent<MeshFilter>().sharedMesh = mesh;
+                tiles[index] = new Tile(tileObject, mesh);
+            }
+            group = new TileGroup(root, tiles, 0);
+            streamer.ConfigureTerrainBatch(group, 1);
+
+            var renderers = root.GetComponentsInChildren<MeshRenderer>(true);
+            if (renderers.Length != 1
+                || renderers[0].sharedMaterial != material
+                || group.batchMesh == null
+                || group.batchMesh.vertexCount != 6
+                || group.batchMesh.GetIndexCount(0) != 6
+                || group.batchMesh.colors.Length != 6
+                || group.batchMesh.uv2.Length != 6)
+            {
+                throw new InvalidOperationException(
+                    "Terrain tiles were not merged into one attribute-complete render batch.");
+            }
+
+            SetBatchedTileActive(group, 0, false);
+            RebuildTerrainBatchIfDirty(group);
+            if (group.batchMesh.GetIndexCount(0) != 3
+                || !group.batchObject.activeSelf)
+            {
+                throw new InvalidOperationException(
+                    "A refined terrain tile was not removed from its parent render batch.");
+            }
+
+            SetBatchedTileActive(group, 1, false);
+            RebuildTerrainBatchIfDirty(group);
+            if (group.batchMesh.GetIndexCount(0) != 0
+                || group.batchObject.activeSelf)
+            {
+                throw new InvalidOperationException(
+                    "An empty terrain render batch remained active.");
+            }
+
+            SetBatchedTileActive(group, 0, true);
+            SetBatchedTileActive(group, 1, true);
+            RebuildTerrainBatchIfDirty(group);
+            if (group.batchMesh.GetIndexCount(0) != 6
+                || !group.batchObject.activeSelf)
+            {
+                throw new InvalidOperationException(
+                    "Terrain tiles were not restored to their parent render batch.");
+            }
+        }
+        finally
+        {
+            DestroyGroup(group);
+            DestroyUnityObject(host);
+        }
+    }
+
+    private static Mesh CreateBatchValidationMesh(float xOffset)
+    {
+        var mesh = new Mesh
+        {
+            name = "Terrain render batching validation mesh",
+            vertices = new[]
+            {
+                new Vector3(xOffset, 0f, 0f),
+                new Vector3(xOffset + 1f, 0f, 0f),
+                new Vector3(xOffset, 0f, 1f),
+            },
+            normals = new[] { Vector3.up, Vector3.up, Vector3.up },
+            uv = new[] { Vector2.zero, Vector2.right, Vector2.up },
+            uv2 = new[] { Vector2.zero, Vector2.one, Vector2.right },
+            colors = new[] { Color.red, Color.green, Color.blue },
+            triangles = new[] { 0, 1, 2 },
+        };
+        mesh.RecalculateBounds();
+        mesh.UploadMeshData(false);
+        return mesh;
+    }
+
     internal void ValidateColliderStreaming(
         IslandPreparedColliderHeightMap preparedHeightMap,
         float terrainWorldSize)
@@ -1287,6 +1539,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
                 DestroyUnityObject(tile.mesh);
             }
         }
+        DestroyUnityObject(group.batchMesh);
         if (group.root != null)
         {
             DestroyUnityObject(group.root);

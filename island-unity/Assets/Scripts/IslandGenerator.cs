@@ -50,6 +50,8 @@ public sealed class IslandGenerator : MonoBehaviour
     private GameObject runtimeRoot;
     private GameObject seaObject;
     private Material terrainMaterial;
+    private Material terrainLod1Material;
+    private Material terrainLod2Material;
     private Material grassMaterial;
     private Texture2D terrainNormalTexture;
     private Texture2D terrainOcclusionTexture;
@@ -63,6 +65,7 @@ public sealed class IslandGenerator : MonoBehaviour
     private Material seaMaterial;
     private Material meshEdgeMaterial;
     private Material treeWoodMaterial;
+    private Material treeLod1WoodMaterial;
     private Material treeFoliageMaterial;
     private Material treeLod0FoliageMaterial;
     private string status = "Ready";
@@ -91,6 +94,8 @@ public sealed class IslandGenerator : MonoBehaviour
     private float appliedGrassWindSpeed = float.NaN;
     private float appliedGrassWindGustSize = float.NaN;
     private float appliedGrassWindNormalStrength = float.NaN;
+    private Matrix4x4 appliedWorldToLocal;
+    private bool hasAppliedWorldToLocal;
 
     public bool IsGenerating => generationInProgress;
     public string Status => status;
@@ -136,7 +141,7 @@ public sealed class IslandGenerator : MonoBehaviour
 
     private static void EnsureCameraDepthTexture(Camera camera)
     {
-        if (camera != null)
+        if (camera != null && !PlanarWaterReflection.IsReflectionCamera(camera))
         {
             camera.depthTextureMode |= DepthTextureMode.Depth;
         }
@@ -231,20 +236,30 @@ public sealed class IslandGenerator : MonoBehaviour
             generation.WorldSizeMetres);
         treeWoodMaterial.SetTexture("_CliffNoise3D", cliffNoiseTexture);
         treeWoodMaterial.enableInstancing = true;
-        treeFoliageMaterial = CreateMaterial(
+        treeLod1WoodMaterial = new Material(treeWoodMaterial)
+        {
+            name = "Island tree LOD1 wood material (no parallax)",
+        };
+        treeLod1WoodMaterial.EnableKeyword("MOTU_TREE_BARK_NO_PARALLAX");
+        treeLod1WoodMaterial.enableInstancing = true;
+        treeLod0FoliageMaterial = CreateMaterial(
             "Motu/Tree Foliage",
             new Color(0.08f, 0.28f, 0.055f, 1f),
             rendering.TreeFoliageMaterial,
             generation.WorldSizeMetres);
-        treeFoliageMaterial.SetTexture("_CliffNoise3D", cliffNoiseTexture);
-        treeFoliageMaterial.SetFloat("_CullMode", (float)CullMode.Back);
-        treeFoliageMaterial.enableInstancing = true;
-        treeLod0FoliageMaterial = new Material(treeFoliageMaterial)
-        {
-            name = "Island tree LOD0 foliage material",
-        };
+        treeLod0FoliageMaterial.SetTexture("_CliffNoise3D", cliffNoiseTexture);
         treeLod0FoliageMaterial.SetFloat("_CullMode", (float)CullMode.Off);
         treeLod0FoliageMaterial.enableInstancing = true;
+        var distantFoliageShader = Shader.Find("Motu/Tree Foliage Distant")
+            ?? throw new InvalidOperationException(
+                "Could not find shader 'Motu/Tree Foliage Distant'.");
+        treeFoliageMaterial = new Material(distantFoliageShader)
+        {
+            name = "Island distant tree foliage material (base canopy only)",
+        };
+        treeFoliageMaterial.CopyPropertiesFromMaterial(treeLod0FoliageMaterial);
+        treeFoliageMaterial.SetFloat("_CullMode", (float)CullMode.Back);
+        treeFoliageMaterial.enableInstancing = true;
         rockMaterial = CreateMaterial(
             "Motu/Rock Decoration",
             rockColor,
@@ -289,6 +304,16 @@ public sealed class IslandGenerator : MonoBehaviour
         ApplyGrassColourSettings();
         grassMaterial.SetFloat("_GrassBrightness", rendering.GrassBrightness);
         ApplyGrassWindSettings();
+        terrainLod1Material = new Material(terrainMaterial)
+        {
+            name = "Island terrain LOD1 material (no parallax)",
+        };
+        terrainLod1Material.EnableKeyword("MOTU_TERRAIN_LOD1");
+        terrainLod2Material = new Material(terrainMaterial)
+        {
+            name = "Island terrain LOD2 material (procedural only)",
+        };
+        terrainLod2Material.EnableKeyword("MOTU_TERRAIN_LOD2");
         var sun = rendering.Sunlight != null ? rendering.Sunlight : RenderSettings.sun;
         grassMaterial.SetVector(
             "_GrassLightDirection",
@@ -373,7 +398,7 @@ public sealed class IslandGenerator : MonoBehaviour
         meshEdgeMaterial.renderQueue = (int)RenderQueue.Overlay + 100;
         meshEdgeMaterial.SetColor("_Color", Color.black);
         meshEdgeMaterial.SetFloat("_ZTest", (float)CompareFunction.LessEqual);
-        UpdateMaterialTransforms();
+        UpdateMaterialTransforms(true);
     }
 
     private void CopyTerrainBlendSettingsToGrass()
@@ -412,6 +437,8 @@ public sealed class IslandGenerator : MonoBehaviour
         {
             terrainMaterial.SetFloat("_SnowLine", snowline);
         }
+        terrainLod1Material?.SetFloat("_SnowLine", snowline);
+        terrainLod2Material?.SetFloat("_SnowLine", snowline);
         if (grassMaterial != null && grassMaterial.HasProperty("_SnowLine"))
         {
             grassMaterial.SetFloat("_SnowLine", snowline);
@@ -466,15 +493,24 @@ public sealed class IslandGenerator : MonoBehaviour
             && Vector3.Dot(transform.up, Vector3.up) > 0.99999f;
     }
 
-    private void UpdateMaterialTransforms()
+    private void UpdateMaterialTransforms(bool force = false)
     {
         var worldToLocal = transform.worldToLocalMatrix;
+        if (!force && hasAppliedWorldToLocal && appliedWorldToLocal == worldToLocal)
+        {
+            return;
+        }
+        appliedWorldToLocal = worldToLocal;
+        hasAppliedWorldToLocal = true;
         terrainMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
+        terrainLod1Material?.SetMatrix(IslandWorldToLocalId, worldToLocal);
+        terrainLod2Material?.SetMatrix(IslandWorldToLocalId, worldToLocal);
         grassMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
         rockMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
         riverMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
         seaMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
         treeWoodMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
+        treeLod1WoodMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
         treeFoliageMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
         treeLod0FoliageMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
     }
@@ -575,6 +611,16 @@ public sealed class IslandGenerator : MonoBehaviour
         terrainMaterial?.SetFloat(
             "_GrassColorNoiseWorldSize",
             appliedGrassColourNoiseWorldSize);
+        terrainLod1Material?.SetColor("_GrassColorA", appliedGrassColourA.Value);
+        terrainLod1Material?.SetColor("_GrassColorB", appliedGrassColourB.Value);
+        terrainLod1Material?.SetFloat(
+            "_GrassColorNoiseWorldSize",
+            appliedGrassColourNoiseWorldSize);
+        terrainLod2Material?.SetColor("_GrassColorA", appliedGrassColourA.Value);
+        terrainLod2Material?.SetColor("_GrassColorB", appliedGrassColourB.Value);
+        terrainLod2Material?.SetFloat(
+            "_GrassColorNoiseWorldSize",
+            appliedGrassColourNoiseWorldSize);
         grassMaterial?.SetColor("_GrassColorA", appliedGrassColourA.Value);
         grassMaterial?.SetColor("_GrassColorB", appliedGrassColourB.Value);
         grassMaterial?.SetFloat(
@@ -595,6 +641,8 @@ public sealed class IslandGenerator : MonoBehaviour
             appliedGrassWindDirection.y,
             0f);
         ApplyGrassWindSettingsToMaterial(terrainMaterial, direction);
+        ApplyGrassWindSettingsToMaterial(terrainLod1Material, direction);
+        ApplyGrassWindSettingsToMaterial(terrainLod2Material, direction);
         ApplyGrassWindSettingsToMaterial(grassMaterial, direction);
     }
 
@@ -678,9 +726,12 @@ public sealed class IslandGenerator : MonoBehaviour
             await terrainStreamer.InitializeAsync(
                 islandHandle.Value,
                 terrainMaterial,
+                terrainLod1Material,
+                terrainLod2Material,
                 grassMaterial,
                 rockMaterial,
                 treeWoodMaterial,
+                treeLod1WoodMaterial,
                 treeFoliageMaterial,
                 treeLod0FoliageMaterial,
                 riverMaterial,
@@ -1472,6 +1523,10 @@ public sealed class IslandGenerator : MonoBehaviour
         }
         terrainMaterial.SetTexture("_WorldNormal", terrainNormalTexture);
         terrainMaterial.SetTexture("_Occlusion", terrainOcclusionTexture);
+        terrainLod1Material.SetTexture("_WorldNormal", terrainNormalTexture);
+        terrainLod1Material.SetTexture("_Occlusion", terrainOcclusionTexture);
+        terrainLod2Material.SetTexture("_WorldNormal", terrainNormalTexture);
+        terrainLod2Material.SetTexture("_Occlusion", terrainOcclusionTexture);
     }
 
     private void CreateSeaMaskTexture(IslandPreparedSeaMask seaMask)
@@ -1777,6 +1832,10 @@ public sealed class IslandGenerator : MonoBehaviour
         runtimeRoot = null;
         terrainMaterial?.SetTexture("_WorldNormal", null);
         terrainMaterial?.SetTexture("_Occlusion", null);
+        terrainLod1Material?.SetTexture("_WorldNormal", null);
+        terrainLod1Material?.SetTexture("_Occlusion", null);
+        terrainLod2Material?.SetTexture("_WorldNormal", null);
+        terrainLod2Material?.SetTexture("_Occlusion", null);
         seaMaterial?.SetTexture("_SeaMask", null);
         DestroyUnityObject(terrainNormalTexture);
         DestroyUnityObject(terrainOcclusionTexture);
@@ -1796,9 +1855,12 @@ public sealed class IslandGenerator : MonoBehaviour
         terrainMaterialTextures?.Dispose();
         terrainMaterialTextures = null;
         DestroyUnityObject(terrainMaterial);
+        DestroyUnityObject(terrainLod1Material);
+        DestroyUnityObject(terrainLod2Material);
         DestroyUnityObject(grassMaterial);
         DestroyUnityObject(rockMaterial);
         DestroyUnityObject(treeWoodMaterial);
+        DestroyUnityObject(treeLod1WoodMaterial);
         DestroyUnityObject(treeFoliageMaterial);
         DestroyUnityObject(treeLod0FoliageMaterial);
         DestroyUnityObject(riverMaterial);
@@ -1808,9 +1870,12 @@ public sealed class IslandGenerator : MonoBehaviour
         if (ownsRiverNoiseTexture) DestroyUnityObject(riverNoiseTexture);
         if (ownsGrassPatchNoiseTexture) DestroyUnityObject(grassPatchNoiseTexture);
         terrainMaterial = null;
+        terrainLod1Material = null;
+        terrainLod2Material = null;
         grassMaterial = null;
         rockMaterial = null;
         treeWoodMaterial = null;
+        treeLod1WoodMaterial = null;
         treeFoliageMaterial = null;
         treeLod0FoliageMaterial = null;
         riverMaterial = null;
@@ -1843,6 +1908,7 @@ public sealed class IslandGenerator : MonoBehaviour
         appliedGrassWindSpeed = float.NaN;
         appliedGrassWindGustSize = float.NaN;
         appliedGrassWindNormalStrength = float.NaN;
+        hasAppliedWorldToLocal = false;
     }
 
     private static void DestroyUnityObject(UnityEngine.Object value)
@@ -2434,6 +2500,7 @@ public sealed class IslandGenerator : MonoBehaviour
                 {
                     DestroyImmediate(cliffNoise);
                 }
+                TerrainTileStreamer.ValidateTerrainRenderBatching(terrainMaterial);
             }
             finally
             {
@@ -2469,6 +2536,7 @@ public sealed class IslandGenerator : MonoBehaviour
 
             ValidateTreeSurfaceShader("Motu/Tree Wood", "wood");
             ValidateTreeSurfaceShader("Motu/Tree Foliage", "foliage");
+            ValidateDistantFoliageShader();
 
             var riverWaterShader = Shader.Find("Motu/River Water");
             if (riverWaterShader == null
@@ -3153,6 +3221,33 @@ public sealed class IslandGenerator : MonoBehaviour
         {
             DestroyImmediate(noise);
             DestroyImmediate(lod0Material);
+            DestroyImmediate(material);
+        }
+    }
+
+    private static void ValidateDistantFoliageShader()
+    {
+        var shader = Shader.Find("Motu/Tree Foliage Distant");
+        if (shader == null
+            || !shader.isSupported
+            || UnityEditor.ShaderUtil.ShaderHasError(shader))
+        {
+            throw new InvalidOperationException(
+                "The distant tree foliage shader is missing or unsupported.");
+        }
+        var material = new Material(shader);
+        try
+        {
+            if (material.passCount != 2
+                || material.FindPass("ShadowCaster") < 0
+                || material.renderQueue != (int)RenderQueue.AlphaTest)
+            {
+                throw new InvalidOperationException(
+                    "Distant foliage must contain only its base canopy and unchanged shadow pass.");
+            }
+        }
+        finally
+        {
             DestroyImmediate(material);
         }
     }

@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 [DisallowMultipleComponent]
@@ -13,6 +14,7 @@ public sealed class PlanarWaterReflection : MonoBehaviour
     private static readonly int ReflectionTextureId = Shader.PropertyToID(TextureName);
     private static readonly int ReflectionMatrixId = Shader.PropertyToID(MatrixName);
     private static readonly int ReflectionAvailableId = Shader.PropertyToID(AvailableName);
+    private static readonly HashSet<Camera> ReflectionCameras = new HashSet<Camera>();
 
     [Tooltip("Transform whose local XZ plane defines sea level.")]
     [SerializeField] private Transform reflectionPlane;
@@ -33,17 +35,31 @@ public sealed class PlanarWaterReflection : MonoBehaviour
 
     [SerializeField] private Shader simplifiedReflectionShader;
 
+    [Tooltip("Render the reflection once every N viewer-camera frames and reuse it between updates.")]
+    [Range(1, 4)]
+    [SerializeField] private int frameInterval = 2;
+
     private Camera sourceCamera;
     private Camera reflectionCamera;
     private RenderTexture reflectionTexture;
     private bool reflectionTextureUsesHdr;
     private bool lastRenderUsedSimplifiedShader;
+    private bool hasRenderedReflection;
+    private int framesUntilRender;
+    private int reflectionRenderCount;
 
     public Transform ReflectionPlane => reflectionPlane;
     public Camera ReflectionCamera => reflectionCamera;
     public bool UseSimplifiedShader => useSimplifiedShader;
     public Shader SimplifiedReflectionShader => simplifiedReflectionShader;
     public bool LastRenderUsedSimplifiedShader => lastRenderUsedSimplifiedShader;
+    public int FrameInterval => frameInterval;
+    public int ReflectionRenderCount => reflectionRenderCount;
+
+    public static bool IsReflectionCamera(Camera camera)
+    {
+        return camera != null && ReflectionCameras.Contains(camera);
+    }
 
     public void Configure(Transform plane)
     {
@@ -72,6 +88,7 @@ public sealed class PlanarWaterReflection : MonoBehaviour
     {
         resolutionScale = Mathf.Clamp(resolutionScale, 0.25f, 1f);
         clipPlaneOffset = Mathf.Max(clipPlaneOffset, 0f);
+        frameInterval = Mathf.Clamp(frameInterval, 1, 4);
     }
 
     private void OnPreCull()
@@ -94,7 +111,15 @@ public sealed class PlanarWaterReflection : MonoBehaviour
 
         EnsureReflectionCamera();
         EnsureReflectionTexture();
+        if (hasRenderedReflection && framesUntilRender > 0)
+        {
+            framesUntilRender--;
+            Shader.SetGlobalFloat(ReflectionAvailableId, 1f);
+            return;
+        }
         RenderReflection();
+        hasRenderedReflection = true;
+        framesUntilRender = Mathf.Max(frameInterval - 1, 0);
     }
 
     private void EnsureReflectionCamera()
@@ -110,6 +135,7 @@ public sealed class PlanarWaterReflection : MonoBehaviour
         };
         reflectionCamera = reflectionObject.AddComponent<Camera>();
         reflectionCamera.enabled = false;
+        ReflectionCameras.Add(reflectionCamera);
     }
 
     private void EnsureReflectionTexture()
@@ -140,6 +166,8 @@ public sealed class PlanarWaterReflection : MonoBehaviour
         };
         reflectionTextureUsesHdr = sourceCamera.allowHDR;
         reflectionTexture.Create();
+        hasRenderedReflection = false;
+        framesUntilRender = 0;
     }
 
     private void RenderReflection()
@@ -224,6 +252,7 @@ public sealed class PlanarWaterReflection : MonoBehaviour
             ReflectionMatrixId,
             textureScaleAndOffset * gpuProjection * reflectionCamera.worldToCameraMatrix);
         Shader.SetGlobalFloat(ReflectionAvailableId, 1f);
+        reflectionRenderCount++;
     }
 
     private Vector4 CameraSpacePlane(
@@ -265,9 +294,12 @@ public sealed class PlanarWaterReflection : MonoBehaviour
     {
         Shader.SetGlobalFloat(ReflectionAvailableId, 0f);
         lastRenderUsedSimplifiedShader = false;
+        hasRenderedReflection = false;
+        framesUntilRender = 0;
         ReleaseReflectionTexture();
         if (reflectionCamera != null)
         {
+            ReflectionCameras.Remove(reflectionCamera);
             DestroyUnityObject(reflectionCamera.gameObject);
             reflectionCamera = null;
         }
@@ -283,6 +315,7 @@ public sealed class PlanarWaterReflection : MonoBehaviour
         DestroyUnityObject(reflectionTexture);
         reflectionTexture = null;
         reflectionTextureUsesHdr = false;
+        hasRenderedReflection = false;
     }
 
     private static void DestroyUnityObject(Object value)

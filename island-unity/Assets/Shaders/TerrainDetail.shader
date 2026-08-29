@@ -101,6 +101,7 @@ Shader "Motu/Terrain Unified"
             #pragma target 3.5
             #pragma multi_compile_fwdbase
             #pragma multi_compile_fog
+            #pragma shader_feature_local_fragment _ MOTU_TERRAIN_LOD1 MOTU_TERRAIN_LOD2
 
             #include "UnityCG.cginc"
             #include "Lighting.cginc"
@@ -483,6 +484,118 @@ Shader "Motu/Terrain Unified"
                 return min(slopeGate, patchGate);
             }
 
+            fixed4 ShadeDistantTerrain(
+                VertexOutput input,
+                half3 geometricNormal,
+                half3 localGeometricNormal,
+                float3 localPosition,
+                MotuTerrainCoverage coverage,
+                half4 candidatesA,
+                half2 candidatesB)
+            {
+                MotuBaseWeights weights = MotuHeightBlendBase(
+                    candidatesA,
+                    candidatesB,
+                    half4(0.5h, 0.5h, 0.5h, 0.5h),
+                    half2(0.5h, 0.5h));
+                half underlyingDirtCandidate = saturate(
+                    1.0h - max(coverage.rock, coverage.beach));
+                MotuBaseWeights underlyingWeights = MotuHeightBlendBase(
+                    half4(underlyingDirtCandidate, 0.0h, coverage.rock, 0.0h),
+                    half2(coverage.beach, 0.0h),
+                    half4(0.5h, 0.5h, 0.5h, 0.5h),
+                    half2(0.5h, 0.5h));
+                half sandVariation = clamp(
+                    coverage.noise.detail.r * 0.65h
+                        + coverage.noise.macro.b * 0.35h,
+                    -1.0h,
+                    1.0h);
+                fixed3 sand = _SandColor.rgb * (1.0h + sandVariation * 0.08h);
+                fixed3 underlying = _GroundDirtColor.rgb * underlyingWeights.a.x
+                    + _RockColor.rgb * underlyingWeights.a.z
+                    + sand * underlyingWeights.b.x;
+                fixed3 baseColor = _GroundDirtColor.rgb * weights.a.x
+                    + underlying * 0.72h * weights.a.y
+                    + _RockColor.rgb * weights.a.z
+                    + underlying * 0.82h * weights.a.w
+                    + sand * weights.b.x
+                    + lerp(underlying, _RockColor.rgb, 0.35h) * weights.b.y;
+
+                half grassCoverage = smoothstep(0.35h, 0.65h, coverage.grass)
+                    * weights.a.x
+                    * (1.0h - coverage.snow);
+                half grassColorNoise = tex2D(
+                    _GrassPatchNoise,
+                    localPosition.xz / max(_GrassColorNoiseWorldSize, 1.0)).b;
+                fixed3 grassColor = lerp(
+                    _GrassColorA.rgb,
+                    _GrassColorB.rgb,
+                    smoothstep(0.1h, 0.9h, grassColorNoise));
+                baseColor = lerp(baseColor, grassColor, grassCoverage);
+                baseColor = lerp(baseColor, fixed3(0.82, 0.84, 0.81), coverage.snow);
+
+                float3 noisePosition = localPosition / max(_CliffNoisePeriod, 1.0);
+                half3 dirtNormal = PerturbNormal(
+                    geometricNormal,
+                    noisePosition,
+                    _GrassNormalDetailScale,
+                    float3(0.79, 0.17, 0.53),
+                    _DirtNormalStrength);
+                half3 rockNormal = PerturbNormal(
+                    geometricNormal,
+                    noisePosition,
+                    _CliffNoiseDetailScale,
+                    float3(0.37, 0.61, 0.83),
+                    _CliffNormalStrength);
+                half3 sandNormal = PerturbNormal(
+                    geometricNormal,
+                    noisePosition,
+                    _SandNormalDetailScale,
+                    float3(0.79, 0.17, 0.53),
+                    _SandNormalStrength);
+                half3 underlyingNormal = normalize(
+                    dirtNormal * underlyingWeights.a.x
+                        + rockNormal * underlyingWeights.a.z
+                        + sandNormal * underlyingWeights.b.x);
+                half3 normal = normalize(
+                    dirtNormal * weights.a.x
+                        + underlyingNormal * weights.a.y
+                        + rockNormal * weights.a.z
+                        + underlyingNormal * weights.a.w
+                        + sandNormal * weights.b.x
+                        + lerp(underlyingNormal, rockNormal, 0.35h) * weights.b.y);
+                normal = normalize(lerp(normal, dirtNormal, grassCoverage));
+                normal = normalize(lerp(normal, geometricNormal, coverage.snow));
+
+                half coastalDistance = input.coastalWetness
+                    - (0.5h + coverage.coastalNoise * _CoastalWetnessNoiseStrength);
+                half coastalTransition = max(
+                    _CoastalWetnessBlendWidth,
+                    fwidth(coastalDistance));
+                half coastalWetness = smoothstep(
+                    -coastalTransition,
+                    coastalTransition,
+                    coastalDistance);
+                half riverBankWetness = pow(
+                    max(saturate(input.material.b), coverage.river),
+                    max(_WetBankBlendExponent, 0.01h));
+                half aboveSea = step(0.0h, localPosition.y);
+                half submerged = 1.0h - aboveSea;
+                half wetSurfaceEffects = max(riverBankWetness, coastalWetness)
+                    * aboveSea
+                    * (1.0h - max(grassCoverage, coverage.snow));
+                baseColor *= 1.0h - max(wetSurfaceEffects, submerged) * _WetDarkening;
+
+                float3 lightDirection = normalize(UnityWorldSpaceLightDir(input.worldPosition));
+                UNITY_LIGHT_ATTENUATION(attenuation, input, input.worldPosition);
+                half diffuse = saturate(dot(normal, lightDirection)) * attenuation;
+                half3 lighting = ShadeSH9(half4(normal, 1.0h))
+                    + _LightColor0.rgb * diffuse;
+                fixed4 color = fixed4(baseColor * _Color.rgb * lighting, 1.0h);
+                UNITY_APPLY_FOG(input.fogCoord, color);
+                return color;
+            }
+
             VertexOutput Vertex(VertexInput input)
             {
                 VertexOutput output;
@@ -536,6 +649,17 @@ Shader "Motu/Terrain Unified"
                     coverage.rock,
                     coverage.river);
                 half2 candidatesB = half2(coverage.beach, coverage.stones);
+
+                #if defined(MOTU_TERRAIN_LOD2)
+                    return ShadeDistantTerrain(
+                        input,
+                        geometricNormal,
+                        localGeometricNormal,
+                        localPosition,
+                        coverage,
+                        candidatesA,
+                        candidatesB);
+                #else
 
                 half localUp = saturate(localGeometricNormal.y);
                 half dirtPatchNoise = clamp(
@@ -652,12 +776,15 @@ Shader "Motu/Terrain Unified"
                 half2 parallaxProjectionB = half2(
                     beachUnderlayProjection,
                     stonesTextureProjection);
-                float2 parallaxWorldOffset = BlendedParallaxWorldOffset(
-                    localPosition.xz,
-                    localViewDirection,
-                    undisplacedWeights,
-                    parallaxProjectionA,
-                    parallaxProjectionB);
+                float2 parallaxWorldOffset = float2(0.0, 0.0);
+                #if !defined(MOTU_TERRAIN_LOD1)
+                    parallaxWorldOffset = BlendedParallaxWorldOffset(
+                        localPosition.xz,
+                        localViewDirection,
+                        undisplacedWeights,
+                        parallaxProjectionA,
+                        parallaxProjectionB);
+                #endif
                 dirtUv += parallaxWorldOffset
                     / max(MotuLayerWorldSize(MOTU_LAYER_DIRT), 0.01);
                 forestUv += parallaxWorldOffset
@@ -986,6 +1113,7 @@ Shader "Motu/Terrain Unified"
                     1.0h);
                 UNITY_APPLY_FOG(input.fogCoord, color);
                 return color;
+                #endif
             }
             ENDCG
         }

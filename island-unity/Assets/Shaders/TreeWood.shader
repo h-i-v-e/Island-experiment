@@ -40,6 +40,7 @@ Shader "Motu/Tree Wood"
             #pragma multi_compile_fwdbase
             #pragma multi_compile_fog
             #pragma multi_compile_instancing
+            #pragma shader_feature_local_fragment _ MOTU_TREE_BARK_NO_PARALLAX
 
             #include "UnityCG.cginc"
             #include "Lighting.cginc"
@@ -191,20 +192,22 @@ Shader "Motu/Tree Wood"
                 float2 tileSizeMetres = float2(
                     _BarkTileWidthMetres,
                     _BarkTileHeightMetres);
-                tangentUv = ParallaxBarkUv(
-                    tangentUv,
-                    tileSizeMetres,
-                    float2(
-                        dot(viewDirection, worldBitangent * tangentSign),
-                        dot(viewDirection, worldAxis)),
-                    abs(dot(viewDirection, worldTangent * tangentSign)));
-                bitangentUv = ParallaxBarkUv(
-                    bitangentUv,
-                    tileSizeMetres,
-                    float2(
-                        dot(viewDirection, -worldTangent * bitangentSign),
-                        dot(viewDirection, worldAxis)),
-                    abs(dot(viewDirection, worldBitangent * bitangentSign)));
+                #if !defined(MOTU_TREE_BARK_NO_PARALLAX)
+                    tangentUv = ParallaxBarkUv(
+                        tangentUv,
+                        tileSizeMetres,
+                        float2(
+                            dot(viewDirection, worldBitangent * tangentSign),
+                            dot(viewDirection, worldAxis)),
+                        abs(dot(viewDirection, worldTangent * tangentSign)));
+                    bitangentUv = ParallaxBarkUv(
+                        bitangentUv,
+                        tileSizeMetres,
+                        float2(
+                            dot(viewDirection, -worldTangent * bitangentSign),
+                            dot(viewDirection, worldAxis)),
+                        abs(dot(viewDirection, worldBitangent * bitangentSign)));
+                #endif
 
                 half tangentWeight = pow(abs(tangentFacing), 4.0);
                 half bitangentWeight = pow(abs(bitangentFacing), 4.0);

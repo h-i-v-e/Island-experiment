@@ -294,6 +294,7 @@ public static class IslandGeneratorValidation
             ("Motu/Terrain Grass", "Grass"),
             ("Motu/Tree Wood", "Wood"),
             ("Motu/Tree Foliage", "Foliage"),
+            ("Motu/Tree Foliage Distant", "Foliage"),
             ("Motu/Rock Decoration", "Rock"),
         })
         {
@@ -363,7 +364,10 @@ public static class IslandGeneratorValidation
                 || reflectedTarget.width != 160
                 || reflectedTarget.height != 90
                 || (reflectedCamera.cullingMask & (1 << waterLayer)) != 0
+                || reflectedCamera.depthTextureMode != DepthTextureMode.None
                 || !reflection.LastRenderUsedSimplifiedShader
+                || reflection.FrameInterval != 2
+                || reflection.ReflectionRenderCount != 1
                 || reflectionAvailable < 0.5f
                 || reflectionTexture != reflectedTarget)
             {
@@ -374,6 +378,19 @@ public static class IslandGeneratorValidation
                     + $"target={reflectedTarget}, "
                     + $"available={reflectionAvailable}, "
                     + $"texture={reflectionTexture}.");
+            }
+
+            InvokePrivateLifecycleMethod(reflection, "OnPreCull");
+            if (reflection.ReflectionRenderCount != 1)
+            {
+                throw new InvalidOperationException(
+                    "The planar reflection did not reuse its render on the skipped frame.");
+            }
+            InvokePrivateLifecycleMethod(reflection, "OnPreCull");
+            if (reflection.ReflectionRenderCount != 2)
+            {
+                throw new InvalidOperationException(
+                    "The planar reflection did not render again at its configured interval.");
             }
 
             reflection.enabled = false;

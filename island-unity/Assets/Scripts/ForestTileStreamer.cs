@@ -77,6 +77,7 @@ internal sealed class ForestTileStreamer : IDisposable
     private Material foliageMaterial;
     private Material lod0FoliageMaterial;
     private Material woodMaterial;
+    private Material lod1WoodMaterial;
     private Material meshEdgeMaterial;
     private IslandPreparedMesh[] preparedLod2Foliage;
     private IslandPreparedMesh[] preparedLod1Foliage;
@@ -96,6 +97,7 @@ internal sealed class ForestTileStreamer : IDisposable
         Material sharedFoliageMaterial,
         Material sharedLod0FoliageMaterial,
         Material sharedWoodMaterial,
+        Material sharedLod1WoodMaterial,
         Material sharedMeshEdgeMaterial,
         IslandPreparedForestData prepared,
         bool showForests)
@@ -114,7 +116,8 @@ internal sealed class ForestTileStreamer : IDisposable
         }
         if (sharedFoliageMaterial == null
             || sharedLod0FoliageMaterial == null
-            || sharedWoodMaterial == null)
+            || sharedWoodMaterial == null
+            || sharedLod1WoodMaterial == null)
         {
             throw new InvalidOperationException(
                 "Forest wood and foliage materials must be available before streaming.");
@@ -128,6 +131,7 @@ internal sealed class ForestTileStreamer : IDisposable
         foliageMaterial = sharedFoliageMaterial;
         lod0FoliageMaterial = sharedLod0FoliageMaterial;
         woodMaterial = sharedWoodMaterial;
+        lod1WoodMaterial = sharedLod1WoodMaterial;
         meshEdgeMaterial = sharedMeshEdgeMaterial;
         preparedLod2Foliage = prepared.lod2FoliageTiles;
         preparedLod1Foliage = prepared.lod1FoliageTiles;
@@ -333,6 +337,7 @@ internal sealed class ForestTileStreamer : IDisposable
         foliageMaterial = null;
         lod0FoliageMaterial = null;
         woodMaterial = null;
+        lod1WoodMaterial = null;
         meshEdgeMaterial = null;
         preparedLod2Foliage = null;
         preparedLod1Foliage = null;
@@ -359,6 +364,7 @@ internal sealed class ForestTileStreamer : IDisposable
                     prepared,
                     null,
                     foliageMaterial,
+                    null,
                     foliageRoot.transform,
                     woodRoot.transform,
                     $"Forest LOD 2 tile {x},{y}");
@@ -398,6 +404,7 @@ internal sealed class ForestTileStreamer : IDisposable
                             foliage,
                             wood,
                             foliageMaterial,
+                            lod1WoodMaterial,
                             group.foliageRoot.transform,
                             group.woodRoot.transform,
                             $"Forest LOD 1 tile {key.x},{key.y}"));
@@ -428,6 +435,7 @@ internal sealed class ForestTileStreamer : IDisposable
                         foliage,
                         wood,
                         lod0FoliageMaterial,
+                        woodMaterial,
                         group.foliageRoot.transform,
                         group.woodRoot.transform,
                         $"Forest LOD 0 tile {key.x},{key.y}"));
@@ -462,6 +470,7 @@ internal sealed class ForestTileStreamer : IDisposable
         IslandPreparedMesh foliage,
         IslandPreparedMesh wood,
         Material tileFoliageMaterial,
+        Material tileWoodMaterial,
         Transform foliageParent,
         Transform woodParent,
         string name)
@@ -491,7 +500,7 @@ internal sealed class ForestTileStreamer : IDisposable
                     $"{name} wood",
                     woodParent,
                     woodMesh,
-                    woodMaterial,
+                    tileWoodMaterial,
                     ShadowCastingMode.On);
             }
             tile = new Tile(foliageObject, foliageMesh, woodObject, woodMesh);
@@ -624,6 +633,7 @@ internal sealed class ForestTileStreamer : IDisposable
                 parent.transform,
                 material,
                 lod0Material,
+                material,
                 material,
                 material,
                 prepared,
