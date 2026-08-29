@@ -38,6 +38,8 @@ Material:
     - _OpacityDepth: 5
     - _ReflectionFresnelPower: 4
     - _ReflectionStrength: 0.45
+    - _RefractionDepth: 0.6
+    - _RefractionStrength: 0.008
     - _SeaLevel: 0
     - _ShallowOpacity: 0.25
     - _ShoreWaveDepth: 0.5

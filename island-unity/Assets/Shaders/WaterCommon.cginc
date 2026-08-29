@@ -18,6 +18,10 @@ half _PlanarReflectionDistortion;
 sampler2D _PlanarReflectionTexture;
 float4x4 _PlanarReflectionMatrix;
 half _PlanarReflectionAvailable;
+sampler2D _MotuWaterBackground;
+float4 _MotuWaterBackground_TexelSize;
+half _RefractionStrength;
+float _RefractionDepth;
 float4x4 _IslandWorldToLocal;
 UNITY_DECLARE_DEPTH_TEXTURE(_CameraDepthTexture);
 
@@ -39,6 +43,29 @@ half MotuWaterOpacity(float waterDepth, float opacityDepth)
 {
     half depthOpacity = saturate(waterDepth / max(opacityDepth, 0.001));
     return lerp(_ShallowOpacity, _Color.a, depthOpacity);
+}
+
+fixed3 MotuRefractScene(
+    float4 grabPosition,
+    float waterDepth,
+    float3 worldNormal,
+    float3 viewDirection,
+    half2 ripple)
+{
+    float inverseW = rcp(max(grabPosition.w, 0.0001));
+    float2 backgroundUv = grabPosition.xy * inverseW;
+    half depthWeight = smoothstep(
+        0.02,
+        max(_RefractionDepth, 0.021),
+        waterDepth);
+    half facing = saturate(dot(worldNormal, viewDirection));
+    half2 viewNormal = mul((float3x3)UNITY_MATRIX_V, worldNormal).xy;
+    half2 distortion = ripple + viewNormal * 0.22h;
+    backgroundUv += distortion
+        * (_RefractionStrength * depthWeight * lerp(0.25h, 1.0h, facing));
+    float2 edgeInset = _MotuWaterBackground_TexelSize.xy * 1.5;
+    backgroundUv = clamp(backgroundUv, edgeInset, 1.0 - edgeInset);
+    return tex2D(_MotuWaterBackground, backgroundUv).rgb;
 }
 
 fixed3 MotuShadeWater(
