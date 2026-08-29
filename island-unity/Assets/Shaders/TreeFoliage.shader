@@ -28,7 +28,7 @@ Shader "Motu/Tree Foliage"
 
     SubShader
     {
-        Tags { "RenderType"="TransparentCutout" "Queue"="AlphaTest" "IgnoreProjector"="True" }
+        Tags { "RenderType"="TransparentCutout" "Queue"="AlphaTest" "IgnoreProjector"="True" "MotuReflection"="Foliage" }
         LOD 350
 
         Pass

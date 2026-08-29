@@ -237,6 +237,8 @@ public static class IslandGeneratorValidation
         if (reflections.Length != 1
             || !reflections[0].enabled
             || reflections[0].GetComponent<Camera>() == null
+            || !reflections[0].UseSimplifiedShader
+            || reflections[0].SimplifiedReflectionShader == null
             || islands.Length != 1
             || reflections[0].ReflectionPlane != islands[0].transform)
         {
@@ -251,12 +253,17 @@ public static class IslandGeneratorValidation
 
         var riverShader = Shader.Find("Motu/River Water");
         var seaShader = Shader.Find("Motu/Sea Water");
+        var simplifiedReflectionShader = Shader.Find(
+            PlanarWaterReflection.SimplifiedShaderName);
         if (riverShader == null
             || seaShader == null
+            || simplifiedReflectionShader == null
             || !riverShader.isSupported
             || !seaShader.isSupported
+            || !simplifiedReflectionShader.isSupported
             || ShaderUtil.ShaderHasError(riverShader)
-            || ShaderUtil.ShaderHasError(seaShader))
+            || ShaderUtil.ShaderHasError(seaShader)
+            || ShaderUtil.ShaderHasError(simplifiedReflectionShader))
         {
             throw new InvalidOperationException(
                 "The planar-reflection water shaders are missing or unsupported.");
@@ -279,6 +286,40 @@ public static class IslandGeneratorValidation
         {
             UnityEngine.Object.DestroyImmediate(riverMaterial);
             UnityEngine.Object.DestroyImmediate(seaMaterial);
+        }
+
+        foreach (var (shaderName, reflectionType) in new[]
+        {
+            ("Motu/Terrain Unified", "Terrain"),
+            ("Motu/Terrain Grass", "Grass"),
+            ("Motu/Tree Wood", "Wood"),
+            ("Motu/Tree Foliage", "Foliage"),
+            ("Motu/Rock Decoration", "Rock"),
+        })
+        {
+            var sourceShader = Shader.Find(shaderName);
+            var sourceMaterial = sourceShader != null
+                ? new Material(sourceShader)
+                : null;
+            try
+            {
+                if (sourceMaterial == null
+                    || sourceMaterial.GetTag(
+                        PlanarWaterReflection.ReplacementTag,
+                        false,
+                        string.Empty) != reflectionType)
+                {
+                    throw new InvalidOperationException(
+                        $"Shader '{shaderName}' is not classified as the '{reflectionType}' simplified reflection type.");
+                }
+            }
+            finally
+            {
+                if (sourceMaterial != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(sourceMaterial);
+                }
+            }
         }
     }
 
@@ -322,6 +363,7 @@ public static class IslandGeneratorValidation
                 || reflectedTarget.width != 160
                 || reflectedTarget.height != 90
                 || (reflectedCamera.cullingMask & (1 << waterLayer)) != 0
+                || !reflection.LastRenderUsedSimplifiedShader
                 || reflectionAvailable < 0.5f
                 || reflectionTexture != reflectedTarget)
             {

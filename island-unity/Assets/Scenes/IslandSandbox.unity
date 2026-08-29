@@ -507,6 +507,8 @@ MonoBehaviour:
   reflectionLayers:
     serializedVersion: 2
     m_Bits: 4294967295
+  useSimplifiedShader: 1
+  simplifiedReflectionShader: {fileID: 4800000, guid: e1b5d68178aa4cfd8a4de84a2d74dbe7, type: 3}
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0

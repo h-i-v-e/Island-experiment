@@ -54,7 +54,7 @@ Shader "Motu/Terrain Grass"
 
     SubShader
     {
-        Tags { "RenderType"="TransparentCutout" "Queue"="AlphaTest" "IgnoreProjector"="True" }
+        Tags { "RenderType"="TransparentCutout" "Queue"="AlphaTest" "IgnoreProjector"="True" "MotuReflection"="Grass" }
         LOD 350
         Cull Off
         ZWrite On

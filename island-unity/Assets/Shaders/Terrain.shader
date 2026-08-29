@@ -6,7 +6,7 @@ Shader "Motu/Terrain"
     }
     SubShader
     {
-        Tags { "RenderType"="Opaque" }
+        Tags { "RenderType"="Opaque" "MotuReflection"="Terrain" }
         LOD 200
 
         CGPROGRAM

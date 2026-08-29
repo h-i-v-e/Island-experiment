@@ -12,7 +12,7 @@ Shader "Motu/Rock Decoration"
 
     SubShader
     {
-        Tags { "RenderType"="Opaque" "Queue"="Geometry" }
+        Tags { "RenderType"="Opaque" "Queue"="Geometry" "MotuReflection"="Rock" }
         LOD 250
 
         Pass

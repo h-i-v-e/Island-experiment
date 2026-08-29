@@ -88,7 +88,7 @@ Shader "Motu/Terrain Unified"
 
     SubShader
     {
-        Tags { "RenderType"="Opaque" "Queue"="Geometry" }
+        Tags { "RenderType"="Opaque" "Queue"="Geometry" "MotuReflection"="Terrain" }
         LOD 300
 
         Pass

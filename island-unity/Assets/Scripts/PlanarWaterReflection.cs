@@ -7,6 +7,8 @@ public sealed class PlanarWaterReflection : MonoBehaviour
     internal const string TextureName = "_PlanarReflectionTexture";
     internal const string MatrixName = "_PlanarReflectionMatrix";
     internal const string AvailableName = "_PlanarReflectionAvailable";
+    public const string SimplifiedShaderName = "Motu/Planar Reflection Simplified";
+    public const string ReplacementTag = "MotuReflection";
 
     private static readonly int ReflectionTextureId = Shader.PropertyToID(TextureName);
     private static readonly int ReflectionMatrixId = Shader.PropertyToID(MatrixName);
@@ -26,22 +28,33 @@ public sealed class PlanarWaterReflection : MonoBehaviour
     [Tooltip("Layers visible in reflections. The Water layer is always excluded.")]
     [SerializeField] private LayerMask reflectionLayers = ~0;
 
+    [Tooltip("Render broad material colours with one inexpensive pass per object instead of replaying detailed terrain, bark, grass, and foliage shaders.")]
+    [SerializeField] private bool useSimplifiedShader = true;
+
+    [SerializeField] private Shader simplifiedReflectionShader;
+
     private Camera sourceCamera;
     private Camera reflectionCamera;
     private RenderTexture reflectionTexture;
     private bool reflectionTextureUsesHdr;
+    private bool lastRenderUsedSimplifiedShader;
 
     public Transform ReflectionPlane => reflectionPlane;
     public Camera ReflectionCamera => reflectionCamera;
+    public bool UseSimplifiedShader => useSimplifiedShader;
+    public Shader SimplifiedReflectionShader => simplifiedReflectionShader;
+    public bool LastRenderUsedSimplifiedShader => lastRenderUsedSimplifiedShader;
 
     public void Configure(Transform plane)
     {
         reflectionPlane = plane;
+        ResolveSimplifiedShader();
     }
 
     private void OnEnable()
     {
         sourceCamera = GetComponent<Camera>();
+        ResolveSimplifiedShader();
         Shader.SetGlobalFloat(ReflectionAvailableId, 0f);
     }
 
@@ -135,6 +148,8 @@ public sealed class PlanarWaterReflection : MonoBehaviour
         reflectionCamera.enabled = false;
         reflectionCamera.targetTexture = reflectionTexture;
         reflectionCamera.depthTextureMode = DepthTextureMode.None;
+        reflectionCamera.allowMSAA = false;
+        reflectionCamera.allowDynamicResolution = false;
 
         var waterLayer = LayerMask.NameToLayer("Water");
         var waterMask = waterLayer >= 0 ? 1 << waterLayer : 0;
@@ -170,7 +185,21 @@ public sealed class PlanarWaterReflection : MonoBehaviour
         try
         {
             GL.invertCulling = !previousInvertCulling;
-            reflectionCamera.Render();
+            var replacementShader = useSimplifiedShader
+                ? ResolveSimplifiedShader()
+                : null;
+            lastRenderUsedSimplifiedShader = replacementShader != null
+                && replacementShader.isSupported;
+            if (lastRenderUsedSimplifiedShader)
+            {
+                reflectionCamera.RenderWithShader(
+                    replacementShader,
+                    ReplacementTag);
+            }
+            else
+            {
+                reflectionCamera.Render();
+            }
         }
         finally
         {
@@ -235,6 +264,7 @@ public sealed class PlanarWaterReflection : MonoBehaviour
     private void ReleaseResources()
     {
         Shader.SetGlobalFloat(ReflectionAvailableId, 0f);
+        lastRenderUsedSimplifiedShader = false;
         ReleaseReflectionTexture();
         if (reflectionCamera != null)
         {
@@ -269,5 +299,14 @@ public sealed class PlanarWaterReflection : MonoBehaviour
         {
             DestroyImmediate(value);
         }
+    }
+
+    private Shader ResolveSimplifiedShader()
+    {
+        if (simplifiedReflectionShader == null)
+        {
+            simplifiedReflectionShader = Shader.Find(SimplifiedShaderName);
+        }
+        return simplifiedReflectionShader;
     }
 }

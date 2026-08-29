@@ -26,7 +26,7 @@ Shader "Motu/Tree Wood"
 
     SubShader
     {
-        Tags { "RenderType"="Opaque" "Queue"="Geometry" }
+        Tags { "RenderType"="Opaque" "Queue"="Geometry" "MotuReflection"="Wood" }
         LOD 200
 
         Pass
