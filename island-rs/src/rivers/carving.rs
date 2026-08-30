@@ -2,9 +2,10 @@ use super::{
     Adjacency, BinaryHeap, HashSet, MAXIMUM_GENTLE_RIVER_GRADE, Mesh, Ordering,
     RIVER_CHANNEL_DRAINAGE_FLOOR, RIVER_SURFACE_OFFSET, RiverChannelSettings, RiverCrossSection,
     RiverNode, RiverSedimentBudget, SEA_PLANE_CLEARANCE, SurfaceMaterial, Vec2, VecDeque,
-    WATERFALL_LANDING_LENGTH_MULTIPLIER, WATERFALL_SITE_BYPASS_MAX_HOPS,
-    WATERFALL_SITE_MINIMUM_BANK_SPAN_FRACTION, WATERFALL_SUPPORT_RUN, WATERFALL_TARGET_EDGE_LENGTH,
-    WaterfallClearanceIndex, WaterfallPatch, expand_vertex_mask_through_river_to_banks,
+    WATERFALL_LANDING_LENGTH_MULTIPLIER, WATERFALL_REFERENCE_ISLAND_HEIGHT,
+    WATERFALL_SITE_BYPASS_MAX_HOPS, WATERFALL_SITE_MINIMUM_BANK_SPAN_FRACTION,
+    WATERFALL_SUPPORT_RUN, WATERFALL_TARGET_EDGE_LENGTH, WaterfallClearanceIndex, WaterfallPatch,
+    expand_vertex_mask_through_river_to_banks,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -255,7 +256,6 @@ pub(super) fn form_river_profile(
         waterfalls,
         parameters.cross_sections,
         profile_end,
-        parameters.max_height,
         gradient_scratch,
     );
     ocean_entry
@@ -371,7 +371,6 @@ pub(super) fn form_stepped_profile(
     waterfalls: &mut [bool],
     cross_sections: &[RiverCrossSection],
     end: usize,
-    max_height: f32,
     gradient_scratch: &mut Vec<f32>,
 ) {
     waterfalls.fill(false);
@@ -401,10 +400,10 @@ pub(super) fn form_stepped_profile(
         gradient_scratch.push(weighted_gradient / total_weight.max(1.0));
     }
 
-    let minimum_fall = max_height * 0.0075;
-    let maximum_fall = max_height * 0.018;
-    let gentle_reach_length = max_height * 0.006;
-    let steep_gradient = (max_height * 2.25).max(f32::EPSILON);
+    let minimum_fall = WATERFALL_REFERENCE_ISLAND_HEIGHT * 0.0075;
+    let maximum_fall = WATERFALL_REFERENCE_ISLAND_HEIGHT * 0.018;
+    let gentle_reach_length = WATERFALL_REFERENCE_ISLAND_HEIGHT * 0.006;
+    let steep_gradient = WATERFALL_REFERENCE_ISLAND_HEIGHT * 2.25;
     let mut level = nodes[end].surface;
     let mut reach_length = 0.0_f32;
     let mut reach_half_width = 0.0_f32;

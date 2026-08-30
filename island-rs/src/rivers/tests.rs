@@ -997,7 +997,7 @@ fn waterfall_height_and_frequency_increase_with_smoothed_gradient() {
     let mut nodes = Vec::new();
     for index in (0..=20).rev() {
         if index < 20 {
-            surface += if index < 10 { 0.012 } else { 0.002 };
+            surface += if index < 10 { 0.002 } else { 0.0002 };
         }
         nodes.push(RiverNode {
             vertex: index,
@@ -1011,7 +1011,7 @@ fn waterfall_height_and_frequency_increase_with_smoothed_gradient() {
     let mut waterfalls = vec![false; nodes.len()];
     let mut scratch = Vec::new();
 
-    form_stepped_profile(&mut nodes, &mut waterfalls, &[], 20, 0.2, &mut scratch);
+    form_stepped_profile(&mut nodes, &mut waterfalls, &[], 20, &mut scratch);
 
     let mut gentle = Vec::new();
     let mut steep = Vec::new();
@@ -1034,7 +1034,8 @@ fn waterfall_height_and_frequency_increase_with_smoothed_gradient() {
     let gentle_average = gentle.iter().sum::<f32>() / gentle.len() as f32;
     let steep_average = steep.iter().sum::<f32>() / steep.len() as f32;
     assert!(steep_average > gentle_average * 1.35);
-    assert!(steep.iter().all(|height| *height <= 0.0036 + 1.0e-7));
+    let maximum_fall = WATERFALL_REFERENCE_ISLAND_HEIGHT * 0.018;
+    assert!(steep.iter().all(|height| *height <= maximum_fall + 1.0e-7));
     assert!((nodes[20].surface - outlet_surface).abs() < f32::EPSILON);
 }
 
@@ -1058,14 +1059,7 @@ fn waterfall_spacing_contains_the_full_channel_width_patch() {
     let mut waterfalls = vec![false; nodes.len()];
     let mut scratch = Vec::new();
 
-    form_stepped_profile(
-        &mut nodes,
-        &mut waterfalls,
-        &sections,
-        30,
-        0.2,
-        &mut scratch,
-    );
+    form_stepped_profile(&mut nodes, &mut waterfalls, &sections, 30, &mut scratch);
 
     let waterfall_segments = waterfalls
         .iter()
@@ -1107,7 +1101,7 @@ fn waterfall_profile_keeps_the_source_segment_on_a_supported_terrace() {
     let mut waterfalls = vec![false; nodes.len()];
     let mut scratch = Vec::new();
 
-    form_stepped_profile(&mut nodes, &mut waterfalls, &[], 2, 0.2, &mut scratch);
+    form_stepped_profile(&mut nodes, &mut waterfalls, &[], 2, &mut scratch);
 
     assert!(!waterfalls[0]);
     assert_eq!(nodes[0].surface.to_bits(), nodes[1].surface.to_bits());
