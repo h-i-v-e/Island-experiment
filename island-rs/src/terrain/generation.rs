@@ -416,6 +416,7 @@ impl Island {
             ReedSurface {
                 river_bed: &river_bed,
                 deposited_depths: material.depths(),
+                sea_proximity: material.sea_proximities(),
                 forced_rock: &forced_rock,
                 stones: decorations.stone_vertices(),
                 waterfall_feet: &waterfall_feet,

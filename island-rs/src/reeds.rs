@@ -1,8 +1,9 @@
-//! Deterministic riverbank reeds and rushes built from owner-tiled card clumps.
+//! Deterministic waterside reeds and rushes built from owner-tiled card clumps.
 //!
-//! Placement starts from the exact final river-bed mask. A short graph-distance
-//! field is propagated only across dry final-LOD0 terrain, which prevents sea
-//! coastlines from becoming accidental reed beds.
+//! Placement starts from the exact final river-bed mask and the final below-sea
+//! edge. River distance is propagated only across dry final-LOD0 terrain. A
+//! coastal path is enabled only where preserved pre-carve sea proximity is
+//! zero, identifying shoreline introduced later by submerged river carving.
 #![allow(
     clippy::cast_possible_truncation,
     clippy::cast_precision_loss,
@@ -27,6 +28,7 @@ const CARD_LEVEL_COUNT: usize = 4;
 const WATERFALL_CLEARANCE_METRES: f32 = 3.0;
 const WATERWARD_PULL_BANK_FRACTION: f32 = 0.45;
 const ROOT_SINK_HEIGHT_FRACTION: f32 = 0.18;
+const PRE_CARVE_SEA_PROXIMITY_EPSILON: f32 = 1.0e-4;
 
 /// Physical and deterministic controls for riverbank vegetation.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -93,6 +95,7 @@ impl ReedOptions {
 pub(crate) struct ReedSurface<'a> {
     pub(crate) river_bed: &'a [bool],
     pub(crate) deposited_depths: &'a [f32],
+    pub(crate) sea_proximity: &'a [f32],
     pub(crate) forced_rock: &'a [bool],
     pub(crate) stones: &'a [u32],
     pub(crate) waterfall_feet: &'a [WaterfallFoot],
@@ -187,17 +190,26 @@ pub(crate) fn generate_reeds(
 ) -> Result<ReedMeshes, String> {
     let options = options.validate()?;
     validate_inputs(terrain, surface)?;
-    if terrain.vertices.is_empty() || !surface.river_bed.iter().any(|river| *river) {
+    if terrain.vertices.is_empty() {
         return Ok(ReedMeshes::default());
     }
 
     let adjacency = terrain.adjacency();
-    let distances = dry_bank_distances(
+    let sea: Vec<bool> = terrain
+        .vertices
+        .iter()
+        .map(|vertex| vertex.z <= 0.0)
+        .collect();
+    if !surface.river_bed.iter().any(|river| *river) && !sea.iter().any(|water| *water) {
+        return Ok(ReedMeshes::default());
+    }
+    let river_distances = dry_bank_distances(
         terrain,
         &adjacency,
         surface.river_bed,
         options.bank_width_metres,
     );
+    let coast_distances = dry_bank_distances(terrain, &adjacency, &sea, options.bank_width_metres);
     let minimum_normal_z = options.maximum_slope_degrees.to_radians().cos();
     let spacing_normalized = options.spacing_metres / ISLAND_WORLD_METRES;
     let spacing_squared = options.spacing_metres * options.spacing_metres;
@@ -218,8 +230,25 @@ pub(crate) fn generate_reeds(
         if indices.iter().any(|&index| surface.river_bed[index]) {
             continue;
         }
-        let mean_distance = indices.iter().map(|&index| distances[index]).sum::<f32>() / 3.0;
-        if !mean_distance.is_finite() || mean_distance > options.bank_width_metres {
+        let mean_river_distance = indices
+            .iter()
+            .map(|&index| river_distances[index])
+            .sum::<f32>()
+            / 3.0;
+        let mean_coast_distance = indices
+            .iter()
+            .map(|&index| coast_distances[index])
+            .sum::<f32>()
+            / 3.0;
+        let mean_coast_proximity = indices
+            .iter()
+            .map(|&index| surface.sea_proximity[index])
+            .sum::<f32>()
+            / 3.0;
+        let river_bank = bank_distance_is_eligible(mean_river_distance, options.bank_width_metres);
+        let coast_bank = bank_distance_is_eligible(mean_coast_distance, options.bank_width_metres)
+            && mean_coast_proximity <= PRE_CARVE_SEA_PROXIMITY_EPSILON;
+        if !river_bank && !coast_bank {
             continue;
         }
         if indices.iter().any(|&index| {
@@ -253,7 +282,11 @@ pub(crate) fn generate_reeds(
             4,
         )
         .mul_add(0.5, 0.5);
-        let bank_proximity = 1.0 - (mean_distance / options.bank_width_metres).clamp(0.0, 1.0);
+        let bank_proximity = if river_bank {
+            1.0 - (mean_river_distance / options.bank_width_metres).clamp(0.0, 1.0)
+        } else {
+            1.0 - (mean_coast_distance / options.bank_width_metres).clamp(0.0, 1.0)
+        };
         let coverage = ((coherent - options.coverage_threshold)
             / (1.0 - options.coverage_threshold).max(f32::EPSILON))
         .clamp(0.0, 1.0)
@@ -273,21 +306,33 @@ pub(crate) fn generate_reeds(
         let count = expected.floor() as usize + usize::from(rng.unit() < expected.fract());
         for _ in 0..count {
             let barycentric = random_barycentric(&mut rng);
-            let root_distance = distances[indices[0]] * barycentric.x
-                + distances[indices[1]] * barycentric.y
-                + distances[indices[2]] * (1.0 - barycentric.x - barycentric.y);
-            if !root_distance.is_finite() || root_distance > options.bank_width_metres {
-                continue;
-            }
+            let river_distance =
+                barycentric_mix(indices.map(|index| river_distances[index]), barycentric);
+            let coast_proximity = barycentric_mix(
+                indices.map(|index| surface.sea_proximity[index]),
+                barycentric,
+            );
+            let coast_distance =
+                barycentric_mix(indices.map(|index| coast_distances[index]), barycentric);
+            let (root_distance, target_water) =
+                if bank_distance_is_eligible(river_distance, options.bank_width_metres) {
+                    (river_distance, surface.river_bed)
+                } else if bank_distance_is_eligible(coast_distance, options.bank_width_metres)
+                    && coast_proximity <= PRE_CARVE_SEA_PROXIMITY_EPSILON
+                {
+                    (coast_distance, sea.as_slice())
+                } else {
+                    continue;
+                };
             let sampled_root = vertices[0] * barycentric.x
                 + vertices[1] * barycentric.y
                 + vertices[2] * (1.0 - barycentric.x - barycentric.y);
-            let mut root = pull_toward_river(
+            let mut root = pull_toward_water(
                 sampled_root,
                 indices,
                 terrain,
                 &adjacency,
-                surface.river_bed,
+                target_water,
                 waterward_pull,
             );
             root.z -= root_sink;
@@ -339,6 +384,7 @@ fn validate_inputs(terrain: &Mesh, surface: ReedSurface<'_>) -> Result<(), Strin
     if terrain.normals.len() != count
         || surface.river_bed.len() != count
         || surface.deposited_depths.len() != count
+        || surface.sea_proximity.len() != count
         || surface.forced_rock.len() != count
     {
         return Err("reed final LOD0 attribute lengths do not match vertices".into());
@@ -409,18 +455,18 @@ fn dry_bank_distances(
     distances
 }
 
-fn pull_toward_river(
+fn pull_toward_water(
     root: Vec3,
     triangle: [usize; 3],
     terrain: &Mesh,
     adjacency: &Adjacency,
-    river_bed: &[bool],
+    water: &[bool],
     maximum_pull: f32,
 ) -> Vec3 {
     let target = triangle
         .into_iter()
         .flat_map(|vertex| adjacency[vertex].iter().copied())
-        .filter(|&vertex| river_bed[vertex])
+        .filter(|&vertex| water[vertex])
         .min_by(|&left, &right| {
             terrain.vertices[left]
                 .truncate()
@@ -440,6 +486,16 @@ fn pull_toward_river(
         return root;
     }
     root.lerp(target, (maximum_pull / horizontal_distance).min(1.0))
+}
+
+fn bank_distance_is_eligible(distance: f32, limit: f32) -> bool {
+    distance.is_finite() && distance <= limit
+}
+
+fn barycentric_mix(values: [f32; 3], barycentric: Vec2) -> f32 {
+    values[0] * barycentric.x
+        + values[1] * barycentric.y
+        + values[2] * (1.0 - barycentric.x - barycentric.y)
 }
 
 fn random_barycentric(rng: &mut Rng) -> Vec2 {
@@ -581,12 +637,12 @@ mod tests {
     }
 
     #[test]
-    fn root_pulls_horizontally_and_down_toward_a_connected_river_vertex() {
+    fn root_pulls_horizontally_and_down_toward_a_connected_water_vertex() {
         let (mut mesh, river_bed) = river_bank_mesh();
         mesh.vertices[0].z = 0.005;
         let adjacency = mesh.adjacency();
         let root = (mesh.vertices[1] + mesh.vertices[3] + mesh.vertices[4]) / 3.0;
-        let pulled = pull_toward_river(
+        let pulled = pull_toward_water(
             root,
             [1, 4, 3],
             &mesh,
@@ -632,9 +688,11 @@ mod tests {
         let (mesh, river_bed) = river_bank_mesh();
         let depths = vec![0.001; mesh.vertices.len()];
         let forced_rock = vec![false; mesh.vertices.len()];
+        let sea_proximity = vec![0.0; mesh.vertices.len()];
         let surface = ReedSurface {
             river_bed: &river_bed,
             deposited_depths: &depths,
+            sea_proximity: &sea_proximity,
             forced_rock: &forced_rock,
             stones: &[],
             waterfall_feet: &[],
@@ -667,16 +725,18 @@ mod tests {
     }
 
     #[test]
-    fn riverless_terrain_produces_no_clumps() {
+    fn terrain_without_river_or_sea_produces_no_clumps() {
         let (mesh, _) = river_bank_mesh();
         let empty = vec![false; mesh.vertices.len()];
         let depths = vec![0.001; mesh.vertices.len()];
+        let sea_proximity = vec![0.0; mesh.vertices.len()];
         let result = generate_reeds(
             7,
             &mesh,
             ReedSurface {
                 river_bed: &empty,
                 deposited_depths: &depths,
+                sea_proximity: &sea_proximity,
                 forced_rock: &empty,
                 stones: &[],
                 waterfall_feet: &[],
@@ -684,6 +744,76 @@ mod tests {
             ReedOptions::default(),
         )
         .unwrap();
+        assert_eq!(result.clump_count(), 0);
+    }
+
+    #[test]
+    fn post_carve_coast_with_zero_sea_proximity_produces_reed_clumps() {
+        let (mut mesh, _) = river_bank_mesh();
+        for vertex in &mut mesh.vertices {
+            vertex.z = 0.0005;
+        }
+        mesh.vertices[0].z = -0.001;
+        let empty = vec![false; mesh.vertices.len()];
+        let depths = vec![0.0001; mesh.vertices.len()];
+        let sea_proximity = vec![0.0; mesh.vertices.len()];
+        let options = ReedOptions {
+            bank_width_metres: 5.0,
+            patch_size_metres: 1000.0,
+            coverage_threshold: 0.0,
+            spacing_metres: 0.2,
+            ..ReedOptions::default()
+        };
+
+        let result = generate_reeds(
+            7,
+            &mesh,
+            ReedSurface {
+                river_bed: &empty,
+                deposited_depths: &depths,
+                sea_proximity: &sea_proximity,
+                forced_rock: &empty,
+                stones: &[],
+                waterfall_feet: &[],
+            },
+            options,
+        )
+        .unwrap();
+
+        assert!(result.clump_count() > 0);
+    }
+
+    #[test]
+    fn original_coast_with_nonzero_sea_proximity_suppresses_coastal_reeds() {
+        let (mut mesh, _) = river_bank_mesh();
+        for vertex in &mut mesh.vertices {
+            vertex.z = 0.0005;
+        }
+        mesh.vertices[0].z = -0.001;
+        let empty = vec![false; mesh.vertices.len()];
+        let depths = vec![0.002; mesh.vertices.len()];
+        let sea_proximity = vec![1.0; mesh.vertices.len()];
+        let result = generate_reeds(
+            7,
+            &mesh,
+            ReedSurface {
+                river_bed: &empty,
+                deposited_depths: &depths,
+                sea_proximity: &sea_proximity,
+                forced_rock: &empty,
+                stones: &[],
+                waterfall_feet: &[],
+            },
+            ReedOptions {
+                bank_width_metres: 5.0,
+                patch_size_metres: 1000.0,
+                coverage_threshold: 0.0,
+                spacing_metres: 0.2,
+                ..ReedOptions::default()
+            },
+        )
+        .unwrap();
+
         assert_eq!(result.clump_count(), 0);
     }
 }

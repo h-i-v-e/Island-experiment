@@ -2,9 +2,9 @@
 
 ## Goal
 
-Add deterministic, wind-animated reeds and rushes to final LOD 0 riverbanks
-without decorating ordinary coastlines, creating one GameObject per clump, or
-showing solid card rectangles in water reflections.
+Add deterministic, wind-animated reeds and rushes to final LOD 0 riverbanks and
+coastlines without creating one GameObject per clump or showing solid card
+rectangles in water reflections.
 
 ## Visual design
 
@@ -18,11 +18,15 @@ and alpha-to-coverage provide stable depth and avoid transparent sorting.
 ## Placement contract
 
 1. Use the final LOD 0 terrain, its exact river-bed mask, loose-cover depth,
-   forced-rock mask, settled-stone vertices, and authoritative waterfall feet.
+   sea proximity, forced-rock mask, settled-stone vertices, and authoritative
+   waterfall feet.
 2. Seed the dry bank from non-river vertices adjacent to river-bed vertices and
    calculate a short graph distance outward across dry terrain.
-3. Restrict roots to an above-sea, low-slope bank strip. Exclude forced rock,
-   settled stones, waterfall impact clearances, and non-river coastlines.
+3. Seed a second dry bank from the final below-sea edge, but accept it only
+   where the preserved pre-river-carving sea proximity is zero. This targets
+   new submerged river-carve coast rather than the original coastline.
+   Restrict all roots to an above-sea, low-slope strip and exclude forced rock,
+   settled stones, and waterfall impact clearances.
 4. Weight eligibility by loose-soil richness and deterministic coherent noise.
    Use the inner strip for taller reeds and the outer strip for shorter rushes.
 5. Sample eligible triangles by physical area, then enforce deterministic local
