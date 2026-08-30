@@ -17,6 +17,7 @@ mod png;
 pub mod procedural_textures;
 mod profiling;
 mod raster;
+mod reeds;
 mod rivers;
 mod rng;
 mod sea_mask;
@@ -40,6 +41,7 @@ pub use procedural_textures::{
     write_texture_set,
 };
 pub use raster::Raster;
+pub use reeds::ReedOptions;
 pub use rivers::{River, RiverNode};
 pub use sea_mask::SeaMask;
 pub use terrain::{

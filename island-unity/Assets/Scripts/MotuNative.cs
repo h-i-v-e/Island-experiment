@@ -43,6 +43,19 @@ internal static class MotuNative
     }
 
     [StructLayout(LayoutKind.Sequential)]
+    internal struct ReedOptions
+    {
+        internal float bankWidthMetres;
+        internal float patchSizeMetres;
+        internal float coverageThreshold;
+        internal float spacingMetres;
+        internal float rushRatio;
+        internal float minimumHeightMetres;
+        internal float maximumHeightMetres;
+        internal float maximumSlopeDegrees;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
     internal struct Vector3Array
     {
         internal IntPtr data;
@@ -273,6 +286,13 @@ internal static class MotuNative
         ref ForestOptions forestOptions);
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+    internal static extern IntPtr CreateMotuWithForestAndReeds(
+        int seed,
+        ref Options options,
+        ref ForestOptions forestOptions,
+        ref ReedOptions reedOptions);
+
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
     internal static extern void ReleaseMotu(IntPtr handle);
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
@@ -343,6 +363,11 @@ internal static class MotuNative
         ref ExportArea area,
         int visualLod,
         int divisions,
+        out ExportMeshGrid output);
+
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+    internal static extern void CreateReedMeshGrid(
+        IntPtr handle,
         out ExportMeshGrid output);
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]

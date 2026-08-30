@@ -18,6 +18,7 @@ use crate::forest::{
     ForestGenerationStats, ForestMeshKind, ForestMeshes, ForestOptions, forest_floor_mask,
     generate_forest,
 };
+use crate::reeds::{ReedMeshTile, ReedMeshes, ReedOptions, ReedSurface, generate_reeds};
 use crate::rivers::WaterfallFoot;
 
 const SEA_PROXIMITY_FULL_STRENGTH_METRES: f32 = 2.0;
@@ -37,6 +38,7 @@ pub struct Island {
     pub(super) river_mesh: Mesh,
     pub(super) river_rock_mesh: Mesh,
     pub(super) waterfall_feet: Vec<WaterfallFoot>,
+    pub(super) reeds: ReedMeshes,
     pub(super) forest: ForestMeshes,
     pub(super) forest_stats: ForestGenerationStats,
     pub(super) forest_options: ForestOptions,
@@ -323,10 +325,48 @@ impl Island {
         forest_options: ForestOptions,
         method: GenerationMethod,
     ) -> Result<Self, String> {
+        Self::generate_with_forest_reeds_and_method(
+            seed,
+            options,
+            forest_options,
+            ReedOptions::default(),
+            method,
+        )
+    }
+
+    /// Generates an island with explicit forest and riverbank vegetation controls.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when any option block is invalid or generation fails.
+    pub fn generate_with_forest_and_reeds(
+        seed: u64,
+        options: IslandOptions,
+        forest_options: ForestOptions,
+        reed_options: ReedOptions,
+    ) -> Result<Self, String> {
+        Self::generate_with_forest_reeds_and_method(
+            seed,
+            options,
+            forest_options,
+            reed_options,
+            GenerationMethod::Cpu,
+        )
+    }
+
+    #[allow(clippy::too_many_lines)]
+    pub(crate) fn generate_with_forest_reeds_and_method(
+        seed: u64,
+        options: IslandOptions,
+        forest_options: ForestOptions,
+        reed_options: ReedOptions,
+        method: GenerationMethod,
+    ) -> Result<Self, String> {
         method.require_available()?;
         let _timer = StageTimer::new("island.generate");
         let options = options.validate()?;
         let forest_options = forest_options.validate()?;
+        let reed_options = reed_options.validate()?;
         let mut scratch = GenerationScratch::new(method);
         let (base, material) = generate_base(seed, options, &mut scratch)?;
         let context = GenerationContext::new(seed, options);
@@ -370,12 +410,25 @@ impl Island {
             method,
         )?;
         append_settled_rocks(seed, &settled_rocks, &mut river_rock_mesh);
+        let reeds = generate_reeds(
+            seed,
+            terrain.mesh(),
+            ReedSurface {
+                river_bed: &river_bed,
+                deposited_depths: material.depths(),
+                forced_rock: &forced_rock,
+                stones: decorations.stone_vertices(),
+                waterfall_feet: &waterfall_feet,
+            },
+            reed_options,
+        )?;
         let (forest, forest_stats) = generate_forest(
             seed,
             &terrain,
             crate::forest::ForestSurface {
                 river_bed: &river_bed,
                 stones: decorations.stone_vertices(),
+                reeds: reeds.forest_exclusion_vertices(),
                 deposited_depths: material.depths(),
                 sea_proximity: material.sea_proximities(),
             },
@@ -385,7 +438,8 @@ impl Island {
         let forest_floor = forest_floor_mask(seed, terrain.mesh(), forest.placements());
         let environment =
             TerrainEnvironmentField::from_masks(&forest_floor, decorations.stone_vertices());
-        let material = TerrainMaterialField::from_surface(&material, &river_bed, &forced_rock);
+        let mut material = TerrainMaterialField::from_surface(&material, &river_bed, &forced_rock);
+        material.suppress_grass_at_vertices(reeds.forest_exclusion_vertices());
         let distance_to_land = {
             let _timer = StageTimer::new("sea_mask.distance_to_land");
             let land: Vec<bool> = terrain
@@ -409,6 +463,7 @@ impl Island {
             river_mesh,
             river_rock_mesh,
             waterfall_feet,
+            reeds,
             forest,
             forest_stats,
             forest_options,
@@ -475,6 +530,11 @@ impl Island {
         divisions: usize,
     ) -> Option<Vec<crate::forest::ForestMeshTile>> {
         self.forest.mesh_grid(kind, visual_lod, bounds, divisions)
+    }
+
+    #[must_use]
+    pub(crate) fn reed_mesh_tiles(&self) -> &[ReedMeshTile] {
+        self.reeds.tiles()
     }
 
     #[allow(dead_code)]

@@ -215,6 +215,15 @@ impl TerrainMaterialField {
             },
         )
     }
+
+    pub(super) fn suppress_grass_at_vertices(&mut self, vertices: &[u32]) {
+        const REED_SUPPORT_LOOSE_COVER: f32 = 0.06;
+        for &vertex in vertices {
+            if let Some(material) = self.values.get_mut(vertex as usize) {
+                material.y = material.y.min(REED_SUPPORT_LOOSE_COVER);
+            }
+        }
+    }
 }
 
 /// Additional terrain vertex signals exported independently from the four
@@ -357,5 +366,16 @@ mod tests {
         assert_eq!(field.values[0], Vec2::Y);
         assert_eq!(field.values[1], Vec2::ONE);
         assert_eq!(field.values[2], Vec2::ZERO);
+    }
+
+    #[test]
+    fn reed_support_only_caps_the_selected_loose_cover_channel() {
+        let original = Vec4::new(0.4, 0.9, 0.7, 0.3);
+        let mut field = TerrainMaterialField {
+            values: vec![original, original],
+        };
+        field.suppress_grass_at_vertices(&[1]);
+        assert_eq!(field.values[0], original);
+        assert_eq!(field.values[1], Vec4::new(0.4, 0.06, 0.7, 0.3));
     }
 }
