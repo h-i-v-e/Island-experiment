@@ -39,6 +39,7 @@ mod generation;
 mod generation_method;
 #[cfg(feature = "gpu-generation")]
 mod gpu_generation;
+mod lod;
 mod material;
 mod sampling;
 mod surface_maps;
@@ -53,7 +54,7 @@ pub(crate) use erosion::{ProjectedFaceAreas, VertexFaceAdjacency, bedrock_erosio
 use generation::GenerationScratch;
 pub use generation::Island;
 #[cfg(test)]
-use generation::{correct_lods, sharp_rock_mask};
+use generation::sharp_rock_mask;
 pub use generation_method::GenerationMethod;
 #[cfg(feature = "gpu-generation")]
 use gpu_generation::GpuParticleErosionScratch;

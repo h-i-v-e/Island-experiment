@@ -1,17 +1,18 @@
 #[cfg(feature = "gpu-generation")]
 use super::GpuParticleErosionScratch;
 use super::coastal_uplift;
+use super::lod::regenerate_lods;
 use super::{
     Adjacency, BinaryHeap, BoundingBox, DETAIL_DISPLACEMENT_RATIO, Decorations, File,
     GenerationMethod, GeologyField, HashSet, HydraulicScratch, ISLAND_WORLD_METRES,
-    IndexedParallelIterator, IslandOptions, Mesh, MeshClipper, NewVertexStencil, OnceLock,
-    Ordering, ParallelIterator, ParallelSliceMut, Path, Raster, Read, River, RiverChannelSettings,
+    IndexedParallelIterator, IslandOptions, Mesh, MeshClipper, OnceLock, Ordering,
+    ParallelIterator, ParallelSliceMut, Path, Raster, Read, River, RiverChannelSettings,
     RiverNetwork, RiverSourceRule, Rng, SHARP_ROCK_DISPLACEMENT_RATIO, StageTimer, SurfaceMaps,
     SurfaceMaterial, TERRAIN_RENDER_FLOOR, Terrain, TerrainEnvironmentField, TerrainMaterialField,
-    TriangleIndex, Vec2, Vec3, Vec4, Write, append_settled_rocks, bake_surface_maps,
-    bury_river_banks, encode_bank_distance_in_uv, erode_mesh, fix_inland_seas, geology,
-    hydraulic_erode_stage, hydraulic_erode_stage_depositing_across_sea, io,
-    legacy_catchment_hectares, mem, noise, sample_grid, sample_mesh_surface,
+    Vec2, Vec3, Vec4, Write, append_settled_rocks, bake_surface_maps, bury_river_banks,
+    encode_bank_distance_in_uv, erode_mesh, fix_inland_seas, geology, hydraulic_erode_stage,
+    hydraulic_erode_stage_depositing_across_sea, io, legacy_catchment_hectares, mem, noise,
+    sample_grid,
 };
 use crate::forest::{
     ForestGenerationStats, ForestMeshKind, ForestMeshes, ForestOptions, forest_floor_mask,
@@ -345,8 +346,8 @@ impl Island {
             options.river_channel_settings(),
         )?;
         let lod0_index = {
-            let _timer = StageTimer::new("lod.correct");
-            correct_lods(&mut lod0, &mut lod1, &mut lod2)
+            let _timer = StageTimer::new("lod.simplify");
+            regenerate_lods(&mut lod0, &mut lod1, &mut lod2)
         };
         bury_river_banks(&mut river_mesh, &lod0, &lod0_index);
         river_mesh = river_mesh.clipped_above(0.0);
@@ -1048,48 +1049,6 @@ pub(super) fn refine_lod1_again(
     );
     refined.calculate_normals();
     Ok((refined, material))
-}
-
-pub(super) fn correct_lods(lod0: &mut Mesh, lod1: &mut Mesh, lod2: &mut Mesh) -> TriangleIndex {
-    let lod1_refinement = lod1.tessellated_attributed();
-    let lod2_refinement = lod2.tessellated_attributed();
-    *lod1 = lod1_refinement.mesh;
-    *lod2 = lod2_refinement.mesh;
-
-    let lod0_index = TriangleIndex::new(lod0);
-    pin_refined_lod(lod1, &lod1_refinement.new_vertices, lod0, &lod0_index);
-    pin_refined_lod(lod2, &lod2_refinement.new_vertices, lod0, &lod0_index);
-
-    for mesh in [lod0, lod1, lod2] {
-        mesh.uv
-            .iter_mut()
-            .zip(&mesh.vertices)
-            .for_each(|(uv, vertex)| *uv = vertex.truncate());
-        mesh.calculate_normals();
-    }
-    lod0_index
-}
-
-pub(super) fn pin_refined_lod(
-    mesh: &mut Mesh,
-    new_vertices: &[NewVertexStencil],
-    lod0: &Mesh,
-    lod0_index: &TriangleIndex,
-) {
-    let shared_vertex_count = mesh.vertices.len() - new_vertices.len();
-    debug_assert!(lod0.vertices.len() >= shared_vertex_count);
-    mesh.vertices[..shared_vertex_count].copy_from_slice(&lod0.vertices[..shared_vertex_count]);
-
-    for stencil in new_vertices {
-        let [a, b] = [
-            stencil.surrounding[0] as usize,
-            stencil.surrounding[1] as usize,
-        ];
-        debug_assert!(a < shared_vertex_count && b < shared_vertex_count);
-        let point = (mesh.vertices[a].truncate() + mesh.vertices[b].truncate()) * 0.5;
-        let elevation = sample_mesh_surface(lod0, lod0_index, point.x, point.y).0;
-        mesh.vertices[stencil.vertex as usize] = point.extend(elevation);
-    }
 }
 
 #[derive(Clone, Copy, Debug)]

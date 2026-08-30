@@ -12,6 +12,7 @@ crate-type = ["rlib", "cdylib"]
 [dependencies]
 bytemuck = { version = "1.25.0", features = ["derive"], optional = true }
 glam = "0.33.2"
+meshopt = "0.6.2"
 pollster = { version = "1.0.0", optional = true }
 png = "0.17.16"
 rayon = "1.11.0"

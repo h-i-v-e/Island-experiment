@@ -1027,10 +1027,7 @@ pub(super) fn triangle_bin_bounds(
 
 #[cfg(test)]
 mod hydraulic_tests {
-    use super::super::{
-        Terrain, TerrainMaterialField, TriangleIndex, correct_lods, sample_mesh_surface,
-        sharp_rock_mask,
-    };
+    use super::super::{Terrain, TerrainMaterialField, sharp_rock_mask};
     use super::*;
 
     pub(super) fn settings() -> HydraulicErosionSettings {
@@ -1422,36 +1419,5 @@ mod hydraulic_tests {
         let sample = field.sample(&terrain, Vec2::new(0.25, 0.5));
 
         assert!(sample.abs_diff_eq(Vec4::new(0.25, 0.5, 0.0, 0.0), 1.0e-6));
-    }
-
-    #[test]
-    pub(super) fn final_lod_correction_refines_and_pins_both_coarser_meshes() {
-        let mut lod2 = Mesh::delaunay(&[Vec2::ZERO, Vec2::X, Vec2::ONE, Vec2::Y]);
-        let mut lod1 = lod2.tessellated();
-        let mut lod0 = lod1.tessellated().tessellated();
-        lod0.vertices.iter_mut().for_each(|vertex| {
-            vertex.z = vertex.x.mul_add(vertex.x * 0.2, vertex.y * vertex.y * 0.1);
-        });
-        lod0.calculate_normals();
-        let lod1_vertex_count = lod1.vertices.len();
-        let lod2_vertex_count = lod2.vertices.len();
-        let lod1_triangle_count = lod1.triangles.len();
-        let lod2_triangle_count = lod2.triangles.len();
-        let lod1_shared = lod0.vertices[..lod1_vertex_count].to_vec();
-        let lod2_shared = lod0.vertices[..lod2_vertex_count].to_vec();
-
-        correct_lods(&mut lod0, &mut lod1, &mut lod2);
-
-        assert_eq!(lod1.triangles.len(), lod1_triangle_count * 4);
-        assert_eq!(lod2.triangles.len(), lod2_triangle_count * 4);
-        assert_eq!(lod1.vertices[..lod1_vertex_count], lod1_shared);
-        assert_eq!(lod2.vertices[..lod2_vertex_count], lod2_shared);
-        let index = TriangleIndex::new(&lod0);
-        for mesh in [&lod1, &lod2] {
-            assert!(mesh.vertices.iter().all(|vertex| {
-                let elevation = sample_mesh_surface(&lod0, &index, vertex.x, vertex.y).0;
-                (elevation - vertex.z).abs() < 1.0e-6
-            }));
-        }
     }
 }
