@@ -14,7 +14,7 @@ use std::{
     ptr,
 };
 
-use crate::forest::{ForestMeshKind, ForestMeshTile};
+use crate::forest::{ForestMeshKind, ForestMeshTile, ForestTrunkCollider};
 use crate::procedural_textures::{
     IslandMaterialKind, LinearRgb, MaterialSelection, NormalConvention, RuntimeMaterialBakeOptions,
     RuntimeMaterialInputs, TextureSet, bake_island_materials,
@@ -315,6 +315,36 @@ pub struct ExportRiverEmitters {
 }
 
 const _: () = assert!(size_of::<RiverEmitterExport>() == size_of::<[f32; 7]>());
+
+#[derive(Clone, Copy, Debug, Default)]
+#[repr(C)]
+pub struct ForestTrunkColliderExport {
+    pub bottom: Vec3,
+    pub top: Vec3,
+    pub owner: Vec2,
+    pub radius: f32,
+}
+
+impl From<ForestTrunkCollider> for ForestTrunkColliderExport {
+    fn from(value: ForestTrunkCollider) -> Self {
+        Self {
+            bottom: value.bottom,
+            top: value.top,
+            owner: value.owner,
+            radius: value.radius,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+#[repr(C)]
+pub struct ExportForestTrunkColliders {
+    pub handle: *mut c_void,
+    pub data: *const ForestTrunkColliderExport,
+    pub length: i32,
+}
+
+const _: () = assert!(size_of::<ForestTrunkColliderExport>() == size_of::<[f32; 9]>());
 
 #[derive(Clone, Copy, Debug, Default)]
 #[repr(C)]
@@ -1266,6 +1296,54 @@ pub unsafe extern "C" fn ReleaseRiverEmitters(output: *mut ExportRiverEmitters) 
     *output = ExportRiverEmitters::default();
 }
 
+/// Exports one compact capsule description for every placed central trunk.
+///
+/// Positions and radii use normalized island coordinates. The returned owner
+/// must be released exactly once with `ReleaseForestTrunkColliders`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn CreateForestTrunkColliders(
+    handle: *const c_void,
+    output: *mut ExportForestTrunkColliders,
+) {
+    let Some(output) = (unsafe { output.as_mut() }) else {
+        return;
+    };
+    *output = ExportForestTrunkColliders::default();
+    let Some(island) = (unsafe { island_ref(handle) }) else {
+        return;
+    };
+    let Ok(colliders) = island
+        .forest_meshes()
+        .trunk_colliders()
+        .map(|collider| collider.map(ForestTrunkColliderExport::from))
+        .collect::<Result<Vec<_>, _>>()
+    else {
+        return;
+    };
+    let owner = Box::new(colliders);
+    let export = ExportForestTrunkColliders {
+        handle: ptr::null_mut(),
+        data: owner.as_ptr(),
+        length: length_i32(owner.len()),
+    };
+    *output = ExportForestTrunkColliders {
+        handle: Box::into_raw(owner).cast(),
+        ..export
+    };
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ReleaseForestTrunkColliders(output: *mut ExportForestTrunkColliders) {
+    let Some(output) = (unsafe { output.as_mut() }) else {
+        return;
+    };
+    if !output.handle.is_null() {
+        // SAFETY: handle came from CreateForestTrunkColliders and is released once.
+        drop(unsafe { Box::from_raw(output.handle.cast::<Vec<ForestTrunkColliderExport>>()) });
+    }
+    *output = ExportForestTrunkColliders::default();
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ReleaseMeshWithUV(output: *mut ExportMeshWithUv) {
     let Some(output) = (unsafe { output.as_mut() }) else {
@@ -1799,7 +1877,23 @@ mod tests {
     fn forest_grid_null_output_is_safe() {
         unsafe {
             CreateForestWoodMeshGrid(ptr::null(), ptr::null(), 0, 8, ptr::null_mut());
+            CreateForestTrunkColliders(ptr::null(), ptr::null_mut());
         }
+    }
+
+    #[test]
+    fn forest_trunk_collider_null_island_leaves_a_default_export() {
+        let mut output = ExportForestTrunkColliders {
+            handle: ptr::dangling_mut(),
+            data: ptr::dangling(),
+            length: 13,
+        };
+        unsafe {
+            CreateForestTrunkColliders(ptr::null(), &raw mut output);
+        }
+        assert!(output.handle.is_null());
+        assert!(output.data.is_null());
+        assert_eq!(output.length, 0);
     }
 
     #[test]
@@ -1865,6 +1959,25 @@ mod tests {
                     && tile.triangles.length % 36 == 0
                     && tile.vertices.length / 8 == tile.triangles.length / 36
             }));
+            let expected_collider_count = wood_tiles
+                .iter()
+                .map(|tile| tile.vertices.length / 8)
+                .sum::<i32>();
+
+            let mut trunk_colliders = ExportForestTrunkColliders::default();
+            CreateForestTrunkColliders(handle, &raw mut trunk_colliders);
+            assert!(!trunk_colliders.handle.is_null());
+            assert_eq!(trunk_colliders.length, expected_collider_count);
+            let collider_values =
+                std::slice::from_raw_parts(trunk_colliders.data, trunk_colliders.length as usize);
+            assert!(collider_values.iter().all(|collider| {
+                collider.bottom.is_finite()
+                    && collider.top.is_finite()
+                    && collider.owner.is_finite()
+                    && collider.radius.is_finite()
+                    && collider.radius > 0.0
+                    && collider.top != collider.bottom
+            }));
 
             let mut foliage_lod1 = ExportMeshGrid::default();
             let mut foliage_lod2 = ExportMeshGrid::default();
@@ -1876,6 +1989,8 @@ mod tests {
             assert_eq!(foliage_lod2.length, 4);
             ReleaseMeshGrid(&raw mut wood_lod2);
             assert!(wood_lod2.handle.is_null());
+            ReleaseForestTrunkColliders(&raw mut trunk_colliders);
+            assert!(trunk_colliders.handle.is_null());
             assert!(!foliage_lod1.handle.is_null());
             ReleaseMeshGrid(&raw mut foliage_lod1);
             ReleaseMeshGrid(&raw mut foliage_lod2);
@@ -2177,6 +2292,11 @@ mod tests {
                     && tile.material.length == tile.vertices.length
             }));
 
+            let mut forest_trunk_colliders = ExportForestTrunkColliders::default();
+            CreateForestTrunkColliders(handle, &raw mut forest_trunk_colliders);
+            assert!(!forest_trunk_colliders.handle.is_null());
+            assert!(forest_trunk_colliders.length > 0);
+
             let mut forest_foliage_lod1 = ExportMeshGrid::default();
             let mut forest_foliage_lod2 = ExportMeshGrid::default();
             CreateForestFoliageMeshGrid(handle, ptr::null(), 1, 8, &raw mut forest_foliage_lod1);
@@ -2200,6 +2320,8 @@ mod tests {
             );
             ReleaseMeshGrid(&raw mut forest_wood_lod2);
             assert!(forest_wood_lod2.handle.is_null());
+            ReleaseForestTrunkColliders(&raw mut forest_trunk_colliders);
+            assert!(forest_trunk_colliders.handle.is_null());
             assert!(!forest_foliage_lod1.handle.is_null());
             ReleaseMeshGrid(&raw mut forest_foliage_lod1);
             ReleaseMeshGrid(&raw mut forest_foliage_lod2);

@@ -86,6 +86,13 @@ internal static class MotuNative
     }
 
     [StructLayout(LayoutKind.Sequential)]
+    internal struct NativeVector2
+    {
+        internal float x;
+        internal float y;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
     internal struct ExportArea
     {
         internal NativeVector3 min;
@@ -223,6 +230,23 @@ internal static class MotuNative
     }
 
     [StructLayout(LayoutKind.Sequential)]
+    internal struct ForestTrunkColliderExport
+    {
+        internal NativeVector3 bottom;
+        internal NativeVector3 top;
+        internal NativeVector2 owner;
+        internal float radius;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct ExportForestTrunkColliders
+    {
+        internal IntPtr handle;
+        internal IntPtr data;
+        internal int length;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
     internal struct ExportDecoration
     {
         internal Vector3Array trees;
@@ -319,6 +343,15 @@ internal static class MotuNative
         int visualLod,
         int divisions,
         out ExportMeshGrid output);
+
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+    internal static extern void CreateForestTrunkColliders(
+        IntPtr handle,
+        out ExportForestTrunkColliders output);
+
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+    internal static extern void ReleaseForestTrunkColliders(
+        ref ExportForestTrunkColliders output);
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
     internal static extern void CreateRiverEmitters(

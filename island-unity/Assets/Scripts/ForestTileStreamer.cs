@@ -5,8 +5,8 @@ using UnityEngine.Rendering;
 
 // Forest geometry is already spatially batched by Rust without splitting a
 // placed tree's wood or a shared foliage cluster. This helper only owns the
-// Unity lifetime and visual-LOD state; it never creates a GameObject or
-// renderer for an individual tree or cluster.
+// Unity lifetime and visual-LOD state. Render geometry remains batched; only
+// active LOD0 trunks receive individual collision-only GameObjects.
 internal sealed class ForestTileStreamer : IDisposable
 {
     internal const int Lod2Resolution = 8;
@@ -51,13 +51,18 @@ internal sealed class ForestTileStreamer : IDisposable
     {
         internal readonly GameObject foliageRoot;
         internal readonly GameObject woodRoot;
+        internal readonly GameObject colliderRoot;
         internal readonly Dictionary<Vector2Int, Tile> tiles =
             new Dictionary<Vector2Int, Tile>();
 
-        internal Group(GameObject foliageRoot, GameObject woodRoot)
+        internal Group(
+            GameObject foliageRoot,
+            GameObject woodRoot,
+            GameObject colliderRoot)
         {
             this.foliageRoot = foliageRoot;
             this.woodRoot = woodRoot;
+            this.colliderRoot = colliderRoot;
         }
     }
 
@@ -74,6 +79,7 @@ internal sealed class ForestTileStreamer : IDisposable
     private GameObject foliageRoot;
     private GameObject woodRoot;
     private GameObject canopyShadowRoot;
+    private GameObject trunkColliderRoot;
     private Material foliageMaterial;
     private Material lod0FoliageMaterial;
     private Material woodMaterial;
@@ -85,12 +91,17 @@ internal sealed class ForestTileStreamer : IDisposable
     private IslandPreparedMesh[] preparedLod1Wood;
     private IslandPreparedMesh[] preparedLod0Foliage;
     private IslandPreparedMesh[] preparedLod0Wood;
+    private IslandPreparedTreeCollider[][] preparedLod0TrunkColliders;
     private bool initialized;
     private bool meshEdgesVisible;
 
     internal int ActiveLod2TileCount => lod2Tiles.Count;
     internal int Lod1GroupCount => lod1Groups.Count;
     internal int Lod0GroupCount => lod0Groups.Count;
+    internal int ActiveTrunkColliderCount =>
+        trunkColliderRoot == null
+            ? 0
+            : trunkColliderRoot.GetComponentsInChildren<CapsuleCollider>().Length;
     internal GameObject Root => forestRoot;
 
     internal void Initialize(
@@ -140,6 +151,7 @@ internal sealed class ForestTileStreamer : IDisposable
         preparedLod1Wood = prepared.lod1WoodTiles;
         preparedLod0Foliage = prepared.lod0FoliageTiles;
         preparedLod0Wood = prepared.lod0WoodTiles;
+        preparedLod0TrunkColliders = prepared.lod0TrunkColliderTiles;
 
         try
         {
@@ -151,6 +163,8 @@ internal sealed class ForestTileStreamer : IDisposable
             woodRoot.transform.SetParent(forestRoot.transform, false);
             canopyShadowRoot = new GameObject("Low-Poly Canopy Shadows");
             canopyShadowRoot.transform.SetParent(forestRoot.transform, false);
+            trunkColliderRoot = new GameObject("Forest Trunk Colliders (LOD 0 Only)");
+            trunkColliderRoot.transform.SetParent(forestRoot.transform, false);
 
             CreateInitialLod2Tiles();
             forestRoot.SetActive(showForests);
@@ -336,6 +350,7 @@ internal sealed class ForestTileStreamer : IDisposable
         foliageRoot = null;
         woodRoot = null;
         canopyShadowRoot = null;
+        trunkColliderRoot = null;
         foliageMaterial = null;
         lod0FoliageMaterial = null;
         woodMaterial = null;
@@ -347,6 +362,7 @@ internal sealed class ForestTileStreamer : IDisposable
         preparedLod1Wood = null;
         preparedLod0Foliage = null;
         preparedLod0Wood = null;
+        preparedLod0TrunkColliders = null;
         initialized = false;
         meshEdgesVisible = false;
     }
@@ -389,7 +405,7 @@ internal sealed class ForestTileStreamer : IDisposable
 
     private Group CreateLod1Group(Vector2Int parent)
     {
-        var group = CreateGroupRoots($"Forest LOD 1 group {parent.x},{parent.y}");
+        var group = CreateGroupRoots($"Forest LOD 1 group {parent.x},{parent.y}", false);
         try
         {
             for (var localY = 0; localY < Lod2TilePerLod1Region; localY++)
@@ -429,7 +445,7 @@ internal sealed class ForestTileStreamer : IDisposable
 
     private Group CreateLod0Group(Vector2Int key)
     {
-        var group = CreateGroupRoots($"Forest LOD 0 group {key.x},{key.y}");
+        var group = CreateGroupRoots($"Forest LOD 0 group {key.x},{key.y}", true);
         try
         {
             var index = key.y * Lod1Resolution + key.x;
@@ -448,6 +464,10 @@ internal sealed class ForestTileStreamer : IDisposable
                         group.woodRoot.transform,
                         $"Forest LOD 0 tile {key.x},{key.y}"));
             }
+            CreateTrunkColliders(
+                group.colliderRoot.transform,
+                preparedLod0TrunkColliders[index],
+                key);
             return group;
         }
         catch
@@ -457,20 +477,63 @@ internal sealed class ForestTileStreamer : IDisposable
         }
     }
 
-    private Group CreateGroupRoots(string name)
+    private Group CreateGroupRoots(string name, bool createColliderRoot)
     {
         var groupFoliageRoot = new GameObject($"{name} foliage");
         groupFoliageRoot.transform.SetParent(foliageRoot.transform, false);
+        GameObject groupWoodRoot = null;
+        GameObject groupColliderRoot = null;
         try
         {
-            var groupWoodRoot = new GameObject($"{name} wood");
+            groupWoodRoot = new GameObject($"{name} wood");
             groupWoodRoot.transform.SetParent(woodRoot.transform, false);
-            return new Group(groupFoliageRoot, groupWoodRoot);
+            if (createColliderRoot)
+            {
+                groupColliderRoot = new GameObject($"{name} trunk colliders");
+                groupColliderRoot.transform.SetParent(trunkColliderRoot.transform, false);
+            }
+            return new Group(groupFoliageRoot, groupWoodRoot, groupColliderRoot);
         }
         catch
         {
             DestroyUnityObject(groupFoliageRoot);
+            DestroyUnityObject(groupWoodRoot);
+            DestroyUnityObject(groupColliderRoot);
             throw;
+        }
+    }
+
+    private static void CreateTrunkColliders(
+        Transform parent,
+        IslandPreparedTreeCollider[] colliders,
+        Vector2Int tile)
+    {
+        if (parent == null || colliders == null)
+        {
+            return;
+        }
+        for (var index = 0; index < colliders.Length; index++)
+        {
+            var source = colliders[index];
+            var axis = source.top - source.bottom;
+            var length = axis.magnitude;
+            if (length <= Mathf.Epsilon || source.radius <= 0f)
+            {
+                throw new InvalidOperationException(
+                    $"Forest trunk collider {tile.x},{tile.y}:{index} is degenerate.");
+            }
+            var colliderObject = new GameObject(
+                $"Forest trunk collider {tile.x},{tile.y}:{index}");
+            colliderObject.transform.SetParent(parent, false);
+            colliderObject.transform.localPosition = (source.bottom + source.top) * 0.5f;
+            colliderObject.transform.localRotation = Quaternion.FromToRotation(
+                Vector3.up,
+                axis / length);
+            var capsule = colliderObject.AddComponent<CapsuleCollider>();
+            capsule.direction = 1;
+            capsule.center = Vector3.zero;
+            capsule.radius = source.radius;
+            capsule.height = Mathf.Max(length, source.radius * 2f);
         }
     }
 
@@ -656,13 +719,19 @@ internal sealed class ForestTileStreamer : IDisposable
             lod1[0] = lowPolyCanopy;
             var lod0 = new IslandPreparedMesh[Lod1TileCount];
             lod0[0] = lowPolyCanopy;
+            var lod0Colliders = new IslandPreparedTreeCollider[Lod1TileCount][];
+            lod0Colliders[0] = new[]
+            {
+                new IslandPreparedTreeCollider(Vector3.zero, Vector3.up * 2f, 0.25f),
+            };
             var prepared = new IslandPreparedForestData(
                 lod2,
                 lod2,
                 lod1,
                 new IslandPreparedMesh[Lod1TileCount],
                 lod0,
-                new IslandPreparedMesh[Lod1TileCount]);
+                new IslandPreparedMesh[Lod1TileCount],
+                lod0Colliders);
             streamer.Initialize(
                 parent.transform,
                 material,
@@ -704,6 +773,17 @@ internal sealed class ForestTileStreamer : IDisposable
             }
             streamer.UpdateLod1Neighborhood(Vector2Int.zero);
             streamer.UpdateLod0Neighborhood(Vector2Int.zero);
+            var capsule = streamer.Root.GetComponentInChildren<CapsuleCollider>(true);
+            if (streamer.ActiveTrunkColliderCount != 1
+                || capsule == null
+                || !Mathf.Approximately(capsule.radius, 0.25f)
+                || !Mathf.Approximately(capsule.height, 2f)
+                || capsule.direction != 1
+                || capsule.transform.localPosition != Vector3.up)
+            {
+                throw new InvalidOperationException(
+                    "The forest did not create its LOD0 trunk capsule collider.");
+            }
             var lod0Renderer = Array.Find(
                 streamer.Root.GetComponentsInChildren<MeshRenderer>(true),
                 renderer => renderer.gameObject.name == "Forest LOD 0 tile 0,0 foliage");
@@ -711,6 +791,13 @@ internal sealed class ForestTileStreamer : IDisposable
             {
                 throw new InvalidOperationException(
                     "The forest did not assign its double-sided material to LOD0 foliage.");
+            }
+            streamer.UpdateLod0Neighborhood(
+                new Vector2Int(Lod1Resolution - 1, Lod1Resolution - 1));
+            if (streamer.ActiveTrunkColliderCount != 0)
+            {
+                throw new InvalidOperationException(
+                    "The forest retained a trunk collider after its LOD0 tile retired.");
             }
         }
         finally
@@ -862,6 +949,7 @@ internal sealed class ForestTileStreamer : IDisposable
         }
         DestroyUnityObject(group.foliageRoot);
         DestroyUnityObject(group.woodRoot);
+        DestroyUnityObject(group.colliderRoot);
     }
 
     private static void DestroyTile(Tile tile)

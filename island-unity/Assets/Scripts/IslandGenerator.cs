@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.InteropServices;
@@ -1330,7 +1331,97 @@ public sealed class IslandGenerator : MonoBehaviour
             PrepareForestMeshGrid(handle, worldSize, 1, ForestTileStreamer.Lod1Resolution, false),
             PrepareForestMeshGrid(handle, worldSize, 1, ForestTileStreamer.Lod1Resolution, true),
             PrepareForestMeshGrid(handle, worldSize, 0, ForestTileStreamer.Lod1Resolution, false),
-            PrepareForestMeshGrid(handle, worldSize, 0, ForestTileStreamer.Lod1Resolution, true));
+            PrepareForestMeshGrid(handle, worldSize, 0, ForestTileStreamer.Lod1Resolution, true),
+            PrepareForestTrunkColliders(handle, worldSize));
+    }
+
+    private static IslandPreparedTreeCollider[][] PrepareForestTrunkColliders(
+        IntPtr handle,
+        float worldSize)
+    {
+        MotuNative.CreateForestTrunkColliders(handle, out var export);
+        try
+        {
+            if (export.handle == IntPtr.Zero
+                || export.length < 0
+                || (export.length > 0 && export.data == IntPtr.Zero))
+            {
+                throw new InvalidOperationException(
+                    "The Rust forest trunk-collider export is invalid.");
+            }
+
+            var buckets = new List<IslandPreparedTreeCollider>[
+                ForestTileStreamer.Lod1TileCount];
+            var exportSize = Marshal.SizeOf<MotuNative.ForestTrunkColliderExport>();
+            for (var index = 0; index < export.length; index++)
+            {
+                var native = Marshal.PtrToStructure<MotuNative.ForestTrunkColliderExport>(
+                    IntPtr.Add(export.data, index * exportSize));
+                if (!IsFiniteNative(native.bottom)
+                    || !IsFiniteNative(native.top)
+                    || !IsFinite(native.owner.x)
+                    || !IsFinite(native.owner.y)
+                    || !IsFinite(native.radius)
+                    || native.owner.x < 0f
+                    || native.owner.x > 1f
+                    || native.owner.y < 0f
+                    || native.owner.y > 1f
+                    || native.radius <= 0f)
+                {
+                    throw new InvalidOperationException(
+                        $"The Rust forest trunk collider {index} is invalid.");
+                }
+                var bottom = NativePositionToUnity(native.bottom, worldSize);
+                var top = NativePositionToUnity(native.top, worldSize);
+                var radius = native.radius * worldSize;
+                if ((top - bottom).sqrMagnitude <= Mathf.Epsilon || !IsFinite(radius))
+                {
+                    throw new InvalidOperationException(
+                        $"The copied forest trunk collider {index} is degenerate.");
+                }
+                var tileX = Mathf.Min(
+                    Mathf.FloorToInt(native.owner.x * ForestTileStreamer.Lod1Resolution),
+                    ForestTileStreamer.Lod1Resolution - 1);
+                var tileY = Mathf.Min(
+                    Mathf.FloorToInt(native.owner.y * ForestTileStreamer.Lod1Resolution),
+                    ForestTileStreamer.Lod1Resolution - 1);
+                var tileIndex = tileY * ForestTileStreamer.Lod1Resolution + tileX;
+                buckets[tileIndex] ??= new List<IslandPreparedTreeCollider>();
+                buckets[tileIndex].Add(new IslandPreparedTreeCollider(bottom, top, radius));
+            }
+
+            var result = new IslandPreparedTreeCollider[ForestTileStreamer.Lod1TileCount][];
+            for (var tile = 0; tile < result.Length; tile++)
+            {
+                result[tile] = buckets[tile]?.ToArray()
+                    ?? Array.Empty<IslandPreparedTreeCollider>();
+            }
+            return result;
+        }
+        finally
+        {
+            MotuNative.ReleaseForestTrunkColliders(ref export);
+        }
+    }
+
+    private static Vector3 NativePositionToUnity(
+        MotuNative.NativeVector3 position,
+        float worldSize)
+    {
+        return new Vector3(
+            (position.x - 0.5f) * worldSize,
+            position.z * worldSize,
+            (position.y - 0.5f) * worldSize);
+    }
+
+    private static bool IsFiniteNative(MotuNative.NativeVector3 value)
+    {
+        return IsFinite(value.x) && IsFinite(value.y) && IsFinite(value.z);
+    }
+
+    private static bool IsFinite(float value)
+    {
+        return !float.IsNaN(value) && !float.IsInfinity(value);
     }
 
     private static IslandPreparedMesh[] PrepareForestMeshGrid(
@@ -2225,7 +2316,8 @@ public sealed class IslandGenerator : MonoBehaviour
     {
         if (Marshal.SizeOf<MotuNative.Options>() != sizeof(float) * 16
             || Marshal.SizeOf<MotuNative.ForestOptions>() != 28
-            || Marshal.SizeOf<MotuNative.MaterialBakeOptions>() != 12)
+            || Marshal.SizeOf<MotuNative.MaterialBakeOptions>() != 12
+            || Marshal.SizeOf<MotuNative.ForestTrunkColliderExport>() != sizeof(float) * 9)
         {
             throw new InvalidOperationException(
                 "Managed native option layouts do not match their ABI contracts.");
@@ -2272,6 +2364,19 @@ public sealed class IslandGenerator : MonoBehaviour
             const int validationSeaMaskDimension = 128;
             var validationMaps = PrepareSurfaceMaps(handle, validationMapDimension);
             var validationSeaMask = PrepareSeaMask(handle, validationSeaMaskDimension);
+            var validationTrunkColliderTiles = PrepareForestTrunkColliders(
+                handle,
+                ValidationWorldSize);
+            var validationTrunkColliderCount = 0;
+            foreach (var tile in validationTrunkColliderTiles)
+            {
+                validationTrunkColliderCount += tile.Length;
+            }
+            if (validationTrunkColliderCount == 0)
+            {
+                throw new InvalidOperationException(
+                    "Native forest validation did not export any trunk colliders.");
+            }
             if (validationSeaMask.rg.Length
                 != validationSeaMaskDimension * validationSeaMaskDimension * 2)
             {
@@ -3326,9 +3431,5 @@ public sealed class IslandGenerator : MonoBehaviour
         return IsFinite(value.x) && IsFinite(value.y) && IsFinite(value.z);
     }
 
-    private static bool IsFinite(float value)
-    {
-        return !float.IsNaN(value) && !float.IsInfinity(value);
-    }
 #endif
 }

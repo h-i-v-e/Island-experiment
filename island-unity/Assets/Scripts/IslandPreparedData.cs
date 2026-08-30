@@ -41,6 +41,20 @@ internal readonly struct IslandPreparedRiverEmitter
     }
 }
 
+internal readonly struct IslandPreparedTreeCollider
+{
+    internal readonly Vector3 bottom;
+    internal readonly Vector3 top;
+    internal readonly float radius;
+
+    internal IslandPreparedTreeCollider(Vector3 bottom, Vector3 top, float radius)
+    {
+        this.bottom = bottom;
+        this.top = top;
+        this.radius = radius;
+    }
+}
+
 internal sealed class IslandPreparedSurfaceMaps
 {
     internal readonly int dimension;
@@ -204,6 +218,7 @@ internal sealed class IslandPreparedForestData
     internal readonly IslandPreparedMesh[] lod1WoodTiles;
     internal readonly IslandPreparedMesh[] lod0FoliageTiles;
     internal readonly IslandPreparedMesh[] lod0WoodTiles;
+    internal readonly IslandPreparedTreeCollider[][] lod0TrunkColliderTiles;
 
     internal IslandPreparedForestData(
         IslandPreparedMesh[] lod2FoliageTiles,
@@ -211,7 +226,8 @@ internal sealed class IslandPreparedForestData
         IslandPreparedMesh[] lod1FoliageTiles,
         IslandPreparedMesh[] lod1WoodTiles,
         IslandPreparedMesh[] lod0FoliageTiles,
-        IslandPreparedMesh[] lod0WoodTiles)
+        IslandPreparedMesh[] lod0WoodTiles,
+        IslandPreparedTreeCollider[][] lod0TrunkColliderTiles)
     {
         ValidateLength(lod2FoliageTiles, ForestTileStreamer.Lod2TileCount);
         ValidateLength(lod2WoodTiles, ForestTileStreamer.Lod2TileCount);
@@ -219,15 +235,17 @@ internal sealed class IslandPreparedForestData
         ValidateLength(lod1WoodTiles, ForestTileStreamer.Lod1TileCount);
         ValidateLength(lod0FoliageTiles, ForestTileStreamer.Lod1TileCount);
         ValidateLength(lod0WoodTiles, ForestTileStreamer.Lod1TileCount);
+        ValidateLength(lod0TrunkColliderTiles, ForestTileStreamer.Lod1TileCount);
         this.lod2FoliageTiles = lod2FoliageTiles;
         this.lod2WoodTiles = lod2WoodTiles;
         this.lod1FoliageTiles = lod1FoliageTiles;
         this.lod1WoodTiles = lod1WoodTiles;
         this.lod0FoliageTiles = lod0FoliageTiles;
         this.lod0WoodTiles = lod0WoodTiles;
+        this.lod0TrunkColliderTiles = lod0TrunkColliderTiles;
     }
 
-    private static void ValidateLength(IslandPreparedMesh[] tiles, int expectedLength)
+    private static void ValidateLength<T>(T[] tiles, int expectedLength)
     {
         if (tiles == null || tiles.Length != expectedLength)
         {

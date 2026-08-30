@@ -174,6 +174,18 @@ pub(crate) struct TreePlacement {
     pub(crate) prototype: u8,
 }
 
+/// The compact collision representation of one placed central trunk.
+///
+/// `owner` retains the tree's authoritative streaming-cell assignment while
+/// the other fields are derived from the final terrain-fitted LOD2 wood.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(crate) struct ForestTrunkCollider {
+    pub(crate) bottom: Vec3,
+    pub(crate) top: Vec3,
+    pub(crate) owner: Vec2,
+    pub(crate) radius: f32,
+}
+
 /// A bounded spatial canopy patch before foliage ranges are assembled.
 #[derive(Clone, Debug, Default, PartialEq)]
 struct ForestCluster {
@@ -385,6 +397,14 @@ impl ForestMeshes {
         &self.placements
     }
 
+    pub(crate) fn trunk_colliders(
+        &self,
+    ) -> impl Iterator<Item = Result<ForestTrunkCollider, String>> + '_ {
+        self.trees
+            .iter()
+            .map(|tree| trunk_collider(&self.lod2_wood, tree))
+    }
+
     /// Copies complete tree-wood or cluster-foliage ranges into owner tiles
     /// without geometric clipping.
     ///
@@ -464,6 +484,52 @@ impl ForestMeshes {
         }
         Some(tiles)
     }
+}
+
+fn trunk_collider(
+    lod2_wood: &Mesh,
+    tree: &ForestTreeRanges,
+) -> Result<ForestTrunkCollider, String> {
+    const RING_VERTICES: usize = 4;
+    const TRUNK_VERTICES: usize = RING_VERTICES * 2;
+
+    let start = usize::try_from(tree.lod2_wood.vertex_start)
+        .map_err(|_| "forest LOD2 trunk range does not fit usize".to_owned())?;
+    let end = tree
+        .lod2_wood
+        .vertex_end()
+        .ok_or_else(|| "forest LOD2 trunk range overflow".to_owned())?;
+    let vertices = lod2_wood
+        .vertices
+        .get(start..end)
+        .filter(|vertices| vertices.len() == TRUNK_VERTICES)
+        .ok_or_else(|| "forest LOD2 trunk range must contain eight vertices".to_owned())?;
+    let bottom = vertices[..RING_VERTICES].iter().copied().sum::<Vec3>() / RING_VERTICES as f32;
+    let top = vertices[RING_VERTICES..].iter().copied().sum::<Vec3>() / RING_VERTICES as f32;
+    let axis = (top - bottom).normalize_or_zero();
+    let radius = vertices[..RING_VERTICES]
+        .iter()
+        .map(|&vertex| {
+            let offset = vertex - bottom;
+            (offset - axis * offset.dot(axis)).length()
+        })
+        .sum::<f32>()
+        / RING_VERTICES as f32;
+    if !bottom.is_finite()
+        || !top.is_finite()
+        || !tree.anchor.is_finite()
+        || axis == Vec3::ZERO
+        || !radius.is_finite()
+        || radius <= f32::EPSILON
+    {
+        return Err("forest LOD2 trunk cannot produce a finite capsule".to_owned());
+    }
+    Ok(ForestTrunkCollider {
+        bottom,
+        top,
+        owner: tree.anchor.truncate(),
+        radius,
+    })
 }
 
 fn nearest_member_tree_anchor(
@@ -2346,6 +2412,47 @@ mod tests {
                 .iter()
                 .all(|&anchor| anchor == Vec4::new(0.5, 0.5, 0.2, 0.5))
         );
+    }
+
+    #[test]
+    fn trunk_collider_uses_the_final_lod2_root_and_tip_rings() {
+        let lod2_wood = Mesh {
+            vertices: vec![
+                Vec3::new(0.6, 0.5, 0.2),
+                Vec3::new(0.5, 0.6, 0.2),
+                Vec3::new(0.4, 0.5, 0.2),
+                Vec3::new(0.5, 0.4, 0.2),
+                Vec3::new(0.55, 0.5, 0.8),
+                Vec3::new(0.5, 0.55, 0.8),
+                Vec3::new(0.45, 0.5, 0.8),
+                Vec3::new(0.5, 0.45, 0.8),
+            ],
+            ..Mesh::default()
+        };
+        let forest = ForestMeshes {
+            lod2_wood,
+            trees: vec![ForestTreeRanges {
+                anchor: Vec3::new(0.51, 0.49, 0.2),
+                lod2_wood: MeshRange {
+                    vertex_start: 0,
+                    vertex_count: 8,
+                    triangle_start: 0,
+                    triangle_count: 0,
+                },
+                ..ForestTreeRanges::default()
+            }],
+            ..ForestMeshes::default()
+        };
+
+        let colliders = forest
+            .trunk_colliders()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(colliders.len(), 1);
+        assert_eq!(colliders[0].bottom, Vec3::new(0.5, 0.5, 0.2));
+        assert_eq!(colliders[0].top, Vec3::new(0.5, 0.5, 0.8));
+        assert_eq!(colliders[0].owner, Vec2::new(0.51, 0.49));
+        assert!((colliders[0].radius - 0.1).abs() < 1.0e-6);
     }
 
     #[test]

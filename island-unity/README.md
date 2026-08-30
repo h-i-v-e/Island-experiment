@@ -79,7 +79,11 @@ the final LOD 0 surface. The whole-island 8193x8193 source lattice is prepared
 on the generation worker, and adjacent tiles copy the same shared-edge samples.
 Incoming colliders are enabled before outgoing colliders are retired, and
 crossing the finer LOD 0 render boundaries performs no collider cooking or
-replacement. Press M to toggle mesh edges. Press Escape to discard
+replacement. Rust also derives one fitted capsule from each final central
+trunk and exports its authoritative forest-tile owner. Unity creates those
+capsules only for active LOD 0 forest cells and destroys them with the cell,
+so distant LOD 1 and LOD 2 trees do not carry physics objects. Press M to toggle
+mesh edges. Press Escape to discard
 the refinement groups and return to the 64-tile LOD 2 overview. River surfaces
 are clipped on the same 64x64 LOD 1 boundaries and render throughout every
 active LOD 1 group, including its LOD 0 refinement cells. Rivers remain hidden
