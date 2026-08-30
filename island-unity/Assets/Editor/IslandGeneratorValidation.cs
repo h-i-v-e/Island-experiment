@@ -149,6 +149,13 @@ public static class IslandGeneratorValidation
             throw new InvalidOperationException(
                 "The sandbox directional sunlight does not have soft shadows enabled.");
         }
+        if (!island.Rendering.ShowDistanceHaze
+            || island.Rendering.DistanceHazeDensity <= 0f)
+        {
+            throw new InvalidOperationException(
+                "The sandbox first-person distance haze is missing or has invalid density.");
+        }
+        ValidateFirstPersonDistanceHaze(island);
         if (island.Rendering.TerrainMaterial == null
             || island.Rendering.GrassMaterial == null
             || island.Rendering.RiverMaterial == null
@@ -204,6 +211,52 @@ public static class IslandGeneratorValidation
         {
             throw new InvalidOperationException(
                 "Island local/world transform conversion failed validation.");
+        }
+    }
+
+    private static void ValidateFirstPersonDistanceHaze(IslandGenerator island)
+    {
+        var setFirstPerson = typeof(IslandGenerator).GetMethod(
+            "SetFirstPersonViewActive",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        if (setFirstPerson == null)
+        {
+            throw new InvalidOperationException(
+                "The IslandGenerator has no first-person haze mode boundary.");
+        }
+
+        var originalFog = RenderSettings.fog;
+        var originalMode = RenderSettings.fogMode;
+        var originalColour = RenderSettings.fogColor;
+        var originalDensity = RenderSettings.fogDensity;
+        try
+        {
+            setFirstPerson.Invoke(island, new object[] { true });
+            if (!RenderSettings.fog
+                || RenderSettings.fogMode != FogMode.ExponentialSquared
+                || RenderSettings.fogColor != island.Rendering.DistanceHazeColour
+                || !Mathf.Approximately(
+                    RenderSettings.fogDensity,
+                    island.Rendering.DistanceHazeDensity))
+            {
+                throw new InvalidOperationException(
+                    "Entering first person did not apply exponential-squared distance haze.");
+            }
+
+            setFirstPerson.Invoke(island, new object[] { false });
+            if (RenderSettings.fog)
+            {
+                throw new InvalidOperationException(
+                    "Returning to overview did not disable distance haze.");
+            }
+        }
+        finally
+        {
+            setFirstPerson.Invoke(island, new object[] { false });
+            RenderSettings.fog = originalFog;
+            RenderSettings.fogMode = originalMode;
+            RenderSettings.fogColor = originalColour;
+            RenderSettings.fogDensity = originalDensity;
         }
     }
 

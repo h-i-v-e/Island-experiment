@@ -94,6 +94,10 @@ public sealed class IslandGenerator : MonoBehaviour
     private float appliedGrassWindSpeed = float.NaN;
     private float appliedGrassWindGustSize = float.NaN;
     private float appliedGrassWindNormalStrength = float.NaN;
+    private bool? appliedShowDistanceHaze;
+    private Color? appliedDistanceHazeColour;
+    private float appliedDistanceHazeDensity = float.NaN;
+    private bool firstPersonViewActive;
     private Matrix4x4 appliedWorldToLocal;
     private bool hasAppliedWorldToLocal;
 
@@ -121,6 +125,7 @@ public sealed class IslandGenerator : MonoBehaviour
     {
         Camera.onPreCull += PrepareCameraRender;
         EnsureActiveCameraDepthTextures();
+        ApplyDistanceHazeSettings();
         if (hasStarted && generation.GenerateOnStart && terrainStreamer == null)
         {
             Generate();
@@ -130,6 +135,7 @@ public sealed class IslandGenerator : MonoBehaviour
     private void OnDisable()
     {
         Camera.onPreCull -= PrepareCameraRender;
+        RenderSettings.fog = false;
         generationCancellation?.Cancel();
         ClearGeneratedContent();
     }
@@ -521,6 +527,15 @@ public sealed class IslandGenerator : MonoBehaviour
 
     private void ApplyLiveSettings()
     {
+        if (appliedShowDistanceHaze != rendering.ShowDistanceHaze
+            || !appliedDistanceHazeColour.HasValue
+            || appliedDistanceHazeColour.Value != rendering.DistanceHazeColour
+            || !Mathf.Approximately(
+                appliedDistanceHazeDensity,
+                rendering.DistanceHazeDensity))
+        {
+            ApplyDistanceHazeSettings();
+        }
         if (!appliedGrassColourA.HasValue
             || !appliedGrassColourB.HasValue
             || appliedGrassColourA.Value != rendering.GrassColourA
@@ -603,6 +618,32 @@ public sealed class IslandGenerator : MonoBehaviour
             appliedEmitterDebug = debugSettings.ShowRoughWaterEmitters;
             terrainStreamer?.SetRiverEmitterDebug(debugSettings.ShowRoughWaterEmitters);
         }
+    }
+
+    private void ApplyDistanceHazeSettings()
+    {
+        appliedShowDistanceHaze = rendering.ShowDistanceHaze;
+        appliedDistanceHazeColour = rendering.DistanceHazeColour;
+        appliedDistanceHazeDensity = rendering.DistanceHazeDensity;
+
+        RenderSettings.fog = rendering.ShowDistanceHaze && firstPersonViewActive;
+        if (!RenderSettings.fog)
+        {
+            return;
+        }
+        RenderSettings.fogMode = FogMode.ExponentialSquared;
+        RenderSettings.fogColor = rendering.DistanceHazeColour;
+        RenderSettings.fogDensity = rendering.DistanceHazeDensity;
+    }
+
+    internal void SetFirstPersonViewActive(bool active)
+    {
+        if (firstPersonViewActive == active)
+        {
+            return;
+        }
+        firstPersonViewActive = active;
+        ApplyDistanceHazeSettings();
     }
 
     private void ApplyGrassColourSettings()

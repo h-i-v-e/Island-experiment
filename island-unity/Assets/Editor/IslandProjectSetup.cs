@@ -90,6 +90,9 @@ public static class IslandProjectSetup
         RenderSettings.ambientMode = AmbientMode.Flat;
         RenderSettings.ambientLight = new Color(0.42f, 0.46f, 0.52f);
         RenderSettings.fog = false;
+        RenderSettings.fogMode = FogMode.ExponentialSquared;
+        RenderSettings.fogColor = island.Rendering.DistanceHazeColour;
+        RenderSettings.fogDensity = island.Rendering.DistanceHazeDensity;
         RenderSettings.sun = sun;
 
         EditorSceneManager.SaveScene(scene, ScenePath);

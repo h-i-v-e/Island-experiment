@@ -307,7 +307,17 @@ public sealed class IslandRenderingSettings
     [Min(0f)]
     [SerializeField] private float estuaryBlendHeightMetres = 2f;
 
-    [Tooltip("Optional level-owned sunlight used for grass shading. Global render settings are never modified.")]
+    [Tooltip("Enable atmospheric haze while walking in first-person mode.")]
+    [SerializeField] private bool showDistanceHaze = true;
+
+    [Tooltip("Warm atmospheric colour accumulated by distant first-person views.")]
+    [SerializeField] private Color distanceHazeColour = new Color(0.62f, 0.60f, 0.54f, 1f);
+
+    [Tooltip("Density of the exponential-squared first-person haze.")]
+    [Range(0.00005f, 0.003f)]
+    [SerializeField] private float distanceHazeDensity = 0.00055f;
+
+    [Tooltip("Optional level-owned sunlight used for grass shading.")]
     [SerializeField] private Light sunlight;
 
     [Tooltip("Show the carved river surface.")]
@@ -368,6 +378,21 @@ public sealed class IslandRenderingSettings
     internal float SandPatchSizeMetres => Mathf.Max(sandPatchSizeMetres, 0.1f);
     internal float GrassPatchSizeMetres => Mathf.Max(grassPatchSizeMetres, 0.1f);
     internal float EstuaryBlendHeightMetres => Mathf.Max(estuaryBlendHeightMetres, 0f);
+    public bool ShowDistanceHaze
+    {
+        get => showDistanceHaze;
+        set => showDistanceHaze = value;
+    }
+    public Color DistanceHazeColour
+    {
+        get => distanceHazeColour;
+        set => distanceHazeColour = value;
+    }
+    public float DistanceHazeDensity
+    {
+        get => Mathf.Clamp(distanceHazeDensity, 0.00005f, 0.003f);
+        set => distanceHazeDensity = Mathf.Clamp(value, 0.00005f, 0.003f);
+    }
     public Light Sunlight { get => sunlight; internal set => sunlight = value; }
     public bool ShowRivers { get => showRivers; set => showRivers = value; }
     public bool ShowSea { get => showSea; set => showSea = value; }
