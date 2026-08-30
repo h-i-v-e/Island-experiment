@@ -1078,6 +1078,42 @@ fn waterfall_spacing_contains_the_full_channel_width_patch() {
 }
 
 #[test]
+fn waterfall_profile_keeps_the_source_segment_on_a_supported_terrace() {
+    let mut nodes = vec![
+        RiverNode {
+            vertex: 0,
+            flow: 1,
+            surface: 0.10,
+            position: Vec3::new(0.0, 0.0, 0.10),
+        },
+        RiverNode {
+            vertex: 1,
+            flow: 2,
+            surface: 0.01,
+            position: Vec3::new(0.01, 0.0, 0.01),
+        },
+        RiverNode {
+            vertex: 2,
+            flow: 3,
+            surface: 0.01,
+            position: Vec3::new(0.02, 0.0, 0.01),
+        },
+    ];
+    let mut waterfalls = vec![false; nodes.len()];
+    let mut scratch = Vec::new();
+
+    form_stepped_profile(&mut nodes, &mut waterfalls, &[], 2, 0.2, &mut scratch);
+
+    assert!(!waterfalls[0]);
+    assert_eq!(nodes[0].surface.to_bits(), nodes[1].surface.to_bits());
+    assert!(
+        nodes
+            .windows(2)
+            .all(|pair| pair[0].surface >= pair[1].surface)
+    );
+}
+
+#[test]
 fn final_profile_limits_bed_grade_without_creating_late_waterfalls() {
     let mesh = Mesh {
         vertices: vec![

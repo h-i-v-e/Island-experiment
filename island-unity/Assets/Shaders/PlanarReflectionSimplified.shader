@@ -97,9 +97,10 @@ Shader "Motu/Planar Reflection Simplified"
         half up = saturate(normalize(input.worldNormal).y);
         half slope = 1.0h - up;
         half looseCover = saturate(input.material.g);
-        half rockWeight = saturate(max(
-            input.material.r,
-            smoothstep(0.18h, 0.58h, slope)));
+        half materialRock = saturate(input.material.r) * (1.0h - looseCover);
+        half rockWeight = max(
+            materialRock,
+            smoothstep(0.18h, 0.58h, slope));
         rockWeight = max(rockWeight, saturate(input.environment.y) * 0.65h);
         fixed3 grass = lerp(_GrassColorA.rgb, _GrassColorB.rgb, 0.45h);
         fixed3 albedo = lerp(

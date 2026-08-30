@@ -147,6 +147,11 @@ MotuTerrainCoverage MotuBuildTerrainCoverage(
         max(0.20h, fwidth(geologyDistance)),
         geologyDistance)
         * smoothstep(0.0h, 0.20h, geologyStrength);
+    // Hardness describes the underlying geology, not exposed stone. Loose
+    // cover suppresses that material-driven rock while leaving explicit
+    // slope thresholds free to expose cliffs through the soil cover.
+    half exposedGeologyRock = max(geologyRock, forcedRock)
+        * (1.0h - looseCover);
 
     half riverNoise = clamp(
         dot(result.noise.broad, half3(0.577h, -0.577h, 0.577h)),
@@ -196,7 +201,7 @@ MotuTerrainCoverage MotuBuildTerrainCoverage(
         + rockBoundaryNoise * _RockBoundaryNoiseStrength * 0.25h;
     half beachRock = result.beach
         * MotuAntialiasedMask(slope - sandRockThreshold);
-    result.rock = max(max(geologyRock, forcedRock), max(result.cliff, beachRock));
+    result.rock = max(exposedGeologyRock, max(result.cliff, beachRock));
 
     half forestNoise = clamp(
         result.noise.detail.g * 0.70h + result.noise.detail.b * 0.30h,

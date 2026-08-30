@@ -427,7 +427,11 @@ pub(super) fn form_stepped_profile(
         let patch_reach_length =
             WATERFALL_SUPPORT_RUN + reach_half_width * (1.0 + WATERFALL_LANDING_LENGTH_MULTIPLIER);
         let required_reach_length = profile_reach_length.max(patch_reach_length);
-        if available_rise >= target_fall && reach_length >= required_reach_length {
+        // The waterfall face extends upstream from its upper node. Segment
+        // zero has no upstream reach to support or feed that face, so placing
+        // a fall there creates a free-standing water curtain and drags the
+        // source-side bank down to the lower terrace.
+        if index > 0 && available_rise >= target_fall && reach_length >= required_reach_length {
             level += target_fall;
             waterfalls[index] = true;
             reach_length = 0.0;
@@ -592,7 +596,8 @@ pub(super) fn planned_waterfall_patch(
     environment: WaterfallSiteEnvironment<'_>,
 ) -> Option<WaterfallPatch> {
     let (&upper, &lower) = nodes.get(segment).zip(nodes.get(segment + 1))?;
-    if drop <= RIVER_SURFACE_OFFSET
+    if segment == 0
+        || drop <= RIVER_SURFACE_OFFSET
         || environment.rejected.contains(&upper.vertex)
         || environment
             .perimeter
@@ -805,7 +810,7 @@ pub(super) fn relocate_conflicting_waterfalls(
     let mut all_placed = true;
     for drop in scratch.iter_mut().rev() {
         let original = drop.segment.min(upstream_limit);
-        let selected = (0..=original)
+        let selected = (1..=original)
             .rev()
             .find(|&segment| {
                 !relocation
@@ -824,7 +829,7 @@ pub(super) fn relocate_conflicting_waterfalls(
             })
             // Intermediate erosion LODs retain the historical best-effort
             // behavior. Only the final LOD 0 pass may reject a whole river.
-            .or_else(|| relocation.site.is_none().then_some(original));
+            .or_else(|| (relocation.site.is_none() && original > 0).then_some(original));
         if let Some(segment) = selected {
             drop.segment = segment;
             drop.placed = true;
