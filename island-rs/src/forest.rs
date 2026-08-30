@@ -185,7 +185,7 @@ struct ForestCluster {
 struct PlacementCandidate {
     terrain_vertex: usize,
     anchor: Vec3,
-    coverage: f32,
+    placement_score: f32,
     scale: f32,
 }
 
@@ -533,7 +533,7 @@ pub(crate) struct ForestGenerationStats {
     pub(crate) stones: usize,
     pub(crate) zero_soil: usize,
     pub(crate) beach: usize,
-    pub(crate) below_or_equal_noise_threshold: usize,
+    pub(crate) below_or_equal_placement_threshold: usize,
     pub(crate) exclusion_zone: usize,
     pub(crate) accepted_trees: usize,
 }
@@ -549,7 +549,7 @@ impl ForestGenerationStats {
             + self.stones
             + self.zero_soil
             + self.beach
-            + self.below_or_equal_noise_threshold
+            + self.below_or_equal_placement_threshold
             + self.exclusion_zone
     }
 }
@@ -706,7 +706,7 @@ fn collect_candidates(
             continue;
         }
         let displaced = displaced_tree_anchor(island_seed, index, vertex, fan_faces.get(index));
-        let Some((loose_cover, sea_proximity)) = shader_material_at_displaced_anchor(
+        let Some((soil_richness, sea_proximity)) = shader_material_at_displaced_anchor(
             index,
             displaced,
             surface.deposited_depths,
@@ -715,7 +715,7 @@ fn collect_candidates(
             stats.invalid += 1;
             continue;
         };
-        if shader_beach_candidate(displaced.position, loose_cover, sea_proximity) {
+        if shader_beach_candidate(displaced.position, soil_richness, sea_proximity) {
             stats.beach += 1;
             continue;
         }
@@ -726,20 +726,24 @@ fn collect_candidates(
             point_metres.y / options.patch_size_metres,
             options.noise_octaves,
         );
-        let coverage = raw.mul_add(0.5, 0.5).clamp(0.0, 1.0);
-        if !coverage.is_finite() {
+        let coherent_coverage = raw.mul_add(0.5, 0.5).clamp(0.0, 1.0);
+        // material.g is the shader's smooth loose-cover richness. Applying it
+        // to the coherent field makes forests favour deep deposited soil while
+        // preserving the existing deterministic cluster shapes.
+        let placement_score = coherent_coverage * soil_richness.clamp(0.0, 1.0);
+        if !placement_score.is_finite() {
             stats.invalid += 1;
             continue;
         }
-        if coverage <= options.noise_threshold {
-            stats.below_or_equal_noise_threshold += 1;
+        if placement_score <= options.noise_threshold {
+            stats.below_or_equal_placement_threshold += 1;
             continue;
         }
-        let scale = coherent_tree_scale(island_seed, point_metres, coverage, options);
+        let scale = coherent_tree_scale(island_seed, point_metres, placement_score, options);
         candidates.push(PlacementCandidate {
             terrain_vertex: index,
             anchor: displaced.position,
-            coverage,
+            placement_score,
             scale,
         });
     }
@@ -772,12 +776,12 @@ fn coherent_tree_scale(
 }
 
 fn prioritize_candidates(candidates: &mut [PlacementCandidate]) {
-    // Higher-coverage vertices own contested exclusion zones first, keeping
-    // the largest cluster-centre trees in preference to fringe trees.
+    // Higher soil-weighted coverage owns contested exclusion zones first,
+    // keeping rich-soil cluster-centre trees in preference to fringe trees.
     candidates.sort_unstable_by(|left, right| {
         right
-            .coverage
-            .total_cmp(&left.coverage)
+            .placement_score
+            .total_cmp(&left.placement_score)
             .then_with(|| left.terrain_vertex.cmp(&right.terrain_vertex))
     });
 }
@@ -1708,6 +1712,42 @@ mod tests {
     }
 
     #[test]
+    fn soil_richness_multiplies_coherent_forest_coverage() {
+        let seed = 2018;
+        let vertex = Vec3::new(0.37, 0.41, 0.02);
+        let base_options = ForestOptions::default();
+        let coherent_coverage = test_coverage(vertex, seed, base_options);
+        let options = ForestOptions {
+            noise_threshold: coherent_coverage * 0.75,
+            snowline_metres: 100.0,
+            ..base_options
+        };
+        let terrain = flat_mesh(&[vertex]);
+
+        let (rich_soil, rich_stats) = select_placements(
+            seed,
+            &terrain,
+            test_surface(&[false], &[0.002], &[0.0]),
+            options,
+        )
+        .unwrap();
+        let (shallow_soil, shallow_stats) = select_placements(
+            seed,
+            &terrain,
+            test_surface(&[false], &[0.001], &[0.0]),
+            options,
+        )
+        .unwrap();
+
+        assert_eq!(shader_loose_cover(0.002).to_bits(), 1.0_f32.to_bits());
+        assert_eq!(shader_loose_cover(0.001).to_bits(), 0.5_f32.to_bits());
+        assert_eq!(rich_soil.len(), 1);
+        assert_eq!(rich_stats.accepted_trees, 1);
+        assert!(shallow_soil.is_empty());
+        assert_eq!(shallow_stats.below_or_equal_placement_threshold, 1);
+    }
+
+    #[test]
     fn coherent_habit_patches_keep_local_variants_in_one_growth_family() {
         let anchor = Vec3::new(0.37, 0.41, 0.02);
         let prototypes = (0..32)
@@ -1955,7 +1995,7 @@ mod tests {
         terrain_vertex: usize,
         x_metres: f32,
         y_metres: f32,
-        coverage: f32,
+        placement_score: f32,
         scale: f32,
     ) -> PlacementCandidate {
         PlacementCandidate {
@@ -1965,7 +2005,7 @@ mod tests {
                 y_metres / ISLAND_WORLD_METRES,
                 0.02,
             ),
-            coverage,
+            placement_score,
             scale,
         }
     }
@@ -2164,7 +2204,7 @@ mod tests {
                 .iter()
                 .any(|placement| placement.terrain_vertex == 0)
         );
-        assert!(equal_stats.below_or_equal_noise_threshold > 0);
+        assert!(equal_stats.below_or_equal_placement_threshold > 0);
     }
 
     #[test]
