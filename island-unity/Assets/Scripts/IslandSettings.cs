@@ -1,5 +1,6 @@
 using System;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 [Serializable]
 public sealed class IslandGenerationSettings
@@ -139,14 +140,6 @@ public sealed class IslandRiverSettings
     [Min(0.05f)]
     [SerializeField] private float maximumDepthMetres = 2f;
 
-    [Tooltip("Maximum change in river direction, in degrees, used for rough-water emitters.")]
-    [Range(1f, 90f)]
-    [SerializeField] private float roughWaterSharpnessDegrees = 35f;
-
-    [Tooltip("Minimum spacing between rough-water emitters in metres.")]
-    [Min(0.1f)]
-    [SerializeField] private float roughWaterSpacingMetres = 1.5f;
-
     internal float SourceCatchmentHectares => Mathf.Clamp(sourceCatchmentHectares, 0.01f, 10f);
     internal float SteepSourceMultiplier => Mathf.Clamp(steepSourceMultiplier, 1f, 8f);
     internal float SourceElevationBoost => Mathf.Clamp(sourceElevationBoost, 0f, 20f);
@@ -154,11 +147,6 @@ public sealed class IslandRiverSettings
     internal float MaximumWidthMetres => Mathf.Max(maximumWidthMetres, SourceWidthMetres);
     internal float SourceDepthMetres => Mathf.Max(sourceDepthMetres, 0.05f);
     internal float MaximumDepthMetres => Mathf.Max(maximumDepthMetres, SourceDepthMetres);
-    internal float RoughWaterSharpnessDegrees => Mathf.Clamp(
-        roughWaterSharpnessDegrees,
-        1f,
-        90f);
-    internal float RoughWaterSpacingMetres => Mathf.Max(roughWaterSpacingMetres, 0.1f);
 }
 
 [Serializable]
@@ -504,8 +492,9 @@ public sealed class IslandDebugSettings
         + "Set to None to disable the shortcut.")]
     [SerializeField] private KeyCode toggleFrameRateKey = KeyCode.F;
 
-    [Tooltip("Display rough-water emitter debug markers.")]
-    [SerializeField] private bool showRoughWaterEmitters;
+    [Tooltip("Display authoritative waterfall-foot fog-volume markers.")]
+    [FormerlySerializedAs("showRoughWaterEmitters")]
+    [SerializeField] private bool showWaterfallFeet;
 
     public bool ShowMeshEdges { get => showMeshEdges; set => showMeshEdges = value; }
     public KeyCode ToggleMeshEdgesKey => toggleMeshEdgesKey;
@@ -513,5 +502,5 @@ public sealed class IslandDebugSettings
     public KeyCode ToggleTreeMeshEdgesKey => toggleTreeMeshEdgesKey;
     public bool ShowFrameRate { get => showFrameRate; set => showFrameRate = value; }
     public KeyCode ToggleFrameRateKey => toggleFrameRateKey;
-    public bool ShowRoughWaterEmitters { get => showRoughWaterEmitters; set => showRoughWaterEmitters = value; }
+    public bool ShowWaterfallFeet { get => showWaterfallFeet; set => showWaterfallFeet = value; }
 }

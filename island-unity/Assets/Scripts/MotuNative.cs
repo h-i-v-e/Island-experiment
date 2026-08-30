@@ -214,15 +214,16 @@ internal static class MotuNative
     }
 
     [StructLayout(LayoutKind.Sequential)]
-    internal struct RiverEmitterExport
+    internal struct WaterfallFootExport
     {
         internal NativeVector3 position;
         internal NativeVector3 direction;
-        internal float strength;
+        internal float halfWidth;
+        internal float drop;
     }
 
     [StructLayout(LayoutKind.Sequential)]
-    internal struct ExportRiverEmitters
+    internal struct ExportWaterfallFeet
     {
         internal IntPtr handle;
         internal IntPtr data;
@@ -354,14 +355,12 @@ internal static class MotuNative
         ref ExportForestTrunkColliders output);
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern void CreateRiverEmitters(
+    internal static extern void CreateWaterfallFeet(
         IntPtr handle,
-        float sharpnessDegrees,
-        float spacingMetres,
-        out ExportRiverEmitters output);
+        out ExportWaterfallFeet output);
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern void ReleaseRiverEmitters(ref ExportRiverEmitters output);
+    internal static extern void ReleaseWaterfallFeet(ref ExportWaterfallFeet output);
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
     internal static extern void GetDecoration(

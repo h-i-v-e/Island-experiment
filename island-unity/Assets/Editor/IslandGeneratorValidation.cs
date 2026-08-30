@@ -12,9 +12,22 @@ public static class IslandGeneratorValidation
     public static void BatchValidateNativeInterop()
     {
         IslandGenerator.BatchValidateNativeInterop();
+        ValidateWaterfallMistShader();
         ValidateSandboxScene();
         ValidateRealtimeShadowRender();
         Debug.Log("IslandGenerator component, sandbox level, and native validation passed.");
+    }
+
+    private static void ValidateWaterfallMistShader()
+    {
+        var shader = Shader.Find("Motu/Waterfall Foot Mist");
+        if (shader == null
+            || !shader.isSupported
+            || ShaderUtil.ShaderHasError(shader))
+        {
+            throw new InvalidOperationException(
+                "The waterfall-foot volumetric mist shader is missing or invalid.");
+        }
     }
 
     public static void BatchValidateRealtimeShadows()

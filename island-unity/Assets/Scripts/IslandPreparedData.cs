@@ -27,17 +27,23 @@ internal sealed class IslandPreparedMesh
     }
 }
 
-internal readonly struct IslandPreparedRiverEmitter
+internal readonly struct IslandPreparedWaterfallFoot
 {
     internal readonly Vector3 position;
     internal readonly Vector3 direction;
-    internal readonly float strength;
+    internal readonly float halfWidth;
+    internal readonly float drop;
 
-    internal IslandPreparedRiverEmitter(Vector3 position, Vector3 direction, float strength)
+    internal IslandPreparedWaterfallFoot(
+        Vector3 position,
+        Vector3 direction,
+        float halfWidth,
+        float drop)
     {
         this.position = position;
         this.direction = direction;
-        this.strength = strength;
+        this.halfWidth = halfWidth;
+        this.drop = drop;
     }
 }
 
@@ -358,7 +364,7 @@ internal sealed class IslandPreparedData : IDisposable
     internal readonly IslandPreparedMesh[] riverTiles;
     internal readonly IslandPreparedMesh[] riverRockTiles;
     internal readonly IslandPreparedForestData forest;
-    internal readonly IslandPreparedRiverEmitter[] riverEmitters;
+    internal readonly IslandPreparedWaterfallFoot[] waterfallFeet;
     internal readonly IslandPreparedColliderHeightMap colliderHeightMap;
     internal readonly IslandPreparedMaterialTextures materialTextures;
 
@@ -370,7 +376,7 @@ internal sealed class IslandPreparedData : IDisposable
         IslandPreparedMesh[] riverTiles,
         IslandPreparedMesh[] riverRockTiles,
         IslandPreparedForestData forest,
-        IslandPreparedRiverEmitter[] riverEmitters,
+        IslandPreparedWaterfallFoot[] waterfallFeet,
         IslandPreparedColliderHeightMap colliderHeightMap,
         IslandPreparedMaterialTextures materialTextures)
     {
@@ -381,7 +387,7 @@ internal sealed class IslandPreparedData : IDisposable
         this.riverTiles = riverTiles;
         this.riverRockTiles = riverRockTiles;
         this.forest = forest ?? throw new ArgumentNullException(nameof(forest));
-        this.riverEmitters = riverEmitters;
+        this.waterfallFeet = waterfallFeet;
         this.colliderHeightMap = colliderHeightMap;
         this.materialTextures = materialTextures
             ?? throw new ArgumentNullException(nameof(materialTextures));

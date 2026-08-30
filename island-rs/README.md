@@ -224,21 +224,14 @@ before hardness-weighted bedrock, transfers area-weighted sediment volumes
 through tributaries, records alluvial/delta/shelf raises as loose cover, and
 exports the unused balance from the final carve-only outlets.
 
-`CreateRiverEmitters` derives sparse rough-water locations directly from the
-final authoritative, unsliced river mesh. It measures the dihedral angle between
-the two faces sharing each mesh edge and assigns the maximum incident edge
-sharpness to its vertices. Coplanar triangles on the vertical waterfall sheet
-therefore do not qualify, while the changes between a flat reach and the falling
-sheet select the top and bottom waterfall lips. A candidate pair must also span
-a flatter face no steeper than 35 degrees and a steeper face of at least 55
-degrees, preventing ordinary triangulation bends within one slope class from
-becoming spray. Sharp perimeter vertices remain
-eligible through their other shared incident edges, retaining noisy constricted
-river features. Deterministic three-dimensional spacing suppression follows.
-Each compact export record contains position, normalized final vertex normal as
-the outflow direction, and normalized excess sharpness. The returned vector is
-owned by its opaque handle and must be released exactly once with
-`ReleaseRiverEmitters`; the island does not retain a duplicate candidate array.
+Accepted waterfall patches retain one authoritative foot record during final
+river placement. `CreateWaterfallFeet` exports each foot's position, downstream
+direction, half-width, and vertical drop without rescanning the finished water
+mesh or relying on a sharpness threshold. Consumers can therefore place spray
+and mist at the same geometric foot used to construct the waterfall, while the
+width and drop provide stable effect scaling. The returned vector is owned by
+its opaque handle and must be released exactly once with
+`ReleaseWaterfallFeet`.
 
 The default `--seed-points 1024` matches the original generator. Staged uniform,
 land-only, and relief-selective passes produce roughly 500,000 irregular

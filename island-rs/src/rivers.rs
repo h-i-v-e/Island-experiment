@@ -54,6 +54,7 @@ use tracing::{
     RouteState, WaterfallClearanceIndex, calculate_flow_and_catchment, find_sources,
     map_downstream, trace_rivers, update_join_flows,
 };
+pub(crate) use waterfalls::WaterfallFoot;
 use waterfalls::{
     WaterfallPatch, WaterfallTerrainConstraints, derive_waterfall_patches,
     detect_failed_final_waterfalls, enforce_final_waterfall_edge_relationships,
@@ -71,6 +72,7 @@ pub(crate) struct RiverParts {
     pub(crate) river_mesh: Mesh,
     pub(crate) river_bed: Vec<bool>,
     pub(crate) river_rock_mesh: Mesh,
+    pub(crate) waterfall_feet: Vec<WaterfallFoot>,
     pub(crate) failed_waterfalls: Vec<usize>,
 }
 
@@ -437,6 +439,7 @@ impl RiverNetwork {
             river_mesh: geometry.river_mesh,
             river_bed: geometry.river_bed,
             river_rock_mesh: geometry.river_rock_mesh,
+            waterfall_feet: geometry.waterfall_feet,
             failed_waterfalls: geometry.failed_waterfalls,
         }
     }

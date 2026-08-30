@@ -18,6 +18,7 @@ use crate::forest::{
     ForestGenerationStats, ForestMeshKind, ForestMeshes, ForestOptions, forest_floor_mask,
     generate_forest,
 };
+use crate::rivers::WaterfallFoot;
 
 const SEA_PROXIMITY_FULL_STRENGTH_METRES: f32 = 2.0;
 const SEA_PROXIMITY_ZERO_STRENGTH_METRES: f32 = 20.0;
@@ -35,6 +36,7 @@ pub struct Island {
     pub(super) distance_to_land: Vec<f32>,
     pub(super) river_mesh: Mesh,
     pub(super) river_rock_mesh: Mesh,
+    pub(super) waterfall_feet: Vec<WaterfallFoot>,
     pub(super) forest: ForestMeshes,
     pub(super) forest_stats: ForestGenerationStats,
     pub(super) forest_options: ForestOptions,
@@ -48,6 +50,7 @@ pub(super) struct FinalRiverGeneration {
     pub(super) river_mesh: Mesh,
     pub(super) river_bed: Vec<bool>,
     pub(super) river_rock_mesh: Mesh,
+    pub(super) waterfall_feet: Vec<WaterfallFoot>,
 }
 
 struct SavedIslandReader<R> {
@@ -257,6 +260,7 @@ pub(super) fn generate_final_rivers(
                 river_mesh: parts.river_mesh,
                 river_bed: parts.river_bed,
                 river_rock_mesh: parts.river_rock_mesh,
+                waterfall_feet: parts.waterfall_feet,
             });
         }
     }
@@ -338,6 +342,7 @@ impl Island {
             mut river_mesh,
             river_bed,
             mut river_rock_mesh,
+            waterfall_feet,
         } = generate_final_rivers(
             seed,
             &lod0,
@@ -403,6 +408,7 @@ impl Island {
             distance_to_land,
             river_mesh,
             river_rock_mesh,
+            waterfall_feet,
             forest,
             forest_stats,
             forest_options,
@@ -503,15 +509,9 @@ impl Island {
         &self.forest_stats
     }
 
-    /// Derives sparse rough-water locations from the authoritative unsliced
-    /// river mesh without retaining a second copy on the island.
     #[must_use]
-    pub fn river_emitters(
-        &self,
-        sharpness_degrees: f32,
-        spacing_metres: f32,
-    ) -> Vec<crate::RiverEmitter> {
-        crate::extract_river_emitters(&self.river_mesh, sharpness_degrees, spacing_metres)
+    pub(crate) fn waterfall_feet(&self) -> &[WaterfallFoot] {
+        &self.waterfall_feet
     }
 
     #[must_use]

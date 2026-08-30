@@ -9,7 +9,7 @@ use super::{
     RIVER_REFINEMENT_PASSES, RIVER_SURFACE_OFFSET, River, RiverNetwork, RiverSedimentBudget,
     RouteState, SEA_PLANE_CLEARANCE, SHARP_POINT_HEIGHT_RATIO, SHARP_POINT_SMOOTHING,
     SHARP_POINT_SMOOTHING_PASSES, SurfaceMaterial, Vec2, VecDeque,
-    WATERFALL_FINAL_SMOOTHING_PASSES, WATERFALL_TARGET_EDGE_LENGTH, WaterfallPatch,
+    WATERFALL_FINAL_SMOOTHING_PASSES, WATERFALL_TARGET_EDGE_LENGTH, WaterfallFoot, WaterfallPatch,
     WaterfallTerrainConstraints, build_river_footprint, derive_waterfall_patches,
     detect_failed_final_waterfalls, duplicate_river_topology, encode_bank_distance_in_uv,
     enforce_final_waterfall_edge_relationships, enforce_waterfall_downstream_ceiling,
@@ -1859,6 +1859,7 @@ pub(super) struct BuiltRiverGeometry {
     pub(super) river_mesh: Mesh,
     pub(super) river_bed: Vec<bool>,
     pub(super) river_rock_mesh: Mesh,
+    pub(super) waterfall_feet: Vec<WaterfallFoot>,
     pub(super) failed_waterfalls: Vec<usize>,
 }
 
@@ -2118,6 +2119,7 @@ impl<'a> RiverGeometryBuilder<'a> {
             river_mesh,
             river_bed,
             river_rock_mesh,
+            waterfall_feet: patches.iter().copied().map(WaterfallPatch::foot).collect(),
             failed_waterfalls,
         }
     }

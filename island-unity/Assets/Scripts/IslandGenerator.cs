@@ -85,7 +85,7 @@ public sealed class IslandGenerator : MonoBehaviour
     private bool? appliedShowForests;
     private bool? appliedShowMeshEdges;
     private bool? appliedShowTreeMeshEdges;
-    private bool? appliedEmitterDebug;
+    private bool? appliedWaterfallDebug;
     private Color? appliedGrassColourA;
     private Color? appliedGrassColourB;
     private float appliedGrassColourNoiseWorldSize = float.NaN;
@@ -614,10 +614,10 @@ public sealed class IslandGenerator : MonoBehaviour
             appliedShowTreeMeshEdges = debugSettings.ShowTreeMeshEdges;
             terrainStreamer?.SetTreeMeshEdgesVisible(debugSettings.ShowTreeMeshEdges);
         }
-        if (appliedEmitterDebug != debugSettings.ShowRoughWaterEmitters)
+        if (appliedWaterfallDebug != debugSettings.ShowWaterfallFeet)
         {
-            appliedEmitterDebug = debugSettings.ShowRoughWaterEmitters;
-            terrainStreamer?.SetRiverEmitterDebug(debugSettings.ShowRoughWaterEmitters);
+            appliedWaterfallDebug = debugSettings.ShowWaterfallFeet;
+            terrainStreamer?.SetWaterfallFootDebug(debugSettings.ShowWaterfallFeet);
         }
     }
 
@@ -733,8 +733,6 @@ public sealed class IslandGenerator : MonoBehaviour
         var worldSize = generation.WorldSizeMetres;
         var options = generation.ToNativeOptions(rivers);
         var forestOptions = generation.ToNativeForestOptions(forest);
-        var emitterSharpness = rivers.RoughWaterSharpnessDegrees;
-        var emitterSpacing = rivers.RoughWaterSpacingMetres;
         var materialColours = rendering.SelectMaterialColours(islandSeed);
         var materialTextureResolution = rendering.MaterialTextureResolution;
 
@@ -745,8 +743,6 @@ public sealed class IslandGenerator : MonoBehaviour
                 options,
                 forestOptions,
                 worldSize,
-                emitterSharpness,
-                emitterSpacing,
                 materialColours,
                 materialTextureResolution,
                 cancellation.Token);
@@ -791,14 +787,14 @@ public sealed class IslandGenerator : MonoBehaviour
                 prepared.riverTiles,
                 prepared.riverRockTiles,
                 prepared.forest,
-                prepared.riverEmitters,
+                prepared.waterfallFeet,
                 prepared.colliderHeightMap,
                 rendering.ShowRivers,
                 rendering.ShowGrass,
                 rendering.ShowRocks,
                 forest.ShowForests,
                 cancellation.Token);
-            terrainStreamer.SetRiverEmitterDebug(debugSettings.ShowRoughWaterEmitters);
+            terrainStreamer.SetWaterfallFootDebug(debugSettings.ShowWaterfallFeet);
 
             seaObject = GameObject.CreatePrimitive(PrimitiveType.Plane);
             seaObject.name = "Sea";
@@ -831,8 +827,8 @@ public sealed class IslandGenerator : MonoBehaviour
             status += " | shared 2048 terrain shading map";
             status += string.Format(
                 CultureInfo.InvariantCulture,
-                " | {0:N0} rough-water candidates / 32 pooled systems",
-                terrainStreamer.RiverEmitterCandidateCount);
+                " | {0:N0} waterfall feet / 32 pooled fog volumes",
+                terrainStreamer.WaterfallFootCount);
             status += string.Format(
                 CultureInfo.InvariantCulture,
                 " | 3x3 hidden LOD 1 terrain colliders (129x129 samples each) | {0:F1} km square",
@@ -958,8 +954,6 @@ public sealed class IslandGenerator : MonoBehaviour
         int islandSeed,
         MotuNative.Options options,
         float worldSize,
-        float emitterSharpnessDegrees,
-        float emitterSpacingMetres,
         IslandMaterialColours materialColours,
         int materialTextureResolution,
         CancellationToken cancellationToken)
@@ -979,8 +973,6 @@ public sealed class IslandGenerator : MonoBehaviour
             options,
             forestOptions,
             worldSize,
-            emitterSharpnessDegrees,
-            emitterSpacingMetres,
             materialColours,
             materialTextureResolution,
             cancellationToken);
@@ -991,8 +983,6 @@ public sealed class IslandGenerator : MonoBehaviour
         MotuNative.Options options,
         MotuNative.ForestOptions forestOptions,
         float worldSize,
-        float emitterSharpnessDegrees,
-        float emitterSpacingMetres,
         IslandMaterialColours materialColours,
         int materialTextureResolution,
         CancellationToken cancellationToken)
@@ -1028,11 +1018,7 @@ public sealed class IslandGenerator : MonoBehaviour
             cancellationToken.ThrowIfCancellationRequested();
             var forest = PrepareForestData(handle, worldSize);
             cancellationToken.ThrowIfCancellationRequested();
-            var riverEmitters = PrepareRiverEmitters(
-                handle,
-                worldSize,
-                emitterSharpnessDegrees,
-                emitterSpacingMetres);
+            var waterfallFeet = PrepareWaterfallFeet(handle, worldSize);
             cancellationToken.ThrowIfCancellationRequested();
             var result = new IslandPreparedData(
                 handle,
@@ -1042,7 +1028,7 @@ public sealed class IslandGenerator : MonoBehaviour
                 riverTiles,
                 riverRockTiles,
                 forest,
-                riverEmitters,
+                waterfallFeet,
                 colliderHeightMap,
                 materialTextures);
             handle = IntPtr.Zero;
@@ -1579,39 +1565,33 @@ public sealed class IslandGenerator : MonoBehaviour
         }
     }
 
-    private static IslandPreparedRiverEmitter[] PrepareRiverEmitters(
+    private static IslandPreparedWaterfallFoot[] PrepareWaterfallFeet(
         IntPtr handle,
-        float worldSize,
-        float sharpnessDegrees,
-        float spacingMetres)
+        float worldSize)
     {
-        MotuNative.CreateRiverEmitters(
-            handle,
-            sharpnessDegrees,
-            spacingMetres,
-            out var export);
+        MotuNative.CreateWaterfallFeet(handle, out var export);
         try
         {
             if (export.handle == IntPtr.Zero || export.length < 0)
             {
                 throw new InvalidOperationException(
-                    "The Rust rough-water emitter export is invalid.");
+                    "The Rust waterfall-foot export is invalid.");
             }
             if (export.length == 0)
             {
-                return Array.Empty<IslandPreparedRiverEmitter>();
+                return Array.Empty<IslandPreparedWaterfallFoot>();
             }
             if (export.data == IntPtr.Zero)
             {
                 throw new InvalidOperationException(
-                    "The Rust rough-water emitter data is missing.");
+                    "The Rust waterfall-foot data is missing.");
             }
 
-            var result = new IslandPreparedRiverEmitter[export.length];
-            var exportSize = Marshal.SizeOf<MotuNative.RiverEmitterExport>();
+            var result = new IslandPreparedWaterfallFoot[export.length];
+            var exportSize = Marshal.SizeOf<MotuNative.WaterfallFootExport>();
             for (var index = 0; index < export.length; index++)
             {
-                var native = Marshal.PtrToStructure<MotuNative.RiverEmitterExport>(
+                var native = Marshal.PtrToStructure<MotuNative.WaterfallFootExport>(
                     IntPtr.Add(export.data, index * exportSize));
                 var position = new Vector3(
                     (native.position.x - 0.5f) * worldSize,
@@ -1621,16 +1601,17 @@ public sealed class IslandGenerator : MonoBehaviour
                     native.direction.x,
                     native.direction.z,
                     native.direction.y).normalized;
-                result[index] = new IslandPreparedRiverEmitter(
+                result[index] = new IslandPreparedWaterfallFoot(
                     position,
                     direction,
-                    Mathf.Clamp01(native.strength));
+                    native.halfWidth * worldSize,
+                    native.drop * worldSize);
             }
             return result;
         }
         finally
         {
-            MotuNative.ReleaseRiverEmitters(ref export);
+            MotuNative.ReleaseWaterfallFeet(ref export);
         }
     }
 
@@ -2040,7 +2021,7 @@ public sealed class IslandGenerator : MonoBehaviour
         appliedShowForests = null;
         appliedShowMeshEdges = null;
         appliedShowTreeMeshEdges = null;
-        appliedEmitterDebug = null;
+        appliedWaterfallDebug = null;
         appliedGrassColourA = null;
         appliedGrassColourB = null;
         appliedGrassColourNoiseWorldSize = float.NaN;
@@ -3010,57 +2991,58 @@ public sealed class IslandGenerator : MonoBehaviour
                 MotuNative.ReleaseMeshGrid(ref riverRockGrid);
             }
 
-            MotuNative.CreateRiverEmitters(handle, 35f, 2f, out var riverEmitters);
+            MotuNative.CreateWaterfallFeet(handle, out var waterfallFeet);
             try
             {
-                if (riverEmitters.handle == IntPtr.Zero
-                    || riverEmitters.length <= 0
-                    || riverEmitters.data == IntPtr.Zero)
+                if (waterfallFeet.handle == IntPtr.Zero
+                    || waterfallFeet.length <= 0
+                    || waterfallFeet.data == IntPtr.Zero)
                 {
                     throw new InvalidOperationException(
-                        "Native river mesh has no valid waterfall or rough-water emitters.");
+                        "Native generation has no authoritative waterfall-foot records.");
                 }
-                var emitterSize = Marshal.SizeOf<MotuNative.RiverEmitterExport>();
-                if (emitterSize != sizeof(float) * 7)
+                var footSize = Marshal.SizeOf<MotuNative.WaterfallFootExport>();
+                if (footSize != sizeof(float) * 8)
                 {
                     throw new InvalidOperationException(
-                        "Native rough-water emitter record layout is invalid.");
+                        "Native waterfall-foot record layout is invalid.");
                 }
-                for (var index = 0; index < riverEmitters.length; index++)
+                for (var index = 0; index < waterfallFeet.length; index++)
                 {
-                    var emitter = Marshal.PtrToStructure<MotuNative.RiverEmitterExport>(
-                        IntPtr.Add(riverEmitters.data, index * emitterSize));
-                    var directionLengthSquared = emitter.direction.x * emitter.direction.x
-                        + emitter.direction.y * emitter.direction.y
-                        + emitter.direction.z * emitter.direction.z;
-                    if (!IsFinite(emitter.position.x)
-                        || !IsFinite(emitter.position.y)
-                        || !IsFinite(emitter.position.z)
-                        || emitter.position.x < 0f
-                        || emitter.position.x > 1f
-                        || emitter.position.y < 0f
-                        || emitter.position.y > 1f
+                    var foot = Marshal.PtrToStructure<MotuNative.WaterfallFootExport>(
+                        IntPtr.Add(waterfallFeet.data, index * footSize));
+                    var directionLengthSquared = foot.direction.x * foot.direction.x
+                        + foot.direction.y * foot.direction.y
+                        + foot.direction.z * foot.direction.z;
+                    if (!IsFinite(foot.position.x)
+                        || !IsFinite(foot.position.y)
+                        || !IsFinite(foot.position.z)
+                        || foot.position.x < 0f
+                        || foot.position.x > 1f
+                        || foot.position.y < 0f
+                        || foot.position.y > 1f
                         || !IsFinite(directionLengthSquared)
                         || Mathf.Abs(directionLengthSquared - 1f) > 0.001f
-                        || !IsFinite(emitter.strength)
-                        || emitter.strength < 0f
-                        || emitter.strength > 1f)
+                        || !IsFinite(foot.halfWidth)
+                        || foot.halfWidth <= 0f
+                        || !IsFinite(foot.drop)
+                        || foot.drop <= 0f)
                     {
                         throw new InvalidOperationException(
-                            "A native rough-water emitter record is invalid.");
+                            "A native waterfall-foot record is invalid.");
                     }
                 }
             }
             finally
             {
-                MotuNative.ReleaseRiverEmitters(ref riverEmitters);
+                MotuNative.ReleaseWaterfallFeet(ref waterfallFeet);
             }
-            if (riverEmitters.handle != IntPtr.Zero
-                || riverEmitters.data != IntPtr.Zero
-                || riverEmitters.length != 0)
+            if (waterfallFeet.handle != IntPtr.Zero
+                || waterfallFeet.data != IntPtr.Zero
+                || waterfallFeet.length != 0)
             {
                 throw new InvalidOperationException(
-                    "Native rough-water emitter release did not clear ownership.");
+                    "Native waterfall-foot release did not clear ownership.");
             }
 
             if (Marshal.SizeOf<MotuNative.ExportDecoration>()
@@ -3073,66 +3055,104 @@ public sealed class IslandGenerator : MonoBehaviour
             ValidateBorrowedArray(nativeDecoration.trees, "tree");
             ValidateBorrowedArray(nativeDecoration.bushes, "bush");
 
-            var indexCandidates = new[]
+            var indexFeet = new[]
             {
-                new IslandPreparedRiverEmitter(
-                    new Vector3(-999.9f, 1f, -999.9f),
+                new IslandPreparedWaterfallFoot(
+                    new Vector3(-999.9f, -2f, -999.9f),
                     Vector3.up,
-                    0.25f),
-                new IslandPreparedRiverEmitter(Vector3.zero, Vector3.forward, 0.5f),
-                new IslandPreparedRiverEmitter(
+                    1f,
+                    2f),
+                new IslandPreparedWaterfallFoot(Vector3.zero, Vector3.forward, 2f, 4f),
+                new IslandPreparedWaterfallFoot(
                     new Vector3(999.9f, 2f, 999.9f),
                     Vector3.right,
-                    1f),
+                    3f,
+                    8f),
             };
-            var emitterIndex = new RiverEmitterIndex(indexCandidates, ValidationWorldSize);
-            var seen = new bool[indexCandidates.Length];
-            for (var y = 0; y < RiverEmitterIndex.Resolution; y++)
+            var footIndex = new WaterfallFootIndex(indexFeet, ValidationWorldSize);
+            var seen = new bool[indexFeet.Length];
+            for (var y = 0; y < WaterfallFootIndex.Resolution; y++)
             {
-                for (var x = 0; x < RiverEmitterIndex.Resolution; x++)
+                for (var x = 0; x < WaterfallFootIndex.Resolution; x++)
                 {
-                    emitterIndex.GetCellRange(x, y, out var start, out var end);
+                    footIndex.GetCellRange(x, y, out var start, out var end);
                     for (var order = start; order < end; order++)
                     {
-                        var candidateIndex = emitterIndex.CandidateIndexAt(order);
+                        var candidateIndex = footIndex.CandidateIndexAt(order);
                         if (candidateIndex < 0
                             || candidateIndex >= seen.Length
                             || seen[candidateIndex])
                         {
                             throw new InvalidOperationException(
-                                "The rough-water packed index contains an invalid entry.");
+                                "The waterfall-foot packed index contains an invalid entry.");
                         }
                         seen[candidateIndex] = true;
                     }
                 }
             }
             if (Array.Exists(seen, value => !value)
-                || emitterIndex.CellAt(indexCandidates[0].position) != Vector2Int.zero
-                || emitterIndex.CellAt(indexCandidates[2].position)
+                || footIndex.CellAt(indexFeet[0].position) != Vector2Int.zero
+                || footIndex.CellAt(indexFeet[2].position)
                     != new Vector2Int(
-                        RiverEmitterIndex.Resolution - 1,
-                        RiverEmitterIndex.Resolution - 1))
+                        WaterfallFootIndex.Resolution - 1,
+                        WaterfallFootIndex.Resolution - 1))
             {
                 throw new InvalidOperationException(
-                    "The rough-water packed index does not cover the world bounds.");
+                    "The waterfall-foot packed index does not cover the world bounds.");
             }
 
-            var particleRoot = new GameObject("Rough water pool validation");
+            var mistRoot = new GameObject("Waterfall fog pool validation");
             try
             {
-                var pool = particleRoot.AddComponent<RiverParticlePool>();
-                pool.Initialize(indexCandidates, ValidationWorldSize, true);
-                if (pool.PoolCount != 32 || pool.CreatedSystemCount != 32)
+                var pool = mistRoot.AddComponent<WaterfallMistPool>();
+                pool.Initialize(indexFeet, ValidationWorldSize, true);
+                if (pool.PoolCount != 32
+                    || pool.CreatedVolumeCount != 32)
                 {
                     throw new InvalidOperationException(
-                        "The rough-water particle pool is not fixed at 32 systems.");
+                        "The waterfall fog pool is not fixed at 32 volumes.");
+                }
+                if (mistRoot.GetComponentInChildren<ParticleSystem>(true) != null)
+                {
+                    throw new InvalidOperationException(
+                        "The waterfall fog pool still creates a particle emitter.");
+                }
+                pool.SetPlayerPosition(indexFeet[0].position, Vector2Int.zero);
+                if (pool.ActiveVolumeCount != 1)
+                {
+                    throw new InvalidOperationException(
+                        "A nearby waterfall foot did not activate its fog volume.");
+                }
+                var activeMistRenderer = Array.Find(
+                    mistRoot.GetComponentsInChildren<MeshRenderer>(true),
+                    renderer => renderer.enabled);
+                if (activeMistRenderer == null
+                    || activeMistRenderer.transform.position.y <= SeaHeight)
+                {
+                    throw new InvalidOperationException(
+                        "Submerged waterfall fog was not lifted to the sea plane.");
+                }
+                pool.SetPlayerPosition(
+                    indexFeet[0].position,
+                    new Vector2Int(
+                        WaterfallFootIndex.Resolution - 1,
+                        WaterfallFootIndex.Resolution - 1));
+                if (pool.ActiveVolumeCount != 0)
+                {
+                    throw new InvalidOperationException(
+                        "Waterfall fog remained active outside the LOD 0 neighborhood.");
                 }
                 pool.ClearPlayerFocus();
+                if (pool.ActiveVolumeCount != 0)
+                {
+                    throw new InvalidOperationException(
+                        "Clearing waterfall focus did not clear waterfall fog.");
+                }
                 pool.DisposePool();
             }
             finally
             {
-                DestroyImmediate(particleRoot);
+                DestroyImmediate(mistRoot);
             }
 
             const int validationSamplesPerTile = TerrainTileStreamer.ColliderSamplesPerTile;

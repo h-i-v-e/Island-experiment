@@ -7,8 +7,6 @@ internal static class IslandGenerationWorker
         int seed,
         MotuNative.Options options,
         float worldSize,
-        float emitterSharpnessDegrees,
-        float emitterSpacingMetres,
         IslandMaterialColours materialColours,
         int materialTextureResolution,
         CancellationToken cancellationToken)
@@ -27,8 +25,6 @@ internal static class IslandGenerationWorker
                 maximumScale = 2f,
             },
             worldSize,
-            emitterSharpnessDegrees,
-            emitterSpacingMetres,
             materialColours,
             materialTextureResolution,
             cancellationToken);
@@ -39,8 +35,6 @@ internal static class IslandGenerationWorker
         MotuNative.Options options,
         MotuNative.ForestOptions forestOptions,
         float worldSize,
-        float emitterSharpnessDegrees,
-        float emitterSpacingMetres,
         IslandMaterialColours materialColours,
         int materialTextureResolution,
         CancellationToken cancellationToken)
@@ -51,8 +45,6 @@ internal static class IslandGenerationWorker
                 options,
                 forestOptions,
                 worldSize,
-                emitterSharpnessDegrees,
-                emitterSpacingMetres,
                 materialColours,
                 materialTextureResolution,
                 cancellationToken),

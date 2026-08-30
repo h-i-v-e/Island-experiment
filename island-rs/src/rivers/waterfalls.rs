@@ -1,7 +1,7 @@
 use super::{
     Adjacency, ENABLE_WATERFALL_PLUNGE_POOLS, HashMap, ISLAND_WORLD_METRES, Mesh, RIVER_BOUNDARY,
     RIVER_SURFACE_OFFSET, RiverMeshBuffers, RiverNetwork, RiverOwnerKey, SEA_PLANE_CLEARANCE,
-    SurfaceMaterial, Vec2, VecDeque, WATERFALL_APRON_WIDTH_MULTIPLIER,
+    SurfaceMaterial, Vec2, Vec3, VecDeque, WATERFALL_APRON_WIDTH_MULTIPLIER,
     WATERFALL_DOWNSTREAM_SPIKE_ALLOWANCE, WATERFALL_DOWNSTREAM_SPIKE_PASSES,
     WATERFALL_EDGE_BLEND_RUN, WATERFALL_EDGE_SMOOTHING, WATERFALL_EDGE_SMOOTHING_PASSES,
     WATERFALL_FINAL_BANK_DROP_FRACTION, WATERFALL_FINAL_BANK_EDGE_DROP_FRACTION,
@@ -34,6 +34,14 @@ pub(super) struct WaterfallPatch {
     pub(super) pool: Option<PlungePool>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct WaterfallFoot {
+    pub(crate) position: Vec3,
+    pub(crate) direction: Vec3,
+    pub(crate) half_width: f32,
+    pub(crate) drop: f32,
+}
+
 #[derive(Debug)]
 pub(super) struct WaterfallTerrainConstraints {
     pub(super) patch: Vec<bool>,
@@ -53,6 +61,15 @@ pub(super) enum WaterfallPlaneZone {
 impl WaterfallPatch {
     pub(super) fn face_run() -> f32 {
         2.0 * WATERFALL_TARGET_EDGE_LENGTH
+    }
+
+    pub(super) fn foot(self) -> WaterfallFoot {
+        WaterfallFoot {
+            position: self.upper_centre.extend(self.lower_surface),
+            direction: self.direction.extend(0.0),
+            half_width: self.half_width,
+            drop: self.upper_surface - self.lower_surface,
+        }
     }
 
     pub(super) fn signed_distance_to_face_plane(self, point: Vec2) -> f32 {

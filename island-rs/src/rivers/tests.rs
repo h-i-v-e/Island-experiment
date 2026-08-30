@@ -20,6 +20,11 @@ fn waterfall_plane_zones_and_upstream_blend_follow_the_classification_plane() {
         support_run: 0.03,
         pool: None,
     };
+    let foot = patch.foot();
+    assert_eq!(foot.position, Vec3::new(0.4, 0.6, 0.1));
+    assert_eq!(foot.direction, Vec3::X);
+    assert_eq!(foot.half_width.to_bits(), patch.half_width.to_bits());
+    assert!((foot.drop - 0.2).abs() < 1.0e-6);
     assert_eq!(
         patch.plane_zone(patch.upper_centre - patch.direction * WaterfallPatch::face_run()),
         WaterfallPlaneZone::Face

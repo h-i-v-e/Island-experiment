@@ -1,26 +1,26 @@
 using System;
 using UnityEngine;
 
-internal sealed class RiverEmitterIndex
+internal sealed class WaterfallFootIndex
 {
     internal const int Resolution = TerrainTileStreamer.Lod1Resolution;
 
-    private readonly IslandPreparedRiverEmitter[] candidates;
+    private readonly IslandPreparedWaterfallFoot[] feet;
     private readonly int[] cellOffsets;
     private readonly int[] candidateOrder;
     private readonly float worldSize;
 
-    internal RiverEmitterIndex(
-        IslandPreparedRiverEmitter[] candidates,
+    internal WaterfallFootIndex(
+        IslandPreparedWaterfallFoot[] feet,
         float worldSize)
     {
-        this.candidates = candidates ?? Array.Empty<IslandPreparedRiverEmitter>();
+        this.feet = feet ?? Array.Empty<IslandPreparedWaterfallFoot>();
         this.worldSize = worldSize;
         var cellCount = Resolution * Resolution;
         var counts = new int[cellCount];
-        for (var index = 0; index < this.candidates.Length; index++)
+        for (var index = 0; index < this.feet.Length; index++)
         {
-            counts[CellIndex(this.candidates[index].position)]++;
+            counts[CellIndex(this.feet[index].position)]++;
         }
 
         cellOffsets = new int[cellCount + 1];
@@ -28,18 +28,18 @@ internal sealed class RiverEmitterIndex
         {
             cellOffsets[cell + 1] = cellOffsets[cell] + counts[cell];
         }
-        candidateOrder = new int[this.candidates.Length];
+        candidateOrder = new int[this.feet.Length];
         var cursors = new int[cellCount];
         Array.Copy(cellOffsets, cursors, cellCount);
-        for (var index = 0; index < this.candidates.Length; index++)
+        for (var index = 0; index < this.feet.Length; index++)
         {
-            var cell = CellIndex(this.candidates[index].position);
+            var cell = CellIndex(this.feet[index].position);
             candidateOrder[cursors[cell]++] = index;
         }
     }
 
-    internal int Count => candidates.Length;
-    internal IslandPreparedRiverEmitter CandidateAt(int index) => candidates[index];
+    internal int Count => feet.Length;
+    internal IslandPreparedWaterfallFoot FootAt(int index) => feet[index];
     internal int CandidateIndexAt(int orderIndex) => candidateOrder[orderIndex];
 
     internal void GetCellRange(int x, int y, out int start, out int end)

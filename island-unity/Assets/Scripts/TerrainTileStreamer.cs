@@ -118,14 +118,14 @@ public sealed class TerrainTileStreamer : MonoBehaviour
     private GameObject riverRoot;
     private GameObject riverRockRoot;
     private GameObject colliderRoot;
-    private RiverParticlePool riverParticlePool;
+    private WaterfallMistPool waterfallMistPool;
     private ForestTileStreamer forestStreamer;
     private Vector2Int currentLod2 = new Vector2Int(-1, -1);
     private Vector2Int currentLod1 = new Vector2Int(-1, -1);
 
     public int BaseVertexCount { get; private set; }
     public int BaseTriangleCount { get; private set; }
-    public int RiverEmitterCandidateCount => riverParticlePool?.CandidateCount ?? 0;
+    public int WaterfallFootCount => waterfallMistPool?.FootCount ?? 0;
     internal int Lod1GroupCount => lod1Groups.Count;
     internal int Lod0GroupCount => lod0Groups.Count;
     internal int TerrainColliderCount => colliderTiles.Count;
@@ -154,7 +154,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         IslandPreparedMesh[] riverTiles,
         IslandPreparedMesh[] riverRockTiles,
         IslandPreparedForestData preparedForest,
-        IslandPreparedRiverEmitter[] riverEmitters,
+        IslandPreparedWaterfallFoot[] waterfallFeet,
         IslandPreparedColliderHeightMap preparedColliderHeightMap,
         bool showRivers,
         bool showGrass,
@@ -233,11 +233,11 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         }
         riverRoot.transform.SetParent(transform, false);
         riverRoot.transform.localPosition = Vector3.up * 0.025f;
-        var particleRoot = new GameObject("Rough Water Particle Pool");
-        particleRoot.layer = riverRoot.layer;
-        particleRoot.transform.SetParent(riverRoot.transform, false);
-        riverParticlePool = particleRoot.AddComponent<RiverParticlePool>();
-        riverParticlePool.Initialize(riverEmitters, worldSize, showRivers);
+        var mistRoot = new GameObject("Waterfall Foot Fog Pool");
+        mistRoot.layer = riverRoot.layer;
+        mistRoot.transform.SetParent(riverRoot.transform, false);
+        waterfallMistPool = mistRoot.AddComponent<WaterfallMistPool>();
+        waterfallMistPool.Initialize(waterfallFeet, worldSize, showRivers);
         riverRoot.SetActive(showRivers);
         riverRockRoot = new GameObject("Stones and Boulders");
         riverRockRoot.transform.SetParent(transform, false);
@@ -341,7 +341,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         {
             UpdateGrassTiles(localPosition);
         }
-        riverParticlePool?.SetPlayerPosition(localPosition, lod2);
+        waterfallMistPool?.SetPlayerPosition(localPosition, lod1);
     }
 
     public void ClearPlayerFocus()
@@ -350,7 +350,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         terrainMaterial?.SetFloat(GrassEnabledId, 0f);
         grassMaterial?.SetFloat(GrassEnabledId, 0f);
         lastGrassPosition = new Vector3(float.PositiveInfinity, 0f, 0f);
-        riverParticlePool?.ClearPlayerFocus();
+        waterfallMistPool?.ClearPlayerFocus();
         RemoveAllColliderTiles();
         foreach (var group in riverGroups.Values)
         {
@@ -466,8 +466,8 @@ public sealed class TerrainTileStreamer : MonoBehaviour
             DestroyGroup(group);
         }
         riverRockGroups.Clear();
-        riverParticlePool?.DisposePool();
-        riverParticlePool = null;
+        waterfallMistPool?.DisposePool();
+        waterfallMistPool = null;
         forestStreamer?.Dispose();
         forestStreamer = null;
         DestroyUnityObject(riverRoot);
@@ -495,7 +495,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
 
     public void SetRiversVisible(bool visible)
     {
-        riverParticlePool?.SetRiversVisible(visible);
+        waterfallMistPool?.SetRiversVisible(visible);
         riverRoot?.SetActive(visible);
     }
 
@@ -518,9 +518,9 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         grassTilesDirty = true;
     }
 
-    public void SetRiverEmitterDebug(bool visible)
+    public void SetWaterfallFootDebug(bool visible)
     {
-        riverParticlePool?.SetDebugDraw(visible);
+        waterfallMistPool?.SetDebugDraw(visible);
     }
 
     public void SetRocksVisible(bool visible)

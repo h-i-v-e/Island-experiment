@@ -300,21 +300,22 @@ pub struct ExportMeshGrid {
 
 #[derive(Clone, Copy, Debug, Default)]
 #[repr(C)]
-pub struct RiverEmitterExport {
+pub struct WaterfallFootExport {
     pub position: Vec3,
     pub direction: Vec3,
-    pub strength: f32,
+    pub half_width: f32,
+    pub drop: f32,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
 #[repr(C)]
-pub struct ExportRiverEmitters {
+pub struct ExportWaterfallFeet {
     pub handle: *mut c_void,
-    pub data: *const RiverEmitterExport,
+    pub data: *const WaterfallFootExport,
     pub length: i32,
 }
 
-const _: () = assert!(size_of::<RiverEmitterExport>() == size_of::<[f32; 7]>());
+const _: () = assert!(size_of::<WaterfallFootExport>() == size_of::<[f32; 8]>());
 
 #[derive(Clone, Copy, Debug, Default)]
 #[repr(C)]
@@ -1251,11 +1252,9 @@ pub unsafe extern "C" fn CreateRiverRockMeshGrid(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn CreateRiverEmitters(
+pub unsafe extern "C" fn CreateWaterfallFeet(
     handle: *const c_void,
-    sharpness_degrees: f32,
-    spacing_metres: f32,
-    output: *mut ExportRiverEmitters,
+    output: *mut ExportWaterfallFeet,
 ) {
     let Some(island) = (unsafe { island_ref(handle) }) else {
         return;
@@ -1263,37 +1262,38 @@ pub unsafe extern "C" fn CreateRiverEmitters(
     let Some(output) = (unsafe { output.as_mut() }) else {
         return;
     };
-    let emitters: Vec<RiverEmitterExport> = island
-        .river_emitters(sharpness_degrees, spacing_metres)
-        .into_iter()
-        .map(|emitter| RiverEmitterExport {
-            position: emitter.position,
-            direction: emitter.direction,
-            strength: emitter.strength,
+    let feet: Vec<WaterfallFootExport> = island
+        .waterfall_feet()
+        .iter()
+        .map(|foot| WaterfallFootExport {
+            position: foot.position,
+            direction: foot.direction,
+            half_width: foot.half_width,
+            drop: foot.drop,
         })
         .collect();
-    let owner = Box::new(emitters);
-    let export = ExportRiverEmitters {
+    let owner = Box::new(feet);
+    let export = ExportWaterfallFeet {
         handle: ptr::null_mut(),
         data: owner.as_ptr(),
         length: length_i32(owner.len()),
     };
-    *output = ExportRiverEmitters {
+    *output = ExportWaterfallFeet {
         handle: Box::into_raw(owner).cast(),
         ..export
     };
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn ReleaseRiverEmitters(output: *mut ExportRiverEmitters) {
+pub unsafe extern "C" fn ReleaseWaterfallFeet(output: *mut ExportWaterfallFeet) {
     let Some(output) = (unsafe { output.as_mut() }) else {
         return;
     };
     if !output.handle.is_null() {
-        // SAFETY: handle came from CreateRiverEmitters and is released once.
-        drop(unsafe { Box::from_raw(output.handle.cast::<Vec<RiverEmitterExport>>()) });
+        // SAFETY: handle came from CreateWaterfallFeet and is released once.
+        drop(unsafe { Box::from_raw(output.handle.cast::<Vec<WaterfallFootExport>>()) });
     }
-    *output = ExportRiverEmitters::default();
+    *output = ExportWaterfallFeet::default();
 }
 
 /// Exports one compact capsule description for every placed central trunk.
@@ -2058,19 +2058,22 @@ mod tests {
         assert!(values.iter().any(|value| value.y == 0.0));
     }
 
-    unsafe fn assert_river_emitters(handle: *const c_void) {
-        let mut output = ExportRiverEmitters::default();
-        unsafe { CreateRiverEmitters(handle, 35.0, 2.0, &raw mut output) };
+    unsafe fn assert_waterfall_feet(handle: *const c_void) {
+        let mut output = ExportWaterfallFeet::default();
+        unsafe { CreateWaterfallFeet(handle, &raw mut output) };
         assert!(!output.handle.is_null());
         assert!(output.length > 0);
         let values = unsafe { std::slice::from_raw_parts(output.data, output.length as usize) };
-        assert!(values.iter().all(|emitter| {
-            emitter.position.is_finite()
-                && emitter.direction.is_finite()
-                && (emitter.direction.length() - 1.0).abs() < 1.0e-4
-                && (0.0..=1.0).contains(&emitter.strength)
+        assert!(values.iter().all(|foot| {
+            foot.position.is_finite()
+                && foot.direction.is_finite()
+                && (foot.direction.length() - 1.0).abs() < 1.0e-4
+                && foot.half_width.is_finite()
+                && foot.half_width > 0.0
+                && foot.drop.is_finite()
+                && foot.drop > 0.0
         }));
-        unsafe { ReleaseRiverEmitters(&raw mut output) };
+        unsafe { ReleaseWaterfallFeet(&raw mut output) };
         assert!(output.handle.is_null());
     }
 
@@ -2206,7 +2209,7 @@ mod tests {
         unsafe { ReleaseMeshGrid(&raw mut river_rock_grid) };
         assert!(river_rock_grid.handle.is_null());
 
-        unsafe { assert_river_emitters(handle) };
+        unsafe { assert_waterfall_feet(handle) };
     }
 
     #[test]
