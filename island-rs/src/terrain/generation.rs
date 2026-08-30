@@ -14,6 +14,7 @@ use super::{
     hydraulic_erode_stage_depositing_across_sea, io, legacy_catchment_hectares, mem, noise,
     sample_grid,
 };
+use crate::ferns::{FernMeshTile, FernMeshes, FernOptions, FernSurface, generate_ferns};
 use crate::forest::{
     ForestGenerationStats, ForestMeshKind, ForestMeshes, ForestOptions, forest_floor_mask,
     generate_forest,
@@ -39,6 +40,7 @@ pub struct Island {
     pub(super) river_rock_mesh: Mesh,
     pub(super) waterfall_feet: Vec<WaterfallFoot>,
     pub(super) reeds: ReedMeshes,
+    pub(super) ferns: FernMeshes,
     pub(super) forest: ForestMeshes,
     pub(super) forest_stats: ForestGenerationStats,
     pub(super) forest_options: ForestOptions,
@@ -354,6 +356,29 @@ impl Island {
         )
     }
 
+    /// Generates an island with explicit forest, riverbank vegetation, and
+    /// tree-trunk fern controls.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when any option block is invalid or generation fails.
+    pub fn generate_with_forest_reeds_and_ferns(
+        seed: u64,
+        options: IslandOptions,
+        forest_options: ForestOptions,
+        reed_options: ReedOptions,
+        fern_options: FernOptions,
+    ) -> Result<Self, String> {
+        Self::generate_with_forest_reeds_ferns_and_method(
+            seed,
+            options,
+            forest_options,
+            reed_options,
+            fern_options,
+            GenerationMethod::Cpu,
+        )
+    }
+
     #[allow(clippy::too_many_lines)]
     pub(crate) fn generate_with_forest_reeds_and_method(
         seed: u64,
@@ -362,11 +387,31 @@ impl Island {
         reed_options: ReedOptions,
         method: GenerationMethod,
     ) -> Result<Self, String> {
+        Self::generate_with_forest_reeds_ferns_and_method(
+            seed,
+            options,
+            forest_options,
+            reed_options,
+            FernOptions::default(),
+            method,
+        )
+    }
+
+    #[allow(clippy::too_many_lines)]
+    pub(crate) fn generate_with_forest_reeds_ferns_and_method(
+        seed: u64,
+        options: IslandOptions,
+        forest_options: ForestOptions,
+        reed_options: ReedOptions,
+        fern_options: FernOptions,
+        method: GenerationMethod,
+    ) -> Result<Self, String> {
         method.require_available()?;
         let _timer = StageTimer::new("island.generate");
         let options = options.validate()?;
         let forest_options = forest_options.validate()?;
         let reed_options = reed_options.validate()?;
+        let fern_options = fern_options.validate()?;
         let mut scratch = GenerationScratch::new(method);
         let (base, material) = generate_base(seed, options, &mut scratch)?;
         let context = GenerationContext::new(seed, options);
@@ -436,11 +481,32 @@ impl Island {
             forest_options,
         )?;
         decorations.set_tree_anchors(forest.placements().iter().map(|placement| placement.anchor));
-        let forest_floor = forest_floor_mask(seed, terrain.mesh(), forest.placements());
+        let ferns = generate_ferns(
+            seed,
+            &terrain,
+            &forest,
+            FernSurface {
+                river_bed: &river_bed,
+                deposited_depths: material.depths(),
+                sea_proximity: material.sea_proximities(),
+                forced_rock: &forced_rock,
+                stones: decorations.stone_vertices(),
+                reeds: reeds.forest_exclusion_vertices(),
+                snowline_metres: forest_options.snowline_metres,
+            },
+            fern_options,
+        )?;
+        let mut forest_floor = forest_floor_mask(seed, terrain.mesh(), forest.placements());
+        for &vertex in ferns.support_vertices() {
+            if let Some(value) = forest_floor.get_mut(vertex as usize) {
+                *value = true;
+            }
+        }
         let environment =
             TerrainEnvironmentField::from_masks(&forest_floor, decorations.stone_vertices());
         let mut material = TerrainMaterialField::from_surface(&material, &river_bed, &forced_rock);
         material.suppress_grass_at_vertices(reeds.forest_exclusion_vertices());
+        material.suppress_grass_at_vertices(ferns.support_vertices());
         let distance_to_land = {
             let _timer = StageTimer::new("sea_mask.distance_to_land");
             let land: Vec<bool> = terrain
@@ -465,6 +531,7 @@ impl Island {
             river_rock_mesh,
             waterfall_feet,
             reeds,
+            ferns,
             forest,
             forest_stats,
             forest_options,
@@ -536,6 +603,11 @@ impl Island {
     #[must_use]
     pub(crate) fn reed_mesh_tiles(&self) -> &[ReedMeshTile] {
         self.reeds.tiles()
+    }
+
+    #[must_use]
+    pub(crate) fn fern_mesh_tiles(&self) -> &[FernMeshTile] {
+        self.ferns.tiles()
     }
 
     #[allow(dead_code)]

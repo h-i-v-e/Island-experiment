@@ -13,9 +13,38 @@ public static class IslandGeneratorValidation
     {
         IslandGenerator.BatchValidateNativeInterop();
         ValidateWaterfallMistShader();
+        ValidateFernShader();
         ValidateSandboxScene();
         ValidateRealtimeShadowRender();
         Debug.Log("IslandGenerator component, sandbox level, and native validation passed.");
+    }
+
+    private static void ValidateFernShader()
+    {
+        var shader = Shader.Find("Motu/Forest Ferns");
+        if (shader == null
+            || !shader.isSupported
+            || ShaderUtil.ShaderHasError(shader))
+        {
+            throw new InvalidOperationException(
+                "The forest-fern cutout shader is missing or invalid.");
+        }
+        var material = new Material(shader);
+        try
+        {
+            if (material.GetTag("RenderType", false) != "MotuFernCutout"
+                || material.GetTag("MotuReflection", false) != "Ferns"
+                || !material.HasProperty("_FernWindMultiplier")
+                || !material.HasProperty("_GrassPatchNoise"))
+            {
+                throw new InvalidOperationException(
+                    "The forest-fern shader is missing its AO, reflection, or wind contract.");
+            }
+        }
+        finally
+        {
+            UnityEngine.Object.DestroyImmediate(material);
+        }
     }
 
     private static void ValidateWaterfallMistShader()

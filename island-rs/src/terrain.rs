@@ -60,6 +60,7 @@ pub use generation_method::GenerationMethod;
 use gpu_generation::GpuParticleErosionScratch;
 pub(crate) use material::{SurfaceMaterial, projected_vertex_control_areas};
 use material::{TerrainEnvironmentField, TerrainMaterialField};
+pub(crate) use sampling::TerrainSupportSample;
 pub use sampling::{SurfaceMaps, Terrain};
 use sampling::{
     SurfaceSample, TriangleIndex, bury_river_banks, sample_mesh_surface, sample_mesh_triangle,

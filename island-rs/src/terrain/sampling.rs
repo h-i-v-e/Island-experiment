@@ -165,6 +165,17 @@ pub(super) struct SurfaceSample {
     pub(super) normal: Vec3,
 }
 
+/// One final-LOD0 terrain lookup, including the supporting triangle used for
+/// interpolation. Decoration generators use this to classify and anchor an
+/// object without repeating the spatial-index query for every terrain field.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(crate) struct TerrainSupportSample {
+    pub(crate) position: Vec3,
+    pub(crate) normal: Vec3,
+    pub(crate) triangle: [usize; 3],
+    pub(crate) weights: [f32; 3],
+}
+
 impl Terrain {
     #[cfg(test)]
     pub(crate) fn new(mesh: Mesh) -> Self {
@@ -262,6 +273,37 @@ impl Terrain {
 
     pub(crate) fn sample_surface(&self, u: f32, v: f32) -> (f32, Vec3) {
         sample_mesh_surface(&self.mesh, &self.triangle_index, u, v)
+    }
+
+    pub(crate) fn sample_support(&self, point: Vec2) -> TerrainSupportSample {
+        let point = point.clamp(Vec2::ZERO, Vec2::ONE);
+        sample_mesh_triangle(&self.mesh, &self.triangle_index, point).map_or_else(
+            || {
+                let nearest = self.triangle_index.nearest_vertex(&self.mesh, point);
+                TerrainSupportSample {
+                    position: self.mesh.vertices[nearest],
+                    normal: self.mesh.normals[nearest],
+                    triangle: [nearest; 3],
+                    weights: [1.0, 0.0, 0.0],
+                }
+            },
+            |(triangle, weights)| {
+                let position = self.mesh.vertices[triangle[0]] * weights[0]
+                    + self.mesh.vertices[triangle[1]] * weights[1]
+                    + self.mesh.vertices[triangle[2]] * weights[2];
+                let normal = (self.mesh.normals[triangle[0]] * weights[0]
+                    + self.mesh.normals[triangle[1]] * weights[1]
+                    + self.mesh.normals[triangle[2]] * weights[2])
+                    .try_normalize()
+                    .unwrap_or(Vec3::Z);
+                TerrainSupportSample {
+                    position,
+                    normal,
+                    triangle,
+                    weights,
+                }
+            },
+        )
     }
 }
 

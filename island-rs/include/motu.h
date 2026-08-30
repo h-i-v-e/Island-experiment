@@ -39,6 +39,10 @@ typedef struct {
     float bankWidthMetres, patchSizeMetres, coverageThreshold, spacingMetres;
     float rushRatio, minimumHeightMetres, maximumHeightMetres, maximumSlopeDegrees;
 } MotuReedOptions;
+typedef struct {
+    float barkClearanceMetres, outerRadiusMetres, spacingMetres, patchSizeMetres;
+    float coverageThreshold, minimumLengthMetres, maximumLengthMetres, maximumSlopeDegrees;
+} MotuFernOptions;
 typedef struct { const Vector3Export *data; int32_t length; } Vector3ExportArray;
 typedef struct { const Vector4Export *data; int32_t length; } Vector4ExportArray;
 typedef struct { const Vector2Export *data; int32_t length; } Vector2ExportArray;
@@ -90,6 +94,10 @@ MOTU_EXPORT void *CreateMotuWithForest(int32_t seed, const MotuOptions *options,
 MOTU_EXPORT void *CreateMotuWithForestAndReeds(int32_t seed, const MotuOptions *options,
                                                const MotuForestOptions *forestOptions,
                                                const MotuReedOptions *reedOptions);
+MOTU_EXPORT void *CreateMotuWithForestReedsAndFerns(int32_t seed, const MotuOptions *options,
+                                                    const MotuForestOptions *forestOptions,
+                                                    const MotuReedOptions *reedOptions,
+                                                    const MotuFernOptions *fernOptions);
 MOTU_EXPORT void *LoadMotu(const char *filePath);
 MOTU_EXPORT void SaveMotu(const void *handle, const char *filePath);
 MOTU_EXPORT void ReleaseMotu(void *handle);
@@ -118,6 +126,7 @@ MOTU_EXPORT void CreateForestFoliageMeshGrid(const void *handle, const ExportAre
                                              int32_t visualLod, int32_t divisions,
                                              ExportMeshGrid *output);
 MOTU_EXPORT void CreateReedMeshGrid(const void *handle, ExportMeshGrid *output);
+MOTU_EXPORT void CreateFernMeshGrid(const void *handle, ExportMeshGrid *output);
 MOTU_EXPORT void CreateWaterfallFeet(const void *handle, ExportWaterfallFeet *output);
 MOTU_EXPORT void ReleaseWaterfallFeet(ExportWaterfallFeet *output);
 MOTU_EXPORT ExportHeightMapWithSeaLevel *CreateHeightMap(const void *handle, int32_t resolution);

@@ -6,6 +6,7 @@
 #![recursion_limit = "512"]
 
 mod clustered_foliage;
+mod ferns;
 mod ffi;
 mod forest;
 mod geology;
@@ -24,6 +25,7 @@ mod sea_mask;
 mod terrain;
 mod trees;
 
+pub use ferns::FernOptions;
 pub use forest::ForestOptions;
 pub use glam::{Vec2, Vec3, Vec4};
 pub use math::BoundingBox;

@@ -1031,7 +1031,7 @@ fn shader_material_at_displaced_anchor(
     (cover.is_finite() && sea_proximity.is_finite()).then_some((cover, sea_proximity))
 }
 
-fn shader_loose_cover(deposited_depth: f32) -> f32 {
+pub(crate) fn shader_loose_cover(deposited_depth: f32) -> f32 {
     let cover = (deposited_depth / 0.002).clamp(0.0, 1.0);
     cover * cover * (3.0 - 2.0 * cover)
 }
@@ -1040,7 +1040,7 @@ fn shader_loose_cover(deposited_depth: f32) -> f32 {
 /// 50-percent antialias boundary. Exposed-rock overlays are intentionally not
 /// part of this predicate: a sand-capable coastal deposit remains unsuitable
 /// for a tree even where the visual rock layer partially covers it.
-fn shader_beach_candidate(anchor: Vec3, loose_cover: f32, sea_proximity: f32) -> bool {
+pub(crate) fn shader_beach_candidate(anchor: Vec3, loose_cover: f32, sea_proximity: f32) -> bool {
     let elevation_metres = anchor.z * ISLAND_WORLD_METRES;
     let altitude_weight = 1.0 - smoothstep(2.0, 4.0, elevation_metres);
     let sand_richness =

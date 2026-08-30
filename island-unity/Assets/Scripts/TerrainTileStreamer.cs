@@ -102,6 +102,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
     private Material treeFoliageMaterial;
     private Material treeLod0FoliageMaterial;
     private Material reedMaterial;
+    private Material fernMaterial;
     private MaterialPropertyBlock lod0MaterialProperties;
     private Material riverMaterial;
     private Material rockMaterial;
@@ -122,6 +123,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
     private WaterfallMistPool waterfallMistPool;
     private ForestTileStreamer forestStreamer;
     private ReedTileStreamer reedStreamer;
+    private FernTileStreamer fernStreamer;
     private Vector2Int currentLod2 = new Vector2Int(-1, -1);
     private Vector2Int currentLod1 = new Vector2Int(-1, -1);
 
@@ -150,6 +152,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         Material sharedTreeFoliageMaterial,
         Material sharedTreeLod0FoliageMaterial,
         Material sharedReedMaterial,
+        Material sharedFernMaterial,
         Material waterMaterial,
         Material sharedMeshEdgeMaterial,
         float terrainWorldSize,
@@ -158,6 +161,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         IslandPreparedMesh[] riverRockTiles,
         IslandPreparedForestData preparedForest,
         IslandPreparedMesh[] preparedReedTiles,
+        IslandPreparedMesh[] preparedFernTiles,
         IslandPreparedWaterfallFoot[] waterfallFeet,
         IslandPreparedColliderHeightMap preparedColliderHeightMap,
         bool showRivers,
@@ -165,6 +169,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         bool showRocks,
         bool showForests,
         bool showReeds,
+        bool showFerns,
         CancellationToken cancellationToken)
     {
         islandHandle = handle;
@@ -177,6 +182,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         treeFoliageMaterial = sharedTreeFoliageMaterial;
         treeLod0FoliageMaterial = sharedTreeLod0FoliageMaterial;
         reedMaterial = sharedReedMaterial;
+        fernMaterial = sharedFernMaterial;
         terrainMaterial.SetFloat(GrassEnabledId, 0f);
         grassMaterial.SetFloat(GrassEnabledId, 0f);
         if (treeFoliageMaterial != null)
@@ -264,6 +270,12 @@ public sealed class TerrainTileStreamer : MonoBehaviour
             sharedReedMaterial,
             preparedReedTiles,
             showReeds);
+        fernStreamer = new FernTileStreamer();
+        fernStreamer.Initialize(
+            transform,
+            sharedFernMaterial,
+            preparedFernTiles,
+            showFerns);
         lod2Group = await CreatePreparedGroupAsync(
             2,
             Vector2Int.zero,
@@ -329,6 +341,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         treeFoliageMaterial?.SetVector(GrassPlayerPositionId, worldPosition);
         treeLod0FoliageMaterial?.SetVector(GrassPlayerPositionId, worldPosition);
         reedMaterial?.SetVector(GrassPlayerPositionId, worldPosition);
+        fernMaterial?.SetVector(GrassPlayerPositionId, worldPosition);
         var lod2 = LocalCell(localPosition, Lod2Resolution);
         var lod1 = LocalCell(localPosition, Lod1Resolution);
 
@@ -348,6 +361,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         {
             forestStreamer?.UpdateLod0Neighborhood(lod1);
             reedStreamer?.UpdateLod0Neighborhood(lod1);
+            fernStreamer?.UpdateLod0Neighborhood(lod1);
             UpdateLod0Neighborhood(lod1);
             currentLod1 = lod1;
         }
@@ -362,6 +376,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
     {
         forestStreamer?.ClearPlayerFocus();
         reedStreamer?.ClearPlayerFocus();
+        fernStreamer?.ClearPlayerFocus();
         terrainMaterial?.SetFloat(GrassEnabledId, 0f);
         grassMaterial?.SetFloat(GrassEnabledId, 0f);
         lastGrassPosition = new Vector3(float.PositiveInfinity, 0f, 0f);
@@ -487,6 +502,8 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         forestStreamer = null;
         reedStreamer?.Dispose();
         reedStreamer = null;
+        fernStreamer?.Dispose();
+        fernStreamer = null;
         DestroyUnityObject(riverRoot);
         riverRoot = null;
         DestroyUnityObject(riverRockRoot);
@@ -501,6 +518,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         treeFoliageMaterial = null;
         treeLod0FoliageMaterial = null;
         reedMaterial = null;
+        fernMaterial = null;
         terrainLod1Material = null;
         terrainLod2Material = null;
         if (lod2Group != null)
@@ -554,6 +572,11 @@ public sealed class TerrainTileStreamer : MonoBehaviour
     public void SetReedsVisible(bool visible)
     {
         reedStreamer?.SetVisible(visible);
+    }
+
+    public void SetFernsVisible(bool visible)
+    {
+        fernStreamer?.SetVisible(visible);
     }
 
     public void SetMeshEdgesVisible(bool visible)

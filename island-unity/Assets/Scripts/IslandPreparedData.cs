@@ -365,6 +365,7 @@ internal sealed class IslandPreparedData : IDisposable
     internal readonly IslandPreparedMesh[] riverRockTiles;
     internal readonly IslandPreparedForestData forest;
     internal readonly IslandPreparedMesh[] reedTiles;
+    internal readonly IslandPreparedMesh[] fernTiles;
     internal readonly IslandPreparedWaterfallFoot[] waterfallFeet;
     internal readonly IslandPreparedColliderHeightMap colliderHeightMap;
     internal readonly IslandPreparedMaterialTextures materialTextures;
@@ -378,6 +379,7 @@ internal sealed class IslandPreparedData : IDisposable
         IslandPreparedMesh[] riverRockTiles,
         IslandPreparedForestData forest,
         IslandPreparedMesh[] reedTiles,
+        IslandPreparedMesh[] fernTiles,
         IslandPreparedWaterfallFoot[] waterfallFeet,
         IslandPreparedColliderHeightMap colliderHeightMap,
         IslandPreparedMaterialTextures materialTextures)
@@ -394,6 +396,11 @@ internal sealed class IslandPreparedData : IDisposable
             throw new ArgumentException("The prepared reed owner grid is invalid.", nameof(reedTiles));
         }
         this.reedTiles = reedTiles;
+        if (fernTiles == null || fernTiles.Length != FernTileStreamer.TileCount)
+        {
+            throw new ArgumentException("The prepared fern owner grid is invalid.", nameof(fernTiles));
+        }
+        this.fernTiles = fernTiles;
         this.waterfallFeet = waterfallFeet;
         this.colliderHeightMap = colliderHeightMap;
         this.materialTextures = materialTextures

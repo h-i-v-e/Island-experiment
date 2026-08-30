@@ -17,6 +17,9 @@ Shader "Motu/Planar Reflection Simplified"
         _ReedWindMultiplier ("Reed Wind", Float) = 3
         _ReedFadeStart ("Reed Fade Start", Float) = 34
         _ReedFadeEnd ("Reed Fade End", Float) = 47
+        _FernWindMultiplier ("Fern Wind", Float) = 1.8
+        _FernFadeStart ("Fern Fade Start", Float) = 34
+        _FernFadeEnd ("Fern Fade End", Float) = 47
         _WorldSize ("Island World Size", Float) = 2000
         [NoScaleOffset] _GrassPatchNoise ("Wind Noise", 2D) = "white" {}
         _GrassPlayerPosition ("Player Position", Vector) = (0, 0, 0, 0)
@@ -72,6 +75,9 @@ Shader "Motu/Planar Reflection Simplified"
     float _ReedWindMultiplier;
     float _ReedFadeStart;
     float _ReedFadeEnd;
+    float _FernWindMultiplier;
+    float _FernFadeStart;
+    float _FernFadeEnd;
     float _WorldSize;
     float4 _GrassPlayerPosition;
     float4x4 _IslandWorldToLocal;
@@ -360,6 +366,117 @@ Shader "Motu/Planar Reflection Simplified"
             #pragma target 3.0
             #pragma multi_compile_fog
             #pragma multi_compile_instancing
+            ENDCG
+        }
+    }
+
+    SubShader
+    {
+        Tags { "MotuReflection"="Ferns" "RenderType"="TransparentCutout" }
+        LOD 50
+        Cull Off
+        AlphaToMask On
+        Pass
+        {
+            CGPROGRAM
+            #pragma vertex FernReflectionVertex
+            #pragma fragment FernReflectionFragment
+            #pragma target 3.0
+            #pragma multi_compile_fog
+
+            struct FernInput
+            {
+                float4 vertex : POSITION;
+                float3 normal : NORMAL;
+                float2 uv : TEXCOORD0;
+                float2 root : TEXCOORD1;
+                float4 data : COLOR;
+            };
+
+            struct FernOutput
+            {
+                float4 position : SV_POSITION;
+                float3 worldPosition : TEXCOORD0;
+                half3 worldNormal : TEXCOORD1;
+                float2 uv : TEXCOORD2;
+                half4 data : TEXCOORD3;
+                float distanceToPlayer : TEXCOORD4;
+                UNITY_FOG_COORDS(5)
+            };
+
+            float FernReflectionMask(float2 uv, float4 data)
+            {
+                float edge = max(fwidth(uv.x), fwidth(uv.y)) * 1.5;
+                float taper = pow(saturate(1.0 - uv.y), 0.56);
+                float rachisWidth = lerp(0.036, 0.015, uv.y);
+                float mask = 1.0 - smoothstep(
+                    rachisWidth,
+                    rachisWidth + edge,
+                    abs(uv.x - 0.5));
+                [unroll]
+                for (int leaflet = 0; leaflet < 8; leaflet++)
+                {
+                    float progress = (leaflet + 1.0) / 10.0;
+                    float width = (0.34 * taper + 0.04)
+                        * lerp(0.92, 1.08, frac(data.x * 7.3 + leaflet * 0.37));
+                    float height = lerp(0.055, 0.032, progress);
+                    float offset = (leaflet & 1) == 0 ? -0.010 : 0.010;
+                    float2 left = float2(
+                        (uv.x - (0.5 - width * 0.52)) / max(width, 0.01),
+                        (uv.y - progress - offset) / height);
+                    float2 right = float2(
+                        (uv.x - (0.5 + width * 0.52)) / max(width, 0.01),
+                        (uv.y - progress + offset) / height);
+                    mask = max(mask, max(
+                        1.0 - smoothstep(0.82, 1.0, dot(left, left)),
+                        1.0 - smoothstep(0.82, 1.0, dot(right, right))));
+                }
+                return mask * smoothstep(0.0, 0.025, uv.y);
+            }
+
+            FernOutput FernReflectionVertex(FernInput input)
+            {
+                FernOutput output;
+                float3 worldPosition = mul(unity_ObjectToWorld, input.vertex).xyz;
+                float2 rootLocal = (input.root - 0.5) * _WorldSize;
+                float2 rootWorld = mul(
+                    unity_ObjectToWorld,
+                    float4(rootLocal.x, 0.0, rootLocal.y, 1.0)).xz;
+                float3 wind = MotuGrassWindSample(rootWorld);
+                float bend = input.uv.y * input.uv.y;
+                float flexibility = lerp(0.45, 1.0, saturate(input.data.z));
+                float strength = _GrassWindStrength * _FernWindMultiplier
+                    * wind.y * flexibility;
+                worldPosition.xz += wind.xz * (strength * bend);
+                output.worldPosition = worldPosition;
+                output.position = UnityWorldToClipPos(worldPosition);
+                output.worldNormal = UnityObjectToWorldNormal(input.normal);
+                output.uv = input.uv;
+                output.data = input.data;
+                output.distanceToPlayer = distance(worldPosition.xz, _GrassPlayerPosition.xz);
+                UNITY_TRANSFER_FOG(output, output.position);
+                return output;
+            }
+
+            fixed4 FernReflectionFragment(FernOutput input, fixed facing : VFACE) : SV_Target
+            {
+                float fade = 1.0 - smoothstep(
+                    _FernFadeStart,
+                    _FernFadeEnd,
+                    input.distanceToPlayer);
+                float dither = frac(
+                    sin(dot(input.position.xy, float2(12.9898, 78.233))) * 43758.5453);
+                clip(FernReflectionMask(input.uv, input.data) - _Cutoff);
+                clip(fade - dither);
+                half3 normal = normalize(input.worldNormal) * (facing >= 0 ? 1.0h : -1.0h);
+                fixed3 albedo = lerp(_BaseColor.rgb, _TipColor.rgb, input.uv.y * 0.72)
+                    * lerp(0.84, 1.16, input.data.y);
+                fixed4 result = fixed4(
+                    ReflectionLighting(albedo, normal, input.worldPosition),
+                    1.0h);
+                UNITY_APPLY_FOG(input.fogCoord, result);
+                return result;
+            }
             ENDCG
         }
     }

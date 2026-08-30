@@ -37,6 +37,9 @@ public sealed class IslandGenerator : MonoBehaviour
     [Header("Riverbank Reeds and Rushes")]
     [SerializeField] private IslandReedSettings reeds = new IslandReedSettings();
 
+    [Header("Tree Trunk Ferns")]
+    [SerializeField] private IslandFernSettings ferns = new IslandFernSettings();
+
     [Header("Streaming")]
     [SerializeField] private IslandStreamingSettings streaming = new IslandStreamingSettings();
 
@@ -73,6 +76,7 @@ public sealed class IslandGenerator : MonoBehaviour
     private Material treeFoliageMaterial;
     private Material treeLod0FoliageMaterial;
     private Material reedMaterial;
+    private Material fernMaterial;
     private string status = "Ready";
     private CancellationTokenSource generationCancellation;
     private Stopwatch generationTimer;
@@ -91,6 +95,10 @@ public sealed class IslandGenerator : MonoBehaviour
     private Color? appliedReedBaseColour;
     private Color? appliedReedTipColour;
     private float appliedReedWindStrength = float.NaN;
+    private bool? appliedShowFerns;
+    private Color? appliedFernBaseColour;
+    private Color? appliedFernTipColour;
+    private float appliedFernWindStrength = float.NaN;
     private bool? appliedShowMeshEdges;
     private bool? appliedShowTreeMeshEdges;
     private bool? appliedWaterfallDebug;
@@ -117,6 +125,7 @@ public sealed class IslandGenerator : MonoBehaviour
     public IslandRiverSettings Rivers => rivers;
     public IslandForestSettings Forest => forest;
     public IslandReedSettings Reeds => reeds;
+    public IslandFernSettings Ferns => ferns;
     public IslandStreamingSettings Streaming => streaming;
     public IslandRenderingSettings Rendering => rendering;
     public IslandDecorationSettings Decorations => decorations;
@@ -290,6 +299,20 @@ public sealed class IslandGenerator : MonoBehaviour
         reedMaterial.SetColor("_TipColor", reeds.TipColour);
         reedMaterial.SetFloat("_ReedWindMultiplier", reeds.WindStrength);
         reedMaterial.enableInstancing = true;
+        fernMaterial = CreateMaterial(
+            "Motu/Forest Ferns",
+            ferns.BaseColour,
+            null,
+            generation.WorldSizeMetres);
+        if (fernMaterial.shader.name != "Motu/Forest Ferns")
+        {
+            throw new InvalidOperationException(
+                "Could not find shader 'Motu/Forest Ferns'.");
+        }
+        fernMaterial.SetColor("_BaseColor", ferns.BaseColour);
+        fernMaterial.SetColor("_TipColor", ferns.TipColour);
+        fernMaterial.SetFloat("_FernWindMultiplier", ferns.WindStrength);
+        fernMaterial.enableInstancing = true;
         rockMaterial = CreateMaterial(
             "Motu/Rock Decoration",
             rockColor,
@@ -336,6 +359,7 @@ public sealed class IslandGenerator : MonoBehaviour
         treeFoliageMaterial.SetTexture("_GrassPatchNoise", grassPatchNoiseTexture);
         treeLod0FoliageMaterial.SetTexture("_GrassPatchNoise", grassPatchNoiseTexture);
         reedMaterial.SetTexture("_GrassPatchNoise", grassPatchNoiseTexture);
+        fernMaterial.SetTexture("_GrassPatchNoise", grassPatchNoiseTexture);
         ApplyGrassColourSettings();
         grassMaterial.SetFloat("_GrassBrightness", rendering.GrassBrightness);
         ApplyGrassWindSettings();
@@ -549,6 +573,7 @@ public sealed class IslandGenerator : MonoBehaviour
         treeFoliageMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
         treeLod0FoliageMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
         reedMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
+        fernMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
     }
 
     private void ApplyLiveSettings()
@@ -645,6 +670,22 @@ public sealed class IslandGenerator : MonoBehaviour
             reedMaterial?.SetColor("_TipColor", reeds.TipColour);
             reedMaterial?.SetFloat("_ReedWindMultiplier", reeds.WindStrength);
         }
+        if (appliedShowFerns != ferns.ShowFerns)
+        {
+            appliedShowFerns = ferns.ShowFerns;
+            terrainStreamer?.SetFernsVisible(ferns.ShowFerns);
+        }
+        if (appliedFernBaseColour != ferns.BaseColour
+            || appliedFernTipColour != ferns.TipColour
+            || !Mathf.Approximately(appliedFernWindStrength, ferns.WindStrength))
+        {
+            appliedFernBaseColour = ferns.BaseColour;
+            appliedFernTipColour = ferns.TipColour;
+            appliedFernWindStrength = ferns.WindStrength;
+            fernMaterial?.SetColor("_BaseColor", ferns.BaseColour);
+            fernMaterial?.SetColor("_TipColor", ferns.TipColour);
+            fernMaterial?.SetFloat("_FernWindMultiplier", ferns.WindStrength);
+        }
         if (appliedShowMeshEdges != debugSettings.ShowMeshEdges)
         {
             appliedShowMeshEdges = debugSettings.ShowMeshEdges;
@@ -736,6 +777,7 @@ public sealed class IslandGenerator : MonoBehaviour
         ApplyGrassWindSettingsToMaterial(treeFoliageMaterial, direction);
         ApplyGrassWindSettingsToMaterial(treeLod0FoliageMaterial, direction);
         ApplyGrassWindSettingsToMaterial(reedMaterial, direction);
+        ApplyGrassWindSettingsToMaterial(fernMaterial, direction);
     }
 
     private void ApplyGrassWindSettingsToMaterial(
@@ -776,6 +818,7 @@ public sealed class IslandGenerator : MonoBehaviour
         var options = generation.ToNativeOptions(rivers);
         var forestOptions = generation.ToNativeForestOptions(forest);
         var reedOptions = generation.ToNativeReedOptions(reeds);
+        var fernOptions = generation.ToNativeFernOptions(ferns);
         var materialColours = rendering.SelectMaterialColours(islandSeed);
         var materialTextureResolution = rendering.MaterialTextureResolution;
 
@@ -786,6 +829,7 @@ public sealed class IslandGenerator : MonoBehaviour
                 options,
                 forestOptions,
                 reedOptions,
+                fernOptions,
                 worldSize,
                 materialColours,
                 materialTextureResolution,
@@ -825,6 +869,7 @@ public sealed class IslandGenerator : MonoBehaviour
                 treeFoliageMaterial,
                 treeLod0FoliageMaterial,
                 reedMaterial,
+                fernMaterial,
                 riverMaterial,
                 meshEdgeMaterial,
                 worldSize,
@@ -833,6 +878,7 @@ public sealed class IslandGenerator : MonoBehaviour
                 prepared.riverRockTiles,
                 prepared.forest,
                 prepared.reedTiles,
+                prepared.fernTiles,
                 prepared.waterfallFeet,
                 prepared.colliderHeightMap,
                 rendering.ShowRivers,
@@ -840,6 +886,7 @@ public sealed class IslandGenerator : MonoBehaviour
                 rendering.ShowRocks,
                 forest.ShowForests,
                 reeds.ShowReeds,
+                ferns.ShowFerns,
                 cancellation.Token);
             terrainStreamer.SetWaterfallFootDebug(debugSettings.ShowWaterfallFeet);
 
@@ -1026,11 +1073,23 @@ public sealed class IslandGenerator : MonoBehaviour
             maximumHeightMetres = 2.1f * 2000f / worldSize,
             maximumSlopeDegrees = 32f,
         };
+        var fernOptions = new MotuNative.FernOptions
+        {
+            barkClearanceMetres = 0.18f * 2000f / worldSize,
+            outerRadiusMetres = 1.65f * 2000f / worldSize,
+            spacingMetres = 0.58f * 2000f / worldSize,
+            patchSizeMetres = 12f * 2000f / worldSize,
+            coverageThreshold = 0.28f,
+            minimumLengthMetres = 0.45f * 2000f / worldSize,
+            maximumLengthMetres = 1.15f * 2000f / worldSize,
+            maximumSlopeDegrees = 34f,
+        };
         return PrepareIsland(
             islandSeed,
             options,
             forestOptions,
             reedOptions,
+            fernOptions,
             worldSize,
             materialColours,
             materialTextureResolution,
@@ -1042,16 +1101,18 @@ public sealed class IslandGenerator : MonoBehaviour
         MotuNative.Options options,
         MotuNative.ForestOptions forestOptions,
         MotuNative.ReedOptions reedOptions,
+        MotuNative.FernOptions fernOptions,
         float worldSize,
         IslandMaterialColours materialColours,
         int materialTextureResolution,
         CancellationToken cancellationToken)
     {
-        var handle = MotuNative.CreateMotuWithForestAndReeds(
+        var handle = MotuNative.CreateMotuWithForestReedsAndFerns(
             islandSeed,
             ref options,
             ref forestOptions,
-            ref reedOptions);
+            ref reedOptions,
+            ref fernOptions);
         if (handle == IntPtr.Zero)
         {
             throw new InvalidOperationException(
@@ -1081,6 +1142,8 @@ public sealed class IslandGenerator : MonoBehaviour
             cancellationToken.ThrowIfCancellationRequested();
             var reedTiles = PrepareReedMeshGrid(handle, worldSize);
             cancellationToken.ThrowIfCancellationRequested();
+            var fernTiles = PrepareFernMeshGrid(handle, worldSize);
+            cancellationToken.ThrowIfCancellationRequested();
             var waterfallFeet = PrepareWaterfallFeet(handle, worldSize);
             cancellationToken.ThrowIfCancellationRequested();
             var result = new IslandPreparedData(
@@ -1092,6 +1155,7 @@ public sealed class IslandGenerator : MonoBehaviour
                 riverRockTiles,
                 forest,
                 reedTiles,
+                fernTiles,
                 waterfallFeet,
                 colliderHeightMap,
                 materialTextures);
@@ -1435,6 +1499,67 @@ public sealed class IslandGenerator : MonoBehaviour
                 {
                     throw new InvalidOperationException(
                         $"The Rust reed tile {index} has invalid mesh attributes.");
+                }
+                result[index] = CopyGeneratedMeshData(native, worldSize);
+            }
+            return result;
+        }
+        finally
+        {
+            MotuNative.ReleaseMeshGrid(ref export);
+        }
+    }
+
+    private static IslandPreparedMesh[] PrepareFernMeshGrid(
+        IntPtr handle,
+        float worldSize)
+    {
+        MotuNative.CreateFernMeshGrid(handle, out var export);
+        try
+        {
+            if (export.handle == IntPtr.Zero
+                || export.data == IntPtr.Zero
+                || export.length != FernTileStreamer.TileCount)
+            {
+                throw new InvalidOperationException(
+                    "The Rust fern owner grid returned an invalid batch.");
+            }
+
+            var result = new IslandPreparedMesh[export.length];
+            var exportSize = Marshal.SizeOf<MotuNative.ExportMesh>();
+            for (var index = 0; index < export.length; index++)
+            {
+                var native = Marshal.PtrToStructure<MotuNative.ExportMesh>(
+                    IntPtr.Add(export.data, index * exportSize));
+                if (native.vertices.length == 0
+                    && native.normals.length == 0
+                    && native.triangles.length == 0)
+                {
+                    if (native.uv.length != 0
+                        || native.material.length != 0
+                        || native.environment.length != 0)
+                    {
+                        throw new InvalidOperationException(
+                            $"The empty Rust fern tile {index} contains sidecar data.");
+                    }
+                    continue;
+                }
+                if (native.vertices.length <= 0
+                    || native.vertices.data == IntPtr.Zero
+                    || native.normals.length != native.vertices.length
+                    || native.normals.data == IntPtr.Zero
+                    || native.uv.length != native.vertices.length
+                    || native.uv.data == IntPtr.Zero
+                    || native.material.length != native.vertices.length
+                    || native.material.data == IntPtr.Zero
+                    || native.environment.length != native.vertices.length
+                    || native.environment.data == IntPtr.Zero
+                    || native.triangles.length <= 0
+                    || native.triangles.length % 3 != 0
+                    || native.triangles.data == IntPtr.Zero)
+                {
+                    throw new InvalidOperationException(
+                        $"The Rust fern tile {index} has invalid mesh attributes.");
                 }
                 result[index] = CopyGeneratedMeshData(native, worldSize);
             }
@@ -2112,6 +2237,7 @@ public sealed class IslandGenerator : MonoBehaviour
         DestroyUnityObject(treeFoliageMaterial);
         DestroyUnityObject(treeLod0FoliageMaterial);
         DestroyUnityObject(reedMaterial);
+        DestroyUnityObject(fernMaterial);
         DestroyUnityObject(riverMaterial);
         DestroyUnityObject(seaMaterial);
         DestroyUnityObject(meshEdgeMaterial);
@@ -2128,6 +2254,7 @@ public sealed class IslandGenerator : MonoBehaviour
         treeFoliageMaterial = null;
         treeLod0FoliageMaterial = null;
         reedMaterial = null;
+        fernMaterial = null;
         riverMaterial = null;
         seaMaterial = null;
         meshEdgeMaterial = null;
@@ -2150,6 +2277,10 @@ public sealed class IslandGenerator : MonoBehaviour
         appliedReedBaseColour = null;
         appliedReedTipColour = null;
         appliedReedWindStrength = float.NaN;
+        appliedShowFerns = null;
+        appliedFernBaseColour = null;
+        appliedFernTipColour = null;
+        appliedFernWindStrength = float.NaN;
         appliedShowMeshEdges = null;
         appliedShowTreeMeshEdges = null;
         appliedWaterfallDebug = null;
@@ -2429,6 +2560,7 @@ public sealed class IslandGenerator : MonoBehaviour
         if (Marshal.SizeOf<MotuNative.Options>() != sizeof(float) * 16
             || Marshal.SizeOf<MotuNative.ForestOptions>() != 28
             || Marshal.SizeOf<MotuNative.ReedOptions>() != sizeof(float) * 8
+            || Marshal.SizeOf<MotuNative.FernOptions>() != sizeof(float) * 8
             || Marshal.SizeOf<MotuNative.MaterialBakeOptions>() != 12
             || Marshal.SizeOf<MotuNative.ForestTrunkColliderExport>() != sizeof(float) * 9)
         {
@@ -2480,6 +2612,7 @@ public sealed class IslandGenerator : MonoBehaviour
             var validationTrunkColliderTiles = PrepareForestTrunkColliders(
                 handle,
                 ValidationWorldSize);
+            var validationFernTiles = PrepareFernMeshGrid(handle, ValidationWorldSize);
             var validationTrunkColliderCount = 0;
             foreach (var tile in validationTrunkColliderTiles)
             {
@@ -2489,6 +2622,12 @@ public sealed class IslandGenerator : MonoBehaviour
             {
                 throw new InvalidOperationException(
                     "Native forest validation did not export any trunk colliders.");
+            }
+            if (validationFernTiles.Length != FernTileStreamer.TileCount
+                || !Array.Exists(validationFernTiles, tile => tile != null))
+            {
+                throw new InvalidOperationException(
+                    "Native fern validation did not export a populated owner grid.");
             }
             if (validationSeaMask.rg.Length
                 != validationSeaMaskDimension * validationSeaMaskDimension * 2)

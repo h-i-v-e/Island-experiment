@@ -14,6 +14,7 @@ use std::{
     ptr,
 };
 
+use crate::ferns::{FERN_TILE_RESOLUTION, FernMeshTile};
 use crate::forest::{ForestMeshKind, ForestMeshTile, ForestTrunkCollider};
 use crate::procedural_textures::{
     IslandMaterialKind, LinearRgb, MaterialSelection, NormalConvention, RuntimeMaterialBakeOptions,
@@ -21,8 +22,8 @@ use crate::procedural_textures::{
 };
 use crate::reeds::{REED_TILE_RESOLUTION, ReedMeshTile};
 use crate::{
-    BoundingBox, ForestOptions, GenerationMethod, ISLAND_WORLD_METRES, Island, IslandOptions, Mesh,
-    ReedOptions, SeaMask, SurfaceMaps, Vec2, Vec3, Vec4, generate_tree,
+    BoundingBox, FernOptions, ForestOptions, GenerationMethod, ISLAND_WORLD_METRES, Island,
+    IslandOptions, Mesh, ReedOptions, SeaMask, SurfaceMaps, Vec2, Vec3, Vec4, generate_tree,
 };
 
 const _: () = {
@@ -134,6 +135,36 @@ impl From<MotuReedOptions> for ReedOptions {
             rush_ratio: value.rushRatio,
             minimum_height_metres: value.minimumHeightMetres,
             maximum_height_metres: value.maximumHeightMetres,
+            maximum_slope_degrees: value.maximumSlopeDegrees,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+#[repr(C)]
+pub struct MotuFernOptions {
+    pub barkClearanceMetres: f32,
+    pub outerRadiusMetres: f32,
+    pub spacingMetres: f32,
+    pub patchSizeMetres: f32,
+    pub coverageThreshold: f32,
+    pub minimumLengthMetres: f32,
+    pub maximumLengthMetres: f32,
+    pub maximumSlopeDegrees: f32,
+}
+
+const _: () = assert!(size_of::<MotuFernOptions>() == size_of::<[f32; 8]>());
+
+impl From<MotuFernOptions> for FernOptions {
+    fn from(value: MotuFernOptions) -> Self {
+        Self {
+            bark_clearance_metres: value.barkClearanceMetres,
+            outer_radius_metres: value.outerRadiusMetres,
+            spacing_metres: value.spacingMetres,
+            patch_size_metres: value.patchSizeMetres,
+            coverage_threshold: value.coverageThreshold,
+            minimum_length_metres: value.minimumLengthMetres,
+            maximum_length_metres: value.maximumLengthMetres,
             maximum_slope_degrees: value.maximumSlopeDegrees,
         }
     }
@@ -654,6 +685,23 @@ fn export_reed_mesh_grid(tiles: Vec<ReedMeshTile>) -> ExportMeshGrid {
     }
 }
 
+fn export_fern_mesh_grid(tiles: Vec<FernMeshTile>) -> ExportMeshGrid {
+    let exports: Vec<ExportMesh> = tiles
+        .into_iter()
+        .map(|tile| export_mesh(tile.mesh, tile.material, tile.environment))
+        .collect();
+    let owner = Box::new(exports);
+    let output = ExportMeshGrid {
+        handle: ptr::null_mut(),
+        data: owner.as_ptr(),
+        length: length_i32(owner.len()),
+    };
+    ExportMeshGrid {
+        handle: Box::into_raw(owner).cast(),
+        ..output
+    }
+}
+
 fn procedural_tree_root_material(mesh: &Mesh) -> Vec<Vec4> {
     vec![Vec4::new(0.0, 0.0, 0.0, 0.5); mesh.vertices.len()]
 }
@@ -767,6 +815,51 @@ pub unsafe extern "C" fn CreateMotuWithForestAndReeds(
         options,
         forest_options,
         reed_options,
+    )
+    .map_or(ptr::null_mut(), |island| {
+        Box::into_raw(Box::new(island)).cast()
+    })
+}
+
+/// Creates an island with independent forest, riverbank-vegetation, and fern controls.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn CreateMotuWithForestReedsAndFerns(
+    seed: i32,
+    options: *const MotuOptions,
+    forest_options: *const MotuForestOptions,
+    reed_options: *const MotuReedOptions,
+    fern_options: *const MotuFernOptions,
+) -> *mut c_void {
+    let options = if options.is_null() {
+        IslandOptions::default()
+    } else {
+        // SAFETY: non-null options points to a readable C option block.
+        unsafe { (*options).into() }
+    };
+    let forest_options = if forest_options.is_null() {
+        ForestOptions::default()
+    } else {
+        // SAFETY: non-null forest_options points to a readable C option block.
+        unsafe { (*forest_options).into() }
+    };
+    let reed_options = if reed_options.is_null() {
+        ReedOptions::default()
+    } else {
+        // SAFETY: non-null reed_options points to a readable C option block.
+        unsafe { (*reed_options).into() }
+    };
+    let fern_options = if fern_options.is_null() {
+        FernOptions::default()
+    } else {
+        // SAFETY: non-null fern_options points to a readable C option block.
+        unsafe { (*fern_options).into() }
+    };
+    Island::generate_with_forest_reeds_and_ferns(
+        u64::from(seed.cast_unsigned()),
+        options,
+        forest_options,
+        reed_options,
+        fern_options,
     )
     .map_or(ptr::null_mut(), |island| {
         Box::into_raw(Box::new(island)).cast()
@@ -1324,6 +1417,23 @@ pub unsafe extern "C" fn CreateReedMeshGrid(handle: *const c_void, output: *mut 
         return;
     }
     *output = export_reed_mesh_grid(tiles);
+}
+
+/// Exports the fixed 64x64 LOD0 owner grid of complete fern rosettes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn CreateFernMeshGrid(handle: *const c_void, output: *mut ExportMeshGrid) {
+    let Some(output) = (unsafe { output.as_mut() }) else {
+        return;
+    };
+    *output = ExportMeshGrid::default();
+    let Some(island) = (unsafe { island_ref(handle) }) else {
+        return;
+    };
+    let tiles = island.fern_mesh_tiles().to_vec();
+    if tiles.len() != FERN_TILE_RESOLUTION * FERN_TILE_RESOLUTION {
+        return;
+    }
+    *output = export_fern_mesh_grid(tiles);
 }
 
 #[unsafe(no_mangle)]
@@ -2008,6 +2118,19 @@ mod tests {
     }
 
     #[test]
+    fn fern_grid_null_island_leaves_a_default_export() {
+        let mut output = ExportMeshGrid {
+            handle: ptr::dangling_mut(),
+            data: ptr::dangling(),
+            length: 13,
+        };
+        unsafe { CreateFernMeshGrid(ptr::null(), &raw mut output) };
+        assert!(output.handle.is_null());
+        assert!(output.data.is_null());
+        assert_eq!(output.length, 0);
+    }
+
+    #[test]
     fn forest_grid_rejects_non_finite_bounds_directly() {
         let area = ExportArea {
             min: Vec3::new(0.0, 0.0, f32::INFINITY),
@@ -2145,6 +2268,21 @@ mod tests {
                     && tile.environment.length == tile.vertices.length
                     && tile.triangles.length % 3 == 0
             }));
+            let mut ferns = ExportMeshGrid::default();
+            CreateFernMeshGrid(handle, &raw mut ferns);
+            assert!(!ferns.handle.is_null());
+            let expected_fern_tiles =
+                i32::try_from(FERN_TILE_RESOLUTION * FERN_TILE_RESOLUTION).unwrap();
+            assert_eq!(ferns.length, expected_fern_tiles);
+            let fern_tiles = std::slice::from_raw_parts(ferns.data, ferns.length as usize);
+            assert!(fern_tiles.iter().all(|tile| {
+                !tile.handle.is_null()
+                    && tile.normals.length == tile.vertices.length
+                    && tile.uv.length == tile.vertices.length
+                    && tile.material.length == tile.vertices.length
+                    && tile.environment.length == tile.vertices.length
+                    && tile.triangles.length % 3 == 0
+            }));
             ReleaseMeshGrid(&raw mut wood_lod2);
             assert!(wood_lod2.handle.is_null());
             ReleaseForestTrunkColliders(&raw mut trunk_colliders);
@@ -2153,9 +2291,11 @@ mod tests {
             ReleaseMeshGrid(&raw mut foliage_lod1);
             ReleaseMeshGrid(&raw mut foliage_lod2);
             ReleaseMeshGrid(&raw mut reeds);
+            ReleaseMeshGrid(&raw mut ferns);
             assert!(foliage_lod1.handle.is_null());
             assert!(foliage_lod2.handle.is_null());
             assert!(reeds.handle.is_null());
+            assert!(ferns.handle.is_null());
             ReleaseMotu(handle);
         }
     }
