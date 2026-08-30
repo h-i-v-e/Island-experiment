@@ -29,6 +29,7 @@ pub struct TreeMeshes {
     pub lod0_foliage: Mesh,
     pub lod1_wood: Mesh,
     pub lod1_foliage: Mesh,
+    pub lod2_wood: Mesh,
     pub wood_lod1_to_lod0: Vec<u32>,
     pub foliage_lod1_to_lod0: Vec<u32>,
     pub(crate) foliage_supports: Vec<Vec3>,
@@ -386,6 +387,8 @@ struct TreeGenerator {
     tube_segments: Vec<TubeSegment>,
     branch_junctions: Vec<BranchJunction>,
     terminal_rings: Vec<[u32; CROSS_SECTION_VERTICES]>,
+    root_ring: [u32; CROSS_SECTION_VERTICES],
+    trunk_terminal_ring: Option<[u32; CROSS_SECTION_VERTICES]>,
     wood: Mesh,
     stats: TreeGenerationStats,
 }
@@ -402,6 +405,8 @@ impl TreeGenerator {
             tube_segments: Vec::new(),
             branch_junctions: Vec::new(),
             terminal_rings: Vec::new(),
+            root_ring: [0; CROSS_SECTION_VERTICES],
+            trunk_terminal_ring: None,
             wood: Mesh::default(),
             stats: TreeGenerationStats::default(),
         };
@@ -430,6 +435,7 @@ impl TreeGenerator {
                 centre + (position - centre) * (1.0 + variation * TRUNK_BUTTRESS_VARIATION);
         }
         generator.terminal_rings.push(ring);
+        generator.root_ring = ring;
         generator.pending.push_back(GrowingAxis {
             ring,
             unmeshed_sections: 0,
@@ -471,6 +477,12 @@ impl TreeGenerator {
             &self.branch_junctions,
             self.seed,
         );
+        let lod2_wood = build_lod2_trunk(
+            &wood.lod1,
+            self.root_ring,
+            self.trunk_terminal_ring
+                .expect("tree generation always completes its central trunk"),
+        );
         let foliage = generate_cluster_foliage(
             foliage_seed,
             &[FoliageCrown {
@@ -486,6 +498,7 @@ impl TreeGenerator {
                 lod0_foliage: foliage.lod0,
                 lod1_wood: wood.lod1,
                 lod1_foliage: foliage.lod1,
+                lod2_wood,
                 wood_lod1_to_lod0: wood.lod1_to_lod0,
                 foliage_lod1_to_lod0: foliage.lod1_to_lod0,
                 foliage_supports,
@@ -597,6 +610,10 @@ impl TreeGenerator {
                 .push_back(axis.continuation(ring, 0, step, spawned_face));
         } else {
             self.terminal_rings.push(ring);
+            if axis.depth == 0 {
+                debug_assert!(self.trunk_terminal_ring.is_none());
+                self.trunk_terminal_ring = Some(ring);
+            }
         }
     }
 
@@ -940,6 +957,33 @@ fn build_mesh_lods(
         lod1,
         lod1_to_lod0,
     }
+}
+
+fn build_lod2_trunk(
+    lod1: &Mesh,
+    root_ring: [u32; CROSS_SECTION_VERTICES],
+    terminal_ring: [u32; CROSS_SECTION_VERTICES],
+) -> Mesh {
+    let trunk_axis =
+        encode_bark_axis(ring_barycentre(lod1, &terminal_ring) - ring_barycentre(lod1, &root_ring));
+    let mut mesh = Mesh {
+        vertices: root_ring
+            .iter()
+            .chain(&terminal_ring)
+            .map(|&vertex| lod1.vertices[vertex as usize])
+            .collect(),
+        uv: vec![trunk_axis; CROSS_SECTION_VERTICES * 2],
+        ..Mesh::default()
+    };
+    let lower =
+        std::array::from_fn(|side| u32::try_from(side).expect("LOD2 trunk ring fits u32 indices"));
+    let upper = std::array::from_fn(|side| {
+        u32::try_from(CROSS_SECTION_VERTICES + side).expect("LOD2 trunk ring fits u32 indices")
+    });
+    connect_rings(&mut mesh.triangles, &lower, &upper);
+    mesh.triangles.extend([0, 2, 1, 0, 3, 2, 4, 5, 6, 4, 6, 7]);
+    mesh.calculate_normals();
+    mesh
 }
 
 fn split_bark_connector_seams(
@@ -1422,6 +1466,47 @@ mod tests {
                 TreeOptions::for_seed(seed).maximum_child_branches,
                 "seed {seed} did not reach the branch cap"
             );
+        }
+    }
+
+    #[test]
+    fn lod2_wood_is_one_closed_four_sided_trunk_span() {
+        for seed in 0..64 {
+            let tree = generate_tree(seed);
+            let mesh = &tree.lod2_wood;
+            assert_eq!(mesh.vertices.len(), 8, "seed {seed}");
+            assert_eq!(mesh.normals.len(), 8, "seed {seed}");
+            assert_eq!(mesh.uv.len(), 8, "seed {seed}");
+            assert_eq!(mesh.triangles.len(), 36, "seed {seed}");
+            assert!(mesh.vertices.iter().all(|vertex| vertex.is_finite()));
+            assert!(mesh.normals.iter().all(|normal| normal.is_finite()));
+            assert!(mesh.uv.iter().all(|axis| axis.is_finite()));
+
+            let bottom = mesh.vertices[..4]
+                .iter()
+                .copied()
+                .fold(Vec3::ZERO, |sum, vertex| sum + vertex)
+                / 4.0;
+            let top = mesh.vertices[4..]
+                .iter()
+                .copied()
+                .fold(Vec3::ZERO, |sum, vertex| sum + vertex)
+                / 4.0;
+            assert!(top.z > bottom.z, "seed {seed}");
+
+            let mut edge_uses = HashMap::<(u32, u32), usize>::new();
+            for triangle in mesh.triangles.chunks_exact(3) {
+                for edge in [
+                    (triangle[0], triangle[1]),
+                    (triangle[1], triangle[2]),
+                    (triangle[2], triangle[0]),
+                ] {
+                    *edge_uses
+                        .entry((edge.0.min(edge.1), edge.0.max(edge.1)))
+                        .or_default() += 1;
+                }
+            }
+            assert!(edge_uses.values().all(|&uses| uses == 2), "seed {seed}");
         }
     }
 

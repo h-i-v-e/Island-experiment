@@ -328,7 +328,7 @@ impl TreeExclusionZone {
     }
 }
 
-/// Ranges for the two wood streams belonging to a single tree.
+/// Ranges for the three wood streams belonging to a single tree.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub(crate) struct ForestTreeRanges {
     pub(crate) terrain_vertex: u32,
@@ -336,6 +336,7 @@ pub(crate) struct ForestTreeRanges {
     pub(crate) prototype: u8,
     pub(crate) lod0_wood: MeshRange,
     pub(crate) lod1_wood: MeshRange,
+    pub(crate) lod2_wood: MeshRange,
 }
 
 /// One complete foliage owner unit.
@@ -360,6 +361,7 @@ pub(crate) struct ForestMeshes {
     pub(crate) lod0_foliage: Mesh,
     pub(crate) lod1_wood: Mesh,
     pub(crate) lod1_foliage: Mesh,
+    pub(crate) lod2_wood: Mesh,
     pub(crate) trees: Vec<ForestTreeRanges>,
     pub(crate) clusters: Vec<ForestClusterRanges>,
     pub(crate) placements: Vec<TreePlacement>,
@@ -371,6 +373,7 @@ impl ForestMeshes {
         match (kind, visual_lod) {
             (ForestMeshKind::Wood, 0) => Some(&self.lod0_wood),
             (ForestMeshKind::Wood, 1) => Some(&self.lod1_wood),
+            (ForestMeshKind::Wood, 2) => Some(&self.lod2_wood),
             (ForestMeshKind::Foliage, 0) => Some(&self.lod0_foliage),
             (ForestMeshKind::Foliage, 1 | 2) => Some(&self.lod1_foliage),
             _ => None,
@@ -385,8 +388,8 @@ impl ForestMeshes {
     /// Copies complete tree-wood or cluster-foliage ranges into owner tiles
     /// without geometric clipping.
     ///
-    /// A wood LOD2 request returns an empty but correctly sized grid.  Bounds
-    /// use normalized XY coordinates, matching all existing terrain grids.
+    /// Bounds use normalized XY coordinates, matching all existing terrain
+    /// grids.
     #[must_use]
     pub(crate) fn mesh_grid(
         &self,
@@ -399,9 +402,6 @@ impl ForestMeshes {
             return None;
         }
         let tile_count = divisions.checked_mul(divisions)?;
-        if kind == ForestMeshKind::Wood && visual_lod == 2 {
-            return Some(vec![ForestMeshTile::default(); tile_count]);
-        }
         let source = self.mesh(kind, visual_lod)?;
         let mut tiles = vec![ForestMeshTile::default(); tile_count];
         let span = Vec2::new(bounds.max.x - bounds.min.x, bounds.max.y - bounds.min.y);
@@ -1161,8 +1161,8 @@ fn combined_capacities(
     placements: &[TreePlacement],
     prototypes: &[TreeMeshes],
     foliage_meshes: &[ClusterFoliageMeshes],
-) -> Result<[usize; 4], String> {
-    let mut capacities = [0_usize; 4];
+) -> Result<[usize; 5], String> {
+    let mut capacities = [0_usize; 5];
     for placement in placements {
         let prototype = prototypes
             .get(usize::from(placement.prototype))
@@ -1172,6 +1172,9 @@ fn combined_capacities(
             .ok_or_else(|| "forest combined vertex capacity overflow".to_owned())?;
         capacities[2] = capacities[2]
             .checked_add(prototype.lod1_wood.vertices.len())
+            .ok_or_else(|| "forest combined vertex capacity overflow".to_owned())?;
+        capacities[4] = capacities[4]
+            .checked_add(prototype.lod2_wood.vertices.len())
             .ok_or_else(|| "forest combined vertex capacity overflow".to_owned())?;
     }
     for foliage in foliage_meshes {
@@ -1185,7 +1188,7 @@ fn combined_capacities(
     Ok(capacities)
 }
 
-fn reserve_combined_streams(out: &mut ForestMeshes, capacities: [usize; 4]) -> Result<(), String> {
+fn reserve_combined_streams(out: &mut ForestMeshes, capacities: [usize; 5]) -> Result<(), String> {
     out.lod0_wood
         .vertices
         .try_reserve(capacities[0])
@@ -1202,6 +1205,10 @@ fn reserve_combined_streams(out: &mut ForestMeshes, capacities: [usize; 4]) -> R
         .vertices
         .try_reserve(capacities[3])
         .map_err(|error| format!("forest LOD1 foliage allocation failed: {error}"))?;
+    out.lod2_wood
+        .vertices
+        .try_reserve(capacities[4])
+        .map_err(|error| format!("forest LOD2 wood allocation failed: {error}"))?;
     Ok(())
 }
 
@@ -1227,16 +1234,24 @@ fn append_tree_ranges(
             *placement,
             terrain,
         )?;
+        let lod2_wood = append_transformed_to_terrain(
+            &mut out.lod2_wood,
+            &prototype.lod2_wood,
+            *placement,
+            terrain,
+        )?;
         out.trees.push(ForestTreeRanges {
             terrain_vertex: placement.terrain_vertex,
             anchor: placement.anchor,
             prototype: placement.prototype,
             lod0_wood,
             lod1_wood,
+            lod2_wood,
         });
     }
     out.lod0_wood.calculate_normals();
     out.lod1_wood.calculate_normals();
+    out.lod2_wood.calculate_normals();
     Ok(())
 }
 
@@ -1498,6 +1513,7 @@ fn tree_range(tree: &ForestTreeRanges, visual_lod: usize) -> Option<MeshRange> {
     match visual_lod {
         0 => Some(tree.lod0_wood),
         1 => Some(tree.lod1_wood),
+        2 => Some(tree.lod2_wood),
         _ => None,
     }
 }
@@ -2279,6 +2295,7 @@ mod tests {
         let forest = ForestMeshes {
             lod0_wood: source.clone(),
             lod1_wood: source.clone(),
+            lod2_wood: source.clone(),
             lod0_foliage: source.clone(),
             lod1_foliage: source.clone(),
             trees: vec![ForestTreeRanges {
@@ -2287,6 +2304,7 @@ mod tests {
                 prototype: 0,
                 lod0_wood: range,
                 lod1_wood: range,
+                lod2_wood: range,
             }],
             clusters: vec![ForestClusterRanges {
                 owner_anchor: Vec3::new(0.5, 0.5, 0.2),
@@ -2297,13 +2315,12 @@ mod tests {
             placements: Vec::new(),
         };
         let bounds = BoundingBox::new(Vec3::new(0.0, 0.0, f32::MIN), Vec3::new(1.0, 1.0, f32::MAX));
-        assert_eq!(
-            forest
-                .mesh_grid(ForestMeshKind::Wood, 2, bounds, 4)
-                .unwrap()
-                .len(),
-            16
-        );
+        let lod2_wood_tiles = forest
+            .mesh_grid(ForestMeshKind::Wood, 2, bounds, 4)
+            .unwrap();
+        assert_eq!(lod2_wood_tiles.len(), 16);
+        assert_eq!(lod2_wood_tiles[10].mesh.vertices.len(), 2);
+        assert_eq!(lod2_wood_tiles[10].mesh.triangles, vec![0, 1, 1]);
         let tiles = forest
             .mesh_grid(ForestMeshKind::Foliage, 2, bounds, 2)
             .unwrap();

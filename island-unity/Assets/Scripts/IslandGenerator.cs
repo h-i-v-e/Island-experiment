@@ -1326,6 +1326,7 @@ public sealed class IslandGenerator : MonoBehaviour
     {
         return new IslandPreparedForestData(
             PrepareForestMeshGrid(handle, worldSize, 2, ForestTileStreamer.Lod2Resolution, false),
+            PrepareForestMeshGrid(handle, worldSize, 2, ForestTileStreamer.Lod2Resolution, true),
             PrepareForestMeshGrid(handle, worldSize, 1, ForestTileStreamer.Lod1Resolution, false),
             PrepareForestMeshGrid(handle, worldSize, 1, ForestTileStreamer.Lod1Resolution, true),
             PrepareForestMeshGrid(handle, worldSize, 0, ForestTileStreamer.Lod1Resolution, false),

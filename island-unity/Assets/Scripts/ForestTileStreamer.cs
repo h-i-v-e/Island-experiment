@@ -80,6 +80,7 @@ internal sealed class ForestTileStreamer : IDisposable
     private Material lod1WoodMaterial;
     private Material meshEdgeMaterial;
     private IslandPreparedMesh[] preparedLod2Foliage;
+    private IslandPreparedMesh[] preparedLod2Wood;
     private IslandPreparedMesh[] preparedLod1Foliage;
     private IslandPreparedMesh[] preparedLod1Wood;
     private IslandPreparedMesh[] preparedLod0Foliage;
@@ -134,6 +135,7 @@ internal sealed class ForestTileStreamer : IDisposable
         lod1WoodMaterial = sharedLod1WoodMaterial;
         meshEdgeMaterial = sharedMeshEdgeMaterial;
         preparedLod2Foliage = prepared.lod2FoliageTiles;
+        preparedLod2Wood = prepared.lod2WoodTiles;
         preparedLod1Foliage = prepared.lod1FoliageTiles;
         preparedLod1Wood = prepared.lod1WoodTiles;
         preparedLod0Foliage = prepared.lod0FoliageTiles;
@@ -340,6 +342,7 @@ internal sealed class ForestTileStreamer : IDisposable
         lod1WoodMaterial = null;
         meshEdgeMaterial = null;
         preparedLod2Foliage = null;
+        preparedLod2Wood = null;
         preparedLod1Foliage = null;
         preparedLod1Wood = null;
         preparedLod0Foliage = null;
@@ -355,26 +358,31 @@ internal sealed class ForestTileStreamer : IDisposable
             for (var x = 0; x < Lod2Resolution; x++)
             {
                 var key = new Vector2Int(x, y);
-                var prepared = preparedLod2Foliage[y * Lod2Resolution + x];
-                if (prepared == null)
+                var tileIndex = y * Lod2Resolution + x;
+                var preparedFoliage = preparedLod2Foliage[tileIndex];
+                var preparedWood = preparedLod2Wood[tileIndex];
+                if (preparedFoliage == null && preparedWood == null)
                 {
                     continue;
                 }
                 var tile = CreateTile(
-                    prepared,
-                    null,
+                    preparedFoliage,
+                    preparedWood,
                     foliageMaterial,
-                    null,
+                    lod1WoodMaterial,
                     foliageRoot.transform,
                     woodRoot.transform,
                     $"Forest LOD 2 tile {x},{y}");
                 lod2Tiles.Add(key, tile);
-                CreateRendererObject(
-                    $"Forest canopy shadow tile {x},{y}",
-                    canopyShadowRoot.transform,
-                    tile.foliageMesh,
-                    foliageMaterial,
-                    ShadowCastingMode.ShadowsOnly);
+                if (tile.foliageMesh != null)
+                {
+                    CreateRendererObject(
+                        $"Forest canopy shadow tile {x},{y}",
+                        canopyShadowRoot.transform,
+                        tile.foliageMesh,
+                        foliageMaterial,
+                        ShadowCastingMode.ShadowsOnly);
+                }
             }
         }
     }
@@ -650,6 +658,7 @@ internal sealed class ForestTileStreamer : IDisposable
             lod0[0] = lowPolyCanopy;
             var prepared = new IslandPreparedForestData(
                 lod2,
+                lod2,
                 lod1,
                 new IslandPreparedMesh[Lod1TileCount],
                 lod0,
@@ -664,7 +673,19 @@ internal sealed class ForestTileStreamer : IDisposable
                 prepared,
                 true);
             var renderers = streamer.Root.GetComponentsInChildren<MeshRenderer>(true);
-            if (renderers.Length != 2
+            var foliageRenderer = Array.Find(
+                renderers,
+                renderer => renderer.gameObject.name == "Forest LOD 2 tile 0,0 foliage");
+            var woodRenderer = Array.Find(
+                renderers,
+                renderer => renderer.gameObject.name == "Forest LOD 2 tile 0,0 wood");
+            var shadowRenderer = Array.Find(
+                renderers,
+                renderer => renderer.gameObject.name == "Forest canopy shadow tile 0,0");
+            if (renderers.Length != 3
+                || foliageRenderer == null
+                || woodRenderer == null
+                || shadowRenderer == null
                 || Array.FindAll(
                     renderers,
                     renderer => renderer.shadowCastingMode == ShadowCastingMode.Off).Length != 1
@@ -672,8 +693,11 @@ internal sealed class ForestTileStreamer : IDisposable
                     renderers,
                     renderer => renderer.shadowCastingMode == ShadowCastingMode.ShadowsOnly).Length
                     != 1
-                || renderers[0].GetComponent<MeshFilter>().sharedMesh
-                    != renderers[1].GetComponent<MeshFilter>().sharedMesh)
+                || Array.FindAll(
+                    renderers,
+                    renderer => renderer.shadowCastingMode == ShadowCastingMode.On).Length != 1
+                || foliageRenderer.GetComponent<MeshFilter>().sharedMesh
+                    != shadowRenderer.GetComponent<MeshFilter>().sharedMesh)
             {
                 throw new InvalidOperationException(
                     "The forest did not create one shared low-poly canopy shadow proxy.");

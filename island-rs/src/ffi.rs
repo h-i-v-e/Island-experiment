@@ -556,14 +556,9 @@ fn export_forest_mesh_grid(
     tiles: Vec<ForestMeshTile>,
     expected_length: usize,
 ) -> Option<ExportMeshGrid> {
-    // A forest accessor may represent the all-empty LOD2 wood stream with an
-    // empty source vector. Expand only that representation; every other
-    // length mismatch is rejected so the ABI always publishes a fixed grid.
-    let tiles = match tiles.len() {
-        length if length == expected_length => tiles,
-        0 => vec![ForestMeshTile::default(); expected_length],
-        _ => return None,
-    };
+    if tiles.len() != expected_length {
+        return None;
+    }
     let exports: Vec<ExportMesh> = tiles
         .into_iter()
         .map(|tile| export_mesh(tile.mesh, tile.material, Vec::new()))
@@ -1129,9 +1124,10 @@ pub unsafe extern "C" fn CreateRiverMeshGrid(
 
 /// Exports whole-tree owner tiles for the requested visual wood LOD.
 ///
-/// Visual LOD mapping is owned by `Island`: LOD0 and LOD1 select the matching
-/// combined streams while LOD2 is a fixed, empty grid. Every successful call
-/// publishes exactly `divisions * divisions` releasable mesh entries.
+/// Visual LOD mapping is owned by `Island`: LOD0 and LOD1 select their detailed
+/// combined streams while LOD2 selects the central-trunk-only stream. Every
+/// successful call publishes exactly `divisions * divisions` releasable mesh
+/// entries.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn CreateForestWoodMeshGrid(
     handle: *const c_void,
@@ -1843,7 +1839,7 @@ mod tests {
             ..IslandOptions::default()
         };
         let forest_options = ForestOptions {
-            noise_threshold: 1.0,
+            noise_threshold: 0.0,
             prototype_count: 1,
             ..ForestOptions::default()
         };
@@ -1859,11 +1855,15 @@ mod tests {
             assert!(!wood_lod2.handle.is_null());
             assert_eq!(wood_lod2.length, 4);
             let wood_tiles = std::slice::from_raw_parts(wood_lod2.data, 4);
+            assert!(wood_tiles.iter().any(|tile| tile.vertices.length > 0));
             assert!(wood_tiles.iter().all(|tile| {
                 !tile.handle.is_null()
-                    && tile.vertices.length == 0
-                    && tile.normals.length == 0
-                    && tile.triangles.length == 0
+                    && tile.normals.length == tile.vertices.length
+                    && tile.uv.length == tile.vertices.length
+                    && tile.material.length == tile.vertices.length
+                    && tile.vertices.length % 8 == 0
+                    && tile.triangles.length % 36 == 0
+                    && tile.vertices.length / 8 == tile.triangles.length / 36
             }));
 
             let mut foliage_lod1 = ExportMeshGrid::default();
@@ -2166,11 +2166,15 @@ mod tests {
             assert_eq!(forest_wood_lod2.length, 64);
             let forest_wood_lod2_tiles =
                 std::slice::from_raw_parts(forest_wood_lod2.data, forest_wood_lod2.length as usize);
+            assert!(
+                forest_wood_lod2_tiles
+                    .iter()
+                    .any(|tile| tile.triangles.length > 0)
+            );
             assert!(forest_wood_lod2_tiles.iter().all(|tile| {
-                tile.vertices.length == 0
-                    && tile.normals.length == 0
-                    && tile.triangles.length == 0
-                    && tile.uv.length == 0
+                tile.normals.length == tile.vertices.length
+                    && tile.uv.length == tile.vertices.length
+                    && tile.material.length == tile.vertices.length
             }));
 
             let mut forest_foliage_lod1 = ExportMeshGrid::default();

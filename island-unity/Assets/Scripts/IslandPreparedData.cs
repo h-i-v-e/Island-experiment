@@ -199,6 +199,7 @@ internal sealed class IslandPreparedMaterialTextures
 internal sealed class IslandPreparedForestData
 {
     internal readonly IslandPreparedMesh[] lod2FoliageTiles;
+    internal readonly IslandPreparedMesh[] lod2WoodTiles;
     internal readonly IslandPreparedMesh[] lod1FoliageTiles;
     internal readonly IslandPreparedMesh[] lod1WoodTiles;
     internal readonly IslandPreparedMesh[] lod0FoliageTiles;
@@ -206,17 +207,20 @@ internal sealed class IslandPreparedForestData
 
     internal IslandPreparedForestData(
         IslandPreparedMesh[] lod2FoliageTiles,
+        IslandPreparedMesh[] lod2WoodTiles,
         IslandPreparedMesh[] lod1FoliageTiles,
         IslandPreparedMesh[] lod1WoodTiles,
         IslandPreparedMesh[] lod0FoliageTiles,
         IslandPreparedMesh[] lod0WoodTiles)
     {
         ValidateLength(lod2FoliageTiles, ForestTileStreamer.Lod2TileCount);
+        ValidateLength(lod2WoodTiles, ForestTileStreamer.Lod2TileCount);
         ValidateLength(lod1FoliageTiles, ForestTileStreamer.Lod1TileCount);
         ValidateLength(lod1WoodTiles, ForestTileStreamer.Lod1TileCount);
         ValidateLength(lod0FoliageTiles, ForestTileStreamer.Lod1TileCount);
         ValidateLength(lod0WoodTiles, ForestTileStreamer.Lod1TileCount);
         this.lod2FoliageTiles = lod2FoliageTiles;
+        this.lod2WoodTiles = lod2WoodTiles;
         this.lod1FoliageTiles = lod1FoliageTiles;
         this.lod1WoodTiles = lod1WoodTiles;
         this.lod0FoliageTiles = lod0FoliageTiles;
