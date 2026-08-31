@@ -206,6 +206,18 @@ public sealed class IslandGenerator : MonoBehaviour
     private void PrepareCameraRender(Camera camera)
     {
         EnsureCameraDepthTexture(camera);
+        ApplyAtmosphericCameraClearColour(camera);
+    }
+
+    private void ApplyAtmosphericCameraClearColour(Camera camera)
+    {
+        if (camera == null)
+        {
+            return;
+        }
+        var clearColour = CurrentAtmosphericHorizonColour();
+        clearColour.a = 1f;
+        camera.backgroundColor = clearColour;
     }
 
     private static void EnsureCameraDepthTexture(Camera camera)
