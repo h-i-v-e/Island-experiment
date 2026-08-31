@@ -7,6 +7,7 @@ float _MotuCloudCoverage;
 float _MotuCloudDensity;
 float _MotuCloudAltitude;
 float _MotuCloudWorldSize;
+float4 _MotuCloudVolume;
 float4 _MotuCloudBroadNoise;
 float4 _MotuCloudDetailErosion;
 float4 _MotuCloudWindOffset;
@@ -134,31 +135,6 @@ MotuCloudLighting MotuCloudSurfaceLighting(float3 worldPosition)
     return lighting;
 }
 
-half MotuCloudSkyDensity(
-    float3 cameraLocalPosition,
-    float3 localViewDirection)
-{
-    if (_MotuCloudEnabled < 0.5)
-        return 0.0h;
-
-    float3 viewDirection = normalize(localViewDirection);
-    float heightToCloud = _MotuCloudAltitude - cameraLocalPosition.y;
-    if (heightToCloud <= 0.0 || viewDirection.y <= 0.0001)
-        return 0.0h;
-
-    float travel = heightToCloud / viewDirection.y;
-    float2 cloudPosition = cameraLocalPosition.xz + viewDirection.xz * travel;
-    half horizonFade = smoothstep(0.005h, 0.035h, viewDirection.y);
-    return MotuCloudDensityAtLocalPosition(cloudPosition) * horizonFade;
-}
-
-half MotuCloudCelestialTransmittance(half density)
-{
-    return MotuCloudOpticalTransmittance(
-        density,
-        max(_MotuCloudCelestialStrength, 0.0));
-}
-
 fixed3 MotuCloudSkyColour(half density, float3 localViewDirection)
 {
     half sunset = saturate(_MotuCloudSunsetStrength)
@@ -178,6 +154,93 @@ fixed3 MotuCloudSkyColour(half density, float3 localViewDirection)
     half lighting = lerp(0.58h, 1.0h, saturate(lightDirection.y * 2.0h));
     lighting += forwardLight * (1.0h - density) * 0.28h;
     return colour * lighting;
+}
+
+struct MotuCloudSkyVolume
+{
+    half transmittance;
+    fixed3 averageColour;
+};
+
+MotuCloudSkyVolume MotuCloudSkyVolumeAt(
+    float3 cameraLocalPosition,
+    float3 localViewDirection,
+    float2 screenPosition)
+{
+    MotuCloudSkyVolume result;
+    result.transmittance = 1.0h;
+    result.averageColour = fixed3(0.0, 0.0, 0.0);
+    if (_MotuCloudEnabled < 0.5)
+        return result;
+
+    float3 viewDirection = normalize(localViewDirection);
+    if (viewDirection.y <= 0.0001)
+        return result;
+
+    float layerThickness = max(_MotuCloudVolume.x, 25.0);
+    float layerBase = _MotuCloudAltitude - layerThickness * 0.5;
+    float layerTop = layerBase + layerThickness;
+    float entryDistance = max(
+        (layerBase - cameraLocalPosition.y) / viewDirection.y,
+        0.0);
+    float exitDistance = (layerTop - cameraLocalPosition.y) / viewDirection.y;
+    if (exitDistance <= entryDistance)
+        return result;
+
+    const int VolumeSampleCount = 12;
+    float sampleLength = (exitDistance - entryDistance) / VolumeSampleCount;
+    half horizonFade = smoothstep(0.003h, 0.028h, viewDirection.y);
+    // Interleaved-gradient noise phases the samples in camera space. Without
+    // this, the same fractional step on every ray maps back to a constant
+    // world height and exposes the individual horizontal strata.
+    float samplePhase = frac(52.9829189 * frac(dot(
+        floor(screenPosition),
+        float2(0.06711056, 0.00583715))));
+    fixed3 accumulatedColour = fixed3(0.0, 0.0, 0.0);
+    half accumulatedTransmittance = 1.0h;
+    for (int sampleIndex = 0; sampleIndex < VolumeSampleCount; sampleIndex++)
+    {
+        float distanceAlongRay = entryDistance
+            + (sampleIndex + samplePhase) * sampleLength;
+        float3 samplePosition = cameraLocalPosition
+            + viewDirection * distanceAlongRay;
+        float heightFraction = saturate(
+            (samplePosition.y - layerBase) / layerThickness);
+        half baseShape = smoothstep(0.0h, 0.18h, heightFraction);
+        half topShape = 1.0h - smoothstep(0.68h, 1.0h, heightFraction);
+        half verticalShape = baseShape * topShape;
+        float2 heightOffset = (heightFraction - 0.5)
+            * _MotuCloudWorldSize
+            * float2(0.035, -0.027);
+        half sampleDensity = MotuCloudDensityAtLocalPosition(
+            samplePosition.xz + heightOffset)
+            * verticalShape
+            * horizonFade;
+        half opticalDepth = sampleDensity
+            * max(_MotuCloudDensity, 0.0)
+            * sampleLength
+            / layerThickness;
+        half sampleTransmittance = exp2(-opticalDepth * 1.442695h);
+        half sampleOpacity = 1.0h - sampleTransmittance;
+        fixed3 sampleColour = MotuCloudSkyColour(
+            sampleDensity,
+            viewDirection);
+        half heightLighting = lerp(0.70h, 1.10h, heightFraction);
+        half interiorLighting = lerp(
+            1.0h,
+            0.76h,
+            1.0h - accumulatedTransmittance);
+        sampleColour *= heightLighting * interiorLighting;
+        accumulatedColour += accumulatedTransmittance
+            * sampleOpacity
+            * sampleColour;
+        accumulatedTransmittance *= sampleTransmittance;
+    }
+
+    half accumulatedOpacity = 1.0h - accumulatedTransmittance;
+    result.transmittance = accumulatedTransmittance;
+    result.averageColour = accumulatedColour / max(accumulatedOpacity, 0.0001h);
+    return result;
 }
 
 #endif

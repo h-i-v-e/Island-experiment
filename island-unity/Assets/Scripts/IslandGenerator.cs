@@ -57,6 +57,8 @@ public sealed class IslandGenerator : MonoBehaviour
     private static readonly int MoonVisibilityId = Shader.PropertyToID("_MoonVisibility");
     private static readonly int MoonDiscCosRadiusId = Shader.PropertyToID(
         "_MoonDiscCosRadius");
+    private static readonly int StarSettingsId = Shader.PropertyToID("_StarSettings");
+    private static readonly int StarVisibilityId = Shader.PropertyToID("_StarVisibility");
     private static readonly int CloudWeatherTextureId = Shader.PropertyToID(
         "_MotuCloudWeatherTex");
     private static readonly int CloudEnabledId = Shader.PropertyToID("_MotuCloudEnabled");
@@ -323,6 +325,7 @@ public sealed class IslandGenerator : MonoBehaviour
             MoonDiscCosRadiusId,
             Mathf.Cos(MoonDiscAngularRadiusDegrees * Mathf.Deg2Rad));
         skyDomeMaterial.SetFloat(SkyExposureId, currentSkyExposure);
+        ApplyStarSettings();
         EnsureCloudWeatherTexture();
         terrainMaterial = CreateMaterial(
             "Motu/Terrain Unified",
@@ -790,6 +793,9 @@ public sealed class IslandGenerator : MonoBehaviour
         Shader.SetGlobalFloat("_MotuCloudAltitude", clouds.AltitudeMetres);
         Shader.SetGlobalFloat("_MotuCloudWorldSize", worldSize);
         Shader.SetGlobalVector(
+            "_MotuCloudVolume",
+            new Vector4(clouds.VerticalThicknessMetres, 0f, 0f, 0f));
+        Shader.SetGlobalVector(
             "_MotuCloudBroadNoise",
             new Vector4(
                 clouds.BroadNoiseScale,
@@ -1018,6 +1024,8 @@ public sealed class IslandGenerator : MonoBehaviour
             moonState.LocalLightDirection);
         skyDomeMaterial?.SetFloat(MoonVisibilityId, moonState.Visibility);
         skyDomeMaterial?.SetFloat(SkyExposureId, currentSkyExposure);
+        skyDomeMaterial?.SetFloat(StarVisibilityId, currentNightStrength);
+        ApplyStarSettings();
         riverMaterial?.SetFloat(WaterSkyExposureId, currentSkyExposure);
         seaMaterial?.SetFloat(WaterSkyExposureId, currentSkyExposure);
 
@@ -1078,6 +1086,22 @@ public sealed class IslandGenerator : MonoBehaviour
         Shader.SetGlobalColor(CloudLightColourId, activeLightColour);
         Shader.SetGlobalFloat("_MotuCloudSunsetStrength", state.SunHaloStrength);
         Shader.SetGlobalFloat("_MotuCloudNightStrength", state.NightStrength);
+    }
+
+    private void ApplyStarSettings()
+    {
+        if (skyDomeMaterial == null)
+        {
+            return;
+        }
+        var starSeed = Mathf.Repeat(generation.Seed * 0.61803398875f, 4096f);
+        skyDomeMaterial.SetVector(
+            StarSettingsId,
+            new Vector4(
+                rendering.StarDensity,
+                rendering.StarBrightness,
+                rendering.StarSize,
+                starSeed));
     }
 
     public static float EvaluateSolarClockRateMultiplier(

@@ -19,6 +19,8 @@ Shader "Motu/Sky Dome"
         [HideInInspector] _MoonDiscCosRadius ("Moon Disc Cosine Radius", Float) = 0.9999
         [HideInInspector] _MoonVisibility ("Moon Visibility", Range(0, 1)) = 1
         [HideInInspector] _SkyExposure ("Sky Exposure", Range(0, 1)) = 1
+        [HideInInspector] _StarSettings ("Star Settings", Vector) = (0.18, 1.35, 0.052, 0)
+        [HideInInspector] _StarVisibility ("Star Visibility", Range(0, 1)) = 0
     }
 
     SubShader
@@ -60,6 +62,8 @@ Shader "Motu/Sky Dome"
             float _MoonVisibility;
             float _SkyExposure;
             float _GradientPower;
+            float4 _StarSettings;
+            float _StarVisibility;
 
             struct VertexInput
             {
@@ -129,6 +133,96 @@ Shader "Motu/Sky Dome"
                     dot(skyDirection, apparentDirection));
             }
 
+            float MotuStarHash(float3 value)
+            {
+                value = frac(value * 0.1031);
+                value += dot(value, value.yzx + 33.33);
+                return frac((value.x + value.y) * value.z);
+            }
+
+            void MotuStarFaceCoordinates(
+                float3 direction,
+                out float2 faceUv,
+                out float faceIndex)
+            {
+                float3 absoluteDirection = abs(direction);
+                if (absoluteDirection.x >= absoluteDirection.y
+                    && absoluteDirection.x >= absoluteDirection.z)
+                {
+                    faceUv = direction.x >= 0.0
+                        ? float2(-direction.z, direction.y) / absoluteDirection.x
+                        : float2(direction.z, direction.y) / absoluteDirection.x;
+                    faceIndex = direction.x >= 0.0 ? 0.0 : 1.0;
+                }
+                else if (absoluteDirection.y >= absoluteDirection.z)
+                {
+                    faceUv = direction.y >= 0.0
+                        ? float2(direction.x, -direction.z) / absoluteDirection.y
+                        : float2(direction.x, direction.z) / absoluteDirection.y;
+                    faceIndex = direction.y >= 0.0 ? 2.0 : 3.0;
+                }
+                else
+                {
+                    faceUv = direction.z >= 0.0
+                        ? float2(direction.x, direction.y) / absoluteDirection.z
+                        : float2(-direction.x, direction.y) / absoluteDirection.z;
+                    faceIndex = direction.z >= 0.0 ? 4.0 : 5.0;
+                }
+                faceUv = faceUv * 0.5 + 0.5;
+            }
+
+            fixed3 MotuNightStars(float3 skyDirection)
+            {
+                float2 faceUv;
+                float faceIndex;
+                MotuStarFaceCoordinates(skyDirection, faceUv, faceIndex);
+                const float StarCellsPerFace = 40.0;
+                float2 starCoordinate = faceUv * StarCellsPerFace;
+                float2 cell = floor(starCoordinate);
+                float2 cellCoordinate = frac(starCoordinate);
+                float seed = _StarSettings.w;
+                float3 key = float3(cell, faceIndex * 37.0 + seed);
+                float presence = MotuStarHash(key);
+                float2 centre = 0.25 + 0.5 * float2(
+                    MotuStarHash(key + float3(11.7, 3.1, 5.3)),
+                    MotuStarHash(key + float3(2.9, 17.3, 7.1)));
+                float variation = MotuStarHash(
+                    key + float3(19.1, 23.7, 13.9));
+                float radius = _StarSettings.z * lerp(0.55, 1.25, variation);
+                float distanceToStar = length(cellCoordinate - centre);
+                float antialias = max(fwidth(distanceToStar) * 1.5, 0.002);
+                float core = 1.0 - smoothstep(
+                    radius - antialias,
+                    radius + antialias,
+                    distanceToStar);
+                float glowRadius = min(radius * 3.25 + antialias, 0.22);
+                float glow = 1.0 - smoothstep(
+                    radius,
+                    glowRadius,
+                    distanceToStar);
+                float occupied = step(
+                    1.0 - saturate(_StarSettings.x),
+                    presence) * step(0.0001, _StarSettings.x);
+                float twinkle = 0.88 + 0.12 * sin(
+                    _Time.y * lerp(0.45, 1.35, variation)
+                    + presence * 41.0);
+                float brightness = lerp(0.24, 1.0, variation * variation)
+                    * (core + glow * 0.16)
+                    * occupied
+                    * twinkle
+                    * max(_StarSettings.y, 0.0);
+                float horizonFade = smoothstep(0.015, 0.16, skyDirection.y);
+                float nightFade = smoothstep(0.12, 0.82, _StarVisibility);
+                fixed3 warmStar = fixed3(1.0, 0.78, 0.58);
+                fixed3 coolStar = fixed3(0.68, 0.82, 1.0);
+                fixed3 starColour = lerp(
+                    warmStar,
+                    coolStar,
+                    MotuStarHash(key + float3(29.3, 31.7, 37.9)));
+                starColour = lerp(fixed3(1.0, 1.0, 1.0), starColour, 0.38);
+                return starColour * brightness * horizonFade * nightFade;
+            }
+
             VertexOutput Vert(VertexInput input)
             {
                 VertexOutput output;
@@ -150,9 +244,11 @@ Shader "Motu/Sky Dome"
                     float4(_WorldSpaceCameraPos.xyz, 1.0)).xyz;
                 float3 skyDirection = normalize(
                     input.localDirection - cameraLocalPosition);
-                half cloudDensity = MotuCloudSkyDensity(
+                sky.rgb += MotuNightStars(skyDirection);
+                MotuCloudSkyVolume cloudVolume = MotuCloudSkyVolumeAt(
                     cameraLocalPosition,
-                    skyDirection);
+                    skyDirection,
+                    input.position.xy);
                 float3 sunDirection = normalize(_SunDirection.xyz);
                 float sunAngularSeparation = 1.0 - saturate(dot(
                     skyDirection,
@@ -217,13 +313,11 @@ Shader "Motu/Sky Dome"
                     sunVerticalAxis);
                 sunDisc *= _SunVisibility;
                 sky.rgb = lerp(sky.rgb, _SunColor.rgb, sunDisc);
-                half cloudTransmittance = MotuCloudCelestialTransmittance(
-                    cloudDensity);
-                fixed3 cloudColour = MotuCloudSkyColour(
-                    cloudDensity,
-                    skyDirection);
+                half cloudTransmittance = pow(
+                    max(cloudVolume.transmittance, 0.0001h),
+                    max(_MotuCloudCelestialStrength, 0.0));
                 sky.rgb = sky.rgb * cloudTransmittance
-                    + cloudColour * (1.0h - cloudTransmittance);
+                    + cloudVolume.averageColour * (1.0h - cloudTransmittance);
                 return sky;
             }
             ENDCG

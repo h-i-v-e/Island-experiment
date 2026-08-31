@@ -203,6 +203,28 @@ MonoBehaviour:
     windStrength: 1.8
   streaming:
     target: {fileID: 1299534587}
+  clouds:
+    enabled: 1
+    seed: 173
+    weatherMapResolution: 1024
+    coverage: 0.48
+    density: 2.1
+    altitudeMetres: 650
+    verticalThicknessMetres: 280
+    worldSizeMetres: 2200
+    broadNoiseScale: 6
+    broadNoiseStrength: 0.65
+    detailStrength: 0.52
+    erosionStrength: 0.38
+    windDirection: {x: 1, y: 0.25}
+    windSpeedMetresPerSecond: 9
+    dayColour: {r: 0.92, g: 0.94, b: 0.96, a: 1}
+    sunsetColour: {r: 0.92, g: 0.48, b: 0.24, a: 1}
+    nightColour: {r: 0.035, g: 0.055, b: 0.1, a: 1}
+    shadowStrength: 0.72
+    ambientShadowStrength: 0.12
+    celestialObscurationStrength: 1
+    lowElevationShadowFade: 0.09
   rendering:
     dirtColour: {r: 0.81960785, g: 0.6745098, b: 0.39607844, a: 1}
     stoneColour: {r: 0.4627451, g: 0.49803922, b: 0.42352942, a: 1}
@@ -237,12 +259,16 @@ MonoBehaviour:
     distanceHazeDensity: 0.0016
     sunlight: {fileID: 999289537}
     sunCycleDurationMinutes: 1
+    midnightToNoonClockRateRatio: 10
     sunLatitudeDegrees: -36
     startingSolarTimeHours: 8
     middaySunIntensity: 1.25
     moonEquatorOffsetDegrees: 22
     startingMoonPhase: 0.5
     fullMoonLightIntensity: 0.14
+    starDensity: 0.18
+    starBrightness: 1.35
+    starSize: 0.052
     showRivers: 1
     showSea: 1
     showGrass: 1

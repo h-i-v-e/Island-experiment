@@ -89,10 +89,26 @@ public static class IslandGeneratorValidation
                 || !material.HasProperty("_MoonDarkColor")
                 || !material.HasProperty("_MoonDiscCosRadius")
                 || !material.HasProperty("_MoonVisibility")
-                || !material.HasProperty("_SkyExposure"))
+                || !material.HasProperty("_SkyExposure")
+                || !material.HasProperty("_StarSettings")
+                || !material.HasProperty("_StarVisibility"))
             {
                 throw new InvalidOperationException(
-                    "The sky-dome shader is missing its haze or solar-disc contract.");
+                    "The sky-dome shader is missing its haze, celestial, or star contract.");
+            }
+
+            var settings = new IslandRenderingSettings
+            {
+                StarDensity = 2f,
+                StarBrightness = -1f,
+                StarSize = 1f,
+            };
+            if (!Mathf.Approximately(settings.StarDensity, 1f)
+                || !Mathf.Approximately(settings.StarBrightness, 0f)
+                || !Mathf.Approximately(settings.StarSize, 0.12f))
+            {
+                throw new InvalidOperationException(
+                    "The procedural star settings are not clamping their live values.");
             }
         }
         finally
@@ -135,12 +151,14 @@ public static class IslandGeneratorValidation
             WeatherMapResolution = 70,
             Coverage = 2f,
             Density = -1f,
+            VerticalThicknessMetres = 2000f,
             BroadNoiseScale = 100f,
             BroadNoiseStrength = 2f,
         };
         if (settings.WeatherMapResolution != 64
             || !Mathf.Approximately(settings.Coverage, 1f)
             || !Mathf.Approximately(settings.Density, 0f)
+            || !Mathf.Approximately(settings.VerticalThicknessMetres, 1000f)
             || !Mathf.Approximately(settings.BroadNoiseScale, 16f)
             || !Mathf.Approximately(settings.BroadNoiseStrength, 1f))
         {

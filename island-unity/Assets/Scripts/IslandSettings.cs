@@ -372,6 +372,10 @@ public sealed class IslandCloudSettings
     [Range(50f, 1800f)]
     [SerializeField] private float altitudeMetres = 650f;
 
+    [Tooltip("Vertical thickness of the ray-marched cloud layer in metres.")]
+    [Range(25f, 1000f)]
+    [SerializeField] private float verticalThicknessMetres = 280f;
+
     [Tooltip("World-space width and depth represented by one weather-map repeat.")]
     [Range(100f, 8000f)]
     [SerializeField] private float worldSizeMetres = 2200f;
@@ -429,6 +433,13 @@ public sealed class IslandCloudSettings
     public float Coverage { get => Mathf.Clamp01(coverage); set => coverage = Mathf.Clamp01(value); }
     public float Density { get => Mathf.Clamp(density, 0f, 8f); set => density = Mathf.Clamp(value, 0f, 8f); }
     public float AltitudeMetres { get => Mathf.Clamp(altitudeMetres, 50f, 1800f); set => altitudeMetres = Mathf.Clamp(value, 50f, 1800f); }
+    public float VerticalThicknessMetres
+    {
+        get => verticalThicknessMetres > 0f
+            ? Mathf.Clamp(verticalThicknessMetres, 25f, 1000f)
+            : 280f;
+        set => verticalThicknessMetres = Mathf.Clamp(value, 25f, 1000f);
+    }
     public float WorldSizeMetres { get => Mathf.Clamp(worldSizeMetres, 100f, 8000f); set => worldSizeMetres = Mathf.Clamp(value, 100f, 8000f); }
     public float BroadNoiseScale { get => Mathf.Clamp(broadNoiseScale, 2f, 16f); set => broadNoiseScale = Mathf.Clamp(value, 2f, 16f); }
     public float BroadNoiseStrength { get => Mathf.Clamp01(broadNoiseStrength); set => broadNoiseStrength = Mathf.Clamp01(value); }
@@ -588,6 +599,18 @@ public sealed class IslandRenderingSettings
     [Range(0f, 1f)]
     [SerializeField] private float fullMoonLightIntensity = 0.14f;
 
+    [Tooltip("Fraction of sky cells containing a visible star at night.")]
+    [Range(0f, 1f)]
+    [SerializeField] private float starDensity = 0.18f;
+
+    [Tooltip("Brightness of the procedural night stars.")]
+    [Range(0f, 4f)]
+    [SerializeField] private float starBrightness = 1.35f;
+
+    [Tooltip("Apparent radius of procedural stars within their sky cells.")]
+    [Range(0.02f, 0.12f)]
+    [SerializeField] private float starSize = 0.052f;
+
     [Tooltip("Show the carved river surface.")]
     [SerializeField] private bool showRivers = true;
 
@@ -703,6 +726,21 @@ public sealed class IslandRenderingSettings
     {
         get => Mathf.Clamp01(fullMoonLightIntensity);
         set => fullMoonLightIntensity = Mathf.Clamp01(value);
+    }
+    public float StarDensity
+    {
+        get => Mathf.Clamp01(starDensity);
+        set => starDensity = Mathf.Clamp01(value);
+    }
+    public float StarBrightness
+    {
+        get => Mathf.Clamp(starBrightness, 0f, 4f);
+        set => starBrightness = Mathf.Clamp(value, 0f, 4f);
+    }
+    public float StarSize
+    {
+        get => starSize > 0f ? Mathf.Clamp(starSize, 0.02f, 0.12f) : 0.052f;
+        set => starSize = Mathf.Clamp(value, 0.02f, 0.12f);
     }
     public bool ShowRivers { get => showRivers; set => showRivers = value; }
     public bool ShowSea { get => showSea; set => showSea = value; }
