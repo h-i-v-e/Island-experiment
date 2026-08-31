@@ -21,6 +21,7 @@ Shader "Motu/Sky Dome"
         [HideInInspector] _SkyExposure ("Sky Exposure", Range(0, 1)) = 1
         [HideInInspector] _StarSettings ("Star Settings", Vector) = (0.18, 1.35, 0.052, 0)
         [HideInInspector] _StarVisibility ("Star Visibility", Range(0, 1)) = 0
+        [HideInInspector] _StarRotation ("Star Rotation", Vector) = (0, 0, 1, 0)
     }
 
     SubShader
@@ -64,6 +65,7 @@ Shader "Motu/Sky Dome"
             float _GradientPower;
             float4 _StarSettings;
             float _StarVisibility;
+            float4 _StarRotation;
 
             struct VertexInput
             {
@@ -173,9 +175,17 @@ Shader "Motu/Sky Dome"
 
             fixed3 MotuNightStars(float3 skyDirection)
             {
+                float3 rotationAxis = normalize(_StarRotation.xyz);
+                float rotationCosine = cos(_StarRotation.w);
+                float rotationSine = sin(_StarRotation.w);
+                float3 starDirection = skyDirection * rotationCosine
+                    + cross(rotationAxis, skyDirection) * rotationSine
+                    + rotationAxis
+                        * dot(rotationAxis, skyDirection)
+                        * (1.0 - rotationCosine);
                 float2 faceUv;
                 float faceIndex;
-                MotuStarFaceCoordinates(skyDirection, faceUv, faceIndex);
+                MotuStarFaceCoordinates(starDirection, faceUv, faceIndex);
                 const float StarCellsPerFace = 40.0;
                 float2 starCoordinate = faceUv * StarCellsPerFace;
                 float2 cell = floor(starCoordinate);
@@ -244,7 +254,7 @@ Shader "Motu/Sky Dome"
                     float4(_WorldSpaceCameraPos.xyz, 1.0)).xyz;
                 float3 skyDirection = normalize(
                     input.localDirection - cameraLocalPosition);
-                sky.rgb += MotuNightStars(skyDirection);
+                fixed3 stars = MotuNightStars(skyDirection);
                 MotuCloudSkyVolume cloudVolume = MotuCloudSkyVolumeAt(
                     cameraLocalPosition,
                     skyDirection,
@@ -318,6 +328,14 @@ Shader "Motu/Sky Dome"
                     max(_MotuCloudCelestialStrength, 0.0));
                 sky.rgb = sky.rgb * cloudTransmittance
                     + cloudVolume.averageColour * (1.0h - cloudTransmittance);
+                // Stars are tiny HDR sources, so ordinary translucent-cloud
+                // blending can leave them visibly punching through. Treat the
+                // integrated volume as a substantially denser astronomical
+                // occluder while retaining softer cloud/sky compositing.
+                half starTransmittance = pow(
+                    saturate(cloudVolume.transmittance),
+                    4.0h);
+                sky.rgb += stars * starTransmittance;
                 return sky;
             }
             ENDCG

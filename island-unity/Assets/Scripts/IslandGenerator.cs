@@ -59,6 +59,7 @@ public sealed class IslandGenerator : MonoBehaviour
         "_MoonDiscCosRadius");
     private static readonly int StarSettingsId = Shader.PropertyToID("_StarSettings");
     private static readonly int StarVisibilityId = Shader.PropertyToID("_StarVisibility");
+    private static readonly int StarRotationId = Shader.PropertyToID("_StarRotation");
     private static readonly int CloudWeatherTextureId = Shader.PropertyToID(
         "_MotuCloudWeatherTex");
     private static readonly int CloudEnabledId = Shader.PropertyToID("_MotuCloudEnabled");
@@ -1026,6 +1027,7 @@ public sealed class IslandGenerator : MonoBehaviour
         skyDomeMaterial?.SetFloat(SkyExposureId, currentSkyExposure);
         skyDomeMaterial?.SetFloat(StarVisibilityId, currentNightStrength);
         ApplyStarSettings();
+        ApplyStarRotation(moonState.OrbitLatitudeDegrees);
         riverMaterial?.SetFloat(WaterSkyExposureId, currentSkyExposure);
         seaMaterial?.SetFloat(WaterSkyExposureId, currentSkyExposure);
 
@@ -1084,6 +1086,7 @@ public sealed class IslandGenerator : MonoBehaviour
             CloudLightActiveId,
             activeLightColour.maxColorComponent > 0.0001f ? 1f : 0f);
         Shader.SetGlobalColor(CloudLightColourId, activeLightColour);
+        Shader.SetGlobalColor("_MotuCloudAmbientColor", state.AmbientColour);
         Shader.SetGlobalFloat("_MotuCloudSunsetStrength", state.SunHaloStrength);
         Shader.SetGlobalFloat("_MotuCloudNightStrength", state.NightStrength);
     }
@@ -1102,6 +1105,27 @@ public sealed class IslandGenerator : MonoBehaviour
                 rendering.StarBrightness,
                 rendering.StarSize,
                 starSeed));
+    }
+
+    private void ApplyStarRotation(float orbitLatitudeDegrees)
+    {
+        if (skyDomeMaterial == null)
+        {
+            return;
+        }
+        var latitudeRadians = orbitLatitudeDegrees * Mathf.Deg2Rad;
+        var orbitAxis = new Vector3(
+            0f,
+            Mathf.Sin(latitudeRadians),
+            Mathf.Cos(latitudeRadians));
+        var orbitAngle = (Mathf.Repeat(solarTimeHours, 24f) - 6f)
+            * Mathf.PI
+            / 12f;
+        // The shader rotates the observed direction back into the fixed star
+        // field, so use the inverse of the sky's apparent orbital rotation.
+        skyDomeMaterial.SetVector(
+            StarRotationId,
+            new Vector4(orbitAxis.x, orbitAxis.y, orbitAxis.z, -orbitAngle));
     }
 
     public static float EvaluateSolarClockRateMultiplier(

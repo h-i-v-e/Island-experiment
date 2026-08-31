@@ -21,6 +21,7 @@ float _MotuCloudLowElevationFade;
 float4 _MotuCloudLightDirection;
 float _MotuCloudLightActive;
 fixed4 _MotuCloudLightColor;
+fixed4 _MotuCloudAmbientColor;
 float _MotuCloudSunsetStrength;
 float _MotuCloudNightStrength;
 
@@ -139,21 +140,28 @@ fixed3 MotuCloudSkyColour(half density, float3 localViewDirection)
 {
     half sunset = saturate(_MotuCloudSunsetStrength)
         * (1.0h - saturate(_MotuCloudNightStrength));
-    fixed3 daylight = lerp(
+    fixed3 cloudAlbedo = lerp(
         _MotuCloudDayColor.rgb,
         _MotuCloudSunsetColor.rgb,
         sunset);
-    fixed3 colour = lerp(
-        daylight,
-        _MotuCloudNightColor.rgb,
-        saturate(_MotuCloudNightStrength));
     float3 lightDirection = normalize(_MotuCloudLightDirection.xyz);
     half forwardLight = pow(
         saturate(dot(normalize(localViewDirection), lightDirection)),
         10.0h);
-    half lighting = lerp(0.58h, 1.0h, saturate(lightDirection.y * 2.0h));
-    lighting += forwardLight * (1.0h - density) * 0.28h;
-    return colour * lighting;
+    half lightElevation = saturate(lightDirection.y * 2.0h);
+    fixed3 illumination = _MotuCloudAmbientColor.rgb * 0.95h;
+    illumination += _MotuCloudLightColor.rgb
+        * lerp(0.28h, 0.48h, lightElevation);
+    illumination += _MotuCloudLightColor.rgb
+        * forwardLight
+        * (1.0h - density)
+        * 0.32h;
+    illumination += _MotuCloudSunsetColor.rgb * sunset * 0.22h;
+    fixed3 litColour = cloudAlbedo * illumination;
+    fixed3 nightFloor = _MotuCloudNightColor.rgb
+        * saturate(_MotuCloudNightStrength)
+        * 0.35h;
+    return max(litColour, nightFloor);
 }
 
 struct MotuCloudSkyVolume

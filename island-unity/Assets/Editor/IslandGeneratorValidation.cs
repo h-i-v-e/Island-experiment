@@ -91,7 +91,8 @@ public static class IslandGeneratorValidation
                 || !material.HasProperty("_MoonVisibility")
                 || !material.HasProperty("_SkyExposure")
                 || !material.HasProperty("_StarSettings")
-                || !material.HasProperty("_StarVisibility"))
+                || !material.HasProperty("_StarVisibility")
+                || !material.HasProperty("_StarRotation"))
             {
                 throw new InvalidOperationException(
                     "The sky-dome shader is missing its haze, celestial, or star contract.");
