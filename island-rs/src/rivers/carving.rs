@@ -175,7 +175,7 @@ pub(super) fn shape_and_carve_river(
 ) -> RiverCarveResult {
     let ocean_entry = parameters
         .terminal_ocean
-        .then(|| river_ocean_entry(nodes, ocean))
+        .then(|| river_ocean_entry(nodes, ocean, parameters.cross_sections))
         .flatten();
     let mouth = ocean_entry.map(|ocean_entry| river_mouth_transition(ocean_entry, waterfalls));
     let mut budget = RiverSedimentBudget::default();
@@ -245,7 +245,7 @@ pub(super) fn form_river_profile(
 
     let ocean_entry = parameters
         .terminal_ocean
-        .then(|| river_ocean_entry(nodes, environment.ocean))
+        .then(|| river_ocean_entry(nodes, environment.ocean, parameters.cross_sections))
         .flatten();
     let profile_end = ocean_entry.map_or_else(
         || nodes.len().saturating_sub(1),
@@ -853,10 +853,23 @@ pub(super) fn relocate_conflicting_waterfalls(
     all_placed
 }
 
-pub(super) fn river_ocean_entry(nodes: &[RiverNode], ocean: &[bool]) -> Option<usize> {
-    nodes
+pub(super) fn river_ocean_entry(
+    nodes: &[RiverNode],
+    ocean: &[bool],
+    cross_sections: &[RiverCrossSection],
+) -> Option<usize> {
+    let masked_entry = nodes
         .iter()
-        .position(|node| ocean.get(node.vertex).copied().unwrap_or(false))
+        .position(|node| ocean.get(node.vertex).copied().unwrap_or(false));
+    let submerged_bed_entry = nodes
+        .iter()
+        .zip(cross_sections)
+        .position(|(node, section)| {
+            section.required_depth.is_finite()
+                && section.required_depth > 0.0
+                && node.surface - section.required_depth <= 0.0
+        });
+    masked_entry.into_iter().chain(submerged_bed_entry).min()
 }
 
 pub(super) fn river_mouth_transition(

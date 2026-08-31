@@ -23,7 +23,8 @@ use crate::procedural_textures::{
 use crate::reeds::{REED_TILE_RESOLUTION, ReedMeshTile};
 use crate::{
     BoundingBox, FernOptions, ForestOptions, GenerationMethod, ISLAND_WORLD_METRES, Island,
-    IslandOptions, Mesh, ReedOptions, SeaMask, SurfaceMaps, Vec2, Vec3, Vec4, generate_tree,
+    IslandOptions, Mesh, ReedOptions, SeaMask, SurfaceMaps, Vec2, Vec3, Vec4, generate_sky_dome,
+    generate_tree,
 };
 
 const _: () = {
@@ -1177,6 +1178,14 @@ pub unsafe extern "C" fn CreateMesh(
     *output = export_mesh(sliced, material, environment);
 }
 
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn CreateSkyDome(output: *mut ExportMesh) {
+    let Some(output) = (unsafe { output.as_mut() }) else {
+        return;
+    };
+    *output = export_mesh(generate_sky_dome(), Vec::new(), Vec::new());
+}
+
 /// Exports the authoritative XY-safe surface for collision and downward
 /// queries. This never returns render-only folds or overhangs.
 #[unsafe(no_mangle)]
@@ -2128,6 +2137,33 @@ mod tests {
         assert!(output.handle.is_null());
         assert!(output.data.is_null());
         assert_eq!(output.length, 0);
+    }
+
+    #[test]
+    fn sky_dome_export_uses_standard_mesh_ownership() {
+        let mut output = ExportMesh::default();
+        // SAFETY: output is writable and is released exactly once below.
+        unsafe { CreateSkyDome(&raw mut output) };
+        assert!(!output.handle.is_null());
+        assert!(!output.vertices.data.is_null());
+        assert_eq!(output.vertices.length, output.normals.length);
+        assert_eq!(output.vertices.length, output.uv.length);
+        assert!(output.vertices.length > 0);
+        assert!(output.triangles.length > 0);
+        assert_eq!(output.material.length, 0);
+        assert_eq!(output.environment.length, 0);
+
+        // SAFETY: output owns the handle returned by CreateSkyDome.
+        unsafe { ReleaseMesh(&raw mut output) };
+        assert!(output.handle.is_null());
+        assert!(output.vertices.data.is_null());
+        assert!(output.triangles.data.is_null());
+    }
+
+    #[test]
+    fn sky_dome_null_output_is_safe() {
+        // SAFETY: the API explicitly accepts a null output as a no-op.
+        unsafe { CreateSkyDome(ptr::null_mut()) };
     }
 
     #[test]

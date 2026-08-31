@@ -104,6 +104,7 @@ MOTU_EXPORT void ReleaseMotu(void *handle);
 MOTU_EXPORT void CreateProceduralTree(int32_t seed, ExportMesh *lod0Wood,
                                       ExportMesh *lod0Foliage, ExportMesh *lod1Wood,
                                       ExportMesh *lod1Foliage);
+MOTU_EXPORT void CreateSkyDome(ExportMesh *output);
 MOTU_EXPORT void GetDecoration(const void *handle, ExportDecoration *output);
 MOTU_EXPORT void CreateMesh(const void *handle, const ExportArea *area, int32_t lod,
                             uint8_t clampSides, ExportMesh *output);

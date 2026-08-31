@@ -325,6 +325,9 @@ internal static class MotuNative
         out ExportMesh lod1Foliage);
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+    internal static extern void CreateSkyDome(out ExportMesh output);
+
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
     internal static extern void CreateMesh(
         IntPtr handle,
         IntPtr area,

@@ -22,8 +22,41 @@ public sealed class IslandGenerator : MonoBehaviour
     private const int GrassPatchNoiseLatticePeriod = 64;
     private const int GrassColourNoiseLatticePeriod = 8;
     private const float RockPatchNoiseDetailScale = 8f;
+    private const float SunDiscAngularRadiusDegrees = 0.7f;
+    private const float MoonDiscAngularRadiusDegrees = 0.68f;
+    private const float LunarSynodicPeriodDays = 29.53059f;
+    private const float NightSkyExposure = 0.045f;
+    private static readonly Color MiddaySunColour = new Color(1f, 0.94f, 0.82f, 1f);
+    private static readonly Color SunsetSunColour = new Color(1f, 0.20f, 0.035f, 1f);
+    private static readonly Color DayAmbientColour = new Color(0.42f, 0.46f, 0.52f, 1f);
+    private static readonly Color TwilightAmbientColour = new Color(0.08f, 0.15f, 0.30f, 1f);
+    private static readonly Color NightAmbientColour = new Color(0.012f, 0.025f, 0.065f, 1f);
+    private static readonly Color SunsetSunHaloColour = new Color(0.85f, 0.05f, 0.01f, 1f);
+    private static readonly Color NightHazeColour = new Color(0.08f, 0.14f, 0.28f, 1f);
+    private static readonly Color MoonDiscColour = new Color(0.78f, 0.84f, 0.92f, 1f);
+    private static readonly Color MoonDarkColour = new Color(0.012f, 0.018f, 0.035f, 1f);
+    private static readonly Color MoonLightColour = new Color(0.48f, 0.62f, 0.90f, 1f);
     private static readonly int IslandWorldToLocalId = Shader.PropertyToID(
         "_IslandWorldToLocal");
+    private static readonly int SunDirectionId = Shader.PropertyToID("_SunDirection");
+    private static readonly int SunColourId = Shader.PropertyToID("_SunColor");
+    private static readonly int SunVisibilityId = Shader.PropertyToID("_SunVisibility");
+    private static readonly int SunDiscCosRadiusId = Shader.PropertyToID("_SunDiscCosRadius");
+    private static readonly int SunHaloColourId = Shader.PropertyToID("_SunHaloColor");
+    private static readonly int SunHaloStrengthId = Shader.PropertyToID("_SunHaloStrength");
+    private static readonly int SkyExposureId = Shader.PropertyToID("_SkyExposure");
+    private static readonly int WaterSkyExposureId = Shader.PropertyToID(
+        "_WaterSkyExposure");
+    private static readonly int NightStrengthId = Shader.PropertyToID(
+        "_MotuNightStrength");
+    private static readonly int MoonDirectionId = Shader.PropertyToID("_MoonDirection");
+    private static readonly int MoonLightDirectionId = Shader.PropertyToID(
+        "_MoonLightDirection");
+    private static readonly int MoonColourId = Shader.PropertyToID("_MoonColor");
+    private static readonly int MoonDarkColourId = Shader.PropertyToID("_MoonDarkColor");
+    private static readonly int MoonVisibilityId = Shader.PropertyToID("_MoonVisibility");
+    private static readonly int MoonDiscCosRadiusId = Shader.PropertyToID(
+        "_MoonDiscCosRadius");
 
     [Header("Lifecycle and Generation")]
     [SerializeField] private IslandGenerationSettings generation = new IslandGenerationSettings();
@@ -55,7 +88,12 @@ public sealed class IslandGenerator : MonoBehaviour
     private NativeIslandHandle islandHandle;
     private TerrainTileStreamer terrainStreamer;
     private GameObject runtimeRoot;
+    private GameObject skyDomeObject;
+    private GameObject moonLightObject;
     private GameObject seaObject;
+    private Mesh skyDomeMesh;
+    private Material skyDomeMaterial;
+    private Light moonLight;
     private Material terrainMaterial;
     private Material terrainLod1Material;
     private Material terrainLod2Material;
@@ -115,6 +153,11 @@ public sealed class IslandGenerator : MonoBehaviour
     private Color? appliedDistanceHazeColour;
     private float appliedDistanceHazeDensity = float.NaN;
     private bool firstPersonViewActive;
+    private bool solarClockInitialized;
+    private float solarTimeHours;
+    private float lunarPhase;
+    private float currentSkyExposure = 1f;
+    private float currentNightStrength;
     private Matrix4x4 appliedWorldToLocal;
     private bool hasAppliedWorldToLocal;
 
@@ -145,6 +188,7 @@ public sealed class IslandGenerator : MonoBehaviour
         Camera.onPreCull += PrepareCameraRender;
         EnsureActiveCameraDepthTextures();
         ApplyDistanceHazeSettings();
+        UpdateSolarLighting(0f);
         if (hasStarted && generation.GenerateOnStart && terrainStreamer == null)
         {
             Generate();
@@ -199,6 +243,7 @@ public sealed class IslandGenerator : MonoBehaviour
         }
         UpdateMaterialTransforms();
         ApplyLiveSettings();
+        UpdateSolarLighting(Time.unscaledDeltaTime);
         if (terrainStreamer != null && streaming.Target != null)
         {
             terrainStreamer.SetPlayerPosition(streaming.Target.position);
@@ -226,6 +271,27 @@ public sealed class IslandGenerator : MonoBehaviour
     private void BuildRuntimeMaterials(IslandPreparedMaterialTextures materialTextures)
     {
         var skyColor = new Color(0.49f, 0.68f, 0.82f);
+        skyDomeMaterial = CreateMaterial(
+            "Motu/Sky Dome",
+            skyColor,
+            null,
+            generation.WorldSizeMetres);
+        if (skyDomeMaterial.shader.name != "Motu/Sky Dome")
+        {
+            throw new InvalidOperationException("Could not find shader 'Motu/Sky Dome'.");
+        }
+        skyDomeMaterial.SetColor("_ZenithColor", skyColor);
+        skyDomeMaterial.SetColor("_HorizonColor", rendering.DistanceHazeColour);
+        skyDomeMaterial.SetFloat(
+            SunDiscCosRadiusId,
+            Mathf.Cos(SunDiscAngularRadiusDegrees * Mathf.Deg2Rad));
+        skyDomeMaterial.SetColor(SunHaloColourId, SunsetSunHaloColour);
+        skyDomeMaterial.SetColor(MoonColourId, MoonDiscColour);
+        skyDomeMaterial.SetColor(MoonDarkColourId, MoonDarkColour);
+        skyDomeMaterial.SetFloat(
+            MoonDiscCosRadiusId,
+            Mathf.Cos(MoonDiscAngularRadiusDegrees * Mathf.Deg2Rad));
+        skyDomeMaterial.SetFloat(SkyExposureId, currentSkyExposure);
         terrainMaterial = CreateMaterial(
             "Motu/Terrain Unified",
             Color.white,
@@ -284,6 +350,7 @@ public sealed class IslandGenerator : MonoBehaviour
         };
         treeFoliageMaterial.CopyPropertiesFromMaterial(treeLod0FoliageMaterial);
         treeFoliageMaterial.SetFloat("_CullMode", (float)CullMode.Back);
+        treeFoliageMaterial.renderQueue = (int)RenderQueue.Geometry;
         treeFoliageMaterial.enableInstancing = true;
         reedMaterial = CreateMaterial(
             "Motu/Riverbank Reeds",
@@ -457,6 +524,7 @@ public sealed class IslandGenerator : MonoBehaviour
         meshEdgeMaterial.renderQueue = (int)RenderQueue.Overlay + 100;
         meshEdgeMaterial.SetColor("_Color", Color.black);
         meshEdgeMaterial.SetFloat("_ZTest", (float)CompareFunction.LessEqual);
+        UpdateSolarLighting(0f);
         UpdateMaterialTransforms(true);
     }
 
@@ -709,14 +777,313 @@ public sealed class IslandGenerator : MonoBehaviour
         appliedDistanceHazeColour = rendering.DistanceHazeColour;
         appliedDistanceHazeDensity = rendering.DistanceHazeDensity;
 
+        skyDomeMaterial?.SetColor(
+            "_HorizonColor",
+            CurrentAtmosphericHorizonBaseColour());
+        skyDomeMaterial?.SetFloat(SkyExposureId, currentSkyExposure);
         RenderSettings.fog = rendering.ShowDistanceHaze && firstPersonViewActive;
         if (!RenderSettings.fog)
         {
             return;
         }
         RenderSettings.fogMode = FogMode.ExponentialSquared;
-        RenderSettings.fogColor = rendering.DistanceHazeColour;
+        RenderSettings.fogColor = CurrentAtmosphericHorizonColour();
         RenderSettings.fogDensity = rendering.DistanceHazeDensity;
+    }
+
+    private void UpdateSolarLighting(float deltaTime)
+    {
+        if (!solarClockInitialized)
+        {
+            solarTimeHours = rendering.StartingSolarTimeHours;
+            lunarPhase = rendering.StartingMoonPhase;
+            solarClockInitialized = true;
+        }
+        if (deltaTime > 0f)
+        {
+            var cycleSeconds = rendering.SunCycleDurationMinutes * 60f;
+            solarTimeHours = Mathf.Repeat(
+                solarTimeHours + deltaTime * 24f / cycleSeconds,
+                24f);
+            lunarPhase = Mathf.Repeat(
+                lunarPhase + deltaTime / (cycleSeconds * LunarSynodicPeriodDays),
+                1f);
+        }
+
+        var state = EvaluateSolarLighting(
+            solarTimeHours,
+            rendering.SunLatitudeDegrees,
+            rendering.MiddaySunIntensity);
+        currentSkyExposure = state.SkyExposure;
+        currentNightStrength = state.NightStrength;
+        treeFoliageMaterial?.SetFloat(NightStrengthId, currentNightStrength);
+        var moonState = EvaluateMoonLighting(
+            solarTimeHours,
+            rendering.SunLatitudeDegrees,
+            rendering.MoonEquatorOffsetDegrees,
+            lunarPhase,
+            rendering.FullMoonLightIntensity,
+            state.LocalDirection.y);
+
+        skyDomeMaterial?.SetVector(SunDirectionId, state.LocalDirection);
+        skyDomeMaterial?.SetColor(SunColourId, state.SunColour);
+        skyDomeMaterial?.SetColor(
+            "_HorizonColor",
+            CurrentAtmosphericHorizonBaseColour());
+        skyDomeMaterial?.SetFloat(SunVisibilityId, state.SunVisibility);
+        skyDomeMaterial?.SetFloat(SunHaloStrengthId, state.SunHaloStrength);
+        skyDomeMaterial?.SetVector(MoonDirectionId, moonState.LocalDirection);
+        skyDomeMaterial?.SetVector(
+            MoonLightDirectionId,
+            moonState.LocalLightDirection);
+        skyDomeMaterial?.SetFloat(MoonVisibilityId, moonState.Visibility);
+        skyDomeMaterial?.SetFloat(SkyExposureId, currentSkyExposure);
+        riverMaterial?.SetFloat(WaterSkyExposureId, currentSkyExposure);
+        seaMaterial?.SetFloat(WaterSkyExposureId, currentSkyExposure);
+
+        var sun = rendering.Sunlight != null ? rendering.Sunlight : RenderSettings.sun;
+        var worldSunDirection = transform.TransformDirection(
+            state.LocalDirection).normalized;
+        if (sun != null)
+        {
+            PositionDirectionalLight(sun, worldSunDirection);
+            sun.color = state.SunColour;
+            sun.intensity = state.SunIntensity;
+            sun.enabled = state.SunIntensity > 0.0001f;
+        }
+
+        var worldMoonDirection = transform.TransformDirection(
+            moonState.LocalDirection).normalized;
+        var moonShadowsActive = state.SunVisibility <= 0.0001f
+            && state.SunIntensity <= 0.0001f
+            && moonState.LightIntensity > 0.0001f;
+        if (moonLight != null)
+        {
+            PositionDirectionalLight(moonLight, worldMoonDirection);
+            moonLight.color = MoonLightColour;
+            moonLight.intensity = moonState.LightIntensity;
+            moonLight.enabled = moonShadowsActive;
+        }
+
+        var activeLightDirection = worldSunDirection;
+        var activeLightColour = state.SunColour * state.SunIntensity;
+        if (moonShadowsActive && moonLight != null)
+        {
+            activeLightDirection = worldMoonDirection;
+            activeLightColour = MoonLightColour * moonState.LightIntensity;
+            RenderSettings.sun = moonLight;
+        }
+        else if (sun != null)
+        {
+            RenderSettings.sun = sun;
+        }
+
+        RenderSettings.ambientMode = AmbientMode.Flat;
+        RenderSettings.ambientLight = state.AmbientColour;
+        if (RenderSettings.fog)
+        {
+            RenderSettings.fogColor = CurrentAtmosphericHorizonColour();
+        }
+
+        grassMaterial?.SetVector("_GrassLightDirection", activeLightDirection);
+        grassMaterial?.SetColor(
+            "_GrassLightColor",
+            activeLightColour);
+        grassMaterial?.SetColor("_GrassAmbientColor", state.AmbientColour);
+    }
+
+    private void PositionDirectionalLight(Light light, Vector3 sourceDirection)
+    {
+        light.transform.position = transform.position
+            + sourceDirection * generation.WorldSizeMetres * 0.9f;
+        var lightForward = -sourceDirection;
+        var rotationUp = transform.TransformDirection(Vector3.forward);
+        if (Mathf.Abs(Vector3.Dot(lightForward, rotationUp)) > 0.98f)
+        {
+            rotationUp = transform.TransformDirection(Vector3.right);
+        }
+        light.transform.rotation = Quaternion.LookRotation(lightForward, rotationUp);
+    }
+
+    private Color CurrentAtmosphericHorizonColour()
+    {
+        var colour = CurrentAtmosphericHorizonBaseColour() * currentSkyExposure;
+        colour.a = rendering.DistanceHazeColour.a;
+        return colour;
+    }
+
+    private Color CurrentAtmosphericHorizonBaseColour()
+    {
+        var colour = Color.Lerp(
+            rendering.DistanceHazeColour,
+            NightHazeColour,
+            currentNightStrength);
+        colour.a = rendering.DistanceHazeColour.a;
+        return colour;
+    }
+
+    public static SolarLightingState EvaluateSolarLighting(
+        float timeHours,
+        float latitudeDegrees,
+        float middayIntensity)
+    {
+        var latitude = Mathf.Clamp(latitudeDegrees, -80f, 80f) * Mathf.Deg2Rad;
+        var angle = (Mathf.Repeat(timeHours, 24f) - 6f) * Mathf.PI / 12f;
+        var sinAngle = Mathf.Sin(angle);
+        var localDirection = new Vector3(
+            Mathf.Cos(angle),
+            sinAngle * Mathf.Cos(latitude),
+            -sinAngle * Mathf.Sin(latitude)).normalized;
+        var elevation = localDirection.y;
+        var daylight = SmoothRange(0f, 0.04f, elevation);
+        var highSun = SmoothRange(0.02f, 0.35f, elevation);
+        var sunColour = Color.Lerp(SunsetSunColour, MiddaySunColour, highSun);
+        var sunIntensity = Mathf.Clamp(middayIntensity, 0f, 4f)
+            * daylight
+            * Mathf.Lerp(0.22f, 1f, SmoothRange(0f, 0.4f, elevation));
+
+        var twilight = SmoothRange(-0.14f, 0.02f, elevation);
+        var fullDay = SmoothRange(0.02f, 0.35f, elevation);
+        var sunHaloStrength = SmoothRange(-0.08f, 0.02f, elevation)
+            * (1f - SmoothRange(0.12f, 0.32f, elevation));
+        var nightStrength = 1f - SmoothRange(-0.14f, 0f, elevation);
+        var ambientColour = Color.Lerp(
+            NightAmbientColour,
+            TwilightAmbientColour,
+            twilight);
+        ambientColour = Color.Lerp(ambientColour, DayAmbientColour, fullDay);
+
+        return new SolarLightingState(
+            localDirection,
+            sunColour,
+            ambientColour,
+            sunIntensity,
+            SmoothRange(-0.020f, 0.005f, elevation),
+            Mathf.Lerp(
+                NightSkyExposure,
+                1f,
+                SmoothRange(-0.16f, 0.20f, elevation)),
+            sunHaloStrength,
+            nightStrength);
+    }
+
+    public static MoonLightingState EvaluateMoonLighting(
+        float timeHours,
+        float solarLatitudeDegrees,
+        float equatorOffsetDegrees,
+        float phase,
+        float fullMoonIntensity,
+        float sunElevation)
+    {
+        var solarLatitude = Mathf.Clamp(solarLatitudeDegrees, -80f, 80f);
+        var moonLatitude = Mathf.MoveTowards(
+            solarLatitude,
+            0f,
+            Mathf.Clamp(equatorOffsetDegrees, 0f, 45f));
+        var latitude = moonLatitude * Mathf.Deg2Rad;
+        var phaseAngle = Mathf.Repeat(phase, 1f) * Mathf.PI * 2f;
+        var orbitAngle = (Mathf.Repeat(timeHours, 24f) - 6f)
+            * Mathf.PI / 12f
+            - phaseAngle;
+        var sinAngle = Mathf.Sin(orbitAngle);
+        var cosAngle = Mathf.Cos(orbitAngle);
+        var cosLatitude = Mathf.Cos(latitude);
+        var sinLatitude = Mathf.Sin(latitude);
+        var localDirection = new Vector3(
+            cosAngle,
+            sinAngle * cosLatitude,
+            -sinAngle * sinLatitude).normalized;
+        var orbitTangent = new Vector3(
+            -sinAngle,
+            cosAngle * cosLatitude,
+            -cosAngle * sinLatitude).normalized;
+        var phaseCosine = Mathf.Cos(phaseAngle);
+        var localLightDirection = (
+            localDirection * phaseCosine
+            + orbitTangent * Mathf.Sin(phaseAngle)).normalized;
+        var illumination = Mathf.Clamp01((1f - phaseCosine) * 0.5f);
+        var altitudeVisibility = SmoothRange(
+            -0.020f,
+            0.005f,
+            localDirection.y);
+        var daylightVisibility = Mathf.Lerp(
+            0.18f,
+            1f,
+            1f - SmoothRange(-0.05f, 0.25f, sunElevation));
+        var lightIntensity = Mathf.Clamp01(fullMoonIntensity)
+            * Mathf.Pow(illumination, 1.5f)
+            * SmoothRange(0f, 0.18f, localDirection.y);
+        return new MoonLightingState(
+            localDirection,
+            localLightDirection,
+            moonLatitude,
+            illumination,
+            altitudeVisibility * daylightVisibility,
+            lightIntensity);
+    }
+
+    private static float SmoothRange(float minimum, float maximum, float value)
+    {
+        var t = Mathf.InverseLerp(minimum, maximum, value);
+        return t * t * (3f - 2f * t);
+    }
+
+    public readonly struct SolarLightingState
+    {
+        public Vector3 LocalDirection { get; }
+        public Color SunColour { get; }
+        public Color AmbientColour { get; }
+        public float SunIntensity { get; }
+        public float SunVisibility { get; }
+        public float SkyExposure { get; }
+        public float SunHaloStrength { get; }
+        public float NightStrength { get; }
+
+        internal SolarLightingState(
+            Vector3 localDirection,
+            Color sunColour,
+            Color ambientColour,
+            float sunIntensity,
+            float sunVisibility,
+            float skyExposure,
+            float sunHaloStrength,
+            float nightStrength)
+        {
+            LocalDirection = localDirection;
+            SunColour = sunColour;
+            AmbientColour = ambientColour;
+            SunIntensity = sunIntensity;
+            SunVisibility = sunVisibility;
+            SkyExposure = skyExposure;
+            SunHaloStrength = sunHaloStrength;
+            NightStrength = nightStrength;
+        }
+    }
+
+    public readonly struct MoonLightingState
+    {
+        public Vector3 LocalDirection { get; }
+        public Vector3 LocalLightDirection { get; }
+        public float OrbitLatitudeDegrees { get; }
+        public float Illumination { get; }
+        public float Visibility { get; }
+        public float LightIntensity { get; }
+
+        internal MoonLightingState(
+            Vector3 localDirection,
+            Vector3 localLightDirection,
+            float orbitLatitudeDegrees,
+            float illumination,
+            float visibility,
+            float lightIntensity)
+        {
+            LocalDirection = localDirection;
+            LocalLightDirection = localLightDirection;
+            OrbitLatitudeDegrees = orbitLatitudeDegrees;
+            Illumination = illumination;
+            Visibility = visibility;
+            LightIntensity = lightIntensity;
+        }
     }
 
     internal void SetFirstPersonViewActive(bool active)
@@ -854,6 +1221,9 @@ public sealed class IslandGenerator : MonoBehaviour
 
             runtimeRoot = new GameObject("Generated Island");
             runtimeRoot.transform.SetParent(transform, false);
+            CreateSkyDomeObject(prepared.skyDome);
+            CreateMoonLight();
+            UpdateSolarLighting(0f);
             var terrainRoot = new GameObject("Terrain Tiles");
             terrainRoot.transform.SetParent(runtimeRoot.transform, false);
             terrainStreamer = terrainRoot.AddComponent<TerrainTileStreamer>();
@@ -899,7 +1269,9 @@ public sealed class IslandGenerator : MonoBehaviour
             }
             seaObject.transform.SetParent(runtimeRoot.transform, false);
             seaObject.transform.localPosition = Vector3.up * SeaHeight;
-            seaObject.transform.localScale = Vector3.one * (worldSize / 10f);
+            // Unity's built-in plane is 10 metres square. Give it a diameter of
+            // two island widths so its edges reach the sky dome's world-size radius.
+            seaObject.transform.localScale = Vector3.one * (worldSize / 5f);
             seaObject.GetComponent<MeshRenderer>().sharedMaterial = seaMaterial;
             DestroyUnityObject(seaObject.GetComponent<Collider>());
             seaObject.SetActive(rendering.ShowSea);
@@ -1126,6 +1498,8 @@ public sealed class IslandGenerator : MonoBehaviour
             cancellationToken.ThrowIfCancellationRequested();
             var seaMask = PrepareSeaMask(handle, SurfaceMapDimension);
             cancellationToken.ThrowIfCancellationRequested();
+            var skyDome = PrepareSkyDome(worldSize);
+            cancellationToken.ThrowIfCancellationRequested();
             var materialTextures = PrepareMaterialTextures(
                 materialColours,
                 materialTextureResolution);
@@ -1150,6 +1524,7 @@ public sealed class IslandGenerator : MonoBehaviour
                 handle,
                 surfaceMaps,
                 seaMask,
+                skyDome,
                 overviewTiles,
                 riverTiles,
                 riverRockTiles,
@@ -1223,6 +1598,30 @@ public sealed class IslandGenerator : MonoBehaviour
         finally
         {
             MotuNative.ReleaseSeaMask(ref seaMask);
+        }
+    }
+
+    private static IslandPreparedMesh PrepareSkyDome(float worldSize)
+    {
+        MotuNative.CreateSkyDome(out var export);
+        try
+        {
+            if (export.handle == IntPtr.Zero
+                || export.vertices.data == IntPtr.Zero
+                || export.vertices.length == 0
+                || export.normals.length != export.vertices.length
+                || export.uv.length != export.vertices.length
+                || export.triangles.data == IntPtr.Zero
+                || export.triangles.length == 0)
+            {
+                throw new InvalidOperationException(
+                    "The Rust generator returned an invalid sky-dome mesh.");
+            }
+            return CopyGeneratedMeshData(export, worldSize);
+        }
+        finally
+        {
+            MotuNative.ReleaseMesh(ref export);
         }
     }
 
@@ -2015,6 +2414,46 @@ public sealed class IslandGenerator : MonoBehaviour
         return CreateMesh(source, false);
     }
 
+    private void CreateSkyDomeObject(IslandPreparedMesh source)
+    {
+        skyDomeMesh = CreateGeneratedMesh(source);
+        skyDomeMesh.name = "Rust Generated Island-Scale Sky Dome";
+        skyDomeObject = new GameObject("Sky Dome");
+        skyDomeObject.transform.SetParent(runtimeRoot.transform, false);
+        skyDomeObject.AddComponent<MeshFilter>().sharedMesh = skyDomeMesh;
+        var renderer = skyDomeObject.AddComponent<MeshRenderer>();
+        renderer.sharedMaterial = skyDomeMaterial;
+        renderer.shadowCastingMode = ShadowCastingMode.Off;
+        renderer.receiveShadows = false;
+        renderer.lightProbeUsage = LightProbeUsage.Off;
+        renderer.reflectionProbeUsage = ReflectionProbeUsage.Off;
+        renderer.motionVectorGenerationMode = MotionVectorGenerationMode.ForceNoMotion;
+        renderer.allowOcclusionWhenDynamic = false;
+    }
+
+    private void CreateMoonLight()
+    {
+        moonLightObject = new GameObject("Moon Light");
+        moonLightObject.transform.SetParent(runtimeRoot.transform, false);
+        moonLight = moonLightObject.AddComponent<Light>();
+        moonLight.type = LightType.Directional;
+        moonLight.renderMode = LightRenderMode.ForcePixel;
+        moonLight.color = MoonLightColour;
+        moonLight.intensity = 0f;
+        moonLight.shadows = LightShadows.Soft;
+        var sun = rendering.Sunlight;
+        if (sun != null)
+        {
+            moonLight.cullingMask = sun.cullingMask;
+            moonLight.shadowStrength = sun.shadowStrength;
+            moonLight.shadowBias = sun.shadowBias;
+            moonLight.shadowNormalBias = sun.shadowNormalBias;
+            moonLight.shadowNearPlane = sun.shadowNearPlane;
+            moonLight.shadowResolution = sun.shadowResolution;
+        }
+        moonLight.enabled = false;
+    }
+
     private static IslandPreparedMesh CopyMeshData(
         MotuNative.Vector3Array sourceVertices,
         MotuNative.Vector3Array sourceNormals,
@@ -2199,6 +2638,21 @@ public sealed class IslandGenerator : MonoBehaviour
             DestroyUnityObject(terrainStreamer.gameObject);
             terrainStreamer = null;
         }
+        DestroyUnityObject(skyDomeObject);
+        skyDomeObject = null;
+        DestroyUnityObject(skyDomeMesh);
+        skyDomeMesh = null;
+        if (moonLight != null)
+        {
+            moonLight.enabled = false;
+            if (RenderSettings.sun == moonLight)
+            {
+                RenderSettings.sun = rendering.Sunlight;
+            }
+        }
+        DestroyUnityObject(moonLightObject);
+        moonLightObject = null;
+        moonLight = null;
         DestroyUnityObject(seaObject);
         seaObject = null;
         DestroyUnityObject(runtimeRoot);
@@ -2227,6 +2681,7 @@ public sealed class IslandGenerator : MonoBehaviour
         terrainMaterialTextures?.Unbind(terrainMaterial, grassMaterial);
         terrainMaterialTextures?.Dispose();
         terrainMaterialTextures = null;
+        DestroyUnityObject(skyDomeMaterial);
         DestroyUnityObject(terrainMaterial);
         DestroyUnityObject(terrainLod1Material);
         DestroyUnityObject(terrainLod2Material);
@@ -2245,6 +2700,7 @@ public sealed class IslandGenerator : MonoBehaviour
         if (ownsRiverNoiseTexture) DestroyUnityObject(riverNoiseTexture);
         if (ownsGrassPatchNoiseTexture) DestroyUnityObject(grassPatchNoiseTexture);
         terrainMaterial = null;
+        skyDomeMaterial = null;
         terrainLod1Material = null;
         terrainLod2Material = null;
         grassMaterial = null;
@@ -2566,6 +3022,48 @@ public sealed class IslandGenerator : MonoBehaviour
         {
             throw new InvalidOperationException(
                 "Managed native option layouts do not match their ABI contracts.");
+        }
+        var validationSkyDome = PrepareSkyDome(ValidationWorldSize);
+        if (validationSkyDome.vertices.Length == 0
+            || validationSkyDome.vertices.Length != validationSkyDome.normals.Length
+            || validationSkyDome.vertices.Length != validationSkyDome.uv.Length
+            || validationSkyDome.triangles.Length == 0
+            || validationSkyDome.material.Length != 0
+            || validationSkyDome.environment.Length != 0)
+        {
+            throw new InvalidOperationException(
+                "Native sky-dome attributes do not match the standalone mesh contract.");
+        }
+        for (var index = 0; index < validationSkyDome.vertices.Length; index++)
+        {
+            var vertex = validationSkyDome.vertices[index];
+            var normal = validationSkyDome.normals[index];
+            if (!IsFinite(vertex.x)
+                || !IsFinite(vertex.y)
+                || !IsFinite(vertex.z)
+                || vertex.y < -0.001f
+                || Mathf.Abs(vertex.magnitude - ValidationWorldSize) > 0.1f
+                || Vector3.Dot(vertex.normalized, normal) > -0.999f)
+            {
+                throw new InvalidOperationException(
+                    "Native sky dome is not an inward-facing island-radius hemisphere.");
+            }
+        }
+        var uploadedSkyDome = CreateGeneratedMesh(validationSkyDome);
+        try
+        {
+            var bounds = uploadedSkyDome.bounds;
+            if (Mathf.Abs(bounds.size.x - ValidationWorldSize * 2f) > 0.1f
+                || Mathf.Abs(bounds.size.y - ValidationWorldSize) > 0.1f
+                || Mathf.Abs(bounds.size.z - ValidationWorldSize * 2f) > 0.1f)
+            {
+                throw new InvalidOperationException(
+                    "Unity did not preserve the island-scale sky-dome bounds.");
+            }
+        }
+        finally
+        {
+            DestroyImmediate(uploadedSkyDome);
         }
         var options = new MotuNative.Options
         {
@@ -2969,6 +3467,7 @@ public sealed class IslandGenerator : MonoBehaviour
                     || !riverWaterMaterial.HasProperty("_EstuaryBlendHeight")
                     || !riverWaterMaterial.HasProperty("_SeaLevel")
                     || !riverWaterMaterial.HasProperty("_ReflectionColor")
+                    || !riverWaterMaterial.HasProperty("_WaterSkyExposure")
                     || !riverWaterMaterial.HasProperty("_RefractionStrength")
                     || !riverWaterMaterial.HasProperty("_RefractionDepth")
                     || !riverWaterMaterial.HasProperty("_PlanarReflectionWeight")
@@ -3020,6 +3519,7 @@ public sealed class IslandGenerator : MonoBehaviour
                     || !seaWaterMaterial.HasProperty("_ShallowOpacity")
                     || !seaWaterMaterial.HasProperty("_OpacityDepth")
                     || !seaWaterMaterial.HasProperty("_ReflectionColor")
+                    || !seaWaterMaterial.HasProperty("_WaterSkyExposure")
                     || !seaWaterMaterial.HasProperty("_RefractionStrength")
                     || !seaWaterMaterial.HasProperty("_RefractionDepth")
                     || !seaWaterMaterial.HasProperty("_PlanarReflectionWeight")
@@ -3696,7 +4196,7 @@ public sealed class IslandGenerator : MonoBehaviour
         {
             if (material.passCount != 2
                 || material.FindPass("ShadowCaster") < 0
-                || material.renderQueue != (int)RenderQueue.AlphaTest
+                || material.renderQueue != (int)RenderQueue.Geometry
                 || !material.HasProperty("_WorldSize")
                 || !material.HasProperty("_GrassPatchNoise")
                 || !material.HasProperty("_GrassWindDirection")
@@ -3705,7 +4205,8 @@ public sealed class IslandGenerator : MonoBehaviour
                 || !material.HasProperty("_GrassWindWorldSize")
                 || !material.HasProperty("_TreeWindStrengthMultiplier")
                 || !material.HasProperty("_TreeWindBasePinHeight")
-                || !material.HasProperty("_TreeWindFullBendHeight"))
+                || !material.HasProperty("_TreeWindFullBendHeight")
+                || !material.HasProperty("_MotuNightStrength"))
             {
                 throw new InvalidOperationException(
                     "Distant foliage is missing its base, wind, or shadow contract.");

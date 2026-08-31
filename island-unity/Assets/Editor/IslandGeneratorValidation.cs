@@ -14,6 +14,8 @@ public static class IslandGeneratorValidation
         IslandGenerator.BatchValidateNativeInterop();
         ValidateWaterfallMistShader();
         ValidateFernShader();
+        ValidateSkyDomeShader();
+        ValidateSolarLightingCycle();
         ValidateSandboxScene();
         ValidateRealtimeShadowRender();
         Debug.Log("IslandGenerator component, sandbox level, and native validation passed.");
@@ -56,6 +58,105 @@ public static class IslandGeneratorValidation
         {
             throw new InvalidOperationException(
                 "The waterfall-foot volumetric mist shader is missing or invalid.");
+        }
+    }
+
+    private static void ValidateSkyDomeShader()
+    {
+        var shader = Shader.Find("Motu/Sky Dome");
+        if (shader == null
+            || !shader.isSupported
+            || ShaderUtil.ShaderHasError(shader))
+        {
+            throw new InvalidOperationException(
+                "The generated sky-dome shader is missing or invalid.");
+        }
+        var material = new Material(shader);
+        try
+        {
+            if (!material.HasProperty("_HorizonColor")
+                || !material.HasProperty("_ZenithColor")
+                || !material.HasProperty("_SunDirection")
+                || !material.HasProperty("_SunColor")
+                || !material.HasProperty("_SunDiscCosRadius")
+                || !material.HasProperty("_SunVisibility")
+                || !material.HasProperty("_SunHaloColor")
+                || !material.HasProperty("_SunHaloStrength")
+                || !material.HasProperty("_MoonDirection")
+                || !material.HasProperty("_MoonLightDirection")
+                || !material.HasProperty("_MoonColor")
+                || !material.HasProperty("_MoonDarkColor")
+                || !material.HasProperty("_MoonDiscCosRadius")
+                || !material.HasProperty("_MoonVisibility")
+                || !material.HasProperty("_SkyExposure"))
+            {
+                throw new InvalidOperationException(
+                    "The sky-dome shader is missing its haze or solar-disc contract.");
+            }
+        }
+        finally
+        {
+            UnityEngine.Object.DestroyImmediate(material);
+        }
+    }
+
+    private static void ValidateSolarLightingCycle()
+    {
+        var sunrise = IslandGenerator.EvaluateSolarLighting(6f, 45f, 1.25f);
+        var noon = IslandGenerator.EvaluateSolarLighting(12f, 45f, 1.25f);
+        var sunset = IslandGenerator.EvaluateSolarLighting(18f, 45f, 1.25f);
+        var midnight = IslandGenerator.EvaluateSolarLighting(0f, 45f, 1.25f);
+        var newMoon = IslandGenerator.EvaluateMoonLighting(
+            12f,
+            45f,
+            22f,
+            0f,
+            0.14f,
+            noon.LocalDirection.y);
+        var fullMoon = IslandGenerator.EvaluateMoonLighting(
+            0f,
+            45f,
+            22f,
+            0.5f,
+            0.14f,
+            midnight.LocalDirection.y);
+        if (sunrise.LocalDirection.x < 0.999f
+            || Mathf.Abs(sunrise.LocalDirection.y) > 0.001f
+            || sunset.LocalDirection.x > -0.999f
+            || Mathf.Abs(sunset.LocalDirection.y) > 0.001f
+            || noon.LocalDirection.y < 0.70f
+            || noon.LocalDirection.z > -0.70f
+            || midnight.LocalDirection.y > -0.70f)
+        {
+            throw new InvalidOperationException(
+                "The configured latitude does not produce an opposite sunrise and sunset path.");
+        }
+        if (sunrise.SunColour.r <= sunrise.SunColour.b
+            || sunrise.AmbientColour.b <= sunrise.AmbientColour.r
+            || noon.SunIntensity <= sunrise.SunIntensity
+            || midnight.SunIntensity != 0f
+            || midnight.AmbientColour.b <= midnight.AmbientColour.r
+            || midnight.AmbientColour.maxColorComponent
+                >= noon.AmbientColour.maxColorComponent
+            || midnight.SunVisibility != 0f
+            || midnight.SkyExposure >= noon.SkyExposure
+            || sunset.SunHaloStrength <= noon.SunHaloStrength
+            || sunset.SunHaloStrength <= midnight.SunHaloStrength
+            || midnight.NightStrength <= noon.NightStrength)
+        {
+            throw new InvalidOperationException(
+                "The solar cycle does not preserve a sunset sun halo and blue night ambience.");
+        }
+        if (!Mathf.Approximately(newMoon.OrbitLatitudeDegrees, 23f)
+            || newMoon.Illumination != 0f
+            || fullMoon.Illumination < 0.999f
+            || fullMoon.LightIntensity <= 0f
+            || Vector3.Dot(
+                fullMoon.LocalDirection,
+                fullMoon.LocalLightDirection) > -0.999f)
+        {
+            throw new InvalidOperationException(
+                "The lunar orbit, phase illumination, or full-moon light is invalid.");
         }
     }
 
@@ -190,6 +291,15 @@ public static class IslandGeneratorValidation
         {
             throw new InvalidOperationException(
                 "The sandbox directional sunlight does not have soft shadows enabled.");
+        }
+        if (island.Rendering.SunCycleDurationMinutes <= 0.25f
+            || Mathf.Abs(island.Rendering.SunLatitudeDegrees) < 0.01f
+            || island.Rendering.MiddaySunIntensity <= 0f
+            || island.Rendering.MoonEquatorOffsetDegrees <= 0f
+            || island.Rendering.FullMoonLightIntensity <= 0f)
+        {
+            throw new InvalidOperationException(
+                "The sandbox solar or lunar cycle settings are invalid.");
         }
         if (!island.Rendering.ShowDistanceHaze
             || island.Rendering.DistanceHazeDensity <= 0f)

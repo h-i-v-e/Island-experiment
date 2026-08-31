@@ -4262,6 +4262,36 @@ fn river_mesh_extraction_repairs_an_isolated_sharp_bed_point() {
 }
 
 #[test]
+fn fitted_channel_depth_starts_the_mouth_before_the_ocean_mask() {
+    let nodes = (0..6)
+        .map(|vertex| RiverNode {
+            vertex,
+            flow: 10,
+            surface: 0.08 - vertex as f32 * 0.01,
+            position: Vec3::new(vertex as f32 * 0.01, 0.5, 0.0),
+        })
+        .collect::<Vec<_>>();
+    let ocean = [false, false, false, false, false, true];
+    let cross_sections = (0..nodes.len())
+        .map(|index| RiverCrossSection {
+            required_depth: if index < 3 { 0.02 } else { 0.06 },
+            ..RiverCrossSection::default()
+        })
+        .collect::<Vec<_>>();
+    let waterfalls = [false, true, false, false, false, false];
+
+    let entry = river_ocean_entry(&nodes, &ocean, &cross_sections).unwrap();
+    assert_eq!(entry, 3);
+    assert_eq!(
+        river_mouth_transition(entry, &waterfalls),
+        RiverMouthTransition {
+            waterfall_segment: Some(1),
+            river_mesh_end: 2,
+        }
+    );
+}
+
+#[test]
 fn river_mouth_reuses_the_last_existing_waterfall_for_its_submerged_channel() {
     let mut mesh = Mesh {
         vertices: (0..12)
@@ -4297,7 +4327,7 @@ fn river_mouth_reuses_the_last_existing_waterfall_for_its_submerged_channel() {
     waterfalls[3] = true;
     waterfalls[6] = true;
     let ocean: Vec<bool> = (0..nodes.len()).map(|index| index >= 8).collect();
-    let ocean_entry = river_ocean_entry(&nodes, &ocean).unwrap();
+    let ocean_entry = river_ocean_entry(&nodes, &ocean, &[]).unwrap();
     let mouth = river_mouth_transition(ocean_entry, &waterfalls);
 
     assert_eq!(

@@ -360,6 +360,7 @@ internal sealed class IslandPreparedData : IDisposable
     internal NativeIslandHandle handle;
     internal readonly IslandPreparedSurfaceMaps surfaceMaps;
     internal readonly IslandPreparedSeaMask seaMask;
+    internal readonly IslandPreparedMesh skyDome;
     internal readonly IslandPreparedMesh[] overviewTiles;
     internal readonly IslandPreparedMesh[] riverTiles;
     internal readonly IslandPreparedMesh[] riverRockTiles;
@@ -374,6 +375,7 @@ internal sealed class IslandPreparedData : IDisposable
         IntPtr handle,
         IslandPreparedSurfaceMaps surfaceMaps,
         IslandPreparedSeaMask seaMask,
+        IslandPreparedMesh skyDome,
         IslandPreparedMesh[] overviewTiles,
         IslandPreparedMesh[] riverTiles,
         IslandPreparedMesh[] riverRockTiles,
@@ -387,6 +389,7 @@ internal sealed class IslandPreparedData : IDisposable
         this.handle = new NativeIslandHandle(handle);
         this.surfaceMaps = surfaceMaps;
         this.seaMask = seaMask;
+        this.skyDome = skyDome ?? throw new ArgumentNullException(nameof(skyDome));
         this.overviewTiles = overviewTiles;
         this.riverTiles = riverTiles;
         this.riverRockTiles = riverRockTiles;

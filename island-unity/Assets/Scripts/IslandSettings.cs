@@ -459,6 +459,34 @@ public sealed class IslandRenderingSettings
     [Tooltip("Optional level-owned sunlight used for grass shading.")]
     [SerializeField] private Light sunlight;
 
+    [Tooltip("Real-time minutes taken for one complete sunrise-to-sunrise solar cycle.")]
+    [Range(0.25f, 240f)]
+    [SerializeField] private float sunCycleDurationMinutes = 20f;
+
+    [Tooltip("Solar latitude in degrees. Higher absolute values produce a lower noon sun; the sign selects which side of the island it crosses.")]
+    [Range(-80f, 80f)]
+    [SerializeField] private float sunLatitudeDegrees = -36f;
+
+    [Tooltip("Solar time used when play begins: 6 is sunrise, 12 is noon, and 18 is sunset.")]
+    [Range(0f, 24f)]
+    [SerializeField] private float startingSolarTimeHours = 8f;
+
+    [Tooltip("Directional-light intensity when the sun is high in the sky.")]
+    [Range(0f, 4f)]
+    [SerializeField] private float middaySunIntensity = 1.25f;
+
+    [Tooltip("Moon-orbit tilt toward the equator relative to the solar path.")]
+    [Range(0f, 45f)]
+    [SerializeField] private float moonEquatorOffsetDegrees = 22f;
+
+    [Tooltip("Moon phase when play begins: 0 is new, 0.25 first quarter, 0.5 full, and 0.75 last quarter.")]
+    [Range(0f, 1f)]
+    [SerializeField] private float startingMoonPhase = 0.5f;
+
+    [Tooltip("Directional-light intensity produced by a full moon after sunset.")]
+    [Range(0f, 1f)]
+    [SerializeField] private float fullMoonLightIntensity = 0.14f;
+
     [Tooltip("Show the carved river surface.")]
     [SerializeField] private bool showRivers = true;
 
@@ -533,6 +561,41 @@ public sealed class IslandRenderingSettings
         set => distanceHazeDensity = Mathf.Clamp(value, 0.00005f, 0.003f);
     }
     public Light Sunlight { get => sunlight; internal set => sunlight = value; }
+    public float SunCycleDurationMinutes
+    {
+        get => Mathf.Clamp(sunCycleDurationMinutes, 0.25f, 240f);
+        set => sunCycleDurationMinutes = Mathf.Clamp(value, 0.25f, 240f);
+    }
+    public float SunLatitudeDegrees
+    {
+        get => Mathf.Clamp(sunLatitudeDegrees, -80f, 80f);
+        set => sunLatitudeDegrees = Mathf.Clamp(value, -80f, 80f);
+    }
+    public float StartingSolarTimeHours
+    {
+        get => Mathf.Repeat(startingSolarTimeHours, 24f);
+        set => startingSolarTimeHours = Mathf.Repeat(value, 24f);
+    }
+    public float MiddaySunIntensity
+    {
+        get => Mathf.Clamp(middaySunIntensity, 0f, 4f);
+        set => middaySunIntensity = Mathf.Clamp(value, 0f, 4f);
+    }
+    public float MoonEquatorOffsetDegrees
+    {
+        get => Mathf.Clamp(moonEquatorOffsetDegrees, 0f, 45f);
+        set => moonEquatorOffsetDegrees = Mathf.Clamp(value, 0f, 45f);
+    }
+    public float StartingMoonPhase
+    {
+        get => Mathf.Repeat(startingMoonPhase, 1f);
+        set => startingMoonPhase = Mathf.Repeat(value, 1f);
+    }
+    public float FullMoonLightIntensity
+    {
+        get => Mathf.Clamp01(fullMoonLightIntensity);
+        set => fullMoonLightIntensity = Mathf.Clamp01(value);
+    }
     public bool ShowRivers { get => showRivers; set => showRivers = value; }
     public bool ShowSea { get => showSea; set => showSea = value; }
     public bool ShowGrass { get => showGrass; set => showGrass = value; }
