@@ -57,6 +57,15 @@ public sealed class IslandGenerator : MonoBehaviour
     private static readonly int MoonVisibilityId = Shader.PropertyToID("_MoonVisibility");
     private static readonly int MoonDiscCosRadiusId = Shader.PropertyToID(
         "_MoonDiscCosRadius");
+    private static readonly int CloudWeatherTextureId = Shader.PropertyToID(
+        "_MotuCloudWeatherTex");
+    private static readonly int CloudEnabledId = Shader.PropertyToID("_MotuCloudEnabled");
+    private static readonly int CloudLightDirectionId = Shader.PropertyToID(
+        "_MotuCloudLightDirection");
+    private static readonly int CloudLightActiveId = Shader.PropertyToID(
+        "_MotuCloudLightActive");
+    private static readonly int CloudLightColourId = Shader.PropertyToID(
+        "_MotuCloudLightColor");
 
     [Header("Lifecycle and Generation")]
     [SerializeField] private IslandGenerationSettings generation = new IslandGenerationSettings();
@@ -75,6 +84,9 @@ public sealed class IslandGenerator : MonoBehaviour
 
     [Header("Streaming")]
     [SerializeField] private IslandStreamingSettings streaming = new IslandStreamingSettings();
+
+    [Header("Clouds")]
+    [SerializeField] private IslandCloudSettings clouds = new IslandCloudSettings();
 
     [Header("Rendering and Texture Overrides")]
     [SerializeField] private IslandRenderingSettings rendering = new IslandRenderingSettings();
@@ -104,6 +116,7 @@ public sealed class IslandGenerator : MonoBehaviour
     private Texture3D cliffNoiseTexture;
     private Texture2D riverNoiseTexture;
     private Texture2D grassPatchNoiseTexture;
+    private Texture2D cloudWeatherTexture;
     private TerrainMaterialTextureArrays terrainMaterialTextures;
     private Material rockMaterial;
     private Material riverMaterial;
@@ -124,6 +137,10 @@ public sealed class IslandGenerator : MonoBehaviour
     private bool ownsCliffNoiseTexture;
     private bool ownsRiverNoiseTexture;
     private bool ownsGrassPatchNoiseTexture;
+    private int appliedCloudSeed = int.MinValue;
+    private int appliedCloudResolution;
+    private Vector2 cloudWindOffset;
+    private Vector2 cloudBroadWindOffset;
     private bool? appliedShowRivers;
     private bool? appliedShowSea;
     private bool? appliedShowGrass;
@@ -170,6 +187,7 @@ public sealed class IslandGenerator : MonoBehaviour
     public IslandReedSettings Reeds => reeds;
     public IslandFernSettings Ferns => ferns;
     public IslandStreamingSettings Streaming => streaming;
+    public IslandCloudSettings Clouds => clouds;
     public IslandRenderingSettings Rendering => rendering;
     public IslandDecorationSettings Decorations => decorations;
     public IslandDebugSettings DebugSettings => debugSettings;
@@ -256,6 +274,7 @@ public sealed class IslandGenerator : MonoBehaviour
         UpdateMaterialTransforms();
         ApplyLiveSettings();
         UpdateSolarLighting(Time.unscaledDeltaTime);
+        ApplyCloudSettings(Time.unscaledDeltaTime);
         if (terrainStreamer != null && streaming.Target != null)
         {
             terrainStreamer.SetPlayerPosition(streaming.Target.position);
@@ -304,6 +323,7 @@ public sealed class IslandGenerator : MonoBehaviour
             MoonDiscCosRadiusId,
             Mathf.Cos(MoonDiscAngularRadiusDegrees * Mathf.Deg2Rad));
         skyDomeMaterial.SetFloat(SkyExposureId, currentSkyExposure);
+        EnsureCloudWeatherTexture();
         terrainMaterial = CreateMaterial(
             "Motu/Terrain Unified",
             Color.white,
@@ -537,6 +557,7 @@ public sealed class IslandGenerator : MonoBehaviour
         meshEdgeMaterial.SetColor("_Color", Color.black);
         meshEdgeMaterial.SetFloat("_ZTest", (float)CompareFunction.LessEqual);
         UpdateSolarLighting(0f);
+        ApplyCloudSettings(0f);
         UpdateMaterialTransforms(true);
     }
 
@@ -641,6 +662,8 @@ public sealed class IslandGenerator : MonoBehaviour
         }
         appliedWorldToLocal = worldToLocal;
         hasAppliedWorldToLocal = true;
+        Shader.SetGlobalMatrix(IslandWorldToLocalId, worldToLocal);
+        skyDomeMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
         terrainMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
         terrainLod1Material?.SetMatrix(IslandWorldToLocalId, worldToLocal);
         terrainLod2Material?.SetMatrix(IslandWorldToLocalId, worldToLocal);
@@ -654,6 +677,148 @@ public sealed class IslandGenerator : MonoBehaviour
         treeLod0FoliageMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
         reedMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
         fernMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
+    }
+
+    private void EnsureCloudWeatherTexture()
+    {
+        var combinedSeed = unchecked(generation.Seed * 397) ^ clouds.Seed;
+        var resolution = clouds.WeatherMapResolution;
+        if (cloudWeatherTexture != null
+            && appliedCloudSeed == combinedSeed
+            && appliedCloudResolution == resolution)
+        {
+            return;
+        }
+
+        DestroyUnityObject(cloudWeatherTexture);
+        cloudWeatherTexture = null;
+        MotuNative.ExportCloudWeatherMap native = default;
+        try
+        {
+            if (MotuNative.CreateCloudWeatherMap(combinedSeed, resolution, out native) == 0
+                || native.handle == IntPtr.Zero
+                || native.rgba == IntPtr.Zero
+                || native.width != resolution
+                || native.height != resolution)
+            {
+                throw new InvalidOperationException(
+                    "The Rust cloud weather-field generator returned invalid data.");
+            }
+            var rgba = new byte[checked(resolution * resolution * 4)];
+            Marshal.Copy(native.rgba, rgba, 0, rgba.Length);
+            cloudWeatherTexture = CreateCloudWeatherTexture(
+                rgba,
+                resolution,
+                resolution,
+                "Rust Generated Cloud Weather Field");
+            appliedCloudSeed = combinedSeed;
+            appliedCloudResolution = resolution;
+        }
+        finally
+        {
+            MotuNative.ReleaseCloudWeatherMap(ref native);
+        }
+    }
+
+    private static Texture2D CreateCloudWeatherTexture(
+        byte[] rgba,
+        int width,
+        int height,
+        string textureName)
+    {
+        var expectedLength = checked(width * height * 4);
+        if (rgba == null || rgba.Length != expectedLength)
+        {
+            throw new ArgumentException(
+                $"Cloud weather texture requires {expectedLength} base-mip RGBA bytes.",
+                nameof(rgba));
+        }
+        var texture = new Texture2D(
+            width,
+            height,
+            TextureFormat.RGBA32,
+            true,
+            true)
+        {
+            name = textureName,
+            filterMode = FilterMode.Trilinear,
+            wrapMode = TextureWrapMode.Repeat,
+            anisoLevel = 1,
+        };
+        // The native map contains mip zero only. Upload that level explicitly,
+        // then let Apply generate the remaining levels for trilinear filtering.
+        texture.SetPixelData(rgba, 0);
+        texture.Apply(true, true);
+        return texture;
+    }
+
+    private void ApplyCloudSettings(float deltaTime)
+    {
+        if (skyDomeMaterial == null)
+        {
+            return;
+        }
+        EnsureCloudWeatherTexture();
+        var windDirection = clouds.WindDirection;
+        if (windDirection.sqrMagnitude > 0.000001f)
+        {
+            windDirection.Normalize();
+            var windTravel = windDirection
+                * (clouds.WindSpeedMetresPerSecond * Mathf.Max(deltaTime, 0f));
+            cloudWindOffset += windTravel;
+            cloudBroadWindOffset += windTravel * 0.18f;
+        }
+        var worldSize = clouds.WorldSizeMetres;
+        var broadWorldSize = worldSize * clouds.BroadNoiseScale;
+        cloudWindOffset.x = Mathf.Repeat(cloudWindOffset.x, worldSize);
+        cloudWindOffset.y = Mathf.Repeat(cloudWindOffset.y, worldSize);
+        cloudBroadWindOffset.x = Mathf.Repeat(
+            cloudBroadWindOffset.x,
+            broadWorldSize);
+        cloudBroadWindOffset.y = Mathf.Repeat(
+            cloudBroadWindOffset.y,
+            broadWorldSize);
+        var enabled = clouds.Enabled
+            && clouds.Coverage > 0f
+            && clouds.Density > 0f
+            && cloudWeatherTexture != null;
+
+        Shader.SetGlobalTexture(CloudWeatherTextureId, cloudWeatherTexture);
+        Shader.SetGlobalFloat(CloudEnabledId, enabled ? 1f : 0f);
+        Shader.SetGlobalFloat("_MotuCloudCoverage", clouds.Coverage);
+        Shader.SetGlobalFloat("_MotuCloudDensity", clouds.Density);
+        Shader.SetGlobalFloat("_MotuCloudAltitude", clouds.AltitudeMetres);
+        Shader.SetGlobalFloat("_MotuCloudWorldSize", worldSize);
+        Shader.SetGlobalVector(
+            "_MotuCloudBroadNoise",
+            new Vector4(
+                clouds.BroadNoiseScale,
+                clouds.BroadNoiseStrength,
+                0f,
+                0f));
+        Shader.SetGlobalVector(
+            "_MotuCloudDetailErosion",
+            new Vector4(clouds.DetailStrength, clouds.ErosionStrength, 0f, 0f));
+        Shader.SetGlobalVector(
+            "_MotuCloudWindOffset",
+            new Vector4(
+                cloudWindOffset.x,
+                cloudWindOffset.y,
+                cloudBroadWindOffset.x,
+                cloudBroadWindOffset.y));
+        Shader.SetGlobalColor("_MotuCloudDayColor", clouds.DayColour);
+        Shader.SetGlobalColor("_MotuCloudSunsetColor", clouds.SunsetColour);
+        Shader.SetGlobalColor("_MotuCloudNightColor", clouds.NightColour);
+        Shader.SetGlobalFloat("_MotuCloudShadowStrength", clouds.ShadowStrength);
+        Shader.SetGlobalFloat(
+            "_MotuCloudAmbientShadowStrength",
+            clouds.AmbientShadowStrength);
+        Shader.SetGlobalFloat(
+            "_MotuCloudCelestialStrength",
+            clouds.CelestialObscurationStrength);
+        Shader.SetGlobalFloat(
+            "_MotuCloudLowElevationFade",
+            clouds.LowElevationShadowFade);
     }
 
     private void ApplyLiveSettings()
@@ -814,8 +979,11 @@ public sealed class IslandGenerator : MonoBehaviour
         if (deltaTime > 0f)
         {
             var cycleSeconds = rendering.SunCycleDurationMinutes * 60f;
+            var clockRate = EvaluateSolarClockRateMultiplier(
+                solarTimeHours,
+                rendering.MidnightToNoonClockRateRatio);
             solarTimeHours = Mathf.Repeat(
-                solarTimeHours + deltaTime * 24f / cycleSeconds,
+                solarTimeHours + deltaTime * 24f / cycleSeconds * clockRate,
                 24f);
             lunarPhase = Mathf.Repeat(
                 lunarPhase + deltaTime / (cycleSeconds * LunarSynodicPeriodDays),
@@ -902,6 +1070,33 @@ public sealed class IslandGenerator : MonoBehaviour
             "_GrassLightColor",
             activeLightColour);
         grassMaterial?.SetColor("_GrassAmbientColor", state.AmbientColour);
+        Shader.SetGlobalVector(CloudLightDirectionId, transform.InverseTransformDirection(
+            activeLightDirection).normalized);
+        Shader.SetGlobalFloat(
+            CloudLightActiveId,
+            activeLightColour.maxColorComponent > 0.0001f ? 1f : 0f);
+        Shader.SetGlobalColor(CloudLightColourId, activeLightColour);
+        Shader.SetGlobalFloat("_MotuCloudSunsetStrength", state.SunHaloStrength);
+        Shader.SetGlobalFloat("_MotuCloudNightStrength", state.NightStrength);
+    }
+
+    public static float EvaluateSolarClockRateMultiplier(
+        float timeHours,
+        float midnightToNoonRateRatio = 10f)
+    {
+        midnightToNoonRateRatio = Mathf.Clamp(
+            midnightToNoonRateRatio,
+            1f,
+            20f);
+        var angle = Mathf.Repeat(timeHours, 24f) * Mathf.PI / 12f;
+        var midnightWeight = 0.5f + 0.5f * Mathf.Cos(angle);
+        var relativeRate = Mathf.Lerp(
+            1f,
+            midnightToNoonRateRatio,
+            midnightWeight);
+        // This makes the integral of inverse speed over one solar revolution
+        // equal to the former uniform cycle, preserving the configured period.
+        return relativeRate / Mathf.Sqrt(midnightToNoonRateRatio);
     }
 
     private void PositionDirectionalLight(Light light, Vector3 sourceDirection)
@@ -2596,6 +2791,12 @@ public sealed class IslandGenerator : MonoBehaviour
             var x = packed[offset];
             var y = packed[offset + 1];
             var z = packed[offset + 2];
+            if (!IsFinite(x) || !IsFinite(y) || !IsFinite(z))
+            {
+                throw new InvalidOperationException(
+                    $"The Rust generator returned a non-finite "
+                    + $"{(position ? "position" : "normal")} at index {index}.");
+            }
             result[index] = position
                 ? new Vector3(
                     (x - 0.5f) * worldSize,
@@ -2711,6 +2912,7 @@ public sealed class IslandGenerator : MonoBehaviour
         if (ownsCliffNoiseTexture) DestroyUnityObject(cliffNoiseTexture);
         if (ownsRiverNoiseTexture) DestroyUnityObject(riverNoiseTexture);
         if (ownsGrassPatchNoiseTexture) DestroyUnityObject(grassPatchNoiseTexture);
+        DestroyUnityObject(cloudWeatherTexture);
         terrainMaterial = null;
         skyDomeMaterial = null;
         terrainLod1Material = null;
@@ -2729,9 +2931,13 @@ public sealed class IslandGenerator : MonoBehaviour
         cliffNoiseTexture = null;
         riverNoiseTexture = null;
         grassPatchNoiseTexture = null;
+        cloudWeatherTexture = null;
         ownsCliffNoiseTexture = false;
         ownsRiverNoiseTexture = false;
         ownsGrassPatchNoiseTexture = false;
+        appliedCloudSeed = int.MinValue;
+        appliedCloudResolution = 0;
+        Shader.SetGlobalFloat(CloudEnabledId, 0f);
     }
 
     private void ResetAppliedLiveSettings()
@@ -3034,6 +3240,51 @@ public sealed class IslandGenerator : MonoBehaviour
         {
             throw new InvalidOperationException(
                 "Managed native option layouts do not match their ABI contracts.");
+        }
+        MotuNative.ExportCloudWeatherMap nativeCloudWeather = default;
+        try
+        {
+            const int cloudResolution = 64;
+            if (MotuNative.CreateCloudWeatherMap(
+                    2018,
+                    cloudResolution,
+                    out nativeCloudWeather) == 0
+                || nativeCloudWeather.handle == IntPtr.Zero
+                || nativeCloudWeather.rgba == IntPtr.Zero
+                || nativeCloudWeather.width != cloudResolution
+                || nativeCloudWeather.height != cloudResolution)
+            {
+                throw new InvalidOperationException(
+                    "Native cloud weather-map export is invalid.");
+            }
+            var cloudBytes = new byte[cloudResolution * cloudResolution * 4];
+            Marshal.Copy(
+                nativeCloudWeather.rgba,
+                cloudBytes,
+                0,
+                cloudBytes.Length);
+            var minimum = byte.MaxValue;
+            var maximum = byte.MinValue;
+            foreach (var value in cloudBytes)
+            {
+                minimum = Math.Min(minimum, value);
+                maximum = Math.Max(maximum, value);
+            }
+            if (maximum - minimum < 32)
+            {
+                throw new InvalidOperationException(
+                    "Native cloud weather-map channels contain insufficient variation.");
+            }
+            var validationTexture = CreateCloudWeatherTexture(
+                cloudBytes,
+                cloudResolution,
+                cloudResolution,
+                "Cloud Weather Upload Validation");
+            UnityEngine.Object.DestroyImmediate(validationTexture);
+        }
+        finally
+        {
+            MotuNative.ReleaseCloudWeatherMap(ref nativeCloudWeather);
         }
         var validationSkyDome = PrepareSkyDome(ValidationWorldSize);
         if (validationSkyDome.vertices.Length == 0

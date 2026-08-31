@@ -9,6 +9,8 @@ half _TreeNormalStrength;
 half _TreeHueVariationDegrees;
 float4x4 _IslandWorldToLocal;
 
+#include "CloudCommon.cginc"
+
 struct MotuTreeNoiseSample
 {
     half3 broad;
@@ -63,6 +65,7 @@ half3 MotuRotateTreeHue(half3 color, half hueSignal)
 half3 MotuShadeFoliage(
     half3 albedo,
     half3 normal,
+    float3 worldPosition,
     half3 lightDirection,
     half3 lightColor,
     half attenuation,
@@ -70,13 +73,14 @@ half3 MotuShadeFoliage(
     half translucency,
     half ambientFloor)
 {
+    MotuCloudLighting cloud = MotuCloudSurfaceLighting(worldPosition);
     half facing = dot(normal, lightDirection);
     half wrappedDiffuse = saturate((facing + 0.28h) / 1.28h);
     half backLighting = pow(saturate(-facing), 2.0h) * translucency;
     half3 ambient = max(
-        ShadeSH9(half4(normal, 1.0h)),
+        ShadeSH9(half4(normal, 1.0h)) * cloud.ambientTransmittance,
         half3(ambientFloor, ambientFloor, ambientFloor));
-    half3 directLight = lightColor * attenuation;
+    half3 directLight = lightColor * attenuation * cloud.directTransmittance;
     return albedo * (ambient + directLight * wrappedDiffuse)
         + transmissionColor * directLight * backLighting;
 }

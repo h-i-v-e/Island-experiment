@@ -82,6 +82,8 @@ Shader "Motu/Planar Reflection Simplified"
     float4 _GrassPlayerPosition;
     float4x4 _IslandWorldToLocal;
 
+    #include "CloudCommon.cginc"
+
     ReflectionVertexOutput ReflectionVertex(ReflectionVertexInput input)
     {
         ReflectionVertexOutput output;
@@ -106,10 +108,16 @@ Shader "Motu/Planar Reflection Simplified"
         float3 worldPosition)
     {
         half3 normal = normalize(worldNormal);
-        half3 ambient = max(ShadeSH9(half4(normal, 1.0h)), 0.08h);
+        MotuCloudLighting cloud = MotuCloudSurfaceLighting(worldPosition);
+        half3 ambient = max(
+            ShadeSH9(half4(normal, 1.0h))
+                * cloud.ambientTransmittance,
+            0.08h);
         half3 lightDirection = normalize(UnityWorldSpaceLightDir(worldPosition));
         half diffuse = saturate(dot(normal, lightDirection));
-        return albedo * (ambient + _LightColor0.rgb * (0.18h + diffuse * 0.72h));
+        return albedo * (ambient + _LightColor0.rgb
+            * (0.18h + diffuse * 0.72h)
+            * cloud.directTransmittance);
     }
 
     fixed4 FinishReflection(

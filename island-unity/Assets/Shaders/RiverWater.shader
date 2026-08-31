@@ -222,11 +222,13 @@ Shader "Motu/River Water"
                 half waterOpacity = MotuWaterOpacity(
                     waterDepth,
                     opacityDepth);
+                MotuCloudLighting cloud = MotuCloudSurfaceLighting(input.worldPosition);
                 fixed3 waterIllumination = MotuWaterIllumination(
                     worldNormal,
                     input.worldPosition,
                     shadowAttenuation,
-                    0.12h);
+                    0.12h,
+                    cloud);
                 fixed3 waterBody = _Color.rgb
                     * input.brightness
                     * waterIllumination;
@@ -237,12 +239,14 @@ Shader "Motu/River Water"
                     input.worldPosition,
                     half2(coarseNoise, fineNoise) - 0.5h,
                     estuaryWeight,
-                    shadowAttenuation);
+                    shadowAttenuation,
+                    cloud);
                 fixed3 foamColour = MotuWaterIllumination(
                     worldNormal,
                     input.worldPosition,
                     shadowAttenuation,
-                    0.35h);
+                    0.35h,
+                    cloud);
                 fixed3 surface = lerp(
                     water,
                     foamColour,

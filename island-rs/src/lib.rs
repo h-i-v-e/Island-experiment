@@ -5,6 +5,7 @@
 
 #![recursion_limit = "512"]
 
+mod clouds;
 mod clustered_foliage;
 mod ferns;
 mod ffi;
@@ -26,6 +27,7 @@ mod sky;
 mod terrain;
 mod trees;
 
+pub use clouds::{CloudWeatherError, CloudWeatherMap, generate_cloud_weather_map};
 pub use ferns::FernOptions;
 pub use forest::ForestOptions;
 pub use glam::{Vec2, Vec3, Vec4};

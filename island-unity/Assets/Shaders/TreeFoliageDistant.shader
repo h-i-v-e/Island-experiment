@@ -134,6 +134,7 @@ Shader "Motu/Tree Foliage Distant"
                     MotuShadeFoliage(
                         albedo,
                         normal,
+                        input.worldPosition,
                         lightDirection,
                         _LightColor0.rgb,
                         attenuation,

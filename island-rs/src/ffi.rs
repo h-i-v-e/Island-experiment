@@ -22,9 +22,9 @@ use crate::procedural_textures::{
 };
 use crate::reeds::{REED_TILE_RESOLUTION, ReedMeshTile};
 use crate::{
-    BoundingBox, FernOptions, ForestOptions, GenerationMethod, ISLAND_WORLD_METRES, Island,
-    IslandOptions, Mesh, ReedOptions, SeaMask, SurfaceMaps, Vec2, Vec3, Vec4, generate_sky_dome,
-    generate_tree,
+    BoundingBox, CloudWeatherMap, FernOptions, ForestOptions, GenerationMethod,
+    ISLAND_WORLD_METRES, Island, IslandOptions, Mesh, ReedOptions, SeaMask, SurfaceMaps, Vec2,
+    Vec3, Vec4, generate_cloud_weather_map, generate_sky_dome, generate_tree,
 };
 
 const _: () = {
@@ -253,6 +253,15 @@ pub struct ExportSeaMask {
     pub width: i32,
     pub height: i32,
     pub rg: *const u8,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+#[repr(C)]
+pub struct ExportCloudWeatherMap {
+    pub handle: *mut c_void,
+    pub width: i32,
+    pub height: i32,
+    pub rgba: *const u8,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -742,6 +751,18 @@ fn export_sea_mask(mask: Box<SeaMask>) -> ExportSeaMask {
     }
 }
 
+fn export_cloud_weather_map(map: Box<CloudWeatherMap>) -> ExportCloudWeatherMap {
+    let handle = Box::into_raw(map);
+    // SAFETY: handle remains owned by the caller until ReleaseCloudWeatherMap.
+    let map = unsafe { &*handle };
+    ExportCloudWeatherMap {
+        handle: handle.cast(),
+        width: length_i32(map.resolution() as usize),
+        height: length_i32(map.resolution() as usize),
+        rgba: map.rgba().as_ptr(),
+    }
+}
+
 unsafe fn island_ref<'a>(handle: *const c_void) -> Option<&'a Island> {
     // SAFETY: caller promises handle is null or from CreateMotu/LoadMotu.
     unsafe { handle.cast::<Island>().as_ref() }
@@ -1184,6 +1205,39 @@ pub unsafe extern "C" fn CreateSkyDome(output: *mut ExportMesh) {
         return;
     };
     *output = export_mesh(generate_sky_dome(), Vec::new(), Vec::new());
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn CreateCloudWeatherMap(
+    seed: i32,
+    resolution: i32,
+    output: *mut ExportCloudWeatherMap,
+) -> u8 {
+    let Some(output) = (unsafe { output.as_mut() }) else {
+        return 0;
+    };
+    *output = ExportCloudWeatherMap::default();
+    let Ok(resolution) = u32::try_from(resolution) else {
+        return 0;
+    };
+    let seed = u64::from(seed.cast_unsigned());
+    let Ok(map) = generate_cloud_weather_map(seed, resolution) else {
+        return 0;
+    };
+    *output = export_cloud_weather_map(Box::new(map));
+    1
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ReleaseCloudWeatherMap(output: *mut ExportCloudWeatherMap) {
+    let Some(output) = (unsafe { output.as_mut() }) else {
+        return;
+    };
+    if !output.handle.is_null() {
+        // SAFETY: handle came from CreateCloudWeatherMap and is released once.
+        drop(unsafe { Box::from_raw(output.handle.cast::<CloudWeatherMap>()) });
+    }
+    *output = ExportCloudWeatherMap::default();
 }
 
 /// Exports the authoritative XY-safe surface for collision and downward
@@ -2164,6 +2218,42 @@ mod tests {
     fn sky_dome_null_output_is_safe() {
         // SAFETY: the API explicitly accepts a null output as a no-op.
         unsafe { CreateSkyDome(ptr::null_mut()) };
+    }
+
+    #[test]
+    fn cloud_weather_map_export_has_matching_ownership() {
+        let mut output = ExportCloudWeatherMap::default();
+        // SAFETY: output is writable and is released exactly once below.
+        let created = unsafe { CreateCloudWeatherMap(73, 64, &raw mut output) };
+        assert_eq!(created, 1);
+        assert!(!output.handle.is_null());
+        assert!(!output.rgba.is_null());
+        assert_eq!(output.width, 64);
+        assert_eq!(output.height, 64);
+
+        // SAFETY: output owns the handle returned above.
+        unsafe { ReleaseCloudWeatherMap(&raw mut output) };
+        assert!(output.handle.is_null());
+        assert!(output.rgba.is_null());
+        assert_eq!(output.width, 0);
+        assert_eq!(output.height, 0);
+    }
+
+    #[test]
+    fn cloud_weather_map_rejects_invalid_inputs_and_null_outputs() {
+        let mut output = ExportCloudWeatherMap {
+            handle: ptr::dangling_mut(),
+            width: 12,
+            height: 13,
+            rgba: ptr::dangling(),
+        };
+        // SAFETY: output is writable; invalid input must leave it defaulted.
+        assert_eq!(unsafe { CreateCloudWeatherMap(1, 48, &raw mut output) }, 0);
+        assert!(output.handle.is_null());
+        assert!(output.rgba.is_null());
+        // SAFETY: null outputs are explicitly accepted as no-ops.
+        assert_eq!(unsafe { CreateCloudWeatherMap(1, 64, ptr::null_mut()) }, 0);
+        unsafe { ReleaseCloudWeatherMap(ptr::null_mut()) };
     }
 
     #[test]

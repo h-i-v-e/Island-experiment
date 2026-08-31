@@ -193,11 +193,13 @@ Shader "Motu/Sea Water"
                     * horizontalSurface
                     * _ShoreWaveStrength);
 
+                MotuCloudLighting cloud = MotuCloudSurfaceLighting(input.worldPosition);
                 fixed3 waterIllumination = MotuWaterIllumination(
                     worldNormal,
                     input.worldPosition,
                     shadowAttenuation,
-                    0.12h);
+                    0.12h,
+                    cloud);
                 fixed3 waterBody = _Color.rgb
                     * input.brightness
                     * waterIllumination;
@@ -217,7 +219,8 @@ Shader "Motu/Sea Water"
                     input.worldPosition,
                     reflectionRipple,
                     1.0h,
-                    shadowAttenuation);
+                    shadowAttenuation,
+                    cloud);
                 half waterOpacity = MotuWaterOpacity(
                     waterDepth,
                     _OpacityDepth);
@@ -225,7 +228,8 @@ Shader "Motu/Sea Water"
                     worldNormal,
                     input.worldPosition,
                     shadowAttenuation,
-                    0.35h);
+                    0.35h,
+                    cloud);
                 fixed3 surface = lerp(water, foamColour, shoreWave);
                 fixed4 foggedSurface = fixed4(surface, 1.0h);
                 UNITY_APPLY_FOG(input.fogCoord, foggedSurface);

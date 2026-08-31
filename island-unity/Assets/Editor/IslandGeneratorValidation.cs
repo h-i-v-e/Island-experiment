@@ -15,6 +15,7 @@ public static class IslandGeneratorValidation
         ValidateWaterfallMistShader();
         ValidateFernShader();
         ValidateSkyDomeShader();
+        ValidateCloudReceiverShaders();
         ValidateSolarLightingCycle();
         ValidateSandboxScene();
         ValidateRealtimeShadowRender();
@@ -100,8 +101,94 @@ public static class IslandGeneratorValidation
         }
     }
 
+    private static void ValidateCloudReceiverShaders()
+    {
+        var shaderNames = new[]
+        {
+            "Motu/Sky Dome",
+            "Motu/Terrain Unified",
+            "Motu/Terrain Grass",
+            "Motu/Tree Wood",
+            "Motu/Tree Foliage",
+            "Motu/Tree Foliage Distant",
+            "Motu/Rock Decoration",
+            "Motu/Riverbank Reeds",
+            "Motu/Forest Ferns",
+            "Motu/River Water",
+            "Motu/Sea Water",
+            "Motu/Planar Reflection Simplified",
+        };
+        foreach (var shaderName in shaderNames)
+        {
+            var shader = Shader.Find(shaderName);
+            if (shader == null
+                || !shader.isSupported
+                || ShaderUtil.ShaderHasError(shader))
+            {
+                throw new InvalidOperationException(
+                    $"Cloud receiver shader '{shaderName}' is missing or invalid.");
+            }
+        }
+
+        var settings = new IslandCloudSettings
+        {
+            WeatherMapResolution = 70,
+            Coverage = 2f,
+            Density = -1f,
+            BroadNoiseScale = 100f,
+            BroadNoiseStrength = 2f,
+        };
+        if (settings.WeatherMapResolution != 64
+            || !Mathf.Approximately(settings.Coverage, 1f)
+            || !Mathf.Approximately(settings.Density, 0f)
+            || !Mathf.Approximately(settings.BroadNoiseScale, 16f)
+            || !Mathf.Approximately(settings.BroadNoiseStrength, 1f))
+        {
+            throw new InvalidOperationException(
+                "Cloud runtime settings are not clamping their live values.");
+        }
+    }
+
     private static void ValidateSolarLightingCycle()
     {
+        const float midnightToNoonRateRatio = 10f;
+        var noonClockRate = IslandGenerator.EvaluateSolarClockRateMultiplier(
+            12f,
+            midnightToNoonRateRatio);
+        var midnightClockRate = IslandGenerator.EvaluateSolarClockRateMultiplier(
+            0f,
+            midnightToNoonRateRatio);
+        var sunriseClockRate = IslandGenerator.EvaluateSolarClockRateMultiplier(
+            6f,
+            midnightToNoonRateRatio);
+        var sunsetClockRate = IslandGenerator.EvaluateSolarClockRateMultiplier(
+            18f,
+            midnightToNoonRateRatio);
+        var inverseRateIntegral = 0f;
+        const int clockSamples = 4096;
+        for (var sample = 0; sample < clockSamples; sample++)
+        {
+            inverseRateIntegral += 1f / IslandGenerator.EvaluateSolarClockRateMultiplier(
+                24f * sample / clockSamples,
+                midnightToNoonRateRatio);
+        }
+        inverseRateIntegral /= clockSamples;
+        if (!Mathf.Approximately(midnightClockRate / noonClockRate, 10f)
+            || midnightClockRate <= sunriseClockRate
+            || sunriseClockRate <= noonClockRate
+            || !Mathf.Approximately(sunriseClockRate, sunsetClockRate)
+            || Mathf.Abs(inverseRateIntegral - 1f) > 0.001f)
+        {
+            throw new InvalidOperationException(
+                "The solar clock does not slow at noon, accelerate tenfold at midnight, or preserve its configured period.");
+        }
+        if (!Mathf.Approximately(
+            IslandGenerator.EvaluateSolarClockRateMultiplier(3f, 1f),
+            1f))
+        {
+            throw new InvalidOperationException(
+                "A one-to-one solar clock rate must remain uniform.");
+        }
         var sunrise = IslandGenerator.EvaluateSolarLighting(6f, 45f, 1.25f);
         var noon = IslandGenerator.EvaluateSolarLighting(12f, 45f, 1.25f);
         var sunset = IslandGenerator.EvaluateSolarLighting(18f, 45f, 1.25f);
@@ -293,6 +380,7 @@ public static class IslandGeneratorValidation
                 "The sandbox directional sunlight does not have soft shadows enabled.");
         }
         if (island.Rendering.SunCycleDurationMinutes <= 0.25f
+            || island.Rendering.MidnightToNoonClockRateRatio < 1f
             || Mathf.Abs(island.Rendering.SunLatitudeDegrees) < 0.01f
             || island.Rendering.MiddaySunIntensity <= 0f
             || island.Rendering.MoonEquatorOffsetDegrees <= 0f

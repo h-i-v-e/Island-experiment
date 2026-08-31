@@ -183,6 +183,15 @@ internal static class MotuNative
     }
 
     [StructLayout(LayoutKind.Sequential)]
+    internal struct ExportCloudWeatherMap
+    {
+        internal IntPtr handle;
+        internal int width;
+        internal int height;
+        internal IntPtr rgba;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
     internal struct MaterialInputs
     {
         internal float dirtRed;
@@ -326,6 +335,16 @@ internal static class MotuNative
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
     internal static extern void CreateSkyDome(out ExportMesh output);
+
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+    internal static extern byte CreateCloudWeatherMap(
+        int seed,
+        int resolution,
+        out ExportCloudWeatherMap output);
+
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+    internal static extern void ReleaseCloudWeatherMap(
+        ref ExportCloudWeatherMap output);
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
     internal static extern void CreateMesh(

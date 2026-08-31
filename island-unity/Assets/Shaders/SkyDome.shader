@@ -41,6 +41,8 @@ Shader "Motu/Sky Dome"
             #pragma fragment Frag
             #pragma target 3.0
             #include "UnityCG.cginc"
+            float4x4 _IslandWorldToLocal;
+            #include "CloudCommon.cginc"
 
             fixed4 _HorizonColor;
             fixed4 _ZenithColor;
@@ -143,7 +145,14 @@ Shader "Motu/Sky Dome"
                 fixed4 sky = lerp(_HorizonColor, _ZenithColor, blend);
                 sky.rgb *= _SkyExposure;
 
-                float3 skyDirection = normalize(input.localDirection);
+                float3 cameraLocalPosition = mul(
+                    _IslandWorldToLocal,
+                    float4(_WorldSpaceCameraPos.xyz, 1.0)).xyz;
+                float3 skyDirection = normalize(
+                    input.localDirection - cameraLocalPosition);
+                half cloudDensity = MotuCloudSkyDensity(
+                    cameraLocalPosition,
+                    skyDirection);
                 float3 sunDirection = normalize(_SunDirection.xyz);
                 float sunAngularSeparation = 1.0 - saturate(dot(
                     skyDirection,
@@ -208,6 +217,13 @@ Shader "Motu/Sky Dome"
                     sunVerticalAxis);
                 sunDisc *= _SunVisibility;
                 sky.rgb = lerp(sky.rgb, _SunColor.rgb, sunDisc);
+                half cloudTransmittance = MotuCloudCelestialTransmittance(
+                    cloudDensity);
+                fixed3 cloudColour = MotuCloudSkyColour(
+                    cloudDensity,
+                    skyDirection);
+                sky.rgb = sky.rgb * cloudTransmittance
+                    + cloudColour * (1.0h - cloudTransmittance);
                 return sky;
             }
             ENDCG

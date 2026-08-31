@@ -1256,6 +1256,14 @@ fn interpolate_triangle(
     let b = positions[1].truncate();
     let c = positions[2].truncate();
     let denominator = (b.y - c.y) * (a.x - c.x) + (c.x - b.x) * (a.y - c.y);
+    let longest_projected_edge_squared = [b - a, c - b, a - c]
+        .into_iter()
+        .map(Vec2::length_squared)
+        .fold(0.0_f32, f32::max);
+    let minimum_stable_area = longest_projected_edge_squared * f32::EPSILON * 8.0;
+    if !denominator.is_finite() || denominator.abs() <= minimum_stable_area {
+        return interpolate_projected_edge(point, positions, normals, uv);
+    }
     let first = ((b.y - c.y) * (point.x - c.x) + (c.x - b.x) * (point.y - c.y)) / denominator;
     let second = ((c.y - a.y) * (point.x - c.x) + (a.x - c.x) * (point.y - c.y)) / denominator;
     let third = 1.0 - first - second;
@@ -1267,6 +1275,41 @@ fn interpolate_triangle(
     let normal =
         (normals[0] * first + normals[1] * second + normals[2] * third).normalize_or_zero();
     let vertex_uv = uv.map(|values| values[0] * first + values[1] * second + values[2] * third);
+    (position, normal, vertex_uv)
+}
+
+fn interpolate_projected_edge(
+    point: Vec2,
+    positions: [Vec3; 3],
+    normals: [Vec3; 3],
+    uv: Option<[Vec2; 3]>,
+) -> (Vec3, Vec3, Option<Vec2>) {
+    let (from, to, edge, squared_length) = [(0, 1), (1, 2), (2, 0)]
+        .into_iter()
+        .map(|(from, to)| {
+            let edge = positions[to].truncate() - positions[from].truncate();
+            (from, to, edge, edge.length_squared())
+        })
+        .max_by(|left, right| left.3.total_cmp(&right.3))
+        .expect("a triangle always has three edges");
+    if !squared_length.is_finite() || squared_length <= f32::MIN_POSITIVE {
+        return (
+            positions[from],
+            normals[from],
+            uv.map(|values| values[from]),
+        );
+    }
+    let interpolation =
+        ((point - positions[from].truncate()).dot(edge) / squared_length).clamp(0.0, 1.0);
+    let position = Vec3::new(
+        point.x,
+        point.y,
+        (positions[to].z - positions[from].z).mul_add(interpolation, positions[from].z),
+    );
+    let normal = normals[from]
+        .lerp(normals[to], interpolation)
+        .normalize_or_zero();
+    let vertex_uv = uv.map(|values| values[from].lerp(values[to], interpolation));
     (position, normal, vertex_uv)
 }
 
@@ -1822,9 +1865,10 @@ fn circumcircle_contains(a: Vec2, b: Vec2, c: Vec2, point: Vec2) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        CLAMP_BOTTOM, CLAMP_LEFT, CLAMP_RIGHT, CLAMP_TOP, Mesh, ordered_edge, projected_area_twice,
+        CLAMP_BOTTOM, CLAMP_LEFT, CLAMP_RIGHT, CLAMP_TOP, Mesh, interpolate_triangle, ordered_edge,
+        projected_area_twice,
     };
-    use crate::{BoundingBox, Vec2, Vec3};
+    use crate::{BoundingBox, Island, IslandOptions, Vec2, Vec3};
 
     fn mesh_contains_edge(mesh: &Mesh, a: u32, b: u32) -> bool {
         let edge = ordered_edge(a, b);
@@ -1837,6 +1881,60 @@ mod tests {
             .into_iter()
             .any(|(a, b)| ordered_edge(a, b) == edge)
         })
+    }
+
+    #[test]
+    fn projected_collinear_triangle_interpolation_remains_finite() {
+        let positions = [
+            Vec3::new(0.0, 0.0, -0.01),
+            Vec3::new(1.0, 0.0, 0.0),
+            Vec3::new(2.0, 0.0, 0.03),
+        ];
+        let normals = [Vec3::Z; 3];
+        let uv = Some([Vec2::ZERO, Vec2::X, Vec2::new(2.0, 0.0)]);
+
+        let (position, normal, uv) =
+            interpolate_triangle(Vec2::new(0.5, 0.0), positions, normals, uv);
+
+        assert!(position.is_finite());
+        assert!(normal.is_finite());
+        assert!(uv.unwrap().is_finite());
+        assert_eq!(position.truncate(), Vec2::new(0.5, 0.0));
+    }
+
+    #[test]
+    #[ignore = "full-resolution runtime scene regression"]
+    fn sandbox_seed_lod1_streaming_tile_is_finite() {
+        let island = Island::generate(
+            1924,
+            IslandOptions {
+                max_height: 0.1,
+                water_ratio: 0.8,
+                slope_multiplier: 1.01,
+                coastal_slope_multiplier: 0.51,
+                hydraulic_erosion_strength: 8.0,
+                hydraulic_deposition_strength: 1.5,
+                hydraulic_deposition_slope_degrees: 12.0,
+                river_source_catchment_hectares: 0.05,
+                river_source_steep_multiplier: 4.0,
+                river_source_elevation_boost: 16.0,
+                river_source_width_metres: 1.0,
+                river_maximum_width_metres: 4.0,
+                river_source_depth_metres: 0.2,
+                river_maximum_depth_metres: 0.8,
+                ..IslandOptions::default()
+            },
+        )
+        .unwrap();
+        let bounds = BoundingBox::new(
+            Vec3::new(1.0 / 8.0, 4.0 / 8.0, f32::MIN),
+            Vec3::new(2.0 / 8.0, 5.0 / 8.0, f32::MAX),
+        );
+        let tiles = island.render_mesh_grid(1, bounds, 8, 0).unwrap();
+        let mesh = &tiles[39];
+
+        assert!(mesh.vertices.iter().all(|vertex| vertex.is_finite()));
+        assert!(mesh.normals.iter().all(|normal| normal.is_finite()));
     }
 
     #[test]

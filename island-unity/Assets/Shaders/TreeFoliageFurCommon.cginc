@@ -150,6 +150,7 @@ fixed4 FoliageFurFragment(FoliageFurVertexOutput input) : SV_Target
         MotuShadeFoliage(
             albedo,
             normal,
+            input.worldPosition,
             lightDirection,
             _LightColor0.rgb,
             attenuation,

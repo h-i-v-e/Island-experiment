@@ -183,6 +183,7 @@ Shader "Motu/Terrain Unified"
 
             #include "TerrainCoverageCommon.cginc"
             #include "GrassWindCommon.cginc"
+            #include "CloudCommon.cginc"
 
             float MotuLayerParallaxDepth(int layer)
             {
@@ -589,8 +590,10 @@ Shader "Motu/Terrain Unified"
                 float3 lightDirection = normalize(UnityWorldSpaceLightDir(input.worldPosition));
                 UNITY_LIGHT_ATTENUATION(attenuation, input, input.worldPosition);
                 half diffuse = saturate(dot(normal, lightDirection)) * attenuation;
+                MotuCloudLighting cloud = MotuCloudSurfaceLighting(input.worldPosition);
                 half3 lighting = ShadeSH9(half4(normal, 1.0h))
-                    + _LightColor0.rgb * diffuse;
+                        * cloud.ambientTransmittance
+                    + _LightColor0.rgb * diffuse * cloud.directTransmittance;
                 fixed4 color = fixed4(baseColor * _Color.rgb * lighting, 1.0h);
                 UNITY_APPLY_FOG(input.fogCoord, color);
                 return color;
@@ -1088,8 +1091,12 @@ Shader "Motu/Terrain Unified"
                 float3 lightDirection = normalize(UnityWorldSpaceLightDir(input.worldPosition));
                 UNITY_LIGHT_ATTENUATION(attenuation, input, input.worldPosition);
                 half diffuse = saturate(dot(normal, lightDirection)) * attenuation;
-                half3 direct = _LightColor0.rgb * diffuse;
-                half3 ambient = ShadeSH9(half4(normal, 1.0h));
+                MotuCloudLighting cloud = MotuCloudSurfaceLighting(input.worldPosition);
+                half3 direct = _LightColor0.rgb
+                    * diffuse
+                    * cloud.directTransmittance;
+                half3 ambient = ShadeSH9(half4(normal, 1.0h))
+                    * cloud.ambientTransmittance;
                 float3 viewDirection = normalize(UnityWorldSpaceViewDir(input.worldPosition));
                 float3 halfDirection = normalize(lightDirection + viewDirection);
                 half wetHighlightPower = lerp(10.0h, 110.0h, _WetSmoothness);
@@ -1099,6 +1106,7 @@ Shader "Motu/Terrain Unified"
                     * _WetSpecularStrength
                     * wetSurfaceEffects
                     * attenuation
+                    * cloud.directTransmittance
                     * step(0.0h, dot(normal, lightDirection));
                 half wetFresnel = pow(
                     1.0h - saturate(dot(normal, viewDirection)),

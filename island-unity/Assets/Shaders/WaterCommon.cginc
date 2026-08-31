@@ -27,6 +27,8 @@ float _RefractionDepth;
 float4x4 _IslandWorldToLocal;
 UNITY_DECLARE_DEPTH_TEXTURE(_CameraDepthTexture);
 
+#include "CloudCommon.cginc"
+
 float3 MotuFacingWaterNormal(float3 worldNormal, float3 viewDirection)
 {
     float3 normal = normalize(worldNormal);
@@ -77,7 +79,8 @@ fixed3 MotuShadeWater(
     float3 worldPosition,
     half2 ripple,
     half planarWeight,
-    half shadowAttenuation)
+    half shadowAttenuation,
+    MotuCloudLighting cloud)
 {
     float3 reflectionDirection = reflect(-viewDirection, worldNormal);
     half skyHeight = saturate(reflectionDirection.y);
@@ -110,7 +113,10 @@ fixed3 MotuShadeWater(
     fixed3 reflectedScene = lerp(
         skyReflection,
         planarReflection,
-        planarBlend) * lerp(0.30h, 1.0h, shadowAttenuation);
+        planarBlend) * lerp(
+            0.30h,
+            1.0h,
+            shadowAttenuation * cloud.ambientTransmittance);
     half fresnel = pow(
         1.0h - saturate(dot(worldNormal, viewDirection)),
         _ReflectionFresnelPower);
@@ -127,6 +133,7 @@ fixed3 MotuShadeWater(
     half sunGlint = pow(sunAlignment, _SunGlintSharpness)
         * _SunGlintStrength
         * shadowAttenuation
+        * cloud.directTransmittance
         * _WaterSkyExposure;
     return water + _LightColor0.rgb * sunGlint;
 }
@@ -135,7 +142,8 @@ fixed3 MotuWaterIllumination(
     float3 worldNormal,
     float3 worldPosition,
     half shadowAttenuation,
-    half diffuseFloor)
+    half diffuseFloor,
+    MotuCloudLighting cloud)
 {
     float3 lightVector = UnityWorldSpaceLightDir(worldPosition);
     half inverseLength = rsqrt(max(dot(lightVector, lightVector), 0.000001));
@@ -144,8 +152,11 @@ fixed3 MotuWaterIllumination(
         diffuseFloor,
         1.0h,
         saturate(dot(worldNormal, lightDirection)));
-    return UNITY_LIGHTMODEL_AMBIENT.rgb
-        + _LightColor0.rgb * diffuse * shadowAttenuation;
+    return UNITY_LIGHTMODEL_AMBIENT.rgb * cloud.ambientTransmittance
+        + _LightColor0.rgb
+            * diffuse
+            * shadowAttenuation
+            * cloud.directTransmittance;
 }
 
 #endif

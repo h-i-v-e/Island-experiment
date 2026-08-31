@@ -47,6 +47,7 @@ fixed4 _GrassAmbientColor;
 float4x4 _IslandWorldToLocal;
 
 #include "GrassWindCommon.cginc"
+#include "CloudCommon.cginc"
 
 float GrassHash(float2 cell)
 {
@@ -168,8 +169,12 @@ fixed4 GrassFragment(GrassVertexOutput input) : SV_Target
         shadowAttenuation,
         input,
         input.worldPosition);
-    half3 direct = _GrassLightColor.rgb * diffuse * shadowAttenuation;
-    half3 ambient = _GrassAmbientColor.rgb;
+    MotuCloudLighting cloud = MotuCloudSurfaceLighting(input.worldPosition);
+    half3 direct = _GrassLightColor.rgb
+        * diffuse
+        * shadowAttenuation
+        * cloud.directTransmittance;
+    half3 ambient = _GrassAmbientColor.rgb * cloud.ambientTransmittance;
     float2 grassColorUv = localPosition.xz
         / max(_GrassColorNoiseWorldSize, 1.0);
     half grassColorNoise = tex2D(_GrassPatchNoise, grassColorUv).b;

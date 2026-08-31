@@ -34,8 +34,10 @@ Shader "Motu/Forest Ferns"
     float _FernFadeStart;
     float _FernFadeEnd;
     float4 _GrassPlayerPosition;
+    float4x4 _IslandWorldToLocal;
 
     #include "GrassWindCommon.cginc"
+    #include "CloudCommon.cginc"
 
     struct FernVertexInput
     {
@@ -179,9 +181,15 @@ Shader "Motu/Forest Ferns"
                 half diffuse = saturate(dot(normal, lightDirection));
                 fixed3 albedo = lerp(_BaseColor.rgb, _TipColor.rgb, input.uv.y * 0.72);
                 albedo *= lerp(0.84, 1.16, input.data.y);
-                half3 ambient = max(ShadeSH9(half4(normal, 1.0h)), 0.10h);
+                MotuCloudLighting cloud = MotuCloudSurfaceLighting(input.worldPosition);
+                half3 ambient = max(
+                    ShadeSH9(half4(normal, 1.0h))
+                        * cloud.ambientTransmittance,
+                    0.10h);
                 fixed4 result = fixed4(
-                    albedo * (ambient + _LightColor0.rgb * (0.22h + 0.78h * diffuse)),
+                    albedo * (ambient + _LightColor0.rgb
+                        * (0.22h + 0.78h * diffuse)
+                        * cloud.directTransmittance),
                     1.0h);
                 UNITY_APPLY_FOG(input.fogCoord, result);
                 return result;
