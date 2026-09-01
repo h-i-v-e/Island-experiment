@@ -62,7 +62,7 @@ impl Parameter {
 ///
 /// `terrain_size` is the one field that is not an `f32` and is handled beside
 /// the table, under [`TERRAIN_SIZE_FLAG`].
-pub const PARAMETERS: [Parameter; 14] = [
+pub const PARAMETERS: [Parameter; 19] = [
     // Validated only as finite and above zero. Past about 0.5 the massif
     // reaches heights the river and coastal passes were never framed against.
     Parameter {
@@ -101,6 +101,49 @@ pub const PARAMETERS: [Parameter; 14] = [
         maximum: 4.0,
         logarithmic: false,
         field: |options| &mut options.coastal_slope_multiplier,
+    },
+    // The broad layer is the main control for dividing one land mass into
+    // several coherent regions. Match the useful Unity inspector range while
+    // leaving the generator's wider validation range available to the CLI.
+    Parameter {
+        flag: "--continental-noise-frequency",
+        group: Group::Terrain,
+        minimum: 0.1,
+        maximum: 32.0,
+        logarithmic: true,
+        field: |options| &mut options.continental_noise_frequency,
+    },
+    Parameter {
+        flag: "--continental-noise-strength",
+        group: Group::Terrain,
+        minimum: 0.0,
+        maximum: 4.0,
+        logarithmic: false,
+        field: |options| &mut options.continental_noise_strength,
+    },
+    Parameter {
+        flag: "--detail-noise-frequency",
+        group: Group::Terrain,
+        minimum: 0.1,
+        maximum: 64.0,
+        logarithmic: true,
+        field: |options| &mut options.detail_noise_frequency,
+    },
+    Parameter {
+        flag: "--detail-noise-strength",
+        group: Group::Terrain,
+        minimum: 0.0,
+        maximum: 4.0,
+        logarithmic: false,
+        field: |options| &mut options.detail_noise_strength,
+    },
+    Parameter {
+        flag: "--land-mass-offset",
+        group: Group::Terrain,
+        minimum: -2.0,
+        maximum: 2.0,
+        logarithmic: false,
+        field: |options| &mut options.land_mass_offset,
     },
     // Validated: 0 to 8.
     Parameter {

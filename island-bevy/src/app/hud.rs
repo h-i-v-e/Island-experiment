@@ -445,6 +445,26 @@ fn describe(parameter: &Parameter) -> (&'static str, &'static str) {
         ),
         "--slope-multiplier" => ("SLOPE", "How steeply the interior rises."),
         "--coastal-slope-multiplier" => ("COAST", "How steeply the land falls away to the shore."),
+        "--continental-noise-frequency" => (
+            "LAND SCALE",
+            "The size of the broad land shapes. Higher values can divide the island into groups.",
+        ),
+        "--continental-noise-strength" => (
+            "LAND VARIATION",
+            "How strongly broad coherent noise competes with the radial island shape.",
+        ),
+        "--detail-noise-frequency" => (
+            "DETAIL SCALE",
+            "The size of the finer height and hardness features.",
+        ),
+        "--detail-noise-strength" => (
+            "DETAIL VARIATION",
+            "How strongly fine coherent noise contributes to height and hardness.",
+        ),
+        "--land-mass-offset" => (
+            "LAND OFFSET",
+            "Moves the centred land field relative to the sea. Negative values isolate high ground into an archipelago.",
+        ),
         "--hydraulic-erosion-strength" => (
             "EROSION",
             "How aggressively running water carves gullies into the flanks.",

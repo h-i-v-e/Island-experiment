@@ -40,7 +40,7 @@ Options are applied in the order given, so a later one wins: `--variant eroded
 | `--no-cache` | off | Generate even when a cached island matches these inputs; the entry is rewritten either way. Applies to the HUD's rebuilds as well as to the first island. See below. |
 | `-h`, `--help` | — | Print usage. |
 
-Every one of the generator's fifteen parameters has a flag of its own, so any
+Every one of the generator's twenty parameters has a flag of its own, so any
 island the HUD finds can be reopened from the command line. `--help` prints
 them with the range the HUD offers each over. The flags themselves are not held
 to those ranges — only `Island::generate` rejects a value, and only for the
@@ -53,6 +53,11 @@ parameters it validates.
 | | `--water-ratio` | `0.6` |
 | | `--slope-multiplier` | `1.3` |
 | | `--coastal-slope-multiplier` | `1.0` |
+| | `--continental-noise-frequency` | `2.2` |
+| | `--continental-noise-strength` | `0.78` |
+| | `--detail-noise-frequency` | `12.0` |
+| | `--detail-noise-strength` | `0.22` |
+| | `--land-mass-offset` | `0.0` |
 | Hydraulics | `--hydraulic-erosion-strength` | `1.0` |
 | | `--hydraulic-deposition-strength` | `1.5` |
 | | `--hydraulic-deposition-slope-degrees` | `12.0` |
@@ -64,7 +69,7 @@ parameters it validates.
 | | `--river-source-depth-metres` | `0.35` |
 | | `--river-maximum-depth-metres` | `2.0` |
 
-`src/app/options.rs` holds all fifteen in one table — the flag, the HUD's range and
+`src/app/options.rs` holds all twenty in one table — the flag, the HUD's range and
 the field — and the parser, the help text, the HUD's sliders, the command line
 the HUD reports and the cache key all walk it. A parameter added to
 `IslandOptions` is added there once.
@@ -94,7 +99,7 @@ took the entry for seed 666 at terrain size 1024 from 120.5 MB to 152.4 MB.
 The HUD's rebuilds read it too, which is what brings a parameter set you have
 already visited back in milliseconds.
 
-An entry is only read when the seed and all fifteen options recorded in it
+An entry is only read when the seed and all twenty options recorded in it
 match the run asking for it exactly. The chunk grid's own divisions and skirt
 depth are mixed into the key as well: neither is a generator option and neither
 would otherwise retire an entry that holds ground cut into other squares.
@@ -327,7 +332,7 @@ running, so the same ten can be flipped through in seconds at 256 and revisited
 at 1024 later. `src/app/presets.rs` is the table, and `docs/captures/showcase/` is
 an overview of each at 1024 with its parameters written out.
 
-**Parameters** is the seed and all fifteen generator parameters, so an island
+**Parameters** is the seed and all twenty generator parameters, so an island
 can also be hunted for by hand. Sliders span the range each parameter is useful
 over — the generator's own limits where it validates one, working ranges
 otherwise — and each is labelled with the flag that reproduces it.
