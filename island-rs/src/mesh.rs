@@ -487,7 +487,47 @@ impl Mesh {
         is_selected: impl Fn(u32) -> bool,
         is_protected: impl Fn(u32, u32) -> bool,
     ) -> usize {
-        let _timer = crate::profiling::StageTimer::new("mesh.surface_edge_flips");
+        self.flip_surface_edges_where_preserving(
+            "mesh.surface_edge_flips",
+            is_selected,
+            is_protected,
+            flipped_triangles,
+        )
+    }
+
+    /// Repairs projected foldovers by replacing an invalid shared diagonal
+    /// only when its alternative produces two positive-area faces.
+    pub(crate) fn repair_projected_foldovers_preserving(
+        &mut self,
+        is_protected: impl Fn(u32, u32) -> bool,
+    ) -> usize {
+        self.flip_surface_edges_where_preserving(
+            "mesh.projected_foldover_repair",
+            |_| true,
+            is_protected,
+            repaired_foldover_triangles,
+        )
+    }
+
+    #[cfg(test)]
+    pub(crate) fn projected_foldover_count(&self) -> usize {
+        self.triangles
+            .chunks_exact(3)
+            .filter(|triangle| {
+                projected_area_twice(&self.vertices, [triangle[0], triangle[1], triangle[2]])
+                    <= f64::EPSILON
+            })
+            .count()
+    }
+
+    fn flip_surface_edges_where_preserving(
+        &mut self,
+        stage: &'static str,
+        is_selected: impl Fn(u32) -> bool,
+        is_protected: impl Fn(u32, u32) -> bool,
+        replacement: impl Fn(&[Vec3], [u32; 3], [u32; 3], [u32; 4]) -> Option<[[u32; 3]; 2]>,
+    ) -> usize {
+        let _timer = crate::profiling::StageTimer::new(stage);
         if self.triangles.len() < 6 {
             return 0;
         }
@@ -547,12 +587,9 @@ impl Mesh {
                     {
                         let left_triangle = triangle_at(&self.triangles, left.face);
                         let right_triangle = triangle_at(&self.triangles, right.face);
-                        if let Some([candidate_left, candidate_right]) = flipped_triangles(
-                            &self.vertices,
-                            left_triangle,
-                            right_triangle,
-                            [a, b, c, d],
-                        ) {
+                        if let Some([candidate_left, candidate_right]) =
+                            replacement(&self.vertices, left_triangle, right_triangle, [a, b, c, d])
+                        {
                             self.triangles[left.face * 3..left.face * 3 + 3]
                                 .copy_from_slice(&candidate_left);
                             self.triangles[right.face * 3..right.face * 3 + 3]
@@ -1793,6 +1830,31 @@ fn flipped_triangles(
         .then_some([candidate_left, candidate_right])
 }
 
+fn repaired_foldover_triangles(
+    vertices: &[Vec3],
+    current_left: [u32; 3],
+    current_right: [u32; 3],
+    [a, b, c, d]: [u32; 4],
+) -> Option<[[u32; 3]; 2]> {
+    let current_left_area = projected_area_twice(vertices, current_left);
+    let current_right_area = projected_area_twice(vertices, current_right);
+    if current_left_area > f64::EPSILON && current_right_area > f64::EPSILON {
+        return None;
+    }
+
+    let candidate_side_a = projected_area_twice(vertices, [c, d, a]);
+    let candidate_side_b = projected_area_twice(vertices, [c, d, b]);
+    if candidate_side_a * candidate_side_b >= 0.0 {
+        return None;
+    }
+
+    let candidate_left = orient_projected_triangle(vertices, [c, d, a], true)?;
+    let candidate_right = orient_projected_triangle(vertices, [d, c, b], true)?;
+    (projected_area_twice(vertices, candidate_left) > f64::EPSILON
+        && projected_area_twice(vertices, candidate_right) > f64::EPSILON)
+        .then_some([candidate_left, candidate_right])
+}
+
 fn orient_projected_triangle(
     vertices: &[Vec3],
     mut triangle: [u32; 3],
@@ -1905,6 +1967,8 @@ mod tests {
     #[test]
     #[ignore = "full-resolution runtime scene regression"]
     fn sandbox_seed_lod1_streaming_tile_is_finite() {
+        const VISIBLE_PROJECTED_AREA_TWICE: f64 = 1.0e-10;
+
         let island = Island::generate(
             1924,
             IslandOptions {
@@ -1926,6 +1990,22 @@ mod tests {
             },
         )
         .unwrap();
+        let lod0 = island.lod(0).unwrap();
+        let dry_land_foldovers = lod0
+            .triangles
+            .chunks_exact(3)
+            .filter(|triangle| {
+                projected_area_twice(&lod0.vertices, [triangle[0], triangle[1], triangle[2]])
+                    < -VISIBLE_PROJECTED_AREA_TWICE
+                    && triangle.iter().all(|&vertex| {
+                        lod0.vertices[vertex as usize].z > 0.05 / crate::ISLAND_WORLD_METRES
+                    })
+            })
+            .count();
+        assert_eq!(
+            dry_land_foldovers, 0,
+            "seed 1924 retained a visible projected foldover above the shoreline wall"
+        );
         let bounds = BoundingBox::new(
             Vec3::new(1.0 / 8.0, 4.0 / 8.0, f32::MIN),
             Vec3::new(2.0 / 8.0, 5.0 / 8.0, f32::MAX),
@@ -1935,6 +2015,143 @@ mod tests {
 
         assert!(mesh.vertices.iter().all(|vertex| vertex.is_finite()));
         assert!(mesh.normals.iter().all(|normal| normal.is_finite()));
+    }
+
+    #[test]
+    #[ignore = "full-resolution runtime scene regression"]
+    #[allow(clippy::too_many_lines)]
+    fn sandbox_seed_converging_waterfalls_do_not_create_water_towers() {
+        let island = Island::generate(
+            1924,
+            IslandOptions {
+                max_height: 0.1,
+                water_ratio: 0.8,
+                slope_multiplier: 1.01,
+                coastal_slope_multiplier: 0.51,
+                hydraulic_erosion_strength: 8.0,
+                hydraulic_deposition_strength: 1.5,
+                hydraulic_deposition_slope_degrees: 12.0,
+                river_source_catchment_hectares: 0.05,
+                river_source_steep_multiplier: 1.5,
+                river_source_elevation_boost: 16.0,
+                river_source_width_metres: 1.0,
+                river_maximum_width_metres: 4.0,
+                river_source_depth_metres: 0.2,
+                river_maximum_depth_metres: 0.8,
+                ..IslandOptions::default()
+            },
+        )
+        .unwrap();
+        let failure = Vec2::new(0.5085, 0.3418);
+        let river_mesh = island.river_mesh();
+        let maximum_local_span = river_mesh
+            .triangles
+            .chunks_exact(3)
+            .filter_map(|triangle| {
+                let vertices = [
+                    river_mesh.vertices[triangle[0] as usize],
+                    river_mesh.vertices[triangle[1] as usize],
+                    river_mesh.vertices[triangle[2] as usize],
+                ];
+                vertices
+                    .iter()
+                    .any(|vertex| vertex.truncate().distance(failure) < 0.01)
+                    .then(|| {
+                        let minimum = vertices
+                            .iter()
+                            .map(|vertex| vertex.z)
+                            .fold(f32::INFINITY, f32::min);
+                        let maximum = vertices
+                            .iter()
+                            .map(|vertex| vertex.z)
+                            .fold(f32::NEG_INFINITY, f32::max);
+                        maximum - minimum
+                    })
+            })
+            .reduce(f32::max)
+            .expect("expected river geometry around the converging-waterfall regression site");
+
+        assert!(
+            maximum_local_span <= 20.0 / crate::ISLAND_WORLD_METRES,
+            "converging rivers produced a {:.2} metre water face",
+            maximum_local_span * crate::ISLAND_WORLD_METRES,
+        );
+
+        let uv_failure = Vec2::new(0.5085, 0.3369);
+        let maximum_local_v_span = river_mesh
+            .triangles
+            .chunks_exact(3)
+            .filter_map(|triangle| {
+                let positions = [
+                    river_mesh.vertices[triangle[0] as usize],
+                    river_mesh.vertices[triangle[1] as usize],
+                    river_mesh.vertices[triangle[2] as usize],
+                ];
+                positions
+                    .iter()
+                    .any(|position| position.truncate().distance(uv_failure) < 0.005)
+                    .then(|| {
+                        let uv = [
+                            river_mesh.uv[triangle[0] as usize].y,
+                            river_mesh.uv[triangle[1] as usize].y,
+                            river_mesh.uv[triangle[2] as usize].y,
+                        ];
+                        uv.into_iter().fold(f32::NEG_INFINITY, f32::max)
+                            - uv.into_iter().fold(f32::INFINITY, f32::min)
+                    })
+            })
+            .reduce(f32::max)
+            .expect("expected river geometry around the confluence UV regression site");
+        assert!(
+            maximum_local_v_span <= 5.0 / crate::ISLAND_WORLD_METRES,
+            "converging rivers produced a {:.2} metre V discontinuity",
+            maximum_local_v_span * crate::ISLAND_WORLD_METRES,
+        );
+
+        let (maximum_steep_stretch, maximum_uphill_advance) = river_mesh
+            .triangles
+            .chunks_exact(3)
+            .filter_map(|triangle| {
+                let positions = [
+                    river_mesh.vertices[triangle[0] as usize],
+                    river_mesh.vertices[triangle[1] as usize],
+                    river_mesh.vertices[triangle[2] as usize],
+                ];
+                let downstream = [
+                    river_mesh.uv[triangle[0] as usize].y,
+                    river_mesh.uv[triangle[1] as usize].y,
+                    river_mesh.uv[triangle[2] as usize].y,
+                ];
+                let highest = (0..3)
+                    .max_by(|&left, &right| positions[left].z.total_cmp(&positions[right].z))?;
+                let lowest = (0..3)
+                    .min_by(|&left, &right| positions[left].z.total_cmp(&positions[right].z))?;
+                let height_span = positions[highest].z - positions[lowest].z;
+                if height_span < 2.0 / crate::ISLAND_WORLD_METRES {
+                    return None;
+                }
+                let surface_span = [(0, 1), (1, 2), (2, 0)]
+                    .into_iter()
+                    .map(|(a, b)| positions[a].distance(positions[b]))
+                    .fold(0.0_f32, f32::max);
+                let downstream_span = downstream.into_iter().fold(f32::NEG_INFINITY, f32::max)
+                    - downstream.into_iter().fold(f32::INFINITY, f32::min);
+                let stretch = downstream_span / surface_span.max(f32::EPSILON);
+                let uphill_advance = (downstream[highest] - downstream[lowest]).max(0.0);
+                Some((stretch, uphill_advance))
+            })
+            .fold((0.0_f32, 0.0_f32), |maximum, candidate| {
+                (maximum.0.max(candidate.0), maximum.1.max(candidate.1))
+            });
+        assert!(
+            maximum_steep_stretch <= 3.0,
+            "steep river UVs stretch {maximum_steep_stretch:.2} times farther than their surface triangle",
+        );
+        assert!(
+            maximum_uphill_advance <= 2.0 / crate::ISLAND_WORLD_METRES,
+            "steep river UVs advance {:.2} metres uphill",
+            maximum_uphill_advance * crate::ISLAND_WORLD_METRES,
+        );
     }
 
     #[test]
@@ -2063,6 +2280,49 @@ mod tests {
         assert!(mesh.triangles.chunks_exact(3).all(|triangle| {
             projected_area_twice(&mesh.vertices, [triangle[0], triangle[1], triangle[2]]) > 0.0
         }));
+    }
+
+    #[test]
+    fn projected_foldover_repair_replaces_an_invalid_diagonal() {
+        let mut mesh = Mesh {
+            vertices: vec![
+                Vec3::new(0.0, -1.0, 0.0),
+                Vec3::new(1.0, 0.0, 0.0),
+                Vec3::new(1.0, 1.0, 0.0),
+                Vec3::new(2.0, 0.0, 0.0),
+            ],
+            triangles: vec![0, 1, 2, 0, 2, 3],
+            ..Mesh::default()
+        };
+
+        assert_eq!(mesh.projected_foldover_count(), 1);
+        let repairs = mesh.repair_projected_foldovers_preserving(|_, _| false);
+
+        assert_eq!(repairs, 1);
+        assert_eq!(mesh.projected_foldover_count(), 0);
+        assert!(!mesh_contains_edge(&mesh, 0, 2));
+        assert!(mesh_contains_edge(&mesh, 1, 3));
+    }
+
+    #[test]
+    fn projected_foldover_repair_retains_a_protected_diagonal() {
+        let mut mesh = Mesh {
+            vertices: vec![
+                Vec3::new(0.0, -1.0, 0.0),
+                Vec3::new(1.0, 0.0, 0.0),
+                Vec3::new(1.0, 1.0, 0.0),
+                Vec3::new(2.0, 0.0, 0.0),
+            ],
+            triangles: vec![0, 1, 2, 0, 2, 3],
+            ..Mesh::default()
+        };
+
+        let repairs =
+            mesh.repair_projected_foldovers_preserving(|a, b| ordered_edge(a, b) == (0, 2));
+
+        assert_eq!(repairs, 0);
+        assert_eq!(mesh.projected_foldover_count(), 1);
+        assert!(mesh_contains_edge(&mesh, 0, 2));
     }
 
     #[test]

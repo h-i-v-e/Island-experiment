@@ -10,13 +10,14 @@ use super::{
     RouteState, SEA_PLANE_CLEARANCE, SHARP_POINT_HEIGHT_RATIO, SHARP_POINT_SMOOTHING,
     SHARP_POINT_SMOOTHING_PASSES, SurfaceMaterial, Vec2, VecDeque,
     WATERFALL_FINAL_SMOOTHING_PASSES, WATERFALL_TARGET_EDGE_LENGTH, WaterfallFoot, WaterfallPatch,
-    WaterfallTerrainConstraints, build_river_footprint, derive_waterfall_patches,
-    detect_failed_final_waterfalls, duplicate_river_topology, encode_bank_distance_in_uv,
-    enforce_final_waterfall_edge_relationships, enforce_waterfall_downstream_ceiling,
-    generate_river_rock_mesh, is_river_bed_triangle, is_river_boundary, mark_river_boundary,
-    pin_waterfalls_to_terrain, rebuild_final_waterfall_support_mask, recess_waterfall_notches,
-    river_topology_masks, smooth_final_waterfall_patches, smooth_pinned_waterfall_terrain,
-    smoothstep, squish_waterfall_downstream_spikes,
+    WaterfallPinEnvironment, WaterfallTerrainConstraints, build_river_footprint,
+    derive_waterfall_patches, detect_failed_final_waterfalls, duplicate_river_topology,
+    encode_bank_distance_in_uv, enforce_final_waterfall_edge_relationships,
+    enforce_waterfall_downstream_ceiling, generate_river_rock_mesh, is_river_bed_triangle,
+    is_river_boundary, mark_river_boundary, pin_waterfalls_to_terrain,
+    rebuild_final_waterfall_support_mask, recess_waterfall_notches,
+    repair_collapsed_waterfall_banks, river_topology_masks, smooth_final_waterfall_patches,
+    smooth_pinned_waterfall_terrain, smoothstep, squish_waterfall_downstream_spikes,
 };
 use crate::mesh::{EdgeSplitStencil, NewVertexStencil};
 
@@ -1966,13 +1967,21 @@ impl<'a> RiverGeometryBuilder<'a> {
     fn refine_waterfalls(&mut self, patches: &[WaterfallPatch]) -> WaterfallTerrainConstraints {
         self.buffers
             .refine_waterfalls(self.terrain, self.material, patches);
-        let notches =
-            recess_waterfall_notches(self.terrain, self.material, patches, &self.buffers.coverage);
-        pin_waterfalls_to_terrain(
+        let notches = recess_waterfall_notches(
             self.terrain,
             self.material,
             patches,
-            &notches,
+            &self.buffers.coverage,
+            &self.buffers.owners,
+        );
+        pin_waterfalls_to_terrain(
+            WaterfallPinEnvironment {
+                terrain: self.terrain,
+                patches,
+                notch_owners: &notches,
+                river_owners: &self.buffers.owners,
+            },
+            self.material,
             &mut self.buffers.coverage,
             &mut self.buffers.surfaces,
             &mut self.buffers.waterfall_lips,
@@ -2025,6 +2034,7 @@ impl<'a> RiverGeometryBuilder<'a> {
                 &mut self.buffers.surfaces,
                 patches,
                 &self.buffers.coverage,
+                &self.buffers.owners,
             );
         }
         enforce_final_waterfall_edge_relationships(
@@ -2036,6 +2046,13 @@ impl<'a> RiverGeometryBuilder<'a> {
             constraints,
         );
         smooth_pinned_waterfall_terrain(
+            self.terrain,
+            &mut self.buffers.surfaces,
+            patches,
+            &self.buffers.coverage,
+            &self.buffers.owners,
+        );
+        repair_collapsed_waterfall_banks(
             self.terrain,
             &mut self.buffers.surfaces,
             patches,
@@ -2097,7 +2114,12 @@ impl<'a> RiverGeometryBuilder<'a> {
         constraints: &WaterfallTerrainConstraints,
     ) -> BuiltRiverGeometry {
         let failed_waterfalls = if ENABLE_FINAL_WATERFALL_REJECTION {
-            detect_failed_final_waterfalls(self.terrain, patches, &self.buffers.coverage)
+            detect_failed_final_waterfalls(
+                self.terrain,
+                patches,
+                &self.buffers.coverage,
+                &self.buffers.owners,
+            )
         } else {
             Vec::new()
         };

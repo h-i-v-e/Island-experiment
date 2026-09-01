@@ -1,6 +1,7 @@
 #[cfg(feature = "gpu-generation")]
 use super::GpuParticleErosionScratch;
 use super::coastal_uplift;
+use super::erosion::{projected_face_area, projected_face_area_with_vertex};
 use super::lod::regenerate_lods;
 use super::{
     Adjacency, BinaryHeap, BoundingBox, DETAIL_DISPLACEMENT_RATIO, Decorations, File,
@@ -422,7 +423,7 @@ impl Island {
         let (lod0, material) = generate_detail_lod0(lod0, material, context, &mut scratch)?;
         let FinalRiverGeneration {
             mut lod0,
-            material,
+            mut material,
             rivers,
             mut river_mesh,
             river_bed,
@@ -435,6 +436,7 @@ impl Island {
             context.river_source_rule,
             options.river_channel_settings(),
         )?;
+        optimize_finished_terrain_surface(&mut lod0, &mut material, &river_bed);
         let lod0_index = {
             let _timer = StageTimer::new("lod.simplify");
             regenerate_lods(&mut lod0, &mut lod1, &mut lod2)
@@ -990,6 +992,209 @@ pub(super) fn generate_base(
     Ok((mesh, material))
 }
 
+fn mutate_surface_preserving_material_volume(
+    mesh: &mut Mesh,
+    material: &mut SurfaceMaterial,
+    mutation: impl FnOnce(&mut Mesh) -> usize,
+) -> usize {
+    let deposited_volume = material.volume(mesh);
+    let mutations = mutation(mesh);
+    if mutations > 0 {
+        material.rescale_to_volume(mesh, deposited_volume);
+    }
+    mutations
+}
+
+fn optimize_finished_terrain_surface(
+    mesh: &mut Mesh,
+    material: &mut SurfaceMaterial,
+    river_bed: &[bool],
+) -> usize {
+    const PROTECTED_COAST_HEIGHT_METRES: f32 = 1.0;
+
+    debug_assert_eq!(river_bed.len(), mesh.vertices.len());
+    let perimeter = mesh.perimeter_mask();
+    let centroid_repairs = mutate_surface_preserving_material_volume(mesh, material, |mesh| {
+        repair_projected_foldover_vertices(mesh, &perimeter)
+    });
+
+    let protected_height = PROTECTED_COAST_HEIGHT_METRES / ISLAND_WORLD_METRES;
+    let mut protected_vertices = vec![false; mesh.vertices.len()];
+    let mut protected_edges = HashSet::<(u32, u32)>::new();
+    for triangle in mesh.triangles.chunks_exact(3).filter(|triangle| {
+        triangle.iter().any(|&vertex| {
+            river_bed[vertex as usize] || mesh.vertices[vertex as usize].z <= protected_height
+        })
+    }) {
+        let [a, b, c] = [triangle[0], triangle[1], triangle[2]];
+        for vertex in [a, b, c] {
+            protected_vertices[vertex as usize] = true;
+        }
+        protected_edges.extend([
+            (a.min(b), a.max(b)),
+            (b.min(c), b.max(c)),
+            (c.min(a), c.max(a)),
+        ]);
+    }
+    let refinements = mutate_surface_preserving_material_volume(mesh, material, |mesh| {
+        let repairs = mesh.repair_projected_foldovers_preserving(|a, b| {
+            protected_edges.contains(&(a.min(b), a.max(b)))
+        });
+        let vertex_repairs = repair_projected_foldover_vertices(mesh, &protected_vertices);
+        repairs + vertex_repairs
+    });
+    centroid_repairs + refinements
+}
+
+fn repair_projected_foldover_vertices(mesh: &mut Mesh, protected: &[bool]) -> usize {
+    const MAXIMUM_REPAIR_PASSES: usize = 32;
+
+    debug_assert_eq!(protected.len(), mesh.vertices.len());
+    let mut incident_faces = vec![Vec::<usize>::new(); mesh.vertices.len()];
+    for (face, triangle) in mesh.triangles.chunks_exact(3).enumerate() {
+        for vertex in triangle.iter().map(|&vertex| vertex as usize) {
+            incident_faces[vertex].push(face);
+        }
+    }
+    let mut total_repairs = 0;
+    for _ in 0..MAXIMUM_REPAIR_PASSES {
+        let folded_faces: Vec<usize> = (0..mesh.triangles.len() / 3)
+            .filter(|&face| projected_face_area(mesh, face) <= 0.0)
+            .collect();
+        if folded_faces.is_empty() {
+            break;
+        }
+
+        let mut pass_repairs = 0;
+        for face in folded_faces {
+            if projected_face_area(mesh, face) > 0.0 {
+                continue;
+            }
+            let offset = face * 3;
+            let candidate = mesh.triangles[offset..offset + 3]
+                .iter()
+                .map(|&vertex| vertex as usize)
+                .filter(|&vertex| !protected[vertex])
+                .filter_map(|vertex| {
+                    one_ring_centroid_candidate(mesh, &incident_faces[vertex], vertex)
+                        .map(|(position, minimum_area)| (vertex, position, minimum_area))
+                })
+                .max_by(
+                    |(left_vertex, left, left_area), (right_vertex, right, right_area)| {
+                        left_area
+                            .total_cmp(right_area)
+                            .then_with(|| {
+                                right
+                                    .distance_squared(mesh.vertices[*right_vertex])
+                                    .total_cmp(&left.distance_squared(mesh.vertices[*left_vertex]))
+                            })
+                            .then_with(|| right_vertex.cmp(left_vertex))
+                    },
+                );
+            if let Some((vertex, candidate, _)) = candidate {
+                mesh.vertices[vertex] = candidate;
+                pass_repairs += 1;
+            }
+        }
+        total_repairs += pass_repairs;
+        if pass_repairs == 0 {
+            break;
+        }
+    }
+
+    if total_repairs > 0 {
+        if !mesh.uv.is_empty() {
+            mesh.uv
+                .iter_mut()
+                .zip(&mesh.vertices)
+                .for_each(|(uv, vertex)| *uv = vertex.truncate());
+        }
+        mesh.calculate_normals();
+    }
+    total_repairs
+}
+
+fn one_ring_centroid_candidate(mesh: &Mesh, faces: &[usize], vertex: usize) -> Option<(Vec3, f32)> {
+    const MAXIMUM_PROJECTION_PASSES: usize = 64;
+    const MINIMUM_AREA_FRACTION: f32 = 0.01;
+    const MINIMUM_AREA: f32 = 1.0e-12;
+
+    let mut neighbours: Vec<usize> = faces
+        .iter()
+        .flat_map(|&face| {
+            let offset = face * 3;
+            mesh.triangles[offset..offset + 3]
+                .iter()
+                .map(|&candidate| candidate as usize)
+        })
+        .filter(|&candidate| candidate != vertex)
+        .collect();
+    neighbours.sort_unstable();
+    neighbours.dedup();
+    if neighbours.len() < 2 {
+        return None;
+    }
+    let centroid = neighbours
+        .iter()
+        .map(|&neighbour| mesh.vertices[neighbour].truncate())
+        .sum::<Vec2>()
+        / neighbours.len() as f32;
+    let candidate = Vec3::new(centroid.x, centroid.y, mesh.vertices[vertex].z);
+    let current_minimum = faces
+        .iter()
+        .map(|&face| projected_face_area(mesh, face))
+        .fold(f32::INFINITY, f32::min);
+    let candidate_minimum = faces
+        .iter()
+        .map(|&face| projected_face_area_with_vertex(mesh, face, vertex, candidate))
+        .fold(f32::INFINITY, f32::min);
+    if !candidate.is_finite() || !candidate_minimum.is_finite() {
+        return None;
+    }
+    if candidate_minimum > 0.0 {
+        return Some((candidate, candidate_minimum));
+    }
+
+    let target_area = (faces
+        .iter()
+        .map(|&face| projected_face_area(mesh, face).abs())
+        .sum::<f32>()
+        / faces.len().max(1) as f32
+        * MINIMUM_AREA_FRACTION)
+        .max(MINIMUM_AREA);
+    let mut projected = candidate;
+    for _ in 0..MAXIMUM_PROJECTION_PASSES {
+        let mut complete = true;
+        for &face in faces {
+            let area = projected_face_area_with_vertex(mesh, face, vertex, projected);
+            if area >= target_area {
+                continue;
+            }
+            let gradient = Vec2::new(
+                projected_face_area_with_vertex(mesh, face, vertex, projected + Vec3::X) - area,
+                projected_face_area_with_vertex(mesh, face, vertex, projected + Vec3::Y) - area,
+            );
+            let gradient_length_squared = gradient.length_squared();
+            if gradient_length_squared <= f32::MIN_POSITIVE || !gradient_length_squared.is_finite()
+            {
+                return None;
+            }
+            projected += (gradient * ((target_area - area) / gradient_length_squared)).extend(0.0);
+            complete = false;
+        }
+        if complete {
+            let minimum_area = faces
+                .iter()
+                .map(|&face| projected_face_area_with_vertex(mesh, face, vertex, projected))
+                .fold(f32::INFINITY, f32::min);
+            return (projected.is_finite() && minimum_area > 0.0)
+                .then_some((projected, minimum_area));
+        }
+    }
+
+    (candidate_minimum > current_minimum + 1.0e-12).then_some((candidate, candidate_minimum))
+}
+
 pub(super) fn generate_lod2(
     base: &Mesh,
     material: SurfaceMaterial,
@@ -1075,9 +1280,11 @@ pub(super) fn generate_broad_lod0(
     let _timer = StageTimer::new("generation.lod0.broad");
     let tessellation = lod1.tessellated_displaced_attributed(DETAIL_DISPLACEMENT_RATIO);
     let (mut mesh, mut material) = material.into_tessellated(lod1, tessellation);
-    let deposited_volume = material.volume(&mesh);
-    mesh.optimize_surface_triangulation();
-    material.rescale_to_volume(&mesh, deposited_volume);
+    mutate_surface_preserving_material_volume(
+        &mut mesh,
+        &mut material,
+        Mesh::optimize_surface_triangulation,
+    );
     let adjacency = mesh.adjacency();
     mesh.smooth_with(&adjacency);
     hydraulic_erode_stage(
@@ -1343,6 +1550,87 @@ mod sea_proximity_tests {
     use std::io::Cursor;
 
     use super::*;
+
+    #[test]
+    fn tessellation_edge_flips_preserve_deposited_material_volume() {
+        let mut mesh = Mesh {
+            vertices: vec![
+                Vec3::new(0.0, 0.0, 0.0),
+                Vec3::new(2.0, 0.0, 0.0),
+                Vec3::new(2.0, 1.0, 8.0),
+                Vec3::new(0.0, 1.0, 0.0),
+            ],
+            triangles: vec![0, 1, 2, 0, 2, 3],
+            ..Mesh::default()
+        };
+        mesh.calculate_normals();
+        let mut material = SurfaceMaterial::empty(mesh.vertices.len());
+        material.depths_mut().copy_from_slice(&[0.1, 0.2, 0.4, 0.8]);
+        let volume = material.volume(&mesh);
+
+        let flips = mutate_surface_preserving_material_volume(
+            &mut mesh,
+            &mut material,
+            Mesh::optimize_surface_triangulation,
+        );
+
+        assert_eq!(flips, 1);
+        assert_eq!(material.depths().len(), mesh.vertices.len());
+        assert!((material.volume(&mesh) - volume).abs() <= volume * 1.0e-6);
+    }
+
+    #[test]
+    fn local_vertex_repair_untangles_a_fold_with_no_valid_diagonal() {
+        let mut mesh = Mesh {
+            vertices: vec![
+                Vec3::new(0.0, 0.0, 1.0),
+                Vec3::new(1.0, 0.0, 2.0),
+                Vec3::new(-0.1, 0.5, 3.0),
+                Vec3::new(0.0, 1.0, 4.0),
+            ],
+            triangles: vec![0, 1, 2, 0, 2, 3],
+            ..Mesh::default()
+        };
+        let original_heights: Vec<f32> = mesh.vertices.iter().map(|vertex| vertex.z).collect();
+
+        assert_eq!(mesh.projected_foldover_count(), 1);
+        assert_eq!(mesh.repair_projected_foldovers_preserving(|_, _| false), 0);
+        let repairs = repair_projected_foldover_vertices(&mut mesh, &[false; 4]);
+
+        assert_eq!(repairs, 1);
+        assert_eq!(mesh.projected_foldover_count(), 0);
+        assert_eq!(
+            mesh.vertices
+                .iter()
+                .map(|vertex| vertex.z)
+                .collect::<Vec<_>>(),
+            original_heights
+        );
+    }
+
+    #[test]
+    fn local_vertex_repair_moves_a_folded_apex_to_its_one_ring_centroid() {
+        let mut mesh = Mesh {
+            vertices: vec![
+                Vec3::new(0.0, 0.0, 0.0),
+                Vec3::new(1.0, 0.0, 0.0),
+                Vec3::new(1.0, 1.0, 0.0),
+                Vec3::new(0.0, 1.0, 0.0),
+                Vec3::new(1.2, 0.5, 2.0),
+            ],
+            triangles: vec![4, 0, 1, 4, 1, 2, 4, 2, 3, 4, 3, 0],
+            ..Mesh::default()
+        };
+
+        assert_eq!(mesh.projected_foldover_count(), 1);
+        let repairs =
+            repair_projected_foldover_vertices(&mut mesh, &[true, true, true, true, false]);
+
+        assert_eq!(repairs, 1);
+        assert_eq!(mesh.projected_foldover_count(), 0);
+        assert_eq!(mesh.vertices[4], Vec3::new(0.5, 0.5, 2.0));
+        assert_eq!(mesh.triangles.len(), 12);
+    }
 
     #[test]
     fn sea_proximity_stays_full_for_two_metres_then_fades_to_twenty() {

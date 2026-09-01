@@ -127,6 +127,15 @@ impl WaterfallPatch {
         )
     }
 
+    /// Limits geometric waterfall bands to the part of this river that owns
+    /// the lip. A remote bend can cross the same world-space band without
+    /// becoming part of the waterfall face.
+    pub(super) fn owns_local_channel(self, owner: RiverOwnerKey) -> bool {
+        owner.river == self.river
+            && owner.node.saturating_add(1) >= self.segment
+            && owner.node <= self.segment.saturating_add(1)
+    }
+
     pub(super) fn downstream_extent(self) -> f32 {
         let landing = self.support_run + self.half_width * WATERFALL_LANDING_LENGTH_MULTIPLIER;
         self.pool.map_or(landing, |pool| {
@@ -441,7 +450,13 @@ fn tessellate_final_waterfall_faces(
         let face = terrain
             .vertices
             .iter()
-            .map(|position| patch.contains_face_point(position.truncate()))
+            .zip(&buffers.coverage)
+            .zip(&buffers.owners)
+            .map(|((position, &remaining), &owner)| {
+                remaining != 0
+                    && owner.is_some_and(|owner| patch.owns_local_channel(owner))
+                    && patch.contains_face_point(position.truncate())
+            })
             .collect::<Vec<_>>();
         let flow_band = terrain
             .vertices
@@ -452,10 +467,22 @@ fn tessellate_final_waterfall_faces(
             .coverage
             .iter()
             .zip(&flow_band)
-            .map(|(&remaining, &inside_band)| remaining != 0 && inside_band)
+            .zip(&buffers.owners)
+            .map(|((&remaining, &inside_band), &owner)| {
+                remaining != 0
+                    && inside_band
+                    && owner.is_some_and(|owner| patch.owns_local_channel(owner))
+            })
+            .collect::<Vec<_>>();
+        let apron_eligible = flow_band
+            .iter()
+            .zip(&buffers.owners)
+            .map(|(&inside_band, &owner)| {
+                inside_band && owner.is_none_or(|owner| patch.owns_local_channel(owner))
+            })
             .collect::<Vec<_>>();
         let face_to_bank_apron =
-            expand_vertex_mask_to_banks(&adjacency, &face, &eligible, &flow_band, &banks);
+            expand_vertex_mask_to_banks(&adjacency, &face, &eligible, &apron_eligible, &banks);
         marked
             .iter_mut()
             .zip(face_to_bank_apron)
@@ -545,8 +572,10 @@ pub(super) fn recess_waterfall_notches(
     material: &mut SurfaceMaterial,
     patches: &[WaterfallPatch],
     coverage: &[u8],
+    river_owners: &[Option<RiverOwnerKey>],
 ) -> Vec<Option<usize>> {
     debug_assert_eq!(terrain.vertices.len(), coverage.len());
+    debug_assert_eq!(terrain.vertices.len(), river_owners.len());
     let adjacency = terrain.adjacency();
     let perimeter = terrain.perimeter_mask();
     let banks = coverage
@@ -560,7 +589,7 @@ pub(super) fn recess_waterfall_notches(
                         .any(|&neighbour| coverage[neighbour] == 0))
         })
         .collect::<Vec<_>>();
-    let mut owners = vec![None::<usize>; terrain.vertices.len()];
+    let mut notch_owners = vec![None::<usize>; terrain.vertices.len()];
     let mut targets = terrain
         .vertices
         .iter()
@@ -575,8 +604,11 @@ pub(super) fn recess_waterfall_notches(
             .vertices
             .iter()
             .zip(coverage)
-            .map(|(position, &remaining)| {
-                remaining != 0 && patch.contains_face_point(position.truncate())
+            .zip(river_owners)
+            .map(|((position, &remaining), &owner)| {
+                remaining != 0
+                    && owner.is_some_and(|owner| patch.owns_local_channel(owner))
+                    && patch.contains_face_point(position.truncate())
             })
             .collect::<Vec<_>>();
         seeds[patch.upper_vertex] = true;
@@ -584,8 +616,11 @@ pub(super) fn recess_waterfall_notches(
             .vertices
             .iter()
             .zip(coverage)
-            .map(|(position, &remaining)| {
-                remaining != 0 && patch.contains_face_flow_band(position.truncate())
+            .zip(river_owners)
+            .map(|((position, &remaining), &owner)| {
+                remaining != 0
+                    && owner.is_some_and(|owner| patch.owns_local_channel(owner))
+                    && patch.contains_face_flow_band(position.truncate())
             })
             .collect::<Vec<_>>();
         let face = expand_vertex_mask_through_river_to_banks(&adjacency, &seeds, &eligible, &banks);
@@ -599,8 +634,8 @@ pub(super) fn recess_waterfall_notches(
             } else {
                 patch.lower_floor
             };
-            if owners[vertex].is_none() || target < targets[vertex] {
-                owners[vertex] = Some(patch_index);
+            if notch_owners[vertex].is_none() || target < targets[vertex] {
+                notch_owners[vertex] = Some(patch_index);
                 targets[vertex] = targets[vertex].min(target);
             }
         }
@@ -616,14 +651,14 @@ pub(super) fn recess_waterfall_notches(
                 continue;
             }
             let target = patch.lower_floor - depth;
-            if owners[vertex].is_none() || target < targets[vertex] {
-                owners[vertex] = Some(patch_index);
+            if notch_owners[vertex].is_none() || target < targets[vertex] {
+                notch_owners[vertex] = Some(patch_index);
                 targets[vertex] = targets[vertex].min(target);
             }
         }
     }
 
-    for (vertex, owner) in owners.iter().enumerate() {
+    for (vertex, owner) in notch_owners.iter().enumerate() {
         if owner.is_none() {
             continue;
         }
@@ -631,7 +666,7 @@ pub(super) fn recess_waterfall_notches(
         material.depths_mut()[vertex] = 0.0;
     }
 
-    owners
+    notch_owners
 }
 
 /// Applies the final unconstrained relaxation to each tessellated waterfall,
@@ -645,9 +680,11 @@ pub(super) fn smooth_final_waterfall_patches(
     surfaces: &mut [f32],
     patches: &[WaterfallPatch],
     coverage: &[u8],
+    owners: &[Option<RiverOwnerKey>],
 ) -> usize {
     debug_assert_eq!(terrain.vertices.len(), surfaces.len());
     debug_assert_eq!(terrain.vertices.len(), coverage.len());
+    debug_assert_eq!(terrain.vertices.len(), owners.len());
     if patches.is_empty() {
         return 0;
     }
@@ -655,7 +692,7 @@ pub(super) fn smooth_final_waterfall_patches(
     let adjacency = terrain.adjacency();
     let perimeter = terrain.perimeter_mask();
     let selected =
-        waterfall_face_bank_apron_mask(terrain, patches, coverage, &adjacency, &perimeter);
+        waterfall_face_bank_apron_mask(terrain, patches, coverage, owners, &adjacency, &perimeter);
     let mut snapshot = terrain.vertices.clone();
     let mut moved = vec![false; terrain.vertices.len()];
     for _ in 0..WATERFALL_EDGE_SMOOTHING_PASSES {
@@ -681,7 +718,7 @@ pub(super) fn smooth_final_waterfall_patches(
     }
 
     let banks = waterfall_bank_mask(&adjacency, &perimeter, coverage);
-    let zones = classify_waterfall_vertices(terrain, patches, coverage, &adjacency, &banks);
+    let zones = classify_waterfall_vertices(terrain, patches, coverage, owners, &adjacency, &banks);
     for (vertex, (&remaining, zone)) in coverage.iter().zip(zones).enumerate() {
         if remaining != 0
             && zone.is_some_and(|classification| classification.zone == WaterfallPlaneZone::Face)
@@ -710,13 +747,15 @@ pub(super) fn classify_waterfall_vertices(
     terrain: &Mesh,
     patches: &[WaterfallPatch],
     coverage: &[u8],
+    owners: &[Option<RiverOwnerKey>],
     adjacency: &Adjacency,
     banks: &[bool],
 ) -> Vec<Option<WaterfallVertexPlaneZone>> {
+    debug_assert_eq!(terrain.vertices.len(), owners.len());
     let mut zones = vec![None::<WaterfallVertexPlaneZone>; terrain.vertices.len()];
     for (patch_index, &patch) in patches.iter().enumerate() {
         let selected =
-            waterfall_side_bank_apron_for_patch(terrain, patch, coverage, adjacency, banks);
+            waterfall_side_bank_apron_for_patch(terrain, patch, coverage, owners, adjacency, banks);
         for (vertex, &is_selected) in selected.iter().enumerate() {
             if !is_selected {
                 continue;
@@ -760,7 +799,7 @@ pub(super) fn enforce_final_waterfall_edge_relationships(
     let adjacency = terrain.adjacency();
     let perimeter = terrain.perimeter_mask();
     let banks = waterfall_bank_mask(&adjacency, &perimeter, coverage);
-    let zones = classify_waterfall_vertices(terrain, patches, coverage, &adjacency, &banks);
+    let zones = classify_waterfall_vertices(terrain, patches, coverage, owners, &adjacency, &banks);
     let levels =
         final_waterfall_channel_levels(terrain, surfaces, patches, coverage, &banks, &zones);
     let (mut adjusted, reaches) = enforce_waterfall_reach_surface_levels(
@@ -886,7 +925,7 @@ pub(super) fn smooth_pinned_waterfall_terrain(
             .map(|((&owner, &remaining), &inside_band)| {
                 remaining != 0
                     && inside_band
-                    && owner.is_some_and(|owner| owner.river == patch.river)
+                    && owner.is_some_and(|owner| patch.owns_local_channel(owner))
             })
             .collect::<Vec<_>>();
         let apron =
@@ -1043,16 +1082,26 @@ pub(super) fn enforce_waterfall_reach_surface_levels(
         let mut on_face = false;
         for &patch_index in river_patches {
             let patch = patches[patch_index];
+            // Refined footprint ownership can lag the geometric face by one
+            // node. Only that immediate neighbourhood needs plane geometry;
+            // farther reaches must follow river topology so bends and joins
+            // cannot be mistaken for the opposite side of a waterfall.
+            if owner.node.saturating_add(1) < patch.segment {
+                next = Some(patch_index);
+                break;
+            }
+            if owner.node > patch.segment.saturating_add(1) {
+                previous = Some(patch_index);
+                continue;
+            }
+
             match patch.plane_zone(point) {
-                WaterfallPlaneZone::BeforeLip => {
-                    next = Some(patch_index);
-                    break;
-                }
-                WaterfallPlaneZone::Face => {
-                    on_face = true;
-                    break;
-                }
+                WaterfallPlaneZone::BeforeLip => next = Some(patch_index),
+                WaterfallPlaneZone::Face => on_face = true,
                 WaterfallPlaneZone::AfterFoot => previous = Some(patch_index),
+            }
+            if on_face || next.is_some() {
+                break;
             }
         }
         if on_face || (previous.is_none() && next.is_none()) {
@@ -1088,15 +1137,20 @@ pub(super) fn waterfall_side_bank_apron_for_patch(
     terrain: &Mesh,
     patch: WaterfallPatch,
     coverage: &[u8],
+    owners: &[Option<RiverOwnerKey>],
     adjacency: &Adjacency,
     banks: &[bool],
 ) -> Vec<bool> {
+    debug_assert_eq!(terrain.vertices.len(), owners.len());
     let seeds = terrain
         .vertices
         .iter()
         .zip(coverage)
-        .map(|(position, &remaining)| {
-            remaining != 0 && patch.contains_face_point(position.truncate())
+        .zip(owners)
+        .map(|((position, &remaining), &owner)| {
+            remaining != 0
+                && owner.is_some_and(|owner| patch.owns_local_channel(owner))
+                && patch.contains_face_point(position.truncate())
         })
         .collect::<Vec<_>>();
     let constraint_band = terrain
@@ -1107,9 +1161,21 @@ pub(super) fn waterfall_side_bank_apron_for_patch(
     let eligible = coverage
         .iter()
         .zip(&constraint_band)
-        .map(|(&remaining, &inside_band)| remaining != 0 && inside_band)
+        .zip(owners)
+        .map(|((&remaining, &inside_band), &owner)| {
+            remaining != 0
+                && inside_band
+                && owner.is_some_and(|owner| patch.owns_local_channel(owner))
+        })
         .collect::<Vec<_>>();
-    expand_vertex_mask_to_banks(adjacency, &seeds, &eligible, &constraint_band, banks)
+    let apron_eligible = constraint_band
+        .iter()
+        .zip(owners)
+        .map(|(&inside_band, &owner)| {
+            inside_band && owner.is_none_or(|owner| patch.owns_local_channel(owner))
+        })
+        .collect::<Vec<_>>();
+    expand_vertex_mask_to_banks(adjacency, &seeds, &eligible, &apron_eligible, banks)
 }
 
 /// Rebuilds waterfall support from the final positions and the exact lip/foot
@@ -1135,7 +1201,7 @@ pub(super) fn rebuild_final_waterfall_support_mask(
         };
         let point = terrain.vertices[vertex].truncate();
         let is_face = patches.iter().any(|patch| {
-            patch.river == owner.river && patch.plane_zone(point) == WaterfallPlaneZone::Face
+            patch.owns_local_channel(owner) && patch.plane_zone(point) == WaterfallPlaneZone::Face
         });
         if !is_face {
             continue;
@@ -1153,15 +1219,18 @@ pub(super) fn waterfall_face_bank_apron_mask(
     terrain: &Mesh,
     patches: &[WaterfallPatch],
     coverage: &[u8],
+    owners: &[Option<RiverOwnerKey>],
     adjacency: &Adjacency,
     perimeter: &[bool],
 ) -> Vec<bool> {
+    debug_assert_eq!(terrain.vertices.len(), owners.len());
     let banks = waterfall_bank_mask(adjacency, perimeter, coverage);
     let mut selected = vec![false; terrain.vertices.len()];
 
     for patch in patches {
-        let face_to_bank_apron =
-            waterfall_face_bank_apron_for_patch(terrain, *patch, coverage, adjacency, &banks);
+        let face_to_bank_apron = waterfall_face_bank_apron_for_patch(
+            terrain, *patch, coverage, owners, adjacency, &banks,
+        );
         selected
             .iter_mut()
             .zip(face_to_bank_apron)
@@ -1192,15 +1261,20 @@ pub(super) fn waterfall_face_bank_apron_for_patch(
     terrain: &Mesh,
     patch: WaterfallPatch,
     coverage: &[u8],
+    owners: &[Option<RiverOwnerKey>],
     adjacency: &Adjacency,
     banks: &[bool],
 ) -> Vec<bool> {
+    debug_assert_eq!(terrain.vertices.len(), owners.len());
     let face = terrain
         .vertices
         .iter()
         .zip(coverage)
-        .map(|(position, &remaining)| {
-            remaining != 0 && patch.contains_face_point(position.truncate())
+        .zip(owners)
+        .map(|((position, &remaining), &owner)| {
+            remaining != 0
+                && owner.is_some_and(|owner| patch.owns_local_channel(owner))
+                && patch.contains_face_point(position.truncate())
         })
         .collect::<Vec<_>>();
     let smoothing_band = terrain
@@ -1211,9 +1285,105 @@ pub(super) fn waterfall_face_bank_apron_for_patch(
     let eligible = coverage
         .iter()
         .zip(&smoothing_band)
-        .map(|(&remaining, &inside_band)| remaining != 0 && inside_band)
+        .zip(owners)
+        .map(|((&remaining, &inside_band), &owner)| {
+            remaining != 0
+                && inside_band
+                && owner.is_some_and(|owner| patch.owns_local_channel(owner))
+        })
         .collect::<Vec<_>>();
-    expand_vertex_mask_to_banks(adjacency, &face, &eligible, &smoothing_band, banks)
+    let apron_eligible = smoothing_band
+        .iter()
+        .zip(owners)
+        .map(|(&inside_band, &owner)| {
+            inside_band && owner.is_none_or(|owner| patch.owns_local_channel(owner))
+        })
+        .collect::<Vec<_>>();
+    expand_vertex_mask_to_banks(adjacency, &face, &eligible, &apron_eligible, banks)
+}
+
+/// Repairs the rare final-pass failure where a bank immediately behind the
+/// lip is averaged down toward a neighbouring cliff. Only banks that satisfy
+/// the existing collapse detector are raised, and each is restored to the
+/// analytic waterfall profile at its along-flow position.
+pub(super) fn repair_collapsed_waterfall_banks(
+    terrain: &mut Mesh,
+    surfaces: &mut [f32],
+    patches: &[WaterfallPatch],
+    coverage: &[u8],
+    owners: &[Option<RiverOwnerKey>],
+) -> usize {
+    debug_assert_eq!(terrain.vertices.len(), surfaces.len());
+    debug_assert_eq!(terrain.vertices.len(), coverage.len());
+    debug_assert_eq!(terrain.vertices.len(), owners.len());
+    let adjacency = terrain.adjacency();
+    let perimeter = terrain.perimeter_mask();
+    let banks = waterfall_bank_mask(&adjacency, &perimeter, coverage);
+    let mut targets = vec![f32::NEG_INFINITY; terrain.vertices.len()];
+
+    for &patch in patches {
+        let apron = waterfall_face_bank_apron_for_patch(
+            terrain, patch, coverage, owners, &adjacency, &banks,
+        );
+        for vertex in 0..terrain.vertices.len() {
+            if !banks[vertex] || !apron[vertex] {
+                continue;
+            }
+            if let Some(target) =
+                collapsed_waterfall_bank_target(terrain, &adjacency, patch, vertex)
+            {
+                targets[vertex] = targets[vertex].max(target);
+            }
+        }
+    }
+
+    let mut repaired = 0;
+    for (vertex, target) in targets.into_iter().enumerate() {
+        if !target.is_finite() || target <= terrain.vertices[vertex].z {
+            continue;
+        }
+        terrain.vertices[vertex].z = target;
+        surfaces[vertex] = surfaces[vertex].max(target + WATERFALL_WATER_CLEARANCE);
+        repaired += 1;
+    }
+    repaired
+}
+
+fn collapsed_waterfall_bank_target(
+    terrain: &Mesh,
+    adjacency: &Adjacency,
+    patch: WaterfallPatch,
+    vertex: usize,
+) -> Option<f32> {
+    let drop = patch.upper_surface - patch.lower_surface;
+    if drop <= RIVER_SURFACE_OFFSET {
+        return None;
+    }
+    let position = terrain.vertices[vertex];
+    let low_bank_ceiling = drop.mul_add(-WATERFALL_FINAL_BANK_DROP_FRACTION, patch.upper_surface);
+    if position.z > low_bank_ceiling {
+        return None;
+    }
+    let (along, _) = patch.local_coordinates(position.truncate());
+    if !(-3.0 * WATERFALL_TARGET_EDGE_LENGTH..=-WATERFALL_TARGET_EDGE_LENGTH * 0.5).contains(&along)
+    {
+        return None;
+    }
+    let minimum_edge_drop = drop * WATERFALL_FINAL_BANK_EDGE_DROP_FRACTION;
+    let has_high_neighbour = adjacency[vertex].iter().any(|&neighbour| {
+        let neighbour_position = terrain.vertices[neighbour];
+        let (neighbour_along, _) = patch.local_coordinates(neighbour_position.truncate());
+        neighbour_along <= WATERFALL_TARGET_EDGE_LENGTH * 0.25
+            && neighbour_position.z - position.z >= minimum_edge_drop
+    });
+    if !has_high_neighbour {
+        return None;
+    }
+    let surface = patch
+        .face_surface_at(position.truncate())
+        .unwrap_or(patch.upper_surface);
+    let target = surface - WATERFALL_WATER_CLEARANCE;
+    (target > position.z).then_some(target)
 }
 
 /// Detects the characteristic failed final waterfall where smoothing has
@@ -1224,7 +1394,9 @@ pub(super) fn detect_failed_final_waterfalls(
     terrain: &Mesh,
     patches: &[WaterfallPatch],
     coverage: &[u8],
+    owners: &[Option<RiverOwnerKey>],
 ) -> Vec<usize> {
+    debug_assert_eq!(terrain.vertices.len(), owners.len());
     let adjacency = terrain.adjacency();
     let perimeter = terrain.perimeter_mask();
     let banks = waterfall_bank_mask(&adjacency, &perimeter, coverage);
@@ -1235,33 +1407,14 @@ pub(super) fn detect_failed_final_waterfalls(
         if drop <= RIVER_SURFACE_OFFSET {
             continue;
         }
-        let apron =
-            waterfall_face_bank_apron_for_patch(terrain, patch, coverage, &adjacency, &banks);
-        let low_bank_ceiling =
-            drop.mul_add(-WATERFALL_FINAL_BANK_DROP_FRACTION, patch.upper_surface);
-        let minimum_edge_drop = drop * WATERFALL_FINAL_BANK_EDGE_DROP_FRACTION;
-        let malformed = terrain
-            .vertices
-            .iter()
-            .enumerate()
-            .any(|(vertex, position)| {
-                if !banks[vertex] || !apron[vertex] || position.z > low_bank_ceiling {
-                    return false;
-                }
-                let (along, _) = patch.local_coordinates(position.truncate());
-                if !(-3.0 * WATERFALL_TARGET_EDGE_LENGTH..=-WATERFALL_TARGET_EDGE_LENGTH * 0.5)
-                    .contains(&along)
-                {
-                    return false;
-                }
-                adjacency[vertex].iter().any(|&neighbour| {
-                    let neighbour_position = terrain.vertices[neighbour];
-                    let (neighbour_along, _) =
-                        patch.local_coordinates(neighbour_position.truncate());
-                    neighbour_along <= WATERFALL_TARGET_EDGE_LENGTH * 0.25
-                        && neighbour_position.z - position.z >= minimum_edge_drop
-                })
-            });
+        let apron = waterfall_face_bank_apron_for_patch(
+            terrain, patch, coverage, owners, &adjacency, &banks,
+        );
+        let malformed = terrain.vertices.iter().enumerate().any(|(vertex, _)| {
+            banks[vertex]
+                && apron[vertex]
+                && collapsed_waterfall_bank_target(terrain, &adjacency, patch, vertex).is_some()
+        });
         if malformed {
             failed.push(patch.upper_vertex);
         }
@@ -1271,20 +1424,33 @@ pub(super) fn detect_failed_final_waterfalls(
     failed
 }
 
+#[derive(Clone, Copy)]
+pub(super) struct WaterfallPinEnvironment<'a> {
+    pub(super) terrain: &'a Mesh,
+    pub(super) patches: &'a [WaterfallPatch],
+    pub(super) notch_owners: &'a [Option<usize>],
+    pub(super) river_owners: &'a [Option<RiverOwnerKey>],
+}
+
 /// Pins the complete bank-to-bank upstream waterfall face. Downstream vertices
 /// retain their ordinary river heights and smoothing eligibility; their water
 /// is left at the hydraulic surface so local terrain projections pierce it
 /// rather than lifting the sheet into spikes.
 pub(super) fn pin_waterfalls_to_terrain(
-    terrain: &Mesh,
+    environment: WaterfallPinEnvironment<'_>,
     material: &mut SurfaceMaterial,
-    patches: &[WaterfallPatch],
-    notch_owners: &[Option<usize>],
     coverage: &mut [u8],
     surfaces: &mut [f32],
     waterfall_lips: &mut [bool],
 ) -> WaterfallTerrainConstraints {
+    let WaterfallPinEnvironment {
+        terrain,
+        patches,
+        notch_owners,
+        river_owners,
+    } = environment;
     debug_assert_eq!(terrain.vertices.len(), notch_owners.len());
+    debug_assert_eq!(terrain.vertices.len(), river_owners.len());
     let mut constraints = WaterfallTerrainConstraints {
         patch: vec![false; terrain.vertices.len()],
         pinned: vec![false; terrain.vertices.len()],
@@ -1323,13 +1489,21 @@ pub(super) fn pin_waterfalls_to_terrain(
         waterfall_lips[vertex] = along.abs() <= WATERFALL_TARGET_EDGE_LENGTH;
     }
 
-    for (vertex, (&remaining, position)) in coverage.iter().zip(&terrain.vertices).enumerate() {
+    for (vertex, ((&remaining, position), &river_owner)) in coverage
+        .iter()
+        .zip(&terrain.vertices)
+        .zip(river_owners)
+        .enumerate()
+    {
         if remaining == 0 {
             continue;
         }
         let lower_surface = patches
             .iter()
-            .filter(|patch| patch.contains_downstream_point(position.truncate()))
+            .filter(|patch| {
+                river_owner.is_some_and(|owner| patch.owns_local_channel(owner))
+                    && patch.contains_downstream_point(position.truncate())
+            })
             .map(|patch| patch.lower_surface)
             .fold(f32::INFINITY, f32::min);
         if !lower_surface.is_finite() {

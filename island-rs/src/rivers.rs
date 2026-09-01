@@ -56,12 +56,12 @@ use tracing::{
 };
 pub(crate) use waterfalls::WaterfallFoot;
 use waterfalls::{
-    WaterfallPatch, WaterfallTerrainConstraints, derive_waterfall_patches,
+    WaterfallPatch, WaterfallPinEnvironment, WaterfallTerrainConstraints, derive_waterfall_patches,
     detect_failed_final_waterfalls, enforce_final_waterfall_edge_relationships,
     enforce_waterfall_downstream_ceiling, expand_vertex_mask_through_river_to_banks,
     pin_waterfalls_to_terrain, rebuild_final_waterfall_support_mask, recess_waterfall_notches,
-    smooth_final_waterfall_patches, smooth_pinned_waterfall_terrain, smoothstep,
-    squish_waterfall_downstream_spikes,
+    repair_collapsed_waterfall_banks, smooth_final_waterfall_patches,
+    smooth_pinned_waterfall_terrain, smoothstep, squish_waterfall_downstream_spikes,
 };
 
 #[cfg(test)]
