@@ -80,12 +80,12 @@ fn spawn_sun(mut commands: Commands, weather: Res<Weather>) {
         // other two components are the cloud layer's: `clouds` scales it to the
         // cloud field's own tile, and `weather` drifts the translation downwind.
         Transform::default().looking_to(look.sun_direction, Vec3::Y),
-        // The cascades have to reach across the whole two kilometre island
-        // while still resolving relief near the camera.
+        // The cascades reach across the whole two kilometre island while still
+        // resolving relief near the camera.
         CascadeShadowConfigBuilder {
             num_cascades: 4,
             minimum_distance: 1.0,
-            maximum_distance: ISLAND_WORLD_METRES * 2.5,
+            maximum_distance: ISLAND_WORLD_METRES,
             first_cascade_far_bound: 250.0,
             overlap_proportion: 0.2,
         }

@@ -24,9 +24,10 @@ use std::{env, path::PathBuf, process, time::Duration};
 use bevy::{
     app::ScheduleRunnerPlugin,
     prelude::*,
-    window::{ExitCondition, WindowResolution},
+    window::{ExitCondition, PresentMode, WindowResolution},
     winit::WinitPlugin,
 };
+use island_tree::{BarkMaterialPlugin, LeafMaterialPlugin};
 use motu::{GenerationMethod, IslandOptions};
 
 use crate::{
@@ -129,6 +130,7 @@ fn main() {
             primary_window: Some(Window {
                 title: String::from("Motu island"),
                 resolution: WindowResolution::new(WINDOW_RESOLUTION.x, WINDOW_RESOLUTION.y),
+                present_mode: PresentMode::AutoNoVsync,
                 ..default()
             }),
             ..default()
@@ -157,6 +159,8 @@ fn main() {
             cache_reads: !command.no_cache,
         })
         .add_plugins((
+            BarkMaterialPlugin,
+            LeafMaterialPlugin,
             IslandGenPlugin,
             // Counts what the culling stages left standing, which is what the
             // capture log and the panel both report.

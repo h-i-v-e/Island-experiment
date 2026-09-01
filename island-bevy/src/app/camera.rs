@@ -25,8 +25,11 @@ use bevy::{
     camera::{Exposure, Hdr},
     core_pipeline::tonemapping::Tonemapping,
     input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll, MouseScrollUnit},
-    light::AtmosphereEnvironmentMapLight,
-    pbr::{AtmosphereSettings, ContactShadows, ScreenSpaceAmbientOcclusion},
+    light::{AtmosphereEnvironmentMapLight, ShadowFilteringMethod},
+    pbr::{
+        AtmosphereSettings, ContactShadows, ScreenSpaceAmbientOcclusion,
+        ScreenSpaceAmbientOcclusionQualityLevel,
+    },
     post_process::bloom::Bloom,
     prelude::*,
     window::{CursorGrabMode, CursorOptions, PrimaryWindow},
@@ -50,7 +53,7 @@ use crate::{island_gen::GeneratedIsland, screenshot::CaptureTarget};
 /// poses all sit on the south-east reach around (810, 530), the only eroded one
 /// with settled stones and a fall. It carries about 40 m of running water
 /// against the `default` channel's 100, so the wider views close in on it.
-const VIEWS: [View; 7] = [
+const VIEWS: [View; 8] = [
     // The whole island, far enough out at 700 m to hold it inside the frame.
     View {
         name: "overview",
@@ -141,12 +144,23 @@ const VIEWS: [View; 7] = [
             },
         )],
     },
+    // The mature procedural tree selected nearest the stream pose on seed 666.
+    // It is a repeatable integration review rather than a general showcase:
+    // trunk, crown, terrain seating and neighbouring scatter all share a frame.
+    View {
+        name: "tree-trial",
+        pose: ViewPose {
+            eye: Vec3::new(-532.0, 9.0, 338.5),
+            target: Vec3::new(-520.0, 14.5, 341.5),
+        },
+        variants: &[],
+    },
     // A diagnostic pose rather than a subject: far enough out that the terrain
     // grid's LOD 0 to LOD 1 handover falls across the middle of the island
     // instead of past its far corner. From here the near chunk centres stand
     // 1.5 km off and the far ones 3.9 km, so the frontier — and any crack it
-    // could open — runs through the frame. The six poses above are unchanged
-    // and remain the baseline every capture is read against.
+    // could open — runs through the frame. The established poses above remain
+    // the baseline every capture is read against.
     View {
         name: "chunk-seam",
         pose: ViewPose {
@@ -485,12 +499,18 @@ fn spawn_camera(mut commands: Commands, pose: Res<ViewPose>, capture: Option<Res
         AtmosphereSettings::default(),
         // The same atmosphere as an environment map, which is what fills
         // crevices now that there is no uniform ambient term.
-        AtmosphereEnvironmentMapLight::default(),
+        AtmosphereEnvironmentMapLight {
+            size: UVec2::splat(256),
+            ..default()
+        },
         // Temporal anti-aliasing needs multisampling off, and repays it by
         // resolving the stochastic occlusion and contact shadow passes.
-        Msaa::Off,
+        (ShadowFilteringMethod::Temporal, Msaa::Off),
         TemporalAntiAliasing::default(),
-        ScreenSpaceAmbientOcclusion::default(),
+        ScreenSpaceAmbientOcclusion {
+            quality_level: ScreenSpaceAmbientOcclusionQualityLevel::Medium,
+            ..default()
+        },
         ContactShadows {
             length: CONTACT_SHADOW_LENGTH,
             thickness: CONTACT_SHADOW_THICKNESS,

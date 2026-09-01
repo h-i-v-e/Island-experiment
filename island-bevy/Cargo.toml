@@ -38,6 +38,7 @@ bevy = { version = "0.19", default-features = false, features = [
 # with the `bevy` line above rather than on its own.
 bevy_egui = "0.42"
 island-rs = { path = "../island-rs", features = ["gpu-generation"] }
+island-tree = { path = "../island-tree" }
 
 [profile.dev]
 opt-level = 1
