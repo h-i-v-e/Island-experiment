@@ -12,8 +12,10 @@ internal static class MotuNative
         internal float waterRatio;
         internal float slopeMultiplier;
         internal float coastalSlopeMultiplier;
-        internal float removedCoastalErosionStrength;
-        internal float removedBeachFormationStrength;
+        // Reuses the two retired coastal-generation slots, preserving the
+        // offsets of the existing active fields in the native ABI.
+        internal float continentalNoiseFrequency;
+        internal float detailNoiseFrequency;
         internal float hydraulicErosionStrength;
         internal float hydraulicDepositionStrength;
         internal float hydraulicDepositionSlopeDegrees;
@@ -24,10 +26,12 @@ internal static class MotuNative
         internal float riverMaximumWidthMetres;
         internal float riverSourceDepthMetres;
         internal float riverMaximumDepthMetres;
+        internal float continentalNoiseStrength;
+        internal float detailNoiseStrength;
+        internal float landMassOffset;
     }
 
-    // Forest controls are kept in a separate native block so the historical
-    // MotuOptions ABI remains the 16-float terrain contract. The byte fields
+    // Forest controls are kept in a separate native block. The byte fields
     // intentionally use the platform's natural C/Rust alignment (three bytes
     // of padding before each following float).
     [StructLayout(LayoutKind.Sequential)]
@@ -40,6 +44,32 @@ internal static class MotuNative
         internal byte prototypeCount;
         internal float minimumScale;
         internal float maximumScale;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct ReedOptions
+    {
+        internal float bankWidthMetres;
+        internal float patchSizeMetres;
+        internal float coverageThreshold;
+        internal float spacingMetres;
+        internal float rushRatio;
+        internal float minimumHeightMetres;
+        internal float maximumHeightMetres;
+        internal float maximumSlopeDegrees;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct FernOptions
+    {
+        internal float barkClearanceMetres;
+        internal float outerRadiusMetres;
+        internal float spacingMetres;
+        internal float patchSizeMetres;
+        internal float coverageThreshold;
+        internal float minimumLengthMetres;
+        internal float maximumLengthMetres;
+        internal float maximumSlopeDegrees;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -83,6 +113,13 @@ internal static class MotuNative
             this.y = y;
             this.z = z;
         }
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct NativeVector2
+    {
+        internal float x;
+        internal float y;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -150,6 +187,15 @@ internal static class MotuNative
     }
 
     [StructLayout(LayoutKind.Sequential)]
+    internal struct ExportCloudWeatherMap
+    {
+        internal IntPtr handle;
+        internal int width;
+        internal int height;
+        internal IntPtr rgba;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
     internal struct MaterialInputs
     {
         internal float dirtRed;
@@ -207,15 +253,33 @@ internal static class MotuNative
     }
 
     [StructLayout(LayoutKind.Sequential)]
-    internal struct RiverEmitterExport
+    internal struct WaterfallFootExport
     {
         internal NativeVector3 position;
         internal NativeVector3 direction;
-        internal float strength;
+        internal float halfWidth;
+        internal float drop;
     }
 
     [StructLayout(LayoutKind.Sequential)]
-    internal struct ExportRiverEmitters
+    internal struct ExportWaterfallFeet
+    {
+        internal IntPtr handle;
+        internal IntPtr data;
+        internal int length;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct ForestTrunkColliderExport
+    {
+        internal NativeVector3 bottom;
+        internal NativeVector3 top;
+        internal NativeVector2 owner;
+        internal float radius;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct ExportForestTrunkColliders
     {
         internal IntPtr handle;
         internal IntPtr data;
@@ -248,6 +312,21 @@ internal static class MotuNative
         ref ForestOptions forestOptions);
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+    internal static extern IntPtr CreateMotuWithForestAndReeds(
+        int seed,
+        ref Options options,
+        ref ForestOptions forestOptions,
+        ref ReedOptions reedOptions);
+
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+    internal static extern IntPtr CreateMotuWithForestReedsAndFerns(
+        int seed,
+        ref Options options,
+        ref ForestOptions forestOptions,
+        ref ReedOptions reedOptions,
+        ref FernOptions fernOptions);
+
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
     internal static extern void ReleaseMotu(IntPtr handle);
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
@@ -257,6 +336,19 @@ internal static class MotuNative
         out ExportMesh lod0Foliage,
         out ExportMesh lod1Wood,
         out ExportMesh lod1Foliage);
+
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+    internal static extern void CreateSkyDome(out ExportMesh output);
+
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+    internal static extern byte CreateCloudWeatherMap(
+        int seed,
+        int resolution,
+        out ExportCloudWeatherMap output);
+
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+    internal static extern void ReleaseCloudWeatherMap(
+        ref ExportCloudWeatherMap output);
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
     internal static extern void CreateMesh(
@@ -321,14 +413,31 @@ internal static class MotuNative
         out ExportMeshGrid output);
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern void CreateRiverEmitters(
+    internal static extern void CreateReedMeshGrid(
         IntPtr handle,
-        float sharpnessDegrees,
-        float spacingMetres,
-        out ExportRiverEmitters output);
+        out ExportMeshGrid output);
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern void ReleaseRiverEmitters(ref ExportRiverEmitters output);
+    internal static extern void CreateFernMeshGrid(
+        IntPtr handle,
+        out ExportMeshGrid output);
+
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+    internal static extern void CreateForestTrunkColliders(
+        IntPtr handle,
+        out ExportForestTrunkColliders output);
+
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+    internal static extern void ReleaseForestTrunkColliders(
+        ref ExportForestTrunkColliders output);
+
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+    internal static extern void CreateWaterfallFeet(
+        IntPtr handle,
+        out ExportWaterfallFeet output);
+
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+    internal static extern void ReleaseWaterfallFeet(ref ExportWaterfallFeet output);
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
     internal static extern void GetDecoration(

@@ -303,15 +303,20 @@ Shader "Motu/Tree Wood"
                     saturate(bark.albedo * broadVariation),
                     noise.hue * 0.25);
                 half occlusion = lerp(1.0, bark.occlusion, _BarkOcclusionStrength);
+                MotuCloudLighting cloud = MotuCloudSurfaceLighting(input.worldPosition);
                 half3 ambient = max(
-                    ShadeSH9(half4(normal, 1.0)),
+                    ShadeSH9(half4(normal, 1.0))
+                        * cloud.ambientTransmittance,
                     half3(_BarkAmbientFloor, _BarkAmbientFloor, _BarkAmbientFloor));
                 half3 lightDirection = normalize(UnityWorldSpaceLightDir(input.worldPosition));
                 half diffuse = saturate(dot(normal, lightDirection));
                 UNITY_LIGHT_ATTENUATION(attenuation, input, input.worldPosition);
                 fixed4 result = fixed4(
                     albedo * (ambient * occlusion
-                        + _LightColor0.rgb * diffuse * attenuation),
+                        + _LightColor0.rgb
+                            * diffuse
+                            * attenuation
+                            * cloud.directTransmittance),
                     1.0);
                 UNITY_APPLY_FOG(input.fogCoord, result);
                 return result;

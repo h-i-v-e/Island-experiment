@@ -57,6 +57,8 @@ Shader "Motu/Rock Decoration"
             half _CliffNormalStrength;
             float4x4 _IslandWorldToLocal;
 
+            #include "CloudCommon.cginc"
+
             UNITY_INSTANCING_BUFFER_START(RockProperties)
                 UNITY_DEFINE_INSTANCED_PROP(fixed4, _RockTint)
             UNITY_INSTANCING_BUFFER_END(RockProperties)
@@ -97,12 +99,17 @@ Shader "Motu/Rock Decoration"
                 half broadVariation = dot(broadNoise, half3(0.45, 0.35, 0.20));
                 fixed3 tint = UNITY_ACCESS_INSTANCED_PROP(RockProperties, _RockTint).rgb;
                 fixed3 albedo = _RockColor.rgb * tint * (1.0 + broadVariation * 0.10);
-                half3 ambient = ShadeSH9(half4(normal, 1.0));
+                MotuCloudLighting cloud = MotuCloudSurfaceLighting(input.worldPosition);
+                half3 ambient = ShadeSH9(half4(normal, 1.0))
+                    * cloud.ambientTransmittance;
                 half3 lightDirection = normalize(UnityWorldSpaceLightDir(input.worldPosition));
                 half diffuse = saturate(dot(normal, lightDirection));
                 UNITY_LIGHT_ATTENUATION(attenuation, input, input.worldPosition);
                 fixed3 color = albedo
-                    * (ambient + _LightColor0.rgb * diffuse * attenuation);
+                    * (ambient + _LightColor0.rgb
+                        * diffuse
+                        * attenuation
+                        * cloud.directTransmittance);
                 fixed4 result = fixed4(color, 1.0);
                 UNITY_APPLY_FOG(input.fogCoord, result);
                 return result;

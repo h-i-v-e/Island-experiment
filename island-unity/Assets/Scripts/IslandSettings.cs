@@ -1,5 +1,6 @@
 using System;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 [Serializable]
 public sealed class IslandGenerationSettings
@@ -32,6 +33,26 @@ public sealed class IslandGenerationSettings
     [Range(0.1f, 4f)]
     [SerializeField] private float coastalSlopeMultiplier = 1f;
 
+    [Tooltip("Spatial frequency of the broad noise shared by the original height field and hardness. Higher values can split the land into smaller island groups. Regenerate to apply.")]
+    [Range(0.1f, 32f)]
+    [SerializeField] private float continentalNoiseFrequency = 2.2f;
+
+    [Tooltip("Strength of the broad noise relative to the radial island falloff. Regenerate to apply.")]
+    [Range(0f, 4f)]
+    [SerializeField] private float continentalNoiseStrength = 0.78f;
+
+    [Tooltip("Spatial frequency of the fine noise shared by the original height field and hardness. Higher values produce smaller features. Regenerate to apply.")]
+    [Range(0.1f, 64f)]
+    [SerializeField] private float detailNoiseFrequency = 12f;
+
+    [Tooltip("Strength of the fine noise relative to the broad layer and radial island falloff. Regenerate to apply.")]
+    [Range(0f, 4f)]
+    [SerializeField] private float detailNoiseStrength = 0.22f;
+
+    [Tooltip("Signed offset applied after the water-ratio sea level is selected. Negative values submerge land and isolate high points into archipelagos. Regenerate to apply.")]
+    [Range(-2f, 2f)]
+    [SerializeField] private float landMassOffset;
+
     [Tooltip("Hydraulic erosion strength. Regenerate to apply.")]
     [Range(0f, 8f)]
     [SerializeField] private float hydraulicErosionStrength = 1f;
@@ -55,6 +76,11 @@ public sealed class IslandGenerationSettings
     internal float WaterRatio => Mathf.Clamp(waterRatio, 0.60f, 0.95f);
     internal float InlandSlopeMultiplier => Mathf.Clamp(inlandSlopeMultiplier, 0.2f, 4f);
     internal float CoastalSlopeMultiplier => Mathf.Clamp(coastalSlopeMultiplier, 0.1f, 4f);
+    internal float ContinentalNoiseFrequency => Mathf.Clamp(continentalNoiseFrequency, 0.1f, 128f);
+    internal float ContinentalNoiseStrength => Mathf.Clamp(continentalNoiseStrength, 0f, 4f);
+    internal float DetailNoiseFrequency => Mathf.Clamp(detailNoiseFrequency, 0.1f, 128f);
+    internal float DetailNoiseStrength => Mathf.Clamp(detailNoiseStrength, 0f, 4f);
+    internal float LandMassOffset => Mathf.Clamp(landMassOffset, -2f, 2f);
     internal float HydraulicErosionStrength => Mathf.Clamp(hydraulicErosionStrength, 0f, 8f);
     internal float SedimentDepositionStrength => Mathf.Clamp(sedimentDepositionStrength, 0f, 4f);
     internal float DepositionMaximumSlopeDegrees => Mathf.Clamp(
@@ -70,6 +96,8 @@ public sealed class IslandGenerationSettings
             waterRatio = WaterRatio,
             slopeMultiplier = InlandSlopeMultiplier,
             coastalSlopeMultiplier = CoastalSlopeMultiplier,
+            continentalNoiseFrequency = ContinentalNoiseFrequency,
+            detailNoiseFrequency = DetailNoiseFrequency,
             hydraulicErosionStrength = HydraulicErosionStrength,
             hydraulicDepositionStrength = SedimentDepositionStrength,
             hydraulicDepositionSlopeDegrees = DepositionMaximumSlopeDegrees,
@@ -80,6 +108,9 @@ public sealed class IslandGenerationSettings
             riverMaximumWidthMetres = ToNativeRiverMetres(rivers.MaximumWidthMetres),
             riverSourceDepthMetres = ToNativeRiverMetres(rivers.SourceDepthMetres),
             riverMaximumDepthMetres = ToNativeRiverMetres(rivers.MaximumDepthMetres),
+            continentalNoiseStrength = ContinentalNoiseStrength,
+            detailNoiseStrength = DetailNoiseStrength,
+            landMassOffset = LandMassOffset,
         };
     }
 
@@ -94,6 +125,36 @@ public sealed class IslandGenerationSettings
             prototypeCount = (byte)forest.ForestPrototypeCount,
             minimumScale = forest.MinimumTreeScale,
             maximumScale = forest.MaximumTreeScale,
+        };
+    }
+
+    internal MotuNative.ReedOptions ToNativeReedOptions(IslandReedSettings reeds)
+    {
+        return new MotuNative.ReedOptions
+        {
+            bankWidthMetres = ToNativeForestMetres(reeds.BankWidthMetres),
+            patchSizeMetres = ToNativeForestMetres(reeds.PatchSizeMetres),
+            coverageThreshold = reeds.CoverageThreshold,
+            spacingMetres = ToNativeForestMetres(reeds.SpacingMetres),
+            rushRatio = reeds.RushRatio,
+            minimumHeightMetres = ToNativeForestMetres(reeds.MinimumHeightMetres),
+            maximumHeightMetres = ToNativeForestMetres(reeds.MaximumHeightMetres),
+            maximumSlopeDegrees = reeds.MaximumSlopeDegrees,
+        };
+    }
+
+    internal MotuNative.FernOptions ToNativeFernOptions(IslandFernSettings ferns)
+    {
+        return new MotuNative.FernOptions
+        {
+            barkClearanceMetres = ToNativeForestMetres(ferns.BarkClearanceMetres),
+            outerRadiusMetres = ToNativeForestMetres(ferns.OuterRadiusMetres),
+            spacingMetres = ToNativeForestMetres(ferns.SpacingMetres),
+            patchSizeMetres = ToNativeForestMetres(ferns.PatchSizeMetres),
+            coverageThreshold = ferns.CoverageThreshold,
+            minimumLengthMetres = ToNativeForestMetres(ferns.MinimumLengthMetres),
+            maximumLengthMetres = ToNativeForestMetres(ferns.MaximumLengthMetres),
+            maximumSlopeDegrees = ferns.MaximumSlopeDegrees,
         };
     }
 
@@ -139,14 +200,6 @@ public sealed class IslandRiverSettings
     [Min(0.05f)]
     [SerializeField] private float maximumDepthMetres = 2f;
 
-    [Tooltip("Maximum change in river direction, in degrees, used for rough-water emitters.")]
-    [Range(1f, 90f)]
-    [SerializeField] private float roughWaterSharpnessDegrees = 35f;
-
-    [Tooltip("Minimum spacing between rough-water emitters in metres.")]
-    [Min(0.1f)]
-    [SerializeField] private float roughWaterSpacingMetres = 1.5f;
-
     internal float SourceCatchmentHectares => Mathf.Clamp(sourceCatchmentHectares, 0.01f, 10f);
     internal float SteepSourceMultiplier => Mathf.Clamp(steepSourceMultiplier, 1f, 8f);
     internal float SourceElevationBoost => Mathf.Clamp(sourceElevationBoost, 0f, 20f);
@@ -154,11 +207,6 @@ public sealed class IslandRiverSettings
     internal float MaximumWidthMetres => Mathf.Max(maximumWidthMetres, SourceWidthMetres);
     internal float SourceDepthMetres => Mathf.Max(sourceDepthMetres, 0.05f);
     internal float MaximumDepthMetres => Mathf.Max(maximumDepthMetres, SourceDepthMetres);
-    internal float RoughWaterSharpnessDegrees => Mathf.Clamp(
-        roughWaterSharpnessDegrees,
-        1f,
-        90f);
-    internal float RoughWaterSpacingMetres => Mathf.Max(roughWaterSpacingMetres, 0.1f);
 }
 
 [Serializable]
@@ -201,12 +249,241 @@ public sealed class IslandForestSettings
 }
 
 [Serializable]
+public sealed class IslandReedSettings
+{
+    [Tooltip("Show LOD 0 riverbank reeds and rushes without regenerating the island.")]
+    [SerializeField] private bool showReeds = true;
+
+    [Tooltip("Maximum distance across the immediate dry river bank. Regenerate to apply.")]
+    [Range(0.25f, 10f)]
+    [SerializeField] private float bankWidthMetres = 0.8f;
+
+    [Tooltip("Physical size of coherent reed patches. Regenerate to apply.")]
+    [Range(2f, 50f)]
+    [SerializeField] private float patchSizeMetres = 8f;
+
+    [Tooltip("Higher thresholds create fewer and more separated reed patches. Regenerate to apply.")]
+    [Range(0f, 1f)]
+    [SerializeField] private float coverageThreshold = 0.18f;
+
+    [Tooltip("Minimum spacing between clump roots. Regenerate to apply.")]
+    [Range(0.2f, 3f)]
+    [SerializeField] private float spacingMetres = 0.36f;
+
+    [Tooltip("Fraction of the outer bank strip occupied by shorter rushes. Regenerate to apply.")]
+    [Range(0f, 1f)]
+    [SerializeField] private float rushRatio = 0.45f;
+
+    [Tooltip("Minimum clump height. Regenerate to apply.")]
+    [Range(0.2f, 3f)]
+    [SerializeField] private float minimumHeightMetres = 0.65f;
+
+    [Tooltip("Maximum clump height. Regenerate to apply.")]
+    [Range(0.2f, 4f)]
+    [SerializeField] private float maximumHeightMetres = 2.1f;
+
+    [Tooltip("Steepest bank on which reeds may be planted. Regenerate to apply.")]
+    [Range(0f, 60f)]
+    [SerializeField] private float maximumSlopeDegrees = 32f;
+
+    [Tooltip("Dark green-brown used at the base and for rushes.")]
+    [SerializeField] private Color baseColour = new Color(0.12f, 0.24f, 0.055f, 1f);
+
+    [Tooltip("Sunlit yellow-green used toward reed tips.")]
+    [SerializeField] private Color tipColour = new Color(0.38f, 0.48f, 0.09f, 1f);
+
+    [Tooltip("Multiplier applied to the shared grass wind field.")]
+    [Range(0f, 8f)]
+    [SerializeField] private float windStrength = 3f;
+
+    public bool ShowReeds { get => showReeds; set => showReeds = value; }
+    internal float BankWidthMetres => Mathf.Clamp(bankWidthMetres, 0.25f, 10f);
+    internal float PatchSizeMetres => Mathf.Clamp(patchSizeMetres, 2f, 50f);
+    internal float CoverageThreshold => Mathf.Clamp01(coverageThreshold);
+    internal float SpacingMetres => Mathf.Clamp(spacingMetres, 0.2f, 3f);
+    internal float RushRatio => Mathf.Clamp01(rushRatio);
+    internal float MinimumHeightMetres => Mathf.Clamp(minimumHeightMetres, 0.2f, 3f);
+    internal float MaximumHeightMetres => Mathf.Max(maximumHeightMetres, MinimumHeightMetres);
+    internal float MaximumSlopeDegrees => Mathf.Clamp(maximumSlopeDegrees, 0f, 60f);
+    internal Color BaseColour => baseColour;
+    internal Color TipColour => tipColour;
+    internal float WindStrength => Mathf.Clamp(windStrength, 0f, 8f);
+}
+
+[Serializable]
+public sealed class IslandFernSettings
+{
+    [Tooltip("Show LOD 0 ferns around tree trunks without regenerating the island.")]
+    [SerializeField] private bool showFerns = true;
+
+    [Tooltip("Clear ground retained between bark and the first fern roots. Regenerate to apply.")]
+    [Range(0f, 2f)]
+    [SerializeField] private float barkClearanceMetres = 0.18f;
+
+    [Tooltip("Outer radius of each trunk's fern bed. Regenerate to apply.")]
+    [Range(0.25f, 8f)]
+    [SerializeField] private float outerRadiusMetres = 1.65f;
+
+    [Tooltip("Minimum spacing between fern crowns. Regenerate to apply.")]
+    [Range(0.2f, 4f)]
+    [SerializeField] private float spacingMetres = 0.58f;
+
+    [Tooltip("Physical size of coherent understory patches. Regenerate to apply.")]
+    [Range(2f, 50f)]
+    [SerializeField] private float patchSizeMetres = 12f;
+
+    [Tooltip("Higher thresholds leave more tree trunks without ferns. Regenerate to apply.")]
+    [Range(0f, 1f)]
+    [SerializeField] private float coverageThreshold = 0.28f;
+
+    [Tooltip("Minimum fern frond length. Regenerate to apply.")]
+    [Range(0.2f, 2f)]
+    [SerializeField] private float minimumLengthMetres = 0.45f;
+
+    [Tooltip("Maximum fern frond length. Regenerate to apply.")]
+    [Range(0.2f, 3f)]
+    [SerializeField] private float maximumLengthMetres = 1.15f;
+
+    [Tooltip("Steepest forest ground on which ferns may grow. Regenerate to apply.")]
+    [Range(0f, 60f)]
+    [SerializeField] private float maximumSlopeDegrees = 34f;
+
+    [SerializeField] private Color baseColour = new Color(0.055f, 0.18f, 0.045f, 1f);
+    [SerializeField] private Color tipColour = new Color(0.24f, 0.48f, 0.12f, 1f);
+
+    [Tooltip("Multiplier applied to the shared grass wind field.")]
+    [Range(0f, 8f)]
+    [SerializeField] private float windStrength = 1.8f;
+
+    public bool ShowFerns { get => showFerns; set => showFerns = value; }
+    internal float BarkClearanceMetres => Mathf.Clamp(barkClearanceMetres, 0f, 2f);
+    internal float OuterRadiusMetres => Mathf.Clamp(outerRadiusMetres, 0.25f, 8f);
+    internal float SpacingMetres => Mathf.Clamp(spacingMetres, 0.2f, 4f);
+    internal float PatchSizeMetres => Mathf.Clamp(patchSizeMetres, 2f, 50f);
+    internal float CoverageThreshold => Mathf.Clamp01(coverageThreshold);
+    internal float MinimumLengthMetres => Mathf.Clamp(minimumLengthMetres, 0.2f, 2f);
+    internal float MaximumLengthMetres => Mathf.Max(maximumLengthMetres, MinimumLengthMetres);
+    internal float MaximumSlopeDegrees => Mathf.Clamp(maximumSlopeDegrees, 0f, 60f);
+    internal Color BaseColour => baseColour;
+    internal Color TipColour => tipColour;
+    internal float WindStrength => Mathf.Clamp(windStrength, 0f, 8f);
+}
+
+[Serializable]
 public sealed class IslandStreamingSettings
 {
     [Tooltip("Player or camera Transform that drives terrain detail, collision, rocks, grass, and river effects.")]
     [SerializeField] private Transform target;
 
     public Transform Target { get => target; set => target = value; }
+}
+
+[Serializable]
+public sealed class IslandCloudSettings
+{
+    [SerializeField] private bool enabled = true;
+
+    [Tooltip("Seed mixed with the island seed when generating the seamless weather field.")]
+    [SerializeField] private int seed = 173;
+
+    [Tooltip("Power-of-two resolution of the portable packed weather map.")]
+    [Range(32, 1024)]
+    [SerializeField] private int weatherMapResolution = 256;
+
+    [Tooltip("Fraction of the weather field occupied by clouds.")]
+    [Range(0f, 1f)]
+    [SerializeField] private float coverage = 0.48f;
+
+    [Tooltip("Optical thickness of formed clouds.")]
+    [Range(0f, 8f)]
+    [SerializeField] private float density = 2.1f;
+
+    [Tooltip("Height of the cloud layer above sea level in metres.")]
+    [Range(50f, 1800f)]
+    [SerializeField] private float altitudeMetres = 650f;
+
+    [Tooltip("Vertical thickness of the ray-marched cloud layer in metres.")]
+    [Range(25f, 1000f)]
+    [SerializeField] private float verticalThicknessMetres = 280f;
+
+    [Tooltip("World-space width and depth represented by one weather-map repeat.")]
+    [Range(100f, 8000f)]
+    [SerializeField] private float worldSizeMetres = 2200f;
+
+    [Tooltip("Size of the broad, non-repeating cloud pattern relative to the weather map.")]
+    [Range(2f, 16f)]
+    [SerializeField] private float broadNoiseScale = 6f;
+
+    [Tooltip("How strongly the broad cloud pattern breaks up repeated weather-map features.")]
+    [Range(0f, 1f)]
+    [SerializeField] private float broadNoiseStrength = 0.65f;
+
+    [Tooltip("Influence of the medium-scale weather channel.")]
+    [Range(0f, 1f)]
+    [SerializeField] private float detailStrength = 0.52f;
+
+    [Tooltip("Amount by which fine noise erodes cloud edges.")]
+    [Range(0f, 1f)]
+    [SerializeField] private float erosionStrength = 0.38f;
+
+    [Tooltip("Horizontal direction in which the cloud field travels.")]
+    [SerializeField] private Vector2 windDirection = new Vector2(1f, 0.25f);
+
+    [Tooltip("Cloud travel speed in metres per second.")]
+    [Range(0f, 100f)]
+    [SerializeField] private float windSpeedMetresPerSecond = 9f;
+
+    [SerializeField] private Color dayColour = new Color(0.92f, 0.94f, 0.96f, 1f);
+    [SerializeField] private Color sunsetColour = new Color(0.92f, 0.48f, 0.24f, 1f);
+    [SerializeField] private Color nightColour = new Color(0.035f, 0.055f, 0.10f, 1f);
+
+    [Tooltip("Maximum attenuation of direct light beneath dense clouds.")]
+    [Range(0f, 1f)]
+    [SerializeField] private float shadowStrength = 0.72f;
+
+    [Tooltip("Weaker attenuation applied to ambient illumination beneath dense clouds.")]
+    [Range(0f, 0.5f)]
+    [SerializeField] private float ambientShadowStrength = 0.12f;
+
+    [Tooltip("Strength with which cloud density obscures celestial discs and halos.")]
+    [Range(0f, 2f)]
+    [SerializeField] private float celestialObscurationStrength = 1f;
+
+    [Tooltip("Source elevation below which long cloud-shadow projections fade out.")]
+    [Range(0.01f, 0.35f)]
+    [SerializeField] private float lowElevationShadowFade = 0.09f;
+
+    public bool Enabled { get => enabled; set => enabled = value; }
+    public int Seed { get => seed; set => seed = value; }
+    public int WeatherMapResolution
+    {
+        get => Mathf.Clamp(Mathf.ClosestPowerOfTwo(weatherMapResolution), 32, 1024);
+        set => weatherMapResolution = Mathf.Clamp(Mathf.ClosestPowerOfTwo(value), 32, 1024);
+    }
+    public float Coverage { get => Mathf.Clamp01(coverage); set => coverage = Mathf.Clamp01(value); }
+    public float Density { get => Mathf.Clamp(density, 0f, 8f); set => density = Mathf.Clamp(value, 0f, 8f); }
+    public float AltitudeMetres { get => Mathf.Clamp(altitudeMetres, 50f, 1800f); set => altitudeMetres = Mathf.Clamp(value, 50f, 1800f); }
+    public float VerticalThicknessMetres
+    {
+        get => verticalThicknessMetres > 0f
+            ? Mathf.Clamp(verticalThicknessMetres, 25f, 1000f)
+            : 280f;
+        set => verticalThicknessMetres = Mathf.Clamp(value, 25f, 1000f);
+    }
+    public float WorldSizeMetres { get => Mathf.Clamp(worldSizeMetres, 100f, 8000f); set => worldSizeMetres = Mathf.Clamp(value, 100f, 8000f); }
+    public float BroadNoiseScale { get => Mathf.Clamp(broadNoiseScale, 2f, 16f); set => broadNoiseScale = Mathf.Clamp(value, 2f, 16f); }
+    public float BroadNoiseStrength { get => Mathf.Clamp01(broadNoiseStrength); set => broadNoiseStrength = Mathf.Clamp01(value); }
+    public float DetailStrength { get => Mathf.Clamp01(detailStrength); set => detailStrength = Mathf.Clamp01(value); }
+    public float ErosionStrength { get => Mathf.Clamp01(erosionStrength); set => erosionStrength = Mathf.Clamp01(value); }
+    public Vector2 WindDirection { get => windDirection; set => windDirection = value; }
+    public float WindSpeedMetresPerSecond { get => Mathf.Clamp(windSpeedMetresPerSecond, 0f, 100f); set => windSpeedMetresPerSecond = Mathf.Clamp(value, 0f, 100f); }
+    public Color DayColour { get => dayColour; set => dayColour = value; }
+    public Color SunsetColour { get => sunsetColour; set => sunsetColour = value; }
+    public Color NightColour { get => nightColour; set => nightColour = value; }
+    public float ShadowStrength { get => Mathf.Clamp01(shadowStrength); set => shadowStrength = Mathf.Clamp01(value); }
+    public float AmbientShadowStrength { get => Mathf.Clamp(ambientShadowStrength, 0f, 0.5f); set => ambientShadowStrength = Mathf.Clamp(value, 0f, 0.5f); }
+    public float CelestialObscurationStrength { get => Mathf.Clamp(celestialObscurationStrength, 0f, 2f); set => celestialObscurationStrength = Mathf.Clamp(value, 0f, 2f); }
+    public float LowElevationShadowFade { get => Mathf.Clamp(lowElevationShadowFade, 0.01f, 0.35f); set => lowElevationShadowFade = Mathf.Clamp(value, 0.01f, 0.35f); }
 }
 
 [Serializable]
@@ -307,8 +584,62 @@ public sealed class IslandRenderingSettings
     [Min(0f)]
     [SerializeField] private float estuaryBlendHeightMetres = 2f;
 
-    [Tooltip("Optional level-owned sunlight used for grass shading. Global render settings are never modified.")]
+    [Tooltip("Enable atmospheric haze while walking in first-person mode.")]
+    [SerializeField] private bool showDistanceHaze = true;
+
+    [Tooltip("Warm atmospheric colour accumulated by distant first-person views.")]
+    [SerializeField] private Color distanceHazeColour = new Color(0.62f, 0.60f, 0.54f, 1f);
+
+    [Tooltip("Density of the exponential-squared first-person haze.")]
+    [Range(0.00005f, 0.003f)]
+    [SerializeField] private float distanceHazeDensity = 0.00055f;
+
+    [Tooltip("Optional level-owned sunlight used for grass shading.")]
     [SerializeField] private Light sunlight;
+
+    [Tooltip("Real-time minutes taken for one complete sunrise-to-sunrise solar cycle.")]
+    [Range(0.25f, 240f)]
+    [SerializeField] private float sunCycleDurationMinutes = 20f;
+
+    [Tooltip("How many times faster solar time passes at midnight than at noon. One gives a uniform clock while preserving the configured full-cycle duration.")]
+    [Range(1f, 20f)]
+    [SerializeField] private float midnightToNoonClockRateRatio = 10f;
+
+    [Tooltip("Solar latitude in degrees. Higher absolute values produce a lower noon sun; the sign selects which side of the island it crosses.")]
+    [Range(-80f, 80f)]
+    [SerializeField] private float sunLatitudeDegrees = -36f;
+
+    [Tooltip("Solar time used when play begins: 6 is sunrise, 12 is noon, and 18 is sunset.")]
+    [Range(0f, 24f)]
+    [SerializeField] private float startingSolarTimeHours = 8f;
+
+    [Tooltip("Directional-light intensity when the sun is high in the sky.")]
+    [Range(0f, 4f)]
+    [SerializeField] private float middaySunIntensity = 1.25f;
+
+    [Tooltip("Moon-orbit tilt toward the equator relative to the solar path.")]
+    [Range(0f, 45f)]
+    [SerializeField] private float moonEquatorOffsetDegrees = 22f;
+
+    [Tooltip("Moon phase when play begins: 0 is new, 0.25 first quarter, 0.5 full, and 0.75 last quarter.")]
+    [Range(0f, 1f)]
+    [SerializeField] private float startingMoonPhase = 0.5f;
+
+    [Tooltip("Directional-light intensity produced by a full moon after sunset.")]
+    [Range(0f, 1f)]
+    [SerializeField] private float fullMoonLightIntensity = 0.14f;
+
+    [Tooltip("Fraction of sky cells containing a visible star at night.")]
+    [Range(0f, 1f)]
+    [SerializeField] private float starDensity = 0.18f;
+
+    [Tooltip("Brightness of the procedural night stars.")]
+    [Range(0f, 4f)]
+    [SerializeField] private float starBrightness = 1.35f;
+
+    [Tooltip("Apparent radius of procedural stars within their sky cells.")]
+    [Range(0.02f, 0.12f)]
+    [SerializeField] private float starSize = 0.052f;
 
     [Tooltip("Show the carved river surface.")]
     [SerializeField] private bool showRivers = true;
@@ -368,7 +699,79 @@ public sealed class IslandRenderingSettings
     internal float SandPatchSizeMetres => Mathf.Max(sandPatchSizeMetres, 0.1f);
     internal float GrassPatchSizeMetres => Mathf.Max(grassPatchSizeMetres, 0.1f);
     internal float EstuaryBlendHeightMetres => Mathf.Max(estuaryBlendHeightMetres, 0f);
+    public bool ShowDistanceHaze
+    {
+        get => showDistanceHaze;
+        set => showDistanceHaze = value;
+    }
+    public Color DistanceHazeColour
+    {
+        get => distanceHazeColour;
+        set => distanceHazeColour = value;
+    }
+    public float DistanceHazeDensity
+    {
+        get => Mathf.Clamp(distanceHazeDensity, 0.00005f, 0.003f);
+        set => distanceHazeDensity = Mathf.Clamp(value, 0.00005f, 0.003f);
+    }
     public Light Sunlight { get => sunlight; internal set => sunlight = value; }
+    public float SunCycleDurationMinutes
+    {
+        get => Mathf.Clamp(sunCycleDurationMinutes, 0.25f, 240f);
+        set => sunCycleDurationMinutes = Mathf.Clamp(value, 0.25f, 240f);
+    }
+    public float MidnightToNoonClockRateRatio
+    {
+        get => midnightToNoonClockRateRatio > 0f
+            ? Mathf.Clamp(midnightToNoonClockRateRatio, 1f, 20f)
+            : 10f;
+        set => midnightToNoonClockRateRatio = Mathf.Clamp(value, 1f, 20f);
+    }
+    public float SunLatitudeDegrees
+    {
+        get => Mathf.Clamp(sunLatitudeDegrees, -80f, 80f);
+        set => sunLatitudeDegrees = Mathf.Clamp(value, -80f, 80f);
+    }
+    public float StartingSolarTimeHours
+    {
+        get => Mathf.Repeat(startingSolarTimeHours, 24f);
+        set => startingSolarTimeHours = Mathf.Repeat(value, 24f);
+    }
+    public float MiddaySunIntensity
+    {
+        get => Mathf.Clamp(middaySunIntensity, 0f, 4f);
+        set => middaySunIntensity = Mathf.Clamp(value, 0f, 4f);
+    }
+    public float MoonEquatorOffsetDegrees
+    {
+        get => Mathf.Clamp(moonEquatorOffsetDegrees, 0f, 45f);
+        set => moonEquatorOffsetDegrees = Mathf.Clamp(value, 0f, 45f);
+    }
+    public float StartingMoonPhase
+    {
+        get => Mathf.Repeat(startingMoonPhase, 1f);
+        set => startingMoonPhase = Mathf.Repeat(value, 1f);
+    }
+    public float FullMoonLightIntensity
+    {
+        get => Mathf.Clamp01(fullMoonLightIntensity);
+        set => fullMoonLightIntensity = Mathf.Clamp01(value);
+    }
+    public float StarDensity
+    {
+        get => Mathf.Clamp01(starDensity);
+        set => starDensity = Mathf.Clamp01(value);
+    }
+    public float StarBrightness
+    {
+        get => Mathf.Clamp(starBrightness, 0f, 4f);
+        set => starBrightness = Mathf.Clamp(value, 0f, 4f);
+    }
+    public float StarSize
+    {
+        get => starSize > 0f ? Mathf.Clamp(starSize, 0.02f, 0.12f) : 0.052f;
+        set => starSize = Mathf.Clamp(value, 0.02f, 0.12f);
+    }
     public bool ShowRivers { get => showRivers; set => showRivers = value; }
     public bool ShowSea { get => showSea; set => showSea = value; }
     public bool ShowGrass { get => showGrass; set => showGrass = value; }
@@ -479,8 +882,9 @@ public sealed class IslandDebugSettings
         + "Set to None to disable the shortcut.")]
     [SerializeField] private KeyCode toggleFrameRateKey = KeyCode.F;
 
-    [Tooltip("Display rough-water emitter debug markers.")]
-    [SerializeField] private bool showRoughWaterEmitters;
+    [Tooltip("Display authoritative waterfall-foot fog-volume markers.")]
+    [FormerlySerializedAs("showRoughWaterEmitters")]
+    [SerializeField] private bool showWaterfallFeet;
 
     public bool ShowMeshEdges { get => showMeshEdges; set => showMeshEdges = value; }
     public KeyCode ToggleMeshEdgesKey => toggleMeshEdgesKey;
@@ -488,5 +892,5 @@ public sealed class IslandDebugSettings
     public KeyCode ToggleTreeMeshEdgesKey => toggleTreeMeshEdgesKey;
     public bool ShowFrameRate { get => showFrameRate; set => showFrameRate = value; }
     public KeyCode ToggleFrameRateKey => toggleFrameRateKey;
-    public bool ShowRoughWaterEmitters { get => showRoughWaterEmitters; set => showRoughWaterEmitters = value; }
+    public bool ShowWaterfallFeet { get => showWaterfallFeet; set => showWaterfallFeet = value; }
 }

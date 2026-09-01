@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.InteropServices;
@@ -21,8 +22,53 @@ public sealed class IslandGenerator : MonoBehaviour
     private const int GrassPatchNoiseLatticePeriod = 64;
     private const int GrassColourNoiseLatticePeriod = 8;
     private const float RockPatchNoiseDetailScale = 8f;
+    private const float SunDiscAngularRadiusDegrees = 0.7f;
+    private const float MoonDiscAngularRadiusDegrees = 0.68f;
+    private const float LunarSynodicPeriodDays = 29.53059f;
+    private const float NightSkyExposure = 0.045f;
+    private static readonly Color MiddaySunColour = new Color(1f, 0.94f, 0.82f, 1f);
+    private static readonly Color SunsetSunColour = new Color(1f, 0.20f, 0.035f, 1f);
+    private static readonly Color DayAmbientColour = new Color(0.42f, 0.46f, 0.52f, 1f);
+    private static readonly Color TwilightAmbientColour = new Color(0.08f, 0.15f, 0.30f, 1f);
+    private static readonly Color NightAmbientColour = new Color(0.012f, 0.025f, 0.065f, 1f);
+    private static readonly Color SunsetSunHaloColour = new Color(0.85f, 0.05f, 0.01f, 1f);
+    private static readonly Color NightHazeColour = new Color(0.08f, 0.14f, 0.28f, 1f);
+    private static readonly Color MoonDiscColour = new Color(0.78f, 0.84f, 0.92f, 1f);
+    private static readonly Color MoonDarkColour = new Color(0.012f, 0.018f, 0.035f, 1f);
+    private static readonly Color MoonLightColour = new Color(0.48f, 0.62f, 0.90f, 1f);
     private static readonly int IslandWorldToLocalId = Shader.PropertyToID(
         "_IslandWorldToLocal");
+    private static readonly int SunDirectionId = Shader.PropertyToID("_SunDirection");
+    private static readonly int SunColourId = Shader.PropertyToID("_SunColor");
+    private static readonly int SunVisibilityId = Shader.PropertyToID("_SunVisibility");
+    private static readonly int SunDiscCosRadiusId = Shader.PropertyToID("_SunDiscCosRadius");
+    private static readonly int SunHaloColourId = Shader.PropertyToID("_SunHaloColor");
+    private static readonly int SunHaloStrengthId = Shader.PropertyToID("_SunHaloStrength");
+    private static readonly int SkyExposureId = Shader.PropertyToID("_SkyExposure");
+    private static readonly int WaterSkyExposureId = Shader.PropertyToID(
+        "_WaterSkyExposure");
+    private static readonly int NightStrengthId = Shader.PropertyToID(
+        "_MotuNightStrength");
+    private static readonly int MoonDirectionId = Shader.PropertyToID("_MoonDirection");
+    private static readonly int MoonLightDirectionId = Shader.PropertyToID(
+        "_MoonLightDirection");
+    private static readonly int MoonColourId = Shader.PropertyToID("_MoonColor");
+    private static readonly int MoonDarkColourId = Shader.PropertyToID("_MoonDarkColor");
+    private static readonly int MoonVisibilityId = Shader.PropertyToID("_MoonVisibility");
+    private static readonly int MoonDiscCosRadiusId = Shader.PropertyToID(
+        "_MoonDiscCosRadius");
+    private static readonly int StarSettingsId = Shader.PropertyToID("_StarSettings");
+    private static readonly int StarVisibilityId = Shader.PropertyToID("_StarVisibility");
+    private static readonly int StarRotationId = Shader.PropertyToID("_StarRotation");
+    private static readonly int CloudWeatherTextureId = Shader.PropertyToID(
+        "_MotuCloudWeatherTex");
+    private static readonly int CloudEnabledId = Shader.PropertyToID("_MotuCloudEnabled");
+    private static readonly int CloudLightDirectionId = Shader.PropertyToID(
+        "_MotuCloudLightDirection");
+    private static readonly int CloudLightActiveId = Shader.PropertyToID(
+        "_MotuCloudLightActive");
+    private static readonly int CloudLightColourId = Shader.PropertyToID(
+        "_MotuCloudLightColor");
 
     [Header("Lifecycle and Generation")]
     [SerializeField] private IslandGenerationSettings generation = new IslandGenerationSettings();
@@ -33,8 +79,17 @@ public sealed class IslandGenerator : MonoBehaviour
     [Header("Forest")]
     [SerializeField] private IslandForestSettings forest = new IslandForestSettings();
 
+    [Header("Riverbank Reeds and Rushes")]
+    [SerializeField] private IslandReedSettings reeds = new IslandReedSettings();
+
+    [Header("Tree Trunk Ferns")]
+    [SerializeField] private IslandFernSettings ferns = new IslandFernSettings();
+
     [Header("Streaming")]
     [SerializeField] private IslandStreamingSettings streaming = new IslandStreamingSettings();
+
+    [Header("Clouds")]
+    [SerializeField] private IslandCloudSettings clouds = new IslandCloudSettings();
 
     [Header("Rendering and Texture Overrides")]
     [SerializeField] private IslandRenderingSettings rendering = new IslandRenderingSettings();
@@ -48,7 +103,12 @@ public sealed class IslandGenerator : MonoBehaviour
     private NativeIslandHandle islandHandle;
     private TerrainTileStreamer terrainStreamer;
     private GameObject runtimeRoot;
+    private GameObject skyDomeObject;
+    private GameObject moonLightObject;
     private GameObject seaObject;
+    private Mesh skyDomeMesh;
+    private Material skyDomeMaterial;
+    private Light moonLight;
     private Material terrainMaterial;
     private Material terrainLod1Material;
     private Material terrainLod2Material;
@@ -59,6 +119,7 @@ public sealed class IslandGenerator : MonoBehaviour
     private Texture3D cliffNoiseTexture;
     private Texture2D riverNoiseTexture;
     private Texture2D grassPatchNoiseTexture;
+    private Texture2D cloudWeatherTexture;
     private TerrainMaterialTextureArrays terrainMaterialTextures;
     private Material rockMaterial;
     private Material riverMaterial;
@@ -68,6 +129,8 @@ public sealed class IslandGenerator : MonoBehaviour
     private Material treeLod1WoodMaterial;
     private Material treeFoliageMaterial;
     private Material treeLod0FoliageMaterial;
+    private Material reedMaterial;
+    private Material fernMaterial;
     private string status = "Ready";
     private CancellationTokenSource generationCancellation;
     private Stopwatch generationTimer;
@@ -77,14 +140,26 @@ public sealed class IslandGenerator : MonoBehaviour
     private bool ownsCliffNoiseTexture;
     private bool ownsRiverNoiseTexture;
     private bool ownsGrassPatchNoiseTexture;
+    private int appliedCloudSeed = int.MinValue;
+    private int appliedCloudResolution;
+    private Vector2 cloudWindOffset;
+    private Vector2 cloudBroadWindOffset;
     private bool? appliedShowRivers;
     private bool? appliedShowSea;
     private bool? appliedShowGrass;
     private bool? appliedShowRocks;
     private bool? appliedShowForests;
+    private bool? appliedShowReeds;
+    private Color? appliedReedBaseColour;
+    private Color? appliedReedTipColour;
+    private float appliedReedWindStrength = float.NaN;
+    private bool? appliedShowFerns;
+    private Color? appliedFernBaseColour;
+    private Color? appliedFernTipColour;
+    private float appliedFernWindStrength = float.NaN;
     private bool? appliedShowMeshEdges;
     private bool? appliedShowTreeMeshEdges;
-    private bool? appliedEmitterDebug;
+    private bool? appliedWaterfallDebug;
     private Color? appliedGrassColourA;
     private Color? appliedGrassColourB;
     private float appliedGrassColourNoiseWorldSize = float.NaN;
@@ -94,6 +169,15 @@ public sealed class IslandGenerator : MonoBehaviour
     private float appliedGrassWindSpeed = float.NaN;
     private float appliedGrassWindGustSize = float.NaN;
     private float appliedGrassWindNormalStrength = float.NaN;
+    private bool? appliedShowDistanceHaze;
+    private Color? appliedDistanceHazeColour;
+    private float appliedDistanceHazeDensity = float.NaN;
+    private bool firstPersonViewActive;
+    private bool solarClockInitialized;
+    private float solarTimeHours;
+    private float lunarPhase;
+    private float currentSkyExposure = 1f;
+    private float currentNightStrength;
     private Matrix4x4 appliedWorldToLocal;
     private bool hasAppliedWorldToLocal;
 
@@ -103,7 +187,10 @@ public sealed class IslandGenerator : MonoBehaviour
     public IslandGenerationSettings Generation => generation;
     public IslandRiverSettings Rivers => rivers;
     public IslandForestSettings Forest => forest;
+    public IslandReedSettings Reeds => reeds;
+    public IslandFernSettings Ferns => ferns;
     public IslandStreamingSettings Streaming => streaming;
+    public IslandCloudSettings Clouds => clouds;
     public IslandRenderingSettings Rendering => rendering;
     public IslandDecorationSettings Decorations => decorations;
     public IslandDebugSettings DebugSettings => debugSettings;
@@ -121,6 +208,8 @@ public sealed class IslandGenerator : MonoBehaviour
     {
         Camera.onPreCull += PrepareCameraRender;
         EnsureActiveCameraDepthTextures();
+        ApplyDistanceHazeSettings();
+        UpdateSolarLighting(0f);
         if (hasStarted && generation.GenerateOnStart && terrainStreamer == null)
         {
             Generate();
@@ -130,6 +219,7 @@ public sealed class IslandGenerator : MonoBehaviour
     private void OnDisable()
     {
         Camera.onPreCull -= PrepareCameraRender;
+        RenderSettings.fog = false;
         generationCancellation?.Cancel();
         ClearGeneratedContent();
     }
@@ -137,6 +227,18 @@ public sealed class IslandGenerator : MonoBehaviour
     private void PrepareCameraRender(Camera camera)
     {
         EnsureCameraDepthTexture(camera);
+        ApplyAtmosphericCameraClearColour(camera);
+    }
+
+    private void ApplyAtmosphericCameraClearColour(Camera camera)
+    {
+        if (camera == null)
+        {
+            return;
+        }
+        var clearColour = CurrentAtmosphericHorizonColour();
+        clearColour.a = 1f;
+        camera.backgroundColor = clearColour;
     }
 
     private static void EnsureCameraDepthTexture(Camera camera)
@@ -174,6 +276,8 @@ public sealed class IslandGenerator : MonoBehaviour
         }
         UpdateMaterialTransforms();
         ApplyLiveSettings();
+        UpdateSolarLighting(Time.unscaledDeltaTime);
+        ApplyCloudSettings(Time.unscaledDeltaTime);
         if (terrainStreamer != null && streaming.Target != null)
         {
             terrainStreamer.SetPlayerPosition(streaming.Target.position);
@@ -201,6 +305,29 @@ public sealed class IslandGenerator : MonoBehaviour
     private void BuildRuntimeMaterials(IslandPreparedMaterialTextures materialTextures)
     {
         var skyColor = new Color(0.49f, 0.68f, 0.82f);
+        skyDomeMaterial = CreateMaterial(
+            "Motu/Sky Dome",
+            skyColor,
+            null,
+            generation.WorldSizeMetres);
+        if (skyDomeMaterial.shader.name != "Motu/Sky Dome")
+        {
+            throw new InvalidOperationException("Could not find shader 'Motu/Sky Dome'.");
+        }
+        skyDomeMaterial.SetColor("_ZenithColor", skyColor);
+        skyDomeMaterial.SetColor("_HorizonColor", rendering.DistanceHazeColour);
+        skyDomeMaterial.SetFloat(
+            SunDiscCosRadiusId,
+            Mathf.Cos(SunDiscAngularRadiusDegrees * Mathf.Deg2Rad));
+        skyDomeMaterial.SetColor(SunHaloColourId, SunsetSunHaloColour);
+        skyDomeMaterial.SetColor(MoonColourId, MoonDiscColour);
+        skyDomeMaterial.SetColor(MoonDarkColourId, MoonDarkColour);
+        skyDomeMaterial.SetFloat(
+            MoonDiscCosRadiusId,
+            Mathf.Cos(MoonDiscAngularRadiusDegrees * Mathf.Deg2Rad));
+        skyDomeMaterial.SetFloat(SkyExposureId, currentSkyExposure);
+        ApplyStarSettings();
+        EnsureCloudWeatherTexture();
         terrainMaterial = CreateMaterial(
             "Motu/Terrain Unified",
             Color.white,
@@ -259,7 +386,36 @@ public sealed class IslandGenerator : MonoBehaviour
         };
         treeFoliageMaterial.CopyPropertiesFromMaterial(treeLod0FoliageMaterial);
         treeFoliageMaterial.SetFloat("_CullMode", (float)CullMode.Back);
+        treeFoliageMaterial.renderQueue = (int)RenderQueue.Geometry;
         treeFoliageMaterial.enableInstancing = true;
+        reedMaterial = CreateMaterial(
+            "Motu/Riverbank Reeds",
+            reeds.BaseColour,
+            null,
+            generation.WorldSizeMetres);
+        if (reedMaterial.shader.name != "Motu/Riverbank Reeds")
+        {
+            throw new InvalidOperationException(
+                "Could not find shader 'Motu/Riverbank Reeds'.");
+        }
+        reedMaterial.SetColor("_BaseColor", reeds.BaseColour);
+        reedMaterial.SetColor("_TipColor", reeds.TipColour);
+        reedMaterial.SetFloat("_ReedWindMultiplier", reeds.WindStrength);
+        reedMaterial.enableInstancing = true;
+        fernMaterial = CreateMaterial(
+            "Motu/Forest Ferns",
+            ferns.BaseColour,
+            null,
+            generation.WorldSizeMetres);
+        if (fernMaterial.shader.name != "Motu/Forest Ferns")
+        {
+            throw new InvalidOperationException(
+                "Could not find shader 'Motu/Forest Ferns'.");
+        }
+        fernMaterial.SetColor("_BaseColor", ferns.BaseColour);
+        fernMaterial.SetColor("_TipColor", ferns.TipColour);
+        fernMaterial.SetFloat("_FernWindMultiplier", ferns.WindStrength);
+        fernMaterial.enableInstancing = true;
         rockMaterial = CreateMaterial(
             "Motu/Rock Decoration",
             rockColor,
@@ -305,6 +461,8 @@ public sealed class IslandGenerator : MonoBehaviour
         treeLod1WoodMaterial.SetTexture("_GrassPatchNoise", grassPatchNoiseTexture);
         treeFoliageMaterial.SetTexture("_GrassPatchNoise", grassPatchNoiseTexture);
         treeLod0FoliageMaterial.SetTexture("_GrassPatchNoise", grassPatchNoiseTexture);
+        reedMaterial.SetTexture("_GrassPatchNoise", grassPatchNoiseTexture);
+        fernMaterial.SetTexture("_GrassPatchNoise", grassPatchNoiseTexture);
         ApplyGrassColourSettings();
         grassMaterial.SetFloat("_GrassBrightness", rendering.GrassBrightness);
         ApplyGrassWindSettings();
@@ -402,6 +560,8 @@ public sealed class IslandGenerator : MonoBehaviour
         meshEdgeMaterial.renderQueue = (int)RenderQueue.Overlay + 100;
         meshEdgeMaterial.SetColor("_Color", Color.black);
         meshEdgeMaterial.SetFloat("_ZTest", (float)CompareFunction.LessEqual);
+        UpdateSolarLighting(0f);
+        ApplyCloudSettings(0f);
         UpdateMaterialTransforms(true);
     }
 
@@ -506,6 +666,8 @@ public sealed class IslandGenerator : MonoBehaviour
         }
         appliedWorldToLocal = worldToLocal;
         hasAppliedWorldToLocal = true;
+        Shader.SetGlobalMatrix(IslandWorldToLocalId, worldToLocal);
+        skyDomeMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
         terrainMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
         terrainLod1Material?.SetMatrix(IslandWorldToLocalId, worldToLocal);
         terrainLod2Material?.SetMatrix(IslandWorldToLocalId, worldToLocal);
@@ -517,10 +679,166 @@ public sealed class IslandGenerator : MonoBehaviour
         treeLod1WoodMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
         treeFoliageMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
         treeLod0FoliageMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
+        reedMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
+        fernMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
+    }
+
+    private void EnsureCloudWeatherTexture()
+    {
+        var combinedSeed = unchecked(generation.Seed * 397) ^ clouds.Seed;
+        var resolution = clouds.WeatherMapResolution;
+        if (cloudWeatherTexture != null
+            && appliedCloudSeed == combinedSeed
+            && appliedCloudResolution == resolution)
+        {
+            return;
+        }
+
+        DestroyUnityObject(cloudWeatherTexture);
+        cloudWeatherTexture = null;
+        MotuNative.ExportCloudWeatherMap native = default;
+        try
+        {
+            if (MotuNative.CreateCloudWeatherMap(combinedSeed, resolution, out native) == 0
+                || native.handle == IntPtr.Zero
+                || native.rgba == IntPtr.Zero
+                || native.width != resolution
+                || native.height != resolution)
+            {
+                throw new InvalidOperationException(
+                    "The Rust cloud weather-field generator returned invalid data.");
+            }
+            var rgba = new byte[checked(resolution * resolution * 4)];
+            Marshal.Copy(native.rgba, rgba, 0, rgba.Length);
+            cloudWeatherTexture = CreateCloudWeatherTexture(
+                rgba,
+                resolution,
+                resolution,
+                "Rust Generated Cloud Weather Field");
+            appliedCloudSeed = combinedSeed;
+            appliedCloudResolution = resolution;
+        }
+        finally
+        {
+            MotuNative.ReleaseCloudWeatherMap(ref native);
+        }
+    }
+
+    private static Texture2D CreateCloudWeatherTexture(
+        byte[] rgba,
+        int width,
+        int height,
+        string textureName)
+    {
+        var expectedLength = checked(width * height * 4);
+        if (rgba == null || rgba.Length != expectedLength)
+        {
+            throw new ArgumentException(
+                $"Cloud weather texture requires {expectedLength} base-mip RGBA bytes.",
+                nameof(rgba));
+        }
+        var texture = new Texture2D(
+            width,
+            height,
+            TextureFormat.RGBA32,
+            true,
+            true)
+        {
+            name = textureName,
+            filterMode = FilterMode.Trilinear,
+            wrapMode = TextureWrapMode.Repeat,
+            anisoLevel = 1,
+        };
+        // The native map contains mip zero only. Upload that level explicitly,
+        // then let Apply generate the remaining levels for trilinear filtering.
+        texture.SetPixelData(rgba, 0);
+        texture.Apply(true, true);
+        return texture;
+    }
+
+    private void ApplyCloudSettings(float deltaTime)
+    {
+        if (skyDomeMaterial == null)
+        {
+            return;
+        }
+        EnsureCloudWeatherTexture();
+        var windDirection = clouds.WindDirection;
+        if (windDirection.sqrMagnitude > 0.000001f)
+        {
+            windDirection.Normalize();
+            var windTravel = windDirection
+                * (clouds.WindSpeedMetresPerSecond * Mathf.Max(deltaTime, 0f));
+            cloudWindOffset += windTravel;
+            cloudBroadWindOffset += windTravel * 0.18f;
+        }
+        var worldSize = clouds.WorldSizeMetres;
+        var broadWorldSize = worldSize * clouds.BroadNoiseScale;
+        cloudWindOffset.x = Mathf.Repeat(cloudWindOffset.x, worldSize);
+        cloudWindOffset.y = Mathf.Repeat(cloudWindOffset.y, worldSize);
+        cloudBroadWindOffset.x = Mathf.Repeat(
+            cloudBroadWindOffset.x,
+            broadWorldSize);
+        cloudBroadWindOffset.y = Mathf.Repeat(
+            cloudBroadWindOffset.y,
+            broadWorldSize);
+        var enabled = clouds.Enabled
+            && clouds.Coverage > 0f
+            && clouds.Density > 0f
+            && cloudWeatherTexture != null;
+
+        Shader.SetGlobalTexture(CloudWeatherTextureId, cloudWeatherTexture);
+        Shader.SetGlobalFloat(CloudEnabledId, enabled ? 1f : 0f);
+        Shader.SetGlobalFloat("_MotuCloudCoverage", clouds.Coverage);
+        Shader.SetGlobalFloat("_MotuCloudDensity", clouds.Density);
+        Shader.SetGlobalFloat("_MotuCloudAltitude", clouds.AltitudeMetres);
+        Shader.SetGlobalFloat("_MotuCloudWorldSize", worldSize);
+        Shader.SetGlobalVector(
+            "_MotuCloudVolume",
+            new Vector4(clouds.VerticalThicknessMetres, 0f, 0f, 0f));
+        Shader.SetGlobalVector(
+            "_MotuCloudBroadNoise",
+            new Vector4(
+                clouds.BroadNoiseScale,
+                clouds.BroadNoiseStrength,
+                0f,
+                0f));
+        Shader.SetGlobalVector(
+            "_MotuCloudDetailErosion",
+            new Vector4(clouds.DetailStrength, clouds.ErosionStrength, 0f, 0f));
+        Shader.SetGlobalVector(
+            "_MotuCloudWindOffset",
+            new Vector4(
+                cloudWindOffset.x,
+                cloudWindOffset.y,
+                cloudBroadWindOffset.x,
+                cloudBroadWindOffset.y));
+        Shader.SetGlobalColor("_MotuCloudDayColor", clouds.DayColour);
+        Shader.SetGlobalColor("_MotuCloudSunsetColor", clouds.SunsetColour);
+        Shader.SetGlobalColor("_MotuCloudNightColor", clouds.NightColour);
+        Shader.SetGlobalFloat("_MotuCloudShadowStrength", clouds.ShadowStrength);
+        Shader.SetGlobalFloat(
+            "_MotuCloudAmbientShadowStrength",
+            clouds.AmbientShadowStrength);
+        Shader.SetGlobalFloat(
+            "_MotuCloudCelestialStrength",
+            clouds.CelestialObscurationStrength);
+        Shader.SetGlobalFloat(
+            "_MotuCloudLowElevationFade",
+            clouds.LowElevationShadowFade);
     }
 
     private void ApplyLiveSettings()
     {
+        if (appliedShowDistanceHaze != rendering.ShowDistanceHaze
+            || !appliedDistanceHazeColour.HasValue
+            || appliedDistanceHazeColour.Value != rendering.DistanceHazeColour
+            || !Mathf.Approximately(
+                appliedDistanceHazeDensity,
+                rendering.DistanceHazeDensity))
+        {
+            ApplyDistanceHazeSettings();
+        }
         if (!appliedGrassColourA.HasValue
             || !appliedGrassColourB.HasValue
             || appliedGrassColourA.Value != rendering.GrassColourA
@@ -588,6 +906,38 @@ public sealed class IslandGenerator : MonoBehaviour
             appliedShowForests = forest.ShowForests;
             terrainStreamer?.SetForestsVisible(forest.ShowForests);
         }
+        if (appliedShowReeds != reeds.ShowReeds)
+        {
+            appliedShowReeds = reeds.ShowReeds;
+            terrainStreamer?.SetReedsVisible(reeds.ShowReeds);
+        }
+        if (appliedReedBaseColour != reeds.BaseColour
+            || appliedReedTipColour != reeds.TipColour
+            || !Mathf.Approximately(appliedReedWindStrength, reeds.WindStrength))
+        {
+            appliedReedBaseColour = reeds.BaseColour;
+            appliedReedTipColour = reeds.TipColour;
+            appliedReedWindStrength = reeds.WindStrength;
+            reedMaterial?.SetColor("_BaseColor", reeds.BaseColour);
+            reedMaterial?.SetColor("_TipColor", reeds.TipColour);
+            reedMaterial?.SetFloat("_ReedWindMultiplier", reeds.WindStrength);
+        }
+        if (appliedShowFerns != ferns.ShowFerns)
+        {
+            appliedShowFerns = ferns.ShowFerns;
+            terrainStreamer?.SetFernsVisible(ferns.ShowFerns);
+        }
+        if (appliedFernBaseColour != ferns.BaseColour
+            || appliedFernTipColour != ferns.TipColour
+            || !Mathf.Approximately(appliedFernWindStrength, ferns.WindStrength))
+        {
+            appliedFernBaseColour = ferns.BaseColour;
+            appliedFernTipColour = ferns.TipColour;
+            appliedFernWindStrength = ferns.WindStrength;
+            fernMaterial?.SetColor("_BaseColor", ferns.BaseColour);
+            fernMaterial?.SetColor("_TipColor", ferns.TipColour);
+            fernMaterial?.SetFloat("_FernWindMultiplier", ferns.WindStrength);
+        }
         if (appliedShowMeshEdges != debugSettings.ShowMeshEdges)
         {
             appliedShowMeshEdges = debugSettings.ShowMeshEdges;
@@ -598,11 +948,407 @@ public sealed class IslandGenerator : MonoBehaviour
             appliedShowTreeMeshEdges = debugSettings.ShowTreeMeshEdges;
             terrainStreamer?.SetTreeMeshEdgesVisible(debugSettings.ShowTreeMeshEdges);
         }
-        if (appliedEmitterDebug != debugSettings.ShowRoughWaterEmitters)
+        if (appliedWaterfallDebug != debugSettings.ShowWaterfallFeet)
         {
-            appliedEmitterDebug = debugSettings.ShowRoughWaterEmitters;
-            terrainStreamer?.SetRiverEmitterDebug(debugSettings.ShowRoughWaterEmitters);
+            appliedWaterfallDebug = debugSettings.ShowWaterfallFeet;
+            terrainStreamer?.SetWaterfallFootDebug(debugSettings.ShowWaterfallFeet);
         }
+    }
+
+    private void ApplyDistanceHazeSettings()
+    {
+        appliedShowDistanceHaze = rendering.ShowDistanceHaze;
+        appliedDistanceHazeColour = rendering.DistanceHazeColour;
+        appliedDistanceHazeDensity = rendering.DistanceHazeDensity;
+
+        skyDomeMaterial?.SetColor(
+            "_HorizonColor",
+            CurrentAtmosphericHorizonBaseColour());
+        skyDomeMaterial?.SetFloat(SkyExposureId, currentSkyExposure);
+        RenderSettings.fog = rendering.ShowDistanceHaze && firstPersonViewActive;
+        if (!RenderSettings.fog)
+        {
+            return;
+        }
+        RenderSettings.fogMode = FogMode.ExponentialSquared;
+        RenderSettings.fogColor = CurrentAtmosphericHorizonColour();
+        RenderSettings.fogDensity = rendering.DistanceHazeDensity;
+    }
+
+    private void UpdateSolarLighting(float deltaTime)
+    {
+        if (!solarClockInitialized)
+        {
+            solarTimeHours = rendering.StartingSolarTimeHours;
+            lunarPhase = rendering.StartingMoonPhase;
+            solarClockInitialized = true;
+        }
+        if (deltaTime > 0f)
+        {
+            var cycleSeconds = rendering.SunCycleDurationMinutes * 60f;
+            var clockRate = EvaluateSolarClockRateMultiplier(
+                solarTimeHours,
+                rendering.MidnightToNoonClockRateRatio);
+            solarTimeHours = Mathf.Repeat(
+                solarTimeHours + deltaTime * 24f / cycleSeconds * clockRate,
+                24f);
+            lunarPhase = Mathf.Repeat(
+                lunarPhase + deltaTime / (cycleSeconds * LunarSynodicPeriodDays),
+                1f);
+        }
+
+        var state = EvaluateSolarLighting(
+            solarTimeHours,
+            rendering.SunLatitudeDegrees,
+            rendering.MiddaySunIntensity);
+        currentSkyExposure = state.SkyExposure;
+        currentNightStrength = state.NightStrength;
+        treeFoliageMaterial?.SetFloat(NightStrengthId, currentNightStrength);
+        var moonState = EvaluateMoonLighting(
+            solarTimeHours,
+            rendering.SunLatitudeDegrees,
+            rendering.MoonEquatorOffsetDegrees,
+            lunarPhase,
+            rendering.FullMoonLightIntensity,
+            state.LocalDirection.y);
+
+        skyDomeMaterial?.SetVector(SunDirectionId, state.LocalDirection);
+        skyDomeMaterial?.SetColor(SunColourId, state.SunColour);
+        skyDomeMaterial?.SetColor(
+            "_HorizonColor",
+            CurrentAtmosphericHorizonBaseColour());
+        skyDomeMaterial?.SetFloat(SunVisibilityId, state.SunVisibility);
+        skyDomeMaterial?.SetFloat(SunHaloStrengthId, state.SunHaloStrength);
+        skyDomeMaterial?.SetVector(MoonDirectionId, moonState.LocalDirection);
+        skyDomeMaterial?.SetVector(
+            MoonLightDirectionId,
+            moonState.LocalLightDirection);
+        skyDomeMaterial?.SetFloat(MoonVisibilityId, moonState.Visibility);
+        skyDomeMaterial?.SetFloat(SkyExposureId, currentSkyExposure);
+        skyDomeMaterial?.SetFloat(StarVisibilityId, currentNightStrength);
+        ApplyStarSettings();
+        ApplyStarRotation(moonState.OrbitLatitudeDegrees);
+        riverMaterial?.SetFloat(WaterSkyExposureId, currentSkyExposure);
+        seaMaterial?.SetFloat(WaterSkyExposureId, currentSkyExposure);
+
+        var sun = rendering.Sunlight != null ? rendering.Sunlight : RenderSettings.sun;
+        var worldSunDirection = transform.TransformDirection(
+            state.LocalDirection).normalized;
+        if (sun != null)
+        {
+            PositionDirectionalLight(sun, worldSunDirection);
+            sun.color = state.SunColour;
+            sun.intensity = state.SunIntensity;
+            sun.enabled = state.SunIntensity > 0.0001f;
+        }
+
+        var worldMoonDirection = transform.TransformDirection(
+            moonState.LocalDirection).normalized;
+        var moonShadowsActive = state.SunVisibility <= 0.0001f
+            && state.SunIntensity <= 0.0001f
+            && moonState.LightIntensity > 0.0001f;
+        if (moonLight != null)
+        {
+            PositionDirectionalLight(moonLight, worldMoonDirection);
+            moonLight.color = MoonLightColour;
+            moonLight.intensity = moonState.LightIntensity;
+            moonLight.enabled = moonShadowsActive;
+        }
+
+        var activeLightDirection = worldSunDirection;
+        var activeLightColour = state.SunColour * state.SunIntensity;
+        if (moonShadowsActive && moonLight != null)
+        {
+            activeLightDirection = worldMoonDirection;
+            activeLightColour = MoonLightColour * moonState.LightIntensity;
+            RenderSettings.sun = moonLight;
+        }
+        else if (sun != null)
+        {
+            RenderSettings.sun = sun;
+        }
+
+        RenderSettings.ambientMode = AmbientMode.Flat;
+        RenderSettings.ambientLight = state.AmbientColour;
+        if (RenderSettings.fog)
+        {
+            RenderSettings.fogColor = CurrentAtmosphericHorizonColour();
+        }
+
+        grassMaterial?.SetVector("_GrassLightDirection", activeLightDirection);
+        grassMaterial?.SetColor(
+            "_GrassLightColor",
+            activeLightColour);
+        grassMaterial?.SetColor("_GrassAmbientColor", state.AmbientColour);
+        Shader.SetGlobalVector(CloudLightDirectionId, transform.InverseTransformDirection(
+            activeLightDirection).normalized);
+        Shader.SetGlobalFloat(
+            CloudLightActiveId,
+            activeLightColour.maxColorComponent > 0.0001f ? 1f : 0f);
+        Shader.SetGlobalColor(CloudLightColourId, activeLightColour);
+        Shader.SetGlobalColor("_MotuCloudAmbientColor", state.AmbientColour);
+        Shader.SetGlobalFloat("_MotuCloudSunsetStrength", state.SunHaloStrength);
+        Shader.SetGlobalFloat("_MotuCloudNightStrength", state.NightStrength);
+    }
+
+    private void ApplyStarSettings()
+    {
+        if (skyDomeMaterial == null)
+        {
+            return;
+        }
+        var starSeed = Mathf.Repeat(generation.Seed * 0.61803398875f, 4096f);
+        skyDomeMaterial.SetVector(
+            StarSettingsId,
+            new Vector4(
+                rendering.StarDensity,
+                rendering.StarBrightness,
+                rendering.StarSize,
+                starSeed));
+    }
+
+    private void ApplyStarRotation(float orbitLatitudeDegrees)
+    {
+        if (skyDomeMaterial == null)
+        {
+            return;
+        }
+        var latitudeRadians = orbitLatitudeDegrees * Mathf.Deg2Rad;
+        var orbitAxis = new Vector3(
+            0f,
+            Mathf.Sin(latitudeRadians),
+            Mathf.Cos(latitudeRadians));
+        var orbitAngle = (Mathf.Repeat(solarTimeHours, 24f) - 6f)
+            * Mathf.PI
+            / 12f;
+        // The shader rotates the observed direction back into the fixed star
+        // field, so use the inverse of the sky's apparent orbital rotation.
+        skyDomeMaterial.SetVector(
+            StarRotationId,
+            new Vector4(orbitAxis.x, orbitAxis.y, orbitAxis.z, -orbitAngle));
+    }
+
+    public static float EvaluateSolarClockRateMultiplier(
+        float timeHours,
+        float midnightToNoonRateRatio = 10f)
+    {
+        midnightToNoonRateRatio = Mathf.Clamp(
+            midnightToNoonRateRatio,
+            1f,
+            20f);
+        var angle = Mathf.Repeat(timeHours, 24f) * Mathf.PI / 12f;
+        var midnightWeight = 0.5f + 0.5f * Mathf.Cos(angle);
+        var relativeRate = Mathf.Lerp(
+            1f,
+            midnightToNoonRateRatio,
+            midnightWeight);
+        // This makes the integral of inverse speed over one solar revolution
+        // equal to the former uniform cycle, preserving the configured period.
+        return relativeRate / Mathf.Sqrt(midnightToNoonRateRatio);
+    }
+
+    private void PositionDirectionalLight(Light light, Vector3 sourceDirection)
+    {
+        light.transform.position = transform.position
+            + sourceDirection * generation.WorldSizeMetres * 0.9f;
+        var lightForward = -sourceDirection;
+        var rotationUp = transform.TransformDirection(Vector3.forward);
+        if (Mathf.Abs(Vector3.Dot(lightForward, rotationUp)) > 0.98f)
+        {
+            rotationUp = transform.TransformDirection(Vector3.right);
+        }
+        light.transform.rotation = Quaternion.LookRotation(lightForward, rotationUp);
+    }
+
+    private Color CurrentAtmosphericHorizonColour()
+    {
+        var colour = CurrentAtmosphericHorizonBaseColour() * currentSkyExposure;
+        colour.a = rendering.DistanceHazeColour.a;
+        return colour;
+    }
+
+    private Color CurrentAtmosphericHorizonBaseColour()
+    {
+        var colour = Color.Lerp(
+            rendering.DistanceHazeColour,
+            NightHazeColour,
+            currentNightStrength);
+        colour.a = rendering.DistanceHazeColour.a;
+        return colour;
+    }
+
+    public static SolarLightingState EvaluateSolarLighting(
+        float timeHours,
+        float latitudeDegrees,
+        float middayIntensity)
+    {
+        var latitude = Mathf.Clamp(latitudeDegrees, -80f, 80f) * Mathf.Deg2Rad;
+        var angle = (Mathf.Repeat(timeHours, 24f) - 6f) * Mathf.PI / 12f;
+        var sinAngle = Mathf.Sin(angle);
+        var localDirection = new Vector3(
+            Mathf.Cos(angle),
+            sinAngle * Mathf.Cos(latitude),
+            -sinAngle * Mathf.Sin(latitude)).normalized;
+        var elevation = localDirection.y;
+        var daylight = SmoothRange(0f, 0.04f, elevation);
+        var highSun = SmoothRange(0.02f, 0.35f, elevation);
+        var sunColour = Color.Lerp(SunsetSunColour, MiddaySunColour, highSun);
+        var sunIntensity = Mathf.Clamp(middayIntensity, 0f, 4f)
+            * daylight
+            * Mathf.Lerp(0.22f, 1f, SmoothRange(0f, 0.4f, elevation));
+
+        var twilight = SmoothRange(-0.14f, 0.02f, elevation);
+        var fullDay = SmoothRange(0.02f, 0.35f, elevation);
+        var sunHaloStrength = SmoothRange(-0.08f, 0.02f, elevation)
+            * (1f - SmoothRange(0.12f, 0.32f, elevation));
+        var nightStrength = 1f - SmoothRange(-0.14f, 0f, elevation);
+        var ambientColour = Color.Lerp(
+            NightAmbientColour,
+            TwilightAmbientColour,
+            twilight);
+        ambientColour = Color.Lerp(ambientColour, DayAmbientColour, fullDay);
+
+        return new SolarLightingState(
+            localDirection,
+            sunColour,
+            ambientColour,
+            sunIntensity,
+            SmoothRange(-0.020f, 0.005f, elevation),
+            Mathf.Lerp(
+                NightSkyExposure,
+                1f,
+                SmoothRange(-0.16f, 0.20f, elevation)),
+            sunHaloStrength,
+            nightStrength);
+    }
+
+    public static MoonLightingState EvaluateMoonLighting(
+        float timeHours,
+        float solarLatitudeDegrees,
+        float equatorOffsetDegrees,
+        float phase,
+        float fullMoonIntensity,
+        float sunElevation)
+    {
+        var solarLatitude = Mathf.Clamp(solarLatitudeDegrees, -80f, 80f);
+        var moonLatitude = Mathf.MoveTowards(
+            solarLatitude,
+            0f,
+            Mathf.Clamp(equatorOffsetDegrees, 0f, 45f));
+        var latitude = moonLatitude * Mathf.Deg2Rad;
+        var phaseAngle = Mathf.Repeat(phase, 1f) * Mathf.PI * 2f;
+        var orbitAngle = (Mathf.Repeat(timeHours, 24f) - 6f)
+            * Mathf.PI / 12f
+            - phaseAngle;
+        var sinAngle = Mathf.Sin(orbitAngle);
+        var cosAngle = Mathf.Cos(orbitAngle);
+        var cosLatitude = Mathf.Cos(latitude);
+        var sinLatitude = Mathf.Sin(latitude);
+        var localDirection = new Vector3(
+            cosAngle,
+            sinAngle * cosLatitude,
+            -sinAngle * sinLatitude).normalized;
+        var orbitTangent = new Vector3(
+            -sinAngle,
+            cosAngle * cosLatitude,
+            -cosAngle * sinLatitude).normalized;
+        var phaseCosine = Mathf.Cos(phaseAngle);
+        var localLightDirection = (
+            localDirection * phaseCosine
+            + orbitTangent * Mathf.Sin(phaseAngle)).normalized;
+        var illumination = Mathf.Clamp01((1f - phaseCosine) * 0.5f);
+        var altitudeVisibility = SmoothRange(
+            -0.020f,
+            0.005f,
+            localDirection.y);
+        var daylightVisibility = Mathf.Lerp(
+            0.18f,
+            1f,
+            1f - SmoothRange(-0.05f, 0.25f, sunElevation));
+        var lightIntensity = Mathf.Clamp01(fullMoonIntensity)
+            * Mathf.Pow(illumination, 1.5f)
+            * SmoothRange(0f, 0.18f, localDirection.y);
+        return new MoonLightingState(
+            localDirection,
+            localLightDirection,
+            moonLatitude,
+            illumination,
+            altitudeVisibility * daylightVisibility,
+            lightIntensity);
+    }
+
+    private static float SmoothRange(float minimum, float maximum, float value)
+    {
+        var t = Mathf.InverseLerp(minimum, maximum, value);
+        return t * t * (3f - 2f * t);
+    }
+
+    public readonly struct SolarLightingState
+    {
+        public Vector3 LocalDirection { get; }
+        public Color SunColour { get; }
+        public Color AmbientColour { get; }
+        public float SunIntensity { get; }
+        public float SunVisibility { get; }
+        public float SkyExposure { get; }
+        public float SunHaloStrength { get; }
+        public float NightStrength { get; }
+
+        internal SolarLightingState(
+            Vector3 localDirection,
+            Color sunColour,
+            Color ambientColour,
+            float sunIntensity,
+            float sunVisibility,
+            float skyExposure,
+            float sunHaloStrength,
+            float nightStrength)
+        {
+            LocalDirection = localDirection;
+            SunColour = sunColour;
+            AmbientColour = ambientColour;
+            SunIntensity = sunIntensity;
+            SunVisibility = sunVisibility;
+            SkyExposure = skyExposure;
+            SunHaloStrength = sunHaloStrength;
+            NightStrength = nightStrength;
+        }
+    }
+
+    public readonly struct MoonLightingState
+    {
+        public Vector3 LocalDirection { get; }
+        public Vector3 LocalLightDirection { get; }
+        public float OrbitLatitudeDegrees { get; }
+        public float Illumination { get; }
+        public float Visibility { get; }
+        public float LightIntensity { get; }
+
+        internal MoonLightingState(
+            Vector3 localDirection,
+            Vector3 localLightDirection,
+            float orbitLatitudeDegrees,
+            float illumination,
+            float visibility,
+            float lightIntensity)
+        {
+            LocalDirection = localDirection;
+            LocalLightDirection = localLightDirection;
+            OrbitLatitudeDegrees = orbitLatitudeDegrees;
+            Illumination = illumination;
+            Visibility = visibility;
+            LightIntensity = lightIntensity;
+        }
+    }
+
+    internal void SetFirstPersonViewActive(bool active)
+    {
+        if (firstPersonViewActive == active)
+        {
+            return;
+        }
+        firstPersonViewActive = active;
+        ApplyDistanceHazeSettings();
     }
 
     private void ApplyGrassColourSettings()
@@ -652,6 +1398,8 @@ public sealed class IslandGenerator : MonoBehaviour
         ApplyGrassWindSettingsToMaterial(treeLod1WoodMaterial, direction);
         ApplyGrassWindSettingsToMaterial(treeFoliageMaterial, direction);
         ApplyGrassWindSettingsToMaterial(treeLod0FoliageMaterial, direction);
+        ApplyGrassWindSettingsToMaterial(reedMaterial, direction);
+        ApplyGrassWindSettingsToMaterial(fernMaterial, direction);
     }
 
     private void ApplyGrassWindSettingsToMaterial(
@@ -691,8 +1439,8 @@ public sealed class IslandGenerator : MonoBehaviour
         var worldSize = generation.WorldSizeMetres;
         var options = generation.ToNativeOptions(rivers);
         var forestOptions = generation.ToNativeForestOptions(forest);
-        var emitterSharpness = rivers.RoughWaterSharpnessDegrees;
-        var emitterSpacing = rivers.RoughWaterSpacingMetres;
+        var reedOptions = generation.ToNativeReedOptions(reeds);
+        var fernOptions = generation.ToNativeFernOptions(ferns);
         var materialColours = rendering.SelectMaterialColours(islandSeed);
         var materialTextureResolution = rendering.MaterialTextureResolution;
 
@@ -702,9 +1450,9 @@ public sealed class IslandGenerator : MonoBehaviour
                 islandSeed,
                 options,
                 forestOptions,
+                reedOptions,
+                fernOptions,
                 worldSize,
-                emitterSharpness,
-                emitterSpacing,
                 materialColours,
                 materialTextureResolution,
                 cancellation.Token);
@@ -728,6 +1476,9 @@ public sealed class IslandGenerator : MonoBehaviour
 
             runtimeRoot = new GameObject("Generated Island");
             runtimeRoot.transform.SetParent(transform, false);
+            CreateSkyDomeObject(prepared.skyDome);
+            CreateMoonLight();
+            UpdateSolarLighting(0f);
             var terrainRoot = new GameObject("Terrain Tiles");
             terrainRoot.transform.SetParent(runtimeRoot.transform, false);
             terrainStreamer = terrainRoot.AddComponent<TerrainTileStreamer>();
@@ -742,6 +1493,8 @@ public sealed class IslandGenerator : MonoBehaviour
                 treeLod1WoodMaterial,
                 treeFoliageMaterial,
                 treeLod0FoliageMaterial,
+                reedMaterial,
+                fernMaterial,
                 riverMaterial,
                 meshEdgeMaterial,
                 worldSize,
@@ -749,14 +1502,18 @@ public sealed class IslandGenerator : MonoBehaviour
                 prepared.riverTiles,
                 prepared.riverRockTiles,
                 prepared.forest,
-                prepared.riverEmitters,
+                prepared.reedTiles,
+                prepared.fernTiles,
+                prepared.waterfallFeet,
                 prepared.colliderHeightMap,
                 rendering.ShowRivers,
                 rendering.ShowGrass,
                 rendering.ShowRocks,
                 forest.ShowForests,
+                reeds.ShowReeds,
+                ferns.ShowFerns,
                 cancellation.Token);
-            terrainStreamer.SetRiverEmitterDebug(debugSettings.ShowRoughWaterEmitters);
+            terrainStreamer.SetWaterfallFootDebug(debugSettings.ShowWaterfallFeet);
 
             seaObject = GameObject.CreatePrimitive(PrimitiveType.Plane);
             seaObject.name = "Sea";
@@ -767,7 +1524,9 @@ public sealed class IslandGenerator : MonoBehaviour
             }
             seaObject.transform.SetParent(runtimeRoot.transform, false);
             seaObject.transform.localPosition = Vector3.up * SeaHeight;
-            seaObject.transform.localScale = Vector3.one * (worldSize / 10f);
+            // Unity's built-in plane is 10 metres square. Give it a diameter of
+            // two island widths so its edges reach the sky dome's world-size radius.
+            seaObject.transform.localScale = Vector3.one * (worldSize / 5f);
             seaObject.GetComponent<MeshRenderer>().sharedMaterial = seaMaterial;
             DestroyUnityObject(seaObject.GetComponent<Collider>());
             seaObject.SetActive(rendering.ShowSea);
@@ -789,8 +1548,8 @@ public sealed class IslandGenerator : MonoBehaviour
             status += " | shared 2048 terrain shading map";
             status += string.Format(
                 CultureInfo.InvariantCulture,
-                " | {0:N0} rough-water candidates / 32 pooled systems",
-                terrainStreamer.RiverEmitterCandidateCount);
+                " | {0:N0} waterfall feet / 32 pooled fog volumes",
+                terrainStreamer.WaterfallFootCount);
             status += string.Format(
                 CultureInfo.InvariantCulture,
                 " | 3x3 hidden LOD 1 terrain colliders (129x129 samples each) | {0:F1} km square",
@@ -916,8 +1675,6 @@ public sealed class IslandGenerator : MonoBehaviour
         int islandSeed,
         MotuNative.Options options,
         float worldSize,
-        float emitterSharpnessDegrees,
-        float emitterSpacingMetres,
         IslandMaterialColours materialColours,
         int materialTextureResolution,
         CancellationToken cancellationToken)
@@ -932,13 +1689,35 @@ public sealed class IslandGenerator : MonoBehaviour
             minimumScale = 1f,
             maximumScale = 2f,
         };
+        var reedOptions = new MotuNative.ReedOptions
+        {
+            bankWidthMetres = 0.8f * 2000f / worldSize,
+            patchSizeMetres = 8f * 2000f / worldSize,
+            coverageThreshold = 0.18f,
+            spacingMetres = 0.36f * 2000f / worldSize,
+            rushRatio = 0.45f,
+            minimumHeightMetres = 0.65f * 2000f / worldSize,
+            maximumHeightMetres = 2.1f * 2000f / worldSize,
+            maximumSlopeDegrees = 32f,
+        };
+        var fernOptions = new MotuNative.FernOptions
+        {
+            barkClearanceMetres = 0.18f * 2000f / worldSize,
+            outerRadiusMetres = 1.65f * 2000f / worldSize,
+            spacingMetres = 0.58f * 2000f / worldSize,
+            patchSizeMetres = 12f * 2000f / worldSize,
+            coverageThreshold = 0.28f,
+            minimumLengthMetres = 0.45f * 2000f / worldSize,
+            maximumLengthMetres = 1.15f * 2000f / worldSize,
+            maximumSlopeDegrees = 34f,
+        };
         return PrepareIsland(
             islandSeed,
             options,
             forestOptions,
+            reedOptions,
+            fernOptions,
             worldSize,
-            emitterSharpnessDegrees,
-            emitterSpacingMetres,
             materialColours,
             materialTextureResolution,
             cancellationToken);
@@ -948,17 +1727,19 @@ public sealed class IslandGenerator : MonoBehaviour
         int islandSeed,
         MotuNative.Options options,
         MotuNative.ForestOptions forestOptions,
+        MotuNative.ReedOptions reedOptions,
+        MotuNative.FernOptions fernOptions,
         float worldSize,
-        float emitterSharpnessDegrees,
-        float emitterSpacingMetres,
         IslandMaterialColours materialColours,
         int materialTextureResolution,
         CancellationToken cancellationToken)
     {
-        var handle = MotuNative.CreateMotuWithForest(
+        var handle = MotuNative.CreateMotuWithForestReedsAndFerns(
             islandSeed,
             ref options,
-            ref forestOptions);
+            ref forestOptions,
+            ref reedOptions,
+            ref fernOptions);
         if (handle == IntPtr.Zero)
         {
             throw new InvalidOperationException(
@@ -971,6 +1752,8 @@ public sealed class IslandGenerator : MonoBehaviour
             var surfaceMaps = PrepareSurfaceMaps(handle, SurfaceMapDimension);
             cancellationToken.ThrowIfCancellationRequested();
             var seaMask = PrepareSeaMask(handle, SurfaceMapDimension);
+            cancellationToken.ThrowIfCancellationRequested();
+            var skyDome = PrepareSkyDome(worldSize);
             cancellationToken.ThrowIfCancellationRequested();
             var materialTextures = PrepareMaterialTextures(
                 materialColours,
@@ -986,21 +1769,24 @@ public sealed class IslandGenerator : MonoBehaviour
             cancellationToken.ThrowIfCancellationRequested();
             var forest = PrepareForestData(handle, worldSize);
             cancellationToken.ThrowIfCancellationRequested();
-            var riverEmitters = PrepareRiverEmitters(
-                handle,
-                worldSize,
-                emitterSharpnessDegrees,
-                emitterSpacingMetres);
+            var reedTiles = PrepareReedMeshGrid(handle, worldSize);
+            cancellationToken.ThrowIfCancellationRequested();
+            var fernTiles = PrepareFernMeshGrid(handle, worldSize);
+            cancellationToken.ThrowIfCancellationRequested();
+            var waterfallFeet = PrepareWaterfallFeet(handle, worldSize);
             cancellationToken.ThrowIfCancellationRequested();
             var result = new IslandPreparedData(
                 handle,
                 surfaceMaps,
                 seaMask,
+                skyDome,
                 overviewTiles,
                 riverTiles,
                 riverRockTiles,
                 forest,
-                riverEmitters,
+                reedTiles,
+                fernTiles,
+                waterfallFeet,
                 colliderHeightMap,
                 materialTextures);
             handle = IntPtr.Zero;
@@ -1067,6 +1853,30 @@ public sealed class IslandGenerator : MonoBehaviour
         finally
         {
             MotuNative.ReleaseSeaMask(ref seaMask);
+        }
+    }
+
+    private static IslandPreparedMesh PrepareSkyDome(float worldSize)
+    {
+        MotuNative.CreateSkyDome(out var export);
+        try
+        {
+            if (export.handle == IntPtr.Zero
+                || export.vertices.data == IntPtr.Zero
+                || export.vertices.length == 0
+                || export.normals.length != export.vertices.length
+                || export.uv.length != export.vertices.length
+                || export.triangles.data == IntPtr.Zero
+                || export.triangles.length == 0)
+            {
+                throw new InvalidOperationException(
+                    "The Rust generator returned an invalid sky-dome mesh.");
+            }
+            return CopyGeneratedMeshData(export, worldSize);
+        }
+        finally
+        {
+            MotuNative.ReleaseMesh(ref export);
         }
     }
 
@@ -1285,10 +2095,223 @@ public sealed class IslandGenerator : MonoBehaviour
     {
         return new IslandPreparedForestData(
             PrepareForestMeshGrid(handle, worldSize, 2, ForestTileStreamer.Lod2Resolution, false),
+            PrepareForestMeshGrid(handle, worldSize, 2, ForestTileStreamer.Lod2Resolution, true),
             PrepareForestMeshGrid(handle, worldSize, 1, ForestTileStreamer.Lod1Resolution, false),
             PrepareForestMeshGrid(handle, worldSize, 1, ForestTileStreamer.Lod1Resolution, true),
             PrepareForestMeshGrid(handle, worldSize, 0, ForestTileStreamer.Lod1Resolution, false),
-            PrepareForestMeshGrid(handle, worldSize, 0, ForestTileStreamer.Lod1Resolution, true));
+            PrepareForestMeshGrid(handle, worldSize, 0, ForestTileStreamer.Lod1Resolution, true),
+            PrepareForestTrunkColliders(handle, worldSize));
+    }
+
+    private static IslandPreparedMesh[] PrepareReedMeshGrid(
+        IntPtr handle,
+        float worldSize)
+    {
+        MotuNative.CreateReedMeshGrid(handle, out var export);
+        try
+        {
+            if (export.handle == IntPtr.Zero
+                || export.data == IntPtr.Zero
+                || export.length != ReedTileStreamer.TileCount)
+            {
+                throw new InvalidOperationException(
+                    "The Rust reed owner grid returned an invalid batch.");
+            }
+
+            var result = new IslandPreparedMesh[export.length];
+            var exportSize = Marshal.SizeOf<MotuNative.ExportMesh>();
+            for (var index = 0; index < export.length; index++)
+            {
+                var native = Marshal.PtrToStructure<MotuNative.ExportMesh>(
+                    IntPtr.Add(export.data, index * exportSize));
+                if (native.vertices.length == 0
+                    && native.normals.length == 0
+                    && native.triangles.length == 0)
+                {
+                    if (native.uv.length != 0
+                        || native.material.length != 0
+                        || native.environment.length != 0)
+                    {
+                        throw new InvalidOperationException(
+                            $"The empty Rust reed tile {index} contains sidecar data.");
+                    }
+                    continue;
+                }
+                if (native.vertices.length <= 0
+                    || native.vertices.data == IntPtr.Zero
+                    || native.normals.length != native.vertices.length
+                    || native.normals.data == IntPtr.Zero
+                    || native.uv.length != native.vertices.length
+                    || native.uv.data == IntPtr.Zero
+                    || native.material.length != native.vertices.length
+                    || native.material.data == IntPtr.Zero
+                    || native.environment.length != native.vertices.length
+                    || native.environment.data == IntPtr.Zero
+                    || native.triangles.length <= 0
+                    || native.triangles.length % 3 != 0
+                    || native.triangles.data == IntPtr.Zero)
+                {
+                    throw new InvalidOperationException(
+                        $"The Rust reed tile {index} has invalid mesh attributes.");
+                }
+                result[index] = CopyGeneratedMeshData(native, worldSize);
+            }
+            return result;
+        }
+        finally
+        {
+            MotuNative.ReleaseMeshGrid(ref export);
+        }
+    }
+
+    private static IslandPreparedMesh[] PrepareFernMeshGrid(
+        IntPtr handle,
+        float worldSize)
+    {
+        MotuNative.CreateFernMeshGrid(handle, out var export);
+        try
+        {
+            if (export.handle == IntPtr.Zero
+                || export.data == IntPtr.Zero
+                || export.length != FernTileStreamer.TileCount)
+            {
+                throw new InvalidOperationException(
+                    "The Rust fern owner grid returned an invalid batch.");
+            }
+
+            var result = new IslandPreparedMesh[export.length];
+            var exportSize = Marshal.SizeOf<MotuNative.ExportMesh>();
+            for (var index = 0; index < export.length; index++)
+            {
+                var native = Marshal.PtrToStructure<MotuNative.ExportMesh>(
+                    IntPtr.Add(export.data, index * exportSize));
+                if (native.vertices.length == 0
+                    && native.normals.length == 0
+                    && native.triangles.length == 0)
+                {
+                    if (native.uv.length != 0
+                        || native.material.length != 0
+                        || native.environment.length != 0)
+                    {
+                        throw new InvalidOperationException(
+                            $"The empty Rust fern tile {index} contains sidecar data.");
+                    }
+                    continue;
+                }
+                if (native.vertices.length <= 0
+                    || native.vertices.data == IntPtr.Zero
+                    || native.normals.length != native.vertices.length
+                    || native.normals.data == IntPtr.Zero
+                    || native.uv.length != native.vertices.length
+                    || native.uv.data == IntPtr.Zero
+                    || native.material.length != native.vertices.length
+                    || native.material.data == IntPtr.Zero
+                    || native.environment.length != native.vertices.length
+                    || native.environment.data == IntPtr.Zero
+                    || native.triangles.length <= 0
+                    || native.triangles.length % 3 != 0
+                    || native.triangles.data == IntPtr.Zero)
+                {
+                    throw new InvalidOperationException(
+                        $"The Rust fern tile {index} has invalid mesh attributes.");
+                }
+                result[index] = CopyGeneratedMeshData(native, worldSize);
+            }
+            return result;
+        }
+        finally
+        {
+            MotuNative.ReleaseMeshGrid(ref export);
+        }
+    }
+
+    private static IslandPreparedTreeCollider[][] PrepareForestTrunkColliders(
+        IntPtr handle,
+        float worldSize)
+    {
+        MotuNative.CreateForestTrunkColliders(handle, out var export);
+        try
+        {
+            if (export.handle == IntPtr.Zero
+                || export.length < 0
+                || (export.length > 0 && export.data == IntPtr.Zero))
+            {
+                throw new InvalidOperationException(
+                    "The Rust forest trunk-collider export is invalid.");
+            }
+
+            var buckets = new List<IslandPreparedTreeCollider>[
+                ForestTileStreamer.Lod1TileCount];
+            var exportSize = Marshal.SizeOf<MotuNative.ForestTrunkColliderExport>();
+            for (var index = 0; index < export.length; index++)
+            {
+                var native = Marshal.PtrToStructure<MotuNative.ForestTrunkColliderExport>(
+                    IntPtr.Add(export.data, index * exportSize));
+                if (!IsFiniteNative(native.bottom)
+                    || !IsFiniteNative(native.top)
+                    || !IsFinite(native.owner.x)
+                    || !IsFinite(native.owner.y)
+                    || !IsFinite(native.radius)
+                    || native.owner.x < 0f
+                    || native.owner.x > 1f
+                    || native.owner.y < 0f
+                    || native.owner.y > 1f
+                    || native.radius <= 0f)
+                {
+                    throw new InvalidOperationException(
+                        $"The Rust forest trunk collider {index} is invalid.");
+                }
+                var bottom = NativePositionToUnity(native.bottom, worldSize);
+                var top = NativePositionToUnity(native.top, worldSize);
+                var radius = native.radius * worldSize;
+                if ((top - bottom).sqrMagnitude <= Mathf.Epsilon || !IsFinite(radius))
+                {
+                    throw new InvalidOperationException(
+                        $"The copied forest trunk collider {index} is degenerate.");
+                }
+                var tileX = Mathf.Min(
+                    Mathf.FloorToInt(native.owner.x * ForestTileStreamer.Lod1Resolution),
+                    ForestTileStreamer.Lod1Resolution - 1);
+                var tileY = Mathf.Min(
+                    Mathf.FloorToInt(native.owner.y * ForestTileStreamer.Lod1Resolution),
+                    ForestTileStreamer.Lod1Resolution - 1);
+                var tileIndex = tileY * ForestTileStreamer.Lod1Resolution + tileX;
+                buckets[tileIndex] ??= new List<IslandPreparedTreeCollider>();
+                buckets[tileIndex].Add(new IslandPreparedTreeCollider(bottom, top, radius));
+            }
+
+            var result = new IslandPreparedTreeCollider[ForestTileStreamer.Lod1TileCount][];
+            for (var tile = 0; tile < result.Length; tile++)
+            {
+                result[tile] = buckets[tile]?.ToArray()
+                    ?? Array.Empty<IslandPreparedTreeCollider>();
+            }
+            return result;
+        }
+        finally
+        {
+            MotuNative.ReleaseForestTrunkColliders(ref export);
+        }
+    }
+
+    private static Vector3 NativePositionToUnity(
+        MotuNative.NativeVector3 position,
+        float worldSize)
+    {
+        return new Vector3(
+            (position.x - 0.5f) * worldSize,
+            position.z * worldSize,
+            (position.y - 0.5f) * worldSize);
+    }
+
+    private static bool IsFiniteNative(MotuNative.NativeVector3 value)
+    {
+        return IsFinite(value.x) && IsFinite(value.y) && IsFinite(value.z);
+    }
+
+    private static bool IsFinite(float value)
+    {
+        return !float.IsNaN(value) && !float.IsInfinity(value);
     }
 
     private static IslandPreparedMesh[] PrepareForestMeshGrid(
@@ -1446,39 +2469,33 @@ public sealed class IslandGenerator : MonoBehaviour
         }
     }
 
-    private static IslandPreparedRiverEmitter[] PrepareRiverEmitters(
+    private static IslandPreparedWaterfallFoot[] PrepareWaterfallFeet(
         IntPtr handle,
-        float worldSize,
-        float sharpnessDegrees,
-        float spacingMetres)
+        float worldSize)
     {
-        MotuNative.CreateRiverEmitters(
-            handle,
-            sharpnessDegrees,
-            spacingMetres,
-            out var export);
+        MotuNative.CreateWaterfallFeet(handle, out var export);
         try
         {
             if (export.handle == IntPtr.Zero || export.length < 0)
             {
                 throw new InvalidOperationException(
-                    "The Rust rough-water emitter export is invalid.");
+                    "The Rust waterfall-foot export is invalid.");
             }
             if (export.length == 0)
             {
-                return Array.Empty<IslandPreparedRiverEmitter>();
+                return Array.Empty<IslandPreparedWaterfallFoot>();
             }
             if (export.data == IntPtr.Zero)
             {
                 throw new InvalidOperationException(
-                    "The Rust rough-water emitter data is missing.");
+                    "The Rust waterfall-foot data is missing.");
             }
 
-            var result = new IslandPreparedRiverEmitter[export.length];
-            var exportSize = Marshal.SizeOf<MotuNative.RiverEmitterExport>();
+            var result = new IslandPreparedWaterfallFoot[export.length];
+            var exportSize = Marshal.SizeOf<MotuNative.WaterfallFootExport>();
             for (var index = 0; index < export.length; index++)
             {
-                var native = Marshal.PtrToStructure<MotuNative.RiverEmitterExport>(
+                var native = Marshal.PtrToStructure<MotuNative.WaterfallFootExport>(
                     IntPtr.Add(export.data, index * exportSize));
                 var position = new Vector3(
                     (native.position.x - 0.5f) * worldSize,
@@ -1488,16 +2505,17 @@ public sealed class IslandGenerator : MonoBehaviour
                     native.direction.x,
                     native.direction.z,
                     native.direction.y).normalized;
-                result[index] = new IslandPreparedRiverEmitter(
+                result[index] = new IslandPreparedWaterfallFoot(
                     position,
                     direction,
-                    Mathf.Clamp01(native.strength));
+                    native.halfWidth * worldSize,
+                    native.drop * worldSize);
             }
             return result;
         }
         finally
         {
-            MotuNative.ReleaseRiverEmitters(ref export);
+            MotuNative.ReleaseWaterfallFeet(ref export);
         }
     }
 
@@ -1651,6 +2669,46 @@ public sealed class IslandGenerator : MonoBehaviour
         return CreateMesh(source, false);
     }
 
+    private void CreateSkyDomeObject(IslandPreparedMesh source)
+    {
+        skyDomeMesh = CreateGeneratedMesh(source);
+        skyDomeMesh.name = "Rust Generated Island-Scale Sky Dome";
+        skyDomeObject = new GameObject("Sky Dome");
+        skyDomeObject.transform.SetParent(runtimeRoot.transform, false);
+        skyDomeObject.AddComponent<MeshFilter>().sharedMesh = skyDomeMesh;
+        var renderer = skyDomeObject.AddComponent<MeshRenderer>();
+        renderer.sharedMaterial = skyDomeMaterial;
+        renderer.shadowCastingMode = ShadowCastingMode.Off;
+        renderer.receiveShadows = false;
+        renderer.lightProbeUsage = LightProbeUsage.Off;
+        renderer.reflectionProbeUsage = ReflectionProbeUsage.Off;
+        renderer.motionVectorGenerationMode = MotionVectorGenerationMode.ForceNoMotion;
+        renderer.allowOcclusionWhenDynamic = false;
+    }
+
+    private void CreateMoonLight()
+    {
+        moonLightObject = new GameObject("Moon Light");
+        moonLightObject.transform.SetParent(runtimeRoot.transform, false);
+        moonLight = moonLightObject.AddComponent<Light>();
+        moonLight.type = LightType.Directional;
+        moonLight.renderMode = LightRenderMode.ForcePixel;
+        moonLight.color = MoonLightColour;
+        moonLight.intensity = 0f;
+        moonLight.shadows = LightShadows.Soft;
+        var sun = rendering.Sunlight;
+        if (sun != null)
+        {
+            moonLight.cullingMask = sun.cullingMask;
+            moonLight.shadowStrength = sun.shadowStrength;
+            moonLight.shadowBias = sun.shadowBias;
+            moonLight.shadowNormalBias = sun.shadowNormalBias;
+            moonLight.shadowNearPlane = sun.shadowNearPlane;
+            moonLight.shadowResolution = sun.shadowResolution;
+        }
+        moonLight.enabled = false;
+    }
+
     private static IslandPreparedMesh CopyMeshData(
         MotuNative.Vector3Array sourceVertices,
         MotuNative.Vector3Array sourceNormals,
@@ -1781,6 +2839,12 @@ public sealed class IslandGenerator : MonoBehaviour
             var x = packed[offset];
             var y = packed[offset + 1];
             var z = packed[offset + 2];
+            if (!IsFinite(x) || !IsFinite(y) || !IsFinite(z))
+            {
+                throw new InvalidOperationException(
+                    $"The Rust generator returned a non-finite "
+                    + $"{(position ? "position" : "normal")} at index {index}.");
+            }
             result[index] = position
                 ? new Vector3(
                     (x - 0.5f) * worldSize,
@@ -1835,6 +2899,21 @@ public sealed class IslandGenerator : MonoBehaviour
             DestroyUnityObject(terrainStreamer.gameObject);
             terrainStreamer = null;
         }
+        DestroyUnityObject(skyDomeObject);
+        skyDomeObject = null;
+        DestroyUnityObject(skyDomeMesh);
+        skyDomeMesh = null;
+        if (moonLight != null)
+        {
+            moonLight.enabled = false;
+            if (RenderSettings.sun == moonLight)
+            {
+                RenderSettings.sun = rendering.Sunlight;
+            }
+        }
+        DestroyUnityObject(moonLightObject);
+        moonLightObject = null;
+        moonLight = null;
         DestroyUnityObject(seaObject);
         seaObject = null;
         DestroyUnityObject(runtimeRoot);
@@ -1863,6 +2942,7 @@ public sealed class IslandGenerator : MonoBehaviour
         terrainMaterialTextures?.Unbind(terrainMaterial, grassMaterial);
         terrainMaterialTextures?.Dispose();
         terrainMaterialTextures = null;
+        DestroyUnityObject(skyDomeMaterial);
         DestroyUnityObject(terrainMaterial);
         DestroyUnityObject(terrainLod1Material);
         DestroyUnityObject(terrainLod2Material);
@@ -1872,13 +2952,17 @@ public sealed class IslandGenerator : MonoBehaviour
         DestroyUnityObject(treeLod1WoodMaterial);
         DestroyUnityObject(treeFoliageMaterial);
         DestroyUnityObject(treeLod0FoliageMaterial);
+        DestroyUnityObject(reedMaterial);
+        DestroyUnityObject(fernMaterial);
         DestroyUnityObject(riverMaterial);
         DestroyUnityObject(seaMaterial);
         DestroyUnityObject(meshEdgeMaterial);
         if (ownsCliffNoiseTexture) DestroyUnityObject(cliffNoiseTexture);
         if (ownsRiverNoiseTexture) DestroyUnityObject(riverNoiseTexture);
         if (ownsGrassPatchNoiseTexture) DestroyUnityObject(grassPatchNoiseTexture);
+        DestroyUnityObject(cloudWeatherTexture);
         terrainMaterial = null;
+        skyDomeMaterial = null;
         terrainLod1Material = null;
         terrainLod2Material = null;
         grassMaterial = null;
@@ -1887,15 +2971,21 @@ public sealed class IslandGenerator : MonoBehaviour
         treeLod1WoodMaterial = null;
         treeFoliageMaterial = null;
         treeLod0FoliageMaterial = null;
+        reedMaterial = null;
+        fernMaterial = null;
         riverMaterial = null;
         seaMaterial = null;
         meshEdgeMaterial = null;
         cliffNoiseTexture = null;
         riverNoiseTexture = null;
         grassPatchNoiseTexture = null;
+        cloudWeatherTexture = null;
         ownsCliffNoiseTexture = false;
         ownsRiverNoiseTexture = false;
         ownsGrassPatchNoiseTexture = false;
+        appliedCloudSeed = int.MinValue;
+        appliedCloudResolution = 0;
+        Shader.SetGlobalFloat(CloudEnabledId, 0f);
     }
 
     private void ResetAppliedLiveSettings()
@@ -1905,9 +2995,17 @@ public sealed class IslandGenerator : MonoBehaviour
         appliedShowGrass = null;
         appliedShowRocks = null;
         appliedShowForests = null;
+        appliedShowReeds = null;
+        appliedReedBaseColour = null;
+        appliedReedTipColour = null;
+        appliedReedWindStrength = float.NaN;
+        appliedShowFerns = null;
+        appliedFernBaseColour = null;
+        appliedFernTipColour = null;
+        appliedFernWindStrength = float.NaN;
         appliedShowMeshEdges = null;
         appliedShowTreeMeshEdges = null;
-        appliedEmitterDebug = null;
+        appliedWaterfallDebug = null;
         appliedGrassColourA = null;
         appliedGrassColourB = null;
         appliedGrassColourNoiseWorldSize = float.NaN;
@@ -2181,12 +3279,102 @@ public sealed class IslandGenerator : MonoBehaviour
 #if UNITY_EDITOR
     public static void BatchValidateNativeInterop()
     {
-        if (Marshal.SizeOf<MotuNative.Options>() != sizeof(float) * 16
+        if (Marshal.SizeOf<MotuNative.Options>() != sizeof(float) * 19
             || Marshal.SizeOf<MotuNative.ForestOptions>() != 28
-            || Marshal.SizeOf<MotuNative.MaterialBakeOptions>() != 12)
+            || Marshal.SizeOf<MotuNative.ReedOptions>() != sizeof(float) * 8
+            || Marshal.SizeOf<MotuNative.FernOptions>() != sizeof(float) * 8
+            || Marshal.SizeOf<MotuNative.MaterialBakeOptions>() != 12
+            || Marshal.SizeOf<MotuNative.ForestTrunkColliderExport>() != sizeof(float) * 9)
         {
             throw new InvalidOperationException(
                 "Managed native option layouts do not match their ABI contracts.");
+        }
+        MotuNative.ExportCloudWeatherMap nativeCloudWeather = default;
+        try
+        {
+            const int cloudResolution = 64;
+            if (MotuNative.CreateCloudWeatherMap(
+                    2018,
+                    cloudResolution,
+                    out nativeCloudWeather) == 0
+                || nativeCloudWeather.handle == IntPtr.Zero
+                || nativeCloudWeather.rgba == IntPtr.Zero
+                || nativeCloudWeather.width != cloudResolution
+                || nativeCloudWeather.height != cloudResolution)
+            {
+                throw new InvalidOperationException(
+                    "Native cloud weather-map export is invalid.");
+            }
+            var cloudBytes = new byte[cloudResolution * cloudResolution * 4];
+            Marshal.Copy(
+                nativeCloudWeather.rgba,
+                cloudBytes,
+                0,
+                cloudBytes.Length);
+            var minimum = byte.MaxValue;
+            var maximum = byte.MinValue;
+            foreach (var value in cloudBytes)
+            {
+                minimum = Math.Min(minimum, value);
+                maximum = Math.Max(maximum, value);
+            }
+            if (maximum - minimum < 32)
+            {
+                throw new InvalidOperationException(
+                    "Native cloud weather-map channels contain insufficient variation.");
+            }
+            var validationTexture = CreateCloudWeatherTexture(
+                cloudBytes,
+                cloudResolution,
+                cloudResolution,
+                "Cloud Weather Upload Validation");
+            UnityEngine.Object.DestroyImmediate(validationTexture);
+        }
+        finally
+        {
+            MotuNative.ReleaseCloudWeatherMap(ref nativeCloudWeather);
+        }
+        var validationSkyDome = PrepareSkyDome(ValidationWorldSize);
+        if (validationSkyDome.vertices.Length == 0
+            || validationSkyDome.vertices.Length != validationSkyDome.normals.Length
+            || validationSkyDome.vertices.Length != validationSkyDome.uv.Length
+            || validationSkyDome.triangles.Length == 0
+            || validationSkyDome.material.Length != 0
+            || validationSkyDome.environment.Length != 0)
+        {
+            throw new InvalidOperationException(
+                "Native sky-dome attributes do not match the standalone mesh contract.");
+        }
+        for (var index = 0; index < validationSkyDome.vertices.Length; index++)
+        {
+            var vertex = validationSkyDome.vertices[index];
+            var normal = validationSkyDome.normals[index];
+            if (!IsFinite(vertex.x)
+                || !IsFinite(vertex.y)
+                || !IsFinite(vertex.z)
+                || vertex.y < -0.001f
+                || Mathf.Abs(vertex.magnitude - ValidationWorldSize) > 0.1f
+                || Vector3.Dot(vertex.normalized, normal) > -0.999f)
+            {
+                throw new InvalidOperationException(
+                    "Native sky dome is not an inward-facing island-radius hemisphere.");
+            }
+        }
+        var uploadedSkyDome = CreateGeneratedMesh(validationSkyDome);
+        try
+        {
+            var bounds = uploadedSkyDome.bounds;
+            if (Mathf.Abs(bounds.size.x - ValidationWorldSize * 2f) > 0.1f
+                || Mathf.Abs(bounds.size.y - ValidationWorldSize) > 0.1f
+                || Mathf.Abs(bounds.size.z - ValidationWorldSize * 2f) > 0.1f)
+            {
+                throw new InvalidOperationException(
+                    "Unity did not preserve the island-scale sky-dome bounds.");
+            }
+        }
+        finally
+        {
+            DestroyImmediate(uploadedSkyDome);
         }
         var options = new MotuNative.Options
         {
@@ -2194,6 +3382,8 @@ public sealed class IslandGenerator : MonoBehaviour
             waterRatio = 0.6f,
             slopeMultiplier = 1.3f,
             coastalSlopeMultiplier = 1f,
+            continentalNoiseFrequency = 2.2f,
+            detailNoiseFrequency = 12f,
             hydraulicErosionStrength = 1f,
             hydraulicDepositionStrength = 1.5f,
             hydraulicDepositionSlopeDegrees = 12f,
@@ -2204,6 +3394,9 @@ public sealed class IslandGenerator : MonoBehaviour
             riverMaximumWidthMetres = 14f,
             riverSourceDepthMetres = 0.35f,
             riverMaximumDepthMetres = 2f,
+            continentalNoiseStrength = 0.78f,
+            detailNoiseStrength = 0.22f,
+            landMassOffset = 0f,
         };
         var forestOptions = new MotuNative.ForestOptions
         {
@@ -2230,6 +3423,26 @@ public sealed class IslandGenerator : MonoBehaviour
             const int validationSeaMaskDimension = 128;
             var validationMaps = PrepareSurfaceMaps(handle, validationMapDimension);
             var validationSeaMask = PrepareSeaMask(handle, validationSeaMaskDimension);
+            var validationTrunkColliderTiles = PrepareForestTrunkColliders(
+                handle,
+                ValidationWorldSize);
+            var validationFernTiles = PrepareFernMeshGrid(handle, ValidationWorldSize);
+            var validationTrunkColliderCount = 0;
+            foreach (var tile in validationTrunkColliderTiles)
+            {
+                validationTrunkColliderCount += tile.Length;
+            }
+            if (validationTrunkColliderCount == 0)
+            {
+                throw new InvalidOperationException(
+                    "Native forest validation did not export any trunk colliders.");
+            }
+            if (validationFernTiles.Length != FernTileStreamer.TileCount
+                || !Array.Exists(validationFernTiles, tile => tile != null))
+            {
+                throw new InvalidOperationException(
+                    "Native fern validation did not export a populated owner grid.");
+            }
             if (validationSeaMask.rg.Length
                 != validationSeaMaskDimension * validationSeaMaskDimension * 2)
             {
@@ -2570,6 +3783,7 @@ public sealed class IslandGenerator : MonoBehaviour
                     || !riverWaterMaterial.HasProperty("_EstuaryBlendHeight")
                     || !riverWaterMaterial.HasProperty("_SeaLevel")
                     || !riverWaterMaterial.HasProperty("_ReflectionColor")
+                    || !riverWaterMaterial.HasProperty("_WaterSkyExposure")
                     || !riverWaterMaterial.HasProperty("_RefractionStrength")
                     || !riverWaterMaterial.HasProperty("_RefractionDepth")
                     || !riverWaterMaterial.HasProperty("_PlanarReflectionWeight")
@@ -2621,6 +3835,7 @@ public sealed class IslandGenerator : MonoBehaviour
                     || !seaWaterMaterial.HasProperty("_ShallowOpacity")
                     || !seaWaterMaterial.HasProperty("_OpacityDepth")
                     || !seaWaterMaterial.HasProperty("_ReflectionColor")
+                    || !seaWaterMaterial.HasProperty("_WaterSkyExposure")
                     || !seaWaterMaterial.HasProperty("_RefractionStrength")
                     || !seaWaterMaterial.HasProperty("_RefractionDepth")
                     || !seaWaterMaterial.HasProperty("_PlanarReflectionWeight")
@@ -2863,57 +4078,58 @@ public sealed class IslandGenerator : MonoBehaviour
                 MotuNative.ReleaseMeshGrid(ref riverRockGrid);
             }
 
-            MotuNative.CreateRiverEmitters(handle, 35f, 2f, out var riverEmitters);
+            MotuNative.CreateWaterfallFeet(handle, out var waterfallFeet);
             try
             {
-                if (riverEmitters.handle == IntPtr.Zero
-                    || riverEmitters.length <= 0
-                    || riverEmitters.data == IntPtr.Zero)
+                if (waterfallFeet.handle == IntPtr.Zero
+                    || waterfallFeet.length <= 0
+                    || waterfallFeet.data == IntPtr.Zero)
                 {
                     throw new InvalidOperationException(
-                        "Native river mesh has no valid waterfall or rough-water emitters.");
+                        "Native generation has no authoritative waterfall-foot records.");
                 }
-                var emitterSize = Marshal.SizeOf<MotuNative.RiverEmitterExport>();
-                if (emitterSize != sizeof(float) * 7)
+                var footSize = Marshal.SizeOf<MotuNative.WaterfallFootExport>();
+                if (footSize != sizeof(float) * 8)
                 {
                     throw new InvalidOperationException(
-                        "Native rough-water emitter record layout is invalid.");
+                        "Native waterfall-foot record layout is invalid.");
                 }
-                for (var index = 0; index < riverEmitters.length; index++)
+                for (var index = 0; index < waterfallFeet.length; index++)
                 {
-                    var emitter = Marshal.PtrToStructure<MotuNative.RiverEmitterExport>(
-                        IntPtr.Add(riverEmitters.data, index * emitterSize));
-                    var directionLengthSquared = emitter.direction.x * emitter.direction.x
-                        + emitter.direction.y * emitter.direction.y
-                        + emitter.direction.z * emitter.direction.z;
-                    if (!IsFinite(emitter.position.x)
-                        || !IsFinite(emitter.position.y)
-                        || !IsFinite(emitter.position.z)
-                        || emitter.position.x < 0f
-                        || emitter.position.x > 1f
-                        || emitter.position.y < 0f
-                        || emitter.position.y > 1f
+                    var foot = Marshal.PtrToStructure<MotuNative.WaterfallFootExport>(
+                        IntPtr.Add(waterfallFeet.data, index * footSize));
+                    var directionLengthSquared = foot.direction.x * foot.direction.x
+                        + foot.direction.y * foot.direction.y
+                        + foot.direction.z * foot.direction.z;
+                    if (!IsFinite(foot.position.x)
+                        || !IsFinite(foot.position.y)
+                        || !IsFinite(foot.position.z)
+                        || foot.position.x < 0f
+                        || foot.position.x > 1f
+                        || foot.position.y < 0f
+                        || foot.position.y > 1f
                         || !IsFinite(directionLengthSquared)
                         || Mathf.Abs(directionLengthSquared - 1f) > 0.001f
-                        || !IsFinite(emitter.strength)
-                        || emitter.strength < 0f
-                        || emitter.strength > 1f)
+                        || !IsFinite(foot.halfWidth)
+                        || foot.halfWidth <= 0f
+                        || !IsFinite(foot.drop)
+                        || foot.drop <= 0f)
                     {
                         throw new InvalidOperationException(
-                            "A native rough-water emitter record is invalid.");
+                            "A native waterfall-foot record is invalid.");
                     }
                 }
             }
             finally
             {
-                MotuNative.ReleaseRiverEmitters(ref riverEmitters);
+                MotuNative.ReleaseWaterfallFeet(ref waterfallFeet);
             }
-            if (riverEmitters.handle != IntPtr.Zero
-                || riverEmitters.data != IntPtr.Zero
-                || riverEmitters.length != 0)
+            if (waterfallFeet.handle != IntPtr.Zero
+                || waterfallFeet.data != IntPtr.Zero
+                || waterfallFeet.length != 0)
             {
                 throw new InvalidOperationException(
-                    "Native rough-water emitter release did not clear ownership.");
+                    "Native waterfall-foot release did not clear ownership.");
             }
 
             if (Marshal.SizeOf<MotuNative.ExportDecoration>()
@@ -2926,66 +4142,104 @@ public sealed class IslandGenerator : MonoBehaviour
             ValidateBorrowedArray(nativeDecoration.trees, "tree");
             ValidateBorrowedArray(nativeDecoration.bushes, "bush");
 
-            var indexCandidates = new[]
+            var indexFeet = new[]
             {
-                new IslandPreparedRiverEmitter(
-                    new Vector3(-999.9f, 1f, -999.9f),
+                new IslandPreparedWaterfallFoot(
+                    new Vector3(-999.9f, -2f, -999.9f),
                     Vector3.up,
-                    0.25f),
-                new IslandPreparedRiverEmitter(Vector3.zero, Vector3.forward, 0.5f),
-                new IslandPreparedRiverEmitter(
+                    1f,
+                    2f),
+                new IslandPreparedWaterfallFoot(Vector3.zero, Vector3.forward, 2f, 4f),
+                new IslandPreparedWaterfallFoot(
                     new Vector3(999.9f, 2f, 999.9f),
                     Vector3.right,
-                    1f),
+                    3f,
+                    8f),
             };
-            var emitterIndex = new RiverEmitterIndex(indexCandidates, ValidationWorldSize);
-            var seen = new bool[indexCandidates.Length];
-            for (var y = 0; y < RiverEmitterIndex.Resolution; y++)
+            var footIndex = new WaterfallFootIndex(indexFeet, ValidationWorldSize);
+            var seen = new bool[indexFeet.Length];
+            for (var y = 0; y < WaterfallFootIndex.Resolution; y++)
             {
-                for (var x = 0; x < RiverEmitterIndex.Resolution; x++)
+                for (var x = 0; x < WaterfallFootIndex.Resolution; x++)
                 {
-                    emitterIndex.GetCellRange(x, y, out var start, out var end);
+                    footIndex.GetCellRange(x, y, out var start, out var end);
                     for (var order = start; order < end; order++)
                     {
-                        var candidateIndex = emitterIndex.CandidateIndexAt(order);
+                        var candidateIndex = footIndex.CandidateIndexAt(order);
                         if (candidateIndex < 0
                             || candidateIndex >= seen.Length
                             || seen[candidateIndex])
                         {
                             throw new InvalidOperationException(
-                                "The rough-water packed index contains an invalid entry.");
+                                "The waterfall-foot packed index contains an invalid entry.");
                         }
                         seen[candidateIndex] = true;
                     }
                 }
             }
             if (Array.Exists(seen, value => !value)
-                || emitterIndex.CellAt(indexCandidates[0].position) != Vector2Int.zero
-                || emitterIndex.CellAt(indexCandidates[2].position)
+                || footIndex.CellAt(indexFeet[0].position) != Vector2Int.zero
+                || footIndex.CellAt(indexFeet[2].position)
                     != new Vector2Int(
-                        RiverEmitterIndex.Resolution - 1,
-                        RiverEmitterIndex.Resolution - 1))
+                        WaterfallFootIndex.Resolution - 1,
+                        WaterfallFootIndex.Resolution - 1))
             {
                 throw new InvalidOperationException(
-                    "The rough-water packed index does not cover the world bounds.");
+                    "The waterfall-foot packed index does not cover the world bounds.");
             }
 
-            var particleRoot = new GameObject("Rough water pool validation");
+            var mistRoot = new GameObject("Waterfall fog pool validation");
             try
             {
-                var pool = particleRoot.AddComponent<RiverParticlePool>();
-                pool.Initialize(indexCandidates, ValidationWorldSize, true);
-                if (pool.PoolCount != 32 || pool.CreatedSystemCount != 32)
+                var pool = mistRoot.AddComponent<WaterfallMistPool>();
+                pool.Initialize(indexFeet, ValidationWorldSize, true);
+                if (pool.PoolCount != 32
+                    || pool.CreatedVolumeCount != 32)
                 {
                     throw new InvalidOperationException(
-                        "The rough-water particle pool is not fixed at 32 systems.");
+                        "The waterfall fog pool is not fixed at 32 volumes.");
+                }
+                if (mistRoot.GetComponentInChildren<ParticleSystem>(true) != null)
+                {
+                    throw new InvalidOperationException(
+                        "The waterfall fog pool still creates a particle emitter.");
+                }
+                pool.SetPlayerPosition(indexFeet[0].position, Vector2Int.zero);
+                if (pool.ActiveVolumeCount != 1)
+                {
+                    throw new InvalidOperationException(
+                        "A nearby waterfall foot did not activate its fog volume.");
+                }
+                var activeMistRenderer = Array.Find(
+                    mistRoot.GetComponentsInChildren<MeshRenderer>(true),
+                    renderer => renderer.enabled);
+                if (activeMistRenderer == null
+                    || activeMistRenderer.transform.position.y <= SeaHeight)
+                {
+                    throw new InvalidOperationException(
+                        "Submerged waterfall fog was not lifted to the sea plane.");
+                }
+                pool.SetPlayerPosition(
+                    indexFeet[0].position,
+                    new Vector2Int(
+                        WaterfallFootIndex.Resolution - 1,
+                        WaterfallFootIndex.Resolution - 1));
+                if (pool.ActiveVolumeCount != 0)
+                {
+                    throw new InvalidOperationException(
+                        "Waterfall fog remained active outside the LOD 0 neighborhood.");
                 }
                 pool.ClearPlayerFocus();
+                if (pool.ActiveVolumeCount != 0)
+                {
+                    throw new InvalidOperationException(
+                        "Clearing waterfall focus did not clear waterfall fog.");
+                }
                 pool.DisposePool();
             }
             finally
             {
-                DestroyImmediate(particleRoot);
+                DestroyImmediate(mistRoot);
             }
 
             const int validationSamplesPerTile = TerrainTileStreamer.ColliderSamplesPerTile;
@@ -3258,7 +4512,7 @@ public sealed class IslandGenerator : MonoBehaviour
         {
             if (material.passCount != 2
                 || material.FindPass("ShadowCaster") < 0
-                || material.renderQueue != (int)RenderQueue.AlphaTest
+                || material.renderQueue != (int)RenderQueue.Geometry
                 || !material.HasProperty("_WorldSize")
                 || !material.HasProperty("_GrassPatchNoise")
                 || !material.HasProperty("_GrassWindDirection")
@@ -3267,7 +4521,8 @@ public sealed class IslandGenerator : MonoBehaviour
                 || !material.HasProperty("_GrassWindWorldSize")
                 || !material.HasProperty("_TreeWindStrengthMultiplier")
                 || !material.HasProperty("_TreeWindBasePinHeight")
-                || !material.HasProperty("_TreeWindFullBendHeight"))
+                || !material.HasProperty("_TreeWindFullBendHeight")
+                || !material.HasProperty("_MotuNightStrength"))
             {
                 throw new InvalidOperationException(
                     "Distant foliage is missing its base, wind, or shadow contract.");
@@ -3284,9 +4539,5 @@ public sealed class IslandGenerator : MonoBehaviour
         return IsFinite(value.x) && IsFinite(value.y) && IsFinite(value.z);
     }
 
-    private static bool IsFinite(float value)
-    {
-        return !float.IsNaN(value) && !float.IsInfinity(value);
-    }
 #endif
 }

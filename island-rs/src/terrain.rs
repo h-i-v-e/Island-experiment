@@ -32,12 +32,14 @@ use crate::{
     rng::Rng,
 };
 
+mod coastal_uplift;
 mod decorations;
 mod erosion;
 mod generation;
 mod generation_method;
 #[cfg(feature = "gpu-generation")]
 mod gpu_generation;
+mod lod;
 mod material;
 mod sampling;
 mod surface_maps;
@@ -46,18 +48,19 @@ pub(crate) use decorations::SettledRock;
 pub use decorations::{Decoration, Decorations};
 use erosion::{
     HydraulicScratch, barycentric, bin_coordinate, erode_mesh, hydraulic_erode_stage,
-    triangle_bin_bounds,
+    hydraulic_erode_stage_depositing_across_sea, triangle_bin_bounds,
 };
 pub(crate) use erosion::{ProjectedFaceAreas, VertexFaceAdjacency, bedrock_erosion_rate};
 use generation::GenerationScratch;
 pub use generation::Island;
 #[cfg(test)]
-use generation::{correct_lods, sharp_rock_mask};
+use generation::sharp_rock_mask;
 pub use generation_method::GenerationMethod;
 #[cfg(feature = "gpu-generation")]
 use gpu_generation::GpuParticleErosionScratch;
 pub(crate) use material::{SurfaceMaterial, projected_vertex_control_areas};
 use material::{TerrainEnvironmentField, TerrainMaterialField};
+pub(crate) use sampling::TerrainSupportSample;
 pub use sampling::{SurfaceMaps, Terrain};
 use sampling::{
     SurfaceSample, TriangleIndex, bury_river_banks, sample_mesh_surface, sample_mesh_triangle,
@@ -80,6 +83,17 @@ pub struct IslandOptions {
     pub water_ratio: f32,
     pub slope_multiplier: f32,
     pub coastal_slope_multiplier: f32,
+    /// Spatial frequency of the broad noise shared by initial elevation and hardness.
+    pub continental_noise_frequency: f32,
+    /// Contribution of the broad noise to initial elevation and hardness.
+    pub continental_noise_strength: f32,
+    /// Spatial frequency of the fine noise shared by initial elevation and hardness.
+    pub detail_noise_frequency: f32,
+    /// Contribution of the fine noise to initial elevation and hardness.
+    pub detail_noise_strength: f32,
+    /// Signed offset applied after percentile sea-level centring. Negative
+    /// values submerge land and isolate high points into separate islands.
+    pub land_mass_offset: f32,
     /// Multiplies the strength of every staged hydraulic erosion pass.
     /// Zero disables hydraulic erosion while preserving thermal erosion.
     pub hydraulic_erosion_strength: f32,
@@ -114,6 +128,11 @@ impl Default for IslandOptions {
             water_ratio: 0.6,
             slope_multiplier: 1.3,
             coastal_slope_multiplier: 1.0,
+            continental_noise_frequency: 2.2,
+            continental_noise_strength: 0.78,
+            detail_noise_frequency: 12.0,
+            detail_noise_strength: 0.22,
+            land_mass_offset: 0.0,
             hydraulic_erosion_strength: 1.0,
             hydraulic_deposition_strength: 1.5,
             hydraulic_deposition_slope_degrees: 12.0,
@@ -151,6 +170,23 @@ impl IslandOptions {
     fn validate(self) -> Result<Self, String> {
         if !self.max_height.is_finite() || self.max_height <= 0.0 {
             return Err("max_height must be finite and greater than zero".into());
+        }
+        if !self.continental_noise_frequency.is_finite()
+            || !(0.1..=128.0).contains(&self.continental_noise_frequency)
+            || !self.detail_noise_frequency.is_finite()
+            || !(0.1..=128.0).contains(&self.detail_noise_frequency)
+        {
+            return Err("terrain noise frequencies must be between 0.1 and 128".into());
+        }
+        if !self.continental_noise_strength.is_finite()
+            || !(0.0..=4.0).contains(&self.continental_noise_strength)
+            || !self.detail_noise_strength.is_finite()
+            || !(0.0..=4.0).contains(&self.detail_noise_strength)
+        {
+            return Err("terrain noise strengths must be between 0 and 4".into());
+        }
+        if !self.land_mass_offset.is_finite() || !(-2.0..=2.0).contains(&self.land_mass_offset) {
+            return Err("land_mass_offset must be between -2 and 2".into());
         }
         if !self.hydraulic_erosion_strength.is_finite()
             || !(0.0..=8.0).contains(&self.hydraulic_erosion_strength)

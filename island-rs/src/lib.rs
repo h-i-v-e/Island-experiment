@@ -5,7 +5,9 @@
 
 #![recursion_limit = "512"]
 
+mod clouds;
 mod clustered_foliage;
+mod ferns;
 mod ffi;
 mod forest;
 mod geology;
@@ -17,13 +19,16 @@ mod png;
 pub mod procedural_textures;
 mod profiling;
 mod raster;
-mod river_emitters;
+mod reeds;
 mod rivers;
 mod rng;
 mod sea_mask;
+mod sky;
 mod terrain;
 mod trees;
 
+pub use clouds::{CloudWeatherError, CloudWeatherMap, generate_cloud_weather_map};
+pub use ferns::FernOptions;
 pub use forest::ForestOptions;
 pub use glam::{Vec2, Vec3, Vec4};
 pub use math::BoundingBox;
@@ -41,9 +46,10 @@ pub use procedural_textures::{
     write_texture_set,
 };
 pub use raster::Raster;
-pub use river_emitters::{RiverEmitter, extract_river_emitters};
+pub use reeds::ReedOptions;
 pub use rivers::{River, RiverNode};
 pub use sea_mask::SeaMask;
+pub use sky::{SKY_DOME_RADIUS, generate_sky_dome};
 pub use terrain::{
     Decoration, Decorations, GenerationMethod, Island, IslandOptions, SurfaceMaps, Terrain,
 };

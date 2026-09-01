@@ -79,7 +79,11 @@ the final LOD 0 surface. The whole-island 8193x8193 source lattice is prepared
 on the generation worker, and adjacent tiles copy the same shared-edge samples.
 Incoming colliders are enabled before outgoing colliders are retired, and
 crossing the finer LOD 0 render boundaries performs no collider cooking or
-replacement. Press M to toggle mesh edges. Press Escape to discard
+replacement. Rust also derives one fitted capsule from each final central
+trunk and exports its authoritative forest-tile owner. Unity creates those
+capsules only for active LOD 0 forest cells and destroys them with the cell,
+so distant LOD 1 and LOD 2 trees do not carry physics objects. Press M to toggle
+mesh edges. Press Escape to discard
 the refinement groups and return to the 64-tile LOD 2 overview. River surfaces
 are clipped on the same 64x64 LOD 1 boundaries and render throughout every
 active LOD 1 group, including its LOD 0 refinement cells. Rivers remain hidden
@@ -94,30 +98,32 @@ tracks the generated walkable surface but deliberately cannot represent
 overhangs, vertical faces, caves, or multiple surfaces stacked at the same XZ
 coordinate; those remain visible in the free-form render mesh.
 
-Rust also classifies sharp transitions between adjacent final river faces into
-deterministic rough-water locations before the river is sliced. This selects
-the top and bottom lips of waterfalls instead of their coplanar vertical faces.
-Unity copies those records on the
-generation worker and immediately releases the native vector. During upload it
-packs them into the same 64x64 world partition as the LOD 1 river tiles and
-creates a fixed pool of 32 particle systems. In first-person mode the pool
-allows generated rough-water locations to be as close as one metre apart and
-retains locations within 220 metres, queries new locations within 180 metres
-after five metres of movement, and reuses distant slots for meaningfully closer
-waterfalls or constricted river edges. Player movement performs no native call,
-does not scan the full candidate set, and allocates no query collections.
-Particles are cleared in overview mode, when river surfaces are hidden, and on
-regeneration. Origins receive a ten-centimetre vertical clearance above the
-water mesh; their spray direction still follows the exported river normal.
-The spray uses a dedicated alpha-blended shader that renders each billboard as
-a feathered circle rather than exposing its square quad. Launch speed is capped
-at 1.35 metres per second, particles live for 0.7-1.6 seconds, and their
-maximum diameter is 12 centimetres, keeping the effect close to the water.
-Each source now uses a broad 80-degree cone, adds modest random-direction
-variation, and varies launch speed from 40 to 100 percent per particle. This
-breaks up hose-like streams without increasing their maximum travel distance.
-**Show rough-water emitter debug** displays nearby candidates,
-their exported outflow normals, the activation radius, and active assignments
+Each accepted waterfall patch now retains its authoritative foot centre, flow
+direction, half-width, and drop before the temporary placement data goes out of
+scope. Unity copies those records on the generation worker and immediately
+releases the native vector. No final-mesh sharpness scan, angle threshold, or
+spacing suppression is involved. During upload Unity packs the feet into the
+same 64x64 world partition as the LOD 0 terrain cells and creates a fixed pool
+of 32 fog volumes. In first-person mode the pool considers only feet inside the
+active 3x3 LOD 0 neighborhood, retains them within 220 metres, queries new feet
+within 180 metres after five metres of movement, and reuses distant slots for
+meaningfully closer waterfalls. Player movement performs no native call, does
+not scan the full foot set, and allocates no query collections. Volumes are
+hidden outside LOD 0, in overview mode, when river surfaces are hidden, and on
+regeneration.
+
+Each active foot receives one animated, depth-clipped proxy fog volume;
+there are no particle emitters. Its width, depth, height, density, orientation,
+and position derive from the authoritative waterfall width, drop, flow, and
+lower water surface. Feet below sea level are lifted to the sea plane. A short
+ray march forms a wide, coherent lower blanket that extends beyond both sides
+of the impact line. Its density fragments into animated columns and wisps with
+increasing height, while a separate coherent ceiling gives each rising section
+a different reach. Scene-depth clipping keeps the result against visible
+geometry. The compact volume is tucked slightly beneath the falling sheet and
+partially veils the impact without retaining an ellipsoidal blob silhouette.
+**Show waterfall feet** displays nearby authoritative positions,
+their exported flow directions, the activation radius, and active assignments
 when Game-view gizmos are enabled.
 
 In first-person mode, grassy terrain gains a sixteen-layer shell-fur treatment
@@ -244,7 +250,7 @@ into a reusable HDR texture before the viewer camera draws the water. Sea water
 samples that scene reflection with animated ripple distortion and Fresnel
 falloff; river water blends it in only through the near-sea estuary band because
 the inland river and waterfall surfaces do not share the sea's reflection
-plane. The generated sea, river tiles, and rough-water particles use Unity's
+plane. The generated sea, river tiles, and waterfall fog volumes use Unity's
 `Water` layer, which the reflection camera excludes to prevent water from
 reflecting itself. Tune `Resolution Scale`, `Clip Plane Offset`, and
 `Reflection Layers` on `PlanarWaterReflection` on **Main Camera**. The existing
@@ -282,7 +288,7 @@ Rust `cdylib` in the corresponding Unity plugin folder. Restart Unity after
 deployment because the editor does not hot-reload native libraries.
 
 For an editor compile plus native ABI, streamed tile, UV, support mesh,
-rough-water emitter, and collider-cooking check, run:
+waterfall-foot export, fog-pool, and collider-cooking check, run:
 
 ```sh
 /Applications/Unity/Hub/Editor/6000.5.6f1/Unity.app/Contents/MacOS/Unity \

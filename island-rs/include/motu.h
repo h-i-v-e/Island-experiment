@@ -35,6 +35,14 @@ typedef struct {
     uint8_t prototypeCount;
     float minimumScale, maximumScale;
 } MotuForestOptions;
+typedef struct {
+    float bankWidthMetres, patchSizeMetres, coverageThreshold, spacingMetres;
+    float rushRatio, minimumHeightMetres, maximumHeightMetres, maximumSlopeDegrees;
+} MotuReedOptions;
+typedef struct {
+    float barkClearanceMetres, outerRadiusMetres, spacingMetres, patchSizeMetres;
+    float coverageThreshold, minimumLengthMetres, maximumLengthMetres, maximumSlopeDegrees;
+} MotuFernOptions;
 typedef struct { const Vector3Export *data; int32_t length; } Vector3ExportArray;
 typedef struct { const Vector4Export *data; int32_t length; } Vector4ExportArray;
 typedef struct { const Vector2Export *data; int32_t length; } Vector2ExportArray;
@@ -47,6 +55,7 @@ typedef struct {
     Vector2ExportArray uv;
     /* RGBA: bedrock/forced rock, loose cover, river bed, sea proximity. */
     Vector4ExportArray material;
+    Vector2ExportArray environment;
 } ExportMesh;
 typedef struct {
     void *handle;
@@ -54,6 +63,7 @@ typedef struct {
     TriangleExportArray triangles;
     Vector2ExportArray uv;
     Vector4ExportArray material;
+    Vector2ExportArray environment;
 } ExportMeshWithUV;
 typedef struct { ExportMesh *data; int32_t length; } ExportMeshArray;
 typedef struct { void *handle; const ExportMesh *data; int32_t length; } ExportMeshGrid;
@@ -64,13 +74,13 @@ typedef struct {
 } ExportSeaMask;
 typedef struct {
     Vector3Export position, direction;
-    float strength;
-} RiverEmitterExport;
+    float halfWidth, drop;
+} WaterfallFootExport;
 typedef struct {
     void *handle;
-    const RiverEmitterExport *data;
+    const WaterfallFootExport *data;
     int32_t length;
-} ExportRiverEmitters;
+} ExportWaterfallFeet;
 typedef struct { int32_t width, height; float *data; float seaLevel; } ExportHeightMapWithSeaLevel;
 typedef struct { Vector3ExportArray trees, bushes; } ExportDecoration;
 typedef struct { int32_t offset; float scale; } TreeMeshPrototype;
@@ -81,12 +91,20 @@ typedef struct { ExportTreeBillboards octants[8]; void *offsetsHandle; } ExportT
 MOTU_EXPORT void *CreateMotu(int32_t seed, const MotuOptions *options);
 MOTU_EXPORT void *CreateMotuWithForest(int32_t seed, const MotuOptions *options,
                                         const MotuForestOptions *forestOptions);
+MOTU_EXPORT void *CreateMotuWithForestAndReeds(int32_t seed, const MotuOptions *options,
+                                               const MotuForestOptions *forestOptions,
+                                               const MotuReedOptions *reedOptions);
+MOTU_EXPORT void *CreateMotuWithForestReedsAndFerns(int32_t seed, const MotuOptions *options,
+                                                    const MotuForestOptions *forestOptions,
+                                                    const MotuReedOptions *reedOptions,
+                                                    const MotuFernOptions *fernOptions);
 MOTU_EXPORT void *LoadMotu(const char *filePath);
 MOTU_EXPORT void SaveMotu(const void *handle, const char *filePath);
 MOTU_EXPORT void ReleaseMotu(void *handle);
 MOTU_EXPORT void CreateProceduralTree(int32_t seed, ExportMesh *lod0Wood,
                                       ExportMesh *lod0Foliage, ExportMesh *lod1Wood,
                                       ExportMesh *lod1Foliage);
+MOTU_EXPORT void CreateSkyDome(ExportMesh *output);
 MOTU_EXPORT void GetDecoration(const void *handle, ExportDecoration *output);
 MOTU_EXPORT void CreateMesh(const void *handle, const ExportArea *area, int32_t lod,
                             uint8_t clampSides, ExportMesh *output);
@@ -108,9 +126,10 @@ MOTU_EXPORT void CreateForestWoodMeshGrid(const void *handle, const ExportArea *
 MOTU_EXPORT void CreateForestFoliageMeshGrid(const void *handle, const ExportArea *area,
                                              int32_t visualLod, int32_t divisions,
                                              ExportMeshGrid *output);
-MOTU_EXPORT void CreateRiverEmitters(const void *handle, float sharpnessDegrees,
-                                     float spacingMetres, ExportRiverEmitters *output);
-MOTU_EXPORT void ReleaseRiverEmitters(ExportRiverEmitters *output);
+MOTU_EXPORT void CreateReedMeshGrid(const void *handle, ExportMeshGrid *output);
+MOTU_EXPORT void CreateFernMeshGrid(const void *handle, ExportMeshGrid *output);
+MOTU_EXPORT void CreateWaterfallFeet(const void *handle, ExportWaterfallFeet *output);
+MOTU_EXPORT void ReleaseWaterfallFeet(ExportWaterfallFeet *output);
 MOTU_EXPORT ExportHeightMapWithSeaLevel *CreateHeightMap(const void *handle, int32_t resolution);
 MOTU_EXPORT void ReleaseHeightMap(ExportHeightMapWithSeaLevel *map);
 MOTU_EXPORT ExportHeightMapWithSeaLevel *CreateTerrainColliderHeightMap(

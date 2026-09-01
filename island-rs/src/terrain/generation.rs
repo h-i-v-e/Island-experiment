@@ -1,21 +1,27 @@
 #[cfg(feature = "gpu-generation")]
 use super::GpuParticleErosionScratch;
+use super::coastal_uplift;
+use super::erosion::{projected_face_area, projected_face_area_with_vertex};
+use super::lod::regenerate_lods;
 use super::{
     Adjacency, BinaryHeap, BoundingBox, DETAIL_DISPLACEMENT_RATIO, Decorations, File,
     GenerationMethod, GeologyField, HashSet, HydraulicScratch, ISLAND_WORLD_METRES,
-    IndexedParallelIterator, IslandOptions, Mesh, MeshClipper, NewVertexStencil, OnceLock,
-    Ordering, ParallelIterator, ParallelSliceMut, Path, Raster, Read, River, RiverChannelSettings,
+    IndexedParallelIterator, IslandOptions, Mesh, MeshClipper, OnceLock, Ordering,
+    ParallelIterator, ParallelSliceMut, Path, Raster, Read, River, RiverChannelSettings,
     RiverNetwork, RiverSourceRule, Rng, SHARP_ROCK_DISPLACEMENT_RATIO, StageTimer, SurfaceMaps,
     SurfaceMaterial, TERRAIN_RENDER_FLOOR, Terrain, TerrainEnvironmentField, TerrainMaterialField,
-    TriangleIndex, Vec2, Vec3, Vec4, Write, append_settled_rocks, bake_surface_maps,
-    bury_river_banks, encode_bank_distance_in_uv, erode_mesh, fix_inland_seas, geology,
-    hydraulic_erode_stage, io, legacy_catchment_hectares, mem, noise, sample_grid,
-    sample_mesh_surface,
+    Vec2, Vec3, Vec4, Write, append_settled_rocks, bake_surface_maps, bury_river_banks,
+    encode_bank_distance_in_uv, erode_mesh, fix_inland_seas, geology, hydraulic_erode_stage,
+    hydraulic_erode_stage_depositing_across_sea, io, legacy_catchment_hectares, mem, noise,
+    sample_grid,
 };
+use crate::ferns::{FernMeshTile, FernMeshes, FernOptions, FernSurface, generate_ferns};
 use crate::forest::{
     ForestGenerationStats, ForestMeshKind, ForestMeshes, ForestOptions, forest_floor_mask,
     generate_forest,
 };
+use crate::reeds::{ReedMeshTile, ReedMeshes, ReedOptions, ReedSurface, generate_reeds};
+use crate::rivers::WaterfallFoot;
 
 const SEA_PROXIMITY_FULL_STRENGTH_METRES: f32 = 2.0;
 const SEA_PROXIMITY_ZERO_STRENGTH_METRES: f32 = 20.0;
@@ -33,6 +39,9 @@ pub struct Island {
     pub(super) distance_to_land: Vec<f32>,
     pub(super) river_mesh: Mesh,
     pub(super) river_rock_mesh: Mesh,
+    pub(super) waterfall_feet: Vec<WaterfallFoot>,
+    pub(super) reeds: ReedMeshes,
+    pub(super) ferns: FernMeshes,
     pub(super) forest: ForestMeshes,
     pub(super) forest_stats: ForestGenerationStats,
     pub(super) forest_options: ForestOptions,
@@ -46,6 +55,7 @@ pub(super) struct FinalRiverGeneration {
     pub(super) river_mesh: Mesh,
     pub(super) river_bed: Vec<bool>,
     pub(super) river_rock_mesh: Mesh,
+    pub(super) waterfall_feet: Vec<WaterfallFoot>,
 }
 
 struct SavedIslandReader<R> {
@@ -57,7 +67,7 @@ impl<R: Read> SavedIslandReader<R> {
     fn new(mut source: R) -> io::Result<Self> {
         let mut magic = [0_u8; 8];
         source.read_exact(&mut magic)?;
-        if &magic[..7] != b"MOTURS\0" || !matches!(magic[7], 3..=18) {
+        if &magic[..7] != b"MOTURS\0" || !matches!(magic[7], 3..=20) {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "invalid Motu Rust free-form mesh file",
@@ -72,6 +82,7 @@ impl<R: Read> SavedIslandReader<R> {
     fn read_options(&mut self) -> io::Result<(IslandOptions, ForestOptions)> {
         let mut options = self.read_terrain_options()?;
         self.read_river_options(&mut options)?;
+        self.read_noise_options(&mut options)?;
         if self.version == 8 {
             self.discard_f32()?;
         }
@@ -166,6 +177,19 @@ impl<R: Read> SavedIslandReader<R> {
         Ok(())
     }
 
+    fn read_noise_options(&mut self, options: &mut IslandOptions) -> io::Result<()> {
+        if self.version >= 19 {
+            options.continental_noise_frequency = self.read_f32()?;
+            options.continental_noise_strength = self.read_f32()?;
+            options.detail_noise_frequency = self.read_f32()?;
+            options.detail_noise_strength = self.read_f32()?;
+        }
+        if self.version >= 20 {
+            options.land_mass_offset = self.read_f32()?;
+        }
+        Ok(())
+    }
+
     fn read_f32_since(&mut self, version: u8, default: f32) -> io::Result<f32> {
         if self.version >= version {
             self.read_f32()
@@ -255,6 +279,7 @@ pub(super) fn generate_final_rivers(
                 river_mesh: parts.river_mesh,
                 river_bed: parts.river_bed,
                 river_rock_mesh: parts.river_rock_mesh,
+                waterfall_feet: parts.waterfall_feet,
             });
         }
     }
@@ -317,10 +342,91 @@ impl Island {
         forest_options: ForestOptions,
         method: GenerationMethod,
     ) -> Result<Self, String> {
+        Self::generate_with_forest_reeds_and_method(
+            seed,
+            options,
+            forest_options,
+            ReedOptions::default(),
+            method,
+        )
+    }
+
+    /// Generates an island with explicit forest and riverbank vegetation controls.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when any option block is invalid or generation fails.
+    pub fn generate_with_forest_and_reeds(
+        seed: u64,
+        options: IslandOptions,
+        forest_options: ForestOptions,
+        reed_options: ReedOptions,
+    ) -> Result<Self, String> {
+        Self::generate_with_forest_reeds_and_method(
+            seed,
+            options,
+            forest_options,
+            reed_options,
+            GenerationMethod::Cpu,
+        )
+    }
+
+    /// Generates an island with explicit forest, riverbank vegetation, and
+    /// tree-trunk fern controls.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when any option block is invalid or generation fails.
+    pub fn generate_with_forest_reeds_and_ferns(
+        seed: u64,
+        options: IslandOptions,
+        forest_options: ForestOptions,
+        reed_options: ReedOptions,
+        fern_options: FernOptions,
+    ) -> Result<Self, String> {
+        Self::generate_with_forest_reeds_ferns_and_method(
+            seed,
+            options,
+            forest_options,
+            reed_options,
+            fern_options,
+            GenerationMethod::Cpu,
+        )
+    }
+
+    #[allow(clippy::too_many_lines)]
+    pub(crate) fn generate_with_forest_reeds_and_method(
+        seed: u64,
+        options: IslandOptions,
+        forest_options: ForestOptions,
+        reed_options: ReedOptions,
+        method: GenerationMethod,
+    ) -> Result<Self, String> {
+        Self::generate_with_forest_reeds_ferns_and_method(
+            seed,
+            options,
+            forest_options,
+            reed_options,
+            FernOptions::default(),
+            method,
+        )
+    }
+
+    #[allow(clippy::too_many_lines)]
+    pub(crate) fn generate_with_forest_reeds_ferns_and_method(
+        seed: u64,
+        options: IslandOptions,
+        forest_options: ForestOptions,
+        reed_options: ReedOptions,
+        fern_options: FernOptions,
+        method: GenerationMethod,
+    ) -> Result<Self, String> {
         method.require_available()?;
         let _timer = StageTimer::new("island.generate");
         let options = options.validate()?;
         let forest_options = forest_options.validate()?;
+        let reed_options = reed_options.validate()?;
+        let fern_options = fern_options.validate()?;
         let mut scratch = GenerationScratch::new(method);
         let (base, material) = generate_base(seed, options, &mut scratch)?;
         let context = GenerationContext::new(seed, options);
@@ -328,14 +434,15 @@ impl Island {
         let (lod1, material) = generate_first_lod1(&lod2, material, context, &mut scratch)?;
         let (mut lod1, material) = refine_lod1_again(&lod1, material, context, &mut scratch)?;
         let (lod0, material) = generate_broad_lod0(&lod1, material, context, &mut scratch)?;
-        let (lod0, material) = generate_detail_lod0(&lod0, material, context, &mut scratch)?;
+        let (lod0, material) = generate_detail_lod0(lod0, material, context, &mut scratch)?;
         let FinalRiverGeneration {
             mut lod0,
-            material,
+            mut material,
             rivers,
             mut river_mesh,
             river_bed,
             mut river_rock_mesh,
+            waterfall_feet,
         } = generate_final_rivers(
             seed,
             &lod0,
@@ -343,9 +450,10 @@ impl Island {
             context.river_source_rule,
             options.river_channel_settings(),
         )?;
+        optimize_finished_terrain_surface(&mut lod0, &mut material, &river_bed);
         let lod0_index = {
-            let _timer = StageTimer::new("lod.correct");
-            correct_lods(&mut lod0, &mut lod1, &mut lod2)
+            let _timer = StageTimer::new("lod.simplify");
+            regenerate_lods(&mut lod0, &mut lod1, &mut lod2)
         };
         bury_river_banks(&mut river_mesh, &lod0, &lod0_index);
         river_mesh = river_mesh.clipped_above(0.0);
@@ -363,22 +471,58 @@ impl Island {
             method,
         )?;
         append_settled_rocks(seed, &settled_rocks, &mut river_rock_mesh);
+        let reeds = generate_reeds(
+            seed,
+            terrain.mesh(),
+            ReedSurface {
+                river_bed: &river_bed,
+                deposited_depths: material.depths(),
+                sea_proximity: material.sea_proximities(),
+                forced_rock: &forced_rock,
+                stones: decorations.stone_vertices(),
+                waterfall_feet: &waterfall_feet,
+            },
+            reed_options,
+        )?;
         let (forest, forest_stats) = generate_forest(
             seed,
             &terrain,
             crate::forest::ForestSurface {
                 river_bed: &river_bed,
                 stones: decorations.stone_vertices(),
+                reeds: reeds.forest_exclusion_vertices(),
                 deposited_depths: material.depths(),
                 sea_proximity: material.sea_proximities(),
             },
             forest_options,
         )?;
         decorations.set_tree_anchors(forest.placements().iter().map(|placement| placement.anchor));
-        let forest_floor = forest_floor_mask(seed, terrain.mesh(), forest.placements());
+        let ferns = generate_ferns(
+            seed,
+            &terrain,
+            &forest,
+            FernSurface {
+                river_bed: &river_bed,
+                deposited_depths: material.depths(),
+                sea_proximity: material.sea_proximities(),
+                forced_rock: &forced_rock,
+                stones: decorations.stone_vertices(),
+                reeds: reeds.forest_exclusion_vertices(),
+                snowline_metres: forest_options.snowline_metres,
+            },
+            fern_options,
+        )?;
+        let mut forest_floor = forest_floor_mask(seed, terrain.mesh(), forest.placements());
+        for &vertex in ferns.support_vertices() {
+            if let Some(value) = forest_floor.get_mut(vertex as usize) {
+                *value = true;
+            }
+        }
         let environment =
             TerrainEnvironmentField::from_masks(&forest_floor, decorations.stone_vertices());
-        let material = TerrainMaterialField::from_surface(&material, &river_bed, &forced_rock);
+        let mut material = TerrainMaterialField::from_surface(&material, &river_bed, &forced_rock);
+        material.suppress_grass_at_vertices(reeds.forest_exclusion_vertices());
+        material.suppress_grass_at_vertices(ferns.support_vertices());
         let distance_to_land = {
             let _timer = StageTimer::new("sea_mask.distance_to_land");
             let land: Vec<bool> = terrain
@@ -401,6 +545,9 @@ impl Island {
             distance_to_land,
             river_mesh,
             river_rock_mesh,
+            waterfall_feet,
+            reeds,
+            ferns,
             forest,
             forest_stats,
             forest_options,
@@ -469,6 +616,16 @@ impl Island {
         self.forest.mesh_grid(kind, visual_lod, bounds, divisions)
     }
 
+    #[must_use]
+    pub(crate) fn reed_mesh_tiles(&self) -> &[ReedMeshTile] {
+        self.reeds.tiles()
+    }
+
+    #[must_use]
+    pub(crate) fn fern_mesh_tiles(&self) -> &[FernMeshTile] {
+        self.ferns.tiles()
+    }
+
     #[allow(dead_code)]
     pub(crate) fn forest_wood_mesh_grid(
         &self,
@@ -501,15 +658,9 @@ impl Island {
         &self.forest_stats
     }
 
-    /// Derives sparse rough-water locations from the authoritative unsliced
-    /// river mesh without retaining a second copy on the island.
     #[must_use]
-    pub fn river_emitters(
-        &self,
-        sharpness_degrees: f32,
-        spacing_metres: f32,
-    ) -> Vec<crate::RiverEmitter> {
-        crate::extract_river_emitters(&self.river_mesh, sharpness_degrees, spacing_metres)
+    pub(crate) fn waterfall_feet(&self) -> &[WaterfallFoot] {
+        &self.waterfall_feet
     }
 
     #[must_use]
@@ -634,7 +785,7 @@ impl Island {
     /// Returns an I/O error if the destination cannot be created or written.
     pub fn save(&self, path: impl AsRef<Path>) -> io::Result<()> {
         let mut file = File::create(path)?;
-        file.write_all(b"MOTURS\0\x12")?;
+        file.write_all(b"MOTURS\0\x14")?;
         file.write_all(&self.seed.to_le_bytes())?;
         for value in [
             self.options.max_height,
@@ -651,6 +802,11 @@ impl Island {
             self.options.river_maximum_width_metres,
             self.options.river_source_depth_metres,
             self.options.river_maximum_depth_metres,
+            self.options.continental_noise_frequency,
+            self.options.continental_noise_strength,
+            self.options.detail_noise_frequency,
+            self.options.detail_noise_strength,
+            self.options.land_mass_offset,
         ] {
             file.write_all(&value.to_le_bytes())?;
         }
@@ -855,6 +1011,209 @@ pub(super) fn generate_base(
     Ok((mesh, material))
 }
 
+fn mutate_surface_preserving_material_volume(
+    mesh: &mut Mesh,
+    material: &mut SurfaceMaterial,
+    mutation: impl FnOnce(&mut Mesh) -> usize,
+) -> usize {
+    let deposited_volume = material.volume(mesh);
+    let mutations = mutation(mesh);
+    if mutations > 0 {
+        material.rescale_to_volume(mesh, deposited_volume);
+    }
+    mutations
+}
+
+fn optimize_finished_terrain_surface(
+    mesh: &mut Mesh,
+    material: &mut SurfaceMaterial,
+    river_bed: &[bool],
+) -> usize {
+    const PROTECTED_COAST_HEIGHT_METRES: f32 = 1.0;
+
+    debug_assert_eq!(river_bed.len(), mesh.vertices.len());
+    let perimeter = mesh.perimeter_mask();
+    let centroid_repairs = mutate_surface_preserving_material_volume(mesh, material, |mesh| {
+        repair_projected_foldover_vertices(mesh, &perimeter)
+    });
+
+    let protected_height = PROTECTED_COAST_HEIGHT_METRES / ISLAND_WORLD_METRES;
+    let mut protected_vertices = vec![false; mesh.vertices.len()];
+    let mut protected_edges = HashSet::<(u32, u32)>::new();
+    for triangle in mesh.triangles.chunks_exact(3).filter(|triangle| {
+        triangle.iter().any(|&vertex| {
+            river_bed[vertex as usize] || mesh.vertices[vertex as usize].z <= protected_height
+        })
+    }) {
+        let [a, b, c] = [triangle[0], triangle[1], triangle[2]];
+        for vertex in [a, b, c] {
+            protected_vertices[vertex as usize] = true;
+        }
+        protected_edges.extend([
+            (a.min(b), a.max(b)),
+            (b.min(c), b.max(c)),
+            (c.min(a), c.max(a)),
+        ]);
+    }
+    let refinements = mutate_surface_preserving_material_volume(mesh, material, |mesh| {
+        let repairs = mesh.repair_projected_foldovers_preserving(|a, b| {
+            protected_edges.contains(&(a.min(b), a.max(b)))
+        });
+        let vertex_repairs = repair_projected_foldover_vertices(mesh, &protected_vertices);
+        repairs + vertex_repairs
+    });
+    centroid_repairs + refinements
+}
+
+fn repair_projected_foldover_vertices(mesh: &mut Mesh, protected: &[bool]) -> usize {
+    const MAXIMUM_REPAIR_PASSES: usize = 32;
+
+    debug_assert_eq!(protected.len(), mesh.vertices.len());
+    let mut incident_faces = vec![Vec::<usize>::new(); mesh.vertices.len()];
+    for (face, triangle) in mesh.triangles.chunks_exact(3).enumerate() {
+        for vertex in triangle.iter().map(|&vertex| vertex as usize) {
+            incident_faces[vertex].push(face);
+        }
+    }
+    let mut total_repairs = 0;
+    for _ in 0..MAXIMUM_REPAIR_PASSES {
+        let folded_faces: Vec<usize> = (0..mesh.triangles.len() / 3)
+            .filter(|&face| projected_face_area(mesh, face) <= 0.0)
+            .collect();
+        if folded_faces.is_empty() {
+            break;
+        }
+
+        let mut pass_repairs = 0;
+        for face in folded_faces {
+            if projected_face_area(mesh, face) > 0.0 {
+                continue;
+            }
+            let offset = face * 3;
+            let candidate = mesh.triangles[offset..offset + 3]
+                .iter()
+                .map(|&vertex| vertex as usize)
+                .filter(|&vertex| !protected[vertex])
+                .filter_map(|vertex| {
+                    one_ring_centroid_candidate(mesh, &incident_faces[vertex], vertex)
+                        .map(|(position, minimum_area)| (vertex, position, minimum_area))
+                })
+                .max_by(
+                    |(left_vertex, left, left_area), (right_vertex, right, right_area)| {
+                        left_area
+                            .total_cmp(right_area)
+                            .then_with(|| {
+                                right
+                                    .distance_squared(mesh.vertices[*right_vertex])
+                                    .total_cmp(&left.distance_squared(mesh.vertices[*left_vertex]))
+                            })
+                            .then_with(|| right_vertex.cmp(left_vertex))
+                    },
+                );
+            if let Some((vertex, candidate, _)) = candidate {
+                mesh.vertices[vertex] = candidate;
+                pass_repairs += 1;
+            }
+        }
+        total_repairs += pass_repairs;
+        if pass_repairs == 0 {
+            break;
+        }
+    }
+
+    if total_repairs > 0 {
+        if !mesh.uv.is_empty() {
+            mesh.uv
+                .iter_mut()
+                .zip(&mesh.vertices)
+                .for_each(|(uv, vertex)| *uv = vertex.truncate());
+        }
+        mesh.calculate_normals();
+    }
+    total_repairs
+}
+
+fn one_ring_centroid_candidate(mesh: &Mesh, faces: &[usize], vertex: usize) -> Option<(Vec3, f32)> {
+    const MAXIMUM_PROJECTION_PASSES: usize = 64;
+    const MINIMUM_AREA_FRACTION: f32 = 0.01;
+    const MINIMUM_AREA: f32 = 1.0e-12;
+
+    let mut neighbours: Vec<usize> = faces
+        .iter()
+        .flat_map(|&face| {
+            let offset = face * 3;
+            mesh.triangles[offset..offset + 3]
+                .iter()
+                .map(|&candidate| candidate as usize)
+        })
+        .filter(|&candidate| candidate != vertex)
+        .collect();
+    neighbours.sort_unstable();
+    neighbours.dedup();
+    if neighbours.len() < 2 {
+        return None;
+    }
+    let centroid = neighbours
+        .iter()
+        .map(|&neighbour| mesh.vertices[neighbour].truncate())
+        .sum::<Vec2>()
+        / neighbours.len() as f32;
+    let candidate = Vec3::new(centroid.x, centroid.y, mesh.vertices[vertex].z);
+    let current_minimum = faces
+        .iter()
+        .map(|&face| projected_face_area(mesh, face))
+        .fold(f32::INFINITY, f32::min);
+    let candidate_minimum = faces
+        .iter()
+        .map(|&face| projected_face_area_with_vertex(mesh, face, vertex, candidate))
+        .fold(f32::INFINITY, f32::min);
+    if !candidate.is_finite() || !candidate_minimum.is_finite() {
+        return None;
+    }
+    if candidate_minimum > 0.0 {
+        return Some((candidate, candidate_minimum));
+    }
+
+    let target_area = (faces
+        .iter()
+        .map(|&face| projected_face_area(mesh, face).abs())
+        .sum::<f32>()
+        / faces.len().max(1) as f32
+        * MINIMUM_AREA_FRACTION)
+        .max(MINIMUM_AREA);
+    let mut projected = candidate;
+    for _ in 0..MAXIMUM_PROJECTION_PASSES {
+        let mut complete = true;
+        for &face in faces {
+            let area = projected_face_area_with_vertex(mesh, face, vertex, projected);
+            if area >= target_area {
+                continue;
+            }
+            let gradient = Vec2::new(
+                projected_face_area_with_vertex(mesh, face, vertex, projected + Vec3::X) - area,
+                projected_face_area_with_vertex(mesh, face, vertex, projected + Vec3::Y) - area,
+            );
+            let gradient_length_squared = gradient.length_squared();
+            if gradient_length_squared <= f32::MIN_POSITIVE || !gradient_length_squared.is_finite()
+            {
+                return None;
+            }
+            projected += (gradient * ((target_area - area) / gradient_length_squared)).extend(0.0);
+            complete = false;
+        }
+        if complete {
+            let minimum_area = faces
+                .iter()
+                .map(|&face| projected_face_area_with_vertex(mesh, face, vertex, projected))
+                .fold(f32::INFINITY, f32::min);
+            return (projected.is_finite() && minimum_area > 0.0)
+                .then_some((projected, minimum_area));
+        }
+    }
+
+    (candidate_minimum > current_minimum + 1.0e-12).then_some((candidate, candidate_minimum))
+}
+
 pub(super) fn generate_lod2(
     base: &Mesh,
     material: SurfaceMaterial,
@@ -940,9 +1299,11 @@ pub(super) fn generate_broad_lod0(
     let _timer = StageTimer::new("generation.lod0.broad");
     let tessellation = lod1.tessellated_displaced_attributed(DETAIL_DISPLACEMENT_RATIO);
     let (mut mesh, mut material) = material.into_tessellated(lod1, tessellation);
-    let deposited_volume = material.volume(&mesh);
-    mesh.optimize_surface_triangulation();
-    material.rescale_to_volume(&mesh, deposited_volume);
+    mutate_surface_preserving_material_volume(
+        &mut mesh,
+        &mut material,
+        Mesh::optimize_surface_triangulation,
+    );
     let adjacency = mesh.adjacency();
     mesh.smooth_with(&adjacency);
     hydraulic_erode_stage(
@@ -986,16 +1347,17 @@ pub(super) fn generate_broad_lod0(
 }
 
 pub(super) fn generate_detail_lod0(
-    lod0: &Mesh,
-    material: SurfaceMaterial,
+    mut lod0: Mesh,
+    mut material: SurfaceMaterial,
     context: GenerationContext,
     scratch: &mut GenerationScratch,
 ) -> Result<(Mesh, SurfaceMaterial), String> {
     let _timer = StageTimer::new("generation.lod0.detail");
+    coastal_uplift::prepare(&mut lod0, &mut material);
     let tessellation = lod0.tessellated_displaced_attributed(DETAIL_DISPLACEMENT_RATIO);
-    let (mut mesh, mut material) = material.into_tessellated(lod0, tessellation);
+    let (mut mesh, mut material) = material.into_tessellated(&lod0, tessellation);
     let adjacency = mesh.adjacency();
-    hydraulic_erode_stage(
+    hydraulic_erode_stage_depositing_across_sea(
         &mut mesh,
         &adjacency,
         &mut material,
@@ -1046,48 +1408,6 @@ pub(super) fn refine_lod1_again(
     );
     refined.calculate_normals();
     Ok((refined, material))
-}
-
-pub(super) fn correct_lods(lod0: &mut Mesh, lod1: &mut Mesh, lod2: &mut Mesh) -> TriangleIndex {
-    let lod1_refinement = lod1.tessellated_attributed();
-    let lod2_refinement = lod2.tessellated_attributed();
-    *lod1 = lod1_refinement.mesh;
-    *lod2 = lod2_refinement.mesh;
-
-    let lod0_index = TriangleIndex::new(lod0);
-    pin_refined_lod(lod1, &lod1_refinement.new_vertices, lod0, &lod0_index);
-    pin_refined_lod(lod2, &lod2_refinement.new_vertices, lod0, &lod0_index);
-
-    for mesh in [lod0, lod1, lod2] {
-        mesh.uv
-            .iter_mut()
-            .zip(&mesh.vertices)
-            .for_each(|(uv, vertex)| *uv = vertex.truncate());
-        mesh.calculate_normals();
-    }
-    lod0_index
-}
-
-pub(super) fn pin_refined_lod(
-    mesh: &mut Mesh,
-    new_vertices: &[NewVertexStencil],
-    lod0: &Mesh,
-    lod0_index: &TriangleIndex,
-) {
-    let shared_vertex_count = mesh.vertices.len() - new_vertices.len();
-    debug_assert!(lod0.vertices.len() >= shared_vertex_count);
-    mesh.vertices[..shared_vertex_count].copy_from_slice(&lod0.vertices[..shared_vertex_count]);
-
-    for stencil in new_vertices {
-        let [a, b] = [
-            stencil.surrounding[0] as usize,
-            stencil.surrounding[1] as usize,
-        ];
-        debug_assert!(a < shared_vertex_count && b < shared_vertex_count);
-        let point = (mesh.vertices[a].truncate() + mesh.vertices[b].truncate()) * 0.5;
-        let elevation = sample_mesh_surface(lod0, lod0_index, point.x, point.y).0;
-        mesh.vertices[stencil.vertex as usize] = point.extend(elevation);
-    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -1144,8 +1464,12 @@ pub(super) fn assign_elevations(
     seed: u64,
     options: IslandOptions,
 ) -> GeologyField {
-    let geology =
-        GeologyField::calibrated(seed, mesh.vertices.iter().map(|vertex| vertex.truncate()));
+    let terrain_noise = geology::TerrainNoiseSettings::from(options);
+    let geology = GeologyField::calibrated(
+        seed,
+        terrain_noise,
+        mesh.vertices.iter().map(|vertex| vertex.truncate()),
+    );
     let scores: Vec<f32> = mesh
         .vertices
         .iter()
@@ -1153,7 +1477,9 @@ pub(super) fn assign_elevations(
             let dx = vertex.x.mul_add(2.0, -1.0);
             let dy = vertex.y.mul_add(2.0, -1.0);
             let radius = dx.hypot(dy);
-            geology::terrain_noise(seed, vertex.truncate()).height_component() + 0.82
+            geology::terrain_noise(seed, vertex.truncate(), terrain_noise)
+                .height_component(terrain_noise)
+                + 0.82
                 - radius.powf(1.65)
         })
         .collect();
@@ -1161,24 +1487,11 @@ pub(super) fn assign_elevations(
     ranked.sort_unstable_by(f32::total_cmp);
     let sea_index = ((ranked.len() - 1) as f32 * options.water_ratio) as usize;
     let sea_level = ranked[sea_index];
-    let perimeter = mesh.perimeter_vertices();
-    let candidate_sea: Vec<bool> = scores.iter().map(|score| *score < sea_level).collect();
-    let mut sea = vec![false; mesh.vertices.len()];
-    let mut fringe: Vec<usize> = perimeter
-        .into_iter()
-        .filter(|index| candidate_sea[*index])
+    let candidate_sea: Vec<bool> = scores
+        .iter()
+        .map(|score| *score + options.land_mass_offset < sea_level)
         .collect();
-    for &vertex in &fringe {
-        sea[vertex] = true;
-    }
-    while let Some(vertex) = fringe.pop() {
-        for &neighbour in &adjacency[vertex] {
-            if candidate_sea[neighbour] && !sea[neighbour] {
-                sea[neighbour] = true;
-                fringe.push(neighbour);
-            }
-        }
-    }
+    let sea = connected_ocean_from_perimeter(&candidate_sea, mesh.perimeter_vertices(), adjacency);
 
     let distance_to_sea = graph_distances(mesh, adjacency, &sea);
     let land: Vec<bool> = sea.iter().map(|value| !value).collect();
@@ -1203,6 +1516,31 @@ pub(super) fn assign_elevations(
         };
     }
     geology
+}
+
+fn connected_ocean_from_perimeter(
+    candidate_sea: &[bool],
+    perimeter: impl IntoIterator<Item = usize>,
+    adjacency: &Adjacency,
+) -> Vec<bool> {
+    debug_assert_eq!(candidate_sea.len(), adjacency.len());
+    let mut sea = vec![false; candidate_sea.len()];
+    let mut fringe = Vec::new();
+    for vertex in perimeter {
+        if vertex < sea.len() && !sea[vertex] {
+            sea[vertex] = true;
+            fringe.push(vertex);
+        }
+    }
+    while let Some(vertex) = fringe.pop() {
+        for &neighbour in &adjacency[vertex] {
+            if candidate_sea[neighbour] && !sea[neighbour] {
+                sea[neighbour] = true;
+                fringe.push(neighbour);
+            }
+        }
+    }
+    sea
 }
 
 pub(super) fn graph_distances(mesh: &Mesh, adjacency: &Adjacency, target: &[bool]) -> Vec<f32> {
@@ -1249,6 +1587,87 @@ mod sea_proximity_tests {
     use std::io::Cursor;
 
     use super::*;
+
+    #[test]
+    fn tessellation_edge_flips_preserve_deposited_material_volume() {
+        let mut mesh = Mesh {
+            vertices: vec![
+                Vec3::new(0.0, 0.0, 0.0),
+                Vec3::new(2.0, 0.0, 0.0),
+                Vec3::new(2.0, 1.0, 8.0),
+                Vec3::new(0.0, 1.0, 0.0),
+            ],
+            triangles: vec![0, 1, 2, 0, 2, 3],
+            ..Mesh::default()
+        };
+        mesh.calculate_normals();
+        let mut material = SurfaceMaterial::empty(mesh.vertices.len());
+        material.depths_mut().copy_from_slice(&[0.1, 0.2, 0.4, 0.8]);
+        let volume = material.volume(&mesh);
+
+        let flips = mutate_surface_preserving_material_volume(
+            &mut mesh,
+            &mut material,
+            Mesh::optimize_surface_triangulation,
+        );
+
+        assert_eq!(flips, 1);
+        assert_eq!(material.depths().len(), mesh.vertices.len());
+        assert!((material.volume(&mesh) - volume).abs() <= volume * 1.0e-6);
+    }
+
+    #[test]
+    fn local_vertex_repair_untangles_a_fold_with_no_valid_diagonal() {
+        let mut mesh = Mesh {
+            vertices: vec![
+                Vec3::new(0.0, 0.0, 1.0),
+                Vec3::new(1.0, 0.0, 2.0),
+                Vec3::new(-0.1, 0.5, 3.0),
+                Vec3::new(0.0, 1.0, 4.0),
+            ],
+            triangles: vec![0, 1, 2, 0, 2, 3],
+            ..Mesh::default()
+        };
+        let original_heights: Vec<f32> = mesh.vertices.iter().map(|vertex| vertex.z).collect();
+
+        assert_eq!(mesh.projected_foldover_count(), 1);
+        assert_eq!(mesh.repair_projected_foldovers_preserving(|_, _| false), 0);
+        let repairs = repair_projected_foldover_vertices(&mut mesh, &[false; 4]);
+
+        assert_eq!(repairs, 1);
+        assert_eq!(mesh.projected_foldover_count(), 0);
+        assert_eq!(
+            mesh.vertices
+                .iter()
+                .map(|vertex| vertex.z)
+                .collect::<Vec<_>>(),
+            original_heights
+        );
+    }
+
+    #[test]
+    fn local_vertex_repair_moves_a_folded_apex_to_its_one_ring_centroid() {
+        let mut mesh = Mesh {
+            vertices: vec![
+                Vec3::new(0.0, 0.0, 0.0),
+                Vec3::new(1.0, 0.0, 0.0),
+                Vec3::new(1.0, 1.0, 0.0),
+                Vec3::new(0.0, 1.0, 0.0),
+                Vec3::new(1.2, 0.5, 2.0),
+            ],
+            triangles: vec![4, 0, 1, 4, 1, 2, 4, 2, 3, 4, 3, 0],
+            ..Mesh::default()
+        };
+
+        assert_eq!(mesh.projected_foldover_count(), 1);
+        let repairs =
+            repair_projected_foldover_vertices(&mut mesh, &[true, true, true, true, false]);
+
+        assert_eq!(repairs, 1);
+        assert_eq!(mesh.projected_foldover_count(), 0);
+        assert_eq!(mesh.vertices[4], Vec3::new(0.5, 0.5, 2.0));
+        assert_eq!(mesh.triangles.len(), 12);
+    }
 
     #[test]
     fn sea_proximity_stays_full_for_two_metres_then_fades_to_twenty() {
@@ -1301,7 +1720,7 @@ mod sea_proximity_tests {
 
     #[test]
     fn saved_generation_methods_are_backward_compatible() {
-        let mut current = SavedIslandReader::new(Cursor::new(b"MOTURS\0\x12\x01")).unwrap();
+        let mut current = SavedIslandReader::new(Cursor::new(b"MOTURS\0\x14\x01")).unwrap();
         assert_eq!(
             current.read_generation_method().unwrap(),
             GenerationMethod::Gpu
@@ -1316,8 +1735,78 @@ mod sea_proximity_tests {
 
     #[test]
     fn saved_generation_method_rejects_unknown_tags() {
-        let mut reader = SavedIslandReader::new(Cursor::new(b"MOTURS\0\x12\xff")).unwrap();
+        let mut reader = SavedIslandReader::new(Cursor::new(b"MOTURS\0\x14\xff")).unwrap();
         let error = reader.read_generation_method().unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn version_eighteen_payload_uses_default_terrain_noise() {
+        let mut bytes = b"MOTURS\0\x12".to_vec();
+        bytes.extend(77_u64.to_le_bytes());
+        for value in [
+            0.2_f32, 0.6, 1.3, 1.0, 1.0, 1.5, 12.0, 0.05, 4.0, 9.0, 2.0, 14.0, 0.35, 2.0,
+        ] {
+            bytes.extend(value.to_le_bytes());
+        }
+        bytes.extend(24_u32.to_le_bytes());
+        let forest = ForestOptions::default();
+        bytes.extend(forest.patch_size_metres.to_le_bytes());
+        bytes.extend(forest.noise_threshold.to_le_bytes());
+        bytes.push(forest.noise_octaves);
+        bytes.extend(forest.snowline_metres.to_le_bytes());
+        bytes.push(forest.prototype_count);
+        bytes.extend(forest.minimum_scale.to_le_bytes());
+        bytes.extend(forest.maximum_scale.to_le_bytes());
+        bytes.push(GenerationMethod::Cpu.tag());
+
+        let mut reader = SavedIslandReader::new(Cursor::new(bytes)).unwrap();
+        let (options, _) = reader.read_options().unwrap();
+        let defaults = IslandOptions::default();
+
+        for (actual, expected) in [
+            (
+                options.continental_noise_frequency,
+                defaults.continental_noise_frequency,
+            ),
+            (
+                options.continental_noise_strength,
+                defaults.continental_noise_strength,
+            ),
+            (
+                options.detail_noise_frequency,
+                defaults.detail_noise_frequency,
+            ),
+            (
+                options.detail_noise_strength,
+                defaults.detail_noise_strength,
+            ),
+        ] {
+            assert_eq!(actual.to_bits(), expected.to_bits());
+        }
+    }
+
+    #[test]
+    fn ocean_always_contains_the_mesh_perimeter() {
+        let mesh = Mesh {
+            vertices: vec![Vec3::ZERO; 3],
+            triangles: vec![0, 1, 2],
+            ..Mesh::default()
+        };
+        let sea = connected_ocean_from_perimeter(&[false; 3], [0, 2], &mesh.adjacency());
+
+        assert_eq!(sea, [true, false, true]);
+    }
+
+    #[test]
+    fn newly_submerged_candidates_connect_to_the_perimeter_ocean() {
+        let mesh = Mesh {
+            vertices: vec![Vec3::ZERO; 3],
+            triangles: vec![0, 1, 2],
+            ..Mesh::default()
+        };
+        let sea = connected_ocean_from_perimeter(&[false, true, false], [0, 2], &mesh.adjacency());
+
+        assert!(sea.into_iter().all(|is_sea| is_sea));
     }
 }

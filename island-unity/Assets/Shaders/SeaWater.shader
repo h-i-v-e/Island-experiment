@@ -14,6 +14,7 @@ Shader "Motu/Sea Water"
         _ReflectionFresnelPower ("Reflection Fresnel Power", Range(1, 8)) = 4
         _SunGlintStrength ("Sun Glint Strength", Range(0, 2)) = 0.8
         _SunGlintSharpness ("Sun Glint Sharpness", Range(8, 256)) = 128
+        [HideInInspector] _WaterSkyExposure ("Water Sky Exposure", Range(0, 1)) = 1
         _RefractionStrength ("Underwater Distortion", Range(0, 0.03)) = 0.02
         _RefractionDepth ("Full Distortion Depth (metres)", Float) = 0.6
         [HideInInspector] _PlanarReflectionWeight ("Planar Reflection Weight", Range(0, 1)) = 1
@@ -57,7 +58,7 @@ Shader "Motu/Sea Water"
 
             struct VertexOutput
             {
-                float4 position : SV_POSITION;
+                float4 pos : SV_POSITION;
                 float brightness : TEXCOORD0;
                 float3 worldNormal : TEXCOORD1;
                 float4 screenPosition : TEXCOORD2;
@@ -66,6 +67,7 @@ Shader "Motu/Sea Water"
                 UNITY_FOG_COORDS(5)
                 float3 islandLocalPosition : TEXCOORD6;
                 float4 grabPosition : TEXCOORD7;
+                SHADOW_COORDS(8)
             };
 
             sampler2D _NoiseTex;
@@ -84,11 +86,11 @@ Shader "Motu/Sea Water"
             VertexOutput Vertex(VertexInput input)
             {
                 VertexOutput output;
-                output.position = UnityObjectToClipPos(input.vertex);
+                output.pos = UnityObjectToClipPos(input.vertex);
                 float3 normal = UnityObjectToWorldNormal(input.normal);
                 output.worldNormal = normal;
-                output.screenPosition = ComputeScreenPos(output.position);
-                output.grabPosition = ComputeGrabScreenPos(output.position);
+                output.screenPosition = ComputeScreenPos(output.pos);
+                output.grabPosition = ComputeGrabScreenPos(output.pos);
                 output.surfaceEyeDepth = -UnityObjectToViewPos(input.vertex).z;
                 output.worldPosition = mul(unity_ObjectToWorld, input.vertex).xyz;
                 output.islandLocalPosition = mul(
@@ -98,7 +100,8 @@ Shader "Motu/Sea Water"
                     + 0.28 * saturate(dot(
                         normal,
                         normalize(float3(0.3, 1.0, 0.2))));
-                UNITY_TRANSFER_FOG(output, output.position);
+                TRANSFER_SHADOW_WPOS(output, output.worldPosition);
+                UNITY_TRANSFER_FOG(output, output.pos);
                 return output;
             }
 
@@ -109,6 +112,10 @@ Shader "Motu/Sea Water"
                 float3 worldNormal = MotuFacingWaterNormal(
                     input.worldNormal,
                     viewDirection);
+                UNITY_LIGHT_ATTENUATION(
+                    shadowAttenuation,
+                    input,
+                    input.worldPosition);
                 float waterDepth = MotuWaterDepth(
                     input.screenPosition,
                     input.surfaceEyeDepth);
@@ -186,7 +193,16 @@ Shader "Motu/Sea Water"
                     * horizontalSurface
                     * _ShoreWaveStrength);
 
-                fixed3 waterBody = _Color.rgb * input.brightness;
+                MotuCloudLighting cloud = MotuCloudSurfaceLighting(input.worldPosition);
+                fixed3 waterIllumination = MotuWaterIllumination(
+                    worldNormal,
+                    input.worldPosition,
+                    shadowAttenuation,
+                    0.12h,
+                    cloud);
+                fixed3 waterBody = _Color.rgb
+                    * input.brightness
+                    * waterIllumination;
                 float2 reflectionNoiseUv = input.islandLocalPosition.xz / 8.0;
                 half2 reflectionRipple = half2(
                     tex2D(
@@ -202,14 +218,19 @@ Shader "Motu/Sea Water"
                     viewDirection,
                     input.worldPosition,
                     reflectionRipple,
-                    1.0h);
+                    1.0h,
+                    shadowAttenuation,
+                    cloud);
                 half waterOpacity = MotuWaterOpacity(
                     waterDepth,
                     _OpacityDepth);
-                fixed3 surface = lerp(
-                    water,
-                    fixed3(1.0, 1.0, 1.0),
-                    shoreWave);
+                fixed3 foamColour = MotuWaterIllumination(
+                    worldNormal,
+                    input.worldPosition,
+                    shadowAttenuation,
+                    0.35h,
+                    cloud);
+                fixed3 surface = lerp(water, foamColour, shoreWave);
                 fixed4 foggedSurface = fixed4(surface, 1.0h);
                 UNITY_APPLY_FOG(input.fogCoord, foggedSurface);
                 fixed3 refractedScene = MotuRefractScene(

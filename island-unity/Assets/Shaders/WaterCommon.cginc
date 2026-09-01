@@ -3,6 +3,7 @@
 
 #include "UnityCG.cginc"
 #include "Lighting.cginc"
+#include "AutoLight.cginc"
 
 fixed4 _Color;
 half _ShallowOpacity;
@@ -13,6 +14,7 @@ half _ReflectionStrength;
 half _ReflectionFresnelPower;
 half _SunGlintStrength;
 half _SunGlintSharpness;
+half _WaterSkyExposure;
 half _PlanarReflectionWeight;
 half _PlanarReflectionDistortion;
 sampler2D _PlanarReflectionTexture;
@@ -24,6 +26,8 @@ half _RefractionStrength;
 float _RefractionDepth;
 float4x4 _IslandWorldToLocal;
 UNITY_DECLARE_DEPTH_TEXTURE(_CameraDepthTexture);
+
+#include "CloudCommon.cginc"
 
 float3 MotuFacingWaterNormal(float3 worldNormal, float3 viewDirection)
 {
@@ -74,14 +78,16 @@ fixed3 MotuShadeWater(
     float3 viewDirection,
     float3 worldPosition,
     half2 ripple,
-    half planarWeight)
+    half planarWeight,
+    half shadowAttenuation,
+    MotuCloudLighting cloud)
 {
     float3 reflectionDirection = reflect(-viewDirection, worldNormal);
     half skyHeight = saturate(reflectionDirection.y);
     fixed3 skyReflection = lerp(
         _ReflectionHorizonColor.rgb,
         _ReflectionColor.rgb,
-        skyHeight);
+        skyHeight) * _WaterSkyExposure;
     float4 reflectionPosition = mul(
         _PlanarReflectionMatrix,
         float4(worldPosition, 1.0));
@@ -95,7 +101,10 @@ fixed3 MotuShadeWater(
         * step(reflectionUv.y, 1.0);
     fixed3 planarReflection = tex2D(
         _PlanarReflectionTexture,
-        saturate(reflectionUv)).rgb;
+        saturate(reflectionUv)).rgb * lerp(
+            0.08h,
+            1.0h,
+            _WaterSkyExposure);
     half planarBlend = saturate(
         _PlanarReflectionAvailable
         * _PlanarReflectionWeight
@@ -104,19 +113,50 @@ fixed3 MotuShadeWater(
     fixed3 reflectedScene = lerp(
         skyReflection,
         planarReflection,
-        planarBlend);
+        planarBlend) * lerp(
+            0.30h,
+            1.0h,
+            shadowAttenuation * cloud.ambientTransmittance);
     half fresnel = pow(
         1.0h - saturate(dot(worldNormal, viewDirection)),
         _ReflectionFresnelPower);
     half reflectionWeight = saturate(
         _ReflectionStrength * lerp(0.08h, 1.0h, fresnel));
     fixed3 water = lerp(waterBody, reflectedScene, reflectionWeight);
+    float3 glintLightVector = UnityWorldSpaceLightDir(worldPosition);
+    half glintInverseLength = rsqrt(max(
+        dot(glintLightVector, glintLightVector),
+        0.000001));
     half sunAlignment = saturate(dot(
         reflectionDirection,
-        normalize(_WorldSpaceLightPos0.xyz)));
+        glintLightVector * glintInverseLength));
     half sunGlint = pow(sunAlignment, _SunGlintSharpness)
-        * _SunGlintStrength;
+        * _SunGlintStrength
+        * shadowAttenuation
+        * cloud.directTransmittance
+        * _WaterSkyExposure;
     return water + _LightColor0.rgb * sunGlint;
+}
+
+fixed3 MotuWaterIllumination(
+    float3 worldNormal,
+    float3 worldPosition,
+    half shadowAttenuation,
+    half diffuseFloor,
+    MotuCloudLighting cloud)
+{
+    float3 lightVector = UnityWorldSpaceLightDir(worldPosition);
+    half inverseLength = rsqrt(max(dot(lightVector, lightVector), 0.000001));
+    half3 lightDirection = lightVector * inverseLength;
+    half diffuse = lerp(
+        diffuseFloor,
+        1.0h,
+        saturate(dot(worldNormal, lightDirection)));
+    return UNITY_LIGHTMODEL_AMBIENT.rgb * cloud.ambientTransmittance
+        + _LightColor0.rgb
+            * diffuse
+            * shadowAttenuation
+            * cloud.directTransmittance;
 }
 
 #endif

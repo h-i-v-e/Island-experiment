@@ -150,13 +150,13 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::IslandGenerator
   generation:
     generateOnStart: 1
-    seed: 666
+    seed: 1924
     worldSizeMetres: 2000
-    maximumHeightMetres: 400
+    maximumHeightMetres: 200
     waterRatio: 0.8
-    inlandSlopeMultiplier: 0.51
-    coastalSlopeMultiplier: 1
-    hydraulicErosionStrength: 4
+    inlandSlopeMultiplier: 1.01
+    coastalSlopeMultiplier: 0.51
+    hydraulicErosionStrength: 8
     sedimentDepositionStrength: 1.5
     depositionMaximumSlopeDegrees: 12
   rivers:
@@ -167,21 +167,68 @@ MonoBehaviour:
     maximumWidthMetres: 4
     sourceDepthMetres: 0.2
     maximumDepthMetres: 0.8
-    roughWaterSharpnessDegrees: 35
-    roughWaterSpacingMetres: 1.5
   forest:
     showForests: 1
     forestPatchSizeMetres: 200
-    forestNoiseThreshold: 0.7
+    forestNoiseThreshold: 0.6
     snowlineMetres: 200
     forestPrototypeCount: 64
     minimumTreeScale: 1
     maximumTreeScale: 2
+  reeds:
+    showReeds: 1
+    bankWidthMetres: 0.8
+    patchSizeMetres: 8
+    coverageThreshold: 0.18
+    spacingMetres: 0.36
+    rushRatio: 0.45
+    minimumHeightMetres: 0.65
+    maximumHeightMetres: 2.1
+    maximumSlopeDegrees: 32
+    baseColour: {r: 0.12, g: 0.24, b: 0.055, a: 1}
+    tipColour: {r: 0.38, g: 0.48, b: 0.09, a: 1}
+    windStrength: 3
+  ferns:
+    showFerns: 1
+    barkClearanceMetres: 0.18
+    outerRadiusMetres: 1.65
+    spacingMetres: 0.58
+    patchSizeMetres: 12
+    coverageThreshold: 0.28
+    minimumLengthMetres: 0.45
+    maximumLengthMetres: 1.15
+    maximumSlopeDegrees: 34
+    baseColour: {r: 0.055, g: 0.18, b: 0.045, a: 1}
+    tipColour: {r: 0.24, g: 0.48, b: 0.12, a: 1}
+    windStrength: 1.8
   streaming:
     target: {fileID: 1299534587}
+  clouds:
+    enabled: 1
+    seed: 173
+    weatherMapResolution: 1024
+    coverage: 0.48
+    density: 2.1
+    altitudeMetres: 650
+    verticalThicknessMetres: 280
+    worldSizeMetres: 2200
+    broadNoiseScale: 6
+    broadNoiseStrength: 0.65
+    detailStrength: 0.52
+    erosionStrength: 0.38
+    windDirection: {x: 1, y: 0.25}
+    windSpeedMetresPerSecond: 9
+    dayColour: {r: 0.92, g: 0.94, b: 0.96, a: 1}
+    sunsetColour: {r: 0.92, g: 0.48, b: 0.24, a: 1}
+    nightColour: {r: 0.035, g: 0.055, b: 0.1, a: 1}
+    shadowStrength: 0.72
+    ambientShadowStrength: 0.12
+    celestialObscurationStrength: 1
+    lowElevationShadowFade: 0.09
   rendering:
     dirtColour: {r: 0.81960785, g: 0.6745098, b: 0.39607844, a: 1}
     stoneColour: {r: 0.4627451, g: 0.49803922, b: 0.42352942, a: 1}
+    sandColour: {r: 0.62, g: 0.57, b: 0.34, a: 1}
     randomizeMaterialColours: 1
     materialColourVariation: 0.14
     materialTextureResolution: 1024
@@ -207,7 +254,21 @@ MonoBehaviour:
     sandPatchSizeMetres: 32
     grassPatchSizeMetres: 32
     estuaryBlendHeightMetres: 2
+    showDistanceHaze: 1
+    distanceHazeColour: {r: 0.62, g: 0.6, b: 0.54, a: 1}
+    distanceHazeDensity: 0.0016
     sunlight: {fileID: 999289537}
+    sunCycleDurationMinutes: 1
+    midnightToNoonClockRateRatio: 10
+    sunLatitudeDegrees: -36
+    startingSolarTimeHours: 8
+    middaySunIntensity: 1.25
+    moonEquatorOffsetDegrees: 22
+    startingMoonPhase: 0.5
+    fullMoonLightIntensity: 0.14
+    starDensity: 0.18
+    starBrightness: 1.35
+    starSize: 0.052
     showRivers: 1
     showSea: 1
     showGrass: 1
@@ -222,7 +283,7 @@ MonoBehaviour:
     toggleTreeMeshEdgesKey: 110
     showFrameRate: 0
     toggleFrameRateKey: 102
-    showRoughWaterEmitters: 0
+    showWaterfallFeet: 0
 --- !u!4 &22168521
 Transform:
   m_ObjectHideFlags: 0

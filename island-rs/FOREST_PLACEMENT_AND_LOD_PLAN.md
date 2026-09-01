@@ -45,11 +45,12 @@ The code phases in this plan are implemented. The verified state is:
 - Rust owns four deterministic combined streams (`lod0_wood`,
   `lod0_foliage`, `lod1_wood`, and `lod1_foliage`) plus whole-tree ranges and
   owner-tile extraction.
-- The native ABI preserves the historical 16-float `CreateMotu` options block
-  and adds `MotuForestOptions`, `CreateMotuWithForest`, and fixed-grid wood and
-  foliage exports.
-- Save format version 17 persists all forest settings; versions 3 through 16
-  load the documented defaults.
+- The native ABI preserves the offsets of the historical 16-float `CreateMotu`
+  fields, extends the block to 19 floats for terrain-noise controls, and adds
+  `MotuForestOptions`, `CreateMotuWithForest`, and fixed-grid wood and foliage
+  exports.
+- Save format version 20 persists forest and terrain-noise settings; older
+  versions load the documented defaults for settings they predate.
 - Unity prepares forest arrays off the main thread and streams LOD2 low
   foliage, LOD1 low foliage and wood, and LOD0 full foliage and wood without
   per-tree GameObjects.

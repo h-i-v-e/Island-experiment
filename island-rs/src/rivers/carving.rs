@@ -2,9 +2,10 @@ use super::{
     Adjacency, BinaryHeap, HashSet, MAXIMUM_GENTLE_RIVER_GRADE, Mesh, Ordering,
     RIVER_CHANNEL_DRAINAGE_FLOOR, RIVER_SURFACE_OFFSET, RiverChannelSettings, RiverCrossSection,
     RiverNode, RiverSedimentBudget, SEA_PLANE_CLEARANCE, SurfaceMaterial, Vec2, VecDeque,
-    WATERFALL_LANDING_LENGTH_MULTIPLIER, WATERFALL_SITE_BYPASS_MAX_HOPS,
-    WATERFALL_SITE_MINIMUM_BANK_SPAN_FRACTION, WATERFALL_SUPPORT_RUN, WATERFALL_TARGET_EDGE_LENGTH,
-    WaterfallClearanceIndex, WaterfallPatch, expand_vertex_mask_through_river_to_banks,
+    WATERFALL_LANDING_LENGTH_MULTIPLIER, WATERFALL_REFERENCE_ISLAND_HEIGHT,
+    WATERFALL_SITE_BYPASS_MAX_HOPS, WATERFALL_SITE_MINIMUM_BANK_SPAN_FRACTION,
+    WATERFALL_SUPPORT_RUN, WATERFALL_TARGET_EDGE_LENGTH, WaterfallClearanceIndex, WaterfallPatch,
+    expand_vertex_mask_through_river_to_banks,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -174,7 +175,7 @@ pub(super) fn shape_and_carve_river(
 ) -> RiverCarveResult {
     let ocean_entry = parameters
         .terminal_ocean
-        .then(|| river_ocean_entry(nodes, ocean))
+        .then(|| river_ocean_entry(nodes, ocean, parameters.cross_sections))
         .flatten();
     let mouth = ocean_entry.map(|ocean_entry| river_mouth_transition(ocean_entry, waterfalls));
     let mut budget = RiverSedimentBudget::default();
@@ -244,7 +245,7 @@ pub(super) fn form_river_profile(
 
     let ocean_entry = parameters
         .terminal_ocean
-        .then(|| river_ocean_entry(nodes, environment.ocean))
+        .then(|| river_ocean_entry(nodes, environment.ocean, parameters.cross_sections))
         .flatten();
     let profile_end = ocean_entry.map_or_else(
         || nodes.len().saturating_sub(1),
@@ -255,7 +256,6 @@ pub(super) fn form_river_profile(
         waterfalls,
         parameters.cross_sections,
         profile_end,
-        parameters.max_height,
         gradient_scratch,
     );
     ocean_entry
@@ -371,7 +371,6 @@ pub(super) fn form_stepped_profile(
     waterfalls: &mut [bool],
     cross_sections: &[RiverCrossSection],
     end: usize,
-    max_height: f32,
     gradient_scratch: &mut Vec<f32>,
 ) {
     waterfalls.fill(false);
@@ -401,10 +400,10 @@ pub(super) fn form_stepped_profile(
         gradient_scratch.push(weighted_gradient / total_weight.max(1.0));
     }
 
-    let minimum_fall = max_height * 0.0075;
-    let maximum_fall = max_height * 0.018;
-    let gentle_reach_length = max_height * 0.006;
-    let steep_gradient = (max_height * 2.25).max(f32::EPSILON);
+    let minimum_fall = WATERFALL_REFERENCE_ISLAND_HEIGHT * 0.0075;
+    let maximum_fall = WATERFALL_REFERENCE_ISLAND_HEIGHT * 0.018;
+    let gentle_reach_length = WATERFALL_REFERENCE_ISLAND_HEIGHT * 0.006;
+    let steep_gradient = WATERFALL_REFERENCE_ISLAND_HEIGHT * 2.25;
     let mut level = nodes[end].surface;
     let mut reach_length = 0.0_f32;
     let mut reach_half_width = 0.0_f32;
@@ -427,7 +426,11 @@ pub(super) fn form_stepped_profile(
         let patch_reach_length =
             WATERFALL_SUPPORT_RUN + reach_half_width * (1.0 + WATERFALL_LANDING_LENGTH_MULTIPLIER);
         let required_reach_length = profile_reach_length.max(patch_reach_length);
-        if available_rise >= target_fall && reach_length >= required_reach_length {
+        // The waterfall face extends upstream from its upper node. Segment
+        // zero has no upstream reach to support or feed that face, so placing
+        // a fall there creates a free-standing water curtain and drags the
+        // source-side bank down to the lower terrace.
+        if index > 0 && available_rise >= target_fall && reach_length >= required_reach_length {
             level += target_fall;
             waterfalls[index] = true;
             reach_length = 0.0;
@@ -592,7 +595,8 @@ pub(super) fn planned_waterfall_patch(
     environment: WaterfallSiteEnvironment<'_>,
 ) -> Option<WaterfallPatch> {
     let (&upper, &lower) = nodes.get(segment).zip(nodes.get(segment + 1))?;
-    if drop <= RIVER_SURFACE_OFFSET
+    if segment == 0
+        || drop <= RIVER_SURFACE_OFFSET
         || environment.rejected.contains(&upper.vertex)
         || environment
             .perimeter
@@ -805,7 +809,7 @@ pub(super) fn relocate_conflicting_waterfalls(
     let mut all_placed = true;
     for drop in scratch.iter_mut().rev() {
         let original = drop.segment.min(upstream_limit);
-        let selected = (0..=original)
+        let selected = (1..=original)
             .rev()
             .find(|&segment| {
                 !relocation
@@ -824,7 +828,7 @@ pub(super) fn relocate_conflicting_waterfalls(
             })
             // Intermediate erosion LODs retain the historical best-effort
             // behavior. Only the final LOD 0 pass may reject a whole river.
-            .or_else(|| relocation.site.is_none().then_some(original));
+            .or_else(|| (relocation.site.is_none() && original > 0).then_some(original));
         if let Some(segment) = selected {
             drop.segment = segment;
             drop.placed = true;
@@ -849,10 +853,23 @@ pub(super) fn relocate_conflicting_waterfalls(
     all_placed
 }
 
-pub(super) fn river_ocean_entry(nodes: &[RiverNode], ocean: &[bool]) -> Option<usize> {
-    nodes
+pub(super) fn river_ocean_entry(
+    nodes: &[RiverNode],
+    ocean: &[bool],
+    cross_sections: &[RiverCrossSection],
+) -> Option<usize> {
+    let masked_entry = nodes
         .iter()
-        .position(|node| ocean.get(node.vertex).copied().unwrap_or(false))
+        .position(|node| ocean.get(node.vertex).copied().unwrap_or(false));
+    let submerged_bed_entry = nodes
+        .iter()
+        .zip(cross_sections)
+        .position(|(node, section)| {
+            section.required_depth.is_finite()
+                && section.required_depth > 0.0
+                && node.surface - section.required_depth <= 0.0
+        });
+    masked_entry.into_iter().chain(submerged_bed_entry).min()
 }
 
 pub(super) fn river_mouth_transition(

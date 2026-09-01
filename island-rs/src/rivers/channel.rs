@@ -30,6 +30,7 @@ pub(super) fn build_river_footprint(
 ) -> RiverFootprint {
     let vertex_count = terrain.vertices.len();
     let perimeter = terrain.perimeter_mask();
+    let river_uv_offsets = confluence_aligned_uv_offsets(network, terrain, adjacency);
     let mut coverage = vec![0_u8; vertex_count];
     let mut owner_distance = vec![u8::MAX; vertex_count];
     let mut owner = vec![None; vertex_count];
@@ -71,7 +72,7 @@ pub(super) fn build_river_footprint(
                 floor_override: None,
                 flow_origin: water_position.truncate(),
                 flow_direction: river_node_flow_direction(terrain, &river.nodes, node_index),
-                distance_along,
+                distance_along: river_uv_offsets[river_index] + distance_along,
                 target_half_width,
                 target_depth,
                 ring_count: remaining,
@@ -92,6 +93,7 @@ pub(super) fn build_river_footprint(
         adjacency,
         visible_only,
         base_width,
+        &river_uv_offsets,
         &mut frontiers[CHANNEL_FOOTPRINT_RINGS as usize],
     );
 
@@ -163,8 +165,10 @@ pub(super) fn seed_confluence_footprints(
     adjacency: &Adjacency,
     visible_only: bool,
     base_width: f32,
+    river_uv_offsets: &[f32],
     frontier: &mut Vec<RiverMeshCandidate>,
 ) {
+    debug_assert_eq!(network.rivers.len(), river_uv_offsets.len());
     for (river_index, river) in network.rivers.iter().enumerate() {
         let Some(joined_river) = river.join else {
             continue;
@@ -204,11 +208,8 @@ pub(super) fn seed_confluence_footprints(
         let fallback_direction = (terrain.vertices[join_vertex].truncate()
             - terrain.vertices[terminal.vertex].truncate())
         .normalize_or_zero();
-        let mut distance_along = river.nodes.windows(2).fold(0.0, |distance, nodes| {
-            distance
-                + river_node_water_position(terrain, &nodes[0])
-                    .distance(river_node_water_position(terrain, &nodes[1]))
-        });
+        let mut distance_along = river_uv_offsets[river_index]
+            + river_distance_through_node(terrain, river, terminal_index);
         let final_step = path.len() - 1;
         for step in 1..final_step {
             let vertex = path[step];
@@ -247,6 +248,99 @@ pub(super) fn seed_confluence_footprints(
             });
         }
     }
+}
+
+/// Gives each tributary a constant downstream-coordinate offset so the end of
+/// its confluence connector meets the receiving river without a UV jump.
+/// Local river distances remain unchanged, including the vertical distance
+/// through waterfalls.
+pub(super) fn confluence_aligned_uv_offsets(
+    network: &RiverNetwork,
+    terrain: &Mesh,
+    adjacency: &Adjacency,
+) -> Vec<f32> {
+    let mut offsets = network
+        .rivers
+        .iter()
+        .map(|river| river.join.is_none().then_some(0.0_f32))
+        .collect::<Vec<_>>();
+
+    for _ in 0..network.rivers.len() {
+        let mut resolved_any = false;
+        for (river_index, river) in network.rivers.iter().enumerate() {
+            if offsets[river_index].is_some() {
+                continue;
+            }
+            let Some(joined_river) = river.join else {
+                offsets[river_index] = Some(0.0);
+                resolved_any = true;
+                continue;
+            };
+            let Some(joined_offset) = offsets.get(joined_river).copied().flatten() else {
+                continue;
+            };
+            let Some(terminal_index) = river.nodes.len().checked_sub(1) else {
+                offsets[river_index] = Some(joined_offset);
+                resolved_any = true;
+                continue;
+            };
+            let terminal = river.nodes[terminal_index];
+            let Some(join_vertex) = network.join_vertices.get(river_index).copied().flatten()
+            else {
+                offsets[river_index] = Some(joined_offset);
+                resolved_any = true;
+                continue;
+            };
+            let Some(join_index) = network.rivers[joined_river]
+                .nodes
+                .iter()
+                .position(|node| node.vertex == join_vertex)
+            else {
+                offsets[river_index] = Some(joined_offset);
+                resolved_any = true;
+                continue;
+            };
+
+            let connector = confluence_connector(network, adjacency, terminal.vertex, join_vertex);
+            let connector_distance = if connector.len() >= 2 {
+                connector
+                    .windows(2)
+                    .map(|edge| {
+                        terrain.vertices[edge[0]]
+                            .truncate()
+                            .distance(terrain.vertices[edge[1]].truncate())
+                    })
+                    .sum()
+            } else {
+                terrain.vertices[terminal.vertex]
+                    .truncate()
+                    .distance(terrain.vertices[join_vertex].truncate())
+            };
+            let tributary_distance = river_distance_through_node(terrain, river, terminal_index);
+            let joined_distance =
+                river_distance_through_node(terrain, &network.rivers[joined_river], join_index);
+            offsets[river_index] =
+                Some((joined_offset + joined_distance) - (tributary_distance + connector_distance));
+            resolved_any = true;
+        }
+        if !resolved_any {
+            break;
+        }
+    }
+
+    debug_assert!(offsets.iter().all(Option::is_some));
+    offsets.into_iter().map(Option::unwrap_or_default).collect()
+}
+
+pub(super) fn river_distance_through_node(terrain: &Mesh, river: &River, node: usize) -> f32 {
+    let end = node.saturating_add(1).min(river.nodes.len());
+    river.nodes[..end]
+        .windows(2)
+        .map(|nodes| {
+            river_node_water_position(terrain, &nodes[0])
+                .distance(river_node_water_position(terrain, &nodes[1]))
+        })
+        .sum()
 }
 
 pub(super) fn river_candidate_wins(

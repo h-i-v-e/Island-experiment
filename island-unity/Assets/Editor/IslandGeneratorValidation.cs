@@ -12,9 +12,258 @@ public static class IslandGeneratorValidation
     public static void BatchValidateNativeInterop()
     {
         IslandGenerator.BatchValidateNativeInterop();
+        ValidateWaterfallMistShader();
+        ValidateFernShader();
+        ValidateSkyDomeShader();
+        ValidateCloudReceiverShaders();
+        ValidateSolarLightingCycle();
         ValidateSandboxScene();
         ValidateRealtimeShadowRender();
         Debug.Log("IslandGenerator component, sandbox level, and native validation passed.");
+    }
+
+    private static void ValidateFernShader()
+    {
+        var shader = Shader.Find("Motu/Forest Ferns");
+        if (shader == null
+            || !shader.isSupported
+            || ShaderUtil.ShaderHasError(shader))
+        {
+            throw new InvalidOperationException(
+                "The forest-fern cutout shader is missing or invalid.");
+        }
+        var material = new Material(shader);
+        try
+        {
+            if (material.GetTag("RenderType", false) != "MotuFernCutout"
+                || material.GetTag("MotuReflection", false) != "Ferns"
+                || !material.HasProperty("_FernWindMultiplier")
+                || !material.HasProperty("_GrassPatchNoise"))
+            {
+                throw new InvalidOperationException(
+                    "The forest-fern shader is missing its AO, reflection, or wind contract.");
+            }
+        }
+        finally
+        {
+            UnityEngine.Object.DestroyImmediate(material);
+        }
+    }
+
+    private static void ValidateWaterfallMistShader()
+    {
+        var shader = Shader.Find("Motu/Waterfall Foot Mist");
+        if (shader == null
+            || !shader.isSupported
+            || ShaderUtil.ShaderHasError(shader))
+        {
+            throw new InvalidOperationException(
+                "The waterfall-foot volumetric mist shader is missing or invalid.");
+        }
+    }
+
+    private static void ValidateSkyDomeShader()
+    {
+        var shader = Shader.Find("Motu/Sky Dome");
+        if (shader == null
+            || !shader.isSupported
+            || ShaderUtil.ShaderHasError(shader))
+        {
+            throw new InvalidOperationException(
+                "The generated sky-dome shader is missing or invalid.");
+        }
+        var material = new Material(shader);
+        try
+        {
+            if (!material.HasProperty("_HorizonColor")
+                || !material.HasProperty("_ZenithColor")
+                || !material.HasProperty("_SunDirection")
+                || !material.HasProperty("_SunColor")
+                || !material.HasProperty("_SunDiscCosRadius")
+                || !material.HasProperty("_SunVisibility")
+                || !material.HasProperty("_SunHaloColor")
+                || !material.HasProperty("_SunHaloStrength")
+                || !material.HasProperty("_MoonDirection")
+                || !material.HasProperty("_MoonLightDirection")
+                || !material.HasProperty("_MoonColor")
+                || !material.HasProperty("_MoonDarkColor")
+                || !material.HasProperty("_MoonDiscCosRadius")
+                || !material.HasProperty("_MoonVisibility")
+                || !material.HasProperty("_SkyExposure")
+                || !material.HasProperty("_StarSettings")
+                || !material.HasProperty("_StarVisibility")
+                || !material.HasProperty("_StarRotation"))
+            {
+                throw new InvalidOperationException(
+                    "The sky-dome shader is missing its haze, celestial, or star contract.");
+            }
+
+            var settings = new IslandRenderingSettings
+            {
+                StarDensity = 2f,
+                StarBrightness = -1f,
+                StarSize = 1f,
+            };
+            if (!Mathf.Approximately(settings.StarDensity, 1f)
+                || !Mathf.Approximately(settings.StarBrightness, 0f)
+                || !Mathf.Approximately(settings.StarSize, 0.12f))
+            {
+                throw new InvalidOperationException(
+                    "The procedural star settings are not clamping their live values.");
+            }
+        }
+        finally
+        {
+            UnityEngine.Object.DestroyImmediate(material);
+        }
+    }
+
+    private static void ValidateCloudReceiverShaders()
+    {
+        var shaderNames = new[]
+        {
+            "Motu/Sky Dome",
+            "Motu/Terrain Unified",
+            "Motu/Terrain Grass",
+            "Motu/Tree Wood",
+            "Motu/Tree Foliage",
+            "Motu/Tree Foliage Distant",
+            "Motu/Rock Decoration",
+            "Motu/Riverbank Reeds",
+            "Motu/Forest Ferns",
+            "Motu/River Water",
+            "Motu/Sea Water",
+            "Motu/Planar Reflection Simplified",
+        };
+        foreach (var shaderName in shaderNames)
+        {
+            var shader = Shader.Find(shaderName);
+            if (shader == null
+                || !shader.isSupported
+                || ShaderUtil.ShaderHasError(shader))
+            {
+                throw new InvalidOperationException(
+                    $"Cloud receiver shader '{shaderName}' is missing or invalid.");
+            }
+        }
+
+        var settings = new IslandCloudSettings
+        {
+            WeatherMapResolution = 70,
+            Coverage = 2f,
+            Density = -1f,
+            VerticalThicknessMetres = 2000f,
+            BroadNoiseScale = 100f,
+            BroadNoiseStrength = 2f,
+        };
+        if (settings.WeatherMapResolution != 64
+            || !Mathf.Approximately(settings.Coverage, 1f)
+            || !Mathf.Approximately(settings.Density, 0f)
+            || !Mathf.Approximately(settings.VerticalThicknessMetres, 1000f)
+            || !Mathf.Approximately(settings.BroadNoiseScale, 16f)
+            || !Mathf.Approximately(settings.BroadNoiseStrength, 1f))
+        {
+            throw new InvalidOperationException(
+                "Cloud runtime settings are not clamping their live values.");
+        }
+    }
+
+    private static void ValidateSolarLightingCycle()
+    {
+        const float midnightToNoonRateRatio = 10f;
+        var noonClockRate = IslandGenerator.EvaluateSolarClockRateMultiplier(
+            12f,
+            midnightToNoonRateRatio);
+        var midnightClockRate = IslandGenerator.EvaluateSolarClockRateMultiplier(
+            0f,
+            midnightToNoonRateRatio);
+        var sunriseClockRate = IslandGenerator.EvaluateSolarClockRateMultiplier(
+            6f,
+            midnightToNoonRateRatio);
+        var sunsetClockRate = IslandGenerator.EvaluateSolarClockRateMultiplier(
+            18f,
+            midnightToNoonRateRatio);
+        var inverseRateIntegral = 0f;
+        const int clockSamples = 4096;
+        for (var sample = 0; sample < clockSamples; sample++)
+        {
+            inverseRateIntegral += 1f / IslandGenerator.EvaluateSolarClockRateMultiplier(
+                24f * sample / clockSamples,
+                midnightToNoonRateRatio);
+        }
+        inverseRateIntegral /= clockSamples;
+        if (!Mathf.Approximately(midnightClockRate / noonClockRate, 10f)
+            || midnightClockRate <= sunriseClockRate
+            || sunriseClockRate <= noonClockRate
+            || !Mathf.Approximately(sunriseClockRate, sunsetClockRate)
+            || Mathf.Abs(inverseRateIntegral - 1f) > 0.001f)
+        {
+            throw new InvalidOperationException(
+                "The solar clock does not slow at noon, accelerate tenfold at midnight, or preserve its configured period.");
+        }
+        if (!Mathf.Approximately(
+            IslandGenerator.EvaluateSolarClockRateMultiplier(3f, 1f),
+            1f))
+        {
+            throw new InvalidOperationException(
+                "A one-to-one solar clock rate must remain uniform.");
+        }
+        var sunrise = IslandGenerator.EvaluateSolarLighting(6f, 45f, 1.25f);
+        var noon = IslandGenerator.EvaluateSolarLighting(12f, 45f, 1.25f);
+        var sunset = IslandGenerator.EvaluateSolarLighting(18f, 45f, 1.25f);
+        var midnight = IslandGenerator.EvaluateSolarLighting(0f, 45f, 1.25f);
+        var newMoon = IslandGenerator.EvaluateMoonLighting(
+            12f,
+            45f,
+            22f,
+            0f,
+            0.14f,
+            noon.LocalDirection.y);
+        var fullMoon = IslandGenerator.EvaluateMoonLighting(
+            0f,
+            45f,
+            22f,
+            0.5f,
+            0.14f,
+            midnight.LocalDirection.y);
+        if (sunrise.LocalDirection.x < 0.999f
+            || Mathf.Abs(sunrise.LocalDirection.y) > 0.001f
+            || sunset.LocalDirection.x > -0.999f
+            || Mathf.Abs(sunset.LocalDirection.y) > 0.001f
+            || noon.LocalDirection.y < 0.70f
+            || noon.LocalDirection.z > -0.70f
+            || midnight.LocalDirection.y > -0.70f)
+        {
+            throw new InvalidOperationException(
+                "The configured latitude does not produce an opposite sunrise and sunset path.");
+        }
+        if (sunrise.SunColour.r <= sunrise.SunColour.b
+            || sunrise.AmbientColour.b <= sunrise.AmbientColour.r
+            || noon.SunIntensity <= sunrise.SunIntensity
+            || midnight.SunIntensity != 0f
+            || midnight.AmbientColour.b <= midnight.AmbientColour.r
+            || midnight.AmbientColour.maxColorComponent
+                >= noon.AmbientColour.maxColorComponent
+            || midnight.SunVisibility != 0f
+            || midnight.SkyExposure >= noon.SkyExposure
+            || sunset.SunHaloStrength <= noon.SunHaloStrength
+            || sunset.SunHaloStrength <= midnight.SunHaloStrength
+            || midnight.NightStrength <= noon.NightStrength)
+        {
+            throw new InvalidOperationException(
+                "The solar cycle does not preserve a sunset sun halo and blue night ambience.");
+        }
+        if (!Mathf.Approximately(newMoon.OrbitLatitudeDegrees, 23f)
+            || newMoon.Illumination != 0f
+            || fullMoon.Illumination < 0.999f
+            || fullMoon.LightIntensity <= 0f
+            || Vector3.Dot(
+                fullMoon.LocalDirection,
+                fullMoon.LocalLightDirection) > -0.999f)
+        {
+            throw new InvalidOperationException(
+                "The lunar orbit, phase illumination, or full-moon light is invalid.");
+        }
     }
 
     public static void BatchValidateRealtimeShadows()
@@ -149,6 +398,23 @@ public static class IslandGeneratorValidation
             throw new InvalidOperationException(
                 "The sandbox directional sunlight does not have soft shadows enabled.");
         }
+        if (island.Rendering.SunCycleDurationMinutes <= 0.25f
+            || island.Rendering.MidnightToNoonClockRateRatio < 1f
+            || Mathf.Abs(island.Rendering.SunLatitudeDegrees) < 0.01f
+            || island.Rendering.MiddaySunIntensity <= 0f
+            || island.Rendering.MoonEquatorOffsetDegrees <= 0f
+            || island.Rendering.FullMoonLightIntensity <= 0f)
+        {
+            throw new InvalidOperationException(
+                "The sandbox solar or lunar cycle settings are invalid.");
+        }
+        if (!island.Rendering.ShowDistanceHaze
+            || island.Rendering.DistanceHazeDensity <= 0f)
+        {
+            throw new InvalidOperationException(
+                "The sandbox first-person distance haze is missing or has invalid density.");
+        }
+        ValidateFirstPersonDistanceHaze(island);
         if (island.Rendering.TerrainMaterial == null
             || island.Rendering.GrassMaterial == null
             || island.Rendering.RiverMaterial == null
@@ -204,6 +470,52 @@ public static class IslandGeneratorValidation
         {
             throw new InvalidOperationException(
                 "Island local/world transform conversion failed validation.");
+        }
+    }
+
+    private static void ValidateFirstPersonDistanceHaze(IslandGenerator island)
+    {
+        var setFirstPerson = typeof(IslandGenerator).GetMethod(
+            "SetFirstPersonViewActive",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        if (setFirstPerson == null)
+        {
+            throw new InvalidOperationException(
+                "The IslandGenerator has no first-person haze mode boundary.");
+        }
+
+        var originalFog = RenderSettings.fog;
+        var originalMode = RenderSettings.fogMode;
+        var originalColour = RenderSettings.fogColor;
+        var originalDensity = RenderSettings.fogDensity;
+        try
+        {
+            setFirstPerson.Invoke(island, new object[] { true });
+            if (!RenderSettings.fog
+                || RenderSettings.fogMode != FogMode.ExponentialSquared
+                || RenderSettings.fogColor != island.Rendering.DistanceHazeColour
+                || !Mathf.Approximately(
+                    RenderSettings.fogDensity,
+                    island.Rendering.DistanceHazeDensity))
+            {
+                throw new InvalidOperationException(
+                    "Entering first person did not apply exponential-squared distance haze.");
+            }
+
+            setFirstPerson.Invoke(island, new object[] { false });
+            if (RenderSettings.fog)
+            {
+                throw new InvalidOperationException(
+                    "Returning to overview did not disable distance haze.");
+            }
+        }
+        finally
+        {
+            setFirstPerson.Invoke(island, new object[] { false });
+            RenderSettings.fog = originalFog;
+            RenderSettings.fogMode = originalMode;
+            RenderSettings.fogColor = originalColour;
+            RenderSettings.fogDensity = originalDensity;
         }
     }
 

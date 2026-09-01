@@ -33,18 +33,21 @@ Shader "Motu/Tree Foliage Distant"
         _TreeWindStrengthMultiplier ("Tree Wind Strength", Range(0, 10)) = 5
         _TreeWindBasePinHeight ("Pinned Trunk Height (metres)", Range(0, 4)) = 0.6
         _TreeWindFullBendHeight ("Full Bend Height (metres)", Range(1, 24)) = 9
+        [HideInInspector] _MotuNightStrength ("Night Strength", Range(0, 1)) = 0
     }
 
     SubShader
     {
-        Tags { "RenderType"="TransparentCutout" "Queue"="AlphaTest" "IgnoreProjector"="True" "MotuReflection"="Foliage" }
+        Tags { "RenderType"="Opaque" "Queue"="Geometry" "IgnoreProjector"="True" "MotuReflection"="Foliage" }
         LOD 200
 
         Pass
         {
             Tags { "LightMode"="ForwardBase" }
             Cull [_CullMode]
-            AlphaToMask On
+            // LOD1 and LOD2 deliberately render the coarse canopy as a solid
+            // surface. Sub-pixel cutout holes shimmer and expose the sky.
+            AlphaToMask Off
 
             CGPROGRAM
             #pragma vertex Vertex
@@ -86,9 +89,7 @@ Shader "Motu/Tree Foliage Distant"
             fixed4 _TranslucencyColor;
             half _FoliageTranslucency;
             half _FoliageAmbientFloor;
-            half _CanopyCoverage;
-            half _CanopyEdgeSoftness;
-            half _AlphaCutoff;
+            half _MotuNightStrength;
 
             VertexOutput Vertex(VertexInput input)
             {
@@ -126,13 +127,6 @@ Shader "Motu/Tree Foliage Distant"
                 half diffuse = saturate(dot(normal, lightDirection));
                 UNITY_LIGHT_ATTENUATION(attenuation, input, input.worldPosition);
                 half lightBlend = saturate(0.18 + diffuse * 0.72 + noise.broad.g * 0.10);
-                half materialAlpha = lerp(_BaseColor.a, _LightColor.a, lightBlend);
-                half alpha = MotuTreeCanopyAlpha(
-                    input.islandLocalPosition,
-                    _CanopyCoverage,
-                    _CanopyEdgeSoftness,
-                    materialAlpha);
-                clip(alpha - _AlphaCutoff);
                 fixed3 albedo = MotuRotateTreeHue(
                     lerp(_BaseColor.rgb, _LightColor.rgb, lightBlend),
                     noise.hue);
@@ -140,14 +134,24 @@ Shader "Motu/Tree Foliage Distant"
                     MotuShadeFoliage(
                         albedo,
                         normal,
+                        input.worldPosition,
                         lightDirection,
                         _LightColor0.rgb,
                         attenuation,
                         _TranslucencyColor.rgb,
                         _FoliageTranslucency,
                         _FoliageAmbientFloor),
-                    alpha);
+                    1.0h);
+                fixed3 unfoggedFoliage = result.rgb;
                 UNITY_APPLY_FOG(input.fogCoord, result);
+                // LOD1 and LOD2 share this shader, but only LOD2 is far enough
+                // for horizon fog to dominate its silhouette. At night that
+                // blue fog is brighter than the sky behind the canopy and reads
+                // as a halo, so retain the naturally dark foliage colour.
+                result.rgb = lerp(
+                    result.rgb,
+                    unfoggedFoliage,
+                    saturate(_MotuNightStrength));
                 return result;
             }
             ENDCG
@@ -172,12 +176,6 @@ Shader "Motu/Tree Foliage Distant"
             #include "TreeSurfaceNoise.cginc"
             #include "TreeWindCommon.cginc"
 
-            fixed4 _BaseColor;
-            fixed4 _LightColor;
-            half _CanopyCoverage;
-            half _CanopyEdgeSoftness;
-            half _AlphaCutoff;
-
             struct ShadowInput
             {
                 float4 vertex : POSITION;
@@ -190,7 +188,6 @@ Shader "Motu/Tree Foliage Distant"
             struct ShadowOutput
             {
                 V2F_SHADOW_CASTER;
-                float3 islandLocalPosition : TEXCOORD1;
                 UNITY_VERTEX_OUTPUT_STEREO
             };
 
@@ -211,24 +208,16 @@ Shader "Motu/Tree Foliage Distant"
                     v.windData.x);
                 v.vertex.xyz += mul((float3x3)unity_WorldToObject, windOffset);
                 TRANSFER_SHADOW_CASTER_NORMALOFFSET(output)
-                output.islandLocalPosition = islandLocalPosition;
                 return output;
             }
 
             float4 ShadowFragment(ShadowOutput input) : SV_Target
             {
-                half materialAlpha = min(_BaseColor.a, _LightColor.a);
-                half alpha = MotuTreeCanopyAlpha(
-                    input.islandLocalPosition,
-                    _CanopyCoverage,
-                    _CanopyEdgeSoftness,
-                    materialAlpha);
-                clip(alpha - _AlphaCutoff);
                 SHADOW_CASTER_FRAGMENT(input)
             }
             ENDCG
         }
     }
 
-    FallBack "Transparent/Cutout/VertexLit"
+    FallBack "Diffuse"
 }

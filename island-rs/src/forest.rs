@@ -115,6 +115,8 @@ pub(crate) struct ForestSurface<'a> {
     pub(crate) river_bed: &'a [bool],
     /// Sorted final-LOD0 vertices supporting settled stones.
     pub(crate) stones: &'a [u32],
+    /// Sorted final-LOD0 vertices supporting riverbank reed clumps.
+    pub(crate) reeds: &'a [u32],
     pub(crate) deposited_depths: &'a [f32],
     pub(crate) sea_proximity: &'a [f32],
 }
@@ -174,6 +176,18 @@ pub(crate) struct TreePlacement {
     pub(crate) prototype: u8,
 }
 
+/// The compact collision representation of one placed central trunk.
+///
+/// `owner` retains the tree's authoritative streaming-cell assignment while
+/// the other fields are derived from the final terrain-fitted LOD2 wood.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(crate) struct ForestTrunkCollider {
+    pub(crate) bottom: Vec3,
+    pub(crate) top: Vec3,
+    pub(crate) owner: Vec2,
+    pub(crate) radius: f32,
+}
+
 /// A bounded spatial canopy patch before foliage ranges are assembled.
 #[derive(Clone, Debug, Default, PartialEq)]
 struct ForestCluster {
@@ -185,7 +199,7 @@ struct ForestCluster {
 struct PlacementCandidate {
     terrain_vertex: usize,
     anchor: Vec3,
-    coverage: f32,
+    placement_score: f32,
     scale: f32,
 }
 
@@ -328,7 +342,7 @@ impl TreeExclusionZone {
     }
 }
 
-/// Ranges for the two wood streams belonging to a single tree.
+/// Ranges for the three wood streams belonging to a single tree.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub(crate) struct ForestTreeRanges {
     pub(crate) terrain_vertex: u32,
@@ -336,6 +350,7 @@ pub(crate) struct ForestTreeRanges {
     pub(crate) prototype: u8,
     pub(crate) lod0_wood: MeshRange,
     pub(crate) lod1_wood: MeshRange,
+    pub(crate) lod2_wood: MeshRange,
 }
 
 /// One complete foliage owner unit.
@@ -360,6 +375,7 @@ pub(crate) struct ForestMeshes {
     pub(crate) lod0_foliage: Mesh,
     pub(crate) lod1_wood: Mesh,
     pub(crate) lod1_foliage: Mesh,
+    pub(crate) lod2_wood: Mesh,
     pub(crate) trees: Vec<ForestTreeRanges>,
     pub(crate) clusters: Vec<ForestClusterRanges>,
     pub(crate) placements: Vec<TreePlacement>,
@@ -371,6 +387,7 @@ impl ForestMeshes {
         match (kind, visual_lod) {
             (ForestMeshKind::Wood, 0) => Some(&self.lod0_wood),
             (ForestMeshKind::Wood, 1) => Some(&self.lod1_wood),
+            (ForestMeshKind::Wood, 2) => Some(&self.lod2_wood),
             (ForestMeshKind::Foliage, 0) => Some(&self.lod0_foliage),
             (ForestMeshKind::Foliage, 1 | 2) => Some(&self.lod1_foliage),
             _ => None,
@@ -382,11 +399,19 @@ impl ForestMeshes {
         &self.placements
     }
 
+    pub(crate) fn trunk_colliders(
+        &self,
+    ) -> impl Iterator<Item = Result<ForestTrunkCollider, String>> + '_ {
+        self.trees
+            .iter()
+            .map(|tree| trunk_collider(&self.lod2_wood, tree))
+    }
+
     /// Copies complete tree-wood or cluster-foliage ranges into owner tiles
     /// without geometric clipping.
     ///
-    /// A wood LOD2 request returns an empty but correctly sized grid.  Bounds
-    /// use normalized XY coordinates, matching all existing terrain grids.
+    /// Bounds use normalized XY coordinates, matching all existing terrain
+    /// grids.
     #[must_use]
     pub(crate) fn mesh_grid(
         &self,
@@ -399,9 +424,6 @@ impl ForestMeshes {
             return None;
         }
         let tile_count = divisions.checked_mul(divisions)?;
-        if kind == ForestMeshKind::Wood && visual_lod == 2 {
-            return Some(vec![ForestMeshTile::default(); tile_count]);
-        }
         let source = self.mesh(kind, visual_lod)?;
         let mut tiles = vec![ForestMeshTile::default(); tile_count];
         let span = Vec2::new(bounds.max.x - bounds.min.x, bounds.max.y - bounds.min.y);
@@ -464,6 +486,52 @@ impl ForestMeshes {
         }
         Some(tiles)
     }
+}
+
+fn trunk_collider(
+    lod2_wood: &Mesh,
+    tree: &ForestTreeRanges,
+) -> Result<ForestTrunkCollider, String> {
+    const RING_VERTICES: usize = 4;
+    const TRUNK_VERTICES: usize = RING_VERTICES * 2;
+
+    let start = usize::try_from(tree.lod2_wood.vertex_start)
+        .map_err(|_| "forest LOD2 trunk range does not fit usize".to_owned())?;
+    let end = tree
+        .lod2_wood
+        .vertex_end()
+        .ok_or_else(|| "forest LOD2 trunk range overflow".to_owned())?;
+    let vertices = lod2_wood
+        .vertices
+        .get(start..end)
+        .filter(|vertices| vertices.len() == TRUNK_VERTICES)
+        .ok_or_else(|| "forest LOD2 trunk range must contain eight vertices".to_owned())?;
+    let bottom = vertices[..RING_VERTICES].iter().copied().sum::<Vec3>() / RING_VERTICES as f32;
+    let top = vertices[RING_VERTICES..].iter().copied().sum::<Vec3>() / RING_VERTICES as f32;
+    let axis = (top - bottom).normalize_or_zero();
+    let radius = vertices[..RING_VERTICES]
+        .iter()
+        .map(|&vertex| {
+            let offset = vertex - bottom;
+            (offset - axis * offset.dot(axis)).length()
+        })
+        .sum::<f32>()
+        / RING_VERTICES as f32;
+    if !bottom.is_finite()
+        || !top.is_finite()
+        || !tree.anchor.is_finite()
+        || axis == Vec3::ZERO
+        || !radius.is_finite()
+        || radius <= f32::EPSILON
+    {
+        return Err("forest LOD2 trunk cannot produce a finite capsule".to_owned());
+    }
+    Ok(ForestTrunkCollider {
+        bottom,
+        top,
+        owner: tree.anchor.truncate(),
+        radius,
+    })
 }
 
 fn nearest_member_tree_anchor(
@@ -531,9 +599,10 @@ pub(crate) struct ForestGenerationStats {
     pub(crate) slope: usize,
     pub(crate) river_bed: usize,
     pub(crate) stones: usize,
+    pub(crate) reeds: usize,
     pub(crate) zero_soil: usize,
     pub(crate) beach: usize,
-    pub(crate) below_or_equal_noise_threshold: usize,
+    pub(crate) below_or_equal_placement_threshold: usize,
     pub(crate) exclusion_zone: usize,
     pub(crate) accepted_trees: usize,
 }
@@ -547,9 +616,10 @@ impl ForestGenerationStats {
             + self.slope
             + self.river_bed
             + self.stones
+            + self.reeds
             + self.zero_soil
             + self.beach
-            + self.below_or_equal_noise_threshold
+            + self.below_or_equal_placement_threshold
             + self.exclusion_zone
     }
 }
@@ -629,6 +699,14 @@ fn validate_placement_inputs(terrain: &Mesh, surface: ForestSurface<'_>) -> Resu
     {
         return Err("forest final LOD0 stones must be sorted, unique, and in range".into());
     }
+    if surface
+        .reeds
+        .iter()
+        .any(|&vertex| vertex as usize >= vertex_count)
+        || !surface.reeds.windows(2).all(|pair| pair[0] < pair[1])
+    {
+        return Err("forest final LOD0 reeds must be sorted, unique, and in range".into());
+    }
     if surface.deposited_depths.len() != vertex_count {
         return Err(format!(
             "forest final LOD0 vertices/deposited-depth length mismatch: {} != {}",
@@ -701,12 +779,16 @@ fn collect_candidates(
             stats.stones += 1;
             continue;
         }
+        if surface.reeds.binary_search(&(index as u32)).is_ok() {
+            stats.reeds += 1;
+            continue;
+        }
         if depth <= LOOSE_DEPTH_EPSILON {
             stats.zero_soil += 1;
             continue;
         }
         let displaced = displaced_tree_anchor(island_seed, index, vertex, fan_faces.get(index));
-        let Some((loose_cover, sea_proximity)) = shader_material_at_displaced_anchor(
+        let Some((soil_richness, sea_proximity)) = shader_material_at_displaced_anchor(
             index,
             displaced,
             surface.deposited_depths,
@@ -715,7 +797,7 @@ fn collect_candidates(
             stats.invalid += 1;
             continue;
         };
-        if shader_beach_candidate(displaced.position, loose_cover, sea_proximity) {
+        if shader_beach_candidate(displaced.position, soil_richness, sea_proximity) {
             stats.beach += 1;
             continue;
         }
@@ -726,20 +808,24 @@ fn collect_candidates(
             point_metres.y / options.patch_size_metres,
             options.noise_octaves,
         );
-        let coverage = raw.mul_add(0.5, 0.5).clamp(0.0, 1.0);
-        if !coverage.is_finite() {
+        let coherent_coverage = raw.mul_add(0.5, 0.5).clamp(0.0, 1.0);
+        // material.g is the shader's smooth loose-cover richness. Applying it
+        // to the coherent field makes forests favour deep deposited soil while
+        // preserving the existing deterministic cluster shapes.
+        let placement_score = coherent_coverage * soil_richness.clamp(0.0, 1.0);
+        if !placement_score.is_finite() {
             stats.invalid += 1;
             continue;
         }
-        if coverage <= options.noise_threshold {
-            stats.below_or_equal_noise_threshold += 1;
+        if placement_score <= options.noise_threshold {
+            stats.below_or_equal_placement_threshold += 1;
             continue;
         }
-        let scale = coherent_tree_scale(island_seed, point_metres, coverage, options);
+        let scale = coherent_tree_scale(island_seed, point_metres, placement_score, options);
         candidates.push(PlacementCandidate {
             terrain_vertex: index,
             anchor: displaced.position,
-            coverage,
+            placement_score,
             scale,
         });
     }
@@ -772,12 +858,12 @@ fn coherent_tree_scale(
 }
 
 fn prioritize_candidates(candidates: &mut [PlacementCandidate]) {
-    // Higher-coverage vertices own contested exclusion zones first, keeping
-    // the largest cluster-centre trees in preference to fringe trees.
+    // Higher soil-weighted coverage owns contested exclusion zones first,
+    // keeping rich-soil cluster-centre trees in preference to fringe trees.
     candidates.sort_unstable_by(|left, right| {
         right
-            .coverage
-            .total_cmp(&left.coverage)
+            .placement_score
+            .total_cmp(&left.placement_score)
             .then_with(|| left.terrain_vertex.cmp(&right.terrain_vertex))
     });
 }
@@ -945,7 +1031,7 @@ fn shader_material_at_displaced_anchor(
     (cover.is_finite() && sea_proximity.is_finite()).then_some((cover, sea_proximity))
 }
 
-fn shader_loose_cover(deposited_depth: f32) -> f32 {
+pub(crate) fn shader_loose_cover(deposited_depth: f32) -> f32 {
     let cover = (deposited_depth / 0.002).clamp(0.0, 1.0);
     cover * cover * (3.0 - 2.0 * cover)
 }
@@ -954,7 +1040,7 @@ fn shader_loose_cover(deposited_depth: f32) -> f32 {
 /// 50-percent antialias boundary. Exposed-rock overlays are intentionally not
 /// part of this predicate: a sand-capable coastal deposit remains unsuitable
 /// for a tree even where the visual rock layer partially covers it.
-fn shader_beach_candidate(anchor: Vec3, loose_cover: f32, sea_proximity: f32) -> bool {
+pub(crate) fn shader_beach_candidate(anchor: Vec3, loose_cover: f32, sea_proximity: f32) -> bool {
     let elevation_metres = anchor.z * ISLAND_WORLD_METRES;
     let altitude_weight = 1.0 - smoothstep(2.0, 4.0, elevation_metres);
     let sand_richness =
@@ -1157,8 +1243,8 @@ fn combined_capacities(
     placements: &[TreePlacement],
     prototypes: &[TreeMeshes],
     foliage_meshes: &[ClusterFoliageMeshes],
-) -> Result<[usize; 4], String> {
-    let mut capacities = [0_usize; 4];
+) -> Result<[usize; 5], String> {
+    let mut capacities = [0_usize; 5];
     for placement in placements {
         let prototype = prototypes
             .get(usize::from(placement.prototype))
@@ -1168,6 +1254,9 @@ fn combined_capacities(
             .ok_or_else(|| "forest combined vertex capacity overflow".to_owned())?;
         capacities[2] = capacities[2]
             .checked_add(prototype.lod1_wood.vertices.len())
+            .ok_or_else(|| "forest combined vertex capacity overflow".to_owned())?;
+        capacities[4] = capacities[4]
+            .checked_add(prototype.lod2_wood.vertices.len())
             .ok_or_else(|| "forest combined vertex capacity overflow".to_owned())?;
     }
     for foliage in foliage_meshes {
@@ -1181,7 +1270,7 @@ fn combined_capacities(
     Ok(capacities)
 }
 
-fn reserve_combined_streams(out: &mut ForestMeshes, capacities: [usize; 4]) -> Result<(), String> {
+fn reserve_combined_streams(out: &mut ForestMeshes, capacities: [usize; 5]) -> Result<(), String> {
     out.lod0_wood
         .vertices
         .try_reserve(capacities[0])
@@ -1198,6 +1287,10 @@ fn reserve_combined_streams(out: &mut ForestMeshes, capacities: [usize; 4]) -> R
         .vertices
         .try_reserve(capacities[3])
         .map_err(|error| format!("forest LOD1 foliage allocation failed: {error}"))?;
+    out.lod2_wood
+        .vertices
+        .try_reserve(capacities[4])
+        .map_err(|error| format!("forest LOD2 wood allocation failed: {error}"))?;
     Ok(())
 }
 
@@ -1223,16 +1316,24 @@ fn append_tree_ranges(
             *placement,
             terrain,
         )?;
+        let lod2_wood = append_transformed_to_terrain(
+            &mut out.lod2_wood,
+            &prototype.lod2_wood,
+            *placement,
+            terrain,
+        )?;
         out.trees.push(ForestTreeRanges {
             terrain_vertex: placement.terrain_vertex,
             anchor: placement.anchor,
             prototype: placement.prototype,
             lod0_wood,
             lod1_wood,
+            lod2_wood,
         });
     }
     out.lod0_wood.calculate_normals();
     out.lod1_wood.calculate_normals();
+    out.lod2_wood.calculate_normals();
     Ok(())
 }
 
@@ -1494,6 +1595,7 @@ fn tree_range(tree: &ForestTreeRanges, visual_lod: usize) -> Option<MeshRange> {
     match visual_lod {
         0 => Some(tree.lod0_wood),
         1 => Some(tree.lod1_wood),
+        2 => Some(tree.lod2_wood),
         _ => None,
     }
 }
@@ -1561,6 +1663,7 @@ mod tests {
         ForestSurface {
             river_bed,
             stones: &[],
+            reeds: &[],
             deposited_depths,
             sea_proximity,
         }
@@ -1705,6 +1808,42 @@ mod tests {
             coherent_tree_scale(seed, point_metres, 1.0, options).to_bits(),
             options.maximum_scale.to_bits()
         );
+    }
+
+    #[test]
+    fn soil_richness_multiplies_coherent_forest_coverage() {
+        let seed = 2018;
+        let vertex = Vec3::new(0.37, 0.41, 0.02);
+        let base_options = ForestOptions::default();
+        let coherent_coverage = test_coverage(vertex, seed, base_options);
+        let options = ForestOptions {
+            noise_threshold: coherent_coverage * 0.75,
+            snowline_metres: 100.0,
+            ..base_options
+        };
+        let terrain = flat_mesh(&[vertex]);
+
+        let (rich_soil, rich_stats) = select_placements(
+            seed,
+            &terrain,
+            test_surface(&[false], &[0.002], &[0.0]),
+            options,
+        )
+        .unwrap();
+        let (shallow_soil, shallow_stats) = select_placements(
+            seed,
+            &terrain,
+            test_surface(&[false], &[0.001], &[0.0]),
+            options,
+        )
+        .unwrap();
+
+        assert_eq!(shader_loose_cover(0.002).to_bits(), 1.0_f32.to_bits());
+        assert_eq!(shader_loose_cover(0.001).to_bits(), 0.5_f32.to_bits());
+        assert_eq!(rich_soil.len(), 1);
+        assert_eq!(rich_stats.accepted_trees, 1);
+        assert!(shallow_soil.is_empty());
+        assert_eq!(shallow_stats.below_or_equal_placement_threshold, 1);
     }
 
     #[test]
@@ -1940,6 +2079,7 @@ mod tests {
             ForestSurface {
                 river_bed: &[false],
                 stones: &[0],
+                reeds: &[],
                 deposited_depths: &[1.0],
                 sea_proximity: &[0.0],
             },
@@ -1951,11 +2091,32 @@ mod tests {
         assert_eq!(stats.accepted_trees, 0);
     }
 
+    #[test]
+    fn reed_support_vertices_are_excluded_from_tree_placement() {
+        let terrain = flat_mesh(&[Vec3::new(0.37, 0.41, 0.02)]);
+        let (_, stats) = select_placements(
+            2018,
+            &terrain,
+            ForestSurface {
+                river_bed: &[false],
+                stones: &[],
+                reeds: &[0],
+                deposited_depths: &[1.0],
+                sea_proximity: &[0.0],
+            },
+            eligible_test_options(),
+        )
+        .unwrap();
+
+        assert_eq!(stats.reeds, 1);
+        assert_eq!(stats.accepted_trees, 0);
+    }
+
     fn candidate(
         terrain_vertex: usize,
         x_metres: f32,
         y_metres: f32,
-        coverage: f32,
+        placement_score: f32,
         scale: f32,
     ) -> PlacementCandidate {
         PlacementCandidate {
@@ -1965,7 +2126,7 @@ mod tests {
                 y_metres / ISLAND_WORLD_METRES,
                 0.02,
             ),
-            coverage,
+            placement_score,
             scale,
         }
     }
@@ -2164,7 +2325,7 @@ mod tests {
                 .iter()
                 .any(|placement| placement.terrain_vertex == 0)
         );
-        assert!(equal_stats.below_or_equal_noise_threshold > 0);
+        assert!(equal_stats.below_or_equal_placement_threshold > 0);
     }
 
     #[test]
@@ -2239,6 +2400,7 @@ mod tests {
         let forest = ForestMeshes {
             lod0_wood: source.clone(),
             lod1_wood: source.clone(),
+            lod2_wood: source.clone(),
             lod0_foliage: source.clone(),
             lod1_foliage: source.clone(),
             trees: vec![ForestTreeRanges {
@@ -2247,6 +2409,7 @@ mod tests {
                 prototype: 0,
                 lod0_wood: range,
                 lod1_wood: range,
+                lod2_wood: range,
             }],
             clusters: vec![ForestClusterRanges {
                 owner_anchor: Vec3::new(0.5, 0.5, 0.2),
@@ -2257,13 +2420,12 @@ mod tests {
             placements: Vec::new(),
         };
         let bounds = BoundingBox::new(Vec3::new(0.0, 0.0, f32::MIN), Vec3::new(1.0, 1.0, f32::MAX));
-        assert_eq!(
-            forest
-                .mesh_grid(ForestMeshKind::Wood, 2, bounds, 4)
-                .unwrap()
-                .len(),
-            16
-        );
+        let lod2_wood_tiles = forest
+            .mesh_grid(ForestMeshKind::Wood, 2, bounds, 4)
+            .unwrap();
+        assert_eq!(lod2_wood_tiles.len(), 16);
+        assert_eq!(lod2_wood_tiles[10].mesh.vertices.len(), 2);
+        assert_eq!(lod2_wood_tiles[10].mesh.triangles, vec![0, 1, 1]);
         let tiles = forest
             .mesh_grid(ForestMeshKind::Foliage, 2, bounds, 2)
             .unwrap();
@@ -2289,6 +2451,47 @@ mod tests {
                 .iter()
                 .all(|&anchor| anchor == Vec4::new(0.5, 0.5, 0.2, 0.5))
         );
+    }
+
+    #[test]
+    fn trunk_collider_uses_the_final_lod2_root_and_tip_rings() {
+        let lod2_wood = Mesh {
+            vertices: vec![
+                Vec3::new(0.6, 0.5, 0.2),
+                Vec3::new(0.5, 0.6, 0.2),
+                Vec3::new(0.4, 0.5, 0.2),
+                Vec3::new(0.5, 0.4, 0.2),
+                Vec3::new(0.55, 0.5, 0.8),
+                Vec3::new(0.5, 0.55, 0.8),
+                Vec3::new(0.45, 0.5, 0.8),
+                Vec3::new(0.5, 0.45, 0.8),
+            ],
+            ..Mesh::default()
+        };
+        let forest = ForestMeshes {
+            lod2_wood,
+            trees: vec![ForestTreeRanges {
+                anchor: Vec3::new(0.51, 0.49, 0.2),
+                lod2_wood: MeshRange {
+                    vertex_start: 0,
+                    vertex_count: 8,
+                    triangle_start: 0,
+                    triangle_count: 0,
+                },
+                ..ForestTreeRanges::default()
+            }],
+            ..ForestMeshes::default()
+        };
+
+        let colliders = forest
+            .trunk_colliders()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(colliders.len(), 1);
+        assert_eq!(colliders[0].bottom, Vec3::new(0.5, 0.5, 0.2));
+        assert_eq!(colliders[0].top, Vec3::new(0.5, 0.5, 0.8));
+        assert_eq!(colliders[0].owner, Vec2::new(0.51, 0.49));
+        assert!((colliders[0].radius - 0.1).abs() < 1.0e-6);
     }
 
     #[test]

@@ -54,13 +54,14 @@ use tracing::{
     RouteState, WaterfallClearanceIndex, calculate_flow_and_catchment, find_sources,
     map_downstream, trace_rivers, update_join_flows,
 };
+pub(crate) use waterfalls::WaterfallFoot;
 use waterfalls::{
-    WaterfallPatch, WaterfallTerrainConstraints, derive_waterfall_patches,
+    WaterfallPatch, WaterfallPinEnvironment, WaterfallTerrainConstraints, derive_waterfall_patches,
     detect_failed_final_waterfalls, enforce_final_waterfall_edge_relationships,
     enforce_waterfall_downstream_ceiling, expand_vertex_mask_through_river_to_banks,
     pin_waterfalls_to_terrain, rebuild_final_waterfall_support_mask, recess_waterfall_notches,
-    smooth_final_waterfall_patches, smooth_pinned_waterfall_terrain, smoothstep,
-    squish_waterfall_downstream_spikes,
+    repair_collapsed_waterfall_banks, smooth_final_waterfall_patches,
+    smooth_pinned_waterfall_terrain, smoothstep, squish_waterfall_downstream_spikes,
 };
 
 #[cfg(test)]
@@ -71,6 +72,7 @@ pub(crate) struct RiverParts {
     pub(crate) river_mesh: Mesh,
     pub(crate) river_bed: Vec<bool>,
     pub(crate) river_rock_mesh: Mesh,
+    pub(crate) waterfall_feet: Vec<WaterfallFoot>,
     pub(crate) failed_waterfalls: Vec<usize>,
 }
 
@@ -119,6 +121,9 @@ const WATERFALL_EDGE_BLEND_RUN: f32 = 2.0 * WATERFALL_TARGET_EDGE_LENGTH;
 const WATERFALL_SUPPORT_RUN: f32 = 0.75 / ISLAND_WORLD_METRES;
 const WATERFALL_APRON_WIDTH_MULTIPLIER: f32 = 1.75;
 const WATERFALL_LANDING_LENGTH_MULTIPLIER: f32 = 1.5;
+// Keep waterfall proportions stable across islands by deriving their profile
+// from a fixed real-world relief rather than the generated island's peak.
+const WATERFALL_REFERENCE_ISLAND_HEIGHT: f32 = 200.0 / ISLAND_WORLD_METRES;
 const WATERFALL_WATER_CLEARANCE: f32 = 0.03 / ISLAND_WORLD_METRES;
 const WATERFALL_DOWNSTREAM_SPIKE_PASSES: usize = 4;
 const WATERFALL_DOWNSTREAM_SPIKE_ALLOWANCE: f32 = 0.10 / ISLAND_WORLD_METRES;
@@ -437,6 +442,7 @@ impl RiverNetwork {
             river_mesh: geometry.river_mesh,
             river_bed: geometry.river_bed,
             river_rock_mesh: geometry.river_rock_mesh,
+            waterfall_feet: geometry.waterfall_feet,
             failed_waterfalls: geometry.failed_waterfalls,
         }
     }

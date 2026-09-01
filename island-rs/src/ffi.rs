@@ -14,14 +14,17 @@ use std::{
     ptr,
 };
 
-use crate::forest::{ForestMeshKind, ForestMeshTile};
+use crate::ferns::{FERN_TILE_RESOLUTION, FernMeshTile};
+use crate::forest::{ForestMeshKind, ForestMeshTile, ForestTrunkCollider};
 use crate::procedural_textures::{
     IslandMaterialKind, LinearRgb, MaterialSelection, NormalConvention, RuntimeMaterialBakeOptions,
     RuntimeMaterialInputs, TextureSet, bake_island_materials,
 };
+use crate::reeds::{REED_TILE_RESOLUTION, ReedMeshTile};
 use crate::{
-    BoundingBox, ForestOptions, GenerationMethod, ISLAND_WORLD_METRES, Island, IslandOptions, Mesh,
-    SeaMask, SurfaceMaps, Vec2, Vec3, Vec4, generate_tree,
+    BoundingBox, CloudWeatherMap, FernOptions, ForestOptions, GenerationMethod,
+    ISLAND_WORLD_METRES, Island, IslandOptions, Mesh, ReedOptions, SeaMask, SurfaceMaps, Vec2,
+    Vec3, Vec4, generate_cloud_weather_map, generate_sky_dome, generate_tree,
 };
 
 const _: () = {
@@ -39,8 +42,10 @@ pub struct MotuOptions {
     pub waterRatio: f32,
     pub slopeMultiplier: f32,
     pub coastalSlopeMultiplier: f32,
-    pub removedCoastalErosionStrength: f32,
-    pub removedBeachFormationStrength: f32,
+    // These frequencies reuse two retired ABI slots so existing active fields
+    // retain their historical offsets.
+    pub continentalNoiseFrequency: f32,
+    pub detailNoiseFrequency: f32,
     pub hydraulicErosionStrength: f32,
     pub hydraulicDepositionStrength: f32,
     pub hydraulicDepositionSlopeDegrees: f32,
@@ -51,9 +56,12 @@ pub struct MotuOptions {
     pub riverMaximumWidthMetres: f32,
     pub riverSourceDepthMetres: f32,
     pub riverMaximumDepthMetres: f32,
+    pub continentalNoiseStrength: f32,
+    pub detailNoiseStrength: f32,
+    pub landMassOffset: f32,
 }
 
-const _: () = assert!(size_of::<MotuOptions>() == size_of::<[f32; 16]>());
+const _: () = assert!(size_of::<MotuOptions>() == size_of::<[f32; 19]>());
 
 #[derive(Clone, Copy, Debug)]
 #[repr(C)]
@@ -79,6 +87,11 @@ impl From<MotuOptions> for IslandOptions {
             water_ratio: value.waterRatio,
             slope_multiplier: value.slopeMultiplier,
             coastal_slope_multiplier: value.coastalSlopeMultiplier,
+            continental_noise_frequency: value.continentalNoiseFrequency,
+            continental_noise_strength: value.continentalNoiseStrength,
+            detail_noise_frequency: value.detailNoiseFrequency,
+            detail_noise_strength: value.detailNoiseStrength,
+            land_mass_offset: value.landMassOffset,
             hydraulic_erosion_strength: value.hydraulicErosionStrength,
             hydraulic_deposition_strength: value.hydraulicDepositionStrength,
             hydraulic_deposition_slope_degrees: value.hydraulicDepositionSlopeDegrees,
@@ -104,6 +117,66 @@ impl From<MotuForestOptions> for ForestOptions {
             prototype_count: value.prototypeCount,
             minimum_scale: value.minimumScale,
             maximum_scale: value.maximumScale,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+#[repr(C)]
+pub struct MotuReedOptions {
+    pub bankWidthMetres: f32,
+    pub patchSizeMetres: f32,
+    pub coverageThreshold: f32,
+    pub spacingMetres: f32,
+    pub rushRatio: f32,
+    pub minimumHeightMetres: f32,
+    pub maximumHeightMetres: f32,
+    pub maximumSlopeDegrees: f32,
+}
+
+const _: () = assert!(size_of::<MotuReedOptions>() == size_of::<[f32; 8]>());
+
+impl From<MotuReedOptions> for ReedOptions {
+    fn from(value: MotuReedOptions) -> Self {
+        Self {
+            bank_width_metres: value.bankWidthMetres,
+            patch_size_metres: value.patchSizeMetres,
+            coverage_threshold: value.coverageThreshold,
+            spacing_metres: value.spacingMetres,
+            rush_ratio: value.rushRatio,
+            minimum_height_metres: value.minimumHeightMetres,
+            maximum_height_metres: value.maximumHeightMetres,
+            maximum_slope_degrees: value.maximumSlopeDegrees,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+#[repr(C)]
+pub struct MotuFernOptions {
+    pub barkClearanceMetres: f32,
+    pub outerRadiusMetres: f32,
+    pub spacingMetres: f32,
+    pub patchSizeMetres: f32,
+    pub coverageThreshold: f32,
+    pub minimumLengthMetres: f32,
+    pub maximumLengthMetres: f32,
+    pub maximumSlopeDegrees: f32,
+}
+
+const _: () = assert!(size_of::<MotuFernOptions>() == size_of::<[f32; 8]>());
+
+impl From<MotuFernOptions> for FernOptions {
+    fn from(value: MotuFernOptions) -> Self {
+        Self {
+            bark_clearance_metres: value.barkClearanceMetres,
+            outer_radius_metres: value.outerRadiusMetres,
+            spacing_metres: value.spacingMetres,
+            patch_size_metres: value.patchSizeMetres,
+            coverage_threshold: value.coverageThreshold,
+            minimum_length_metres: value.minimumLengthMetres,
+            maximum_length_metres: value.maximumLengthMetres,
+            maximum_slope_degrees: value.maximumSlopeDegrees,
         }
     }
 }
@@ -190,6 +263,15 @@ pub struct ExportSeaMask {
     pub width: i32,
     pub height: i32,
     pub rg: *const u8,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+#[repr(C)]
+pub struct ExportCloudWeatherMap {
+    pub handle: *mut c_void,
+    pub width: i32,
+    pub height: i32,
+    pub rgba: *const u8,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -300,21 +382,52 @@ pub struct ExportMeshGrid {
 
 #[derive(Clone, Copy, Debug, Default)]
 #[repr(C)]
-pub struct RiverEmitterExport {
+pub struct WaterfallFootExport {
     pub position: Vec3,
     pub direction: Vec3,
-    pub strength: f32,
+    pub half_width: f32,
+    pub drop: f32,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
 #[repr(C)]
-pub struct ExportRiverEmitters {
+pub struct ExportWaterfallFeet {
     pub handle: *mut c_void,
-    pub data: *const RiverEmitterExport,
+    pub data: *const WaterfallFootExport,
     pub length: i32,
 }
 
-const _: () = assert!(size_of::<RiverEmitterExport>() == size_of::<[f32; 7]>());
+const _: () = assert!(size_of::<WaterfallFootExport>() == size_of::<[f32; 8]>());
+
+#[derive(Clone, Copy, Debug, Default)]
+#[repr(C)]
+pub struct ForestTrunkColliderExport {
+    pub bottom: Vec3,
+    pub top: Vec3,
+    pub owner: Vec2,
+    pub radius: f32,
+}
+
+impl From<ForestTrunkCollider> for ForestTrunkColliderExport {
+    fn from(value: ForestTrunkCollider) -> Self {
+        Self {
+            bottom: value.bottom,
+            top: value.top,
+            owner: value.owner,
+            radius: value.radius,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+#[repr(C)]
+pub struct ExportForestTrunkColliders {
+    pub handle: *mut c_void,
+    pub data: *const ForestTrunkColliderExport,
+    pub length: i32,
+}
+
+const _: () = assert!(size_of::<ForestTrunkColliderExport>() == size_of::<[f32; 9]>());
 
 #[derive(Clone, Copy, Debug, Default)]
 #[repr(C)]
@@ -556,14 +669,9 @@ fn export_forest_mesh_grid(
     tiles: Vec<ForestMeshTile>,
     expected_length: usize,
 ) -> Option<ExportMeshGrid> {
-    // A forest accessor may represent the all-empty LOD2 wood stream with an
-    // empty source vector. Expand only that representation; every other
-    // length mismatch is rejected so the ABI always publishes a fixed grid.
-    let tiles = match tiles.len() {
-        length if length == expected_length => tiles,
-        0 => vec![ForestMeshTile::default(); expected_length],
-        _ => return None,
-    };
+    if tiles.len() != expected_length {
+        return None;
+    }
     let exports: Vec<ExportMesh> = tiles
         .into_iter()
         .map(|tile| export_mesh(tile.mesh, tile.material, Vec::new()))
@@ -578,6 +686,40 @@ fn export_forest_mesh_grid(
         handle: Box::into_raw(owner).cast(),
         ..output
     })
+}
+
+fn export_reed_mesh_grid(tiles: Vec<ReedMeshTile>) -> ExportMeshGrid {
+    let exports: Vec<ExportMesh> = tiles
+        .into_iter()
+        .map(|tile| export_mesh(tile.mesh, tile.material, tile.environment))
+        .collect();
+    let owner = Box::new(exports);
+    let output = ExportMeshGrid {
+        handle: ptr::null_mut(),
+        data: owner.as_ptr(),
+        length: length_i32(owner.len()),
+    };
+    ExportMeshGrid {
+        handle: Box::into_raw(owner).cast(),
+        ..output
+    }
+}
+
+fn export_fern_mesh_grid(tiles: Vec<FernMeshTile>) -> ExportMeshGrid {
+    let exports: Vec<ExportMesh> = tiles
+        .into_iter()
+        .map(|tile| export_mesh(tile.mesh, tile.material, tile.environment))
+        .collect();
+    let owner = Box::new(exports);
+    let output = ExportMeshGrid {
+        handle: ptr::null_mut(),
+        data: owner.as_ptr(),
+        length: length_i32(owner.len()),
+    };
+    ExportMeshGrid {
+        handle: Box::into_raw(owner).cast(),
+        ..output
+    }
 }
 
 fn procedural_tree_root_material(mesh: &Mesh) -> Vec<Vec4> {
@@ -616,6 +758,18 @@ fn export_sea_mask(mask: Box<SeaMask>) -> ExportSeaMask {
         width: length_i32(mask.width() as usize),
         height: length_i32(mask.height() as usize),
         rg: mask.rg().as_ptr(),
+    }
+}
+
+fn export_cloud_weather_map(map: Box<CloudWeatherMap>) -> ExportCloudWeatherMap {
+    let handle = Box::into_raw(map);
+    // SAFETY: handle remains owned by the caller until ReleaseCloudWeatherMap.
+    let map = unsafe { &*handle };
+    ExportCloudWeatherMap {
+        handle: handle.cast(),
+        width: length_i32(map.resolution() as usize),
+        height: length_i32(map.resolution() as usize),
+        rgba: map.rgba().as_ptr(),
     }
 }
 
@@ -660,6 +814,88 @@ pub unsafe extern "C" fn CreateMotuWithForest(
     unsafe {
         CreateMotuWithForestAndMethod(seed, options, forest_options, GenerationMethod::Cpu.tag())
     }
+}
+
+/// Creates an island with independent forest and riverbank-vegetation controls.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn CreateMotuWithForestAndReeds(
+    seed: i32,
+    options: *const MotuOptions,
+    forest_options: *const MotuForestOptions,
+    reed_options: *const MotuReedOptions,
+) -> *mut c_void {
+    let options = if options.is_null() {
+        IslandOptions::default()
+    } else {
+        // SAFETY: non-null options points to a readable C option block.
+        unsafe { (*options).into() }
+    };
+    let forest_options = if forest_options.is_null() {
+        ForestOptions::default()
+    } else {
+        // SAFETY: non-null forest_options points to a readable C option block.
+        unsafe { (*forest_options).into() }
+    };
+    let reed_options = if reed_options.is_null() {
+        ReedOptions::default()
+    } else {
+        // SAFETY: non-null reed_options points to a readable C option block.
+        unsafe { (*reed_options).into() }
+    };
+    Island::generate_with_forest_and_reeds(
+        u64::from(seed.cast_unsigned()),
+        options,
+        forest_options,
+        reed_options,
+    )
+    .map_or(ptr::null_mut(), |island| {
+        Box::into_raw(Box::new(island)).cast()
+    })
+}
+
+/// Creates an island with independent forest, riverbank-vegetation, and fern controls.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn CreateMotuWithForestReedsAndFerns(
+    seed: i32,
+    options: *const MotuOptions,
+    forest_options: *const MotuForestOptions,
+    reed_options: *const MotuReedOptions,
+    fern_options: *const MotuFernOptions,
+) -> *mut c_void {
+    let options = if options.is_null() {
+        IslandOptions::default()
+    } else {
+        // SAFETY: non-null options points to a readable C option block.
+        unsafe { (*options).into() }
+    };
+    let forest_options = if forest_options.is_null() {
+        ForestOptions::default()
+    } else {
+        // SAFETY: non-null forest_options points to a readable C option block.
+        unsafe { (*forest_options).into() }
+    };
+    let reed_options = if reed_options.is_null() {
+        ReedOptions::default()
+    } else {
+        // SAFETY: non-null reed_options points to a readable C option block.
+        unsafe { (*reed_options).into() }
+    };
+    let fern_options = if fern_options.is_null() {
+        FernOptions::default()
+    } else {
+        // SAFETY: non-null fern_options points to a readable C option block.
+        unsafe { (*fern_options).into() }
+    };
+    Island::generate_with_forest_reeds_and_ferns(
+        u64::from(seed.cast_unsigned()),
+        options,
+        forest_options,
+        reed_options,
+        fern_options,
+    )
+    .map_or(ptr::null_mut(), |island| {
+        Box::into_raw(Box::new(island)).cast()
+    })
 }
 
 /// Reports whether a tagged generation method is compiled into this library.
@@ -973,6 +1209,47 @@ pub unsafe extern "C" fn CreateMesh(
     *output = export_mesh(sliced, material, environment);
 }
 
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn CreateSkyDome(output: *mut ExportMesh) {
+    let Some(output) = (unsafe { output.as_mut() }) else {
+        return;
+    };
+    *output = export_mesh(generate_sky_dome(), Vec::new(), Vec::new());
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn CreateCloudWeatherMap(
+    seed: i32,
+    resolution: i32,
+    output: *mut ExportCloudWeatherMap,
+) -> u8 {
+    let Some(output) = (unsafe { output.as_mut() }) else {
+        return 0;
+    };
+    *output = ExportCloudWeatherMap::default();
+    let Ok(resolution) = u32::try_from(resolution) else {
+        return 0;
+    };
+    let seed = u64::from(seed.cast_unsigned());
+    let Ok(map) = generate_cloud_weather_map(seed, resolution) else {
+        return 0;
+    };
+    *output = export_cloud_weather_map(Box::new(map));
+    1
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ReleaseCloudWeatherMap(output: *mut ExportCloudWeatherMap) {
+    let Some(output) = (unsafe { output.as_mut() }) else {
+        return;
+    };
+    if !output.handle.is_null() {
+        // SAFETY: handle came from CreateCloudWeatherMap and is released once.
+        drop(unsafe { Box::from_raw(output.handle.cast::<CloudWeatherMap>()) });
+    }
+    *output = ExportCloudWeatherMap::default();
+}
+
 /// Exports the authoritative XY-safe surface for collision and downward
 /// queries. This never returns render-only folds or overhangs.
 #[unsafe(no_mangle)]
@@ -1129,9 +1406,10 @@ pub unsafe extern "C" fn CreateRiverMeshGrid(
 
 /// Exports whole-tree owner tiles for the requested visual wood LOD.
 ///
-/// Visual LOD mapping is owned by `Island`: LOD0 and LOD1 select the matching
-/// combined streams while LOD2 is a fixed, empty grid. Every successful call
-/// publishes exactly `divisions * divisions` releasable mesh entries.
+/// Visual LOD mapping is owned by `Island`: LOD0 and LOD1 select their detailed
+/// combined streams while LOD2 selects the central-trunk-only stream. Every
+/// successful call publishes exactly `divisions * divisions` releasable mesh
+/// entries.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn CreateForestWoodMeshGrid(
     handle: *const c_void,
@@ -1197,6 +1475,40 @@ pub unsafe extern "C" fn CreateForestFoliageMeshGrid(
     *output = export;
 }
 
+/// Exports the fixed 64x64 LOD0 owner grid of complete reed/rush clumps.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn CreateReedMeshGrid(handle: *const c_void, output: *mut ExportMeshGrid) {
+    let Some(output) = (unsafe { output.as_mut() }) else {
+        return;
+    };
+    *output = ExportMeshGrid::default();
+    let Some(island) = (unsafe { island_ref(handle) }) else {
+        return;
+    };
+    let tiles = island.reed_mesh_tiles().to_vec();
+    if tiles.len() != REED_TILE_RESOLUTION * REED_TILE_RESOLUTION {
+        return;
+    }
+    *output = export_reed_mesh_grid(tiles);
+}
+
+/// Exports the fixed 64x64 LOD0 owner grid of complete fern rosettes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn CreateFernMeshGrid(handle: *const c_void, output: *mut ExportMeshGrid) {
+    let Some(output) = (unsafe { output.as_mut() }) else {
+        return;
+    };
+    *output = ExportMeshGrid::default();
+    let Some(island) = (unsafe { island_ref(handle) }) else {
+        return;
+    };
+    let tiles = island.fern_mesh_tiles().to_vec();
+    if tiles.len() != FERN_TILE_RESOLUTION * FERN_TILE_RESOLUTION {
+        return;
+    }
+    *output = export_fern_mesh_grid(tiles);
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn CreateRiverRockMeshGrid(
     handle: *const c_void,
@@ -1225,11 +1537,9 @@ pub unsafe extern "C" fn CreateRiverRockMeshGrid(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn CreateRiverEmitters(
+pub unsafe extern "C" fn CreateWaterfallFeet(
     handle: *const c_void,
-    sharpness_degrees: f32,
-    spacing_metres: f32,
-    output: *mut ExportRiverEmitters,
+    output: *mut ExportWaterfallFeet,
 ) {
     let Some(island) = (unsafe { island_ref(handle) }) else {
         return;
@@ -1237,37 +1547,86 @@ pub unsafe extern "C" fn CreateRiverEmitters(
     let Some(output) = (unsafe { output.as_mut() }) else {
         return;
     };
-    let emitters: Vec<RiverEmitterExport> = island
-        .river_emitters(sharpness_degrees, spacing_metres)
-        .into_iter()
-        .map(|emitter| RiverEmitterExport {
-            position: emitter.position,
-            direction: emitter.direction,
-            strength: emitter.strength,
+    let feet: Vec<WaterfallFootExport> = island
+        .waterfall_feet()
+        .iter()
+        .map(|foot| WaterfallFootExport {
+            position: foot.position,
+            direction: foot.direction,
+            half_width: foot.half_width,
+            drop: foot.drop,
         })
         .collect();
-    let owner = Box::new(emitters);
-    let export = ExportRiverEmitters {
+    let owner = Box::new(feet);
+    let export = ExportWaterfallFeet {
         handle: ptr::null_mut(),
         data: owner.as_ptr(),
         length: length_i32(owner.len()),
     };
-    *output = ExportRiverEmitters {
+    *output = ExportWaterfallFeet {
         handle: Box::into_raw(owner).cast(),
         ..export
     };
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn ReleaseRiverEmitters(output: *mut ExportRiverEmitters) {
+pub unsafe extern "C" fn ReleaseWaterfallFeet(output: *mut ExportWaterfallFeet) {
     let Some(output) = (unsafe { output.as_mut() }) else {
         return;
     };
     if !output.handle.is_null() {
-        // SAFETY: handle came from CreateRiverEmitters and is released once.
-        drop(unsafe { Box::from_raw(output.handle.cast::<Vec<RiverEmitterExport>>()) });
+        // SAFETY: handle came from CreateWaterfallFeet and is released once.
+        drop(unsafe { Box::from_raw(output.handle.cast::<Vec<WaterfallFootExport>>()) });
     }
-    *output = ExportRiverEmitters::default();
+    *output = ExportWaterfallFeet::default();
+}
+
+/// Exports one compact capsule description for every placed central trunk.
+///
+/// Positions and radii use normalized island coordinates. The returned owner
+/// must be released exactly once with `ReleaseForestTrunkColliders`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn CreateForestTrunkColliders(
+    handle: *const c_void,
+    output: *mut ExportForestTrunkColliders,
+) {
+    let Some(output) = (unsafe { output.as_mut() }) else {
+        return;
+    };
+    *output = ExportForestTrunkColliders::default();
+    let Some(island) = (unsafe { island_ref(handle) }) else {
+        return;
+    };
+    let Ok(colliders) = island
+        .forest_meshes()
+        .trunk_colliders()
+        .map(|collider| collider.map(ForestTrunkColliderExport::from))
+        .collect::<Result<Vec<_>, _>>()
+    else {
+        return;
+    };
+    let owner = Box::new(colliders);
+    let export = ExportForestTrunkColliders {
+        handle: ptr::null_mut(),
+        data: owner.as_ptr(),
+        length: length_i32(owner.len()),
+    };
+    *output = ExportForestTrunkColliders {
+        handle: Box::into_raw(owner).cast(),
+        ..export
+    };
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ReleaseForestTrunkColliders(output: *mut ExportForestTrunkColliders) {
+    let Some(output) = (unsafe { output.as_mut() }) else {
+        return;
+    };
+    if !output.handle.is_null() {
+        // SAFETY: handle came from CreateForestTrunkColliders and is released once.
+        drop(unsafe { Box::from_raw(output.handle.cast::<Vec<ForestTrunkColliderExport>>()) });
+    }
+    *output = ExportForestTrunkColliders::default();
 }
 
 #[unsafe(no_mangle)]
@@ -1791,6 +2150,123 @@ mod tests {
     }
 
     #[test]
+    fn reed_options_forward_every_setting() {
+        let native = MotuReedOptions {
+            bankWidthMetres: 1.0,
+            patchSizeMetres: 2.0,
+            coverageThreshold: 0.3,
+            spacingMetres: 0.4,
+            rushRatio: 0.5,
+            minimumHeightMetres: 0.6,
+            maximumHeightMetres: 0.7,
+            maximumSlopeDegrees: 8.0,
+        };
+        let options = ReedOptions::from(native);
+        assert_eq!(
+            options,
+            ReedOptions {
+                bank_width_metres: 1.0,
+                patch_size_metres: 2.0,
+                coverage_threshold: 0.3,
+                spacing_metres: 0.4,
+                rush_ratio: 0.5,
+                minimum_height_metres: 0.6,
+                maximum_height_metres: 0.7,
+                maximum_slope_degrees: 8.0,
+            }
+        );
+    }
+
+    #[test]
+    fn reed_grid_null_island_leaves_a_default_export() {
+        let mut output = ExportMeshGrid {
+            handle: ptr::dangling_mut(),
+            data: ptr::dangling(),
+            length: 13,
+        };
+        unsafe { CreateReedMeshGrid(ptr::null(), &raw mut output) };
+        assert!(output.handle.is_null());
+        assert!(output.data.is_null());
+        assert_eq!(output.length, 0);
+    }
+
+    #[test]
+    fn fern_grid_null_island_leaves_a_default_export() {
+        let mut output = ExportMeshGrid {
+            handle: ptr::dangling_mut(),
+            data: ptr::dangling(),
+            length: 13,
+        };
+        unsafe { CreateFernMeshGrid(ptr::null(), &raw mut output) };
+        assert!(output.handle.is_null());
+        assert!(output.data.is_null());
+        assert_eq!(output.length, 0);
+    }
+
+    #[test]
+    fn sky_dome_export_uses_standard_mesh_ownership() {
+        let mut output = ExportMesh::default();
+        // SAFETY: output is writable and is released exactly once below.
+        unsafe { CreateSkyDome(&raw mut output) };
+        assert!(!output.handle.is_null());
+        assert!(!output.vertices.data.is_null());
+        assert_eq!(output.vertices.length, output.normals.length);
+        assert_eq!(output.vertices.length, output.uv.length);
+        assert!(output.vertices.length > 0);
+        assert!(output.triangles.length > 0);
+        assert_eq!(output.material.length, 0);
+        assert_eq!(output.environment.length, 0);
+
+        // SAFETY: output owns the handle returned by CreateSkyDome.
+        unsafe { ReleaseMesh(&raw mut output) };
+        assert!(output.handle.is_null());
+        assert!(output.vertices.data.is_null());
+        assert!(output.triangles.data.is_null());
+    }
+
+    #[test]
+    fn sky_dome_null_output_is_safe() {
+        // SAFETY: the API explicitly accepts a null output as a no-op.
+        unsafe { CreateSkyDome(ptr::null_mut()) };
+    }
+
+    #[test]
+    fn cloud_weather_map_export_has_matching_ownership() {
+        let mut output = ExportCloudWeatherMap::default();
+        // SAFETY: output is writable and is released exactly once below.
+        let created = unsafe { CreateCloudWeatherMap(73, 64, &raw mut output) };
+        assert_eq!(created, 1);
+        assert!(!output.handle.is_null());
+        assert!(!output.rgba.is_null());
+        assert_eq!(output.width, 64);
+        assert_eq!(output.height, 64);
+
+        // SAFETY: output owns the handle returned above.
+        unsafe { ReleaseCloudWeatherMap(&raw mut output) };
+        assert!(output.handle.is_null());
+        assert!(output.rgba.is_null());
+        assert_eq!(output.width, 0);
+        assert_eq!(output.height, 0);
+    }
+
+    #[test]
+    fn cloud_weather_map_rejects_invalid_inputs_and_null_outputs() {
+        let mut output = ExportCloudWeatherMap {
+            handle: ptr::dangling_mut(),
+            width: 12,
+            height: 13,
+            rgba: ptr::dangling(),
+        };
+        // SAFETY: output is writable; invalid input must leave it defaulted.
+        assert_eq!(unsafe { CreateCloudWeatherMap(1, 48, &raw mut output) }, 0);
+        assert!(output.handle.is_null());
+        assert!(output.rgba.is_null());
+        // SAFETY: null outputs are explicitly accepted as no-ops.
+        assert_eq!(unsafe { CreateCloudWeatherMap(1, 64, ptr::null_mut()) }, 0);
+        unsafe { ReleaseCloudWeatherMap(ptr::null_mut()) };
+    }
+
+    #[test]
     fn forest_grid_rejects_non_finite_bounds_directly() {
         let area = ExportArea {
             min: Vec3::new(0.0, 0.0, f32::INFINITY),
@@ -1803,7 +2279,23 @@ mod tests {
     fn forest_grid_null_output_is_safe() {
         unsafe {
             CreateForestWoodMeshGrid(ptr::null(), ptr::null(), 0, 8, ptr::null_mut());
+            CreateForestTrunkColliders(ptr::null(), ptr::null_mut());
         }
+    }
+
+    #[test]
+    fn forest_trunk_collider_null_island_leaves_a_default_export() {
+        let mut output = ExportForestTrunkColliders {
+            handle: ptr::dangling_mut(),
+            data: ptr::dangling(),
+            length: 13,
+        };
+        unsafe {
+            CreateForestTrunkColliders(ptr::null(), &raw mut output);
+        }
+        assert!(output.handle.is_null());
+        assert!(output.data.is_null());
+        assert_eq!(output.length, 0);
     }
 
     #[test]
@@ -1843,7 +2335,7 @@ mod tests {
             ..IslandOptions::default()
         };
         let forest_options = ForestOptions {
-            noise_threshold: 1.0,
+            noise_threshold: 0.0,
             prototype_count: 1,
             ..ForestOptions::default()
         };
@@ -1859,11 +2351,34 @@ mod tests {
             assert!(!wood_lod2.handle.is_null());
             assert_eq!(wood_lod2.length, 4);
             let wood_tiles = std::slice::from_raw_parts(wood_lod2.data, 4);
+            assert!(wood_tiles.iter().any(|tile| tile.vertices.length > 0));
             assert!(wood_tiles.iter().all(|tile| {
                 !tile.handle.is_null()
-                    && tile.vertices.length == 0
-                    && tile.normals.length == 0
-                    && tile.triangles.length == 0
+                    && tile.normals.length == tile.vertices.length
+                    && tile.uv.length == tile.vertices.length
+                    && tile.material.length == tile.vertices.length
+                    && tile.vertices.length % 8 == 0
+                    && tile.triangles.length % 36 == 0
+                    && tile.vertices.length / 8 == tile.triangles.length / 36
+            }));
+            let expected_collider_count = wood_tiles
+                .iter()
+                .map(|tile| tile.vertices.length / 8)
+                .sum::<i32>();
+
+            let mut trunk_colliders = ExportForestTrunkColliders::default();
+            CreateForestTrunkColliders(handle, &raw mut trunk_colliders);
+            assert!(!trunk_colliders.handle.is_null());
+            assert_eq!(trunk_colliders.length, expected_collider_count);
+            let collider_values =
+                std::slice::from_raw_parts(trunk_colliders.data, trunk_colliders.length as usize);
+            assert!(collider_values.iter().all(|collider| {
+                collider.bottom.is_finite()
+                    && collider.top.is_finite()
+                    && collider.owner.is_finite()
+                    && collider.radius.is_finite()
+                    && collider.radius > 0.0
+                    && collider.top != collider.bottom
             }));
 
             let mut foliage_lod1 = ExportMeshGrid::default();
@@ -1874,13 +2389,49 @@ mod tests {
             assert!(!foliage_lod2.handle.is_null());
             assert_eq!(foliage_lod1.length, 4);
             assert_eq!(foliage_lod2.length, 4);
+            let mut reeds = ExportMeshGrid::default();
+            CreateReedMeshGrid(handle, &raw mut reeds);
+            assert!(!reeds.handle.is_null());
+            let expected_reed_tiles =
+                i32::try_from(REED_TILE_RESOLUTION * REED_TILE_RESOLUTION).unwrap();
+            assert_eq!(reeds.length, expected_reed_tiles);
+            let reed_tiles = std::slice::from_raw_parts(reeds.data, reeds.length as usize);
+            assert!(reed_tiles.iter().all(|tile| {
+                !tile.handle.is_null()
+                    && tile.normals.length == tile.vertices.length
+                    && tile.uv.length == tile.vertices.length
+                    && tile.material.length == tile.vertices.length
+                    && tile.environment.length == tile.vertices.length
+                    && tile.triangles.length % 3 == 0
+            }));
+            let mut ferns = ExportMeshGrid::default();
+            CreateFernMeshGrid(handle, &raw mut ferns);
+            assert!(!ferns.handle.is_null());
+            let expected_fern_tiles =
+                i32::try_from(FERN_TILE_RESOLUTION * FERN_TILE_RESOLUTION).unwrap();
+            assert_eq!(ferns.length, expected_fern_tiles);
+            let fern_tiles = std::slice::from_raw_parts(ferns.data, ferns.length as usize);
+            assert!(fern_tiles.iter().all(|tile| {
+                !tile.handle.is_null()
+                    && tile.normals.length == tile.vertices.length
+                    && tile.uv.length == tile.vertices.length
+                    && tile.material.length == tile.vertices.length
+                    && tile.environment.length == tile.vertices.length
+                    && tile.triangles.length % 3 == 0
+            }));
             ReleaseMeshGrid(&raw mut wood_lod2);
             assert!(wood_lod2.handle.is_null());
+            ReleaseForestTrunkColliders(&raw mut trunk_colliders);
+            assert!(trunk_colliders.handle.is_null());
             assert!(!foliage_lod1.handle.is_null());
             ReleaseMeshGrid(&raw mut foliage_lod1);
             ReleaseMeshGrid(&raw mut foliage_lod2);
+            ReleaseMeshGrid(&raw mut reeds);
+            ReleaseMeshGrid(&raw mut ferns);
             assert!(foliage_lod1.handle.is_null());
             assert!(foliage_lod2.handle.is_null());
+            assert!(reeds.handle.is_null());
+            assert!(ferns.handle.is_null());
             ReleaseMotu(handle);
         }
     }
@@ -1943,19 +2494,22 @@ mod tests {
         assert!(values.iter().any(|value| value.y == 0.0));
     }
 
-    unsafe fn assert_river_emitters(handle: *const c_void) {
-        let mut output = ExportRiverEmitters::default();
-        unsafe { CreateRiverEmitters(handle, 35.0, 2.0, &raw mut output) };
+    unsafe fn assert_waterfall_feet(handle: *const c_void) {
+        let mut output = ExportWaterfallFeet::default();
+        unsafe { CreateWaterfallFeet(handle, &raw mut output) };
         assert!(!output.handle.is_null());
         assert!(output.length > 0);
         let values = unsafe { std::slice::from_raw_parts(output.data, output.length as usize) };
-        assert!(values.iter().all(|emitter| {
-            emitter.position.is_finite()
-                && emitter.direction.is_finite()
-                && (emitter.direction.length() - 1.0).abs() < 1.0e-4
-                && (0.0..=1.0).contains(&emitter.strength)
+        assert!(values.iter().all(|foot| {
+            foot.position.is_finite()
+                && foot.direction.is_finite()
+                && (foot.direction.length() - 1.0).abs() < 1.0e-4
+                && foot.half_width.is_finite()
+                && foot.half_width > 0.0
+                && foot.drop.is_finite()
+                && foot.drop > 0.0
         }));
-        unsafe { ReleaseRiverEmitters(&raw mut output) };
+        unsafe { ReleaseWaterfallFeet(&raw mut output) };
         assert!(output.handle.is_null());
     }
 
@@ -1981,8 +2535,8 @@ mod tests {
             waterRatio: 0.6,
             slopeMultiplier: 1.3,
             coastalSlopeMultiplier: 1.0,
-            removedCoastalErosionStrength: 0.0,
-            removedBeachFormationStrength: 0.0,
+            continentalNoiseFrequency: 2.2,
+            detailNoiseFrequency: 12.0,
             hydraulicErosionStrength: 0.25,
             hydraulicDepositionStrength: 1.5,
             hydraulicDepositionSlopeDegrees: 12.0,
@@ -1993,6 +2547,9 @@ mod tests {
             riverMaximumWidthMetres: 14.0,
             riverSourceDepthMetres: 0.35,
             riverMaximumDepthMetres: 2.0,
+            continentalNoiseStrength: 0.78,
+            detailNoiseStrength: 0.22,
+            landMassOffset: 0.0,
         }
     }
 
@@ -2018,6 +2575,25 @@ mod tests {
         assert_eq!(forest.prototype_count, 8);
         assert!((forest.minimum_scale - 0.85).abs() < f32::EPSILON);
         assert!((forest.maximum_scale - 1.15).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn motu_options_forward_terrain_noise_settings() {
+        let native = MotuOptions {
+            continentalNoiseFrequency: 4.5,
+            continentalNoiseStrength: 1.25,
+            detailNoiseFrequency: 27.0,
+            detailNoiseStrength: 0.4,
+            landMassOffset: -0.3,
+            ..test_options()
+        };
+        let options = IslandOptions::from(native);
+
+        assert!((options.continental_noise_frequency - 4.5).abs() < f32::EPSILON);
+        assert!((options.continental_noise_strength - 1.25).abs() < f32::EPSILON);
+        assert!((options.detail_noise_frequency - 27.0).abs() < f32::EPSILON);
+        assert!((options.detail_noise_strength - 0.4).abs() < f32::EPSILON);
+        assert!((options.land_mass_offset - -0.3).abs() < f32::EPSILON);
     }
 
     #[test]
@@ -2091,7 +2667,7 @@ mod tests {
         unsafe { ReleaseMeshGrid(&raw mut river_rock_grid) };
         assert!(river_rock_grid.handle.is_null());
 
-        unsafe { assert_river_emitters(handle) };
+        unsafe { assert_waterfall_feet(handle) };
     }
 
     #[test]
@@ -2166,12 +2742,21 @@ mod tests {
             assert_eq!(forest_wood_lod2.length, 64);
             let forest_wood_lod2_tiles =
                 std::slice::from_raw_parts(forest_wood_lod2.data, forest_wood_lod2.length as usize);
+            assert!(
+                forest_wood_lod2_tiles
+                    .iter()
+                    .any(|tile| tile.triangles.length > 0)
+            );
             assert!(forest_wood_lod2_tiles.iter().all(|tile| {
-                tile.vertices.length == 0
-                    && tile.normals.length == 0
-                    && tile.triangles.length == 0
-                    && tile.uv.length == 0
+                tile.normals.length == tile.vertices.length
+                    && tile.uv.length == tile.vertices.length
+                    && tile.material.length == tile.vertices.length
             }));
+
+            let mut forest_trunk_colliders = ExportForestTrunkColliders::default();
+            CreateForestTrunkColliders(handle, &raw mut forest_trunk_colliders);
+            assert!(!forest_trunk_colliders.handle.is_null());
+            assert!(forest_trunk_colliders.length > 0);
 
             let mut forest_foliage_lod1 = ExportMeshGrid::default();
             let mut forest_foliage_lod2 = ExportMeshGrid::default();
@@ -2196,6 +2781,8 @@ mod tests {
             );
             ReleaseMeshGrid(&raw mut forest_wood_lod2);
             assert!(forest_wood_lod2.handle.is_null());
+            ReleaseForestTrunkColliders(&raw mut forest_trunk_colliders);
+            assert!(forest_trunk_colliders.handle.is_null());
             assert!(!forest_foliage_lod1.handle.is_null());
             ReleaseMeshGrid(&raw mut forest_foliage_lod1);
             ReleaseMeshGrid(&raw mut forest_foliage_lod2);

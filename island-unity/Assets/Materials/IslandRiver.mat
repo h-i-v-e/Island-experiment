@@ -35,13 +35,15 @@ Material:
     - _EstuaryStrength: 1
     - _FineFlowSpeed: 9
     - _FineNoiseWorldSize: 3
-    - _OpacityDepth: 5
+    - _OpacityDepth: 1
+    - _PlanarReflectionDistortion: 0.006
+    - _PlanarReflectionWeight: 1
     - _ReflectionFresnelPower: 4
-    - _ReflectionStrength: 0.45
+    - _ReflectionStrength: 0.743
     - _RefractionDepth: 0.6
     - _RefractionStrength: 0.008
     - _SeaLevel: 0
-    - _ShallowOpacity: 0.25
+    - _ShallowOpacity: 0.5
     - _ShoreWaveDepth: 0.5
     - _ShoreWaveNoiseWorldSize: 1
     - _ShoreWaveSpacing: 0.11
@@ -54,7 +56,7 @@ Material:
     - _WhitewaterStrength: 0.9
     - _WorldSize: 2000
     m_Colors:
-    - _Color: {r: 0.03, g: 0.28, b: 0.55, a: 1}
+    - _Color: {r: 0.09411764, g: 0.5372549, b: 0.38670424, a: 1}
     - _ReflectionColor: {r: 0.49, g: 0.68, b: 0.82, a: 1}
     - _ReflectionHorizonColor: {r: 0.68, g: 0.79, b: 0.88, a: 1}
   m_BuildTextureStacks: []

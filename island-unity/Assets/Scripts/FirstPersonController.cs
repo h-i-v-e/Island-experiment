@@ -36,6 +36,7 @@ public sealed class FirstPersonController : MonoBehaviour
         characterController.slopeLimit = 55f;
         characterController.skinWidth = 0.05f;
         characterController.enabled = false;
+        island.SetFirstPersonViewActive(false);
         enabled = false;
     }
 
@@ -62,6 +63,7 @@ public sealed class FirstPersonController : MonoBehaviour
         characterController.enabled = true;
         island.SetStreamingTarget(transform);
         IsActive = true;
+        island.SetFirstPersonViewActive(true);
         IsCursorReleased = false;
         enabled = true;
         ApplyCursorState();
@@ -85,6 +87,7 @@ public sealed class FirstPersonController : MonoBehaviour
         enabled = false;
         orbitCamera.enabled = true;
         ApplyCursorState();
+        island?.SetFirstPersonViewActive(false);
         island?.SetStreamingTarget(null);
     }
 
