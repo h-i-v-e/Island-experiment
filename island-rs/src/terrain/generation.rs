@@ -67,7 +67,7 @@ impl<R: Read> SavedIslandReader<R> {
     fn new(mut source: R) -> io::Result<Self> {
         let mut magic = [0_u8; 8];
         source.read_exact(&mut magic)?;
-        if &magic[..7] != b"MOTURS\0" || !matches!(magic[7], 3..=18) {
+        if &magic[..7] != b"MOTURS\0" || !matches!(magic[7], 3..=20) {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "invalid Motu Rust free-form mesh file",
@@ -82,6 +82,7 @@ impl<R: Read> SavedIslandReader<R> {
     fn read_options(&mut self) -> io::Result<(IslandOptions, ForestOptions)> {
         let mut options = self.read_terrain_options()?;
         self.read_river_options(&mut options)?;
+        self.read_noise_options(&mut options)?;
         if self.version == 8 {
             self.discard_f32()?;
         }
@@ -172,6 +173,19 @@ impl<R: Read> SavedIslandReader<R> {
             options.river_maximum_width_metres = self.read_f32()?;
             options.river_source_depth_metres = self.read_f32()?;
             options.river_maximum_depth_metres = self.read_f32()?;
+        }
+        Ok(())
+    }
+
+    fn read_noise_options(&mut self, options: &mut IslandOptions) -> io::Result<()> {
+        if self.version >= 19 {
+            options.continental_noise_frequency = self.read_f32()?;
+            options.continental_noise_strength = self.read_f32()?;
+            options.detail_noise_frequency = self.read_f32()?;
+            options.detail_noise_strength = self.read_f32()?;
+        }
+        if self.version >= 20 {
+            options.land_mass_offset = self.read_f32()?;
         }
         Ok(())
     }
@@ -771,7 +785,7 @@ impl Island {
     /// Returns an I/O error if the destination cannot be created or written.
     pub fn save(&self, path: impl AsRef<Path>) -> io::Result<()> {
         let mut file = File::create(path)?;
-        file.write_all(b"MOTURS\0\x12")?;
+        file.write_all(b"MOTURS\0\x14")?;
         file.write_all(&self.seed.to_le_bytes())?;
         for value in [
             self.options.max_height,
@@ -788,6 +802,11 @@ impl Island {
             self.options.river_maximum_width_metres,
             self.options.river_source_depth_metres,
             self.options.river_maximum_depth_metres,
+            self.options.continental_noise_frequency,
+            self.options.continental_noise_strength,
+            self.options.detail_noise_frequency,
+            self.options.detail_noise_strength,
+            self.options.land_mass_offset,
         ] {
             file.write_all(&value.to_le_bytes())?;
         }
@@ -1445,8 +1464,12 @@ pub(super) fn assign_elevations(
     seed: u64,
     options: IslandOptions,
 ) -> GeologyField {
-    let geology =
-        GeologyField::calibrated(seed, mesh.vertices.iter().map(|vertex| vertex.truncate()));
+    let terrain_noise = geology::TerrainNoiseSettings::from(options);
+    let geology = GeologyField::calibrated(
+        seed,
+        terrain_noise,
+        mesh.vertices.iter().map(|vertex| vertex.truncate()),
+    );
     let scores: Vec<f32> = mesh
         .vertices
         .iter()
@@ -1454,7 +1477,9 @@ pub(super) fn assign_elevations(
             let dx = vertex.x.mul_add(2.0, -1.0);
             let dy = vertex.y.mul_add(2.0, -1.0);
             let radius = dx.hypot(dy);
-            geology::terrain_noise(seed, vertex.truncate()).height_component() + 0.82
+            geology::terrain_noise(seed, vertex.truncate(), terrain_noise)
+                .height_component(terrain_noise)
+                + 0.82
                 - radius.powf(1.65)
         })
         .collect();
@@ -1462,24 +1487,11 @@ pub(super) fn assign_elevations(
     ranked.sort_unstable_by(f32::total_cmp);
     let sea_index = ((ranked.len() - 1) as f32 * options.water_ratio) as usize;
     let sea_level = ranked[sea_index];
-    let perimeter = mesh.perimeter_vertices();
-    let candidate_sea: Vec<bool> = scores.iter().map(|score| *score < sea_level).collect();
-    let mut sea = vec![false; mesh.vertices.len()];
-    let mut fringe: Vec<usize> = perimeter
-        .into_iter()
-        .filter(|index| candidate_sea[*index])
+    let candidate_sea: Vec<bool> = scores
+        .iter()
+        .map(|score| *score + options.land_mass_offset < sea_level)
         .collect();
-    for &vertex in &fringe {
-        sea[vertex] = true;
-    }
-    while let Some(vertex) = fringe.pop() {
-        for &neighbour in &adjacency[vertex] {
-            if candidate_sea[neighbour] && !sea[neighbour] {
-                sea[neighbour] = true;
-                fringe.push(neighbour);
-            }
-        }
-    }
+    let sea = connected_ocean_from_perimeter(&candidate_sea, mesh.perimeter_vertices(), adjacency);
 
     let distance_to_sea = graph_distances(mesh, adjacency, &sea);
     let land: Vec<bool> = sea.iter().map(|value| !value).collect();
@@ -1504,6 +1516,31 @@ pub(super) fn assign_elevations(
         };
     }
     geology
+}
+
+fn connected_ocean_from_perimeter(
+    candidate_sea: &[bool],
+    perimeter: impl IntoIterator<Item = usize>,
+    adjacency: &Adjacency,
+) -> Vec<bool> {
+    debug_assert_eq!(candidate_sea.len(), adjacency.len());
+    let mut sea = vec![false; candidate_sea.len()];
+    let mut fringe = Vec::new();
+    for vertex in perimeter {
+        if vertex < sea.len() && !sea[vertex] {
+            sea[vertex] = true;
+            fringe.push(vertex);
+        }
+    }
+    while let Some(vertex) = fringe.pop() {
+        for &neighbour in &adjacency[vertex] {
+            if candidate_sea[neighbour] && !sea[neighbour] {
+                sea[neighbour] = true;
+                fringe.push(neighbour);
+            }
+        }
+    }
+    sea
 }
 
 pub(super) fn graph_distances(mesh: &Mesh, adjacency: &Adjacency, target: &[bool]) -> Vec<f32> {
@@ -1683,7 +1720,7 @@ mod sea_proximity_tests {
 
     #[test]
     fn saved_generation_methods_are_backward_compatible() {
-        let mut current = SavedIslandReader::new(Cursor::new(b"MOTURS\0\x12\x01")).unwrap();
+        let mut current = SavedIslandReader::new(Cursor::new(b"MOTURS\0\x14\x01")).unwrap();
         assert_eq!(
             current.read_generation_method().unwrap(),
             GenerationMethod::Gpu
@@ -1698,8 +1735,78 @@ mod sea_proximity_tests {
 
     #[test]
     fn saved_generation_method_rejects_unknown_tags() {
-        let mut reader = SavedIslandReader::new(Cursor::new(b"MOTURS\0\x12\xff")).unwrap();
+        let mut reader = SavedIslandReader::new(Cursor::new(b"MOTURS\0\x14\xff")).unwrap();
         let error = reader.read_generation_method().unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn version_eighteen_payload_uses_default_terrain_noise() {
+        let mut bytes = b"MOTURS\0\x12".to_vec();
+        bytes.extend(77_u64.to_le_bytes());
+        for value in [
+            0.2_f32, 0.6, 1.3, 1.0, 1.0, 1.5, 12.0, 0.05, 4.0, 9.0, 2.0, 14.0, 0.35, 2.0,
+        ] {
+            bytes.extend(value.to_le_bytes());
+        }
+        bytes.extend(24_u32.to_le_bytes());
+        let forest = ForestOptions::default();
+        bytes.extend(forest.patch_size_metres.to_le_bytes());
+        bytes.extend(forest.noise_threshold.to_le_bytes());
+        bytes.push(forest.noise_octaves);
+        bytes.extend(forest.snowline_metres.to_le_bytes());
+        bytes.push(forest.prototype_count);
+        bytes.extend(forest.minimum_scale.to_le_bytes());
+        bytes.extend(forest.maximum_scale.to_le_bytes());
+        bytes.push(GenerationMethod::Cpu.tag());
+
+        let mut reader = SavedIslandReader::new(Cursor::new(bytes)).unwrap();
+        let (options, _) = reader.read_options().unwrap();
+        let defaults = IslandOptions::default();
+
+        for (actual, expected) in [
+            (
+                options.continental_noise_frequency,
+                defaults.continental_noise_frequency,
+            ),
+            (
+                options.continental_noise_strength,
+                defaults.continental_noise_strength,
+            ),
+            (
+                options.detail_noise_frequency,
+                defaults.detail_noise_frequency,
+            ),
+            (
+                options.detail_noise_strength,
+                defaults.detail_noise_strength,
+            ),
+        ] {
+            assert_eq!(actual.to_bits(), expected.to_bits());
+        }
+    }
+
+    #[test]
+    fn ocean_always_contains_the_mesh_perimeter() {
+        let mesh = Mesh {
+            vertices: vec![Vec3::ZERO; 3],
+            triangles: vec![0, 1, 2],
+            ..Mesh::default()
+        };
+        let sea = connected_ocean_from_perimeter(&[false; 3], [0, 2], &mesh.adjacency());
+
+        assert_eq!(sea, [true, false, true]);
+    }
+
+    #[test]
+    fn newly_submerged_candidates_connect_to_the_perimeter_ocean() {
+        let mesh = Mesh {
+            vertices: vec![Vec3::ZERO; 3],
+            triangles: vec![0, 1, 2],
+            ..Mesh::default()
+        };
+        let sea = connected_ocean_from_perimeter(&[false, true, false], [0, 2], &mesh.adjacency());
+
+        assert!(sea.into_iter().all(|is_sea| is_sea));
     }
 }

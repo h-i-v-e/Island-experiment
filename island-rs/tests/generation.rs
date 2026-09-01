@@ -21,6 +21,43 @@ fn small_options() -> IslandOptions {
     }
 }
 
+fn land_component_sizes(mesh: &motu::Mesh) -> Vec<usize> {
+    let mut adjacency = vec![Vec::new(); mesh.vertices.len()];
+    for triangle in mesh.triangles.chunks_exact(3) {
+        for (a, b) in [
+            (triangle[0], triangle[1]),
+            (triangle[1], triangle[2]),
+            (triangle[2], triangle[0]),
+        ] {
+            adjacency[a as usize].push(b as usize);
+            adjacency[b as usize].push(a as usize);
+        }
+    }
+
+    let mut visited = vec![false; mesh.vertices.len()];
+    let mut sizes = Vec::new();
+    for start in 0..mesh.vertices.len() {
+        if visited[start] || mesh.vertices[start].z <= 0.0 {
+            continue;
+        }
+        visited[start] = true;
+        let mut stack = vec![start];
+        let mut size = 0;
+        while let Some(vertex) = stack.pop() {
+            size += 1;
+            for &neighbour in &adjacency[vertex] {
+                if !visited[neighbour] && mesh.vertices[neighbour].z > 0.0 {
+                    visited[neighbour] = true;
+                    stack.push(neighbour);
+                }
+            }
+        }
+        sizes.push(size);
+    }
+    sizes.sort_unstable_by(|left, right| right.cmp(left));
+    sizes
+}
+
 fn mapped_waterfall_uv_segments(island: &Island) -> usize {
     let river_uv_by_xy: HashMap<(u32, u32), glam::Vec2> = island
         .river_mesh()
@@ -322,6 +359,61 @@ fn rejects_out_of_range_hydraulic_erosion_strength() {
     )
     .unwrap_err();
     assert!(error.contains("hydraulic_erosion_strength"));
+}
+
+#[test]
+fn terrain_noise_controls_change_the_generated_island() {
+    let original = Island::generate(17, small_options()).unwrap();
+    let archipelago_experiment = Island::generate(
+        17,
+        IslandOptions {
+            continental_noise_frequency: 6.0,
+            continental_noise_strength: 1.1,
+            detail_noise_frequency: 24.0,
+            detail_noise_strength: 0.1,
+            land_mass_offset: -0.2,
+            ..small_options()
+        },
+    )
+    .unwrap();
+
+    assert_ne!(
+        original.terrain().vertices(),
+        archipelago_experiment.terrain().vertices()
+    );
+    let components = land_component_sizes(archipelago_experiment.lod(0).unwrap());
+    assert!(
+        components.iter().filter(|&&size| size >= 8).count() >= 2,
+        "expected multiple substantial islands, found land components {components:?}"
+    );
+}
+
+#[test]
+fn rejects_non_finite_or_out_of_range_terrain_noise_controls() {
+    for options in [
+        IslandOptions {
+            continental_noise_frequency: 0.09,
+            ..small_options()
+        },
+        IslandOptions {
+            detail_noise_frequency: 128.01,
+            ..small_options()
+        },
+        IslandOptions {
+            continental_noise_strength: -0.01,
+            ..small_options()
+        },
+        IslandOptions {
+            detail_noise_strength: f32::NAN,
+            ..small_options()
+        },
+        IslandOptions {
+            land_mass_offset: -2.01,
+            ..small_options()
+        },
+    ] {
+        assert!(Island::generate(1, options).is_err());
+    }
 }
 
 #[test]
@@ -768,6 +860,11 @@ fn save_and_load_regenerates_identical_island() {
             hydraulic_erosion_strength: 1.75,
             hydraulic_deposition_strength: 2.25,
             hydraulic_deposition_slope_degrees: 18.0,
+            continental_noise_frequency: 4.5,
+            continental_noise_strength: 1.1,
+            detail_noise_frequency: 26.0,
+            detail_noise_strength: 0.15,
+            land_mass_offset: -0.25,
             river_source_catchment_hectares: 0.75,
             river_source_steep_multiplier: 5.0,
             river_source_elevation_boost: 8.5,
@@ -789,6 +886,26 @@ fn save_and_load_regenerates_identical_island() {
     fs::remove_file(path).unwrap();
     assert_eq!(island, loaded);
     assert_eq!(loaded.generation_method(), GenerationMethod::Cpu);
+    assert_eq!(
+        loaded.options().continental_noise_frequency.to_bits(),
+        4.5_f32.to_bits()
+    );
+    assert_eq!(
+        loaded.options().continental_noise_strength.to_bits(),
+        1.1_f32.to_bits()
+    );
+    assert_eq!(
+        loaded.options().detail_noise_frequency.to_bits(),
+        26.0_f32.to_bits()
+    );
+    assert_eq!(
+        loaded.options().detail_noise_strength.to_bits(),
+        0.15_f32.to_bits()
+    );
+    assert_eq!(
+        loaded.options().land_mass_offset.to_bits(),
+        (-0.25_f32).to_bits()
+    );
     assert_eq!(
         loaded.options().river_source_elevation_boost.to_bits(),
         8.5_f32.to_bits()

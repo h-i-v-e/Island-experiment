@@ -12,8 +12,10 @@ internal static class MotuNative
         internal float waterRatio;
         internal float slopeMultiplier;
         internal float coastalSlopeMultiplier;
-        internal float removedCoastalErosionStrength;
-        internal float removedBeachFormationStrength;
+        // Reuses the two retired coastal-generation slots, preserving the
+        // offsets of the existing active fields in the native ABI.
+        internal float continentalNoiseFrequency;
+        internal float detailNoiseFrequency;
         internal float hydraulicErosionStrength;
         internal float hydraulicDepositionStrength;
         internal float hydraulicDepositionSlopeDegrees;
@@ -24,10 +26,12 @@ internal static class MotuNative
         internal float riverMaximumWidthMetres;
         internal float riverSourceDepthMetres;
         internal float riverMaximumDepthMetres;
+        internal float continentalNoiseStrength;
+        internal float detailNoiseStrength;
+        internal float landMassOffset;
     }
 
-    // Forest controls are kept in a separate native block so the historical
-    // MotuOptions ABI remains the 16-float terrain contract. The byte fields
+    // Forest controls are kept in a separate native block. The byte fields
     // intentionally use the platform's natural C/Rust alignment (three bytes
     // of padding before each following float).
     [StructLayout(LayoutKind.Sequential)]

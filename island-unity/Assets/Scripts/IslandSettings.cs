@@ -33,6 +33,26 @@ public sealed class IslandGenerationSettings
     [Range(0.1f, 4f)]
     [SerializeField] private float coastalSlopeMultiplier = 1f;
 
+    [Tooltip("Spatial frequency of the broad noise shared by the original height field and hardness. Higher values can split the land into smaller island groups. Regenerate to apply.")]
+    [Range(0.1f, 32f)]
+    [SerializeField] private float continentalNoiseFrequency = 2.2f;
+
+    [Tooltip("Strength of the broad noise relative to the radial island falloff. Regenerate to apply.")]
+    [Range(0f, 4f)]
+    [SerializeField] private float continentalNoiseStrength = 0.78f;
+
+    [Tooltip("Spatial frequency of the fine noise shared by the original height field and hardness. Higher values produce smaller features. Regenerate to apply.")]
+    [Range(0.1f, 64f)]
+    [SerializeField] private float detailNoiseFrequency = 12f;
+
+    [Tooltip("Strength of the fine noise relative to the broad layer and radial island falloff. Regenerate to apply.")]
+    [Range(0f, 4f)]
+    [SerializeField] private float detailNoiseStrength = 0.22f;
+
+    [Tooltip("Signed offset applied after the water-ratio sea level is selected. Negative values submerge land and isolate high points into archipelagos. Regenerate to apply.")]
+    [Range(-2f, 2f)]
+    [SerializeField] private float landMassOffset;
+
     [Tooltip("Hydraulic erosion strength. Regenerate to apply.")]
     [Range(0f, 8f)]
     [SerializeField] private float hydraulicErosionStrength = 1f;
@@ -56,6 +76,11 @@ public sealed class IslandGenerationSettings
     internal float WaterRatio => Mathf.Clamp(waterRatio, 0.60f, 0.95f);
     internal float InlandSlopeMultiplier => Mathf.Clamp(inlandSlopeMultiplier, 0.2f, 4f);
     internal float CoastalSlopeMultiplier => Mathf.Clamp(coastalSlopeMultiplier, 0.1f, 4f);
+    internal float ContinentalNoiseFrequency => Mathf.Clamp(continentalNoiseFrequency, 0.1f, 128f);
+    internal float ContinentalNoiseStrength => Mathf.Clamp(continentalNoiseStrength, 0f, 4f);
+    internal float DetailNoiseFrequency => Mathf.Clamp(detailNoiseFrequency, 0.1f, 128f);
+    internal float DetailNoiseStrength => Mathf.Clamp(detailNoiseStrength, 0f, 4f);
+    internal float LandMassOffset => Mathf.Clamp(landMassOffset, -2f, 2f);
     internal float HydraulicErosionStrength => Mathf.Clamp(hydraulicErosionStrength, 0f, 8f);
     internal float SedimentDepositionStrength => Mathf.Clamp(sedimentDepositionStrength, 0f, 4f);
     internal float DepositionMaximumSlopeDegrees => Mathf.Clamp(
@@ -71,6 +96,8 @@ public sealed class IslandGenerationSettings
             waterRatio = WaterRatio,
             slopeMultiplier = InlandSlopeMultiplier,
             coastalSlopeMultiplier = CoastalSlopeMultiplier,
+            continentalNoiseFrequency = ContinentalNoiseFrequency,
+            detailNoiseFrequency = DetailNoiseFrequency,
             hydraulicErosionStrength = HydraulicErosionStrength,
             hydraulicDepositionStrength = SedimentDepositionStrength,
             hydraulicDepositionSlopeDegrees = DepositionMaximumSlopeDegrees,
@@ -81,6 +108,9 @@ public sealed class IslandGenerationSettings
             riverMaximumWidthMetres = ToNativeRiverMetres(rivers.MaximumWidthMetres),
             riverSourceDepthMetres = ToNativeRiverMetres(rivers.SourceDepthMetres),
             riverMaximumDepthMetres = ToNativeRiverMetres(rivers.MaximumDepthMetres),
+            continentalNoiseStrength = ContinentalNoiseStrength,
+            detailNoiseStrength = DetailNoiseStrength,
+            landMassOffset = LandMassOffset,
         };
     }
 

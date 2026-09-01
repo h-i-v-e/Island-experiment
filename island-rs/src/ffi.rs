@@ -42,8 +42,10 @@ pub struct MotuOptions {
     pub waterRatio: f32,
     pub slopeMultiplier: f32,
     pub coastalSlopeMultiplier: f32,
-    pub removedCoastalErosionStrength: f32,
-    pub removedBeachFormationStrength: f32,
+    // These frequencies reuse two retired ABI slots so existing active fields
+    // retain their historical offsets.
+    pub continentalNoiseFrequency: f32,
+    pub detailNoiseFrequency: f32,
     pub hydraulicErosionStrength: f32,
     pub hydraulicDepositionStrength: f32,
     pub hydraulicDepositionSlopeDegrees: f32,
@@ -54,9 +56,12 @@ pub struct MotuOptions {
     pub riverMaximumWidthMetres: f32,
     pub riverSourceDepthMetres: f32,
     pub riverMaximumDepthMetres: f32,
+    pub continentalNoiseStrength: f32,
+    pub detailNoiseStrength: f32,
+    pub landMassOffset: f32,
 }
 
-const _: () = assert!(size_of::<MotuOptions>() == size_of::<[f32; 16]>());
+const _: () = assert!(size_of::<MotuOptions>() == size_of::<[f32; 19]>());
 
 #[derive(Clone, Copy, Debug)]
 #[repr(C)]
@@ -82,6 +87,11 @@ impl From<MotuOptions> for IslandOptions {
             water_ratio: value.waterRatio,
             slope_multiplier: value.slopeMultiplier,
             coastal_slope_multiplier: value.coastalSlopeMultiplier,
+            continental_noise_frequency: value.continentalNoiseFrequency,
+            continental_noise_strength: value.continentalNoiseStrength,
+            detail_noise_frequency: value.detailNoiseFrequency,
+            detail_noise_strength: value.detailNoiseStrength,
+            land_mass_offset: value.landMassOffset,
             hydraulic_erosion_strength: value.hydraulicErosionStrength,
             hydraulic_deposition_strength: value.hydraulicDepositionStrength,
             hydraulic_deposition_slope_degrees: value.hydraulicDepositionSlopeDegrees,
@@ -2525,8 +2535,8 @@ mod tests {
             waterRatio: 0.6,
             slopeMultiplier: 1.3,
             coastalSlopeMultiplier: 1.0,
-            removedCoastalErosionStrength: 0.0,
-            removedBeachFormationStrength: 0.0,
+            continentalNoiseFrequency: 2.2,
+            detailNoiseFrequency: 12.0,
             hydraulicErosionStrength: 0.25,
             hydraulicDepositionStrength: 1.5,
             hydraulicDepositionSlopeDegrees: 12.0,
@@ -2537,6 +2547,9 @@ mod tests {
             riverMaximumWidthMetres: 14.0,
             riverSourceDepthMetres: 0.35,
             riverMaximumDepthMetres: 2.0,
+            continentalNoiseStrength: 0.78,
+            detailNoiseStrength: 0.22,
+            landMassOffset: 0.0,
         }
     }
 
@@ -2562,6 +2575,25 @@ mod tests {
         assert_eq!(forest.prototype_count, 8);
         assert!((forest.minimum_scale - 0.85).abs() < f32::EPSILON);
         assert!((forest.maximum_scale - 1.15).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn motu_options_forward_terrain_noise_settings() {
+        let native = MotuOptions {
+            continentalNoiseFrequency: 4.5,
+            continentalNoiseStrength: 1.25,
+            detailNoiseFrequency: 27.0,
+            detailNoiseStrength: 0.4,
+            landMassOffset: -0.3,
+            ..test_options()
+        };
+        let options = IslandOptions::from(native);
+
+        assert!((options.continental_noise_frequency - 4.5).abs() < f32::EPSILON);
+        assert!((options.continental_noise_strength - 1.25).abs() < f32::EPSILON);
+        assert!((options.detail_noise_frequency - 27.0).abs() < f32::EPSILON);
+        assert!((options.detail_noise_strength - 0.4).abs() < f32::EPSILON);
+        assert!((options.land_mass_offset - -0.3).abs() < f32::EPSILON);
     }
 
     #[test]

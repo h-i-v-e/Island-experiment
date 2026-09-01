@@ -3279,7 +3279,7 @@ public sealed class IslandGenerator : MonoBehaviour
 #if UNITY_EDITOR
     public static void BatchValidateNativeInterop()
     {
-        if (Marshal.SizeOf<MotuNative.Options>() != sizeof(float) * 16
+        if (Marshal.SizeOf<MotuNative.Options>() != sizeof(float) * 19
             || Marshal.SizeOf<MotuNative.ForestOptions>() != 28
             || Marshal.SizeOf<MotuNative.ReedOptions>() != sizeof(float) * 8
             || Marshal.SizeOf<MotuNative.FernOptions>() != sizeof(float) * 8
@@ -3382,6 +3382,8 @@ public sealed class IslandGenerator : MonoBehaviour
             waterRatio = 0.6f,
             slopeMultiplier = 1.3f,
             coastalSlopeMultiplier = 1f,
+            continentalNoiseFrequency = 2.2f,
+            detailNoiseFrequency = 12f,
             hydraulicErosionStrength = 1f,
             hydraulicDepositionStrength = 1.5f,
             hydraulicDepositionSlopeDegrees = 12f,
@@ -3392,6 +3394,9 @@ public sealed class IslandGenerator : MonoBehaviour
             riverMaximumWidthMetres = 14f,
             riverSourceDepthMetres = 0.35f,
             riverMaximumDepthMetres = 2f,
+            continentalNoiseStrength = 0.78f,
+            detailNoiseStrength = 0.22f,
+            landMassOffset = 0f,
         };
         var forestOptions = new MotuNative.ForestOptions
         {
