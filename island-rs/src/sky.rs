@@ -10,11 +10,18 @@ const LATITUDE_STEP: f32 = 1.0 / 16.0;
 /// Radius of the generated sky hemisphere in normalized island coordinates.
 pub const SKY_DOME_RADIUS: f32 = 1.0;
 
+/// Depth of the cylindrical horizon skirt below normalized sea level.
+///
+/// The overlap hides the finite engine water plane when a camera above the
+/// surface looks down through the geometric horizon.
+pub const SKY_DOME_SKIRT_DEPTH: f32 = 0.25;
+
 fn mesh_index(index: usize) -> u32 {
     u32::try_from(index).expect("sky dome vertex count must fit a 32-bit mesh index")
 }
 
-/// Builds an inward-facing hemisphere centred over the normalized island.
+/// Builds an inward-facing hemisphere centred over the normalized island,
+/// closed below sea level by a short cylindrical horizon skirt.
 ///
 /// The island occupies `[0, 1]` on both horizontal axes, so a radius of one
 /// becomes exactly one island width after an engine applies its world scale.
@@ -22,8 +29,9 @@ fn mesh_index(index: usize) -> u32 {
 pub fn generate_sky_dome() -> Mesh {
     let ring_width = LONGITUDE_SEGMENTS + 1;
     let ring_vertex_count = LATITUDE_SEGMENTS * ring_width;
-    let vertex_count = ring_vertex_count + LONGITUDE_SEGMENTS;
-    let triangle_count = (LATITUDE_SEGMENTS - 1) * LONGITUDE_SEGMENTS * 2 + LONGITUDE_SEGMENTS;
+    let skirt_vertex_count = ring_width;
+    let vertex_count = ring_vertex_count + skirt_vertex_count + LONGITUDE_SEGMENTS;
+    let triangle_count = LATITUDE_SEGMENTS * LONGITUDE_SEGMENTS * 2 + LONGITUDE_SEGMENTS;
     let centre = Vec3::new(0.5, 0.5, 0.0);
     let mut mesh = Mesh {
         vertices: Vec::with_capacity(vertex_count),
@@ -53,6 +61,33 @@ pub fn generate_sky_dome() -> Mesh {
             u += LONGITUDE_STEP;
         }
         v += LATITUDE_STEP;
+    }
+
+    let skirt_ring = mesh.vertices.len();
+    let mut skirt_u = 0.0;
+    for _longitude in 0..=LONGITUDE_SEGMENTS {
+        let azimuth = TAU * skirt_u;
+        let horizontal_offset = Vec3::new(azimuth.cos(), azimuth.sin(), 0.0) * SKY_DOME_RADIUS;
+        mesh.vertices
+            .push(centre + horizontal_offset - Vec3::Z * SKY_DOME_SKIRT_DEPTH);
+        mesh.normals.push(-horizontal_offset.normalize());
+        mesh.uv.push(Vec2::new(skirt_u, 0.0));
+        skirt_u += LONGITUDE_STEP;
+    }
+
+    for longitude in 0..LONGITUDE_SEGMENTS {
+        let lower_left = mesh_index(skirt_ring + longitude);
+        let lower_right = lower_left + 1;
+        let upper_left = mesh_index(longitude);
+        let upper_right = upper_left + 1;
+        mesh.triangles.extend([
+            lower_left,
+            upper_left,
+            lower_right,
+            lower_right,
+            upper_left,
+            upper_right,
+        ]);
     }
 
     for latitude in 0..LATITUDE_SEGMENTS - 1 {
@@ -97,7 +132,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn dome_has_island_scale_radius_inward_faces_and_a_split_uv_seam() {
+    fn dome_has_inward_hemisphere_horizon_skirt_and_a_split_uv_seam() {
         let mesh = generate_sky_dome();
         let centre = Vec3::new(0.5, 0.5, 0.0);
 
@@ -109,9 +144,15 @@ mod tests {
         assert!(mesh.uv.iter().all(|uv| uv.is_finite()));
         for (vertex, normal) in mesh.vertices.iter().zip(&mesh.normals) {
             let offset = *vertex - centre;
-            assert!((offset.length() - SKY_DOME_RADIUS).abs() < 1.0e-5);
-            assert!(normal.dot(offset) < -0.999);
-            assert!(vertex.z >= 0.0);
+            if offset.z < 0.0 {
+                let horizontal_offset = offset.truncate().extend(0.0);
+                assert!((horizontal_offset.length() - SKY_DOME_RADIUS).abs() < 1.0e-5);
+                assert!(offset.z >= -SKY_DOME_SKIRT_DEPTH - 1.0e-5);
+                assert!(normal.dot(horizontal_offset) < -0.999);
+            } else {
+                assert!((offset.length() - SKY_DOME_RADIUS).abs() < 1.0e-5);
+                assert!(normal.dot(offset) < -0.999);
+            }
         }
 
         for triangle in mesh.triangles.chunks_exact(3) {

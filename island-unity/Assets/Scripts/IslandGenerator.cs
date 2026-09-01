@@ -12,6 +12,8 @@ using Debug = UnityEngine.Debug;
 public sealed class IslandGenerator : MonoBehaviour
 {
     private const float SeaHeight = 0f;
+    private const float SeaHorizonOverlap = 1.05f;
+    private const float SkyDomeSkirtDepthRatio = 0.25f;
     private const float ValidationWorldSize = 2000f;
     private const int SurfaceMapDimension = 2048;
     private const int CliffNoiseDimension = 64;
@@ -1524,9 +1526,11 @@ public sealed class IslandGenerator : MonoBehaviour
             }
             seaObject.transform.SetParent(runtimeRoot.transform, false);
             seaObject.transform.localPosition = Vector3.up * SeaHeight;
-            // Unity's built-in plane is 10 metres square. Give it a diameter of
-            // two island widths so its edges reach the sky dome's world-size radius.
-            seaObject.transform.localScale = Vector3.one * (worldSize / 5f);
+            // Unity's built-in plane is 10 metres square. Extend it just behind
+            // the sky dome's below-sea horizon skirt so the square boundary can
+            // never become the last visible water pixel.
+            seaObject.transform.localScale = Vector3.one
+                * (worldSize / 5f * SeaHorizonOverlap);
             seaObject.GetComponent<MeshRenderer>().sharedMaterial = seaMaterial;
             DestroyUnityObject(seaObject.GetComponent<Collider>());
             seaObject.SetActive(rendering.ShowSea);
@@ -3349,23 +3353,33 @@ public sealed class IslandGenerator : MonoBehaviour
         {
             var vertex = validationSkyDome.vertices[index];
             var normal = validationSkyDome.normals[index];
+            var belowSeaLevel = vertex.y < -0.001f;
+            var horizontalRadius = new Vector2(vertex.x, vertex.z).magnitude;
+            var inwardReference = belowSeaLevel
+                ? new Vector3(-vertex.x, 0f, -vertex.z).normalized
+                : -vertex.normalized;
             if (!IsFinite(vertex.x)
                 || !IsFinite(vertex.y)
                 || !IsFinite(vertex.z)
-                || vertex.y < -0.001f
-                || Mathf.Abs(vertex.magnitude - ValidationWorldSize) > 0.1f
-                || Vector3.Dot(vertex.normalized, normal) > -0.999f)
+                || vertex.y < -ValidationWorldSize * SkyDomeSkirtDepthRatio - 0.1f
+                || (belowSeaLevel
+                    ? Mathf.Abs(horizontalRadius - ValidationWorldSize) > 0.1f
+                    : Mathf.Abs(vertex.magnitude - ValidationWorldSize) > 0.1f)
+                || Vector3.Dot(inwardReference, normal) < 0.999f)
             {
                 throw new InvalidOperationException(
-                    "Native sky dome is not an inward-facing island-radius hemisphere.");
+                    "Native sky dome is not an inward-facing island-radius "
+                    + "hemisphere with a closed horizon skirt.");
             }
         }
         var uploadedSkyDome = CreateGeneratedMesh(validationSkyDome);
         try
         {
             var bounds = uploadedSkyDome.bounds;
+            var expectedHeight = ValidationWorldSize
+                * (1f + SkyDomeSkirtDepthRatio);
             if (Mathf.Abs(bounds.size.x - ValidationWorldSize * 2f) > 0.1f
-                || Mathf.Abs(bounds.size.y - ValidationWorldSize) > 0.1f
+                || Mathf.Abs(bounds.size.y - expectedHeight) > 0.1f
                 || Mathf.Abs(bounds.size.z - ValidationWorldSize * 2f) > 0.1f)
             {
                 throw new InvalidOperationException(
