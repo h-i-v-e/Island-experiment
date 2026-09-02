@@ -17,9 +17,93 @@ public static class IslandGeneratorValidation
         ValidateSkyDomeShader();
         ValidateCloudReceiverShaders();
         ValidateSolarLightingCycle();
+        ValidateOpenSeaEnvironmentAnchoring();
         ValidateSandboxScene();
         ValidateRealtimeShadowRender();
         Debug.Log("IslandGenerator component, sandbox level, and native validation passed.");
+    }
+
+    private static void ValidateOpenSeaEnvironmentAnchoring()
+    {
+        var anchor = WorldEnvironmentController.SnapAnchor(
+            new Vector3(37f, 912f, -38f),
+            4.5f,
+            25f);
+        if (anchor != new Vector3(25f, 4.5f, -50f))
+        {
+            throw new InvalidOperationException(
+                "The open-sea environment anchor is not snapped in XZ at sea level.");
+        }
+        var nearbyAnchor = WorldEnvironmentController.SnapAnchor(
+            new Vector3(37.4f, -120f, -38.2f),
+            4.5f,
+            25f);
+        if (nearbyAnchor != anchor)
+        {
+            throw new InvalidOperationException(
+                "Small player movements should not move the open-sea environment.");
+        }
+
+        ValidateOpenSeaEnvironmentOwnership();
+    }
+
+    private static void ValidateOpenSeaEnvironmentOwnership()
+    {
+        var root = new GameObject("Open Sea Environment Validation");
+        var target = new GameObject("Open Sea Follow Target");
+        try
+        {
+            target.transform.position = new Vector3(37f, 120f, -38f);
+            var controller = root.AddComponent<WorldEnvironmentController>();
+            controller.SetFollowTarget(target.transform);
+            var firstSkyMaterial = new Material(Shader.Find("Motu/Sky Dome"));
+            var firstSeaMaterial = new Material(Shader.Find("Motu/Sea Water"));
+            var firstWeather = new Texture2D(1, 1, TextureFormat.RGBA32, false, true);
+            controller.Install(
+                firstSkyMaterial,
+                firstSeaMaterial,
+                firstWeather,
+                2000f,
+                4200f,
+                0f,
+                true,
+                null);
+            var retainedSkyMesh = controller.SkyMesh;
+            if (retainedSkyMesh == null
+                || controller.OceanTransform == null
+                || controller.MoonLight == null
+                || controller.AnchorPosition != new Vector3(25f, 0f, -50f))
+            {
+                throw new InvalidOperationException(
+                    "The global sky, ocean, moon, or player-relative anchor was not installed.");
+            }
+
+            var secondSkyMaterial = new Material(Shader.Find("Motu/Sky Dome"));
+            var secondSeaMaterial = new Material(Shader.Find("Motu/Sea Water"));
+            var secondWeather = new Texture2D(1, 1, TextureFormat.RGBA32, false, true);
+            controller.Install(
+                secondSkyMaterial,
+                secondSeaMaterial,
+                secondWeather,
+                2000f,
+                4200f,
+                0f,
+                true,
+                null);
+            if (controller.SkyMesh != retainedSkyMesh
+                || firstSkyMaterial != null
+                || firstSeaMaterial != null
+                || firstWeather != null)
+            {
+                throw new InvalidOperationException(
+                    "Environment replacement did not reuse global geometry or release old resources.");
+            }
+        }
+        finally
+        {
+            UnityEngine.Object.DestroyImmediate(target);
+            UnityEngine.Object.DestroyImmediate(root);
+        }
     }
 
     private static void ValidateFernShader()
@@ -52,13 +136,17 @@ public static class IslandGeneratorValidation
 
     private static void ValidateWaterfallMistShader()
     {
-        var shader = Shader.Find("Motu/Waterfall Foot Mist");
-        if (shader == null
-            || !shader.isSupported
-            || ShaderUtil.ShaderHasError(shader))
+        var mistShader = Shader.Find("Motu/Waterfall Foot Mist");
+        var sprayShader = Shader.Find("Motu/Waterfall Spray Particle");
+        if (mistShader == null
+            || sprayShader == null
+            || !mistShader.isSupported
+            || !sprayShader.isSupported
+            || ShaderUtil.ShaderHasError(mistShader)
+            || ShaderUtil.ShaderHasError(sprayShader))
         {
             throw new InvalidOperationException(
-                "The waterfall-foot volumetric mist shader is missing or invalid.");
+                "A waterfall-foot mist or impact-spray shader is missing or invalid.");
         }
     }
 

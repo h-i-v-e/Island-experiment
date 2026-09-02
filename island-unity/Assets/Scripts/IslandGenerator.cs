@@ -105,10 +105,7 @@ public sealed class IslandGenerator : MonoBehaviour
     private NativeIslandHandle islandHandle;
     private TerrainTileStreamer terrainStreamer;
     private GameObject runtimeRoot;
-    private GameObject skyDomeObject;
-    private GameObject moonLightObject;
-    private GameObject seaObject;
-    private Mesh skyDomeMesh;
+    private WorldEnvironmentController worldEnvironment;
     private Material skyDomeMaterial;
     private Light moonLight;
     private Material terrainMaterial;
@@ -142,6 +139,7 @@ public sealed class IslandGenerator : MonoBehaviour
     private bool ownsCliffNoiseTexture;
     private bool ownsRiverNoiseTexture;
     private bool ownsGrassPatchNoiseTexture;
+    private bool environmentResourcesInstalled;
     private int appliedCloudSeed = int.MinValue;
     private int appliedCloudResolution;
     private Vector2 cloudWindOffset;
@@ -209,6 +207,10 @@ public sealed class IslandGenerator : MonoBehaviour
     private void OnEnable()
     {
         Camera.onPreCull += PrepareCameraRender;
+        if (Application.isPlaying)
+        {
+            EnsureWorldEnvironment();
+        }
         EnsureActiveCameraDepthTextures();
         ApplyDistanceHazeSettings();
         UpdateSolarLighting(0f);
@@ -229,6 +231,7 @@ public sealed class IslandGenerator : MonoBehaviour
     private void PrepareCameraRender(Camera camera)
     {
         EnsureCameraDepthTexture(camera);
+        worldEnvironment?.BindReflectionCamera(camera);
         ApplyAtmosphericCameraClearColour(camera);
     }
 
@@ -280,6 +283,7 @@ public sealed class IslandGenerator : MonoBehaviour
         ApplyLiveSettings();
         UpdateSolarLighting(Time.unscaledDeltaTime);
         ApplyCloudSettings(Time.unscaledDeltaTime);
+        worldEnvironment?.SetFollowTarget(streaming.Target);
         if (terrainStreamer != null && streaming.Target != null)
         {
             terrainStreamer.SetPlayerPosition(streaming.Target.position);
@@ -668,8 +672,6 @@ public sealed class IslandGenerator : MonoBehaviour
         }
         appliedWorldToLocal = worldToLocal;
         hasAppliedWorldToLocal = true;
-        Shader.SetGlobalMatrix(IslandWorldToLocalId, worldToLocal);
-        skyDomeMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
         terrainMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
         terrainLod1Material?.SetMatrix(IslandWorldToLocalId, worldToLocal);
         terrainLod2Material?.SetMatrix(IslandWorldToLocalId, worldToLocal);
@@ -683,6 +685,15 @@ public sealed class IslandGenerator : MonoBehaviour
         treeLod0FoliageMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
         reedMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
         fernMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
+    }
+
+    private void EnsureWorldEnvironment()
+    {
+        if (worldEnvironment == null)
+        {
+            worldEnvironment = WorldEnvironmentController.FindOrCreate();
+        }
+        worldEnvironment.SetFollowTarget(streaming.Target);
     }
 
     private void EnsureCloudWeatherTexture()
@@ -880,7 +891,7 @@ public sealed class IslandGenerator : MonoBehaviour
         if (appliedShowSea != rendering.ShowSea)
         {
             appliedShowSea = rendering.ShowSea;
-            seaObject?.SetActive(rendering.ShowSea);
+            worldEnvironment?.SetSeaVisible(rendering.ShowSea);
         }
         if (appliedShowGrass != rendering.ShowGrass)
         {
@@ -1013,18 +1024,24 @@ public sealed class IslandGenerator : MonoBehaviour
             lunarPhase,
             rendering.FullMoonLightIntensity,
             state.LocalDirection.y);
+        var worldSunDirection = transform.TransformDirection(
+            state.LocalDirection).normalized;
+        var worldMoonDirection = transform.TransformDirection(
+            moonState.LocalDirection).normalized;
+        var worldMoonLightDirection = transform.TransformDirection(
+            moonState.LocalLightDirection).normalized;
 
-        skyDomeMaterial?.SetVector(SunDirectionId, state.LocalDirection);
+        skyDomeMaterial?.SetVector(SunDirectionId, worldSunDirection);
         skyDomeMaterial?.SetColor(SunColourId, state.SunColour);
         skyDomeMaterial?.SetColor(
             "_HorizonColor",
             CurrentAtmosphericHorizonBaseColour());
         skyDomeMaterial?.SetFloat(SunVisibilityId, state.SunVisibility);
         skyDomeMaterial?.SetFloat(SunHaloStrengthId, state.SunHaloStrength);
-        skyDomeMaterial?.SetVector(MoonDirectionId, moonState.LocalDirection);
+        skyDomeMaterial?.SetVector(MoonDirectionId, worldMoonDirection);
         skyDomeMaterial?.SetVector(
             MoonLightDirectionId,
-            moonState.LocalLightDirection);
+            worldMoonLightDirection);
         skyDomeMaterial?.SetFloat(MoonVisibilityId, moonState.Visibility);
         skyDomeMaterial?.SetFloat(SkyExposureId, currentSkyExposure);
         skyDomeMaterial?.SetFloat(StarVisibilityId, currentNightStrength);
@@ -1034,8 +1051,6 @@ public sealed class IslandGenerator : MonoBehaviour
         seaMaterial?.SetFloat(WaterSkyExposureId, currentSkyExposure);
 
         var sun = rendering.Sunlight != null ? rendering.Sunlight : RenderSettings.sun;
-        var worldSunDirection = transform.TransformDirection(
-            state.LocalDirection).normalized;
         if (sun != null)
         {
             PositionDirectionalLight(sun, worldSunDirection);
@@ -1044,8 +1059,6 @@ public sealed class IslandGenerator : MonoBehaviour
             sun.enabled = state.SunIntensity > 0.0001f;
         }
 
-        var worldMoonDirection = transform.TransformDirection(
-            moonState.LocalDirection).normalized;
         var moonShadowsActive = state.SunVisibility <= 0.0001f
             && state.SunIntensity <= 0.0001f
             && moonState.LightIntensity > 0.0001f;
@@ -1082,8 +1095,7 @@ public sealed class IslandGenerator : MonoBehaviour
             "_GrassLightColor",
             activeLightColour);
         grassMaterial?.SetColor("_GrassAmbientColor", state.AmbientColour);
-        Shader.SetGlobalVector(CloudLightDirectionId, transform.InverseTransformDirection(
-            activeLightDirection).normalized);
+        Shader.SetGlobalVector(CloudLightDirectionId, activeLightDirection.normalized);
         Shader.SetGlobalFloat(
             CloudLightActiveId,
             activeLightColour.maxColorComponent > 0.0001f ? 1f : 0f);
@@ -1116,10 +1128,11 @@ public sealed class IslandGenerator : MonoBehaviour
             return;
         }
         var latitudeRadians = orbitLatitudeDegrees * Mathf.Deg2Rad;
-        var orbitAxis = new Vector3(
+        var localOrbitAxis = new Vector3(
             0f,
             Mathf.Sin(latitudeRadians),
             Mathf.Cos(latitudeRadians));
+        var orbitAxis = transform.TransformDirection(localOrbitAxis).normalized;
         var orbitAngle = (Mathf.Repeat(solarTimeHours, 24f) - 6f)
             * Mathf.PI
             / 12f;
@@ -1151,7 +1164,10 @@ public sealed class IslandGenerator : MonoBehaviour
 
     private void PositionDirectionalLight(Light light, Vector3 sourceDirection)
     {
-        light.transform.position = transform.position
+        var centre = worldEnvironment != null
+            ? worldEnvironment.AnchorPosition
+            : transform.position;
+        light.transform.position = centre
             + sourceDirection * generation.WorldSizeMetres * 0.9f;
         var lightForward = -sourceDirection;
         var rotationUp = transform.TransformDirection(Vector3.forward);
@@ -1476,10 +1492,23 @@ public sealed class IslandGenerator : MonoBehaviour
             await Task.Yield();
             cancellation.Token.ThrowIfCancellationRequested();
 
+            EnsureWorldEnvironment();
+            worldEnvironment.Install(
+                skyDomeMaterial,
+                seaMaterial,
+                cloudWeatherTexture,
+                worldSize,
+                worldSize * 2f * SeaHorizonOverlap,
+                transform.TransformPoint(Vector3.up * SeaHeight).y,
+                rendering.ShowSea,
+                rendering.Sunlight != null ? rendering.Sunlight : RenderSettings.sun);
+            environmentResourcesInstalled = true;
+            skyDomeMaterial = worldEnvironment.SkyMaterial;
+            seaMaterial = worldEnvironment.SeaMaterial;
+            moonLight = worldEnvironment.MoonLight;
+
             runtimeRoot = new GameObject("Generated Island");
             runtimeRoot.transform.SetParent(transform, false);
-            CreateSkyDomeObject(prepared.skyDome);
-            CreateMoonLight();
             UpdateSolarLighting(0f);
             var terrainRoot = new GameObject("Terrain Tiles");
             terrainRoot.transform.SetParent(runtimeRoot.transform, false);
@@ -1517,23 +1546,6 @@ public sealed class IslandGenerator : MonoBehaviour
                 cancellation.Token);
             terrainStreamer.SetWaterfallFootDebug(debugSettings.ShowWaterfallFeet);
 
-            seaObject = GameObject.CreatePrimitive(PrimitiveType.Plane);
-            seaObject.name = "Sea";
-            var waterLayer = LayerMask.NameToLayer("Water");
-            if (waterLayer >= 0)
-            {
-                seaObject.layer = waterLayer;
-            }
-            seaObject.transform.SetParent(runtimeRoot.transform, false);
-            seaObject.transform.localPosition = Vector3.up * SeaHeight;
-            // Unity's built-in plane is 10 metres square. Extend it just behind
-            // the sky dome's below-sea horizon skirt so the square boundary can
-            // never become the last visible water pixel.
-            seaObject.transform.localScale = Vector3.one
-                * (worldSize / 5f * SeaHorizonOverlap);
-            seaObject.GetComponent<MeshRenderer>().sharedMaterial = seaMaterial;
-            DestroyUnityObject(seaObject.GetComponent<Collider>());
-            seaObject.SetActive(rendering.ShowSea);
             ResetAppliedLiveSettings();
             ApplyLiveSettings();
             if (streaming.Target != null)
@@ -1610,6 +1622,11 @@ public sealed class IslandGenerator : MonoBehaviour
     public void SetStreamingTarget(Transform target)
     {
         streaming.Target = target;
+        if (Application.isPlaying || worldEnvironment != null)
+        {
+            EnsureWorldEnvironment();
+            worldEnvironment.SetFollowTarget(target);
+        }
         if (terrainStreamer != null && target != null)
         {
             terrainStreamer.SetPlayerPosition(target.position);
@@ -1664,6 +1681,11 @@ public sealed class IslandGenerator : MonoBehaviour
         Material treeFoliageTemplate = null)
     {
         streaming.Target = streamingTarget;
+        if (Application.isPlaying || worldEnvironment != null)
+        {
+            EnsureWorldEnvironment();
+            worldEnvironment.SetFollowTarget(streamingTarget);
+        }
         rendering.Sunlight = sunlight;
         rendering.AssignMaterialTemplates(
             terrainTemplate,
@@ -1757,8 +1779,6 @@ public sealed class IslandGenerator : MonoBehaviour
             cancellationToken.ThrowIfCancellationRequested();
             var seaMask = PrepareSeaMask(handle, SurfaceMapDimension);
             cancellationToken.ThrowIfCancellationRequested();
-            var skyDome = PrepareSkyDome(worldSize);
-            cancellationToken.ThrowIfCancellationRequested();
             var materialTextures = PrepareMaterialTextures(
                 materialColours,
                 materialTextureResolution);
@@ -1783,7 +1803,6 @@ public sealed class IslandGenerator : MonoBehaviour
                 handle,
                 surfaceMaps,
                 seaMask,
-                skyDome,
                 overviewTiles,
                 riverTiles,
                 riverRockTiles,
@@ -1860,7 +1879,7 @@ public sealed class IslandGenerator : MonoBehaviour
         }
     }
 
-    private static IslandPreparedMesh PrepareSkyDome(float worldSize)
+    internal static IslandPreparedMesh PrepareSkyDome(float worldSize)
     {
         MotuNative.CreateSkyDome(out var export);
         try
@@ -2673,46 +2692,6 @@ public sealed class IslandGenerator : MonoBehaviour
         return CreateMesh(source, false);
     }
 
-    private void CreateSkyDomeObject(IslandPreparedMesh source)
-    {
-        skyDomeMesh = CreateGeneratedMesh(source);
-        skyDomeMesh.name = "Rust Generated Island-Scale Sky Dome";
-        skyDomeObject = new GameObject("Sky Dome");
-        skyDomeObject.transform.SetParent(runtimeRoot.transform, false);
-        skyDomeObject.AddComponent<MeshFilter>().sharedMesh = skyDomeMesh;
-        var renderer = skyDomeObject.AddComponent<MeshRenderer>();
-        renderer.sharedMaterial = skyDomeMaterial;
-        renderer.shadowCastingMode = ShadowCastingMode.Off;
-        renderer.receiveShadows = false;
-        renderer.lightProbeUsage = LightProbeUsage.Off;
-        renderer.reflectionProbeUsage = ReflectionProbeUsage.Off;
-        renderer.motionVectorGenerationMode = MotionVectorGenerationMode.ForceNoMotion;
-        renderer.allowOcclusionWhenDynamic = false;
-    }
-
-    private void CreateMoonLight()
-    {
-        moonLightObject = new GameObject("Moon Light");
-        moonLightObject.transform.SetParent(runtimeRoot.transform, false);
-        moonLight = moonLightObject.AddComponent<Light>();
-        moonLight.type = LightType.Directional;
-        moonLight.renderMode = LightRenderMode.ForcePixel;
-        moonLight.color = MoonLightColour;
-        moonLight.intensity = 0f;
-        moonLight.shadows = LightShadows.Soft;
-        var sun = rendering.Sunlight;
-        if (sun != null)
-        {
-            moonLight.cullingMask = sun.cullingMask;
-            moonLight.shadowStrength = sun.shadowStrength;
-            moonLight.shadowBias = sun.shadowBias;
-            moonLight.shadowNormalBias = sun.shadowNormalBias;
-            moonLight.shadowNearPlane = sun.shadowNearPlane;
-            moonLight.shadowResolution = sun.shadowResolution;
-        }
-        moonLight.enabled = false;
-    }
-
     private static IslandPreparedMesh CopyMeshData(
         MotuNative.Vector3Array sourceVertices,
         MotuNative.Vector3Array sourceNormals,
@@ -2903,23 +2882,6 @@ public sealed class IslandGenerator : MonoBehaviour
             DestroyUnityObject(terrainStreamer.gameObject);
             terrainStreamer = null;
         }
-        DestroyUnityObject(skyDomeObject);
-        skyDomeObject = null;
-        DestroyUnityObject(skyDomeMesh);
-        skyDomeMesh = null;
-        if (moonLight != null)
-        {
-            moonLight.enabled = false;
-            if (RenderSettings.sun == moonLight)
-            {
-                RenderSettings.sun = rendering.Sunlight;
-            }
-        }
-        DestroyUnityObject(moonLightObject);
-        moonLightObject = null;
-        moonLight = null;
-        DestroyUnityObject(seaObject);
-        seaObject = null;
         DestroyUnityObject(runtimeRoot);
         runtimeRoot = null;
         terrainMaterial?.SetTexture("_WorldNormal", null);
@@ -2946,7 +2908,12 @@ public sealed class IslandGenerator : MonoBehaviour
         terrainMaterialTextures?.Unbind(terrainMaterial, grassMaterial);
         terrainMaterialTextures?.Dispose();
         terrainMaterialTextures = null;
-        DestroyUnityObject(skyDomeMaterial);
+        if (!environmentResourcesInstalled)
+        {
+            DestroyUnityObject(skyDomeMaterial);
+            DestroyUnityObject(seaMaterial);
+            DestroyUnityObject(cloudWeatherTexture);
+        }
         DestroyUnityObject(terrainMaterial);
         DestroyUnityObject(terrainLod1Material);
         DestroyUnityObject(terrainLod2Material);
@@ -2959,12 +2926,10 @@ public sealed class IslandGenerator : MonoBehaviour
         DestroyUnityObject(reedMaterial);
         DestroyUnityObject(fernMaterial);
         DestroyUnityObject(riverMaterial);
-        DestroyUnityObject(seaMaterial);
         DestroyUnityObject(meshEdgeMaterial);
         if (ownsCliffNoiseTexture) DestroyUnityObject(cliffNoiseTexture);
         if (ownsRiverNoiseTexture) DestroyUnityObject(riverNoiseTexture);
         if (ownsGrassPatchNoiseTexture) DestroyUnityObject(grassPatchNoiseTexture);
-        DestroyUnityObject(cloudWeatherTexture);
         terrainMaterial = null;
         skyDomeMaterial = null;
         terrainLod1Material = null;
@@ -2984,12 +2949,16 @@ public sealed class IslandGenerator : MonoBehaviour
         riverNoiseTexture = null;
         grassPatchNoiseTexture = null;
         cloudWeatherTexture = null;
+        environmentResourcesInstalled = false;
         ownsCliffNoiseTexture = false;
         ownsRiverNoiseTexture = false;
         ownsGrassPatchNoiseTexture = false;
         appliedCloudSeed = int.MinValue;
         appliedCloudResolution = 0;
-        Shader.SetGlobalFloat(CloudEnabledId, 0f);
+        if (worldEnvironment == null)
+        {
+            Shader.SetGlobalFloat(CloudEnabledId, 0f);
+        }
     }
 
     private void ResetAppliedLiveSettings()
@@ -4208,21 +4177,37 @@ public sealed class IslandGenerator : MonoBehaviour
                 var pool = mistRoot.AddComponent<WaterfallMistPool>();
                 pool.Initialize(indexFeet, ValidationWorldSize, true);
                 if (pool.PoolCount != 32
-                    || pool.CreatedVolumeCount != 32)
+                    || pool.CreatedVolumeCount != 32
+                    || pool.CreatedSpraySystemCount != 32)
                 {
                     throw new InvalidOperationException(
-                        "The waterfall fog pool is not fixed at 32 volumes.");
-                }
-                if (mistRoot.GetComponentInChildren<ParticleSystem>(true) != null)
-                {
-                    throw new InvalidOperationException(
-                        "The waterfall fog pool still creates a particle emitter.");
+                        "The waterfall-effects pool is not fixed at 32 mist/spray slots.");
                 }
                 pool.SetPlayerPosition(indexFeet[0].position, Vector2Int.zero);
-                if (pool.ActiveVolumeCount != 1)
+                if (pool.ActiveVolumeCount != 1
+                    || pool.ActiveSpraySystemCount != 1)
                 {
                     throw new InvalidOperationException(
-                        "A nearby waterfall foot did not activate its fog volume.");
+                        "A nearby waterfall foot did not activate its mist and spray.");
+                }
+                var activeSpray = Array.Find(
+                    mistRoot.GetComponentsInChildren<ParticleSystem>(true),
+                    spray => spray.isPlaying);
+                var sprayVelocity = activeSpray?.velocityOverLifetime;
+                if (activeSpray == null
+                    || activeSpray.main.simulationSpace
+                        != ParticleSystemSimulationSpace.World
+                    || activeSpray.main.startSpeed.constantMin <= 0f
+                    || activeSpray.main.gravityModifier.constantMin < 1f
+                    || activeSpray.main.maxParticles < 1000
+                    || activeSpray.emission.rateOverTime.constant < 50f
+                    || activeSpray.transform.forward.y <= 0f
+                    || !sprayVelocity.HasValue
+                    || sprayVelocity.Value.x.mode != sprayVelocity.Value.y.mode
+                    || sprayVelocity.Value.x.mode != sprayVelocity.Value.z.mode)
+                {
+                    throw new InvalidOperationException(
+                        "Waterfall spray is not configured as a dense outward ballistic arc.");
                 }
                 var activeMistRenderer = Array.Find(
                     mistRoot.GetComponentsInChildren<MeshRenderer>(true),
@@ -4238,16 +4223,18 @@ public sealed class IslandGenerator : MonoBehaviour
                     new Vector2Int(
                         WaterfallFootIndex.Resolution - 1,
                         WaterfallFootIndex.Resolution - 1));
-                if (pool.ActiveVolumeCount != 0)
+                if (pool.ActiveVolumeCount != 0
+                    || pool.ActiveSpraySystemCount != 0)
                 {
                     throw new InvalidOperationException(
-                        "Waterfall fog remained active outside the LOD 0 neighborhood.");
+                        "Waterfall effects remained active outside the LOD 0 neighborhood.");
                 }
                 pool.ClearPlayerFocus();
-                if (pool.ActiveVolumeCount != 0)
+                if (pool.ActiveVolumeCount != 0
+                    || pool.ActiveSpraySystemCount != 0)
                 {
                     throw new InvalidOperationException(
-                        "Clearing waterfall focus did not clear waterfall fog.");
+                        "Clearing waterfall focus did not clear waterfall effects.");
                 }
                 pool.DisposePool();
             }

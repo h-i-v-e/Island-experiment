@@ -19,14 +19,22 @@ public sealed class WaterfallMistPool : MonoBehaviour
     private sealed class Slot
     {
         internal readonly GameObject volumeObject;
+        internal readonly Transform volumeTransform;
         internal readonly MeshRenderer renderer;
+        internal readonly ParticleSystem spray;
         internal readonly MaterialPropertyBlock properties = new MaterialPropertyBlock();
         internal int footIndex = -1;
 
-        internal Slot(GameObject volumeObject, MeshRenderer renderer)
+        internal Slot(
+            GameObject volumeObject,
+            Transform volumeTransform,
+            MeshRenderer renderer,
+            ParticleSystem spray)
         {
             this.volumeObject = volumeObject;
+            this.volumeTransform = volumeTransform;
             this.renderer = renderer;
+            this.spray = spray;
         }
     }
 
@@ -37,6 +45,7 @@ public sealed class WaterfallMistPool : MonoBehaviour
     private WaterfallFootIndex index;
     private Mesh sharedVolumeMesh;
     private Material sharedMistMaterial;
+    private Material sharedSprayMaterial;
     private Vector3 lastQueryPosition = new Vector3(float.PositiveInfinity, 0f, 0f);
     private Vector2Int lastLod1 = new Vector2Int(-1, -1);
     private bool riversVisible;
@@ -69,6 +78,36 @@ public sealed class WaterfallMistPool : MonoBehaviour
             for (var slotIndex = 0; slotIndex < slots.Length; slotIndex++)
             {
                 if (slots[slotIndex]?.renderer.enabled == true)
+                {
+                    count++;
+                }
+            }
+            return count;
+        }
+    }
+    internal int CreatedSpraySystemCount
+    {
+        get
+        {
+            var count = 0;
+            for (var slotIndex = 0; slotIndex < slots.Length; slotIndex++)
+            {
+                if (slots[slotIndex]?.spray != null)
+                {
+                    count++;
+                }
+            }
+            return count;
+        }
+    }
+    internal int ActiveSpraySystemCount
+    {
+        get
+        {
+            var count = 0;
+            for (var slotIndex = 0; slotIndex < slots.Length; slotIndex++)
+            {
+                if (slots[slotIndex]?.spray.isPlaying == true)
                 {
                     count++;
                 }
@@ -146,8 +185,10 @@ public sealed class WaterfallMistPool : MonoBehaviour
             }
         }
         DestroyUnityObject(sharedMistMaterial);
+        DestroyUnityObject(sharedSprayMaterial);
         DestroyUnityObject(sharedVolumeMesh);
         sharedMistMaterial = null;
+        sharedSprayMaterial = null;
         sharedVolumeMesh = null;
         index = null;
     }
@@ -319,11 +360,15 @@ public sealed class WaterfallMistPool : MonoBehaviour
 
         slot.footIndex = footIndex;
         slot.volumeObject.transform.SetPositionAndRotation(
-            impactPosition
-                - direction * (depth * 0.18f)
-                + Vector3.up * (height * 0.28f + SurfaceClearance),
+            impactPosition,
             Quaternion.LookRotation(direction, Vector3.up));
-        slot.volumeObject.transform.localScale = new Vector3(width, height, depth);
+        slot.volumeObject.transform.localScale = Vector3.one;
+        slot.volumeTransform.localPosition = new Vector3(
+            0f,
+            height * 0.28f + SurfaceClearance,
+            -depth * 0.18f);
+        slot.volumeTransform.localRotation = Quaternion.identity;
+        slot.volumeTransform.localScale = new Vector3(width, height, depth);
         slot.properties.SetFloat(DensityId, Mathf.Lerp(1.1f, 1.8f, impact));
         slot.properties.SetVector(
             NoiseOffsetId,
@@ -334,11 +379,15 @@ public sealed class WaterfallMistPool : MonoBehaviour
                 0f));
         slot.renderer.SetPropertyBlock(slot.properties);
         slot.renderer.enabled = true;
+        ConfigureAssignedSpray(slot.spray, width, depth, impact);
+        slot.spray.Clear(true);
+        slot.spray.Play(true);
     }
 
     private static void ReleaseSlot(Slot slot)
     {
         slot.renderer.enabled = false;
+        slot.spray.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
         slot.footIndex = -1;
     }
 
@@ -355,20 +404,46 @@ public sealed class WaterfallMistPool : MonoBehaviour
 
     private Slot CreateSlot(int slotIndex)
     {
-        var volumeObject = new GameObject($"Waterfall foot fog {slotIndex}");
+        var volumeObject = new GameObject($"Waterfall foot effects {slotIndex}");
         volumeObject.layer = gameObject.layer;
         volumeObject.transform.SetParent(transform, false);
-        var filter = volumeObject.AddComponent<MeshFilter>();
+
+        var fogObject = new GameObject("Volumetric mist");
+        fogObject.layer = gameObject.layer;
+        fogObject.transform.SetParent(volumeObject.transform, false);
+        var filter = fogObject.AddComponent<MeshFilter>();
         filter.sharedMesh = sharedVolumeMesh;
-        var renderer = volumeObject.AddComponent<MeshRenderer>();
+        var renderer = fogObject.AddComponent<MeshRenderer>();
         renderer.sharedMaterial = sharedMistMaterial;
         renderer.shadowCastingMode = ShadowCastingMode.Off;
-        renderer.receiveShadows = false;
+        renderer.receiveShadows = true;
         renderer.lightProbeUsage = LightProbeUsage.Off;
         renderer.reflectionProbeUsage = ReflectionProbeUsage.Off;
         renderer.allowOcclusionWhenDynamic = false;
         renderer.enabled = false;
-        return new Slot(volumeObject, renderer);
+
+        var sprayObject = new GameObject("Impact spray");
+        sprayObject.layer = gameObject.layer;
+        sprayObject.transform.SetParent(volumeObject.transform, false);
+        sprayObject.transform.localPosition = Vector3.up * SurfaceClearance;
+        // The exported foot direction points downstream. Tilt its local
+        // forward axis upward so droplets launch out from the impact line,
+        // then let world gravity pull them back into the plunge pool.
+        sprayObject.transform.localRotation = Quaternion.Euler(-24f, 0f, 0f);
+        var spray = sprayObject.AddComponent<ParticleSystem>();
+        ConfigureSharedSpray(spray);
+        var sprayRenderer = sprayObject.GetComponent<ParticleSystemRenderer>();
+        sprayRenderer.sharedMaterial = sharedSprayMaterial;
+        sprayRenderer.renderMode = ParticleSystemRenderMode.Stretch;
+        sprayRenderer.velocityScale = 0.07f;
+        sprayRenderer.lengthScale = 0.34f;
+        sprayRenderer.cameraVelocityScale = 0f;
+        sprayRenderer.shadowCastingMode = ShadowCastingMode.Off;
+        sprayRenderer.receiveShadows = true;
+        sprayRenderer.lightProbeUsage = LightProbeUsage.Off;
+        sprayRenderer.reflectionProbeUsage = ReflectionProbeUsage.Off;
+        sprayRenderer.allowOcclusionWhenDynamic = false;
+        return new Slot(volumeObject, fogObject.transform, renderer, spray);
     }
 
     private void CreateSharedVisuals()
@@ -382,7 +457,117 @@ public sealed class WaterfallMistPool : MonoBehaviour
         {
             name = "Waterfall foot fog material"
         };
+        var sprayShader = Shader.Find("Motu/Waterfall Spray Particle");
+        if (sprayShader == null)
+        {
+            throw new InvalidOperationException(
+                "The waterfall spray particle shader is unavailable.");
+        }
+        sharedSprayMaterial = new Material(sprayShader)
+        {
+            name = "Waterfall impact spray material"
+        };
         sharedVolumeMesh = CreateUnitCube();
+    }
+
+    private static void ConfigureSharedSpray(ParticleSystem spray)
+    {
+        var main = spray.main;
+        main.loop = true;
+        main.playOnAwake = false;
+        main.simulationSpace = ParticleSystemSimulationSpace.World;
+        main.startLifetime = new ParticleSystem.MinMaxCurve(0.48f, 0.95f);
+        main.startSpeed = new ParticleSystem.MinMaxCurve(2f, 4.5f);
+        main.startSize = new ParticleSystem.MinMaxCurve(0.055f, 0.16f);
+        main.startColor = new ParticleSystem.MinMaxGradient(
+            new Color(0.76f, 0.88f, 0.93f, 0.44f),
+            new Color(0.92f, 0.97f, 1f, 0.72f));
+        main.gravityModifier = new ParticleSystem.MinMaxCurve(1.05f, 1.45f);
+        main.maxParticles = 1200;
+
+        var emission = spray.emission;
+        emission.enabled = true;
+        emission.rateOverTime = 108f;
+
+        var shape = spray.shape;
+        shape.enabled = true;
+        shape.shapeType = ParticleSystemShapeType.Box;
+        shape.scale = new Vector3(3f, 0.08f, 1f);
+        shape.randomDirectionAmount = 0.16f;
+
+        var velocity = spray.velocityOverLifetime;
+        velocity.enabled = true;
+        velocity.space = ParticleSystemSimulationSpace.Local;
+        velocity.x = new ParticleSystem.MinMaxCurve(-0.32f, 0.32f);
+        // Unity requires every axis in this module to use the same curve mode.
+        // Two identical constants keep Y/Z neutral while matching X's mode.
+        velocity.y = new ParticleSystem.MinMaxCurve(0f, 0f);
+        velocity.z = new ParticleSystem.MinMaxCurve(0f, 0f);
+
+        var noise = spray.noise;
+        noise.enabled = true;
+        noise.quality = ParticleSystemNoiseQuality.Medium;
+        noise.separateAxes = true;
+        noise.strengthX = new ParticleSystem.MinMaxCurve(0.12f, 0.34f);
+        noise.strengthY = new ParticleSystem.MinMaxCurve(0.02f, 0.07f);
+        noise.strengthZ = new ParticleSystem.MinMaxCurve(0.08f, 0.24f);
+        noise.frequency = 0.65f;
+        noise.scrollSpeed = 0.22f;
+        noise.damping = true;
+        noise.octaveCount = 2;
+
+        var colour = spray.colorOverLifetime;
+        colour.enabled = true;
+        var gradient = new Gradient();
+        gradient.SetKeys(
+            new[]
+            {
+                new GradientColorKey(Color.white, 0f),
+                new GradientColorKey(new Color(0.82f, 0.92f, 0.96f), 1f),
+            },
+            new[]
+            {
+                new GradientAlphaKey(0f, 0f),
+                new GradientAlphaKey(0.92f, 0.12f),
+                new GradientAlphaKey(0.48f, 0.58f),
+                new GradientAlphaKey(0f, 1f),
+            });
+        colour.color = gradient;
+
+        var size = spray.sizeOverLifetime;
+        size.enabled = true;
+        var sizeCurve = new AnimationCurve(
+            new Keyframe(0f, 0.35f),
+            new Keyframe(0.18f, 1f),
+            new Keyframe(1f, 0.55f));
+        size.size = new ParticleSystem.MinMaxCurve(1f, sizeCurve);
+
+        spray.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+    }
+
+    private static void ConfigureAssignedSpray(
+        ParticleSystem spray,
+        float width,
+        float depth,
+        float impact)
+    {
+        var shape = spray.shape;
+        shape.scale = new Vector3(
+            Mathf.Max(width * 0.82f, 1f),
+            0.08f,
+            Mathf.Max(depth * 0.48f, 0.45f));
+
+        var emission = spray.emission;
+        emission.rateOverTime = Mathf.Lerp(80f, 260f, impact)
+            * Mathf.Clamp(width / 5f, 0.65f, 2.2f);
+
+        var main = spray.main;
+        main.startSpeed = new ParticleSystem.MinMaxCurve(
+            Mathf.Lerp(1.8f, 2.8f, impact),
+            Mathf.Lerp(3.6f, 5.8f, impact));
+        main.gravityModifier = new ParticleSystem.MinMaxCurve(
+            Mathf.Lerp(1.05f, 1.2f, impact),
+            Mathf.Lerp(1.4f, 1.75f, impact));
     }
 
     private static Mesh CreateUnitCube()

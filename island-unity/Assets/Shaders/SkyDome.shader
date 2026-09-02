@@ -44,7 +44,6 @@ Shader "Motu/Sky Dome"
             #pragma fragment Frag
             #pragma target 3.0
             #include "UnityCG.cginc"
-            float4x4 _IslandWorldToLocal;
             #include "CloudCommon.cginc"
 
             fixed4 _HorizonColor;
@@ -76,7 +75,7 @@ Shader "Motu/Sky Dome"
             struct VertexOutput
             {
                 float4 position : SV_POSITION;
-                float3 localDirection : TEXCOORD0;
+                float3 worldPosition : TEXCOORD0;
             };
 
             void CelestialDiscCoordinates(
@@ -236,20 +235,20 @@ Shader "Motu/Sky Dome"
             {
                 VertexOutput output;
                 output.position = UnityObjectToClipPos(input.vertex);
-                output.localDirection = input.vertex.xyz;
+                output.worldPosition = mul(unity_ObjectToWorld, input.vertex).xyz;
                 return output;
             }
 
             fixed4 Frag(VertexOutput input) : SV_Target
             {
-                float3 cameraLocalPosition = mul(
-                    _IslandWorldToLocal,
-                    float4(_WorldSpaceCameraPos.xyz, 1.0)).xyz;
-                float3 domeRay = input.localDirection - cameraLocalPosition;
+                float3 cameraWorldPosition = _WorldSpaceCameraPos.xyz;
+                float3 cameraWeatherPosition = MotuCloudWorldToLocal(
+                    cameraWorldPosition);
+                float3 domeRay = input.worldPosition - cameraWorldPosition;
                 float domeDistance = length(domeRay);
                 float3 skyDirection = domeRay / max(domeDistance, 0.0001);
-                // The dome is fixed around the island, but its colour gradient
-                // is a property of the camera's viewing direction. Using mesh
+                // The dome follows the viewer in XZ, but its colour gradient is
+                // a property of the world-space viewing direction. Using mesh
                 // UV elevation here made a high camera see zenith colour and a
                 // sunset halo in geometrically unrelated parts of the dome.
                 float elevation = pow(saturate(skyDirection.y), _GradientPower);
@@ -259,7 +258,7 @@ Shader "Motu/Sky Dome"
 
                 fixed3 stars = MotuNightStars(skyDirection);
                 MotuCloudSkyVolume cloudVolume = MotuCloudSkyVolumeAt(
-                    cameraLocalPosition,
+                    cameraWeatherPosition,
                     skyDirection,
                     domeDistance,
                     input.position.xy);

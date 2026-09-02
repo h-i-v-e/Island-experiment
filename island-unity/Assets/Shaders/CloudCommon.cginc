@@ -19,6 +19,7 @@ float _MotuCloudAmbientShadowStrength;
 float _MotuCloudCelestialStrength;
 float _MotuCloudLowElevationFade;
 float4 _MotuCloudLightDirection;
+float4 _MotuEnvironmentWorldOffset;
 float _MotuCloudLightActive;
 fixed4 _MotuCloudLightColor;
 fixed4 _MotuCloudAmbientColor;
@@ -27,7 +28,7 @@ float _MotuCloudNightStrength;
 
 float3 MotuCloudWorldToLocal(float3 worldPosition)
 {
-    return mul(_IslandWorldToLocal, float4(worldPosition, 1.0)).xyz;
+    return worldPosition + _MotuEnvironmentWorldOffset.xyz;
 }
 
 float2 MotuCloudWeatherUv(float2 localPosition)
@@ -184,88 +185,49 @@ MotuCloudSkyVolume MotuCloudSkyVolumeAt(
 
     float layerThickness = max(_MotuCloudVolume.x, 25.0);
     float layerBase = _MotuCloudAltitude - layerThickness * 0.5;
-    float layerTop = layerBase + layerThickness;
     float3 viewDirection = normalize(localViewDirection);
     maximumDistance = max(maximumDistance, 0.0);
-    float entryDistance = 0.0;
+    float domeRadius = max(maximumDistance, 1.0);
+    // The visual cloud layer is a shallow viewer-centred dome. Its lower
+    // surface begins at the configured world altitude overhead and descends
+    // continuously to sea level at the sky-dome rim. Cloud shadows remain at
+    // their physical world altitude; this curvature is the distant visual
+    // continuation that prevents a flat slab from ending in a visible line.
+    float edgeLayerBase = min(layerBase, 0.0);
+    const int IntersectionSampleCount = 24;
+    float intersectionStep = maximumDistance / IntersectionSampleCount;
+    float entryDistance = maximumDistance;
     float exitDistance = -1.0;
-    if (abs(viewDirection.y) > 0.0001)
+    // Locate the portion of this ray that lies inside the curved layer using a
+    // cheap geometry-only scan. The denser integration below still performs
+    // the same number of weather-map samples as before.
+    for (int intersectionIndex = 0;
+        intersectionIndex <= IntersectionSampleCount;
+        intersectionIndex++)
     {
-        float distanceToBase = (layerBase - cameraLocalPosition.y)
-            / viewDirection.y;
-        float distanceToTop = (layerTop - cameraLocalPosition.y)
-            / viewDirection.y;
-        entryDistance = max(min(distanceToBase, distanceToTop), 0.0);
-        exitDistance = min(
-            max(distanceToBase, distanceToTop),
-            maximumDistance);
+        float intersectionDistance = intersectionIndex * intersectionStep;
+        float3 intersectionPosition = cameraLocalPosition
+            + viewDirection * intersectionDistance;
+        float radialFraction = saturate(
+            length(intersectionPosition.xz - cameraLocalPosition.xz)
+            / domeRadius);
+        float domeSag = radialFraction * radialFraction;
+        float curvedLayerBase = lerp(layerBase, edgeLayerBase, domeSag);
+        float curvedHeightFraction =
+            (intersectionPosition.y - curvedLayerBase) / layerThickness;
+        if (curvedHeightFraction >= 0.0 && curvedHeightFraction <= 1.0)
+        {
+            entryDistance = min(
+                entryDistance,
+                max(intersectionDistance - intersectionStep, 0.0));
+            exitDistance = max(
+                exitDistance,
+                min(intersectionDistance + intersectionStep, maximumDistance));
+        }
     }
 
     if (exitDistance <= entryDistance)
-    {
-        // From below the layer, a flat slab cannot reach the geometric sea
-        // horizon within the finite sky dome. Represent that distant portion
-        // as one bounded coherent bank sampled at the dome itself. This joins
-        // clouds to the sea without the unbounded grazing ray that became a
-        // bright, repetitive wall for elevated sunset cameras.
-        if (cameraLocalPosition.y >= layerBase)
-            return result;
-
-        float horizontalLength = length(viewDirection.xz);
-        if (horizontalLength <= 0.0001)
-            return result;
-
-        float requiredElevation = saturate(
-            (layerBase - cameraLocalPosition.y)
-            / max(maximumDistance, 1.0));
-        float bankUpperElevation = max(
-            requiredElevation * 1.15,
-            0.035);
-        float bankHeight = saturate(
-            (max(viewDirection.y, 0.0) + 0.004)
-            / (bankUpperElevation + 0.004));
-        half baseConnection = smoothstep(
-            -0.02h,
-            0.004h,
-            viewDirection.y);
-        // Begin rounding immediately above the sea connection. The previous
-        // flat lower plateau repeated one weather-map value vertically and
-        // turned every horizontal cloud edge into a tower.
-        half topTaper = 1.0h - smoothstep(0.0h, 1.0h, bankHeight);
-        half horizonBank = baseConnection * topTaper;
-        if (horizonBank <= 0.0001h)
-            return result;
-
-        float2 horizontalDirection = viewDirection.xz / horizontalLength;
-        float horizonDistance = maximumDistance * lerp(
-            1.0,
-            0.72,
-            bankHeight);
-        float2 horizonPosition = cameraLocalPosition.xz
-            + horizontalDirection * horizonDistance;
-        float2 verticalDrift = bankHeight
-            * bankHeight
-            * _MotuCloudWorldSize
-            * float2(0.11, -0.08);
-        half lowerDensity = MotuCloudDensityAtLocalPosition(
-            horizonPosition + verticalDrift);
-        half upperDensity = MotuCloudDensityAtLocalPosition(
-            horizonPosition
-            - verticalDrift * 0.37
-            + _MotuCloudWorldSize * float2(-0.021, 0.017));
-        half horizonDensity = lerp(
-            lowerDensity,
-            upperDensity,
-            smoothstep(0.35h, 0.90h, bankHeight))
-            * horizonBank;
-        result.transmittance = MotuCloudOpticalTransmittance(
-            horizonDensity,
-            1.6h);
-        result.averageColour = MotuCloudSkyColour(
-            horizonDensity,
-            viewDirection);
         return result;
-    }
 
     const int VolumeSampleCount = 12;
     float sampleLength = (exitDistance - entryDistance) / VolumeSampleCount;
@@ -283,8 +245,13 @@ MotuCloudSkyVolume MotuCloudSkyVolumeAt(
             + (sampleIndex + samplePhase) * sampleLength;
         float3 samplePosition = cameraLocalPosition
             + viewDirection * distanceAlongRay;
+        float radialFraction = saturate(
+            length(samplePosition.xz - cameraLocalPosition.xz)
+            / domeRadius);
+        float domeSag = radialFraction * radialFraction;
+        float curvedLayerBase = lerp(layerBase, edgeLayerBase, domeSag);
         float heightFraction = saturate(
-            (samplePosition.y - layerBase) / layerThickness);
+            (samplePosition.y - curvedLayerBase) / layerThickness);
         half baseShape = smoothstep(0.0h, 0.18h, heightFraction);
         half topShape = 1.0h - smoothstep(0.68h, 1.0h, heightFraction);
         half verticalShape = baseShape * topShape;

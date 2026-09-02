@@ -28,11 +28,16 @@ Shader "Motu/Waterfall Foot Mist"
 
         Pass
         {
+            Tags { "LightMode" = "ForwardBase" }
+
             CGPROGRAM
-            #pragma target 3.0
+            #pragma target 3.5
             #pragma vertex Vert
             #pragma fragment Frag
+            #pragma multi_compile_fwdbase
             #include "UnityCG.cginc"
+            #include "AutoLight.cginc"
+            #include "WaterfallSprayLighting.cginc"
 
             struct VertexInput
             {
@@ -44,6 +49,8 @@ Shader "Motu/Waterfall Foot Mist"
                 float4 position : SV_POSITION;
                 float3 localPosition : TEXCOORD0;
                 float4 screenPosition : TEXCOORD1;
+                float3 worldPosition : TEXCOORD2;
+                SHADOW_COORDS(3)
             };
 
             fixed4 _TintColor;
@@ -84,6 +91,10 @@ Shader "Motu/Waterfall Foot Mist"
                 output.position = UnityObjectToClipPos(input.position);
                 output.localPosition = input.position.xyz;
                 output.screenPosition = ComputeScreenPos(output.position);
+                output.worldPosition = mul(
+                    unity_ObjectToWorld,
+                    input.position).xyz;
+                TRANSFER_SHADOW_WPOS(output, output.worldPosition);
                 return output;
             }
 
@@ -173,15 +184,24 @@ Shader "Motu/Waterfall Foot Mist"
                         breakupThreshold,
                         min(breakupThreshold + 0.24, 0.9),
                         coherentDensity);
-                    float upwardFade = pow(saturate(1.0 - height01), 0.82);
                     float lowerBlanket = 1.0 - smoothstep(0.08, 0.34, height01);
+                    // Concentrate suspended spray at the impact surface, then
+                    // transition into increasingly sparse wisps. A small top
+                    // value avoids an artificial horizontal cutoff while the
+                    // coherent ceiling still breaks up the silhouette.
+                    float verticalDensity = lerp(
+                        0.04,
+                        1.75,
+                        pow(saturate(1.0 - height01), 1.55));
+                    float lowerBlanketBoost = lerp(1.0, 1.35, lowerBlanket);
                     float densityVariation = lerp(
                         risingWisps,
                         0.92 + broadNoise * 0.2,
                         lowerBlanket);
                     opticalDepth += horizontalMask
                         * topMask
-                        * upwardFade
+                        * verticalDensity
+                        * lowerBlanketBoost
                         * densityVariation
                         * stepLength
                         * _Density;
@@ -192,7 +212,16 @@ Shader "Motu/Waterfall Foot Mist"
                 {
                     discard;
                 }
-                return fixed4(_TintColor.rgb, alpha);
+                UNITY_LIGHT_ATTENUATION(
+                    shadowAttenuation,
+                    input,
+                    input.worldPosition);
+                return fixed4(
+                    MotuWaterfallSprayLighting(
+                        _TintColor.rgb,
+                        input.worldPosition,
+                        shadowAttenuation),
+                    alpha);
             }
             ENDCG
         }

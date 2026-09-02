@@ -18,6 +18,27 @@ The first objective is an ownership refactor with visually identical output.
 Procedural world placement, long-distance coordinates, persistence, and
 generation caching are later stages built on that separation.
 
+## Implementation Status
+
+The first deployable ownership milestone is now implemented:
+
+- `WorldEnvironmentController` owns the player-relative sky dome, moon light,
+  cloud weather texture, and reflection binding outside the generated-island
+  root;
+- `OceanSurfaceController` owns a snapped, player-relative ocean plane at the
+  fixed sea level;
+- clearing or regenerating island terrain no longer destroys the global
+  environment;
+- atmosphere and cloud sampling use stable world/weather coordinates rather
+  than the global transform of a single island;
+- `_IslandWorldToLocal` is now assigned only to island-bound materials. The sea
+  material still receives the active island's mask as a transitional coastal
+  dependency until the deep-ocean/coastal-overlay split is implemented.
+
+The next milestone is the explicit deep-ocean/coastal-overlay split followed by
+`IslandRuntime` extraction. Multiple simultaneously active islands remain
+intentionally deferred until those two ownership boundaries are complete.
+
 ## Current Architecture and Constraints
 
 ### `IslandGenerator` owns both the world and one island
