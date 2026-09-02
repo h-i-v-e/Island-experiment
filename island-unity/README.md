@@ -263,6 +263,14 @@ The player-relative deep ocean performs reflection, refraction, distortion, and
 depth opacity once without depending on any island mask. Each island adds a
 bounded, edge-faded coastal overlay just above it; this overlay owns the sea
 mask, shallow tint, shore waves, and foam without repeating the ocean GrabPass.
+Generated island content is installed below a self-contained `IslandRuntime`.
+It owns the native handle, terrain streamer, per-island materials, generated
+textures, colliders, vegetation, rivers, waterfall effects, and coastal
+overlay. Installation remains inactive until required resources are ready, and
+clearing or a failed partial installation disposes that island without changing
+the global sky or deep ocean. `IslandGenerator` remains the inspector-compatible
+origin-island wrapper.
+
 Incoming coastal waves average the sea mask's red depth proximity with inverted
 green land proximity, breaking up coherent flashing across broad shallow water.
 Green stores distance from land over sixteen metres and also drives a separate,

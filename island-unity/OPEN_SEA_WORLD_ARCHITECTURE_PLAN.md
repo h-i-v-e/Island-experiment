@@ -20,7 +20,7 @@ generation caching are later stages built on that separation.
 
 ## Implementation Status
 
-The first three deployable ownership milestones are now implemented:
+The first four deployable ownership milestones are now implemented:
 
 - `WorldEnvironmentController` owns the player-relative sky dome, moon light,
   cloud weather texture, and reflection binding outside the generated-island
@@ -37,17 +37,25 @@ The first three deployable ownership milestones are now implemented:
   opacity, distortion, lighting, and open-water pass;
 - each generated island owns a bounded, edge-faded coastal overlay with its own
   sea mask and transform. The overlay contributes shallow tint and shore foam
-  without repeating the deep ocean's GrabPass, refraction, or reflection work.
+  without repeating the deep ocean's GrabPass, refraction, or reflection work;
+- immutable `IslandDescriptor` and `IslandGenerationRequest` values now carry
+  copied island-generation inputs independently of `IslandGenerator` fields;
+- one `IslandRuntime` owns the installed native handle, inactive installation
+  root, terrain streamer, per-island materials, generated textures, surface
+  maps, texture arrays, and coastal overlay, with idempotent partial-install and
+  active-runtime disposal;
+- global deep-ocean noise now has an environment lifetime separate from river
+  noise, so disposing an island cannot invalidate the persistent ocean.
 
-The next milestone is `IslandRuntime` extraction. Multiple simultaneously
-active islands remain intentionally deferred until that lifetime boundary is
-complete.
+The next milestone is Phase 5: an `IslandWorldManager` proving that two or three
+authored island runtimes can coexist, become dormant, and unload independently.
 
-## Current Architecture and Constraints
+## Starting Architecture and Constraints
 
-### `IslandGenerator` owns both the world and one island
+### `IslandGenerator` originally owned both the world and one island
 
-`Assets/Scripts/IslandGenerator.cs` currently owns two different lifetimes:
+Before the ownership extraction, `Assets/Scripts/IslandGenerator.cs` owned two
+different lifetimes:
 
 Global environment state:
 

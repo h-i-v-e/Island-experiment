@@ -18,6 +18,7 @@ public sealed class WorldEnvironmentController : MonoBehaviour
     private Mesh skyDomeMesh;
     private Material skyDomeMaterial;
     private Texture2D cloudWeatherTexture;
+    private Texture2D ownedOceanNoiseTexture;
     private GameObject moonLightObject;
     private Light moonLight;
     private OceanSurfaceController ocean;
@@ -58,6 +59,7 @@ public sealed class WorldEnvironmentController : MonoBehaviour
         Material newSkyMaterial,
         Material newSeaMaterial,
         Texture2D newCloudWeatherTexture,
+        Texture2D newOwnedOceanNoiseTexture,
         float newSkyDomeWorldSize,
         float environmentDiameterMetres,
         float globalSeaLevel,
@@ -75,9 +77,11 @@ public sealed class WorldEnvironmentController : MonoBehaviour
 
         var previousMaterial = skyDomeMaterial;
         var previousWeather = cloudWeatherTexture;
+        var previousOceanNoise = ownedOceanNoiseTexture;
         EnsureSkyDome(newSkyDomeWorldSize, newSkyMaterial);
         skyDomeMaterial = newSkyMaterial;
         cloudWeatherTexture = newCloudWeatherTexture;
+        ownedOceanNoiseTexture = newOwnedOceanNoiseTexture;
         seaLevel = globalSeaLevel;
         Shader.SetGlobalVector(
             EnvironmentWorldOffsetId,
@@ -96,6 +100,11 @@ public sealed class WorldEnvironmentController : MonoBehaviour
         if (previousWeather != null && previousWeather != cloudWeatherTexture)
         {
             DestroyUnityObject(previousWeather);
+        }
+        if (previousOceanNoise != null
+            && previousOceanNoise != ownedOceanNoiseTexture)
+        {
+            DestroyUnityObject(previousOceanNoise);
         }
     }
 
@@ -146,9 +155,11 @@ public sealed class WorldEnvironmentController : MonoBehaviour
         DestroyUnityObject(skyDomeMaterial);
         DestroyUnityObject(skyDomeMesh);
         DestroyUnityObject(cloudWeatherTexture);
+        DestroyUnityObject(ownedOceanNoiseTexture);
         skyDomeMaterial = null;
         skyDomeMesh = null;
         cloudWeatherTexture = null;
+        ownedOceanNoiseTexture = null;
     }
 
     private GameObject CreateSkyDomeObject(Mesh mesh, Material material)

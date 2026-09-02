@@ -104,10 +104,12 @@ public static class IslandGeneratorValidation
             var firstSkyMaterial = new Material(Shader.Find("Motu/Sky Dome"));
             var firstSeaMaterial = new Material(Shader.Find("Motu/Sea Water"));
             var firstWeather = new Texture2D(1, 1, TextureFormat.RGBA32, false, true);
+            var firstOceanNoise = new Texture2D(1, 1, TextureFormat.R8, false, true);
             controller.Install(
                 firstSkyMaterial,
                 firstSeaMaterial,
                 firstWeather,
+                firstOceanNoise,
                 2000f,
                 4200f,
                 0f,
@@ -126,10 +128,12 @@ public static class IslandGeneratorValidation
             var secondSkyMaterial = new Material(Shader.Find("Motu/Sky Dome"));
             var secondSeaMaterial = new Material(Shader.Find("Motu/Sea Water"));
             var secondWeather = new Texture2D(1, 1, TextureFormat.RGBA32, false, true);
+            var secondOceanNoise = new Texture2D(1, 1, TextureFormat.R8, false, true);
             controller.Install(
                 secondSkyMaterial,
                 secondSeaMaterial,
                 secondWeather,
+                secondOceanNoise,
                 2000f,
                 4200f,
                 0f,
@@ -138,7 +142,8 @@ public static class IslandGeneratorValidation
             if (controller.SkyMesh != retainedSkyMesh
                 || firstSkyMaterial != null
                 || firstSeaMaterial != null
-                || firstWeather != null)
+                || firstWeather != null
+                || firstOceanNoise != null)
             {
                 throw new InvalidOperationException(
                     "Environment replacement did not reuse global geometry or release old resources.");

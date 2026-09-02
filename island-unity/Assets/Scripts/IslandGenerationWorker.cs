@@ -4,6 +4,25 @@ using System.Threading.Tasks;
 internal static class IslandGenerationWorker
 {
     internal static Task<IslandPreparedData> GenerateAsync(
+        IslandGenerationRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (request == null) throw new System.ArgumentNullException(nameof(request));
+        return Task.Run(
+            () => IslandGenerator.PrepareIsland(
+                request.Descriptor.Seed,
+                request.Options,
+                request.ForestOptions,
+                request.ReedOptions,
+                request.FernOptions,
+                request.WorldSizeMetres,
+                request.MaterialColours,
+                request.MaterialTextureResolution,
+                cancellationToken),
+            cancellationToken);
+    }
+
+    internal static Task<IslandPreparedData> GenerateAsync(
         int seed,
         MotuNative.Options options,
         float worldSize,
@@ -63,17 +82,25 @@ internal static class IslandGenerationWorker
         int materialTextureResolution,
         CancellationToken cancellationToken)
     {
-        return Task.Run(
-            () => IslandGenerator.PrepareIsland(
-                seed,
+        var descriptor = new IslandDescriptor(
+            $"worker-{seed}",
+            UnityEngine.Vector2Int.zero,
+            0d,
+            0d,
+            seed,
+            0f,
+            worldSize * 0.5f,
+            1);
+        return GenerateAsync(
+            new IslandGenerationRequest(
+                descriptor,
                 options,
                 forestOptions,
                 reedOptions,
                 fernOptions,
                 worldSize,
                 materialColours,
-                materialTextureResolution,
-                cancellationToken),
+                materialTextureResolution),
             cancellationToken);
     }
 }

@@ -105,6 +105,7 @@ public sealed class IslandGenerator : MonoBehaviour
     [SerializeField] private IslandDebugSettings debugSettings = new IslandDebugSettings();
 
     private NativeIslandHandle islandHandle;
+    private IslandRuntime islandRuntime;
     private TerrainTileStreamer terrainStreamer;
     private GameObject runtimeRoot;
     private WorldEnvironmentController worldEnvironment;
@@ -119,6 +120,7 @@ public sealed class IslandGenerator : MonoBehaviour
     private Texture2D seaMaskTexture;
     private Texture3D cliffNoiseTexture;
     private Texture2D riverNoiseTexture;
+    private Texture2D seaNoiseTexture;
     private Texture2D grassPatchNoiseTexture;
     private Texture2D cloudWeatherTexture;
     private TerrainMaterialTextureArrays terrainMaterialTextures;
@@ -142,6 +144,7 @@ public sealed class IslandGenerator : MonoBehaviour
     private bool hasStarted;
     private bool ownsCliffNoiseTexture;
     private bool ownsRiverNoiseTexture;
+    private bool ownsSeaNoiseTexture;
     private bool ownsGrassPatchNoiseTexture;
     private bool environmentResourcesInstalled;
     private int appliedCloudSeed = int.MinValue;
@@ -497,6 +500,9 @@ public sealed class IslandGenerator : MonoBehaviour
         riverNoiseTexture = rendering.RiverNoise;
         ownsRiverNoiseTexture = riverNoiseTexture == null;
         if (ownsRiverNoiseTexture) riverNoiseTexture = CreateRiverNoiseTexture();
+        seaNoiseTexture = rendering.RiverNoise;
+        ownsSeaNoiseTexture = seaNoiseTexture == null;
+        if (ownsSeaNoiseTexture) seaNoiseTexture = CreateRiverNoiseTexture();
         var waterColor = new Color(0.03f, 0.28f, 0.55f, 1f);
         const float shallowWaterOpacity = 0.25f;
         const float fullOpacityDepth = 5f;
@@ -553,7 +559,7 @@ public sealed class IslandGenerator : MonoBehaviour
             seaMaterial.SetColor("_Color", waterColor);
         }
         seaMaterial.renderQueue = (int)RenderQueue.Transparent;
-        seaMaterial.SetTexture("_NoiseTex", riverNoiseTexture);
+        seaMaterial.SetTexture("_NoiseTex", seaNoiseTexture);
         seaMaterial.SetFloat("_ShallowOpacity", shallowWaterOpacity);
         seaMaterial.SetFloat("_OpacityDepth", fullOpacityDepth);
         seaMaterial.SetColor("_ReflectionColor", skyColor);
@@ -698,7 +704,10 @@ public sealed class IslandGenerator : MonoBehaviour
 
     private void UpdateMaterialTransforms(bool force = false)
     {
-        var worldToLocal = transform.worldToLocalMatrix;
+        var islandTransform = islandRuntime != null
+            ? islandRuntime.transform
+            : transform;
+        var worldToLocal = islandTransform.worldToLocalMatrix;
         if (!force && hasAppliedWorldToLocal && appliedWorldToLocal == worldToLocal)
         {
             return;
@@ -925,7 +934,10 @@ public sealed class IslandGenerator : MonoBehaviour
         {
             appliedShowSea = rendering.ShowSea;
             worldEnvironment?.SetSeaVisible(rendering.ShowSea);
-            coastalWaterObject?.SetActive(rendering.ShowSea);
+            if (coastalWaterObject != null)
+            {
+                coastalWaterObject.SetActive(rendering.ShowSea);
+            }
         }
         if (appliedShowGrass != rendering.ShowGrass)
         {
@@ -1495,18 +1507,21 @@ public sealed class IslandGenerator : MonoBehaviour
         var fernOptions = generation.ToNativeFernOptions(ferns);
         var materialColours = rendering.SelectMaterialColours(islandSeed);
         var materialTextureResolution = rendering.MaterialTextureResolution;
+        var descriptor = IslandDescriptor.Origin(islandSeed, worldSize, transform);
+        var request = new IslandGenerationRequest(
+            descriptor,
+            options,
+            forestOptions,
+            reedOptions,
+            fernOptions,
+            worldSize,
+            materialColours,
+            materialTextureResolution);
 
         try
         {
             prepared = await IslandGenerationWorker.GenerateAsync(
-                islandSeed,
-                options,
-                forestOptions,
-                reedOptions,
-                fernOptions,
-                worldSize,
-                materialColours,
-                materialTextureResolution,
+                request,
                 cancellation.Token);
             cancellation.Token.ThrowIfCancellationRequested();
             if (isDestroyed || !isActiveAndEnabled)
@@ -1519,7 +1534,12 @@ public sealed class IslandGenerator : MonoBehaviour
             ClearGeneratedContent();
             DestroyRuntimeMaterials();
             BuildRuntimeMaterials(prepared.materialTextures);
+            islandRuntime = IslandRuntime.Create(descriptor, transform);
+            runtimeRoot = islandRuntime.gameObject;
+            TransferMaterialOwnershipToRuntime();
+            UpdateMaterialTransforms(true);
             islandHandle = prepared.TakeHandle();
+            islandRuntime.AdoptNativeHandle(islandHandle);
 
             CreateSurfaceTextures(prepared.surfaceMaps);
             CreateSeaMaskTexture(prepared.seaMask);
@@ -1531,6 +1551,7 @@ public sealed class IslandGenerator : MonoBehaviour
                 skyDomeMaterial,
                 seaMaterial,
                 cloudWeatherTexture,
+                ownsSeaNoiseTexture ? seaNoiseTexture : null,
                 worldSize,
                 worldSize * 2f * SeaHorizonOverlap,
                 transform.TransformPoint(Vector3.up * SeaHeight).y,
@@ -1540,14 +1561,16 @@ public sealed class IslandGenerator : MonoBehaviour
             skyDomeMaterial = worldEnvironment.SkyMaterial;
             seaMaterial = worldEnvironment.SeaMaterial;
             moonLight = worldEnvironment.MoonLight;
+            seaNoiseTexture = null;
+            ownsSeaNoiseTexture = false;
 
-            runtimeRoot = new GameObject("Generated Island");
-            runtimeRoot.transform.SetParent(transform, false);
             CreateCoastalWaterOverlay(worldSize);
+            islandRuntime.SetCoastalWaterObject(coastalWaterObject);
             UpdateSolarLighting(0f);
             var terrainRoot = new GameObject("Terrain Tiles");
             terrainRoot.transform.SetParent(runtimeRoot.transform, false);
             terrainStreamer = terrainRoot.AddComponent<TerrainTileStreamer>();
+            islandRuntime.SetTerrainStreamer(terrainStreamer);
             await terrainStreamer.InitializeAsync(
                 islandHandle.Value,
                 terrainMaterial,
@@ -1580,6 +1603,7 @@ public sealed class IslandGenerator : MonoBehaviour
                 ferns.ShowFerns,
                 cancellation.Token);
             terrainStreamer.SetWaterfallFootDebug(debugSettings.ShowWaterfallFeet);
+            islandRuntime.Activate();
 
             ResetAppliedLiveSettings();
             ApplyLiveSettings();
@@ -1624,6 +1648,7 @@ public sealed class IslandGenerator : MonoBehaviour
             Debug.LogException(exception);
             if (installationStarted)
             {
+                islandRuntime?.MarkFailed();
                 ClearGeneratedContent();
                 DestroyRuntimeMaterials();
             }
@@ -2605,11 +2630,13 @@ public sealed class IslandGenerator : MonoBehaviour
             surfaceMaps.dimension,
             TextureFormat.R8,
             surfaceMaps.occlusion);
+        islandRuntime?.OwnTexture(terrainOcclusionTexture);
         terrainNormalTexture = CreateSurfaceTexture(
             "Motu Shared Terrain World Normal",
             surfaceMaps.dimension,
             TextureFormat.RGB24,
             surfaceMaps.normalRgb);
+        islandRuntime?.OwnTexture(terrainNormalTexture);
         if (!terrainMaterial.HasProperty("_WorldNormal")
             || !terrainMaterial.HasProperty("_Occlusion"))
         {
@@ -2641,6 +2668,7 @@ public sealed class IslandGenerator : MonoBehaviour
             seaMask.dimension,
             TextureFormat.RG16,
             seaMask.rg);
+        islandRuntime.OwnTexture(seaMaskTexture);
         coastalWaterMaterial.SetTexture("_SeaMask", seaMaskTexture);
     }
 
@@ -2675,6 +2703,39 @@ public sealed class IslandGenerator : MonoBehaviour
         coastalWaterObject.SetActive(rendering.ShowSea);
     }
 
+    private void TransferMaterialOwnershipToRuntime()
+    {
+        if (islandRuntime == null)
+        {
+            throw new InvalidOperationException(
+                "Per-island materials require an installing island runtime.");
+        }
+        islandRuntime.OwnTerrainTextureArrays(
+            terrainMaterialTextures,
+            terrainMaterial,
+            grassMaterial);
+        islandRuntime.OwnMaterial(terrainMaterial);
+        islandRuntime.OwnMaterial(terrainLod1Material);
+        islandRuntime.OwnMaterial(terrainLod2Material);
+        islandRuntime.OwnMaterial(grassMaterial);
+        islandRuntime.OwnMaterial(rockMaterial);
+        islandRuntime.OwnMaterial(treeWoodMaterial);
+        islandRuntime.OwnMaterial(treeLod1WoodMaterial);
+        islandRuntime.OwnMaterial(treeFoliageMaterial);
+        islandRuntime.OwnMaterial(treeLod0FoliageMaterial);
+        islandRuntime.OwnMaterial(reedMaterial);
+        islandRuntime.OwnMaterial(fernMaterial);
+        islandRuntime.OwnMaterial(riverMaterial);
+        islandRuntime.OwnMaterial(coastalWaterMaterial);
+        islandRuntime.OwnMaterial(meshEdgeMaterial);
+        if (ownsCliffNoiseTexture) islandRuntime.OwnTexture(cliffNoiseTexture);
+        if (ownsRiverNoiseTexture) islandRuntime.OwnTexture(riverNoiseTexture);
+        if (ownsGrassPatchNoiseTexture)
+        {
+            islandRuntime.OwnTexture(grassPatchNoiseTexture);
+        }
+    }
+
     private static Texture2D CreateSurfaceTexture(
         string textureName,
         int dimension,
@@ -2688,12 +2749,20 @@ public sealed class IslandGenerator : MonoBehaviour
             wrapMode = TextureWrapMode.Clamp,
             anisoLevel = 4,
         };
-        // Rust supplies only mip 0. LoadRawTextureData expects storage for the
-        // entire mip chain when the texture was created with mipmaps enabled.
-        // Upload the base mip explicitly and let Apply generate the rest.
-        texture.SetPixelData(pixels, 0);
-        texture.Apply(true, true);
-        return texture;
+        try
+        {
+            // Rust supplies only mip 0. LoadRawTextureData expects storage for the
+            // entire mip chain when the texture was created with mipmaps enabled.
+            // Upload the base mip explicitly and let Apply generate the rest.
+            texture.SetPixelData(pixels, 0);
+            texture.Apply(true, true);
+            return texture;
+        }
+        catch
+        {
+            DestroyUnityObject(texture);
+            throw;
+        }
     }
 
     internal static IslandPreparedMesh CopyTerrainMeshData(
@@ -2952,6 +3021,14 @@ public sealed class IslandGenerator : MonoBehaviour
 
     private void ClearGeneratedContent()
     {
+        if (islandRuntime != null)
+        {
+            islandRuntime.Dispose();
+            islandRuntime = null;
+            ClearIslandRuntimeAliases();
+            ResetAppliedLiveSettings();
+            return;
+        }
         if (terrainStreamer != null)
         {
             terrainStreamer.Dispose();
@@ -2980,6 +3057,38 @@ public sealed class IslandGenerator : MonoBehaviour
         ResetAppliedLiveSettings();
     }
 
+    private void ClearIslandRuntimeAliases()
+    {
+        islandHandle = null;
+        terrainStreamer = null;
+        runtimeRoot = null;
+        coastalWaterObject = null;
+        terrainMaterialTextures = null;
+        terrainMaterial = null;
+        terrainLod1Material = null;
+        terrainLod2Material = null;
+        grassMaterial = null;
+        rockMaterial = null;
+        treeWoodMaterial = null;
+        treeLod1WoodMaterial = null;
+        treeFoliageMaterial = null;
+        treeLod0FoliageMaterial = null;
+        reedMaterial = null;
+        fernMaterial = null;
+        riverMaterial = null;
+        coastalWaterMaterial = null;
+        meshEdgeMaterial = null;
+        terrainNormalTexture = null;
+        terrainOcclusionTexture = null;
+        seaMaskTexture = null;
+        cliffNoiseTexture = null;
+        riverNoiseTexture = null;
+        grassPatchNoiseTexture = null;
+        ownsCliffNoiseTexture = false;
+        ownsRiverNoiseTexture = false;
+        ownsGrassPatchNoiseTexture = false;
+    }
+
     private void DestroyRuntimeMaterials()
     {
         terrainMaterialTextures?.Unbind(terrainMaterial, grassMaterial);
@@ -2990,6 +3099,7 @@ public sealed class IslandGenerator : MonoBehaviour
             DestroyUnityObject(skyDomeMaterial);
             DestroyUnityObject(seaMaterial);
             DestroyUnityObject(cloudWeatherTexture);
+            if (ownsSeaNoiseTexture) DestroyUnityObject(seaNoiseTexture);
         }
         DestroyUnityObject(terrainMaterial);
         DestroyUnityObject(terrainLod1Material);
@@ -3026,11 +3136,13 @@ public sealed class IslandGenerator : MonoBehaviour
         meshEdgeMaterial = null;
         cliffNoiseTexture = null;
         riverNoiseTexture = null;
+        seaNoiseTexture = null;
         grassPatchNoiseTexture = null;
         cloudWeatherTexture = null;
         environmentResourcesInstalled = false;
         ownsCliffNoiseTexture = false;
         ownsRiverNoiseTexture = false;
+        ownsSeaNoiseTexture = false;
         ownsGrassPatchNoiseTexture = false;
         appliedCloudSeed = int.MinValue;
         appliedCloudResolution = 0;
@@ -3331,6 +3443,7 @@ public sealed class IslandGenerator : MonoBehaviour
 #if UNITY_EDITOR
     public static void BatchValidateNativeInterop()
     {
+        IslandRuntime.ValidateOwnershipContract();
         if (Marshal.SizeOf<MotuNative.Options>() != sizeof(float) * 19
             || Marshal.SizeOf<MotuNative.ForestOptions>() != 28
             || Marshal.SizeOf<MotuNative.ReedOptions>() != sizeof(float) * 8
