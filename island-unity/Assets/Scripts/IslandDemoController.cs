@@ -4,13 +4,19 @@ public sealed class IslandDemoController : MonoBehaviour
 {
     private const float ClickDragTolerance = 6f;
     private const float FrameRateSampleSeconds = 0.25f;
-    private static readonly Rect PanelRect = new Rect(16f, 16f, 500f, 180f);
+    private static readonly Rect PanelRect = new Rect(16f, 16f, 540f, 210f);
 
     [SerializeField] private IslandGenerator island;
     [SerializeField] private Camera viewerCamera;
     [SerializeField] private OrbitCamera orbitCamera;
     [SerializeField] private FirstPersonController firstPersonController;
+    [Header("Play Mode Start")]
+    [SerializeField] private bool startInFlyMode;
+    [SerializeField] private Vector3 flyStartPosition = new Vector3(0f, 4f, -1800f);
+    [SerializeField] private float flyStartYawDegrees;
+    [SerializeField] private float flyStartPitchDegrees;
 
+    private IslandWorldManager worldManager;
     private bool clickCandidate;
     private Vector2 clickStart;
     private float frameRateSampleTime;
@@ -29,6 +35,18 @@ public sealed class IslandDemoController : MonoBehaviour
         firstPersonController = firstPerson;
     }
 
+    public void ConfigureFlyStart(
+        bool enabled,
+        Vector3 position,
+        float yawDegrees = 0f,
+        float pitchDegrees = 0f)
+    {
+        startInFlyMode = enabled;
+        flyStartPosition = position;
+        flyStartYawDegrees = yawDegrees;
+        flyStartPitchDegrees = pitchDegrees;
+    }
+
     private void Awake()
     {
         if (island == null || viewerCamera == null || orbitCamera == null)
@@ -40,8 +58,24 @@ public sealed class IslandDemoController : MonoBehaviour
         var target = island.transform.TransformPoint(
             new Vector3(0f, island.Generation.MaximumHeightMetres * 0.3f, 0f));
         orbitCamera.Configure(target, island.WorldSizeMetres * 1.15f);
-        firstPersonController?.Configure(orbitCamera, island);
+        worldManager = FindAnyObjectByType<IslandWorldManager>();
+        firstPersonController?.Configure(
+            orbitCamera,
+            worldManager != null
+                ? (IWorldSurfaceQuery)worldManager
+                : island);
         island.SetStreamingTarget(null);
+    }
+
+    private void Start()
+    {
+        if (startInFlyMode && firstPersonController != null)
+        {
+            firstPersonController.BeginFlying(
+                flyStartPosition,
+                flyStartYawDegrees,
+                flyStartPitchDegrees);
+        }
     }
 
     private void Update()
@@ -117,7 +151,7 @@ public sealed class IslandDemoController : MonoBehaviour
         if (firstPersonController != null && firstPersonController.IsActive)
         {
             GUILayout.BeginArea(PanelRect, GUI.skin.box);
-            GUILayout.Label("First person: WASD move | Shift run | Space jump | Mouse look");
+            GUILayout.Label("First person: WASD move | Shift run/fly boost | Space jump | Mouse look");
             GUILayout.Label(
                 $"{firstPersonController.ToggleFlyModeKey}: fly "
                 + $"{firstPersonController.FlySpeedMetresPerSecond:0.#} m/s at "
@@ -128,6 +162,7 @@ public sealed class IslandDemoController : MonoBehaviour
                 + $"{island.DebugSettings.ToggleTreeMeshEdgesKey}: tree wireframe | "
                 + $"{island.DebugSettings.ToggleFrameRateKey}: frame rate");
             GUILayout.Label("Tab: release cursor | Escape: overview");
+            DrawWorldStatus();
             GUILayout.Label(island.Status);
             GUILayout.EndArea();
             GUI.Label(
@@ -139,6 +174,7 @@ public sealed class IslandDemoController : MonoBehaviour
         GUILayout.BeginArea(PanelRect, GUI.skin.box);
         GUILayout.Label("Procedural Island Sandbox");
         GUILayout.Label("Generation method: CPU");
+        DrawWorldStatus();
         GUILayout.Label(island.Status);
         GUILayout.BeginHorizontal();
         GUI.enabled = !island.IsGenerating;
@@ -153,5 +189,18 @@ public sealed class IslandDemoController : MonoBehaviour
             + $"{island.DebugSettings.ToggleTreeMeshEdgesKey}: tree wireframe | "
             + $"{island.DebugSettings.ToggleFrameRateKey}: frame rate");
         GUILayout.EndArea();
+    }
+
+    private void DrawWorldStatus()
+    {
+        if (worldManager == null)
+        {
+            return;
+        }
+        var focused = worldManager.FocusedIsland != null
+            ? worldManager.FocusedIsland.name
+            : "open sea";
+        GUILayout.Label(
+            $"Islands: {worldManager.LoadedIslandCount}/{worldManager.AuthoredIslandCount} loaded | focus: {focused}");
     }
 }

@@ -18,6 +18,8 @@ public static class IslandGeneratorValidation
         ValidateCloudReceiverShaders();
         ValidateSolarLightingCycle();
         ValidateOpenSeaEnvironmentAnchoring();
+        IslandWorldManager.ValidateRoutingPolicy();
+        IslandProjectSetup.ValidateMultiIslandSandbox();
         ValidateSandboxScene();
         ValidateRealtimeShadowRender();
         Debug.Log("IslandGenerator component, sandbox level, and native validation passed.");
@@ -615,7 +617,7 @@ public static class IslandGeneratorValidation
     {
         var setFirstPerson = typeof(IslandGenerator).GetMethod(
             "SetFirstPersonViewActive",
-            BindingFlags.Instance | BindingFlags.NonPublic);
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
         if (setFirstPerson == null)
         {
             throw new InvalidOperationException(

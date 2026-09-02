@@ -69,6 +69,23 @@ internal readonly struct IslandDescriptor : IEquatable<IslandDescriptor>
             CurrentGeneratorSchemaVersion);
     }
 
+    internal static IslandDescriptor Authored(
+        string islandId,
+        Vector2Int worldCell,
+        IslandGenerator generator)
+    {
+        if (generator == null) throw new ArgumentNullException(nameof(generator));
+        return new IslandDescriptor(
+            islandId,
+            worldCell,
+            generator.transform.position.x,
+            generator.transform.position.z,
+            generator.Generation.Seed,
+            generator.transform.eulerAngles.y,
+            generator.WorldSizeMetres * 0.5f,
+            CurrentGeneratorSchemaVersion);
+    }
+
     public bool Equals(IslandDescriptor other) => IslandId == other.IslandId;
     public override bool Equals(object value) =>
         value is IslandDescriptor other && Equals(other);

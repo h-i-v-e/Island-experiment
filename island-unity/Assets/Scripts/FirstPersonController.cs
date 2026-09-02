@@ -18,7 +18,7 @@ public sealed class FirstPersonController : MonoBehaviour
 
     private OrbitCamera orbitCamera;
     private CharacterController characterController;
-    private IslandGenerator island;
+    private IWorldSurfaceQuery worldSurface;
     private float yaw;
     private float pitch;
     private float verticalSpeed;
@@ -33,8 +33,15 @@ public sealed class FirstPersonController : MonoBehaviour
 
     public void Configure(OrbitCamera overviewCamera, IslandGenerator islandGenerator)
     {
+        Configure(overviewCamera, (IWorldSurfaceQuery)islandGenerator);
+    }
+
+    public void Configure(
+        OrbitCamera overviewCamera,
+        IWorldSurfaceQuery surfaceQuery)
+    {
         orbitCamera = overviewCamera;
-        island = islandGenerator;
+        worldSurface = surfaceQuery;
         characterController = GetComponent<CharacterController>();
         if (characterController == null)
         {
@@ -48,18 +55,18 @@ public sealed class FirstPersonController : MonoBehaviour
         characterController.slopeLimit = 55f;
         characterController.skinWidth = 0.05f;
         characterController.enabled = false;
-        island.SetFirstPersonViewActive(false);
+        worldSurface.SetFirstPersonViewActive(false);
         enabled = false;
     }
 
     public void Enter(Vector3 groundPosition)
     {
-        if (island == null)
+        if (worldSurface == null)
         {
             return;
         }
-        island.PrepareStreamingAt(groundPosition);
-        if (!island.TrySnapToTerrain(groundPosition, out groundPosition))
+        worldSurface.PrepareStreamingAt(groundPosition);
+        if (!worldSurface.TrySnapToTerrain(groundPosition, out groundPosition))
         {
             Debug.LogWarning(
                 "First-person entry was cancelled because terrain collision is not ready.");
@@ -75,17 +82,52 @@ public sealed class FirstPersonController : MonoBehaviour
         flyVerticalVelocity = 0f;
         IsFlyMode = false;
         characterController.enabled = true;
-        island.SetStreamingTarget(transform);
+        worldSurface.SetStreamingTarget(transform);
         IsActive = true;
-        island.SetFirstPersonViewActive(true);
+        worldSurface.SetFirstPersonViewActive(true);
         IsCursorReleased = false;
         enabled = true;
         ApplyCursorState();
     }
 
+    public void BeginFlying(
+        Vector3 worldPosition,
+        float yawDegrees = 0f,
+        float pitchDegrees = 0f)
+    {
+        if (worldSurface == null)
+        {
+            return;
+        }
+
+        worldSurface.PrepareStreamingAt(worldPosition);
+        orbitCamera.enabled = false;
+        characterController.enabled = false;
+        transform.SetPositionAndRotation(
+            worldPosition,
+            Quaternion.Euler(pitchDegrees, yawDegrees, 0f));
+        yaw = yawDegrees;
+        pitch = Mathf.Clamp(pitchDegrees, -85f, 85f);
+        verticalSpeed = 0f;
+        flyVerticalVelocity = 0f;
+        IsFlyMode = true;
+        worldSurface.SetStreamingTarget(transform);
+        IsActive = true;
+        worldSurface.SetFirstPersonViewActive(true);
+        IsCursorReleased = false;
+        enabled = true;
+        FollowFlySurface(0f);
+        ApplyCursorState();
+    }
+
     public void SetIsland(IslandGenerator value)
     {
-        island = value;
+        worldSurface = value;
+    }
+
+    public void SetWorldSurface(IWorldSurfaceQuery value)
+    {
+        worldSurface = value;
     }
 
     public void Exit()
@@ -103,8 +145,8 @@ public sealed class FirstPersonController : MonoBehaviour
         enabled = false;
         orbitCamera.enabled = true;
         ApplyCursorState();
-        island?.SetFirstPersonViewActive(false);
-        island?.SetStreamingTarget(null);
+        worldSurface?.SetFirstPersonViewActive(false);
+        worldSurface?.SetStreamingTarget(null);
     }
 
     private void Update()
@@ -125,7 +167,7 @@ public sealed class FirstPersonController : MonoBehaviour
             SetFlyMode(!IsFlyMode);
         }
 
-        island?.PrepareStreamingAt(transform.position);
+        worldSurface?.PrepareStreamingAt(transform.position);
         if (IsCursorReleased)
         {
             return;
@@ -164,7 +206,7 @@ public sealed class FirstPersonController : MonoBehaviour
 
         movement = movement * speed + Vector3.up * verticalSpeed;
         characterController.Move(movement * Time.deltaTime);
-        island?.PrepareStreamingAt(transform.position);
+        worldSurface?.PrepareStreamingAt(transform.position);
     }
 
     private void SetFlyMode(bool active)
@@ -181,21 +223,22 @@ public sealed class FirstPersonController : MonoBehaviour
 
     private void UpdateFlyMovement(Vector3 direction)
     {
+        var speedMultiplier = Input.GetKey(KeyCode.LeftShift) ? 2f : 1f;
         transform.position += direction
-            * (flySpeedMetresPerSecond * Time.deltaTime);
-        island?.PrepareStreamingAt(transform.position);
+            * (flySpeedMetresPerSecond * speedMultiplier * Time.deltaTime);
+        worldSurface?.PrepareStreamingAt(transform.position);
         FollowFlySurface(Time.deltaTime);
-        island?.PrepareStreamingAt(transform.position);
+        worldSurface?.PrepareStreamingAt(transform.position);
     }
 
     private void FollowFlySurface(float deltaTime)
     {
-        if (island == null)
+        if (worldSurface == null)
         {
             return;
         }
         var position = transform.position;
-        var targetHeight = island.GetTerrainOrSeaHeight(position)
+        var targetHeight = worldSurface.GetTerrainOrSeaHeight(position)
             + flyClearanceMetres;
         if (position.y <= targetHeight || deltaTime <= 0f)
         {

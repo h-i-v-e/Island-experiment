@@ -47,8 +47,13 @@ The first four deployable ownership milestones are now implemented:
 - global deep-ocean noise now has an environment lifetime separate from river
   noise, so disposing an island cannot invalidate the persistent ocean.
 
-The next milestone is Phase 5: an `IslandWorldManager` proving that two or three
-authored island runtimes can coexist, become dormant, and unload independently.
+The first four phases are complete. The Phase 5 implementation now provides an
+ordered set of authored generators, serialized CPU generation, incremental
+main-thread installation, one explicit environment authority, focused
+terrain-query routing, and active/dormant/unload hysteresis. Its remaining gate
+is a two-or-three-island play-mode traversal and repeated unload/reload test.
+After that acceptance pass, the next milestone is Phase 6: deterministic
+ocean-cell discovery and request prioritization beyond the authored proof.
 
 ## Starting Architecture and Constraints
 
@@ -561,6 +566,14 @@ Acceptance:
 - a second runtime can coexist without material or transform contamination.
 
 ### Phase 5: Prove multiple authored islands
+
+The implementation is present in `Assets/Scripts/World/IslandWorldManager.cs`
+and the `IWorldSurfaceQuery` integration. Add the manager above two or three authored
+`IslandGenerator` children (or populate its list explicitly), place the
+generators at their desired world transforms, and keep the environment-authority
+entry first. The manager suppresses each generator's independent start path,
+generates the authority first and all other requested islands serially, and is
+the only object that assigns detailed terrain streaming focus.
 
 1. Add `IslandWorldManager` with two or three authored descriptors.
 2. Generate them serially in the background and install them incrementally on

@@ -9,7 +9,7 @@ using UnityEngine;
 using UnityEngine.Rendering;
 using Debug = UnityEngine.Debug;
 
-public sealed class IslandGenerator : MonoBehaviour
+public sealed class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
 {
     private const float SeaHeight = 0f;
     private const float SeaHorizonOverlap = 1.05f;
@@ -180,6 +180,9 @@ public sealed class IslandGenerator : MonoBehaviour
     private Color? appliedDistanceHazeColour;
     private float appliedDistanceHazeDensity = float.NaN;
     private bool firstPersonViewActive;
+    private bool worldManaged;
+    private bool controlsWorldEnvironment = true;
+    private Transform environmentFollowTarget;
     private bool solarClockInitialized;
     private float solarTimeHours;
     private float lunarPhase;
@@ -189,6 +192,14 @@ public sealed class IslandGenerator : MonoBehaviour
     private bool hasAppliedWorldToLocal;
 
     public bool IsGenerating => generationInProgress;
+    public bool HasActiveRuntime => islandRuntime != null
+        && islandRuntime.State == IslandRuntimeState.Active;
+    public bool HasRuntime => islandRuntime != null
+        && islandRuntime.State != IslandRuntimeState.Disposed;
+    internal bool HasInstalledWorldEnvironment => worldEnvironment != null
+        && worldEnvironment.SkyMaterial != null
+        && worldEnvironment.SeaMaterial != null;
+    internal IslandRuntime Runtime => islandRuntime;
     public string Status => status;
     public float WorldSizeMetres => generation.WorldSizeMetres;
     public IslandGenerationSettings Generation => generation;
@@ -205,7 +216,7 @@ public sealed class IslandGenerator : MonoBehaviour
     private void Start()
     {
         hasStarted = true;
-        if (generation.GenerateOnStart)
+        if (!worldManaged && generation.GenerateOnStart)
         {
             Generate();
         }
@@ -214,14 +225,20 @@ public sealed class IslandGenerator : MonoBehaviour
     private void OnEnable()
     {
         Camera.onPreCull += PrepareCameraRender;
-        if (Application.isPlaying)
+        if (controlsWorldEnvironment && Application.isPlaying)
         {
             EnsureWorldEnvironment();
         }
         EnsureActiveCameraDepthTextures();
-        ApplyDistanceHazeSettings();
-        UpdateSolarLighting(0f);
-        if (hasStarted && generation.GenerateOnStart && terrainStreamer == null)
+        if (controlsWorldEnvironment)
+        {
+            ApplyDistanceHazeSettings();
+            UpdateSolarLighting(0f);
+        }
+        if (!worldManaged
+            && hasStarted
+            && generation.GenerateOnStart
+            && terrainStreamer == null)
         {
             Generate();
         }
@@ -230,13 +247,20 @@ public sealed class IslandGenerator : MonoBehaviour
     private void OnDisable()
     {
         Camera.onPreCull -= PrepareCameraRender;
-        RenderSettings.fog = false;
+        if (controlsWorldEnvironment)
+        {
+            RenderSettings.fog = false;
+        }
         generationCancellation?.Cancel();
         ClearGeneratedContent();
     }
 
     private void PrepareCameraRender(Camera camera)
     {
+        if (!controlsWorldEnvironment)
+        {
+            return;
+        }
         EnsureCameraDepthTexture(camera);
         worldEnvironment?.BindReflectionCamera(camera);
         ApplyAtmosphericCameraClearColour(camera);
@@ -288,10 +312,13 @@ public sealed class IslandGenerator : MonoBehaviour
         }
         UpdateMaterialTransforms();
         ApplyLiveSettings();
-        UpdateSolarLighting(Time.unscaledDeltaTime);
-        ApplyCloudSettings(Time.unscaledDeltaTime);
-        worldEnvironment?.SetFollowTarget(streaming.Target);
-        if (terrainStreamer != null && streaming.Target != null)
+        if (controlsWorldEnvironment)
+        {
+            UpdateSolarLighting(Time.unscaledDeltaTime);
+            ApplyCloudSettings(Time.unscaledDeltaTime);
+            worldEnvironment?.SetFollowTarget(WorldEnvironmentFollowTarget());
+        }
+        if (!worldManaged && terrainStreamer != null && streaming.Target != null)
         {
             terrainStreamer.SetPlayerPosition(streaming.Target.position);
         }
@@ -605,8 +632,11 @@ public sealed class IslandGenerator : MonoBehaviour
         meshEdgeMaterial.renderQueue = (int)RenderQueue.Overlay + 100;
         meshEdgeMaterial.SetColor("_Color", Color.black);
         meshEdgeMaterial.SetFloat("_ZTest", (float)CompareFunction.LessEqual);
-        UpdateSolarLighting(0f);
-        ApplyCloudSettings(0f);
+        if (controlsWorldEnvironment)
+        {
+            UpdateSolarLighting(0f);
+            ApplyCloudSettings(0f);
+        }
         UpdateMaterialTransforms(true);
     }
 
@@ -735,7 +765,61 @@ public sealed class IslandGenerator : MonoBehaviour
         {
             worldEnvironment = WorldEnvironmentController.FindOrCreate();
         }
-        worldEnvironment.SetFollowTarget(streaming.Target);
+        if (controlsWorldEnvironment)
+        {
+            worldEnvironment.SetFollowTarget(WorldEnvironmentFollowTarget());
+        }
+    }
+
+    private Transform WorldEnvironmentFollowTarget()
+    {
+        return worldManaged ? environmentFollowTarget : streaming.Target;
+    }
+
+    private void BindWorldEnvironment(float worldSize)
+    {
+        EnsureWorldEnvironment();
+        if (controlsWorldEnvironment)
+        {
+            worldEnvironment.Install(
+                skyDomeMaterial,
+                seaMaterial,
+                cloudWeatherTexture,
+                ownsSeaNoiseTexture ? seaNoiseTexture : null,
+                worldSize,
+                worldSize * 2f * SeaHorizonOverlap,
+                transform.TransformPoint(Vector3.up * SeaHeight).y,
+                rendering.ShowSea,
+                rendering.Sunlight != null ? rendering.Sunlight : RenderSettings.sun);
+            seaNoiseTexture = null;
+            ownsSeaNoiseTexture = false;
+        }
+        else
+        {
+            if (worldEnvironment.SkyMaterial == null
+                || worldEnvironment.SeaMaterial == null)
+            {
+                throw new InvalidOperationException(
+                    "The environment-authority island must be installed before dependent islands.");
+            }
+            DestroyUnityObject(skyDomeMaterial);
+            DestroyUnityObject(seaMaterial);
+            DestroyUnityObject(cloudWeatherTexture);
+            if (ownsSeaNoiseTexture)
+            {
+                DestroyUnityObject(seaNoiseTexture);
+            }
+            cloudWeatherTexture = null;
+            seaNoiseTexture = null;
+            ownsSeaNoiseTexture = false;
+            appliedCloudSeed = int.MinValue;
+            appliedCloudResolution = 0;
+        }
+
+        environmentResourcesInstalled = true;
+        skyDomeMaterial = worldEnvironment.SkyMaterial;
+        seaMaterial = worldEnvironment.SeaMaterial;
+        moonLight = worldEnvironment.MoonLight;
     }
 
     private void EnsureCloudWeatherTexture()
@@ -933,7 +1017,10 @@ public sealed class IslandGenerator : MonoBehaviour
         if (appliedShowSea != rendering.ShowSea)
         {
             appliedShowSea = rendering.ShowSea;
-            worldEnvironment?.SetSeaVisible(rendering.ShowSea);
+            if (controlsWorldEnvironment)
+            {
+                worldEnvironment?.SetSeaVisible(rendering.ShowSea);
+            }
             if (coastalWaterObject != null)
             {
                 coastalWaterObject.SetActive(rendering.ShowSea);
@@ -1019,6 +1106,10 @@ public sealed class IslandGenerator : MonoBehaviour
         appliedShowDistanceHaze = rendering.ShowDistanceHaze;
         appliedDistanceHazeColour = rendering.DistanceHazeColour;
         appliedDistanceHazeDensity = rendering.DistanceHazeDensity;
+        if (!controlsWorldEnvironment)
+        {
+            return;
+        }
 
         skyDomeMaterial?.SetColor(
             "_HorizonColor",
@@ -1405,8 +1496,12 @@ public sealed class IslandGenerator : MonoBehaviour
         }
     }
 
-    internal void SetFirstPersonViewActive(bool active)
+    public void SetFirstPersonViewActive(bool active)
     {
+        if (!controlsWorldEnvironment)
+        {
+            return;
+        }
         if (firstPersonViewActive == active)
         {
             return;
@@ -1481,21 +1576,30 @@ public sealed class IslandGenerator : MonoBehaviour
 
     public async void Generate()
     {
+        await GenerateAsync(null, CancellationToken.None);
+    }
+
+    internal async Task<bool> GenerateAsync(
+        IslandDescriptor? descriptorOverride,
+        CancellationToken externalCancellation)
+    {
         if (generationInProgress)
         {
-            return;
+            return false;
         }
         if (!HasSupportedTransform())
         {
             status = "Island transform must use unit scale and Y-axis rotation only.";
             Debug.LogError(status, this);
-            return;
+            return false;
         }
 
         status = "Generating island on CPU in background...";
         generationInProgress = true;
         generationTimer = Stopwatch.StartNew();
-        var cancellation = new CancellationTokenSource();
+        var cancellation = externalCancellation.CanBeCanceled
+            ? CancellationTokenSource.CreateLinkedTokenSource(externalCancellation)
+            : new CancellationTokenSource();
         generationCancellation = cancellation;
         IslandPreparedData prepared = null;
         var installationStarted = false;
@@ -1507,7 +1611,8 @@ public sealed class IslandGenerator : MonoBehaviour
         var fernOptions = generation.ToNativeFernOptions(ferns);
         var materialColours = rendering.SelectMaterialColours(islandSeed);
         var materialTextureResolution = rendering.MaterialTextureResolution;
-        var descriptor = IslandDescriptor.Origin(islandSeed, worldSize, transform);
+        var descriptor = descriptorOverride
+            ?? IslandDescriptor.Origin(islandSeed, worldSize, transform);
         var request = new IslandGenerationRequest(
             descriptor,
             options,
@@ -1526,7 +1631,7 @@ public sealed class IslandGenerator : MonoBehaviour
             cancellation.Token.ThrowIfCancellationRequested();
             if (isDestroyed || !isActiveAndEnabled)
             {
-                return;
+                return false;
             }
 
             status = "Uploading generated island...";
@@ -1546,27 +1651,14 @@ public sealed class IslandGenerator : MonoBehaviour
             await Task.Yield();
             cancellation.Token.ThrowIfCancellationRequested();
 
-            EnsureWorldEnvironment();
-            worldEnvironment.Install(
-                skyDomeMaterial,
-                seaMaterial,
-                cloudWeatherTexture,
-                ownsSeaNoiseTexture ? seaNoiseTexture : null,
-                worldSize,
-                worldSize * 2f * SeaHorizonOverlap,
-                transform.TransformPoint(Vector3.up * SeaHeight).y,
-                rendering.ShowSea,
-                rendering.Sunlight != null ? rendering.Sunlight : RenderSettings.sun);
-            environmentResourcesInstalled = true;
-            skyDomeMaterial = worldEnvironment.SkyMaterial;
-            seaMaterial = worldEnvironment.SeaMaterial;
-            moonLight = worldEnvironment.MoonLight;
-            seaNoiseTexture = null;
-            ownsSeaNoiseTexture = false;
+            BindWorldEnvironment(worldSize);
 
             CreateCoastalWaterOverlay(worldSize);
             islandRuntime.SetCoastalWaterObject(coastalWaterObject);
-            UpdateSolarLighting(0f);
+            if (controlsWorldEnvironment)
+            {
+                UpdateSolarLighting(0f);
+            }
             var terrainRoot = new GameObject("Terrain Tiles");
             terrainRoot.transform.SetParent(runtimeRoot.transform, false);
             terrainStreamer = terrainRoot.AddComponent<TerrainTileStreamer>();
@@ -1629,6 +1721,7 @@ public sealed class IslandGenerator : MonoBehaviour
                 CultureInfo.InvariantCulture,
                 " | 3x3 hidden LOD 1 terrain colliders (129x129 samples each) | {0:F1} km square",
                 worldSize / 1000f);
+            return true;
         }
         catch (OperationCanceledException)
         {
@@ -1641,6 +1734,7 @@ public sealed class IslandGenerator : MonoBehaviour
             {
                 status = "Generation cancelled.";
             }
+            return false;
         }
         catch (Exception exception)
         {
@@ -1652,6 +1746,7 @@ public sealed class IslandGenerator : MonoBehaviour
                 ClearGeneratedContent();
                 DestroyRuntimeMaterials();
             }
+            return false;
         }
         finally
         {
@@ -1682,7 +1777,9 @@ public sealed class IslandGenerator : MonoBehaviour
     public void SetStreamingTarget(Transform target)
     {
         streaming.Target = target;
-        if (Application.isPlaying || worldEnvironment != null)
+        if (controlsWorldEnvironment
+            && !worldManaged
+            && (Application.isPlaying || worldEnvironment != null))
         {
             EnsureWorldEnvironment();
             worldEnvironment.SetFollowTarget(target);
@@ -1705,6 +1802,63 @@ public sealed class IslandGenerator : MonoBehaviour
     public void ClearStreamingFocus()
     {
         terrainStreamer?.ClearPlayerFocus();
+    }
+
+    internal void ConfigureWorldManagement(bool environmentAuthority)
+    {
+        if (generationInProgress || islandRuntime != null)
+        {
+            throw new InvalidOperationException(
+                "World management must be configured before island generation starts.");
+        }
+        worldManaged = true;
+        controlsWorldEnvironment = environmentAuthority;
+        environmentFollowTarget = streaming.Target;
+    }
+
+    internal void SetRuntimeDormant(bool dormant)
+    {
+        if (islandRuntime == null
+            || islandRuntime.State == IslandRuntimeState.Disposed
+            || islandRuntime.State == IslandRuntimeState.Installing)
+        {
+            return;
+        }
+        if (dormant)
+        {
+            terrainStreamer?.ClearPlayerFocus();
+            streaming.Target = null;
+        }
+        islandRuntime.SetDormant(dormant);
+    }
+
+    internal void SetWorldEnvironmentFollowTarget(Transform target)
+    {
+        if (!controlsWorldEnvironment)
+        {
+            return;
+        }
+        environmentFollowTarget = target;
+        EnsureWorldEnvironment();
+        worldEnvironment.SetFollowTarget(target);
+    }
+
+    internal void SyncSharedWorldLighting(IslandGenerator authority)
+    {
+        if (authority == null || ReferenceEquals(authority, this))
+        {
+            return;
+        }
+        currentSkyExposure = authority.currentSkyExposure;
+        currentNightStrength = authority.currentNightStrength;
+        riverMaterial?.SetFloat(WaterSkyExposureId, currentSkyExposure);
+        treeFoliageMaterial?.SetFloat(NightStrengthId, currentNightStrength);
+        var light = RenderSettings.sun;
+        var direction = light != null ? -light.transform.forward : Vector3.down;
+        var colour = light != null ? light.color * light.intensity : Color.black;
+        grassMaterial?.SetVector("_GrassLightDirection", direction);
+        grassMaterial?.SetColor("_GrassLightColor", colour);
+        grassMaterial?.SetColor("_GrassAmbientColor", RenderSettings.ambientLight);
     }
 
     public bool TryRaycastOverview(Ray worldRay, out Vector3 worldPoint)
@@ -1751,7 +1905,9 @@ public sealed class IslandGenerator : MonoBehaviour
         Material treeFoliageTemplate = null)
     {
         streaming.Target = streamingTarget;
-        if (Application.isPlaying || worldEnvironment != null)
+        if (controlsWorldEnvironment
+            && !worldManaged
+            && (Application.isPlaying || worldEnvironment != null))
         {
             EnsureWorldEnvironment();
             worldEnvironment.SetFollowTarget(streamingTarget);

@@ -54,6 +54,22 @@ the requirement at the configured maximum elevation, discouraging short coastal
 rivers without imposing a hard elevation cutoff. Drag to orbit, use the mouse
 wheel to zoom, and right-drag to pan.
 
+For an authored open-sea test, add an `IslandWorldManager` to a parent object
+and place two or three `IslandGenerator` objects beneath it at different XZ
+positions. If its authored list is empty, the manager discovers those child
+generators; otherwise the list controls their stable IDs, world cells, and
+start-generation policy. The first entry (or the explicit environment authority)
+owns the one global sky, sea, clouds, and solar clock. Islands generate serially,
+retain independent materials, coast masks, and native handles, become dormant
+outside the active radius, and can optionally unload beyond the unload radius.
+First-person flight and terrain snapping automatically route through the manager
+when one is present.
+
+`Assets/Scenes/IslandsSandbox.unity` is the ready-made Phase 5 traversal test:
+it contains three independently seeded islands and starts the main camera in fly
+mode over open sea, facing the central island. Use WASD to fly, hold Shift for a
+2x flight boost, press V to toggle fly mode, and press Escape for the overview.
+
 The island may be translated and rotated around the Y axis. Generated content,
 streaming cells, colliders, materials, rivers, and decoration remain in the
 component's local coordinate system. Unit scale is currently required; the
