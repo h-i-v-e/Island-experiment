@@ -20,7 +20,7 @@ generation caching are later stages built on that separation.
 
 ## Implementation Status
 
-The first deployable ownership milestone is now implemented:
+The first three deployable ownership milestones are now implemented:
 
 - `WorldEnvironmentController` owns the player-relative sky dome, moon light,
   cloud weather texture, and reflection binding outside the generated-island
@@ -32,12 +32,16 @@ The first deployable ownership milestone is now implemented:
 - atmosphere and cloud sampling use stable world/weather coordinates rather
   than the global transform of a single island;
 - `_IslandWorldToLocal` is now assigned only to island-bound materials. The sea
-  material still receives the active island's mask as a transitional coastal
-  dependency until the deep-ocean/coastal-overlay split is implemented.
+  material no longer receives an island matrix or mask;
+- `SeaWater.shader` is now the single global deep-ocean refraction, reflection,
+  opacity, distortion, lighting, and open-water pass;
+- each generated island owns a bounded, edge-faded coastal overlay with its own
+  sea mask and transform. The overlay contributes shallow tint and shore foam
+  without repeating the deep ocean's GrabPass, refraction, or reflection work.
 
-The next milestone is the explicit deep-ocean/coastal-overlay split followed by
-`IslandRuntime` extraction. Multiple simultaneously active islands remain
-intentionally deferred until those two ownership boundaries are complete.
+The next milestone is `IslandRuntime` extraction. Multiple simultaneously
+active islands remain intentionally deferred until that lifetime boundary is
+complete.
 
 ## Current Architecture and Constraints
 

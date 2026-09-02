@@ -45,6 +45,51 @@ public static class IslandGeneratorValidation
         }
 
         ValidateOpenSeaEnvironmentOwnership();
+        ValidateCoastalOverlayIsolation();
+    }
+
+    private static void ValidateCoastalOverlayIsolation()
+    {
+        var deepOceanShader = Shader.Find("Motu/Sea Water");
+        var coastalShader = Shader.Find("Motu/Coastal Water Overlay");
+        if (deepOceanShader == null || coastalShader == null)
+        {
+            throw new InvalidOperationException(
+                "The deep-ocean or coastal-overlay shader is unavailable.");
+        }
+        var deepOcean = new Material(deepOceanShader);
+        var firstCoast = new Material(coastalShader);
+        var secondCoast = new Material(coastalShader);
+        var firstMask = new Texture2D(1, 1, TextureFormat.RGBA32, false, true);
+        var secondMask = new Texture2D(1, 1, TextureFormat.RGBA32, false, true);
+        try
+        {
+            var firstMatrix = Matrix4x4.Translate(new Vector3(-2000f, 0f, 750f));
+            var secondMatrix = Matrix4x4.Translate(new Vector3(3200f, 0f, -900f));
+            firstCoast.SetMatrix("_IslandWorldToLocal", firstMatrix);
+            secondCoast.SetMatrix("_IslandWorldToLocal", secondMatrix);
+            firstCoast.SetTexture("_SeaMask", firstMask);
+            secondCoast.SetTexture("_SeaMask", secondMask);
+            if (deepOcean.HasProperty("_SeaMask")
+                || deepOcean.HasProperty("_WorldSize")
+                || firstCoast.GetMatrix("_IslandWorldToLocal")
+                    == secondCoast.GetMatrix("_IslandWorldToLocal")
+                || firstCoast.GetTexture("_SeaMask")
+                    == secondCoast.GetTexture("_SeaMask")
+                || firstCoast.renderQueue <= deepOcean.renderQueue)
+            {
+                throw new InvalidOperationException(
+                    "Mock islands did not retain isolated coastal masks, transforms, and ordering.");
+            }
+        }
+        finally
+        {
+            UnityEngine.Object.DestroyImmediate(firstMask);
+            UnityEngine.Object.DestroyImmediate(secondMask);
+            UnityEngine.Object.DestroyImmediate(firstCoast);
+            UnityEngine.Object.DestroyImmediate(secondCoast);
+            UnityEngine.Object.DestroyImmediate(deepOcean);
+        }
     }
 
     private static void ValidateOpenSeaEnvironmentOwnership()

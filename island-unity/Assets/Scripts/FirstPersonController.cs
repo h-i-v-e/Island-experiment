@@ -5,9 +5,16 @@ public sealed class FirstPersonController : MonoBehaviour
     private const float EyeHeight = 1.7f;
     private const float WalkSpeed = 6f;
     private const float RunSpeed = 12f;
+    private const float DefaultFlySpeed = RunSpeed * 2f;
     private const float LookSensitivity = 2.2f;
     private const float Gravity = -24f;
     private const float JumpSpeed = 7f;
+
+    [Header("Fly Mode")]
+    [SerializeField] private KeyCode toggleFlyModeKey = KeyCode.V;
+    [SerializeField, Min(0.1f)] private float flyClearanceMetres = 4f;
+    [SerializeField, Min(0.1f)] private float flySpeedMetresPerSecond = DefaultFlySpeed;
+    [SerializeField, Min(0.01f)] private float flyDescentSmoothTime = 0.18f;
 
     private OrbitCamera orbitCamera;
     private CharacterController characterController;
@@ -15,9 +22,14 @@ public sealed class FirstPersonController : MonoBehaviour
     private float yaw;
     private float pitch;
     private float verticalSpeed;
+    private float flyVerticalVelocity;
 
     public bool IsActive { get; private set; }
     public bool IsCursorReleased { get; private set; }
+    public bool IsFlyMode { get; private set; }
+    public KeyCode ToggleFlyModeKey => toggleFlyModeKey;
+    public float FlyClearanceMetres => flyClearanceMetres;
+    public float FlySpeedMetresPerSecond => flySpeedMetresPerSecond;
 
     public void Configure(OrbitCamera overviewCamera, IslandGenerator islandGenerator)
     {
@@ -60,6 +72,8 @@ public sealed class FirstPersonController : MonoBehaviour
         pitch = NormalizePitch(transform.eulerAngles.x);
         pitch = Mathf.Clamp(pitch, -85f, 85f);
         verticalSpeed = -2f;
+        flyVerticalVelocity = 0f;
+        IsFlyMode = false;
         characterController.enabled = true;
         island.SetStreamingTarget(transform);
         IsActive = true;
@@ -83,6 +97,8 @@ public sealed class FirstPersonController : MonoBehaviour
 
         IsActive = false;
         IsCursorReleased = false;
+        IsFlyMode = false;
+        flyVerticalVelocity = 0f;
         characterController.enabled = false;
         enabled = false;
         orbitCamera.enabled = true;
@@ -103,6 +119,11 @@ public sealed class FirstPersonController : MonoBehaviour
             IsCursorReleased = !IsCursorReleased;
             ApplyCursorState();
         }
+        if (toggleFlyModeKey != KeyCode.None
+            && Input.GetKeyDown(toggleFlyModeKey))
+        {
+            SetFlyMode(!IsFlyMode);
+        }
 
         island?.PrepareStreamingAt(transform.position);
         if (IsCursorReleased)
@@ -121,6 +142,11 @@ public sealed class FirstPersonController : MonoBehaviour
         input = Vector2.ClampMagnitude(input, 1f);
         var heading = Quaternion.Euler(0f, yaw, 0f);
         var movement = heading * new Vector3(input.x, 0f, input.y);
+        if (IsFlyMode)
+        {
+            UpdateFlyMovement(movement);
+            return;
+        }
         var speed = Input.GetKey(KeyCode.LeftShift) ? RunSpeed : WalkSpeed;
 
         if (characterController.isGrounded)
@@ -139,6 +165,54 @@ public sealed class FirstPersonController : MonoBehaviour
         movement = movement * speed + Vector3.up * verticalSpeed;
         characterController.Move(movement * Time.deltaTime);
         island?.PrepareStreamingAt(transform.position);
+    }
+
+    private void SetFlyMode(bool active)
+    {
+        IsFlyMode = active;
+        verticalSpeed = 0f;
+        flyVerticalVelocity = 0f;
+        characterController.enabled = !active;
+        if (active)
+        {
+            FollowFlySurface(0f);
+        }
+    }
+
+    private void UpdateFlyMovement(Vector3 direction)
+    {
+        transform.position += direction
+            * (flySpeedMetresPerSecond * Time.deltaTime);
+        island?.PrepareStreamingAt(transform.position);
+        FollowFlySurface(Time.deltaTime);
+        island?.PrepareStreamingAt(transform.position);
+    }
+
+    private void FollowFlySurface(float deltaTime)
+    {
+        if (island == null)
+        {
+            return;
+        }
+        var position = transform.position;
+        var targetHeight = island.GetTerrainOrSeaHeight(position)
+            + flyClearanceMetres;
+        if (position.y <= targetHeight || deltaTime <= 0f)
+        {
+            position.y = targetHeight;
+            flyVerticalVelocity = 0f;
+        }
+        else
+        {
+            position.y = Mathf.SmoothDamp(
+                position.y,
+                targetHeight,
+                ref flyVerticalVelocity,
+                flyDescentSmoothTime,
+                Mathf.Infinity,
+                deltaTime);
+        }
+        transform.position = position;
     }
 
     private void ApplyCursorState()

@@ -89,9 +89,11 @@ are clipped on the same 64x64 LOD 1 boundaries and render throughout every
 active LOD 1 group, including its LOD 0 refinement cells. Rivers remain hidden
 where the terrain is still LOD 2. Chunks are cached after their first
 visit, so revisiting an area only changes visibility. First-person controls are
-WASD, Shift to run, Space to jump, and the mouse to look. Press Tab to release
-the cursor for Inspector tuning, then Tab again to resume movement and mouse
-look. Visibility and grass-brightness changes apply without regenerating.
+WASD, Shift to run, Space to jump, and the mouse to look. Press V to toggle the
+configurable 24 m/s fly mode, which follows terrain or sea level at a 4 m
+clearance. Press Tab to release the cursor for Inspector tuning, then Tab again
+to resume movement and mouse look. Visibility and grass-brightness changes
+apply without regenerating.
 
 The collision heightfield has one height per horizontal position. It closely
 tracks the generated walkable surface but deliberately cannot represent
@@ -257,7 +259,11 @@ reflecting itself. Tune `Resolution Scale`, `Clip Plane Offset`, and
 sky-colour reflection remains the fallback outside the reflection texture or
 when the component is disabled.
 
-Incoming sea waves average the sea mask's red depth proximity with inverted
+The player-relative deep ocean performs reflection, refraction, distortion, and
+depth opacity once without depending on any island mask. Each island adds a
+bounded, edge-faded coastal overlay just above it; this overlay owns the sea
+mask, shallow tint, shore waves, and foam without repeating the ocean GrabPass.
+Incoming coastal waves average the sea mask's red depth proximity with inverted
 green land proximity, breaking up coherent flashing across broad shallow water.
 Green stores distance from land over sixteen metres and also drives a separate,
 weaker wave echo travelling back offshore across that full range. Echo spacing

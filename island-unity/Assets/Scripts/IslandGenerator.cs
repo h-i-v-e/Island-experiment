@@ -13,6 +13,8 @@ public sealed class IslandGenerator : MonoBehaviour
 {
     private const float SeaHeight = 0f;
     private const float SeaHorizonOverlap = 1.05f;
+    private const float CoastalWaterVerticalOffset = 0.015f;
+    private const float UnityPlaneSizeMetres = 10f;
     private const float SkyDomeSkirtDepthRatio = 0.25f;
     private const float ValidationWorldSize = 2000f;
     private const int SurfaceMapDimension = 2048;
@@ -123,6 +125,8 @@ public sealed class IslandGenerator : MonoBehaviour
     private Material rockMaterial;
     private Material riverMaterial;
     private Material seaMaterial;
+    private Material coastalWaterMaterial;
+    private GameObject coastalWaterObject;
     private Material meshEdgeMaterial;
     private Material treeWoodMaterial;
     private Material treeLod1WoodMaterial;
@@ -534,12 +538,22 @@ public sealed class IslandGenerator : MonoBehaviour
             riverShoreWaveSpeed,
             riverShoreWaveDepth,
             riverShoreWaveNoiseWorldSize);
-        seaMaterial = CreateMaterial(
-            "Motu/Sea Water",
-            waterColor,
-            rendering.SeaMaterial,
-            generation.WorldSizeMetres);
+        var seaShader = Shader.Find("Motu/Sea Water")
+            ?? throw new InvalidOperationException("Could not find shader 'Motu/Sea Water'.");
+        seaMaterial = new Material(seaShader)
+        {
+            name = "Motu/Sea Water (Global Deep Ocean)",
+        };
+        if (rendering.SeaMaterial != null)
+        {
+            seaMaterial.CopyPropertiesFromMaterial(rendering.SeaMaterial);
+        }
+        else
+        {
+            seaMaterial.SetColor("_Color", waterColor);
+        }
         seaMaterial.renderQueue = (int)RenderQueue.Transparent;
+        seaMaterial.SetTexture("_NoiseTex", riverNoiseTexture);
         seaMaterial.SetFloat("_ShallowOpacity", shallowWaterOpacity);
         seaMaterial.SetFloat("_OpacityDepth", fullOpacityDepth);
         seaMaterial.SetColor("_ReflectionColor", skyColor);
@@ -550,8 +564,27 @@ public sealed class IslandGenerator : MonoBehaviour
         seaMaterial.SetFloat("_PlanarReflectionWeight", 1f);
         seaMaterial.SetFloat("_PlanarReflectionDistortion", 0.008f);
         seaMaterial.SetFloat("_SunGlintStrength", 0.8f);
+
+        var coastalShader = Shader.Find("Motu/Coastal Water Overlay")
+            ?? throw new InvalidOperationException(
+                "Could not find shader 'Motu/Coastal Water Overlay'.");
+        coastalWaterMaterial = new Material(coastalShader)
+        {
+            name = "Motu/Coastal Water Overlay (Island Instance)",
+        };
+        coastalWaterMaterial.SetColor(
+            "_Color",
+            seaMaterial.HasProperty("_Color")
+                ? seaMaterial.GetColor("_Color")
+                : waterColor);
+        coastalWaterMaterial.renderQueue = (int)RenderQueue.Transparent + 5;
+        coastalWaterMaterial.SetColor("_FoamColor", new Color(0.92f, 0.97f, 1f, 1f));
+        coastalWaterMaterial.SetFloat("_WorldSize", generation.WorldSizeMetres);
+        coastalWaterMaterial.SetFloat("_CoastalOpacity", 0.16f);
+        coastalWaterMaterial.SetFloat("_FoamOpacity", 0.72f);
+        coastalWaterMaterial.SetFloat("_EdgeFadeMetres", 24f);
         ConfigureShoreWaves(
-            seaMaterial,
+            coastalWaterMaterial,
             riverNoiseTexture,
             shoreWaveStrength,
             seaShoreWaveSpacing,
@@ -678,7 +711,7 @@ public sealed class IslandGenerator : MonoBehaviour
         grassMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
         rockMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
         riverMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
-        seaMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
+        coastalWaterMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
         treeWoodMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
         treeLod1WoodMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
         treeFoliageMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
@@ -892,6 +925,7 @@ public sealed class IslandGenerator : MonoBehaviour
         {
             appliedShowSea = rendering.ShowSea;
             worldEnvironment?.SetSeaVisible(rendering.ShowSea);
+            coastalWaterObject?.SetActive(rendering.ShowSea);
         }
         if (appliedShowGrass != rendering.ShowGrass)
         {
@@ -1509,6 +1543,7 @@ public sealed class IslandGenerator : MonoBehaviour
 
             runtimeRoot = new GameObject("Generated Island");
             runtimeRoot.transform.SetParent(transform, false);
+            CreateCoastalWaterOverlay(worldSize);
             UpdateSolarLighting(0f);
             var terrainRoot = new GameObject("Terrain Tiles");
             terrainRoot.transform.SetParent(runtimeRoot.transform, false);
@@ -1667,6 +1702,16 @@ public sealed class IslandGenerator : MonoBehaviour
         }
         worldPoint = approximateWorldPoint;
         return false;
+    }
+
+    public float GetTerrainOrSeaHeight(Vector3 approximateWorldPoint)
+    {
+        var surfaceHeight = transform.TransformPoint(Vector3.up * SeaHeight).y;
+        if (TrySnapToTerrain(approximateWorldPoint, out var terrainPoint))
+        {
+            surfaceHeight = Mathf.Max(surfaceHeight, terrainPoint.y);
+        }
+        return surfaceHeight;
     }
 
     public void ConfigureSceneReferences(
@@ -2586,17 +2631,48 @@ public sealed class IslandGenerator : MonoBehaviour
             throw new InvalidOperationException(
                 "This graphics device does not support the required RG16 sea mask texture.");
         }
-        if (!seaMaterial.HasProperty("_SeaMask"))
+        if (coastalWaterMaterial == null)
         {
             throw new InvalidOperationException(
-                "The water shader does not expose the generated sea mask.");
+                "The coastal-water material was not created before its sea mask.");
         }
         seaMaskTexture = CreateSurfaceTexture(
             "Motu Sea Depth And Land Distance",
             seaMask.dimension,
             TextureFormat.RG16,
             seaMask.rg);
-        seaMaterial.SetTexture("_SeaMask", seaMaskTexture);
+        coastalWaterMaterial.SetTexture("_SeaMask", seaMaskTexture);
+    }
+
+    private void CreateCoastalWaterOverlay(float worldSize)
+    {
+        if (runtimeRoot == null || coastalWaterMaterial == null)
+        {
+            throw new InvalidOperationException(
+                "Coastal water requires an installed island root and material.");
+        }
+        coastalWaterObject = GameObject.CreatePrimitive(PrimitiveType.Plane);
+        coastalWaterObject.name = "Island Coastal Water Overlay";
+        coastalWaterObject.transform.SetParent(runtimeRoot.transform, false);
+        coastalWaterObject.transform.localPosition = Vector3.up
+            * (SeaHeight + CoastalWaterVerticalOffset);
+        coastalWaterObject.transform.localRotation = Quaternion.identity;
+        coastalWaterObject.transform.localScale = Vector3.one
+            * (Mathf.Max(worldSize, 1f) / UnityPlaneSizeMetres);
+        var waterLayer = LayerMask.NameToLayer("Water");
+        if (waterLayer >= 0)
+        {
+            coastalWaterObject.layer = waterLayer;
+        }
+        DestroyUnityObject(coastalWaterObject.GetComponent<Collider>());
+        var renderer = coastalWaterObject.GetComponent<MeshRenderer>();
+        renderer.sharedMaterial = coastalWaterMaterial;
+        renderer.shadowCastingMode = ShadowCastingMode.Off;
+        renderer.receiveShadows = true;
+        renderer.lightProbeUsage = LightProbeUsage.Off;
+        renderer.reflectionProbeUsage = ReflectionProbeUsage.Off;
+        renderer.allowOcclusionWhenDynamic = false;
+        coastalWaterObject.SetActive(rendering.ShowSea);
     }
 
     private static Texture2D CreateSurfaceTexture(
@@ -2884,13 +2960,14 @@ public sealed class IslandGenerator : MonoBehaviour
         }
         DestroyUnityObject(runtimeRoot);
         runtimeRoot = null;
+        coastalWaterObject = null;
         terrainMaterial?.SetTexture("_WorldNormal", null);
         terrainMaterial?.SetTexture("_Occlusion", null);
         terrainLod1Material?.SetTexture("_WorldNormal", null);
         terrainLod1Material?.SetTexture("_Occlusion", null);
         terrainLod2Material?.SetTexture("_WorldNormal", null);
         terrainLod2Material?.SetTexture("_Occlusion", null);
-        seaMaterial?.SetTexture("_SeaMask", null);
+        coastalWaterMaterial?.SetTexture("_SeaMask", null);
         DestroyUnityObject(terrainNormalTexture);
         DestroyUnityObject(terrainOcclusionTexture);
         DestroyUnityObject(seaMaskTexture);
@@ -2926,6 +3003,7 @@ public sealed class IslandGenerator : MonoBehaviour
         DestroyUnityObject(reedMaterial);
         DestroyUnityObject(fernMaterial);
         DestroyUnityObject(riverMaterial);
+        DestroyUnityObject(coastalWaterMaterial);
         DestroyUnityObject(meshEdgeMaterial);
         if (ownsCliffNoiseTexture) DestroyUnityObject(cliffNoiseTexture);
         if (ownsRiverNoiseTexture) DestroyUnityObject(riverNoiseTexture);
@@ -2943,6 +3021,7 @@ public sealed class IslandGenerator : MonoBehaviour
         reedMaterial = null;
         fernMaterial = null;
         riverMaterial = null;
+        coastalWaterMaterial = null;
         seaMaterial = null;
         meshEdgeMaterial = null;
         cliffNoiseTexture = null;
@@ -3813,8 +3892,6 @@ public sealed class IslandGenerator : MonoBehaviour
             try
             {
                 if (!seaWaterMaterial.HasProperty("_NoiseTex")
-                    || !seaWaterMaterial.HasProperty("_SeaMask")
-                    || !seaWaterMaterial.HasProperty("_WorldSize")
                     || !seaWaterMaterial.HasProperty("_ShallowOpacity")
                     || !seaWaterMaterial.HasProperty("_OpacityDepth")
                     || !seaWaterMaterial.HasProperty("_ReflectionColor")
@@ -3823,13 +3900,9 @@ public sealed class IslandGenerator : MonoBehaviour
                     || !seaWaterMaterial.HasProperty("_RefractionDepth")
                     || !seaWaterMaterial.HasProperty("_PlanarReflectionWeight")
                     || !seaWaterMaterial.HasProperty("_PlanarReflectionDistortion")
-                    || !seaWaterMaterial.HasProperty("_ShoreWaveStrength")
-                    || !seaWaterMaterial.HasProperty("_ShoreWaveSpacing")
-                    || !seaWaterMaterial.HasProperty("_ShoreWaveSpeed")
-                    || !seaWaterMaterial.HasProperty("_ShoreWaveDepth")
-                    || !seaWaterMaterial.HasProperty("_ShoreWaveIncomingStrength")
-                    || !seaWaterMaterial.HasProperty("_ShoreWaveEchoStrength")
-                    || !seaWaterMaterial.HasProperty("_ShoreWaveNoiseWorldSize")
+                    || seaWaterMaterial.HasProperty("_SeaMask")
+                    || seaWaterMaterial.HasProperty("_WorldSize")
+                    || seaWaterMaterial.HasProperty("_ShoreWaveStrength")
                     || seaWaterMaterial.HasProperty("_CoarseFlowSpeed")
                     || seaWaterMaterial.HasProperty("_EstuaryStrength")
                     || seaWaterMaterial.HasProperty("_WhitewaterStrength"))
@@ -3841,6 +3914,44 @@ public sealed class IslandGenerator : MonoBehaviour
             finally
             {
                 DestroyImmediate(seaWaterMaterial);
+            }
+
+            var coastalWaterShader = Shader.Find("Motu/Coastal Water Overlay");
+            if (coastalWaterShader == null
+                || !coastalWaterShader.isSupported
+                || UnityEditor.ShaderUtil.ShaderHasError(coastalWaterShader))
+            {
+                throw new InvalidOperationException(
+                    "The island coastal-water overlay shader is missing or unsupported.");
+            }
+            var coastalWaterMaterial = new Material(coastalWaterShader);
+            try
+            {
+                if (!coastalWaterMaterial.HasProperty("_NoiseTex")
+                    || !coastalWaterMaterial.HasProperty("_SeaMask")
+                    || !coastalWaterMaterial.HasProperty("_WorldSize")
+                    || !coastalWaterMaterial.HasProperty("_CoastalOpacity")
+                    || !coastalWaterMaterial.HasProperty("_FoamOpacity")
+                    || !coastalWaterMaterial.HasProperty("_EdgeFadeMetres")
+                    || !coastalWaterMaterial.HasProperty("_ShoreWaveStrength")
+                    || !coastalWaterMaterial.HasProperty("_ShoreWaveSpacing")
+                    || !coastalWaterMaterial.HasProperty("_ShoreWaveSpeed")
+                    || !coastalWaterMaterial.HasProperty("_ShoreWaveDepth")
+                    || !coastalWaterMaterial.HasProperty("_ShoreWaveIncomingStrength")
+                    || !coastalWaterMaterial.HasProperty("_ShoreWaveEchoStrength")
+                    || !coastalWaterMaterial.HasProperty("_ShoreWaveNoiseWorldSize")
+                    || coastalWaterMaterial.HasProperty("_ShallowOpacity")
+                    || coastalWaterMaterial.HasProperty("_OpacityDepth")
+                    || coastalWaterMaterial.HasProperty("_RefractionStrength")
+                    || coastalWaterMaterial.HasProperty("_PlanarReflectionWeight"))
+                {
+                    throw new InvalidOperationException(
+                        "The coastal-water overlay does not isolate island shore effects.");
+                }
+            }
+            finally
+            {
+                DestroyImmediate(coastalWaterMaterial);
             }
 
             var waterCameraObject = new GameObject("Water depth validation camera");

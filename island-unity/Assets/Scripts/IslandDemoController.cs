@@ -119,6 +119,11 @@ public sealed class IslandDemoController : MonoBehaviour
             GUILayout.BeginArea(PanelRect, GUI.skin.box);
             GUILayout.Label("First person: WASD move | Shift run | Space jump | Mouse look");
             GUILayout.Label(
+                $"{firstPersonController.ToggleFlyModeKey}: fly "
+                + $"{firstPersonController.FlySpeedMetresPerSecond:0.#} m/s at "
+                + $"{firstPersonController.FlyClearanceMetres:0.#} m clearance"
+                + (firstPersonController.IsFlyMode ? " (ACTIVE)" : string.Empty));
+            GUILayout.Label(
                 $"{island.DebugSettings.ToggleMeshEdgesKey}: mesh edges | "
                 + $"{island.DebugSettings.ToggleTreeMeshEdgesKey}: tree wireframe | "
                 + $"{island.DebugSettings.ToggleFrameRateKey}: frame rate");
