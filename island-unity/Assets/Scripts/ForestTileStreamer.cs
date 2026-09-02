@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -258,6 +259,61 @@ internal sealed class ForestTileStreamer : IDisposable
         }
     }
 
+    internal IEnumerator UpdateLod1NeighborhoodIncremental(
+        Vector2Int center,
+        Func<bool> stillWanted)
+    {
+        if (!initialized)
+        {
+            yield break;
+        }
+
+        var incoming = NeighbourKeys(center, Lod2Resolution);
+        var incomingSet = new HashSet<Vector2Int>(incoming);
+        foreach (var key in incoming)
+        {
+            if (!lod1Groups.ContainsKey(key))
+            {
+                lod1Groups.Add(key, CreateLod1Group(key));
+                yield return null;
+                if (!stillWanted())
+                {
+                    yield break;
+                }
+            }
+        }
+
+        if (!stillWanted())
+        {
+            yield break;
+        }
+        foreach (var key in incoming)
+        {
+            SetLod2TileActive(key, false);
+        }
+
+        removalScratch.Clear();
+        foreach (var key in lod1Groups.Keys)
+        {
+            if (!incomingSet.Contains(key))
+            {
+                removalScratch.Add(key);
+            }
+        }
+        foreach (var key in removalScratch)
+        {
+            RemoveLod0GroupsOwnedBy(key);
+            SetLod2TileActive(key, true);
+            DestroyGroup(lod1Groups[key]);
+            lod1Groups.Remove(key);
+            yield return null;
+            if (!stillWanted())
+            {
+                yield break;
+            }
+        }
+    }
+
     internal void UpdateLod0Neighborhood(Vector2Int center)
     {
         if (!initialized)
@@ -312,6 +368,60 @@ internal sealed class ForestTileStreamer : IDisposable
             SetLod1TileActive(key, true);
             DestroyGroup(lod0Groups[key]);
             lod0Groups.Remove(key);
+        }
+    }
+
+    internal IEnumerator UpdateLod0NeighborhoodIncremental(
+        Vector2Int center,
+        Func<bool> stillWanted)
+    {
+        if (!initialized)
+        {
+            yield break;
+        }
+
+        var incoming = NeighbourKeys(center, Lod1Resolution);
+        var incomingSet = new HashSet<Vector2Int>(incoming);
+        foreach (var key in incoming)
+        {
+            if (!lod0Groups.ContainsKey(key))
+            {
+                lod0Groups.Add(key, CreateLod0Group(key));
+                yield return null;
+                if (!stillWanted())
+                {
+                    yield break;
+                }
+            }
+        }
+
+        if (!stillWanted())
+        {
+            yield break;
+        }
+        foreach (var key in incoming)
+        {
+            SetLod1TileActive(key, false);
+        }
+
+        removalScratch.Clear();
+        foreach (var key in lod0Groups.Keys)
+        {
+            if (!incomingSet.Contains(key))
+            {
+                removalScratch.Add(key);
+            }
+        }
+        foreach (var key in removalScratch)
+        {
+            SetLod1TileActive(key, true);
+            DestroyGroup(lod0Groups[key]);
+            lod0Groups.Remove(key);
+            yield return null;
+            if (!stillWanted())
+            {
+                yield break;
+            }
         }
     }
 

@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -86,6 +87,43 @@ internal sealed class FernTileStreamer : IDisposable
         {
             DestroyTile(active[key]);
             active.Remove(key);
+        }
+    }
+
+    internal IEnumerator UpdateLod0NeighborhoodIncremental(
+        Vector2Int center,
+        Func<bool> stillWanted)
+    {
+        if (root == null) yield break;
+        var wanted = new HashSet<Vector2Int>();
+        for (var y = center.y - NearbyRadius; y <= center.y + NearbyRadius; y++)
+        {
+            for (var x = center.x - NearbyRadius; x <= center.x + NearbyRadius; x++)
+            {
+                if (x < 0 || y < 0 || x >= Resolution || y >= Resolution) continue;
+                var key = new Vector2Int(x, y);
+                wanted.Add(key);
+                if (!active.ContainsKey(key))
+                {
+                    var tile = CreateTile(key);
+                    if (tile != null) active.Add(key, tile);
+                    yield return null;
+                    if (!stillWanted()) yield break;
+                }
+            }
+        }
+
+        removal.Clear();
+        foreach (var key in active.Keys)
+        {
+            if (!wanted.Contains(key)) removal.Add(key);
+        }
+        foreach (var key in removal)
+        {
+            DestroyTile(active[key]);
+            active.Remove(key);
+            yield return null;
+            if (!stillWanted()) yield break;
         }
     }
 

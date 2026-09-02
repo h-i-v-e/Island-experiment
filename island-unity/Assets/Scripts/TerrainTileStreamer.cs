@@ -1,13 +1,32 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
+using Unity.Profiling;
 using UnityEngine.Rendering;
 
 public sealed class TerrainTileStreamer : MonoBehaviour
 {
+    private static readonly ProfilerMarker PlayerPositionMarker =
+        new ProfilerMarker("Motu.TerrainStreaming.SetPlayerPosition");
+    private static readonly ProfilerMarker ColliderTransitionMarker =
+        new ProfilerMarker("Motu.TerrainStreaming.Colliders");
+    private static readonly ProfilerMarker Lod1TransitionMarker =
+        new ProfilerMarker("Motu.TerrainStreaming.LOD1");
+    private static readonly ProfilerMarker Lod0TransitionMarker =
+        new ProfilerMarker("Motu.TerrainStreaming.LOD0");
+    private static readonly ProfilerMarker ForestLod1TransitionMarker =
+        new ProfilerMarker("Motu.TerrainStreaming.ForestLOD1");
+    private static readonly ProfilerMarker ForestLod0TransitionMarker =
+        new ProfilerMarker("Motu.TerrainStreaming.ForestLOD0");
+    private static readonly ProfilerMarker ReedTransitionMarker =
+        new ProfilerMarker("Motu.TerrainStreaming.Reeds");
+    private static readonly ProfilerMarker FernTransitionMarker =
+        new ProfilerMarker("Motu.TerrainStreaming.Ferns");
+    private static readonly Vector2Int InvalidCell = new Vector2Int(-1, -1);
     private static readonly int WorldNormalWeightId = Shader.PropertyToID("_WorldNormalWeight");
     private static readonly int GrassEnabledId = Shader.PropertyToID("_GrassEnabled");
     private static readonly int GrassHeightId = Shader.PropertyToID("_GrassHeight");
@@ -30,7 +49,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
     {
         internal readonly GameObject gameObject;
         internal readonly Mesh mesh;
-        internal readonly Mesh edgeMesh;
+        internal Mesh edgeMesh;
         internal int[] batchIndices;
         internal GameObject grassObject;
 
@@ -91,6 +110,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
     private readonly Dictionary<Vector2Int, ColliderTile> colliderTiles =
         new Dictionary<Vector2Int, ColliderTile>();
     private readonly List<Vector2Int> removalScratch = new List<Vector2Int>(9);
+    private readonly List<TileGroup> pendingTransitionGroups = new List<TileGroup>(9);
 
     private IntPtr islandHandle;
     private Material terrainMaterial;
@@ -124,8 +144,11 @@ public sealed class TerrainTileStreamer : MonoBehaviour
     private ForestTileStreamer forestStreamer;
     private ReedTileStreamer reedStreamer;
     private FernTileStreamer fernStreamer;
-    private Vector2Int currentLod2 = new Vector2Int(-1, -1);
-    private Vector2Int currentLod1 = new Vector2Int(-1, -1);
+    private Vector2Int currentLod2 = InvalidCell;
+    private Vector2Int currentLod1 = InvalidCell;
+    private Vector2Int requestedLod2 = InvalidCell;
+    private Vector2Int requestedLod1 = InvalidCell;
+    private Coroutine transitionCoroutine;
 
     public int BaseVertexCount { get; private set; }
     public int BaseTriangleCount { get; private set; }
@@ -333,47 +356,160 @@ public sealed class TerrainTileStreamer : MonoBehaviour
 
     public void SetPlayerPosition(Vector3 worldPosition)
     {
-        var localPosition = transform.InverseTransformPoint(worldPosition);
-        terrainMaterial.SetVector(GrassPlayerPositionId, worldPosition);
-        terrainMaterial.SetFloat(GrassEnabledId, grassVisible ? 1f : 0f);
-        grassMaterial.SetVector(GrassPlayerPositionId, worldPosition);
-        grassMaterial.SetFloat(GrassEnabledId, grassVisible ? 1f : 0f);
-        treeFoliageMaterial?.SetVector(GrassPlayerPositionId, worldPosition);
-        treeLod0FoliageMaterial?.SetVector(GrassPlayerPositionId, worldPosition);
-        reedMaterial?.SetVector(GrassPlayerPositionId, worldPosition);
-        fernMaterial?.SetVector(GrassPlayerPositionId, worldPosition);
-        var lod2 = LocalCell(localPosition, Lod2Resolution);
-        var lod1 = LocalCell(localPosition, Lod1Resolution);
-
-        if (lod1 != currentLod1)
+        using (PlayerPositionMarker.Auto())
         {
-            // Collision must be live before any potentially expensive render
-            // refinement caused by the same movement.
+            var localPosition = transform.InverseTransformPoint(worldPosition);
+            terrainMaterial.SetVector(GrassPlayerPositionId, worldPosition);
+            terrainMaterial.SetFloat(GrassEnabledId, grassVisible ? 1f : 0f);
+            grassMaterial.SetVector(GrassPlayerPositionId, worldPosition);
+            grassMaterial.SetFloat(GrassEnabledId, grassVisible ? 1f : 0f);
+            treeFoliageMaterial?.SetVector(GrassPlayerPositionId, worldPosition);
+            treeLod0FoliageMaterial?.SetVector(GrassPlayerPositionId, worldPosition);
+            reedMaterial?.SetVector(GrassPlayerPositionId, worldPosition);
+            fernMaterial?.SetVector(GrassPlayerPositionId, worldPosition);
+            requestedLod2 = LocalCell(localPosition, Lod2Resolution);
+            requestedLod1 = LocalCell(localPosition, Lod1Resolution);
+
+            if (currentLod1 == InvalidCell || currentLod2 == InvalidCell)
+            {
+                ApplyInitialPlayerFocus(requestedLod2, requestedLod1);
+            }
+            else if (requestedLod1 != currentLod1
+                || requestedLod2 != currentLod2)
+            {
+                EnsureCriticalCollider(requestedLod1);
+                if (transitionCoroutine == null)
+                {
+                    transitionCoroutine = StartCoroutine(ApplyRequestedNeighborhoods());
+                }
+            }
+            if (grassVisible)
+            {
+                UpdateGrassTiles(localPosition);
+            }
+            waterfallMistPool?.SetPlayerPosition(localPosition, requestedLod1);
+        }
+    }
+
+    private void ApplyInitialPlayerFocus(Vector2Int lod2, Vector2Int lod1)
+    {
+        using (ColliderTransitionMarker.Auto())
+        {
             UpdateColliderNeighborhood(lod1);
         }
-        if (lod2 != currentLod2)
+        using (ForestLod1TransitionMarker.Auto())
         {
             forestStreamer?.UpdateLod1Neighborhood(lod2);
-            UpdateLod1Neighborhood(lod2);
-            currentLod2 = lod2;
         }
-        if (lod1 != currentLod1)
+        using (Lod1TransitionMarker.Auto())
+        {
+            UpdateLod1Neighborhood(lod2);
+        }
+        using (ForestLod0TransitionMarker.Auto())
         {
             forestStreamer?.UpdateLod0Neighborhood(lod1);
-            reedStreamer?.UpdateLod0Neighborhood(lod1);
-            fernStreamer?.UpdateLod0Neighborhood(lod1);
-            UpdateLod0Neighborhood(lod1);
-            currentLod1 = lod1;
         }
-        if (grassVisible)
+        using (ReedTransitionMarker.Auto())
         {
-            UpdateGrassTiles(localPosition);
+            reedStreamer?.UpdateLod0Neighborhood(lod1);
         }
-        waterfallMistPool?.SetPlayerPosition(localPosition, lod1);
+        using (FernTransitionMarker.Auto())
+        {
+            fernStreamer?.UpdateLod0Neighborhood(lod1);
+        }
+        using (Lod0TransitionMarker.Auto())
+        {
+            UpdateLod0Neighborhood(lod1);
+        }
+        currentLod2 = lod2;
+        currentLod1 = lod1;
+    }
+
+    private IEnumerator ApplyRequestedNeighborhoods()
+    {
+        // Start after the movement frame which detected the boundary. The old
+        // complete neighbourhood remains active while replacements are built.
+        yield return null;
+        try
+        {
+            while (requestedLod1 != currentLod1 || requestedLod2 != currentLod2)
+            {
+                var targetLod2 = requestedLod2;
+                var targetLod1 = requestedLod1;
+
+                if (targetLod1 != currentLod1)
+                {
+                    yield return UpdateColliderNeighborhoodIncremental(targetLod1);
+                    if (targetLod1 != requestedLod1 || targetLod2 != requestedLod2)
+                    {
+                        continue;
+                    }
+                }
+
+                if (targetLod2 != currentLod2)
+                {
+                    yield return forestStreamer?.UpdateLod1NeighborhoodIncremental(
+                        targetLod2,
+                        () => targetLod2 == requestedLod2);
+                    if (targetLod2 != requestedLod2)
+                    {
+                        continue;
+                    }
+
+                    yield return UpdateLod1NeighborhoodIncremental(targetLod2);
+                    if (targetLod2 != requestedLod2)
+                    {
+                        continue;
+                    }
+                    currentLod2 = targetLod2;
+                    yield return null;
+                }
+
+                if (targetLod1 != currentLod1)
+                {
+                    yield return forestStreamer?.UpdateLod0NeighborhoodIncremental(
+                        targetLod1,
+                        () => targetLod1 == requestedLod1);
+                    if (targetLod1 != requestedLod1)
+                    {
+                        continue;
+                    }
+
+                    yield return reedStreamer?.UpdateLod0NeighborhoodIncremental(
+                        targetLod1,
+                        () => targetLod1 == requestedLod1);
+                    if (targetLod1 != requestedLod1)
+                    {
+                        continue;
+                    }
+
+                    yield return fernStreamer?.UpdateLod0NeighborhoodIncremental(
+                        targetLod1,
+                        () => targetLod1 == requestedLod1);
+                    if (targetLod1 != requestedLod1)
+                    {
+                        continue;
+                    }
+
+                    yield return UpdateLod0NeighborhoodIncremental(targetLod1);
+                    if (targetLod1 != requestedLod1)
+                    {
+                        continue;
+                    }
+                    currentLod1 = targetLod1;
+                    grassTilesDirty = true;
+                }
+            }
+        }
+        finally
+        {
+            transitionCoroutine = null;
+        }
     }
 
     public void ClearPlayerFocus()
     {
+        CancelPendingTransition();
         forestStreamer?.ClearPlayerFocus();
         reedStreamer?.ClearPlayerFocus();
         fernStreamer?.ClearPlayerFocus();
@@ -382,6 +518,10 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         lastGrassPosition = new Vector3(float.PositiveInfinity, 0f, 0f);
         waterfallMistPool?.ClearPlayerFocus();
         RemoveAllColliderTiles();
+        currentLod2 = InvalidCell;
+        currentLod1 = InvalidCell;
+        requestedLod2 = InvalidCell;
+        requestedLod1 = InvalidCell;
         foreach (var group in riverGroups.Values)
         {
             group.root?.SetActive(false);
@@ -529,6 +669,20 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         islandHandle = IntPtr.Zero;
     }
 
+    private void CancelPendingTransition()
+    {
+        if (transitionCoroutine != null)
+        {
+            StopCoroutine(transitionCoroutine);
+            transitionCoroutine = null;
+        }
+        foreach (var group in pendingTransitionGroups)
+        {
+            DestroyGroup(group);
+        }
+        pendingTransitionGroups.Clear();
+    }
+
     public void SetRiversVisible(bool visible)
     {
         waterfallMistPool?.SetRiversVisible(visible);
@@ -608,10 +762,14 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         }
         foreach (var tile in group.tiles)
         {
-            if (tile?.edgeMesh == null || !tile.gameObject.activeInHierarchy)
+            if (tile == null || !tile.gameObject.activeInHierarchy)
             {
                 continue;
             }
+            // Terrain wireframes are a debug-only feature. Building them for
+            // every streamed tile made ordinary LOD transitions deduplicate
+            // every triangle edge and upload a second mesh unnecessarily.
+            tile.edgeMesh ??= CreateEdgeMesh(tile.mesh);
             Graphics.DrawMesh(
                 tile.edgeMesh,
                 tile.gameObject.transform.localToWorldMatrix,
@@ -659,6 +817,99 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         RebuildTerrainBatchIfDirty(lod2Group);
     }
 
+    private IEnumerator UpdateLod1NeighborhoodIncremental(Vector2Int center)
+    {
+        var replacements = new List<KeyValuePair<Vector2Int, TileGroup>>(9);
+        var desired = NeighbourKeys(center, Lod2Resolution);
+        try
+        {
+            foreach (var key in desired)
+            {
+                var clampSides = ClampSidesFor(key, center, Lod2Resolution);
+                if (lod1Groups.TryGetValue(key, out var existing)
+                    && existing.clampSides == clampSides)
+                {
+                    continue;
+                }
+                TileGroup replacement;
+                using (Lod1TransitionMarker.Auto())
+                {
+                    replacement = CreateGroup(1, key, Lod2Resolution, clampSides);
+                }
+                replacement.root.SetActive(false);
+                pendingTransitionGroups.Add(replacement);
+                replacements.Add(
+                    new KeyValuePair<Vector2Int, TileGroup>(key, replacement));
+                yield return null;
+                if (center != requestedLod2)
+                {
+                    yield break;
+                }
+            }
+
+            var retired = new List<TileGroup>(lod1Groups.Count);
+            foreach (var replacement in replacements)
+            {
+                if (lod1Groups.TryGetValue(replacement.Key, out var existing))
+                {
+                    lod1Groups.Remove(replacement.Key);
+                    retired.Add(existing);
+                }
+                lod1Groups.Add(replacement.Key, replacement.Value);
+                pendingTransitionGroups.Remove(replacement.Value);
+                replacement.Value.root.SetActive(true);
+            }
+
+            var desiredSet = new HashSet<Vector2Int>(desired);
+            removalScratch.Clear();
+            foreach (var key in lod1Groups.Keys)
+            {
+                if (!desiredSet.Contains(key))
+                {
+                    removalScratch.Add(key);
+                }
+            }
+            foreach (var key in removalScratch)
+            {
+                retired.Add(lod1Groups[key]);
+                lod1Groups.Remove(key);
+                SetLod2TileActive(key, true);
+                SetRiverGroupActive(key, false);
+                SetRiverRockGroupActive(key, false);
+            }
+
+            foreach (var key in desired)
+            {
+                SetLod2TileActive(key, false);
+                SetRiverGroupActive(key, true);
+                SetRiverRockGroupActive(key, true);
+            }
+            RebuildTerrainBatchIfDirty(lod2Group);
+
+            foreach (var group in retired)
+            {
+                DestroyGroup(group);
+                yield return null;
+            }
+        }
+        finally
+        {
+            foreach (var pending in replacements)
+            {
+                if (!lod1Groups.TryGetValue(pending.Key, out var installed)
+                    || !ReferenceEquals(installed, pending.Value))
+                {
+                    pendingTransitionGroups.Remove(pending.Value);
+                    DestroyGroup(pending.Value);
+                }
+                else
+                {
+                    pendingTransitionGroups.Remove(pending.Value);
+                }
+            }
+        }
+    }
+
     private void UpdateLod0Neighborhood(Vector2Int center)
     {
         CollectOutsideNeighborhood(lod0Groups, center, Lod1Resolution);
@@ -686,6 +937,102 @@ public sealed class TerrainTileStreamer : MonoBehaviour
             SetLod1TileActive(key, false);
         });
         RebuildDirtyLod1Batches();
+    }
+
+    private IEnumerator UpdateLod0NeighborhoodIncremental(Vector2Int center)
+    {
+        var replacements = new List<KeyValuePair<Vector2Int, TileGroup>>(9);
+        var desired = NeighbourKeys(center, Lod1Resolution);
+        try
+        {
+            foreach (var key in desired)
+            {
+                var clampSides = ClampSidesFor(key, center, Lod1Resolution);
+                if (lod0Groups.TryGetValue(key, out var existing)
+                    && existing.clampSides == clampSides)
+                {
+                    continue;
+                }
+                TileGroup replacement;
+                using (Lod0TransitionMarker.Auto())
+                {
+                    replacement = CreateGroup(0, key, Lod1Resolution, clampSides);
+                }
+                replacement.root.SetActive(false);
+                pendingTransitionGroups.Add(replacement);
+                replacements.Add(
+                    new KeyValuePair<Vector2Int, TileGroup>(key, replacement));
+                yield return null;
+                if (center != requestedLod1)
+                {
+                    yield break;
+                }
+            }
+
+            var retired = new List<TileGroup>(lod0Groups.Count);
+            foreach (var replacement in replacements)
+            {
+                if (lod0Groups.TryGetValue(replacement.Key, out var existing))
+                {
+                    lod0Groups.Remove(replacement.Key);
+                    retired.Add(existing);
+                }
+                lod0Groups.Add(replacement.Key, replacement.Value);
+                pendingTransitionGroups.Remove(replacement.Value);
+                replacement.Value.root.SetActive(true);
+            }
+
+            var desiredSet = new HashSet<Vector2Int>(desired);
+            removalScratch.Clear();
+            foreach (var key in lod0Groups.Keys)
+            {
+                if (!desiredSet.Contains(key))
+                {
+                    removalScratch.Add(key);
+                }
+            }
+            foreach (var key in removalScratch)
+            {
+                retired.Add(lod0Groups[key]);
+                lod0Groups.Remove(key);
+                SetLod1TileActive(key, true);
+            }
+            foreach (var key in desired)
+            {
+                SetLod1TileActive(key, false);
+            }
+            RebuildDirtyLod1Batches();
+            grassTilesDirty = true;
+
+            foreach (var group in retired)
+            {
+                DestroyGroup(group);
+                yield return null;
+            }
+        }
+        finally
+        {
+            foreach (var pending in replacements)
+            {
+                if (!lod0Groups.TryGetValue(pending.Key, out var installed)
+                    || !ReferenceEquals(installed, pending.Value))
+                {
+                    pendingTransitionGroups.Remove(pending.Value);
+                    DestroyGroup(pending.Value);
+                }
+                else
+                {
+                    pendingTransitionGroups.Remove(pending.Value);
+                }
+            }
+        }
+    }
+
+    private static List<Vector2Int> NeighbourKeys(Vector2Int center, int resolution)
+    {
+        var result = new List<Vector2Int>(9);
+        ForEachNeighbour(center, resolution, result.Add);
+        return result;
     }
 
     private void CollectOutsideNeighborhood(
@@ -778,7 +1125,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
                     var tileObject = new GameObject($"LOD {lod} tile {localX},{localY}");
                     tileObject.transform.SetParent(root.transform, false);
                     tileObject.AddComponent<MeshFilter>().sharedMesh = mesh;
-                    tiles[index] = new Tile(tileObject, mesh, CreateEdgeMesh(mesh));
+                    tiles[index] = new Tile(tileObject, mesh);
                 }
 
                 // Mesh and tangent uploads must use Unity's main thread. Spreading
@@ -855,7 +1202,7 @@ public sealed class TerrainTileStreamer : MonoBehaviour
                 {
                     ConfigureTerrainRenderer(tileObject);
                 }
-                tiles[index] = new Tile(tileObject, mesh, CreateEdgeMesh(mesh));
+                tiles[index] = new Tile(tileObject, mesh);
             }
             var group = new TileGroup(root, tiles, clampSides);
             ConfigureTerrainBatch(group, lod);
@@ -1283,6 +1630,64 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         }
     }
 
+    private void EnsureCriticalCollider(Vector2Int center)
+    {
+        if (colliderTiles.ContainsKey(center))
+        {
+            return;
+        }
+        // An adjacent cell is already inside the previous 3x3 neighbourhood.
+        // This fallback is only expected after a teleport or movement faster
+        // than the transition queue and guarantees the player never enters a
+        // cell without collision while the remaining tiles stream in.
+        using (ColliderTransitionMarker.Auto())
+        {
+            colliderTiles.Add(center, CreateColliderTile(center));
+        }
+    }
+
+    private IEnumerator UpdateColliderNeighborhoodIncremental(Vector2Int center)
+    {
+        var desired = NeighbourKeys(center, Lod1Resolution);
+        foreach (var key in desired)
+        {
+            if (!colliderTiles.ContainsKey(key))
+            {
+                using (ColliderTransitionMarker.Auto())
+                {
+                    colliderTiles.Add(key, CreateColliderTile(key));
+                }
+                yield return null;
+                if (center != requestedLod1)
+                {
+                    yield break;
+                }
+            }
+        }
+
+        var desiredSet = new HashSet<Vector2Int>(desired);
+        removalScratch.Clear();
+        foreach (var key in colliderTiles.Keys)
+        {
+            if (!desiredSet.Contains(key))
+            {
+                removalScratch.Add(key);
+            }
+        }
+        foreach (var key in removalScratch)
+        {
+            var tile = colliderTiles[key];
+            tile.collider.enabled = false;
+            colliderTiles.Remove(key);
+            DestroyColliderTile(tile);
+            yield return null;
+            if (center != requestedLod1)
+            {
+                yield break;
+            }
+        }
+    }
+
     private ColliderTile CreateColliderTile(Vector2Int key)
     {
         var terrainData = new TerrainData
@@ -1425,6 +1830,19 @@ public sealed class TerrainTileStreamer : MonoBehaviour
                 throw new InvalidOperationException(
                     "Terrain tiles were not merged into one attribute-complete render batch.");
             }
+            if (tiles[0].edgeMesh != null || tiles[1].edgeMesh != null)
+            {
+                throw new InvalidOperationException(
+                    "Terrain debug edge meshes were created before wireframe rendering requested them.");
+            }
+
+            streamer.meshEdgeMaterial = material;
+            streamer.DrawGroupEdges(group);
+            if (tiles[0].edgeMesh == null || tiles[1].edgeMesh == null)
+            {
+                throw new InvalidOperationException(
+                    "Terrain debug edge meshes were not created lazily when requested.");
+            }
 
             SetBatchedTileActive(group, 0, false);
             RebuildTerrainBatchIfDirty(group);
@@ -1503,7 +1921,13 @@ public sealed class TerrainTileStreamer : MonoBehaviour
             }
 
             var nextCenter = new Vector2Int(11, 10);
-            UpdateColliderNeighborhood(nextCenter);
+            requestedLod1 = nextCenter;
+            var transition = UpdateColliderNeighborhoodIncremental(nextCenter);
+            while (transition.MoveNext())
+            {
+                // Editor validation drains the same incremental iterator that
+                // play mode advances one item per frame.
+            }
             if (colliderTiles.Count != 9
                 || !colliderTiles.ContainsKey(nextCenter)
                 || !colliderTiles.TryGetValue(firstCenter, out var sharedTile)
