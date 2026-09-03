@@ -353,13 +353,28 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::IslandWorldManager
   islands: []
   environmentAuthority: {fileID: 0}
+  enableProceduralDiscovery: 1
+  worldSeed: 8675309
+  oceanCellSizeMetres: 5200
+  islandCellOccupancy: 0.32
+  islandCellJitterFraction: 0.18
+  minimumIslandGapMetres: 700
+  discoveryRadiusMetres: 16000
+  generationRadiusMetres: 10500
+  discoveryRefreshSeconds: 0.5
+  velocityLookAheadSeconds: 24
+  maximumLookAheadMetres: 8000
+  forwardPriorityMultiplier: 0.65
+  cancellationHysteresisMetres: 1800
+  installationBudgetMilliseconds: 4
   streamingTarget: {fileID: 0}
   detailFocusRadiusMetres: 1400
   focusHysteresisMetres: 250
   activeRadiusMetres: 6000
   activeHysteresisMetres: 500
-  unloadRadiusMetres: 9000
-  unloadBeyondRadius: 0
+  unloadRadiusMetres: 12500
+  maximumLoadedIslandCount: 3
+  unloadAuthoredBeyondRadius: 1
   failedGenerationRetrySeconds: 15
 --- !u!1 &681157759
 GameObject:

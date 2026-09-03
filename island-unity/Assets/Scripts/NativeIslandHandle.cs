@@ -1,8 +1,12 @@
 using System;
+using System.Threading;
 
 internal sealed class NativeIslandHandle : IDisposable
 {
+    private static int activeCount;
     private IntPtr value;
+
+    internal static int ActiveCount => Volatile.Read(ref activeCount);
 
     internal NativeIslandHandle(IntPtr handle)
     {
@@ -11,6 +15,7 @@ internal sealed class NativeIslandHandle : IDisposable
             throw new ArgumentException("A native island handle cannot be null.", nameof(handle));
         }
         value = handle;
+        Interlocked.Increment(ref activeCount);
     }
 
     internal bool IsValid => value != IntPtr.Zero;
@@ -33,7 +38,15 @@ internal sealed class NativeIslandHandle : IDisposable
         {
             return;
         }
-        MotuNative.ReleaseMotu(value);
+        var handle = value;
         value = IntPtr.Zero;
+        try
+        {
+            MotuNative.ReleaseMotu(handle);
+        }
+        finally
+        {
+            Interlocked.Decrement(ref activeCount);
+        }
     }
 }

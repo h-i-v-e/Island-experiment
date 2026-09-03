@@ -1581,7 +1581,8 @@ public sealed class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
 
     internal async Task<bool> GenerateAsync(
         IslandDescriptor? descriptorOverride,
-        CancellationToken externalCancellation)
+        CancellationToken externalCancellation,
+        float installationFrameBudgetMilliseconds = 4f)
     {
         if (generationInProgress)
         {
@@ -1622,6 +1623,8 @@ public sealed class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
             worldSize,
             materialColours,
             materialTextureResolution);
+        var installationBudget = new UnityFrameBudget(
+            installationFrameBudgetMilliseconds);
 
         try
         {
@@ -1639,6 +1642,7 @@ public sealed class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
             ClearGeneratedContent();
             DestroyRuntimeMaterials();
             BuildRuntimeMaterials(prepared.materialTextures);
+            await installationBudget.YieldIfExceededAsync(cancellation.Token);
             islandRuntime = IslandRuntime.Create(descriptor, transform);
             runtimeRoot = islandRuntime.gameObject;
             TransferMaterialOwnershipToRuntime();
@@ -1647,11 +1651,14 @@ public sealed class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
             islandRuntime.AdoptNativeHandle(islandHandle);
 
             CreateSurfaceTextures(prepared.surfaceMaps);
+            await installationBudget.YieldIfExceededAsync(cancellation.Token);
             CreateSeaMaskTexture(prepared.seaMask);
-            await Task.Yield();
-            cancellation.Token.ThrowIfCancellationRequested();
+            await installationBudget.YieldIfExceededAsync(
+                cancellation.Token,
+                true);
 
             BindWorldEnvironment(worldSize);
+            await installationBudget.YieldIfExceededAsync(cancellation.Token);
 
             CreateCoastalWaterOverlay(worldSize);
             islandRuntime.SetCoastalWaterObject(coastalWaterObject);
@@ -1693,7 +1700,8 @@ public sealed class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
                 forest.ShowForests,
                 reeds.ShowReeds,
                 ferns.ShowFerns,
-                cancellation.Token);
+                cancellation.Token,
+                installationBudget);
             terrainStreamer.SetWaterfallFootDebug(debugSettings.ShowWaterfallFeet);
             islandRuntime.Activate();
 

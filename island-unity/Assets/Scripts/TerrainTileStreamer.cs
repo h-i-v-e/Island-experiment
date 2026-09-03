@@ -193,7 +193,8 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         bool showForests,
         bool showReeds,
         bool showFerns,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        UnityFrameBudget installationBudget)
     {
         islandHandle = handle;
         terrainMaterial = sharedTerrainMaterial;
@@ -303,7 +304,8 @@ public sealed class TerrainTileStreamer : MonoBehaviour
             2,
             Vector2Int.zero,
             overviewTiles,
-            cancellationToken);
+            cancellationToken,
+            installationBudget);
         for (var index = 0; index < lod2Group.tiles.Length; index++)
         {
             var tile = lod2Group.tiles[index];
@@ -1100,7 +1102,8 @@ public sealed class TerrainTileStreamer : MonoBehaviour
         int lod,
         Vector2Int parent,
         IslandPreparedMesh[] preparedMeshes,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        UnityFrameBudget installationBudget)
     {
         if (preparedMeshes == null || preparedMeshes.Length != Divisions * Divisions)
         {
@@ -1128,13 +1131,10 @@ public sealed class TerrainTileStreamer : MonoBehaviour
                     tiles[index] = new Tile(tileObject, mesh);
                 }
 
-                // Mesh and tangent uploads must use Unity's main thread. Spreading
-                // them across frames avoids replacing one long native stall with
-                // a large render-resource upload hitch.
-                if ((index & 3) == 3)
-                {
-                    await Task.Yield();
-                }
+                // Mesh and tangent uploads must use Unity's main thread. Yield
+                // according to elapsed upload time rather than a fixed mesh count,
+                // because generated tile complexity varies considerably.
+                await installationBudget.YieldIfExceededAsync(cancellationToken);
             }
             var group = new TileGroup(root, tiles, 0);
             ConfigureTerrainBatch(group, lod);

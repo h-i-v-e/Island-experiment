@@ -86,9 +86,121 @@ internal readonly struct IslandDescriptor : IEquatable<IslandDescriptor>
             CurrentGeneratorSchemaVersion);
     }
 
+    internal static ProceduralIslandCandidate ProceduralCandidate(
+        int worldSeed,
+        Vector2Int worldCell,
+        float cellSizeMetres,
+        float occupancy,
+        float jitterFraction,
+        float estimatedBoundingRadiusMetres)
+    {
+        if (!IsFinitePositive(cellSizeMetres)
+            || !IsFinitePositive(estimatedBoundingRadiusMetres))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(cellSizeMetres),
+                "Procedural island cell size and radius must be finite and positive.");
+        }
+
+        var occupancyHash = Hash(worldSeed, worldCell.x, worldCell.y, 0x4f1bbcdcu);
+        var placementPriority = Hash(
+            worldSeed,
+            worldCell.x,
+            worldCell.y,
+            0x9e3779b9u);
+        if (HashUnitFloat(occupancyHash) >= Mathf.Clamp01(occupancy))
+        {
+            return new ProceduralIslandCandidate(default, placementPriority, false);
+        }
+
+        var maximumJitter = cellSizeMetres
+            * Mathf.Clamp(jitterFraction, 0f, 0.45f);
+        var jitterX = HashSignedFloat(Hash(
+            worldSeed,
+            worldCell.x,
+            worldCell.y,
+            0x85ebca6bu)) * maximumJitter;
+        var jitterZ = HashSignedFloat(Hash(
+            worldSeed,
+            worldCell.x,
+            worldCell.y,
+            0xc2b2ae35u)) * maximumJitter;
+        var seedHash = Hash(worldSeed, worldCell.x, worldCell.y, 0x27d4eb2fu);
+        var islandSeed = (int)(seedHash & 0x7fffffffu);
+        if (islandSeed == 0)
+        {
+            islandSeed = 1;
+        }
+        var rotation = HashUnitFloat(Hash(
+            worldSeed,
+            worldCell.x,
+            worldCell.y,
+            0x165667b1u)) * 360f;
+        var descriptor = new IslandDescriptor(
+            $"world-{worldSeed}-cell-{worldCell.x}-{worldCell.y}",
+            worldCell,
+            worldCell.x * (double)cellSizeMetres + jitterX,
+            worldCell.y * (double)cellSizeMetres + jitterZ,
+            islandSeed,
+            rotation,
+            estimatedBoundingRadiusMetres,
+            CurrentGeneratorSchemaVersion);
+        return new ProceduralIslandCandidate(
+            descriptor,
+            placementPriority,
+            true);
+    }
+
+    private static uint Hash(
+        int worldSeed,
+        int cellX,
+        int cellZ,
+        uint salt)
+    {
+        unchecked
+        {
+            var value = (uint)worldSeed ^ salt;
+            value ^= (uint)cellX * 0x9e3779b9u;
+            value = (value << 17) | (value >> 15);
+            value ^= (uint)cellZ * 0x85ebca6bu;
+            value ^= value >> 16;
+            value *= 0x7feb352du;
+            value ^= value >> 15;
+            value *= 0x846ca68bu;
+            value ^= value >> 16;
+            return value;
+        }
+    }
+
+    private static float HashUnitFloat(uint value) =>
+        (value & 0x00ffffffu) / 16777216f;
+
+    private static float HashSignedFloat(uint value) =>
+        HashUnitFloat(value) * 2f - 1f;
+
+    private static bool IsFinitePositive(float value) =>
+        !float.IsNaN(value) && !float.IsInfinity(value) && value > 0f;
+
     public bool Equals(IslandDescriptor other) => IslandId == other.IslandId;
     public override bool Equals(object value) =>
         value is IslandDescriptor other && Equals(other);
     public override int GetHashCode() => IslandId.GetHashCode();
     public override string ToString() => IslandId;
+}
+
+internal readonly struct ProceduralIslandCandidate
+{
+    internal IslandDescriptor Descriptor { get; }
+    internal uint PlacementPriority { get; }
+    internal bool Occupied { get; }
+
+    internal ProceduralIslandCandidate(
+        IslandDescriptor descriptor,
+        uint placementPriority,
+        bool occupied)
+    {
+        Descriptor = descriptor;
+        PlacementPriority = placementPriority;
+        Occupied = occupied;
+    }
 }

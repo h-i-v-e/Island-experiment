@@ -4,7 +4,7 @@ public sealed class IslandDemoController : MonoBehaviour
 {
     private const float ClickDragTolerance = 6f;
     private const float FrameRateSampleSeconds = 0.25f;
-    private static readonly Rect PanelRect = new Rect(16f, 16f, 540f, 210f);
+    private static readonly Rect PanelRect = new Rect(16f, 16f, 600f, 250f);
 
     [SerializeField] private IslandGenerator island;
     [SerializeField] private Camera viewerCamera;
@@ -200,7 +200,16 @@ public sealed class IslandDemoController : MonoBehaviour
         var focused = worldManager.FocusedIsland != null
             ? worldManager.FocusedIsland.name
             : "open sea";
+        var logicalPosition = worldManager.LogicalPlayerPosition;
         GUILayout.Label(
-            $"Islands: {worldManager.LoadedIslandCount}/{worldManager.AuthoredIslandCount} loaded | focus: {focused}");
+            $"World {worldManager.WorldSeed} | position "
+            + $"{logicalPosition.x:0}, {logicalPosition.y:0} m | focus: {focused}");
+        GUILayout.Label(
+            $"Islands: {worldManager.LoadedIslandCount}/{worldManager.ResidentIslandLimit} resident"
+            + $" | {worldManager.KnownIslandCount} known"
+            + $" | {worldManager.DiscoveredIslandCount} discovered"
+            + $" | {worldManager.QueuedIslandCount} queued"
+            + $" | {worldManager.GeneratingIslandCount} generating"
+            + $" | {worldManager.NativeHandleCount} native handles");
     }
 }

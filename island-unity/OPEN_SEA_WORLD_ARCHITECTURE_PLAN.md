@@ -10,6 +10,8 @@ Separate the global environment from an individual generated island so that:
   finite mesh boundaries;
 - islands can be generated, installed, streamed, suspended, and released as
   independent runtime instances;
+- generated islands can be serialized by Rust, evicted from memory, and loaded
+  from a disk cache without running procedural generation again;
 - future voyages can discover and generate deterministic islands ahead of the
   player while the player remains free to move through the global ocean;
 - the current single-island scene remains usable throughout the migration.
@@ -47,13 +49,18 @@ The first four deployable ownership milestones are now implemented:
 - global deep-ocean noise now has an environment lifetime separate from river
   noise, so disposing an island cannot invalidate the persistent ocean.
 
-The first four phases are complete. The Phase 5 implementation now provides an
+The first five phases are complete. The Phase 5 implementation provides an
 ordered set of authored generators, serialized CPU generation, incremental
 main-thread installation, one explicit environment authority, focused
-terrain-query routing, and active/dormant/unload hysteresis. Its remaining gate
-is a two-or-three-island play-mode traversal and repeated unload/reload test.
-After that acceptance pass, the next milestone is Phase 6: deterministic
-ocean-cell discovery and request prioritization beyond the authored proof.
+terrain-query routing, and active/dormant/unload hysteresis. Phase 6 now adds
+deterministic sparse ocean-cell discovery, generated descriptors, velocity-aware
+request priority, obsolete-request cancellation, stale-result rejection, and a
+time-based main-thread installation budget. A hard resident-island budget now
+evicts the least relevant non-focused runtime before the next native generation
+can allocate, keeping native handles and per-island GPU/mesh memory bounded.
+Its remaining gates are extended play-mode travel, turn-away cancellation,
+unload, return, and determinism testing, followed by the required disk-backed
+island cache in Phase 6.5 before Phase 7 introduces a floating origin.
 
 ## Starting Architecture and Constraints
 
@@ -164,7 +171,8 @@ OpenSeaWorldRoot
 │   │   ├── Vegetation and colliders
 │   │   └── CoastalWaterOverlay
 │   ├── IslandRuntime [island B]
-│   └── GenerationQueue
+│   ├── GenerationQueue
+│   └── IslandDiskCache
 └── Player / vessel
 ```
 
@@ -242,9 +250,14 @@ island:
 Suggested explicit lifecycle:
 
 ```text
-Prepared -> Installing -> Active -> Dormant -> Unloading -> Disposed
-                  |          |
-                  +--------> Failed
+Generating -> Prepared -> Installing -> Active -> Dormant
+     |             |            |          |         |
+     +----------> Failed <-------+          |         v
+                                             +-> Serializing -> DiskCached
+                                                                    |
+                                             Loading <--------------+
+                                                |
+                                                +-> Prepared
 ```
 
 Installation creates Unity objects on the main thread under an inactive root.
@@ -275,6 +288,7 @@ Add `Assets/Scripts/Islands/IslandWorldManager.cs` to own:
 - world seed and deterministic descriptor discovery;
 - queued, generating, prepared, active, dormant, failed, and unloading islands;
 - generation concurrency, cancellation, retry, and stale-result rejection;
+- disk-cache lookup, load, write, invalidation, quota, and eviction queues;
 - activation, detail, dormancy, and unload radii with hysteresis;
 - per-frame main-thread installation and disposal budgets;
 - routing of terrain queries to nearby active islands;
@@ -291,6 +305,9 @@ Decouple preparation from the `IslandGenerator` MonoBehaviour:
 - `IslandGenerationRequest` contains copied, validated generation values and a
   descriptor, not scene references;
 - the worker returns per-island `IslandPreparedData` only;
+- a successful Rust cache load returns the same native island-handle contract
+  as generation, allowing the existing export and incremental-install path to
+  consume either source without branching throughout Unity;
 - Unity `Object` creation remains on the main thread;
 - remove `skyDome` and all global environment state from the prepared result;
 - make ownership transfer of `NativeIslandHandle` explicit and single-use.
@@ -420,6 +437,8 @@ Each island may occupy one of these operational levels:
   player through that island's `TerrainTileStreamer`.
 - **Dormant cached:** optional bounded cache retaining prepared CPU/native data
   but no expensive render objects.
+- **Disk cached:** no native handle or Unity objects; a validated Rust snapshot
+  and durable gameplay deltas remain on disk.
 - **Released:** runtime and native handle disposed; deterministic descriptor and
   saved deltas remain.
 
@@ -463,17 +482,81 @@ the origin for the existing single-island scene.
 
 ## Persistence and Reproducibility
 
-Use stable descriptor IDs to save gameplay deltas rather than complete meshes:
+Persistence has two separate contracts:
+
+1. a disposable, disk-backed snapshot of the complete generated base island;
+2. durable gameplay deltas keyed by stable `IslandId`.
+
+The base snapshot exists to avoid regeneration. Rust must serialize enough of
+the native island to recreate a fully usable `NativeIslandHandle` with minimal
+work, including terrain and LOD/tile data, material channels, surface-query and
+collider inputs, rivers and waterfalls, vegetation placements, rocks, reeds,
+ferns, coast masks, palettes, and every other generated result exposed through
+the current FFI. Generated recipe textures may either be embedded or referenced
+through a content-addressed texture bundle, but a cache hit must not rebake them.
+Unity must still recreate transient `Mesh`, `Texture`, `Material`, renderer, and
+collider objects on the main thread; that upload is incremental and is the only
+substantial reconstitution work after Rust has loaded the snapshot.
+
+Do not serialize Rust heap layout, pointers, trait objects, or Unity objects.
+Define stable snapshot wire structs separate from runtime structs. Use a
+versioned binary container with:
+
+- a magic value, snapshot-format version, byte order, and generator/schema
+  version;
+- the full cache key and immutable descriptor;
+- a chunk table with bounded offsets and lengths;
+- per-chunk checksums and an overall integrity checksum;
+- independently compressed large arrays so loading does not require one huge
+  managed allocation;
+- explicit upper bounds before allocating from corrupt lengths.
+
+The initial implementation should favor reliable reconstruction into owned
+Rust arrays over a fragile zero-copy format. The container may later be memory
+mapped or selectively loaded by terrain tile after profiling, without changing
+the Unity-facing island-handle API.
+
+The cache key must cover every input that can affect generated output: world
+and island seeds, descriptor position/rotation/profile, normalized generation
+parameters, palette colours, recipe versions, generator/schema version, and
+snapshot-format version. A mismatch is a cache miss, never a best-effort load.
+Corrupt, truncated, or obsolete entries are quarantined or deleted and safely
+fall back to generation.
+
+Expose Rust-owned file operations through a narrow C ABI so the snapshot never
+passes through a giant C# `byte[]`. Conceptually:
+
+- save one native handle to a temporary path, validate it, then atomically
+  rename it to its cache-key path;
+- load and validate a cache path into a new native handle;
+- report structured status, byte counts, version/key metadata, and errors;
+- support cancellation and guarantee that partial loads/writes publish no
+  handle and leave no apparently valid cache entry.
+
+Unity calls those synchronous Rust operations only from its existing background
+worker. `IslandWorldManager` performs cache lookup before generation, schedules
+loads using the same priority and stale-token rules as generation, and feeds a
+loaded handle through the normal prepared/install pipeline. On eviction it
+writes a snapshot before releasing the last native handle unless a valid entry
+for the same key already exists. Installation and teardown retain their
+per-frame budgets; file I/O never runs on the Unity main thread.
+
+Maintain a disk-cache manifest with last-access time, byte size, key/version,
+and integrity state. Enforce configurable total bytes and entry counts with LRU
+eviction, never delete a file being loaded or written, and reserve enough free
+disk space that island caching cannot recreate system disk pressure. Cache
+files are disposable; gameplay state is not.
+
+Durable gameplay deltas remain separate and small:
 
 - visited/discovered state;
 - collected or destroyed objects;
 - player-built or modified content;
 - other non-procedural island state.
 
-The deterministic base island is regenerated from its descriptor. Include a
-generator/schema version in cache and save keys so changes can invalidate old
-prepared data deliberately. Disk caching of prepared meshes/textures is a later
-optimization, not required for the ownership refactor.
+After loading or regenerating the base island, apply those deltas by stable
+generated-object IDs. Snapshot invalidation must therefore never erase player
+progress.
 
 ## Implementation Phases
 
@@ -594,6 +677,12 @@ Acceptance:
 
 ### Phase 6: Add deterministic ocean-cell discovery and generation
 
+The initial implementation extends `IslandWorldManager` while retaining the
+authored-island list as a compatibility and environment-authority source. It
+keeps discovered cells descriptor-only until they enter the generation
+corridor, clones the authority's serialized generation profile only when a
+request is selected, and retains a single native generation worker.
+
 1. Add deterministic `IslandDescriptor` construction from world seed/cell.
 2. Add sparse placement, jitter, separation checks, and generation profiles.
 3. Add discovery, generation, activation, and unload radii.
@@ -608,6 +697,49 @@ Acceptance:
 - rapidly changing direction cancels or deprioritizes obsolete work safely;
 - failures leave open sea and a retryable diagnostic state rather than blocking
   the world.
+
+### Phase 6.5: Add Rust island snapshots and disk-backed swapping
+
+1. Inventory every field and derived structure behind `NativeIslandHandle` and
+   classify it as required snapshot data, cheaply rebuilt transient data, or
+   forbidden process-local state.
+2. Define versioned Rust wire structs, the binary container header/chunk table,
+   integrity checks, allocation bounds, and the complete cache-key algorithm.
+3. Implement Rust save/load round trips that return a normal native island
+   handle and preserve the current export APIs exactly.
+4. Include or content-address all baked material texture outputs so a restored
+   island does not rerun recipe baking.
+5. Add file-oriented FFI entry points with structured errors, cancellation,
+   atomic writes, and exact ownership/release behavior.
+6. Add an `IslandDiskCache` service and manifest in Unity. Run lookup, reads,
+   writes, checksums, and cleanup exclusively on background workers.
+7. Route cache hits through `Prepared -> Installing`; route misses through
+   generation followed by a background cache write.
+8. Change resident-budget eviction to serialize dirty or missing snapshots
+   before disposing the native handle and Unity runtime. Permit immediate
+   disposal when an identical validated snapshot already exists.
+9. Prefetch cached islands using the existing velocity-aware generation
+   corridor, while prioritizing load over generation and rejecting stale
+   results with the same request token.
+10. Add configurable memory, in-flight I/O, disk-byte, entry-count, and minimum
+    free-space budgets, plus LRU disk eviction and cache diagnostics.
+11. Keep durable gameplay deltas outside the disposable snapshot and reapply
+    them after either load or regeneration.
+
+Acceptance:
+
+- leaving the resident radius releases the island's Unity resources and native
+  handle after a valid disk snapshot exists;
+- returning loads that snapshot without procedural generation or recipe baking
+  and recreates an equivalent island through the normal incremental installer;
+- a load remains responsive during fast travel and can be cancelled or rejected
+  without leaking native handles or publishing partial Unity objects;
+- corrupt, partial, obsolete, or wrong-key files fall back to generation and
+  cannot crash Rust or allocate unbounded memory;
+- repeated generate/save/unload/load cycles produce stable resource counts and
+  preserve gameplay deltas;
+- disk quotas and the minimum-free-space reserve prevent cache growth from
+  exhausting the host volume.
 
 ### Phase 7: Add floating origin for long voyages
 
@@ -628,9 +760,11 @@ Acceptance:
 
 ### Phase 8: Persistence, caching, and performance refinement
 
-1. Save descriptor discovery and per-island gameplay deltas.
-2. Add bounded prepared-result or disk caching keyed by descriptor and generator
-   version if regeneration latency requires it.
+1. Persist descriptor discovery and per-island gameplay deltas independently
+   from the disposable Phase 6.5 base snapshot.
+2. Profile snapshot compression, load latency, Unity upload cost, and cache hit
+   rate; add memory mapping or tile-selective reads only where measurements
+   justify the complexity.
 3. Add distant island representations if profiling shows full coarse runtimes
    are too expensive.
 4. Evaluate more than one native generation worker only after thread-safety and
@@ -661,6 +795,14 @@ Acceptance:
 - add explicit concurrency tests before increasing worker count;
 - preserve generated mesh and channel contracts during the Unity ownership
   refactor.
+- snapshot round trips reproduce every exported array, scalar, descriptor,
+  palette, and baked texture byte-for-byte where the current contract is exact;
+- a snapshot written in one process loads in a fresh process with no retained
+  pointers or hidden generator state;
+- truncated chunks, invalid lengths, checksum failures, wrong keys, and old
+  versions return structured errors without panics, leaks, or excessive
+  allocation;
+- save/load cancellation and repeated handle release remain race-free.
 
 ### Unity batch validation
 
@@ -668,6 +810,8 @@ Acceptance:
 - environment-only scene with no island;
 - two-island install and property-isolation scene;
 - repeated generate/install/unload cycle with resource counters;
+- generate/save/unload/load/reinstall cycles, including application restart and
+  corrupt-cache fallback;
 - streaming and collider focus transfer between island runtimes;
 - reflection camera lifecycle and global reset behavior;
 - finite-value mesh checks before every mesh upload.
@@ -693,9 +837,13 @@ occlusion, and absence of bright halos.
 - environment following allocates no managed memory per frame;
 - descriptor discovery does not create Unity objects or native handles;
 - background generation never performs Unity API calls;
+- snapshot reads, writes, compression, checksums, and manifest maintenance never
+  block the Unity main thread;
 - main-thread installation observes a configurable millisecond budget;
 - active native handles and GPU texture memory stay within explicit caps;
 - unload work is amortized when immediate teardown would cause a frame spike;
+- cache load plus reinstall is materially faster than regeneration, and cache
+  quotas preserve the configured minimum free disk space;
 - single-island performance does not regress materially after extraction.
 
 ## Migration and Compatibility
@@ -719,8 +867,10 @@ occlusion, and absence of bright halos.
 - One enormous fixed ocean mesh.
 - A single combined mask texture containing every island coast.
 - Per-island skies or weather systems in the initial world model.
-- Full generated-mesh save files before deterministic regeneration and delta
-  persistence have been evaluated.
+- A forever-compatible archival island format; generated base snapshots are
+  versioned, disposable caches and may be deliberately invalidated.
+- Serialization of Unity `GameObject`, `Mesh`, `Material`, physics, or renderer
+  instances; these remain transient and are rebuilt incrementally.
 
 ## Completion Criteria
 
@@ -742,3 +892,6 @@ following are true:
    rendering or physics jitter.
 8. Returning to an island reproduces its deterministic base and reapplies saved
    gameplay deltas.
+9. An evicted island with a valid cache entry returns through Rust snapshot
+   loading rather than generation, stays within disk and memory budgets, and
+   exposes the same native export contract as a newly generated island.

@@ -70,6 +70,14 @@ it contains three independently seeded islands and starts the main camera in fly
 mode over open sea, facing the central island. Use WASD to fly, hold Shift for a
 2x flight boost, press V to toggle fly mode, and press Escape for the overview.
 
+The scene also enables Phase 6 procedural ocean discovery. A deterministic
+world seed sparsely populates 5.2 km ocean cells beyond the three authored test
+islands. The overlay reports known, loaded, queued, and generating island
+counts; keep flying into open sea to exercise look-ahead generation, unload,
+and deterministic return behavior. At most three island runtimes are resident;
+the least relevant non-focused island is released before another generation is
+allowed to allocate its native handle, meshes, materials, and textures.
+
 The island may be translated and rotated around the Y axis. Generated content,
 streaming cells, colliders, materials, rivers, and decoration remain in the
 component's local coordinate system. Unit scale is currently required; the

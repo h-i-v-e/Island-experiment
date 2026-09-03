@@ -155,7 +155,8 @@ public static class IslandProjectSetup
         }
 
         var worldObject = new GameObject("Open Sea World");
-        worldObject.AddComponent<IslandWorldManager>();
+        var worldManager = worldObject.AddComponent<IslandWorldManager>();
+        worldManager.ConfigureProceduralDiscovery(true, 8675309);
 
         var sunObject = new GameObject("Sun");
         sunObject.transform.rotation = Quaternion.Euler(50f, -35f, 0f);
@@ -284,6 +285,17 @@ public static class IslandProjectSetup
         {
             throw new InvalidOperationException(
                 "The multi-island sandbox camera must start in fly mode.");
+        }
+        var managerState = new SerializedObject(managers[0]);
+        if (!managerState.FindProperty("enableProceduralDiscovery").boolValue
+            || managerState.FindProperty("generationRadiusMetres").floatValue
+                >= managerState.FindProperty("discoveryRadiusMetres").floatValue
+            || managerState.FindProperty("unloadRadiusMetres").floatValue
+                >= managerState.FindProperty("discoveryRadiusMetres").floatValue
+            || managerState.FindProperty("maximumLoadedIslandCount").intValue != 3)
+        {
+            throw new InvalidOperationException(
+                "The multi-island sandbox must enable procedural discovery with correctly ordered generation, unload, and discovery radii.");
         }
         foreach (var generator in generators)
         {
