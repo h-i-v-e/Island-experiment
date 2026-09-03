@@ -40,7 +40,7 @@ public sealed partial class IslandGenerator
         return texture;
     }
 
-    private static Texture2D CreateRiverNoiseTexture()
+    internal static Texture2D CreateRiverNoiseTexture()
     {
         var texture = new Texture2D(
             RiverNoiseDimension,

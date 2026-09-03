@@ -4,14 +4,30 @@ using UnityEngine.Rendering;
 
 public static class OceanClipmapMeshBuilder
 {
-    public static Mesh Build(float diameterMetres, OceanWaveRuntimeSettings settings)
+    public const int MaximumVertexCount = 500000;
+    public const int MaximumTriangleCount = 1000000;
+
+    public static Mesh Build(
+        float diameterMetres,
+        OceanWaveRuntimeSettings settings,
+        bool markNoLongerReadable = true)
     {
         var halfExtent = Mathf.Max(
             diameterMetres * 0.5f,
             settings.DisplacementFadeEndMetres + settings.FineVertexSpacingMetres);
         var coordinates = BuildAxisCoordinates(halfExtent, settings);
         var axisCount = coordinates.Count;
-        var vertexCount = checked(axisCount * axisCount);
+        var vertexCount64 = (long)axisCount * axisCount;
+        var triangleCount64 = (long)(axisCount - 1) * (axisCount - 1) * 2L;
+        if (vertexCount64 > MaximumVertexCount
+            || triangleCount64 > MaximumTriangleCount)
+        {
+            throw new System.InvalidOperationException(
+                $"The ocean clipmap would require {vertexCount64:N0} vertices "
+                + $"and {triangleCount64:N0} triangles, exceeding its fixed runtime budget. "
+                + "Increase fine-grid spacing or reduce its radius.");
+        }
+        var vertexCount = (int)vertexCount64;
         var cellCount = checked((axisCount - 1) * (axisCount - 1));
         var vertices = new Vector3[vertexCount];
         var normals = new Vector3[vertexCount];
@@ -68,7 +84,7 @@ public static class OceanClipmapMeshBuilder
                     verticalMargin * 2f,
                     (halfExtent + horizontalMargin) * 2f)),
         };
-        mesh.UploadMeshData(true);
+        mesh.UploadMeshData(markNoLongerReadable);
         return mesh;
     }
 

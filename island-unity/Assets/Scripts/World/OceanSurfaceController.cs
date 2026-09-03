@@ -13,6 +13,12 @@ public sealed class OceanSurfaceController : MonoBehaviour
     private static readonly int Wave3Id = Shader.PropertyToID("_OceanWave3");
     private static readonly int WaveSpeedsId = Shader.PropertyToID("_OceanWaveSpeeds");
     private static readonly int WaveChoppinessId = Shader.PropertyToID("_OceanWaveChoppiness");
+    private static readonly int WaveNoiseWorldSizeId = Shader.PropertyToID(
+        "_WaveNoiseWorldSize");
+    private static readonly int WaveDomainWarpId = Shader.PropertyToID(
+        "_WaveDomainWarp");
+    private static readonly int WaveAmplitudeVariationId = Shader.PropertyToID(
+        "_WaveAmplitudeVariation");
     private static readonly int WaveAttenuationTextureId = Shader.PropertyToID(
         "_WaveAttenuationTex");
     private static readonly int WaveAttenuationWorldRectId = Shader.PropertyToID(
@@ -23,6 +29,7 @@ public sealed class OceanSurfaceController : MonoBehaviour
     private Mesh surfaceMesh;
     private OceanWaveMaskComposer maskComposer;
     private OceanWaveRuntimeSettings waveSettings;
+    private float surfaceDiameterMetres;
 
     public Transform SurfaceTransform => surfaceObject != null
         ? surfaceObject.transform
@@ -30,6 +37,22 @@ public sealed class OceanSurfaceController : MonoBehaviour
 
     public Material SurfaceMaterial => surfaceMaterial;
     public Mesh SurfaceMesh => surfaceMesh;
+    public int MeshVertexCount => surfaceMesh != null ? surfaceMesh.vertexCount : 0;
+    public int MeshTriangleCount => surfaceMesh != null
+        ? checked((int)(surfaceMesh.GetIndexCount(0) / 3))
+        : 0;
+    public int WaveMaskCompositionCount => maskComposer != null
+        ? maskComposer.CompositionCount
+        : 0;
+    public int CoastalWaveBindingCount => maskComposer != null
+        ? maskComposer.BindingCount
+        : 0;
+    public int LastOverlappingCoastalBindingCount => maskComposer != null
+        ? maskComposer.LastOverlappingBindingCount
+        : 0;
+    public double LastWaveMaskCompositionMilliseconds => maskComposer != null
+        ? maskComposer.LastCompositionMilliseconds
+        : 0.0;
 
     public void Install(
         Material material,
@@ -57,12 +80,13 @@ public sealed class OceanSurfaceController : MonoBehaviour
         var previousMaterial = surfaceMaterial;
         surfaceMaterial = material;
         waveSettings = settings;
+        surfaceDiameterMetres = Mathf.Max(diameterMetres, 1f);
         EnsureSurfaceObject();
         EnsureMaskComposer();
         surfaceObject.transform.localPosition = Vector3.zero;
         surfaceObject.transform.localRotation = Quaternion.identity;
         surfaceObject.transform.localScale = Vector3.one;
-        ReplaceSurfaceMesh(Mathf.Max(diameterMetres, 1f));
+        ReplaceSurfaceMesh(surfaceDiameterMetres);
         ConfigureWaveMaterial();
         maskComposer.Configure(this, waveSettings);
         surfaceObject.GetComponent<MeshRenderer>().sharedMaterial = surfaceMaterial;
@@ -77,6 +101,20 @@ public sealed class OceanSurfaceController : MonoBehaviour
     public void SetVisible(bool visible)
     {
         surfaceObject?.SetActive(visible);
+    }
+
+    public void ApplyWaveSettings(OceanWaveRuntimeSettings settings)
+    {
+        waveSettings = settings;
+        if (surfaceMaterial == null || surfaceDiameterMetres <= 0f)
+        {
+            return;
+        }
+
+        ReplaceSurfaceMesh(surfaceDiameterMetres);
+        ConfigureWaveMaterial();
+        EnsureMaskComposer();
+        maskComposer.Configure(this, waveSettings);
     }
 
     internal void SetWaveAttenuation(Texture texture, Vector4 worldRect)
@@ -171,6 +209,13 @@ public sealed class OceanSurfaceController : MonoBehaviour
             waveSettings.Wave1.Choppiness,
             waveSettings.Wave2.Choppiness,
             waveSettings.Wave3.Choppiness));
+        surfaceMaterial.SetFloat(
+            WaveNoiseWorldSizeId,
+            waveSettings.NoiseWorldSizeMetres);
+        surfaceMaterial.SetFloat(WaveDomainWarpId, waveSettings.DomainWarpMetres);
+        surfaceMaterial.SetFloat(
+            WaveAmplitudeVariationId,
+            waveSettings.AmplitudeVariation);
         SetWaveAttenuation(
             Texture2D.whiteTexture,
             new Vector4(-1f, -1f, 0.5f, 0.5f));

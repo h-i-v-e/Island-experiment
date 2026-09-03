@@ -16,13 +16,16 @@ MonoBehaviour:
   fineVertexSpacingMetres: 1
   fineRadiusMetres: 256
   ringsPerSpacingLevel: 8
-  displacementFadeStartMetres: 320
-  displacementFadeEndMetres: 480
+  displacementFadeStartMetres: 192
+  displacementFadeEndMetres: 256
   maskCoverageMetres: 1024
   maskResolution: 512
   maskAnchorSnapMetres: 16
   depthAllowancePower: 1.35
   distanceAllowancePower: 1.15
+  noiseWorldSizeMetres: 2048
+  domainWarpMetres: 9
+  amplitudeVariation: 0.6
   wave0:
     direction: {x: 1, y: 0.18}
     wavelengthMetres: 30

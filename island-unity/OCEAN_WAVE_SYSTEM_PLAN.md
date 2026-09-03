@@ -21,6 +21,16 @@ Remaining work is visual play-mode tuning, Metal profiling, and any adjustments
 identified at real coastlines. Horizontal choppiness defaults to zero until the
 vertical-wave and shoreline behavior have been visually approved.
 
+The first hardening pass also exposes bounded mesh and coastal-mask composition
+statistics in the ocean sandbox. Automated validation checks the one-metre
+default density, exact outer extent, finite attributes, upward winding,
+non-degenerate triangles, expanded bounds, and mask-anchor grid alignment.
+The shared wave field now uses the existing periodic coherent-noise texture to
+warp each wave component differently and give every component an independent
+local height envelope. This forms coherent groups of tall and subdued waves,
+breaking up the regular interference grid without separating distant normals
+from nearby geometric displacement.
+
 ## Goal
 
 Add geometric ocean waves to the global deep-ocean surface while preserving the

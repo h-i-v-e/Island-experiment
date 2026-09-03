@@ -96,14 +96,29 @@ public static class IslandGeneratorValidation
         var coordinates = OceanClipmapMeshBuilder.BuildAxisCoordinates(
             10000f,
             settings);
-        var mesh = OceanClipmapMeshBuilder.Build(20000f, settings);
+        var mesh = OceanClipmapMeshBuilder.Build(
+            20000f,
+            settings,
+            markNoLongerReadable: false);
         try
         {
             var expectedVertices = coordinates.Count * coordinates.Count;
             var expectedTriangles = (coordinates.Count - 1)
                 * (coordinates.Count - 1)
                 * 2;
-            if (Mathf.Abs(settings.FineVertexSpacingMetres - 1f) > 1.0e-5f
+            var snapSteps = settings.MaskAnchorSnapMetres
+                / settings.FineVertexSpacingMetres;
+            if (!settings.Enabled
+                || Mathf.Abs(settings.FineVertexSpacingMetres - 1f) > 1.0e-5f
+                || settings.DisplacementFadeStartMetres
+                    >= settings.DisplacementFadeEndMetres
+                || settings.DisplacementFadeEndMetres
+                    > settings.FineRadiusMetres
+                || Mathf.Abs(snapSteps - Mathf.Round(snapSteps)) > 1.0e-5f
+                || !float.IsFinite(settings.MaximumVerticalDisplacement)
+                || settings.MaximumVerticalDisplacement <= 0f
+                || expectedVertices > OceanClipmapMeshBuilder.MaximumVertexCount
+                || expectedTriangles > OceanClipmapMeshBuilder.MaximumTriangleCount
                 || mesh.vertexCount != expectedVertices
                 || mesh.GetIndexCount(0) != (uint)(expectedTriangles * 3)
                 || mesh.bounds.extents.x < 10000f
@@ -114,6 +129,13 @@ public static class IslandGeneratorValidation
                 throw new InvalidOperationException(
                     "The ocean clipmap does not satisfy its deterministic topology or bounds contract.");
             }
+            if (Mathf.Abs(coordinates[0] + 10000f) > 1.0e-5f
+                || Mathf.Abs(coordinates[coordinates.Count - 1] - 10000f)
+                    > 1.0e-5f)
+            {
+                throw new InvalidOperationException(
+                    "The ocean clipmap does not reach its configured outer extent exactly.");
+            }
             for (var index = 1; index < coordinates.Count; index++)
             {
                 if (!float.IsFinite(coordinates[index])
@@ -121,6 +143,45 @@ public static class IslandGeneratorValidation
                 {
                     throw new InvalidOperationException(
                         "The ocean clipmap contains a non-finite or non-increasing axis coordinate.");
+                }
+            }
+            var vertices = mesh.vertices;
+            var normals = mesh.normals;
+            var uv = mesh.uv;
+            var triangles = mesh.triangles;
+            if (vertices.Length != expectedVertices
+                || normals.Length != expectedVertices
+                || uv.Length != expectedVertices
+                || triangles.Length != expectedTriangles * 3)
+            {
+                throw new InvalidOperationException(
+                    "The ocean clipmap vertex attributes are incomplete.");
+            }
+            for (var index = 0; index < vertices.Length; index++)
+            {
+                var vertex = vertices[index];
+                var normal = normals[index];
+                var textureCoordinate = uv[index];
+                if (!float.IsFinite(vertex.x)
+                    || !float.IsFinite(vertex.y)
+                    || !float.IsFinite(vertex.z)
+                    || normal != Vector3.up
+                    || !float.IsFinite(textureCoordinate.x)
+                    || !float.IsFinite(textureCoordinate.y))
+                {
+                    throw new InvalidOperationException(
+                        "The ocean clipmap contains a non-finite vertex attribute or invalid normal.");
+                }
+            }
+            for (var index = 0; index < triangles.Length; index += 3)
+            {
+                var first = vertices[triangles[index]];
+                var second = vertices[triangles[index + 1]];
+                var third = vertices[triangles[index + 2]];
+                if (Vector3.Cross(second - first, third - first).y <= 1.0e-6f)
+                {
+                    throw new InvalidOperationException(
+                        "The ocean clipmap contains a degenerate or downward-facing triangle.");
                 }
             }
         }
@@ -152,6 +213,9 @@ public static class IslandGeneratorValidation
                 || !seaMaterial.HasProperty("_WaveFadeEnd")
                 || !seaMaterial.HasProperty("_OceanWave0")
                 || !seaMaterial.HasProperty("_OceanWaveSpeeds")
+                || !seaMaterial.HasProperty("_WaveNoiseWorldSize")
+                || !seaMaterial.HasProperty("_WaveDomainWarp")
+                || !seaMaterial.HasProperty("_WaveAmplitudeVariation")
                 || seaMaterial.HasProperty("_SeaMask")
                 || !attenuationMaterial.HasProperty("_SeaMask")
                 || !attenuationMaterial.HasProperty("_IslandWorldSize")

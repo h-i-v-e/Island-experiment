@@ -350,17 +350,13 @@ public static class IslandProjectSetup
             MultiIslandScenePath,
             OpenSceneMode.Single);
         var managers = UnityEngine.Object.FindObjectsByType<IslandWorldManager>(
-            FindObjectsInactive.Include,
-            FindObjectsSortMode.None);
+            FindObjectsInactive.Include);
         var generators = UnityEngine.Object.FindObjectsByType<IslandGenerator>(
-            FindObjectsInactive.Include,
-            FindObjectsSortMode.None);
+            FindObjectsInactive.Include);
         var cameras = UnityEngine.Object.FindObjectsByType<Camera>(
-            FindObjectsInactive.Include,
-            FindObjectsSortMode.None);
+            FindObjectsInactive.Include);
         var demos = UnityEngine.Object.FindObjectsByType<IslandDemoController>(
-            FindObjectsInactive.Include,
-            FindObjectsSortMode.None);
+            FindObjectsInactive.Include);
         if (!scene.IsValid()
             || managers.Length != 1
             || generators.Length != 3

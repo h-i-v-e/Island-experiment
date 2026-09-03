@@ -35,10 +35,12 @@ internal sealed class OceanWaveMaskComposer : MonoBehaviour
     private bool dirty = true;
     private int compositionCount;
     private int lastOverlappingBindingCount;
+    private double lastCompositionMilliseconds;
 
     internal int CompositionCount => compositionCount;
     internal int BindingCount => bindings.Count;
     internal int LastOverlappingBindingCount => lastOverlappingBindingCount;
+    internal double LastCompositionMilliseconds => lastCompositionMilliseconds;
     internal RenderTexture AttenuationTexture => attenuationTexture;
 
     internal void Configure(
@@ -171,6 +173,7 @@ internal sealed class OceanWaveMaskComposer : MonoBehaviour
 
     private void Compose(Vector2 centre)
     {
+        var startedAt = System.Diagnostics.Stopwatch.GetTimestamp();
         EnsureResources();
         var coverage = settings.MaskCoverageMetres;
         var minimum = centre - Vector2.one * (coverage * 0.5f);
@@ -233,6 +236,10 @@ internal sealed class OceanWaveMaskComposer : MonoBehaviour
                 minimum.y,
                 1f / coverage,
                 1f / coverage));
+        lastCompositionMilliseconds =
+            (System.Diagnostics.Stopwatch.GetTimestamp() - startedAt)
+            * 1000.0
+            / System.Diagnostics.Stopwatch.Frequency;
     }
 
     private static bool Overlaps(

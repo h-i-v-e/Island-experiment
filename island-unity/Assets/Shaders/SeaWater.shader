@@ -28,14 +28,20 @@ Shader "Motu/Sea Water"
         [HideInInspector] _OceanWave3 ("Ocean Wave 3", Vector) = (0.6, -0.8, 4, 0.04)
         [HideInInspector] _OceanWaveSpeeds ("Ocean Wave Speeds", Vector) = (3.6, 2.8, 2.1, 1.5)
         [HideInInspector] _OceanWaveChoppiness ("Ocean Wave Choppiness", Vector) = (0, 0, 0, 0)
+        [HideInInspector] _WaveNoiseWorldSize ("Wave Noise World Size", Float) = 2048
+        [HideInInspector] _WaveDomainWarp ("Wave Domain Warp", Float) = 9
+        [HideInInspector] _WaveAmplitudeVariation ("Wave Amplitude Variation", Range(0, 0.75)) = 0.6
     }
 
     SubShader
     {
         Tags { "Queue"="Transparent" "RenderType"="Transparent" }
         Blend SrcAlpha OneMinusSrcAlpha
-        ZWrite Off
-        Cull Off
+        // The composed deep-ocean colour is opaque. Writing depth prevents
+        // distant wave triangles and their back faces from being drawn over
+        // nearer crests as a saw-tooth pattern at grazing view angles.
+        ZWrite On
+        Cull Back
 
         GrabPass { "_MotuWaterBackground" }
 
@@ -68,9 +74,8 @@ Shader "Motu/Sea Water"
                 UNITY_FOG_COORDS(3)
                 float4 grabPosition : TEXCOORD4;
                 SHADOW_COORDS(5)
+                float2 waveSamplePosition : TEXCOORD6;
             };
-
-            sampler2D _NoiseTex;
 
             VertexOutput Vertex(VertexInput input)
             {
@@ -91,6 +96,7 @@ Shader "Motu/Sea Water"
                     UNITY_MATRIX_V,
                     float4(displacedWorldPosition, 1.0)).z;
                 output.worldPosition = displacedWorldPosition;
+                output.waveSamplePosition = baseWorldPosition.xz;
                 TRANSFER_SHADOW_WPOS(output, output.worldPosition);
                 UNITY_TRANSFER_FOG(output, output.pos);
                 return output;
@@ -102,7 +108,7 @@ Shader "Motu/Sea Water"
                     _WorldSpaceCameraPos.xyz - input.worldPosition);
                 float3 analyticWaveNormal;
                 MotuEvaluateOceanWaveNormal(
-                    input.worldPosition.xz,
+                    input.waveSamplePosition,
                     analyticWaveNormal);
                 float3 worldNormal = MotuFacingWaterNormal(
                     analyticWaveNormal,

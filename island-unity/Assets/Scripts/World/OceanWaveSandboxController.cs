@@ -26,6 +26,9 @@ public sealed class OceanWaveSandboxController : MonoBehaviour
     private float yaw;
     private float pitch;
     private bool cursorCaptured;
+    private string statistics = string.Empty;
+    private float nextStatisticsUpdate;
+    private float smoothedFrameTime = 1f / 60f;
 
     public OceanWaveProfile Profile => profile;
     public Transform FollowTarget => followTarget;
@@ -53,7 +56,7 @@ public sealed class OceanWaveSandboxController : MonoBehaviour
             ? new Material(seaMaterialTemplate)
             : new Material(shader);
         material.name = "Ocean Wave Sandbox Sea (Runtime)";
-        noiseTexture = CreateNoiseTexture();
+        noiseTexture = IslandGenerator.CreateRiverNoiseTexture();
         material.SetTexture(NoiseTextureId, noiseTexture);
         var settings = profile != null
             ? profile.ToRuntimeSettings()
@@ -81,6 +84,10 @@ public sealed class OceanWaveSandboxController : MonoBehaviour
 
     private void Update()
     {
+        smoothedFrameTime = Mathf.Lerp(
+            smoothedFrameTime,
+            Mathf.Max(Time.unscaledDeltaTime, 1.0e-5f),
+            0.08f);
         if (followTarget == null)
         {
             return;
@@ -141,10 +148,31 @@ public sealed class OceanWaveSandboxController : MonoBehaviour
 
     private void OnGUI()
     {
-        const float width = 480f;
-        const float height = 92f;
+        const float width = 620f;
+        const float height = 122f;
+        UpdateStatistics();
         GUI.Box(new Rect(12f, 12f, width, height), GUIContent.none);
-        GUI.Label(new Rect(24f, 20f, width - 24f, height - 16f), Controls);
+        GUI.Label(new Rect(24f, 20f, width - 24f, 62f), Controls);
+        GUI.Label(new Rect(24f, 86f, width - 24f, 28f), statistics);
+    }
+
+    private void UpdateStatistics()
+    {
+        if (ocean == null || Time.unscaledTime < nextStatisticsUpdate)
+        {
+            return;
+        }
+        nextStatisticsUpdate = Time.unscaledTime + 0.5f;
+        statistics = string.Format(
+            System.Globalization.CultureInfo.InvariantCulture,
+            "{0:F0} fps | {1:N0} vertices | {2:N0} triangles | mask {3:F2} ms ({4} rebuilds, {5}/{6} coasts)",
+            1f / smoothedFrameTime,
+            ocean.MeshVertexCount,
+            ocean.MeshTriangleCount,
+            ocean.LastWaveMaskCompositionMilliseconds,
+            ocean.WaveMaskCompositionCount,
+            ocean.LastOverlappingCoastalBindingCount,
+            ocean.CoastalWaveBindingCount);
     }
 
     private void UpdateAnchor()
@@ -178,33 +206,4 @@ public sealed class OceanWaveSandboxController : MonoBehaviour
         return angle > 180f ? angle - 360f : angle;
     }
 
-    private static Texture2D CreateNoiseTexture()
-    {
-        const int size = 64;
-        var texture = new Texture2D(
-            size,
-            size,
-            TextureFormat.RGBA32,
-            true,
-            true)
-        {
-            name = "Ocean Wave Sandbox Noise",
-            wrapMode = TextureWrapMode.Repeat,
-            filterMode = FilterMode.Trilinear,
-        };
-        var colours = new Color[size * size];
-        for (var y = 0; y < size; y++)
-        {
-            for (var x = 0; x < size; x++)
-            {
-                var broad = Mathf.PerlinNoise(x / 13f, y / 13f);
-                var fine = Mathf.PerlinNoise(x / 4.5f + 17f, y / 4.5f + 31f);
-                var value = Mathf.Clamp01(broad * 0.7f + fine * 0.3f);
-                colours[y * size + x] = new Color(value, fine, broad, 1f);
-            }
-        }
-        texture.SetPixels(colours);
-        texture.Apply(true, true);
-        return texture;
-    }
 }
