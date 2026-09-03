@@ -8,12 +8,15 @@ public sealed class PlanarWaterReflection : MonoBehaviour
     internal const string TextureName = "_PlanarReflectionTexture";
     internal const string MatrixName = "_PlanarReflectionMatrix";
     internal const string AvailableName = "_PlanarReflectionAvailable";
+    public const string ViewerPositionName = "_PlanarReflectionViewerPosition";
     public const string SimplifiedShaderName = "Motu/Planar Reflection Simplified";
     public const string ReplacementTag = "MotuReflection";
 
     private static readonly int ReflectionTextureId = Shader.PropertyToID(TextureName);
     private static readonly int ReflectionMatrixId = Shader.PropertyToID(MatrixName);
     private static readonly int ReflectionAvailableId = Shader.PropertyToID(AvailableName);
+    private static readonly int ReflectionViewerPositionId = Shader.PropertyToID(
+        ViewerPositionName);
     private static readonly HashSet<Camera> ReflectionCameras = new HashSet<Camera>();
 
     [Tooltip("Transform whose local XZ plane defines sea level.")]
@@ -208,6 +211,14 @@ public sealed class PlanarWaterReflection : MonoBehaviour
             planeNormal,
             1f);
         reflectionCamera.projectionMatrix = sourceCamera.CalculateObliqueMatrix(clipPlane);
+
+        // Unity's built-in fog coordinate is derived from clip-space depth.
+        // The oblique projection used to clip reflections at the water plane
+        // warps that depth, so the replacement shader measures haze from the
+        // real viewer position instead.
+        Shader.SetGlobalVector(
+            ReflectionViewerPositionId,
+            sourceCamera.transform.position);
 
         var previousInvertCulling = GL.invertCulling;
         try

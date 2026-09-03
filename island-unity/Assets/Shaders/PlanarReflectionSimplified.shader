@@ -56,7 +56,6 @@ Shader "Motu/Planar Reflection Simplified"
         float3 localPosition : TEXCOORD2;
         half4 material : TEXCOORD3;
         half2 environment : TEXCOORD4;
-        UNITY_FOG_COORDS(5)
         UNITY_VERTEX_OUTPUT_STEREO
     };
 
@@ -80,6 +79,7 @@ Shader "Motu/Planar Reflection Simplified"
     float _FernFadeEnd;
     float _WorldSize;
     float4 _GrassPlayerPosition;
+    float4 _PlanarReflectionViewerPosition;
     float4x4 _IslandWorldToLocal;
 
     #include "CloudCommon.cginc"
@@ -98,8 +98,24 @@ Shader "Motu/Planar Reflection Simplified"
         output.worldNormal = UnityObjectToWorldNormal(input.normal);
         output.material = input.material;
         output.environment = input.environment;
-        UNITY_TRANSFER_FOG(output, output.position);
         return output;
+    }
+
+    fixed4 ApplyReflectionDistanceHaze(
+        fixed4 colour,
+        float3 worldPosition)
+    {
+        #if defined(FOG_LINEAR) || defined(FOG_EXP) || defined(FOG_EXP2)
+            float hazeDistance = distance(
+                worldPosition,
+                _PlanarReflectionViewerPosition.xyz);
+            UNITY_CALC_FOG_FACTOR_RAW(hazeDistance);
+            colour.rgb = lerp(
+                unity_FogColor.rgb,
+                colour.rgb,
+                saturate(unityFogFactor));
+        #endif
+        return colour;
     }
 
     fixed3 ReflectionLighting(
@@ -127,8 +143,7 @@ Shader "Motu/Planar Reflection Simplified"
         fixed4 result = fixed4(
             ReflectionLighting(albedo, input.worldNormal, input.worldPosition),
             1.0h);
-        UNITY_APPLY_FOG(input.fogCoord, result);
-        return result;
+        return ApplyReflectionDistanceHaze(result, input.worldPosition);
     }
 
     fixed4 TerrainFragment(ReflectionVertexOutput input) : SV_Target
@@ -278,7 +293,6 @@ Shader "Motu/Planar Reflection Simplified"
                 float2 uv : TEXCOORD2;
                 half4 data : TEXCOORD3;
                 float distanceToPlayer : TEXCOORD4;
-                UNITY_FOG_COORDS(5)
             };
 
             float ReedHash(float value)
@@ -335,7 +349,6 @@ Shader "Motu/Planar Reflection Simplified"
                 output.uv = input.uv;
                 output.data = input.data;
                 output.distanceToPlayer = distance(worldPosition.xz, _GrassPlayerPosition.xz);
-                UNITY_TRANSFER_FOG(output, output.position);
                 return output;
             }
 
@@ -355,8 +368,7 @@ Shader "Motu/Planar Reflection Simplified"
                 fixed4 result = fixed4(
                     ReflectionLighting(albedo, normal, input.worldPosition),
                     1.0h);
-                UNITY_APPLY_FOG(input.fogCoord, result);
-                return result;
+                return ApplyReflectionDistanceHaze(result, input.worldPosition);
             }
             ENDCG
         }
@@ -409,7 +421,6 @@ Shader "Motu/Planar Reflection Simplified"
                 float2 uv : TEXCOORD2;
                 half4 data : TEXCOORD3;
                 float distanceToPlayer : TEXCOORD4;
-                UNITY_FOG_COORDS(5)
             };
 
             float FernReflectionMask(float2 uv, float4 data)
@@ -462,7 +473,6 @@ Shader "Motu/Planar Reflection Simplified"
                 output.uv = input.uv;
                 output.data = input.data;
                 output.distanceToPlayer = distance(worldPosition.xz, _GrassPlayerPosition.xz);
-                UNITY_TRANSFER_FOG(output, output.position);
                 return output;
             }
 
@@ -482,8 +492,7 @@ Shader "Motu/Planar Reflection Simplified"
                 fixed4 result = fixed4(
                     ReflectionLighting(albedo, normal, input.worldPosition),
                     1.0h);
-                UNITY_APPLY_FOG(input.fogCoord, result);
-                return result;
+                return ApplyReflectionDistanceHaze(result, input.worldPosition);
             }
             ENDCG
         }

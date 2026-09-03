@@ -1013,6 +1013,8 @@ public static class IslandGeneratorValidation
                 "_PlanarReflectionAvailable");
             var reflectionTexture = Shader.GetGlobalTexture(
                 "_PlanarReflectionTexture");
+            var reflectionViewerPosition = Shader.GetGlobalVector(
+                PlanarWaterReflection.ViewerPositionName);
             if (reflectedCamera == null
                 || (reflectedPosition - expectedPosition).sqrMagnitude > 1.0e-5f
                 || reflectedTarget == null
@@ -1024,7 +1026,12 @@ public static class IslandGeneratorValidation
                 || reflection.FrameInterval != 2
                 || reflection.ReflectionRenderCount != 1
                 || reflectionAvailable < 0.5f
-                || reflectionTexture != reflectedTarget)
+                || reflectionTexture != reflectedTarget
+                || (new Vector3(
+                        reflectionViewerPosition.x,
+                        reflectionViewerPosition.y,
+                        reflectionViewerPosition.z)
+                    - sourceCamera.transform.position).sqrMagnitude > 1.0e-5f)
             {
                 throw new InvalidOperationException(
                     "The planar reflection camera did not render the expected mirrored view. "
