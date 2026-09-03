@@ -22,7 +22,7 @@ use crate::{
 };
 
 const SNAPSHOT_MAGIC: [u8; 8] = *b"MOTUSNP\0";
-const SNAPSHOT_VERSION: u16 = 1;
+const SNAPSHOT_VERSION: u16 = 3;
 const COMPRESSION_ZSTD: u8 = 1;
 const HEADER_LENGTH: u64 = 8 + 2 + 1 + 1 + 8 + 32;
 const MAXIMUM_COMPRESSED_BYTES: u64 = 8 * 1024 * 1024 * 1024;
@@ -40,6 +40,7 @@ struct IslandSnapshotRef<'a> {
     coarser_lods: &'a [Mesh; 2],
     rivers: &'a [River],
     distance_to_land: &'a [f32],
+    submerged_river_carve: &'a [f32],
     river_mesh: &'a Mesh,
     river_rock_mesh: &'a Mesh,
     waterfall_feet: &'a [WaterfallFoot],
@@ -62,6 +63,7 @@ struct IslandSnapshotOwned {
     coarser_lods: [Mesh; 2],
     rivers: Vec<River>,
     distance_to_land: Vec<f32>,
+    submerged_river_carve: Vec<f32>,
     river_mesh: Mesh,
     river_rock_mesh: Mesh,
     waterfall_feet: Vec<WaterfallFoot>,
@@ -108,6 +110,7 @@ fn save_to_temporary_file(island: &Island, path: &Path) -> io::Result<()> {
         coarser_lods: &island.coarser_lods,
         rivers: &island.rivers,
         distance_to_land: &island.distance_to_land,
+        submerged_river_carve: &island.submerged_river_carve,
         river_mesh: &island.river_mesh,
         river_rock_mesh: &island.river_rock_mesh,
         waterfall_feet: &island.waterfall_feet,
@@ -179,9 +182,19 @@ impl IslandSnapshotOwned {
         if self.material.values.len() != vertex_count
             || self.environment.values.len() != vertex_count
             || self.distance_to_land.len() != vertex_count
+            || self.submerged_river_carve.len() != vertex_count
         {
             return Err(invalid_data(
                 "snapshot terrain sidecar lengths do not match its vertex count",
+            ));
+        }
+        if self
+            .submerged_river_carve
+            .iter()
+            .any(|value| !value.is_finite() || !(0.0..=1.0).contains(value))
+        {
+            return Err(invalid_data(
+                "snapshot submerged-river-carve coverage contains invalid data",
             ));
         }
         self.options.validate().map_err(invalid_data)?;
@@ -197,6 +210,7 @@ impl IslandSnapshotOwned {
             coarser_lods: self.coarser_lods,
             rivers: self.rivers,
             distance_to_land: self.distance_to_land,
+            submerged_river_carve: self.submerged_river_carve,
             river_mesh: self.river_mesh,
             river_rock_mesh: self.river_rock_mesh,
             waterfall_feet: self.waterfall_feet,

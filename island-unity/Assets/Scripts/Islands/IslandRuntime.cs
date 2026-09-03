@@ -312,8 +312,8 @@ public sealed class IslandRuntime : MonoBehaviour, IDisposable
                 "The coastal shader is unavailable for island-runtime validation.");
         var firstMaterial = new Material(shader);
         var secondMaterial = new Material(shader);
-        var firstMask = new Texture2D(1, 1, TextureFormat.RG16, false, true);
-        var secondMask = new Texture2D(1, 1, TextureFormat.RG16, false, true);
+        var firstMask = new Texture2D(1, 1, TextureFormat.RGBA32, false, true);
+        var secondMask = new Texture2D(1, 1, TextureFormat.RGBA32, false, true);
         var firstRoot = first.gameObject;
         var secondRoot = second.gameObject;
         try

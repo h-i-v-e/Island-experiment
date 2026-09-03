@@ -37,6 +37,7 @@ pub struct Island {
     pub(super) coarser_lods: [Mesh; 2],
     pub(super) rivers: Vec<River>,
     pub(super) distance_to_land: Vec<f32>,
+    pub(super) submerged_river_carve: Vec<f32>,
     pub(super) river_mesh: Mesh,
     pub(super) river_rock_mesh: Mesh,
     pub(super) waterfall_feet: Vec<WaterfallFoot>,
@@ -54,6 +55,7 @@ pub(super) struct FinalRiverGeneration {
     pub(super) rivers: Vec<River>,
     pub(super) river_mesh: Mesh,
     pub(super) river_bed: Vec<bool>,
+    pub(super) submerged_river_carve: Vec<f32>,
     pub(super) river_rock_mesh: Mesh,
     pub(super) waterfall_feet: Vec<WaterfallFoot>,
 }
@@ -272,12 +274,19 @@ pub(super) fn generate_final_rivers(
         let rejected_before = rejected_waterfall_vertices.len();
         rejected_waterfall_vertices.extend(parts.failed_waterfalls);
         if rejected_waterfall_vertices.len() == rejected_before {
+            let submerged_river_carve = attempt_material
+                .submerged_river_carves()
+                .ok_or_else(|| {
+                    "final river generation lost its submerged-river-carve field".to_owned()
+                })?
+                .to_vec();
             return Ok(FinalRiverGeneration {
                 lod0: attempt_lod0,
                 material: attempt_material,
                 rivers: parts.rivers,
                 river_mesh: parts.river_mesh,
                 river_bed: parts.river_bed,
+                submerged_river_carve,
                 river_rock_mesh: parts.river_rock_mesh,
                 waterfall_feet: parts.waterfall_feet,
             });
@@ -441,6 +450,7 @@ impl Island {
             rivers,
             mut river_mesh,
             river_bed,
+            submerged_river_carve,
             mut river_rock_mesh,
             waterfall_feet,
         } = generate_final_rivers(
@@ -543,6 +553,7 @@ impl Island {
             coarser_lods: [lod1, lod2],
             rivers,
             distance_to_land,
+            submerged_river_carve,
             river_mesh,
             river_rock_mesh,
             waterfall_feet,
@@ -715,10 +726,19 @@ impl Island {
         })
     }
 
-    /// Bakes a linear interleaved RG8 texture for coastal waves and distance to land.
+    /// Bakes a linear interleaved RGBA8 texture for coastal waves, distance to
+    /// land, and accumulated submerged river-carve suppression.
     #[must_use]
     pub fn sea_mask(&self, width: u32, height: u32) -> Option<crate::SeaMask> {
-        crate::sea_mask::bake_sea_mask(&self.terrain, &self.distance_to_land, width, height)
+        let wave_suppression =
+            combined_wave_suppression(&self.material.values, &self.submerged_river_carve)?;
+        crate::sea_mask::bake_sea_mask(
+            &self.terrain,
+            &self.distance_to_land,
+            &wave_suppression,
+            width,
+            height,
+        )
     }
 
     /// Bakes high-detail normal corrections, directional terrain occlusion,
@@ -909,6 +929,16 @@ impl Island {
             })
             .collect()
     }
+}
+
+fn combined_wave_suppression(material: &[Vec4], submerged_carve: &[f32]) -> Option<Vec<f32>> {
+    (material.len() == submerged_carve.len()).then(|| {
+        material
+            .iter()
+            .zip(submerged_carve)
+            .map(|(material, &submerged_carve)| material.z.max(submerged_carve))
+            .collect()
+    })
 }
 
 pub(super) fn sharp_rock_mask(mesh: &Mesh) -> Vec<bool> {
@@ -1779,5 +1809,15 @@ mod sea_proximity_tests {
         let sea = connected_ocean_from_perimeter(&[false, true, false], [0, 2], &mesh.adjacency());
 
         assert!(sea.into_iter().all(|is_sea| is_sea));
+    }
+
+    #[test]
+    fn sea_wave_suppression_unions_final_and_accumulated_river_channels() {
+        let material = [Vec4::new(0.0, 0.0, 1.0, 0.0), Vec4::ZERO, Vec4::ZERO];
+
+        let suppression = combined_wave_suppression(&material, &[0.0, 1.0, 0.0]).unwrap();
+
+        assert_eq!(suppression, [1.0, 1.0, 0.0]);
+        assert!(combined_wave_suppression(&material, &[0.0]).is_none());
     }
 }

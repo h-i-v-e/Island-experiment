@@ -10,6 +10,7 @@ pub(crate) struct SurfaceMaterial {
     pub(super) deposited_depth: Vec<f32>,
     pub(super) bedrock_hardness: Vec<f32>,
     sea_proximity: Vec<f32>,
+    submerged_river_carve: Option<Vec<f32>>,
 }
 
 impl SurfaceMaterial {
@@ -18,12 +19,19 @@ impl SurfaceMaterial {
             deposited_depth: vec![0.0; vertex_count],
             bedrock_hardness: vec![0.0; vertex_count],
             sea_proximity: vec![0.0; vertex_count],
+            submerged_river_carve: None,
         }
     }
 
     pub(crate) fn set_sea_proximity(&mut self, values: Vec<f32>) {
         debug_assert_eq!(values.len(), self.deposited_depth.len());
         self.sea_proximity = values;
+    }
+
+    pub(crate) fn submerged_river_carves_mut(&mut self) -> &mut [f32] {
+        let vertex_count = self.deposited_depth.len();
+        self.submerged_river_carve
+            .get_or_insert_with(|| vec![0.0; vertex_count])
     }
 
     pub(crate) fn initialize_geology(&mut self, mesh: &Mesh, geology: GeologyField) {
@@ -44,6 +52,10 @@ impl SurfaceMaterial {
 
     pub(crate) fn sea_proximities(&self) -> &[f32] {
         &self.sea_proximity
+    }
+
+    pub(crate) fn submerged_river_carves(&self) -> Option<&[f32]> {
+        self.submerged_river_carve.as_deref()
     }
 
     pub(crate) fn hardnesses(&self) -> &[f32] {
@@ -90,6 +102,9 @@ impl SurfaceMaterial {
         self.deposited_depth.reserve(stencils.len());
         self.bedrock_hardness.reserve(stencils.len());
         self.sea_proximity.reserve(stencils.len());
+        if let Some(values) = &mut self.submerged_river_carve {
+            values.reserve(stencils.len());
+        }
         for stencil in stencils {
             debug_assert_eq!(stencil.vertex as usize, self.deposited_depth.len());
             let count = usize::from(stencil.count);
@@ -117,10 +132,23 @@ impl SurfaceMaterial {
             self.deposited_depth.push(depth.max(0.0));
             self.bedrock_hardness.push(hardness.clamp(0.0, 1.0));
             self.sea_proximity.push(sea_proximity.clamp(0.0, 1.0));
+            if let Some(values) = &mut self.submerged_river_carve {
+                let submerged_river_carve = stencil.surrounding[..count]
+                    .iter()
+                    .map(|&vertex| values[vertex as usize])
+                    .sum::<f32>()
+                    / count as f32;
+                values.push(submerged_river_carve.clamp(0.0, 1.0));
+            }
         }
         debug_assert_eq!(self.deposited_depth.len(), mesh.vertices.len());
         debug_assert_eq!(self.bedrock_hardness.len(), mesh.vertices.len());
         debug_assert_eq!(self.sea_proximity.len(), mesh.vertices.len());
+        debug_assert!(
+            self.submerged_river_carve
+                .as_ref()
+                .is_none_or(|values| values.len() == mesh.vertices.len())
+        );
         self.rescale_to_volume(mesh, old_volume);
     }
 
@@ -128,6 +156,9 @@ impl SurfaceMaterial {
         self.deposited_depth.reserve(stencils.len());
         self.bedrock_hardness.reserve(stencils.len());
         self.sea_proximity.reserve(stencils.len());
+        if let Some(values) = &mut self.submerged_river_carve {
+            values.reserve(stencils.len());
+        }
         for stencil in stencils {
             debug_assert_eq!(stencil.vertex as usize, self.deposited_depth.len());
             let [a, b] = stencil.edge.map(|vertex| vertex as usize);
@@ -143,6 +174,9 @@ impl SurfaceMaterial {
             self.sea_proximity.push(
                 (self.sea_proximity[b] - self.sea_proximity[a]).mul_add(t, self.sea_proximity[a]),
             );
+            if let Some(values) = &mut self.submerged_river_carve {
+                values.push((values[b] - values[a]).mul_add(t, values[a]));
+            }
         }
     }
 
@@ -302,6 +336,7 @@ mod tests {
             deposited_depth: vec![0.01; source.vertices.len()],
             bedrock_hardness: vec![0.5; source.vertices.len()],
             sea_proximity: vec![0.0; source.vertices.len()],
+            submerged_river_carve: None,
         };
         let tessellation = TessellationResult {
             mesh: source.clone(),
@@ -314,12 +349,13 @@ mod tests {
     }
 
     #[test]
-    fn tessellation_stencils_extend_cached_sea_proximity() {
+    fn tessellation_stencils_extend_cached_coastal_signals() {
         let source = Mesh::delaunay(&[Vec2::ZERO, Vec2::X, Vec2::ONE, Vec2::Y]);
         let mut material = SurfaceMaterial::empty(source.vertices.len());
         material.set_sea_proximity(vec![1.0, 0.75, 0.25, 0.0]);
+        material.submerged_river_carve = Some(vec![1.0, 1.0, 0.0, 0.0]);
         let tessellation = source.tessellated_attributed();
-        let expected: Vec<(usize, f32)> = tessellation
+        let expected: Vec<(usize, f32, f32)> = tessellation
             .new_vertices
             .iter()
             .map(|stencil| {
@@ -329,14 +365,27 @@ mod tests {
                     .map(|&vertex| material.sea_proximity[vertex as usize])
                     .sum::<f32>()
                     / count as f32;
-                (stencil.vertex as usize, strength)
+                let submerged_carve = stencil.surrounding[..count]
+                    .iter()
+                    .map(|&vertex| {
+                        material.submerged_river_carve.as_ref().unwrap()[vertex as usize]
+                    })
+                    .sum::<f32>()
+                    / count as f32;
+                (stencil.vertex as usize, strength, submerged_carve)
             })
             .collect();
 
         let (_, material) = material.into_tessellated(&source, tessellation);
 
-        for (vertex, expected) in expected {
-            assert!((material.sea_proximity[vertex] - expected).abs() < 1.0e-6);
+        for (vertex, expected_sea_proximity, expected_submerged_carve) in expected {
+            assert!((material.sea_proximity[vertex] - expected_sea_proximity).abs() < 1.0e-6);
+            assert!(
+                (material.submerged_river_carve.as_ref().unwrap()[vertex]
+                    - expected_submerged_carve)
+                    .abs()
+                    < 1.0e-6
+            );
         }
     }
 
@@ -346,6 +395,7 @@ mod tests {
             deposited_depth: vec![0.0, 0.002, 0.001],
             bedrock_hardness: vec![0.25, 0.5, 0.75],
             sea_proximity: vec![1.0, 0.5, 0.0],
+            submerged_river_carve: None,
         };
 
         let field = TerrainMaterialField::from_surface(

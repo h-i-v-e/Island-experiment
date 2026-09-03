@@ -214,18 +214,18 @@ public sealed partial class IslandGenerator
         try
         {
             if (seaMask.handle == IntPtr.Zero
-                || seaMask.rg == IntPtr.Zero
+                || seaMask.rgba == IntPtr.Zero
                 || seaMask.width != dimension
                 || seaMask.height != dimension)
             {
                 throw new InvalidOperationException(
-                    "The Rust generator returned an invalid sea depth/land-distance mask.");
+                    "The Rust generator returned an invalid coastal wave mask.");
             }
 
-            var byteCount = checked(dimension * dimension * 2);
-            var rg = new byte[byteCount];
-            Marshal.Copy(seaMask.rg, rg, 0, rg.Length);
-            return new IslandPreparedSeaMask(dimension, rg);
+            var byteCount = checked(dimension * dimension * 4);
+            var rgba = new byte[byteCount];
+            Marshal.Copy(seaMask.rgba, rgba, 0, rgba.Length);
+            return new IslandPreparedSeaMask(dimension, rgba);
         }
         finally
         {

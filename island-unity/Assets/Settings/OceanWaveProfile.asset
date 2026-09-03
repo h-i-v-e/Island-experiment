@@ -26,6 +26,21 @@ MonoBehaviour:
   noiseWorldSizeMetres: 2048
   domainWarpMetres: 9
   amplitudeVariation: 0.6
+  whitecapColour: {r: 0.9, g: 0.96, b: 1, a: 1}
+  whitecapStrength: 0.85
+  whitecapHeightThreshold: 0.68
+  whitecapSlopeThreshold: 0.12
+  whitecapCoverage: 0.58
+  whitecapNoiseWorldSizeMetres: 7
+  whitecapFineNoiseScale: 0.32
+  whitecapCounterflowSpeed: 0.65
+  whitecapShallowHeightThreshold: 0.18
+  whitecapFlatFadeEnd: 0.08
+  onshoreWaveEnabled: 1
+  onshoreWaveWavelengthMetres: 12
+  onshoreWaveAmplitudeMetres: 1
+  onshoreWaveSpeedMetresPerSecond: 2.2
+  onshoreWaveChoppiness: 1
   wave0:
     direction: {x: 1, y: 0.18}
     wavelengthMetres: 30

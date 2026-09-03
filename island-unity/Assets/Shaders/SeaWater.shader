@@ -19,6 +19,7 @@ Shader "Motu/Sea Water"
         _PlanarReflectionDistortion ("Reflection Ripple Distortion", Range(0, 0.03)) = 0.008
         [HideInInspector] _GeometricWaves ("Geometric Waves", Float) = 1
         [NoScaleOffset] _WaveAttenuationTex ("Wave Attenuation", 2D) = "white" {}
+        [NoScaleOffset] _WaveOnshoreTex ("Onshore Wave Direction", 2D) = "black" {}
         [HideInInspector] _WaveAttenuationWorldRect ("Wave Attenuation World Rect", Vector) = (-1, -1, 0.5, 0.5)
         [HideInInspector] _WaveFadeStart ("Wave Fade Start", Float) = 320
         [HideInInspector] _WaveFadeEnd ("Wave Fade End", Float) = 480
@@ -31,6 +32,18 @@ Shader "Motu/Sea Water"
         [HideInInspector] _WaveNoiseWorldSize ("Wave Noise World Size", Float) = 2048
         [HideInInspector] _WaveDomainWarp ("Wave Domain Warp", Float) = 9
         [HideInInspector] _WaveAmplitudeVariation ("Wave Amplitude Variation", Range(0, 0.75)) = 0.6
+        [HideInInspector] _WhitecapColour ("Whitecap Colour", Color) = (0.9, 0.96, 1, 1)
+        [HideInInspector] _WhitecapStrength ("Whitecap Strength", Range(0, 2)) = 0.85
+        [HideInInspector] _WhitecapHeightThreshold ("Whitecap Height Threshold", Range(0.5, 0.98)) = 0.68
+        [HideInInspector] _WhitecapSlopeThreshold ("Whitecap Slope Threshold", Range(0, 1)) = 0.12
+        [HideInInspector] _WhitecapCoverage ("Whitecap Coverage", Range(0, 1)) = 0.58
+        [HideInInspector] _WhitecapNoiseWorldSize ("Whitecap Noise World Size", Float) = 7
+        [HideInInspector] _WhitecapFineNoiseScale ("Whitecap Fine Noise Scale", Range(0.1, 1)) = 0.32
+        [HideInInspector] _WhitecapCounterflowSpeed ("Whitecap Counterflow Speed", Range(0, 2)) = 0.65
+        [HideInInspector] _WhitecapShallowHeightThreshold ("Whitecap Shallow Height Threshold", Range(0.05, 0.5)) = 0.18
+        [HideInInspector] _WhitecapFlatFadeEnd ("Whitecap Flat Fade End", Range(0.01, 0.3)) = 0.08
+        [HideInInspector] _OnshoreWaveEnabled ("Onshore Wave Enabled", Float) = 1
+        [HideInInspector] _OnshoreWaveParameters ("Onshore Wave Parameters", Vector) = (12, 0.16, 2.2, 0.18)
     }
 
     SubShader
@@ -107,9 +120,11 @@ Shader "Motu/Sea Water"
                 float3 viewDirection = normalize(
                     _WorldSpaceCameraPos.xyz - input.worldPosition);
                 float3 analyticWaveNormal;
+                float whitecap;
                 MotuEvaluateOceanWaveNormal(
                     input.waveSamplePosition,
-                    analyticWaveNormal);
+                    analyticWaveNormal,
+                    whitecap);
                 float3 worldNormal = MotuFacingWaterNormal(
                     analyticWaveNormal,
                     viewDirection);
@@ -154,6 +169,8 @@ Shader "Motu/Sea Water"
                     1.0h,
                     shadowAttenuation,
                     cloud);
+                fixed3 litWhitecap = _WhitecapColour.rgb * waterIllumination;
+                water = lerp(water, litWhitecap, saturate(whitecap));
                 half waterOpacity = MotuWaterOpacity(
                     waterDepth,
                     _OpacityDepth);

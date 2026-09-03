@@ -183,7 +183,7 @@ internal static class MotuNative
         internal IntPtr handle;
         internal int width;
         internal int height;
-        internal IntPtr rg;
+        internal IntPtr rgba;
     }
 
     [StructLayout(LayoutKind.Sequential)]

@@ -183,25 +183,39 @@ public sealed partial class IslandGenerator
                 throw new InvalidOperationException(
                     "Native fern validation did not export a populated owner grid.");
             }
-            if (validationSeaMask.rg.Length
-                != validationSeaMaskDimension * validationSeaMaskDimension * 2)
+            if (validationSeaMask.rgba.Length
+                != validationSeaMaskDimension * validationSeaMaskDimension * 4)
             {
                 throw new InvalidOperationException(
-                    "Native sea mask byte count does not match its RG dimensions.");
+                    "Native sea mask byte count does not match its RGBA dimensions.");
             }
             var hasOffshoreLandDistance = false;
-            for (var index = 1; index < validationSeaMask.rg.Length; index += 2)
+            var hasSubmergedRiver = false;
+            for (var index = 0; index < validationSeaMask.rgba.Length; index += 4)
             {
-                if (validationSeaMask.rg[index] != 0)
+                if (validationSeaMask.rgba[index + 1] != 0)
                 {
                     hasOffshoreLandDistance = true;
-                    break;
+                }
+                if (validationSeaMask.rgba[index + 2] != 0)
+                {
+                    hasSubmergedRiver = true;
+                }
+                if (validationSeaMask.rgba[index + 3] != byte.MaxValue)
+                {
+                    throw new InvalidOperationException(
+                        "Native sea mask reserved alpha channel is not opaque.");
                 }
             }
             if (!hasOffshoreLandDistance)
             {
                 throw new InvalidOperationException(
                     "Native sea mask contains no offshore land-distance coverage.");
+            }
+            if (!hasSubmergedRiver)
+            {
+                throw new InvalidOperationException(
+                    "Native sea mask contains no submerged river-carve coverage.");
             }
             var hasTerrainNormal = false;
             for (var index = 0; index < validationMaps.normalRgb.Length; index += 3)

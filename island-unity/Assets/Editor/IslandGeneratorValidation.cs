@@ -192,22 +192,28 @@ public static class IslandGeneratorValidation
 
         var seaShader = Shader.Find("Motu/Sea Water");
         var attenuationShader = Shader.Find("Hidden/Motu/Ocean Wave Attenuation");
+        var onshoreShader = Shader.Find("Hidden/Motu/Ocean Onshore Direction");
         if (seaShader == null
             || attenuationShader == null
+            || onshoreShader == null
             || !seaShader.isSupported
             || !attenuationShader.isSupported
+            || !onshoreShader.isSupported
             || ShaderUtil.ShaderHasError(seaShader)
-            || ShaderUtil.ShaderHasError(attenuationShader))
+            || ShaderUtil.ShaderHasError(attenuationShader)
+            || ShaderUtil.ShaderHasError(onshoreShader))
         {
             throw new InvalidOperationException(
                 "The geometric ocean-wave shaders are missing, unsupported, or contain errors.");
         }
         var seaMaterial = new Material(seaShader);
         var attenuationMaterial = new Material(attenuationShader);
+        var onshoreMaterial = new Material(onshoreShader);
         try
         {
             if (!seaMaterial.HasProperty("_GeometricWaves")
                 || !seaMaterial.HasProperty("_WaveAttenuationTex")
+                || !seaMaterial.HasProperty("_WaveOnshoreTex")
                 || !seaMaterial.HasProperty("_WaveAttenuationWorldRect")
                 || !seaMaterial.HasProperty("_WaveFadeStart")
                 || !seaMaterial.HasProperty("_WaveFadeEnd")
@@ -216,12 +222,25 @@ public static class IslandGeneratorValidation
                 || !seaMaterial.HasProperty("_WaveNoiseWorldSize")
                 || !seaMaterial.HasProperty("_WaveDomainWarp")
                 || !seaMaterial.HasProperty("_WaveAmplitudeVariation")
+                || !seaMaterial.HasProperty("_WhitecapColour")
+                || !seaMaterial.HasProperty("_WhitecapStrength")
+                || !seaMaterial.HasProperty("_WhitecapHeightThreshold")
+                || !seaMaterial.HasProperty("_WhitecapSlopeThreshold")
+                || !seaMaterial.HasProperty("_WhitecapCoverage")
+                || !seaMaterial.HasProperty("_WhitecapNoiseWorldSize")
+                || !seaMaterial.HasProperty("_WhitecapFineNoiseScale")
+                || !seaMaterial.HasProperty("_WhitecapCounterflowSpeed")
+                || !seaMaterial.HasProperty("_WhitecapShallowHeightThreshold")
+                || !seaMaterial.HasProperty("_WhitecapFlatFadeEnd")
+                || !seaMaterial.HasProperty("_OnshoreWaveEnabled")
+                || !seaMaterial.HasProperty("_OnshoreWaveParameters")
                 || seaMaterial.HasProperty("_SeaMask")
                 || !attenuationMaterial.HasProperty("_SeaMask")
                 || !attenuationMaterial.HasProperty("_IslandWorldSize")
                 || !attenuationMaterial.HasProperty("_CompositionWorldRect")
                 || !attenuationMaterial.HasProperty("_DepthAllowancePower")
-                || !attenuationMaterial.HasProperty("_DistanceAllowancePower"))
+                || !attenuationMaterial.HasProperty("_DistanceAllowancePower")
+                || !onshoreMaterial.HasProperty("_MainTex"))
             {
                 throw new InvalidOperationException(
                     "The global ocean or attenuation composer violates its shader-property contract.");
@@ -231,6 +250,7 @@ public static class IslandGeneratorValidation
         {
             UnityEngine.Object.DestroyImmediate(seaMaterial);
             UnityEngine.Object.DestroyImmediate(attenuationMaterial);
+            UnityEngine.Object.DestroyImmediate(onshoreMaterial);
         }
     }
 

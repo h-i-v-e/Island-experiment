@@ -481,10 +481,10 @@ public sealed partial class IslandGenerator
 
     private void CreateSeaMaskTexture(IslandPreparedSeaMask seaMask)
     {
-        if (!SystemInfo.SupportsTextureFormat(TextureFormat.RG16))
+        if (!SystemInfo.SupportsTextureFormat(TextureFormat.RGBA32))
         {
             throw new InvalidOperationException(
-                "This graphics device does not support the required RG16 sea mask texture.");
+                "This graphics device does not support the required RGBA32 sea mask texture.");
         }
         if (coastalWaterMaterial == null)
         {
@@ -492,10 +492,10 @@ public sealed partial class IslandGenerator
                 "The coastal-water material was not created before its sea mask.");
         }
         seaMaskTexture = CreateSurfaceTexture(
-            "Motu Sea Depth And Land Distance",
+            "Motu Coastal Wave Mask",
             seaMask.dimension,
-            TextureFormat.RG16,
-            seaMask.rg);
+            TextureFormat.RGBA32,
+            seaMask.rgba);
         islandRuntime.OwnTexture(seaMaskTexture);
         coastalWaterMaterial.SetTexture("_SeaMask", seaMaskTexture);
     }

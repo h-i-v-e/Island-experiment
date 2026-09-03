@@ -19,8 +19,34 @@ public sealed class OceanSurfaceController : MonoBehaviour
         "_WaveDomainWarp");
     private static readonly int WaveAmplitudeVariationId = Shader.PropertyToID(
         "_WaveAmplitudeVariation");
+    private static readonly int WhitecapColourId = Shader.PropertyToID(
+        "_WhitecapColour");
+    private static readonly int WhitecapStrengthId = Shader.PropertyToID(
+        "_WhitecapStrength");
+    private static readonly int WhitecapHeightThresholdId = Shader.PropertyToID(
+        "_WhitecapHeightThreshold");
+    private static readonly int WhitecapSlopeThresholdId = Shader.PropertyToID(
+        "_WhitecapSlopeThreshold");
+    private static readonly int WhitecapCoverageId = Shader.PropertyToID(
+        "_WhitecapCoverage");
+    private static readonly int WhitecapNoiseWorldSizeId = Shader.PropertyToID(
+        "_WhitecapNoiseWorldSize");
+    private static readonly int WhitecapFineNoiseScaleId = Shader.PropertyToID(
+        "_WhitecapFineNoiseScale");
+    private static readonly int WhitecapCounterflowSpeedId = Shader.PropertyToID(
+        "_WhitecapCounterflowSpeed");
+    private static readonly int WhitecapShallowHeightThresholdId = Shader.PropertyToID(
+        "_WhitecapShallowHeightThreshold");
+    private static readonly int WhitecapFlatFadeEndId = Shader.PropertyToID(
+        "_WhitecapFlatFadeEnd");
+    private static readonly int OnshoreWaveEnabledId = Shader.PropertyToID(
+        "_OnshoreWaveEnabled");
+    private static readonly int OnshoreWaveParametersId = Shader.PropertyToID(
+        "_OnshoreWaveParameters");
     private static readonly int WaveAttenuationTextureId = Shader.PropertyToID(
         "_WaveAttenuationTex");
+    private static readonly int WaveOnshoreTextureId = Shader.PropertyToID(
+        "_WaveOnshoreTex");
     private static readonly int WaveAttenuationWorldRectId = Shader.PropertyToID(
         "_WaveAttenuationWorldRect");
 
@@ -117,7 +143,10 @@ public sealed class OceanSurfaceController : MonoBehaviour
         maskComposer.Configure(this, waveSettings);
     }
 
-    internal void SetWaveAttenuation(Texture texture, Vector4 worldRect)
+    internal void SetWaveAttenuation(
+        Texture attenuation,
+        Texture onshore,
+        Vector4 worldRect)
     {
         if (surfaceMaterial == null)
         {
@@ -125,7 +154,10 @@ public sealed class OceanSurfaceController : MonoBehaviour
         }
         surfaceMaterial.SetTexture(
             WaveAttenuationTextureId,
-            texture != null ? texture : Texture2D.whiteTexture);
+            attenuation != null ? attenuation : Texture2D.whiteTexture);
+        surfaceMaterial.SetTexture(
+            WaveOnshoreTextureId,
+            onshore != null ? onshore : Texture2D.blackTexture);
         surfaceMaterial.SetVector(WaveAttenuationWorldRectId, worldRect);
     }
 
@@ -216,8 +248,43 @@ public sealed class OceanSurfaceController : MonoBehaviour
         surfaceMaterial.SetFloat(
             WaveAmplitudeVariationId,
             waveSettings.AmplitudeVariation);
+        surfaceMaterial.SetColor(WhitecapColourId, waveSettings.WhitecapColour);
+        surfaceMaterial.SetFloat(
+            WhitecapStrengthId,
+            waveSettings.WhitecapStrength);
+        surfaceMaterial.SetFloat(
+            WhitecapHeightThresholdId,
+            waveSettings.WhitecapHeightThreshold);
+        surfaceMaterial.SetFloat(
+            WhitecapSlopeThresholdId,
+            waveSettings.WhitecapSlopeThreshold);
+        surfaceMaterial.SetFloat(WhitecapCoverageId, waveSettings.WhitecapCoverage);
+        surfaceMaterial.SetFloat(
+            WhitecapNoiseWorldSizeId,
+            waveSettings.WhitecapNoiseWorldSizeMetres);
+        surfaceMaterial.SetFloat(
+            WhitecapFineNoiseScaleId,
+            waveSettings.WhitecapFineNoiseScale);
+        surfaceMaterial.SetFloat(
+            WhitecapCounterflowSpeedId,
+            waveSettings.WhitecapCounterflowSpeed);
+        surfaceMaterial.SetFloat(
+            WhitecapShallowHeightThresholdId,
+            waveSettings.WhitecapShallowHeightThreshold);
+        surfaceMaterial.SetFloat(
+            WhitecapFlatFadeEndId,
+            waveSettings.WhitecapFlatFadeEnd);
+        surfaceMaterial.SetFloat(
+            OnshoreWaveEnabledId,
+            waveSettings.OnshoreWaveEnabled ? 1f : 0f);
+        surfaceMaterial.SetVector(OnshoreWaveParametersId, new Vector4(
+            waveSettings.OnshoreWaveWavelengthMetres,
+            waveSettings.OnshoreWaveAmplitudeMetres,
+            waveSettings.OnshoreWaveSpeedMetresPerSecond,
+            waveSettings.OnshoreWaveChoppiness));
         SetWaveAttenuation(
             Texture2D.whiteTexture,
+            Texture2D.blackTexture,
             new Vector4(-1f, -1f, 0.5f, 0.5f));
     }
 

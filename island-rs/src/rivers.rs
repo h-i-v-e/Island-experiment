@@ -400,9 +400,15 @@ impl RiverNetwork {
         channel_settings: RiverChannelSettings,
         rejected_waterfall_vertices: &HashSet<usize>,
     ) {
+        material.submerged_river_carves_mut();
         if self.rivers.is_empty() {
             return;
         }
+        let elevations_before = mesh
+            .vertices
+            .iter()
+            .map(|vertex| vertex.z)
+            .collect::<Vec<_>>();
         let loose_volume = material.volume(mesh);
         self.jiggle(mesh);
         if smooth {
@@ -426,6 +432,13 @@ impl RiverNetwork {
             },
         );
         self.refresh(mesh);
+        let footprint = build_river_footprint(self, mesh, adjacency, false);
+        record_submerged_river_carves(
+            material,
+            &elevations_before,
+            &mesh.vertices,
+            &footprint.coverage,
+        );
     }
 
     pub(crate) fn into_parts_with_waterfall_failures(
@@ -1055,4 +1068,26 @@ impl RiverNetwork {
             .unwrap_or(1);
         removed_count
     }
+}
+
+fn record_submerged_river_carves(
+    material: &mut SurfaceMaterial,
+    elevations_before: &[f32],
+    vertices_after: &[Vec3],
+    river_coverage: &[u8],
+) {
+    debug_assert_eq!(elevations_before.len(), vertices_after.len());
+    debug_assert_eq!(river_coverage.len(), vertices_after.len());
+    let carve = material.submerged_river_carves_mut();
+    debug_assert_eq!(carve.len(), vertices_after.len());
+    carve
+        .iter_mut()
+        .zip(elevations_before)
+        .zip(vertices_after)
+        .zip(river_coverage)
+        .for_each(|(((carve, &before), after), &coverage)| {
+            if coverage != 0 && after.z < 0.0 && after.z < before {
+                *carve = 1.0;
+            }
+        });
 }

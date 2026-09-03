@@ -17,7 +17,7 @@ Shader "Hidden/Motu/Ocean Wave Attenuation"
         ZTest Always
         BlendOp Min
         Blend One One
-        ColorMask R
+        ColorMask RGBA
 
         Pass
         {
@@ -46,17 +46,25 @@ Shader "Hidden/Motu/Ocean Wave Attenuation"
                     / max(_IslandWorldSize, 0.001) + 0.5;
                 if (any(islandUv < 0.0) || any(islandUv > 1.0))
                 {
-                    return 1.0;
+                    return fixed4(1.0, 1.0, 1.0, 1.0);
                 }
-                half2 seaMask = tex2D(_SeaMask, islandUv).rg;
+                half3 seaMask = tex2D(_SeaMask, islandUv).rgb;
                 half depthAllowance = pow(
                     saturate(1.0h - seaMask.r),
                     max(_DepthAllowancePower, 0.001));
                 half distanceAllowance = pow(
                     saturate(seaMask.g),
                     max(_DistanceAllowancePower, 0.001));
-                half allowance = min(depthAllowance, distanceAllowance);
-                return fixed4(allowance, allowance, allowance, 1.0h);
+                half riverCarveAllowance = saturate(1.0h - seaMask.b);
+                half allowance = min(depthAllowance, distanceAllowance)
+                    * riverCarveAllowance;
+                half onshoreGuide = 0.5h
+                    * (depthAllowance + distanceAllowance);
+                return fixed4(
+                    allowance,
+                    saturate(onshoreGuide),
+                    saturate(1.0h - seaMask.r),
+                    riverCarveAllowance);
             }
             ENDCG
         }

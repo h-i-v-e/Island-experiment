@@ -263,7 +263,7 @@ pub struct ExportSeaMask {
     pub handle: *mut c_void,
     pub width: i32,
     pub height: i32,
-    pub rg: *const u8,
+    pub rgba: *const u8,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -773,7 +773,7 @@ fn export_sea_mask(mask: Box<SeaMask>) -> ExportSeaMask {
         handle: handle.cast(),
         width: length_i32(mask.width() as usize),
         height: length_i32(mask.height() as usize),
-        rg: mask.rg().as_ptr(),
+        rgba: mask.rgba().as_ptr(),
     }
 }
 
@@ -2498,11 +2498,11 @@ mod tests {
             handle: ptr::dangling_mut::<u8>().cast(),
             width: 7,
             height: 9,
-            rg: ptr::dangling(),
+            rgba: ptr::dangling(),
         };
         unsafe { CreateSeaMask(ptr::null(), 16, &raw mut output) };
         assert!(output.handle.is_null());
-        assert!(output.rg.is_null());
+        assert!(output.rgba.is_null());
         assert_eq!(output.width, 0);
         assert_eq!(output.height, 0);
     }
@@ -2575,12 +2575,12 @@ mod tests {
         assert!(!sea_mask.handle.is_null());
         assert_eq!(sea_mask.width, 16);
         assert_eq!(sea_mask.height, 16);
-        assert!(!sea_mask.rg.is_null());
-        let pixels = unsafe { std::slice::from_raw_parts(sea_mask.rg, 16 * 16 * 2) };
-        assert_eq!(pixels.len(), 16 * 16 * 2);
+        assert!(!sea_mask.rgba.is_null());
+        let pixels = unsafe { std::slice::from_raw_parts(sea_mask.rgba, 16 * 16 * 4) };
+        assert_eq!(pixels.len(), 16 * 16 * 4);
         unsafe { ReleaseSeaMask(&raw mut sea_mask) };
         assert!(sea_mask.handle.is_null());
-        assert!(sea_mask.rg.is_null());
+        assert!(sea_mask.rgba.is_null());
         assert_eq!(sea_mask.width, 0);
         assert_eq!(sea_mask.height, 0);
     }

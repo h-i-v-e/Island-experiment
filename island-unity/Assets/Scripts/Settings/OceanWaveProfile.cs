@@ -54,6 +54,21 @@ public readonly struct OceanWaveRuntimeSettings
     public readonly float NoiseWorldSizeMetres;
     public readonly float DomainWarpMetres;
     public readonly float AmplitudeVariation;
+    public readonly Color WhitecapColour;
+    public readonly float WhitecapStrength;
+    public readonly float WhitecapHeightThreshold;
+    public readonly float WhitecapSlopeThreshold;
+    public readonly float WhitecapCoverage;
+    public readonly float WhitecapNoiseWorldSizeMetres;
+    public readonly float WhitecapFineNoiseScale;
+    public readonly float WhitecapCounterflowSpeed;
+    public readonly float WhitecapShallowHeightThreshold;
+    public readonly float WhitecapFlatFadeEnd;
+    public readonly bool OnshoreWaveEnabled;
+    public readonly float OnshoreWaveWavelengthMetres;
+    public readonly float OnshoreWaveAmplitudeMetres;
+    public readonly float OnshoreWaveSpeedMetresPerSecond;
+    public readonly float OnshoreWaveChoppiness;
     public readonly OceanWaveComponent Wave0;
     public readonly OceanWaveComponent Wave1;
     public readonly OceanWaveComponent Wave2;
@@ -63,14 +78,18 @@ public readonly struct OceanWaveRuntimeSettings
         (Wave0.AmplitudeMetres
             + Wave1.AmplitudeMetres
             + Wave2.AmplitudeMetres
-            + Wave3.AmplitudeMetres)
+            + Wave3.AmplitudeMetres
+            + (OnshoreWaveEnabled ? OnshoreWaveAmplitudeMetres : 0f))
         * (1f + AmplitudeVariation);
 
     public float MaximumHorizontalDisplacement =>
         (Wave0.AmplitudeMetres * Wave0.Choppiness
             + Wave1.AmplitudeMetres * Wave1.Choppiness
             + Wave2.AmplitudeMetres * Wave2.Choppiness
-            + Wave3.AmplitudeMetres * Wave3.Choppiness)
+            + Wave3.AmplitudeMetres * Wave3.Choppiness
+            + (OnshoreWaveEnabled
+                ? OnshoreWaveAmplitudeMetres * OnshoreWaveChoppiness
+                : 0f))
         * (1f + AmplitudeVariation);
 
     public OceanWaveRuntimeSettings(
@@ -88,6 +107,21 @@ public readonly struct OceanWaveRuntimeSettings
         float noiseWorldSizeMetres,
         float domainWarpMetres,
         float amplitudeVariation,
+        Color whitecapColour,
+        float whitecapStrength,
+        float whitecapHeightThreshold,
+        float whitecapSlopeThreshold,
+        float whitecapCoverage,
+        float whitecapNoiseWorldSizeMetres,
+        float whitecapFineNoiseScale,
+        float whitecapCounterflowSpeed,
+        float whitecapShallowHeightThreshold,
+        float whitecapFlatFadeEnd,
+        bool onshoreWaveEnabled,
+        float onshoreWaveWavelengthMetres,
+        float onshoreWaveAmplitudeMetres,
+        float onshoreWaveSpeedMetresPerSecond,
+        float onshoreWaveChoppiness,
         OceanWaveComponent wave0,
         OceanWaveComponent wave1,
         OceanWaveComponent wave2,
@@ -116,6 +150,39 @@ public readonly struct OceanWaveRuntimeSettings
         NoiseWorldSizeMetres = Mathf.Clamp(noiseWorldSizeMetres, 256f, 16384f);
         DomainWarpMetres = Mathf.Clamp(domainWarpMetres, 0f, 32f);
         AmplitudeVariation = Mathf.Clamp(amplitudeVariation, 0f, 0.75f);
+        WhitecapColour = whitecapColour;
+        WhitecapStrength = Mathf.Clamp(whitecapStrength, 0f, 2f);
+        WhitecapHeightThreshold = Mathf.Clamp(whitecapHeightThreshold, 0.5f, 0.98f);
+        WhitecapSlopeThreshold = Mathf.Clamp01(whitecapSlopeThreshold);
+        WhitecapCoverage = Mathf.Clamp01(whitecapCoverage);
+        WhitecapNoiseWorldSizeMetres = Mathf.Clamp(
+            whitecapNoiseWorldSizeMetres,
+            0.5f,
+            64f);
+        WhitecapFineNoiseScale = Mathf.Clamp(whitecapFineNoiseScale, 0.1f, 1f);
+        WhitecapCounterflowSpeed = Mathf.Clamp(
+            whitecapCounterflowSpeed,
+            0f,
+            2f);
+        WhitecapShallowHeightThreshold = Mathf.Clamp(
+            whitecapShallowHeightThreshold,
+            0.05f,
+            0.5f);
+        WhitecapFlatFadeEnd = Mathf.Clamp(whitecapFlatFadeEnd, 0.01f, 0.3f);
+        OnshoreWaveEnabled = onshoreWaveEnabled;
+        OnshoreWaveWavelengthMetres = Mathf.Clamp(
+            onshoreWaveWavelengthMetres,
+            1f,
+            100f);
+        OnshoreWaveAmplitudeMetres = Mathf.Clamp(
+            onshoreWaveAmplitudeMetres,
+            0f,
+            4f);
+        OnshoreWaveSpeedMetresPerSecond = Mathf.Clamp(
+            onshoreWaveSpeedMetresPerSecond,
+            0f,
+            20f);
+        OnshoreWaveChoppiness = Mathf.Clamp01(onshoreWaveChoppiness);
         Wave0 = wave0;
         Wave1 = wave1;
         Wave2 = wave2;
@@ -137,6 +204,21 @@ public readonly struct OceanWaveRuntimeSettings
         2048f,
         9f,
         0.6f,
+        new Color(0.90f, 0.96f, 1f, 1f),
+        0.85f,
+        0.68f,
+        0.12f,
+        0.58f,
+        7f,
+        0.32f,
+        0.65f,
+        0.18f,
+        0.08f,
+        true,
+        12f,
+        0.16f,
+        2.2f,
+        0.18f,
         new OceanWaveComponent(new Vector2(1f, 0.18f), 30f, 0.34f, 3.6f),
         new OceanWaveComponent(new Vector2(0.32f, 1f), 15f, 0.18f, 2.8f),
         new OceanWaveComponent(new Vector2(-0.82f, 0.55f), 7.5f, 0.09f, 2.1f),
@@ -182,6 +264,44 @@ public sealed class OceanWaveProfile : ScriptableObject
     [Tooltip("Coherent variation in individual wave heights. At 0.6, local amplitudes range from roughly 40% to 160% of their base values.")]
     [Range(0f, 0.75f)] [SerializeField] private float amplitudeVariation = 0.6f;
 
+    [Header("Whitecaps")]
+    [Tooltip("Colour of broken foam before scene lighting and shadows are applied.")]
+    [SerializeField] private Color whitecapColour = new Color(
+        0.90f,
+        0.96f,
+        1f,
+        1f);
+    [Tooltip("Overall visibility of whitecaps. Set to zero to disable them.")]
+    [Range(0f, 2f)] [SerializeField] private float whitecapStrength = 0.85f;
+    [Tooltip("Normalized crest height at which foam starts forming. Lower values produce whitecaps on more waves.")]
+    [Range(0.5f, 0.98f)] [SerializeField] private float whitecapHeightThreshold = 0.68f;
+    [Tooltip("Surface slope needed for full breaking-wave foam. Crest height can still produce a smaller amount on a locally flat peak.")]
+    [Range(0f, 1f)] [SerializeField] private float whitecapSlopeThreshold = 0.12f;
+    [Tooltip("Fraction of eligible crests retained after coherent breakup noise.")]
+    [Range(0f, 1f)] [SerializeField] private float whitecapCoverage = 0.58f;
+    [Tooltip("World-space size of coherent gaps and clusters within the whitecaps.")]
+    [Range(0.5f, 64f)] [SerializeField] private float whitecapNoiseWorldSizeMetres = 7f;
+    [Tooltip("Size of the fine breakup noise relative to the broad whitecap noise. Smaller values create finer fragments.")]
+    [Range(0.1f, 1f)] [SerializeField] private float whitecapFineNoiseScale = 0.32f;
+    [Tooltip("Speed of the fine breakup layer travelling against the primary swell, relative to that swell's speed.")]
+    [Range(0f, 2f)] [SerializeField] private float whitecapCounterflowSpeed = 0.65f;
+    [Tooltip("Normalized height threshold used as waves flatten in shallow water. Lower values make most of each remaining wave foamy.")]
+    [Range(0.05f, 0.5f)] [SerializeField] private float whitecapShallowHeightThreshold = 0.18f;
+    [Tooltip("Coastal wave allowance at which foam has fully faded in from the completely flat surface. Smaller values keep foam closer to flat water.")]
+    [Range(0.01f, 0.3f)] [SerializeField] private float whitecapFlatFadeEnd = 0.08f;
+
+    [Header("Onshore Wave")]
+    [Tooltip("Add a shoreline wave guided by the average of water depth and distance to shore.")]
+    [SerializeField] private bool onshoreWaveEnabled = true;
+    [Tooltip("Crest spacing of the depth-guided onshore wave.")]
+    [Range(1f, 100f)] [SerializeField] private float onshoreWaveWavelengthMetres = 12f;
+    [Tooltip("Maximum height contribution inside the averaged depth-and-distance coastal band.")]
+    [Range(0f, 4f)] [SerializeField] private float onshoreWaveAmplitudeMetres = 0.16f;
+    [Tooltip("Speed at which the depth-guided wave approaches the coast.")]
+    [Range(0f, 20f)] [SerializeField] private float onshoreWaveSpeedMetresPerSecond = 2.2f;
+    [Tooltip("Crest sharpening and horizontal displacement of the depth-guided wave.")]
+    [Range(0f, 1f)] [SerializeField] private float onshoreWaveChoppiness = 0.18f;
+
     [Header("Directional Waves")]
     [Tooltip("Primary broad swell. This should normally have the longest wavelength and largest amplitude.")]
     [SerializeField] private OceanWaveComponent wave0 = new OceanWaveComponent(
@@ -213,6 +333,21 @@ public sealed class OceanWaveProfile : ScriptableObject
             noiseWorldSizeMetres,
             domainWarpMetres,
             amplitudeVariation,
+            whitecapColour,
+            whitecapStrength,
+            whitecapHeightThreshold,
+            whitecapSlopeThreshold,
+            whitecapCoverage,
+            whitecapNoiseWorldSizeMetres,
+            whitecapFineNoiseScale,
+            whitecapCounterflowSpeed,
+            whitecapShallowHeightThreshold,
+            whitecapFlatFadeEnd,
+            onshoreWaveEnabled,
+            onshoreWaveWavelengthMetres,
+            onshoreWaveAmplitudeMetres,
+            onshoreWaveSpeedMetresPerSecond,
+            onshoreWaveChoppiness,
             wave0,
             wave1,
             wave2,

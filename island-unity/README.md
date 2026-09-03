@@ -309,7 +309,12 @@ responsible only for water opacity. The former river-mouth and estuary silt
 coloration has been removed. Depth and accumulated-edge land distance are both
 barycentrically interpolated over the final planar LOD 0 triangles. The land
 distance field is constructed only after every island generation stage has
-finished.
+finished. The same generated RGBA mask stores the union of finalized submerged
+river-bed coverage and every earlier river carve that lowered terrain below sea
+level in blue. This accumulated field is carried through later tessellations and
+includes outlet channels used to escape inland basins. The global ocean compositor
+uses that channel to fade both ordinary and onshore geometric waves out of carved
+channels while retaining their real depth for the maximum-wave-height limit.
 
 ## Rebuild the native plugin
 

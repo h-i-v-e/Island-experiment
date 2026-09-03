@@ -12,7 +12,9 @@ Phases 1-4 now have an initial implementation behind the geometric-wave toggle:
   derives a per-fragment lighting normal from the same function, and retains
   those normals after geometric displacement fades across the distant ocean;
 - `OceanWaveMaskComposer` combines every overlapping active island sea mask
-  into one player-centred GPU attenuation texture;
+  into one player-centred GPU attenuation texture and derives a second texture
+  containing signed X/Z onshore directions from an averaged depth-and-distance
+  gradient;
 - `IslandRuntime` registers and unregisters coastal masks as it activates,
   becomes dormant, or disposes;
 - `OceanWaveSandbox` provides an island-free flight scene for rapid tuning.
@@ -30,6 +32,39 @@ warp each wave component differently and give every component an independent
 local height envelope. This forms coherent groups of tall and subdued waves,
 breaking up the regular interference grid without separating distant normals
 from nearby geometric displacement.
+Whitecaps are selected from high, breaking crests and fragmented with a moving
+broad coherent noise field. A finer noise layer moves against the primary swell
+to erode that envelope into smaller counter-moving fragments. Their colour
+remains subject to sunlight, cloud cover, and shadows instead of acting as
+emissive foam. As coastal attenuation flattens a wave, its foam height threshold
+drops and its minimum coverage rises while both noise layers remain visible; a
+narrow final allowance band then fades all foam to zero on the completely flat
+shoreline surface.
+The average of the five-metre depth allowance and sixteen-metre
+distance-to-shore allowance now supplies a configurable additional swell
+component. Its RG channels encode the normalised direction towards the shore,
+its blue channel gates the effect to the reliable sloping coastal band, and
+alpha retains the continuous coast-relative phase coordinate. Unlike the
+ordinary swells, this component is not multiplied by the minimum of those two
+allowances, so it begins farther offshore while still responding to bathymetry.
+This avoids phase seams as the direction bends. The result remains a
+player-centred GPU field rather than duplicating direction data into the sea
+mesh, so curved shores and multiple loaded islands share the same wave mesh and
+the field is rebuilt only when coastal attenuation is recomposed.
+The composed texture also retains the uncurved five-metre depth and raw
+submerged-river-carve allowance. The complete wave field is scaled where necessary
+so its conservative maximum vertical amplitude never exceeds reconstructed
+local water depth. Displacement and analytic derivatives use the same scale,
+avoiding the flat shelves and lighting creases produced by clamping individual
+troughs against a seabed-clearance plane.
+The generated per-island mask now uses RGBA rather than RG: blue marks finalized
+river-bed coverage plus every earlier river pass that lowered channel terrain
+below sea level, only where the finished terrain remains submerged. That
+accumulated field includes outlet cuts created when river routing escapes an
+inland basin and is interpolated through later terrain tessellations. The
+player-centred composer turns the union into a smoothly interpolated allowance,
+suppressing both directional swell and the separate onshore component in deep
+carved channels without another global-ocean texture lookup.
 
 ## Goal
 
@@ -70,13 +105,16 @@ waste most vertices beyond the range where displacement is visible.
 ### Per-island coastal water
 
 Each `IslandRuntime` owns a bounded flat coastal overlay and its own generated
-RG sea mask. The mask contract is:
+RGBA sea mask. The mask contract is:
 
 - red: shallow-water weight, 1 at land/sea level and falling to 0 at 5 metres
   of water depth;
 - green: offshore distance from land, 0 at the coast and rising to 1 over 16
   metres;
-- above-sea terrain has red 1 and green 0.
+- blue: finalized river-bed coverage plus accumulated submerged river-carve
+  coverage from every terrain LOD pass, used to suppress waves in carved channels;
+- alpha: reserved and always 1;
+- above-sea terrain has red 1, green 0, and blue 0.
 
 The overlay uses that mask for shallow tint, foam, and shore-wave animation.
 The global `SeaWater` material deliberately has no `_SeaMask`, island size, or
@@ -116,6 +154,7 @@ WorldEnvironmentController
     │   └── flat horizon skirt/ring
     └── OceanWaveMaskComposer
         ├── player-centred attenuation RenderTexture
+        ├── derived onshore-direction RenderTexture
         └── active IslandCoastalWaterBinding values
 ```
 

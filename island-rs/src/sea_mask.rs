@@ -11,13 +11,15 @@ use crate::{ISLAND_WORLD_METRES, Terrain};
 const COAST_WAVE_DEPTH_METRES: f32 = 5.0;
 const LAND_DISTANCE_RANGE_METRES: f32 = 16.0;
 
-/// Interleaved linear RG8 data. R contains the land/shallow-water wave mask;
-/// G contains distance from land, normalized over sixteen metres.
+/// Interleaved linear RGBA8 data. R contains the land/shallow-water wave mask,
+/// G contains distance from land normalized over sixteen metres, B contains
+/// finalized river-bed and accumulated submerged river-carve coverage, and A is reserved at full
+/// strength.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SeaMask {
     width: u32,
     height: u32,
-    rg: Vec<u8>,
+    rgba: Vec<u8>,
 }
 
 impl SeaMask {
@@ -32,14 +34,15 @@ impl SeaMask {
     }
 
     #[must_use]
-    pub fn rg(&self) -> &[u8] {
-        &self.rg
+    pub fn rgba(&self) -> &[u8] {
+        &self.rgba
     }
 }
 
 pub(crate) fn bake_sea_mask(
     terrain: &Terrain,
     distance_to_land: &[f32],
+    wave_suppression: &[f32],
     width: u32,
     height: u32,
 ) -> Option<SeaMask> {
@@ -49,38 +52,57 @@ pub(crate) fn bake_sea_mask(
     let pixel_count = usize::try_from(width)
         .ok()?
         .checked_mul(usize::try_from(height).ok()?)?;
-    let byte_count = pixel_count.checked_mul(2)?;
-    if distance_to_land.len() != terrain.vertex_count() {
+    let byte_count = pixel_count.checked_mul(4)?;
+    if distance_to_land.len() != terrain.vertex_count()
+        || wave_suppression.len() != terrain.vertex_count()
+    {
         return None;
     }
-    let mut rg = vec![0_u8; byte_count];
+    let mut rgba = vec![0_u8; byte_count];
     let thread_count = mask_thread_count(pixel_count, height as usize);
     bake_with_threads(
         terrain,
         distance_to_land,
+        wave_suppression,
         width,
         height,
         thread_count,
-        &mut rg,
+        &mut rgba,
     );
-    Some(SeaMask { width, height, rg })
+    Some(SeaMask {
+        width,
+        height,
+        rgba,
+    })
 }
 
 fn bake_with_threads(
     terrain: &Terrain,
     distance_to_land: &[f32],
+    wave_suppression: &[f32],
     width: u32,
     height: u32,
     thread_count: usize,
-    rg: &mut [u8],
+    rgba: &mut [u8],
 ) {
     let width_usize = width as usize;
     let rows_per_chunk = (height as usize).div_ceil(thread_count.max(1));
     thread::scope(|scope| {
-        for (chunk, rows) in rg.chunks_mut(rows_per_chunk * width_usize * 2).enumerate() {
+        for (chunk, rows) in rgba
+            .chunks_mut(rows_per_chunk * width_usize * 4)
+            .enumerate()
+        {
             let start_y = chunk * rows_per_chunk;
             scope.spawn(move || {
-                bake_rows(terrain, distance_to_land, width, height, start_y, rows);
+                bake_rows(
+                    terrain,
+                    distance_to_land,
+                    wave_suppression,
+                    width,
+                    height,
+                    start_y,
+                    rows,
+                );
             });
         }
     });
@@ -89,24 +111,27 @@ fn bake_with_threads(
 fn bake_rows(
     terrain: &Terrain,
     distance_to_land: &[f32],
+    wave_suppression: &[f32],
     width: u32,
     height: u32,
     start_y: usize,
     rows: &mut [u8],
 ) {
     let width_usize = width as usize;
-    for (local_y, row) in rows.chunks_exact_mut(width_usize * 2).enumerate() {
+    for (local_y, row) in rows.chunks_exact_mut(width_usize * 4).enumerate() {
         let y = start_y + local_y;
         let v = (y as f32 + 0.5) / height as f32;
-        for (x, pixel) in row.chunks_exact_mut(2).enumerate() {
+        for (x, pixel) in row.chunks_exact_mut(4).enumerate() {
             let u = (x as f32 + 0.5) / width as f32;
             let elevation = terrain.sample(u, v);
             pixel[0] = quantize(coast_wave_weight(elevation));
+            pixel[3] = u8::MAX;
             if elevation > 0.0 {
                 continue;
             }
             let land_distance = terrain.sample_vertex_scalar(distance_to_land, u, v);
             pixel[1] = quantize(land_distance_weight(land_distance));
+            pixel[2] = quantize(terrain.sample_vertex_scalar(wave_suppression, u, v));
         }
     }
 }
@@ -166,19 +191,24 @@ mod tests {
     fn mask_channels_have_the_exact_interleaved_contract() {
         let terrain = flat_terrain(-10.0 / ISLAND_WORLD_METRES);
         let eight_metres = 8.0 / ISLAND_WORLD_METRES;
-        let mask = bake_sea_mask(&terrain, &[eight_metres; 4], 1, 1).unwrap();
+        let mask = bake_sea_mask(&terrain, &[eight_metres; 4], &[0.0; 4], 1, 1).unwrap();
         assert_eq!(mask.width(), 1);
         assert_eq!(mask.height(), 1);
-        assert_eq!(mask.rg().len(), 2);
-        assert_eq!(mask.rg()[0], 0);
-        assert_eq!(mask.rg()[1], 128);
+        assert_eq!(mask.rgba(), [0, 128, 0, 255]);
     }
 
     #[test]
     fn above_sea_terrain_suppresses_land_distance() {
         let terrain = flat_terrain(0.01);
-        let mask = bake_sea_mask(&terrain, &[1.0; 4], 1, 1).unwrap();
-        assert_eq!(mask.rg(), [255, 0]);
+        let mask = bake_sea_mask(&terrain, &[1.0; 4], &[1.0; 4], 1, 1).unwrap();
+        assert_eq!(mask.rgba(), [255, 0, 0, 255]);
+    }
+
+    #[test]
+    fn submerged_river_carve_is_exported_in_blue() {
+        let terrain = flat_terrain(-10.0 / ISLAND_WORLD_METRES);
+        let mask = bake_sea_mask(&terrain, &[0.0; 4], &[1.0; 4], 1, 1).unwrap();
+        assert_eq!(mask.rgba(), [0, 0, 255, 255]);
     }
 
     #[test]
@@ -202,10 +232,27 @@ mod tests {
     fn serial_and_threaded_bakes_match() {
         let terrain = flat_terrain(-2.5 / ISLAND_WORLD_METRES);
         let distance_to_land = [0.0, 0.005, 0.01, 0.02];
-        let mut serial = vec![0_u8; 128 * 128 * 2];
+        let wave_suppression = [0.0, 0.25, 0.75, 1.0];
+        let mut serial = vec![0_u8; 128 * 128 * 4];
         let mut threaded = serial.clone();
-        bake_with_threads(&terrain, &distance_to_land, 128, 128, 1, &mut serial);
-        bake_with_threads(&terrain, &distance_to_land, 128, 128, 4, &mut threaded);
+        bake_with_threads(
+            &terrain,
+            &distance_to_land,
+            &wave_suppression,
+            128,
+            128,
+            1,
+            &mut serial,
+        );
+        bake_with_threads(
+            &terrain,
+            &distance_to_land,
+            &wave_suppression,
+            128,
+            128,
+            4,
+            &mut threaded,
+        );
         assert_eq!(serial, threaded);
     }
 }

@@ -78,12 +78,12 @@ internal sealed class IslandPreparedSurfaceMaps
 internal sealed class IslandPreparedSeaMask
 {
     internal readonly int dimension;
-    internal readonly byte[] rg;
+    internal readonly byte[] rgba;
 
-    internal IslandPreparedSeaMask(int dimension, byte[] rg)
+    internal IslandPreparedSeaMask(int dimension, byte[] rgba)
     {
         this.dimension = dimension;
-        this.rg = rg;
+        this.rgba = rgba;
     }
 }
 

@@ -30,7 +30,9 @@ internal sealed class OceanWaveMaskComposer : MonoBehaviour
     private OceanSurfaceController ocean;
     private OceanWaveRuntimeSettings settings;
     private Material compositionMaterial;
+    private Material onshoreMaterial;
     private RenderTexture attenuationTexture;
+    private RenderTexture onshoreTexture;
     private Vector2 composedCentre;
     private bool dirty = true;
     private int compositionCount;
@@ -42,6 +44,7 @@ internal sealed class OceanWaveMaskComposer : MonoBehaviour
     internal int LastOverlappingBindingCount => lastOverlappingBindingCount;
     internal double LastCompositionMilliseconds => lastCompositionMilliseconds;
     internal RenderTexture AttenuationTexture => attenuationTexture;
+    internal RenderTexture OnshoreTexture => onshoreTexture;
 
     internal void Configure(
         OceanSurfaceController owner,
@@ -131,6 +134,9 @@ internal sealed class OceanWaveMaskComposer : MonoBehaviour
         var shader = Shader.Find("Hidden/Motu/Ocean Wave Attenuation")
             ?? throw new InvalidOperationException(
                 "Could not find shader 'Hidden/Motu/Ocean Wave Attenuation'.");
+        var onshoreShader = Shader.Find("Hidden/Motu/Ocean Onshore Direction")
+            ?? throw new InvalidOperationException(
+                "Could not find shader 'Hidden/Motu/Ocean Onshore Direction'.");
         if (compositionMaterial == null)
         {
             compositionMaterial = new Material(shader)
@@ -139,19 +145,29 @@ internal sealed class OceanWaveMaskComposer : MonoBehaviour
                 hideFlags = HideFlags.HideAndDontSave,
             };
         }
+        if (onshoreMaterial == null)
+        {
+            onshoreMaterial = new Material(onshoreShader)
+            {
+                name = "Ocean Onshore Direction Builder",
+                hideFlags = HideFlags.HideAndDontSave,
+            };
+        }
         if (attenuationTexture != null
+            && onshoreTexture != null
             && attenuationTexture.width == settings.MaskResolution
-            && attenuationTexture.height == settings.MaskResolution)
+            && attenuationTexture.height == settings.MaskResolution
+            && onshoreTexture.width == settings.MaskResolution
+            && onshoreTexture.height == settings.MaskResolution)
         {
             return;
         }
         ReleaseTexture();
-        var format = SelectFormat();
         attenuationTexture = new RenderTexture(
             settings.MaskResolution,
             settings.MaskResolution,
             0,
-            format,
+            RenderTextureFormat.ARGB32,
             RenderTextureReadWrite.Linear)
         {
             name = "Player-Centred Ocean Wave Attenuation",
@@ -168,6 +184,29 @@ internal sealed class OceanWaveMaskComposer : MonoBehaviour
             DestroyUnityObject(failedTexture);
             throw new InvalidOperationException(
                 "Could not create the ocean wave attenuation texture.");
+        }
+        onshoreTexture = new RenderTexture(
+            settings.MaskResolution,
+            settings.MaskResolution,
+            0,
+            RenderTextureFormat.ARGB32,
+            RenderTextureReadWrite.Linear)
+        {
+            name = "Player-Centred Ocean Onshore Direction",
+            wrapMode = TextureWrapMode.Clamp,
+            filterMode = FilterMode.Bilinear,
+            useMipMap = false,
+            autoGenerateMips = false,
+            hideFlags = HideFlags.DontSave,
+        };
+        if (!onshoreTexture.Create())
+        {
+            var failedTexture = onshoreTexture;
+            onshoreTexture = null;
+            DestroyUnityObject(failedTexture);
+            ReleaseTexture();
+            throw new InvalidOperationException(
+                "Could not create the ocean onshore-direction texture.");
         }
     }
 
@@ -221,6 +260,11 @@ internal sealed class OceanWaveMaskComposer : MonoBehaviour
                     0);
                 lastOverlappingBindingCount++;
             }
+            Graphics.Blit(
+                attenuationTexture,
+                onshoreTexture,
+                onshoreMaterial,
+                0);
         }
         finally
         {
@@ -231,6 +275,7 @@ internal sealed class OceanWaveMaskComposer : MonoBehaviour
         compositionCount++;
         ocean.SetWaveAttenuation(
             attenuationTexture,
+            onshoreTexture,
             new Vector4(
                 minimum.x,
                 minimum.y,
@@ -258,23 +303,11 @@ internal sealed class OceanWaveMaskComposer : MonoBehaviour
             && centre.y - halfSize <= compositionMaximum.y;
     }
 
-    private static RenderTextureFormat SelectFormat()
-    {
-        if (SystemInfo.SupportsRenderTextureFormat(RenderTextureFormat.R8))
-        {
-            return RenderTextureFormat.R8;
-        }
-        if (SystemInfo.SupportsRenderTextureFormat(RenderTextureFormat.RHalf))
-        {
-            return RenderTextureFormat.RHalf;
-        }
-        return RenderTextureFormat.ARGB32;
-    }
-
     private void OnDisable()
     {
         ocean?.SetWaveAttenuation(
             Texture2D.whiteTexture,
+            Texture2D.blackTexture,
             new Vector4(-1f, -1f, 0.5f, 0.5f));
     }
 
@@ -282,19 +315,26 @@ internal sealed class OceanWaveMaskComposer : MonoBehaviour
     {
         ReleaseTexture();
         DestroyUnityObject(compositionMaterial);
+        DestroyUnityObject(onshoreMaterial);
         compositionMaterial = null;
+        onshoreMaterial = null;
         bindings.Clear();
     }
 
     private void ReleaseTexture()
     {
-        if (attenuationTexture == null)
+        if (attenuationTexture != null)
         {
-            return;
+            attenuationTexture.Release();
+            DestroyUnityObject(attenuationTexture);
+            attenuationTexture = null;
         }
-        attenuationTexture.Release();
-        DestroyUnityObject(attenuationTexture);
-        attenuationTexture = null;
+        if (onshoreTexture != null)
+        {
+            onshoreTexture.Release();
+            DestroyUnityObject(onshoreTexture);
+            onshoreTexture = null;
+        }
     }
 
     private static void DestroyUnityObject(UnityEngine.Object value)

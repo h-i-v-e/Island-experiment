@@ -1005,6 +1005,44 @@ fn river_reaches_sea_only_when_its_terminal_vertex_is_in_the_ocean_mask() {
 }
 
 #[test]
+fn submerged_river_carves_accumulate_only_lowered_covered_vertices() {
+    let mut material = SurfaceMaterial::empty(4);
+    record_submerged_river_carves(
+        &mut material,
+        &[0.1, -0.1, 0.1, 0.1],
+        &[
+            Vec3::new(0.0, 0.0, -0.1),
+            Vec3::new(1.0, 0.0, -0.2),
+            Vec3::new(2.0, 0.0, -0.1),
+            Vec3::new(3.0, 0.0, 0.05),
+        ],
+        &[1, 1, 0, 1],
+    );
+
+    assert_eq!(
+        material.submerged_river_carves().unwrap(),
+        [1.0, 1.0, 0.0, 0.0]
+    );
+
+    record_submerged_river_carves(
+        &mut material,
+        &[-0.1, -0.2, -0.1, 0.05],
+        &[
+            Vec3::new(0.0, 0.0, -0.05),
+            Vec3::new(1.0, 0.0, -0.15),
+            Vec3::new(2.0, 0.0, -0.2),
+            Vec3::new(3.0, 0.0, -0.1),
+        ],
+        &[1, 1, 1, 1],
+    );
+
+    assert_eq!(
+        material.submerged_river_carves().unwrap(),
+        [1.0, 1.0, 1.0, 1.0]
+    );
+}
+
+#[test]
 fn waterfall_height_and_frequency_increase_with_smoothed_gradient() {
     let mut surface = 0.0_f32;
     let mut nodes = Vec::new();
