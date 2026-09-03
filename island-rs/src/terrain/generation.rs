@@ -730,8 +730,11 @@ impl Island {
     /// land, and accumulated submerged river-carve suppression.
     #[must_use]
     pub fn sea_mask(&self, width: u32, height: u32) -> Option<crate::SeaMask> {
-        let wave_suppression =
-            combined_wave_suppression(&self.material.values, &self.submerged_river_carve)?;
+        let wave_suppression = combined_wave_suppression(
+            self.terrain.mesh(),
+            &self.material.values,
+            &self.submerged_river_carve,
+        )?;
         crate::sea_mask::bake_sea_mask(
             &self.terrain,
             &self.distance_to_land,
@@ -931,14 +934,31 @@ impl Island {
     }
 }
 
-fn combined_wave_suppression(material: &[Vec4], submerged_carve: &[f32]) -> Option<Vec<f32>> {
-    (material.len() == submerged_carve.len()).then(|| {
-        material
-            .iter()
-            .zip(submerged_carve)
-            .map(|(material, &submerged_carve)| material.z.max(submerged_carve))
-            .collect()
-    })
+fn combined_wave_suppression(
+    mesh: &Mesh,
+    material: &[Vec4],
+    submerged_carve: &[f32],
+) -> Option<Vec<f32>> {
+    if material.len() != mesh.vertices.len() || submerged_carve.len() != mesh.vertices.len() {
+        return None;
+    }
+
+    let suppression = material
+        .iter()
+        .zip(submerged_carve)
+        .map(|(material, &submerged_carve)| material.z.max(submerged_carve))
+        .collect::<Vec<_>>();
+    let adjacency = mesh.adjacency();
+    let mut expanded = suppression.clone();
+    for (vertex, &strength) in suppression.iter().enumerate() {
+        if strength <= 0.0 {
+            continue;
+        }
+        for &neighbour in &adjacency[vertex] {
+            expanded[neighbour] = expanded[neighbour].max(strength);
+        }
+    }
+    Some(expanded)
 }
 
 pub(super) fn sharp_rock_mask(mesh: &Mesh) -> Vec<bool> {
@@ -1812,12 +1832,43 @@ mod sea_proximity_tests {
     }
 
     #[test]
-    fn sea_wave_suppression_unions_final_and_accumulated_river_channels() {
-        let material = [Vec4::new(0.0, 0.0, 1.0, 0.0), Vec4::ZERO, Vec4::ZERO];
+    fn sea_wave_suppression_unions_river_channels_and_expands_one_ring() {
+        let mesh = Mesh {
+            vertices: vec![Vec3::ZERO; 4],
+            triangles: vec![0, 1, 2, 1, 3, 2],
+            ..Mesh::default()
+        };
+        let material = [
+            Vec4::new(0.0, 0.0, 1.0, 0.0),
+            Vec4::ZERO,
+            Vec4::ZERO,
+            Vec4::ZERO,
+        ];
 
-        let suppression = combined_wave_suppression(&material, &[0.0, 1.0, 0.0]).unwrap();
+        let suppression =
+            combined_wave_suppression(&mesh, &material, &[0.0, 0.0, 0.0, 0.5]).unwrap();
 
-        assert_eq!(suppression, [1.0, 1.0, 0.0]);
-        assert!(combined_wave_suppression(&material, &[0.0]).is_none());
+        assert_eq!(suppression, [1.0, 1.0, 1.0, 0.5]);
+        assert!(combined_wave_suppression(&mesh, &material, &[0.0]).is_none());
+    }
+
+    #[test]
+    fn sea_wave_suppression_does_not_expand_recursively() {
+        let mesh = Mesh {
+            vertices: vec![Vec3::ZERO; 5],
+            triangles: vec![0, 1, 2, 1, 3, 2, 2, 3, 4],
+            ..Mesh::default()
+        };
+        let material = [
+            Vec4::new(0.0, 0.0, 1.0, 0.0),
+            Vec4::ZERO,
+            Vec4::ZERO,
+            Vec4::ZERO,
+            Vec4::ZERO,
+        ];
+
+        let suppression = combined_wave_suppression(&mesh, &material, &[0.0; 5]).unwrap();
+
+        assert_eq!(suppression, [1.0, 1.0, 1.0, 0.0, 0.0]);
     }
 }

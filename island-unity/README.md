@@ -317,7 +317,8 @@ finished. The same generated RGBA mask stores the union of finalized submerged
 river-bed coverage and every earlier river carve that lowered terrain below sea
 level in blue. This accumulated field is carried through later tessellations and
 includes outlet channels used to escape inland basins. The global ocean compositor
-uses that channel to fade both ordinary and onshore geometric waves out of carved
+expands the combined suppression by one final-terrain neighbour ring, then uses
+that channel to fade both ordinary and onshore geometric waves out of carved
 channels while retaining their real depth for the maximum-wave-height limit.
 
 ## Rebuild the native plugin
