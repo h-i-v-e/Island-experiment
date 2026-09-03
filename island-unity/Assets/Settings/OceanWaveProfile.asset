@@ -34,15 +34,13 @@ MonoBehaviour:
   whitecapNoiseWorldSizeMetres: 7
   whitecapFineNoiseScale: 0.32
   whitecapCounterflowSpeed: 0.65
-  whitecapShallowHeightThreshold: 0.18
-  whitecapFlatFadeEnd: 0.08
   onshoreWaveEnabled: 1
   onshoreWaveWavelengthMetres: 12
   onshoreWaveAmplitudeMetres: 1
   onshoreWaveSpeedMetresPerSecond: 2.2
   onshoreWaveChoppiness: 1
   onshoreWaveLeadingEdgeSharpness: 0.95
-  onshoreWaveSharpeningDistanceMetres: 12
+  onshoreWaveSharpeningDistanceMetres: 16
   wave0:
     direction: {x: 1, y: 0.18}
     wavelengthMetres: 30

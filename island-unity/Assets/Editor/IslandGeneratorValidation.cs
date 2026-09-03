@@ -230,8 +230,6 @@ public static class IslandGeneratorValidation
                 || !seaMaterial.HasProperty("_WhitecapNoiseWorldSize")
                 || !seaMaterial.HasProperty("_WhitecapFineNoiseScale")
                 || !seaMaterial.HasProperty("_WhitecapCounterflowSpeed")
-                || !seaMaterial.HasProperty("_WhitecapShallowHeightThreshold")
-                || !seaMaterial.HasProperty("_WhitecapFlatFadeEnd")
                 || !seaMaterial.HasProperty("_OnshoreWaveEnabled")
                 || !seaMaterial.HasProperty("_OnshoreWaveParameters")
                 || !seaMaterial.HasProperty("_OnshoreWaveBreaking")

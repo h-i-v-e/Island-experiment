@@ -58,6 +58,11 @@ the whole crest. Both the maximum leading-edge sharpness and the distance over
 which it develops are profile settings. The shader evaluates the matching
 analytic height derivative, including the changing shoreward compression, so
 geometric displacement, lighting normals, and whitecap slope selection agree.
+The same evaluation returns only the leading face's slope in excess of the
+uncompressed sine wave. That signal is restricted to the upper leading face,
+wrapped a short distance across the crest, and combined with the existing
+coherent whitecap breakup so breaker foam intensifies with shoreward steepening
+without painting the rounded rear face solid white.
 The composed texture also retains the uncurved five-metre depth and raw
 submerged-river-carve allowance. The complete wave field is scaled where necessary
 so its conservative maximum vertical amplitude never exceeds reconstructed
@@ -124,6 +129,9 @@ RGBA sea mask. The mask contract is:
 - above-sea terrain has red 1, green 0, and blue 0.
 
 The overlay uses that mask for shallow tint, foam, and shore-wave animation.
+The global `SeaWater` material separately renders geometric breaker caps and
+ordinary deep-water whitecaps, without adding extra foam merely because its
+waves are shallow.
 The global `SeaWater` material deliberately has no `_SeaMask`, island size, or
 island transform because several islands may be visible at once.
 
@@ -371,16 +379,16 @@ no registered coastal binding.
 
 The coastal overlay remains responsible for shallow tint, foam, and its
 existing shore-wave bands. The global deep-ocean surface remains responsible
-for opacity, refraction, reflection, lighting, and geometric displacement.
+for opacity, refraction, reflection, lighting, geometric displacement,
+ordinary whitecaps, and breaker foam.
 
 To prevent the two surfaces separating:
 
 - global geometric displacement must be exactly zero in the shallow overlay
   zone;
 - the overlay stays at its current small vertical offset;
-- the overlay samples the same global wave time/coordinates if its foam motion
-  needs to follow offshore swells, but it does not duplicate deep-water
-  displacement in the first version;
+- the overlay samples the same global wave time/coordinates for its decorative
+  foam motion, but it does not duplicate deep-water displacement;
 - the composed attenuation transition must finish before the overlay fades out
   at its patch edge;
 - render queue and depth bias remain explicit and are verified from low grazing

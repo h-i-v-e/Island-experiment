@@ -35,10 +35,6 @@ public sealed class OceanSurfaceController : MonoBehaviour
         "_WhitecapFineNoiseScale");
     private static readonly int WhitecapCounterflowSpeedId = Shader.PropertyToID(
         "_WhitecapCounterflowSpeed");
-    private static readonly int WhitecapShallowHeightThresholdId = Shader.PropertyToID(
-        "_WhitecapShallowHeightThreshold");
-    private static readonly int WhitecapFlatFadeEndId = Shader.PropertyToID(
-        "_WhitecapFlatFadeEnd");
     private static readonly int OnshoreWaveEnabledId = Shader.PropertyToID(
         "_OnshoreWaveEnabled");
     private static readonly int OnshoreWaveParametersId = Shader.PropertyToID(
@@ -270,12 +266,6 @@ public sealed class OceanSurfaceController : MonoBehaviour
         surfaceMaterial.SetFloat(
             WhitecapCounterflowSpeedId,
             waveSettings.WhitecapCounterflowSpeed);
-        surfaceMaterial.SetFloat(
-            WhitecapShallowHeightThresholdId,
-            waveSettings.WhitecapShallowHeightThreshold);
-        surfaceMaterial.SetFloat(
-            WhitecapFlatFadeEndId,
-            waveSettings.WhitecapFlatFadeEnd);
         surfaceMaterial.SetFloat(
             OnshoreWaveEnabledId,
             waveSettings.OnshoreWaveEnabled ? 1f : 0f);

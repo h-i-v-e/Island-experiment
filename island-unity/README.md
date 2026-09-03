@@ -295,19 +295,22 @@ clearing or a failed partial installation disposes that island without changing
 the global sky or deep ocean. `IslandGenerator` remains the inspector-compatible
 origin-island wrapper.
 
-Incoming coastal waves average the sea mask's red depth proximity with inverted
-green land proximity, breaking up coherent flashing across broad shallow water.
-Green stores distance from land over sixteen metres and also drives a separate,
-weaker wave echo travelling back offshore across that full range. Echo spacing
-is scaled by the ratio between its sixteen-metre range and the incoming range,
-so both trains contain approximately the same number of broad waves and retain
-the same physical travel speed. Their individually reduced strengths are added,
-making crossings brighter than either wave alone. Tune `Incoming Shore Wave
-Strength` and `Reverse Shore Echo Strength` on the sea material independently.
-The geometric onshore component progressively compresses only its leading,
+Incoming coastal overlay waves average the sea mask's red depth proximity with
+inverted green land proximity, breaking up coherent flashing across broad
+shallow water. Green stores distance from land over sixteen metres and also
+drives a separate, weaker wave echo travelling back offshore across that full
+range. Echo spacing is scaled by the ratio between its sixteen-metre range and
+the incoming range, so both trains contain approximately the same number of
+broad waves and retain the same physical travel speed. Their individually
+reduced strengths are added, making crossings brighter than either wave alone.
+Tune `Incoming Shore Wave Strength` and `Reverse Shore Echo Strength` on the sea
+material independently. The geometric onshore component progressively
+compresses only its leading,
 shore-facing rise while retaining a rounded rear face. `Leading Edge Sharpness`
 controls the maximum asymmetry and `Sharpening Distance Metres` controls how far
-offshore it begins.
+offshore it begins. The excess slope created by that compression now adds a
+noise-broken foam cap over the upper leading face and just across the crest;
+its strength rises continuously as the face becomes steeper toward shore.
 Wave contours remain independent of the camera Z buffer; camera depth is
 responsible only for water opacity. The former river-mouth and estuary silt
 coloration has been removed. Depth and accumulated-edge land distance are both

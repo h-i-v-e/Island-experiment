@@ -62,8 +62,6 @@ public readonly struct OceanWaveRuntimeSettings
     public readonly float WhitecapNoiseWorldSizeMetres;
     public readonly float WhitecapFineNoiseScale;
     public readonly float WhitecapCounterflowSpeed;
-    public readonly float WhitecapShallowHeightThreshold;
-    public readonly float WhitecapFlatFadeEnd;
     public readonly bool OnshoreWaveEnabled;
     public readonly float OnshoreWaveWavelengthMetres;
     public readonly float OnshoreWaveAmplitudeMetres;
@@ -117,8 +115,6 @@ public readonly struct OceanWaveRuntimeSettings
         float whitecapNoiseWorldSizeMetres,
         float whitecapFineNoiseScale,
         float whitecapCounterflowSpeed,
-        float whitecapShallowHeightThreshold,
-        float whitecapFlatFadeEnd,
         bool onshoreWaveEnabled,
         float onshoreWaveWavelengthMetres,
         float onshoreWaveAmplitudeMetres,
@@ -168,11 +164,6 @@ public readonly struct OceanWaveRuntimeSettings
             whitecapCounterflowSpeed,
             0f,
             2f);
-        WhitecapShallowHeightThreshold = Mathf.Clamp(
-            whitecapShallowHeightThreshold,
-            0.05f,
-            0.5f);
-        WhitecapFlatFadeEnd = Mathf.Clamp(whitecapFlatFadeEnd, 0.01f, 0.3f);
         OnshoreWaveEnabled = onshoreWaveEnabled;
         OnshoreWaveWavelengthMetres = Mathf.Clamp(
             onshoreWaveWavelengthMetres,
@@ -222,8 +213,6 @@ public readonly struct OceanWaveRuntimeSettings
         7f,
         0.32f,
         0.65f,
-        0.18f,
-        0.08f,
         true,
         12f,
         0.16f,
@@ -297,10 +286,6 @@ public sealed class OceanWaveProfile : ScriptableObject
     [Range(0.1f, 1f)] [SerializeField] private float whitecapFineNoiseScale = 0.32f;
     [Tooltip("Speed of the fine breakup layer travelling against the primary swell, relative to that swell's speed.")]
     [Range(0f, 2f)] [SerializeField] private float whitecapCounterflowSpeed = 0.65f;
-    [Tooltip("Normalized height threshold used as waves flatten in shallow water. Lower values make most of each remaining wave foamy.")]
-    [Range(0.05f, 0.5f)] [SerializeField] private float whitecapShallowHeightThreshold = 0.18f;
-    [Tooltip("Coastal wave allowance at which foam has fully faded in from the completely flat surface. Smaller values keep foam closer to flat water.")]
-    [Range(0.01f, 0.3f)] [SerializeField] private float whitecapFlatFadeEnd = 0.08f;
 
     [Header("Onshore Wave")]
     [Tooltip("Add a shoreline wave guided by the average of water depth and distance to shore.")]
@@ -357,8 +342,6 @@ public sealed class OceanWaveProfile : ScriptableObject
             whitecapNoiseWorldSizeMetres,
             whitecapFineNoiseScale,
             whitecapCounterflowSpeed,
-            whitecapShallowHeightThreshold,
-            whitecapFlatFadeEnd,
             onshoreWaveEnabled,
             onshoreWaveWavelengthMetres,
             onshoreWaveAmplitudeMetres,
