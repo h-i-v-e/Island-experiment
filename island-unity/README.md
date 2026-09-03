@@ -338,6 +338,14 @@ embedded-recipe revision, palette values, normal convention, and resolution.
 This lets islands with matching palettes share one checked material bundle and
 means a returning island does not rebake its procedural material recipes.
 
+Island configuration can be shared between scenes through an
+`IslandConfiguration` ScriptableObject. Existing scenes retain their serialized
+inline values as a compatibility fallback. In the `IslandGenerator` inspector,
+use **Create Shared Configuration From Inline Settings** to copy the currently
+tuned reusable values into an asset and assign it without re-entering them.
+The streaming target remains on each scene component because project assets
+must not own references to scene `Transform` objects.
+
 For an editor compile plus native ABI, streamed tile, UV, support mesh,
 waterfall-foot export, fog-pool, and collider-cooking check, run:
 

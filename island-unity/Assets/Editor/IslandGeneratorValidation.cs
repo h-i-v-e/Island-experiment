@@ -13,6 +13,7 @@ public static class IslandGeneratorValidation
     {
         IslandGenerator.BatchValidateNativeInterop();
         IslandGenerator.ValidateMaterialTextureCacheRoundTrip();
+        ValidateConfigurationAssetContract();
         ValidateWaterfallMistShader();
         ValidateFernShader();
         ValidateSkyDomeShader();
@@ -24,6 +25,36 @@ public static class IslandGeneratorValidation
         ValidateSandboxScene();
         ValidateRealtimeShadowRender();
         Debug.Log("IslandGenerator component, sandbox level, and native validation passed.");
+    }
+
+    private static void ValidateConfigurationAssetContract()
+    {
+        var configuration = ScriptableObject.CreateInstance<IslandConfiguration>();
+        try
+        {
+            if (configuration.Generation == null
+                || configuration.Rivers == null
+                || configuration.Forest == null
+                || configuration.Reeds == null
+                || configuration.Ferns == null
+                || configuration.Clouds == null
+                || configuration.Rendering == null
+                || configuration.Decorations == null
+                || configuration.DebugSettings == null)
+            {
+                throw new InvalidOperationException(
+                    "A new IslandConfiguration is missing a reusable settings group.");
+            }
+            if (typeof(IslandConfiguration).GetProperty("Streaming") != null)
+            {
+                throw new InvalidOperationException(
+                    "Scene-specific streaming references must not be stored in IslandConfiguration assets.");
+            }
+        }
+        finally
+        {
+            UnityEngine.Object.DestroyImmediate(configuration);
+        }
     }
 
     private static void ValidateOpenSeaEnvironmentAnchoring()
