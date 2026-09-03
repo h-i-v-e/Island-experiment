@@ -29,6 +29,7 @@ float _WhitecapShallowHeightThreshold;
 float _WhitecapFlatFadeEnd;
 float _OnshoreWaveEnabled;
 float4 _OnshoreWaveParameters;
+float4 _OnshoreWaveBreaking;
 
 float4 MotuOceanCoastalData(float2 worldPosition)
 {
@@ -101,6 +102,71 @@ void MotuOceanOnshoreField(
     coastalCoordinate = packedField.a;
 }
 
+void MotuEvaluateOnshoreBreakerShape(
+    float phase,
+    float coastDistance,
+    float wavelength,
+    out float height,
+    out float distanceDerivative)
+{
+    static const float Pi = 3.14159265359;
+    static const float TwoPi = 6.28318530718;
+    static const float MinimumLeadingFraction = 0.04;
+    float maximumSharpness = saturate(_OnshoreWaveBreaking.x);
+    float sharpeningDistance = max(_OnshoreWaveBreaking.y, 0.25);
+    float distanceProgress = saturate(coastDistance / sharpeningDistance);
+    float shoreProximity = 1.0
+        - distanceProgress * distanceProgress
+            * (3.0 - 2.0 * distanceProgress);
+    float proximityDerivative = 0.0;
+    [flatten]
+    if (coastDistance > 0.0 && coastDistance < sharpeningDistance)
+    {
+        proximityDerivative = -6.0
+            * distanceProgress
+            * (1.0 - distanceProgress)
+            / sharpeningDistance;
+    }
+
+    // At 0.5 the two faces reproduce an ordinary sine wave. Moving only the
+    // leading fraction toward zero compresses the shore-facing rise while the
+    // rear face expands to retain the complete wavelength.
+    float leadingFraction = lerp(
+        0.5,
+        MinimumLeadingFraction,
+        maximumSharpness * shoreProximity);
+    float leadingFractionDerivative = (MinimumLeadingFraction - 0.5)
+        * maximumSharpness
+        * proximityDerivative;
+    float cycle = frac(phase / TwoPi + 0.25);
+    float cycleDerivative = 1.0 / max(wavelength, 1.0);
+
+    [flatten]
+    if (cycle < leadingFraction)
+    {
+        float angle = Pi * cycle / leadingFraction;
+        float angleDerivative = Pi
+            * (cycleDerivative * leadingFraction
+                - cycle * leadingFractionDerivative)
+            / (leadingFraction * leadingFraction);
+        height = -cos(angle);
+        distanceDerivative = sin(angle) * angleDerivative;
+        return;
+    }
+
+    float rearFraction = 1.0 - leadingFraction;
+    float rearProgress = (cycle - leadingFraction) / rearFraction;
+    float rearProgressDerivative = (
+        cycleDerivative * rearFraction
+        + leadingFractionDerivative * (cycle - 1.0))
+        / (rearFraction * rearFraction);
+    float rearAngle = Pi * rearProgress;
+    height = cos(rearAngle);
+    distanceDerivative = -sin(rearAngle)
+        * Pi
+        * rearProgressDerivative;
+}
+
 void MotuAccumulateOnshoreWave(
     float2 onshoreDirection,
     float influence,
@@ -124,15 +190,25 @@ void MotuAccumulateOnshoreWave(
     float waveSin;
     float waveCos;
     sincos(phase, waveSin, waveCos);
+    float breakerHeight;
+    float breakerDistanceDerivative;
+    MotuEvaluateOnshoreBreakerShape(
+        phase,
+        coastDistance,
+        wavelength,
+        breakerHeight,
+        breakerDistanceDerivative);
     float waveSinDouble = 2.0 * waveSin * waveCos;
     float waveCosDouble = waveCos * waveCos - waveSin * waveSin;
     float crestBias = choppiness * 0.22;
-    displacement.y += amplitude * (waveSin - crestBias * waveCosDouble);
+    displacement.y += amplitude
+        * (breakerHeight - crestBias * waveCosDouble);
     displacement.xz += onshoreDirection
         * (amplitude * choppiness * waveCos);
     heightDerivative += onshoreDirection
-        * (amplitude * waveNumber
-            * (waveCos + 2.0 * crestBias * waveSinDouble));
+        * (amplitude
+            * (breakerDistanceDerivative
+                + 2.0 * crestBias * waveNumber * waveSinDouble));
 }
 
 void MotuAccumulateOceanWave(

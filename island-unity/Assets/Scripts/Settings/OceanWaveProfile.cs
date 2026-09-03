@@ -69,6 +69,8 @@ public readonly struct OceanWaveRuntimeSettings
     public readonly float OnshoreWaveAmplitudeMetres;
     public readonly float OnshoreWaveSpeedMetresPerSecond;
     public readonly float OnshoreWaveChoppiness;
+    public readonly float OnshoreWaveLeadingEdgeSharpness;
+    public readonly float OnshoreWaveSharpeningDistanceMetres;
     public readonly OceanWaveComponent Wave0;
     public readonly OceanWaveComponent Wave1;
     public readonly OceanWaveComponent Wave2;
@@ -122,6 +124,8 @@ public readonly struct OceanWaveRuntimeSettings
         float onshoreWaveAmplitudeMetres,
         float onshoreWaveSpeedMetresPerSecond,
         float onshoreWaveChoppiness,
+        float onshoreWaveLeadingEdgeSharpness,
+        float onshoreWaveSharpeningDistanceMetres,
         OceanWaveComponent wave0,
         OceanWaveComponent wave1,
         OceanWaveComponent wave2,
@@ -183,6 +187,12 @@ public readonly struct OceanWaveRuntimeSettings
             0f,
             20f);
         OnshoreWaveChoppiness = Mathf.Clamp01(onshoreWaveChoppiness);
+        OnshoreWaveLeadingEdgeSharpness = Mathf.Clamp01(
+            onshoreWaveLeadingEdgeSharpness);
+        OnshoreWaveSharpeningDistanceMetres = Mathf.Clamp(
+            onshoreWaveSharpeningDistanceMetres,
+            0.25f,
+            16f);
         Wave0 = wave0;
         Wave1 = wave1;
         Wave2 = wave2;
@@ -219,6 +229,8 @@ public readonly struct OceanWaveRuntimeSettings
         0.16f,
         2.2f,
         0.18f,
+        0.95f,
+        12f,
         new OceanWaveComponent(new Vector2(1f, 0.18f), 30f, 0.34f, 3.6f),
         new OceanWaveComponent(new Vector2(0.32f, 1f), 15f, 0.18f, 2.8f),
         new OceanWaveComponent(new Vector2(-0.82f, 0.55f), 7.5f, 0.09f, 2.1f),
@@ -301,6 +313,10 @@ public sealed class OceanWaveProfile : ScriptableObject
     [Range(0f, 20f)] [SerializeField] private float onshoreWaveSpeedMetresPerSecond = 2.2f;
     [Tooltip("Crest sharpening and horizontal displacement of the depth-guided wave.")]
     [Range(0f, 1f)] [SerializeField] private float onshoreWaveChoppiness = 0.18f;
+    [Tooltip("Compress only the shore-facing rise of each incoming wave as it approaches land. One produces a near-vertical leading face while preserving a rounded rear face.")]
+    [Range(0f, 1f)] [SerializeField] private float onshoreWaveLeadingEdgeSharpness = 0.95f;
+    [Tooltip("Distance from shore over which leading-edge sharpening grows from zero to its configured maximum.")]
+    [Range(0.25f, 16f)] [SerializeField] private float onshoreWaveSharpeningDistanceMetres = 12f;
 
     [Header("Directional Waves")]
     [Tooltip("Primary broad swell. This should normally have the longest wavelength and largest amplitude.")]
@@ -348,6 +364,8 @@ public sealed class OceanWaveProfile : ScriptableObject
             onshoreWaveAmplitudeMetres,
             onshoreWaveSpeedMetresPerSecond,
             onshoreWaveChoppiness,
+            onshoreWaveLeadingEdgeSharpness,
+            onshoreWaveSharpeningDistanceMetres,
             wave0,
             wave1,
             wave2,

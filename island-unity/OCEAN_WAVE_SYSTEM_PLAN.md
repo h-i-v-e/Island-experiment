@@ -51,6 +51,13 @@ This avoids phase seams as the direction bends. The result remains a
 player-centred GPU field rather than duplicating direction data into the sea
 mesh, so curved shores and multiple loaded islands share the same wave mesh and
 the field is rebuilt only when coastal attenuation is recomposed.
+The incoming component progressively compresses only its shore-facing rise as
+its coast-distance coordinate approaches zero. The rear face expands by the
+same fraction, preserving wavelength and a rounded back rather than sharpening
+the whole crest. Both the maximum leading-edge sharpness and the distance over
+which it develops are profile settings. The shader evaluates the matching
+analytic height derivative, including the changing shoreward compression, so
+geometric displacement, lighting normals, and whitecap slope selection agree.
 The composed texture also retains the uncurved five-metre depth and raw
 submerged-river-carve allowance. The complete wave field is scaled where necessary
 so its conservative maximum vertical amplitude never exceeds reconstructed

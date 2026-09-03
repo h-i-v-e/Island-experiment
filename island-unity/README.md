@@ -304,6 +304,10 @@ so both trains contain approximately the same number of broad waves and retain
 the same physical travel speed. Their individually reduced strengths are added,
 making crossings brighter than either wave alone. Tune `Incoming Shore Wave
 Strength` and `Reverse Shore Echo Strength` on the sea material independently.
+The geometric onshore component progressively compresses only its leading,
+shore-facing rise while retaining a rounded rear face. `Leading Edge Sharpness`
+controls the maximum asymmetry and `Sharpening Distance Metres` controls how far
+offshore it begins.
 Wave contours remain independent of the camera Z buffer; camera depth is
 responsible only for water opacity. The former river-mouth and estuary silt
 coloration has been removed. Depth and accumulated-edge land distance are both

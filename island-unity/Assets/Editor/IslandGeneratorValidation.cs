@@ -234,6 +234,7 @@ public static class IslandGeneratorValidation
                 || !seaMaterial.HasProperty("_WhitecapFlatFadeEnd")
                 || !seaMaterial.HasProperty("_OnshoreWaveEnabled")
                 || !seaMaterial.HasProperty("_OnshoreWaveParameters")
+                || !seaMaterial.HasProperty("_OnshoreWaveBreaking")
                 || seaMaterial.HasProperty("_SeaMask")
                 || !attenuationMaterial.HasProperty("_SeaMask")
                 || !attenuationMaterial.HasProperty("_IslandWorldSize")

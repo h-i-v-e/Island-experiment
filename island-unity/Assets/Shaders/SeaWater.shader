@@ -44,6 +44,7 @@ Shader "Motu/Sea Water"
         [HideInInspector] _WhitecapFlatFadeEnd ("Whitecap Flat Fade End", Range(0.01, 0.3)) = 0.08
         [HideInInspector] _OnshoreWaveEnabled ("Onshore Wave Enabled", Float) = 1
         [HideInInspector] _OnshoreWaveParameters ("Onshore Wave Parameters", Vector) = (12, 0.16, 2.2, 0.18)
+        [HideInInspector] _OnshoreWaveBreaking ("Onshore Wave Breaking", Vector) = (0.95, 12, 0, 0)
     }
 
     SubShader

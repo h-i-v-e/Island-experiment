@@ -43,6 +43,8 @@ public sealed class OceanSurfaceController : MonoBehaviour
         "_OnshoreWaveEnabled");
     private static readonly int OnshoreWaveParametersId = Shader.PropertyToID(
         "_OnshoreWaveParameters");
+    private static readonly int OnshoreWaveBreakingId = Shader.PropertyToID(
+        "_OnshoreWaveBreaking");
     private static readonly int WaveAttenuationTextureId = Shader.PropertyToID(
         "_WaveAttenuationTex");
     private static readonly int WaveOnshoreTextureId = Shader.PropertyToID(
@@ -282,6 +284,11 @@ public sealed class OceanSurfaceController : MonoBehaviour
             waveSettings.OnshoreWaveAmplitudeMetres,
             waveSettings.OnshoreWaveSpeedMetresPerSecond,
             waveSettings.OnshoreWaveChoppiness));
+        surfaceMaterial.SetVector(OnshoreWaveBreakingId, new Vector4(
+            waveSettings.OnshoreWaveLeadingEdgeSharpness,
+            waveSettings.OnshoreWaveSharpeningDistanceMetres,
+            0f,
+            0f));
         SetWaveAttenuation(
             Texture2D.whiteTexture,
             Texture2D.blackTexture,

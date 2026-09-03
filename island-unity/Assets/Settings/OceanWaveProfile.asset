@@ -41,6 +41,8 @@ MonoBehaviour:
   onshoreWaveAmplitudeMetres: 1
   onshoreWaveSpeedMetresPerSecond: 2.2
   onshoreWaveChoppiness: 1
+  onshoreWaveLeadingEdgeSharpness: 0.95
+  onshoreWaveSharpeningDistanceMetres: 12
   wave0:
     direction: {x: 1, y: 0.18}
     wavelengthMetres: 30
