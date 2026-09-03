@@ -20,6 +20,10 @@ public sealed class IslandRuntime : MonoBehaviour, IDisposable
     private TerrainMaterialTextureArrays terrainTextureArrays;
     private Material textureArrayTerrainMaterial;
     private Material textureArrayGrassMaterial;
+    private WorldEnvironmentController coastalWaveEnvironment;
+    private Texture coastalWaveMask;
+    private float coastalWaveWorldSize;
+    private bool coastalWaveMaskRegistered;
     private bool resourcesReleased;
 
     internal IslandDescriptor Descriptor { get; private set; }
@@ -115,6 +119,19 @@ public sealed class IslandRuntime : MonoBehaviour, IDisposable
         }
     }
 
+    internal void SetCoastalWaveMask(
+        WorldEnvironmentController environment,
+        Texture mask,
+        float worldSize)
+    {
+        RequireInstalling();
+        coastalWaveEnvironment = environment
+            ?? throw new ArgumentNullException(nameof(environment));
+        coastalWaveMask = mask
+            ?? throw new ArgumentNullException(nameof(mask));
+        coastalWaveWorldSize = Mathf.Max(worldSize, 1f);
+    }
+
     internal void Activate()
     {
         RequireInstalling();
@@ -129,6 +146,7 @@ public sealed class IslandRuntime : MonoBehaviour, IDisposable
         }
         gameObject.SetActive(true);
         State = IslandRuntimeState.Active;
+        RegisterCoastalWaveMask();
     }
 
     internal void SetDormant(bool dormant)
@@ -138,8 +156,16 @@ public sealed class IslandRuntime : MonoBehaviour, IDisposable
             throw new InvalidOperationException(
                 "Only an active island runtime can change dormancy.");
         }
+        if (dormant)
+        {
+            UnregisterCoastalWaveMask();
+        }
         State = dormant ? IslandRuntimeState.Dormant : IslandRuntimeState.Active;
         gameObject.SetActive(!dormant);
+        if (!dormant)
+        {
+            RegisterCoastalWaveMask();
+        }
     }
 
     internal void MarkFailed()
@@ -168,6 +194,7 @@ public sealed class IslandRuntime : MonoBehaviour, IDisposable
         }
         resourcesReleased = true;
         State = IslandRuntimeState.Unloading;
+        UnregisterCoastalWaveMask();
         if (destroyRoot)
         {
             gameObject.SetActive(false);
@@ -176,6 +203,9 @@ public sealed class IslandRuntime : MonoBehaviour, IDisposable
         TerrainStreamer?.Dispose();
         TerrainStreamer = null;
         CoastalWaterObject = null;
+        coastalWaveEnvironment = null;
+        coastalWaveMask = null;
+        coastalWaveWorldSize = 0f;
 
         terrainTextureArrays?.Unbind(
             textureArrayTerrainMaterial,
@@ -213,6 +243,32 @@ public sealed class IslandRuntime : MonoBehaviour, IDisposable
             throw new InvalidOperationException(
                 "Island resources can only be installed during the installing state.");
         }
+    }
+
+    private void RegisterCoastalWaveMask()
+    {
+        if (coastalWaveMaskRegistered
+            || coastalWaveEnvironment == null
+            || coastalWaveMask == null)
+        {
+            return;
+        }
+        coastalWaveEnvironment.RegisterCoastalWaveMask(
+            this,
+            coastalWaveMask,
+            transform,
+            coastalWaveWorldSize);
+        coastalWaveMaskRegistered = true;
+    }
+
+    private void UnregisterCoastalWaveMask()
+    {
+        if (!coastalWaveMaskRegistered)
+        {
+            return;
+        }
+        coastalWaveEnvironment?.UnregisterCoastalWaveMask(this);
+        coastalWaveMaskRegistered = false;
     }
 
     private static void DestroyUnityObject(UnityEngine.Object value)

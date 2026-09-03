@@ -37,6 +37,9 @@ public sealed class IslandRenderingSettings
     [Tooltip("Optional sea material template. A per-island copy is created at runtime.")]
     [SerializeField] private Material seaMaterial;
 
+    [Tooltip("Optional reusable geometric-wave profile for the global deep ocean.")]
+    [SerializeField] private OceanWaveProfile oceanWaveProfile;
+
     [Tooltip("Optional stone and boulder material template. A per-island copy is created at runtime.")]
     [SerializeField] private Material rockMaterial;
 
@@ -173,6 +176,7 @@ public sealed class IslandRenderingSettings
     public Material GrassMaterial => grassMaterial;
     public Material RiverMaterial => riverMaterial;
     public Material SeaMaterial => seaMaterial;
+    public OceanWaveProfile OceanWaveProfile => oceanWaveProfile;
     public Material RockMaterial => rockMaterial;
     public Material TreeWoodMaterial => treeWoodMaterial;
     public Material TreeFoliageMaterial => treeFoliageMaterial;

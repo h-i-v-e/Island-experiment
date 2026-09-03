@@ -11,4 +11,7 @@ EditorBuildSettings:
   - enabled: 1
     path: Assets/Scenes/TreeSandbox.unity
     guid: 0131d4fd185e44ad09277a0de9e6fb61
+  - enabled: 1
+    path: Assets/Scenes/OceanWaveSandbox.unity
+    guid: 457ee96c6f5244cf18102f0c17d12e3b
   m_configObjects: {}

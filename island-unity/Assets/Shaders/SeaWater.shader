@@ -17,6 +17,17 @@ Shader "Motu/Sea Water"
         _RefractionDepth ("Full Distortion Depth (metres)", Float) = 0.6
         [HideInInspector] _PlanarReflectionWeight ("Planar Reflection Weight", Range(0, 1)) = 1
         _PlanarReflectionDistortion ("Reflection Ripple Distortion", Range(0, 0.03)) = 0.008
+        [HideInInspector] _GeometricWaves ("Geometric Waves", Float) = 1
+        [NoScaleOffset] _WaveAttenuationTex ("Wave Attenuation", 2D) = "white" {}
+        [HideInInspector] _WaveAttenuationWorldRect ("Wave Attenuation World Rect", Vector) = (-1, -1, 0.5, 0.5)
+        [HideInInspector] _WaveFadeStart ("Wave Fade Start", Float) = 320
+        [HideInInspector] _WaveFadeEnd ("Wave Fade End", Float) = 480
+        [HideInInspector] _OceanWave0 ("Ocean Wave 0", Vector) = (1, 0, 30, 0.34)
+        [HideInInspector] _OceanWave1 ("Ocean Wave 1", Vector) = (0, 1, 15, 0.18)
+        [HideInInspector] _OceanWave2 ("Ocean Wave 2", Vector) = (-0.8, 0.5, 7.5, 0.09)
+        [HideInInspector] _OceanWave3 ("Ocean Wave 3", Vector) = (0.6, -0.8, 4, 0.04)
+        [HideInInspector] _OceanWaveSpeeds ("Ocean Wave Speeds", Vector) = (3.6, 2.8, 2.1, 1.5)
+        [HideInInspector] _OceanWaveChoppiness ("Ocean Wave Choppiness", Vector) = (0, 0, 0, 0)
     }
 
     SubShader
@@ -40,6 +51,7 @@ Shader "Motu/Sea Water"
             #pragma multi_compile_fwdbase
 
             #include "WaterCommon.cginc"
+            #include "OceanWaves.cginc"
 
             struct VertexInput
             {
@@ -50,14 +62,12 @@ Shader "Motu/Sea Water"
             struct VertexOutput
             {
                 float4 pos : SV_POSITION;
-                float brightness : TEXCOORD0;
-                float3 worldNormal : TEXCOORD1;
-                float4 screenPosition : TEXCOORD2;
-                float surfaceEyeDepth : TEXCOORD3;
-                float3 worldPosition : TEXCOORD4;
-                UNITY_FOG_COORDS(5)
-                float4 grabPosition : TEXCOORD6;
-                SHADOW_COORDS(7)
+                float4 screenPosition : TEXCOORD0;
+                float surfaceEyeDepth : TEXCOORD1;
+                float3 worldPosition : TEXCOORD2;
+                UNITY_FOG_COORDS(3)
+                float4 grabPosition : TEXCOORD4;
+                SHADOW_COORDS(5)
             };
 
             sampler2D _NoiseTex;
@@ -65,17 +75,22 @@ Shader "Motu/Sea Water"
             VertexOutput Vertex(VertexInput input)
             {
                 VertexOutput output;
-                output.pos = UnityObjectToClipPos(input.vertex);
-                float3 normal = UnityObjectToWorldNormal(input.normal);
-                output.worldNormal = normal;
+                float3 baseWorldPosition = mul(
+                    unity_ObjectToWorld,
+                    input.vertex).xyz;
+                float3 waveDisplacement;
+                MotuEvaluateOceanWaveDisplacement(
+                    baseWorldPosition.xz,
+                    length(input.vertex.xz),
+                    waveDisplacement);
+                float3 displacedWorldPosition = baseWorldPosition + waveDisplacement;
+                output.pos = UnityWorldToClipPos(displacedWorldPosition);
                 output.screenPosition = ComputeScreenPos(output.pos);
                 output.grabPosition = ComputeGrabScreenPos(output.pos);
-                output.surfaceEyeDepth = -UnityObjectToViewPos(input.vertex).z;
-                output.worldPosition = mul(unity_ObjectToWorld, input.vertex).xyz;
-                output.brightness = 0.72
-                    + 0.28 * saturate(dot(
-                        normal,
-                        normalize(float3(0.3, 1.0, 0.2))));
+                output.surfaceEyeDepth = -mul(
+                    UNITY_MATRIX_V,
+                    float4(displacedWorldPosition, 1.0)).z;
+                output.worldPosition = displacedWorldPosition;
                 TRANSFER_SHADOW_WPOS(output, output.worldPosition);
                 UNITY_TRANSFER_FOG(output, output.pos);
                 return output;
@@ -85,9 +100,17 @@ Shader "Motu/Sea Water"
             {
                 float3 viewDirection = normalize(
                     _WorldSpaceCameraPos.xyz - input.worldPosition);
+                float3 analyticWaveNormal;
+                MotuEvaluateOceanWaveNormal(
+                    input.worldPosition.xz,
+                    analyticWaveNormal);
                 float3 worldNormal = MotuFacingWaterNormal(
-                    input.worldNormal,
+                    analyticWaveNormal,
                     viewDirection);
+                half brightness = 0.72h
+                    + 0.28h * saturate(dot(
+                        analyticWaveNormal,
+                        normalize(float3(0.3, 1.0, 0.2))));
                 UNITY_LIGHT_ATTENUATION(
                     shadowAttenuation,
                     input,
@@ -104,7 +127,7 @@ Shader "Motu/Sea Water"
                     0.12h,
                     cloud);
                 fixed3 waterBody = _Color.rgb
-                    * input.brightness
+                    * brightness
                     * waterIllumination;
                 float2 reflectionNoiseUv = MotuCloudWorldToLocal(
                     input.worldPosition).xz / 8.0;

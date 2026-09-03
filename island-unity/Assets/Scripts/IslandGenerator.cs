@@ -456,6 +456,10 @@ public sealed partial class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
 
             CreateCoastalWaterOverlay(worldSize);
             islandRuntime.SetCoastalWaterObject(coastalWaterObject);
+            islandRuntime.SetCoastalWaveMask(
+                worldEnvironment,
+                seaMaskTexture,
+                worldSize);
             if (controlsWorldEnvironment)
             {
                 UpdateSolarLighting(0f);

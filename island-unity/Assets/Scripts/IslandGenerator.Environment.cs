@@ -63,6 +63,9 @@ public sealed partial class IslandGenerator
                 worldSize * 2f * SeaHorizonOverlap,
                 transform.TransformPoint(Vector3.up * SeaHeight).y,
                 Rendering.ShowSea,
+                Rendering.OceanWaveProfile != null
+                    ? Rendering.OceanWaveProfile.ToRuntimeSettings()
+                    : OceanWaveRuntimeSettings.Default,
                 Rendering.Sunlight != null ? Rendering.Sunlight : RenderSettings.sun);
             seaNoiseTexture = null;
             ownsSeaNoiseTexture = false;

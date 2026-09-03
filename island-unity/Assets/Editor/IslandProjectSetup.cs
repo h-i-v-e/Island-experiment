@@ -10,7 +10,9 @@ public static class IslandProjectSetup
 {
     private const string ScenePath = "Assets/Scenes/IslandSandbox.unity";
     private const string MultiIslandScenePath = "Assets/Scenes/IslandsSandbox.unity";
+    private const string OceanWaveScenePath = "Assets/Scenes/OceanWaveSandbox.unity";
     private const string MaterialFolder = "Assets/Materials";
+    private const string OceanWaveProfilePath = "Assets/Settings/OceanWaveProfile.asset";
     private const string TreeWoodMaterialPath = "Assets/Materials/TreeWood.mat";
     private const string TreeFoliageMaterialPath = "Assets/Materials/TreeFoliage.mat";
 
@@ -252,6 +254,96 @@ public static class IslandProjectSetup
         Debug.Log($"Created multi-island flight sandbox at {MultiIslandScenePath}.");
     }
 
+    [MenuItem("Island/Create or Refresh Ocean Wave Sandbox")]
+    public static void CreateOceanWaveSandbox()
+    {
+        EnsureFolder("Assets", "Scenes");
+        EnsureFolder("Assets", "Materials");
+        EnsureFolder("Assets", "Settings");
+        var sea = CreateOrUpdateMaterial(
+            $"{MaterialFolder}/IslandSea.mat",
+            "Motu/Sea Water");
+        var scene = EditorSceneManager.NewScene(
+            NewSceneSetup.EmptyScene,
+            NewSceneMode.Single);
+        scene.name = "OceanWaveSandbox";
+        var profile = AssetDatabase.LoadAssetAtPath<OceanWaveProfile>(
+            OceanWaveProfilePath);
+        if (profile == null)
+        {
+            profile = ScriptableObject.CreateInstance<OceanWaveProfile>();
+            AssetDatabase.CreateAsset(profile, OceanWaveProfilePath);
+            AssetDatabase.SaveAssets();
+            profile = AssetDatabase.LoadAssetAtPath<OceanWaveProfile>(
+                OceanWaveProfilePath);
+        }
+
+        var oceanObject = new GameObject("Ocean Wave Test Environment");
+        oceanObject.AddComponent<OceanSurfaceController>();
+        var sandbox = oceanObject.AddComponent<OceanWaveSandboxController>();
+
+        var sunObject = new GameObject("Sun");
+        sunObject.transform.rotation = Quaternion.Euler(42f, -28f, 0f);
+        var sun = sunObject.AddComponent<Light>();
+        sun.type = LightType.Directional;
+        sun.shadows = LightShadows.Soft;
+        sun.intensity = 1.2f;
+        sun.color = new Color(1f, 0.94f, 0.82f);
+
+        var cameraObject = new GameObject("Main Camera");
+        cameraObject.tag = "MainCamera";
+        cameraObject.transform.SetPositionAndRotation(
+            new Vector3(0f, 5f, -12f),
+            Quaternion.Euler(8f, 0f, 0f));
+        var camera = cameraObject.AddComponent<Camera>();
+        camera.depthTextureMode |= DepthTextureMode.Depth;
+        camera.clearFlags = CameraClearFlags.SolidColor;
+        camera.backgroundColor = new Color(0.49f, 0.68f, 0.82f);
+        camera.nearClipPlane = 0.05f;
+        camera.farClipPlane = 12000f;
+        cameraObject.AddComponent<PlanarWaterReflection>();
+        cameraObject.AddComponent<AudioListener>();
+        sandbox.Configure(profile, sea, cameraObject.transform, 20000f);
+
+        RenderSettings.ambientMode = AmbientMode.Flat;
+        RenderSettings.ambientLight = new Color(0.42f, 0.46f, 0.52f);
+        RenderSettings.fog = false;
+        RenderSettings.sun = sun;
+
+        EditorSceneManager.SaveScene(scene, OceanWaveScenePath);
+        AddSceneToBuildSettings(OceanWaveScenePath);
+        EditorUtility.SetDirty(profile);
+        EditorUtility.SetDirty(sea);
+        AssetDatabase.SaveAssets();
+        AssetDatabase.Refresh();
+        ValidateOceanWaveSandbox();
+        Debug.Log($"Created ocean-wave sandbox scene at {OceanWaveScenePath}.");
+    }
+
+    public static void ValidateOceanWaveSandbox()
+    {
+        var scene = EditorSceneManager.OpenScene(
+            OceanWaveScenePath,
+            OpenSceneMode.Single);
+        var sandboxes = UnityEngine.Object.FindObjectsByType<OceanWaveSandboxController>(
+            FindObjectsInactive.Include);
+        var islands = UnityEngine.Object.FindObjectsByType<IslandGenerator>(
+            FindObjectsInactive.Include);
+        var cameras = UnityEngine.Object.FindObjectsByType<Camera>(
+            FindObjectsInactive.Include);
+        if (!scene.IsValid()
+            || sandboxes.Length != 1
+            || islands.Length != 0
+            || cameras.Length != 1
+            || sandboxes[0].Profile == null
+            || sandboxes[0].FollowTarget != cameras[0].transform
+            || sandboxes[0].OceanDiameterMetres < 1000f)
+        {
+            throw new InvalidOperationException(
+                "The ocean-wave sandbox must contain one configured sea, one camera, and no island generator.");
+        }
+    }
+
     public static void ValidateMultiIslandSandbox()
     {
         var scene = EditorSceneManager.OpenScene(
@@ -371,6 +463,10 @@ public static class IslandProjectSetup
         else
         {
             material.shader = shader;
+        }
+        if (shaderName == "Motu/Sea Water")
+        {
+            material.DisableKeyword("_GEOMETRICWAVES_ON");
         }
         return material;
     }

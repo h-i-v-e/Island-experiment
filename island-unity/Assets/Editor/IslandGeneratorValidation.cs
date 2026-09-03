@@ -20,6 +20,7 @@ public static class IslandGeneratorValidation
         ValidateCloudReceiverShaders();
         ValidateSolarLightingCycle();
         ValidateOpenSeaEnvironmentAnchoring();
+        ValidateOceanWaveSystem();
         IslandWorldManager.ValidateRoutingPolicy();
         IslandProjectSetup.ValidateMultiIslandSandbox();
         ValidateSandboxScene();
@@ -80,6 +81,93 @@ public static class IslandGeneratorValidation
 
         ValidateOpenSeaEnvironmentOwnership();
         ValidateCoastalOverlayIsolation();
+    }
+
+    public static void BatchValidateOceanWaves()
+    {
+        ValidateOceanWaveSystem();
+        IslandProjectSetup.ValidateOceanWaveSandbox();
+        Debug.Log("Ocean clipmap, geometric-wave shaders, and sea-only sandbox passed validation.");
+    }
+
+    private static void ValidateOceanWaveSystem()
+    {
+        var settings = OceanWaveRuntimeSettings.Default;
+        var coordinates = OceanClipmapMeshBuilder.BuildAxisCoordinates(
+            10000f,
+            settings);
+        var mesh = OceanClipmapMeshBuilder.Build(20000f, settings);
+        try
+        {
+            var expectedVertices = coordinates.Count * coordinates.Count;
+            var expectedTriangles = (coordinates.Count - 1)
+                * (coordinates.Count - 1)
+                * 2;
+            if (Mathf.Abs(settings.FineVertexSpacingMetres - 1f) > 1.0e-5f
+                || mesh.vertexCount != expectedVertices
+                || mesh.GetIndexCount(0) != (uint)(expectedTriangles * 3)
+                || mesh.bounds.extents.x < 10000f
+                || mesh.bounds.extents.z < 10000f
+                || mesh.bounds.extents.y
+                    < settings.MaximumVerticalDisplacement)
+            {
+                throw new InvalidOperationException(
+                    "The ocean clipmap does not satisfy its deterministic topology or bounds contract.");
+            }
+            for (var index = 1; index < coordinates.Count; index++)
+            {
+                if (!float.IsFinite(coordinates[index])
+                    || coordinates[index] <= coordinates[index - 1])
+                {
+                    throw new InvalidOperationException(
+                        "The ocean clipmap contains a non-finite or non-increasing axis coordinate.");
+                }
+            }
+        }
+        finally
+        {
+            UnityEngine.Object.DestroyImmediate(mesh);
+        }
+
+        var seaShader = Shader.Find("Motu/Sea Water");
+        var attenuationShader = Shader.Find("Hidden/Motu/Ocean Wave Attenuation");
+        if (seaShader == null
+            || attenuationShader == null
+            || !seaShader.isSupported
+            || !attenuationShader.isSupported
+            || ShaderUtil.ShaderHasError(seaShader)
+            || ShaderUtil.ShaderHasError(attenuationShader))
+        {
+            throw new InvalidOperationException(
+                "The geometric ocean-wave shaders are missing, unsupported, or contain errors.");
+        }
+        var seaMaterial = new Material(seaShader);
+        var attenuationMaterial = new Material(attenuationShader);
+        try
+        {
+            if (!seaMaterial.HasProperty("_GeometricWaves")
+                || !seaMaterial.HasProperty("_WaveAttenuationTex")
+                || !seaMaterial.HasProperty("_WaveAttenuationWorldRect")
+                || !seaMaterial.HasProperty("_WaveFadeStart")
+                || !seaMaterial.HasProperty("_WaveFadeEnd")
+                || !seaMaterial.HasProperty("_OceanWave0")
+                || !seaMaterial.HasProperty("_OceanWaveSpeeds")
+                || seaMaterial.HasProperty("_SeaMask")
+                || !attenuationMaterial.HasProperty("_SeaMask")
+                || !attenuationMaterial.HasProperty("_IslandWorldSize")
+                || !attenuationMaterial.HasProperty("_CompositionWorldRect")
+                || !attenuationMaterial.HasProperty("_DepthAllowancePower")
+                || !attenuationMaterial.HasProperty("_DistanceAllowancePower"))
+            {
+                throw new InvalidOperationException(
+                    "The global ocean or attenuation composer violates its shader-property contract.");
+            }
+        }
+        finally
+        {
+            UnityEngine.Object.DestroyImmediate(seaMaterial);
+            UnityEngine.Object.DestroyImmediate(attenuationMaterial);
+        }
     }
 
     private static void ValidateCoastalOverlayIsolation()

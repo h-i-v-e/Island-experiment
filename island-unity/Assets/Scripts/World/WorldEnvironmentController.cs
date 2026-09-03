@@ -66,6 +66,31 @@ public sealed class WorldEnvironmentController : MonoBehaviour
         bool showSea,
         Light sunlightTemplate)
     {
+        Install(
+            newSkyMaterial,
+            newSeaMaterial,
+            newCloudWeatherTexture,
+            newOwnedOceanNoiseTexture,
+            newSkyDomeWorldSize,
+            environmentDiameterMetres,
+            globalSeaLevel,
+            showSea,
+            OceanWaveRuntimeSettings.Default,
+            sunlightTemplate);
+    }
+
+    public void Install(
+        Material newSkyMaterial,
+        Material newSeaMaterial,
+        Texture2D newCloudWeatherTexture,
+        Texture2D newOwnedOceanNoiseTexture,
+        float newSkyDomeWorldSize,
+        float environmentDiameterMetres,
+        float globalSeaLevel,
+        bool showSea,
+        OceanWaveRuntimeSettings oceanWaves,
+        Light sunlightTemplate)
+    {
         if (newSkyMaterial == null)
         {
             throw new ArgumentNullException(nameof(newSkyMaterial));
@@ -88,7 +113,11 @@ public sealed class WorldEnvironmentController : MonoBehaviour
             new Vector4(0f, -seaLevel, 0f, 0f));
 
         EnsureOcean();
-        ocean.Install(newSeaMaterial, environmentDiameterMetres, showSea);
+        ocean.Install(
+            newSeaMaterial,
+            environmentDiameterMetres,
+            showSea,
+            oceanWaves);
         EnsureMoonLight(sunlightTemplate);
         UpdateAnchor(true);
         BindExistingReflectionCameras();
@@ -111,6 +140,21 @@ public sealed class WorldEnvironmentController : MonoBehaviour
     public void SetSeaVisible(bool visible)
     {
         ocean?.SetVisible(visible);
+    }
+
+    internal void RegisterCoastalWaveMask(
+        IslandRuntime owner,
+        Texture mask,
+        Transform islandTransform,
+        float worldSize)
+    {
+        EnsureOcean();
+        ocean.RegisterCoastalWaveMask(owner, mask, islandTransform, worldSize);
+    }
+
+    internal void UnregisterCoastalWaveMask(IslandRuntime owner)
+    {
+        ocean?.UnregisterCoastalWaveMask(owner);
     }
 
     public void BindReflectionCamera(Camera camera)
