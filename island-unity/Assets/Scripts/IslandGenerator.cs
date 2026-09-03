@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -1724,6 +1725,10 @@ public sealed class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
                 terrainStreamer.BaseTriangleCount,
                 generationTimer.Elapsed.TotalSeconds);
             status += " | shared 2048 terrain shading map";
+            if (prepared.materialTextures.loadedFromCache)
+            {
+                status += " | cached material maps";
+            }
             status += string.Format(
                 CultureInfo.InvariantCulture,
                 " | {0:N0} waterfall feet / 32 pooled fog volumes",
@@ -2056,7 +2061,11 @@ public sealed class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
             cancellationToken.ThrowIfCancellationRequested();
             var materialTextures = PrepareMaterialTextures(
                 materialColours,
-                materialTextureResolution);
+                materialTextureResolution,
+                snapshotCacheBudgetBytes,
+                string.IsNullOrEmpty(snapshotPath)
+                    ? null
+                    : Path.GetDirectoryName(snapshotPath));
             cancellationToken.ThrowIfCancellationRequested();
             var colliderHeightMap = PrepareColliderHeightMap(handle, worldSize);
             cancellationToken.ThrowIfCancellationRequested();
@@ -2181,8 +2190,19 @@ public sealed class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
 
     private static IslandPreparedMaterialTextures PrepareMaterialTextures(
         IslandMaterialColours colours,
-        int resolution)
+        int resolution,
+        long cacheBudgetBytes = 0L,
+        string cacheDirectory = null)
     {
+        var cached = IslandMaterialTextureCache.TryLoad(
+            colours,
+            resolution,
+            cacheBudgetBytes,
+            cacheDirectory);
+        if (cached != null)
+        {
+            return cached;
+        }
         var inputs = colours.ToNative();
         var options = new MotuNative.MaterialBakeOptions
         {
@@ -2203,7 +2223,7 @@ public sealed class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
                 throw new InvalidOperationException(
                     "The Rust procedural material library could not bake the requested textures.");
             }
-            return new IslandPreparedMaterialTextures(
+            var result = new IslandPreparedMaterialTextures(
                 colours,
                 CopyMaterialTexture(textures.dirt, resolution, "dirt"),
                 CopyMaterialTexture(textures.forestFloor, resolution, "forest floor"),
@@ -2211,6 +2231,11 @@ public sealed class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
                 CopyMaterialTexture(textures.riverBed, resolution, "river bed"),
                 CopyMaterialTexture(textures.beach, resolution, "beach"),
                 CopyMaterialTexture(textures.fallenStones, resolution, "fallen stones"));
+            IslandMaterialTextureCache.TrySave(
+                result,
+                cacheBudgetBytes,
+                cacheDirectory);
+            return result;
         }
         finally
         {
@@ -4779,6 +4804,11 @@ public sealed class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
         }
         Debug.Log(
             "Motu CPU generation, terrain collider, and material validation passed.");
+    }
+
+    public static void ValidateMaterialTextureCacheRoundTrip()
+    {
+        IslandMaterialTextureCache.ValidateRoundTrip();
     }
 
     private static void ValidateTreeSurfaceShader(string shaderName, string label)

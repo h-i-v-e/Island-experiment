@@ -218,7 +218,7 @@ fn validate_mesh(mesh: &Mesh, label: &str) -> io::Result<()> {
             "{label} mesh attribute lengths do not match its vertex count"
         )));
     }
-    if mesh.triangles.len() % 3 != 0
+    if !mesh.triangles.len().is_multiple_of(3)
         || mesh
             .triangles
             .iter()
@@ -282,7 +282,7 @@ fn checksum_payload(file: &mut File, payload_length: u64) -> io::Result<[u8; 32]
     file.seek(SeekFrom::Start(HEADER_LENGTH))?;
     let mut source = file.take(payload_length);
     let mut hasher = Sha256::new();
-    let mut buffer = [0_u8; 64 * 1024];
+    let mut buffer = vec![0_u8; 64 * 1024].into_boxed_slice();
     loop {
         let count = source.read(&mut buffer)?;
         if count == 0 {

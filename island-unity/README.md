@@ -333,6 +333,10 @@ Zstandard-compressed, checksummed, written through a temporary file, and keyed
 from every geometry-generation input. `Island Generation > Use Snapshot Cache`
 can disable the cache; its shared LRU byte budget defaults to 8 GiB. Invalid or
 obsolete snapshots are discarded and safely fall back to CPU generation.
+The six palette-dependent terrain map sets are cached separately by Rust's
+embedded-recipe revision, palette values, normal convention, and resolution.
+This lets islands with matching palettes share one checked material bundle and
+means a returning island does not rebake its procedural material recipes.
 
 For an editor compile plus native ABI, streamed tile, UV, support mesh,
 waterfall-foot export, fog-pool, and collider-cooking check, run:

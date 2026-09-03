@@ -19,7 +19,7 @@ use crate::ferns::{FERN_TILE_RESOLUTION, FernMeshTile};
 use crate::forest::{ForestMeshKind, ForestMeshTile, ForestTrunkCollider};
 use crate::procedural_textures::{
     IslandMaterialKind, LinearRgb, MaterialSelection, NormalConvention, RuntimeMaterialBakeOptions,
-    RuntimeMaterialInputs, TextureSet, bake_island_materials,
+    RuntimeMaterialInputs, TextureSet, bake_island_materials, runtime_material_revision,
 };
 use crate::reeds::{REED_TILE_RESOLUTION, ReedMeshTile};
 use crate::{
@@ -291,6 +291,21 @@ pub struct MotuMaterialBakeOptions {
     pub normalConvention: u8,
     pub materialMask: u8,
     pub reserved: [u8; 2],
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+#[repr(C)]
+pub struct MotuMaterialRevision {
+    pub low: u64,
+    pub high: u64,
+}
+
+const _: () = assert!(size_of::<MotuMaterialRevision>() == size_of::<[u64; 2]>());
+
+#[unsafe(no_mangle)]
+pub extern "C" fn GetMotuRuntimeMaterialRevision() -> MotuMaterialRevision {
+    let [low, high] = runtime_material_revision();
+    MotuMaterialRevision { low, high }
 }
 
 impl Default for MotuMaterialBakeOptions {
@@ -1982,7 +1997,9 @@ pub unsafe extern "C" fn SaveMotuSnapshot(handle: *const c_void, path: *const c_
     let Some(path) = (unsafe { path_from_c(path) }) else {
         return 1;
     };
-    island.save(path).map_or_else(snapshot_error_status, |()| 0)
+    island
+        .save(path)
+        .map_or_else(|error| snapshot_error_status(&error), |()| 0)
 }
 
 #[unsafe(no_mangle)]
@@ -2009,14 +2026,14 @@ pub unsafe extern "C" fn LoadMotuSnapshot(path: *const c_char, status: *mut i32)
         }
         Err(error) => {
             if let Some(status) = unsafe { status.as_mut() } {
-                *status = snapshot_error_status(error);
+                *status = snapshot_error_status(&error);
             }
             ptr::null_mut()
         }
     }
 }
 
-fn snapshot_error_status(error: io::Error) -> i32 {
+fn snapshot_error_status(error: &io::Error) -> i32 {
     match error.kind() {
         io::ErrorKind::NotFound => 2,
         io::ErrorKind::InvalidData | io::ErrorKind::UnexpectedEof => 3,

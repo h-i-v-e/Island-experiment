@@ -12,6 +12,7 @@ public static class IslandGeneratorValidation
     public static void BatchValidateNativeInterop()
     {
         IslandGenerator.BatchValidateNativeInterop();
+        IslandGenerator.ValidateMaterialTextureCacheRoundTrip();
         ValidateWaterfallMistShader();
         ValidateFernShader();
         ValidateSkyDomeShader();

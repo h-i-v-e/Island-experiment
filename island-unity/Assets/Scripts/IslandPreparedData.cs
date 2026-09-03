@@ -189,6 +189,7 @@ internal sealed class IslandPreparedMaterialTexture
 
 internal sealed class IslandPreparedMaterialTextures
 {
+    internal readonly bool loadedFromCache;
     internal readonly IslandMaterialColours colours;
     internal readonly IslandPreparedMaterialTexture dirt;
     internal readonly IslandPreparedMaterialTexture forestFloor;
@@ -204,8 +205,10 @@ internal sealed class IslandPreparedMaterialTextures
         IslandPreparedMaterialTexture rock,
         IslandPreparedMaterialTexture riverBed,
         IslandPreparedMaterialTexture beach,
-        IslandPreparedMaterialTexture fallenStones)
+        IslandPreparedMaterialTexture fallenStones,
+        bool loadedFromCache = false)
     {
+        this.loadedFromCache = loadedFromCache;
         this.colours = colours;
         this.dirt = dirt ?? throw new ArgumentNullException(nameof(dirt));
         this.forestFloor = forestFloor ?? throw new ArgumentNullException(nameof(forestFloor));

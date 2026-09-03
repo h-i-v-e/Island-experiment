@@ -58,7 +58,7 @@ pub use recipe::{
 pub use runtime_materials::{
     IslandMaterialKind, IslandMaterialTextures, MaterialBakeIdentity, MaterialSelection,
     RuntimeMaterialBakeError, RuntimeMaterialBakeOptions, RuntimeMaterialInputs,
-    bake_island_materials,
+    bake_island_materials, runtime_material_revision,
 };
 pub use validation::{RecipeValidationError, RecipeValidationErrors, validate_recipe};
 

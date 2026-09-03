@@ -63,9 +63,11 @@ unload, return, and determinism testing. Phase 6.5 is now in progress: Rust can
 atomically save and directly restore a versioned, compressed, checksummed full
 native island snapshot; Unity performs cache lookup/save on the existing worker,
 routes restored handles through the normal prepared installer, and enforces a
-configurable shared LRU byte budget. Content-addressed recipe textures, the
-manifest/free-space limits, durable deltas, and extended travel/load testing
-remain before Phase 7 introduces a floating origin.
+configurable shared LRU byte budget. Palette-dependent recipe outputs now use a
+separate content-addressed, checksummed bundle keyed by a Rust-owned revision of
+the embedded recipes and texture algorithm, so cache hits also avoid recipe
+baking. The manifest/free-space limits, durable deltas, and extended travel/load
+testing remain before Phase 7 introduces a floating origin.
 
 ## Starting Architecture and Constraints
 

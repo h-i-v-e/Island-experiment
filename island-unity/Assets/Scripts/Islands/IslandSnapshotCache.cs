@@ -9,13 +9,22 @@ internal static class IslandSnapshotCache
     private const int CacheKeySchemaVersion = 1;
     private const string SnapshotExtension = ".motusnapshot";
 
+    internal static string CacheDirectory
+    {
+        get
+        {
+            var directory = System.IO.Path.Combine(
+                Application.persistentDataPath,
+                "GeneratedIslandCache");
+            Directory.CreateDirectory(directory);
+            return directory;
+        }
+    }
+
     internal static string PathFor(IslandGenerationRequest request)
     {
         if (request == null) throw new ArgumentNullException(nameof(request));
-        var directory = System.IO.Path.Combine(
-            Application.persistentDataPath,
-            "GeneratedIslandCache");
-        Directory.CreateDirectory(directory);
+        var directory = CacheDirectory;
         return System.IO.Path.Combine(directory, HashRequest(request) + SnapshotExtension);
     }
 
@@ -50,7 +59,7 @@ internal static class IslandSnapshotCache
         {
             return false;
         }
-        Trim(System.IO.Path.GetDirectoryName(path), budgetBytes, path);
+        TrimToBudget(System.IO.Path.GetDirectoryName(path), budgetBytes, path);
         return true;
     }
 
@@ -132,7 +141,10 @@ internal static class IslandSnapshotCache
         writer.Write(value.maximumSlopeDegrees);
     }
 
-    private static void Trim(string directory, long budgetBytes, string protectedPath)
+    internal static void TrimToBudget(
+        string directory,
+        long budgetBytes,
+        string protectedPath)
     {
         if (string.IsNullOrEmpty(directory) || budgetBytes <= 0 || !Directory.Exists(directory))
         {
@@ -140,7 +152,7 @@ internal static class IslandSnapshotCache
         }
         try
         {
-            var files = new DirectoryInfo(directory).GetFiles("*" + SnapshotExtension);
+            var files = new DirectoryInfo(directory).GetFiles("*.motu*");
             Array.Sort(files, (left, right) =>
                 left.LastWriteTimeUtc.CompareTo(right.LastWriteTimeUtc));
             long total = 0;

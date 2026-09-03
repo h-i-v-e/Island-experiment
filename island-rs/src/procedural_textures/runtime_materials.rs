@@ -7,8 +7,8 @@ use std::{collections::BTreeMap, fmt, sync::OnceLock};
 use sha2::{Digest, Sha256};
 
 use super::{
-    LinearRgb, NormalConvention, RecipeParameterValues, TextureError, TextureRecipe, TextureSet,
-    generate_texture_set_with_parameters,
+    LinearRgb, NormalConvention, RecipeParameterValues, TEXTURE_ALGORITHM_VERSION, TextureError,
+    TextureRecipe, TextureSet, generate_texture_set_with_parameters,
 };
 
 /// Explicit colours selected and owned by an engine.
@@ -140,6 +140,28 @@ impl Default for MaterialSelection {
     fn default() -> Self {
         Self::ALL
     }
+}
+
+/// Content revision for the embedded runtime recipes and texture algorithm.
+/// Engines use this only to invalidate disposable baked-texture caches.
+#[must_use]
+pub fn runtime_material_revision() -> [u64; 2] {
+    static REVISION: OnceLock<[u64; 2]> = OnceLock::new();
+    *REVISION.get_or_init(|| {
+        let mut hasher = Sha256::new();
+        hasher.update(b"motu-runtime-material-revision-v1");
+        hasher.update(TEXTURE_ALGORITHM_VERSION.to_le_bytes());
+        for kind in IslandMaterialKind::ALL {
+            hasher.update([kind as u8]);
+            hasher.update(recipe_json(kind).as_bytes());
+        }
+        let digest: [u8; 32] = hasher.finalize().into();
+        let mut low = [0_u8; 8];
+        low.copy_from_slice(&digest[..8]);
+        let mut high = [0_u8; 8];
+        high.copy_from_slice(&digest[8..16]);
+        [u64::from_le_bytes(low), u64::from_le_bytes(high)]
+    })
 }
 
 /// Resolution, normal convention, and subset requested by an engine.
@@ -364,6 +386,13 @@ fn bake_identity(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn embedded_runtime_material_revision_is_stable_and_nonzero() {
+        let first = runtime_material_revision();
+        assert_eq!(first, runtime_material_revision());
+        assert_ne!(first, [0, 0]);
+    }
 
     fn inputs() -> RuntimeMaterialInputs {
         RuntimeMaterialInputs::new(

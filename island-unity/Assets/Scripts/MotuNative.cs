@@ -220,6 +220,13 @@ internal static class MotuNative
     }
 
     [StructLayout(LayoutKind.Sequential)]
+    internal struct MaterialRevision
+    {
+        internal ulong low;
+        internal ulong high;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
     internal struct ByteArray
     {
         internal IntPtr data;
@@ -488,6 +495,9 @@ internal static class MotuNative
         ref MaterialInputs inputs,
         ref MaterialBakeOptions options,
         out ExportMaterialTextureSet output);
+
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+    internal static extern MaterialRevision GetMotuRuntimeMaterialRevision();
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
     internal static extern void ReleaseMaterialTextureSet(
