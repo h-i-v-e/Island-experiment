@@ -179,7 +179,7 @@ impl RiverSourceRule {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RiverNode {
     pub vertex: usize,
     pub flow: u32,
@@ -187,7 +187,7 @@ pub struct RiverNode {
     pub position: Vec3,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct River {
     pub nodes: Vec<RiverNode>,
     pub join: Option<usize>,

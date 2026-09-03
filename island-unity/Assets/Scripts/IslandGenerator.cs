@@ -1622,7 +1622,9 @@ public sealed class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
             fernOptions,
             worldSize,
             materialColours,
-            materialTextureResolution);
+            materialTextureResolution,
+            generation.UseSnapshotCache,
+            generation.SnapshotCacheBudgetBytes);
         var installationBudget = new UnityFrameBudget(
             installationFrameBudgetMilliseconds);
 
@@ -1715,7 +1717,8 @@ public sealed class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
             generationTimer.Stop();
             status = string.Format(
                 CultureInfo.InvariantCulture,
-                "CPU | Seed {0} | 64 LOD 2 tiles | {1:N0} vertices | {2:N0} triangles | {3:F2}s",
+                "{0} | Seed {1} | 64 LOD 2 tiles | {2:N0} vertices | {3:N0} triangles | {4:F2}s",
+                prepared.loadedFromSnapshot ? "Disk cache" : "CPU",
                 islandSeed,
                 terrainStreamer.BaseVertexCount,
                 terrainStreamer.BaseTriangleCount,
@@ -1984,6 +1987,25 @@ public sealed class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
     }
 
     internal static IslandPreparedData PrepareIsland(
+        IslandGenerationRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (request == null) throw new ArgumentNullException(nameof(request));
+        return PrepareIsland(
+            request.Descriptor.Seed,
+            request.Options,
+            request.ForestOptions,
+            request.ReedOptions,
+            request.FernOptions,
+            request.WorldSizeMetres,
+            request.MaterialColours,
+            request.MaterialTextureResolution,
+            cancellationToken,
+            request.SnapshotPath,
+            request.SnapshotCacheBudgetBytes);
+    }
+
+    internal static IslandPreparedData PrepareIsland(
         int islandSeed,
         MotuNative.Options options,
         MotuNative.ForestOptions forestOptions,
@@ -1992,14 +2014,22 @@ public sealed class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
         float worldSize,
         IslandMaterialColours materialColours,
         int materialTextureResolution,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string snapshotPath = null,
+        long snapshotCacheBudgetBytes = 0L)
     {
-        var handle = MotuNative.CreateMotuWithForestReedsAndFerns(
-            islandSeed,
-            ref options,
-            ref forestOptions,
-            ref reedOptions,
-            ref fernOptions);
+        cancellationToken.ThrowIfCancellationRequested();
+        var handle = IslandSnapshotCache.TryLoad(snapshotPath, out var loadStatus);
+        var generated = handle == IntPtr.Zero;
+        if (generated)
+        {
+            handle = MotuNative.CreateMotuWithForestReedsAndFerns(
+                islandSeed,
+                ref options,
+                ref forestOptions,
+                ref reedOptions,
+                ref fernOptions);
+        }
         if (handle == IntPtr.Zero)
         {
             throw new InvalidOperationException(
@@ -2008,6 +2038,17 @@ public sealed class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
 
         try
         {
+            if (generated
+                && !string.IsNullOrEmpty(snapshotPath)
+                && !IslandSnapshotCache.TrySave(
+                    handle,
+                    snapshotPath,
+                    snapshotCacheBudgetBytes))
+            {
+                Debug.LogWarning(
+                    $"Generated island {islandSeed} but could not cache its native snapshot "
+                    + $"(previous load status {loadStatus}).");
+            }
             cancellationToken.ThrowIfCancellationRequested();
             var surfaceMaps = PrepareSurfaceMaps(handle, SurfaceMapDimension);
             cancellationToken.ThrowIfCancellationRequested();
@@ -2035,6 +2076,7 @@ public sealed class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
             cancellationToken.ThrowIfCancellationRequested();
             var result = new IslandPreparedData(
                 handle,
+                !generated,
                 surfaceMaps,
                 seaMask,
                 overviewTiles,

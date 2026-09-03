@@ -164,7 +164,7 @@ impl SurfaceMaterial {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(super) struct TerrainMaterialField {
     pub(super) values: Vec<Vec4>,
 }
@@ -228,7 +228,7 @@ impl TerrainMaterialField {
 
 /// Additional terrain vertex signals exported independently from the four
 /// established material channels: x = forest floor, y = settled stones.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(super) struct TerrainEnvironmentField {
     pub(super) values: Vec<Vec2>,
 }

@@ -10,7 +10,7 @@ pub enum Decoration {
     Rock,
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Decorations {
     pub(super) trees: Vec<Vec3>,
     pub(super) bushes: Vec<Vec3>,

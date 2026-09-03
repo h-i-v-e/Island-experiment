@@ -10,6 +10,13 @@ public sealed class IslandGenerationSettings
     [Tooltip("Generate this island automatically when the level enters Play Mode.")]
     [SerializeField] private bool generateOnStart = true;
 
+    [Tooltip("Restore previously generated islands from the persistent on-disk snapshot cache.")]
+    [SerializeField] private bool useSnapshotCache = true;
+
+    [Tooltip("Maximum shared generated-island snapshot cache size in GiB. Old snapshots are removed first.")]
+    [Range(1, 64)]
+    [SerializeField] private int snapshotCacheBudgetGiB = 8;
+
     [Tooltip("Deterministic seed used by the native island generator.")]
     [SerializeField] private int seed = 666;
 
@@ -66,6 +73,9 @@ public sealed class IslandGenerationSettings
     [SerializeField] private float depositionMaximumSlopeDegrees = 12f;
 
     public bool GenerateOnStart => generateOnStart;
+    internal bool UseSnapshotCache => useSnapshotCache;
+    internal long SnapshotCacheBudgetBytes =>
+        (long)Mathf.Clamp(snapshotCacheBudgetGiB, 1, 64) * 1024L * 1024L * 1024L;
     public int Seed { get => seed; set => seed = value; }
     public float WorldSizeMetres => Mathf.Max(worldSizeMetres, 100f);
     public float MaximumHeightMetres => Mathf.Clamp(

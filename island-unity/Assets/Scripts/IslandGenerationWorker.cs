@@ -9,16 +9,7 @@ internal static class IslandGenerationWorker
     {
         if (request == null) throw new System.ArgumentNullException(nameof(request));
         return Task.Run(
-            () => IslandGenerator.PrepareIsland(
-                request.Descriptor.Seed,
-                request.Options,
-                request.ForestOptions,
-                request.ReedOptions,
-                request.FernOptions,
-                request.WorldSizeMetres,
-                request.MaterialColours,
-                request.MaterialTextureResolution,
-                cancellationToken),
+            () => IslandGenerator.PrepareIsland(request, cancellationToken),
             cancellationToken);
     }
 

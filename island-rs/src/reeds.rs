@@ -101,14 +101,14 @@ pub(crate) struct ReedSurface<'a> {
     pub(crate) waterfall_feet: &'a [WaterfallFoot],
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct ReedMeshTile {
     pub(crate) mesh: Mesh,
     pub(crate) material: Vec<Vec4>,
     pub(crate) environment: Vec<Vec2>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct ReedMeshes {
     tiles: Vec<ReedMeshTile>,
     forest_exclusion_vertices: Vec<u32>,

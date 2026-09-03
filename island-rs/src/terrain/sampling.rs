@@ -4,7 +4,7 @@ use super::{
     triangle_bin_bounds,
 };
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(super) struct TriangleIndex {
     pub(super) dimension: usize,
     pub(super) offsets: Vec<usize>,
@@ -123,7 +123,7 @@ impl TriangleIndex {
 ///
 /// The index uses bins only to locate triangles for sampling. It never defines
 /// vertices, connectivity, erosion, flow, rivers, or levels of detail.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Terrain {
     pub(super) mesh: Mesh,
     pub(super) triangle_index: TriangleIndex,

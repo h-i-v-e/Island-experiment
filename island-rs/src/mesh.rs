@@ -18,7 +18,7 @@ pub const CLAMP_LEFT: u8 = 2;
 pub const CLAMP_BOTTOM: u8 = 4;
 pub const CLAMP_RIGHT: u8 = 8;
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Mesh {
     pub vertices: Vec<Vec3>,
     pub normals: Vec<Vec3>,

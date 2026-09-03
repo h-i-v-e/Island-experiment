@@ -34,7 +34,7 @@ pub(super) struct WaterfallPatch {
     pub(super) pool: Option<PlungePool>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct WaterfallFoot {
     pub(crate) position: Vec3,
     pub(crate) direction: Vec3,

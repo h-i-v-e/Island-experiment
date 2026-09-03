@@ -325,6 +325,15 @@ The included plugin is built for Apple Silicon. Other platforms need their own
 Rust `cdylib` in the corresponding Unity plugin folder. Restart Unity after
 deployment because the editor does not hot-reload native libraries.
 
+Generated islands are cached as complete native snapshots under
+`Application.persistentDataPath/GeneratedIslandCache`. A cache hit restores the
+terrain, spatial index, LODs, rivers, waterfall data, vegetation meshes, and
+decorations without rerunning terrain generation. Snapshot files are versioned,
+Zstandard-compressed, checksummed, written through a temporary file, and keyed
+from every geometry-generation input. `Island Generation > Use Snapshot Cache`
+can disable the cache; its shared LRU byte budget defaults to 8 GiB. Invalid or
+obsolete snapshots are discarded and safely fall back to CPU generation.
+
 For an editor compile plus native ABI, streamed tile, UV, support mesh,
 waterfall-foot export, fog-pool, and collider-cooking check, run:
 

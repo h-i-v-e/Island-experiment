@@ -358,6 +358,7 @@ internal sealed class IslandPreparedColliderHeightMap
 internal sealed class IslandPreparedData : IDisposable
 {
     internal NativeIslandHandle handle;
+    internal readonly bool loadedFromSnapshot;
     internal readonly IslandPreparedSurfaceMaps surfaceMaps;
     internal readonly IslandPreparedSeaMask seaMask;
     internal readonly IslandPreparedMesh[] overviewTiles;
@@ -372,6 +373,7 @@ internal sealed class IslandPreparedData : IDisposable
 
     internal IslandPreparedData(
         IntPtr handle,
+        bool loadedFromSnapshot,
         IslandPreparedSurfaceMaps surfaceMaps,
         IslandPreparedSeaMask seaMask,
         IslandPreparedMesh[] overviewTiles,
@@ -385,6 +387,7 @@ internal sealed class IslandPreparedData : IDisposable
         IslandPreparedMaterialTextures materialTextures)
     {
         this.handle = new NativeIslandHandle(handle);
+        this.loadedFromSnapshot = loadedFromSnapshot;
         this.surfaceMaps = surfaceMaps;
         this.seaMask = seaMask;
         this.overviewTiles = overviewTiles;

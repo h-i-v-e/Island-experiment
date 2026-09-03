@@ -9,7 +9,7 @@ use std::{
     cmp::Ordering,
     collections::{BinaryHeap, HashSet},
     fs::File,
-    io::{self, Read, Write},
+    io::{self, Read},
     mem::{self, size_of},
     path::Path,
     sync::OnceLock,
@@ -42,6 +42,7 @@ mod gpu_generation;
 mod lod;
 mod material;
 mod sampling;
+mod snapshot;
 mod surface_maps;
 
 pub(crate) use decorations::SettledRock;
@@ -76,7 +77,7 @@ const TRIANGLE_INDEX_OFFSET_BUDGET_BYTES: usize = 32 * 1024 * 1024;
 const TERRAIN_RENDER_FLOOR: f32 = -5.0 / ISLAND_WORLD_METRES;
 pub(crate) const LOOSE_DEPTH_EPSILON: f32 = 1.0e-8;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[repr(C)]
 pub struct IslandOptions {
     pub max_height: f32,
@@ -167,7 +168,7 @@ impl IslandOptions {
         }
     }
 
-    fn validate(self) -> Result<Self, String> {
+    pub(super) fn validate(self) -> Result<Self, String> {
         if !self.max_height.is_finite() || self.max_height <= 0.0 {
             return Err("max_height must be finite and greater than zero".into());
         }

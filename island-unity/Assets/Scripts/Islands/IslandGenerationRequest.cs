@@ -10,6 +10,8 @@ internal sealed class IslandGenerationRequest
     internal float WorldSizeMetres { get; }
     internal IslandMaterialColours MaterialColours { get; }
     internal int MaterialTextureResolution { get; }
+    internal string SnapshotPath { get; }
+    internal long SnapshotCacheBudgetBytes { get; }
 
     internal IslandGenerationRequest(
         IslandDescriptor descriptor,
@@ -19,7 +21,9 @@ internal sealed class IslandGenerationRequest
         MotuNative.FernOptions fernOptions,
         float worldSizeMetres,
         IslandMaterialColours materialColours,
-        int materialTextureResolution)
+        int materialTextureResolution,
+        bool useSnapshotCache = true,
+        long snapshotCacheBudgetBytes = 8L * 1024L * 1024L * 1024L)
     {
         if (string.IsNullOrWhiteSpace(descriptor.IslandId))
         {
@@ -45,5 +49,7 @@ internal sealed class IslandGenerationRequest
         WorldSizeMetres = worldSizeMetres;
         MaterialColours = materialColours;
         MaterialTextureResolution = materialTextureResolution;
+        SnapshotCacheBudgetBytes = Math.Max(snapshotCacheBudgetBytes, 0L);
+        SnapshotPath = useSnapshotCache ? IslandSnapshotCache.PathFor(this) : null;
     }
 }

@@ -91,14 +91,14 @@ pub(crate) struct FernSurface<'a> {
     pub(crate) snowline_metres: f32,
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct FernMeshTile {
     pub(crate) mesh: Mesh,
     pub(crate) material: Vec<Vec4>,
     pub(crate) environment: Vec<Vec2>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct FernMeshes {
     tiles: Vec<FernMeshTile>,
     support_vertices: Vec<u32>,

@@ -10,7 +10,7 @@ use super::{
     ParallelIterator, ParallelSliceMut, Path, Raster, Read, River, RiverChannelSettings,
     RiverNetwork, RiverSourceRule, Rng, SHARP_ROCK_DISPLACEMENT_RATIO, StageTimer, SurfaceMaps,
     SurfaceMaterial, TERRAIN_RENDER_FLOOR, Terrain, TerrainEnvironmentField, TerrainMaterialField,
-    Vec2, Vec3, Vec4, Write, append_settled_rocks, bake_surface_maps, bury_river_banks,
+    Vec2, Vec3, Vec4, append_settled_rocks, bake_surface_maps, bury_river_banks,
     encode_bank_distance_in_uv, erode_mesh, fix_inland_seas, geology, hydraulic_erode_stage,
     hydraulic_erode_stage_depositing_across_sea, io, legacy_catchment_hectares, mem, noise,
     sample_grid,
@@ -778,55 +778,26 @@ impl Island {
         map
     }
 
-    /// Saves the reproducible seed and generation options.
+    /// Saves the complete generated island as a versioned, compressed snapshot.
     ///
     /// # Errors
     ///
     /// Returns an I/O error if the destination cannot be created or written.
     pub fn save(&self, path: impl AsRef<Path>) -> io::Result<()> {
-        let mut file = File::create(path)?;
-        file.write_all(b"MOTURS\0\x14")?;
-        file.write_all(&self.seed.to_le_bytes())?;
-        for value in [
-            self.options.max_height,
-            self.options.water_ratio,
-            self.options.slope_multiplier,
-            self.options.coastal_slope_multiplier,
-            self.options.hydraulic_erosion_strength,
-            self.options.hydraulic_deposition_strength,
-            self.options.hydraulic_deposition_slope_degrees,
-            self.options.river_source_catchment_hectares,
-            self.options.river_source_steep_multiplier,
-            self.options.river_source_elevation_boost,
-            self.options.river_source_width_metres,
-            self.options.river_maximum_width_metres,
-            self.options.river_source_depth_metres,
-            self.options.river_maximum_depth_metres,
-            self.options.continental_noise_frequency,
-            self.options.continental_noise_strength,
-            self.options.detail_noise_frequency,
-            self.options.detail_noise_strength,
-            self.options.land_mass_offset,
-        ] {
-            file.write_all(&value.to_le_bytes())?;
-        }
-        file.write_all(&self.options.terrain_size.to_le_bytes())?;
-        file.write_all(&self.forest_options.patch_size_metres.to_le_bytes())?;
-        file.write_all(&self.forest_options.noise_threshold.to_le_bytes())?;
-        file.write_all(&[self.forest_options.noise_octaves])?;
-        file.write_all(&self.forest_options.snowline_metres.to_le_bytes())?;
-        file.write_all(&[self.forest_options.prototype_count])?;
-        file.write_all(&self.forest_options.minimum_scale.to_le_bytes())?;
-        file.write_all(&self.forest_options.maximum_scale.to_le_bytes())?;
-        file.write_all(&[self.generation_method.tag()])
+        super::snapshot::save(self, path.as_ref())
     }
 
-    /// Loads a saved seed/options file and deterministically regenerates it.
+    /// Restores a complete generated snapshot. Legacy seed/options files remain
+    /// readable and are deterministically regenerated for compatibility.
     ///
     /// # Errors
     ///
     /// Returns an I/O error for unreadable, truncated, or invalid input.
     pub fn load(path: impl AsRef<Path>) -> io::Result<Self> {
+        let path = path.as_ref();
+        if super::snapshot::is_snapshot(path)? {
+            return super::snapshot::load(path);
+        }
         let mut reader = SavedIslandReader::new(File::open(path)?)?;
         let seed = reader.read_u64()?;
         let (options, forest_options) = reader.read_options()?;

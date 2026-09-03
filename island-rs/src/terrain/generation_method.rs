@@ -6,7 +6,9 @@ use std::{fmt, str::FromStr};
 /// accelerates hydraulic erosion and rock settling while retaining the CPU
 /// river and waterfall builder. It is available when the crate is built with
 /// the `gpu-generation` feature.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize,
+)]
 pub enum GenerationMethod {
     #[default]
     Cpu,

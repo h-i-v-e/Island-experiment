@@ -9,6 +9,7 @@
 use std::{
     alloc::{Layout, alloc, dealloc, handle_alloc_error},
     ffi::{CStr, c_char, c_void},
+    io,
     mem::{align_of, size_of},
     path::PathBuf,
     ptr,
@@ -1966,23 +1967,61 @@ pub unsafe extern "C" fn ReleaseSeaDepthMap(data: *mut f32) {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn SaveMotu(handle: *const c_void, path: *const c_char) {
+    let _ = unsafe { SaveMotuSnapshot(handle, path) };
+}
+
+/// Saves a complete generated-island snapshot directly to `path`.
+///
+/// Returns zero on success, one for an invalid argument, two when the path is
+/// missing, three for corrupt/unsupported data, and four for another I/O error.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn SaveMotuSnapshot(handle: *const c_void, path: *const c_char) -> i32 {
     let Some(island) = (unsafe { island_ref(handle) }) else {
-        return;
+        return 1;
     };
     let Some(path) = (unsafe { path_from_c(path) }) else {
-        return;
+        return 1;
     };
-    let _ = island.save(path);
+    island.save(path).map_or_else(snapshot_error_status, |()| 0)
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn LoadMotu(path: *const c_char) -> *mut c_void {
+    unsafe { LoadMotuSnapshot(path, ptr::null_mut()) }
+}
+
+/// Loads a generated snapshot, returning ownership of a normal island handle.
+/// `status` receives the same status codes as `SaveMotuSnapshot` when non-null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn LoadMotuSnapshot(path: *const c_char, status: *mut i32) -> *mut c_void {
+    if let Some(status) = unsafe { status.as_mut() } {
+        *status = 1;
+    }
     let Some(path) = (unsafe { path_from_c(path) }) else {
         return ptr::null_mut();
     };
-    Island::load(path).map_or(ptr::null_mut(), |island| {
-        Box::into_raw(Box::new(island)).cast()
-    })
+    match Island::load(path) {
+        Ok(island) => {
+            if let Some(status) = unsafe { status.as_mut() } {
+                *status = 0;
+            }
+            Box::into_raw(Box::new(island)).cast()
+        }
+        Err(error) => {
+            if let Some(status) = unsafe { status.as_mut() } {
+                *status = snapshot_error_status(error);
+            }
+            ptr::null_mut()
+        }
+    }
+}
+
+fn snapshot_error_status(error: io::Error) -> i32 {
+    match error.kind() {
+        io::ErrorKind::NotFound => 2,
+        io::ErrorKind::InvalidData | io::ErrorKind::UnexpectedEof => 3,
+        _ => 4,
+    }
 }
 
 #[unsafe(no_mangle)]

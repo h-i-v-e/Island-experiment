@@ -59,8 +59,13 @@ time-based main-thread installation budget. A hard resident-island budget now
 evicts the least relevant non-focused runtime before the next native generation
 can allocate, keeping native handles and per-island GPU/mesh memory bounded.
 Its remaining gates are extended play-mode travel, turn-away cancellation,
-unload, return, and determinism testing, followed by the required disk-backed
-island cache in Phase 6.5 before Phase 7 introduces a floating origin.
+unload, return, and determinism testing. Phase 6.5 is now in progress: Rust can
+atomically save and directly restore a versioned, compressed, checksummed full
+native island snapshot; Unity performs cache lookup/save on the existing worker,
+routes restored handles through the normal prepared installer, and enforces a
+configurable shared LRU byte budget. Content-addressed recipe textures, the
+manifest/free-space limits, durable deltas, and extended travel/load testing
+remain before Phase 7 introduces a floating origin.
 
 ## Starting Architecture and Constraints
 

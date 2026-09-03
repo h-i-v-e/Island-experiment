@@ -29,7 +29,7 @@ const CANOPY_PATCH_RESOLUTION: usize = 64;
 const DEFAULT_FOREST_NOISE_THRESHOLD: f32 = 0.62;
 
 /// Physical and deterministic controls for forest generation.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ForestOptions {
     pub patch_size_metres: f32,
     pub noise_threshold: f32,
@@ -144,7 +144,7 @@ pub(crate) struct ForestMeshTile {
 ///
 /// `triangle_count` counts entries in `Mesh::triangles` (and is therefore a
 /// multiple of three), rather than counting geometric triangles.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct MeshRange {
     pub(crate) vertex_start: u32,
     pub(crate) vertex_count: u32,
@@ -167,7 +167,7 @@ impl MeshRange {
 }
 
 /// One accepted candidate and its stable appearance variation.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct TreePlacement {
     pub(crate) terrain_vertex: u32,
     pub(crate) anchor: Vec3,
@@ -343,7 +343,7 @@ impl TreeExclusionZone {
 }
 
 /// Ranges for the three wood streams belonging to a single tree.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct ForestTreeRanges {
     pub(crate) terrain_vertex: u32,
     pub(crate) anchor: Vec3,
@@ -358,7 +358,7 @@ pub(crate) struct ForestTreeRanges {
 /// A cluster owns one contiguous range in each combined foliage stream. Its
 /// member indices refer to `ForestMeshes::trees` and remain in terrain-vertex
 /// order, so grid extraction can copy a complete cluster exactly once.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct ForestClusterRanges {
     pub(crate) owner_anchor: Vec3,
     pub(crate) member_tree_indices: Vec<usize>,
@@ -369,7 +369,7 @@ pub(crate) struct ForestClusterRanges {
 
 /// Authoritative combined forest streams with tree-wood and cluster-foliage
 /// ownership metadata.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct ForestMeshes {
     pub(crate) lod0_wood: Mesh,
     pub(crate) lod0_foliage: Mesh,
@@ -590,7 +590,7 @@ pub(crate) fn forest_floor_mask(
 }
 
 /// Mutually exclusive diagnostics for final-LOD0 placement.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct ForestGenerationStats {
     pub(crate) total_lod0_vertices: usize,
     pub(crate) invalid: usize,

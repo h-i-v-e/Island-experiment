@@ -330,6 +330,12 @@ internal static class MotuNative
     internal static extern void ReleaseMotu(IntPtr handle);
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+    internal static extern int SaveMotuSnapshot(IntPtr handle, string path);
+
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+    internal static extern IntPtr LoadMotuSnapshot(string path, out int status);
+
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
     internal static extern void CreateProceduralTree(
         int seed,
         out ExportMesh lod0Wood,
