@@ -1009,7 +1009,6 @@ impl RiverNetwork {
                 &mut self.rivers[river_index].nodes,
                 &mut self.waterfalls[river_index],
                 mouth,
-                self.max_height,
                 &self.cross_sections[river_index],
                 budget,
             );

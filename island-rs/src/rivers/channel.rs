@@ -664,7 +664,14 @@ pub(super) fn river_node_floor(
             },
             |section| section.required_depth,
         );
-    Some(node.surface - depth)
+    let surface = network
+        .river_mesh_ends
+        .get(river)
+        .copied()
+        .flatten()
+        .filter(|&mesh_end| node_index >= mesh_end)
+        .map_or(node.surface, |_| 0.0);
+    Some(surface - depth)
 }
 
 #[derive(Clone, Copy, Debug)]

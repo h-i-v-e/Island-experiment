@@ -1549,6 +1549,53 @@ fn tributary_keeps_its_water_when_it_joins_before_the_receiver_mouth() {
 }
 
 #[test]
+fn submerged_river_floor_uses_channel_depth_below_sea_not_below_its_profile() {
+    let mesh = Mesh {
+        vertices: vec![Vec3::new(0.0, 0.0, -0.02)],
+        ..Mesh::default()
+    };
+    let adjacency = mesh.adjacency();
+    let channel_depth = 0.004;
+    let network = RiverNetwork {
+        rivers: vec![River {
+            nodes: vec![RiverNode {
+                vertex: 0,
+                flow: 10,
+                surface: -0.02,
+                position: mesh.vertices[0],
+            }],
+            join: None,
+        }],
+        join_vertices: vec![None],
+        waterfalls: vec![vec![false]],
+        river_mesh_ends: vec![Some(0)],
+        max_flow: 10,
+        max_height: 1.0,
+        ocean: vec![true],
+        perimeter: vec![true],
+        cross_sections: vec![vec![RiverCrossSection {
+            required_depth: channel_depth,
+            ..RiverCrossSection::default()
+        }]],
+    };
+
+    let floor = river_node_floor(
+        &network,
+        &mesh,
+        &adjacency,
+        0,
+        0,
+        RiverChannelParameters {
+            depth_multiplier: 1.0,
+        },
+    )
+    .unwrap();
+
+    assert_eq!(floor.to_bits(), (-channel_depth).to_bits());
+    assert!(mesh.vertices[0].z < floor);
+}
+
+#[test]
 fn lower_sibling_tributary_sets_the_shared_confluence_level() {
     let node = |vertex, surface| RiverNode {
         vertex,
@@ -4769,8 +4816,16 @@ fn river_mouth_reuses_the_last_existing_waterfall_for_its_submerged_channel() {
     let mut waterfalls = vec![false; nodes.len()];
     waterfalls[3] = true;
     waterfalls[6] = true;
+    let channel_depth = 0.003;
+    let cross_sections = vec![
+        RiverCrossSection {
+            required_depth: channel_depth,
+            ..RiverCrossSection::default()
+        };
+        nodes.len()
+    ];
     let ocean: Vec<bool> = (0..nodes.len()).map(|index| index >= 8).collect();
-    let ocean_entry = river_ocean_entry(&nodes, &ocean, &[]).unwrap();
+    let ocean_entry = river_ocean_entry(&nodes, &ocean, &cross_sections).unwrap();
     let mouth = river_mouth_transition(ocean_entry, &waterfalls);
 
     assert_eq!(
@@ -4795,8 +4850,7 @@ fn river_mouth_reuses_the_last_existing_waterfall_for_its_submerged_channel() {
             &mut nodes,
             &mut waterfalls,
             mouth,
-            0.2,
-            &[],
+            &cross_sections,
             &mut budget,
         );
     }
@@ -4814,12 +4868,16 @@ fn river_mouth_reuses_the_last_existing_waterfall_for_its_submerged_channel() {
             .windows(2)
             .all(|pair| pair[0].surface + f32::EPSILON >= pair[1].surface)
     );
-    let mouth_depth = 0.2 * 0.0025;
+    assert!(
+        nodes[7..]
+            .iter()
+            .all(|node| { node.surface.to_bits() == (-RIVER_SURFACE_OFFSET).to_bits() })
+    );
     assert!(
         mesh.vertices[7..]
             .iter()
             .zip(&nodes[7..])
-            .all(|(vertex, node)| vertex.z <= node.surface - mouth_depth + f32::EPSILON)
+            .all(|(vertex, _)| vertex.z <= -channel_depth + f32::EPSILON)
     );
     assert!(budget.carried > 0.0);
 }
@@ -4844,7 +4902,18 @@ fn river_without_a_waterfall_is_carved_entirely_below_the_sea_plane() {
             position,
         })
         .collect();
+    let already_deep = -0.02;
+    mesh.vertices[5].z = already_deep;
+    nodes[5].surface = already_deep;
     let mut waterfalls = vec![false; nodes.len()];
+    let channel_depth = 0.004;
+    let cross_sections = vec![
+        RiverCrossSection {
+            required_depth: channel_depth,
+            ..RiverCrossSection::default()
+        };
+        nodes.len()
+    ];
     let mouth = river_mouth_transition(4, &waterfalls);
     assert_eq!(
         mouth,
@@ -4872,15 +4941,24 @@ fn river_without_a_waterfall_is_carved_entirely_below_the_sea_plane() {
             &mut nodes,
             &mut waterfalls,
             mouth,
-            0.2,
-            &[],
+            &cross_sections,
             &mut budget,
         );
     }
 
     assert!(waterfalls.iter().all(|&waterfall| !waterfall));
-    assert!(nodes.iter().all(|node| node.surface < 0.0));
-    assert!(mesh.vertices.iter().all(|vertex| vertex.z < 0.0));
+    assert!(
+        nodes[..5]
+            .iter()
+            .all(|node| { node.surface.to_bits() == (-RIVER_SURFACE_OFFSET).to_bits() })
+    );
+    assert_eq!(nodes[5].surface.to_bits(), already_deep.to_bits());
+    assert_eq!(mesh.vertices[5].z.to_bits(), already_deep.to_bits());
+    assert!(
+        mesh.vertices
+            .iter()
+            .all(|vertex| vertex.z <= -channel_depth + f32::EPSILON)
+    );
     assert!(budget.carried > 0.0);
 }
 

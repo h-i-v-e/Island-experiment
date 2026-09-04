@@ -6,10 +6,9 @@ using UnityEngine;
 
 internal static class IslandSnapshotCache
 {
-    // Generation semantics changed: final river mouths and joined branches now
-    // reconcile their submerged sea handoffs. Bump the request key so cached
-    // islands cannot retain the obsolete river-water topology.
-    private const int CacheKeySchemaVersion = 3;
+    // Generation semantics changed: submerged river floors now use the normal
+    // channel depth below sea level and preserve already-deeper terrain.
+    private const int CacheKeySchemaVersion = 4;
     private const string SnapshotExtension = ".motusnapshot";
 
     internal static string CacheDirectory

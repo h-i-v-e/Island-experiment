@@ -1,7 +1,7 @@
 use super::{
     Adjacency, BinaryHeap, HashSet, MAXIMUM_GENTLE_RIVER_GRADE, Mesh, Ordering,
     RIVER_CHANNEL_DRAINAGE_FLOOR, RIVER_SURFACE_OFFSET, RiverChannelSettings, RiverCrossSection,
-    RiverNode, RiverSedimentBudget, SEA_PLANE_CLEARANCE, SurfaceMaterial, Vec2, VecDeque,
+    RiverNode, RiverSedimentBudget, SurfaceMaterial, Vec2, VecDeque,
     WATERFALL_LANDING_LENGTH_MULTIPLIER, WATERFALL_REFERENCE_ISLAND_HEIGHT,
     WATERFALL_SITE_BYPASS_MAX_HOPS, WATERFALL_SITE_MINIMUM_BANK_SPAN_FRACTION,
     WATERFALL_SUPPORT_RUN, WATERFALL_TARGET_EDGE_LENGTH, WaterfallClearanceIndex, WaterfallPatch,
@@ -207,7 +207,6 @@ pub(super) fn shape_and_carve_river(
             nodes,
             waterfalls,
             mouth,
-            parameters.max_height,
             parameters.cross_sections,
             &mut budget,
         );
@@ -936,34 +935,27 @@ pub(super) fn carve_submerged_river_mouth(
     nodes: &mut [RiverNode],
     waterfalls: &mut [bool],
     mouth: RiverMouthTransition,
-    max_height: f32,
     cross_sections: &[RiverCrossSection],
     budget: &mut RiverSedimentBudget,
 ) -> bool {
-    let mouth_depth = (max_height * 0.0025).max(0.000_02);
-    let first_submerged_surface = -mouth_depth.max(SEA_PLANE_CLEARANCE * 2.0);
-    let submerged_nodes = nodes.len() - mouth.river_mesh_end;
-    let span = submerged_nodes.saturating_sub(1).max(1) as f32;
     if let Some(waterfall_segment) = mouth.waterfall_segment {
         waterfalls[waterfall_segment] = true;
     }
     waterfalls[mouth.river_mesh_end..].fill(false);
 
     let mut changed = false;
-    for (offset, node) in nodes[mouth.river_mesh_end..].iter_mut().enumerate() {
-        let progress = offset as f32 / span;
-        let target_surface = first_submerged_surface - mouth_depth * 0.5 * progress;
+    for (node_index, node) in nodes.iter_mut().enumerate().skip(mouth.river_mesh_end) {
+        let target_surface = -RIVER_SURFACE_OFFSET;
         if node.surface > target_surface + f32::EPSILON {
             node.surface = target_surface;
             changed = true;
         }
-        let node_index = mouth.river_mesh_end + offset;
         let channel_depth = cross_sections
             .get(node_index)
-            .map_or(mouth_depth, |section| {
-                section.required_depth.max(mouth_depth)
-            });
-        let target_bed = node.surface - channel_depth;
+            .map(|section| section.required_depth)
+            .filter(|depth| depth.is_finite() && *depth > 0.0)
+            .unwrap_or(RIVER_SURFACE_OFFSET);
+        let target_bed = -channel_depth;
         let depth = (terrain.mesh.vertices[node.vertex].z - target_bed).max(0.0);
         changed |= depth > f32::EPSILON;
         terrain.lower_vertex_exactly(node.vertex, depth, budget);
