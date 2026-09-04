@@ -219,8 +219,7 @@ public sealed partial class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
     public IslandFernSettings Ferns =>
         configuration != null ? configuration.Ferns : ferns;
     public IslandStreamingSettings Streaming => streaming;
-    public IslandCloudSettings Clouds =>
-        configuration != null ? configuration.Clouds : clouds;
+    public IslandCloudSettings Clouds => clouds;
     public IslandRenderingSettings Rendering =>
         configuration != null ? configuration.Rendering : rendering;
     public IslandDecorationSettings Decorations =>
@@ -615,7 +614,7 @@ public sealed partial class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
         terrainStreamer?.ClearPlayerFocus();
     }
 
-    internal void ConfigureWorldManagement(bool environmentAuthority)
+    internal void ConfigureWorldManagement()
     {
         if (generationInProgress || islandRuntime != null)
         {
@@ -623,8 +622,49 @@ public sealed partial class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
                 "World management must be configured before island generation starts.");
         }
         worldManaged = true;
-        controlsWorldEnvironment = environmentAuthority;
+        controlsWorldEnvironment = false;
         environmentFollowTarget = Streaming.Target;
+    }
+
+    internal void ApplyIslandProfile(
+        int islandSeed,
+        IslandParameterVariationSettings variation)
+    {
+        if (generationInProgress || islandRuntime != null)
+        {
+            throw new InvalidOperationException(
+                "Island parameters must be selected before generation starts.");
+        }
+        if (configuration != null)
+        {
+            JsonUtility.FromJsonOverwrite(
+                JsonUtility.ToJson(configuration.Generation),
+                generation);
+            JsonUtility.FromJsonOverwrite(
+                JsonUtility.ToJson(configuration.Rivers),
+                rivers);
+            JsonUtility.FromJsonOverwrite(
+                JsonUtility.ToJson(configuration.Forest),
+                forest);
+            JsonUtility.FromJsonOverwrite(
+                JsonUtility.ToJson(configuration.Reeds),
+                reeds);
+            JsonUtility.FromJsonOverwrite(
+                JsonUtility.ToJson(configuration.Ferns),
+                ferns);
+            JsonUtility.FromJsonOverwrite(
+                JsonUtility.ToJson(configuration.Rendering),
+                rendering);
+            JsonUtility.FromJsonOverwrite(
+                JsonUtility.ToJson(configuration.Decorations),
+                decorations);
+            JsonUtility.FromJsonOverwrite(
+                JsonUtility.ToJson(configuration.DebugSettings),
+                debugSettings);
+            configuration = null;
+        }
+        generation.Seed = islandSeed;
+        generation.ApplyDeterministicVariation(islandSeed, variation);
     }
 
     internal void SetRuntimeDormant(bool dormant)
@@ -654,14 +694,14 @@ public sealed partial class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
         worldEnvironment.SetFollowTarget(target);
     }
 
-    internal void SyncSharedWorldLighting(IslandGenerator authority)
+    internal void SyncSharedWorldLighting(WorldEnvironmentController environment)
     {
-        if (authority == null || ReferenceEquals(authority, this))
+        if (environment == null)
         {
             return;
         }
-        currentSkyExposure = authority.currentSkyExposure;
-        currentNightStrength = authority.currentNightStrength;
+        currentSkyExposure = environment.SkyExposure;
+        currentNightStrength = environment.NightStrength;
         riverMaterial?.SetFloat(WaterSkyExposureId, currentSkyExposure);
         treeFoliageMaterial?.SetFloat(NightStrengthId, currentNightStrength);
         var light = RenderSettings.sun;

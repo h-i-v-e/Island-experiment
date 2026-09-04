@@ -38,13 +38,17 @@ public static class IslandGeneratorValidation
                 || configuration.Forest == null
                 || configuration.Reeds == null
                 || configuration.Ferns == null
-                || configuration.Clouds == null
                 || configuration.Rendering == null
                 || configuration.Decorations == null
                 || configuration.DebugSettings == null)
             {
                 throw new InvalidOperationException(
                     "A new IslandConfiguration is missing a reusable settings group.");
+            }
+            if (typeof(IslandConfiguration).GetProperty("Clouds") != null)
+            {
+                throw new InvalidOperationException(
+                    "World weather must not be stored in per-island configuration assets.");
             }
             if (typeof(IslandConfiguration).GetProperty("Streaming") != null)
             {
@@ -55,6 +59,20 @@ public static class IslandGeneratorValidation
         finally
         {
             UnityEngine.Object.DestroyImmediate(configuration);
+        }
+
+        var environment = ScriptableObject.CreateInstance<WorldEnvironmentConfiguration>();
+        try
+        {
+            if (environment.Environment == null || environment.Clouds == null)
+            {
+                throw new InvalidOperationException(
+                    "A new WorldEnvironmentConfiguration is missing sky, ocean, or weather settings.");
+            }
+        }
+        finally
+        {
+            UnityEngine.Object.DestroyImmediate(environment);
         }
     }
 

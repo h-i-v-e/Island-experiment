@@ -83,6 +83,7 @@ pub(super) fn is_snapshot(path: &Path) -> io::Result<bool> {
 }
 
 pub(super) fn save(island: &Island, path: &Path) -> io::Result<()> {
+    validate_island(island)?;
     let temporary_path = temporary_path(path);
     let result = save_to_temporary_file(island, &temporary_path)
         .and_then(|()| replace_file(&temporary_path, path));
@@ -222,6 +223,16 @@ impl IslandSnapshotOwned {
             decorations: OnceLock::from(self.decorations),
         })
     }
+}
+
+fn validate_island(island: &Island) -> io::Result<()> {
+    validate_mesh(&island.terrain.mesh, "terrain")?;
+    for (index, mesh) in island.coarser_lods.iter().enumerate() {
+        validate_mesh(mesh, &format!("terrain LOD {}", index + 1))?;
+    }
+    validate_mesh(&island.river_mesh, "river")?;
+    validate_mesh(&island.river_rock_mesh, "river rocks")?;
+    Ok(())
 }
 
 fn validate_mesh(mesh: &Mesh, label: &str) -> io::Result<()> {

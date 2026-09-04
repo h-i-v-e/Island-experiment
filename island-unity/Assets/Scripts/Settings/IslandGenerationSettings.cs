@@ -99,6 +99,51 @@ public sealed class IslandGenerationSettings
         1f,
         45f);
 
+    internal void ApplyDeterministicVariation(
+        int islandSeed,
+        IslandParameterVariationSettings variation)
+    {
+        if (variation == null || !variation.Enabled)
+        {
+            return;
+        }
+
+        var random = new System.Random(unchecked(islandSeed * 1664525 + 1013904223));
+        maximumHeightMetres *= Scale(random, variation.MaximumHeightVariation);
+        waterRatio += Signed(random) * variation.WaterRatioVariation;
+        inlandSlopeMultiplier *= Scale(random, variation.SlopeVariation);
+        coastalSlopeMultiplier *= Scale(random, variation.SlopeVariation);
+        continentalNoiseFrequency *= Scale(random, variation.NoiseFrequencyVariation);
+        detailNoiseFrequency *= Scale(random, variation.NoiseFrequencyVariation);
+        continentalNoiseStrength *= Scale(random, variation.NoiseStrengthVariation);
+        detailNoiseStrength *= Scale(random, variation.NoiseStrengthVariation);
+        landMassOffset += Signed(random) * variation.LandMassOffsetVariation;
+        hydraulicErosionStrength *= Scale(random, variation.ErosionVariation);
+        sedimentDepositionStrength *= Scale(random, variation.ErosionVariation);
+
+        maximumHeightMetres = MaximumHeightMetres;
+        waterRatio = WaterRatio;
+        inlandSlopeMultiplier = InlandSlopeMultiplier;
+        coastalSlopeMultiplier = CoastalSlopeMultiplier;
+        continentalNoiseFrequency = ContinentalNoiseFrequency;
+        detailNoiseFrequency = DetailNoiseFrequency;
+        continentalNoiseStrength = ContinentalNoiseStrength;
+        detailNoiseStrength = DetailNoiseStrength;
+        landMassOffset = LandMassOffset;
+        hydraulicErosionStrength = HydraulicErosionStrength;
+        sedimentDepositionStrength = SedimentDepositionStrength;
+    }
+
+    private static float Scale(System.Random random, float variation)
+    {
+        return 1f + Signed(random) * Mathf.Clamp01(variation);
+    }
+
+    private static float Signed(System.Random random)
+    {
+        return (float)random.NextDouble() * 2f - 1f;
+    }
+
     internal MotuNative.Options ToNativeOptions(IslandRiverSettings rivers)
     {
         return new MotuNative.Options

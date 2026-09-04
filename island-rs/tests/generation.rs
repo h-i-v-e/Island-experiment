@@ -324,6 +324,28 @@ fn water_ratio_increases_connected_ocean_coverage() {
 }
 
 #[test]
+fn completely_submerged_profile_remains_finite() {
+    let island = Island::generate(
+        1_767_380_820,
+        IslandOptions {
+            water_ratio: 0.95,
+            land_mass_offset: -2.0,
+            ..small_options()
+        },
+    )
+    .unwrap();
+
+    assert!(
+        island
+            .terrain()
+            .vertices()
+            .iter()
+            .all(|vertex| vertex.is_finite())
+    );
+    assert!(island.height_map(257, 257).into_iter().all(f32::is_finite));
+}
+
+#[test]
 fn hydraulic_erosion_strength_changes_terrain() {
     let without_hydraulic = Island::generate(
         17,

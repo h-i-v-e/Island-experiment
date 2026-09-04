@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 [DefaultExecutionOrder(-1000)]
 [DisallowMultipleComponent]
@@ -70,8 +71,21 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
 
     [Header("Authored Islands")]
     [SerializeField] private List<AuthoredIsland> islands = new List<AuthoredIsland>();
-    [Tooltip("Generator whose settings own the global sky, ocean, weather, and solar clock. Defaults to the first entry.")]
-    [SerializeField] private IslandGenerator environmentAuthority;
+    [Tooltip("Generator used only as the base parameter template for discovered islands. Defaults to the first authored island.")]
+    [FormerlySerializedAs("environmentAuthority")]
+    [SerializeField] private IslandGenerator islandTemplate;
+
+    [Header("World Environment")]
+    [Tooltip("Optional shared world environment asset. Inline values remain the scene fallback.")]
+    [SerializeField] private WorldEnvironmentConfiguration worldEnvironmentConfiguration;
+    [SerializeField] private WorldEnvironmentSettings worldEnvironmentSettings =
+        new WorldEnvironmentSettings();
+    [SerializeField] private IslandCloudSettings worldClouds = new IslandCloudSettings();
+
+    [Header("Per-Island Variation")]
+    [Tooltip("Deterministic variation applied independently to every island's generation parameters.")]
+    [SerializeField] private IslandParameterVariationSettings islandParameterVariation =
+        new IslandParameterVariationSettings();
 
     [Header("Procedural Ocean Discovery")]
     [SerializeField] private bool enableProceduralDiscovery = true;
@@ -105,7 +119,7 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
         new HashSet<Vector2Int>();
     private readonly List<Vector2Int> removalCells = new List<Vector2Int>();
     private CancellationTokenSource shutdown;
-    private ManagedIsland authorityIsland;
+    private WorldEnvironmentController worldEnvironment;
     private ManagedIsland currentGeneration;
     private IslandGenerator focusedIsland;
     private string generatorTemplateJson;
@@ -174,6 +188,14 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
         }
     }
     public int GeneratingIslandCount => currentGeneration != null ? 1 : 0;
+    private WorldEnvironmentSettings EnvironmentSettings =>
+        worldEnvironmentConfiguration != null
+            ? worldEnvironmentConfiguration.Environment
+            : worldEnvironmentSettings ??= new WorldEnvironmentSettings();
+    private IslandCloudSettings CloudSettings =>
+        worldEnvironmentConfiguration != null
+            ? worldEnvironmentConfiguration.Clouds
+            : worldClouds ??= new IslandCloudSettings();
 
     public void ConfigureProceduralDiscovery(bool enabled, int seed)
     {
@@ -182,23 +204,43 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
         unloadAuthoredBeyondRadius = enabled;
     }
 
+    public void ConfigureIslandTemplate(IslandGenerator template)
+    {
+        islandTemplate = template;
+    }
+
+    public void ConfigureWorldEnvironment(Light sunlight, Material seaMaterial)
+    {
+        worldEnvironmentSettings.AssignSceneReferences(sunlight, seaMaterial);
+    }
+
     private void Awake()
     {
         shutdown = new CancellationTokenSource();
         DiscoverChildGeneratorsWhenUnconfigured();
-        ConfigureAuthoredGenerators();
-        if (environmentAuthority != null)
+        ResolveIslandTemplate();
+        if (islandTemplate != null)
         {
-            generatorTemplateJson = JsonUtility.ToJson(environmentAuthority);
+            // Capture the unvaried profile. Every authored and discovered island
+            // derives independently from this same baseline.
+            generatorTemplateJson = JsonUtility.ToJson(islandTemplate);
         }
+        ConfigureAuthoredGenerators();
+        worldEnvironment = WorldEnvironmentController.FindOrCreate();
+        worldEnvironment.Initialize(
+            EnvironmentSettings,
+            CloudSettings,
+            worldSeed,
+            IslandCellSizeMetres,
+            IslandCellSizeMetres * 2.1f,
+            ResolveStreamingTarget());
     }
 
     private void Start()
     {
-        QueueGeneration(authorityIsland);
         foreach (var entry in managedIslands.Values)
         {
-            if (entry != authorityIsland && entry.InitialGenerationPending)
+            if (entry.InitialGenerationPending)
             {
                 QueueGeneration(entry);
             }
@@ -217,7 +259,6 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
         lastQueryPosition = target.position;
         hasQueryPosition = true;
         if (enableProceduralDiscovery
-            && environmentAuthority != null
             && Time.unscaledTime >= nextDiscoveryTime)
         {
             nextDiscoveryTime = Time.unscaledTime + discoveryRefreshSeconds;
@@ -226,7 +267,7 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
         QueueDesiredGeneration();
         CancelObsoleteGeneration();
         UpdateResidencyAndFocus(lastQueryPosition);
-        environmentAuthority?.SetWorldEnvironmentFollowTarget(target);
+        worldEnvironment?.SetFollowTarget(target);
         if (!queueRunning && HasReadyQueuedIsland())
         {
             ProcessGenerationQueue();
@@ -235,18 +276,13 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
 
     private void LateUpdate()
     {
-        if (environmentAuthority == null)
-        {
-            return;
-        }
         foreach (var entry in managedIslands.Values)
         {
             var generator = entry.Generator;
             if (generator != null
-                && generator != environmentAuthority
                 && generator.HasRuntime)
             {
-                generator.SyncSharedWorldLighting(environmentAuthority);
+                generator.SyncSharedWorldLighting(worldEnvironment);
             }
         }
     }
@@ -270,7 +306,7 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
     public void SetStreamingTarget(Transform target)
     {
         streamingTarget = target;
-        environmentAuthority?.SetWorldEnvironmentFollowTarget(target);
+        worldEnvironment?.SetFollowTarget(target);
         if (target != null)
         {
             PrepareStreamingAt(target.position);
@@ -314,7 +350,7 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
 
     public void SetFirstPersonViewActive(bool active)
     {
-        environmentAuthority?.SetFirstPersonViewActive(active);
+        worldEnvironment?.SetFirstPersonViewActive(active);
     }
 
     private void DiscoverChildGeneratorsWhenUnconfigured()
@@ -329,20 +365,25 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
         }
     }
 
-    private void ConfigureAuthoredGenerators()
+    private void ResolveIslandTemplate()
     {
-        if (environmentAuthority == null)
+        if (islandTemplate != null)
         {
-            foreach (var entry in islands)
+            return;
+        }
+        foreach (var entry in islands)
+        {
+            if (entry?.Generator != null)
             {
-                if (entry?.Generator != null)
-                {
-                    environmentAuthority = entry.Generator;
-                    break;
-                }
+                islandTemplate = entry.Generator;
+                return;
             }
         }
-        if (environmentAuthority == null)
+    }
+
+    private void ConfigureAuthoredGenerators()
+    {
+        if (islandTemplate == null)
         {
             Debug.LogWarning("IslandWorldManager has no authored IslandGenerator entries.", this);
             return;
@@ -368,19 +409,11 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
                 throw new InvalidOperationException(
                     $"Multiple authored islands occupy world cell {worldCell}.");
             }
-            generator.ConfigureWorldManagement(generator == environmentAuthority);
+            generator.ApplyIslandProfile(descriptor.Seed, islandParameterVariation);
+            generator.ConfigureWorldManagement();
             generator.SetStreamingTarget(null);
             var managed = new ManagedIsland(descriptor, generator, authored);
             managedIslands.Add(worldCell, managed);
-            if (generator == environmentAuthority)
-            {
-                authorityIsland = managed;
-            }
-        }
-        if (authorityIsland == null)
-        {
-            throw new InvalidOperationException(
-                "The environment authority must also be present in the authored island list.");
         }
     }
 
@@ -394,8 +427,7 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
                 continue;
             }
             var distance = DistanceToDescriptor(entry.Descriptor, worldPosition);
-            var canUnload = entry != authorityIsland
-                && (!entry.IsAuthored || unloadAuthoredBeyondRadius);
+            var canUnload = !entry.IsAuthored || unloadAuthoredBeyondRadius;
             if (canUnload && distance > EffectiveUnloadRadius())
             {
                 if (focusedIsland == generator)
@@ -447,7 +479,7 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
             focusedIsland.SetStreamingTarget(streamingTarget);
             focusedIsland.PrepareStreamingAt(worldPosition);
         }
-        environmentAuthority?.SetWorldEnvironmentFollowTarget(streamingTarget);
+        worldEnvironment?.SetFollowTarget(streamingTarget);
     }
 
     private void DestroyDiscoveredGenerator(ManagedIsland entry)
@@ -471,11 +503,11 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
 
     private bool IsPreferredResident(ManagedIsland candidate)
     {
-        if (candidate == authorityIsland || candidate.InitialGenerationPending)
+        if (candidate.InitialGenerationPending)
         {
             return true;
         }
-        var availableSlots = ResidentIslandLimit - 1;
+        var availableSlots = ResidentIslandLimit;
         if (availableSlots <= 0)
         {
             return false;
@@ -485,7 +517,6 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
         foreach (var other in managedIslands.Values)
         {
             if (other == candidate
-                || other == authorityIsland
                 || (!other.InitialGenerationPending
                     && !IsInsideGenerationCorridor(other, 0f)))
             {
@@ -529,7 +560,6 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
         foreach (var entry in managedIslands.Values)
         {
             if (entry == incoming
-                || entry == authorityIsland
                 || entry.Generator == null
                 || !entry.Generator.HasRuntime
                 || entry.Generator == focusedIsland)
@@ -562,9 +592,7 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
 
     private float SeaLevelWorldY()
     {
-        return environmentAuthority != null
-            ? environmentAuthority.transform.position.y
-            : 0f;
+        return EnvironmentSettings.SeaLevelMetres;
     }
 
     private float EffectiveUnloadRadius()
@@ -671,8 +699,10 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
 
         var sourceObject = new GameObject("Island generator template validation");
         var cloneObject = new GameObject("Island generator clone validation");
+        var repeatObject = new GameObject("Island generator repeat validation");
         sourceObject.SetActive(false);
         cloneObject.SetActive(false);
+        repeatObject.SetActive(false);
         try
         {
             var source = sourceObject.AddComponent<IslandGenerator>();
@@ -683,13 +713,41 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
                 || clone.WorldSizeMetres != source.WorldSizeMetres)
             {
                 throw new InvalidOperationException(
-                    "Discovered island generators cannot reproduce the authority profile.");
+                    "Discovered island generators cannot reproduce the island template profile.");
+            }
+
+            var variation = new IslandParameterVariationSettings();
+            clone.ApplyIslandProfile(24680, variation);
+            var repeatedGenerator = repeatObject.AddComponent<IslandGenerator>();
+            JsonUtility.FromJsonOverwrite(JsonUtility.ToJson(source), repeatedGenerator);
+            repeatedGenerator.ApplyIslandProfile(24680, variation);
+            source.ApplyIslandProfile(13579, variation);
+            if (!Mathf.Approximately(
+                    clone.Generation.MaximumHeightMetres,
+                    repeatedGenerator.Generation.MaximumHeightMetres)
+                || !Mathf.Approximately(
+                    clone.Generation.WaterRatio,
+                    repeatedGenerator.Generation.WaterRatio))
+            {
+                throw new InvalidOperationException(
+                    "Per-island parameter variation is not deterministic for a stable island seed.");
+            }
+            if (Mathf.Approximately(
+                    source.Generation.MaximumHeightMetres,
+                    clone.Generation.MaximumHeightMetres)
+                && Mathf.Approximately(
+                    source.Generation.WaterRatio,
+                    clone.Generation.WaterRatio))
+            {
+                throw new InvalidOperationException(
+                    "Distinct island seeds did not produce distinct height or water-ratio profiles.");
             }
         }
         finally
         {
             DestroyImmediate(sourceObject);
             DestroyImmediate(cloneObject);
+            DestroyImmediate(repeatObject);
         }
     }
 #endif

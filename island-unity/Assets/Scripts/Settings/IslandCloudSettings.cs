@@ -7,7 +7,7 @@ public sealed class IslandCloudSettings
 {
     [SerializeField] private bool enabled = true;
 
-    [Tooltip("Seed mixed with the island seed when generating the seamless weather field.")]
+    [Tooltip("Seed mixed with the world seed when generating the seamless weather field.")]
     [SerializeField] private int seed = 173;
 
     [Tooltip("Power-of-two resolution of the portable packed weather map.")]

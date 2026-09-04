@@ -20,9 +20,6 @@ public sealed class IslandConfiguration : ScriptableObject
     [Header("Tree Trunk Ferns")]
     [SerializeField] private IslandFernSettings ferns = new IslandFernSettings();
 
-    [Header("Clouds")]
-    [SerializeField] private IslandCloudSettings clouds = new IslandCloudSettings();
-
     [Header("Rendering and Texture Overrides")]
     [SerializeField] private IslandRenderingSettings rendering = new IslandRenderingSettings();
 
@@ -37,7 +34,6 @@ public sealed class IslandConfiguration : ScriptableObject
     public IslandForestSettings Forest => forest;
     public IslandReedSettings Reeds => reeds;
     public IslandFernSettings Ferns => ferns;
-    public IslandCloudSettings Clouds => clouds;
     public IslandRenderingSettings Rendering => rendering;
     public IslandDecorationSettings Decorations => decorations;
     public IslandDebugSettings DebugSettings => debugSettings;

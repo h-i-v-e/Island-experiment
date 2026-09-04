@@ -4,7 +4,7 @@ using UnityEngine.Rendering;
 
 [DefaultExecutionOrder(1000)]
 [DisallowMultipleComponent]
-public sealed class WorldEnvironmentController : MonoBehaviour
+public sealed partial class WorldEnvironmentController : MonoBehaviour
 {
     private static readonly int EnvironmentWorldOffsetId = Shader.PropertyToID(
         "_MotuEnvironmentWorldOffset");
@@ -31,6 +31,9 @@ public sealed class WorldEnvironmentController : MonoBehaviour
     public Material SeaMaterial => ocean != null ? ocean.SurfaceMaterial : null;
     public Light MoonLight => moonLight;
     public Transform OceanTransform => ocean != null ? ocean.SurfaceTransform : null;
+    public bool IsInstalled => skyDomeMaterial != null && SeaMaterial != null;
+    public float SkyExposure => currentSkyExposure;
+    public float NightStrength => currentNightStrength;
 
     public static WorldEnvironmentController FindOrCreate()
     {
@@ -182,6 +185,28 @@ public sealed class WorldEnvironmentController : MonoBehaviour
     {
         EnsureOcean();
         Shader.SetGlobalVector(EnvironmentWorldOffsetId, Vector4.zero);
+    }
+
+    private void OnEnable()
+    {
+        Camera.onPreCull += PrepareCameraRender;
+    }
+
+    private void OnDisable()
+    {
+        Camera.onPreCull -= PrepareCameraRender;
+        RenderSettings.fog = false;
+    }
+
+    private void Update()
+    {
+        if (!IsInstalled || environmentSettings == null || cloudSettings == null)
+        {
+            return;
+        }
+        UpdateSolarLighting(Time.unscaledDeltaTime);
+        ApplyCloudSettings(Time.unscaledDeltaTime);
+        ApplyDistanceHazeSettings();
     }
 
     private void LateUpdate()

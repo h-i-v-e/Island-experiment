@@ -167,6 +167,7 @@ public static class IslandProjectSetup
         sun.shadows = LightShadows.Soft;
         sun.intensity = 1.25f;
         sun.color = new Color(1f, 0.94f, 0.82f);
+        worldManager.ConfigureWorldEnvironment(sun, sea);
 
         var cameraObject = new GameObject("Main Camera");
         cameraObject.tag = "MainCamera";
@@ -184,7 +185,7 @@ public static class IslandProjectSetup
         var demo = cameraObject.AddComponent<IslandDemoController>();
 
         var authority = CreateAuthoredIsland(
-            "Island West (Environment Authority)",
+            "Island West (Template)",
             worldObject.transform,
             new Vector2Int(-1, 0),
             666,
@@ -197,6 +198,7 @@ public static class IslandProjectSetup
             rock,
             treeWood,
             treeFoliage);
+        worldManager.ConfigureIslandTemplate(authority);
         CreateAuthoredIsland(
             "Island Central",
             worldObject.transform,
@@ -372,7 +374,15 @@ public static class IslandProjectSetup
                 "The multi-island sandbox camera must start in fly mode.");
         }
         var managerState = new SerializedObject(managers[0]);
-        if (!managerState.FindProperty("enableProceduralDiscovery").boolValue
+        var environmentSettings = managerState.FindProperty("worldEnvironmentSettings");
+        var variationSettings = managerState.FindProperty("islandParameterVariation");
+        if (managerState.FindProperty("islandTemplate").objectReferenceValue == null
+            || environmentSettings == null
+            || environmentSettings.FindPropertyRelative("sunlight").objectReferenceValue == null
+            || environmentSettings.FindPropertyRelative("seaMaterial").objectReferenceValue == null
+            || variationSettings == null
+            || !variationSettings.FindPropertyRelative("enabled").boolValue
+            || !managerState.FindProperty("enableProceduralDiscovery").boolValue
             || managerState.FindProperty("generationRadiusMetres").floatValue
                 >= managerState.FindProperty("discoveryRadiusMetres").floatValue
             || managerState.FindProperty("unloadRadiusMetres").floatValue

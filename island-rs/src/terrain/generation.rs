@@ -1516,6 +1516,13 @@ pub(super) fn assign_elevations(
 
     let distance_to_sea = graph_distances(mesh, adjacency, &sea);
     let land: Vec<bool> = sea.iter().map(|value| !value).collect();
+    if land.iter().all(|is_land| !is_land) {
+        let seabed = -options.max_height * 0.28;
+        mesh.vertices
+            .iter_mut()
+            .for_each(|vertex| vertex.z = seabed);
+        return geology;
+    }
     let distance_to_land = graph_distances(mesh, adjacency, &land);
     let max_land = distance_to_sea
         .iter()
@@ -1608,6 +1615,29 @@ mod sea_proximity_tests {
     use std::io::Cursor;
 
     use super::*;
+
+    #[test]
+    fn completely_submerged_profile_produces_a_finite_seabed() {
+        let options = IslandOptions {
+            water_ratio: 0.95,
+            land_mass_offset: -2.0,
+            terrain_size: 1_024,
+            ..IslandOptions::default()
+        };
+        let points = create_seed_points(1_767_380_820, options.terrain_size as usize);
+        let mut mesh = Mesh::delaunay(&points);
+        let adjacency = mesh.adjacency();
+
+        assign_elevations(&mut mesh, &adjacency, 1_767_380_820, options);
+
+        let expected = -options.max_height * 0.28;
+        assert!(mesh.vertices.iter().all(|vertex| vertex.is_finite()));
+        assert!(
+            mesh.vertices
+                .iter()
+                .all(|vertex| (vertex.z - expected).abs() <= f32::EPSILON)
+        );
+    }
 
     #[test]
     fn tessellation_edge_flips_preserve_deposited_material_volume() {

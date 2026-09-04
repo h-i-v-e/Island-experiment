@@ -9,29 +9,45 @@ public sealed partial class IslandGenerator
     private void BuildRuntimeMaterials(IslandPreparedMaterialTextures materialTextures)
     {
         var skyColor = new Color(0.49f, 0.68f, 0.82f);
-        skyDomeMaterial = CreateMaterial(
-            "Motu/Sky Dome",
-            skyColor,
-            null,
-            Generation.WorldSizeMetres);
-        if (skyDomeMaterial.shader.name != "Motu/Sky Dome")
+        if (worldManaged)
         {
-            throw new InvalidOperationException("Could not find shader 'Motu/Sky Dome'.");
+            EnsureWorldEnvironment();
+            if (!worldEnvironment.IsInstalled)
+            {
+                throw new InvalidOperationException(
+                    "The world environment must be initialized before island materials are built.");
+            }
+            skyDomeMaterial = worldEnvironment.SkyMaterial;
+            seaMaterial = worldEnvironment.SeaMaterial;
+            moonLight = worldEnvironment.MoonLight;
+            environmentResourcesInstalled = true;
         }
-        skyDomeMaterial.SetColor("_ZenithColor", skyColor);
-        skyDomeMaterial.SetColor("_HorizonColor", Rendering.DistanceHazeColour);
-        skyDomeMaterial.SetFloat(
-            SunDiscCosRadiusId,
-            Mathf.Cos(SunDiscAngularRadiusDegrees * Mathf.Deg2Rad));
-        skyDomeMaterial.SetColor(SunHaloColourId, SunsetSunHaloColour);
-        skyDomeMaterial.SetColor(MoonColourId, MoonDiscColour);
-        skyDomeMaterial.SetColor(MoonDarkColourId, MoonDarkColour);
-        skyDomeMaterial.SetFloat(
-            MoonDiscCosRadiusId,
-            Mathf.Cos(MoonDiscAngularRadiusDegrees * Mathf.Deg2Rad));
-        skyDomeMaterial.SetFloat(SkyExposureId, currentSkyExposure);
-        ApplyStarSettings();
-        EnsureCloudWeatherTexture();
+        else
+        {
+            skyDomeMaterial = CreateMaterial(
+                "Motu/Sky Dome",
+                skyColor,
+                null,
+                Generation.WorldSizeMetres);
+            if (skyDomeMaterial.shader.name != "Motu/Sky Dome")
+            {
+                throw new InvalidOperationException("Could not find shader 'Motu/Sky Dome'.");
+            }
+            skyDomeMaterial.SetColor("_ZenithColor", skyColor);
+            skyDomeMaterial.SetColor("_HorizonColor", Rendering.DistanceHazeColour);
+            skyDomeMaterial.SetFloat(
+                SunDiscCosRadiusId,
+                Mathf.Cos(SunDiscAngularRadiusDegrees * Mathf.Deg2Rad));
+            skyDomeMaterial.SetColor(SunHaloColourId, SunsetSunHaloColour);
+            skyDomeMaterial.SetColor(MoonColourId, MoonDiscColour);
+            skyDomeMaterial.SetColor(MoonDarkColourId, MoonDarkColour);
+            skyDomeMaterial.SetFloat(
+                MoonDiscCosRadiusId,
+                Mathf.Cos(MoonDiscAngularRadiusDegrees * Mathf.Deg2Rad));
+            skyDomeMaterial.SetFloat(SkyExposureId, currentSkyExposure);
+            ApplyStarSettings();
+            EnsureCloudWeatherTexture();
+        }
         terrainMaterial = CreateMaterial(
             "Motu/Terrain Unified",
             Color.white,
@@ -191,9 +207,12 @@ public sealed partial class IslandGenerator
         riverNoiseTexture = Rendering.RiverNoise;
         ownsRiverNoiseTexture = riverNoiseTexture == null;
         if (ownsRiverNoiseTexture) riverNoiseTexture = CreateRiverNoiseTexture();
-        seaNoiseTexture = Rendering.RiverNoise;
-        ownsSeaNoiseTexture = seaNoiseTexture == null;
-        if (ownsSeaNoiseTexture) seaNoiseTexture = CreateRiverNoiseTexture();
+        if (!worldManaged)
+        {
+            seaNoiseTexture = Rendering.RiverNoise;
+            ownsSeaNoiseTexture = seaNoiseTexture == null;
+            if (ownsSeaNoiseTexture) seaNoiseTexture = CreateRiverNoiseTexture();
+        }
         var waterColor = new Color(0.03f, 0.28f, 0.55f, 1f);
         const float shallowWaterOpacity = 0.25f;
         const float fullOpacityDepth = 5f;
@@ -235,32 +254,35 @@ public sealed partial class IslandGenerator
             riverShoreWaveSpeed,
             riverShoreWaveDepth,
             riverShoreWaveNoiseWorldSize);
-        var seaShader = Shader.Find("Motu/Sea Water")
-            ?? throw new InvalidOperationException("Could not find shader 'Motu/Sea Water'.");
-        seaMaterial = new Material(seaShader)
+        if (!worldManaged)
         {
-            name = "Motu/Sea Water (Global Deep Ocean)",
-        };
-        if (Rendering.SeaMaterial != null)
-        {
-            seaMaterial.CopyPropertiesFromMaterial(Rendering.SeaMaterial);
+            var seaShader = Shader.Find("Motu/Sea Water")
+                ?? throw new InvalidOperationException("Could not find shader 'Motu/Sea Water'.");
+            seaMaterial = new Material(seaShader)
+            {
+                name = "Motu/Sea Water (Global Deep Ocean)",
+            };
+            if (Rendering.SeaMaterial != null)
+            {
+                seaMaterial.CopyPropertiesFromMaterial(Rendering.SeaMaterial);
+            }
+            else
+            {
+                seaMaterial.SetColor("_Color", waterColor);
+            }
+            seaMaterial.renderQueue = (int)RenderQueue.Transparent;
+            seaMaterial.SetTexture("_NoiseTex", seaNoiseTexture);
+            seaMaterial.SetFloat("_ShallowOpacity", shallowWaterOpacity);
+            seaMaterial.SetFloat("_OpacityDepth", fullOpacityDepth);
+            seaMaterial.SetColor("_ReflectionColor", skyColor);
+            seaMaterial.SetColor(
+                "_ReflectionHorizonColor",
+                Color.Lerp(skyColor, Color.white, 0.35f));
+            seaMaterial.SetFloat("_ReflectionStrength", 0.65f);
+            seaMaterial.SetFloat("_PlanarReflectionWeight", 1f);
+            seaMaterial.SetFloat("_PlanarReflectionDistortion", 0.008f);
+            seaMaterial.SetFloat("_SunGlintStrength", 0.8f);
         }
-        else
-        {
-            seaMaterial.SetColor("_Color", waterColor);
-        }
-        seaMaterial.renderQueue = (int)RenderQueue.Transparent;
-        seaMaterial.SetTexture("_NoiseTex", seaNoiseTexture);
-        seaMaterial.SetFloat("_ShallowOpacity", shallowWaterOpacity);
-        seaMaterial.SetFloat("_OpacityDepth", fullOpacityDepth);
-        seaMaterial.SetColor("_ReflectionColor", skyColor);
-        seaMaterial.SetColor(
-            "_ReflectionHorizonColor",
-            Color.Lerp(skyColor, Color.white, 0.35f));
-        seaMaterial.SetFloat("_ReflectionStrength", 0.65f);
-        seaMaterial.SetFloat("_PlanarReflectionWeight", 1f);
-        seaMaterial.SetFloat("_PlanarReflectionDistortion", 0.008f);
-        seaMaterial.SetFloat("_SunGlintStrength", 0.8f);
 
         var coastalShader = Shader.Find("Motu/Coastal Water Overlay")
             ?? throw new InvalidOperationException(

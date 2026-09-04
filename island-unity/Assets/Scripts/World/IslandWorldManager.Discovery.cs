@@ -109,8 +109,7 @@ public sealed partial class IslandWorldManager
     {
         foreach (var entry in managedIslands.Values)
         {
-            if (entry == authorityIsland
-                || entry.InitialGenerationPending
+            if (entry.InitialGenerationPending
                 || (IsInsideGenerationCorridor(entry, 0f)
                     && IsPreferredResident(entry)))
             {
@@ -140,7 +139,7 @@ public sealed partial class IslandWorldManager
     {
         foreach (var entry in managedIslands.Values)
         {
-            if (entry == authorityIsland || entry.InitialGenerationPending)
+            if (entry.InitialGenerationPending)
             {
                 continue;
             }
@@ -201,15 +200,6 @@ public sealed partial class IslandWorldManager
                 {
                     continue;
                 }
-                if (entry != authorityIsland
-                    && (environmentAuthority == null
-                        || !environmentAuthority.HasInstalledWorldEnvironment))
-                {
-                    entry.RetryAfterTime = Time.unscaledTime
-                        + failedGenerationRetrySeconds;
-                    continue;
-                }
-
                 if (!ReserveResidentCapacity(entry, out var releasedRuntime))
                 {
                     entry.RetryAfterTime = Time.unscaledTime + 1f;
@@ -310,10 +300,6 @@ public sealed partial class IslandWorldManager
 
     private float GenerationPriority(ManagedIsland entry)
     {
-        if (entry == authorityIsland)
-        {
-            return float.MinValue;
-        }
         var currentDistance = DistanceToDescriptor(entry.Descriptor, lastQueryPosition);
         var forwardDistance = DistanceToDescriptor(
             entry.Descriptor,
@@ -333,10 +319,10 @@ public sealed partial class IslandWorldManager
             return entry.Generator;
         }
         if (string.IsNullOrEmpty(generatorTemplateJson)
-            || environmentAuthority == null)
+            || islandTemplate == null)
         {
             Debug.LogError(
-                $"Cannot instantiate discovered island '{entry.Descriptor.IslandId}' without an environment-authority template.",
+                $"Cannot instantiate discovered island '{entry.Descriptor.IslandId}' without an island template.",
                 this);
             return null;
         }
@@ -353,8 +339,8 @@ public sealed partial class IslandWorldManager
             Quaternion.identity);
         var generator = islandObject.AddComponent<IslandGenerator>();
         JsonUtility.FromJsonOverwrite(generatorTemplateJson, generator);
-        generator.Generation.Seed = entry.Descriptor.Seed;
-        generator.ConfigureWorldManagement(false);
+        generator.ApplyIslandProfile(entry.Descriptor.Seed, islandParameterVariation);
+        generator.ConfigureWorldManagement();
         generator.SetStreamingTarget(null);
         entry.Generator = generator;
         islandObject.SetActive(true);

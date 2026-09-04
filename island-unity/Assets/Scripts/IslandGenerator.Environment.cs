@@ -52,7 +52,15 @@ public sealed partial class IslandGenerator
     private void BindWorldEnvironment(float worldSize)
     {
         EnsureWorldEnvironment();
-        if (controlsWorldEnvironment)
+        if (worldManaged)
+        {
+            if (!worldEnvironment.IsInstalled)
+            {
+                throw new InvalidOperationException(
+                    "The world environment must be initialized before an island is installed.");
+            }
+        }
+        else if (controlsWorldEnvironment)
         {
             worldEnvironment.Install(
                 skyDomeMaterial,
@@ -69,27 +77,6 @@ public sealed partial class IslandGenerator
                 Rendering.Sunlight != null ? Rendering.Sunlight : RenderSettings.sun);
             seaNoiseTexture = null;
             ownsSeaNoiseTexture = false;
-        }
-        else
-        {
-            if (worldEnvironment.SkyMaterial == null
-                || worldEnvironment.SeaMaterial == null)
-            {
-                throw new InvalidOperationException(
-                    "The environment-authority island must be installed before dependent islands.");
-            }
-            DestroyUnityObject(skyDomeMaterial);
-            DestroyUnityObject(seaMaterial);
-            DestroyUnityObject(cloudWeatherTexture);
-            if (ownsSeaNoiseTexture)
-            {
-                DestroyUnityObject(seaNoiseTexture);
-            }
-            cloudWeatherTexture = null;
-            seaNoiseTexture = null;
-            ownsSeaNoiseTexture = false;
-            appliedCloudSeed = int.MinValue;
-            appliedCloudResolution = 0;
         }
 
         environmentResourcesInstalled = true;
