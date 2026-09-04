@@ -5,7 +5,7 @@ use super::{
     WATERFALL_LANDING_LENGTH_MULTIPLIER, WATERFALL_REFERENCE_ISLAND_HEIGHT,
     WATERFALL_SITE_BYPASS_MAX_HOPS, WATERFALL_SITE_MINIMUM_BANK_SPAN_FRACTION,
     WATERFALL_SUPPORT_RUN, WATERFALL_TARGET_EDGE_LENGTH, WaterfallClearanceIndex, WaterfallPatch,
-    expand_vertex_mask_through_river_to_banks,
+    WaterfallPlacement, expand_vertex_mask_through_river_to_banks,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -138,6 +138,7 @@ pub(super) struct WaterfallRelocation<'a> {
 #[derive(Clone, Copy, Debug)]
 pub(super) struct RiverCarveOptions<'a> {
     pub(super) form_deltas: bool,
+    pub(super) waterfall_placement: WaterfallPlacement,
     pub(super) channel_settings: RiverChannelSettings,
     pub(super) rejected_waterfall_vertices: &'a HashSet<usize>,
 }
@@ -223,6 +224,7 @@ pub(super) fn form_river_profile(
     environment: RiverProfileEnvironment<'_>,
     nodes: &mut [RiverNode],
     waterfalls: &mut [bool],
+    waterfall_placement: WaterfallPlacement,
     parameters: RiverCarveParameters<'_>,
     gradient_scratch: &mut Vec<f32>,
 ) -> Option<usize> {
@@ -250,14 +252,30 @@ pub(super) fn form_river_profile(
         || nodes.len().saturating_sub(1),
         |ocean_entry| ocean_entry.saturating_sub(1),
     );
-    form_stepped_profile(
+    form_waterfall_profile(
         nodes,
         waterfalls,
         parameters.cross_sections,
         profile_end,
         gradient_scratch,
+        waterfall_placement,
     );
     ocean_entry
+}
+
+pub(super) fn form_waterfall_profile(
+    nodes: &mut [RiverNode],
+    waterfalls: &mut [bool],
+    cross_sections: &[RiverCrossSection],
+    end: usize,
+    gradient_scratch: &mut Vec<f32>,
+    placement: WaterfallPlacement,
+) {
+    if placement == WaterfallPlacement::Enabled {
+        form_stepped_profile(nodes, waterfalls, cross_sections, end, gradient_scratch);
+    } else {
+        waterfalls.fill(false);
+    }
 }
 
 pub(super) fn river_depth(

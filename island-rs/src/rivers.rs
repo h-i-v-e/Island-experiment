@@ -76,6 +76,20 @@ pub(crate) struct RiverParts {
     pub(crate) failed_waterfalls: Vec<usize>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum WaterfallPlacement {
+    Disabled,
+    Enabled,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct RiverShapeOptions {
+    pub(crate) smooth: bool,
+    pub(crate) form_deltas: bool,
+    pub(crate) waterfall_placement: WaterfallPlacement,
+    pub(crate) channel_settings: RiverChannelSettings,
+}
+
 pub(crate) const RIVER_SURFACE_OFFSET: f32 = 0.000_01;
 // Unity scales the normalized terrain mesh to 2,000 metres across.
 const SEA_PLANE_CLEARANCE: f32 = 0.10 / 2_000.0;
@@ -363,9 +377,12 @@ impl RiverNetwork {
             mesh,
             adjacency,
             material,
-            smooth,
-            form_deltas,
-            RiverChannelSettings::default(),
+            RiverShapeOptions {
+                smooth,
+                form_deltas,
+                waterfall_placement: WaterfallPlacement::Enabled,
+                channel_settings: RiverChannelSettings::default(),
+            },
         );
     }
 
@@ -374,30 +391,23 @@ impl RiverNetwork {
         mesh: &mut Mesh,
         adjacency: &Adjacency,
         material: &mut SurfaceMaterial,
-        smooth: bool,
-        form_deltas: bool,
-        channel_settings: RiverChannelSettings,
+        options: RiverShapeOptions,
     ) {
         self.shape_with_settings_and_waterfall_rejections(
             mesh,
             adjacency,
             material,
-            smooth,
-            form_deltas,
-            channel_settings,
+            options,
             &HashSet::new(),
         );
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn shape_with_settings_and_waterfall_rejections(
         &mut self,
         mesh: &mut Mesh,
         adjacency: &Adjacency,
         material: &mut SurfaceMaterial,
-        smooth: bool,
-        form_deltas: bool,
-        channel_settings: RiverChannelSettings,
+        options: RiverShapeOptions,
         rejected_waterfall_vertices: &HashSet<usize>,
     ) {
         material.submerged_river_carves_mut();
@@ -411,7 +421,7 @@ impl RiverNetwork {
             .collect::<Vec<_>>();
         let loose_volume = material.volume(mesh);
         self.jiggle(mesh);
-        if smooth {
+        if options.smooth {
             self.smooth(mesh, adjacency);
         }
         material.rescale_to_volume(mesh, loose_volume);
@@ -426,8 +436,9 @@ impl RiverNetwork {
             material,
             &bedrock_rates,
             RiverCarveOptions {
-                form_deltas,
-                channel_settings,
+                form_deltas: options.form_deltas,
+                waterfall_placement: options.waterfall_placement,
+                channel_settings: options.channel_settings,
                 rejected_waterfall_vertices,
             },
         );
@@ -574,16 +585,18 @@ impl RiverNetwork {
     ) -> bool {
         loop {
             let depth_multiplier = 1.0 / (self.max_flow as f32).sqrt().max(1.0);
-            let waterfall_clearance =
-                WaterfallClearanceIndex::new(&self.rivers, mesh, self.max_flow, base_width);
+            let waterfall_clearance = (options.waterfall_placement == WaterfallPlacement::Enabled)
+                .then(|| {
+                    WaterfallClearanceIndex::new(&self.rivers, mesh, self.max_flow, base_width)
+                });
             let footprint = build_river_footprint(self, mesh, adjacency, false);
             let invalid = self.prepare_channel_profiles(
                 mesh,
                 adjacency,
                 RiverChannelParameters { depth_multiplier },
-                &waterfall_clearance,
+                waterfall_clearance.as_ref(),
                 &footprint,
-                (!options.form_deltas).then_some(options.rejected_waterfall_vertices),
+                options,
             );
             if !invalid.iter().any(|&failed| failed) {
                 return true;
@@ -796,9 +809,9 @@ impl RiverNetwork {
         mesh: &Mesh,
         adjacency: &Adjacency,
         channel_parameters: RiverChannelParameters,
-        waterfall_clearance: &WaterfallClearanceIndex,
+        waterfall_clearance: Option<&WaterfallClearanceIndex>,
         footprint: &RiverFootprint,
-        rejected_waterfall_vertices: Option<&HashSet<usize>>,
+        options: RiverCarveOptions<'_>,
     ) -> Vec<bool> {
         let mut scratch = RiverProfileScratch::default();
         let mut ocean_entries = vec![None; self.rivers.len()];
@@ -824,6 +837,7 @@ impl RiverNetwork {
                 environment,
                 &mut self.rivers[river_index].nodes,
                 &mut self.waterfalls[river_index],
+                options.waterfall_placement,
                 RiverCarveParameters {
                     downstream_surface,
                     terminal_ocean,
@@ -846,27 +860,30 @@ impl RiverNetwork {
                 || self.rivers[river_index].nodes.len().saturating_sub(1),
                 |ocean_entry| ocean_entry.saturating_sub(1),
             );
-            let site_environment =
-                rejected_waterfall_vertices.map(|rejected| WaterfallSiteEnvironment {
+            let site_environment = (!options.form_deltas)
+                .then_some(options.rejected_waterfall_vertices)
+                .map(|rejected| WaterfallSiteEnvironment {
                     adjacency,
                     coverage: &footprint.coverage,
                     ocean: &self.ocean,
                     perimeter: &self.perimeter,
                     rejected,
                 });
-            let waterfalls_valid = relocate_conflicting_waterfalls(
-                mesh,
-                &mut self.rivers[river_index].nodes,
-                &mut self.waterfalls[river_index],
-                profile_end,
-                WaterfallRelocation {
-                    clearance: waterfall_clearance,
-                    site: site_environment,
-                    river: river_index,
-                },
-                &self.cross_sections[river_index],
-                &mut scratch.waterfall_drops,
-            );
+            let waterfalls_valid = waterfall_clearance.is_none_or(|clearance| {
+                relocate_conflicting_waterfalls(
+                    mesh,
+                    &mut self.rivers[river_index].nodes,
+                    &mut self.waterfalls[river_index],
+                    profile_end,
+                    WaterfallRelocation {
+                        clearance,
+                        site: site_environment,
+                        river: river_index,
+                    },
+                    &self.cross_sections[river_index],
+                    &mut scratch.waterfall_drops,
+                )
+            });
             self.river_mesh_ends[river_index] = ocean_entries[river_index].map(|ocean_entry| {
                 river_mouth_transition(ocean_entry, &self.waterfalls[river_index]).river_mesh_end
             });

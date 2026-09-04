@@ -1091,6 +1091,49 @@ fn waterfall_height_and_frequency_increase_with_smoothed_gradient() {
 }
 
 #[test]
+fn disabled_waterfall_placement_preserves_the_continuous_profile() {
+    let mut nodes = vec![
+        RiverNode {
+            vertex: 0,
+            flow: 1,
+            surface: 0.12,
+            position: Vec3::new(0.0, 0.0, 0.12),
+        },
+        RiverNode {
+            vertex: 1,
+            flow: 2,
+            surface: 0.04,
+            position: Vec3::new(0.01, 0.0, 0.04),
+        },
+        RiverNode {
+            vertex: 2,
+            flow: 3,
+            surface: 0.0,
+            position: Vec3::new(0.02, 0.0, 0.0),
+        },
+    ];
+    let original_surfaces = nodes.iter().map(|node| node.surface).collect::<Vec<_>>();
+    let mut waterfalls = vec![true; nodes.len()];
+    let mut scratch = Vec::new();
+
+    form_waterfall_profile(
+        &mut nodes,
+        &mut waterfalls,
+        &[],
+        2,
+        &mut scratch,
+        WaterfallPlacement::Disabled,
+    );
+
+    assert_eq!(
+        nodes.iter().map(|node| node.surface).collect::<Vec<_>>(),
+        original_surfaces
+    );
+    assert!(waterfalls.iter().all(|&waterfall| !waterfall));
+    assert!(scratch.is_empty());
+}
+
+#[test]
 fn waterfall_spacing_contains_the_full_channel_width_patch() {
     let mut nodes = (0..=30)
         .map(|index| RiverNode {

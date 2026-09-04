@@ -8,10 +8,11 @@ use super::{
     GenerationMethod, GeologyField, HashSet, HydraulicScratch, ISLAND_WORLD_METRES,
     IndexedParallelIterator, IslandOptions, Mesh, MeshClipper, OnceLock, Ordering,
     ParallelIterator, ParallelSliceMut, Path, Raster, Read, River, RiverChannelSettings,
-    RiverNetwork, RiverSourceRule, Rng, SHARP_ROCK_DISPLACEMENT_RATIO, StageTimer, SurfaceMaps,
-    SurfaceMaterial, TERRAIN_RENDER_FLOOR, Terrain, TerrainEnvironmentField, TerrainMaterialField,
-    Vec2, Vec3, Vec4, append_settled_rocks, bake_surface_maps, bury_river_banks,
-    encode_bank_distance_in_uv, erode_mesh, fix_inland_seas, geology, hydraulic_erode_stage,
+    RiverNetwork, RiverShapeOptions, RiverSourceRule, Rng, SHARP_ROCK_DISPLACEMENT_RATIO,
+    StageTimer, SurfaceMaps, SurfaceMaterial, TERRAIN_RENDER_FLOOR, Terrain,
+    TerrainEnvironmentField, TerrainMaterialField, Vec2, Vec3, Vec4, WaterfallPlacement,
+    append_settled_rocks, bake_surface_maps, bury_river_banks, encode_bank_distance_in_uv,
+    erode_mesh, fix_inland_seas, geology, hydraulic_erode_stage,
     hydraulic_erode_stage_depositing_across_sea, io, legacy_catchment_hectares, mem, noise,
     sample_grid,
 };
@@ -261,9 +262,12 @@ pub(super) fn generate_final_rivers(
             &mut attempt_lod0,
             &detail_adjacency,
             &mut attempt_material,
-            true,
-            false,
-            channel_settings,
+            RiverShapeOptions {
+                smooth: true,
+                form_deltas: false,
+                waterfall_placement: WaterfallPlacement::Enabled,
+                channel_settings,
+            },
             &rejected_waterfall_vertices,
         );
         let parts = network.into_parts_with_waterfall_failures(
@@ -1265,9 +1269,12 @@ pub(super) fn generate_lod2(
         &mut mesh,
         &adjacency,
         &mut material,
-        true,
-        true,
-        context.options.river_channel_settings(),
+        RiverShapeOptions {
+            smooth: true,
+            form_deltas: true,
+            waterfall_placement: WaterfallPlacement::Disabled,
+            channel_settings: context.options.river_channel_settings(),
+        },
     );
     mesh.calculate_normals();
     Ok((mesh, material))
@@ -1303,9 +1310,12 @@ pub(super) fn generate_first_lod1(
         &mut mesh,
         &adjacency,
         &mut material,
-        false,
-        true,
-        context.options.river_channel_settings(),
+        RiverShapeOptions {
+            smooth: false,
+            form_deltas: true,
+            waterfall_placement: WaterfallPlacement::Disabled,
+            channel_settings: context.options.river_channel_settings(),
+        },
     );
     mesh.calculate_normals();
     Ok((mesh, material))
@@ -1359,9 +1369,12 @@ pub(super) fn generate_broad_lod0(
         &mut mesh,
         &adjacency,
         &mut material,
-        true,
-        true,
-        context.options.river_channel_settings(),
+        RiverShapeOptions {
+            smooth: true,
+            form_deltas: true,
+            waterfall_placement: WaterfallPlacement::Disabled,
+            channel_settings: context.options.river_channel_settings(),
+        },
     );
     mesh.smooth_land_with(&adjacency);
     Ok((mesh, material))
@@ -1423,9 +1436,12 @@ pub(super) fn refine_lod1_again(
         &mut refined,
         &adjacency,
         &mut material,
-        false,
-        true,
-        context.options.river_channel_settings(),
+        RiverShapeOptions {
+            smooth: false,
+            form_deltas: true,
+            waterfall_placement: WaterfallPlacement::Disabled,
+            channel_settings: context.options.river_channel_settings(),
+        },
     );
     refined.calculate_normals();
     Ok((refined, material))

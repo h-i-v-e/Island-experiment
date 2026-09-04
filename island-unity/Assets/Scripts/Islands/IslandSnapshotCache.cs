@@ -6,9 +6,9 @@ using UnityEngine;
 
 internal static class IslandSnapshotCache
 {
-    // Generation semantics changed: submerged river floors now use the normal
-    // channel depth below sea level and preserve already-deeper terrain.
-    private const int CacheKeySchemaVersion = 4;
+    // Generation semantics changed: preparatory terrain passes now carve
+    // continuous rivers and leave waterfall placement to final LOD0.
+    private const int CacheKeySchemaVersion = 5;
     private const string SnapshotExtension = ".motusnapshot";
 
     internal static string CacheDirectory
