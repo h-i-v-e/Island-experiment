@@ -186,7 +186,7 @@ public static class IslandProjectSetup
         var authority = CreateAuthoredIsland(
             "Island West (Environment Authority)",
             worldObject.transform,
-            new Vector3(-2200f, 0f, 400f),
+            new Vector2Int(-1, 0),
             666,
             cameraObject.transform,
             sun,
@@ -200,7 +200,7 @@ public static class IslandProjectSetup
         CreateAuthoredIsland(
             "Island Central",
             worldObject.transform,
-            new Vector3(0f, 0f, 700f),
+            Vector2Int.zero,
             90210,
             cameraObject.transform,
             sun,
@@ -214,7 +214,7 @@ public static class IslandProjectSetup
         CreateAuthoredIsland(
             "Island East",
             worldObject.transform,
-            new Vector3(2200f, 0f, 200f),
+            new Vector2Int(1, 0),
             271828,
             cameraObject.transform,
             sun,
@@ -384,13 +384,23 @@ public static class IslandProjectSetup
         }
         foreach (var generator in generators)
         {
+            var worldCell = IslandWorldManager.WorldToCell(
+                generator.transform.position);
+            var expectedPosition = IslandWorldManager.CellCentre(
+                worldCell,
+                generator.transform.position.y);
             if (!generator.transform.IsChildOf(managers[0].transform)
                 || Quaternion.Angle(
                     generator.transform.rotation,
-                    Quaternion.identity) > 0.01f)
+                    Quaternion.identity) > 0.01f
+                || Vector3.Distance(generator.transform.position, expectedPosition) > 0.01f
+                || Mathf.Abs(
+                    generator.WorldSizeMetres
+                    - IslandWorldManager.IslandCellSizeMetres) > 0.01f)
             {
                 throw new InvalidOperationException(
-                    "Every authored island must be axis-aligned below IslandWorldManager.");
+                    "Every authored island must be a 2 km, axis-aligned child "
+                    + "centred on its IslandWorldManager grid cell.");
             }
         }
     }
@@ -398,7 +408,7 @@ public static class IslandProjectSetup
     private static IslandGenerator CreateAuthoredIsland(
         string name,
         Transform parent,
-        Vector3 position,
+        Vector2Int worldCell,
         int seed,
         Transform streamingTarget,
         Light sunlight,
@@ -413,7 +423,7 @@ public static class IslandProjectSetup
         var islandObject = new GameObject(name);
         islandObject.transform.SetParent(parent, false);
         islandObject.transform.SetPositionAndRotation(
-            position,
+            IslandWorldManager.CellCentre(worldCell),
             Quaternion.identity);
         var island = islandObject.AddComponent<IslandGenerator>();
         island.Generation.Seed = seed;

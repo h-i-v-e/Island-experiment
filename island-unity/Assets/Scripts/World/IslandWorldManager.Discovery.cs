@@ -34,35 +34,30 @@ public sealed partial class IslandWorldManager
         AddDiscoveryCells(projectedPosition);
         foreach (var cell in discoveryScanCells)
         {
-            if (discoveredIslands.ContainsKey(cell)
+            if (managedIslands.ContainsKey(cell)
                 || !TryCreateDiscoveredDescriptor(cell, out var descriptor))
             {
                 continue;
             }
             var managed = new ManagedIsland(descriptor, null, null);
-            discoveredIslands.Add(cell, managed);
-            managedIslands.Add(managed);
+            managedIslands.Add(cell, managed);
         }
         PruneDistantDescriptors(currentPosition, projectedPosition);
     }
 
     private void AddDiscoveryCells(Vector3 centre)
     {
-        var centreCell = new Vector2Int(
-            Mathf.RoundToInt(centre.x / oceanCellSizeMetres),
-            Mathf.RoundToInt(centre.z / oceanCellSizeMetres));
-        var cellRadius = Mathf.CeilToInt(discoveryRadiusMetres / oceanCellSizeMetres) + 1;
+        var centreCell = WorldToCell(centre);
+        var cellRadius = Mathf.CeilToInt(
+            discoveryRadiusMetres / IslandCellSizeMetres) + 1;
         var maximumDistance = discoveryRadiusMetres
-            + oceanCellSizeMetres * 0.75f;
+            + IslandCellSizeMetres * 0.75f;
         for (var z = -cellRadius; z <= cellRadius; z++)
         {
             for (var x = -cellRadius; x <= cellRadius; x++)
             {
                 var cell = centreCell + new Vector2Int(x, z);
-                var cellPosition = new Vector3(
-                    cell.x * oceanCellSizeMetres,
-                    centre.y,
-                    cell.y * oceanCellSizeMetres);
+                var cellPosition = CellCentre(cell, centre.y);
                 if (HorizontalDistance(cellPosition, centre) <= maximumDistance)
                 {
                     discoveryScanCells.Add(cell);
@@ -76,96 +71,23 @@ public sealed partial class IslandWorldManager
         out IslandDescriptor descriptor)
     {
         descriptor = default;
-        var radius = environmentAuthority.WorldSizeMetres * 0.5f;
-        var candidate = IslandDescriptor.ProceduralCandidate(
+        return IslandDescriptor.TryCreateProcedural(
             worldSeed,
             cell,
-            oceanCellSizeMetres,
+            IslandCellSizeMetres,
             islandCellOccupancy,
-            islandCellJitterFraction,
-            radius);
-        if (!candidate.Occupied)
-        {
-            return false;
-        }
-
-        var maximumJitter = oceanCellSizeMetres * islandCellJitterFraction;
-        var conflictDistance = radius * 2f + minimumIslandGapMetres;
-        var neighbourRange = Mathf.Max(
-            1,
-            Mathf.CeilToInt(
-                (conflictDistance + maximumJitter * 2f)
-                / oceanCellSizeMetres));
-        for (var z = -neighbourRange; z <= neighbourRange; z++)
-        {
-            for (var x = -neighbourRange; x <= neighbourRange; x++)
-            {
-                var otherCell = cell + new Vector2Int(x, z);
-                if (otherCell == cell)
-                {
-                    continue;
-                }
-                var other = IslandDescriptor.ProceduralCandidate(
-                    worldSeed,
-                    otherCell,
-                    oceanCellSizeMetres,
-                    islandCellOccupancy,
-                    islandCellJitterFraction,
-                    radius);
-                if (!other.Occupied
-                    || DescriptorDistance(
-                        candidate.Descriptor,
-                        other.Descriptor) >= conflictDistance
-                    || CandidateWins(candidate, other))
-                {
-                    continue;
-                }
-                return false;
-            }
-        }
-
-        foreach (var entry in managedIslands)
-        {
-            if (!entry.IsAuthored)
-            {
-                continue;
-            }
-            var required = radius
-                + entry.Descriptor.EstimatedBoundingRadiusMetres
-                + minimumIslandGapMetres;
-            if (DescriptorDistance(candidate.Descriptor, entry.Descriptor) < required)
-            {
-                return false;
-            }
-        }
-
-        descriptor = candidate.Descriptor;
-        return true;
-    }
-
-    private static bool CandidateWins(
-        ProceduralIslandCandidate candidate,
-        ProceduralIslandCandidate other)
-    {
-        if (candidate.PlacementPriority != other.PlacementPriority)
-        {
-            return candidate.PlacementPriority < other.PlacementPriority;
-        }
-        if (candidate.Descriptor.WorldCell.x != other.Descriptor.WorldCell.x)
-        {
-            return candidate.Descriptor.WorldCell.x < other.Descriptor.WorldCell.x;
-        }
-        return candidate.Descriptor.WorldCell.y < other.Descriptor.WorldCell.y;
+            out descriptor);
     }
 
     private void PruneDistantDescriptors(Vector3 current, Vector3 projected)
     {
         removalCells.Clear();
-        var retentionRadius = discoveryRadiusMetres + oceanCellSizeMetres * 2f;
-        foreach (var pair in discoveredIslands)
+        var retentionRadius = discoveryRadiusMetres + IslandCellSizeMetres * 2f;
+        foreach (var pair in managedIslands)
         {
             var entry = pair.Value;
-            if (entry.Queued
+            if (entry.IsAuthored
+                || entry.Queued
                 || entry.Generating
                 || (entry.Generator != null && entry.Generator.HasRuntime)
                 || DistanceToDescriptor(entry.Descriptor, current) <= retentionRadius
@@ -177,16 +99,15 @@ public sealed partial class IslandWorldManager
         }
         foreach (var cell in removalCells)
         {
-            var entry = discoveredIslands[cell];
+            var entry = managedIslands[cell];
             DestroyDiscoveredGenerator(entry);
-            discoveredIslands.Remove(cell);
-            managedIslands.Remove(entry);
+            managedIslands.Remove(cell);
         }
     }
 
     private void QueueDesiredGeneration()
     {
-        foreach (var entry in managedIslands)
+        foreach (var entry in managedIslands.Values)
         {
             if (entry == authorityIsland
                 || entry.InitialGenerationPending
@@ -217,7 +138,7 @@ public sealed partial class IslandWorldManager
 
     private void CancelObsoleteGeneration()
     {
-        foreach (var entry in managedIslands)
+        foreach (var entry in managedIslands.Values)
         {
             if (entry == authorityIsland || entry.InitialGenerationPending)
             {
@@ -253,7 +174,7 @@ public sealed partial class IslandWorldManager
 
     private bool HasReadyQueuedIsland()
     {
-        foreach (var entry in managedIslands)
+        foreach (var entry in managedIslands.Values)
         {
             if (entry.Queued && Time.unscaledTime >= entry.RetryAfterTime)
             {
@@ -371,7 +292,7 @@ public sealed partial class IslandWorldManager
     {
         ManagedIsland selected = null;
         var selectedPriority = float.PositiveInfinity;
-        foreach (var entry in managedIslands)
+        foreach (var entry in managedIslands.Values)
         {
             if (!entry.Queued || Time.unscaledTime < entry.RetryAfterTime)
             {

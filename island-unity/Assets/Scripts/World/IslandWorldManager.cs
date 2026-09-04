@@ -7,19 +7,20 @@ using UnityEngine;
 [DisallowMultipleComponent]
 public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQuery
 {
+    public const float IslandCellSizeMetres = 2000f;
+
     [Serializable]
     public sealed class AuthoredIsland
     {
         [SerializeField] private IslandGenerator generator;
         [Tooltip("Stable save/discovery identity. The object name and seed are used when empty.")]
         [SerializeField] private string stableId;
-        [SerializeField] private Vector2Int worldCell;
         [SerializeField] private bool generateOnStart = true;
 
         public IslandGenerator Generator => generator;
         public bool GenerateOnStart => generateOnStart;
 
-        internal IslandDescriptor CreateDescriptor()
+        internal IslandDescriptor CreateDescriptor(Vector2Int worldCell)
         {
             if (generator == null)
             {
@@ -29,7 +30,11 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
             var id = string.IsNullOrWhiteSpace(stableId)
                 ? $"authored-{generator.gameObject.name}-{generator.Generation.Seed}"
                 : stableId.Trim();
-            return IslandDescriptor.Authored(id, worldCell, generator);
+            return IslandDescriptor.Authored(
+                id,
+                worldCell,
+                generator,
+                IslandCellSizeMetres);
         }
 
         internal static AuthoredIsland FromGenerator(IslandGenerator value)
@@ -71,10 +76,7 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
     [Header("Procedural Ocean Discovery")]
     [SerializeField] private bool enableProceduralDiscovery = true;
     [SerializeField] private int worldSeed = 8675309;
-    [Min(2500f)] [SerializeField] private float oceanCellSizeMetres = 5200f;
     [Range(0f, 1f)] [SerializeField] private float islandCellOccupancy = 0.32f;
-    [Range(0f, 0.45f)] [SerializeField] private float islandCellJitterFraction = 0.18f;
-    [Min(0f)] [SerializeField] private float minimumIslandGapMetres = 700f;
     [Min(1000f)] [SerializeField] private float discoveryRadiusMetres = 16000f;
     [Min(1000f)] [SerializeField] private float generationRadiusMetres = 10500f;
     [Min(0.05f)] [SerializeField] private float discoveryRefreshSeconds = 0.5f;
@@ -88,8 +90,6 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
 
     [Header("Player Routing")]
     [SerializeField] private Transform streamingTarget;
-    [Min(50f)] [SerializeField] private float detailFocusRadiusMetres = 1400f;
-    [Min(0f)] [SerializeField] private float focusHysteresisMetres = 250f;
 
     [Header("Island Residency")]
     [Min(100f)] [SerializeField] private float activeRadiusMetres = 6000f;
@@ -99,8 +99,7 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
     [SerializeField] private bool unloadAuthoredBeyondRadius;
     [Min(1f)] [SerializeField] private float failedGenerationRetrySeconds = 15f;
 
-    private readonly List<ManagedIsland> managedIslands = new List<ManagedIsland>();
-    private readonly Dictionary<Vector2Int, ManagedIsland> discoveredIslands =
+    private readonly Dictionary<Vector2Int, ManagedIsland> managedIslands =
         new Dictionary<Vector2Int, ManagedIsland>();
     private readonly HashSet<Vector2Int> discoveryScanCells =
         new HashSet<Vector2Int>();
@@ -128,14 +127,28 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
         lastQueryPosition.x,
         lastQueryPosition.z);
     public int AuthoredIslandCount => islands.Count;
-    public int DiscoveredIslandCount => discoveredIslands.Count;
+    public int DiscoveredIslandCount
+    {
+        get
+        {
+            var count = 0;
+            foreach (var entry in managedIslands.Values)
+            {
+                if (!entry.IsAuthored)
+                {
+                    count++;
+                }
+            }
+            return count;
+        }
+    }
     public int KnownIslandCount => managedIslands.Count;
     public int LoadedIslandCount
     {
         get
         {
             var count = 0;
-            foreach (var entry in managedIslands)
+            foreach (var entry in managedIslands.Values)
             {
                 if (entry.Generator != null && entry.Generator.HasRuntime)
                 {
@@ -150,7 +163,7 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
         get
         {
             var count = 0;
-            foreach (var entry in managedIslands)
+            foreach (var entry in managedIslands.Values)
             {
                 if (entry.Queued)
                 {
@@ -183,7 +196,7 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
     private void Start()
     {
         QueueGeneration(authorityIsland);
-        foreach (var entry in managedIslands)
+        foreach (var entry in managedIslands.Values)
         {
             if (entry != authorityIsland && entry.InitialGenerationPending)
             {
@@ -226,7 +239,7 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
         {
             return;
         }
-        foreach (var entry in managedIslands)
+        foreach (var entry in managedIslands.Values)
         {
             var generator = entry.Generator;
             if (generator != null
@@ -242,14 +255,13 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
     {
         destroyed = true;
         shutdown?.Cancel();
-        foreach (var entry in managedIslands)
+        foreach (var entry in managedIslands.Values)
         {
             entry.GenerationToken++;
             entry.GenerationCancellation?.Cancel();
         }
         shutdown?.Dispose();
         shutdown = null;
-        discoveredIslands.Clear();
         managedIslands.Clear();
         discoveryScanCells.Clear();
         removalCells.Clear();
@@ -286,22 +298,6 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
             && focusedIsland.TrySnapToTerrain(approximateWorldPoint, out worldPoint))
         {
             return true;
-        }
-        foreach (var entry in managedIslands)
-        {
-            var generator = entry.Generator;
-            if (generator == null
-                || generator == focusedIsland
-                || !generator.HasActiveRuntime
-                || !ContainsXZ(generator, approximateWorldPoint))
-            {
-                continue;
-            }
-            generator.PrepareStreamingAt(approximateWorldPoint);
-            if (generator.TrySnapToTerrain(approximateWorldPoint, out worldPoint))
-            {
-                return true;
-            }
         }
         worldPoint = approximateWorldPoint;
         return false;
@@ -360,16 +356,22 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
             {
                 continue;
             }
-            var descriptor = authored.CreateDescriptor();
+            var worldCell = WorldToCell(generator.transform.position);
+            var descriptor = authored.CreateDescriptor(worldCell);
             if (!ids.Add(descriptor.IslandId))
             {
                 throw new InvalidOperationException(
                     $"Duplicate authored island ID '{descriptor.IslandId}'.");
             }
+            if (managedIslands.ContainsKey(worldCell))
+            {
+                throw new InvalidOperationException(
+                    $"Multiple authored islands occupy world cell {worldCell}.");
+            }
             generator.ConfigureWorldManagement(generator == environmentAuthority);
             generator.SetStreamingTarget(null);
             var managed = new ManagedIsland(descriptor, generator, authored);
-            managedIslands.Add(managed);
+            managedIslands.Add(worldCell, managed);
             if (generator == environmentAuthority)
             {
                 authorityIsland = managed;
@@ -384,7 +386,7 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
 
     private void UpdateResidencyAndFocus(Vector3 worldPosition)
     {
-        foreach (var entry in managedIslands)
+        foreach (var entry in managedIslands.Values)
         {
             var generator = entry.Generator;
             if (generator == null || generator.IsGenerating || !generator.HasRuntime)
@@ -421,49 +423,11 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
 
     private IslandGenerator SelectFocusedIsland(Vector3 worldPosition)
     {
-        IslandGenerator containing = null;
-        var containingDistance = float.PositiveInfinity;
-        IslandGenerator closest = null;
-        var closestDistance = float.PositiveInfinity;
-        foreach (var entry in managedIslands)
-        {
-            var generator = entry.Generator;
-            if (generator == null || !generator.HasRuntime)
-            {
-                continue;
-            }
-            var distance = HorizontalDistance(generator.transform.position, worldPosition);
-            if (ContainsXZ(generator, worldPosition)
-                && distance < containingDistance)
-            {
-                containing = generator;
-                containingDistance = distance;
-            }
-            if (distance <= detailFocusRadiusMetres && distance < closestDistance)
-            {
-                closest = generator;
-                closestDistance = distance;
-            }
-        }
-
-        // A player standing over generated terrain must always route collision
-        // to that island. Centre-distance hysteresis is only appropriate over
-        // open sea; otherwise it can retain the previous island after the
-        // player has already reached the next one's terrain bounds.
-        if (containing != null)
-        {
-            return containing;
-        }
-
-        var retainedRadius = detailFocusRadiusMetres + focusHysteresisMetres;
-        if (focusedIsland != null
-            && focusedIsland.HasRuntime
-            && HorizontalDistance(focusedIsland.transform.position, worldPosition)
-                <= retainedRadius)
-        {
-            return focusedIsland;
-        }
-        return closest;
+        return managedIslands.TryGetValue(WorldToCell(worldPosition), out var entry)
+            && entry.Generator != null
+            && entry.Generator.HasRuntime
+                ? entry.Generator
+                : null;
     }
 
     private void SetFocusedIsland(IslandGenerator selected, Vector3 worldPosition)
@@ -518,7 +482,7 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
         }
 
         var betterCandidates = 0;
-        foreach (var other in managedIslands)
+        foreach (var other in managedIslands.Values)
         {
             if (other == candidate
                 || other == authorityIsland
@@ -562,7 +526,7 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
         }
 
         ManagedIsland eviction = null;
-        foreach (var entry in managedIslands)
+        foreach (var entry in managedIslands.Values)
         {
             if (entry == incoming
                 || entry == authorityIsland
@@ -610,11 +574,20 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
             activeRadiusMetres + activeHysteresisMetres + 1f);
     }
 
-    private static bool ContainsXZ(IslandGenerator generator, Vector3 point)
+    public static Vector2Int WorldToCell(Vector3 worldPosition)
     {
-        var local = generator.transform.InverseTransformPoint(point);
-        var halfSize = generator.WorldSizeMetres * 0.5f;
-        return Mathf.Abs(local.x) <= halfSize && Mathf.Abs(local.z) <= halfSize;
+        var halfCell = IslandCellSizeMetres * 0.5;
+        return new Vector2Int(
+            (int)Math.Floor((worldPosition.x + halfCell) / IslandCellSizeMetres),
+            (int)Math.Floor((worldPosition.z + halfCell) / IslandCellSizeMetres));
+    }
+
+    public static Vector3 CellCentre(Vector2Int worldCell, float worldY = 0f)
+    {
+        return new Vector3(
+            worldCell.x * IslandCellSizeMetres,
+            worldY,
+            worldCell.y * IslandCellSizeMetres);
     }
 
     private static float DistanceToDescriptor(
@@ -624,15 +597,6 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
         var x = descriptor.LogicalXMetres - position.x;
         var z = descriptor.LogicalZMetres - position.z;
         return (float)Math.Sqrt(x * x + z * z);
-    }
-
-    private static double DescriptorDistance(
-        IslandDescriptor first,
-        IslandDescriptor second)
-    {
-        var x = first.LogicalXMetres - second.LogicalXMetres;
-        var z = first.LogicalZMetres - second.LogicalZMetres;
-        return Math.Sqrt(x * x + z * z);
     }
 
     private static float HorizontalDistance(Vector3 first, Vector3 second)
@@ -669,27 +633,37 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
                 "Island routing distance must ignore elevation.");
         }
 
-        var first = IslandDescriptor.ProceduralCandidate(
+        var expectedCell = new Vector2Int(-7, 11);
+        var expectedCentre = CellCentre(expectedCell);
+        if (WorldToCell(expectedCentre) != expectedCell
+            || WorldToCell(new Vector3(999.99f, 0f, -999.99f)) != Vector2Int.zero
+            || WorldToCell(new Vector3(1000f, 0f, -1000.01f))
+                != new Vector2Int(1, -1))
+        {
+            throw new InvalidOperationException(
+                "World positions do not map deterministically to 2 km island cells.");
+        }
+
+        var firstOccupied = IslandDescriptor.TryCreateProcedural(
             8128,
-            new Vector2Int(-7, 11),
-            5200f,
+            expectedCell,
+            IslandCellSizeMetres,
             1f,
-            0.18f,
-            1000f);
-        var repeated = IslandDescriptor.ProceduralCandidate(
+            out var first);
+        var repeatedOccupied = IslandDescriptor.TryCreateProcedural(
             8128,
-            new Vector2Int(-7, 11),
-            5200f,
+            expectedCell,
+            IslandCellSizeMetres,
             1f,
-            0.18f,
-            1000f);
-        if (!first.Occupied
-            || !repeated.Occupied
-            || first.Descriptor.IslandId != repeated.Descriptor.IslandId
-            || first.Descriptor.Seed != repeated.Descriptor.Seed
-            || first.Descriptor.LogicalXMetres != repeated.Descriptor.LogicalXMetres
-            || first.Descriptor.LogicalZMetres != repeated.Descriptor.LogicalZMetres
-            || first.PlacementPriority != repeated.PlacementPriority)
+            out var repeated);
+        if (!firstOccupied
+            || !repeatedOccupied
+            || first.IslandId != repeated.IslandId
+            || first.Seed != repeated.Seed
+            || first.LogicalXMetres != expectedCentre.x
+            || first.LogicalZMetres != expectedCentre.z
+            || first.LogicalXMetres != repeated.LogicalXMetres
+            || first.LogicalZMetres != repeated.LogicalZMetres)
         {
             throw new InvalidOperationException(
                 "Procedural island descriptors are not deterministic.");

@@ -66,76 +66,62 @@ internal readonly struct IslandDescriptor : IEquatable<IslandDescriptor>
     internal static IslandDescriptor Authored(
         string islandId,
         Vector2Int worldCell,
-        IslandGenerator generator)
+        IslandGenerator generator,
+        float cellSizeMetres)
     {
         if (generator == null) throw new ArgumentNullException(nameof(generator));
+        if (!IsFinitePositive(cellSizeMetres))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(cellSizeMetres),
+                "Island cell size must be finite and positive.");
+        }
         return new IslandDescriptor(
             islandId,
             worldCell,
-            generator.transform.position.x,
-            generator.transform.position.z,
+            worldCell.x * (double)cellSizeMetres,
+            worldCell.y * (double)cellSizeMetres,
             generator.Generation.Seed,
             generator.WorldSizeMetres * 0.5f,
             CurrentGeneratorSchemaVersion);
     }
 
-    internal static ProceduralIslandCandidate ProceduralCandidate(
+    internal static bool TryCreateProcedural(
         int worldSeed,
         Vector2Int worldCell,
         float cellSizeMetres,
         float occupancy,
-        float jitterFraction,
-        float estimatedBoundingRadiusMetres)
+        out IslandDescriptor descriptor)
     {
-        if (!IsFinitePositive(cellSizeMetres)
-            || !IsFinitePositive(estimatedBoundingRadiusMetres))
+        if (!IsFinitePositive(cellSizeMetres))
         {
             throw new ArgumentOutOfRangeException(
                 nameof(cellSizeMetres),
-                "Procedural island cell size and radius must be finite and positive.");
+                "Procedural island cell size must be finite and positive.");
         }
 
         var occupancyHash = Hash(worldSeed, worldCell.x, worldCell.y, 0x4f1bbcdcu);
-        var placementPriority = Hash(
-            worldSeed,
-            worldCell.x,
-            worldCell.y,
-            0x9e3779b9u);
         if (HashUnitFloat(occupancyHash) >= Mathf.Clamp01(occupancy))
         {
-            return new ProceduralIslandCandidate(default, placementPriority, false);
+            descriptor = default;
+            return false;
         }
 
-        var maximumJitter = cellSizeMetres
-            * Mathf.Clamp(jitterFraction, 0f, 0.45f);
-        var jitterX = HashSignedFloat(Hash(
-            worldSeed,
-            worldCell.x,
-            worldCell.y,
-            0x85ebca6bu)) * maximumJitter;
-        var jitterZ = HashSignedFloat(Hash(
-            worldSeed,
-            worldCell.x,
-            worldCell.y,
-            0xc2b2ae35u)) * maximumJitter;
         var seedHash = Hash(worldSeed, worldCell.x, worldCell.y, 0x27d4eb2fu);
         var islandSeed = (int)(seedHash & 0x7fffffffu);
         if (islandSeed == 0)
         {
             islandSeed = 1;
         }
-        var descriptor = new IslandDescriptor(
+        descriptor = new IslandDescriptor(
             $"world-{worldSeed}-cell-{worldCell.x}-{worldCell.y}",
             worldCell,
-            worldCell.x * (double)cellSizeMetres + jitterX,
-            worldCell.y * (double)cellSizeMetres + jitterZ,
+            worldCell.x * (double)cellSizeMetres,
+            worldCell.y * (double)cellSizeMetres,
             islandSeed,
-            estimatedBoundingRadiusMetres,
+            cellSizeMetres * 0.5f,
             CurrentGeneratorSchemaVersion);
-        return new ProceduralIslandCandidate(
-            descriptor,
-            placementPriority,
-            true);
+        return true;
     }
 
     private static uint Hash(
@@ -162,9 +148,6 @@ internal readonly struct IslandDescriptor : IEquatable<IslandDescriptor>
     private static float HashUnitFloat(uint value) =>
         (value & 0x00ffffffu) / 16777216f;
 
-    private static float HashSignedFloat(uint value) =>
-        HashUnitFloat(value) * 2f - 1f;
-
     private static bool IsFinitePositive(float value) =>
         !float.IsNaN(value) && !float.IsInfinity(value) && value > 0f;
 
@@ -173,21 +156,4 @@ internal readonly struct IslandDescriptor : IEquatable<IslandDescriptor>
         value is IslandDescriptor other && Equals(other);
     public override int GetHashCode() => IslandId.GetHashCode();
     public override string ToString() => IslandId;
-}
-
-internal readonly struct ProceduralIslandCandidate
-{
-    internal IslandDescriptor Descriptor { get; }
-    internal uint PlacementPriority { get; }
-    internal bool Occupied { get; }
-
-    internal ProceduralIslandCandidate(
-        IslandDescriptor descriptor,
-        uint placementPriority,
-        bool occupied)
-    {
-        Descriptor = descriptor;
-        PlacementPriority = placementPriority;
-        Occupied = occupied;
-    }
 }
