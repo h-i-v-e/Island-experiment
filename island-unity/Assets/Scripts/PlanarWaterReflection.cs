@@ -73,6 +73,7 @@ public sealed class PlanarWaterReflection : MonoBehaviour
     private void OnEnable()
     {
         sourceCamera = GetComponent<Camera>();
+        EnsureSourceDepthTexture();
         ResolveSimplifiedShader();
         Shader.SetGlobalFloat(ReflectionAvailableId, 0f);
     }
@@ -111,6 +112,7 @@ public sealed class PlanarWaterReflection : MonoBehaviour
             Shader.SetGlobalFloat(ReflectionAvailableId, 0f);
             return;
         }
+        EnsureSourceDepthTexture();
 
         EnsureReflectionCamera();
         EnsureReflectionTexture();
@@ -139,6 +141,14 @@ public sealed class PlanarWaterReflection : MonoBehaviour
         reflectionCamera = reflectionObject.AddComponent<Camera>();
         reflectionCamera.enabled = false;
         ReflectionCameras.Add(reflectionCamera);
+    }
+
+    private void EnsureSourceDepthTexture()
+    {
+        if (sourceCamera != null)
+        {
+            sourceCamera.depthTextureMode |= DepthTextureMode.Depth;
+        }
     }
 
     private void EnsureReflectionTexture()

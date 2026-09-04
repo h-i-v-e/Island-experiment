@@ -1647,6 +1647,77 @@ fn nearby_river_pushes_a_waterfall_drop_upstream() {
 }
 
 #[test]
+fn relocation_preserves_landing_space_between_same_river_waterfalls() {
+    let mut vertices = (0..8)
+        .map(|index| Vec3::new(index as f32 * 0.01, 0.0, 0.2))
+        .collect::<Vec<_>>();
+    let blocker = vertices.len();
+    vertices.push(Vec3::new(0.065, 0.000_1, 0.2));
+    let mesh = Mesh {
+        vertices,
+        ..Mesh::default()
+    };
+    let mut nodes = (0..8)
+        .map(|vertex| RiverNode {
+            vertex,
+            flow: 10,
+            surface: 0.2 - vertex as f32 * 0.01,
+            position: mesh.vertices[vertex],
+        })
+        .collect::<Vec<_>>();
+    let rivers = vec![
+        River {
+            nodes: nodes.clone(),
+            join: None,
+        },
+        River {
+            nodes: vec![RiverNode {
+                vertex: blocker,
+                flow: 10,
+                surface: mesh.vertices[blocker].z,
+                position: mesh.vertices[blocker],
+            }],
+            join: None,
+        },
+    ];
+    let clearance = WaterfallClearanceIndex::new(&rivers, &mesh, 10, 0.000_1);
+    let sections = vec![
+        RiverCrossSection {
+            target_half_width: 0.01,
+            ..RiverCrossSection::default()
+        };
+        nodes.len()
+    ];
+    let mut waterfalls = vec![false; nodes.len()];
+    waterfalls[3] = true;
+    waterfalls[6] = true;
+    let mut scratch = Vec::new();
+
+    assert!(relocate_conflicting_waterfalls(
+        &mesh,
+        &mut nodes,
+        &mut waterfalls,
+        7,
+        WaterfallRelocation {
+            clearance: &clearance,
+            site: None,
+            river: 0,
+        },
+        &sections,
+        &mut scratch,
+    ));
+
+    assert!(waterfalls[2]);
+    assert!(waterfalls[5]);
+    assert!(!waterfalls[3]);
+    assert!(!waterfalls[6]);
+    let relocated_spacing = nodes[2].position.distance(nodes[5].position);
+    let required_spacing = WATERFALL_SUPPORT_RUN
+        + sections[2].target_half_width * (1.0 + WATERFALL_LANDING_LENGTH_MULTIPLIER);
+    assert!(relocated_spacing + f32::EPSILON >= required_spacing);
+}
+
+#[test]
 fn intermediate_lod_keeps_the_original_drop_when_every_site_conflicts() {
     let mesh = Mesh {
         vertices: vec![

@@ -10,13 +10,10 @@ fixed3 MotuWaterfallSprayLighting(
 {
     MotuCloudLighting cloud = MotuCloudSurfaceLighting(worldPosition);
     half terrainVisibility = saturate(shadowAttenuation);
-    // Mist is translucent, but it is not emissive. In a terrain shadow the
-    // surrounding sky contribution must fall with the direct light or the pale
-    // tint reads as a glowing object against the dark waterfall face.
-    half ambientVisibility = lerp(
-        0.06h,
-        1.0h,
-        terrainVisibility * terrainVisibility);
+    // Mist is translucent, but it is not emissive. Attenuate even the ambient
+    // sky contribution to zero in a full terrain shadow; retaining a minimum
+    // ambient floor makes dense pale mist and droplets appear self-lit.
+    half ambientVisibility = terrainVisibility * terrainVisibility;
     fixed3 ambient = _MotuCloudAmbientColor.rgb
         * cloud.ambientTransmittance
         * ambientVisibility

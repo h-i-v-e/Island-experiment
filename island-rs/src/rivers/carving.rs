@@ -806,15 +806,17 @@ pub(super) fn relocate_conflicting_waterfalls(
 
     waterfalls[..end].fill(false);
     let mut upstream_limit = end.saturating_sub(1);
+    let mut nearest_downstream = None;
     let mut all_placed = true;
     for drop in scratch.iter_mut().rev() {
         let original = drop.segment.min(upstream_limit);
         let selected = (1..=original)
             .rev()
             .find(|&segment| {
-                !relocation
-                    .clearance
-                    .conflicts(relocation.river, mesh, nodes, segment)
+                has_downstream_waterfall_spacing(nodes, cross_sections, segment, nearest_downstream)
+                    && !relocation
+                        .clearance
+                        .conflicts(relocation.river, mesh, nodes, segment)
                     && relocation.site.is_none_or(|environment| {
                         valid_waterfall_site(
                             mesh,
@@ -828,12 +830,23 @@ pub(super) fn relocate_conflicting_waterfalls(
             })
             // Intermediate erosion LODs retain the historical best-effort
             // behavior. Only the final LOD 0 pass may reject a whole river.
-            .or_else(|| (relocation.site.is_none() && original > 0).then_some(original));
+            .or_else(|| {
+                (relocation.site.is_none()
+                    && original > 0
+                    && has_downstream_waterfall_spacing(
+                        nodes,
+                        cross_sections,
+                        original,
+                        nearest_downstream,
+                    ))
+                .then_some(original)
+            });
         if let Some(segment) = selected {
             drop.segment = segment;
             drop.placed = true;
             waterfalls[segment] = true;
             upstream_limit = segment.saturating_sub(1);
+            nearest_downstream = Some(segment);
         } else {
             drop.placed = false;
             all_placed = false;
@@ -851,6 +864,39 @@ pub(super) fn relocate_conflicting_waterfalls(
         nodes[segment].surface = level.min(nodes[segment].surface);
     }
     all_placed
+}
+
+fn has_downstream_waterfall_spacing(
+    nodes: &[RiverNode],
+    cross_sections: &[RiverCrossSection],
+    segment: usize,
+    downstream_segment: Option<usize>,
+) -> bool {
+    let Some(downstream_segment) = downstream_segment else {
+        return true;
+    };
+    if segment >= downstream_segment {
+        return false;
+    }
+
+    let reach_length = nodes[segment..=downstream_segment]
+        .windows(2)
+        .map(|pair| {
+            pair[0]
+                .position
+                .truncate()
+                .distance(pair[1].position.truncate())
+        })
+        .sum::<f32>();
+    let reach_half_width = cross_sections
+        .get(segment..downstream_segment)
+        .into_iter()
+        .flatten()
+        .map(|section| section.target_half_width)
+        .fold(0.0_f32, f32::max);
+    let required_reach =
+        WATERFALL_SUPPORT_RUN + reach_half_width * (1.0 + WATERFALL_LANDING_LENGTH_MULTIPLIER);
+    reach_length + f32::EPSILON >= required_reach
 }
 
 pub(super) fn river_ocean_entry(

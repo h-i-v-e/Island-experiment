@@ -160,6 +160,20 @@ Shader "Motu/Waterfall Foot Mist"
                         0.16,
                         footprintField + (broadNoise - 0.5) * 0.28);
 
+                    // The volume's local -Z edge is placed at the waterfall
+                    // foot and +Z extends downstream over the plunge pool.
+                    // Keep the impact edge fully dense, then let coherent
+                    // noise vary how quickly the mist dissipates outwards.
+                    float distanceFromFoot = saturate(localSample.z + 0.5);
+                    float noisyDistanceFromFoot = saturate(
+                        distanceFromFoot
+                        * (1.0 + (broadNoise - 0.5) * 0.22
+                            + domainWarp.z * 0.16));
+                    float footEdgeDensity = 1.0 - smoothstep(
+                        0.04,
+                        0.96,
+                        noisyDistanceFromFoot);
+
                     float height01 = saturate(localSample.y + 0.5);
                     float3 risingNoiseCoordinate = float3(
                         noiseCoordinate.x * 0.72,
@@ -199,6 +213,7 @@ Shader "Motu/Waterfall Foot Mist"
                         0.92 + broadNoise * 0.2,
                         lowerBlanket);
                     opticalDepth += horizontalMask
+                        * footEdgeDensity
                         * topMask
                         * verticalDensity
                         * lowerBlanketBoost

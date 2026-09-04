@@ -1020,6 +1020,7 @@ public static class IslandGeneratorValidation
                 || reflectedTarget == null
                 || reflectedTarget.width != 160
                 || reflectedTarget.height != 90
+                || (sourceCamera.depthTextureMode & DepthTextureMode.Depth) == 0
                 || (reflectedCamera.cullingMask & (1 << waterLayer)) != 0
                 || reflectedCamera.depthTextureMode != DepthTextureMode.None
                 || !reflection.LastRenderUsedSimplifiedShader

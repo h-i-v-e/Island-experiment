@@ -359,14 +359,18 @@ public sealed class WaterfallMistPool : MonoBehaviour
         impactPosition.y = Mathf.Max(impactPosition.y, SeaLevel);
 
         slot.footIndex = footIndex;
-        slot.volumeObject.transform.SetPositionAndRotation(
-            impactPosition,
-            Quaternion.LookRotation(direction, Vector3.up));
+        // Waterfall records and the player query are island-local. Keep the
+        // assigned effect local to the river root as well so translated or
+        // rotated islands do not leave their mist and spray near world zero.
+        slot.volumeObject.transform.localPosition = impactPosition;
+        slot.volumeObject.transform.localRotation = Quaternion.LookRotation(
+            direction,
+            Vector3.up);
         slot.volumeObject.transform.localScale = Vector3.one;
         slot.volumeTransform.localPosition = new Vector3(
             0f,
             height * 0.28f + SurfaceClearance,
-            -depth * 0.18f);
+            depth * 0.5f);
         slot.volumeTransform.localRotation = Quaternion.identity;
         slot.volumeTransform.localScale = new Vector3(width, height, depth);
         slot.properties.SetFloat(DensityId, Mathf.Lerp(1.1f, 1.8f, impact));
@@ -477,8 +481,8 @@ public sealed class WaterfallMistPool : MonoBehaviour
         main.playOnAwake = false;
         main.simulationSpace = ParticleSystemSimulationSpace.World;
         main.startLifetime = new ParticleSystem.MinMaxCurve(0.48f, 0.95f);
-        main.startSpeed = new ParticleSystem.MinMaxCurve(2f, 4.5f);
-        main.startSize = new ParticleSystem.MinMaxCurve(0.055f, 0.16f);
+        main.startSpeed = new ParticleSystem.MinMaxCurve(1f, 2.25f);
+        main.startSize = new ParticleSystem.MinMaxCurve(0.11f, 0.32f);
         main.startColor = new ParticleSystem.MinMaxGradient(
             new Color(0.76f, 0.88f, 0.93f, 0.44f),
             new Color(0.92f, 0.97f, 1f, 0.72f));
@@ -563,8 +567,8 @@ public sealed class WaterfallMistPool : MonoBehaviour
 
         var main = spray.main;
         main.startSpeed = new ParticleSystem.MinMaxCurve(
-            Mathf.Lerp(1.8f, 2.8f, impact),
-            Mathf.Lerp(3.6f, 5.8f, impact));
+            Mathf.Lerp(0.9f, 1.4f, impact),
+            Mathf.Lerp(1.8f, 2.9f, impact));
         main.gravityModifier = new ParticleSystem.MinMaxCurve(
             Mathf.Lerp(1.05f, 1.2f, impact),
             Mathf.Lerp(1.4f, 1.75f, impact));

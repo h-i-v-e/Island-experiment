@@ -546,6 +546,8 @@ public sealed partial class IslandGenerator
                     || !riverWaterMaterial.HasProperty("_WhitewaterStrength")
                     || !riverWaterMaterial.HasProperty("_WhitewaterSlopeStart")
                     || !riverWaterMaterial.HasProperty("_WhitewaterSlopeFull")
+                    || riverWaterMaterial.GetFloat("_RefractionStrength") <= 0f
+                    || riverWaterMaterial.GetFloat("_RefractionDepth") <= 0f
                     || riverWaterMaterial.HasProperty("_SeaMask"))
                 {
                     throw new InvalidOperationException(
@@ -984,6 +986,9 @@ public sealed partial class IslandGenerator
             var mistRoot = new GameObject("Waterfall fog pool validation");
             try
             {
+                mistRoot.transform.SetPositionAndRotation(
+                    new Vector3(137f, 11f, -83f),
+                    Quaternion.Euler(0f, 31f, 0f));
                 var pool = mistRoot.AddComponent<WaterfallMistPool>();
                 pool.Initialize(indexFeet, ValidationWorldSize, true);
                 if (pool.PoolCount != 32
@@ -1008,6 +1013,8 @@ public sealed partial class IslandGenerator
                     || activeSpray.main.simulationSpace
                         != ParticleSystemSimulationSpace.World
                     || activeSpray.main.startSpeed.constantMin <= 0f
+                    || activeSpray.main.startSpeed.constantMax > 2.91f
+                    || activeSpray.main.startSize.constantMin < 0.1f
                     || activeSpray.main.gravityModifier.constantMin < 1f
                     || activeSpray.main.maxParticles < 1000
                     || activeSpray.emission.rateOverTime.constant < 50f
@@ -1022,11 +1029,24 @@ public sealed partial class IslandGenerator
                 var activeMistRenderer = Array.Find(
                     mistRoot.GetComponentsInChildren<MeshRenderer>(true),
                     renderer => renderer.enabled);
+                var expectedImpactPosition = mistRoot.transform.TransformPoint(
+                    new Vector3(
+                        indexFeet[0].position.x,
+                        SeaHeight,
+                        indexFeet[0].position.z));
+                var activeEffect = activeMistRenderer != null
+                    ? activeMistRenderer.transform.parent
+                    : null;
                 if (activeMistRenderer == null
-                    || activeMistRenderer.transform.position.y <= SeaHeight)
+                    || activeEffect == null
+                    || (activeEffect.position - expectedImpactPosition).sqrMagnitude
+                        > 1.0e-4f
+                    || activeMistRenderer.transform.localPosition.z <= 0f
+                    || activeMistRenderer.transform.position.y
+                        <= expectedImpactPosition.y)
                 {
                     throw new InvalidOperationException(
-                        "Submerged waterfall fog was not lifted to the sea plane.");
+                        "Translated waterfall effects were not placed at the local sea-level foot or directed downstream.");
                 }
                 pool.SetPlayerPosition(
                     indexFeet[0].position,
