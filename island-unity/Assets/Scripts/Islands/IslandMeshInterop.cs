@@ -3,8 +3,14 @@ using System.Runtime.InteropServices;
 using UnityEngine;
 using UnityEngine.Rendering;
 
-public sealed partial class IslandGenerator
+internal static class IslandMeshInterop
 {
+    internal static bool IsFinite(float value) =>
+        !float.IsNaN(value) && !float.IsInfinity(value);
+
+    private static bool IsFinite(Vector3 value) =>
+        IsFinite(value.x) && IsFinite(value.y) && IsFinite(value.z);
+
     internal static IslandPreparedMesh CopyTerrainMeshData(
         MotuNative.ExportMesh source,
         int lod,
@@ -224,7 +230,7 @@ public sealed partial class IslandGenerator
         return result;
     }
 
-    private static Vector2[] CopyVector2Array(MotuNative.Vector2Array source)
+    internal static Vector2[] CopyVector2Array(MotuNative.Vector2Array source)
     {
         var packed = new float[checked(source.length * 2)];
         Marshal.Copy(source.data, packed, 0, packed.Length);

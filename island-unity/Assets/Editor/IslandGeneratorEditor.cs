@@ -28,40 +28,15 @@ public sealed class IslandGeneratorEditor : Editor
 
     private void DrawGeneratorProperties()
     {
-        var usesSharedConfiguration =
-            serializedObject.FindProperty("configuration").objectReferenceValue != null;
         var property = serializedObject.GetIterator();
         var enterChildren = true;
         while (property.NextVisible(enterChildren))
         {
             enterChildren = false;
-            if (usesSharedConfiguration && IsInlineConfigurationProperty(property.name))
-            {
-                continue;
-            }
             using (new EditorGUI.DisabledScope(property.propertyPath == "m_Script"))
             {
                 EditorGUILayout.PropertyField(property, true);
             }
-        }
-    }
-
-    private static bool IsInlineConfigurationProperty(string propertyName)
-    {
-        switch (propertyName)
-        {
-            case "generation":
-            case "rivers":
-            case "forest":
-            case "reeds":
-            case "ferns":
-            case "clouds":
-            case "rendering":
-            case "decorations":
-            case "debugSettings":
-                return true;
-            default:
-                return false;
         }
     }
 
@@ -70,9 +45,9 @@ public sealed class IslandGeneratorEditor : Editor
         if (island.Configuration != null)
         {
             EditorGUILayout.HelpBox(
-                $"Using shared configuration '{island.Configuration.name}'. Inline settings are retained only as a compatibility fallback.",
+                $"Using island configuration '{island.Configuration.name}'.",
                 MessageType.Info);
-            if (GUILayout.Button("Select Shared Configuration"))
+            if (GUILayout.Button("Select Island Configuration"))
             {
                 Selection.activeObject = island.Configuration;
                 EditorGUIUtility.PingObject(island.Configuration);
@@ -81,9 +56,9 @@ public sealed class IslandGeneratorEditor : Editor
         }
 
         EditorGUILayout.HelpBox(
-            "This generator is using its existing inline settings. Create a shared configuration asset to reuse the same generation, rendering, vegetation, and debug profile across scenes.",
-            MessageType.None);
-        if (!GUILayout.Button("Create Shared Configuration From Inline Settings"))
+            "This generator requires an IslandConfiguration asset before it can generate.",
+            MessageType.Warning);
+        if (!GUILayout.Button("Create Island Configuration"))
         {
             return;
         }
@@ -99,7 +74,6 @@ public sealed class IslandGeneratorEditor : Editor
         }
 
         var configuration = CreateInstance<IslandConfiguration>();
-        EditorJsonUtility.FromJsonOverwrite(EditorJsonUtility.ToJson(island), configuration);
         AssetDatabase.CreateAsset(configuration, path);
         AssetDatabase.SaveAssets();
         AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceSynchronousImport);
@@ -108,6 +82,7 @@ public sealed class IslandGeneratorEditor : Editor
         var configurationProperty = serializedObject.FindProperty("configuration");
         configurationProperty.objectReferenceValue = configuration;
         serializedObject.ApplyModifiedProperties();
+        island.Configure(configuration);
         EditorUtility.SetDirty(island);
         Selection.activeObject = configuration;
         EditorGUIUtility.PingObject(configuration);

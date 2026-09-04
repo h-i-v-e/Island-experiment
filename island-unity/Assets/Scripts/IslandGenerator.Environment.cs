@@ -74,7 +74,7 @@ public sealed partial class IslandGenerator
                 Rendering.OceanWaveProfile != null
                     ? Rendering.OceanWaveProfile.ToRuntimeSettings()
                     : OceanWaveRuntimeSettings.Default,
-                Rendering.Sunlight != null ? Rendering.Sunlight : RenderSettings.sun);
+                RenderSettings.sun);
             seaNoiseTexture = null;
             ownsSeaNoiseTexture = false;
         }
@@ -399,25 +399,26 @@ public sealed partial class IslandGenerator
         if (deltaTime > 0f)
         {
             var cycleSeconds = Rendering.SunCycleDurationMinutes * 60f;
-            var clockRate = EvaluateSolarClockRateMultiplier(
+            var clockRate = CelestialLighting.EvaluateClockRateMultiplier(
                 solarTimeHours,
                 Rendering.MidnightToNoonClockRateRatio);
             solarTimeHours = Mathf.Repeat(
                 solarTimeHours + deltaTime * 24f / cycleSeconds * clockRate,
                 24f);
             lunarPhase = Mathf.Repeat(
-                lunarPhase + deltaTime / (cycleSeconds * LunarSynodicPeriodDays),
+                lunarPhase + deltaTime
+                    / (cycleSeconds * CelestialLighting.LunarSynodicPeriodDays),
                 1f);
         }
 
-        var state = EvaluateSolarLighting(
+        var state = CelestialLighting.EvaluateSun(
             solarTimeHours,
             Rendering.SunLatitudeDegrees,
             Rendering.MiddaySunIntensity);
         currentSkyExposure = state.SkyExposure;
         currentNightStrength = state.NightStrength;
         treeFoliageMaterial?.SetFloat(NightStrengthId, currentNightStrength);
-        var moonState = EvaluateMoonLighting(
+        var moonState = CelestialLighting.EvaluateMoon(
             solarTimeHours,
             Rendering.SunLatitudeDegrees,
             Rendering.MoonEquatorOffsetDegrees,
@@ -450,7 +451,7 @@ public sealed partial class IslandGenerator
         riverMaterial?.SetFloat(WaterSkyExposureId, currentSkyExposure);
         seaMaterial?.SetFloat(WaterSkyExposureId, currentSkyExposure);
 
-        var sun = Rendering.Sunlight != null ? Rendering.Sunlight : RenderSettings.sun;
+        var sun = RenderSettings.sun;
         if (sun != null)
         {
             PositionDirectionalLight(sun, worldSunDirection);
@@ -543,25 +544,6 @@ public sealed partial class IslandGenerator
             new Vector4(orbitAxis.x, orbitAxis.y, orbitAxis.z, -orbitAngle));
     }
 
-    public static float EvaluateSolarClockRateMultiplier(
-        float timeHours,
-        float midnightToNoonRateRatio = 10f)
-    {
-        midnightToNoonRateRatio = Mathf.Clamp(
-            midnightToNoonRateRatio,
-            1f,
-            20f);
-        var angle = Mathf.Repeat(timeHours, 24f) * Mathf.PI / 12f;
-        var midnightWeight = 0.5f + 0.5f * Mathf.Cos(angle);
-        var relativeRate = Mathf.Lerp(
-            1f,
-            midnightToNoonRateRatio,
-            midnightWeight);
-        // This makes the integral of inverse speed over one solar revolution
-        // equal to the former uniform cycle, preserving the configured period.
-        return relativeRate / Mathf.Sqrt(midnightToNoonRateRatio);
-    }
-
     private void PositionDirectionalLight(Light light, Vector3 sourceDirection)
     {
         var centre = worldEnvironment != null
@@ -593,170 +575,6 @@ public sealed partial class IslandGenerator
             currentNightStrength);
         colour.a = Rendering.DistanceHazeColour.a;
         return colour;
-    }
-
-    public static SolarLightingState EvaluateSolarLighting(
-        float timeHours,
-        float latitudeDegrees,
-        float middayIntensity)
-    {
-        var latitude = Mathf.Clamp(latitudeDegrees, -80f, 80f) * Mathf.Deg2Rad;
-        var angle = (Mathf.Repeat(timeHours, 24f) - 6f) * Mathf.PI / 12f;
-        var sinAngle = Mathf.Sin(angle);
-        var localDirection = new Vector3(
-            Mathf.Cos(angle),
-            sinAngle * Mathf.Cos(latitude),
-            -sinAngle * Mathf.Sin(latitude)).normalized;
-        var elevation = localDirection.y;
-        var daylight = SmoothRange(0f, 0.04f, elevation);
-        var highSun = SmoothRange(0.02f, 0.35f, elevation);
-        var sunColour = Color.Lerp(SunsetSunColour, MiddaySunColour, highSun);
-        var sunIntensity = Mathf.Clamp(middayIntensity, 0f, 4f)
-            * daylight
-            * Mathf.Lerp(0.22f, 1f, SmoothRange(0f, 0.4f, elevation));
-
-        var twilight = SmoothRange(-0.14f, 0.02f, elevation);
-        var fullDay = SmoothRange(0.02f, 0.35f, elevation);
-        var sunHaloStrength = SmoothRange(-0.08f, 0.02f, elevation)
-            * (1f - SmoothRange(0.12f, 0.32f, elevation));
-        var nightStrength = 1f - SmoothRange(-0.14f, 0f, elevation);
-        var ambientColour = Color.Lerp(
-            NightAmbientColour,
-            TwilightAmbientColour,
-            twilight);
-        ambientColour = Color.Lerp(ambientColour, DayAmbientColour, fullDay);
-
-        return new SolarLightingState(
-            localDirection,
-            sunColour,
-            ambientColour,
-            sunIntensity,
-            SmoothRange(-0.020f, 0.005f, elevation),
-            Mathf.Lerp(
-                NightSkyExposure,
-                1f,
-                SmoothRange(-0.16f, 0.20f, elevation)),
-            sunHaloStrength,
-            nightStrength);
-    }
-
-    public static MoonLightingState EvaluateMoonLighting(
-        float timeHours,
-        float solarLatitudeDegrees,
-        float equatorOffsetDegrees,
-        float phase,
-        float fullMoonIntensity,
-        float sunElevation)
-    {
-        var solarLatitude = Mathf.Clamp(solarLatitudeDegrees, -80f, 80f);
-        var moonLatitude = Mathf.MoveTowards(
-            solarLatitude,
-            0f,
-            Mathf.Clamp(equatorOffsetDegrees, 0f, 45f));
-        var latitude = moonLatitude * Mathf.Deg2Rad;
-        var phaseAngle = Mathf.Repeat(phase, 1f) * Mathf.PI * 2f;
-        var orbitAngle = (Mathf.Repeat(timeHours, 24f) - 6f)
-            * Mathf.PI / 12f
-            - phaseAngle;
-        var sinAngle = Mathf.Sin(orbitAngle);
-        var cosAngle = Mathf.Cos(orbitAngle);
-        var cosLatitude = Mathf.Cos(latitude);
-        var sinLatitude = Mathf.Sin(latitude);
-        var localDirection = new Vector3(
-            cosAngle,
-            sinAngle * cosLatitude,
-            -sinAngle * sinLatitude).normalized;
-        var orbitTangent = new Vector3(
-            -sinAngle,
-            cosAngle * cosLatitude,
-            -cosAngle * sinLatitude).normalized;
-        var phaseCosine = Mathf.Cos(phaseAngle);
-        var localLightDirection = (
-            localDirection * phaseCosine
-            + orbitTangent * Mathf.Sin(phaseAngle)).normalized;
-        var illumination = Mathf.Clamp01((1f - phaseCosine) * 0.5f);
-        var altitudeVisibility = SmoothRange(
-            -0.020f,
-            0.005f,
-            localDirection.y);
-        var daylightVisibility = Mathf.Lerp(
-            0.18f,
-            1f,
-            1f - SmoothRange(-0.05f, 0.25f, sunElevation));
-        var lightIntensity = Mathf.Clamp01(fullMoonIntensity)
-            * Mathf.Pow(illumination, 1.5f)
-            * SmoothRange(0f, 0.18f, localDirection.y);
-        return new MoonLightingState(
-            localDirection,
-            localLightDirection,
-            moonLatitude,
-            illumination,
-            altitudeVisibility * daylightVisibility,
-            lightIntensity);
-    }
-
-    private static float SmoothRange(float minimum, float maximum, float value)
-    {
-        var t = Mathf.InverseLerp(minimum, maximum, value);
-        return t * t * (3f - 2f * t);
-    }
-
-    public readonly struct SolarLightingState
-    {
-        public Vector3 LocalDirection { get; }
-        public Color SunColour { get; }
-        public Color AmbientColour { get; }
-        public float SunIntensity { get; }
-        public float SunVisibility { get; }
-        public float SkyExposure { get; }
-        public float SunHaloStrength { get; }
-        public float NightStrength { get; }
-
-        internal SolarLightingState(
-            Vector3 localDirection,
-            Color sunColour,
-            Color ambientColour,
-            float sunIntensity,
-            float sunVisibility,
-            float skyExposure,
-            float sunHaloStrength,
-            float nightStrength)
-        {
-            LocalDirection = localDirection;
-            SunColour = sunColour;
-            AmbientColour = ambientColour;
-            SunIntensity = sunIntensity;
-            SunVisibility = sunVisibility;
-            SkyExposure = skyExposure;
-            SunHaloStrength = sunHaloStrength;
-            NightStrength = nightStrength;
-        }
-    }
-
-    public readonly struct MoonLightingState
-    {
-        public Vector3 LocalDirection { get; }
-        public Vector3 LocalLightDirection { get; }
-        public float OrbitLatitudeDegrees { get; }
-        public float Illumination { get; }
-        public float Visibility { get; }
-        public float LightIntensity { get; }
-
-        internal MoonLightingState(
-            Vector3 localDirection,
-            Vector3 localLightDirection,
-            float orbitLatitudeDegrees,
-            float illumination,
-            float visibility,
-            float lightIntensity)
-        {
-            LocalDirection = localDirection;
-            LocalLightDirection = localLightDirection;
-            OrbitLatitudeDegrees = orbitLatitudeDegrees;
-            Illumination = illumination;
-            Visibility = visibility;
-            LightIntensity = lightIntensity;
-        }
     }
 
     public void SetFirstPersonViewActive(bool active)

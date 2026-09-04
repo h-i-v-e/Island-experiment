@@ -6,6 +6,18 @@ using UnityEngine.Rendering;
 
 public sealed partial class IslandGenerator
 {
+    private static bool IsFinite(float value) =>
+        IslandMeshInterop.IsFinite(value);
+
+    private static Vector2[] CopyVector2Array(MotuNative.Vector2Array source) =>
+        IslandMeshInterop.CopyVector2Array(source);
+
+    private static Mesh CopyTerrainMesh(
+        MotuNative.ExportMesh source,
+        int lod,
+        float worldSize) =>
+        IslandMeshInterop.CopyTerrainMesh(source, lod, worldSize);
+
     public static void BatchValidateNativeInterop()
     {
         IslandRuntime.ValidateOwnershipContract();
@@ -64,7 +76,8 @@ public sealed partial class IslandGenerator
         {
             MotuNative.ReleaseCloudWeatherMap(ref nativeCloudWeather);
         }
-        var validationSkyDome = PrepareSkyDome(ValidationWorldSize);
+        var validationSkyDome = IslandPreparationPipeline.PrepareSkyDome(
+            ValidationWorldSize);
         if (validationSkyDome.vertices.Length == 0
             || validationSkyDome.vertices.Length != validationSkyDome.normals.Length
             || validationSkyDome.vertices.Length != validationSkyDome.uv.Length
@@ -98,7 +111,8 @@ public sealed partial class IslandGenerator
                     + "hemisphere with a closed horizon skirt.");
             }
         }
-        var uploadedSkyDome = CreateGeneratedMesh(validationSkyDome);
+        var uploadedSkyDome = IslandMeshInterop.CreateGeneratedMesh(
+            validationSkyDome);
         try
         {
             var bounds = uploadedSkyDome.bounds;
@@ -161,12 +175,19 @@ public sealed partial class IslandGenerator
         {
             const int validationMapDimension = 32;
             const int validationSeaMaskDimension = 128;
-            var validationMaps = PrepareSurfaceMaps(handle, validationMapDimension);
-            var validationSeaMask = PrepareSeaMask(handle, validationSeaMaskDimension);
-            var validationTrunkColliderTiles = PrepareForestTrunkColliders(
+            var validationMaps = IslandPreparationPipeline.PrepareSurfaceMaps(
+                handle,
+                validationMapDimension);
+            var validationSeaMask = IslandPreparationPipeline.PrepareSeaMask(
+                handle,
+                validationSeaMaskDimension);
+            var validationTrunkColliderTiles =
+                IslandPreparationPipeline.PrepareForestTrunkColliders(
+                    handle,
+                    ValidationWorldSize);
+            var validationFernTiles = IslandPreparationPipeline.PrepareFernMeshGrid(
                 handle,
                 ValidationWorldSize);
-            var validationFernTiles = PrepareFernMeshGrid(handle, ValidationWorldSize);
             var validationTrunkColliderCount = 0;
             foreach (var tile in validationTrunkColliderTiles)
             {
@@ -404,7 +425,7 @@ public sealed partial class IslandGenerator
                     throw new InvalidOperationException(
                         "Runtime material palette colours must be decoded to linear RGB exactly once before baking.");
                 }
-                var validationTextures = PrepareMaterialTextures(
+                var validationTextures = IslandPreparationPipeline.PrepareMaterialTextures(
                     validationColours,
                     64);
                 var beachPixel = validationTextures.beach.albedoRgb;
@@ -934,8 +955,12 @@ public sealed partial class IslandGenerator
                     "Native decoration export layout is invalid.");
             }
             MotuNative.GetDecoration(handle, out var nativeDecoration);
-            ValidateBorrowedArray(nativeDecoration.trees, "tree");
-            ValidateBorrowedArray(nativeDecoration.bushes, "bush");
+            IslandPreparationPipeline.ValidateBorrowedArray(
+                nativeDecoration.trees,
+                "tree");
+            IslandPreparationPipeline.ValidateBorrowedArray(
+                nativeDecoration.bushes,
+                "bush");
 
             var indexFeet = new[]
             {

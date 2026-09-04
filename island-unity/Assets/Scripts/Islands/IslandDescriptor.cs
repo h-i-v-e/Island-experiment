@@ -86,6 +86,33 @@ internal readonly struct IslandDescriptor : IEquatable<IslandDescriptor>
             CurrentGeneratorSchemaVersion);
     }
 
+    internal static IslandDescriptor Request(
+        int seed,
+        Vector2Int worldCell,
+        float cellSizeMetres,
+        float worldSizeMetres,
+        string stableId)
+    {
+        if (!IsFinitePositive(cellSizeMetres)
+            || !IsFinitePositive(worldSizeMetres))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(worldSizeMetres),
+                "Island cell and world sizes must be finite and positive.");
+        }
+        var id = string.IsNullOrWhiteSpace(stableId)
+            ? $"request-{seed}-cell-{worldCell.x}-{worldCell.y}"
+            : stableId.Trim();
+        return new IslandDescriptor(
+            id,
+            worldCell,
+            worldCell.x * (double)cellSizeMetres,
+            worldCell.y * (double)cellSizeMetres,
+            seed,
+            worldSizeMetres * 0.5f,
+            CurrentGeneratorSchemaVersion);
+    }
+
     internal static bool TryCreateProcedural(
         int worldSeed,
         Vector2Int worldCell,
@@ -107,12 +134,7 @@ internal readonly struct IslandDescriptor : IEquatable<IslandDescriptor>
             return false;
         }
 
-        var seedHash = Hash(worldSeed, worldCell.x, worldCell.y, 0x27d4eb2fu);
-        var islandSeed = (int)(seedHash & 0x7fffffffu);
-        if (islandSeed == 0)
-        {
-            islandSeed = 1;
-        }
+        var islandSeed = ProceduralSeed(worldSeed, worldCell);
         descriptor = new IslandDescriptor(
             $"world-{worldSeed}-cell-{worldCell.x}-{worldCell.y}",
             worldCell,
@@ -122,6 +144,13 @@ internal readonly struct IslandDescriptor : IEquatable<IslandDescriptor>
             cellSizeMetres * 0.5f,
             CurrentGeneratorSchemaVersion);
         return true;
+    }
+
+    internal static int ProceduralSeed(int worldSeed, Vector2Int worldCell)
+    {
+        var seedHash = Hash(worldSeed, worldCell.x, worldCell.y, 0x27d4eb2fu);
+        var islandSeed = (int)(seedHash & 0x7fffffffu);
+        return islandSeed != 0 ? islandSeed : 1;
     }
 
     private static uint Hash(

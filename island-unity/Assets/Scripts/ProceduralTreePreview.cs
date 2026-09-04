@@ -112,16 +112,16 @@ public sealed class ProceduralTreePreview : MonoBehaviour
             ValidateNativeMesh(lod1Wood, "LOD1 wood", true);
             ValidateNativeMesh(lod1Foliage, "LOD1 foliage", true);
 
-            var preparedWood = IslandGenerator.CopyGeneratedMeshData(
+            var preparedWood = IslandMeshInterop.CopyGeneratedMeshData(
                 lod0Wood,
                 NativeWorldSizeMetres);
-            var preparedFoliage = IslandGenerator.CopyGeneratedMeshData(
+            var preparedFoliage = IslandMeshInterop.CopyGeneratedMeshData(
                 lod0Foliage,
                 NativeWorldSizeMetres);
-            var preparedLod1Wood = IslandGenerator.CopyGeneratedMeshData(
+            var preparedLod1Wood = IslandMeshInterop.CopyGeneratedMeshData(
                 lod1Wood,
                 NativeWorldSizeMetres);
-            var preparedLod1Foliage = IslandGenerator.CopyGeneratedMeshData(
+            var preparedLod1Foliage = IslandMeshInterop.CopyGeneratedMeshData(
                 lod1Foliage,
                 NativeWorldSizeMetres);
             ValidatePreparedMesh(preparedWood, true);
@@ -206,7 +206,7 @@ public sealed class ProceduralTreePreview : MonoBehaviour
 
     private static Mesh CreatePreviewMesh(IslandPreparedMesh prepared, string meshName)
     {
-        var mesh = IslandGenerator.CreateGeneratedMesh(prepared);
+        var mesh = IslandMeshInterop.CreateGeneratedMesh(prepared);
         mesh.name = meshName;
         mesh.hideFlags = HideFlags.DontSave;
         return mesh;

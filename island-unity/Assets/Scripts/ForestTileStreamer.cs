@@ -984,7 +984,7 @@ internal sealed class ForestTileStreamer : IDisposable
 
     private static Mesh CreateForestMesh(IslandPreparedMesh source, string name)
     {
-        var mesh = IslandGenerator.CreateGeneratedMesh(source);
+        var mesh = IslandMeshInterop.CreateGeneratedMesh(source);
         mesh.name = name;
         return mesh;
     }

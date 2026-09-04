@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -29,13 +28,6 @@ public sealed partial class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
     private const float RockPatchNoiseDetailScale = 8f;
     private const float SunDiscAngularRadiusDegrees = 0.7f;
     private const float MoonDiscAngularRadiusDegrees = 0.68f;
-    private const float LunarSynodicPeriodDays = 29.53059f;
-    private const float NightSkyExposure = 0.045f;
-    private static readonly Color MiddaySunColour = new Color(1f, 0.94f, 0.82f, 1f);
-    private static readonly Color SunsetSunColour = new Color(1f, 0.20f, 0.035f, 1f);
-    private static readonly Color DayAmbientColour = new Color(0.42f, 0.46f, 0.52f, 1f);
-    private static readonly Color TwilightAmbientColour = new Color(0.08f, 0.15f, 0.30f, 1f);
-    private static readonly Color NightAmbientColour = new Color(0.012f, 0.025f, 0.065f, 1f);
     private static readonly Color SunsetSunHaloColour = new Color(0.85f, 0.05f, 0.01f, 1f);
     private static readonly Color NightHazeColour = new Color(0.08f, 0.14f, 0.28f, 1f);
     private static readonly Color MoonDiscColour = new Color(0.78f, 0.84f, 0.92f, 1f);
@@ -76,38 +68,14 @@ public sealed partial class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
         "_MotuCloudLightColor");
 
     [Header("Shared Configuration")]
-    [Tooltip("Optional shared settings asset. Inline values below remain the compatibility fallback.")]
+    [Tooltip("Required asset containing this island's generation and rendering profile.")]
     [SerializeField] private IslandConfiguration configuration;
-
-    [Header("Lifecycle and Generation (Inline Fallback)")]
-    [SerializeField] private IslandGenerationSettings generation = new IslandGenerationSettings();
-
-    [Header("Rivers")]
-    [SerializeField] private IslandRiverSettings rivers = new IslandRiverSettings();
-
-    [Header("Forest")]
-    [SerializeField] private IslandForestSettings forest = new IslandForestSettings();
-
-    [Header("Riverbank Reeds and Rushes")]
-    [SerializeField] private IslandReedSettings reeds = new IslandReedSettings();
-
-    [Header("Tree Trunk Ferns")]
-    [SerializeField] private IslandFernSettings ferns = new IslandFernSettings();
 
     [Header("Streaming")]
     [SerializeField] private IslandStreamingSettings streaming = new IslandStreamingSettings();
 
-    [Header("Clouds")]
-    [SerializeField] private IslandCloudSettings clouds = new IslandCloudSettings();
-
-    [Header("Rendering and Texture Overrides")]
-    [SerializeField] private IslandRenderingSettings rendering = new IslandRenderingSettings();
-
-    [Header("Decoration Asset Libraries")]
-    [SerializeField] private IslandDecorationSettings decorations = new IslandDecorationSettings();
-
-    [Header("Debug")]
-    [SerializeField] private IslandDebugSettings debugSettings = new IslandDebugSettings();
+    [HideInInspector] [SerializeField]
+    private IslandCloudSettings clouds = new IslandCloudSettings();
 
     private NativeIslandHandle islandHandle;
     private IslandRuntime islandRuntime;
@@ -142,11 +110,10 @@ public sealed partial class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
     private Material reedMaterial;
     private Material fernMaterial;
     private string status = "Ready";
-    private CancellationTokenSource generationCancellation;
-    private Stopwatch generationTimer;
-    private bool generationInProgress;
-    private bool isDestroyed;
-    private bool hasStarted;
+    private readonly IslandGenerationLifecycle generationLifecycle =
+        new IslandGenerationLifecycle();
+    private IslandGenerationProfile activeProfile;
+    private IslandRuntimeLoop runtimeLoop;
     private bool ownsCliffNoiseTexture;
     private bool ownsRiverNoiseTexture;
     private bool ownsSeaNoiseTexture;
@@ -196,7 +163,7 @@ public sealed partial class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
     private Matrix4x4 appliedWorldToLocal;
     private bool hasAppliedWorldToLocal;
 
-    public bool IsGenerating => generationInProgress;
+    public bool IsGenerating => generationLifecycle.IsGenerating;
     public bool HasActiveRuntime => islandRuntime != null
         && islandRuntime.State == IslandRuntimeState.Active;
     public bool HasRuntime => islandRuntime != null
@@ -208,65 +175,34 @@ public sealed partial class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
     public string Status => status;
     public IslandConfiguration Configuration => configuration;
     public float WorldSizeMetres => Generation.WorldSizeMetres;
-    public IslandGenerationSettings Generation =>
-        configuration != null ? configuration.Generation : generation;
-    public IslandRiverSettings Rivers =>
-        configuration != null ? configuration.Rivers : rivers;
-    public IslandForestSettings Forest =>
-        configuration != null ? configuration.Forest : forest;
-    public IslandReedSettings Reeds =>
-        configuration != null ? configuration.Reeds : reeds;
-    public IslandFernSettings Ferns =>
-        configuration != null ? configuration.Ferns : ferns;
+    private IslandGenerationProfile Profile =>
+        activeProfile ??= IslandGenerationProfile.FromConfiguration(configuration);
+    public IslandGenerationSettings Generation => Profile.Generation;
+    public IslandRiverSettings Rivers => Profile.Rivers;
+    public IslandForestSettings Forest => Profile.Forest;
+    public IslandReedSettings Reeds => Profile.Reeds;
+    public IslandFernSettings Ferns => Profile.Ferns;
     public IslandStreamingSettings Streaming => streaming;
     public IslandCloudSettings Clouds => clouds;
-    public IslandRenderingSettings Rendering =>
-        configuration != null ? configuration.Rendering : rendering;
-    public IslandDecorationSettings Decorations =>
-        configuration != null ? configuration.Decorations : decorations;
-    public IslandDebugSettings DebugSettings =>
-        configuration != null ? configuration.DebugSettings : debugSettings;
+    public IslandRenderingSettings Rendering => Profile.Rendering;
+    public IslandDecorationSettings Decorations => Profile.Decorations;
+    public IslandDebugSettings DebugSettings => Profile.DebugSettings;
+    private IslandRuntimeLoop RuntimeLoop =>
+        runtimeLoop ??= new IslandRuntimeLoop(this);
 
     private void Start()
     {
-        hasStarted = true;
-        if (!worldManaged && Generation.GenerateOnStart)
-        {
-            Generate();
-        }
+        RuntimeLoop.Start();
     }
 
     private void OnEnable()
     {
-        Camera.onPreCull += PrepareCameraRender;
-        if (controlsWorldEnvironment && Application.isPlaying)
-        {
-            EnsureWorldEnvironment();
-        }
-        EnsureActiveCameraDepthTextures();
-        if (controlsWorldEnvironment)
-        {
-            ApplyDistanceHazeSettings();
-            UpdateSolarLighting(0f);
-        }
-        if (!worldManaged
-            && hasStarted
-            && Generation.GenerateOnStart
-            && terrainStreamer == null)
-        {
-            Generate();
-        }
+        RuntimeLoop.Enable();
     }
 
     private void OnDisable()
     {
-        Camera.onPreCull -= PrepareCameraRender;
-        if (controlsWorldEnvironment)
-        {
-            RenderSettings.fog = false;
-        }
-        generationCancellation?.Cancel();
-        ClearGeneratedContent();
+        RuntimeLoop.Disable();
     }
 
     private void PrepareCameraRender(Camera camera)
@@ -299,47 +235,17 @@ public sealed partial class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
         }
     }
 
-    private static void EnsureActiveCameraDepthTextures()
-    {
-        foreach (var camera in Camera.allCameras)
-        {
-            EnsureCameraDepthTexture(camera);
-        }
-    }
-
     private void Update()
     {
-        var meshEdgeKey = DebugSettings.ToggleMeshEdgesKey;
-        if (meshEdgeKey != KeyCode.None && Input.GetKeyDown(meshEdgeKey))
-        {
-            DebugSettings.ShowMeshEdges = !DebugSettings.ShowMeshEdges;
-        }
-        var treeMeshEdgeKey = DebugSettings.ToggleTreeMeshEdgesKey;
-        if (treeMeshEdgeKey != KeyCode.None && Input.GetKeyDown(treeMeshEdgeKey))
-        {
-            DebugSettings.ShowTreeMeshEdges = !DebugSettings.ShowTreeMeshEdges;
-        }
-        var frameRateKey = DebugSettings.ToggleFrameRateKey;
-        if (frameRateKey != KeyCode.None && Input.GetKeyDown(frameRateKey))
-        {
-            DebugSettings.ShowFrameRate = !DebugSettings.ShowFrameRate;
-        }
-        UpdateMaterialTransforms();
-        ApplyLiveSettings();
-        if (controlsWorldEnvironment)
-        {
-            UpdateSolarLighting(Time.unscaledDeltaTime);
-            ApplyCloudSettings(Time.unscaledDeltaTime);
-            worldEnvironment?.SetFollowTarget(WorldEnvironmentFollowTarget());
-        }
-        if (!worldManaged && terrainStreamer != null && Streaming.Target != null)
-        {
-            terrainStreamer.SetPlayerPosition(Streaming.Target.position);
-        }
+        RuntimeLoop.Update();
     }
 
     private void OnValidate()
     {
+        if (!generationLifecycle.IsGenerating && islandRuntime == null)
+        {
+            activeProfile = null;
+        }
         if (!HasSupportedTransform())
         {
             Debug.LogWarning(
@@ -350,8 +256,7 @@ public sealed partial class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
 
     private void OnDestroy()
     {
-        isDestroyed = true;
-        generationCancellation?.Cancel();
+        generationLifecycle.MarkDestroyed();
         ClearGeneratedContent();
         DestroyRuntimeMaterials();
     }
@@ -367,7 +272,7 @@ public sealed partial class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
 
     public async void Generate()
     {
-        await GenerateAsync(null, CancellationToken.None);
+        await GenerateAsync((IslandDescriptor?)null, CancellationToken.None);
     }
 
     internal async Task<bool> GenerateAsync(
@@ -375,7 +280,25 @@ public sealed partial class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
         CancellationToken externalCancellation,
         float installationFrameBudgetMilliseconds = 4f)
     {
-        if (generationInProgress)
+        var descriptor = descriptorOverride
+            ?? IslandDescriptor.Origin(
+                Generation.Seed,
+                Generation.WorldSizeMetres,
+                transform);
+        var request = CreateGenerationRequest(descriptor);
+        return await GenerateAsync(
+            request,
+            externalCancellation,
+            installationFrameBudgetMilliseconds);
+    }
+
+    internal async Task<bool> GenerateAsync(
+        IslandGenerationRequest request,
+        CancellationToken externalCancellation,
+        float installationFrameBudgetMilliseconds = 4f)
+    {
+        if (request == null) throw new ArgumentNullException(nameof(request));
+        if (generationLifecycle.IsGenerating)
         {
             return false;
         }
@@ -386,36 +309,17 @@ public sealed partial class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
             return false;
         }
 
+        request.ApplyProfileTo(this);
+        if (!generationLifecycle.TryBegin(externalCancellation, out var cancellation))
+        {
+            return false;
+        }
         status = "Generating island on CPU in background...";
-        generationInProgress = true;
-        generationTimer = Stopwatch.StartNew();
-        var cancellation = externalCancellation.CanBeCanceled
-            ? CancellationTokenSource.CreateLinkedTokenSource(externalCancellation)
-            : new CancellationTokenSource();
-        generationCancellation = cancellation;
         IslandPreparedData prepared = null;
         var installationStarted = false;
-        var islandSeed = Generation.Seed;
-        var worldSize = Generation.WorldSizeMetres;
-        var options = Generation.ToNativeOptions(Rivers);
-        var forestOptions = Generation.ToNativeForestOptions(Forest);
-        var reedOptions = Generation.ToNativeReedOptions(Reeds);
-        var fernOptions = Generation.ToNativeFernOptions(Ferns);
-        var materialColours = Rendering.SelectMaterialColours(islandSeed);
-        var materialTextureResolution = Rendering.MaterialTextureResolution;
-        var descriptor = descriptorOverride
-            ?? IslandDescriptor.Origin(islandSeed, worldSize, transform);
-        var request = new IslandGenerationRequest(
-            descriptor,
-            options,
-            forestOptions,
-            reedOptions,
-            fernOptions,
-            worldSize,
-            materialColours,
-            materialTextureResolution,
-            Generation.UseSnapshotCache,
-            Generation.SnapshotCacheBudgetBytes);
+        var islandSeed = request.RandomSeed;
+        var worldSize = request.WorldSizeMetres;
+        var descriptor = request.Descriptor;
         var installationBudget = new UnityFrameBudget(
             installationFrameBudgetMilliseconds);
 
@@ -425,91 +329,22 @@ public sealed partial class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
                 request,
                 cancellation.Token);
             cancellation.Token.ThrowIfCancellationRequested();
-            if (isDestroyed || !isActiveAndEnabled)
+            if (generationLifecycle.IsDestroyed || !isActiveAndEnabled)
             {
                 return false;
             }
 
             status = "Uploading generated island...";
             installationStarted = true;
-            ClearGeneratedContent();
-            DestroyRuntimeMaterials();
-            BuildRuntimeMaterials(prepared.materialTextures);
-            await installationBudget.YieldIfExceededAsync(cancellation.Token);
-            islandRuntime = IslandRuntime.Create(descriptor, transform);
-            runtimeRoot = islandRuntime.gameObject;
-            TransferMaterialOwnershipToRuntime();
-            UpdateMaterialTransforms(true);
-            islandHandle = prepared.TakeHandle();
-            islandRuntime.AdoptNativeHandle(islandHandle);
-
-            CreateSurfaceTextures(prepared.surfaceMaps);
-            await installationBudget.YieldIfExceededAsync(cancellation.Token);
-            CreateSeaMaskTexture(prepared.seaMask);
-            await installationBudget.YieldIfExceededAsync(
-                cancellation.Token,
-                true);
-
-            BindWorldEnvironment(worldSize);
-            await installationBudget.YieldIfExceededAsync(cancellation.Token);
-
-            CreateCoastalWaterOverlay(worldSize);
-            islandRuntime.SetCoastalWaterObject(coastalWaterObject);
-            islandRuntime.SetCoastalWaveMask(
-                worldEnvironment,
-                seaMaskTexture,
-                worldSize);
-            if (controlsWorldEnvironment)
-            {
-                UpdateSolarLighting(0f);
-            }
-            var terrainRoot = new GameObject("Terrain Tiles");
-            terrainRoot.transform.SetParent(runtimeRoot.transform, false);
-            terrainStreamer = terrainRoot.AddComponent<TerrainTileStreamer>();
-            islandRuntime.SetTerrainStreamer(terrainStreamer);
-            await terrainStreamer.InitializeAsync(
-                islandHandle.Value,
-                terrainMaterial,
-                terrainLod1Material,
-                terrainLod2Material,
-                grassMaterial,
-                rockMaterial,
-                treeWoodMaterial,
-                treeLod1WoodMaterial,
-                treeFoliageMaterial,
-                treeLod0FoliageMaterial,
-                reedMaterial,
-                fernMaterial,
-                riverMaterial,
-                meshEdgeMaterial,
+            var runtimeInstaller = new IslandRuntimeInstaller(this);
+            await runtimeInstaller.InstallAsync(
+                prepared,
+                descriptor,
                 worldSize,
-                prepared.overviewTiles,
-                prepared.riverTiles,
-                prepared.riverRockTiles,
-                prepared.forest,
-                prepared.reedTiles,
-                prepared.fernTiles,
-                prepared.waterfallFeet,
-                prepared.colliderHeightMap,
-                Rendering.ShowRivers,
-                Rendering.ShowGrass,
-                Rendering.ShowRocks,
-                Forest.ShowForests,
-                Reeds.ShowReeds,
-                Ferns.ShowFerns,
                 cancellation.Token,
                 installationBudget);
-            terrainStreamer.SetWaterfallFootDebug(DebugSettings.ShowWaterfallFeet);
-            islandRuntime.Activate();
 
-            ResetAppliedLiveSettings();
-            ApplyLiveSettings();
-            if (Streaming.Target != null)
-            {
-                terrainStreamer.SetPlayerPosition(Streaming.Target.position);
-            }
-
-            generationTimer.Stop();
+            generationLifecycle.StopTimer();
             status = string.Format(
                 CultureInfo.InvariantCulture,
                 "{0} | Seed {1} | 64 LOD 2 tiles | {2:N0} vertices | {3:N0} triangles | {4:F2}s",
@@ -517,7 +352,7 @@ public sealed partial class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
                 islandSeed,
                 terrainStreamer.BaseVertexCount,
                 terrainStreamer.BaseTriangleCount,
-                generationTimer.Elapsed.TotalSeconds);
+                generationLifecycle.Elapsed.TotalSeconds);
             status += " | shared 2048 terrain shading map";
             if (prepared.materialTextures.loadedFromCache)
             {
@@ -540,7 +375,7 @@ public sealed partial class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
                 ClearGeneratedContent();
                 DestroyRuntimeMaterials();
             }
-            if (!isDestroyed)
+            if (!generationLifecycle.IsDestroyed)
             {
                 status = "Generation cancelled.";
             }
@@ -561,13 +396,7 @@ public sealed partial class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
         finally
         {
             prepared?.Dispose();
-            if (ReferenceEquals(generationCancellation, cancellation))
-            {
-                generationCancellation = null;
-                generationInProgress = false;
-                generationTimer = null;
-            }
-            cancellation.Dispose();
+            generationLifecycle.End(cancellation);
         }
     }
 
@@ -579,7 +408,7 @@ public sealed partial class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
 
     public void Clear()
     {
-        generationCancellation?.Cancel();
+        generationLifecycle.Cancel();
         ClearGeneratedContent();
         status = "Cleared";
     }
@@ -616,7 +445,7 @@ public sealed partial class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
 
     internal void ConfigureWorldManagement()
     {
-        if (generationInProgress || islandRuntime != null)
+        if (generationLifecycle.IsGenerating || islandRuntime != null)
         {
             throw new InvalidOperationException(
                 "World management must be configured before island generation starts.");
@@ -626,45 +455,64 @@ public sealed partial class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
         environmentFollowTarget = Streaming.Target;
     }
 
+    internal IslandGenerationRequest CreateGenerationRequest(
+        IslandDescriptor descriptor)
+    {
+        return new IslandGenerationRequest(
+            descriptor,
+            Generation,
+            Rivers,
+            Forest,
+            Reeds,
+            Ferns,
+            Rendering,
+            Decorations,
+            DebugSettings);
+    }
+
+    internal void ApplyRequestProfile(IslandGenerationProfile profile)
+    {
+        if (profile == null) throw new ArgumentNullException(nameof(profile));
+        if (generationLifecycle.IsGenerating || islandRuntime != null)
+        {
+            throw new InvalidOperationException(
+                "An island request profile must be applied before generation starts.");
+        }
+        activeProfile = profile.Clone();
+    }
+
     internal void ApplyIslandProfile(
         int islandSeed,
         IslandParameterVariationSettings variation)
     {
-        if (generationInProgress || islandRuntime != null)
+        if (generationLifecycle.IsGenerating || islandRuntime != null)
         {
             throw new InvalidOperationException(
                 "Island parameters must be selected before generation starts.");
         }
-        if (configuration != null)
+        activeProfile = Profile.Clone();
+        activeProfile.Generation.Seed = islandSeed;
+        activeProfile.Generation.ApplyDeterministicVariation(
+            islandSeed,
+            variation);
+    }
+
+    public void Configure(
+        IslandConfiguration islandConfiguration,
+        Transform streamingTarget = null)
+    {
+        if (islandConfiguration == null)
         {
-            JsonUtility.FromJsonOverwrite(
-                JsonUtility.ToJson(configuration.Generation),
-                generation);
-            JsonUtility.FromJsonOverwrite(
-                JsonUtility.ToJson(configuration.Rivers),
-                rivers);
-            JsonUtility.FromJsonOverwrite(
-                JsonUtility.ToJson(configuration.Forest),
-                forest);
-            JsonUtility.FromJsonOverwrite(
-                JsonUtility.ToJson(configuration.Reeds),
-                reeds);
-            JsonUtility.FromJsonOverwrite(
-                JsonUtility.ToJson(configuration.Ferns),
-                ferns);
-            JsonUtility.FromJsonOverwrite(
-                JsonUtility.ToJson(configuration.Rendering),
-                rendering);
-            JsonUtility.FromJsonOverwrite(
-                JsonUtility.ToJson(configuration.Decorations),
-                decorations);
-            JsonUtility.FromJsonOverwrite(
-                JsonUtility.ToJson(configuration.DebugSettings),
-                debugSettings);
-            configuration = null;
+            throw new ArgumentNullException(nameof(islandConfiguration));
         }
-        generation.Seed = islandSeed;
-        generation.ApplyDeterministicVariation(islandSeed, variation);
+        if (generationLifecycle.IsGenerating || islandRuntime != null)
+        {
+            throw new InvalidOperationException(
+                "Island configuration must be selected before generation starts.");
+        }
+        configuration = islandConfiguration;
+        activeProfile = null;
+        Streaming.Target = streamingTarget;
     }
 
     internal void SetRuntimeDormant(bool dormant)
@@ -746,7 +594,6 @@ public sealed partial class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
 
     public void ConfigureSceneReferences(
         Transform streamingTarget,
-        Light sunlight,
         Material terrainTemplate,
         Material grassTemplate,
         Material riverTemplate,
@@ -763,7 +610,6 @@ public sealed partial class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
             EnsureWorldEnvironment();
             worldEnvironment.SetFollowTarget(streamingTarget);
         }
-        Rendering.Sunlight = sunlight;
         Rendering.AssignMaterialTemplates(
             terrainTemplate,
             grassTemplate,

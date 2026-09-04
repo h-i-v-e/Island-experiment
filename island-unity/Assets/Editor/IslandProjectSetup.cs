@@ -8,19 +8,31 @@ using UnityEngine.SceneManagement;
 
 public static class IslandProjectSetup
 {
-    private const string ScenePath = "Assets/Scenes/IslandSandbox.unity";
-    private const string MultiIslandScenePath = "Assets/Scenes/IslandsSandbox.unity";
-    private const string OceanWaveScenePath = "Assets/Scenes/OceanWaveSandbox.unity";
+    private const string ScenePath = "Assets/Scenes/IslandRuntimeSandbox.unity";
+    private const string MultiIslandScenePath = "Assets/Scenes/OpenSeaWorld.unity";
+    private const string OceanWaveScenePath = "Assets/Scenes/OceanRuntimeSandbox.unity";
     private const string MaterialFolder = "Assets/Materials";
+    private const string IslandConfigurationPath =
+        "Assets/Settings/IslandRuntimeConfiguration.asset";
+    private const string OpenSeaConfigurationPath =
+        "Assets/Settings/OpenSeaIslandConfiguration.asset";
     private const string OceanWaveProfilePath = "Assets/Settings/OceanWaveProfile.asset";
     private const string TreeWoodMaterialPath = "Assets/Materials/TreeWood.mat";
     private const string TreeFoliageMaterialPath = "Assets/Materials/TreeFoliage.mat";
+
+    public static void CreateReplacementScenes()
+    {
+        CreateConventionalProjectAssets();
+        CreateMultiIslandSandbox();
+        CreateOceanWaveSandbox();
+    }
 
     [MenuItem("Island/Create or Refresh Sandbox Level")]
     public static void CreateConventionalProjectAssets()
     {
         EnsureFolder("Assets", "Scenes");
         EnsureFolder("Assets", "Materials");
+        EnsureFolder("Assets", "Settings");
 
         var terrain = CreateOrUpdateMaterial(
             $"{MaterialFolder}/IslandTerrain.mat",
@@ -49,9 +61,15 @@ public static class IslandProjectSetup
         var scene = EditorSceneManager.NewScene(
             NewSceneSetup.EmptyScene,
             NewSceneMode.Single);
-        scene.name = "IslandSandbox";
+        scene.name = "IslandRuntimeSandbox";
+
+        var worldObject = new GameObject("Island World");
+        var worldManager = worldObject.AddComponent<IslandWorldManager>();
+        worldManager.ConfigureProceduralDiscovery(false, 666);
 
         var islandObject = new GameObject("Island");
+        islandObject.SetActive(false);
+        islandObject.transform.SetParent(worldObject.transform, false);
         var island = islandObject.AddComponent<IslandGenerator>();
 
         var sunObject = new GameObject("Sun");
@@ -61,6 +79,7 @@ public static class IslandProjectSetup
         sun.shadows = LightShadows.Soft;
         sun.intensity = 1.25f;
         sun.color = new Color(1f, 0.94f, 0.82f);
+        worldManager.ConfigureWorldEnvironment(sun, sea);
 
         var cameraObject = new GameObject("Main Camera");
         cameraObject.tag = "MainCamera";
@@ -69,7 +88,7 @@ public static class IslandProjectSetup
         camera.clearFlags = CameraClearFlags.SolidColor;
         camera.backgroundColor = new Color(0.49f, 0.68f, 0.82f);
         camera.nearClipPlane = 0.05f;
-        camera.farClipPlane = island.WorldSizeMetres * 8f;
+        camera.farClipPlane = 16000f;
         var waterReflection = cameraObject.AddComponent<PlanarWaterReflection>();
         waterReflection.Configure(island.transform);
         cameraObject.AddComponent<RealTimeAmbientOcclusion>();
@@ -79,9 +98,9 @@ public static class IslandProjectSetup
         var demo = cameraObject.AddComponent<IslandDemoController>();
         demo.Configure(island, camera, orbit, firstPerson);
 
-        island.ConfigureSceneReferences(
-            cameraObject.transform,
-            sun,
+        var configuration = CreateOrUpdateIslandConfiguration(
+            IslandConfigurationPath,
+            666,
             terrain,
             grass,
             river,
@@ -89,6 +108,19 @@ public static class IslandProjectSetup
             rock,
             treeWood,
             treeFoliage);
+        island.Configure(configuration, cameraObject.transform);
+        island.ConfigureSceneReferences(
+            cameraObject.transform,
+            terrain,
+            grass,
+            river,
+            sea,
+            rock,
+            treeWood,
+            treeFoliage);
+        worldManager.ConfigureIslandTemplate(island);
+        worldManager.SetStreamingTarget(cameraObject.transform);
+        islandObject.SetActive(true);
 
         RenderSettings.ambientMode = AmbientMode.Flat;
         RenderSettings.ambientLight = new Color(0.42f, 0.46f, 0.52f);
@@ -99,10 +131,9 @@ public static class IslandProjectSetup
         RenderSettings.sun = sun;
 
         EditorSceneManager.SaveScene(scene, ScenePath);
-        EditorBuildSettings.scenes = new[]
-        {
-            new EditorBuildSettingsScene(ScenePath, true),
-        };
+        ReplaceSceneInBuildSettings(
+            "Assets/Scenes/IslandSandbox.unity",
+            ScenePath);
         EditorUtility.SetDirty(terrain);
         EditorUtility.SetDirty(grass);
         EditorUtility.SetDirty(river);
@@ -118,6 +149,7 @@ public static class IslandProjectSetup
     {
         EnsureFolder("Assets", "Scenes");
         EnsureFolder("Assets", "Materials");
+        EnsureFolder("Assets", "Settings");
 
         var terrain = CreateOrUpdateMaterial(
             $"{MaterialFolder}/IslandTerrain.mat",
@@ -149,7 +181,7 @@ public static class IslandProjectSetup
             : EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
         if (!sceneExists)
         {
-            scene.name = "IslandsSandbox";
+            scene.name = "OpenSeaWorld";
         }
         foreach (var root in scene.GetRootGameObjects())
         {
@@ -168,6 +200,17 @@ public static class IslandProjectSetup
         sun.intensity = 1.25f;
         sun.color = new Color(1f, 0.94f, 0.82f);
         worldManager.ConfigureWorldEnvironment(sun, sea);
+
+        var configuration = CreateOrUpdateIslandConfiguration(
+            OpenSeaConfigurationPath,
+            666,
+            terrain,
+            grass,
+            river,
+            sea,
+            rock,
+            treeWood,
+            treeFoliage);
 
         var cameraObject = new GameObject("Main Camera");
         cameraObject.tag = "MainCamera";
@@ -189,8 +232,8 @@ public static class IslandProjectSetup
             worldObject.transform,
             new Vector2Int(-1, 0),
             666,
+            configuration,
             cameraObject.transform,
-            sun,
             terrain,
             grass,
             river,
@@ -204,8 +247,8 @@ public static class IslandProjectSetup
             worldObject.transform,
             Vector2Int.zero,
             90210,
+            configuration,
             cameraObject.transform,
-            sun,
             terrain,
             grass,
             river,
@@ -218,8 +261,8 @@ public static class IslandProjectSetup
             worldObject.transform,
             new Vector2Int(1, 0),
             271828,
+            configuration,
             cameraObject.transform,
-            sun,
             terrain,
             grass,
             river,
@@ -242,7 +285,9 @@ public static class IslandProjectSetup
 
         EditorSceneManager.SaveScene(scene, MultiIslandScenePath);
         ValidateMultiIslandSandbox();
-        AddSceneToBuildSettings(MultiIslandScenePath);
+        ReplaceSceneInBuildSettings(
+            "Assets/Scenes/IslandsSandbox.unity",
+            MultiIslandScenePath);
         EditorUtility.SetDirty(terrain);
         EditorUtility.SetDirty(grass);
         EditorUtility.SetDirty(river);
@@ -265,7 +310,7 @@ public static class IslandProjectSetup
         var scene = EditorSceneManager.NewScene(
             NewSceneSetup.EmptyScene,
             NewSceneMode.Single);
-        scene.name = "OceanWaveSandbox";
+        scene.name = "OceanRuntimeSandbox";
         var profile = AssetDatabase.LoadAssetAtPath<OceanWaveProfile>(
             OceanWaveProfilePath);
         if (profile == null)
@@ -310,7 +355,9 @@ public static class IslandProjectSetup
         RenderSettings.sun = sun;
 
         EditorSceneManager.SaveScene(scene, OceanWaveScenePath);
-        AddSceneToBuildSettings(OceanWaveScenePath);
+        ReplaceSceneInBuildSettings(
+            "Assets/Scenes/OceanWaveSandbox.unity",
+            OceanWaveScenePath);
         EditorUtility.SetDirty(profile);
         EditorUtility.SetDirty(sea);
         AssetDatabase.SaveAssets();
@@ -420,8 +467,8 @@ public static class IslandProjectSetup
         Transform parent,
         Vector2Int worldCell,
         int seed,
+        IslandConfiguration configuration,
         Transform streamingTarget,
-        Light sunlight,
         Material terrain,
         Material grass,
         Material river,
@@ -436,10 +483,10 @@ public static class IslandProjectSetup
             IslandWorldManager.CellCentre(worldCell),
             Quaternion.identity);
         var island = islandObject.AddComponent<IslandGenerator>();
+        island.Configure(configuration, streamingTarget);
         island.Generation.Seed = seed;
         island.ConfigureSceneReferences(
             streamingTarget,
-            sunlight,
             terrain,
             grass,
             river,
@@ -448,6 +495,36 @@ public static class IslandProjectSetup
             treeWood,
             treeFoliage);
         return island;
+    }
+
+    private static IslandConfiguration CreateOrUpdateIslandConfiguration(
+        string path,
+        int seed,
+        Material terrain,
+        Material grass,
+        Material river,
+        Material sea,
+        Material rock,
+        Material treeWood,
+        Material treeFoliage)
+    {
+        var configuration = AssetDatabase.LoadAssetAtPath<IslandConfiguration>(path);
+        if (configuration == null)
+        {
+            configuration = ScriptableObject.CreateInstance<IslandConfiguration>();
+            AssetDatabase.CreateAsset(configuration, path);
+        }
+        configuration.Generation.Seed = seed;
+        configuration.ConfigureRenderingReferences(
+            terrain,
+            grass,
+            river,
+            sea,
+            rock,
+            treeWood,
+            treeFoliage);
+        EditorUtility.SetDirty(configuration);
+        return configuration;
     }
 
     private static void AddSceneToBuildSettings(string path)
@@ -459,6 +536,20 @@ public static class IslandProjectSetup
             return;
         }
         scenes.Add(new EditorBuildSettingsScene(path, true));
+        EditorBuildSettings.scenes = scenes.ToArray();
+    }
+
+    private static void ReplaceSceneInBuildSettings(
+        string legacyPath,
+        string replacementPath)
+    {
+        var scenes = new System.Collections.Generic.List<EditorBuildSettingsScene>(
+            EditorBuildSettings.scenes);
+        scenes.RemoveAll(entry => entry.path == legacyPath);
+        if (!scenes.Exists(entry => entry.path == replacementPath))
+        {
+            scenes.Add(new EditorBuildSettingsScene(replacementPath, true));
+        }
         EditorBuildSettings.scenes = scenes.ToArray();
     }
 

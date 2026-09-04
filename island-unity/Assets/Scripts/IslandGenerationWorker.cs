@@ -9,7 +9,9 @@ internal static class IslandGenerationWorker
     {
         if (request == null) throw new System.ArgumentNullException(nameof(request));
         return Task.Run(
-            () => IslandGenerator.PrepareIsland(request, cancellationToken),
+            () => IslandPreparationPipeline.PrepareIsland(
+                request,
+                cancellationToken),
             cancellationToken);
     }
 

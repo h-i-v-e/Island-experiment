@@ -342,7 +342,7 @@ public sealed partial class TerrainTileStreamer : MonoBehaviour
                     IntPtr.Add(export.data, index * exportSize));
                 if (nativeMesh.handle != IntPtr.Zero && nativeMesh.triangles.length != 0)
                 {
-                    result[index] = IslandGenerator.CopyTerrainMeshData(
+                    result[index] = IslandMeshInterop.CopyTerrainMeshData(
                         nativeMesh,
                         2,
                         terrainWorldSize);

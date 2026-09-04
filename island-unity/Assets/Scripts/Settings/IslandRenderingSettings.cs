@@ -113,8 +113,6 @@ public sealed class IslandRenderingSettings
     [Range(0.00005f, 0.003f)]
     [SerializeField] private float distanceHazeDensity = 0.00055f;
 
-    [Tooltip("Optional level-owned sunlight used for grass shading.")]
-    [SerializeField] private Light sunlight;
 
     [Tooltip("Real-time minutes taken for one complete sunrise-to-sunrise solar cycle.")]
     [Range(0.25f, 240f)]
@@ -234,7 +232,6 @@ public sealed class IslandRenderingSettings
         get => Mathf.Clamp(distanceHazeDensity, 0.00005f, 0.003f);
         set => distanceHazeDensity = Mathf.Clamp(value, 0.00005f, 0.003f);
     }
-    public Light Sunlight { get => sunlight; internal set => sunlight = value; }
     public float SunCycleDurationMinutes
     {
         get => Mathf.Clamp(sunCycleDurationMinutes, 0.25f, 240f);

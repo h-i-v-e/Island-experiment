@@ -7,7 +7,8 @@ using UnityEngine;
 
 public static class IslandGeneratorValidation
 {
-    private const string SandboxScenePath = "Assets/Scenes/IslandSandbox.unity";
+    private const string SandboxScenePath =
+        "Assets/Scenes/IslandRuntimeSandbox.unity";
 
     public static void BatchValidateNativeInterop()
     {
@@ -532,23 +533,23 @@ public static class IslandGeneratorValidation
     private static void ValidateSolarLightingCycle()
     {
         const float midnightToNoonRateRatio = 10f;
-        var noonClockRate = IslandGenerator.EvaluateSolarClockRateMultiplier(
+        var noonClockRate = CelestialLighting.EvaluateClockRateMultiplier(
             12f,
             midnightToNoonRateRatio);
-        var midnightClockRate = IslandGenerator.EvaluateSolarClockRateMultiplier(
+        var midnightClockRate = CelestialLighting.EvaluateClockRateMultiplier(
             0f,
             midnightToNoonRateRatio);
-        var sunriseClockRate = IslandGenerator.EvaluateSolarClockRateMultiplier(
+        var sunriseClockRate = CelestialLighting.EvaluateClockRateMultiplier(
             6f,
             midnightToNoonRateRatio);
-        var sunsetClockRate = IslandGenerator.EvaluateSolarClockRateMultiplier(
+        var sunsetClockRate = CelestialLighting.EvaluateClockRateMultiplier(
             18f,
             midnightToNoonRateRatio);
         var inverseRateIntegral = 0f;
         const int clockSamples = 4096;
         for (var sample = 0; sample < clockSamples; sample++)
         {
-            inverseRateIntegral += 1f / IslandGenerator.EvaluateSolarClockRateMultiplier(
+            inverseRateIntegral += 1f / CelestialLighting.EvaluateClockRateMultiplier(
                 24f * sample / clockSamples,
                 midnightToNoonRateRatio);
         }
@@ -563,24 +564,24 @@ public static class IslandGeneratorValidation
                 "The solar clock does not slow at noon, accelerate tenfold at midnight, or preserve its configured period.");
         }
         if (!Mathf.Approximately(
-            IslandGenerator.EvaluateSolarClockRateMultiplier(3f, 1f),
+            CelestialLighting.EvaluateClockRateMultiplier(3f, 1f),
             1f))
         {
             throw new InvalidOperationException(
                 "A one-to-one solar clock rate must remain uniform.");
         }
-        var sunrise = IslandGenerator.EvaluateSolarLighting(6f, 45f, 1.25f);
-        var noon = IslandGenerator.EvaluateSolarLighting(12f, 45f, 1.25f);
-        var sunset = IslandGenerator.EvaluateSolarLighting(18f, 45f, 1.25f);
-        var midnight = IslandGenerator.EvaluateSolarLighting(0f, 45f, 1.25f);
-        var newMoon = IslandGenerator.EvaluateMoonLighting(
+        var sunrise = CelestialLighting.EvaluateSun(6f, 45f, 1.25f);
+        var noon = CelestialLighting.EvaluateSun(12f, 45f, 1.25f);
+        var sunset = CelestialLighting.EvaluateSun(18f, 45f, 1.25f);
+        var midnight = CelestialLighting.EvaluateSun(0f, 45f, 1.25f);
+        var newMoon = CelestialLighting.EvaluateMoon(
             12f,
             45f,
             22f,
             0f,
             0.14f,
             noon.LocalDirection.y);
-        var fullMoon = IslandGenerator.EvaluateMoonLighting(
+        var fullMoon = CelestialLighting.EvaluateMoon(
             0f,
             45f,
             22f,
@@ -752,9 +753,10 @@ public static class IslandGeneratorValidation
             throw new InvalidOperationException(
                 "The sandbox IslandGenerator has no streaming target.");
         }
-        if (island.Rendering.Sunlight == null
-            || island.Rendering.Sunlight.type != LightType.Directional
-            || island.Rendering.Sunlight.shadows != LightShadows.Soft)
+        var sunlight = RenderSettings.sun;
+        if (sunlight == null
+            || sunlight.type != LightType.Directional
+            || sunlight.shadows != LightShadows.Soft)
         {
             throw new InvalidOperationException(
                 "The sandbox directional sunlight does not have soft shadows enabled.");

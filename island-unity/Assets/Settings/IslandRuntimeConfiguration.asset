@@ -1,0 +1,133 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c1803f9a3e7d3488fa2dbd76dc112217, type: 3}
+  m_Name: IslandRuntimeConfiguration
+  m_EditorClassIdentifier: Assembly-CSharp::IslandConfiguration
+  generation:
+    generateOnStart: 1
+    useSnapshotCache: 1
+    snapshotCacheBudgetGiB: 8
+    seed: 666
+    worldSizeMetres: 2000
+    maximumHeightMetres: 400
+    waterRatio: 0.95
+    inlandSlopeMultiplier: 1.3
+    coastalSlopeMultiplier: 1
+    continentalNoiseFrequency: 2.2
+    continentalNoiseStrength: 0.78
+    detailNoiseFrequency: 12
+    detailNoiseStrength: 0.22
+    landMassOffset: 0
+    hydraulicErosionStrength: 1
+    sedimentDepositionStrength: 1.5
+    depositionMaximumSlopeDegrees: 12
+  rivers:
+    sourceCatchmentHectares: 0.05
+    steepSourceMultiplier: 4
+    sourceElevationBoost: 9
+    sourceWidthMetres: 2
+    maximumWidthMetres: 14
+    sourceDepthMetres: 0.35
+    maximumDepthMetres: 2
+  forest:
+    showForests: 1
+    forestPatchSizeMetres: 200
+    forestNoiseThreshold: 0.62
+    snowlineMetres: 100
+    forestPrototypeCount: 8
+    minimumTreeScale: 1
+    maximumTreeScale: 2
+  reeds:
+    showReeds: 1
+    bankWidthMetres: 0.8
+    patchSizeMetres: 8
+    coverageThreshold: 0.18
+    spacingMetres: 0.36
+    rushRatio: 0.45
+    minimumHeightMetres: 0.65
+    maximumHeightMetres: 2.1
+    maximumSlopeDegrees: 32
+    baseColour: {r: 0.12, g: 0.24, b: 0.055, a: 1}
+    tipColour: {r: 0.38, g: 0.48, b: 0.09, a: 1}
+    windStrength: 3
+  ferns:
+    showFerns: 1
+    barkClearanceMetres: 0.18
+    outerRadiusMetres: 1.65
+    spacingMetres: 0.58
+    patchSizeMetres: 12
+    coverageThreshold: 0.28
+    minimumLengthMetres: 0.45
+    maximumLengthMetres: 1.15
+    maximumSlopeDegrees: 34
+    baseColour: {r: 0.055, g: 0.18, b: 0.045, a: 1}
+    tipColour: {r: 0.24, g: 0.48, b: 0.12, a: 1}
+    windStrength: 1.8
+  rendering:
+    dirtColour: {r: 0.09, g: 0.055, b: 0.026, a: 1}
+    stoneColour: {r: 0.3, g: 0.32, b: 0.29, a: 1}
+    sandColour: {r: 0.62, g: 0.57, b: 0.34, a: 1}
+    randomizeMaterialColours: 1
+    materialColourVariation: 0.14
+    materialTextureResolution: 1024
+    terrainMaterial: {fileID: 2100000, guid: 19640f4fc7648482eac75d61d694f95b, type: 2}
+    grassMaterial: {fileID: 2100000, guid: 9c87f7d08551e4ae2b4dfa30af8c3f01, type: 2}
+    riverMaterial: {fileID: 2100000, guid: 671058ee1a245424e91a25c139b2be33, type: 2}
+    seaMaterial: {fileID: 2100000, guid: f7e64c96dada84bf1bae7f46e0e94f50, type: 2}
+    oceanWaveProfile: {fileID: 0}
+    rockMaterial: {fileID: 2100000, guid: f808a7e2f1bde4fcd8f35b7bcae174a5, type: 2}
+    treeWoodMaterial: {fileID: 2100000, guid: 1d502ab988fe44d8681ee8654656a33a, type: 2}
+    treeFoliageMaterial: {fileID: 2100000, guid: 39e6f52a20784bdaa4e771e2cb558234, type: 2}
+    cliffDetailNoise: {fileID: 0}
+    riverNoise: {fileID: 0}
+    grassPatchNoise: {fileID: 0}
+    grassColourA: {r: 0.18, g: 0.46, b: 0.14, a: 1}
+    grassColourB: {r: 0.34, g: 0.5, b: 0.14, a: 1}
+    grassColourNoiseWorldSizeMetres: 2048
+    grassBrightness: 1.35
+    grassWindDirection: {x: 1, y: 0.35}
+    grassWindStrengthMetres: 0.07
+    grassWindSpeedMetresPerSecond: 1.8
+    grassWindGustSizeMetres: 12
+    grassWindNormalStrength: 0.35
+    sandPatchSizeMetres: 32
+    grassPatchSizeMetres: 32
+    estuaryBlendHeightMetres: 2
+    showDistanceHaze: 1
+    distanceHazeColour: {r: 0.62, g: 0.6, b: 0.54, a: 1}
+    distanceHazeDensity: 0.00055
+    sunCycleDurationMinutes: 20
+    midnightToNoonClockRateRatio: 10
+    sunLatitudeDegrees: -36
+    startingSolarTimeHours: 8
+    middaySunIntensity: 1.25
+    moonEquatorOffsetDegrees: 22
+    startingMoonPhase: 0.5
+    fullMoonLightIntensity: 0.14
+    starDensity: 0.18
+    starBrightness: 1.35
+    starSize: 0.052
+    showRivers: 1
+    showSea: 1
+    showGrass: 1
+    showRocks: 1
+  decorations:
+    treePrefabs: []
+    plantPrefabs: []
+  debugSettings:
+    showMeshEdges: 0
+    toggleMeshEdgesKey: 109
+    showTreeMeshEdges: 0
+    toggleTreeMeshEdgesKey: 110
+    showFrameRate: 0
+    toggleFrameRateKey: 102
+    showWaterfallFeet: 0

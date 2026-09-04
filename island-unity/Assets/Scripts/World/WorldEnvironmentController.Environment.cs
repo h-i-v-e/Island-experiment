@@ -7,13 +7,6 @@ public sealed partial class WorldEnvironmentController
 {
     private const float SunDiscAngularRadiusDegrees = 0.7f;
     private const float MoonDiscAngularRadiusDegrees = 0.68f;
-    private const float LunarSynodicPeriodDays = 29.53059f;
-    private const float NightSkyExposure = 0.045f;
-    private static readonly Color MiddaySunColour = new Color(1f, 0.94f, 0.82f, 1f);
-    private static readonly Color SunsetSunColour = new Color(1f, 0.20f, 0.035f, 1f);
-    private static readonly Color DayAmbientColour = new Color(0.42f, 0.46f, 0.52f, 1f);
-    private static readonly Color TwilightAmbientColour = new Color(0.08f, 0.15f, 0.30f, 1f);
-    private static readonly Color NightAmbientColour = new Color(0.012f, 0.025f, 0.065f, 1f);
     private static readonly Color SunsetSunHaloColour = new Color(0.85f, 0.05f, 0.01f, 1f);
     private static readonly Color NightHazeColour = new Color(0.08f, 0.14f, 0.28f, 1f);
     private static readonly Color MoonDiscColour = new Color(0.78f, 0.84f, 0.92f, 1f);
@@ -269,21 +262,22 @@ public sealed partial class WorldEnvironmentController
         if (deltaTime > 0f)
         {
             var cycleSeconds = environmentSettings.SunCycleDurationMinutes * 60f;
-            var clockRate = IslandGenerator.EvaluateSolarClockRateMultiplier(
+            var clockRate = CelestialLighting.EvaluateClockRateMultiplier(
                 solarTimeHours,
                 environmentSettings.MidnightToNoonClockRateRatio);
             solarTimeHours = Mathf.Repeat(
                 solarTimeHours + deltaTime * 24f / cycleSeconds * clockRate,
                 24f);
             lunarPhase = Mathf.Repeat(
-                lunarPhase + deltaTime / (cycleSeconds * LunarSynodicPeriodDays),
+                lunarPhase + deltaTime
+                    / (cycleSeconds * CelestialLighting.LunarSynodicPeriodDays),
                 1f);
         }
-        var state = IslandGenerator.EvaluateSolarLighting(
+        var state = CelestialLighting.EvaluateSun(
             solarTimeHours,
             environmentSettings.SunLatitudeDegrees,
             environmentSettings.MiddaySunIntensity);
-        var moonState = IslandGenerator.EvaluateMoonLighting(
+        var moonState = CelestialLighting.EvaluateMoon(
             solarTimeHours,
             environmentSettings.SunLatitudeDegrees,
             environmentSettings.MoonEquatorOffsetDegrees,

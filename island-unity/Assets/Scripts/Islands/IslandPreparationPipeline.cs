@@ -6,8 +6,9 @@ using System.Threading;
 using UnityEngine;
 using Debug = UnityEngine.Debug;
 
-public sealed partial class IslandGenerator
+internal static class IslandPreparationPipeline
 {
+    private const int SurfaceMapDimension = 2048;
     internal static IslandPreparedData PrepareIsland(
         int islandSeed,
         MotuNative.Options options,
@@ -178,7 +179,7 @@ public sealed partial class IslandGenerator
         }
     }
 
-    private static IslandPreparedSurfaceMaps PrepareSurfaceMaps(
+    internal static IslandPreparedSurfaceMaps PrepareSurfaceMaps(
         IntPtr handle,
         int dimension)
     {
@@ -208,7 +209,7 @@ public sealed partial class IslandGenerator
         }
     }
 
-    private static IslandPreparedSeaMask PrepareSeaMask(IntPtr handle, int dimension)
+    internal static IslandPreparedSeaMask PrepareSeaMask(IntPtr handle, int dimension)
     {
         MotuNative.CreateSeaMask(handle, dimension, out var seaMask);
         try
@@ -249,7 +250,7 @@ public sealed partial class IslandGenerator
                 throw new InvalidOperationException(
                     "The Rust generator returned an invalid sky-dome mesh.");
             }
-            return CopyGeneratedMeshData(export, worldSize);
+            return IslandMeshInterop.CopyGeneratedMeshData(export, worldSize);
         }
         finally
         {
@@ -257,7 +258,7 @@ public sealed partial class IslandGenerator
         }
     }
 
-    private static IslandPreparedMaterialTextures PrepareMaterialTextures(
+    internal static IslandPreparedMaterialTextures PrepareMaterialTextures(
         IslandMaterialColours colours,
         int resolution,
         long cacheBudgetBytes = 0L,
@@ -432,7 +433,9 @@ public sealed partial class IslandGenerator
                     IntPtr.Add(export.data, index * exportSize));
                 if (nativeMesh.handle != IntPtr.Zero && nativeMesh.triangles.length != 0)
                 {
-                    result[index] = CopyRiverMeshData(nativeMesh, worldSize);
+                    result[index] = IslandMeshInterop.CopyRiverMeshData(
+                        nativeMesh,
+                        worldSize);
                 }
             }
             return result;
@@ -471,7 +474,9 @@ public sealed partial class IslandGenerator
                     IntPtr.Add(export.data, index * exportSize));
                 if (nativeMesh.handle != IntPtr.Zero && nativeMesh.triangles.length != 0)
                 {
-                    result[index] = CopyRiverMeshData(nativeMesh, worldSize);
+                    result[index] = IslandMeshInterop.CopyRiverMeshData(
+                        nativeMesh,
+                        worldSize);
                 }
             }
             return result;
@@ -547,7 +552,9 @@ public sealed partial class IslandGenerator
                     throw new InvalidOperationException(
                         $"The Rust reed tile {index} has invalid mesh attributes.");
                 }
-                result[index] = CopyGeneratedMeshData(native, worldSize);
+                result[index] = IslandMeshInterop.CopyGeneratedMeshData(
+                    native,
+                    worldSize);
             }
             return result;
         }
@@ -557,7 +564,7 @@ public sealed partial class IslandGenerator
         }
     }
 
-    private static IslandPreparedMesh[] PrepareFernMeshGrid(
+    internal static IslandPreparedMesh[] PrepareFernMeshGrid(
         IntPtr handle,
         float worldSize)
     {
@@ -608,7 +615,9 @@ public sealed partial class IslandGenerator
                     throw new InvalidOperationException(
                         $"The Rust fern tile {index} has invalid mesh attributes.");
                 }
-                result[index] = CopyGeneratedMeshData(native, worldSize);
+                result[index] = IslandMeshInterop.CopyGeneratedMeshData(
+                    native,
+                    worldSize);
             }
             return result;
         }
@@ -618,7 +627,7 @@ public sealed partial class IslandGenerator
         }
     }
 
-    private static IslandPreparedTreeCollider[][] PrepareForestTrunkColliders(
+    internal static IslandPreparedTreeCollider[][] PrepareForestTrunkColliders(
         IntPtr handle,
         float worldSize)
     {
@@ -775,7 +784,9 @@ public sealed partial class IslandGenerator
                     continue;
                 }
                 ValidateForestNativeMesh(nativeMesh, visualLod, index, wood);
-                var prepared = CopyGeneratedMeshData(nativeMesh, worldSize);
+                var prepared = IslandMeshInterop.CopyGeneratedMeshData(
+                    nativeMesh,
+                    worldSize);
                 ValidatePreparedForestMesh(prepared, visualLod, index, wood);
                 result[index] = prepared;
             }
@@ -917,7 +928,7 @@ public sealed partial class IslandGenerator
         }
     }
 
-    private static void ValidateBorrowedArray(
+    internal static void ValidateBorrowedArray(
         MotuNative.Vector3Array values,
         string label)
     {

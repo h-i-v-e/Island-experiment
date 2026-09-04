@@ -138,7 +138,7 @@ internal sealed class ReedTileStreamer : IDisposable
     {
         var source = prepared[key.y * Resolution + key.x];
         if (source == null || source.triangles.Length == 0) return null;
-        var mesh = IslandGenerator.CreateGeneratedMesh(source);
+        var mesh = IslandMeshInterop.CreateGeneratedMesh(source);
         mesh.name = $"Riverbank reeds {key.x},{key.y}";
         var gameObject = new GameObject(mesh.name);
         gameObject.transform.SetParent(root.transform, false);

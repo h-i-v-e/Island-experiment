@@ -258,8 +258,8 @@ public sealed partial class WorldEnvironmentController : MonoBehaviour
             return;
         }
 
-        var source = IslandGenerator.PrepareSkyDome(worldSize);
-        var replacementMesh = IslandGenerator.CreateGeneratedMesh(source);
+        var source = IslandPreparationPipeline.PrepareSkyDome(worldSize);
+        var replacementMesh = IslandMeshInterop.CreateGeneratedMesh(source);
         replacementMesh.name = "Rust Generated Open-Sea Sky Dome";
         var replacementObject = CreateSkyDomeObject(replacementMesh, material);
         var previousObject = skyDomeObject;

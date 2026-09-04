@@ -37,4 +37,23 @@ public sealed class IslandConfiguration : ScriptableObject
     public IslandRenderingSettings Rendering => rendering;
     public IslandDecorationSettings Decorations => decorations;
     public IslandDebugSettings DebugSettings => debugSettings;
+
+    public void ConfigureRenderingReferences(
+        Material terrain,
+        Material grass,
+        Material river,
+        Material sea,
+        Material rock,
+        Material treeWood = null,
+        Material treeFoliage = null)
+    {
+        rendering.AssignMaterialTemplates(
+            terrain,
+            grass,
+            river,
+            sea,
+            rock,
+            treeWood,
+            treeFoliage);
+    }
 }

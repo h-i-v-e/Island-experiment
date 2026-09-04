@@ -345,7 +345,7 @@ public sealed partial class TerrainTileStreamer
                 var preparedMesh = preparedMeshes[index];
                 if (preparedMesh != null)
                 {
-                    var mesh = IslandGenerator.CreateTerrainMesh(preparedMesh, lod);
+                    var mesh = IslandMeshInterop.CreateTerrainMesh(preparedMesh, lod);
                     var localX = index % Divisions;
                     var localY = index / Divisions;
                     var tileObject = new GameObject($"LOD {lod} tile {localX},{localY}");
@@ -413,7 +413,10 @@ public sealed partial class TerrainTileStreamer
                 {
                     continue;
                 }
-                var mesh = IslandGenerator.CopyTerrainMesh(nativeMesh, lod, worldSize);
+                var mesh = IslandMeshInterop.CopyTerrainMesh(
+                    nativeMesh,
+                    lod,
+                    worldSize);
                 var localX = index % divisions;
                 var localY = index / divisions;
                 var globalX = parent.x * divisions + localX;
@@ -749,7 +752,7 @@ public sealed partial class TerrainTileStreamer
                         continue;
                     }
 
-                    var mesh = IslandGenerator.CreateRiverMesh(preparedMesh);
+                    var mesh = IslandMeshInterop.CreateRiverMesh(preparedMesh);
                     preparedTiles[preparedIndex] = null;
                     var tileIndex = localY * Divisions + localX;
                     var tileObject = new GameObject($"{label} LOD 1 tile {globalX},{globalY}");

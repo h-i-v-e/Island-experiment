@@ -196,7 +196,7 @@ public sealed partial class IslandGenerator
             name = "Island terrain LOD2 material (procedural only)",
         };
         terrainLod2Material.EnableKeyword("MOTU_TERRAIN_LOD2");
-        var sun = Rendering.Sunlight != null ? Rendering.Sunlight : RenderSettings.sun;
+        var sun = RenderSettings.sun;
         grassMaterial.SetVector(
             "_GrassLightDirection",
             sun != null ? -sun.transform.forward : Vector3.down);
