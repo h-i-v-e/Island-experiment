@@ -6,7 +6,10 @@ using UnityEngine;
 
 internal static class IslandSnapshotCache
 {
-    private const int CacheKeySchemaVersion = 1;
+    // Generation semantics changed: final river mouths and joined branches now
+    // reconcile their submerged sea handoffs. Bump the request key so cached
+    // islands cannot retain the obsolete river-water topology.
+    private const int CacheKeySchemaVersion = 3;
     private const string SnapshotExtension = ".motusnapshot";
 
     internal static string CacheDirectory

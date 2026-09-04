@@ -28,10 +28,10 @@ mod waterfalls;
 use carving::{
     DeltaScratch, RiverCarveOptions, RiverCarveParameters, RiverCarveScratch,
     RiverChannelParameters, RiverProfileEnvironment, RiverProfileScratch, RiverTerrain,
-    WaterfallRelocation, WaterfallSiteEnvironment, average_edge_length, create_delta,
-    enforce_gentle_river_profile, form_river_profile, lower_profile_reach_through_confluence,
-    relocate_conflicting_waterfalls, river_mouth_transition, shape_and_carve_river,
-    unfitted_river_depth,
+    WaterfallRelocation, WaterfallSiteEnvironment, average_edge_length,
+    carve_submerged_river_mouth, create_delta, enforce_gentle_river_profile, form_river_profile,
+    lower_profile_reach_through_confluence, relocate_conflicting_waterfalls,
+    river_mouth_transition, river_ocean_entry, shape_and_carve_river, unfitted_river_depth,
 };
 pub(crate) use channel::encode_bank_distance_in_uv;
 use channel::{
@@ -663,14 +663,47 @@ impl RiverNetwork {
         );
         carve_confluence_connectors(self, terrain, &footprint, channel_parameters, &mut budgets);
         self.reconcile_carved_confluence_profiles(terrain, &known_surfaces, &mut budgets);
+        if !form_deltas {
+            self.enforce_gentle_final_profiles(terrain.mesh);
+            if self.reconcile_and_carve_submerged_mouth_handoffs(terrain, &mut budgets) {
+                let footprint = build_river_footprint(self, terrain.mesh, terrain.adjacency, false);
+                let carve = carve_river_corridor(
+                    self,
+                    terrain,
+                    &footprint,
+                    channel_parameters,
+                    &mut budgets,
+                );
+                lower_river_surroundings(
+                    self,
+                    terrain,
+                    &footprint,
+                    channel_parameters,
+                    &carve,
+                    &mut budgets,
+                );
+                smooth_river_corridor(
+                    self,
+                    terrain.mesh,
+                    terrain.adjacency,
+                    &footprint,
+                    channel_parameters,
+                    &carve,
+                );
+                carve_confluence_connectors(
+                    self,
+                    terrain,
+                    &footprint,
+                    channel_parameters,
+                    &mut budgets,
+                );
+            }
+        }
         transfer_tributary_budgets(&self.rivers, &mut budgets);
         if form_deltas {
             self.deposit_deltas(terrain, &mut budgets);
         }
         finalize_river_budgets(&self.rivers, &mut budgets);
-        if !form_deltas {
-            self.enforce_gentle_final_profiles(terrain.mesh);
-        }
     }
 
     /// Reapplies shared-node and confluence constraints after every river has
@@ -938,6 +971,87 @@ impl RiverNetwork {
             }
             *budget_output = result.budget;
         }
+    }
+
+    /// Recomputes and carves sea handoffs after the final confluence lowering,
+    /// then extends them into branches that join a submerged receiver reach.
+    ///
+    /// Confluence reconciliation can move a direct river's fitted sea entry
+    /// upstream after its preliminary cutoff was chosen. A joined river is not
+    /// itself ocean-terminal, so its earlier passes leave the cutoff empty.
+    /// Walking downstream-first after all profiles have settled handles both
+    /// cases. The caller refreshes the full-width corridor only when this pass
+    /// actually extends a cutoff or lowers a mouth.
+    fn reconcile_and_carve_submerged_mouth_handoffs(
+        &mut self,
+        terrain: &mut RiverTerrain<'_>,
+        budgets: &mut [RiverSedimentBudget],
+    ) -> bool {
+        debug_assert_eq!(budgets.len(), self.rivers.len());
+        let mut changed = false;
+        for (river_index, budget) in budgets.iter_mut().enumerate().take(self.rivers.len()) {
+            if !self.river_hands_off_to_sea(river_index) {
+                continue;
+            }
+            let Some(ocean_entry) = river_ocean_entry(
+                &self.rivers[river_index].nodes,
+                &self.ocean,
+                &self.cross_sections[river_index],
+            ) else {
+                self.river_mesh_ends[river_index] = None;
+                continue;
+            };
+            let mouth = river_mouth_transition(ocean_entry, &self.waterfalls[river_index]);
+            changed |= self.river_mesh_ends[river_index] != Some(mouth.river_mesh_end);
+            self.river_mesh_ends[river_index] = Some(mouth.river_mesh_end);
+            changed |= carve_submerged_river_mouth(
+                terrain,
+                &mut self.rivers[river_index].nodes,
+                &mut self.waterfalls[river_index],
+                mouth,
+                self.max_height,
+                &self.cross_sections[river_index],
+                budget,
+            );
+        }
+        changed
+    }
+
+    /// Returns whether this river reaches the sea itself or joins a receiver
+    /// after that receiver has already handed its submerged mouth to the sea.
+    ///
+    /// Rivers are stored downstream-first, so `carve_channels` has established
+    /// the receiving river's final mesh end before it reaches a tributary. That
+    /// lets a tributary (and, transitively, a chain of tributaries) reuse its
+    /// last waterfall as the handoff instead of retaining river-water faces on
+    /// top of the sea plane.
+    fn river_hands_off_to_sea(&self, river_index: usize) -> bool {
+        let Some(river) = self.rivers.get(river_index) else {
+            return false;
+        };
+        if river_reaches_ocean(river, &self.ocean) {
+            return true;
+        }
+
+        let (Some(receiver_index), Some(join_vertex)) = (
+            river.join,
+            self.join_vertices.get(river_index).copied().flatten(),
+        ) else {
+            return false;
+        };
+        let Some(receiver_mesh_end) = self.river_mesh_ends.get(receiver_index).copied().flatten()
+        else {
+            return false;
+        };
+        self.rivers
+            .get(receiver_index)
+            .and_then(|receiver| {
+                receiver
+                    .nodes
+                    .iter()
+                    .position(|node| node.vertex == join_vertex)
+            })
+            .is_some_and(|join_node| join_node >= receiver_mesh_end)
     }
 
     fn deposit_deltas(&self, terrain: &mut RiverTerrain<'_>, budgets: &mut [RiverSedimentBudget]) {

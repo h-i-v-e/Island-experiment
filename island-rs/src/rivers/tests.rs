@@ -1404,6 +1404,151 @@ fn confluence_lowering_propagates_through_a_join_chain() {
 }
 
 #[test]
+fn tributary_hands_off_to_sea_when_it_joins_inside_a_submerged_receiver_mouth() {
+    let node = |vertex, surface| RiverNode {
+        vertex,
+        flow: 10,
+        surface,
+        position: Vec3::new(vertex as f32, 0.0, surface),
+    };
+    let submerged_sections = |count: usize| {
+        (0..count)
+            .map(|index| RiverCrossSection {
+                required_depth: if index + 1 == count { 0.02 } else { 0.0 },
+                ..RiverCrossSection::default()
+            })
+            .collect::<Vec<_>>()
+    };
+    let mut network = RiverNetwork {
+        rivers: vec![
+            River {
+                nodes: vec![node(0, 0.4), node(1, 0.2), node(2, 0.01), node(3, -0.02)],
+                join: None,
+            },
+            River {
+                nodes: vec![node(4, 0.5), node(5, 0.2), node(6, 0.01)],
+                join: Some(0),
+            },
+            River {
+                nodes: vec![node(7, 0.6), node(8, 0.3), node(9, 0.01)],
+                join: Some(1),
+            },
+        ],
+        join_vertices: vec![None, Some(3), Some(6)],
+        waterfalls: vec![
+            vec![false, true, false, false],
+            vec![false, true, false],
+            vec![false, true, false],
+        ],
+        river_mesh_ends: vec![Some(3), None, None],
+        max_flow: 10,
+        max_height: 1.0,
+        ocean: vec![
+            false, false, false, true, false, false, false, false, false, false,
+        ],
+        perimeter: vec![false; 10],
+        cross_sections: vec![
+            vec![
+                RiverCrossSection::default(),
+                RiverCrossSection::default(),
+                RiverCrossSection {
+                    required_depth: 0.02,
+                    ..RiverCrossSection::default()
+                },
+                RiverCrossSection::default(),
+            ],
+            submerged_sections(3),
+            submerged_sections(3),
+        ],
+    };
+
+    assert!(network.river_hands_off_to_sea(0));
+    assert!(network.river_hands_off_to_sea(1));
+    assert!(!network.river_hands_off_to_sea(2));
+
+    let mut mesh = Mesh {
+        vertices: vec![
+            Vec3::new(0.0, 0.0, 0.4),
+            Vec3::new(1.0, 0.0, 0.2),
+            Vec3::new(2.0, 0.0, 0.01),
+            Vec3::new(3.0, 0.0, -0.02),
+            Vec3::new(4.0, 0.0, 0.5),
+            Vec3::new(5.0, 0.0, 0.2),
+            Vec3::new(6.0, 0.0, 0.01),
+            Vec3::new(7.0, 0.0, 0.6),
+            Vec3::new(8.0, 0.0, 0.3),
+            Vec3::new(9.0, 0.0, 0.01),
+        ],
+        ..Mesh::default()
+    };
+    let adjacency = mesh.adjacency();
+    let mut material = SurfaceMaterial::empty(mesh.vertices.len());
+    let bedrock_rates = vec![1.0; mesh.vertices.len()];
+    let control_areas = vec![1.0; mesh.vertices.len()];
+    let mut budgets = vec![RiverSedimentBudget::default(); 3];
+    let changed = network.reconcile_and_carve_submerged_mouth_handoffs(
+        &mut test_river_terrain(
+            &mut mesh,
+            &adjacency,
+            &mut material,
+            &bedrock_rates,
+            &control_areas,
+        ),
+        &mut budgets,
+    );
+
+    assert!(changed);
+    assert_eq!(network.river_mesh_ends, [Some(2), Some(2), Some(2)]);
+    assert!(network.river_hands_off_to_sea(2));
+    assert!(network.waterfalls.iter().all(|waterfalls| waterfalls[1]));
+    assert!(
+        network
+            .rivers
+            .iter()
+            .all(|river| river.nodes[2].surface < 0.0)
+    );
+    assert!(mesh.vertices[2].z < 0.0);
+    assert!(mesh.vertices[6].z < 0.0);
+    assert!(mesh.vertices[9].z < 0.0);
+    assert!(budgets.iter().all(|budget| budget.carried > 0.0));
+}
+
+#[test]
+fn tributary_keeps_its_water_when_it_joins_before_the_receiver_mouth() {
+    let node = |vertex, surface| RiverNode {
+        vertex,
+        flow: 10,
+        surface,
+        position: Vec3::new(vertex as f32, 0.0, surface),
+    };
+    let network = RiverNetwork {
+        rivers: vec![
+            River {
+                nodes: vec![node(0, 0.4), node(1, 0.2), node(2, -0.01), node(3, -0.02)],
+                join: None,
+            },
+            River {
+                nodes: vec![node(4, 0.5), node(5, 0.2), node(6, 0.1)],
+                join: Some(0),
+            },
+        ],
+        join_vertices: vec![None, Some(1)],
+        waterfalls: vec![vec![false; 4], vec![false; 3]],
+        river_mesh_ends: vec![Some(2), None],
+        max_flow: 10,
+        max_height: 1.0,
+        ocean: vec![false, false, false, true, false, false, false],
+        perimeter: vec![false; 7],
+        cross_sections: vec![
+            vec![RiverCrossSection::default(); 4],
+            vec![RiverCrossSection::default(); 3],
+        ],
+    };
+
+    assert!(!network.river_hands_off_to_sea(1));
+}
+
+#[test]
 fn lower_sibling_tributary_sets_the_shared_confluence_level() {
     let node = |vertex, surface| RiverNode {
         vertex,

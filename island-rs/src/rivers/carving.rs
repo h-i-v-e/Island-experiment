@@ -939,7 +939,7 @@ pub(super) fn carve_submerged_river_mouth(
     max_height: f32,
     cross_sections: &[RiverCrossSection],
     budget: &mut RiverSedimentBudget,
-) {
+) -> bool {
     let mouth_depth = (max_height * 0.0025).max(0.000_02);
     let first_submerged_surface = -mouth_depth.max(SEA_PLANE_CLEARANCE * 2.0);
     let submerged_nodes = nodes.len() - mouth.river_mesh_end;
@@ -949,9 +949,14 @@ pub(super) fn carve_submerged_river_mouth(
     }
     waterfalls[mouth.river_mesh_end..].fill(false);
 
+    let mut changed = false;
     for (offset, node) in nodes[mouth.river_mesh_end..].iter_mut().enumerate() {
         let progress = offset as f32 / span;
-        node.surface = first_submerged_surface - mouth_depth * 0.5 * progress;
+        let target_surface = first_submerged_surface - mouth_depth * 0.5 * progress;
+        if node.surface > target_surface + f32::EPSILON {
+            node.surface = target_surface;
+            changed = true;
+        }
         let node_index = mouth.river_mesh_end + offset;
         let channel_depth = cross_sections
             .get(node_index)
@@ -960,8 +965,10 @@ pub(super) fn carve_submerged_river_mouth(
             });
         let target_bed = node.surface - channel_depth;
         let depth = (terrain.mesh.vertices[node.vertex].z - target_bed).max(0.0);
+        changed |= depth > f32::EPSILON;
         terrain.lower_vertex_exactly(node.vertex, depth, budget);
     }
+    changed
 }
 
 #[derive(Clone, Copy, Debug)]
