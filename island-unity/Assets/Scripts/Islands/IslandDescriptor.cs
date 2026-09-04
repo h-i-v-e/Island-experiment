@@ -10,7 +10,6 @@ internal readonly struct IslandDescriptor : IEquatable<IslandDescriptor>
     internal double LogicalXMetres { get; }
     internal double LogicalZMetres { get; }
     internal int Seed { get; }
-    internal float RotationDegrees { get; }
     internal float EstimatedBoundingRadiusMetres { get; }
     internal int GeneratorSchemaVersion { get; }
 
@@ -20,7 +19,6 @@ internal readonly struct IslandDescriptor : IEquatable<IslandDescriptor>
         double logicalXMetres,
         double logicalZMetres,
         int seed,
-        float rotationDegrees,
         float estimatedBoundingRadiusMetres,
         int generatorSchemaVersion)
     {
@@ -32,8 +30,6 @@ internal readonly struct IslandDescriptor : IEquatable<IslandDescriptor>
             || double.IsInfinity(logicalXMetres)
             || double.IsNaN(logicalZMetres)
             || double.IsInfinity(logicalZMetres)
-            || float.IsNaN(rotationDegrees)
-            || float.IsInfinity(rotationDegrees)
             || float.IsNaN(estimatedBoundingRadiusMetres)
             || float.IsInfinity(estimatedBoundingRadiusMetres)
             || estimatedBoundingRadiusMetres <= 0f)
@@ -47,7 +43,6 @@ internal readonly struct IslandDescriptor : IEquatable<IslandDescriptor>
         LogicalXMetres = logicalXMetres;
         LogicalZMetres = logicalZMetres;
         Seed = seed;
-        RotationDegrees = rotationDegrees;
         EstimatedBoundingRadiusMetres = estimatedBoundingRadiusMetres;
         GeneratorSchemaVersion = generatorSchemaVersion;
     }
@@ -64,7 +59,6 @@ internal readonly struct IslandDescriptor : IEquatable<IslandDescriptor>
             anchor.position.x,
             anchor.position.z,
             seed,
-            anchor.eulerAngles.y,
             worldSizeMetres * 0.5f,
             CurrentGeneratorSchemaVersion);
     }
@@ -81,7 +75,6 @@ internal readonly struct IslandDescriptor : IEquatable<IslandDescriptor>
             generator.transform.position.x,
             generator.transform.position.z,
             generator.Generation.Seed,
-            generator.transform.eulerAngles.y,
             generator.WorldSizeMetres * 0.5f,
             CurrentGeneratorSchemaVersion);
     }
@@ -131,18 +124,12 @@ internal readonly struct IslandDescriptor : IEquatable<IslandDescriptor>
         {
             islandSeed = 1;
         }
-        var rotation = HashUnitFloat(Hash(
-            worldSeed,
-            worldCell.x,
-            worldCell.y,
-            0x165667b1u)) * 360f;
         var descriptor = new IslandDescriptor(
             $"world-{worldSeed}-cell-{worldCell.x}-{worldCell.y}",
             worldCell,
             worldCell.x * (double)cellSizeMetres + jitterX,
             worldCell.y * (double)cellSizeMetres + jitterZ,
             islandSeed,
-            rotation,
             estimatedBoundingRadiusMetres,
             CurrentGeneratorSchemaVersion);
         return new ProceduralIslandCandidate(

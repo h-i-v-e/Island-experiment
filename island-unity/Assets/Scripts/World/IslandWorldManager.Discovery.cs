@@ -429,7 +429,7 @@ public sealed partial class IslandWorldManager
                 (float)entry.Descriptor.LogicalXMetres,
                 SeaLevelWorldY(),
                 (float)entry.Descriptor.LogicalZMetres),
-            Quaternion.Euler(0f, entry.Descriptor.RotationDegrees, 0f));
+            Quaternion.identity);
         var generator = islandObject.AddComponent<IslandGenerator>();
         JsonUtility.FromJsonOverwrite(generatorTemplateJson, generator);
         generator.Generation.Seed = entry.Descriptor.Seed;

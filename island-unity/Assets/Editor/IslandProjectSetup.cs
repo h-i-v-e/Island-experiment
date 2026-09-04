@@ -188,7 +188,6 @@ public static class IslandProjectSetup
             worldObject.transform,
             new Vector3(-2200f, 0f, 400f),
             666,
-            -12f,
             cameraObject.transform,
             sun,
             terrain,
@@ -203,7 +202,6 @@ public static class IslandProjectSetup
             worldObject.transform,
             new Vector3(0f, 0f, 700f),
             90210,
-            8f,
             cameraObject.transform,
             sun,
             terrain,
@@ -218,7 +216,6 @@ public static class IslandProjectSetup
             worldObject.transform,
             new Vector3(2200f, 0f, 200f),
             271828,
-            17f,
             cameraObject.transform,
             sun,
             terrain,
@@ -387,10 +384,13 @@ public static class IslandProjectSetup
         }
         foreach (var generator in generators)
         {
-            if (!generator.transform.IsChildOf(managers[0].transform))
+            if (!generator.transform.IsChildOf(managers[0].transform)
+                || Quaternion.Angle(
+                    generator.transform.rotation,
+                    Quaternion.identity) > 0.01f)
             {
                 throw new InvalidOperationException(
-                    "Every authored island must be parented below IslandWorldManager.");
+                    "Every authored island must be axis-aligned below IslandWorldManager.");
             }
         }
     }
@@ -400,7 +400,6 @@ public static class IslandProjectSetup
         Transform parent,
         Vector3 position,
         int seed,
-        float yawDegrees,
         Transform streamingTarget,
         Light sunlight,
         Material terrain,
@@ -415,7 +414,7 @@ public static class IslandProjectSetup
         islandObject.transform.SetParent(parent, false);
         islandObject.transform.SetPositionAndRotation(
             position,
-            Quaternion.Euler(0f, yawDegrees, 0f));
+            Quaternion.identity);
         var island = islandObject.AddComponent<IslandGenerator>();
         island.Generation.Seed = seed;
         island.ConfigureSceneReferences(

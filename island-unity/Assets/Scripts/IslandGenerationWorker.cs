@@ -79,7 +79,6 @@ internal static class IslandGenerationWorker
             0d,
             0d,
             seed,
-            0f,
             worldSize * 0.5f,
             1);
         return GenerateAsync(

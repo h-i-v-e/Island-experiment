@@ -421,15 +421,8 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
 
     private IslandGenerator SelectFocusedIsland(Vector3 worldPosition)
     {
-        var retainedRadius = detailFocusRadiusMetres + focusHysteresisMetres;
-        if (focusedIsland != null
-            && focusedIsland.HasRuntime
-            && HorizontalDistance(focusedIsland.transform.position, worldPosition)
-                <= retainedRadius)
-        {
-            return focusedIsland;
-        }
-
+        IslandGenerator containing = null;
+        var containingDistance = float.PositiveInfinity;
         IslandGenerator closest = null;
         var closestDistance = float.PositiveInfinity;
         foreach (var entry in managedIslands)
@@ -440,11 +433,35 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
                 continue;
             }
             var distance = HorizontalDistance(generator.transform.position, worldPosition);
+            if (ContainsXZ(generator, worldPosition)
+                && distance < containingDistance)
+            {
+                containing = generator;
+                containingDistance = distance;
+            }
             if (distance <= detailFocusRadiusMetres && distance < closestDistance)
             {
                 closest = generator;
                 closestDistance = distance;
             }
+        }
+
+        // A player standing over generated terrain must always route collision
+        // to that island. Centre-distance hysteresis is only appropriate over
+        // open sea; otherwise it can retain the previous island after the
+        // player has already reached the next one's terrain bounds.
+        if (containing != null)
+        {
+            return containing;
+        }
+
+        var retainedRadius = detailFocusRadiusMetres + focusHysteresisMetres;
+        if (focusedIsland != null
+            && focusedIsland.HasRuntime
+            && HorizontalDistance(focusedIsland.transform.position, worldPosition)
+                <= retainedRadius)
+        {
+            return focusedIsland;
         }
         return closest;
     }

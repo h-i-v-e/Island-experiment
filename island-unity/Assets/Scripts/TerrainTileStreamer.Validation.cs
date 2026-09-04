@@ -126,7 +126,7 @@ public sealed partial class TerrainTileStreamer
         colliderRoot.transform.SetParent(transform, false);
         try
         {
-            var firstCenter = new Vector2Int(10, 10);
+            var firstCenter = new Vector2Int(31, 32);
             UpdateColliderNeighborhood(firstCenter);
             if (colliderTiles.Count != 9
                 || !colliderTiles.TryGetValue(firstCenter, out var retainedCenter))
@@ -135,7 +135,7 @@ public sealed partial class TerrainTileStreamer
                     "The initial terrain-collider neighbourhood is incomplete.");
             }
 
-            var nextCenter = new Vector2Int(11, 10);
+            var nextCenter = new Vector2Int(32, 32);
             requestedLod1 = nextCenter;
             var transition = UpdateColliderNeighborhoodIncremental(nextCenter);
             while (transition.MoveNext())
@@ -158,10 +158,20 @@ public sealed partial class TerrainTileStreamer
                 -worldSize * 0.5f + (nextCenter.x + 0.5f) * tileSize,
                 0f,
                 -worldSize * 0.5f + (nextCenter.y + 0.5f) * tileSize);
-            if (!TrySnapToCurrentCollider(point, out _))
+            if (!TrySnapToCurrentCollider(point, out var hit))
             {
                 throw new InvalidOperationException(
                     "The transitioned terrain-collider neighbourhood cannot be raycast.");
+            }
+            var intervals = preparedHeightMap.samplesPerTile - 1;
+            var expectedHeight = preparedHeightMap.WorldHeightAt(
+                nextCenter.x * intervals + intervals / 2,
+                nextCenter.y * intervals + intervals / 2);
+            if (Mathf.Abs(hit.y - expectedHeight) > 0.02f)
+            {
+                throw new InvalidOperationException(
+                    $"Terrain collider height {hit.y:F3} does not match "
+                    + $"the source height {expectedHeight:F3}.");
             }
         }
         finally

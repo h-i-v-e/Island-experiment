@@ -292,7 +292,6 @@ public sealed class IslandRuntime : MonoBehaviour, IDisposable
                 1200d,
                 -600d,
                 11,
-                0f,
                 1000f,
                 1),
             firstParent.transform);
@@ -303,7 +302,6 @@ public sealed class IslandRuntime : MonoBehaviour, IDisposable
                 -900d,
                 1700d,
                 12,
-                0f,
                 1000f,
                 1),
             secondParent.transform);
