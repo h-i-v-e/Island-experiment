@@ -17,23 +17,40 @@ generation path.
 1. Double-click `Open Island Unity.command`. This bypasses a known local
    mismatch between Hub's Licensing Client 1.17.4 and the editor's 1.18.1
    protocol. macOS might ask you to confirm opening it the first time.
-2. Open `Assets/Scenes/IslandSandbox.unity`.
-3. Select the **Island** GameObject to inspect the labelled generation,
-   rendering, streaming, decoration, and debug settings.
-4. Press Play. **Generate On Start** creates the configured island on the CPU.
+2. Open `Assets/Scenes/IslandRuntimeSandbox.unity`.
+3. Select **Island World**. Its `GridIslandGenerationRequestFactory` owns the
+   configured origin island and all of its generation settings.
+4. Press Play. The world manager asks the factory for the origin cell and
+   creates its runtime `IslandGenerator` on demand.
 
 The project can also be opened normally from Hub after stale licensing clients
 have exited. Use the launcher if Hub reports that it cannot connect to the
 licensing service.
 
-To add an island to another level, create a GameObject, attach
-`IslandGenerator`, assign a player or camera Transform as **Streaming Target**,
-and optionally assign material templates and texture overrides. The component
-never creates a camera or light and never modifies the level's global render
-settings. An empty level therefore remains empty. Runtime materials are cloned
-per island before generated maps are assigned, so project assets are not
-mutated. Tree and plant prefab arrays are visible extension points for the
-upcoming vegetation phase; they are not spawned yet.
+To add an island world to another level, create one GameObject with an
+`IslandWorldManager` and a component implementing
+`IIslandGenerationRequestFactory`, then assign that component as the manager's
+request factory. The manager divides the world into 2 km XZ cells and supplies
+each query with a deterministic random seed and grid position. The factory is
+the only authority for island existence and configuration: it returns a
+complete `IslandGenerationRequest` for either a deliberately configured cell
+or a generated cell, and returns `null` for open sea. There is no second
+authored-island list, generator template, occupancy fallback, or pre-placed
+`IslandGenerator` path in the manager.
+
+`GridIslandGenerationRequestFactory` is the built-in implementation. Its fixed
+cell entries are suitable for deliberately placed islands, while its unlisted
+cell policy controls deterministic open-ocean population. Both paths produce
+the same request type and enter the same loading, generation, snapshot, and
+unloading lifecycle. For a custom world distribution, implement
+`IIslandGenerationRequestFactory` directly and construct each request from the
+configuration and parameters appropriate to that cell.
+
+Runtime `IslandGenerator` objects are implementation details created and
+destroyed by the manager. Each clones the settings and material templates in
+its request before generated maps are assigned, so project assets are not
+mutated. Global sea, sky, clouds, weather, and solar state remain owned by the
+world manager rather than any island.
 
 Generation builds the island, all three texture sets, the LOD1-clipped river
 tiles, and the 8x8 LOD 2 overview on a background worker. The existing island
@@ -54,25 +71,23 @@ the requirement at the configured maximum elevation, discouraging short coastal
 rivers without imposing a hard elevation cutoff. Drag to orbit, use the mouse
 wheel to zoom, and right-drag to pan.
 
-For an authored open-sea test, add an `IslandWorldManager` to a parent object
-and place two or three `IslandGenerator` objects beneath it at different XZ
-positions. If its authored list is empty, the manager discovers those child
-generators; otherwise the list controls their stable IDs, world cells, and
-start-generation policy. The first entry (or the explicit environment authority)
-owns the one global sky, sea, clouds, and solar clock. Islands generate serially,
-retain independent materials, coast masks, and native handles, become dormant
-outside the active radius, and can optionally unload beyond the unload radius.
-First-person flight and terrain snapping automatically route through the manager
-when one is present.
+For a deliberately arranged open-sea test, add fixed cell definitions to the
+request factory. They are not persistent scene generators: they simply make
+the factory return a request whenever the manager scans those cells. Islands
+generate serially, retain independent materials, coast masks, and native
+handles, become dormant outside the active radius, and unload beyond the
+unload radius. First-person flight and terrain snapping route through the
+manager.
 
-`Assets/Scenes/IslandsSandbox.unity` is the ready-made Phase 5 traversal test:
-it contains three independently seeded islands and starts the main camera in fly
-mode over open sea, facing the central island. Use WASD to fly, hold Shift for a
-2x flight boost, press V to toggle fly mode, and press Escape for the overview.
+`Assets/Scenes/OpenSeaWorld.unity` is the ready-made traversal test. Its factory
+always returns islands for three fixed cells, optionally populates other cells,
+and starts the main camera in fly mode over open sea facing the central island.
+Use WASD to fly, hold Shift for a 2x flight boost, press V to toggle fly mode,
+and press Escape for the overview.
 
-The scene also enables Phase 6 procedural ocean discovery. A deterministic
-world seed sparsely populates 5.2 km ocean cells beyond the three authored test
-islands. The overlay reports known, loaded, queued, and generating island
+The factory uses the world's deterministic seed to sparsely populate 2 km ocean
+cells beyond the three fixed test islands. The overlay reports known, loaded,
+queued, and generating island
 counts; keep flying into open sea to exercise look-ahead generation, unload,
 and deterministic return behavior. At most three island runtimes are resident;
 the least relevant non-focused island is released before another generation is

@@ -29,6 +29,16 @@ public static class IslandGeneratorValidation
         Debug.Log("IslandGenerator component, sandbox level, and native validation passed.");
     }
 
+    public static void BatchValidateIslandWorldArchitecture()
+    {
+        ValidateConfigurationAssetContract();
+        IslandWorldManager.ValidateRoutingPolicy();
+        IslandProjectSetup.ValidateMultiIslandSandbox();
+        ValidateSandboxScene();
+        Debug.Log(
+            "Factory-owned island requests, world routing, and replacement scenes passed validation.");
+    }
+
     private static void ValidateConfigurationAssetContract()
     {
         var configuration = ScriptableObject.CreateInstance<IslandConfiguration>();
@@ -669,14 +679,12 @@ public static class IslandGeneratorValidation
         {
             throw new InvalidOperationException("The island sandbox scene could not be opened.");
         }
-        var islands = UnityEngine.Object.FindObjectsByType<IslandGenerator>(
-            FindObjectsInactive.Include);
-        if (islands.Length != 1
-            || islands[0].Rendering.GrassWindDirection.sqrMagnitude < 1.0e-4f
-            || islands[0].Rendering.GrassWindStrengthMetres <= 0f
-            || islands[0].Rendering.GrassWindSpeedMetresPerSecond <= 0f
-            || islands[0].Rendering.GrassWindGustSizeMetres <= 0f
-            || islands[0].Rendering.GrassWindNormalStrength <= 0f)
+        var rendering = RequireSandboxRequest().Rendering;
+        if (rendering.GrassWindDirection.sqrMagnitude < 1.0e-4f
+            || rendering.GrassWindStrengthMetres <= 0f
+            || rendering.GrassWindSpeedMetresPerSecond <= 0f
+            || rendering.GrassWindGustSizeMetres <= 0f
+            || rendering.GrassWindNormalStrength <= 0f)
         {
             throw new InvalidOperationException(
                 "The sandbox grass wind settings are missing or disabled.");
@@ -721,6 +729,25 @@ public static class IslandGeneratorValidation
         Debug.Log("Near and far grass wind-normal controls passed validation.");
     }
 
+    private static IslandGenerationRequest RequireSandboxRequest()
+    {
+        var managers = UnityEngine.Object.FindObjectsByType<IslandWorldManager>(
+            FindObjectsInactive.Include);
+        var factories =
+            UnityEngine.Object.FindObjectsByType<GridIslandGenerationRequestFactory>(
+                FindObjectsInactive.Include);
+        if (managers.Length != 1 || factories.Length != 1)
+        {
+            throw new InvalidOperationException(
+                "The sandbox must contain one world manager and one grid request factory.");
+        }
+        var cell = Vector2Int.zero;
+        var seed = managers[0].WorldSeed;
+        return factories[0].CreateIslandGenerationRequest(seed, cell)
+            ?? throw new InvalidOperationException(
+                "The sandbox request factory leaves its origin cell as open sea.");
+    }
+
     private static void ValidateSandboxScene()
     {
         var scene = EditorSceneManager.OpenScene(SandboxScenePath);
@@ -728,15 +755,20 @@ public static class IslandGeneratorValidation
         {
             throw new InvalidOperationException("The island sandbox scene could not be opened.");
         }
+        var managers = UnityEngine.Object.FindObjectsByType<IslandWorldManager>(
+            FindObjectsInactive.Include);
+        var factories =
+            UnityEngine.Object.FindObjectsByType<GridIslandGenerationRequestFactory>(
+                FindObjectsInactive.Include);
         var islands = UnityEngine.Object.FindObjectsByType<IslandGenerator>(
             FindObjectsInactive.Include);
-        if (islands.Length != 1)
+        if (managers.Length != 1 || factories.Length != 1 || islands.Length != 0)
         {
             throw new InvalidOperationException(
-                $"The sandbox scene must contain exactly one IslandGenerator; found {islands.Length}.");
+                "The sandbox scene must contain one world manager, one request factory, and no pre-placed IslandGenerator.");
         }
-        var island = islands[0];
-        if (island.DebugSettings.ToggleFrameRateKey == KeyCode.None)
+        var request = RequireSandboxRequest();
+        if (request.DebugSettings.ToggleFrameRateKey == KeyCode.None)
         {
             throw new InvalidOperationException(
                 "The sandbox frame-rate display has no Play Mode toggle key.");
@@ -748,10 +780,15 @@ public static class IslandGeneratorValidation
             throw new InvalidOperationException(
                 $"The sandbox scene must contain one runtime debug HUD; found {demoControllers.Length}.");
         }
-        if (island.Streaming.Target == null)
+        var managerState = new SerializedObject(managers[0]);
+        if (managerState.FindProperty("streamingTarget").objectReferenceValue == null
+            || managerState.FindProperty("islandGenerationRequestFactoryComponent")
+                .objectReferenceValue != factories[0]
+            || factories[0].FixedIslandCount != 1
+            || factories[0].GeneratesUnlistedCells)
         {
             throw new InvalidOperationException(
-                "The sandbox IslandGenerator has no streaming target.");
+                "The sandbox manager is not configured for its single factory-owned island cell.");
         }
         var sunlight = RenderSettings.sun;
         if (sunlight == null
@@ -761,40 +798,40 @@ public static class IslandGeneratorValidation
             throw new InvalidOperationException(
                 "The sandbox directional sunlight does not have soft shadows enabled.");
         }
-        if (island.Rendering.SunCycleDurationMinutes <= 0.25f
-            || island.Rendering.MidnightToNoonClockRateRatio < 1f
-            || Mathf.Abs(island.Rendering.SunLatitudeDegrees) < 0.01f
-            || island.Rendering.MiddaySunIntensity <= 0f
-            || island.Rendering.MoonEquatorOffsetDegrees <= 0f
-            || island.Rendering.FullMoonLightIntensity <= 0f)
+        if (request.Rendering.SunCycleDurationMinutes <= 0.25f
+            || request.Rendering.MidnightToNoonClockRateRatio < 1f
+            || Mathf.Abs(request.Rendering.SunLatitudeDegrees) < 0.01f
+            || request.Rendering.MiddaySunIntensity <= 0f
+            || request.Rendering.MoonEquatorOffsetDegrees <= 0f
+            || request.Rendering.FullMoonLightIntensity <= 0f)
         {
             throw new InvalidOperationException(
                 "The sandbox solar or lunar cycle settings are invalid.");
         }
-        if (!island.Rendering.ShowDistanceHaze
-            || island.Rendering.DistanceHazeDensity <= 0f)
+        if (!request.Rendering.ShowDistanceHaze
+            || request.Rendering.DistanceHazeDensity <= 0f)
         {
             throw new InvalidOperationException(
                 "The sandbox first-person distance haze is missing or has invalid density.");
         }
-        ValidateFirstPersonDistanceHaze(island);
-        if (island.Rendering.TerrainMaterial == null
-            || island.Rendering.GrassMaterial == null
-            || island.Rendering.RiverMaterial == null
-            || island.Rendering.SeaMaterial == null
-            || island.Rendering.RockMaterial == null
-            || island.Rendering.TreeWoodMaterial == null)
+        ValidateFirstPersonDistanceHaze(factories[0].DefaultConfiguration);
+        if (request.Rendering.TerrainMaterial == null
+            || request.Rendering.GrassMaterial == null
+            || request.Rendering.RiverMaterial == null
+            || request.Rendering.SeaMaterial == null
+            || request.Rendering.RockMaterial == null
+            || request.Rendering.TreeWoodMaterial == null)
         {
             throw new InvalidOperationException(
                 "The sandbox IslandGenerator is missing a default material template.");
         }
-        if (island.Rendering.RiverMaterial.shader.name != "Motu/River Water"
-            || island.Rendering.SeaMaterial.shader.name != "Motu/Sea Water")
+        if (request.Rendering.RiverMaterial.shader.name != "Motu/River Water"
+            || request.Rendering.SeaMaterial.shader.name != "Motu/Sea Water")
         {
             throw new InvalidOperationException(
                 "The sandbox river and sea materials do not use their dedicated shaders.");
         }
-        var treeWood = island.Rendering.TreeWoodMaterial;
+        var treeWood = request.Rendering.TreeWoodMaterial;
         if (treeWood.shader.name != "Motu/Tree Wood"
             || treeWood.GetTexture("_BarkAlbedoMap") == null
             || treeWood.GetTexture("_BarkHeightMap") == null
@@ -806,8 +843,8 @@ public static class IslandGeneratorValidation
         }
         ValidateRealTimeAmbientOcclusion();
         ValidatePlanarWaterReflections();
-        if (island.Decorations.TreePrefabs == null
-            || island.Decorations.PlantPrefabs == null)
+        if (request.Decorations.TreePrefabs == null
+            || request.Decorations.PlantPrefabs == null)
         {
             throw new InvalidOperationException(
                 "The sandbox decoration asset libraries are not serialized.");
@@ -819,24 +856,9 @@ public static class IslandGeneratorValidation
             throw new InvalidOperationException(
                 "The island sandbox scene is not enabled in Build Settings.");
         }
-
-        var originalPosition = island.transform.position;
-        var originalRotation = island.transform.rotation;
-        island.transform.SetPositionAndRotation(
-            new Vector3(120f, 15f, -80f),
-            Quaternion.Euler(0f, 37f, 0f));
-        var local = new Vector3(31f, 7f, -19f);
-        var roundTrip = island.transform.InverseTransformPoint(
-            island.transform.TransformPoint(local));
-        island.transform.SetPositionAndRotation(originalPosition, originalRotation);
-        if ((roundTrip - local).sqrMagnitude > 1.0e-6f)
-        {
-            throw new InvalidOperationException(
-                "Island local/world transform conversion failed validation.");
-        }
     }
 
-    private static void ValidateFirstPersonDistanceHaze(IslandGenerator island)
+    private static void ValidateFirstPersonDistanceHaze(IslandConfiguration configuration)
     {
         var setFirstPerson = typeof(IslandGenerator).GetMethod(
             "SetFirstPersonViewActive",
@@ -847,6 +869,10 @@ public static class IslandGeneratorValidation
                 "The IslandGenerator has no first-person haze mode boundary.");
         }
 
+        var islandObject = new GameObject("Island haze validation");
+        islandObject.SetActive(false);
+        var island = islandObject.AddComponent<IslandGenerator>();
+        island.Configure(configuration);
         var originalFog = RenderSettings.fog;
         var originalMode = RenderSettings.fogMode;
         var originalColour = RenderSettings.fogColor;
@@ -879,6 +905,7 @@ public static class IslandGeneratorValidation
             RenderSettings.fogMode = originalMode;
             RenderSettings.fogColor = originalColour;
             RenderSettings.fogDensity = originalDensity;
+            UnityEngine.Object.DestroyImmediate(islandObject);
         }
     }
 
@@ -907,18 +934,18 @@ public static class IslandGeneratorValidation
     {
         var reflections = UnityEngine.Object.FindObjectsByType<PlanarWaterReflection>(
             FindObjectsInactive.Include);
-        var islands = UnityEngine.Object.FindObjectsByType<IslandGenerator>(
+        var managers = UnityEngine.Object.FindObjectsByType<IslandWorldManager>(
             FindObjectsInactive.Include);
         if (reflections.Length != 1
             || !reflections[0].enabled
             || reflections[0].GetComponent<Camera>() == null
             || !reflections[0].UseSimplifiedShader
             || reflections[0].SimplifiedReflectionShader == null
-            || islands.Length != 1
-            || reflections[0].ReflectionPlane != islands[0].transform)
+            || managers.Length != 1
+            || reflections[0].ReflectionPlane != managers[0].transform)
         {
             throw new InvalidOperationException(
-                "The sandbox camera must have one enabled planar reflection component linked to the island plane.");
+                "The sandbox camera must have one enabled planar reflection component linked to the world sea plane.");
         }
         if (LayerMask.NameToLayer("Water") < 0)
         {

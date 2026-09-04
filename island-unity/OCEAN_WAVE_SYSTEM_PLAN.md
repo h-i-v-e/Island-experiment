@@ -583,7 +583,7 @@ The wave feature is ready when:
 
 ## Current Test Sequence
 
-1. Open `Assets/Scenes/OceanWaveSandbox.unity` to tune the four vertical wave
+1. Open `Assets/Scenes/OceanRuntimeSandbox.unity` to tune the four vertical wave
    components without waiting for island generation.
 2. Confirm the graded mesh is visually continuous while flying across anchor
    snaps and viewing it from sea level and high altitude.

@@ -7,6 +7,14 @@ public sealed class IslandGenerationRequest
     public Vector2Int IslandGridPosition => Descriptor.WorldCell;
     public string IslandId => Descriptor.IslandId;
     public float WorldSizeMetres { get; }
+    public IslandGenerationSettings Generation => Profile?.Generation;
+    public IslandRiverSettings Rivers => Profile?.Rivers;
+    public IslandForestSettings Forest => Profile?.Forest;
+    public IslandReedSettings Reeds => Profile?.Reeds;
+    public IslandFernSettings Ferns => Profile?.Ferns;
+    public IslandRenderingSettings Rendering => Profile?.Rendering;
+    public IslandDecorationSettings Decorations => Profile?.Decorations;
+    public IslandDebugSettings DebugSettings => Profile?.DebugSettings;
 
     internal IslandDescriptor Descriptor { get; }
     internal MotuNative.Options Options { get; }
@@ -27,15 +35,26 @@ public sealed class IslandGenerationRequest
         : this(
             randomSeed,
             islandGridPosition,
-            Require(configuration).Generation,
-            configuration.Rivers,
-            configuration.Forest,
-            configuration.Reeds,
-            configuration.Ferns,
-            configuration.Rendering,
-            configuration.Decorations,
-            configuration.DebugSettings,
+            configuration,
+            null,
             stableId)
+    {
+    }
+
+    public IslandGenerationRequest(
+        int randomSeed,
+        Vector2Int islandGridPosition,
+        IslandConfiguration configuration,
+        IslandParameterVariationSettings parameterVariation,
+        string stableId = null)
+        : this(
+            IslandDescriptor.Request(
+                randomSeed,
+                islandGridPosition,
+                IslandWorldManager.IslandCellSizeMetres,
+                Require(configuration).Generation.WorldSizeMetres,
+                stableId),
+            CreateProfile(configuration, randomSeed, parameterVariation))
     {
     }
 
@@ -107,16 +126,25 @@ public sealed class IslandGenerationRequest
         IslandRenderingSettings rendering,
         IslandDecorationSettings decorations,
         IslandDebugSettings debugSettings)
+        : this(
+            descriptor,
+            new IslandGenerationProfile(
+                generation,
+                rivers,
+                forest,
+                reeds,
+                ferns,
+                rendering,
+                decorations,
+                debugSettings))
     {
-        Profile = new IslandGenerationProfile(
-            generation,
-            rivers,
-            forest,
-            reeds,
-            ferns,
-            rendering,
-            decorations,
-            debugSettings);
+    }
+
+    private IslandGenerationRequest(
+        IslandDescriptor descriptor,
+        IslandGenerationProfile profile)
+    {
+        Profile = profile.Clone();
         Profile.Generation.Seed = descriptor.Seed;
 
         Descriptor = descriptor;
@@ -185,6 +213,19 @@ public sealed class IslandGenerationRequest
 
     private static IslandConfiguration Require(IslandConfiguration value) =>
         value != null ? value : throw new ArgumentNullException(nameof(value));
+
+    private static IslandGenerationProfile CreateProfile(
+        IslandConfiguration configuration,
+        int randomSeed,
+        IslandParameterVariationSettings parameterVariation)
+    {
+        var profile = IslandGenerationProfile.FromConfiguration(Require(configuration));
+        profile.Generation.Seed = randomSeed;
+        profile.Generation.ApplyDeterministicVariation(
+            randomSeed,
+            parameterVariation);
+        return profile;
+    }
 
     private static T Require<T>(T value, string parameterName) where T : class =>
         value ?? throw new ArgumentNullException(parameterName);

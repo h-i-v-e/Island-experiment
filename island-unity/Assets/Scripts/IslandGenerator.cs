@@ -481,22 +481,6 @@ public sealed partial class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
         activeProfile = profile.Clone();
     }
 
-    internal void ApplyIslandProfile(
-        int islandSeed,
-        IslandParameterVariationSettings variation)
-    {
-        if (generationLifecycle.IsGenerating || islandRuntime != null)
-        {
-            throw new InvalidOperationException(
-                "Island parameters must be selected before generation starts.");
-        }
-        activeProfile = Profile.Clone();
-        activeProfile.Generation.Seed = islandSeed;
-        activeProfile.Generation.ApplyDeterministicVariation(
-            islandSeed,
-            variation);
-    }
-
     public void Configure(
         IslandConfiguration islandConfiguration,
         Transform streamingTarget = null)

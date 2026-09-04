@@ -37,7 +37,7 @@ RenderSettings:
   m_ReflectionBounces: 1
   m_ReflectionIntensity: 1
   m_CustomReflection: {fileID: 0}
-  m_Sun: {fileID: 1081580724}
+  m_Sun: {fileID: 1859268747}
   m_UseRadianceAmbientProbe: 0
 --- !u!157 &3
 LightmapSettings:
@@ -119,7 +119,7 @@ NavMeshSettings:
     debug:
       m_Flags: 0
   m_NavMeshData: {fileID: 0}
---- !u!1 &1081580723
+--- !u!1 &1202688734
 GameObject:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -127,8 +127,73 @@ GameObject:
   m_PrefabAsset: {fileID: 0}
   serializedVersion: 6
   m_Component:
-  - component: {fileID: 1081580725}
-  - component: {fileID: 1081580724}
+  - component: {fileID: 1202688737}
+  - component: {fileID: 1202688736}
+  - component: {fileID: 1202688735}
+  m_Layer: 0
+  m_Name: Ocean Wave Test Environment
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1202688735
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1202688734}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 26c942114bf5464eb71dc7527ef038f9, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::OceanWaveSandboxController
+  profile: {fileID: 11400000, guid: 904c303795957457da652489a9ea9800, type: 2}
+  seaMaterialTemplate: {fileID: 2100000, guid: f7e64c96dada84bf1bae7f46e0e94f50, type: 2}
+  followTarget: {fileID: 2098554326}
+  oceanDiameterMetres: 20000
+  anchorSnapMetres: 16
+  moveSpeedMetresPerSecond: 24
+  fastMoveMultiplier: 3
+  mouseSensitivity: 0.12
+--- !u!114 &1202688736
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1202688734}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: efd89b4f94a24a0ea597229653228e23, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::OceanSurfaceController
+--- !u!4 &1202688737
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1202688734}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &1859268746
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1859268748}
+  - component: {fileID: 1859268747}
   m_Layer: 0
   m_Name: Sun
   m_TagString: Untagged
@@ -136,13 +201,13 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!108 &1081580724
+--- !u!108 &1859268747
 Light:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1081580723}
+  m_GameObject: {fileID: 1859268746}
   m_Enabled: 1
   serializedVersion: 13
   m_Type: 1
@@ -201,13 +266,13 @@ Light:
   m_LightUnit: 1
   m_LuxAtDistance: 1
   m_EnableSpotReflector: 1
---- !u!4 &1081580725
+--- !u!4 &1859268748
 Transform:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1081580723}
+  m_GameObject: {fileID: 1859268746}
   serializedVersion: 2
   m_LocalRotation: {x: 0.3477229, y: -0.22585355, z: 0.08669706, w: 0.9058491}
   m_LocalPosition: {x: 0, y: 0, z: 0}
@@ -216,7 +281,7 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!1 &1447053643
+--- !u!1 &2098554322
 GameObject:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -224,75 +289,10 @@ GameObject:
   m_PrefabAsset: {fileID: 0}
   serializedVersion: 6
   m_Component:
-  - component: {fileID: 1447053646}
-  - component: {fileID: 1447053645}
-  - component: {fileID: 1447053644}
-  m_Layer: 0
-  m_Name: Ocean Wave Test Environment
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!114 &1447053644
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1447053643}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 26c942114bf5464eb71dc7527ef038f9, type: 3}
-  m_Name:
-  m_EditorClassIdentifier: Assembly-CSharp::OceanWaveSandboxController
-  profile: {fileID: 11400000, guid: 904c303795957457da652489a9ea9800, type: 2}
-  seaMaterialTemplate: {fileID: 2100000, guid: f7e64c96dada84bf1bae7f46e0e94f50, type: 2}
-  followTarget: {fileID: 1816623359}
-  oceanDiameterMetres: 20000
-  anchorSnapMetres: 16
-  moveSpeedMetresPerSecond: 24
-  fastMoveMultiplier: 3
-  mouseSensitivity: 0.12
---- !u!114 &1447053645
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1447053643}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: efd89b4f94a24a0ea597229653228e23, type: 3}
-  m_Name:
-  m_EditorClassIdentifier: Assembly-CSharp::OceanSurfaceController
---- !u!4 &1447053646
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1447053643}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!1 &1816623355
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 1816623359}
-  - component: {fileID: 1816623358}
-  - component: {fileID: 1816623357}
-  - component: {fileID: 1816623356}
+  - component: {fileID: 2098554326}
+  - component: {fileID: 2098554325}
+  - component: {fileID: 2098554324}
+  - component: {fileID: 2098554323}
   m_Layer: 0
   m_Name: Main Camera
   m_TagString: MainCamera
@@ -300,21 +300,21 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!81 &1816623356
+--- !u!81 &2098554323
 AudioListener:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1816623355}
+  m_GameObject: {fileID: 2098554322}
   m_Enabled: 1
---- !u!114 &1816623357
+--- !u!114 &2098554324
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1816623355}
+  m_GameObject: {fileID: 2098554322}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 9d60ab4e4fc443b5a2c6dc6c9f1fca01, type: 3}
@@ -329,13 +329,13 @@ MonoBehaviour:
   useSimplifiedShader: 1
   simplifiedReflectionShader: {fileID: 0}
   frameInterval: 2
---- !u!20 &1816623358
+--- !u!20 &2098554325
 Camera:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1816623355}
+  m_GameObject: {fileID: 2098554322}
   m_Enabled: 1
   serializedVersion: 2
   m_ClearFlags: 2
@@ -380,13 +380,13 @@ Camera:
   m_OcclusionCulling: 1
   m_StereoConvergence: 10
   m_StereoSeparation: 0.022
---- !u!4 &1816623359
+--- !u!4 &2098554326
 Transform:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1816623355}
+  m_GameObject: {fileID: 2098554322}
   serializedVersion: 2
   m_LocalRotation: {x: 0.06975647, y: 0, z: 0, w: 0.9975641}
   m_LocalPosition: {x: 0, y: 5, z: -12}
@@ -399,6 +399,6 @@ Transform:
 SceneRoots:
   m_ObjectHideFlags: 0
   m_Roots:
-  - {fileID: 1447053646}
-  - {fileID: 1081580725}
-  - {fileID: 1816623359}
+  - {fileID: 1202688737}
+  - {fileID: 1859268748}
+  - {fileID: 2098554326}

@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using UnityEngine;
-using UnityEngine.Serialization;
 
 [DefaultExecutionOrder(-1000)]
 [DisallowMultipleComponent]
@@ -10,46 +9,9 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
 {
     public const float IslandCellSizeMetres = 2000f;
 
-    [Serializable]
-    public sealed class AuthoredIsland
-    {
-        [SerializeField] private IslandGenerator generator;
-        [Tooltip("Stable save/discovery identity. The object name and seed are used when empty.")]
-        [SerializeField] private string stableId;
-        [SerializeField] private bool generateOnStart = true;
-
-        public IslandGenerator Generator => generator;
-        public bool GenerateOnStart => generateOnStart;
-
-        internal IslandDescriptor CreateDescriptor(Vector2Int worldCell)
-        {
-            if (generator == null)
-            {
-                throw new InvalidOperationException(
-                    "An authored island entry requires an IslandGenerator.");
-            }
-            var id = string.IsNullOrWhiteSpace(stableId)
-                ? $"authored-{generator.gameObject.name}-{generator.Generation.Seed}"
-                : stableId.Trim();
-            return IslandDescriptor.Authored(
-                id,
-                worldCell,
-                generator,
-                IslandCellSizeMetres);
-        }
-
-        internal static AuthoredIsland FromGenerator(IslandGenerator value)
-        {
-            return new AuthoredIsland { generator = value };
-        }
-    }
-
-    private sealed class ManagedIsland
+    private sealed class IslandRuntimeEntry
     {
         internal IslandDescriptor Descriptor { get; }
-        internal AuthoredIsland Authored { get; }
-        internal bool IsAuthored => Authored != null;
-        internal bool InitialGenerationPending { get; set; }
         internal IslandGenerator Generator { get; set; }
         internal IslandGenerationRequest GenerationRequest { get; }
         internal float RetryAfterTime { get; set; }
@@ -58,25 +20,18 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
         internal int GenerationToken { get; set; }
         internal CancellationTokenSource GenerationCancellation { get; set; }
 
-        internal ManagedIsland(
-            IslandDescriptor descriptor,
-            IslandGenerator generator,
-            AuthoredIsland authored,
-            IslandGenerationRequest generationRequest = null)
+        internal IslandRuntimeEntry(
+            IslandGenerationRequest generationRequest)
         {
-            Descriptor = descriptor;
-            Generator = generator;
-            Authored = authored;
-            GenerationRequest = generationRequest;
-            InitialGenerationPending = authored != null && authored.GenerateOnStart;
+            GenerationRequest = generationRequest
+                ?? throw new ArgumentNullException(nameof(generationRequest));
+            Descriptor = generationRequest.Descriptor;
         }
     }
 
-    [Header("Authored Islands")]
-    [SerializeField] private List<AuthoredIsland> islands = new List<AuthoredIsland>();
-    [Tooltip("Generator used only as the base parameter template for discovered islands. Defaults to the first authored island.")]
-    [FormerlySerializedAs("environmentAuthority")]
-    [SerializeField] private IslandGenerator islandTemplate;
+    [Header("Island Source")]
+    [Tooltip("Required component that decides whether each grid cell contains an island and returns its complete generation request.")]
+    [SerializeField] private MonoBehaviour islandGenerationRequestFactoryComponent;
 
     [Header("World Environment")]
     [Tooltip("Optional shared world environment asset. Inline values remain the scene fallback.")]
@@ -85,17 +40,8 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
         new WorldEnvironmentSettings();
     [SerializeField] private IslandCloudSettings worldClouds = new IslandCloudSettings();
 
-    [Header("Per-Island Variation")]
-    [Tooltip("Deterministic variation applied independently to every island's generation parameters.")]
-    [SerializeField] private IslandParameterVariationSettings islandParameterVariation =
-        new IslandParameterVariationSettings();
-    [Tooltip("Optional component implementing IIslandGenerationRequestFactory. When omitted, the manager derives requests from the island template as before.")]
-    [SerializeField] private MonoBehaviour islandGenerationRequestFactoryComponent;
-
-    [Header("Procedural Ocean Discovery")]
-    [SerializeField] private bool enableProceduralDiscovery = true;
+    [Header("World Grid Discovery")]
     [SerializeField] private int worldSeed = 8675309;
-    [Range(0f, 1f)] [SerializeField] private float islandCellOccupancy = 0.32f;
     [Min(1000f)] [SerializeField] private float discoveryRadiusMetres = 16000f;
     [Min(1000f)] [SerializeField] private float generationRadiusMetres = 10500f;
     [Min(0.05f)] [SerializeField] private float discoveryRefreshSeconds = 0.5f;
@@ -115,19 +61,17 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
     [Min(0f)] [SerializeField] private float activeHysteresisMetres = 500f;
     [Min(100f)] [SerializeField] private float unloadRadiusMetres = 12500f;
     [Range(1, 8)] [SerializeField] private int maximumLoadedIslandCount = 3;
-    [SerializeField] private bool unloadAuthoredBeyondRadius;
     [Min(1f)] [SerializeField] private float failedGenerationRetrySeconds = 15f;
 
-    private readonly Dictionary<Vector2Int, ManagedIsland> managedIslands =
-        new Dictionary<Vector2Int, ManagedIsland>();
+    private readonly Dictionary<Vector2Int, IslandRuntimeEntry> managedIslands =
+        new Dictionary<Vector2Int, IslandRuntimeEntry>();
     private readonly HashSet<Vector2Int> discoveryScanCells =
         new HashSet<Vector2Int>();
     private readonly List<Vector2Int> removalCells = new List<Vector2Int>();
     private CancellationTokenSource shutdown;
     private WorldEnvironmentController worldEnvironment;
-    private ManagedIsland currentGeneration;
+    private IslandRuntimeEntry currentGeneration;
     private IslandGenerator focusedIsland;
-    private string generatorTemplateJson;
     private bool queueRunning;
     private bool destroyed;
     private Vector3 lastQueryPosition;
@@ -151,22 +95,6 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
     public Vector2 LogicalPlayerPosition => new Vector2(
         lastQueryPosition.x,
         lastQueryPosition.z);
-    public int AuthoredIslandCount => islands.Count;
-    public int DiscoveredIslandCount
-    {
-        get
-        {
-            var count = 0;
-            foreach (var entry in managedIslands.Values)
-            {
-                if (!entry.IsAuthored)
-                {
-                    count++;
-                }
-            }
-            return count;
-        }
-    }
     public int KnownIslandCount => managedIslands.Count;
     public int LoadedIslandCount
     {
@@ -208,16 +136,19 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
             ? worldEnvironmentConfiguration.Clouds
             : worldClouds ??= new IslandCloudSettings();
 
-    public void ConfigureProceduralDiscovery(bool enabled, int seed)
+    public void ConfigureWorldSeed(int seed)
     {
-        enableProceduralDiscovery = enabled;
         worldSeed = seed;
-        unloadAuthoredBeyondRadius = enabled;
     }
 
-    public void ConfigureIslandTemplate(IslandGenerator template)
+    public void ConfigureIslandGenerationRequestFactory(MonoBehaviour factoryComponent)
     {
-        islandTemplate = template;
+        islandGenerationRequestFactoryComponent = factoryComponent;
+        islandGenerationRequestFactory = factoryComponent as IIslandGenerationRequestFactory
+            ?? throw new ArgumentException(
+                $"{factoryComponent?.GetType().Name ?? "null"} must implement "
+                + $"{nameof(IIslandGenerationRequestFactory)}.",
+                nameof(factoryComponent));
     }
 
     public void ConfigureWorldEnvironment(Light sunlight, Material seaMaterial)
@@ -229,15 +160,6 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
     {
         shutdown = new CancellationTokenSource();
         ResolveIslandGenerationRequestFactory();
-        DiscoverChildGeneratorsWhenUnconfigured();
-        ResolveIslandTemplate();
-        if (islandTemplate != null)
-        {
-            // Capture the unvaried profile. Every authored and discovered island
-            // derives independently from this same baseline.
-            generatorTemplateJson = JsonUtility.ToJson(islandTemplate);
-        }
-        ConfigureAuthoredGenerators();
         worldEnvironment = WorldEnvironmentController.FindOrCreate();
         worldEnvironment.Initialize(
             EnvironmentSettings,
@@ -250,10 +172,14 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
 
     private void ResolveIslandGenerationRequestFactory()
     {
-        if (islandGenerationRequestFactory != null
-            || islandGenerationRequestFactoryComponent == null)
+        if (islandGenerationRequestFactory != null)
         {
             return;
+        }
+        if (islandGenerationRequestFactoryComponent == null)
+        {
+            throw new InvalidOperationException(
+                $"IslandWorldManager requires an {nameof(IIslandGenerationRequestFactory)} component.");
         }
         islandGenerationRequestFactory =
             islandGenerationRequestFactoryComponent as IIslandGenerationRequestFactory;
@@ -262,17 +188,6 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
             throw new InvalidOperationException(
                 $"{islandGenerationRequestFactoryComponent.GetType().Name} must implement "
                 + $"{nameof(IIslandGenerationRequestFactory)}.");
-        }
-    }
-
-    private void Start()
-    {
-        foreach (var entry in managedIslands.Values)
-        {
-            if (entry.InitialGenerationPending)
-            {
-                QueueGeneration(entry);
-            }
         }
     }
 
@@ -287,8 +202,7 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
         UpdateTravelPrediction(target.position);
         lastQueryPosition = target.position;
         hasQueryPosition = true;
-        if (enableProceduralDiscovery
-            && Time.unscaledTime >= nextDiscoveryTime)
+        if (Time.unscaledTime >= nextDiscoveryTime)
         {
             nextDiscoveryTime = Time.unscaledTime + discoveryRefreshSeconds;
             RefreshDiscovery(lastQueryPosition, projectedGenerationPosition);
@@ -382,70 +296,6 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
         worldEnvironment?.SetFirstPersonViewActive(active);
     }
 
-    private void DiscoverChildGeneratorsWhenUnconfigured()
-    {
-        if (islands.Count != 0)
-        {
-            return;
-        }
-        foreach (var generator in GetComponentsInChildren<IslandGenerator>(true))
-        {
-            islands.Add(AuthoredIsland.FromGenerator(generator));
-        }
-    }
-
-    private void ResolveIslandTemplate()
-    {
-        if (islandTemplate != null)
-        {
-            return;
-        }
-        foreach (var entry in islands)
-        {
-            if (entry?.Generator != null)
-            {
-                islandTemplate = entry.Generator;
-                return;
-            }
-        }
-    }
-
-    private void ConfigureAuthoredGenerators()
-    {
-        if (islandTemplate == null)
-        {
-            Debug.LogWarning("IslandWorldManager has no authored IslandGenerator entries.", this);
-            return;
-        }
-
-        var ids = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var authored in islands)
-        {
-            var generator = authored?.Generator;
-            if (generator == null)
-            {
-                continue;
-            }
-            var worldCell = WorldToCell(generator.transform.position);
-            var descriptor = authored.CreateDescriptor(worldCell);
-            if (!ids.Add(descriptor.IslandId))
-            {
-                throw new InvalidOperationException(
-                    $"Duplicate authored island ID '{descriptor.IslandId}'.");
-            }
-            if (managedIslands.ContainsKey(worldCell))
-            {
-                throw new InvalidOperationException(
-                    $"Multiple authored islands occupy world cell {worldCell}.");
-            }
-            generator.ApplyIslandProfile(descriptor.Seed, islandParameterVariation);
-            generator.ConfigureWorldManagement();
-            generator.SetStreamingTarget(null);
-            var managed = new ManagedIsland(descriptor, generator, authored);
-            managedIslands.Add(worldCell, managed);
-        }
-    }
-
     private void UpdateResidencyAndFocus(Vector3 worldPosition)
     {
         foreach (var entry in managedIslands.Values)
@@ -456,8 +306,7 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
                 continue;
             }
             var distance = DistanceToDescriptor(entry.Descriptor, worldPosition);
-            var canUnload = !entry.IsAuthored || unloadAuthoredBeyondRadius;
-            if (canUnload && distance > EffectiveUnloadRadius())
+            if (distance > EffectiveUnloadRadius())
             {
                 if (focusedIsland == generator)
                 {
@@ -511,7 +360,7 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
         worldEnvironment?.SetFollowTarget(streamingTarget);
     }
 
-    private void DestroyDiscoveredGenerator(ManagedIsland entry)
+    private void DestroyGenerator(IslandRuntimeEntry entry)
     {
         var generator = entry.Generator;
         if (generator == null)
@@ -530,12 +379,8 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
         }
     }
 
-    private bool IsPreferredResident(ManagedIsland candidate)
+    private bool IsPreferredResident(IslandRuntimeEntry candidate)
     {
-        if (candidate.InitialGenerationPending)
-        {
-            return true;
-        }
         var availableSlots = ResidentIslandLimit;
         if (availableSlots <= 0)
         {
@@ -545,9 +390,7 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
         var betterCandidates = 0;
         foreach (var other in managedIslands.Values)
         {
-            if (other == candidate
-                || (!other.InitialGenerationPending
-                    && !IsInsideGenerationCorridor(other, 0f)))
+            if (other == candidate || !IsInsideGenerationCorridor(other, 0f))
             {
                 continue;
             }
@@ -560,7 +403,9 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
         return true;
     }
 
-    private int CompareGenerationPriority(ManagedIsland first, ManagedIsland second)
+    private int CompareGenerationPriority(
+        IslandRuntimeEntry first,
+        IslandRuntimeEntry second)
     {
         var comparison = GenerationPriority(first).CompareTo(
             GenerationPriority(second));
@@ -572,7 +417,7 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
     }
 
     private bool ReserveResidentCapacity(
-        ManagedIsland incoming,
+        IslandRuntimeEntry incoming,
         out bool releasedRuntime)
     {
         releasedRuntime = false;
@@ -585,7 +430,7 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
             return true;
         }
 
-        ManagedIsland eviction = null;
+        IslandRuntimeEntry eviction = null;
         foreach (var entry in managedIslands.Values)
         {
             if (entry == incoming
@@ -701,84 +546,81 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
                 "World positions do not map deterministically to 2 km island cells.");
         }
 
-        var firstOccupied = IslandDescriptor.TryCreateProcedural(
-            8128,
-            expectedCell,
-            IslandCellSizeMetres,
-            1f,
-            out var first);
-        var repeatedOccupied = IslandDescriptor.TryCreateProcedural(
-            8128,
-            expectedCell,
-            IslandCellSizeMetres,
-            1f,
-            out var repeated);
-        if (!firstOccupied
-            || !repeatedOccupied
-            || first.IslandId != repeated.IslandId
-            || first.Seed != repeated.Seed
-            || first.LogicalXMetres != expectedCentre.x
-            || first.LogicalZMetres != expectedCentre.z
-            || first.LogicalXMetres != repeated.LogicalXMetres
-            || first.LogicalZMetres != repeated.LogicalZMetres)
+        var firstSeed = IslandDescriptor.ProceduralSeed(8128, expectedCell);
+        var repeatedSeed = IslandDescriptor.ProceduralSeed(8128, expectedCell);
+        if (firstSeed != repeatedSeed)
         {
             throw new InvalidOperationException(
-                "Procedural island descriptors are not deterministic.");
+                "World cell seeds are not deterministic.");
         }
 
-        var sourceObject = new GameObject("Island generator template validation");
-        var cloneObject = new GameObject("Island generator clone validation");
-        var repeatObject = new GameObject("Island generator repeat validation");
-        sourceObject.SetActive(false);
-        cloneObject.SetActive(false);
-        repeatObject.SetActive(false);
+        var factoryObject = new GameObject("Island request factory validation");
         var configuration = ScriptableObject.CreateInstance<IslandConfiguration>();
         try
         {
-            configuration.Generation.Seed = 13579;
-            var source = sourceObject.AddComponent<IslandGenerator>();
-            source.Configure(configuration);
-            var clone = cloneObject.AddComponent<IslandGenerator>();
-            clone.Configure(configuration);
-            if (clone.Generation.Seed != source.Generation.Seed
-                || clone.WorldSizeMetres != source.WorldSizeMetres)
+            var factory = factoryObject.AddComponent<GridIslandGenerationRequestFactory>();
+            factory.Configure(configuration, false, 0f);
+            factory.SetFixedIslands(
+                new GridIslandGenerationRequestFactory.FixedIsland(
+                    expectedCell,
+                    configuration,
+                    "fixed-validation-island"));
+            var fixedRequest = factory.CreateIslandGenerationRequest(
+                firstSeed,
+                expectedCell);
+            if (fixedRequest == null
+                || fixedRequest.IslandId != "fixed-validation-island"
+                || fixedRequest.RandomSeed != firstSeed
+                || fixedRequest.IslandGridPosition != expectedCell
+                || factory.CreateIslandGenerationRequest(
+                    IslandDescriptor.ProceduralSeed(8128, Vector2Int.zero),
+                    Vector2Int.zero) != null)
             {
                 throw new InvalidOperationException(
-                    "Discovered island generators cannot reproduce the island template profile.");
+                    "Fixed cells and open-sea cells are not controlled by the request factory.");
             }
 
-            var variation = new IslandParameterVariationSettings();
-            clone.ApplyIslandProfile(24680, variation);
-            var repeatedGenerator = repeatObject.AddComponent<IslandGenerator>();
-            repeatedGenerator.Configure(configuration);
-            repeatedGenerator.ApplyIslandProfile(24680, variation);
-            source.ApplyIslandProfile(13579, variation);
-            if (!Mathf.Approximately(
-                    clone.Generation.MaximumHeightMetres,
-                    repeatedGenerator.Generation.MaximumHeightMetres)
-                || !Mathf.Approximately(
-                    clone.Generation.WaterRatio,
-                    repeatedGenerator.Generation.WaterRatio))
+            factory.Configure(configuration, true, 1f);
+            var managedCell = new Vector2Int(3, -4);
+            var managedSeed = IslandDescriptor.ProceduralSeed(8128, managedCell);
+            var firstManaged = factory.CreateIslandGenerationRequest(
+                managedSeed,
+                managedCell);
+            var repeatedManaged = factory.CreateIslandGenerationRequest(
+                managedSeed,
+                managedCell);
+            var otherManaged = factory.CreateIslandGenerationRequest(
+                IslandDescriptor.ProceduralSeed(9128, managedCell),
+                managedCell);
+            if (firstManaged == null || repeatedManaged == null || otherManaged == null)
             {
                 throw new InvalidOperationException(
-                    "Per-island parameter variation is not deterministic for a stable island seed.");
+                    "The request factory did not create configured managed islands.");
+            }
+            if (!Mathf.Approximately(
+                    firstManaged.Profile.Generation.MaximumHeightMetres,
+                    repeatedManaged.Profile.Generation.MaximumHeightMetres)
+                || !Mathf.Approximately(
+                    firstManaged.Profile.Generation.WaterRatio,
+                    repeatedManaged.Profile.Generation.WaterRatio))
+            {
+                throw new InvalidOperationException(
+                    "Factory-selected island variation is not deterministic.");
             }
             if (Mathf.Approximately(
-                    source.Generation.MaximumHeightMetres,
-                    clone.Generation.MaximumHeightMetres)
+                    firstManaged.Profile.Generation.MaximumHeightMetres,
+                    otherManaged.Profile.Generation.MaximumHeightMetres)
                 && Mathf.Approximately(
-                    source.Generation.WaterRatio,
-                    clone.Generation.WaterRatio))
+                    firstManaged.Profile.Generation.WaterRatio,
+                    otherManaged.Profile.Generation.WaterRatio))
             {
                 throw new InvalidOperationException(
-                    "Distinct island seeds did not produce distinct height or water-ratio profiles.");
+                    "The request factory did not vary distinct island seeds.");
             }
         }
         finally
         {
-            DestroyImmediate(sourceObject);
-            DestroyImmediate(cloneObject);
-            DestroyImmediate(repeatObject);
+            DestroyImmediate(factoryObject);
             DestroyImmediate(configuration);
         }
     }

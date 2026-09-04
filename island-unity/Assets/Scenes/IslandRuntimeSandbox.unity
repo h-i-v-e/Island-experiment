@@ -37,7 +37,7 @@ RenderSettings:
   m_ReflectionBounces: 1
   m_ReflectionIntensity: 1
   m_CustomReflection: {fileID: 0}
-  m_Sun: {fileID: 276278074}
+  m_Sun: {fileID: 1859268747}
   m_UseRadianceAmbientProbe: 0
 --- !u!157 &3
 LightmapSettings:
@@ -119,7 +119,7 @@ NavMeshSettings:
     debug:
       m_Flags: 0
   m_NavMeshData: {fileID: 0}
---- !u!1 &276278073
+--- !u!1 &1202688734
 GameObject:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -127,8 +127,142 @@ GameObject:
   m_PrefabAsset: {fileID: 0}
   serializedVersion: 6
   m_Component:
-  - component: {fileID: 276278075}
-  - component: {fileID: 276278074}
+  - component: {fileID: 1202688737}
+  - component: {fileID: 1202688735}
+  - component: {fileID: 1202688736}
+  m_Layer: 0
+  m_Name: Island World
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1202688735
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1202688734}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 5b14127292fc4ba78410989d8c93bbdf, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::IslandWorldManager
+  islandGenerationRequestFactoryComponent: {fileID: 1202688736}
+  worldEnvironmentConfiguration: {fileID: 0}
+  worldEnvironmentSettings:
+    zenithColour: {r: 0.49, g: 0.68, b: 0.82, a: 1}
+    distanceHazeColour: {r: 0.62, g: 0.6, b: 0.54, a: 1}
+    distanceHazeDensity: 0.00055
+    showDistanceHaze: 1
+    showSea: 1
+    seaLevelMetres: 0
+    seaMaterial: {fileID: 2100000, guid: f7e64c96dada84bf1bae7f46e0e94f50, type: 2}
+    seaNoise: {fileID: 0}
+    oceanWaveProfile: {fileID: 0}
+    sunlight: {fileID: 1859268747}
+    sunCycleDurationMinutes: 20
+    midnightToNoonClockRateRatio: 10
+    sunLatitudeDegrees: -36
+    startingSolarTimeHours: 8
+    middaySunIntensity: 1.25
+    moonEquatorOffsetDegrees: 22
+    startingMoonPhase: 0.5
+    fullMoonLightIntensity: 0.14
+    starDensity: 0.18
+    starBrightness: 1.35
+    starSize: 0.052
+  worldClouds:
+    enabled: 1
+    seed: 173
+    weatherMapResolution: 256
+    coverage: 0.48
+    density: 2.1
+    altitudeMetres: 650
+    verticalThicknessMetres: 280
+    worldSizeMetres: 2200
+    broadNoiseScale: 6
+    broadNoiseStrength: 0.65
+    detailStrength: 0.52
+    erosionStrength: 0.38
+    windDirection: {x: 1, y: 0.25}
+    windSpeedMetresPerSecond: 9
+    dayColour: {r: 0.92, g: 0.94, b: 0.96, a: 1}
+    sunsetColour: {r: 0.92, g: 0.48, b: 0.24, a: 1}
+    nightColour: {r: 0.035, g: 0.055, b: 0.1, a: 1}
+    shadowStrength: 0.72
+    ambientShadowStrength: 0.12
+    celestialObscurationStrength: 1
+    lowElevationShadowFade: 0.09
+  worldSeed: 666
+  discoveryRadiusMetres: 16000
+  generationRadiusMetres: 10500
+  discoveryRefreshSeconds: 0.5
+  velocityLookAheadSeconds: 24
+  maximumLookAheadMetres: 8000
+  forwardPriorityMultiplier: 0.65
+  cancellationHysteresisMetres: 1800
+  installationBudgetMilliseconds: 4
+  streamingTarget: {fileID: 2098554330}
+  activeRadiusMetres: 6000
+  activeHysteresisMetres: 500
+  unloadRadiusMetres: 12500
+  maximumLoadedIslandCount: 3
+  failedGenerationRetrySeconds: 15
+--- !u!114 &1202688736
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1202688734}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 294ce9ab06ad41f8ba46713ea6d29dcd, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::GridIslandGenerationRequestFactory
+  defaultConfiguration: {fileID: 11400000, guid: f40b693ae52a547acb8b4df039c63779, type: 2}
+  fixedIslands:
+  - gridPosition: {x: 0, y: 0}
+    configuration: {fileID: 11400000, guid: f40b693ae52a547acb8b4df039c63779, type: 2}
+    stableId: sandbox-origin
+  generateUnlistedCells: 0
+  unlistedCellOccupancy: 0
+  parameterVariation:
+    enabled: 1
+    maximumHeightVariation: 0.3
+    waterRatioVariation: 0.14
+    slopeVariation: 0.35
+    noiseFrequencyVariation: 0.4
+    noiseStrengthVariation: 0.3
+    landMassOffsetVariation: 0.35
+    erosionVariation: 0.3
+--- !u!4 &1202688737
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1202688734}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &1859268746
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1859268748}
+  - component: {fileID: 1859268747}
   m_Layer: 0
   m_Name: Sun
   m_TagString: Untagged
@@ -136,13 +270,13 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!108 &276278074
+--- !u!108 &1859268747
 Light:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 276278073}
+  m_GameObject: {fileID: 1859268746}
   m_Enabled: 1
   serializedVersion: 13
   m_Type: 1
@@ -201,13 +335,13 @@ Light:
   m_LightUnit: 1
   m_LuxAtDistance: 1
   m_EnableSpotReflector: 1
---- !u!4 &276278075
+--- !u!4 &1859268748
 Transform:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 276278073}
+  m_GameObject: {fileID: 1859268746}
   serializedVersion: 2
   m_LocalRotation: {x: 0.40305823, y: -0.27253202, z: 0.12708378, w: 0.8643611}
   m_LocalPosition: {x: 0, y: 0, z: 0}
@@ -216,7 +350,7 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!1 &889588522
+--- !u!1 &2098554322
 GameObject:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -224,83 +358,14 @@ GameObject:
   m_PrefabAsset: {fileID: 0}
   serializedVersion: 6
   m_Component:
-  - component: {fileID: 889588524}
-  - component: {fileID: 889588523}
-  m_Layer: 0
-  m_Name: Island
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!114 &889588523
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 889588522}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 494ce666a94ee4c6e9493874155d27be, type: 3}
-  m_Name:
-  m_EditorClassIdentifier: Assembly-CSharp::IslandGenerator
-  configuration: {fileID: 11400000, guid: f40b693ae52a547acb8b4df039c63779, type: 2}
-  streaming:
-    target: {fileID: 1360147091}
-  clouds:
-    enabled: 1
-    seed: 173
-    weatherMapResolution: 256
-    coverage: 0.48
-    density: 2.1
-    altitudeMetres: 650
-    verticalThicknessMetres: 280
-    worldSizeMetres: 2200
-    broadNoiseScale: 6
-    broadNoiseStrength: 0.65
-    detailStrength: 0.52
-    erosionStrength: 0.38
-    windDirection: {x: 1, y: 0.25}
-    windSpeedMetresPerSecond: 9
-    dayColour: {r: 0.92, g: 0.94, b: 0.96, a: 1}
-    sunsetColour: {r: 0.92, g: 0.48, b: 0.24, a: 1}
-    nightColour: {r: 0.035, g: 0.055, b: 0.1, a: 1}
-    shadowStrength: 0.72
-    ambientShadowStrength: 0.12
-    celestialObscurationStrength: 1
-    lowElevationShadowFade: 0.09
---- !u!4 &889588524
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 889588522}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 1816163735}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!1 &1360147083
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 1360147091}
-  - component: {fileID: 1360147090}
-  - component: {fileID: 1360147089}
-  - component: {fileID: 1360147088}
-  - component: {fileID: 1360147087}
-  - component: {fileID: 1360147086}
-  - component: {fileID: 1360147085}
-  - component: {fileID: 1360147084}
+  - component: {fileID: 2098554330}
+  - component: {fileID: 2098554329}
+  - component: {fileID: 2098554328}
+  - component: {fileID: 2098554327}
+  - component: {fileID: 2098554326}
+  - component: {fileID: 2098554325}
+  - component: {fileID: 2098554324}
+  - component: {fileID: 2098554323}
   m_Layer: 0
   m_Name: Main Camera
   m_TagString: MainCamera
@@ -308,33 +373,33 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!114 &1360147084
+--- !u!114 &2098554323
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1360147083}
+  m_GameObject: {fileID: 2098554322}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: e6652aa5064ad4ca29d5befd6a6808e3, type: 3}
   m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::IslandDemoController
-  island: {fileID: 889588523}
-  viewerCamera: {fileID: 1360147090}
-  orbitCamera: {fileID: 1360147086}
-  firstPersonController: {fileID: 1360147085}
+  worldManager: {fileID: 1202688735}
+  viewerCamera: {fileID: 2098554329}
+  orbitCamera: {fileID: 2098554325}
+  firstPersonController: {fileID: 2098554324}
   startInFlyMode: 0
   flyStartPosition: {x: 0, y: 4, z: -1800}
   flyStartYawDegrees: 0
   flyStartPitchDegrees: 0
---- !u!114 &1360147085
+--- !u!114 &2098554324
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1360147083}
+  m_GameObject: {fileID: 2098554322}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 2132f91b666942e2aca86f59828c11c9, type: 3}
@@ -344,33 +409,33 @@ MonoBehaviour:
   flyClearanceMetres: 4
   flySpeedMetresPerSecond: 24
   flyDescentSmoothTime: 0.18
---- !u!114 &1360147086
+--- !u!114 &2098554325
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1360147083}
+  m_GameObject: {fileID: 2098554322}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: b0d555b110ff048cfa172402b03dc05f, type: 3}
   m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::OrbitCamera
---- !u!81 &1360147087
+--- !u!81 &2098554326
 AudioListener:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1360147083}
+  m_GameObject: {fileID: 2098554322}
   m_Enabled: 1
---- !u!114 &1360147088
+--- !u!114 &2098554327
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1360147083}
+  m_GameObject: {fileID: 2098554322}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 1fb33a94a2d54312be5cc35a27c195c8, type: 3}
@@ -381,19 +446,19 @@ MonoBehaviour:
   intensity: 0.6
   radius: 1.5
   halfResolution: 1
---- !u!114 &1360147089
+--- !u!114 &2098554328
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1360147083}
+  m_GameObject: {fileID: 2098554322}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 9d60ab4e4fc443b5a2c6dc6c9f1fca01, type: 3}
   m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::PlanarWaterReflection
-  reflectionPlane: {fileID: 889588524}
+  reflectionPlane: {fileID: 1202688737}
   resolutionScale: 0.5
   clipPlaneOffset: 0.07
   reflectionLayers:
@@ -402,13 +467,13 @@ MonoBehaviour:
   useSimplifiedShader: 1
   simplifiedReflectionShader: {fileID: 4800000, guid: e1b5d68178aa4cfd8a4de84a2d74dbe7, type: 3}
   frameInterval: 2
---- !u!20 &1360147090
+--- !u!20 &2098554329
 Camera:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1360147083}
+  m_GameObject: {fileID: 2098554322}
   m_Enabled: 1
   serializedVersion: 2
   m_ClearFlags: 2
@@ -453,13 +518,13 @@ Camera:
   m_OcclusionCulling: 1
   m_StereoConvergence: 10
   m_StereoSeparation: 0.022
---- !u!4 &1360147091
+--- !u!4 &2098554330
 Transform:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1360147083}
+  m_GameObject: {fileID: 2098554322}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
@@ -468,130 +533,10 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!1 &1816163734
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 1816163735}
-  - component: {fileID: 1816163736}
-  m_Layer: 0
-  m_Name: Island World
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &1816163735
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1816163734}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children:
-  - {fileID: 889588524}
-  m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &1816163736
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1816163734}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 5b14127292fc4ba78410989d8c93bbdf, type: 3}
-  m_Name:
-  m_EditorClassIdentifier: Assembly-CSharp::IslandWorldManager
-  islands: []
-  islandTemplate: {fileID: 889588523}
-  worldEnvironmentConfiguration: {fileID: 0}
-  worldEnvironmentSettings:
-    zenithColour: {r: 0.49, g: 0.68, b: 0.82, a: 1}
-    distanceHazeColour: {r: 0.62, g: 0.6, b: 0.54, a: 1}
-    distanceHazeDensity: 0.00055
-    showDistanceHaze: 1
-    showSea: 1
-    seaLevelMetres: 0
-    seaMaterial: {fileID: 2100000, guid: f7e64c96dada84bf1bae7f46e0e94f50, type: 2}
-    seaNoise: {fileID: 0}
-    oceanWaveProfile: {fileID: 0}
-    sunlight: {fileID: 276278074}
-    sunCycleDurationMinutes: 20
-    midnightToNoonClockRateRatio: 10
-    sunLatitudeDegrees: -36
-    startingSolarTimeHours: 8
-    middaySunIntensity: 1.25
-    moonEquatorOffsetDegrees: 22
-    startingMoonPhase: 0.5
-    fullMoonLightIntensity: 0.14
-    starDensity: 0.18
-    starBrightness: 1.35
-    starSize: 0.052
-  worldClouds:
-    enabled: 1
-    seed: 173
-    weatherMapResolution: 256
-    coverage: 0.48
-    density: 2.1
-    altitudeMetres: 650
-    verticalThicknessMetres: 280
-    worldSizeMetres: 2200
-    broadNoiseScale: 6
-    broadNoiseStrength: 0.65
-    detailStrength: 0.52
-    erosionStrength: 0.38
-    windDirection: {x: 1, y: 0.25}
-    windSpeedMetresPerSecond: 9
-    dayColour: {r: 0.92, g: 0.94, b: 0.96, a: 1}
-    sunsetColour: {r: 0.92, g: 0.48, b: 0.24, a: 1}
-    nightColour: {r: 0.035, g: 0.055, b: 0.1, a: 1}
-    shadowStrength: 0.72
-    ambientShadowStrength: 0.12
-    celestialObscurationStrength: 1
-    lowElevationShadowFade: 0.09
-  islandParameterVariation:
-    enabled: 1
-    maximumHeightVariation: 0.3
-    waterRatioVariation: 0.14
-    slopeVariation: 0.35
-    noiseFrequencyVariation: 0.4
-    noiseStrengthVariation: 0.3
-    landMassOffsetVariation: 0.35
-    erosionVariation: 0.3
-  islandGenerationRequestFactoryComponent: {fileID: 0}
-  enableProceduralDiscovery: 0
-  worldSeed: 666
-  islandCellOccupancy: 0.32
-  discoveryRadiusMetres: 16000
-  generationRadiusMetres: 10500
-  discoveryRefreshSeconds: 0.5
-  velocityLookAheadSeconds: 24
-  maximumLookAheadMetres: 8000
-  forwardPriorityMultiplier: 0.65
-  cancellationHysteresisMetres: 1800
-  installationBudgetMilliseconds: 4
-  streamingTarget: {fileID: 1360147091}
-  activeRadiusMetres: 6000
-  activeHysteresisMetres: 500
-  unloadRadiusMetres: 12500
-  maximumLoadedIslandCount: 3
-  unloadAuthoredBeyondRadius: 0
-  failedGenerationRetrySeconds: 15
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0
   m_Roots:
-  - {fileID: 1816163735}
-  - {fileID: 276278075}
-  - {fileID: 1360147091}
+  - {fileID: 1202688737}
+  - {fileID: 1859268748}
+  - {fileID: 2098554330}

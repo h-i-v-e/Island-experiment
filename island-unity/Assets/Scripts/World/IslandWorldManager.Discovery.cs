@@ -34,19 +34,17 @@ public sealed partial class IslandWorldManager
         AddDiscoveryCells(projectedPosition);
         foreach (var cell in discoveryScanCells)
         {
-            if (managedIslands.ContainsKey(cell)
-                || !TryCreateDiscoveredIsland(
-                    cell,
-                    out var descriptor,
-                    out var request))
+            if (managedIslands.ContainsKey(cell))
             {
                 continue;
             }
-            var managed = new ManagedIsland(
-                descriptor,
-                null,
-                null,
-                request);
+
+            var request = CreateGenerationRequestForCell(cell);
+            if (request == null)
+            {
+                continue;
+            }
+            var managed = new IslandRuntimeEntry(request);
             managedIslands.Add(cell, managed);
         }
         PruneDistantDescriptors(currentPosition, projectedPosition);
@@ -73,34 +71,19 @@ public sealed partial class IslandWorldManager
         }
     }
 
-    private bool TryCreateDiscoveredIsland(
-        Vector2Int cell,
-        out IslandDescriptor descriptor,
-        out IslandGenerationRequest request)
+    private IslandGenerationRequest CreateGenerationRequestForCell(
+        Vector2Int cell)
     {
-        request = null;
-        if (IslandGenerationRequestFactory == null)
-        {
-            return IslandDescriptor.TryCreateProcedural(
-                worldSeed,
-                cell,
-                IslandCellSizeMetres,
-                islandCellOccupancy,
-                out descriptor);
-        }
-
         var randomSeed = IslandDescriptor.ProceduralSeed(worldSeed, cell);
-        request = IslandGenerationRequestFactory.CreateIslandGenerationRequest(
+        var request = IslandGenerationRequestFactory.CreateIslandGenerationRequest(
             randomSeed,
             cell);
         if (request == null)
         {
-            descriptor = default;
-            return false;
+            return null;
         }
         ValidateGenerationRequest(request, randomSeed, cell);
-        descriptor = request.Descriptor;
-        return true;
+        return request;
     }
 
     private void PruneDistantDescriptors(Vector3 current, Vector3 projected)
@@ -110,8 +93,7 @@ public sealed partial class IslandWorldManager
         foreach (var pair in managedIslands)
         {
             var entry = pair.Value;
-            if (entry.IsAuthored
-                || entry.Queued
+            if (entry.Queued
                 || entry.Generating
                 || (entry.Generator != null && entry.Generator.HasRuntime)
                 || DistanceToDescriptor(entry.Descriptor, current) <= retentionRadius
@@ -124,7 +106,7 @@ public sealed partial class IslandWorldManager
         foreach (var cell in removalCells)
         {
             var entry = managedIslands[cell];
-            DestroyDiscoveredGenerator(entry);
+            DestroyGenerator(entry);
             managedIslands.Remove(cell);
         }
     }
@@ -133,16 +115,15 @@ public sealed partial class IslandWorldManager
     {
         foreach (var entry in managedIslands.Values)
         {
-            if (entry.InitialGenerationPending
-                || (IsInsideGenerationCorridor(entry, 0f)
-                    && IsPreferredResident(entry)))
+            if (IsInsideGenerationCorridor(entry, 0f)
+                && IsPreferredResident(entry))
             {
                 QueueGeneration(entry);
             }
         }
     }
 
-    private void QueueGeneration(ManagedIsland entry)
+    private void QueueGeneration(IslandRuntimeEntry entry)
     {
         if (entry == null
             || entry.Queued
@@ -163,10 +144,6 @@ public sealed partial class IslandWorldManager
     {
         foreach (var entry in managedIslands.Values)
         {
-            if (entry.InitialGenerationPending)
-            {
-                continue;
-            }
             var remainsRelevant = IsInsideGenerationCorridor(
                     entry,
                     cancellationHysteresisMetres)
@@ -185,7 +162,7 @@ public sealed partial class IslandWorldManager
     }
 
     private bool IsInsideGenerationCorridor(
-        ManagedIsland entry,
+        IslandRuntimeEntry entry,
         float hysteresis)
     {
         var radius = generationRadiusMetres
@@ -245,28 +222,7 @@ public sealed partial class IslandWorldManager
                     continue;
                 }
 
-                IslandGenerationRequest request;
-                try
-                {
-                    request = CreateGenerationRequest(entry, generator);
-                }
-                catch (Exception error)
-                {
-                    Debug.LogException(error, this);
-                    entry.RetryAfterTime = Time.unscaledTime
-                        + failedGenerationRetrySeconds;
-                    continue;
-                }
-                if (request == null)
-                {
-                    entry.InitialGenerationPending = false;
-                    if (!entry.IsAuthored)
-                    {
-                        DestroyDiscoveredGenerator(entry);
-                    }
-                    managedIslands.Remove(entry.Descriptor.WorldCell);
-                    continue;
-                }
+                var request = entry.GenerationRequest;
 
                 var generationToken = ++entry.GenerationToken;
                 var cancellation = CancellationTokenSource.CreateLinkedTokenSource(
@@ -295,9 +251,7 @@ public sealed partial class IslandWorldManager
                 }
                 if (generated)
                 {
-                    entry.InitialGenerationPending = false;
-                    if (!entry.IsAuthored
-                        && !IsInsideGenerationCorridor(
+                    if (!IsInsideGenerationCorridor(
                             entry,
                             cancellationHysteresisMetres))
                     {
@@ -325,29 +279,6 @@ public sealed partial class IslandWorldManager
         }
     }
 
-    private IslandGenerationRequest CreateGenerationRequest(
-        ManagedIsland entry,
-        IslandGenerator generator)
-    {
-        if (entry.GenerationRequest != null)
-        {
-            return entry.GenerationRequest;
-        }
-        var request = IslandGenerationRequestFactory == null
-            ? generator.CreateGenerationRequest(entry.Descriptor)
-            : IslandGenerationRequestFactory.CreateIslandGenerationRequest(
-                entry.Descriptor.Seed,
-                entry.Descriptor.WorldCell);
-        if (request != null)
-        {
-            ValidateGenerationRequest(
-                request,
-                entry.Descriptor.Seed,
-                entry.Descriptor.WorldCell);
-        }
-        return request;
-    }
-
     private static void ValidateGenerationRequest(
         IslandGenerationRequest request,
         int expectedSeed,
@@ -362,9 +293,9 @@ public sealed partial class IslandWorldManager
         }
     }
 
-    private ManagedIsland SelectNextQueuedIsland()
+    private IslandRuntimeEntry SelectNextQueuedIsland()
     {
-        ManagedIsland selected = null;
+        IslandRuntimeEntry selected = null;
         var selectedPriority = float.PositiveInfinity;
         foreach (var entry in managedIslands.Values)
         {
@@ -382,37 +313,23 @@ public sealed partial class IslandWorldManager
         return selected;
     }
 
-    private float GenerationPriority(ManagedIsland entry)
+    private float GenerationPriority(IslandRuntimeEntry entry)
     {
         var currentDistance = DistanceToDescriptor(entry.Descriptor, lastQueryPosition);
         var forwardDistance = DistanceToDescriptor(
             entry.Descriptor,
             projectedGenerationPosition) * forwardPriorityMultiplier;
-        var priority = Mathf.Min(currentDistance, forwardDistance);
-        if (entry.InitialGenerationPending)
-        {
-            priority -= discoveryRadiusMetres * 2f;
-        }
-        return priority;
+        return Mathf.Min(currentDistance, forwardDistance);
     }
 
-    private IslandGenerator EnsureGenerator(ManagedIsland entry)
+    private IslandGenerator EnsureGenerator(IslandRuntimeEntry entry)
     {
         if (entry.Generator != null)
         {
             return entry.Generator;
         }
-        if (string.IsNullOrEmpty(generatorTemplateJson)
-            || islandTemplate == null)
-        {
-            Debug.LogError(
-                $"Cannot instantiate discovered island '{entry.Descriptor.IslandId}' without an island template.",
-                this);
-            return null;
-        }
-
         var islandObject = new GameObject(
-            $"Discovered Island {entry.Descriptor.WorldCell.x},{entry.Descriptor.WorldCell.y}");
+            $"Island {entry.Descriptor.WorldCell.x},{entry.Descriptor.WorldCell.y}");
         islandObject.SetActive(false);
         islandObject.transform.SetParent(transform, true);
         islandObject.transform.SetPositionAndRotation(
@@ -422,9 +339,7 @@ public sealed partial class IslandWorldManager
                 (float)entry.Descriptor.LogicalZMetres),
             Quaternion.identity);
         var generator = islandObject.AddComponent<IslandGenerator>();
-        JsonUtility.FromJsonOverwrite(generatorTemplateJson, generator);
-        generator.Configure(islandTemplate.Configuration);
-        generator.ApplyIslandProfile(entry.Descriptor.Seed, islandParameterVariation);
+        entry.GenerationRequest.ApplyProfileTo(generator);
         generator.ConfigureWorldManagement();
         generator.SetStreamingTarget(null);
         entry.Generator = generator;

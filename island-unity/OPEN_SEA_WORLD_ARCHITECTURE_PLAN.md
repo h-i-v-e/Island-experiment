@@ -14,7 +14,8 @@ Separate the global environment from an individual generated island so that:
   from a disk cache without running procedural generation again;
 - future voyages can discover and generate deterministic islands ahead of the
   player while the player remains free to move through the global ocean;
-- the current single-island scene remains usable throughout the migration.
+- a replacement single-island scene uses the same world/factory path as the
+  open-sea scene, without a legacy generator ownership mode.
 
 The first objective is an ownership refactor with visually identical output.
 Procedural world placement, long-distance coordinates, persistence, and
@@ -49,15 +50,19 @@ The first four deployable ownership milestones are now implemented:
 - global deep-ocean noise now has an environment lifetime separate from river
   noise, so disposing an island cannot invalidate the persistent ocean.
 
-The first five phases are complete. The Phase 5 implementation provides an
-ordered set of authored generators, serialized CPU generation, incremental
-main-thread installation, one explicit environment authority, focused
-terrain-query routing, and active/dormant/unload hysteresis. Phase 6 now adds
-deterministic sparse ocean-cell discovery, generated descriptors, velocity-aware
-request priority, obsolete-request cancellation, stale-result rejection, and a
-time-based main-thread installation budget. A hard resident-island budget now
-evicts the least relevant non-focused runtime before the next native generation
-can allocate, keeping native handles and per-island GPU/mesh memory bounded.
+The first six phases are complete. `IslandWorldManager` now delegates every
+grid cell to its required `IIslandGenerationRequestFactory`. The factory owns
+both deliberately configured and generated island definitions, returns a
+complete request for an island or `null` for open sea, and is the sole source
+of per-island settings. There is no manager-owned authored list, generator
+template, occupancy fallback, or pre-placed runtime generator. All accepted
+requests use the same serialized CPU-generation, incremental installation,
+focused terrain-query, active/dormant, unload, and snapshot lifecycle. Phase 6
+also provides velocity-aware request priority, obsolete-request cancellation,
+stale-result rejection, and a time-based main-thread installation budget. A
+hard resident-island budget evicts the least relevant non-focused runtime
+before the next native generation can allocate, keeping native handles and
+per-island GPU/mesh memory bounded.
 Its remaining gates are extended play-mode travel, turn-away cancellation,
 unload, return, and determinism testing. Phase 6.5 is now in progress: Rust can
 atomically save and directly restore a versioned, compressed, checksummed full
@@ -590,8 +595,8 @@ existing visual issue.
 3. Create the sky enclosure and sea once under `OpenSeaWorldRoot`.
 4. Remove the sky dome from `IslandPreparedData` and island cleanup.
 5. Keep the environment stationary at the origin temporarily.
-6. Keep `IslandGenerator` as a compatibility facade that can locate/configure
-   the environment for the existing scene.
+6. Update the replacement scenes to reference the extracted world environment
+   directly; do not retain island-owned environment compatibility behavior.
 
 Acceptance:
 
@@ -646,7 +651,8 @@ Acceptance:
 3. Make preparation return only per-island data.
 4. Replace global island matrices with per-material or per-renderer values.
 5. Implement idempotent cancellation, partial-install cleanup, and disposal.
-6. Retain an origin-island compatibility wrapper for the current inspector.
+6. Drive the origin island through the same request-factory and runtime path as
+   every other cell.
 
 Acceptance:
 
@@ -655,17 +661,16 @@ Acceptance:
 - global environment state is unchanged;
 - a second runtime can coexist without material or transform contamination.
 
-### Phase 5: Prove multiple authored islands
+### Phase 5: Prove multiple deliberately configured islands
 
 The implementation is present in `Assets/Scripts/World/IslandWorldManager.cs`
-and the `IWorldSurfaceQuery` integration. Add the manager above two or three authored
-`IslandGenerator` children (or populate its list explicitly), place the
-generators at their desired world transforms, and keep the environment-authority
-entry first. The manager suppresses each generator's independent start path,
-generates the authority first and all other requested islands serially, and is
-the only object that assigns detailed terrain streaming focus.
+and the `IWorldSurfaceQuery` integration. Add two or three fixed cell entries
+to an `IIslandGenerationRequestFactory`. The manager creates runtime generators
+only after receiving requests, generates them serially, and is the only object
+that assigns detailed terrain streaming focus.
 
-1. Add `IslandWorldManager` with two or three authored descriptors.
+1. Add `IslandWorldManager` with a request factory that owns two or three fixed
+   cell definitions.
 2. Generate them serially in the background and install them incrementally on
    the main thread.
 3. Route terrain/detail queries to the correct runtime.
@@ -684,11 +689,11 @@ Acceptance:
 
 ### Phase 6: Add deterministic ocean-cell discovery and generation
 
-The initial implementation extends `IslandWorldManager` while retaining the
-authored-island list as a compatibility and environment-authority source. It
-keeps discovered cells descriptor-only until they enter the generation
-corridor, clones the authority's serialized generation profile only when a
-request is selected, and retains a single native generation worker.
+`IslandWorldManager` scans deterministic grid cells and asks its required
+factory about each one. The factory owns fixed definitions, population policy,
+and complete per-island parameters. A `null` response is open sea. A returned
+request remains data-only until it enters the generation corridor, and the
+manager retains a single native generation worker.
 
 1. Add deterministic `IslandDescriptor` construction from world seed/cell.
 2. Add sparse placement, jitter, separation checks, and generation profiles.
@@ -853,12 +858,12 @@ occlusion, and absence of bright halos.
   quotas preserve the configured minimum free disk space;
 - single-island performance does not regress materially after extraction.
 
-## Migration and Compatibility
+## Migration Policy
 
-- Keep the existing scene and serialized values working through a compatibility
-  facade while settings move out of `IslandGenerator`.
-- Use `FormerlySerializedAs` or an editor migration step for moved serialized
-  fields where Unity cannot preserve them automatically.
+- Replace obsolete scenes with factory-owned equivalents rather than retaining
+  parallel authored-generator and request-factory modes.
+- Remove obsolete serialized fields and compatibility APIs once the replacement
+  scenes have been regenerated and validated.
 - Do not change procedural defaults, palette generation, terrain channels,
   river geometry, or vegetation placement as part of the ownership refactor.
 - Preserve current native-plugin ABI unless a phase explicitly requires an FFI

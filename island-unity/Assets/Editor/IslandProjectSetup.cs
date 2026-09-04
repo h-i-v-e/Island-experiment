@@ -65,12 +65,7 @@ public static class IslandProjectSetup
 
         var worldObject = new GameObject("Island World");
         var worldManager = worldObject.AddComponent<IslandWorldManager>();
-        worldManager.ConfigureProceduralDiscovery(false, 666);
-
-        var islandObject = new GameObject("Island");
-        islandObject.SetActive(false);
-        islandObject.transform.SetParent(worldObject.transform, false);
-        var island = islandObject.AddComponent<IslandGenerator>();
+        var requestFactory = worldObject.AddComponent<GridIslandGenerationRequestFactory>();
 
         var sunObject = new GameObject("Sun");
         sunObject.transform.rotation = Quaternion.Euler(50f, -35f, 0f);
@@ -90,13 +85,13 @@ public static class IslandProjectSetup
         camera.nearClipPlane = 0.05f;
         camera.farClipPlane = 16000f;
         var waterReflection = cameraObject.AddComponent<PlanarWaterReflection>();
-        waterReflection.Configure(island.transform);
+        waterReflection.Configure(worldObject.transform);
         cameraObject.AddComponent<RealTimeAmbientOcclusion>();
         cameraObject.AddComponent<AudioListener>();
         var orbit = cameraObject.AddComponent<OrbitCamera>();
         var firstPerson = cameraObject.AddComponent<FirstPersonController>();
         var demo = cameraObject.AddComponent<IslandDemoController>();
-        demo.Configure(island, camera, orbit, firstPerson);
+        demo.Configure(worldManager, camera, orbit, firstPerson);
 
         var configuration = CreateOrUpdateIslandConfiguration(
             IslandConfigurationPath,
@@ -108,32 +103,26 @@ public static class IslandProjectSetup
             rock,
             treeWood,
             treeFoliage);
-        island.Configure(configuration, cameraObject.transform);
-        island.ConfigureSceneReferences(
-            cameraObject.transform,
-            terrain,
-            grass,
-            river,
-            sea,
-            rock,
-            treeWood,
-            treeFoliage);
-        worldManager.ConfigureIslandTemplate(island);
+        requestFactory.Configure(configuration, false, 0f);
+        requestFactory.SetFixedIslands(
+            new GridIslandGenerationRequestFactory.FixedIsland(
+                Vector2Int.zero,
+                configuration,
+                "sandbox-origin"));
+        worldManager.ConfigureIslandGenerationRequestFactory(requestFactory);
+        worldManager.ConfigureWorldSeed(666);
         worldManager.SetStreamingTarget(cameraObject.transform);
-        islandObject.SetActive(true);
 
         RenderSettings.ambientMode = AmbientMode.Flat;
         RenderSettings.ambientLight = new Color(0.42f, 0.46f, 0.52f);
         RenderSettings.fog = false;
         RenderSettings.fogMode = FogMode.ExponentialSquared;
-        RenderSettings.fogColor = island.Rendering.DistanceHazeColour;
-        RenderSettings.fogDensity = island.Rendering.DistanceHazeDensity;
+        RenderSettings.fogColor = configuration.Rendering.DistanceHazeColour;
+        RenderSettings.fogDensity = configuration.Rendering.DistanceHazeDensity;
         RenderSettings.sun = sun;
 
         EditorSceneManager.SaveScene(scene, ScenePath);
-        ReplaceSceneInBuildSettings(
-            "Assets/Scenes/IslandSandbox.unity",
-            ScenePath);
+        AddSceneToBuildSettings(ScenePath);
         EditorUtility.SetDirty(terrain);
         EditorUtility.SetDirty(grass);
         EditorUtility.SetDirty(river);
@@ -190,7 +179,7 @@ public static class IslandProjectSetup
 
         var worldObject = new GameObject("Open Sea World");
         var worldManager = worldObject.AddComponent<IslandWorldManager>();
-        worldManager.ConfigureProceduralDiscovery(true, 8675309);
+        var requestFactory = worldObject.AddComponent<GridIslandGenerationRequestFactory>();
 
         var sunObject = new GameObject("Sun");
         sunObject.transform.rotation = Quaternion.Euler(50f, -35f, 0f);
@@ -227,67 +216,39 @@ public static class IslandProjectSetup
         var firstPerson = cameraObject.AddComponent<FirstPersonController>();
         var demo = cameraObject.AddComponent<IslandDemoController>();
 
-        var authority = CreateAuthoredIsland(
-            "Island West (Template)",
-            worldObject.transform,
-            new Vector2Int(-1, 0),
-            666,
-            configuration,
-            cameraObject.transform,
-            terrain,
-            grass,
-            river,
-            sea,
-            rock,
-            treeWood,
-            treeFoliage);
-        worldManager.ConfigureIslandTemplate(authority);
-        CreateAuthoredIsland(
-            "Island Central",
-            worldObject.transform,
-            Vector2Int.zero,
-            90210,
-            configuration,
-            cameraObject.transform,
-            terrain,
-            grass,
-            river,
-            sea,
-            rock,
-            treeWood,
-            treeFoliage);
-        CreateAuthoredIsland(
-            "Island East",
-            worldObject.transform,
-            new Vector2Int(1, 0),
-            271828,
-            configuration,
-            cameraObject.transform,
-            terrain,
-            grass,
-            river,
-            sea,
-            rock,
-            treeWood,
-            treeFoliage);
+        requestFactory.Configure(configuration, true, 0.32f);
+        requestFactory.SetFixedIslands(
+            new GridIslandGenerationRequestFactory.FixedIsland(
+                new Vector2Int(-1, 0),
+                configuration,
+                "open-sea-west"),
+            new GridIslandGenerationRequestFactory.FixedIsland(
+                Vector2Int.zero,
+                configuration,
+                "open-sea-central"),
+            new GridIslandGenerationRequestFactory.FixedIsland(
+                new Vector2Int(1, 0),
+                configuration,
+                "open-sea-east"));
+        worldManager.ConfigureIslandGenerationRequestFactory(requestFactory);
+        worldManager.ConfigureWorldSeed(8675309);
+        worldManager.SetStreamingTarget(cameraObject.transform);
 
-        waterReflection.Configure(authority.transform);
-        demo.Configure(authority, camera, orbit, firstPerson);
+        waterReflection.Configure(worldObject.transform);
+        demo.Configure(worldManager, camera, orbit, firstPerson);
         demo.ConfigureFlyStart(true, new Vector3(0f, 4f, -1500f), 0f, 0f);
 
         RenderSettings.ambientMode = AmbientMode.Flat;
         RenderSettings.ambientLight = new Color(0.42f, 0.46f, 0.52f);
         RenderSettings.fog = false;
         RenderSettings.fogMode = FogMode.ExponentialSquared;
-        RenderSettings.fogColor = authority.Rendering.DistanceHazeColour;
-        RenderSettings.fogDensity = authority.Rendering.DistanceHazeDensity;
+        RenderSettings.fogColor = configuration.Rendering.DistanceHazeColour;
+        RenderSettings.fogDensity = configuration.Rendering.DistanceHazeDensity;
         RenderSettings.sun = sun;
 
         EditorSceneManager.SaveScene(scene, MultiIslandScenePath);
         ValidateMultiIslandSandbox();
-        ReplaceSceneInBuildSettings(
-            "Assets/Scenes/IslandsSandbox.unity",
-            MultiIslandScenePath);
+        AddSceneToBuildSettings(MultiIslandScenePath);
         EditorUtility.SetDirty(terrain);
         EditorUtility.SetDirty(grass);
         EditorUtility.SetDirty(river);
@@ -355,9 +316,7 @@ public static class IslandProjectSetup
         RenderSettings.sun = sun;
 
         EditorSceneManager.SaveScene(scene, OceanWaveScenePath);
-        ReplaceSceneInBuildSettings(
-            "Assets/Scenes/OceanWaveSandbox.unity",
-            OceanWaveScenePath);
+        AddSceneToBuildSettings(OceanWaveScenePath);
         EditorUtility.SetDirty(profile);
         EditorUtility.SetDirty(sea);
         AssetDatabase.SaveAssets();
@@ -397,6 +356,9 @@ public static class IslandProjectSetup
             OpenSceneMode.Single);
         var managers = UnityEngine.Object.FindObjectsByType<IslandWorldManager>(
             FindObjectsInactive.Include);
+        var requestFactories =
+            UnityEngine.Object.FindObjectsByType<GridIslandGenerationRequestFactory>(
+                FindObjectsInactive.Include);
         var generators = UnityEngine.Object.FindObjectsByType<IslandGenerator>(
             FindObjectsInactive.Include);
         var cameras = UnityEngine.Object.FindObjectsByType<Camera>(
@@ -405,14 +367,15 @@ public static class IslandProjectSetup
             FindObjectsInactive.Include);
         if (!scene.IsValid()
             || managers.Length != 1
-            || generators.Length != 3
+            || requestFactories.Length != 1
+            || generators.Length != 0
             || cameras.Length != 1
             || demos.Length != 1
             || cameras[0].GetComponent<FirstPersonController>() == null
             || cameras[0].GetComponent<OrbitCamera>() == null)
         {
             throw new InvalidOperationException(
-                "The multi-island sandbox must contain one manager, three generators, and one fly-capable camera.");
+                "The multi-island sandbox must contain one manager, one request factory, no pre-placed generators, and one fly-capable camera.");
         }
         var demoState = new SerializedObject(demos[0]);
         if (!demoState.FindProperty("startInFlyMode").boolValue)
@@ -422,14 +385,18 @@ public static class IslandProjectSetup
         }
         var managerState = new SerializedObject(managers[0]);
         var environmentSettings = managerState.FindProperty("worldEnvironmentSettings");
-        var variationSettings = managerState.FindProperty("islandParameterVariation");
-        if (managerState.FindProperty("islandTemplate").objectReferenceValue == null
+        var factoryState = new SerializedObject(requestFactories[0]);
+        var variationSettings = factoryState.FindProperty("parameterVariation");
+        if (managerState.FindProperty("islandGenerationRequestFactoryComponent")
+                .objectReferenceValue != requestFactories[0]
             || environmentSettings == null
             || environmentSettings.FindPropertyRelative("sunlight").objectReferenceValue == null
             || environmentSettings.FindPropertyRelative("seaMaterial").objectReferenceValue == null
             || variationSettings == null
             || !variationSettings.FindPropertyRelative("enabled").boolValue
-            || !managerState.FindProperty("enableProceduralDiscovery").boolValue
+            || factoryState.FindProperty("defaultConfiguration").objectReferenceValue == null
+            || factoryState.FindProperty("fixedIslands").arraySize != 3
+            || !factoryState.FindProperty("generateUnlistedCells").boolValue
             || managerState.FindProperty("generationRadiusMetres").floatValue
                 >= managerState.FindProperty("discoveryRadiusMetres").floatValue
             || managerState.FindProperty("unloadRadiusMetres").floatValue
@@ -437,64 +404,8 @@ public static class IslandProjectSetup
             || managerState.FindProperty("maximumLoadedIslandCount").intValue != 3)
         {
             throw new InvalidOperationException(
-                "The multi-island sandbox must enable procedural discovery with correctly ordered generation, unload, and discovery radii.");
+                "The multi-island sandbox factory must own its fixed and generated cells with correctly ordered generation, unload, and discovery radii.");
         }
-        foreach (var generator in generators)
-        {
-            var worldCell = IslandWorldManager.WorldToCell(
-                generator.transform.position);
-            var expectedPosition = IslandWorldManager.CellCentre(
-                worldCell,
-                generator.transform.position.y);
-            if (!generator.transform.IsChildOf(managers[0].transform)
-                || Quaternion.Angle(
-                    generator.transform.rotation,
-                    Quaternion.identity) > 0.01f
-                || Vector3.Distance(generator.transform.position, expectedPosition) > 0.01f
-                || Mathf.Abs(
-                    generator.WorldSizeMetres
-                    - IslandWorldManager.IslandCellSizeMetres) > 0.01f)
-            {
-                throw new InvalidOperationException(
-                    "Every authored island must be a 2 km, axis-aligned child "
-                    + "centred on its IslandWorldManager grid cell.");
-            }
-        }
-    }
-
-    private static IslandGenerator CreateAuthoredIsland(
-        string name,
-        Transform parent,
-        Vector2Int worldCell,
-        int seed,
-        IslandConfiguration configuration,
-        Transform streamingTarget,
-        Material terrain,
-        Material grass,
-        Material river,
-        Material sea,
-        Material rock,
-        Material treeWood,
-        Material treeFoliage)
-    {
-        var islandObject = new GameObject(name);
-        islandObject.transform.SetParent(parent, false);
-        islandObject.transform.SetPositionAndRotation(
-            IslandWorldManager.CellCentre(worldCell),
-            Quaternion.identity);
-        var island = islandObject.AddComponent<IslandGenerator>();
-        island.Configure(configuration, streamingTarget);
-        island.Generation.Seed = seed;
-        island.ConfigureSceneReferences(
-            streamingTarget,
-            terrain,
-            grass,
-            river,
-            sea,
-            rock,
-            treeWood,
-            treeFoliage);
-        return island;
     }
 
     private static IslandConfiguration CreateOrUpdateIslandConfiguration(
@@ -536,20 +447,6 @@ public static class IslandProjectSetup
             return;
         }
         scenes.Add(new EditorBuildSettingsScene(path, true));
-        EditorBuildSettings.scenes = scenes.ToArray();
-    }
-
-    private static void ReplaceSceneInBuildSettings(
-        string legacyPath,
-        string replacementPath)
-    {
-        var scenes = new System.Collections.Generic.List<EditorBuildSettingsScene>(
-            EditorBuildSettings.scenes);
-        scenes.RemoveAll(entry => entry.path == legacyPath);
-        if (!scenes.Exists(entry => entry.path == replacementPath))
-        {
-            scenes.Add(new EditorBuildSettingsScene(replacementPath, true));
-        }
         EditorBuildSettings.scenes = scenes.ToArray();
     }
 

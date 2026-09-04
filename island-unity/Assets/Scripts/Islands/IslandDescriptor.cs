@@ -63,29 +63,6 @@ internal readonly struct IslandDescriptor : IEquatable<IslandDescriptor>
             CurrentGeneratorSchemaVersion);
     }
 
-    internal static IslandDescriptor Authored(
-        string islandId,
-        Vector2Int worldCell,
-        IslandGenerator generator,
-        float cellSizeMetres)
-    {
-        if (generator == null) throw new ArgumentNullException(nameof(generator));
-        if (!IsFinitePositive(cellSizeMetres))
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(cellSizeMetres),
-                "Island cell size must be finite and positive.");
-        }
-        return new IslandDescriptor(
-            islandId,
-            worldCell,
-            worldCell.x * (double)cellSizeMetres,
-            worldCell.y * (double)cellSizeMetres,
-            generator.Generation.Seed,
-            generator.WorldSizeMetres * 0.5f,
-            CurrentGeneratorSchemaVersion);
-    }
-
     internal static IslandDescriptor Request(
         int seed,
         Vector2Int worldCell,
@@ -111,39 +88,6 @@ internal readonly struct IslandDescriptor : IEquatable<IslandDescriptor>
             seed,
             worldSizeMetres * 0.5f,
             CurrentGeneratorSchemaVersion);
-    }
-
-    internal static bool TryCreateProcedural(
-        int worldSeed,
-        Vector2Int worldCell,
-        float cellSizeMetres,
-        float occupancy,
-        out IslandDescriptor descriptor)
-    {
-        if (!IsFinitePositive(cellSizeMetres))
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(cellSizeMetres),
-                "Procedural island cell size must be finite and positive.");
-        }
-
-        var occupancyHash = Hash(worldSeed, worldCell.x, worldCell.y, 0x4f1bbcdcu);
-        if (HashUnitFloat(occupancyHash) >= Mathf.Clamp01(occupancy))
-        {
-            descriptor = default;
-            return false;
-        }
-
-        var islandSeed = ProceduralSeed(worldSeed, worldCell);
-        descriptor = new IslandDescriptor(
-            $"world-{worldSeed}-cell-{worldCell.x}-{worldCell.y}",
-            worldCell,
-            worldCell.x * (double)cellSizeMetres,
-            worldCell.y * (double)cellSizeMetres,
-            islandSeed,
-            cellSizeMetres * 0.5f,
-            CurrentGeneratorSchemaVersion);
-        return true;
     }
 
     internal static int ProceduralSeed(int worldSeed, Vector2Int worldCell)
@@ -173,9 +117,6 @@ internal readonly struct IslandDescriptor : IEquatable<IslandDescriptor>
             return value;
         }
     }
-
-    private static float HashUnitFloat(uint value) =>
-        (value & 0x00ffffffu) / 16777216f;
 
     private static bool IsFinitePositive(float value) =>
         !float.IsNaN(value) && !float.IsInfinity(value) && value > 0f;
