@@ -39,6 +39,10 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
     [SerializeField] private WorldEnvironmentSettings worldEnvironmentSettings =
         new WorldEnvironmentSettings();
     [SerializeField] private IslandCloudSettings worldClouds = new IslandCloudSettings();
+    [Tooltip("Optional scene component that updates all runtime wind and wave properties. Derive your script from WorldWeatherDriver.")]
+    [SerializeField] private WorldWeatherDriver weatherDriver;
+
+    private WorldWeatherState? pendingWeather;
 
     [Header("World Grid Discovery")]
     [Min(1000f)] [SerializeField] private float discoveryRadiusMetres = 16000f;
@@ -158,11 +162,38 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
         worldEnvironmentSettings.AssignSceneReferences(sunlight, seaMaterial);
     }
 
+    public WorldWeatherDriver WeatherDriver
+    {
+        get => weatherDriver;
+        set
+        {
+            weatherDriver = value;
+            if (worldEnvironment != null) worldEnvironment.WeatherDriver = value;
+        }
+    }
+
+    public WorldWeatherState Weather => worldEnvironment != null && worldEnvironment.IsInstalled
+        ? worldEnvironment.Weather
+        : pendingWeather ?? WorldWeatherState.FromEnvironment(EnvironmentSettings);
+
+    public void ApplyWeather(WorldWeatherState weather)
+    {
+        if (worldEnvironment != null && worldEnvironment.IsInstalled)
+        {
+            worldEnvironment.ApplyWeather(weather);
+        }
+        else
+        {
+            pendingWeather = weather.Validated();
+        }
+    }
+
     public void SetWind(Vector2 direction, float speedMetresPerSecond)
     {
-        EnvironmentSettings.WindDirection = direction;
-        EnvironmentSettings.WindSpeedMetresPerSecond = speedMetresPerSecond;
-        worldEnvironment?.SetWind(direction, speedMetresPerSecond);
+        var updated = Weather;
+        updated.WindDirection = direction;
+        updated.WindSpeedMetresPerSecond = speedMetresPerSecond;
+        ApplyWeather(updated);
     }
 
     public void SetVegetationWindResponse(
@@ -170,13 +201,11 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
         float gustSizeMetres,
         float normalStrength)
     {
-        EnvironmentSettings.VegetationWindStrengthMetres = strengthMetres;
-        EnvironmentSettings.WindGustSizeMetres = gustSizeMetres;
-        EnvironmentSettings.VegetationWindNormalStrength = normalStrength;
-        worldEnvironment?.SetVegetationWindResponse(
-            strengthMetres,
-            gustSizeMetres,
-            normalStrength);
+        var updated = Weather;
+        updated.VegetationWindStrengthMetres = strengthMetres;
+        updated.WindGustSizeMetres = gustSizeMetres;
+        updated.VegetationWindNormalStrength = normalStrength;
+        ApplyWeather(updated);
     }
 
     private void Awake()
@@ -190,6 +219,12 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
             IslandSizeMetres,
             IslandSizeMetres * 2.1f,
             ResolveStreamingTarget());
+        worldEnvironment.WeatherDriver = weatherDriver;
+        if (pendingWeather.HasValue)
+        {
+            worldEnvironment.ApplyWeather(pendingWeather.Value);
+            pendingWeather = null;
+        }
     }
 
     private void ResolveIslandGenerationRequestFactory()

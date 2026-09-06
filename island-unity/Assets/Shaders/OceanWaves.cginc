@@ -12,6 +12,19 @@ float4 _OceanWave1;
 float4 _OceanWave2;
 float4 _OceanWave3;
 float4 _OceanWaveSpeeds;
+// XY direction and Z wavelength are fixed during a transition; W is the
+// CPU-integrated phase in radians. Both normals and geometry use these banks.
+float4 _OceanWaveFrom0;
+float4 _OceanWaveFrom1;
+float4 _OceanWaveFrom2;
+float4 _OceanWaveFrom3;
+float4 _OceanWaveTo0;
+float4 _OceanWaveTo1;
+float4 _OceanWaveTo2;
+float4 _OceanWaveTo3;
+float _OceanWaveTransition;
+float _OnshoreWavePhase;
+float4 _OceanFoamTravel;
 float4 _OceanWaveChoppiness;
 float _GeometricWaves;
 float _WaveFadeStart;
@@ -43,26 +56,6 @@ float4 MotuOceanCoastalData(float2 worldPosition)
         _WaveAttenuationTex,
         float4(saturate(uv), 0.0, 0.0));
     return lerp(float4(1.0, 1.0, 1.0, 1.0), coastalData, inside);
-}
-
-float2 MotuOceanWindDirection()
-{
-    return MotuWindDirection();
-}
-
-float2 MotuOceanWeatherDirection(float2 authoredDirection)
-{
-    float2 authoredPrimary = normalize(
-        _OceanWave0.xy + float2(1.0e-6, 0.0));
-    float2 windDirection = MotuOceanWindDirection();
-    float cosine = dot(authoredPrimary, windDirection);
-    float sine = authoredPrimary.x * windDirection.y
-        - authoredPrimary.y * windDirection.x;
-    float2 direction = normalize(
-        authoredDirection + float2(1.0e-6, 0.0));
-    return float2(
-        direction.x * cosine - direction.y * sine,
-        direction.x * sine + direction.y * cosine);
 }
 
 float MotuOceanWaveAttenuation(float2 worldPosition)
@@ -209,8 +202,6 @@ void MotuAccumulateOnshoreWave(
     float amplitude = max(_OnshoreWaveParameters.y, 0.0)
         * max(influence, 0.0)
         * max(_MotuWeatherWind.w, 0.0);
-    float speed = max(_OnshoreWaveParameters.z, 0.0)
-        * max(_MotuWeatherWind.w, 0.0);
     float choppiness = saturate(_OnshoreWaveParameters.w);
     float waveNumber = 6.28318530718 / wavelength;
 
@@ -219,7 +210,7 @@ void MotuAccumulateOnshoreWave(
     // sixteen-metre band keeps the phase continuous as the direction bends
     // around bays and headlands. Positive time travels towards coordinate 0.
     float coastDistance = saturate(coastalCoordinate) * 16.0;
-    float phase = coastDistance * waveNumber + _Time.y * speed * waveNumber;
+    float phase = coastDistance * waveNumber + _OnshoreWavePhase;
     float waveSin;
     float waveCos;
     sincos(phase, waveSin, waveCos);
@@ -247,24 +238,22 @@ void MotuAccumulateOnshoreWave(
 }
 
 void MotuAccumulateOceanWave(
-    float4 wave,
-    float speed,
+    float4 pattern,
+    float baseAmplitude,
     float choppiness,
     float amplitudeScale,
     float2 worldPosition,
-    float time,
     inout float3 displacement,
     inout float2 heightDerivative)
 {
-    float2 direction = MotuOceanWeatherDirection(wave.xy);
-    float wavelength = max(wave.z, 0.25);
+    float2 direction = pattern.xy;
+    float wavelength = max(pattern.z, 0.25);
     float weatherScale = max(_MotuWeatherWind.w, 0.0);
-    float amplitude = max(wave.w, 0.0)
+    float amplitude = max(baseAmplitude, 0.0)
         * max(amplitudeScale, 0.0)
         * weatherScale;
     float waveNumber = 6.28318530718 / wavelength;
-    float phase = dot(direction, worldPosition) * waveNumber
-        + time * max(speed, 0.0) * weatherScale * waveNumber;
+    float phase = dot(direction, worldPosition) * waveNumber + pattern.w;
     float waveSin;
     float waveCos;
     sincos(phase, waveSin, waveCos);
@@ -277,6 +266,31 @@ void MotuAccumulateOceanWave(
     heightDerivative += direction
         * (amplitude * waveNumber
             * (waveCos + 2.0 * crestBias * waveSinDouble));
+}
+
+void MotuAccumulateOceanWaveTransition(
+    float4 outgoingPattern,
+    float4 incomingPattern,
+    float baseAmplitude,
+    float choppiness,
+    float amplitudeScale,
+    float2 worldPosition,
+    inout float3 displacement,
+    inout float2 heightDerivative)
+{
+    float blend = saturate(_OceanWaveTransition);
+    MotuAccumulateOceanWave(
+        outgoingPattern, baseAmplitude, choppiness,
+        amplitudeScale * (1.0 - blend), worldPosition,
+        displacement, heightDerivative);
+    [branch]
+    if (blend > 0.0)
+    {
+        MotuAccumulateOceanWave(
+            incomingPattern, baseAmplitude, choppiness,
+            amplitudeScale * blend, worldPosition,
+            displacement, heightDerivative);
+    }
 }
 
 float MotuOceanWaveAmplitudeScale(
@@ -336,40 +350,40 @@ void MotuEvaluateOceanWaveField(
             windAdvectedPosition, _OceanWave3.z, longestWavelength,
             float2(0.733, 0.281)));
 
-    MotuAccumulateOceanWave(
-        _OceanWave0,
-        _OceanWaveSpeeds.x,
+    MotuAccumulateOceanWaveTransition(
+        _OceanWaveFrom0,
+        _OceanWaveTo0,
+        _OceanWave0.w,
         _OceanWaveChoppiness.x,
         amplitudeScales.x,
         worldPosition + domainWarp,
-        _Time.y,
         displacement,
         heightDerivative);
-    MotuAccumulateOceanWave(
-        _OceanWave1,
-        _OceanWaveSpeeds.y,
+    MotuAccumulateOceanWaveTransition(
+        _OceanWaveFrom1,
+        _OceanWaveTo1,
+        _OceanWave1.w,
         _OceanWaveChoppiness.y,
         amplitudeScales.y,
         worldPosition + float2(-domainWarp.y, domainWarp.x) * 0.82,
-        _Time.y,
         displacement,
         heightDerivative);
-    MotuAccumulateOceanWave(
-        _OceanWave2,
-        _OceanWaveSpeeds.z,
+    MotuAccumulateOceanWaveTransition(
+        _OceanWaveFrom2,
+        _OceanWaveTo2,
+        _OceanWave2.w,
         _OceanWaveChoppiness.z,
         amplitudeScales.z,
         worldPosition - domainWarp * 0.61,
-        _Time.y,
         displacement,
         heightDerivative);
-    MotuAccumulateOceanWave(
-        _OceanWave3,
-        _OceanWaveSpeeds.w,
+    MotuAccumulateOceanWaveTransition(
+        _OceanWaveFrom3,
+        _OceanWaveTo3,
+        _OceanWave3.w,
         _OceanWaveChoppiness.w,
         amplitudeScales.w,
         worldPosition + float2(domainWarp.y, -domainWarp.x) * 1.13,
-        _Time.y,
         displacement,
         heightDerivative);
 
@@ -524,11 +538,7 @@ void MotuEvaluateOceanWaveNormal(
         slope);
 
     float noiseWorldSize = max(_WhitecapNoiseWorldSize, 0.5);
-    float2 primaryDirection = MotuOceanWeatherDirection(_OceanWave0.xy);
-    float2 foamTravel = primaryDirection
-        * (_Time.y
-            * max(_OceanWaveSpeeds.x, 0.0)
-            * max(_MotuWeatherWind.w, 0.0));
+    float2 foamTravel = _OceanFoamTravel.xy;
     float2 foamUv = (worldPosition - foamTravel) / noiseWorldSize;
     float foamNoiseA = tex2Dlod(
         _MotuWindNoise,
@@ -546,12 +556,7 @@ void MotuEvaluateOceanWaveNormal(
         broadFoamNoise);
 
     float fineNoiseScale = clamp(_WhitecapFineNoiseScale, 0.1, 1.0);
-    float counterflowSpeed = max(_WhitecapCounterflowSpeed, 0.0);
-    float2 fineTravel = -primaryDirection
-        * (_Time.y
-            * max(_OceanWaveSpeeds.x, 0.0)
-            * max(_MotuWeatherWind.w, 0.0)
-            * counterflowSpeed);
+    float2 fineTravel = _OceanFoamTravel.zw;
     float2 fineWorldPosition = worldPosition - fineTravel;
     float2 fineFoamUv = float2(
         fineWorldPosition.x * 0.819 - fineWorldPosition.y * 0.574,

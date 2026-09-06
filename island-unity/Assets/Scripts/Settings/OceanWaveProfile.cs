@@ -15,13 +15,40 @@ public struct OceanWaveComponent
     [Tooltip("Horizontal crest displacement. Keep this modest to avoid folded wave geometry.")]
     [Range(0f, 1f)] [SerializeField] private float choppiness;
 
-    public Vector2 Direction => direction.sqrMagnitude > 1.0e-6f
-        ? direction.normalized
-        : Vector2.right;
-    public float WavelengthMetres => Mathf.Max(wavelengthMetres, 0.25f);
-    public float AmplitudeMetres => Mathf.Max(amplitudeMetres, 0f);
-    public float SpeedMetresPerSecond => Mathf.Max(speedMetresPerSecond, 0f);
-    public float Choppiness => Mathf.Clamp01(choppiness);
+    public Vector2 Direction
+    {
+        get => direction.sqrMagnitude > 1.0e-6f ? direction.normalized : Vector2.right;
+        set => direction = value;
+    }
+    public float WavelengthMetres
+    {
+        get => Mathf.Max(wavelengthMetres, 0.25f);
+        set => wavelengthMetres = value;
+    }
+    public float AmplitudeMetres
+    {
+        get => Mathf.Max(amplitudeMetres, 0f);
+        set => amplitudeMetres = value;
+    }
+    public float SpeedMetresPerSecond
+    {
+        get => Mathf.Max(speedMetresPerSecond, 0f);
+        set => speedMetresPerSecond = value;
+    }
+    public float Choppiness
+    {
+        get => Mathf.Clamp01(choppiness);
+        set => choppiness = value;
+    }
+
+    internal void ValidateFinite(string name)
+    {
+        WeatherValueValidation.RequireFinite(direction, name);
+        WeatherValueValidation.RequireFinite(wavelengthMetres, name);
+        WeatherValueValidation.RequireFinite(amplitudeMetres, name);
+        WeatherValueValidation.RequireFinite(speedMetresPerSecond, name);
+        WeatherValueValidation.RequireFinite(choppiness, name);
+    }
 
     public OceanWaveComponent(
         Vector2 direction,
@@ -75,11 +102,13 @@ public readonly struct OceanWaveRuntimeSettings
     public readonly OceanWaveComponent Wave3;
 
     public float MaximumVerticalDisplacement =>
-        (Wave0.AmplitudeMetres
-            + Wave1.AmplitudeMetres
-            + Wave2.AmplitudeMetres
-            + Wave3.AmplitudeMetres
-            + (OnshoreWaveEnabled ? OnshoreWaveAmplitudeMetres : 0f))
+        (Wave0.AmplitudeMetres * (1f + 0.22f * Wave0.Choppiness)
+            + Wave1.AmplitudeMetres * (1f + 0.22f * Wave1.Choppiness)
+            + Wave2.AmplitudeMetres * (1f + 0.22f * Wave2.Choppiness)
+            + Wave3.AmplitudeMetres * (1f + 0.22f * Wave3.Choppiness)
+            + (OnshoreWaveEnabled
+                ? OnshoreWaveAmplitudeMetres * (1f + 0.22f * OnshoreWaveChoppiness)
+                : 0f))
         * (1f + AmplitudeVariation);
 
     public float MaximumHorizontalDisplacement =>
@@ -188,6 +217,82 @@ public readonly struct OceanWaveRuntimeSettings
         Wave1 = wave1;
         Wave2 = wave2;
         Wave3 = wave3;
+    }
+
+    public OceanWaveWeatherSettings Weather => new OceanWaveWeatherSettings
+    {
+        Enabled = Enabled,
+        DepthAllowancePower = DepthAllowancePower,
+        DistanceAllowancePower = DistanceAllowancePower,
+        NoiseWorldSizeMetres = NoiseWorldSizeMetres,
+        DomainWarpMetres = DomainWarpMetres,
+        AmplitudeVariation = AmplitudeVariation,
+        WhitecapColour = WhitecapColour,
+        WhitecapStrength = WhitecapStrength,
+        WhitecapHeightThreshold = WhitecapHeightThreshold,
+        WhitecapSlopeThreshold = WhitecapSlopeThreshold,
+        WhitecapCoverage = WhitecapCoverage,
+        WhitecapNoiseWorldSizeMetres = WhitecapNoiseWorldSizeMetres,
+        WhitecapFineNoiseScale = WhitecapFineNoiseScale,
+        WhitecapCounterflowSpeed = WhitecapCounterflowSpeed,
+        OnshoreWaveEnabled = OnshoreWaveEnabled,
+        OnshoreWaveWavelengthMetres = OnshoreWaveWavelengthMetres,
+        OnshoreWaveAmplitudeMetres = OnshoreWaveAmplitudeMetres,
+        OnshoreWaveSpeedMetresPerSecond = OnshoreWaveSpeedMetresPerSecond,
+        OnshoreWaveChoppiness = OnshoreWaveChoppiness,
+        OnshoreWaveLeadingEdgeSharpness = OnshoreWaveLeadingEdgeSharpness,
+        OnshoreWaveSharpeningDistanceMetres = OnshoreWaveSharpeningDistanceMetres,
+        Wave0 = Wave0,
+        Wave1 = Wave1,
+        Wave2 = Wave2,
+        Wave3 = Wave3,
+    };
+
+    // Weather updates retain the installed mesh, fade distances and mask layout.
+    public OceanWaveRuntimeSettings WithWeather(OceanWaveWeatherSettings weather)
+    {
+        weather.ValidateFinite();
+        var updated = new OceanWaveRuntimeSettings(
+            weather.Enabled,
+            FineVertexSpacingMetres,
+            FineRadiusMetres,
+            RingsPerSpacingLevel,
+            DisplacementFadeStartMetres,
+            DisplacementFadeEndMetres,
+            MaskCoverageMetres,
+            MaskResolution,
+            MaskAnchorSnapMetres,
+            weather.DepthAllowancePower,
+            weather.DistanceAllowancePower,
+            weather.NoiseWorldSizeMetres,
+            weather.DomainWarpMetres,
+            weather.AmplitudeVariation,
+            weather.WhitecapColour,
+            weather.WhitecapStrength,
+            weather.WhitecapHeightThreshold,
+            weather.WhitecapSlopeThreshold,
+            weather.WhitecapCoverage,
+            weather.WhitecapNoiseWorldSizeMetres,
+            weather.WhitecapFineNoiseScale,
+            weather.WhitecapCounterflowSpeed,
+            weather.OnshoreWaveEnabled,
+            weather.OnshoreWaveWavelengthMetres,
+            weather.OnshoreWaveAmplitudeMetres,
+            weather.OnshoreWaveSpeedMetresPerSecond,
+            weather.OnshoreWaveChoppiness,
+            weather.OnshoreWaveLeadingEdgeSharpness,
+            weather.OnshoreWaveSharpeningDistanceMetres,
+            weather.Wave0,
+            weather.Wave1,
+            weather.Wave2,
+            weather.Wave3);
+        // Include the maximum weather scale (2.5) and bounds size conversion.
+        // Finite inputs can still overflow when their displacements are added.
+        WeatherValueValidation.RequireFinite(
+            updated.MaximumVerticalDisplacement * 5f + 2f, nameof(weather));
+        WeatherValueValidation.RequireFinite(
+            updated.MaximumHorizontalDisplacement * 5f + 2f, nameof(weather));
+        return updated;
     }
 
     public static OceanWaveRuntimeSettings Default => new OceanWaveRuntimeSettings(

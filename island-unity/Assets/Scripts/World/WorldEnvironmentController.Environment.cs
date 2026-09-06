@@ -72,6 +72,7 @@ public sealed partial class WorldEnvironmentController
         environmentSettings = settings
             ?? throw new ArgumentNullException(nameof(settings));
         cloudSettings = clouds ?? throw new ArgumentNullException(nameof(clouds));
+        this.weather = WorldWeatherState.FromEnvironment(settings);
         environmentSeed = settings.Seed;
         sunlight = settings.Sunlight != null ? settings.Sunlight : RenderSettings.sun;
         SetFollowTarget(target);
@@ -206,12 +207,12 @@ public sealed partial class WorldEnvironmentController
         {
             return;
         }
-        var windDirection = environmentSettings.WindDirection;
+        var windDirection = weather.WindDirection;
         if (windDirection.sqrMagnitude > 0.000001f)
         {
             windDirection.Normalize();
             var travel = windDirection
-                * (environmentSettings.WindSpeedMetresPerSecond
+                * (weather.WindSpeedMetresPerSecond
                     * Mathf.Max(deltaTime, 0f));
             windTravelOffset += travel;
         }
@@ -351,18 +352,18 @@ public sealed partial class WorldEnvironmentController
             return;
         }
         var waveHeightScale = ApplyWeatherWindGlobals(
-            environmentSettings.WindDirection,
-            environmentSettings.WindSpeedMetresPerSecond,
-            environmentSettings.VegetationWindStrengthMetres,
-            environmentSettings.WindGustSizeMetres,
-            environmentSettings.VegetationWindNormalStrength,
-            environmentSettings.TreeWindStrengthMultiplier,
-            environmentSettings.TreeWindBasePinHeightMetres,
-            environmentSettings.TreeWindFullBendHeightMetres,
-            environmentSettings.ReedWindStrengthMultiplier,
-            environmentSettings.FernWindStrengthMultiplier);
+            weather.WindDirection,
+            weather.WindSpeedMetresPerSecond,
+            weather.VegetationWindStrengthMetres,
+            weather.WindGustSizeMetres,
+            weather.VegetationWindNormalStrength,
+            weather.TreeWindStrengthMultiplier,
+            weather.TreeWindBasePinHeightMetres,
+            weather.TreeWindFullBendHeightMetres,
+            weather.ReedWindStrengthMultiplier,
+            weather.FernWindStrengthMultiplier);
         ApplyWeatherWindOffset(windTravelOffset);
-        ocean?.ApplyWeatherWindScale(waveHeightScale);
+        ocean?.ApplyWeatherWind(weather.WindDirection, waveHeightScale);
     }
 
     private void UpdateSolarLighting(float deltaTime)

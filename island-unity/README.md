@@ -220,6 +220,71 @@ Runtime systems can update direction and speed immediately with
 `IslandWorldManager.SetWind(direction, speedMetresPerSecond)`; no island
 regeneration is required.
 
+To drive weather from a scene script, derive a component from
+`WorldWeatherDriver`, attach it to a GameObject, and assign that component to
+the **Weather Driver** field on `IslandWorldManager` (or
+`OceanWaveSandboxController` in the sea-only sandbox). The environment calls
+`UpdateWeather` on the main thread before applying the frame's wind and waves.
+The state starts from the scene's environment settings and ocean wave profile.
+Edits affect the runtime state without modifying those authored settings or
+profile assets. Disabled or unassigned drivers leave the last weather active.
+
+```csharp
+using UnityEngine;
+
+public sealed class MyWeather : WorldWeatherDriver
+{
+    private float elapsedSeconds;
+
+    public override void UpdateWeather(ref WorldWeatherState weather, float deltaTime)
+    {
+        elapsedSeconds += deltaTime;
+        float storm = 0.5f - 0.5f * Mathf.Cos(elapsedSeconds * 0.02f);
+        weather.WindDirection = new Vector2(1f, 0.25f);
+        weather.WindSpeedMetresPerSecond = Mathf.Lerp(5f, 24f, storm);
+        weather.WindGustSizeMetres = Mathf.Lerp(12f, 30f, storm);
+        weather.Waves.Wave0.AmplitudeMetres = Mathf.Lerp(0.2f, 0.8f, storm);
+        weather.Waves.AmplitudeVariation = Mathf.Lerp(0.25f, 0.7f, storm);
+        weather.Waves.WhitecapCoverage = Mathf.Lerp(0.2f, 0.8f, storm);
+    }
+}
+```
+
+`WorldWeatherState` exposes wind direction/speed, vegetation displacement and
+normal strength, gust size, tree/reed/fern response multipliers, and tree bend
+heights. Its `Waves` field exposes all four directional components (direction,
+wavelength, amplitude, speed and choppiness), wave noise, whitecap settings,
+onshore breaking, wave enable switches and coastal attenuation curves. Wave
+amplitudes and speeds are still authored at the reference wind speed of 9 m/s;
+the global wind response scales them in the shader. `deltaTime` is in unscaled
+seconds, matching the existing environment clock.
+
+For a one-off update from any script, copy `world.Weather`, edit the fields and
+call `world.ApplyWeather(weather)` on the main thread. The same API is available
+on `WorldEnvironmentController` and the ocean sandbox. Assign or replace a
+driver at runtime through `world.WeatherDriver`. An enabled driver runs each
+frame and may override fields changed by a one-off update.
+
+The scripting state does not expose mesh spacing, rings, radii, fade distances
+or mask resolution/layout. Weather changes reuse the installed mesh and
+coastal textures, updating culling bounds when wave heights change. Only edits
+to the coastal attenuation curves mark the mask for recomposition.
+
+Wind direction and directional-wave wavelength changes fade between two fixed
+wave patterns over four seconds. Requests made during a fade are picked up at
+the start of the next fade, so a continuously changing weather driver cannot
+rotate an already-visible pattern around the world origin. The same blend
+drives displacement and lighting normals. Wave speed changes advance the
+existing phase from that point onward instead of recalculating travel from
+the scene's total elapsed time. Shore-wave phase and foam travel also accumulate
+continuously. This animation advances once per frame using `Time.deltaTime`;
+the weather driver's clock continues to use unscaled time as described above.
+
+Runtime integration validation:
+`-executeMethod WorldWeatherValidation.BatchValidateRuntimeWeather`.
+GPU transition and phase validation (requires graphics):
+`-executeMethod OceanWaveTransitionValidation.BatchValidateWaveTransitions`.
+
 Every 8x8 group is geometrically clipped at its tile boundaries. LOD 0 uses an
 attribute-carrying 3D plane clipper, so vertical faces and multiple heights at
 one XY location survive slicing. Only LOD 0 and LOD 1 edges bordering an active

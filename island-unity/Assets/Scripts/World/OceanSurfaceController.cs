@@ -2,7 +2,7 @@ using UnityEngine;
 using UnityEngine.Rendering;
 
 [DisallowMultipleComponent]
-public sealed class OceanSurfaceController : MonoBehaviour
+public sealed partial class OceanSurfaceController : MonoBehaviour
 {
     private static readonly int GeometricWavesId = Shader.PropertyToID("_GeometricWaves");
     private static readonly int WaveFadeStartId = Shader.PropertyToID("_WaveFadeStart");
@@ -62,6 +62,7 @@ public sealed class OceanSurfaceController : MonoBehaviour
 
     public Material SurfaceMaterial => surfaceMaterial;
     public Mesh SurfaceMesh => surfaceMesh;
+    public OceanWaveWeatherSettings Weather => waveSettings.Weather;
     public int MeshVertexCount => surfaceMesh != null ? surfaceMesh.vertexCount : 0;
     public int MeshTriangleCount => surfaceMesh != null
         ? checked((int)(surfaceMesh.GetIndexCount(0) / 3))
@@ -105,6 +106,8 @@ public sealed class OceanSurfaceController : MonoBehaviour
         var previousMaterial = surfaceMaterial;
         surfaceMaterial = material;
         waveSettings = settings;
+        waveAnimationStarted = false;
+        ResetWaveAnimation();
         surfaceDiameterMetres = Mathf.Max(diameterMetres, 1f);
         EnsureSurfaceObject();
         EnsureMaskComposer();
@@ -113,6 +116,10 @@ public sealed class OceanSurfaceController : MonoBehaviour
         surfaceObject.transform.localScale = Vector3.one;
         ReplaceSurfaceMesh(surfaceDiameterMetres);
         ConfigureWaveMaterial();
+        SetWaveAttenuation(
+            Texture2D.whiteTexture,
+            Texture2D.blackTexture,
+            new Vector4(-1f, -1f, 0.5f, 0.5f));
         maskComposer.Configure(this, waveSettings);
         surfaceObject.GetComponent<MeshRenderer>().sharedMaterial = surfaceMaterial;
         surfaceObject.SetActive(visible);
@@ -151,6 +158,27 @@ public sealed class OceanSurfaceController : MonoBehaviour
         }
         weatherWaveScale = waveHeightScale;
         UpdateSurfaceMeshBounds();
+    }
+
+    public void ApplyWaveWeather(OceanWaveWeatherSettings weather)
+    {
+        var updated = waveSettings.WithWeather(weather);
+        var attenuationChanged = updated.DepthAllowancePower != waveSettings.DepthAllowancePower
+            || updated.DistanceAllowancePower != waveSettings.DistanceAllowancePower;
+        waveSettings = updated;
+        if (surfaceMaterial == null)
+        {
+            return;
+        }
+
+        ConfigureWaveMaterial();
+        UpdateSurfaceMeshBounds();
+        // Height/shape updates retain the existing mesh and coastal textures.
+        // Only changes to the attenuation curves require recomposing the mask.
+        if (attenuationChanged)
+        {
+            maskComposer.Configure(this, waveSettings);
+        }
     }
 
     internal void SetWaveAttenuation(
@@ -316,10 +344,6 @@ public sealed class OceanSurfaceController : MonoBehaviour
             waveSettings.OnshoreWaveSharpeningDistanceMetres,
             0f,
             0f));
-        SetWaveAttenuation(
-            Texture2D.whiteTexture,
-            Texture2D.blackTexture,
-            new Vector4(-1f, -1f, 0.5f, 0.5f));
     }
 
     private static Vector4 WaveVector(OceanWaveComponent wave)

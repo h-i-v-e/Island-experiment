@@ -27,6 +27,17 @@ Shader "Motu/Sea Water"
         [HideInInspector] _OceanWave1 ("Ocean Wave 1", Vector) = (0, 1, 15, 0.18)
         [HideInInspector] _OceanWave2 ("Ocean Wave 2", Vector) = (-0.8, 0.5, 7.5, 0.09)
         [HideInInspector] _OceanWave3 ("Ocean Wave 3", Vector) = (0.6, -0.8, 4, 0.04)
+        [HideInInspector] _OceanWaveFrom0 ("Wave From 0", Vector) = (1, 0, 30, 0)
+        [HideInInspector] _OceanWaveFrom1 ("Wave From 1", Vector) = (0, 1, 15, 0)
+        [HideInInspector] _OceanWaveFrom2 ("Wave From 2", Vector) = (-0.848, 0.530, 7.5, 0)
+        [HideInInspector] _OceanWaveFrom3 ("Wave From 3", Vector) = (0.6, -0.8, 4, 0)
+        [HideInInspector] _OceanWaveTo0 ("Wave To 0", Vector) = (1, 0, 30, 0)
+        [HideInInspector] _OceanWaveTo1 ("Wave To 1", Vector) = (0, 1, 15, 0)
+        [HideInInspector] _OceanWaveTo2 ("Wave To 2", Vector) = (-0.848, 0.530, 7.5, 0)
+        [HideInInspector] _OceanWaveTo3 ("Wave To 3", Vector) = (0.6, -0.8, 4, 0)
+        [HideInInspector] _OceanWaveTransition ("Wave Direction Transition", Float) = 0
+        [HideInInspector] _OnshoreWavePhase ("Onshore Wave Phase", Float) = 0
+        [HideInInspector] _OceanFoamTravel ("Accumulated Foam Travel", Vector) = (0, 0, 0, 0)
         [HideInInspector] _OceanWaveSpeeds ("Ocean Wave Speeds", Vector) = (3.6, 2.8, 2.1, 1.5)
         [HideInInspector] _OceanWaveChoppiness ("Ocean Wave Choppiness", Vector) = (0, 0, 0, 0)
         [HideInInspector] _WaveNoiseWorldSize ("Wave Noise World Size", Float) = 2048

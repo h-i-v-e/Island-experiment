@@ -36,12 +36,8 @@ public sealed partial class WorldEnvironmentController : MonoBehaviour
     public bool IsInstalled => skyDomeMaterial != null && SeaMaterial != null;
     public float SkyExposure => currentSkyExposure;
     public float NightStrength => currentNightStrength;
-    public Vector2 WindDirection => environmentSettings != null
-        ? environmentSettings.WindDirection
-        : Vector2.right;
-    public float WindSpeedMetresPerSecond => environmentSettings != null
-        ? environmentSettings.WindSpeedMetresPerSecond
-        : 0f;
+    public Vector2 WindDirection => weather.WindDirection;
+    public float WindSpeedMetresPerSecond => weather.WindSpeedMetresPerSecond;
 
     public static WorldEnvironmentController FindOrCreate()
     {
@@ -157,14 +153,10 @@ public sealed partial class WorldEnvironmentController : MonoBehaviour
 
     public void SetWind(Vector2 direction, float speedMetresPerSecond)
     {
-        if (environmentSettings == null)
-        {
-            throw new InvalidOperationException(
-                "The world environment must be initialized before setting wind.");
-        }
-        environmentSettings.WindDirection = direction;
-        environmentSettings.WindSpeedMetresPerSecond = speedMetresPerSecond;
-        ApplyWeatherWind();
+        var updated = Weather;
+        updated.WindDirection = direction;
+        updated.WindSpeedMetresPerSecond = speedMetresPerSecond;
+        ApplyWeather(updated);
     }
 
     public void SetVegetationWindResponse(
@@ -172,15 +164,11 @@ public sealed partial class WorldEnvironmentController : MonoBehaviour
         float gustSizeMetres,
         float normalStrength)
     {
-        if (environmentSettings == null)
-        {
-            throw new InvalidOperationException(
-                "The world environment must be initialized before setting wind response.");
-        }
-        environmentSettings.VegetationWindStrengthMetres = strengthMetres;
-        environmentSettings.WindGustSizeMetres = gustSizeMetres;
-        environmentSettings.VegetationWindNormalStrength = normalStrength;
-        ApplyWeatherWind();
+        var updated = Weather;
+        updated.VegetationWindStrengthMetres = strengthMetres;
+        updated.WindGustSizeMetres = gustSizeMetres;
+        updated.VegetationWindNormalStrength = normalStrength;
+        ApplyWeather(updated);
     }
 
     internal void RegisterCoastalWaveMask(
@@ -246,6 +234,7 @@ public sealed partial class WorldEnvironmentController : MonoBehaviour
         {
             return;
         }
+        UpdateWeatherDriver(Time.unscaledDeltaTime);
         UpdateSolarLighting(Time.unscaledDeltaTime);
         ApplyCloudSettings(Time.unscaledDeltaTime);
         ApplyWeatherWind();

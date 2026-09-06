@@ -8,11 +8,13 @@ public sealed class OceanWaveSandboxController : MonoBehaviour
         "Ocean Wave Sandbox\n"
         + "WASD move | Q/E descend/ascend | Shift fast\n"
         + "Mouse look | Escape release/capture cursor\n"
-        + "Edit Assets/Settings/OceanWaveProfile and restart Play mode to tune";
+        + "Assign a Weather Driver for runtime wind and wave control";
 
     private static readonly int NoiseTextureId = Shader.PropertyToID("_NoiseTex");
 
     [SerializeField] private OceanWaveProfile profile;
+    [Tooltip("Optional scene component derived from WorldWeatherDriver for runtime wind and wave control.")]
+    [SerializeField] private WorldWeatherDriver weatherDriver;
     [SerializeField] private Material seaMaterialTemplate;
     [SerializeField] private Transform followTarget;
     [Tooltip("Global wind direction in world X/Z coordinates for this sea-only test scene.")]
@@ -26,6 +28,8 @@ public sealed class OceanWaveSandboxController : MonoBehaviour
     [Min(0.01f)] [SerializeField] private float mouseSensitivity = 0.12f;
 
     private OceanSurfaceController ocean;
+    private WorldWeatherState weather;
+    private Vector2 windTravelOffset;
     private Texture2D noiseTexture;
     private float yaw;
     private float pitch;
@@ -35,6 +39,16 @@ public sealed class OceanWaveSandboxController : MonoBehaviour
     private float smoothedFrameTime = 1f / 60f;
 
     public OceanWaveProfile Profile => profile;
+    public WorldWeatherDriver WeatherDriver { get => weatherDriver; set => weatherDriver = value; }
+    public WorldWeatherState Weather => weather;
+
+    public void ApplyWeather(WorldWeatherState value)
+    {
+        weather = value.Validated();
+        ocean.ApplyWaveWeather(weather.Waves);
+        ApplyWeatherWind();
+    }
+
     public Transform FollowTarget => followTarget;
     public float OceanDiameterMetres => oceanDiameterMetres;
 
@@ -68,7 +82,11 @@ public sealed class OceanWaveSandboxController : MonoBehaviour
             : OceanWaveRuntimeSettings.Default;
         anchorSnapMetres = settings.MaskAnchorSnapMetres;
         ocean.Install(material, oceanDiameterMetres, true, settings);
-        ApplyWeatherWind();
+        weather = WorldWeatherState.FromEnvironment(new WorldEnvironmentSettings());
+        weather.WindDirection = windDirection;
+        weather.WindSpeedMetresPerSecond = windSpeedMetresPerSecond;
+        weather.Waves = settings.Weather;
+        ApplyWeather(weather);
 
         if (followTarget == null && Camera.main != null)
         {
@@ -90,6 +108,14 @@ public sealed class OceanWaveSandboxController : MonoBehaviour
 
     private void Update()
     {
+        if (weatherDriver != null && weatherDriver.isActiveAndEnabled)
+        {
+            var updated = weather;
+            weatherDriver.UpdateWeather(ref updated, Time.unscaledDeltaTime);
+            ApplyWeather(updated);
+        }
+        windTravelOffset += weather.WindDirection
+            * (weather.WindSpeedMetresPerSecond * Time.unscaledDeltaTime);
         ApplyWeatherWind();
         smoothedFrameTime = Mathf.Lerp(
             smoothedFrameTime,
@@ -198,9 +224,18 @@ public sealed class OceanWaveSandboxController : MonoBehaviour
     private void ApplyWeatherWind()
     {
         var waveScale = WorldEnvironmentController.ApplyWeatherWindGlobals(
-            windDirection,
-            windSpeedMetresPerSecond);
-        ocean?.ApplyWeatherWindScale(waveScale);
+            weather.WindDirection,
+            weather.WindSpeedMetresPerSecond,
+            weather.VegetationWindStrengthMetres,
+            weather.WindGustSizeMetres,
+            weather.VegetationWindNormalStrength,
+            weather.TreeWindStrengthMultiplier,
+            weather.TreeWindBasePinHeightMetres,
+            weather.TreeWindFullBendHeightMetres,
+            weather.ReedWindStrengthMultiplier,
+            weather.FernWindStrengthMultiplier);
+        WorldEnvironmentController.ApplyWeatherWindOffset(windTravelOffset);
+        ocean?.ApplyWeatherWind(weather.WindDirection, waveScale);
     }
 
     private void SetCursorCaptured(bool captured)
