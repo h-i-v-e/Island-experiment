@@ -4,13 +4,13 @@ using UnityEngine;
 [Serializable]
 public struct OceanWaveComponent
 {
-    [Tooltip("Horizontal travel direction in world X/Z. It is normalized at runtime.")]
+    [Tooltip("Direction relative to wave 0. At runtime the whole spectrum rotates so wave 0 follows the global wind.")]
     [SerializeField] private Vector2 direction;
     [Tooltip("Distance between crests. Larger values make broader ocean swell.")]
     [Min(0.25f)] [SerializeField] private float wavelengthMetres;
-    [Tooltip("Maximum vertical contribution of this wave before coherent height variation.")]
+    [Tooltip("Maximum vertical contribution at the reference global wind speed of 9 m/s.")]
     [Min(0f)] [SerializeField] private float amplitudeMetres;
-    [Tooltip("Speed at which this wave travels through the world.")]
+    [Tooltip("Travel speed at the reference global wind speed of 9 m/s.")]
     [Min(0f)] [SerializeField] private float speedMetresPerSecond;
     [Tooltip("Horizontal crest displacement. Keep this modest to avoid folded wave geometry.")]
     [Range(0f, 1f)] [SerializeField] private float choppiness;

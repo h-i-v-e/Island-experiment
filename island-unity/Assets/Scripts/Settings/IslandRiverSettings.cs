@@ -9,9 +9,10 @@ public sealed class IslandRiverSettings
     [Range(0.01f, 10f)]
     [SerializeField] private float sourceCatchmentHectares = 0.05f;
 
-    [Tooltip("Bias towards selecting steep river sources. Regenerate to apply.")]
+    [Tooltip("Catchment-area penalty applied to steep river sources. Higher values make steep sources less likely. Regenerate to apply.")]
     [Range(1f, 8f)]
-    [SerializeField] private float steepSourceMultiplier = 4f;
+    [FormerlySerializedAs("steepSourceMultiplier")]
+    [SerializeField] private float steepSourceCatchmentMultiplier = 4f;
 
     [Tooltip("Bias towards selecting high river sources. Regenerate to apply.")]
     [Range(0f, 20f)]
@@ -34,7 +35,10 @@ public sealed class IslandRiverSettings
     [SerializeField] private float maximumDepthMetres = 2f;
 
     internal float SourceCatchmentHectares => Mathf.Clamp(sourceCatchmentHectares, 0.01f, 10f);
-    internal float SteepSourceMultiplier => Mathf.Clamp(steepSourceMultiplier, 1f, 8f);
+    internal float SteepSourceCatchmentMultiplier => Mathf.Clamp(
+        steepSourceCatchmentMultiplier,
+        1f,
+        8f);
     internal float SourceElevationBoost => Mathf.Clamp(sourceElevationBoost, 0f, 20f);
     internal float SourceWidthMetres => Mathf.Max(sourceWidthMetres, 0.25f);
     internal float MaximumWidthMetres => Mathf.Max(maximumWidthMetres, SourceWidthMetres);

@@ -25,10 +25,8 @@ Shader "Motu/Tree Foliage"
         _GrassRadius ("Foliage Fur Outer Radius (metres)", Float) = 20
         _GrassFadeWidth ("Foliage Fur Edge Fade (metres)", Range(0.1, 20)) = 10
         [HideInInspector] _WorldSize ("Island World Size", Float) = 2000
-        [NoScaleOffset] [HideInInspector] _GrassPatchNoise ("Shared Wind Noise", 2D) = "white" {}
-        [HideInInspector] _GrassWindDirection ("Wind Direction", Vector) = (1, 0, 0.35, 0)
+        [NoScaleOffset] [HideInInspector] _GrassPatchNoise ("Global Weather Noise", 2D) = "white" {}
         [HideInInspector] _GrassWindStrength ("Grass Wind Strength", Float) = 0.07
-        [HideInInspector] _GrassWindSpeed ("Wind Speed", Float) = 1.8
         [HideInInspector] _GrassWindWorldSize ("Wind Gust Size", Float) = 12
         _TreeWindStrengthMultiplier ("Tree Wind Strength", Range(0, 10)) = 5
         _TreeWindBasePinHeight ("Pinned Trunk Height (metres)", Range(0, 4)) = 0.6

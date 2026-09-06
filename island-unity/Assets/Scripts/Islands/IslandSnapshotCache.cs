@@ -97,7 +97,7 @@ internal static class IslandSnapshotCache
         writer.Write(value.hydraulicDepositionStrength);
         writer.Write(value.hydraulicDepositionSlopeDegrees);
         writer.Write(value.riverSourceCatchmentHectares);
-        writer.Write(value.riverSourceSteepMultiplier);
+        writer.Write(value.riverSourceSteepCatchmentMultiplier);
         writer.Write(value.riverSourceElevationBoost);
         writer.Write(value.riverSourceWidthMetres);
         writer.Write(value.riverMaximumWidthMetres);

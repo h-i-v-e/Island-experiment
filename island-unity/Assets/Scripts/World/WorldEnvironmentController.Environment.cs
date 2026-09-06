@@ -34,6 +34,8 @@ public sealed partial class WorldEnvironmentController
     private static readonly int CloudLightDirectionId = Shader.PropertyToID("_MotuCloudLightDirection");
     private static readonly int CloudLightActiveId = Shader.PropertyToID("_MotuCloudLightActive");
     private static readonly int CloudLightColourId = Shader.PropertyToID("_MotuCloudLightColor");
+    private static readonly int WeatherWindId = Shader.PropertyToID("_MotuWeatherWind");
+    public const float ReferenceWindSpeedMetresPerSecond = 9f;
 
     private WorldEnvironmentSettings environmentSettings;
     private IslandCloudSettings cloudSettings;
@@ -51,7 +53,6 @@ public sealed partial class WorldEnvironmentController
     public void Initialize(
         WorldEnvironmentSettings settings,
         IslandCloudSettings clouds,
-        int seed,
         float domeRadiusMetres,
         float environmentDiameterMetres,
         Transform target)
@@ -59,17 +60,17 @@ public sealed partial class WorldEnvironmentController
         environmentSettings = settings
             ?? throw new ArgumentNullException(nameof(settings));
         cloudSettings = clouds ?? throw new ArgumentNullException(nameof(clouds));
-        environmentSeed = seed;
+        environmentSeed = settings.Seed;
         sunlight = settings.Sunlight != null ? settings.Sunlight : RenderSettings.sun;
         SetFollowTarget(target);
 
         var sky = CreateSkyMaterial(settings);
-        var noise = settings.SeaNoise != null
-            ? settings.SeaNoise
-            : IslandGenerator.CreateRiverNoiseTexture();
-        var ownedNoise = settings.SeaNoise == null ? noise : null;
+        var noise = settings.WeatherNoise != null
+            ? settings.WeatherNoise
+            : IslandGenerator.CreateWeatherNoiseTexture();
+        var ownedNoise = settings.WeatherNoise == null ? noise : null;
         var sea = CreateSeaMaterial(settings, noise);
-        var weather = CreateCloudWeatherTexture(seed, clouds);
+        var weather = CreateCloudWeatherTexture(settings.Seed, clouds);
         Install(
             sky,
             sea,
@@ -85,6 +86,7 @@ public sealed partial class WorldEnvironmentController
             sunlight);
         solarClockInitialized = false;
         UpdateSolarLighting(0f);
+        ApplyWeatherWind();
         ApplyCloudSettings(0f);
         ApplyDistanceHazeSettings();
     }
@@ -144,10 +146,10 @@ public sealed partial class WorldEnvironmentController
     }
 
     private static Texture2D CreateCloudWeatherTexture(
-        int worldSeed,
+        int environmentSeed,
         IslandCloudSettings clouds)
     {
-        var combinedSeed = unchecked(worldSeed * 397) ^ clouds.Seed;
+        var combinedSeed = unchecked(environmentSeed * 397) ^ clouds.Seed;
         var resolution = clouds.WeatherMapResolution;
         MotuNative.ExportCloudWeatherMap native = default;
         try
@@ -191,12 +193,13 @@ public sealed partial class WorldEnvironmentController
         {
             return;
         }
-        var windDirection = cloudSettings.WindDirection;
+        var windDirection = environmentSettings.WindDirection;
         if (windDirection.sqrMagnitude > 0.000001f)
         {
             windDirection.Normalize();
             var travel = windDirection
-                * (cloudSettings.WindSpeedMetresPerSecond * Mathf.Max(deltaTime, 0f));
+                * (environmentSettings.WindSpeedMetresPerSecond
+                    * Mathf.Max(deltaTime, 0f));
             cloudWindOffset += travel;
             cloudBroadWindOffset += travel * 0.18f;
         }
@@ -249,6 +252,46 @@ public sealed partial class WorldEnvironmentController
         Shader.SetGlobalFloat(
             "_MotuCloudLowElevationFade",
             cloudSettings.LowElevationShadowFade);
+    }
+
+    public static float EvaluateWaveHeightScale(float windSpeedMetresPerSecond)
+    {
+        var normalizedSpeed = Mathf.Max(windSpeedMetresPerSecond, 0f)
+            / ReferenceWindSpeedMetresPerSecond;
+        return Mathf.Clamp(Mathf.Sqrt(normalizedSpeed), 0f, 2.5f);
+    }
+
+    internal static float ApplyWeatherWindGlobals(
+        Vector2 configuredDirection,
+        float configuredSpeedMetresPerSecond)
+    {
+        var direction = configuredDirection;
+        if (direction.sqrMagnitude <= 0.000001f)
+        {
+            direction = Vector2.right;
+        }
+        else
+        {
+            direction.Normalize();
+        }
+        var speed = Mathf.Clamp(configuredSpeedMetresPerSecond, 0f, 40f);
+        var waveHeightScale = EvaluateWaveHeightScale(speed);
+        Shader.SetGlobalVector(
+            WeatherWindId,
+            new Vector4(direction.x, direction.y, speed, waveHeightScale));
+        return waveHeightScale;
+    }
+
+    private void ApplyWeatherWind()
+    {
+        if (environmentSettings == null)
+        {
+            return;
+        }
+        var waveHeightScale = ApplyWeatherWindGlobals(
+            environmentSettings.WindDirection,
+            environmentSettings.WindSpeedMetresPerSecond);
+        ocean?.ApplyWeatherWindScale(waveHeightScale);
     }
 
     private void UpdateSolarLighting(float deltaTime)

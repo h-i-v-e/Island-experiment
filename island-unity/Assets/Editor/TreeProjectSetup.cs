@@ -10,7 +10,6 @@ using UnityEngine.SceneManagement;
 public static class TreeProjectSetup
 {
     private const string ScenePath = "Assets/Scenes/TreeSandbox.unity";
-    private const string WoodMaterialPath = "Assets/Materials/TreeWood.mat";
     private const string FoliageMaterialPath = "Assets/Materials/TreeFoliage.mat";
 
     [MenuItem("Island/Create or Refresh Tree Sandbox")]
@@ -18,11 +17,6 @@ public static class TreeProjectSetup
     {
         EnsureFolder("Assets", "Scenes");
         EnsureFolder("Assets", "Materials");
-        var wood = CreateOrUpdateMaterial(
-            WoodMaterialPath,
-            "Motu/Tree Wood",
-            new Color(0.24f, 0.105f, 0.045f, 1f),
-            new Color(0.43f, 0.22f, 0.09f, 1f));
         var foliage = CreateOrUpdateMaterial(
             FoliageMaterialPath,
             "Motu/Tree Foliage",
@@ -53,7 +47,7 @@ public static class TreeProjectSetup
 
         var treeObject = new GameObject("Procedural Tree Preview");
         var preview = treeObject.AddComponent<ProceduralTreePreview>();
-        preview.Configure(wood, foliage, camera, orbit);
+        preview.Configure(foliage, camera, orbit);
         preview.Regenerate();
 
         RenderSettings.ambientMode = AmbientMode.Flat;
@@ -63,7 +57,6 @@ public static class TreeProjectSetup
 
         EditorSceneManager.SaveScene(scene, ScenePath);
         AddBuildSceneWithoutReplacingExistingScenes(ScenePath);
-        EditorUtility.SetDirty(wood);
         EditorUtility.SetDirty(foliage);
         AssetDatabase.SaveAssets();
         AssetDatabase.Refresh();
@@ -179,6 +172,11 @@ public static class TreeProjectSetup
             || !material.HasProperty("_TreeNoiseFineScale")
             || !material.HasProperty("_TreeNormalStrength")
             || !material.HasProperty("_TreeHueVariationDegrees")
+            || (label == "wood"
+                && (material.GetTexture("_BarkAlbedoMap") == null
+                    || material.GetTexture("_BarkHeightMap") == null
+                    || material.GetTexture("_BarkNormalMap") == null
+                    || material.GetTexture("_BarkOcclusionMap") == null))
             || (label == "foliage"
                 && (!material.HasProperty("_CanopyCoverage")
                     || !material.HasProperty("_CanopyEdgeSoftness")

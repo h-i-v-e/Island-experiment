@@ -31,20 +31,31 @@ To add an island world to another level, create one GameObject with an
 `IslandWorldManager` and a component implementing
 `IIslandGenerationRequestFactory`, then assign that component as the manager's
 request factory. The manager divides the world into 2 km XZ cells and supplies
-each query with a deterministic random seed and grid position. The factory is
-the only authority for island existence and configuration: it returns a
-complete `IslandGenerationRequest` for either a deliberately configured cell
-or a generated cell, and returns `null` for open sea. There is no second
+only the grid position to the factory. The factory is the only authority for
+island existence, seed, and settings: it returns a complete
+`IslandGenerationRequest` for either a deliberately configured cell or a
+generated cell, and returns `null` for open sea. There is no second
 authored-island list, generator template, occupancy fallback, or pre-placed
 `IslandGenerator` path in the manager.
 
+The 2 km value is a single invariant: it is both the spacing between grid-cell
+centres and the width of every generated terrain square. Factories control the
+land and water distribution within that square, but cannot create overlapping
+or differently scaled terrain footprints.
+
 `GridIslandGenerationRequestFactory` is the built-in implementation. Its fixed
-cell entries are suitable for deliberately placed islands, while its unlisted
-cell policy controls deterministic open-ocean population. Both paths produce
-the same request type and enter the same loading, generation, snapshot, and
-unloading lifecycle. For a custom world distribution, implement
-`IIslandGenerationRequestFactory` directly and construct each request from the
-configuration and parameters appropriate to that cell.
+cell entries are suitable for deliberately placed islands, while its own seed
+and unlisted-cell policy control deterministic open-ocean population. Both
+paths produce the same request type and enter the same loading, generation,
+snapshot, and unloading lifecycle. For a custom world distribution, implement
+`IIslandGenerationRequestFactory`, normally by deriving from
+`IslandGenerationRequestFactoryBase`. The factory component directly owns its
+generation, river, vegetation, rendering, material-palette, and debug settings.
+Its cell method chooses the seed, clones those settings into a profile, applies
+its own per-island customization, selects the dirt, stone, and sand colours,
+and constructs the completed request.
+`IslandGenerationRequest` snapshots the supplied profile but does not select or
+apply policy itself; it only carries the palette selected by the factory.
 
 Runtime `IslandGenerator` objects are implementation details created and
 destroyed by the manager. Each clones the settings and material templates in
@@ -131,8 +142,10 @@ visit, so revisiting an area only changes visibility. First-person controls are
 WASD, Shift to run, Space to jump, and the mouse to look. Press V to toggle the
 configurable 24 m/s fly mode, which follows terrain or sea level at a 4 m
 clearance. Press Tab to release the cursor for Inspector tuning, then Tab again
-to resume movement and mouse look. Visibility and grass-brightness changes
-apply without regenerating.
+to resume movement and mouse look. The top-right minimap shows the 16-cell
+radius around the player's current 2 km grid cell, using the request factory's
+side-effect-free `HasIsland` query without constructing or queuing islands.
+Visibility changes apply without regenerating.
 
 The collision heightfield has one height per horizontal position. It closely
 tracks the generated walkable surface but deliberately cannot represent
@@ -184,16 +197,21 @@ occlusion ray marches on authored
 rock and rounded-river-stone surfaces; albedo, normals, height and occlusion all
 share the same shifted repeating UVs.
 
-The fur shells bend in a coherent world-space wind field sampled from the same
-generated grass-noise texture used for coverage and broad colour variation.
-Gusts advect along the configured direction, bend progressively from fixed
+The fur shells bend in a coherent world-space wind field sampled from the
+world environment's global weather-noise texture. The sea shader uses the same
+texture for wave-domain and height variation, while terrain also reuses its
+channels for grass coverage and broad colour variation.
+Gusts advect along the global weather direction, bend progressively from fixed
 roots to flexible tips, and perturb the lighting normals with the same moving
 noise so highlights travel with the geometry. Beyond the fur radius, the
 ordinary terrain grass uses that identical advected field to perturb only its
 grass-covered lighting normals; non-grass materials remain still, and moving
-highlights continue seamlessly into the distance. Wind direction, maximum tip
-bend, speed, gust size, and normal strength are live controls in the island's
-Rendering settings and do not require regeneration.
+highlights continue seamlessly into the distance. Wind direction and speed are
+global live controls in the world environment. Per-island Rendering settings
+retain only vegetation response tuning: maximum tip bend at the reference wind
+speed, gust size, and normal strength. Runtime systems can update everything
+immediately with `IslandWorldManager.SetWind(direction, speedMetresPerSecond)`;
+no island regeneration is required.
 
 Every 8x8 group is geometrically clipped at its tile boundaries. LOD 0 uses an
 attribute-carrying 3D plane clipper, so vertical faces and multiple heights at
@@ -302,6 +320,10 @@ The player-relative deep ocean performs reflection, refraction, distortion, and
 depth opacity once without depending on any island mask. Each island adds a
 bounded, edge-faded coastal overlay just above it; this overlay owns the sea
 mask, shallow tint, shore waves, and foam without repeating the ocean GrabPass.
+The authored four-wave ocean spectrum is relative to its first wave: global
+weather rotates the whole spectrum to the wind direction and scales wave height
+and travel speed from the authored 9 m/s reference values. The same global wind
+also advects clouds and drives grass, reeds, ferns, foliage, and wood sway.
 Generated island content is installed below a self-contained `IslandRuntime`.
 It owns the native handle, terrain streamer, per-island materials, generated
 textures, colliders, vegetation, rivers, waterfall effects, and coastal
@@ -361,18 +383,19 @@ Zstandard-compressed, checksummed, written through a temporary file, and keyed
 from every geometry-generation input. `Island Generation > Use Snapshot Cache`
 can disable the cache; its shared LRU byte budget defaults to 8 GiB. Invalid or
 obsolete snapshots are discarded and safely fall back to CPU generation.
-The six palette-dependent terrain map sets are cached separately by Rust's
-embedded-recipe revision, palette values, normal convention, and resolution.
+The six palette-dependent terrain map sets and the runtime `PlateBark` tree map
+set are cached together by Rust's embedded-recipe revision, palette values,
+normal convention, and resolution. Tree wood is created directly from its
+shader and receives the generated bark albedo, height, normal, and occlusion
+maps; it does not depend on an authored Unity material or imported bark maps.
 This lets islands with matching palettes share one checked material bundle and
 means a returning island does not rebake its procedural material recipes.
 
-Island configuration can be shared between scenes through an
-`IslandConfiguration` ScriptableObject. Existing scenes retain their serialized
-inline values as a compatibility fallback. In the `IslandGenerator` inspector,
-use **Create Shared Configuration From Inline Settings** to copy the currently
-tuned reusable values into an asset and assign it without re-entering them.
-The streaming target remains on each scene component because project assets
-must not own references to scene `Transform` objects.
+Island parameters live on the request-factory component, not on runtime
+`IslandGenerator` objects or a shared single-island configuration asset. A
+custom factory can therefore expose exactly the controls required by its world
+model and derive different settings for every grid cell. Streaming and the
+global environment remain responsibilities of `IslandWorldManager`.
 
 For an editor compile plus native ABI, streamed tile, UV, support mesh,
 waterfall-foot export, fog-pool, and collider-cooking check, run:

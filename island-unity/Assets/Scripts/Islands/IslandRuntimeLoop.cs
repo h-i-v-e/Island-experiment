@@ -5,20 +5,9 @@ public sealed partial class IslandGenerator
     private sealed class IslandRuntimeLoop
     {
         private readonly IslandGenerator generator;
-        private bool hasStarted;
-
         internal IslandRuntimeLoop(IslandGenerator generator)
         {
             this.generator = generator;
-        }
-
-        internal void Start()
-        {
-            hasStarted = true;
-            if (!generator.worldManaged && generator.Generation.GenerateOnStart)
-            {
-                generator.Generate();
-            }
         }
 
         internal void Enable()
@@ -33,13 +22,6 @@ public sealed partial class IslandGenerator
             {
                 generator.ApplyDistanceHazeSettings();
                 generator.UpdateSolarLighting(0f);
-            }
-            if (!generator.worldManaged
-                && hasStarted
-                && generator.Generation.GenerateOnStart
-                && generator.terrainStreamer == null)
-            {
-                generator.Generate();
             }
         }
 

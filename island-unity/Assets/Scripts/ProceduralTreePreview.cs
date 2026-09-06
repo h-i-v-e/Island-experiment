@@ -6,13 +6,13 @@ using UnityEngine.Rendering;
 public sealed class ProceduralTreePreview : MonoBehaviour
 {
     private const float NativeWorldSizeMetres = 2000f;
+    private const int BarkTextureResolution = 1024;
     private const string WoodObjectName = "Wood";
     private const string FoliageObjectName = "Foliage";
     private const float ButtonOrbitDegrees = 20f;
     private static readonly Rect ControlPanel = new Rect(16f, 16f, 440f, 165f);
 
     [SerializeField] private int seed = 2018;
-    [SerializeField] private Material woodMaterial;
     [SerializeField] private Material foliageMaterial;
     [SerializeField] private Camera previewCamera;
     [SerializeField] private OrbitCamera orbitCamera;
@@ -28,6 +28,10 @@ public sealed class ProceduralTreePreview : MonoBehaviour
     private Material runtimeWoodMaterial;
     private Material runtimeFoliageMaterial;
     private Material runtimeLod0FoliageMaterial;
+    private Texture2D barkAlbedoTexture;
+    private Texture2D barkHeightTexture;
+    private Texture2D barkNormalTexture;
+    private Texture2D barkOcclusionTexture;
     private Texture3D surfaceNoiseTexture;
     private bool generating;
     private bool showingLod1;
@@ -56,7 +60,7 @@ public sealed class ProceduralTreePreview : MonoBehaviour
 
     private void OnEnable()
     {
-        if (woodMaterial != null && foliageMaterial != null)
+        if (foliageMaterial != null)
         {
             EnsureRuntimeMaterials();
             Regenerate();
@@ -70,17 +74,15 @@ public sealed class ProceduralTreePreview : MonoBehaviour
     }
 
     public void Configure(
-        Material wood,
         Material foliage,
         Camera camera,
         OrbitCamera orbit)
     {
         ReleaseRuntimeMaterials();
-        woodMaterial = wood;
         foliageMaterial = foliage;
         previewCamera = camera;
         orbitCamera = orbit;
-        if (isActiveAndEnabled && woodMaterial != null && foliageMaterial != null)
+        if (isActiveAndEnabled && foliageMaterial != null)
         {
             EnsureRuntimeMaterials();
         }
@@ -89,7 +91,7 @@ public sealed class ProceduralTreePreview : MonoBehaviour
     [ContextMenu("Regenerate Tree")]
     public void Regenerate()
     {
-        if (generating || woodMaterial == null || foliageMaterial == null)
+        if (generating || foliageMaterial == null)
         {
             return;
         }
@@ -259,6 +261,10 @@ public sealed class ProceduralTreePreview : MonoBehaviour
         if (runtimeWoodMaterial != null
             && runtimeFoliageMaterial != null
             && runtimeLod0FoliageMaterial != null
+            && barkAlbedoTexture != null
+            && barkHeightTexture != null
+            && barkNormalTexture != null
+            && barkOcclusionTexture != null
             && surfaceNoiseTexture != null)
         {
             return;
@@ -266,7 +272,15 @@ public sealed class ProceduralTreePreview : MonoBehaviour
         ReleaseRuntimeMaterials();
         surfaceNoiseTexture = IslandGenerator.CreateCliffNoiseTexture();
         surfaceNoiseTexture.hideFlags = HideFlags.HideAndDontSave;
-        runtimeWoodMaterial = CreateRuntimeMaterial(woodMaterial, surfaceNoiseTexture);
+        var woodShader = Shader.Find("Motu/Tree Wood")
+            ?? throw new InvalidOperationException("Could not find shader 'Motu/Tree Wood'.");
+        runtimeWoodMaterial = new Material(woodShader)
+        {
+            name = "Motu/Tree Wood Preview Runtime",
+            hideFlags = HideFlags.HideAndDontSave,
+        };
+        ConfigureRuntimeMaterial(runtimeWoodMaterial, surfaceNoiseTexture);
+        BindRuntimeBark(runtimeWoodMaterial);
         runtimeFoliageMaterial = CreateRuntimeMaterial(foliageMaterial, surfaceNoiseTexture);
         runtimeFoliageMaterial.SetFloat("_CullMode", (float)CullMode.Back);
         runtimeLod0FoliageMaterial = new Material(runtimeFoliageMaterial)
@@ -291,6 +305,12 @@ public sealed class ProceduralTreePreview : MonoBehaviour
             name = $"{template.name} Preview Runtime",
             hideFlags = HideFlags.HideAndDontSave,
         };
+        ConfigureRuntimeMaterial(material, noise);
+        return material;
+    }
+
+    private static void ConfigureRuntimeMaterial(Material material, Texture3D noise)
+    {
         material.SetTexture("_CliffNoise3D", noise);
         material.SetMatrix("_IslandWorldToLocal", Matrix4x4.identity);
         if (material.HasProperty("_WorldSize"))
@@ -298,7 +318,60 @@ public sealed class ProceduralTreePreview : MonoBehaviour
             material.SetFloat("_WorldSize", NativeWorldSizeMetres);
         }
         material.enableInstancing = true;
-        return material;
+    }
+
+    private void BindRuntimeBark(Material material)
+    {
+        var bark = IslandPreparationPipeline.PrepareTreeBarkTexture(BarkTextureResolution);
+        barkAlbedoTexture = IslandGenerator.CreateRuntimeMaterialTexture(
+            "Motu Tree Preview Bark Albedo",
+            bark.width,
+            bark.height,
+            TextureFormat.RGB24,
+            false,
+            bark.albedoRgb);
+        try
+        {
+            barkHeightTexture = IslandGenerator.CreateRuntimeMaterialTexture(
+                "Motu Tree Preview Bark Height",
+                bark.width,
+                bark.height,
+                TextureFormat.R16,
+                true,
+                bark.heightR16);
+            barkNormalTexture = IslandGenerator.CreateRuntimeMaterialTexture(
+                "Motu Tree Preview Bark Normal",
+                bark.width,
+                bark.height,
+                TextureFormat.RGB24,
+                true,
+                bark.normalRgb);
+            barkOcclusionTexture = IslandGenerator.CreateRuntimeMaterialTexture(
+                "Motu Tree Preview Bark Occlusion",
+                bark.width,
+                bark.height,
+                TextureFormat.R8,
+                true,
+                bark.occlusion);
+            material.SetTexture("_BarkAlbedoMap", barkAlbedoTexture);
+            material.SetTexture("_BarkHeightMap", barkHeightTexture);
+            material.SetTexture("_BarkNormalMap", barkNormalTexture);
+            material.SetTexture("_BarkOcclusionMap", barkOcclusionTexture);
+            material.SetFloat("_BarkTileWidthMetres", bark.physicalTileWidthMetres);
+            material.SetFloat("_BarkTileHeightMetres", bark.physicalTileHeightMetres);
+        }
+        catch
+        {
+            DestroyPreviewObject(barkAlbedoTexture);
+            DestroyPreviewObject(barkHeightTexture);
+            DestroyPreviewObject(barkNormalTexture);
+            DestroyPreviewObject(barkOcclusionTexture);
+            barkAlbedoTexture = null;
+            barkHeightTexture = null;
+            barkNormalTexture = null;
+            barkOcclusionTexture = null;
+            throw;
+        }
     }
 
     private void ReleaseRuntimeMaterials()
@@ -306,10 +379,18 @@ public sealed class ProceduralTreePreview : MonoBehaviour
         DestroyPreviewObject(runtimeWoodMaterial);
         DestroyPreviewObject(runtimeFoliageMaterial);
         DestroyPreviewObject(runtimeLod0FoliageMaterial);
+        DestroyPreviewObject(barkAlbedoTexture);
+        DestroyPreviewObject(barkHeightTexture);
+        DestroyPreviewObject(barkNormalTexture);
+        DestroyPreviewObject(barkOcclusionTexture);
         DestroyPreviewObject(surfaceNoiseTexture);
         runtimeWoodMaterial = null;
         runtimeFoliageMaterial = null;
         runtimeLod0FoliageMaterial = null;
+        barkAlbedoTexture = null;
+        barkHeightTexture = null;
+        barkNormalTexture = null;
+        barkOcclusionTexture = null;
         surfaceNoiseTexture = null;
     }
 

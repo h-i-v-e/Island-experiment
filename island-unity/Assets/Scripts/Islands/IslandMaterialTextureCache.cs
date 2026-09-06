@@ -6,7 +6,7 @@ using UnityEngine;
 
 internal static class IslandMaterialTextureCache
 {
-    private const int FormatVersion = 1;
+    private const int FormatVersion = 2;
     private const int ChecksumBytes = 32;
     private const string Extension = ".motumaterials";
     private static readonly byte[] Magic = Encoding.ASCII.GetBytes("MOTUMAT1");
@@ -110,6 +110,8 @@ internal static class IslandMaterialTextureCache
             var texture = new IslandPreparedMaterialTexture(
                 resolution,
                 resolution,
+                2f,
+                3f,
                 -0.01f,
                 0.03f,
                 0f,
@@ -119,6 +121,7 @@ internal static class IslandMaterialTextureCache
                 Sequence(resolution * resolution, 59));
             var expected = new IslandPreparedMaterialTextures(
                 colours,
+                texture,
                 texture,
                 texture,
                 texture,
@@ -134,7 +137,8 @@ internal static class IslandMaterialTextureCache
                 || !Same(texture, actual.rock)
                 || !Same(texture, actual.riverBed)
                 || !Same(texture, actual.beach)
-                || !Same(texture, actual.fallenStones))
+                || !Same(texture, actual.fallenStones)
+                || !Same(texture, actual.treeBark))
             {
                 throw new InvalidOperationException(
                     "The content-addressed material cache did not round-trip its maps.");
@@ -188,6 +192,7 @@ internal static class IslandMaterialTextureCache
             ReadTexture(reader, resolution),
             ReadTexture(reader, resolution),
             ReadTexture(reader, resolution),
+            ReadTexture(reader, resolution),
             true);
         if (source.Position != payloadLength)
         {
@@ -219,6 +224,7 @@ internal static class IslandMaterialTextureCache
             WriteTexture(writer, textures.riverBed);
             WriteTexture(writer, textures.beach);
             WriteTexture(writer, textures.fallenStones);
+            WriteTexture(writer, textures.treeBark);
             writer.Flush();
             destination.Flush(true);
         }
@@ -236,6 +242,8 @@ internal static class IslandMaterialTextureCache
         var minimumHeight = reader.ReadSingle();
         var maximumHeight = reader.ReadSingle();
         var baseHeight = reader.ReadSingle();
+        var physicalTileWidthMetres = reader.ReadSingle();
+        var physicalTileHeightMetres = reader.ReadSingle();
         var albedo = ReadBytes(reader, checked(pixels * 3));
         var normal = ReadBytes(reader, checked(pixels * 3));
         var height = ReadBytes(reader, checked(pixels * 2));
@@ -243,6 +251,8 @@ internal static class IslandMaterialTextureCache
         return new IslandPreparedMaterialTexture(
             resolution,
             resolution,
+            physicalTileWidthMetres,
+            physicalTileHeightMetres,
             minimumHeight,
             maximumHeight,
             baseHeight,
@@ -259,6 +269,8 @@ internal static class IslandMaterialTextureCache
         writer.Write(texture.minimumHeight);
         writer.Write(texture.maximumHeight);
         writer.Write(texture.baseHeight);
+        writer.Write(texture.physicalTileWidthMetres);
+        writer.Write(texture.physicalTileHeightMetres);
         writer.Write(texture.albedoRgb);
         writer.Write(texture.normalRgb);
         writer.Write(texture.heightR16);
@@ -385,6 +397,8 @@ internal static class IslandMaterialTextureCache
         return actual != null
             && expected.width == actual.width
             && expected.height == actual.height
+            && expected.physicalTileWidthMetres.Equals(actual.physicalTileWidthMetres)
+            && expected.physicalTileHeightMetres.Equals(actual.physicalTileHeightMetres)
             && expected.minimumHeight.Equals(actual.minimumHeight)
             && expected.maximumHeight.Equals(actual.maximumHeight)
             && expected.baseHeight.Equals(actual.baseHeight)

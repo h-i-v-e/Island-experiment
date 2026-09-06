@@ -22,8 +22,8 @@ public sealed partial class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
     private const int CliffNoiseLatticePeriod = 16;
     private const int RiverNoiseDimension = 256;
     private const int RiverNoiseLatticePeriod = 32;
-    private const int GrassPatchNoiseDimension = 256;
-    private const int GrassPatchNoiseLatticePeriod = 64;
+    private const int WeatherNoiseDimension = 256;
+    private const int WeatherNoiseLatticePeriod = 64;
     private const int GrassColourNoiseLatticePeriod = 8;
     private const float RockPatchNoiseDetailScale = 8f;
     private const float SunDiscAngularRadiusDegrees = 0.7f;
@@ -67,10 +67,6 @@ public sealed partial class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
     private static readonly int CloudLightColourId = Shader.PropertyToID(
         "_MotuCloudLightColor");
 
-    [Header("Shared Configuration")]
-    [Tooltip("Required asset containing this island's generation and rendering profile.")]
-    [SerializeField] private IslandConfiguration configuration;
-
     [Header("Streaming")]
     [SerializeField] private IslandStreamingSettings streaming = new IslandStreamingSettings();
 
@@ -105,6 +101,10 @@ public sealed partial class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
     private Material meshEdgeMaterial;
     private Material treeWoodMaterial;
     private Material treeLod1WoodMaterial;
+    private Texture2D treeBarkAlbedoTexture;
+    private Texture2D treeBarkHeightTexture;
+    private Texture2D treeBarkNormalTexture;
+    private Texture2D treeBarkOcclusionTexture;
     private Material treeFoliageMaterial;
     private Material treeLod0FoliageMaterial;
     private Material reedMaterial;
@@ -142,10 +142,7 @@ public sealed partial class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
     private Color? appliedGrassColourA;
     private Color? appliedGrassColourB;
     private float appliedGrassColourNoiseWorldSize = float.NaN;
-    private float appliedGrassBrightness = float.NaN;
-    private Vector2 appliedGrassWindDirection = new Vector2(float.NaN, float.NaN);
     private float appliedGrassWindStrength = float.NaN;
-    private float appliedGrassWindSpeed = float.NaN;
     private float appliedGrassWindGustSize = float.NaN;
     private float appliedGrassWindNormalStrength = float.NaN;
     private bool? appliedShowDistanceHaze;
@@ -173,10 +170,10 @@ public sealed partial class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
         && worldEnvironment.SeaMaterial != null;
     internal IslandRuntime Runtime => islandRuntime;
     public string Status => status;
-    public IslandConfiguration Configuration => configuration;
     public float WorldSizeMetres => Generation.WorldSizeMetres;
     private IslandGenerationProfile Profile =>
-        activeProfile ??= IslandGenerationProfile.FromConfiguration(configuration);
+        activeProfile ?? throw new InvalidOperationException(
+            "IslandGenerator requires a complete IslandGenerationRequest before use.");
     public IslandGenerationSettings Generation => Profile.Generation;
     public IslandRiverSettings Rivers => Profile.Rivers;
     public IslandForestSettings Forest => Profile.Forest;
@@ -185,15 +182,9 @@ public sealed partial class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
     public IslandStreamingSettings Streaming => streaming;
     public IslandCloudSettings Clouds => clouds;
     public IslandRenderingSettings Rendering => Profile.Rendering;
-    public IslandDecorationSettings Decorations => Profile.Decorations;
     public IslandDebugSettings DebugSettings => Profile.DebugSettings;
     private IslandRuntimeLoop RuntimeLoop =>
         runtimeLoop ??= new IslandRuntimeLoop(this);
-
-    private void Start()
-    {
-        RuntimeLoop.Start();
-    }
 
     private void OnEnable()
     {
@@ -268,28 +259,6 @@ public sealed partial class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
             && Mathf.Approximately(scale.y, 1f)
             && Mathf.Approximately(scale.z, 1f)
             && Vector3.Dot(transform.up, Vector3.up) > 0.99999f;
-    }
-
-    public async void Generate()
-    {
-        await GenerateAsync((IslandDescriptor?)null, CancellationToken.None);
-    }
-
-    internal async Task<bool> GenerateAsync(
-        IslandDescriptor? descriptorOverride,
-        CancellationToken externalCancellation,
-        float installationFrameBudgetMilliseconds = 4f)
-    {
-        var descriptor = descriptorOverride
-            ?? IslandDescriptor.Origin(
-                Generation.Seed,
-                Generation.WorldSizeMetres,
-                transform);
-        var request = CreateGenerationRequest(descriptor);
-        return await GenerateAsync(
-            request,
-            externalCancellation,
-            installationFrameBudgetMilliseconds);
     }
 
     internal async Task<bool> GenerateAsync(
@@ -400,12 +369,6 @@ public sealed partial class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
         }
     }
 
-    public void Regenerate(int seed)
-    {
-        Generation.Seed = seed;
-        Generate();
-    }
-
     public void Clear()
     {
         generationLifecycle.Cancel();
@@ -455,21 +418,6 @@ public sealed partial class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
         environmentFollowTarget = Streaming.Target;
     }
 
-    internal IslandGenerationRequest CreateGenerationRequest(
-        IslandDescriptor descriptor)
-    {
-        return new IslandGenerationRequest(
-            descriptor,
-            Generation,
-            Rivers,
-            Forest,
-            Reeds,
-            Ferns,
-            Rendering,
-            Decorations,
-            DebugSettings);
-    }
-
     internal void ApplyRequestProfile(IslandGenerationProfile profile)
     {
         if (profile == null) throw new ArgumentNullException(nameof(profile));
@@ -482,20 +430,16 @@ public sealed partial class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
     }
 
     public void Configure(
-        IslandConfiguration islandConfiguration,
+        IslandGenerationRequest request,
         Transform streamingTarget = null)
     {
-        if (islandConfiguration == null)
-        {
-            throw new ArgumentNullException(nameof(islandConfiguration));
-        }
+        if (request == null) throw new ArgumentNullException(nameof(request));
         if (generationLifecycle.IsGenerating || islandRuntime != null)
         {
             throw new InvalidOperationException(
-                "Island configuration must be selected before generation starts.");
+                "An island request must be selected before generation starts.");
         }
-        configuration = islandConfiguration;
-        activeProfile = null;
+        request.ApplyProfileTo(this);
         Streaming.Target = streamingTarget;
     }
 
@@ -583,7 +527,6 @@ public sealed partial class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
         Material riverTemplate,
         Material seaTemplate,
         Material rockTemplate,
-        Material treeWoodTemplate = null,
         Material treeFoliageTemplate = null)
     {
         Streaming.Target = streamingTarget;
@@ -600,7 +543,6 @@ public sealed partial class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
             riverTemplate,
             seaTemplate,
             rockTemplate,
-            treeWoodTemplate,
             treeFoliageTemplate);
     }
 
@@ -656,6 +598,10 @@ public sealed partial class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
         rockMaterial = null;
         treeWoodMaterial = null;
         treeLod1WoodMaterial = null;
+        treeBarkAlbedoTexture = null;
+        treeBarkHeightTexture = null;
+        treeBarkNormalTexture = null;
+        treeBarkOcclusionTexture = null;
         treeFoliageMaterial = null;
         treeLod0FoliageMaterial = null;
         reedMaterial = null;

@@ -2,9 +2,7 @@
 #define MOTU_TREE_WIND_COMMON_INCLUDED
 
 sampler2D _GrassPatchNoise;
-float4 _GrassWindDirection;
 float _GrassWindStrength;
-float _GrassWindSpeed;
 float _GrassWindWorldSize;
 float _WorldSize;
 float _TreeWindStrengthMultiplier;

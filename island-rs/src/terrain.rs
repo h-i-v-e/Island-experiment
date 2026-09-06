@@ -106,7 +106,7 @@ pub struct IslandOptions {
     pub river_source_catchment_hectares: f32,
     /// Multiplies the required source flow as the routed edge approaches
     /// vertical. One disables the slope penalty.
-    pub river_source_steep_multiplier: f32,
+    pub river_source_steep_catchment_multiplier: f32,
     /// Additional catchment multiplier applied at sea level, fading to zero
     /// at the configured maximum elevation.
     pub river_source_elevation_boost: f32,
@@ -138,7 +138,7 @@ impl Default for IslandOptions {
             hydraulic_deposition_strength: 1.5,
             hydraulic_deposition_slope_degrees: 12.0,
             river_source_catchment_hectares: 0.05,
-            river_source_steep_multiplier: 4.0,
+            river_source_steep_catchment_multiplier: 4.0,
             river_source_elevation_boost: 9.0,
             river_source_width_metres: 2.0,
             river_maximum_width_metres: 14.0,
@@ -153,7 +153,7 @@ impl IslandOptions {
     const fn river_source_rule(self) -> RiverSourceRule {
         RiverSourceRule::new(
             self.river_source_catchment_hectares,
-            self.river_source_steep_multiplier,
+            self.river_source_steep_catchment_multiplier,
             self.river_source_elevation_boost,
             self.max_height,
         )

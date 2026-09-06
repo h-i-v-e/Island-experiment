@@ -279,7 +279,7 @@ internal static class IslandPreparationPipeline
             width = checked((uint)resolution),
             height = checked((uint)resolution),
             normalConvention = 1,
-            materialMask = 0x3f,
+            materialMask = 0x7f,
             reserved = 0,
         };
         var succeeded = MotuNative.BakeMotuMaterialTextures(
@@ -300,12 +300,43 @@ internal static class IslandPreparationPipeline
                 CopyMaterialTexture(textures.rock, resolution, "rock"),
                 CopyMaterialTexture(textures.riverBed, resolution, "river bed"),
                 CopyMaterialTexture(textures.beach, resolution, "beach"),
-                CopyMaterialTexture(textures.fallenStones, resolution, "fallen stones"));
+                CopyMaterialTexture(textures.fallenStones, resolution, "fallen stones"),
+                CopyMaterialTexture(textures.treeBark, resolution, "tree bark"));
             IslandMaterialTextureCache.TrySave(
                 result,
                 cacheBudgetBytes,
                 cacheDirectory);
             return result;
+        }
+        finally
+        {
+            MotuNative.ReleaseMaterialTextureSet(ref textures);
+        }
+    }
+
+    internal static IslandPreparedMaterialTexture PrepareTreeBarkTexture(int resolution)
+    {
+        var inputs = new IslandMaterialColours(Color.black, Color.black, Color.black).ToNative();
+        var options = new MotuNative.MaterialBakeOptions
+        {
+            width = checked((uint)resolution),
+            height = checked((uint)resolution),
+            normalConvention = 1,
+            materialMask = 0x40,
+            reserved = 0,
+        };
+        var succeeded = MotuNative.BakeMotuMaterialTextures(
+            ref inputs,
+            ref options,
+            out var textures);
+        try
+        {
+            if (succeeded == 0 || textures.handle == IntPtr.Zero)
+            {
+                throw new InvalidOperationException(
+                    "The Rust procedural material library could not bake tree bark.");
+            }
+            return CopyMaterialTexture(textures.treeBark, resolution, "tree bark");
         }
         finally
         {
@@ -321,6 +352,10 @@ internal static class IslandPreparationPipeline
         var pixels = checked(resolution * resolution);
         if (source.width != resolution
             || source.height != resolution
+            || !float.IsFinite(source.physicalTileWidthMetres)
+            || source.physicalTileWidthMetres <= 0f
+            || !float.IsFinite(source.physicalTileHeightMetres)
+            || source.physicalTileHeightMetres <= 0f
             || float.IsNaN(source.minimumHeight)
             || float.IsInfinity(source.minimumHeight)
             || float.IsNaN(source.maximumHeight)
@@ -354,6 +389,8 @@ internal static class IslandPreparationPipeline
         return new IslandPreparedMaterialTexture(
             resolution,
             resolution,
+            source.physicalTileWidthMetres,
+            source.physicalTileHeightMetres,
             source.minimumHeight,
             source.maximumHeight,
             source.baseHeight,

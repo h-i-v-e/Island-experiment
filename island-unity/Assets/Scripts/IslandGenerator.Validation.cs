@@ -142,7 +142,7 @@ public sealed partial class IslandGenerator
             hydraulicDepositionStrength = 1.5f,
             hydraulicDepositionSlopeDegrees = 12f,
             riverSourceCatchmentHectares = 0.05f,
-            riverSourceSteepMultiplier = 4f,
+            riverSourceSteepCatchmentMultiplier = 4f,
             riverSourceElevationBoost = 9f,
             riverSourceWidthMetres = 2f,
             riverMaximumWidthMetres = 14f,
@@ -375,8 +375,8 @@ public sealed partial class IslandGenerator
                     "_DirtNormalStrength", "_GrassNormalStrength",
                     "_SandNormalStrength", "_SnowNormalStrength",
                     "_GrassColorA", "_GrassColorB", "_GrassColorNoiseWorldSize",
-                    "_GrassPatchNoiseWorldSize", "_GrassWindDirection",
-                    "_GrassWindStrength", "_GrassWindSpeed", "_GrassWindWorldSize",
+                    "_GrassPatchNoiseWorldSize", "_GrassWindStrength",
+                    "_GrassWindWorldSize",
                     "_GrassWindNormalStrength", "_SandPatchNoiseWorldSize",
                     "_GrassPlayerPosition", "_GroundDirtCoreRadius",
                     "_GroundDirtFadeWidth", "_SnowMacroNoiseMetres",
@@ -554,7 +554,7 @@ public sealed partial class IslandGenerator
                     || !riverWaterMaterial.HasProperty("_WorldSize")
                     || !riverWaterMaterial.HasProperty("_ShallowOpacity")
                     || !riverWaterMaterial.HasProperty("_OpacityDepth")
-                    || !riverWaterMaterial.HasProperty("_EstuaryStrength")
+                    || !riverWaterMaterial.HasProperty("_SeaColor")
                     || !riverWaterMaterial.HasProperty("_EstuaryBlendHeight")
                     || !riverWaterMaterial.HasProperty("_SeaLevel")
                     || !riverWaterMaterial.HasProperty("_ReflectionColor")
@@ -626,7 +626,7 @@ public sealed partial class IslandGenerator
                     || seaWaterMaterial.HasProperty("_WorldSize")
                     || seaWaterMaterial.HasProperty("_ShoreWaveStrength")
                     || seaWaterMaterial.HasProperty("_CoarseFlowSpeed")
-                    || seaWaterMaterial.HasProperty("_EstuaryStrength")
+                    || seaWaterMaterial.HasProperty("_SeaColor")
                     || seaWaterMaterial.HasProperty("_WhitewaterStrength"))
                 {
                     throw new InvalidOperationException(
@@ -720,8 +720,7 @@ public sealed partial class IslandGenerator
                     "_GrassPatchNoise", "_GrassPatchNoiseWorldSize",
                     "_GrassColorA", "_GrassColorB", "_GrassColorNoiseWorldSize",
                     "_GrassPlayerPosition", "_GrassRadius", "_GrassHeight",
-                    "_GrassBrightness", "_GrassWindDirection", "_GrassWindStrength",
-                    "_GrassWindSpeed", "_GrassWindWorldSize",
+                    "_GrassWindStrength", "_GrassWindWorldSize",
                     "_GrassWindNormalStrength", "_GrassLightDirection",
                     "_GrassLightColor", "_GrassAmbientColor",
                     "_SandPatchNoiseWorldSize", "_RockBoundaryNoiseStrength",
@@ -734,12 +733,12 @@ public sealed partial class IslandGenerator
                     throw new InvalidOperationException(
                         "The terrain grass shader is missing its required properties.");
                 }
-                var grassPatchNoise = CreateGrassPatchNoiseTexture();
+                var grassPatchNoise = CreateWeatherNoiseTexture();
                 try
                 {
                     grassMaterial.SetTexture("_GrassPatchNoise", grassPatchNoise);
-                    if (grassPatchNoise.width != GrassPatchNoiseDimension
-                        || grassPatchNoise.height != GrassPatchNoiseDimension)
+                    if (grassPatchNoise.width != WeatherNoiseDimension
+                        || grassPatchNoise.height != WeatherNoiseDimension)
                     {
                         throw new InvalidOperationException(
                             "The grass patch noise texture has invalid dimensions.");

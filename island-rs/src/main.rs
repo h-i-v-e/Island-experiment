@@ -97,8 +97,8 @@ fn parse(arguments: impl Iterator<Item = String>) -> Result<Option<Command>, Str
                 command.options.river_source_catchment_hectares =
                     parse_value(&argument, &value(&mut arguments)?)?;
             }
-            "--river-source-steep-multiplier" => {
-                command.options.river_source_steep_multiplier =
+            "--river-source-steep-catchment-multiplier" => {
+                command.options.river_source_steep_catchment_multiplier =
                     parse_value(&argument, &value(&mut arguments)?)?;
             }
             "--river-source-elevation-boost" => {
@@ -147,7 +147,7 @@ fn print_help() {
                                   Angle where deposition reaches zero [default: 12]\n\
            --river-source-catchment-hectares <HECTARES>\n\
                                   Upstream drainage area required [default: 0.05]\n\
-           --river-source-steep-multiplier <S>\n\
+           --river-source-steep-catchment-multiplier <S>\n\
                                   Near-vertical source penalty [default: 4]\n\
            --river-source-elevation-boost <FACTOR>\n\
                                   Extra sea-level catchment multiplier [default: 9]\n\
@@ -177,7 +177,7 @@ mod tests {
                 "15",
                 "--river-source-catchment-hectares",
                 "0.75",
-                "--river-source-steep-multiplier",
+                "--river-source-steep-catchment-multiplier",
                 "5.25",
                 "--river-source-elevation-boost",
                 "8.5",
@@ -194,7 +194,9 @@ mod tests {
         assert!((command.options.hydraulic_deposition_strength - 2.5).abs() < f32::EPSILON);
         assert!((command.options.hydraulic_deposition_slope_degrees - 15.0).abs() < f32::EPSILON);
         assert!((command.options.river_source_catchment_hectares - 0.75).abs() < f32::EPSILON);
-        assert!((command.options.river_source_steep_multiplier - 5.25).abs() < f32::EPSILON);
+        assert!(
+            (command.options.river_source_steep_catchment_multiplier - 5.25).abs() < f32::EPSILON
+        );
         assert!((command.options.river_source_elevation_boost - 8.5).abs() < f32::EPSILON);
     }
 

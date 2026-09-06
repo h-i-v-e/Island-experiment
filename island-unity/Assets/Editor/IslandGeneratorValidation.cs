@@ -14,7 +14,7 @@ public static class IslandGeneratorValidation
     {
         IslandGenerator.BatchValidateNativeInterop();
         IslandGenerator.ValidateMaterialTextureCacheRoundTrip();
-        ValidateConfigurationAssetContract();
+        ValidateFactorySettingsContract();
         ValidateWaterfallMistShader();
         ValidateFernShader();
         ValidateSkyDomeShader();
@@ -31,7 +31,7 @@ public static class IslandGeneratorValidation
 
     public static void BatchValidateIslandWorldArchitecture()
     {
-        ValidateConfigurationAssetContract();
+        ValidateFactorySettingsContract();
         IslandWorldManager.ValidateRoutingPolicy();
         IslandProjectSetup.ValidateMultiIslandSandbox();
         ValidateSandboxScene();
@@ -39,37 +39,74 @@ public static class IslandGeneratorValidation
             "Factory-owned island requests, world routing, and replacement scenes passed validation.");
     }
 
-    private static void ValidateConfigurationAssetContract()
+    private static void ValidateFactorySettingsContract()
     {
-        var configuration = ScriptableObject.CreateInstance<IslandConfiguration>();
+        var factoryObject = new GameObject("Factory settings contract validation");
         try
         {
-            if (configuration.Generation == null
-                || configuration.Rivers == null
-                || configuration.Forest == null
-                || configuration.Reeds == null
-                || configuration.Ferns == null
-                || configuration.Rendering == null
-                || configuration.Decorations == null
-                || configuration.DebugSettings == null)
+            var factory = factoryObject.AddComponent<GridIslandGenerationRequestFactory>();
+            if (factory.GenerationSettings == null
+                || factory.RiverSettings == null
+                || factory.ForestSettings == null
+                || factory.ReedSettings == null
+                || factory.FernSettings == null
+                || factory.RenderingSettings == null
+                || factory.DebugSettings == null)
             {
                 throw new InvalidOperationException(
-                    "A new IslandConfiguration is missing a reusable settings group.");
+                    "A new request factory is missing an island settings group.");
             }
-            if (typeof(IslandConfiguration).GetProperty("Clouds") != null)
+            if (typeof(IslandGenerationRequestFactoryBase).GetProperty("Clouds") != null)
             {
                 throw new InvalidOperationException(
-                    "World weather must not be stored in per-island configuration assets.");
+                    "World weather must not be stored in an island request factory.");
             }
-            if (typeof(IslandConfiguration).GetProperty("Streaming") != null)
+            if (typeof(IslandRenderingSettings).GetProperty("GrassPatchNoise") != null)
             {
                 throw new InvalidOperationException(
-                    "Scene-specific streaming references must not be stored in IslandConfiguration assets.");
+                    "Ocean and vegetation weather noise must be owned by the global environment.");
+            }
+            if (typeof(IslandRenderingSettings).GetProperty("TreeWoodMaterial") != null)
+            {
+                throw new InvalidOperationException(
+                    "Runtime tree bark must not depend on a per-island wood material template.");
+            }
+            if (typeof(IslandRenderingSettings).GetMethod(
+                    "SelectMaterialColours",
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic) != null)
+            {
+                throw new InvalidOperationException(
+                    "Material palette selection must be owned by the island request factory.");
+            }
+            if (typeof(IslandGenerationRequestFactoryBase).GetProperty("Streaming") != null)
+            {
+                throw new InvalidOperationException(
+                    "Scene-specific streaming references must not be stored in an island request factory.");
+            }
+
+            var dirt = new Color(0.11f, 0.12f, 0.13f, 1f);
+            var stone = new Color(0.21f, 0.22f, 0.23f, 1f);
+            var sand = new Color(0.31f, 0.32f, 0.33f, 1f);
+            factory.DirtColour = dirt;
+            factory.StoneColour = stone;
+            factory.SandColour = sand;
+            factory.RandomizeMaterialColours = false;
+            factory.Configure(731, false, 0f);
+            factory.SetFixedIslands(
+                new GridIslandGenerationRequestFactory.FixedIsland(Vector2Int.zero));
+            var request = factory.CreateIslandGenerationRequest(Vector2Int.zero);
+            if (request == null
+                || request.MaterialColours.Dirt != dirt
+                || request.MaterialColours.Stone != stone
+                || request.MaterialColours.Sand != sand)
+            {
+                throw new InvalidOperationException(
+                    "The request factory did not put its selected material palette on the request.");
             }
         }
         finally
         {
-            UnityEngine.Object.DestroyImmediate(configuration);
+            UnityEngine.Object.DestroyImmediate(factoryObject);
         }
 
         var environment = ScriptableObject.CreateInstance<WorldEnvironmentConfiguration>();
@@ -121,6 +158,17 @@ public static class IslandGeneratorValidation
 
     private static void ValidateOceanWaveSystem()
     {
+        var calmScale = WorldEnvironmentController.EvaluateWaveHeightScale(0f);
+        var referenceScale = WorldEnvironmentController.EvaluateWaveHeightScale(
+            WorldEnvironmentController.ReferenceWindSpeedMetresPerSecond);
+        var strongScale = WorldEnvironmentController.EvaluateWaveHeightScale(36f);
+        if (!Mathf.Approximately(calmScale, 0f)
+            || !Mathf.Approximately(referenceScale, 1f)
+            || !Mathf.Approximately(strongScale, 2f))
+        {
+            throw new InvalidOperationException(
+                "Global wind speed does not produce the expected ocean-wave height scale.");
+        }
         var settings = OceanWaveRuntimeSettings.Default;
         var coordinates = OceanClipmapMeshBuilder.BuildAxisCoordinates(
             10000f,
@@ -680,14 +728,20 @@ public static class IslandGeneratorValidation
             throw new InvalidOperationException("The island sandbox scene could not be opened.");
         }
         var rendering = RequireSandboxRequest().Rendering;
-        if (rendering.GrassWindDirection.sqrMagnitude < 1.0e-4f
+        var managers = UnityEngine.Object.FindObjectsByType<IslandWorldManager>(
+            FindObjectsInactive.Include);
+        var environment = managers.Length == 1
+            ? managers[0].GlobalEnvironmentSettings
+            : null;
+        if (environment == null
+            || environment.WindDirection.sqrMagnitude < 1.0e-4f
+            || environment.WindSpeedMetresPerSecond <= 0f
             || rendering.GrassWindStrengthMetres <= 0f
-            || rendering.GrassWindSpeedMetresPerSecond <= 0f
             || rendering.GrassWindGustSizeMetres <= 0f
             || rendering.GrassWindNormalStrength <= 0f)
         {
             throw new InvalidOperationException(
-                "The sandbox grass wind settings are missing or disabled.");
+                "The sandbox global wind or vegetation response settings are missing or disabled.");
         }
 
         var shader = Shader.Find("Motu/Terrain Grass");
@@ -702,23 +756,43 @@ public static class IslandGeneratorValidation
             throw new InvalidOperationException(
                 "A wind-enabled grass or terrain shader is missing or unsupported.");
         }
+        var vegetationShaderNames = new[]
+        {
+            "Motu/Tree Wood",
+            "Motu/Tree Foliage",
+            "Motu/Tree Foliage Distant",
+            "Motu/Riverbank Reeds",
+            "Motu/Forest Ferns",
+            "Motu/Planar Reflection Simplified",
+        };
+        foreach (var shaderName in vegetationShaderNames)
+        {
+            var vegetationShader = Shader.Find(shaderName);
+            if (vegetationShader == null
+                || !vegetationShader.isSupported
+                || ShaderUtil.ShaderHasError(vegetationShader))
+            {
+                throw new InvalidOperationException(
+                    $"Global wind receiver shader '{shaderName}' is missing or unsupported.");
+            }
+        }
         var material = new Material(shader);
         var terrainMaterial = new Material(terrainShader);
         try
         {
-            if (!material.HasProperty("_GrassWindDirection")
-                || !material.HasProperty("_GrassWindStrength")
-                || !material.HasProperty("_GrassWindSpeed")
+            if (!material.HasProperty("_GrassWindStrength")
                 || !material.HasProperty("_GrassWindWorldSize")
                 || !material.HasProperty("_GrassWindNormalStrength")
-                || !terrainMaterial.HasProperty("_GrassWindDirection")
                 || !terrainMaterial.HasProperty("_GrassWindStrength")
-                || !terrainMaterial.HasProperty("_GrassWindSpeed")
                 || !terrainMaterial.HasProperty("_GrassWindWorldSize")
-                || !terrainMaterial.HasProperty("_GrassWindNormalStrength"))
+                || !terrainMaterial.HasProperty("_GrassWindNormalStrength")
+                || material.HasProperty("_GrassWindDirection")
+                || material.HasProperty("_GrassWindSpeed")
+                || terrainMaterial.HasProperty("_GrassWindDirection")
+                || terrainMaterial.HasProperty("_GrassWindSpeed"))
             {
                 throw new InvalidOperationException(
-                    "The near or far grass shader is missing its wind controls.");
+                    "Vegetation must keep local response controls but source direction and speed from global weather.");
             }
         }
         finally
@@ -726,7 +800,7 @@ public static class IslandGeneratorValidation
             UnityEngine.Object.DestroyImmediate(material);
             UnityEngine.Object.DestroyImmediate(terrainMaterial);
         }
-        Debug.Log("Near and far grass wind-normal controls passed validation.");
+        Debug.Log("Global weather and near/far vegetation wind controls passed validation.");
     }
 
     private static IslandGenerationRequest RequireSandboxRequest()
@@ -741,9 +815,7 @@ public static class IslandGeneratorValidation
             throw new InvalidOperationException(
                 "The sandbox must contain one world manager and one grid request factory.");
         }
-        var cell = Vector2Int.zero;
-        var seed = managers[0].WorldSeed;
-        return factories[0].CreateIslandGenerationRequest(seed, cell)
+        return factories[0].CreateIslandGenerationRequest(Vector2Int.zero)
             ?? throw new InvalidOperationException(
                 "The sandbox request factory leaves its origin cell as open sea.");
     }
@@ -780,6 +852,11 @@ public static class IslandGeneratorValidation
             throw new InvalidOperationException(
                 $"The sandbox scene must contain one runtime debug HUD; found {demoControllers.Length}.");
         }
+        if (!demoControllers[0].ShowMinimap)
+        {
+            throw new InvalidOperationException(
+                "The sandbox runtime debug HUD does not have its island minimap enabled.");
+        }
         var managerState = new SerializedObject(managers[0]);
         if (managerState.FindProperty("streamingTarget").objectReferenceValue == null
             || managerState.FindProperty("islandGenerationRequestFactoryComponent")
@@ -814,13 +891,12 @@ public static class IslandGeneratorValidation
             throw new InvalidOperationException(
                 "The sandbox first-person distance haze is missing or has invalid density.");
         }
-        ValidateFirstPersonDistanceHaze(factories[0].DefaultConfiguration);
+        ValidateFirstPersonDistanceHaze(request);
         if (request.Rendering.TerrainMaterial == null
             || request.Rendering.GrassMaterial == null
             || request.Rendering.RiverMaterial == null
             || request.Rendering.SeaMaterial == null
-            || request.Rendering.RockMaterial == null
-            || request.Rendering.TreeWoodMaterial == null)
+            || request.Rendering.RockMaterial == null)
         {
             throw new InvalidOperationException(
                 "The sandbox IslandGenerator is missing a default material template.");
@@ -831,24 +907,8 @@ public static class IslandGeneratorValidation
             throw new InvalidOperationException(
                 "The sandbox river and sea materials do not use their dedicated shaders.");
         }
-        var treeWood = request.Rendering.TreeWoodMaterial;
-        if (treeWood.shader.name != "Motu/Tree Wood"
-            || treeWood.GetTexture("_BarkAlbedoMap") == null
-            || treeWood.GetTexture("_BarkHeightMap") == null
-            || treeWood.GetTexture("_BarkNormalMap") == null
-            || treeWood.GetTexture("_BarkOcclusionMap") == null)
-        {
-            throw new InvalidOperationException(
-                "The sandbox tree wood template is missing its authored Bark recipe maps.");
-        }
         ValidateRealTimeAmbientOcclusion();
         ValidatePlanarWaterReflections();
-        if (request.Decorations.TreePrefabs == null
-            || request.Decorations.PlantPrefabs == null)
-        {
-            throw new InvalidOperationException(
-                "The sandbox decoration asset libraries are not serialized.");
-        }
         var sceneEnabled = EditorBuildSettings.scenes.Any(
             entry => entry.enabled && entry.path == SandboxScenePath);
         if (!sceneEnabled)
@@ -858,7 +918,7 @@ public static class IslandGeneratorValidation
         }
     }
 
-    private static void ValidateFirstPersonDistanceHaze(IslandConfiguration configuration)
+    private static void ValidateFirstPersonDistanceHaze(IslandGenerationRequest request)
     {
         var setFirstPerson = typeof(IslandGenerator).GetMethod(
             "SetFirstPersonViewActive",
@@ -872,7 +932,7 @@ public static class IslandGeneratorValidation
         var islandObject = new GameObject("Island haze validation");
         islandObject.SetActive(false);
         var island = islandObject.AddComponent<IslandGenerator>();
-        island.Configure(configuration);
+        island.Configure(request);
         var originalFog = RenderSettings.fog;
         var originalMode = RenderSettings.fogMode;
         var originalColour = RenderSettings.fogColor;

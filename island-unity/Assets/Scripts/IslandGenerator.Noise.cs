@@ -82,45 +82,45 @@ public sealed partial class IslandGenerator
         return texture;
     }
 
-    private static Texture2D CreateGrassPatchNoiseTexture()
+    internal static Texture2D CreateWeatherNoiseTexture()
     {
         var texture = new Texture2D(
-            GrassPatchNoiseDimension,
-            GrassPatchNoiseDimension,
+            WeatherNoiseDimension,
+            WeatherNoiseDimension,
             TextureFormat.RGBA32,
             true,
             true)
         {
-            name = "Grass coverage and broad colour noise",
+            name = "Global ocean and vegetation weather noise",
             filterMode = FilterMode.Trilinear,
             wrapMode = TextureWrapMode.Repeat,
             anisoLevel = 2,
         };
-        var pixels = new Color[GrassPatchNoiseDimension * GrassPatchNoiseDimension];
-        var latticeScale = GrassPatchNoiseLatticePeriod
-            / (float)GrassPatchNoiseDimension;
+        var pixels = new Color[WeatherNoiseDimension * WeatherNoiseDimension];
+        var latticeScale = WeatherNoiseLatticePeriod
+            / (float)WeatherNoiseDimension;
         var colourLatticeScale = GrassColourNoiseLatticePeriod
-            / (float)GrassPatchNoiseDimension;
-        for (var y = 0; y < GrassPatchNoiseDimension; y++)
+            / (float)WeatherNoiseDimension;
+        for (var y = 0; y < WeatherNoiseDimension; y++)
         {
-            for (var x = 0; x < GrassPatchNoiseDimension; x++)
+            for (var x = 0; x < WeatherNoiseDimension; x++)
             {
                 var sampleX = (x + 0.5f) * latticeScale;
                 var sampleY = (y + 0.5f) * latticeScale;
                 var colourSampleX = (x + 0.5f) * colourLatticeScale;
                 var colourSampleY = (y + 0.5f) * colourLatticeScale;
-                var index = x + GrassPatchNoiseDimension * y;
+                var index = x + WeatherNoiseDimension * y;
                 pixels[index] = new Color(
                     PeriodicNoise2D(
                         sampleX,
                         sampleY,
                         0xB5297A4Du,
-                        GrassPatchNoiseLatticePeriod),
+                        WeatherNoiseLatticePeriod),
                     PeriodicNoise2D(
                         sampleX,
                         sampleY,
                         0x68E31DA4u,
-                        GrassPatchNoiseLatticePeriod),
+                        WeatherNoiseLatticePeriod),
                     PeriodicNoise2D(
                         colourSampleX,
                         colourSampleY,

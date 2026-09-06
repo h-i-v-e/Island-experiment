@@ -183,14 +183,14 @@ pub const PARAMETERS: [Parameter; 19] = [
         logarithmic: true,
         field: |options| &mut options.river_source_catchment_hectares,
     },
-    // The range the Unity viewer constrains the steep-slope multiplier to.
+    // The range the Unity viewer constrains the steep-source catchment penalty to.
     Parameter {
-        flag: "--river-source-steep-multiplier",
+        flag: "--river-source-steep-catchment-multiplier",
         group: Group::Rivers,
         minimum: 1.0,
         maximum: 8.0,
         logarithmic: false,
-        field: |options| &mut options.river_source_steep_multiplier,
+        field: |options| &mut options.river_source_steep_catchment_multiplier,
     },
     // The range the Unity viewer constrains the elevation boost to.
     Parameter {

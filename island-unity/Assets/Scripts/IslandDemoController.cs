@@ -4,7 +4,16 @@ public sealed class IslandDemoController : MonoBehaviour
 {
     private const float ClickDragTolerance = 6f;
     private const float FrameRateSampleSeconds = 0.25f;
+    private const int MinimapRadiusCells = 16;
+    private const int MinimapDiameterCells = MinimapRadiusCells * 2 + 1;
+    private const float MinimapCellPixels = 7f;
+    private const float MinimapTexturePixels = MinimapDiameterCells * MinimapCellPixels;
+    private const float MinimapPanelWidth = MinimapTexturePixels + 20f;
+    private const float MinimapPanelHeight = MinimapTexturePixels + 54f;
     private static readonly Rect PanelRect = new Rect(16f, 16f, 600f, 250f);
+    private static readonly Color32 MinimapSeaColour = new Color32(18, 63, 105, 255);
+    private static readonly Color32 MinimapIslandColour = new Color32(79, 139, 61, 255);
+    private static readonly Color MinimapPlayerColour = new Color(1f, 0.82f, 0.18f, 1f);
 
     [SerializeField] private IslandWorldManager worldManager;
     [SerializeField] private Camera viewerCamera;
@@ -15,12 +24,29 @@ public sealed class IslandDemoController : MonoBehaviour
     [SerializeField] private Vector3 flyStartPosition = new Vector3(0f, 4f, -1800f);
     [SerializeField] private float flyStartYawDegrees;
     [SerializeField] private float flyStartPitchDegrees;
+    [Header("World Minimap")]
+    [SerializeField] private bool showMinimap = true;
 
     private bool clickCandidate;
     private Vector2 clickStart;
     private float frameRateSampleTime;
     private int frameRateSampleFrames;
     private string frameRateText = "FPS: --";
+    private Texture2D minimapTexture;
+    private Color32[] minimapPixels;
+    private IIslandGenerationRequestFactory minimapFactory;
+    private Vector2Int minimapCentreCell;
+    private bool hasMinimapCentre;
+
+    public bool ShowMinimap
+    {
+        get => showMinimap;
+        set
+        {
+            showMinimap = value;
+            hasMinimapCentre = false;
+        }
+    }
 
     public void Configure(
         IslandWorldManager manager,
@@ -56,7 +82,7 @@ public sealed class IslandDemoController : MonoBehaviour
         }
         orbitCamera.Configure(
             IslandWorldManager.CellCentre(Vector2Int.zero, 60f),
-            IslandWorldManager.IslandCellSizeMetres * 1.15f);
+            IslandWorldManager.IslandSizeMetres * 1.15f);
         firstPersonController?.Configure(
             orbitCamera,
             worldManager);
@@ -77,6 +103,7 @@ public sealed class IslandDemoController : MonoBehaviour
     private void Update()
     {
         UpdateFrameRate();
+        UpdateMinimap();
         var island = worldManager.FocusedIsland;
         if (firstPersonController == null
             || firstPersonController.IsActive
@@ -134,11 +161,15 @@ public sealed class IslandDemoController : MonoBehaviour
 
     private void OnGUI()
     {
+        var minimapPanel = DrawMinimap();
         var island = worldManager.FocusedIsland;
         if (island != null && island.DebugSettings.ShowFrameRate)
         {
+            var frameRateY = minimapPanel.height > 0f
+                ? minimapPanel.yMax + 8f
+                : 16f;
             GUI.Label(
-                new Rect(Mathf.Max(16f, Screen.width - 116f), 16f, 100f, 28f),
+                new Rect(Mathf.Max(16f, Screen.width - 116f), frameRateY, 100f, 28f),
                 frameRateText,
                 GUI.skin.box);
         }
@@ -173,6 +204,141 @@ public sealed class IslandDemoController : MonoBehaviour
         GUILayout.EndArea();
     }
 
+    private void UpdateMinimap()
+    {
+        if (!showMinimap || worldManager == null)
+        {
+            return;
+        }
+        var factory = worldManager.IslandGenerationRequestFactory;
+        if (factory == null)
+        {
+            return;
+        }
+
+        var logicalPosition = worldManager.LogicalPlayerPosition;
+        var centreCell = IslandWorldManager.WorldToCell(
+            new Vector3(logicalPosition.x, 0f, logicalPosition.y));
+        var factoryChanged = !ReferenceEquals(minimapFactory, factory);
+        if (!factoryChanged
+            && hasMinimapCentre
+            && minimapCentreCell == centreCell)
+        {
+            return;
+        }
+
+        EnsureMinimapTexture();
+        for (var z = -MinimapRadiusCells; z <= MinimapRadiusCells; z++)
+        {
+            for (var x = -MinimapRadiusCells; x <= MinimapRadiusCells; x++)
+            {
+                var cell = centreCell + new Vector2Int(x, z);
+                var pixelIndex = (z + MinimapRadiusCells) * MinimapDiameterCells
+                    + x + MinimapRadiusCells;
+                minimapPixels[pixelIndex] = worldManager.HasIsland(cell)
+                    ? MinimapIslandColour
+                    : MinimapSeaColour;
+            }
+        }
+        minimapTexture.SetPixels32(minimapPixels);
+        minimapTexture.Apply(false, false);
+        minimapFactory = factory;
+        minimapCentreCell = centreCell;
+        hasMinimapCentre = true;
+    }
+
+    private void EnsureMinimapTexture()
+    {
+        if (minimapTexture != null)
+        {
+            return;
+        }
+        minimapTexture = new Texture2D(
+            MinimapDiameterCells,
+            MinimapDiameterCells,
+            TextureFormat.RGBA32,
+            false,
+            true)
+        {
+            name = "Island occupancy minimap",
+            filterMode = FilterMode.Point,
+            wrapMode = TextureWrapMode.Clamp,
+            hideFlags = HideFlags.HideAndDontSave,
+        };
+        minimapPixels = new Color32[MinimapDiameterCells * MinimapDiameterCells];
+    }
+
+    private Rect DrawMinimap()
+    {
+        if (!showMinimap || minimapTexture == null || !hasMinimapCentre)
+        {
+            return default;
+        }
+
+        var panel = new Rect(
+            Mathf.Max(8f, Screen.width - MinimapPanelWidth - 16f),
+            16f,
+            MinimapPanelWidth,
+            MinimapPanelHeight);
+        GUI.Box(panel, GUIContent.none);
+        GUI.Label(
+            new Rect(panel.x + 10f, panel.y + 5f, panel.width - 20f, 20f),
+            $"Island map ±16 cells | centre {minimapCentreCell.x}, {minimapCentreCell.y}");
+        var map = new Rect(
+            panel.x + 10f,
+            panel.y + 26f,
+            MinimapTexturePixels,
+            MinimapTexturePixels);
+        GUI.DrawTexture(map, minimapTexture, ScaleMode.StretchToFill, false);
+        DrawMinimapCentre(map);
+        GUI.Label(
+            new Rect(panel.x + 10f, map.yMax + 3f, panel.width - 20f, 20f),
+            "N ↑    green: island    blue: open sea");
+        return panel;
+    }
+
+    private static void DrawMinimapCentre(Rect map)
+    {
+        var centre = new Rect(
+            map.x + MinimapRadiusCells * MinimapCellPixels,
+            map.y + MinimapRadiusCells * MinimapCellPixels,
+            MinimapCellPixels,
+            MinimapCellPixels);
+        var previousColour = GUI.color;
+        GUI.color = MinimapPlayerColour;
+        GUI.DrawTexture(
+            new Rect(centre.x, centre.y, centre.width, 1f),
+            Texture2D.whiteTexture);
+        GUI.DrawTexture(
+            new Rect(centre.x, centre.yMax - 1f, centre.width, 1f),
+            Texture2D.whiteTexture);
+        GUI.DrawTexture(
+            new Rect(centre.x, centre.y, 1f, centre.height),
+            Texture2D.whiteTexture);
+        GUI.DrawTexture(
+            new Rect(centre.xMax - 1f, centre.y, 1f, centre.height),
+            Texture2D.whiteTexture);
+        GUI.color = previousColour;
+    }
+
+    private void OnDestroy()
+    {
+        if (minimapTexture == null)
+        {
+            return;
+        }
+        if (Application.isPlaying)
+        {
+            Destroy(minimapTexture);
+        }
+        else
+        {
+            DestroyImmediate(minimapTexture);
+        }
+        minimapTexture = null;
+        minimapPixels = null;
+    }
+
     private void DrawWorldStatus()
     {
         if (worldManager == null)
@@ -184,8 +350,7 @@ public sealed class IslandDemoController : MonoBehaviour
             : "open sea";
         var logicalPosition = worldManager.LogicalPlayerPosition;
         GUILayout.Label(
-            $"World {worldManager.WorldSeed} | position "
-            + $"{logicalPosition.x:0}, {logicalPosition.y:0} m | focus: {focused}");
+            $"Position {logicalPosition.x:0}, {logicalPosition.y:0} m | focus: {focused}");
         GUILayout.Label(
             $"Islands: {worldManager.LoadedIslandCount}/{worldManager.ResidentIslandLimit} resident"
             + $" | {worldManager.KnownIslandCount} known"

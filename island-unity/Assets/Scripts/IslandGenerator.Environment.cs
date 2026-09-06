@@ -165,12 +165,15 @@ public sealed partial class IslandGenerator
             return;
         }
         EnsureCloudWeatherTexture();
-        var windDirection = Clouds.WindDirection;
+        // Managed worlds own live weather in WorldEnvironmentController. This
+        // standalone compatibility path uses the same reference wind.
+        var windDirection = Vector2.right;
         if (windDirection.sqrMagnitude > 0.000001f)
         {
             windDirection.Normalize();
             var windTravel = windDirection
-                * (Clouds.WindSpeedMetresPerSecond * Mathf.Max(deltaTime, 0f));
+                * (WorldEnvironmentController.ReferenceWindSpeedMetresPerSecond
+                    * Mathf.Max(deltaTime, 0f));
             cloudWindOffset += windTravel;
             cloudBroadWindOffset += windTravel * 0.18f;
         }
@@ -251,18 +254,9 @@ public sealed partial class IslandGenerator
         {
             ApplyGrassColourSettings();
         }
-        if (!Mathf.Approximately(appliedGrassBrightness, Rendering.GrassBrightness))
-        {
-            appliedGrassBrightness = Rendering.GrassBrightness;
-            grassMaterial?.SetFloat("_GrassBrightness", appliedGrassBrightness);
-        }
-        if (appliedGrassWindDirection != Rendering.GrassWindDirection
-            || !Mathf.Approximately(
+        if (!Mathf.Approximately(
                 appliedGrassWindStrength,
                 Rendering.GrassWindStrengthMetres)
-            || !Mathf.Approximately(
-                appliedGrassWindSpeed,
-                Rendering.GrassWindSpeedMetresPerSecond)
             || !Mathf.Approximately(
                 appliedGrassWindGustSize,
                 Rendering.GrassWindGustSizeMetres)

@@ -15,6 +15,10 @@ public sealed class OceanWaveSandboxController : MonoBehaviour
     [SerializeField] private OceanWaveProfile profile;
     [SerializeField] private Material seaMaterialTemplate;
     [SerializeField] private Transform followTarget;
+    [Tooltip("Global wind direction in world X/Z coordinates for this sea-only test scene.")]
+    [SerializeField] private Vector2 windDirection = new Vector2(1f, 0.25f);
+    [Tooltip("Global wind speed in metres per second for this sea-only test scene.")]
+    [Range(0f, 40f)] [SerializeField] private float windSpeedMetresPerSecond = 9f;
     [Min(100f)] [SerializeField] private float oceanDiameterMetres = 16000f;
     [Min(0.25f)] [SerializeField] private float anchorSnapMetres = 16f;
     [Min(1f)] [SerializeField] private float moveSpeedMetresPerSecond = 24f;
@@ -56,13 +60,14 @@ public sealed class OceanWaveSandboxController : MonoBehaviour
             ? new Material(seaMaterialTemplate)
             : new Material(shader);
         material.name = "Ocean Wave Sandbox Sea (Runtime)";
-        noiseTexture = IslandGenerator.CreateRiverNoiseTexture();
+        noiseTexture = IslandGenerator.CreateWeatherNoiseTexture();
         material.SetTexture(NoiseTextureId, noiseTexture);
         var settings = profile != null
             ? profile.ToRuntimeSettings()
             : OceanWaveRuntimeSettings.Default;
         anchorSnapMetres = settings.MaskAnchorSnapMetres;
         ocean.Install(material, oceanDiameterMetres, true, settings);
+        ApplyWeatherWind();
 
         if (followTarget == null && Camera.main != null)
         {
@@ -84,6 +89,7 @@ public sealed class OceanWaveSandboxController : MonoBehaviour
 
     private void Update()
     {
+        ApplyWeatherWind();
         smoothedFrameTime = Mathf.Lerp(
             smoothedFrameTime,
             Mathf.Max(Time.unscaledDeltaTime, 1.0e-5f),
@@ -186,6 +192,14 @@ public sealed class OceanWaveSandboxController : MonoBehaviour
             Mathf.Round(followTarget.position.x / snap) * snap,
             0f,
             Mathf.Round(followTarget.position.z / snap) * snap);
+    }
+
+    private void ApplyWeatherWind()
+    {
+        var waveScale = WorldEnvironmentController.ApplyWeatherWindGlobals(
+            windDirection,
+            windSpeedMetresPerSecond);
+        ocean?.ApplyWeatherWindScale(waveScale);
     }
 
     private void SetCursorCaptured(bool captured)

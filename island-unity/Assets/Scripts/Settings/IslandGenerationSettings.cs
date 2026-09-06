@@ -6,11 +6,6 @@ using UnityEngine.Serialization;
 [Serializable]
 public sealed class IslandGenerationSettings
 {
-    private const float NativeIslandWorldMetres = 2000f;
-
-    [Tooltip("Generate this island automatically when the level enters Play Mode.")]
-    [SerializeField] private bool generateOnStart = true;
-
     [Tooltip("Restore previously generated islands from the persistent on-disk snapshot cache.")]
     [SerializeField] private bool useSnapshotCache = true;
 
@@ -20,10 +15,6 @@ public sealed class IslandGenerationSettings
 
     [Tooltip("Deterministic seed used by the native island generator.")]
     [SerializeField] private int seed = 666;
-
-    [Tooltip("Width and length of the generated island square in metres.")]
-    [Min(100f)]
-    [SerializeField] private float worldSizeMetres = 2000f;
 
     [Tooltip("Maximum generated terrain height above sea level in metres.")]
     [Min(1f)]
@@ -73,75 +64,80 @@ public sealed class IslandGenerationSettings
     [Range(1f, 45f)]
     [SerializeField] private float depositionMaximumSlopeDegrees = 12f;
 
-    public bool GenerateOnStart => generateOnStart;
-    internal bool UseSnapshotCache => useSnapshotCache;
+    public bool UseSnapshotCache
+    {
+        get => useSnapshotCache;
+        set => useSnapshotCache = value;
+    }
+    public int SnapshotCacheBudgetGiB
+    {
+        get => Mathf.Clamp(snapshotCacheBudgetGiB, 1, 64);
+        set => snapshotCacheBudgetGiB = Mathf.Clamp(value, 1, 64);
+    }
     internal long SnapshotCacheBudgetBytes =>
-        (long)Mathf.Clamp(snapshotCacheBudgetGiB, 1, 64) * 1024L * 1024L * 1024L;
+        (long)SnapshotCacheBudgetGiB * 1024L * 1024L * 1024L;
     public int Seed { get => seed; set => seed = value; }
-    public float WorldSizeMetres => Mathf.Max(worldSizeMetres, 100f);
-    public float MaximumHeightMetres => Mathf.Clamp(
-        maximumHeightMetres,
-        1f,
-        WorldSizeMetres * 0.5f);
+    public float WorldSizeMetres => IslandWorldManager.IslandSizeMetres;
+    public float MaximumHeightMetres
+    {
+        get => Mathf.Clamp(maximumHeightMetres, 1f, WorldSizeMetres * 0.5f);
+        set => maximumHeightMetres = Mathf.Clamp(value, 1f, WorldSizeMetres * 0.5f);
+    }
     internal float MaximumHeightNormalized => MaximumHeightMetres / WorldSizeMetres;
-    internal float WaterRatio => Mathf.Clamp(waterRatio, 0.60f, 0.95f);
-    internal float InlandSlopeMultiplier => Mathf.Clamp(inlandSlopeMultiplier, 0.2f, 4f);
-    internal float CoastalSlopeMultiplier => Mathf.Clamp(coastalSlopeMultiplier, 0.1f, 4f);
-    internal float ContinentalNoiseFrequency => Mathf.Clamp(continentalNoiseFrequency, 0.1f, 128f);
-    internal float ContinentalNoiseStrength => Mathf.Clamp(continentalNoiseStrength, 0f, 4f);
-    internal float DetailNoiseFrequency => Mathf.Clamp(detailNoiseFrequency, 0.1f, 128f);
-    internal float DetailNoiseStrength => Mathf.Clamp(detailNoiseStrength, 0f, 4f);
-    internal float LandMassOffset => Mathf.Clamp(landMassOffset, -2f, 2f);
-    internal float HydraulicErosionStrength => Mathf.Clamp(hydraulicErosionStrength, 0f, 8f);
-    internal float SedimentDepositionStrength => Mathf.Clamp(sedimentDepositionStrength, 0f, 4f);
-    internal float DepositionMaximumSlopeDegrees => Mathf.Clamp(
-        depositionMaximumSlopeDegrees,
-        1f,
-        45f);
-
-    internal void ApplyDeterministicVariation(
-        int islandSeed,
-        IslandParameterVariationSettings variation)
+    public float WaterRatio
     {
-        if (variation == null || !variation.Enabled)
-        {
-            return;
-        }
-
-        var random = new System.Random(unchecked(islandSeed * 1664525 + 1013904223));
-        maximumHeightMetres *= Scale(random, variation.MaximumHeightVariation);
-        waterRatio += Signed(random) * variation.WaterRatioVariation;
-        inlandSlopeMultiplier *= Scale(random, variation.SlopeVariation);
-        coastalSlopeMultiplier *= Scale(random, variation.SlopeVariation);
-        continentalNoiseFrequency *= Scale(random, variation.NoiseFrequencyVariation);
-        detailNoiseFrequency *= Scale(random, variation.NoiseFrequencyVariation);
-        continentalNoiseStrength *= Scale(random, variation.NoiseStrengthVariation);
-        detailNoiseStrength *= Scale(random, variation.NoiseStrengthVariation);
-        landMassOffset += Signed(random) * variation.LandMassOffsetVariation;
-        hydraulicErosionStrength *= Scale(random, variation.ErosionVariation);
-        sedimentDepositionStrength *= Scale(random, variation.ErosionVariation);
-
-        maximumHeightMetres = MaximumHeightMetres;
-        waterRatio = WaterRatio;
-        inlandSlopeMultiplier = InlandSlopeMultiplier;
-        coastalSlopeMultiplier = CoastalSlopeMultiplier;
-        continentalNoiseFrequency = ContinentalNoiseFrequency;
-        detailNoiseFrequency = DetailNoiseFrequency;
-        continentalNoiseStrength = ContinentalNoiseStrength;
-        detailNoiseStrength = DetailNoiseStrength;
-        landMassOffset = LandMassOffset;
-        hydraulicErosionStrength = HydraulicErosionStrength;
-        sedimentDepositionStrength = SedimentDepositionStrength;
+        get => Mathf.Clamp(waterRatio, 0.60f, 0.95f);
+        set => waterRatio = Mathf.Clamp(value, 0.60f, 0.95f);
     }
-
-    private static float Scale(System.Random random, float variation)
+    public float InlandSlopeMultiplier
     {
-        return 1f + Signed(random) * Mathf.Clamp01(variation);
+        get => Mathf.Clamp(inlandSlopeMultiplier, 0.2f, 4f);
+        set => inlandSlopeMultiplier = Mathf.Clamp(value, 0.2f, 4f);
     }
-
-    private static float Signed(System.Random random)
+    public float CoastalSlopeMultiplier
     {
-        return (float)random.NextDouble() * 2f - 1f;
+        get => Mathf.Clamp(coastalSlopeMultiplier, 0.1f, 4f);
+        set => coastalSlopeMultiplier = Mathf.Clamp(value, 0.1f, 4f);
+    }
+    public float ContinentalNoiseFrequency
+    {
+        get => Mathf.Clamp(continentalNoiseFrequency, 0.1f, 128f);
+        set => continentalNoiseFrequency = Mathf.Clamp(value, 0.1f, 128f);
+    }
+    public float ContinentalNoiseStrength
+    {
+        get => Mathf.Clamp(continentalNoiseStrength, 0f, 4f);
+        set => continentalNoiseStrength = Mathf.Clamp(value, 0f, 4f);
+    }
+    public float DetailNoiseFrequency
+    {
+        get => Mathf.Clamp(detailNoiseFrequency, 0.1f, 128f);
+        set => detailNoiseFrequency = Mathf.Clamp(value, 0.1f, 128f);
+    }
+    public float DetailNoiseStrength
+    {
+        get => Mathf.Clamp(detailNoiseStrength, 0f, 4f);
+        set => detailNoiseStrength = Mathf.Clamp(value, 0f, 4f);
+    }
+    public float LandMassOffset
+    {
+        get => Mathf.Clamp(landMassOffset, -2f, 2f);
+        set => landMassOffset = Mathf.Clamp(value, -2f, 2f);
+    }
+    public float HydraulicErosionStrength
+    {
+        get => Mathf.Clamp(hydraulicErosionStrength, 0f, 8f);
+        set => hydraulicErosionStrength = Mathf.Clamp(value, 0f, 8f);
+    }
+    public float SedimentDepositionStrength
+    {
+        get => Mathf.Clamp(sedimentDepositionStrength, 0f, 4f);
+        set => sedimentDepositionStrength = Mathf.Clamp(value, 0f, 4f);
+    }
+    public float DepositionMaximumSlopeDegrees
+    {
+        get => Mathf.Clamp(depositionMaximumSlopeDegrees, 1f, 45f);
+        set => depositionMaximumSlopeDegrees = Mathf.Clamp(value, 1f, 45f);
     }
 
     internal MotuNative.Options ToNativeOptions(IslandRiverSettings rivers)
@@ -158,7 +154,8 @@ public sealed class IslandGenerationSettings
             hydraulicDepositionStrength = SedimentDepositionStrength,
             hydraulicDepositionSlopeDegrees = DepositionMaximumSlopeDegrees,
             riverSourceCatchmentHectares = rivers.SourceCatchmentHectares,
-            riverSourceSteepMultiplier = rivers.SteepSourceMultiplier,
+            riverSourceSteepCatchmentMultiplier =
+                rivers.SteepSourceCatchmentMultiplier,
             riverSourceElevationBoost = rivers.SourceElevationBoost,
             riverSourceWidthMetres = ToNativeRiverMetres(rivers.SourceWidthMetres),
             riverMaximumWidthMetres = ToNativeRiverMetres(rivers.MaximumWidthMetres),
@@ -216,11 +213,11 @@ public sealed class IslandGenerationSettings
 
     private float ToNativeRiverMetres(float metres)
     {
-        return metres * NativeIslandWorldMetres / WorldSizeMetres;
+        return metres;
     }
 
     private float ToNativeForestMetres(float metres)
     {
-        return metres * NativeIslandWorldMetres / WorldSizeMetres;
+        return metres;
     }
 }

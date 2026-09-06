@@ -20,7 +20,7 @@ internal static class MotuNative
         internal float hydraulicDepositionStrength;
         internal float hydraulicDepositionSlopeDegrees;
         internal float riverSourceCatchmentHectares;
-        internal float riverSourceSteepMultiplier;
+        internal float riverSourceSteepCatchmentMultiplier;
         internal float riverSourceElevationBoost;
         internal float riverSourceWidthMetres;
         internal float riverMaximumWidthMetres;
@@ -238,6 +238,8 @@ internal static class MotuNative
     {
         internal int width;
         internal int height;
+        internal float physicalTileWidthMetres;
+        internal float physicalTileHeightMetres;
         internal float minimumHeight;
         internal float maximumHeight;
         internal float baseHeight;
@@ -257,6 +259,7 @@ internal static class MotuNative
         internal ExportMaterialTexture riverBed;
         internal ExportMaterialTexture beach;
         internal ExportMaterialTexture fallenStones;
+        internal ExportMaterialTexture treeBark;
     }
 
     [StructLayout(LayoutKind.Sequential)]

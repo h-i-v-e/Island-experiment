@@ -482,7 +482,7 @@ fn describe(parameter: &Parameter) -> (&'static str, &'static str) {
             "How much land must drain through a point before a river starts \
              there. Smaller means more rivers.",
         ),
-        "--river-source-steep-multiplier" => (
+        "--river-source-steep-catchment-multiplier" => (
             "STEEP PENALTY",
             "How much more catchment a river needs to start on steep ground.",
         ),

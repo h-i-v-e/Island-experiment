@@ -1,0 +1,6 @@
+{
+  "dotnet.defaultSolution": "island-unity/island-unity.slnx",
+  "files.exclude": {
+    "**/*.meta": true
+  }
+}

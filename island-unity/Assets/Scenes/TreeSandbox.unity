@@ -291,7 +291,7 @@ MeshRenderer:
   m_RenderingLayerMask: 1
   m_RendererPriority: 0
   m_Materials:
-  - {fileID: 2100000, guid: 1d502ab988fe44d8681ee8654656a33a, type: 2}
+  - {fileID: 0}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0
@@ -353,7 +353,6 @@ MonoBehaviour:
   m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::ProceduralTreePreview
   seed: 2018
-  woodMaterial: {fileID: 2100000, guid: 1d502ab988fe44d8681ee8654656a33a, type: 2}
   foliageMaterial: {fileID: 2100000, guid: 39e6f52a20784bdaa4e771e2cb558234, type: 2}
   previewCamera: {fileID: 1034677137}
   orbitCamera: {fileID: 1034677136}

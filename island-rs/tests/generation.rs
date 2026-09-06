@@ -518,7 +518,7 @@ fn absolute_river_source_catchment_changes_river_generation() {
         53,
         IslandOptions {
             river_source_catchment_hectares: 0.005,
-            river_source_steep_multiplier: 1.0,
+            river_source_steep_catchment_multiplier: 1.0,
             ..small_options()
         },
     )
@@ -527,7 +527,7 @@ fn absolute_river_source_catchment_changes_river_generation() {
         53,
         IslandOptions {
             river_source_catchment_hectares: 5.0,
-            river_source_steep_multiplier: 1.0,
+            river_source_steep_catchment_multiplier: 1.0,
             ..small_options()
         },
     )
@@ -888,7 +888,7 @@ fn save_and_load_regenerates_identical_island() {
             detail_noise_strength: 0.15,
             land_mass_offset: -0.25,
             river_source_catchment_hectares: 0.75,
-            river_source_steep_multiplier: 5.0,
+            river_source_steep_catchment_multiplier: 5.0,
             river_source_elevation_boost: 8.5,
             river_source_width_metres: 3.5,
             river_maximum_width_metres: 52.0,
@@ -977,8 +977,11 @@ fn version_ten_save_uses_new_river_source_defaults() {
         defaults.river_source_catchment_hectares.to_bits()
     );
     assert_eq!(
-        loaded.options().river_source_steep_multiplier.to_bits(),
-        defaults.river_source_steep_multiplier.to_bits()
+        loaded
+            .options()
+            .river_source_steep_catchment_multiplier
+            .to_bits(),
+        defaults.river_source_steep_catchment_multiplier.to_bits()
     );
     assert_eq!(
         loaded.options().river_source_elevation_boost.to_bits(),

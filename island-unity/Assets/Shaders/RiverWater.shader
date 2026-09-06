@@ -11,7 +11,7 @@ Shader "Motu/River Water"
         _WorldSize ("World Size", Float) = 2000
         _ShallowOpacity ("Shallow Opacity", Range(0, 1)) = 0.25
         _OpacityDepth ("Full Opacity Depth", Float) = 5
-        _EstuaryStrength ("Estuary Transition Strength", Range(0, 1)) = 1
+        _SeaColor ("Sea Colour", Color) = (0.03, 0.28, 0.55, 1)
         _EstuaryBlendHeight ("Estuary Blend Height (metres)", Float) = 2
         _SeaLevel ("Sea Level", Float) = 0
         _ReflectionColor ("Sky Reflection", Color) = (0.49, 0.68, 0.82, 1)
@@ -85,7 +85,7 @@ Shader "Motu/River Water"
             float _CoarseFlowSpeed;
             float _FineFlowSpeed;
             float _WorldSize;
-            half _EstuaryStrength;
+            fixed4 _SeaColor;
             float _EstuaryBlendHeight;
             float _SeaLevel;
             half _ShoreWaveStrength;
@@ -155,15 +155,13 @@ Shader "Motu/River Water"
                 float heightAboveSea = max(
                     input.islandLocalPosition.y - _SeaLevel,
                     0.0);
-                half estuaryWeight = _EstuaryStrength * (
-                    1.0h - smoothstep(
-                        0.0,
-                        max(_EstuaryBlendHeight, 0.001),
-                        heightAboveSea));
+                half estuaryWeight = 1.0h - smoothstep(
+                    0.0,
+                    max(_EstuaryBlendHeight, 0.001),
+                    heightAboveSea);
 
                 half coarseWhitewater = coarseFoam
-                    * 0.03h
-                    * (1.0h - estuaryWeight);
+                    * 0.03h;
                 half fineWhitewater = fineFoam
                     * 0.50h
                     * fineSlopeWhitewater;
@@ -207,21 +205,12 @@ Shader "Motu/River Water"
                     * contactFade
                     * deepFade
                     * horizontalSurface
-                    * _ShoreWaveStrength
-                    * (1.0h - estuaryWeight));
+                    * _ShoreWaveStrength);
                 whitewater = whitewater + bankWave * (1.0h - whitewater);
 
-                float normalOpacityDepth = max(_OpacityDepth, 0.001);
-                float heightOpacityDepth = min(
-                    heightAboveSea,
-                    normalOpacityDepth);
-                float opacityDepth = lerp(
-                    normalOpacityDepth,
-                    heightOpacityDepth,
-                    _EstuaryStrength);
                 half waterOpacity = MotuWaterOpacity(
                     waterDepth,
-                    opacityDepth);
+                    max(_OpacityDepth, 0.001));
                 MotuCloudLighting cloud = MotuCloudSurfaceLighting(input.worldPosition);
                 fixed3 waterIllumination = MotuWaterIllumination(
                     worldNormal,
@@ -229,7 +218,10 @@ Shader "Motu/River Water"
                     shadowAttenuation,
                     0.12h,
                     cloud);
-                fixed3 waterBody = _Color.rgb
+                fixed3 waterBody = lerp(
+                    _Color.rgb,
+                    _SeaColor.rgb,
+                    estuaryWeight)
                     * input.brightness
                     * waterIllumination;
                 fixed3 water = MotuShadeWater(
@@ -238,7 +230,7 @@ Shader "Motu/River Water"
                     viewDirection,
                     input.worldPosition,
                     half2(coarseNoise, fineNoise) - 0.5h,
-                    estuaryWeight,
+                    0.0h,
                     shadowAttenuation,
                     cloud);
                 fixed3 foamColour = MotuWaterIllumination(

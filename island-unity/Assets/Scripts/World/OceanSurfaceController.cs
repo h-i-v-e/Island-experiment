@@ -54,6 +54,7 @@ public sealed class OceanSurfaceController : MonoBehaviour
     private OceanWaveMaskComposer maskComposer;
     private OceanWaveRuntimeSettings waveSettings;
     private float surfaceDiameterMetres;
+    private float weatherWaveScale = 1f;
 
     public Transform SurfaceTransform => surfaceObject != null
         ? surfaceObject.transform
@@ -141,6 +142,17 @@ public sealed class OceanSurfaceController : MonoBehaviour
         maskComposer.Configure(this, waveSettings);
     }
 
+    public void ApplyWeatherWindScale(float waveHeightScale)
+    {
+        waveHeightScale = Mathf.Clamp(waveHeightScale, 0f, 2.5f);
+        if (Mathf.Approximately(weatherWaveScale, waveHeightScale))
+        {
+            return;
+        }
+        weatherWaveScale = waveHeightScale;
+        UpdateSurfaceMeshBounds();
+    }
+
     internal void SetWaveAttenuation(
         Texture attenuation,
         Texture onshore,
@@ -213,7 +225,32 @@ public sealed class OceanSurfaceController : MonoBehaviour
         var previous = surfaceMesh;
         surfaceMesh = replacement;
         surfaceObject.GetComponent<MeshFilter>().sharedMesh = surfaceMesh;
+        UpdateSurfaceMeshBounds();
         DestroyUnityObject(previous);
+    }
+
+    private void UpdateSurfaceMeshBounds()
+    {
+        if (surfaceMesh == null)
+        {
+            return;
+        }
+        var halfExtent = Mathf.Max(
+            surfaceDiameterMetres * 0.5f,
+            waveSettings.DisplacementFadeEndMetres
+                + waveSettings.FineVertexSpacingMetres);
+        var horizontalMargin = waveSettings.MaximumHorizontalDisplacement
+            * weatherWaveScale
+            + 1f;
+        var verticalMargin = waveSettings.MaximumVerticalDisplacement
+            * weatherWaveScale
+            + 1f;
+        surfaceMesh.bounds = new Bounds(
+            Vector3.zero,
+            new Vector3(
+                (halfExtent + horizontalMargin) * 2f,
+                verticalMargin * 2f,
+                (halfExtent + horizontalMargin) * 2f));
     }
 
     private void ConfigureWaveMaterial()

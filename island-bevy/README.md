@@ -62,7 +62,7 @@ parameters it validates.
 | | `--hydraulic-deposition-strength` | `1.5` |
 | | `--hydraulic-deposition-slope-degrees` | `12.0` |
 | Rivers | `--river-source-catchment-hectares` | `0.05` |
-| | `--river-source-steep-multiplier` | `4.0` |
+| | `--river-source-steep-catchment-multiplier` | `4.0` |
 | | `--river-source-elevation-boost` | `9.0` |
 | | `--river-source-width-metres` | `2.0` |
 | | `--river-maximum-width-metres` | `14.0` |

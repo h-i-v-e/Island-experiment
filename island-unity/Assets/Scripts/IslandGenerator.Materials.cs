@@ -78,9 +78,10 @@ public sealed partial class IslandGenerator
         ApplySnowlineSettings();
         treeWoodMaterial = CreateMaterial(
             "Motu/Tree Wood",
-            new Color(0.24f, 0.105f, 0.045f, 1f),
-            Rendering.TreeWoodMaterial,
+            new Color(0.16f, 0.085f, 0.045f, 1f),
+            null,
             Generation.WorldSizeMetres);
+        CreateTreeBarkTextures(materialTextures.treeBark);
         treeWoodMaterial.SetTexture("_CliffNoise3D", cliffNoiseTexture);
         treeWoodMaterial.enableInstancing = true;
         treeLod1WoodMaterial = new Material(treeWoodMaterial)
@@ -166,9 +167,17 @@ public sealed partial class IslandGenerator
         grassMaterial.SetFloat(
             "_SandPatchNoiseWorldSize",
             Rendering.SandPatchSizeMetres);
-        grassPatchNoiseTexture = Rendering.GrassPatchNoise;
+        grassPatchNoiseTexture = worldEnvironment?.WeatherNoiseTexture;
+        if (worldManaged && grassPatchNoiseTexture == null)
+        {
+            throw new InvalidOperationException(
+                "The global world environment has no shared ocean and vegetation weather noise.");
+        }
         ownsGrassPatchNoiseTexture = grassPatchNoiseTexture == null;
-        if (ownsGrassPatchNoiseTexture) grassPatchNoiseTexture = CreateGrassPatchNoiseTexture();
+        if (ownsGrassPatchNoiseTexture)
+        {
+            grassPatchNoiseTexture = CreateWeatherNoiseTexture();
+        }
         terrainMaterial.SetTexture("_GrassPatchNoise", grassPatchNoiseTexture);
         terrainMaterial.SetFloat(
             "_GrassPatchNoiseWorldSize",
@@ -184,7 +193,6 @@ public sealed partial class IslandGenerator
         reedMaterial.SetTexture("_GrassPatchNoise", grassPatchNoiseTexture);
         fernMaterial.SetTexture("_GrassPatchNoise", grassPatchNoiseTexture);
         ApplyGrassColourSettings();
-        grassMaterial.SetFloat("_GrassBrightness", Rendering.GrassBrightness);
         ApplyGrassWindSettings();
         terrainLod1Material = new Material(terrainMaterial)
         {
@@ -209,9 +217,9 @@ public sealed partial class IslandGenerator
         if (ownsRiverNoiseTexture) riverNoiseTexture = CreateRiverNoiseTexture();
         if (!worldManaged)
         {
-            seaNoiseTexture = Rendering.RiverNoise;
-            ownsSeaNoiseTexture = seaNoiseTexture == null;
-            if (ownsSeaNoiseTexture) seaNoiseTexture = CreateRiverNoiseTexture();
+            seaNoiseTexture = grassPatchNoiseTexture;
+            ownsSeaNoiseTexture = ownsGrassPatchNoiseTexture;
+            ownsGrassPatchNoiseTexture = false;
         }
         var waterColor = new Color(0.03f, 0.28f, 0.55f, 1f);
         const float shallowWaterOpacity = 0.25f;
@@ -235,7 +243,6 @@ public sealed partial class IslandGenerator
         riverMaterial.SetFloat("_WhitewaterStrength", 0.9f);
         riverMaterial.SetFloat("_ShallowOpacity", shallowWaterOpacity);
         riverMaterial.SetFloat("_OpacityDepth", fullOpacityDepth);
-        riverMaterial.SetFloat("_EstuaryStrength", 1f);
         riverMaterial.SetFloat("_EstuaryBlendHeight", Rendering.EstuaryBlendHeightMetres);
         riverMaterial.SetFloat("_SeaLevel", SeaHeight);
         riverMaterial.SetColor("_ReflectionColor", skyColor);
@@ -283,6 +290,11 @@ public sealed partial class IslandGenerator
             seaMaterial.SetFloat("_PlanarReflectionDistortion", 0.008f);
             seaMaterial.SetFloat("_SunGlintStrength", 0.8f);
         }
+        riverMaterial.SetColor(
+            "_SeaColor",
+            seaMaterial.HasProperty("_Color")
+                ? seaMaterial.GetColor("_Color")
+                : waterColor);
 
         var coastalShader = Shader.Find("Motu/Coastal Water Overlay")
             ?? throw new InvalidOperationException(
@@ -438,35 +450,24 @@ public sealed partial class IslandGenerator
 
     private void ApplyGrassWindSettings()
     {
-        appliedGrassWindDirection = Rendering.GrassWindDirection;
         appliedGrassWindStrength = Rendering.GrassWindStrengthMetres;
-        appliedGrassWindSpeed = Rendering.GrassWindSpeedMetresPerSecond;
         appliedGrassWindGustSize = Rendering.GrassWindGustSizeMetres;
         appliedGrassWindNormalStrength = Rendering.GrassWindNormalStrength;
-        var direction = new Vector4(
-            appliedGrassWindDirection.x,
-            0f,
-            appliedGrassWindDirection.y,
-            0f);
-        ApplyGrassWindSettingsToMaterial(terrainMaterial, direction);
-        ApplyGrassWindSettingsToMaterial(terrainLod1Material, direction);
-        ApplyGrassWindSettingsToMaterial(terrainLod2Material, direction);
-        ApplyGrassWindSettingsToMaterial(grassMaterial, direction);
-        ApplyGrassWindSettingsToMaterial(treeWoodMaterial, direction);
-        ApplyGrassWindSettingsToMaterial(treeLod1WoodMaterial, direction);
-        ApplyGrassWindSettingsToMaterial(treeFoliageMaterial, direction);
-        ApplyGrassWindSettingsToMaterial(treeLod0FoliageMaterial, direction);
-        ApplyGrassWindSettingsToMaterial(reedMaterial, direction);
-        ApplyGrassWindSettingsToMaterial(fernMaterial, direction);
+        ApplyGrassWindSettingsToMaterial(terrainMaterial);
+        ApplyGrassWindSettingsToMaterial(terrainLod1Material);
+        ApplyGrassWindSettingsToMaterial(terrainLod2Material);
+        ApplyGrassWindSettingsToMaterial(grassMaterial);
+        ApplyGrassWindSettingsToMaterial(treeWoodMaterial);
+        ApplyGrassWindSettingsToMaterial(treeLod1WoodMaterial);
+        ApplyGrassWindSettingsToMaterial(treeFoliageMaterial);
+        ApplyGrassWindSettingsToMaterial(treeLod0FoliageMaterial);
+        ApplyGrassWindSettingsToMaterial(reedMaterial);
+        ApplyGrassWindSettingsToMaterial(fernMaterial);
     }
 
-    private void ApplyGrassWindSettingsToMaterial(
-        Material material,
-        Vector4 direction)
+    private void ApplyGrassWindSettingsToMaterial(Material material)
     {
-        material?.SetVector("_GrassWindDirection", direction);
         material?.SetFloat("_GrassWindStrength", appliedGrassWindStrength);
-        material?.SetFloat("_GrassWindSpeed", appliedGrassWindSpeed);
         material?.SetFloat("_GrassWindWorldSize", appliedGrassWindGustSize);
         material?.SetFloat(
             "_GrassWindNormalStrength",
@@ -571,6 +572,10 @@ public sealed partial class IslandGenerator
         islandRuntime.OwnMaterial(rockMaterial);
         islandRuntime.OwnMaterial(treeWoodMaterial);
         islandRuntime.OwnMaterial(treeLod1WoodMaterial);
+        islandRuntime.OwnTexture(treeBarkAlbedoTexture);
+        islandRuntime.OwnTexture(treeBarkHeightTexture);
+        islandRuntime.OwnTexture(treeBarkNormalTexture);
+        islandRuntime.OwnTexture(treeBarkOcclusionTexture);
         islandRuntime.OwnMaterial(treeFoliageMaterial);
         islandRuntime.OwnMaterial(treeLod0FoliageMaterial);
         islandRuntime.OwnMaterial(reedMaterial);
@@ -615,6 +620,93 @@ public sealed partial class IslandGenerator
         }
     }
 
+    private void CreateTreeBarkTextures(IslandPreparedMaterialTexture bark)
+    {
+        if (bark == null) throw new ArgumentNullException(nameof(bark));
+        treeBarkAlbedoTexture = CreateRuntimeMaterialTexture(
+            "Motu Runtime Tree Bark Albedo",
+            bark.width,
+            bark.height,
+            TextureFormat.RGB24,
+            false,
+            bark.albedoRgb);
+        try
+        {
+            treeBarkHeightTexture = CreateRuntimeMaterialTexture(
+                "Motu Runtime Tree Bark Height",
+                bark.width,
+                bark.height,
+                TextureFormat.R16,
+                true,
+                bark.heightR16);
+            treeBarkNormalTexture = CreateRuntimeMaterialTexture(
+                "Motu Runtime Tree Bark Normal",
+                bark.width,
+                bark.height,
+                TextureFormat.RGB24,
+                true,
+                bark.normalRgb);
+            treeBarkOcclusionTexture = CreateRuntimeMaterialTexture(
+                "Motu Runtime Tree Bark Occlusion",
+                bark.width,
+                bark.height,
+                TextureFormat.R8,
+                true,
+                bark.occlusion);
+            treeWoodMaterial.SetTexture("_BarkAlbedoMap", treeBarkAlbedoTexture);
+            treeWoodMaterial.SetTexture("_BarkHeightMap", treeBarkHeightTexture);
+            treeWoodMaterial.SetTexture("_BarkNormalMap", treeBarkNormalTexture);
+            treeWoodMaterial.SetTexture("_BarkOcclusionMap", treeBarkOcclusionTexture);
+            treeWoodMaterial.SetFloat("_BarkTileWidthMetres", bark.physicalTileWidthMetres);
+            treeWoodMaterial.SetFloat("_BarkTileHeightMetres", bark.physicalTileHeightMetres);
+        }
+        catch
+        {
+            DestroyUnityObject(treeBarkAlbedoTexture);
+            DestroyUnityObject(treeBarkHeightTexture);
+            DestroyUnityObject(treeBarkNormalTexture);
+            DestroyUnityObject(treeBarkOcclusionTexture);
+            treeBarkAlbedoTexture = null;
+            treeBarkHeightTexture = null;
+            treeBarkNormalTexture = null;
+            treeBarkOcclusionTexture = null;
+            throw;
+        }
+    }
+
+    internal static Texture2D CreateRuntimeMaterialTexture(
+        string textureName,
+        int width,
+        int height,
+        TextureFormat format,
+        bool linear,
+        byte[] pixels)
+    {
+        if (!SystemInfo.SupportsTextureFormat(format))
+        {
+            throw new InvalidOperationException(
+                $"This graphics device does not support runtime material format {format}.");
+        }
+        var texture = new Texture2D(width, height, format, true, linear)
+        {
+            name = textureName,
+            filterMode = FilterMode.Trilinear,
+            wrapMode = TextureWrapMode.Repeat,
+            anisoLevel = 4,
+        };
+        try
+        {
+            texture.SetPixelData(pixels, 0);
+            texture.Apply(true, true);
+            return texture;
+        }
+        catch
+        {
+            DestroyUnityObject(texture);
+            throw;
+        }
+    }
+
     private void DestroyRuntimeMaterials()
     {
         terrainMaterialTextures?.Unbind(terrainMaterial, grassMaterial);
@@ -634,6 +726,10 @@ public sealed partial class IslandGenerator
         DestroyUnityObject(rockMaterial);
         DestroyUnityObject(treeWoodMaterial);
         DestroyUnityObject(treeLod1WoodMaterial);
+        DestroyUnityObject(treeBarkAlbedoTexture);
+        DestroyUnityObject(treeBarkHeightTexture);
+        DestroyUnityObject(treeBarkNormalTexture);
+        DestroyUnityObject(treeBarkOcclusionTexture);
         DestroyUnityObject(treeFoliageMaterial);
         DestroyUnityObject(treeLod0FoliageMaterial);
         DestroyUnityObject(reedMaterial);
@@ -652,6 +748,10 @@ public sealed partial class IslandGenerator
         rockMaterial = null;
         treeWoodMaterial = null;
         treeLod1WoodMaterial = null;
+        treeBarkAlbedoTexture = null;
+        treeBarkHeightTexture = null;
+        treeBarkNormalTexture = null;
+        treeBarkOcclusionTexture = null;
         treeFoliageMaterial = null;
         treeLod0FoliageMaterial = null;
         reedMaterial = null;
@@ -699,10 +799,7 @@ public sealed partial class IslandGenerator
         appliedGrassColourA = null;
         appliedGrassColourB = null;
         appliedGrassColourNoiseWorldSize = float.NaN;
-        appliedGrassBrightness = float.NaN;
-        appliedGrassWindDirection = new Vector2(float.NaN, float.NaN);
         appliedGrassWindStrength = float.NaN;
-        appliedGrassWindSpeed = float.NaN;
         appliedGrassWindGustSize = float.NaN;
         appliedGrassWindNormalStrength = float.NaN;
         hasAppliedWorldToLocal = false;

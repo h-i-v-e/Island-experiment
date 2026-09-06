@@ -47,14 +47,18 @@ The first four deployable ownership milestones are now implemented:
   root, terrain streamer, per-island materials, generated textures, surface
   maps, texture arrays, and coastal overlay, with idempotent partial-install and
   active-runtime disposal;
-- global deep-ocean noise now has an environment lifetime separate from river
-  noise, so disposing an island cannot invalidate the persistent ocean.
+- global weather noise now has an environment lifetime separate from river
+  noise and is shared by ocean waves and vegetation wind, so disposing an
+  island cannot invalidate either persistent system.
 
 The first six phases are complete. `IslandWorldManager` now delegates every
 grid cell to its required `IIslandGenerationRequestFactory`. The factory owns
 both deliberately configured and generated island definitions, returns a
 complete request for an island or `null` for open sea, and is the sole source
-of per-island settings. There is no manager-owned authored list, generator
+of per-island settings. Factory components serialize their own base generation,
+river, vegetation, rendering, material-palette, and debug settings and perform
+any cell-specific customization before returning the request. There is no
+manager-owned authored list, shared single-island configuration, generator
 template, occupancy fallback, or pre-placed runtime generator. All accepted
 requests use the same serialized CPU-generation, incremental installation,
 focused terrain-query, active/dormant, unload, and snapshot lifecycle. Phase 6
@@ -297,7 +301,8 @@ ocean cell must not generate terrain or allocate a native island.
 Add `Assets/Scripts/Islands/IslandWorldManager.cs` to own:
 
 - the player/follow target;
-- world seed and deterministic descriptor discovery;
+- deterministic grid discovery, with island selection and seeds delegated to
+  `IIslandGenerationRequestFactory`;
 - queued, generating, prepared, active, dormant, failed, and unloading islands;
 - generation concurrency, cancellation, retry, and stale-result rejection;
 - disk-cache lookup, load, write, invalidation, quota, and eviction queues;
@@ -409,11 +414,14 @@ global ocean plane. The environment controller owns that binding.
 ## World Discovery and Island Placement
 
 Use deterministic sparse spatial cells rather than pre-generating a world map.
+Cell spacing and generated terrain width are one fixed 2 km island-size
+invariant; they are not independently configurable.
 
 1. Divide logical XZ space into cells larger than the maximum island diameter
    plus the required navigation gap.
-2. Hash `(world seed, cell X, cell Z)` to decide whether a cell contains an
-   island and to derive its seed, profile, rotation, and bounded jitter.
+2. Ask `IIslandGenerationRequestFactory` about each cell. The factory owns any
+   world seed or coherent field it needs to decide occupancy and derive the
+   island seed, settings profile, rotation, and bounded jitter.
 3. Reject or deterministically resolve neighboring candidates whose estimated
    bounds overlap.
 4. Materialize only cheap descriptors inside the discovery radius.
@@ -488,9 +496,9 @@ Boat/swimming behavior is outside this refactor, but open-sea queries must be a
 normal state rather than an error.
 
 Convert `IslandDemoController` into a bootstrap/debug controller that can show
-world seed, logical player position, queued generation, active island states,
-and memory budgets. Retain a compatibility path that creates one descriptor at
-the origin for the existing single-island scene.
+logical player position, queued generation, active island states, and memory
+budgets. The replacement single-island scene defines its origin cell in the
+same factory used by multi-island scenes.
 
 ## Persistence and Reproducibility
 
@@ -690,12 +698,16 @@ Acceptance:
 ### Phase 6: Add deterministic ocean-cell discovery and generation
 
 `IslandWorldManager` scans deterministic grid cells and asks its required
-factory about each one. The factory owns fixed definitions, population policy,
-and complete per-island parameters. A `null` response is open sea. A returned
-request remains data-only until it enters the generation corridor, and the
-manager retains a single native generation worker.
+factory about each one. The factory owns its serialized settings, fixed
+definitions, population policy, seed selection, parameter variation, and the
+complete per-island profile. A
+`null` response is open sea. `IslandGenerationRequest` snapshots the completed
+factory profile without applying policy. A returned request remains data-only
+until it enters the generation corridor, and the manager retains a single
+native generation worker.
 
-1. Add deterministic `IslandDescriptor` construction from world seed/cell.
+1. Add deterministic `IslandGenerationRequest` construction from factory-owned
+   seed state and the requested cell.
 2. Add sparse placement, jitter, separation checks, and generation profiles.
 3. Add discovery, generation, activation, and unload radii.
 4. Add velocity-based look-ahead and request prioritization.
@@ -704,7 +716,7 @@ manager retains a single native generation worker.
 
 Acceptance:
 
-- the same world seed and route discover the same island IDs and placements;
+- the same factory state and route discover the same island IDs and placements;
 - generation begins while the player is in open sea and does not stop movement;
 - rapidly changing direction cancels or deprioritizes obsolete work safely;
 - failures leave open sea and a retryable diagnostic state rather than blocking

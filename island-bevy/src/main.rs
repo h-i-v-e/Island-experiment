@@ -363,7 +363,7 @@ mod tests {
             hydraulic_deposition_strength: 0.75,
             hydraulic_deposition_slope_degrees: 27.5,
             river_source_catchment_hectares: 0.125,
-            river_source_steep_multiplier: 6.5,
+            river_source_steep_catchment_multiplier: 6.5,
             river_source_elevation_boost: 3.25,
             river_source_width_metres: 4.5,
             river_maximum_width_metres: 22.0,

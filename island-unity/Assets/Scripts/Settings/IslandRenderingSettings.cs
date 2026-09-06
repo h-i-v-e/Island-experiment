@@ -1,26 +1,9 @@
 using System;
 using UnityEngine;
-using UnityEngine.Serialization;
 
 [Serializable]
 public sealed class IslandRenderingSettings
 {
-    [Tooltip("Base dirt colour shared by recipe textures and terrain shader fallbacks.")]
-    [SerializeField] private Color dirtColour = new Color(0.09f, 0.055f, 0.026f, 1f);
-
-    [Tooltip("Base stone colour shared by recipe textures and terrain shader fallbacks.")]
-    [SerializeField] private Color stoneColour = new Color(0.30f, 0.32f, 0.29f, 1f);
-
-    [Tooltip("Base sand colour shared by the beach recipe and terrain shader fallback.")]
-    [SerializeField] private Color sandColour = new Color(0.62f, 0.57f, 0.34f, 1f);
-
-    [Tooltip("Derive deterministic dirt, stone, and sand variations from the island seed before requesting textures.")]
-    [SerializeField] private bool randomizeMaterialColours = true;
-
-    [Tooltip("Maximum engine-side colour variation applied per island.")]
-    [Range(0f, 0.35f)]
-    [SerializeField] private float materialColourVariation = 0.14f;
-
     [Tooltip("Runtime resolution requested from the Rust procedural material library.")]
     [Range(128, 2048)]
     [SerializeField] private int materialTextureResolution = 1024;
@@ -43,9 +26,6 @@ public sealed class IslandRenderingSettings
     [Tooltip("Optional stone and boulder material template. A per-island copy is created at runtime.")]
     [SerializeField] private Material rockMaterial;
 
-    [Tooltip("Optional generated-tree wood material template. A per-island copy is created at runtime.")]
-    [SerializeField] private Material treeWoodMaterial;
-
     [Tooltip("Optional generated-tree foliage material template. A per-island copy is created at runtime.")]
     [SerializeField] private Material treeFoliageMaterial;
 
@@ -54,9 +34,6 @@ public sealed class IslandRenderingSettings
 
     [Tooltip("Optional authored replacement for the generated river and shoreline noise.")]
     [SerializeField] private Texture2D riverNoise;
-
-    [Tooltip("Optional authored replacement for the generated grass patch noise. Red and green control coverage; blue controls broad grass colour variation.")]
-    [SerializeField] private Texture2D grassPatchNoise;
 
     [Tooltip("First colour used by broad grass variation.")]
     [SerializeField] private Color grassColourA = new Color(0.18f, 0.46f, 0.14f, 1f);
@@ -68,20 +45,9 @@ public sealed class IslandRenderingSettings
     [Min(1f)]
     [SerializeField] private float grassColourNoiseWorldSizeMetres = 2048f;
 
-    [Tooltip("Brightness multiplier applied to grass rendering.")]
-    [Range(0.25f, 3f)]
-    [SerializeField] private float grassBrightness = 1.35f;
-
-    [Tooltip("Horizontal world-space direction used by the animated grass wind.")]
-    [SerializeField] private Vector2 grassWindDirection = new Vector2(1f, 0.35f);
-
-    [Tooltip("Maximum horizontal bend at the tips of the fur grass, in metres.")]
+    [Tooltip("Maximum horizontal bend response at the tips of the fur grass at the reference global wind speed.")]
     [Range(0f, 0.25f)]
     [SerializeField] private float grassWindStrengthMetres = 0.07f;
-
-    [Tooltip("Speed at which coherent gusts travel across the grass, in metres per second.")]
-    [Range(0f, 10f)]
-    [SerializeField] private float grassWindSpeedMetresPerSecond = 1.8f;
 
     [Tooltip("World-space size of the broad moving grass gusts, in metres.")]
     [Range(1f, 64f)]
@@ -99,7 +65,7 @@ public sealed class IslandRenderingSettings
     [Min(0.1f)]
     [SerializeField] private float grassPatchSizeMetres = 32f;
 
-    [Tooltip("Height over which river colour blends into the sea near estuaries, in metres.")]
+    [Tooltip("Height above sea level over which river colour blends from the sea colour back to the river colour, in metres.")]
     [Min(0f)]
     [SerializeField] private float estuaryBlendHeightMetres = 2f;
 
@@ -176,11 +142,9 @@ public sealed class IslandRenderingSettings
     public Material SeaMaterial => seaMaterial;
     public OceanWaveProfile OceanWaveProfile => oceanWaveProfile;
     public Material RockMaterial => rockMaterial;
-    public Material TreeWoodMaterial => treeWoodMaterial;
     public Material TreeFoliageMaterial => treeFoliageMaterial;
     public Texture3D CliffDetailNoise => cliffDetailNoise;
     public Texture2D RiverNoise => riverNoise;
-    public Texture2D GrassPatchNoise => grassPatchNoise;
     public Color GrassColourA { get => grassColourA; set => grassColourA = value; }
     public Color GrassColourB { get => grassColourB; set => grassColourB = value; }
     public float GrassColourNoiseWorldSizeMetres
@@ -188,21 +152,10 @@ public sealed class IslandRenderingSettings
         get => Mathf.Max(grassColourNoiseWorldSizeMetres, 1f);
         set => grassColourNoiseWorldSizeMetres = Mathf.Max(value, 1f);
     }
-    public float GrassBrightness { get => grassBrightness; set => grassBrightness = Mathf.Clamp(value, 0.25f, 3f); }
-    public Vector2 GrassWindDirection
-    {
-        get => grassWindDirection;
-        set => grassWindDirection = value;
-    }
     public float GrassWindStrengthMetres
     {
         get => Mathf.Clamp(grassWindStrengthMetres, 0f, 0.25f);
         set => grassWindStrengthMetres = Mathf.Clamp(value, 0f, 0.25f);
-    }
-    public float GrassWindSpeedMetresPerSecond
-    {
-        get => Mathf.Clamp(grassWindSpeedMetresPerSecond, 0f, 10f);
-        set => grassWindSpeedMetresPerSecond = Mathf.Clamp(value, 0f, 10f);
     }
     public float GrassWindGustSizeMetres
     {
@@ -298,55 +251,12 @@ public sealed class IslandRenderingSettings
         128,
         2048);
 
-    internal IslandMaterialColours SelectMaterialColours(int islandSeed)
-    {
-        var dirt = ClampLinearColour(dirtColour);
-        var stone = ClampLinearColour(stoneColour);
-        var sand = ClampLinearColour(sandColour);
-        if (!randomizeMaterialColours || materialColourVariation <= 0f)
-        {
-            return new IslandMaterialColours(dirt, stone, sand);
-        }
-
-        var random = new System.Random(unchecked(islandSeed * 1103515245 + 12345));
-        dirt = VaryLinearColour(dirt, random, materialColourVariation, 0.45f);
-        stone = VaryLinearColour(stone, random, materialColourVariation * 0.72f, 0.18f);
-        sand = VaryLinearColour(sand, random, materialColourVariation * 0.65f, 0.30f);
-        return new IslandMaterialColours(dirt, stone, sand);
-    }
-
-    private static Color VaryLinearColour(
-        Color colour,
-        System.Random random,
-        float amount,
-        float warmth)
-    {
-        var brightness = 1f + ((float)random.NextDouble() * 2f - 1f) * amount;
-        var temperature = ((float)random.NextDouble() * 2f - 1f) * amount * warmth;
-        var greenShift = ((float)random.NextDouble() * 2f - 1f) * amount * 0.18f;
-        return ClampLinearColour(new Color(
-            colour.r * brightness * (1f + temperature),
-            colour.g * brightness * (1f + greenShift),
-            colour.b * brightness * (1f - temperature),
-            1f));
-    }
-
-    private static Color ClampLinearColour(Color colour)
-    {
-        return new Color(
-            Mathf.Clamp01(colour.r),
-            Mathf.Clamp01(colour.g),
-            Mathf.Clamp01(colour.b),
-            1f);
-    }
-
     internal void AssignMaterialTemplates(
         Material terrain,
         Material grass,
         Material river,
         Material sea,
         Material rock,
-        Material treeWood = null,
         Material treeFoliage = null)
     {
         terrainMaterial = terrain;
@@ -354,7 +264,6 @@ public sealed class IslandRenderingSettings
         riverMaterial = river;
         seaMaterial = sea;
         rockMaterial = rock;
-        treeWoodMaterial = treeWood;
         treeFoliageMaterial = treeFoliage;
     }
 }

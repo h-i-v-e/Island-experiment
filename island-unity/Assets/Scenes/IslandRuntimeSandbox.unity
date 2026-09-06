@@ -37,7 +37,7 @@ RenderSettings:
   m_ReflectionBounces: 1
   m_ReflectionIntensity: 1
   m_CustomReflection: {fileID: 0}
-  m_Sun: {fileID: 1859268747}
+  m_Sun: {fileID: 2108160295}
   m_UseRadianceAmbientProbe: 0
 --- !u!157 &3
 LightmapSettings:
@@ -119,7 +119,7 @@ NavMeshSettings:
     debug:
       m_Flags: 0
   m_NavMeshData: {fileID: 0}
---- !u!1 &1202688734
+--- !u!1 &909365609
 GameObject:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -127,9 +127,193 @@ GameObject:
   m_PrefabAsset: {fileID: 0}
   serializedVersion: 6
   m_Component:
-  - component: {fileID: 1202688737}
-  - component: {fileID: 1202688735}
-  - component: {fileID: 1202688736}
+  - component: {fileID: 909365617}
+  - component: {fileID: 909365616}
+  - component: {fileID: 909365615}
+  - component: {fileID: 909365614}
+  - component: {fileID: 909365613}
+  - component: {fileID: 909365612}
+  - component: {fileID: 909365611}
+  - component: {fileID: 909365610}
+  m_Layer: 0
+  m_Name: Main Camera
+  m_TagString: MainCamera
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &909365610
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 909365609}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e6652aa5064ad4ca29d5befd6a6808e3, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::IslandDemoController
+  worldManager: {fileID: 1124309184}
+  viewerCamera: {fileID: 909365616}
+  orbitCamera: {fileID: 909365612}
+  firstPersonController: {fileID: 909365611}
+  startInFlyMode: 0
+  flyStartPosition: {x: 0, y: 4, z: -1800}
+  flyStartYawDegrees: 0
+  flyStartPitchDegrees: 0
+  showMinimap: 1
+--- !u!114 &909365611
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 909365609}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2132f91b666942e2aca86f59828c11c9, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::FirstPersonController
+  toggleFlyModeKey: 118
+  flyClearanceMetres: 4
+  flySpeedMetresPerSecond: 24
+  flyDescentSmoothTime: 0.18
+--- !u!114 &909365612
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 909365609}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b0d555b110ff048cfa172402b03dc05f, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::OrbitCamera
+--- !u!81 &909365613
+AudioListener:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 909365609}
+  m_Enabled: 1
+--- !u!114 &909365614
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 909365609}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1fb33a94a2d54312be5cc35a27c195c8, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::RealTimeAmbientOcclusion
+  ambientOcclusionShader: {fileID: 4800000, guid: 905578e82ce344a0a1ee384ea7ed1bb4, type: 3}
+  quality: 2
+  intensity: 0.6
+  radius: 1.5
+  halfResolution: 1
+--- !u!114 &909365615
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 909365609}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9d60ab4e4fc443b5a2c6dc6c9f1fca01, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::PlanarWaterReflection
+  reflectionPlane: {fileID: 1124309186}
+  resolutionScale: 0.5
+  clipPlaneOffset: 0.07
+  reflectionLayers:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  useSimplifiedShader: 1
+  simplifiedReflectionShader: {fileID: 4800000, guid: e1b5d68178aa4cfd8a4de84a2d74dbe7, type: 3}
+  frameInterval: 2
+--- !u!20 &909365616
+Camera:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 909365609}
+  m_Enabled: 1
+  serializedVersion: 2
+  m_ClearFlags: 2
+  m_BackGroundColor: {r: 0.49, g: 0.68, b: 0.82, a: 1}
+  m_projectionMatrixMode: 1
+  m_GateFitMode: 2
+  m_FOVAxisMode: 0
+  m_Iso: 200
+  m_ShutterSpeed: 0.005
+  m_Aperture: 16
+  m_FocusDistance: 10
+  m_FocalLength: 50
+  m_BladeCount: 5
+  m_Curvature: {x: 2, y: 11}
+  m_BarrelClipping: 0.25
+  m_Anamorphism: 0
+  m_SensorSize: {x: 36, y: 24}
+  m_LensShift: {x: 0, y: 0}
+  m_NormalizedViewPortRect:
+    serializedVersion: 2
+    x: 0
+    y: 0
+    width: 1
+    height: 1
+  near clip plane: 0.05
+  far clip plane: 16000
+  field of view: 60
+  orthographic: 0
+  orthographic size: 5
+  m_Depth: 0
+  m_CullingMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  m_RenderingPath: -1
+  m_TargetTexture: {fileID: 0}
+  m_TargetDisplay: 0
+  m_TargetEye: 3
+  m_HDR: 1
+  m_AllowMSAA: 1
+  m_AllowDynamicResolution: 0
+  m_ForceIntoRT: 0
+  m_OcclusionCulling: 1
+  m_StereoConvergence: 10
+  m_StereoSeparation: 0.022
+--- !u!4 &909365617
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 909365609}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &1124309183
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1124309186}
+  - component: {fileID: 1124309184}
+  - component: {fileID: 1124309185}
   m_Layer: 0
   m_Name: Island World
   m_TagString: Untagged
@@ -137,21 +321,22 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!114 &1202688735
+--- !u!114 &1124309184
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1202688734}
+  m_GameObject: {fileID: 1124309183}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 5b14127292fc4ba78410989d8c93bbdf, type: 3}
   m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::IslandWorldManager
-  islandGenerationRequestFactoryComponent: {fileID: 1202688736}
+  islandGenerationRequestFactoryComponent: {fileID: 1124309185}
   worldEnvironmentConfiguration: {fileID: 0}
   worldEnvironmentSettings:
+    seed: 8675309
     zenithColour: {r: 0.49, g: 0.68, b: 0.82, a: 1}
     distanceHazeColour: {r: 0.62, g: 0.6, b: 0.54, a: 1}
     distanceHazeDensity: 0.00055
@@ -159,9 +344,11 @@ MonoBehaviour:
     showSea: 1
     seaLevelMetres: 0
     seaMaterial: {fileID: 2100000, guid: f7e64c96dada84bf1bae7f46e0e94f50, type: 2}
-    seaNoise: {fileID: 0}
+    weatherNoise: {fileID: 0}
     oceanWaveProfile: {fileID: 0}
-    sunlight: {fileID: 1859268747}
+    windDirection: {x: 1, y: 0.25}
+    windSpeedMetresPerSecond: 9
+    sunlight: {fileID: 2108160295}
     sunCycleDurationMinutes: 20
     midnightToNoonClockRateRatio: 10
     sunLatitudeDegrees: -36
@@ -186,8 +373,6 @@ MonoBehaviour:
     broadNoiseStrength: 0.65
     detailStrength: 0.52
     erosionStrength: 0.38
-    windDirection: {x: 1, y: 0.25}
-    windSpeedMetresPerSecond: 9
     dayColour: {r: 0.92, g: 0.94, b: 0.96, a: 1}
     sunsetColour: {r: 0.92, g: 0.48, b: 0.24, a: 1}
     nightColour: {r: 0.035, g: 0.055, b: 0.1, a: 1}
@@ -195,7 +380,6 @@ MonoBehaviour:
     ambientShadowStrength: 0.12
     celestialObscurationStrength: 1
     lowElevationShadowFade: 0.09
-  worldSeed: 666
   discoveryRadiusMetres: 16000
   generationRadiusMetres: 10500
   discoveryRefreshSeconds: 0.5
@@ -204,28 +388,136 @@ MonoBehaviour:
   forwardPriorityMultiplier: 0.65
   cancellationHysteresisMetres: 1800
   installationBudgetMilliseconds: 4
-  streamingTarget: {fileID: 2098554330}
+  streamingTarget: {fileID: 909365617}
   activeRadiusMetres: 6000
   activeHysteresisMetres: 500
   unloadRadiusMetres: 12500
   maximumLoadedIslandCount: 3
   failedGenerationRetrySeconds: 15
---- !u!114 &1202688736
+--- !u!114 &1124309185
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1202688734}
+  m_GameObject: {fileID: 1124309183}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 294ce9ab06ad41f8ba46713ea6d29dcd, type: 3}
   m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::GridIslandGenerationRequestFactory
-  defaultConfiguration: {fileID: 11400000, guid: f40b693ae52a547acb8b4df039c63779, type: 2}
+  generation:
+    useSnapshotCache: 1
+    snapshotCacheBudgetGiB: 8
+    seed: 666
+    maximumHeightMetres: 400
+    waterRatio: 0.95
+    inlandSlopeMultiplier: 1.3
+    coastalSlopeMultiplier: 1
+    continentalNoiseFrequency: 2.2
+    continentalNoiseStrength: 0.78
+    detailNoiseFrequency: 12
+    detailNoiseStrength: 0.22
+    landMassOffset: 0
+    hydraulicErosionStrength: 1
+    sedimentDepositionStrength: 1.5
+    depositionMaximumSlopeDegrees: 12
+  rivers:
+    sourceCatchmentHectares: 0.05
+    steepSourceMultiplier: 4
+    sourceElevationBoost: 9
+    sourceWidthMetres: 2
+    maximumWidthMetres: 14
+    sourceDepthMetres: 0.35
+    maximumDepthMetres: 2
+  forest:
+    showForests: 1
+    forestPatchSizeMetres: 200
+    forestNoiseThreshold: 0.62
+    snowlineMetres: 100
+    forestPrototypeCount: 8
+    minimumTreeScale: 1
+    maximumTreeScale: 2
+  reeds:
+    showReeds: 1
+    bankWidthMetres: 0.8
+    patchSizeMetres: 8
+    coverageThreshold: 0.18
+    spacingMetres: 0.36
+    rushRatio: 0.45
+    minimumHeightMetres: 0.65
+    maximumHeightMetres: 2.1
+    maximumSlopeDegrees: 32
+    baseColour: {r: 0.12, g: 0.24, b: 0.055, a: 1}
+    tipColour: {r: 0.38, g: 0.48, b: 0.09, a: 1}
+    windStrength: 3
+  ferns:
+    showFerns: 1
+    barkClearanceMetres: 0.18
+    outerRadiusMetres: 1.65
+    spacingMetres: 0.58
+    patchSizeMetres: 12
+    coverageThreshold: 0.28
+    minimumLengthMetres: 0.45
+    maximumLengthMetres: 1.15
+    maximumSlopeDegrees: 34
+    baseColour: {r: 0.055, g: 0.18, b: 0.045, a: 1}
+    tipColour: {r: 0.24, g: 0.48, b: 0.12, a: 1}
+    windStrength: 1.8
+  rendering:
+    materialTextureResolution: 1024
+    terrainMaterial: {fileID: 2100000, guid: 19640f4fc7648482eac75d61d694f95b, type: 2}
+    grassMaterial: {fileID: 2100000, guid: 9c87f7d08551e4ae2b4dfa30af8c3f01, type: 2}
+    riverMaterial: {fileID: 2100000, guid: 671058ee1a245424e91a25c139b2be33, type: 2}
+    seaMaterial: {fileID: 2100000, guid: f7e64c96dada84bf1bae7f46e0e94f50, type: 2}
+    oceanWaveProfile: {fileID: 0}
+    rockMaterial: {fileID: 2100000, guid: f808a7e2f1bde4fcd8f35b7bcae174a5, type: 2}
+    treeFoliageMaterial: {fileID: 2100000, guid: 39e6f52a20784bdaa4e771e2cb558234, type: 2}
+    cliffDetailNoise: {fileID: 0}
+    riverNoise: {fileID: 0}
+    grassColourA: {r: 0.18, g: 0.46, b: 0.14, a: 1}
+    grassColourB: {r: 0.34, g: 0.5, b: 0.14, a: 1}
+    grassColourNoiseWorldSizeMetres: 2048
+    grassWindStrengthMetres: 0.07
+    grassWindGustSizeMetres: 12
+    grassWindNormalStrength: 0.35
+    sandPatchSizeMetres: 32
+    grassPatchSizeMetres: 32
+    estuaryBlendHeightMetres: 2
+    showDistanceHaze: 1
+    distanceHazeColour: {r: 0.62, g: 0.6, b: 0.54, a: 1}
+    distanceHazeDensity: 0.00055
+    sunCycleDurationMinutes: 20
+    midnightToNoonClockRateRatio: 10
+    sunLatitudeDegrees: -36
+    startingSolarTimeHours: 8
+    middaySunIntensity: 1.25
+    moonEquatorOffsetDegrees: 22
+    startingMoonPhase: 0.5
+    fullMoonLightIntensity: 0.14
+    starDensity: 0.18
+    starBrightness: 1.35
+    starSize: 0.052
+    showRivers: 1
+    showSea: 1
+    showGrass: 1
+    showRocks: 1
+  dirtColour: {r: 0.09, g: 0.055, b: 0.026, a: 1}
+  stoneColour: {r: 0.3, g: 0.32, b: 0.29, a: 1}
+  sandColour: {r: 0.62, g: 0.57, b: 0.34, a: 1}
+  randomizeMaterialColours: 1
+  materialColourVariation: 0.14
+  debugSettings:
+    showMeshEdges: 0
+    toggleMeshEdgesKey: 109
+    showTreeMeshEdges: 0
+    toggleTreeMeshEdgesKey: 110
+    showFrameRate: 0
+    toggleFrameRateKey: 102
+    showWaterfallFeet: 0
+  seed: 666
   fixedIslands:
   - gridPosition: {x: 0, y: 0}
-    configuration: {fileID: 11400000, guid: f40b693ae52a547acb8b4df039c63779, type: 2}
     stableId: sandbox-origin
   generateUnlistedCells: 0
   unlistedCellOccupancy: 0
@@ -238,13 +530,13 @@ MonoBehaviour:
     noiseStrengthVariation: 0.3
     landMassOffsetVariation: 0.35
     erosionVariation: 0.3
---- !u!4 &1202688737
+--- !u!4 &1124309186
 Transform:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1202688734}
+  m_GameObject: {fileID: 1124309183}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
@@ -253,7 +545,7 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!1 &1859268746
+--- !u!1 &2108160294
 GameObject:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -261,8 +553,8 @@ GameObject:
   m_PrefabAsset: {fileID: 0}
   serializedVersion: 6
   m_Component:
-  - component: {fileID: 1859268748}
-  - component: {fileID: 1859268747}
+  - component: {fileID: 2108160296}
+  - component: {fileID: 2108160295}
   m_Layer: 0
   m_Name: Sun
   m_TagString: Untagged
@@ -270,13 +562,13 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!108 &1859268747
+--- !u!108 &2108160295
 Light:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1859268746}
+  m_GameObject: {fileID: 2108160294}
   m_Enabled: 1
   serializedVersion: 13
   m_Type: 1
@@ -335,198 +627,15 @@ Light:
   m_LightUnit: 1
   m_LuxAtDistance: 1
   m_EnableSpotReflector: 1
---- !u!4 &1859268748
+--- !u!4 &2108160296
 Transform:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1859268746}
+  m_GameObject: {fileID: 2108160294}
   serializedVersion: 2
   m_LocalRotation: {x: 0.40305823, y: -0.27253202, z: 0.12708378, w: 0.8643611}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!1 &2098554322
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 2098554330}
-  - component: {fileID: 2098554329}
-  - component: {fileID: 2098554328}
-  - component: {fileID: 2098554327}
-  - component: {fileID: 2098554326}
-  - component: {fileID: 2098554325}
-  - component: {fileID: 2098554324}
-  - component: {fileID: 2098554323}
-  m_Layer: 0
-  m_Name: Main Camera
-  m_TagString: MainCamera
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!114 &2098554323
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 2098554322}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: e6652aa5064ad4ca29d5befd6a6808e3, type: 3}
-  m_Name:
-  m_EditorClassIdentifier: Assembly-CSharp::IslandDemoController
-  worldManager: {fileID: 1202688735}
-  viewerCamera: {fileID: 2098554329}
-  orbitCamera: {fileID: 2098554325}
-  firstPersonController: {fileID: 2098554324}
-  startInFlyMode: 0
-  flyStartPosition: {x: 0, y: 4, z: -1800}
-  flyStartYawDegrees: 0
-  flyStartPitchDegrees: 0
---- !u!114 &2098554324
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 2098554322}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 2132f91b666942e2aca86f59828c11c9, type: 3}
-  m_Name:
-  m_EditorClassIdentifier: Assembly-CSharp::FirstPersonController
-  toggleFlyModeKey: 118
-  flyClearanceMetres: 4
-  flySpeedMetresPerSecond: 24
-  flyDescentSmoothTime: 0.18
---- !u!114 &2098554325
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 2098554322}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: b0d555b110ff048cfa172402b03dc05f, type: 3}
-  m_Name:
-  m_EditorClassIdentifier: Assembly-CSharp::OrbitCamera
---- !u!81 &2098554326
-AudioListener:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 2098554322}
-  m_Enabled: 1
---- !u!114 &2098554327
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 2098554322}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 1fb33a94a2d54312be5cc35a27c195c8, type: 3}
-  m_Name:
-  m_EditorClassIdentifier: Assembly-CSharp::RealTimeAmbientOcclusion
-  ambientOcclusionShader: {fileID: 4800000, guid: 905578e82ce344a0a1ee384ea7ed1bb4, type: 3}
-  quality: 2
-  intensity: 0.6
-  radius: 1.5
-  halfResolution: 1
---- !u!114 &2098554328
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 2098554322}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 9d60ab4e4fc443b5a2c6dc6c9f1fca01, type: 3}
-  m_Name:
-  m_EditorClassIdentifier: Assembly-CSharp::PlanarWaterReflection
-  reflectionPlane: {fileID: 1202688737}
-  resolutionScale: 0.5
-  clipPlaneOffset: 0.07
-  reflectionLayers:
-    serializedVersion: 2
-    m_Bits: 4294967295
-  useSimplifiedShader: 1
-  simplifiedReflectionShader: {fileID: 4800000, guid: e1b5d68178aa4cfd8a4de84a2d74dbe7, type: 3}
-  frameInterval: 2
---- !u!20 &2098554329
-Camera:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 2098554322}
-  m_Enabled: 1
-  serializedVersion: 2
-  m_ClearFlags: 2
-  m_BackGroundColor: {r: 0.49, g: 0.68, b: 0.82, a: 1}
-  m_projectionMatrixMode: 1
-  m_GateFitMode: 2
-  m_FOVAxisMode: 0
-  m_Iso: 200
-  m_ShutterSpeed: 0.005
-  m_Aperture: 16
-  m_FocusDistance: 10
-  m_FocalLength: 50
-  m_BladeCount: 5
-  m_Curvature: {x: 2, y: 11}
-  m_BarrelClipping: 0.25
-  m_Anamorphism: 0
-  m_SensorSize: {x: 36, y: 24}
-  m_LensShift: {x: 0, y: 0}
-  m_NormalizedViewPortRect:
-    serializedVersion: 2
-    x: 0
-    y: 0
-    width: 1
-    height: 1
-  near clip plane: 0.05
-  far clip plane: 16000
-  field of view: 60
-  orthographic: 0
-  orthographic size: 5
-  m_Depth: 0
-  m_CullingMask:
-    serializedVersion: 2
-    m_Bits: 4294967295
-  m_RenderingPath: -1
-  m_TargetTexture: {fileID: 0}
-  m_TargetDisplay: 0
-  m_TargetEye: 3
-  m_HDR: 1
-  m_AllowMSAA: 1
-  m_AllowDynamicResolution: 0
-  m_ForceIntoRT: 0
-  m_OcclusionCulling: 1
-  m_StereoConvergence: 10
-  m_StereoSeparation: 0.022
---- !u!4 &2098554330
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 2098554322}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
@@ -537,6 +646,6 @@ Transform:
 SceneRoots:
   m_ObjectHideFlags: 0
   m_Roots:
-  - {fileID: 1202688737}
-  - {fileID: 1859268748}
-  - {fileID: 2098554330}
+  - {fileID: 1124309186}
+  - {fileID: 2108160296}
+  - {fileID: 909365617}

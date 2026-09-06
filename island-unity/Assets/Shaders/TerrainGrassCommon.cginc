@@ -35,10 +35,7 @@ half _GrassBladeWidth;
 fixed4 _GrassColorA;
 fixed4 _GrassColorB;
 float _GrassColorNoiseWorldSize;
-half _GrassBrightness;
-float4 _GrassWindDirection;
 float _GrassWindStrength;
-float _GrassWindSpeed;
 float _GrassWindWorldSize;
 half _GrassWindNormalStrength;
 float3 _GrassLightDirection;
@@ -184,7 +181,6 @@ fixed4 GrassFragment(GrassVertexOutput input) : SV_Target
         smoothstep(0.1h, 0.9h, grassColorNoise));
     grassColor *= lerp(0.72h, 1.18h, GRASS_SHELL_LAYER);
     grassColor *= lerp(0.90h, 1.10h, GrassHash(cell + 17.0));
-    grassColor *= _GrassBrightness;
     fixed4 color = fixed4(grassColor * (ambient + direct), 1.0h);
     UNITY_APPLY_FOG(input.fogCoord, color);
     return color;

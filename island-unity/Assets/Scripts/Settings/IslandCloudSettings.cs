@@ -7,7 +7,7 @@ public sealed class IslandCloudSettings
 {
     [SerializeField] private bool enabled = true;
 
-    [Tooltip("Seed mixed with the world seed when generating the seamless weather field.")]
+    [Tooltip("Seed mixed with the global environment seed when generating the seamless weather field.")]
     [SerializeField] private int seed = 173;
 
     [Tooltip("Power-of-two resolution of the portable packed weather map.")]
@@ -49,13 +49,6 @@ public sealed class IslandCloudSettings
     [Tooltip("Amount by which fine noise erodes cloud edges.")]
     [Range(0f, 1f)]
     [SerializeField] private float erosionStrength = 0.38f;
-
-    [Tooltip("Horizontal direction in which the cloud field travels.")]
-    [SerializeField] private Vector2 windDirection = new Vector2(1f, 0.25f);
-
-    [Tooltip("Cloud travel speed in metres per second.")]
-    [Range(0f, 100f)]
-    [SerializeField] private float windSpeedMetresPerSecond = 9f;
 
     [SerializeField] private Color dayColour = new Color(0.92f, 0.94f, 0.96f, 1f);
     [SerializeField] private Color sunsetColour = new Color(0.92f, 0.48f, 0.24f, 1f);
@@ -99,8 +92,6 @@ public sealed class IslandCloudSettings
     public float BroadNoiseStrength { get => Mathf.Clamp01(broadNoiseStrength); set => broadNoiseStrength = Mathf.Clamp01(value); }
     public float DetailStrength { get => Mathf.Clamp01(detailStrength); set => detailStrength = Mathf.Clamp01(value); }
     public float ErosionStrength { get => Mathf.Clamp01(erosionStrength); set => erosionStrength = Mathf.Clamp01(value); }
-    public Vector2 WindDirection { get => windDirection; set => windDirection = value; }
-    public float WindSpeedMetresPerSecond { get => Mathf.Clamp(windSpeedMetresPerSecond, 0f, 100f); set => windSpeedMetresPerSecond = Mathf.Clamp(value, 0f, 100f); }
     public Color DayColour { get => dayColour; set => dayColour = value; }
     public Color SunsetColour { get => sunsetColour; set => sunsetColour = value; }
     public Color NightColour { get => nightColour; set => nightColour = value; }

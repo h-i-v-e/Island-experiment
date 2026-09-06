@@ -54,9 +54,9 @@ public sealed partial class IslandWorldManager
     {
         var centreCell = WorldToCell(centre);
         var cellRadius = Mathf.CeilToInt(
-            discoveryRadiusMetres / IslandCellSizeMetres) + 1;
+            discoveryRadiusMetres / IslandSizeMetres) + 1;
         var maximumDistance = discoveryRadiusMetres
-            + IslandCellSizeMetres * 0.75f;
+            + IslandSizeMetres * 0.75f;
         for (var z = -cellRadius; z <= cellRadius; z++)
         {
             for (var x = -cellRadius; x <= cellRadius; x++)
@@ -74,22 +74,20 @@ public sealed partial class IslandWorldManager
     private IslandGenerationRequest CreateGenerationRequestForCell(
         Vector2Int cell)
     {
-        var randomSeed = IslandDescriptor.ProceduralSeed(worldSeed, cell);
         var request = IslandGenerationRequestFactory.CreateIslandGenerationRequest(
-            randomSeed,
             cell);
         if (request == null)
         {
             return null;
         }
-        ValidateGenerationRequest(request, randomSeed, cell);
+        ValidateGenerationRequest(request, cell);
         return request;
     }
 
     private void PruneDistantDescriptors(Vector3 current, Vector3 projected)
     {
         removalCells.Clear();
-        var retentionRadius = discoveryRadiusMetres + IslandCellSizeMetres * 2f;
+        var retentionRadius = discoveryRadiusMetres + IslandSizeMetres * 2f;
         foreach (var pair in managedIslands)
         {
             var entry = pair.Value;
@@ -165,11 +163,13 @@ public sealed partial class IslandWorldManager
         IslandRuntimeEntry entry,
         float hysteresis)
     {
-        var radius = generationRadiusMetres
-            + entry.Descriptor.EstimatedBoundingRadiusMetres
-            + hysteresis;
-        return DistanceToDescriptor(entry.Descriptor, lastQueryPosition) <= radius
-            || DistanceToDescriptor(entry.Descriptor, projectedGenerationPosition) <= radius;
+        var radius = generationRadiusMetres + hysteresis;
+        return DistanceFromIslandEdge(
+                    DistanceToDescriptor(entry.Descriptor, lastQueryPosition),
+                    entry.Descriptor) <= radius
+            || DistanceFromIslandEdge(
+                    DistanceToDescriptor(entry.Descriptor, projectedGenerationPosition),
+                    entry.Descriptor) <= radius;
     }
 
     private bool HasReadyQueuedIsland()
@@ -281,15 +281,13 @@ public sealed partial class IslandWorldManager
 
     private static void ValidateGenerationRequest(
         IslandGenerationRequest request,
-        int expectedSeed,
         Vector2Int expectedCell)
     {
-        if (request.RandomSeed != expectedSeed
-            || request.IslandGridPosition != expectedCell)
+        if (request.IslandGridPosition != expectedCell)
         {
             throw new InvalidOperationException(
-                $"{nameof(IIslandGenerationRequestFactory)} must preserve the supplied "
-                + $"seed ({expectedSeed}) and grid position ({expectedCell}).");
+                $"{nameof(IIslandGenerationRequestFactory)} returned cell "
+                + $"{request.IslandGridPosition} while the manager requested {expectedCell}.");
         }
     }
 
@@ -339,7 +337,7 @@ public sealed partial class IslandWorldManager
                 (float)entry.Descriptor.LogicalZMetres),
             Quaternion.identity);
         var generator = islandObject.AddComponent<IslandGenerator>();
-        entry.GenerationRequest.ApplyProfileTo(generator);
+        generator.Configure(entry.GenerationRequest);
         generator.ConfigureWorldManagement();
         generator.SetStreamingTarget(null);
         entry.Generator = generator;

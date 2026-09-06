@@ -12,12 +12,7 @@ public static class IslandProjectSetup
     private const string MultiIslandScenePath = "Assets/Scenes/OpenSeaWorld.unity";
     private const string OceanWaveScenePath = "Assets/Scenes/OceanRuntimeSandbox.unity";
     private const string MaterialFolder = "Assets/Materials";
-    private const string IslandConfigurationPath =
-        "Assets/Settings/IslandRuntimeConfiguration.asset";
-    private const string OpenSeaConfigurationPath =
-        "Assets/Settings/OpenSeaIslandConfiguration.asset";
     private const string OceanWaveProfilePath = "Assets/Settings/OceanWaveProfile.asset";
-    private const string TreeWoodMaterialPath = "Assets/Materials/TreeWood.mat";
     private const string TreeFoliageMaterialPath = "Assets/Materials/TreeFoliage.mat";
 
     public static void CreateReplacementScenes()
@@ -50,12 +45,11 @@ public static class IslandProjectSetup
             $"{MaterialFolder}/IslandRock.mat",
             "Motu/Rock Decoration");
         rock.enableInstancing = true;
-        var treeWood = AssetDatabase.LoadAssetAtPath<Material>(TreeWoodMaterialPath);
         var treeFoliage = AssetDatabase.LoadAssetAtPath<Material>(TreeFoliageMaterialPath);
-        if (treeWood == null || treeFoliage == null)
+        if (treeFoliage == null)
         {
             throw new InvalidOperationException(
-                "Create or refresh the TreeSandbox materials before creating the island sandbox.");
+                "Create or refresh the TreeSandbox foliage material before creating the island sandbox.");
         }
 
         var scene = EditorSceneManager.NewScene(
@@ -93,32 +87,27 @@ public static class IslandProjectSetup
         var demo = cameraObject.AddComponent<IslandDemoController>();
         demo.Configure(worldManager, camera, orbit, firstPerson);
 
-        var configuration = CreateOrUpdateIslandConfiguration(
-            IslandConfigurationPath,
-            666,
+        requestFactory.Configure(666, false, 0f);
+        requestFactory.ConfigureRenderingReferences(
             terrain,
             grass,
             river,
             sea,
             rock,
-            treeWood,
             treeFoliage);
-        requestFactory.Configure(configuration, false, 0f);
         requestFactory.SetFixedIslands(
             new GridIslandGenerationRequestFactory.FixedIsland(
                 Vector2Int.zero,
-                configuration,
                 "sandbox-origin"));
         worldManager.ConfigureIslandGenerationRequestFactory(requestFactory);
-        worldManager.ConfigureWorldSeed(666);
         worldManager.SetStreamingTarget(cameraObject.transform);
 
         RenderSettings.ambientMode = AmbientMode.Flat;
         RenderSettings.ambientLight = new Color(0.42f, 0.46f, 0.52f);
         RenderSettings.fog = false;
         RenderSettings.fogMode = FogMode.ExponentialSquared;
-        RenderSettings.fogColor = configuration.Rendering.DistanceHazeColour;
-        RenderSettings.fogDensity = configuration.Rendering.DistanceHazeDensity;
+        RenderSettings.fogColor = requestFactory.RenderingSettings.DistanceHazeColour;
+        RenderSettings.fogDensity = requestFactory.RenderingSettings.DistanceHazeDensity;
         RenderSettings.sun = sun;
 
         EditorSceneManager.SaveScene(scene, ScenePath);
@@ -156,12 +145,11 @@ public static class IslandProjectSetup
             $"{MaterialFolder}/IslandRock.mat",
             "Motu/Rock Decoration");
         rock.enableInstancing = true;
-        var treeWood = AssetDatabase.LoadAssetAtPath<Material>(TreeWoodMaterialPath);
         var treeFoliage = AssetDatabase.LoadAssetAtPath<Material>(TreeFoliageMaterialPath);
-        if (treeWood == null || treeFoliage == null)
+        if (treeFoliage == null)
         {
             throw new InvalidOperationException(
-                "Create or refresh the TreeSandbox materials before creating the multi-island sandbox.");
+                "Create or refresh the TreeSandbox foliage material before creating the multi-island sandbox.");
         }
 
         var sceneExists = File.Exists(MultiIslandScenePath);
@@ -190,15 +178,13 @@ public static class IslandProjectSetup
         sun.color = new Color(1f, 0.94f, 0.82f);
         worldManager.ConfigureWorldEnvironment(sun, sea);
 
-        var configuration = CreateOrUpdateIslandConfiguration(
-            OpenSeaConfigurationPath,
-            666,
+        requestFactory.Configure(8675309, true, 0.32f);
+        requestFactory.ConfigureRenderingReferences(
             terrain,
             grass,
             river,
             sea,
             rock,
-            treeWood,
             treeFoliage);
 
         var cameraObject = new GameObject("Main Camera");
@@ -216,22 +202,17 @@ public static class IslandProjectSetup
         var firstPerson = cameraObject.AddComponent<FirstPersonController>();
         var demo = cameraObject.AddComponent<IslandDemoController>();
 
-        requestFactory.Configure(configuration, true, 0.32f);
         requestFactory.SetFixedIslands(
             new GridIslandGenerationRequestFactory.FixedIsland(
                 new Vector2Int(-1, 0),
-                configuration,
                 "open-sea-west"),
             new GridIslandGenerationRequestFactory.FixedIsland(
                 Vector2Int.zero,
-                configuration,
                 "open-sea-central"),
             new GridIslandGenerationRequestFactory.FixedIsland(
                 new Vector2Int(1, 0),
-                configuration,
                 "open-sea-east"));
         worldManager.ConfigureIslandGenerationRequestFactory(requestFactory);
-        worldManager.ConfigureWorldSeed(8675309);
         worldManager.SetStreamingTarget(cameraObject.transform);
 
         waterReflection.Configure(worldObject.transform);
@@ -242,8 +223,8 @@ public static class IslandProjectSetup
         RenderSettings.ambientLight = new Color(0.42f, 0.46f, 0.52f);
         RenderSettings.fog = false;
         RenderSettings.fogMode = FogMode.ExponentialSquared;
-        RenderSettings.fogColor = configuration.Rendering.DistanceHazeColour;
-        RenderSettings.fogDensity = configuration.Rendering.DistanceHazeDensity;
+        RenderSettings.fogColor = requestFactory.RenderingSettings.DistanceHazeColour;
+        RenderSettings.fogDensity = requestFactory.RenderingSettings.DistanceHazeDensity;
         RenderSettings.sun = sun;
 
         EditorSceneManager.SaveScene(scene, MultiIslandScenePath);
@@ -394,7 +375,9 @@ public static class IslandProjectSetup
             || environmentSettings.FindPropertyRelative("seaMaterial").objectReferenceValue == null
             || variationSettings == null
             || !variationSettings.FindPropertyRelative("enabled").boolValue
-            || factoryState.FindProperty("defaultConfiguration").objectReferenceValue == null
+            || factoryState.FindProperty("generation") == null
+            || factoryState.FindProperty("rivers") == null
+            || factoryState.FindProperty("rendering") == null
             || factoryState.FindProperty("fixedIslands").arraySize != 3
             || !factoryState.FindProperty("generateUnlistedCells").boolValue
             || managerState.FindProperty("generationRadiusMetres").floatValue
@@ -406,36 +389,6 @@ public static class IslandProjectSetup
             throw new InvalidOperationException(
                 "The multi-island sandbox factory must own its fixed and generated cells with correctly ordered generation, unload, and discovery radii.");
         }
-    }
-
-    private static IslandConfiguration CreateOrUpdateIslandConfiguration(
-        string path,
-        int seed,
-        Material terrain,
-        Material grass,
-        Material river,
-        Material sea,
-        Material rock,
-        Material treeWood,
-        Material treeFoliage)
-    {
-        var configuration = AssetDatabase.LoadAssetAtPath<IslandConfiguration>(path);
-        if (configuration == null)
-        {
-            configuration = ScriptableObject.CreateInstance<IslandConfiguration>();
-            AssetDatabase.CreateAsset(configuration, path);
-        }
-        configuration.Generation.Seed = seed;
-        configuration.ConfigureRenderingReferences(
-            terrain,
-            grass,
-            river,
-            sea,
-            rock,
-            treeWood,
-            treeFoliage);
-        EditorUtility.SetDirty(configuration);
-        return configuration;
     }
 
     private static void AddSceneToBuildSettings(string path)

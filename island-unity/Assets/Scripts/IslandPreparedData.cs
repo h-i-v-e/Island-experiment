@@ -87,13 +87,17 @@ internal sealed class IslandPreparedSeaMask
     }
 }
 
-internal readonly struct IslandMaterialColours
+public readonly struct IslandMaterialColours
 {
     internal readonly Color dirt;
     internal readonly Color stone;
     internal readonly Color sand;
 
-    internal IslandMaterialColours(Color dirt, Color stone, Color sand)
+    public Color Dirt => dirt;
+    public Color Stone => stone;
+    public Color Sand => sand;
+
+    public IslandMaterialColours(Color dirt, Color stone, Color sand)
     {
         this.dirt = new Color(dirt.r, dirt.g, dirt.b, 1f);
         this.stone = new Color(stone.r, stone.g, stone.b, 1f);
@@ -129,6 +133,8 @@ internal sealed class IslandPreparedMaterialTexture
 {
     internal readonly int width;
     internal readonly int height;
+    internal readonly float physicalTileWidthMetres;
+    internal readonly float physicalTileHeightMetres;
     internal readonly float minimumHeight;
     internal readonly float maximumHeight;
     internal readonly float baseHeight;
@@ -140,6 +146,8 @@ internal sealed class IslandPreparedMaterialTexture
     internal IslandPreparedMaterialTexture(
         int width,
         int height,
+        float physicalTileWidthMetres,
+        float physicalTileHeightMetres,
         float minimumHeight,
         float maximumHeight,
         float baseHeight,
@@ -151,6 +159,10 @@ internal sealed class IslandPreparedMaterialTexture
         var pixels = checked(width * height);
         if (width <= 0
             || height <= 0
+            || !float.IsFinite(physicalTileWidthMetres)
+            || physicalTileWidthMetres <= 0f
+            || !float.IsFinite(physicalTileHeightMetres)
+            || physicalTileHeightMetres <= 0f
             || float.IsNaN(minimumHeight)
             || float.IsInfinity(minimumHeight)
             || float.IsNaN(maximumHeight)
@@ -174,6 +186,8 @@ internal sealed class IslandPreparedMaterialTexture
         }
         this.width = width;
         this.height = height;
+        this.physicalTileWidthMetres = physicalTileWidthMetres;
+        this.physicalTileHeightMetres = physicalTileHeightMetres;
         this.minimumHeight = minimumHeight;
         this.maximumHeight = maximumHeight;
         this.baseHeight = baseHeight;
@@ -197,6 +211,7 @@ internal sealed class IslandPreparedMaterialTextures
     internal readonly IslandPreparedMaterialTexture riverBed;
     internal readonly IslandPreparedMaterialTexture beach;
     internal readonly IslandPreparedMaterialTexture fallenStones;
+    internal readonly IslandPreparedMaterialTexture treeBark;
 
     internal IslandPreparedMaterialTextures(
         IslandMaterialColours colours,
@@ -206,6 +221,7 @@ internal sealed class IslandPreparedMaterialTextures
         IslandPreparedMaterialTexture riverBed,
         IslandPreparedMaterialTexture beach,
         IslandPreparedMaterialTexture fallenStones,
+        IslandPreparedMaterialTexture treeBark,
         bool loadedFromCache = false)
     {
         this.loadedFromCache = loadedFromCache;
@@ -216,6 +232,7 @@ internal sealed class IslandPreparedMaterialTextures
         this.riverBed = riverBed ?? throw new ArgumentNullException(nameof(riverBed));
         this.beach = beach ?? throw new ArgumentNullException(nameof(beach));
         this.fallenStones = fallenStones ?? throw new ArgumentNullException(nameof(fallenStones));
+        this.treeBark = treeBark ?? throw new ArgumentNullException(nameof(treeBark));
     }
 }
 

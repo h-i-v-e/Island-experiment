@@ -8,6 +8,7 @@ public sealed partial class IslandGenerator
     public static void ValidateMaterialTextureCacheRoundTrip()
     {
         IslandMaterialTextureCache.ValidateRoundTrip();
+        ValidateRuntimeTreeBarkMaterialBinding();
     }
 
     private static void ValidateTreeSurfaceShader(string shaderName, string label)
@@ -35,9 +36,7 @@ public sealed partial class IslandGenerator
                 || !material.HasProperty("_TreeHueVariationDegrees")
                 || !material.HasProperty("_WorldSize")
                 || !material.HasProperty("_GrassPatchNoise")
-                || !material.HasProperty("_GrassWindDirection")
                 || !material.HasProperty("_GrassWindStrength")
-                || !material.HasProperty("_GrassWindSpeed")
                 || !material.HasProperty("_GrassWindWorldSize")
                 || !material.HasProperty("_TreeWindStrengthMultiplier")
                 || !material.HasProperty("_TreeWindBasePinHeight")
@@ -61,45 +60,6 @@ public sealed partial class IslandGenerator
             {
                 throw new InvalidOperationException(
                     "The tree wood shader is missing its directional bark properties.");
-            }
-            if (label == "wood")
-            {
-                var authoredMaterial = UnityEditor.AssetDatabase.LoadAssetAtPath<Material>(
-                    "Assets/Materials/TreeWood.mat");
-                var expectedAlbedo = UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>(
-                    "Assets/Generated/Textures/PlateBark/PlateBark_albedo.png");
-                var expectedHeight = UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>(
-                    "Assets/Generated/Textures/PlateBark/PlateBark_height.png");
-                var expectedNormal = UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>(
-                    "Assets/Generated/Textures/PlateBark/PlateBark_normal.png");
-                var expectedOcclusion = UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>(
-                    "Assets/Generated/Textures/PlateBark/PlateBark_occlusion.png");
-                var normalImporter = UnityEditor.AssetImporter.GetAtPath(
-                    "Assets/Generated/Textures/PlateBark/PlateBark_normal.png")
-                    as UnityEditor.TextureImporter;
-                if (authoredMaterial == null
-                    || authoredMaterial.shader != shader
-                    || authoredMaterial.GetTexture("_BarkAlbedoMap") != expectedAlbedo
-                    || authoredMaterial.GetTexture("_BarkHeightMap") != expectedHeight
-                    || authoredMaterial.GetTexture("_BarkNormalMap") != expectedNormal
-                    || authoredMaterial.GetTexture("_BarkOcclusionMap") != expectedOcclusion
-                    || !Mathf.Approximately(
-                        authoredMaterial.GetFloat("_BarkTileWidthMetres"),
-                        1.2f)
-                    || !Mathf.Approximately(
-                        authoredMaterial.GetFloat("_BarkTileHeightMetres"),
-                        1.6f)
-                    || !Mathf.Approximately(
-                        authoredMaterial.GetFloat("_BarkParallaxStrengthMetres"),
-                        0.05f)
-                    || normalImporter == null
-                    || normalImporter.textureType != UnityEditor.TextureImporterType.NormalMap
-                    || normalImporter.flipGreenChannel
-                    || normalImporter.wrapMode != TextureWrapMode.Repeat)
-                {
-                    throw new InvalidOperationException(
-                        "The tree wood material is not using the imported Plate Bark recipe maps.");
-                }
             }
             if (label == "foliage"
                 && (!material.HasProperty("_CanopyCoverage")
@@ -157,6 +117,61 @@ public sealed partial class IslandGenerator
         }
     }
 
+    private static void ValidateRuntimeTreeBarkMaterialBinding()
+    {
+        const int resolution = 16;
+        var prepared = IslandPreparationPipeline.PrepareMaterialTextures(
+            new IslandMaterialColours(
+                new Color(0.09f, 0.055f, 0.026f),
+                new Color(0.30f, 0.32f, 0.29f),
+                new Color(0.62f, 0.57f, 0.34f)),
+            resolution);
+        var shader = Shader.Find("Motu/Tree Wood")
+            ?? throw new InvalidOperationException("Could not find shader 'Motu/Tree Wood'.");
+        var host = new GameObject("Runtime tree bark validation");
+        host.SetActive(false);
+        var generator = host.AddComponent<IslandGenerator>();
+        generator.treeWoodMaterial = new Material(shader);
+        try
+        {
+            generator.CreateTreeBarkTextures(prepared.treeBark);
+            var material = generator.treeWoodMaterial;
+            foreach (var property in new[]
+            {
+                "_BarkAlbedoMap",
+                "_BarkHeightMap",
+                "_BarkNormalMap",
+                "_BarkOcclusionMap",
+            })
+            {
+                var texture = material.GetTexture(property) as Texture2D;
+                if (texture == null
+                    || texture.width != resolution
+                    || texture.height != resolution
+                    || texture.wrapMode != TextureWrapMode.Repeat)
+                {
+                    throw new InvalidOperationException(
+                        $"Runtime tree bark did not bind a valid {property} texture.");
+                }
+            }
+            if (!Mathf.Approximately(
+                    material.GetFloat("_BarkTileWidthMetres"),
+                    prepared.treeBark.physicalTileWidthMetres)
+                || !Mathf.Approximately(
+                    material.GetFloat("_BarkTileHeightMetres"),
+                    prepared.treeBark.physicalTileHeightMetres))
+            {
+                throw new InvalidOperationException(
+                    "Runtime tree bark did not preserve the recipe's physical tile dimensions.");
+            }
+        }
+        finally
+        {
+            generator.DestroyRuntimeMaterials();
+            DestroyImmediate(host);
+        }
+    }
+
     private static void ValidateDistantFoliageShader()
     {
         var shader = Shader.Find("Motu/Tree Foliage Distant");
@@ -175,9 +190,7 @@ public sealed partial class IslandGenerator
                 || material.renderQueue != (int)RenderQueue.Geometry
                 || !material.HasProperty("_WorldSize")
                 || !material.HasProperty("_GrassPatchNoise")
-                || !material.HasProperty("_GrassWindDirection")
                 || !material.HasProperty("_GrassWindStrength")
-                || !material.HasProperty("_GrassWindSpeed")
                 || !material.HasProperty("_GrassWindWorldSize")
                 || !material.HasProperty("_TreeWindStrengthMultiplier")
                 || !material.HasProperty("_TreeWindBasePinHeight")

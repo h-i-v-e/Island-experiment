@@ -18,7 +18,7 @@ public sealed partial class WorldEnvironmentController : MonoBehaviour
     private Mesh skyDomeMesh;
     private Material skyDomeMaterial;
     private Texture2D cloudWeatherTexture;
-    private Texture2D ownedOceanNoiseTexture;
+    private Texture2D ownedWeatherNoiseTexture;
     private GameObject moonLightObject;
     private Light moonLight;
     private OceanSurfaceController ocean;
@@ -29,11 +29,19 @@ public sealed partial class WorldEnvironmentController : MonoBehaviour
     public Mesh SkyMesh => skyDomeMesh;
     public Material SkyMaterial => skyDomeMaterial;
     public Material SeaMaterial => ocean != null ? ocean.SurfaceMaterial : null;
+    public Texture2D WeatherNoiseTexture =>
+        SeaMaterial != null ? SeaMaterial.GetTexture("_NoiseTex") as Texture2D : null;
     public Light MoonLight => moonLight;
     public Transform OceanTransform => ocean != null ? ocean.SurfaceTransform : null;
     public bool IsInstalled => skyDomeMaterial != null && SeaMaterial != null;
     public float SkyExposure => currentSkyExposure;
     public float NightStrength => currentNightStrength;
+    public Vector2 WindDirection => environmentSettings != null
+        ? environmentSettings.WindDirection
+        : Vector2.right;
+    public float WindSpeedMetresPerSecond => environmentSettings != null
+        ? environmentSettings.WindSpeedMetresPerSecond
+        : 0f;
 
     public static WorldEnvironmentController FindOrCreate()
     {
@@ -62,7 +70,7 @@ public sealed partial class WorldEnvironmentController : MonoBehaviour
         Material newSkyMaterial,
         Material newSeaMaterial,
         Texture2D newCloudWeatherTexture,
-        Texture2D newOwnedOceanNoiseTexture,
+        Texture2D newOwnedWeatherNoiseTexture,
         float newSkyDomeWorldSize,
         float environmentDiameterMetres,
         float globalSeaLevel,
@@ -73,7 +81,7 @@ public sealed partial class WorldEnvironmentController : MonoBehaviour
             newSkyMaterial,
             newSeaMaterial,
             newCloudWeatherTexture,
-            newOwnedOceanNoiseTexture,
+            newOwnedWeatherNoiseTexture,
             newSkyDomeWorldSize,
             environmentDiameterMetres,
             globalSeaLevel,
@@ -86,7 +94,7 @@ public sealed partial class WorldEnvironmentController : MonoBehaviour
         Material newSkyMaterial,
         Material newSeaMaterial,
         Texture2D newCloudWeatherTexture,
-        Texture2D newOwnedOceanNoiseTexture,
+        Texture2D newOwnedWeatherNoiseTexture,
         float newSkyDomeWorldSize,
         float environmentDiameterMetres,
         float globalSeaLevel,
@@ -105,11 +113,11 @@ public sealed partial class WorldEnvironmentController : MonoBehaviour
 
         var previousMaterial = skyDomeMaterial;
         var previousWeather = cloudWeatherTexture;
-        var previousOceanNoise = ownedOceanNoiseTexture;
+        var previousWeatherNoise = ownedWeatherNoiseTexture;
         EnsureSkyDome(newSkyDomeWorldSize, newSkyMaterial);
         skyDomeMaterial = newSkyMaterial;
         cloudWeatherTexture = newCloudWeatherTexture;
-        ownedOceanNoiseTexture = newOwnedOceanNoiseTexture;
+        ownedWeatherNoiseTexture = newOwnedWeatherNoiseTexture;
         seaLevel = globalSeaLevel;
         Shader.SetGlobalVector(
             EnvironmentWorldOffsetId,
@@ -133,16 +141,28 @@ public sealed partial class WorldEnvironmentController : MonoBehaviour
         {
             DestroyUnityObject(previousWeather);
         }
-        if (previousOceanNoise != null
-            && previousOceanNoise != ownedOceanNoiseTexture)
+        if (previousWeatherNoise != null
+            && previousWeatherNoise != ownedWeatherNoiseTexture)
         {
-            DestroyUnityObject(previousOceanNoise);
+            DestroyUnityObject(previousWeatherNoise);
         }
     }
 
     public void SetSeaVisible(bool visible)
     {
         ocean?.SetVisible(visible);
+    }
+
+    public void SetWind(Vector2 direction, float speedMetresPerSecond)
+    {
+        if (environmentSettings == null)
+        {
+            throw new InvalidOperationException(
+                "The world environment must be initialized before setting wind.");
+        }
+        environmentSettings.WindDirection = direction;
+        environmentSettings.WindSpeedMetresPerSecond = speedMetresPerSecond;
+        ApplyWeatherWind();
     }
 
     internal void RegisterCoastalWaveMask(
@@ -205,6 +225,7 @@ public sealed partial class WorldEnvironmentController : MonoBehaviour
             return;
         }
         UpdateSolarLighting(Time.unscaledDeltaTime);
+        ApplyWeatherWind();
         ApplyCloudSettings(Time.unscaledDeltaTime);
         ApplyDistanceHazeSettings();
     }
@@ -224,11 +245,11 @@ public sealed partial class WorldEnvironmentController : MonoBehaviour
         DestroyUnityObject(skyDomeMaterial);
         DestroyUnityObject(skyDomeMesh);
         DestroyUnityObject(cloudWeatherTexture);
-        DestroyUnityObject(ownedOceanNoiseTexture);
+        DestroyUnityObject(ownedWeatherNoiseTexture);
         skyDomeMaterial = null;
         skyDomeMesh = null;
         cloudWeatherTexture = null;
-        ownedOceanNoiseTexture = null;
+        ownedWeatherNoiseTexture = null;
     }
 
     private GameObject CreateSkyDomeObject(Mesh mesh, Material material)

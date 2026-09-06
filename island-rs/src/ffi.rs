@@ -51,7 +51,7 @@ pub struct MotuOptions {
     pub hydraulicDepositionStrength: f32,
     pub hydraulicDepositionSlopeDegrees: f32,
     pub riverSourceCatchmentHectares: f32,
-    pub riverSourceSteepMultiplier: f32,
+    pub riverSourceSteepCatchmentMultiplier: f32,
     pub riverSourceElevationBoost: f32,
     pub riverSourceWidthMetres: f32,
     pub riverMaximumWidthMetres: f32,
@@ -97,7 +97,7 @@ impl From<MotuOptions> for IslandOptions {
             hydraulic_deposition_strength: value.hydraulicDepositionStrength,
             hydraulic_deposition_slope_degrees: value.hydraulicDepositionSlopeDegrees,
             river_source_catchment_hectares: value.riverSourceCatchmentHectares,
-            river_source_steep_multiplier: value.riverSourceSteepMultiplier,
+            river_source_steep_catchment_multiplier: value.riverSourceSteepCatchmentMultiplier,
             river_source_elevation_boost: value.riverSourceElevationBoost,
             river_source_width_metres: value.riverSourceWidthMetres,
             river_maximum_width_metres: value.riverMaximumWidthMetres,
@@ -314,7 +314,7 @@ impl Default for MotuMaterialBakeOptions {
             width: 1024,
             height: 1024,
             normalConvention: 1,
-            materialMask: 0x3f,
+            materialMask: 0x7f,
             reserved: [0; 2],
         }
     }
@@ -337,6 +337,8 @@ pub struct ByteExportArray {
 pub struct ExportMaterialTexture {
     pub width: i32,
     pub height: i32,
+    pub physicalTileWidthMetres: f32,
+    pub physicalTileHeightMetres: f32,
     pub minimumHeight: f32,
     pub maximumHeight: f32,
     pub baseHeight: f32,
@@ -356,12 +358,15 @@ pub struct ExportMaterialTextureSet {
     pub riverBed: ExportMaterialTexture,
     pub beach: ExportMaterialTexture,
     pub fallenStones: ExportMaterialTexture,
+    pub treeBark: ExportMaterialTexture,
 }
 
 #[derive(Debug)]
 struct FfiMaterialTexture {
     width: i32,
     height: i32,
+    physical_tile_width_metres: f32,
+    physical_tile_height_metres: f32,
     minimum_height: f32,
     maximum_height: f32,
     base_height: f32,
@@ -379,6 +384,7 @@ struct FfiMaterialTextureSet {
     river_bed: Option<FfiMaterialTexture>,
     beach: Option<FfiMaterialTexture>,
     fallen_stones: Option<FfiMaterialTexture>,
+    tree_bark: Option<FfiMaterialTexture>,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -1002,6 +1008,7 @@ pub unsafe extern "C" fn BakeMotuMaterialTextures(
         river_bed: options.materialMask & 0x02 != 0,
         beach: options.materialMask & 0x20 != 0,
         fallen_stones: options.materialMask & 0x08 != 0,
+        tree_bark: options.materialMask & 0x40 != 0,
     };
     let request = RuntimeMaterialInputs::new(
         LinearRgb(inputs.dirtColour),
@@ -1032,6 +1039,7 @@ pub unsafe extern "C" fn BakeMotuMaterialTextures(
             IslandMaterialKind::RiverBed => owned.river_bed = Some(texture),
             IslandMaterialKind::Beach => owned.beach = Some(texture),
             IslandMaterialKind::FallenStones => owned.fallen_stones = Some(texture),
+            IslandMaterialKind::TreeBark => owned.tree_bark = Some(texture),
         }
     }
 
@@ -1044,6 +1052,7 @@ pub unsafe extern "C" fn BakeMotuMaterialTextures(
         riverBed: export_material_texture(boxed.river_bed.as_ref()),
         beach: export_material_texture(boxed.beach.as_ref()),
         fallenStones: export_material_texture(boxed.fallen_stones.as_ref()),
+        treeBark: export_material_texture(boxed.tree_bark.as_ref()),
     };
     let handle = Box::into_raw(boxed).cast();
     // SAFETY: output is non-null and writable by contract.
@@ -1075,7 +1084,13 @@ fn ffi_material_texture(textures: &TextureSet) -> Result<FfiMaterialTexture, ()>
     let minimum_height = textures.metadata.minimum_height_m;
     let maximum_height = textures.metadata.maximum_height_m;
     let base_height = textures.metadata.base_height_m;
-    if !minimum_height.is_finite()
+    let [physical_tile_width_metres, physical_tile_height_metres] =
+        textures.metadata.physical_tile_size_m;
+    if !physical_tile_width_metres.is_finite()
+        || physical_tile_width_metres <= 0.0
+        || !physical_tile_height_metres.is_finite()
+        || physical_tile_height_metres <= 0.0
+        || !minimum_height.is_finite()
         || !maximum_height.is_finite()
         || !base_height.is_finite()
         || maximum_height <= minimum_height
@@ -1114,6 +1129,8 @@ fn ffi_material_texture(textures: &TextureSet) -> Result<FfiMaterialTexture, ()>
     Ok(FfiMaterialTexture {
         width,
         height,
+        physical_tile_width_metres,
+        physical_tile_height_metres,
         minimum_height,
         maximum_height,
         base_height,
@@ -1131,6 +1148,8 @@ fn export_material_texture(texture: Option<&FfiMaterialTexture>) -> ExportMateri
     ExportMaterialTexture {
         width: texture.width,
         height: texture.height,
+        physicalTileWidthMetres: texture.physical_tile_width_metres,
+        physicalTileHeightMetres: texture.physical_tile_height_metres,
         minimumHeight: texture.minimum_height,
         maximumHeight: texture.maximum_height,
         baseHeight: texture.base_height,
@@ -2076,7 +2095,7 @@ mod tests {
             width: 64,
             height: 64,
             normalConvention: 1,
-            materialMask: 0x3f,
+            materialMask: 0x7f,
             reserved: [0; 2],
         };
         let mut output = ExportMaterialTextureSet::default();
@@ -2094,8 +2113,11 @@ mod tests {
             output.riverBed,
             output.beach,
             output.fallenStones,
+            output.treeBark,
         ] {
             assert_eq!((texture.width, texture.height), (64, 64));
+            assert!(texture.physicalTileWidthMetres > 0.0);
+            assert!(texture.physicalTileHeightMetres > 0.0);
             assert!(texture.minimumHeight < texture.maximumHeight);
             assert!(texture.baseHeight >= texture.minimumHeight);
             assert!(texture.baseHeight <= texture.maximumHeight);
@@ -2124,6 +2146,13 @@ mod tests {
             ),
             (0.0, 0.015, 0.0),
         );
+        assert_eq!(
+            (
+                output.treeBark.physicalTileWidthMetres,
+                output.treeBark.physicalTileHeightMetres,
+            ),
+            (1.2, 1.6),
+        );
         // SAFETY: output owns the still-live handle returned above.
         unsafe { ReleaseMaterialTextureSet(&raw mut output) };
         assert!(output.handle.is_null());
@@ -2141,7 +2170,7 @@ mod tests {
             width: 8,
             height: 8,
             normalConvention: 0,
-            materialMask: 0x3f,
+            materialMask: 0x7f,
             reserved: [0; 2],
         };
         let mut output = ExportMaterialTextureSet {
@@ -2597,7 +2626,7 @@ mod tests {
             hydraulicDepositionStrength: 1.5,
             hydraulicDepositionSlopeDegrees: 12.0,
             riverSourceCatchmentHectares: 0.05,
-            riverSourceSteepMultiplier: 4.0,
+            riverSourceSteepCatchmentMultiplier: 4.0,
             riverSourceElevationBoost: 9.0,
             riverSourceWidthMetres: 2.0,
             riverMaximumWidthMetres: 14.0,

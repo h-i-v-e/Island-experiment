@@ -21,11 +21,9 @@ Shader "Motu/Planar Reflection Simplified"
         _FernFadeStart ("Fern Fade Start", Float) = 34
         _FernFadeEnd ("Fern Fade End", Float) = 47
         _WorldSize ("Island World Size", Float) = 2000
-        [NoScaleOffset] _GrassPatchNoise ("Wind Noise", 2D) = "white" {}
+        [NoScaleOffset] [HideInInspector] _GrassPatchNoise ("Global Weather Noise", 2D) = "white" {}
         _GrassPlayerPosition ("Player Position", Vector) = (0, 0, 0, 0)
-        _GrassWindDirection ("Wind Direction", Vector) = (1, 0, 0.35, 0)
         _GrassWindStrength ("Wind Strength", Float) = 0.07
-        _GrassWindSpeed ("Wind Speed", Float) = 1.8
         _GrassWindWorldSize ("Wind Size", Float) = 12
     }
 
@@ -33,9 +31,7 @@ Shader "Motu/Planar Reflection Simplified"
     #include "UnityCG.cginc"
     #include "Lighting.cginc"
     sampler2D _GrassPatchNoise;
-    float4 _GrassWindDirection;
     float _GrassWindStrength;
-    float _GrassWindSpeed;
     float _GrassWindWorldSize;
     #include "GrassWindCommon.cginc"
 

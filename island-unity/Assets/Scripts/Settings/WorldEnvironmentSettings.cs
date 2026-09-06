@@ -4,6 +4,8 @@ using UnityEngine;
 [Serializable]
 public sealed class WorldEnvironmentSettings
 {
+    [Tooltip("Seed for global sky and weather variation. Island seeds belong to the request factory.")]
+    [SerializeField] private int seed = 8675309;
     [SerializeField] private Color zenithColour = new Color(0.49f, 0.68f, 0.82f, 1f);
     [SerializeField] private Color distanceHazeColour = new Color(0.62f, 0.60f, 0.54f, 1f);
     [Range(0.00005f, 0.003f)]
@@ -12,8 +14,14 @@ public sealed class WorldEnvironmentSettings
     [SerializeField] private bool showSea = true;
     [SerializeField] private float seaLevelMetres;
     [SerializeField] private Material seaMaterial;
-    [SerializeField] private Texture2D seaNoise;
+    [Tooltip("Optional global coherent noise shared by ocean waves and vegetation wind. Red and green drive structure; blue supplies broad grass colour variation. A suitable texture is generated when unset.")]
+    [SerializeField] private Texture2D weatherNoise;
     [SerializeField] private OceanWaveProfile oceanWaveProfile;
+    [Tooltip("Global horizontal wind direction in world X/Z coordinates.")]
+    [SerializeField] private Vector2 windDirection = new Vector2(1f, 0.25f);
+    [Tooltip("Global wind speed in metres per second. This drives clouds, vegetation, and ocean waves.")]
+    [Range(0f, 40f)]
+    [SerializeField] private float windSpeedMetresPerSecond = 9f;
     [SerializeField] private Light sunlight;
     [Range(0.25f, 240f)] [SerializeField] private float sunCycleDurationMinutes = 20f;
     [Range(1f, 20f)] [SerializeField] private float midnightToNoonClockRateRatio = 10f;
@@ -27,6 +35,7 @@ public sealed class WorldEnvironmentSettings
     [Range(0f, 4f)] [SerializeField] private float starBrightness = 1.35f;
     [Range(0.02f, 0.12f)] [SerializeField] private float starSize = 0.052f;
 
+    public int Seed => seed;
     public Color ZenithColour => zenithColour;
     public Color DistanceHazeColour => distanceHazeColour;
     public float DistanceHazeDensity => Mathf.Clamp(distanceHazeDensity, 0.00005f, 0.003f);
@@ -34,8 +43,18 @@ public sealed class WorldEnvironmentSettings
     public bool ShowSea => showSea;
     public float SeaLevelMetres => float.IsFinite(seaLevelMetres) ? seaLevelMetres : 0f;
     public Material SeaMaterial => seaMaterial;
-    public Texture2D SeaNoise => seaNoise;
+    public Texture2D WeatherNoise => weatherNoise;
     public OceanWaveProfile OceanWaveProfile => oceanWaveProfile;
+    public Vector2 WindDirection
+    {
+        get => windDirection;
+        set => windDirection = value;
+    }
+    public float WindSpeedMetresPerSecond
+    {
+        get => Mathf.Clamp(windSpeedMetresPerSecond, 0f, 40f);
+        set => windSpeedMetresPerSecond = Mathf.Clamp(value, 0f, 40f);
+    }
     public Light Sunlight { get => sunlight; internal set => sunlight = value; }
     public float SunCycleDurationMinutes => Mathf.Clamp(sunCycleDurationMinutes, 0.25f, 240f);
     public float MidnightToNoonClockRateRatio => Mathf.Clamp(midnightToNoonClockRateRatio, 1f, 20f);

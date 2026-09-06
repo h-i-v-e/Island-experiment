@@ -1,9 +1,13 @@
 #ifndef MOTU_GRASS_WIND_COMMON_INCLUDED
 #define MOTU_GRASS_WIND_COMMON_INCLUDED
 
+// XY is the normalized world X/Z direction, Z is metres per second, and W is
+// the shared strength scale derived from that speed.
+float4 _MotuWeatherWind;
+
 float3 MotuGrassWindSample(float2 worldPosition)
 {
-    float2 configuredDirection = _GrassWindDirection.xz;
+    float2 configuredDirection = _MotuWeatherWind.xy;
     float directionLengthSquared = dot(configuredDirection, configuredDirection);
     float2 windDirection = configuredDirection
         * rsqrt(max(directionLengthSquared, 1.0e-4));
@@ -18,10 +22,11 @@ float3 MotuGrassWindSample(float2 worldPosition)
     // size; the denser red and green channels then provide natural detail.
     float windTextureWorldSize = windWorldSize * 8.0;
     float2 advectedPosition = (
-        worldPosition - windDirection * (_Time.y * _GrassWindSpeed))
+        worldPosition - windDirection * (_Time.y * _MotuWeatherWind.z))
         / windTextureWorldSize;
-    // Reuse the generated grass texture as a moving wind field. Independent
-    // channels supply broad gusts, finer pulses, and lateral direction noise.
+    // Reuse the global weather texture shared with ocean waves as a moving wind
+    // field. Independent channels supply broad gusts, finer pulses, and lateral
+    // direction noise.
     half3 broadWindNoise = tex2Dlod(
         _GrassPatchNoise,
         float4(advectedPosition, 0.0, 0.0)).rgb;
@@ -42,7 +47,10 @@ float3 MotuGrassWindSample(float2 worldPosition)
     float2 crossWind = float2(-windDirection.y, windDirection.x);
     float2 localDirection = normalize(
         windDirection + crossWind * (turningNoise * 0.75));
-    return float3(localDirection.x, lerp(0.2, 1.0, gust), localDirection.y);
+    return float3(
+        localDirection.x,
+        lerp(0.2, 1.0, gust) * max(_MotuWeatherWind.w, 0.0),
+        localDirection.y);
 }
 
 #endif

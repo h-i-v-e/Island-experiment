@@ -56,7 +56,7 @@ Useful options:
 --hydraulic-deposition-strength <0..4>
 --hydraulic-deposition-slope <1..45>
 --river-source-catchment-hectares <HECTARES>
---river-source-steep-multiplier <FLOAT>
+--river-source-steep-catchment-multiplier <FLOAT>
 --river-source-elevation-boost <FACTOR>
 ```
 

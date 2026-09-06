@@ -64,8 +64,8 @@ impl RuntimeMaterialInputs {
     }
 }
 
-/// Stable identifiers for the material recipes consumed by engine terrain
-/// shaders.
+/// Stable identifiers for the material recipes consumed by engine terrain and
+/// vegetation shaders.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 #[repr(u8)]
 pub enum IslandMaterialKind {
@@ -75,16 +75,18 @@ pub enum IslandMaterialKind {
     RiverBed = 3,
     Beach = 4,
     FallenStones = 5,
+    TreeBark = 6,
 }
 
 impl IslandMaterialKind {
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::Dirt,
         Self::ForestFloor,
         Self::Rock,
         Self::RiverBed,
         Self::Beach,
         Self::FallenStones,
+        Self::TreeBark,
     ];
 
     #[must_use]
@@ -96,6 +98,7 @@ impl IslandMaterialKind {
             Self::RiverBed => "river_bed",
             Self::Beach => "beach",
             Self::FallenStones => "fallen_stones",
+            Self::TreeBark => "tree_bark",
         }
     }
 }
@@ -111,6 +114,7 @@ pub struct MaterialSelection {
     pub river_bed: bool,
     pub beach: bool,
     pub fallen_stones: bool,
+    pub tree_bark: bool,
 }
 
 impl MaterialSelection {
@@ -121,6 +125,7 @@ impl MaterialSelection {
         river_bed: true,
         beach: true,
         fallen_stones: true,
+        tree_bark: true,
     };
 
     #[must_use]
@@ -132,6 +137,7 @@ impl MaterialSelection {
             IslandMaterialKind::RiverBed => self.river_bed,
             IslandMaterialKind::Beach => self.beach,
             IslandMaterialKind::FallenStones => self.fallen_stones,
+            IslandMaterialKind::TreeBark => self.tree_bark,
         }
     }
 }
@@ -330,6 +336,7 @@ fn recipe_cell(material: IslandMaterialKind) -> &'static OnceLock<Result<Texture
     static RIVER_BED: OnceLock<Result<TextureRecipe, String>> = OnceLock::new();
     static BEACH: OnceLock<Result<TextureRecipe, String>> = OnceLock::new();
     static FALLEN_STONES: OnceLock<Result<TextureRecipe, String>> = OnceLock::new();
+    static TREE_BARK: OnceLock<Result<TextureRecipe, String>> = OnceLock::new();
     match material {
         IslandMaterialKind::Dirt => &DIRT,
         IslandMaterialKind::ForestFloor => &FOREST_FLOOR,
@@ -337,6 +344,7 @@ fn recipe_cell(material: IslandMaterialKind) -> &'static OnceLock<Result<Texture
         IslandMaterialKind::RiverBed => &RIVER_BED,
         IslandMaterialKind::Beach => &BEACH,
         IslandMaterialKind::FallenStones => &FALLEN_STONES,
+        IslandMaterialKind::TreeBark => &TREE_BARK,
     }
 }
 
@@ -354,6 +362,7 @@ const fn recipe_json(material: IslandMaterialKind) -> &'static str {
         IslandMaterialKind::FallenStones => {
             include_str!("../../texture-recipes/FallenStones.json")
         }
+        IslandMaterialKind::TreeBark => include_str!("../../texture-recipes/PlateBark.json"),
     }
 }
 
@@ -465,6 +474,7 @@ mod tests {
                     river_bed: false,
                     beach: false,
                     fallen_stones: true,
+                    tree_bark: false,
                 },
             },
         )
@@ -504,6 +514,7 @@ mod tests {
                     river_bed: false,
                     beach: false,
                     fallen_stones: false,
+                    tree_bark: false,
                 },
             },
         )
@@ -540,6 +551,7 @@ mod tests {
                     river_bed: true,
                     beach: false,
                     fallen_stones: false,
+                    tree_bark: false,
                 },
             },
         )
@@ -579,6 +591,7 @@ mod tests {
                     river_bed: false,
                     beach: true,
                     fallen_stones: false,
+                    tree_bark: false,
                 },
             },
         )
@@ -594,6 +607,32 @@ mod tests {
     }
 
     #[test]
+    fn tree_bark_uses_the_embedded_plate_bark_recipe() {
+        let result = bake_island_materials(
+            &inputs(),
+            &RuntimeMaterialBakeOptions {
+                width: Some(32),
+                height: Some(32),
+                normal_convention: NormalConvention::DirectX,
+                materials: MaterialSelection {
+                    dirt: false,
+                    forest_floor: false,
+                    rock: false,
+                    river_bed: false,
+                    beach: false,
+                    fallen_stones: false,
+                    tree_bark: true,
+                },
+            },
+        )
+        .expect("tree-bark runtime bake");
+        let bark = &result.materials[&IslandMaterialKind::TreeBark];
+        assert_eq!(bark.metadata.name, "PlateBark");
+        assert_eq!(bark.metadata.physical_tile_size_m, [1.2, 1.6]);
+        assert_eq!(bark.metadata.normal_convention, NormalConvention::DirectX);
+    }
+
+    #[test]
     fn sand_colour_changes_the_runtime_bake_identity() {
         let options = RuntimeMaterialBakeOptions {
             width: Some(32),
@@ -606,6 +645,7 @@ mod tests {
                 river_bed: false,
                 beach: true,
                 fallen_stones: false,
+                tree_bark: false,
             },
         };
         let first = bake_island_materials(

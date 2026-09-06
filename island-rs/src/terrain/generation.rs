@@ -159,7 +159,7 @@ impl<R: Read> SavedIslandReader<R> {
             } else {
                 legacy_catchment_hectares(stored_catchment, options.water_ratio)
             };
-            options.river_source_steep_multiplier = self.read_f32()?;
+            options.river_source_steep_catchment_multiplier = self.read_f32()?;
         } else if self.version >= 5 {
             for _ in 0..5 {
                 self.discard_f32()?;

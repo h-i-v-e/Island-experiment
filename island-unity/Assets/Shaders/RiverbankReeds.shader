@@ -9,11 +9,9 @@ Shader "Motu/Riverbank Reeds"
         _ReedFadeStart ("LOD 0 Fade Start", Float) = 34
         _ReedFadeEnd ("LOD 0 Fade End", Float) = 47
         [HideInInspector] _WorldSize ("Island World Size", Float) = 2000
-        [NoScaleOffset] [HideInInspector] _GrassPatchNoise ("Shared Wind Noise", 2D) = "white" {}
+        [NoScaleOffset] [HideInInspector] _GrassPatchNoise ("Global Weather Noise", 2D) = "white" {}
         [HideInInspector] _GrassPlayerPosition ("Player Position", Vector) = (0, 0, 0, 0)
-        [HideInInspector] _GrassWindDirection ("Wind Direction", Vector) = (1, 0, 0.35, 0)
         [HideInInspector] _GrassWindStrength ("Wind Strength", Float) = 0.07
-        [HideInInspector] _GrassWindSpeed ("Wind Speed", Float) = 1.8
         [HideInInspector] _GrassWindWorldSize ("Wind Gust Size", Float) = 12
     }
 
@@ -24,9 +22,7 @@ Shader "Motu/Riverbank Reeds"
     fixed4 _BaseColor;
     fixed4 _TipColor;
     sampler2D _GrassPatchNoise;
-    float4 _GrassWindDirection;
     float _GrassWindStrength;
-    float _GrassWindSpeed;
     float _GrassWindWorldSize;
     float _WorldSize;
     half _Cutoff;

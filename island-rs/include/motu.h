@@ -21,7 +21,7 @@ typedef struct {
     float coastalErosionStrength, beachFormationStrength;
     float hydraulicErosionStrength, hydraulicDepositionStrength;
     float hydraulicDepositionSlopeDegrees;
-    float riverSourceCatchmentHectares, riverSourceSteepMultiplier;
+    float riverSourceCatchmentHectares, riverSourceSteepCatchmentMultiplier;
     float riverSourceElevationBoost;
     float riverSourceWidthMetres, riverMaximumWidthMetres;
     float riverSourceDepthMetres, riverMaximumDepthMetres;
@@ -82,6 +82,29 @@ typedef struct {
     int32_t length;
 } ExportWaterfallFeet;
 typedef struct { int32_t width, height; float *data; float seaLevel; } ExportHeightMapWithSeaLevel;
+typedef struct {
+    float dirtColour[3], stoneColour[3], sandColour[3];
+} MotuMaterialInputs;
+typedef struct {
+    uint32_t width, height;
+    /* normalConvention: 0 OpenGL, 1 DirectX. materialMask bits: rock 0x01,
+       river bed 0x02, forest floor 0x04, fallen stones 0x08, dirt 0x10,
+       beach 0x20, tree bark 0x40. */
+    uint8_t normalConvention, materialMask;
+    uint8_t reserved[2];
+} MotuMaterialBakeOptions;
+typedef struct { uint64_t low, high; } MotuMaterialRevision;
+typedef struct { const uint8_t *data; int32_t length; } ByteExportArray;
+typedef struct {
+    int32_t width, height;
+    float physicalTileWidthMetres, physicalTileHeightMetres;
+    float minimumHeight, maximumHeight, baseHeight;
+    ByteExportArray albedoRgb, normalRgb, heightR16, occlusion;
+} ExportMaterialTexture;
+typedef struct {
+    void *handle;
+    ExportMaterialTexture dirt, forestFloor, rock, riverBed, beach, fallenStones, treeBark;
+} ExportMaterialTextureSet;
 typedef struct { Vector3ExportArray trees, bushes; } ExportDecoration;
 typedef struct { int32_t offset; float scale; } TreeMeshPrototype;
 typedef struct { const TreeMeshPrototype *prototypes; int32_t length; } TreeMeshPrototypes;
@@ -101,6 +124,11 @@ MOTU_EXPORT void *CreateMotuWithForestReedsAndFerns(int32_t seed, const MotuOpti
 MOTU_EXPORT void *LoadMotu(const char *filePath);
 MOTU_EXPORT void SaveMotu(const void *handle, const char *filePath);
 MOTU_EXPORT void ReleaseMotu(void *handle);
+MOTU_EXPORT MotuMaterialRevision GetMotuRuntimeMaterialRevision(void);
+MOTU_EXPORT uint8_t BakeMotuMaterialTextures(const MotuMaterialInputs *inputs,
+                                              const MotuMaterialBakeOptions *options,
+                                              ExportMaterialTextureSet *output);
+MOTU_EXPORT void ReleaseMaterialTextureSet(ExportMaterialTextureSet *output);
 MOTU_EXPORT void CreateProceduralTree(int32_t seed, ExportMesh *lod0Wood,
                                       ExportMesh *lod0Foliage, ExportMesh *lod1Wood,
                                       ExportMesh *lod1Foliage);
