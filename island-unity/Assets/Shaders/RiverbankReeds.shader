@@ -5,14 +5,10 @@ Shader "Motu/Riverbank Reeds"
         _BaseColor ("Base Colour", Color) = (0.12, 0.24, 0.055, 1)
         _TipColor ("Tip Colour", Color) = (0.38, 0.48, 0.09, 1)
         _Cutoff ("Silhouette Cutoff", Range(0, 1)) = 0.46
-        _ReedWindMultiplier ("Wind Multiplier", Range(0, 8)) = 3
         _ReedFadeStart ("LOD 0 Fade Start", Float) = 34
         _ReedFadeEnd ("LOD 0 Fade End", Float) = 47
         [HideInInspector] _WorldSize ("Island World Size", Float) = 2000
-        [NoScaleOffset] [HideInInspector] _GrassPatchNoise ("Global Weather Noise", 2D) = "white" {}
         [HideInInspector] _GrassPlayerPosition ("Player Position", Vector) = (0, 0, 0, 0)
-        [HideInInspector] _GrassWindStrength ("Wind Strength", Float) = 0.07
-        [HideInInspector] _GrassWindWorldSize ("Wind Gust Size", Float) = 12
     }
 
     CGINCLUDE
@@ -21,18 +17,14 @@ Shader "Motu/Riverbank Reeds"
 
     fixed4 _BaseColor;
     fixed4 _TipColor;
-    sampler2D _GrassPatchNoise;
-    float _GrassWindStrength;
-    float _GrassWindWorldSize;
     float _WorldSize;
     half _Cutoff;
-    float _ReedWindMultiplier;
     float _ReedFadeStart;
     float _ReedFadeEnd;
     float4 _GrassPlayerPosition;
     float4x4 _IslandWorldToLocal;
 
-    #include "GrassWindCommon.cginc"
+    #include "WeatherWindCommon.cginc"
     #include "CloudCommon.cginc"
 
     struct ReedVertexInput
@@ -117,11 +109,15 @@ Shader "Motu/Riverbank Reeds"
         float2 rootWorld = mul(
             unity_ObjectToWorld,
             float4(rootLocal.x, 0.0, rootLocal.y, 1.0)).xz;
-        float3 wind = MotuGrassWindSample(rootWorld);
+        float3 wind = MotuWindSample(rootWorld);
         float bend = input.uv.y * input.uv.y;
         float flexibility = lerp(1.0, 0.35, saturate(input.data.z));
         worldPosition.xz += wind.xz
-            * (_GrassWindStrength * _ReedWindMultiplier * wind.y * flexibility * bend);
+            * (MotuWindDisplacementStrength()
+                * MotuReedWindStrengthMultiplier()
+                * wind.y
+                * flexibility
+                * bend);
         return worldPosition;
     }
 

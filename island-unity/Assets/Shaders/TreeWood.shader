@@ -22,12 +22,6 @@ Shader "Motu/Tree Wood"
         _TreeNoiseFineScale ("Bark Fine Frequency", Range(2, 48)) = 18
         _TreeNormalStrength ("Bark Normal Strength", Range(0, 0.5)) = 0.14
         _TreeHueVariationDegrees ("Bark Hue Variation", Range(0, 30)) = 8
-        [NoScaleOffset] [HideInInspector] _GrassPatchNoise ("Global Weather Noise", 2D) = "white" {}
-        [HideInInspector] _GrassWindStrength ("Grass Wind Strength", Float) = 0.07
-        [HideInInspector] _GrassWindWorldSize ("Wind Gust Size", Float) = 12
-        _TreeWindStrengthMultiplier ("Tree Wind Strength", Range(0, 10)) = 5
-        _TreeWindBasePinHeight ("Pinned Trunk Height (metres)", Range(0, 4)) = 0.6
-        _TreeWindFullBendHeight ("Full Bend Height (metres)", Range(1, 24)) = 9
     }
 
     SubShader

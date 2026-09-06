@@ -165,6 +165,20 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
         worldEnvironment?.SetWind(direction, speedMetresPerSecond);
     }
 
+    public void SetVegetationWindResponse(
+        float strengthMetres,
+        float gustSizeMetres,
+        float normalStrength)
+    {
+        EnvironmentSettings.VegetationWindStrengthMetres = strengthMetres;
+        EnvironmentSettings.WindGustSizeMetres = gustSizeMetres;
+        EnvironmentSettings.VegetationWindNormalStrength = normalStrength;
+        worldEnvironment?.SetVegetationWindResponse(
+            strengthMetres,
+            gustSizeMetres,
+            normalStrength);
+    }
+
     private void Awake()
     {
         shutdown = new CancellationTokenSource();

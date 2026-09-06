@@ -52,9 +52,6 @@ Material:
     - _GrassHeight: 0.14
     - _GrassPatchNoiseWorldSize: 32
     - _GrassRadius: 20
-    - _GrassWindNormalStrength: 0.35
-    - _GrassWindStrength: 0.07
-    - _GrassWindWorldSize: 12
     - _RiverEdgeBlendWidth: 0.2
     - _RiverEdgeNoiseStrength: 0.2
     - _RockBoundaryNoiseStrength: 0.18

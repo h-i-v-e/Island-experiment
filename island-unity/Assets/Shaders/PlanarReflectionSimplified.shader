@@ -14,26 +14,18 @@ Shader "Motu/Planar Reflection Simplified"
         _SnowLine ("Snow Line", Float) = 100
         _TipColor ("Reed Tip", Color) = (0.38, 0.48, 0.09, 1)
         _Cutoff ("Reed Cutoff", Range(0, 1)) = 0.46
-        _ReedWindMultiplier ("Reed Wind", Float) = 3
         _ReedFadeStart ("Reed Fade Start", Float) = 34
         _ReedFadeEnd ("Reed Fade End", Float) = 47
-        _FernWindMultiplier ("Fern Wind", Float) = 1.8
         _FernFadeStart ("Fern Fade Start", Float) = 34
         _FernFadeEnd ("Fern Fade End", Float) = 47
         _WorldSize ("Island World Size", Float) = 2000
-        [NoScaleOffset] [HideInInspector] _GrassPatchNoise ("Global Weather Noise", 2D) = "white" {}
         _GrassPlayerPosition ("Player Position", Vector) = (0, 0, 0, 0)
-        _GrassWindStrength ("Wind Strength", Float) = 0.07
-        _GrassWindWorldSize ("Wind Size", Float) = 12
     }
 
     CGINCLUDE
     #include "UnityCG.cginc"
     #include "Lighting.cginc"
-    sampler2D _GrassPatchNoise;
-    float _GrassWindStrength;
-    float _GrassWindWorldSize;
-    #include "GrassWindCommon.cginc"
+    #include "WeatherWindCommon.cginc"
 
     struct ReflectionVertexInput
     {
@@ -67,10 +59,8 @@ Shader "Motu/Planar Reflection Simplified"
     fixed4 _RockTint;
     float _SnowLine;
     half _Cutoff;
-    float _ReedWindMultiplier;
     float _ReedFadeStart;
     float _ReedFadeEnd;
-    float _FernWindMultiplier;
     float _FernFadeStart;
     float _FernFadeEnd;
     float _WorldSize;
@@ -334,11 +324,15 @@ Shader "Motu/Planar Reflection Simplified"
                 float2 rootWorld = mul(
                     unity_ObjectToWorld,
                     float4(rootLocal.x, 0.0, rootLocal.y, 1.0)).xz;
-                float3 wind = MotuGrassWindSample(rootWorld);
+                float3 wind = MotuWindSample(rootWorld);
                 float bend = input.uv.y * input.uv.y;
                 float flexibility = lerp(1.0, 0.35, saturate(input.data.z));
                 worldPosition.xz += wind.xz
-                    * (_GrassWindStrength * _ReedWindMultiplier * wind.y * flexibility * bend);
+                    * (MotuWindDisplacementStrength()
+                        * MotuReedWindStrengthMultiplier()
+                        * wind.y
+                        * flexibility
+                        * bend);
                 output.worldPosition = worldPosition;
                 output.position = UnityWorldToClipPos(worldPosition);
                 output.worldNormal = UnityObjectToWorldNormal(input.normal);
@@ -457,11 +451,13 @@ Shader "Motu/Planar Reflection Simplified"
                 float2 rootWorld = mul(
                     unity_ObjectToWorld,
                     float4(rootLocal.x, 0.0, rootLocal.y, 1.0)).xz;
-                float3 wind = MotuGrassWindSample(rootWorld);
+                float3 wind = MotuWindSample(rootWorld);
                 float bend = input.uv.y * input.uv.y;
                 float flexibility = lerp(0.45, 1.0, saturate(input.data.z));
-                float strength = _GrassWindStrength * _FernWindMultiplier
-                    * wind.y * flexibility;
+                float strength = MotuWindDisplacementStrength()
+                    * MotuFernWindStrengthMultiplier()
+                    * wind.y
+                    * flexibility;
                 worldPosition.xz += wind.xz * (strength * bend);
                 output.worldPosition = worldPosition;
                 output.position = UnityWorldToClipPos(worldPosition);

@@ -254,18 +254,6 @@ public sealed partial class IslandGenerator
         {
             ApplyGrassColourSettings();
         }
-        if (!Mathf.Approximately(
-                appliedGrassWindStrength,
-                Rendering.GrassWindStrengthMetres)
-            || !Mathf.Approximately(
-                appliedGrassWindGustSize,
-                Rendering.GrassWindGustSizeMetres)
-            || !Mathf.Approximately(
-                appliedGrassWindNormalStrength,
-                Rendering.GrassWindNormalStrength))
-        {
-            ApplyGrassWindSettings();
-        }
         if (appliedShowRivers != Rendering.ShowRivers)
         {
             appliedShowRivers = Rendering.ShowRivers;
@@ -315,15 +303,12 @@ public sealed partial class IslandGenerator
             terrainStreamer?.SetReedsVisible(Reeds.ShowReeds);
         }
         if (appliedReedBaseColour != Reeds.BaseColour
-            || appliedReedTipColour != Reeds.TipColour
-            || !Mathf.Approximately(appliedReedWindStrength, Reeds.WindStrength))
+            || appliedReedTipColour != Reeds.TipColour)
         {
             appliedReedBaseColour = Reeds.BaseColour;
             appliedReedTipColour = Reeds.TipColour;
-            appliedReedWindStrength = Reeds.WindStrength;
             reedMaterial?.SetColor("_BaseColor", Reeds.BaseColour);
             reedMaterial?.SetColor("_TipColor", Reeds.TipColour);
-            reedMaterial?.SetFloat("_ReedWindMultiplier", Reeds.WindStrength);
         }
         if (appliedShowFerns != Ferns.ShowFerns)
         {
@@ -331,15 +316,12 @@ public sealed partial class IslandGenerator
             terrainStreamer?.SetFernsVisible(Ferns.ShowFerns);
         }
         if (appliedFernBaseColour != Ferns.BaseColour
-            || appliedFernTipColour != Ferns.TipColour
-            || !Mathf.Approximately(appliedFernWindStrength, Ferns.WindStrength))
+            || appliedFernTipColour != Ferns.TipColour)
         {
             appliedFernBaseColour = Ferns.BaseColour;
             appliedFernTipColour = Ferns.TipColour;
-            appliedFernWindStrength = Ferns.WindStrength;
             fernMaterial?.SetColor("_BaseColor", Ferns.BaseColour);
             fernMaterial?.SetColor("_TipColor", Ferns.TipColour);
-            fernMaterial?.SetFloat("_FernWindMultiplier", Ferns.WindStrength);
         }
         if (appliedShowMeshEdges != DebugSettings.ShowMeshEdges)
         {

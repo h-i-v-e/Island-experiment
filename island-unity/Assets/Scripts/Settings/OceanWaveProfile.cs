@@ -258,11 +258,11 @@ public sealed class OceanWaveProfile : ScriptableObject
     [Range(0.25f, 8f)] [SerializeField] private float distanceAllowancePower = 1.15f;
 
     [Header("Wave Shape Noise")]
-    [Tooltip("World-space scale of wave grouping. Larger values create broader regions of calm and tall waves.")]
+    [Tooltip("Noise texture repeat for the longest wave. Shorter waves sample the same noise at proportionally smaller scales. Larger values create broader regions of calm and tall waves.")]
     [Min(256f)] [SerializeField] private float noiseWorldSizeMetres = 2048f;
     [Tooltip("Sideways displacement of the wave field. Increase this to bend otherwise straight crests.")]
     [Range(0f, 32f)] [SerializeField] private float domainWarpMetres = 9f;
-    [Tooltip("Coherent variation in individual wave heights. At 0.6, local amplitudes range from roughly 40% to 160% of their base values.")]
+    [Tooltip("Height variation sampled separately at each wave's scale. At 0.6, local amplitudes range from roughly 40% to 160% of their base values. Zero disables height variation.")]
     [Range(0f, 0.75f)] [SerializeField] private float amplitudeVariation = 0.6f;
 
     [Header("Whitecaps")]

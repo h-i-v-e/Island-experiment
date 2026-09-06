@@ -723,17 +723,14 @@ internal sealed class ForestTileStreamer : IDisposable
     private static void ExpandWindBounds(Mesh mesh, Material material)
     {
         if (mesh == null
-            || material == null
-            || !material.HasProperty("_GrassWindStrength")
-            || !material.HasProperty("_TreeWindStrengthMultiplier"))
+            || material == null)
         {
             return;
         }
         const float MaximumGrassWindStrength = 0.25f;
-        var maximumOffset = Mathf.Max(
-                material.GetFloat("_GrassWindStrength"),
-                MaximumGrassWindStrength)
-            * Mathf.Max(material.GetFloat("_TreeWindStrengthMultiplier"), 0f);
+        const float MaximumTreeWindStrengthMultiplier = 10f;
+        var maximumOffset = MaximumGrassWindStrength
+            * MaximumTreeWindStrengthMultiplier;
         if (maximumOffset <= 0f)
         {
             return;

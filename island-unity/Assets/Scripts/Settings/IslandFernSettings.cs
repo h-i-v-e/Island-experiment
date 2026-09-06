@@ -43,10 +43,6 @@ public sealed class IslandFernSettings
     [SerializeField] private Color baseColour = new Color(0.055f, 0.18f, 0.045f, 1f);
     [SerializeField] private Color tipColour = new Color(0.24f, 0.48f, 0.12f, 1f);
 
-    [Tooltip("Multiplier applied to the shared grass wind field.")]
-    [Range(0f, 8f)]
-    [SerializeField] private float windStrength = 1.8f;
-
     public bool ShowFerns { get => showFerns; set => showFerns = value; }
     internal float BarkClearanceMetres => Mathf.Clamp(barkClearanceMetres, 0f, 2f);
     internal float OuterRadiusMetres => Mathf.Clamp(outerRadiusMetres, 0.25f, 8f);
@@ -58,5 +54,4 @@ public sealed class IslandFernSettings
     internal float MaximumSlopeDegrees => Mathf.Clamp(maximumSlopeDegrees, 0f, 60f);
     internal Color BaseColour => baseColour;
     internal Color TipColour => tipColour;
-    internal float WindStrength => Mathf.Clamp(windStrength, 0f, 8f);
 }

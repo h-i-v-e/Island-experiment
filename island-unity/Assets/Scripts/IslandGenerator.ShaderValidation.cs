@@ -34,13 +34,7 @@ public sealed partial class IslandGenerator
                 || !material.HasProperty("_TreeNoiseFineScale")
                 || !material.HasProperty("_TreeNormalStrength")
                 || !material.HasProperty("_TreeHueVariationDegrees")
-                || !material.HasProperty("_WorldSize")
-                || !material.HasProperty("_GrassPatchNoise")
-                || !material.HasProperty("_GrassWindStrength")
-                || !material.HasProperty("_GrassWindWorldSize")
-                || !material.HasProperty("_TreeWindStrengthMultiplier")
-                || !material.HasProperty("_TreeWindBasePinHeight")
-                || !material.HasProperty("_TreeWindFullBendHeight"))
+                || !material.HasProperty("_WorldSize"))
             {
                 throw new InvalidOperationException(
                     $"The tree {label} shader is missing its layered-noise properties.");
@@ -189,12 +183,6 @@ public sealed partial class IslandGenerator
                 || material.FindPass("ShadowCaster") < 0
                 || material.renderQueue != (int)RenderQueue.Geometry
                 || !material.HasProperty("_WorldSize")
-                || !material.HasProperty("_GrassPatchNoise")
-                || !material.HasProperty("_GrassWindStrength")
-                || !material.HasProperty("_GrassWindWorldSize")
-                || !material.HasProperty("_TreeWindStrengthMultiplier")
-                || !material.HasProperty("_TreeWindBasePinHeight")
-                || !material.HasProperty("_TreeWindFullBendHeight")
                 || !material.HasProperty("_MotuNightStrength"))
             {
                 throw new InvalidOperationException(

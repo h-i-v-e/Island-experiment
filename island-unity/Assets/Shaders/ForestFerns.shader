@@ -5,14 +5,10 @@ Shader "Motu/Forest Ferns"
         _BaseColor ("Base Colour", Color) = (0.055, 0.18, 0.045, 1)
         _TipColor ("Tip Colour", Color) = (0.24, 0.48, 0.12, 1)
         _Cutoff ("Silhouette Cutoff", Range(0, 1)) = 0.44
-        _FernWindMultiplier ("Wind Multiplier", Range(0, 8)) = 1.8
         _FernFadeStart ("LOD 0 Fade Start", Float) = 34
         _FernFadeEnd ("LOD 0 Fade End", Float) = 47
         [HideInInspector] _WorldSize ("Island World Size", Float) = 2000
-        [NoScaleOffset] [HideInInspector] _GrassPatchNoise ("Global Weather Noise", 2D) = "white" {}
         [HideInInspector] _GrassPlayerPosition ("Player Position", Vector) = (0, 0, 0, 0)
-        [HideInInspector] _GrassWindStrength ("Wind Strength", Float) = 0.07
-        [HideInInspector] _GrassWindWorldSize ("Wind Gust Size", Float) = 12
     }
 
     CGINCLUDE
@@ -21,18 +17,14 @@ Shader "Motu/Forest Ferns"
 
     fixed4 _BaseColor;
     fixed4 _TipColor;
-    sampler2D _GrassPatchNoise;
-    float _GrassWindStrength;
-    float _GrassWindWorldSize;
     float _WorldSize;
     half _Cutoff;
-    float _FernWindMultiplier;
     float _FernFadeStart;
     float _FernFadeEnd;
     float4 _GrassPlayerPosition;
     float4x4 _IslandWorldToLocal;
 
-    #include "GrassWindCommon.cginc"
+    #include "WeatherWindCommon.cginc"
     #include "CloudCommon.cginc"
 
     struct FernVertexInput
@@ -109,16 +101,14 @@ Shader "Motu/Forest Ferns"
         float2 rootWorld = mul(
             unity_ObjectToWorld,
             float4(rootLocal.x, 0.0, rootLocal.y, 1.0)).xz;
-        float3 wind = MotuGrassWindSample(rootWorld);
+        float3 wind = MotuWindSample(rootWorld);
         float bend = input.uv.y * input.uv.y;
         float flexibility = lerp(0.45, 1.0, saturate(input.data.z));
-        float strength = _GrassWindStrength * _FernWindMultiplier * wind.y * flexibility;
+        float strength = MotuWindDisplacementStrength()
+            * MotuFernWindStrengthMultiplier()
+            * wind.y
+            * flexibility;
         worldPosition.xz += wind.xz * (strength * bend);
-        worldPosition.y += sin(
-            _Time.y * (_MotuWeatherWind.z * 1.7)
-                + input.data.w * 6.283
-                + input.uv.y * 2.1)
-            * strength * 0.12 * bend;
         return worldPosition;
     }
 

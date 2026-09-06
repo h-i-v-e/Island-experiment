@@ -46,10 +46,6 @@ public sealed class IslandReedSettings
     [Tooltip("Sunlit yellow-green used toward reed tips.")]
     [SerializeField] private Color tipColour = new Color(0.38f, 0.48f, 0.09f, 1f);
 
-    [Tooltip("Multiplier applied to the shared grass wind field.")]
-    [Range(0f, 8f)]
-    [SerializeField] private float windStrength = 3f;
-
     public bool ShowReeds { get => showReeds; set => showReeds = value; }
     internal float BankWidthMetres => Mathf.Clamp(bankWidthMetres, 0.25f, 10f);
     internal float PatchSizeMetres => Mathf.Clamp(patchSizeMetres, 2f, 50f);
@@ -61,5 +57,4 @@ public sealed class IslandReedSettings
     internal float MaximumSlopeDegrees => Mathf.Clamp(maximumSlopeDegrees, 0f, 60f);
     internal Color BaseColour => baseColour;
     internal Color TipColour => tipColour;
-    internal float WindStrength => Mathf.Clamp(windStrength, 0f, 8f);
 }

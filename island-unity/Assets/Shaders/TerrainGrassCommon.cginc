@@ -35,15 +35,12 @@ half _GrassBladeWidth;
 fixed4 _GrassColorA;
 fixed4 _GrassColorB;
 float _GrassColorNoiseWorldSize;
-float _GrassWindStrength;
-float _GrassWindWorldSize;
-half _GrassWindNormalStrength;
 float3 _GrassLightDirection;
 fixed4 _GrassLightColor;
 fixed4 _GrassAmbientColor;
 float4x4 _IslandWorldToLocal;
 
-#include "GrassWindCommon.cginc"
+#include "WeatherWindCommon.cginc"
 #include "CloudCommon.cginc"
 
 float GrassHash(float2 cell)
@@ -74,7 +71,7 @@ GrassVertexOutput GrassVertex(GrassVertexInput input)
     GrassVertexOutput output;
     half3 worldNormal = normalize(UnityObjectToWorldNormal(input.normal));
     float3 surfaceWorldPosition = mul(unity_ObjectToWorld, input.vertex).xyz;
-    float3 windSample = MotuGrassWindSample(surfaceWorldPosition.xz);
+    float3 windSample = MotuWindSample(surfaceWorldPosition.xz);
     float3 horizontalWind = float3(windSample.x, 0.0, windSample.z);
     float3 tangentWind = horizontalWind
         - worldNormal * dot(horizontalWind, worldNormal);
@@ -82,7 +79,8 @@ GrassVertexOutput GrassVertex(GrassVertexInput input)
     float shellCurve = GRASS_SHELL_LAYER * GRASS_SHELL_LAYER;
     float3 worldPosition = surfaceWorldPosition
         + worldNormal * (_GrassHeight * GRASS_SHELL_LAYER)
-        + tangentWind * (_GrassWindStrength * windSample.y * shellCurve);
+        + tangentWind
+            * (MotuWindDisplacementStrength() * windSample.y * shellCurve);
     output.pos = UnityWorldToClipPos(worldPosition);
     output.worldPosition = worldPosition;
     output.surfaceWorldPosition = surfaceWorldPosition;
@@ -159,7 +157,7 @@ fixed4 GrassFragment(GrassVertexOutput input) : SV_Target
 
     half3 lightingNormal = normalize(
         lerp(normal, half3(0.0h, 1.0h, 0.0h), 0.35h)
-            + input.windLighting * _GrassWindNormalStrength);
+            + input.windLighting * MotuWindNormalStrength());
     half3 lightDirection = normalize(_GrassLightDirection);
     half diffuse = saturate(dot(lightingNormal, lightDirection));
     UNITY_LIGHT_ATTENUATION(

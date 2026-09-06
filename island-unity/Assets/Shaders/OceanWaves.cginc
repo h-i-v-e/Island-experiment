@@ -1,6 +1,8 @@
 #ifndef MOTU_OCEAN_WAVES_INCLUDED
 #define MOTU_OCEAN_WAVES_INCLUDED
 
+#include "WeatherWindCommon.cginc"
+
 sampler2D _WaveAttenuationTex;
 sampler2D _WaveOnshoreTex;
 sampler2D _NoiseTex;
@@ -11,7 +13,6 @@ float4 _OceanWave2;
 float4 _OceanWave3;
 float4 _OceanWaveSpeeds;
 float4 _OceanWaveChoppiness;
-float4 _MotuWeatherWind;
 float _GeometricWaves;
 float _WaveFadeStart;
 float _WaveFadeEnd;
@@ -46,13 +47,7 @@ float4 MotuOceanCoastalData(float2 worldPosition)
 
 float2 MotuOceanWindDirection()
 {
-    float lengthSquared = dot(_MotuWeatherWind.xy, _MotuWeatherWind.xy);
-    float2 normalizedWind = _MotuWeatherWind.xy
-        * rsqrt(max(lengthSquared, 1.0e-6));
-    return lerp(
-        normalize(_OceanWave0.xy + float2(1.0e-6, 0.0)),
-        normalizedWind,
-        step(1.0e-6, lengthSquared));
+    return MotuWindDirection();
 }
 
 float2 MotuOceanWeatherDirection(float2 authoredDirection)
@@ -284,6 +279,24 @@ void MotuAccumulateOceanWave(
             * (waveCos + 2.0 * crestBias * waveSinDouble));
 }
 
+float MotuOceanWaveAmplitudeScale(
+    float2 windAdvectedPosition,
+    float wavelength,
+    float longestWavelength,
+    float2 noiseOffset)
+{
+    // Keep the same number of noise patches per crest spacing in every band:
+    // broad swell gets broad height variation, short waves get finer variation.
+    // Sample the unwarped world field so moving/recentering the mesh cannot
+    // move the patches, and use offsets to decorrelate the four wave bands.
+    float noiseWorldSize = max(_WaveNoiseWorldSize, 256.0)
+        * max(wavelength, 0.25) / longestWavelength;
+    float noise = tex2Dlod(
+        _MotuWindNoise,
+        float4(windAdvectedPosition / noiseWorldSize + noiseOffset, 0.0, 0.0)).r;
+    return 1.0 + (noise * 2.0 - 1.0) * saturate(_WaveAmplitudeVariation);
+}
+
 void MotuEvaluateOceanWaveField(
     float2 worldPosition,
     out float3 displacement,
@@ -292,26 +305,36 @@ void MotuEvaluateOceanWaveField(
     displacement = 0.0;
     heightDerivative = 0.0;
     float noiseWorldSize = max(_WaveNoiseWorldSize, 256.0);
-    float2 broadUv = worldPosition / noiseWorldSize;
-    float2 detailUv = worldPosition / (noiseWorldSize * 0.37)
+    float2 windAdvectedPosition = MotuWindAdvectedPosition(worldPosition);
+    float2 broadUv = windAdvectedPosition / noiseWorldSize;
+    float2 detailUv = windAdvectedPosition / (noiseWorldSize * 0.37)
         + float2(0.371, 0.619);
     float2 broadNoise = tex2Dlod(
-        _NoiseTex,
+        _MotuWindNoise,
         float4(broadUv, 0.0, 0.0)).rg;
     float2 detailNoise = tex2Dlod(
-        _NoiseTex,
+        _MotuWindNoise,
         float4(detailUv, 0.0, 0.0)).gr;
     float2 domainWarp = ((broadNoise - 0.5) * 1.35
         + (detailNoise - 0.5) * 0.45)
         * max(_WaveDomainWarp, 0.0);
-    float amplitudeVariation = saturate(_WaveAmplitudeVariation);
-    float4 amplitudeScales = 1.0
-        + (float4(
-            broadNoise.x,
-            broadNoise.y,
-            detailNoise.x,
-            detailNoise.y) - 0.5)
-        * (2.0 * amplitudeVariation);
+    float longestWavelength = max(
+        max(max(_OceanWave0.z, _OceanWave1.z),
+            max(_OceanWave2.z, _OceanWave3.z)),
+        0.25);
+    float4 amplitudeScales = float4(
+        MotuOceanWaveAmplitudeScale(
+            windAdvectedPosition, _OceanWave0.z, longestWavelength,
+            float2(0.0, 0.0)),
+        MotuOceanWaveAmplitudeScale(
+            windAdvectedPosition, _OceanWave1.z, longestWavelength,
+            float2(0.173, 0.419)),
+        MotuOceanWaveAmplitudeScale(
+            windAdvectedPosition, _OceanWave2.z, longestWavelength,
+            float2(0.371, 0.619)),
+        MotuOceanWaveAmplitudeScale(
+            windAdvectedPosition, _OceanWave3.z, longestWavelength,
+            float2(0.733, 0.281)));
 
     MotuAccumulateOceanWave(
         _OceanWave0,
@@ -508,12 +531,12 @@ void MotuEvaluateOceanWaveNormal(
             * max(_MotuWeatherWind.w, 0.0));
     float2 foamUv = (worldPosition - foamTravel) / noiseWorldSize;
     float foamNoiseA = tex2Dlod(
-        _NoiseTex,
+        _MotuWindNoise,
         float4(foamUv, 0.0, 0.0)).r;
     float2 foamUvB = float2(-foamUv.y, foamUv.x) * 1.73
         + float2(0.217, 0.683);
     float foamNoiseB = tex2Dlod(
-        _NoiseTex,
+        _MotuWindNoise,
         float4(foamUvB, 0.0, 0.0)).g;
     float broadFoamNoise = lerp(foamNoiseA, foamNoiseB, 0.38);
     float coverageThreshold = 1.0 - saturate(_WhitecapCoverage);
@@ -536,7 +559,7 @@ void MotuEvaluateOceanWaveNormal(
         / (noiseWorldSize * fineNoiseScale)
         + float2(0.413, 0.127);
     float fineFoamNoise = tex2Dlod(
-        _NoiseTex,
+        _MotuWindNoise,
         float4(fineFoamUv, 0.0, 0.0)).g;
     float finePatches = smoothstep(0.32, 0.68, fineFoamNoise);
     float brokenPatches = broadPatches * lerp(0.28, 1.0, finePatches);

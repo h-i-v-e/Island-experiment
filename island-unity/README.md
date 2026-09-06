@@ -200,18 +200,25 @@ share the same shifted repeating UVs.
 The fur shells bend in a coherent world-space wind field sampled from the
 world environment's global weather-noise texture. The sea shader uses the same
 texture for wave-domain and height variation, while terrain also reuses its
-channels for grass coverage and broad colour variation.
+channels for grass coverage and broad colour variation. Each directional ocean
+wave samples height noise at a scale proportional to its wavelength, with
+separate offsets: broad swell varies in broad patches and finer waves in finer
+patches. The ocean wave profile's noise world size sets the texture repeat for
+the longest wave; amplitude variation controls the multiplier around each
+wave's existing height (zero disables it).
 Gusts advect along the global weather direction, bend progressively from fixed
 roots to flexible tips, and perturb the lighting normals with the same moving
 noise so highlights travel with the geometry. Beyond the fur radius, the
 ordinary terrain grass uses that identical advected field to perturb only its
 grass-covered lighting normals; non-grass materials remain still, and moving
-highlights continue seamlessly into the distance. Wind direction and speed are
-global live controls in the world environment. Per-island Rendering settings
-retain only vegetation response tuning: maximum tip bend at the reference wind
-speed, gust size, and normal strength. Runtime systems can update everything
-immediately with `IslandWorldManager.SetWind(direction, speedMetresPerSecond)`;
-no island regeneration is required.
+highlights continue seamlessly into the distance. Direction, speed, base
+vegetation displacement, gust size, and grass-normal response all belong to the
+global world environment, so adjacent islands cannot disagree about the wind.
+The world environment also owns distinct tree, reed, and fern flexibility
+multipliers while every shader samples the same advected coherent field.
+Runtime systems can update direction and speed immediately with
+`IslandWorldManager.SetWind(direction, speedMetresPerSecond)`; no island
+regeneration is required.
 
 Every 8x8 group is geometrically clipped at its tile boundaries. LOD 0 uses an
 attribute-carrying 3D plane clipper, so vertical faces and multiple heights at

@@ -67,9 +67,6 @@ Shader "Motu/Terrain Unified"
         _GrassColorA ("Grass Colour A", Color) = (0.18, 0.46, 0.14, 1)
         _GrassColorB ("Grass Colour B", Color) = (0.34, 0.50, 0.14, 1)
         _GrassColorNoiseWorldSize ("Grass Colour Noise Repeat (metres)", Float) = 2048
-        [HideInInspector] _GrassWindStrength ("Grass Wind Bend (metres)", Range(0, 0.25)) = 0.07
-        [HideInInspector] _GrassWindWorldSize ("Grass Wind Gust Size (metres)", Range(1, 64)) = 12
-        [HideInInspector] _GrassWindNormalStrength ("Grass Wind Normal Strength", Range(0, 1)) = 0.35
         [HideInInspector] _GrassEnabled ("Local Grass Enabled", Float) = 0
         [HideInInspector] _GrassPlayerPosition ("Player Position", Vector) = (0, 0, 0, 0)
         _GroundDirtCoreRadius ("Dirt Core Radius (metres)", Float) = 0.5
@@ -161,9 +158,6 @@ Shader "Motu/Terrain Unified"
             fixed4 _GrassColorA;
             fixed4 _GrassColorB;
             float _GrassColorNoiseWorldSize;
-            float _GrassWindStrength;
-            float _GrassWindWorldSize;
-            half _GrassWindNormalStrength;
             half _GrassEnabled;
             float3 _GrassPlayerPosition;
             float _GroundDirtCoreRadius;
@@ -178,7 +172,7 @@ Shader "Motu/Terrain Unified"
             float4x4 _IslandWorldToLocal;
 
             #include "TerrainCoverageCommon.cginc"
-            #include "GrassWindCommon.cginc"
+            #include "WeatherWindCommon.cginc"
             #include "CloudCommon.cginc"
 
             float MotuLayerParallaxDepth(int layer)
@@ -994,7 +988,7 @@ Shader "Motu/Terrain Unified"
                     _SnowNormalStrength);
                 normal = normalize(lerp(normal, snowNormal, coverage.snow));
 
-                float3 groundWind = MotuGrassWindSample(input.worldPosition.xz);
+                float3 groundWind = MotuWindSample(input.worldPosition.xz);
                 float3 horizontalWind = float3(groundWind.x, 0.0, groundWind.z);
                 float3 tangentWind = horizontalWind - normal * dot(horizontalWind, normal);
                 tangentWind *= rsqrt(max(dot(tangentWind, tangentWind), 1.0e-4));
@@ -1002,7 +996,7 @@ Shader "Motu/Terrain Unified"
                     normal
                         + tangentWind
                             * (groundWind.y
-                                * _GrassWindNormalStrength
+                                * MotuWindNormalStrength()
                                 * grassCoverage));
 
                 half sharedOcclusion = lerp(

@@ -129,6 +129,8 @@ public sealed partial class WorldEnvironmentController : MonoBehaviour
             environmentDiameterMetres,
             showSea,
             oceanWaves);
+        var windNoise = newSeaMaterial.GetTexture("_NoiseTex");
+        ApplyWeatherWindNoise(windNoise);
         EnsureMoonLight(sunlightTemplate);
         UpdateAnchor(true);
         BindExistingReflectionCameras();
@@ -162,6 +164,22 @@ public sealed partial class WorldEnvironmentController : MonoBehaviour
         }
         environmentSettings.WindDirection = direction;
         environmentSettings.WindSpeedMetresPerSecond = speedMetresPerSecond;
+        ApplyWeatherWind();
+    }
+
+    public void SetVegetationWindResponse(
+        float strengthMetres,
+        float gustSizeMetres,
+        float normalStrength)
+    {
+        if (environmentSettings == null)
+        {
+            throw new InvalidOperationException(
+                "The world environment must be initialized before setting wind response.");
+        }
+        environmentSettings.VegetationWindStrengthMetres = strengthMetres;
+        environmentSettings.WindGustSizeMetres = gustSizeMetres;
+        environmentSettings.VegetationWindNormalStrength = normalStrength;
         ApplyWeatherWind();
     }
 
@@ -205,6 +223,10 @@ public sealed partial class WorldEnvironmentController : MonoBehaviour
     {
         EnsureOcean();
         Shader.SetGlobalVector(EnvironmentWorldOffsetId, Vector4.zero);
+        ApplyWeatherWindGlobals(
+            Vector2.right,
+            ReferenceWindSpeedMetresPerSecond);
+        ApplyWeatherWindOffset(Vector2.zero);
     }
 
     private void OnEnable()
@@ -225,8 +247,8 @@ public sealed partial class WorldEnvironmentController : MonoBehaviour
             return;
         }
         UpdateSolarLighting(Time.unscaledDeltaTime);
-        ApplyWeatherWind();
         ApplyCloudSettings(Time.unscaledDeltaTime);
+        ApplyWeatherWind();
         ApplyDistanceHazeSettings();
     }
 

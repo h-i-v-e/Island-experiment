@@ -45,18 +45,6 @@ public sealed class IslandRenderingSettings
     [Min(1f)]
     [SerializeField] private float grassColourNoiseWorldSizeMetres = 2048f;
 
-    [Tooltip("Maximum horizontal bend response at the tips of the fur grass at the reference global wind speed.")]
-    [Range(0f, 0.25f)]
-    [SerializeField] private float grassWindStrengthMetres = 0.07f;
-
-    [Tooltip("World-space size of the broad moving grass gusts, in metres.")]
-    [Range(1f, 64f)]
-    [SerializeField] private float grassWindGustSizeMetres = 12f;
-
-    [Tooltip("How strongly the moving wind field perturbs fur-grass lighting normals.")]
-    [Range(0f, 1f)]
-    [SerializeField] private float grassWindNormalStrength = 0.35f;
-
     [Tooltip("World-space size of coherent sand patches, in metres.")]
     [Min(0.1f)]
     [SerializeField] private float sandPatchSizeMetres = 32f;
@@ -151,21 +139,6 @@ public sealed class IslandRenderingSettings
     {
         get => Mathf.Max(grassColourNoiseWorldSizeMetres, 1f);
         set => grassColourNoiseWorldSizeMetres = Mathf.Max(value, 1f);
-    }
-    public float GrassWindStrengthMetres
-    {
-        get => Mathf.Clamp(grassWindStrengthMetres, 0f, 0.25f);
-        set => grassWindStrengthMetres = Mathf.Clamp(value, 0f, 0.25f);
-    }
-    public float GrassWindGustSizeMetres
-    {
-        get => Mathf.Clamp(grassWindGustSizeMetres, 1f, 64f);
-        set => grassWindGustSizeMetres = Mathf.Clamp(value, 1f, 64f);
-    }
-    public float GrassWindNormalStrength
-    {
-        get => Mathf.Clamp01(grassWindNormalStrength);
-        set => grassWindNormalStrength = Mathf.Clamp01(value);
     }
     internal float SandPatchSizeMetres => Mathf.Max(sandPatchSizeMetres, 0.1f);
     internal float GrassPatchSizeMetres => Mathf.Max(grassPatchSizeMetres, 0.1f);

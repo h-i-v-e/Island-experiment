@@ -1,15 +1,10 @@
 #ifndef MOTU_TREE_WIND_COMMON_INCLUDED
 #define MOTU_TREE_WIND_COMMON_INCLUDED
 
-sampler2D _GrassPatchNoise;
-float _GrassWindStrength;
-float _GrassWindWorldSize;
 float _WorldSize;
-float _TreeWindStrengthMultiplier;
-float _TreeWindBasePinHeight;
-float _TreeWindFullBendHeight;
+float4 _MotuTreeWindHeights;
 
-#include "GrassWindCommon.cginc"
+#include "WeatherWindCommon.cginc"
 
 float MotuHasTreeRoot(float4 treeData)
 {
@@ -27,8 +22,8 @@ float3 MotuDecodeTreeRoot(float4 treeData)
 float MotuTreeWindBendWeight(float heightAboveGround)
 {
     float bendWeight = smoothstep(
-        max(_TreeWindBasePinHeight, 0.0),
-        max(_TreeWindFullBendHeight, _TreeWindBasePinHeight + 0.01),
+        max(_MotuTreeWindHeights.x, 0.0),
+        max(_MotuTreeWindHeights.y, _MotuTreeWindHeights.x + 0.01),
         max(heightAboveGround, 0.0));
     return bendWeight * bendWeight;
 }
@@ -47,10 +42,10 @@ float3 MotuTreeWindOffsetAtHeight(
     float3 rootWorldPosition = worldPosition - mul(
         (float3x3)unity_ObjectToWorld,
         islandLocalPosition - treeRoot);
-    float3 wind = MotuGrassWindSample(rootWorldPosition.xz);
+    float3 wind = MotuWindSample(rootWorldPosition.xz);
     return float3(wind.x, 0.0, wind.z)
-        * (_GrassWindStrength
-            * max(_TreeWindStrengthMultiplier, 0.0)
+        * (MotuWindDisplacementStrength()
+            * MotuTreeWindStrengthMultiplier()
             * wind.y
             * MotuTreeWindBendWeight(heightAboveGround));
 }

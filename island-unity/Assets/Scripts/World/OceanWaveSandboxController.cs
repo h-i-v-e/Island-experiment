@@ -62,6 +62,7 @@ public sealed class OceanWaveSandboxController : MonoBehaviour
         material.name = "Ocean Wave Sandbox Sea (Runtime)";
         noiseTexture = IslandGenerator.CreateWeatherNoiseTexture();
         material.SetTexture(NoiseTextureId, noiseTexture);
+        WorldEnvironmentController.ApplyWeatherWindNoise(noiseTexture);
         var settings = profile != null
             ? profile.ToRuntimeSettings()
             : OceanWaveRuntimeSettings.Default;

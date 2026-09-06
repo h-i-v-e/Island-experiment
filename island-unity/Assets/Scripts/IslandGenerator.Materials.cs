@@ -121,7 +121,6 @@ public sealed partial class IslandGenerator
         }
         reedMaterial.SetColor("_BaseColor", Reeds.BaseColour);
         reedMaterial.SetColor("_TipColor", Reeds.TipColour);
-        reedMaterial.SetFloat("_ReedWindMultiplier", Reeds.WindStrength);
         reedMaterial.enableInstancing = true;
         fernMaterial = CreateMaterial(
             "Motu/Forest Ferns",
@@ -135,7 +134,6 @@ public sealed partial class IslandGenerator
         }
         fernMaterial.SetColor("_BaseColor", Ferns.BaseColour);
         fernMaterial.SetColor("_TipColor", Ferns.TipColour);
-        fernMaterial.SetFloat("_FernWindMultiplier", Ferns.WindStrength);
         fernMaterial.enableInstancing = true;
         rockMaterial = CreateMaterial(
             "Motu/Rock Decoration",
@@ -186,14 +184,7 @@ public sealed partial class IslandGenerator
         grassMaterial.SetFloat(
             "_GrassPatchNoiseWorldSize",
             Rendering.GrassPatchSizeMetres);
-        treeWoodMaterial.SetTexture("_GrassPatchNoise", grassPatchNoiseTexture);
-        treeLod1WoodMaterial.SetTexture("_GrassPatchNoise", grassPatchNoiseTexture);
-        treeFoliageMaterial.SetTexture("_GrassPatchNoise", grassPatchNoiseTexture);
-        treeLod0FoliageMaterial.SetTexture("_GrassPatchNoise", grassPatchNoiseTexture);
-        reedMaterial.SetTexture("_GrassPatchNoise", grassPatchNoiseTexture);
-        fernMaterial.SetTexture("_GrassPatchNoise", grassPatchNoiseTexture);
         ApplyGrassColourSettings();
-        ApplyGrassWindSettings();
         terrainLod1Material = new Material(terrainMaterial)
         {
             name = "Island terrain LOD1 material (no parallax)",
@@ -446,32 +437,6 @@ public sealed partial class IslandGenerator
         grassMaterial?.SetFloat(
             "_GrassColorNoiseWorldSize",
             appliedGrassColourNoiseWorldSize);
-    }
-
-    private void ApplyGrassWindSettings()
-    {
-        appliedGrassWindStrength = Rendering.GrassWindStrengthMetres;
-        appliedGrassWindGustSize = Rendering.GrassWindGustSizeMetres;
-        appliedGrassWindNormalStrength = Rendering.GrassWindNormalStrength;
-        ApplyGrassWindSettingsToMaterial(terrainMaterial);
-        ApplyGrassWindSettingsToMaterial(terrainLod1Material);
-        ApplyGrassWindSettingsToMaterial(terrainLod2Material);
-        ApplyGrassWindSettingsToMaterial(grassMaterial);
-        ApplyGrassWindSettingsToMaterial(treeWoodMaterial);
-        ApplyGrassWindSettingsToMaterial(treeLod1WoodMaterial);
-        ApplyGrassWindSettingsToMaterial(treeFoliageMaterial);
-        ApplyGrassWindSettingsToMaterial(treeLod0FoliageMaterial);
-        ApplyGrassWindSettingsToMaterial(reedMaterial);
-        ApplyGrassWindSettingsToMaterial(fernMaterial);
-    }
-
-    private void ApplyGrassWindSettingsToMaterial(Material material)
-    {
-        material?.SetFloat("_GrassWindStrength", appliedGrassWindStrength);
-        material?.SetFloat("_GrassWindWorldSize", appliedGrassWindGustSize);
-        material?.SetFloat(
-            "_GrassWindNormalStrength",
-            appliedGrassWindNormalStrength);
     }
 
     private void CreateSurfaceTextures(IslandPreparedSurfaceMaps surfaceMaps)
@@ -788,20 +753,15 @@ public sealed partial class IslandGenerator
         appliedShowReeds = null;
         appliedReedBaseColour = null;
         appliedReedTipColour = null;
-        appliedReedWindStrength = float.NaN;
         appliedShowFerns = null;
         appliedFernBaseColour = null;
         appliedFernTipColour = null;
-        appliedFernWindStrength = float.NaN;
         appliedShowMeshEdges = null;
         appliedShowTreeMeshEdges = null;
         appliedWaterfallDebug = null;
         appliedGrassColourA = null;
         appliedGrassColourB = null;
         appliedGrassColourNoiseWorldSize = float.NaN;
-        appliedGrassWindStrength = float.NaN;
-        appliedGrassWindGustSize = float.NaN;
-        appliedGrassWindNormalStrength = float.NaN;
         hasAppliedWorldToLocal = false;
     }
 

@@ -35,14 +35,26 @@ public sealed partial class WorldEnvironmentController
     private static readonly int CloudLightActiveId = Shader.PropertyToID("_MotuCloudLightActive");
     private static readonly int CloudLightColourId = Shader.PropertyToID("_MotuCloudLightColor");
     private static readonly int WeatherWindId = Shader.PropertyToID("_MotuWeatherWind");
+    private static readonly int WindMaterialId = Shader.PropertyToID("_MotuWindMaterial");
+    private static readonly int WindResponseId = Shader.PropertyToID("_MotuWindResponse");
+    private static readonly int TreeWindHeightsId = Shader.PropertyToID("_MotuTreeWindHeights");
+    private static readonly int WindOffsetId = Shader.PropertyToID("_MotuWindOffset");
+    private static readonly int WindNoiseTextureId = Shader.PropertyToID("_MotuWindNoise");
     public const float ReferenceWindSpeedMetresPerSecond = 9f;
+    internal const float DefaultVegetationWindStrengthMetres = 0.07f;
+    internal const float DefaultWindGustSizeMetres = 12f;
+    internal const float DefaultVegetationWindNormalStrength = 0.35f;
+    internal const float DefaultTreeWindStrengthMultiplier = 5f;
+    internal const float DefaultTreeWindBasePinHeightMetres = 0.6f;
+    internal const float DefaultTreeWindFullBendHeightMetres = 9f;
+    internal const float DefaultReedWindStrengthMultiplier = 3f;
+    internal const float DefaultFernWindStrengthMultiplier = 1.8f;
 
     private WorldEnvironmentSettings environmentSettings;
     private IslandCloudSettings cloudSettings;
     private Light sunlight;
     private int environmentSeed;
-    private Vector2 cloudWindOffset;
-    private Vector2 cloudBroadWindOffset;
+    private Vector2 windTravelOffset;
     private bool firstPersonViewActive;
     private bool solarClockInitialized;
     private float solarTimeHours;
@@ -69,6 +81,7 @@ public sealed partial class WorldEnvironmentController
             ? settings.WeatherNoise
             : IslandGenerator.CreateWeatherNoiseTexture();
         var ownedNoise = settings.WeatherNoise == null ? noise : null;
+        ApplyWeatherWindNoise(noise);
         var sea = CreateSeaMaterial(settings, noise);
         var weather = CreateCloudWeatherTexture(settings.Seed, clouds);
         Install(
@@ -200,11 +213,12 @@ public sealed partial class WorldEnvironmentController
             var travel = windDirection
                 * (environmentSettings.WindSpeedMetresPerSecond
                     * Mathf.Max(deltaTime, 0f));
-            cloudWindOffset += travel;
-            cloudBroadWindOffset += travel * 0.18f;
+            windTravelOffset += travel;
         }
         var worldSize = cloudSettings.WorldSizeMetres;
         var broadWorldSize = worldSize * cloudSettings.BroadNoiseScale;
+        var cloudWindOffset = windTravelOffset;
+        var cloudBroadWindOffset = windTravelOffset * 0.18f;
         cloudWindOffset.x = Mathf.Repeat(cloudWindOffset.x, worldSize);
         cloudWindOffset.y = Mathf.Repeat(cloudWindOffset.y, worldSize);
         cloudBroadWindOffset.x = Mathf.Repeat(cloudBroadWindOffset.x, broadWorldSize);
@@ -263,7 +277,15 @@ public sealed partial class WorldEnvironmentController
 
     internal static float ApplyWeatherWindGlobals(
         Vector2 configuredDirection,
-        float configuredSpeedMetresPerSecond)
+        float configuredSpeedMetresPerSecond,
+        float vegetationStrengthMetres = DefaultVegetationWindStrengthMetres,
+        float gustSizeMetres = DefaultWindGustSizeMetres,
+        float vegetationNormalStrength = DefaultVegetationWindNormalStrength,
+        float treeStrengthMultiplier = DefaultTreeWindStrengthMultiplier,
+        float treeBasePinHeightMetres = DefaultTreeWindBasePinHeightMetres,
+        float treeFullBendHeightMetres = DefaultTreeWindFullBendHeightMetres,
+        float reedStrengthMultiplier = DefaultReedWindStrengthMultiplier,
+        float fernStrengthMultiplier = DefaultFernWindStrengthMultiplier)
     {
         var direction = configuredDirection;
         if (direction.sqrMagnitude <= 0.000001f)
@@ -279,7 +301,47 @@ public sealed partial class WorldEnvironmentController
         Shader.SetGlobalVector(
             WeatherWindId,
             new Vector4(direction.x, direction.y, speed, waveHeightScale));
+        Shader.SetGlobalVector(
+            WindMaterialId,
+            new Vector4(
+                Mathf.Clamp(vegetationStrengthMetres, 0f, 0.25f),
+                Mathf.Clamp(gustSizeMetres, 1f, 64f),
+                Mathf.Clamp01(vegetationNormalStrength),
+                0f));
+        Shader.SetGlobalVector(
+            WindResponseId,
+            new Vector4(
+                Mathf.Clamp(treeStrengthMultiplier, 0f, 10f),
+                Mathf.Clamp(reedStrengthMultiplier, 0f, 8f),
+                Mathf.Clamp(fernStrengthMultiplier, 0f, 8f),
+                0f));
+        var basePinHeight = Mathf.Clamp(treeBasePinHeightMetres, 0f, 4f);
+        Shader.SetGlobalVector(
+            TreeWindHeightsId,
+            new Vector4(
+                basePinHeight,
+                Mathf.Clamp(
+                    treeFullBendHeightMetres,
+                    Mathf.Max(basePinHeight + 0.01f, 1f),
+                    24f),
+                0f,
+                0f));
         return waveHeightScale;
+    }
+
+    internal static void ApplyWeatherWindNoise(Texture noise)
+    {
+        if (noise != null)
+        {
+            Shader.SetGlobalTexture(WindNoiseTextureId, noise);
+        }
+    }
+
+    internal static void ApplyWeatherWindOffset(Vector2 offsetMetres)
+    {
+        Shader.SetGlobalVector(
+            WindOffsetId,
+            new Vector4(offsetMetres.x, offsetMetres.y, 0f, 0f));
     }
 
     private void ApplyWeatherWind()
@@ -290,7 +352,16 @@ public sealed partial class WorldEnvironmentController
         }
         var waveHeightScale = ApplyWeatherWindGlobals(
             environmentSettings.WindDirection,
-            environmentSettings.WindSpeedMetresPerSecond);
+            environmentSettings.WindSpeedMetresPerSecond,
+            environmentSettings.VegetationWindStrengthMetres,
+            environmentSettings.WindGustSizeMetres,
+            environmentSettings.VegetationWindNormalStrength,
+            environmentSettings.TreeWindStrengthMultiplier,
+            environmentSettings.TreeWindBasePinHeightMetres,
+            environmentSettings.TreeWindFullBendHeightMetres,
+            environmentSettings.ReedWindStrengthMultiplier,
+            environmentSettings.FernWindStrengthMultiplier);
+        ApplyWeatherWindOffset(windTravelOffset);
         ocean?.ApplyWeatherWindScale(waveHeightScale);
     }
 

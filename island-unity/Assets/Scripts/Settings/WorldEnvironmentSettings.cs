@@ -22,6 +22,30 @@ public sealed class WorldEnvironmentSettings
     [Tooltip("Global wind speed in metres per second. This drives clouds, vegetation, and ocean waves.")]
     [Range(0f, 40f)]
     [SerializeField] private float windSpeedMetresPerSecond = 9f;
+    [Tooltip("Maximum grass-tip displacement at the reference wind speed. Trees, reeds, and ferns apply their own physical response multipliers to this same global value.")]
+    [Range(0f, 0.25f)]
+    [SerializeField] private float vegetationWindStrengthMetres = 0.07f;
+    [Tooltip("World-space size of the coherent gust field shared by every wind-animated material.")]
+    [Range(1f, 64f)]
+    [SerializeField] private float windGustSizeMetres = 12f;
+    [Tooltip("How strongly the shared wind field perturbs grass lighting normals.")]
+    [Range(0f, 1f)]
+    [SerializeField] private float vegetationWindNormalStrength = 0.35f;
+    [Tooltip("Tree flexibility relative to the shared vegetation displacement.")]
+    [Range(0f, 10f)]
+    [SerializeField] private float treeWindStrengthMultiplier = 5f;
+    [Tooltip("Height above each tree root that remains pinned against wind.")]
+    [Range(0f, 4f)]
+    [SerializeField] private float treeWindBasePinHeightMetres = 0.6f;
+    [Tooltip("Height above each tree root at which full tree bending is reached.")]
+    [Range(1f, 24f)]
+    [SerializeField] private float treeWindFullBendHeightMetres = 9f;
+    [Tooltip("Reed flexibility relative to the shared vegetation displacement.")]
+    [Range(0f, 8f)]
+    [SerializeField] private float reedWindStrengthMultiplier = 3f;
+    [Tooltip("Fern flexibility relative to the shared vegetation displacement.")]
+    [Range(0f, 8f)]
+    [SerializeField] private float fernWindStrengthMultiplier = 1.8f;
     [SerializeField] private Light sunlight;
     [Range(0.25f, 240f)] [SerializeField] private float sunCycleDurationMinutes = 20f;
     [Range(1f, 20f)] [SerializeField] private float midnightToNoonClockRateRatio = 10f;
@@ -55,6 +79,33 @@ public sealed class WorldEnvironmentSettings
         get => Mathf.Clamp(windSpeedMetresPerSecond, 0f, 40f);
         set => windSpeedMetresPerSecond = Mathf.Clamp(value, 0f, 40f);
     }
+    public float VegetationWindStrengthMetres
+    {
+        get => Mathf.Clamp(vegetationWindStrengthMetres, 0f, 0.25f);
+        set => vegetationWindStrengthMetres = Mathf.Clamp(value, 0f, 0.25f);
+    }
+    public float WindGustSizeMetres
+    {
+        get => Mathf.Clamp(windGustSizeMetres, 1f, 64f);
+        set => windGustSizeMetres = Mathf.Clamp(value, 1f, 64f);
+    }
+    public float VegetationWindNormalStrength
+    {
+        get => Mathf.Clamp01(vegetationWindNormalStrength);
+        set => vegetationWindNormalStrength = Mathf.Clamp01(value);
+    }
+    public float TreeWindStrengthMultiplier =>
+        Mathf.Clamp(treeWindStrengthMultiplier, 0f, 10f);
+    public float TreeWindBasePinHeightMetres =>
+        Mathf.Clamp(treeWindBasePinHeightMetres, 0f, 4f);
+    public float TreeWindFullBendHeightMetres => Mathf.Clamp(
+        treeWindFullBendHeightMetres,
+        Mathf.Max(TreeWindBasePinHeightMetres + 0.01f, 1f),
+        24f);
+    public float ReedWindStrengthMultiplier =>
+        Mathf.Clamp(reedWindStrengthMultiplier, 0f, 8f);
+    public float FernWindStrengthMultiplier =>
+        Mathf.Clamp(fernWindStrengthMultiplier, 0f, 8f);
     public Light Sunlight { get => sunlight; internal set => sunlight = value; }
     public float SunCycleDurationMinutes => Mathf.Clamp(sunCycleDurationMinutes, 0.25f, 240f);
     public float MidnightToNoonClockRateRatio => Mathf.Clamp(midnightToNoonClockRateRatio, 1f, 20f);

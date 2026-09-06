@@ -453,11 +453,11 @@ public static class IslandGeneratorValidation
         {
             if (material.GetTag("RenderType", false) != "MotuFernCutout"
                 || material.GetTag("MotuReflection", false) != "Ferns"
-                || !material.HasProperty("_FernWindMultiplier")
-                || !material.HasProperty("_GrassPatchNoise"))
+                || material.HasProperty("_FernWindMultiplier")
+                || material.HasProperty("_GrassPatchNoise"))
             {
                 throw new InvalidOperationException(
-                    "The forest-fern shader is missing its AO, reflection, or wind contract.");
+                    "The forest-fern shader has an invalid reflection or global-wind contract.");
             }
         }
         finally
@@ -727,7 +727,6 @@ public static class IslandGeneratorValidation
         {
             throw new InvalidOperationException("The island sandbox scene could not be opened.");
         }
-        var rendering = RequireSandboxRequest().Rendering;
         var managers = UnityEngine.Object.FindObjectsByType<IslandWorldManager>(
             FindObjectsInactive.Include);
         var environment = managers.Length == 1
@@ -736,9 +735,14 @@ public static class IslandGeneratorValidation
         if (environment == null
             || environment.WindDirection.sqrMagnitude < 1.0e-4f
             || environment.WindSpeedMetresPerSecond <= 0f
-            || rendering.GrassWindStrengthMetres <= 0f
-            || rendering.GrassWindGustSizeMetres <= 0f
-            || rendering.GrassWindNormalStrength <= 0f)
+            || environment.VegetationWindStrengthMetres <= 0f
+            || environment.WindGustSizeMetres <= 0f
+            || environment.VegetationWindNormalStrength <= 0f
+            || environment.TreeWindStrengthMultiplier <= 0f
+            || environment.TreeWindFullBendHeightMetres
+                <= environment.TreeWindBasePinHeightMetres
+            || environment.ReedWindStrengthMultiplier <= 0f
+            || environment.FernWindStrengthMultiplier <= 0f)
         {
             throw new InvalidOperationException(
                 "The sandbox global wind or vegetation response settings are missing or disabled.");
@@ -780,19 +784,19 @@ public static class IslandGeneratorValidation
         var terrainMaterial = new Material(terrainShader);
         try
         {
-            if (!material.HasProperty("_GrassWindStrength")
-                || !material.HasProperty("_GrassWindWorldSize")
-                || !material.HasProperty("_GrassWindNormalStrength")
-                || !terrainMaterial.HasProperty("_GrassWindStrength")
-                || !terrainMaterial.HasProperty("_GrassWindWorldSize")
-                || !terrainMaterial.HasProperty("_GrassWindNormalStrength")
+            if (material.HasProperty("_GrassWindStrength")
+                || material.HasProperty("_GrassWindWorldSize")
+                || material.HasProperty("_GrassWindNormalStrength")
+                || terrainMaterial.HasProperty("_GrassWindStrength")
+                || terrainMaterial.HasProperty("_GrassWindWorldSize")
+                || terrainMaterial.HasProperty("_GrassWindNormalStrength")
                 || material.HasProperty("_GrassWindDirection")
                 || material.HasProperty("_GrassWindSpeed")
                 || terrainMaterial.HasProperty("_GrassWindDirection")
                 || terrainMaterial.HasProperty("_GrassWindSpeed"))
             {
                 throw new InvalidOperationException(
-                    "Vegetation must keep local response controls but source direction and speed from global weather.");
+                    "Vegetation wind controls must be owned entirely by global weather.");
             }
         }
         finally
@@ -800,7 +804,7 @@ public static class IslandGeneratorValidation
             UnityEngine.Object.DestroyImmediate(material);
             UnityEngine.Object.DestroyImmediate(terrainMaterial);
         }
-        Debug.Log("Global weather and near/far vegetation wind controls passed validation.");
+        Debug.Log("Unified global weather wind passed validation.");
     }
 
     private static IslandGenerationRequest RequireSandboxRequest()
