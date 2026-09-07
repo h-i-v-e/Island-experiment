@@ -7,6 +7,9 @@ namespace Motu.Settings
     [UnityEngine.Scripting.APIUpdating.MovedFrom(true, sourceNamespace: "", sourceAssembly: "Assembly-CSharp", sourceClassName: "IslandRenderingSettings")]
     public sealed class IslandRenderingSettings
     {
+        // Values are copied; authored Unity asset references intentionally remain shared.
+        internal IslandRenderingSettings Copy() => (IslandRenderingSettings)MemberwiseClone();
+
         [Tooltip("Runtime resolution requested from the Rust procedural material library.")]
         [Range(128, 2048)]
         [SerializeField] private int materialTextureResolution = 1024;

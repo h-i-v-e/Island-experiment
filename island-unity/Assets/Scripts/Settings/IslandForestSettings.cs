@@ -8,6 +8,9 @@ namespace Motu.Settings
     [UnityEngine.Scripting.APIUpdating.MovedFrom(true, sourceNamespace: "", sourceAssembly: "Assembly-CSharp", sourceClassName: "IslandForestSettings")]
     public sealed class IslandForestSettings
     {
+        // Values are copied; authored Unity asset references intentionally remain shared.
+        internal IslandForestSettings Copy() => (IslandForestSettings)MemberwiseClone();
+
         [Tooltip("Show streamed forest foliage and wood without regenerating the island.")]
         [SerializeField] private bool showForests = true;
 

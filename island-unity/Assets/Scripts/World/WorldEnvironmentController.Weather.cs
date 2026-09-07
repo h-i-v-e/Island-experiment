@@ -23,7 +23,7 @@ namespace Motu.World
             ApplyCloudSettings(0f);
         }
 
-        private void UpdateWeatherDriver(float deltaTime)
+        internal void UpdateWeatherDriver(float deltaTime)
         {
             var driver = WeatherDriver;
             if (driver == null || !driver.isActiveAndEnabled)

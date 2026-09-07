@@ -1,6 +1,6 @@
 # Unity code cleanup and rationalisation
 
-Status: proposed; no namespace or architecture changes implemented by this plan.
+Status: implemented. See [delivery and validation results](UNITY_CODE_CLEANUP_RESULTS.md).
 Reviewed: 8 September 2026, Unity 6000.5.6f1, branch `main`.
 Baseline checkpoint: `e205fe68567ad8f7050fc8330c05903690e9fe96`.
 
@@ -23,7 +23,7 @@ the older [level plan](../UNITY_LEVEL_ARCHITECTURE_PLAN.md) where that document
 places authored island settings or global environment ownership on a standalone
 `IslandGenerator`.
 
-## What the current checkout shows
+## Findings at the original checkpoint
 
 There are 73 C# files under `Assets/Scripts` (19,757 lines) and 9 under
 `Assets/Editor` (3,303 lines). None declares a namespace. There are no `.asmdef`
@@ -252,5 +252,5 @@ separate and record any intentional migration. A failed scene binding, changed
 cache identity, different generated output, leak or player-build failure blocks
 that step rather than becoming work hidden in the next refactor.
 
-The namespace migration is the recommended first implementation after baseline
-setup. Implementation of the refactor has not started.
+The implementation follows these boundaries. The delivery report records the
+completed changes, validation evidence and retained compatibility fields.

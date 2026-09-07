@@ -80,7 +80,7 @@ namespace Motu.World
                 ? new Material(seaMaterialTemplate)
                 : new Material(shader);
             material.name = "Ocean Wave Sandbox Sea (Runtime)";
-            noiseTexture = IslandGenerator.CreateWeatherNoiseTexture();
+            noiseTexture = ProceduralNoiseTextures.CreateWeatherNoiseTexture();
             material.SetTexture(NoiseTextureId, noiseTexture);
             WorldEnvironmentController.ApplyWeatherWindNoise(noiseTexture);
             var settings = profile != null

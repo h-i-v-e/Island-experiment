@@ -85,11 +85,11 @@ namespace Motu.World
         private bool destroyed;
         private Vector3 lastQueryPosition;
         private Vector3 projectedGenerationPosition;
-        private Vector3 smoothedVelocity;
+        internal Vector3 smoothedVelocity;
         private Vector3 previousTargetPosition;
         private bool hasQueryPosition;
-        private bool hasPreviousTargetPosition;
-        private float nextDiscoveryTime;
+        internal bool hasPreviousTargetPosition;
+        internal float nextDiscoveryTime;
         private IIslandGenerationRequestFactory islandGenerationRequestFactory;
 
         public IslandGenerator FocusedIsland => focusedIsland;

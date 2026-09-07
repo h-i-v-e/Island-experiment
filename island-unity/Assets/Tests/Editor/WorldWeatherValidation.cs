@@ -24,7 +24,7 @@ namespace Motu.Editor
                 ValidateCloudWeather(environment, authoredClouds);
                 var ocean = root.GetComponent<OceanSurfaceController>();
                 var composer = root.GetComponent<OceanWaveMaskComposer>();
-                Invoke(composer, "LateUpdate");
+                composer.UpdateMask();
                 var mesh = ocean.SurfaceMesh;
                 var vertices = mesh.vertexCount;
                 var mask = ocean.SurfaceMaterial.GetTexture("_WaveAttenuationTex");
@@ -63,7 +63,7 @@ namespace Motu.Editor
                 next.Waves.OnshoreWaveBreakingStartDepthMetres = 4.5f;
                 next.Waves.OnshoreWaveBreakingFullDepthMetres = 3f;
                 environment.ApplyWeather(next);
-                Invoke(composer, "LateUpdate");
+                composer.UpdateMask();
 
                 Require(Shader.GetGlobalVector("_MotuWeatherWind") == new Vector4(0, 1, 36, 2),
                     "Wind direction, speed or response did not reach shader globals.");
@@ -112,7 +112,7 @@ namespace Motu.Editor
                 next.Waves.Enabled = false;
                 next.Waves.OnshoreWaveEnabled = false;
                 environment.ApplyWeather(next);
-                Invoke(composer, "LateUpdate");
+                composer.UpdateMask();
                 Require(ocean.SurfaceMesh == mesh && ocean.WaveMaskCompositionCount == compositions + 1
                     && material.GetTexture("_WaveAttenuationTex") == mask
                     && material.GetFloat("_GeometricWaves") == 0f
@@ -121,14 +121,14 @@ namespace Motu.Editor
 
                 var driver = root.AddComponent<RuntimeWeatherValidationDriver>();
                 environment.WeatherDriver = driver;
-                Invoke(environment, "UpdateWeatherDriver", .5f);
+                environment.UpdateWeatherDriver(.5f);
                 Require(driver.Calls == 1 && environment.WindSpeedMetresPerSecond == 5f
                     && material.GetFloat("_WhitecapStrength") == .2f
                     && Shader.GetGlobalFloat("_MotuCloudCoverage") == .8f
                     && Shader.GetGlobalFloat("_MotuCloudDensity") == 3f,
                     "The assigned driver did not apply its weather state.");
                 driver.enabled = false;
-                Invoke(environment, "UpdateWeatherDriver", .5f);
+                environment.UpdateWeatherDriver(.5f);
                 Require(driver.Calls == 1 && environment.WindSpeedMetresPerSecond == 5f
                     && Shader.GetGlobalFloat("_MotuCloudCoverage") == .8f,
                     "A disabled weather driver must retain the last weather state.");
@@ -230,7 +230,7 @@ namespace Motu.Editor
                 && Shader.GetGlobalVector("_MotuCloudWindOffset") == windOffset
                 && authored.Coverage == .37f && authored.Density == 1.7f,
                 "Applying clouds rebuilt the texture, advanced drift, or mutated authored settings.");
-            Invoke(environment, "ApplyCloudSettings", .5f);
+            environment.ApplyCloudSettings(.5f);
             Require(Mathf.Abs(Shader.GetGlobalVector("_MotuCloudWindOffset").y - windOffset.y - 5f) < .001f,
                 "Runtime clouds did not drift with the shared wind.");
             next.Clouds.Enabled = false;
@@ -276,7 +276,7 @@ namespace Motu.Editor
             weather.Waves.Wave2.Direction = directions[2];
             weather.Waves.Wave3.Direction = directions[3];
             environment.ApplyWeather(weather);
-            Invoke(ocean, "AdvanceWaveAnimation", 4f);
+            ocean.AdvanceWaveAnimation(4f);
             var material = ocean.SurfaceMaterial;
             var patterns = new Vector4[4];
             for (var index = 0; index < 4; index++)
@@ -288,7 +288,7 @@ namespace Motu.Editor
             foreach (var wind in new[] { Vector2.left, Vector2.up, Vector2.right })
             {
                 environment.SetWind(wind, weather.WindSpeedMetresPerSecond);
-                Invoke(ocean, "AdvanceWaveAnimation", 0f);
+                ocean.AdvanceWaveAnimation(0f);
                 for (var index = 0; index < 4; index++)
                     Require(material.GetVector($"_OceanWaveTo{index}") == patterns[index],
                         "Changing only WindDirection rotated or reset a wave pattern.");
@@ -297,7 +297,7 @@ namespace Motu.Editor
             }
             weather.Waves.Wave0.Direction = Vector2.down;
             environment.ApplyWeather(weather);
-            Invoke(ocean, "AdvanceWaveAnimation", 4f);
+            ocean.AdvanceWaveAnimation(4f);
             for (var index = 1; index < 4; index++)
             {
                 var actual = material.GetVector($"_OceanWaveTo{index}");
@@ -315,9 +315,10 @@ namespace Motu.Editor
                 var driver = root.AddComponent<CoherentWeatherDriver>();
                 foreach (var seed in new[] { 42, 0, -1, int.MaxValue })
                 {
-                    typeof(CoherentWeatherDriver).GetField("seed", BindingFlags.NonPublic | BindingFlags.Instance)
-                        .SetValue(driver, seed);
-                    Invoke(driver, "Awake");
+                    var serialized = new UnityEditor.SerializedObject(driver);
+                    serialized.FindProperty("seed").intValue = seed;
+                    serialized.ApplyModifiedPropertiesWithoutUndo();
+                    driver.ResetSequence();
                     Require(UnityEngine.Random.state.Equals(globalRandomState),
                         "Seeding weather must not modify Unity's global random sequence.");
                     var weather = WorldWeatherState.FromEnvironment(new WorldEnvironmentSettings());
@@ -334,7 +335,7 @@ namespace Motu.Editor
                     Require((weather.WindDirection - start.WindDirection).sqrMagnitude > 0.000001f,
                         "Coherent weather must evolve with accumulated time at a constant frame rate.");
                     var firstRun = weather;
-                    Invoke(driver, "Awake");
+                    driver.ResetSequence();
                     weather = WorldWeatherState.FromEnvironment(new WorldEnvironmentSettings());
                     for (var frame = 0; frame < 600; frame++)
                         driver.UpdateWeather(ref weather, 1f / 60f);
@@ -369,12 +370,6 @@ namespace Motu.Editor
             if (!success) throw new InvalidOperationException(message);
         }
 
-        private static void Invoke(object target, string method, params object[] arguments)
-        {
-            var entry = target.GetType().GetMethod(method, BindingFlags.Instance | BindingFlags.NonPublic)
-                ?? throw new MissingMethodException(target.GetType().Name, method);
-            entry.Invoke(target, arguments);
-        }
     }
 
     public sealed class RuntimeWeatherValidationDriver : WorldWeatherDriver

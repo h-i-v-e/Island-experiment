@@ -251,6 +251,7 @@ profile assets. Disabled or unassigned drivers leave the last weather active.
 
 ```csharp
 using UnityEngine;
+using Motu.World;
 
 public sealed class MyWeather : WorldWeatherDriver
 {
@@ -317,9 +318,9 @@ continuously. This animation advances once per frame using `Time.deltaTime`;
 the weather driver's clock continues to use unscaled time as described above.
 
 Runtime integration validation:
-`-executeMethod WorldWeatherValidation.BatchValidateRuntimeWeather`.
+`-executeMethod Motu.Editor.WorldWeatherValidation.BatchValidateRuntimeWeather`.
 GPU transition and phase validation (requires graphics):
-`-executeMethod OceanWaveTransitionValidation.BatchValidateWaveTransitions`.
+`-executeMethod Motu.Editor.OceanWaveTransitionValidation.BatchValidateWaveTransitions`.
 
 Every 8x8 group is geometrically clipped at its tile boundaries. LOD 0 uses an
 attribute-carrying 3D plane clipper, so vertical faces and multiple heights at
@@ -534,5 +535,35 @@ waterfall-foot export, fog-pool, and collider-cooking check, run:
 ```sh
 /Applications/Unity/Hub/Editor/6000.5.6f1/Unity.app/Contents/MacOS/Unity \
   -batchmode -nographics -projectPath "$PWD" \
-  -executeMethod IslandGeneratorValidation.BatchValidateNativeInterop -quit
+  -executeMethod Motu.Editor.UnityValidation.Run -quit
 ```
+
+
+## Code organization and validation
+
+Runtime code lives under `Assets/Scripts` in `Motu.World`, `Motu.Islands`,
+`Motu.Settings`, `Motu.Interop`, `Motu.Streaming`, `Motu.Rendering` and
+`Motu.Gameplay`. All runtime scripts compile into `Motu.Runtime`.
+Editor tooling and tests compile separately into `Motu.Editor` and
+`Motu.Tests.Editor`; tests and GPU probes live in `Assets/Tests/Editor`.
+Script GUIDs and serialized setting names are preserved.
+
+Custom weather scripts should import `Motu.World` and derive from
+`WorldWeatherDriver`. `WorldWeatherState`, `OceanWaveWeatherSettings` and
+`CloudWeatherSettings` are in `Motu.World`; authored profiles/settings are in
+`Motu.Settings`. The world owns the shared sky, ocean, clouds and wind resources.
+An island receives its environment from `IslandWorldManager`.
+
+Run `./validate.sh` from this directory to import a clean temporary project,
+run the editor contract tests (including native generation/cancellation), and
+build a macOS development player. The script retains its temporary project,
+logs and test XML and excludes `_Recovery`. It uses the version in
+`ProjectSettings/ProjectVersion.txt`; set `UNITY_EDITOR_EXE` to override the
+editor executable. `./validate.sh --native-exports` also runs the dedicated
+river fixture and broader native export/render suite.
+
+For an already imported project, the stable batch entry point is
+`-executeMethod Motu.Editor.UnityValidation.Run`; the player build entry point is
+`-executeMethod Motu.Editor.UnityProjectBuild.BuildPlayer`. Set
+`MOTU_PLAYER_OUTPUT` to override the default `Builds/Motu.app` output.
+See [cleanup results](UNITY_CODE_CLEANUP_RESULTS.md) for scope and validation.

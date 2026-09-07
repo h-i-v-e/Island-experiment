@@ -8,6 +8,9 @@ namespace Motu.Settings
     [UnityEngine.Scripting.APIUpdating.MovedFrom(true, sourceNamespace: "", sourceAssembly: "Assembly-CSharp", sourceClassName: "IslandDebugSettings")]
     public sealed class IslandDebugSettings
     {
+        // Values are copied; authored Unity asset references intentionally remain shared.
+        internal IslandDebugSettings Copy() => (IslandDebugSettings)MemberwiseClone();
+
         [Tooltip("Draw the generated terrain mesh edges in black over its normal materials.")]
         [SerializeField] private bool showMeshEdges;
 

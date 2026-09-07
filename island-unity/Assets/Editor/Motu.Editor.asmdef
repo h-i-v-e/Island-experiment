@@ -1,0 +1,10 @@
+{
+  "name": "Motu.Editor",
+  "rootNamespace": "Motu",
+  "references": [
+    "Motu.Runtime"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ]
+}

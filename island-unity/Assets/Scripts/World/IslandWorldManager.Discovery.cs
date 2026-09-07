@@ -341,7 +341,7 @@ namespace Motu.World
                 Quaternion.identity);
             var generator = islandObject.AddComponent<IslandGenerator>();
             generator.Configure(entry.GenerationRequest);
-            generator.ConfigureWorldManagement();
+            generator.ConfigureWorldManagement(worldEnvironment);
             generator.SetStreamingTarget(null);
             entry.Generator = generator;
             islandObject.SetActive(true);

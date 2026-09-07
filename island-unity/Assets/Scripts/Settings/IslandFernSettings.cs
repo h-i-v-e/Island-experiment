@@ -8,6 +8,9 @@ namespace Motu.Settings
     [UnityEngine.Scripting.APIUpdating.MovedFrom(true, sourceNamespace: "", sourceAssembly: "Assembly-CSharp", sourceClassName: "IslandFernSettings")]
     public sealed class IslandFernSettings
     {
+        // Values are copied; authored Unity asset references intentionally remain shared.
+        internal IslandFernSettings Copy() => (IslandFernSettings)MemberwiseClone();
+
         [Tooltip("Show LOD 0 ferns around tree trunks without regenerating the island.")]
         [SerializeField] private bool showFerns = true;
 

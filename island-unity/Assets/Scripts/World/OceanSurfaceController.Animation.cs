@@ -100,7 +100,7 @@ namespace Motu.World
         }
 
         // Run once after weather updates, never once per camera or material update.
-        private void AdvanceWaveAnimation(float deltaTime)
+        internal void AdvanceWaveAnimation(float deltaTime)
         {
             if (surfaceMaterial == null) return;
             WeatherValueValidation.RequireFinite(deltaTime, nameof(deltaTime));

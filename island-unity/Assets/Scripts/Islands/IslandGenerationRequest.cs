@@ -42,7 +42,7 @@ namespace Motu.Islands
                     randomSeed,
                     islandGridPosition,
                     stableId),
-                Require(profile, nameof(profile)),
+                Require(profile, nameof(profile)).Clone(),
                 materialColours)
         {
         }
@@ -126,12 +126,18 @@ namespace Motu.Islands
         {
         }
 
+        // Only use with a fresh profile whose ownership is transferred to this request.
+        internal static IslandGenerationRequest FromOwnedProfile(
+            int seed, Vector2Int cell, IslandGenerationProfile profile,
+            IslandMaterialColours colours, string stableId = null) =>
+            new IslandGenerationRequest(IslandDescriptor.Request(seed, cell, stableId), profile, colours);
+
         private IslandGenerationRequest(
             IslandDescriptor descriptor,
             IslandGenerationProfile profile,
             IslandMaterialColours materialColours)
         {
-            Profile = Require(profile, nameof(profile)).Clone();
+            Profile = Require(profile, nameof(profile));
             Profile.Generation.Seed = descriptor.Seed;
 
             Descriptor = descriptor;

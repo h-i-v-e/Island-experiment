@@ -285,7 +285,7 @@ namespace Motu.World
                 return;
             }
 
-            var source = IslandPreparationPipeline.PrepareSkyDome(worldSize);
+            var source = WaterPreparation.PrepareSkyDome(worldSize);
             var replacementMesh = IslandMeshInterop.CreateGeneratedMesh(source);
             replacementMesh.name = "Rust Generated Open-Sea Sky Dome";
             var replacementObject = CreateSkyDomeObject(replacementMesh, material);

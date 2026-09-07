@@ -1,3 +1,4 @@
+using static Motu.Rendering.UnityObjectLifetime;
 using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
@@ -53,10 +54,6 @@ namespace Motu.Islands
                     generator.worldEnvironment,
                     generator.seaMaskTexture,
                     worldSize);
-                if (generator.controlsWorldEnvironment)
-                {
-                    generator.UpdateSolarLighting(0f);
-                }
 
                 var terrainRoot = new GameObject("Terrain Tiles");
                 terrainRoot.transform.SetParent(generator.runtimeRoot.transform, false);

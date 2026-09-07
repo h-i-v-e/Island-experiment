@@ -1,4 +1,3 @@
-using System.Data.Common;
 using UnityEngine;
 using Motu.Settings;
 
@@ -64,28 +63,26 @@ namespace Motu.Islands
             };
         }
 
-
-
         private IslandGenerationSettings CreateGenerationSettings(
             System.Random random)
         {
-            var maxHeight = RandomTools.RandomPositiveFloat(random);
-            var strength = RandomTools.RandomPositiveFloat(random);
-            var frequency = 0.2f + RandomTools.RandomPositiveFloat(random) * 4f;
+            var maxHeight = IslandRandom.RandomPositiveFloat(random);
+            var strength = IslandRandom.RandomPositiveFloat(random);
+            var frequency = 0.2f + IslandRandom.RandomPositiveFloat(random) * 4f;
             var output = new IslandGenerationSettings
             {
                 Seed = random.Next(),
                 MaximumHeightMetres = Mathf.Lerp(MIN_HEIGHT, MAX_HEIGHT, maxHeight),
-                WaterRatio = 0.75f + (maxHeight + RandomTools.RandomPositiveFloat(random)) * 0.1f,
-                InlandSlopeMultiplier = Mathf.Lerp(0.2f, 2.0f, RandomTools.RandomPositiveFloat(random)),
-                CoastalSlopeMultiplier = Mathf.Lerp(0.1f, 2.0f, RandomTools.RandomPositiveFloat(random)),
+                WaterRatio = 0.75f + (maxHeight + IslandRandom.RandomPositiveFloat(random)) * 0.1f,
+                InlandSlopeMultiplier = Mathf.Lerp(0.2f, 2.0f, IslandRandom.RandomPositiveFloat(random)),
+                CoastalSlopeMultiplier = Mathf.Lerp(0.1f, 2.0f, IslandRandom.RandomPositiveFloat(random)),
                 ContinentalNoiseFrequency = frequency,
                 ContinentalNoiseStrength = strength,
-                DetailNoiseFrequency = Mathf.Lerp(frequency, frequency * 8f, RandomTools.RandomPositiveFloat(random)),
+                DetailNoiseFrequency = Mathf.Lerp(frequency, frequency * 8f, IslandRandom.RandomPositiveFloat(random)),
                 DetailNoiseStrength = 1f - strength,
-                LandMassOffset = Mathf.Min(0f, 0.5f - RandomTools.RandomPositiveFloat(random)),
+                LandMassOffset = Mathf.Min(0f, 0.5f - IslandRandom.RandomPositiveFloat(random)),
                 InitialSoilDepthMetres = (1f - maxHeight) * 5f,
-                HydraulicErosionStrength = Mathf.Lerp(4f, 8f, RandomTools.RandomPositiveFloat(random))
+                HydraulicErosionStrength = Mathf.Lerp(4f, 8f, IslandRandom.RandomPositiveFloat(random))
             };
             return output;
         }
@@ -100,8 +97,8 @@ namespace Motu.Islands
 
         private IslandMaterialColours CreateIslandMaterialColours(System.Random random)
         {
-            var earth = Color.Lerp(earthA, earthB, RandomTools.RandomPositiveFloat(random));
-            var stone = Color.Lerp(stoneA, stoneB, RandomTools.RandomPositiveFloat(random));
+            var earth = Color.Lerp(earthA, earthB, IslandRandom.RandomPositiveFloat(random));
+            var stone = Color.Lerp(stoneA, stoneB, IslandRandom.RandomPositiveFloat(random));
             return new IslandMaterialColours(
                 earth,
                 stone,
@@ -141,7 +138,7 @@ namespace Motu.Islands
             }
             var snowLine = islandGridPosition.y * 0.03f;
             snowLine = 1 - Mathf.Clamp01(snowLine * snowLine);
-            var islandSeed = RandomTools.SeedForCell(seed, islandGridPosition);
+            var islandSeed = IslandRandom.SeedForCell(seed, islandGridPosition);
             var random = new System.Random(islandSeed);
             var profile = new IslandGenerationProfile(
                 CreateGenerationSettings(random),
@@ -151,7 +148,7 @@ namespace Motu.Islands
                 CreateRenderingSettings(islandGridPosition.y * 0.03f),
                 new IslandDebugSettings()
             );
-            return new IslandGenerationRequest(
+            return IslandGenerationRequest.FromOwnedProfile(
                 islandSeed,
                 islandGridPosition,
                 profile,
@@ -167,8 +164,8 @@ namespace Motu.Islands
         private Vector2 NoiseOffset()
         {
             return new Vector2(
-                HashToNoiseCoordinate(RandomTools.Mix(unchecked((uint)seed))),
-                HashToNoiseCoordinate(RandomTools.Mix(unchecked((uint)seed * 7u))));
+                HashToNoiseCoordinate(IslandRandom.Mix(unchecked((uint)seed))),
+                HashToNoiseCoordinate(IslandRandom.Mix(unchecked((uint)seed * 7u))));
         }
     }
 }

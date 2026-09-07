@@ -8,6 +8,9 @@ namespace Motu.Settings
     [UnityEngine.Scripting.APIUpdating.MovedFrom(true, sourceNamespace: "", sourceAssembly: "Assembly-CSharp", sourceClassName: "IslandReedSettings")]
     public sealed class IslandReedSettings
     {
+        // Values are copied; authored Unity asset references intentionally remain shared.
+        internal IslandReedSettings Copy() => (IslandReedSettings)MemberwiseClone();
+
         [Tooltip("Show LOD 0 riverbank reeds and rushes without regenerating the island.")]
         [SerializeField] private bool showReeds = true;
 

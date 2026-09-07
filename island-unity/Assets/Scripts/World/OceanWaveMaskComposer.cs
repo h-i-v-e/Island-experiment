@@ -113,7 +113,9 @@ namespace Motu.World
             }
         }
 
-        private void LateUpdate()
+        private void LateUpdate() => UpdateMask();
+
+        internal void UpdateMask()
         {
             if (ocean == null)
             {

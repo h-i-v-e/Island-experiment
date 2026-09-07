@@ -82,11 +82,11 @@ namespace Motu.World
             var sky = CreateSkyMaterial(settings);
             var noise = settings.WeatherNoise != null
                 ? settings.WeatherNoise
-                : IslandGenerator.CreateWeatherNoiseTexture();
+                : ProceduralNoiseTextures.CreateWeatherNoiseTexture();
             var ownedNoise = settings.WeatherNoise == null ? noise : null;
             ApplyWeatherWindNoise(noise);
             var sea = CreateSeaMaterial(settings, noise);
-            var weather = CreateCloudWeatherTexture(settings.Seed, clouds);
+            var weather = ProceduralNoiseTextures.CreateCloudWeatherTexture(settings.Seed, clouds);
             Install(
                 sky,
                 sea,
@@ -161,49 +161,8 @@ namespace Motu.World
             return material;
         }
 
-        private static Texture2D CreateCloudWeatherTexture(
-            int environmentSeed,
-            IslandCloudSettings clouds)
-        {
-            var combinedSeed = unchecked(environmentSeed * 397) ^ clouds.Seed;
-            var resolution = clouds.WeatherMapResolution;
-            MotuNative.ExportCloudWeatherMap native = default;
-            try
-            {
-                if (MotuNative.CreateCloudWeatherMap(combinedSeed, resolution, out native) == 0
-                    || native.handle == IntPtr.Zero
-                    || native.rgba == IntPtr.Zero
-                    || native.width != resolution
-                    || native.height != resolution)
-                {
-                    throw new InvalidOperationException(
-                        "The Rust cloud weather-field generator returned invalid data.");
-                }
-                var rgba = new byte[checked(resolution * resolution * 4)];
-                Marshal.Copy(native.rgba, rgba, 0, rgba.Length);
-                var texture = new Texture2D(
-                    resolution,
-                    resolution,
-                    TextureFormat.RGBA32,
-                    true,
-                    true)
-                {
-                    name = "Rust Generated World Cloud Weather Field",
-                    filterMode = FilterMode.Trilinear,
-                    wrapMode = TextureWrapMode.Repeat,
-                    anisoLevel = 1,
-                };
-                texture.SetPixelData(rgba, 0);
-                texture.Apply(true, true);
-                return texture;
-            }
-            finally
-            {
-                MotuNative.ReleaseCloudWeatherMap(ref native);
-            }
-        }
 
-        private void ApplyCloudSettings(float deltaTime)
+        internal void ApplyCloudSettings(float deltaTime)
         {
             if (skyDomeMaterial == null || cloudSettings == null)
             {

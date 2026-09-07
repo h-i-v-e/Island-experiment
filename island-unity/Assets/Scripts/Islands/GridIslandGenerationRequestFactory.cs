@@ -59,13 +59,13 @@ namespace Motu.Islands
             {
                 return false;
             }
-            return IsOccupied(RandomTools.SeedForCell(seed, islandGridPosition));
+            return IsOccupied(IslandRandom.SeedForCell(seed, islandGridPosition));
         }
 
         public override IslandGenerationRequest CreateIslandGenerationRequest(
             Vector2Int islandGridPosition)
         {
-            var randomSeed = RandomTools.SeedForCell(seed, islandGridPosition);
+            var randomSeed = IslandRandom.SeedForCell(seed, islandGridPosition);
             var fixedIsland = FindFixedIsland(islandGridPosition);
             if (fixedIsland == null && !HasIsland(islandGridPosition))
             {
@@ -124,7 +124,7 @@ namespace Motu.Islands
             {
                 return true;
             }
-            var hash = RandomTools.Mix(unchecked((uint)randomSeed));
+            var hash = IslandRandom.Mix(unchecked((uint)randomSeed));
             var sample = (hash & 0x00ffffffu) / 16777216f;
             return sample < unlistedCellOccupancy;
         }

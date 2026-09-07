@@ -31,7 +31,7 @@ namespace Motu.Editor
             Require(soil.Generation.InitialSoilDepthMetres == 2.5f, "Authored changes mutated an existing request.");
 
             EditorSceneManager.OpenScene("Assets/Scenes/OpenSeaWorld.unity");
-            var factory = UnityEngine.Object.FindFirstObjectByType<CoherentIslandFactory>();
+            var factory = UnityEngine.Object.FindAnyObjectByType<CoherentIslandFactory>();
             Require(factory != null, "The open sea scene has no coherent factory.");
             var checkedCells = 0;
             for (var y = -9; y <= 9; y += 2)

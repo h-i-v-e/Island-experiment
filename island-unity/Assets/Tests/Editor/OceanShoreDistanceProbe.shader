@@ -10,7 +10,7 @@ Shader "Hidden/Motu/Ocean Shore Distance Probe"
             #pragma fragment Fragment
             #pragma target 3.5
             #include "UnityCG.cginc"
-            #include "../Shaders/OceanWaves.cginc"
+            #include "Assets/Shaders/OceanWaves.cginc"
             float _ProbeFullSurface;
             float _ProbeBreakerShape;
             float _ProbeCoastDistance;

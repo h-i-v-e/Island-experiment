@@ -1,5 +1,4 @@
 using System;
-using UnityEngine;
 using Motu.Settings;
 
 namespace Motu.Islands
@@ -23,13 +22,13 @@ namespace Motu.Islands
             IslandRenderingSettings rendering,
             IslandDebugSettings debugSettings)
         {
-            Generation = Clone(Require(generation, nameof(generation)));
-            Rivers = Clone(Require(rivers, nameof(rivers)));
-            Forest = Clone(Require(forest, nameof(forest)));
-            Reeds = Clone(Require(reeds, nameof(reeds)));
-            Ferns = Clone(Require(ferns, nameof(ferns)));
-            Rendering = Clone(Require(rendering, nameof(rendering)));
-            DebugSettings = Clone(debugSettings ?? new IslandDebugSettings());
+            Generation = Require(generation, nameof(generation)).Copy();
+            Rivers = Require(rivers, nameof(rivers)).Copy();
+            Forest = Require(forest, nameof(forest)).Copy();
+            Reeds = Require(reeds, nameof(reeds)).Copy();
+            Ferns = Require(ferns, nameof(ferns)).Copy();
+            Rendering = Require(rendering, nameof(rendering)).Copy();
+            DebugSettings = (debugSettings ?? new IslandDebugSettings()).Copy();
         }
 
         public IslandGenerationProfile Clone() => new IslandGenerationProfile(
@@ -44,7 +43,5 @@ namespace Motu.Islands
         private static T Require<T>(T value, string parameterName) where T : class =>
             value ?? throw new ArgumentNullException(parameterName);
 
-        private static T Clone<T>(T value) where T : class =>
-            JsonUtility.FromJson<T>(JsonUtility.ToJson(value));
     }
 }

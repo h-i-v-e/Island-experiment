@@ -82,7 +82,7 @@ testing remain before Phase 7 introduces a floating origin.
 
 ### `IslandGenerator` originally owned both the world and one island
 
-Before the ownership extraction, `Assets/Scripts/IslandGenerator.cs` owned two
+Before the ownership extraction, `Assets/Scripts/Islands/IslandGenerator.cs` owned two
 different lifetimes:
 
 Global environment state:

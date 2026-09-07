@@ -168,8 +168,7 @@ namespace Motu.Editor
 
         private static void Advance(OceanSurfaceController ocean, float deltaTime)
         {
-            typeof(OceanSurfaceController).GetMethod("AdvanceWaveAnimation", BindingFlags.NonPublic | BindingFlags.Instance)
-                .Invoke(ocean, new object[] { deltaTime });
+            ocean.AdvanceWaveAnimation(deltaTime);
         }
 
         private static Color[] Render(Material probe, Material material, Vector2 origin, float? blend = null)

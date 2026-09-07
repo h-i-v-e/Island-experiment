@@ -1,3 +1,4 @@
+using static Motu.Rendering.ProceduralNoiseTextures;
 using Motu.Islands;
 using static UnityEngine.Object;
 using static Motu.Islands.IslandGenerator;
@@ -119,7 +120,7 @@ namespace Motu.Editor
             {
                 MotuNative.ReleaseCloudWeatherMap(ref nativeCloudWeather);
             }
-            var validationSkyDome = IslandPreparationPipeline.PrepareSkyDome(
+            var validationSkyDome = WaterPreparation.PrepareSkyDome(
                 ValidationWorldSize);
             if (validationSkyDome.vertices.Length == 0
                 || validationSkyDome.vertices.Length != validationSkyDome.normals.Length
@@ -218,17 +219,17 @@ namespace Motu.Editor
             {
                 const int validationMapDimension = 32;
                 const int validationSeaMaskDimension = 128;
-                var validationMaps = IslandPreparationPipeline.PrepareSurfaceMaps(
+                var validationMaps = TerrainPreparation.PrepareSurfaceMaps(
                     handle,
                     validationMapDimension);
-                var validationSeaMask = IslandPreparationPipeline.PrepareSeaMask(
+                var validationSeaMask = WaterPreparation.PrepareSeaMask(
                     handle,
                     validationSeaMaskDimension);
                 var validationTrunkColliderTiles =
-                    IslandPreparationPipeline.PrepareForestTrunkColliders(
+                    VegetationPreparation.PrepareForestTrunkColliders(
                         handle,
                         ValidationWorldSize);
-                var validationFernTiles = IslandPreparationPipeline.PrepareFernMeshGrid(
+                var validationFernTiles = VegetationPreparation.PrepareFernMeshGrid(
                     handle,
                     ValidationWorldSize);
                 var validationTrunkColliderCount = 0;
@@ -466,7 +467,7 @@ namespace Motu.Editor
                         throw new InvalidOperationException(
                             "Runtime material palette colours must be decoded to linear RGB exactly once before baking.");
                     }
-                    var validationTextures = IslandPreparationPipeline.PrepareMaterialTextures(
+                    var validationTextures = MaterialPreparation.PrepareMaterialTextures(
                         validationColours,
                         64);
                     var beachPixel = validationTextures.beach.albedoRgb;
@@ -838,58 +839,7 @@ namespace Motu.Editor
 
                 var riverArea = new MotuNative.ExportArea(0f, 0f, 1f, 1f);
                 const int riverResolution = TerrainTileStreamer.Lod1Resolution;
-                MotuNative.CreateRiverMeshGrid(
-                    handle,
-                    ref riverArea,
-                    riverResolution,
-                    out var riverGrid);
-                try
-                {
-                    if (riverGrid.handle == IntPtr.Zero
-                        || riverGrid.data == IntPtr.Zero
-                        || riverGrid.length != riverResolution * riverResolution)
-                    {
-                        throw new InvalidOperationException("Native river-grid layout is invalid.");
-                    }
-                    var exportSize = Marshal.SizeOf<MotuNative.ExportMesh>();
-                    var foundRiverGeometry = false;
-                    var minimumRiverV = float.PositiveInfinity;
-                    var maximumRiverV = float.NegativeInfinity;
-                    for (var index = 0; index < riverGrid.length; index++)
-                    {
-                        var nativeMesh = Marshal.PtrToStructure<MotuNative.ExportMesh>(
-                            IntPtr.Add(riverGrid.data, index * exportSize));
-                        if (nativeMesh.triangles.length == 0)
-                        {
-                            continue;
-                        }
-                        foundRiverGeometry = true;
-                        if (nativeMesh.uv.length != nativeMesh.vertices.length)
-                        {
-                            throw new InvalidOperationException(
-                                "A sliced river tile has invalid UV coordinates.");
-                        }
-                        foreach (var riverUv in CopyVector2Array(nativeMesh.uv))
-                        {
-                            if (!IsFinite(riverUv.x) || !IsFinite(riverUv.y))
-                            {
-                                throw new InvalidOperationException(
-                                    "A sliced river tile has invalid flow coordinates.");
-                            }
-                            minimumRiverV = Mathf.Min(minimumRiverV, riverUv.y);
-                            maximumRiverV = Mathf.Max(maximumRiverV, riverUv.y);
-                        }
-                    }
-                    if (!foundRiverGeometry || maximumRiverV - minimumRiverV < 0.01f)
-                    {
-                        throw new InvalidOperationException(
-                            "Native river grid is empty or lacks downstream UV progression.");
-                    }
-                }
-                finally
-                {
-                    MotuNative.ReleaseMeshGrid(ref riverGrid);
-                }
+                RiverGeometryValidation.ValidateRiverGrid(handle, false);
 
                 MotuNative.CreateRiverRockMeshGrid(
                     handle,
@@ -994,10 +944,10 @@ namespace Motu.Editor
                         "Native decoration export layout is invalid.");
                 }
                 MotuNative.GetDecoration(handle, out var nativeDecoration);
-                IslandPreparationPipeline.ValidateBorrowedArray(
+                NativeExportValidation.ValidateBorrowedArray(
                     nativeDecoration.trees,
                     "tree");
-                IslandPreparationPipeline.ValidateBorrowedArray(
+                NativeExportValidation.ValidateBorrowedArray(
                     nativeDecoration.bushes,
                     "bush");
 

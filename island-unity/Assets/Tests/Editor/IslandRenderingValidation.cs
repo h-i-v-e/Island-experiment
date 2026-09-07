@@ -1,3 +1,5 @@
+using Motu.Interop;
+using static Motu.Rendering.ProceduralNoiseTextures;
 using Motu.Islands;
 using static UnityEngine.Object;
 using static Motu.Islands.IslandGenerator;
@@ -121,7 +123,7 @@ namespace Motu.Editor
         private static void ValidateRuntimeTreeBarkMaterialBinding()
         {
             const int resolution = 16;
-            var prepared = IslandPreparationPipeline.PrepareMaterialTextures(
+            var prepared = MaterialPreparation.PrepareMaterialTextures(
                 new IslandMaterialColours(
                     new Color(0.09f, 0.055f, 0.026f),
                     new Color(0.30f, 0.32f, 0.29f),

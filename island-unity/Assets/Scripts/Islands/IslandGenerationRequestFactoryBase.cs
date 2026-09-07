@@ -99,7 +99,7 @@ namespace Motu.Islands
             IslandGenerationProfile profile,
             string stableId = null)
         {
-            return new IslandGenerationRequest(
+            return IslandGenerationRequest.FromOwnedProfile(
                 randomSeed,
                 islandGridPosition,
                 profile,

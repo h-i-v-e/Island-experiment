@@ -10,6 +10,9 @@ namespace Motu.Settings
     [UnityEngine.Scripting.APIUpdating.MovedFrom(true, sourceNamespace: "", sourceAssembly: "Assembly-CSharp", sourceClassName: "IslandGenerationSettings")]
     public sealed class IslandGenerationSettings
     {
+        // Values are copied; authored Unity asset references intentionally remain shared.
+        internal IslandGenerationSettings Copy() => (IslandGenerationSettings)MemberwiseClone();
+
         [Tooltip("Restore previously generated islands from the persistent on-disk snapshot cache.")]
         [SerializeField] private bool useSnapshotCache = true;
 

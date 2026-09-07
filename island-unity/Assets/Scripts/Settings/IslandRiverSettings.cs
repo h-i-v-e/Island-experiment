@@ -8,6 +8,9 @@ namespace Motu.Settings
     [UnityEngine.Scripting.APIUpdating.MovedFrom(true, sourceNamespace: "", sourceAssembly: "Assembly-CSharp", sourceClassName: "IslandRiverSettings")]
     public sealed class IslandRiverSettings
     {
+        // Values are copied; authored Unity asset references intentionally remain shared.
+        internal IslandRiverSettings Copy() => (IslandRiverSettings)MemberwiseClone();
+
         [Tooltip("Minimum upstream catchment required for a river source, in hectares. Higher values create fewer rivers.")]
         [Range(0.01f, 10f)]
         [SerializeField] private float sourceCatchmentHectares = 0.05f;

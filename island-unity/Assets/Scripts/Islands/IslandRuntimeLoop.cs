@@ -14,26 +14,11 @@ namespace Motu.Islands
 
             internal void Enable()
             {
-                Camera.onPreCull += generator.PrepareCameraRender;
-                if (generator.controlsWorldEnvironment && Application.isPlaying)
-                {
-                    generator.EnsureWorldEnvironment();
-                }
                 EnsureActiveCameraDepthTextures();
-                if (generator.controlsWorldEnvironment)
-                {
-                    generator.ApplyDistanceHazeSettings();
-                    generator.UpdateSolarLighting(0f);
-                }
             }
 
             internal void Disable()
             {
-                Camera.onPreCull -= generator.PrepareCameraRender;
-                if (generator.controlsWorldEnvironment)
-                {
-                    RenderSettings.fog = false;
-                }
                 generator.generationLifecycle.Cancel();
                 generator.ClearGeneratedContent();
             }
@@ -43,15 +28,7 @@ namespace Motu.Islands
                 ApplyDebugKeys();
                 generator.UpdateMaterialTransforms();
                 generator.ApplyLiveSettings();
-                if (generator.controlsWorldEnvironment)
-                {
-                    generator.UpdateSolarLighting(Time.unscaledDeltaTime);
-                    generator.ApplyCloudSettings(Time.unscaledDeltaTime);
-                    generator.worldEnvironment?.SetFollowTarget(
-                        generator.WorldEnvironmentFollowTarget());
-                }
-                if (!generator.worldManaged
-                    && generator.terrainStreamer != null
+                if (generator.terrainStreamer != null
                     && generator.Streaming.Target != null)
                 {
                     generator.terrainStreamer.SetPlayerPosition(
