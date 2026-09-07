@@ -1,35 +1,38 @@
 using System;
 
-public sealed partial class WorldEnvironmentController
+namespace Motu.World
 {
-    private WorldWeatherState weather;
-
-    public WorldWeatherState Weather => weather;
-    public WorldWeatherDriver WeatherDriver { get; set; }
-
-    /// <summary>Apply runtime wind, wave and cloud behaviour without changing authored assets or mesh layout.</summary>
-    public void ApplyWeather(WorldWeatherState value)
+    public sealed partial class WorldEnvironmentController
     {
-        if (environmentSettings == null)
-        {
-            throw new InvalidOperationException(
-                "The world environment must be initialized before setting weather.");
-        }
-        weather = value.Validated();
-        ocean.ApplyWaveWeather(weather.Waves);
-        ApplyWeatherWind();
-        ApplyCloudSettings(0f);
-    }
+        private WorldWeatherState weather;
 
-    private void UpdateWeatherDriver(float deltaTime)
-    {
-        var driver = WeatherDriver;
-        if (driver == null || !driver.isActiveAndEnabled)
+        public WorldWeatherState Weather => weather;
+        public WorldWeatherDriver WeatherDriver { get; set; }
+
+        /// <summary>Apply runtime wind, wave and cloud behaviour without changing authored assets or mesh layout.</summary>
+        public void ApplyWeather(WorldWeatherState value)
         {
-            return;
+            if (environmentSettings == null)
+            {
+                throw new InvalidOperationException(
+                    "The world environment must be initialized before setting weather.");
+            }
+            weather = value.Validated();
+            ocean.ApplyWaveWeather(weather.Waves);
+            ApplyWeatherWind();
+            ApplyCloudSettings(0f);
         }
-        var updated = weather;
-        driver.UpdateWeather(ref updated, deltaTime);
-        ApplyWeather(updated);
+
+        private void UpdateWeatherDriver(float deltaTime)
+        {
+            var driver = WeatherDriver;
+            if (driver == null || !driver.isActiveAndEnabled)
+            {
+                return;
+            }
+            var updated = weather;
+            driver.UpdateWeather(ref updated, deltaTime);
+            ApplyWeather(updated);
+        }
     }
 }

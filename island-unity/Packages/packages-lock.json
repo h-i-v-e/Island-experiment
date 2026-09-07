@@ -2,7 +2,7 @@
   "dependencies": {
     "com.unity.ext.nunit": {
       "version": "2.1.0",
-      "depth": 2,
+      "depth": 1,
       "source": "builtin",
       "dependencies": {}
     },
@@ -24,7 +24,7 @@
     },
     "com.unity.test-framework": {
       "version": "1.7.0",
-      "depth": 1,
+      "depth": 0,
       "source": "builtin",
       "dependencies": {
         "com.unity.ext.nunit": "2.1.0",
@@ -40,7 +40,7 @@
     },
     "com.unity.modules.jsonserialize": {
       "version": "1.0.0",
-      "depth": 2,
+      "depth": 0,
       "source": "builtin",
       "dependencies": {}
     },

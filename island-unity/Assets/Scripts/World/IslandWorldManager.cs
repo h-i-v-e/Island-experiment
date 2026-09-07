@@ -2,698 +2,705 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using UnityEngine;
+using Motu.Interop;
+using Motu.Islands;
+using Motu.Settings;
 
-[DefaultExecutionOrder(-1000)]
-[DisallowMultipleComponent]
-public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQuery
+namespace Motu.World
 {
-    public const float IslandSizeMetres = 2000f;
-
-    private sealed class IslandRuntimeEntry
+    [DefaultExecutionOrder(-1000)]
+    [DisallowMultipleComponent]
+    [UnityEngine.Scripting.APIUpdating.MovedFrom(true, sourceNamespace: "", sourceAssembly: "Assembly-CSharp", sourceClassName: "IslandWorldManager")]
+    public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQuery
     {
-        internal IslandDescriptor Descriptor { get; }
-        internal IslandGenerator Generator { get; set; }
-        internal IslandGenerationRequest GenerationRequest { get; }
-        internal float RetryAfterTime { get; set; }
-        internal bool Queued { get; set; }
-        internal bool Generating { get; set; }
-        internal int GenerationToken { get; set; }
-        internal CancellationTokenSource GenerationCancellation { get; set; }
+        public const float IslandSizeMetres = 2000f;
 
-        internal IslandRuntimeEntry(
-            IslandGenerationRequest generationRequest)
+        private sealed class IslandRuntimeEntry
         {
-            GenerationRequest = generationRequest
-                ?? throw new ArgumentNullException(nameof(generationRequest));
-            Descriptor = generationRequest.Descriptor;
+            internal IslandDescriptor Descriptor { get; }
+            internal IslandGenerator Generator { get; set; }
+            internal IslandGenerationRequest GenerationRequest { get; }
+            internal float RetryAfterTime { get; set; }
+            internal bool Queued { get; set; }
+            internal bool Generating { get; set; }
+            internal int GenerationToken { get; set; }
+            internal CancellationTokenSource GenerationCancellation { get; set; }
+
+            internal IslandRuntimeEntry(
+                IslandGenerationRequest generationRequest)
+            {
+                GenerationRequest = generationRequest
+                    ?? throw new ArgumentNullException(nameof(generationRequest));
+                Descriptor = generationRequest.Descriptor;
+            }
         }
-    }
 
-    [Header("Island Source")]
-    [Tooltip("Required component that decides whether each grid cell contains an island and returns its complete generation request.")]
-    [SerializeField] private MonoBehaviour islandGenerationRequestFactoryComponent;
+        [Header("Island Source")]
+        [Tooltip("Required component that decides whether each grid cell contains an island and returns its complete generation request.")]
+        [SerializeField] private MonoBehaviour islandGenerationRequestFactoryComponent;
 
-    [Header("World Environment")]
-    [Tooltip("Optional shared world environment asset. Inline values remain the scene fallback.")]
-    [SerializeField] private WorldEnvironmentConfiguration worldEnvironmentConfiguration;
-    [SerializeField] private WorldEnvironmentSettings worldEnvironmentSettings =
-        new WorldEnvironmentSettings();
-    [SerializeField] private IslandCloudSettings worldClouds = new IslandCloudSettings();
-    [Tooltip("Optional scene component that updates all runtime wind, wave and cloud properties. Derive your script from WorldWeatherDriver.")]
-    [SerializeField] private WorldWeatherDriver weatherDriver;
+        [Header("World Environment")]
+        [Tooltip("Optional shared world environment asset. Inline values remain the scene fallback.")]
+        [SerializeField] private WorldEnvironmentConfiguration worldEnvironmentConfiguration;
+        [SerializeField] private WorldEnvironmentSettings worldEnvironmentSettings =
+            new WorldEnvironmentSettings();
+        [SerializeField] private IslandCloudSettings worldClouds = new IslandCloudSettings();
+        [Tooltip("Optional scene component that updates all runtime wind, wave and cloud properties. Derive your script from WorldWeatherDriver.")]
+        [SerializeField] private WorldWeatherDriver weatherDriver;
 
-    private WorldWeatherState? pendingWeather;
+        private WorldWeatherState? pendingWeather;
 
-    [Header("World Grid Discovery")]
-    [Min(1000f)] [SerializeField] private float discoveryRadiusMetres = 16000f;
-    [Min(1000f)] [SerializeField] private float generationRadiusMetres = 10500f;
-    [Min(0.05f)] [SerializeField] private float discoveryRefreshSeconds = 0.5f;
+        [Header("World Grid Discovery")]
+        [Min(1000f)] [SerializeField] private float discoveryRadiusMetres = 16000f;
+        [Min(1000f)] [SerializeField] private float generationRadiusMetres = 10500f;
+        [Min(0.05f)] [SerializeField] private float discoveryRefreshSeconds = 0.5f;
 
-    [Header("Generation Priority")]
-    [Min(0f)] [SerializeField] private float velocityLookAheadSeconds = 24f;
-    [Min(0f)] [SerializeField] private float maximumLookAheadMetres = 8000f;
-    [Range(0.1f, 1f)] [SerializeField] private float forwardPriorityMultiplier = 0.65f;
-    [Min(0f)] [SerializeField] private float cancellationHysteresisMetres = 1800f;
-    [Range(0.5f, 16f)] [SerializeField] private float installationBudgetMilliseconds = 4f;
+        [Header("Generation Priority")]
+        [Min(0f)] [SerializeField] private float velocityLookAheadSeconds = 24f;
+        [Min(0f)] [SerializeField] private float maximumLookAheadMetres = 8000f;
+        [Range(0.1f, 1f)] [SerializeField] private float forwardPriorityMultiplier = 0.65f;
+        [Min(0f)] [SerializeField] private float cancellationHysteresisMetres = 1800f;
+        [Range(0.5f, 16f)] [SerializeField] private float installationBudgetMilliseconds = 4f;
 
-    [Header("Player Routing")]
-    [SerializeField] private Transform streamingTarget;
+        [Header("Player Routing")]
+        [SerializeField] private Transform streamingTarget;
 
-    [Header("Island Residency")]
-    [Min(100f)] [SerializeField] private float activeRadiusMetres = 6000f;
-    [Min(0f)] [SerializeField] private float activeHysteresisMetres = 500f;
-    [Min(100f)] [SerializeField] private float unloadRadiusMetres = 12500f;
-    [Range(1, 8)] [SerializeField] private int maximumLoadedIslandCount = 3;
-    [Min(1f)] [SerializeField] private float failedGenerationRetrySeconds = 15f;
+        [Header("Island Residency")]
+        [Min(100f)] [SerializeField] private float activeRadiusMetres = 6000f;
+        [Min(0f)] [SerializeField] private float activeHysteresisMetres = 500f;
+        [Min(100f)] [SerializeField] private float unloadRadiusMetres = 12500f;
+        [Range(1, 8)] [SerializeField] private int maximumLoadedIslandCount = 3;
+        [Min(1f)] [SerializeField] private float failedGenerationRetrySeconds = 15f;
 
-    private readonly Dictionary<Vector2Int, IslandRuntimeEntry> managedIslands =
-        new Dictionary<Vector2Int, IslandRuntimeEntry>();
-    private readonly HashSet<Vector2Int> discoveryScanCells =
-        new HashSet<Vector2Int>();
-    private readonly List<Vector2Int> removalCells = new List<Vector2Int>();
-    private CancellationTokenSource shutdown;
-    private WorldEnvironmentController worldEnvironment;
-    private IslandRuntimeEntry currentGeneration;
-    private IslandGenerator focusedIsland;
-    private bool queueRunning;
-    private bool destroyed;
-    private Vector3 lastQueryPosition;
-    private Vector3 projectedGenerationPosition;
-    private Vector3 smoothedVelocity;
-    private Vector3 previousTargetPosition;
-    private bool hasQueryPosition;
-    private bool hasPreviousTargetPosition;
-    private float nextDiscoveryTime;
-    private IIslandGenerationRequestFactory islandGenerationRequestFactory;
+        private readonly Dictionary<Vector2Int, IslandRuntimeEntry> managedIslands =
+            new Dictionary<Vector2Int, IslandRuntimeEntry>();
+        private readonly HashSet<Vector2Int> discoveryScanCells =
+            new HashSet<Vector2Int>();
+        private readonly List<Vector2Int> removalCells = new List<Vector2Int>();
+        private CancellationTokenSource shutdown;
+        private WorldEnvironmentController worldEnvironment;
+        private IslandRuntimeEntry currentGeneration;
+        private IslandGenerator focusedIsland;
+        private bool queueRunning;
+        private bool destroyed;
+        private Vector3 lastQueryPosition;
+        private Vector3 projectedGenerationPosition;
+        private Vector3 smoothedVelocity;
+        private Vector3 previousTargetPosition;
+        private bool hasQueryPosition;
+        private bool hasPreviousTargetPosition;
+        private float nextDiscoveryTime;
+        private IIslandGenerationRequestFactory islandGenerationRequestFactory;
 
-    public IslandGenerator FocusedIsland => focusedIsland;
-    public IIslandGenerationRequestFactory IslandGenerationRequestFactory
-    {
-        get => islandGenerationRequestFactory;
-        set => islandGenerationRequestFactory = value;
-    }
-    public int ResidentIslandLimit => Mathf.Max(maximumLoadedIslandCount, 1);
-    public int NativeHandleCount => NativeIslandHandle.ActiveCount;
-    public WorldEnvironmentSettings GlobalEnvironmentSettings => EnvironmentSettings;
-    public WorldEnvironmentController EnvironmentController => worldEnvironment;
-    public Vector2 LogicalPlayerPosition => new Vector2(
-        lastQueryPosition.x,
-        lastQueryPosition.z);
-    public int KnownIslandCount => managedIslands.Count;
-    public int LoadedIslandCount
-    {
-        get
+        public IslandGenerator FocusedIsland => focusedIsland;
+        public IIslandGenerationRequestFactory IslandGenerationRequestFactory
         {
-            var count = 0;
+            get => islandGenerationRequestFactory;
+            set => islandGenerationRequestFactory = value;
+        }
+        public int ResidentIslandLimit => Mathf.Max(maximumLoadedIslandCount, 1);
+        public int NativeHandleCount => NativeIslandHandle.ActiveCount;
+        public WorldEnvironmentSettings GlobalEnvironmentSettings => EnvironmentSettings;
+        public WorldEnvironmentController EnvironmentController => worldEnvironment;
+        public Vector2 LogicalPlayerPosition => new Vector2(
+            lastQueryPosition.x,
+            lastQueryPosition.z);
+        public int KnownIslandCount => managedIslands.Count;
+        public int LoadedIslandCount
+        {
+            get
+            {
+                var count = 0;
+                foreach (var entry in managedIslands.Values)
+                {
+                    if (entry.Generator != null && entry.Generator.HasRuntime)
+                    {
+                        count++;
+                    }
+                }
+                return count;
+            }
+        }
+        public int QueuedIslandCount
+        {
+            get
+            {
+                var count = 0;
+                foreach (var entry in managedIslands.Values)
+                {
+                    if (entry.Queued)
+                    {
+                        count++;
+                    }
+                }
+                return count;
+            }
+        }
+        public int GeneratingIslandCount => currentGeneration != null ? 1 : 0;
+
+        public bool HasIsland(Vector2Int islandGridPosition)
+        {
+            return IslandGenerationRequestFactory != null
+                && IslandGenerationRequestFactory.HasIsland(islandGridPosition);
+        }
+
+        private WorldEnvironmentSettings EnvironmentSettings =>
+            worldEnvironmentConfiguration != null
+                ? worldEnvironmentConfiguration.Environment
+                : worldEnvironmentSettings ??= new WorldEnvironmentSettings();
+        private IslandCloudSettings CloudSettings =>
+            worldEnvironmentConfiguration != null
+                ? worldEnvironmentConfiguration.Clouds
+                : worldClouds ??= new IslandCloudSettings();
+
+        public void ConfigureIslandGenerationRequestFactory(MonoBehaviour factoryComponent)
+        {
+            islandGenerationRequestFactoryComponent = factoryComponent;
+            islandGenerationRequestFactory = factoryComponent as IIslandGenerationRequestFactory
+                ?? throw new ArgumentException(
+                    $"{factoryComponent?.GetType().Name ?? "null"} must implement "
+                    + $"{nameof(IIslandGenerationRequestFactory)}.",
+                    nameof(factoryComponent));
+        }
+
+        public void ConfigureWorldEnvironment(Light sunlight, Material seaMaterial)
+        {
+            worldEnvironmentSettings.AssignSceneReferences(sunlight, seaMaterial);
+        }
+
+        public WorldWeatherDriver WeatherDriver
+        {
+            get => weatherDriver;
+            set
+            {
+                weatherDriver = value;
+                if (worldEnvironment != null) worldEnvironment.WeatherDriver = value;
+            }
+        }
+
+        public WorldWeatherState Weather => worldEnvironment != null && worldEnvironment.IsInstalled
+            ? worldEnvironment.Weather
+            : pendingWeather ?? WorldWeatherState.FromEnvironment(EnvironmentSettings);
+
+        public void ApplyWeather(WorldWeatherState weather)
+        {
+            if (worldEnvironment != null && worldEnvironment.IsInstalled)
+            {
+                worldEnvironment.ApplyWeather(weather);
+            }
+            else
+            {
+                pendingWeather = weather.Validated();
+            }
+        }
+
+        public void SetWind(Vector2 direction, float speedMetresPerSecond)
+        {
+            var updated = Weather;
+            updated.WindDirection = direction;
+            updated.WindSpeedMetresPerSecond = speedMetresPerSecond;
+            ApplyWeather(updated);
+        }
+
+        private void Awake()
+        {
+            shutdown = new CancellationTokenSource();
+            ResolveIslandGenerationRequestFactory();
+            worldEnvironment = WorldEnvironmentController.FindOrCreate();
+            worldEnvironment.Initialize(
+                EnvironmentSettings,
+                CloudSettings,
+                IslandSizeMetres,
+                IslandSizeMetres * 2.1f,
+                ResolveStreamingTarget());
+            worldEnvironment.WeatherDriver = weatherDriver;
+            if (pendingWeather.HasValue)
+            {
+                worldEnvironment.ApplyWeather(pendingWeather.Value);
+                pendingWeather = null;
+            }
+        }
+
+        private void ResolveIslandGenerationRequestFactory()
+        {
+            if (islandGenerationRequestFactory != null)
+            {
+                return;
+            }
+            if (islandGenerationRequestFactoryComponent == null)
+            {
+                throw new InvalidOperationException(
+                    $"IslandWorldManager requires an {nameof(IIslandGenerationRequestFactory)} component.");
+            }
+            islandGenerationRequestFactory =
+                islandGenerationRequestFactoryComponent as IIslandGenerationRequestFactory;
+            if (islandGenerationRequestFactory == null)
+            {
+                throw new InvalidOperationException(
+                    $"{islandGenerationRequestFactoryComponent.GetType().Name} must implement "
+                    + $"{nameof(IIslandGenerationRequestFactory)}.");
+            }
+        }
+
+        private void Update()
+        {
+            var target = ResolveStreamingTarget();
+            if (target == null)
+            {
+                return;
+            }
+
+            UpdateTravelPrediction(target.position);
+            lastQueryPosition = target.position;
+            hasQueryPosition = true;
+            if (Time.unscaledTime >= nextDiscoveryTime)
+            {
+                nextDiscoveryTime = Time.unscaledTime + discoveryRefreshSeconds;
+                RefreshDiscovery(lastQueryPosition, projectedGenerationPosition);
+            }
+            QueueDesiredGeneration();
+            CancelObsoleteGeneration();
+            UpdateResidencyAndFocus(lastQueryPosition);
+            worldEnvironment?.SetFollowTarget(target);
+            if (!queueRunning && HasReadyQueuedIsland())
+            {
+                ProcessGenerationQueue();
+            }
+        }
+
+        private void LateUpdate()
+        {
             foreach (var entry in managedIslands.Values)
             {
-                if (entry.Generator != null && entry.Generator.HasRuntime)
+                var generator = entry.Generator;
+                if (generator != null
+                    && generator.HasRuntime)
                 {
-                    count++;
+                    generator.SyncSharedWorldLighting(worldEnvironment);
                 }
             }
-            return count;
         }
-    }
-    public int QueuedIslandCount
-    {
-        get
+
+        private void OnDestroy()
         {
-            var count = 0;
+            destroyed = true;
+            shutdown?.Cancel();
             foreach (var entry in managedIslands.Values)
             {
-                if (entry.Queued)
-                {
-                    count++;
-                }
+                entry.GenerationToken++;
+                entry.GenerationCancellation?.Cancel();
             }
-            return count;
-        }
-    }
-    public int GeneratingIslandCount => currentGeneration != null ? 1 : 0;
-
-    public bool HasIsland(Vector2Int islandGridPosition)
-    {
-        return IslandGenerationRequestFactory != null
-            && IslandGenerationRequestFactory.HasIsland(islandGridPosition);
-    }
-
-    private WorldEnvironmentSettings EnvironmentSettings =>
-        worldEnvironmentConfiguration != null
-            ? worldEnvironmentConfiguration.Environment
-            : worldEnvironmentSettings ??= new WorldEnvironmentSettings();
-    private IslandCloudSettings CloudSettings =>
-        worldEnvironmentConfiguration != null
-            ? worldEnvironmentConfiguration.Clouds
-            : worldClouds ??= new IslandCloudSettings();
-
-    public void ConfigureIslandGenerationRequestFactory(MonoBehaviour factoryComponent)
-    {
-        islandGenerationRequestFactoryComponent = factoryComponent;
-        islandGenerationRequestFactory = factoryComponent as IIslandGenerationRequestFactory
-            ?? throw new ArgumentException(
-                $"{factoryComponent?.GetType().Name ?? "null"} must implement "
-                + $"{nameof(IIslandGenerationRequestFactory)}.",
-                nameof(factoryComponent));
-    }
-
-    public void ConfigureWorldEnvironment(Light sunlight, Material seaMaterial)
-    {
-        worldEnvironmentSettings.AssignSceneReferences(sunlight, seaMaterial);
-    }
-
-    public WorldWeatherDriver WeatherDriver
-    {
-        get => weatherDriver;
-        set
-        {
-            weatherDriver = value;
-            if (worldEnvironment != null) worldEnvironment.WeatherDriver = value;
-        }
-    }
-
-    public WorldWeatherState Weather => worldEnvironment != null && worldEnvironment.IsInstalled
-        ? worldEnvironment.Weather
-        : pendingWeather ?? WorldWeatherState.FromEnvironment(EnvironmentSettings);
-
-    public void ApplyWeather(WorldWeatherState weather)
-    {
-        if (worldEnvironment != null && worldEnvironment.IsInstalled)
-        {
-            worldEnvironment.ApplyWeather(weather);
-        }
-        else
-        {
-            pendingWeather = weather.Validated();
-        }
-    }
-
-    public void SetWind(Vector2 direction, float speedMetresPerSecond)
-    {
-        var updated = Weather;
-        updated.WindDirection = direction;
-        updated.WindSpeedMetresPerSecond = speedMetresPerSecond;
-        ApplyWeather(updated);
-    }
-
-    private void Awake()
-    {
-        shutdown = new CancellationTokenSource();
-        ResolveIslandGenerationRequestFactory();
-        worldEnvironment = WorldEnvironmentController.FindOrCreate();
-        worldEnvironment.Initialize(
-            EnvironmentSettings,
-            CloudSettings,
-            IslandSizeMetres,
-            IslandSizeMetres * 2.1f,
-            ResolveStreamingTarget());
-        worldEnvironment.WeatherDriver = weatherDriver;
-        if (pendingWeather.HasValue)
-        {
-            worldEnvironment.ApplyWeather(pendingWeather.Value);
-            pendingWeather = null;
-        }
-    }
-
-    private void ResolveIslandGenerationRequestFactory()
-    {
-        if (islandGenerationRequestFactory != null)
-        {
-            return;
-        }
-        if (islandGenerationRequestFactoryComponent == null)
-        {
-            throw new InvalidOperationException(
-                $"IslandWorldManager requires an {nameof(IIslandGenerationRequestFactory)} component.");
-        }
-        islandGenerationRequestFactory =
-            islandGenerationRequestFactoryComponent as IIslandGenerationRequestFactory;
-        if (islandGenerationRequestFactory == null)
-        {
-            throw new InvalidOperationException(
-                $"{islandGenerationRequestFactoryComponent.GetType().Name} must implement "
-                + $"{nameof(IIslandGenerationRequestFactory)}.");
-        }
-    }
-
-    private void Update()
-    {
-        var target = ResolveStreamingTarget();
-        if (target == null)
-        {
-            return;
+            shutdown?.Dispose();
+            shutdown = null;
+            managedIslands.Clear();
+            discoveryScanCells.Clear();
+            removalCells.Clear();
         }
 
-        UpdateTravelPrediction(target.position);
-        lastQueryPosition = target.position;
-        hasQueryPosition = true;
-        if (Time.unscaledTime >= nextDiscoveryTime)
+        public void SetStreamingTarget(Transform target)
         {
-            nextDiscoveryTime = Time.unscaledTime + discoveryRefreshSeconds;
-            RefreshDiscovery(lastQueryPosition, projectedGenerationPosition);
-        }
-        QueueDesiredGeneration();
-        CancelObsoleteGeneration();
-        UpdateResidencyAndFocus(lastQueryPosition);
-        worldEnvironment?.SetFollowTarget(target);
-        if (!queueRunning && HasReadyQueuedIsland())
-        {
-            ProcessGenerationQueue();
-        }
-    }
-
-    private void LateUpdate()
-    {
-        foreach (var entry in managedIslands.Values)
-        {
-            var generator = entry.Generator;
-            if (generator != null
-                && generator.HasRuntime)
+            streamingTarget = target;
+            // Entry and teleportation are not travel velocity. Discover around the
+            // new target immediately instead of projecting beyond a large jump.
+            hasPreviousTargetPosition = false;
+            smoothedVelocity = Vector3.zero;
+            nextDiscoveryTime = 0f;
+            worldEnvironment?.SetFollowTarget(target);
+            if (target != null)
             {
-                generator.SyncSharedWorldLighting(worldEnvironment);
+                PrepareStreamingAt(target.position);
             }
-        }
-    }
-
-    private void OnDestroy()
-    {
-        destroyed = true;
-        shutdown?.Cancel();
-        foreach (var entry in managedIslands.Values)
-        {
-            entry.GenerationToken++;
-            entry.GenerationCancellation?.Cancel();
-        }
-        shutdown?.Dispose();
-        shutdown = null;
-        managedIslands.Clear();
-        discoveryScanCells.Clear();
-        removalCells.Clear();
-    }
-
-    public void SetStreamingTarget(Transform target)
-    {
-        streamingTarget = target;
-        // Entry and teleportation are not travel velocity. Discover around the
-        // new target immediately instead of projecting beyond a large jump.
-        hasPreviousTargetPosition = false;
-        smoothedVelocity = Vector3.zero;
-        nextDiscoveryTime = 0f;
-        worldEnvironment?.SetFollowTarget(target);
-        if (target != null)
-        {
-            PrepareStreamingAt(target.position);
-        }
-        else
-        {
-            SetFocusedIsland(null, default);
-        }
-    }
-
-    public void PrepareStreamingAt(Vector3 worldPosition)
-    {
-        lastQueryPosition = worldPosition;
-        projectedGenerationPosition = worldPosition;
-        hasQueryPosition = true;
-        UpdateResidencyAndFocus(worldPosition);
-    }
-
-    public bool TrySnapToTerrain(
-        Vector3 approximateWorldPoint,
-        out Vector3 worldPoint)
-    {
-        PrepareStreamingAt(approximateWorldPoint);
-        if (focusedIsland != null
-            && focusedIsland.TrySnapToTerrain(approximateWorldPoint, out worldPoint))
-        {
-            return true;
-        }
-        worldPoint = approximateWorldPoint;
-        return false;
-    }
-
-    public float GetTerrainOrSeaHeight(Vector3 approximateWorldPoint)
-    {
-        if (TrySnapToTerrain(approximateWorldPoint, out var terrainPoint))
-        {
-            return Mathf.Max(SeaLevelWorldY(), terrainPoint.y);
-        }
-        return SeaLevelWorldY();
-    }
-
-    public void SetFirstPersonViewActive(bool active)
-    {
-        worldEnvironment?.SetFirstPersonViewActive(active);
-    }
-
-    private void UpdateResidencyAndFocus(Vector3 worldPosition)
-    {
-        foreach (var entry in managedIslands.Values)
-        {
-            var generator = entry.Generator;
-            if (generator == null || generator.IsGenerating || !generator.HasRuntime)
+            else
             {
-                continue;
+                SetFocusedIsland(null, default);
             }
-            var distance = DistanceToDescriptor(entry.Descriptor, worldPosition);
-            if (DistanceFromIslandEdge(distance, entry.Descriptor)
-                > EffectiveUnloadRadius())
+        }
+
+        public void PrepareStreamingAt(Vector3 worldPosition)
+        {
+            lastQueryPosition = worldPosition;
+            projectedGenerationPosition = worldPosition;
+            hasQueryPosition = true;
+            UpdateResidencyAndFocus(worldPosition);
+        }
+
+        public bool TrySnapToTerrain(
+            Vector3 approximateWorldPoint,
+            out Vector3 worldPoint)
+        {
+            PrepareStreamingAt(approximateWorldPoint);
+            if (focusedIsland != null
+                && focusedIsland.TrySnapToTerrain(approximateWorldPoint, out worldPoint))
             {
-                if (focusedIsland == generator)
-                {
-                    focusedIsland = null;
-                }
-                generator.Clear();
-                continue;
+                return true;
             }
-
-            var dormant = generator.Runtime.State == IslandRuntimeState.Dormant;
-            var shouldWake = dormant && distance <= activeRadiusMetres;
-            var shouldSleep = !dormant
-                && generator != focusedIsland
-                && distance > activeRadiusMetres + activeHysteresisMetres;
-            if (shouldWake || shouldSleep)
-            {
-                generator.SetRuntimeDormant(shouldSleep);
-            }
-        }
-
-        var selected = SelectFocusedIsland(worldPosition);
-        SetFocusedIsland(selected, worldPosition);
-    }
-
-    private IslandGenerator SelectFocusedIsland(Vector3 worldPosition)
-    {
-        return managedIslands.TryGetValue(WorldToCell(worldPosition), out var entry)
-            && entry.Generator != null
-            && entry.Generator.HasRuntime
-                ? entry.Generator
-                : null;
-    }
-
-    private void SetFocusedIsland(IslandGenerator selected, Vector3 worldPosition)
-    {
-        if (selected != null && selected.Runtime.State == IslandRuntimeState.Dormant)
-        {
-            selected.SetRuntimeDormant(false);
-        }
-        if (focusedIsland != selected)
-        {
-            focusedIsland?.SetStreamingTarget(null);
-            focusedIsland?.ClearStreamingFocus();
-            focusedIsland = selected;
-        }
-        if (focusedIsland != null)
-        {
-            focusedIsland.SetStreamingTarget(streamingTarget);
-            focusedIsland.PrepareStreamingAt(worldPosition);
-        }
-        worldEnvironment?.SetFollowTarget(streamingTarget);
-    }
-
-    private void DestroyGenerator(IslandRuntimeEntry entry)
-    {
-        var generator = entry.Generator;
-        if (generator == null)
-        {
-            return;
-        }
-        generator.Clear();
-        entry.Generator = null;
-        if (Application.isPlaying)
-        {
-            Destroy(generator.gameObject);
-        }
-        else
-        {
-            DestroyImmediate(generator.gameObject);
-        }
-    }
-
-    private bool IsPreferredResident(IslandRuntimeEntry candidate)
-    {
-        var availableSlots = ResidentIslandLimit;
-        if (availableSlots <= 0)
-        {
+            worldPoint = approximateWorldPoint;
             return false;
         }
 
-        var betterCandidates = 0;
-        foreach (var other in managedIslands.Values)
+        public float GetTerrainOrSeaHeight(Vector3 approximateWorldPoint)
         {
-            if (other == candidate || !IsInsideGenerationCorridor(other, 0f))
+            if (TrySnapToTerrain(approximateWorldPoint, out var terrainPoint))
             {
-                continue;
+                return Mathf.Max(SeaLevelWorldY(), terrainPoint.y);
             }
-            if (CompareGenerationPriority(other, candidate) < 0
-                && ++betterCandidates >= availableSlots)
+            return SeaLevelWorldY();
+        }
+
+        public void SetFirstPersonViewActive(bool active)
+        {
+            worldEnvironment?.SetFirstPersonViewActive(active);
+        }
+
+        private void UpdateResidencyAndFocus(Vector3 worldPosition)
+        {
+            foreach (var entry in managedIslands.Values)
+            {
+                var generator = entry.Generator;
+                if (generator == null || generator.IsGenerating || !generator.HasRuntime)
+                {
+                    continue;
+                }
+                var distance = DistanceToDescriptor(entry.Descriptor, worldPosition);
+                if (DistanceFromIslandEdge(distance, entry.Descriptor)
+                    > EffectiveUnloadRadius())
+                {
+                    if (focusedIsland == generator)
+                    {
+                        focusedIsland = null;
+                    }
+                    generator.Clear();
+                    continue;
+                }
+
+                var dormant = generator.Runtime.State == IslandRuntimeState.Dormant;
+                var shouldWake = dormant && distance <= activeRadiusMetres;
+                var shouldSleep = !dormant
+                    && generator != focusedIsland
+                    && distance > activeRadiusMetres + activeHysteresisMetres;
+                if (shouldWake || shouldSleep)
+                {
+                    generator.SetRuntimeDormant(shouldSleep);
+                }
+            }
+
+            var selected = SelectFocusedIsland(worldPosition);
+            SetFocusedIsland(selected, worldPosition);
+        }
+
+        private IslandGenerator SelectFocusedIsland(Vector3 worldPosition)
+        {
+            return managedIslands.TryGetValue(WorldToCell(worldPosition), out var entry)
+                && entry.Generator != null
+                && entry.Generator.HasRuntime
+                    ? entry.Generator
+                    : null;
+        }
+
+        private void SetFocusedIsland(IslandGenerator selected, Vector3 worldPosition)
+        {
+            if (selected != null && selected.Runtime.State == IslandRuntimeState.Dormant)
+            {
+                selected.SetRuntimeDormant(false);
+            }
+            if (focusedIsland != selected)
+            {
+                focusedIsland?.SetStreamingTarget(null);
+                focusedIsland?.ClearStreamingFocus();
+                focusedIsland = selected;
+            }
+            if (focusedIsland != null)
+            {
+                focusedIsland.SetStreamingTarget(streamingTarget);
+                focusedIsland.PrepareStreamingAt(worldPosition);
+            }
+            worldEnvironment?.SetFollowTarget(streamingTarget);
+        }
+
+        private void DestroyGenerator(IslandRuntimeEntry entry)
+        {
+            var generator = entry.Generator;
+            if (generator == null)
+            {
+                return;
+            }
+            generator.Clear();
+            entry.Generator = null;
+            if (Application.isPlaying)
+            {
+                Destroy(generator.gameObject);
+            }
+            else
+            {
+                DestroyImmediate(generator.gameObject);
+            }
+        }
+
+        private bool IsPreferredResident(IslandRuntimeEntry candidate)
+        {
+            var availableSlots = ResidentIslandLimit;
+            if (availableSlots <= 0)
             {
                 return false;
             }
-        }
-        return true;
-    }
 
-    private int CompareGenerationPriority(
-        IslandRuntimeEntry first,
-        IslandRuntimeEntry second)
-    {
-        var comparison = GenerationPriority(first).CompareTo(
-            GenerationPriority(second));
-        return comparison != 0
-            ? comparison
-            : string.CompareOrdinal(
-                first.Descriptor.IslandId,
-                second.Descriptor.IslandId);
-    }
-
-    private bool ReserveResidentCapacity(
-        IslandRuntimeEntry incoming,
-        out bool releasedRuntime)
-    {
-        releasedRuntime = false;
-        if (incoming.Generator != null && incoming.Generator.HasRuntime)
-        {
-            return true;
-        }
-        if (LoadedIslandCount < ResidentIslandLimit)
-        {
+            var betterCandidates = 0;
+            foreach (var other in managedIslands.Values)
+            {
+                if (other == candidate || !IsInsideGenerationCorridor(other, 0f))
+                {
+                    continue;
+                }
+                if (CompareGenerationPriority(other, candidate) < 0
+                    && ++betterCandidates >= availableSlots)
+                {
+                    return false;
+                }
+            }
             return true;
         }
 
-        IslandRuntimeEntry eviction = null;
-        foreach (var entry in managedIslands.Values)
+        private int CompareGenerationPriority(
+            IslandRuntimeEntry first,
+            IslandRuntimeEntry second)
         {
-            if (entry == incoming
-                || entry.Generator == null
-                || !entry.Generator.HasRuntime
-                || entry.Generator == focusedIsland)
+            var comparison = GenerationPriority(first).CompareTo(
+                GenerationPriority(second));
+            return comparison != 0
+                ? comparison
+                : string.CompareOrdinal(
+                    first.Descriptor.IslandId,
+                    second.Descriptor.IslandId);
+        }
+
+        private bool ReserveResidentCapacity(
+            IslandRuntimeEntry incoming,
+            out bool releasedRuntime)
+        {
+            releasedRuntime = false;
+            if (incoming.Generator != null && incoming.Generator.HasRuntime)
             {
-                continue;
+                return true;
             }
-            if (eviction == null || CompareGenerationPriority(entry, eviction) > 0)
+            if (LoadedIslandCount < ResidentIslandLimit)
             {
-                eviction = entry;
+                return true;
             }
+
+            IslandRuntimeEntry eviction = null;
+            foreach (var entry in managedIslands.Values)
+            {
+                if (entry == incoming
+                    || entry.Generator == null
+                    || !entry.Generator.HasRuntime
+                    || entry.Generator == focusedIsland)
+                {
+                    continue;
+                }
+                if (eviction == null || CompareGenerationPriority(entry, eviction) > 0)
+                {
+                    eviction = entry;
+                }
+            }
+            if (eviction == null)
+            {
+                return false;
+            }
+
+            eviction.Generator.Clear();
+            releasedRuntime = true;
+            return LoadedIslandCount < ResidentIslandLimit;
         }
-        if (eviction == null)
+
+        private Transform ResolveStreamingTarget()
         {
-            return false;
+            if (streamingTarget != null)
+            {
+                return streamingTarget;
+            }
+            return Camera.main != null ? Camera.main.transform : null;
         }
 
-        eviction.Generator.Clear();
-        releasedRuntime = true;
-        return LoadedIslandCount < ResidentIslandLimit;
-    }
-
-    private Transform ResolveStreamingTarget()
-    {
-        if (streamingTarget != null)
+        private float SeaLevelWorldY()
         {
-            return streamingTarget;
+            return EnvironmentSettings.SeaLevelMetres;
         }
-        return Camera.main != null ? Camera.main.transform : null;
-    }
 
-    private float SeaLevelWorldY()
-    {
-        return EnvironmentSettings.SeaLevelMetres;
-    }
+        private float EffectiveUnloadRadius()
+        {
+            return Mathf.Max(
+                Mathf.Max(unloadRadiusMetres, generationRadiusMetres),
+                activeRadiusMetres + activeHysteresisMetres + 1f);
+        }
 
-    private float EffectiveUnloadRadius()
-    {
-        return Mathf.Max(
-            Mathf.Max(unloadRadiusMetres, generationRadiusMetres),
-            activeRadiusMetres + activeHysteresisMetres + 1f);
-    }
+        public static Vector2Int WorldToCell(Vector3 worldPosition)
+        {
+            var halfCell = IslandSizeMetres * 0.5;
+            return new Vector2Int(
+                (int)Math.Floor((worldPosition.x + halfCell) / IslandSizeMetres),
+                (int)Math.Floor((worldPosition.z + halfCell) / IslandSizeMetres));
+        }
 
-    public static Vector2Int WorldToCell(Vector3 worldPosition)
-    {
-        var halfCell = IslandSizeMetres * 0.5;
-        return new Vector2Int(
-            (int)Math.Floor((worldPosition.x + halfCell) / IslandSizeMetres),
-            (int)Math.Floor((worldPosition.z + halfCell) / IslandSizeMetres));
-    }
+        public static Vector3 CellCentre(Vector2Int worldCell, float worldY = 0f)
+        {
+            return new Vector3(
+                worldCell.x * IslandSizeMetres,
+                worldY,
+                worldCell.y * IslandSizeMetres);
+        }
 
-    public static Vector3 CellCentre(Vector2Int worldCell, float worldY = 0f)
-    {
-        return new Vector3(
-            worldCell.x * IslandSizeMetres,
-            worldY,
-            worldCell.y * IslandSizeMetres);
-    }
+        private static float DistanceToDescriptor(
+            IslandDescriptor descriptor,
+            Vector3 position)
+        {
+            var x = descriptor.LogicalXMetres - position.x;
+            var z = descriptor.LogicalZMetres - position.z;
+            return (float)Math.Sqrt(x * x + z * z);
+        }
 
-    private static float DistanceToDescriptor(
-        IslandDescriptor descriptor,
-        Vector3 position)
-    {
-        var x = descriptor.LogicalXMetres - position.x;
-        var z = descriptor.LogicalZMetres - position.z;
-        return (float)Math.Sqrt(x * x + z * z);
-    }
+        private static float DistanceFromIslandEdge(
+            float centreDistance,
+            IslandDescriptor descriptor)
+        {
+            return Mathf.Max(
+                0f,
+                centreDistance - descriptor.EstimatedBoundingRadiusMetres);
+        }
 
-    private static float DistanceFromIslandEdge(
-        float centreDistance,
-        IslandDescriptor descriptor)
-    {
-        return Mathf.Max(
-            0f,
-            centreDistance - descriptor.EstimatedBoundingRadiusMetres);
-    }
-
-    private static float HorizontalDistance(Vector3 first, Vector3 second)
-    {
-        var x = first.x - second.x;
-        var z = first.z - second.z;
-        return Mathf.Sqrt(x * x + z * z);
-    }
+        private static float HorizontalDistance(Vector3 first, Vector3 second)
+        {
+            var x = first.x - second.x;
+            var z = first.z - second.z;
+            return Mathf.Sqrt(x * x + z * z);
+        }
 
 #if UNITY_EDITOR
-    public static void ValidateRoutingPolicy()
-    {
-        if (NativeIslandHandle.ActiveCount != 0)
+        public static void ValidateRoutingPolicy()
         {
-            throw new InvalidOperationException(
-                "Native island handles remained allocated after generation validation.");
-        }
-        const float active = 6000f;
-        const float hysteresis = 500f;
-        const float generation = 10500f;
-        const float unload = 12500f;
-        const float discovery = 16000f;
-        if (!(active < active + hysteresis
-            && active + hysteresis < generation
-            && generation < unload
-            && unload < discovery))
-        {
-            throw new InvalidOperationException(
-                "Island residency and discovery thresholds are not correctly ordered.");
-        }
-        if (HorizontalDistance(new Vector3(3f, 80f, 4f), Vector3.zero) != 5f)
-        {
-            throw new InvalidOperationException(
-                "Island routing distance must ignore elevation.");
-        }
-
-        var expectedCell = new Vector2Int(-7, 11);
-        var expectedCentre = CellCentre(expectedCell);
-        if (WorldToCell(expectedCentre) != expectedCell
-            || WorldToCell(new Vector3(999.99f, 0f, -999.99f)) != Vector2Int.zero
-            || WorldToCell(new Vector3(1000f, 0f, -1000.01f))
-                != new Vector2Int(1, -1))
-        {
-            throw new InvalidOperationException(
-                "World positions do not map deterministically to 2 km island cells.");
-        }
-
-        var factoryObject = new GameObject("Island request factory validation");
-        try
-        {
-            var factory = factoryObject.AddComponent<GridIslandGenerationRequestFactory>();
-            var templateHeight = factory.GenerationSettings.MaximumHeightMetres;
-            factory.Configure(8128, false, 0f);
-            factory.SetFixedIslands(
-                new GridIslandGenerationRequestFactory.FixedIsland(
-                    expectedCell,
-                    "fixed-validation-island"));
-            var fixedRequest = factory.CreateIslandGenerationRequest(expectedCell);
-            var repeatedFixedRequest = factory.CreateIslandGenerationRequest(expectedCell);
-            if (fixedRequest == null
-                || repeatedFixedRequest == null
-                || !factory.HasIsland(expectedCell)
-                || fixedRequest.IslandId != "fixed-validation-island"
-                || fixedRequest.RandomSeed != repeatedFixedRequest.RandomSeed
-                || fixedRequest.IslandGridPosition != expectedCell
-                || !Mathf.Approximately(fixedRequest.WorldSizeMetres, IslandSizeMetres)
-                || !Mathf.Approximately(
-                    fixedRequest.Descriptor.EstimatedBoundingRadiusMetres,
-                    IslandSizeMetres * 0.5f)
-                || factory.HasIsland(Vector2Int.zero)
-                || factory.CreateIslandGenerationRequest(Vector2Int.zero) != null)
+            if (NativeIslandHandle.ActiveCount != 0)
             {
                 throw new InvalidOperationException(
-                    "Fixed cells and open-sea cells are not controlled by the request factory.");
+                    "Native island handles remained allocated after generation validation.");
             }
-            var generationBoundaryCentreDistance = 3000f
-                + fixedRequest.Descriptor.EstimatedBoundingRadiusMetres;
-            if (!Mathf.Approximately(
-                    DistanceFromIslandEdge(
-                        generationBoundaryCentreDistance,
-                        fixedRequest.Descriptor),
-                    3000f))
+            const float active = 6000f;
+            const float hysteresis = 500f;
+            const float generation = 10500f;
+            const float unload = 12500f;
+            const float discovery = 16000f;
+            if (!(active < active + hysteresis
+                && active + hysteresis < generation
+                && generation < unload
+                && unload < discovery))
             {
                 throw new InvalidOperationException(
-                    "Island generation and unloading do not use the same edge-distance convention.");
+                    "Island residency and discovery thresholds are not correctly ordered.");
             }
-            if (!Mathf.Approximately(
-                    factory.GenerationSettings.MaximumHeightMetres,
-                    templateHeight))
+            if (HorizontalDistance(new Vector3(3f, 80f, 4f), Vector3.zero) != 5f)
             {
                 throw new InvalidOperationException(
-                    "Creating an island request mutated the factory's settings template.");
+                    "Island routing distance must ignore elevation.");
             }
 
-            factory.Configure(8128, true, 1f);
-            var managedCell = new Vector2Int(3, -4);
-            var firstManaged = factory.CreateIslandGenerationRequest(managedCell);
-            var repeatedManaged = factory.CreateIslandGenerationRequest(managedCell);
-            factory.Configure(9128, true, 1f);
-            var otherManaged = factory.CreateIslandGenerationRequest(managedCell);
-            if (firstManaged == null || repeatedManaged == null || otherManaged == null)
+            var expectedCell = new Vector2Int(-7, 11);
+            var expectedCentre = CellCentre(expectedCell);
+            if (WorldToCell(expectedCentre) != expectedCell
+                || WorldToCell(new Vector3(999.99f, 0f, -999.99f)) != Vector2Int.zero
+                || WorldToCell(new Vector3(1000f, 0f, -1000.01f))
+                    != new Vector2Int(1, -1))
             {
                 throw new InvalidOperationException(
-                    "The request factory did not create configured managed islands.");
+                    "World positions do not map deterministically to 2 km island cells.");
             }
-            if (!factory.HasIsland(managedCell))
+
+            var factoryObject = new GameObject("Island request factory validation");
+            try
             {
-                throw new InvalidOperationException(
-                    "HasIsland disagrees with the request factory's occupied-cell policy.");
+                var factory = factoryObject.AddComponent<GridIslandGenerationRequestFactory>();
+                var templateHeight = factory.GenerationSettings.MaximumHeightMetres;
+                factory.Configure(8128, false, 0f);
+                factory.SetFixedIslands(
+                    new GridIslandGenerationRequestFactory.FixedIsland(
+                        expectedCell,
+                        "fixed-validation-island"));
+                var fixedRequest = factory.CreateIslandGenerationRequest(expectedCell);
+                var repeatedFixedRequest = factory.CreateIslandGenerationRequest(expectedCell);
+                if (fixedRequest == null
+                    || repeatedFixedRequest == null
+                    || !factory.HasIsland(expectedCell)
+                    || fixedRequest.IslandId != "fixed-validation-island"
+                    || fixedRequest.RandomSeed != repeatedFixedRequest.RandomSeed
+                    || fixedRequest.IslandGridPosition != expectedCell
+                    || !Mathf.Approximately(fixedRequest.WorldSizeMetres, IslandSizeMetres)
+                    || !Mathf.Approximately(
+                        fixedRequest.Descriptor.EstimatedBoundingRadiusMetres,
+                        IslandSizeMetres * 0.5f)
+                    || factory.HasIsland(Vector2Int.zero)
+                    || factory.CreateIslandGenerationRequest(Vector2Int.zero) != null)
+                {
+                    throw new InvalidOperationException(
+                        "Fixed cells and open-sea cells are not controlled by the request factory.");
+                }
+                var generationBoundaryCentreDistance = 3000f
+                    + fixedRequest.Descriptor.EstimatedBoundingRadiusMetres;
+                if (!Mathf.Approximately(
+                        DistanceFromIslandEdge(
+                            generationBoundaryCentreDistance,
+                            fixedRequest.Descriptor),
+                        3000f))
+                {
+                    throw new InvalidOperationException(
+                        "Island generation and unloading do not use the same edge-distance convention.");
+                }
+                if (!Mathf.Approximately(
+                        factory.GenerationSettings.MaximumHeightMetres,
+                        templateHeight))
+                {
+                    throw new InvalidOperationException(
+                        "Creating an island request mutated the factory's settings template.");
+                }
+
+                factory.Configure(8128, true, 1f);
+                var managedCell = new Vector2Int(3, -4);
+                var firstManaged = factory.CreateIslandGenerationRequest(managedCell);
+                var repeatedManaged = factory.CreateIslandGenerationRequest(managedCell);
+                factory.Configure(9128, true, 1f);
+                var otherManaged = factory.CreateIslandGenerationRequest(managedCell);
+                if (firstManaged == null || repeatedManaged == null || otherManaged == null)
+                {
+                    throw new InvalidOperationException(
+                        "The request factory did not create configured managed islands.");
+                }
+                if (!factory.HasIsland(managedCell))
+                {
+                    throw new InvalidOperationException(
+                        "HasIsland disagrees with the request factory's occupied-cell policy.");
+                }
+                if (!Mathf.Approximately(
+                        firstManaged.Profile.Generation.MaximumHeightMetres,
+                        repeatedManaged.Profile.Generation.MaximumHeightMetres)
+                    || !Mathf.Approximately(
+                        firstManaged.Profile.Generation.WaterRatio,
+                        repeatedManaged.Profile.Generation.WaterRatio))
+                {
+                    throw new InvalidOperationException(
+                        "Factory-selected island variation is not deterministic.");
+                }
+                if (Mathf.Approximately(
+                        firstManaged.Profile.Generation.MaximumHeightMetres,
+                        otherManaged.Profile.Generation.MaximumHeightMetres)
+                    && Mathf.Approximately(
+                        firstManaged.Profile.Generation.WaterRatio,
+                        otherManaged.Profile.Generation.WaterRatio))
+                {
+                    throw new InvalidOperationException(
+                        "The request factory did not vary distinct island seeds.");
+                }
             }
-            if (!Mathf.Approximately(
-                    firstManaged.Profile.Generation.MaximumHeightMetres,
-                    repeatedManaged.Profile.Generation.MaximumHeightMetres)
-                || !Mathf.Approximately(
-                    firstManaged.Profile.Generation.WaterRatio,
-                    repeatedManaged.Profile.Generation.WaterRatio))
+            finally
             {
-                throw new InvalidOperationException(
-                    "Factory-selected island variation is not deterministic.");
-            }
-            if (Mathf.Approximately(
-                    firstManaged.Profile.Generation.MaximumHeightMetres,
-                    otherManaged.Profile.Generation.MaximumHeightMetres)
-                && Mathf.Approximately(
-                    firstManaged.Profile.Generation.WaterRatio,
-                    otherManaged.Profile.Generation.WaterRatio))
-            {
-                throw new InvalidOperationException(
-                    "The request factory did not vary distinct island seeds.");
+                DestroyImmediate(factoryObject);
             }
         }
-        finally
-        {
-            DestroyImmediate(factoryObject);
-        }
-    }
 #endif
+    }
 }

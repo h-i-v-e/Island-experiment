@@ -1,52 +1,55 @@
 using System;
 using System.Threading;
 
-internal sealed class NativeIslandHandle : IDisposable
+namespace Motu.Interop
 {
-    private static int activeCount;
-    private IntPtr value;
-
-    internal static int ActiveCount => Volatile.Read(ref activeCount);
-
-    internal NativeIslandHandle(IntPtr handle)
+    internal sealed class NativeIslandHandle : IDisposable
     {
-        if (handle == IntPtr.Zero)
+        private static int activeCount;
+        private IntPtr value;
+
+        internal static int ActiveCount => Volatile.Read(ref activeCount);
+
+        internal NativeIslandHandle(IntPtr handle)
         {
-            throw new ArgumentException("A native island handle cannot be null.", nameof(handle));
+            if (handle == IntPtr.Zero)
+            {
+                throw new ArgumentException("A native island handle cannot be null.", nameof(handle));
+            }
+            value = handle;
+            Interlocked.Increment(ref activeCount);
         }
-        value = handle;
-        Interlocked.Increment(ref activeCount);
-    }
 
-    internal bool IsValid => value != IntPtr.Zero;
+        internal bool IsValid => value != IntPtr.Zero;
 
-    internal IntPtr Value
-    {
-        get
+        internal IntPtr Value
+        {
+            get
+            {
+                if (value == IntPtr.Zero)
+                {
+                    throw new ObjectDisposedException(nameof(NativeIslandHandle));
+                }
+                return value;
+            }
+        }
+
+        public void Dispose()
         {
             if (value == IntPtr.Zero)
             {
-                throw new ObjectDisposedException(nameof(NativeIslandHandle));
+                return;
             }
-            return value;
-        }
-    }
-
-    public void Dispose()
-    {
-        if (value == IntPtr.Zero)
-        {
-            return;
-        }
-        var handle = value;
-        value = IntPtr.Zero;
-        try
-        {
-            MotuNative.ReleaseMotu(handle);
-        }
-        finally
-        {
-            Interlocked.Decrement(ref activeCount);
+            var handle = value;
+            value = IntPtr.Zero;
+            try
+            {
+                MotuNative.ReleaseMotu(handle);
+            }
+            finally
+            {
+                Interlocked.Decrement(ref activeCount);
+            }
         }
     }
 }

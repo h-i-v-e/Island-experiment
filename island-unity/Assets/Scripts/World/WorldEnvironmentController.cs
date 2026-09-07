@@ -1,372 +1,380 @@
 using System;
 using UnityEngine;
 using UnityEngine.Rendering;
+using Motu.Interop;
+using Motu.Islands;
+using Motu.Rendering;
+using Motu.Settings;
 
-[DefaultExecutionOrder(1000)]
-[DisallowMultipleComponent]
-public sealed partial class WorldEnvironmentController : MonoBehaviour
+namespace Motu.World
 {
-    private static readonly int EnvironmentWorldOffsetId = Shader.PropertyToID(
-        "_MotuEnvironmentWorldOffset");
-
-    [Tooltip("Distance between player-relative environment anchor positions.")]
-    [Min(0.25f)]
-    [SerializeField] private float anchorSnapMetres = 25f;
-
-    private Transform followTarget;
-    private GameObject skyDomeObject;
-    private Mesh skyDomeMesh;
-    private Material skyDomeMaterial;
-    private Texture2D cloudWeatherTexture;
-    private Texture2D ownedWeatherNoiseTexture;
-    private GameObject moonLightObject;
-    private Light moonLight;
-    private OceanSurfaceController ocean;
-    private float seaLevel;
-    private float skyDomeWorldSize;
-
-    public Vector3 AnchorPosition => transform.position;
-    public Mesh SkyMesh => skyDomeMesh;
-    public Material SkyMaterial => skyDomeMaterial;
-    public Material SeaMaterial => ocean != null ? ocean.SurfaceMaterial : null;
-    public Texture2D WeatherNoiseTexture =>
-        SeaMaterial != null ? SeaMaterial.GetTexture("_NoiseTex") as Texture2D : null;
-    public Light MoonLight => moonLight;
-    public Transform OceanTransform => ocean != null ? ocean.SurfaceTransform : null;
-    public bool IsInstalled => skyDomeMaterial != null && SeaMaterial != null;
-    public float SkyExposure => currentSkyExposure;
-    public float NightStrength => currentNightStrength;
-    public Vector2 WindDirection => weather.WindDirection;
-    public float WindSpeedMetresPerSecond => weather.WindSpeedMetresPerSecond;
-
-    public static WorldEnvironmentController FindOrCreate()
+    [DefaultExecutionOrder(1000)]
+    [DisallowMultipleComponent]
+    [UnityEngine.Scripting.APIUpdating.MovedFrom(true, sourceNamespace: "", sourceAssembly: "Assembly-CSharp", sourceClassName: "WorldEnvironmentController")]
+    public sealed partial class WorldEnvironmentController : MonoBehaviour
     {
-        var existing = FindAnyObjectByType<WorldEnvironmentController>(
-            FindObjectsInactive.Include);
-        if (existing != null)
+        private static readonly int EnvironmentWorldOffsetId = Shader.PropertyToID(
+            "_MotuEnvironmentWorldOffset");
+
+        [Tooltip("Distance between player-relative environment anchor positions.")]
+        [Min(0.25f)]
+        [SerializeField] private float anchorSnapMetres = 25f;
+
+        private Transform followTarget;
+        private GameObject skyDomeObject;
+        private Mesh skyDomeMesh;
+        private Material skyDomeMaterial;
+        private Texture2D cloudWeatherTexture;
+        private Texture2D ownedWeatherNoiseTexture;
+        private GameObject moonLightObject;
+        private Light moonLight;
+        private OceanSurfaceController ocean;
+        private float seaLevel;
+        private float skyDomeWorldSize;
+
+        public Vector3 AnchorPosition => transform.position;
+        public Mesh SkyMesh => skyDomeMesh;
+        public Material SkyMaterial => skyDomeMaterial;
+        public Material SeaMaterial => ocean != null ? ocean.SurfaceMaterial : null;
+        public Texture2D WeatherNoiseTexture =>
+            SeaMaterial != null ? SeaMaterial.GetTexture("_NoiseTex") as Texture2D : null;
+        public Light MoonLight => moonLight;
+        public Transform OceanTransform => ocean != null ? ocean.SurfaceTransform : null;
+        public bool IsInstalled => skyDomeMaterial != null && SeaMaterial != null;
+        public float SkyExposure => currentSkyExposure;
+        public float NightStrength => currentNightStrength;
+        public Vector2 WindDirection => weather.WindDirection;
+        public float WindSpeedMetresPerSecond => weather.WindSpeedMetresPerSecond;
+
+        public static WorldEnvironmentController FindOrCreate()
         {
-            return existing;
+            var existing = FindAnyObjectByType<WorldEnvironmentController>(
+                FindObjectsInactive.Include);
+            if (existing != null)
+            {
+                return existing;
+            }
+
+            var root = new GameObject("Open Sea World Environment");
+            return root.AddComponent<WorldEnvironmentController>();
         }
 
-        var root = new GameObject("Open Sea World Environment");
-        return root.AddComponent<WorldEnvironmentController>();
-    }
-
-    public void SetFollowTarget(Transform target)
-    {
-        if (followTarget == target)
+        public void SetFollowTarget(Transform target)
         {
-            return;
-        }
-        followTarget = target;
-        UpdateAnchor(true);
-    }
-
-    public void Install(
-        Material newSkyMaterial,
-        Material newSeaMaterial,
-        Texture2D newCloudWeatherTexture,
-        Texture2D newOwnedWeatherNoiseTexture,
-        float newSkyDomeWorldSize,
-        float environmentDiameterMetres,
-        float globalSeaLevel,
-        bool showSea,
-        Light sunlightTemplate)
-    {
-        Install(
-            newSkyMaterial,
-            newSeaMaterial,
-            newCloudWeatherTexture,
-            newOwnedWeatherNoiseTexture,
-            newSkyDomeWorldSize,
-            environmentDiameterMetres,
-            globalSeaLevel,
-            showSea,
-            OceanWaveRuntimeSettings.Default,
-            sunlightTemplate);
-    }
-
-    public void Install(
-        Material newSkyMaterial,
-        Material newSeaMaterial,
-        Texture2D newCloudWeatherTexture,
-        Texture2D newOwnedWeatherNoiseTexture,
-        float newSkyDomeWorldSize,
-        float environmentDiameterMetres,
-        float globalSeaLevel,
-        bool showSea,
-        OceanWaveRuntimeSettings oceanWaves,
-        Light sunlightTemplate)
-    {
-        if (newSkyMaterial == null)
-        {
-            throw new ArgumentNullException(nameof(newSkyMaterial));
-        }
-        if (newSeaMaterial == null)
-        {
-            throw new ArgumentNullException(nameof(newSeaMaterial));
+            if (followTarget == target)
+            {
+                return;
+            }
+            followTarget = target;
+            UpdateAnchor(true);
         }
 
-        var previousMaterial = skyDomeMaterial;
-        var previousWeather = cloudWeatherTexture;
-        var previousWeatherNoise = ownedWeatherNoiseTexture;
-        EnsureSkyDome(newSkyDomeWorldSize, newSkyMaterial);
-        skyDomeMaterial = newSkyMaterial;
-        cloudWeatherTexture = newCloudWeatherTexture;
-        ownedWeatherNoiseTexture = newOwnedWeatherNoiseTexture;
-        seaLevel = globalSeaLevel;
-        Shader.SetGlobalVector(
-            EnvironmentWorldOffsetId,
-            new Vector4(0f, -seaLevel, 0f, 0f));
-
-        EnsureOcean();
-        ocean.Install(
-            newSeaMaterial,
-            environmentDiameterMetres,
-            showSea,
-            oceanWaves);
-        var windNoise = newSeaMaterial.GetTexture("_NoiseTex");
-        ApplyWeatherWindNoise(windNoise);
-        EnsureMoonLight(sunlightTemplate);
-        UpdateAnchor(true);
-        BindExistingReflectionCameras();
-
-        if (previousMaterial != null && previousMaterial != skyDomeMaterial)
+        public void Install(
+            Material newSkyMaterial,
+            Material newSeaMaterial,
+            Texture2D newCloudWeatherTexture,
+            Texture2D newOwnedWeatherNoiseTexture,
+            float newSkyDomeWorldSize,
+            float environmentDiameterMetres,
+            float globalSeaLevel,
+            bool showSea,
+            Light sunlightTemplate)
         {
-            DestroyUnityObject(previousMaterial);
-        }
-        if (previousWeather != null && previousWeather != cloudWeatherTexture)
-        {
-            DestroyUnityObject(previousWeather);
-        }
-        if (previousWeatherNoise != null
-            && previousWeatherNoise != ownedWeatherNoiseTexture)
-        {
-            DestroyUnityObject(previousWeatherNoise);
-        }
-    }
-
-    public void SetSeaVisible(bool visible)
-    {
-        ocean?.SetVisible(visible);
-    }
-
-    public void SetWind(Vector2 direction, float speedMetresPerSecond)
-    {
-        var updated = Weather;
-        updated.WindDirection = direction;
-        updated.WindSpeedMetresPerSecond = speedMetresPerSecond;
-        ApplyWeather(updated);
-    }
-
-    internal void RegisterCoastalWaveMask(
-        IslandRuntime owner,
-        Texture mask,
-        Transform islandTransform,
-        float worldSize)
-    {
-        EnsureOcean();
-        ocean.RegisterCoastalWaveMask(owner, mask, islandTransform, worldSize);
-    }
-
-    internal void UnregisterCoastalWaveMask(IslandRuntime owner)
-    {
-        ocean?.UnregisterCoastalWaveMask(owner);
-    }
-
-    public void BindReflectionCamera(Camera camera)
-    {
-        if (camera == null || OceanTransform == null)
-        {
-            return;
-        }
-        camera.GetComponent<PlanarWaterReflection>()?.Configure(OceanTransform);
-    }
-
-    public static Vector3 SnapAnchor(
-        Vector3 targetPosition,
-        float globalSeaLevel,
-        float snapMetres)
-    {
-        snapMetres = Mathf.Max(snapMetres, 0.25f);
-        return new Vector3(
-            Mathf.Floor(targetPosition.x / snapMetres + 0.5f) * snapMetres,
-            globalSeaLevel,
-            Mathf.Floor(targetPosition.z / snapMetres + 0.5f) * snapMetres);
-    }
-
-    private void Awake()
-    {
-        EnsureOcean();
-        Shader.SetGlobalVector(EnvironmentWorldOffsetId, Vector4.zero);
-        ApplyWeatherWindGlobals(
-            Vector2.right,
-            ReferenceWindSpeedMetresPerSecond);
-        ApplyWeatherWindOffset(Vector2.zero);
-    }
-
-    private void OnEnable()
-    {
-        Camera.onPreCull += PrepareCameraRender;
-    }
-
-    private void OnDisable()
-    {
-        Camera.onPreCull -= PrepareCameraRender;
-        RenderSettings.fog = false;
-    }
-
-    private void Update()
-    {
-        if (!IsInstalled || environmentSettings == null || cloudSettings == null)
-        {
-            return;
-        }
-        UpdateWeatherDriver(Time.unscaledDeltaTime);
-        UpdateSolarLighting(Time.unscaledDeltaTime);
-        ApplyCloudSettings(Time.unscaledDeltaTime);
-        ApplyWeatherWind();
-        ApplyDistanceHazeSettings();
-    }
-
-    private void LateUpdate()
-    {
-        UpdateAnchor(false);
-    }
-
-    private void OnValidate()
-    {
-        anchorSnapMetres = Mathf.Max(anchorSnapMetres, 0.25f);
-    }
-
-    private void OnDestroy()
-    {
-        DestroyUnityObject(skyDomeMaterial);
-        DestroyUnityObject(skyDomeMesh);
-        DestroyUnityObject(cloudWeatherTexture);
-        DestroyUnityObject(ownedWeatherNoiseTexture);
-        skyDomeMaterial = null;
-        skyDomeMesh = null;
-        cloudWeatherTexture = null;
-        ownedWeatherNoiseTexture = null;
-    }
-
-    private GameObject CreateSkyDomeObject(Mesh mesh, Material material)
-    {
-        var result = new GameObject("Player-Relative Sky Dome");
-        result.transform.SetParent(transform, false);
-        result.AddComponent<MeshFilter>().sharedMesh = mesh;
-        var renderer = result.AddComponent<MeshRenderer>();
-        renderer.sharedMaterial = material;
-        renderer.shadowCastingMode = ShadowCastingMode.Off;
-        renderer.receiveShadows = false;
-        renderer.lightProbeUsage = LightProbeUsage.Off;
-        renderer.reflectionProbeUsage = ReflectionProbeUsage.Off;
-        renderer.motionVectorGenerationMode = MotionVectorGenerationMode.ForceNoMotion;
-        renderer.allowOcclusionWhenDynamic = false;
-        return result;
-    }
-
-    private void EnsureSkyDome(float worldSize, Material material)
-    {
-        worldSize = Mathf.Max(worldSize, 1f);
-        if (skyDomeObject != null
-            && skyDomeMesh != null
-            && Mathf.Approximately(skyDomeWorldSize, worldSize))
-        {
-            skyDomeObject.GetComponent<MeshRenderer>().sharedMaterial = material;
-            return;
+            Install(
+                newSkyMaterial,
+                newSeaMaterial,
+                newCloudWeatherTexture,
+                newOwnedWeatherNoiseTexture,
+                newSkyDomeWorldSize,
+                environmentDiameterMetres,
+                globalSeaLevel,
+                showSea,
+                OceanWaveRuntimeSettings.Default,
+                sunlightTemplate);
         }
 
-        var source = IslandPreparationPipeline.PrepareSkyDome(worldSize);
-        var replacementMesh = IslandMeshInterop.CreateGeneratedMesh(source);
-        replacementMesh.name = "Rust Generated Open-Sea Sky Dome";
-        var replacementObject = CreateSkyDomeObject(replacementMesh, material);
-        var previousObject = skyDomeObject;
-        var previousMesh = skyDomeMesh;
-        skyDomeObject = replacementObject;
-        skyDomeMesh = replacementMesh;
-        skyDomeWorldSize = worldSize;
-        DestroyUnityObject(previousObject);
-        DestroyUnityObject(previousMesh);
-    }
+        public void Install(
+            Material newSkyMaterial,
+            Material newSeaMaterial,
+            Texture2D newCloudWeatherTexture,
+            Texture2D newOwnedWeatherNoiseTexture,
+            float newSkyDomeWorldSize,
+            float environmentDiameterMetres,
+            float globalSeaLevel,
+            bool showSea,
+            OceanWaveRuntimeSettings oceanWaves,
+            Light sunlightTemplate)
+        {
+            if (newSkyMaterial == null)
+            {
+                throw new ArgumentNullException(nameof(newSkyMaterial));
+            }
+            if (newSeaMaterial == null)
+            {
+                throw new ArgumentNullException(nameof(newSeaMaterial));
+            }
 
-    private void EnsureOcean()
-    {
-        if (ocean == null)
-        {
-            ocean = GetComponent<OceanSurfaceController>()
-                ?? gameObject.AddComponent<OceanSurfaceController>();
-        }
-    }
+            var previousMaterial = skyDomeMaterial;
+            var previousWeather = cloudWeatherTexture;
+            var previousWeatherNoise = ownedWeatherNoiseTexture;
+            EnsureSkyDome(newSkyDomeWorldSize, newSkyMaterial);
+            skyDomeMaterial = newSkyMaterial;
+            cloudWeatherTexture = newCloudWeatherTexture;
+            ownedWeatherNoiseTexture = newOwnedWeatherNoiseTexture;
+            seaLevel = globalSeaLevel;
+            Shader.SetGlobalVector(
+                EnvironmentWorldOffsetId,
+                new Vector4(0f, -seaLevel, 0f, 0f));
 
-    private void EnsureMoonLight(Light sunlightTemplate)
-    {
-        if (moonLight == null)
-        {
-            moonLightObject = new GameObject("Moon Light");
-            moonLightObject.transform.SetParent(transform, false);
-            moonLight = moonLightObject.AddComponent<Light>();
-            moonLight.type = LightType.Directional;
-            moonLight.renderMode = LightRenderMode.ForcePixel;
-            moonLight.color = new Color(0.48f, 0.62f, 0.90f, 1f);
-            moonLight.intensity = 0f;
-            moonLight.shadows = LightShadows.Soft;
-            moonLight.enabled = false;
-        }
-        if (sunlightTemplate == null)
-        {
-            return;
-        }
-        moonLight.cullingMask = sunlightTemplate.cullingMask;
-        moonLight.shadowStrength = sunlightTemplate.shadowStrength;
-        moonLight.shadowBias = sunlightTemplate.shadowBias;
-        moonLight.shadowNormalBias = sunlightTemplate.shadowNormalBias;
-        moonLight.shadowNearPlane = sunlightTemplate.shadowNearPlane;
-        moonLight.shadowResolution = sunlightTemplate.shadowResolution;
-    }
+            EnsureOcean();
+            ocean.Install(
+                newSeaMaterial,
+                environmentDiameterMetres,
+                showSea,
+                oceanWaves);
+            var windNoise = newSeaMaterial.GetTexture("_NoiseTex");
+            ApplyWeatherWindNoise(windNoise);
+            EnsureMoonLight(sunlightTemplate);
+            UpdateAnchor(true);
+            BindExistingReflectionCameras();
 
-    private void BindExistingReflectionCameras()
-    {
-        if (OceanTransform == null)
-        {
-            return;
+            if (previousMaterial != null && previousMaterial != skyDomeMaterial)
+            {
+                DestroyUnityObject(previousMaterial);
+            }
+            if (previousWeather != null && previousWeather != cloudWeatherTexture)
+            {
+                DestroyUnityObject(previousWeather);
+            }
+            if (previousWeatherNoise != null
+                && previousWeatherNoise != ownedWeatherNoiseTexture)
+            {
+                DestroyUnityObject(previousWeatherNoise);
+            }
         }
-        foreach (var reflection in FindObjectsByType<PlanarWaterReflection>(
-            FindObjectsInactive.Include))
-        {
-            reflection.Configure(OceanTransform);
-        }
-    }
 
-    private void UpdateAnchor(bool force)
-    {
-        var target = followTarget;
-        if (target == null && Camera.main != null)
+        public void SetSeaVisible(bool visible)
         {
-            target = Camera.main.transform;
+            ocean?.SetVisible(visible);
         }
-        var targetPosition = target != null ? target.position : transform.position;
-        var anchor = SnapAnchor(targetPosition, seaLevel, anchorSnapMetres);
-        if (force || transform.position != anchor || transform.rotation != Quaternion.identity)
-        {
-            transform.SetPositionAndRotation(anchor, Quaternion.identity);
-        }
-    }
 
-    private static void DestroyUnityObject(UnityEngine.Object value)
-    {
-        if (value == null)
+        public void SetWind(Vector2 direction, float speedMetresPerSecond)
         {
-            return;
+            var updated = Weather;
+            updated.WindDirection = direction;
+            updated.WindSpeedMetresPerSecond = speedMetresPerSecond;
+            ApplyWeather(updated);
         }
-        if (Application.isPlaying)
+
+        internal void RegisterCoastalWaveMask(
+            IslandRuntime owner,
+            Texture mask,
+            Transform islandTransform,
+            float worldSize)
         {
-            Destroy(value);
+            EnsureOcean();
+            ocean.RegisterCoastalWaveMask(owner, mask, islandTransform, worldSize);
         }
-        else
+
+        internal void UnregisterCoastalWaveMask(IslandRuntime owner)
         {
-            DestroyImmediate(value);
+            ocean?.UnregisterCoastalWaveMask(owner);
+        }
+
+        public void BindReflectionCamera(Camera camera)
+        {
+            if (camera == null || OceanTransform == null)
+            {
+                return;
+            }
+            camera.GetComponent<PlanarWaterReflection>()?.Configure(OceanTransform);
+        }
+
+        public static Vector3 SnapAnchor(
+            Vector3 targetPosition,
+            float globalSeaLevel,
+            float snapMetres)
+        {
+            snapMetres = Mathf.Max(snapMetres, 0.25f);
+            return new Vector3(
+                Mathf.Floor(targetPosition.x / snapMetres + 0.5f) * snapMetres,
+                globalSeaLevel,
+                Mathf.Floor(targetPosition.z / snapMetres + 0.5f) * snapMetres);
+        }
+
+        private void Awake()
+        {
+            EnsureOcean();
+            Shader.SetGlobalVector(EnvironmentWorldOffsetId, Vector4.zero);
+            ApplyWeatherWindGlobals(
+                Vector2.right,
+                ReferenceWindSpeedMetresPerSecond);
+            ApplyWeatherWindOffset(Vector2.zero);
+        }
+
+        private void OnEnable()
+        {
+            Camera.onPreCull += PrepareCameraRender;
+        }
+
+        private void OnDisable()
+        {
+            Camera.onPreCull -= PrepareCameraRender;
+            RenderSettings.fog = false;
+        }
+
+        private void Update()
+        {
+            if (!IsInstalled || environmentSettings == null || cloudSettings == null)
+            {
+                return;
+            }
+            UpdateWeatherDriver(Time.unscaledDeltaTime);
+            UpdateSolarLighting(Time.unscaledDeltaTime);
+            ApplyCloudSettings(Time.unscaledDeltaTime);
+            ApplyWeatherWind();
+            ApplyDistanceHazeSettings();
+        }
+
+        private void LateUpdate()
+        {
+            UpdateAnchor(false);
+        }
+
+        private void OnValidate()
+        {
+            anchorSnapMetres = Mathf.Max(anchorSnapMetres, 0.25f);
+        }
+
+        private void OnDestroy()
+        {
+            DestroyUnityObject(skyDomeMaterial);
+            DestroyUnityObject(skyDomeMesh);
+            DestroyUnityObject(cloudWeatherTexture);
+            DestroyUnityObject(ownedWeatherNoiseTexture);
+            skyDomeMaterial = null;
+            skyDomeMesh = null;
+            cloudWeatherTexture = null;
+            ownedWeatherNoiseTexture = null;
+        }
+
+        private GameObject CreateSkyDomeObject(Mesh mesh, Material material)
+        {
+            var result = new GameObject("Player-Relative Sky Dome");
+            result.transform.SetParent(transform, false);
+            result.AddComponent<MeshFilter>().sharedMesh = mesh;
+            var renderer = result.AddComponent<MeshRenderer>();
+            renderer.sharedMaterial = material;
+            renderer.shadowCastingMode = ShadowCastingMode.Off;
+            renderer.receiveShadows = false;
+            renderer.lightProbeUsage = LightProbeUsage.Off;
+            renderer.reflectionProbeUsage = ReflectionProbeUsage.Off;
+            renderer.motionVectorGenerationMode = MotionVectorGenerationMode.ForceNoMotion;
+            renderer.allowOcclusionWhenDynamic = false;
+            return result;
+        }
+
+        private void EnsureSkyDome(float worldSize, Material material)
+        {
+            worldSize = Mathf.Max(worldSize, 1f);
+            if (skyDomeObject != null
+                && skyDomeMesh != null
+                && Mathf.Approximately(skyDomeWorldSize, worldSize))
+            {
+                skyDomeObject.GetComponent<MeshRenderer>().sharedMaterial = material;
+                return;
+            }
+
+            var source = IslandPreparationPipeline.PrepareSkyDome(worldSize);
+            var replacementMesh = IslandMeshInterop.CreateGeneratedMesh(source);
+            replacementMesh.name = "Rust Generated Open-Sea Sky Dome";
+            var replacementObject = CreateSkyDomeObject(replacementMesh, material);
+            var previousObject = skyDomeObject;
+            var previousMesh = skyDomeMesh;
+            skyDomeObject = replacementObject;
+            skyDomeMesh = replacementMesh;
+            skyDomeWorldSize = worldSize;
+            DestroyUnityObject(previousObject);
+            DestroyUnityObject(previousMesh);
+        }
+
+        private void EnsureOcean()
+        {
+            if (ocean == null)
+            {
+                ocean = GetComponent<OceanSurfaceController>()
+                    ?? gameObject.AddComponent<OceanSurfaceController>();
+            }
+        }
+
+        private void EnsureMoonLight(Light sunlightTemplate)
+        {
+            if (moonLight == null)
+            {
+                moonLightObject = new GameObject("Moon Light");
+                moonLightObject.transform.SetParent(transform, false);
+                moonLight = moonLightObject.AddComponent<Light>();
+                moonLight.type = LightType.Directional;
+                moonLight.renderMode = LightRenderMode.ForcePixel;
+                moonLight.color = new Color(0.48f, 0.62f, 0.90f, 1f);
+                moonLight.intensity = 0f;
+                moonLight.shadows = LightShadows.Soft;
+                moonLight.enabled = false;
+            }
+            if (sunlightTemplate == null)
+            {
+                return;
+            }
+            moonLight.cullingMask = sunlightTemplate.cullingMask;
+            moonLight.shadowStrength = sunlightTemplate.shadowStrength;
+            moonLight.shadowBias = sunlightTemplate.shadowBias;
+            moonLight.shadowNormalBias = sunlightTemplate.shadowNormalBias;
+            moonLight.shadowNearPlane = sunlightTemplate.shadowNearPlane;
+            moonLight.shadowResolution = sunlightTemplate.shadowResolution;
+        }
+
+        private void BindExistingReflectionCameras()
+        {
+            if (OceanTransform == null)
+            {
+                return;
+            }
+            foreach (var reflection in FindObjectsByType<PlanarWaterReflection>(
+                FindObjectsInactive.Include))
+            {
+                reflection.Configure(OceanTransform);
+            }
+        }
+
+        private void UpdateAnchor(bool force)
+        {
+            var target = followTarget;
+            if (target == null && Camera.main != null)
+            {
+                target = Camera.main.transform;
+            }
+            var targetPosition = target != null ? target.position : transform.position;
+            var anchor = SnapAnchor(targetPosition, seaLevel, anchorSnapMetres);
+            if (force || transform.position != anchor || transform.rotation != Quaternion.identity)
+            {
+                transform.SetPositionAndRotation(anchor, Quaternion.identity);
+            }
+        }
+
+        private static void DestroyUnityObject(UnityEngine.Object value)
+        {
+            if (value == null)
+            {
+                return;
+            }
+            if (Application.isPlaying)
+            {
+                Destroy(value);
+            }
+            else
+            {
+                DestroyImmediate(value);
+            }
         }
     }
 }

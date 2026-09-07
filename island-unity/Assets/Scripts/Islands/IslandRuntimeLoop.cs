@@ -1,87 +1,90 @@
 using UnityEngine;
 
-public sealed partial class IslandGenerator
+namespace Motu.Islands
 {
-    private sealed class IslandRuntimeLoop
+    public sealed partial class IslandGenerator
     {
-        private readonly IslandGenerator generator;
-        internal IslandRuntimeLoop(IslandGenerator generator)
+        private sealed class IslandRuntimeLoop
         {
-            this.generator = generator;
-        }
+            private readonly IslandGenerator generator;
+            internal IslandRuntimeLoop(IslandGenerator generator)
+            {
+                this.generator = generator;
+            }
 
-        internal void Enable()
-        {
-            Camera.onPreCull += generator.PrepareCameraRender;
-            if (generator.controlsWorldEnvironment && Application.isPlaying)
+            internal void Enable()
             {
-                generator.EnsureWorldEnvironment();
+                Camera.onPreCull += generator.PrepareCameraRender;
+                if (generator.controlsWorldEnvironment && Application.isPlaying)
+                {
+                    generator.EnsureWorldEnvironment();
+                }
+                EnsureActiveCameraDepthTextures();
+                if (generator.controlsWorldEnvironment)
+                {
+                    generator.ApplyDistanceHazeSettings();
+                    generator.UpdateSolarLighting(0f);
+                }
             }
-            EnsureActiveCameraDepthTextures();
-            if (generator.controlsWorldEnvironment)
-            {
-                generator.ApplyDistanceHazeSettings();
-                generator.UpdateSolarLighting(0f);
-            }
-        }
 
-        internal void Disable()
-        {
-            Camera.onPreCull -= generator.PrepareCameraRender;
-            if (generator.controlsWorldEnvironment)
+            internal void Disable()
             {
-                RenderSettings.fog = false;
+                Camera.onPreCull -= generator.PrepareCameraRender;
+                if (generator.controlsWorldEnvironment)
+                {
+                    RenderSettings.fog = false;
+                }
+                generator.generationLifecycle.Cancel();
+                generator.ClearGeneratedContent();
             }
-            generator.generationLifecycle.Cancel();
-            generator.ClearGeneratedContent();
-        }
 
-        internal void Update()
-        {
-            ApplyDebugKeys();
-            generator.UpdateMaterialTransforms();
-            generator.ApplyLiveSettings();
-            if (generator.controlsWorldEnvironment)
+            internal void Update()
             {
-                generator.UpdateSolarLighting(Time.unscaledDeltaTime);
-                generator.ApplyCloudSettings(Time.unscaledDeltaTime);
-                generator.worldEnvironment?.SetFollowTarget(
-                    generator.WorldEnvironmentFollowTarget());
+                ApplyDebugKeys();
+                generator.UpdateMaterialTransforms();
+                generator.ApplyLiveSettings();
+                if (generator.controlsWorldEnvironment)
+                {
+                    generator.UpdateSolarLighting(Time.unscaledDeltaTime);
+                    generator.ApplyCloudSettings(Time.unscaledDeltaTime);
+                    generator.worldEnvironment?.SetFollowTarget(
+                        generator.WorldEnvironmentFollowTarget());
+                }
+                if (!generator.worldManaged
+                    && generator.terrainStreamer != null
+                    && generator.Streaming.Target != null)
+                {
+                    generator.terrainStreamer.SetPlayerPosition(
+                        generator.Streaming.Target.position);
+                }
             }
-            if (!generator.worldManaged
-                && generator.terrainStreamer != null
-                && generator.Streaming.Target != null)
-            {
-                generator.terrainStreamer.SetPlayerPosition(
-                    generator.Streaming.Target.position);
-            }
-        }
 
-        private void ApplyDebugKeys()
-        {
-            var settings = generator.DebugSettings;
-            if (settings.ToggleMeshEdgesKey != KeyCode.None
-                && Input.GetKeyDown(settings.ToggleMeshEdgesKey))
+            private void ApplyDebugKeys()
             {
-                settings.ShowMeshEdges = !settings.ShowMeshEdges;
+                var settings = generator.DebugSettings;
+                if (settings.ToggleMeshEdgesKey != KeyCode.None
+                    && Input.GetKeyDown(settings.ToggleMeshEdgesKey))
+                {
+                    settings.ShowMeshEdges = !settings.ShowMeshEdges;
+                }
+                if (settings.ToggleTreeMeshEdgesKey != KeyCode.None
+                    && Input.GetKeyDown(settings.ToggleTreeMeshEdgesKey))
+                {
+                    settings.ShowTreeMeshEdges = !settings.ShowTreeMeshEdges;
+                }
+                if (settings.ToggleFrameRateKey != KeyCode.None
+                    && Input.GetKeyDown(settings.ToggleFrameRateKey))
+                {
+                    settings.ShowFrameRate = !settings.ShowFrameRate;
+                }
             }
-            if (settings.ToggleTreeMeshEdgesKey != KeyCode.None
-                && Input.GetKeyDown(settings.ToggleTreeMeshEdgesKey))
-            {
-                settings.ShowTreeMeshEdges = !settings.ShowTreeMeshEdges;
-            }
-            if (settings.ToggleFrameRateKey != KeyCode.None
-                && Input.GetKeyDown(settings.ToggleFrameRateKey))
-            {
-                settings.ShowFrameRate = !settings.ShowFrameRate;
-            }
-        }
 
-        private static void EnsureActiveCameraDepthTextures()
-        {
-            foreach (var camera in Camera.allCameras)
+            private static void EnsureActiveCameraDepthTextures()
             {
-                IslandGenerator.EnsureCameraDepthTexture(camera);
+                foreach (var camera in Camera.allCameras)
+                {
+                    IslandGenerator.EnsureCameraDepthTexture(camera);
+                }
             }
         }
     }

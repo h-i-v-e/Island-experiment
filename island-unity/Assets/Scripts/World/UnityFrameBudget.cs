@@ -2,30 +2,33 @@ using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 
-internal sealed class UnityFrameBudget
+namespace Motu.World
 {
-    private readonly double milliseconds;
-    private readonly Stopwatch stopwatch = Stopwatch.StartNew();
-
-    internal UnityFrameBudget(float millisecondsPerFrame)
+    internal sealed class UnityFrameBudget
     {
-        milliseconds = millisecondsPerFrame > 0f
-            ? millisecondsPerFrame
-            : 4.0;
-    }
+        private readonly double milliseconds;
+        private readonly Stopwatch stopwatch = Stopwatch.StartNew();
 
-    internal async Task YieldIfExceededAsync(
-        CancellationToken cancellationToken,
-        bool force = false)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        if (!force && stopwatch.Elapsed.TotalMilliseconds < milliseconds)
+        internal UnityFrameBudget(float millisecondsPerFrame)
         {
-            return;
+            milliseconds = millisecondsPerFrame > 0f
+                ? millisecondsPerFrame
+                : 4.0;
         }
 
-        await Task.Yield();
-        cancellationToken.ThrowIfCancellationRequested();
-        stopwatch.Restart();
+        internal async Task YieldIfExceededAsync(
+            CancellationToken cancellationToken,
+            bool force = false)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!force && stopwatch.Elapsed.TotalMilliseconds < milliseconds)
+            {
+                return;
+            }
+
+            await Task.Yield();
+            cancellationToken.ThrowIfCancellationRequested();
+            stopwatch.Restart();
+        }
     }
 }
