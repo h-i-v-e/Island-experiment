@@ -260,6 +260,7 @@ internal sealed class OceanWaveMaskComposer : MonoBehaviour
                     0);
                 lastOverlappingBindingCount++;
             }
+            onshoreMaterial.SetVector(CompositionWorldRectId, compositionRect);
             Graphics.Blit(
                 attenuationTexture,
                 onshoreTexture,

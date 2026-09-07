@@ -306,6 +306,11 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
     public void SetStreamingTarget(Transform target)
     {
         streamingTarget = target;
+        // Entry and teleportation are not travel velocity. Discover around the
+        // new target immediately instead of projecting beyond a large jump.
+        hasPreviousTargetPosition = false;
+        smoothedVelocity = Vector3.zero;
+        nextDiscoveryTime = 0f;
         worldEnvironment?.SetFollowTarget(target);
         if (target != null)
         {

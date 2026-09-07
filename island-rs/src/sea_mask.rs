@@ -9,10 +9,11 @@ use std::thread;
 use crate::{ISLAND_WORLD_METRES, Terrain};
 
 const COAST_WAVE_DEPTH_METRES: f32 = 5.0;
-const LAND_DISTANCE_RANGE_METRES: f32 = 16.0;
+// Keep the shader decode in SeaMaskCommon.cginc in sync with this RGBA8 contract.
+const LAND_DISTANCE_RANGE_METRES: f32 = 128.0;
 
 /// Interleaved linear RGBA8 data. R contains the land/shallow-water wave mask,
-/// G contains distance from land normalized over sixteen metres, B contains
+/// G contains distance from land normalized over 128 metres, B contains
 /// finalized river-bed and accumulated submerged river-carve coverage, and A is reserved at full
 /// strength.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -190,8 +191,8 @@ mod tests {
     #[test]
     fn mask_channels_have_the_exact_interleaved_contract() {
         let terrain = flat_terrain(-10.0 / ISLAND_WORLD_METRES);
-        let eight_metres = 8.0 / ISLAND_WORLD_METRES;
-        let mask = bake_sea_mask(&terrain, &[eight_metres; 4], &[0.0; 4], 1, 1).unwrap();
+        let sixty_four_metres = 64.0 / ISLAND_WORLD_METRES;
+        let mask = bake_sea_mask(&terrain, &[sixty_four_metres; 4], &[0.0; 4], 1, 1).unwrap();
         assert_eq!(mask.width(), 1);
         assert_eq!(mask.height(), 1);
         assert_eq!(mask.rgba(), [0, 128, 0, 255]);
@@ -212,20 +213,21 @@ mod tests {
     }
 
     #[test]
-    fn land_distance_is_linear_and_saturates_at_sixteen_metres() {
-        assert_eq!(quantize(land_distance_weight(0.0)), 0);
-        assert_eq!(
-            quantize(land_distance_weight(8.0 / ISLAND_WORLD_METRES)),
-            128
-        );
-        assert_eq!(
-            quantize(land_distance_weight(16.0 / ISLAND_WORLD_METRES)),
-            255
-        );
-        assert_eq!(
-            quantize(land_distance_weight(32.0 / ISLAND_WORLD_METRES)),
-            255
-        );
+    fn land_distance_is_linear_and_saturates_at_128_metres() {
+        for (metres, expected) in [
+            (0.0, 0),
+            (16.0, 32),
+            (64.0, 128),
+            (100.0, 199),
+            (128.0, 255),
+            (256.0, 255),
+        ] {
+            assert_eq!(
+                quantize(land_distance_weight(metres / ISLAND_WORLD_METRES)),
+                expected,
+                "distance {metres} m"
+            );
+        }
     }
 
     #[test]

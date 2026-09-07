@@ -36,7 +36,6 @@ public sealed partial class OceanSurfaceController
 
     private readonly WavePattern[] outgoingWaves = new WavePattern[4];
     private readonly WavePattern[] incomingWaves = new WavePattern[4];
-    private Vector2 weatherWindDirection = Vector2.right;
     private bool waveAnimationStarted;
     private bool changingWaveDirection;
     private float directionTransitionElapsed;
@@ -56,18 +55,6 @@ public sealed partial class OceanSurfaceController
         }
     }
 
-    public void ApplyWeatherWind(Vector2 direction, float waveHeightScale)
-    {
-        WeatherValueValidation.RequireFinite(direction, nameof(direction));
-        WeatherValueValidation.RequireFinite(waveHeightScale, nameof(waveHeightScale));
-        weatherWindDirection = direction.sqrMagnitude > 0.000001f
-            ? direction.normalized : Vector2.right;
-        ApplyWeatherWindScale(waveHeightScale);
-        // Installation precedes the first weather update. Seed both patterns
-        // from that initial weather before the first rendered frame.
-        if (!waveAnimationStarted) ResetWaveAnimation();
-    }
-
     private OceanWaveComponent WaveComponent(int index)
     {
         switch (index)
@@ -81,16 +68,12 @@ public sealed partial class OceanSurfaceController
 
     private WavePattern RequestedPattern(int index)
     {
-        var primary = waveSettings.Wave0.Direction;
         var wave = WaveComponent(index);
-        var direction = wave.Direction;
-        var cosine = Vector2.Dot(primary, weatherWindDirection);
-        var sine = primary.x * weatherWindDirection.y - primary.y * weatherWindDirection.x;
         return new WavePattern
         {
-            Direction = new Vector2(
-                direction.x * cosine - direction.y * sine,
-                direction.x * sine + direction.y * cosine).normalized,
+            // Each component is an independent world-space direction supplied
+            // by the weather script; wind does not rotate the spectrum.
+            Direction = wave.Direction.normalized,
             Wavelength = wave.WavelengthMetres,
         };
     }

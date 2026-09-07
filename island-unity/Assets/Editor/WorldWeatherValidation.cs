@@ -58,6 +58,8 @@ public static class WorldWeatherValidation
             next.Waves.OnshoreWaveChoppiness = 0.6f;
             next.Waves.OnshoreWaveLeadingEdgeSharpness = 0.8f;
             next.Waves.OnshoreWaveSharpeningDistanceMetres = 14f;
+            next.Waves.OnshoreWaveBreakingStartDepthMetres = 4.5f;
+            next.Waves.OnshoreWaveBreakingFullDepthMetres = 3f;
             environment.ApplyWeather(next);
             Invoke(composer, "LateUpdate");
 
@@ -89,7 +91,7 @@ public static class WorldWeatherValidation
                 && material.GetFloat("_WhitecapCounterflowSpeed") == .8f,
                 "Whitecap edits did not reach the ocean material.");
             Require(material.GetVector("_OnshoreWaveParameters") == new Vector4(15, 2, 4, .6f)
-                && material.GetVector("_OnshoreWaveBreaking") == new Vector4(.8f, 14, 0, 0),
+                && material.GetVector("_OnshoreWaveBreaking") == new Vector4(.8f, 14, 4.5f, 3f),
                 "Onshore wave edits did not reach the ocean material.");
             Require(ocean.SurfaceMesh == mesh && mesh.vertexCount == vertices,
                 "Changing weather rebuilt the ocean mesh.");
@@ -133,6 +135,12 @@ public static class WorldWeatherValidation
                 "Direct wind changes must clamp speed and preserve wave settings.");
             var validWeather = environment.Weather;
             var invalid = validWeather;
+            invalid.Waves.OnshoreWaveBreakingStartDepthMetres = float.NaN;
+            RequireRejected(environment, invalid);
+            invalid = validWeather;
+            invalid.Waves.OnshoreWaveBreakingFullDepthMetres = float.PositiveInfinity;
+            RequireRejected(environment, invalid);
+            invalid = validWeather;
             invalid.Waves.Wave0.AmplitudeMetres = float.PositiveInfinity;
             RequireRejected(environment, invalid);
             invalid = validWeather;
@@ -157,11 +165,53 @@ public static class WorldWeatherValidation
                 && float.IsFinite(mesh.bounds.size.y)
                 && float.IsFinite(mesh.bounds.size.z),
                 "Invalid driver output replaced the last valid weather or poisoned ocean bounds.");
-            Debug.Log("Runtime weather validation passed: wind globals, all wave groups, driver lifecycle, authored settings, mesh retention, coastal masks, culling bounds and non-finite input rejection.");
+            ValidateIndependentWaveDirections(environment, ocean);
+            Debug.Log("Runtime weather validation passed: wind globals, independent wave directions, all wave groups, driver lifecycle, authored settings, mesh retention, coastal masks, culling bounds and non-finite input rejection.");
         }
         finally
         {
             UnityEngine.Object.DestroyImmediate(root);
+        }
+    }
+
+    private static void ValidateIndependentWaveDirections(
+        WorldEnvironmentController environment, OceanSurfaceController ocean)
+    {
+        var weather = environment.Weather;
+        var directions = new[] { Vector2.up, Vector2.right, Vector2.left, new Vector2(1f, 1f).normalized };
+        weather.WindDirection = Vector2.down;
+        weather.Waves.Wave0.Direction = directions[0];
+        weather.Waves.Wave1.Direction = directions[1];
+        weather.Waves.Wave2.Direction = directions[2];
+        weather.Waves.Wave3.Direction = directions[3];
+        environment.ApplyWeather(weather);
+        Invoke(ocean, "AdvanceWaveAnimation", 4f);
+        var material = ocean.SurfaceMaterial;
+        var patterns = new Vector4[4];
+        for (var index = 0; index < 4; index++)
+        {
+            patterns[index] = material.GetVector($"_OceanWaveTo{index}");
+            Require((new Vector2(patterns[index].x, patterns[index].y) - directions[index]).sqrMagnitude < .000001f,
+                "The weather script's independent world-space direction did not reach the wave bank.");
+        }
+        foreach (var wind in new[] { Vector2.left, Vector2.up, Vector2.right })
+        {
+            environment.SetWind(wind, weather.WindSpeedMetresPerSecond);
+            Invoke(ocean, "AdvanceWaveAnimation", 0f);
+            for (var index = 0; index < 4; index++)
+                Require(material.GetVector($"_OceanWaveTo{index}") == patterns[index],
+                    "Changing only WindDirection rotated or reset a wave pattern.");
+            Require(material.GetFloat("_OceanWaveTransition") == 0f,
+                "Changing only WindDirection started a wave transition.");
+        }
+        weather.Waves.Wave0.Direction = Vector2.down;
+        environment.ApplyWeather(weather);
+        Invoke(ocean, "AdvanceWaveAnimation", 4f);
+        for (var index = 1; index < 4; index++)
+        {
+            var actual = material.GetVector($"_OceanWaveTo{index}");
+            Require(actual.x == patterns[index].x && actual.y == patterns[index].y,
+                "Changing wave 0 must not rotate the other three waves.");
         }
     }
 

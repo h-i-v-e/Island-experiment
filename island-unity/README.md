@@ -145,7 +145,12 @@ clearance. Press Tab to release the cursor for Inspector tuning, then Tab again
 to resume movement and mouse look. The top-right minimap shows the 16-cell
 radius around the player's current 2 km grid cell, using the request factory's
 side-effect-free `HasIsland` query without constructing or queuing islands.
-Visibility changes apply without regenerating.
+Click a minimap square to teleport to its centre in fly mode. Press Tab first
+if the cursor is captured. The cursor stays released for repeated map clicks;
+press Tab to resume flying. Terrain and sea clearance update as the destination
+loads, and Escape returns to an overview of the selected cell. Dragging across
+the minimap does not teleport or orbit the camera. Visibility changes apply
+without regenerating.
 
 The collision heightfield has one height per horizontal position. It closely
 tracks the generated walkable surface but deliberately cannot represent
@@ -270,7 +275,7 @@ or mask resolution/layout. Weather changes reuse the installed mesh and
 coastal textures, updating culling bounds when wave heights change. Only edits
 to the coastal attenuation curves mark the mask for recomposition.
 
-Wind direction and directional-wave wavelength changes fade between two fixed
+Per-wave direction and wavelength changes fade between two fixed
 wave patterns over four seconds. Requests made during a fade are picked up at
 the start of the next fade, so a continuously changing weather driver cannot
 rotate an already-visible pattern around the world origin. The same blend
@@ -392,9 +397,11 @@ The player-relative deep ocean performs reflection, refraction, distortion, and
 depth opacity once without depending on any island mask. Each island adds a
 bounded, edge-faded coastal overlay just above it; this overlay owns the sea
 mask, shallow tint, shore waves, and foam without repeating the ocean GrabPass.
-The authored four-wave ocean spectrum is relative to its first wave: global
-weather rotates the whole spectrum to the wind direction and scales wave height
-and travel speed from the authored 9 m/s reference values. The same global wind
+Each of the four ocean waves has its own world-space direction, controlled by
+`weather.Waves.Wave0.Direction` through `Wave3.Direction`. Changing
+`weather.WindDirection` does not rotate these waves or align them to the first
+wave. Global wind speed still scales wave height and travel speed from the
+authored 9 m/s reference values. The same global wind
 also advects clouds and drives grass, reeds, ferns, foliage, and wood sway.
 Generated island content is installed below a self-contained `IslandRuntime`.
 It owns the native handle, terrain streamer, per-island materials, generated
@@ -404,22 +411,42 @@ clearing or a failed partial installation disposes that island without changing
 the global sky or deep ocean. `IslandGenerator` remains the inspector-compatible
 origin-island wrapper.
 
-Incoming coastal overlay waves average the sea mask's red depth proximity with
-inverted green land proximity, breaking up coherent flashing across broad
-shallow water. Green stores distance from land over sixteen metres and also
-drives a separate, weaker wave echo travelling back offshore across that full
-range. Echo spacing is scaled by the ratio between its sixteen-metre range and
-the incoming range, so both trains contain approximately the same number of
-broad waves and retain the same physical travel speed. Their individually
-reduced strengths are added, making crossings brighter than either wave alone.
+The sea mask's green channel stores linear distance from land over **128 metres**.
+Geometric onshore waves fade in travelling from 128 to 96 metres offshore,
+remain at full strength until 16 metres, then soften towards land. Their direction
+comes from the land-distance gradient, scaled in world metres so mask resolution
+and coverage do not change wave strength. Their phase also uses actual metres,
+keeping authored wavelength and speed independent of the mask range. Scripted
+onshore amplitudes have no fixed 4-metre input cap, but the combined wave field
+is scaled to the depth map to keep troughs above the seabed. This map covers
+0-5 metres, so the same conservative 5-metre displacement limit also applies in
+deeper water. Normals use the same depth scaling; breaker foam instead follows shallow-water breaking so it remains visible as displacement shrinks. Carved river
+channels still suppress waves. Ordinary
+swell attenuation retains its original 16-metre distance weighting.
+
+Incoming coastal overlay waves average red depth proximity with land proximity
+rescaled to the original 16-metre band, breaking up coherent flashing across broad
+shallow water. The weaker echo travels back offshore across the full 128-metre
+range. Echo spacing retains its original 16-metre-to-incoming-range ratio, so the
+wider band contains more waves at the same spacing and physical travel speed.
+Their individually reduced strengths are added, making crossings brighter than
+either wave alone.
 Tune `Incoming Shore Wave Strength` and `Reverse Shore Echo Strength` on the sea
-material independently. The geometric onshore component progressively
-compresses only its leading,
-shore-facing rise while retaining a rounded rear face. `Leading Edge Sharpness`
-controls the maximum asymmetry and `Sharpening Distance Metres` controls how far
-offshore it begins. The excess slope created by that compression now adds a
-noise-broken foam cap over the upper leading face and just across the crest;
-its strength rises continuously as the face becomes steeper toward shore.
+material independently. The geometric onshore component compresses its leading,
+shore-facing rise over a configurable depth range, while
+retaining a rounded rear face. `Leading Edge Sharpness` controls the maximum
+asymmetry. `Breaking Start Depth Metres` defaults to 5 m and `Breaking Full Depth
+Metres` defaults to 3.5 m, making full breaking occur while the wave still has
+substantial height. Raise the full depth to break earlier; lower it for a longer
+approach. Both are limited to the depth map's 0-5 m range, with full depth below
+start depth. Scripts can set `weather.Waves.OnshoreWaveBreakingStartDepthMetres`
+and `weather.Waves.OnshoreWaveBreakingFullDepthMetres` at runtime.
+`Sharpening Distance Metres` bounds the offshore breaker region
+(default 96 metres, up to 128 metres), fading its outer 20 percent; depth controls
+breaking within that region. Breaker foam follows the upper leading face and
+crest, grows with shallow-water breaking, and is independent of the depth scale
+that shrinks geometry. It fades through the last 15 cm of water, reaches zero at
+2 cm, and remains suppressed on land, in carved rivers, and without active waves.
 Wave contours remain independent of the camera Z buffer; camera depth is
 responsible only for water opacity. The former river-mouth and estuary silt
 coloration has been removed. Depth and accumulated-edge land distance are both
@@ -431,7 +458,8 @@ level in blue. This accumulated field is carried through later tessellations and
 includes outlet channels used to escape inland basins. The global ocean compositor
 expands the combined suppression by one final-terrain neighbour ring, then uses
 that channel to fade both ordinary and onshore geometric waves out of carved
-channels while retaining their real depth for the maximum-wave-height limit.
+channels while retaining depth for seabed protection. Shallow-water attenuation
+and distance fading also shape wave strength.
 
 ## Rebuild the native plugin
 

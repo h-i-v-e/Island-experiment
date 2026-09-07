@@ -23,8 +23,7 @@ public class CoherentWeatherDriver : WorldWeatherDriver
 
     private DirectionAndSpeed ReadWind(float delta)
     {
-        var speed = Mathf.Clamp01(Mathf.PerlinNoise1D(strengthOffset + delta));
-        return new DirectionAndSpeed(DirectionFromNoise(directionOffset + delta), speed * speed * 20f);
+        return new DirectionAndSpeed(DirectionFromNoise(directionOffset + delta), Mathf.Clamp01(Mathf.PerlinNoise1D(strengthOffset + delta)));
     }
 
     private void Awake()
@@ -49,6 +48,13 @@ public class CoherentWeatherDriver : WorldWeatherDriver
         return Rotate(Vector2.up, Mathf.PerlinNoise1D(deltaTime) * 2f * Mathf.PI);
     }
 
+    private static void UpdateWave(ref OceanWaveComponent component, DirectionAndSpeed dAndP, float scale)
+    {
+        component.AmplitudeMetres = dAndP.speed * scale;
+        component.Direction = dAndP.direction;
+        component.Choppiness = dAndP.speed;
+    }
+
     public override void UpdateWeather(ref WorldWeatherState weather, float deltaTime)
     {
         elapsedSeconds += Mathf.Max(deltaTime, 0f);
@@ -57,12 +63,10 @@ public class CoherentWeatherDriver : WorldWeatherDriver
         var major = ReadWind(elapsedSeconds * 0.001f);
         var dominant = ReadWind(elapsedSeconds * 0.0005f);
         weather.WindDirection = dominant.direction;
-        weather.Waves.OnshoreWaveAmplitudeMetres = dominant.speed * 3.2f;
-        weather.Waves.Wave0.AmplitudeMetres = dominant.speed * 3.2f;
-        weather.Waves.Wave1.AmplitudeMetres = major.speed * 1.6f;
-        weather.Waves.Wave1.Direction = major.direction;
-        weather.Waves.Wave2.AmplitudeMetres = minor.speed * 0.4f;
-        weather.Waves.Wave2.Direction = minor.direction;
-        weather.Waves.Wave3.AmplitudeMetres = fine.speed * 0.1f;
+        weather.Waves.OnshoreWaveAmplitudeMetres = dominant.speed * 3f;
+        UpdateWave(ref weather.Waves.Wave0, dominant, 4f);
+        UpdateWave(ref weather.Waves.Wave1, major, 3f);
+        UpdateWave(ref weather.Waves.Wave2, minor, 0.5f);
+        UpdateWave(ref weather.Waves.Wave3, fine, 0.35f);
     }
 }

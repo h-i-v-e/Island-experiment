@@ -45,6 +45,7 @@ Shader "Motu/Coastal Water Overlay"
             #pragma multi_compile_fwdbase
 
             #include "WaterCommon.cginc"
+            #include "SeaMaskCommon.cginc"
 
             struct VertexInput
             {
@@ -76,8 +77,6 @@ Shader "Motu/Coastal Water Overlay"
             float _ShoreWaveNoiseWorldSize;
             half _ShoreWaveIncomingStrength;
             half _ShoreWaveEchoStrength;
-            static const float SeaMaskDepthMetres = 5.0;
-            static const float SeaMaskLandDistanceMetres = 16.0;
 
             VertexOutput Vertex(VertexInput input)
             {
@@ -110,14 +109,16 @@ Shader "Motu/Coastal Water Overlay"
                 half2 seaMask = tex2D(_SeaMask, saturate(seaMaskUv)).rg;
                 // Incoming waves use both shallow depth and proximity to land;
                 // the weaker echo travels back offshore using land distance.
-                half incomingProximity = (seaMask.r + (1.0h - seaMask.g)) * 0.5h;
+                float landDistance = seaMask.g * MotuSeaMaskLandDistanceMetres;
+                half nearShoreDistance = saturate(landDistance / MotuOceanAttenuationDistanceMetres);
+                half incomingProximity = (seaMask.r + (1.0h - nearShoreDistance)) * 0.5h;
                 float incomingDistance = (1.0h - incomingProximity)
-                    * SeaMaskDepthMetres;
-                float landDistance = seaMask.g * SeaMaskLandDistanceMetres;
+                    * MotuSeaMaskDepthMetres;
                 float shoreSpacing = max(_ShoreWaveSpacing, 0.001);
                 float shoreRange = max(_ShoreWaveDepth, shoreSpacing);
-                float echoRange = max(SeaMaskLandDistanceMetres, shoreSpacing);
-                float echoSpacing = shoreSpacing * echoRange / shoreRange;
+                float echoRange = max(MotuSeaMaskLandDistanceMetres, shoreSpacing);
+                float echoSpacing = shoreSpacing
+                    * max(MotuOceanAttenuationDistanceMetres, shoreSpacing) / shoreRange;
                 float2 shoreNoiseUv = input.islandLocalPosition.xz
                     / max(_ShoreWaveNoiseWorldSize, 0.001);
                 half shoreNoise = tex2D(_NoiseTex, shoreNoiseUv).r - 0.5h;
@@ -163,7 +164,7 @@ Shader "Motu/Coastal Water Overlay"
                     * _ShoreWaveStrength);
 
                 half shallowTint = seaMask.r
-                    * lerp(0.35h, 1.0h, 1.0h - seaMask.g);
+                    * lerp(0.35h, 1.0h, 1.0h - nearShoreDistance);
                 half alpha = patchFade * max(
                     shallowTint * _CoastalOpacity,
                     shoreWave * _FoamOpacity);

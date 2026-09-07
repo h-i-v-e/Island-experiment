@@ -2,6 +2,7 @@
 #define MOTU_OCEAN_WAVES_INCLUDED
 
 #include "WeatherWindCommon.cginc"
+#include "SeaMaskCommon.cginc"
 
 sampler2D _WaveAttenuationTex;
 sampler2D _WaveOnshoreTex;
@@ -88,8 +89,9 @@ float MotuOceanMaximumWaveHeight()
 
 float MotuOceanDepthWaveScale(float4 coastalData)
 {
-    static const float SeaMaskDepthMetres = 5.0;
-    float waterDepth = saturate(coastalData.b) * SeaMaskDepthMetres;
+    // The depth channel covers 0-5 m. Retain this conservative limit in
+    // deeper water so large troughs cannot expose the seabed near shore.
+    float waterDepth = saturate(coastalData.b) * MotuSeaMaskDepthMetres;
     return saturate(waterDepth / MotuOceanMaximumWaveHeight());
 }
 
@@ -120,28 +122,28 @@ void MotuEvaluateOnshoreBreakerShape(
     float phase,
     float coastDistance,
     float wavelength,
+    float waterDepth,
     out float height,
     out float distanceDerivative,
-    out float breakerFoamSlope)
+    out float breakerFoam)
 {
     static const float Pi = 3.14159265359;
     static const float TwoPi = 6.28318530718;
     static const float MinimumLeadingFraction = 0.04;
     float maximumSharpness = saturate(_OnshoreWaveBreaking.x);
     float sharpeningDistance = max(_OnshoreWaveBreaking.y, 0.25);
-    float distanceProgress = saturate(coastDistance / sharpeningDistance);
-    float shoreProximity = 1.0
-        - distanceProgress * distanceProgress
-            * (3.0 - 2.0 * distanceProgress);
-    float proximityDerivative = 0.0;
-    [flatten]
-    if (coastDistance > 0.0 && coastDistance < sharpeningDistance)
-    {
-        proximityDerivative = -6.0
-            * distanceProgress
-            * (1.0 - distanceProgress)
-            / sharpeningDistance;
-    }
+    // Distance only bounds where coastal breakers can form. Actual depth
+    // controls the leading face as the same depth map reduces wave height.
+    float bandStart = sharpeningDistance * 0.8;
+    float bandWidth = max(sharpeningDistance - bandStart, 0.001);
+    float distanceProgress = saturate((coastDistance - bandStart) / bandWidth);
+    float coastalBand = 1.0 - smoothstep(bandStart, sharpeningDistance, coastDistance);
+    float startDepth = clamp(_OnshoreWaveBreaking.z, 0.01, MotuSeaMaskDepthMetres);
+    float fullDepth = clamp(_OnshoreWaveBreaking.w, 0.0, startDepth - 0.01);
+    float shallowBreaking = 1.0 - smoothstep(fullDepth, startDepth, waterDepth);
+    float shoreProximity = shallowBreaking * coastalBand;
+    float proximityDerivative = -shallowBreaking * 6.0
+        * distanceProgress * (1.0 - distanceProgress) / bandWidth;
 
     // At 0.5 the two faces reproduce an ordinary sine wave. Moving only the
     // leading fraction toward zero compresses the shore-facing rise while the
@@ -155,9 +157,7 @@ void MotuEvaluateOnshoreBreakerShape(
         * proximityDerivative;
     float cycle = frac(phase / TwoPi + 0.25);
     float cycleDerivative = 1.0 / max(wavelength, 1.0);
-    float leadingSlopeExcess = Pi
-        * max(1.0 / leadingFraction - 2.0, 0.0)
-        / max(wavelength, 1.0);
+    float breakingStrength = maximumSharpness * shoreProximity;
 
     [flatten]
     if (cycle < leadingFraction)
@@ -170,7 +170,7 @@ void MotuEvaluateOnshoreBreakerShape(
             / (leadingFraction * leadingFraction);
         height = -cos(angle);
         distanceDerivative = sin(angle) * angleDerivative;
-        breakerFoamSlope = leadingSlopeExcess
+        breakerFoam = breakingStrength
             * smoothstep(0.55, 0.88, leadingProgress);
         return;
     }
@@ -186,7 +186,7 @@ void MotuEvaluateOnshoreBreakerShape(
     distanceDerivative = -sin(rearAngle)
         * Pi
         * rearProgressDerivative;
-    breakerFoamSlope = leadingSlopeExcess
+    breakerFoam = breakingStrength
         * (1.0 - smoothstep(0.0, 0.12, rearProgress));
 }
 
@@ -194,9 +194,10 @@ void MotuAccumulateOnshoreWave(
     float2 onshoreDirection,
     float influence,
     float coastalCoordinate,
+    float waterDepth,
     inout float3 displacement,
     inout float2 heightDerivative,
-    out float breakerFoamSlope)
+    out float breakerFoam)
 {
     float wavelength = max(_OnshoreWaveParameters.x, 1.0);
     float amplitude = max(_OnshoreWaveParameters.y, 0.0)
@@ -205,11 +206,9 @@ void MotuAccumulateOnshoreWave(
     float choppiness = saturate(_OnshoreWaveParameters.w);
     float waveNumber = 6.28318530718 / wavelength;
 
-    // The composed attenuation is a continuous coast-relative coordinate:
-    // zero at the shore and one in open water. Treating its transition as a
-    // sixteen-metre band keeps the phase continuous as the direction bends
-    // around bays and headlands. Positive time travels towards coordinate 0.
-    float coastDistance = saturate(coastalCoordinate) * 16.0;
+    // Decode linear distance so wavelength stays in metres as the coastal band
+    // grows. Positive time travels towards coordinate 0 around bays/headlands.
+    float coastDistance = saturate(coastalCoordinate) * MotuSeaMaskLandDistanceMetres;
     float phase = coastDistance * waveNumber + _OnshoreWavePhase;
     float waveSin;
     float waveCos;
@@ -220,10 +219,14 @@ void MotuAccumulateOnshoreWave(
         phase,
         coastDistance,
         wavelength,
+        waterDepth,
         breakerHeight,
         breakerDistanceDerivative,
-        breakerFoamSlope);
-    breakerFoamSlope *= amplitude;
+        breakerFoam);
+    // Foam follows breaking and wetness, not the depth-limited wave height.
+    // Keep it on an existing incoming wave and fade the last film of water.
+    breakerFoam *= smoothstep(0.0, 0.1, amplitude)
+        * smoothstep(0.02, 0.15, waterDepth);
     float waveSinDouble = 2.0 * waveSin * waveCos;
     float waveCosDouble = waveCos * waveCos - waveSin * waveSin;
     float crestBias = choppiness * 0.22;
@@ -394,12 +397,12 @@ void MotuEvaluateOnshoreWaveField(
     out float3 displacement,
     out float2 heightDerivative,
     out float influence,
-    out float breakerFoamSlope)
+    out float breakerFoam)
 {
     displacement = 0.0;
     heightDerivative = 0.0;
     influence = 0.0;
-    breakerFoamSlope = 0.0;
+    breakerFoam = 0.0;
     [branch]
     if (_OnshoreWaveEnabled <= 0.0001)
     {
@@ -422,9 +425,10 @@ void MotuEvaluateOnshoreWaveField(
         onshoreDirection,
         influence,
         coastalCoordinate,
+        saturate(MotuOceanCoastalData(worldPosition).b) * MotuSeaMaskDepthMetres,
         displacement,
         heightDerivative,
-        breakerFoamSlope);
+        breakerFoam);
 }
 
 void MotuEvaluateOceanWaveDisplacement(
@@ -493,13 +497,13 @@ void MotuEvaluateOceanWaveNormal(
     float3 onshoreDisplacement;
     float2 onshoreHeightDerivative;
     float onshoreInfluence;
-    float breakerFoamSlope;
+    float breakerFoam;
     MotuEvaluateOnshoreWaveField(
         worldPosition,
         onshoreDisplacement,
         onshoreHeightDerivative,
         onshoreInfluence,
-        breakerFoamSlope);
+        breakerFoam);
     float surfaceWaveAllowance = max(normalAttenuation, onshoreInfluence);
     [branch]
     if (surfaceWaveAllowance <= 0.0001)
@@ -572,14 +576,7 @@ void MotuEvaluateOceanWaveNormal(
     float ordinaryWhitecap = crest
         * slopeWeight
         * brokenPatches;
-    float breakerSlope = breakerFoamSlope
-        * geometricWaveWeight
-        * depthWaveScale;
-    float breakerWhitecap = smoothstep(
-        slopeThreshold * 0.5,
-        slopeThreshold + 0.65,
-        breakerSlope)
-        * brokenPatches;
+    float breakerWhitecap = breakerFoam * geometricWaveWeight * brokenPatches;
     whitecap = max(ordinaryWhitecap, breakerWhitecap)
         * max(_WhitecapStrength, 0.0);
 }

@@ -27,6 +27,7 @@ Shader "Hidden/Motu/Ocean Wave Attenuation"
             #pragma target 3.5
 
             #include "UnityCG.cginc"
+            #include "SeaMaskCommon.cginc"
 
             sampler2D _SeaMask;
             float4x4 _IslandWorldToLocal;
@@ -53,13 +54,15 @@ Shader "Hidden/Motu/Ocean Wave Attenuation"
                     saturate(1.0h - seaMask.r),
                     max(_DepthAllowancePower, 0.001));
                 half distanceAllowance = pow(
-                    saturate(seaMask.g),
+                    saturate(seaMask.g * MotuSeaMaskLandDistanceMetres
+                        / MotuOceanAttenuationDistanceMetres),
                     max(_DistanceAllowancePower, 0.001));
                 half riverCarveAllowance = saturate(1.0h - seaMask.b);
                 half allowance = min(depthAllowance, distanceAllowance)
                     * riverCarveAllowance;
-                half onshoreGuide = 0.5h
-                    * (depthAllowance + distanceAllowance);
+                // Preserve linear metres for shore direction and phase. The
+                // authored attenuation powers only shape ordinary wave strength.
+                half onshoreGuide = seaMask.g;
                 return fixed4(
                     allowance,
                     saturate(onshoreGuide),

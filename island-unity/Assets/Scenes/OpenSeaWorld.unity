@@ -392,6 +392,7 @@ GameObject:
   m_Component:
   - component: {fileID: 2028956460}
   - component: {fileID: 2028956458}
+  - component: {fileID: 2028956462}
   - component: {fileID: 2028956461}
   m_Layer: 0
   m_Name: Open Sea World
@@ -424,7 +425,7 @@ MonoBehaviour:
     seaLevelMetres: 0
     seaMaterial: {fileID: 2100000, guid: f7e64c96dada84bf1bae7f46e0e94f50, type: 2}
     weatherNoise: {fileID: 0}
-    oceanWaveProfile: {fileID: 0}
+    oceanWaveProfile: {fileID: 11400000, guid: 904c303795957457da652489a9ea9800, type: 2}
     windDirection: {x: 1, y: 0.25}
     windSpeedMetresPerSecond: 9
     vegetationWindStrengthMetres: 0.07
@@ -467,6 +468,7 @@ MonoBehaviour:
     ambientShadowStrength: 0.12
     celestialObscurationStrength: 1
     lowElevationShadowFade: 0.09
+  weatherDriver: {fileID: 2028956462}
   discoveryRadiusMetres: 6000
   generationRadiusMetres: 3000
   discoveryRefreshSeconds: 0.5
@@ -584,6 +586,19 @@ MonoBehaviour:
   earthB: {r: 0.745283, g: 0.4363216, b: 0.1511659, a: 0}
   stoneA: {r: 0.6226415, g: 0.5154188, b: 0.31425774, a: 0}
   stoneB: {r: 0.374466, g: 0.45895195, b: 0.5188679, a: 0}
+--- !u!114 &2028956462
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2028956457}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 66925f8c6b3ae40a690be1d03ec7fca0, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::CoherentWeatherDriver
+  seed: 42
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0

@@ -363,7 +363,7 @@ public sealed partial class WorldEnvironmentController
             weather.ReedWindStrengthMultiplier,
             weather.FernWindStrengthMultiplier);
         ApplyWeatherWindOffset(windTravelOffset);
-        ocean?.ApplyWeatherWind(weather.WindDirection, waveHeightScale);
+        ocean?.ApplyWeatherWindScale(waveHeightScale);
     }
 
     private void UpdateSolarLighting(float deltaTime)

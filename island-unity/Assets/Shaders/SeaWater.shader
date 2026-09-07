@@ -53,7 +53,7 @@ Shader "Motu/Sea Water"
         [HideInInspector] _WhitecapCounterflowSpeed ("Whitecap Counterflow Speed", Range(0, 2)) = 0.65
         [HideInInspector] _OnshoreWaveEnabled ("Onshore Wave Enabled", Float) = 1
         [HideInInspector] _OnshoreWaveParameters ("Onshore Wave Parameters", Vector) = (12, 0.16, 2.2, 0.18)
-        [HideInInspector] _OnshoreWaveBreaking ("Onshore Wave Breaking", Vector) = (0.95, 12, 0, 0)
+        [HideInInspector] _OnshoreWaveBreaking ("Onshore Wave Breaking", Vector) = (0.95, 96, 5, 3.5)
     }
 
     SubShader

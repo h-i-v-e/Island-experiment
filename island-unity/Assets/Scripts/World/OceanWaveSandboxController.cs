@@ -235,7 +235,7 @@ public sealed class OceanWaveSandboxController : MonoBehaviour
             weather.ReedWindStrengthMultiplier,
             weather.FernWindStrengthMultiplier);
         WorldEnvironmentController.ApplyWeatherWindOffset(windTravelOffset);
-        ocean?.ApplyWeatherWind(weather.WindDirection, waveScale);
+        ocean?.ApplyWeatherWindScale(waveScale);
     }
 
     private void SetCursorCaptured(bool captured)

@@ -125,6 +125,19 @@ public sealed class FirstPersonController : MonoBehaviour
         worldSurface = value;
     }
 
+    public void Teleport(Vector3 worldPosition)
+    {
+        if (worldSurface == null)
+            return;
+        var releaseCursor = !IsActive || IsCursorReleased;
+        var heading = transform.eulerAngles;
+        // Fly mode safely follows sea level until an unloaded island is ready.
+        BeginFlying(worldPosition, heading.y, NormalizePitch(heading.x));
+        orbitCamera.SetTarget(worldPosition);
+        IsCursorReleased = releaseCursor;
+        ApplyCursorState();
+    }
+
     public void SetWorldSurface(IWorldSurfaceQuery value)
     {
         worldSurface = value;
@@ -170,6 +183,8 @@ public sealed class FirstPersonController : MonoBehaviour
         worldSurface?.PrepareStreamingAt(transform.position);
         if (IsCursorReleased)
         {
+            if (IsFlyMode)
+                FollowFlySurface(Time.deltaTime);
             return;
         }
 

@@ -35,7 +35,7 @@ public static class OceanWaveTransitionValidation
             weather.AmplitudeVariation = 0f;
             weather.OnshoreWaveSpeedMetresPerSecond = 0f;
             ocean.ApplyWaveWeather(weather);
-            ocean.ApplyWeatherWind(Vector2.right, 1f);
+            ocean.ApplyWeatherWindScale(1f);
             Advance(ocean, 0f);
             var mesh = ocean.SurfaceMesh;
             var origins = new[] { Vector2.zero, new Vector2(10000, -20000), new Vector2(1000000, 1000000) };
@@ -43,11 +43,20 @@ public static class OceanWaveTransitionValidation
             for (var index = 0; index < origins.Length; index++)
                 baseline[index] = Render(probe, material, origins[index]);
 
-            ocean.ApplyWeatherWind(Vector2.up, 1f);
+            // Wind direction alone must not rotate any wave bank or GPU field.
+            Shader.SetGlobalVector("_MotuWeatherWind", new Vector4(0, 1, 9, 1));
+            Advance(ocean, 4f);
+            for (var index = 0; index < origins.Length; index++)
+                Require(MaxDifference(baseline[index], Render(probe, material, origins[index])) < .00001f,
+                    "Wind direction rotated the wave field.");
+            Require(material.GetFloat("_OceanWaveTransition") == 0f,
+                "Wind direction started an unwanted wave transition.");
+            weather.Wave0.Direction = Vector2.up;
+            ocean.ApplyWaveWeather(weather);
             Advance(ocean, 0f);
             for (var index = 0; index < origins.Length; index++)
                 Require(MaxDifference(baseline[index], Render(probe, material, origins[index])) < 0.00001f,
-                    "Changing wind direction jumped the wave field before its transition.");
+                    "Changing a scripted wave direction jumped the field before its transition.");
             var outgoing = material.GetVector("_OceanWaveFrom0");
             var incoming = material.GetVector("_OceanWaveTo0");
             Require(outgoing.x == 1f && outgoing.y == 0f && incoming.x == 0f && incoming.y == 1f,
@@ -70,12 +79,13 @@ public static class OceanWaveTransitionValidation
                     var heightChange = Mathf.Abs(actual[pixel].r - baseline[index][pixel].r);
                     greatestHeightChange = Mathf.Max(greatestHeightChange, heightChange);
                     Require(heightChange <= 2f * blend + .0001f,
-                        "Wind-change movement grew beyond the amplitude-based bound with distance.");
+                        "Wave direction changes grew beyond the amplitude-based bound with distance.");
                 }
             }
 
             var beforeRetarget = Render(probe, material, origins[2]);
-            ocean.ApplyWeatherWind(Vector2.left, 1f);
+            weather.Wave0.Direction = Vector2.left;
+            ocean.ApplyWaveWeather(weather);
             Advance(ocean, 0f);
             Require(material.GetVector("_OceanWaveFrom0") == outgoing
                 && material.GetVector("_OceanWaveTo0") == incoming
@@ -103,7 +113,7 @@ public static class OceanWaveTransitionValidation
             weather.OnshoreWaveSpeedMetresPerSecond = 9f;
             weather.WhitecapCounterflowSpeed = 1.5f;
             ocean.ApplyWaveWeather(weather);
-            ocean.ApplyWeatherWind(Vector2.left, 2f);
+            ocean.ApplyWeatherWindScale(2f);
             Advance(ocean, 0f);
             Require(material.GetVector("_OceanWaveFrom0").w == phase
                 && material.GetFloat("_OnshoreWavePhase") == shorePhase
@@ -121,7 +131,7 @@ public static class OceanWaveTransitionValidation
                 && Mathf.Abs(newFoam.z - foam.z - 5.25f) < .01f,
                 "Foam advection did not integrate speed and counterflow continuously.");
             var stoppedPhase = material.GetVector("_OceanWaveFrom0").w;
-            ocean.ApplyWeatherWind(Vector2.left, 0f);
+            ocean.ApplyWeatherWindScale(0f);
             Advance(ocean, 5f);
             Require(material.GetVector("_OceanWaveFrom0").w == stoppedPhase,
                 "Calm weather must stop wave travel without resetting phase.");

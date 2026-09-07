@@ -4,7 +4,7 @@ using UnityEngine;
 [Serializable]
 public struct OceanWaveComponent
 {
-    [Tooltip("Direction relative to wave 0. At runtime the whole spectrum rotates so wave 0 follows the global wind.")]
+    [Tooltip("Independent world X/Z wave direction. Global wind direction does not rotate this wave.")]
     [SerializeField] private Vector2 direction;
     [Tooltip("Distance between crests. Larger values make broader ocean swell.")]
     [Min(0.25f)] [SerializeField] private float wavelengthMetres;
@@ -96,6 +96,8 @@ public readonly struct OceanWaveRuntimeSettings
     public readonly float OnshoreWaveChoppiness;
     public readonly float OnshoreWaveLeadingEdgeSharpness;
     public readonly float OnshoreWaveSharpeningDistanceMetres;
+    public readonly float OnshoreWaveBreakingStartDepthMetres;
+    public readonly float OnshoreWaveBreakingFullDepthMetres;
     public readonly OceanWaveComponent Wave0;
     public readonly OceanWaveComponent Wave1;
     public readonly OceanWaveComponent Wave2;
@@ -154,7 +156,9 @@ public readonly struct OceanWaveRuntimeSettings
         OceanWaveComponent wave0,
         OceanWaveComponent wave1,
         OceanWaveComponent wave2,
-        OceanWaveComponent wave3)
+        OceanWaveComponent wave3,
+        float onshoreWaveBreakingStartDepthMetres = 5f,
+        float onshoreWaveBreakingFullDepthMetres = 3.5f)
     {
         Enabled = enabled;
         FineVertexSpacingMetres = Mathf.Clamp(fineVertexSpacingMetres, 0.5f, 16f);
@@ -198,10 +202,7 @@ public readonly struct OceanWaveRuntimeSettings
             onshoreWaveWavelengthMetres,
             1f,
             100f);
-        OnshoreWaveAmplitudeMetres = Mathf.Clamp(
-            onshoreWaveAmplitudeMetres,
-            0f,
-            4f);
+        OnshoreWaveAmplitudeMetres = Mathf.Max(onshoreWaveAmplitudeMetres, 0f);
         OnshoreWaveSpeedMetresPerSecond = Mathf.Clamp(
             onshoreWaveSpeedMetresPerSecond,
             0f,
@@ -212,7 +213,10 @@ public readonly struct OceanWaveRuntimeSettings
         OnshoreWaveSharpeningDistanceMetres = Mathf.Clamp(
             onshoreWaveSharpeningDistanceMetres,
             0.25f,
-            16f);
+            128f);
+        OnshoreWaveBreakingStartDepthMetres = Mathf.Clamp(onshoreWaveBreakingStartDepthMetres, 0.01f, 5f);
+        OnshoreWaveBreakingFullDepthMetres = Mathf.Clamp(onshoreWaveBreakingFullDepthMetres,
+            0f, OnshoreWaveBreakingStartDepthMetres - 0.01f);
         Wave0 = wave0;
         Wave1 = wave1;
         Wave2 = wave2;
@@ -242,6 +246,8 @@ public readonly struct OceanWaveRuntimeSettings
         OnshoreWaveChoppiness = OnshoreWaveChoppiness,
         OnshoreWaveLeadingEdgeSharpness = OnshoreWaveLeadingEdgeSharpness,
         OnshoreWaveSharpeningDistanceMetres = OnshoreWaveSharpeningDistanceMetres,
+        OnshoreWaveBreakingStartDepthMetres = OnshoreWaveBreakingStartDepthMetres,
+        OnshoreWaveBreakingFullDepthMetres = OnshoreWaveBreakingFullDepthMetres,
         Wave0 = Wave0,
         Wave1 = Wave1,
         Wave2 = Wave2,
@@ -285,7 +291,9 @@ public readonly struct OceanWaveRuntimeSettings
             weather.Wave0,
             weather.Wave1,
             weather.Wave2,
-            weather.Wave3);
+            weather.Wave3,
+            weather.OnshoreWaveBreakingStartDepthMetres,
+            weather.OnshoreWaveBreakingFullDepthMetres);
         // Include the maximum weather scale (2.5) and bounds size conversion.
         // Finite inputs can still overflow when their displacements are added.
         WeatherValueValidation.RequireFinite(
@@ -324,7 +332,7 @@ public readonly struct OceanWaveRuntimeSettings
         2.2f,
         0.18f,
         0.95f,
-        12f,
+        96f,
         new OceanWaveComponent(new Vector2(1f, 0.18f), 30f, 0.34f, 3.6f),
         new OceanWaveComponent(new Vector2(0.32f, 1f), 15f, 0.18f, 2.8f),
         new OceanWaveComponent(new Vector2(-0.82f, 0.55f), 7.5f, 0.09f, 2.1f),
@@ -393,20 +401,25 @@ public sealed class OceanWaveProfile : ScriptableObject
     [Range(0f, 2f)] [SerializeField] private float whitecapCounterflowSpeed = 0.65f;
 
     [Header("Onshore Wave")]
-    [Tooltip("Add a shoreline wave guided by the average of water depth and distance to shore.")]
+    [Tooltip("Add an incoming wave guided by distance to shore across the 128-metre coastal band.")]
     [SerializeField] private bool onshoreWaveEnabled = true;
-    [Tooltip("Crest spacing of the depth-guided onshore wave.")]
+    [Tooltip("Crest spacing of the onshore wave.")]
     [Range(1f, 100f)] [SerializeField] private float onshoreWaveWavelengthMetres = 12f;
-    [Tooltip("Maximum height contribution inside the averaged depth-and-distance coastal band.")]
-    [Range(0f, 4f)] [SerializeField] private float onshoreWaveAmplitudeMetres = 0.16f;
-    [Tooltip("Speed at which the depth-guided wave approaches the coast.")]
+    [Tooltip("Maximum height contribution inside the coastal band.")]
+    [Min(0f)] [SerializeField] private float onshoreWaveAmplitudeMetres = 0.16f;
+    [Tooltip("Speed at which the onshore wave approaches the coast.")]
     [Range(0f, 20f)] [SerializeField] private float onshoreWaveSpeedMetresPerSecond = 2.2f;
-    [Tooltip("Crest sharpening and horizontal displacement of the depth-guided wave.")]
+    [Tooltip("Crest sharpening and horizontal displacement of the onshore wave.")]
     [Range(0f, 1f)] [SerializeField] private float onshoreWaveChoppiness = 0.18f;
-    [Tooltip("Compress only the shore-facing rise of each incoming wave as it approaches land. One produces a near-vertical leading face while preserving a rounded rear face.")]
+    [Tooltip("Compress the shore-facing rise over the configured breaking-depth range. One produces a near-vertical leading face while preserving a rounded rear face.")]
     [Range(0f, 1f)] [SerializeField] private float onshoreWaveLeadingEdgeSharpness = 0.95f;
-    [Tooltip("Distance from shore over which leading-edge sharpening grows from zero to its configured maximum.")]
-    [Range(0.25f, 16f)] [SerializeField] private float onshoreWaveSharpeningDistanceMetres = 12f;
+    [Tooltip("Maximum distance from shore where depth-driven breaking can form, with a fade over the outer 20 percent. Actual depth controls sharpening and foam inside this band.")]
+    [Range(0.25f, 128f)] [SerializeField] private float onshoreWaveSharpeningDistanceMetres = 96f;
+
+    [Tooltip("Water depth where the face starts sharpening and making breaker foam. The depth map covers up to 5 metres.")]
+    [Range(0.01f, 5f)] [SerializeField] private float onshoreWaveBreakingStartDepthMetres = 5f;
+    [Tooltip("Water depth where sharpening and breaker foam reach full strength. Raise this to make waves break while they are taller. Must be shallower than the start depth.")]
+    [Range(0f, 5f)] [SerializeField] private float onshoreWaveBreakingFullDepthMetres = 3.5f;
 
     [Header("Directional Waves")]
     [Tooltip("Primary broad swell. This should normally have the longest wavelength and largest amplitude.")]
@@ -457,11 +470,16 @@ public sealed class OceanWaveProfile : ScriptableObject
             wave0,
             wave1,
             wave2,
-            wave3);
+            wave3,
+            onshoreWaveBreakingStartDepthMetres,
+            onshoreWaveBreakingFullDepthMetres);
     }
 
     private void OnValidate()
     {
+        onshoreWaveBreakingStartDepthMetres = Mathf.Clamp(onshoreWaveBreakingStartDepthMetres, 0.01f, 5f);
+        onshoreWaveBreakingFullDepthMetres = Mathf.Clamp(onshoreWaveBreakingFullDepthMetres,
+            0f, onshoreWaveBreakingStartDepthMetres - 0.01f);
         fineVertexSpacingMetres = Mathf.Clamp(fineVertexSpacingMetres, 0.5f, 16f);
         fineRadiusMetres = Mathf.Max(
             fineRadiusMetres,

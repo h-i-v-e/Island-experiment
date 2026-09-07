@@ -3,6 +3,7 @@ Shader "Hidden/Motu/Ocean Onshore Direction"
     Properties
     {
         [NoScaleOffset] _MainTex ("Wave Attenuation", 2D) = "white" {}
+        [HideInInspector] _CompositionWorldRect ("Composition World Rect", Vector) = (0, 0, 1024, 1024)
     }
 
     SubShader
@@ -20,9 +21,11 @@ Shader "Hidden/Motu/Ocean Onshore Direction"
             #pragma target 3.5
 
             #include "UnityCG.cginc"
+            #include "SeaMaskCommon.cginc"
 
             sampler2D _MainTex;
             float4 _MainTex_TexelSize;
+            float4 _CompositionWorldRect;
 
             fixed4 Fragment(v2f_img input) : SV_Target
             {
@@ -35,20 +38,25 @@ Shader "Hidden/Motu/Ocean Onshore Direction"
                 float down = tex2D(_MainTex, input.uv - texelY).g;
                 float up = tex2D(_MainTex, input.uv + texelY).g;
 
-                // The guide averages depth allowance and distance-to-shore;
-                // its negative gradient points towards shallower coastal water.
-                float2 offshoreGradient = float2(right - left, up - down);
+                // Convert the normalized distance differences into metres per
+                // world metre, so range and texture resolution do not weaken waves.
+                float2 sampleSpanMetres = max(
+                    2.0 * abs(_MainTex_TexelSize.xy) * _CompositionWorldRect.zw,
+                    float2(0.001, 0.001));
+                float2 offshoreGradient = float2(right - left, up - down)
+                    * MotuSeaMaskLandDistanceMetres / sampleSpanMetres;
                 float gradientLength = length(offshoreGradient);
                 float2 onshoreDirection = gradientLength > 1.0e-5
                     ? -offshoreGradient / gradientLength
                     : float2(0.0, 0.0);
 
-                // Begin beyond the old depth-only band, then fade out again
-                // immediately before the surface becomes fully flat.
-                float coastalBand = smoothstep(0.02, 0.16, centre)
-                    * (1.0 - smoothstep(0.72, 0.98, centre));
+                // Fade in offshore from 128 to 96 m, then soften the last 16 m
+                // approaching land.
+                float coastDistance = centre * MotuSeaMaskLandDistanceMetres;
+                float coastalBand = smoothstep(2.0, 16.0, coastDistance)
+                    * (1.0 - smoothstep(96.0, MotuSeaMaskLandDistanceMetres, coastDistance));
                 float influence = coastalBand
-                    * saturate(gradientLength * 24.0)
+                    * saturate(gradientLength)
                     * smoothstep(0.15, 0.85, riverAllowance);
                 return fixed4(
                     onshoreDirection * 0.5 + 0.5,

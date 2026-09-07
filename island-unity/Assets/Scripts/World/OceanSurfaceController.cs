@@ -151,6 +151,7 @@ public sealed partial class OceanSurfaceController : MonoBehaviour
 
     public void ApplyWeatherWindScale(float waveHeightScale)
     {
+        WeatherValueValidation.RequireFinite(waveHeightScale, nameof(waveHeightScale));
         waveHeightScale = Mathf.Clamp(waveHeightScale, 0f, 2.5f);
         if (Mathf.Approximately(weatherWaveScale, waveHeightScale))
         {
@@ -172,6 +173,8 @@ public sealed partial class OceanSurfaceController : MonoBehaviour
         }
 
         ConfigureWaveMaterial();
+        // Seed the initial script-provided directions before the first frame.
+        if (!waveAnimationStarted) ResetWaveAnimation();
         UpdateSurfaceMeshBounds();
         // Height/shape updates retain the existing mesh and coastal textures.
         // Only changes to the attenuation curves require recomposing the mask.
@@ -342,8 +345,8 @@ public sealed partial class OceanSurfaceController : MonoBehaviour
         surfaceMaterial.SetVector(OnshoreWaveBreakingId, new Vector4(
             waveSettings.OnshoreWaveLeadingEdgeSharpness,
             waveSettings.OnshoreWaveSharpeningDistanceMetres,
-            0f,
-            0f));
+            waveSettings.OnshoreWaveBreakingStartDepthMetres,
+            waveSettings.OnshoreWaveBreakingFullDepthMetres));
     }
 
     private static Vector4 WaveVector(OceanWaveComponent wave)

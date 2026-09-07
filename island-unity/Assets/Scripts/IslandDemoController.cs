@@ -9,7 +9,7 @@ public sealed class IslandDemoController : MonoBehaviour
     private const float MinimapCellPixels = 7f;
     private const float MinimapTexturePixels = MinimapDiameterCells * MinimapCellPixels;
     private const float MinimapPanelWidth = MinimapTexturePixels + 20f;
-    private const float MinimapPanelHeight = MinimapTexturePixels + 54f;
+    private const float MinimapPanelHeight = MinimapTexturePixels + 74f;
     private static readonly Rect PanelRect = new Rect(16f, 16f, 600f, 250f);
     private static readonly Color32 MinimapSeaColour = new Color32(18, 63, 105, 255);
     private static readonly Color32 MinimapIslandColour = new Color32(79, 139, 61, 255);
@@ -37,6 +37,10 @@ public sealed class IslandDemoController : MonoBehaviour
     private IIslandGenerationRequestFactory minimapFactory;
     private Vector2Int minimapCentreCell;
     private bool hasMinimapCentre;
+    private bool minimapClickCandidate;
+    private bool minimapClickDragged;
+    private Vector2 minimapClickStart;
+    private Vector2Int minimapClickCell;
 
     public bool ShowMinimap
     {
@@ -104,6 +108,20 @@ public sealed class IslandDemoController : MonoBehaviour
     {
         UpdateFrameRate();
         UpdateMinimap();
+        var mousePosition = Input.mousePosition;
+        var guiPosition = new Vector2(mousePosition.x, Screen.height - mousePosition.y);
+        var cursorAvailable = Cursor.lockState != CursorLockMode.Locked;
+        if (orbitCamera != null)
+        {
+            orbitCamera.PointerInputBlocked = cursorAvailable
+                && (minimapClickCandidate || IsOverMinimap(guiPosition));
+        }
+        if (HandleMinimapPointer(guiPosition, Input.GetMouseButtonDown(0),
+            Input.GetMouseButtonUp(0), cursorAvailable))
+        {
+            clickCandidate = false;
+            return;
+        }
         var island = worldManager.FocusedIsland;
         if (firstPersonController == null
             || firstPersonController.IsActive
@@ -116,8 +134,7 @@ public sealed class IslandDemoController : MonoBehaviour
         if (Input.GetMouseButtonDown(0))
         {
             clickStart = Input.mousePosition;
-            var guiPosition = new Vector2(clickStart.x, Screen.height - clickStart.y);
-            clickCandidate = !PanelRect.Contains(guiPosition);
+            clickCandidate = !PanelRect.Contains(guiPosition) && !IsOverMinimap(guiPosition);
         }
         if (!Input.GetMouseButtonUp(0) || !clickCandidate)
         {
@@ -126,7 +143,8 @@ public sealed class IslandDemoController : MonoBehaviour
 
         clickCandidate = false;
         var releasedAt = (Vector2)Input.mousePosition;
-        if ((releasedAt - clickStart).sqrMagnitude
+        if (IsOverMinimap(guiPosition) || PanelRect.Contains(guiPosition)
+            || (releasedAt - clickStart).sqrMagnitude
             > ClickDragTolerance * ClickDragTolerance)
         {
             return;
@@ -275,26 +293,93 @@ public sealed class IslandDemoController : MonoBehaviour
             return default;
         }
 
-        var panel = new Rect(
-            Mathf.Max(8f, Screen.width - MinimapPanelWidth - 16f),
-            16f,
-            MinimapPanelWidth,
-            MinimapPanelHeight);
+        var panel = MinimapPanelRect();
         GUI.Box(panel, GUIContent.none);
         GUI.Label(
             new Rect(panel.x + 10f, panel.y + 5f, panel.width - 20f, 20f),
             $"Island map ±16 cells | centre {minimapCentreCell.x}, {minimapCentreCell.y}");
-        var map = new Rect(
-            panel.x + 10f,
-            panel.y + 26f,
-            MinimapTexturePixels,
-            MinimapTexturePixels);
+        var map = MinimapMapRect();
         GUI.DrawTexture(map, minimapTexture, ScaleMode.StretchToFill, false);
         DrawMinimapCentre(map);
         GUI.Label(
             new Rect(panel.x + 10f, map.yMax + 3f, panel.width - 20f, 20f),
             "N ↑    green: island    blue: open sea");
+        GUI.Label(
+            new Rect(panel.x + 10f, map.yMax + 23f, panel.width - 20f, 20f),
+            Cursor.lockState == CursorLockMode.Locked
+                ? "Tab: release cursor to teleport"
+                : "Click a square: teleport (fly mode)");
         return panel;
+    }
+
+    private static Rect MinimapPanelRect()
+    {
+        return new Rect(Mathf.Max(8f, Screen.width - MinimapPanelWidth - 16f),
+            16f, MinimapPanelWidth, MinimapPanelHeight);
+    }
+
+    private static Rect MinimapMapRect()
+    {
+        var panel = MinimapPanelRect();
+        return new Rect(panel.x + 10f, panel.y + 26f, MinimapTexturePixels, MinimapTexturePixels);
+    }
+
+    private bool IsOverMinimap(Vector2 guiPosition)
+    {
+        return showMinimap && minimapTexture != null && hasMinimapCentre
+            && MinimapPanelRect().Contains(guiPosition);
+    }
+
+    private bool TryGetMinimapCell(Vector2 guiPosition, out Vector2Int cell)
+    {
+        cell = default;
+        var map = MinimapMapRect();
+        if (!IsOverMinimap(guiPosition) || !map.Contains(guiPosition))
+            return false;
+        var column = Mathf.FloorToInt((guiPosition.x - map.x) / MinimapCellPixels);
+        var row = Mathf.FloorToInt((guiPosition.y - map.y) / MinimapCellPixels);
+        // GUI Y points down; the texture's positive world Z points north/up.
+        cell = minimapCentreCell + new Vector2Int(
+            column - MinimapRadiusCells, MinimapRadiusCells - row);
+        return true;
+    }
+
+    private bool HandleMinimapPointer(Vector2 position, bool pressed, bool released, bool cursorAvailable)
+    {
+        if (!cursorAvailable || firstPersonController == null)
+        {
+            minimapClickCandidate = false;
+            return false;
+        }
+        if (pressed)
+        {
+            minimapClickCandidate = TryGetMinimapCell(position, out minimapClickCell);
+            minimapClickDragged = false;
+            minimapClickStart = position;
+        }
+        if (!minimapClickCandidate)
+            return false;
+        minimapClickDragged |= (position - minimapClickStart).sqrMagnitude
+            > ClickDragTolerance * ClickDragTolerance;
+        if (released)
+        {
+            minimapClickCandidate = false;
+            if (!minimapClickDragged
+                && TryGetMinimapCell(position, out var cell) && cell == minimapClickCell)
+            {
+                firstPersonController.Teleport(IslandWorldManager.CellCentre(cell));
+                UpdateMinimap();
+            }
+        }
+        return true;
+    }
+
+    private void OnDisable()
+    {
+        minimapClickCandidate = false;
+        clickCandidate = false;
+        if (orbitCamera != null)
+            orbitCamera.PointerInputBlocked = false;
     }
 
     private static void DrawMinimapCentre(Rect map)

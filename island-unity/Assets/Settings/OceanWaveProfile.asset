@@ -35,33 +35,35 @@ MonoBehaviour:
   whitecapFineNoiseScale: 0.32
   whitecapCounterflowSpeed: 0.65
   onshoreWaveEnabled: 1
-  onshoreWaveWavelengthMetres: 12
+  onshoreWaveWavelengthMetres: 24
   onshoreWaveAmplitudeMetres: 1
   onshoreWaveSpeedMetresPerSecond: 2.2
   onshoreWaveChoppiness: 1
   onshoreWaveLeadingEdgeSharpness: 0.95
-  onshoreWaveSharpeningDistanceMetres: 16
+  onshoreWaveSharpeningDistanceMetres: 96
+  onshoreWaveBreakingStartDepthMetres: 5
+  onshoreWaveBreakingFullDepthMetres: 3.5
   wave0:
     direction: {x: 1, y: 0.18}
-    wavelengthMetres: 30
+    wavelengthMetres: 32
     amplitudeMetres: 0.34
     speedMetresPerSecond: 3.6
     choppiness: 0
   wave1:
     direction: {x: 0.32, y: 1}
-    wavelengthMetres: 15
+    wavelengthMetres: 24
     amplitudeMetres: 0.18
     speedMetresPerSecond: 2.8
     choppiness: 0
   wave2:
     direction: {x: -0.82, y: 0.55}
-    wavelengthMetres: 7.5
+    wavelengthMetres: 4
     amplitudeMetres: 0.09
     speedMetresPerSecond: 2.1
     choppiness: 0
   wave3:
     direction: {x: 0.58, y: -0.81}
-    wavelengthMetres: 4
+    wavelengthMetres: 3
     amplitudeMetres: 0.04
     speedMetresPerSecond: 1.5
     choppiness: 0

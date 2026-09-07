@@ -24,6 +24,8 @@ public struct OceanWaveWeatherSettings
     public float OnshoreWaveChoppiness;
     public float OnshoreWaveLeadingEdgeSharpness;
     public float OnshoreWaveSharpeningDistanceMetres;
+    public float OnshoreWaveBreakingStartDepthMetres;
+    public float OnshoreWaveBreakingFullDepthMetres;
     public OceanWaveComponent Wave0;
     public OceanWaveComponent Wave1;
     public OceanWaveComponent Wave2;
@@ -50,6 +52,8 @@ public struct OceanWaveWeatherSettings
         WeatherValueValidation.RequireFinite(OnshoreWaveChoppiness, nameof(OnshoreWaveChoppiness));
         WeatherValueValidation.RequireFinite(OnshoreWaveLeadingEdgeSharpness, nameof(OnshoreWaveLeadingEdgeSharpness));
         WeatherValueValidation.RequireFinite(OnshoreWaveSharpeningDistanceMetres, nameof(OnshoreWaveSharpeningDistanceMetres));
+        WeatherValueValidation.RequireFinite(OnshoreWaveBreakingStartDepthMetres, nameof(OnshoreWaveBreakingStartDepthMetres));
+        WeatherValueValidation.RequireFinite(OnshoreWaveBreakingFullDepthMetres, nameof(OnshoreWaveBreakingFullDepthMetres));
         Wave0.ValidateFinite(nameof(Wave0));
         Wave1.ValidateFinite(nameof(Wave1));
         Wave2.ValidateFinite(nameof(Wave2));

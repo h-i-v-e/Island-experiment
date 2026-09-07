@@ -12,6 +12,13 @@ public sealed class OrbitCamera : MonoBehaviour
     private float yaw = 35f;
     private float pitch = 42f;
 
+    public bool PointerInputBlocked { get; set; }
+
+    public void SetTarget(Vector3 worldPosition)
+    {
+        target = worldPosition;
+    }
+
     public void Configure(Vector3 initialTarget, float initialDistance)
     {
         target = initialTarget;
@@ -37,6 +44,11 @@ public sealed class OrbitCamera : MonoBehaviour
 
     private void LateUpdate()
     {
+        if (PointerInputBlocked)
+        {
+            ApplyTransform();
+            return;
+        }
         if (Input.GetMouseButton(0))
         {
             yaw += Input.GetAxis("Mouse X") * 4f;
