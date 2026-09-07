@@ -23,7 +23,7 @@ namespace Motu.Editor
                 environment.Initialize(authored, authoredClouds, 64f, 128f, null);
                 ValidateCloudWeather(environment, authoredClouds);
                 var ocean = root.GetComponent<OceanSurfaceController>();
-                var composer = root.GetComponent("OceanWaveMaskComposer");
+                var composer = root.GetComponent<OceanWaveMaskComposer>();
                 Invoke(composer, "LateUpdate");
                 var mesh = ocean.SurfaceMesh;
                 var vertices = mesh.vertexCount;

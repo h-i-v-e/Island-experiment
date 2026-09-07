@@ -19,10 +19,10 @@ namespace Motu.Editor
 
         public static void BatchValidateNativeInterop()
         {
-            //IslandGenerator.BatchValidateInitialSoil();
-            IslandGenerator.BatchValidateInitialSoilNative();
-            IslandGenerator.BatchValidateNativeInterop();
-            IslandGenerator.ValidateMaterialTextureCacheRoundTrip();
+            //IslandNativeValidation.BatchValidateInitialSoil();
+            IslandNativeValidation.BatchValidateInitialSoilNative();
+            IslandNativeValidation.BatchValidateNativeInterop();
+            IslandRenderingValidation.ValidateMaterialTextureCacheRoundTrip();
             ValidateFactorySettingsContract();
             ValidateWaterfallMistShader();
             ValidateFernShader();
@@ -31,7 +31,7 @@ namespace Motu.Editor
             ValidateSolarLightingCycle();
             ValidateOpenSeaEnvironmentAnchoring();
             ValidateOceanWaveSystem();
-            IslandWorldManager.ValidateRoutingPolicy();
+            WorldRoutingValidation.ValidateRoutingPolicy();
             IslandProjectSetup.ValidateMultiIslandSandbox();
             ValidateSandboxScene();
             ValidateRealtimeShadowRender();
@@ -41,7 +41,7 @@ namespace Motu.Editor
         public static void BatchValidateIslandWorldArchitecture()
         {
             ValidateFactorySettingsContract();
-            IslandWorldManager.ValidateRoutingPolicy();
+            WorldRoutingValidation.ValidateRoutingPolicy();
             IslandProjectSetup.ValidateMultiIslandSandbox();
             ValidateSandboxScene();
             Debug.Log(

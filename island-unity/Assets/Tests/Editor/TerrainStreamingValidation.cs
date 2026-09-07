@@ -1,12 +1,13 @@
+using Motu.Streaming;
+using static Motu.Streaming.TerrainTileStreamer;
 using System;
 using UnityEngine;
 using Motu.Islands;
 
-namespace Motu.Streaming
+namespace Motu.Editor
 {
-    public sealed partial class TerrainTileStreamer
+    internal static class TerrainStreamingValidation
     {
-#if UNITY_EDITOR
         internal static void ValidateTerrainRenderBatching(Material material)
         {
             if (material == null)
@@ -119,36 +120,37 @@ namespace Motu.Streaming
             return mesh;
         }
 
-        internal void ValidateColliderStreaming(
+        internal static void ValidateColliderStreaming(
+            TerrainTileStreamer streamer,
             IslandPreparedColliderHeightMap preparedHeightMap,
             float terrainWorldSize)
         {
-            colliderHeightMap = preparedHeightMap;
-            worldSize = terrainWorldSize;
-            colliderRoot = new GameObject("Terrain collider streaming validation");
-            colliderRoot.transform.SetParent(transform, false);
+            streamer.colliderHeightMap = preparedHeightMap;
+            streamer.worldSize = terrainWorldSize;
+            streamer.colliderRoot = new GameObject("Terrain collider streaming validation");
+            streamer.colliderRoot.transform.SetParent(streamer.transform, false);
             try
             {
                 var firstCenter = new Vector2Int(31, 32);
-                UpdateColliderNeighborhood(firstCenter);
-                if (colliderTiles.Count != 9
-                    || !colliderTiles.TryGetValue(firstCenter, out var retainedCenter))
+                streamer.UpdateColliderNeighborhood(firstCenter);
+                if (streamer.colliderTiles.Count != 9
+                    || !streamer.colliderTiles.TryGetValue(firstCenter, out var retainedCenter))
                 {
                     throw new InvalidOperationException(
                         "The initial terrain-collider neighbourhood is incomplete.");
                 }
 
                 var nextCenter = new Vector2Int(32, 32);
-                requestedLod1 = nextCenter;
-                var transition = UpdateColliderNeighborhoodIncremental(nextCenter);
+                streamer.requestedLod1 = nextCenter;
+                var transition = streamer.UpdateColliderNeighborhoodIncremental(nextCenter);
                 while (transition.MoveNext())
                 {
                     // Editor validation drains the same incremental iterator that
                     // play mode advances one item per frame.
                 }
-                if (colliderTiles.Count != 9
-                    || !colliderTiles.ContainsKey(nextCenter)
-                    || !colliderTiles.TryGetValue(firstCenter, out var sharedTile)
+                if (streamer.colliderTiles.Count != 9
+                    || !streamer.colliderTiles.ContainsKey(nextCenter)
+                    || !streamer.colliderTiles.TryGetValue(firstCenter, out var sharedTile)
                     || !ReferenceEquals(retainedCenter, sharedTile))
                 {
                     throw new InvalidOperationException(
@@ -156,12 +158,12 @@ namespace Motu.Streaming
                 }
 
                 Physics.SyncTransforms();
-                var tileSize = worldSize / Lod1Resolution;
+                var tileSize = streamer.worldSize / Lod1Resolution;
                 var point = new Vector3(
-                    -worldSize * 0.5f + (nextCenter.x + 0.5f) * tileSize,
+                    -streamer.worldSize * 0.5f + (nextCenter.x + 0.5f) * tileSize,
                     0f,
-                    -worldSize * 0.5f + (nextCenter.y + 0.5f) * tileSize);
-                if (!TrySnapToCurrentCollider(point, out var hit))
+                    -streamer.worldSize * 0.5f + (nextCenter.y + 0.5f) * tileSize);
+                if (!streamer.TrySnapToCurrentCollider(point, out var hit))
                 {
                     throw new InvalidOperationException(
                         "The transitioned terrain-collider neighbourhood cannot be raycast.");
@@ -179,12 +181,11 @@ namespace Motu.Streaming
             }
             finally
             {
-                RemoveAllColliderTiles();
-                DestroyUnityObject(colliderRoot);
-                colliderRoot = null;
-                colliderHeightMap = null;
+                streamer.RemoveAllColliderTiles();
+                DestroyUnityObject(streamer.colliderRoot);
+                streamer.colliderRoot = null;
+                streamer.colliderHeightMap = null;
             }
         }
-#endif
     }
 }

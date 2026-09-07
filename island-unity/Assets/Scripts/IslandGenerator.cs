@@ -107,7 +107,7 @@ namespace Motu.Islands
         private Material coastalWaterMaterial;
         private GameObject coastalWaterObject;
         private Material meshEdgeMaterial;
-        private Material treeWoodMaterial;
+        internal Material treeWoodMaterial;
         private Material treeLod1WoodMaterial;
         private Texture2D treeBarkAlbedoTexture;
         private Texture2D treeBarkHeightTexture;
@@ -221,7 +221,7 @@ namespace Motu.Islands
             camera.backgroundColor = clearColour;
         }
 
-        private static void EnsureCameraDepthTexture(Camera camera)
+        internal static void EnsureCameraDepthTexture(Camera camera)
         {
             if (camera != null && !PlanarWaterReflection.IsReflectionCamera(camera))
             {

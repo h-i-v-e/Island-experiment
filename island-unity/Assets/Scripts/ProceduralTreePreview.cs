@@ -491,7 +491,10 @@ namespace Motu.Gameplay
             bool requireSharedVertices)
         {
             if (lod0.vertices.Length <= lod1.vertices.Length
-                || lod0.triangles.Length != lod1.triangles.Length * triangleMultiplier)
+                || (requireSharedVertices
+                    ? lod0.triangles.Length <= lod1.triangles.Length
+                        || lod0.triangles.Length >= lod1.triangles.Length * triangleMultiplier
+                    : lod0.triangles.Length != lod1.triangles.Length * triangleMultiplier))
             {
                 throw new InvalidOperationException($"The tree {label} LOD topology is invalid.");
             }

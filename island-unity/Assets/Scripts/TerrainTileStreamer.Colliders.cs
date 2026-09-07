@@ -8,7 +8,7 @@ namespace Motu.Streaming
 {
     public sealed partial class TerrainTileStreamer
     {
-        private void UpdateColliderNeighborhood(Vector2Int center)
+        internal void UpdateColliderNeighborhood(Vector2Int center)
         {
             var created = new List<KeyValuePair<Vector2Int, ColliderTile>>(9);
             try
@@ -80,7 +80,7 @@ namespace Motu.Streaming
             }
         }
 
-        private IEnumerator UpdateColliderNeighborhoodIncremental(Vector2Int center)
+        internal IEnumerator UpdateColliderNeighborhoodIncremental(Vector2Int center)
         {
             var desired = NeighbourKeys(center, Lod1Resolution);
             foreach (var key in desired)
@@ -122,7 +122,7 @@ namespace Motu.Streaming
             }
         }
 
-        private ColliderTile CreateColliderTile(Vector2Int key)
+        internal ColliderTile CreateColliderTile(Vector2Int key)
         {
             var terrainData = new TerrainData
             {
@@ -172,7 +172,7 @@ namespace Motu.Streaming
             }
         }
 
-        private void RemoveAllColliderTiles()
+        internal void RemoveAllColliderTiles()
         {
             foreach (var tile in colliderTiles.Values)
             {
@@ -182,7 +182,7 @@ namespace Motu.Streaming
             colliderTiles.Clear();
         }
 
-        private static void DestroyColliderTile(ColliderTile tile)
+        internal static void DestroyColliderTile(ColliderTile tile)
         {
             if (tile == null)
             {

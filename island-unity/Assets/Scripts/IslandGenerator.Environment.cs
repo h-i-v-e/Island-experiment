@@ -131,7 +131,7 @@ namespace Motu.Islands
             }
         }
 
-        private static Texture2D CreateCloudWeatherTexture(
+        internal static Texture2D CreateCloudWeatherTexture(
             byte[] rgba,
             int width,
             int height,

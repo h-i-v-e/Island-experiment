@@ -326,7 +326,7 @@ namespace Motu.Streaming
             return sides;
         }
 
-        private async Task<TileGroup> CreatePreparedGroupAsync(
+        internal async Task<TileGroup> CreatePreparedGroupAsync(
             int lod,
             Vector2Int parent,
             IslandPreparedMesh[] preparedMeshes,
@@ -375,7 +375,7 @@ namespace Motu.Streaming
             }
         }
 
-        private TileGroup CreateGroup(
+        internal TileGroup CreateGroup(
             int lod,
             Vector2Int parent,
             int parentResolution,
@@ -457,7 +457,7 @@ namespace Motu.Streaming
             renderer.SetPropertyBlock(lod0MaterialProperties);
         }
 
-        private void ConfigureTerrainBatch(TileGroup group, int lod)
+        internal void ConfigureTerrainBatch(TileGroup group, int lod)
         {
             if (group == null || lod == 0)
             {
@@ -530,7 +530,7 @@ namespace Motu.Streaming
             }
         }
 
-        private static void SetBatchedTileActive(
+        internal static void SetBatchedTileActive(
             TileGroup group,
             int tileIndex,
             bool active)
@@ -553,7 +553,7 @@ namespace Motu.Streaming
             }
         }
 
-        private static void RebuildTerrainBatchIfDirty(TileGroup group)
+        internal static void RebuildTerrainBatchIfDirty(TileGroup group)
         {
             if (group?.batchMesh == null || !group.batchDirty)
             {
@@ -678,7 +678,7 @@ namespace Motu.Streaming
                 <= grassBoundsRadius * grassBoundsRadius;
         }
 
-        private void SetGrassActive(Tile tile, bool active)
+        internal void SetGrassActive(Tile tile, bool active)
         {
             if (!active)
             {
@@ -698,7 +698,7 @@ namespace Motu.Streaming
             tile.grassObject.SetActive(true);
         }
 
-        private static void SetAllGrassInactive(TileGroup group)
+        internal static void SetAllGrassInactive(TileGroup group)
         {
             if (group == null)
             {
@@ -710,7 +710,7 @@ namespace Motu.Streaming
             }
         }
 
-        private TileGroup CreateRiverGroup(Vector2Int parent)
+        internal TileGroup CreateRiverGroup(Vector2Int parent)
         {
             return CreatePreparedFeatureGroup(
                 parent,
@@ -720,7 +720,7 @@ namespace Motu.Streaming
                 "River");
         }
 
-        private TileGroup CreateRiverRockGroup(Vector2Int parent)
+        internal TileGroup CreateRiverRockGroup(Vector2Int parent)
         {
             return CreatePreparedFeatureGroup(
                 parent,
@@ -730,7 +730,7 @@ namespace Motu.Streaming
                 "River rock");
         }
 
-        private static TileGroup CreatePreparedFeatureGroup(
+        internal static TileGroup CreatePreparedFeatureGroup(
             Vector2Int parent,
             IslandPreparedMesh[] preparedTiles,
             GameObject featureRoot,

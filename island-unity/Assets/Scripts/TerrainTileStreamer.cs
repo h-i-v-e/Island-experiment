@@ -52,7 +52,7 @@ namespace Motu.Streaming
         internal const int Lod1Resolution = Divisions * Divisions;
         internal const int ColliderSamplesPerTile = 129;
 
-        private sealed class Tile
+        internal sealed class Tile
         {
             internal readonly GameObject gameObject;
             internal readonly Mesh mesh;
@@ -68,7 +68,7 @@ namespace Motu.Streaming
             }
         }
 
-        private sealed class TileGroup
+        internal sealed class TileGroup
         {
             internal readonly GameObject root;
             internal readonly Tile[] tiles;
@@ -89,7 +89,7 @@ namespace Motu.Streaming
             }
         }
 
-        private sealed class ColliderTile
+        internal sealed class ColliderTile
         {
             internal readonly GameObject gameObject;
             internal readonly TerrainData terrainData;
@@ -106,23 +106,23 @@ namespace Motu.Streaming
             }
         }
 
-        private readonly Dictionary<Vector2Int, TileGroup> lod1Groups =
+        internal readonly Dictionary<Vector2Int, TileGroup> lod1Groups =
             new Dictionary<Vector2Int, TileGroup>();
-        private readonly Dictionary<Vector2Int, TileGroup> lod0Groups =
+        internal readonly Dictionary<Vector2Int, TileGroup> lod0Groups =
             new Dictionary<Vector2Int, TileGroup>();
-        private readonly Dictionary<Vector2Int, TileGroup> riverGroups =
+        internal readonly Dictionary<Vector2Int, TileGroup> riverGroups =
             new Dictionary<Vector2Int, TileGroup>();
-        private readonly Dictionary<Vector2Int, TileGroup> riverRockGroups =
+        internal readonly Dictionary<Vector2Int, TileGroup> riverRockGroups =
             new Dictionary<Vector2Int, TileGroup>();
-        private readonly Dictionary<Vector2Int, ColliderTile> colliderTiles =
+        internal readonly Dictionary<Vector2Int, ColliderTile> colliderTiles =
             new Dictionary<Vector2Int, ColliderTile>();
         private readonly List<Vector2Int> removalScratch = new List<Vector2Int>(9);
-        private readonly List<TileGroup> pendingTransitionGroups = new List<TileGroup>(9);
+        internal readonly List<TileGroup> pendingTransitionGroups = new List<TileGroup>(9);
 
         private IntPtr islandHandle;
-        private Material terrainMaterial;
-        private Material terrainLod1Material;
-        private Material terrainLod2Material;
+        internal Material terrainMaterial;
+        internal Material terrainLod1Material;
+        internal Material terrainLod2Material;
         private Material grassMaterial;
         private Material treeWoodMaterial;
         private Material treeLod1WoodMaterial;
@@ -133,20 +133,20 @@ namespace Motu.Streaming
         private MaterialPropertyBlock lod0MaterialProperties;
         private Material riverMaterial;
         private Material rockMaterial;
-        private Material meshEdgeMaterial;
+        internal Material meshEdgeMaterial;
         private IslandPreparedMesh[] preparedRiverTiles;
         private IslandPreparedMesh[] preparedRiverRockTiles;
-        private IslandPreparedColliderHeightMap colliderHeightMap;
-        private float worldSize;
+        internal IslandPreparedColliderHeightMap colliderHeightMap;
+        internal float worldSize;
         private float grassBoundsRadius;
         private Vector3 lastGrassPosition = new Vector3(float.PositiveInfinity, 0f, 0f);
         private bool grassTilesDirty;
         private bool grassVisible;
         private bool meshEdgesVisible;
-        private TileGroup lod2Group;
+        internal TileGroup lod2Group;
         private GameObject riverRoot;
         private GameObject riverRockRoot;
-        private GameObject colliderRoot;
+        internal GameObject colliderRoot;
         private WaterfallMistPool waterfallMistPool;
         private ForestTileStreamer forestStreamer;
         private ReedTileStreamer reedStreamer;
@@ -154,7 +154,7 @@ namespace Motu.Streaming
         private Vector2Int currentLod2 = InvalidCell;
         private Vector2Int currentLod1 = InvalidCell;
         private Vector2Int requestedLod2 = InvalidCell;
-        private Vector2Int requestedLod1 = InvalidCell;
+        internal Vector2Int requestedLod1 = InvalidCell;
         private Coroutine transitionCoroutine;
 
         public int BaseVertexCount { get; private set; }
@@ -763,7 +763,7 @@ namespace Motu.Streaming
             foreach (var group in lod0Groups.Values) DrawGroupEdges(group);
         }
 
-        private void DrawGroupEdges(TileGroup group)
+        internal void DrawGroupEdges(TileGroup group)
         {
             if (group?.root == null || !group.root.activeInHierarchy)
             {
@@ -861,7 +861,7 @@ namespace Motu.Streaming
             return distance >= 0f;
         }
 
-        private static void DestroyGroup(TileGroup group)
+        internal static void DestroyGroup(TileGroup group)
         {
             if (group == null)
             {
@@ -882,7 +882,7 @@ namespace Motu.Streaming
             }
         }
 
-        private static void DestroyUnityObject(UnityEngine.Object value)
+        internal static void DestroyUnityObject(UnityEngine.Object value)
         {
             if (value == null)
             {

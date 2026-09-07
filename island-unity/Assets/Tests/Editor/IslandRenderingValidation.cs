@@ -1,21 +1,24 @@
-#if UNITY_EDITOR
+using Motu.Islands;
+using static UnityEngine.Object;
+using static Motu.Islands.IslandGenerator;
+using static Motu.Editor.IslandRenderingValidation;
 using System;
 using UnityEngine;
 using UnityEngine.Rendering;
 using Motu.Rendering;
 using Motu.Streaming;
 
-namespace Motu.Islands
+namespace Motu.Editor
 {
-    public sealed partial class IslandGenerator
+    public static class IslandRenderingValidation
     {
         public static void ValidateMaterialTextureCacheRoundTrip()
         {
-            IslandMaterialTextureCache.ValidateRoundTrip();
+            MaterialCacheValidation.ValidateRoundTrip();
             ValidateRuntimeTreeBarkMaterialBinding();
         }
 
-        private static void ValidateTreeSurfaceShader(string shaderName, string label)
+        internal static void ValidateTreeSurfaceShader(string shaderName, string label)
         {
             var shader = Shader.Find(shaderName);
             if (shader == null
@@ -96,7 +99,7 @@ namespace Motu.Islands
                     material.SetFloat("_CullMode", (float)CullMode.Back);
                     lod0Material = new Material(material);
                     lod0Material.SetFloat("_CullMode", (float)CullMode.Off);
-                    ForestTileStreamer.ValidateLowPolyCanopyShadowProxy(
+                    ForestRenderingValidation.ValidateLowPolyCanopyShadowProxy(
                         material,
                         lod0Material);
                 }
@@ -170,7 +173,7 @@ namespace Motu.Islands
             }
         }
 
-        private static void ValidateDistantFoliageShader()
+        internal static void ValidateDistantFoliageShader()
         {
             var shader = Shader.Find("Motu/Tree Foliage Distant");
             if (shader == null
@@ -200,4 +203,3 @@ namespace Motu.Islands
         }
     }
 }
-#endif

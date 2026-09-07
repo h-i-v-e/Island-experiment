@@ -588,7 +588,7 @@ namespace Motu.Islands
             }
         }
 
-        private void CreateTreeBarkTextures(IslandPreparedMaterialTexture bark)
+        internal void CreateTreeBarkTextures(IslandPreparedMaterialTexture bark)
         {
             if (bark == null) throw new ArgumentNullException(nameof(bark));
             treeBarkAlbedoTexture = CreateRuntimeMaterialTexture(
@@ -675,7 +675,7 @@ namespace Motu.Islands
             }
         }
 
-        private void DestroyRuntimeMaterials()
+        internal void DestroyRuntimeMaterials()
         {
             terrainMaterialTextures?.Unbind(terrainMaterial, grassMaterial);
             terrainMaterialTextures?.Dispose();
