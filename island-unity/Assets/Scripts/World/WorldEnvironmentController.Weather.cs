@@ -7,7 +7,7 @@ public sealed partial class WorldEnvironmentController
     public WorldWeatherState Weather => weather;
     public WorldWeatherDriver WeatherDriver { get; set; }
 
-    /// <summary>Apply runtime wind and wave behaviour without changing authored assets or mesh layout.</summary>
+    /// <summary>Apply runtime wind, wave and cloud behaviour without changing authored assets or mesh layout.</summary>
     public void ApplyWeather(WorldWeatherState value)
     {
         if (environmentSettings == null)
@@ -18,6 +18,7 @@ public sealed partial class WorldEnvironmentController
         weather = value.Validated();
         ocean.ApplyWaveWeather(weather.Waves);
         ApplyWeatherWind();
+        ApplyCloudSettings(0f);
     }
 
     private void UpdateWeatherDriver(float deltaTime)

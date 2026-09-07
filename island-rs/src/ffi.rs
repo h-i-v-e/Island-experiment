@@ -60,9 +60,10 @@ pub struct MotuOptions {
     pub continentalNoiseStrength: f32,
     pub detailNoiseStrength: f32,
     pub landMassOffset: f32,
+    pub initialSoilDepthMetres: f32,
 }
 
-const _: () = assert!(size_of::<MotuOptions>() == size_of::<[f32; 19]>());
+const _: () = assert!(size_of::<MotuOptions>() == size_of::<[f32; 20]>());
 
 #[derive(Clone, Copy, Debug)]
 #[repr(C)]
@@ -93,6 +94,7 @@ impl From<MotuOptions> for IslandOptions {
             detail_noise_frequency: value.detailNoiseFrequency,
             detail_noise_strength: value.detailNoiseStrength,
             land_mass_offset: value.landMassOffset,
+            initial_soil_depth_metres: value.initialSoilDepthMetres,
             hydraulic_erosion_strength: value.hydraulicErosionStrength,
             hydraulic_deposition_strength: value.hydraulicDepositionStrength,
             hydraulic_deposition_slope_degrees: value.hydraulicDepositionSlopeDegrees,
@@ -2635,6 +2637,7 @@ mod tests {
             continentalNoiseStrength: 0.78,
             detailNoiseStrength: 0.22,
             landMassOffset: 0.0,
+            initialSoilDepthMetres: 0.0,
         }
     }
 
@@ -2660,6 +2663,15 @@ mod tests {
         assert_eq!(forest.prototype_count, 8);
         assert!((forest.minimum_scale - 0.85).abs() < f32::EPSILON);
         assert!((forest.maximum_scale - 1.15).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn motu_options_forward_initial_soil_depth() {
+        let options = IslandOptions::from(MotuOptions {
+            initialSoilDepthMetres: 2.5,
+            ..test_options()
+        });
+        assert!((options.initial_soil_depth_metres - 2.5).abs() < f32::EPSILON);
     }
 
     #[test]

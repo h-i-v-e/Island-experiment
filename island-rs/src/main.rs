@@ -81,6 +81,10 @@ fn parse(arguments: impl Iterator<Item = String>) -> Result<Option<Command>, Str
             "--max-height" => {
                 command.options.max_height = parse_value(&argument, &value(&mut arguments)?)?;
             }
+            "--initial-soil-depth-metres" => {
+                command.options.initial_soil_depth_metres =
+                    parse_value(&argument, &value(&mut arguments)?)?;
+            }
             "--hydraulic-erosion-strength" => {
                 command.options.hydraulic_erosion_strength =
                     parse_value(&argument, &value(&mut arguments)?)?;
@@ -139,6 +143,8 @@ fn print_help() {
            --terrain-size <N>     Alias for --seed-points\n\
            --water-ratio <RATIO>  Water coverage [default: 0.6]\n\
            --max-height <HEIGHT>  Normalized maximum elevation [default: 0.2]\n\
+           --initial-soil-depth-metres <METRES>\n\
+                                  Initial loose soil on land [default: 0]\n\
            --hydraulic-erosion-strength <S>\n\
                                   Hydraulic erosion multiplier from 0 to 8 [default: 1]\n\
            --hydraulic-deposition-strength <S>\n\
@@ -169,6 +175,8 @@ mod tests {
                 "320",
                 "--water-ratio",
                 "0.7",
+                "--initial-soil-depth-metres",
+                "2.5",
                 "--hydraulic-erosion-strength",
                 "1.5",
                 "--hydraulic-deposition-strength",
@@ -187,6 +195,7 @@ mod tests {
         )
         .unwrap()
         .unwrap();
+        assert!((command.options.initial_soil_depth_metres - 2.5).abs() < f32::EPSILON);
         assert_eq!(command.seed, 42);
         assert_eq!(command.width, 320);
         assert!((command.options.water_ratio - 0.7).abs() < f32::EPSILON);

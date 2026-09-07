@@ -2,7 +2,7 @@ using UnityEngine;
 
 /// <summary>
 /// Assign a component derived from this class to the world's Weather Driver slot.
-/// It runs on the main thread before the environment applies wind and waves.
+/// It runs on the main thread before the environment applies wind, waves and clouds.
 /// </summary>
 public abstract class WorldWeatherDriver : MonoBehaviour
 {

@@ -239,6 +239,13 @@ vertices for a typical finest LOD while leaving underwater regions coarser.
 Raster grids are created only as derived height, normal, foliage, sea-depth, or
 PNG outputs; they do not define terrain connectivity.
 
+Initial loose soil is controlled by `IslandOptions::initial_soil_depth_metres`
+(or CLI `--initial-soil-depth-metres`). It defaults to zero and must be finite and
+non-negative. A positive value makes the top N metres of land loose soil before
+erosion, without changing the initial surface height or coating the seabed.
+Erosion removes this loose cover before bedrock. Native snapshot format version 4
+includes the setting; older cached snapshots must be regenerated.
+
 Build the dynamic library with `cargo build --release`. The result is named
 `motu` (`libmotu.dylib`, `libmotu.so`, or `motu.dll`, depending on platform).
 

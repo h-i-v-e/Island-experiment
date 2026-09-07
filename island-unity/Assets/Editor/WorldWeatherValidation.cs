@@ -14,7 +14,9 @@ public static class WorldWeatherValidation
         var environment = root.AddComponent<WorldEnvironmentController>();
         try
         {
-            environment.Initialize(authored, new IslandCloudSettings(), 64f, 128f, null);
+            var authoredClouds = new IslandCloudSettings { Coverage = .37f, Density = 1.7f };
+            environment.Initialize(authored, authoredClouds, 64f, 128f, null);
+            ValidateCloudWeather(environment, authoredClouds);
             var ocean = root.GetComponent<OceanSurfaceController>();
             var composer = root.GetComponent("OceanWaveMaskComposer");
             Invoke(composer, "LateUpdate");
@@ -28,14 +30,9 @@ public static class WorldWeatherValidation
             var next = environment.Weather;
             next.WindDirection = new Vector2(0f, 2f);
             next.WindSpeedMetresPerSecond = 36f;
-            next.VegetationWindStrengthMetres = 0.15f;
             next.WindGustSizeMetres = 24f;
-            next.VegetationWindNormalStrength = 0.8f;
-            next.TreeWindStrengthMultiplier = 7f;
             next.TreeWindBasePinHeightMetres = 1.2f;
             next.TreeWindFullBendHeightMetres = 12f;
-            next.ReedWindStrengthMultiplier = 4f;
-            next.FernWindStrengthMultiplier = 2.5f;
             next.Waves.Wave0.AmplitudeMetres = 8f;
             next.Waves.Wave0.Choppiness = 1f;
             next.Waves.Wave1.WavelengthMetres = 19f;
@@ -65,11 +62,10 @@ public static class WorldWeatherValidation
 
             Require(Shader.GetGlobalVector("_MotuWeatherWind") == new Vector4(0, 1, 36, 2),
                 "Wind direction, speed or response did not reach shader globals.");
-            Require(Shader.GetGlobalVector("_MotuWindMaterial") == new Vector4(.15f, 24, .8f, 0),
+            Require(Shader.GetGlobalVector("_MotuWindMaterial") == new Vector4(.07f, 24, .35f, 0),
                 "Vegetation wind settings did not reach shader globals.");
-            Require(Shader.GetGlobalVector("_MotuWindResponse") == new Vector4(7, 4, 2.5f, 0)
-                && Shader.GetGlobalVector("_MotuTreeWindHeights") == new Vector4(1.2f, 12, 0, 0),
-                "Species wind responses did not reach shader globals.");
+            Require(Shader.GetGlobalVector("_MotuTreeWindHeights") == new Vector4(1.2f, 12, 0, 0),
+                "Tree root-pinning settings did not reach shader globals.");
             var material = ocean.SurfaceMaterial;
             Require(material.GetVector("_OceanWave0").w == 8f
                 && material.GetVector("_OceanWave1").z == 19f
@@ -122,11 +118,14 @@ public static class WorldWeatherValidation
             environment.WeatherDriver = driver;
             Invoke(environment, "UpdateWeatherDriver", .5f);
             Require(driver.Calls == 1 && environment.WindSpeedMetresPerSecond == 5f
-                && material.GetFloat("_WhitecapStrength") == .2f,
+                && material.GetFloat("_WhitecapStrength") == .2f
+                && Shader.GetGlobalFloat("_MotuCloudCoverage") == .8f
+                && Shader.GetGlobalFloat("_MotuCloudDensity") == 3f,
                 "The assigned driver did not apply its weather state.");
             driver.enabled = false;
             Invoke(environment, "UpdateWeatherDriver", .5f);
-            Require(driver.Calls == 1 && environment.WindSpeedMetresPerSecond == 5f,
+            Require(driver.Calls == 1 && environment.WindSpeedMetresPerSecond == 5f
+                && Shader.GetGlobalFloat("_MotuCloudCoverage") == .8f,
                 "A disabled weather driver must retain the last weather state.");
             environment.SetWind(Vector2.left, 100f);
             Require(environment.WindDirection == Vector2.left
@@ -166,12 +165,99 @@ public static class WorldWeatherValidation
                 && float.IsFinite(mesh.bounds.size.z),
                 "Invalid driver output replaced the last valid weather or poisoned ocean bounds.");
             ValidateIndependentWaveDirections(environment, ocean);
-            Debug.Log("Runtime weather validation passed: wind globals, independent wave directions, all wave groups, driver lifecycle, authored settings, mesh retention, coastal masks, culling bounds and non-finite input rejection.");
+            Debug.Log("Runtime weather validation passed: wind globals, cloud globals and drift, independent wave directions, all wave groups, driver lifecycle, authored settings, mesh retention, coastal masks, culling bounds and non-finite input rejection.");
         }
         finally
         {
             UnityEngine.Object.DestroyImmediate(root);
         }
+    }
+
+    private static void ValidateCloudWeather(
+        WorldEnvironmentController environment, IslandCloudSettings authored)
+    {
+        var initial = environment.Weather;
+        Require(initial.Clouds.Coverage == .37f && initial.Clouds.Density == 1.7f,
+            "Runtime cloud state did not start from authored settings.");
+        var texture = Shader.GetGlobalTexture("_MotuCloudWeatherTex");
+        var windOffset = Shader.GetGlobalVector("_MotuCloudWindOffset");
+        var next = initial;
+        next.WindDirection = Vector2.up;
+        next.WindSpeedMetresPerSecond = 10f;
+        next.Clouds.Enabled = true;
+        next.Clouds.Coverage = .8f;
+        next.Clouds.Density = 4f;
+        next.Clouds.AltitudeMetres = 500f;
+        next.Clouds.VerticalThicknessMetres = 350f;
+        next.Clouds.WorldSizeMetres = 3000f;
+        next.Clouds.BroadNoiseScale = 8f;
+        next.Clouds.BroadNoiseStrength = .4f;
+        next.Clouds.DetailStrength = .6f;
+        next.Clouds.ErosionStrength = .2f;
+        next.Clouds.DayColour = Color.cyan;
+        next.Clouds.SunsetColour = Color.red;
+        next.Clouds.NightColour = Color.blue;
+        next.Clouds.ShadowStrength = .9f;
+        next.Clouds.AmbientShadowStrength = .3f;
+        next.Clouds.CelestialObscurationStrength = 1.5f;
+        next.Clouds.LowElevationShadowFade = .2f;
+        Require(environment.Weather.Clouds.Coverage == .37f,
+            "Editing a cloud snapshot mutated live weather before ApplyWeather.");
+        environment.ApplyWeather(next);
+        Require(Shader.GetGlobalFloat("_MotuCloudEnabled") == 1f
+            && Shader.GetGlobalFloat("_MotuCloudCoverage") == .8f
+            && Shader.GetGlobalFloat("_MotuCloudDensity") == 4f
+            && Shader.GetGlobalFloat("_MotuCloudAltitude") == 500f
+            && Shader.GetGlobalFloat("_MotuCloudWorldSize") == 3000f
+            && Shader.GetGlobalVector("_MotuCloudVolume").x == 350f
+            && Shader.GetGlobalVector("_MotuCloudBroadNoise") == new Vector4(8, .4f, 0, 0)
+            && Shader.GetGlobalVector("_MotuCloudDetailErosion") == new Vector4(.6f, .2f, 0, 0),
+            "Cloud shape changes did not reach shader globals immediately.");
+        Require(Shader.GetGlobalColor("_MotuCloudDayColor") == Color.cyan
+            && Shader.GetGlobalColor("_MotuCloudSunsetColor") == Color.red
+            && Shader.GetGlobalColor("_MotuCloudNightColor") == Color.blue
+            && Shader.GetGlobalFloat("_MotuCloudShadowStrength") == .9f
+            && Shader.GetGlobalFloat("_MotuCloudAmbientShadowStrength") == .3f
+            && Shader.GetGlobalFloat("_MotuCloudCelestialStrength") == 1.5f
+            && Shader.GetGlobalFloat("_MotuCloudLowElevationFade") == .2f,
+            "Cloud colour or lighting changes did not reach shader globals.");
+        Require(Shader.GetGlobalTexture("_MotuCloudWeatherTex") == texture
+            && Shader.GetGlobalVector("_MotuCloudWindOffset") == windOffset
+            && authored.Coverage == .37f && authored.Density == 1.7f,
+            "Applying clouds rebuilt the texture, advanced drift, or mutated authored settings.");
+        Invoke(environment, "ApplyCloudSettings", .5f);
+        Require(Mathf.Abs(Shader.GetGlobalVector("_MotuCloudWindOffset").y - windOffset.y - 5f) < .001f,
+            "Runtime clouds did not drift with the shared wind.");
+        next.Clouds.Enabled = false;
+        environment.ApplyWeather(next);
+        Require(Shader.GetGlobalFloat("_MotuCloudEnabled") == 0f,
+            "Cloud disable did not apply immediately.");
+        next.Clouds.Enabled = true;
+        next.Clouds.Coverage = 0f;
+        environment.ApplyWeather(next);
+        Require(Shader.GetGlobalFloat("_MotuCloudEnabled") == 0f,
+            "Zero coverage left clouds enabled.");
+        next.Clouds.Coverage = 2f;
+        next.Clouds.Density = 100f;
+        environment.ApplyWeather(next);
+        Require(environment.Weather.Clouds.Coverage == 1f && environment.Weather.Clouds.Density == 8f,
+            "Runtime cloud settings did not enforce authored ranges.");
+        var valid = environment.Weather;
+        foreach (var field in typeof(CloudWeatherSettings).GetFields(BindingFlags.Instance | BindingFlags.Public))
+        {
+            if (field.FieldType == typeof(bool)) continue;
+            object invalidClouds = valid.Clouds;
+            field.SetValue(invalidClouds, field.FieldType == typeof(Color)
+                ? (object)new Color(float.NaN, 0, 0, 1) : float.PositiveInfinity);
+            var invalid = valid;
+            invalid.Clouds = (CloudWeatherSettings)invalidClouds;
+            invalid.WindSpeedMetresPerSecond = 39f;
+            RequireRejected(environment, invalid);
+        }
+        Require(environment.Weather.Clouds.Coverage == valid.Clouds.Coverage
+            && environment.WindSpeedMetresPerSecond == valid.WindSpeedMetresPerSecond
+            && Shader.GetGlobalFloat("_MotuCloudCoverage") == valid.Clouds.Coverage,
+            "Invalid cloud output changed live state or shaders.");
     }
 
     private static void ValidateIndependentWaveDirections(
@@ -295,5 +381,7 @@ public sealed class RuntimeWeatherValidationDriver : WorldWeatherDriver
         Calls++;
         weather.WindSpeedMetresPerSecond = 10f * deltaTime;
         weather.Waves.WhitecapStrength = .2f;
+        weather.Clouds.Coverage = .8f;
+        weather.Clouds.Density = 3f;
     }
 }

@@ -39,7 +39,7 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
     [SerializeField] private WorldEnvironmentSettings worldEnvironmentSettings =
         new WorldEnvironmentSettings();
     [SerializeField] private IslandCloudSettings worldClouds = new IslandCloudSettings();
-    [Tooltip("Optional scene component that updates all runtime wind and wave properties. Derive your script from WorldWeatherDriver.")]
+    [Tooltip("Optional scene component that updates all runtime wind, wave and cloud properties. Derive your script from WorldWeatherDriver.")]
     [SerializeField] private WorldWeatherDriver weatherDriver;
 
     private WorldWeatherState? pendingWeather;
@@ -193,18 +193,6 @@ public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQue
         var updated = Weather;
         updated.WindDirection = direction;
         updated.WindSpeedMetresPerSecond = speedMetresPerSecond;
-        ApplyWeather(updated);
-    }
-
-    public void SetVegetationWindResponse(
-        float strengthMetres,
-        float gustSizeMetres,
-        float normalStrength)
-    {
-        var updated = Weather;
-        updated.VegetationWindStrengthMetres = strengthMetres;
-        updated.WindGustSizeMetres = gustSizeMetres;
-        updated.VegetationWindNormalStrength = normalStrength;
         ApplyWeather(updated);
     }
 

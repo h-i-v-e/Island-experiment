@@ -62,7 +62,7 @@ impl Parameter {
 ///
 /// `terrain_size` is the one field that is not an `f32` and is handled beside
 /// the table, under [`TERRAIN_SIZE_FLAG`].
-pub const PARAMETERS: [Parameter; 19] = [
+pub const PARAMETERS: [Parameter; 20] = [
     // Validated only as finite and above zero. Past about 0.5 the massif
     // reaches heights the river and coastal passes were never framed against.
     Parameter {
@@ -233,6 +233,14 @@ pub const PARAMETERS: [Parameter; 19] = [
         logarithmic: false,
         field: |options| &mut options.river_maximum_depth_metres,
     },
+    Parameter {
+        flag: "--initial-soil-depth-metres",
+        group: Group::Hydraulics,
+        minimum: 0.0,
+        maximum: 10.0,
+        logarithmic: false,
+        field: |options| &mut options.initial_soil_depth_metres,
+    },
 ];
 
 pub const SEED_FLAG: &str = "--seed";
@@ -331,7 +339,7 @@ mod tests {
     use super::{PARAMETERS, command_line, non_default, parameter, reconcile};
 
     /// `IslandOptions` is `repr(C)` and consists only of the table's `f32`
-    /// fields followed by `terrain_size`. Together with the accessor-identity
+    /// fields and `terrain_size`. Together with the accessor-identity
     /// test below, this makes a newly added field fail until the table covers
     /// it, which keeps the cache key complete.
     #[test]

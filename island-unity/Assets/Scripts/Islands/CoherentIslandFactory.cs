@@ -60,25 +60,28 @@ public sealed class CoherentIslandFactory : MonoBehaviour, IIslandGenerationRequ
         };
     }
 
-    private static IslandGenerationSettings CreateGenerationSettings(
+
+
+    private IslandGenerationSettings CreateGenerationSettings(
         System.Random random)
     {
-        var maxHeight = (float)random.NextDouble();
-        var strength = (float)random.NextDouble();
-        var frequency = 0.2f + (float)random.NextDouble() * 4f;
+        var maxHeight = RandomTools.RandomPositiveFloat(random);
+        var strength = RandomTools.RandomPositiveFloat(random);
+        var frequency = 0.2f + RandomTools.RandomPositiveFloat(random) * 4f;
         var output = new IslandGenerationSettings
         {
             Seed = random.Next(),
             MaximumHeightMetres = Mathf.Lerp(MIN_HEIGHT, MAX_HEIGHT, maxHeight),
-            WaterRatio = 0.75f + (maxHeight + (float)random.NextDouble()) * 0.1f,
-            InlandSlopeMultiplier = Mathf.Lerp(0.2f, 2.0f, (float)random.NextDouble()),
-            CoastalSlopeMultiplier = Mathf.Lerp(0.1f, 2.0f, (float)random.NextDouble()),
+            WaterRatio = 0.75f + (maxHeight + RandomTools.RandomPositiveFloat(random)) * 0.1f,
+            InlandSlopeMultiplier = Mathf.Lerp(0.2f, 2.0f, RandomTools.RandomPositiveFloat(random)),
+            CoastalSlopeMultiplier = Mathf.Lerp(0.1f, 2.0f, RandomTools.RandomPositiveFloat(random)),
             ContinentalNoiseFrequency = frequency,
             ContinentalNoiseStrength = strength,
-            DetailNoiseFrequency = Mathf.Lerp(frequency, frequency * 5f, (float)random.NextDouble()),
+            DetailNoiseFrequency = Mathf.Lerp(frequency, frequency * 8f, RandomTools.RandomPositiveFloat(random)),
             DetailNoiseStrength = 1f - strength,
-            LandMassOffset = Mathf.Min(0f, 0.5f - (float)random.NextDouble()),
-            HydraulicErosionStrength = Mathf.Lerp(4f, 8f, (float)random.NextDouble())
+            LandMassOffset = Mathf.Min(0f, 0.5f - RandomTools.RandomPositiveFloat(random)),
+            InitialSoilDepthMetres = (1f - maxHeight) * 5f,
+            HydraulicErosionStrength = Mathf.Lerp(4f, 8f, RandomTools.RandomPositiveFloat(random))
         };
         return output;
     }
@@ -93,8 +96,8 @@ public sealed class CoherentIslandFactory : MonoBehaviour, IIslandGenerationRequ
 
     private IslandMaterialColours CreateIslandMaterialColours(System.Random random)
     {
-        var earth = Color.Lerp(earthA, earthB, (float)random.NextDouble());
-        var stone = Color.Lerp(stoneA, stoneB, (float)random.NextDouble());
+        var earth = Color.Lerp(earthA, earthB, RandomTools.RandomPositiveFloat(random));
+        var stone = Color.Lerp(stoneA, stoneB, RandomTools.RandomPositiveFloat(random));
         return new IslandMaterialColours(
             earth,
             stone,
@@ -132,7 +135,7 @@ public sealed class CoherentIslandFactory : MonoBehaviour, IIslandGenerationRequ
         {
             return null;
         }
-        var snowLine = islandGridPosition.y * 0.01f;
+        var snowLine = islandGridPosition.y * 0.03f;
         snowLine = 1 - Mathf.Clamp01(snowLine * snowLine);
         var islandSeed = RandomTools.SeedForCell(seed, islandGridPosition);
         var random = new System.Random(islandSeed);
@@ -141,7 +144,7 @@ public sealed class CoherentIslandFactory : MonoBehaviour, IIslandGenerationRequ
             riverSettings,
             CreateForestSettings(random, snowLine),
             reedSettings, fernSettings,
-            CreateRenderingSettings(islandGridPosition.y * 0.1f),
+            CreateRenderingSettings(islandGridPosition.y * 0.03f),
             new IslandDebugSettings()
         );
         return new IslandGenerationRequest(

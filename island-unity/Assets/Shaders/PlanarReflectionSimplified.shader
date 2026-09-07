@@ -329,7 +329,6 @@ Shader "Motu/Planar Reflection Simplified"
                 float flexibility = lerp(1.0, 0.35, saturate(input.data.z));
                 worldPosition.xz += wind.xz
                     * (MotuWindDisplacementStrength()
-                        * MotuReedWindStrengthMultiplier()
                         * wind.y
                         * flexibility
                         * bend);
@@ -455,7 +454,6 @@ Shader "Motu/Planar Reflection Simplified"
                 float bend = input.uv.y * input.uv.y;
                 float flexibility = lerp(0.45, 1.0, saturate(input.data.z));
                 float strength = MotuWindDisplacementStrength()
-                    * MotuFernWindStrengthMultiplier()
                     * wind.y
                     * flexibility;
                 worldPosition.xz += wind.xz * (strength * bend);

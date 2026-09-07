@@ -9,8 +9,6 @@ sampler2D _MotuWindNoise;
 float4 _MotuWeatherWind;
 float4 _MotuWindMaterial;
 float4 _MotuWindOffset;
-// XYZ are the tree, reed, and fern flexibility multipliers.
-float4 _MotuWindResponse;
 
 float2 MotuWindDirection()
 {
@@ -39,21 +37,6 @@ float2 MotuWindAdvectedPosition(float2 worldPosition)
     return worldPosition - _MotuWindOffset.xy;
 }
 
-float MotuTreeWindStrengthMultiplier()
-{
-    return max(_MotuWindResponse.x, 0.0);
-}
-
-float MotuReedWindStrengthMultiplier()
-{
-    return max(_MotuWindResponse.y, 0.0);
-}
-
-float MotuFernWindStrengthMultiplier()
-{
-    return max(_MotuWindResponse.z, 0.0);
-}
-
 float3 MotuWindSample(float2 worldPosition)
 {
     float2 windDirection = MotuWindDirection();
@@ -78,16 +61,11 @@ float3 MotuWindSample(float2 worldPosition)
         0.88,
         broadWindNoise.b * 0.75 + detailWindNoise.r * 0.25);
 
-    float turningNoise = detailWindNoise.b * 0.70
-        + broadWindNoise.g * 0.30
-        - 0.5;
-    float2 crossWind = float2(-windDirection.y, windDirection.x);
-    float2 localDirection = normalize(
-        windDirection + crossWind * (turningNoise * 0.75));
+    // Gusts vary force, never the world-space heading chosen by the driver.
     return float3(
-        localDirection.x,
+        windDirection.x,
         lerp(0.2, 1.0, gust) * max(_MotuWeatherWind.w, 0.0),
-        localDirection.y);
+        windDirection.y);
 }
 
 #endif

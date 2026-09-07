@@ -33,7 +33,8 @@ float3 MotuCloudWorldToLocal(float3 worldPosition)
 
 float2 MotuCloudWeatherUv(float2 localPosition)
 {
-    return (localPosition + _MotuCloudWindOffset.xy)
+    // Subtract travel so cloud features move towards the configured wind direction.
+    return (localPosition - _MotuCloudWindOffset.xy)
         / max(_MotuCloudWorldSize, 1.0);
 }
 
@@ -49,7 +50,7 @@ half MotuCloudBroadDensity(float2 localPosition)
     float broadWorldSize = max(
         _MotuCloudWorldSize * max(_MotuCloudBroadNoise.x, 2.0),
         1.0);
-    float2 position = (localPosition + _MotuCloudWindOffset.zw)
+    float2 position = (localPosition - _MotuCloudWindOffset.zw)
         / broadWorldSize;
     float2 cell = floor(position);
     float2 blend = frac(position);

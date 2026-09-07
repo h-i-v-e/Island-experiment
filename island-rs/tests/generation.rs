@@ -346,6 +346,41 @@ fn completely_submerged_profile_remains_finite() {
 }
 
 #[test]
+fn initial_soil_blanket_changes_eroded_terrain() {
+    let bare = Island::generate(17, small_options()).unwrap();
+    let soil = Island::generate(
+        17,
+        IslandOptions {
+            initial_soil_depth_metres: 2.0,
+            ..small_options()
+        },
+    )
+    .unwrap();
+    assert_ne!(bare.terrain().vertices(), soil.terrain().vertices());
+    assert!(
+        soil.terrain()
+            .vertices()
+            .iter()
+            .all(|vertex| vertex.is_finite())
+    );
+}
+
+#[test]
+fn initial_soil_depth_rejects_negative_and_non_finite_values() {
+    for depth in [-1.0, f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+        let error = Island::generate(
+            1,
+            IslandOptions {
+                initial_soil_depth_metres: depth,
+                ..small_options()
+            },
+        )
+        .unwrap_err();
+        assert!(error.contains("initial_soil_depth_metres"));
+    }
+}
+
+#[test]
 fn hydraulic_erosion_strength_changes_terrain() {
     let without_hydraulic = Island::generate(
         17,
@@ -879,6 +914,7 @@ fn save_and_load_regenerates_identical_island() {
     let island = Island::generate(
         31,
         IslandOptions {
+            initial_soil_depth_metres: 2.5,
             hydraulic_erosion_strength: 1.75,
             hydraulic_deposition_strength: 2.25,
             hydraulic_deposition_slope_degrees: 18.0,

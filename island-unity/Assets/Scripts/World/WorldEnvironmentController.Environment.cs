@@ -36,19 +36,15 @@ public sealed partial class WorldEnvironmentController
     private static readonly int CloudLightColourId = Shader.PropertyToID("_MotuCloudLightColor");
     private static readonly int WeatherWindId = Shader.PropertyToID("_MotuWeatherWind");
     private static readonly int WindMaterialId = Shader.PropertyToID("_MotuWindMaterial");
-    private static readonly int WindResponseId = Shader.PropertyToID("_MotuWindResponse");
     private static readonly int TreeWindHeightsId = Shader.PropertyToID("_MotuTreeWindHeights");
     private static readonly int WindOffsetId = Shader.PropertyToID("_MotuWindOffset");
     private static readonly int WindNoiseTextureId = Shader.PropertyToID("_MotuWindNoise");
     public const float ReferenceWindSpeedMetresPerSecond = 9f;
-    internal const float DefaultVegetationWindStrengthMetres = 0.07f;
+    internal const float VegetationDisplacementAtReferenceSpeedMetres = 0.07f;
     internal const float DefaultWindGustSizeMetres = 12f;
-    internal const float DefaultVegetationWindNormalStrength = 0.35f;
-    internal const float DefaultTreeWindStrengthMultiplier = 5f;
+    internal const float VegetationNormalResponseAtReferenceSpeed = 0.35f;
     internal const float DefaultTreeWindBasePinHeightMetres = 0.6f;
     internal const float DefaultTreeWindFullBendHeightMetres = 9f;
-    internal const float DefaultReedWindStrengthMultiplier = 3f;
-    internal const float DefaultFernWindStrengthMultiplier = 1.8f;
 
     private WorldEnvironmentSettings environmentSettings;
     private IslandCloudSettings cloudSettings;
@@ -72,7 +68,7 @@ public sealed partial class WorldEnvironmentController
         environmentSettings = settings
             ?? throw new ArgumentNullException(nameof(settings));
         cloudSettings = clouds ?? throw new ArgumentNullException(nameof(clouds));
-        this.weather = WorldWeatherState.FromEnvironment(settings);
+        this.weather = WorldWeatherState.FromEnvironment(settings, clouds);
         environmentSeed = settings.Seed;
         sunlight = settings.Sunlight != null ? settings.Sunlight : RenderSettings.sun;
         SetFollowTarget(target);
@@ -207,6 +203,7 @@ public sealed partial class WorldEnvironmentController
         {
             return;
         }
+        var clouds = weather.Clouds;
         var windDirection = weather.WindDirection;
         if (windDirection.sqrMagnitude > 0.000001f)
         {
@@ -216,37 +213,37 @@ public sealed partial class WorldEnvironmentController
                     * Mathf.Max(deltaTime, 0f));
             windTravelOffset += travel;
         }
-        var worldSize = cloudSettings.WorldSizeMetres;
-        var broadWorldSize = worldSize * cloudSettings.BroadNoiseScale;
+        var worldSize = clouds.WorldSizeMetres;
+        var broadWorldSize = worldSize * clouds.BroadNoiseScale;
         var cloudWindOffset = windTravelOffset;
         var cloudBroadWindOffset = windTravelOffset * 0.18f;
         cloudWindOffset.x = Mathf.Repeat(cloudWindOffset.x, worldSize);
         cloudWindOffset.y = Mathf.Repeat(cloudWindOffset.y, worldSize);
         cloudBroadWindOffset.x = Mathf.Repeat(cloudBroadWindOffset.x, broadWorldSize);
         cloudBroadWindOffset.y = Mathf.Repeat(cloudBroadWindOffset.y, broadWorldSize);
-        var enabled = cloudSettings.Enabled
-            && cloudSettings.Coverage > 0f
-            && cloudSettings.Density > 0f
+        var enabled = clouds.Enabled
+            && clouds.Coverage > 0f
+            && clouds.Density > 0f
             && cloudWeatherTexture != null;
         Shader.SetGlobalTexture(CloudWeatherTextureId, cloudWeatherTexture);
         Shader.SetGlobalFloat(CloudEnabledId, enabled ? 1f : 0f);
-        Shader.SetGlobalFloat("_MotuCloudCoverage", cloudSettings.Coverage);
-        Shader.SetGlobalFloat("_MotuCloudDensity", cloudSettings.Density);
-        Shader.SetGlobalFloat("_MotuCloudAltitude", cloudSettings.AltitudeMetres);
+        Shader.SetGlobalFloat("_MotuCloudCoverage", clouds.Coverage);
+        Shader.SetGlobalFloat("_MotuCloudDensity", clouds.Density);
+        Shader.SetGlobalFloat("_MotuCloudAltitude", clouds.AltitudeMetres);
         Shader.SetGlobalFloat("_MotuCloudWorldSize", worldSize);
         Shader.SetGlobalVector(
             "_MotuCloudVolume",
-            new Vector4(cloudSettings.VerticalThicknessMetres, 0f, 0f, 0f));
+            new Vector4(clouds.VerticalThicknessMetres, 0f, 0f, 0f));
         Shader.SetGlobalVector(
             "_MotuCloudBroadNoise",
             new Vector4(
-                cloudSettings.BroadNoiseScale,
-                cloudSettings.BroadNoiseStrength,
+                clouds.BroadNoiseScale,
+                clouds.BroadNoiseStrength,
                 0f,
                 0f));
         Shader.SetGlobalVector(
             "_MotuCloudDetailErosion",
-            new Vector4(cloudSettings.DetailStrength, cloudSettings.ErosionStrength, 0f, 0f));
+            new Vector4(clouds.DetailStrength, clouds.ErosionStrength, 0f, 0f));
         Shader.SetGlobalVector(
             "_MotuCloudWindOffset",
             new Vector4(
@@ -254,19 +251,19 @@ public sealed partial class WorldEnvironmentController
                 cloudWindOffset.y,
                 cloudBroadWindOffset.x,
                 cloudBroadWindOffset.y));
-        Shader.SetGlobalColor("_MotuCloudDayColor", cloudSettings.DayColour);
-        Shader.SetGlobalColor("_MotuCloudSunsetColor", cloudSettings.SunsetColour);
-        Shader.SetGlobalColor("_MotuCloudNightColor", cloudSettings.NightColour);
-        Shader.SetGlobalFloat("_MotuCloudShadowStrength", cloudSettings.ShadowStrength);
+        Shader.SetGlobalColor("_MotuCloudDayColor", clouds.DayColour);
+        Shader.SetGlobalColor("_MotuCloudSunsetColor", clouds.SunsetColour);
+        Shader.SetGlobalColor("_MotuCloudNightColor", clouds.NightColour);
+        Shader.SetGlobalFloat("_MotuCloudShadowStrength", clouds.ShadowStrength);
         Shader.SetGlobalFloat(
             "_MotuCloudAmbientShadowStrength",
-            cloudSettings.AmbientShadowStrength);
+            clouds.AmbientShadowStrength);
         Shader.SetGlobalFloat(
             "_MotuCloudCelestialStrength",
-            cloudSettings.CelestialObscurationStrength);
+            clouds.CelestialObscurationStrength);
         Shader.SetGlobalFloat(
             "_MotuCloudLowElevationFade",
-            cloudSettings.LowElevationShadowFade);
+            clouds.LowElevationShadowFade);
     }
 
     public static float EvaluateWaveHeightScale(float windSpeedMetresPerSecond)
@@ -279,14 +276,9 @@ public sealed partial class WorldEnvironmentController
     internal static float ApplyWeatherWindGlobals(
         Vector2 configuredDirection,
         float configuredSpeedMetresPerSecond,
-        float vegetationStrengthMetres = DefaultVegetationWindStrengthMetres,
         float gustSizeMetres = DefaultWindGustSizeMetres,
-        float vegetationNormalStrength = DefaultVegetationWindNormalStrength,
-        float treeStrengthMultiplier = DefaultTreeWindStrengthMultiplier,
         float treeBasePinHeightMetres = DefaultTreeWindBasePinHeightMetres,
-        float treeFullBendHeightMetres = DefaultTreeWindFullBendHeightMetres,
-        float reedStrengthMultiplier = DefaultReedWindStrengthMultiplier,
-        float fernStrengthMultiplier = DefaultFernWindStrengthMultiplier)
+        float treeFullBendHeightMetres = DefaultTreeWindFullBendHeightMetres)
     {
         var direction = configuredDirection;
         if (direction.sqrMagnitude <= 0.000001f)
@@ -305,16 +297,9 @@ public sealed partial class WorldEnvironmentController
         Shader.SetGlobalVector(
             WindMaterialId,
             new Vector4(
-                Mathf.Clamp(vegetationStrengthMetres, 0f, 0.25f),
+                VegetationDisplacementAtReferenceSpeedMetres,
                 Mathf.Clamp(gustSizeMetres, 1f, 64f),
-                Mathf.Clamp01(vegetationNormalStrength),
-                0f));
-        Shader.SetGlobalVector(
-            WindResponseId,
-            new Vector4(
-                Mathf.Clamp(treeStrengthMultiplier, 0f, 10f),
-                Mathf.Clamp(reedStrengthMultiplier, 0f, 8f),
-                Mathf.Clamp(fernStrengthMultiplier, 0f, 8f),
+                VegetationNormalResponseAtReferenceSpeed,
                 0f));
         var basePinHeight = Mathf.Clamp(treeBasePinHeightMetres, 0f, 4f);
         Shader.SetGlobalVector(
@@ -354,14 +339,9 @@ public sealed partial class WorldEnvironmentController
         var waveHeightScale = ApplyWeatherWindGlobals(
             weather.WindDirection,
             weather.WindSpeedMetresPerSecond,
-            weather.VegetationWindStrengthMetres,
             weather.WindGustSizeMetres,
-            weather.VegetationWindNormalStrength,
-            weather.TreeWindStrengthMultiplier,
             weather.TreeWindBasePinHeightMetres,
-            weather.TreeWindFullBendHeightMetres,
-            weather.ReedWindStrengthMultiplier,
-            weather.FernWindStrengthMultiplier);
+            weather.TreeWindFullBendHeightMetres);
         ApplyWeatherWindOffset(windTravelOffset);
         ocean?.ApplyWeatherWindScale(waveHeightScale);
     }

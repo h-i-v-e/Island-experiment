@@ -38,6 +38,7 @@ const DEFAULTS: IslandOptions = IslandOptions {
     // Replaced by whatever the viewer is already running at; see
     // [`Preset::options`].
     terrain_size: 1024,
+    initial_soil_depth_metres: 0.0,
 };
 
 /// One curated island.

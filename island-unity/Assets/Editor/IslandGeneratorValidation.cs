@@ -12,6 +12,8 @@ public static class IslandGeneratorValidation
 
     public static void BatchValidateNativeInterop()
     {
+        //IslandGenerator.BatchValidateInitialSoil();
+        IslandGenerator.BatchValidateInitialSoilNative();
         IslandGenerator.BatchValidateNativeInterop();
         IslandGenerator.ValidateMaterialTextureCacheRoundTrip();
         ValidateFactorySettingsContract();
@@ -735,14 +737,9 @@ public static class IslandGeneratorValidation
         if (environment == null
             || environment.WindDirection.sqrMagnitude < 1.0e-4f
             || environment.WindSpeedMetresPerSecond <= 0f
-            || environment.VegetationWindStrengthMetres <= 0f
             || environment.WindGustSizeMetres <= 0f
-            || environment.VegetationWindNormalStrength <= 0f
-            || environment.TreeWindStrengthMultiplier <= 0f
             || environment.TreeWindFullBendHeightMetres
-                <= environment.TreeWindBasePinHeightMetres
-            || environment.ReedWindStrengthMultiplier <= 0f
-            || environment.FernWindStrengthMultiplier <= 0f)
+                <= environment.TreeWindBasePinHeightMetres)
         {
             throw new InvalidOperationException(
                 "The sandbox global wind or vegetation response settings are missing or disabled.");

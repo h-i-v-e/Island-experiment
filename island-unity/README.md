@@ -12,6 +12,22 @@ the experimental GPU generator, and its native plugin is built without the GPU
 feature so erosion, rivers, waterfalls, and settled rocks all follow the CPU
 generation path.
 
+## Initial soil blanket
+
+Set **Initial Soil Depth Metres** in the standard factory's **Generation** settings,
+or set `IslandGenerationSettings.InitialSoilDepthMetres` from a script. Its default
+is zero. `CoherentIslandFactory` chooses a depth from 0–5 metres based on its initial
+height sample: lower islands receive more soil. Adjust that policy in
+`CreateGenerationSettings` to change the open-sea world's distribution.
+
+The blanket occupies the top of the existing land surface before the first erosion
+pass; it does not raise the terrain or coat the seabed. Hydraulic erosion removes
+loose soil first, then cuts bedrock according to its hardness. Thermal erosion also
+removes available soil first. Changing this generation setting applies to newly
+generated/reloaded islands, with a separate snapshot cache key. Existing loaded
+islands must be regenerated. This change bumps the native snapshot format, so old
+cached snapshots are regenerated.
+
 ## Open and run
 
 1. Double-click `Open Island Unity.command`. This bypasses a known local
@@ -216,11 +232,10 @@ roots to flexible tips, and perturb the lighting normals with the same moving
 noise so highlights travel with the geometry. Beyond the fur radius, the
 ordinary terrain grass uses that identical advected field to perturb only its
 grass-covered lighting normals; non-grass materials remain still, and moving
-highlights continue seamlessly into the distance. Direction, speed, base
-vegetation displacement, gust size, and grass-normal response all belong to the
-global world environment, so adjacent islands cannot disagree about the wind.
-The world environment also owns distinct tree, reed, and fern flexibility
-multipliers while every shader samples the same advected coherent field.
+highlights continue seamlessly into the distance. Direction, speed and gust size
+belong to the global world environment, so adjacent islands share the same wind.
+Wind speed is the single strength input: all vegetation uses the same response,
+with root pinning and shape-dependent bending applied locally.
 Runtime systems can update direction and speed immediately with
 `IslandWorldManager.SetWind(direction, speedMetresPerSecond)`; no island
 regeneration is required.
@@ -229,8 +244,8 @@ To drive weather from a scene script, derive a component from
 `WorldWeatherDriver`, attach it to a GameObject, and assign that component to
 the **Weather Driver** field on `IslandWorldManager` (or
 `OceanWaveSandboxController` in the sea-only sandbox). The environment calls
-`UpdateWeather` on the main thread before applying the frame's wind and waves.
-The state starts from the scene's environment settings and ocean wave profile.
+`UpdateWeather` on the main thread before applying the frame's wind, waves and clouds.
+The state starts from the scene's environment and cloud settings and ocean wave profile.
 Edits affect the runtime state without modifying those authored settings or
 profile assets. Disabled or unassigned drivers leave the last weather active.
 
@@ -251,18 +266,34 @@ public sealed class MyWeather : WorldWeatherDriver
         weather.Waves.Wave0.AmplitudeMetres = Mathf.Lerp(0.2f, 0.8f, storm);
         weather.Waves.AmplitudeVariation = Mathf.Lerp(0.25f, 0.7f, storm);
         weather.Waves.WhitecapCoverage = Mathf.Lerp(0.2f, 0.8f, storm);
+        weather.Clouds.Coverage = Mathf.Lerp(0.2f, 0.9f, storm);
+        weather.Clouds.Density = Mathf.Lerp(1f, 5f, storm);
+        weather.Clouds.ShadowStrength = Mathf.Lerp(0.3f, 0.85f, storm);
     }
 }
 ```
 
-`WorldWeatherState` exposes wind direction/speed, vegetation displacement and
-normal strength, gust size, tree/reed/fern response multipliers, and tree bend
-heights. Its `Waves` field exposes all four directional components (direction,
+`WorldWeatherState.WindSpeedMetresPerSecond` is the single shared wind-strength
+control for all vegetation, clouds and waves. Zero stops wind-driven motion.
+`WindDirection` is the direction wind blows towards in world X/Z coordinates;
+clouds, gusts and vegetation bending agree on this heading. Gusts vary strength,
+without rotating the direction. Grass, trees, reeds and ferns share one displacement
+response; their root pinning and shape-dependent bending remain intact. The state
+also exposes gust size and tree bend heights. Its `Waves` field exposes all four
+directional components (direction,
 wavelength, amplitude, speed and choppiness), wave noise, whitecap settings,
 onshore breaking, wave enable switches and coastal attenuation curves. Wave
 amplitudes and speeds are still authored at the reference wind speed of 9 m/s;
 the global wind response scales them in the shader. `deltaTime` is in unscaled
 seconds, matching the existing environment clock.
+
+`Clouds` exposes enabled state, coverage, density, altitude, vertical thickness,
+world size, broad noise scale/strength, detail and edge erosion, day/sunset/night
+colours, and direct/ambient shadows, celestial obscuration and low-elevation shadow
+fade. Cloud drift uses the shared wind direction and speed. These changes apply
+immediately without regenerating the cloud texture or mutating authored settings.
+Weather-map seed and resolution stay in the authored cloud settings. The sea-only
+sandbox retains cloud state but has no cloud renderer.
 
 For a one-off update from any script, copy `world.Weather`, edit the fields and
 call `world.ApplyWeather(weather)` on the main thread. The same API is available

@@ -428,17 +428,12 @@ MonoBehaviour:
     oceanWaveProfile: {fileID: 11400000, guid: 904c303795957457da652489a9ea9800, type: 2}
     windDirection: {x: 1, y: 0.25}
     windSpeedMetresPerSecond: 9
-    vegetationWindStrengthMetres: 0.07
     windGustSizeMetres: 12
-    vegetationWindNormalStrength: 0.35
-    treeWindStrengthMultiplier: 5
     treeWindBasePinHeightMetres: 0.6
     treeWindFullBendHeightMetres: 9
-    reedWindStrengthMultiplier: 3
-    fernWindStrengthMultiplier: 1.8
     sunlight: {fileID: 645647291}
     sunCycleDurationMinutes: 20
-    midnightToNoonClockRateRatio: 10
+    midnightToNoonClockRateRatio: 20
     sunLatitudeDegrees: -36
     startingSolarTimeHours: 8
     middaySunIntensity: 1.25
@@ -453,7 +448,7 @@ MonoBehaviour:
     seed: 173
     weatherMapResolution: 256
     coverage: 0.48
-    density: 2.1
+    density: 2.45
     altitudeMetres: 650
     verticalThicknessMetres: 280
     worldSizeMetres: 2200
@@ -471,16 +466,16 @@ MonoBehaviour:
   weatherDriver: {fileID: 2028956462}
   discoveryRadiusMetres: 6000
   generationRadiusMetres: 3000
-  discoveryRefreshSeconds: 0.5
+  discoveryRefreshSeconds: 5
   velocityLookAheadSeconds: 24
   maximumLookAheadMetres: 8000
   forwardPriorityMultiplier: 0.65
   cancellationHysteresisMetres: 1800
   installationBudgetMilliseconds: 4
   streamingTarget: {fileID: 763167138}
-  activeRadiusMetres: 1000
+  activeRadiusMetres: 1500
   activeHysteresisMetres: 500
-  unloadRadiusMetres: 1500
+  unloadRadiusMetres: 2000
   maximumLoadedIslandCount: 3
   failedGenerationRetrySeconds: 15
 --- !u!4 &2028956460
@@ -553,9 +548,9 @@ MonoBehaviour:
   riverSettings:
     sourceCatchmentHectares: 0.05
     steepSourceCatchmentMultiplier: 4
-    sourceElevationBoost: 9
-    sourceWidthMetres: 2
-    maximumWidthMetres: 14
+    sourceElevationBoost: 20
+    sourceWidthMetres: 1
+    maximumWidthMetres: 8
     sourceDepthMetres: 0.35
     maximumDepthMetres: 1
   reedSettings:
@@ -582,8 +577,8 @@ MonoBehaviour:
     maximumSlopeDegrees: 34
     baseColour: {r: 0.055, g: 0.18, b: 0.045, a: 1}
     tipColour: {r: 0.24, g: 0.48, b: 0.12, a: 1}
-  earthA: {r: 0.8773585, g: 0.63377607, b: 0.0041384934, a: 0}
-  earthB: {r: 0.745283, g: 0.4363216, b: 0.1511659, a: 0}
+  earthA: {r: 0.5377358, g: 0.49189702, b: 0.372864, a: 0}
+  earthB: {r: 0.4811321, g: 0.3327134, b: 0.19744574, a: 0}
   stoneA: {r: 0.6226415, g: 0.5154188, b: 0.31425774, a: 0}
   stoneB: {r: 0.374466, g: 0.45895195, b: 0.5188679, a: 0}
 --- !u!114 &2028956462

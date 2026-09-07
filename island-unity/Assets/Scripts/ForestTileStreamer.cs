@@ -727,10 +727,8 @@ internal sealed class ForestTileStreamer : IDisposable
         {
             return;
         }
-        const float MaximumGrassWindStrength = 0.25f;
-        const float MaximumTreeWindStrengthMultiplier = 10f;
-        var maximumOffset = MaximumGrassWindStrength
-            * MaximumTreeWindStrengthMultiplier;
+        var maximumOffset = WorldEnvironmentController.VegetationDisplacementAtReferenceSpeedMetres
+            * 2.5f; // Maximum shared speed response; gust and bend weights are at most one.
         if (maximumOffset <= 0f)
         {
             return;

@@ -226,14 +226,9 @@ public sealed class OceanWaveSandboxController : MonoBehaviour
         var waveScale = WorldEnvironmentController.ApplyWeatherWindGlobals(
             weather.WindDirection,
             weather.WindSpeedMetresPerSecond,
-            weather.VegetationWindStrengthMetres,
             weather.WindGustSizeMetres,
-            weather.VegetationWindNormalStrength,
-            weather.TreeWindStrengthMultiplier,
             weather.TreeWindBasePinHeightMetres,
-            weather.TreeWindFullBendHeightMetres,
-            weather.ReedWindStrengthMultiplier,
-            weather.FernWindStrengthMultiplier);
+            weather.TreeWindFullBendHeightMetres);
         WorldEnvironmentController.ApplyWeatherWindOffset(windTravelOffset);
         ocean?.ApplyWeatherWindScale(waveScale);
     }

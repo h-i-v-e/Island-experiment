@@ -6,9 +6,8 @@ using UnityEngine;
 
 internal static class IslandSnapshotCache
 {
-    // Generation semantics changed: preparatory terrain passes now carve
-    // continuous rivers and leave waterfall placement to final LOD0.
-    private const int CacheKeySchemaVersion = 5;
+    // Includes initial soil depth and the corresponding native snapshot layout.
+    private const int CacheKeySchemaVersion = 6;
     private const string SnapshotExtension = ".motusnapshot";
 
     internal static string CacheDirectory
@@ -106,6 +105,7 @@ internal static class IslandSnapshotCache
         writer.Write(value.continentalNoiseStrength);
         writer.Write(value.detailNoiseStrength);
         writer.Write(value.landMassOffset);
+        writer.Write(value.initialSoilDepthMetres);
     }
 
     private static void Write(BinaryWriter writer, MotuNative.ForestOptions value)

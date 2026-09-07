@@ -52,6 +52,10 @@ public sealed class IslandGenerationSettings
     [Range(-2f, 2f)]
     [SerializeField] private float landMassOffset;
 
+    [Tooltip("Loose soil depth in metres beneath the initial land surface. Eroded before bedrock; does not raise the surface or coat the seabed. Zero disables the blanket. Regenerate to apply.")]
+    [Min(0f)]
+    [SerializeField] private float initialSoilDepthMetres;
+
     [Tooltip("Hydraulic erosion strength. Regenerate to apply.")]
     [Range(0f, 8f)]
     [SerializeField] private float hydraulicErosionStrength = 1f;
@@ -124,6 +128,14 @@ public sealed class IslandGenerationSettings
         get => Mathf.Clamp(landMassOffset, -2f, 2f);
         set => landMassOffset = Mathf.Clamp(value, -2f, 2f);
     }
+    public float InitialSoilDepthMetres
+    {
+        get => SanitizeSoilDepth(initialSoilDepthMetres);
+        set => initialSoilDepthMetres = SanitizeSoilDepth(value);
+    }
+    internal static float SanitizeSoilDepth(float value) =>
+        float.IsNaN(value) || float.IsInfinity(value) ? 0f : Mathf.Max(0f, value);
+
     public float HydraulicErosionStrength
     {
         get => Mathf.Clamp(hydraulicErosionStrength, 0f, 8f);
@@ -150,6 +162,7 @@ public sealed class IslandGenerationSettings
             coastalSlopeMultiplier = CoastalSlopeMultiplier,
             continentalNoiseFrequency = ContinentalNoiseFrequency,
             detailNoiseFrequency = DetailNoiseFrequency,
+            initialSoilDepthMetres = InitialSoilDepthMetres,
             hydraulicErosionStrength = HydraulicErosionStrength,
             hydraulicDepositionStrength = SedimentDepositionStrength,
             hydraulicDepositionSlopeDegrees = DepositionMaximumSlopeDegrees,

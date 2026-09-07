@@ -18,13 +18,15 @@ typedef struct { float x, y, z, w; } Vector4Export;
 typedef struct { float x, y; } Vector2Export;
 typedef struct {
     float maxZ, waterRatio, slopeMultiplier, coastalSlopeMultiplier;
-    float coastalErosionStrength, beachFormationStrength;
+    float continentalNoiseFrequency, detailNoiseFrequency;
     float hydraulicErosionStrength, hydraulicDepositionStrength;
     float hydraulicDepositionSlopeDegrees;
     float riverSourceCatchmentHectares, riverSourceSteepCatchmentMultiplier;
     float riverSourceElevationBoost;
     float riverSourceWidthMetres, riverMaximumWidthMetres;
     float riverSourceDepthMetres, riverMaximumDepthMetres;
+    float continentalNoiseStrength, detailNoiseStrength, landMassOffset;
+    float initialSoilDepthMetres;
 } MotuOptions;
 /* Forest options use the same natural C layout as Rust's repr(C) block. */
 typedef struct {

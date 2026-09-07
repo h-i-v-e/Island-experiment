@@ -44,7 +44,7 @@ use crate::{
 /// CPU river and waterfall builder. 9 carries the fourth material channel and
 /// the independent forest-floor/stone pair. 10 expands the serialized option
 /// header with the tunable continental/detail noise and land-mass offset.
-const CACHE_FORMAT_VERSION: u32 = 10;
+const CACHE_FORMAT_VERSION: u32 = 11;
 
 const MAGIC: &[u8; 8] = b"MOTUBVY\0";
 /// Distinguishes a cache key from the crate's other hashed values.

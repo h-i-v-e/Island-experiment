@@ -105,7 +105,6 @@ Shader "Motu/Forest Ferns"
         float bend = input.uv.y * input.uv.y;
         float flexibility = lerp(0.45, 1.0, saturate(input.data.z));
         float strength = MotuWindDisplacementStrength()
-            * MotuFernWindStrengthMultiplier()
             * wind.y
             * flexibility;
         worldPosition.xz += wind.xz * (strength * bend);

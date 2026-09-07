@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using UnityEngine;
 
 public class CoherentWeatherDriver : WorldWeatherDriver
@@ -5,6 +6,8 @@ public class CoherentWeatherDriver : WorldWeatherDriver
     private float strengthOffset = 0.0f;
     private float directionOffset = 0.0f;
     private float elapsedSeconds;
+
+    private float cloudOffset;
 
     [SerializeField]
     private int seed = 42;
@@ -33,6 +36,7 @@ public class CoherentWeatherDriver : WorldWeatherDriver
         var random = new System.Random(seed);
         strengthOffset = (float)random.NextDouble() * 1024f;
         directionOffset = (float)random.NextDouble() * 1024f;
+        cloudOffset = (float)random.NextDouble() * 1024f;
         elapsedSeconds = 0f;
     }
 
@@ -43,9 +47,9 @@ public class CoherentWeatherDriver : WorldWeatherDriver
         );
     }
 
-    private static Vector2 DirectionFromNoise(float deltaTime)
+    private static Vector2 DirectionFromNoise(float time)
     {
-        return Rotate(Vector2.up, Mathf.PerlinNoise1D(deltaTime) * 2f * Mathf.PI);
+        return Rotate(Vector2.up, Mathf.PerlinNoise1D(time) * 2f * Mathf.PI);
     }
 
     private static void UpdateWave(ref OceanWaveComponent component, DirectionAndSpeed dAndP, float scale)
@@ -55,6 +59,14 @@ public class CoherentWeatherDriver : WorldWeatherDriver
         component.Choppiness = dAndP.speed;
     }
 
+    private void UpdateClouds(ref CloudWeatherSettings clouds, float time)
+    {
+        var density = Mathf.PerlinNoise1D(cloudOffset + time * 0.005f);
+        clouds.Density = density * 8f;
+        clouds.Coverage = (density + Mathf.PerlinNoise1D(cloudOffset + time * 0.001f)) * 0.5f;
+        clouds.ShadowStrength = density;
+    }
+
     public override void UpdateWeather(ref WorldWeatherState weather, float deltaTime)
     {
         elapsedSeconds += Mathf.Max(deltaTime, 0f);
@@ -62,11 +74,14 @@ public class CoherentWeatherDriver : WorldWeatherDriver
         var minor = ReadWind(elapsedSeconds * 0.005f);
         var major = ReadWind(elapsedSeconds * 0.001f);
         var dominant = ReadWind(elapsedSeconds * 0.0005f);
-        weather.WindDirection = dominant.direction;
+        weather.WindDirection = minor.direction;
+        var windspeed = (dominant.speed * 2f) + (major.speed * 1.5f) + minor.speed + (fine.speed * 0.5f);
+        weather.WindSpeedMetresPerSecond = windspeed * windspeed;
         weather.Waves.OnshoreWaveAmplitudeMetres = dominant.speed * 3f;
         UpdateWave(ref weather.Waves.Wave0, dominant, 4f);
         UpdateWave(ref weather.Waves.Wave1, major, 3f);
-        UpdateWave(ref weather.Waves.Wave2, minor, 0.5f);
-        UpdateWave(ref weather.Waves.Wave3, fine, 0.35f);
+        UpdateWave(ref weather.Waves.Wave2, minor, 0.2f);
+        UpdateWave(ref weather.Waves.Wave3, fine, 0.15f);
+        UpdateClouds(ref weather.Clouds, elapsedSeconds);
     }
 }

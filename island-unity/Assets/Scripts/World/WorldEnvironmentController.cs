@@ -159,18 +159,6 @@ public sealed partial class WorldEnvironmentController : MonoBehaviour
         ApplyWeather(updated);
     }
 
-    public void SetVegetationWindResponse(
-        float strengthMetres,
-        float gustSizeMetres,
-        float normalStrength)
-    {
-        var updated = Weather;
-        updated.VegetationWindStrengthMetres = strengthMetres;
-        updated.WindGustSizeMetres = gustSizeMetres;
-        updated.VegetationWindNormalStrength = normalStrength;
-        ApplyWeather(updated);
-    }
-
     internal void RegisterCoastalWaveMask(
         IslandRuntime owner,
         Texture mask,

@@ -18,10 +18,85 @@ public sealed partial class IslandGenerator
         float worldSize) =>
         IslandMeshInterop.CopyTerrainMesh(source, lod, worldSize);
 
+    /*public static void BatchValidateInitialSoil()
+    {
+        var settings = new IslandGenerationSettings();
+        var rivers = new IslandRiverSettings();
+        if (settings.InitialSoilDepthMetres != 0f)
+            throw new InvalidOperationException("Initial soil must remain opt-in.");
+        foreach (var invalid in new[] { -1f, float.NaN, float.PositiveInfinity })
+        {
+            settings.InitialSoilDepthMetres = invalid;
+            if (settings.ToNativeOptions(rivers).initialSoilDepthMetres != 0f)
+                throw new InvalidOperationException("Invalid soil depth reached native generation.");
+        }
+        var profile = new IslandGenerationProfile(
+            settings, rivers, new IslandForestSettings(), new IslandReedSettings(),
+            new IslandFernSettings(), new IslandRenderingSettings(), new IslandDebugSettings());
+        var bare = new IslandGenerationRequest(42, Vector2Int.zero, profile, default);
+        profile.Generation.InitialSoilDepthMetres = 2.5f;
+        var soil = new IslandGenerationRequest(42, Vector2Int.zero, profile, default);
+        if (soil.Options.initialSoilDepthMetres != 2.5f
+            || bare.Options.initialSoilDepthMetres != 0f
+            || soil.SnapshotPath == bare.SnapshotPath)
+            throw new InvalidOperationException("Soil depth was lost in request cloning, native options, or cache identity.");
+        profile.Generation.InitialSoilDepthMetres = 8f;
+        if (soil.Generation.InitialSoilDepthMetres != 2.5f)
+            throw new InvalidOperationException("An existing island request changed with its source settings.");
+
+        var factoryObject = new GameObject("Initial soil factory validation");
+        try
+        {
+            var factory = factoryObject.AddComponent<CoherentIslandFactory>();
+            factory.InitialSoilDepthMetres = 3f;
+            var create = typeof(CoherentIslandFactory).GetMethod(
+                "CreateGenerationSettings",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            var coherent = (IslandGenerationSettings)create.Invoke(
+                factory, new object[] { new System.Random(42) });
+            if (coherent.ToNativeOptions(rivers).initialSoilDepthMetres != 3f)
+                throw new InvalidOperationException("Coherent factory did not forward initial soil depth.");
+        }
+        finally
+        {
+            DestroyImmediate(factoryObject);
+        }
+        Debug.Log("Initial soil settings, sanitization, factory forwarding, request isolation and cache identity passed.");
+    }*/
+
+    public static void BatchValidateInitialSoilNative()
+    {
+        var settings = new IslandGenerationSettings { InitialSoilDepthMetres = 2.5f };
+        var options = settings.ToNativeOptions(new IslandRiverSettings());
+        if (Marshal.SizeOf<MotuNative.Options>() != 80)
+            throw new InvalidOperationException("Initial soil native options layout is incorrect.");
+        var handle = MotuNative.CreateMotu(17, ref options);
+        if (handle == IntPtr.Zero)
+            throw new InvalidOperationException("Native island generation with initial soil failed.");
+        var map = IntPtr.Zero;
+        try
+        {
+            map = MotuNative.CreateHeightMap(handle, 33);
+            if (map == IntPtr.Zero)
+                throw new InvalidOperationException("Initial soil island has no height map.");
+            var exported = Marshal.PtrToStructure<MotuNative.ExportHeightMapWithSeaLevel>(map);
+            var heights = new float[exported.width * exported.height];
+            Marshal.Copy(exported.data, heights, 0, heights.Length);
+            if (heights.Length != 33 * 33 || Array.Exists(heights, height => !IsFinite(height)))
+                throw new InvalidOperationException("Initial soil island has invalid terrain heights.");
+        }
+        finally
+        {
+            if (map != IntPtr.Zero) MotuNative.ReleaseHeightMap(map);
+            MotuNative.ReleaseMotu(handle);
+        }
+        Debug.Log("Native island generation and finite height map with 2.5 m initial soil passed.");
+    }
+
     public static void BatchValidateNativeInterop()
     {
         IslandRuntime.ValidateOwnershipContract();
-        if (Marshal.SizeOf<MotuNative.Options>() != sizeof(float) * 19
+        if (Marshal.SizeOf<MotuNative.Options>() != sizeof(float) * 20
             || Marshal.SizeOf<MotuNative.ForestOptions>() != 28
             || Marshal.SizeOf<MotuNative.ReedOptions>() != sizeof(float) * 8
             || Marshal.SizeOf<MotuNative.FernOptions>() != sizeof(float) * 8

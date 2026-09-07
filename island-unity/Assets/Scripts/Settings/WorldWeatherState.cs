@@ -63,36 +63,29 @@ public struct OceanWaveWeatherSettings
     public static OceanWaveWeatherSettings Default => OceanWaveRuntimeSettings.Default.Weather;
 }
 
-/// <summary>A value snapshot of the world's runtime wind and wave controls.</summary>
+/// <summary>A value snapshot of the world's runtime wind, wave and cloud controls.</summary>
 public struct WorldWeatherState
 {
     public Vector2 WindDirection;
     public float WindSpeedMetresPerSecond;
-    public float VegetationWindStrengthMetres;
     public float WindGustSizeMetres;
-    public float VegetationWindNormalStrength;
-    public float TreeWindStrengthMultiplier;
     public float TreeWindBasePinHeightMetres;
     public float TreeWindFullBendHeightMetres;
-    public float ReedWindStrengthMultiplier;
-    public float FernWindStrengthMultiplier;
     public OceanWaveWeatherSettings Waves;
+    public CloudWeatherSettings Clouds;
 
-    public static WorldWeatherState FromEnvironment(WorldEnvironmentSettings settings)
+    public static WorldWeatherState FromEnvironment(
+        WorldEnvironmentSettings settings, IslandCloudSettings clouds = null)
     {
         if (settings == null) throw new System.ArgumentNullException(nameof(settings));
         return new WorldWeatherState
         {
+            Clouds = clouds != null ? CloudWeatherSettings.FromSettings(clouds) : CloudWeatherSettings.Default,
             WindDirection = settings.WindDirection,
             WindSpeedMetresPerSecond = settings.WindSpeedMetresPerSecond,
-            VegetationWindStrengthMetres = settings.VegetationWindStrengthMetres,
             WindGustSizeMetres = settings.WindGustSizeMetres,
-            VegetationWindNormalStrength = settings.VegetationWindNormalStrength,
-            TreeWindStrengthMultiplier = settings.TreeWindStrengthMultiplier,
             TreeWindBasePinHeightMetres = settings.TreeWindBasePinHeightMetres,
             TreeWindFullBendHeightMetres = settings.TreeWindFullBendHeightMetres,
-            ReedWindStrengthMultiplier = settings.ReedWindStrengthMultiplier,
-            FernWindStrengthMultiplier = settings.FernWindStrengthMultiplier,
             Waves = settings.OceanWaveProfile != null
                 ? settings.OceanWaveProfile.ToRuntimeSettings().Weather
                 : OceanWaveWeatherSettings.Default,
@@ -103,30 +96,21 @@ public struct WorldWeatherState
     {
         WeatherValueValidation.RequireFinite(WindDirection, nameof(WindDirection));
         WeatherValueValidation.RequireFinite(WindSpeedMetresPerSecond, nameof(WindSpeedMetresPerSecond));
-        WeatherValueValidation.RequireFinite(VegetationWindStrengthMetres, nameof(VegetationWindStrengthMetres));
         WeatherValueValidation.RequireFinite(WindGustSizeMetres, nameof(WindGustSizeMetres));
-        WeatherValueValidation.RequireFinite(VegetationWindNormalStrength, nameof(VegetationWindNormalStrength));
-        WeatherValueValidation.RequireFinite(TreeWindStrengthMultiplier, nameof(TreeWindStrengthMultiplier));
         WeatherValueValidation.RequireFinite(TreeWindBasePinHeightMetres, nameof(TreeWindBasePinHeightMetres));
         WeatherValueValidation.RequireFinite(TreeWindFullBendHeightMetres, nameof(TreeWindFullBendHeightMetres));
-        WeatherValueValidation.RequireFinite(ReedWindStrengthMultiplier, nameof(ReedWindStrengthMultiplier));
-        WeatherValueValidation.RequireFinite(FernWindStrengthMultiplier, nameof(FernWindStrengthMultiplier));
         var result = this;
         result.WindDirection = WindDirection.sqrMagnitude > 0.000001f
             ? WindDirection.normalized : Vector2.right;
         result.WindSpeedMetresPerSecond = Mathf.Clamp(WindSpeedMetresPerSecond, 0f, 40f);
-        result.VegetationWindStrengthMetres = Mathf.Clamp(VegetationWindStrengthMetres, 0f, 0.25f);
         result.WindGustSizeMetres = Mathf.Clamp(WindGustSizeMetres, 1f, 64f);
-        result.VegetationWindNormalStrength = Mathf.Clamp01(VegetationWindNormalStrength);
-        result.TreeWindStrengthMultiplier = Mathf.Clamp(TreeWindStrengthMultiplier, 0f, 10f);
         result.TreeWindBasePinHeightMetres = Mathf.Clamp(TreeWindBasePinHeightMetres, 0f, 4f);
         result.TreeWindFullBendHeightMetres = Mathf.Clamp(
             TreeWindFullBendHeightMetres,
             Mathf.Max(result.TreeWindBasePinHeightMetres + 0.01f, 1f),
             24f);
-        result.ReedWindStrengthMultiplier = Mathf.Clamp(ReedWindStrengthMultiplier, 0f, 8f);
-        result.FernWindStrengthMultiplier = Mathf.Clamp(FernWindStrengthMultiplier, 0f, 8f);
         result.Waves = OceanWaveRuntimeSettings.Default.WithWeather(Waves).Weather;
+        result.Clouds = Clouds.Validated();
         return result;
     }
 }

@@ -45,7 +45,6 @@ float3 MotuTreeWindOffsetAtHeight(
     float3 wind = MotuWindSample(rootWorldPosition.xz);
     return float3(wind.x, 0.0, wind.z)
         * (MotuWindDisplacementStrength()
-            * MotuTreeWindStrengthMultiplier()
             * wind.y
             * MotuTreeWindBendWeight(heightAboveGround));
 }

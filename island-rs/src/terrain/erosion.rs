@@ -1180,6 +1180,19 @@ mod hydraulic_tests {
     }
 
     #[test]
+    fn soil_blanket_protects_bedrock_until_exhausted() {
+        let mut sediment = 0.0;
+        let transfer = exchange_sediment(
+            &mut sediment,
+            settings(),
+            exchange(1.0, 0.0, 1.0, shift_limits(0.2, f32::INFINITY), 0.5, 0.1),
+        );
+        assert!((transfer.loose_removed - 0.2).abs() < 1.0e-6);
+        assert_eq!(transfer.bedrock_removed.to_bits(), 0.0_f32.to_bits());
+        assert!((sediment - 0.2).abs() < 1.0e-6);
+    }
+
+    #[test]
     pub(super) fn loose_material_is_removed_before_hard_bedrock() {
         let settings = settings();
         let mut sediment = 0.0;

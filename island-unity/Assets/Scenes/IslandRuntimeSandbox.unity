@@ -348,14 +348,9 @@ MonoBehaviour:
     oceanWaveProfile: {fileID: 0}
     windDirection: {x: 1, y: 0.25}
     windSpeedMetresPerSecond: 9
-    vegetationWindStrengthMetres: 0.07
     windGustSizeMetres: 12
-    vegetationWindNormalStrength: 0.35
-    treeWindStrengthMultiplier: 5
     treeWindBasePinHeightMetres: 0.6
     treeWindFullBendHeightMetres: 9
-    reedWindStrengthMultiplier: 3
-    fernWindStrengthMultiplier: 1.8
     sunlight: {fileID: 2108160295}
     sunCycleDurationMinutes: 20
     midnightToNoonClockRateRatio: 10

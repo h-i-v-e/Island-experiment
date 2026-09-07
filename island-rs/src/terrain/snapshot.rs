@@ -22,7 +22,7 @@ use crate::{
 };
 
 const SNAPSHOT_MAGIC: [u8; 8] = *b"MOTUSNP\0";
-const SNAPSHOT_VERSION: u16 = 3;
+const SNAPSHOT_VERSION: u16 = 4;
 const COMPRESSION_ZSTD: u8 = 1;
 const HEADER_LENGTH: u64 = 8 + 2 + 1 + 1 + 8 + 32;
 const MAXIMUM_COMPRESSED_BYTES: u64 = 8 * 1024 * 1024 * 1024;

@@ -29,6 +29,7 @@ internal static class MotuNative
         internal float continentalNoiseStrength;
         internal float detailNoiseStrength;
         internal float landMassOffset;
+        internal float initialSoilDepthMetres;
     }
 
     // Forest controls are kept in a separate native block. The byte fields

@@ -1030,6 +1030,7 @@ pub(super) fn generate_base(
     let adjacency = mesh.adjacency();
     let geology = assign_elevations(&mut mesh, &adjacency, seed, options);
     material.initialize_geology(&mesh, geology);
+    material.initialize_soil(&mesh, options.initial_soil_depth_metres);
     hydraulic_erode_stage(&mut mesh, &adjacency, &mut material, 0.45, options, scratch)?;
     erode_mesh(&mut mesh, &adjacency, &mut material, options, 5);
     mesh.calculate_normals();

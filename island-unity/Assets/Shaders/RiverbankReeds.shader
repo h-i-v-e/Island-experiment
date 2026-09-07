@@ -114,7 +114,6 @@ Shader "Motu/Riverbank Reeds"
         float flexibility = lerp(1.0, 0.35, saturate(input.data.z));
         worldPosition.xz += wind.xz
             * (MotuWindDisplacementStrength()
-                * MotuReedWindStrengthMultiplier()
                 * wind.y
                 * flexibility
                 * bend);

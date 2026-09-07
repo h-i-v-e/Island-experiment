@@ -42,6 +42,14 @@ impl SurfaceMaterial {
             .for_each(|(hardness, vertex)| *hardness = geology.hardness(vertex.truncate()));
     }
 
+    pub(super) fn initialize_soil(&mut self, mesh: &Mesh, depth_metres: f32) {
+        let depth = depth_metres / super::ISLAND_WORLD_METRES;
+        self.deposited_depth
+            .iter_mut()
+            .zip(&mesh.vertices)
+            .for_each(|(soil, vertex)| *soil = if vertex.z > 0.0 { depth } else { 0.0 });
+    }
+
     pub(crate) fn depths(&self) -> &[f32] {
         &self.deposited_depth
     }
@@ -315,6 +323,28 @@ pub(crate) fn projected_vertex_control_areas(mesh: &Mesh) -> Vec<f32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn initial_soil_blanket_covers_only_land_in_world_metres() {
+        let mesh = Mesh {
+            vertices: vec![
+                Vec3::new(0.0, 0.0, -0.1),
+                Vec3::new(1.0, 0.0, 0.0),
+                Vec3::new(0.0, 1.0, 0.001),
+                Vec3::new(1.0, 1.0, 0.1),
+            ],
+            ..Mesh::default()
+        };
+        let mut material = SurfaceMaterial::empty(mesh.vertices.len());
+        material.initialize_soil(&mesh, 2.0);
+        assert_eq!(material.depths()[0].to_bits(), 0.0_f32.to_bits());
+        assert_eq!(material.depths()[1].to_bits(), 0.0_f32.to_bits());
+        for &depth in &material.depths()[2..] {
+            assert!((depth * super::super::ISLAND_WORLD_METRES - 2.0).abs() < 1.0e-6);
+        }
+        material.initialize_soil(&mesh, 0.0);
+        assert_eq!(material, SurfaceMaterial::empty(mesh.vertices.len()));
+    }
 
     #[test]
     fn tessellated_material_transfer_preserves_mesh_topology() {

@@ -16,7 +16,7 @@ public sealed class IslandRiverSettings
 
     [Tooltip("Bias towards selecting high river sources. Regenerate to apply.")]
     [Range(0f, 20f)]
-    [SerializeField] private float sourceElevationBoost = 9f;
+    [SerializeField] private float sourceElevationBoost = 20f;
 
     [Tooltip("Full river width at low-flow sources, in metres.")]
     [Min(0.25f)]

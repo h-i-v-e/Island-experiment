@@ -24,4 +24,9 @@ struct RandomTools
             return islandSeed != 0 ? islandSeed : 1;
         }
     }
+
+    public static float RandomPositiveFloat(System.Random random)
+    {
+        return Mathf.Abs((float)random.NextDouble());
+    }
 }

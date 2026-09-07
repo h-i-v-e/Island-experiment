@@ -120,6 +120,10 @@ pub struct IslandOptions {
     pub river_maximum_depth_metres: f32,
     /// Number of free-form XY seed points used by Delaunay triangulation.
     pub terrain_size: u32,
+    /// Vertical depth of loose soil beneath the initial land surface, in metres.
+    /// Zero starts with bare bedrock. Does not raise the terrain or coat the seabed.
+    #[serde(default)]
+    pub initial_soil_depth_metres: f32,
 }
 
 impl Default for IslandOptions {
@@ -145,6 +149,7 @@ impl Default for IslandOptions {
             river_source_depth_metres: 0.35,
             river_maximum_depth_metres: 2.0,
             terrain_size: 1024,
+            initial_soil_depth_metres: 0.0,
         }
     }
 }
@@ -188,6 +193,9 @@ impl IslandOptions {
         }
         if !self.land_mass_offset.is_finite() || !(-2.0..=2.0).contains(&self.land_mass_offset) {
             return Err("land_mass_offset must be between -2 and 2".into());
+        }
+        if !self.initial_soil_depth_metres.is_finite() || self.initial_soil_depth_metres < 0.0 {
+            return Err("initial_soil_depth_metres must be finite and non-negative".into());
         }
         if !self.hydraulic_erosion_strength.is_finite()
             || !(0.0..=8.0).contains(&self.hydraulic_erosion_strength)
