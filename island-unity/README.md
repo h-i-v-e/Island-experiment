@@ -567,3 +567,63 @@ For an already imported project, the stable batch entry point is
 `-executeMethod Motu.Editor.UnityProjectBuild.BuildPlayer`. Set
 `MOTU_PLAYER_OUTPUT` to override the default `Builds/Motu.app` output.
 See [cleanup results](UNITY_CODE_CLEANUP_RESULTS.md) for scope and validation.
+
+## Floating rigidbodies
+
+Add **Motu > Ocean Buoyancy** to a Rigidbody to float on the world ocean. It finds the runtime ocean automatically, or an ocean controller can be assigned explicitly. Six local-space probes are initially fitted to the renderer bounds; move the labelled handles in Scene view so they sit around the lower hull, below the centre of mass. The fit includes masts and spars, so inspect it before using it as a final hull layout.
+
+- **Draft** is the probes' equilibrium depth below the water, in world metres. At rest, the intended waterline is one draft above the probes.
+- **Maximum Lift** is a multiple of body weight; the default is 2. Mass changes do not require retuning lift. Probe accelerations are converted to forces in newtons before application, so torque respects the hull inertia as well as its mass.
+- **Damping** suppresses vertical bouncing; **Water Drag** damps horizontal motion at submerged probes and therefore also resists rotation. **Surface Smoothing Seconds** smooths incoming GPU heights (default 0.15 seconds), preventing sudden changes in lift when a new sample arrives. It filters the water height, not the Rigidbody position used to calculate submersion.
+- Keep Rigidbody gravity enabled and Y position, pitch and roll unconstrained. Use hull colliders for a sensible inertia tensor and land collisions. The inspector can add an approximate hull box if none exists; refine it to fit the hull. Use Rigidbody **Interpolate** to smooth rendered motion between physics steps; new buoyancy components select this by default. Probe forces and query positions use the Rigidbody physics pose, independently of its interpolated render Transform.
+
+The GPU queries include the same wave shader code as the rendered ocean: noise, direction transitions, coastal masks, depth limits, breakers, and horizontal choppiness. Heights use asynchronous readback (typically a few frames behind rendering), with no synchronous GPU wait. The last valid sample survives an occasional failed readback. After 0.25 seconds, stale samples gradually lose support, reaching zero at one second; support recovers smoothly when fresh samples arrive. Samples from before a large position change are rejected immediately and their filters reset. Querying the continuous wave field can differ slightly from the triangulated ocean mesh. Extremely folded waves may not have a unique height and failed horizontal inversions are rejected. This requires asynchronous GPU readback and floating-point texture support; unsupported graphics devices produce an explicit error. There is no water MeshCollider, hull flooding simulation, or sail propulsion.
+
+## Driving the ship
+
+OpenSeaWorld starts with **Ship Controller** and **Ship Bridge Camera** active. The **Bridge Eye** child marks the standing position on the aft bridge deck, 1.7 metres above the model surface and slightly to starboard for a clear view past the mast. Move that reference to adjust the station; its forward direction points towards the bow. The camera follows the interpolated hull pose, including pitch and roll.
+
+- **W/S**: drive forward/reverse. Releasing the keys coasts.
+- **A/D**: rudder. Steering builds with forward speed and reverses when moving astern.
+- **Space**: brake.
+- **Mouse**: look around. **Tab** toggles mouse look/cursor; **Escape** releases the cursor. Controls pause while the cursor is released.
+- The minimap follows the ship. Release the cursor and click a square to teleport the ship; velocity is cleared, and island streaming moves with the bridge camera.
+
+The controller uses mass-scaled thrust and inertia-scaled yaw torque and leaves vertical movement, pitch and roll to buoyancy. Thrust requires submerged probes. Forward/reverse target speed, acceleration and rudder response are configurable. The ship's water drag is set to 0.08 per second for cruising. For scripted control, disable **Read Player Input** and call `ShipController.SetInput(throttle, rudder, braking)`, with inputs from -1 to 1.
+
+**Island > Set Up Selected Ship Helm** recreates the initial setup for this pirate-ship import. Select its Rigidbody first, outside Play Mode. The previous overview camera is retained but disabled; the existing world HUD and minimap remain active.
+
+## Deck wave clamp
+
+**Ocean Deck Wave Clamp** on the ship defines a horizontal capsule: **Start/End** are local-space end centres; **Radius Metres** is the fully clamped radius and **Blend Metres** is the transition outside it. Dimensions are in world metres even on scaled imports. The cyan Scene gizmo shows both boundaries. **Island > Set Up Selected Ship Deck Wave Clamp** fits the initial capsule for this pirate ship.
+
+Inside the capsule, positive ocean wave displacement is capped at the undisplaced sea plane. Troughs remain unchanged, and decks below the sea plane can still be submerged. The footprint follows the ship, but its height does not move the sea plane. No water is cut out. Flattened crests also lose their crest normals and foam. The coastal overlay already lies on the sea plane.
+
+This is a rendering adjustment only: buoyancy continues to sample the original waves. Up to eight active capsules are supported, with overlapping regions taking the strongest clamp. Leave a small margin around the decks because the ocean is triangulated; very coarse distant mesh triangles can cross the capsule boundary.
+
+## Textured bow waves and wake
+
+The ship's **Ocean Deck Wave Clamp** accepts a hull texture and a wake texture. **ShipHullWaves.png** and **ShipWake.png** under `Assets/Textures` are the original templates. **Island > Set Up Selected Ship Texture Waves** opens a picker populated from the selected ship. Choose its own hull and wake textures, then apply; imported images are configured as linear, uncompressed textures without mipmaps. There are no fixed texture paths in the setup command.
+
+- **Black** clamps positive displacement to the undisplaced sea plane, including any added wake crossing the deck. Troughs remain unchanged; submerged decks still receive water.
+- **Mid-grey** leaves the ocean unchanged. Both 127 and 128 are treated as neutral for 8-bit images.
+- **White** adds the configured height at full speed. Intermediate shades blend those effects. Texture top points from Start to End, towards the bow. Use neutral grey at the borders.
+
+Each ship prefab stores its own **Hull Texture**, **Wake Texture**, dimensions and tuning on **Ocean Deck Wave Clamp**. Edit the prefab in Prefab Mode to configure that ship type, or override the textures on an individual scene instance. Opening the picker or changing the target preserves each ship's existing assignments. Applying textures leaves its fitted waterline shape and wave tuning intact. Scripts can use `ConfigureTextures(hull, wake)`; `HullTexture` and `WakeTexture` expose the current pair.
+
+**Hull Texture** follows the ship. **Texture Size Metres** controls its world width/length regardless of imported model scale. **Bow Height**, **Full Wave Speed**, and **Wave Foam** control the speed-driven bow crest. Reverse travel suppresses the forward bow wave. The deck clamp stays active at rest. Clear Hull Texture to return to the capsule fallback.
+
+**Wake Texture** is deposited behind the moving ship every **Wake Spacing** metres. Sections remain in world space as the ship turns, widen at **Wake Spread Metres Per Second**, and fade over **Wake Lifetime** seconds. Configure **Wake Height** and **Wake Size Metres** independently. Stopping leaves the existing wake to fade; teleports clear the trail. The bounded history holds up to 96 sections per ship, so very long lifetimes or small spacing can retire the oldest sections early.
+
+The render field covers 512 x 512 metres around each camera at 0.5-metre texel spacing and fades at its edges. Overlapping stamps use their strongest clamp and raised height, preventing repeated wake sections from accumulating excessive height. Black areas take priority over raised waves. Surface normals and foam respond to the modified height. Buoyancy queries deliberately continue to sample the original waves, so ships do not react to their own visual wake.
+
+## Waterline texture generator
+
+Select the ship and open **Island > Waterline Texture Generator**, outside Play Mode. **Use Selected Ship** chooses its Rigidbody root and existing wave direction. **Source Mesh** can restrict the slice to a specific MeshFilter; leaving it empty includes active mesh children and enabled skinned meshes. Imported model scales and child transforms are respected without enabling Read/Write on the source asset.
+
+1. Set **Waterline World Y**, or use **Estimate Waterline From Buoyancy** (average probe height plus Draft). This estimates the resting waterline in the current authoring pose; it does not depend on a passing wave. A blue plane and vertical handle in Scene view let you inspect and move the slice. **Local Bow Direction** controls texture orientation.
+2. Adjust **Deck Clearance**, **Edge Blend**, and optionally the bow ridge offset/width. The waterline can be narrower than the decks, so leave sufficient clearance for deck overhang and ocean mesh triangles. **Gap Closure** seals small cracks at texture resolution. **Largest Region Only** removes disconnected fittings; turn it off for multiple hulls.
+3. Click **Generate Preview**. Yellow Scene lines show the mesh intersection. The tool fills the enclosed outline, retaining concavities and filling nested inner shells, then creates a black clamp area, neutral grey exterior, and optional white bow ridge. An empty or unclosed slice reports an error instead of inventing an outline.
+4. Click **Save New Texture & Assign To Ship**, then save the scene. A uniquely named PNG is created under `Assets/Textures`, imported as linear, uncompressed 2D data without resizing or mipmaps. The tool fits the texture's centre, orientation and world dimensions on the wave component while retaining the wake texture and height/foam tuning. Previous textures remain available.
+
+OpenSeaWorld uses **Pirate Ship High Poly Waterline.png**, generated from the estimated resting waterline with 1.5 m deck clearance. The original trailing wake texture remains assigned. Regenerate after changing hull geometry or draft.

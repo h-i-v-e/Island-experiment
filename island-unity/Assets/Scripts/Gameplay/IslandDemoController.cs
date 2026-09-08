@@ -24,6 +24,7 @@ namespace Motu.Gameplay
         [SerializeField] private Camera viewerCamera;
         [SerializeField] private OrbitCamera orbitCamera;
         [SerializeField] private FirstPersonController firstPersonController;
+        [SerializeField] private ShipController shipController;
         [Header("Play Mode Start")]
         [SerializeField] private bool startInFlyMode;
         [SerializeField] private Vector3 flyStartPosition = new Vector3(0f, 4f, -1800f);
@@ -81,12 +82,27 @@ namespace Motu.Gameplay
             flyStartPitchDegrees = pitchDegrees;
         }
 
+        public void ConfigureShipStart(ShipController controller, Camera camera)
+        {
+            shipController = controller;
+            viewerCamera = camera;
+            startInFlyMode = false;
+        }
+
         private void Awake()
         {
             if (worldManager == null || viewerCamera == null || orbitCamera == null)
             {
                 enabled = false;
                 Debug.LogWarning("IslandDemoController is missing its scene references.", this);
+                return;
+            }
+            if (shipController != null)
+            {
+                orbitCamera.enabled = false;
+                if (firstPersonController != null) firstPersonController.enabled = false;
+                worldManager.SetStreamingTarget(viewerCamera.transform);
+                worldManager.SetFirstPersonViewActive(true);
                 return;
             }
             orbitCamera.Configure(
@@ -100,7 +116,7 @@ namespace Motu.Gameplay
 
         private void Start()
         {
-            if (startInFlyMode && firstPersonController != null)
+            if (shipController == null && startInFlyMode && firstPersonController != null)
             {
                 firstPersonController.BeginFlying(
                     flyStartPosition,
@@ -128,7 +144,7 @@ namespace Motu.Gameplay
                 return;
             }
             var island = worldManager.FocusedIsland;
-            if (firstPersonController == null
+            if (shipController != null || firstPersonController == null
                 || firstPersonController.IsActive
                 || island == null
                 || viewerCamera == null)
@@ -195,6 +211,16 @@ namespace Motu.Gameplay
                     new Rect(Mathf.Max(16f, Screen.width - 116f), frameRateY, 100f, 28f),
                     frameRateText,
                     GUI.skin.box);
+            }
+            if (shipController != null)
+            {
+                GUILayout.BeginArea(new Rect(16f, 16f, 480f, 126f), GUI.skin.box);
+                GUILayout.Label("Ship helm: W/S forward/reverse | A/D rudder | Space brake");
+                GUILayout.Label("Mouse: look | Tab: mouse look/cursor | Escape: release cursor");
+                GUILayout.Label($"Speed: {shipController.SpeedMetresPerSecond * 1.943844f:0.0} knots");
+                DrawWorldStatus();
+                GUILayout.EndArea();
+                return;
             }
             if (firstPersonController != null && firstPersonController.IsActive)
             {
@@ -313,7 +339,7 @@ namespace Motu.Gameplay
                 new Rect(panel.x + 10f, map.yMax + 23f, panel.width - 20f, 20f),
                 Cursor.lockState == CursorLockMode.Locked
                     ? "Tab: release cursor to teleport"
-                    : "Click a square: teleport (fly mode)");
+                    : shipController != null ? "Click a square: teleport ship" : "Click a square: teleport (fly mode)");
             return panel;
         }
 
@@ -351,7 +377,7 @@ namespace Motu.Gameplay
 
         internal bool HandleMinimapPointer(Vector2 position, bool pressed, bool released, bool cursorAvailable)
         {
-            if (!cursorAvailable || firstPersonController == null)
+            if (!cursorAvailable || (firstPersonController == null && shipController == null))
             {
                 minimapClickCandidate = false;
                 return false;
@@ -372,7 +398,8 @@ namespace Motu.Gameplay
                 if (!minimapClickDragged
                     && TryGetMinimapCell(position, out var cell) && cell == minimapClickCell)
                 {
-                    firstPersonController.Teleport(IslandWorldManager.CellCentre(cell));
+                    if (shipController != null) shipController.Teleport(IslandWorldManager.CellCentre(cell));
+                    else firstPersonController.Teleport(IslandWorldManager.CellCentre(cell));
                     UpdateMinimap();
                 }
             }

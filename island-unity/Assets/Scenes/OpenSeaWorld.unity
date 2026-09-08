@@ -233,7 +233,7 @@ GameObject:
   - component: {fileID: 763167131}
   m_Layer: 0
   m_Name: Main Camera
-  m_TagString: MainCamera
+  m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
@@ -248,13 +248,14 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: e6652aa5064ad4ca29d5befd6a6808e3, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::IslandDemoController
   worldManager: {fileID: 2028956458}
-  viewerCamera: {fileID: 763167137}
+  viewerCamera: {fileID: 1388680751}
   orbitCamera: {fileID: 763167133}
   firstPersonController: {fileID: 763167132}
-  startInFlyMode: 1
+  shipController: {fileID: 982990073}
+  startInFlyMode: 0
   flyStartPosition: {x: 0, y: 4, z: -1500}
   flyStartYawDegrees: 0
   flyStartPitchDegrees: 0
@@ -266,10 +267,10 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 763167130}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 2132f91b666942e2aca86f59828c11c9, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::FirstPersonController
   toggleFlyModeKey: 118
   flyClearanceMetres: 4
@@ -282,10 +283,10 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 763167130}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: b0d555b110ff048cfa172402b03dc05f, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::OrbitCamera
 --- !u!81 &763167134
 AudioListener:
@@ -294,7 +295,7 @@ AudioListener:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 763167130}
-  m_Enabled: 1
+  m_Enabled: 0
 --- !u!114 &763167136
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -302,10 +303,10 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 763167130}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 9d60ab4e4fc443b5a2c6dc6c9f1fca01, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::PlanarWaterReflection
   reflectionPlane: {fileID: 2028956460}
   resolutionScale: 0.5
@@ -323,7 +324,7 @@ Camera:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 763167130}
-  m_Enabled: 1
+  m_Enabled: 0
   serializedVersion: 2
   m_ClearFlags: 2
   m_BackGroundColor: {r: 0.49, g: 0.68, b: 0.82, a: 1}
@@ -382,6 +383,380 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1001 &797882075
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  serializedVersion: 2
+  m_Modification:
+    serializedVersion: 3
+    m_TransformParent: {fileID: 0}
+    m_Modifications:
+    - target: {fileID: -8679921383154817045, guid: fb8003d8a0206441a88e54e2578ac490, type: 3}
+      propertyPath: m_LocalScale.x
+      value: 1578.6523
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: fb8003d8a0206441a88e54e2578ac490, type: 3}
+      propertyPath: m_LocalScale.y
+      value: 1578.6523
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: fb8003d8a0206441a88e54e2578ac490, type: 3}
+      propertyPath: m_LocalScale.z
+      value: 1578.6523
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: fb8003d8a0206441a88e54e2578ac490, type: 3}
+      propertyPath: m_LocalPosition.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: fb8003d8a0206441a88e54e2578ac490, type: 3}
+      propertyPath: m_LocalPosition.y
+      value: 5.168586
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: fb8003d8a0206441a88e54e2578ac490, type: 3}
+      propertyPath: m_LocalPosition.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: fb8003d8a0206441a88e54e2578ac490, type: 3}
+      propertyPath: m_LocalRotation.w
+      value: 0.7071068
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: fb8003d8a0206441a88e54e2578ac490, type: 3}
+      propertyPath: m_LocalRotation.x
+      value: -0.7071068
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: fb8003d8a0206441a88e54e2578ac490, type: 3}
+      propertyPath: m_LocalRotation.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: fb8003d8a0206441a88e54e2578ac490, type: 3}
+      propertyPath: m_LocalRotation.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: fb8003d8a0206441a88e54e2578ac490, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: fb8003d8a0206441a88e54e2578ac490, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: fb8003d8a0206441a88e54e2578ac490, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 919132149155446097, guid: fb8003d8a0206441a88e54e2578ac490, type: 3}
+      propertyPath: m_Name
+      value: Pirate Ship High Poly
+      objectReference: {fileID: 0}
+    m_RemovedComponents: []
+    m_RemovedGameObjects: []
+    m_AddedGameObjects:
+    - targetCorrespondingSourceObject: {fileID: -8679921383154817045, guid: fb8003d8a0206441a88e54e2578ac490, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 1196605284}
+    m_AddedComponents:
+    - targetCorrespondingSourceObject: {fileID: 919132149155446097, guid: fb8003d8a0206441a88e54e2578ac490, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 982990072}
+    - targetCorrespondingSourceObject: {fileID: 919132149155446097, guid: fb8003d8a0206441a88e54e2578ac490, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 982990071}
+    - targetCorrespondingSourceObject: {fileID: 919132149155446097, guid: fb8003d8a0206441a88e54e2578ac490, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 982990070}
+    - targetCorrespondingSourceObject: {fileID: 919132149155446097, guid: fb8003d8a0206441a88e54e2578ac490, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 982990073}
+    - targetCorrespondingSourceObject: {fileID: 919132149155446097, guid: fb8003d8a0206441a88e54e2578ac490, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 982990074}
+  m_SourcePrefab: {fileID: 100100000, guid: fb8003d8a0206441a88e54e2578ac490, type: 3}
+--- !u!1 &982990066 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 919132149155446097, guid: fb8003d8a0206441a88e54e2578ac490, type: 3}
+  m_PrefabInstance: {fileID: 797882075}
+  m_PrefabAsset: {fileID: 0}
+--- !u!4 &982990069 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: -8679921383154817045, guid: fb8003d8a0206441a88e54e2578ac490, type: 3}
+  m_PrefabInstance: {fileID: 797882075}
+  m_PrefabAsset: {fileID: 0}
+--- !u!65 &982990070
+BoxCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 982990066}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 0
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 3
+  m_Size: {x: 0.01900355, y: 0.004493454, z: 0.0025992887}
+  m_Center: {x: 0.00001148507, y: 0.000004755333, z: -0.0039238734}
+--- !u!114 &982990071
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 982990066}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d3365bf1f6af94b0f9d45125a962e3f1, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Motu.Runtime::Motu.Gameplay.OceanBuoyancy
+  ocean: {fileID: 0}
+  probes:
+  - {x: -0.006164668, y: 0.0014651277, z: -0.004573694}
+  - {x: -0.006164668, y: -0.0014556163, z: -0.004573695}
+  - {x: 0.000011485069, y: 0.0014651277, z: -0.004573694}
+  - {x: 0.000011485069, y: -0.0014556163, z: -0.004573695}
+  - {x: 0.0061876387, y: 0.0014651277, z: -0.004573694}
+  - {x: 0.0061876387, y: -0.0014556163, z: -0.004573695}
+  draft: 1.2
+  maximumLift: 2
+  damping: 0.7
+  waterDrag: 0.08
+  surfaceSmoothingSeconds: 0.15
+--- !u!54 &982990072
+Rigidbody:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 982990066}
+  serializedVersion: 5
+  m_Mass: 300000
+  m_LinearDamping: 0
+  m_AngularDamping: 0.05
+  m_CenterOfMass: {x: 0, y: 0, z: 0}
+  m_InertiaTensor: {x: 1, y: 1, z: 1}
+  m_InertiaRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ImplicitCom: 1
+  m_ImplicitTensor: 1
+  m_UseGravity: 1
+  m_IsKinematic: 0
+  m_Interpolate: 1
+  m_Constraints: 0
+  m_CollisionDetection: 0
+--- !u!114 &982990073
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 982990066}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9d3b3bf4e41b4fce95e91675f78a3465, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Motu.Runtime::Motu.Gameplay.ShipController
+  helm: {fileID: 1196605284}
+  bridgeCamera: {fileID: 1388680750}
+  worldManager: {fileID: 2028956458}
+  readPlayerInput: 1
+  forwardSpeed: 8
+  reverseSpeed: 3
+  speedResponseSeconds: 3
+  acceleration: 1.5
+  brakingAcceleration: 2
+  turnRateDegrees: 8
+  rudderResponseSeconds: 2
+  fullRudderSpeed: 3
+--- !u!114 &982990074
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 982990066}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2ddb926b5585402a9256d050beb949d9, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Motu.Runtime::Motu.Rendering.OceanDeckWaveClamp
+  hullTexture: {fileID: 2800000, guid: 90a3fb80a90774e579c3bd618f35000b, type: 3}
+  textureSizeMetres: {x: 26.801413, y: 41.70919}
+  bowHeight: 1.2
+  fullWaveSpeed: 8
+  waveFoam: 0.8
+  wakeTexture: {fileID: 2800000, guid: c5d60db6570446c6aa5b4d1e2b4dfc7e, type: 3}
+  wakeSizeMetres: {x: 18, y: 14}
+  wakeHeight: 0.8
+  wakeLifetime: 20
+  wakeSpacing: 3
+  wakeSpreadMetresPerSecond: 0.35
+  start: {x: -0.0067785513, y: 0.0000059885087, z: -0.0038135534}
+  end: {x: 0.0027129285, y: 0.0000059885087, z: -0.0038135534}
+  radiusMetres: 3.0627196
+  blendMetres: 3
+--- !u!1 &1196605283
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1196605284}
+  m_Layer: 0
+  m_Name: Bridge Eye
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1196605284
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1196605283}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0.49999994, y: 0.50000006, z: 0.49999994, w: 0.50000006}
+  m_LocalPosition: {x: -0.006829795, y: 0.00076489575, z: 0.00008811506}
+  m_LocalScale: {x: 0.0006334517, y: 0.0006334515, z: 0.0006334515}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 982990069}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &1388680748
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1388680752}
+  - component: {fileID: 1388680751}
+  - component: {fileID: 1388680750}
+  - component: {fileID: 1388680749}
+  m_Layer: 0
+  m_Name: Ship Bridge Camera
+  m_TagString: MainCamera
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1388680749
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1388680748}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9d60ab4e4fc443b5a2c6dc6c9f1fca01, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PlanarWaterReflection
+  reflectionPlane: {fileID: 2028956460}
+  resolutionScale: 0.5
+  clipPlaneOffset: 0.07
+  reflectionLayers:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  useSimplifiedShader: 1
+  simplifiedReflectionShader: {fileID: 4800000, guid: e1b5d68178aa4cfd8a4de84a2d74dbe7, type: 3}
+  frameInterval: 2
+--- !u!114 &1388680750
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1388680748}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 763a7c37fa544882a3df71d5d2a9c20e, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Motu.Runtime::Motu.Gameplay.ShipBridgeCamera
+  eyePosition: {fileID: 1196605284}
+  ship: {fileID: 982990072}
+  lookSensitivity: 2.2
+  captureMouseOnStart: 1
+--- !u!20 &1388680751
+Camera:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1388680748}
+  m_Enabled: 1
+  serializedVersion: 2
+  m_ClearFlags: 2
+  m_BackGroundColor: {r: 0.49, g: 0.68, b: 0.82, a: 1}
+  m_projectionMatrixMode: 1
+  m_GateFitMode: 2
+  m_FOVAxisMode: 0
+  m_Iso: 200
+  m_ShutterSpeed: 0.005
+  m_Aperture: 16
+  m_FocusDistance: 10
+  m_FocalLength: 50
+  m_BladeCount: 5
+  m_Curvature: {x: 2, y: 11}
+  m_BarrelClipping: 0.25
+  m_Anamorphism: 0
+  m_SensorSize: {x: 36, y: 24}
+  m_LensShift: {x: 0, y: 0}
+  m_NormalizedViewPortRect:
+    serializedVersion: 2
+    x: 0
+    y: 0
+    width: 1
+    height: 1
+  near clip plane: 0.08
+  far clip plane: 16000
+  field of view: 75
+  orthographic: 0
+  orthographic size: 5
+  m_Depth: 0
+  m_CullingMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  m_RenderingPath: -1
+  m_TargetTexture: {fileID: 0}
+  m_TargetDisplay: 0
+  m_TargetEye: 3
+  m_HDR: 1
+  m_AllowMSAA: 1
+  m_AllowDynamicResolution: 0
+  m_ForceIntoRT: 0
+  m_OcclusionCulling: 1
+  m_StereoConvergence: 10
+  m_StereoSeparation: 0.022
+--- !u!4 &1388680752
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1388680748}
+  serializedVersion: 2
+  m_LocalRotation: {x: -0.000000084293696, y: 0.7071068, z: -0.000000084293696, w: 0.7071068}
+  m_LocalPosition: {x: -10.781872, y: 5.3076887, z: -1.2075052}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &2028956457
 GameObject:
   m_ObjectHideFlags: 0
@@ -411,7 +786,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 5b14127292fc4ba78410989d8c93bbdf, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::IslandWorldManager
   islandGenerationRequestFactoryComponent: {fileID: 2028956461}
   worldEnvironmentConfiguration: {fileID: 0}
@@ -472,7 +847,7 @@ MonoBehaviour:
   forwardPriorityMultiplier: 0.65
   cancellationHysteresisMetres: 1800
   installationBudgetMilliseconds: 4
-  streamingTarget: {fileID: 763167138}
+  streamingTarget: {fileID: 1388680752}
   activeRadiusMetres: 1500
   activeHysteresisMetres: 500
   unloadRadiusMetres: 2000
@@ -503,7 +878,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 3549d4439b0224cdab83a35ac1fa3122, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::CoherentIslandFactory
   seed: 42
   noiseScale: 0.15
@@ -591,7 +966,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 66925f8c6b3ae40a690be1d03ec7fca0, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::CoherentWeatherDriver
   seed: 42
 --- !u!1660057539 &9223372036854775807
@@ -601,3 +976,5 @@ SceneRoots:
   - {fileID: 2028956460}
   - {fileID: 645647292}
   - {fileID: 763167138}
+  - {fileID: 797882075}
+  - {fileID: 1388680752}

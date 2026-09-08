@@ -81,6 +81,8 @@ Shader "Motu/Sea Water"
 
             #include "WaterCommon.cginc"
             #include "OceanWaves.cginc"
+            #include "OceanDeckWaveClamp.cginc"
+            #include "OceanShipWaves.cginc"
 
             struct VertexInput
             {
@@ -98,6 +100,7 @@ Shader "Motu/Sea Water"
                 float4 grabPosition : TEXCOORD4;
                 SHADOW_COORDS(5)
                 float2 waveSamplePosition : TEXCOORD6;
+                float2 deckWaveData : TEXCOORD7;
             };
 
             VertexOutput Vertex(VertexInput input)
@@ -112,6 +115,11 @@ Shader "Motu/Sea Water"
                     length(input.vertex.xz),
                     waveDisplacement);
                 float3 displacedWorldPosition = baseWorldPosition + waveDisplacement;
+                float deckClampWeight = MotuDeckWaveClampWeight(displacedWorldPosition.xz);
+                output.deckWaveData = float2(waveDisplacement.y, deckClampWeight);
+                displacedWorldPosition.y = baseWorldPosition.y
+                    + MotuShipWaveHeight(waveDisplacement.y,
+                        MotuShipWaveField(displacedWorldPosition.xz), deckClampWeight);
                 output.pos = UnityWorldToClipPos(displacedWorldPosition);
                 output.screenPosition = ComputeScreenPos(output.pos);
                 output.grabPosition = ComputeGrabScreenPos(output.pos);
@@ -135,6 +143,8 @@ Shader "Motu/Sea Water"
                     input.waveSamplePosition,
                     analyticWaveNormal,
                     whitecap);
+                MotuShipWaveShading(input.worldPosition.xz, input.deckWaveData.x,
+                    input.deckWaveData.y, analyticWaveNormal, whitecap);
                 float3 worldNormal = MotuFacingWaterNormal(
                     analyticWaveNormal,
                     viewDirection);
