@@ -8,7 +8,7 @@ namespace Motu.Interop
     internal static class CaveNative
     {
         private const string Library = "motu";
-        internal const uint AlgorithmRevision = 7;
+        internal const uint AlgorithmRevision = 11;
         [Serializable, StructLayout(LayoutKind.Sequential)]
         internal struct Options
         {
@@ -82,6 +82,30 @@ namespace Motu.Interop
                 writer.Write(voxelSize);
             }
         }
+        [Serializable, StructLayout(LayoutKind.Sequential)]
+        internal struct NetworkOptions
+        {
+            public uint maximumBranches;
+            public float branchLengthMin, branchLengthMax, chamberScale;
+            internal void Write(BinaryWriter writer)
+            {
+                writer.Write(maximumBranches);
+                writer.Write(branchLengthMin);
+                writer.Write(branchLengthMax);
+                writer.Write(chamberScale);
+            }
+        }
+        [Serializable, StructLayout(LayoutKind.Sequential)]
+        internal struct WalkOptions
+        {
+            public uint enabled;
+            public float endProbability, branchProbability, stepMetres, turnDegrees, widthVariation;
+            internal void Write(BinaryWriter writer)
+            {
+                writer.Write(enabled); writer.Write(endProbability); writer.Write(branchProbability);
+                writer.Write(stepMetres); writer.Write(turnDegrees); writer.Write(widthVariation);
+            }
+        }
         [StructLayout(LayoutKind.Sequential)]
         internal struct Info
         {
@@ -103,6 +127,15 @@ namespace Motu.Interop
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern IntPtr CreateMotuWithCaves(int seed,
             ref MotuNative.Options options, ref MotuNative.ForestOptions forest,
             ref MotuNative.ReedOptions reeds, ref MotuNative.FernOptions ferns, ref Options caves);
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern IntPtr CreateMotuWithCaveNetworks(int seed,
+            ref MotuNative.Options options, ref MotuNative.ForestOptions forest,
+            ref MotuNative.ReedOptions reeds, ref MotuNative.FernOptions ferns, ref Options caves, ref NetworkOptions network);
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern IntPtr CreateMotuWithCaveWalks(int seed,
+            ref MotuNative.Options options, ref MotuNative.ForestOptions forest,
+            ref MotuNative.ReedOptions reeds, ref MotuNative.FernOptions ferns, ref Options caves, ref NetworkOptions network, ref WalkOptions walk);
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern uint GetCaveBranchCount(IntPtr handle, uint cave);
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern uint GetCaveBranchNodeCount(IntPtr handle, uint cave, uint branch);
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern byte GetCaveBranchNode(IntPtr handle, uint cave, uint branch, uint node, out Vector3 position);
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern uint GetCaveCount(IntPtr handle);
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern byte GetCaveStats(IntPtr handle, out Stats stats);
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern byte GetCaveInfo(IntPtr handle, uint cave, out Info info);

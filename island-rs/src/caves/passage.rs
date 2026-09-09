@@ -13,10 +13,27 @@ pub(crate) fn section(width: f32, height: f32) -> Vec<Vec2> {
         .collect()
 }
 pub(crate) fn build(cave: &Cave, o: &CaveOptions) -> Mesh {
+    build_path(
+        cave.id,
+        &cave.nodes,
+        &cave.portal,
+        &cave.entrance_collider,
+        o,
+    )
+}
+
+pub(crate) fn build_path(
+    id: u64,
+    nodes: &[super::Node],
+    portal: &super::portal::Portal,
+    collar: &Mesh,
+    o: &CaveOptions,
+) -> Mesh {
+    let _timer = crate::profiling::StageTimer::new("caves.mesh");
     let mut mesh = Mesh::default();
     let mut ring_count = 0;
-    let sides = cave.portal.section.len();
-    for (segment, pair) in cave.nodes[1..].windows(2).enumerate() {
+    let sides = portal.section.len();
+    for (segment, pair) in nodes[1..].windows(2).enumerate() {
         let count = (pair[0].floor.distance(pair[1].floor) / o.voxel_size).ceil() as usize;
         for i in 0..=count {
             if segment > 0 && i == 0 {
@@ -24,26 +41,26 @@ pub(crate) fn build(cave: &Cave, o: &CaveOptions) -> Mesh {
             }
             let t = i as f32 / count.max(1) as f32;
             let floor = if ring_count == 0 {
-                cave.portal.throat()
+                portal.throat()
             } else {
                 pair[0].floor.lerp(pair[1].floor, t)
             };
             let direction = if ring_count == 0 {
-                cave.inward
+                portal.inward
             } else {
                 (pair[1].floor - pair[0].floor).truncate().normalize()
             };
             let right = Vec3::new(-direction.y, direction.x, 0.0);
             let width = pair[0].width + (pair[1].width - pair[0].width) * t;
             let height = pair[0].height + (pair[1].height - pair[0].height) * t;
-            let fade = ((floor - cave.portal.throat()).length() / 3.0).clamp(0.0, 1.0);
+            let fade = ((floor - portal.throat()).length() / 3.0).clamp(0.0, 1.0);
             for (side, q) in section(width, height).into_iter().enumerate() {
                 let mut p = floor + right * q.x + Vec3::Z * q.y;
-                let rough = (field::noise3(cave.id, p / o.broad_period) * o.broad_amplitude
-                    + field::noise3(cave.id ^ 0x4649_4e45, p / o.fine_period) * o.fine_amplitude)
+                let rough = (field::noise3(id, p / o.broad_period) * o.broad_amplitude
+                    + field::noise3(id ^ 0x4649_4e45, p / o.fine_period) * o.fine_amplitude)
                     * fade;
                 if side <= 8 {
-                    p.z += field::noise3(cave.id ^ 0x464c_4f4f, p / 3.0) * o.floor_roughness * fade;
+                    p.z += field::noise3(id ^ 0x464c_4f4f, p / 3.0) * o.floor_roughness * fade;
                 } else {
                     let radial =
                         (right * q.x + Vec3::Z * (q.y - height * 0.35)).normalize_or_zero();
@@ -75,8 +92,8 @@ pub(crate) fn build(cave: &Cave, o: &CaveOptions) -> Mesh {
     let base = ((ring_count - 1) * sides) as u32;
     // Close beyond the chamber's standing destination. Use the section's
     // geometric centre, independent of how finely the arch is sampled.
-    let last = cave.nodes.last().unwrap();
-    let direction = (last.floor - cave.nodes[cave.nodes.len() - 2].floor).normalize();
+    let last = nodes.last().unwrap();
+    let direction = (last.floor - nodes[nodes.len() - 2].floor).normalize();
     let centre = (last.floor + Vec3::Z * (last.height * 0.35) + direction * (last.width * 0.5))
         / ISLAND_WORLD_METRES;
     let centre_id = mesh.vertices.len() as u32;
@@ -94,16 +111,10 @@ pub(crate) fn build(cave: &Cave, o: &CaveOptions) -> Mesh {
     // The lip and passage must agree at their shared ring, even when the
     // following route widens or bends and changes the averaged mesh normals.
     for side in 0..sides {
-        mesh.normals[side] = cave
-            .portal
-            .passage_normal(mesh.vertices[side] * ISLAND_WORLD_METRES, side <= 8);
+        mesh.normals[side] =
+            portal.passage_normal(mesh.vertices[side] * ISLAND_WORLD_METRES, side <= 8);
     }
-    let (min, max) = cave.portal.throat_bounds();
-    stitch::repair(
-        &mut mesh,
-        min,
-        max,
-        cave.portal.throat_anchors(&cave.entrance_collider.vertices),
-    );
+    let (min, max) = portal.throat_bounds();
+    stitch::repair(&mut mesh, min, max, portal.throat_anchors(&collar.vertices));
     mesh
 }

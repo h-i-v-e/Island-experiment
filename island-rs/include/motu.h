@@ -52,6 +52,16 @@ typedef struct {
     float sea_clearance;
     float voxel_size;
 } MotuCaveOptions;
+/* Additive network options; maximum_branches=0 keeps a single passage. */
+typedef struct {
+    uint32_t maximum_branches;
+    float branch_length_min, branch_length_max, chamber_scale;
+} MotuCaveNetworkOptions;
+typedef struct {
+    uint32_t enabled;
+    /* Main ending chance doubles per child generation, up to 1. Branch chance is independent. */
+    float end_probability, branch_probability, step_metres, turn_degrees, width_variation;
+} MotuCaveWalkOptions;
 typedef struct {
     uint64_t id;
     Vector3Export entrance;
@@ -233,6 +243,18 @@ MOTU_EXPORT uint32_t CaveAlgorithmRevision(void);
 MOTU_EXPORT void* CreateMotuWithCaves(int32_t seed, const MotuOptions* options,
     const MotuForestOptions* forest, const MotuReedOptions* reeds,
     const MotuFernOptions* ferns, const MotuCaveOptions* caves);
+MOTU_EXPORT void* CreateMotuWithCaveNetworks(int32_t seed, const MotuOptions* options,
+    const MotuForestOptions* forest, const MotuReedOptions* reeds,
+    const MotuFernOptions* ferns, const MotuCaveOptions* caves, const MotuCaveNetworkOptions* network);
+MOTU_EXPORT void* CreateMotuWithCaveWalks(int32_t seed, const MotuOptions* options,
+    const MotuForestOptions* forest, const MotuReedOptions* reeds,
+    const MotuFernOptions* ferns, const MotuCaveOptions* caves,
+    const MotuCaveNetworkOptions* network, const MotuCaveWalkOptions* walk);
+
+MOTU_EXPORT uint32_t GetCaveBranchCount(const void* handle, uint32_t cave);
+MOTU_EXPORT uint32_t GetCaveBranchNodeCount(const void* handle, uint32_t cave, uint32_t branch);
+MOTU_EXPORT uint8_t GetCaveBranchNode(const void* handle, uint32_t cave, uint32_t branch,
+    uint32_t node, Vector3Export* output);
 MOTU_EXPORT uint32_t GetCaveCount(const void* handle);
 MOTU_EXPORT uint8_t GetCaveStats(const void* handle, MotuCaveStats* output);
 MOTU_EXPORT uint8_t GetCaveInfo(const void* handle, uint32_t cave, MotuCaveInfo* output);

@@ -4,9 +4,11 @@ using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.Rendering;
+using Unity.Profiling;
 using Motu.Interop;
 using Motu.Rendering;
 using Motu.World;
+using Stopwatch = System.Diagnostics.Stopwatch;
 
 namespace Motu.Streaming
 {
@@ -14,13 +16,25 @@ namespace Motu.Streaming
     /// passage colliders remain resident with the surrounding terrain.</summary>
     public sealed class CaveStreamer : MonoBehaviour, IDisposable
     {
+        private static readonly ProfilerMarker MeshCreationMarker = new ProfilerMarker("Motu.Caves.CreateMesh");
+        private static readonly ProfilerMarker ColliderCookMarker = new ProfilerMarker("Motu.Caves.CookCollider");
         private IslandPreparedCaves prepared = IslandPreparedCaves.Empty;
         private readonly List<Mesh> meshes = new List<Mesh>();
         private readonly List<MeshCollider> colliders = new List<MeshCollider>();
         private Material material;
         private bool ready, released;
         public int CaveCount => prepared.caves.Length;
-        public string Diagnostics => prepared.stats.ToString();
+        public int BranchCount => prepared.branchCount;
+        public string Diagnostics => prepared.stats + $"; {BranchCount} branches, {CaveCount + BranchCount} passages";
+        public double ExportMilliseconds => prepared.exportMilliseconds;
+        public double CopyMilliseconds => prepared.copyMilliseconds;
+        public long PreparedBufferBytes => prepared.bufferBytes;
+        public double MeshCreationMilliseconds { get; private set; }
+        public double ColliderCookMilliseconds { get; private set; }
+        public double LongestColliderCookMilliseconds { get; private set; }
+        public int RenderTriangles { get; private set; }
+        public int ColliderTriangles { get; private set; }
+        public int MeshCount => meshes.Count;
 
         internal async Task InitializeAsync(IslandPreparedCaves data, Material terrainMaterial,
             CancellationToken cancellation, UnityFrameBudget budget)
@@ -51,6 +65,7 @@ namespace Motu.Streaming
             // Passage normals come from the mesh, not the exterior heightfield.
             var properties = new MaterialPropertyBlock();
             properties.SetFloat("_WorldNormalWeight", 0f);
+            var timer = new Stopwatch();
             for (var i = 0; i < CaveCount; i++)
             {
                 var root = new GameObject($"Cave {i + 1} [{prepared.caves[i].id}]");
@@ -58,13 +73,19 @@ namespace Motu.Streaming
                 foreach (var source in prepared.caves[i].chunks)
                 {
                     cancellation.ThrowIfCancellationRequested();
-                    var mesh = IslandMeshInterop.CreateGeneratedMesh(source);
+                    timer.Restart();
+                    Mesh mesh;
+                    using (MeshCreationMarker.Auto()) mesh = IslandMeshInterop.CreateGeneratedMesh(source);
+                    MeshCreationMilliseconds += timer.Elapsed.TotalMilliseconds;
                     meshes.Add(mesh);
                     mesh.name = $"Cave {i + 1} surface {meshes.Count}";
                     var chunk = new GameObject(mesh.name);
                     chunk.transform.SetParent(root.transform, false);
                     chunk.AddComponent<MeshFilter>().sharedMesh = mesh;
                     var collisionOnly = source.caveAttributes.Length > 0 && source.caveAttributes[0].y > 1.5f;
+                    var triangleCount = source.triangles.Length / 3;
+                    if (!collisionOnly) RenderTriangles += triangleCount;
+                    ColliderTriangles += triangleCount;
                     var renderer = chunk.AddComponent<MeshRenderer>();
                     renderer.enabled = !collisionOnly;
                     renderer.sharedMaterial = material;
@@ -72,9 +93,19 @@ namespace Motu.Streaming
                     renderer.shadowCastingMode = ShadowCastingMode.TwoSided;
                     // The cave texture coordinates are already island-local, independent
                     // of the world's translated island root.
-                    var collider = chunk.AddComponent<MeshCollider>();
-                    collider.convex = false;
-                    collider.sharedMesh = mesh;
+                    timer.Restart();
+                    MeshCollider collider;
+                    using (ColliderCookMarker.Auto())
+                    {
+                        // Adding a collider can already cook the MeshFilter's
+                        // mesh, so include component creation in this timing.
+                        collider = chunk.AddComponent<MeshCollider>();
+                        collider.convex = false;
+                        collider.sharedMesh = mesh;
+                    }
+                    var cookMilliseconds = timer.Elapsed.TotalMilliseconds;
+                    ColliderCookMilliseconds += cookMilliseconds;
+                    LongestColliderCookMilliseconds = Math.Max(LongestColliderCookMilliseconds, cookMilliseconds);
                     colliders.Add(collider);
                     if (collider.sharedMesh == null)
                         throw new InvalidOperationException("Cave collider installation failed.");
@@ -99,6 +130,16 @@ namespace Motu.Streaming
             if (!ready || index < 0 || index >= CaveCount) return false;
             var p = transform.TransformPoint(prepared.caves[index].chamber);
             return TryFindGround(p, 2f, 3f, out floor);
+        }
+
+        public int GetBranchCount(int cave) => cave >= 0 && cave < CaveCount ? prepared.caves[cave].branchPaths.Length : 0;
+
+        public bool TryGetBranchChamber(int cave, int branch, out Vector3 floor)
+        {
+            floor = default;
+            if (!ready || branch < 0 || branch >= GetBranchCount(cave)) return false;
+            var path = prepared.caves[cave].branchPaths[branch];
+            return TryFindGround(transform.TransformPoint(path[path.Length - 1]), 2f, 3f, out floor);
         }
 
         /// <summary>Ground near a known interior elevation; never searches from
@@ -138,6 +179,14 @@ namespace Motu.Streaming
                 Gizmos.DrawLine(entrance, entrance + transform.TransformDirection(cave.inward) * 5f);
                 Gizmos.color = Color.yellow;
                 Gizmos.DrawWireSphere(transform.TransformPoint(cave.chamber) + Vector3.up, 1f);
+                Gizmos.color = Color.magenta;
+                foreach (var path in cave.branchPaths)
+                {
+                    for (var i = 1; i < path.Length; i++)
+                        Gizmos.DrawLine(transform.TransformPoint(path[i - 1]) + Vector3.up,
+                            transform.TransformPoint(path[i]) + Vector3.up);
+                    Gizmos.DrawWireSphere(transform.TransformPoint(path[path.Length - 1]) + Vector3.up, 1f);
+                }
             }
         }
 
@@ -152,6 +201,8 @@ namespace Motu.Streaming
             UnityObjectLifetime.DestroyUnityObject(material);
             material = null;
             prepared = IslandPreparedCaves.Empty;
+            MeshCreationMilliseconds = ColliderCookMilliseconds = LongestColliderCookMilliseconds = 0;
+            RenderTriangles = ColliderTriangles = 0;
         }
         private void OnDestroy() => Dispose();
     }

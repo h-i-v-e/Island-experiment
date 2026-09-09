@@ -1,7 +1,10 @@
 # Island Caves Implementation Plan
 
-Status: initial cave implementation added. See [ISLAND_CAVES.md](ISLAND_CAVES.md)
+Status: initial cave implementation, branching networks and experimental volume-unioned random walks added. See [ISLAND_CAVES.md](ISLAND_CAVES.md)
 for the implemented architecture, usage, validation and remaining refinements.
+Phase 6 performance evidence is recorded in
+[the 9 September checkpoint](island-rs/validation/caves-2026-09-09/README.md); broader
+world lighting/reflection and residency acceptance remains explicitly tracked there.
 The design below records the original plan; the implementation notes take precedence
 where the chosen terrain boundary and collision policy differ.
 Written: 2026-09-09. Repository baseline: `3716849` on `main`.
@@ -499,7 +502,19 @@ manual traversal; report automated and visual validation separately.
 
 ### Later extensions
 
-Branching, loops and additional exits; larger chamber networks; stalactites and
+Delivered: up to three optional side passages off the main route, each opening
+into a larger chamber. Includes connected doorways, full-route clearance, bounded
+mesh batches, deterministic persistence, settings and debug chamber visits.
+See the revision 8 implementation and validation notes in `ISLAND_CAVES.md`.
+
+The random-walk extension now adds recursive random walks, probabilistic endings, variable
+widths/directions and a combined volume mesher: crossings and loops merge naturally.
+Each branch generation doubles its ending probability (capped at 1), allowing
+branching chances above the main ending chance without unlimited descendant
+generations. The original terrain and entrance join remain in use. Returning
+walks stay behind the entrance blend plane.
+
+Still future work: additional exterior exits; stalactites and
 stalagmites outside protected walking corridors; interior chunk LOD; navigation,
 audio and gameplay placement; sea caves and underground water. Each extension
 retains the same entrance, topology, persistence and ownership contracts.

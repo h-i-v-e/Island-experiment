@@ -93,12 +93,16 @@ namespace Motu.Gameplay
         }
 
         /// <summary>Debug traversal of an installed cave; normal startup remains at the helm.</summary>
-        public bool VisitCave(Motu.Streaming.CaveStreamer caves, int index, bool chamber = false)
+        public bool VisitCave(Motu.Streaming.CaveStreamer caves, int index, bool chamber = false, int branch = -1)
         {
             if (!Application.isPlaying || caves == null || firstPersonController == null
                 || worldManager == null
                 || !caves.TryGetEntrance(index, out var target, out var inward)) return false;
-            if (chamber && !caves.TryGetChamber(index, out target)) return false;
+            if (branch >= 0)
+            {
+                if (!caves.TryGetBranchChamber(index, branch, out target)) return false;
+            }
+            else if (chamber && !caves.TryGetChamber(index, out target)) return false;
             worldManager.PrepareStreamingAt(target);
             if (!caves.TryFindGround(target, 2f, 3f, out var ground)) return false;
             if (!UseExplorationCamera()) return false;

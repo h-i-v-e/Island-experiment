@@ -16,7 +16,7 @@ use super::{
     hydraulic_erode_stage_depositing_across_sea, io, legacy_catchment_hectares, mem, noise,
     sample_grid,
 };
-use crate::caves::{CaveOptions, CaveSet};
+use crate::caves::{CaveNetworkOptions, CaveOptions, CaveSet, CaveWalkOptions};
 use crate::ferns::{FernMeshTile, FernMeshes, FernOptions, FernSurface, generate_ferns_with_caves};
 use crate::forest::{
     ForestGenerationStats, ForestMeshKind, ForestMeshes, ForestOptions, forest_floor_mask,
@@ -459,6 +459,62 @@ impl Island {
         cave_options: CaveOptions,
         method: GenerationMethod,
     ) -> Result<Self, String> {
+        Self::generate_with_cave_networks(
+            seed,
+            options,
+            forest_options,
+            reed_options,
+            fern_options,
+            cave_options,
+            CaveNetworkOptions::default(),
+            method,
+        )
+    }
+
+    /// Generates bounded cave networks against the finished island surface.
+    /// # Errors
+    /// Returns invalid settings, geometry or resource-budget failures.
+    #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+    pub fn generate_with_cave_networks(
+        seed: u64,
+        options: IslandOptions,
+        forest_options: ForestOptions,
+        reed_options: ReedOptions,
+        fern_options: FernOptions,
+        cave_options: CaveOptions,
+        network_options: CaveNetworkOptions,
+        method: GenerationMethod,
+    ) -> Result<Self, String> {
+        Self::generate_with_cave_walks(
+            seed,
+            options,
+            forest_options,
+            reed_options,
+            fern_options,
+            cave_options,
+            network_options,
+            CaveWalkOptions::default(),
+            method,
+        )
+    }
+
+    /// Generates probabilistically ending, volume-unioned cave networks.
+    /// # Errors
+    /// Returns generation, configuration or exceptional resource errors.
+    #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+    pub fn generate_with_cave_walks(
+        seed: u64,
+        options: IslandOptions,
+        forest_options: ForestOptions,
+        reed_options: ReedOptions,
+        fern_options: FernOptions,
+        cave_options: CaveOptions,
+        network_options: CaveNetworkOptions,
+        walk_options: CaveWalkOptions,
+        method: GenerationMethod,
+    ) -> Result<Self, String> {
+        let walk_options = walk_options.validate()?;
+        let network_options = network_options.validate(&cave_options)?;
         let cave_options = cave_options.validate()?;
         method.require_available()?;
         let _timer = StageTimer::new("island.generate");
@@ -503,19 +559,26 @@ impl Island {
             let _timer = StageTimer::new("terrain.index");
             Terrain::with_index(lod0, lod0_index)
         };
-        let caves = CaveSet::generate(seed, &terrain, cave_options, |point| {
-            rivers.iter().any(|river| {
-                river.nodes.windows(2).any(|pair| {
-                    let a = pair[0].position.truncate();
-                    let b = pair[1].position.truncate();
-                    let edge = b - a;
-                    let t = ((point - a).dot(edge) / edge.length_squared().max(1.0e-12))
-                        .clamp(0.0, 1.0);
-                    point.distance(a + edge * t)
-                        < (cave_options.chamber_width + 20.0) / ISLAND_WORLD_METRES
+        let caves = CaveSet::generate_wandering(
+            seed,
+            &terrain,
+            cave_options,
+            network_options,
+            walk_options,
+            |point| {
+                rivers.iter().any(|river| {
+                    river.nodes.windows(2).any(|pair| {
+                        let a = pair[0].position.truncate();
+                        let b = pair[1].position.truncate();
+                        let edge = b - a;
+                        let t = ((point - a).dot(edge) / edge.length_squared().max(1.0e-12))
+                            .clamp(0.0, 1.0);
+                        point.distance(a + edge * t)
+                            < (cave_options.chamber_width + 20.0) / ISLAND_WORLD_METRES
+                    })
                 })
-            })
-        })?;
+            },
+        )?;
         let (mut decorations, mut settled_rocks) = Decorations::generate(
             seed,
             &terrain,

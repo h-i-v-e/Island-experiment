@@ -20,6 +20,7 @@ impl SurfaceGrid {
         maximum: Vec2,
         voxel: f32,
     ) -> Result<Self, String> {
+        let _timer = crate::profiling::StageTimer::new("caves.surface_sampling");
         let cell = ISLAND_WORLD_METRES / 8192.0;
         let step = (voxel / cell).round().max(1.0) * cell;
         let minimum = (minimum / step).floor() * step;

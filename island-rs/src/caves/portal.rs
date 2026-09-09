@@ -11,6 +11,7 @@ pub struct Portal {
     pub inward: Vec2,
     pub length: f32,
     pub floor_clearance: f32,
+    pub exterior: bool,
     pub section: Vec<Vec2>,
 }
 #[derive(Clone, Copy)]
@@ -59,6 +60,7 @@ impl Portal {
             inward,
             length: o.transition_length + 2.0,
             floor_clearance: o.approach_step + 2.0 * o.approach_slope.to_radians().tan() + 0.1,
+            exterior: true,
             section: passage::section(o.entrance_width, o.entrance_height),
         }
     }
@@ -184,6 +186,7 @@ impl Portal {
     }
     /// Append only the lip to a collider, using the authoritative exterior mesh.
     pub(crate) fn collider(&self, mesh: &Mesh) -> Mesh {
+        let _timer = crate::profiling::StageTimer::new("caves.entrance_collider");
         let planes = self.planes();
         let (min, max) = self.bounds();
         let mut collar = Mesh::default();
@@ -196,7 +199,7 @@ impl Portal {
             let inside = planes
                 .iter()
                 .fold(original.to_vec(), |p, &plane| clip(&p, plane, true));
-            Self::collect_edges(&mut edges, &inside, &original, &planes);
+            self.collect_edges(&mut edges, &inside, &original, &planes);
         }
         self.append_lip(&mut collar, &edges);
         let (min, max) = expanded_bounds(&collar.vertices, min, max);
@@ -204,6 +207,7 @@ impl Portal {
         collar
     }
     pub(crate) fn cut(&self, mut mesh: Mesh, collar: &[Vec3]) -> Mesh {
+        let _timer = crate::profiling::StageTimer::new("caves.terrain_cut");
         let planes = self.planes();
         let (min, max) = self.bounds();
         let first_new_vertex = mesh.vertices.len();
@@ -236,7 +240,7 @@ impl Portal {
                     break;
                 }
             }
-            Self::collect_edges(&mut edges, &inside, &original, &planes);
+            self.collect_edges(&mut edges, &inside, &original, &planes);
         }
         self.append_lip(&mut mesh, &edges);
         let (min, max) =
@@ -244,7 +248,53 @@ impl Portal {
         stitch::repair(&mut mesh, min, max, self.throat_anchors(collar));
         mesh
     }
+    /// Trim a volume at one vestibule plane and join that single perimeter to
+    /// the existing throat. Unlike a doorway prism, this cannot collect several
+    /// overlapping wall contours along a noisy tunnel.
+    pub(crate) fn join_volume(&self, mut mesh: Mesh, collar: &[Vec3]) -> Mesh {
+        let plane = Plane {
+            normal: -self.inward.extend(0.0),
+            offset: (-self.inward.extend(0.0)).dot(self.origin),
+        };
+        let first_new_vertex = mesh.vertices.len();
+        let triangles = std::mem::take(&mut mesh.triangles);
+        let mut edges = Vec::new();
+        for t in triangles.chunks_exact(3) {
+            let original = Self::triangle(&mesh, t);
+            if original.iter().all(|v| plane.distance(v.p) >= 0.0) {
+                mesh.triangles.extend_from_slice(t);
+                continue;
+            }
+            let inside = clip(&original, plane, true);
+            append_polygon(&mut mesh, &inside);
+            let removed = clip(&original, plane, false);
+            for i in 0..removed.len() {
+                let a = removed[i];
+                let b = removed[(i + 1) % removed.len()];
+                if plane.distance(a.p).abs() < 0.001
+                    && plane.distance(b.p).abs() < 0.001
+                    && a.p.distance_squared(b.p) > 1.0e-10
+                {
+                    edges.push(Edge {
+                        a,
+                        b,
+                        floor: a.n.z > 0.7 && b.n.z > 0.7,
+                    });
+                }
+            }
+        }
+        self.append_lip(&mut mesh, &edges);
+        let (min, max) = expanded_bounds(
+            &mesh.vertices[first_new_vertex..],
+            self.origin,
+            self.throat(),
+        );
+        stitch::repair(&mut mesh, min, max, self.throat_anchors(collar));
+        mesh
+    }
+
     fn collect_edges(
+        &self,
         output: &mut Vec<Edge>,
         inside: &[Vertex],
         original: &[Vertex],
@@ -269,7 +319,8 @@ impl Portal {
             output.push(Edge {
                 a,
                 b,
-                floor: side == 0 || planes[side].normal.z > 0.999,
+                floor: (side == 0 && (self.exterior || (a.n.z > 0.5 && b.n.z > 0.5)))
+                    || planes[side].normal.z > 0.999,
             });
         }
     }
@@ -312,7 +363,8 @@ impl Portal {
         // Classify shared corners from position as well, so a tile containing
         // only the wall strip agrees with the neighbouring tile's floor strip.
         let floor = floor
-            || (source.p - self.origin).truncate().dot(self.inward).abs() < 0.002
+            || ((self.exterior || source.n.z > 0.5)
+                && (source.p - self.origin).truncate().dot(self.inward).abs() < 0.002)
             || source.p.z <= self.origin.z - self.floor_clearance + 0.002;
         let p = self.project_to_throat(source.p, floor);
         Vertex {
@@ -325,16 +377,38 @@ impl Portal {
         q * Vec2::new(1.18, 1.30)
     }
 
-    fn project_to_throat(&self, p: Vec3, floor: bool) -> Vec3 {
-        let delta = p - self.origin;
-        self.throat()
-            + self.right() * (delta.dot(self.right()) / 1.18)
-            + Vec3::Z
-                * if floor {
-                    0.0
-                } else {
-                    (delta.z / 1.30).max(0.0)
-                }
+    fn project_to_throat(&self, point: Vec3, floor: bool) -> Vec3 {
+        let delta = point - self.origin;
+        let mut section_point = Vec2::new(
+            delta.dot(self.right()) / 1.18,
+            if floor {
+                0.0
+            } else {
+                (delta.z / 1.30).max(0.0)
+            },
+        );
+        if !self.exterior && !floor {
+            // An indoor doorway can also cut the parent's ceiling at the front
+            // plane. Its boundary must land on the child's arch, never float
+            // inside the cross-section and leave an open seam.
+            section_point = (0..self.section.len())
+                .filter_map(|i| {
+                    let a = self.section[i];
+                    let b = self.section[(i + 1) % self.section.len()];
+                    if a.y == 0.0 && b.y == 0.0 {
+                        return None;
+                    }
+                    let edge = b - a;
+                    let t = ((section_point - a).dot(edge) / edge.length_squared()).clamp(0.0, 1.0);
+                    Some(a + edge * t)
+                })
+                .min_by(|a, b| {
+                    a.distance_squared(section_point)
+                        .total_cmp(&b.distance_squared(section_point))
+                })
+                .unwrap_or(section_point);
+        }
+        self.throat() + self.right() * section_point.x + Vec3::Z * section_point.y
     }
 
     pub(crate) fn passage_normal(&self, p: Vec3, floor: bool) -> Vec3 {
@@ -383,16 +457,121 @@ impl Portal {
         }
     }
 
+    fn interior_arch_steps(
+        &self,
+        targets: [Vertex; 2],
+        across: usize,
+    ) -> Option<Vec<(f32, Vertex)>> {
+        if self.exterior
+            || targets
+                .iter()
+                .all(|v| (v.p.z - self.throat().z).abs() < 0.001)
+        {
+            return None;
+        }
+        let points: Vec<_> = self
+            .section
+            .iter()
+            .copied()
+            .chain(self.section.first().copied())
+            .collect();
+        let mut distance = vec![0.0];
+        for pair in points.windows(2) {
+            distance.push(distance.last().unwrap() + pair[0].distance(pair[1]));
+        }
+        let locate = |target: Vertex| {
+            let d = target.p - self.throat();
+            let q = Vec2::new(d.dot(self.right()), d.z);
+            points
+                .windows(2)
+                .enumerate()
+                .map(|(i, pair)| {
+                    let edge = pair[1] - pair[0];
+                    let t = ((q - pair[0]).dot(edge) / edge.length_squared()).clamp(0.0, 1.0);
+                    (
+                        (pair[0] + edge * t).distance_squared(q),
+                        distance[i] + edge.length() * t,
+                    )
+                })
+                .min_by(|a, b| a.0.total_cmp(&b.0))
+                .unwrap()
+                .1
+        };
+        let start = locate(targets[0]);
+        let perimeter = *distance.last().unwrap();
+        let mut end = locate(targets[1]);
+        if end - start > perimeter * 0.5 {
+            end -= perimeter;
+        }
+        if start - end > perimeter * 0.5 {
+            end += perimeter;
+        }
+        if (start - end).abs() < 0.00001 {
+            return None;
+        }
+        let mut steps: Vec<_> = (0..=across).map(|i| i as f32 / across as f32).collect();
+        for offset in [-perimeter, 0.0, perimeter] {
+            steps.extend(distance.iter().filter_map(|d| {
+                let t = (d + offset - start) / (end - start);
+                (t > 0.0 && t < 1.0).then_some(t)
+            }));
+        }
+        steps.sort_by(f32::total_cmp);
+        steps.dedup_by(|a, b| (*a - *b).abs() < 0.000_001);
+        Some(
+            steps
+                .into_iter()
+                .map(|t| {
+                    if t == 0.0 {
+                        return (t, targets[0]);
+                    }
+                    if t >= 1.0 {
+                        return (t, targets[1]);
+                    }
+                    let d = (start + (end - start) * t).rem_euclid(perimeter);
+                    let i = distance
+                        .windows(2)
+                        .position(|p| d <= p[1])
+                        .unwrap_or(points.len() - 2);
+                    let blend =
+                        ((d - distance[i]) / (distance[i + 1] - distance[i])).clamp(0.0, 1.0);
+                    let q = points[i].lerp(points[i + 1], blend);
+                    let p = self.throat() + self.right() * q.x + Vec3::Z * q.y;
+                    (
+                        t,
+                        Vertex {
+                            p,
+                            n: self.passage_normal(p, q.y < 0.001),
+                            uv: p.truncate() / ISLAND_WORLD_METRES,
+                        },
+                    )
+                })
+                .collect(),
+        )
+    }
+
     fn append_curved_edge(&self, output: &mut Mesh, [a, b]: [Vertex; 2], targets: [Vertex; 2]) {
         // Subdivide across as well as along the lip so a large source triangle
         // cannot leave a visibly faceted arch. No intermediate mesh is needed.
         const RINGS: usize = 12;
         let across = (a.p.distance(b.p) / 0.5).ceil().max(1.0) as usize;
-        for i in 0..across {
-            let start = a.lerp(b, i as f32 / across as f32);
-            let end = a.lerp(b, (i + 1) as f32 / across as f32);
-            let target_a = targets[0].lerp(targets[1], i as f32 / across as f32);
-            let target_b = targets[0].lerp(targets[1], (i + 1) as f32 / across as f32);
+        // A ceiling cut may span several arch faces. Include every arch corner
+        // so the lip cannot take a chord across the child's curved boundary.
+        let steps = self
+            .interior_arch_steps(targets, across)
+            .unwrap_or_else(|| {
+                (0..=across)
+                    .map(|i| {
+                        let t = i as f32 / across as f32;
+                        (t, targets[0].lerp(targets[1], t))
+                    })
+                    .collect()
+            });
+        for pair in steps.windows(2) {
+            let start = a.lerp(b, pair[0].0);
+            let end = a.lerp(b, pair[1].0);
+            let target_a = pair[0].1;
+            let target_b = pair[1].1;
             for j in 0..RINGS {
                 let t0 = j as f32 / RINGS as f32;
                 let t1 = (j + 1) as f32 / RINGS as f32;

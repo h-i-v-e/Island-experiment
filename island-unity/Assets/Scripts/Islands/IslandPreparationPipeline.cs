@@ -36,7 +36,7 @@ namespace Motu.Islands
                 cancellationToken,
                 request.SnapshotPath,
                 request.SnapshotCacheBudgetBytes,
-                request.CaveOptions);
+                request.CaveOptions, request.CaveNetworkOptions, request.CaveWalkOptions);
         }
 
         internal static IslandPreparedData PrepareIsland(
@@ -51,7 +51,9 @@ namespace Motu.Islands
             CancellationToken cancellationToken,
             string snapshotPath = null,
             long snapshotCacheBudgetBytes = 0L,
-            CaveNative.Options? caveOptions = null)
+            CaveNative.Options? caveOptions = null,
+            CaveNative.NetworkOptions? networkOptions = null,
+            CaveNative.WalkOptions? walkOptions = null)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var handle = IslandSnapshotCache.TryLoad(snapshotPath, out var loadStatus);
@@ -59,10 +61,12 @@ namespace Motu.Islands
             if (generated)
             {
                 var caves = caveOptions ?? new Motu.Settings.IslandCaveSettings().ToNative();
+                var network = networkOptions ?? new Motu.Settings.IslandCaveSettings { MaximumBranches = 0 }.ToNativeNetwork();
+                var walk = walkOptions ?? new Motu.Settings.IslandCaveSettings { RandomWalk = false }.ToNativeWalk();
                 if (CaveNative.CaveAlgorithmRevision() != CaveNative.AlgorithmRevision)
                     throw new InvalidOperationException("The native cave library revision does not match this Unity build.");
-                handle = CaveNative.CreateMotuWithCaves(islandSeed, ref options,
-                    ref forestOptions, ref reedOptions, ref fernOptions, ref caves);
+                handle = CaveNative.CreateMotuWithCaveWalks(islandSeed, ref options,
+                    ref forestOptions, ref reedOptions, ref fernOptions, ref caves, ref network, ref walk);
             }
             if (handle == IntPtr.Zero)
             {

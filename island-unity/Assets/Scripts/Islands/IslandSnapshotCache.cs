@@ -82,6 +82,8 @@ namespace Motu.Islands
                 Write(writer, request.FernOptions);
                 writer.Write(CaveNative.AlgorithmRevision);
                 request.CaveOptions.Write(writer);
+                request.CaveNetworkOptions.Write(writer);
+                request.CaveWalkOptions.Write(writer);
             }
             using var sha = SHA256.Create();
             return BitConverter.ToString(sha.ComputeHash(bytes.ToArray()))

@@ -1,0 +1,27 @@
+   Compiling island-rs v0.1.0 (/Users/jeromejohnson/Documents/GitHub/Island-experiment/island-rs)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.66s
+     Running unittests src/lib.rs (island-rs/target/debug/deps/motu-bc45e81b7e3d39f3)
+
+running 19 tests
+test caves::portal::tests::rounded_lip_matches_the_cliff_and_passage_tangents ... ok
+test caves::orientation::tests::collapsed_corner_does_not_corrupt_connected_surface_facing ... ok
+test caves::stitch::tests::clipped_neighbours_share_exact_subedges_without_moving_distant_vertices ... ok
+test caves::portal::tests::floor_and_wall_share_every_edge_of_the_rounded_corner ... ok
+test caves::tests::disabled_caves_are_empty_and_options_are_bounded ... ok
+test caves::tests::flat_island_has_no_entrance ... ok
+test caves::tests::thin_roof_and_narrow_ridge_are_rejected ... ok
+test caves::tests::approach_accepts_configured_steps_but_not_a_sustained_steep_slope ... ok
+test caves::tests::approach_checks_entire_landing ... ok
+test caves::tests::cliff_with_a_rounded_toe_can_have_an_entrance ... ok
+test caves::tests::volume_crossings_are_air_and_loops_leave_rock_pillars ... ok
+test caves::tests::wandering_is_deterministic_and_ends_by_probability ... ok
+test caves::tests::side_passages_connect_to_walkable_larger_chambers ... ok
+walk paths 12 nodes 62 tris 46483
+test caves::tests::network_options_and_snapshot_topology_are_bounded ... ok
+test caves::tests::oblique_volume_has_closed_interior ... ok
+test caves::tests::wandering_volume_preserves_entrance_and_all_routes ... ok
+test caves::tests::frequent_branches_end_sooner_with_each_generation ... ok
+test caves::tests::candidate_selection_is_deterministic_and_respects_hazards ... ok
+test caves::tests::entrance_cut_preserves_roof_and_passage_is_only_underground ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 382 filtered out; finished in 20.79s

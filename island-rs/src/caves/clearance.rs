@@ -1,5 +1,5 @@
 //! Bounded triangle lookup used for geometric (rather than density-only) checks.
-use super::{Cave, CaveOptions};
+use super::{Cave, CaveOptions, Node};
 use crate::{ISLAND_WORLD_METRES, Mesh, Vec2, Vec3};
 use std::collections::HashMap;
 
@@ -74,12 +74,23 @@ impl Triangles {
     }
 
     pub(crate) fn rock_cover(&self, cave: &Cave, options: &CaveOptions) -> bool {
-        cave.nodes.windows(2).all(|pair| {
+        cave.paths()
+            .all(|path| self.rock_cover_path(path, cave.entrance, cave.inward, options))
+    }
+
+    pub(crate) fn rock_cover_path(
+        &self,
+        nodes: &[Node],
+        entrance: Vec3,
+        inward: Vec2,
+        options: &CaveOptions,
+    ) -> bool {
+        nodes.windows(2).all(|pair| {
             let count = (pair[0].floor.distance(pair[1].floor) / 0.5).ceil() as usize;
             (0..=count).all(|i| {
                 let blend = i as f32 / count.max(1) as f32;
                 let floor = pair[0].floor.lerp(pair[1].floor, blend);
-                let progress = (floor - cave.entrance).truncate().dot(cave.inward);
+                let progress = (floor - entrance).truncate().dot(inward);
                 let transition = ((progress - options.transition_length)
                     / options.roof_cover.max(options.side_cover))
                 .clamp(0.0, 1.0);
@@ -115,35 +126,46 @@ pub(crate) fn walkable(cave: &Cave, options: &CaveOptions) -> bool {
         cave.minimum,
         cave.maximum,
     );
-    let mut previous = None::<(Vec3, f32)>;
-    for pair in cave.nodes.windows(2) {
-        let count = (pair[0].floor.distance(pair[1].floor) / 0.25).ceil() as usize;
-        for i in 0..=count {
-            let near = pair[0]
-                .floor
-                .lerp(pair[1].floor, i as f32 / count.max(1) as f32);
-            let Some(height) = triangles.floor(near) else {
-                return false;
-            };
-            if let Some((last, last_height)) = previous {
-                let run = last.truncate().distance(near.truncate());
-                if (height - last_height).abs()
-                    > options.approach_step.min(0.2) + run * options.floor_slope.to_radians().tan()
-                {
+    walkable_paths(&triangles, cave.paths(), options)
+}
+
+pub(crate) fn walkable_paths<'a>(
+    triangles: &Triangles,
+    paths: impl IntoIterator<Item = &'a [Node]>,
+    options: &CaveOptions,
+) -> bool {
+    for path in paths {
+        let mut previous = None::<(Vec3, f32)>;
+        for pair in path.windows(2) {
+            let count = (pair[0].floor.distance(pair[1].floor) / 0.25).ceil() as usize;
+            for i in 0..=count {
+                let near = pair[0]
+                    .floor
+                    .lerp(pair[1].floor, i as f32 / count.max(1) as f32);
+                let Some(height) = triangles.floor(near) else {
                     return false;
+                };
+                if let Some((last, last_height)) = previous {
+                    let run = last.truncate().distance(near.truncate());
+                    if (height - last_height).abs()
+                        > options.approach_step.min(0.2)
+                            + run * options.floor_slope.to_radians().tan()
+                    {
+                        return false;
+                    }
                 }
-            }
-            // Overlapping spheres conservatively enclose the demo's 0.3 m radius,
-            // 1.6 m tall standing capsule, with a small floor/skin allowance.
-            for level in 0..=5 {
-                if !triangles.clear_sphere(
-                    near.truncate().extend(height + 0.4 + level as f32 * 0.2),
-                    0.34,
-                ) {
-                    return false;
+                // Overlapping spheres conservatively enclose the demo's 0.3 m radius,
+                // 1.6 m tall standing capsule, with a small floor/skin allowance.
+                for level in 0..=5 {
+                    if !triangles.clear_sphere(
+                        near.truncate().extend(height + 0.4 + level as f32 * 0.2),
+                        0.34,
+                    ) {
+                        return false;
+                    }
                 }
+                previous = Some((near, height));
             }
-            previous = Some((near, height));
         }
     }
     true

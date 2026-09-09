@@ -69,6 +69,63 @@ namespace Motu.Settings
         public float ChamberWidth { get => chamberWidth; set => chamberWidth = value; }
         [SerializeField] private float chamberHeight = 6.0f;
         public float ChamberHeight { get => chamberHeight; set => chamberHeight = value; }
+        [Header("Legacy branching passages (random walk off)")]
+        [Range(0, 3), Tooltip("Maximum side passages per cave. Unsafe branches are omitted; zero retains a single passage.")]
+        [SerializeField] private int maximumBranches = 2;
+        public int MaximumBranches { get => maximumBranches; set => maximumBranches = value; }
+        [Range(12f, 48f), Tooltip("Passage length beyond the junction throat, in metres.")] [SerializeField] private float branchLengthMin = 18f;
+        public float BranchLengthMin { get => branchLengthMin; set => branchLengthMin = value; }
+        [Range(12f, 48f)] [SerializeField] private float branchLengthMax = 30f;
+        public float BranchLengthMax { get => branchLengthMax; set => branchLengthMax = value; }
+        [Range(1f, 2f), Tooltip("Side chamber width and height relative to the main chamber. Final limits are 24 m wide and 20 m high.")]
+        [SerializeField] private float branchChamberScale = 1.25f;
+        public float BranchChamberScale { get => branchChamberScale; set => branchChamberScale = value; }
+        internal CaveNative.NetworkOptions ToNativeNetwork() => new CaveNative.NetworkOptions
+        {
+            maximumBranches = checked((uint)maximumBranches), branchLengthMin = branchLengthMin,
+            branchLengthMax = branchLengthMax, chamberScale = branchChamberScale,
+        };
+
+        [Header("Random walk")]
+        [Tooltip("Union wandering passages into one volume. Legacy passage lengths and maximum branch count do not control this mode.")]
+        [SerializeField] private bool randomWalk = true;
+        public bool RandomWalk { get => randomWalk; set => randomWalk = value; }
+        [Range(.001f, 1f), Tooltip("Chance the main passage ends after each successful step. Each child passage doubles its parent's chance, up to 100%. No target length is imposed.")]
+        [SerializeField] private float endProbability = .09f;
+        public float EndProbability { get => endProbability; set => endProbability = value; }
+        [Range(0f, 1f), Tooltip("Chance to spawn another wandering passage per surviving step. Can exceed End Probability: each branch generation doubles its ending chance to limit growth.")]
+        [SerializeField] private float branchProbability = .25f;
+        public float BranchProbability { get => branchProbability; set => branchProbability = value; }
+        [Range(2f, 8f)] [SerializeField] private float walkStepMetres = 4f;
+        public float WalkStepMetres { get => walkStepMetres; set => walkStepMetres = value; }
+        [Range(0f, 100f)] [SerializeField] private float walkTurnDegrees = 55f;
+        public float WalkTurnDegrees { get => walkTurnDegrees; set => walkTurnDegrees = value; }
+        [Range(0f, .8f)] [SerializeField] private float walkWidthVariation = .35f;
+        public float WalkWidthVariation { get => walkWidthVariation; set => walkWidthVariation = value; }
+        internal CaveNative.WalkOptions ToNativeWalk()
+        {
+            // Inspector ranges do not constrain values assigned by scripts.
+            var ending = ClampWalkSetting(nameof(EndProbability), endProbability, .001f, 1f, .09f);
+            var branching = ClampWalkSetting(nameof(BranchProbability), branchProbability, 0f, 1f, .25f);
+            return new CaveNative.WalkOptions
+            {
+                enabled = randomWalk ? 1u : 0u, endProbability = ending,
+                branchProbability = branching,
+                stepMetres = ClampWalkSetting(nameof(WalkStepMetres), walkStepMetres, 2f, 8f, 4f),
+                turnDegrees = ClampWalkSetting(nameof(WalkTurnDegrees), walkTurnDegrees, 0f, 100f, 55f),
+                widthVariation = ClampWalkSetting(nameof(WalkWidthVariation), walkWidthVariation, 0f, .8f, .35f),
+            };
+        }
+
+        private static float ClampWalkSetting(string name, float value, float minimum, float maximum, float fallback)
+        {
+            var effective = float.IsNaN(value) || float.IsInfinity(value)
+                ? fallback : Mathf.Clamp(value, minimum, maximum);
+            if (effective != value)
+                Debug.LogWarning($"Cave {name} {value} is outside [{minimum}, {maximum}]; using {effective} for generation.");
+            return effective;
+        }
+
         [Header("Shape noise")]
         [SerializeField] private float broadAmplitude = 0.5f;
         public float BroadAmplitude { get => broadAmplitude; set => broadAmplitude = value; }

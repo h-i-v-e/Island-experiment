@@ -27,6 +27,8 @@ namespace Motu.Islands
         internal MotuNative.ReedOptions ReedOptions { get; }
         internal MotuNative.FernOptions FernOptions { get; }
         internal CaveNative.Options CaveOptions { get; }
+        internal CaveNative.NetworkOptions CaveNetworkOptions { get; }
+        internal CaveNative.WalkOptions CaveWalkOptions { get; }
         public IslandMaterialColours MaterialColours { get; }
         internal int MaterialTextureResolution { get; }
         internal string SnapshotPath { get; }
@@ -148,6 +150,8 @@ namespace Motu.Islands
             ReedOptions = Profile.Generation.ToNativeReedOptions(Profile.Reeds);
             FernOptions = Profile.Generation.ToNativeFernOptions(Profile.Ferns);
             CaveOptions = Profile.Caves.ToNative();
+            CaveNetworkOptions = Profile.Caves.ToNativeNetwork();
+            CaveWalkOptions = Profile.Caves.ToNativeWalk();
             MaterialColours = materialColours;
             MaterialTextureResolution = Profile.Rendering.MaterialTextureResolution;
             SnapshotCacheBudgetBytes = Profile.Generation.SnapshotCacheBudgetBytes;

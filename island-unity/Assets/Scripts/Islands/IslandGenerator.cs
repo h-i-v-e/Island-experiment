@@ -227,7 +227,7 @@ namespace Motu.Islands
                 generationLifecycle.StopTimer();
                 status = IslandGenerationStatus.Installed(terrainStreamer, generationLifecycle.Elapsed,
                     prepared.materialTextures.loadedFromCache, worldSize, prepared.loadedFromSnapshot, islandSeed,
-                    prepared.caves.caves.Length);
+                    prepared.caves.caves.Length, prepared.caves.branchCount);
                 return true;
             }
             catch (OperationCanceledException)

@@ -18,17 +18,21 @@ namespace Motu.Editor
     public sealed class CaveTests
     {
         [Serializable] private sealed class PackedMesh { public float[] vertices, normals; public int[] triangles; public bool collisionOnly; }
+        [Serializable] private sealed class PackedPath { public float[] nodes; }
         [Serializable] private sealed class Fixture
         {
             public float[] minimum, maximum, entrance, chamber;
             public PackedMesh[] chunks;
             public PackedMesh terrain;
+            public PackedPath[] branches;
         }
 
         [Test]
         public void SettingsCopyAndNativeLayoutAreStable()
         {
             Assert.AreEqual(132, Marshal.SizeOf<CaveNative.Options>());
+            Assert.AreEqual(16, Marshal.SizeOf<CaveNative.NetworkOptions>());
+            Assert.AreEqual(24, Marshal.SizeOf<CaveNative.WalkOptions>());
             Assert.AreEqual(64, Marshal.SizeOf<CaveNative.Info>());
             Assert.AreEqual(28, Marshal.SizeOf<CaveNative.Stats>());
             Assert.AreEqual(CaveNative.AlgorithmRevision, CaveNative.CaveAlgorithmRevision(),
@@ -45,6 +49,83 @@ namespace Motu.Editor
             using (var writer = new BinaryWriter(b, System.Text.Encoding.UTF8, true)) copy.ToNative().Write(writer);
             Assert.AreEqual(132, a.Length);
             CollectionAssert.AreNotEqual(a.ToArray(), b.ToArray());
+            copy.MaximumBranches = 3;
+            copy.BranchLengthMin = 20;
+            Assert.AreEqual(2, original.MaximumBranches);
+            Assert.AreEqual(18, original.BranchLengthMin);
+            Assert.AreEqual(3u, copy.ToNativeNetwork().maximumBranches);
+            Assert.AreEqual(20f, copy.ToNativeNetwork().branchLengthMin);
+        }
+
+        [Test]
+        public void DefaultWalkSettingsArePreserved()
+        {
+            var walk = new IslandCaveSettings().ToNativeWalk();
+            Assert.AreEqual(.09f, walk.endProbability);
+            Assert.AreEqual(.25f, walk.branchProbability);
+            Assert.AreEqual(4f, walk.stepMetres);
+            Assert.AreEqual(55f, walk.turnDegrees);
+            Assert.AreEqual(.35f, walk.widthVariation);
+        }
+
+        [TestCase(.06f, .06f)]
+        [TestCase(.01f, .9f)]
+        [TestCase(.001f, .06f)]
+        [TestCase(.09f, 1f)]
+        public void BranchProbabilityCanExceedEndingProbability(float ending, float branching)
+        {
+            var settings = new IslandCaveSettings { EndProbability = ending, BranchProbability = branching };
+            var walk = settings.ToNativeWalk();
+            Assert.AreEqual(ending, walk.endProbability);
+            Assert.AreEqual(branching, walk.branchProbability);
+            Assert.AreEqual(branching, settings.BranchProbability, "Keep the authored value available for editing.");
+        }
+
+        [Test]
+        public void ScriptAssignedWalkValuesCannotBypassNativeRanges()
+        {
+            var settings = new IslandCaveSettings {
+                EndProbability = 0f, BranchProbability = float.NaN,
+                WalkStepMetres = float.PositiveInfinity, WalkTurnDegrees = -10f, WalkWidthVariation = 2f };
+            foreach (var name in new[] { "EndProbability", "BranchProbability" })
+                UnityEngine.TestTools.LogAssert.Expect(LogType.Warning,
+                    new System.Text.RegularExpressions.Regex($"Cave {name} .* is outside"));
+            foreach (var name in new[] { "WalkStepMetres", "WalkTurnDegrees", "WalkWidthVariation" })
+                UnityEngine.TestTools.LogAssert.Expect(LogType.Warning,
+                    new System.Text.RegularExpressions.Regex($"Cave {name} .* is outside"));
+            var walk = settings.ToNativeWalk();
+            Assert.AreEqual(.001f, walk.endProbability);
+            Assert.AreEqual(.25f, walk.branchProbability);
+            Assert.AreEqual(4f, walk.stepMetres);
+            Assert.AreEqual(0f, walk.turnDegrees);
+            Assert.AreEqual(.8f, walk.widthVariation);
+        }
+
+        [Test]
+        public void EveryNetworkSettingChangesTheSnapshotKeyAndRequestsOwnTheirCopy()
+        {
+            var profile = new IslandGenerationProfile(new IslandGenerationSettings(),
+                new IslandRiverSettings(), new IslandForestSettings(), new IslandReedSettings(),
+                new IslandFernSettings(), new IslandRenderingSettings(), new IslandDebugSettings(),
+                new IslandCaveSettings { Enabled = true });
+            var request = new IslandGenerationRequest(5, Vector2Int.zero, profile, default);
+            var original = IslandSnapshotCache.PathFor(request);
+            foreach (Action<IslandCaveSettings> change in new Action<IslandCaveSettings>[] {
+                c => c.MaximumBranches = 3, c => c.BranchLengthMin = 20,
+                c => c.BranchLengthMax = 35, c => c.BranchChamberScale = 1.5f,
+                c => c.RandomWalk = false, c => c.EndProbability = .12f, c => c.BranchProbability = .03f,
+                c => c.WalkStepMetres = 5f, c => c.WalkTurnDegrees = 70f, c => c.WalkWidthVariation = .5f })
+            {
+                var changed = profile.Clone();
+                change(changed.Caves);
+                var other = new IslandGenerationRequest(5, Vector2Int.zero, changed, default);
+                Assert.AreNotEqual(original, IslandSnapshotCache.PathFor(other));
+            }
+            profile.Caves.MaximumBranches = 0;
+            profile.Caves.EndProbability = .5f;
+            Assert.AreEqual(.09f, request.CaveWalkOptions.endProbability);
+            Assert.AreEqual(2u, request.CaveNetworkOptions.maximumBranches);
+            Assert.AreEqual(original, IslandSnapshotCache.PathFor(request));
         }
 
         [Test]
@@ -188,6 +269,8 @@ namespace Motu.Editor
             {
                 var prepared = CavePreparation.Prepare(handle, 2000, CancellationToken.None);
                 Assert.Greater(prepared.caves.Length, 0);
+                if (Environment.GetEnvironmentVariable("MOTU_CAVE_REQUIRE_BRANCHES") == "1")
+                    Assert.Greater(prepared.branchCount, 0, "This validation snapshot must contain a network.");
                 Assert.AreEqual(0, MotuNative.SaveMotuSnapshot(handle, roundTrip));
                 var restored = MotuNative.LoadMotuSnapshot(roundTrip, out status);
                 try
@@ -198,6 +281,9 @@ namespace Motu.Editor
                     for (var i = 0; i < copy.caves.Length; i++)
                     {
                         Assert.AreEqual(prepared.caves[i].id, copy.caves[i].id);
+                        Assert.AreEqual(prepared.caves[i].branchPaths.Length, copy.caves[i].branchPaths.Length);
+                        for (var branch = 0; branch < copy.caves[i].branchPaths.Length; branch++)
+                            CollectionAssert.AreEqual(prepared.caves[i].branchPaths[branch], copy.caves[i].branchPaths[branch]);
                         for (var j = 0; j < copy.caves[i].chunks.Length; j++)
                         {
                             CollectionAssert.AreEqual(prepared.caves[i].chunks[j].vertices, copy.caves[i].chunks[j].vertices);
@@ -229,6 +315,13 @@ namespace Motu.Editor
                 var caves = root.AddComponent<CaveStreamer>();
                 caves.InitializeAsync(prepared, material, CancellationToken.None,
                     new UnityFrameBudget(100000)).GetAwaiter().GetResult();
+                Assert.Greater(caves.PreparedBufferBytes, 0);
+                Assert.Greater(caves.RenderTriangles, 0);
+                Assert.Greater(caves.ColliderTriangles, caves.RenderTriangles,
+                    "Collider totals include the hidden entrance lip.");
+                Assert.GreaterOrEqual(caves.ColliderCookMilliseconds, caves.LongestColliderCookMilliseconds);
+                Debug.Log(FormattableString.Invariant(
+                    $"CAVE_PERFORMANCE,meshes={caves.MeshCount},render_triangles={caves.RenderTriangles},collider_triangles={caves.ColliderTriangles},prepared_bytes={caves.PreparedBufferBytes},export_ms={caves.ExportMilliseconds:F3},copy_ms={caves.CopyMilliseconds:F3},mesh_ms={caves.MeshCreationMilliseconds:F3},cook_ms={caves.ColliderCookMilliseconds:F3},longest_cook_ms={caves.LongestColliderCookMilliseconds:F3}"));
                 Physics.SyncTransforms();
                 var tiles = new HashSet<Vector2Int>();
                 foreach (var cave in prepared.caves)
@@ -274,6 +367,10 @@ namespace Motu.Editor
                     Object.DestroyImmediate(player);
                 }
                 caves.Dispose();
+                Assert.AreEqual(0, caves.PreparedBufferBytes);
+                Assert.AreEqual(0, caves.MeshCount);
+                Assert.AreEqual(0, caves.ColliderTriangles);
+                Assert.AreEqual(0, caves.MeshCreationMilliseconds);
             }
             finally
             {
@@ -409,6 +506,107 @@ namespace Motu.Editor
             }
         }
 
+        [TestCase(false, false)]
+        [TestCase(true, false)]
+        [TestCase(false, true)]
+        [TestCase(true, true)]
+        public void PlayerWalksToEverySideChamberAndBack(bool translated, bool wandering)
+        {
+            var path = Environment.GetEnvironmentVariable(wandering ? "MOTU_CAVE_WALK_FIXTURE_OUTPUT" : "MOTU_CAVE_NETWORK_FIXTURE_OUTPUT");
+            if (string.IsNullOrEmpty(path)) Assert.Ignore("Set MOTU_CAVE_NETWORK_FIXTURE_OUTPUT to the native network fixture.");
+            var fixture = JsonUtility.FromJson<Fixture>(File.ReadAllText(path));
+            var root = new GameObject("Branching cave traversal");
+            var material = new Material(Resources.Load<Shader>("CaveSurface"));
+            try
+            {
+                if (translated) root.transform.position = new Vector3(18000, 0, -18000);
+                var prepared = Prepare(fixture);
+                var caves = root.AddComponent<CaveStreamer>();
+                caves.InitializeAsync(prepared, material, CancellationToken.None,
+                    new UnityFrameBudget(100000)).GetAwaiter().GetResult();
+                Assert.Greater(fixture.branches.Length, 0, "The fixture must exercise side passages.");
+                Assert.AreEqual(fixture.branches.Length, caves.BranchCount);
+                Assert.AreEqual(fixture.branches.Length, caves.GetBranchCount(0));
+                Physics.SyncTransforms();
+                for (var branch = 0; branch < prepared.caves[0].branchPaths.Length; branch++)
+                {
+                    var nodes = prepared.caves[0].branchPaths[branch];
+                    var player = new GameObject("Walking branch probe");
+                    player.transform.SetParent(root.transform, false);
+                    Assert.IsTrue(caves.TryFindGround(root.transform.TransformPoint(nodes[0]), .5f, .5f, out var ground));
+                    player.transform.position = ground + Vector3.up * .05f;
+                    var controller = player.AddComponent<CharacterController>();
+                    controller.height = 1.6f; controller.radius = .3f;
+                    controller.center = Vector3.up * .8f;
+                    controller.stepOffset = .35f; controller.skinWidth = .05f;
+                    Physics.SyncTransforms();
+                    using var scope = new CaveCollisionScope(controller);
+                    void WalkTo(Vector3 localTarget)
+                    {
+                        var target = root.transform.TransformPoint(localTarget);
+                        var maximumSteps = Mathf.CeilToInt(Vector3.Distance(player.transform.position, target) / .035f) + 30;
+                        for (var step = 0; step < maximumSteps; step++)
+                        {
+                            var delta = target - player.transform.position;
+                            delta.y = 0;
+                            if (delta.magnitude < .08f) break;
+                            scope.Update(player.transform.position, true);
+                            controller.Move(Vector3.ClampMagnitude(delta, .04f) - Vector3.up * .03f);
+                        }
+                        var error = target - player.transform.position;
+                        error.y = 0;
+                        Assert.Less(error.magnitude, .2f, $"Branch {branch} blocked at {localTarget}.");
+                        Assert.That(player.transform.position.y, Is.EqualTo(target.y).Within(.4f));
+                    }
+                    for (var node = 1; node < nodes.Length; node++) WalkTo(nodes[node]);
+                    Assert.IsTrue(caves.TryGetBranchChamber(0, branch, out var chamber));
+                    Assert.Less(Vector3.Distance(chamber, player.transform.position), .5f);
+                    for (var node = nodes.Length - 2; node >= 0; node--) WalkTo(nodes[node]);
+                    Object.DestroyImmediate(player);
+                }
+                var images = Environment.GetEnvironmentVariable(wandering ? "MOTU_CAVE_WALK_SCREENSHOT_DIR" : "MOTU_CAVE_NETWORK_SCREENSHOT_DIR");
+                if (!translated && !string.IsNullOrEmpty(images))
+                    Capture(root.transform, images, branches: prepared.caves[0].branchPaths);
+                caves.Dispose();
+                Assert.AreEqual(0, caves.BranchCount);
+                Assert.IsFalse(caves.TryGetBranchChamber(0, 0, out _));
+            }
+            finally { Object.DestroyImmediate(root); Object.DestroyImmediate(material); }
+        }
+
+        [Test]
+        public void JunctionFloorIsVisibleToOneSidedCollisionFromInside()
+        {
+            var path = Environment.GetEnvironmentVariable("MOTU_CAVE_JUNCTION_FIXTURE_OUTPUT")
+                ?? Environment.GetEnvironmentVariable("MOTU_CAVE_WALK_FIXTURE_OUTPUT");
+            if (string.IsNullOrEmpty(path)) Assert.Ignore("Set MOTU_CAVE_WALK_FIXTURE_OUTPUT to the wandering fixture.");
+            var root = new GameObject("Junction facing regression");
+            var material = new Material(Resources.Load<Shader>("CaveSurface"));
+            var previousBackfaces = Physics.queriesHitBackfaces;
+            try
+            {
+                var fixture = JsonUtility.FromJson<Fixture>(File.ReadAllText(path));
+                var caves = root.AddComponent<CaveStreamer>();
+                caves.InitializeAsync(Prepare(fixture), material, CancellationToken.None,
+                    new UnityFrameBudget(100000)).GetAwaiter().GetResult();
+                Physics.queriesHitBackfaces = false;
+                Physics.SyncTransforms();
+                // Revision 9 flipped this triangle at the intersecting passages,
+                // despite all three geometric edges having matching neighbours.
+                var surface = new Vector3(46.762506f, 10.052818f, 11.430422f);
+                var inward = new Vector3(.03849567f, .9961533f, .07871879f);
+                Assert.IsTrue(Physics.Raycast(surface + inward * .2f, -inward, out var hit, .3f),
+                    "The junction floor is back-facing or missing from inside the passage.");
+                Assert.That(hit.distance, Is.EqualTo(.2f).Within(.01f));
+                Assert.Greater(Vector3.Dot(hit.normal, inward), .95f);
+            }
+            finally
+            {
+                Physics.queriesHitBackfaces = previousBackfaces;
+                Object.DestroyImmediate(root); Object.DestroyImmediate(material);
+            }
+        }
+
         private static IslandPreparedCaves Prepare(Fixture fixture)
         {
             var info = new CaveNative.Info { id = 1,
@@ -422,7 +620,15 @@ namespace Motu.Editor
             {
                 chunks[i] = Unpack(fixture.chunks[i]);
             }
-            return new IslandPreparedCaves(new[] { new IslandPreparedCave(info, chunks, 2000) }, new CaveNative.Stats { accepted = 1 });
+            var paths = new Vector3[fixture.branches?.Length ?? 0][];
+            for (var b = 0; b < paths.Length; b++)
+            {
+                var packed = fixture.branches[b].nodes;
+                paths[b] = new Vector3[packed.Length / 3];
+                for (var n = 0; n < paths[b].Length; n++)
+                    paths[b][n] = new Vector3(packed[n * 3], packed[n * 3 + 1], packed[n * 3 + 2]);
+            }
+            return new IslandPreparedCaves(new[] { new IslandPreparedCave(info, chunks, 2000, paths) }, new CaveNative.Stats { accepted = 1 });
         }
         private static IslandPreparedMesh Unpack(PackedMesh packed)
         {
@@ -443,7 +649,7 @@ namespace Motu.Editor
             return new IslandPreparedMesh(vertices, normals, packed.triangles, Array.Empty<Vector2>(), colours, Array.Empty<Vector2>(), caveAttributes);
         }
 
-        private static void Capture(Transform root, string directory, Vector3? entrance = null, Vector3? inward = null)
+        private static void Capture(Transform root, string directory, Vector3? entrance = null, Vector3? inward = null, Vector3[][] branches = null)
         {
             Directory.CreateDirectory(directory);
             var cameraObject = new GameObject("Cave validation camera");
@@ -474,6 +680,23 @@ namespace Motu.Editor
                     image.ReadPixels(new Rect(0, 0, 1024, 768), 0, 0);
                     image.Apply();
                     File.WriteAllBytes(Path.Combine(directory, name + ".png"), image.EncodeToPNG());
+                }
+                if (branches != null)
+                {
+                    light.enabled = false;
+                    var torch = cameraObject.AddComponent<Light>();
+                    torch.type = LightType.Spot; torch.renderMode = LightRenderMode.ForcePixel;
+                    torch.intensity = 4; torch.range = 35; torch.spotAngle = 90;
+                    torch.shadows = LightShadows.Soft;
+                    for (var branch = 0; branch < branches.Length; branch++)
+                    {
+                        var nodes = branches[branch];
+                        Save($"junction-{branch}", root.TransformPoint(nodes[0]) + Vector3.up * 1.65f,
+                            root.TransformPoint(nodes[1]) + Vector3.up * 1.65f);
+                        Save($"chamber-{branch}", root.TransformPoint(nodes[Mathf.Min(2, nodes.Length - 2)]) + Vector3.up * 1.65f,
+                            root.TransformPoint(nodes[nodes.Length - 1]) + Vector3.up * 1.65f);
+                    }
+                    return;
                 }
                 if (entrance.HasValue && inward.HasValue)
                 {

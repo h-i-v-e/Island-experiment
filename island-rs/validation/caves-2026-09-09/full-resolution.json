@@ -1,0 +1,33 @@
+{
+  "cave_revision": 7,
+  "cave_serialized_bytes": 493668,
+  "caves": 1,
+  "chunks": 2,
+  "generation_seconds": 35.766167083,
+  "mesh_buffer_bytes": 478176,
+  "profiling": true,
+  "render_triangles": 6694,
+  "seed": 5,
+  "stats": {
+    "accepted": 1,
+    "approach_rejected": 724,
+    "cover_rejected": 21,
+    "examined": 928,
+    "face_rejected": 164,
+    "hazard_rejected": 2,
+    "spacing_rejected": 0
+  },
+  "surface_buffer_bytes": 14504,
+  "surface_samples": 3626,
+  "terrain_size": 1024,
+  "triangles": 9432,
+  "vertices": 11406,
+  "stages_ms": {
+    "caves.surface_sampling": 15.458999999999998,
+    "caves.rock_cover": 60.00599999999999,
+    "caves.entrance_collider": 9.881,
+    "caves.mesh": 0.521,
+    "caves.generate": 253.067
+  },
+  "whole_process_peak_footprint_bytes": 3627027936
+}

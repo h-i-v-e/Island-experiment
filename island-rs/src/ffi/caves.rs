@@ -2,7 +2,7 @@ use super::{
     ExportMesh, GenerationMethod, ISLAND_WORLD_METRES, Island, MotuFernOptions, MotuForestOptions,
     MotuOptions, MotuReedOptions, Vec2, Vec3, c_void, export_mesh, island_ref, ptr,
 };
-use crate::caves::{CAVE_REVISION, CaveOptions, CaveStats};
+use crate::caves::{CAVE_REVISION, CaveNetworkOptions, CaveOptions, CaveStats, CaveWalkOptions};
 
 #[derive(Clone, Copy, Debug, Default)]
 #[repr(C)]
@@ -31,8 +31,49 @@ pub unsafe extern "C" fn CreateMotuWithCaves(
     ferns: *const MotuFernOptions,
     caves: *const CaveOptions,
 ) -> *mut c_void {
+    // SAFETY: forwards the original readable option blocks; a null network
+    // block deliberately preserves the original single-passage behaviour.
+    unsafe { CreateMotuWithCaveNetworks(seed, options, forest, reeds, ferns, caves, ptr::null()) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn CreateMotuWithCaveNetworks(
+    seed: i32,
+    options: *const MotuOptions,
+    forest: *const MotuForestOptions,
+    reeds: *const MotuReedOptions,
+    ferns: *const MotuFernOptions,
+    caves: *const CaveOptions,
+    network: *const CaveNetworkOptions,
+) -> *mut c_void {
+    // SAFETY: the legacy network ABI supplies no random-walk settings.
+    unsafe {
+        CreateMotuWithCaveWalks(
+            seed,
+            options,
+            forest,
+            reeds,
+            ferns,
+            caves,
+            network,
+            ptr::null(),
+        )
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn CreateMotuWithCaveWalks(
+    seed: i32,
+    options: *const MotuOptions,
+    forest: *const MotuForestOptions,
+    reeds: *const MotuReedOptions,
+    ferns: *const MotuFernOptions,
+    caves: *const CaveOptions,
+    network: *const CaveNetworkOptions,
+    walk: *const CaveWalkOptions,
+) -> *mut c_void {
     // SAFETY: optional blocks must be readable for their documented C sizes.
-    let (options, forest, reeds, ferns, caves) = unsafe {
+    let (options, forest, reeds, ferns, caves, network, walk) = unsafe {
         (
             options
                 .as_ref()
@@ -43,20 +84,24 @@ pub unsafe extern "C" fn CreateMotuWithCaves(
             reeds.as_ref().copied().map(Into::into).unwrap_or_default(),
             ferns.as_ref().copied().map(Into::into).unwrap_or_default(),
             caves.as_ref().copied().unwrap_or_default(),
+            network.as_ref().copied().unwrap_or_default(),
+            walk.as_ref().copied().unwrap_or_default(),
         )
     };
-    Island::generate_with_caves(
+    Island::generate_with_cave_walks(
         u64::from(seed.cast_unsigned()),
         options,
         forest,
         reeds,
         ferns,
         caves,
+        network,
+        walk,
         GenerationMethod::Cpu,
     )
     .map_or_else(
         |error| {
-            eprintln!("CreateMotuWithCaves: {error}");
+            eprintln!("CreateMotuWithCaveWalks: {error}");
             ptr::null_mut()
         },
         |island| Box::into_raw(Box::new(island)).cast(),
@@ -152,5 +197,50 @@ pub unsafe extern "C" fn CreateCaveMesh(
     // restores terrain UVs from positions and stores this pair in UV2.
     owned.uv = cave_attributes;
     *output = export_mesh(owned, material, environment);
+    1
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn GetCaveBranchCount(handle: *const c_void, index: u32) -> u32 {
+    // SAFETY: caller supplies a live island handle.
+    unsafe { island_ref(handle) }
+        .and_then(|i| i.caves().caves.get(index as usize))
+        .map_or(0, |c| u32::try_from(c.branches.len()).unwrap_or(0))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn GetCaveBranchNodeCount(
+    handle: *const c_void,
+    index: u32,
+    branch: u32,
+) -> u32 {
+    // SAFETY: caller supplies a live island handle.
+    unsafe { island_ref(handle) }
+        .and_then(|i| i.caves().caves.get(index as usize))
+        .and_then(|c| c.branches.get(branch as usize))
+        .map_or(0, |b| u32::try_from(b.nodes.len()).unwrap_or(0))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn GetCaveBranchNode(
+    handle: *const c_void,
+    index: u32,
+    branch: u32,
+    node: u32,
+    output: *mut Vec3,
+) -> u8 {
+    // SAFETY: output is a writable Vec3; handle remains live for this call.
+    let Some(output) = (unsafe { output.as_mut() }) else {
+        return 0;
+    };
+    *output = Vec3::ZERO;
+    let Some(node) = (unsafe { island_ref(handle) })
+        .and_then(|i| i.caves().caves.get(index as usize))
+        .and_then(|c| c.branches.get(branch as usize))
+        .and_then(|b| b.nodes.get(node as usize))
+    else {
+        return 0;
+    };
+    *output = node.floor;
     1
 }

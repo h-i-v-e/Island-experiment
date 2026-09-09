@@ -984,6 +984,16 @@ MonoBehaviour:
     floorSlope: 12
     chamberWidth: 10
     chamberHeight: 6
+    maximumBranches: 2
+    branchLengthMin: 18
+    branchLengthMax: 30
+    branchChamberScale: 1.25
+    randomWalk: 1
+    endProbability: 0.09
+    branchProbability: 0.25
+    walkStepMetres: 4
+    walkTurnDegrees: 55
+    walkWidthVariation: 0.35
     broadAmplitude: 0.5
     broadPeriod: 8
     fineAmplitude: 0.15

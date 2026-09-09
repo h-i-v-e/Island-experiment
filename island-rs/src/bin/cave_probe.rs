@@ -2,7 +2,7 @@
 use motu::{
     FernOptions, ForestOptions, GenerationMethod, ISLAND_WORLD_METRES, Island, IslandOptions,
     ReedOptions,
-    caves::{CaveOptions, CaveSet},
+    caves::{CaveNetworkOptions, CaveOptions, CaveSet, CaveWalkOptions},
 };
 use std::{env, error::Error, path::PathBuf, time::Instant};
 
@@ -17,6 +17,11 @@ fn run() -> Result<(), Box<dyn Error>> {
     let mut seed = 0_u64;
     let mut count = 1_u64;
     let mut size = 1024;
+    let mut branches = 2;
+    let mut walk = CaveWalkOptions {
+        enabled: 1,
+        ..CaveWalkOptions::default()
+    };
     let mut output = None::<PathBuf>;
     let mut snapshot = None::<PathBuf>;
     let mut cave_options = None::<PathBuf>;
@@ -24,7 +29,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     while let Some(arg) = args.next() {
         if arg == "--help" {
             println!(
-                "island-cave-probe [--seed N] [--count N] [--terrain-size N] [--output DIRECTORY] [--snapshot FILE] [--cave-options JSON]"
+                "island-cave-probe [--seed N] [--count N] [--terrain-size N] [--branches N] [--walk 0|1] [--end-probability P] [--branch-probability P] [--output DIRECTORY] [--snapshot FILE] [--cave-options JSON]"
             );
             return Ok(());
         }
@@ -33,6 +38,10 @@ fn run() -> Result<(), Box<dyn Error>> {
             "--seed" => seed = value.parse()?,
             "--count" => count = value.parse()?,
             "--terrain-size" => size = value.parse()?,
+            "--branches" => branches = value.parse()?,
+            "--walk" => walk.enabled = value.parse()?,
+            "--end-probability" => walk.end_probability = value.parse()?,
+            "--branch-probability" => walk.branch_probability = value.parse()?,
             "--output" => output = Some(value.into()),
             "--snapshot" => snapshot = Some(value.into()),
             "--cave-options" => cave_options = Some(value.into()),
@@ -53,8 +62,9 @@ fn run() -> Result<(), Box<dyn Error>> {
     }
     for offset in 0..count {
         let seed = seed.checked_add(offset).ok_or("seed overflow")?;
+        eprintln!("cave-probe,seed,{seed}");
         let started = Instant::now();
-        let island = Island::generate_with_caves(
+        let island = Island::generate_with_cave_walks(
             seed,
             IslandOptions {
                 terrain_size: size,
@@ -67,32 +77,74 @@ fn run() -> Result<(), Box<dyn Error>> {
                 enabled: 1,
                 ..CaveOptions::default()
             },
+            CaveNetworkOptions {
+                maximum_branches: branches,
+                ..CaveNetworkOptions::default()
+            },
+            walk,
             GenerationMethod::Cpu,
         )?;
         let generation_seconds = started.elapsed().as_secs_f64();
         let caves = island.caves();
-        let triangles: usize = caves
-            .caves
-            .iter()
-            .flat_map(|c| c.chunks.iter().chain(std::iter::once(&c.entrance_collider)))
-            .map(|m| m.triangles.len() / 3)
-            .sum();
-        let chunks: usize = caves.caves.iter().map(|c| c.chunks.len() + 1).sum();
-        println!(
-            "{}",
-            serde_json::json!({"seed":seed,"terrain_size":size,"generation_seconds":generation_seconds,
-            "caves":caves.caves.len(),"chunks":chunks,"triangles":triangles,"stats":caves.stats})
-        );
+        let mut report = generation_report(&island, size, generation_seconds)?;
         if let Some(path) = &output {
-            island.save(path.join(format!("{seed}.motusnapshot")))?;
+            let snapshot_path = path.join(format!("{seed}.motusnapshot"));
+            let save_started = Instant::now();
+            island.save(&snapshot_path)?;
+            report["snapshot_save_seconds"] = save_started.elapsed().as_secs_f64().into();
+            report["snapshot_bytes"] = std::fs::metadata(&snapshot_path)?.len().into();
             // Layout and diagnostic exports are convenient to inspect without Unity.
             std::fs::write(
                 path.join(format!("{seed}.caves.json")),
                 serde_json::to_vec(caves)?,
             )?;
         }
+        println!("{report}");
     }
     Ok(())
+}
+
+fn generation_report(
+    island: &Island,
+    size: u32,
+    generation_seconds: f64,
+) -> Result<serde_json::Value, bincode::Error> {
+    let caves = island.caves();
+    let seed = island.seed();
+    let meshes = || {
+        caves
+            .caves
+            .iter()
+            .flat_map(|c| c.chunks.iter().chain(std::iter::once(&c.entrance_collider)))
+    };
+    let triangles: usize = meshes().map(|m| m.triangles.len() / 3).sum();
+    let vertices: usize = meshes().map(|m| m.vertices.len()).sum();
+    let mesh_buffer_bytes: usize = meshes()
+        .map(|m| {
+            std::mem::size_of_val(m.vertices.as_slice())
+                + std::mem::size_of_val(m.normals.as_slice())
+                + std::mem::size_of_val(m.uv.as_slice())
+                + std::mem::size_of_val(m.triangles.as_slice())
+        })
+        .sum();
+    let surface_samples: usize = caves.caves.iter().map(|c| c.surface.heights.len()).sum();
+    let render_triangles: usize = caves
+        .caves
+        .iter()
+        .flat_map(|c| &c.chunks)
+        .map(|m| m.triangles.len() / 3)
+        .sum();
+    let chunks = meshes().count();
+    Ok(serde_json::json!({
+        "seed":seed, "terrain_size":size, "generation_seconds":generation_seconds,
+        "cave_revision":motu::caves::CAVE_REVISION, "profiling":cfg!(feature = "profiling"),
+        "caves":caves.caves.len(), "branches":caves.caves.iter().map(|c| c.branches.len()).sum::<usize>(),
+        "network_options":caves.network_options, "walk_options":caves.walk_options, "chunks":chunks, "triangles":triangles,
+        "render_triangles":render_triangles, "vertices":vertices,
+        "mesh_buffer_bytes":mesh_buffer_bytes, "surface_samples":surface_samples,
+        "surface_buffer_bytes":surface_samples * std::mem::size_of::<f32>(),
+        "cave_serialized_bytes":bincode::serialized_size(caves)?, "stats":caves.stats
+    }))
 }
 
 // Inspect placement against the exact cached final terrain, without changing the
@@ -114,18 +166,25 @@ fn inspect_snapshot(
         serde_json::json!({"seed":island.seed(),"cached":island.caves().stats,"options":options})
     );
     let started = Instant::now();
-    let caves = CaveSet::generate(island.seed(), island.terrain(), options, |point| {
-        island.rivers().iter().any(|river| {
-            river.nodes.windows(2).any(|pair| {
-                let start = pair[0].position.truncate();
-                let edge = pair[1].position.truncate() - start;
-                let blend = ((point - start).dot(edge) / edge.length_squared().max(1.0e-12))
-                    .clamp(0.0, 1.0);
-                point.distance(start + edge * blend)
-                    < (options.chamber_width + 20.0) / ISLAND_WORLD_METRES
+    let caves = CaveSet::generate_wandering(
+        island.seed(),
+        island.terrain(),
+        options,
+        island.caves().network_options,
+        island.caves().walk_options,
+        |point| {
+            island.rivers().iter().any(|river| {
+                river.nodes.windows(2).any(|pair| {
+                    let start = pair[0].position.truncate();
+                    let edge = pair[1].position.truncate() - start;
+                    let blend = ((point - start).dot(edge) / edge.length_squared().max(1.0e-12))
+                        .clamp(0.0, 1.0);
+                    point.distance(start + edge * blend)
+                        < (options.chamber_width + 20.0) / ISLAND_WORLD_METRES
+                })
             })
-        })
-    })?;
+        },
+    )?;
     println!(
         "{}",
         serde_json::json!({"seed":island.seed(),"cave_seconds":started.elapsed().as_secs_f64(),"regenerated":caves.stats})

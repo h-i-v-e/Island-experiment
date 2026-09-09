@@ -308,6 +308,7 @@ pub(crate) fn layout(
         entrance,
         inward,
         nodes,
+        branches: Vec::new(),
         minimum: surface.minimum,
         maximum: surface.maximum(),
         surface,
@@ -323,6 +324,7 @@ pub(crate) fn layout(
 }
 
 fn has_rock_cover(terrain: &Terrain, cave: &Cave, o: &CaveOptions) -> bool {
+    let _timer = crate::profiling::StageTimer::new("caves.rock_cover");
     let margin = Vec2::splat(o.roof_cover.max(o.side_cover));
     clearance::Triangles::new(
         [terrain.mesh()],

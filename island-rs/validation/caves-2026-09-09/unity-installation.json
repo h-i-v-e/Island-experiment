@@ -1,0 +1,16 @@
+{
+  "unity_version": "6000.5.6f1",
+  "graphics": "Metal",
+  "mode": "EditMode",
+  "seed": 5,
+  "terrain_size": 128,
+  "meshes": 2,
+  "render_triangles": 12492,
+  "collider_triangles": 14865,
+  "prepared_array_payload_bytes": 1024204,
+  "native_export_ms": 6.04,
+  "managed_copy_validation_ms": 1.693,
+  "unity_mesh_creation_ms": 0.682,
+  "collider_creation_cooking_ms": 2.421,
+  "longest_collider_creation_cooking_ms": 1.983
+}

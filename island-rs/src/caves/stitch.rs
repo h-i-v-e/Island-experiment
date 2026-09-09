@@ -186,6 +186,138 @@ fn append_triangle(mesh: &mut Mesh, t: [u32; 3]) {
     }
 }
 
+/// Weld only unmatched indoor boundary edges. Applying a broad tolerance to
+/// every edge would confuse close but distinct detail in curved junctions.
+type PositionKey = [u32; 3];
+fn position_key(p: Vec3) -> PositionKey {
+    p.to_array().map(f32::to_bits)
+}
+fn boundary_edge_key(a: Vec3, b: Vec3) -> [PositionKey; 2] {
+    let mut key = [position_key(a), position_key(b)];
+    key.sort_unstable();
+    key
+}
+fn boundary_edges(
+    mesh: &Mesh,
+    protected: &impl Fn(Vec3) -> bool,
+) -> HashMap<[PositionKey; 2], usize> {
+    let mut counts = HashMap::new();
+    for triangle in mesh.triangles.chunks_exact(3) {
+        for side in 0..3 {
+            let a = mesh.vertices[triangle[side] as usize];
+            let b = mesh.vertices[triangle[(side + 1) % 3] as usize];
+            *counts.entry(boundary_edge_key(a, b)).or_default() += 1;
+        }
+    }
+    counts.retain(|key, count| {
+        *count == 1
+            && !key
+                .iter()
+                .any(|p| protected(Vec3::from_array(p.map(f32::from_bits)) * ISLAND_WORLD_METRES))
+    });
+    counts
+}
+
+pub(crate) fn close_boundary_seams(mesh: &mut Mesh, protected: impl Fn(Vec3) -> bool) -> bool {
+    for _ in 0..3 {
+        let edges = boundary_edges(mesh, &protected);
+        if edges.is_empty() {
+            return true;
+        }
+        let keys: std::collections::BTreeSet<_> = edges.keys().flatten().copied().collect();
+        let mut canonical = Vec::<Vec3>::new();
+        let mut welded = HashMap::new();
+        for k in keys {
+            let p = Vec3::from_array(k.map(f32::from_bits));
+            let found = canonical
+                .iter()
+                .copied()
+                .find(|q| (*q - p).length() * ISLAND_WORLD_METRES <= 0.002);
+            let target = found.unwrap_or_else(|| {
+                canonical.push(p);
+                p
+            });
+            welded.insert(k, target);
+        }
+        for p in &mut mesh.vertices {
+            if let Some(&target) = welded.get(&position_key(*p)) {
+                *p = target;
+            }
+        }
+        let edges = boundary_edges(mesh, &protected);
+        let keys: std::collections::BTreeSet<_> = edges.keys().flatten().copied().collect();
+        let points: Vec<_> = keys
+            .into_iter()
+            .map(|k| Vec3::from_array(k.map(f32::from_bits)))
+            .collect();
+        let triangles = std::mem::take(&mut mesh.triangles);
+        for t in triangles.chunks_exact(3) {
+            let mut ring = Vec::new();
+            for side in 0..3 {
+                let a = t[side];
+                let b = t[(side + 1) % 3];
+                ring.push(a);
+                let pa = mesh.vertices[a as usize];
+                let pb = mesh.vertices[b as usize];
+                let direction = (pb - pa).as_dvec3();
+                let length = direction.length_squared();
+                if length == 0.0 {
+                    continue;
+                }
+                let tolerance = if edges.contains_key(&boundary_edge_key(pa, pb)) {
+                    0.002
+                } else {
+                    0.0005
+                };
+                let mut splits: Vec<_> = points
+                    .iter()
+                    .copied()
+                    .filter_map(|p| {
+                        if p == pa || p == pb {
+                            return None;
+                        }
+                        let t = (p - pa).as_dvec3().dot(direction) / length;
+                        (t > 0.0
+                            && t < 1.0
+                            && ((p - pa).as_dvec3() - direction * t).length()
+                                * f64::from(ISLAND_WORLD_METRES)
+                                <= tolerance)
+                            .then_some((t as f32, p))
+                    })
+                    .collect();
+                splits.sort_by(|a, b| a.0.total_cmp(&b.0));
+                for (t, p) in splits {
+                    let normal = mesh.normals[a as usize]
+                        .lerp(mesh.normals[b as usize], t)
+                        .normalize_or_zero();
+                    let uv = mesh.uv[a as usize].lerp(mesh.uv[b as usize], t);
+                    ring.push(append_vertex(mesh, p, normal, uv));
+                }
+            }
+            if ring.len() == 3 {
+                append_triangle(mesh, [t[0], t[1], t[2]]);
+                continue;
+            }
+            let p = t
+                .iter()
+                .map(|&i| mesh.vertices[i as usize].as_dvec3())
+                .sum::<DVec3>()
+                / 3.0;
+            let normal = t
+                .iter()
+                .map(|&i| mesh.normals[i as usize])
+                .sum::<Vec3>()
+                .normalize_or_zero();
+            let uv = t.iter().map(|&i| mesh.uv[i as usize]).sum::<Vec2>() / 3.0;
+            let centre = append_vertex(mesh, p.as_vec3(), normal, uv);
+            for i in 0..ring.len() {
+                append_triangle(mesh, [centre, ring[i], ring[(i + 1) % ring.len()]]);
+            }
+        }
+    }
+    boundary_edges(mesh, &protected).is_empty()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
