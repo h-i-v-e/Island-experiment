@@ -58,7 +58,7 @@ impl Triangles {
             .all(|t| distance_squared(centre, *t) >= radius * radius)
     }
 
-    fn floor(&self, near: Vec3) -> Option<f32> {
+    pub(super) fn floor(&self, near: Vec3) -> Option<f32> {
         self.nearby(near.truncate(), 0.0)
             .filter_map(|&t| {
                 let normal = (t[1] - t[0]).cross(t[2] - t[0]).normalize_or_zero();
@@ -71,6 +71,14 @@ impl Triangles {
                 ((height - near.z).abs() <= 0.4 && projected_inside(point, t)).then_some(height)
             })
             .max_by(f32::total_cmp)
+    }
+
+    pub(super) fn wall_distance_squared(&self, point: Vec3, radius: f32) -> Option<f32> {
+        self.nearby(point.truncate(), radius)
+            .filter(|t| (t[1] - t[0]).cross(t[2] - t[0]).normalize_or_zero().z.abs() < 0.7)
+            .map(|&t| distance_squared(point, t))
+            .filter(|&distance| distance <= radius * radius)
+            .min_by(f32::total_cmp)
     }
 
     pub(crate) fn rock_cover(&self, cave: &Cave, options: &CaveOptions) -> bool {

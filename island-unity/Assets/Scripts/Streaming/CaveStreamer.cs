@@ -22,6 +22,18 @@ namespace Motu.Streaming
         private readonly List<Mesh> meshes = new List<Mesh>();
         private readonly List<MeshCollider> colliders = new List<MeshCollider>();
         private Material material;
+        [SerializeField, Range(0f, .5f), Tooltip("Minimum ambient light inside caves. Fades out at the entrance; zero restores the original darkness.")]
+        private float interiorAmbientFill = .12f;
+        public float InteriorAmbientFill
+        {
+            get => interiorAmbientFill;
+            set
+            {
+                interiorAmbientFill = float.IsFinite(value) ? Mathf.Clamp(value, 0f, .5f) : .12f;
+                if (material != null) material.SetFloat("_InteriorAmbientFill", interiorAmbientFill);
+            }
+        }
+        private void OnValidate() => InteriorAmbientFill = interiorAmbientFill;
         private bool ready, released;
         public int CaveCount => prepared.caves.Length;
         public int BranchCount => prepared.branchCount;
@@ -44,6 +56,7 @@ namespace Motu.Streaming
             var shader = Resources.Load<Shader>("CaveSurface");
             if (shader == null) throw new InvalidOperationException("Cave Surface shader is missing.");
             material = new Material(shader) { name = "Island cave stone" };
+            InteriorAmbientFill = interiorAmbientFill;
             material.SetTexture("_TerrainAlbedoArray", terrainMaterial.GetTexture("_TerrainAlbedoArray"));
             material.SetFloat("_UseTextures", terrainMaterial.GetTexture("_TerrainAlbedoArray") != null ? 1 : 0);
             if (terrainMaterial.HasProperty("_TerrainLayerWorldSizesA"))
@@ -82,15 +95,23 @@ namespace Motu.Streaming
                     var chunk = new GameObject(mesh.name);
                     chunk.transform.SetParent(root.transform, false);
                     chunk.AddComponent<MeshFilter>().sharedMesh = mesh;
-                    var collisionOnly = source.caveAttributes.Length > 0 && source.caveAttributes[0].y > 1.5f;
+                    var tag = source.caveAttributes.Length > 0 ? source.caveAttributes[0].y : 0f;
+                    var floorStones = tag > 2.5f;
+                    var collisionOnly = tag > 1.5f && !floorStones;
+                    if (floorStones) chunk.name = $"Cave {i + 1} floor stones";
                     var triangleCount = source.triangles.Length / 3;
                     if (!collisionOnly) RenderTriangles += triangleCount;
-                    ColliderTriangles += triangleCount;
+                    if (!floorStones) ColliderTriangles += triangleCount;
                     var renderer = chunk.AddComponent<MeshRenderer>();
                     renderer.enabled = !collisionOnly;
                     renderer.sharedMaterial = material;
                     renderer.SetPropertyBlock(properties);
                     renderer.shadowCastingMode = ShadowCastingMode.TwoSided;
+                    if (floorStones)
+                    {
+                        await budget.YieldIfExceededAsync(cancellation);
+                        continue;
+                    }
                     // The cave texture coordinates are already island-local, independent
                     // of the world's translated island root.
                     timer.Restart();

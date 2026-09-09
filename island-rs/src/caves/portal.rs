@@ -441,18 +441,34 @@ impl Portal {
         let delta = end - source.p;
         let tangent = delta - source.n * delta.dot(source.n);
         let control_a = tangent * 0.65;
-        let control_b = delta - self.inward.extend(0.0) * delta.dot(self.inward.extend(0.0)) * 0.4;
+        // Keep the second exterior control point near the cliff. Advancing it
+        // most of the tunnel depth immediately after a short vertical handle
+        // made the crown bend through almost 90 degrees in just centimetres.
+        // The longer final handle lets the lip round first, then enter the tunnel.
+        let end_handle = if self.exterior { 0.95 } else { 0.4 };
+        let control_b =
+            delta - self.inward.extend(0.0) * delta.dot(self.inward.extend(0.0)) * end_handle;
         let u = 1.0 - t;
         let p = source.p
             + control_a * (3.0 * u * u * t)
             + control_b * (3.0 * u * t * t)
             + delta * t.powi(3);
+        let blended_normal = source.n.lerp(target.n, t * t * (3.0 - 2.0 * t));
+        let normal = if self.exterior {
+            // Lighting must follow the cubic's bend. Merely blending endpoint
+            // normals leaves them pointing into the curved surface near the rim,
+            // producing a sharp shadow terminator despite the rounded geometry.
+            let along = (control_a * (3.0 * u * u)
+                + (control_b - control_a) * (6.0 * u * t)
+                + (delta - control_b) * (3.0 * t * t))
+                .normalize_or_zero();
+            (blended_normal - along * blended_normal.dot(along)).normalize_or_zero()
+        } else {
+            blended_normal.normalize_or_zero()
+        };
         Vertex {
             p,
-            n: source
-                .n
-                .lerp(target.n, t * t * (3.0 - 2.0 * t))
-                .normalize_or_zero(),
+            n: normal,
             uv: p.truncate() / ISLAND_WORLD_METRES,
         }
     }
@@ -553,7 +569,7 @@ impl Portal {
     fn append_curved_edge(&self, output: &mut Mesh, [a, b]: [Vertex; 2], targets: [Vertex; 2]) {
         // Subdivide across as well as along the lip so a large source triangle
         // cannot leave a visibly faceted arch. No intermediate mesh is needed.
-        const RINGS: usize = 12;
+        let rings = if self.exterior { 24 } else { 12 };
         let across = (a.p.distance(b.p) / 0.5).ceil().max(1.0) as usize;
         // A ceiling cut may span several arch faces. Include every arch corner
         // so the lip cannot take a chord across the child's curved boundary.
@@ -572,9 +588,9 @@ impl Portal {
             let end = a.lerp(b, pair[1].0);
             let target_a = pair[0].1;
             let target_b = pair[1].1;
-            for j in 0..RINGS {
-                let t0 = j as f32 / RINGS as f32;
-                let t1 = (j + 1) as f32 / RINGS as f32;
+            for j in 0..rings {
+                let t0 = j as f32 / rings as f32;
+                let t1 = (j + 1) as f32 / rings as f32;
                 let corners = [
                     self.lip_vertex(start, target_a, t0),
                     self.lip_vertex(end, target_b, t0),
@@ -646,6 +662,38 @@ mod tests {
     use super::*;
 
     #[test]
+    fn exterior_crest_normals_follow_the_curve_and_preserve_join_normals() {
+        let portal = Portal::new(Vec3::X * 2.0, Vec2::X, &CaveOptions::default());
+        let height = portal.section.iter().map(|p| p.y).fold(0.0, f32::max);
+        let source = Vertex {
+            p: Vec3::X + Vec3::Z * height * 1.3,
+            n: -Vec3::X,
+            uv: Vec2::ZERO,
+        };
+        let target = portal.target(source, false);
+        assert_eq!(portal.lip_vertex(source, target, 0.0).n, source.n);
+        assert_eq!(portal.lip_vertex(source, target, 1.0).n, target.n);
+        assert_eq!(portal.lip_vertex(source, target, 0.0).p, source.p);
+        assert_eq!(portal.lip_vertex(source, target, 1.0).p, target.p);
+        assert!(
+            portal.lip_vertex(source, target, 0.05).n.dot(source.n) > 0.97,
+            "The crown must roll away from the cliff gradually."
+        );
+        for t in [0.02, 0.05, 0.1, 0.25, 0.5, 0.75, 0.95] {
+            let point = portal.lip_vertex(source, target, t);
+            let tangent = (portal.lip_vertex(source, target, t + 0.001).p
+                - portal.lip_vertex(source, target, t - 0.001).p)
+                .normalize();
+            assert!(
+                point.n.dot(tangent).abs() < 0.001,
+                "normal cuts across bevel at {t}"
+            );
+            assert!((point.n.length() - 1.0).abs() < 0.0001);
+            assert!(point.n.x <= 0.0 && point.n.z <= 0.0);
+        }
+    }
+
+    #[test]
     fn rounded_lip_matches_the_cliff_and_passage_tangents() {
         let portal = Portal::new(
             Vec3::new(999.0, 1000.0, 10.0),
@@ -712,10 +760,10 @@ mod tests {
             portal.target(source, false).p,
             "tile-local floor classification split the shared corner"
         );
-        for ring in 0..12 {
-            let a = portal.lip_vertex(source, target, ring as f32 / 12.0).p;
+        for ring in 0..24 {
+            let a = portal.lip_vertex(source, target, ring as f32 / 24.0).p;
             let b = portal
-                .lip_vertex(source, target, (ring + 1) as f32 / 12.0)
+                .lip_vertex(source, target, (ring + 1) as f32 / 24.0)
                 .p;
             let mut uses = [0, 0];
             for triangle in mesh.triangles.chunks_exact(3) {

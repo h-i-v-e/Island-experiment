@@ -25,6 +25,9 @@ namespace Motu.Editor
         public override void OnInspectorGUI()
         {
             var caves = (CaveStreamer)target;
+            serializedObject.Update();
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("interiorAmbientFill"));
+            serializedObject.ApplyModifiedProperties();
             EditorGUILayout.HelpBox(caves.Diagnostics, MessageType.Info);
             EditorGUILayout.LabelField("Cave resources", EditorStyles.boldLabel);
             EditorGUILayout.LabelField("Meshes / rendered triangles", $"{caves.MeshCount:N0} / {caves.RenderTriangles:N0}");

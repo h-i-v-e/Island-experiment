@@ -34,6 +34,14 @@ smoothly, with occasional wider rooms. Branches can themselves branch.
 - **Walk Width Variation**: default 0.35. Passage width/height ranges and chamber
   dimensions supply the sizes towards which the walk gradually changes.
 
+Small stones scatter along the actual floor/wall intersections, including the
+edges of pillars at merged junctions. They reuse the river-bed stone generator's
+sizes, irregular shapes, clustered density and partial burial. A 1.3 m wide centre
+corridor stays clear along every route. Stones have the cave's stone colour and
+ambient/torch lighting, and are rendered as one separate batch per cave without
+colliders. Their placement is deterministically derived from the saved cave mesh
+when exported; no extra snapshot geometry or changed cave layout is required.
+
 A short fixed vestibule protects the existing entrance join. Later passages stay
 behind its blend plane so returning branches cannot create extra mouth lips. Floors stay near a
 common walkable level, and routes remain within covered land on the same island.
@@ -127,6 +135,9 @@ the cave is never copied into the cave mesh. A planar vestibule cut joins the
 volume to the exact existing throat, including matching floor corners and added
 edge subdivisions in the entrance collider and every terrain render LOD. Final
 interior meshes are split into at most 10,000 triangles per render/collider batch.
+The exterior lip uses 24 curve segments. Its crown rolls inward gradually before
+entering the passage; lighting normals follow the cubic tangent while retaining
+exact cliff and throat normals at the endpoints. Interior lips retain 12 segments.
 The legacy mode still cuts individual doorways between swept passages.
 
 Ending and branching probabilities determine normal size. Exceptional work,
@@ -157,7 +168,14 @@ above the cave floor. This is a single-player collision policy.
 
 Interior rendering uses the island stone palette and triplanar dirt from the
 island texture array, with diffuse/cloud/fog lighting, direct shadows and ambient
-attenuation with cover and distance from the mouth. Press **T** in walking or
+attenuation with cover and distance from the mouth. A normal-independent minimum
+ambient fill keeps unlit corners readable and fades to zero at the entrance.
+Select a generated island's **Caves** object and adjust **Interior Ambient Fill**
+(default 0.12, range 0–0.5), or set `CaveStreamer.InteriorAmbientFill` at runtime.
+Zero restores the original darkness. The fill is applied once in the base lighting
+pass, independently of the number of local lights; direct shadows remain active.
+It is a per-installed-island control and resets to its default on regeneration.
+Press **T** in walking or
 flying mode to toggle the camera torch. Its range, intensity, beam angle and key
 are configurable on `FirstPersonController`. The cave shader supports shadowed
 local lights independently of sunlight and cloud cover. Separate fine material normal
@@ -177,7 +195,7 @@ Flooded caves and underground rivers are outside this version.
 - Legacy passage length at most 120 m; target mesh spacing 0.25–1 m in both modes.
 - Route search radius at most 64 m; dimensions/noise are validated before work.
 - Geometry and height-sampling budgets are validated before installation.
-- Native snapshot version 10, Unity cache-key schema 7, cave algorithm revision 11.
+- Native snapshot version 10, Unity cache-key schema 7, cave algorithm revision 14.
 - Legacy mode: at most three side passages per cave, each 12–48 m beyond its junction throat.
 - Legacy side chamber scale 1–2, with resulting width at most 24 m and height at most 20 m.
 - Legacy networks, including the entrance collider, are limited to 62,500 triangles.
@@ -186,6 +204,9 @@ Flooded caves and underground rivers are outside this version.
 - The original cave entry point retains its 132-byte settings block and single-passage layout.
   `CreateMotuWithCaveNetworks` adds a separate 16-byte settings block and branch queries.
   `CreateMotuWithCaveWalks` adds a separate 24-byte random-walk block; older layouts remain intact.
+  `CreateCaveFloorStoneMesh` exports optional decorative geometry (surface tag 3),
+  released with `ReleaseMesh`. The decoration limit is 1,024 stones per cave
+  (20,480 triangles); it does not consume the structural cave/collider budget.
   Older entry points without cave options still create caves-disabled islands.
 - Exported cave mesh buffers own their data independently and use `ReleaseMesh`.
 
@@ -326,7 +347,7 @@ counts and cave-only time. `--cave-options /path/to/options.json` overrides the 
 native options block; `--output /tmp/cave-inspection` exports regenerated cave JSON
 only. Compatible snapshots retain their original settings unless overridden.
 Snapshots from older native versions must regenerate. Unity's
-revision-11 cache key regenerates older islands automatically; restart
+revision-14 cache key regenerates older islands automatically; restart
 the editor to load the new native plugin first. An unsaved scene can retain the old
 512-candidate value; use **Cave Settings > Candidate Limit = 2048** in that case.
 
@@ -336,9 +357,26 @@ and that the passage uses the island texture array. Set
 also exercise entering/exiting with complete heightfields, streamed exterior
 colliders, teleport/fly-mode restoration, and walking above the cave.
 
-The current cave architecture uses revision 11 and snapshot version 10. Restart
+The current cave architecture uses revision 14 and snapshot version 10. Restart
 Unity to load the rebuilt plugin. Older cached islands regenerate automatically
 under the new revision; their old replacement meshes are not reused.
+
+## Rounded interior corners
+
+Revision 14 rounds the joined cave wall and ceiling mesh before the entrance is
+stitched. Twelve shared-vertex relaxation passes soften sharp passage junctions,
+with movement capped at 0.6 m. The walkable floor and entrance blend region stay
+fixed, with a gradual transition to the smoothed wall. Moves that collapse or
+reverse a triangle are rejected. Boundary vertices awaiting precision seam repair
+also stay fixed, so smoothing cannot widen a tiny existing gap. Shared positions
+across sampling blocks move
+together; triangle counts and mesh connectivity stay unchanged.
+
+Wall normals are rebuilt from the rounded triangles so lighting follows the
+surface actually rendered. The same mesh supplies the collider and floor-stone
+placement. This changes geometry rather than increasing the ambient fill.
+Restart Unity to load the rebuilt native plugin; revision 14 invalidates older
+cached island geometry.
 
 ## Performance diagnostics
 

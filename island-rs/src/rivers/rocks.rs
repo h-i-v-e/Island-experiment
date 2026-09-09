@@ -199,7 +199,7 @@ fn projected_area(vertices: [Vec3; 3]) -> f32 {
     a.perp_dot(b).abs() * 0.5
 }
 
-fn sample_rock_size(rng: &mut Rng) -> (bool, f32) {
+pub(crate) fn sample_rock_size(rng: &mut Rng) -> (bool, f32) {
     let boulder = rng.unit() < BOULDER_FRACTION;
     let amount = rng.unit().powi(3);
     let (minimum, maximum) = if boulder {
@@ -213,7 +213,7 @@ fn sample_rock_size(rng: &mut Rng) -> (bool, f32) {
     (boulder, (maximum - minimum).mul_add(amount, minimum))
 }
 
-fn density_acceptance(seed: u64, position: Vec2) -> f32 {
+pub(crate) fn density_acceptance(seed: u64, position: Vec2) -> f32 {
     let scale = ISLAND_WORLD_METRES / DENSITY_NOISE_SCALE_METRES;
     let noise = noise::fractal(
         seed ^ ROCK_SEED_SALT,

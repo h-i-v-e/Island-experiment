@@ -47,8 +47,10 @@ use geometry::{
     lower_precarve_river_corridors_to_profiles, lower_precarve_river_valleys,
     raise_precarve_waterfall_shoulders, river_reaches_ocean, transfer_tributary_budgets,
 };
-pub(crate) use rocks::append_settled_rocks;
 use rocks::generate_river_rock_mesh;
+pub(crate) use rocks::{
+    append_settled_rocks, density_acceptance as rock_density_acceptance, sample_rock_size,
+};
 pub(crate) use tracing::fix_inland_seas;
 use tracing::{
     RouteState, WaterfallClearanceIndex, calculate_flow_and_catchment, find_sources,

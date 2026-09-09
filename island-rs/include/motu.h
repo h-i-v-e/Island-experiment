@@ -259,7 +259,9 @@ MOTU_EXPORT uint32_t GetCaveCount(const void* handle);
 MOTU_EXPORT uint8_t GetCaveStats(const void* handle, MotuCaveStats* output);
 MOTU_EXPORT uint8_t GetCaveInfo(const void* handle, uint32_t cave, MotuCaveInfo* output);
 MOTU_EXPORT uint8_t CreateCaveMesh(const void* handle, uint32_t cave, uint32_t chunk, ExportMesh* output);
-/* Release every successful CreateCaveMesh export with ReleaseMesh. */
+/* Floor decoration, UV0.y=3, no collision. Successful exports may be empty. */
+MOTU_EXPORT uint8_t CreateCaveFloorStoneMesh(const void* handle, uint32_t cave, ExportMesh* output);
+/* Release every successful cave mesh export with ReleaseMesh. */
 
 #ifdef __cplusplus
 }

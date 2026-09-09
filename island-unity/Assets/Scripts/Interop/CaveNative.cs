@@ -8,7 +8,7 @@ namespace Motu.Interop
     internal static class CaveNative
     {
         private const string Library = "motu";
-        internal const uint AlgorithmRevision = 11;
+        internal const uint AlgorithmRevision = 14;
         [Serializable, StructLayout(LayoutKind.Sequential)]
         internal struct Options
         {
@@ -139,6 +139,7 @@ namespace Motu.Interop
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern uint GetCaveCount(IntPtr handle);
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern byte GetCaveStats(IntPtr handle, out Stats stats);
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern byte GetCaveInfo(IntPtr handle, uint cave, out Info info);
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern byte CreateCaveFloorStoneMesh(IntPtr handle, uint cave, out MotuNative.ExportMesh mesh);
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern byte CreateCaveMesh(IntPtr handle, uint cave, uint chunk, out MotuNative.ExportMesh mesh);
     }
 }

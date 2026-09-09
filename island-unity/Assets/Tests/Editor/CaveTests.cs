@@ -17,7 +17,7 @@ namespace Motu.Editor
 {
     public sealed class CaveTests
     {
-        [Serializable] private sealed class PackedMesh { public float[] vertices, normals; public int[] triangles; public bool collisionOnly; }
+        [Serializable] private sealed class PackedMesh { public float[] vertices, normals; public int[] triangles; public bool collisionOnly, floorStones; }
         [Serializable] private sealed class PackedPath { public float[] nodes; }
         [Serializable] private sealed class Fixture
         {
@@ -317,8 +317,21 @@ namespace Motu.Editor
                     new UnityFrameBudget(100000)).GetAwaiter().GetResult();
                 Assert.Greater(caves.PreparedBufferBytes, 0);
                 Assert.Greater(caves.RenderTriangles, 0);
-                Assert.Greater(caves.ColliderTriangles, caves.RenderTriangles,
-                    "Collider totals include the hidden entrance lip.");
+                var expectedCollisionTriangles = 0;
+                var expectedStoneTriangles = 0;
+                foreach (var cave in prepared.caves)
+                    foreach (var chunk in cave.chunks)
+                        if (chunk.caveAttributes.Length > 0 && chunk.caveAttributes[0].y > 2.5f)
+                            expectedStoneTriangles += chunk.triangles.Length / 3;
+                        else expectedCollisionTriangles += chunk.triangles.Length / 3;
+                Assert.Greater(expectedStoneTriangles, 0, "Native export must include edge stones.");
+                Assert.AreEqual(expectedCollisionTriangles, caves.ColliderTriangles);
+                foreach (var renderer in root.GetComponentsInChildren<MeshRenderer>())
+                    if (renderer.name.Contains("floor stones"))
+                    {
+                        Assert.IsTrue(renderer.enabled);
+                        Assert.IsNull(renderer.GetComponent<Collider>(), "Floor stones must never snag the player.");
+                    }
                 Assert.GreaterOrEqual(caves.ColliderCookMilliseconds, caves.LongestColliderCookMilliseconds);
                 Debug.Log(FormattableString.Invariant(
                     $"CAVE_PERFORMANCE,meshes={caves.MeshCount},render_triangles={caves.RenderTriangles},collider_triangles={caves.ColliderTriangles},prepared_bytes={caves.PreparedBufferBytes},export_ms={caves.ExportMilliseconds:F3},copy_ms={caves.CopyMilliseconds:F3},mesh_ms={caves.MeshCreationMilliseconds:F3},cook_ms={caves.ColliderCookMilliseconds:F3},longest_cook_ms={caves.LongestColliderCookMilliseconds:F3}"));
@@ -515,6 +528,14 @@ namespace Motu.Editor
             var path = Environment.GetEnvironmentVariable(wandering ? "MOTU_CAVE_WALK_FIXTURE_OUTPUT" : "MOTU_CAVE_NETWORK_FIXTURE_OUTPUT");
             if (string.IsNullOrEmpty(path)) Assert.Ignore("Set MOTU_CAVE_NETWORK_FIXTURE_OUTPUT to the native network fixture.");
             var fixture = JsonUtility.FromJson<Fixture>(File.ReadAllText(path));
+            var stonesPath = Environment.GetEnvironmentVariable("MOTU_CAVE_STONES_FIXTURE_OUTPUT");
+            if (wandering && !string.IsNullOrEmpty(stonesPath))
+            {
+                var stoneMesh = JsonUtility.FromJson<PackedMesh>(File.ReadAllText(stonesPath));
+                Assert.IsTrue(stoneMesh.floorStones);
+                Array.Resize(ref fixture.chunks, fixture.chunks.Length + 1);
+                fixture.chunks[fixture.chunks.Length - 1] = stoneMesh;
+            }
             var root = new GameObject("Branching cave traversal");
             var material = new Material(Resources.Load<Shader>("CaveSurface"));
             try
@@ -524,6 +545,11 @@ namespace Motu.Editor
                 var caves = root.AddComponent<CaveStreamer>();
                 caves.InitializeAsync(prepared, material, CancellationToken.None,
                     new UnityFrameBudget(100000)).GetAwaiter().GetResult();
+                var caveMaterial = root.GetComponentInChildren<MeshRenderer>().sharedMaterial;
+                Assert.AreEqual(.12f, caveMaterial.GetFloat("_InteriorAmbientFill"));
+                caves.InteriorAmbientFill = .2f;
+                Assert.AreEqual(.2f, caveMaterial.GetFloat("_InteriorAmbientFill"));
+                caves.InteriorAmbientFill = .12f;
                 Assert.Greater(fixture.branches.Length, 0, "The fixture must exercise side passages.");
                 Assert.AreEqual(fixture.branches.Length, caves.BranchCount);
                 Assert.AreEqual(fixture.branches.Length, caves.GetBranchCount(0));
@@ -644,7 +670,7 @@ namespace Motu.Editor
                 var surface = 10 + Mathf.Clamp01(vertices[v].x / 4) * 30;
                 var cover = Mathf.Max(0, surface - vertices[v].y);
                 var ambient = Mathf.Max(Mathf.Clamp(1-cover/4, .08f, 1), Mathf.Clamp(1-(vertices[v].x+1)/15, .08f, 1));
-                caveAttributes[v] = new Vector2(ambient, packed.collisionOnly ? 2 : 0);
+                caveAttributes[v] = new Vector2(ambient, packed.floorStones ? 3 : packed.collisionOnly ? 2 : 0);
             }
             return new IslandPreparedMesh(vertices, normals, packed.triangles, Array.Empty<Vector2>(), colours, Array.Empty<Vector2>(), caveAttributes);
         }
@@ -729,6 +755,7 @@ namespace Motu.Editor
                     return;
                 }
                 Save("entrance", new Vector3(-16, 14, -12), new Vector3(2, 13, 0));
+                Save("upper-lip", new Vector3(-3, 13, 0), new Vector3(3, 15, 0));
                 Save("roof", new Vector3(20, 55, -22), new Vector3(10, 32, 0));
                 light.type = LightType.Point;
                 light.range = 35;

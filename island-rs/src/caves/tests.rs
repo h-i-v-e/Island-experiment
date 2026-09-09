@@ -21,10 +21,10 @@ fn fixture(height: impl Fn(f32, f32) -> f32) -> Terrain {
     Terrain::new(mesh)
 }
 
-fn cliff() -> Terrain {
+pub(super) fn cliff() -> Terrain {
     fixture(|x, _| 10.0 + ((x - 1000.0) / 4.0).clamp(0.0, 1.0) * 30.0)
 }
-fn options() -> CaveOptions {
+pub(super) fn options() -> CaveOptions {
     CaveOptions {
         enabled: 1,
         length_min: 30.0,

@@ -2,6 +2,11 @@
 
 Status: initial cave implementation, branching networks and experimental volume-unioned random walks added. See [ISLAND_CAVES.md](ISLAND_CAVES.md)
 for the implemented architecture, usage, validation and remaining refinements.
+
+Interior junction rounding is implemented in revision 14: shared-vertex smoothing
+preserves the floor and entrance, rejects triangle foldovers, and rebuilds wall
+normals from the rendered geometry.
+
 Phase 6 performance evidence is recorded in
 [the 9 September checkpoint](island-rs/validation/caves-2026-09-09/README.md); broader
 world lighting/reflection and residency acceptance remains explicitly tracked there.
@@ -513,6 +518,9 @@ Each branch generation doubles its ending probability (capped at 1), allowing
 branching chances above the main ending chance without unlimited descendant
 generations. The original terrain and entrance join remain in use. Returning
 walks stay behind the entrance blend plane.
+
+River-style floor stones now follow actual wall edges, with protected walking
+corridors and separate batched rendering without collision.
 
 Still future work: additional exterior exits; stalactites and
 stalagmites outside protected walking corridors; interior chunk LOD; navigation,

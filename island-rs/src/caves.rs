@@ -12,7 +12,9 @@ mod orientation;
 mod passage;
 mod placement;
 mod portal;
+mod smoothing;
 mod stitch;
+mod stones;
 mod surface;
 #[cfg(test)]
 mod tests;
@@ -24,7 +26,7 @@ pub use options::CaveOptions;
 pub use placement::CaveStats;
 use serde::{Deserialize, Serialize};
 pub use wandering::CaveWalkOptions;
-pub const CAVE_REVISION: u32 = 11;
+pub const CAVE_REVISION: u32 = 14;
 pub(crate) const MAX_TRIANGLES: usize = 250_000;
 pub(crate) const MAX_CHUNKS: usize = 128;
 
@@ -62,6 +64,13 @@ pub struct CaveBranch {
 }
 
 impl Cave {
+    /// Deterministic decoration derived from the saved cave surface, in normalized
+    /// island coordinates. Kept separate from the structural collision mesh.
+    #[must_use]
+    pub fn floor_stones(&self) -> Mesh {
+        stones::build(self)
+    }
+
     pub(crate) fn paths(&self) -> impl Iterator<Item = &[Node]> {
         std::iter::once(self.nodes.as_slice())
             .chain(self.branches.iter().map(|b| b.nodes.as_slice()))

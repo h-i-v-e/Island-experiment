@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using UnityEngine;
 using Unity.Profiling;
@@ -74,8 +75,8 @@ namespace Motu.Interop
                     throw new InvalidOperationException("Invalid native cave descriptor.");
                 totalChunks += info.chunkCount;
                 if (totalChunks > 128) throw new InvalidOperationException("Native cave chunk budget exceeded.");
-                var chunks = new IslandPreparedMesh[info.chunkCount];
-                for (uint j = 0; j < chunks.Length; j++)
+                var chunks = new List<IslandPreparedMesh>((int)info.chunkCount + 1);
+                for (uint j = 0; j <= info.chunkCount; j++)
                 {
                     cancellation.ThrowIfCancellationRequested();
                     var mesh = default(MotuNative.ExportMesh);
@@ -83,14 +84,20 @@ namespace Motu.Interop
                     {
                         timer.Restart();
                         byte exported;
-                        using (ExportMarker.Auto()) exported = CaveNative.CreateCaveMesh(handle, i, j, out mesh);
+                        var stones = j == info.chunkCount;
+                        using (ExportMarker.Auto()) exported = stones
+                            ? CaveNative.CreateCaveFloorStoneMesh(handle, i, out mesh)
+                            : CaveNative.CreateCaveMesh(handle, i, j, out mesh);
                         exportMilliseconds += timer.Elapsed.TotalMilliseconds;
+                        if (stones && exported != 0 && mesh.vertices.length == 0) continue;
                         if (exported == 0
                             || mesh.vertices.length <= 0 || mesh.vertices.length > 250000
                             || mesh.normals.length != mesh.vertices.length
                             || mesh.triangles.length < 3 || mesh.triangles.length % 3 != 0)
                             throw new InvalidOperationException("Invalid native cave mesh.");
-                        triangles += mesh.triangles.length / 3;
+                        if (stones && mesh.triangles.length / 3 > 20480)
+                            throw new InvalidOperationException("Cave floor stone limit exceeded.");
+                        if (!stones) triangles += mesh.triangles.length / 3;
                         if (triangles > 250000) throw new InvalidOperationException("Native cave triangle budget exceeded.");
                         timer.Restart();
                         using var copySample = CopyMarker.Auto();
@@ -103,8 +110,8 @@ namespace Motu.Interop
                         var terrainUv = new Vector2[copy.vertices.Length];
                         for (var vertex = 0; vertex < terrainUv.Length; vertex++)
                             terrainUv[vertex] = new Vector2(copy.vertices[vertex].x / size + .5f, copy.vertices[vertex].z / size + .5f);
-                        chunks[j] = new IslandPreparedMesh(copy.vertices, copy.normals, copy.triangles,
-                            terrainUv, copy.material, copy.environment, copy.uv);
+                        chunks.Add(new IslandPreparedMesh(copy.vertices, copy.normals, copy.triangles,
+                            terrainUv, copy.material, copy.environment, copy.uv));
                         bufferBytes += (long)(copy.vertices.Length + copy.normals.Length) * 12
                             + (long)copy.triangles.Length * 4 + (long)copy.material.Length * 16
                             + ((long)terrainUv.Length + copy.environment.Length + copy.uv.Length) * 8;
@@ -129,7 +136,7 @@ namespace Motu.Interop
                     }
                     bufferBytes += nodeCount * 12L;
                 }
-                caves[i] = new IslandPreparedCave(info, chunks, size, paths);
+                caves[i] = new IslandPreparedCave(info, chunks.ToArray(), size, paths);
             }
             return new IslandPreparedCaves(caves, stats, exportMilliseconds, copyMilliseconds, bufferBytes);
         }

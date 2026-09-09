@@ -201,6 +201,41 @@ pub unsafe extern "C" fn CreateCaveMesh(
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn CreateCaveFloorStoneMesh(
+    handle: *const c_void,
+    index: u32,
+    output: *mut ExportMesh,
+) -> u8 {
+    // SAFETY: output is writable and unused; handle is a live island. Release
+    // the returned mesh once with ReleaseMesh, including successful empty exports.
+    let Some(output) = (unsafe { output.as_mut() }) else {
+        return 0;
+    };
+    *output = ExportMesh::default();
+    let Some(island) = (unsafe { island_ref(handle) }) else {
+        return 0;
+    };
+    let Some(cave) = island.caves().caves.get(index as usize) else {
+        return 0;
+    };
+    let mut mesh = cave.floor_stones();
+    mesh.uv = mesh
+        .vertices
+        .iter()
+        .map(|p| {
+            let ambient = cave
+                .surface_attributes(&island.caves().options, *p * ISLAND_WORLD_METRES)
+                .x;
+            Vec2::new(ambient, 3.0) // Decorative stone: render only, always stone albedo.
+        })
+        .collect();
+    let material = island.material_values_for(&mesh);
+    let environment = island.environment_values_for(&mesh);
+    *output = export_mesh(mesh, material, environment);
+    1
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn GetCaveBranchCount(handle: *const c_void, index: u32) -> u32 {
     // SAFETY: caller supplies a live island handle.
     unsafe { island_ref(handle) }

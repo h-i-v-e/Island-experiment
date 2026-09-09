@@ -7,6 +7,7 @@ Shader "Motu/Cave Surface"
         _CliffNoisePeriod ("Cliff Noise Period", Float) = 160
         _CliffNoiseDetailScale ("Cliff Detail Frequency", Float) = 16
         _CliffNormalStrength ("Cliff Normal Strength", Float) = 0.12
+        _InteriorAmbientFill ("Interior Ambient Fill", Range(0, 0.5)) = 0.12
         _TerrainAlbedoArray ("Island Surface Colours", 2DArray) = "" {}
         _DirtSize ("Floor Repeat Metres", Float) = 3
         _UseTextures ("Use Island Textures", Float) = 0
@@ -24,7 +25,7 @@ Shader "Motu/Cave Surface"
             #include "../CloudCommon.cginc"
 
             UNITY_DECLARE_TEX2DARRAY(_TerrainAlbedoArray);
-            float _DirtSize, _UseTextures;
+            float _DirtSize, _UseTextures, _InteriorAmbientFill;
             sampler3D _CliffNoise3D;
             float _CliffNoisePeriod, _CliffNoiseDetailScale, _CliffNormalStrength;
             fixed4 _Color;
@@ -73,7 +74,8 @@ Shader "Motu/Cave Surface"
                 float3 localNormal = normalize(i.localNormal);
                 float3 weights = pow(abs(localNormal), 4);
                 weights /= max(dot(weights, float3(1,1,1)), 0.0001);
-                float floorBlend = smoothstep(0.65, 0.95, localNormal.y);
+                // Decorative floor stones retain rock colour even on their upward faces.
+                float floorBlend = i.caveData.y > 2.5 ? 0 : smoothstep(0.65, 0.95, localNormal.y);
                 fixed3 rock = _RockColour.rgb, dirt = _DirtColour.rgb;
                 if (_UseTextures > 0.5)
                 {
@@ -102,6 +104,10 @@ Shader "Motu/Cave Surface"
                     MotuCloudLighting cloud = MotuCloudSurfaceLighting(i.worldPosition);
                     half3 ambient = ShadeSH9(half4(normal, 1)) * cloud.ambientTransmittance
                         * clamp(i.caveData.x, 0.08, 1);
+                    // Normal-independent bounced light keeps sharp corners readable.
+                    // Apply once in the base pass; fade out at the exterior join.
+                    half interior = saturate((1.0h - i.caveData.x) / 0.92h);
+                    ambient = max(ambient, _InteriorAmbientFill * interior);
                     #if defined(DIRECTIONAL) || defined(DIRECTIONAL_COOKIE)
                         direct *= cloud.directTransmittance;
                     #endif

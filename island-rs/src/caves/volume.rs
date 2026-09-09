@@ -83,6 +83,7 @@ pub(crate) fn build(cave: &mut Cave, o: &CaveOptions) -> Result<Vec<Mesh>, Strin
         }
     }
     super::orientation::orient(&mut mesh)?;
+    super::smoothing::round_interior(&mut mesh, cave, o);
     // Cut back through the closed vestibule cap, rounding into the exact existing
     // throat. The exterior terrain lip is untouched, including its grass/LOD data.
     let reverse = Portal {
