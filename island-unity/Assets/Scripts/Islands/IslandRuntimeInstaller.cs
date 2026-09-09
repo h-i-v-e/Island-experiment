@@ -55,10 +55,17 @@ namespace Motu.Islands
                     generator.seaMaskTexture,
                     worldSize);
 
+                var caveRoot = new GameObject("Caves");
+                caveRoot.transform.SetParent(generator.runtimeRoot.transform, false);
+                var caves = caveRoot.AddComponent<CaveStreamer>();
+                generator.islandRuntime.SetCaveStreamer(caves);
+                await caves.InitializeAsync(prepared.caves, generator.terrainMaterial, cancellationToken, frameBudget);
+
                 var terrainRoot = new GameObject("Terrain Tiles");
                 terrainRoot.transform.SetParent(generator.runtimeRoot.transform, false);
                 generator.terrainStreamer = terrainRoot.AddComponent<TerrainTileStreamer>();
                 generator.islandRuntime.SetTerrainStreamer(generator.terrainStreamer);
+                generator.terrainStreamer.Caves = caves;
                 await generator.terrainStreamer.InitializeAsync(
                     generator.islandHandle.Value,
                     generator.terrainMaterial,

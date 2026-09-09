@@ -155,7 +155,11 @@ are clipped on the same 64x64 LOD 1 boundaries and render throughout every
 active LOD 1 group, including its LOD 0 refinement cells. Rivers remain hidden
 where the terrain is still LOD 2. Chunks are cached after their first
 visit, so revisiting an area only changes visibility. First-person controls are
-WASD, Shift to run, Space to jump, and the mouse to look. Press V to toggle the
+WASD, Shift to run, Space to jump, and the mouse to look. Press T to toggle a
+camera-mounted torch in walking or flying mode. Its key, range, intensity and
+beam angle are configurable under **Torch** on `FirstPersonController`.
+The torch switches off when leaving the player camera and remembers its setting
+when returning. Press V to toggle the
 configurable 24 m/s fly mode, which follows terrain or sea level at a 4 m
 clearance. Press Tab to release the cursor for Inspector tuning, then Tab again
 to resume movement and mouse look. The top-right minimap shows the 16-cell
@@ -587,11 +591,14 @@ OpenSeaWorld starts with **Ship Controller** and **Ship Bridge Camera** active. 
 - **A/D**: rudder. Steering builds with forward speed and reverses when moving astern.
 - **Space**: brake.
 - **Mouse**: look around. **Tab** toggles mouse look/cursor; **Escape** releases the cursor. Controls pause while the cursor is released.
-- The minimap follows the ship. Release the cursor and click a square to teleport the ship; velocity is cleared, and island streaming moves with the bridge camera.
+- **F**: switch to the flying camera; press **F** again to return to the ship bridge while it remains in the current island square. Change **Switch Camera Key** on the demo controller to rebind it.
+- In free flight use **WASD** to move, **Q/E** down/up, **Shift** to boost and the mouse to look. Flight starts at the bridge eye height. The ship continues floating and coasting with helm input disabled.
+- The minimap always teleports the player, leaving the ship behind. From the helm it first switches to free flight, preserving eye height and keeping the cursor released.
+- While the player remains in the ship's island square, the ship keeps floating and can be re-entered with **F**. Crossing into another square, by teleporting or flying, removes the ship and its separate bridge camera from the runtime scene. It does not respawn on returning; the saved scene is unchanged.
 
 The controller uses mass-scaled thrust and inertia-scaled yaw torque and leaves vertical movement, pitch and roll to buoyancy. Thrust requires submerged probes. Forward/reverse target speed, acceleration and rudder response are configurable. The ship's water drag is set to 0.08 per second for cruising. For scripted control, disable **Read Player Input** and call `ShipController.SetInput(throttle, rudder, braking)`, with inputs from -1 to 1.
 
-**Island > Set Up Selected Ship Helm** recreates the initial setup for this pirate-ship import. Select its Rigidbody first, outside Play Mode. The previous overview camera is retained but disabled; the existing world HUD and minimap remain active.
+**Island > Set Up Selected Ship Helm** recreates the initial setup for this pirate-ship import. Select its Rigidbody first, outside Play Mode. The previous overview camera is retained for walking and flying; the existing world HUD and minimap remain active. The imported pirate ship explicitly remaps its embedded material to the extracted textured, matte material so the colour map survives reimport.
 
 ## Deck wave clamp
 

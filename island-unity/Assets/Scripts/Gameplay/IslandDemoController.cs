@@ -5,7 +5,7 @@ using Motu.World;
 namespace Motu.Gameplay
 {
     [UnityEngine.Scripting.APIUpdating.MovedFrom(true, sourceNamespace: "", sourceAssembly: "Assembly-CSharp", sourceClassName: "IslandDemoController")]
-    public sealed class IslandDemoController : MonoBehaviour
+    public sealed partial class IslandDemoController : MonoBehaviour
     {
         private const float ClickDragTolerance = 6f;
         private const float FrameRateSampleSeconds = 0.25f;
@@ -15,7 +15,7 @@ namespace Motu.Gameplay
         private const float MinimapTexturePixels = MinimapDiameterCells * MinimapCellPixels;
         private const float MinimapPanelWidth = MinimapTexturePixels + 20f;
         private const float MinimapPanelHeight = MinimapTexturePixels + 74f;
-        private static readonly Rect PanelRect = new Rect(16f, 16f, 600f, 250f);
+        private static readonly Rect PanelRect = new Rect(16f, 16f, 600f, 340f);
         private static readonly Color32 MinimapSeaColour = new Color32(18, 63, 105, 255);
         private static readonly Color32 MinimapIslandColour = new Color32(79, 139, 61, 255);
         private static readonly Color MinimapPlayerColour = new Color(1f, 0.82f, 0.18f, 1f);
@@ -25,6 +25,8 @@ namespace Motu.Gameplay
         [SerializeField] private OrbitCamera orbitCamera;
         [SerializeField] private FirstPersonController firstPersonController;
         [SerializeField] private ShipController shipController;
+        [Tooltip("Switch between the ship helm and the flying camera.")]
+        [SerializeField] private KeyCode switchCameraKey = KeyCode.F;
         [Header("Play Mode Start")]
         [SerializeField] private bool startInFlyMode;
         [SerializeField] private Vector3 flyStartPosition = new Vector3(0f, 4f, -1800f);
@@ -85,8 +87,24 @@ namespace Motu.Gameplay
         public void ConfigureShipStart(ShipController controller, Camera camera)
         {
             shipController = controller;
+            awayFromHelm = false;
             viewerCamera = camera;
             startInFlyMode = false;
+        }
+
+        /// <summary>Debug traversal of an installed cave; normal startup remains at the helm.</summary>
+        public bool VisitCave(Motu.Streaming.CaveStreamer caves, int index, bool chamber = false)
+        {
+            if (!Application.isPlaying || caves == null || firstPersonController == null
+                || worldManager == null
+                || !caves.TryGetEntrance(index, out var target, out var inward)) return false;
+            if (chamber && !caves.TryGetChamber(index, out target)) return false;
+            worldManager.PrepareStreamingAt(target);
+            if (!caves.TryFindGround(target, 2f, 3f, out var ground)) return false;
+            if (!UseExplorationCamera()) return false;
+            firstPersonController.transform.rotation = Quaternion.LookRotation(inward);
+            firstPersonController.EnterPreparedGround(ground);
+            return true;
         }
 
         private void Awake()
@@ -127,6 +145,8 @@ namespace Motu.Gameplay
 
         private void Update()
         {
+            if (switchCameraKey != KeyCode.None && Input.GetKeyDown(switchCameraKey))
+                ToggleShipCamera();
             UpdateFrameRate();
             UpdateMinimap();
             var mousePosition = Input.mousePosition;
@@ -135,7 +155,7 @@ namespace Motu.Gameplay
             if (orbitCamera != null)
             {
                 orbitCamera.PointerInputBlocked = cursorAvailable
-                    && (minimapClickCandidate || IsOverMinimap(guiPosition));
+                    && (minimapClickCandidate || IsOverMinimap(guiPosition) || PanelRect.Contains(guiPosition));
             }
             if (HandleMinimapPointer(guiPosition, Input.GetMouseButtonDown(0),
                 Input.GetMouseButtonUp(0), cursorAvailable))
@@ -144,7 +164,7 @@ namespace Motu.Gameplay
                 return;
             }
             var island = worldManager.FocusedIsland;
-            if (shipController != null || firstPersonController == null
+            if (IsAtHelm || firstPersonController == null
                 || firstPersonController.IsActive
                 || island == null
                 || viewerCamera == null)
@@ -212,10 +232,11 @@ namespace Motu.Gameplay
                     frameRateText,
                     GUI.skin.box);
             }
-            if (shipController != null)
+            if (IsAtHelm)
             {
-                GUILayout.BeginArea(new Rect(16f, 16f, 480f, 126f), GUI.skin.box);
+                GUILayout.BeginArea(PanelRect, GUI.skin.box);
                 GUILayout.Label("Ship helm: W/S forward/reverse | A/D rudder | Space brake");
+                GUILayout.Label($"{switchCameraKey}: switch to flying camera");
                 GUILayout.Label("Mouse: look | Tab: mouse look/cursor | Escape: release cursor");
                 GUILayout.Label($"Speed: {shipController.SpeedMetresPerSecond * 1.943844f:0.0} knots");
                 DrawWorldStatus();
@@ -226,13 +247,18 @@ namespace Motu.Gameplay
             {
                 GUILayout.BeginArea(PanelRect, GUI.skin.box);
                 GUILayout.Label("First person: WASD move | Shift run/fly boost | Space jump | Mouse look");
-                GUILayout.Label(
+                if (firstPersonController.IsFlyMode && !firstPersonController.FollowsTerrainInFlyMode)
+                    GUILayout.Label("Free flight: Q/E down/up | Shift: boost");
+                else GUILayout.Label(
                     $"{firstPersonController.ToggleFlyModeKey}: fly "
                     + $"{firstPersonController.FlySpeedMetresPerSecond:0.#} m/s at "
                     + $"{firstPersonController.FlyClearanceMetres:0.#} m clearance"
                     + (firstPersonController.IsFlyMode ? " (ACTIVE)" : string.Empty));
+                if (shipController != null) GUILayout.Label($"{switchCameraKey}: return to ship helm");
                 DrawDebugKeys(island);
-                GUILayout.Label("Tab: release cursor | Escape: overview");
+                GUILayout.Label($"{firstPersonController.ToggleTorchKey}: torch "
+                    + (firstPersonController.IsTorchOn ? "ON" : "OFF")
+                    + " | Tab: release cursor | Escape: overview");
                 DrawWorldStatus();
                 DrawIslandStatus(island);
                 GUILayout.EndArea();
@@ -244,6 +270,7 @@ namespace Motu.Gameplay
 
             GUILayout.BeginArea(PanelRect, GUI.skin.box);
             GUILayout.Label("Procedural Island Sandbox");
+            if (shipController != null) GUILayout.Label($"{switchCameraKey}: return to ship helm");
             GUILayout.Label("Generation method: CPU");
             DrawWorldStatus();
             DrawIslandStatus(island);
@@ -339,7 +366,7 @@ namespace Motu.Gameplay
                 new Rect(panel.x + 10f, map.yMax + 23f, panel.width - 20f, 20f),
                 Cursor.lockState == CursorLockMode.Locked
                     ? "Tab: release cursor to teleport"
-                    : shipController != null ? "Click a square: teleport ship" : "Click a square: teleport (fly mode)");
+                    : "Click a square: teleport player (fly mode)");
             return panel;
         }
 
@@ -398,8 +425,7 @@ namespace Motu.Gameplay
                 if (!minimapClickDragged
                     && TryGetMinimapCell(position, out var cell) && cell == minimapClickCell)
                 {
-                    if (shipController != null) shipController.Teleport(IslandWorldManager.CellCentre(cell));
-                    else firstPersonController.Teleport(IslandWorldManager.CellCentre(cell));
+                    TeleportPlayer(IslandWorldManager.CellCentre(cell));
                     UpdateMinimap();
                 }
             }
@@ -474,6 +500,36 @@ namespace Motu.Gameplay
                 + $" | {worldManager.QueuedIslandCount} queued"
                 + $" | {worldManager.GeneratingIslandCount} generating"
                 + $" | {worldManager.NativeHandleCount} native handles");
+            DrawCaveControls();
+        }
+
+        private void DrawCaveControls()
+        {
+            var position = viewerCamera != null ? viewerCamera.transform.position : transform.position;
+            var total = worldManager.GetCaveAvailability(position, out var caves, out var entranceIndex);
+            var current = worldManager.FocusedIsland;
+            var currentCaves = current != null ? current.Runtime?.Caves : null;
+            var currentCount = currentCaves != null ? currentCaves.CaveCount : 0;
+            var currentStatus = current != null && current.IsGenerating ? "generating"
+                : current != null && !current.Caves.Enabled ? "disabled" : currentCount.ToString();
+            var status = current != null
+                ? $"Caves: {currentStatus} on this island | {total} on loaded islands"
+                : $"Caves: {total} on loaded islands";
+            GUILayout.Label(new GUIContent(status, currentCaves != null ? currentCaves.Diagnostics : string.Empty));
+            if (caves == null) return;
+
+            caves.TryGetEntrance(entranceIndex, out var mouth, out _);
+            var cell = IslandWorldManager.WorldToCell(mouth);
+            var caption = new GUIContent("Teleport to cave mouth",
+                $"Nearest cave: island square {cell.x}, {cell.y}; {Vector3.Distance(position, mouth):0} m away");
+            var previousEnabled = GUI.enabled;
+            GUI.enabled = previousEnabled && Application.isPlaying && firstPersonController != null
+                && Cursor.lockState != CursorLockMode.Locked;
+            if (GUILayout.Button(caption, GUILayout.Height(26f)) && !VisitCave(caves, entranceIndex))
+                Debug.LogWarning("Could not enter the cave: its ground collision is not ready.", caves);
+            GUI.enabled = previousEnabled;
+            if (Cursor.lockState == CursorLockMode.Locked)
+                GUILayout.Label("Tab: release cursor to use cave teleport");
         }
 
         private static void DrawIslandStatus(IslandGenerator island)

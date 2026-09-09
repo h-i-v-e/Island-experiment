@@ -255,6 +255,7 @@ MonoBehaviour:
   orbitCamera: {fileID: 763167133}
   firstPersonController: {fileID: 763167132}
   shipController: {fileID: 982990073}
+  switchCameraKey: 102
   startInFlyMode: 0
   flyStartPosition: {x: 0, y: 4, z: -1500}
   flyStartYawDegrees: 0
@@ -956,6 +957,40 @@ MonoBehaviour:
   earthB: {r: 0.4811321, g: 0.3327134, b: 0.19744574, a: 0}
   stoneA: {r: 0.6226415, g: 0.5154188, b: 0.31425774, a: 0}
   stoneB: {r: 0.374466, g: 0.45895195, b: 0.5188679, a: 0}
+  caveSettings:
+    enabled: 1
+    seedOffset: 0
+    maximumCaves: 1
+    candidateLimit: 2048
+    spacing: 100
+    entranceWidth: 4
+    entranceHeight: 3
+    minimumFaceSlope: 60
+    minimumFaceHeight: 4
+    approachSlope: 20
+    approachLength: 4
+    sideMargin: 0.5
+    approachStep: 0.2
+    routeRadius: 20
+    roofCover: 3
+    sideCover: 3
+    transitionLength: 6
+    lengthMin: 30
+    lengthMax: 60
+    widthMin: 3
+    widthMax: 5
+    heightMin: 3
+    heightMax: 4
+    floorSlope: 12
+    chamberWidth: 10
+    chamberHeight: 6
+    broadAmplitude: 0.5
+    broadPeriod: 8
+    fineAmplitude: 0.15
+    finePeriod: 2
+    floorRoughness: 0.08
+    seaClearance: 5
+    voxelSize: 0.5
 --- !u!114 &2028956462
 MonoBehaviour:
   m_ObjectHideFlags: 0

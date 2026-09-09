@@ -12,7 +12,8 @@ namespace Motu.Islands
             bool cachedMaterials,
             float worldSize,
             bool cachedSnapshot,
-            int islandSeed)
+            int islandSeed,
+            int caveCount)
         {
             var status = string.Format(
                 CultureInfo.InvariantCulture,
@@ -22,6 +23,7 @@ namespace Motu.Islands
                 terrainStreamer.BaseVertexCount,
                 terrainStreamer.BaseTriangleCount,
                 elapsed.TotalSeconds);
+            status += $" | {caveCount} caves";
             status += " | shared 2048 terrain shading map";
             if (cachedMaterials)
             {

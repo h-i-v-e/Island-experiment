@@ -6,6 +6,8 @@
     clippy::missing_safety_doc
 )]
 
+mod caves;
+
 use std::{
     alloc::{Layout, alloc, dealloc, handle_alloc_error},
     ffi::{CStr, c_char, c_void},

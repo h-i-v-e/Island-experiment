@@ -9,8 +9,8 @@ namespace Motu.Islands
 {
     internal static class IslandSnapshotCache
     {
-        // Includes initial soil depth and the corresponding native snapshot layout.
-        private const int CacheKeySchemaVersion = 6;
+        // Includes independent cave settings and the native cave algorithm revision.
+        private const int CacheKeySchemaVersion = 7;
         private const string SnapshotExtension = ".motusnapshot";
 
         internal static string CacheDirectory
@@ -80,6 +80,8 @@ namespace Motu.Islands
                 Write(writer, request.ForestOptions);
                 Write(writer, request.ReedOptions);
                 Write(writer, request.FernOptions);
+                writer.Write(CaveNative.AlgorithmRevision);
+                request.CaveOptions.Write(writer);
             }
             using var sha = SHA256.Create();
             return BitConverter.ToString(sha.ComputeHash(bytes.ToArray()))

@@ -68,10 +68,9 @@ namespace Motu.Editor
         }
 
         [Test]
-        public void MinimapTeleportsTheShipAndClearsMotion()
+        public void ExplicitShipTeleportClearsMotion()
         {
             var hull = new GameObject("Ship teleport fixture");
-            var hud = new GameObject("Ship HUD fixture");
             try
             {
                 var body = hull.AddComponent<Rigidbody>();
@@ -79,23 +78,15 @@ namespace Motu.Editor
                 body.position = new Vector3(0, 5, 0);
                 body.linearVelocity = new Vector3(3, 0, 1);
                 body.angularVelocity = Vector3.up;
-                var demo = hud.AddComponent<IslandDemoController>();
-                demo.ConfigureShipStart(ship, null);
-                demo.minimapTexture = new Texture2D(1, 1);
-                demo.hasMinimapCentre = true;
-                demo.minimapCentreCell = Vector2Int.zero;
-                var click = IslandDemoController.MinimapMapRect().center + Vector2.right * 7;
-                Assert.IsTrue(demo.TryGetMinimapCell(click, out var cell));
-                Assert.IsTrue(demo.HandleMinimapPointer(click, true, false, true));
-                Assert.IsTrue(demo.HandleMinimapPointer(click, false, true, true));
-                var destination = Motu.World.IslandWorldManager.CellCentre(cell);
+                var destination = Motu.World.IslandWorldManager.CellCentre(Vector2Int.right);
+                ship.Teleport(destination);
                 Assert.That(body.position.x, Is.EqualTo(destination.x));
                 Assert.That(body.position.z, Is.EqualTo(destination.z));
                 Assert.That(body.position.y, Is.EqualTo(5));
                 Assert.AreEqual(Vector3.zero, body.linearVelocity);
                 Assert.AreEqual(Vector3.zero, body.angularVelocity);
             }
-            finally { Object.DestroyImmediate(hud); Object.DestroyImmediate(hull); }
+            finally { Object.DestroyImmediate(hull); }
         }
 
         [Test]

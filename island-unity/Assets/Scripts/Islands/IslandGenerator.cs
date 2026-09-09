@@ -112,6 +112,7 @@ namespace Motu.Islands
         public IslandForestSettings Forest => Profile.Forest;
         public IslandReedSettings Reeds => Profile.Reeds;
         public IslandFernSettings Ferns => Profile.Ferns;
+        public IslandCaveSettings Caves => Profile.Caves;
         public IslandStreamingSettings Streaming => streaming;
         public IslandRenderingSettings Rendering => Profile.Rendering;
         public IslandDebugSettings DebugSettings => Profile.DebugSettings;
@@ -225,7 +226,8 @@ namespace Motu.Islands
 
                 generationLifecycle.StopTimer();
                 status = IslandGenerationStatus.Installed(terrainStreamer, generationLifecycle.Elapsed,
-                    prepared.materialTextures.loadedFromCache, worldSize, prepared.loadedFromSnapshot, islandSeed);
+                    prepared.materialTextures.loadedFromCache, worldSize, prepared.loadedFromSnapshot, islandSeed,
+                    prepared.caves.caves.Length);
                 return true;
             }
             catch (OperationCanceledException)

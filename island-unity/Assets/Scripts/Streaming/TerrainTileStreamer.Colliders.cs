@@ -145,6 +145,7 @@ namespace Motu.Streaming
                     tileSize);
                 terrainData.SetHeights(0, 0, colliderHeightMap.CopyTileHeights(key));
 
+
                 tileObject = new GameObject($"LOD 1 terrain collider {key.x},{key.y}");
                 tileObject.transform.SetParent(colliderRoot.transform, false);
                 tileObject.transform.localPosition = new Vector3(
@@ -162,6 +163,7 @@ namespace Motu.Streaming
                 var terrainCollider = tileObject.AddComponent<TerrainCollider>();
                 terrainCollider.terrainData = terrainData;
                 terrainCollider.enabled = true;
+                CaveCollisionScope.RegisterExteriorCollider(terrainCollider);
                 return new ColliderTile(tileObject, terrainData, terrainCollider);
             }
             catch

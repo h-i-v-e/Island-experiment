@@ -22,7 +22,7 @@ use crate::{
 };
 
 const SNAPSHOT_MAGIC: [u8; 8] = *b"MOTUSNP\0";
-const SNAPSHOT_VERSION: u16 = 4;
+const SNAPSHOT_VERSION: u16 = 7;
 const COMPRESSION_ZSTD: u8 = 1;
 const HEADER_LENGTH: u64 = 8 + 2 + 1 + 1 + 8 + 32;
 const MAXIMUM_COMPRESSED_BYTES: u64 = 8 * 1024 * 1024 * 1024;
@@ -31,6 +31,7 @@ const ZSTD_COMPRESSION_LEVEL: i32 = 3;
 
 #[derive(Serialize)]
 struct IslandSnapshotRef<'a> {
+    caves: &'a crate::caves::CaveSet,
     seed: u64,
     options: IslandOptions,
     generation_method: GenerationMethod,
@@ -54,6 +55,7 @@ struct IslandSnapshotRef<'a> {
 
 #[derive(Deserialize)]
 struct IslandSnapshotOwned {
+    caves: crate::caves::CaveSet,
     seed: u64,
     options: IslandOptions,
     generation_method: GenerationMethod,
@@ -102,6 +104,7 @@ fn save_to_temporary_file(island: &Island, path: &Path) -> io::Result<()> {
     file.write_all(&[0_u8; HEADER_LENGTH as usize])?;
 
     let snapshot = IslandSnapshotRef {
+        caves: &island.caves,
         seed: island.seed,
         options: island.options,
         generation_method: island.generation_method,
@@ -201,7 +204,9 @@ impl IslandSnapshotOwned {
         self.options.validate().map_err(invalid_data)?;
         self.forest_options.validate().map_err(invalid_data)?;
 
+        self.caves.validate().map_err(invalid_data)?;
         Ok(Island {
+            caves: self.caves,
             seed: self.seed,
             options: self.options,
             generation_method: self.generation_method,
@@ -226,6 +231,7 @@ impl IslandSnapshotOwned {
 }
 
 fn validate_island(island: &Island) -> io::Result<()> {
+    island.caves.validate().map_err(invalid_data)?;
     validate_mesh(&island.terrain.mesh, "terrain")?;
     for (index, mesh) in island.coarser_lods.iter().enumerate() {
         validate_mesh(mesh, &format!("terrain LOD {}", index + 1))?;

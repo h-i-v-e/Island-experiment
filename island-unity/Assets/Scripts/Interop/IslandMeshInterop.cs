@@ -175,6 +175,8 @@ namespace Motu.Interop
                 // Rust environment attributes use UV1: x = forest floor, y = stones.
                 mesh.uv2 = source.environment;
             }
+            if (source.caveAttributes.Length == source.vertices.Length)
+                mesh.SetUVs(2, source.caveAttributes);
             if (createTangents)
             {
                 mesh.RecalculateTangents();

@@ -10,6 +10,7 @@ namespace Motu.Islands
         public IslandForestSettings Forest { get; }
         public IslandReedSettings Reeds { get; }
         public IslandFernSettings Ferns { get; }
+        public IslandCaveSettings Caves { get; }
         public IslandRenderingSettings Rendering { get; }
         public IslandDebugSettings DebugSettings { get; }
 
@@ -20,13 +21,15 @@ namespace Motu.Islands
             IslandReedSettings reeds,
             IslandFernSettings ferns,
             IslandRenderingSettings rendering,
-            IslandDebugSettings debugSettings)
+            IslandDebugSettings debugSettings,
+            IslandCaveSettings caves = null)
         {
             Generation = Require(generation, nameof(generation)).Copy();
             Rivers = Require(rivers, nameof(rivers)).Copy();
             Forest = Require(forest, nameof(forest)).Copy();
             Reeds = Require(reeds, nameof(reeds)).Copy();
             Ferns = Require(ferns, nameof(ferns)).Copy();
+            Caves = (caves ?? new IslandCaveSettings()).Copy();
             Rendering = Require(rendering, nameof(rendering)).Copy();
             DebugSettings = (debugSettings ?? new IslandDebugSettings()).Copy();
         }
@@ -38,7 +41,7 @@ namespace Motu.Islands
             Reeds,
             Ferns,
             Rendering,
-            DebugSettings);
+            DebugSettings, Caves);
 
         private static T Require<T>(T value, string parameterName) where T : class =>
             value ?? throw new ArgumentNullException(parameterName);

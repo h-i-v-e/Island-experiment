@@ -36,6 +36,14 @@ namespace Motu.Islands
         internal IslandDescriptor Descriptor { get; private set; }
         internal IslandRuntimeState State { get; private set; }
         internal TerrainTileStreamer TerrainStreamer { get; private set; }
+        public CaveStreamer Caves { get; private set; }
+        internal void SetCaveStreamer(CaveStreamer caves)
+        {
+            RequireInstalling();
+            if (caves == null || !caves.transform.IsChildOf(transform))
+                throw new InvalidOperationException("Caves must belong to this island runtime.");
+            Caves = caves;
+        }
         internal GameObject CoastalWaterObject { get; private set; }
         internal NativeIslandHandle NativeHandle => nativeHandle;
 
@@ -207,6 +215,8 @@ namespace Motu.Islands
                 gameObject.SetActive(false);
             }
 
+            Caves?.Dispose();
+            Caves = null;
             TerrainStreamer?.Dispose();
             TerrainStreamer = null;
             CoastalWaterObject = null;

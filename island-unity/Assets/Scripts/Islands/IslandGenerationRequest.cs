@@ -17,6 +17,7 @@ namespace Motu.Islands
         public IslandForestSettings Forest => Profile?.Forest;
         public IslandReedSettings Reeds => Profile?.Reeds;
         public IslandFernSettings Ferns => Profile?.Ferns;
+        public IslandCaveSettings Caves => Profile?.Caves;
         public IslandRenderingSettings Rendering => Profile?.Rendering;
         public IslandDebugSettings DebugSettings => Profile?.DebugSettings;
 
@@ -25,6 +26,7 @@ namespace Motu.Islands
         internal MotuNative.ForestOptions ForestOptions { get; }
         internal MotuNative.ReedOptions ReedOptions { get; }
         internal MotuNative.FernOptions FernOptions { get; }
+        internal CaveNative.Options CaveOptions { get; }
         public IslandMaterialColours MaterialColours { get; }
         internal int MaterialTextureResolution { get; }
         internal string SnapshotPath { get; }
@@ -145,6 +147,7 @@ namespace Motu.Islands
             ForestOptions = Profile.Generation.ToNativeForestOptions(Profile.Forest);
             ReedOptions = Profile.Generation.ToNativeReedOptions(Profile.Reeds);
             FernOptions = Profile.Generation.ToNativeFernOptions(Profile.Ferns);
+            CaveOptions = Profile.Caves.ToNative();
             MaterialColours = materialColours;
             MaterialTextureResolution = Profile.Rendering.MaterialTextureResolution;
             SnapshotCacheBudgetBytes = Profile.Generation.SnapshotCacheBudgetBytes;

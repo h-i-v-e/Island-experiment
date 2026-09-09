@@ -13,6 +13,7 @@ namespace Motu.Islands
         internal readonly Vector2[] uv;
         internal readonly Color[] material;
         internal readonly Vector2[] environment;
+        internal readonly Vector2[] caveAttributes;
 
         internal IslandPreparedMesh(
             Vector3[] vertices,
@@ -20,7 +21,8 @@ namespace Motu.Islands
             int[] triangles,
             Vector2[] uv,
             Color[] material,
-            Vector2[] environment)
+            Vector2[] environment,
+            Vector2[] caveAttributes = null)
         {
             this.vertices = vertices;
             this.normals = normals;
@@ -28,6 +30,7 @@ namespace Motu.Islands
             this.uv = uv;
             this.material = material;
             this.environment = environment;
+            this.caveAttributes = caveAttributes ?? Array.Empty<Vector2>();
         }
     }
 
@@ -393,6 +396,7 @@ namespace Motu.Islands
         internal readonly IslandPreparedMesh[] fernTiles;
         internal readonly IslandPreparedWaterfallFoot[] waterfallFeet;
         internal readonly IslandPreparedColliderHeightMap colliderHeightMap;
+        internal readonly IslandPreparedCaves caves;
         internal readonly IslandPreparedMaterialTextures materialTextures;
 
         internal IslandPreparedData(
@@ -408,7 +412,8 @@ namespace Motu.Islands
             IslandPreparedMesh[] fernTiles,
             IslandPreparedWaterfallFoot[] waterfallFeet,
             IslandPreparedColliderHeightMap colliderHeightMap,
-            IslandPreparedMaterialTextures materialTextures)
+            IslandPreparedMaterialTextures materialTextures,
+            IslandPreparedCaves caves = null)
         {
             this.handle = new NativeIslandHandle(handle);
             this.loadedFromSnapshot = loadedFromSnapshot;
@@ -430,6 +435,7 @@ namespace Motu.Islands
             this.fernTiles = fernTiles;
             this.waterfallFeet = waterfallFeet;
             this.colliderHeightMap = colliderHeightMap;
+            this.caves = caves ?? IslandPreparedCaves.Empty;
             this.materialTextures = materialTextures
                 ?? throw new ArgumentNullException(nameof(materialTextures));
         }

@@ -138,13 +138,32 @@ struct FernClump {
     phase: f32,
 }
 
-#[allow(clippy::too_many_lines)]
+#[cfg(test)]
 pub(crate) fn generate_ferns(
     island_seed: u64,
     terrain: &Terrain,
     forest: &ForestMeshes,
     surface: FernSurface<'_>,
     options: FernOptions,
+) -> Result<FernMeshes, String> {
+    generate_ferns_with_caves(
+        island_seed,
+        terrain,
+        forest,
+        surface,
+        options,
+        &crate::caves::CaveSet::default(),
+    )
+}
+
+#[allow(clippy::too_many_lines)]
+pub(crate) fn generate_ferns_with_caves(
+    island_seed: u64,
+    terrain: &Terrain,
+    forest: &ForestMeshes,
+    surface: FernSurface<'_>,
+    options: FernOptions,
+    caves: &crate::caves::CaveSet,
 ) -> Result<FernMeshes, String> {
     let options = options.validate()?;
     validate_inputs(terrain, forest, surface)?;
@@ -158,12 +177,7 @@ pub(crate) fn generate_ferns(
     let mut clumps = Vec::new();
     let mut support_vertices = Vec::new();
 
-    for (tree_index, (placement, collider)) in forest
-        .placements()
-        .iter()
-        .zip(forest.trunk_colliders())
-        .enumerate()
-    {
+    for (placement, collider) in forest.placements().iter().zip(forest.trunk_colliders()) {
         let collider = collider?;
         let inner_metres = collider.radius * ISLAND_WORLD_METRES
             + options.bark_clearance_metres * placement.scale.sqrt();
@@ -179,7 +193,7 @@ pub(crate) fn generate_ferns(
         let mut rng = Rng::new(
             island_seed
                 ^ FERN_PLACEMENT_DOMAIN
-                ^ (tree_index as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15),
+                ^ u64::from(placement.seed_ordinal).wrapping_mul(0x9e37_79b9_7f4a_7c15),
         );
         let angle_offset = rng.range(0.0, TAU);
 
@@ -231,7 +245,7 @@ pub(crate) fn generate_ferns(
                 .range(options.minimum_length_metres, options.maximum_length_metres)
                 * placement.scale.sqrt()
                 * (0.82 + 0.18 * strength);
-            clumps.push(FernClump {
+            let clump = FernClump {
                 root: sample.position - Vec3::Z * (0.012 / ISLAND_WORLD_METRES),
                 normal: sample.normal,
                 length_metres,
@@ -241,7 +255,11 @@ pub(crate) fn generate_ferns(
                 tint: rng.unit(),
                 flexibility: rng.range(0.55, 1.0),
                 phase: rng.unit(),
-            });
+            };
+            if caves.excludes(sample.position * ISLAND_WORLD_METRES, length_metres) {
+                continue;
+            }
+            clumps.push(clump);
             support_vertices.extend(sample.triangle.map(|index| index as u32));
         }
     }
@@ -461,6 +479,7 @@ mod tests {
         let trunk_bottom = Vec3::new(0.5, 0.5, 0.02);
         let mut forest = ForestMeshes::default();
         forest.placements.push(TreePlacement {
+            seed_ordinal: 0,
             terrain_vertex: 0,
             anchor: trunk_bottom,
             yaw_radians: 0.0,

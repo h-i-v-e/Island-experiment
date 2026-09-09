@@ -33,6 +33,10 @@ name = "island"
 path = "src/main.rs"
 
 [[bin]]
+name = "island-cave-probe"
+path = "src/bin/cave_probe.rs"
+
+[[bin]]
 name = "generation-bench"
 path = "src/bin/generation_bench.rs"
 

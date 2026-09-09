@@ -169,6 +169,8 @@ impl MeshRange {
 /// One accepted candidate and its stable appearance variation.
 #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct TreePlacement {
+    /// Ordinal before cave exclusion, preserving dependent vegetation seeds.
+    pub(crate) seed_ordinal: u32,
     pub(crate) terrain_vertex: u32,
     pub(crate) anchor: Vec3,
     pub(crate) yaw_radians: f32,
@@ -626,14 +628,34 @@ impl ForestGenerationStats {
 
 /// Generates placements and the four combined streams from the final LOD0
 /// terrain data.
+#[cfg(test)]
 pub(crate) fn generate_forest(
     island_seed: u64,
     terrain: &Terrain,
     surface: ForestSurface<'_>,
     options: ForestOptions,
 ) -> Result<(ForestMeshes, ForestGenerationStats), String> {
+    generate_forest_with_caves(
+        island_seed,
+        terrain,
+        surface,
+        options,
+        &crate::caves::CaveSet::default(),
+    )
+}
+
+pub(crate) fn generate_forest_with_caves(
+    island_seed: u64,
+    terrain: &Terrain,
+    surface: ForestSurface<'_>,
+    options: ForestOptions,
+    caves: &crate::caves::CaveSet,
+) -> Result<(ForestMeshes, ForestGenerationStats), String> {
     let options = options.validate()?;
-    let (placements, stats) = select_placements(island_seed, terrain.mesh(), surface, options)?;
+    let (mut placements, mut stats) =
+        select_placements(island_seed, terrain.mesh(), surface, options)?;
+    placements.retain(|tree| !caves.excludes(tree.anchor * ISLAND_WORLD_METRES, 3.0));
+    stats.accepted_trees = placements.len();
     let prototypes = generate_prototypes(island_seed, options)?;
     let meshes = assemble_forest(island_seed, &placements, &prototypes, terrain)?;
     debug_assert_eq!(stats.accepted_trees, meshes.trees.len());
@@ -909,6 +931,8 @@ fn build_placements(
             options.prototype_count,
         );
         placements.push(TreePlacement {
+            seed_ordinal: u32::try_from(placements.len())
+                .map_err(|_| "too many tree placements")?,
             terrain_vertex: u32::try_from(index)
                 .map_err(|_| "forest terrain vertex index does not fit in u32".to_owned())?,
             anchor: candidate.anchor,
@@ -1705,6 +1729,7 @@ mod tests {
             ..Mesh::default()
         };
         let placement = TreePlacement {
+            seed_ordinal: 0,
             terrain_vertex: 0,
             anchor: Vec3::new(0.1, 0.1, 0.0),
             yaw_radians: 0.0,
@@ -1863,6 +1888,7 @@ mod tests {
 
     fn placement(terrain_vertex: u32, x_metres: f32, y_metres: f32) -> TreePlacement {
         TreePlacement {
+            seed_ordinal: 0,
             terrain_vertex,
             anchor: Vec3::new(
                 x_metres / ISLAND_WORLD_METRES,
@@ -2585,6 +2611,7 @@ mod tests {
             &mut destination,
             &source,
             TreePlacement {
+                seed_ordinal: 0,
                 terrain_vertex: 0,
                 anchor: Vec3::ZERO,
                 yaw_radians: std::f32::consts::FRAC_PI_2,
@@ -2642,6 +2669,7 @@ mod tests {
         };
         let placements = [
             TreePlacement {
+                seed_ordinal: 0,
                 terrain_vertex: 4,
                 anchor: Vec3::new(0.25, 0.25, 0.25),
                 yaw_radians: std::f32::consts::FRAC_PI_2,
@@ -2649,6 +2677,7 @@ mod tests {
                 prototype: 0,
             },
             TreePlacement {
+                seed_ordinal: 0,
                 terrain_vertex: 9,
                 anchor: Vec3::new(0.5, 0.25, 0.5),
                 yaw_radians: 0.0,

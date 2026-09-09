@@ -172,6 +172,7 @@ Shader "Motu/Terrain Unified"
             float4x4 _IslandWorldToLocal;
 
             #include "TerrainCoverageCommon.cginc"
+            #include "TerrainRockCommon.cginc"
             #include "WeatherWindCommon.cginc"
             #include "CloudCommon.cginc"
 
@@ -917,21 +918,8 @@ Shader "Motu/Terrain Unified"
                     ArrayWorldNormal(dirtUv, MOTU_LAYER_DIRT),
                     saturate(dirtUnderlayProjection
                         * MotuLayerNormalStrength(MOTU_LAYER_DIRT))));
-                half3 simpleRockNormal = geometricNormal;
-                if (_CliffNormalStrength > 0.0h)
-                {
-                    half3 rockDetail = tex3D(
-                        _CliffNoise3D,
-                        noisePosition * _CliffNoiseDetailScale
-                            + float3(0.37, 0.61, 0.83)).rgb * 2.0h - 1.0h;
-                    half3 rockPerturbation = coverage.noise.broad * 0.45h
-                        + rockDetail * 0.55h;
-                    rockPerturbation -= simpleRockNormal
-                        * dot(rockPerturbation, simpleRockNormal);
-                    simpleRockNormal = normalize(
-                        simpleRockNormal
-                            + rockPerturbation * _CliffNormalStrength);
-                }
+                half3 simpleRockNormal = MotuProceduralRockNormal(
+                    geometricNormal, localPosition, coverage.noise.broad);
                 half3 rockNormal = normalize(lerp(
                     simpleRockNormal,
                     ArrayWorldNormal(rockUv, MOTU_LAYER_ROCK),

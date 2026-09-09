@@ -1,6 +1,7 @@
 using UnityEngine;
 using Motu.Islands;
 using Motu.World;
+using Motu.Streaming;
 
 namespace Motu.Gameplay
 {
@@ -21,18 +22,30 @@ namespace Motu.Gameplay
         [SerializeField, Min(0.1f)] private float flySpeedMetresPerSecond = DefaultFlySpeed;
         [SerializeField, Min(0.01f)] private float flyDescentSmoothTime = 0.18f;
 
+        [Header("Torch")]
+        [SerializeField] private KeyCode toggleTorchKey = KeyCode.T;
+        [SerializeField, Min(1f)] private float torchRangeMetres = 35f;
+        [SerializeField, Min(0f)] private float torchIntensity = 4f;
+        [SerializeField, Range(1f, 179f)] private float torchSpotAngle = 75f;
+        private Light torchLight;
+        private bool torchRequested;
+
         private OrbitCamera orbitCamera;
         private CharacterController characterController;
+        private CaveCollisionScope caveCollision;
         private IWorldSurfaceQuery worldSurface;
         private float yaw;
         private float pitch;
         private float verticalSpeed;
         private float flyVerticalVelocity;
+        public bool FollowsTerrainInFlyMode { get; private set; } = true;
 
         public bool IsActive { get; private set; }
         public bool IsCursorReleased { get; private set; }
         public bool IsFlyMode { get; private set; }
         public KeyCode ToggleFlyModeKey => toggleFlyModeKey;
+        public KeyCode ToggleTorchKey => toggleTorchKey;
+        public bool IsTorchOn => torchLight != null && torchLight.isActiveAndEnabled;
         public float FlyClearanceMetres => flyClearanceMetres;
         public float FlySpeedMetresPerSecond => flySpeedMetresPerSecond;
 
@@ -53,12 +66,15 @@ namespace Motu.Gameplay
                 characterController = gameObject.AddComponent<CharacterController>();
             }
 
+            caveCollision?.Dispose();
+            caveCollision = new CaveCollisionScope(characterController);
             characterController.height = 1.6f;
             characterController.radius = 0.3f;
             characterController.center = new Vector3(0f, -0.8f, 0f);
             characterController.stepOffset = 0.35f;
             characterController.slopeLimit = 55f;
             characterController.skinWidth = 0.05f;
+            caveCollision?.Dispose();
             characterController.enabled = false;
             worldSurface.SetFirstPersonViewActive(false);
             enabled = false;
@@ -77,7 +93,13 @@ namespace Motu.Gameplay
                     "First-person entry was cancelled because terrain collision is not ready.");
                 return;
             }
+            EnterPreparedGround(groundPosition);
+        }
+
+        internal void EnterPreparedGround(Vector3 groundPosition)
+        {
             orbitCamera.enabled = false;
+            caveCollision?.Dispose();
             characterController.enabled = false;
             transform.position = groundPosition + Vector3.up * EyeHeight;
             yaw = transform.eulerAngles.y;
@@ -87,18 +109,21 @@ namespace Motu.Gameplay
             flyVerticalVelocity = 0f;
             IsFlyMode = false;
             characterController.enabled = true;
+            UpdateCaveCollision();
             worldSurface.SetStreamingTarget(transform);
             IsActive = true;
             worldSurface.SetFirstPersonViewActive(true);
             IsCursorReleased = false;
             enabled = true;
+            RefreshTorch();
             ApplyCursorState();
         }
 
         public void BeginFlying(
             Vector3 worldPosition,
             float yawDegrees = 0f,
-            float pitchDegrees = 0f)
+            float pitchDegrees = 0f,
+            bool followTerrain = true)
         {
             if (worldSurface == null)
             {
@@ -107,6 +132,7 @@ namespace Motu.Gameplay
 
             worldSurface.PrepareStreamingAt(worldPosition);
             orbitCamera.enabled = false;
+            caveCollision?.Dispose();
             characterController.enabled = false;
             transform.SetPositionAndRotation(
                 worldPosition,
@@ -116,11 +142,13 @@ namespace Motu.Gameplay
             verticalSpeed = 0f;
             flyVerticalVelocity = 0f;
             IsFlyMode = true;
+            FollowsTerrainInFlyMode = followTerrain;
             worldSurface.SetStreamingTarget(transform);
             IsActive = true;
             worldSurface.SetFirstPersonViewActive(true);
             IsCursorReleased = false;
             enabled = true;
+            RefreshTorch();
             FollowFlySurface(0f);
             ApplyCursorState();
         }
@@ -130,14 +158,18 @@ namespace Motu.Gameplay
             worldSurface = value;
         }
 
-        public void Teleport(Vector3 worldPosition)
+        public void Teleport(Vector3 worldPosition) => Teleport(worldPosition, !IsActive || IsCursorReleased);
+
+        public void Teleport(Vector3 worldPosition, bool releaseCursor)
         {
             if (worldSurface == null)
                 return;
-            var releaseCursor = !IsActive || IsCursorReleased;
             var heading = transform.eulerAngles;
-            // Fly mode safely follows sea level until an unloaded island is ready.
-            BeginFlying(worldPosition, heading.y, NormalizePitch(heading.x));
+            // Terrain-following flight waits safely above sea level; free flight
+            // retains its chosen altitude across a minimap teleport.
+            var followTerrain = !IsActive || !IsFlyMode || FollowsTerrainInFlyMode;
+            if (!followTerrain) worldPosition.y = transform.position.y;
+            BeginFlying(worldPosition, heading.y, NormalizePitch(heading.x), followTerrain);
             orbitCamera.SetTarget(worldPosition);
             IsCursorReleased = releaseCursor;
             ApplyCursorState();
@@ -156,9 +188,11 @@ namespace Motu.Gameplay
             }
 
             IsActive = false;
+            RefreshTorch();
             IsCursorReleased = false;
             IsFlyMode = false;
             flyVerticalVelocity = 0f;
+            caveCollision?.Dispose();
             characterController.enabled = false;
             enabled = false;
             orbitCamera.enabled = true;
@@ -168,6 +202,53 @@ namespace Motu.Gameplay
         }
 
         private void Update() => UpdateMovement();
+        private void OnEnable() => RefreshTorch();
+        private void OnDisable()
+        {
+            caveCollision?.Dispose();
+            if (torchLight != null) torchLight.enabled = false;
+        }
+        private void OnDestroy() => caveCollision?.Dispose();
+
+        public void ToggleTorch() => SetTorchEnabled(!torchRequested);
+
+        public void SetTorchEnabled(bool active)
+        {
+            torchRequested = active;
+            if (active && torchLight == null)
+            {
+                var lamp = new GameObject("Player Torch");
+                lamp.transform.SetParent(transform, false);
+                // Keep the light near the eye so it cannot poke through a wall
+                // before the camera reaches it.
+                lamp.transform.localPosition = new Vector3(0.12f, -0.1f, 0f);
+                torchLight = lamp.AddComponent<Light>();
+                torchLight.type = LightType.Spot;
+                torchLight.renderMode = LightRenderMode.ForcePixel;
+                torchLight.color = new Color(1f, 0.94f, 0.82f);
+                torchLight.shadows = LightShadows.Soft;
+                torchLight.shadowNearPlane = 0.05f;
+                torchLight.shadowBias = 0.02f;
+            }
+            RefreshTorch();
+        }
+
+        private void RefreshTorch()
+        {
+            if (torchLight == null) return;
+            torchLight.range = Mathf.Max(1f, torchRangeMetres);
+            torchLight.intensity = Mathf.Max(0f, torchIntensity);
+            torchLight.spotAngle = Mathf.Clamp(torchSpotAngle, 1f, 179f);
+            torchLight.innerSpotAngle = torchLight.spotAngle * 0.5f;
+            torchLight.enabled = torchRequested && IsActive && isActiveAndEnabled;
+        }
+        private void UpdateCaveCollision()
+        {
+            var bounds = characterController.bounds;
+            var feet = new Vector3(bounds.center.x, bounds.min.y, bounds.center.z);
+            caveCollision?.Update(feet, !IsFlyMode && characterController.enabled);
+        }
+
 
         internal void UpdateMovement()
         {
@@ -181,6 +262,8 @@ namespace Motu.Gameplay
                 IsCursorReleased = !IsCursorReleased;
                 ApplyCursorState();
             }
+            if (toggleTorchKey != KeyCode.None && Input.GetKeyDown(toggleTorchKey))
+                ToggleTorch();
             if (toggleFlyModeKey != KeyCode.None
                 && Input.GetKeyDown(toggleFlyModeKey))
             {
@@ -188,6 +271,7 @@ namespace Motu.Gameplay
             }
 
             worldSurface?.PrepareStreamingAt(transform.position);
+            UpdateCaveCollision();
             if (IsCursorReleased)
             {
                 if (IsFlyMode)
@@ -234,9 +318,12 @@ namespace Motu.Gameplay
         private void SetFlyMode(bool active)
         {
             IsFlyMode = active;
+            FollowsTerrainInFlyMode = true;
             verticalSpeed = 0f;
             flyVerticalVelocity = 0f;
+            caveCollision?.Dispose();
             characterController.enabled = !active;
+            if (!active) UpdateCaveCollision();
             if (active)
             {
                 FollowFlySurface(0f);
@@ -246,6 +333,11 @@ namespace Motu.Gameplay
         private void UpdateFlyMovement(Vector3 direction)
         {
             var speedMultiplier = Input.GetKey(KeyCode.LeftShift) ? 2f : 1f;
+            if (!FollowsTerrainInFlyMode)
+            {
+                var vertical = (Input.GetKey(KeyCode.E) ? 1f : 0f) - (Input.GetKey(KeyCode.Q) ? 1f : 0f);
+                direction = Vector3.ClampMagnitude(direction + Vector3.up * vertical, 1f);
+            }
             transform.position += direction
                 * (flySpeedMetresPerSecond * speedMultiplier * Time.deltaTime);
             worldSurface?.PrepareStreamingAt(transform.position);
@@ -255,7 +347,7 @@ namespace Motu.Gameplay
 
         private void FollowFlySurface(float deltaTime)
         {
-            if (worldSurface == null)
+            if (worldSurface == null || !FollowsTerrainInFlyMode)
             {
                 return;
             }

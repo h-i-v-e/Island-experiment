@@ -16,6 +16,54 @@ extern "C" {
 typedef struct { float x, y, z; } Vector3Export;
 typedef struct { float x, y, z, w; } Vector4Export;
 typedef struct { float x, y; } Vector2Export;
+/* Cave ABI revision 1: dimensions in metres, angles in degrees. */
+typedef struct {
+    uint32_t enabled;
+    uint32_t seed_offset;
+    uint32_t maximum_caves;
+    uint32_t candidate_limit;
+    float spacing;
+    float entrance_width;
+    float entrance_height;
+    float minimum_face_slope;
+    float minimum_face_height;
+    float approach_slope;
+    float approach_length;
+    float side_margin;
+    float approach_step;
+    float route_radius;
+    float roof_cover;
+    float side_cover;
+    float transition_length;
+    float length_min;
+    float length_max;
+    float width_min;
+    float width_max;
+    float height_min;
+    float height_max;
+    float floor_slope;
+    float chamber_width;
+    float chamber_height;
+    float broad_amplitude;
+    float broad_period;
+    float fine_amplitude;
+    float fine_period;
+    float floor_roughness;
+    float sea_clearance;
+    float voxel_size;
+} MotuCaveOptions;
+typedef struct {
+    uint64_t id;
+    Vector3Export entrance;
+    Vector2Export inward;
+    Vector3Export chamber;
+    Vector2Export minimum, maximum;
+    uint32_t chunk_count;
+} MotuCaveInfo;
+typedef struct {
+    uint32_t examined, approach_rejected, face_rejected, cover_rejected;
+    uint32_t hazard_rejected, spacing_rejected, accepted;
+} MotuCaveStats;
 typedef struct {
     float maxZ, waterRatio, slopeMultiplier, coastalSlopeMultiplier;
     float continentalNoiseFrequency, detailNoiseFrequency;
@@ -180,6 +228,16 @@ MOTU_EXPORT void CreateTreeBillboards(const void *handle, const TreeMeshPrototyp
 MOTU_EXPORT void ReleaseTreeBillboards(ExportTreeBillboardsArray *output);
 MOTU_EXPORT void ReleaseMeshes(ExportMeshArray *output);
 MOTU_EXPORT void SetLogFile(const char *path);
+
+MOTU_EXPORT uint32_t CaveAlgorithmRevision(void);
+MOTU_EXPORT void* CreateMotuWithCaves(int32_t seed, const MotuOptions* options,
+    const MotuForestOptions* forest, const MotuReedOptions* reeds,
+    const MotuFernOptions* ferns, const MotuCaveOptions* caves);
+MOTU_EXPORT uint32_t GetCaveCount(const void* handle);
+MOTU_EXPORT uint8_t GetCaveStats(const void* handle, MotuCaveStats* output);
+MOTU_EXPORT uint8_t GetCaveInfo(const void* handle, uint32_t cave, MotuCaveInfo* output);
+MOTU_EXPORT uint8_t CreateCaveMesh(const void* handle, uint32_t cave, uint32_t chunk, ExportMesh* output);
+/* Release every successful CreateCaveMesh export with ReleaseMesh. */
 
 #ifdef __cplusplus
 }

@@ -46,6 +46,9 @@ namespace Motu.Islands
         [SerializeField]
         private Color stoneB;
 
+        [SerializeField] private IslandCaveSettings caveSettings = new IslandCaveSettings();
+        public IslandCaveSettings CaveSettings => caveSettings;
+
         private void OnValidate()
         {
             noiseScale = Mathf.Max(noiseScale, 0.001f);
@@ -146,7 +149,7 @@ namespace Motu.Islands
                 CreateForestSettings(random, snowLine),
                 reedSettings, fernSettings,
                 CreateRenderingSettings(islandGridPosition.y * 0.03f),
-                new IslandDebugSettings()
+                new IslandDebugSettings(), caveSettings
             );
             return IslandGenerationRequest.FromOwnedProfile(
                 islandSeed,

@@ -16,10 +16,10 @@ use super::{
     hydraulic_erode_stage_depositing_across_sea, io, legacy_catchment_hectares, mem, noise,
     sample_grid,
 };
-use crate::ferns::{FernMeshTile, FernMeshes, FernOptions, FernSurface, generate_ferns};
+use crate::caves::{CaveOptions, CaveSet};
+use crate::ferns::{FernMeshTile, FernMeshes, FernOptions, FernSurface, generate_ferns_with_caves};
 use crate::forest::{
     ForestGenerationStats, ForestMeshKind, ForestMeshes, ForestOptions, forest_floor_mask,
-    generate_forest,
 };
 use crate::reeds::{ReedMeshTile, ReedMeshes, ReedOptions, ReedSurface, generate_reeds};
 use crate::rivers::WaterfallFoot;
@@ -29,6 +29,7 @@ const SEA_PROXIMITY_ZERO_STRENGTH_METRES: f32 = 20.0;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Island {
+    pub(super) caves: CaveSet,
     pub(super) seed: u64,
     pub(super) options: IslandOptions,
     pub(super) generation_method: GenerationMethod,
@@ -434,6 +435,31 @@ impl Island {
         fern_options: FernOptions,
         method: GenerationMethod,
     ) -> Result<Self, String> {
+        Self::generate_with_caves(
+            seed,
+            options,
+            forest_options,
+            reed_options,
+            fern_options,
+            CaveOptions::default(),
+            method,
+        )
+    }
+
+    /// Generates independent cave geometry against the finished surface.
+    /// # Errors
+    /// Returns invalid configuration, geometry or resource-budget failures.
+    #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+    pub fn generate_with_caves(
+        seed: u64,
+        options: IslandOptions,
+        forest_options: ForestOptions,
+        reed_options: ReedOptions,
+        fern_options: FernOptions,
+        cave_options: CaveOptions,
+        method: GenerationMethod,
+    ) -> Result<Self, String> {
+        let cave_options = cave_options.validate()?;
         method.require_available()?;
         let _timer = StageTimer::new("island.generate");
         let options = options.validate()?;
@@ -477,13 +503,35 @@ impl Island {
             let _timer = StageTimer::new("terrain.index");
             Terrain::with_index(lod0, lod0_index)
         };
-        let (mut decorations, settled_rocks) = Decorations::generate(
+        let caves = CaveSet::generate(seed, &terrain, cave_options, |point| {
+            rivers.iter().any(|river| {
+                river.nodes.windows(2).any(|pair| {
+                    let a = pair[0].position.truncate();
+                    let b = pair[1].position.truncate();
+                    let edge = b - a;
+                    let t = ((point - a).dot(edge) / edge.length_squared().max(1.0e-12))
+                        .clamp(0.0, 1.0);
+                    point.distance(a + edge * t)
+                        < (cave_options.chamber_width + 20.0) / ISLAND_WORLD_METRES
+                })
+            })
+        })?;
+        let (mut decorations, mut settled_rocks) = Decorations::generate(
             seed,
             &terrain,
             &rivers,
             options.terrain_size as usize * 4,
             method,
         )?;
+        settled_rocks.retain(|rock| {
+            !caves.excludes(
+                rock.anchor * ISLAND_WORLD_METRES,
+                rock.radius * ISLAND_WORLD_METRES,
+            )
+        });
+        decorations
+            .bushes
+            .retain(|point| !caves.excludes(*point * ISLAND_WORLD_METRES, 2.0));
         append_settled_rocks(seed, &settled_rocks, &mut river_rock_mesh);
         let reeds = generate_reeds(
             seed,
@@ -498,7 +546,7 @@ impl Island {
             },
             reed_options,
         )?;
-        let (forest, forest_stats) = generate_forest(
+        let (forest, forest_stats) = crate::forest::generate_forest_with_caves(
             seed,
             &terrain,
             crate::forest::ForestSurface {
@@ -509,9 +557,10 @@ impl Island {
                 sea_proximity: material.sea_proximities(),
             },
             forest_options,
+            &caves,
         )?;
         decorations.set_tree_anchors(forest.placements().iter().map(|placement| placement.anchor));
-        let ferns = generate_ferns(
+        let ferns = generate_ferns_with_caves(
             seed,
             &terrain,
             &forest,
@@ -525,6 +574,7 @@ impl Island {
                 snowline_metres: forest_options.snowline_metres,
             },
             fern_options,
+            &caves,
         )?;
         let mut forest_floor = forest_floor_mask(seed, terrain.mesh(), forest.placements());
         for &vertex in ferns.support_vertices() {
@@ -548,6 +598,7 @@ impl Island {
             graph_distances(terrain.mesh(), &terrain.mesh().adjacency(), &land)
         };
         Ok(Self {
+            caves,
             seed,
             options,
             generation_method: method,
@@ -568,6 +619,11 @@ impl Island {
             forest_options,
             decorations: OnceLock::from(decorations),
         })
+    }
+
+    #[must_use]
+    pub const fn caves(&self) -> &CaveSet {
+        &self.caves
     }
 
     #[must_use]
@@ -860,7 +916,10 @@ impl Island {
             }
             _ => return None,
         };
-        Some(mesh.clipped_above(TERRAIN_RENDER_FLOOR))
+        Some(
+            self.caves
+                .cut_surface(mesh.clipped_above(TERRAIN_RENDER_FLOOR)),
+        )
     }
 
     /// Clips a display LOD into one tile batch. The global render mesh is
@@ -890,7 +949,9 @@ impl Island {
             _ => return None,
         };
         for tile in &mut tiles {
-            *tile = mem::take(tile).clipped_above(TERRAIN_RENDER_FLOOR);
+            *tile = self
+                .caves
+                .cut_surface(mem::take(tile).clipped_above(TERRAIN_RENDER_FLOOR));
         }
         Some(tiles)
     }
@@ -909,9 +970,14 @@ impl Island {
                     .copied()
                     .unwrap_or_else(|| vertex.truncate())
                     .clamp(Vec2::ZERO, Vec2::ONE);
-                self.material
+                let mut value = self
+                    .material
                     .sample(&self.terrain, point)
-                    .clamp(Vec4::ZERO, Vec4::ONE)
+                    .clamp(Vec4::ZERO, Vec4::ONE);
+                if self.caves.excludes(*vertex * ISLAND_WORLD_METRES, 0.5) {
+                    value.y = 0.0;
+                }
+                value
             })
             .collect()
     }

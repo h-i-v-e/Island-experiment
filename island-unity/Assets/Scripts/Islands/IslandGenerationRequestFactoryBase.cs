@@ -24,6 +24,9 @@ namespace Motu.Islands
         [Header("Tree Trunk Ferns")]
         [SerializeField] private IslandFernSettings ferns = new IslandFernSettings();
 
+        [Header("Caves (regenerate to apply)")]
+        [SerializeField] private IslandCaveSettings caves = new IslandCaveSettings();
+
         [Header("Rendering and Texture Overrides")]
         [SerializeField] private IslandRenderingSettings rendering =
             new IslandRenderingSettings();
@@ -54,6 +57,7 @@ namespace Motu.Islands
         public IslandForestSettings ForestSettings => forest;
         public IslandReedSettings ReedSettings => reeds;
         public IslandFernSettings FernSettings => ferns;
+        public IslandCaveSettings CaveSettings => caves;
         public IslandRenderingSettings RenderingSettings => rendering;
         public IslandDebugSettings DebugSettings => debugSettings;
         public Color DirtColour { get => dirtColour; set => dirtColour = ClampColour(value); }
@@ -90,7 +94,7 @@ namespace Motu.Islands
                 reeds,
                 ferns,
                 rendering,
-                debugSettings);
+                debugSettings, caves);
         }
 
         protected IslandGenerationRequest CreateRequest(

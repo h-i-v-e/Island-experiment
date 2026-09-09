@@ -5,6 +5,7 @@
 
 #![recursion_limit = "512"]
 
+pub mod caves;
 mod clouds;
 mod clustered_foliage;
 mod ferns;

@@ -35,7 +35,8 @@ namespace Motu.Islands
                 request.MaterialTextureResolution,
                 cancellationToken,
                 request.SnapshotPath,
-                request.SnapshotCacheBudgetBytes);
+                request.SnapshotCacheBudgetBytes,
+                request.CaveOptions);
         }
 
         internal static IslandPreparedData PrepareIsland(
@@ -49,19 +50,19 @@ namespace Motu.Islands
             int materialTextureResolution,
             CancellationToken cancellationToken,
             string snapshotPath = null,
-            long snapshotCacheBudgetBytes = 0L)
+            long snapshotCacheBudgetBytes = 0L,
+            CaveNative.Options? caveOptions = null)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var handle = IslandSnapshotCache.TryLoad(snapshotPath, out var loadStatus);
             var generated = handle == IntPtr.Zero;
             if (generated)
             {
-                handle = MotuNative.CreateMotuWithForestReedsAndFerns(
-                    islandSeed,
-                    ref options,
-                    ref forestOptions,
-                    ref reedOptions,
-                    ref fernOptions);
+                var caves = caveOptions ?? new Motu.Settings.IslandCaveSettings().ToNative();
+                if (CaveNative.CaveAlgorithmRevision() != CaveNative.AlgorithmRevision)
+                    throw new InvalidOperationException("The native cave library revision does not match this Unity build.");
+                handle = CaveNative.CreateMotuWithCaves(islandSeed, ref options,
+                    ref forestOptions, ref reedOptions, ref fernOptions, ref caves);
             }
             if (handle == IntPtr.Zero)
             {
@@ -111,6 +112,7 @@ namespace Motu.Islands
                 cancellationToken.ThrowIfCancellationRequested();
                 var waterfallFeet = PrepareWaterfallFeet(handle, worldSize);
                 cancellationToken.ThrowIfCancellationRequested();
+                var cavesPrepared = CavePreparation.Prepare(handle, worldSize, cancellationToken);
                 var result = new IslandPreparedData(
                     handle,
                     !generated,
@@ -124,7 +126,8 @@ namespace Motu.Islands
                     fernTiles,
                     waterfallFeet,
                     colliderHeightMap,
-                    materialTextures);
+                    materialTextures,
+                    cavesPrepared);
                 handle = IntPtr.Zero;
                 return result;
             }

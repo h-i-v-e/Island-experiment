@@ -17,6 +17,7 @@ namespace Motu.Streaming
     [UnityEngine.Scripting.APIUpdating.MovedFrom(true, sourceNamespace: "", sourceAssembly: "Assembly-CSharp", sourceClassName: "TerrainTileStreamer")]
     public sealed partial class TerrainTileStreamer : MonoBehaviour
     {
+        internal CaveStreamer Caves { get; set; }
         private static readonly ProfilerMarker PlayerPositionMarker =
             new ProfilerMarker("Motu.TerrainStreaming.SetPlayerPosition");
         private static readonly ProfilerMarker ColliderTransitionMarker =
@@ -628,6 +629,11 @@ namespace Motu.Streaming
                     highest = hit.point.y;
                     point = hit.point;
                 }
+            }
+            if (Caves != null && Caves.Raycast(ray, worldSize * 2f, out var caveHit) && caveHit.point.y > highest)
+            {
+                point = caveHit.point;
+                found = true;
             }
             return found;
         }
