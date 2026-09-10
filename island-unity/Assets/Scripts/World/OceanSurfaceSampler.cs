@@ -9,6 +9,7 @@ namespace Motu.World
     // never waits for the GPU on the physics thread.
     internal sealed class OceanSurfaceSampler : IDisposable
     {
+        internal const int MaximumCount = 512;
         private readonly Material material;
         private readonly Texture2D positions;
         private readonly RenderTexture results;
@@ -16,6 +17,7 @@ namespace Motu.World
         private readonly Vector3[] submittedPositions;
         private readonly Vector3[] sampledPositions;
         private readonly float[] heights;
+        private readonly Vector3[] velocities;
         private readonly float[] sampleTimes;
         private readonly Action<AsyncGPUReadbackRequest> onReadback;
         private bool pending;
@@ -28,23 +30,24 @@ namespace Motu.World
             && SystemInfo.SupportsRenderTextureFormat(RenderTextureFormat.ARGBFloat)
             && SystemInfo.SupportsTextureFormat(TextureFormat.RGBAFloat);
 
-        internal OceanSurfaceSampler(int count)
+        internal OceanSurfaceSampler(int count, bool includeVelocity = false)
         {
-            if (count < 1 || count > 64) throw new ArgumentOutOfRangeException(nameof(count));
-            if (!Supported) throw new NotSupportedException("Ocean buoyancy requires float textures and asynchronous GPU readback.");
+            if (count < 1 || count > MaximumCount) throw new ArgumentOutOfRangeException(nameof(count));
+            if (!Supported) throw new NotSupportedException("Ocean sampling requires float textures and asynchronous GPU readback.");
             var shader = Resources.Load<Shader>("OceanSurfaceQuery");
             if (shader == null || !shader.isSupported)
                 throw new NotSupportedException("The ocean surface query shader is unavailable on this graphics device.");
             material = new Material(shader) { hideFlags = HideFlags.HideAndDontSave };
             positions = new Texture2D(count, 1, TextureFormat.RGBAFloat, false, true)
             { filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Clamp, hideFlags = HideFlags.HideAndDontSave };
-            results = new RenderTexture(count, 1, 0, RenderTextureFormat.ARGBFloat, RenderTextureReadWrite.Linear)
+            results = new RenderTexture(count, includeVelocity ? 2 : 1, 0, RenderTextureFormat.ARGBFloat, RenderTextureReadWrite.Linear)
             { hideFlags = HideFlags.HideAndDontSave };
             results.Create();
             pixels = new Color[count];
             submittedPositions = new Vector3[count];
             sampledPositions = new Vector3[count];
             heights = new float[count];
+            if (includeVelocity) velocities = new Vector3[count];
             sampleTimes = new float[count];
             for (var i = 0; i < count; i++) sampleTimes[i] = float.NegativeInfinity;
             onReadback = Complete;
@@ -64,6 +67,11 @@ namespace Motu.World
             positions.SetPixels(pixels);
             positions.Apply(false, false);
             material.CopyPropertiesFromMaterial(ocean.SurfaceMaterial);
+            // CopyPropertiesFromMaterial copies keywords too. Restore the query
+            // variant after every copy so height-only buoyancy keeps its old cost.
+            if (velocities != null) material.EnableKeyword("MOTU_QUERY_VELOCITY");
+            else material.DisableKeyword("MOTU_QUERY_VELOCITY");
+            material.SetFloat("_QueryWaveTimeScale", ocean.WaveTimeScale);
             material.SetTexture("_QueryPositions", positions);
             material.SetVector("_QueryOceanOrigin", ocean.SurfaceTransform.position);
             // Snapshot global wind too: the query must use the same field as the
@@ -94,6 +102,15 @@ namespace Motu.World
                 && !float.IsNaN(height) && !float.IsInfinity(height);
         }
 
+        internal bool TryGetSurface(int index, Vector3 currentPosition, float maximumTravel,
+            out float height, out Vector3 velocity)
+        {
+            velocity = velocities != null ? velocities[index] : Vector3.zero;
+            return TryGetHeight(index, currentPosition, maximumTravel, out height) && velocities != null;
+        }
+
+        internal float SampleAge(int index) => Time.time - sampleTimes[index];
+
         internal static float SampleConfidence(float age)
         {
             // Hold through an ordinary delayed frame, then gradually lose support.
@@ -115,6 +132,13 @@ namespace Motu.World
                 // Reject a failed inversion instead of applying a wild impulse.
                 if (data[i].g > .1f || float.IsNaN(data[i].g)
                     || float.IsNaN(data[i].r) || float.IsInfinity(data[i].r)) continue;
+                if (velocities != null)
+                {
+                    var motion = data[Count + i];
+                    if (motion.a > .1f || !float.IsFinite(motion.r)
+                        || !float.IsFinite(motion.g) || !float.IsFinite(motion.b)) continue;
+                    velocities[i] = new Vector3(motion.r, motion.g, motion.b);
+                }
                 heights[i] = data[i].r;
                 sampledPositions[i] = submittedPositions[i];
                 sampleTimes[i] = submittedTime;

@@ -116,6 +116,16 @@ namespace Motu.Editor
                 EditorGUILayout.LabelField($"{preview.Texture.width} x {preview.Texture.height} pixels · {preview.TextureBounds.width:F1} x {preview.TextureBounds.height:F1} m");
                 EditorGUILayout.LabelField($"{segments.Count} slice segments · {preview.Regions} enclosed region(s)");
                 if (GUILayout.Button("Save New Texture & Assign To Ship")) SaveAndAssign();
+                using (new EditorGUI.DisabledScope(EditorApplication.isPlaying))
+                    if (GUILayout.Button("Assign Closed Spray Loop To Ship"))
+                    {
+                        try
+                        {
+                            var spray = ShipSprayLoopBuilder.Assign(shipRoot, preview, previewForward, waterlineWorldY);
+                            message = $"Assigned {spray.SampleCount} connected spray samples. Save the scene to keep the loop.";
+                        }
+                        catch (Exception exception) { message = exception.Message; }
+                    }
             }
             if (savedTexture != null) EditorGUILayout.ObjectField("Saved Texture", savedTexture, typeof(Texture2D), false);
             EditorGUILayout.EndScrollView();

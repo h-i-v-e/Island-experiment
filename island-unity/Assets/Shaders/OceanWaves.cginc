@@ -4,6 +4,18 @@
 #include "WeatherWindCommon.cginc"
 #include "SeaMaskCommon.cginc"
 
+// Query shaders may sample neighbouring times. Rendering keeps the exact
+// integrated phases and wind offset; these hooks compile away in surface passes.
+#ifndef MOTU_OCEAN_SAMPLE_PATTERN
+#define MOTU_OCEAN_SAMPLE_PATTERN(pattern, speed) pattern
+#endif
+#ifndef MOTU_OCEAN_SAMPLE_ONSHORE_PHASE
+#define MOTU_OCEAN_SAMPLE_ONSHORE_PHASE _OnshoreWavePhase
+#endif
+#ifndef MOTU_OCEAN_SAMPLE_WIND_POSITION
+#define MOTU_OCEAN_SAMPLE_WIND_POSITION(position) MotuWindAdvectedPosition(position)
+#endif
+
 sampler2D _WaveAttenuationTex;
 sampler2D _WaveOnshoreTex;
 sampler2D _NoiseTex;
@@ -246,7 +258,7 @@ void MotuAccumulateOnshoreWave(
     // Decode linear distance so wavelength stays in metres as the coastal band
     // grows. Positive time travels towards coordinate 0 around bays/headlands.
     float coastDistance = saturate(coastalCoordinate) * MotuSeaMaskLandDistanceMetres;
-    float phase = coastDistance * waveNumber + _OnshoreWavePhase;
+    float phase = coastDistance * waveNumber + MOTU_OCEAN_SAMPLE_ONSHORE_PHASE;
     float waveSin;
     float waveCos;
     sincos(phase, waveSin, waveCos);
@@ -373,7 +385,7 @@ void MotuEvaluateOceanWaveField(
     displacement = 0.0;
     heightDerivative = 0.0;
     float noiseWorldSize = max(_WaveNoiseWorldSize, 256.0);
-    float2 windAdvectedPosition = MotuWindAdvectedPosition(worldPosition);
+    float2 windAdvectedPosition = MOTU_OCEAN_SAMPLE_WIND_POSITION(worldPosition);
     float2 broadUv = windAdvectedPosition / noiseWorldSize;
     float2 detailUv = windAdvectedPosition / (noiseWorldSize * 0.37)
         + float2(0.371, 0.619);
@@ -405,8 +417,8 @@ void MotuEvaluateOceanWaveField(
             float2(0.733, 0.281)));
 
     MotuAccumulateOceanWaveTransition(
-        _OceanWaveFrom0,
-        _OceanWaveTo0,
+        MOTU_OCEAN_SAMPLE_PATTERN(_OceanWaveFrom0, _OceanWaveSpeeds.x),
+        MOTU_OCEAN_SAMPLE_PATTERN(_OceanWaveTo0, _OceanWaveSpeeds.x),
         _OceanWave0.w,
         _OceanWaveChoppiness.x,
         amplitudeScales.x,
@@ -415,8 +427,8 @@ void MotuEvaluateOceanWaveField(
         heightDerivative,
         crestCurvature);
     MotuAccumulateOceanWaveTransition(
-        _OceanWaveFrom1,
-        _OceanWaveTo1,
+        MOTU_OCEAN_SAMPLE_PATTERN(_OceanWaveFrom1, _OceanWaveSpeeds.y),
+        MOTU_OCEAN_SAMPLE_PATTERN(_OceanWaveTo1, _OceanWaveSpeeds.y),
         _OceanWave1.w,
         _OceanWaveChoppiness.y,
         amplitudeScales.y,
@@ -425,8 +437,8 @@ void MotuEvaluateOceanWaveField(
         heightDerivative,
         crestCurvature);
     MotuAccumulateOceanWaveTransition(
-        _OceanWaveFrom2,
-        _OceanWaveTo2,
+        MOTU_OCEAN_SAMPLE_PATTERN(_OceanWaveFrom2, _OceanWaveSpeeds.z),
+        MOTU_OCEAN_SAMPLE_PATTERN(_OceanWaveTo2, _OceanWaveSpeeds.z),
         _OceanWave2.w,
         _OceanWaveChoppiness.z,
         amplitudeScales.z,
@@ -435,8 +447,8 @@ void MotuEvaluateOceanWaveField(
         heightDerivative,
         crestCurvature);
     MotuAccumulateOceanWaveTransition(
-        _OceanWaveFrom3,
-        _OceanWaveTo3,
+        MOTU_OCEAN_SAMPLE_PATTERN(_OceanWaveFrom3, _OceanWaveSpeeds.w),
+        MOTU_OCEAN_SAMPLE_PATTERN(_OceanWaveTo3, _OceanWaveSpeeds.w),
         _OceanWave3.w,
         _OceanWaveChoppiness.w,
         amplitudeScales.w,

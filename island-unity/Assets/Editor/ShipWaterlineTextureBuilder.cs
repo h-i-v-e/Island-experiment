@@ -30,6 +30,7 @@ namespace Motu.Editor
         internal sealed class Result
         {
             internal Texture2D Texture;
+            internal bool[] HullPixels;
             internal Rect SectionBounds;
             internal Rect TextureBounds;
             internal int EnclosedPixels;
@@ -204,6 +205,8 @@ namespace Motu.Editor
             var enclosed = 0;
             for (var region = 0; region < (settings.largestRegionOnly ? 1 : regions.Count); region++)
                 foreach (var pixel in regions[region]) { distance[pixel] = 0; enclosed++; }
+            var hullPixels = new bool[distance.Length];
+            for (var i = 0; i < distance.Length; i++) hullPixels[i] = distance[i] == 0;
             // Eight-neighbour chamfer distance is sufficient at authoring texel resolution.
             const float diagonal = 1.41421356f;
             for (var y = 0; y < height; y++)
@@ -257,7 +260,7 @@ namespace Motu.Editor
             { name = "Waterline wave texture preview", filterMode = FilterMode.Bilinear, wrapMode = TextureWrapMode.Clamp };
             texture.SetPixels32(colours);
             texture.Apply();
-            return new Result { Texture = texture, SectionBounds = section, TextureBounds = rect, EnclosedPixels = enclosed, Regions = regions.Count };
+            return new Result { Texture = texture, HullPixels = hullPixels, SectionBounds = section, TextureBounds = rect, EnclosedPixels = enclosed, Regions = regions.Count };
         }
     }
 }

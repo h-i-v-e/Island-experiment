@@ -634,3 +634,43 @@ Select the ship and open **Island > Waterline Texture Generator**, outside Play 
 4. Click **Save New Texture & Assign To Ship**, then save the scene. A uniquely named PNG is created under `Assets/Textures`, imported as linear, uncompressed 2D data without resizing or mipmaps. The tool fits the texture's centre, orientation and world dimensions on the wave component while retaining the wake texture and height/foam tuning. Previous textures remain available.
 
 OpenSeaWorld uses **Pirate Ship High Poly Waterline.png**, generated from the estimated resting waterline with 1.5 m deck clearance. The original trailing wake texture remains assigned. Regenerate after changing hull geometry or draft.
+
+### Wave-driven ship spray
+
+`OpenSeaWorld` has an `OceanHullSpray` component on the pirate ship, with a closed
+56-point loop baked from its resting hull waterline. Each connected segment emits
+only where the natural ocean height exceeds the moving emitter height. Launch
+strength is directly proportional to the unsmoothed world-space height gap:
+`strength = max(0, waveWorldY - emitterWorldY) * (1 + relativeVelocityInfluence * closingSpeed)`.
+Closing speed combines horizontal water/hull approach and water rising relative
+to the ship, using its rigidbody velocity at each segment (including rotation).
+Separating or shared motion adds no boost. Emission density and launch speed both
+use this strength, subject to their existing limits; wet segment length weights
+the particle count. The shared GPU query includes
+weather and coastal/depth effects, before ship bow displacement and hull clamping.
+Spray queries also measure the local water's 3D displacement velocity with a
+centred 40 ms difference at a fixed undeformed surface point. Both wave phase
+banks and wind-advected noise advance using their current speeds; weather values
+and transition weights are held fixed to avoid treating a settings change as an
+impact. This is local water motion, not the propagation speed of a crest.
+Height-only buoyancy queries retain their original cost and behavior.
+Particles simulate in world space and pass through the hull without collisions.
+
+Select the ship and use **Island > Setup Selected Ship Waterline Spray** for the
+buoyancy-estimated waterline. For a custom slicing plane, use **Island > Waterline
+Texture Generator**, generate a preview, then **Assign Closed Spray Loop To Ship**.
+This assigns spray without rebaking or changing the ship's wave texture. Save the
+scene afterwards. The loop can be adjusted using the component's Scene handles.
+Changes to Sample Spacing or Maximum Samples take effect when regenerating it.
+The generator selects the largest outer contour; multiple independent hull loops
+are not currently authored by this component.
+
+Tune **Velocity Per Metre**, **Relative Velocity Influence**, **Launch Angle**,
+**Emission Density**, **Lifetime**,
+and **Particle Size** on `OceanHullSpray`. Its default limits are 1,500 emitted
+particles/second and 2,500 live particles per ship. Samples older than 0.2 seconds
+or more than 1 metre from their submitted XZ are rejected. Readback never blocks
+the game thread; unsupported GPU sampling disables spray with a diagnostic.
+The authored loop follows ship pitch and roll; it does not re-slice a changing
+hull draft at runtime. The material explicitly references the existing spray
+shader so the shader remains a build dependency.

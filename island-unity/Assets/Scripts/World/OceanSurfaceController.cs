@@ -66,6 +66,7 @@ namespace Motu.World
             : null;
 
         public Material SurfaceMaterial => surfaceMaterial;
+        internal float WaveTimeScale => weatherWaveScale;
         public Mesh SurfaceMesh => surfaceMesh;
         public OceanWaveWeatherSettings Weather => waveSettings.Weather;
         public int MeshVertexCount => surfaceMesh != null ? surfaceMesh.vertexCount : 0;
