@@ -17,3 +17,17 @@
 *.opendb
 *.VC.db
 sysinfo.txt
+
+# Local Unity recovery scenes and template tutorial scaffolding.
+/Assets/_Recovery/
+/Assets/_Recovery.meta
+/Assets/TutorialInfo/
+/Assets/TutorialInfo.meta
+
+# Locally installed Meshy editor integration.
+/Assets/ai.meshy/
+/Assets/ai.meshy.meta
+
+# Superseded waterline bakes; keep the scene's active texture trackable.
+/Assets/Textures/Pirate Ship High Poly Waterline [12].png
+/Assets/Textures/Pirate Ship High Poly Waterline [12].png.meta

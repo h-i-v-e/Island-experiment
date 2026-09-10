@@ -733,3 +733,66 @@ can therefore fall below sea level naturally. Displacement foam measures only
 the amount actually trimmed (plus bow displacement), and untouched waves retain
 their normal foam and height-based translucency. Normals use the same ceiling
 calculation. The 90% footprint and 3 m feather settings remain.
+
+## Bow contact and outward rise (10 September 2026)
+
+The current hull clamp default is restored to **100% footprint scale**; its
+3 m feather and height-ceiling behaviour remain. Earlier 90% examples above
+describe the previous tuning, not the current default.
+
+The raised part of the hull texture now has per-boat controls:
+
+- **Bow Wave Pullback Metres**, default 3.5: shifts only the raised bow pattern
+  towards the stern to close the generated texture's clearance/blend gap.
+- **Bow Wave Tip Blend Metres**, default 2: tapers the raise to zero at the
+  waterline bow tip, then eases up to full strength with distance from that tip.
+
+The tip is derived from each boat's configured footprint endpoints and world-space
+radius. The taper is radial around that tip so the raised wave can still wrap
+around the sides. A quintic smoothstep gives flat first/second derivatives at
+contact and the outer edge of the blend. Pullback and tip taper affect bow height
+and its authored foam together; they do not translate the clamping mask or any
+deposited wake. Existing type-specific textures are reused without regeneration.
+
+Runtime scripts can set `BowWavePullbackMetres` and `BowWaveTipBlendMetres` on the
+boat's Ocean Deck Wave Clamp. Set both to zero to retain the authored bow shape.
+Restart Play mode to pick up changed defaults if the live component retained old
+values. Live ship appearance still needs visual confirmation.
+
+## Regenerated wider waterline map
+
+The current generator default Edge Blend is 6 m (previously 2 m). The actual
+pirate ship has been regenerated and assigned `Pirate Ship High Poly Waterline 1.png`
+in OpenSeaWorld, with its updated 34.7576 x 49.70919 m texture size saved.
+Save-and-assign now sets full clamp scale, disables redundant runtime blur, and
+sets bow pullback to clearance + baked blend (7.5 m here). Tip blend remains 2 m.
+The original texture is retained as an earlier asset. Six generator checks pass;
+the live resumed Play view was inspected and showed forward-hull foam.
+
+## Outward fade from the actual waterline
+
+The latest bake supersedes the preceding 6 m/1.5 m tuning: default clearance is
+now **0 m**, with **12 m outward edge blend**. OpenSeaWorld uses Pirate Ship High
+Poly Waterline 2.png at 43.80256 x 58.709187 m, full scale, no additional runtime
+feather, 12 m bow pullback and 2 m tip blend. Full clamp reaches the actual
+waterline; it no longer extends into a fully flattened clearance ledge.
+
+The ceiling now uses the depth-limited rendered wave envelope in both vertex
+displacement and shading. Previously the raw weather amplitude could greatly
+exceed the 5 m depth cap, squeezing the effective pull-down into a steep narrow
+rim despite the broad texture fade. Waves below the ceiling remain unaffected.
+Eleven focused checks passed; the regenerated map was assigned and the scene
+saved in the live editor. See validation/waterline-outward-blend-2026-09-10.
+
+## Convex shoulder and independent short bow ridge
+
+The latest generated map uses `(1-t)^3` clamp weight across the 12 m outward
+band, giving the ceiling a convex shoulder that eases towards ocean height.
+The bow ridge now occupies PNG alpha independently of the greyscale clamp: its
+centre is 1 m from the actual hull, width 1.2 m, restricted to the forward quarter.
+It no longer grows with the clamp blend width. Per-boat `BowWaveInAlpha` selects
+this format; legacy greyscale textures and wake stamps retain their interpretation.
+
+OpenSeaWorld now uses Waterline 3 at 32.203545 x 47.109184 m, pullback 0 m and
+tip taper 1 m. The map was regenerated, assigned and saved in the live editor.
+Nine focused generator/GPU checks passed; see validation/convex-hull-short-bow-2026-09-10.

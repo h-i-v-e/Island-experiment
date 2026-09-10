@@ -277,6 +277,10 @@ MonoBehaviour:
   flyClearanceMetres: 4
   flySpeedMetresPerSecond: 24
   flyDescentSmoothTime: 0.18
+  toggleTorchKey: 116
+  torchRangeMetres: 35
+  torchIntensity: 4
+  torchSpotAngle: 75
 --- !u!114 &763167133
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -590,8 +594,13 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 2ddb926b5585402a9256d050beb949d9, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Motu.Runtime::Motu.Rendering.OceanDeckWaveClamp
-  hullTexture: {fileID: 2800000, guid: 90a3fb80a90774e579c3bd618f35000b, type: 3}
-  textureSizeMetres: {x: 26.801413, y: 41.70919}
+  hullTexture: {fileID: 2800000, guid: a25b050cec0f944ef85e9d5f6bfa4cf2, type: 3}
+  bowWaveInAlpha: 1
+  textureSizeMetres: {x: 32.203545, y: 47.109184}
+  hullClampFootprintScale: 1
+  hullClampFeatherMetres: 0
+  bowWavePullbackMetres: 0
+  bowWaveTipBlendMetres: 1
   bowHeight: 1.2
   fullWaveSpeed: 8
   waveFoam: 0.8

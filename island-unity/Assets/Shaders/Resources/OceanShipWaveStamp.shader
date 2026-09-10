@@ -16,6 +16,8 @@ Shader "Hidden/Motu/Ocean Ship Wave Stamp"
             sampler2D _StampTexture;
             float4 _StampStrength;
             float4 _StampClampShape;
+            float4 _StampBowShape; // pullback UV, blend metres, bow tip forward metres, alpha bow flag
+            float4 _StampSizeMetres;
             float4 _MotuShipWaveRect;
             struct Output { float4 position : SV_POSITION; float2 uv : TEXCOORD0; };
             Output Vertex(appdata_base input)
@@ -57,13 +59,24 @@ Shader "Hidden/Motu/Ocean Ship Wave Stamp"
 
             float4 Fragment(Output input) : SV_Target
             {
-                float signedHeight = tex2D(_StampTexture, input.uv).r * 2.0 - 1.0;
+                float2 bowUv = input.uv + float2(0, _StampBowShape.x);
+                float4 bowSample = tex2D(_StampTexture, saturate(bowUv));
+                float signedHeight = bowSample.r * 2.0 - 1.0;
                 // Both 127 and 128 are neutral in an 8-bit authored texture.
-                float amount = max(abs(signedHeight) - 1.0 / 255.0, 0.0) / (254.0 / 255.0);
-                float border = min(min(input.uv.x, input.uv.y), min(1-input.uv.x, 1-input.uv.y));
-                amount *= smoothstep(0, .015, border);
+                float up = _StampBowShape.w > .5 ? bowSample.a
+                    : max(signedHeight - 1.0 / 255.0, 0.0) / (254.0 / 255.0);
+                float border = min(min(bowUv.x, bowUv.y), min(1-bowUv.x, 1-bowUv.y));
+                up *= smoothstep(0, .015, border);
+                if (_StampBowShape.y > .0001)
+                {
+                    float2 fromTip = (input.uv - .5) * _StampSizeMetres.xy
+                        - float2(0, _StampBowShape.z);
+                    float t = saturate(length(fromTip) / _StampBowShape.y);
+                    // A flat first and second derivative at the contact point
+                    // keeps field interpolation from leaving a raised tip.
+                    up *= t * t * t * (t * (6.0 * t - 15.0) + 10.0);
+                }
                 float down = HullClamp(input.uv);
-                float up = signedHeight > 0 ? amount : 0;
                 return float4(down * _StampStrength.x, up * _StampStrength.y, up * _StampStrength.z, 0);
             }
             ENDCG

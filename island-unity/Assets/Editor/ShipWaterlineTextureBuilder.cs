@@ -12,8 +12,8 @@ namespace Motu.Editor
         internal sealed class Settings
         {
             public int resolution = 512;
-            public float clearance = 1.5f;
-            public float blend = 2;
+            public float clearance = 0;
+            public float blend = 12;
             public float gapClosure = .1f;
             public bool largestRegionOnly = true;
             public bool bowWave = true;
@@ -127,7 +127,7 @@ namespace Motu.Editor
             var clearance = Mathf.Max(0, settings.clearance);
             var blend = Mathf.Max(.01f, settings.blend);
             var bowWidth = Mathf.Max(.1f, settings.bowWidth);
-            var padding = clearance + blend + (settings.bowWave ? Mathf.Max(0, settings.bowOffset) + bowWidth * 4 : 0) + 1;
+            var padding = Mathf.Max(clearance + blend, settings.bowWave ? Mathf.Max(0, settings.bowOffset) + bowWidth * 4 : 0) + 1;
             var section = Rect.MinMaxRect(min.x, min.y, max.x, max.y);
             var rect = Rect.MinMaxRect(min.x-padding, min.y-padding, max.x+padding, max.y+padding);
             var resolution = Mathf.Clamp(settings.resolution, 64, 1024);
@@ -236,15 +236,22 @@ namespace Motu.Editor
             {
                 var i = y*width+x;
                 var d = distance[i]*pixelSize;
-                var down = 1-Mathf.SmoothStep(0, 1, Mathf.InverseLerp(clearance, clearance+blend, d));
-                var ridgeDistance = clearance+blend+Mathf.Max(0, settings.bowOffset);
+                // A convex shoulder: the ceiling rises from the hull and eases flat
+                // into the ocean, rather than starting with a concave bowl.
+                var remaining = 1-Mathf.InverseLerp(clearance, clearance+blend, d);
+                var down = remaining * remaining * remaining;
+                var ridgeDistance = Mathf.Max(0, settings.bowOffset);
                 var bow = Mathf.Exp(-Mathf.Pow((d-ridgeDistance)/bowWidth, 2));
                 var z = rect.yMin+(y+.5f)*pixelSize;
-                bow *= Mathf.SmoothStep(0, 1, Mathf.InverseLerp(section.yMin+section.height*.45f, section.yMax, z));
-                var value = down > 0 ? -down : settings.bowWave ? bow : 0;
+                bow *= Mathf.SmoothStep(0, 1, Mathf.InverseLerp(section.yMin+section.height*.75f, section.yMax, z));
+                var value = -down;
                 var grey = (byte)Mathf.Clamp(Mathf.RoundToInt(128+value*(value < 0 ? 128 : 127)), 0, 255);
                 if (x == 0 || y == 0 || x == width-1 || y == height-1) grey = 128;
-                colours[i] = new Color32(grey, grey, grey, 255);
+                // Alpha carries bow rise independently so it can overlap the broad
+                // pull-down band without inheriting its radius or length.
+                var rise = settings.bowWave && d > 0 ? (byte)Mathf.RoundToInt(255 * bow) : (byte)0;
+                if (x == 0 || y == 0 || x == width-1 || y == height-1) rise = 0;
+                colours[i] = new Color32(grey, grey, grey, rise);
             }
             var texture = new Texture2D(width, height, TextureFormat.RGBA32, false, true)
             { name = "Waterline wave texture preview", filterMode = FilterMode.Bilinear, wrapMode = TextureWrapMode.Clamp };

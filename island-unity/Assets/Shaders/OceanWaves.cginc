@@ -96,6 +96,14 @@ float MotuOceanDepthWaveScale(float4 coastalData)
     return saturate(waterDepth / MotuOceanMaximumWaveHeight());
 }
 
+float MotuOceanClampHeightEnvelope(float2 worldPosition)
+{
+    // Use the envelope of the rendered, depth-limited waves. Using the raw
+    // weather amplitude here compresses the mask transition into a steep rim.
+    float waterDepth = saturate(MotuOceanCoastalData(worldPosition).b) * MotuSeaMaskDepthMetres;
+    return min(MotuOceanMaximumWaveHeight(), waterDepth);
+}
+
 void MotuOceanOnshoreField(
     float2 worldPosition,
     out float2 onshoreDirection,

@@ -66,6 +66,37 @@ namespace Motu.Editor
         }
 
         [Test]
+        public void HullCeilingUsesRenderedDepthLimitEvenWithLargeWeatherWaves()
+        {
+            var material = new Material(Shader.Find("Hidden/Motu/Ocean Wave Transition Probe"));
+            var wind = Shader.GetGlobalVector("_MotuWeatherWind");
+            var shallow = new Texture2D(1, 1, TextureFormat.RGBAFloat, false, true);
+            try
+            {
+                material.SetFloat("_ProbeClampEnvelope", 1);
+                material.SetVector("_WaveAttenuationWorldRect", new Vector4(-1, -1, .5f, .5f));
+                material.SetTexture("_WaveAttenuationTex", Texture2D.whiteTexture);
+                material.SetVector("_OceanWave0", new Vector4(1, 0, 30, 20));
+                Shader.SetGlobalVector("_MotuWeatherWind", new Vector4(1, 0, 9, 1));
+                Assert.That(ReadProbe(material)[0].r, Is.EqualTo(5).Within(.0001f));
+                Shader.SetGlobalVector("_MotuWeatherWind", new Vector4(1, 0, 9, 10));
+                Assert.That(ReadProbe(material)[0].r, Is.EqualTo(5).Within(.0001f), "Weather must not steepen the hull rim after depth has capped the rendered waves.");
+                shallow.SetPixel(0, 0, new Color(1, 1, .4f, 1));
+                shallow.Apply();
+                material.SetTexture("_WaveAttenuationTex", shallow);
+                Assert.That(ReadProbe(material)[0].r, Is.EqualTo(2).Within(.0001f));
+                Shader.SetGlobalVector("_MotuWeatherWind", new Vector4(1, 0, 9, .01f));
+                Assert.That(ReadProbe(material)[0].r, Is.LessThan(.3f), "Smaller waves should still use their actual envelope.");
+            }
+            finally
+            {
+                Shader.SetGlobalVector("_MotuWeatherWind", wind);
+                Object.DestroyImmediate(material);
+                Object.DestroyImmediate(shallow);
+            }
+        }
+
+        [Test]
         public void HeightTranslucencyUsesLargestProfilePeakAndSoftSeaLevelFade()
         {
             var material = new Material(Shader.Find("Hidden/Motu/Ocean Wave Transition Probe"));

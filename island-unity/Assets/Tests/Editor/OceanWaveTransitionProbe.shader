@@ -13,12 +13,15 @@ Shader "Hidden/Motu/Ocean Wave Transition Probe"
             #include "Assets/Shaders/OceanWaves.cginc"
             float4 _ProbeWorldRect;
             float _ProbeCurvature;
+            float _ProbeClampEnvelope;
             float _ProbeHeightResponse;
             float _ProbeHeight;
             float _ProbeFoam;
 
             float4 Fragment(v2f_img input) : SV_Target
             {
+                if (_ProbeClampEnvelope > 0.5)
+                    return float4(MotuOceanClampHeightEnvelope(_ProbeWorldRect.xy), 0, 0, 1);
                 if (_ProbeFoam > 0.5)
                 {
                     float2 position = _ProbeWorldRect.xy + input.uv * _ProbeWorldRect.zw;

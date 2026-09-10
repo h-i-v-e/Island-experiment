@@ -15,6 +15,8 @@ namespace Motu.Rendering
         private static CommandBuffer commands;
         private static readonly MaterialPropertyBlock Properties = new MaterialPropertyBlock();
         private static readonly int TextureId = Shader.PropertyToID("_StampTexture");
+        private static readonly int BowShapeId = Shader.PropertyToID("_StampBowShape");
+        private static readonly int StampSizeId = Shader.PropertyToID("_StampSizeMetres");
         private static readonly int ClampShapeId = Shader.PropertyToID("_StampClampShape");
         private static readonly int StrengthId = Shader.PropertyToID("_StampStrength");
         private static readonly int RectId = Shader.PropertyToID("_MotuShipWaveRect");
@@ -27,7 +29,8 @@ namespace Motu.Rendering
             internal StampWriter(Vector3 centre) => this.centre = centre;
 
             internal void Draw(Texture2D texture, Vector3 position, Vector3 forward, Vector2 size,
-                float clamp, float height, float foam, float clampFootprintScale = 1f, float clampFeatherMetres = 0f)
+                float clamp, float height, float foam, float clampFootprintScale = 1f, float clampFeatherMetres = 0f,
+                float bowPullbackMetres = 0f, float bowTipBlendMetres = 0f, float bowTipDistanceMetres = 0f, bool bowInAlpha = false)
             {
                 var reach = size.magnitude * .5f;
                 if (Mathf.Abs(position.x - centre.x) > Span * .5f + reach ||
@@ -40,6 +43,10 @@ namespace Motu.Rendering
                 Properties.SetVector(ClampShapeId, new Vector4(scale,
                     feather / (Mathf.Max(.1f, size.x) * scale),
                     feather / (Mathf.Max(.1f, size.y) * scale), 0));
+                Properties.SetVector(BowShapeId, new Vector4(
+                    Mathf.Max(0, bowPullbackMetres) / Mathf.Max(.1f, size.y),
+                    Mathf.Max(0, bowTipBlendMetres), bowTipDistanceMetres, bowInAlpha ? 1 : 0));
+                Properties.SetVector(StampSizeId, new Vector4(Mathf.Max(.1f, size.x), Mathf.Max(.1f, size.y), 0, 0));
                 commands.DrawMesh(quad, Matrix4x4.TRS(position, Quaternion.LookRotation(forward),
                     new Vector3(Mathf.Max(.1f, size.x), 1, Mathf.Max(.1f, size.y))), material, 0, 0, Properties);
             }

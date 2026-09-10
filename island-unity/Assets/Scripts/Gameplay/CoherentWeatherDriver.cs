@@ -1,6 +1,7 @@
 using UnityEngine;
 using Motu.Settings;
 using Motu.World;
+using System;
 
 namespace Motu.Gameplay
 {
@@ -58,11 +59,11 @@ namespace Motu.Gameplay
             return Rotate(Vector2.up, Mathf.PerlinNoise1D(time) * 2f * Mathf.PI);
         }
 
-        private static void UpdateWave(ref OceanWaveComponent component, DirectionAndSpeed dAndP, float scale)
+        private static void UpdateWave(ref OceanWaveComponent component, DirectionAndSpeed dAndP, float scale, float sharpOffset)
         {
             component.AmplitudeMetres = dAndP.speed * scale;
             component.Direction = dAndP.direction;
-            component.Choppiness = dAndP.speed;
+            component.Choppiness = Mathf.Lerp(sharpOffset, 1f, dAndP.speed);
         }
 
         private void UpdateClouds(ref CloudWeatherSettings clouds, float time)
@@ -76,18 +77,18 @@ namespace Motu.Gameplay
         public override void UpdateWeather(ref WorldWeatherState weather, float deltaTime)
         {
             elapsedSeconds += Mathf.Max(deltaTime, 0f);
-            var fine = ReadWind(elapsedSeconds * 0.01f);
-            var minor = ReadWind(elapsedSeconds * 0.005f);
-            var major = ReadWind(elapsedSeconds * 0.001f);
-            var dominant = ReadWind(elapsedSeconds * 0.0005f);
-            weather.WindDirection = minor.direction;
-            var windspeed = (dominant.speed * 2f) + (major.speed * 1.5f) + minor.speed + (fine.speed * 0.5f);
+            var fine = ReadWind(125f + elapsedSeconds * 0.0125f);
+            var minor = ReadWind(25f + elapsedSeconds * 0.0025f);
+            var major = ReadWind(5f + elapsedSeconds * 0.0005f);
+            var dominant = ReadWind(elapsedSeconds * 0.0001f);
+            weather.WindDirection = dominant.direction;
+            var windspeed = dominant.speed * dominant.speed * 25f;
             weather.WindSpeedMetresPerSecond = windspeed * windspeed;
-            weather.Waves.OnshoreWaveAmplitudeMetres = dominant.speed * 3f;
-            UpdateWave(ref weather.Waves.Wave0, dominant, 4f);
-            UpdateWave(ref weather.Waves.Wave1, major, 3f);
-            UpdateWave(ref weather.Waves.Wave2, minor, 0.2f);
-            UpdateWave(ref weather.Waves.Wave3, fine, 0.15f);
+            weather.Waves.OnshoreWaveAmplitudeMetres = dominant.speed * 4f;
+            UpdateWave(ref weather.Waves.Wave0, dominant, 4f, 0.5f);
+            UpdateWave(ref weather.Waves.Wave1, major, 3f, 0f);
+            UpdateWave(ref weather.Waves.Wave2, minor, 0.2f, 0.25f);
+            UpdateWave(ref weather.Waves.Wave3, fine, 0.15f, 0f);
             UpdateClouds(ref weather.Clouds, elapsedSeconds);
         }
     }

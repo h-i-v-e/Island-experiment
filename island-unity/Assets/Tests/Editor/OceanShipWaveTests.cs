@@ -154,6 +154,73 @@ namespace Motu.Editor
         }
 
         [UnityTest]
+        public IEnumerator BowWavePullsBackAndRisesGentlyFromItsTip()
+        {
+            yield return new EnterPlayMode();
+            var host = new GameObject("Bow rise test");
+            var body = host.AddComponent<Rigidbody>();
+            body.useGravity = false;
+            body.linearVelocity = Vector3.forward * 8;
+            var ship = host.AddComponent<OceanDeckWaveClamp>();
+            var texture = new Texture2D(1, 256, TextureFormat.RGBA32, false, true)
+                { filterMode = FilterMode.Bilinear, wrapMode = TextureWrapMode.Clamp };
+            var material = new Material(Shader.Find("Hidden/Motu/Tests/Ship Wave Field"));
+            var input = new Texture2D(6, 1, TextureFormat.RGBAFloat, false, true) { filterMode = FilterMode.Point };
+            var target = new RenderTexture(6, 1, 0, RenderTextureFormat.ARGBFloat, RenderTextureReadWrite.Linear);
+            var output = new Texture2D(6, 1, TextureFormat.RGBAFloat, false, true);
+            var previousTarget = RenderTexture.active;
+            try
+            {
+                var colours = new Color[256];
+                for (var i = 0; i < colours.Length; i++)
+                {
+                    var z = ((i + .5f) / 256 - .5f) * 40;
+                    var ridge = Mathf.Exp(-Mathf.Pow((z - 14) / 2, 2));
+                    var grey = (128 + ridge * 127) / 255;
+                    colours[i] = new Color(grey, grey, grey);
+                }
+                texture.SetPixels(colours);
+                texture.Apply();
+                ship.FitGeneratedHullTexture(texture, Vector3.zero, Vector3.forward, new Vector2(8, 20), new Vector2(20, 40));
+                input.SetPixels(new[] { new Color(0, 8, 0, 0), new Color(0, 10, 0, 0), new Color(0, 11, 0, 0),
+                    new Color(0, 12, 0, 0), new Color(0, 14, 0, 0), new Color(0, 16, 0, 0) });
+                input.Apply();
+                Color[] Read(float pullback, float tipBlend)
+                {
+                    ship.BowWavePullbackMetres = pullback;
+                    ship.BowWaveTipBlendMetres = tipBlend;
+                    OceanShipWaveField.Render(new[] { ship }, Vector3.zero, 0);
+                    Graphics.Blit(input, target, material);
+                    RenderTexture.active = target;
+                    output.ReadPixels(new Rect(0, 0, 6, 1), 0, 0);
+                    output.Apply();
+                    return output.GetPixels();
+                }
+                var original = Read(0, 0);
+                var pulled = Read(3.5f, 0);
+                var shaped = Read(3.5f, 2);
+                Assert.That(original[4].r, Is.GreaterThan(1));
+                Assert.That(pulled[2].r, Is.GreaterThan(original[2].r * 3), "The ridge should move back towards the bow.");
+                Assert.That(shaped[1].r, Is.LessThan(.08f), "The raised wave should blend down at the bow tip.");
+                Assert.That(shaped[2].r, Is.GreaterThan(shaped[1].r + .2f), "Water should rise smoothly out from the tip.");
+                Assert.That(shaped[3].r, Is.GreaterThan(shaped[2].r));
+                Assert.That(shaped[4].r, Is.LessThan(original[4].r * .2f));
+                Assert.That(shaped[3].r, Is.EqualTo(pulled[3].r).Within(.06f), "Tip taper should preserve the rise outside its blend radius.");
+            }
+            finally
+            {
+                RenderTexture.active = previousTarget;
+                Object.DestroyImmediate(host);
+                Object.DestroyImmediate(texture);
+                Object.DestroyImmediate(material);
+                Object.DestroyImmediate(input);
+                Object.DestroyImmediate(target);
+                Object.DestroyImmediate(output);
+            }
+            yield return new ExitPlayMode();
+        }
+
+        [UnityTest]
         public IEnumerator CruisingShipRendersBowWavesAndATrailingWake()
         {
             EditorSceneManager.OpenScene("Assets/Scenes/OpenSeaWorld.unity");
@@ -214,6 +281,9 @@ namespace Motu.Editor
             texture.wrapMode = TextureWrapMode.Clamp;
             texture.SetPixels(new[] { Color.black, new Color(128f/255,128f/255,128f/255), Color.white });
             texture.Apply();
+            // Exercise the authored texture channels without the optional bow reshaping.
+            ship.BowWavePullbackMetres = 0;
+            ship.BowWaveTipBlendMetres = 0;
             ship.ConfigureTextures(texture, Texture2D.whiteTexture);
             var material = new Material(Shader.Find("Hidden/Motu/Tests/Ship Wave Field"));
             var input = new Texture2D(4, 1, TextureFormat.RGBAFloat, false, true) { filterMode = FilterMode.Point };
@@ -241,6 +311,17 @@ namespace Motu.Editor
                 Assert.That(pixels[2].r, Is.EqualTo(10.2).Within(.01), "White bow faces the rotated ship's forward direction.");
                 Assert.That(pixels[2].a, Is.GreaterThan(.8), "Raised bow generates foam.");
                 Assert.That(pixels[3].r, Is.EqualTo(5).Within(.01), "Black leaves troughs alone.");
+                // Generated maps can place a bow rise inside the broad clamp band.
+                texture.SetPixels(new[] { new Color(0,0,0,0), new Color(128f/255,128f/255,128f/255,0), new Color(.4f,.4f,.4f,1) });
+                texture.Apply();
+                ship.BowWaveInAlpha = true;
+                var independentBow = Read();
+                Assert.That(independentBow[2].r, Is.InRange(9.5f,9.65f), "Alpha bow rise survives overlapping pull-down data while respecting its ceiling.");
+                Assert.That(independentBow[2].g, Is.GreaterThan(.1), "The overlapping hull mask is still present.");
+                Assert.That(independentBow[1].r, Is.EqualTo(9).Within(.01), "Zero alpha must not raise the rest of the footprint.");
+                texture.SetPixels(new[] { Color.black, new Color(128f/255,128f/255,128f/255), Color.white });
+                texture.Apply();
+                ship.BowWaveInAlpha = false;
                 body.linearVelocity = Vector3.zero;
                 Assert.That(Read()[2].r, Is.EqualTo(9).Within(.01), "Stopped ship has no bow wave.");
                 body.linearVelocity = Vector3.left * 8;

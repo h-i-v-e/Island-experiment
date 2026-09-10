@@ -84,7 +84,7 @@ namespace Motu.Editor
         private void OnGUI()
         {
             scroll = EditorGUILayout.BeginScrollView(scroll);
-            EditorGUILayout.HelpBox("Slice the ship's meshes at its resting waterline. Black clears wave crests over the hull; grey is unchanged water; white adds a speed-driven bow ridge. The texture top points towards the bow.", MessageType.Info);
+            EditorGUILayout.HelpBox("Slice the ship's meshes at its resting waterline. Black clears wave crests over the hull; grey is unchanged water. The alpha channel holds a separate, short bow ridge. The texture top points towards the bow.", MessageType.Info);
             if (GUILayout.Button("Use Selected Ship")) UseSelection();
             EditorGUI.BeginChangeCheck();
             shipRoot = (Transform)EditorGUILayout.ObjectField("Ship Root", shipRoot, typeof(Transform), true);
@@ -134,7 +134,7 @@ namespace Motu.Editor
                 segments = ShipWaterlineTextureBuilder.Slice(shipRoot, sourceMesh, waterlineWorldY, previewForward);
                 preview = ShipWaterlineTextureBuilder.Build(segments, settings);
                 previewRootMatrix = shipRoot.localToWorldMatrix;
-                message = "Preview ready. Saving fits the texture position, direction and size to this slice. Existing wake texture and wave-height tuning are retained.";
+                message = "Preview ready. Saving fits the texture position, direction and size to this slice. Saving applies the convex edge blend at full scale and the separate alpha bow rise at the waterline. Wake texture and wave-height tuning are retained.";
                 SceneView.RepaintAll();
             }
             catch (Exception exception) { message = exception.Message; }
@@ -145,14 +145,15 @@ namespace Motu.Editor
         {
             try
             {
-                savedTexture = SaveAndAssign(shipRoot, preview, previewForward, waterlineWorldY);
+                savedTexture = SaveAndAssign(shipRoot, preview, previewForward, waterlineWorldY, settings);
                 message = "Saved " + AssetDatabase.GetAssetPath(savedTexture) + ". The scene is marked modified; save it to keep the assignment.";
                 EditorGUIUtility.PingObject(savedTexture);
             }
             catch (Exception exception) { message = exception.Message; }
         }
 
-        internal static Texture2D SaveAndAssign(Transform root, ShipWaterlineTextureBuilder.Result result, Vector3 forward, float worldY)
+        internal static Texture2D SaveAndAssign(Transform root, ShipWaterlineTextureBuilder.Result result, Vector3 forward, float worldY,
+            ShipWaterlineTextureBuilder.Settings settings = null)
         {
             const string folder = "Assets/Textures";
             if (!AssetDatabase.IsValidFolder(folder)) AssetDatabase.CreateFolder("Assets", "Textures");
@@ -169,6 +170,16 @@ namespace Motu.Editor
             var centre = root.position + Vector3.Cross(Vector3.up, forward)*centre2D.x + forward*centre2D.y;
             centre.y = worldY;
             component.FitGeneratedHullTexture(texture, centre, forward, result.SectionBounds.size, result.TextureBounds.size);
+            if (settings != null)
+            {
+                // The texture already contains a metre-scaled transition. Avoid
+                // shrinking or blurring its full-clamp area a second time.
+                component.HullClampFootprintScale = 1f;
+                component.HullClampFeatherMetres = 0f;
+                component.BowWaveInAlpha = true;
+                component.BowWavePullbackMetres = 0f;
+                component.BowWaveTipBlendMetres = 1f;
+            }
             EditorUtility.SetDirty(component);
             PrefabUtility.RecordPrefabInstancePropertyModifications(component);
             EditorSceneManager.MarkSceneDirty(root.gameObject.scene);

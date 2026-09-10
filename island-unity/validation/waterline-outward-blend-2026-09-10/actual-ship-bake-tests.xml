@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<test-run id="2" testcasecount="1" result="Passed" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0" engine-version="3.5.0.0" clr-version="4.0.30319.42000" start-time="2026-09-10 08:25:41Z" end-time="2026-09-10 08:25:41Z" duration="0.1467074">
+  <test-suite type="TestSuite" id="1000" name="island-unity" fullname="island-unity" runstate="Runnable" testcasecount="69" result="Passed" start-time="2026-09-10 08:25:41Z" end-time="2026-09-10 08:25:41Z" duration="0.146707" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+    <properties>
+      <property name="platform" value="EditMode" />
+    </properties>
+    <test-suite type="Assembly" id="1085" name="Motu.Tests.Editor.dll" fullname="/private/var/folders/29/fnbdz_fn4sjcgp2dqdf_jcb80000gn/T/motu-unity-validation.ewnygg/Library/ScriptAssemblies/Motu.Tests.Editor.dll" runstate="Runnable" testcasecount="69" result="Passed" start-time="2026-09-10 08:25:41Z" end-time="2026-09-10 08:25:41Z" duration="0.141745" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+      <properties>
+        <property name="_PID" value="95679" />
+        <property name="_APPDOMAIN" value="Unity Child Domain" />
+        <property name="platform" value="EditMode" />
+        <property name="EditorOnly" value="True" />
+      </properties>
+      <test-suite type="TestSuite" id="1086" name="Motu" fullname="Motu" runstate="Runnable" testcasecount="69" result="Passed" start-time="2026-09-10 08:25:41Z" end-time="2026-09-10 08:25:41Z" duration="0.139268" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+        <properties />
+        <test-suite type="TestSuite" id="1087" name="Editor" fullname="Motu.Editor" runstate="Runnable" testcasecount="69" result="Passed" start-time="2026-09-10 08:25:41Z" end-time="2026-09-10 08:25:41Z" duration="0.138440" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+          <properties />
+          <test-suite type="TestFixture" id="1074" name="ShipWaterlineTextureTests" fullname="Motu.Editor.ShipWaterlineTextureTests" classname="Motu.Editor.ShipWaterlineTextureTests" runstate="Runnable" testcasecount="7" result="Passed" start-time="2026-09-10 08:25:41Z" end-time="2026-09-10 08:25:41Z" duration="0.137184" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+            <properties />
+            <test-case id="1081" name="ImportedShipProducesAnEnclosedRestingWaterline" fullname="Motu.Editor.ShipWaterlineTextureTests.ImportedShipProducesAnEnclosedRestingWaterline" methodname="ImportedShipProducesAnEnclosedRestingWaterline" classname="Motu.Editor.ShipWaterlineTextureTests" runstate="Runnable" seed="1789751541" result="Passed" start-time="2026-09-10 08:25:41Z" end-time="2026-09-10 08:25:41Z" duration="0.131539" asserts="0">
+              <properties>
+                <property name="retryIteration" value="0" />
+                <property name="repeatIteration" value="0" />
+              </properties>
+              <output><![CDATA[MOTU_WATERLINE_ASSET=Assets/Textures/Pirate Ship High Poly Waterline 2.png
+Ship waterline Y=-0.852, 208 segments, 1 regions, section (6.13, 21.11) m, footprint (43.80, 58.71) m.
+Saving results to: /tmp/motu-waterline-outward-bake.xml
+]]></output>
+            </test-case>
+          </test-suite>
+        </test-suite>
+      </test-suite>
+    </test-suite>
+  </test-suite>
+</test-run>

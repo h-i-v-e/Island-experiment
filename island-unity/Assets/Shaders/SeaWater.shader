@@ -153,7 +153,7 @@ Shader "Motu/Sea Water"
                 float3 displacedWorldPosition = baseWorldPosition + waveDisplacement;
                 float deckClampWeight = MotuDeckWaveClampWeight(displacedWorldPosition.xz);
                 float modifiedWaveHeight = MotuShipWaveHeight(waveDisplacement.y,
-                    MotuShipWaveField(displacedWorldPosition.xz), deckClampWeight, MotuOceanMaximumWaveHeight());
+                    MotuShipWaveField(displacedWorldPosition.xz), deckClampWeight, MotuOceanClampHeightEnvelope(baseWorldPosition.xz));
                 displacedWorldPosition.y = baseWorldPosition.y + modifiedWaveHeight;
                 output.deckWaveData = float4(waveDisplacement.y, deckClampWeight,
                     modifiedWaveHeight, abs(modifiedWaveHeight - waveDisplacement.y));
@@ -182,7 +182,7 @@ Shader "Motu/Sea Water"
                     analyticWaveNormal,
                     whitecap);
                 MotuShipWaveShading(input.worldPosition.xz, input.deckWaveData.x,
-                    input.deckWaveData.y, MotuOceanMaximumWaveHeight(), analyticWaveNormal, whitecap);
+                    input.deckWaveData.y, MotuOceanClampHeightEnvelope(input.waveSamplePosition), analyticWaveNormal, whitecap);
                 // Add after hull suppression: displaced water at the hull should
                 // foam even where the boat has flattened an incoming crest.
                 float boatFoam = MotuShipDisplacementFoam(input.deckWaveData.w);

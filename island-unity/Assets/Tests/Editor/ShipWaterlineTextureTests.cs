@@ -19,10 +19,11 @@ namespace Motu.Editor
             for (var i = 0; i < points.Length; i++) segments.Add(new ShipWaterlineTextureBuilder.Segment(points[i], points[(i+1)%points.Length]));
         }
 
-        private static float Pixel(ShipWaterlineTextureBuilder.Result result, Vector2 point)
+        private static float Pixel(ShipWaterlineTextureBuilder.Result result, Vector2 point, bool bow = false)
         {
             var uv = (point-result.TextureBounds.min) / result.TextureBounds.size;
-            return result.Texture.GetPixelBilinear(uv.x, uv.y).r;
+            var colour = result.Texture.GetPixelBilinear(uv.x, uv.y);
+            return bow ? colour.a : colour.r;
         }
 
         [Test]
@@ -83,9 +84,9 @@ namespace Motu.Editor
             try
             {
                 Assert.That(Pixel(result, new Vector2(3.5f,0)), Is.LessThan(.02));
-                Assert.That(Pixel(result, new Vector2(4.5f,0)), Is.InRange(.15f,.4f));
-                Assert.That(Pixel(result, new Vector2(0,11)), Is.GreaterThan(.9), "Bow ridge is above the hull in texture V.");
-                Assert.That(Pixel(result, new Vector2(0,-11)), Is.EqualTo(128f/255).Within(.005));
+                Assert.That(Pixel(result, new Vector2(4.5f,0)), Is.InRange(.38f,.48f));
+                Assert.That(Pixel(result, new Vector2(0,9), true), Is.GreaterThan(.9), "Bow ridge is above the hull in texture V.");
+                Assert.That(Pixel(result, new Vector2(0,-9), true), Is.Zero);
                 Assert.That(result.Texture.GetPixel(0,0).r, Is.EqualTo(128f/255).Within(.005));
             }
             finally { Object.DestroyImmediate(result.Texture); }
@@ -125,6 +126,80 @@ namespace Motu.Editor
         }
 
         [Test]
+        public void WiderBakedTransitionRetainsClampingFartherFromTheHull()
+        {
+            var segments = new List<ShipWaterlineTextureBuilder.Segment>();
+            Loop(segments, new Vector2(-3,-8), new Vector2(3,-8), new Vector2(3,8), new Vector2(-3,8));
+            var narrow = ShipWaterlineTextureBuilder.Build(segments, new ShipWaterlineTextureBuilder.Settings
+                { clearance = 1.5f, blend = 2, bowWave = false, gapClosure = 0 });
+            var wide = ShipWaterlineTextureBuilder.Build(segments, new ShipWaterlineTextureBuilder.Settings
+                { clearance = 1.5f, blend = 6, bowWave = false, gapClosure = 0 });
+            try
+            {
+                Assert.That(Pixel(wide, Vector2.zero), Is.LessThan(.01f));
+                Assert.That(Pixel(narrow, new Vector2(7,0)), Is.EqualTo(128f/255).Within(.01f));
+                Assert.That(Pixel(wide, new Vector2(7,0)), Is.InRange(.35f,.45f), "A wider band must still lower the ceiling where the old map had no effect.");
+                var previous = Pixel(wide, new Vector2(4.5f,0));
+                for (var x = 4.75f; x <= 10.5f; x += .25f)
+                {
+                    var value = Pixel(wide, new Vector2(x,0));
+                    Assert.That(value, Is.GreaterThanOrEqualTo(previous - .005f));
+                    Assert.That(value - previous, Is.LessThan(.08f), "The baked edge must change gradually.");
+                    previous = value;
+                }
+            }
+            finally { Object.DestroyImmediate(narrow.Texture); Object.DestroyImmediate(wide.Texture); }
+        }
+
+        [Test]
+        public void DefaultBlendStartsAtWaterlineAndExtendsOutward()
+        {
+            var segments = new List<ShipWaterlineTextureBuilder.Segment>();
+            Loop(segments, new Vector2(-3,-8), new Vector2(3,-8), new Vector2(3,8), new Vector2(-3,8));
+            var settings = new ShipWaterlineTextureBuilder.Settings { bowWave = false, gapClosure = 0 };
+            var result = ShipWaterlineTextureBuilder.Build(segments, settings);
+            try
+            {
+                Assert.That(Pixel(result, new Vector2(3,0)), Is.LessThan(.01f), "Full clamp at the waterline.");
+                Assert.That(Pixel(result, new Vector2(4.5f,0)), Is.GreaterThan(.01f), "No fully clamped ledge outside the hull.");
+                Assert.That(Pixel(result, new Vector2(9,0)), Is.InRange(.42f,.46f), "The convex shoulder should already approach ocean height halfway out.");
+                Assert.That(Pixel(result, new Vector2(15.5f,0)), Is.EqualTo(128f/255).Within(.01f));
+            }
+            finally { Object.DestroyImmediate(result.Texture); }
+        }
+
+        [Test]
+        public void BowStaysCloseAndShortWhenClampBlendWidens()
+        {
+            var segments = new List<ShipWaterlineTextureBuilder.Segment>();
+            Loop(segments, new Vector2(-3,-8), new Vector2(3,-8), new Vector2(3,8), new Vector2(-3,8));
+            var narrow = ShipWaterlineTextureBuilder.Build(segments, new ShipWaterlineTextureBuilder.Settings { blend = 2, gapClosure = 0 });
+            var wide = ShipWaterlineTextureBuilder.Build(segments, new ShipWaterlineTextureBuilder.Settings { blend = 12, gapClosure = 0 });
+            try
+            {
+                foreach (var map in new[] { narrow, wide })
+                {
+                    Assert.That(Pixel(map, new Vector2(0,9), true), Is.GreaterThan(.9), "Ridge stays one metre beyond the bow.");
+                    Assert.That(Pixel(map, new Vector2(0,13), true), Is.LessThan(.01), "No long forward extension.");
+                    Assert.That(Pixel(map, new Vector2(4,0), true), Is.Zero, "No bow ridge alongside the middle of the hull.");
+                    Assert.That(Pixel(map, new Vector2(4,7), true), Is.GreaterThan(.6), "The short ridge still wraps the forward sides.");
+                }
+                var previousRise = 1f;
+                var previousHeight = Pixel(wide, new Vector2(4,0));
+                for (var x = 5; x <= 14; x++)
+                {
+                    var height = Pixel(wide, new Vector2(x,0));
+                    var rise = height - previousHeight;
+                    Assert.That(rise, Is.GreaterThanOrEqualTo(-.003f));
+                    Assert.That(rise, Is.LessThanOrEqualTo(previousRise + .003f), "Outward slope must ease off instead of forming a concave bowl.");
+                    previousRise = rise;
+                    previousHeight = height;
+                }
+            }
+            finally { Object.DestroyImmediate(narrow.Texture); Object.DestroyImmediate(wide.Texture); }
+        }
+
+        [Test]
         public void ImportedShipProducesAnEnclosedRestingWaterline()
         {
             EditorSceneManager.OpenScene("Assets/Scenes/OpenSeaWorld.unity");
@@ -146,6 +221,13 @@ namespace Motu.Editor
                 Assert.That(result.SectionBounds.height, Is.InRange(10f,35f));
                 Assert.That(result.SectionBounds.width, Is.InRange(2f,10f));
                 System.IO.File.WriteAllBytes(System.IO.Path.Combine(System.IO.Path.GetTempPath(), "motu-waterline-generated.png"), result.Texture.EncodeToPNG());
+                if (Environment.GetEnvironmentVariable("MOTU_APPLY_WATERLINE_REBAKE") == "1")
+                {
+                    var baked = ShipWaterlineTextureWindow.SaveAndAssign(ship.transform, result, forward, waterline,
+                        new ShipWaterlineTextureBuilder.Settings());
+                    EditorSceneManager.SaveScene(ship.gameObject.scene);
+                    Debug.Log("MOTU_WATERLINE_ASSET=" + AssetDatabase.GetAssetPath(baked));
+                }
                 Debug.Log($"Ship waterline Y={waterline:F3}, {segments.Count} segments, {result.Regions} regions, section {result.SectionBounds.size} m, footprint {result.TextureBounds.size} m.");
             }
             finally

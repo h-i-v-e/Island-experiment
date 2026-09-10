@@ -37,12 +37,12 @@ MonoBehaviour:
   onshoreWaveEnabled: 1
   onshoreWaveWavelengthMetres: 24
   onshoreWaveAmplitudeMetres: 1
-  onshoreWaveSpeedMetresPerSecond: 2.2
+  onshoreWaveSpeedMetresPerSecond: 3
   onshoreWaveChoppiness: 1
-  onshoreWaveLeadingEdgeSharpness: 0.95
+  onshoreWaveLeadingEdgeSharpness: 1
   onshoreWaveSharpeningDistanceMetres: 96
   onshoreWaveBreakingStartDepthMetres: 5
-  onshoreWaveBreakingFullDepthMetres: 3.5
+  onshoreWaveBreakingFullDepthMetres: 4
   wave0:
     direction: {x: 1, y: 0.18}
     wavelengthMetres: 32
@@ -57,13 +57,13 @@ MonoBehaviour:
     choppiness: 0
   wave2:
     direction: {x: -0.82, y: 0.55}
-    wavelengthMetres: 4
+    wavelengthMetres: 8
     amplitudeMetres: 0.09
     speedMetresPerSecond: 2.1
     choppiness: 0
   wave3:
     direction: {x: 0.58, y: -0.81}
-    wavelengthMetres: 3
+    wavelengthMetres: 6
     amplitudeMetres: 0.04
     speedMetresPerSecond: 1.5
     choppiness: 0
