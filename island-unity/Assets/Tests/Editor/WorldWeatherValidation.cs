@@ -52,8 +52,8 @@ namespace Motu.Editor
                 next.Waves.WhitecapHeightThreshold = 0.7f;
                 next.Waves.WhitecapSlopeThreshold = 0.2f;
                 next.Waves.WhitecapNoiseWorldSizeMetres = 9f;
-                next.Waves.WhitecapFineNoiseScale = 0.4f;
-                next.Waves.WhitecapCounterflowSpeed = 0.8f;
+                next.Waves.WhitecapDistortionScale = 0.4f;
+                next.Waves.WhitecapDistortionSpeed = 0.8f;
                 next.Waves.OnshoreWaveWavelengthMetres = 15f;
                 next.Waves.OnshoreWaveAmplitudeMetres = 2f;
                 next.Waves.OnshoreWaveSpeedMetresPerSecond = 4f;
@@ -88,8 +88,8 @@ namespace Motu.Editor
                     && material.GetFloat("_WhitecapHeightThreshold") == .7f
                     && material.GetFloat("_WhitecapSlopeThreshold") == .2f
                     && material.GetFloat("_WhitecapNoiseWorldSize") == 9f
-                    && material.GetFloat("_WhitecapFineNoiseScale") == .4f
-                    && material.GetFloat("_WhitecapCounterflowSpeed") == .8f,
+                    && material.GetFloat("_WhitecapDistortionScale") == .4f
+                    && material.GetFloat("_WhitecapDistortionSpeed") == .8f,
                     "Whitecap edits did not reach the ocean material.");
                 Require(material.GetVector("_OnshoreWaveParameters") == new Vector4(15, 2, 4, .6f)
                     && material.GetVector("_OnshoreWaveBreaking") == new Vector4(.8f, 14, 4.5f, 3f),

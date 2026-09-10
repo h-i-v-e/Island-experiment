@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<test-run id="2" testcasecount="5" result="Passed" total="5" passed="5" failed="0" inconclusive="0" skipped="0" asserts="0" engine-version="3.5.0.0" clr-version="4.0.30319.42000" start-time="2026-09-10 01:46:33Z" end-time="2026-09-10 01:46:36Z" duration="2.1908321">
+  <test-suite type="TestSuite" id="1000" name="island-unity" fullname="island-unity" runstate="Runnable" testcasecount="64" result="Passed" start-time="2026-09-10 01:46:33Z" end-time="2026-09-10 01:46:36Z" duration="2.190832" total="5" passed="5" failed="0" inconclusive="0" skipped="0" asserts="0">
+    <properties>
+      <property name="platform" value="EditMode" />
+    </properties>
+    <test-suite type="Assembly" id="1080" name="Motu.Tests.Editor.dll" fullname="/private/var/folders/29/fnbdz_fn4sjcgp2dqdf_jcb80000gn/T/motu-unity-validation.ewnygg/Library/ScriptAssemblies/Motu.Tests.Editor.dll" runstate="Runnable" testcasecount="64" result="Passed" start-time="2026-09-10 01:46:33Z" end-time="2026-09-10 01:46:36Z" duration="2.180945" total="5" passed="5" failed="0" inconclusive="0" skipped="0" asserts="0">
+      <properties>
+        <property name="_PID" value="90440" />
+        <property name="_APPDOMAIN" value="Unity Child Domain" />
+        <property name="platform" value="EditMode" />
+        <property name="EditorOnly" value="True" />
+      </properties>
+      <test-suite type="TestSuite" id="1081" name="Motu" fullname="Motu" runstate="Runnable" testcasecount="64" result="Passed" start-time="2026-09-10 01:46:33Z" end-time="2026-09-10 01:46:36Z" duration="2.180222" total="5" passed="5" failed="0" inconclusive="0" skipped="0" asserts="0">
+        <properties />
+        <test-suite type="TestSuite" id="1082" name="Editor" fullname="Motu.Editor" runstate="Runnable" testcasecount="64" result="Passed" start-time="2026-09-10 01:46:33Z" end-time="2026-09-10 01:46:36Z" duration="2.179600" total="5" passed="5" failed="0" inconclusive="0" skipped="0" asserts="0">
+          <properties />
+          <test-suite type="TestFixture" id="1038" name="OceanTranslucencyTests" fullname="Motu.Editor.OceanTranslucencyTests" classname="Motu.Editor.OceanTranslucencyTests" runstate="Runnable" testcasecount="5" result="Passed" start-time="2026-09-10 01:46:33Z" end-time="2026-09-10 01:46:36Z" duration="2.178273" total="5" passed="5" failed="0" inconclusive="0" skipped="0" asserts="0">
+            <properties />
+            <test-case id="1042" name="BreakingWaveCurvatureMatchesItsCompressedLeadingFace" fullname="Motu.Editor.OceanTranslucencyTests.BreakingWaveCurvatureMatchesItsCompressedLeadingFace" methodname="BreakingWaveCurvatureMatchesItsCompressedLeadingFace" classname="Motu.Editor.OceanTranslucencyTests" runstate="Runnable" seed="605582759" result="Passed" start-time="2026-09-10 01:46:33Z" end-time="2026-09-10 01:46:34Z" duration="0.087315" asserts="0">
+              <properties>
+                <property name="retryIteration" value="0" />
+                <property name="repeatIteration" value="0" />
+              </properties>
+            </test-case>
+            <test-case id="1041" name="CrestEdgesFeatherSmoothlyEvenOnLargeSwells" fullname="Motu.Editor.OceanTranslucencyTests.CrestEdgesFeatherSmoothlyEvenOnLargeSwells" methodname="CrestEdgesFeatherSmoothlyEvenOnLargeSwells" classname="Motu.Editor.OceanTranslucencyTests" runstate="Runnable" seed="1625827789" result="Passed" start-time="2026-09-10 01:46:34Z" end-time="2026-09-10 01:46:34Z" duration="0.036543" asserts="0">
+              <properties>
+                <property name="retryIteration" value="0" />
+                <property name="repeatIteration" value="0" />
+              </properties>
+            </test-case>
+            <test-case id="1040" name="CrestScatteringIsTheAmplitudeWeightedSumOfItsParts" fullname="Motu.Editor.OceanTranslucencyTests.CrestScatteringIsTheAmplitudeWeightedSumOfItsParts" methodname="CrestScatteringIsTheAmplitudeWeightedSumOfItsParts" classname="Motu.Editor.OceanTranslucencyTests" runstate="Runnable" seed="879802189" result="Passed" start-time="2026-09-10 01:46:34Z" end-time="2026-09-10 01:46:34Z" duration="0.010415" asserts="0">
+              <properties>
+                <property name="retryIteration" value="0" />
+                <property name="repeatIteration" value="0" />
+              </properties>
+            </test-case>
+            <test-case id="1043" name="CrestsScatterLightMostWhenBacklitAndStayDarkWithoutLight" fullname="Motu.Editor.OceanTranslucencyTests.CrestsScatterLightMostWhenBacklitAndStayDarkWithoutLight" methodname="CrestsScatterLightMostWhenBacklitAndStayDarkWithoutLight" classname="Motu.Editor.OceanTranslucencyTests" runstate="Runnable" seed="59212558" result="Passed" start-time="2026-09-10 01:46:34Z" end-time="2026-09-10 01:46:36Z" duration="2.028960" asserts="0">
+              <properties>
+                <property name="retryIteration" value="0" />
+                <property name="repeatIteration" value="0" />
+              </properties>
+              <output><![CDATA[Ocean translucency: backlit=0.04509, frontlit=0.00046, side=0.00363, overhead=0.00015, ambient=0.00046, oblique broad=0.03335, narrow=0.01434
+]]></output>
+            </test-case>
+            <test-case id="1039" name="CurvatureFollowsLocalCrestsSharpnessAndTransitionPhases" fullname="Motu.Editor.OceanTranslucencyTests.CurvatureFollowsLocalCrestsSharpnessAndTransitionPhases" methodname="CurvatureFollowsLocalCrestsSharpnessAndTransitionPhases" classname="Motu.Editor.OceanTranslucencyTests" runstate="Runnable" seed="620935372" result="Passed" start-time="2026-09-10 01:46:36Z" end-time="2026-09-10 01:46:36Z" duration="0.008013" asserts="0">
+              <properties>
+                <property name="retryIteration" value="0" />
+                <property name="repeatIteration" value="0" />
+              </properties>
+              <output><![CDATA[Saving results to: /tmp/motu-ocean-feather.xml
+]]></output>
+            </test-case>
+          </test-suite>
+        </test-suite>
+      </test-suite>
+    </test-suite>
+  </test-suite>
+</test-run>

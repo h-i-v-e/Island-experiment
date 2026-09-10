@@ -91,8 +91,8 @@ namespace Motu.Settings
         public readonly float WhitecapSlopeThreshold;
         public readonly float WhitecapCoverage;
         public readonly float WhitecapNoiseWorldSizeMetres;
-        public readonly float WhitecapFineNoiseScale;
-        public readonly float WhitecapCounterflowSpeed;
+        public readonly float WhitecapDistortionScale;
+        public readonly float WhitecapDistortionSpeed;
         public readonly bool OnshoreWaveEnabled;
         public readonly float OnshoreWaveWavelengthMetres;
         public readonly float OnshoreWaveAmplitudeMetres;
@@ -148,8 +148,8 @@ namespace Motu.Settings
             float whitecapSlopeThreshold,
             float whitecapCoverage,
             float whitecapNoiseWorldSizeMetres,
-            float whitecapFineNoiseScale,
-            float whitecapCounterflowSpeed,
+            float whitecapDistortionScale,
+            float whitecapDistortionSpeed,
             bool onshoreWaveEnabled,
             float onshoreWaveWavelengthMetres,
             float onshoreWaveAmplitudeMetres,
@@ -196,9 +196,9 @@ namespace Motu.Settings
                 whitecapNoiseWorldSizeMetres,
                 0.5f,
                 64f);
-            WhitecapFineNoiseScale = Mathf.Clamp(whitecapFineNoiseScale, 0.1f, 1f);
-            WhitecapCounterflowSpeed = Mathf.Clamp(
-                whitecapCounterflowSpeed,
+            WhitecapDistortionScale = Mathf.Clamp(whitecapDistortionScale, 0.1f, 1f);
+            WhitecapDistortionSpeed = Mathf.Clamp(
+                whitecapDistortionSpeed,
                 0f,
                 2f);
             OnshoreWaveEnabled = onshoreWaveEnabled;
@@ -241,8 +241,8 @@ namespace Motu.Settings
             WhitecapSlopeThreshold = WhitecapSlopeThreshold,
             WhitecapCoverage = WhitecapCoverage,
             WhitecapNoiseWorldSizeMetres = WhitecapNoiseWorldSizeMetres,
-            WhitecapFineNoiseScale = WhitecapFineNoiseScale,
-            WhitecapCounterflowSpeed = WhitecapCounterflowSpeed,
+            WhitecapDistortionScale = WhitecapDistortionScale,
+            WhitecapDistortionSpeed = WhitecapDistortionSpeed,
             OnshoreWaveEnabled = OnshoreWaveEnabled,
             OnshoreWaveWavelengthMetres = OnshoreWaveWavelengthMetres,
             OnshoreWaveAmplitudeMetres = OnshoreWaveAmplitudeMetres,
@@ -283,8 +283,8 @@ namespace Motu.Settings
                 weather.WhitecapSlopeThreshold,
                 weather.WhitecapCoverage,
                 weather.WhitecapNoiseWorldSizeMetres,
-                weather.WhitecapFineNoiseScale,
-                weather.WhitecapCounterflowSpeed,
+                weather.WhitecapDistortionScale,
+                weather.WhitecapDistortionSpeed,
                 weather.OnshoreWaveEnabled,
                 weather.OnshoreWaveWavelengthMetres,
                 weather.OnshoreWaveAmplitudeMetres,
@@ -400,10 +400,12 @@ namespace Motu.Settings
         [Range(0f, 1f)] [SerializeField] private float whitecapCoverage = 0.58f;
         [Tooltip("World-space size of coherent gaps and clusters within the whitecaps.")]
         [Range(0.5f, 64f)] [SerializeField] private float whitecapNoiseWorldSizeMetres = 7f;
-        [Tooltip("Size of the fine breakup noise relative to the broad whitecap noise. Smaller values create finer fragments.")]
-        [Range(0.1f, 1f)] [SerializeField] private float whitecapFineNoiseScale = 0.32f;
-        [Tooltip("Speed of the fine breakup layer travelling against the primary swell, relative to that swell's speed.")]
-        [Range(0f, 2f)] [SerializeField] private float whitecapCounterflowSpeed = 0.65f;
+        [Tooltip("Spatial frequency of the animated foam distortion relative to the foam pattern. Lower values produce broader bends.")]
+        [UnityEngine.Serialization.FormerlySerializedAs("whitecapFineNoiseScale")]
+        [Range(0.1f, 1f)] [SerializeField] private float whitecapDistortionScale = 0.32f;
+        [Tooltip("Animation speed of the foam distortion in radians per second at reference wind strength. Zero freezes deformation while foam still drifts.")]
+        [UnityEngine.Serialization.FormerlySerializedAs("whitecapCounterflowSpeed")]
+        [Range(0f, 2f)] [SerializeField] private float whitecapDistortionSpeed = 0.65f;
 
         [Header("Onshore Wave")]
         [Tooltip("Add an incoming wave guided by distance to shore across the 128-metre coastal band.")]
@@ -463,8 +465,8 @@ namespace Motu.Settings
                 whitecapSlopeThreshold,
                 whitecapCoverage,
                 whitecapNoiseWorldSizeMetres,
-                whitecapFineNoiseScale,
-                whitecapCounterflowSpeed,
+                whitecapDistortionScale,
+                whitecapDistortionSpeed,
                 onshoreWaveEnabled,
                 onshoreWaveWavelengthMetres,
                 onshoreWaveAmplitudeMetres,

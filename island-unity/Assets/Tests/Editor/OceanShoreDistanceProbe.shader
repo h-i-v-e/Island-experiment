@@ -13,6 +13,7 @@ Shader "Hidden/Motu/Ocean Shore Distance Probe"
             #include "Assets/Shaders/OceanWaves.cginc"
             float _ProbeFullSurface;
             float _ProbeBreakerShape;
+            float _ProbeCurvature;
             float _ProbeCoastDistance;
             float _ProbeWaterDepth;
             float4 Fragment(v2f_img input) : SV_Target
@@ -23,10 +24,12 @@ Shader "Hidden/Motu/Ocean Shore Distance Probe"
                     float height;
                     float derivative;
                     float breakerFoam;
+                    float curvature;
                     MotuEvaluateOnshoreBreakerShape(input.uv.x * 6.28318530718,
                         _ProbeCoastDistance, _OnshoreWaveParameters.x, _ProbeWaterDepth,
-                        height, derivative, breakerFoam);
-                    return float4(height, derivative, breakerFoam, 1.0);
+                        height, derivative, breakerFoam, curvature);
+                    return float4(height, derivative, breakerFoam,
+                        _ProbeCurvature > 0.5 ? curvature : 1.0);
                 }
                 if (_ProbeFullSurface > 0.5)
                 {

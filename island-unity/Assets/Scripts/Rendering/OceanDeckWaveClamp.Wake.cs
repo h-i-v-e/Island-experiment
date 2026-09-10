@@ -9,6 +9,12 @@ namespace Motu.Rendering
         [SerializeField] private Texture2D hullTexture;
         [Tooltip("World width and length of the hull texture. Texture top (+V) points from Start towards End (the bow).")]
         [SerializeField] private Vector2 textureSizeMetres = new Vector2(24, 42);
+        [Tooltip("Scale of the clamping footprint inside the authored hull texture. Below one leaves a softer waterline rim; bow waves keep their original size.")]
+        [Range(.5f, 1f), SerializeField] private float hullClampFootprintScale = .9f;
+        [Tooltip("World-space radius used to feather the hull clamp. Water becomes fully flat only inside the softened, shrunken footprint.")]
+        [Range(0, 8), SerializeField] private float hullClampFeatherMetres = 3f;
+        public float HullClampFootprintScale { get => hullClampFootprintScale; set => hullClampFootprintScale = Mathf.Clamp(value, .5f, 1f); }
+        public float HullClampFeatherMetres { get => hullClampFeatherMetres; set => hullClampFeatherMetres = Mathf.Clamp(value, 0, 8); }
         [Min(0), SerializeField] private float bowHeight = 1.2f;
         [Min(.1f), SerializeField] private float fullWaveSpeed = 8;
         [Range(0, 1), SerializeField] private float waveFoam = .8f;
@@ -135,7 +141,8 @@ namespace Motu.Rendering
             GetFootprint(out var centre, out var forward);
             var speed = Application.isPlaying && body != null ? Mathf.Max(0, Vector3.Dot(body.linearVelocity, forward)) : 0;
             writer.Draw(hullTexture, centre, forward, textureSizeMetres,
-                1, bowHeight * Mathf.Clamp01(speed / fullWaveSpeed), waveFoam);
+                1, bowHeight * Mathf.Clamp01(speed / fullWaveSpeed), waveFoam,
+                hullClampFootprintScale, hullClampFeatherMetres);
             if (wakeTexture == null) return;
             for (var i = 0; i < trailCount; i++)
             {

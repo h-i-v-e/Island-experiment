@@ -15,6 +15,7 @@ namespace Motu.Rendering
         private static CommandBuffer commands;
         private static readonly MaterialPropertyBlock Properties = new MaterialPropertyBlock();
         private static readonly int TextureId = Shader.PropertyToID("_StampTexture");
+        private static readonly int ClampShapeId = Shader.PropertyToID("_StampClampShape");
         private static readonly int StrengthId = Shader.PropertyToID("_StampStrength");
         private static readonly int RectId = Shader.PropertyToID("_MotuShipWaveRect");
         private static readonly int FieldId = Shader.PropertyToID("_MotuShipWaveField");
@@ -26,7 +27,7 @@ namespace Motu.Rendering
             internal StampWriter(Vector3 centre) => this.centre = centre;
 
             internal void Draw(Texture2D texture, Vector3 position, Vector3 forward, Vector2 size,
-                float clamp, float height, float foam)
+                float clamp, float height, float foam, float clampFootprintScale = 1f, float clampFeatherMetres = 0f)
             {
                 var reach = size.magnitude * .5f;
                 if (Mathf.Abs(position.x - centre.x) > Span * .5f + reach ||
@@ -34,6 +35,11 @@ namespace Motu.Rendering
                 Properties.Clear();
                 Properties.SetTexture(TextureId, texture);
                 Properties.SetVector(StrengthId, new Vector4(clamp, height, height * foam, 0));
+                var scale = Mathf.Clamp(clampFootprintScale, .5f, 1f);
+                var feather = Mathf.Clamp(clampFeatherMetres, 0, 8);
+                Properties.SetVector(ClampShapeId, new Vector4(scale,
+                    feather / (Mathf.Max(.1f, size.x) * scale),
+                    feather / (Mathf.Max(.1f, size.y) * scale), 0));
                 commands.DrawMesh(quad, Matrix4x4.TRS(position, Quaternion.LookRotation(forward),
                     new Vector3(Mathf.Max(.1f, size.x), 1, Mathf.Max(.1f, size.y))), material, 0, 0, Properties);
             }

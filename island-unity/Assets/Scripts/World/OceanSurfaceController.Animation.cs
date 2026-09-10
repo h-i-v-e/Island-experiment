@@ -45,8 +45,8 @@ namespace Motu.World
         private double onshorePhase;
         private double foamTravelX;
         private double foamTravelZ;
-        private double fineFoamTravelX;
-        private double fineFoamTravelZ;
+        private double foamDistortionPhase;
+        private const float FoamDriftFraction = 0.15f;
 
         private float WaveTransition
         {
@@ -90,7 +90,7 @@ namespace Motu.World
             changingWaveDirection = false;
             directionTransitionElapsed = 0f;
             onshorePhase = 0.0;
-            foamTravelX = foamTravelZ = fineFoamTravelX = fineFoamTravelZ = 0.0;
+            foamTravelX = foamTravelZ = foamDistortionPhase = 0.0;
             BindWaveAnimation();
         }
 
@@ -146,11 +146,14 @@ namespace Motu.World
             var foamDirection = Vector2.Lerp(
                 outgoingWaves[0].Direction, incomingWaves[0].Direction,
                 (previousBlend + WaveTransition) * 0.5f);
-            var foamDistance = (double)deltaTime * waveSettings.Wave0.SpeedMetresPerSecond * weatherWaveScale;
-            foamTravelX += foamDirection.x * foamDistance;
-            foamTravelZ += foamDirection.y * foamDistance;
-            fineFoamTravelX -= foamDirection.x * foamDistance * waveSettings.WhitecapCounterflowSpeed;
-            fineFoamTravelZ -= foamDirection.y * foamDistance * waveSettings.WhitecapCounterflowSpeed;
+            // The wave phase advances positively, so crests travel against its
+            // spatial direction vector. Drift the foam slowly with those crests.
+            var foamDistance = (double)deltaTime * waveSettings.Wave0.SpeedMetresPerSecond
+                * weatherWaveScale * FoamDriftFraction;
+            foamTravelX -= foamDirection.x * foamDistance;
+            foamTravelZ -= foamDirection.y * foamDistance;
+            foamDistortionPhase = (foamDistortionPhase + (double)deltaTime
+                * waveSettings.WhitecapDistortionSpeed * weatherWaveScale) % TwoPi;
 
             if (changingWaveDirection && directionTransitionElapsed >= DirectionTransitionSeconds)
             {
@@ -172,7 +175,7 @@ namespace Motu.World
             surfaceMaterial.SetFloat(WaveTransitionId, WaveTransition);
             surfaceMaterial.SetFloat(OnshorePhaseId, (float)onshorePhase);
             surfaceMaterial.SetVector(FoamTravelId, new Vector4(
-                (float)foamTravelX, (float)foamTravelZ, (float)fineFoamTravelX, (float)fineFoamTravelZ));
+                (float)foamTravelX, (float)foamTravelZ, (float)foamDistortionPhase, 0f));
         }
     }
 }

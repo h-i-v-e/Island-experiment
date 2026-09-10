@@ -18,8 +18,10 @@ namespace Motu.World
         public float WhitecapSlopeThreshold;
         public float WhitecapCoverage;
         public float WhitecapNoiseWorldSizeMetres;
-        public float WhitecapFineNoiseScale;
-        public float WhitecapCounterflowSpeed;
+        [UnityEngine.Serialization.FormerlySerializedAs("WhitecapFineNoiseScale")]
+        public float WhitecapDistortionScale;
+        [UnityEngine.Serialization.FormerlySerializedAs("WhitecapCounterflowSpeed")]
+        public float WhitecapDistortionSpeed;
         public bool OnshoreWaveEnabled;
         public float OnshoreWaveWavelengthMetres;
         public float OnshoreWaveAmplitudeMetres;
@@ -47,8 +49,8 @@ namespace Motu.World
             WeatherValueValidation.RequireFinite(WhitecapSlopeThreshold, nameof(WhitecapSlopeThreshold));
             WeatherValueValidation.RequireFinite(WhitecapCoverage, nameof(WhitecapCoverage));
             WeatherValueValidation.RequireFinite(WhitecapNoiseWorldSizeMetres, nameof(WhitecapNoiseWorldSizeMetres));
-            WeatherValueValidation.RequireFinite(WhitecapFineNoiseScale, nameof(WhitecapFineNoiseScale));
-            WeatherValueValidation.RequireFinite(WhitecapCounterflowSpeed, nameof(WhitecapCounterflowSpeed));
+            WeatherValueValidation.RequireFinite(WhitecapDistortionScale, nameof(WhitecapDistortionScale));
+            WeatherValueValidation.RequireFinite(WhitecapDistortionSpeed, nameof(WhitecapDistortionSpeed));
             WeatherValueValidation.RequireFinite(OnshoreWaveWavelengthMetres, nameof(OnshoreWaveWavelengthMetres));
             WeatherValueValidation.RequireFinite(OnshoreWaveAmplitudeMetres, nameof(OnshoreWaveAmplitudeMetres));
             WeatherValueValidation.RequireFinite(OnshoreWaveSpeedMetresPerSecond, nameof(OnshoreWaveSpeedMetresPerSecond));

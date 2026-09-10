@@ -10,6 +10,149 @@ namespace Motu.Editor
 {
     public sealed class OceanShipWaveTests
     {
+        [Test]
+        public void DisplacementFoamTracksActualHeightChangeIncludingHullClamping()
+        {
+            var material = new Material(Shader.Find("Hidden/Motu/Tests/Ship Wave Field"));
+            var field = new Texture2D(1, 1, TextureFormat.RGBAFloat, false, true);
+            var input = new Texture2D(4, 1, TextureFormat.RGBAFloat, false, true) { filterMode = FilterMode.Point };
+            var target = new RenderTexture(4, 1, 0, RenderTextureFormat.ARGBFloat, RenderTextureReadWrite.Linear);
+            var output = new Texture2D(4, 1, TextureFormat.RGBAFloat, false, true);
+            var oldTarget = RenderTexture.active;
+            var oldField = Shader.GetGlobalTexture("_MotuShipWaveField");
+            var oldRect = Shader.GetGlobalVector("_MotuShipWaveRect");
+            var oldEnabled = Shader.GetGlobalFloat("_MotuShipWaveEnabled");
+            try
+            {
+                Shader.SetGlobalTexture("_MotuShipWaveField", field);
+                Shader.SetGlobalVector("_MotuShipWaveRect", new Vector4(0, 0, 1, 1));
+                Shader.SetGlobalFloat("_MotuShipWaveEnabled", 1);
+                material.SetFloat("_ProbeDisplacementFoam", 1);
+                material.SetFloat("_BoatDisplacementFoamStrength", 1);
+                input.SetPixels(new[] { new Color(.5f, .5f, .25f, 0), new Color(.5f, .5f, .5f, 0),
+                    new Color(.5f, .5f, -.5f, 0), new Color(.5f, .5f, 2, 0) });
+                input.Apply();
+                Color[] Read(Color fieldValue)
+                {
+                    field.SetPixel(0, 0, fieldValue);
+                    field.Apply();
+                    Graphics.Blit(input, target, material);
+                    RenderTexture.active = target;
+                    output.ReadPixels(new Rect(0, 0, 4, 1), 0, 0);
+                    output.Apply();
+                    return output.GetPixels();
+                }
+                material.SetFloat("_ProbeMaximumWaveHeight", 2);
+                var rim = Read(new Color(.5f, 0, 0, 1)); // 1 metre ceiling.
+                Assert.That(rim[0].r, Is.EqualTo(.25f).Within(.0001f));
+                Assert.That(rim[1].r, Is.EqualTo(.5f).Within(.0001f));
+                Assert.That(rim[2].r, Is.EqualTo(-.5f).Within(.0001f));
+                Assert.That(rim[3].r, Is.EqualTo(1).Within(.0001f), "Only crests above the ceiling should be trimmed.");
+                for (var i = 0; i < 3; i++)
+                    Assert.That(rim[i].b, Is.Zero, "Waves below the ceiling should not generate clamp foam.");
+                Assert.That(rim[3].b, Is.EqualTo(1).Within(.0001f));
+                var lowerRim = Read(new Color(.75f, 0, 0, 1)); // 0.5 metre ceiling.
+                Assert.That(lowerRim[0].r, Is.EqualTo(.25f).Within(.0001f));
+                Assert.That(lowerRim[1].b, Is.Zero, "A wave exactly at the ceiling is unchanged.");
+                Assert.That(lowerRim[3].r, Is.EqualTo(.5f).Within(.0001f));
+                var hull = Read(new Color(1, 0, 0, 1));
+                Assert.That(hull[0].b, Is.EqualTo(.25f).Within(.0001f));
+                Assert.That(hull[1].b, Is.EqualTo(hull[0].b * 2).Within(.0001f));
+                Assert.That(hull[2].b, Is.Zero, "A trough unchanged by the hull should produce no displacement foam.");
+                Assert.That(hull[3].b, Is.EqualTo(1).Within(.0001f));
+                var bow = Read(new Color(0, .5f, 0, 1));
+                foreach (var pixel in bow)
+                    Assert.That(pixel.b, Is.EqualTo(.5f).Within(.0001f), "Raised bow waves should foam too.");
+                foreach (var pixel in Read(Color.clear)) Assert.That(pixel.b, Is.Zero);
+                Shader.SetGlobalFloat("_MotuShipWaveEnabled", 0);
+                foreach (var pixel in Read(new Color(1, .5f, 0, 1))) Assert.That(pixel.b, Is.Zero);
+                Shader.SetGlobalFloat("_MotuShipWaveEnabled", 1);
+                material.SetFloat("_BoatDisplacementFoamStrength", 0);
+                foreach (var pixel in Read(new Color(1, .5f, 0, 1))) Assert.That(pixel.b, Is.Zero);
+            }
+            finally
+            {
+                RenderTexture.active = oldTarget;
+                Shader.SetGlobalTexture("_MotuShipWaveField", oldField);
+                Shader.SetGlobalVector("_MotuShipWaveRect", oldRect);
+                Shader.SetGlobalFloat("_MotuShipWaveEnabled", oldEnabled);
+                Object.DestroyImmediate(material);
+                Object.DestroyImmediate(field);
+                Object.DestroyImmediate(input);
+                Object.DestroyImmediate(target);
+                Object.DestroyImmediate(output);
+            }
+        }
+
+        [Test]
+        public void HullClampShrinksAndFeathersBeforeReachingItsFlatCore()
+        {
+            var host = new GameObject("Soft hull clamp test");
+            var ship = host.AddComponent<OceanDeckWaveClamp>();
+            var texture = new Texture2D(128, 1, TextureFormat.RGBA32, false, true)
+                { filterMode = FilterMode.Bilinear, wrapMode = TextureWrapMode.Clamp };
+            var material = new Material(Shader.Find("Hidden/Motu/Tests/Ship Wave Field"));
+            var input = new Texture2D(65, 1, TextureFormat.RGBAFloat, false, true) { filterMode = FilterMode.Point };
+            var target = new RenderTexture(65, 1, 0, RenderTextureFormat.ARGBFloat, RenderTextureReadWrite.Linear);
+            var output = new Texture2D(65, 1, TextureFormat.RGBAFloat, false, true);
+            var previousTarget = RenderTexture.active;
+            try
+            {
+                var colours = new Color[128];
+                for (var i = 0; i < colours.Length; i++)
+                    colours[i] = Mathf.Abs((i + .5f) / 128 - .5f) < .3f ? Color.black : new Color(128f / 255, 128f / 255, 128f / 255);
+                texture.SetPixels(colours);
+                texture.Apply();
+                ship.FitGeneratedHullTexture(texture, Vector3.zero, Vector3.forward, new Vector2(12, 12), new Vector2(20, 20));
+                var positions = new Color[65];
+                for (var i = 0; i < positions.Length; i++) positions[i] = new Color(i * 10f / 64, 0, 2, 0);
+                input.SetPixels(positions);
+                input.Apply();
+                Color[] Read(float scale, float feather)
+                {
+                    ship.HullClampFootprintScale = scale;
+                    ship.HullClampFeatherMetres = feather;
+                    OceanShipWaveField.Render(new[] { ship }, Vector3.zero, 0);
+                    Graphics.Blit(input, target, material);
+                    RenderTexture.active = target;
+                    output.ReadPixels(new Rect(0, 0, 65, 1), 0, 0);
+                    output.Apply();
+                    return output.GetPixels();
+                }
+                var original = Read(1, 0);
+                var shrunken = Read(.9f, 0);
+                var softened = Read(.9f, 3);
+                int Edge(Color[] values)
+                {
+                    var last = 0;
+                    for (var i = 0; i < values.Length; i++) if (values[i].g > .5f) last = i;
+                    return last;
+                }
+                Assert.That(Edge(shrunken), Is.LessThan(Edge(original) - 2), "The full clamp footprint should move inward.");
+                Assert.That(softened[0].r, Is.EqualTo(0).Within(.001f), "The deep interior still flattens crests to the mean plane.");
+                Assert.That(softened[26].g, Is.InRange(.05f, .95f), "The waterline rim should blend down gradually.");
+                Assert.That(softened[64].g, Is.EqualTo(0).Within(.001f));
+                var originalStep = 0f;
+                var softenedStep = 0f;
+                for (var i = 1; i < softened.Length; i++)
+                {
+                    originalStep = Mathf.Max(originalStep, Mathf.Abs(original[i].g - original[i-1].g));
+                    softenedStep = Mathf.Max(softenedStep, Mathf.Abs(softened[i].g - softened[i-1].g));
+                }
+                Assert.That(softenedStep, Is.LessThan(originalStep * .8f), "Feathering must reduce the steepest clamp gradient.");
+            }
+            finally
+            {
+                RenderTexture.active = previousTarget;
+                Object.DestroyImmediate(host);
+                Object.DestroyImmediate(texture);
+                Object.DestroyImmediate(material);
+                Object.DestroyImmediate(input);
+                Object.DestroyImmediate(target);
+                Object.DestroyImmediate(output);
+            }
+        }
+
         [UnityTest]
         public IEnumerator CruisingShipRendersBowWavesAndATrailingWake()
         {

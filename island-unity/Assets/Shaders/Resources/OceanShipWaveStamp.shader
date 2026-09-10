@@ -15,6 +15,7 @@ Shader "Hidden/Motu/Ocean Ship Wave Stamp"
             #include "UnityCG.cginc"
             sampler2D _StampTexture;
             float4 _StampStrength;
+            float4 _StampClampShape;
             float4 _MotuShipWaveRect;
             struct Output { float4 position : SV_POSITION; float2 uv : TEXCOORD0; };
             Output Vertex(appdata_base input)
@@ -28,6 +29,32 @@ Shader "Hidden/Motu/Ocean Ship Wave Stamp"
                 output.uv = input.texcoord.xy;
                 return output;
             }
+            float ClampSample(float2 uv)
+            {
+                float signedHeight = tex2D(_StampTexture, saturate(uv)).r * 2.0 - 1.0;
+                float down = max(-signedHeight - 1.0 / 255.0, 0.0) / (254.0 / 255.0);
+                float border = min(min(uv.x, uv.y), min(1-uv.x, 1-uv.y));
+                return down * smoothstep(0, .015, border);
+            }
+
+            float HullClamp(float2 uv)
+            {
+                float2 centre = (uv - .5) / max(_StampClampShape.x, .5) + .5;
+                float2 radius = _StampClampShape.yz;
+                if (max(radius.x, radius.y) <= .00001) return ClampSample(centre);
+                // A separable tent filter softens the inward-scaled footprint.
+                // Only black/clamping samples participate, preserving authored bow heights.
+                float down = 4 * ClampSample(centre);
+                down += 2 * (ClampSample(centre + float2(radius.x, 0))
+                    + ClampSample(centre - float2(radius.x, 0))
+                    + ClampSample(centre + float2(0, radius.y))
+                    + ClampSample(centre - float2(0, radius.y)));
+                down += ClampSample(centre + radius) + ClampSample(centre - radius)
+                    + ClampSample(centre + float2(radius.x, -radius.y))
+                    + ClampSample(centre + float2(-radius.x, radius.y));
+                return down / 16.0;
+            }
+
             float4 Fragment(Output input) : SV_Target
             {
                 float signedHeight = tex2D(_StampTexture, input.uv).r * 2.0 - 1.0;
@@ -35,7 +62,7 @@ Shader "Hidden/Motu/Ocean Ship Wave Stamp"
                 float amount = max(abs(signedHeight) - 1.0 / 255.0, 0.0) / (254.0 / 255.0);
                 float border = min(min(input.uv.x, input.uv.y), min(1-input.uv.x, 1-input.uv.y));
                 amount *= smoothstep(0, .015, border);
-                float down = signedHeight < 0 ? amount : 0;
+                float down = HullClamp(input.uv);
                 float up = signedHeight > 0 ? amount : 0;
                 return float4(down * _StampStrength.x, up * _StampStrength.y, up * _StampStrength.z, 0);
             }

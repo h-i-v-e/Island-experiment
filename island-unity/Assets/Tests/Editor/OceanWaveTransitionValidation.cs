@@ -115,7 +115,7 @@ namespace Motu.Editor
                 var foam = material.GetVector("_OceanFoamTravel");
                 weather.Wave0.SpeedMetresPerSecond = 7f;
                 weather.OnshoreWaveSpeedMetresPerSecond = 9f;
-                weather.WhitecapCounterflowSpeed = 1.5f;
+                weather.WhitecapDistortionSpeed = 1.5f;
                 ocean.ApplyWaveWeather(weather);
                 ocean.ApplyWeatherWindScale(2f);
                 Advance(ocean, 0f);
@@ -131,13 +131,15 @@ namespace Motu.Editor
                         shorePhase + .25f * 9f * 2f * 2f * Mathf.PI / weather.OnshoreWaveWavelengthMetres) < .00001f,
                     "Onshore phase did not integrate the new speed over delta time.");
                 var newFoam = material.GetVector("_OceanFoamTravel");
-                Require(Mathf.Abs(newFoam.x - foam.x + 3.5f) < .01f
-                    && Mathf.Abs(newFoam.z - foam.z - 5.25f) < .01f,
-                    "Foam advection did not integrate speed and counterflow continuously.");
+                Require(Mathf.Abs(newFoam.x - foam.x - .525f) < .01f
+                    && PhaseError(newFoam.z, foam.z + .75f) < .00001f,
+                    "Foam must drift with crests at 15% speed and integrate distortion continuously.");
+                var stoppedFoam = material.GetVector("_OceanFoamTravel");
                 var stoppedPhase = material.GetVector("_OceanWaveFrom0").w;
                 ocean.ApplyWeatherWindScale(0f);
                 Advance(ocean, 5f);
-                Require(material.GetVector("_OceanWaveFrom0").w == stoppedPhase,
+                Require(material.GetVector("_OceanWaveFrom0").w == stoppedPhase
+                    && material.GetVector("_OceanFoamTravel") == stoppedFoam,
                     "Calm weather must stop wave travel without resetting phase.");
                 var fieldBeforeRecentering = Render(probe, material, origins[1]);
                 root.transform.position = new Vector3(5000, 0, -5000);

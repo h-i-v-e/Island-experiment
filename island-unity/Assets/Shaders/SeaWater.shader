@@ -12,6 +12,11 @@ Shader "Motu/Sea Water"
         _ReflectionFresnelPower ("Reflection Fresnel Power", Range(1, 8)) = 4
         _SunGlintStrength ("Sun Glint Strength", Range(0, 2)) = 0.8
         _SunGlintSharpness ("Sun Glint Sharpness", Range(8, 256)) = 128
+        _BoatDisplacementFoamStrength ("Boat Displacement Foam (per metre)", Range(0, 4)) = 1
+        _WaveTranslucencyColour ("Wave Translucency Colour", Color) = (0.08, 0.55, 0.42, 1)
+        _WaveTranslucencyStrength ("Wave Translucency Strength", Range(0, 8)) = 6
+        _WaveTranslucencyAmbient ("Translucency Ambient Contribution", Range(0, 0.25)) = 0.03
+        _WaveTranslucencyFalloff ("Translucency Sun Directionality", Range(1, 16)) = 4
         [HideInInspector] _WaterSkyExposure ("Water Sky Exposure", Range(0, 1)) = 1
         _RefractionStrength ("Underwater Distortion", Range(0, 0.03)) = 0.02
         _RefractionDepth ("Full Distortion Depth (metres)", Float) = 0.6
@@ -37,7 +42,7 @@ Shader "Motu/Sea Water"
         [HideInInspector] _OceanWaveTo3 ("Wave To 3", Vector) = (0.6, -0.8, 4, 0)
         [HideInInspector] _OceanWaveTransition ("Wave Direction Transition", Float) = 0
         [HideInInspector] _OnshoreWavePhase ("Onshore Wave Phase", Float) = 0
-        [HideInInspector] _OceanFoamTravel ("Accumulated Foam Travel", Vector) = (0, 0, 0, 0)
+        [HideInInspector] _OceanFoamTravel ("Foam Travel XY and Distortion Phase Z", Vector) = (0, 0, 0, 0)
         [HideInInspector] _OceanWaveSpeeds ("Ocean Wave Speeds", Vector) = (3.6, 2.8, 2.1, 1.5)
         [HideInInspector] _OceanWaveChoppiness ("Ocean Wave Choppiness", Vector) = (0, 0, 0, 0)
         [HideInInspector] _WaveNoiseWorldSize ("Wave Noise World Size", Float) = 2048
@@ -49,8 +54,9 @@ Shader "Motu/Sea Water"
         [HideInInspector] _WhitecapSlopeThreshold ("Whitecap Slope Threshold", Range(0, 1)) = 0.12
         [HideInInspector] _WhitecapCoverage ("Whitecap Coverage", Range(0, 1)) = 0.58
         [HideInInspector] _WhitecapNoiseWorldSize ("Whitecap Noise World Size", Float) = 7
-        [HideInInspector] _WhitecapFineNoiseScale ("Whitecap Fine Noise Scale", Range(0.1, 1)) = 0.32
-        [HideInInspector] _WhitecapCounterflowSpeed ("Whitecap Counterflow Speed", Range(0, 2)) = 0.65
+        _WhitecapDistortionStrength ("Foam Distortion Strength", Range(0, 1.5)) = 0.65
+        [HideInInspector] _WhitecapDistortionScale ("Whitecap Distortion Scale", Range(0.1, 1)) = 0.32
+        [HideInInspector] _WhitecapDistortionSpeed ("Whitecap Distortion Speed", Range(0, 2)) = 0.65
         [HideInInspector] _OnshoreWaveEnabled ("Onshore Wave Enabled", Float) = 1
         [HideInInspector] _OnshoreWaveParameters ("Onshore Wave Parameters", Vector) = (12, 0.16, 2.2, 0.18)
         [HideInInspector] _OnshoreWaveBreaking ("Onshore Wave Breaking", Vector) = (0.95, 96, 5, 3.5)
@@ -84,6 +90,36 @@ Shader "Motu/Sea Water"
             #include "OceanDeckWaveClamp.cginc"
             #include "OceanShipWaves.cginc"
 
+            half4 _WaveTranslucencyColour;
+            half _WaveTranslucencyStrength;
+            half _WaveTranslucencyFalloff;
+            half _WaveTranslucencyAmbient;
+
+            half3 WaveTranslucency(float crestResponse, float3 worldNormal,
+                float3 viewDirection, float3 worldPosition, half shadowAttenuation,
+                MotuCloudLighting cloud)
+            {
+                // Height above the mean sea plane, relative to the largest wave peak.
+                half crest = saturate(crestResponse);
+                float3 lightVector = UnityWorldSpaceLightDir(worldPosition);
+                float3 lightDirection = lightVector
+                    * rsqrt(max(dot(lightVector, lightVector), 0.000001));
+                half throughWave = pow(saturate(dot(viewDirection, -lightDirection)),
+                    max(_WaveTranslucencyFalloff, 1.0h));
+                half faceWeight = 1.0h - saturate(dot(worldNormal, viewDirection));
+                faceWeight *= faceWeight;
+                half daylight = smoothstep(0.0h, 0.1h, lightDirection.y);
+                // Direct scattering favours the sun; a small sky-light contribution
+                // keeps curved crests visible at other sun orientations.
+                half3 illumination = _LightColor0.rgb * shadowAttenuation
+                    * cloud.directTransmittance * daylight * throughWave * faceWeight;
+                illumination += UNITY_LIGHTMODEL_AMBIENT.rgb
+                    * cloud.ambientTransmittance * max(_WaveTranslucencyAmbient, 0.0h)
+                    * faceWeight;
+                return _WaveTranslucencyColour.rgb * illumination
+                    * crest * max(_WaveTranslucencyStrength, 0.0h);
+            }
+
             struct VertexInput
             {
                 float4 vertex : POSITION;
@@ -100,7 +136,7 @@ Shader "Motu/Sea Water"
                 float4 grabPosition : TEXCOORD4;
                 SHADOW_COORDS(5)
                 float2 waveSamplePosition : TEXCOORD6;
-                float2 deckWaveData : TEXCOORD7;
+                float4 deckWaveData : TEXCOORD7; // original height, clamp, final height, boat displacement
             };
 
             VertexOutput Vertex(VertexInput input)
@@ -116,10 +152,11 @@ Shader "Motu/Sea Water"
                     waveDisplacement);
                 float3 displacedWorldPosition = baseWorldPosition + waveDisplacement;
                 float deckClampWeight = MotuDeckWaveClampWeight(displacedWorldPosition.xz);
-                output.deckWaveData = float2(waveDisplacement.y, deckClampWeight);
-                displacedWorldPosition.y = baseWorldPosition.y
-                    + MotuShipWaveHeight(waveDisplacement.y,
-                        MotuShipWaveField(displacedWorldPosition.xz), deckClampWeight);
+                float modifiedWaveHeight = MotuShipWaveHeight(waveDisplacement.y,
+                    MotuShipWaveField(displacedWorldPosition.xz), deckClampWeight, MotuOceanMaximumWaveHeight());
+                displacedWorldPosition.y = baseWorldPosition.y + modifiedWaveHeight;
+                output.deckWaveData = float4(waveDisplacement.y, deckClampWeight,
+                    modifiedWaveHeight, abs(modifiedWaveHeight - waveDisplacement.y));
                 output.pos = UnityWorldToClipPos(displacedWorldPosition);
                 output.screenPosition = ComputeScreenPos(output.pos);
                 output.grabPosition = ComputeGrabScreenPos(output.pos);
@@ -139,12 +176,19 @@ Shader "Motu/Sea Water"
                     _WorldSpaceCameraPos.xyz - input.worldPosition);
                 float3 analyticWaveNormal;
                 float whitecap;
+                float crestResponse = MotuOceanHeightTranslucency(input.deckWaveData.z);
                 MotuEvaluateOceanWaveNormal(
                     input.waveSamplePosition,
                     analyticWaveNormal,
                     whitecap);
                 MotuShipWaveShading(input.worldPosition.xz, input.deckWaveData.x,
-                    input.deckWaveData.y, analyticWaveNormal, whitecap);
+                    input.deckWaveData.y, MotuOceanMaximumWaveHeight(), analyticWaveNormal, whitecap);
+                // Add after hull suppression: displaced water at the hull should
+                // foam even where the boat has flattened an incoming crest.
+                float boatFoam = MotuShipDisplacementFoam(input.deckWaveData.w);
+                if (boatFoam > 0.0001)
+                    whitecap = max(whitecap, boatFoam * MotuOceanFoamPatches(input.waveSamplePosition)
+                        * max(_WhitecapStrength, 0.0));
                 float3 worldNormal = MotuFacingWaterNormal(
                     analyticWaveNormal,
                     viewDirection);
@@ -170,6 +214,8 @@ Shader "Motu/Sea Water"
                 fixed3 waterBody = _Color.rgb
                     * brightness
                     * waterIllumination;
+                waterBody += WaveTranslucency(crestResponse, worldNormal,
+                    viewDirection, input.worldPosition, shadowAttenuation, cloud);
                 float2 reflectionNoiseUv = MotuCloudWorldToLocal(
                     input.worldPosition).xz / 8.0;
                 half2 reflectionRipple = half2(

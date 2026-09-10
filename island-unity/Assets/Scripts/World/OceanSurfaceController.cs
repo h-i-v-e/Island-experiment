@@ -36,10 +36,10 @@ namespace Motu.World
             "_WhitecapCoverage");
         private static readonly int WhitecapNoiseWorldSizeId = Shader.PropertyToID(
             "_WhitecapNoiseWorldSize");
-        private static readonly int WhitecapFineNoiseScaleId = Shader.PropertyToID(
-            "_WhitecapFineNoiseScale");
-        private static readonly int WhitecapCounterflowSpeedId = Shader.PropertyToID(
-            "_WhitecapCounterflowSpeed");
+        private static readonly int WhitecapDistortionScaleId = Shader.PropertyToID(
+            "_WhitecapDistortionScale");
+        private static readonly int WhitecapDistortionSpeedId = Shader.PropertyToID(
+            "_WhitecapDistortionSpeed");
         private static readonly int OnshoreWaveEnabledId = Shader.PropertyToID(
             "_OnshoreWaveEnabled");
         private static readonly int OnshoreWaveParametersId = Shader.PropertyToID(
@@ -334,11 +334,11 @@ namespace Motu.World
                 WhitecapNoiseWorldSizeId,
                 waveSettings.WhitecapNoiseWorldSizeMetres);
             surfaceMaterial.SetFloat(
-                WhitecapFineNoiseScaleId,
-                waveSettings.WhitecapFineNoiseScale);
+                WhitecapDistortionScaleId,
+                waveSettings.WhitecapDistortionScale);
             surfaceMaterial.SetFloat(
-                WhitecapCounterflowSpeedId,
-                waveSettings.WhitecapCounterflowSpeed);
+                WhitecapDistortionSpeedId,
+                waveSettings.WhitecapDistortionSpeed);
             surfaceMaterial.SetFloat(
                 OnshoreWaveEnabledId,
                 waveSettings.OnshoreWaveEnabled ? 1f : 0f);

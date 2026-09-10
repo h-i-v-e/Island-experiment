@@ -596,3 +596,140 @@ The original isolated Phases 1-2 experiment is complete. The initial Phase 3
 compositor is now present as well, so visual testing can distinguish open-sea
 wave quality in the sandbox from coastal attenuation behavior in generated
 islands.
+
+
+## Height-based translucency (10 September 2026)
+
+The current sea shader approximates crest light scattering from the final rendered
+water height above its mean sea plane. It replaces the earlier per-wave curvature
+and amplitude-weighted response. Vertex output carries the actual height after
+wave distance/depth attenuation and boat displacement; the fragment normalizes it
+against the maximum peak of the largest enabled wave component in the profile.
+
+The reference is the maximum individual amplitude (not the sum or the longest
+wavelength), including its choppiness crest bias, configured noise amplitude
+allowance, and current weather strength. An enabled shore wave participates if
+it is larger. The height ratio is clamped to 0..1, so submerged ripples contribute
+nothing and peaks above the reference saturate. The lowest 15% has a smooth fade
+to avoid a sharp sea-level boundary; above that the response is proportional to
+height. A zero-height wave profile produces no scattering.
+
+Scattering is added before Fresnel reflection, foam and fog. Sunlight is strongest
+when looking towards the sun through a wave and respects shadow/cloud attenuation.
+A small ambient contribution remains, with cloud ambient attenuation. Both favour
+grazing wave faces and disappear without illumination.
+
+Sea material controls:
+
+- **Wave Translucency Colour**: scattered-light tint.
+- **Wave Translucency Strength**: default 6; zero disables scattering.
+- **Translucency Sun Directionality**: default 4; higher values narrow the sun lobe.
+- **Translucency Ambient Contribution**: default 0.03; zero disables ambient fill.
+
+Runtime scripts can set `_WaveTranslucencyColour`, `_WaveTranslucencyStrength`,
+`_WaveTranslucencyFalloff` and `_WaveTranslucencyAmbient` through
+`WorldEnvironmentController.SeaMaterial`. The experimental
+`_WaveTranslucencyCurvatureScale` and `_WaveTranslucencyCrestResponse` properties
+are no longer used. Raw analytical curvature remains available for wave formula
+validation; the old per-wave scattering accumulators have been removed.
+
+This is a shading approximation, not volumetric transmission. No native plugin
+rebuild is needed. Controlled captures and historical iterations are under
+`validation/ocean-translucency-2026-09-10/`; live scene appearance remains unverified.
+
+## Boat displacement foam (10 September 2026)
+
+Each ocean vertex records the absolute height change caused by the boat field or
+deck capsule: `abs(finalHeight - originalWaveHeight)`. This measures actual movement
+away from the wave-determined position, including both hull pull-down and raised
+bow/wake water. An unchanged trough under the hull adds no displacement foam.
+
+**Boat Displacement Foam (per metre)** on the sea material controls the linear
+response (`_BoatDisplacementFoamStrength`, default 1). One metre of change gives
+full coverage eligibility at the default, before the existing cellular patch mask
+and Whitecap Strength. Zero disables the new contribution. It combines with existing
+whitecaps and authored wake foam, and is applied after hull foam suppression so
+flattened incoming crests can foam around the displacement body. Boat type-specific
+textures continue to supply displacement; no ship asset is hard-coded.
+
+Eleven focused GPU/runtime checks passed, covering proportional pull-down and
+raise foam, unchanged troughs, disabled fields/strength, height normalization,
+weather scaling, soft sea-level fade, lighting, foam animation, wave transitions,
+shore breaking and existing ship/deck displacement. See
+`validation/ocean-height-and-boat-foam-2026-09-10/`. Boat foam was checked with a
+GPU probe; its appearance around the live ship has not been visually verified.
+
+## Single-pattern cellular foam (10 September 2026)
+
+Whitecaps and shore breakers now share one noise sample for patch coverage.
+The previous broad/fine opacity combination and counter-moving layer are removed.
+Soft cellular distortion pulls that one pattern into rounded pockets around
+irregular animated sites, without adding another noise texture layer. A compact,
+weighted 3x3 neighbourhood blends site influence smoothly rather than switching
+at hard Voronoi boundaries. Sites orbit continuously with the integrated phase. Existing crest/slope/breaking eligibility remains.
+The single coverage mask may retain more foam than the previous multiplied masks;
+Whitecap Coverage and Strength remain the controls for coverage/opacity.
+
+Foam drifts at 15% of the primary wave's actual crest travel speed. Positive
+integrated wave phase moves crests against the stored spatial direction, so foam
+travel uses that same sign. Direction changes follow the existing wave transition;
+wind direction alone does not rotate the pattern. Distortion phase is integrated
+on the CPU, wraps continuously, and responds to weather strength. Applying a new
+speed does not reinterpret elapsed time. Calm weather freezes drift and distortion.
+
+- Ocean wave profile/weather **Whitecap Distortion Scale** (default 0.32): lower
+  values produce broader deformation. Replaces Whitecap Fine Noise Scale.
+- **Whitecap Distortion Speed** (default 0.65 radians/sec at reference wind): zero
+  freezes deformation while foam can still drift. Replaces Counterflow Speed.
+- Sea material **Foam Distortion Strength** (`_WhitecapDistortionStrength`, default
+  0.65): distortion distance in foam texture tiles; zero disables distortion.
+
+Serialized old profile values migrate through `FormerlySerializedAs`. Runtime
+weather scripts use `WhitecapDistortionScale` and `WhitecapDistortionSpeed`.
+Ten focused checks passed across the main and foam-only follow-up runs, including
+GPU deformation/drift/phase continuity, CPU speed integration, weather binding,
+shore breaking, translucency, and ship/deck suppression. The foam probe captures
+use a synthetic periodic texture to expose distortion clearly; they are not
+live ocean appearance validation. See `validation/ocean-foam-2026-09-10/`.
+
+## Softer inset hull clamp (10 September 2026)
+
+The boat's runtime stamp now scales only its clamping footprint inward, then
+softens it with a nine-tap tent filter when composing the ship wave field. The
+positive bow/wake channel keeps its original coordinates and amplitude. This
+applies to existing hull textures without rebaking or modifying their assets.
+
+On each Ocean Deck Wave Clamp component:
+
+- **Hull Clamp Footprint Scale**: default 0.9, scaling the black footprint about
+  its texture centre. This follows the authored mask rather than reconstructing
+  a fresh waterline or applying a constant-distance inset to the hull contour.
+- **Hull Clamp Feather Metres**: default 3, the filter's world-space sampling
+  radius. The full-flat core lies inside the feathered footprint; narrow parts
+  may remain partially clamped. Scale 1 and feather 0 recover the original mask.
+
+Runtime scripts can change `HullClampFootprintScale` and `HullClampFeatherMetres`.
+The feather is evaluated during field composition rather than adding samples to
+every sea fragment. Existing capsule-only boats and wake stamps retain their
+previous behaviour. Negative wave troughs still remain below the sea plane.
+
+Four focused Metal GPU checks passed: inset/feathered clamp profile, proportional
+displacement foam, authored hull/bow/wake behaviour and deck clamping. The new
+profile test verifies a smaller half-strength footprint, reduced maximum gradient,
+a fully flat deep interior and unchanged water outside. Live scene appearance
+has not been visually checked. Results: `validation/hull-clamp-feather-2026-09-10/`.
+
+## Hull mask as an upper surface (10 September 2026)
+
+The softened hull mask now describes a height ceiling rather than scaling every
+positive passing wave. Full mask caps at the mean sea plane; its feather raises
+the ceiling towards the configured maximum combined wave envelope, including
+weather/noise/choppiness allowances. The local authored bow raise is included in
+that envelope. A zero mask leaves the original wave plus bow displacement intact.
+
+The result is `min(originalWaveHeight + bowRaise, ceiling)`: smaller positive
+waves, troughs and waves exactly at the ceiling remain unchanged. The interior
+can therefore fall below sea level naturally. Displacement foam measures only
+the amount actually trimmed (plus bow displacement), and untouched waves retain
+their normal foam and height-based translucency. Normals use the same ceiling
+calculation. The 90% footprint and 3 m feather settings remain.
