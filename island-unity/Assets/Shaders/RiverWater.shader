@@ -2,34 +2,37 @@ Shader "Motu/River Water"
 {
     Properties
     {
+        _RippleStrength ("Fine Ripple Strength", Range(0, 0.5)) = 0.1
+        _SurfaceRoughness ("Surface Roughness", Range(0.04, 0.6)) = 0.18
+        _RapidRoughness ("Rapids Roughness", Range(0, 0.4)) = 0.18
+        _AbsorptionCoefficients ("RGB Absorption (per metre)", Vector) = (0.32, 0.09, 0.16, 0)
+        _AbsorptionStrength ("Absorption Strength", Range(0, 4)) = 1
+        _FoamWorldSize ("Foam Patch Width (metres)", Float) = 0.7
+        _WaterfallFlowSpeed ("Waterfall Flow Speed (metres/second)", Float) = 9
+        _FoamStretch ("Foam Downstream Stretch", Range(1, 8)) = 3
         _Color ("Water Colour", Color) = (0.03, 0.28, 0.55, 1)
         [NoScaleOffset] _NoiseTex ("River Noise", 2D) = "black" {}
-        _CoarseNoiseWorldSize ("Coarse Noise World Size", Float) = 6
-        _FineNoiseWorldSize ("Fine Noise World Size", Float) = 3
-        _CoarseFlowSpeed ("Coarse Flow Speed", Float) = 2.25
-        _FineFlowSpeed ("Fine Flow Speed", Float) = 9
+        _CoarseNoiseWorldSize ("Broad Ripple Wavelength (metres)", Float) = 1.2
+        _FineNoiseWorldSize ("Fine Ripple Wavelength (metres)", Float) = 0.65
+        _CoarseFlowSpeed ("Broad Flow Speed (metres/second)", Float) = 0.8
+        _FineFlowSpeed ("Fine Flow Speed (metres/second)", Float) = 1.4
         _WorldSize ("World Size", Float) = 2000
-        _ShallowOpacity ("Shallow Opacity", Range(0, 1)) = 0.25
-        _OpacityDepth ("Full Opacity Depth", Float) = 5
+        [HideInInspector] _ShallowOpacity ("Shallow Opacity", Range(0, 1)) = 0.25
+        [HideInInspector] _OpacityDepth ("Full Opacity Depth", Float) = 5
         _SeaColor ("Sea Colour", Color) = (0.03, 0.28, 0.55, 1)
         _EstuaryBlendHeight ("Estuary Blend Height (metres)", Float) = 2
         _SeaLevel ("Sea Level", Float) = 0
         _ReflectionColor ("Sky Reflection", Color) = (0.49, 0.68, 0.82, 1)
         _ReflectionHorizonColor ("Horizon Reflection", Color) = (0.68, 0.79, 0.88, 1)
         _ReflectionStrength ("Reflection Strength", Range(0, 1)) = 0.45
-        _ReflectionFresnelPower ("Reflection Fresnel Power", Range(1, 8)) = 4
+        [HideInInspector] _ReflectionFresnelPower ("Reflection Fresnel Power", Range(1, 8)) = 4
         _SunGlintStrength ("Sun Glint Strength", Range(0, 2)) = 0.55
-        _SunGlintSharpness ("Sun Glint Sharpness", Range(8, 256)) = 128
+        [HideInInspector] _SunGlintSharpness ("Sun Glint Sharpness", Range(8, 256)) = 128
         [HideInInspector] _WaterSkyExposure ("Water Sky Exposure", Range(0, 1)) = 1
-        _RefractionStrength ("Underwater Distortion", Range(0, 0.03)) = 0.008
+        _RefractionStrength ("Underwater Distortion", Range(0, 0.03)) = 0.012
         _RefractionDepth ("Full Distortion Depth (metres)", Float) = 0.6
         [HideInInspector] _PlanarReflectionWeight ("Planar Reflection Weight", Range(0, 1)) = 1
         _PlanarReflectionDistortion ("Reflection Ripple Distortion", Range(0, 0.03)) = 0.006
-        _ShoreWaveStrength ("Bank Wave Strength", Range(0, 1)) = 0.35
-        _ShoreWaveSpacing ("Bank Wave Spacing (metres)", Float) = 0.11
-        _ShoreWaveSpeed ("Bank Wave Speed (metres/second)", Float) = -0.07
-        _ShoreWaveDepth ("Bank Wave Range (metres)", Float) = 0.5
-        _ShoreWaveNoiseWorldSize ("Bank Wave Noise World Size", Float) = 1
         _WhitewaterStrength ("Whitewater Strength", Range(0, 1)) = 0.9
         _WhitewaterSlopeStart ("Whitewater Slope Start", Range(0, 1)) = 0.05
         _WhitewaterSlopeFull ("Whitewater Slope Full", Range(0, 1)) = 0.55
@@ -56,6 +59,8 @@ Shader "Motu/River Water"
             #pragma multi_compile_fwdbase
 
             #include "WaterCommon.cginc"
+            #include "WaterOptics.cginc"
+            #include "RiverSurface.cginc"
 
             struct VertexInput
             {
@@ -79,20 +84,10 @@ Shader "Motu/River Water"
                 SHADOW_COORDS(9)
             };
 
-            sampler2D _NoiseTex;
-            float _CoarseNoiseWorldSize;
-            float _FineNoiseWorldSize;
-            float _CoarseFlowSpeed;
-            float _FineFlowSpeed;
             float _WorldSize;
             fixed4 _SeaColor;
             float _EstuaryBlendHeight;
             float _SeaLevel;
-            half _ShoreWaveStrength;
-            float _ShoreWaveSpacing;
-            float _ShoreWaveSpeed;
-            float _ShoreWaveDepth;
-            float _ShoreWaveNoiseWorldSize;
             half _WhitewaterStrength;
             half _WhitewaterSlopeStart;
             half _WhitewaterSlopeFull;
@@ -120,20 +115,9 @@ Shader "Motu/River Water"
                 return output;
             }
 
-            fixed4 Fragment(VertexOutput input) : SV_Target
+            float4 Fragment(VertexOutput input) : SV_Target
             {
-                float coarseSize = max(_CoarseNoiseWorldSize, 0.01);
-                float fineSize = max(_FineNoiseWorldSize, 0.01);
                 float2 riverMetres = input.riverUv * _WorldSize;
-                float2 coarseUv = (riverMetres
-                    - float2(0.0, _Time.y * _CoarseFlowSpeed)) / coarseSize;
-                float2 fineUv = (riverMetres
-                    - float2(0.0, _Time.y * _FineFlowSpeed)) / fineSize;
-                half coarseNoise = tex2D(_NoiseTex, coarseUv).r;
-                half fineNoise = tex2D(_NoiseTex, fineUv).g;
-                half coarseFoam = smoothstep(0.42h, 0.68h, coarseNoise);
-                half fineFoam = smoothstep(0.24h, 0.80h, fineNoise);
-
                 float3 viewDirection = normalize(
                     _WorldSpaceCameraPos.xyz - input.worldPosition);
                 float3 worldNormal = MotuFacingWaterNormal(
@@ -143,12 +127,16 @@ Shader "Motu/River Water"
                     shadowAttenuation,
                     input,
                     input.worldPosition);
-                half verticalAlignment = abs(worldNormal.y);
+                half verticalAlignment = abs(normalize(input.worldNormal).y);
                 half normalDeviation = 1.0h - verticalAlignment;
                 half fineSlopeWhitewater = smoothstep(
                     _WhitewaterSlopeStart,
                     max(_WhitewaterSlopeFull, _WhitewaterSlopeStart + 0.001h),
                     normalDeviation);
+                float roughness;
+                float3 detailNormal = MotuRiverDetailNormal(input.worldPosition, input.worldNormal,
+                    riverMetres, _Time.y, fineSlopeWhitewater, roughness);
+                worldNormal = MotuFacingWaterNormal(detailNormal, viewDirection);
                 float waterDepth = MotuWaterDepth(
                     input.screenPosition,
                     input.surfaceEyeDepth);
@@ -160,57 +148,11 @@ Shader "Motu/River Water"
                     max(_EstuaryBlendHeight, 0.001),
                     heightAboveSea);
 
-                half coarseWhitewater = coarseFoam
-                    * 0.03h;
-                half fineWhitewater = fineFoam
-                    * 0.50h
-                    * fineSlopeWhitewater;
-                half layeredWhitewater = coarseWhitewater
-                    + fineWhitewater * (1.0h - coarseWhitewater);
-                half whitewater = saturate(
-                    layeredWhitewater * _WhitewaterStrength);
+                half whitewater = saturate(MotuRiverFoam(riverMetres, _Time.y,
+                    fineSlopeWhitewater) * _WhitewaterStrength);
 
-                // River UV.x is the generated horizontal distance from a bank.
-                float shoreDepth = max(input.riverUv.x, 0.0) * _WorldSize;
-                float shoreSpacing = max(_ShoreWaveSpacing, 0.001);
-                float shoreRange = max(_ShoreWaveDepth, shoreSpacing);
-                float2 shoreNoiseUv = input.islandLocalPosition.xz
-                    / max(_ShoreWaveNoiseWorldSize, 0.001);
-                half shoreNoise = tex2D(_NoiseTex, shoreNoiseUv).r - 0.5h;
-                float shorePhase = (shoreDepth
-                    + _Time.y * _ShoreWaveSpeed
-                    + shoreNoise * shoreSpacing * 0.45) / shoreSpacing;
-                half shoreCrest = smoothstep(
-                    0.72h,
-                    0.98h,
-                    0.5h + 0.5h * cos(shorePhase * 6.2831853));
-                float contactStart = shoreRange * 0.01;
-                float contactEnd = max(
-                    shoreRange * 0.05,
-                    contactStart + 0.0001);
-                half contactFade = smoothstep(
-                    contactStart,
-                    contactEnd,
-                    shoreDepth);
-                half deepFade = 1.0h - smoothstep(
-                    max(shoreRange - shoreSpacing, shoreSpacing),
-                    shoreRange,
-                    shoreDepth);
-                half horizontalSurface = smoothstep(
-                    0.65h,
-                    0.96h,
-                    verticalAlignment);
-                half bankWave = saturate(
-                    shoreCrest
-                    * contactFade
-                    * deepFade
-                    * horizontalSurface
-                    * _ShoreWaveStrength);
-                whitewater = whitewater + bankWave * (1.0h - whitewater);
+                half horizontalSurface = smoothstep(.65h, .96h, verticalAlignment);
 
-                half waterOpacity = MotuWaterOpacity(
-                    waterDepth,
-                    max(_OpacityDepth, 0.001));
                 MotuCloudLighting cloud = MotuCloudSurfaceLighting(input.worldPosition);
                 fixed3 waterIllumination = MotuWaterIllumination(
                     worldNormal,
@@ -224,39 +166,28 @@ Shader "Motu/River Water"
                     estuaryWeight)
                     * input.brightness
                     * waterIllumination;
-                fixed3 water = MotuShadeWater(
-                    waterBody,
-                    worldNormal,
-                    viewDirection,
-                    input.worldPosition,
-                    half2(coarseNoise, fineNoise) - 0.5h,
-                    0.0h,
-                    shadowAttenuation,
-                    cloud);
+                float2 ripple = mul((float3x3)UNITY_MATRIX_V,
+                    detailNormal - normalize(input.worldNormal)).xy;
+                float2 refractionRipple = ripple + MotuRiverDepthDistortion(riverMetres,
+                    _Time.y, fineSlopeWhitewater);
+                float pathLength;
+                float3 refracted = MotuWaterRefractDepthSafe(input.grabPosition, input.screenPosition,
+                    input.surfaceEyeDepth, waterDepth, worldNormal, viewDirection, refractionRipple, pathLength);
+                // The shared reflection camera mirrors sea level, not uphill rivers
+                // or vertical waterfalls. Restrict it to the flat estuary surface.
+                float planarWeight = horizontalSurface * (1 - smoothstep(0, .25, heightAboveSea));
+                float3 water = MotuWaterShadeOptics(waterBody, refracted, pathLength,
+                    worldNormal, viewDirection, input.worldPosition, ripple, roughness,
+                    shadowAttenuation, cloud, planarWeight);
                 fixed3 foamColour = MotuWaterIllumination(
                     worldNormal,
                     input.worldPosition,
                     shadowAttenuation,
                     0.35h,
                     cloud);
-                fixed3 surface = lerp(
-                    water,
-                    foamColour,
-                    whitewater);
-                fixed4 foggedSurface = fixed4(surface, 1.0h);
-                UNITY_APPLY_FOG(input.fogCoord, foggedSurface);
-                half2 refractionRipple = half2(coarseNoise, fineNoise) - 0.5h;
-                fixed3 refractedScene = MotuRefractScene(
-                    input.grabPosition,
-                    waterDepth,
-                    worldNormal,
-                    viewDirection,
-                    refractionRipple);
-                half surfaceOpacity = saturate(
-                    waterOpacity + whitewater * 0.08h);
-                return fixed4(
-                    lerp(refractedScene, foggedSurface.rgb, surfaceOpacity),
-                    1.0h);
+                float4 result = float4(lerp(water, foamColour, whitewater), 1);
+                UNITY_APPLY_FOG(input.fogCoord, result);
+                return result;
             }
             ENDCG
         }

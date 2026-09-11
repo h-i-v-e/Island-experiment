@@ -432,7 +432,7 @@ when the component is disabled.
 The player-relative deep ocean performs reflection, refraction, distortion, and
 depth opacity once without depending on any island mask. Each island adds a
 bounded, edge-faded coastal overlay just above it; this overlay owns the sea
-mask, shallow tint, shore waves, and foam without repeating the ocean GrabPass.
+mask and shallow tint without repeating the ocean GrabPass.
 Each of the four ocean waves has its own world-space direction, controlled by
 `weather.Waves.Wave0.Direction` through `Wave3.Direction`. Changing
 `weather.WindDirection` does not rotate these waves or align them to the first
@@ -460,15 +460,8 @@ deeper water. Normals use the same depth scaling; breaker foam instead follows s
 channels still suppress waves. Ordinary
 swell attenuation retains its original 16-metre distance weighting.
 
-Incoming coastal overlay waves average red depth proximity with land proximity
-rescaled to the original 16-metre band, breaking up coherent flashing across broad
-shallow water. The weaker echo travels back offshore across the full 128-metre
-range. Echo spacing retains its original 16-metre-to-incoming-range ratio, so the
-wider band contains more waves at the same spacing and physical travel speed.
-Their individually reduced strengths are added, making crossings brighter than
-either wave alone.
-Tune `Incoming Shore Wave Strength` and `Reverse Shore Echo Strength` on the sea
-material independently. The geometric onshore component compresses its leading,
+The coastal overlay no longer draws incoming or reverse-echo wave stripes.
+The geometric onshore component compresses its leading,
 shore-facing rise over a configurable depth range, while
 retaining a rounded rear face. `Leading Edge Sharpness` controls the maximum
 asymmetry. `Breaking Start Depth Metres` defaults to 5 m and `Breaking Full Depth
@@ -680,7 +673,8 @@ shader so the shader remains a build dependency.
 The sea material adds wind-driven fine ripples, roughness-based sun highlights
 and reflections, persistent foam, RGB depth absorption, and depth-checked
 refraction. These affect shading; the existing wave displacement, buoyancy and
-spray sampling equations are unchanged. Rivers retain their existing shading.
+spray sampling equations are unchanged. Rivers share the depth optics and
+lighting functions, with their own downstream detail and foam controls.
 
 Tune these properties on the **Motu/Sea Water** material:
 
@@ -707,3 +701,50 @@ Refraction remains a screen-space effect: it cannot recover objects hidden from
 the camera, and foreground boundaries can retain a thin sampling fringe.
 The sea's old linear opacity, Fresnel-power and glint-sharpness properties are
 hidden; the absorption, water Fresnel and roughness controls replace them.
+
+
+## River surface optics
+
+**Motu/River Water** uses the same RGB depth absorption, water Fresnel,
+roughness-based sun highlights and foreground-checked refraction as the ocean.
+The river's shallow bed remains visible; deeper water gradually takes on its
+body colour. RGB absorption defaults to `(0.32, 0.09, 0.16)` per metre for a green
+river tint. **Absorption Strength** scales it; zero disables absorption.
+
+Two soft ripple bands follow the generated bank-distance/downstream UVs,
+including bends and waterfall faces. **Broad/Fine Ripple Wavelength** set their
+sizes in metres (defaults 1.2 and 0.65), **Broad/Fine Flow Speed** set signed
+metres per second (defaults 0.8 and 1.4), and **Fine Ripple Strength** defaults to
+0.1. Setting both speeds to zero freezes the calm ripple and foam flow.
+
+**Surface Roughness** controls the highlight width on calm reaches;
+**Rapids Roughness** increases it on steep sections. Fine surface detail is filtered below pixel resolution. The generated river noise now includes
+mipmaps; custom river-noise textures should also enable mipmaps and trilinear
+filtering.
+
+Foam forms elongated moving patches: **Foam Patch Width** sets the scale and
+**Foam Downstream Stretch** elongates it with the current. Existing slope and
+whitewater controls concentrate it on rapids and waterfalls, leaving calm
+reaches mostly clear. This is animated shader foam, not a persistent foam
+simulation or rock-collision fluid solver. Existing waterfall mist and spray
+remain separate effects.
+
+**Waterfall Flow Speed** independently restores the dense, fast falling-water
+noise on steep faces (default 9 m/s, with a slower companion layer at one quarter
+of that speed). Set this to zero as well to freeze waterfall flow.
+**Underwater Distortion** now uses its own moving noise, independent of the
+subtle ripple normals; the default is 0.012. Its strength grows with depth and
+fades out at bank contact while retaining foreground depth rejection.
+
+Sea-level planar reflections blend in only on flat estuary water within 0.25 m
+of sea level; elevated rivers and waterfall faces use the sky reflection.
+The river terrain, bed geometry, bank-distance data and waterfall profiles are
+unchanged. The old linear-opacity and glint-sharpness controls are hidden in
+favour of depth absorption and roughness.
+
+
+Decorative river-bank bands and the coastal overlay's incoming/echo wave stripes
+are removed. The coast overlay retains its shallow-water tint and edge fade.
+Flowing river foam, waterfall whitewater, refraction and geometric ocean waves
+remain active. The obsolete bank-band and coastal-stripe material controls have
+also been removed.

@@ -99,21 +99,5 @@ namespace Motu.Rendering
                 throw;
             }
         }
-        internal static void ConfigureShoreWaves(
-            Material material,
-            Texture noise,
-            float strength,
-            float spacing,
-            float speed,
-            float depth,
-            float noiseWorldSize)
-        {
-            material.SetTexture("_NoiseTex", noise);
-            material.SetFloat("_ShoreWaveStrength", strength);
-            material.SetFloat("_ShoreWaveSpacing", spacing);
-            material.SetFloat("_ShoreWaveSpeed", speed);
-            material.SetFloat("_ShoreWaveDepth", depth);
-            material.SetFloat("_ShoreWaveNoiseWorldSize", noiseWorldSize);
-        }
     }
 }

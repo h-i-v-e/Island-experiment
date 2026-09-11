@@ -29,29 +29,25 @@ Material:
         m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
-    - _CoarseFlowSpeed: 2.25
-    - _CoarseNoiseWorldSize: 6
+    - _CoarseFlowSpeed: 0.8
+    - _CoarseNoiseWorldSize: 1.2
     - _EstuaryBlendHeight: 2
-    - _FineFlowSpeed: 9
-    - _FineNoiseWorldSize: 3
+    - _FineFlowSpeed: 1.4
+    - _FineNoiseWorldSize: 0.65
     - _OpacityDepth: 1
     - _PlanarReflectionDistortion: 0.006
     - _PlanarReflectionWeight: 1
     - _ReflectionFresnelPower: 4
     - _ReflectionStrength: 0.743
     - _RefractionDepth: 0.6
-    - _RefractionStrength: 0.008
+    - _RefractionStrength: 0.012
     - _SeaLevel: 0
     - _ShallowOpacity: 0.5
-    - _ShoreWaveDepth: 0.5
-    - _ShoreWaveNoiseWorldSize: 1
-    - _ShoreWaveSpacing: 0.11
-    - _ShoreWaveSpeed: -0.07
-    - _ShoreWaveStrength: 0.35
     - _SunGlintSharpness: 128
     - _SunGlintStrength: 0.55
     - _WhitewaterSlopeFull: 0.55
     - _WhitewaterSlopeStart: 0.05
+    - _WaterfallFlowSpeed: 9
     - _WhitewaterStrength: 0.9
     - _WorldSize: 2000
     m_Colors:

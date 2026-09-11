@@ -60,11 +60,11 @@ namespace Motu.Rendering
                 RiverNoiseDimension,
                 RiverNoiseDimension,
                 TextureFormat.RGBA32,
-                false,
+                true,
                 true)
             {
                 name = "River coherent flow noise",
-                filterMode = FilterMode.Bilinear,
+                filterMode = FilterMode.Trilinear,
                 wrapMode = TextureWrapMode.Repeat,
             };
             var pixels = new Color[RiverNoiseDimension * RiverNoiseDimension];
@@ -92,7 +92,7 @@ namespace Motu.Rendering
                 }
             }
             texture.SetPixels(pixels);
-            texture.Apply(false, true);
+            texture.Apply(true, true);
             return texture;
         }
 

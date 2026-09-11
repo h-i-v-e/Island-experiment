@@ -48,7 +48,7 @@ Shader "Hidden/Motu/Tests/Ocean Refraction"
                         + _ProbeRipple.xy * _RefractionStrength * lerp(.25, 1, saturate(view.y))).rgb, 1);
                 float depth = LinearEyeDepth(SAMPLE_DEPTH_TEXTURE_PROJ(_CameraDepthTexture, UNITY_PROJ_COORD(input.screen))) - input.eye;
                 float path;
-                return float4(MotuOceanRefract(input.grab, input.screen, input.eye, depth,
+                return float4(MotuWaterRefractDepthSafe(input.grab, input.screen, input.eye, depth,
                     float3(0, 1, 0), view, _ProbeRipple.xy, path), 1);
             }
             ENDCG

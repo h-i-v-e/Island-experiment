@@ -172,15 +172,6 @@ namespace Motu.Islands
             var waterColor = new Color(0.03f, 0.28f, 0.55f, 1f);
             const float shallowWaterOpacity = 0.25f;
             const float fullOpacityDepth = 5f;
-            const float shoreWaveStrength = 0.35f;
-            const float riverShoreWaveSpeed = -0.07f;
-            const float seaShoreWaveSpeed = 0.35f;
-            const float riverShoreWaveSpacing = 0.11f;
-            const float riverShoreWaveDepth = 0.5f;
-            const float riverShoreWaveNoiseWorldSize = 1f;
-            const float seaShoreWaveSpacing = 0.55f;
-            const float seaShoreWaveDepth = 2.5f;
-            const float seaShoreWaveNoiseWorldSize = 5f;
             riverMaterial = CreateMaterial(
                 "Motu/River Water",
                 waterColor,
@@ -201,14 +192,6 @@ namespace Motu.Islands
             riverMaterial.SetFloat("_PlanarReflectionWeight", 1f);
             riverMaterial.SetFloat("_PlanarReflectionDistortion", 0.006f);
             riverMaterial.SetFloat("_SunGlintStrength", 0.55f);
-            ConfigureShoreWaves(
-                riverMaterial,
-                riverNoiseTexture,
-                shoreWaveStrength,
-                riverShoreWaveSpacing,
-                riverShoreWaveSpeed,
-                riverShoreWaveDepth,
-                riverShoreWaveNoiseWorldSize);
             riverMaterial.SetColor(
                 "_SeaColor",
                 seaMaterial.HasProperty("_Color")
@@ -228,19 +211,9 @@ namespace Motu.Islands
                     ? seaMaterial.GetColor("_Color")
                     : waterColor);
             coastalWaterMaterial.renderQueue = (int)RenderQueue.Transparent + 5;
-            coastalWaterMaterial.SetColor("_FoamColor", new Color(0.92f, 0.97f, 1f, 1f));
             coastalWaterMaterial.SetFloat("_WorldSize", Generation.WorldSizeMetres);
             coastalWaterMaterial.SetFloat("_CoastalOpacity", 0.16f);
-            coastalWaterMaterial.SetFloat("_FoamOpacity", 0.72f);
             coastalWaterMaterial.SetFloat("_EdgeFadeMetres", 24f);
-            ConfigureShoreWaves(
-                coastalWaterMaterial,
-                riverNoiseTexture,
-                shoreWaveStrength,
-                seaShoreWaveSpacing,
-                seaShoreWaveSpeed,
-                seaShoreWaveDepth,
-                seaShoreWaveNoiseWorldSize);
             meshEdgeMaterial = CreateMaterial(
                 "Motu/Mesh Edge Overlay",
                 Color.black,

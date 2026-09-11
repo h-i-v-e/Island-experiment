@@ -605,7 +605,6 @@ namespace Motu.Editor
                         || !riverWaterMaterial.HasProperty("_RefractionDepth")
                         || !riverWaterMaterial.HasProperty("_PlanarReflectionWeight")
                         || !riverWaterMaterial.HasProperty("_PlanarReflectionDistortion")
-                        || !riverWaterMaterial.HasProperty("_ShoreWaveStrength")
                         || !riverWaterMaterial.HasProperty("_WhitewaterStrength")
                         || !riverWaterMaterial.HasProperty("_WhitewaterSlopeStart")
                         || !riverWaterMaterial.HasProperty("_WhitewaterSlopeFull")
@@ -691,19 +690,10 @@ namespace Motu.Editor
                 var coastalWaterMaterial = new Material(coastalWaterShader);
                 try
                 {
-                    if (!coastalWaterMaterial.HasProperty("_NoiseTex")
-                        || !coastalWaterMaterial.HasProperty("_SeaMask")
+                    if (!coastalWaterMaterial.HasProperty("_SeaMask")
                         || !coastalWaterMaterial.HasProperty("_WorldSize")
                         || !coastalWaterMaterial.HasProperty("_CoastalOpacity")
-                        || !coastalWaterMaterial.HasProperty("_FoamOpacity")
                         || !coastalWaterMaterial.HasProperty("_EdgeFadeMetres")
-                        || !coastalWaterMaterial.HasProperty("_ShoreWaveStrength")
-                        || !coastalWaterMaterial.HasProperty("_ShoreWaveSpacing")
-                        || !coastalWaterMaterial.HasProperty("_ShoreWaveSpeed")
-                        || !coastalWaterMaterial.HasProperty("_ShoreWaveDepth")
-                        || !coastalWaterMaterial.HasProperty("_ShoreWaveIncomingStrength")
-                        || !coastalWaterMaterial.HasProperty("_ShoreWaveEchoStrength")
-                        || !coastalWaterMaterial.HasProperty("_ShoreWaveNoiseWorldSize")
                         || coastalWaterMaterial.HasProperty("_ShallowOpacity")
                         || coastalWaterMaterial.HasProperty("_OpacityDepth")
                         || coastalWaterMaterial.HasProperty("_RefractionStrength")
