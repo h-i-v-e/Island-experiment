@@ -176,10 +176,10 @@ namespace Motu.Rendering
             {
                 name = "Planar Water Reflection",
                 hideFlags = HideFlags.DontSave,
-                filterMode = FilterMode.Bilinear,
+                filterMode = FilterMode.Trilinear,
                 wrapMode = TextureWrapMode.Clamp,
                 antiAliasing = 1,
-                useMipMap = false,
+                useMipMap = true,
                 autoGenerateMips = false,
             };
             reflectionTextureUsesHdr = sourceCamera.allowHDR;
@@ -260,6 +260,8 @@ namespace Motu.Rendering
                 GL.invertCulling = previousInvertCulling;
             }
 
+            reflectionTexture.GenerateMips();
+            Shader.SetGlobalFloat("_PlanarReflectionMaxMip", reflectionTexture.mipmapCount - 1);
             var gpuProjection = GL.GetGPUProjectionMatrix(
                 reflectionCamera.projectionMatrix,
                 true);
@@ -319,6 +321,7 @@ namespace Motu.Rendering
         private void ReleaseResources()
         {
             Shader.SetGlobalFloat(ReflectionAvailableId, 0f);
+            Shader.SetGlobalFloat("_PlanarReflectionMaxMip", 0);
             lastRenderUsedSimplifiedShader = false;
             hasRenderedReflection = false;
             framesUntilRender = 0;

@@ -674,3 +674,36 @@ the game thread; unsupported GPU sampling disables spray with a diagnostic.
 The authored loop follows ship pitch and roll; it does not re-slice a changing
 hull draft at runtime. The material explicitly references the existing spray
 shader so the shader remains a build dependency.
+
+## Ocean surface optics
+
+The sea material adds wind-driven fine ripples, roughness-based sun highlights
+and reflections, persistent foam, RGB depth absorption, and depth-checked
+refraction. These affect shading; the existing wave displacement, buoyancy and
+spray sampling equations are unchanged. Rivers retain their existing shading.
+
+Tune these properties on the **Motu/Sea Water** material:
+
+| Control | Effect |
+| --- | --- |
+| Fine Ripple Strength / Wavelength | Soft surface-normal detail, default strength `0.12` and wavelength `1.2 m`. Two smoothed bands travel at different speeds and angles so their combined shape evolves. Wind speed controls their strength. |
+| Fine Ripple Animation Speed | Multiplies the bands' movement using integrated wind travel. Default `1`; zero freezes the fine detail. Refraction and reflection distortion follow the same moving normals. |
+| Surface Roughness / Wind Roughness | Base highlight width and its wind response. Distant unresolved ripples add roughness; planar reflections sample generated mipmaps to soften detail. |
+| RGB Absorption / Absorption Strength | Exponential attenuation per metre of the view ray through water. The default `(0.45, 0.12, 0.055)` absorbs red fastest. Zero strength disables absorption. |
+| Persistent Foam Strength | Visibility of the foam history. Zero also releases its textures and stops its update pass. |
+| Foam Lifetime / Deposit Rate | Exponential decay time in seconds and accumulation rate from breaking crests, hull displacement and wake foam. |
+| Underwater Distortion | Existing refraction control, now checked against camera depth to reject foreground geometry. |
+
+Foam uses two 256×256 half-float textures, about 1 MiB total, covering a 256 m
+square around the ocean centre. The history reprojects when this grid moves;
+wave displacement changes and a small wind drift advect it. It fades at the
+boundary, clears on teleports or frame gaps over 0.25 seconds, and rejects dry
+terrain using the coastal depth mask. This is a local visual history, not a
+fluid simulation or a permanent world-wide wake map. Reflections additionally
+use about one-third more texture memory for their mip chain.
+
+Absorption uses camera depth and a straight view-ray path approximation.
+Refraction remains a screen-space effect: it cannot recover objects hidden from
+the camera, and foreground boundaries can retain a thin sampling fringe.
+The sea's old linear opacity, Fresnel-power and glint-sharpness properties are
+hidden; the absorption, water Fresnel and roughness controls replace them.

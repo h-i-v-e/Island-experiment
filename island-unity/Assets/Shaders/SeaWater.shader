@@ -2,16 +2,28 @@ Shader "Motu/Sea Water"
 {
     Properties
     {
+        _RippleStrength ("Fine Ripple Strength", Range(0, 1)) = 0.12
+        _RippleWorldSize ("Fine Ripple Wavelength (m)", Range(0.1, 3)) = 1.2
+        _RippleSpeed ("Fine Ripple Animation Speed", Range(0, 3)) = 1
+        _SurfaceRoughness ("Surface Roughness", Range(0.04, 0.6)) = 0.16
+        _WindRoughness ("Wind Roughness", Range(0, 0.4)) = 0.12
+        _AbsorptionCoefficients ("RGB Absorption (per metre)", Vector) = (0.45, 0.12, 0.055, 0)
+        _AbsorptionStrength ("Absorption Strength", Range(0, 4)) = 1
+        _PersistentFoamStrength ("Persistent Foam Strength", Range(0, 2)) = 0.8
+        _FoamLifetime ("Foam Lifetime (seconds)", Range(0.1, 30)) = 6
+        _FoamDepositRate ("Foam Deposit Rate", Range(0, 10)) = 2
+        [HideInInspector] _OceanFoamHistory ("Foam History", 2D) = "black" {}
+        [HideInInspector] _OceanFoamHistoryRect ("Foam History World Rect", Vector) = (0, 0, 0, 0)
         _Color ("Water Colour", Color) = (0.03, 0.28, 0.55, 1)
         [NoScaleOffset] _NoiseTex ("Ocean Ripple Noise", 2D) = "black" {}
-        _ShallowOpacity ("Shallow Opacity", Range(0, 1)) = 0.25
-        _OpacityDepth ("Full Opacity Depth", Float) = 5
+        [HideInInspector] _ShallowOpacity ("Shallow Opacity", Range(0, 1)) = 0.25
+        [HideInInspector] _OpacityDepth ("Full Opacity Depth", Float) = 5
         _ReflectionColor ("Sky Reflection", Color) = (0.49, 0.68, 0.82, 1)
         _ReflectionHorizonColor ("Horizon Reflection", Color) = (0.68, 0.79, 0.88, 1)
         _ReflectionStrength ("Reflection Strength", Range(0, 1)) = 0.65
-        _ReflectionFresnelPower ("Reflection Fresnel Power", Range(1, 8)) = 4
+        [HideInInspector] _ReflectionFresnelPower ("Reflection Fresnel Power", Range(1, 8)) = 4
         _SunGlintStrength ("Sun Glint Strength", Range(0, 2)) = 0.8
-        _SunGlintSharpness ("Sun Glint Sharpness", Range(8, 256)) = 128
+        [HideInInspector] _SunGlintSharpness ("Sun Glint Sharpness", Range(8, 256)) = 128
         _BoatDisplacementFoamStrength ("Boat Displacement Foam (per metre)", Range(0, 4)) = 1
         _WaveTranslucencyColour ("Wave Translucency Colour", Color) = (0.08, 0.55, 0.42, 1)
         _WaveTranslucencyStrength ("Wave Translucency Strength", Range(0, 8)) = 6
@@ -89,6 +101,7 @@ Shader "Motu/Sea Water"
             #include "OceanWaves.cginc"
             #include "OceanDeckWaveClamp.cginc"
             #include "OceanShipWaves.cginc"
+            #include "OceanOptics.cginc"
 
             half4 _WaveTranslucencyColour;
             half _WaveTranslucencyStrength;
@@ -170,7 +183,7 @@ Shader "Motu/Sea Water"
                 return output;
             }
 
-            fixed4 Fragment(VertexOutput input) : SV_Target
+            float4 Fragment(VertexOutput input) : SV_Target
             {
                 float3 viewDirection = normalize(
                     _WorldSpaceCameraPos.xyz - input.worldPosition);
@@ -189,9 +202,10 @@ Shader "Motu/Sea Water"
                 if (boatFoam > 0.0001)
                     whitecap = max(whitecap, boatFoam * MotuOceanFoamPatches(input.waveSamplePosition)
                         * max(_WhitecapStrength, 0.0));
-                float3 worldNormal = MotuFacingWaterNormal(
-                    analyticWaveNormal,
-                    viewDirection);
+                whitecap = max(whitecap, MotuOceanHistoryFoam(input.worldPosition.xz));
+                float roughness;
+                float3 detailNormal = MotuOceanRippleNormal(input.worldPosition, analyticWaveNormal, roughness);
+                float3 worldNormal = MotuFacingWaterNormal(detailNormal, viewDirection);
                 half brightness = 0.72h
                     + 0.28h * saturate(dot(
                         analyticWaveNormal,
@@ -216,41 +230,20 @@ Shader "Motu/Sea Water"
                     * waterIllumination;
                 waterBody += WaveTranslucency(crestResponse, worldNormal,
                     viewDirection, input.worldPosition, shadowAttenuation, cloud);
-                float2 reflectionNoiseUv = MotuCloudWorldToLocal(
-                    input.worldPosition).xz / 8.0;
-                half2 reflectionRipple = half2(
-                    tex2D(
-                        _NoiseTex,
-                        reflectionNoiseUv + float2(_Time.y * 0.025, 0.0)).r,
-                    tex2D(
-                        _NoiseTex,
-                        reflectionNoiseUv.yx + float2(0.0, _Time.y * 0.02)).g)
-                    - 0.5h;
-                fixed3 water = MotuShadeWater(
-                    waterBody,
-                    worldNormal,
-                    viewDirection,
-                    input.worldPosition,
-                    reflectionRipple,
-                    1.0h,
-                    shadowAttenuation,
-                    cloud);
-                fixed3 litWhitecap = _WhitecapColour.rgb * waterIllumination;
+                // Reflections and refraction follow the animated surface detail,
+                // rather than a separate high-frequency distortion texture.
+                float2 reflectionRipple = mul((float3x3)UNITY_MATRIX_V,
+                    detailNormal - analyticWaveNormal).xy;
+                float pathLength;
+                float3 refractedScene = MotuOceanRefract(input.grabPosition, input.screenPosition,
+                    input.surfaceEyeDepth, waterDepth, worldNormal, viewDirection, reflectionRipple, pathLength);
+                float3 water = MotuOceanShade(waterBody, refractedScene, pathLength, worldNormal,
+                    viewDirection, input.worldPosition, reflectionRipple, roughness, shadowAttenuation, cloud);
+                float3 litWhitecap = _WhitecapColour.rgb * waterIllumination;
                 water = lerp(water, litWhitecap, saturate(whitecap));
-                half waterOpacity = MotuWaterOpacity(
-                    waterDepth,
-                    _OpacityDepth);
-                fixed4 foggedSurface = fixed4(water, 1.0h);
-                UNITY_APPLY_FOG(input.fogCoord, foggedSurface);
-                fixed3 refractedScene = MotuRefractScene(
-                    input.grabPosition,
-                    waterDepth,
-                    worldNormal,
-                    viewDirection,
-                    reflectionRipple);
-                return fixed4(
-                    lerp(refractedScene, foggedSurface.rgb, waterOpacity),
-                    1.0h);
+                float4 result = float4(water, 1);
+                UNITY_APPLY_FOG(input.fogCoord, result);
+                return result;
             }
             ENDCG
         }

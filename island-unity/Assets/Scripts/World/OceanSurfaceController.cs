@@ -57,6 +57,7 @@ namespace Motu.World
         private Material surfaceMaterial;
         private Mesh surfaceMesh;
         private OceanWaveMaskComposer maskComposer;
+        private readonly OceanFoamHistory foamHistory = new OceanFoamHistory();
         private OceanWaveRuntimeSettings waveSettings;
         private float surfaceDiameterMetres;
         private float weatherWaveScale = 1f;
@@ -109,6 +110,7 @@ namespace Motu.World
                 throw new System.ArgumentNullException(nameof(material));
             }
 
+            ReleaseFoamHistory();
             var previousMaterial = surfaceMaterial;
             surfaceMaterial = material;
             waveSettings = settings;
@@ -365,8 +367,21 @@ namespace Motu.World
                 wave.AmplitudeMetres);
         }
 
+        private void OnDisable() => ReleaseFoamHistory();
+
+        private void ReleaseFoamHistory()
+        {
+            if (surfaceMaterial != null)
+            {
+                surfaceMaterial.SetTexture("_OceanFoamHistory", Texture2D.blackTexture);
+                surfaceMaterial.SetVector("_OceanFoamHistoryRect", Vector4.zero);
+            }
+            foamHistory.Dispose();
+        }
+
         private void OnDestroy()
         {
+            ReleaseFoamHistory();
             DestroyUnityObject(surfaceMaterial);
             DestroyUnityObject(surfaceMesh);
             surfaceMaterial = null;

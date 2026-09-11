@@ -171,6 +171,10 @@ namespace Motu.Editor
                     || reflectedTarget == null
                     || reflectedTarget.width != 160
                     || reflectedTarget.height != 90
+                    || !reflectedTarget.useMipMap
+                    || reflectedTarget.mipmapCount <= 1
+                    || reflectedTarget.filterMode != FilterMode.Trilinear
+                    || Shader.GetGlobalFloat("_PlanarReflectionMaxMip") != reflectedTarget.mipmapCount - 1
                     || (sourceCamera.depthTextureMode & DepthTextureMode.Depth) == 0
                     || (reflectedCamera.cullingMask & (1 << waterLayer)) != 0
                     || reflectedCamera.depthTextureMode != DepthTextureMode.None

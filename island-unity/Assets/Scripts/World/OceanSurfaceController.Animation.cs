@@ -97,6 +97,10 @@ namespace Motu.World
         private void LateUpdate()
         {
             AdvanceWaveAnimation(Time.deltaTime);
+            if (surfaceObject != null && surfaceObject.activeInHierarchy
+                && surfaceMaterial.GetFloat("_PersistentFoamStrength") > 0)
+                foamHistory.Update(surfaceMaterial, surfaceObject.transform.position, Time.deltaTime);
+            else ReleaseFoamHistory();
         }
 
         // Run once after weather updates, never once per camera or material update.
