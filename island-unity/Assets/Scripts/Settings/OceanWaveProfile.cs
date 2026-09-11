@@ -218,7 +218,7 @@ namespace Motu.Settings
                 onshoreWaveSharpeningDistanceMetres,
                 0.25f,
                 128f);
-            OnshoreWaveBreakingStartDepthMetres = Mathf.Clamp(onshoreWaveBreakingStartDepthMetres, 0.01f, 5f);
+            OnshoreWaveBreakingStartDepthMetres = Mathf.Clamp(onshoreWaveBreakingStartDepthMetres, 0.01f, 10f);
             OnshoreWaveBreakingFullDepthMetres = Mathf.Clamp(onshoreWaveBreakingFullDepthMetres,
                 0f, OnshoreWaveBreakingStartDepthMetres - 0.01f);
             Wave0 = wave0;
@@ -423,10 +423,10 @@ namespace Motu.Settings
         [Tooltip("Maximum distance from shore where depth-driven breaking can form, with a fade over the outer 20 percent. Actual depth controls sharpening and foam inside this band.")]
         [Range(0.25f, 128f)] [SerializeField] private float onshoreWaveSharpeningDistanceMetres = 96f;
 
-        [Tooltip("Water depth where the face starts sharpening and making breaker foam. The depth map covers up to 5 metres.")]
-        [Range(0.01f, 5f)] [SerializeField] private float onshoreWaveBreakingStartDepthMetres = 5f;
+        [Tooltip("Water depth where the face starts sharpening and making breaker foam. The depth map covers up to 10 metres.")]
+        [Range(0.01f, 10f)] [SerializeField] private float onshoreWaveBreakingStartDepthMetres = 5f;
         [Tooltip("Water depth where sharpening and breaker foam reach full strength. Raise this to make waves break while they are taller. Must be shallower than the start depth.")]
-        [Range(0f, 5f)] [SerializeField] private float onshoreWaveBreakingFullDepthMetres = 3.5f;
+        [Range(0f, 10f)] [SerializeField] private float onshoreWaveBreakingFullDepthMetres = 3.5f;
 
         [Header("Directional Waves")]
         [Tooltip("Primary broad swell. This should normally have the longest wavelength and largest amplitude.")]
@@ -484,7 +484,7 @@ namespace Motu.Settings
 
         private void OnValidate()
         {
-            onshoreWaveBreakingStartDepthMetres = Mathf.Clamp(onshoreWaveBreakingStartDepthMetres, 0.01f, 5f);
+            onshoreWaveBreakingStartDepthMetres = Mathf.Clamp(onshoreWaveBreakingStartDepthMetres, 0.01f, 10f);
             onshoreWaveBreakingFullDepthMetres = Mathf.Clamp(onshoreWaveBreakingFullDepthMetres,
                 0f, onshoreWaveBreakingStartDepthMetres - 0.01f);
             fineVertexSpacingMetres = Mathf.Clamp(fineVertexSpacingMetres, 0.5f, 16f);

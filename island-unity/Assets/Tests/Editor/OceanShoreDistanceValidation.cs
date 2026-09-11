@@ -29,7 +29,7 @@ namespace Motu.Editor
             Require(profile != null, "Missing active ocean profile for breaker validation.");
             var settings = profile.ToRuntimeSettings();
             Require(settings.Weather.OnshoreWaveBreakingStartDepthMetres == 5f
-                && settings.Weather.OnshoreWaveBreakingFullDepthMetres == 3.5f
+                && settings.Weather.OnshoreWaveBreakingFullDepthMetres == 4f
                 && OceanWaveWeatherSettings.Default.OnshoreWaveBreakingFullDepthMetres == 3.5f,
                 "Authored and fallback weather must use the earlier full-breaking depth.");
             Require(settings.OnshoreWaveSharpeningDistanceMetres == 96f
@@ -69,7 +69,7 @@ namespace Motu.Editor
                     material.SetFloat("_ProbeBreakerShape", 1f);
                     material.SetFloat("_ProbeCoastDistance", 32f);
                     material.SetFloat("_ProbeWaterDepth", depth);
-                    mask.SetPixel(0, 0, new Color(1f, 1f, depth / 5f, 1f));
+                    mask.SetPixel(0, 0, new Color(1f, 1f, depth / 10f, 1f));
                     mask.Apply();
                     Graphics.Blit(Texture2D.whiteTexture, target, material);
                     var shape = Read(target);
@@ -135,7 +135,7 @@ namespace Motu.Editor
                 }
                 Require(earlySlope > lateSlope * 2f && earlyFoam > lateFoam * 2f && upperFace >= 0,
                     "Increasing full-breaking depth must steepen the wave and increase foam in deeper water.");
-                mask.SetPixel(0, 0, new Color(1, 1, 3.5f / 5f, 1));
+                mask.SetPixel(0, 0, new Color(1, 1, 3.5f / 10f, 1));
                 mask.Apply();
                 material.SetFloat("_ProbeBreakerShape", 0f);
                 material.SetFloat("_OnshoreWavePhase", (upperFace + .5f) / 256f * 2f * Mathf.PI
@@ -223,13 +223,13 @@ namespace Motu.Editor
                     probe.SetFloat("_ProbeFullSurface", 1f);
                     Graphics.Blit(Texture2D.whiteTexture, target, probe);
                     var actual = Read(target)[0];
-                    var depthScale = Mathf.Clamp01(depth * 5f / amplitude);
+                    var depthScale = Mathf.Clamp01(depth * 10f / amplitude);
                     var expectedHeight = amplitude * Mathf.Sin(phase) * depthScale;
                     var slope = amplitude * (2f * Mathf.PI / 12f) * Mathf.Cos(phase) * depthScale;
                     var expectedNormal = new Vector3(slope, 1f, 0f).normalized;
                     Require(Mathf.Abs(actual.r - expectedHeight) < .005f,
                         $"Depth protection did not scale {amplitude} m waves (shore={shore}, depth={depth}).");
-                    Require(actual.r >= -depth * 5f - .001f,
+                    Require(actual.r >= -depth * 10f - .001f,
                         "The wave trough descended below the depth-map seabed.");
                     Require(Mathf.Abs(Mathf.Abs(actual.g) - Mathf.Abs(expectedNormal.x)) < .001f
                         && Mathf.Abs(actual.b - expectedNormal.y) < .001f,
@@ -238,7 +238,7 @@ namespace Motu.Editor
                         "Culling bounds do not include the larger wave height.");
                 }
                 Debug.Log("Ocean depth protection passed: 12/24 m ordinary and onshore waves, "
-                    + "crests/troughs in 0-5 m depth, matching normals, and finite culling bounds.");
+                    + "crests/troughs in 0-10 m depth, matching normals, and finite culling bounds.");
             }
             finally
             {

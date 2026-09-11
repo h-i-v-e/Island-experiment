@@ -51,7 +51,8 @@ Shader "Hidden/Motu/Ocean Wave Attenuation"
                 }
                 half3 seaMask = tex2D(_SeaMask, islandUv).rgb;
                 half depthAllowance = pow(
-                    saturate(1.0h - seaMask.r),
+                    saturate((1.0h - seaMask.r) * MotuSeaMaskDepthMetres
+                        / MotuOceanAttenuationDepthMetres),
                     max(_DepthAllowancePower, 0.001));
                 half distanceAllowance = pow(
                     saturate(seaMask.g * MotuSeaMaskLandDistanceMetres

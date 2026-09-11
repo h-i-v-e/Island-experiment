@@ -227,7 +227,7 @@ namespace Motu.Editor
             var noise = new Texture2D(1, 1, TextureFormat.RGBAFloat, false, true);
             noise.SetPixel(0, 0, new Color(.75f, .5f, 0, 1)); noise.Apply();
             var coast = new Texture2D(1, 1, TextureFormat.RGBAFloat, false, true);
-            coast.SetPixel(0, 0, new Color(.5f, 1, .1f, 1)); coast.Apply();
+            coast.SetPixel(0, 0, new Color(.5f, 1, .05f, 1)); coast.Apply(); // Half-metre depth in the 10 m mask.
             var oldNoise = Shader.GetGlobalTexture("_MotuWindNoise");
             var oldWind = Shader.GetGlobalVector("_MotuWeatherWind");
             var oldOffset = Shader.GetGlobalVector("_MotuWindOffset");

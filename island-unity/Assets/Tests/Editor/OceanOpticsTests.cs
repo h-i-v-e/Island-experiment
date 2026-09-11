@@ -13,6 +13,116 @@ namespace Motu.Editor
 {
     public sealed class OceanOpticsTests
     {
+        [Test]
+        public void CoastalDepthEncodingPreservesBreakingAndProtectsTenMetreSeabed()
+        {
+            var material = new Material(Shader.Find("Hidden/Motu/Ocean Wave Attenuation"));
+            var mask = new Texture2D(1, 1, TextureFormat.RGBAFloat, false, true);
+            try
+            {
+                material.SetTexture("_SeaMask", mask);
+                material.SetMatrix("_IslandWorldToLocal", Matrix4x4.identity);
+                material.SetFloat("_DepthAllowancePower", 1);
+                material.SetFloat("_DistanceAllowancePower", 1);
+                foreach (var depth in new[] { 0f, 1f, 2.5f, 5f, 7.5f, 10f })
+                {
+                    mask.SetPixel(0, 0, new Color(1 - depth / 10, 1, 0, 1));
+                    mask.Apply();
+                    var packed = Read(material)[0];
+                    Assert.That(packed.b * 10, Is.EqualTo(depth).Within(.01), "Composed blue must preserve metres.");
+                    Assert.That(packed.r, Is.EqualTo(Mathf.Clamp01(depth / 5)).Within(.001),
+                        "Swell attenuation must keep its existing five-metre range.");
+                }
+            }
+            finally { Object.DestroyImmediate(material); Object.DestroyImmediate(mask); }
+            OceanShoreDistanceValidation.BatchValidateShoreDistance();
+        }
+
+        [Test]
+        public void SeabedFadesBeforeMeshCutoffAtDifferentCameraAnglesAndSeaLevels()
+        {
+            EditorSceneManager.NewScene(NewSceneSetup.EmptyScene);
+            var water = GameObject.CreatePrimitive(PrimitiveType.Plane);
+            var floor = GameObject.CreatePrimitive(PrimitiveType.Plane);
+            var cameraObject = new GameObject("Seabed cutoff validation camera");
+            var material = new Material(Shader.Find("Motu/Sea Water"));
+            var bed = new Material(Shader.Find("Standard"));
+            var target = new RenderTexture(128, 128, 24, RenderTextureFormat.ARGBFloat);
+            var readback = new Texture2D(128, 128, TextureFormat.RGBAFloat, false, true);
+            var oldTarget = RenderTexture.active;
+            try
+            {
+                material.SetFloat("_GeometricWaves", 0);
+                material.SetFloat("_OnshoreWaveEnabled", 0);
+                material.SetFloat("_WhitecapStrength", 0);
+                material.SetFloat("_PersistentFoamStrength", 0);
+                material.SetFloat("_RippleStrength", 0);
+                material.SetFloat("_ReflectionStrength", 0);
+                material.SetFloat("_SunGlintStrength", 0);
+                material.SetFloat("_WaveTranslucencyStrength", 0);
+                material.SetFloat("_AbsorptionStrength", 0); // Isolate cutoff fade from physical absorption.
+                material.SetFloat("_RefractionStrength", .08f);
+                water.GetComponent<Renderer>().sharedMaterial = material;
+                water.transform.localScale = Vector3.one * 20;
+                bed.color = Color.black;
+                bed.EnableKeyword("_EMISSION");
+                bed.SetColor("_EmissionColor", Color.green);
+                bed.SetFloat("_Glossiness", 0);
+                floor.GetComponent<Renderer>().sharedMaterial = bed;
+                floor.transform.localScale = Vector3.one * 6;
+                var camera = cameraObject.AddComponent<Camera>();
+                camera.enabled = false;
+                camera.depthTextureMode = DepthTextureMode.Depth;
+                camera.clearFlags = CameraClearFlags.SolidColor;
+                camera.backgroundColor = Color.black;
+                camera.farClipPlane = 200;
+                camera.orthographicSize = 18;
+                camera.targetTexture = target;
+                float Capture(bool visible)
+                {
+                    floor.SetActive(visible);
+                    camera.Render();
+                    RenderTexture.active = target;
+                    readback.ReadPixels(new Rect(0, 0, 128, 128), 0, 0);
+                    readback.Apply();
+                    return readback.GetPixel(64, 64).g;
+                }
+                foreach (var orthographic in new[] { false, true })
+                foreach (var tilt in new[] { 0f, 40f })
+                foreach (var seaLevel in new[] { 0f, 4f })
+                {
+                    camera.orthographic = orthographic;
+                    water.transform.position = Vector3.up * seaLevel;
+                    camera.transform.position = new Vector3(0, seaLevel + 20, -tilt * .3f);
+                    camera.transform.rotation = Quaternion.LookRotation(water.transform.position - camera.transform.position,
+                        tilt == 0 ? Vector3.forward : Vector3.up);
+                    var baseline = Capture(false);
+                    floor.transform.position = Vector3.up * (seaLevel - 5);
+                    var shallow = Capture(true) - baseline;
+                    Assert.That(shallow, Is.GreaterThan(.25f), "Fixture must expose the bright bed in shallow water.");
+                    floor.transform.position = Vector3.up * (seaLevel - 7.75f);
+                    var middle = Capture(true) - baseline;
+                    Assert.That(middle / shallow, Is.EqualTo(.5f).Within(.035f),
+                        $"Vertical seabed fade must be independent of camera angle and sea level: ortho={orthographic}, tilt={tilt}, sea={seaLevel}.");
+                    foreach (var depth in new[] { 9.5f, 10f })
+                    {
+                        floor.transform.position = Vector3.up * (seaLevel - depth);
+                        Assert.That(Mathf.Abs(Capture(true) - baseline), Is.LessThan(.003f),
+                            "The rendered bed must match missing geometry before the cutoff.");
+                    }
+                    if (!orthographic && tilt == 40 && seaLevel == 0)
+                        SaveImage(readback, "ocean-ten-metre-cutoff.png");
+                }
+                Assert.IsFalse(ShaderUtil.ShaderHasError(material.shader));
+            }
+            finally
+            {
+                RenderTexture.active = oldTarget;
+                foreach (var item in new Object[] { water, floor, cameraObject, material, bed, target, readback })
+                    Object.DestroyImmediate(item);
+            }
+        }
+
         private static Color[] Read(Material material, int size = 64)
         {
             var target = new RenderTexture(size, size, 0, RenderTextureFormat.ARGBFloat);
@@ -20,6 +130,8 @@ namespace Motu.Editor
             var old = RenderTexture.active;
             try
             {
+                RenderTexture.active = target;
+                GL.Clear(false, true, Color.white);
                 Graphics.Blit(Texture2D.blackTexture, target, material);
                 RenderTexture.active = target;
                 output.ReadPixels(new Rect(0, 0, size, size), 0, 0);

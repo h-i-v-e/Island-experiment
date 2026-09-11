@@ -11,6 +11,14 @@ sampler2D _OceanFoamHistory;
 float4 _OceanFoamHistoryRect;
 float _PersistentFoamStrength;
 
+float MotuOceanSeabedVisibility(float sceneWorldY, float seaLevel)
+{
+    // Finish before the native terrain cutoff at 10 m, leaving a small margin
+    // for rasterization/refraction at the mesh edge. Use mean sea level so
+    // crests, troughs, and oblique views do not move the transition.
+    return 1 - smoothstep(6, 9.5, max(seaLevel - sceneWorldY, 0));
+}
+
 float MotuOceanHistoryFoam(float2 worldXZ)
 {
     float2 uv = (worldXZ - _OceanFoamHistoryRect.xy) * _OceanFoamHistoryRect.zw;

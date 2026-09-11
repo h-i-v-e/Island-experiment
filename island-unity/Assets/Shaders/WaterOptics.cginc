@@ -40,8 +40,21 @@ float MotuWaterRefractionValidity(float sceneEyeDepth, float surfaceEyeDepth)
     return smoothstep(0, .15, sceneEyeDepth - surfaceEyeDepth);
 }
 
+float3 MotuWaterScenePosition(float2 depthUv, float eyeDepth)
+{
+    // CameraInvProjection uses the depth texture's orientation already.
+    // MatrixInvV matches its negative-forward view space (CameraToWorld does not).
+    float2 clipXY = depthUv * 2 - 1;
+    float4 viewPoint = mul(unity_CameraInvProjection, float4(clipXY, .5, 1));
+    viewPoint.xyz /= viewPoint.w;
+    viewPoint.xy *= lerp(eyeDepth / max(-viewPoint.z, .0001), 1, unity_OrthoParams.w);
+    viewPoint.z = -eyeDepth;
+    return mul(UNITY_MATRIX_I_V, float4(viewPoint.xyz, 1)).xyz;
+}
+
 float3 MotuWaterRefractDepthSafe(float4 grabPosition, float4 screenPosition, float surfaceEyeDepth,
-    float originalDepth, float3 normal, float3 view, float2 ripple, out float pathLength)
+    float originalDepth, float3 normal, float3 view, float2 ripple, out float pathLength,
+    out float3 scenePosition)
 {
     float2 grabUv = grabPosition.xy / max(grabPosition.w, .0001);
     float2 depthUv = screenPosition.xy / max(screenPosition.w, .0001);
@@ -57,17 +70,29 @@ float3 MotuWaterRefractDepthSafe(float4 grabPosition, float4 screenPosition, flo
     float2 inset = abs(_MotuWaterBackground_TexelSize.xy) * 1.5;
     float2 candidateUv = depthUv + depthOffset;
     float inBounds = all(candidateUv >= inset) && all(candidateUv <= 1-inset);
-    float candidateDepth = LinearEyeDepth(SAMPLE_DEPTH_TEXTURE(_CameraDepthTexture, saturate(candidateUv)));
+    float candidateDepth = MotuWaterEyeDepth(SAMPLE_DEPTH_TEXTURE(_CameraDepthTexture, saturate(candidateUv)));
     float validity = inBounds * MotuWaterRefractionValidity(candidateDepth, surfaceEyeDepth);
     // Validate the final interpolated location as well, not just the full offset.
     float2 finalDepthUv = depthUv + depthOffset * validity;
-    float finalDepth = LinearEyeDepth(SAMPLE_DEPTH_TEXTURE(_CameraDepthTexture, saturate(finalDepthUv)));
-    if (finalDepth <= surfaceEyeDepth + .001) { validity = 0; finalDepth = surfaceEyeDepth + originalDepth; }
+    float finalDepth = MotuWaterEyeDepth(SAMPLE_DEPTH_TEXTURE(_CameraDepthTexture, saturate(finalDepthUv)));
+    if (finalDepth <= surfaceEyeDepth + .001)
+    {
+        validity = 0; finalDepth = surfaceEyeDepth + originalDepth; finalDepthUv = depthUv;
+    }
     float2 finalGrabUv = clamp(grabUv + offset * validity, inset, 1-inset);
     float eyeDistance = max(finalDepth - surfaceEyeDepth, 0);
     float3 viewInCamera = mul((float3x3)UNITY_MATRIX_V, view);
     pathLength = min(1000, eyeDistance / max(abs(viewInCamera.z), .05));
+    scenePosition = MotuWaterScenePosition(finalDepthUv, finalDepth);
     return tex2D(_MotuWaterBackground, finalGrabUv).rgb;
+}
+
+float3 MotuWaterRefractDepthSafe(float4 grabPosition, float4 screenPosition, float surfaceEyeDepth,
+    float originalDepth, float3 normal, float3 view, float2 ripple, out float pathLength)
+{
+    float3 scenePosition;
+    return MotuWaterRefractDepthSafe(grabPosition, screenPosition, surfaceEyeDepth,
+        originalDepth, normal, view, ripple, pathLength, scenePosition);
 }
 
 float3 MotuWaterShadeOptics(float3 body, float3 refracted, float pathLength, float3 normal,

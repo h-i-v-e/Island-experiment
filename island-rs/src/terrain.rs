@@ -74,7 +74,7 @@ const HYDRAULIC_EDGE_SHIFT_LIMIT: f32 = 0.08;
 const HYDRAULIC_MIN_PROJECTED_AREA_RATIO: f32 = 0.2;
 const MINIMUM_BEDROCK_EROSION_RATE: f32 = 0.05;
 const TRIANGLE_INDEX_OFFSET_BUDGET_BYTES: usize = 32 * 1024 * 1024;
-const TERRAIN_RENDER_FLOOR: f32 = -5.0 / ISLAND_WORLD_METRES;
+const TERRAIN_RENDER_FLOOR: f32 = -crate::sea_mask::SEA_MASK_DEPTH_METRES / ISLAND_WORLD_METRES;
 pub(crate) const LOOSE_DEPTH_EPSILON: f32 = 1.0e-8;
 
 #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]

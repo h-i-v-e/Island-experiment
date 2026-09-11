@@ -192,7 +192,7 @@ the two surface classes remain independently blendable. Sampling after slicing
 keeps the attributes paired with reordered and newly inserted boundary
 vertices.
 All terrain and support exports are also clipped against a horizontal plane
-five metres below sea level. Faces crossing the plane receive shared
+ten metres below sea level. Faces crossing the plane receive shared
 interpolated boundary vertices, while deeper faces and now-unused vertices are
 discarded. The authoritative full terrain remains available for height maps,
 sea-depth masks, river processing, and deterministic saves.

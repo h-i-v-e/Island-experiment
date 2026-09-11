@@ -102,7 +102,7 @@ float MotuOceanMaximumWaveHeight()
 
 float MotuOceanDepthWaveScale(float4 coastalData)
 {
-    // The depth channel covers 0-5 m. Retain this conservative limit in
+    // The depth channel covers 0-10 m. Retain this conservative limit in
     // deeper water so large troughs cannot expose the seabed near shore.
     float waterDepth = saturate(coastalData.b) * MotuSeaMaskDepthMetres;
     return saturate(waterDepth / MotuOceanMaximumWaveHeight());

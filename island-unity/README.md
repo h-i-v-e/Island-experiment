@@ -335,7 +335,7 @@ creation, LOD 1 and LOD 2 are each tessellated once more and the inserted
 midpoints are projected onto the final LOD 0 surface. This leaves a smaller
 density and silhouette step between adjacent LODs before Unity applies its
 edge-only transition morph.
-Terrain render and collider exports are additionally clipped five metres below
+Terrain render and collider exports are additionally clipped ten metres below
 the sea plane. Crossing faces end on a shared interpolated boundary, and deeper
 faces and unused vertices are omitted from Unity without changing the full
 terrain retained by Rust for maps and generation.
@@ -455,19 +455,23 @@ and coverage do not change wave strength. Their phase also uses actual metres,
 keeping authored wavelength and speed independent of the mask range. Scripted
 onshore amplitudes have no fixed 4-metre input cap, but the combined wave field
 is scaled to the depth map to keep troughs above the seabed. This map covers
-0-5 metres, so the same conservative 5-metre displacement limit also applies in
+0-10 metres, so the same conservative 10-metre displacement limit also applies in
 deeper water. Normals use the same depth scaling; breaker foam instead follows shallow-water breaking so it remains visible as displacement shrinks. Carved river
 channels still suppress waves. Ordinary
-swell attenuation retains its original 16-metre distance weighting.
+swell attenuation retains its original 5-metre depth and 16-metre distance weighting.
+The ocean fades refracted seabed colour into its deep-water body colour between
+6 and 9.5 metres below the mean sea plane, completing before the 10-metre mesh
+cutoff. The fade uses the reconstructed refracted scene position, so waves and
+camera angle do not move the depth thresholds. River optics are unchanged.
 
 The coastal overlay no longer draws incoming or reverse-echo wave stripes.
 The geometric onshore component compresses its leading,
 shore-facing rise over a configurable depth range, while
 retaining a rounded rear face. `Leading Edge Sharpness` controls the maximum
 asymmetry. `Breaking Start Depth Metres` defaults to 5 m and `Breaking Full Depth
-Metres` defaults to 3.5 m, making full breaking occur while the wave still has
+Metres` defaults to 3.5 m (the current scene profile uses 4 m), making full breaking occur while the wave still has
 substantial height. Raise the full depth to break earlier; lower it for a longer
-approach. Both are limited to the depth map's 0-5 m range, with full depth below
+approach. Both are limited to the depth map's 0-10 m range, with full depth below
 start depth. Scripts can set `weather.Waves.OnshoreWaveBreakingStartDepthMetres`
 and `weather.Waves.OnshoreWaveBreakingFullDepthMetres` at runtime.
 `Sharpening Distance Metres` bounds the offshore breaker region

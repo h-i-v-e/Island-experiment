@@ -8,7 +8,7 @@ use std::thread;
 
 use crate::{ISLAND_WORLD_METRES, Terrain};
 
-const COAST_WAVE_DEPTH_METRES: f32 = 5.0;
+pub(crate) const SEA_MASK_DEPTH_METRES: f32 = 10.0;
 // Keep the shader decode in SeaMaskCommon.cginc in sync with this RGBA8 contract.
 const LAND_DISTANCE_RANGE_METRES: f32 = 128.0;
 
@@ -139,7 +139,7 @@ fn bake_rows(
 
 fn coast_wave_weight(elevation: f32) -> f32 {
     let depth_metres = (-elevation * ISLAND_WORLD_METRES).max(0.0);
-    (1.0 - depth_metres / COAST_WAVE_DEPTH_METRES).clamp(0.0, 1.0)
+    (1.0 - depth_metres / SEA_MASK_DEPTH_METRES).clamp(0.0, 1.0)
 }
 
 fn land_distance_weight(normalized_distance: f32) -> f32 {
@@ -180,11 +180,11 @@ mod tests {
     }
 
     #[test]
-    fn coast_wave_weight_uses_a_fixed_five_metre_depth() {
+    fn coast_wave_weight_uses_a_fixed_ten_metre_depth() {
         assert_eq!(quantize(coast_wave_weight(0.1)), 255);
         assert_eq!(quantize(coast_wave_weight(0.0)), 255);
-        assert_eq!(quantize(coast_wave_weight(-2.5 / ISLAND_WORLD_METRES)), 128);
-        assert_eq!(quantize(coast_wave_weight(-5.0 / ISLAND_WORLD_METRES)), 0);
+        assert_eq!(quantize(coast_wave_weight(-5.0 / ISLAND_WORLD_METRES)), 128);
+        assert_eq!(quantize(coast_wave_weight(-10.0 / ISLAND_WORLD_METRES)), 0);
         assert_eq!(quantize(coast_wave_weight(-20.0 / ISLAND_WORLD_METRES)), 0);
     }
 

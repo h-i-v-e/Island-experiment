@@ -625,9 +625,9 @@ fn lods_reduce_mesh_density() {
 }
 
 #[test]
-fn exported_terrain_is_clipped_five_metres_below_sea_level() {
+fn exported_terrain_is_clipped_ten_metres_below_sea_level() {
     let island = Island::generate(19, small_options()).unwrap();
-    let floor = -5.0 / motu::ISLAND_WORLD_METRES;
+    let floor = -10.0 / motu::ISLAND_WORLD_METRES;
     let source = island.lod(0).unwrap();
     let support = island.mesh_in(0, BoundingBox::default()).unwrap();
     let render = island.render_mesh_in(0, BoundingBox::default(), 0).unwrap();
@@ -641,6 +641,11 @@ fn exported_terrain_is_clipped_five_metres_below_sea_level() {
         .chain(&tiles)
     {
         assert!(mesh.vertices.iter().all(|vertex| vertex.z >= floor));
+        assert!(
+            mesh.vertices
+                .iter()
+                .any(|vertex| vertex.z < -5.0 / motu::ISLAND_WORLD_METRES)
+        );
         let mut used = vec![false; mesh.vertices.len()];
         for &vertex in &mesh.triangles {
             used[vertex as usize] = true;

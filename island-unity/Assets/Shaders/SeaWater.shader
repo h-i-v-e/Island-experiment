@@ -235,8 +235,13 @@ Shader "Motu/Sea Water"
                 float2 reflectionRipple = mul((float3x3)UNITY_MATRIX_V,
                     detailNormal - analyticWaveNormal).xy;
                 float pathLength;
+                float3 refractedPosition;
                 float3 refractedScene = MotuWaterRefractDepthSafe(input.grabPosition, input.screenPosition,
-                    input.surfaceEyeDepth, waterDepth, worldNormal, viewDirection, reflectionRipple, pathLength);
+                    input.surfaceEyeDepth, waterDepth, worldNormal, viewDirection, reflectionRipple, pathLength,
+                    refractedPosition);
+                float seaLevel = input.worldPosition.y - input.deckWaveData.z;
+                refractedScene = lerp(waterBody, refractedScene,
+                    MotuOceanSeabedVisibility(refractedPosition.y, seaLevel));
                 float3 water = MotuWaterShadeOptics(waterBody, refractedScene, pathLength, worldNormal,
                     viewDirection, input.worldPosition, reflectionRipple, roughness, shadowAttenuation, cloud, 1);
                 float3 litWhitecap = _WhitecapColour.rgb * waterIllumination;

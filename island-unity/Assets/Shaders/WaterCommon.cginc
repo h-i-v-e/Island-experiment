@@ -35,9 +35,19 @@ float3 MotuFacingWaterNormal(float3 worldNormal, float3 viewDirection)
     return normal * (dot(normal, viewDirection) >= 0.0 ? 1.0 : -1.0);
 }
 
+float MotuWaterEyeDepth(float rawDepth)
+{
+    float perspectiveDepth = LinearEyeDepth(rawDepth);
+    #if defined(UNITY_REVERSED_Z)
+    rawDepth = 1 - rawDepth;
+    #endif
+    float orthographicDepth = lerp(_ProjectionParams.y, _ProjectionParams.z, rawDepth);
+    return lerp(perspectiveDepth, orthographicDepth, unity_OrthoParams.w);
+}
+
 float MotuWaterDepth(float4 screenPosition, float surfaceEyeDepth)
 {
-    float sceneDepth = LinearEyeDepth(SAMPLE_DEPTH_TEXTURE_PROJ(
+    float sceneDepth = MotuWaterEyeDepth(SAMPLE_DEPTH_TEXTURE_PROJ(
         _CameraDepthTexture,
         UNITY_PROJ_COORD(screenPosition)));
     return max(sceneDepth - surfaceEyeDepth, 0.0);
