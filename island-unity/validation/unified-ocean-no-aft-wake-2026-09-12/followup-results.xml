@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<test-run id="2" testcasecount="2" result="Passed" total="2" passed="2" failed="0" inconclusive="0" skipped="0" asserts="0" engine-version="3.5.0.0" clr-version="4.0.30319.42000" start-time="2026-09-12 05:46:12Z" end-time="2026-09-12 05:46:26Z" duration="13.42497">
+  <test-suite type="TestSuite" id="1000" name="island-unity" fullname="island-unity" runstate="Runnable" testcasecount="89" result="Passed" start-time="2026-09-12 05:46:12Z" end-time="2026-09-12 05:46:26Z" duration="13.424970" total="2" passed="2" failed="0" inconclusive="0" skipped="0" asserts="0">
+    <properties>
+      <property name="platform" value="EditMode" />
+    </properties>
+    <test-suite type="Assembly" id="1108" name="Motu.Tests.Editor.dll" fullname="/private/tmp/motu-ship-spray.7RcBx7/Library/ScriptAssemblies/Motu.Tests.Editor.dll" runstate="Runnable" testcasecount="89" result="Passed" start-time="2026-09-12 05:46:12Z" end-time="2026-09-12 05:46:26Z" duration="13.395786" total="2" passed="2" failed="0" inconclusive="0" skipped="0" asserts="0">
+      <properties>
+        <property name="_PID" value="61446" />
+        <property name="_APPDOMAIN" value="Unity Child Domain" />
+        <property name="platform" value="EditMode" />
+        <property name="EditorOnly" value="True" />
+      </properties>
+      <test-suite type="TestSuite" id="1109" name="Motu" fullname="Motu" runstate="Runnable" testcasecount="89" result="Passed" start-time="2026-09-12 05:46:12Z" end-time="2026-09-12 05:46:26Z" duration="13.393066" total="2" passed="2" failed="0" inconclusive="0" skipped="0" asserts="0">
+        <properties />
+        <test-suite type="TestSuite" id="1110" name="Editor" fullname="Motu.Editor" runstate="Runnable" testcasecount="89" result="Passed" start-time="2026-09-12 05:46:12Z" end-time="2026-09-12 05:46:26Z" duration="13.392240" total="2" passed="2" failed="0" inconclusive="0" skipped="0" asserts="0">
+          <properties />
+          <test-suite type="TestFixture" id="1051" name="OceanShipWaveTests" fullname="Motu.Editor.OceanShipWaveTests" classname="Motu.Editor.OceanShipWaveTests" runstate="Runnable" testcasecount="7" result="Passed" start-time="2026-09-12 05:46:12Z" end-time="2026-09-12 05:46:26Z" duration="13.385792" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+            <properties />
+            <test-case id="1055" name="CruisingShipKeepsHullWavesWithoutAnAftWake" fullname="Motu.Editor.OceanShipWaveTests.CruisingShipKeepsHullWavesWithoutAnAftWake" methodname="CruisingShipKeepsHullWavesWithoutAnAftWake" classname="Motu.Editor.OceanShipWaveTests" runstate="Runnable" seed="579535378" result="Passed" start-time="2026-09-12 05:46:11Z" end-time="2026-09-12 05:46:26Z" duration="14.327266" asserts="0">
+              <properties>
+                <property name="_JOINTYPE" value="UnityCombinatorial" />
+                <property name="retryIteration" value="0" />
+                <property name="repeatIteration" value="0" />
+              </properties>
+            </test-case>
+          </test-suite>
+          <test-suite type="TestFixture" id="1072" name="RuntimeContractsTests" fullname="Motu.Editor.RuntimeContractsTests" classname="Motu.Editor.RuntimeContractsTests" runstate="Runnable" testcasecount="12" result="Passed" start-time="2026-09-12 05:46:26Z" end-time="2026-09-12 05:46:26Z" duration="0.003770" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+            <properties />
+            <test-case id="1079" name="RuntimeOwnership" fullname="Motu.Editor.RuntimeContractsTests.RuntimeOwnership" methodname="RuntimeOwnership" classname="Motu.Editor.RuntimeContractsTests" runstate="Runnable" seed="205716101" result="Passed" start-time="2026-09-12 05:46:26Z" end-time="2026-09-12 05:46:26Z" duration="0.002484" asserts="0">
+              <properties>
+                <property name="retryIteration" value="0" />
+                <property name="repeatIteration" value="0" />
+              </properties>
+              <output><![CDATA[Saving results to: /tmp/unified-ocean-followup-results.xml
+]]></output>
+            </test-case>
+          </test-suite>
+        </test-suite>
+      </test-suite>
+    </test-suite>
+  </test-suite>
+</test-run>

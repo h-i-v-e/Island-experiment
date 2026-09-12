@@ -1,0 +1,225 @@
+<?xml version="1.0" encoding="utf-8"?>
+<test-run id="2" testcasecount="29" result="Failed(Child)" total="29" passed="28" failed="1" inconclusive="0" skipped="0" asserts="0" engine-version="3.5.0.0" clr-version="4.0.30319.42000" start-time="2026-09-12 05:44:52Z" end-time="2026-09-12 05:45:40Z" duration="48.5456339">
+  <test-suite type="TestSuite" id="1000" name="island-unity" fullname="island-unity" runstate="Runnable" testcasecount="89" result="Failed" site="Child" start-time="2026-09-12 05:44:52Z" end-time="2026-09-12 05:45:40Z" duration="48.545634" total="29" passed="28" failed="1" inconclusive="0" skipped="0" asserts="0">
+    <properties>
+      <property name="platform" value="EditMode" />
+    </properties>
+    <failure>
+      <message><![CDATA[One or more child tests had errors]]></message>
+    </failure>
+    <test-suite type="Assembly" id="1108" name="Motu.Tests.Editor.dll" fullname="/private/tmp/motu-ship-spray.7RcBx7/Library/ScriptAssemblies/Motu.Tests.Editor.dll" runstate="Runnable" testcasecount="89" result="Failed" site="Child" start-time="2026-09-12 05:44:52Z" end-time="2026-09-12 05:45:40Z" duration="48.522683" total="29" passed="28" failed="1" inconclusive="0" skipped="0" asserts="0">
+      <properties>
+        <property name="_PID" value="60084" />
+        <property name="_APPDOMAIN" value="Unity Child Domain" />
+        <property name="platform" value="EditMode" />
+        <property name="EditorOnly" value="True" />
+      </properties>
+      <failure>
+        <message><![CDATA[One or more child tests had errors]]></message>
+      </failure>
+      <test-suite type="TestSuite" id="1109" name="Motu" fullname="Motu" runstate="Runnable" testcasecount="89" result="Failed" site="Child" start-time="2026-09-12 05:44:52Z" end-time="2026-09-12 05:45:40Z" duration="48.521695" total="29" passed="28" failed="1" inconclusive="0" skipped="0" asserts="0">
+        <properties />
+        <failure>
+          <message><![CDATA[One or more child tests had errors]]></message>
+        </failure>
+        <test-suite type="TestSuite" id="1110" name="Editor" fullname="Motu.Editor" runstate="Runnable" testcasecount="89" result="Failed" site="Child" start-time="2026-09-12 05:44:52Z" end-time="2026-09-12 05:45:40Z" duration="48.520613" total="29" passed="28" failed="1" inconclusive="0" skipped="0" asserts="0">
+          <properties />
+          <failure>
+            <message><![CDATA[One or more child tests had errors]]></message>
+          </failure>
+          <test-suite type="TestFixture" id="1031" name="OceanFoamTests" fullname="Motu.Editor.OceanFoamTests" classname="Motu.Editor.OceanFoamTests" runstate="Runnable" testcasecount="1" result="Passed" start-time="2026-09-12 05:44:33Z" end-time="2026-09-12 05:44:35Z" duration="1.858441" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+            <properties />
+            <test-case id="1032" name="SingleFoamPatternDriftsAndDeformsContinuously" fullname="Motu.Editor.OceanFoamTests.SingleFoamPatternDriftsAndDeformsContinuously" methodname="SingleFoamPatternDriftsAndDeformsContinuously" classname="Motu.Editor.OceanFoamTests" runstate="Runnable" seed="1208459001" result="Passed" start-time="2026-09-12 05:44:33Z" end-time="2026-09-12 05:44:35Z" duration="1.852618" asserts="0">
+              <properties />
+              <output><![CDATA[Ocean foam: mean distortion change=0.343, animation change=0.144
+]]></output>
+            </test-case>
+          </test-suite>
+          <test-suite type="TestFixture" id="1041" name="OceanOpticsTests" fullname="Motu.Editor.OceanOpticsTests" classname="Motu.Editor.OceanOpticsTests" runstate="Runnable" testcasecount="9" result="Passed" start-time="2026-09-12 05:44:36Z" end-time="2026-09-12 05:44:37Z" duration="0.912941" total="9" passed="9" failed="0" inconclusive="0" skipped="0" asserts="0">
+            <properties />
+            <test-case id="1046" name="AbsorptionUsesMetresAndRgbExtinctionAndFresnelIncreasesAtGrazingAngles" fullname="Motu.Editor.OceanOpticsTests.AbsorptionUsesMetresAndRgbExtinctionAndFresnelIncreasesAtGrazingAngles" methodname="AbsorptionUsesMetresAndRgbExtinctionAndFresnelIncreasesAtGrazingAngles" classname="Motu.Editor.OceanOpticsTests" runstate="Runnable" seed="1881197792" result="Passed" start-time="2026-09-12 05:44:35Z" end-time="2026-09-12 05:44:35Z" duration="0.043378" asserts="0">
+              <properties />
+            </test-case>
+            <test-case id="1043" name="CalmAndRiverSuppressedSeaRejectsNewAndStoredFoam" fullname="Motu.Editor.OceanOpticsTests.CalmAndRiverSuppressedSeaRejectsNewAndStoredFoam" methodname="CalmAndRiverSuppressedSeaRejectsNewAndStoredFoam" classname="Motu.Editor.OceanOpticsTests" runstate="Runnable" seed="690721622" result="Passed" start-time="2026-09-12 05:44:35Z" end-time="2026-09-12 05:44:35Z" duration="0.054810" asserts="0">
+              <properties />
+            </test-case>
+            <test-case id="1044" name="CoastalDepthEncodingPreservesBreakingAndProtectsTenMetreSeabed" fullname="Motu.Editor.OceanOpticsTests.CoastalDepthEncodingPreservesBreakingAndProtectsTenMetreSeabed" methodname="CoastalDepthEncodingPreservesBreakingAndProtectsTenMetreSeabed" classname="Motu.Editor.OceanOpticsTests" runstate="Runnable" seed="1041663173" result="Passed" start-time="2026-09-12 05:44:35Z" end-time="2026-09-12 05:44:35Z" duration="0.146246" asserts="0">
+              <properties />
+              <output><![CDATA[Ocean depth protection passed: 12/24 m ordinary and onshore waves, crests/troughs in 0-10 m depth, matching normals, and finite culling bounds.
+Depth-driven breaker validation passed: stronger face compression and foam as depth decreases, shrinking protected waves, and no foam on land/in rivers/in calm water.
+Coastal crossfade passed: pure coastal, partial blend, full depth, outer distance, disabled/zero-amplitude coastal waves, and matching normals.
+Ocean shore distance validation passed: waves beyond 100 m, 128 m cutoff, physical wavelength, resolution/coverage independence, and river suppression.
+]]></output>
+            </test-case>
+            <test-case id="1042" name="CoastalTintFadesWithDepthDistanceAndMaskBounds" fullname="Motu.Editor.OceanOpticsTests.CoastalTintFadesWithDepthDistanceAndMaskBounds" methodname="CoastalTintFadesWithDepthDistanceAndMaskBounds" classname="Motu.Editor.OceanOpticsTests" runstate="Runnable" seed="1907062076" result="Passed" start-time="2026-09-12 05:44:35Z" end-time="2026-09-12 05:44:35Z" duration="0.016766" asserts="0">
+              <properties />
+            </test-case>
+            <test-case id="1050" name="FoamPersistsDecaysReprojectsAndResetsOnTeleport" fullname="Motu.Editor.OceanOpticsTests.FoamPersistsDecaysReprojectsAndResetsOnTeleport" methodname="FoamPersistsDecaysReprojectsAndResetsOnTeleport" classname="Motu.Editor.OceanOpticsTests" runstate="Runnable" seed="1203231728" result="Passed" start-time="2026-09-12 05:44:35Z" end-time="2026-09-12 05:44:35Z" duration="0.056983" asserts="0">
+              <properties>
+                <property name="_JOINTYPE" value="UnityCombinatorial" />
+              </properties>
+            </test-case>
+            <test-case id="1049" name="PlanarReflectionsRenderAndGenerateRoughnessMips" fullname="Motu.Editor.OceanOpticsTests.PlanarReflectionsRenderAndGenerateRoughnessMips" methodname="PlanarReflectionsRenderAndGenerateRoughnessMips" classname="Motu.Editor.OceanOpticsTests" runstate="Runnable" seed="2121760562" result="Passed" start-time="2026-09-12 05:44:35Z" end-time="2026-09-12 05:44:36Z" duration="0.870430" asserts="0">
+              <properties>
+                <property name="_JOINTYPE" value="UnityCombinatorial" />
+              </properties>
+            </test-case>
+            <test-case id="1048" name="RefractionRejectsRenderedForegroundInBothTextureAxes" fullname="Motu.Editor.OceanOpticsTests.RefractionRejectsRenderedForegroundInBothTextureAxes" methodname="RefractionRejectsRenderedForegroundInBothTextureAxes" classname="Motu.Editor.OceanOpticsTests" runstate="Runnable" seed="1607744129" result="Passed" start-time="2026-09-12 05:44:36Z" end-time="2026-09-12 05:44:36Z" duration="0.040455" asserts="0">
+              <properties />
+            </test-case>
+            <test-case id="1045" name="SeabedFadesBeforeMeshCutoffAtDifferentCameraAnglesAndSeaLevels" fullname="Motu.Editor.OceanOpticsTests.SeabedFadesBeforeMeshCutoffAtDifferentCameraAnglesAndSeaLevels" methodname="SeabedFadesBeforeMeshCutoffAtDifferentCameraAnglesAndSeaLevels" classname="Motu.Editor.OceanOpticsTests" runstate="Runnable" seed="951599814" result="Passed" start-time="2026-09-12 05:44:36Z" end-time="2026-09-12 05:44:37Z" duration="0.778837" asserts="0">
+              <properties />
+            </test-case>
+            <test-case id="1047" name="WindRipplesAffectNormalsAndDistantDetailBecomesRoughness" fullname="Motu.Editor.OceanOpticsTests.WindRipplesAffectNormalsAndDistantDetailBecomesRoughness" methodname="WindRipplesAffectNormalsAndDistantDetailBecomesRoughness" classname="Motu.Editor.OceanOpticsTests" runstate="Runnable" seed="1115300371" result="Passed" start-time="2026-09-12 05:44:37Z" end-time="2026-09-12 05:44:37Z" duration="0.047460" asserts="0">
+              <properties />
+              <output><![CDATA[Ocean detail: mean slope=0.05735, half-second movement=0.05766
+]]></output>
+            </test-case>
+          </test-suite>
+          <test-suite type="TestFixture" id="1051" name="OceanShipWaveTests" fullname="Motu.Editor.OceanShipWaveTests" classname="Motu.Editor.OceanShipWaveTests" runstate="Runnable" testcasecount="7" result="Failed" site="Child" start-time="2026-09-12 05:44:52Z" end-time="2026-09-12 05:44:52Z" duration="0.078950" total="7" passed="6" failed="1" inconclusive="0" skipped="0" asserts="0">
+            <properties />
+            <failure>
+              <message><![CDATA[One or more child tests had errors]]></message>
+            </failure>
+            <test-case id="1054" name="BowWavePullsBackAndRisesGentlyFromItsTip" fullname="Motu.Editor.OceanShipWaveTests.BowWavePullsBackAndRisesGentlyFromItsTip" methodname="BowWavePullsBackAndRisesGentlyFromItsTip" classname="Motu.Editor.OceanShipWaveTests" runstate="Runnable" seed="2008150703" result="Passed" start-time="2026-09-12 05:44:37Z" end-time="2026-09-12 05:44:37Z" duration="0.783254" asserts="0">
+              <properties>
+                <property name="_JOINTYPE" value="UnityCombinatorial" />
+              </properties>
+            </test-case>
+            <test-case id="1055" name="CruisingShipRendersBowWavesAndATrailingWake" fullname="Motu.Editor.OceanShipWaveTests.CruisingShipRendersBowWavesAndATrailingWake" methodname="CruisingShipRendersBowWavesAndATrailingWake" classname="Motu.Editor.OceanShipWaveTests" runstate="Runnable" seed="1942870916" result="Failed" start-time="2026-09-12 05:44:37Z" end-time="2026-09-12 05:44:51Z" duration="13.493496" asserts="0">
+              <properties>
+                <property name="_JOINTYPE" value="UnityCombinatorial" />
+              </properties>
+              <failure>
+                <message><![CDATA[  Runtime LateUpdate must deposit a wake as the Rigidbody moves.
+  Expected: greater than 5
+  But was:  0
+]]></message>
+                <stack-trace><![CDATA[at Motu.Editor.OceanShipWaveTests+<CruisingShipRendersBowWavesAndATrailingWake>d__3.MoveNext () [0x000dd] in /private/tmp/motu-ship-spray.7RcBx7/Assets/Tests/Editor/OceanShipWaveTests.cs:235
+at UnityEngine.TestTools.TestEnumerator+<Execute>d__7.MoveNext () [0x0003a] in ./Library/PackageCache/com.unity.test-framework@1405238725ab/UnityEngine.TestRunner/NUnitExtensions/Attributes/TestEnumerator.cs:44
+]]></stack-trace>
+              </failure>
+            </test-case>
+            <test-case id="1052" name="DisplacementFoamTracksActualHeightChangeIncludingHullClamping" fullname="Motu.Editor.OceanShipWaveTests.DisplacementFoamTracksActualHeightChangeIncludingHullClamping" methodname="DisplacementFoamTracksActualHeightChangeIncludingHullClamping" classname="Motu.Editor.OceanShipWaveTests" runstate="Runnable" seed="578091324" result="Passed" start-time="2026-09-12 05:44:51Z" end-time="2026-09-12 05:44:51Z" duration="0.008038" asserts="0">
+              <properties />
+            </test-case>
+            <test-case id="1053" name="HullClampShrinksAndFeathersBeforeReachingItsFlatCore" fullname="Motu.Editor.OceanShipWaveTests.HullClampShrinksAndFeathersBeforeReachingItsFlatCore" methodname="HullClampShrinksAndFeathersBeforeReachingItsFlatCore" classname="Motu.Editor.OceanShipWaveTests" runstate="Runnable" seed="1479763029" result="Passed" start-time="2026-09-12 05:44:51Z" end-time="2026-09-12 05:44:51Z" duration="0.004220" asserts="0">
+              <properties />
+            </test-case>
+            <test-case id="1058" name="OpenSeaShipUsesLinearUncompressedWaveTextures" fullname="Motu.Editor.OceanShipWaveTests.OpenSeaShipUsesLinearUncompressedWaveTextures" methodname="OpenSeaShipUsesLinearUncompressedWaveTextures" classname="Motu.Editor.OceanShipWaveTests" runstate="Runnable" seed="2138101786" result="Passed" start-time="2026-09-12 05:44:51Z" end-time="2026-09-12 05:44:51Z" duration="0.020325" asserts="0">
+              <properties />
+            </test-case>
+            <test-case id="1056" name="TextureFieldClampsRaisesAndFollowsTheShipOnTheGpu" fullname="Motu.Editor.OceanShipWaveTests.TextureFieldClampsRaisesAndFollowsTheShipOnTheGpu" methodname="TextureFieldClampsRaisesAndFollowsTheShipOnTheGpu" classname="Motu.Editor.OceanShipWaveTests" runstate="Runnable" seed="1920278217" result="Passed" start-time="2026-09-12 05:44:51Z" end-time="2026-09-12 05:44:52Z" duration="0.860463" asserts="0">
+              <properties>
+                <property name="_JOINTYPE" value="UnityCombinatorial" />
+                <property name="retryIteration" value="0" />
+                <property name="repeatIteration" value="0" />
+              </properties>
+            </test-case>
+            <test-case id="1057" name="WakeRetainsItsPathExpiresAndResetsOnTeleport" fullname="Motu.Editor.OceanShipWaveTests.WakeRetainsItsPathExpiresAndResetsOnTeleport" methodname="WakeRetainsItsPathExpiresAndResetsOnTeleport" classname="Motu.Editor.OceanShipWaveTests" runstate="Runnable" seed="1106510971" result="Passed" start-time="2026-09-12 05:44:52Z" end-time="2026-09-12 05:44:52Z" duration="0.001678" asserts="0">
+              <properties>
+                <property name="retryIteration" value="0" />
+                <property name="repeatIteration" value="0" />
+              </properties>
+            </test-case>
+          </test-suite>
+          <test-suite type="TestFixture" id="1059" name="OceanTranslucencyTests" fullname="Motu.Editor.OceanTranslucencyTests" classname="Motu.Editor.OceanTranslucencyTests" runstate="Runnable" testcasecount="5" result="Passed" start-time="2026-09-12 05:44:52Z" end-time="2026-09-12 05:44:54Z" duration="1.759019" total="5" passed="5" failed="0" inconclusive="0" skipped="0" asserts="0">
+            <properties />
+            <test-case id="1063" name="BreakingWaveCurvatureMatchesItsCompressedLeadingFace" fullname="Motu.Editor.OceanTranslucencyTests.BreakingWaveCurvatureMatchesItsCompressedLeadingFace" methodname="BreakingWaveCurvatureMatchesItsCompressedLeadingFace" classname="Motu.Editor.OceanTranslucencyTests" runstate="Runnable" seed="186600714" result="Passed" start-time="2026-09-12 05:44:52Z" end-time="2026-09-12 05:44:52Z" duration="0.007011" asserts="0">
+              <properties>
+                <property name="retryIteration" value="0" />
+                <property name="repeatIteration" value="0" />
+              </properties>
+            </test-case>
+            <test-case id="1064" name="CrestsScatterLightMostWhenBacklitAndStayDarkWithoutLight" fullname="Motu.Editor.OceanTranslucencyTests.CrestsScatterLightMostWhenBacklitAndStayDarkWithoutLight" methodname="CrestsScatterLightMostWhenBacklitAndStayDarkWithoutLight" classname="Motu.Editor.OceanTranslucencyTests" runstate="Runnable" seed="78661851" result="Passed" start-time="2026-09-12 05:44:52Z" end-time="2026-09-12 05:44:54Z" duration="1.696497" asserts="0">
+              <properties>
+                <property name="retryIteration" value="0" />
+                <property name="repeatIteration" value="0" />
+              </properties>
+              <output><![CDATA[Ocean translucency: backlit=0.07041, frontlit=0.00073, side=0.00570, overhead=0.00028, ambient=0.00073, oblique broad=0.05051, narrow=0.02186
+]]></output>
+            </test-case>
+            <test-case id="1060" name="CurvatureFollowsLocalCrestsSharpnessAndTransitionPhases" fullname="Motu.Editor.OceanTranslucencyTests.CurvatureFollowsLocalCrestsSharpnessAndTransitionPhases" methodname="CurvatureFollowsLocalCrestsSharpnessAndTransitionPhases" classname="Motu.Editor.OceanTranslucencyTests" runstate="Runnable" seed="1926466733" result="Passed" start-time="2026-09-12 05:44:54Z" end-time="2026-09-12 05:44:54Z" duration="0.008011" asserts="0">
+              <properties>
+                <property name="retryIteration" value="0" />
+                <property name="repeatIteration" value="0" />
+              </properties>
+            </test-case>
+            <test-case id="1062" name="HeightTranslucencyUsesLargestProfilePeakAndSoftSeaLevelFade" fullname="Motu.Editor.OceanTranslucencyTests.HeightTranslucencyUsesLargestProfilePeakAndSoftSeaLevelFade" methodname="HeightTranslucencyUsesLargestProfilePeakAndSoftSeaLevelFade" classname="Motu.Editor.OceanTranslucencyTests" runstate="Runnable" seed="1682676517" result="Passed" start-time="2026-09-12 05:44:54Z" end-time="2026-09-12 05:44:54Z" duration="0.034301" asserts="0">
+              <properties>
+                <property name="retryIteration" value="0" />
+                <property name="repeatIteration" value="0" />
+              </properties>
+            </test-case>
+            <test-case id="1061" name="HullCeilingUsesRenderedDepthLimitEvenWithLargeWeatherWaves" fullname="Motu.Editor.OceanTranslucencyTests.HullCeilingUsesRenderedDepthLimitEvenWithLargeWeatherWaves" methodname="HullCeilingUsesRenderedDepthLimitEvenWithLargeWeatherWaves" classname="Motu.Editor.OceanTranslucencyTests" runstate="Runnable" seed="1900074870" result="Passed" start-time="2026-09-12 05:44:54Z" end-time="2026-09-12 05:44:54Z" duration="0.011977" asserts="0">
+              <properties>
+                <property name="retryIteration" value="0" />
+                <property name="repeatIteration" value="0" />
+              </properties>
+            </test-case>
+          </test-suite>
+          <test-suite type="TestFixture" id="1068" name="RiverSurfaceTests" fullname="Motu.Editor.RiverSurfaceTests" classname="Motu.Editor.RiverSurfaceTests" runstate="Runnable" testcasecount="3" result="Passed" start-time="2026-09-12 05:44:54Z" end-time="2026-09-12 05:44:54Z" duration="0.534265" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0">
+            <properties />
+            <test-case id="1070" name="RenderBendRapidsBanksAndForegroundRocks" fullname="Motu.Editor.RiverSurfaceTests.RenderBendRapidsBanksAndForegroundRocks" methodname="RenderBendRapidsBanksAndForegroundRocks" classname="Motu.Editor.RiverSurfaceTests" runstate="Runnable" seed="863346938" result="Passed" start-time="2026-09-12 05:44:54Z" end-time="2026-09-12 05:44:54Z" duration="0.403589" asserts="0">
+              <properties>
+                <property name="retryIteration" value="0" />
+                <property name="repeatIteration" value="0" />
+              </properties>
+            </test-case>
+            <test-case id="1069" name="RipplesTravelDownstreamAndFollowRotatedAndVerticalSurfaces" fullname="Motu.Editor.RiverSurfaceTests.RipplesTravelDownstreamAndFollowRotatedAndVerticalSurfaces" methodname="RipplesTravelDownstreamAndFollowRotatedAndVerticalSurfaces" classname="Motu.Editor.RiverSurfaceTests" runstate="Runnable" seed="1535454682" result="Passed" start-time="2026-09-12 05:44:54Z" end-time="2026-09-12 05:44:54Z" duration="0.084403" asserts="0">
+              <properties>
+                <property name="retryIteration" value="0" />
+                <property name="repeatIteration" value="0" />
+              </properties>
+            </test-case>
+            <test-case id="1071" name="RiverCompositionPreservesShallowsAndAbsorbsWithDepth" fullname="Motu.Editor.RiverSurfaceTests.RiverCompositionPreservesShallowsAndAbsorbsWithDepth" methodname="RiverCompositionPreservesShallowsAndAbsorbsWithDepth" classname="Motu.Editor.RiverSurfaceTests" runstate="Runnable" seed="906785960" result="Passed" start-time="2026-09-12 05:44:54Z" end-time="2026-09-12 05:44:54Z" duration="0.044418" asserts="0">
+              <properties>
+                <property name="retryIteration" value="0" />
+                <property name="repeatIteration" value="0" />
+              </properties>
+              <output><![CDATA[River patterned-bed distortion: 0.12115
+]]></output>
+            </test-case>
+          </test-suite>
+          <test-suite type="TestFixture" id="1072" name="RuntimeContractsTests" fullname="Motu.Editor.RuntimeContractsTests" classname="Motu.Editor.RuntimeContractsTests" runstate="Runnable" testcasecount="12" result="Passed" start-time="2026-09-12 05:44:54Z" end-time="2026-09-12 05:45:40Z" duration="46.140721" total="4" passed="4" failed="0" inconclusive="0" skipped="0" asserts="0">
+            <properties />
+            <test-case id="1084" name="GenerationCancellationInstallationAndUnload" fullname="Motu.Editor.RuntimeContractsTests.GenerationCancellationInstallationAndUnload" methodname="GenerationCancellationInstallationAndUnload" classname="Motu.Editor.RuntimeContractsTests" runstate="Runnable" seed="294683787" result="Passed" start-time="2026-09-12 05:44:54Z" end-time="2026-09-12 05:45:38Z" duration="44.143760" asserts="0">
+              <properties>
+                <property name="_JOINTYPE" value="UnityCombinatorial" />
+                <property name="Timeout" value="600000" />
+                <property name="Category" value="NativeIntegration" />
+                <property name="retryIteration" value="0" />
+                <property name="repeatIteration" value="0" />
+              </properties>
+            </test-case>
+            <test-case id="1079" name="RuntimeOwnership" fullname="Motu.Editor.RuntimeContractsTests.RuntimeOwnership" methodname="RuntimeOwnership" classname="Motu.Editor.RuntimeContractsTests" runstate="Runnable" seed="1657901810" result="Passed" start-time="2026-09-12 05:45:38Z" end-time="2026-09-12 05:45:38Z" duration="0.001035" asserts="0">
+              <properties>
+                <property name="retryIteration" value="0" />
+                <property name="repeatIteration" value="0" />
+              </properties>
+            </test-case>
+            <test-case id="1081" name="SupportedScenes" fullname="Motu.Editor.RuntimeContractsTests.SupportedScenes" methodname="SupportedScenes" classname="Motu.Editor.RuntimeContractsTests" runstate="Runnable" seed="1256738373" result="Passed" start-time="2026-09-12 05:45:38Z" end-time="2026-09-12 05:45:40Z" duration="1.863189" asserts="0">
+              <properties>
+                <property name="retryIteration" value="0" />
+                <property name="repeatIteration" value="0" />
+              </properties>
+              <output><![CDATA[All four supported scenes and the ocean profile retain their script bindings.
+]]></output>
+            </test-case>
+            <test-case id="1073" name="WeatherAndWaves" fullname="Motu.Editor.RuntimeContractsTests.WeatherAndWaves" methodname="WeatherAndWaves" classname="Motu.Editor.RuntimeContractsTests" runstate="Runnable" seed="524027795" result="Passed" start-time="2026-09-12 05:45:40Z" end-time="2026-09-12 05:45:40Z" duration="0.130064" asserts="0">
+              <properties>
+                <property name="retryIteration" value="0" />
+                <property name="repeatIteration" value="0" />
+              </properties>
+              <output><![CDATA[Coherent weather validation passed: finite bounds, accumulated time, deterministic seeds and independent random state.
+Runtime weather validation passed: wind globals, cloud globals and drift, independent wave directions, all wave groups, driver lifecycle, authored settings, mesh retention, coastal masks, culling bounds and non-finite input rejection.
+Shared vegetation wind GPU validation passed: cardinal/diagonal directions, gusts, calm, speed response, tree strength/root pinning, and both cloud advection scales.
+Saving results to: /tmp/unified-ocean-results.xml
+]]></output>
+            </test-case>
+          </test-suite>
+        </test-suite>
+      </test-suite>
+    </test-suite>
+  </test-suite>
+</test-run>

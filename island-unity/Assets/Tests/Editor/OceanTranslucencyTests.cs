@@ -78,10 +78,10 @@ namespace Motu.Editor
                 material.SetTexture("_WaveAttenuationTex", Texture2D.whiteTexture);
                 material.SetVector("_OceanWave0", new Vector4(1, 0, 30, 20));
                 Shader.SetGlobalVector("_MotuWeatherWind", new Vector4(1, 0, 9, 1));
-                Assert.That(ReadProbe(material)[0].r, Is.EqualTo(5).Within(.0001f));
+                Assert.That(ReadProbe(material)[0].r, Is.EqualTo(10).Within(.0001f));
                 Shader.SetGlobalVector("_MotuWeatherWind", new Vector4(1, 0, 9, 10));
-                Assert.That(ReadProbe(material)[0].r, Is.EqualTo(5).Within(.0001f), "Weather must not steepen the hull rim after depth has capped the rendered waves.");
-                shallow.SetPixel(0, 0, new Color(1, 1, .4f, 1));
+                Assert.That(ReadProbe(material)[0].r, Is.EqualTo(10).Within(.0001f), "Weather must not steepen the hull rim after depth has capped the rendered waves.");
+                shallow.SetPixel(0, 0, new Color(1, 1, .2f, 1));
                 shallow.Apply();
                 material.SetTexture("_WaveAttenuationTex", shallow);
                 Assert.That(ReadProbe(material)[0].r, Is.EqualTo(2).Within(.0001f));
@@ -289,6 +289,32 @@ namespace Motu.Editor
                 // Ambient scattering stays small compared with direct backlighting.
                 RenderSettings.ambientLight = new Color(.15f, .18f, .2f);
                 var backlit = Contribution();
+                var fadeStart = material.GetFloat("_WaveFadeStart");
+                var fadeEnd = material.GetFloat("_WaveFadeEnd");
+                material.SetFloat("_WaveFadeStart", .1f);
+                material.SetFloat("_WaveFadeEnd", .2f);
+                var distant = Contribution();
+                Assert.That(distant, Is.GreaterThan(backlit * .25f),
+                    "The flat distant mesh must retain translucency from its analytic wave crests.");
+                Capture(defaultStrength, "ocean-distant-translucency.png");
+                // Analytic waves remain large here, but the rendered vertices
+                // are flat. Even a texture full of old foam must stay invisible.
+                var noFoam = Capture(0);
+                material.SetFloat("_WhitecapStrength", 1);
+                material.SetFloat("_PersistentFoamStrength", 1);
+                material.SetTexture("_OceanFoamHistory", Texture2D.whiteTexture);
+                material.SetVector("_OceanFoamHistoryRect", new Vector4(-64, -64, 1f / 128, 1f / 128));
+                var flatWithFoam = Capture(0, "flat-ocean-foam-rejected.png");
+                for (var i = 0; i < flatWithFoam.Length; i++)
+                    Assert.That(Mathf.Abs(flatWithFoam[i].r - noFoam[i].r)
+                        + Mathf.Abs(flatWithFoam[i].g - noFoam[i].g)
+                        + Mathf.Abs(flatWithFoam[i].b - noFoam[i].b), Is.LessThan(.001f),
+                        "No white foam may appear where the rendered wave height is zero.");
+                material.SetFloat("_WhitecapStrength", 0);
+                material.SetFloat("_PersistentFoamStrength", 0);
+                material.SetTexture("_OceanFoamHistory", Texture2D.blackTexture);
+                material.SetFloat("_WaveFadeStart", fadeStart);
+                material.SetFloat("_WaveFadeEnd", fadeEnd);
                 var originalPosition = camera.transform.position;
                 var originalRotation = camera.transform.rotation;
                 camera.transform.position = new Vector3(-20, 3, 0);

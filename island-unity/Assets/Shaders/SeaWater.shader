@@ -14,6 +14,7 @@ Shader "Motu/Sea Water"
         _FoamDepositRate ("Foam Deposit Rate", Range(0, 10)) = 2
         [HideInInspector] _OceanFoamHistory ("Foam History", 2D) = "black" {}
         [HideInInspector] _OceanFoamHistoryRect ("Foam History World Rect", Vector) = (0, 0, 0, 0)
+        _CoastalOpacity ("Shallow Coastal Tint", Range(0, 1)) = 0.16
         _Color ("Water Colour", Color) = (0.03, 0.28, 0.55, 1)
         [NoScaleOffset] _NoiseTex ("Ocean Ripple Noise", 2D) = "black" {}
         [HideInInspector] _ShallowOpacity ("Shallow Opacity", Range(0, 1)) = 0.25
@@ -189,11 +190,22 @@ Shader "Motu/Sea Water"
                     _WorldSpaceCameraPos.xyz - input.worldPosition);
                 float3 analyticWaveNormal;
                 float whitecap;
-                float crestResponse = MotuOceanHeightTranslucency(input.deckWaveData.z);
+                float analyticCrestResponse;
+                float foamAllowance;
                 MotuEvaluateOceanWaveNormal(
                     input.waveSamplePosition,
                     analyticWaveNormal,
-                    whitecap);
+                    whitecap,
+                    analyticCrestResponse,
+                    foamAllowance);
+                float2 oceanOrigin = float2(unity_ObjectToWorld._m03, unity_ObjectToWorld._m23);
+                float crestResponse = MotuOceanSurfaceTranslucency(input.deckWaveData.z,
+                    analyticCrestResponse, length(input.waveSamplePosition - oceanOrigin));
+                // Use the final rasterized height too: analytic waves can still
+                // be large after the visible mesh or hull clamp flattens them.
+                float visibleFoamAllowance = MotuOceanFoamHeightAllowance(input.deckWaveData.z);
+                whitecap = max(whitecap, MotuOceanHistoryFoam(input.worldPosition.xz) * foamAllowance)
+                    * visibleFoamAllowance;
                 MotuShipWaveShading(input.worldPosition.xz, input.deckWaveData.x,
                     input.deckWaveData.y, MotuOceanClampHeightEnvelope(input.waveSamplePosition), analyticWaveNormal, whitecap);
                 // Add after hull suppression: displaced water at the hull should
@@ -202,7 +214,6 @@ Shader "Motu/Sea Water"
                 if (boatFoam > 0.0001)
                     whitecap = max(whitecap, boatFoam * MotuOceanFoamPatches(input.waveSamplePosition)
                         * max(_WhitecapStrength, 0.0));
-                whitecap = max(whitecap, MotuOceanHistoryFoam(input.worldPosition.xz));
                 float roughness;
                 float3 detailNormal = MotuOceanRippleNormal(input.worldPosition, analyticWaveNormal, roughness);
                 float3 worldNormal = MotuFacingWaterNormal(detailNormal, viewDirection);
@@ -244,6 +255,8 @@ Shader "Motu/Sea Water"
                     MotuOceanSeabedVisibility(refractedPosition.y, seaLevel));
                 float3 water = MotuWaterShadeOptics(waterBody, refractedScene, pathLength, worldNormal,
                     viewDirection, input.worldPosition, reflectionRipple, roughness, shadowAttenuation, cloud, 1);
+                water = lerp(water, _Color.rgb * waterIllumination,
+                    MotuOceanCoastalTint(input.worldPosition.xz));
                 float3 litWhitecap = _WhitecapColour.rgb * waterIllumination;
                 water = lerp(water, litWhitecap, saturate(whitecap));
                 float4 result = float4(water, 1);

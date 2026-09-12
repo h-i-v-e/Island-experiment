@@ -152,7 +152,6 @@ namespace Motu.Editor
             var waterMesh = ChannelMesh(false);
             var bedMesh = ChannelMesh(true);
             var material = new Material(Shader.Find("Motu/River Water"));
-            var coastMaterial = new Material(Shader.Find("Motu/Coastal Water Overlay"));
             var bedMaterial = new Material(Shader.Find("Standard"));
             var rockMaterial = new Material(Shader.Find("Standard"));
             var noise = ProceduralNoiseTextures.CreateRiverNoiseTexture();
@@ -225,12 +224,6 @@ namespace Motu.Editor
                 Assert.That(Difference(flowing, noFoam), Is.GreaterThan(.0001));
                 material.SetFloat("_RippleStrength", 0);
                 Assert.That(Difference(noFoam, Capture("river-without-detail.png")), Is.GreaterThan(.0001));
-                coastMaterial.SetTexture("_SeaMask", Texture2D.whiteTexture);
-                coastMaterial.SetFloat("_WorldSize", 64);
-                coastMaterial.SetMatrix("_IslandWorldToLocal", Matrix4x4.identity);
-                river.GetComponent<MeshRenderer>().sharedMaterial = coastMaterial;
-                Capture("coastal-tint-only.png");
-                Assert.IsFalse(ShaderUtil.ShaderHasError(coastMaterial.shader));
             }
             finally
             {
@@ -241,7 +234,7 @@ namespace Motu.Editor
                 RenderSettings.ambientLight = oldAmbient;
                 RenderSettings.ambientMode = oldAmbientMode;
                 RenderSettings.sun = oldSun;
-                foreach (var item in new Object[] { river, bed, cameraObject, sunObject, rock, waterMesh, bedMesh, material, coastMaterial, bedMaterial, rockMaterial, noise, target, image }) Object.DestroyImmediate(item);
+                foreach (var item in new Object[] { river, bed, cameraObject, sunObject, rock, waterMesh, bedMesh, material, bedMaterial, rockMaterial, noise, target, image }) Object.DestroyImmediate(item);
             }
         }
 

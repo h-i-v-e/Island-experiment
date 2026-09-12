@@ -33,9 +33,9 @@ namespace Motu.Editor
                     1000f,
                     1),
                 secondParent.transform);
-            var shader = Shader.Find("Motu/Coastal Water Overlay")
+            var shader = Shader.Find("Hidden/Motu/Ocean Wave Attenuation")
                 ?? throw new InvalidOperationException(
-                    "The coastal shader is unavailable for island-runtime validation.");
+                    "The coastal mask shader is unavailable for island-runtime validation.");
             var firstMaterial = new Material(shader);
             var secondMaterial = new Material(shader);
             var firstMask = new Texture2D(1, 1, TextureFormat.RGBA32, false, true);

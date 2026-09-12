@@ -50,10 +50,10 @@ Shader "Hidden/Motu/Ocean Onshore Direction"
                     ? -offshoreGradient / gradientLength
                     : float2(0.0, 0.0);
 
-                // Fade in offshore from 128 to 96 m, then soften the last 16 m
-                // approaching land.
+                // Fade in offshore from 128 to 96 m. Keep coastal ownership
+                // to the shore; depth protection softens the final wave height.
                 float coastDistance = centre * MotuSeaMaskLandDistanceMetres;
-                float coastalBand = smoothstep(2.0, 16.0, coastDistance)
+                float coastalBand = step(0.001, coastDistance)
                     * (1.0 - smoothstep(96.0, MotuSeaMaskLandDistanceMetres, coastDistance));
                 float influence = coastalBand
                     * saturate(gradientLength)

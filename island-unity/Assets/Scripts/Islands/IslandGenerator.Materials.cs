@@ -198,22 +198,6 @@ namespace Motu.Islands
                     ? seaMaterial.GetColor("_Color")
                     : waterColor);
 
-            var coastalShader = Shader.Find("Motu/Coastal Water Overlay")
-                ?? throw new InvalidOperationException(
-                    "Could not find shader 'Motu/Coastal Water Overlay'.");
-            coastalWaterMaterial = new Material(coastalShader)
-            {
-                name = "Motu/Coastal Water Overlay (Island Instance)",
-            };
-            coastalWaterMaterial.SetColor(
-                "_Color",
-                seaMaterial.HasProperty("_Color")
-                    ? seaMaterial.GetColor("_Color")
-                    : waterColor);
-            coastalWaterMaterial.renderQueue = (int)RenderQueue.Transparent + 5;
-            coastalWaterMaterial.SetFloat("_WorldSize", Generation.WorldSizeMetres);
-            coastalWaterMaterial.SetFloat("_CoastalOpacity", 0.16f);
-            coastalWaterMaterial.SetFloat("_EdgeFadeMetres", 24f);
             meshEdgeMaterial = CreateMaterial(
                 "Motu/Mesh Edge Overlay",
                 Color.black,
@@ -354,49 +338,12 @@ namespace Motu.Islands
                 throw new InvalidOperationException(
                     "This graphics device does not support the required RGBA32 sea mask texture.");
             }
-            if (coastalWaterMaterial == null)
-            {
-                throw new InvalidOperationException(
-                    "The coastal-water material was not created before its sea mask.");
-            }
             seaMaskTexture = CreateSurfaceTexture(
                 "Motu Coastal Wave Mask",
                 seaMask.dimension,
                 TextureFormat.RGBA32,
                 seaMask.rgba);
             islandRuntime.OwnTexture(seaMaskTexture);
-            coastalWaterMaterial.SetTexture("_SeaMask", seaMaskTexture);
-        }
-
-        private void CreateCoastalWaterOverlay(float worldSize)
-        {
-            if (runtimeRoot == null || coastalWaterMaterial == null)
-            {
-                throw new InvalidOperationException(
-                    "Coastal water requires an installed island root and material.");
-            }
-            coastalWaterObject = GameObject.CreatePrimitive(PrimitiveType.Plane);
-            coastalWaterObject.name = "Island Coastal Water Overlay";
-            coastalWaterObject.transform.SetParent(runtimeRoot.transform, false);
-            coastalWaterObject.transform.localPosition = Vector3.up
-                * (SeaHeight + CoastalWaterVerticalOffset);
-            coastalWaterObject.transform.localRotation = Quaternion.identity;
-            coastalWaterObject.transform.localScale = Vector3.one
-                * (Mathf.Max(worldSize, 1f) / UnityPlaneSizeMetres);
-            var waterLayer = LayerMask.NameToLayer("Water");
-            if (waterLayer >= 0)
-            {
-                coastalWaterObject.layer = waterLayer;
-            }
-            DestroyUnityObject(coastalWaterObject.GetComponent<Collider>());
-            var renderer = coastalWaterObject.GetComponent<MeshRenderer>();
-            renderer.sharedMaterial = coastalWaterMaterial;
-            renderer.shadowCastingMode = ShadowCastingMode.Off;
-            renderer.receiveShadows = true;
-            renderer.lightProbeUsage = LightProbeUsage.Off;
-            renderer.reflectionProbeUsage = ReflectionProbeUsage.Off;
-            renderer.allowOcclusionWhenDynamic = false;
-            coastalWaterObject.SetActive(Rendering.ShowSea);
         }
 
         private void TransferMaterialOwnershipToRuntime()
@@ -426,7 +373,6 @@ namespace Motu.Islands
             islandRuntime.OwnMaterial(reedMaterial);
             islandRuntime.OwnMaterial(fernMaterial);
             islandRuntime.OwnMaterial(riverMaterial);
-            islandRuntime.OwnMaterial(coastalWaterMaterial);
             islandRuntime.OwnMaterial(meshEdgeMaterial);
             if (ownsCliffNoiseTexture) islandRuntime.OwnTexture(cliffNoiseTexture);
             if (ownsRiverNoiseTexture) islandRuntime.OwnTexture(riverNoiseTexture);
@@ -509,7 +455,6 @@ namespace Motu.Islands
             DestroyUnityObject(reedMaterial);
             DestroyUnityObject(fernMaterial);
             DestroyUnityObject(riverMaterial);
-            DestroyUnityObject(coastalWaterMaterial);
             DestroyUnityObject(meshEdgeMaterial);
             if (ownsCliffNoiseTexture) DestroyUnityObject(cliffNoiseTexture);
             if (ownsRiverNoiseTexture) DestroyUnityObject(riverNoiseTexture);
@@ -529,7 +474,6 @@ namespace Motu.Islands
             reedMaterial = null;
             fernMaterial = null;
             riverMaterial = null;
-            coastalWaterMaterial = null;
             seaMaterial = null;
             meshEdgeMaterial = null;
             cliffNoiseTexture = null;
@@ -542,7 +486,6 @@ namespace Motu.Islands
         private void ResetAppliedLiveSettings()
         {
             appliedShowRivers = null;
-            appliedShowSea = null;
             appliedShowGrass = null;
             appliedShowRocks = null;
             appliedShowForests = null;

@@ -42,7 +42,9 @@ Shader "Hidden/Motu/Ocean Foam History"
                 MotuEvaluateOceanWaveDisplacement(basePosition, 0, displacement);
                 float3 normal;
                 float source;
-                MotuEvaluateOceanWaveNormal(basePosition, normal, source);
+                float crestResponse;
+                float foamAllowance;
+                MotuEvaluateOceanWaveNormal(basePosition, normal, source, crestResponse, foamAllowance);
                 float3 shipField = MotuShipWaveField(world);
                 float clampWeight = MotuDeckWaveClampWeight(world);
                 float finalHeight = MotuShipWaveHeight(displacement.y, shipField, clampWeight,
@@ -57,9 +59,11 @@ Shader "Hidden/Motu/Ocean Foam History"
                 float oldFoam = History(world - (velocity + _FoamWindDrift) * _FoamDeltaTime).r;
                 float decay = exp(-_FoamDeltaTime / max(_FoamLifetime, .1));
                 float foam = oldFoam * decay + saturate(source) * (1-exp(-max(_FoamDepositRate, 0) * _FoamDeltaTime));
-                // Never carry foam onto dry terrain as the local field moves.
+                // Clear stored patches in calm/river-suppressed areas as well
+                // as dry terrain. Active boat disturbance can still make foam.
                 float wet = smoothstep(0, .02, MotuOceanCoastalData(basePosition).b);
-                return float4(saturate(foam) * wet, displacement.xz, 1);
+                float active = step(.0001, max(foamAllowance, max(shipField.z, boat)));
+                return float4(saturate(foam) * wet * active, displacement.xz, 1);
             }
             ENDCG
         }

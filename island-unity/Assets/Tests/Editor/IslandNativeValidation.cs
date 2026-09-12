@@ -648,6 +648,7 @@ namespace Motu.Editor
                 try
                 {
                     if (!seaWaterMaterial.HasProperty("_NoiseTex")
+                        || !seaWaterMaterial.HasProperty("_CoastalOpacity")
                         || !seaWaterMaterial.HasProperty("_ShallowOpacity")
                         || !seaWaterMaterial.HasProperty("_OpacityDepth")
                         || !seaWaterMaterial.HasProperty("_ReflectionColor")
@@ -677,35 +678,6 @@ namespace Motu.Editor
                 finally
                 {
                     DestroyImmediate(seaWaterMaterial);
-                }
-
-                var coastalWaterShader = Shader.Find("Motu/Coastal Water Overlay");
-                if (coastalWaterShader == null
-                    || !coastalWaterShader.isSupported
-                    || UnityEditor.ShaderUtil.ShaderHasError(coastalWaterShader))
-                {
-                    throw new InvalidOperationException(
-                        "The island coastal-water overlay shader is missing or unsupported.");
-                }
-                var coastalWaterMaterial = new Material(coastalWaterShader);
-                try
-                {
-                    if (!coastalWaterMaterial.HasProperty("_SeaMask")
-                        || !coastalWaterMaterial.HasProperty("_WorldSize")
-                        || !coastalWaterMaterial.HasProperty("_CoastalOpacity")
-                        || !coastalWaterMaterial.HasProperty("_EdgeFadeMetres")
-                        || coastalWaterMaterial.HasProperty("_ShallowOpacity")
-                        || coastalWaterMaterial.HasProperty("_OpacityDepth")
-                        || coastalWaterMaterial.HasProperty("_RefractionStrength")
-                        || coastalWaterMaterial.HasProperty("_PlanarReflectionWeight"))
-                    {
-                        throw new InvalidOperationException(
-                            "The coastal-water overlay does not isolate island shore effects.");
-                    }
-                }
-                finally
-                {
-                    DestroyImmediate(coastalWaterMaterial);
                 }
 
                 var waterCameraObject = new GameObject("Water depth validation camera");

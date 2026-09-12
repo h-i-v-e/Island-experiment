@@ -25,7 +25,8 @@ Shader "Hidden/Motu/Tests/Ocean Optics"
                     return float4(normal, roughness);
                 }
                 if (_ProbeMode < 2.5) return MotuWaterSunSpecular(float3(0, 1, 0), normalize(_ProbeView.xyz), normalize(_ProbeLight.xyz), _SurfaceRoughness);
-                return MotuWaterRefractionValidity(_ProbeDistance, 10);
+                if (_ProbeMode < 3.5) return MotuWaterRefractionValidity(_ProbeDistance, 10);
+                return MotuOceanCoastalTint(_ProbeView.xz);
             }
             ENDCG
         }

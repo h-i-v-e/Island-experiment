@@ -47,9 +47,6 @@ namespace Motu.Islands
                 generator.BindWorldEnvironment(worldSize);
                 await frameBudget.YieldIfExceededAsync(cancellationToken);
 
-                generator.CreateCoastalWaterOverlay(worldSize);
-                generator.islandRuntime.SetCoastalWaterObject(
-                    generator.coastalWaterObject);
                 generator.islandRuntime.SetCoastalWaveMask(
                     generator.worldEnvironment,
                     generator.seaMaskTexture,

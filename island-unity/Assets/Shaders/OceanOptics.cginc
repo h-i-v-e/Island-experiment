@@ -3,6 +3,21 @@
 
 #include "WaterOptics.cginc"
 
+float _CoastalOpacity;
+
+float MotuOceanCoastalTint(float2 worldXZ)
+{
+    // The composed mask carries depth / 10 m in B and shore distance / 128 m
+    // in G. Tint now follows the displaced ocean rather than a flat overlay.
+    float4 coastal = MotuOceanCoastalData(worldXZ);
+    float shallow = 1 - saturate(coastal.b);
+    float shoreWeight = lerp(1, .35, saturate(coastal.g * (128.0 / 16.0)));
+    float2 uv = (worldXZ - _WaveAttenuationWorldRect.xy) * _WaveAttenuationWorldRect.zw;
+    float2 edgeMetres = min(uv, 1 - uv) / max(_WaveAttenuationWorldRect.zw, .000001);
+    float edgeFade = smoothstep(0, 24, min(edgeMetres.x, edgeMetres.y));
+    return shallow * shoreWeight * edgeFade * saturate(_CoastalOpacity);
+}
+
 float _RippleStrength;
 float _RippleWorldSize;
 float _RippleSpeed;

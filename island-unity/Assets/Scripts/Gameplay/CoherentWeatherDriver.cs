@@ -61,9 +61,10 @@ namespace Motu.Gameplay
 
         private static void UpdateWave(ref OceanWaveComponent component, DirectionAndSpeed dAndP, float scale, float sharpOffset)
         {
-            component.AmplitudeMetres = dAndP.speed * scale;
+            var speed = dAndP.speed * dAndP.speed;
+            component.AmplitudeMetres = speed * scale;
             component.Direction = dAndP.direction;
-            component.Choppiness = Mathf.Lerp(sharpOffset, 1f, dAndP.speed);
+            component.Choppiness = Mathf.Lerp(sharpOffset, 1f, speed);
         }
 
         private void UpdateClouds(ref CloudWeatherSettings clouds, float time)
@@ -82,13 +83,13 @@ namespace Motu.Gameplay
             var major = ReadWind(5f + elapsedSeconds * 0.0005f);
             var dominant = ReadWind(elapsedSeconds * 0.0001f);
             weather.WindDirection = dominant.direction;
-            var windspeed = dominant.speed * dominant.speed * 25f;
-            weather.WindSpeedMetresPerSecond = windspeed * windspeed;
-            weather.Waves.OnshoreWaveAmplitudeMetres = dominant.speed * 4f;
-            UpdateWave(ref weather.Waves.Wave0, dominant, 4f, 0.5f);
+            var windspeed = dominant.speed * dominant.speed;
+            weather.WindSpeedMetresPerSecond = windspeed * 40f;
+            weather.Waves.OnshoreWaveAmplitudeMetres = windspeed * 5f;
+            UpdateWave(ref weather.Waves.Wave0, dominant, 5f, 0.5f);
             UpdateWave(ref weather.Waves.Wave1, major, 3f, 0f);
-            UpdateWave(ref weather.Waves.Wave2, minor, 0.2f, 0.25f);
-            UpdateWave(ref weather.Waves.Wave3, fine, 0.15f, 0f);
+            UpdateWave(ref weather.Waves.Wave2, minor, 0.4f, 0.25f);
+            UpdateWave(ref weather.Waves.Wave3, fine, 0.3f, 0f);
             UpdateClouds(ref weather.Clouds, elapsedSeconds);
         }
     }

@@ -19,8 +19,74 @@ namespace Motu.Editor
             ValidateCoast(512, 1024f, true);
             ValidateDepthProtection();
             ValidateBreakerApproach();
+            ValidateCoastalWaveCrossfade();
             Debug.Log("Ocean shore distance validation passed: waves beyond 100 m, 128 m cutoff, "
                 + "physical wavelength, resolution/coverage independence, and river suppression.");
+        }
+
+        private static void ValidateCoastalWaveCrossfade()
+        {
+            var material = new Material(Shader.Find("Hidden/Motu/Ocean Shore Distance Probe"));
+            var mask = new Texture2D(1, 1, TextureFormat.RGBAFloat, false, true);
+            var onshore = new Texture2D(1, 1, TextureFormat.RGBAFloat, false, true);
+            var target = RenderTexture.GetTemporary(1, 1, 0, RenderTextureFormat.ARGBFloat,
+                RenderTextureReadWrite.Linear);
+            var oldWind = Shader.GetGlobalVector("_MotuWeatherWind");
+            var oldNoise = Shader.GetGlobalTexture("_MotuWindNoise");
+            try
+            {
+                Shader.SetGlobalVector("_MotuWeatherWind", new Vector4(1, 0, 9, 1));
+                Shader.SetGlobalTexture("_MotuWindNoise", Texture2D.grayTexture);
+                material.SetFloat("_ProbeFullSurface", 1);
+                material.SetFloat("_GeometricWaves", 1);
+                material.SetFloat("_WaveFadeStart", 100);
+                material.SetFloat("_WaveFadeEnd", 200);
+                material.SetTexture("_WaveAttenuationTex", mask);
+                material.SetTexture("_WaveOnshoreTex", onshore);
+                material.SetVector("_WaveAttenuationWorldRect", new Vector4(0, 0, 1, 1));
+                const float wavelength = 12f;
+                var phase = Mathf.PI * .25f;
+                material.SetVector("_OceanWave0", new Vector4(1, 0, wavelength, 1));
+                material.SetVector("_OceanWaveFrom0", new Vector4(1, 0, wavelength, phase));
+                material.SetFloat("_OnshoreWavePhase", phase);
+                foreach (var depth in new[] { 5f, 7.5f, 10f })
+                foreach (var distanceInfluence in new[] { 0f, .5f, 1f })
+                foreach (var enabled in new[] { false, true })
+                foreach (var shoreAmplitude in new[] { 0f, 2f })
+                {
+                    material.SetFloat("_OnshoreWaveEnabled", enabled ? 1 : 0);
+                    material.SetVector("_OnshoreWaveParameters", new Vector4(wavelength, shoreAmplitude, 0, 0));
+                    mask.SetPixel(0, 0, new Color(.2f, 1, depth / 10, 1));
+                    mask.Apply();
+                    // Ordinary waves travel on X; coastal waves on Z. Their
+                    // independent slopes expose mismatched geometry/normal blends.
+                    onshore.SetPixel(0, 0, new Color(.5f, 1, distanceInfluence, 0));
+                    onshore.Apply();
+                    Graphics.Blit(Texture2D.whiteTexture, target, material);
+                    var actual = Read(target)[0];
+                    var coastal = enabled && shoreAmplitude > 0
+                        ? distanceInfluence * (1 - Mathf.SmoothStep(0, 1, (depth - 5) / 5)) : 0;
+                    var ordinary = (enabled && shoreAmplitude > 0 ? 1 : .2f) * (1 - coastal);
+                    var expectedHeight = Mathf.Sin(phase) * (ordinary + shoreAmplitude * coastal);
+                    var slope = 2 * Mathf.PI / wavelength * Mathf.Cos(phase);
+                    var expectedNormal = new Vector3(-slope * ordinary, 1, -slope * shoreAmplitude * coastal).normalized;
+                    Require(Mathf.Abs(actual.r - expectedHeight) < .002f,
+                        $"Coastal/swell height blend failed at depth {depth}, influence {distanceInfluence}, enabled {enabled}, amplitude {shoreAmplitude}.");
+                    Require(Vector3.Distance(new Vector3(actual.g, actual.b, actual.a), expectedNormal) < .002f,
+                        "Normals must use the same coastal/swell blend as displacement.");
+                }
+                Require(!ShaderUtil.ShaderHasError(material.shader), "Coastal crossfade shader failed to compile.");
+                Debug.Log("Coastal crossfade passed: pure coastal, partial blend, full depth, outer distance, disabled/zero-amplitude coastal waves, and matching normals.");
+            }
+            finally
+            {
+                Shader.SetGlobalVector("_MotuWeatherWind", oldWind);
+                Shader.SetGlobalTexture("_MotuWindNoise", oldNoise);
+                RenderTexture.ReleaseTemporary(target);
+                UnityEngine.Object.DestroyImmediate(material);
+                UnityEngine.Object.DestroyImmediate(mask);
+                UnityEngine.Object.DestroyImmediate(onshore);
+            }
         }
 
         private static void ValidateBreakerApproach()
@@ -105,7 +171,8 @@ namespace Motu.Editor
                         "Depth-driven breaking must retain seabed protection.");
                     if (depth > 0f)
                     {
-                        Require(breaking.g > previousFoam && Mathf.Abs(breaking.r) < previousHeight,
+                        Require((depth >= 1f ? breaking.g > previousFoam : breaking.g < previousFoam)
+                            && Mathf.Abs(breaking.r) < previousHeight,
                             $"Foam must build as the wave shrinks: depth={depth}, foam={breaking.g}, height={breaking.r}.");
                         previousFoam = breaking.g;
                         previousHeight = Mathf.Abs(breaking.r);
@@ -224,8 +291,9 @@ namespace Motu.Editor
                     Graphics.Blit(Texture2D.whiteTexture, target, probe);
                     var actual = Read(target)[0];
                     var depthScale = Mathf.Clamp01(depth * 10f / amplitude);
-                    var expectedHeight = amplitude * Mathf.Sin(phase) * depthScale;
-                    var slope = amplitude * (2f * Mathf.PI / 12f) * Mathf.Cos(phase) * depthScale;
+                    var coastalBlend = shore ? 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(5f, 10f, depth * 10f)) : 1f;
+                    var expectedHeight = amplitude * Mathf.Sin(phase) * depthScale * coastalBlend;
+                    var slope = amplitude * (2f * Mathf.PI / 12f) * Mathf.Cos(phase) * depthScale * coastalBlend;
                     var expectedNormal = new Vector3(slope, 1f, 0f).normalized;
                     Require(Mathf.Abs(actual.r - expectedHeight) < .005f,
                         $"Depth protection did not scale {amplitude} m waves (shore={shore}, depth={depth}).");
@@ -274,9 +342,9 @@ namespace Motu.Editor
                 for (var y = 0; y < 8; y++)
                 for (var x = 0; x < resolution; x++)
                 {
-                    // Straight coast 32 m from the left edge; deep water offshore.
+                    // Straight coast 32 m from the left edge; five-metre water offshore.
                     var distance = (x + .5f) * coverage / resolution - 32f;
-                    pixels[y * resolution + x] = new Color(distance <= 0f ? 1f : 0f,
+                    pixels[y * resolution + x] = new Color(distance <= 0f ? 1f : .5f,
                         Mathf.Clamp01(distance / 128f), river ? 1f : 0f, 1f);
                 }
                 seaMask.SetPixels(pixels);
@@ -308,6 +376,8 @@ namespace Motu.Editor
                     $"Shore waves disappeared beyond 100 m ({resolution}, {coverage}).");
                 Require(coast[Pixel(132)].b < .001f && coast[Pixel(-8)].b < .001f,
                     "Shore waves must fade out beyond 128 m and on land.");
+                Require(coast[Pixel(8)].b > .99f,
+                    "Coastal waves must keep ownership in the final metres approaching shore.");
                 Require(coast[Pixel(64)].r < .01f && Mathf.Abs(coast[Pixel(64)].g - .5f) < .01f,
                     "Waves must travel towards the straight shoreline.");
                 Require(mask[Pixel(32)].r > .99f,
@@ -315,6 +385,7 @@ namespace Motu.Editor
 
                 Shader.SetGlobalVector("_MotuWeatherWind", new Vector4(1f, 0f, 9f, 1f));
                 probe.SetTexture("_WaveOnshoreTex", onshore);
+                probe.SetTexture("_WaveAttenuationTex", composed);
                 probe.SetVector("_WaveAttenuationWorldRect", new Vector4(0f, 0f, 1f, 1f));
                 probe.SetFloat("_OnshoreWaveEnabled", 1f);
                 probe.SetVector("_OnshoreWaveParameters", new Vector4(12f, 1f, 0f, 0f));

@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="utf-8"?>
+<test-run id="2" testcasecount="2" result="Failed(Child)" total="2" passed="0" failed="2" inconclusive="0" skipped="0" asserts="0" engine-version="3.5.0.0" clr-version="4.0.30319.42000" start-time="2026-09-12 01:55:56Z" end-time="2026-09-12 01:55:57Z" duration="1.0363357">
+  <test-suite type="TestSuite" id="1000" name="island-unity" fullname="island-unity" runstate="Runnable" testcasecount="88" result="Failed" site="Child" start-time="2026-09-12 01:55:56Z" end-time="2026-09-12 01:55:57Z" duration="1.036336" total="2" passed="0" failed="2" inconclusive="0" skipped="0" asserts="0">
+    <properties>
+      <property name="platform" value="EditMode" />
+    </properties>
+    <failure>
+      <message><![CDATA[One or more child tests had errors]]></message>
+    </failure>
+    <test-suite type="Assembly" id="1107" name="Motu.Tests.Editor.dll" fullname="/private/tmp/motu-ship-spray.7RcBx7/Library/ScriptAssemblies/Motu.Tests.Editor.dll" runstate="Runnable" testcasecount="88" result="Failed" site="Child" start-time="2026-09-12 01:55:56Z" end-time="2026-09-12 01:55:57Z" duration="1.031883" total="2" passed="0" failed="2" inconclusive="0" skipped="0" asserts="0">
+      <properties>
+        <property name="_PID" value="89782" />
+        <property name="_APPDOMAIN" value="Unity Child Domain" />
+        <property name="platform" value="EditMode" />
+        <property name="EditorOnly" value="True" />
+      </properties>
+      <failure>
+        <message><![CDATA[One or more child tests had errors]]></message>
+      </failure>
+      <test-suite type="TestSuite" id="1108" name="Motu" fullname="Motu" runstate="Runnable" testcasecount="88" result="Failed" site="Child" start-time="2026-09-12 01:55:56Z" end-time="2026-09-12 01:55:57Z" duration="1.026963" total="2" passed="0" failed="2" inconclusive="0" skipped="0" asserts="0">
+        <properties />
+        <failure>
+          <message><![CDATA[One or more child tests had errors]]></message>
+        </failure>
+        <test-suite type="TestSuite" id="1109" name="Editor" fullname="Motu.Editor" runstate="Runnable" testcasecount="88" result="Failed" site="Child" start-time="2026-09-12 01:55:56Z" end-time="2026-09-12 01:55:57Z" duration="1.024657" total="2" passed="0" failed="2" inconclusive="0" skipped="0" asserts="0">
+          <properties />
+          <failure>
+            <message><![CDATA[One or more child tests had errors]]></message>
+          </failure>
+          <test-suite type="TestFixture" id="1041" name="OceanOpticsTests" fullname="Motu.Editor.OceanOpticsTests" classname="Motu.Editor.OceanOpticsTests" runstate="Runnable" testcasecount="8" result="Failed" site="Child" start-time="2026-09-12 01:55:56Z" end-time="2026-09-12 01:55:56Z" duration="0.078509" total="1" passed="0" failed="1" inconclusive="0" skipped="0" asserts="0">
+            <properties />
+            <failure>
+              <message><![CDATA[One or more child tests had errors]]></message>
+            </failure>
+            <test-case id="1042" name="CalmAndRiverSuppressedSeaRejectsNewAndStoredFoam" fullname="Motu.Editor.OceanOpticsTests.CalmAndRiverSuppressedSeaRejectsNewAndStoredFoam" methodname="CalmAndRiverSuppressedSeaRejectsNewAndStoredFoam" classname="Motu.Editor.OceanOpticsTests" runstate="Runnable" seed="416323701" result="Failed" start-time="2026-09-12 01:55:56Z" end-time="2026-09-12 01:55:56Z" duration="0.072233" asserts="0">
+              <properties>
+                <property name="retryIteration" value="0" />
+                <property name="repeatIteration" value="0" />
+              </properties>
+              <failure>
+                <message><![CDATA[  Tiny waves or flattened river channels must not generate whitecaps.
+  Expected: 0
+  But was:  0.137755066f
+]]></message>
+                <stack-trace><![CDATA[at Motu.Editor.OceanOpticsTests.CalmAndRiverSuppressedSeaRejectsNewAndStoredFoam () [0x00318] in /private/tmp/motu-ship-spray.7RcBx7/Assets/Tests/Editor/OceanOpticsTests.cs:63
+]]></stack-trace>
+              </failure>
+            </test-case>
+          </test-suite>
+          <test-suite type="TestFixture" id="1058" name="OceanTranslucencyTests" fullname="Motu.Editor.OceanTranslucencyTests" classname="Motu.Editor.OceanTranslucencyTests" runstate="Runnable" testcasecount="5" result="Failed" site="Child" start-time="2026-09-12 01:55:56Z" end-time="2026-09-12 01:55:57Z" duration="0.944235" total="1" passed="0" failed="1" inconclusive="0" skipped="0" asserts="0">
+            <properties />
+            <failure>
+              <message><![CDATA[One or more child tests had errors]]></message>
+            </failure>
+            <test-case id="1063" name="CrestsScatterLightMostWhenBacklitAndStayDarkWithoutLight" fullname="Motu.Editor.OceanTranslucencyTests.CrestsScatterLightMostWhenBacklitAndStayDarkWithoutLight" methodname="CrestsScatterLightMostWhenBacklitAndStayDarkWithoutLight" classname="Motu.Editor.OceanTranslucencyTests" runstate="Runnable" seed="883961811" result="Failed" start-time="2026-09-12 01:55:56Z" end-time="2026-09-12 01:55:57Z" duration="0.943360" asserts="0">
+              <properties>
+                <property name="retryIteration" value="0" />
+                <property name="repeatIteration" value="0" />
+              </properties>
+              <failure>
+                <message><![CDATA[  No white foam may appear where the rendered wave height is zero.
+  Expected: less than 0.00100000005f
+  But was:  1.74432302f
+]]></message>
+                <stack-trace><![CDATA[at Motu.Editor.OceanTranslucencyTests.CrestsScatterLightMostWhenBacklitAndStayDarkWithoutLight () [0x0054f] in /private/tmp/motu-ship-spray.7RcBx7/Assets/Tests/Editor/OceanTranslucencyTests.cs:309
+]]></stack-trace>
+              </failure>
+              <output><![CDATA[Saving results to: /tmp/ocean-visible-foam-before-results.xml
+]]></output>
+            </test-case>
+          </test-suite>
+        </test-suite>
+      </test-suite>
+    </test-suite>
+  </test-suite>
+</test-run>

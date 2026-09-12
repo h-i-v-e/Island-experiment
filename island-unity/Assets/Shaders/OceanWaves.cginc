@@ -480,7 +480,7 @@ void MotuEvaluateOnshoreWaveField(
     breakerFoam = 0.0;
     crestCurvature = 0.0;
     [branch]
-    if (_OnshoreWaveEnabled <= 0.0001)
+    if (_OnshoreWaveEnabled <= 0.0001 || _OnshoreWaveParameters.y <= 0.0)
     {
         return;
     }
@@ -492,6 +492,11 @@ void MotuEvaluateOnshoreWaveField(
         onshoreDirection,
         influence,
         coastalCoordinate);
+    float waterDepth = saturate(MotuOceanCoastalData(worldPosition).b) * MotuSeaMaskDepthMetres;
+    // Ordinary swell owns full-depth water; coastal waves take over across
+    // the outer half of the depth range, independently of their wave phase.
+    influence *= 1.0 - smoothstep(MotuOceanAttenuationDepthMetres,
+        MotuSeaMaskDepthMetres, waterDepth);
     [branch]
     if (influence <= 0.0001)
     {
@@ -501,7 +506,7 @@ void MotuEvaluateOnshoreWaveField(
         onshoreDirection,
         influence,
         coastalCoordinate,
-        saturate(MotuOceanCoastalData(worldPosition).b) * MotuSeaMaskDepthMetres,
+        waterDepth,
         displacement,
         heightDerivative,
         breakerFoam,
@@ -514,6 +519,16 @@ void MotuEvaluateOnshoreWaveField(float2 worldPosition, out float3 displacement,
     float unusedCurvature;
     MotuEvaluateOnshoreWaveField(worldPosition, displacement, heightDerivative,
         influence, breakerFoam, unusedCurvature);
+}
+
+float MotuOceanOrdinaryWaveAllowance(float4 coastalData, float onshoreInfluence)
+{
+    // With coastal waves active, their crossfade replaces the old shore/depth
+    // attenuation. Keep river suppression and the shared seabed height limit.
+    // Without a coastal wave, retain the original ordinary-swell behaviour.
+    float coastalEnabled = _OnshoreWaveParameters.y > 0.0 ? saturate(_OnshoreWaveEnabled) : 0.0;
+    return lerp(coastalData.r, coastalData.a, coastalEnabled)
+        * (1.0 - saturate(onshoreInfluence));
 }
 
 void MotuEvaluateOceanWaveDisplacement(
@@ -533,24 +548,22 @@ void MotuEvaluateOceanWaveDisplacement(
         return;
     }
     float4 coastalData = MotuOceanCoastalData(worldPosition);
-    float combinedAttenuation = coastalData.r;
     float2 unusedBaseDerivative;
     MotuEvaluateOceanWaveField(
         worldPosition,
         displacement,
         unusedBaseDerivative);
-    displacement *= combinedAttenuation;
-
     float3 onshoreDisplacement;
     float2 unusedOnshoreDerivative;
-    float unusedOnshoreInfluence;
+    float onshoreInfluence;
     float unusedBreakerFoamSlope;
     MotuEvaluateOnshoreWaveField(
         worldPosition,
         onshoreDisplacement,
         unusedOnshoreDerivative,
-        unusedOnshoreInfluence,
+        onshoreInfluence,
         unusedBreakerFoamSlope);
+    displacement *= MotuOceanOrdinaryWaveAllowance(coastalData, onshoreInfluence);
     float depthWaveScale = MotuOceanDepthWaveScale(coastalData);
     displacement = (displacement + onshoreDisplacement)
         * geometryWeight
@@ -578,6 +591,35 @@ float MotuOceanHeightTranslucency(float heightAboveSeaPlane)
     // Mostly proportional to actual height, with a flat tangent at sea level
     // to avoid bringing back a sharp border between lit crests and dark troughs.
     return height * smoothstep(0.0, 0.15, height);
+}
+
+float MotuOceanSurfaceTranslucency(float renderedHeight, float analyticResponse, float localRadius)
+{
+    // Switch to the same analytic waves used by distant normals before mesh
+    // displacement fades out. Near the viewer, retain hull-clamped heights.
+    float farBlend = smoothstep(max(_WaveFadeStart, 0.0) * 0.75,
+        max(_WaveFadeStart, 0.001), localRadius);
+    return lerp(MotuOceanHeightTranslucency(renderedHeight), analyticResponse, farBlend);
+}
+
+float MotuOceanFoamAllowance(float4 coastalData, float ordinaryAllowance, float onshoreInfluence)
+{
+    float ordinaryAmplitude = (max(_OceanWave0.w, 0.0) + max(_OceanWave1.w, 0.0)
+        + max(_OceanWave2.w, 0.0) + max(_OceanWave3.w, 0.0))
+        * (1.0 + saturate(_WaveAmplitudeVariation)) * ordinaryAllowance;
+    float localAmplitude = (ordinaryAmplitude + max(_OnshoreWaveParameters.y, 0.0) * onshoreInfluence)
+        * max(_MotuWeatherWind.w, 0.0) * saturate(_GeometricWaves)
+        * MotuOceanDepthWaveScale(coastalData);
+    // Use the local wave envelope, not instantaneous height, so foam does not
+    // blink as crests pass sea level. Exclude strongly flattened river channels.
+    return smoothstep(0.03, 0.10, localAmplitude) * smoothstep(0.02, 0.10, coastalData.a);
+}
+
+float MotuOceanFoamHeightAllowance(float heightAboveSeaPlane)
+{
+    // A large authored envelope does not imply a visible crest: cancellation,
+    // depth limits, and mesh flattening can leave only a few centimetres.
+    return smoothstep(0.10, 0.25, heightAboveSeaPlane);
 }
 
 float2 MotuFoamCellSeed(float2 cell)
@@ -643,11 +685,13 @@ void MotuEvaluateOceanWaveNormal(
     float2 worldPosition,
     out float3 worldNormal,
     out float whitecap,
-    out float crestResponse)
+    out float crestResponse,
+    out float foamAllowance)
 {
     worldNormal = float3(0.0, 1.0, 0.0);
     whitecap = 0.0;
     crestResponse = 0.0;
+    foamAllowance = 0.0;
     float geometricWaveWeight = saturate(_GeometricWaves);
     [branch]
     if (geometricWaveWeight <= 0.0001)
@@ -655,7 +699,6 @@ void MotuEvaluateOceanWaveNormal(
         return;
     }
     float4 coastalData = MotuOceanCoastalData(worldPosition);
-    float normalAttenuation = coastalData.r;
     float3 baseDisplacement;
     float2 baseHeightDerivative;
     float baseCurvature;
@@ -677,6 +720,8 @@ void MotuEvaluateOceanWaveNormal(
         onshoreInfluence,
         breakerFoam,
         onshoreCurvature);
+    float normalAttenuation = MotuOceanOrdinaryWaveAllowance(coastalData, onshoreInfluence);
+    foamAllowance = MotuOceanFoamAllowance(coastalData, normalAttenuation, onshoreInfluence);
     float surfaceWaveAllowance = max(normalAttenuation, onshoreInfluence);
     [branch]
     if (surfaceWaveAllowance <= 0.0001)
@@ -687,6 +732,7 @@ void MotuEvaluateOceanWaveNormal(
         + onshoreDisplacement;
     float depthWaveScale = MotuOceanDepthWaveScale(coastalData);
     combinedDisplacement *= depthWaveScale;
+    foamAllowance *= MotuOceanFoamHeightAllowance(combinedDisplacement.y * geometricWaveWeight);
     float2 heightDerivative = (
         baseHeightDerivative * normalAttenuation
         + onshoreHeightDerivative)
@@ -723,7 +769,14 @@ void MotuEvaluateOceanWaveNormal(
         * brokenPatches;
     float breakerWhitecap = breakerFoam * geometricWaveWeight * brokenPatches;
     whitecap = max(ordinaryWhitecap, breakerWhitecap)
-        * max(_WhitecapStrength, 0.0);
+        * max(_WhitecapStrength, 0.0) * foamAllowance;
+}
+
+void MotuEvaluateOceanWaveNormal(float2 worldPosition, out float3 worldNormal,
+    out float whitecap, out float crestResponse)
+{
+    float unusedFoamAllowance;
+    MotuEvaluateOceanWaveNormal(worldPosition, worldNormal, whitecap, crestResponse, unusedFoamAllowance);
 }
 
 void MotuEvaluateOceanWaveNormal(float2 worldPosition, out float3 worldNormal,

@@ -16,8 +16,6 @@ namespace Motu.Islands
     public sealed partial class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
     {
         private const float SeaHeight = 0f;
-        private const float CoastalWaterVerticalOffset = 0.015f;
-        private const float UnityPlaneSizeMetres = 10f;
         private const float RockPatchNoiseDetailScale = 8f;
         private static readonly int IslandWorldToLocalId = Shader.PropertyToID(
             "_IslandWorldToLocal");
@@ -51,8 +49,6 @@ namespace Motu.Islands
         private Material rockMaterial;
         private Material riverMaterial;
         private Material seaMaterial;
-        private Material coastalWaterMaterial;
-        private GameObject coastalWaterObject;
         private Material meshEdgeMaterial;
         internal Material treeWoodMaterial;
         private Material treeLod1WoodMaterial;
@@ -72,7 +68,6 @@ namespace Motu.Islands
         private bool ownsCliffNoiseTexture;
         private bool ownsRiverNoiseTexture;
         private bool? appliedShowRivers;
-        private bool? appliedShowSea;
         private bool? appliedShowGrass;
         private bool? appliedShowRocks;
         private bool? appliedShowForests;
@@ -432,14 +427,12 @@ namespace Motu.Islands
             }
             DestroyUnityObject(runtimeRoot);
             runtimeRoot = null;
-            coastalWaterObject = null;
             terrainMaterial?.SetTexture("_WorldNormal", null);
             terrainMaterial?.SetTexture("_Occlusion", null);
             terrainLod1Material?.SetTexture("_WorldNormal", null);
             terrainLod1Material?.SetTexture("_Occlusion", null);
             terrainLod2Material?.SetTexture("_WorldNormal", null);
             terrainLod2Material?.SetTexture("_Occlusion", null);
-            coastalWaterMaterial?.SetTexture("_SeaMask", null);
             DestroyUnityObject(terrainNormalTexture);
             DestroyUnityObject(terrainOcclusionTexture);
             DestroyUnityObject(seaMaskTexture);
@@ -457,7 +450,6 @@ namespace Motu.Islands
             islandHandle = null;
             terrainStreamer = null;
             runtimeRoot = null;
-            coastalWaterObject = null;
             terrainMaterialTextures = null;
             terrainMaterial = null;
             terrainLod1Material = null;
@@ -475,7 +467,6 @@ namespace Motu.Islands
             reedMaterial = null;
             fernMaterial = null;
             riverMaterial = null;
-            coastalWaterMaterial = null;
             meshEdgeMaterial = null;
             terrainNormalTexture = null;
             terrainOcclusionTexture = null;

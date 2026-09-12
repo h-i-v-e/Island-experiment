@@ -24,7 +24,12 @@ namespace Motu.Editor
         [Test] public void MinimapTeleport() => MinimapTeleportValidation.BatchValidateMinimapTeleport();
         [Test] public void SoilPolicyAndRequestIsolation() => IslandRequestValidation.ValidateSoilAndSnapshots();
         [Test] public void CancellationAndRestart() => IslandRequestValidation.ValidateCancellation();
-        [Test] public void RuntimeOwnership() => IslandOwnershipValidation.ValidateOwnershipContract();
+        [Test]
+        public void RuntimeOwnership()
+        {
+            IslandOwnershipValidation.ValidateOwnershipContract();
+            OceanRenderingValidation.ValidateCoastalMaskIsolation();
+        }
         [Test] public void MaterialCacheRoundTrip() => MaterialCacheValidation.ValidateRoundTrip();
         [Test] public void SupportedScenes() => SceneMigrationValidation.ValidateScenes();
 
@@ -143,6 +148,8 @@ namespace Motu.Editor
                 while (!installed.IsCompleted) yield return null;
                 Assert.IsTrue(installed.GetAwaiter().GetResult(), generator.Status);
                 Assert.IsTrue(generator.HasActiveRuntime);
+                Assert.IsFalse(islandHost.GetComponentsInChildren<Transform>(true)
+                    .Any(value => value.name == "Island Coastal Water Overlay"));
                 var meshes = islandHost.GetComponentsInChildren<MeshFilter>(true).Select(value => value.sharedMesh)
                     .Where(mesh => mesh != null && !UnityEditor.EditorUtility.IsPersistent(mesh)).Distinct().ToArray();
                 generator.Clear();

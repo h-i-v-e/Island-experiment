@@ -44,7 +44,6 @@ namespace Motu.Islands
                 throw new InvalidOperationException("Caves must belong to this island runtime.");
             Caves = caves;
         }
-        internal GameObject CoastalWaterObject { get; private set; }
         internal NativeIslandHandle NativeHandle => nativeHandle;
 
         internal static IslandRuntime Create(
@@ -122,18 +121,6 @@ namespace Motu.Islands
             }
         }
 
-        internal void SetCoastalWaterObject(GameObject value)
-        {
-            RequireInstalling();
-            CoastalWaterObject = value
-                ?? throw new ArgumentNullException(nameof(value));
-            if (!value.transform.IsChildOf(transform))
-            {
-                throw new InvalidOperationException(
-                    "The coastal overlay must be installed below its island runtime.");
-            }
-        }
-
         internal void SetCoastalWaveMask(
             WorldEnvironmentController environment,
             Texture mask,
@@ -152,7 +139,8 @@ namespace Motu.Islands
             RequireInstalling();
             if (nativeHandle == null
                 || TerrainStreamer == null
-                || CoastalWaterObject == null
+                || coastalWaveMask == null
+                || coastalWaveEnvironment == null
                 || terrainTextureArrays == null
                 || ownedMaterials.Count == 0)
             {
@@ -219,7 +207,6 @@ namespace Motu.Islands
             Caves = null;
             TerrainStreamer?.Dispose();
             TerrainStreamer = null;
-            CoastalWaterObject = null;
             coastalWaveEnvironment = null;
             coastalWaveMask = null;
             coastalWaveWorldSize = 0f;

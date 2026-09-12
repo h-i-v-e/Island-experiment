@@ -37,7 +37,7 @@ namespace Motu.Editor
             }
 
             ValidateOpenSeaEnvironmentOwnership();
-            ValidateCoastalOverlayIsolation();
+            ValidateCoastalMaskIsolation();
         }
         internal static void ValidateOceanWaveSystem()
         {
@@ -212,14 +212,14 @@ namespace Motu.Editor
                 UnityEngine.Object.DestroyImmediate(onshoreMaterial);
             }
         }
-        internal static void ValidateCoastalOverlayIsolation()
+        internal static void ValidateCoastalMaskIsolation()
         {
             var deepOceanShader = Shader.Find("Motu/Sea Water");
-            var coastalShader = Shader.Find("Motu/Coastal Water Overlay");
+            var coastalShader = Shader.Find("Hidden/Motu/Ocean Wave Attenuation");
             if (deepOceanShader == null || coastalShader == null)
             {
                 throw new InvalidOperationException(
-                    "The deep-ocean or coastal-overlay shader is unavailable.");
+                    "The deep-ocean or coastal-mask shader is unavailable.");
             }
             var deepOcean = new Material(deepOceanShader);
             var firstCoast = new Material(coastalShader);
@@ -240,10 +240,10 @@ namespace Motu.Editor
                         == secondCoast.GetMatrix("_IslandWorldToLocal")
                     || firstCoast.GetTexture("_SeaMask")
                         == secondCoast.GetTexture("_SeaMask")
-                    || firstCoast.renderQueue <= deepOcean.renderQueue)
+                    || !deepOcean.HasProperty("_CoastalOpacity"))
                 {
                     throw new InvalidOperationException(
-                        "Mock islands did not retain isolated coastal masks, transforms, and ordering.");
+                        "Mock islands did not retain isolated coastal masks and transforms.");
                 }
             }
             finally

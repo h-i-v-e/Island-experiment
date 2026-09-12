@@ -23,7 +23,6 @@ namespace Motu.Islands
             grassMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
             rockMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
             riverMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
-            coastalWaterMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
             treeWoodMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
             treeLod1WoodMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
             treeFoliageMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
@@ -47,14 +46,6 @@ namespace Motu.Islands
             {
                 appliedShowRivers = Rendering.ShowRivers;
                 terrainStreamer?.SetRiversVisible(Rendering.ShowRivers);
-            }
-            if (appliedShowSea != Rendering.ShowSea)
-            {
-                appliedShowSea = Rendering.ShowSea;
-                if (coastalWaterObject != null)
-                {
-                    coastalWaterObject.SetActive(Rendering.ShowSea);
-                }
             }
             if (appliedShowGrass != Rendering.ShowGrass)
             {

@@ -352,6 +352,10 @@ at a tile or LOD boundary. LOD 0 disables the sampled normal per renderer and
 uses its own geometric normals; LOD 1 and LOD 2 use the world-space normal map
 derived from the final LOD 0 terrain.
 
+Terrain wet darkening and highlights fade with `1 - river contribution` in the
+fragment shader. Full river-bed coverage has no wetness; mixed bank coverage
+retains a smooth wet transition, including in the distant terrain shading.
+
 Rock, riverbed, forest-floor, and fallen-stones textures are baked in memory by
 the Rust library for each island and use a single top-down XZ projection. Unity
 selects deterministic linear dirt and stone colours first, passes those values
@@ -429,10 +433,11 @@ reflecting itself. Tune `Resolution Scale`, `Clip Plane Offset`, and
 sky-colour reflection remains the fallback outside the reflection texture or
 when the component is disabled.
 
-The player-relative deep ocean performs reflection, refraction, distortion, and
-depth opacity once without depending on any island mask. Each island adds a
-bounded, edge-faded coastal overlay just above it; this overlay owns the sea
-mask and shallow tint without repeating the ocean GrabPass.
+The player-relative ocean performs reflection, refraction, distortion, depth
+opacity, and shallow coastal tint in one animated surface. Each island retains
+its sea mask for the shared wave-mask composer; no coastal overlay plane or
+material is created. `Shallow Coastal Tint` controls the tint strength (0.16 by
+default), fading to zero at 10 metres depth and at the composed mask bounds.
 Each of the four ocean waves has its own world-space direction, controlled by
 `weather.Waves.Wave0.Direction` through `Wave3.Direction`. Changing
 `weather.WindDirection` does not rotate these waves or align them to the first
@@ -441,15 +446,15 @@ authored 9 m/s reference values. The same global wind
 also advects clouds and drives grass, reeds, ferns, foliage, and wood sway.
 Generated island content is installed below a self-contained `IslandRuntime`.
 It owns the native handle, terrain streamer, per-island materials, generated
-textures, colliders, vegetation, rivers, waterfall effects, and coastal
-overlay. Installation remains inactive until required resources are ready, and
+textures, colliders, vegetation, rivers, waterfall effects, and coastal wave
+masks. Installation remains inactive until required resources are ready, and
 clearing or a failed partial installation disposes that island without changing
 the global sky or deep ocean. `IslandGenerator` remains the inspector-compatible
 origin-island wrapper.
 
 The sea mask's green channel stores linear distance from land over **128 metres**.
 Geometric onshore waves fade in travelling from 128 to 96 metres offshore,
-remain at full strength until 16 metres, then soften towards land. Their direction
+take over fully in shallow water, then shrink with depth towards land. Their direction
 comes from the land-distance gradient, scaled in world metres so mask resolution
 and coverage do not change wave strength. Their phase also uses actual metres,
 keeping authored wavelength and speed independent of the mask range. Scripted
@@ -457,14 +462,19 @@ onshore amplitudes have no fixed 4-metre input cap, but the combined wave field
 is scaled to the depth map to keep troughs above the seabed. This map covers
 0-10 metres, so the same conservative 10-metre displacement limit also applies in
 deeper water. Normals use the same depth scaling; breaker foam instead follows shallow-water breaking so it remains visible as displacement shrinks. Carved river
-channels still suppress waves. Ordinary
-swell attenuation retains its original 5-metre depth and 16-metre distance weighting.
+channels still suppress waves. With coastal waves active, the four ordinary wave
+bands use `1 - coastal influence` instead of the original shore/depth attenuation,
+using the same blend for displacement, normals, and buoyancy. Coastal influence
+fades out between 5 and 10 metres depth and between 96 and 128 metres from land;
+ordinary swell returns to full strength at either outer limit. Disabling coastal
+waves or setting their amplitude to zero restores the original ordinary-swell
+attenuation (5-metre depth and 16-metre distance weighting).
 The ocean fades refracted seabed colour into its deep-water body colour between
 6 and 9.5 metres below the mean sea plane, completing before the 10-metre mesh
 cutoff. The fade uses the reconstructed refracted scene position, so waves and
 camera angle do not move the depth thresholds. River optics are unchanged.
 
-The coastal overlay no longer draws incoming or reverse-echo wave stripes.
+No incoming or reverse-echo wave stripes are drawn.
 The geometric onshore component compresses its leading,
 shore-facing rise over a configurable depth range, while
 retaining a rounded rear face. `Leading Edge Sharpness` controls the maximum
@@ -601,7 +611,7 @@ The controller uses mass-scaled thrust and inertia-scaled yaw torque and leaves 
 
 **Ocean Deck Wave Clamp** on the ship defines a horizontal capsule: **Start/End** are local-space end centres; **Radius Metres** is the fully clamped radius and **Blend Metres** is the transition outside it. Dimensions are in world metres even on scaled imports. The cyan Scene gizmo shows both boundaries. **Island > Set Up Selected Ship Deck Wave Clamp** fits the initial capsule for this pirate ship.
 
-Inside the capsule, positive ocean wave displacement is capped at the undisplaced sea plane. Troughs remain unchanged, and decks below the sea plane can still be submerged. The footprint follows the ship, but its height does not move the sea plane. No water is cut out. Flattened crests also lose their crest normals and foam. The coastal overlay already lies on the sea plane.
+Inside the capsule, positive ocean wave displacement is capped at the undisplaced sea plane. Troughs remain unchanged, and decks below the sea plane can still be submerged. The footprint follows the ship, but its height does not move the sea plane. No water is cut out. Flattened crests also lose their crest normals and foam.
 
 This is a rendering adjustment only: buoyancy continues to sample the original waves. Up to eight active capsules are supported, with overlapping regions taking the strongest clamp. Leave a small margin around the decks because the ocean is triangulated; very coarse distant mesh triangles can cross the capsule boundary.
 
@@ -630,7 +640,7 @@ Select the ship and open **Island > Waterline Texture Generator**, outside Play 
 3. Click **Generate Preview**. Yellow Scene lines show the mesh intersection. The tool fills the enclosed outline, retaining concavities and filling nested inner shells, then creates a black clamp area, neutral grey exterior, and optional white bow ridge. An empty or unclosed slice reports an error instead of inventing an outline.
 4. Click **Save New Texture & Assign To Ship**, then save the scene. A uniquely named PNG is created under `Assets/Textures`, imported as linear, uncompressed 2D data without resizing or mipmaps. The tool fits the texture's centre, orientation and world dimensions on the wave component while retaining the wake texture and height/foam tuning. Previous textures remain available.
 
-OpenSeaWorld uses **Pirate Ship High Poly Waterline.png**, generated from the estimated resting waterline with 1.5 m deck clearance. The original trailing wake texture remains assigned. Regenerate after changing hull geometry or draft.
+OpenSeaWorld uses **Pirate Ship High Poly Waterline.png**, generated from the estimated resting waterline with 1.5 m deck clearance. The trailing wake texture is unassigned, disabling aft wake stamps; hull bow waves, contact foam, and spray remain enabled. Regenerate after changing hull geometry or draft.
 
 ### Wave-driven ship spray
 
@@ -680,6 +690,11 @@ refraction. These affect shading; the existing wave displacement, buoyancy and
 spray sampling equations are unchanged. Rivers share the depth optics and
 lighting functions, with their own downstream detail and foam controls.
 
+Wave translucency blends from the rendered, hull-clamped height near the viewer
+to the analytic wave crests used by distant normals. This handoff finishes before
+geometric displacement starts fading, retaining crest lighting on the flat
+distant sea instead of introducing a dark ring around the detailed mesh.
+
 Tune these properties on the **Motu/Sea Water** material:
 
 | Control | Effect |
@@ -699,6 +714,20 @@ boundary, clears on teleports or frame gaps over 0.25 seconds, and rejects dry
 terrain using the coastal depth mask. This is a local visual history, not a
 fluid simulation or a permanent world-wide wake map. Reflections additionally
 use about one-third more texture memory for their mip chain.
+
+Ambient ocean foam fades in over a local wave-amplitude envelope of 3–10 cm and
+river wave allowances of 0.02–0.10. It is zero below either lower threshold;
+using the envelope avoids flickering as individual crests cross sea level.
+The same allowance masks visible foam history and clears stored patches when
+the local sea becomes calm or strongly river-suppressed. Active hull/wake
+disturbances can still produce their own foam.
+
+The amplitude envelope is only a preliminary filter. Ambient foam also requires
+an actual crest at least 10 cm above the mean sea plane, fading in fully at 25 cm.
+This check runs after combining and depth-limiting waves, and again against the
+final rendered height before displaying whitecaps or stored foam. Large authored
+waves therefore cannot make white patches on a surface flattened by cancellation,
+the distant-mesh fade, or a hull clamp. Boat-generated contact foam is added separately.
 
 Absorption uses camera depth and a straight view-ray path approximation.
 Refraction remains a screen-space effect: it cannot recover objects hidden from

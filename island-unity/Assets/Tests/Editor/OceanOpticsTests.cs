@@ -14,6 +14,127 @@ namespace Motu.Editor
     public sealed class OceanOpticsTests
     {
         [Test]
+        public void CoastalTintFadesWithDepthDistanceAndMaskBounds()
+        {
+            var material = new Material(Shader.Find("Hidden/Motu/Tests/Ocean Optics"));
+            var mask = new Texture2D(1, 1, TextureFormat.RGBAFloat, false, true);
+            try
+            {
+                material.SetFloat("_ProbeMode", 4);
+                material.SetFloat("_CoastalOpacity", .16f);
+                material.SetTexture("_WaveAttenuationTex", mask);
+                material.SetVector("_WaveAttenuationWorldRect", new Vector4(-64, -64, 1f / 128, 1f / 128));
+                material.SetVector("_ProbeView", Vector4.zero);
+                foreach (var depth in new[] { 0f, 5f, 10f })
+                foreach (var shoreDistance in new[] { 0f, 8f, 16f, 128f })
+                {
+                    mask.SetPixel(0, 0, new Color(1, shoreDistance / 128, depth / 10, 1));
+                    mask.Apply();
+                    var expected = .16f * (1 - depth / 10)
+                        * Mathf.Lerp(1, .35f, Mathf.Clamp01(shoreDistance / 16));
+                    Assert.That(Read(material, 1)[0].r, Is.EqualTo(expected).Within(.0001f));
+                }
+                mask.SetPixel(0, 0, new Color(1, 0, 0, 1));
+                mask.Apply();
+                material.SetVector("_ProbeView", new Vector4(52, 0, 0, 0));
+                Assert.That(Read(material, 1)[0].r, Is.EqualTo(.08f).Within(.0001f));
+                foreach (var x in new[] { 64f, 80f, -64f, -80f })
+                {
+                    material.SetVector("_ProbeView", new Vector4(x, 0, 0, 0));
+                    Assert.That(Read(material, 1)[0].r, Is.Zero.Within(.0001f));
+                }
+                Assert.IsFalse(ShaderUtil.ShaderHasError(material.shader));
+            }
+            finally
+            {
+                Object.DestroyImmediate(material);
+                Object.DestroyImmediate(mask);
+            }
+        }
+
+        [Test]
+        public void CalmAndRiverSuppressedSeaRejectsNewAndStoredFoam()
+        {
+            var probe = new Material(Shader.Find("Hidden/Motu/Ocean Wave Transition Probe"));
+            var history = new Material(Resources.Load<Shader>("OceanFoamHistory"));
+            var mask = new Texture2D(1, 1, TextureFormat.RGBAFloat, false, true);
+            var oldWind = Shader.GetGlobalVector("_MotuWeatherWind");
+            var oldNoise = Shader.GetGlobalTexture("_MotuWindNoise");
+            var oldShips = Shader.GetGlobalFloat("_MotuShipWaveEnabled");
+            var oldCapsules = Shader.GetGlobalInt("_MotuDeckCapsuleCount");
+            try
+            {
+                Shader.SetGlobalVector("_MotuWeatherWind", new Vector4(1, 0, 9, 1));
+                Shader.SetGlobalTexture("_MotuWindNoise", Texture2D.whiteTexture);
+                Shader.SetGlobalFloat("_MotuShipWaveEnabled", 0);
+                Shader.SetGlobalInt("_MotuDeckCapsuleCount", 0);
+                foreach (var material in new[] { probe, history })
+                {
+                    material.SetFloat("_GeometricWaves", 1);
+                    material.SetFloat("_WaveFadeStart", 100);
+                    material.SetFloat("_WaveFadeEnd", 200);
+                    material.SetFloat("_WhitecapHeightThreshold", .5f);
+                    material.SetFloat("_WhitecapCoverage", 1);
+                    material.SetFloat("_WhitecapStrength", 1);
+                    material.SetTexture("_WaveAttenuationTex", mask);
+                    material.SetVector("_WaveAttenuationWorldRect", new Vector4(-8, -8, 1f / 16, 1f / 16));
+                    material.SetVector("_OceanWaveFrom0", new Vector4(1, 0, 32, Mathf.PI * .5f));
+                }
+                probe.SetFloat("_ProbeFoamActivity", 1);
+                history.SetTexture("_FoamPrevious", Texture2D.whiteTexture);
+                history.SetVector("_FoamPreviousRect", new Vector4(-8, -8, 1f / 16, 1f / 16));
+                history.SetVector("_FoamCurrentRect", new Vector4(-8, -8, 1f / 16, 1f / 16));
+                history.SetFloat("_FoamHistoryValid", 1);
+                history.SetFloat("_FoamDeltaTime", .1f);
+                history.SetFloat("_FoamLifetime", 6);
+                history.SetFloat("_FoamDepositRate", 2);
+                foreach (var amplitude in new[] { 0f, .02f, .06f, .175f, 1f })
+                foreach (var riverAllowance in new[] { 0f, .01f, .05f, 1f })
+                {
+                    mask.SetPixel(0, 0, new Color(riverAllowance, 1, 1, riverAllowance));
+                    mask.Apply();
+                    foreach (var material in new[] { probe, history })
+                        material.SetVector("_OceanWave0", new Vector4(1, 0, 32, amplitude));
+                    var source = Read(probe)[0];
+                    var stored = Read(history)[32 * 64 + 32].r;
+                    if (amplitude <= .10f || riverAllowance <= .02f)
+                    {
+                        Assert.That(source.r, Is.Zero, "Tiny waves or flattened river channels must not generate whitecaps.");
+                        Assert.That(source.g, Is.Zero);
+                        Assert.That(stored, Is.Zero, "Previously stored patches must clear in flattened water.");
+                    }
+                    else if (amplitude == 1 && riverAllowance == 1)
+                    {
+                        Assert.That(source.r, Is.GreaterThan(.1f));
+                        Assert.That(source.g, Is.EqualTo(1));
+                        Assert.That(stored, Is.GreaterThan(.8f), "Active seas must retain foam history.");
+                    }
+                    else if (amplitude == .175f && riverAllowance == 1)
+                        Assert.That(source.g, Is.InRange(.1f, .9f), "The small-wave cutoff must blend smoothly.");
+                }
+                // Nearby hull clamps still control translucency, while the far
+                // flat surface uses the analytic crest at this same wave phase.
+                probe.SetFloat("_ProbeFoamActivity", 0);
+                probe.SetFloat("_ProbeSurfaceTranslucency", 1);
+                probe.SetFloat("_ProbeHeight", 0);
+                probe.SetFloat("_ProbeRadius", 0);
+                Assert.That(Read(probe)[0].r, Is.Zero, "A nearby flattened hull crest must stay dark.");
+                probe.SetFloat("_ProbeRadius", 200);
+                var distant = Read(probe)[0];
+                Assert.That(distant.r, Is.EqualTo(distant.g).Within(.001f));
+                Assert.That(distant.r, Is.GreaterThan(.9f), "Distant flat geometry must retain wave translucency.");
+            }
+            finally
+            {
+                Shader.SetGlobalVector("_MotuWeatherWind", oldWind);
+                Shader.SetGlobalTexture("_MotuWindNoise", oldNoise);
+                Shader.SetGlobalFloat("_MotuShipWaveEnabled", oldShips);
+                Shader.SetGlobalInt("_MotuDeckCapsuleCount", oldCapsules);
+                Object.DestroyImmediate(probe); Object.DestroyImmediate(history); Object.DestroyImmediate(mask);
+            }
+        }
+
+        [Test]
         public void CoastalDepthEncodingPreservesBreakingAndProtectsTenMetreSeabed()
         {
             var material = new Material(Shader.Find("Hidden/Motu/Ocean Wave Attenuation"));

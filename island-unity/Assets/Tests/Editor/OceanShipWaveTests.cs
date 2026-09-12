@@ -221,7 +221,7 @@ namespace Motu.Editor
         }
 
         [UnityTest]
-        public IEnumerator CruisingShipRendersBowWavesAndATrailingWake()
+        public IEnumerator CruisingShipKeepsHullWavesWithoutAnAftWake()
         {
             EditorSceneManager.OpenScene("Assets/Scenes/OpenSeaWorld.unity");
             yield return new EnterPlayMode();
@@ -232,7 +232,10 @@ namespace Motu.Editor
             var until = Time.time + 12;
             while (Time.time < until) yield return null;
             Assert.That(ship.SpeedMetresPerSecond, Is.GreaterThan(3));
-            Assert.That(emitter.TrailCount, Is.GreaterThan(5), "Runtime LateUpdate must deposit a wake as the Rigidbody moves.");
+            Assert.IsNotNull(emitter.HullTexture, "Hull waves must remain assigned.");
+            Assert.IsNull(emitter.WakeTexture, "The scene ship must not emit aft wake stamps.");
+            Assert.That(emitter.TrailCount, Is.Zero, "Cruising must not deposit an aft wake.");
+            Assert.IsTrue(ship.GetComponent<OceanHullSpray>().enabled, "Hull spray must remain enabled.");
             var cameraObject = new GameObject("Ship wake validation camera");
             var camera = cameraObject.AddComponent<Camera>();
             var target = new RenderTexture(1280, 720, 24);
@@ -251,7 +254,7 @@ namespace Motu.Editor
                 RenderTexture.active = target;
                 snapshot.ReadPixels(new Rect(0, 0, 1280, 720), 0, 0);
                 snapshot.Apply();
-                System.IO.File.WriteAllBytes(System.IO.Path.Combine(System.IO.Path.GetTempPath(), "motu-ship-wake-preview.png"), snapshot.EncodeToPNG());
+                System.IO.File.WriteAllBytes(System.IO.Path.Combine(System.IO.Path.GetTempPath(), "motu-ship-no-aft-wake-preview.png"), snapshot.EncodeToPNG());
                 Assert.IsFalse(ShaderUtil.ShaderHasError(Shader.Find("Motu/Sea Water")));
             }
             finally

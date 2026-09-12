@@ -607,7 +607,7 @@ MonoBehaviour:
   bowHeight: 1.2
   fullWaveSpeed: 8
   waveFoam: 0.8
-  wakeTexture: {fileID: 2800000, guid: c5d60db6570446c6aa5b4d1e2b4dfc7e, type: 3}
+  wakeTexture: {fileID: 0}
   wakeSizeMetres: {x: 18, y: 14}
   wakeHeight: 0.8
   wakeLifetime: 20
@@ -627,7 +627,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 6d0d35b388894f16b0a3c812cf447799, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: Motu.Runtime::Motu.Rendering.OceanHullSpray
   ocean: {fileID: 0}
   sprayMaterial: {fileID: 2100000, guid: 42a7c0a3ac60e4196ba6759a8adf9817, type: 2}
@@ -691,15 +691,15 @@ MonoBehaviour:
   waterlineUp: {x: 0, y: -0.00000011920929, z: 1.0000001}
   sampleSpacing: 1
   maximumSamples: 256
-  velocityPerMetre: 6
+  velocityPerMetre: 3
   maximumSpeed: 18
-  launchAngle: 65
-  directionSpread: 12
-  emissionDensity: 24
+  launchAngle: 40
+  directionSpread: 20
+  emissionDensity: 32
   maximumEmissionRate: 1500
   maximumParticles: 2500
   lifetime: 0.9
-  particleSize: 0.12
+  particleSize: 0.25
   relativeVelocityInfluence: 0.25
   maximumSampleTravel: 1
   maximumSampleAge: 0.2
