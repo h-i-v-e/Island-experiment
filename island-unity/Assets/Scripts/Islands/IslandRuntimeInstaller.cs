@@ -97,7 +97,10 @@ namespace Motu.Islands
                     frameBudget);
                 generator.terrainStreamer.SetWaterfallFootDebug(
                     generator.DebugSettings.ShowWaterfallFeet);
+                generator.islandRuntime.InstallLod3(prepared.lod3);
                 generator.islandRuntime.Activate();
+                var viewer = generator.Streaming.Target != null ? generator.Streaming.Target : Camera.main?.transform;
+                if (viewer != null) generator.islandRuntime.SetViewPosition(viewer.position);
 
                 generator.ResetAppliedLiveSettings();
                 generator.ApplyLiveSettings();

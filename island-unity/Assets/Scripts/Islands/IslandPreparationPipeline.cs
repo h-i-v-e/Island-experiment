@@ -102,6 +102,8 @@ namespace Motu.Islands
                 cancellationToken.ThrowIfCancellationRequested();
                 var colliderHeightMap = PrepareColliderHeightMap(handle, worldSize);
                 cancellationToken.ThrowIfCancellationRequested();
+                var lod3 = PrepareLod3(handle, worldSize);
+                cancellationToken.ThrowIfCancellationRequested();
                 var overviewTiles = TerrainTileStreamer.PrepareOverviewTiles(handle, worldSize);
                 cancellationToken.ThrowIfCancellationRequested();
                 var riverTiles = PrepareRiverTiles(handle, worldSize);
@@ -122,6 +124,7 @@ namespace Motu.Islands
                     !generated,
                     surfaceMaps,
                     seaMask,
+                    lod3,
                     overviewTiles,
                     riverTiles,
                     riverRockTiles,
@@ -142,6 +145,18 @@ namespace Motu.Islands
                     MotuNative.ReleaseMotu(handle);
                 }
             }
+        }
+
+        private static IslandPreparedMesh PrepareLod3(IntPtr handle, float worldSize)
+        {
+            MotuNative.CreateIslandLod3Mesh(handle, out var export);
+            try
+            {
+                if (export.handle == IntPtr.Zero)
+                    throw new InvalidOperationException("The native generator did not return an island LOD3 mesh.");
+                return IslandMeshInterop.CopyGeneratedMeshData(export, worldSize);
+            }
+            finally { MotuNative.ReleaseMesh(ref export); }
         }
 
     }

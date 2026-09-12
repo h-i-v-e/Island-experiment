@@ -381,6 +381,9 @@ namespace Motu.Interop
         internal static extern void ReleaseMesh(ref ExportMesh output);
 
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern void CreateIslandLod3Mesh(IntPtr handle, out ExportMesh output);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         internal static extern void CreateMeshGrid(
             IntPtr handle,
             ref ExportArea area,

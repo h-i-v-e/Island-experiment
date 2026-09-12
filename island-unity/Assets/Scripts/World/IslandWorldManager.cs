@@ -373,6 +373,7 @@ namespace Motu.World
                     continue;
                 }
 
+                generator.Runtime.SetViewPosition(worldPosition);
                 var dormant = generator.Runtime.State == IslandRuntimeState.Dormant;
                 var shouldWake = dormant && distance <= activeRadiusMetres;
                 var shouldSleep = !dormant

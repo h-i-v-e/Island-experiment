@@ -28,6 +28,9 @@ namespace Motu.Islands
                 ApplyDebugKeys();
                 generator.UpdateMaterialTransforms();
                 generator.ApplyLiveSettings();
+                var viewer = generator.Streaming.Target != null ? generator.Streaming.Target
+                    : !generator.managedByWorld ? Camera.main?.transform : null;
+                if (viewer != null) generator.islandRuntime?.SetViewPosition(viewer.position);
                 if (generator.terrainStreamer != null
                     && generator.Streaming.Target != null)
                 {

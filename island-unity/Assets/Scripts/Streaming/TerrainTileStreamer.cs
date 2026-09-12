@@ -366,6 +366,7 @@ namespace Motu.Streaming
 
         public void SetPlayerPosition(Vector3 worldPosition)
         {
+            if (!gameObject.activeInHierarchy) return;
             using (PlayerPositionMarker.Auto())
             {
                 var localPosition = transform.InverseTransformPoint(worldPosition);

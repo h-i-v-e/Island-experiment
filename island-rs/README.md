@@ -267,3 +267,13 @@ byte-identical meshes or images from the legacy implementation.
 disabled implementation in the C++ source. Tree-billboard batching retains the
 old eight-octant C allocation/release shape and is also available through the
 safe Rust mesh/decoration APIs.
+
+### Island horizon LOD3
+
+`Island::horizon_mesh()` simplifies the complete LOD2 mesh to approximately a
+quarter of its triangles and applies the existing ten-metre render-floor cutoff.
+`CreateIslandLod3Mesh` exports the result as one position-only mesh; release it
+with `ReleaseMesh`. Generation and snapshot layouts retain LOD0-2 unchanged;
+Unity prepares LOD3 once per installation on its background preparation worker.
+The Unity runtime displays it beyond 2 km from the island centre with a flat,
+unlit horizon-colour shader.

@@ -188,6 +188,12 @@ namespace Motu.World
                 return;
             }
             camera.GetComponent<PlanarWaterReflection>()?.Configure(OceanTransform);
+            if (camera.cameraType == CameraType.Game && !PlanarWaterReflection.IsReflectionCamera(camera))
+            {
+                var underwater = camera.GetComponent<OceanUnderwaterView>()
+                    ?? camera.gameObject.AddComponent<OceanUnderwaterView>();
+                underwater.Configure(ocean);
+            }
         }
 
         public static Vector3 SnapAnchor(
@@ -342,7 +348,7 @@ namespace Motu.World
             foreach (var reflection in FindObjectsByType<PlanarWaterReflection>(
                 FindObjectsInactive.Include))
             {
-                reflection.Configure(OceanTransform);
+                BindReflectionCamera(reflection.GetComponent<Camera>());
             }
         }
 

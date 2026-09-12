@@ -388,6 +388,7 @@ namespace Motu.Islands
         internal readonly bool loadedFromSnapshot;
         internal readonly IslandPreparedSurfaceMaps surfaceMaps;
         internal readonly IslandPreparedSeaMask seaMask;
+        internal readonly IslandPreparedMesh lod3;
         internal readonly IslandPreparedMesh[] overviewTiles;
         internal readonly IslandPreparedMesh[] riverTiles;
         internal readonly IslandPreparedMesh[] riverRockTiles;
@@ -404,6 +405,7 @@ namespace Motu.Islands
             bool loadedFromSnapshot,
             IslandPreparedSurfaceMaps surfaceMaps,
             IslandPreparedSeaMask seaMask,
+            IslandPreparedMesh lod3,
             IslandPreparedMesh[] overviewTiles,
             IslandPreparedMesh[] riverTiles,
             IslandPreparedMesh[] riverRockTiles,
@@ -419,6 +421,7 @@ namespace Motu.Islands
             this.loadedFromSnapshot = loadedFromSnapshot;
             this.surfaceMaps = surfaceMaps;
             this.seaMask = seaMask;
+            this.lod3 = lod3 ?? throw new ArgumentNullException(nameof(lod3));
             this.overviewTiles = overviewTiles;
             this.riverTiles = riverTiles;
             this.riverRockTiles = riverRockTiles;

@@ -19,7 +19,7 @@ namespace Motu.Islands
     }
 
     [UnityEngine.Scripting.APIUpdating.MovedFrom(true, sourceNamespace: "", sourceAssembly: "Assembly-CSharp", sourceClassName: "IslandRuntime")]
-    public sealed class IslandRuntime : MonoBehaviour, IDisposable
+    public sealed partial class IslandRuntime : MonoBehaviour, IDisposable
     {
         private readonly List<Material> ownedMaterials = new List<Material>();
         private readonly List<Texture> ownedTextures = new List<Texture>();
@@ -139,6 +139,7 @@ namespace Motu.Islands
             RequireInstalling();
             if (nativeHandle == null
                 || TerrainStreamer == null
+                || lod3Object == null
                 || coastalWaveMask == null
                 || coastalWaveEnvironment == null
                 || terrainTextureArrays == null
@@ -149,6 +150,7 @@ namespace Motu.Islands
             }
             gameObject.SetActive(true);
             State = IslandRuntimeState.Active;
+            ApplyLodVisibility();
             RegisterCoastalWaveMask();
         }
 
@@ -164,7 +166,8 @@ namespace Motu.Islands
                 UnregisterCoastalWaveMask();
             }
             State = dormant ? IslandRuntimeState.Dormant : IslandRuntimeState.Active;
-            gameObject.SetActive(!dormant);
+            // A dormant resident island keeps its inexpensive horizon silhouette.
+            ApplyLodVisibility();
             if (!dormant)
             {
                 RegisterCoastalWaveMask();
@@ -203,6 +206,7 @@ namespace Motu.Islands
                 gameObject.SetActive(false);
             }
 
+            ReleaseLod3();
             Caves?.Dispose();
             Caves = null;
             TerrainStreamer?.Dispose();

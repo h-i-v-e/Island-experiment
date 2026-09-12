@@ -21,6 +21,13 @@ pub(super) fn regenerate_lods(lod0: &mut Mesh, lod1: &mut Mesh, lod2: &mut Mesh)
     TriangleIndex::new(lod0)
 }
 
+/// The whole-island horizon mesh is derived on demand from finished LOD2.
+/// It is deliberately not cached in snapshots or divided into streaming tiles.
+pub(super) fn simplify_horizon_mesh(lod2: &Mesh) -> Mesh {
+    let target = (lod2.triangles.len() / 4 / 3 * 3).max(3);
+    simplify_mesh(lod2, target)
+}
+
 fn refined_index_budget(mesh: &Mesh) -> usize {
     mesh.triangles.len().saturating_mul(4)
 }
@@ -177,6 +184,40 @@ mod tests {
                 assert!(lod2.vertices.contains(&source.vertices[corner]));
             }
         }
+    }
+
+    #[test]
+    fn horizon_lod_reduces_lod2_without_moving_vertices_or_domain_corners() {
+        let mut lod2 = Mesh::delaunay(&[Vec2::ZERO, Vec2::X, Vec2::ONE, Vec2::Y]);
+        for _ in 0..4 {
+            lod2 = lod2.tessellated();
+        }
+        for vertex in &mut lod2.vertices {
+            vertex.z = (vertex.x * 3.0).sin() * (vertex.y * 3.0).sin() * 0.2;
+        }
+        lod2.calculate_normals();
+        let horizon = simplify_horizon_mesh(&lod2);
+        assert_eq!(horizon, simplify_horizon_mesh(&lod2));
+        assert!(!horizon.triangles.is_empty());
+        assert!(horizon.triangles.len() <= lod2.triangles.len() / 4);
+        assert!(
+            horizon
+                .vertices
+                .iter()
+                .all(|vertex| lod2.vertices.contains(vertex))
+        );
+        assert!(
+            horizon
+                .triangles
+                .iter()
+                .all(|&index| (index as usize) < horizon.vertices.len())
+        );
+        for (vertex, locked) in lod2.vertices.iter().zip(domain_corner_locks(&lod2)) {
+            if locked {
+                assert!(horizon.vertices.contains(vertex));
+            }
+        }
+        assert!(horizon.vertices.iter().map(|v| v.z).fold(0.0_f32, f32::max) > 0.15);
     }
 
     #[test]

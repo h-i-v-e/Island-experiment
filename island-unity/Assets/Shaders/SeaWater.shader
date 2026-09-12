@@ -83,7 +83,7 @@ Shader "Motu/Sea Water"
         // distant wave triangles and their back faces from being drawn over
         // nearer crests as a saw-tooth pattern at grazing view angles.
         ZWrite On
-        Cull Back
+        Cull Off
 
         GrabPass { "_MotuWaterBackground" }
 
@@ -99,9 +99,7 @@ Shader "Motu/Sea Water"
             #pragma multi_compile_fwdbase
 
             #include "WaterCommon.cginc"
-            #include "OceanWaves.cginc"
-            #include "OceanDeckWaveClamp.cginc"
-            #include "OceanShipWaves.cginc"
+            #include "OceanSurfaceGeometry.cginc"
             #include "OceanOptics.cginc"
 
             half4 _WaveTranslucencyColour;
@@ -159,18 +157,8 @@ Shader "Motu/Sea Water"
                 float3 baseWorldPosition = mul(
                     unity_ObjectToWorld,
                     input.vertex).xyz;
-                float3 waveDisplacement;
-                MotuEvaluateOceanWaveDisplacement(
-                    baseWorldPosition.xz,
-                    length(input.vertex.xz),
-                    waveDisplacement);
-                float3 displacedWorldPosition = baseWorldPosition + waveDisplacement;
-                float deckClampWeight = MotuDeckWaveClampWeight(displacedWorldPosition.xz);
-                float modifiedWaveHeight = MotuShipWaveHeight(waveDisplacement.y,
-                    MotuShipWaveField(displacedWorldPosition.xz), deckClampWeight, MotuOceanClampHeightEnvelope(baseWorldPosition.xz));
-                displacedWorldPosition.y = baseWorldPosition.y + modifiedWaveHeight;
-                output.deckWaveData = float4(waveDisplacement.y, deckClampWeight,
-                    modifiedWaveHeight, abs(modifiedWaveHeight - waveDisplacement.y));
+                float3 displacedWorldPosition = MotuOceanSurfacePosition(baseWorldPosition,
+                    length(input.vertex.xz), output.deckWaveData);
                 output.pos = UnityWorldToClipPos(displacedWorldPosition);
                 output.screenPosition = ComputeScreenPos(output.pos);
                 output.grabPosition = ComputeGrabScreenPos(output.pos);
@@ -184,7 +172,7 @@ Shader "Motu/Sea Water"
                 return output;
             }
 
-            float4 Fragment(VertexOutput input) : SV_Target
+            float4 Fragment(VertexOutput input, float facing : VFACE) : SV_Target
             {
                 float3 viewDirection = normalize(
                     _WorldSpaceCameraPos.xyz - input.worldPosition);
@@ -236,6 +224,20 @@ Shader "Motu/Sea Water"
                     shadowAttenuation,
                     0.12h,
                     cloud);
+                if (facing < 0)
+                {
+                    // Water-to-air refraction ends at the interface. Distance
+                    // absorption is applied by the underwater camera afterwards.
+                    float cosine = saturate(dot(worldNormal, viewDirection));
+                    float sinTransmittedSquared = 1.333 * 1.333 * (1 - cosine * cosine);
+                    float reflection = lerp(MotuWaterFresnel(cosine), 1,
+                        smoothstep(.97, 1, sinTransmittedSquared));
+                    float2 uv = input.grabPosition.xy / input.grabPosition.w;
+                    float2 offset = mul((float3x3)UNITY_MATRIX_V, worldNormal).xy * _RefractionStrength * .15;
+                    float3 throughSurface = tex2D(_MotuWaterBackground, saturate(uv + offset)).rgb;
+                    float3 underside = _Color.rgb * waterIllumination;
+                    return float4(lerp(throughSurface, underside, reflection), 1);
+                }
                 fixed3 waterBody = _Color.rgb
                     * brightness
                     * waterIllumination;

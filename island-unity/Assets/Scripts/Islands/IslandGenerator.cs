@@ -35,6 +35,7 @@ namespace Motu.Islands
         private TerrainTileStreamer terrainStreamer;
         private GameObject runtimeRoot;
         private WorldEnvironmentController worldEnvironment;
+        private bool managedByWorld;
         private Material terrainMaterial;
         private Material terrainLod1Material;
         private Material terrainLod2Material;
@@ -296,6 +297,7 @@ namespace Motu.Islands
             }
             worldEnvironment = environment
                 ?? throw new ArgumentNullException(nameof(environment));
+            managedByWorld = true;
         }
 
         internal void ApplyRequestProfile(IslandGenerationProfile profile)

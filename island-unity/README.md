@@ -80,7 +80,7 @@ mutated. Global sea, sky, clouds, weather, and solar state remain owned by the
 world manager rather than any island.
 
 Generation builds the island, all three texture sets, the LOD1-clipped river
-tiles, and the 8x8 LOD 2 overview on a background worker. The existing island
+tiles, the 8x8 LOD 2 overview, and one simplified unsliced LOD 3 on a background worker. The existing island
 remains visible while regeneration runs, and the component reports elapsed time.
 Unity texture and mesh objects are then uploaded on the main thread, with the
 64 overview tiles spread across frames to avoid a large upload hitch. Use the
@@ -102,7 +102,7 @@ For a deliberately arranged open-sea test, add fixed cell definitions to the
 request factory. They are not persistent scene generators: they simply make
 the factory return a request whenever the manager scans those cells. Islands
 generate serially, retain independent materials, coast masks, and native
-handles, become dormant outside the active radius, and unload beyond the
+handles, retain their LOD 3 silhouettes when dormant outside the active radius, and unload beyond the
 unload radius. First-person flight and terrain snapping route through the
 manager.
 
@@ -331,21 +331,36 @@ attribute-carrying 3D plane clipper, so vertical faces and multiple heights at
 one XY location survive slicing. Only LOD 0 and LOD 1 edges bordering an active
 lower-detail neighbour are morphed onto that coarser support surface. Edges
 shared by two groups at the same LOD retain their full detail. At final island
-creation, LOD 1 and LOD 2 are each tessellated once more and the inserted
-midpoints are projected onto the final LOD 0 surface. This leaves a smaller
-density and silhouette step between adjacent LODs before Unity applies its
-edge-only transition morph.
+creation, LOD 1 is simplified from the completed LOD 0, and LOD 2 from LOD 1.
+LOD 3 is then simplified from LOD 2 with a target of one quarter of its triangles.
+It is exported as one unsliced, position-only mesh, with no texture attributes
+or colliders. It is derived again when loading a native snapshot, so existing
+snapshots do not need a new format.
 Terrain render and collider exports are additionally clipped ten metres below
 the sea plane. Crossing faces end on a shared interpolated boundary, and deeper
 faces and unused vertices are omitted from Unity without changing the full
 terrain retained by Rust for maps and generation.
+
+Beyond **2,000 metres from the island centre**, `IslandRuntime` replaces the
+complete detailed island with its single LOD 3 mesh. This uses world-space
+camera/streaming-target distance, including altitude, rather than distance to a
+tile or island edge. At exactly 2 km and closer, the tiled LODs return. Pending
+refinement is cancelled and fine colliders/tiles are cleared before hiding the
+detail roots; re-entering the near range restores normal streaming. Dormant
+resident islands keep LOD 3 visible until the usual unload boundary.
+
+`Motu/Island Horizon` outputs only the world's current horizon colour, including
+time-of-day/exposure changes. It has no lighting, shadows, textures, or additional
+fog shading. Terrain, vegetation, rivers, rocks, and caves are hidden together
+while the horizon mesh is active. Its mesh and material belong to the island
+runtime and are released on cancellation/unload.
 
 Sediment deposition has separate strength and slope controls. At the default
 12-degree limit, deposition is strongest below 4 degrees, fades smoothly
 across moderate slopes, and reaches zero at 12 degrees. Raising the limit lets
 sediment settle on progressively steeper terrain.
 
-All terrain LODs share one `Motu/Terrain Unified` material and the same
+Terrain LODs 0-2 share one `Motu/Terrain Unified` material and the same
 2048x2048 world-space normal and directional ambient-occlusion maps. The maps
 are sampled with global terrain UVs, so their colour and lighting do not jump
 at a tile or LOD boundary. LOD 0 disables the sampled normal per renderer and
@@ -432,6 +447,23 @@ reflecting itself. Tune `Resolution Scale`, `Clip Plane Offset`, and
 `Reflection Layers` on `PlanarWaterReflection` on **Main Camera**. The existing
 sky-colour reflection remains the fallback outside the reflection texture or
 when the component is disabled.
+
+Game cameras bound to the world automatically receive `OceanUnderwaterView`.
+The effect classifies the near plane per pixel against the animated ocean,
+including coastal attenuation and hull wave clamping, so the waterline can cross
+partway through the screen or tilt with the camera. Only submerged pixels receive
+RGB absorption and suspended-particle haze. Water-path length stops at opaque
+foreground geometry or the first surface exit, preserving the view of the sky
+from below. The sea also renders its underside, with a refracted view upward and
+a water-colour fallback beyond the total-internal-reflection angle.
+
+`Haze Density`, `Visibility Metres`, and `Waterline Softness` can be adjusted on
+`Ocean Underwater View`; colour and RGB absorption follow the ocean material,
+and scattered light follows world ambient/sun lighting. Bridge/exploration camera
+switches transfer effect activation. Reflection cameras are excluded. The effect
+uses a small GPU wave-height map and an additional ocean interface-depth pass,
+with no CPU readback or whole-screen sea-level toggle. It targets the ocean;
+independent elevated river surfaces are not underwater volumes.
 
 The player-relative ocean performs reflection, refraction, distortion, depth
 opacity, and shallow coastal tint in one animated surface. Each island retains

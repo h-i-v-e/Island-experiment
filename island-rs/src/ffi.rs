@@ -1219,6 +1219,18 @@ pub unsafe extern "C" fn CreateProceduralTree(
     }
 }
 
+/// Exports the whole LOD3 silhouette. Release with `ReleaseMesh` like other mesh exports.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn CreateIslandLod3Mesh(handle: *const c_void, output: *mut ExportMesh) {
+    let Some(island) = (unsafe { island_ref(handle) }) else {
+        return;
+    };
+    let Some(output) = (unsafe { output.as_mut() }) else {
+        return;
+    };
+    *output = export_mesh(island.horizon_mesh(), Vec::new(), Vec::new());
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn CreateMesh(
     handle: *const c_void,
@@ -2435,6 +2447,20 @@ mod tests {
         // SAFETY: handle is a freshly allocated Island and each output is a
         // distinct writable value released through its paired grid function.
         unsafe {
+            let mut horizon = ExportMesh::default();
+            CreateIslandLod3Mesh(handle, &raw mut horizon);
+            assert!(!horizon.handle.is_null());
+            assert!(horizon.vertices.length > 0);
+            assert!(horizon.triangles.length > 0);
+            assert_eq!(horizon.normals.length, 0);
+            assert_eq!(horizon.uv.length, 0);
+            assert_eq!(horizon.material.length, 0);
+            assert_eq!(horizon.environment.length, 0);
+            let source = island_ref(handle).unwrap().lod(2).unwrap();
+            assert!((horizon.triangles.length as usize) < source.triangles.len());
+            ReleaseMesh(&raw mut horizon);
+            assert!(horizon.handle.is_null());
+
             let mut wood_lod2 = ExportMeshGrid::default();
             CreateForestWoodMeshGrid(handle, ptr::null(), 2, 2, &raw mut wood_lod2);
             assert!(!wood_lod2.handle.is_null());

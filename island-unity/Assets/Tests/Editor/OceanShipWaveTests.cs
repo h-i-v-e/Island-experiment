@@ -232,6 +232,7 @@ namespace Motu.Editor
             var until = Time.time + 12;
             while (Time.time < until) yield return null;
             Assert.That(ship.SpeedMetresPerSecond, Is.GreaterThan(3));
+            Assert.IsNotNull(Camera.main.GetComponent<OceanUnderwaterView>(), "The active world camera must receive underwater rendering.");
             Assert.IsNotNull(emitter.HullTexture, "Hull waves must remain assigned.");
             Assert.IsNull(emitter.WakeTexture, "The scene ship must not emit aft wake stamps.");
             Assert.That(emitter.TrailCount, Is.Zero, "Cruising must not deposit an aft wake.");

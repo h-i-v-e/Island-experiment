@@ -104,6 +104,10 @@ namespace Motu.Gameplay
             {
                 TransferEffect<PlanarWaterReflection>(viewerCamera, camera);
                 TransferEffect<RealTimeAmbientOcclusion>(viewerCamera, camera);
+                if (viewerCamera.GetComponent<OceanUnderwaterView>() != null
+                    && camera.GetComponent<OceanUnderwaterView>() == null)
+                    camera.gameObject.AddComponent<OceanUnderwaterView>();
+                TransferEffect<OceanUnderwaterView>(viewerCamera, camera);
                 viewerCamera.enabled = false;
                 if (viewerCamera.CompareTag("MainCamera")) viewerCamera.tag = "Untagged";
                 SetListenerEnabled(viewerCamera, false);

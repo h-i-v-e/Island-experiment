@@ -432,6 +432,7 @@ namespace Motu.World
             }
             skyDomeMaterial?.SetColor("_HorizonColor", CurrentAtmosphericHorizonBaseColour());
             skyDomeMaterial?.SetFloat(SkyExposureId, currentSkyExposure);
+            Shader.SetGlobalColor("_MotuIslandHorizonColour", CurrentAtmosphericHorizonColour());
             RenderSettings.fog = environmentSettings.ShowDistanceHaze && firstPersonViewActive;
             if (RenderSettings.fog)
             {

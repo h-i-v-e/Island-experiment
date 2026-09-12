@@ -194,6 +194,8 @@ MOTU_EXPORT void CreateProceduralTree(int32_t seed, ExportMesh *lod0Wood,
                                       ExportMesh *lod1Foliage);
 MOTU_EXPORT void CreateSkyDome(ExportMesh *output);
 MOTU_EXPORT void GetDecoration(const void *handle, ExportDecoration *output);
+/* Unsliced, position-only LOD3 derived from LOD2. Release with ReleaseMesh. */
+MOTU_EXPORT void CreateIslandLod3Mesh(const void *handle, ExportMesh *output);
 MOTU_EXPORT void CreateMesh(const void *handle, const ExportArea *area, int32_t lod,
                             uint8_t clampSides, ExportMesh *output);
 MOTU_EXPORT void CreateSupportMesh(const void *handle, const ExportArea *area, int32_t lod,

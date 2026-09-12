@@ -724,6 +724,17 @@ impl Island {
         }
     }
 
+    /// Produces one unsliced LOD3 silhouette from LOD2, retaining the ocean floor cutoff.
+    #[must_use]
+    pub fn horizon_mesh(&self) -> Mesh {
+        let mut mesh = super::lod::simplify_horizon_mesh(&self.coarser_lods[1])
+            .clipped_above(TERRAIN_RENDER_FLOOR);
+        // The horizon shader consumes positions only.
+        mesh.normals.clear();
+        mesh.uv.clear();
+        mesh
+    }
+
     /// Returns the corrected support mesh intended for display.
     #[must_use]
     pub fn render_lod(&self, level: usize) -> Option<&Mesh> {

@@ -607,7 +607,7 @@ MonoBehaviour:
   bowHeight: 1.2
   fullWaveSpeed: 8
   waveFoam: 0.8
-  wakeTexture: {fileID: 0}
+  wakeTexture: {fileID: 2800000, guid: c5d60db6570446c6aa5b4d1e2b4dfc7e, type: 3}
   wakeSizeMetres: {x: 18, y: 14}
   wakeHeight: 0.8
   wakeLifetime: 20
@@ -939,7 +939,7 @@ MonoBehaviour:
     lowElevationShadowFade: 0.09
   weatherDriver: {fileID: 2028956462}
   discoveryRadiusMetres: 6000
-  generationRadiusMetres: 3000
+  generationRadiusMetres: 4000
   discoveryRefreshSeconds: 5
   velocityLookAheadSeconds: 24
   maximumLookAheadMetres: 8000
@@ -947,10 +947,10 @@ MonoBehaviour:
   cancellationHysteresisMetres: 1800
   installationBudgetMilliseconds: 4
   streamingTarget: {fileID: 1388680752}
-  activeRadiusMetres: 1500
+  activeRadiusMetres: 3500
   activeHysteresisMetres: 500
-  unloadRadiusMetres: 2000
-  maximumLoadedIslandCount: 3
+  unloadRadiusMetres: 4000
+  maximumLoadedIslandCount: 4
   failedGenerationRetrySeconds: 15
 --- !u!4 &2028956460
 Transform:
