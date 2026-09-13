@@ -8,7 +8,7 @@ namespace Motu.Interop
     internal static class CaveNative
     {
         private const string Library = "motu";
-        internal const uint AlgorithmRevision = 14;
+        internal const uint AlgorithmRevision = 15;
         [Serializable, StructLayout(LayoutKind.Sequential)]
         internal struct Options
         {
@@ -124,6 +124,7 @@ namespace Motu.Interop
             public override string ToString() => $"Caves: {accepted}; examined {examined}; rejected approach {approachRejected}, face {faceRejected}, cover/geometry {coverRejected}, hazards {hazardRejected}, spacing {spacingRejected}";
         }
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern uint CaveAlgorithmRevision();
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern IntPtr GetLastCaveGenerationError();
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern IntPtr CreateMotuWithCaves(int seed,
             ref MotuNative.Options options, ref MotuNative.ForestOptions forest,
             ref MotuNative.ReedOptions reeds, ref MotuNative.FernOptions ferns, ref Options caves);

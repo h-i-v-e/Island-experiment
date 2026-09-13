@@ -17,6 +17,22 @@ namespace Motu.Editor
 {
     public sealed class CaveTests
     {
+        [Test]
+        public void GenerationFailureIncludesTheNativeReasonAndSeed()
+        {
+            var caves = new IslandCaveSettings();
+            var walk = caves.ToNativeWalk();
+            walk.endProbability = 0f;
+            var handles = NativeIslandHandle.ActiveCount;
+            var error = Assert.Throws<InvalidOperationException>(() =>
+                IslandPreparationPipeline.PrepareIsland(731, default, default, default, default,
+                    2000f, default, 16, CancellationToken.None,
+                    caveOptions: caves.ToNative(), networkOptions: caves.ToNativeNetwork(), walkOptions: walk));
+            StringAssert.Contains("island seed 731", error.Message);
+            StringAssert.Contains("invalid cave walk settings", error.Message);
+            Assert.That(NativeIslandHandle.ActiveCount, Is.EqualTo(handles));
+        }
+
         [Serializable] private sealed class PackedMesh { public float[] vertices, normals; public int[] triangles; public bool collisionOnly, floorStones; }
         [Serializable] private sealed class PackedPath { public float[] nodes; }
         [Serializable] private sealed class Fixture

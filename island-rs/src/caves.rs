@@ -26,7 +26,7 @@ pub use options::CaveOptions;
 pub use placement::CaveStats;
 use serde::{Deserialize, Serialize};
 pub use wandering::CaveWalkOptions;
-pub const CAVE_REVISION: u32 = 14;
+pub const CAVE_REVISION: u32 = 15;
 pub(crate) const MAX_TRIANGLES: usize = 250_000;
 pub(crate) const MAX_CHUNKS: usize = 128;
 

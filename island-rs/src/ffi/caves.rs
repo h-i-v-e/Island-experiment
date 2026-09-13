@@ -3,6 +3,24 @@ use super::{
     MotuOptions, MotuReedOptions, Vec2, Vec3, c_void, export_mesh, island_ref, ptr,
 };
 use crate::caves::{CAVE_REVISION, CaveNetworkOptions, CaveOptions, CaveStats, CaveWalkOptions};
+use std::{cell::RefCell, ffi::c_char};
+
+thread_local! {
+    static LAST_GENERATION_ERROR: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Borrowed UTF-8 error from the last cave-enabled generation on this thread.
+/// Null after success; valid until the next generation call on the same thread.
+#[unsafe(no_mangle)]
+pub extern "C" fn GetLastCaveGenerationError() -> *const c_char {
+    LAST_GENERATION_ERROR.with_borrow(|error| {
+        if error.is_empty() {
+            ptr::null()
+        } else {
+            error.as_ptr().cast()
+        }
+    })
+}
 
 #[derive(Clone, Copy, Debug, Default)]
 #[repr(C)]
@@ -73,6 +91,7 @@ pub unsafe extern "C" fn CreateMotuWithCaveWalks(
     walk: *const CaveWalkOptions,
 ) -> *mut c_void {
     // SAFETY: optional blocks must be readable for their documented C sizes.
+    LAST_GENERATION_ERROR.with_borrow_mut(Vec::clear);
     let (options, forest, reeds, ferns, caves, network, walk) = unsafe {
         (
             options
@@ -101,7 +120,12 @@ pub unsafe extern "C" fn CreateMotuWithCaveWalks(
     )
     .map_or_else(
         |error| {
+            let error = format!("island seed {seed}: {error}");
             eprintln!("CreateMotuWithCaveWalks: {error}");
+            LAST_GENERATION_ERROR.with_borrow_mut(|message| {
+                *message = error.into_bytes();
+                message.push(0);
+            });
             ptr::null_mut()
         },
         |island| Box::into_raw(Box::new(island)).cast(),
@@ -278,4 +302,56 @@ pub unsafe extern "C" fn GetCaveBranchNode(
     };
     *output = node.floor;
     1
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::ffi::CStr;
+
+    fn fail_generation(seed: i32) -> String {
+        let walk = CaveWalkOptions {
+            end_probability: 0.0,
+            ..CaveWalkOptions::default()
+        };
+        // SAFETY: options are either readable for the call or null defaults;
+        // the error pointer is copied on this thread before the next call.
+        unsafe {
+            let handle = CreateMotuWithCaveWalks(
+                seed,
+                ptr::null(),
+                ptr::null(),
+                ptr::null(),
+                ptr::null(),
+                ptr::null(),
+                ptr::null(),
+                &raw const walk,
+            );
+            assert!(handle.is_null());
+            CStr::from_ptr(GetLastCaveGenerationError())
+                .to_str()
+                .unwrap()
+                .to_owned()
+        }
+    }
+
+    #[test]
+    fn generation_error_preserves_native_reason_and_is_thread_local() {
+        let original = fail_generation(17);
+        assert!(original.contains("island seed 17: invalid cave walk settings"));
+        std::thread::spawn(|| {
+            assert!(GetLastCaveGenerationError().is_null());
+            assert!(fail_generation(29).contains("island seed 29:"));
+        })
+        .join()
+        .unwrap();
+        // SAFETY: no intervening generation occurred on this thread.
+        assert_eq!(
+            unsafe { CStr::from_ptr(GetLastCaveGenerationError()) }
+                .to_str()
+                .unwrap(),
+            original
+        );
+        assert!(fail_generation(31).contains("island seed 31:"));
+    }
 }

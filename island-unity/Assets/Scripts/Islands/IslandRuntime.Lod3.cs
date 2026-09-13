@@ -8,15 +8,25 @@ namespace Motu.Islands
     public sealed partial class IslandRuntime
     {
         public const float Lod3DistanceMetres = 2000f;
+        public const float Lod3SubmergedDistanceMetres = 4000f;
         private GameObject lod3Object;
         private Mesh lod3Mesh;
+        private bool lod3Installed;
+        private float lod3MaximumHeightMetres;
         private bool beyondLod3Distance;
         public bool IsLod3Visible => lod3Object != null && lod3Object.activeInHierarchy;
         public int Lod3TriangleCount => lod3Mesh != null ? (int)lod3Mesh.GetIndexCount(0) / 3 : 0;
 
-        internal void InstallLod3(IslandPreparedMesh prepared)
+        internal void InstallLod3(IslandPreparedMesh prepared, float maximumHeightMetres)
         {
             RequireInstalling();
+            lod3MaximumHeightMetres = maximumHeightMetres;
+            if (prepared == null)
+            {
+                // Fully submerged cells have no horizon surface, but can still finish installation.
+                lod3Installed = true;
+                return;
+            }
             var shader = Resources.Load<Shader>("IslandHorizon")
                 ?? throw new InvalidOperationException("The island horizon shader is unavailable.");
             var material = new Material(shader) { name = "Island LOD3 Horizon" };
@@ -34,12 +44,21 @@ namespace Motu.Islands
             renderer.reflectionProbeUsage = ReflectionProbeUsage.Off;
             renderer.motionVectorGenerationMode = MotionVectorGenerationMode.ForceNoMotion;
             lod3Object.SetActive(false);
+            lod3Installed = true;
         }
 
         public void SetViewPosition(Vector3 worldPosition)
         {
-            var distant = (worldPosition - transform.position).sqrMagnitude
-                > Lod3DistanceMetres * Lod3DistanceMetres;
+            var distance = Vector3.Distance(worldPosition, transform.position);
+            if (lod3Object != null)
+            {
+                var submersion = Mathf.SmoothStep(0f, 1f,
+                    Mathf.InverseLerp(Lod3DistanceMetres, Lod3SubmergedDistanceMetres, distance));
+                // Move only the silhouette; residency and wave masks retain the true island centre.
+                lod3Object.transform.position = transform.position
+                    - Vector3.up * (lod3MaximumHeightMetres * submersion);
+            }
+            var distant = distance > Lod3DistanceMetres;
             if (distant == beyondLod3Distance) return;
             beyondLod3Distance = distant;
             if (State == IslandRuntimeState.Active || State == IslandRuntimeState.Dormant)
@@ -59,6 +78,7 @@ namespace Motu.Islands
 
         private void ReleaseLod3()
         {
+            lod3Installed = false;
             DestroyUnityObject(lod3Mesh);
             lod3Mesh = null;
             DestroyUnityObject(lod3Object);

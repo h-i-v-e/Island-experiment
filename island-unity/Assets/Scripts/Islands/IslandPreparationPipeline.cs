@@ -67,11 +67,13 @@ namespace Motu.Islands
                     throw new InvalidOperationException("The native cave library revision does not match this Unity build.");
                 handle = CaveNative.CreateMotuWithCaveWalks(islandSeed, ref options,
                     ref forestOptions, ref reedOptions, ref fernOptions, ref caves, ref network, ref walk);
-            }
-            if (handle == IntPtr.Zero)
-            {
-                throw new InvalidOperationException(
-                    "The Rust CPU generator returned a null island handle.");
+                if (handle == IntPtr.Zero)
+                {
+                    // Copy on the generating thread before another native call replaces its error.
+                    var error = Marshal.PtrToStringUTF8(CaveNative.GetLastCaveGenerationError())
+                        ?? $"island seed {islandSeed}: no native error was reported";
+                    throw new InvalidOperationException($"Rust CPU generation failed: {error}");
+                }
             }
 
             try
@@ -154,7 +156,7 @@ namespace Motu.Islands
             {
                 if (export.handle == IntPtr.Zero)
                     throw new InvalidOperationException("The native generator did not return an island LOD3 mesh.");
-                return IslandMeshInterop.CopyGeneratedMeshData(export, worldSize);
+                return IslandMeshInterop.CopyOptionalGeneratedMeshData(export, worldSize);
             }
             finally { MotuNative.ReleaseMesh(ref export); }
         }

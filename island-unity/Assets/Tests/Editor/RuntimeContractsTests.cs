@@ -148,7 +148,7 @@ namespace Motu.Editor
                 while (!installed.IsCompleted) yield return null;
                 Assert.IsTrue(installed.GetAwaiter().GetResult(), generator.Status);
                 Assert.IsTrue(generator.HasActiveRuntime);
-                IslandLod3Tests.ValidateInstalledLod3(generator.Runtime, environment);
+                IslandLod3Tests.ValidateInstalledLod3(generator.Runtime, environment, generation.MaximumHeightMetres);
                 Assert.IsFalse(islandHost.GetComponentsInChildren<Transform>(true)
                     .Any(value => value.name == "Island Coastal Water Overlay"));
                 var meshes = islandHost.GetComponentsInChildren<MeshFilter>(true).Select(value => value.sharedMesh)

@@ -11,6 +11,10 @@ namespace Motu.Settings
         [SerializeField] private int seed = 8675309;
         [SerializeField] private Color zenithColour = new Color(0.49f, 0.68f, 0.82f, 1f);
         [SerializeField] private Color distanceHazeColour = new Color(0.62f, 0.60f, 0.54f, 1f);
+        [Tooltip("Lightening of the sky dome horizon relative to distance haze and LOD3 islands. 0 matches the haze; 0.08 is 8% brighter; 1 doubles the brightness.")]
+        [UnityEngine.Serialization.FormerlySerializedAs("islandLod3Darkening")]
+        [Range(0f, 1f)]
+        [SerializeField] private float skyHorizonLightening = 0.08f;
         [Range(0.00005f, 0.003f)]
         [SerializeField] private float distanceHazeDensity = 0.00055f;
         [SerializeField] private bool showDistanceHaze = true;
@@ -50,6 +54,11 @@ namespace Motu.Settings
         public int Seed => seed;
         public Color ZenithColour => zenithColour;
         public Color DistanceHazeColour => distanceHazeColour;
+        public float SkyHorizonLightening
+        {
+            get => Mathf.Clamp01(skyHorizonLightening);
+            set => skyHorizonLightening = Mathf.Clamp01(value);
+        }
         public float DistanceHazeDensity => Mathf.Clamp(distanceHazeDensity, 0.00005f, 0.003f);
         public bool ShowDistanceHaze => showDistanceHaze;
         public bool ShowSea => showSea;

@@ -242,6 +242,8 @@ MOTU_EXPORT void ReleaseMeshes(ExportMeshArray *output);
 MOTU_EXPORT void SetLogFile(const char *path);
 
 MOTU_EXPORT uint32_t CaveAlgorithmRevision(void);
+/* Borrowed UTF-8 error; copy before the next cave generation call on this thread. */
+MOTU_EXPORT const char* GetLastCaveGenerationError(void);
 MOTU_EXPORT void* CreateMotuWithCaves(int32_t seed, const MotuOptions* options,
     const MotuForestOptions* forest, const MotuReedOptions* reeds,
     const MotuFernOptions* ferns, const MotuCaveOptions* caves);

@@ -421,7 +421,7 @@ namespace Motu.Islands
             this.loadedFromSnapshot = loadedFromSnapshot;
             this.surfaceMaps = surfaceMaps;
             this.seaMask = seaMask;
-            this.lod3 = lod3 ?? throw new ArgumentNullException(nameof(lod3));
+            this.lod3 = lod3;
             this.overviewTiles = overviewTiles;
             this.riverTiles = riverTiles;
             this.riverRockTiles = riverRockTiles;

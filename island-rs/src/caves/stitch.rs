@@ -210,7 +210,9 @@ fn boundary_edges(
         }
     }
     counts.retain(|key, count| {
-        *count == 1
+        // A collapsed sliver can leave three uses: one is still unmatched.
+        // Include it so its near-coincident endpoint participates in the weld.
+        *count % 2 != 0
             && !key
                 .iter()
                 .any(|p| protected(Vec3::from_array(p.map(f32::from_bits)) * ISLAND_WORLD_METRES))

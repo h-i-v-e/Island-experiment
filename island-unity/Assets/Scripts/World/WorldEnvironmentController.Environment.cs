@@ -350,7 +350,7 @@ namespace Motu.World
             var moonDirection = moonState.LocalDirection.normalized;
             skyDomeMaterial.SetVector(SunDirectionId, sunDirection);
             skyDomeMaterial.SetColor(SunColourId, state.SunColour);
-            skyDomeMaterial.SetColor("_HorizonColor", CurrentAtmosphericHorizonBaseColour());
+            skyDomeMaterial.SetColor("_HorizonColor", CurrentSkyHorizonBaseColour());
             skyDomeMaterial.SetFloat(SunVisibilityId, state.SunVisibility);
             skyDomeMaterial.SetFloat(SunHaloStrengthId, state.SunHaloStrength);
             skyDomeMaterial.SetVector(MoonDirectionId, moonDirection);
@@ -430,7 +430,7 @@ namespace Motu.World
             {
                 return;
             }
-            skyDomeMaterial?.SetColor("_HorizonColor", CurrentAtmosphericHorizonBaseColour());
+            skyDomeMaterial?.SetColor("_HorizonColor", CurrentSkyHorizonBaseColour());
             skyDomeMaterial?.SetFloat(SkyExposureId, currentSkyExposure);
             Shader.SetGlobalColor("_MotuIslandHorizonColour", CurrentAtmosphericHorizonColour());
             RenderSettings.fog = environmentSettings.ShowDistanceHaze && firstPersonViewActive;
@@ -440,6 +440,14 @@ namespace Motu.World
                 RenderSettings.fogColor = CurrentAtmosphericHorizonColour();
                 RenderSettings.fogDensity = environmentSettings.DistanceHazeDensity;
             }
+        }
+
+        private Color CurrentSkyHorizonBaseColour()
+        {
+            // Lift only the sky; distant geometry and LOD3 must converge to the same haze.
+            var colour = CurrentAtmosphericHorizonBaseColour() * (1f + environmentSettings.SkyHorizonLightening);
+            colour.a = environmentSettings.DistanceHazeColour.a;
+            return colour;
         }
 
         private Color CurrentAtmosphericHorizonColour()
@@ -470,7 +478,7 @@ namespace Motu.World
                 camera.depthTextureMode |= DepthTextureMode.Depth;
             }
             BindReflectionCamera(camera);
-            var colour = CurrentAtmosphericHorizonColour();
+            var colour = CurrentSkyHorizonBaseColour() * currentSkyExposure;
             colour.a = 1f;
             camera.backgroundColor = colour;
         }

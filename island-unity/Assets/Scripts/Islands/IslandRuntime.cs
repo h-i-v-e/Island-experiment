@@ -139,7 +139,7 @@ namespace Motu.Islands
             RequireInstalling();
             if (nativeHandle == null
                 || TerrainStreamer == null
-                || lod3Object == null
+                || !lod3Installed
                 || coastalWaveMask == null
                 || coastalWaveEnvironment == null
                 || terrainTextureArrays == null

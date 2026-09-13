@@ -820,3 +820,51 @@ fn assert_consistent_facing(meshes: &[Mesh]) {
         "adjacent cave triangles face inconsistently at {wrong} shared edges"
     );
 }
+
+#[test]
+fn oblique_volume_repairs_odd_edge_uses_from_collapsed_slivers() {
+    let o = CaveOptions {
+        approach_length: 4.0,
+        approach_slope: 20.0,
+        side_margin: 0.5,
+        ..options()
+    };
+    for seed in [0, 11, 17, 31, 63] {
+        let mut mesh = cliff().mesh().clone();
+        let angle = seed as f32 * 1.618;
+        let direction = Vec2::new(angle.cos(), angle.sin());
+        let right = Vec2::new(-direction.y, direction.x);
+        let origin = Vec2::new(1580.9542, 1459.4552);
+        let height = 12.2612 + seed as f32 * 0.137;
+        for p in &mut mesh.vertices {
+            let local = *p * ISLAND_WORLD_METRES;
+            let horizontal = origin + direction * (local.x - 1000.) + right * (local.y - 1000.);
+            *p = horizontal.extend(local.z + height - 10.0) / ISLAND_WORLD_METRES;
+        }
+        mesh.calculate_normals();
+        let terrain = Terrain::new(mesh);
+        let mut cave = placement::layout(
+            seed,
+            &terrain,
+            (origin - direction).extend(height),
+            direction,
+            &o,
+            &|_| false,
+        )
+        .unwrap()
+        .expect("regression cliff must produce a cave entrance");
+        wandering::expand(
+            &mut cave,
+            &terrain,
+            &o,
+            CaveWalkOptions {
+                enabled: 1,
+                ..Default::default()
+            },
+            &|_| false,
+            &[],
+        )
+        .unwrap_or_else(|error| panic!("seed {seed}: {error}"));
+        assert!(!cave.chunks.is_empty());
+    }
+}

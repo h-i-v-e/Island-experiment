@@ -81,6 +81,14 @@ namespace Motu.Interop
                 worldSize);
         }
 
+        internal static IslandPreparedMesh CopyOptionalGeneratedMeshData(MotuNative.ExportMesh source, float worldSize)
+        {
+            // A valid export may contain no surface above the terrain render floor.
+            if (source.vertices.length == 0 && source.triangles.length == 0)
+                return null;
+            return CopyGeneratedMeshData(source, worldSize);
+        }
+
         internal static Mesh CreateGeneratedMesh(IslandPreparedMesh source)
         {
             return CreateMesh(source, false);

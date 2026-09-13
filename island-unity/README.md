@@ -349,11 +349,25 @@ refinement is cancelled and fine colliders/tiles are cleared before hiding the
 detail roots; re-entering the near range restores normal streaming. Dormant
 resident islands keep LOD 3 visible until the usual unload boundary.
 
-`Motu/Island Horizon` outputs only the world's current horizon colour, including
-time-of-day/exposure changes. It has no lighting, shadows, textures, or additional
+Between **4 km and 2 km**, the LOD 3 silhouette rises smoothly out of the sea as
+the viewer approaches. At 4 km and farther it is lowered by the island's configured
+maximum height; at 3 km it is lowered by half that height; at 2 km it reaches its
+normal sea-level position. The motion eases at both ends and reverses when moving
+away. Only the silhouette moves; the island centre, residency, and wave masks stay
+in place.
+
+`Motu/Island Horizon` outputs the world's current distance haze colour, including
+time-of-day/exposure changes, so it matches other fully hazed distant objects.
+**Sky Horizon Lightening** in the manager's **World Environment Settings** (or its
+assigned environment configuration asset) brightens the sky dome horizon to make
+those silhouettes visible. The default is `0.08` (8% brighter); `0` matches the haze
+and `1` doubles the sky horizon brightness. Changes apply live and preserve the sky's
+existing gradient and exposure. The LOD3 shader has no lighting, shadows, textures, or additional
 fog shading. Terrain, vegetation, rivers, rocks, and caves are hidden together
 while the horizon mesh is active. Its mesh and material belong to the island
 runtime and are released on cancellation/unload.
+Fully submerged cells can export an empty LOD 3 after the depth cutoff. They
+finish loading with no horizon renderer, just as empty overview tiles are skipped.
 
 Sediment deposition has separate strength and slope controls. At the default
 12-degree limit, deposition is strongest below 4 degrees, fades smoothly

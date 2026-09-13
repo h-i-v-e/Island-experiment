@@ -59,12 +59,12 @@ namespace Motu.Gameplay
             return Rotate(Vector2.up, Mathf.PerlinNoise1D(time) * 2f * Mathf.PI);
         }
 
-        private static void UpdateWave(ref OceanWaveComponent component, DirectionAndSpeed dAndP, float scale, float sharpOffset)
+        private static void UpdateWave(ref OceanWaveComponent component, Vector2 dominantDirecton, DirectionAndSpeed dAndP, float min, float max)
         {
             var speed = dAndP.speed * dAndP.speed;
-            component.AmplitudeMetres = speed * scale;
+            component.AmplitudeMetres = Mathf.Lerp(min, max, speed);
             component.Direction = dAndP.direction;
-            component.Choppiness = Mathf.Lerp(sharpOffset, 1f, speed);
+            component.Choppiness = Mathf.Lerp(0.5f, 1f, speed) * Mathf.Abs(Vector2.Dot(dominantDirecton, dAndP.direction));
         }
 
         private void UpdateClouds(ref CloudWeatherSettings clouds, float time)
@@ -82,14 +82,15 @@ namespace Motu.Gameplay
             var minor = ReadWind(25f + elapsedSeconds * 0.0025f);
             var major = ReadWind(5f + elapsedSeconds * 0.0005f);
             var dominant = ReadWind(elapsedSeconds * 0.0001f);
-            weather.WindDirection = dominant.direction;
+            var direction = dominant.direction;
+            weather.WindDirection = direction;
             var windspeed = dominant.speed * dominant.speed;
             weather.WindSpeedMetresPerSecond = windspeed * 40f;
-            weather.Waves.OnshoreWaveAmplitudeMetres = windspeed * 5f;
-            UpdateWave(ref weather.Waves.Wave0, dominant, 5f, 0.5f);
-            UpdateWave(ref weather.Waves.Wave1, major, 3f, 0f);
-            UpdateWave(ref weather.Waves.Wave2, minor, 0.4f, 0.25f);
-            UpdateWave(ref weather.Waves.Wave3, fine, 0.3f, 0f);
+            weather.Waves.OnshoreWaveAmplitudeMetres = 1f + windspeed * 5f;
+            UpdateWave(ref weather.Waves.Wave0, direction, dominant, 1f, 4f);
+            UpdateWave(ref weather.Waves.Wave1, direction, major, 0.75f, 3f);
+            UpdateWave(ref weather.Waves.Wave2, direction, minor, 0.15f, 0.3f);
+            UpdateWave(ref weather.Waves.Wave3, direction, fine, 0f, 0.2f);
             UpdateClouds(ref weather.Clouds, elapsedSeconds);
         }
     }
