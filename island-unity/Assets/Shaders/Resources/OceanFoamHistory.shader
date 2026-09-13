@@ -62,7 +62,10 @@ Shader "Hidden/Motu/Ocean Foam History"
                 // Clear stored patches in calm/river-suppressed areas as well
                 // as dry terrain. Active boat disturbance can still make foam.
                 float wet = smoothstep(0, .02, MotuOceanCoastalData(basePosition).b);
-                float active = step(.0001, max(foamAllowance, max(shipField.z, boat)));
+                // This allowance follows wave amplitude, not instantaneous
+                // crest height. Fade weak activity continuously instead of
+                // chopping a stored trail at a moving height threshold.
+                float active = smoothstep(0, .1, max(foamAllowance, max(shipField.z, boat)));
                 return float4(saturate(foam) * wet * active, displacement.xz, 1);
             }
             ENDCG

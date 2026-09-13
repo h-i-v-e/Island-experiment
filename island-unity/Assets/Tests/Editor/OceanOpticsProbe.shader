@@ -13,6 +13,7 @@ Shader "Hidden/Motu/Tests/Ocean Optics"
             #include "Assets/Shaders/WaterCommon.cginc"
             #include "Assets/Shaders/OceanWaves.cginc"
             #include "Assets/Shaders/OceanOptics.cginc"
+            #include "Assets/Shaders/OceanShipWaves.cginc"
             float _ProbeMode, _ProbeDistance, _ProbeSpan;
             float4 _ProbeView, _ProbeLight;
             float4 Frag(v2f_img input) : SV_Target
@@ -26,7 +27,19 @@ Shader "Hidden/Motu/Tests/Ocean Optics"
                 }
                 if (_ProbeMode < 2.5) return MotuWaterSunSpecular(float3(0, 1, 0), normalize(_ProbeView.xyz), normalize(_ProbeLight.xyz), _SurfaceRoughness);
                 if (_ProbeMode < 3.5) return MotuWaterRefractionValidity(_ProbeDistance, 10);
-                return MotuOceanCoastalTint(_ProbeView.xz);
+                if (_ProbeMode < 4.5) return MotuOceanCoastalTint(_ProbeView.xz);
+                if (_ProbeMode > 6.5)
+                {
+                    MotuCloudLighting cloud;
+                    cloud.directTransmittance = 1;
+                    cloud.ambientTransmittance = 1;
+                    return float4(MotuWaterShadeOptics(0, 0, 0, float3(0, 1, 0),
+                        float3(0, 0, 1), _ProbeView.xyz, _ProbeLight.xy, .2, 1, cloud, 1), 1);
+                }
+                if (_ProbeMode > 5.5)
+                    return MotuOceanSurfaceFoam(_ProbeView.x, _ProbeView.y, _ProbeView.z, _ProbeView.w);
+                float3 shipField = MotuShipWaveField(_ProbeView.xz);
+                return float4(MotuOceanHistoryFoam(_ProbeView.xz), shipField.z, shipField.xy);
             }
             ENDCG
         }

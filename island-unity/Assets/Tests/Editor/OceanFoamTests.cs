@@ -9,6 +9,71 @@ namespace Motu.Editor
     public sealed class OceanFoamTests
     {
         [Test]
+        public void StoredAndWakeFoamFadeGraduallyBeforeTheirTextureBoundaries()
+        {
+            var material = new Material(Shader.Find("Hidden/Motu/Tests/Ocean Optics"));
+            var target = new RenderTexture(1, 1, 0, RenderTextureFormat.ARGBFloat);
+            var output = new Texture2D(1, 1, TextureFormat.RGBAFloat, false, true);
+            var previousTarget = RenderTexture.active;
+            try
+            {
+                material.SetFloat("_ProbeMode", 5);
+                material.SetFloat("_PersistentFoamStrength", 1);
+                material.SetTexture("_OceanFoamHistory", Texture2D.whiteTexture);
+                material.SetTexture("_MotuShipWaveField", Texture2D.whiteTexture);
+                material.SetFloat("_MotuShipWaveEnabled", 1);
+                foreach (var centre in new[] { Vector2.zero, new Vector2(120, -64) })
+                {
+                    material.SetVector("_OceanFoamHistoryRect",
+                        new Vector4(centre.x - 128, centre.y - 128, 1f / 256, 1f / 256));
+                    material.SetVector("_MotuShipWaveRect",
+                        new Vector4(centre.x - 128, centre.y - 128, 1f / 256, 1f / 256));
+                    float Sample(float x, float z)
+                    {
+                        material.SetVector("_ProbeView", new Vector4(centre.x + x, 0, centre.y + z, 0));
+                        Graphics.Blit(Texture2D.blackTexture, target, material);
+                        RenderTexture.active = target;
+                        output.ReadPixels(new Rect(0, 0, 1, 1), 0, 0);
+                        output.Apply();
+                        var pixel = output.GetPixel(0, 0);
+                        Assert.That(pixel.g, Is.EqualTo(pixel.r).Within(.001f),
+                            "Direct wake foam must use the same broad fade as stored foam.");
+                        if (Mathf.Max(Mathf.Abs(x), Mathf.Abs(z)) <= 112)
+                        {
+                            Assert.That(pixel.b, Is.EqualTo(1).Within(.001f), "Hull clamping must stay unchanged.");
+                            Assert.That(pixel.a, Is.EqualTo(1).Within(.001f), "Wave height must stay unchanged.");
+                        }
+                        return pixel.r;
+                    }
+                    Assert.That(Sample(0, 0), Is.EqualTo(1).Within(.001f));
+                    Assert.That(Sample(60, 0), Is.EqualTo(1).Within(.001f));
+                    Assert.That(Sample(96, 0), Is.InRange(.3f, .7f),
+                        "Foam should already be softly fading well before the old square edge.");
+                    var previous = 1f;
+                    for (var radius = 64; radius <= 132; radius++)
+                    {
+                        var value = Sample(radius, 0);
+                        Assert.That(value, Is.LessThanOrEqualTo(previous + .001f));
+                        Assert.That(previous - value, Is.LessThan(.03f), "No abrupt one-metre cutoff.");
+                        Assert.That(Sample(radius * .6f, radius * .8f), Is.EqualTo(value).Within(.001f),
+                            "The fade must be rounded, including towards texture corners.");
+                        previous = value;
+                    }
+                    Assert.That(Sample(128, 0), Is.Zero.Within(.001f));
+                    Assert.That(Sample(120, 120), Is.Zero.Within(.001f));
+                    Assert.That(Sample(-140, 0), Is.Zero.Within(.001f));
+                }
+            }
+            finally
+            {
+                RenderTexture.active = previousTarget;
+                Object.DestroyImmediate(material);
+                Object.DestroyImmediate(target);
+                Object.DestroyImmediate(output);
+            }
+        }
+
+        [Test]
         public void SingleFoamPatternDriftsAndDeformsContinuously()
         {
             var material = new Material(Shader.Find("Hidden/Motu/Ocean Wave Transition Probe"));

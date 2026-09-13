@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<test-run id="2" testcasecount="1" result="Failed(Child)" total="1" passed="0" failed="1" inconclusive="0" skipped="0" asserts="0" engine-version="3.5.0.0" clr-version="4.0.30319.42000" start-time="2026-09-13 22:21:48Z" end-time="2026-09-13 22:21:48Z" duration="0.0555248">
+  <test-suite type="TestSuite" id="1000" name="island-unity" fullname="island-unity" runstate="Runnable" testcasecount="112" result="Failed" site="Child" start-time="2026-09-13 22:21:48Z" end-time="2026-09-13 22:21:48Z" duration="0.055525" total="1" passed="0" failed="1" inconclusive="0" skipped="0" asserts="0">
+    <properties>
+      <property name="platform" value="EditMode" />
+    </properties>
+    <failure>
+      <message><![CDATA[One or more child tests had errors]]></message>
+    </failure>
+    <test-suite type="Assembly" id="1139" name="Motu.Tests.Editor.dll" fullname="/private/tmp/motu-ship-spray.7RcBx7/Library/ScriptAssemblies/Motu.Tests.Editor.dll" runstate="Runnable" testcasecount="112" result="Failed" site="Child" start-time="2026-09-13 22:21:48Z" end-time="2026-09-13 22:21:48Z" duration="0.050859" total="1" passed="0" failed="1" inconclusive="0" skipped="0" asserts="0">
+      <properties>
+        <property name="_PID" value="97353" />
+        <property name="_APPDOMAIN" value="Unity Child Domain" />
+        <property name="platform" value="EditMode" />
+        <property name="EditorOnly" value="True" />
+      </properties>
+      <failure>
+        <message><![CDATA[One or more child tests had errors]]></message>
+      </failure>
+      <test-suite type="TestSuite" id="1140" name="Motu" fullname="Motu" runstate="Runnable" testcasecount="112" result="Failed" site="Child" start-time="2026-09-13 22:21:48Z" end-time="2026-09-13 22:21:48Z" duration="0.046443" total="1" passed="0" failed="1" inconclusive="0" skipped="0" asserts="0">
+        <properties />
+        <failure>
+          <message><![CDATA[One or more child tests had errors]]></message>
+        </failure>
+        <test-suite type="TestSuite" id="1141" name="Editor" fullname="Motu.Editor" runstate="Runnable" testcasecount="112" result="Failed" site="Child" start-time="2026-09-13 22:21:48Z" end-time="2026-09-13 22:21:48Z" duration="0.045542" total="1" passed="0" failed="1" inconclusive="0" skipped="0" asserts="0">
+          <properties />
+          <failure>
+            <message><![CDATA[One or more child tests had errors]]></message>
+          </failure>
+          <test-suite type="TestFixture" id="1052" name="OceanOpticsTests" fullname="Motu.Editor.OceanOpticsTests" classname="Motu.Editor.OceanOpticsTests" runstate="Runnable" testcasecount="14" result="Failed" site="Child" start-time="2026-09-13 22:21:48Z" end-time="2026-09-13 22:21:48Z" duration="0.044146" total="1" passed="0" failed="1" inconclusive="0" skipped="0" asserts="0">
+            <properties />
+            <failure>
+              <message><![CDATA[One or more child tests had errors]]></message>
+            </failure>
+            <test-case id="1055" name="ExistingFoamSurvivesCrestsSeaLevelAndTroughs" fullname="Motu.Editor.OceanOpticsTests.ExistingFoamSurvivesCrestsSeaLevelAndTroughs" methodname="ExistingFoamSurvivesCrestsSeaLevelAndTroughs" classname="Motu.Editor.OceanOpticsTests" runstate="Runnable" seed="771551148" result="Failed" start-time="2026-09-13 22:21:48Z" end-time="2026-09-13 22:21:48Z" duration="0.038169" asserts="0">
+              <properties>
+                <property name="retryIteration" value="0" />
+                <property name="repeatIteration" value="0" />
+              </properties>
+              <failure>
+                <message><![CDATA[  Old foam must decay with age, not disappear at wave phase -3.141593.
+  Expected: 0.983471453f +/- 0.00100000005f
+  But was:  0.0f
+]]></message>
+                <stack-trace><![CDATA[at Motu.Editor.OceanOpticsTests.ExistingFoamSurvivesCrestsSeaLevelAndTroughs () [0x001f4] in /private/tmp/motu-ship-spray.7RcBx7/Assets/Tests/Editor/OceanOpticsTests.cs:168
+]]></stack-trace>
+              </failure>
+              <output><![CDATA[Saving results to: /tmp/foam-height-before.xml
+]]></output>
+            </test-case>
+          </test-suite>
+        </test-suite>
+      </test-suite>
+    </test-suite>
+  </test-suite>
+</test-run>

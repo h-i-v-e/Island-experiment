@@ -1,0 +1,174 @@
+<?xml version="1.0" encoding="utf-8"?>
+<test-run id="2" testcasecount="1" result="Failed(Child)" total="1" passed="0" failed="1" inconclusive="0" skipped="0" asserts="0" engine-version="3.5.0.0" clr-version="4.0.30319.42000" start-time="2026-09-13 02:44:54Z" end-time="2026-09-13 02:44:54Z" duration="0.0615516">
+  <test-suite type="TestSuite" id="1000" name="island-unity" fullname="island-unity" runstate="Runnable" testcasecount="106" result="Failed" site="Child" start-time="2026-09-13 02:44:54Z" end-time="2026-09-13 02:44:54Z" duration="0.061552" total="1" passed="0" failed="1" inconclusive="0" skipped="0" asserts="0">
+    <properties>
+      <property name="platform" value="EditMode" />
+    </properties>
+    <failure>
+      <message><![CDATA[One or more child tests had errors]]></message>
+    </failure>
+    <test-suite type="Assembly" id="1132" name="Motu.Tests.Editor.dll" fullname="/private/tmp/motu-ship-spray.7RcBx7/Library/ScriptAssemblies/Motu.Tests.Editor.dll" runstate="Runnable" testcasecount="106" result="Failed" site="Child" start-time="2026-09-13 02:44:54Z" end-time="2026-09-13 02:44:54Z" duration="0.056311" total="1" passed="0" failed="1" inconclusive="0" skipped="0" asserts="0">
+      <properties>
+        <property name="_PID" value="4355" />
+        <property name="_APPDOMAIN" value="Unity Child Domain" />
+        <property name="platform" value="EditMode" />
+        <property name="EditorOnly" value="True" />
+      </properties>
+      <failure>
+        <message><![CDATA[One or more child tests had errors]]></message>
+      </failure>
+      <test-suite type="TestSuite" id="1133" name="Motu" fullname="Motu" runstate="Runnable" testcasecount="106" result="Failed" site="Child" start-time="2026-09-13 02:44:54Z" end-time="2026-09-13 02:44:54Z" duration="0.053974" total="1" passed="0" failed="1" inconclusive="0" skipped="0" asserts="0">
+        <properties />
+        <failure>
+          <message><![CDATA[One or more child tests had errors]]></message>
+        </failure>
+        <test-suite type="TestSuite" id="1134" name="Editor" fullname="Motu.Editor" runstate="Runnable" testcasecount="106" result="Failed" site="Child" start-time="2026-09-13 02:44:54Z" end-time="2026-09-13 02:44:54Z" duration="0.053222" total="1" passed="0" failed="1" inconclusive="0" skipped="0" asserts="0">
+          <properties />
+          <failure>
+            <message><![CDATA[One or more child tests had errors]]></message>
+          </failure>
+          <test-suite type="TestFixture" id="1086" name="ReflectionFrustumReproTests" fullname="Motu.Editor.ReflectionFrustumReproTests" classname="Motu.Editor.ReflectionFrustumReproTests" runstate="Runnable" testcasecount="1" result="Failed" site="Child" start-time="2026-09-13 02:44:54Z" end-time="2026-09-13 02:44:54Z" duration="0.051930" total="1" passed="0" failed="1" inconclusive="0" skipped="0" asserts="0">
+            <properties />
+            <failure>
+              <message><![CDATA[One or more child tests had errors]]></message>
+            </failure>
+            <test-case id="1087" name="Sweep" fullname="Motu.Editor.ReflectionFrustumReproTests.Sweep" methodname="Sweep" classname="Motu.Editor.ReflectionFrustumReproTests" runstate="Runnable" seed="779803181" result="Failed" start-time="2026-09-13 02:44:54Z" end-time="2026-09-13 02:44:54Z" duration="0.046425" asserts="0">
+              <properties>
+                <property name="retryIteration" value="0" />
+                <property name="repeatIteration" value="0" />
+              </properties>
+              <failure>
+                <message><![CDATA[Unhandled log message: '[Error] Screen position out of view frustum (screen pos 0.000000, 0.000000, 16000.000000) (Camera rect 0 0 160 90)'. Use UnityEngine.TestTools.LogAssert.Expect]]></message>
+                <stack-trace><![CDATA[UnityEngine.Camera:RenderWithShader (UnityEngine.Shader,string)
+Motu.Rendering.PlanarWaterReflection:RenderReflection () (at Assets/Scripts/Rendering/PlanarWaterReflection.cs:249)
+Motu.Rendering.PlanarWaterReflection:PrepareReflection () (at Assets/Scripts/Rendering/PlanarWaterReflection.cs:130)
+Motu.Editor.ReflectionFrustumReproTests:Sweep () (at Assets/Tests/Editor/ReflectionFrustumReproTests.cs:20)
+System.Reflection.MethodBase:Invoke (object,object[])
+NUnit.Framework.Internal.Reflect:InvokeMethod (System.Reflection.MethodInfo,object,object[])
+NUnit.Framework.Internal.MethodWrapper:Invoke (object,object[])
+NUnit.Framework.Internal.Commands.TestMethodCommand:RunNonAsyncTestMethod (NUnit.Framework.Internal.ITestExecutionContext)
+NUnit.Framework.Internal.Commands.TestMethodCommand:RunTestMethod (NUnit.Framework.Internal.ITestExecutionContext)
+NUnit.Framework.Internal.Commands.TestMethodCommand:Execute (NUnit.Framework.Internal.ITestExecutionContext)
+UnityEditor.EditorApplication:Internal_CallUpdateFunctions ()
+
+]]></stack-trace>
+              </failure>
+              <output><![CDATA[REFLECTION PROBE height=10 pitch=-90
+REFLECTION PROBE height=10 pitch=-60
+REFLECTION PROBE height=10 pitch=-30
+REFLECTION PROBE height=10 pitch=-1
+REFLECTION PROBE height=10 pitch=0
+REFLECTION PROBE height=10 pitch=1
+REFLECTION PROBE height=10 pitch=18
+REFLECTION PROBE height=10 pitch=30
+REFLECTION PROBE height=10 pitch=60
+REFLECTION PROBE height=10 pitch=90
+REFLECTION PROBE height=1 pitch=-90
+REFLECTION PROBE height=1 pitch=-60
+REFLECTION PROBE height=1 pitch=-30
+REFLECTION PROBE height=1 pitch=-1
+REFLECTION PROBE height=1 pitch=0
+REFLECTION PROBE height=1 pitch=1
+REFLECTION PROBE height=1 pitch=18
+REFLECTION PROBE height=1 pitch=30
+REFLECTION PROBE height=1 pitch=60
+REFLECTION PROBE height=1 pitch=90
+REFLECTION PROBE height=0.01 pitch=-90
+REFLECTION PROBE height=0.01 pitch=-60
+REFLECTION PROBE height=0.01 pitch=-30
+REFLECTION PROBE height=0.01 pitch=-1
+REFLECTION PROBE height=0.01 pitch=0
+REFLECTION PROBE height=0.01 pitch=1
+REFLECTION PROBE height=0.01 pitch=18
+REFLECTION PROBE height=0.01 pitch=30
+REFLECTION PROBE height=0.01 pitch=60
+REFLECTION PROBE height=0.01 pitch=90
+REFLECTION PROBE height=0 pitch=-90
+REFLECTION PROBE height=0 pitch=-60
+REFLECTION PROBE height=0 pitch=-30
+REFLECTION PROBE height=0 pitch=-1
+REFLECTION PROBE height=0 pitch=0
+REFLECTION PROBE height=0 pitch=1
+REFLECTION PROBE height=0 pitch=18
+REFLECTION PROBE height=0 pitch=30
+REFLECTION PROBE height=0 pitch=60
+REFLECTION PROBE height=0 pitch=90
+REFLECTION PROBE height=-0.07 pitch=-90
+Screen position out of view frustum (screen pos 0.000000, 0.000000, 16000.000000) (Camera rect 0 0 160 90)
+Screen position out of view frustum (screen pos 160.000000, 0.000000, 16000.000000) (Camera rect 0 0 160 90)
+Screen position out of view frustum (screen pos 0.000000, 0.000000, 16000.000000) (Camera rect 0 0 160 90)
+Screen position out of view frustum (screen pos 160.000000, 0.000000, 16000.000000) (Camera rect 0 0 160 90)
+REFLECTION PROBE height=-0.07 pitch=-60
+Screen position out of view frustum (screen pos 0.000000, 0.000000, 16000.000000) (Camera rect 0 0 160 90)
+Screen position out of view frustum (screen pos 160.000000, 0.000000, 16000.000000) (Camera rect 0 0 160 90)
+Screen position out of view frustum (screen pos 0.000000, 0.000000, 16000.000000) (Camera rect 0 0 160 90)
+Screen position out of view frustum (screen pos 160.000000, 0.000000, 16000.000000) (Camera rect 0 0 160 90)
+REFLECTION PROBE height=-0.07 pitch=-30
+Screen position out of view frustum (screen pos 0.000000, 0.000000, 16000.000000) (Camera rect 0 0 160 90)
+Screen position out of view frustum (screen pos 160.000000, 0.000000, 16000.000000) (Camera rect 0 0 160 90)
+Screen position out of view frustum (screen pos 0.000000, 0.000000, 16000.000000) (Camera rect 0 0 160 90)
+Screen position out of view frustum (screen pos 160.000000, 0.000000, 16000.000000) (Camera rect 0 0 160 90)
+REFLECTION PROBE height=-0.07 pitch=-1
+Screen position out of view frustum (screen pos 0.000000, 0.000000, 16000.000000) (Camera rect 0 0 160 90)
+Screen position out of view frustum (screen pos 160.000000, 0.000000, 16000.000000) (Camera rect 0 0 160 90)
+Screen position out of view frustum (screen pos 0.000000, 0.000000, 16000.000000) (Camera rect 0 0 160 90)
+Screen position out of view frustum (screen pos 160.000000, 0.000000, 16000.000000) (Camera rect 0 0 160 90)
+REFLECTION PROBE height=-0.07 pitch=0
+Screen position out of view frustum (screen pos 0.000000, 0.000000, 16000.000000) (Camera rect 0 0 160 90)
+Screen position out of view frustum (screen pos 160.000000, 0.000000, 16000.000000) (Camera rect 0 0 160 90)
+Screen position out of view frustum (screen pos 0.000000, 0.000000, 16000.000000) (Camera rect 0 0 160 90)
+Screen position out of view frustum (screen pos 160.000000, 0.000000, 16000.000000) (Camera rect 0 0 160 90)
+REFLECTION PROBE height=-0.07 pitch=1
+Screen position out of view frustum (screen pos 0.000000, 0.000000, 16000.000000) (Camera rect 0 0 160 90)
+Screen position out of view frustum (screen pos 160.000000, 0.000000, 16000.000000) (Camera rect 0 0 160 90)
+Screen position out of view frustum (screen pos 0.000000, 0.000000, 16000.000000) (Camera rect 0 0 160 90)
+Screen position out of view frustum (screen pos 160.000000, 0.000000, 16000.000000) (Camera rect 0 0 160 90)
+REFLECTION PROBE height=-0.07 pitch=18
+Screen position out of view frustum (screen pos 0.000000, 0.000000, 16000.000000) (Camera rect 0 0 160 90)
+Screen position out of view frustum (screen pos 160.000000, 0.000000, 16000.000000) (Camera rect 0 0 160 90)
+Screen position out of view frustum (screen pos 0.000000, 0.000000, 16000.000000) (Camera rect 0 0 160 90)
+Screen position out of view frustum (screen pos 160.000000, 0.000000, 16000.000000) (Camera rect 0 0 160 90)
+REFLECTION PROBE height=-0.07 pitch=30
+Screen position out of view frustum (screen pos 0.000000, 0.000000, 16000.000000) (Camera rect 0 0 160 90)
+Screen position out of view frustum (screen pos 160.000000, 0.000000, 16000.000000) (Camera rect 0 0 160 90)
+Screen position out of view frustum (screen pos 0.000000, 0.000000, 16000.000000) (Camera rect 0 0 160 90)
+Screen position out of view frustum (screen pos 160.000000, 0.000000, 16000.000000) (Camera rect 0 0 160 90)
+REFLECTION PROBE height=-0.07 pitch=60
+Screen position out of view frustum (screen pos 0.000000, 0.000000, 16000.000000) (Camera rect 0 0 160 90)
+Screen position out of view frustum (screen pos 160.000000, 0.000000, 16000.000000) (Camera rect 0 0 160 90)
+Screen position out of view frustum (screen pos 0.000000, 0.000000, 16000.000000) (Camera rect 0 0 160 90)
+Screen position out of view frustum (screen pos 160.000000, 0.000000, 16000.000000) (Camera rect 0 0 160 90)
+REFLECTION PROBE height=-0.07 pitch=90
+Screen position out of view frustum (screen pos 0.000000, 0.000000, 16000.000000) (Camera rect 0 0 160 90)
+Screen position out of view frustum (screen pos 160.000000, 0.000000, 16000.000000) (Camera rect 0 0 160 90)
+Screen position out of view frustum (screen pos 0.000000, 0.000000, 16000.000000) (Camera rect 0 0 160 90)
+Screen position out of view frustum (screen pos 160.000000, 0.000000, 16000.000000) (Camera rect 0 0 160 90)
+REFLECTION PROBE height=-1 pitch=-90
+REFLECTION PROBE height=-1 pitch=-60
+REFLECTION PROBE height=-1 pitch=-30
+REFLECTION PROBE height=-1 pitch=-1
+REFLECTION PROBE height=-1 pitch=0
+REFLECTION PROBE height=-1 pitch=1
+REFLECTION PROBE height=-1 pitch=18
+REFLECTION PROBE height=-1 pitch=30
+REFLECTION PROBE height=-1 pitch=60
+REFLECTION PROBE height=-1 pitch=90
+REFLECTION PROBE height=-10 pitch=-90
+REFLECTION PROBE height=-10 pitch=-60
+REFLECTION PROBE height=-10 pitch=-30
+REFLECTION PROBE height=-10 pitch=-1
+REFLECTION PROBE height=-10 pitch=0
+REFLECTION PROBE height=-10 pitch=1
+REFLECTION PROBE height=-10 pitch=18
+REFLECTION PROBE height=-10 pitch=30
+REFLECTION PROBE height=-10 pitch=60
+REFLECTION PROBE height=-10 pitch=90
+Saving results to: /tmp/reflection-before.xml
+]]></output>
+            </test-case>
+          </test-suite>
+        </test-suite>
+      </test-suite>
+    </test-suite>
+  </test-suite>
+</test-run>

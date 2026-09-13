@@ -612,7 +612,7 @@ float MotuOceanFoamAllowance(float4 coastalData, float ordinaryAllowance, float 
         * MotuOceanDepthWaveScale(coastalData);
     // Use the local wave envelope, not instantaneous height, so foam does not
     // blink as crests pass sea level. Exclude strongly flattened river channels.
-    return smoothstep(0.03, 0.10, localAmplitude) * smoothstep(0.02, 0.10, coastalData.a);
+    return smoothstep(0.10, 0.25, localAmplitude) * smoothstep(0.02, 0.10, coastalData.a);
 }
 
 float MotuOceanFoamHeightAllowance(float heightAboveSeaPlane)
@@ -620,6 +620,16 @@ float MotuOceanFoamHeightAllowance(float heightAboveSeaPlane)
     // A large authored envelope does not imply a visible crest: cancellation,
     // depth limits, and mesh flattening can leave only a few centimetres.
     return smoothstep(0.10, 0.25, heightAboveSeaPlane);
+}
+
+float MotuOceanSurfaceFoam(float freshFoam, float storedFoam,
+    float localWaveAllowance, float renderedHeight)
+{
+    // Height limits formation of fresh whitecaps. Already deposited foam
+    // rides the surface through sea level and troughs instead of being sliced
+    // by a height contour. Calm/river suppression uses the local wave envelope.
+    return max(freshFoam * MotuOceanFoamHeightAllowance(renderedHeight),
+        storedFoam * localWaveAllowance);
 }
 
 float2 MotuFoamCellSeed(float2 cell)
@@ -732,7 +742,6 @@ void MotuEvaluateOceanWaveNormal(
         + onshoreDisplacement;
     float depthWaveScale = MotuOceanDepthWaveScale(coastalData);
     combinedDisplacement *= depthWaveScale;
-    foamAllowance *= MotuOceanFoamHeightAllowance(combinedDisplacement.y * geometricWaveWeight);
     float2 heightDerivative = (
         baseHeightDerivative * normalAttenuation
         + onshoreHeightDerivative)
@@ -769,7 +778,8 @@ void MotuEvaluateOceanWaveNormal(
         * brokenPatches;
     float breakerWhitecap = breakerFoam * geometricWaveWeight * brokenPatches;
     whitecap = max(ordinaryWhitecap, breakerWhitecap)
-        * max(_WhitecapStrength, 0.0) * foamAllowance;
+        * max(_WhitecapStrength, 0.0) * foamAllowance
+        * MotuOceanFoamHeightAllowance(combinedDisplacement.y * geometricWaveWeight);
 }
 
 void MotuEvaluateOceanWaveNormal(float2 worldPosition, out float3 worldNormal,

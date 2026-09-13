@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<test-run id="2" testcasecount="1" result="Failed(Child)" total="1" passed="0" failed="1" inconclusive="0" skipped="0" asserts="0" engine-version="3.5.0.0" clr-version="4.0.30319.42000" start-time="2026-09-13 22:53:13Z" end-time="2026-09-13 22:53:13Z" duration="0.1708214">
+  <test-suite type="TestSuite" id="1000" name="island-unity" fullname="island-unity" runstate="Runnable" testcasecount="113" result="Failed" site="Child" start-time="2026-09-13 22:53:13Z" end-time="2026-09-13 22:53:13Z" duration="0.170821" total="1" passed="0" failed="1" inconclusive="0" skipped="0" asserts="0">
+    <properties>
+      <property name="platform" value="EditMode" />
+    </properties>
+    <failure>
+      <message><![CDATA[One or more child tests had errors]]></message>
+    </failure>
+    <test-suite type="Assembly" id="1140" name="Motu.Tests.Editor.dll" fullname="/private/tmp/motu-ship-spray.7RcBx7/Library/ScriptAssemblies/Motu.Tests.Editor.dll" runstate="Runnable" testcasecount="113" result="Failed" site="Child" start-time="2026-09-13 22:53:13Z" end-time="2026-09-13 22:53:13Z" duration="0.165521" total="1" passed="0" failed="1" inconclusive="0" skipped="0" asserts="0">
+      <properties>
+        <property name="_PID" value="23298" />
+        <property name="_APPDOMAIN" value="Unity Child Domain" />
+        <property name="platform" value="EditMode" />
+        <property name="EditorOnly" value="True" />
+      </properties>
+      <failure>
+        <message><![CDATA[One or more child tests had errors]]></message>
+      </failure>
+      <test-suite type="TestSuite" id="1141" name="Motu" fullname="Motu" runstate="Runnable" testcasecount="113" result="Failed" site="Child" start-time="2026-09-13 22:53:13Z" end-time="2026-09-13 22:53:13Z" duration="0.164564" total="1" passed="0" failed="1" inconclusive="0" skipped="0" asserts="0">
+        <properties />
+        <failure>
+          <message><![CDATA[One or more child tests had errors]]></message>
+        </failure>
+        <test-suite type="TestSuite" id="1142" name="Editor" fullname="Motu.Editor" runstate="Runnable" testcasecount="113" result="Failed" site="Child" start-time="2026-09-13 22:53:13Z" end-time="2026-09-13 22:53:13Z" duration="0.163791" total="1" passed="0" failed="1" inconclusive="0" skipped="0" asserts="0">
+          <properties />
+          <failure>
+            <message><![CDATA[One or more child tests had errors]]></message>
+          </failure>
+          <test-suite type="TestFixture" id="1052" name="OceanOpticsTests" fullname="Motu.Editor.OceanOpticsTests" classname="Motu.Editor.OceanOpticsTests" runstate="Runnable" testcasecount="15" result="Failed" site="Child" start-time="2026-09-13 22:53:13Z" end-time="2026-09-13 22:53:13Z" duration="0.160366" total="1" passed="0" failed="1" inconclusive="0" skipped="0" asserts="0">
+            <properties />
+            <failure>
+              <message><![CDATA[One or more child tests had errors]]></message>
+            </failure>
+            <test-case id="1053" name="ReflectionsBlendAtEveryViewportEdgeInsteadOfSwitchingAbruptly" fullname="Motu.Editor.OceanOpticsTests.ReflectionsBlendAtEveryViewportEdgeInsteadOfSwitchingAbruptly" methodname="ReflectionsBlendAtEveryViewportEdgeInsteadOfSwitchingAbruptly" classname="Motu.Editor.OceanOpticsTests" runstate="Runnable" seed="1539413001" result="Failed" start-time="2026-09-13 22:53:13Z" end-time="2026-09-13 22:53:13Z" duration="0.153926" asserts="0">
+              <properties>
+                <property name="retryIteration" value="0" />
+                <property name="repeatIteration" value="0" />
+              </properties>
+              <failure>
+                <message><![CDATA[  No clamped reflection streak outside the texture.
+  Expected: 0 +/- 0.00100000005f
+  But was:  1.0f
+]]></message>
+                <stack-trace><![CDATA[at Motu.Editor.OceanOpticsTests.ReflectionsBlendAtEveryViewportEdgeInsteadOfSwitchingAbruptly () [0x0027f] in /private/tmp/motu-ship-spray.7RcBx7/Assets/Tests/Editor/OceanOpticsTests.cs:47
+]]></stack-trace>
+              </failure>
+              <output><![CDATA[Saving results to: /tmp/viewport-edge-before.xml
+]]></output>
+            </test-case>
+          </test-suite>
+        </test-suite>
+      </test-suite>
+    </test-suite>
+  </test-suite>
+</test-run>

@@ -29,6 +29,15 @@ UNITY_DECLARE_DEPTH_TEXTURE(_CameraDepthTexture);
 
 #include "CloudCommon.cginc"
 
+float MotuWaterViewportFade(float2 uv)
+{
+    // Screen-space textures have no scene information beyond their borders.
+    // Blend back to the fallback before reaching them, rather than exposing
+    // a hard boundary or stretching the last texel along displaced waves.
+    float2 edge = min(uv, 1.0 - uv);
+    return smoothstep(0.0, 0.08, min(edge.x, edge.y));
+}
+
 float3 MotuFacingWaterNormal(float3 worldNormal, float3 viewDirection)
 {
     float3 normal = normalize(worldNormal);
@@ -76,7 +85,8 @@ fixed3 MotuRefractScene(
     half2 viewNormal = mul((float3x3)UNITY_MATRIX_V, worldNormal).xy;
     half2 distortion = ripple + viewNormal * 0.22h;
     backgroundUv += distortion
-        * (_RefractionStrength * depthWeight * lerp(0.25h, 1.0h, facing));
+        * (_RefractionStrength * depthWeight * lerp(0.25h, 1.0h, facing))
+        * MotuWaterViewportFade(backgroundUv);
     float2 edgeInset = _MotuWaterBackground_TexelSize.xy * 1.5;
     backgroundUv = clamp(backgroundUv, edgeInset, 1.0 - edgeInset);
     return tex2D(_MotuWaterBackground, backgroundUv).rgb;
@@ -105,10 +115,7 @@ fixed3 MotuShadeWater(
     float2 reflectionUv = reflectionPosition.xy * inverseW
         + ripple * _PlanarReflectionDistortion;
     half reflectionInBounds = step(0.0001, reflectionPosition.w)
-        * step(0.0, reflectionUv.x)
-        * step(reflectionUv.x, 1.0)
-        * step(0.0, reflectionUv.y)
-        * step(reflectionUv.y, 1.0);
+        * MotuWaterViewportFade(reflectionUv);
     fixed3 planarReflection = tex2D(
         _PlanarReflectionTexture,
         saturate(reflectionUv)).rgb * lerp(

@@ -293,11 +293,20 @@ namespace Motu.Rendering
             var worldToCamera = camera.worldToCameraMatrix;
             var cameraPosition = worldToCamera.MultiplyPoint(offsetPosition);
             var cameraNormal = worldToCamera.MultiplyVector(normal).normalized * sideSign;
+            // An oblique near plane must leave the camera on its rejected side.
+            // While the viewer submerges, the mirrored eye reaches this plane
+            // (at -clipPlaneOffset) and then crosses it. A plane through the eye
+            // makes the projection singular and RenderWithShader reports invalid
+            // frustum corners. Keep at least 1 cm between the eye and clip plane;
+            // the normal above-water reflection and its waterline stay unchanged.
+            var cameraDistance = Mathf.Min(
+                -Vector3.Dot(cameraPosition, cameraNormal),
+                -0.01f);
             return new Vector4(
                 cameraNormal.x,
                 cameraNormal.y,
                 cameraNormal.z,
-                -Vector3.Dot(cameraPosition, cameraNormal));
+                cameraDistance);
         }
 
         internal static Matrix4x4 CalculateReflectionMatrix(Vector4 plane)

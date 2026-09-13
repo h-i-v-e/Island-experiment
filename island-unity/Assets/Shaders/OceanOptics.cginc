@@ -37,9 +37,12 @@ float MotuOceanSeabedVisibility(float sceneWorldY, float seaLevel)
 float MotuOceanHistoryFoam(float2 worldXZ)
 {
     float2 uv = (worldXZ - _OceanFoamHistoryRect.xy) * _OceanFoamHistoryRect.zw;
-    float edge = min(min(uv.x, uv.y), min(1-uv.x, 1-uv.y));
+    // The history is a square following the viewer. Hide its boundary over
+    // the outer half of an inscribed circle (64-128 m for the current map),
+    // so whitecaps and old wakes dissolve before reaching any straight edge.
+    float radius = length((uv - 0.5) * 2.0);
     return tex2D(_OceanFoamHistory, saturate(uv)).r
-        * smoothstep(0, .04, edge) * max(_PersistentFoamStrength, 0);
+        * (1.0 - smoothstep(0.5, 1.0, radius)) * max(_PersistentFoamStrength, 0);
 }
 
 float2 MotuOceanRippleSlope(float2 uv)

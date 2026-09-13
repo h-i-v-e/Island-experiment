@@ -1,0 +1,25 @@
+using NUnit.Framework;
+using UnityEngine;
+using UnityEngine.TestTools;
+using Motu.Rendering;
+using UnityEditor.SceneManagement;
+namespace Motu.Editor {
+public class ReflectionFrustumReproTests {
+[Test] public void Sweep() {
+EditorSceneManager.NewScene(NewSceneSetup.EmptyScene);
+var go = new GameObject("Probe"); var plane = new GameObject("Plane");
+var target = new RenderTexture(320,180,24); target.Create();
+var camera = go.AddComponent<Camera>(); camera.enabled=false; camera.targetTexture=target; camera.farClipPlane=16000;
+var reflection=go.AddComponent<PlanarWaterReflection>(); reflection.Configure(plane.transform);
+JsonUtility.FromJsonOverwrite("{\"frameInterval\":1}",reflection);
+try {
+foreach(var height in new[]{10f,1f,.01f,0f,-.07f,-1f,-10f})
+foreach(var pitch in new[]{-90f,-60f,-30f,-1f,0f,1f,18f,30f,60f,90f}) {
+go.transform.SetPositionAndRotation(new Vector3(0,height,0),Quaternion.Euler(pitch,0,0));
+Debug.Log($"REFLECTION PROBE height={height} pitch={pitch}");
+reflection.PrepareReflection();
+}
+} finally { Object.DestroyImmediate(go); Object.DestroyImmediate(plane); target.Release(); Object.DestroyImmediate(target); }
+Assert.That(reflection == null, Is.True);
+}
+}}

@@ -62,6 +62,7 @@ float3 MotuWaterRefractDepthSafe(float4 grabPosition, float4 screenPosition, flo
     float depthWeight = smoothstep(.02, max(_RefractionDepth, .021), originalDepth);
     float2 offset = (ripple + viewNormal * .22) * _RefractionStrength * depthWeight
         * lerp(.25, 1, saturate(dot(normal, view)));
+    offset *= min(MotuWaterViewportFade(grabUv), MotuWaterViewportFade(depthUv));
     // GrabPass and camera-depth textures can have opposite Y conventions.
     float2 depthOffset = offset;
     #if UNITY_UV_STARTS_AT_TOP
@@ -69,7 +70,7 @@ float3 MotuWaterRefractDepthSafe(float4 grabPosition, float4 screenPosition, flo
     #endif
     float2 inset = abs(_MotuWaterBackground_TexelSize.xy) * 1.5;
     float2 candidateUv = depthUv + depthOffset;
-    float inBounds = all(candidateUv >= inset) && all(candidateUv <= 1-inset);
+    float inBounds = MotuWaterViewportFade((candidateUv - inset) / max(1 - 2 * inset, .001));
     float candidateDepth = MotuWaterEyeDepth(SAMPLE_DEPTH_TEXTURE(_CameraDepthTexture, saturate(candidateUv)));
     float validity = inBounds * MotuWaterRefractionValidity(candidateDepth, surfaceEyeDepth);
     // Validate the final interpolated location as well, not just the full offset.
@@ -104,7 +105,7 @@ float3 MotuWaterShadeOptics(float3 body, float3 refracted, float pathLength, flo
     float3 sky = lerp(_ReflectionHorizonColor.rgb, _ReflectionColor.rgb, saturate(reflectionDirection.y)) * _WaterSkyExposure;
     float4 projected = mul(_PlanarReflectionMatrix, float4(worldPosition, 1));
     float2 uv = projected.xy / max(projected.w, .0001) + ripple * _PlanarReflectionDistortion;
-    float inBounds = projected.w > .0001 && all(uv >= 0) && all(uv <= 1);
+    float inBounds = step(.0001, projected.w) * MotuWaterViewportFade(uv);
     float mip = roughness * max(_PlanarReflectionMaxMip, 0);
     float3 planar = tex2Dlod(_PlanarReflectionTexture, float4(saturate(uv), 0, mip)).rgb * lerp(.08, 1, _WaterSkyExposure);
     float weight = saturate(_PlanarReflectionAvailable * _PlanarReflectionWeight * planarWeight * inBounds);

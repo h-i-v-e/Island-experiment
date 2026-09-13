@@ -8,7 +8,7 @@ namespace Motu.Editor
 {
     internal static class TerrainStreamingValidation
     {
-        internal static void ValidateTerrainRenderBatching(Material material)
+        internal static void ValidateTerrainRenderBatching(Material material, int unusedVertices = 0)
         {
             if (material == null)
             {
@@ -30,12 +30,13 @@ namespace Motu.Editor
                 {
                     var tileObject = new GameObject($"Terrain validation tile {index}");
                     tileObject.transform.SetParent(root.transform, false);
-                    var mesh = CreateBatchValidationMesh(index * 2f);
+                    var mesh = CreateBatchValidationMesh(index * 2f, unusedVertices);
                     tileObject.AddComponent<MeshFilter>().sharedMesh = mesh;
                     tiles[index] = new Tile(tileObject, mesh);
                 }
                 group = new TileGroup(root, tiles, 0);
                 streamer.ConfigureTerrainBatch(group, 1);
+                ValidateBatchTriangles(group);
 
                 var renderers = root.GetComponentsInChildren<MeshRenderer>(true);
                 if (renderers.Length != 1
@@ -65,6 +66,7 @@ namespace Motu.Editor
 
                 SetBatchedTileActive(group, 0, false);
                 RebuildTerrainBatchIfDirty(group);
+                ValidateBatchTriangles(group);
                 if (group.batchMesh.GetIndexCount(0) != 3
                     || !group.batchObject.activeSelf)
                 {
@@ -74,6 +76,7 @@ namespace Motu.Editor
 
                 SetBatchedTileActive(group, 1, false);
                 RebuildTerrainBatchIfDirty(group);
+                ValidateBatchTriangles(group);
                 if (group.batchMesh.GetIndexCount(0) != 0
                     || group.batchObject.activeSelf)
                 {
@@ -84,6 +87,7 @@ namespace Motu.Editor
                 SetBatchedTileActive(group, 0, true);
                 SetBatchedTileActive(group, 1, true);
                 RebuildTerrainBatchIfDirty(group);
+                ValidateBatchTriangles(group);
                 if (group.batchMesh.GetIndexCount(0) != 6
                     || !group.batchObject.activeSelf)
                 {
@@ -98,22 +102,62 @@ namespace Motu.Editor
             }
         }
 
-        private static Mesh CreateBatchValidationMesh(float xOffset)
+        private static void ValidateBatchTriangles(TileGroup group)
         {
+            var combinedVertices = group.batchMesh.vertices;
+            var combinedIndices = group.batchMesh.GetIndices(0);
+            var combinedColors = group.batchMesh.colors;
+            var combinedEnvironment = group.batchMesh.uv2;
+            var cursor = 0;
+            foreach (var tile in group.tiles)
+            {
+                if (tile == null || !tile.gameObject.activeSelf) continue;
+                var vertices = tile.mesh.vertices;
+                var colors = tile.mesh.colors;
+                var environment = tile.mesh.uv2;
+                foreach (var sourceIndex in tile.mesh.GetIndices(0))
+                {
+                    NUnit.Framework.Assert.That(cursor, NUnit.Framework.Is.LessThan(combinedIndices.Length));
+                    var index = combinedIndices[cursor++];
+                    NUnit.Framework.Assert.That(index, NUnit.Framework.Is.InRange(0, combinedVertices.Length - 1));
+                    NUnit.Framework.Assert.That(combinedVertices[index], NUnit.Framework.Is.EqualTo(vertices[sourceIndex]));
+                    NUnit.Framework.Assert.That(combinedColors[index], NUnit.Framework.Is.EqualTo(colors[sourceIndex]));
+                    NUnit.Framework.Assert.That(combinedEnvironment[index], NUnit.Framework.Is.EqualTo(environment[sourceIndex]));
+                }
+            }
+            NUnit.Framework.Assert.That(cursor, NUnit.Framework.Is.EqualTo(combinedIndices.Length));
+        }
+
+        private static Mesh CreateBatchValidationMesh(float xOffset, int unusedVertices)
+        {
+            var offset = unusedVertices / 2;
+            var vertices = new Vector3[unusedVertices + 3];
+            var normals = new Vector3[vertices.Length];
+            var uv = new Vector2[vertices.Length];
+            var environment = new Vector2[vertices.Length];
+            var colors = new Color[vertices.Length];
+            vertices[offset] = new Vector3(xOffset, 0f, 0f);
+            vertices[offset + 1] = new Vector3(xOffset + 1f, 0f, 0f);
+            vertices[offset + 2] = new Vector3(xOffset, 0f, 1f);
+            normals[offset] = normals[offset + 1] = normals[offset + 2] = Vector3.up;
+            uv[offset + 1] = Vector2.right;
+            uv[offset + 2] = Vector2.up;
+            environment[offset + 1] = Vector2.one;
+            environment[offset + 2] = Vector2.right;
+            colors[offset] = Color.red;
+            colors[offset + 1] = Color.green;
+            colors[offset + 2] = Color.blue;
             var mesh = new Mesh
             {
                 name = "Terrain render batching validation mesh",
-                vertices = new[]
-                {
-                    new Vector3(xOffset, 0f, 0f),
-                    new Vector3(xOffset + 1f, 0f, 0f),
-                    new Vector3(xOffset, 0f, 1f),
-                },
-                normals = new[] { Vector3.up, Vector3.up, Vector3.up },
-                uv = new[] { Vector2.zero, Vector2.right, Vector2.up },
-                uv2 = new[] { Vector2.zero, Vector2.one, Vector2.right },
-                colors = new[] { Color.red, Color.green, Color.blue },
-                triangles = new[] { 0, 1, 2 },
+                indexFormat = vertices.Length > ushort.MaxValue
+                    ? UnityEngine.Rendering.IndexFormat.UInt32 : UnityEngine.Rendering.IndexFormat.UInt16,
+                vertices = vertices,
+                normals = normals,
+                uv = uv,
+                uv2 = environment,
+                colors = colors,
+                triangles = new[] { offset, offset + 1, offset + 2 },
             };
             mesh.RecalculateBounds();
             mesh.UploadMeshData(false);

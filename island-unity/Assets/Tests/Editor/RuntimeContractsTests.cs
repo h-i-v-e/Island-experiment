@@ -18,6 +18,16 @@ namespace Motu.Editor
 {
     public sealed class RuntimeContractsTests
     {
+        [TestCase(0)]
+        [TestCase(4)]
+        [TestCase(70000)]
+        public void TerrainBatchUsesCombinedMeshIndices(int unusedVertices)
+        {
+            var material = new Material(Shader.Find("Motu/Terrain Unified"));
+            try { TerrainStreamingValidation.ValidateTerrainRenderBatching(material, unusedVertices); }
+            finally { Object.DestroyImmediate(material); }
+        }
+
         [Test] public void WeatherAndWaves() => VegetationWindValidation.BatchValidateSharedWind();
         [Test] public void ShoreBreaking() => OceanShoreDistanceValidation.BatchValidateShoreDistance();
         [Test] public void WaveTransitions() => OceanWaveTransitionValidation.BatchValidateWaveTransitions();

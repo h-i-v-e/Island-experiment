@@ -14,6 +14,45 @@ namespace Motu.Editor
     public sealed class OceanOpticsTests
     {
         [Test]
+        public void ReflectionsBlendAtEveryViewportEdgeInsteadOfSwitchingAbruptly()
+        {
+            var material = new Material(Shader.Find("Hidden/Motu/Tests/Ocean Optics"));
+            try
+            {
+                material.SetFloat("_ProbeMode", 7);
+                material.SetTexture("_PlanarReflectionTexture", Texture2D.whiteTexture);
+                material.SetMatrix("_PlanarReflectionMatrix", Matrix4x4.identity);
+                material.SetFloat("_PlanarReflectionAvailable", 1);
+                material.SetFloat("_PlanarReflectionWeight", 1);
+                material.SetFloat("_PlanarReflectionDistortion", 1);
+                material.SetFloat("_ReflectionStrength", 1);
+                material.SetFloat("_WaterSkyExposure", 1);
+                material.SetColor("_ReflectionHorizonColor", Color.black);
+                material.SetColor("_ReflectionColor", Color.black);
+                material.SetFloat("_SunGlintStrength", 0);
+                foreach (var distortion in new[] { Vector2.zero, new Vector2(.02f, -.015f) })
+                foreach (var direction in new[] { Vector2.left, Vector2.right, Vector2.up, Vector2.down })
+                {
+                    material.SetVector("_ProbeLight", new Vector4(distortion.x, distortion.y, 0, 0));
+                    var previous = 1f;
+                    for (var step = 0; step <= 26; step++)
+                    {
+                        var uv = Vector2.one * .5f + direction * (.4f + step * .005f);
+                        material.SetVector("_ProbeView", new Vector4(uv.x - distortion.x, uv.y - distortion.y, 1, 0));
+                        var colour = Read(material, 1)[0].r;
+                        Assert.That(colour, Is.InRange(-.001f, 1.001f));
+                        Assert.That(colour, Is.LessThanOrEqualTo(previous + .001f));
+                        Assert.That(previous - colour, Is.LessThan(.15f), "No hard reflection/sky switch at the viewport edge.");
+                        if (step == 0) Assert.That(colour, Is.EqualTo(1).Within(.001f), "Interior reflections remain full strength.");
+                        if (step >= 20) Assert.That(colour, Is.Zero.Within(.001f), "No clamped reflection streak outside the texture.");
+                        previous = colour;
+                    }
+                }
+            }
+            finally { Object.DestroyImmediate(material); }
+        }
+
+        [Test]
         public void CoastalTintFadesWithDepthDistanceAndMaskBounds()
         {
             var material = new Material(Shader.Find("Hidden/Motu/Tests/Ocean Optics"));
@@ -131,6 +170,61 @@ namespace Motu.Editor
                 Shader.SetGlobalFloat("_MotuShipWaveEnabled", oldShips);
                 Shader.SetGlobalInt("_MotuDeckCapsuleCount", oldCapsules);
                 Object.DestroyImmediate(probe); Object.DestroyImmediate(history); Object.DestroyImmediate(mask);
+            }
+        }
+
+        [Test]
+        public void ExistingFoamSurvivesCrestsSeaLevelAndTroughs()
+        {
+            var history = new Material(Resources.Load<Shader>("OceanFoamHistory"));
+            var surface = new Material(Shader.Find("Hidden/Motu/Tests/Ocean Optics"));
+            var oldShips = Shader.GetGlobalFloat("_MotuShipWaveEnabled");
+            var oldCapsules = Shader.GetGlobalInt("_MotuDeckCapsuleCount");
+            try
+            {
+                Shader.SetGlobalFloat("_MotuShipWaveEnabled", 0);
+                Shader.SetGlobalInt("_MotuDeckCapsuleCount", 0);
+                history.SetVector("_MotuWeatherWind", new Vector4(1, 0, 0, 1));
+                history.SetTexture("_MotuWindNoise", Texture2D.whiteTexture);
+                history.SetTexture("_WaveAttenuationTex", Texture2D.whiteTexture);
+                history.SetVector("_WaveAttenuationWorldRect", new Vector4(-8, -8, 1f / 16, 1f / 16));
+                history.SetFloat("_GeometricWaves", 1);
+                history.SetFloat("_WaveFadeStart", 100);
+                history.SetFloat("_WaveFadeEnd", 200);
+                history.SetFloat("_WhitecapStrength", 0);
+                history.SetFloat("_FoamDepositRate", 0);
+                history.SetFloat("_FoamLifetime", 6);
+                history.SetFloat("_FoamDeltaTime", .1f);
+                history.SetFloat("_FoamHistoryValid", 1);
+                history.SetTexture("_FoamPrevious", Texture2D.whiteTexture);
+                history.SetVector("_FoamPreviousRect", new Vector4(-8, -8, 1f / 16, 1f / 16));
+                history.SetVector("_FoamCurrentRect", new Vector4(-8, -8, 1f / 16, 1f / 16));
+                surface.SetFloat("_ProbeMode", 6);
+                history.SetVector("_OceanWave0", new Vector4(1, 0, 32, 1));
+                for (var step = 0; step <= 32; step++)
+                {
+                    var phase = -Mathf.PI + step * Mathf.PI / 16;
+                    history.SetVector("_OceanWaveFrom0", new Vector4(1, 0, 32, phase));
+                    var stored = Read(history, 1)[0].r;
+                    Assert.That(stored, Is.EqualTo(Mathf.Exp(-.1f / 6)).Within(.001f),
+                        $"Old foam must decay with age, not disappear at wave phase {phase}.");
+                    surface.SetVector("_ProbeView", new Vector4(0, stored, 1, Mathf.Sin(phase)));
+                    Assert.That(Read(surface, 1)[0].r, Is.EqualTo(stored).Within(.001f),
+                        "The visible surface must retain stored foam below the crest-height cutoff too.");
+                }
+                surface.SetVector("_ProbeView", new Vector4(0, 1, 0, 1));
+                Assert.That(Read(surface, 1)[0].r, Is.Zero, "Fully calm water must still hide stored foam.");
+                surface.SetVector("_ProbeView", new Vector4(1, 0, 1, 0));
+                Assert.That(Read(surface, 1)[0].r, Is.Zero, "A flattened crest must not generate fresh foam.");
+                surface.SetVector("_ProbeView", new Vector4(1, 0, 1, 1));
+                Assert.That(Read(surface, 1)[0].r, Is.EqualTo(1), "Real crests must retain fresh whitecaps.");
+            }
+            finally
+            {
+                Shader.SetGlobalFloat("_MotuShipWaveEnabled", oldShips);
+                Shader.SetGlobalInt("_MotuDeckCapsuleCount", oldCapsules);
+                Object.DestroyImmediate(history);
+                Object.DestroyImmediate(surface);
             }
         }
 
@@ -429,6 +523,98 @@ namespace Motu.Editor
             if (string.IsNullOrEmpty(directory)) return;
             Directory.CreateDirectory(directory);
             File.WriteAllBytes(Path.Combine(directory, name), texture.EncodeToPNG());
+        }
+
+        [TestCase(true, 0.07f)]
+        [TestCase(false, 0.07f)]
+        [TestCase(true, 0f)]
+        [TestCase(false, 0f)]
+        public void PlanarReflectionCrossesClipPlaneWithoutFrustumErrors(bool simplified, float offset)
+        {
+            EditorSceneManager.NewScene(NewSceneSetup.EmptyScene);
+            var cameraObject = new GameObject("Reflection crossing camera");
+            var planeObject = new GameObject("Reflection crossing plane");
+            var target = new RenderTexture(320, 180, 24);
+            var above = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            var below = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            var objectShader = Shader.Find(simplified ? "Motu/Terrain Unified" : "Unlit/Color");
+            var red = new Material(objectShader) { color = Color.red };
+            var blue = new Material(objectShader) { color = Color.blue };
+            var pixels = new Texture2D(160, 90, TextureFormat.RGBA32, false);
+            var previousActive = RenderTexture.active;
+            var previousInvertCulling = GL.invertCulling;
+            try
+            {
+                // Both paths should show the red object above sea level and
+                // reject the blue one below it, including after resurfacing.
+                above.GetComponent<Renderer>().sharedMaterial = red;
+                below.GetComponent<Renderer>().sharedMaterial = blue;
+                above.transform.position = new Vector3(-1, 2, 0);
+                below.transform.position = new Vector3(1, -2, 0);
+                var camera = cameraObject.AddComponent<Camera>();
+                camera.enabled = false;
+                camera.clearFlags = CameraClearFlags.SolidColor;
+                camera.backgroundColor = Color.black;
+                camera.farClipPlane = 16000;
+                camera.targetTexture = target;
+                target.Create();
+                var reflection = cameraObject.AddComponent<PlanarWaterReflection>();
+                reflection.Configure(planeObject.transform);
+                var settings = new SerializedObject(reflection);
+                settings.FindProperty("frameInterval").intValue = 1;
+                settings.FindProperty("clipPlaneOffset").floatValue = offset;
+                settings.FindProperty("useSimplifiedShader").boolValue = simplified;
+                settings.ApplyModifiedPropertiesWithoutUndo();
+
+                foreach (var tilt in new[] { 0f, 13f })
+                {
+                    planeObject.transform.rotation = Quaternion.Euler(0, 0, tilt);
+                    foreach (var height in new[] { 10f, 0.01f, 0f, -offset + 0.001f,
+                        -offset, -offset - 0.001f, -1f, -10f, 2f })
+                    foreach (var pitch in new[] { -90f, -30f, -1f, 0f, 1f, 30f, 90f })
+                    {
+                        cameraObject.transform.SetPositionAndRotation(
+                            planeObject.transform.TransformPoint(new Vector3(0, height, -10)),
+                            planeObject.transform.rotation * Quaternion.Euler(pitch, 0, 0));
+                        var previousCount = reflection.ReflectionRenderCount;
+                        reflection.PrepareReflection();
+                        Assert.That(reflection.ReflectionRenderCount, Is.EqualTo(previousCount + 1));
+                        Assert.That(GL.invertCulling, Is.EqualTo(previousInvertCulling));
+                        Assert.That(reflection.ReflectionCamera.projectionMatrix.determinant,
+                            Is.Not.EqualTo(0), $"height={height}, pitch={pitch}, tilt={tilt}");
+                    }
+                }
+                planeObject.transform.rotation = Quaternion.identity;
+                cameraObject.transform.SetPositionAndRotation(
+                    new Vector3(0, 2, -10), Quaternion.Euler(10, 0, 0));
+                reflection.PrepareReflection();
+                RenderTexture.active = reflection.ReflectionCamera.targetTexture;
+                pixels.ReadPixels(new Rect(0, 0, 160, 90), 0, 0);
+                pixels.Apply();
+                var redPixels = 0;
+                var bluePixels = 0;
+                foreach (var pixel in pixels.GetPixels())
+                {
+                    if (pixel.r > 0.02f && pixel.r > pixel.b * 2) redPixels++;
+                    if (pixel.b > 0.02f && pixel.b > pixel.r * 2) bluePixels++;
+                }
+                Assert.That(redPixels, Is.GreaterThan(10), "Above-water geometry must still reflect.");
+                Assert.That(bluePixels, Is.Zero, "Submerged geometry must remain clipped.");
+                Assert.That(reflection.LastRenderUsedSimplifiedShader, Is.EqualTo(simplified));
+            }
+            finally
+            {
+                RenderTexture.active = previousActive;
+                Object.DestroyImmediate(cameraObject);
+                Object.DestroyImmediate(planeObject);
+                Object.DestroyImmediate(above);
+                Object.DestroyImmediate(below);
+                Object.DestroyImmediate(red);
+                Object.DestroyImmediate(blue);
+                Object.DestroyImmediate(pixels);
+                target.Release();
+                Object.DestroyImmediate(target);
+            }
         }
 
         [UnityTest]

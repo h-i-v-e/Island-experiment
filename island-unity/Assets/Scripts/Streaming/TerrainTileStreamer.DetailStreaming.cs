@@ -465,7 +465,7 @@ namespace Motu.Streaming
             }
 
             var instances = new List<CombineInstance>(group.tiles.Length);
-            var vertexOffset = 0;
+            var totalVertexCount = 0;
             var totalIndexCount = 0;
             foreach (var tile in group.tiles)
             {
@@ -473,20 +473,14 @@ namespace Motu.Streaming
                 {
                     continue;
                 }
-                var sourceIndices = tile.mesh.GetIndices(0);
-                tile.batchIndices = new int[sourceIndices.Length];
-                for (var index = 0; index < sourceIndices.Length; index++)
-                {
-                    tile.batchIndices[index] = sourceIndices[index] + vertexOffset;
-                }
-                totalIndexCount = checked(totalIndexCount + sourceIndices.Length);
+                totalIndexCount = checked(totalIndexCount + (int)tile.mesh.GetIndexCount(0));
                 instances.Add(new CombineInstance
                 {
                     mesh = tile.mesh,
                     subMeshIndex = 0,
                     transform = Matrix4x4.identity,
                 });
-                vertexOffset = checked(vertexOffset + tile.mesh.vertexCount);
+                totalVertexCount = checked(totalVertexCount + tile.mesh.vertexCount);
             }
 
             if (instances.Count == 0)
@@ -501,11 +495,20 @@ namespace Motu.Streaming
                 batchMesh = new Mesh
                 {
                     name = $"Terrain LOD {lod} combined batch",
-                    indexFormat = vertexOffset > ushort.MaxValue
+                    indexFormat = totalVertexCount > ushort.MaxValue
                         ? IndexFormat.UInt32
                         : IndexFormat.UInt16,
                 };
-                batchMesh.CombineMeshes(instances.ToArray(), true, false, false);
+                // Unity can omit unused source vertices when combining. Preserve a
+                // submesh per tile long enough to capture Unity's actual index remapping.
+                batchMesh.CombineMeshes(instances.ToArray(), false, false, false);
+                var subMesh = 0;
+                foreach (var tile in group.tiles)
+                {
+                    if (tile != null)
+                        tile.batchIndices = batchMesh.GetIndices(subMesh++);
+                }
+                batchMesh.subMeshCount = 1;
                 batchMesh.UploadMeshData(false);
 
                 batchObject = new GameObject($"Terrain LOD {lod} combined batch");

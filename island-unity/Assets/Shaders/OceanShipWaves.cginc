@@ -12,7 +12,12 @@ float3 MotuShipWaveField(float2 worldXZ)
     if (any(uv < 0) || any(uv > 1)) return 0;
     // Fade the edge of the moving 512 m field, rather than leave a visible seam.
     float edge = min(min(uv.x, uv.y), min(1-uv.x, 1-uv.y));
-    return tex2Dlod(_MotuShipWaveField, float4(uv, 0, 0)).rgb * smoothstep(0, .03, edge);
+    float3 field = tex2Dlod(_MotuShipWaveField, float4(uv, 0, 0)).rgb;
+    field.xy *= smoothstep(0, .03, edge);
+    // Give distant wake foam a broad, rounded fade too. Keep displacement
+    // and hull clamping independent of this visual foam transition.
+    field.z *= 1.0 - smoothstep(0.5, 1.0, length((uv - 0.5) * 2.0));
+    return field;
 }
 
 float MotuShipWaveHeight(float waveHeight, float3 field, float capsule, float maximumWaveHeight)

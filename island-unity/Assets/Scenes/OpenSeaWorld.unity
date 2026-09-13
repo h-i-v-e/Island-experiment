@@ -607,7 +607,7 @@ MonoBehaviour:
   bowHeight: 1.2
   fullWaveSpeed: 8
   waveFoam: 0.8
-  wakeTexture: {fileID: 2800000, guid: c5d60db6570446c6aa5b4d1e2b4dfc7e, type: 3}
+  wakeTexture: {fileID: 0}
   wakeSizeMetres: {x: 18, y: 14}
   wakeHeight: 0.8
   wakeLifetime: 20

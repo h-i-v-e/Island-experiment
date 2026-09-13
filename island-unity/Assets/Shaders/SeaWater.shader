@@ -189,11 +189,9 @@ Shader "Motu/Sea Water"
                 float2 oceanOrigin = float2(unity_ObjectToWorld._m03, unity_ObjectToWorld._m23);
                 float crestResponse = MotuOceanSurfaceTranslucency(input.deckWaveData.z,
                     analyticCrestResponse, length(input.waveSamplePosition - oceanOrigin));
-                // Use the final rasterized height too: analytic waves can still
-                // be large after the visible mesh or hull clamp flattens them.
-                float visibleFoamAllowance = MotuOceanFoamHeightAllowance(input.deckWaveData.z);
-                whitecap = max(whitecap, MotuOceanHistoryFoam(input.worldPosition.xz) * foamAllowance)
-                    * visibleFoamAllowance;
+                whitecap = MotuOceanSurfaceFoam(whitecap,
+                    MotuOceanHistoryFoam(input.worldPosition.xz),
+                    foamAllowance, input.deckWaveData.z);
                 MotuShipWaveShading(input.worldPosition.xz, input.deckWaveData.x,
                     input.deckWaveData.y, MotuOceanClampHeightEnvelope(input.waveSamplePosition), analyticWaveNormal, whitecap);
                 // Add after hull suppression: displaced water at the hull should

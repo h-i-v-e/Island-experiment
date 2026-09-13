@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="utf-8"?>
+<test-run id="2" testcasecount="3" result="Failed(Child)" total="3" passed="1" failed="2" inconclusive="0" skipped="0" asserts="0" engine-version="3.5.0.0" clr-version="4.0.30319.42000" start-time="2026-09-13 01:38:00Z" end-time="2026-09-13 01:38:00Z" duration="0.0551306">
+  <test-suite type="TestSuite" id="1000" name="island-unity" fullname="island-unity" runstate="Runnable" testcasecount="105" result="Failed" site="Child" start-time="2026-09-13 01:38:00Z" end-time="2026-09-13 01:38:00Z" duration="0.055131" total="3" passed="1" failed="2" inconclusive="0" skipped="0" asserts="0">
+    <properties>
+      <property name="platform" value="EditMode" />
+    </properties>
+    <failure>
+      <message><![CDATA[One or more child tests had errors]]></message>
+    </failure>
+    <test-suite type="Assembly" id="1130" name="Motu.Tests.Editor.dll" fullname="/private/tmp/motu-ship-spray.7RcBx7/Library/ScriptAssemblies/Motu.Tests.Editor.dll" runstate="Runnable" testcasecount="105" result="Failed" site="Child" start-time="2026-09-13 01:38:00Z" end-time="2026-09-13 01:38:00Z" duration="0.049859" total="3" passed="1" failed="2" inconclusive="0" skipped="0" asserts="0">
+      <properties>
+        <property name="_PID" value="53918" />
+        <property name="_APPDOMAIN" value="Unity Child Domain" />
+        <property name="platform" value="EditMode" />
+        <property name="EditorOnly" value="True" />
+      </properties>
+      <failure>
+        <message><![CDATA[One or more child tests had errors]]></message>
+      </failure>
+      <test-suite type="TestSuite" id="1131" name="Motu" fullname="Motu" runstate="Runnable" testcasecount="105" result="Failed" site="Child" start-time="2026-09-13 01:38:00Z" end-time="2026-09-13 01:38:00Z" duration="0.047052" total="3" passed="1" failed="2" inconclusive="0" skipped="0" asserts="0">
+        <properties />
+        <failure>
+          <message><![CDATA[One or more child tests had errors]]></message>
+        </failure>
+        <test-suite type="TestSuite" id="1132" name="Editor" fullname="Motu.Editor" runstate="Runnable" testcasecount="105" result="Failed" site="Child" start-time="2026-09-13 01:38:00Z" end-time="2026-09-13 01:38:00Z" duration="0.045962" total="3" passed="1" failed="2" inconclusive="0" skipped="0" asserts="0">
+          <properties />
+          <failure>
+            <message><![CDATA[One or more child tests had errors]]></message>
+          </failure>
+          <test-suite type="TestFixture" id="1090" name="RuntimeContractsTests" fullname="Motu.Editor.RuntimeContractsTests" classname="Motu.Editor.RuntimeContractsTests" runstate="Runnable" testcasecount="15" result="Failed" site="Child" start-time="2026-09-13 01:38:00Z" end-time="2026-09-13 01:38:00Z" duration="0.044411" total="3" passed="1" failed="2" inconclusive="0" skipped="0" asserts="0">
+            <properties />
+            <failure>
+              <message><![CDATA[One or more child tests had errors]]></message>
+            </failure>
+            <test-suite type="ParameterizedMethod" id="1094" name="TerrainBatchUsesCombinedMeshIndices" fullname="Motu.Editor.RuntimeContractsTests.TerrainBatchUsesCombinedMeshIndices" classname="Motu.Editor.RuntimeContractsTests" runstate="Runnable" testcasecount="3" result="Failed" site="Child" start-time="2026-09-13 01:38:00Z" end-time="2026-09-13 01:38:00Z" duration="0.042075" total="3" passed="1" failed="2" inconclusive="0" skipped="0" asserts="0">
+              <properties />
+              <failure>
+                <message><![CDATA[One or more child tests had errors]]></message>
+              </failure>
+              <test-case id="1091" name="TerrainBatchUsesCombinedMeshIndices(0)" fullname="Motu.Editor.RuntimeContractsTests.TerrainBatchUsesCombinedMeshIndices(0)" methodname="TerrainBatchUsesCombinedMeshIndices" classname="Motu.Editor.RuntimeContractsTests" runstate="Runnable" seed="937523474" result="Passed" start-time="2026-09-13 01:38:00Z" end-time="2026-09-13 01:38:00Z" duration="0.015755" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1092" name="TerrainBatchUsesCombinedMeshIndices(4)" fullname="Motu.Editor.RuntimeContractsTests.TerrainBatchUsesCombinedMeshIndices(4)" methodname="TerrainBatchUsesCombinedMeshIndices" classname="Motu.Editor.RuntimeContractsTests" runstate="Runnable" seed="487374141" result="Failed" start-time="2026-09-13 01:38:00Z" end-time="2026-09-13 01:38:00Z" duration="0.003101" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+                <failure>
+                  <message><![CDATA[  Expected: (2.00, 0.00, 0.00)
+  But was:  (0.00, 0.00, 0.00)
+]]></message>
+                  <stack-trace><![CDATA[at Motu.Editor.TerrainStreamingValidation.ValidateBatchTriangles (Motu.Streaming.TerrainTileStreamer+TileGroup group) [0x000e6] in /private/tmp/motu-ship-spray.7RcBx7/Assets/Tests/Editor/TerrainStreamingValidation.cs:123
+at Motu.Editor.TerrainStreamingValidation.ValidateTerrainRenderBatching (UnityEngine.Material material, System.Int32 unusedVertices) [0x001d3] in /private/tmp/motu-ship-spray.7RcBx7/Assets/Tests/Editor/TerrainStreamingValidation.cs:69
+at Motu.Editor.RuntimeContractsTests.TerrainBatchUsesCombinedMeshIndices (System.Int32 unusedVertices) [0x00010] in /private/tmp/motu-ship-spray.7RcBx7/Assets/Tests/Editor/RuntimeContractsTests.cs:27
+]]></stack-trace>
+                </failure>
+                <output><![CDATA[Failed setting triangles. Some indices are referencing out of bounds vertices. IndexCount: 6, VertexCount: 6
+Failed setting triangles. Some indices are referencing out of bounds vertices. IndexCount: 3, VertexCount: 6
+]]></output>
+              </test-case>
+              <test-case id="1093" name="TerrainBatchUsesCombinedMeshIndices(70000)" fullname="Motu.Editor.RuntimeContractsTests.TerrainBatchUsesCombinedMeshIndices(70000)" methodname="TerrainBatchUsesCombinedMeshIndices" classname="Motu.Editor.RuntimeContractsTests" runstate="Runnable" seed="1051716351" result="Failed" start-time="2026-09-13 01:38:00Z" end-time="2026-09-13 01:38:00Z" duration="0.017080" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+                <failure>
+                  <message><![CDATA[  Expected: (2.00, 0.00, 0.00)
+  But was:  (0.00, 0.00, 0.00)
+]]></message>
+                  <stack-trace><![CDATA[at Motu.Editor.TerrainStreamingValidation.ValidateBatchTriangles (Motu.Streaming.TerrainTileStreamer+TileGroup group) [0x000e6] in /private/tmp/motu-ship-spray.7RcBx7/Assets/Tests/Editor/TerrainStreamingValidation.cs:123
+at Motu.Editor.TerrainStreamingValidation.ValidateTerrainRenderBatching (UnityEngine.Material material, System.Int32 unusedVertices) [0x001d3] in /private/tmp/motu-ship-spray.7RcBx7/Assets/Tests/Editor/TerrainStreamingValidation.cs:69
+at Motu.Editor.RuntimeContractsTests.TerrainBatchUsesCombinedMeshIndices (System.Int32 unusedVertices) [0x00010] in /private/tmp/motu-ship-spray.7RcBx7/Assets/Tests/Editor/RuntimeContractsTests.cs:27
+]]></stack-trace>
+                </failure>
+                <output><![CDATA[Failed setting triangles. Some indices are referencing out of bounds vertices. IndexCount: 6, VertexCount: 6
+Failed setting triangles. Some indices are referencing out of bounds vertices. IndexCount: 3, VertexCount: 6
+Saving results to: /tmp/terrain-batch-before.xml
+]]></output>
+              </test-case>
+            </test-suite>
+          </test-suite>
+        </test-suite>
+      </test-suite>
+    </test-suite>
+  </test-suite>
+</test-run>
