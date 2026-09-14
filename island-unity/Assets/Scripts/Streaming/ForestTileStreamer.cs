@@ -99,6 +99,7 @@ namespace Motu.Streaming
         private IslandPreparedMesh[] preparedLod0Foliage;
         private IslandPreparedMesh[] preparedLod0Wood;
         private IslandPreparedTreeCollider[][] preparedLod0TrunkColliders;
+        private IslandPreparedTreeCollider[][] preparedLod0LogColliders;
         private bool initialized;
         private bool meshEdgesVisible;
 
@@ -159,6 +160,7 @@ namespace Motu.Streaming
             preparedLod0Foliage = prepared.lod0FoliageTiles;
             preparedLod0Wood = prepared.lod0WoodTiles;
             preparedLod0TrunkColliders = prepared.lod0TrunkColliderTiles;
+            preparedLod0LogColliders = prepared.lod0LogColliderTiles;
 
             try
             {
@@ -479,6 +481,7 @@ namespace Motu.Streaming
             preparedLod0Foliage = null;
             preparedLod0Wood = null;
             preparedLod0TrunkColliders = null;
+            preparedLod0LogColliders = null;
             initialized = false;
             meshEdgesVisible = false;
         }
@@ -584,6 +587,10 @@ namespace Motu.Streaming
                     group.colliderRoot.transform,
                     preparedLod0TrunkColliders[index],
                     key);
+                CreateTrunkColliders(
+                    group.colliderRoot.transform,
+                    preparedLod0LogColliders[index],
+                    key, fallenLogs: true);
                 return group;
             }
             catch
@@ -622,7 +629,8 @@ namespace Motu.Streaming
         private static void CreateTrunkColliders(
             Transform parent,
             IslandPreparedTreeCollider[] colliders,
-            Vector2Int tile)
+            Vector2Int tile,
+            bool fallenLogs = false)
         {
             if (parent == null || colliders == null)
             {
@@ -639,12 +647,18 @@ namespace Motu.Streaming
                         $"Forest trunk collider {tile.x},{tile.y}:{index} is degenerate.");
                 }
                 var colliderObject = new GameObject(
-                    $"Forest trunk collider {tile.x},{tile.y}:{index}");
+                    $"Forest {(fallenLogs ? "log" : "trunk")} collider {tile.x},{tile.y}:{index}");
                 colliderObject.transform.SetParent(parent, false);
                 colliderObject.transform.localPosition = (source.bottom + source.top) * 0.5f;
                 colliderObject.transform.localRotation = Quaternion.FromToRotation(
                     Vector3.up,
                     axis / length);
+                if (fallenLogs)
+                {
+                    var box = colliderObject.AddComponent<BoxCollider>();
+                    box.size = new Vector3(source.radius * 2f, length, source.radius * 2f);
+                    continue;
+                }
                 var capsule = colliderObject.AddComponent<CapsuleCollider>();
                 capsule.direction = 1;
                 capsule.center = Vector3.zero;

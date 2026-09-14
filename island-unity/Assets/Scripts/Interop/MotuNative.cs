@@ -47,6 +47,7 @@ namespace Motu.Interop
             internal byte prototypeCount;
             internal float minimumScale;
             internal float maximumScale;
+            internal float fallenLogDensity;
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -446,6 +447,11 @@ namespace Motu.Interop
 
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         internal static extern void CreateForestTrunkColliders(
+            IntPtr handle,
+            out ExportForestTrunkColliders output);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern void CreateForestLogColliders(
             IntPtr handle,
             out ExportForestTrunkColliders output);
 

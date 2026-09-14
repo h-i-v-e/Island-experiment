@@ -9,6 +9,7 @@ Shader "Motu/Planar Reflection Simplified"
         _GrassColorA ("Grass A", Color) = (0.18, 0.46, 0.14, 1)
         _GrassColorB ("Grass B", Color) = (0.34, 0.50, 0.14, 1)
         _BaseColor ("Dark Surface", Color) = (0.10, 0.16, 0.06, 1)
+        _EndGrainColor ("End Grain Tint", Color) = (0.62, 0.44, 0.25, 1)
         _LightColor ("Light Surface", Color) = (0.30, 0.46, 0.16, 1)
         [PerRendererData] _RockTint ("Rock Tint", Color) = (1, 1, 1, 1)
         _SnowLine ("Snow Line", Float) = 100
@@ -55,6 +56,7 @@ Shader "Motu/Planar Reflection Simplified"
     fixed4 _GrassColorB;
     fixed4 _BaseColor;
     fixed4 _LightColor;
+    fixed4 _EndGrainColor;
     fixed4 _TipColor;
     fixed4 _RockTint;
     float _SnowLine;
@@ -167,7 +169,9 @@ Shader "Motu/Planar Reflection Simplified"
 
     fixed4 WoodFragment(ReflectionVertexOutput input) : SV_Target
     {
-        fixed3 albedo = lerp(_BaseColor.rgb, _LightColor.rgb, 0.38h);
+        fixed3 albedo = input.material.a < 0.1h
+            ? _EndGrainColor.rgb
+            : lerp(_BaseColor.rgb, _LightColor.rgb, 0.38h);
         return FinishReflection(albedo, input);
     }
 

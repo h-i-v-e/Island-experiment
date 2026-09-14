@@ -4,6 +4,9 @@ Shader "Motu/Tree Wood"
     {
         _BaseColor ("Dark Bark", Color) = (0.16, 0.085, 0.045, 1)
         _LightColor ("Light Bark", Color) = (0.42, 0.28, 0.14, 1)
+        [NoScaleOffset] _EndGrainMap ("Exposed End Grain", 2D) = "white" {}
+        _EndGrainColor ("End Grain Tint", Color) = (0.62, 0.44, 0.25, 1)
+        _EndGrainDetail ("End Grain Detail", Range(0, 1)) = 0.8
         _BarkContrast ("Bark Colour Variation", Range(0, 1)) = 0.42
         [NoScaleOffset] _BarkAlbedoMap ("Bark Recipe Albedo", 2D) = "gray" {}
         [NoScaleOffset] _BarkHeightMap ("Bark Recipe Height", 2D) = "gray" {}
@@ -53,6 +56,7 @@ Shader "Motu/Tree Wood"
                 float4 vertex : POSITION;
                 float3 normal : NORMAL;
                 float2 barkAxis : TEXCOORD0;
+                float2 endGrainUv : TEXCOORD1;
                 float4 treeData : COLOR;
                 UNITY_VERTEX_INPUT_INSTANCE_ID
             };
@@ -67,12 +71,16 @@ Shader "Motu/Tree Wood"
                 float3 islandLocalPosition : TEXCOORD4;
                 float2 barkAxis : TEXCOORD5;
                 float4 treeData : TEXCOORD6;
+                float2 endGrainUv : TEXCOORD7;
                 UNITY_VERTEX_INPUT_INSTANCE_ID
                 UNITY_VERTEX_OUTPUT_STEREO
             };
 
             fixed4 _BaseColor;
             fixed4 _LightColor;
+            sampler2D _EndGrainMap;
+            fixed4 _EndGrainColor;
+            half _EndGrainDetail;
             half _BarkContrast;
             sampler2D _BarkAlbedoMap;
             sampler2D _BarkHeightMap;
@@ -265,6 +273,7 @@ Shader "Motu/Tree Wood"
                     windOffset);
                 output.barkAxis = input.barkAxis;
                 output.treeData = input.treeData;
+                output.endGrainUv = input.endGrainUv;
                 TRANSFER_SHADOW(output);
                 UNITY_TRANSFER_FOG(output, output.pos);
                 return output;
@@ -284,11 +293,30 @@ Shader "Motu/Tree Wood"
                 float hasTreeRoot = MotuHasTreeRoot(input.treeData);
                 float3 treeRoot = MotuDecodeTreeRoot(input.treeData);
                 float3 barkPosition = input.islandLocalPosition - treeRoot * hasTreeRoot;
-                BarkRecipeSample bark = SampleBarkRecipe(
-                    barkPosition,
-                    input.worldPosition,
-                    geometricNormal,
-                    barkAxis);
+                BarkRecipeSample bark;
+                if (input.treeData.w < 0.1)
+                {
+                    // Cap vertices have their own UVs and normals. Never sample
+                    // bark parallax or bark normals on exposed cross sections.
+                    float variation = frac(dot(input.treeData.xyz, float3(127.1, 311.7, 74.7)));
+                    float angle = variation * 6.2831853;
+                    float2 uv = input.endGrainUv - 0.5;
+                    uv = float2(uv.x * cos(angle) - uv.y * sin(angle),
+                        uv.x * sin(angle) + uv.y * cos(angle)) + 0.5;
+                    half grain = tex2D(_EndGrainMap, uv).r;
+                    // Mip filtering and a pixel-footprint fade remove fine rings
+                    // at distance, leaving the same stable exposed-wood tint.
+                    float footprint = max(length(ddx(uv)), length(ddy(uv)));
+                    half detail = _EndGrainDetail * (1.0 - smoothstep(0.015, 0.09, footprint));
+                    bark.albedo = _EndGrainColor.rgb * lerp(1.0, grain * 1.5, detail)
+                        * lerp(0.9, 1.1, variation);
+                    bark.worldNormal = geometricNormal;
+                    bark.occlusion = 1.0;
+                }
+                else
+                {
+                    bark = SampleBarkRecipe(barkPosition, input.worldPosition, geometricNormal, barkAxis);
+                }
                 half3 normal = bark.worldNormal;
                 half broadVariation = 1.0 + noise.broad.r * _BarkContrast * 0.12;
                 fixed3 albedo = MotuRotateTreeHue(

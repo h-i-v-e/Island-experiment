@@ -27,7 +27,8 @@ namespace Motu.Interop
                 PrepareForestMeshGrid(handle, worldSize, 1, ForestTileStreamer.Lod1Resolution, true),
                 PrepareForestMeshGrid(handle, worldSize, 0, ForestTileStreamer.Lod1Resolution, false),
                 PrepareForestMeshGrid(handle, worldSize, 0, ForestTileStreamer.Lod1Resolution, true),
-                PrepareForestTrunkColliders(handle, worldSize));
+                PrepareForestTrunkColliders(handle, worldSize),
+                PrepareForestTrunkColliders(handle, worldSize, fallenLogs: true));
         }
         internal static IslandPreparedMesh[] PrepareReedMeshGrid(
             IntPtr handle,
@@ -155,9 +156,12 @@ namespace Motu.Interop
         }
         internal static IslandPreparedTreeCollider[][] PrepareForestTrunkColliders(
             IntPtr handle,
-            float worldSize)
+            float worldSize,
+            bool fallenLogs = false)
         {
-            MotuNative.CreateForestTrunkColliders(handle, out var export);
+            MotuNative.ExportForestTrunkColliders export;
+            if (fallenLogs) MotuNative.CreateForestLogColliders(handle, out export);
+            else MotuNative.CreateForestTrunkColliders(handle, out export);
             try
             {
                 if (export.handle == IntPtr.Zero
@@ -343,7 +347,9 @@ namespace Motu.Interop
                 || mesh.uv.data == IntPtr.Zero
                 || mesh.material.length != mesh.vertices.length
                 || mesh.material.data == IntPtr.Zero
-                || mesh.environment.length != 0)
+                || (wood
+                    ? mesh.environment.length != mesh.vertices.length || mesh.environment.data == IntPtr.Zero
+                    : mesh.environment.length != 0))
             {
                 throw new InvalidOperationException(
                     $"The Rust forest {(wood ? "wood" : "foliage")} tile {index} at LOD "
@@ -362,7 +368,7 @@ namespace Motu.Interop
                 || mesh.triangles.Length == 0
                 || mesh.triangles.Length % 3 != 0
                 || mesh.uv.Length != mesh.vertices.Length
-                || mesh.environment.Length != 0
+                || (wood ? mesh.environment.Length != mesh.vertices.Length : mesh.environment.Length != 0)
                 || mesh.material.Length != mesh.vertices.Length)
             {
                 throw new InvalidOperationException(
@@ -371,7 +377,8 @@ namespace Motu.Interop
             }
             for (var vertex = 0; vertex < mesh.vertices.Length; vertex++)
             {
-                if (!IsFinite(mesh.vertices[vertex]) || !IsFinite(mesh.normals[vertex]))
+                if (!IsFinite(mesh.vertices[vertex]) || !IsFinite(mesh.normals[vertex])
+                    || (wood && (!IsFinite(mesh.environment[vertex].x) || !IsFinite(mesh.environment[vertex].y))))
                 {
                     throw new InvalidOperationException(
                         $"The copied forest tile {index} at LOD {visualLod} contains a non-finite value.");

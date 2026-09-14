@@ -180,7 +180,8 @@ namespace Motu.Interop
             }
             if (source.environment.Length == source.vertices.Length)
             {
-                // Rust environment attributes use UV1: x = forest floor, y = stones.
+                // UV1 carries terrain environment weights or vegetation-specific data
+                // (fallen wood uses it for end-grain texture coordinates).
                 mesh.uv2 = source.environment;
             }
             if (source.caveAttributes.Length == source.vertices.Length)

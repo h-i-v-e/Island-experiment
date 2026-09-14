@@ -8,7 +8,9 @@ float4 _MotuTreeWindHeights;
 
 float MotuHasTreeRoot(float4 treeData)
 {
-    return 1.0 - step(0.01, abs(treeData.w - 0.5));
+    // Alpha: 0.5 live tree, 0.25 fallen bark, 0 exposed end grain.
+    return 1.0 - step(0.01, min(abs(treeData.w - 0.5),
+        min(abs(treeData.w - 0.25), abs(treeData.w))));
 }
 
 float3 MotuDecodeTreeRoot(float4 treeData)
@@ -34,6 +36,8 @@ float3 MotuTreeWindOffsetAtHeight(
     float4 treeData,
     float heightAboveGround)
 {
+    // Fallen wood is stationary in visible, shadow and reflection passes.
+    if (treeData.w < 0.3) return float3(0.0, 0.0, 0.0);
     float hasTreeRoot = MotuHasTreeRoot(treeData);
     float3 treeRoot = MotuDecodeTreeRoot(treeData) * hasTreeRoot;
 

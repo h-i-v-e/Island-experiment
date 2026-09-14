@@ -185,7 +185,7 @@ namespace Motu.Settings
             DepthAllowancePower = Mathf.Clamp(depthAllowancePower, 0.25f, 8f);
             DistanceAllowancePower = Mathf.Clamp(distanceAllowancePower, 0.25f, 8f);
             NoiseWorldSizeMetres = Mathf.Clamp(noiseWorldSizeMetres, 256f, 16384f);
-            DomainWarpMetres = Mathf.Clamp(domainWarpMetres, 0f, 32f);
+            DomainWarpMetres = Mathf.Clamp(domainWarpMetres, 0f, 128f);
             AmplitudeVariation = Mathf.Clamp(amplitudeVariation, 0f, 0.75f);
             WhitecapColour = whitecapColour;
             WhitecapStrength = Mathf.Clamp(whitecapStrength, 0f, 2f);
@@ -320,7 +320,7 @@ namespace Motu.Settings
             1.35f,
             1.15f,
             2048f,
-            9f,
+            32f,
             0.6f,
             new Color(0.90f, 0.96f, 1f, 1f),
             0.85f,
@@ -376,10 +376,10 @@ namespace Motu.Settings
         [Range(0.25f, 8f)] [SerializeField] private float distanceAllowancePower = 1.15f;
 
         [Header("Wave Shape Noise")]
-        [Tooltip("Noise texture repeat for the longest wave. Shorter waves sample the same noise at proportionally smaller scales. Larger values create broader regions of calm and tall waves.")]
+        [Tooltip("Noise texture repeat for the longest wave and broad domain warp. Shorter waves sample height variation at proportionally smaller scales. Larger values create broader wave bends and regions of calm and tall waves.")]
         [Min(256f)] [SerializeField] private float noiseWorldSizeMetres = 2048f;
-        [Tooltip("Sideways displacement of the wave field. Increase this to bend otherwise straight crests.")]
-        [Range(0f, 32f)] [SerializeField] private float domainWarpMetres = 9f;
+        [Tooltip("Strength in metres of broad wave-field bends that break up distant repetition. Zero restores straight crests.")]
+        [Range(0f, 128f)] [SerializeField] private float domainWarpMetres = 32f;
         [Tooltip("Height variation sampled separately at each wave's scale. At 0.6, local amplitudes range from roughly 40% to 160% of their base values. Zero disables height variation.")]
         [Range(0f, 0.75f)] [SerializeField] private float amplitudeVariation = 0.6f;
 

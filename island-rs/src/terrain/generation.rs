@@ -100,6 +100,7 @@ impl<R: Read> SavedIslandReader<R> {
                 prototype_count: self.read_u8()?,
                 minimum_scale: self.read_f32()?,
                 maximum_scale: self.read_f32()?,
+                ..ForestOptions::default()
             }
         } else {
             ForestOptions::default()

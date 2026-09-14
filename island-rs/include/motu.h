@@ -86,6 +86,18 @@ typedef struct {
     float continentalNoiseStrength, detailNoiseStrength, landMassOffset;
     float initialSoilDepthMetres;
 } MotuOptions;
+/* Shared axis/radius description: capsules for standing trunks, boxes for logs.
+ * All positions and radii use normalized island coordinates. */
+typedef struct {
+    Vector3Export bottom, top;
+    Vector2Export owner;
+    float radius;
+} ForestTrunkColliderExport;
+typedef struct {
+    void *handle;
+    const ForestTrunkColliderExport *data;
+    int32_t length;
+} ExportForestTrunkColliders;
 /* Forest options use the same natural C layout as Rust's repr(C) block. */
 typedef struct {
     float patchSizeMetres;
@@ -94,6 +106,7 @@ typedef struct {
     float snowlineMetres;
     uint8_t prototypeCount;
     float minimumScale, maximumScale;
+    float fallenLogDensity;
 } MotuForestOptions;
 typedef struct {
     float bankWidthMetres, patchSizeMetres, coverageThreshold, spacingMetres;
@@ -216,6 +229,9 @@ MOTU_EXPORT void CreateForestWoodMeshGrid(const void *handle, const ExportArea *
 MOTU_EXPORT void CreateForestFoliageMeshGrid(const void *handle, const ExportArea *area,
                                              int32_t visualLod, int32_t divisions,
                                              ExportMeshGrid *output);
+MOTU_EXPORT void CreateForestTrunkColliders(const void *handle, ExportForestTrunkColliders *output);
+MOTU_EXPORT void CreateForestLogColliders(const void *handle, ExportForestTrunkColliders *output);
+MOTU_EXPORT void ReleaseForestTrunkColliders(ExportForestTrunkColliders *output);
 MOTU_EXPORT void CreateReedMeshGrid(const void *handle, ExportMeshGrid *output);
 MOTU_EXPORT void CreateFernMeshGrid(const void *handle, ExportMeshGrid *output);
 MOTU_EXPORT void CreateWaterfallFeet(const void *handle, ExportWaterfallFeet *output);

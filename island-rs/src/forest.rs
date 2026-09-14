@@ -11,6 +11,8 @@
     clippy::cast_sign_loss
 )]
 
+mod logs;
+
 use std::{
     collections::{BTreeMap, HashMap},
     f32::consts::TAU,
@@ -38,6 +40,13 @@ pub struct ForestOptions {
     pub prototype_count: u8,
     pub minimum_scale: f32,
     pub maximum_scale: f32,
+    /// Fraction of standing trees near which a fallen log is attempted.
+    #[serde(default = "default_fallen_log_density")]
+    pub fallen_log_density: f32,
+}
+
+fn default_fallen_log_density() -> f32 {
+    0.18
 }
 
 impl Default for ForestOptions {
@@ -50,6 +59,7 @@ impl Default for ForestOptions {
             prototype_count: 8,
             minimum_scale: 1.0,
             maximum_scale: 2.0,
+            fallen_log_density: default_fallen_log_density(),
         }
     }
 }
@@ -86,6 +96,9 @@ impl ForestOptions {
                 "forest scales must be finite, positive, and maximum_scale must be at least minimum_scale"
                     .into(),
             );
+        }
+        if !self.fallen_log_density.is_finite() || !(0.0..=1.0).contains(&self.fallen_log_density) {
+            return Err("forest fallen_log_density must be finite and between 0 and 1".into());
         }
         Ok(self)
     }
@@ -133,11 +146,15 @@ pub(crate) enum ForestMeshKind {
 /// Wood stores the normalized island-space root of each owning tree in RGB.
 /// Foliage stores the nearest member-tree root in RGB and its height above
 /// that root, in metres, in UV.x. Alpha is `0.5` so Unity can distinguish
-/// either colour stream from its default white vertex colour.
+/// either colour stream from its default white vertex colour. Fallen wood uses
+/// alpha 0.25 for bark and 0 for end grain, with its centre in RGB; UV1
+/// carries cap coordinates. Live-tree metadata and UV0 bark axes are unchanged.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct ForestMeshTile {
     pub(crate) mesh: Mesh,
     pub(crate) material: Vec<Vec4>,
+    /// End-cap UVs for wood; empty for foliage.
+    pub(crate) environment: Vec<Vec2>,
 }
 
 /// A contiguous source range belonging to one complete placed tree.
@@ -381,6 +398,7 @@ pub(crate) struct ForestMeshes {
     pub(crate) trees: Vec<ForestTreeRanges>,
     pub(crate) clusters: Vec<ForestClusterRanges>,
     pub(crate) placements: Vec<TreePlacement>,
+    pub(crate) logs: Vec<logs::FallenLog>,
 }
 
 impl ForestMeshes {
@@ -445,6 +463,19 @@ impl ForestMeshes {
                     tiles[tile]
                         .material
                         .extend(std::iter::repeat_n(tree.anchor.extend(0.5), vertex_count));
+                    tiles[tile]
+                        .environment
+                        .extend(std::iter::repeat_n(Vec2::ZERO, vertex_count));
+                }
+                for log in &self.logs {
+                    let anchor = log.anchor();
+                    if !bounds.contains_xy(anchor.truncate()) {
+                        continue;
+                    }
+                    let x = owner_coordinate(anchor.x, bounds.min.x, span.x, divisions);
+                    let y = owner_coordinate(anchor.y, bounds.min.y, span.y, divisions);
+                    logs::append_to_tile(&mut tiles[y * divisions + x], source, log, visual_lod)
+                        .ok()?;
                 }
             }
             ForestMeshKind::Foliage => {
@@ -657,7 +688,8 @@ pub(crate) fn generate_forest_with_caves(
     placements.retain(|tree| !caves.excludes(tree.anchor * ISLAND_WORLD_METRES, 3.0));
     stats.accepted_trees = placements.len();
     let prototypes = generate_prototypes(island_seed, options)?;
-    let meshes = assemble_forest(island_seed, &placements, &prototypes, terrain)?;
+    let mut meshes = assemble_forest(island_seed, &placements, &prototypes, terrain)?;
+    logs::append_logs(&mut meshes, island_seed, terrain, surface, options, caves)?;
     debug_assert_eq!(stats.accepted_trees, meshes.trees.len());
     Ok((meshes, stats))
 }
@@ -2444,6 +2476,7 @@ mod tests {
                 lod1_foliage: range,
             }],
             placements: Vec::new(),
+            logs: Vec::new(),
         };
         let bounds = BoundingBox::new(Vec3::new(0.0, 0.0, f32::MIN), Vec3::new(1.0, 1.0, f32::MAX));
         let lod2_wood_tiles = forest
@@ -2755,6 +2788,7 @@ mod tests {
             prototype_count: 3,
             minimum_scale: 0.7,
             maximum_scale: 1.4,
+            fallen_log_density: 0.3,
         };
         let island = Island::generate_with_forest(
             31,

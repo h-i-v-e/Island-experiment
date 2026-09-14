@@ -292,6 +292,13 @@ void MotuAccumulateOnshoreWave(
                 + 2.0 * crestBias * waveNumber * waveSinDouble));
 }
 
+float MotuOceanWaveResolution(float wavelength, float pixelFootprint)
+{
+    // Fade before the two-pixels-per-cycle limit; zero footprint is the
+    // unfiltered field used by geometry, buoyancy and foam simulation.
+    return 1.0 - smoothstep(0.125, 0.5, pixelFootprint / max(wavelength, 0.25));
+}
+
 void MotuAccumulateOceanWave(
     float4 pattern,
     float baseAmplitude,
@@ -299,6 +306,8 @@ void MotuAccumulateOceanWave(
     float amplitudeScale,
     float contributionWeight,
     float2 worldPosition,
+    float pixelFootprint,
+    inout float unresolvedVariance,
     inout float3 displacement,
     inout float2 heightDerivative,
     inout float crestCurvature)
@@ -320,15 +329,20 @@ void MotuAccumulateOceanWave(
     // Negative second height derivative: convex crests positive, troughs
     // negative. Reuse the exact phase, amplitude variation and crest bias.
     // Like the existing slope, treat the noise amplitude/warp as locally constant.
-    float crestShape = waveSin - 4.0 * crestBias * waveCosDouble;
+    float resolved = MotuOceanWaveResolution(wavelength, pixelFootprint);
+    float harmonicResolved = MotuOceanWaveResolution(wavelength * 0.5, pixelFootprint);
+    float crestShape = waveSin * resolved - 4.0 * crestBias * waveCosDouble * harmonicResolved;
     amplitude *= contributionWeight;
+    unresolvedVariance += amplitude * amplitude * waveNumber * waveNumber * 0.5
+        * ((1.0 - resolved * resolved)
+            + 4.0 * crestBias * crestBias * (1.0 - harmonicResolved * harmonicResolved));
     crestCurvature += amplitude * waveNumber * waveNumber * crestShape;
-    displacement.y += amplitude * (waveSin - crestBias * waveCosDouble);
+    displacement.y += amplitude * (waveSin * resolved - crestBias * waveCosDouble * harmonicResolved);
     displacement.xz += direction
-        * (amplitude * saturate(choppiness) * waveCos);
+        * (amplitude * saturate(choppiness) * waveCos * resolved);
     heightDerivative += direction
         * (amplitude * waveNumber
-            * (waveCos + 2.0 * crestBias * waveSinDouble));
+            * (waveCos * resolved + 2.0 * crestBias * waveSinDouble * harmonicResolved));
 }
 
 void MotuAccumulateOceanWaveTransition(
@@ -338,6 +352,8 @@ void MotuAccumulateOceanWaveTransition(
     float choppiness,
     float amplitudeScale,
     float2 worldPosition,
+    float pixelFootprint,
+    inout float unresolvedVariance,
     inout float3 displacement,
     inout float2 heightDerivative,
     inout float crestCurvature)
@@ -345,14 +361,14 @@ void MotuAccumulateOceanWaveTransition(
     float blend = saturate(_OceanWaveTransition);
     MotuAccumulateOceanWave(
         outgoingPattern, baseAmplitude, choppiness,
-        amplitudeScale, 1.0 - blend, worldPosition,
+        amplitudeScale, 1.0 - blend, worldPosition, pixelFootprint, unresolvedVariance,
         displacement, heightDerivative, crestCurvature);
     [branch]
     if (blend > 0.0)
     {
         MotuAccumulateOceanWave(
             incomingPattern, baseAmplitude, choppiness,
-            amplitudeScale, blend, worldPosition,
+            amplitudeScale, blend, worldPosition, pixelFootprint, unresolvedVariance,
             displacement, heightDerivative, crestCurvature);
     }
 }
@@ -375,29 +391,35 @@ float MotuOceanWaveAmplitudeScale(
     return 1.0 + (noise * 2.0 - 1.0) * saturate(_WaveAmplitudeVariation);
 }
 
+float2 MotuOceanDomainWarp(float2 windAdvectedPosition)
+{
+    float2 uv = windAdvectedPosition / max(_WaveNoiseWorldSize, 256.0);
+    // Blue has eight coherent cells per repeat; red/green have 64. Use blue
+    // for bends spanning hundreds of metres, with just a little local detail.
+    // Rotate and rescale the second axis so the two bends do not tile together.
+    float2 crossedUv = float2(uv.x * 0.8 - uv.y * 0.6,
+        uv.x * 0.6 + uv.y * 0.8) * 0.61 + float2(0.371, 0.619);
+    float3 noise = tex2Dlod(_MotuWindNoise, float4(uv, 0.0, 0.0)).rgb;
+    float crossedNoise = tex2Dlod(_MotuWindNoise, float4(crossedUv, 0.0, 0.0)).b;
+    float2 broadWarp = float2(noise.b, crossedNoise) * 2.0 - 1.0;
+    return (broadWarp * 0.9 + (noise.rg - 0.5) * 0.15)
+        * max(_WaveDomainWarp, 0.0);
+}
+
 void MotuEvaluateOceanWaveField(
     float2 worldPosition,
+    float pixelFootprint,
+    out float unresolvedVariance,
     out float3 displacement,
     out float2 heightDerivative,
     out float crestCurvature)
 {
+    unresolvedVariance = 0.0;
     crestCurvature = 0.0;
     displacement = 0.0;
     heightDerivative = 0.0;
-    float noiseWorldSize = max(_WaveNoiseWorldSize, 256.0);
     float2 windAdvectedPosition = MOTU_OCEAN_SAMPLE_WIND_POSITION(worldPosition);
-    float2 broadUv = windAdvectedPosition / noiseWorldSize;
-    float2 detailUv = windAdvectedPosition / (noiseWorldSize * 0.37)
-        + float2(0.371, 0.619);
-    float2 broadNoise = tex2Dlod(
-        _MotuWindNoise,
-        float4(broadUv, 0.0, 0.0)).rg;
-    float2 detailNoise = tex2Dlod(
-        _MotuWindNoise,
-        float4(detailUv, 0.0, 0.0)).gr;
-    float2 domainWarp = ((broadNoise - 0.5) * 1.35
-        + (detailNoise - 0.5) * 0.45)
-        * max(_WaveDomainWarp, 0.0);
+    float2 domainWarp = MotuOceanDomainWarp(windAdvectedPosition);
     float longestWavelength = max(
         max(max(_OceanWave0.z, _OceanWave1.z),
             max(_OceanWave2.z, _OceanWave3.z)),
@@ -423,6 +445,7 @@ void MotuEvaluateOceanWaveField(
         _OceanWaveChoppiness.x,
         amplitudeScales.x,
         worldPosition + domainWarp,
+        pixelFootprint, unresolvedVariance,
         displacement,
         heightDerivative,
         crestCurvature);
@@ -433,6 +456,7 @@ void MotuEvaluateOceanWaveField(
         _OceanWaveChoppiness.y,
         amplitudeScales.y,
         worldPosition + float2(-domainWarp.y, domainWarp.x) * 0.82,
+        pixelFootprint, unresolvedVariance,
         displacement,
         heightDerivative,
         crestCurvature);
@@ -443,6 +467,7 @@ void MotuEvaluateOceanWaveField(
         _OceanWaveChoppiness.z,
         amplitudeScales.z,
         worldPosition - domainWarp * 0.61,
+        pixelFootprint, unresolvedVariance,
         displacement,
         heightDerivative,
         crestCurvature);
@@ -453,10 +478,19 @@ void MotuEvaluateOceanWaveField(
         _OceanWaveChoppiness.w,
         amplitudeScales.w,
         worldPosition + float2(domainWarp.y, -domainWarp.x) * 1.13,
+        pixelFootprint, unresolvedVariance,
         displacement,
         heightDerivative,
         crestCurvature);
 
+}
+
+void MotuEvaluateOceanWaveField(float2 worldPosition,
+    out float3 displacement, out float2 heightDerivative, out float crestCurvature)
+{
+    float unusedVariance;
+    MotuEvaluateOceanWaveField(worldPosition, 0, unusedVariance,
+        displacement, heightDerivative, crestCurvature);
 }
 
 void MotuEvaluateOceanWaveField(float2 worldPosition, out float3 displacement,
@@ -682,22 +716,35 @@ float2 MotuOceanFoamUv(float2 worldPosition)
     return uv + pull / max(weightSum, 0.0001) * (strength / frequency);
 }
 
-float MotuOceanFoamPatches(float2 worldPosition)
+float MotuOceanFoamPatches(float2 worldPosition, float pixelFootprint)
 {
     // One noise lookup for coverage: there is no second breakup/opacity layer.
+    float lod = max(0, log2(max(pixelFootprint * 256.0
+        / max(_WhitecapNoiseWorldSize, 0.5), 1.0)));
     float foamNoise = tex2Dlod(_MotuWindNoise,
-        float4(MotuOceanFoamUv(worldPosition), 0.0, 0.0)).r;
+        float4(MotuOceanFoamUv(worldPosition), 0.0, lod)).r;
     float threshold = 1.0 - saturate(_WhitecapCoverage);
-    return smoothstep(threshold - 0.12, threshold + 0.12, foamNoise);
+    // Broaden the coverage threshold as the noise distribution is averaged,
+    // rather than turning a grey mip into an almost solid white patch.
+    float width = lerp(0.12, 0.4, saturate(lod * 0.25));
+    return smoothstep(threshold - width, threshold + width, foamNoise);
+}
+
+float MotuOceanFoamPatches(float2 worldPosition)
+{
+    return MotuOceanFoamPatches(worldPosition, 0);
 }
 
 void MotuEvaluateOceanWaveNormal(
     float2 worldPosition,
+    float pixelFootprint,
+    out float unresolvedVariance,
     out float3 worldNormal,
     out float whitecap,
     out float crestResponse,
     out float foamAllowance)
 {
+    unresolvedVariance = 0;
     worldNormal = float3(0.0, 1.0, 0.0);
     whitecap = 0.0;
     crestResponse = 0.0;
@@ -713,7 +760,7 @@ void MotuEvaluateOceanWaveNormal(
     float2 baseHeightDerivative;
     float baseCurvature;
     MotuEvaluateOceanWaveField(
-        worldPosition,
+        worldPosition, pixelFootprint, unresolvedVariance,
         baseDisplacement,
         baseHeightDerivative,
         baseCurvature);
@@ -730,18 +777,32 @@ void MotuEvaluateOceanWaveNormal(
         onshoreInfluence,
         breakerFoam,
         onshoreCurvature);
+    float onshoreResolved = MotuOceanWaveResolution(_OnshoreWaveParameters.x, pixelFootprint);
+    // Use the envelope rather than the instantaneous slope: unresolved
+    // coastal waves must not make the highlight roughness flicker either.
+    float onshoreSlopeEnvelope = max(_OnshoreWaveParameters.y, 0.0)
+        * max(_MotuWeatherWind.w, 0.0) * onshoreInfluence
+        * 6.28318530718 / max(_OnshoreWaveParameters.x, 1.0);
+    float onshoreVariance = onshoreSlopeEnvelope * onshoreSlopeEnvelope * 0.5
+        * (1.0 - onshoreResolved * onshoreResolved);
+    onshoreDisplacement *= onshoreResolved;
+    onshoreHeightDerivative *= onshoreResolved;
+    breakerFoam *= onshoreResolved;
     float normalAttenuation = MotuOceanOrdinaryWaveAllowance(coastalData, onshoreInfluence);
     foamAllowance = MotuOceanFoamAllowance(coastalData, normalAttenuation, onshoreInfluence);
     float surfaceWaveAllowance = max(normalAttenuation, onshoreInfluence);
     [branch]
     if (surfaceWaveAllowance <= 0.0001)
     {
+        unresolvedVariance = 0;
         return;
     }
     float3 combinedDisplacement = baseDisplacement * normalAttenuation
         + onshoreDisplacement;
     float depthWaveScale = MotuOceanDepthWaveScale(coastalData);
     combinedDisplacement *= depthWaveScale;
+    unresolvedVariance = (unresolvedVariance * normalAttenuation * normalAttenuation
+        + onshoreVariance) * geometricWaveWeight * geometricWaveWeight * depthWaveScale * depthWaveScale;
     float2 heightDerivative = (
         baseHeightDerivative * normalAttenuation
         + onshoreHeightDerivative)
@@ -771,7 +832,7 @@ void MotuEvaluateOceanWaveNormal(
         slopeThreshold + 0.24,
         slope);
 
-    float brokenPatches = MotuOceanFoamPatches(worldPosition);
+    float brokenPatches = MotuOceanFoamPatches(worldPosition, pixelFootprint);
     float slopeWeight = lerp(0.35, 1.0, breakingSlope);
     float ordinaryWhitecap = crest
         * slopeWeight
@@ -780,6 +841,14 @@ void MotuEvaluateOceanWaveNormal(
     whitecap = max(ordinaryWhitecap, breakerWhitecap)
         * max(_WhitecapStrength, 0.0) * foamAllowance
         * MotuOceanFoamHeightAllowance(combinedDisplacement.y * geometricWaveWeight);
+}
+
+void MotuEvaluateOceanWaveNormal(float2 worldPosition,
+    out float3 worldNormal, out float whitecap, out float crestResponse, out float foamAllowance)
+{
+    float unusedVariance;
+    MotuEvaluateOceanWaveNormal(worldPosition, 0, unusedVariance,
+        worldNormal, whitecap, crestResponse, foamAllowance);
 }
 
 void MotuEvaluateOceanWaveNormal(float2 worldPosition, out float3 worldNormal,

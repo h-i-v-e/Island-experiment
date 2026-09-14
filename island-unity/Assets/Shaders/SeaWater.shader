@@ -59,7 +59,7 @@ Shader "Motu/Sea Water"
         [HideInInspector] _OceanWaveSpeeds ("Ocean Wave Speeds", Vector) = (3.6, 2.8, 2.1, 1.5)
         [HideInInspector] _OceanWaveChoppiness ("Ocean Wave Choppiness", Vector) = (0, 0, 0, 0)
         [HideInInspector] _WaveNoiseWorldSize ("Wave Noise World Size", Float) = 2048
-        [HideInInspector] _WaveDomainWarp ("Wave Domain Warp", Float) = 9
+        [HideInInspector] _WaveDomainWarp ("Wave Domain Warp", Float) = 32
         [HideInInspector] _WaveAmplitudeVariation ("Wave Amplitude Variation", Range(0, 0.75)) = 0.6
         [HideInInspector] _WhitecapColour ("Whitecap Colour", Color) = (0.9, 0.96, 1, 1)
         [HideInInspector] _WhitecapStrength ("Whitecap Strength", Range(0, 2)) = 0.85
@@ -180,8 +180,10 @@ Shader "Motu/Sea Water"
                 float whitecap;
                 float analyticCrestResponse;
                 float foamAllowance;
+                float pixelFootprint = max(length(ddx(input.waveSamplePosition)), length(ddy(input.waveSamplePosition)));
+                float unresolvedWaveVariance;
                 MotuEvaluateOceanWaveNormal(
-                    input.waveSamplePosition,
+                    input.waveSamplePosition, pixelFootprint, unresolvedWaveVariance,
                     analyticWaveNormal,
                     whitecap,
                     analyticCrestResponse,
@@ -198,10 +200,13 @@ Shader "Motu/Sea Water"
                 // foam even where the boat has flattened an incoming crest.
                 float boatFoam = MotuShipDisplacementFoam(input.deckWaveData.w);
                 if (boatFoam > 0.0001)
-                    whitecap = max(whitecap, boatFoam * MotuOceanFoamPatches(input.waveSamplePosition)
+                    whitecap = max(whitecap, boatFoam * MotuOceanFoamPatches(input.waveSamplePosition, pixelFootprint)
                         * max(_WhitecapStrength, 0.0));
                 float roughness;
                 float3 detailNormal = MotuOceanRippleNormal(input.worldPosition, analyticWaveNormal, roughness);
+                // Unresolved wave slopes become a wider highlight instead of
+                // isolated bright pixels. Physical surface queries remain unfiltered.
+                roughness = clamp(sqrt(roughness * roughness + min(unresolvedWaveVariance, 0.35)), 0.04, 0.8);
                 float3 worldNormal = MotuFacingWaterNormal(detailNormal, viewDirection);
                 half brightness = 0.72h
                     + 0.28h * saturate(dot(

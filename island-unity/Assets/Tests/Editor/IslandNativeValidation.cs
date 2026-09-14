@@ -66,7 +66,7 @@ namespace Motu.Editor
         {
             IslandOwnershipValidation.ValidateOwnershipContract();
             if (Marshal.SizeOf<MotuNative.Options>() != sizeof(float) * 20
-                || Marshal.SizeOf<MotuNative.ForestOptions>() != 28
+                || Marshal.SizeOf<MotuNative.ForestOptions>() != 32
                 || Marshal.SizeOf<MotuNative.ReedOptions>() != sizeof(float) * 8
                 || Marshal.SizeOf<MotuNative.FernOptions>() != sizeof(float) * 8
                 || Marshal.SizeOf<MotuNative.MaterialBakeOptions>() != 12
@@ -205,6 +205,7 @@ namespace Motu.Editor
                 prototypeCount = 8,
                 minimumScale = 1f,
                 maximumScale = 2f,
+                fallenLogDensity = 0.18f,
             };
             var handle = MotuNative.CreateMotuWithForest(
                 2018,

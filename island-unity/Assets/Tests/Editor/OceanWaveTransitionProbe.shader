@@ -12,6 +12,8 @@ Shader "Hidden/Motu/Ocean Wave Transition Probe"
             #include "UnityCG.cginc"
             #include "Assets/Shaders/OceanWaves.cginc"
             float4 _ProbeWorldRect;
+            float _ProbeFilteredWaves, _ProbeFilteredFoam, _ProbePixelFootprint;
+            float _ProbeDomainWarp;
             float _ProbeCurvature;
             float _ProbeClampEnvelope;
             float _ProbeHeightResponse;
@@ -23,6 +25,21 @@ Shader "Hidden/Motu/Ocean Wave Transition Probe"
 
             float4 Fragment(v2f_img input) : SV_Target
             {
+                if (_ProbeFilteredWaves > 0.5 || _ProbeFilteredFoam > 0.5)
+                {
+                    float2 world = _ProbeWorldRect.xy + input.uv * _ProbeWorldRect.zw;
+                    if (_ProbeFilteredFoam > 0.5) return MotuOceanFoamPatches(world, _ProbePixelFootprint);
+                    float3 displacement;
+                    float2 slope;
+                    float curvature, variance;
+                    MotuEvaluateOceanWaveField(world, _ProbePixelFootprint, variance, displacement, slope, curvature);
+                    return float4(displacement.y, slope, variance);
+                }
+                if (_ProbeDomainWarp > 0.5)
+                {
+                    float2 world = _ProbeWorldRect.xy + input.uv * _ProbeWorldRect.zw;
+                    return float4(MotuOceanDomainWarp(MotuWindAdvectedPosition(world)), 0, 1);
+                }
                 if (_ProbeFoamActivity > 0.5 || _ProbeSurfaceTranslucency > 0.5)
                 {
                     float3 normal;

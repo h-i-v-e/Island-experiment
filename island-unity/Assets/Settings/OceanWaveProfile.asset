@@ -24,7 +24,7 @@ MonoBehaviour:
   depthAllowancePower: 1.35
   distanceAllowancePower: 1.15
   noiseWorldSizeMetres: 2048
-  domainWarpMetres: 9
+  domainWarpMetres: 32
   amplitudeVariation: 0.6
   whitecapColour: {r: 0.9, g: 0.96, b: 1, a: 1}
   whitecapStrength: 0.85

@@ -9,8 +9,8 @@ namespace Motu.Islands
 {
     internal static class IslandSnapshotCache
     {
-        // Includes independent cave settings and the native cave algorithm revision.
-        private const int CacheKeySchemaVersion = 7;
+        // Includes fallen-log generation and the native forest snapshot layout.
+        private const int CacheKeySchemaVersion = 8;
         private const string SnapshotExtension = ".motusnapshot";
 
         internal static string CacheDirectory
@@ -124,6 +124,7 @@ namespace Motu.Islands
             writer.Write(value.prototypeCount);
             writer.Write(value.minimumScale);
             writer.Write(value.maximumScale);
+            writer.Write(value.fallenLogDensity);
         }
 
         private static void Write(BinaryWriter writer, MotuNative.ReedOptions value)

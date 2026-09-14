@@ -77,10 +77,11 @@ pub struct MotuForestOptions {
     pub prototypeCount: u8,
     pub minimumScale: f32,
     pub maximumScale: f32,
+    pub fallenLogDensity: f32,
 }
 
 const _: () = {
-    assert!(size_of::<MotuForestOptions>() == size_of::<[u8; 28]>());
+    assert!(size_of::<MotuForestOptions>() == size_of::<[u8; 32]>());
     assert!(align_of::<MotuForestOptions>() == align_of::<f32>());
 };
 
@@ -122,6 +123,7 @@ impl From<MotuForestOptions> for ForestOptions {
             prototype_count: value.prototypeCount,
             minimum_scale: value.minimumScale,
             maximum_scale: value.maximumScale,
+            fallen_log_density: value.fallenLogDensity,
         }
     }
 }
@@ -700,7 +702,7 @@ fn export_forest_mesh_grid(
     }
     let exports: Vec<ExportMesh> = tiles
         .into_iter()
-        .map(|tile| export_mesh(tile.mesh, tile.material, Vec::new()))
+        .map(|tile| export_mesh(tile.mesh, tile.material, tile.environment))
         .collect();
     let owner = Box::new(exports);
     let output = ExportMeshGrid {
@@ -1668,6 +1670,33 @@ pub unsafe extern "C" fn CreateForestTrunkColliders(
     };
 }
 
+/// Exports oriented log-box axes and half widths, using the trunk export layout.
+/// Release with `ReleaseForestTrunkColliders`; positions are normalized island coordinates.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn CreateForestLogColliders(
+    handle: *const c_void,
+    output: *mut ExportForestTrunkColliders,
+) {
+    let Some(output) = (unsafe { output.as_mut() }) else {
+        return;
+    };
+    *output = ExportForestTrunkColliders::default();
+    let Some(island) = (unsafe { island_ref(handle) }) else {
+        return;
+    };
+    let owner = Box::new(
+        island
+            .forest_meshes()
+            .logs
+            .iter()
+            .map(|log| ForestTrunkColliderExport::from(log.collider()))
+            .collect::<Vec<_>>(),
+    );
+    output.data = owner.as_ptr();
+    output.length = length_i32(owner.len());
+    output.handle = Box::into_raw(owner).cast();
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ReleaseForestTrunkColliders(output: *mut ExportForestTrunkColliders) {
     let Some(output) = (unsafe { output.as_mut() }) else {
@@ -2430,6 +2459,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)] // One fixture exercises paired native allocation lifetimes.
     fn forest_grid_valid_lifecycle_on_a_small_island() {
         let terrain_options = IslandOptions {
             terrain_size: 16,
@@ -2442,6 +2472,9 @@ mod tests {
         };
         let island = Island::generate_with_forest(2018, terrain_options, forest_options)
             .expect("small island generation should succeed");
+        let expected_collider_count = i32::try_from(island.forest_meshes().trees.len()).unwrap();
+        let expected_log_count = i32::try_from(island.forest_meshes().logs.len()).unwrap();
+        assert!(expected_log_count > 0, "fixture must contain fallen wood");
         let handle = Box::into_raw(Box::new(island)).cast::<c_void>();
 
         // SAFETY: handle is a freshly allocated Island and each output is a
@@ -2472,14 +2505,25 @@ mod tests {
                     && tile.normals.length == tile.vertices.length
                     && tile.uv.length == tile.vertices.length
                     && tile.material.length == tile.vertices.length
-                    && tile.vertices.length % 8 == 0
-                    && tile.triangles.length % 36 == 0
-                    && tile.vertices.length / 8 == tile.triangles.length / 36
+                    && tile.environment.length == tile.vertices.length
+                    && tile.triangles.length % 3 == 0
             }));
-            let expected_collider_count = wood_tiles
+            let mut log_colliders = ExportForestTrunkColliders::default();
+            CreateForestLogColliders(handle, &raw mut log_colliders);
+            assert!(!log_colliders.handle.is_null());
+            assert_eq!(log_colliders.length, expected_log_count);
+            let static_vertices = wood_tiles
                 .iter()
-                .map(|tile| tile.vertices.length / 8)
-                .sum::<i32>();
+                .map(|tile| {
+                    std::slice::from_raw_parts(tile.material.data, tile.material.length as usize)
+                        .iter()
+                        .filter(|v| v.w < 0.3)
+                        .count()
+                })
+                .sum::<usize>();
+            assert_eq!(static_vertices, expected_log_count as usize * 18);
+            ReleaseForestTrunkColliders(&raw mut log_colliders);
+            assert!(log_colliders.handle.is_null());
 
             let mut trunk_colliders = ExportForestTrunkColliders::default();
             CreateForestTrunkColliders(handle, &raw mut trunk_colliders);
@@ -2678,6 +2722,7 @@ mod tests {
             prototypeCount: 8,
             minimumScale: 0.85,
             maximumScale: 1.15,
+            fallenLogDensity: 0.18,
         }
     }
 

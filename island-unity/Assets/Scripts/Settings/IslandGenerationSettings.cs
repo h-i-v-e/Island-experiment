@@ -198,6 +198,7 @@ namespace Motu.Settings
                 prototypeCount = (byte)forest.ForestPrototypeCount,
                 minimumScale = forest.MinimumTreeScale,
                 maximumScale = forest.MaximumTreeScale,
+                fallenLogDensity = forest.FallenLogDensity,
             };
         }
 

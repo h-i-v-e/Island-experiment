@@ -38,6 +38,11 @@ namespace Motu.Settings
         [Min(0.01f)]
         [SerializeField] private float maximumTreeScale = 3f;
 
+        [Tooltip("Fraction of trees near which a fallen log is attempted. Unsuitable or obstructed positions are skipped. Regenerate to apply.")]
+        [Range(0f, 1f)]
+        [SerializeField] private float fallenLogDensity = 0.18f;
+
+        internal float FallenLogDensity => Mathf.Clamp01(fallenLogDensity);
         public bool ShowForests { get => showForests; set => showForests = value; }
         internal float ForestPatchSizeMetres => Mathf.Max(forestPatchSizeMetres, 32f);
         internal float ForestNoiseThreshold => Mathf.Clamp01(forestNoiseThreshold);
