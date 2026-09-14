@@ -445,6 +445,20 @@ namespace Motu.Interop
             IntPtr handle,
             out ExportMeshGrid output);
 
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct ExportBoulderColliders
+        {
+            internal IntPtr handle;
+            internal IntPtr data;
+            internal int length;
+        }
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern void CreateBoulderColliders(IntPtr handle, out ExportBoulderColliders output);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern void ReleaseBoulderColliders(ref ExportBoulderColliders output);
+
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         internal static extern void CreateForestTrunkColliders(
             IntPtr handle,

@@ -28,7 +28,7 @@ MonoBehaviour:
   amplitudeVariation: 0.6
   whitecapColour: {r: 0.9, g: 0.96, b: 1, a: 1}
   whitecapStrength: 0.85
-  whitecapHeightThreshold: 0.68
+  whitecapHeightThreshold: 0.65
   whitecapSlopeThreshold: 0.12
   whitecapCoverage: 0.58
   whitecapNoiseWorldSizeMetres: 7
@@ -36,34 +36,34 @@ MonoBehaviour:
   whitecapDistortionSpeed: 0.65
   onshoreWaveEnabled: 1
   onshoreWaveWavelengthMetres: 24
-  onshoreWaveAmplitudeMetres: 1
+  onshoreWaveAmplitudeMetres: 3
   onshoreWaveSpeedMetresPerSecond: 3
   onshoreWaveChoppiness: 1
   onshoreWaveLeadingEdgeSharpness: 1
   onshoreWaveSharpeningDistanceMetres: 96
-  onshoreWaveBreakingStartDepthMetres: 5
-  onshoreWaveBreakingFullDepthMetres: 4
+  onshoreWaveBreakingStartDepthMetres: 10
+  onshoreWaveBreakingFullDepthMetres: 2
   wave0:
     direction: {x: 1, y: 0.18}
     wavelengthMetres: 48
-    amplitudeMetres: 0.34
+    amplitudeMetres: 1.5
     speedMetresPerSecond: 3.6
     choppiness: 0
   wave1:
     direction: {x: 0.32, y: 1}
     wavelengthMetres: 32
-    amplitudeMetres: 0.18
+    amplitudeMetres: 1
     speedMetresPerSecond: 2.8
     choppiness: 0
   wave2:
     direction: {x: -0.82, y: 0.55}
-    wavelengthMetres: 8
-    amplitudeMetres: 0.09
+    wavelengthMetres: 9
+    amplitudeMetres: 0.12
     speedMetresPerSecond: 2.1
     choppiness: 0
   wave3:
     direction: {x: 0.58, y: -0.81}
     wavelengthMetres: 6
-    amplitudeMetres: 0.04
+    amplitudeMetres: 0.09
     speedMetresPerSecond: 1.5
     choppiness: 0

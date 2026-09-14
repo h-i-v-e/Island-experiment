@@ -94,7 +94,8 @@ namespace Motu.Islands
                     generator.Reeds.ShowReeds,
                     generator.Ferns.ShowFerns,
                     cancellationToken,
-                    frameBudget);
+                    frameBudget,
+                    prepared.boulderColliders);
                 generator.terrainStreamer.SetWaterfallFootDebug(
                     generator.DebugSettings.ShowWaterfallFeet);
                 generator.islandRuntime.InstallLod3(prepared.lod3, generator.Generation.MaximumHeightMetres);

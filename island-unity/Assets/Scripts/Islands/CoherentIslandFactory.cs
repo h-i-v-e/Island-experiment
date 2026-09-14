@@ -11,16 +11,19 @@ namespace Motu.Islands
         [SerializeField] private int seed = 42;
 
         [Tooltip("Coherent world-grid frequency used for island existence and height.")]
-        [Min(0.001f)] [SerializeField] private float noiseScale = 0.15f;
+        [Min(0.001f)] [SerializeField] private float noiseScaleCoarse = 0.15f;
+
+        [Tooltip("Coherent world-grid frequency used for island existence and height.")]
+        [Min(0.001f)] [SerializeField] private float noiseScaleFine = 0.5f;
 
         [Tooltip("Cells whose coherent sample falls below this value remain open sea.")]
-        [Range(0f, 1f)] [SerializeField] private float islandThreshold = 0.5f;
+        [Range(0f, 1f)] [SerializeField] private float islandThreshold = 0.25f;
 
-        [Tooltip("Height multiplier at the lowest accepted coherent sample.")]
+        /*[Tooltip("Height multiplier at the lowest accepted coherent sample.")]
         [Min(0f)] [SerializeField] private float minimumHeightScale = 0.35f;
 
         [Tooltip("Height multiplier at the strongest coherent sample.")]
-        [Min(0f)] [SerializeField] private float maximumHeightScale = 1.15f;
+        [Min(0f)] [SerializeField] private float maximumHeightScale = 1.15f;*/
 
         [SerializeField]
         private IslandRenderingSettings renderingSettings;
@@ -51,10 +54,10 @@ namespace Motu.Islands
 
         private void OnValidate()
         {
-            noiseScale = Mathf.Max(noiseScale, 0.001f);
-            islandThreshold = Mathf.Clamp01(islandThreshold);
-            minimumHeightScale = Mathf.Max(minimumHeightScale, 0f);
-            maximumHeightScale = Mathf.Max(maximumHeightScale, minimumHeightScale);
+            //noiseScale = Mathf.Max(noiseScale, 0.001f);
+            //islandThreshold = Mathf.Clamp01(islandThreshold);
+            /*minimumHeightScale = Mathf.Max(minimumHeightScale, 0f);
+            maximumHeightScale = Mathf.Max(maximumHeightScale, minimumHeightScale);*/
         }
 
         private static IslandForestSettings CreateForestSettings(System.Random random, float snowLine)
@@ -62,7 +65,7 @@ namespace Motu.Islands
             return new IslandForestSettings
             {
                 snowlineMetres = snowLine * MAX_HEIGHT,
-                forestNoiseThreshold = Mathf.Lerp(0.4f, 1f, (float)random.NextDouble())
+                forestNoiseThreshold = Mathf.Lerp(0.3f, 0.9f, (float)random.NextDouble())
             };
         }
 
@@ -111,14 +114,15 @@ namespace Motu.Islands
 
         private float Prepare(Vector2Int islandGridPosition)
         {
-            if ((islandGridPosition.x & 1) == 0 || (islandGridPosition.y & 1) == 0)
-            {
-                return 0f;
-            }
-            var noiseOffset = NoiseOffset();
+            var seed = (uint)this.seed;
+            var noiseOffsetA = NoiseOffset(seed);
+            var noiseOffsetB = NoiseOffset(seed * 3);
             var height = Mathf.PerlinNoise(
-                noiseOffset.x + islandGridPosition.x * noiseScale,
-                noiseOffset.y + islandGridPosition.y * noiseScale);
+                noiseOffsetA.x + islandGridPosition.x * noiseScaleCoarse,
+                noiseOffsetA.y + islandGridPosition.y * noiseScaleCoarse) * 0.25f +
+            Mathf.PerlinNoise(
+                noiseOffsetB.x + islandGridPosition.x * noiseScaleFine,
+                noiseOffsetB.y + islandGridPosition.y * noiseScaleFine) * 0.75f;
             if (height < islandThreshold)
             {
                 return 0f;
@@ -164,11 +168,12 @@ namespace Motu.Islands
             return (hash & 0x00ffffffu) / 16777216f * 4096f;
         }
 
-        private Vector2 NoiseOffset()
+        private static Vector2 NoiseOffset(uint hash)
         {
             return new Vector2(
-                HashToNoiseCoordinate(IslandRandom.Mix(unchecked((uint)seed))),
-                HashToNoiseCoordinate(IslandRandom.Mix(unchecked((uint)seed * 7u))));
+                HashToNoiseCoordinate(IslandRandom.Mix(unchecked(hash))),
+                HashToNoiseCoordinate(IslandRandom.Mix(unchecked(hash * 7u)))
+            );
         }
     }
 }

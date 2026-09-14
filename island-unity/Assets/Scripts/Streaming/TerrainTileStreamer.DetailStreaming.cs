@@ -437,6 +437,7 @@ namespace Motu.Streaming
                 }
                 var group = new TileGroup(root, tiles, clampSides);
                 ConfigureTerrainBatch(group, lod);
+                ConfigureBoulderColliders(group, lod, parent);
                 return group;
             }
             catch

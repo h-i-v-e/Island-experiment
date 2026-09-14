@@ -9,8 +9,8 @@ namespace Motu.Islands
 {
     internal static class IslandSnapshotCache
     {
-        // Includes fallen-log generation and the native forest snapshot layout.
-        private const int CacheKeySchemaVersion = 8;
+        // Includes settled large boulders and their native collider records.
+        private const int CacheKeySchemaVersion = 9;
         private const string SnapshotExtension = ".motusnapshot";
 
         internal static string CacheDirectory

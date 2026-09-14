@@ -81,6 +81,7 @@ namespace Motu.Streaming
             internal GameObject batchObject;
             internal Mesh batchMesh;
             internal bool batchDirty;
+            internal GameObject boulderColliderRoot;
 
             internal TileGroup(GameObject root, Tile[] tiles, byte clampSides)
             {
@@ -137,6 +138,8 @@ namespace Motu.Streaming
         internal Material meshEdgeMaterial;
         private IslandPreparedMesh[] preparedRiverTiles;
         private IslandPreparedMesh[] preparedRiverRockTiles;
+        internal IslandPreparedBoulderCollider[][] preparedBoulderColliders;
+        private bool rocksVisible;
         internal IslandPreparedColliderHeightMap colliderHeightMap;
         internal float worldSize;
         private float grassBoundsRadius;
@@ -202,7 +205,8 @@ namespace Motu.Streaming
             bool showReeds,
             bool showFerns,
             CancellationToken cancellationToken,
-            UnityFrameBudget installationBudget)
+            UnityFrameBudget installationBudget,
+            IslandPreparedBoulderCollider[][] boulderColliders = null)
         {
             islandHandle = handle;
             terrainMaterial = sharedTerrainMaterial;
@@ -244,6 +248,10 @@ namespace Motu.Streaming
             meshEdgeMaterial = sharedMeshEdgeMaterial;
             preparedRiverTiles = riverTiles;
             preparedRiverRockTiles = riverRockTiles;
+            preparedBoulderColliders = boulderColliders;
+            rocksVisible = showRocks;
+            if (boulderColliders != null && boulderColliders.Length != Lod1Resolution * Lod1Resolution)
+                throw new InvalidOperationException("The prepared boulder collider grid is invalid.");
             if (preparedForest == null)
             {
                 throw new InvalidOperationException("The prepared forest batch is missing.");
@@ -668,6 +676,7 @@ namespace Motu.Streaming
             colliderRoot = null;
             preparedRiverTiles = null;
             preparedRiverRockTiles = null;
+            preparedBoulderColliders = null;
             colliderHeightMap = null;
             treeWoodMaterial = null;
             treeLod1WoodMaterial = null;
@@ -731,7 +740,10 @@ namespace Motu.Streaming
 
         public void SetRocksVisible(bool visible)
         {
+            rocksVisible = visible;
             riverRockRoot?.SetActive(visible);
+            foreach (var group in lod0Groups.Values) group.boulderColliderRoot?.SetActive(visible);
+            foreach (var group in pendingTransitionGroups) group.boulderColliderRoot?.SetActive(visible);
         }
 
         public void SetForestsVisible(bool visible)
@@ -866,6 +878,24 @@ namespace Motu.Streaming
             }
             distance = Vector3.Dot(edge2, q) * inverse;
             return distance >= 0f;
+        }
+
+        internal void ConfigureBoulderColliders(TileGroup group, int lod, Vector2Int owner)
+        {
+            if (lod != 0 || preparedBoulderColliders == null) return;
+            var spheres = preparedBoulderColliders[owner.y * Lod1Resolution + owner.x];
+            if (spheres == null || spheres.Length == 0) return;
+            group.boulderColliderRoot = new GameObject("Boulder sphere colliders (LOD 0)");
+            group.boulderColliderRoot.transform.SetParent(group.root.transform, false);
+            group.boulderColliderRoot.SetActive(rocksVisible);
+            for (var i = 0; i < spheres.Length; i++)
+            {
+                var source = spheres[i];
+                var host = new GameObject($"Boulder sphere {owner.x},{owner.y}:{i}");
+                host.transform.SetParent(group.boulderColliderRoot.transform, false);
+                host.transform.localPosition = source.centre;
+                host.AddComponent<SphereCollider>().radius = source.radius;
+            }
         }
 
         internal static void DestroyGroup(TileGroup group)

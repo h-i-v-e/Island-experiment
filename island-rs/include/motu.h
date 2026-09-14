@@ -98,6 +98,11 @@ typedef struct {
     const ForestTrunkColliderExport *data;
     int32_t length;
 } ExportForestTrunkColliders;
+typedef struct {
+    void *handle;
+    const Vector4Export *data; /* XYZ centre, W radius */
+    int32_t length;
+} ExportBoulderColliders;
 /* Forest options use the same natural C layout as Rust's repr(C) block. */
 typedef struct {
     float patchSizeMetres;
@@ -232,6 +237,8 @@ MOTU_EXPORT void CreateForestFoliageMeshGrid(const void *handle, const ExportAre
 MOTU_EXPORT void CreateForestTrunkColliders(const void *handle, ExportForestTrunkColliders *output);
 MOTU_EXPORT void CreateForestLogColliders(const void *handle, ExportForestTrunkColliders *output);
 MOTU_EXPORT void ReleaseForestTrunkColliders(ExportForestTrunkColliders *output);
+MOTU_EXPORT void CreateBoulderColliders(const void *handle, ExportBoulderColliders *output);
+MOTU_EXPORT void ReleaseBoulderColliders(ExportBoulderColliders *output);
 MOTU_EXPORT void CreateReedMeshGrid(const void *handle, ExportMeshGrid *output);
 MOTU_EXPORT void CreateFernMeshGrid(const void *handle, ExportMeshGrid *output);
 MOTU_EXPORT void CreateWaterfallFeet(const void *handle, ExportWaterfallFeet *output);

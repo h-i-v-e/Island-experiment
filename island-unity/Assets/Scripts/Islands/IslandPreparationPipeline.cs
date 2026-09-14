@@ -111,6 +111,7 @@ namespace Motu.Islands
                 var riverTiles = PrepareRiverTiles(handle, worldSize);
                 cancellationToken.ThrowIfCancellationRequested();
                 var riverRockTiles = PrepareRiverRockTiles(handle, worldSize);
+                var boulderColliders = PrepareBoulderColliders(handle, worldSize);
                 cancellationToken.ThrowIfCancellationRequested();
                 var forest = PrepareForestData(handle, worldSize);
                 cancellationToken.ThrowIfCancellationRequested();
@@ -136,7 +137,8 @@ namespace Motu.Islands
                     waterfallFeet,
                     colliderHeightMap,
                     materialTextures,
-                    cavesPrepared);
+                    cavesPrepared,
+                    boulderColliders);
                 handle = IntPtr.Zero;
                 return result;
             }

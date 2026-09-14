@@ -54,6 +54,17 @@ namespace Motu.Islands
         }
     }
 
+    internal readonly struct IslandPreparedBoulderCollider
+    {
+        internal readonly Vector3 centre;
+        internal readonly float radius;
+        internal IslandPreparedBoulderCollider(Vector3 centre, float radius)
+        {
+            this.centre = centre;
+            this.radius = radius;
+        }
+    }
+
     internal readonly struct IslandPreparedTreeCollider
     {
         internal readonly Vector3 bottom;
@@ -403,6 +414,7 @@ namespace Motu.Islands
         internal readonly IslandPreparedWaterfallFoot[] waterfallFeet;
         internal readonly IslandPreparedColliderHeightMap colliderHeightMap;
         internal readonly IslandPreparedCaves caves;
+        internal readonly IslandPreparedBoulderCollider[][] boulderColliders;
         internal readonly IslandPreparedMaterialTextures materialTextures;
 
         internal IslandPreparedData(
@@ -420,7 +432,8 @@ namespace Motu.Islands
             IslandPreparedWaterfallFoot[] waterfallFeet,
             IslandPreparedColliderHeightMap colliderHeightMap,
             IslandPreparedMaterialTextures materialTextures,
-            IslandPreparedCaves caves = null)
+            IslandPreparedCaves caves = null,
+            IslandPreparedBoulderCollider[][] boulderColliders = null)
         {
             this.handle = new NativeIslandHandle(handle);
             this.loadedFromSnapshot = loadedFromSnapshot;
@@ -444,6 +457,8 @@ namespace Motu.Islands
             this.waterfallFeet = waterfallFeet;
             this.colliderHeightMap = colliderHeightMap;
             this.caves = caves ?? IslandPreparedCaves.Empty;
+            this.boulderColliders = boulderColliders
+                ?? new IslandPreparedBoulderCollider[TerrainTileStreamer.Lod1Resolution * TerrainTileStreamer.Lod1Resolution][];
             this.materialTextures = materialTextures
                 ?? throw new ArgumentNullException(nameof(materialTextures));
         }

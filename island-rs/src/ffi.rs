@@ -459,6 +459,14 @@ const _: () = assert!(size_of::<ForestTrunkColliderExport>() == size_of::<[f32; 
 
 #[derive(Clone, Copy, Debug, Default)]
 #[repr(C)]
+pub struct ExportBoulderColliders {
+    pub handle: *mut c_void,
+    pub data: *const Vec4,
+    pub length: i32,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+#[repr(C)]
 pub struct ExportDecoration {
     pub trees: Vector3ExportArray,
     pub bushes: Vector3ExportArray,
@@ -1709,6 +1717,38 @@ pub unsafe extern "C" fn ReleaseForestTrunkColliders(output: *mut ExportForestTr
     *output = ExportForestTrunkColliders::default();
 }
 
+/// Exports normalized XYZ centres and W radii of rendered large boulders.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn CreateBoulderColliders(
+    handle: *const c_void,
+    output: *mut ExportBoulderColliders,
+) {
+    let Some(output) = (unsafe { output.as_mut() }) else {
+        return;
+    };
+    *output = ExportBoulderColliders::default();
+    let Some(island) = (unsafe { island_ref(handle) }) else {
+        return;
+    };
+    // An owned copy lets the caller release the island independently of this export.
+    let owner = Box::new(island.decorations().boulders.clone());
+    output.data = owner.as_ptr();
+    output.length = length_i32(owner.len());
+    output.handle = Box::into_raw(owner).cast();
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ReleaseBoulderColliders(output: *mut ExportBoulderColliders) {
+    let Some(output) = (unsafe { output.as_mut() }) else {
+        return;
+    };
+    if !output.handle.is_null() {
+        // SAFETY: this handle came from CreateBoulderColliders and is released once.
+        drop(unsafe { Box::from_raw(output.handle.cast::<Vec<Vec4>>()) });
+    }
+    *output = ExportBoulderColliders::default();
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ReleaseMeshWithUV(output: *mut ExportMeshWithUv) {
     let Some(output) = (unsafe { output.as_mut() }) else {
@@ -2459,6 +2499,20 @@ mod tests {
     }
 
     #[test]
+    fn boulder_export_null_arguments_are_safe() {
+        let mut output = ExportBoulderColliders::default();
+        // SAFETY: null arguments are supported and output remains owned here.
+        unsafe {
+            CreateBoulderColliders(ptr::null(), ptr::null_mut());
+            CreateBoulderColliders(ptr::null(), &raw mut output);
+            ReleaseBoulderColliders(&raw mut output);
+            ReleaseBoulderColliders(ptr::null_mut());
+        }
+        assert!(output.handle.is_null() && output.data.is_null());
+        assert_eq!(output.length, 0);
+    }
+
+    #[test]
     #[allow(clippy::too_many_lines)] // One fixture exercises paired native allocation lifetimes.
     fn forest_grid_valid_lifecycle_on_a_small_island() {
         let terrain_options = IslandOptions {
@@ -2474,6 +2528,7 @@ mod tests {
             .expect("small island generation should succeed");
         let expected_collider_count = i32::try_from(island.forest_meshes().trees.len()).unwrap();
         let expected_log_count = i32::try_from(island.forest_meshes().logs.len()).unwrap();
+        let expected_boulder_count = i32::try_from(island.decorations().boulders.len()).unwrap();
         assert!(expected_log_count > 0, "fixture must contain fallen wood");
         let handle = Box::into_raw(Box::new(island)).cast::<c_void>();
 
@@ -2524,6 +2579,14 @@ mod tests {
             assert_eq!(static_vertices, expected_log_count as usize * 18);
             ReleaseForestTrunkColliders(&raw mut log_colliders);
             assert!(log_colliders.handle.is_null());
+
+            let mut boulder_colliders = ExportBoulderColliders::default();
+            CreateBoulderColliders(handle, &raw mut boulder_colliders);
+            assert!(!boulder_colliders.handle.is_null());
+            assert!(expected_boulder_count > 0);
+            assert_eq!(boulder_colliders.length, expected_boulder_count);
+            ReleaseBoulderColliders(&raw mut boulder_colliders);
+            assert!(boulder_colliders.handle.is_null());
 
             let mut trunk_colliders = ExportForestTrunkColliders::default();
             CreateForestTrunkColliders(handle, &raw mut trunk_colliders);

@@ -173,12 +173,19 @@ pub(super) fn generate_river_rock_mesh(seed: u64, terrain: &Mesh, coverage: &[u8
     RiverRockGenerator::new(seed, terrain, coverage).generate()
 }
 
-pub(crate) fn append_settled_rocks(seed: u64, rocks: &[SettledRock], output: &mut Mesh) {
+/// Returns collider spheres for large boulders, fitted to the rendered vertices.
+/// Small stones remain visual-only and do not allocate collider records.
+pub(crate) fn append_settled_rocks(
+    seed: u64,
+    rocks: &[SettledRock],
+    output: &mut Mesh,
+) -> Vec<crate::Vec4> {
+    let mut boulders = Vec::new();
     for rock in rocks {
         let mut rng = Rng::new(
             (u64::from(seed as u32) << 32) ^ u64::from(rock.appearance_id) ^ ROCK_SEED_SALT,
         );
-        append_rock(
+        let sphere = append_rock(
             output,
             RockPlacement {
                 position: rock.anchor,
@@ -189,8 +196,12 @@ pub(crate) fn append_settled_rocks(seed: u64, rocks: &[SettledRock], output: &mu
             },
             &mut rng,
         );
+        if rock.radius >= 1.0 / ISLAND_WORLD_METRES {
+            boulders.push(sphere);
+        }
     }
     output.calculate_normals();
+    boulders
 }
 
 fn projected_area(vertices: [Vec3; 3]) -> f32 {
@@ -234,7 +245,7 @@ fn footprint_cell(position: Vec2) -> (i32, i32) {
     )
 }
 
-fn append_rock(output: &mut Mesh, placement: RockPlacement, rng: &mut Rng) {
+fn append_rock(output: &mut Mesh, placement: RockPlacement, rng: &mut Rng) -> crate::Vec4 {
     let prototype = rock_prototype();
     let yaw = rng.range(0.0, std::f32::consts::TAU);
     let (sin_yaw, cos_yaw) = yaw.sin_cos();
@@ -284,6 +295,12 @@ fn append_rock(output: &mut Mesh, placement: RockPlacement, rng: &mut Rng) {
     output
         .triangles
         .extend(prototype.triangles.iter().map(|index| first_vertex + index));
+    let radius = output.vertices[first_vertex as usize..]
+        .iter()
+        .map(|vertex| vertex.distance_squared(centre))
+        .fold(0.0_f32, f32::max)
+        .sqrt();
+    centre.extend(radius)
 }
 
 fn rock_prototype() -> &'static RockPrototype {
@@ -419,6 +436,46 @@ mod tests {
                 .iter()
                 .all(|index| *index < first.vertices.len() as u32)
         );
+    }
+
+    #[test]
+    fn large_boulder_sphere_matches_the_deformed_embedded_mesh() {
+        for normal in [Vec3::Z, Vec3::new(0.3, 0.1, 1.0).normalize()] {
+            let rock = SettledRock {
+                anchor: Vec3::new(0.3, 0.4, 0.02),
+                normal,
+                radius: 2.5 / ISLAND_WORLD_METRES,
+                boulder: true,
+                appearance_id: 7,
+            };
+            let mut mesh = Mesh::default();
+            let spheres = append_settled_rocks(91, &[rock], &mut mesh);
+            assert_eq!(spheres.len(), 1);
+            let sphere = spheres[0];
+            let centre = sphere.truncate();
+            assert!(centre.is_finite() && sphere.w.is_finite());
+            assert!(
+                mesh.vertices
+                    .iter()
+                    .all(|v| v.distance(centre) <= sphere.w + 1.0e-7)
+            );
+            assert!(
+                mesh.vertices
+                    .iter()
+                    .any(|v| (v.distance(centre) - sphere.w).abs() < 1.0e-7)
+            );
+            assert!(
+                mesh.vertices
+                    .iter()
+                    .any(|v| (*v - rock.anchor).dot(normal) < 0.0),
+                "rock should remain embedded"
+            );
+            let small = SettledRock {
+                radius: 0.1 / ISLAND_WORLD_METRES,
+                ..rock
+            };
+            assert!(append_settled_rocks(91, &[small], &mut mesh).is_empty());
+        }
     }
 
     #[test]

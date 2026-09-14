@@ -596,7 +596,7 @@ impl Island {
         decorations
             .bushes
             .retain(|point| !caves.excludes(*point * ISLAND_WORLD_METRES, 2.0));
-        append_settled_rocks(seed, &settled_rocks, &mut river_rock_mesh);
+        decorations.boulders = append_settled_rocks(seed, &settled_rocks, &mut river_rock_mesh);
         let reeds = generate_reeds(
             seed,
             terrain.mesh(),

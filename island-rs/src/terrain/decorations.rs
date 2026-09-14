@@ -15,6 +15,8 @@ pub struct Decorations {
     pub(super) trees: Vec<Vec3>,
     pub(super) bushes: Vec<Vec3>,
     pub(super) stone_vertices: Vec<u32>,
+    /// Final mesh-space bounding spheres: XYZ centre, W radius, normalized.
+    pub(crate) boulders: Vec<crate::Vec4>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -27,6 +29,11 @@ pub(crate) struct SettledRock {
 }
 
 pub(super) const ROCK_BODY_COUNT_MULTIPLIER: usize = 7;
+const LARGE_BOULDER_APPEARANCE_FLAG: u32 = 1 << 31;
+const LARGE_BOULDER_DROP_DOMAIN: u64 = 0x626f_756c_6465_7273;
+const LARGE_BOULDER_POPULATION_DIVISOR: usize = 32;
+const LARGE_BOULDER_MINIMUM_DIAMETER_METRES: f32 = 2.0;
+const LARGE_BOULDER_MAXIMUM_DIAMETER_METRES: f32 = 6.0;
 pub(super) const ROCK_DROP_MINIMUM_HEIGHT: f32 = 2.0 / ISLAND_WORLD_METRES;
 pub(super) const ROCK_DROP_MAXIMUM_HEIGHT: f32 = 14.0 / ISLAND_WORLD_METRES;
 pub(super) const ROCK_DROP_NOISE_SCALE: f32 = 72.0;
@@ -257,6 +264,14 @@ pub(super) fn generate_settled_rocks(
 ) -> Result<(Vec<SettledRock>, Vec<u32>), String> {
     let _timer = StageTimer::new("decorations.rock_settling");
     let mut bodies = spawn_rock_bodies(seed, terrain, body_target);
+    // Keep small-stone source seeds intact and drop a sparse second population.
+    // Both populations settle together, so large rocks displace/support stones.
+    bodies.extend(spawn_rock_bodies_with_offset(
+        seed ^ LARGE_BOULDER_DROP_DOMAIN,
+        terrain,
+        body_target / LARGE_BOULDER_POPULATION_DIVISOR,
+        LARGE_BOULDER_APPEARANCE_FLAG,
+    ));
     settle_rock_bodies(terrain, &mut bodies, method)?;
 
     let mut rocks = Vec::with_capacity(bodies.len());
@@ -281,6 +296,20 @@ pub(super) fn generate_settled_rocks(
         let terrain_centre_height = terrain_height + body.radius / normal.z.max(0.2);
         let piled = body.centre.z > terrain_centre_height + body.radius * 0.35;
         stone_vertices.extend(triangle.map(|vertex| vertex as u32));
+        if body.appearance_id & LARGE_BOULDER_APPEARANCE_FLAG != 0 {
+            // Mark support across the footprint, not only under its centre, so
+            // vegetation is excluded underneath the metre-scale rock body.
+            for y in -2..=2 {
+                for x in -2..=2 {
+                    let offset = Vec2::new(x as f32, y as f32) * body.radius * 0.6;
+                    if offset.length_squared() > (body.radius * 1.2).powi(2) {
+                        continue;
+                    }
+                    let support = terrain.sample_support(point + offset);
+                    stone_vertices.extend(support.triangle.map(|vertex| vertex as u32));
+                }
+            }
+        }
         let anchor_height = if piled {
             (body.centre.z - body.radius).max(terrain_height)
         } else {
@@ -337,6 +366,15 @@ fn settle_rock_bodies(
 }
 
 pub(super) fn spawn_rock_bodies(seed: u64, terrain: &Terrain, target: usize) -> Vec<RockBody> {
+    spawn_rock_bodies_with_offset(seed, terrain, target, 0)
+}
+
+fn spawn_rock_bodies_with_offset(
+    seed: u64,
+    terrain: &Terrain,
+    target: usize,
+    appearance_offset: u32,
+) -> Vec<RockBody> {
     let mut rng = Rng::new(seed ^ 0x6a09_e667_f3bc_c909);
     let mut bodies = Vec::with_capacity(target);
     if target == 0 {
@@ -368,7 +406,7 @@ pub(super) fn spawn_rock_bodies(seed: u64, terrain: &Terrain, target: usize) -> 
             if surface.z <= 0.001 || !surface.is_finite() || !inside_decoration_bounds(point) {
                 continue;
             }
-            let appearance_id = bodies.len() as u32;
+            let appearance_id = appearance_offset | bodies.len() as u32;
             let radius = rock_collision_radius(seed, appearance_id);
             let drop_height = rng.range(ROCK_DROP_MINIMUM_HEIGHT, ROCK_DROP_MAXIMUM_HEIGHT);
             bodies.push(RockBody {
@@ -447,6 +485,13 @@ fn rock_is_boulder(seed: u64, appearance_id: u32) -> bool {
 fn rock_appearance(seed: u64, appearance_id: u32) -> (bool, f32) {
     let state = (u64::from(seed as u32) << 32) ^ u64::from(appearance_id) ^ ROCK_APPEARANCE_DOMAIN;
     let mut rng = Rng::new(state);
+    if appearance_id & LARGE_BOULDER_APPEARANCE_FLAG != 0 {
+        let diameter = rng.range(
+            LARGE_BOULDER_MINIMUM_DIAMETER_METRES,
+            LARGE_BOULDER_MAXIMUM_DIAMETER_METRES,
+        );
+        return (true, diameter * 0.5 / ISLAND_WORLD_METRES);
+    }
     let is_boulder = rng.unit() < 0.15;
     let _prototype = rng.unit();
     let diameter_metres = if is_boulder {
@@ -681,6 +726,42 @@ mod decoration_tests {
     }
 
     #[test]
+    fn large_boulders_use_the_same_steep_face_drops_with_a_separate_size_domain() {
+        let terrain = Terrain::new(Mesh {
+            vertices: vec![
+                Vec3::new(0.2, 0.2, 0.02),
+                Vec3::new(0.8, 0.2, 0.02),
+                Vec3::new(0.2, 0.3, 0.2),
+            ],
+            normals: vec![Vec3::new(0.0, -0.8, 1.0).normalize(); 3],
+            triangles: vec![0, 1, 2],
+            ..Mesh::default()
+        });
+        let first = spawn_rock_bodies_with_offset(19, &terrain, 32, LARGE_BOULDER_APPEARANCE_FLAG);
+        assert_eq!(first.len(), 32);
+        assert_eq!(
+            first,
+            spawn_rock_bodies_with_offset(19, &terrain, 32, LARGE_BOULDER_APPEARANCE_FLAG)
+        );
+        for rock in &first {
+            let diameter = rock.radius * 2.0 * ISLAND_WORLD_METRES;
+            assert!((2.0..=6.0).contains(&diameter));
+            assert!(rock.centre.z > terrain.sample(rock.centre.x, rock.centre.y) + rock.radius);
+        }
+        // CPU and GPU contacts search adjacent cells. The largest pair's diameter
+        // must fit one cell, or both solvers need a wider neighbour search.
+        assert!(
+            LARGE_BOULDER_MAXIMUM_DIAMETER_METRES / ISLAND_WORLD_METRES
+                < 1.0 / ROCK_COLLISION_GRID_DIMENSION as f32
+        );
+        assert!(
+            spawn_rock_bodies(19, &terrain, 32)
+                .iter()
+                .all(|body| body.radius < 0.31 / ISLAND_WORLD_METRES)
+        );
+    }
+
+    #[test]
     pub(super) fn terrain_contact_lifts_a_falling_body_onto_the_surface() {
         let terrain = Terrain::new(Mesh {
             vertices: vec![
@@ -751,6 +832,19 @@ mod decoration_tests {
             },
         )
         .unwrap();
+        let boulders = &island.decorations().boulders;
+        assert!(
+            !boulders.is_empty(),
+            "steep island fixture must settle large boulders"
+        );
+        assert!(
+            boulders
+                .iter()
+                .all(|sphere| sphere.is_finite() && sphere.w > 0.5 / ISLAND_WORLD_METRES)
+        );
+        let bytes = bincode::serialize(island.decorations()).unwrap();
+        let restored: Decorations = bincode::deserialize(&bytes).unwrap();
+        assert_eq!(*island.decorations(), restored);
         let stones = island.decorations().stone_vertices();
 
         assert!(!stones.is_empty());

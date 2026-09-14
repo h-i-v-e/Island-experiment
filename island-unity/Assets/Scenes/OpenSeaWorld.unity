@@ -981,10 +981,9 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::CoherentIslandFactory
   seed: 42
-  noiseScale: 0.15
-  islandThreshold: 0.5
-  minimumHeightScale: 0.35
-  maximumHeightScale: 1.15
+  noiseScaleCoarse: 0.15
+  noiseScaleFine: 0.75
+  islandThreshold: 0.6
   renderingSettings:
     materialTextureResolution: 1024
     terrainMaterial: {fileID: 0}

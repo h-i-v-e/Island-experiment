@@ -29,10 +29,10 @@ namespace Motu.Gameplay
             }
         }
 
-        private DirectionAndSpeed ReadWind(float delta)
+        /*private DirectionAndSpeed ReadWind(float delta)
         {
             return new DirectionAndSpeed(DirectionFromNoise(directionOffset + delta), Mathf.Clamp01(Mathf.PerlinNoise1D(strengthOffset + delta)));
-        }
+        }*/
 
         private void Awake() => ResetSequence();
 
@@ -54,17 +54,20 @@ namespace Motu.Gameplay
             );
         }
 
-        private static Vector2 DirectionFromNoise(float time)
+        private Vector2 DirectionFromNoise(float time)
         {
-            return Rotate(Vector2.up, Mathf.PerlinNoise1D(time) * 2f * Mathf.PI);
+            return Rotate(Vector2.up, Mathf.PerlinNoise1D(directionOffset + time) * 2f * Mathf.PI);
         }
 
-        private static void UpdateWave(ref OceanWaveComponent component, Vector2 dominantDirecton, DirectionAndSpeed dAndP, float min, float max)
+        private static void UpdateWave(ref OceanWaveComponent component, float windspeed, Vector2 direction, float dp)
         {
-            var speed = dAndP.speed * dAndP.speed;
-            component.AmplitudeMetres = Mathf.Lerp(min, max, speed);
-            component.Direction = dAndP.direction;
-            component.Choppiness = Mathf.Lerp(0.5f, 1f, speed) * Mathf.Abs(Vector2.Dot(dominantDirecton, dAndP.direction));
+            component.Direction = direction;
+            component.Choppiness = Mathf.Pow(windspeed, 0.5f) * dp;
+        }
+
+        private static void UpdateWave(ref OceanWaveComponent component, float windspeed, Vector2 dominantDirecton, Vector2 direction)
+        {
+            UpdateWave(ref component, windspeed, direction, Mathf.Abs(Vector2.Dot(dominantDirecton, direction)));
         }
 
         private void UpdateClouds(ref CloudWeatherSettings clouds, float time)
@@ -78,19 +81,19 @@ namespace Motu.Gameplay
         public override void UpdateWeather(ref WorldWeatherState weather, float deltaTime)
         {
             elapsedSeconds += Mathf.Max(deltaTime, 0f);
-            var fine = ReadWind(125f + elapsedSeconds * 0.0125f);
-            var minor = ReadWind(25f + elapsedSeconds * 0.0025f);
-            var major = ReadWind(5f + elapsedSeconds * 0.0005f);
-            var dominant = ReadWind(elapsedSeconds * 0.0001f);
-            var direction = dominant.direction;
-            weather.WindDirection = direction;
-            var windspeed = dominant.speed * dominant.speed;
-            weather.WindSpeedMetresPerSecond = windspeed * 40f;
-            weather.Waves.OnshoreWaveAmplitudeMetres = 1f + windspeed * 5f;
-            UpdateWave(ref weather.Waves.Wave0, direction, dominant, 1f, 4f);
-            UpdateWave(ref weather.Waves.Wave1, direction, major, 0.75f, 3f);
-            UpdateWave(ref weather.Waves.Wave2, direction, minor, 0.15f, 0.3f);
-            UpdateWave(ref weather.Waves.Wave3, direction, fine, 0f, 0.2f);
+            var fine = DirectionFromNoise(125f + elapsedSeconds * 0.0125f);
+            var minor = DirectionFromNoise(25f + elapsedSeconds * 0.0025f);
+            var major = DirectionFromNoise(5f + elapsedSeconds * 0.0005f);
+            var offset = elapsedSeconds * 0.0001f;
+            var dominant = DirectionFromNoise(offset);
+            weather.WindDirection = dominant;
+            var windspeed = Mathf.Clamp01(Mathf.PerlinNoise1D(strengthOffset + offset));
+            weather.WindSpeedMetresPerSecond = windspeed * windspeed * 20f;
+            weather.Waves.OnshoreWaveAmplitudeMetres = 4f;
+            UpdateWave(ref weather.Waves.Wave0, windspeed, dominant, 1f);
+            UpdateWave(ref weather.Waves.Wave1, windspeed, dominant, major);
+            UpdateWave(ref weather.Waves.Wave2, windspeed, dominant, minor);
+            UpdateWave(ref weather.Waves.Wave3, windspeed, dominant, fine);
             UpdateClouds(ref weather.Clouds, elapsedSeconds);
         }
     }
