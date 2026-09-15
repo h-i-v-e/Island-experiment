@@ -63,7 +63,7 @@ namespace Motu.Editor
                     foreach (var field in original.GetType().GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
                     {
                         // Adding a mutable nested reference requires extending the copy contract.
-                        Assert.IsTrue(field.FieldType.IsValueType || typeof(Object).IsAssignableFrom(field.FieldType), field.Name);
+                        Assert.IsTrue(field.FieldType.IsValueType || field.FieldType == typeof(string) || typeof(Object).IsAssignableFrom(field.FieldType), field.Name);
                     }
                 }
                 Assert.AreSame(material, copy.Rendering.TerrainMaterial);

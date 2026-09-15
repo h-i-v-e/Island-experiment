@@ -82,6 +82,41 @@ fn sample(samples: &[(f32, f32)], at: f32) -> f32 {
 }
 
 #[test]
+fn clamped_edges_include_coarse_slope_changes_between_fine_vertices() {
+    let mut fine = Mesh::delaunay(&[
+        motu::Vec2::ZERO,
+        motu::Vec2::X,
+        motu::Vec2::ONE,
+        motu::Vec2::Y,
+    ]);
+    fine.calculate_normals();
+    let mut coarse = Mesh::delaunay(&[
+        motu::Vec2::ZERO,
+        motu::Vec2::X,
+        motu::Vec2::ONE,
+        motu::Vec2::Y,
+        motu::Vec2::new(0.3, 1.0),
+        motu::Vec2::new(0.7, 1.0),
+    ]);
+    for vertex in &mut coarse.vertices {
+        if vertex.x > 0.0 && vertex.x < 1.0 {
+            vertex.z = 0.2;
+        }
+    }
+    coarse.calculate_normals();
+    let bounds = BoundingBox::default();
+    let coarse_profile = profile(&coarse, bounds, TOP);
+    let fine_tile = fine.sliced_grid_clamped(bounds, 1, &coarse, TOP).remove(0);
+    let fine_profile = profile(&fine_tile, bounds, TOP);
+    for &(at, height) in &coarse_profile {
+        assert!(
+            (sample(&fine_profile, at) - height).abs() < 1.0e-6,
+            "fine edge skips coarse slope change at {at}"
+        );
+    }
+}
+
+#[test]
 fn two_side_clamps_share_one_coarse_corner_sample() {
     let island = Island::generate(
         2018,
@@ -203,7 +238,7 @@ fn render_grid_preserves_sibling_boundaries() {
 }
 
 #[test]
-fn render_lod_morphs_only_requested_outer_sides() {
+fn rendered_lod_transitions_follow_complete_coarse_edges_on_visible_land() {
     let island = Island::generate(
         23,
         IslandOptions {
@@ -213,25 +248,82 @@ fn render_lod_morphs_only_requested_outer_sides() {
         },
     )
     .unwrap();
-    let resolution = 64.0;
-    let bounds = BoundingBox::new(
-        Vec3::new(1.0 / resolution, 1.0 / resolution, f32::MIN),
-        Vec3::new(2.0 / resolution, 2.0 / resolution, f32::MAX),
-    );
-    let coarse = island.lod(1).unwrap().sliced(bounds);
-    let tiles = island.render_mesh_grid(0, bounds, 8, TOP | LEFT).unwrap();
-
-    for side in [TOP, LEFT] {
-        let coarse_profile = profile(&coarse, bounds, side);
-        assert!(!coarse_profile.is_empty());
-        for vertex in tiles
+    for (lod, resolution) in [(0, 64.0), (1, 8.0)] {
+        // Exercise visible land; the old corner tile was entirely removed by the
+        // ocean-floor cutoff, so its vertex-only assertions passed vacuously.
+        let peak = island
+            .lod(0)
+            .unwrap()
+            .vertices
             .iter()
-            .flat_map(|mesh| &mesh.vertices)
-            .copied()
-            .filter(|vertex| on_side(*vertex, bounds, side))
-        {
-            let expected = sample(&coarse_profile, coordinate(vertex, side));
-            assert!((vertex.z - expected).abs() < 1.0e-5);
+            .max_by(|a, b| a.z.total_cmp(&b.z))
+            .unwrap();
+        let x = (peak.x * resolution).floor().min(resolution - 1.0);
+        let y = (peak.y * resolution).floor().min(resolution - 1.0);
+        let bounds = BoundingBox::new(
+            Vec3::new(x / resolution, y / resolution, f32::MIN),
+            Vec3::new((x + 1.0) / resolution, (y + 1.0) / resolution, f32::MAX),
+        );
+        let coarse = island.lod(lod + 1).unwrap().sliced(bounds);
+        assert_neighbouring_render_groups_match(&island, lod, bounds);
+        for mask in [TOP | LEFT, TOP | RIGHT, BOTTOM | LEFT, BOTTOM | RIGHT] {
+            let tiles = island.render_mesh_grid(lod, bounds, 8, mask).unwrap();
+
+            for side in [TOP, LEFT, BOTTOM, RIGHT]
+                .into_iter()
+                .filter(|side| mask & side != 0)
+            {
+                let coarse_profile = profile(&coarse, bounds, side);
+                assert!(!coarse_profile.is_empty());
+                let mut fine_profile: Vec<_> = tiles
+                    .iter()
+                    .flat_map(|tile| profile(tile, bounds, side))
+                    .collect();
+                fine_profile.sort_unstable_by(|a, b| a.0.total_cmp(&b.0));
+                fine_profile.dedup_by(|a, b| (a.0 - b.0).abs() < 1.0e-7);
+                for &(at, height) in &coarse_profile {
+                    let actual = sample(&fine_profile, at);
+                    assert!(
+                        (actual - height).abs() < 1.0e-5,
+                        "fine edge bridges a coarse bend: side={side} at={at} error={}",
+                        (actual - height).abs()
+                    );
+                }
+                for vertex in tiles
+                    .iter()
+                    .flat_map(|mesh| &mesh.vertices)
+                    .copied()
+                    .filter(|vertex| on_side(*vertex, bounds, side))
+                {
+                    let expected = sample(&coarse_profile, coordinate(vertex, side));
+                    assert!((vertex.z - expected).abs() < 1.0e-5);
+                }
+            }
         }
+    }
+}
+
+fn assert_neighbouring_render_groups_match(island: &Island, lod: usize, bounds: BoundingBox) {
+    let width = bounds.max.x - bounds.min.x;
+    let neighbour = BoundingBox::new(bounds.min + Vec3::X * width, bounds.max + Vec3::X * width);
+    let left = island.render_mesh_grid(lod, bounds, 8, TOP).unwrap();
+    let right = island
+        .render_mesh_grid(lod, neighbour, 8, TOP | RIGHT)
+        .unwrap();
+    let edge_profile = |tiles: &[Mesh], bounds, side| {
+        let mut samples: Vec<_> = tiles
+            .iter()
+            .flat_map(|tile| profile(tile, bounds, side))
+            .collect();
+        samples.sort_unstable_by(|a, b| a.0.total_cmp(&b.0));
+        samples.dedup_by(|a, b| (a.0 - b.0).abs() < 1.0e-7);
+        samples
+    };
+    let left = edge_profile(&left, bounds, RIGHT);
+    let right = edge_profile(&right, neighbour, LEFT);
+    assert!(!left.is_empty() && !right.is_empty());
+    for &(at, _) in left.iter().chain(&right) {
+        let error = (sample(&left, at) - sample(&right, at)).abs();
+        assert!(error < 1.0e-5, "LOD{lod} group seam at {at}: error={error}");
     }
 }

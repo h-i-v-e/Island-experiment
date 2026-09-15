@@ -1,0 +1,9 @@
+   Compiling island-rs v0.1.0 (/Users/jeromejohnson/Documents/GitHub/Island-experiment/island-rs)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.75s
+     Running unittests src/lib.rs (island-rs/target/debug/deps/motu-cad0cdf4999e3ccb)
+
+running 1 test
+test forest::tests::coherent_scale_combines_forest_coverage_with_the_next_finer_octave ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 417 filtered out; finished in 0.00s
+

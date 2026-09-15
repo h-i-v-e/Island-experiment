@@ -1,0 +1,19 @@
+   Compiling island-rs v0.1.0 (/var/folders/29/fnbdz_fn4sjcgp2dqdf_jcb80000gn/T/motu-rust-baseline-w9uumypm)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 12.43s
+     Running tests/generation.rs (island-rs/target/debug/deps/generation-eaafb68939424292)
+
+running 1 test
+test rivers_are_continuous_flowing_terrain_submeshes_with_waterfalls ... 
+thread 'rivers_are_continuous_flowing_terrain_submeshes_with_waterfalls' (35779796) panicked at tests/generation.rs:121:5:
+assertion failed: river_mesh.uv.iter().any(|uv| uv.x > 0.0)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+
+failures:
+
+failures:
+    rivers_are_continuous_flowing_terrain_submeshes_with_waterfalls
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 33 filtered out; finished in 38.51s
+
+error: test failed, to rerun pass `--test generation`

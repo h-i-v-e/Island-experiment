@@ -1,0 +1,13 @@
+{
+  "abi_version": 1,
+  "target": "aarch64-apple-darwin",
+  "library": "libmotu.dylib",
+  "sha256": "a2a144aa06cc9488f92ed6bec0ae9dc6a1cd0b28fbe074932f43c0761e169fe3",
+  "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)",
+  "source_tree_sha256": "73510239087bfd344d09e88e5cc5396b58cea4acb9101331af2d8b9b5fc2389b",
+  "cargo_lock_sha256": "84168fe0c51ba397df70c92f46ffedd62881db9868ba5e924b79380b896dacbd",
+  "build": "cargo build --release --lib --locked --no-default-features",
+  "supported_player_architecture": "Apple Silicon",
+  "render_pipeline": "Built-in",
+  "unity_version": "6000.5.6f1"
+}

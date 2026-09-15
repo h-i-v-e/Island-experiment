@@ -1,0 +1,55 @@
+{
+  "scope": "Current CPU Island::generate with default native options except seed points; no Unity upload, navigation or GPU pass included. Small seed-17 warmup (128 points), then three measured runs. Process RSS includes warmup and allocator retention. This is a baseline, not a before/after optimization comparison.",
+  "build": "release, no-default-features, locked",
+  "workers": 14,
+  "fixtures": [
+    {
+      "seed": 17,
+      "terrain_size_seed_points": 128,
+      "runs": 3,
+      "milliseconds": [
+        2985.574,
+        2943.678,
+        2912.99
+      ],
+      "median_ms": 2943.678,
+      "vertices": 257559,
+      "triangles": 514953,
+      "geometry_hash": "3454503264881850180",
+      "identical_hash_across_runs": true,
+      "maximum_process_rss_bytes": 2206105600
+    },
+    {
+      "seed": 17,
+      "terrain_size_seed_points": 512,
+      "runs": 3,
+      "milliseconds": [
+        13913.699,
+        13730.985,
+        13929.95
+      ],
+      "median_ms": 13913.699,
+      "vertices": 843254,
+      "triangles": 1686367,
+      "geometry_hash": "4843310862424640330",
+      "identical_hash_across_runs": true,
+      "maximum_process_rss_bytes": 3802710016
+    },
+    {
+      "seed": 17,
+      "terrain_size_seed_points": 1024,
+      "runs": 3,
+      "milliseconds": [
+        38591.487,
+        38669.27,
+        38259.557
+      ],
+      "median_ms": 38591.487,
+      "vertices": 1703943,
+      "triangles": 3407705,
+      "geometry_hash": "2597653885197063265",
+      "identical_hash_across_runs": true,
+      "maximum_process_rss_bytes": 4037197824
+    }
+  ]
+}

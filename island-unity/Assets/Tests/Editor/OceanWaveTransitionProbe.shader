@@ -10,7 +10,7 @@ Shader "Hidden/Motu/Ocean Wave Transition Probe"
             #pragma fragment Fragment
             #pragma target 3.5
             #include "UnityCG.cginc"
-            #include "Assets/Shaders/OceanWaves.cginc"
+            #include "Packages/com.motu.runtime/Runtime/Shaders/OceanWaves.cginc"
             float4 _ProbeWorldRect;
             float _ProbeFilteredWaves, _ProbeFilteredFoam, _ProbePixelFootprint;
             float _ProbeDomainWarp;

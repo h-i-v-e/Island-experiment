@@ -1,0 +1,12 @@
+{
+  "name": "Motu.Samples.Editor",
+  "references": [
+    "Motu.Runtime",
+    "Motu.Editor",
+    "Motu.Samples",
+    "Motu.Navigation"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ]
+}

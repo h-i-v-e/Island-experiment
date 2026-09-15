@@ -1,5 +1,28 @@
 {
   "dependencies": {
+    "com.motu.navigation": {
+      "version": "file:../../packages/com.motu.navigation",
+      "depth": 0,
+      "source": "local",
+      "dependencies": {
+        "com.motu.runtime": "0.1.0",
+        "com.unity.modules.ai": "1.0.0"
+      }
+    },
+    "com.motu.runtime": {
+      "version": "file:../../packages/com.motu.runtime",
+      "depth": 0,
+      "source": "local",
+      "dependencies": {
+        "com.unity.modules.physics": "1.0.0",
+        "com.unity.modules.particlesystem": "1.0.0",
+        "com.unity.modules.jsonserialize": "1.0.0",
+        "com.unity.modules.imgui": "1.0.0",
+        "com.unity.modules.terrain": "1.0.0",
+        "com.unity.modules.terrainphysics": "1.0.0",
+        "com.unity.modules.imageconversion": "1.0.0"
+      }
+    },
     "com.unity.ext.nunit": {
       "version": "2.1.0",
       "depth": 1,
@@ -31,6 +54,18 @@
         "com.unity.modules.imgui": "1.0.0",
         "com.unity.modules.jsonserialize": "1.0.0"
       }
+    },
+    "com.unity.modules.ai": {
+      "version": "1.0.0",
+      "depth": 0,
+      "source": "builtin",
+      "dependencies": {}
+    },
+    "com.unity.modules.imageconversion": {
+      "version": "1.0.0",
+      "depth": 1,
+      "source": "builtin",
+      "dependencies": {}
     },
     "com.unity.modules.imgui": {
       "version": "1.0.0",

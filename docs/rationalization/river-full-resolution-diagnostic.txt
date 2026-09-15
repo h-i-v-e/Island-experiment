@@ -1,0 +1,44 @@
+warning: output filename collision at /Users/jeromejohnson/Documents/GitHub/Island-experiment/island-rs/target/release/deps/libmotu.rlib
+  |
+  = note: the lib target `motu` in package `island-rs v0.1.0 (/var/folders/29/fnbdz_fn4sjcgp2dqdf_jcb80000gn/T/motu-rust-baseline-w9uumypm)` has the same output filename as the lib target `motu` in package `island-rs v0.1.0 (/var/folders/29/fnbdz_fn4sjcgp2dqdf_jcb80000gn/T/motu-rust-baseline-w9uumypm)`
+  = note: this may become a hard error in the future; see <https://github.com/rust-lang/cargo/issues/6313>
+  = help: consider changing their names to be unique or compiling them separately
+warning: output filename collision at /Users/jeromejohnson/Documents/GitHub/Island-experiment/island-rs/target/release/deps/libmotu.dylib
+  |
+  = note: the lib target `motu` in package `island-rs v0.1.0 (/var/folders/29/fnbdz_fn4sjcgp2dqdf_jcb80000gn/T/motu-rust-baseline-w9uumypm)` has the same output filename as the lib target `motu` in package `island-rs v0.1.0 (/var/folders/29/fnbdz_fn4sjcgp2dqdf_jcb80000gn/T/motu-rust-baseline-w9uumypm)`
+  = note: this may become a hard error in the future; see <https://github.com/rust-lang/cargo/issues/6313>
+  = help: consider changing their names to be unique or compiling them separately
+warning: output filename collision at /Users/jeromejohnson/Documents/GitHub/Island-experiment/island-rs/target/release/deps/libmotu.dylib.dSYM
+  |
+  = note: the lib target `motu` in package `island-rs v0.1.0 (/var/folders/29/fnbdz_fn4sjcgp2dqdf_jcb80000gn/T/motu-rust-baseline-w9uumypm)` has the same output filename as the lib target `motu` in package `island-rs v0.1.0 (/var/folders/29/fnbdz_fn4sjcgp2dqdf_jcb80000gn/T/motu-rust-baseline-w9uumypm)`
+  = note: this may become a hard error in the future; see <https://github.com/rust-lang/cargo/issues/6313>
+  = help: consider changing their names to be unique or compiling them separately
+   Compiling zstd-sys v2.0.16+zstd.1.5.7
+   Compiling bincode v1.3.3
+   Compiling glam v0.33.5
+   Compiling island-rs v0.1.0 (/var/folders/29/fnbdz_fn4sjcgp2dqdf_jcb80000gn/T/motu-rust-baseline-w9uumypm)
+   Compiling meshopt v0.6.2
+   Compiling zstd-safe v7.2.4
+   Compiling zstd v0.13.3
+    Finished `release` profile [optimized] target(s) in 52.46s
+     Running tests/generation.rs (island-rs/target/release/deps/generation-fe5497b490059ec8)
+
+running 1 test
+test rivers_are_continuous_flowing_terrain_submeshes_with_waterfalls ... FAILED
+
+failures:
+
+---- rivers_are_continuous_flowing_terrain_submeshes_with_waterfalls stdout ----
+BANK FIXTURE vertices=800 perimeter=300 triangles=1296 positive=500
+
+thread 'rivers_are_continuous_flowing_terrain_submeshes_with_waterfalls' (35855311) panicked at tests/generation.rs:104:9:
+river centreline terrain at Vec3(0.9199362, 0.41330302, -0.0010161372) is not below surface -0.0010161372
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    rivers_are_continuous_flowing_terrain_submeshes_with_waterfalls
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 33 filtered out; finished in 45.68s
+
+error: test failed, to rerun pass `--test generation`

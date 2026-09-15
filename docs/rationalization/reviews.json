@@ -1,0 +1,792 @@
+{
+  "packages/com.motu.runtime/Runtime/Islands/SingleIsland.cs": {
+    "reviewed_sha256": "6d069f5daea41d130dd33325d034f9014453f9490aac9e66f8b4a301d2bbfd08",
+    "review_status": "reviewed",
+    "disposition": "simplify/host integration",
+    "reachability": "SingleIsland -> IslandGenerator -> worker/installer; Inspector and world callers retained.",
+    "contracts": "Main-thread Unity facade; snapshots request settings; busy requests return false; no implicit single-island camera/environment.",
+    "lifetime": "Generator cancels in-flight preparation and releases installed runtime; native work returns before disposal.",
+    "cost": "See measurement/evidence; no unmeasured speed claim.",
+    "evidence": "HostIntegrationTests; RuntimeContractsTests; clean consumer player."
+  },
+  "packages/com.motu.runtime/Editor/SingleIslandEditor.cs": {
+    "reviewed_sha256": "611d74e481245a829587da085fa5d850d58874a91ec3f227ee6f11bfd9226769",
+    "review_status": "reviewed",
+    "disposition": "simplify/host integration",
+    "reachability": "SingleIsland -> IslandGenerator -> worker/installer; Inspector and world callers retained.",
+    "contracts": "Main-thread Unity facade; snapshots request settings; busy requests return false; no implicit single-island camera/environment.",
+    "lifetime": "Generator cancels in-flight preparation and releases installed runtime; native work returns before disposal.",
+    "cost": "See measurement/evidence; no unmeasured speed claim.",
+    "evidence": "HostIntegrationTests; RuntimeContractsTests; clean consumer player."
+  },
+  "packages/com.motu.runtime/Runtime/Islands/IslandRuntimeLoop.cs": {
+    "reviewed_sha256": "9f8b536857ede554c218822f54022d58069c2485885f9c8675ac36760d288bfa",
+    "review_status": "reviewed",
+    "disposition": "simplify/host integration",
+    "reachability": "SingleIsland -> IslandGenerator -> worker/installer; Inspector and world callers retained.",
+    "contracts": "Main-thread Unity facade; snapshots request settings; busy requests return false; no implicit single-island camera/environment.",
+    "lifetime": "Generator cancels in-flight preparation and releases installed runtime; native work returns before disposal.",
+    "cost": "See measurement/evidence; no unmeasured speed claim.",
+    "evidence": "HostIntegrationTests; RuntimeContractsTests; clean consumer player."
+  },
+  "packages/com.motu.runtime/Runtime/Islands/IslandGenerator.cs": {
+    "reviewed_sha256": "ff4dfd03b21bec3ccdfd88b9457966ff3bf07004b3a08ee0b578bbe3d2f0e6cf",
+    "review_status": "reviewed",
+    "disposition": "simplify/host integration",
+    "reachability": "SingleIsland -> IslandGenerator -> worker/installer; Inspector and world callers retained.",
+    "contracts": "Main-thread Unity facade; snapshots request settings; busy requests return false; no implicit single-island camera/environment.",
+    "lifetime": "Generator cancels in-flight preparation and releases installed runtime; native work returns before disposal.",
+    "cost": "See measurement/evidence; no unmeasured speed claim.",
+    "evidence": "HostIntegrationTests; RuntimeContractsTests; clean consumer player."
+  },
+  "packages/com.motu.runtime/Runtime/Islands/IslandGenerator.Environment.cs": {
+    "reviewed_sha256": "b8625af6c2abcb7dd44ee52d2b3a1a12bda1db3e6c710643f36e221ef9f7505c",
+    "review_status": "reviewed",
+    "disposition": "simplify/host integration",
+    "reachability": "SingleIsland -> IslandGenerator -> worker/installer; Inspector and world callers retained.",
+    "contracts": "Main-thread Unity facade; snapshots request settings; busy requests return false; no implicit single-island camera/environment.",
+    "lifetime": "Generator cancels in-flight preparation and releases installed runtime; native work returns before disposal.",
+    "cost": "See measurement/evidence; no unmeasured speed claim.",
+    "evidence": "HostIntegrationTests; RuntimeContractsTests; clean consumer player."
+  },
+  "packages/com.motu.runtime/Runtime/Interop/NativeAbi.cs": {
+    "reviewed_sha256": "cb88dd3e070c9c36378d4998592dfe831a3e74d850b35835d0399acbf68e3f50",
+    "review_status": "reviewed",
+    "disposition": "harden boundary",
+    "reachability": "Native entry point static constructors and Rust exported scalar ABI methods.",
+    "contracts": "C ABI version 1; checked representative sizes and mixed-padding offsets before records cross FFI. macOS relocatable install ID.",
+    "lifetime": "ABI metadata owns no exported allocations; array validators borrow pointers.",
+    "cost": "See measurement/evidence; no unmeasured speed claim.",
+    "evidence": "NativeBinaryMatchesManagedLayouts; Rust ABI test; dylib symbols and player load."
+  },
+  "packages/com.motu.runtime/Runtime/Interop/NativeExportValidation.cs": {
+    "reviewed_sha256": "c05dc18d65ed9f399fe90ca8847f94e22125d55614c20de6fc02b6c5dc3c46fe",
+    "review_status": "reviewed",
+    "disposition": "harden boundary",
+    "reachability": "Native entry point static constructors and Rust exported scalar ABI methods.",
+    "contracts": "C ABI version 1; checked representative sizes and mixed-padding offsets before records cross FFI. macOS relocatable install ID.",
+    "lifetime": "ABI metadata owns no exported allocations; array validators borrow pointers.",
+    "cost": "See measurement/evidence; no unmeasured speed claim.",
+    "evidence": "NativeBinaryMatchesManagedLayouts; Rust ABI test; dylib symbols and player load."
+  },
+  "island-rs/src/ffi/abi.rs": {
+    "reviewed_sha256": "00a2f27bf53e3d7a50fb3bb689c2334b692138da72c1cc9f12ef98b922c9441f",
+    "review_status": "reviewed",
+    "disposition": "harden boundary",
+    "reachability": "Native entry point static constructors and Rust exported scalar ABI methods.",
+    "contracts": "C ABI version 1; checked representative sizes and mixed-padding offsets before records cross FFI. macOS relocatable install ID.",
+    "lifetime": "ABI metadata owns no exported allocations; array validators borrow pointers.",
+    "cost": "See measurement/evidence; no unmeasured speed claim.",
+    "evidence": "NativeBinaryMatchesManagedLayouts; Rust ABI test; dylib symbols and player load."
+  },
+  "island-rs/build.rs": {
+    "reviewed_sha256": "35cbca0fcb54c39cccd24de500e6fcae9b8cfbd530f0509a7e139638f550414e",
+    "review_status": "reviewed",
+    "disposition": "harden boundary",
+    "reachability": "Native entry point static constructors and Rust exported scalar ABI methods.",
+    "contracts": "C ABI version 1; checked representative sizes and mixed-padding offsets before records cross FFI. macOS relocatable install ID.",
+    "lifetime": "ABI metadata owns no exported allocations; array validators borrow pointers.",
+    "cost": "See measurement/evidence; no unmeasured speed claim.",
+    "evidence": "NativeBinaryMatchesManagedLayouts; Rust ABI test; dylib symbols and player load."
+  },
+  "packages/com.motu.runtime/Runtime/Islands/IslandGenerationWorker.cs": {
+    "reviewed_sha256": "01538da7ab3d8b629b3c57c6b590c1df2eba0c2360c1e60bae47a55e779ceedd",
+    "review_status": "reviewed",
+    "disposition": "bound preparation and harden cache",
+    "reachability": "Generator worker and preparation pipeline; native and material cache reads/writes.",
+    "contracts": "One native preparation at a time; cancellation waits for active native call. Cache settings snapshotted; only completed owned names evicted.",
+    "lifetime": "Semaphore released in finally; file streams disposed; cache misses fall back to generation.",
+    "cost": "See measurement/evidence; no unmeasured speed claim.",
+    "evidence": "RuntimeContractsTests; HostIntegrationTests cache and lifecycle checks."
+  },
+  "packages/com.motu.runtime/Runtime/Islands/IslandSnapshotCache.cs": {
+    "reviewed_sha256": "cc54e5466da25d83629d9253dd8b26335a53172721e04fa2bed350bce87ad2f5",
+    "review_status": "reviewed",
+    "disposition": "bound preparation and harden cache",
+    "reachability": "Generator worker and preparation pipeline; native and material cache reads/writes.",
+    "contracts": "One native preparation at a time; cancellation waits for active native call. Cache settings snapshotted; only completed owned names evicted.",
+    "lifetime": "Semaphore released in finally; file streams disposed; cache misses fall back to generation.",
+    "cost": "See measurement/evidence; no unmeasured speed claim.",
+    "evidence": "RuntimeContractsTests; HostIntegrationTests cache and lifecycle checks."
+  },
+  "packages/com.motu.runtime/Runtime/Rendering/IslandMaterialTextureCache.cs": {
+    "reviewed_sha256": "308bcd66090692cdbc13f057df204d5857bc3d1c2552da8ed2431624d9bac4e6",
+    "review_status": "reviewed",
+    "disposition": "bound preparation and harden cache",
+    "reachability": "Generator worker and preparation pipeline; native and material cache reads/writes.",
+    "contracts": "One native preparation at a time; cancellation waits for active native call. Cache settings snapshotted; only completed owned names evicted.",
+    "lifetime": "Semaphore released in finally; file streams disposed; cache misses fall back to generation.",
+    "cost": "See measurement/evidence; no unmeasured speed claim.",
+    "evidence": "RuntimeContractsTests; HostIntegrationTests cache and lifecycle checks."
+  },
+  "packages/com.motu.runtime/Runtime/Rendering/SharedNoiseTexture.cs": {
+    "reviewed_sha256": "6e85c961a0f00455138faa0bd7659bd90426db42042e65acf75a3d6c6e9de564",
+    "review_status": "reviewed",
+    "disposition": "share immutable data / preserve player shaders",
+    "reachability": "Island material construction; generic material factories; benchmark editor entry point.",
+    "contracts": "Noise pixels unchanged; main-thread reference-counted leases; explicit shader resource references survive player stripping.",
+    "lifetime": "Last lease destroys generated noise; authored textures borrowed; resource shader library immutable.",
+    "cost": "See measurement/evidence; no unmeasured speed claim.",
+    "evidence": "SharedNoiseLivesUntilTheLastIslandReleasesIt; clean player; noise benchmark."
+  },
+  "packages/com.motu.runtime/Runtime/Rendering/MotuShaderLibrary.cs": {
+    "reviewed_sha256": "a3f2dad0695acbeda4d4d0bdaa8ec26bc3fc592b7c74eb1223abb7938094155b",
+    "review_status": "reviewed",
+    "disposition": "share immutable data / preserve player shaders",
+    "reachability": "Island material construction; generic material factories; benchmark editor entry point.",
+    "contracts": "Noise pixels unchanged; main-thread reference-counted leases; explicit shader resource references survive player stripping.",
+    "lifetime": "Last lease destroys generated noise; authored textures borrowed; resource shader library immutable.",
+    "cost": "See measurement/evidence; no unmeasured speed claim.",
+    "evidence": "SharedNoiseLivesUntilTheLastIslandReleasesIt; clean player; noise benchmark."
+  },
+  "packages/com.motu.runtime/Runtime/Rendering/MotuShaders.cs": {
+    "reviewed_sha256": "d51419bdb0868548498b85cad9b8431f7b567d01ce80d2a5b3710e019432dec8",
+    "review_status": "reviewed",
+    "disposition": "share immutable data / preserve player shaders",
+    "reachability": "Island material construction; generic material factories; benchmark editor entry point.",
+    "contracts": "Noise pixels unchanged; main-thread reference-counted leases; explicit shader resource references survive player stripping.",
+    "lifetime": "Last lease destroys generated noise; authored textures borrowed; resource shader library immutable.",
+    "cost": "See measurement/evidence; no unmeasured speed claim.",
+    "evidence": "SharedNoiseLivesUntilTheLastIslandReleasesIt; clean player; noise benchmark."
+  },
+  "packages/com.motu.runtime/Editor/NoiseBenchmark.cs": {
+    "reviewed_sha256": "c9446f4d1f01a69c532840b2ccdd313db392bc194cd6657ae536994df99899b3",
+    "review_status": "reviewed",
+    "disposition": "share immutable data / preserve player shaders",
+    "reachability": "Island material construction; generic material factories; benchmark editor entry point.",
+    "contracts": "Noise pixels unchanged; main-thread reference-counted leases; explicit shader resource references survive player stripping.",
+    "lifetime": "Last lease destroys generated noise; authored textures borrowed; resource shader library immutable.",
+    "cost": "See measurement/evidence; no unmeasured speed claim.",
+    "evidence": "SharedNoiseLivesUntilTheLastIslandReleasesIt; clean player; noise benchmark."
+  },
+  "packages/com.motu.runtime/Runtime/Islands/IIslandNavigation.cs": {
+    "reviewed_sha256": "f46c08b3904c8025e94aff1ac2cf6141740b6c947122801061fd66407ab84988",
+    "review_status": "reviewed",
+    "disposition": "optional navigation boundary",
+    "reachability": "Navigation registers at editor/runtime initialization; core invokes extension only when present.",
+    "contracts": "Whole LOD0 source preserved; 0.5 m default radius; terrain readiness distinct from nav readiness.",
+    "lifetime": "Runtime owns extension; extension retains upload sources through asynchronous bake completion.",
+    "cost": "See measurement/evidence; no unmeasured speed claim.",
+    "evidence": "IslandNavigationTests; core assembly dependency check; clean core-only consumer."
+  },
+  "packages/com.motu.runtime/Runtime/Islands/IslandNavigationIntegration.cs": {
+    "reviewed_sha256": "9233c1b3fde9ace1ae137a18b62a4044dc00678a76e52e9049232383572a0b35",
+    "review_status": "reviewed",
+    "disposition": "optional navigation boundary",
+    "reachability": "Navigation registers at editor/runtime initialization; core invokes extension only when present.",
+    "contracts": "Whole LOD0 source preserved; 0.5 m default radius; terrain readiness distinct from nav readiness.",
+    "lifetime": "Runtime owns extension; extension retains upload sources through asynchronous bake completion.",
+    "cost": "See measurement/evidence; no unmeasured speed claim.",
+    "evidence": "IslandNavigationTests; core assembly dependency check; clean core-only consumer."
+  },
+  "packages/com.motu.navigation/Runtime/IslandNavigationInstaller.cs": {
+    "reviewed_sha256": "cb85e5e69e1a00e2e723e9db4207dea4282b976ebe4010412793a802a74fc0f7",
+    "review_status": "reviewed",
+    "disposition": "optional navigation boundary",
+    "reachability": "Navigation registers at editor/runtime initialization; core invokes extension only when present.",
+    "contracts": "Whole LOD0 source preserved; 0.5 m default radius; terrain readiness distinct from nav readiness.",
+    "lifetime": "Runtime owns extension; extension retains upload sources through asynchronous bake completion.",
+    "cost": "See measurement/evidence; no unmeasured speed claim.",
+    "evidence": "IslandNavigationTests; core assembly dependency check; clean core-only consumer."
+  },
+  "packages/com.motu.navigation/Runtime/IslandNavigationBuildSettings.cs": {
+    "reviewed_sha256": "e6f43b0107f6de6622571d79fcf7af01839d984df3c25cb11593f922e424d9a2",
+    "review_status": "reviewed",
+    "disposition": "bound navigation bake allocations",
+    "reachability": "Optional navigation installer -> background chunk index -> sequential native bakes -> connected registered chunks.",
+    "contracts": "Native bake worker limit copied from validated settings; full height mesh and existing voxel/tile semantics retained.",
+    "lifetime": "Prepared arrays borrowed through indexing/build; current Unity sources retained until native operation completes; all owned links/data released on unload.",
+    "cost": "One global bake; one worker by default; one spatial source batch uploaded at a time. Full-world peak memory is not inferred from source payload counters.",
+    "evidence": "NAVIGATION_CHUNKS.md; navigation-chunks/connectivity.json; navigation_chunks validation entry."
+  },
+  "scripts/pack-unity.py": {
+    "reviewed_sha256": "8195588eca4fd0ae6340c03f93c69c89d3adce1aaea41a8ec232e852085b1370",
+    "review_status": "reviewed",
+    "disposition": "reproducible packaging/validation",
+    "reachability": "Documented local commands and CI; consumers use packed artifacts.",
+    "contracts": "No publication; clean consumer excludes demo ProjectSettings; pin platform/CPU; check native hash and package-owned GUIDs.",
+    "lifetime": "Scratch projects retained outside checkout; atomic native replacement; no host asset overwrite.",
+    "cost": "See measurement/evidence; no unmeasured speed claim.",
+    "evidence": "Package check; tarball consumer import/build/run; script syntax; native load."
+  },
+  "scripts/check-unity-packages.py": {
+    "reviewed_sha256": "181d54b734e26e2d10970eca31ea0d5d2f652a0f6d432c8c519766cf171d0787",
+    "review_status": "reviewed",
+    "disposition": "environment ownership change reviewed",
+    "reachability": "World initialization, camera pre-cull, environment disable/re-enable/destruction; packaged consumer and development tests.",
+    "contracts": "Single owner; capture host state before mutation; preserve borrowed effects/assets; support additive environment unload with unchanged host active scene; guard startup activation notification.",
+    "lifetime": "One state snapshot per activation; camera/light captures on first use; owned effect destruction handles same-frame re-enable; owned generated components/meshes/materials released at teardown.",
+    "cost": "No steady-state capture allocation; existing lookup reused. No new FPS or residency benchmark claim.",
+    "evidence": "unity-environment-tests.xml: 134 pass, 8 fixture skips; consumer-environment-tests.xml; actual IL2CPP player navigation/render/teardown and repository-read-denied run; validation.json."
+  },
+  "scripts/audit-codebase.py": {
+    "reviewed_sha256": "c871c520b729c37d65ee675d1bd2824274b8b735b23f1cfd77e8cffa12fa1dd1",
+    "review_status": "reviewed",
+    "disposition": "reproducible packaging/validation",
+    "reachability": "Documented local commands and CI; consumers use packed artifacts.",
+    "contracts": "No publication; clean consumer excludes demo ProjectSettings; pin platform/CPU; check native hash and package-owned GUIDs.",
+    "lifetime": "Scratch projects retained outside checkout; atomic native replacement; no host asset overwrite.",
+    "cost": "See measurement/evidence; no unmeasured speed claim.",
+    "evidence": "Package check; tarball consumer import/build/run; script syntax; native load."
+  },
+  "scripts/validate-unity-package.sh": {
+    "reviewed_sha256": "baadc78b86ab7d2f87116201c93eaa4c90b5260bbb8972f444b777224dcbb8b0",
+    "review_status": "reviewed",
+    "disposition": "environment ownership change reviewed",
+    "reachability": "World initialization, camera pre-cull, environment disable/re-enable/destruction; packaged consumer and development tests.",
+    "contracts": "Single owner; capture host state before mutation; preserve borrowed effects/assets; support additive environment unload with unchanged host active scene; guard startup activation notification.",
+    "lifetime": "One state snapshot per activation; camera/light captures on first use; owned effect destruction handles same-frame re-enable; owned generated components/meshes/materials released at teardown.",
+    "cost": "No steady-state capture allocation; existing lookup reused. No new FPS or residency benchmark claim.",
+    "evidence": "unity-environment-tests.xml: 134 pass, 8 fixture skips; consumer-environment-tests.xml; actual IL2CPP player navigation/render/teardown and repository-read-denied run; validation.json."
+  },
+  "scripts/write-native-manifest.py": {
+    "reviewed_sha256": "87339dacb1bfe020abaacd9a15fe9af2a6ca7bd2dfcabd3a119546ae7a74ffc3",
+    "review_status": "reviewed",
+    "disposition": "reproducible packaging/validation",
+    "reachability": "Documented local commands and CI; consumers use packed artifacts.",
+    "contracts": "No publication; clean consumer excludes demo ProjectSettings; pin platform/CPU; check native hash and package-owned GUIDs.",
+    "lifetime": "Scratch projects retained outside checkout; atomic native replacement; no host asset overwrite.",
+    "cost": "See measurement/evidence; no unmeasured speed claim.",
+    "evidence": "Package check; tarball consumer import/build/run; script syntax; native load."
+  },
+  "scripts/unity-consumer/Assets/Editor/BuildConsumer.cs": {
+    "reviewed_sha256": "d9369a88378a8a0d0bb6b3644c27f96c8603637158b123b2f21d83c932b807d7",
+    "review_status": "reviewed",
+    "disposition": "reproducible packaging/validation",
+    "reachability": "Documented local commands and CI; consumers use packed artifacts.",
+    "contracts": "No publication; clean consumer excludes demo ProjectSettings; pin platform/CPU; check native hash and package-owned GUIDs.",
+    "lifetime": "Scratch projects retained outside checkout; atomic native replacement; no host asset overwrite.",
+    "cost": "See measurement/evidence; no unmeasured speed claim.",
+    "evidence": "Package check; tarball consumer import/build/run; script syntax; native load."
+  },
+  "scripts/unity-consumer/Assets/PackageSmokePlayer.cs": {
+    "reviewed_sha256": "168ee4611bb8937e44f1bd2b16be006e7ad6b994fa9826788a38afb2759adaa0",
+    "review_status": "reviewed",
+    "disposition": "consumer streaming and environment smoke fixture reviewed",
+    "reachability": "Fresh-project Mono and IL2CPP player Start -> generate -> navigation -> streaming -> render -> unload -> environment teardown.",
+    "contracts": "Host camera/light ownership; active nine-group LOD neighborhoods appear across player frames; supported shaders, rendered pixel diversity and additive unload.",
+    "lifetime": "One state snapshot per activation; camera/light captures on first use; owned effect destruction handles same-frame re-enable; owned generated components/meshes/materials released at teardown.",
+    "cost": "Smoke-only transform scans and pixel capture; no runtime package allocation or whole-world frame percentile claim.",
+    "evidence": "streaming-freezes/consumer-tests.xml; streaming_freezes backend markers in validation.json."
+  },
+  "island-rs/deploy-unity.sh": {
+    "reviewed_sha256": "04610367680dfd2a69d318d154162e0c2a6f217c6d12b8c2e662df5d423ed3c4",
+    "review_status": "reviewed",
+    "disposition": "reproducible packaging/validation",
+    "reachability": "Documented local commands and CI; consumers use packed artifacts.",
+    "contracts": "No publication; clean consumer excludes demo ProjectSettings; pin platform/CPU; check native hash and package-owned GUIDs.",
+    "lifetime": "Scratch projects retained outside checkout; atomic native replacement; no host asset overwrite.",
+    "cost": "See measurement/evidence; no unmeasured speed claim.",
+    "evidence": "Package check; tarball consumer import/build/run; script syntax; native load."
+  },
+  "packages/com.motu.runtime/Runtime/Shaders/WaterfallFootMist.shader": {
+    "reviewed_sha256": "bcfced83e7ef9f1e556274577d4b2fa9384f44ac4db06b3417ad8d07f490dca7",
+    "review_status": "reviewed",
+    "disposition": "fix player shadow variants",
+    "reachability": "Waterfall materials and packaged shader library.",
+    "contracts": "SV_POSITION named pos for Unity shadow transfer macros; numerical visual equations unchanged.",
+    "lifetime": "Materials/renderers own shader use; library retains references.",
+    "cost": "See measurement/evidence; no unmeasured speed claim.",
+    "evidence": "Metal player compilation; ShaderHasError checks; broader rendering tests."
+  },
+  "packages/com.motu.runtime/Runtime/Shaders/WaterfallSprayParticle.shader": {
+    "reviewed_sha256": "6e4b51b259944616cac3e95246177eb53163e49ce1e343d1529da3629cc5a445",
+    "review_status": "reviewed",
+    "disposition": "fix player shadow variants",
+    "reachability": "Waterfall materials and packaged shader library.",
+    "contracts": "SV_POSITION named pos for Unity shadow transfer macros; numerical visual equations unchanged.",
+    "lifetime": "Materials/renderers own shader use; library retains references.",
+    "cost": "See measurement/evidence; no unmeasured speed claim.",
+    "evidence": "Metal player compilation; ShaderHasError checks; broader rendering tests."
+  },
+  "packages/com.motu.runtime/Tests/Editor/HostIntegrationTests.cs": {
+    "reviewed_sha256": "9da3786e602dcff75ee05aa661ca7ba69fe7db0da5f29b077f3d343bac2f35ae",
+    "review_status": "reviewed",
+    "disposition": "focused change reviewed",
+    "reachability": "Core-only fixture; host camera/light preservation; cache ownership; 20-cycle owned texture/mesh/handle assertions. Timeout allows the explicit longer run.",
+    "contracts": "Preserve existing data/algorithm/serialized bindings beyond the described change.",
+    "lifetime": "Existing owners retained; test fixtures clean up their created resources.",
+    "cost": "No unmeasured whole-pipeline performance claim.",
+    "evidence": "IMPLEMENTATION.md and validation.json; review scope is the described change."
+  },
+  "island-bevy/src/app/hud.rs": {
+    "reviewed_sha256": "a7eba2d4d30dd4c80c64bc7b087496bbf0d507fecb535ad89ae69c460047e959",
+    "review_status": "reviewed",
+    "disposition": "focused change reviewed",
+    "reachability": "describe() covers initial soil depth using the native definition; existing complete-label test now passes. Broader HUD optimization remains a profiling task.",
+    "contracts": "Preserve existing data/algorithm/serialized bindings beyond the described change.",
+    "lifetime": "Existing owners retained; test fixtures clean up their created resources.",
+    "cost": "No unmeasured whole-pipeline performance claim.",
+    "evidence": "IMPLEMENTATION.md and validation.json; review scope is the described change."
+  },
+  "island-bevy/src/render/material_textures.rs": {
+    "reviewed_sha256": "4793af0c30a3bf11dad7870aaf66404c83418c8dba3ecee015ee622786195bb8",
+    "review_status": "reviewed",
+    "disposition": "focused change reviewed",
+    "reachability": "Six terrain atlas slots, exhaustive ground-only iteration; native TreeBark is not an atlas slot; pixel occupancy test passed.",
+    "contracts": "Preserve existing data/algorithm/serialized bindings beyond the described change.",
+    "lifetime": "Existing owners retained; test fixtures clean up their created resources.",
+    "cost": "No unmeasured whole-pipeline performance claim.",
+    "evidence": "IMPLEMENTATION.md and validation.json; review scope is the described change."
+  },
+  "island-rs/src/procedural_textures/runtime_materials.rs": {
+    "reviewed_sha256": "e6b82678303e49fdd656078b50cd1494395449acc72576ddbc9cf2d4f7be6386",
+    "review_status": "reviewed",
+    "disposition": "focused change reviewed",
+    "reachability": "Added TERRAIN selection only; ALL and recipe evaluation remain unchanged. Bevy uses explicit subset; Unity still requests bark.",
+    "contracts": "Preserve existing data/algorithm/serialized bindings beyond the described change.",
+    "lifetime": "Existing owners retained; test fixtures clean up their created resources.",
+    "cost": "No unmeasured whole-pipeline performance claim.",
+    "evidence": "IMPLEMENTATION.md and validation.json; review scope is the described change."
+  },
+  "island-unity/validate.sh": {
+    "reviewed_sha256": "5b87a6c668ea3c05d469f728f8e8073986635091f54f0e4b8a98c9d9f4592627",
+    "review_status": "reviewed",
+    "disposition": "focused change reviewed",
+    "reachability": "Isolated package-aware copy; named test groups; same editor version and current native plugin. No imports into working Library.",
+    "contracts": "Preserve existing data/algorithm/serialized bindings beyond the described change.",
+    "lifetime": "Existing owners retained; test fixtures clean up their created resources.",
+    "cost": "No unmeasured whole-pipeline performance claim.",
+    "evidence": "IMPLEMENTATION.md and validation.json; review scope is the described change."
+  },
+  "packages/com.motu.navigation/Runtime/AssemblyInfo.cs": {
+    "reviewed_sha256": "3fe444d52dff21f7fabd68cf8cd91214bed14706f3780a5cf309c292bdf1add6",
+    "review_status": "reviewed",
+    "disposition": "focused change reviewed",
+    "reachability": "Optional package installer has no scene reference.",
+    "contracts": "AlwaysLinkAssembly preserves runtime initializer root under IL2CPP.",
+    "lifetime": "Assembly-only metadata; no runtime resource allocation.",
+    "cost": "No whole-pipeline performance claim.",
+    "evidence": "Clean navigation IL2CPP player installs, bakes and registers navigation."
+  },
+  "packages/com.motu.navigation/Runtime/IslandNavigation.cs": {
+    "reviewed_sha256": "b83129ea7453977fda09aa6d9f0111929183d50bfcc570cbb37e50b3f1d2fcab",
+    "review_status": "reviewed",
+    "disposition": "bound navigation bake allocations",
+    "reachability": "Optional navigation installer -> background chunk index -> sequential native bakes -> connected registered chunks.",
+    "contracts": "Serialized chunk bake lifecycle, temporary neighbour queries, registration, cancellation and source release; standard long-path limitations documented.",
+    "lifetime": "Prepared arrays borrowed through indexing/build; current Unity sources retained until native operation completes; all owned links/data released on unload.",
+    "cost": "One global bake; one worker by default; one spatial source batch uploaded at a time. Full-world peak memory is not inferred from source payload counters.",
+    "evidence": "NAVIGATION_CHUNKS.md; navigation-chunks/connectivity.json; navigation_chunks validation entry."
+  },
+  "island-rs/tests/procedural_material_editor.rs": {
+    "reviewed_sha256": "30473d4d6b0c633de2620243da34cebfaabf09a1f286bfbbfd45a636e2c60479",
+    "review_status": "reviewed",
+    "disposition": "focused change reviewed",
+    "reachability": "Native integration test and source CI.",
+    "contracts": "Locked hashes reflect existing authored e5f0465 colour parameters; eight non-albedo hashes unchanged.",
+    "lifetime": "Temporary output directories owned by test fixture.",
+    "cost": "No whole-pipeline performance claim.",
+    "evidence": "Starting implementation reproduced albedo failure; six CLI tests pass after updating two stale albedo hashes."
+  },
+  "packages/com.motu.runtime/Runtime/World/EnvironmentHostState.cs": {
+    "reviewed_sha256": "7e3f3540bafe0aac1f140967d8f11ec6314a86880b0bd26dd340c93b9e311029",
+    "review_status": "reviewed",
+    "disposition": "environment ownership change reviewed",
+    "reachability": "World initialization, camera pre-cull, environment disable/re-enable/destruction; packaged consumer and development tests.",
+    "contracts": "Single owner; capture host state before mutation; preserve borrowed effects/assets; support additive environment unload with unchanged host active scene; guard startup activation notification.",
+    "lifetime": "One state snapshot per activation; camera/light captures on first use; owned effect destruction handles same-frame re-enable; owned generated components/meshes/materials released at teardown.",
+    "cost": "No steady-state capture allocation; existing lookup reused. No new FPS or residency benchmark claim.",
+    "evidence": "unity-environment-tests.xml: 134 pass, 8 fixture skips; consumer-environment-tests.xml; actual IL2CPP player navigation/render/teardown and repository-read-denied run; validation.json."
+  },
+  "packages/com.motu.runtime/Runtime/World/WorldEnvironmentController.Ownership.cs": {
+    "reviewed_sha256": "8867b08f5ee1d656575464f4f13fe6cba13a7cc0cf17531eda504bb25a153b01",
+    "review_status": "reviewed",
+    "disposition": "environment ownership change reviewed",
+    "reachability": "World initialization, camera pre-cull, environment disable/re-enable/destruction; packaged consumer and development tests.",
+    "contracts": "Single owner; capture host state before mutation; preserve borrowed effects/assets; support additive environment unload with unchanged host active scene; guard startup activation notification.",
+    "lifetime": "One state snapshot per activation; camera/light captures on first use; owned effect destruction handles same-frame re-enable; owned generated components/meshes/materials released at teardown.",
+    "cost": "No steady-state capture allocation; existing lookup reused. No new FPS or residency benchmark claim.",
+    "evidence": "unity-environment-tests.xml: 134 pass, 8 fixture skips; consumer-environment-tests.xml; actual IL2CPP player navigation/render/teardown and repository-read-denied run; validation.json."
+  },
+  "packages/com.motu.runtime/Runtime/World/WorldEnvironmentController.cs": {
+    "reviewed_sha256": "f75cb181d4a4596a1d6c47c7da070cc4b3f395357642963f234e20b09bc94973",
+    "review_status": "reviewed",
+    "disposition": "environment ownership change reviewed",
+    "reachability": "World initialization, camera pre-cull, environment disable/re-enable/destruction; packaged consumer and development tests.",
+    "contracts": "Single owner; capture host state before mutation; preserve borrowed effects/assets; support additive environment unload with unchanged host active scene; guard startup activation notification.",
+    "lifetime": "One state snapshot per activation; camera/light captures on first use; owned effect destruction handles same-frame re-enable; owned generated components/meshes/materials released at teardown.",
+    "cost": "No steady-state capture allocation; existing lookup reused. No new FPS or residency benchmark claim.",
+    "evidence": "unity-environment-tests.xml: 134 pass, 8 fixture skips; consumer-environment-tests.xml; actual IL2CPP player navigation/render/teardown and repository-read-denied run; validation.json."
+  },
+  "packages/com.motu.runtime/Runtime/World/WorldEnvironmentController.Environment.cs": {
+    "reviewed_sha256": "9dccbb948fe49ba1e7c0c79e10714f021bdb22af6786a6c62f29ebb47e7b4f29",
+    "review_status": "reviewed",
+    "disposition": "environment ownership change reviewed",
+    "reachability": "World initialization, camera pre-cull, environment disable/re-enable/destruction; packaged consumer and development tests.",
+    "contracts": "Single owner; capture host state before mutation; preserve borrowed effects/assets; support additive environment unload with unchanged host active scene; guard startup activation notification.",
+    "lifetime": "One state snapshot per activation; camera/light captures on first use; owned effect destruction handles same-frame re-enable; owned generated components/meshes/materials released at teardown.",
+    "cost": "No steady-state capture allocation; existing lookup reused. No new FPS or residency benchmark claim.",
+    "evidence": "unity-environment-tests.xml: 134 pass, 8 fixture skips; consumer-environment-tests.xml; actual IL2CPP player navigation/render/teardown and repository-read-denied run; validation.json."
+  },
+  "packages/com.motu.runtime/Runtime/World/OceanSurfaceController.cs": {
+    "reviewed_sha256": "c8638ee5b5b6139d7cbca2fd18e0ad34f4be0fb64062eba3dca470c242dd2890",
+    "review_status": "reviewed",
+    "disposition": "environment ownership change reviewed",
+    "reachability": "World initialization, camera pre-cull, environment disable/re-enable/destruction; packaged consumer and development tests.",
+    "contracts": "Single owner; capture host state before mutation; preserve borrowed effects/assets; support additive environment unload with unchanged host active scene; guard startup activation notification.",
+    "lifetime": "One state snapshot per activation; camera/light captures on first use; owned effect destruction handles same-frame re-enable; owned generated components/meshes/materials released at teardown.",
+    "cost": "No steady-state capture allocation; existing lookup reused. No new FPS or residency benchmark claim.",
+    "evidence": "unity-environment-tests.xml: 134 pass, 8 fixture skips; consumer-environment-tests.xml; actual IL2CPP player navigation/render/teardown and repository-read-denied run; validation.json."
+  },
+  "packages/com.motu.runtime/Runtime/World/OceanWaveMaskComposer.cs": {
+    "reviewed_sha256": "b32268859d28c82597c0165cb5e7ac254365421541c2505d61add4858e55eb85",
+    "review_status": "reviewed",
+    "disposition": "environment ownership change reviewed",
+    "reachability": "World initialization, camera pre-cull, environment disable/re-enable/destruction; packaged consumer and development tests.",
+    "contracts": "Single owner; capture host state before mutation; preserve borrowed effects/assets; support additive environment unload with unchanged host active scene; guard startup activation notification.",
+    "lifetime": "One state snapshot per activation; camera/light captures on first use; owned effect destruction handles same-frame re-enable; owned generated components/meshes/materials released at teardown.",
+    "cost": "No steady-state capture allocation; existing lookup reused. No new FPS or residency benchmark claim.",
+    "evidence": "unity-environment-tests.xml: 134 pass, 8 fixture skips; consumer-environment-tests.xml; actual IL2CPP player navigation/render/teardown and repository-read-denied run; validation.json."
+  },
+  "packages/com.motu.runtime/Runtime/Rendering/OceanUnderwaterView.cs": {
+    "reviewed_sha256": "70da11e8d734ce439c8999f7c6153c213eb7eac3e9f96d81878643f8b6dd8bbc",
+    "review_status": "reviewed",
+    "disposition": "environment ownership change reviewed",
+    "reachability": "World initialization, camera pre-cull, environment disable/re-enable/destruction; packaged consumer and development tests.",
+    "contracts": "Single owner; capture host state before mutation; preserve borrowed effects/assets; support additive environment unload with unchanged host active scene; guard startup activation notification.",
+    "lifetime": "One state snapshot per activation; camera/light captures on first use; owned effect destruction handles same-frame re-enable; owned generated components/meshes/materials released at teardown.",
+    "cost": "No steady-state capture allocation; existing lookup reused. No new FPS or residency benchmark claim.",
+    "evidence": "unity-environment-tests.xml: 134 pass, 8 fixture skips; consumer-environment-tests.xml; actual IL2CPP player navigation/render/teardown and repository-read-denied run; validation.json."
+  },
+  "packages/com.motu.runtime/Tests/Editor/EnvironmentOwnershipTests.cs": {
+    "reviewed_sha256": "60c3fd57339233c94e5f5a81f7c57b241601356d5674f5da07dd7eb1124ca542",
+    "review_status": "reviewed",
+    "disposition": "environment ownership change reviewed",
+    "reachability": "World initialization, camera pre-cull, environment disable/re-enable/destruction; packaged consumer and development tests.",
+    "contracts": "Single owner; capture host state before mutation; preserve borrowed effects/assets; support additive environment unload with unchanged host active scene; guard startup activation notification.",
+    "lifetime": "One state snapshot per activation; camera/light captures on first use; owned effect destruction handles same-frame re-enable; owned generated components/meshes/materials released at teardown.",
+    "cost": "No steady-state capture allocation; existing lookup reused. No new FPS or residency benchmark claim.",
+    "evidence": "unity-environment-tests.xml: 134 pass, 8 fixture skips; consumer-environment-tests.xml; actual IL2CPP player navigation/render/teardown and repository-read-denied run; validation.json."
+  },
+  "island-rs/src/profiling.rs": {
+    "reviewed_sha256": "712c67bed802fd04e05d49917bf8045b9f8f29d55366286a04bbe8346da081f2",
+    "review_status": "reviewed",
+    "disposition": "retain optional instrumentation",
+    "reachability": "StageTimer callers across native generation; feature-gated Drop logs inclusive duration.",
+    "contracts": "No timer fields or logging without profiling feature; nested scopes are inclusive.",
+    "lifetime": "Stack-scoped timer with no retained allocations.",
+    "cost": "One Instant and stderr record per enabled stage; normal build zero-sized.",
+    "evidence": "Source review; profiling benchmark build."
+  },
+  "island-rs/src/bin/generation_bench.rs": {
+    "reviewed_sha256": "0d7c5df2ffb9c535de8b8dadcaa3cce6bc70debfdf7c330b9839f51d2c8d675d",
+    "review_status": "reviewed",
+    "disposition": "retain deterministic benchmark",
+    "reachability": "CLI -> one small warmup -> serial seed/repetition Island::generate calls.",
+    "contracts": "CPU default options except seed points; CSV elapsed excludes geometry hashing; stable hash includes positions and indices. Optional complete snapshots are saved after elapsed timing; separate build/size directories avoid filename collisions.",
+    "lifetime": "One island per iteration; no raster/export calls; allocator retention may outlive island.",
+    "cost": "Generation timing only; hashing and destruction occur outside elapsed duration.",
+    "evidence": "Six before/after complete snapshot comparisons and three alternating timing pairs; native tests and Clippy."
+  },
+  "scripts/summarize-generation-profile.py": {
+    "reviewed_sha256": "c9ae44d7c6a946b4033d119ff8c93d104ad20729131396534f3dc9cf169f68ee",
+    "review_status": "reviewed",
+    "disposition": "add stage attribution tooling",
+    "reachability": "generation-bench CSV and profiling stderr -> validated JSON report.",
+    "contracts": "Exactly one warmup excluded; complete matching groups; stable hashes; inclusive timings are never summed across parent and child labels.",
+    "lifetime": "Reads finite local evidence files; no process execution or external writes beyond chosen output.",
+    "cost": "Offline aggregation; no runtime impact.",
+    "evidence": "Four parser tests cover warmup, repetition/absence, incomplete/mismatched logs, invalid durations and changing geometry."
+  },
+  "scripts/tests/test_generation_profile.py": {
+    "reviewed_sha256": "338189e3348b67e611ed1d81b6a28bd09a50e66e847cc0d0b6ef0a6165473f00",
+    "review_status": "reviewed",
+    "disposition": "protect performance evidence",
+    "reachability": "unittest discovery in source workflow.",
+    "contracts": "Reject corrupted evidence; validate repeated and absent nested stages without double-counting.",
+    "lifetime": "TemporaryDirectory cleanup; no shared outputs.",
+    "cost": "Four small offline tests.",
+    "evidence": "python3 -m unittest discover -s scripts/tests: four passed."
+  },
+  "island-rs/tests/generation.rs": {
+    "reviewed_sha256": "df0943c7f96f2800251a5948c2ca5a50e1791b7c14df4f301e89555478e798c2",
+    "review_status": "partial",
+    "disposition": "reconcile river fixture assumptions",
+    "reachability": "Reviewed river helpers and replaced river integration cases; other integration tests not certified by this entry.",
+    "contracts": "Separate submerged sea handoff from above-sea geometry/clearance; retain network, UV, indices, banks and confluence checks.",
+    "lifetime": "Generated islands scoped to individual tests.",
+    "cost": "Visible fixture uses 1024 initial points; longer correctness test, not benchmark.",
+    "evidence": "Two focused river integration tests passed; full-suite evidence in validation.json."
+  },
+  "island-rs/src/rivers/tests.rs": {
+    "reviewed_sha256": "0d7a78dff77a2fabec0a813935bb0ce743317f7e43f5de3730239ce95ff4f449",
+    "review_status": "partial",
+    "disposition": "add prescribed exported-waterfall fixture",
+    "reachability": "Reviewed sea-handoff/profile fixtures and new exported multi-waterfall test; remaining file review open.",
+    "contracts": "Three explicit waterfall drops and flat reaches; exact 3D UV increments, finite UVs, positive interior and zero boundary bank distances.",
+    "lifetime": "Constructed test meshes owned locally; no production path changes.",
+    "cost": "Focused exported mesh fixture passes in under a second; not runtime optimization.",
+    "evidence": "New unit test passes; waterfall_height_and_frequency_increase_with_smoothed_gradient retained."
+  },
+  "island-rs/src/terrain/lod.rs": {
+    "reviewed_sha256": "f8cd485aca892ad58f88e1db16bda6b917f631f239e67a353577b1bdef23b6cd",
+    "review_status": "reviewed",
+    "disposition": "retain LOD geometry contract; measure allocations before optimization",
+    "reachability": "Final generation regenerates LOD1 then LOD2; horizon export simplifies finished LOD2 on demand.",
+    "contracts": "Meshopt selects source vertices with normal weights and locked domain corners; staged meshes supply budgets only; compacted attributes follow remapped indices. Assumes valid source topology, as supplied internally.",
+    "lifetime": "Positions, flattened normals, corner locks and remapping buffers are temporary; returned meshes and TriangleIndex own their storage.",
+    "cost": "Two simplifications plus one final spatial index; position/normal copies and compaction are candidates only until measured. No quality or triangle-budget change.",
+    "evidence": "Source review plus deterministic subset, horizon corner retention and compaction tests in full native suite."
+  },
+  "island-rs/src/terrain/sampling.rs": {
+    "reviewed_sha256": "ee5458091e7fed89701edc8a0ff98c872d3508544952e0410081fe4b0bd117dd",
+    "review_status": "reviewed",
+    "disposition": "retain shared support query; investigate fallback contract separately",
+    "reachability": "Terrain height/normal/material/support samples and river bank burial use the final spatial index.",
+    "contracts": "Normalized clamped domain; barycentric first supporting face; river banks take lowest supporting face. Requires valid nonempty indexed terrain. nearest_vertex returns a nearby-bin candidate early, so do not expose it as a guaranteed global-nearest query without a separate correctness change.",
+    "lifetime": "Index owns contiguous offsets/faces; sample results borrow no temporary storage; bank mask is scoped to burial.",
+    "cost": "Two index construction passes, bin-overlap face storage, no per-query allocation; combined support avoids repeated queries for decorations. Large-triangle bin duplication and fallback radius scans require measurement.",
+    "evidence": "Complete source review; existing generation/LOD/bank/surface-map tests. No new empty-mesh or exact-nearest guarantee claimed."
+  },
+  "island-rs/src/terrain/erosion.rs": {
+    "reviewed_sha256": "39f982012193bc3271b80bfa12875fda09f01f2c56673142320740c59d034e81",
+    "review_status": "partial",
+    "disposition": "skip unused erosion geometry",
+    "reachability": "Reviewed reference path/transfer and projected-area helpers; remaining thermal/experimental implementation review open.",
+    "contracts": "Only omit geometry where erosion is already zero; preserve transport, deposition, sub-epsilon soil cleanup, sequential updates and face protections.",
+    "lifetime": "Existing borrowed generation state retained; reference-test snapshots own their comparison bytes.",
+    "cost": "No new state/allocations. Paired default fixture: generation -2.47%, hydraulic -5.53%.",
+    "evidence": "144 exact step cases, six identical full snapshots, 16 hydraulic debug tests and full native release suite."
+  },
+  "island-rs/src/forest.rs": {
+    "reviewed_sha256": "7d39e365c4e5d2a55d9dc7232bc212e91d0a09f4ddaed08fd6790cee5a01fa91",
+    "review_status": "partial",
+    "disposition": "stabilize exact analytical test",
+    "reachability": "Reviewed coherent_tree_scale and its analytical fixture; remaining forest implementation review open.",
+    "contracts": "Opaque runtime inputs avoid constant-folded expected expression; retain bit equality, range/threshold and monotonicity checks. Production code unchanged.",
+    "lifetime": "Existing borrowed generation state retained; reference-test snapshots own their comparison bytes.",
+    "cost": "Test-only change; no runtime cost change.",
+    "evidence": "Isolated pre-change release failure; corrected debug/release tests pass; full snapshots unchanged."
+  },
+  "island-rs/src/terrain/decorations.rs": {
+    "reviewed_sha256": "73004db4a642f631654c5d92f9b7fc8f85b835b8064828654223e80f8ac3cd93",
+    "review_status": "reviewed",
+    "disposition": "reuse unchanged rock terrain samples within CPU settling",
+    "reachability": "Decorations generation, river proximity exclusion, deterministic steep-face rock drops, CPU collision settling and stone support marking; GPU dispatch remains separate.",
+    "contracts": "Retain RNG ordering, area/noise weighting, separate large-boulder appearance domain, ordered pair contacts, wake/sleep and support rules. Reuse height/normal only for bit-identical XY against the same immutable terrain. Existing adjacent-bin collision invariant bounds maximum pair diameter to one cell.",
+    "lifetime": "Solver owns one optional XY/height/normal sample per body. Fixed body order couples each sample to its body; samples drop at solver exit and never enter snapshots, ABI or resident island state.",
+    "cost": "Measured terrain queries dominate CPU settling. Cache adds one O(body count) allocation per simulation; no per-step allocation. Repeated face-weight scans and large fallback searches remain further measurement candidates.",
+    "evidence": "Source review and original-solver bit comparisons on flat/sloped terrain, overlapping and sleeping bodies, and nearest-vertex fallback. See ROCK_OPTIMIZATION.md for completed benchmark and integration evidence."
+  },
+  "island-rs/src/mesh.rs": {
+    "reviewed_sha256": "4ef78b5242886f12dcd6d3cc485a7950895678267d962615889301db65134f88",
+    "review_status": "partial",
+    "disposition": "group perimeter edge incidence by lower endpoint",
+    "reachability": "Reviewed adjacency/perimeter construction and ordered_edge; used by river carving/refinement, erosion boundaries, terrain smoothing and other mesh callers. Remaining tessellation/slicing/repair review is open; prior seam edits preserved.",
+    "contracts": "Valid in-range triangle indices, chunks_exact ignores an incomplete trailing face; undirected edge incidence exactly one marks both endpoints. Preserve holes, winding independence, repeated/self edges, disconnected/isolated vertices and non-manifold counts. No vertex, triangle or normal mutations.",
+    "lifetime": "Borrow Mesh; return owned mask. Temporary offsets, independent scatter cursors and u32 neighbor endpoints live only within the query. Cursor copy preserves immutable bucket ranges while scattering; no persistent cache or ABI/schema change.",
+    "cost": "Replace global u64 edge sort with per-vertex u32 endpoint sorts. Two edge scans, O(vertices+triangle indices) scratch and low-valence local sorting. See MESH_BOUNDARY_OPTIMIZATION.md for paired measurements; sparse/high-valence meshes have different tradeoffs.",
+    "evidence": "Exact independent edge-incidence oracle across 19683 three-face combinations, plus holes/disconnected/empty fixtures. Full native/output/package validation recorded in the milestone report."
+  },
+  "island-rs/src/rivers/channel.rs": {
+    "reviewed_sha256": "8f54f977274437c1626a1d29f71b3d17215ff06ace5dbcf6934a78be138cd740",
+    "review_status": "partial",
+    "disposition": "retain behavior; optimize shared boundary query",
+    "reachability": "build_river_footprint and its callers; remaining channel shaping review open.",
+    "contracts": "Footprint ordering, owner tie-breaks, confluence offsets and visible mesh ends retained; perimeter is derived from the current mesh.",
+    "lifetime": "Borrowed inputs and scoped owned generation buffers retain their existing lifetimes; no edits in this file.",
+    "cost": "Repeated perimeter queries were visible in the final-river profile; optimize shared query rather than cache changing river attributes.",
+    "evidence": "Source/call-graph review during mesh boundary optimization. Full-file review remains open."
+  },
+  "island-rs/src/terrain/generation.rs": {
+    "reviewed_sha256": "4b192ec10e1acb4f32574e734d490dc9d5e244a4aaa42a960d9c989b205880af",
+    "review_status": "partial",
+    "disposition": "retain behavior; optimize shared boundary query",
+    "reachability": "generate_final_rivers retry lifecycle; remaining generation/snapshot implementation review open.",
+    "contracts": "Each rejected-waterfall attempt restarts from prepared mesh/material and ocean state. Preserve accumulated rejection set and require submerged-carve field before return.",
+    "lifetime": "Borrowed inputs and scoped owned generation buffers retain their existing lifetimes; no edits in this file.",
+    "cost": "Prepared and attempt clones support retry rollback; retain ownership boundaries until their independent cost is measured.",
+    "evidence": "Source/call-graph review during mesh boundary optimization. Full-file review remains open."
+  },
+  "packages/com.motu.runtime/Runtime/Interop/NativeIslandHandle.cs": {
+    "reviewed_sha256": "8eb2ff6f7957eb354cdd381bf329c781b8964b1a5be0a747bf95bda953573e47",
+    "review_status": "reviewed",
+    "disposition": "streaming responsiveness",
+    "reachability": "IslandGenerator.PrepareStreamingAt -> TerrainTileStreamer; runtime installer supplies owned native island.",
+    "contracts": "Reference-counted owner, thread-safe lease acquisition and idempotent disposal.",
+    "lifetime": "Background exports hold a native lease; unload cancels without waiting; Unity objects stay on the main thread.",
+    "cost": "One export globally, cooperative upload budget; atomic mesh/collider calls remain.",
+    "evidence": "STREAMING_FREEZES.md; streaming-freezes/unity-tests.xml; streaming-freezes/consumer-tests.xml"
+  },
+  "packages/com.motu.runtime/Runtime/Streaming/TerrainGridWorker.cs": {
+    "reviewed_sha256": "b23bcfebab59c39ae299d8cc521553572bc07d267fbab2fcfe63af6d60cd1771",
+    "review_status": "reviewed",
+    "disposition": "streaming responsiveness",
+    "reachability": "IslandGenerator.PrepareStreamingAt -> TerrainTileStreamer; runtime installer supplies owned native island.",
+    "contracts": "Single-export gate, worker-only native grid/copy preparation, cancellation and export cleanup.",
+    "lifetime": "Background exports hold a native lease; unload cancels without waiting; Unity objects stay on the main thread.",
+    "cost": "One export globally, cooperative upload budget; atomic mesh/collider calls remain.",
+    "evidence": "STREAMING_FREEZES.md; streaming-freezes/unity-tests.xml; streaming-freezes/consumer-tests.xml"
+  },
+  "packages/com.motu.runtime/Runtime/World/UnityFrameBudget.cs": {
+    "reviewed_sha256": "69a48b0b3dd9281601afa4f939adbed6181f39f975f2d4fc6c9f148b675834a6",
+    "review_status": "reviewed",
+    "disposition": "streaming responsiveness",
+    "reachability": "IslandGenerator.PrepareStreamingAt -> TerrainTileStreamer; runtime installer supplies owned native island.",
+    "contracts": "Existing cooperative upload budget and read-only millisecond setting.",
+    "lifetime": "Background exports hold a native lease; unload cancels without waiting; Unity objects stay on the main thread.",
+    "cost": "One export globally, cooperative upload budget; atomic mesh/collider calls remain.",
+    "evidence": "STREAMING_FREEZES.md; streaming-freezes/unity-tests.xml; streaming-freezes/consumer-tests.xml"
+  },
+  "packages/com.motu.runtime/Tests/Editor/StreamingResponsivenessTests.cs": {
+    "reviewed_sha256": "6b0120b9f971a788b9d5ab05d06b2bd6906d7c9afcfa5d0c6dca5d0180a2b1f9",
+    "review_status": "reviewed",
+    "disposition": "bounded forest detail residency",
+    "reachability": "Preparation -> TerrainTileStreamer -> ForestTileStreamer -> ForestGridWorker; benchmark and test entry points.",
+    "contracts": "Bounded exact forest/terrain export comparisons, initial focus, completion, redirect/unload and native lease lifetime reviewed.",
+    "lifetime": "Whole native forest remains resident; managed detail arrays transfer once; pending and installed Unity details are owned by the streamer.",
+    "cost": "FOREST_STREAMING.md records summed whole-island payload and maximum temporary region, with mesh upload and snapshot-load limits.",
+    "evidence": "FOREST_STREAMING.md; forest-streaming/large-island.json; forest_streaming in validation.json."
+  },
+  "packages/com.motu.runtime/Runtime/Streaming/TerrainTileStreamer.cs": {
+    "reviewed_sha256": "d5689a3df2e6f3dc738dff99f6c7f2f0b7699a2ab7907e170d3e75b4e97beffe",
+    "review_status": "partial",
+    "disposition": "bounded forest detail residency",
+    "reachability": "Preparation -> TerrainTileStreamer -> ForestTileStreamer -> ForestGridWorker; benchmark and test entry points.",
+    "contracts": "Forest worker and upload budget wiring plus previous terrain transition review; remaining terrain/collision/grass audit open.",
+    "lifetime": "Whole native forest remains resident; managed detail arrays transfer once; pending and installed Unity details are owned by the streamer.",
+    "cost": "FOREST_STREAMING.md records summed whole-island payload and maximum temporary region, with mesh upload and snapshot-load limits.",
+    "evidence": "FOREST_STREAMING.md; forest-streaming/large-island.json; forest_streaming in validation.json."
+  },
+  "packages/com.motu.runtime/Runtime/Streaming/TerrainTileStreamer.DetailStreaming.cs": {
+    "reviewed_sha256": "cde7e3cc11a86f9fe84e87d53b8e3a2433d369c5b7a48661963130a245d2a6a3",
+    "review_status": "partial",
+    "disposition": "streaming responsiveness",
+    "reachability": "IslandGenerator.PrepareStreamingAt -> TerrainTileStreamer; runtime installer supplies owned native island.",
+    "contracts": "LOD neighborhood replacement and worker/upload coroutine only; batches and feature groups need broader profiling.",
+    "lifetime": "Background exports hold a native lease; unload cancels without waiting; Unity objects stay on the main thread.",
+    "cost": "One export globally, cooperative upload budget; atomic mesh/collider calls remain.",
+    "evidence": "STREAMING_FREEZES.md; streaming-freezes/unity-tests.xml; streaming-freezes/consumer-tests.xml"
+  },
+  "packages/com.motu.runtime/Runtime/Islands/IslandRuntimeInstaller.cs": {
+    "reviewed_sha256": "92c528c1894130cb91b149c405d601b3e79d1dda45716c6663087374a23cc137",
+    "review_status": "partial",
+    "disposition": "streaming responsiveness",
+    "reachability": "IslandGenerator.PrepareStreamingAt -> TerrainTileStreamer; runtime installer supplies owned native island.",
+    "contracts": "Pass native owner into terrain streaming; rest of installation not fully reviewed here.",
+    "lifetime": "Background exports hold a native lease; unload cancels without waiting; Unity objects stay on the main thread.",
+    "cost": "One export globally, cooperative upload budget; atomic mesh/collider calls remain.",
+    "evidence": "STREAMING_FREEZES.md; streaming-freezes/unity-tests.xml; streaming-freezes/consumer-tests.xml"
+  },
+  "packages/com.motu.runtime/Runtime/Settings/IslandNavigationSettings.cs": {
+    "reviewed_sha256": "9ebcf33852f7f0ad3f713f4951c7309143a2e4645f9330cf3588062c659c1c51",
+    "review_status": "reviewed",
+    "disposition": "bound navigation bake allocations",
+    "reachability": "Optional navigation installer -> background chunk index -> sequential native bakes -> connected registered chunks.",
+    "contracts": "Validated chunk width and worker limit; radius and height defaults preserved; request copies retain new settings.",
+    "lifetime": "Prepared arrays borrowed through indexing/build; current Unity sources retained until native operation completes; all owned links/data released on unload.",
+    "cost": "One global bake; one worker by default; one spatial source batch uploaded at a time. Full-world peak memory is not inferred from source payload counters.",
+    "evidence": "NAVIGATION_CHUNKS.md; navigation-chunks/connectivity.json; navigation_chunks validation entry."
+  },
+  "packages/com.motu.navigation/Runtime/IslandNavigationSources.cs": {
+    "reviewed_sha256": "550764abcddb8c610767aba4f459ee9faa6a7192a79140da37a8b58289813bfb",
+    "review_status": "reviewed",
+    "disposition": "bound navigation bake allocations",
+    "reachability": "Optional navigation installer -> background chunk index -> sequential native bakes -> connected registered chunks.",
+    "contracts": "Compact source vertices, unchanged LOD0 face positions and material areas, local obstacle selection with conservative rotated AABBs.",
+    "lifetime": "Prepared arrays borrowed through indexing/build; current Unity sources retained until native operation completes; all owned links/data released on unload.",
+    "cost": "One global bake; one worker by default; one spatial source batch uploaded at a time. Full-world peak memory is not inferred from source payload counters.",
+    "evidence": "NAVIGATION_CHUNKS.md; navigation-chunks/connectivity.json; navigation_chunks validation entry."
+  },
+  "packages/com.motu.navigation/Runtime/IslandNavigationChunks.cs": {
+    "reviewed_sha256": "c8d8a3ee45c7b2cd1290b0fc19b03e54ce0bec2a40770adec306de7f6e7cf38b",
+    "review_status": "reviewed",
+    "disposition": "bound navigation bake allocations",
+    "reachability": "Optional navigation installer -> background chunk index -> sequential native bakes -> connected registered chunks.",
+    "contracts": "Worker index of original faces, overlap context, shared vertical quantization range and deterministic chunk order.",
+    "lifetime": "Prepared arrays borrowed through indexing/build; current Unity sources retained until native operation completes; all owned links/data released on unload.",
+    "cost": "One global bake; one worker by default; one spatial source batch uploaded at a time. Full-world peak memory is not inferred from source payload counters.",
+    "evidence": "NAVIGATION_CHUNKS.md; navigation-chunks/connectivity.json; navigation_chunks validation entry."
+  },
+  "packages/com.motu.navigation/Runtime/IslandNavigationSeams.cs": {
+    "reviewed_sha256": "adbf77dd2e730758cd45c4970fd52932a3a6a249a35f54726ef8449efee842c4",
+    "review_status": "reviewed",
+    "disposition": "bound navigation bake allocations",
+    "reachability": "Optional navigation installer -> background chunk index -> sequential native bakes -> connected registered chunks.",
+    "contracts": "Crossings derived from walkable source faces; height-aware endpoint checks and horizontal border checks; discard redundancy only with traversable paths on both sides.",
+    "lifetime": "Prepared arrays borrowed through indexing/build; current Unity sources retained until native operation completes; all owned links/data released on unload.",
+    "cost": "One global bake; one worker by default; one spatial source batch uploaded at a time. Full-world peak memory is not inferred from source payload counters.",
+    "evidence": "NAVIGATION_CHUNKS.md; navigation-chunks/connectivity.json; navigation_chunks validation entry."
+  },
+  "packages/com.motu.runtime/Runtime/Streaming/ForestTileStreamer.cs": {
+    "reviewed_sha256": "a180646fd656916a79bd5ed177760b08396e9136204e24911d81fca76241bc8b",
+    "review_status": "reviewed",
+    "disposition": "bounded forest detail residency",
+    "reachability": "Preparation -> TerrainTileStreamer -> ForestTileStreamer -> ForestGridWorker; benchmark and test entry points.",
+    "contracts": "All forest initialization, LOD transitions, pending upload ownership, materials, bounds, wireframe and collider teardown reviewed.",
+    "lifetime": "Whole native forest remains resident; managed detail arrays transfer once; pending and installed Unity details are owned by the streamer.",
+    "cost": "FOREST_STREAMING.md records summed whole-island payload and maximum temporary region, with mesh upload and snapshot-load limits.",
+    "evidence": "FOREST_STREAMING.md; forest-streaming/large-island.json; forest_streaming in validation.json."
+  },
+  "packages/com.motu.runtime/Runtime/Streaming/ForestGridWorker.cs": {
+    "reviewed_sha256": "d0616b7159fae3e076ca1be534df1f9f7d453bc32f1d3c51bc4a71d34cf4caf3",
+    "review_status": "reviewed",
+    "disposition": "bounded forest detail residency",
+    "reachability": "Preparation -> TerrainTileStreamer -> ForestTileStreamer -> ForestGridWorker; benchmark and test entry points.",
+    "contracts": "Leased native reads, global forest concurrency, cancellation, leaf ownership boundaries and single-use region transfer reviewed.",
+    "lifetime": "Whole native forest remains resident; managed detail arrays transfer once; pending and installed Unity details are owned by the streamer.",
+    "cost": "FOREST_STREAMING.md records summed whole-island payload and maximum temporary region, with mesh upload and snapshot-load limits.",
+    "evidence": "FOREST_STREAMING.md; forest-streaming/large-island.json; forest_streaming in validation.json."
+  },
+  "packages/com.motu.runtime/Tests/Editor/ForestStreamingTests.cs": {
+    "reviewed_sha256": "239d475bbe6a6287cf61026b4a838f712fe36736c4e52b48b952925a91512aba",
+    "review_status": "reviewed",
+    "disposition": "bounded forest detail residency",
+    "reachability": "Preparation -> TerrainTileStreamer -> ForestTileStreamer -> ForestGridWorker; benchmark and test entry points.",
+    "contracts": "Bounds coverage, pending export and upload cancellation, wireframe state and repeated travel cleanup fixtures reviewed.",
+    "lifetime": "Whole native forest remains resident; managed detail arrays transfer once; pending and installed Unity details are owned by the streamer.",
+    "cost": "FOREST_STREAMING.md records summed whole-island payload and maximum temporary region, with mesh upload and snapshot-load limits.",
+    "evidence": "FOREST_STREAMING.md; forest-streaming/large-island.json; forest_streaming in validation.json."
+  },
+  "island-unity/Assets/Editor/ForestStreamingBenchmark.cs": {
+    "reviewed_sha256": "5518cc13b83f65acc80bd4808af0797571335edbbe8c2f11dd6613c278fc5b04",
+    "review_status": "reviewed",
+    "disposition": "bounded forest detail residency",
+    "reachability": "Preparation -> TerrainTileStreamer -> ForestTileStreamer -> ForestGridWorker; benchmark and test entry points.",
+    "contracts": "Read-only snapshot benchmark, sequential channel payload counting and individual Unity mesh upload timing reviewed; no global RSS claim.",
+    "lifetime": "Whole native forest remains resident; managed detail arrays transfer once; pending and installed Unity details are owned by the streamer.",
+    "cost": "FOREST_STREAMING.md records summed whole-island payload and maximum temporary region, with mesh upload and snapshot-load limits.",
+    "evidence": "FOREST_STREAMING.md; forest-streaming/large-island.json; forest_streaming in validation.json."
+  },
+  "island-unity/Assets/Tests/Editor/ForestRenderingValidation.cs": {
+    "reviewed_sha256": "c89fa94ac4d9cdba757a5266c1be110a616e7364475d1c9ac22ba1083c405403",
+    "review_status": "reviewed",
+    "disposition": "bounded forest detail residency",
+    "reachability": "Preparation -> TerrainTileStreamer -> ForestTileStreamer -> ForestGridWorker; benchmark and test entry points.",
+    "contracts": "Canopy shadow/material and LOD0 capsule fixture adapted to completed regional exports; synchronous draining is test-only.",
+    "lifetime": "Whole native forest remains resident; managed detail arrays transfer once; pending and installed Unity details are owned by the streamer.",
+    "cost": "FOREST_STREAMING.md records summed whole-island payload and maximum temporary region, with mesh upload and snapshot-load limits.",
+    "evidence": "FOREST_STREAMING.md; forest-streaming/large-island.json; forest_streaming in validation.json."
+  },
+  "packages/com.motu.runtime/Runtime/Interop/VegetationPreparation.cs": {
+    "reviewed_sha256": "0310c2fdeee342d77a19e05112ac29ecc583d9cfe9383137cc735b1678ddef08",
+    "review_status": "partial",
+    "disposition": "bounded forest detail residency",
+    "reachability": "Preparation -> TerrainTileStreamer -> ForestTileStreamer -> ForestGridWorker; benchmark and test entry points.",
+    "contracts": "Forest eager detail removal, bounded region arguments and export cleanup reviewed; reed/fern and all validation helpers remain partial.",
+    "lifetime": "Whole native forest remains resident; managed detail arrays transfer once; pending and installed Unity details are owned by the streamer.",
+    "cost": "FOREST_STREAMING.md records summed whole-island payload and maximum temporary region, with mesh upload and snapshot-load limits.",
+    "evidence": "FOREST_STREAMING.md; forest-streaming/large-island.json; forest_streaming in validation.json."
+  },
+  "packages/com.motu.runtime/Runtime/Islands/IslandPreparedData.cs": {
+    "reviewed_sha256": "bc287e0c2c1370895552ec880c6bed111077bd9e15b62151f76dd47317e161d3",
+    "review_status": "partial",
+    "disposition": "bounded forest detail residency",
+    "reachability": "Preparation -> TerrainTileStreamer -> ForestTileStreamer -> ForestGridWorker; benchmark and test entry points.",
+    "contracts": "Forest prepared-data ownership changed to overview and collider records; remaining prepared types not fully reviewed.",
+    "lifetime": "Whole native forest remains resident; managed detail arrays transfer once; pending and installed Unity details are owned by the streamer.",
+    "cost": "FOREST_STREAMING.md records summed whole-island payload and maximum temporary region, with mesh upload and snapshot-load limits.",
+    "evidence": "FOREST_STREAMING.md; forest-streaming/large-island.json; forest_streaming in validation.json."
+  },
+  "island-unity/Assets/Tests/Editor/FallenLogTests.cs": {
+    "reviewed_sha256": "91d35963f121a48dfb997a0467321a23eb44f55bfb0d29dbf7c3801eb9ed5dd4",
+    "review_status": "partial",
+    "disposition": "bounded forest detail residency",
+    "reachability": "Preparation -> TerrainTileStreamer -> ForestTileStreamer -> ForestGridWorker; benchmark and test entry points.",
+    "contracts": "LOD0 log collider and end-grain streaming fixture changed to regional export provider; remaining shader tests not fully reviewed.",
+    "lifetime": "Whole native forest remains resident; managed detail arrays transfer once; pending and installed Unity details are owned by the streamer.",
+    "cost": "FOREST_STREAMING.md records summed whole-island payload and maximum temporary region, with mesh upload and snapshot-load limits.",
+    "evidence": "FOREST_STREAMING.md; forest-streaming/large-island.json; forest_streaming in validation.json."
+  }
+}

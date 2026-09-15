@@ -427,7 +427,12 @@ impl<'a> HydraulicEroder<'a> {
         let acceleration = sin_slope * sin_slope * sin_slope * distance;
         *speed = speed.mul_add(0.75, acceleration * 0.25);
         let deposition_weight = deposition_weight(slope, self.settings);
-        let geometry = (*sediment <= *speed).then(|| {
+        // Sea-plane protection and fully depositional slopes both make erosion
+        // zero. Keep sediment exchange and transport, but omit their unused
+        // normals and face limits.
+        let can_erode =
+            *sediment <= *speed && deposition_weight < 1.0 && self.mesh.vertices[current].z > 0.0;
+        let geometry = can_erode.then(|| {
             let normal = surface_normal_at(self.mesh, &self.vertex_faces, current);
             self.erosion_geometry(current, normal)
         });
@@ -1029,6 +1034,82 @@ pub(super) fn triangle_bin_bounds(
 mod hydraulic_tests {
     use super::super::{Terrain, TerrainMaterialField, sharp_rock_mask};
     use super::*;
+
+    #[test]
+    fn non_eroding_steps_preserve_reference_step_bits() {
+        let surfaces = [-0.1_f32, -0.0001, -0.0, 0.0, 0.0001, 0.1];
+        let slopes = surfaces
+            .into_iter()
+            .flat_map(|surface| [0.005, 0.2].map(move |drop| (surface, drop)));
+        for (surface, drop) in slopes {
+            for (sediment, speed) in [(0.0, 0.0), (0.0, 0.1), (0.02, 0.0), (0.02, 0.1)] {
+                for soil in [0.0, LOOSE_DEPTH_EPSILON * 0.5, 0.01] {
+                    assert_eq!(
+                        reference_step_state(surface, drop, sediment, speed, soil, false),
+                        reference_step_state(surface, drop, sediment, speed, soil, true),
+                        "surface={surface}, drop={drop}, sediment={sediment}, speed={speed}, soil={soil}"
+                    );
+                }
+            }
+        }
+    }
+
+    fn reference_step_state(
+        surface: f32,
+        drop: f32,
+        mut sediment: f32,
+        mut speed: f32,
+        soil: f32,
+        shortcut: bool,
+    ) -> Vec<u8> {
+        let mut mesh = Mesh {
+            vertices: vec![
+                Vec3::new(0.0, 0.0, surface),
+                Vec3::new(0.1, 0.0, surface - drop),
+                Vec3::new(0.0, 0.1, surface + 0.05),
+                Vec3::new(0.1, 0.1, surface - drop * 0.5),
+            ],
+            triangles: vec![0, 1, 2, 1, 3, 2],
+            ..Mesh::default()
+        };
+        let adjacency = mesh.adjacency();
+        let mut material = SurfaceMaterial::empty(4);
+        material.depths_mut().fill(soil);
+        let mut eroder = HydraulicEroder::new(
+            &mut mesh,
+            &adjacency,
+            &mut material,
+            &[0.5; 4],
+            true,
+            settings(),
+        );
+        if shortcut {
+            eroder.erode_reference_step(0, 1, &mut speed, &mut sediment);
+        } else {
+            // Frozen pre-shortcut step: sea nodes still compute all geometry.
+            let direction = eroder.mesh.vertices[0] - eroder.mesh.vertices[1];
+            let distance = direction.length().max(f32::EPSILON);
+            let horizontal = direction.truncate().length().max(f32::EPSILON);
+            let sin_slope = direction.z / distance;
+            let acceleration = sin_slope * sin_slope * sin_slope * distance;
+            speed = speed.mul_add(0.75, acceleration * 0.25);
+            let weight = deposition_weight(direction.z / horizontal, settings());
+            let geometry = (sediment <= speed).then(|| {
+                let normal = surface_normal_at(eroder.mesh, &eroder.vertex_faces, 0);
+                eroder.erosion_geometry(0, normal)
+            });
+            eroder.exchange_at(0, &mut sediment, speed, weight, geometry);
+        }
+        // Compare every mutable field, including float bits and sub-epsilon soil.
+        bincode::serialize(&(
+            &eroder.mesh,
+            eroder.material.depths(),
+            &eroder.projected_areas.current,
+            speed,
+            sediment,
+        ))
+        .unwrap()
+    }
 
     pub(super) fn settings() -> HydraulicErosionSettings {
         HydraulicErosionSettings {

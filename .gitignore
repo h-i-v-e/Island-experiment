@@ -1,3 +1,11 @@
 .DS_Store
-/docs/
+/docs/*
+!/docs/rationalization/
 .idea
+
+# Local package archives and validation scratch outputs
+/artifacts/
+
+# Local Python tool caches
+__pycache__/
+*.py[cod]

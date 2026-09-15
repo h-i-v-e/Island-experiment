@@ -1,0 +1,24 @@
+{
+  "scenario": "Four simultaneously resident standalone islands: immutable cliff, river and weather noise construction only",
+  "warmup": "One original and one shared run before measurement",
+  "runs": [
+    {
+      "original_ms": 382.08,
+      "shared_ms": 95.54
+    },
+    {
+      "original_ms": 383.47,
+      "shared_ms": 95.46
+    },
+    {
+      "original_ms": 379.14,
+      "shared_ms": 97.41
+    }
+  ],
+  "median_original_ms": 382.08,
+  "median_shared_ms": 95.54,
+  "original_textures": 12,
+  "shared_textures": 3,
+  "scope_limit": "No whole-frame or whole-generation speedup claim; CPU construction timing, not GPU pass timing.",
+  "median_reduction_percent": 74.99476549413735
+}

@@ -297,8 +297,10 @@ namespace Motu.Editor
                 Assert.That(distant, Is.GreaterThan(backlit * .25f),
                     "The flat distant mesh must retain translucency from its analytic wave crests.");
                 Capture(defaultStrength, "ocean-distant-translucency.png");
-                // Analytic waves remain large here, but the rendered vertices
-                // are flat. Even a texture full of old foam must stay invisible.
+                // Distant mesh flattening must not cut off analytic whitecaps.
+                // Fully calm analytic water must still reject a texture full of old foam.
+                var activeWave = material.GetVector("_OceanWave0");
+                material.SetVector("_OceanWave0", new Vector4(0, 1, 12, 0));
                 var noFoam = Capture(0);
                 material.SetFloat("_WhitecapStrength", 1);
                 material.SetFloat("_PersistentFoamStrength", 1);
@@ -309,7 +311,8 @@ namespace Motu.Editor
                     Assert.That(Mathf.Abs(flatWithFoam[i].r - noFoam[i].r)
                         + Mathf.Abs(flatWithFoam[i].g - noFoam[i].g)
                         + Mathf.Abs(flatWithFoam[i].b - noFoam[i].b), Is.LessThan(.001f),
-                        "No white foam may appear where the rendered wave height is zero.");
+                        "No ambient foam may appear when the analytic wave amplitude is zero.");
+                material.SetVector("_OceanWave0", activeWave);
                 material.SetFloat("_WhitecapStrength", 0);
                 material.SetFloat("_PersistentFoamStrength", 0);
                 material.SetTexture("_OceanFoamHistory", Texture2D.blackTexture);

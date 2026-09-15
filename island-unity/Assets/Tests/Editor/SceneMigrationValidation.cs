@@ -26,7 +26,9 @@ namespace Motu.Editor
                         throw new InvalidOperationException($"Missing script in {path}: {transform.name}");
                     foreach (var component in transform.GetComponents<MonoBehaviour>())
                     {
-                        if (component.GetType().Assembly.GetName().Name != "Motu.Runtime")
+                        if (component.GetType().Assembly.GetName().Name != "Motu.Runtime"
+                            && component.GetType().Assembly.GetName().Name != "Motu.Samples"
+                            && component.GetType().Assembly.GetName().Name != "Motu.Navigation")
                             throw new InvalidOperationException($"Unmigrated component: {component.GetType()}");
                         var script = MonoScript.FromMonoBehaviour(component);
                         if (script == null || script.GetClass() != component.GetType())

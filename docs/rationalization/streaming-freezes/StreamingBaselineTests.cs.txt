@@ -1,0 +1,42 @@
+using System.Collections;
+using System.Diagnostics;
+using System.Threading;
+using Motu.Islands;
+using Motu.Streaming;
+using NUnit.Framework;
+using UnityEditor.SceneManagement;
+using UnityEngine;
+using UnityEngine.TestTools;
+public class StreamingBaselineTests
+{
+    [UnityTest, Timeout(600000)] public IEnumerator LegacyApproach()
+    {
+        EditorSceneManager.NewScene(NewSceneSetup.EmptyScene);
+        yield return new EnterPlayMode();
+        var host = new GameObject("Legacy approach");
+        var island = host.AddComponent<SingleIsland>();
+        island.GenerateOnStart = false;
+        island.GenerationSettings.Seed = 17;
+        island.GenerationSettings.MaximumHeightMetres = 400f;
+        island.GenerationSettings.WaterRatio = .85f;
+        island.GenerationSettings.UseSnapshotCache = false;
+        island.NavigationSettings.Enabled = false;
+        JsonUtility.FromJsonOverwrite("{\"forestPrototypeCount\":1}", island.ForestSettings);
+        JsonUtility.FromJsonOverwrite("{\"materialTextureResolution\":16}", island.RenderingSettings);
+        try
+        {
+            var task = island.GenerateAsync(CancellationToken.None);
+            while (!task.IsCompleted) yield return null;
+            Assert.IsTrue(task.GetAwaiter().GetResult(), island.Generator.Status);
+            var streamer = host.GetComponentInChildren<TerrainTileStreamer>();
+            var timer = Stopwatch.StartNew();
+            streamer.SetPlayerPosition(Vector3.zero);
+            var blocked = timer.Elapsed.TotalMilliseconds;
+            Assert.AreEqual(9, streamer.lod1Groups.Count);
+            Assert.AreEqual(9, streamer.lod0Groups.Count);
+            UnityEngine.Debug.Log($"MOTU LEGACY APPROACH: blockedMs={blocked:F3}");
+        }
+        finally { island.Clear(); Object.Destroy(host); }
+        yield return new ExitPlayMode();
+    }
+}

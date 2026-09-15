@@ -10,7 +10,7 @@ Shader "Hidden/Motu/Fallen Log Wind Probe"
             #pragma fragment Fragment
             #pragma target 3.0
             #include "UnityCG.cginc"
-            #include "Assets/Shaders/TreeWindCommon.cginc"
+            #include "Packages/com.motu.runtime/Runtime/Shaders/TreeWindCommon.cginc"
             float4 _ProbeTreeData;
             float4 Fragment(v2f_img input) : SV_Target
             {

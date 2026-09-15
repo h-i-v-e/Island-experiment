@@ -984,6 +984,17 @@ MonoBehaviour:
   noiseScaleCoarse: 0.15
   noiseScaleFine: 0.75
   islandThreshold: 0.6
+  navigationSettings:
+    enabled: 1
+    agentRadius: 0.5
+    agentHeight: 2
+    stepHeight: 0.4
+    maximumSlope: 45
+    voxelSize: 0
+    tileSize: 128
+    minimumGroundHeight: 0
+    excludeRiverBeds: 1
+    logBuildStatistics: 1
   renderingSettings:
     materialTextureResolution: 1024
     terrainMaterial: {fileID: 0}

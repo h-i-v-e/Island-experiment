@@ -1,0 +1,490 @@
+--- before/packages/com.motu.runtime/Runtime/Interop/NativeIslandHandle.cs
++++ after/packages/com.motu.runtime/Runtime/Interop/NativeIslandHandle.cs
+@@ -6,50 +6,78 @@
+     internal sealed class NativeIslandHandle : IDisposable
+     {
+         private static int activeCount;
++        private readonly object sync = new object();
+         private IntPtr value;
++        private int references = 1;
++        private bool disposed;
+ 
+         internal static int ActiveCount => Volatile.Read(ref activeCount);
+ 
+         internal NativeIslandHandle(IntPtr handle)
+         {
+-            if (handle == IntPtr.Zero)
+-            {
+-                throw new ArgumentException("A native island handle cannot be null.", nameof(handle));
+-            }
++            if (handle == IntPtr.Zero) throw new ArgumentException("A native island handle cannot be null.", nameof(handle));
+             value = handle;
+             Interlocked.Increment(ref activeCount);
+         }
+ 
+-        internal bool IsValid => value != IntPtr.Zero;
+-
++        internal bool IsValid { get { lock (sync) return !disposed; } }
+         internal IntPtr Value
+         {
+             get
+             {
+-                if (value == IntPtr.Zero)
++                lock (sync)
+                 {
+-                    throw new ObjectDisposedException(nameof(NativeIslandHandle));
++                    if (disposed) throw new ObjectDisposedException(nameof(NativeIslandHandle));
++                    return value;
+                 }
+-                return value;
++            }
++        }
++
++        // A worker must hold a lease until all native reads and export copies end.
++        // Runtime disposal never waits for that worker on Unity's main thread.
++        internal Lease Acquire()
++        {
++            lock (sync)
++            {
++                if (disposed) throw new ObjectDisposedException(nameof(NativeIslandHandle));
++                references++;
++                return new Lease(this, value);
+             }
+         }
+ 
+         public void Dispose()
+         {
+-            if (value == IntPtr.Zero)
++            lock (sync)
+             {
+-                return;
++                if (disposed) return;
++                disposed = true;
+             }
+-            var handle = value;
+-            value = IntPtr.Zero;
+-            try
++            ReleaseReference();
++        }
++
++        private void ReleaseReference()
++        {
++            IntPtr released;
++            lock (sync)
+             {
+-                MotuNative.ReleaseMotu(handle);
++                if (--references != 0) return;
++                released = value;
++                value = IntPtr.Zero;
+             }
+-            finally
++            try { MotuNative.ReleaseMotu(released); }
++            finally { Interlocked.Decrement(ref activeCount); }
++        }
++
++        internal sealed class Lease : IDisposable
++        {
++            private NativeIslandHandle owner;
++            internal IntPtr Value { get; }
++            internal Lease(NativeIslandHandle owner, IntPtr value)
+             {
+-                Interlocked.Decrement(ref activeCount);
++                this.owner = owner;
++                Value = value;
+             }
++            public void Dispose() => Interlocked.Exchange(ref owner, null)?.ReleaseReference();
+         }
+     }
+ }
+--- before/packages/com.motu.runtime/Runtime/Streaming/TerrainTileStreamer.cs
++++ after/packages/com.motu.runtime/Runtime/Streaming/TerrainTileStreamer.cs
+@@ -121,7 +121,13 @@
+         private readonly List<Vector2Int> removalScratch = new List<Vector2Int>(9);
+         internal readonly List<TileGroup> pendingTransitionGroups = new List<TileGroup>(9);
+ 
++        internal bool HasPendingTransition => transitionCoroutine != null;
++
+         private IntPtr islandHandle;
++        private NativeIslandHandle nativeOwner;
++        private CancellationTokenSource transitionCancellation = new CancellationTokenSource();
++        private bool disposed;
++        private double uploadBudgetMilliseconds = 4.0;
+         internal Material terrainMaterial;
+         internal Material terrainLod1Material;
+         internal Material terrainLod2Material;
+@@ -175,7 +181,7 @@
+         internal byte Lod0ClampSidesAt(Vector2Int key) => lod0Groups[key].clampSides;
+ 
+         internal async Task InitializeAsync(
+-            IntPtr handle,
++            NativeIslandHandle handle,
+             Material sharedTerrainMaterial,
+             Material sharedTerrainLod1Material,
+             Material sharedTerrainLod2Material,
+@@ -208,7 +214,9 @@
+             UnityFrameBudget installationBudget,
+             IslandPreparedBoulderCollider[][] boulderColliders = null)
+         {
+-            islandHandle = handle;
++            uploadBudgetMilliseconds = installationBudget.MillisecondsPerFrame;
++            nativeOwner = handle;
++            islandHandle = handle.Value;
+             terrainMaterial = sharedTerrainMaterial;
+             terrainLod1Material = sharedTerrainLod1Material;
+             terrainLod2Material = sharedTerrainLod2Material;
+@@ -374,7 +382,7 @@
+ 
+         public void SetPlayerPosition(Vector3 worldPosition)
+         {
+-            if (!gameObject.activeInHierarchy) return;
++            if (disposed || nativeOwner == null || !gameObject.activeInHierarchy) return;
+             using (PlayerPositionMarker.Auto())
+             {
+                 var localPosition = transform.InverseTransformPoint(worldPosition);
+@@ -389,18 +397,13 @@
+                 requestedLod2 = LocalCell(localPosition, Lod2Resolution);
+                 requestedLod1 = LocalCell(localPosition, Lod1Resolution);
+ 
+-                if (currentLod1 == InvalidCell || currentLod2 == InvalidCell)
+-                {
+-                    ApplyInitialPlayerFocus(requestedLod2, requestedLod1);
+-                }
+-                else if (requestedLod1 != currentLod1
+-                    || requestedLod2 != currentLod2)
+-                {
++                if (requestedLod1 != currentLod1 || requestedLod2 != currentLod2)
++                {
++                    // Keep immediate collision, but build first-focus terrain via
++                    // the same background/incremental path used during travel.
+                     EnsureCriticalCollider(requestedLod1);
+                     if (transitionCoroutine == null)
+-                    {
+                         transitionCoroutine = StartCoroutine(ApplyRequestedNeighborhoods());
+-                    }
+                 }
+                 if (grassVisible)
+                 {
+@@ -408,40 +411,6 @@
+                 }
+                 waterfallMistPool?.SetPlayerPosition(localPosition, requestedLod1);
+             }
+-        }
+-
+-        private void ApplyInitialPlayerFocus(Vector2Int lod2, Vector2Int lod1)
+-        {
+-            using (ColliderTransitionMarker.Auto())
+-            {
+-                UpdateColliderNeighborhood(lod1);
+-            }
+-            using (ForestLod1TransitionMarker.Auto())
+-            {
+-                forestStreamer?.UpdateLod1Neighborhood(lod2);
+-            }
+-            using (Lod1TransitionMarker.Auto())
+-            {
+-                UpdateLod1Neighborhood(lod2);
+-            }
+-            using (ForestLod0TransitionMarker.Auto())
+-            {
+-                forestStreamer?.UpdateLod0Neighborhood(lod1);
+-            }
+-            using (ReedTransitionMarker.Auto())
+-            {
+-                reedStreamer?.UpdateLod0Neighborhood(lod1);
+-            }
+-            using (FernTransitionMarker.Auto())
+-            {
+-                fernStreamer?.UpdateLod0Neighborhood(lod1);
+-            }
+-            using (Lod0TransitionMarker.Auto())
+-            {
+-                UpdateLod0Neighborhood(lod1);
+-            }
+-            currentLod2 = lod2;
+-            currentLod1 = lod1;
+         }
+ 
+         private IEnumerator ApplyRequestedNeighborhoods()
+@@ -649,6 +618,8 @@
+ 
+         public void Dispose()
+         {
++            if (disposed) return;
++            disposed = true;
+             ClearPlayerFocus();
+             foreach (var group in riverGroups.Values)
+             {
+@@ -692,10 +663,14 @@
+                 lod2Group = null;
+             }
+             islandHandle = IntPtr.Zero;
++            nativeOwner = null;
+         }
+ 
+         private void CancelPendingTransition()
+         {
++            transitionCancellation?.Cancel();
++            transitionCancellation?.Dispose();
++            transitionCancellation = disposed ? null : new CancellationTokenSource();
+             if (transitionCoroutine != null)
+             {
+                 StopCoroutine(transitionCoroutine);
+--- before/packages/com.motu.runtime/Runtime/Streaming/TerrainTileStreamer.DetailStreaming.cs
++++ after/packages/com.motu.runtime/Runtime/Streaming/TerrainTileStreamer.DetailStreaming.cs
+@@ -15,38 +15,6 @@
+ {
+     public sealed partial class TerrainTileStreamer
+     {
+-        private void UpdateLod1Neighborhood(Vector2Int center)
+-        {
+-            CollectOutsideNeighborhood(lod1Groups, center, Lod2Resolution);
+-            foreach (var key in removalScratch)
+-            {
+-                DestroyGroup(lod1Groups[key]);
+-                lod1Groups.Remove(key);
+-                SetLod2TileActive(key, true);
+-                SetRiverGroupActive(key, false);
+-                SetRiverRockGroupActive(key, false);
+-            }
+-
+-            ForEachNeighbour(center, Lod2Resolution, key =>
+-            {
+-                var clampSides = ClampSidesFor(key, center, Lod2Resolution);
+-                if (lod1Groups.TryGetValue(key, out var group)
+-                    && group.clampSides != clampSides)
+-                {
+-                    DestroyGroup(group);
+-                    lod1Groups.Remove(key);
+-                }
+-                if (!lod1Groups.ContainsKey(key))
+-                {
+-                    lod1Groups.Add(key, CreateGroup(1, key, Lod2Resolution, clampSides));
+-                }
+-                SetLod2TileActive(key, false);
+-                SetRiverGroupActive(key, true);
+-                SetRiverRockGroupActive(key, true);
+-            });
+-            RebuildTerrainBatchIfDirty(lod2Group);
+-        }
+-
+         private IEnumerator UpdateLod1NeighborhoodIncremental(Vector2Int center)
+         {
+             var replacements = new List<KeyValuePair<Vector2Int, TileGroup>>(9);
+@@ -61,11 +29,10 @@
+                     {
+                         continue;
+                     }
+-                    TileGroup replacement;
+-                    using (Lod1TransitionMarker.Auto())
+-                    {
+-                        replacement = CreateGroup(1, key, Lod2Resolution, clampSides);
+-                    }
++                    TileGroup replacement = null;
++                    yield return CreateGroupIncremental(1, key, Lod2Resolution, clampSides,
++                        () => center == requestedLod2, value => replacement = value);
++                    if (replacement == null) yield break;
+                     replacement.root.SetActive(false);
+                     pendingTransitionGroups.Add(replacement);
+                     replacements.Add(
+@@ -140,35 +107,6 @@
+             }
+         }
+ 
+-        private void UpdateLod0Neighborhood(Vector2Int center)
+-        {
+-            CollectOutsideNeighborhood(lod0Groups, center, Lod1Resolution);
+-            foreach (var key in removalScratch)
+-            {
+-                DestroyGroup(lod0Groups[key]);
+-                lod0Groups.Remove(key);
+-                SetLod1TileActive(key, true);
+-            }
+-
+-            ForEachNeighbour(center, Lod1Resolution, key =>
+-            {
+-                var clampSides = ClampSidesFor(key, center, Lod1Resolution);
+-                if (lod0Groups.TryGetValue(key, out var group)
+-                    && group.clampSides != clampSides)
+-                {
+-                    DestroyGroup(group);
+-                    lod0Groups.Remove(key);
+-                }
+-                if (!lod0Groups.ContainsKey(key))
+-                {
+-                    lod0Groups.Add(key, CreateGroup(0, key, Lod1Resolution, clampSides));
+-                    grassTilesDirty = true;
+-                }
+-                SetLod1TileActive(key, false);
+-            });
+-            RebuildDirtyLod1Batches();
+-        }
+-
+         private IEnumerator UpdateLod0NeighborhoodIncremental(Vector2Int center)
+         {
+             var replacements = new List<KeyValuePair<Vector2Int, TileGroup>>(9);
+@@ -183,11 +121,10 @@
+                     {
+                         continue;
+                     }
+-                    TileGroup replacement;
+-                    using (Lod0TransitionMarker.Auto())
+-                    {
+-                        replacement = CreateGroup(0, key, Lod1Resolution, clampSides);
+-                    }
++                    TileGroup replacement = null;
++                    yield return CreateGroupIncremental(0, key, Lod1Resolution, clampSides,
++                        () => center == requestedLod1, value => replacement = value);
++                    if (replacement == null) yield break;
+                     replacement.root.SetActive(false);
+                     pendingTransitionGroups.Add(replacement);
+                     replacements.Add(
+@@ -375,79 +312,72 @@
+             }
+         }
+ 
+-        internal TileGroup CreateGroup(
+-            int lod,
+-            Vector2Int parent,
+-            int parentResolution,
+-            byte clampSides)
+-        {
++        private IEnumerator CreateGroupIncremental(
++            int lod, Vector2Int parent, int parentResolution, byte clampSides,
++            Func<bool> isCurrent, Action<TileGroup> accept)
++        {
++            using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(transitionCancellation.Token);
+             var divisions = lod == 0 ? Lod0Divisions : Divisions;
+-            var inverseResolution = 1f / parentResolution;
+-            var area = new MotuNative.ExportArea(
+-                parent.x * inverseResolution,
+-                parent.y * inverseResolution,
+-                (parent.x + 1) * inverseResolution,
+-                (parent.y + 1) * inverseResolution);
+-            MotuNative.CreateMeshGrid(
+-                islandHandle,
+-                ref area,
+-                lod,
+-                divisions,
+-                clampSides,
+-                out var export);
+-            GameObject root = null;
+-            var tiles = Array.Empty<Tile>();
++            var inverse = 1f / parentResolution;
++            var area = new MotuNative.ExportArea(parent.x * inverse, parent.y * inverse,
++                (parent.x + 1) * inverse, (parent.y + 1) * inverse);
++            var preparation = TerrainGridWorker.PrepareAsync(nativeOwner, area, lod, divisions,
++                clampSides, worldSize, cancellation.Token);
++            // Observe faults even if a teleport/unload abandons this coroutine.
++            _ = preparation.ContinueWith(task => { _ = task.Exception; },
++                CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
++                TaskScheduler.Default);
++            TileGroup group = null;
++            var accepted = false;
+             try
+             {
+-                if (export.handle == IntPtr.Zero
+-                    || export.data == IntPtr.Zero
+-                    || export.length != divisions * divisions)
+-                {
+-                    throw new InvalidOperationException("The Rust grid slicer returned an invalid tile batch.");
+-                }
+-
+-                root = new GameObject($"LOD {lod} group {parent.x},{parent.y}");
++                while (!preparation.IsCompleted)
++                {
++                    if (!isCurrent()) yield break;
++                    yield return null;
++                }
++                if (!isCurrent() || cancellation.IsCancellationRequested) yield break;
++                var meshes = preparation.GetAwaiter().GetResult();
++                var root = new GameObject($"LOD {lod} group {parent.x},{parent.y}");
++                root.SetActive(false);
+                 root.transform.SetParent(transform, false);
+-                tiles = new Tile[export.length];
+-                var exportSize = Marshal.SizeOf<MotuNative.ExportMesh>();
+-                for (var index = 0; index < export.length; index++)
+-                {
+-                    var nativeMesh = Marshal.PtrToStructure<MotuNative.ExportMesh>(
+-                        IntPtr.Add(export.data, index * exportSize));
+-                    if (nativeMesh.handle == IntPtr.Zero || nativeMesh.triangles.length == 0)
+-                    {
+-                        continue;
+-                    }
+-                    var mesh = IslandMeshInterop.CopyTerrainMesh(
+-                        nativeMesh,
+-                        lod,
+-                        worldSize);
+-                    var localX = index % divisions;
+-                    var localY = index / divisions;
+-                    var globalX = parent.x * divisions + localX;
+-                    var globalY = parent.y * divisions + localY;
+-                    var tileObject = new GameObject($"LOD {lod} tile {globalX},{globalY}");
+-                    tileObject.transform.SetParent(root.transform, false);
+-                    tileObject.AddComponent<MeshFilter>().sharedMesh = mesh;
+-                    if (lod == 0)
+-                    {
+-                        ConfigureTerrainRenderer(tileObject);
+-                    }
+-                    tiles[index] = new Tile(tileObject, mesh);
+-                }
+-                var group = new TileGroup(root, tiles, clampSides);
+-                ConfigureTerrainBatch(group, lod);
+-                ConfigureBoulderColliders(group, lod, parent);
+-                return group;
+-            }
+-            catch
+-            {
+-                DestroyGroup(new TileGroup(root, tiles, clampSides));
+-                throw;
++                group = new TileGroup(root, new Tile[meshes.Length], clampSides);
++                pendingTransitionGroups.Add(group);
++                var timer = System.Diagnostics.Stopwatch.StartNew();
++                var marker = lod == 0 ? Lod0TransitionMarker : Lod1TransitionMarker;
++                for (var index = 0; index < meshes.Length; index++)
++                {
++                    if (!isCurrent() || cancellation.IsCancellationRequested) yield break;
++                    if (meshes[index] != null)
++                    using (marker.Auto())
++                    {
++                        var mesh = IslandMeshInterop.CreateTerrainMesh(meshes[index], lod);
++                        var tile = new GameObject($"LOD {lod} tile {parent.x * divisions + index % divisions},{parent.y * divisions + index / divisions}");
++                        tile.transform.SetParent(root.transform, false);
++                        tile.AddComponent<MeshFilter>().sharedMesh = mesh;
++                        group.tiles[index] = new Tile(tile, mesh);
++                        if (lod == 0) ConfigureTerrainRenderer(tile);
++                        meshes[index] = null;
++                    }
++                    if (timer.Elapsed.TotalMilliseconds >= uploadBudgetMilliseconds)
++                    {
++                        yield return null;
++                        timer.Restart();
++                    }
++                }
++                if (!isCurrent() || cancellation.IsCancellationRequested) yield break;
++                using (marker.Auto())
++                {
++                    ConfigureTerrainBatch(group, lod);
++                    ConfigureBoulderColliders(group, lod, parent);
++                }
++                accept(group);
++                accepted = true;
+             }
+             finally
+             {
+-                MotuNative.ReleaseMeshGrid(ref export);
++                cancellation.Cancel();
++                if (!accepted && group != null && pendingTransitionGroups.Remove(group)) DestroyGroup(group);
+             }
+         }
+ 
+--- before/packages/com.motu.runtime/Runtime/Islands/IslandRuntimeInstaller.cs
++++ after/packages/com.motu.runtime/Runtime/Islands/IslandRuntimeInstaller.cs
+@@ -64,7 +64,7 @@
+                 generator.islandRuntime.SetTerrainStreamer(generator.terrainStreamer);
+                 generator.terrainStreamer.Caves = caves;
+                 await generator.terrainStreamer.InitializeAsync(
+-                    generator.islandHandle.Value,
++                    generator.islandHandle,
+                     generator.terrainMaterial,
+                     generator.terrainLod1Material,
+                     generator.terrainLod2Material,

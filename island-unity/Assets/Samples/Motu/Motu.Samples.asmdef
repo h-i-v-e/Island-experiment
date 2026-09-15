@@ -1,0 +1,6 @@
+{
+  "name": "Motu.Samples",
+  "references": [
+    "Motu.Runtime"
+  ]
+}

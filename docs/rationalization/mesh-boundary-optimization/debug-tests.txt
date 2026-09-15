@@ -1,0 +1,12 @@
+   Compiling island-rs v0.1.0 (/Users/jeromejohnson/Documents/GitHub/Island-experiment/island-rs)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.94s
+     Running unittests src/lib.rs (island-rs/target/debug/deps/motu-cad0cdf4999e3ccb)
+
+running 4 tests
+test terrain::generation::sea_proximity_tests::newly_submerged_candidates_connect_to_the_perimeter_ocean ... ok
+test clustered_foliage::tests::perimeter_smoothing_moves_only_the_boundary_band_and_pins_supports ... ok
+test mesh::tests::perimeter_preserves_holes_disconnected_parts_and_empty_meshes ... ok
+test mesh::tests::perimeter_matches_edge_incidence_for_degenerate_and_non_manifold_faces ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 417 filtered out; finished in 0.07s
+

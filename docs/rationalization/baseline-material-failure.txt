@@ -1,0 +1,24 @@
+   Compiling island-rs v0.1.0 (/var/folders/29/fnbdz_fn4sjcgp2dqdf_jcb80000gn/T/motu-rust-baseline-w9uumypm)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.70s
+     Running tests/procedural_material_editor.rs (island-rs/target/debug/deps/procedural_material_editor-711be17541c957c1)
+
+running 1 test
+test committed_recipes_retain_the_locked_128_pixel_map_hashes ... FAILED
+
+failures:
+
+---- committed_recipes_retain_the_locked_128_pixel_map_hashes stdout ----
+
+thread 'committed_recipes_retain_the_locked_128_pixel_map_hashes' (35829050) panicked at tests/procedural_material_editor.rs:131:9:
+assertion `left == right` failed: cracked-stone.json changed
+  left: ["aaaf1b10c31e744ef9c170341f3e48a31b205e2d6847e15c7bf22ab5d1a979ac", "bb7bdcb8e6b4fd1f39d0ff0028297eb89bdb66e9355acff94082f4823731ffcf", "647ec5d03b221e419d5ad13e58c0acc3a38acd81ed4e7890337057fb43326704", "24162171f56b2b122ba0def72a3e0676523ab72ff6d1231b990fa0b94b124ae9", "e16702dc73d773d06c290397c38c0b5d61e39dad281b71672f3e057d055eee8f"]
+ right: ["6a83481118b0fd5c33b9b5e733b8f1315eeb9a49448f98a95eee73f47e4852d0", "bb7bdcb8e6b4fd1f39d0ff0028297eb89bdb66e9355acff94082f4823731ffcf", "647ec5d03b221e419d5ad13e58c0acc3a38acd81ed4e7890337057fb43326704", "24162171f56b2b122ba0def72a3e0676523ab72ff6d1231b990fa0b94b124ae9", "e16702dc73d773d06c290397c38c0b5d61e39dad281b71672f3e057d055eee8f"]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    committed_recipes_retain_the_locked_128_pixel_map_hashes
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.32s
+
+error: test failed, to rerun pass `--test procedural_material_editor`

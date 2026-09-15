@@ -10,8 +10,8 @@ Shader "Hidden/Motu/Vegetation Wind Probe"
             #pragma fragment Frag
             #pragma target 3.0
             #include "UnityCG.cginc"
-            #include "Assets/Shaders/TreeWindCommon.cginc"
-            #include "Assets/Shaders/CloudCommon.cginc"
+            #include "Packages/com.motu.runtime/Runtime/Shaders/TreeWindCommon.cginc"
+            #include "Packages/com.motu.runtime/Runtime/Shaders/CloudCommon.cginc"
             float4 _ProbePosition;
             float _ProbeMode;
 

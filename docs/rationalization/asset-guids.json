@@ -1,0 +1,1094 @@
+{
+  "ae98ace4f10bf414581fdb722a326ac3": [
+    "island-unity/Assets/Editor"
+  ],
+  "e652af80680e46e4a07770e98a650742": [
+    "island-unity/Assets/Editor/CaveDiagnosticsEditor.cs"
+  ],
+  "08a6168f99b44c9289b047b494b52c20": [
+    "island-unity/Assets/Editor/ForestStreamingBenchmark.cs"
+  ],
+  "de258721e43744ddac037716d2e308c5": [
+    "island-unity/Assets/Editor/IslandNavigationBenchmark.cs"
+  ],
+  "a8cdc21b825e44405837a8bfd1520e22": [
+    "island-unity/Assets/Editor/IslandProjectSetup.cs"
+  ],
+  "54e02a432f124041b300e1573204cad5": [
+    "island-unity/Assets/Editor/Motu.Samples.Editor.asmdef"
+  ],
+  "c559aa132b13474f9607b784636986a4": [
+    "island-unity/Assets/Editor/ShipHelmSetup.cs"
+  ],
+  "23b9e4583206d4a06a35f193c8979cb5": [
+    "island-unity/Assets/Editor/TreeProjectSetup.cs"
+  ],
+  "ca5a552e36964c758920ac69021f4be1": [
+    "island-unity/Assets/Editor/UnityProjectBuild.cs"
+  ],
+  "88b71ad614dcf48cc8dd820133658c81": [
+    "island-unity/Assets/Generated"
+  ],
+  "c1046574ed86e4e8c8731dff73d65667": [
+    "island-unity/Assets/Generated/Textures"
+  ],
+  "b4a70000000000000000000000000001": [
+    "island-unity/Assets/Generated/Textures/Bark"
+  ],
+  "b4a70000000000000000000000000006": [
+    "island-unity/Assets/Generated/Textures/Bark/Bark.texture-set.json"
+  ],
+  "b4a70000000000000000000000000002": [
+    "island-unity/Assets/Generated/Textures/Bark/Bark_albedo.png"
+  ],
+  "b4a70000000000000000000000000005": [
+    "island-unity/Assets/Generated/Textures/Bark/Bark_height.png"
+  ],
+  "57f0536e15ae84a268bb037ed16d1866": [
+    "island-unity/Assets/Generated/Textures/Bark/Bark_mask.png"
+  ],
+  "b4a70000000000000000000000000003": [
+    "island-unity/Assets/Generated/Textures/Bark/Bark_normal.png"
+  ],
+  "b4a70000000000000000000000000004": [
+    "island-unity/Assets/Generated/Textures/Bark/Bark_occlusion.png"
+  ],
+  "3092efe6a07a343f7a59bfbc2d283d6f": [
+    "island-unity/Assets/Generated/Textures/CrackedStone"
+  ],
+  "d74781e0eb8204aeb8914650fd513f34": [
+    "island-unity/Assets/Generated/Textures/CrackedStone/CrackedStone.texture-set.json"
+  ],
+  "4bb6e5ffbc016437d99ce7a772b6e9a3": [
+    "island-unity/Assets/Generated/Textures/CrackedStone/CrackedStone_albedo.png"
+  ],
+  "dbbd3a1153b574af089773bd841cf436": [
+    "island-unity/Assets/Generated/Textures/CrackedStone/CrackedStone_height.png"
+  ],
+  "8debe006fa0694fc095bd1d12a83d88f": [
+    "island-unity/Assets/Generated/Textures/CrackedStone/CrackedStone_mask.png"
+  ],
+  "83fb888bc96db48a5be664ffc7ecc59c": [
+    "island-unity/Assets/Generated/Textures/CrackedStone/CrackedStone_normal.png"
+  ],
+  "a4802cf44073c4c44b30dd3afd44b24c": [
+    "island-unity/Assets/Generated/Textures/CrackedStone/CrackedStone_occlusion.png"
+  ],
+  "0d3fa7887879489eacae78545cba9799": [
+    "island-unity/Assets/Generated/Textures/FallenStones"
+  ],
+  "a53462729d124deb8361161e2e9d7a69": [
+    "island-unity/Assets/Generated/Textures/FallenStones/FallenStones.texture-set.json"
+  ],
+  "1878b71b56ff4f20af02674d372c41e2": [
+    "island-unity/Assets/Generated/Textures/FallenStones/FallenStones_albedo.png"
+  ],
+  "96f9811e5caa43d49e45c28344f52e80": [
+    "island-unity/Assets/Generated/Textures/FallenStones/FallenStones_height.png"
+  ],
+  "50f93559d1d84719b8ac17473139a07e": [
+    "island-unity/Assets/Generated/Textures/FallenStones/FallenStones_mask.png"
+  ],
+  "1edac44dafde4fc09326bdbe714ec373": [
+    "island-unity/Assets/Generated/Textures/FallenStones/FallenStones_normal.png"
+  ],
+  "90b3052ead8a4ef7ad2e600f6653564a": [
+    "island-unity/Assets/Generated/Textures/FallenStones/FallenStones_occlusion.png"
+  ],
+  "af86072a9bbd4d248c6df5e26d9bc543": [
+    "island-unity/Assets/Generated/Textures/ForestFloor"
+  ],
+  "a133b47c98e34bafa0b661f0870972f3": [
+    "island-unity/Assets/Generated/Textures/ForestFloor/ForestFloor.texture-set.json"
+  ],
+  "d6893eedc4e34593838bbc6f7009ee61": [
+    "island-unity/Assets/Generated/Textures/ForestFloor/ForestFloor_albedo.png"
+  ],
+  "8bf51550ce9c455ea36585f55893e57d": [
+    "island-unity/Assets/Generated/Textures/ForestFloor/ForestFloor_height.png"
+  ],
+  "7236176240204f73ae79b80780a7976b": [
+    "island-unity/Assets/Generated/Textures/ForestFloor/ForestFloor_mask.png"
+  ],
+  "f1cc95c47689469198078874b31696a7": [
+    "island-unity/Assets/Generated/Textures/ForestFloor/ForestFloor_normal.png"
+  ],
+  "12d7c322d91e4b2f9a5baade1a878e66": [
+    "island-unity/Assets/Generated/Textures/ForestFloor/ForestFloor_occlusion.png"
+  ],
+  "c5b80000000000000000000000000001": [
+    "island-unity/Assets/Generated/Textures/PlateBark"
+  ],
+  "c5b80000000000000000000000000006": [
+    "island-unity/Assets/Generated/Textures/PlateBark/PlateBark.texture-set.json"
+  ],
+  "c5b80000000000000000000000000002": [
+    "island-unity/Assets/Generated/Textures/PlateBark/PlateBark_albedo.png"
+  ],
+  "c5b80000000000000000000000000005": [
+    "island-unity/Assets/Generated/Textures/PlateBark/PlateBark_height.png"
+  ],
+  "c5b80000000000000000000000000007": [
+    "island-unity/Assets/Generated/Textures/PlateBark/PlateBark_mask.png"
+  ],
+  "c5b80000000000000000000000000003": [
+    "island-unity/Assets/Generated/Textures/PlateBark/PlateBark_normal.png"
+  ],
+  "c5b80000000000000000000000000004": [
+    "island-unity/Assets/Generated/Textures/PlateBark/PlateBark_occlusion.png"
+  ],
+  "1d26ec00aceaa4365b01c7ce2a55d242": [
+    "island-unity/Assets/Generated/Textures/RoundedRiverStones"
+  ],
+  "4c3bb846277824528ba2dccb3d654c8d": [
+    "island-unity/Assets/Generated/Textures/RoundedRiverStones/RoundedRiverStones.texture-set.json"
+  ],
+  "2838bd30a22fe466dbba1b852314419b": [
+    "island-unity/Assets/Generated/Textures/RoundedRiverStones/RoundedRiverStones_albedo.png"
+  ],
+  "0ffc9643bc295432b90fd039b1433416": [
+    "island-unity/Assets/Generated/Textures/RoundedRiverStones/RoundedRiverStones_height.png"
+  ],
+  "1300fd3321269452c80f04401f6b2859": [
+    "island-unity/Assets/Generated/Textures/RoundedRiverStones/RoundedRiverStones_mask.png"
+  ],
+  "95988f0b5ffa3481fa5023322fc2802d": [
+    "island-unity/Assets/Generated/Textures/RoundedRiverStones/RoundedRiverStones_normal.png"
+  ],
+  "175990b94cf5e4264bc99b8ac02e7a8c": [
+    "island-unity/Assets/Generated/Textures/RoundedRiverStones/RoundedRiverStones_occlusion.png"
+  ],
+  "05f2b235b764c4aa58f5fe475fa57734": [
+    "island-unity/Assets/Materials"
+  ],
+  "9c87f7d08551e4ae2b4dfa30af8c3f01": [
+    "island-unity/Assets/Materials/IslandGrass.mat"
+  ],
+  "671058ee1a245424e91a25c139b2be33": [
+    "island-unity/Assets/Materials/IslandRiver.mat"
+  ],
+  "f808a7e2f1bde4fcd8f35b7bcae174a5": [
+    "island-unity/Assets/Materials/IslandRock.mat"
+  ],
+  "f7e64c96dada84bf1bae7f46e0e94f50": [
+    "island-unity/Assets/Materials/IslandSea.mat"
+  ],
+  "19640f4fc7648482eac75d61d694f95b": [
+    "island-unity/Assets/Materials/IslandTerrain.mat"
+  ],
+  "42a7c0a3ac60e4196ba6759a8adf9817": [
+    "island-unity/Assets/Materials/ShipWaterlineSpray.mat"
+  ],
+  "39e6f52a20784bdaa4e771e2cb558234": [
+    "island-unity/Assets/Materials/TreeFoliage.mat"
+  ],
+  "3ff4f77b30e30483cb246e3664730b61": [
+    "island-unity/Assets/MeshyImports"
+  ],
+  "d97264f5d605d4b46a7be35dec5b34ec": [
+    "island-unity/Assets/MeshyImports/Pirate Ship High Poly_20260908_110931"
+  ],
+  "61eaccb4e959c43b18eff9df2b267234": [
+    "island-unity/Assets/MeshyImports/Pirate Ship High Poly_20260908_110931/Material.001.mat"
+  ],
+  "fb8003d8a0206441a88e54e2578ac490": [
+    "island-unity/Assets/MeshyImports/Pirate Ship High Poly_20260908_110931/Meshy_AI_Pirate_Ship_High_Poly_0907230920_texture.fbx"
+  ],
+  "3eda45aea63fc4579a5c1aa8536a5881": [
+    "island-unity/Assets/MeshyImports/Pirate Ship High Poly_20260908_110931/meshy_basecolor.png"
+  ],
+  "dca99f14bac5c481daf9d666715c3587": [
+    "island-unity/Assets/MeshyImports/Pirate Ship High Poly_20260908_110931/meshy_metallic_smoothness.png"
+  ],
+  "078aa82150414987bd7a75e8684fcc54": [
+    "island-unity/Assets/Samples"
+  ],
+  "13df44843c00496eb00a9f7ea5d1d18c": [
+    "island-unity/Assets/Samples/Motu"
+  ],
+  "c4953506d2f241b79b5e8d34705bcfd6": [
+    "island-unity/Assets/Samples/Motu/AssemblyInfo.cs"
+  ],
+  "66925f8c6b3ae40a690be1d03ec7fca0": [
+    "island-unity/Assets/Samples/Motu/CoherentWeatherDriver.cs"
+  ],
+  "2132f91b666942e2aca86f59828c11c9": [
+    "island-unity/Assets/Samples/Motu/FirstPersonController.cs"
+  ],
+  "7db3fb663461455baff07ba6ae271ee6": [
+    "island-unity/Assets/Samples/Motu/IslandDemoController.Cameras.cs"
+  ],
+  "e6652aa5064ad4ca29d5befd6a6808e3": [
+    "island-unity/Assets/Samples/Motu/IslandDemoController.cs"
+  ],
+  "edc08286eb44463c99f7477c2e9ede1e": [
+    "island-unity/Assets/Samples/Motu/Motu.Samples.asmdef"
+  ],
+  "26c942114bf5464eb71dc7527ef038f9": [
+    "island-unity/Assets/Samples/Motu/OceanWaveSandboxController.cs"
+  ],
+  "b0d555b110ff048cfa172402b03dc05f": [
+    "island-unity/Assets/Samples/Motu/OrbitCamera.cs"
+  ],
+  "177f5d75797bc49f99e33308852c5131": [
+    "island-unity/Assets/Samples/Motu/ProceduralTreePreview.cs"
+  ],
+  "763a7c37fa544882a3df71d5d2a9c20e": [
+    "island-unity/Assets/Samples/Motu/ShipBridgeCamera.cs"
+  ],
+  "9d3b3bf4e41b4fce95e91675f78a3465": [
+    "island-unity/Assets/Samples/Motu/ShipController.cs"
+  ],
+  "f2811e124d4946eba3b46a410c8b4d03": [
+    "island-unity/Assets/Samples/Motu/TreeMeshView.cs"
+  ],
+  "08f047fa0249e4f3bb99e8cd5a4b18d1": [
+    "island-unity/Assets/Scenes"
+  ],
+  "653dad33e25cd4f6fadc1480f40403ea": [
+    "island-unity/Assets/Scenes/IslandRuntimeSandbox.unity"
+  ],
+  "d63f6abb9843b44068814e2a1ce14eaa": [
+    "island-unity/Assets/Scenes/OceanRuntimeSandbox.unity"
+  ],
+  "25a133bd14a2442399268f5e7e676660": [
+    "island-unity/Assets/Scenes/OpenSeaWorld.unity"
+  ],
+  "0131d4fd185e44ad09277a0de9e6fb61": [
+    "island-unity/Assets/Scenes/TreeSandbox.unity"
+  ],
+  "bc65e05385e4c41cf80418572512ea24": [
+    "island-unity/Assets/Settings"
+  ],
+  "904c303795957457da652489a9ea9800": [
+    "island-unity/Assets/Settings/OceanWaveProfile.asset"
+  ],
+  "6a73bc95ec67417d92e2a2e0b12c856d": [
+    "island-unity/Assets/Tests"
+  ],
+  "aab4098bab0b46358ea10d873b5e11b5": [
+    "island-unity/Assets/Tests/Editor"
+  ],
+  "2b93bc387f4946798a721aa738834d48": [
+    "island-unity/Assets/Tests/Editor/BoulderTests.cs"
+  ],
+  "9d0a07e9cb47476abe99a31d4ef9ff49": [
+    "island-unity/Assets/Tests/Editor/CaveTests.cs"
+  ],
+  "5a1909683f8f4792b74fab54cf5a5f80": [
+    "island-unity/Assets/Tests/Editor/EnvironmentRenderingValidation.cs"
+  ],
+  "4a671197b32f495fb53c2623d89e1be6": [
+    "island-unity/Assets/Tests/Editor/FallenLogTests.cs"
+  ],
+  "ee00d0c12954460085d40cf0bf89ffc6": [
+    "island-unity/Assets/Tests/Editor/FallenLogWindProbe.shader"
+  ],
+  "7ffed0789efe4c2181c23dca0c6b4f28": [
+    "island-unity/Assets/Tests/Editor/ForestRenderingValidation.cs"
+  ],
+  "6c9dc73a2c17f4a058c49e78674dd841": [
+    "island-unity/Assets/Tests/Editor/IslandGeneratorValidation.cs"
+  ],
+  "841e46f9feef4a2b9f4f2d482a01591d": [
+    "island-unity/Assets/Tests/Editor/IslandLod3Tests.cs"
+  ],
+  "d985dc08f03844848b55b8ac767e434b": [
+    "island-unity/Assets/Tests/Editor/IslandNativeValidation.cs"
+  ],
+  "804437a9a5f24a00bdcf6fb00970ee58": [
+    "island-unity/Assets/Tests/Editor/IslandNavigationTests.cs"
+  ],
+  "4e16f7d0b9f94c1f85489dc5f3c01fd1": [
+    "island-unity/Assets/Tests/Editor/IslandOwnershipValidation.cs"
+  ],
+  "8188eb0f568b46f39326bb73e613a20f": [
+    "island-unity/Assets/Tests/Editor/IslandRenderingValidation.cs"
+  ],
+  "cb7951259ab14e008547cb88b46c784d": [
+    "island-unity/Assets/Tests/Editor/IslandRequestValidation.cs"
+  ],
+  "cbdee3ccbcb4466f8d3c20e6af876380": [
+    "island-unity/Assets/Tests/Editor/IslandSceneValidation.cs"
+  ],
+  "d99768fa91c54cf9bcb189754cdac231": [
+    "island-unity/Assets/Tests/Editor/MaterialCacheValidation.cs"
+  ],
+  "1807dbc8186b49ab8e5f3699764cd5de": [
+    "island-unity/Assets/Tests/Editor/MinimapTeleportValidation.cs"
+  ],
+  "683eacf2c9d54cc0ae693199799f58b4": [
+    "island-unity/Assets/Tests/Editor/Motu.Tests.Editor.asmdef"
+  ],
+  "1690da73d7f7456da90ce6c7de5bbff8": [
+    "island-unity/Assets/Tests/Editor/OceanAntialiasingTests.cs"
+  ],
+  "fdaab4546cff42af9e02116728b15066": [
+    "island-unity/Assets/Tests/Editor/OceanBuoyancyTests.cs"
+  ],
+  "607ff4cb0b1e4ce5bd53e32319d9b720": [
+    "island-unity/Assets/Tests/Editor/OceanDeckWaveClampProbe.shader"
+  ],
+  "9b58e676e3964652b904ebfd5d5cff71": [
+    "island-unity/Assets/Tests/Editor/OceanDeckWaveClampTests.cs"
+  ],
+  "695c0c2195604b0f97bd80156e58e3f5": [
+    "island-unity/Assets/Tests/Editor/OceanDomainWarpTests.cs"
+  ],
+  "cbaacd0ed53f4f9eb845fd577385cda7": [
+    "island-unity/Assets/Tests/Editor/OceanFoamTests.cs"
+  ],
+  "ec088224309b4ff09dc34c3d67853114": [
+    "island-unity/Assets/Tests/Editor/OceanHullSprayTests.cs"
+  ],
+  "1912242a2c4e4020a22f847a6b608d59": [
+    "island-unity/Assets/Tests/Editor/OceanOpticsProbe.shader"
+  ],
+  "b244dd8662d2430dae7d48f8bf6d469c": [
+    "island-unity/Assets/Tests/Editor/OceanOpticsTests.cs"
+  ],
+  "d507e1112c01349eaba9a98b29720276": [
+    "island-unity/Assets/Tests/Editor/OceanRefractionProbe.shader"
+  ],
+  "bef12ea50fef4baba1084d040121497e": [
+    "island-unity/Assets/Tests/Editor/OceanRenderingValidation.cs"
+  ],
+  "a383bdd3f9864c93b48341b976ec1098": [
+    "island-unity/Assets/Tests/Editor/OceanShipWaveProbe.shader"
+  ],
+  "be8468de177647f6a58666991f27b89e": [
+    "island-unity/Assets/Tests/Editor/OceanShipWaveTests.cs"
+  ],
+  "950bcda70b2548dc89da741237759ffe": [
+    "island-unity/Assets/Tests/Editor/OceanShoreDistanceProbe.shader"
+  ],
+  "ea6b7448abc44f20ba98080c61ed7b50": [
+    "island-unity/Assets/Tests/Editor/OceanShoreDistanceValidation.cs"
+  ],
+  "964e106a27e84fa7a15df4d332c64eee": [
+    "island-unity/Assets/Tests/Editor/OceanTranslucencyTests.cs"
+  ],
+  "fd6d560f54a14ce3be62ec91fd6d82b6": [
+    "island-unity/Assets/Tests/Editor/OceanUnderwaterTests.cs"
+  ],
+  "de1c0242b66249ec89bff7ec2e8e0a39": [
+    "island-unity/Assets/Tests/Editor/OceanWaveTransitionProbe.shader"
+  ],
+  "04032fc1537e49c291fbab19d16e9074": [
+    "island-unity/Assets/Tests/Editor/OceanWaveTransitionValidation.cs"
+  ],
+  "ae2cd9183ea84a5b880c955aa8a99e20": [
+    "island-unity/Assets/Tests/Editor/PlayerTorchTests.cs"
+  ],
+  "3ef09f5d51d242f28b7d57649c134c24": [
+    "island-unity/Assets/Tests/Editor/RiverGeometryValidation.cs"
+  ],
+  "f37b2ed133c640b789cbbe535906c083": [
+    "island-unity/Assets/Tests/Editor/RiverSurfaceProbe.shader"
+  ],
+  "7a141e06c07f4c458cc905b94bf2dfd2": [
+    "island-unity/Assets/Tests/Editor/RiverSurfaceTests.cs"
+  ],
+  "4e8e113700eb47568e66ad910960600f": [
+    "island-unity/Assets/Tests/Editor/RuntimeContractsTests.cs"
+  ],
+  "bb34a1bfe9b442128c4fa52ae8ad9576": [
+    "island-unity/Assets/Tests/Editor/SceneMigrationValidation.cs"
+  ],
+  "adb188ca960d4d46be66157481843f16": [
+    "island-unity/Assets/Tests/Editor/ShipControllerTests.cs"
+  ],
+  "a34a881e8d8944eab0b9ffaa6a853d42": [
+    "island-unity/Assets/Tests/Editor/ShipViewTests.cs"
+  ],
+  "321479e76b2d407494ca6cad0d450df5": [
+    "island-unity/Assets/Tests/Editor/ShipWaterlineTextureTests.cs"
+  ],
+  "15a7df0538cc44bdbfb89372d755c672": [
+    "island-unity/Assets/Tests/Editor/ShipWaveTextureSetupTests.cs"
+  ],
+  "81531bd92ba34874a81a173f1afc9d77": [
+    "island-unity/Assets/Tests/Editor/TerrainStreamingValidation.cs"
+  ],
+  "65092ae4105d47d9b7541166ae6a15df": [
+    "island-unity/Assets/Tests/Editor/UnityValidation.cs"
+  ],
+  "d2859876b7c9441a8afa78d8e478f8d2": [
+    "island-unity/Assets/Tests/Editor/VegetationWindProbe.shader"
+  ],
+  "6fbdf5fa7aad41e791955dd07376c679": [
+    "island-unity/Assets/Tests/Editor/VegetationWindValidation.cs"
+  ],
+  "ec149b5c14814c4b8a022f81625c5e7a": [
+    "island-unity/Assets/Tests/Editor/ViewRenderingValidation.cs"
+  ],
+  "3845adcf84af412bb2468354b7394009": [
+    "island-unity/Assets/Tests/Editor/WorldRoutingValidation.cs"
+  ],
+  "deb7c4df56b84d558c2e8c1c65bb91ca": [
+    "island-unity/Assets/Tests/Editor/WorldWeatherValidation.cs"
+  ],
+  "5a1e7a858725487398090c667b0f3634": [
+    "island-unity/Assets/Textures"
+  ],
+  "a25b050cec0f944ef85e9d5f6bfa4cf2": [
+    "island-unity/Assets/Textures/Pirate Ship High Poly Waterline 3.png"
+  ],
+  "90a3fb80a90774e579c3bd618f35000b": [
+    "island-unity/Assets/Textures/Pirate Ship High Poly Waterline.png"
+  ],
+  "1c13933aafe3407d8beb57916efad01f": [
+    "island-unity/Assets/Textures/ShipHullWaves.png"
+  ],
+  "c5d60db6570446c6aa5b4d1e2b4dfc7e": [
+    "island-unity/Assets/Textures/ShipWake.png"
+  ],
+  "719c5b219f814d2da4a564ab6dd06701": [
+    "packages/com.motu.navigation"
+  ],
+  "6479e9ffc7264166a171c66276e487c5": [
+    "packages/com.motu.navigation/CHANGELOG.md"
+  ],
+  "6be4bff80511431ba5a431b0c29ca287": [
+    "packages/com.motu.navigation/Editor"
+  ],
+  "a3e62177dba34f09bd483ed2c933d33b": [
+    "packages/com.motu.navigation/Editor/IslandNavigationRegistration.cs"
+  ],
+  "8cd47a877c294f949f4181a2c5b594cb": [
+    "packages/com.motu.navigation/Editor/Motu.Navigation.Editor.asmdef"
+  ],
+  "4c9968277c494d1eb1c58a5bbda41d6a": [
+    "packages/com.motu.navigation/LICENSE.md"
+  ],
+  "a4fdc261f85642cb89929961f1359258": [
+    "packages/com.motu.navigation/README.md"
+  ],
+  "d1a2b06858e745e7968a47fa2afbbcd2": [
+    "packages/com.motu.navigation/Runtime"
+  ],
+  "cd1adaf2a5cf493d8ddd74ceaf2cbe43": [
+    "packages/com.motu.navigation/Runtime/AssemblyInfo.cs"
+  ],
+  "8e9802b4aea949eda9e1c82572b6cbad": [
+    "packages/com.motu.navigation/Runtime/IslandNavigation.cs"
+  ],
+  "e3d6493a38ca4560b62c6fe9bd52a3d7": [
+    "packages/com.motu.navigation/Runtime/IslandNavigationBuildSettings.cs"
+  ],
+  "b077812549074bfa897b3f192ff22ca1": [
+    "packages/com.motu.navigation/Runtime/IslandNavigationChunks.cs"
+  ],
+  "d0f1033efe4e47eab246ac38440f8db0": [
+    "packages/com.motu.navigation/Runtime/IslandNavigationInstaller.cs"
+  ],
+  "fb1c6261af8d4e049bb90b1bda8476a8": [
+    "packages/com.motu.navigation/Runtime/IslandNavigationSeams.cs"
+  ],
+  "b899ebcbaac549548a9c0fc061b2d0cf": [
+    "packages/com.motu.navigation/Runtime/IslandNavigationSources.cs"
+  ],
+  "e5acfb2b395e4c72aac98c72b48e4cc8": [
+    "packages/com.motu.navigation/Runtime/Motu.Navigation.asmdef"
+  ],
+  "34d97aec04e64ff899ced82027557345": [
+    "packages/com.motu.navigation/Third Party Notices.md"
+  ],
+  "ac5b03aa73f0464094f5db2197728a77": [
+    "packages/com.motu.navigation/package.json"
+  ],
+  "485cf4f12b9c4332816b9cb11953b8fc": [
+    "packages/com.motu.runtime"
+  ],
+  "fbf56520846240749ce5ae092f9b05e7": [
+    "packages/com.motu.runtime/CHANGELOG.md"
+  ],
+  "8bcb8618290944e5bcdb155fd6e9d2b8": [
+    "packages/com.motu.runtime/Editor"
+  ],
+  "5440a97bc3694cd791d4284e06e2e962": [
+    "packages/com.motu.runtime/Editor/AssemblyInfo.cs"
+  ],
+  "c9a0af6da784244a8b30d1c31713b9eb": [
+    "packages/com.motu.runtime/Editor/IslandGeneratorEditor.cs"
+  ],
+  "fdff3a870fb747bc8c4b3678af5b6b83": [
+    "packages/com.motu.runtime/Editor/Motu.Editor.asmdef"
+  ],
+  "cd36497fd2bd4f91bed20e2bd945cc41": [
+    "packages/com.motu.runtime/Editor/NoiseBenchmark.cs"
+  ],
+  "c387f1052e9304f1a8af42d58be884d8": [
+    "packages/com.motu.runtime/Editor/OceanBuoyancyEditor.cs"
+  ],
+  "90339e332a7348d1ba25e1d7f94c0d2f": [
+    "packages/com.motu.runtime/Editor/OceanHullSprayEditor.cs"
+  ],
+  "4b2910a6854545069395fe4a72f32168": [
+    "packages/com.motu.runtime/Editor/ShipDeckWaveClampSetup.cs"
+  ],
+  "989350544df748acb8053ca44d489889": [
+    "packages/com.motu.runtime/Editor/ShipSprayLoopBuilder.cs"
+  ],
+  "95dd3062e9784e2b813c8dd19c77ecef": [
+    "packages/com.motu.runtime/Editor/ShipWaterlineTextureBuilder.cs"
+  ],
+  "5f8f8e9f8e6e42b085a38fbaddb9d4cb": [
+    "packages/com.motu.runtime/Editor/ShipWaterlineTextureWindow.cs"
+  ],
+  "512704f767be4bf78e129c01934f1c02": [
+    "packages/com.motu.runtime/Editor/ShipWaveTextureWindow.cs"
+  ],
+  "204ad5811765464688ee83a0f72e1828": [
+    "packages/com.motu.runtime/Editor/SingleIslandEditor.cs"
+  ],
+  "ef82e00fc5ed4ca89d7c4dd9b42c8d83": [
+    "packages/com.motu.runtime/LICENSE.md"
+  ],
+  "70e00507c86d4670aad2e1acc8958267": [
+    "packages/com.motu.runtime/README.md"
+  ],
+  "12a374470ae0e490082aced000c951f6": [
+    "packages/com.motu.runtime/Runtime"
+  ],
+  "7b16f2ed1dec4e62b01a7882274b3b6c": [
+    "packages/com.motu.runtime/Runtime/AssemblyInfo.cs"
+  ],
+  "a804c556733b408fa9f70624c8bf6e81": [
+    "packages/com.motu.runtime/Runtime/Gameplay"
+  ],
+  "d3365bf1f6af94b0f9d45125a962e3f1": [
+    "packages/com.motu.runtime/Runtime/Gameplay/OceanBuoyancy.cs"
+  ],
+  "2cf481f3f1884f9ead5a16c03e438b90": [
+    "packages/com.motu.runtime/Runtime/Interop"
+  ],
+  "991e368b5d88a407dbcffb35faf222a5": [
+    "packages/com.motu.runtime/Runtime/Interop/CaveNative.cs"
+  ],
+  "18a8c6d454b03451d8aa8bfdacd6c957": [
+    "packages/com.motu.runtime/Runtime/Interop/CavePreparation.cs"
+  ],
+  "377313b42a214b57b602ffdaacdc661e": [
+    "packages/com.motu.runtime/Runtime/Interop/IslandMeshInterop.cs"
+  ],
+  "d5f69faa4b314fab9dcc3b4b91939c33": [
+    "packages/com.motu.runtime/Runtime/Interop/MaterialPreparation.cs"
+  ],
+  "c6414b129e1614f5d9e42d5433c25146": [
+    "packages/com.motu.runtime/Runtime/Interop/MotuNative.cs"
+  ],
+  "15c0f8c7e59d4748b8a21dad9ec7a492": [
+    "packages/com.motu.runtime/Runtime/Interop/NativeAbi.cs"
+  ],
+  "c09e0467bee5403699825833eeb6761b": [
+    "packages/com.motu.runtime/Runtime/Interop/NativeExportValidation.cs"
+  ],
+  "7b66de6576fbe49889f0578bcd1e2264": [
+    "packages/com.motu.runtime/Runtime/Interop/NativeIslandHandle.cs"
+  ],
+  "8a70424a9b7147708852cb5d58314352": [
+    "packages/com.motu.runtime/Runtime/Interop/TerrainPreparation.cs"
+  ],
+  "4be73187845c4d89a5065ef6fe3b1332": [
+    "packages/com.motu.runtime/Runtime/Interop/VegetationPreparation.cs"
+  ],
+  "7ed914d148de4be19fd91a5bab3f6811": [
+    "packages/com.motu.runtime/Runtime/Interop/WaterPreparation.cs"
+  ],
+  "613e889ca2104a6e8a237f2aa40e4d18": [
+    "packages/com.motu.runtime/Runtime/Islands"
+  ],
+  "3549d4439b0224cdab83a35ac1fa3122": [
+    "packages/com.motu.runtime/Runtime/Islands/CoherentIslandFactory.cs"
+  ],
+  "294ce9ab06ad41f8ba46713ea6d29dcd": [
+    "packages/com.motu.runtime/Runtime/Islands/GridIslandGenerationRequestFactory.cs"
+  ],
+  "dcf1e7a452dd4d66a7c8af0243a28c83": [
+    "packages/com.motu.runtime/Runtime/Islands/IIslandGenerationRequestFactory.cs"
+  ],
+  "10f392500e904a1ba2f57863f39dfedd": [
+    "packages/com.motu.runtime/Runtime/Islands/IIslandNavigation.cs"
+  ],
+  "ed3b7ee885784ddc9ee172f9d54d09d0": [
+    "packages/com.motu.runtime/Runtime/Islands/IslandDescriptor.cs"
+  ],
+  "68b5cb44af2546c5afc107fac367a737": [
+    "packages/com.motu.runtime/Runtime/Islands/IslandGenerationLifecycle.cs"
+  ],
+  "65e68d9cf4f146bf80bc35710edc3bdf": [
+    "packages/com.motu.runtime/Runtime/Islands/IslandGenerationProfile.cs"
+  ],
+  "ac0c4e81ae5c4415b29141532b4dbfed": [
+    "packages/com.motu.runtime/Runtime/Islands/IslandGenerationRequest.cs"
+  ],
+  "92ff1c4452894e71a7ff43cfd5638e33": [
+    "packages/com.motu.runtime/Runtime/Islands/IslandGenerationRequestFactoryBase.cs"
+  ],
+  "4fb939576caf4b5a97c028c9c4e39b8e": [
+    "packages/com.motu.runtime/Runtime/Islands/IslandGenerationStatus.cs"
+  ],
+  "32771b51e3a764a858631c8a12a1afae": [
+    "packages/com.motu.runtime/Runtime/Islands/IslandGenerationWorker.cs"
+  ],
+  "5e4df41a49d84141b2492d182ba2c2e2": [
+    "packages/com.motu.runtime/Runtime/Islands/IslandGenerator.Environment.cs"
+  ],
+  "d93b7be3a0d4489c8362df7b4900e441": [
+    "packages/com.motu.runtime/Runtime/Islands/IslandGenerator.Materials.cs"
+  ],
+  "494ce666a94ee4c6e9493874155d27be": [
+    "packages/com.motu.runtime/Runtime/Islands/IslandGenerator.cs"
+  ],
+  "c25f74107aef4c23a69442103ad4dc69": [
+    "packages/com.motu.runtime/Runtime/Islands/IslandNavigationIntegration.cs"
+  ],
+  "3f5a4883772d4f5aa3a50d34727fc649": [
+    "packages/com.motu.runtime/Runtime/Islands/IslandPreparationPipeline.cs"
+  ],
+  "33e5a48e9b75947fea57d37328f7318b": [
+    "packages/com.motu.runtime/Runtime/Islands/IslandPreparedData.cs"
+  ],
+  "164b96795932e423eb00649a03941bd4": [
+    "packages/com.motu.runtime/Runtime/Islands/IslandRandom.cs"
+  ],
+  "cdb6344d64cd4bbebf8eaa21862195e8": [
+    "packages/com.motu.runtime/Runtime/Islands/IslandRuntime.Lod3.cs"
+  ],
+  "c42db45af0da4e8695815450f36d5051": [
+    "packages/com.motu.runtime/Runtime/Islands/IslandRuntime.cs"
+  ],
+  "7b5686e411164e4ab6282c37b738fc5c": [
+    "packages/com.motu.runtime/Runtime/Islands/IslandRuntimeInstaller.cs"
+  ],
+  "44321637980b48bfacb53ae40815668e": [
+    "packages/com.motu.runtime/Runtime/Islands/IslandRuntimeLoop.cs"
+  ],
+  "7dd37f13b8cd4d06b4c6ce6f91019365": [
+    "packages/com.motu.runtime/Runtime/Islands/IslandSnapshotCache.cs"
+  ],
+  "26cf25445b35461b942aa2349b6405c7": [
+    "packages/com.motu.runtime/Runtime/Islands/SingleIsland.cs"
+  ],
+  "e957b4b52d0f4835bd0296a6c425ba48": [
+    "packages/com.motu.runtime/Runtime/Motu.Runtime.asmdef"
+  ],
+  "dbb1811f9dc9b4e429fcbdec72e43a01": [
+    "packages/com.motu.runtime/Runtime/Plugins"
+  ],
+  "9ecc4e8e13f484784b8b85bc2ef627b2": [
+    "packages/com.motu.runtime/Runtime/Plugins/macOS"
+  ],
+  "40a94a2c799264f74af9545595e4218c": [
+    "packages/com.motu.runtime/Runtime/Plugins/macOS/libmotu.dylib"
+  ],
+  "95755688e55749dbab6f35290937e5dc": [
+    "packages/com.motu.runtime/Runtime/Plugins/macOS/native-artifact.json"
+  ],
+  "b840dd809ffb4cc78b440a328cf68f83": [
+    "packages/com.motu.runtime/Runtime/Rendering"
+  ],
+  "1c9480c9ba2745baabd25abbb837ea82": [
+    "packages/com.motu.runtime/Runtime/Rendering/IslandMaterialFactory.cs"
+  ],
+  "3f66748024334dceae9091d701e32040": [
+    "packages/com.motu.runtime/Runtime/Rendering/IslandMaterialTextureCache.cs"
+  ],
+  "93d10a91428c45c2894bbf611ec12fa0": [
+    "packages/com.motu.runtime/Runtime/Rendering/MotuShaderLibrary.cs"
+  ],
+  "f7a76b84f6db42e7b76fa117a0a82fd0": [
+    "packages/com.motu.runtime/Runtime/Rendering/MotuShaders.cs"
+  ],
+  "576da1ba8402402d809dd426ebeb3ff9": [
+    "packages/com.motu.runtime/Runtime/Rendering/OceanDeckWaveClamp.Wake.cs"
+  ],
+  "2ddb926b5585402a9256d050beb949d9": [
+    "packages/com.motu.runtime/Runtime/Rendering/OceanDeckWaveClamp.cs"
+  ],
+  "6d0d35b388894f16b0a3c812cf447799": [
+    "packages/com.motu.runtime/Runtime/Rendering/OceanHullSpray.cs"
+  ],
+  "84aa8978659d44b7999c90035ff22bb1": [
+    "packages/com.motu.runtime/Runtime/Rendering/OceanShipWaveField.cs"
+  ],
+  "3e5592d0fb7e4b468dd4f1df4f4eceb5": [
+    "packages/com.motu.runtime/Runtime/Rendering/OceanUnderwaterView.cs"
+  ],
+  "9d60ab4e4fc443b5a2c6dc6c9f1fca01": [
+    "packages/com.motu.runtime/Runtime/Rendering/PlanarWaterReflection.cs"
+  ],
+  "938d809f18574c56a5e66c32e005523b": [
+    "packages/com.motu.runtime/Runtime/Rendering/ProceduralNoiseTextures.cs"
+  ],
+  "1fb33a94a2d54312be5cc35a27c195c8": [
+    "packages/com.motu.runtime/Runtime/Rendering/RealTimeAmbientOcclusion.cs"
+  ],
+  "5a90251100f242d3806cfabb4c090f71": [
+    "packages/com.motu.runtime/Runtime/Rendering/SharedNoiseTexture.cs"
+  ],
+  "3a763251a0dc4bb793aac3c906617ea0": [
+    "packages/com.motu.runtime/Runtime/Rendering/TerrainMaterialTextureArrays.cs"
+  ],
+  "ffc57d2b496247adb16e12e47ea7ddba": [
+    "packages/com.motu.runtime/Runtime/Rendering/UnityObjectLifetime.cs"
+  ],
+  "4eeaa55e8c84425aaf56a29229f227f1": [
+    "packages/com.motu.runtime/Runtime/Rendering/WaterfallFootIndex.cs"
+  ],
+  "01dca59d4ab942e8a43604d5cfa5accb": [
+    "packages/com.motu.runtime/Runtime/Rendering/WaterfallMistPool.cs"
+  ],
+  "1720d832e1744503a5b097b0e7d0fecf": [
+    "packages/com.motu.runtime/Runtime/Resources"
+  ],
+  "f4ba5aafbe094b3a91dbcb3c9afb1706": [
+    "packages/com.motu.runtime/Runtime/Resources/Motu"
+  ],
+  "882c60f6faeb4ceb90cd58fb70f48641": [
+    "packages/com.motu.runtime/Runtime/Resources/Motu/ShaderLibrary.asset"
+  ],
+  "16edb5387af24ed9900080673e1674bd": [
+    "packages/com.motu.runtime/Runtime/Resources/Motu/ShipWaterlineSpray.mat"
+  ],
+  "a20cf438566a43d8b4c520b0300b1f83": [
+    "packages/com.motu.runtime/Runtime/Resources/Motu/TreeEndGrain.png"
+  ],
+  "cf9844765b444b1d80afbd2eab8d030d": [
+    "packages/com.motu.runtime/Runtime/Resources/Motu/Variants"
+  ],
+  "252aa853d1194e7e92d2fa81950bbf37": [
+    "packages/com.motu.runtime/Runtime/Resources/Motu/Variants/TerrainLod1.mat"
+  ],
+  "abce0c37d4c5457e998f758256f7b721": [
+    "packages/com.motu.runtime/Runtime/Resources/Motu/Variants/TerrainLod2.mat"
+  ],
+  "5ce3fff685884215a9300dea4f4b95ac": [
+    "packages/com.motu.runtime/Runtime/Resources/Motu/Variants/TreeWoodLod1.mat"
+  ],
+  "8da9fca056b2472e8fd2c0c8cc5de6a7": [
+    "packages/com.motu.runtime/Runtime/Settings"
+  ],
+  "a669f5c9d198c435a8a630eae040c9da": [
+    "packages/com.motu.runtime/Runtime/Settings/IslandCaveSettings.cs"
+  ],
+  "1d0ab572e2c54743ac85bc7bb93528d9": [
+    "packages/com.motu.runtime/Runtime/Settings/IslandCloudSettings.cs"
+  ],
+  "b35359cf77d74f39a6ed48c497eaff12": [
+    "packages/com.motu.runtime/Runtime/Settings/IslandDebugSettings.cs"
+  ],
+  "9423349ee00641088746d18bfc7d6b09": [
+    "packages/com.motu.runtime/Runtime/Settings/IslandFernSettings.cs"
+  ],
+  "434478effc174924b4a48fb8f8ee800a": [
+    "packages/com.motu.runtime/Runtime/Settings/IslandForestSettings.cs"
+  ],
+  "d17131bd6089481ba86d677090aac1b0": [
+    "packages/com.motu.runtime/Runtime/Settings/IslandGenerationSettings.cs"
+  ],
+  "b9616764846f432ab44d2ac04bf6b92b": [
+    "packages/com.motu.runtime/Runtime/Settings/IslandNavigationSettings.cs"
+  ],
+  "22997c69f59a41839ed66fa324976e95": [
+    "packages/com.motu.runtime/Runtime/Settings/IslandParameterVariationSettings.cs"
+  ],
+  "c8d7df43f4c44237a2c7ab762b307f9c": [
+    "packages/com.motu.runtime/Runtime/Settings/IslandReedSettings.cs"
+  ],
+  "119ff71ac2db45b9a6943d248bd34c41": [
+    "packages/com.motu.runtime/Runtime/Settings/IslandRenderingSettings.cs"
+  ],
+  "34d8c97de4684ef595227aac8bf2f1ef": [
+    "packages/com.motu.runtime/Runtime/Settings/IslandRiverSettings.cs"
+  ],
+  "730f128fdde8468db1b53d4773d8244e": [
+    "packages/com.motu.runtime/Runtime/Settings/IslandStreamingSettings.cs"
+  ],
+  "08d142d570354704a237659606796789": [
+    "packages/com.motu.runtime/Runtime/Settings/OceanWaveProfile.cs"
+  ],
+  "82db5f547f544c04aaf53bf6b2a194fb": [
+    "packages/com.motu.runtime/Runtime/Settings/WorldEnvironmentConfiguration.cs"
+  ],
+  "5017adf5f5cf41cbb23cdf31847a7cc2": [
+    "packages/com.motu.runtime/Runtime/Settings/WorldEnvironmentSettings.cs"
+  ],
+  "5250a902704c34bc48f98d0b92df03f9": [
+    "packages/com.motu.runtime/Runtime/Shaders"
+  ],
+  "e5ed08e8b26f4d15896b40569ca34616": [
+    "packages/com.motu.runtime/Runtime/Shaders/CloudCommon.cginc"
+  ],
+  "253ff7516e6c046cbb860c164a5321a4": [
+    "packages/com.motu.runtime/Runtime/Shaders/ForestFerns.shader"
+  ],
+  "43d6c619109f448189ed68e0b231138c": [
+    "packages/com.motu.runtime/Runtime/Shaders/MeshEdgeOverlay.shader"
+  ],
+  "6686a9be0ec642bf90a8e671313ba4e9": [
+    "packages/com.motu.runtime/Runtime/Shaders/OceanDeckWaveClamp.cginc"
+  ],
+  "e179679813014de2b25f6daa77d72500": [
+    "packages/com.motu.runtime/Runtime/Shaders/OceanOnshoreDirection.shader"
+  ],
+  "8e32aac63b454670ad1b41b03fa128c9": [
+    "packages/com.motu.runtime/Runtime/Shaders/OceanOptics.cginc"
+  ],
+  "a9d7c1a0c1cc4b5496fcd34109812dd7": [
+    "packages/com.motu.runtime/Runtime/Shaders/OceanShipWaves.cginc"
+  ],
+  "5ef06a073eb74761b899481461190f89": [
+    "packages/com.motu.runtime/Runtime/Shaders/OceanSurfaceGeometry.cginc"
+  ],
+  "e2fdad9ca07c457baac5ebd16d7da070": [
+    "packages/com.motu.runtime/Runtime/Shaders/OceanWaveAttenuation.shader"
+  ],
+  "f66cfab0d17a4e88b8f3f7b470f01027": [
+    "packages/com.motu.runtime/Runtime/Shaders/OceanWaves.cginc"
+  ],
+  "e1b5d68178aa4cfd8a4de84a2d74dbe7": [
+    "packages/com.motu.runtime/Runtime/Shaders/PlanarReflectionSimplified.shader"
+  ],
+  "905578e82ce344a0a1ee384ea7ed1bb4": [
+    "packages/com.motu.runtime/Runtime/Shaders/RealTimeAmbientOcclusion.shader"
+  ],
+  "50638aa6c711c41b1a17e4a47a1ffd85": [
+    "packages/com.motu.runtime/Runtime/Shaders/Resources"
+  ],
+  "d5b14b79f41a44fa78b9aa64d65a72f0": [
+    "packages/com.motu.runtime/Runtime/Shaders/Resources/CaveSurface.shader"
+  ],
+  "7f5cf4bb4d4e4118b8f92d92952657f3": [
+    "packages/com.motu.runtime/Runtime/Shaders/Resources/IslandHorizon.shader"
+  ],
+  "6d4dc97575a149c8a57d2986a46c82d5": [
+    "packages/com.motu.runtime/Runtime/Shaders/Resources/OceanFoamHistory.shader"
+  ],
+  "98a641bbaf4f48089ab9975cff8e9a8f": [
+    "packages/com.motu.runtime/Runtime/Shaders/Resources/OceanShipWaveStamp.shader"
+  ],
+  "c5b73d0bc70074b02a493683c29c9f6c": [
+    "packages/com.motu.runtime/Runtime/Shaders/Resources/OceanSurfaceQuery.shader"
+  ],
+  "c7b7bc234e964f9c8d399ba8305d5ee7": [
+    "packages/com.motu.runtime/Runtime/Shaders/Resources/OceanUnderwater.shader"
+  ],
+  "c8fcd5d4d94842aba565463b045b5466": [
+    "packages/com.motu.runtime/Runtime/Shaders/RiverSurface.cginc"
+  ],
+  "638039db650e4674b4039f58f2cf3c9b": [
+    "packages/com.motu.runtime/Runtime/Shaders/RiverWater.shader"
+  ],
+  "6bc750bb28c742e19083c8c91dccb356": [
+    "packages/com.motu.runtime/Runtime/Shaders/RiverbankReeds.shader"
+  ],
+  "89ad1e65e51c44c2a726fbe32c915b0e": [
+    "packages/com.motu.runtime/Runtime/Shaders/RockDecoration.shader"
+  ],
+  "641cd9737b9c4143b9a8800ef393b3f7": [
+    "packages/com.motu.runtime/Runtime/Shaders/SeaMaskCommon.cginc"
+  ],
+  "060238e2062954a168bc5360dca94012": [
+    "packages/com.motu.runtime/Runtime/Shaders/SeaWater.shader"
+  ],
+  "7e7e894fe5ed45a1aa2fb5c430e98a71": [
+    "packages/com.motu.runtime/Runtime/Shaders/SkyDome.shader"
+  ],
+  "0f65b1ebec01c40b08c7a50bae1382ea": [
+    "packages/com.motu.runtime/Runtime/Shaders/Terrain.shader"
+  ],
+  "9e9a8d9b05df4be8a7dc343de4232198": [
+    "packages/com.motu.runtime/Runtime/Shaders/TerrainCoverageCommon.cginc"
+  ],
+  "8944993a876db4eb589aa05f4c462e1f": [
+    "packages/com.motu.runtime/Runtime/Shaders/TerrainDetail.shader"
+  ],
+  "304a04dfe148438a95f61211787f6d26": [
+    "packages/com.motu.runtime/Runtime/Shaders/TerrainGrass.shader"
+  ],
+  "5c964826d8a641f780e417409bda0dd2": [
+    "packages/com.motu.runtime/Runtime/Shaders/TerrainGrassCommon.cginc"
+  ],
+  "ba2aeee575bc04a93935e4d4bf1125ca": [
+    "packages/com.motu.runtime/Runtime/Shaders/TerrainOcclusion.shader"
+  ],
+  "cfacf0f9f8464766b42b10025d0c2096": [
+    "packages/com.motu.runtime/Runtime/Shaders/TerrainRockCommon.cginc"
+  ],
+  "b6b7d585cf1745da95149421fdd7acdc": [
+    "packages/com.motu.runtime/Runtime/Shaders/TreeFoliage.shader"
+  ],
+  "a3cd7d8d7edc47f3b85af246bc87f83d": [
+    "packages/com.motu.runtime/Runtime/Shaders/TreeFoliageDistant.shader"
+  ],
+  "7c30e8a6156d4fb9b9b5f0dc48fd286b": [
+    "packages/com.motu.runtime/Runtime/Shaders/TreeFoliageFurCommon.cginc"
+  ],
+  "92a6fc1089ce42fe862b6ff51de34c23": [
+    "packages/com.motu.runtime/Runtime/Shaders/TreeSurfaceNoise.cginc"
+  ],
+  "d407958673c64f6ba79d3977683866aa": [
+    "packages/com.motu.runtime/Runtime/Shaders/TreeWindCommon.cginc"
+  ],
+  "a1b6bcd05740c402fa9a7acd5bfeb941": [
+    "packages/com.motu.runtime/Runtime/Shaders/TreeWood.shader"
+  ],
+  "822fec5630944c74b18d715b5d6054ac": [
+    "packages/com.motu.runtime/Runtime/Shaders/WaterCommon.cginc"
+  ],
+  "1d9f7cd2715c4954b4dac780b1429945": [
+    "packages/com.motu.runtime/Runtime/Shaders/WaterOptics.cginc"
+  ],
+  "7882898f15ca4b8cafc3ae955710efca": [
+    "packages/com.motu.runtime/Runtime/Shaders/WaterfallFootMist.shader"
+  ],
+  "b3eb89d43b324f329cbcb0f0064d976d": [
+    "packages/com.motu.runtime/Runtime/Shaders/WaterfallSprayLighting.cginc"
+  ],
+  "e0df783935ae49d9982c6e66da70cce2": [
+    "packages/com.motu.runtime/Runtime/Shaders/WaterfallSprayParticle.shader"
+  ],
+  "4f652668f5c54c6a99ba5b54fc848aa0": [
+    "packages/com.motu.runtime/Runtime/Shaders/WeatherWindCommon.cginc"
+  ],
+  "a96a4c3d74b84243bf96fae34224eb71": [
+    "packages/com.motu.runtime/Runtime/Streaming"
+  ],
+  "41242b5ef15441ebaf06c55ca60c8b48": [
+    "packages/com.motu.runtime/Runtime/Streaming/CaveCollisionScope.cs"
+  ],
+  "01ebbc7cfcbee4ad680eb33df0dbab69": [
+    "packages/com.motu.runtime/Runtime/Streaming/CaveStreamer.cs"
+  ],
+  "4b75c9156bddb43cc8188334dd6eb288": [
+    "packages/com.motu.runtime/Runtime/Streaming/FernTileStreamer.cs"
+  ],
+  "5c45054a10234f37a83931b5d6e4e9fd": [
+    "packages/com.motu.runtime/Runtime/Streaming/ForestGridWorker.cs"
+  ],
+  "5f7ad5d8a9504e22958283417e9c4e1a": [
+    "packages/com.motu.runtime/Runtime/Streaming/ForestTileStreamer.cs"
+  ],
+  "d9f05e8e7a6b4b2f98d2189b0a51e139": [
+    "packages/com.motu.runtime/Runtime/Streaming/ReedTileStreamer.cs"
+  ],
+  "2e5042a3e1ce4673878120517768521b": [
+    "packages/com.motu.runtime/Runtime/Streaming/StreamedMeshTile.cs"
+  ],
+  "84bc71943d69499a8ef5d49da828a672": [
+    "packages/com.motu.runtime/Runtime/Streaming/TerrainGridWorker.cs"
+  ],
+  "58168961da264eb3b38e26c9b85953fd": [
+    "packages/com.motu.runtime/Runtime/Streaming/TerrainTileStreamer.Colliders.cs"
+  ],
+  "3b05d438f83d4df780e6fb614258a913": [
+    "packages/com.motu.runtime/Runtime/Streaming/TerrainTileStreamer.DetailStreaming.cs"
+  ],
+  "ec796fa99ad441948d76f537f7698a26": [
+    "packages/com.motu.runtime/Runtime/Streaming/TerrainTileStreamer.cs"
+  ],
+  "516e682abb9642f689c0f0f86112b1a7": [
+    "packages/com.motu.runtime/Runtime/Streaming/TileNeighborhood.cs"
+  ],
+  "54f70c94e9d24b62a7105d1394123525": [
+    "packages/com.motu.runtime/Runtime/World"
+  ],
+  "0e37bb548f314f44b8fafed46e945b43": [
+    "packages/com.motu.runtime/Runtime/World/CelestialLighting.cs"
+  ],
+  "d353e87254c646ddbd3c41e1b810a16b": [
+    "packages/com.motu.runtime/Runtime/World/CloudWeatherSettings.cs"
+  ],
+  "12cb718caea045539a55d788c844a20c": [
+    "packages/com.motu.runtime/Runtime/World/EnvironmentHostState.cs"
+  ],
+  "0ad3b84b11344d0f8d25f97595cb1a08": [
+    "packages/com.motu.runtime/Runtime/World/IWorldSurfaceQuery.cs"
+  ],
+  "4e74e7a6a2c846e5a05e32f2f98b996d": [
+    "packages/com.motu.runtime/Runtime/World/IslandWorldManager.Caves.cs"
+  ],
+  "79866fdb2426444bb6e09955d31edb5c": [
+    "packages/com.motu.runtime/Runtime/World/IslandWorldManager.Discovery.cs"
+  ],
+  "5b14127292fc4ba78410989d8c93bbdf": [
+    "packages/com.motu.runtime/Runtime/World/IslandWorldManager.cs"
+  ],
+  "b16fd03c7f2e45309c9f206d2959e53d": [
+    "packages/com.motu.runtime/Runtime/World/OceanClipmapMeshBuilder.cs"
+  ],
+  "79325a6eceb04e5492cdc309dd4705d5": [
+    "packages/com.motu.runtime/Runtime/World/OceanFoamHistory.cs"
+  ],
+  "1707f4a9bfc34c3ca3676537f9440e2a": [
+    "packages/com.motu.runtime/Runtime/World/OceanSurfaceController.Animation.cs"
+  ],
+  "efd89b4f94a24a0ea597229653228e23": [
+    "packages/com.motu.runtime/Runtime/World/OceanSurfaceController.cs"
+  ],
+  "ee9cd26bedb6346d38540888a45c171c": [
+    "packages/com.motu.runtime/Runtime/World/OceanSurfaceSampler.cs"
+  ],
+  "67c905192d8f42c6b8546da28e5102c0": [
+    "packages/com.motu.runtime/Runtime/World/OceanWaveMaskComposer.cs"
+  ],
+  "8fd13d3a39434bb2a938430215b6fd58": [
+    "packages/com.motu.runtime/Runtime/World/UnityFrameBudget.cs"
+  ],
+  "40b1b0708e88487ea297577a42b000df": [
+    "packages/com.motu.runtime/Runtime/World/WorldEnvironmentController.Environment.cs"
+  ],
+  "10a07b04085a41c7be49612acdbaca66": [
+    "packages/com.motu.runtime/Runtime/World/WorldEnvironmentController.Ownership.cs"
+  ],
+  "ba59fa95914e47fab6fc88c9e85c5c47": [
+    "packages/com.motu.runtime/Runtime/World/WorldEnvironmentController.Weather.cs"
+  ],
+  "6c284d52bf514a9286d339820ad56d84": [
+    "packages/com.motu.runtime/Runtime/World/WorldEnvironmentController.cs"
+  ],
+  "3839707808f14a1796f6ee2ad402b8e1": [
+    "packages/com.motu.runtime/Runtime/World/WorldWeatherDriver.cs"
+  ],
+  "a5921733108e4a5f9e43230bbedf52eb": [
+    "packages/com.motu.runtime/Runtime/World/WorldWeatherState.cs"
+  ],
+  "4447656bd8144e758eb4e0c22b2f5ce3": [
+    "packages/com.motu.runtime/Samples~/SingleIsland/Motu.SingleIslandExample.asmdef"
+  ],
+  "ee31d222c3dc435bb1b0928d44d4dd26": [
+    "packages/com.motu.runtime/Samples~/SingleIsland/README.md"
+  ],
+  "1daa62dc9a604fc1872e518e94615ec0": [
+    "packages/com.motu.runtime/Samples~/SingleIsland/SingleIslandExample.cs"
+  ],
+  "6607cbd475de4ec99ad02281624142c7": [
+    "packages/com.motu.runtime/Tests"
+  ],
+  "d4147631b8764985b139299ec3132142": [
+    "packages/com.motu.runtime/Tests/Editor"
+  ],
+  "98c4fb3a40524bbea6d8db9b41683c4c": [
+    "packages/com.motu.runtime/Tests/Editor/EnvironmentOwnershipTests.cs"
+  ],
+  "946b12d791c443ac8798c5368d80cdfe": [
+    "packages/com.motu.runtime/Tests/Editor/ForestStreamingTests.cs"
+  ],
+  "803f0a4033e24eef930c510ec922a503": [
+    "packages/com.motu.runtime/Tests/Editor/HostIntegrationTests.cs"
+  ],
+  "e814d39b7a094979b319df5d6390e154": [
+    "packages/com.motu.runtime/Tests/Editor/Motu.Tests.Package.asmdef"
+  ],
+  "ca40b73fbf254744aa7cb5f18718f6c7": [
+    "packages/com.motu.runtime/Tests/Editor/StreamingResponsivenessTests.cs"
+  ],
+  "6975a2c436b1453fb8395a0859205139": [
+    "packages/com.motu.runtime/Third Party Notices.md"
+  ],
+  "498fb5de8840441aa4572ec8bfc225e8": [
+    "packages/com.motu.runtime/package.json"
+  ]
+}

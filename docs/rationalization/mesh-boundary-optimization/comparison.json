@@ -1,0 +1,131 @@
+{
+  "scope": "CPU Island::generate, seed 17, 1024 initial points, 14 workers. Three process pairs ordered before/after, after/before, before/after; each warms up at 128 points. No concurrent build/test workload during timing; normal desktop apps remained open. Native CPU timing, not Unity frame performance.",
+  "machine": "Apple M4 Pro, 24 GiB, macOS ARM64",
+  "captured_utc": "2026-09-15T08:36:21.968878+00:00",
+  "build": "cargo build --manifest-path island-rs/Cargo.toml --locked --no-default-features --features profiling --profile profiling --bin generation-bench",
+  "variants": {
+    "before": {
+      "benchmark_sha256": "d28e34ad0f16973e45e7f239303cf3012a22f7eded70b9e2a3963928573994c1",
+      "runs": [
+        {
+          "pair": 1,
+          "milliseconds": 29977.216,
+          "final_rivers_ms": 6785.318,
+          "geometry_hash": "2597653885197063265",
+          "maximum_process_rss_bytes": 3337011200,
+          "csv": "before-1.csv",
+          "stage_log": "before-1.log"
+        },
+        {
+          "pair": 2,
+          "milliseconds": 31344.213,
+          "final_rivers_ms": 6828.687,
+          "geometry_hash": "2597653885197063265",
+          "maximum_process_rss_bytes": 3248553984,
+          "csv": "before-2.csv",
+          "stage_log": "before-2.log"
+        },
+        {
+          "pair": 3,
+          "milliseconds": 30819.164,
+          "final_rivers_ms": 6809.311,
+          "geometry_hash": "2597653885197063265",
+          "maximum_process_rss_bytes": 3346071552,
+          "csv": "before-3.csv",
+          "stage_log": "before-3.log"
+        }
+      ],
+      "median_ms": 30819.164,
+      "median_final_rivers_ms": 6809.311
+    },
+    "after": {
+      "benchmark_sha256": "a1b6f35b646475f8cdbc182e968575a9de804ef3a99f7d9ea9020b0f1798875c",
+      "runs": [
+        {
+          "pair": 1,
+          "milliseconds": 27490.673,
+          "final_rivers_ms": 4089.125,
+          "geometry_hash": "2597653885197063265",
+          "maximum_process_rss_bytes": 3283238912,
+          "csv": "after-1.csv",
+          "stage_log": "after-1.log"
+        },
+        {
+          "pair": 2,
+          "milliseconds": 27352.063,
+          "final_rivers_ms": 4127.064,
+          "geometry_hash": "2597653885197063265",
+          "maximum_process_rss_bytes": 3361439744,
+          "csv": "after-2.csv",
+          "stage_log": "after-2.log"
+        },
+        {
+          "pair": 3,
+          "milliseconds": 27190.658,
+          "final_rivers_ms": 4106.087,
+          "geometry_hash": "2597653885197063265",
+          "maximum_process_rss_bytes": 3380854784,
+          "csv": "after-3.csv",
+          "stage_log": "after-3.log"
+        }
+      ],
+      "median_ms": 27352.063,
+      "median_final_rivers_ms": 4106.087
+    }
+  },
+  "baseline_mesh_sha256": "33559f8b49632b5dade031cd4803b97c00149103904c6cd5269ee46258bb09f8",
+  "mesh_sha256": "4ef78b5242886f12dcd6d3cc485a7950895678267d962615889301db65134f88",
+  "median_ms_reduction_percent": 11.249821701847596,
+  "median_final_rivers_ms_reduction_percent": 39.69893576604152,
+  "baseline_snapshot_provenance": "rock-optimization/comparison.json: prior after benchmark hash exactly matches this before executable. Newly generated complete snapshots compared with its retained hashes.",
+  "complete_snapshot_comparisons": [
+    {
+      "seed": 12345,
+      "terrain_size_seed_points": 128,
+      "bytes": 503512988,
+      "before_sha256": "8aff1fef40318c68b84001884c9e94db439fef717fd6284f1d2053be3b72e8f5",
+      "after_sha256": "8aff1fef40318c68b84001884c9e94db439fef717fd6284f1d2053be3b72e8f5",
+      "identical": true
+    },
+    {
+      "seed": 17,
+      "terrain_size_seed_points": 128,
+      "bytes": 585635290,
+      "before_sha256": "2b2c922f01c3aaf1da12a0b30779cc54e72805159395abcb0decb3c7426d23fa",
+      "after_sha256": "2b2c922f01c3aaf1da12a0b30779cc54e72805159395abcb0decb3c7426d23fa",
+      "identical": true
+    },
+    {
+      "seed": 2018,
+      "terrain_size_seed_points": 128,
+      "bytes": 524674208,
+      "before_sha256": "4e9ef6a7db3ea22ffb7425a8ca892f8abf5020d3520a031406151b583b4d6c65",
+      "after_sha256": "4e9ef6a7db3ea22ffb7425a8ca892f8abf5020d3520a031406151b583b4d6c65",
+      "identical": true
+    },
+    {
+      "seed": 42,
+      "terrain_size_seed_points": 128,
+      "bytes": 299869668,
+      "before_sha256": "3737ee12d83f2f7e50238cb4834a0e809469d8a860bf020309e629e707934ac1",
+      "after_sha256": "3737ee12d83f2f7e50238cb4834a0e809469d8a860bf020309e629e707934ac1",
+      "identical": true
+    },
+    {
+      "seed": 666,
+      "terrain_size_seed_points": 128,
+      "bytes": 452705862,
+      "before_sha256": "485edc1b70ad88afe641f462d485b4226b9a87f248f76c43cf4b883914c33024",
+      "after_sha256": "485edc1b70ad88afe641f462d485b4226b9a87f248f76c43cf4b883914c33024",
+      "identical": true
+    },
+    {
+      "seed": 17,
+      "terrain_size_seed_points": 1024,
+      "bytes": 905519856,
+      "before_sha256": "542426483bb7d3f0f06d7ea96f1aaa0bd70400a6ce4c043c9ff006fadeb75e5c",
+      "after_sha256": "542426483bb7d3f0f06d7ea96f1aaa0bd70400a6ce4c043c9ff006fadeb75e5c",
+      "identical": true
+    }
+  ]
+}

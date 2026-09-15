@@ -1,0 +1,11 @@
+{
+  "name": "com.motu.navigation",
+  "version": "0.1.0",
+  "displayName": "Motu Island Navigation",
+  "description": "Full LOD0 asynchronous island navigation, independent of visible terrain LOD.",
+  "unity": "6000.5",
+  "dependencies": {
+    "com.motu.runtime": "0.1.0",
+    "com.unity.modules.ai": "1.0.0"
+  }
+}

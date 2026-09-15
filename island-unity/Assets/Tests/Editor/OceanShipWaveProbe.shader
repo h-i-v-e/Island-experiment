@@ -12,7 +12,7 @@ Shader "Hidden/Motu/Tests/Ship Wave Field"
             #pragma fragment Fragment
             #pragma target 3.5
             #include "UnityCG.cginc"
-            #include "Assets/Shaders/OceanShipWaves.cginc"
+            #include "Packages/com.motu.runtime/Runtime/Shaders/OceanShipWaves.cginc"
             sampler2D _MainTex;
             float _ProbeDisplacementFoam;
             float _ProbeMaximumWaveHeight;

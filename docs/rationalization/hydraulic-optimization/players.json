@@ -1,0 +1,34 @@
+{
+  "artifacts": [
+    {
+      "package": "com.motu.navigation",
+      "version": "0.1.0",
+      "file": "com.motu.navigation-0.1.0.tgz",
+      "bytes": 7843,
+      "sha256": "07862bf8c17c033adce4e51bb843ab132b99479d810b92448c35e6647f1f8eaf"
+    },
+    {
+      "package": "com.motu.runtime",
+      "version": "0.1.0",
+      "file": "com.motu.runtime-0.1.0.tgz",
+      "bytes": 1556173,
+      "sha256": "d8e31130e27022d43b51dc2ec0b0e7aa0c0e9fe408c0da67a0a27ebb3720348f"
+    }
+  ],
+  "il2cpp_build": [
+    "MOTU CONSUMER BUILD PASSED: IL2CPP"
+  ],
+  "il2cpp_player": [
+    "MOTU CONSUMER NAVIGATION PASSED: full-resolution extension bake ready and registered.",
+    "MOTU CONSUMER ENVIRONMENT PASSED: disable, same-frame re-enable, host restoration and additive unload.",
+    "MOTU CONSUMER PLAYER PASSED: terrain rendered, 2826 colours; shaders, native generation, host ownership, unload."
+  ],
+  "mono_build": [
+    "MOTU CONSUMER BUILD PASSED: Mono2x"
+  ],
+  "mono_player": [
+    "MOTU CONSUMER NAVIGATION PASSED: full-resolution extension bake ready and registered.",
+    "MOTU CONSUMER ENVIRONMENT PASSED: disable, same-frame re-enable, host restoration and additive unload.",
+    "MOTU CONSUMER PLAYER PASSED: terrain rendered, 2826 colours; shaders, native generation, host ownership, unload."
+  ]
+}

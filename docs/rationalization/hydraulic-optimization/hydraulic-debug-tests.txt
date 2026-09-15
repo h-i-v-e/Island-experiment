@@ -1,0 +1,24 @@
+   Compiling island-rs v0.1.0 (/Users/jeromejohnson/Documents/GitHub/Island-experiment/island-rs)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.14s
+     Running unittests src/lib.rs (island-rs/target/debug/deps/motu-cad0cdf4999e3ccb)
+
+running 16 tests
+test terrain::erosion::hydraulic_tests::loose_material_is_removed_before_hard_bedrock ... ok
+test terrain::erosion::hydraulic_tests::soil_blanket_protects_bedrock_until_exhausted ... ok
+test terrain::erosion::hydraulic_tests::deposition_fades_smoothly_between_gentle_and_steep_slopes ... ok
+test terrain::erosion::hydraulic_tests::sediment_exchange_conserves_every_applied_transfer ... ok
+test terrain::erosion::hydraulic_tests::hydraulic_erosion_peaks_at_forty_five_degrees_and_stops_at_vertical ... ok
+test terrain::erosion::hydraulic_tests::hydraulic_erosion_moves_down_normal_but_deposition_stays_vertical ... ok
+test terrain::erosion::hydraulic_tests::steep_hydraulic_erosion_blends_from_the_normal_toward_vertical ... ok
+test terrain::erosion::hydraulic_tests::vertical_faces_do_not_supply_hydraulic_sediment ... ok
+test terrain::erosion::hydraulic_tests::local_hydraulic_cap_is_edge_relative ... ok
+test terrain::erosion::hydraulic_tests::hydraulic_cap_preserves_projected_triangle_orientation_and_area ... ok
+test terrain::erosion::hydraulic_tests::terrain_material_field_interpolates_at_export_positions ... ok
+test terrain::erosion::hydraulic_tests::sea_inclusive_path_carries_deposition_below_sea_level ... ok
+test terrain::erosion::hydraulic_tests::material_volume_is_conserved_across_adaptive_tessellation ... ok
+test terrain::erosion::hydraulic_tests::final_sharp_rock_pass_marks_a_protrusion_but_not_an_inclined_plane ... ok
+test terrain::erosion::hydraulic_tests::hydraulic_pass_retreats_sloped_mesh_laterally ... ok
+test terrain::erosion::hydraulic_tests::non_eroding_steps_preserve_reference_step_bits ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 402 filtered out; finished in 0.01s
+

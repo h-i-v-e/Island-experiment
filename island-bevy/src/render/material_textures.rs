@@ -8,6 +8,16 @@ use bevy::{
 };
 use motu::{IslandMaterialKind, IslandMaterialTextures, RuntimeMaterialInputs, TextureSet};
 
+// Explicit ground slots: adding a vegetation material must not expand this atlas.
+const TERRAIN_SLOTS: [(IslandMaterialKind, (u32, u32)); 6] = [
+    (IslandMaterialKind::Dirt, (0, 0)),
+    (IslandMaterialKind::ForestFloor, (1, 0)),
+    (IslandMaterialKind::Rock, (2, 0)),
+    (IslandMaterialKind::RiverBed, (0, 1)),
+    (IslandMaterialKind::Beach, (1, 1)),
+    (IslandMaterialKind::FallenStones, (2, 1)),
+];
+
 /// Three 3x2 atlases keep the complete six-material set to three texture and
 /// three sampler bindings, which stays comfortably below Metal's limits.
 pub struct MaterialAtlases {
@@ -29,7 +39,7 @@ pub fn upload(
         .get(&IslandMaterialKind::Dirt)
         .ok_or_else(|| String::from("runtime material group has no dirt texture"))?;
     let dimensions = first.dimensions();
-    for kind in IslandMaterialKind::ALL {
+    for (kind, _) in TERRAIN_SLOTS {
         let texture = textures
             .materials
             .get(&kind)
@@ -68,11 +78,11 @@ pub fn upload(
         *alpha = 255;
     }
 
-    for kind in IslandMaterialKind::ALL {
+    for (kind, slot) in TERRAIN_SLOTS {
         let texture = &textures.materials[&kind];
-        write_slot(&mut albedo, width, kind, texture, SlotMap::Albedo);
-        write_slot(&mut normal, width, kind, texture, SlotMap::Normal);
-        write_slot(&mut mask, width, kind, texture, SlotMap::Mask);
+        write_slot(&mut albedo, width, slot, texture, SlotMap::Albedo);
+        write_slot(&mut normal, width, slot, texture, SlotMap::Normal);
+        write_slot(&mut mask, width, slot, texture, SlotMap::Mask);
     }
 
     let dirt = inputs.dirt_colour.channels();
@@ -98,18 +108,10 @@ enum SlotMap {
 fn write_slot(
     atlas: &mut [u8],
     atlas_width: u32,
-    kind: IslandMaterialKind,
+    (slot_x, slot_y): (u32, u32),
     texture: &TextureSet,
     map: SlotMap,
 ) {
-    let (slot_x, slot_y) = match kind {
-        IslandMaterialKind::Dirt => (0, 0),
-        IslandMaterialKind::ForestFloor => (1, 0),
-        IslandMaterialKind::Rock => (2, 0),
-        IslandMaterialKind::RiverBed => (0, 1),
-        IslandMaterialKind::Beach => (1, 1),
-        IslandMaterialKind::FallenStones => (2, 1),
-    };
     let width = texture.dimensions.width;
     let height = texture.dimensions.height;
     for y in 0..height {
@@ -171,7 +173,7 @@ mod tests {
         RuntimeMaterialInputs, bake_island_materials,
     };
 
-    use super::{SlotMap, write_slot};
+    use super::{SlotMap, TERRAIN_SLOTS, write_slot};
 
     #[test]
     fn atlas_slots_do_not_overlap() {
@@ -185,13 +187,20 @@ mod tests {
                 width: Some(64),
                 height: Some(64),
                 normal_convention: NormalConvention::OpenGl,
-                materials: MaterialSelection::ALL,
+                materials: MaterialSelection::TERRAIN,
             },
         )
         .unwrap();
         let mut atlas = vec![0; 192 * 128 * 4];
-        for (kind, texture) in &textures.materials {
-            write_slot(&mut atlas, 192, *kind, texture, SlotMap::Albedo);
+        assert_eq!(textures.materials.len(), TERRAIN_SLOTS.len());
+        for (kind, slot) in TERRAIN_SLOTS {
+            write_slot(
+                &mut atlas,
+                192,
+                slot,
+                &textures.materials[&kind],
+                SlotMap::Albedo,
+            );
         }
         assert!(atlas.chunks_exact(4).all(|pixel| pixel[3] == 255));
     }

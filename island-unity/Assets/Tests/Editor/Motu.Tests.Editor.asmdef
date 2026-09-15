@@ -5,7 +5,10 @@
     "Motu.Runtime",
     "Motu.Editor",
     "UnityEngine.TestRunner",
-    "UnityEditor.TestRunner"
+    "UnityEditor.TestRunner",
+    "Motu.Samples",
+    "Motu.Samples.Editor",
+    "Motu.Navigation"
   ],
   "includePlatforms": [
     "Editor"

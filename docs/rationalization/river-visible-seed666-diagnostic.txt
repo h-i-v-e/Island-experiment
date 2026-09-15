@@ -1,0 +1,23 @@
+   Compiling island-rs v0.1.0 (/var/folders/29/fnbdz_fn4sjcgp2dqdf_jcb80000gn/T/motu-rust-baseline-w9uumypm)
+    Finished `release` profile [optimized] target(s) in 49.72s
+     Running tests/generation.rs (island-rs/target/release/deps/generation-722bf391d889bfb5)
+
+running 1 test
+test rivers_are_continuous_flowing_terrain_submeshes_with_waterfalls ... FAILED
+
+failures:
+
+---- rivers_are_continuous_flowing_terrain_submeshes_with_waterfalls stdout ----
+BANK FIXTURE vertices=800 perimeter=300 triangles=1296 positive=500
+
+thread 'rivers_are_continuous_flowing_terrain_submeshes_with_waterfalls' (35950960) panicked at tests/generation.rs:891:5:
+assertion failed: substantial_drops.len() > 2
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    rivers_are_continuous_flowing_terrain_submeshes_with_waterfalls
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 33 filtered out; finished in 33.66s
+
+error: test failed, to rerun pass `--test generation`

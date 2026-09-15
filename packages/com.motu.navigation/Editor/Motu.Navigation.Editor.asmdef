@@ -1,0 +1,10 @@
+{
+  "name": "Motu.Navigation.Editor",
+  "references": [
+    "Motu.Runtime",
+    "Motu.Navigation"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ]
+}

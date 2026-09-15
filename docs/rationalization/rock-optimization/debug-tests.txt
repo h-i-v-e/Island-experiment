@@ -1,0 +1,18 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running unittests src/lib.rs (island-rs/target/debug/deps/motu-cad0cdf4999e3ccb)
+
+running 11 tests
+test terrain::decorations::decoration_tests::triangle_sampling_stays_inside_the_source_face ... ok
+test terrain::decorations::decoration_tests::drop_noise_keeps_low_regions_eligible_and_strengthens_dense_regions ... ok
+test terrain::decorations::decoration_tests::drop_sources_are_steep_faces ... ok
+test terrain::decorations::decoration_tests::collision_radius_matches_the_unity_size_ranges_deterministically ... ok
+test terrain::decorations::decoration_tests::body_contact_separates_overlapping_rocks_and_supports_the_upper_one ... ok
+test terrain::decorations::decoration_tests::steep_face_weight_uses_surface_area_and_noise ... ok
+test terrain::decorations::decoration_tests::steep_terrain_contact_does_not_become_stable_support ... ok
+test terrain::decorations::decoration_tests::terrain_contact_lifts_a_falling_body_onto_the_surface ... ok
+test terrain::decorations::decoration_tests::large_boulders_use_the_same_steep_face_drops_with_a_separate_size_domain ... ok
+test terrain::decorations::decoration_tests::cached_contacts_preserve_settling_bits_when_bodies_move_and_wake ... ok
+test terrain::decorations::decoration_tests::generated_settlements_export_stones_without_clearing_vertex_cover ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 408 filtered out; finished in 19.44s
+

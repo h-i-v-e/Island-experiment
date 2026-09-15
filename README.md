@@ -3,6 +3,11 @@
 Procedural free-form island generation with interactive Bevy and Unity
 renderers.
 
+The [codebase rationalization and Unity package plan](CODEBASE_RATIONALIZATION_AND_UNITY_PACKAGE_PLAN.md)
+governs the repository-wide review. See the [implementation report](docs/rationalization/IMPLEMENTATION.md)
+for current evidence and remaining gates. For another Unity project, start with
+the [runtime package installation guide](packages/com.motu.runtime/README.md).
+
 - [`island-rs`](island-rs/) contains the Rust generator, C ABI, tests, and the
   default-enabled experimental GPU compute implementation.
 - [`island-bevy`](island-bevy/) is the interactive Bevy viewer, including
@@ -16,10 +21,12 @@ renderers.
   nīkau, harakeke, mānuka, kauri, and rimu generators, their Bevy materials and
   static-mesh compiler, and the interactive `tree-lab` editor with repeatable
   headless captures. Landscape placement policy remains in `island-bevy`.
-- [`island-unity`](island-unity/) contains the reusable Unity 6
-  `IslandGenerator` component, sandbox level, streamed terrain LODs,
-  first-person sample controls, CPU island generation, the Apple Silicon native
-  plugin, and runtime in-memory procedural material baking.
+- [`packages/com.motu.runtime`](packages/com.motu.runtime/) contains the reusable
+  Unity runtime, editor tools, shaders, and Apple Silicon native plugin.
+- [`packages/com.motu.navigation`](packages/com.motu.navigation/) is the optional
+  full-LOD0 navigation extension.
+- [`island-unity`](island-unity/) consumes these packages and retains the authored
+  scenes, sample controls, and integration/graphics tests.
 
 ## Experimental GPU generation
 

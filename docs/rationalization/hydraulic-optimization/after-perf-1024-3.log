@@ -1,0 +1,78 @@
+profile,hydraulic.stage,0.105
+profile,thermal.stage,0.410
+profile,generation.base,1.460
+profile,hydraulic.stage,0.079
+profile,thermal.stage,0.296
+profile,generation.lod2,1.639
+profile,hydraulic.stage,0.377
+profile,thermal.stage,0.355
+profile,generation.lod1.first,3.045
+profile,hydraulic.stage,2.023
+profile,thermal.stage,0.435
+profile,generation.lod1.refine,8.145
+profile,mesh.surface_edge_flips,47.702
+profile,hydraulic.stage,11.379
+profile,hydraulic.stage,62.534
+profile,thermal.stage,1.123
+profile,generation.lod0.broad,175.236
+profile,hydraulic.stage,283.538
+profile,generation.lod0.detail,333.502
+river_cross_sections,unresolved=223,mean_width_metres=6.943,maximum_width_metres=14.000,mean_depth_metres=1.460,maximum_depth_metres=2.000
+profile,rivers.final,603.117
+profile,mesh.projected_foldover_repair,101.738
+profile,lod.simplify,143.767
+profile,material.sharp_rock,31.222
+profile,terrain.index,0.000
+profile,caves.generate,0.001
+profile,decorations.rock_settling,461.058
+profile,decorations.lazy,461.540
+profile,sea_mask.distance_to_land,30.072
+profile,island.generate,2720.246
+profile,hydraulic.stage,0.136
+profile,thermal.stage,0.496
+profile,generation.base,4.754
+profile,hydraulic.stage,1.044
+profile,thermal.stage,0.459
+profile,generation.lod2,5.247
+profile,hydraulic.stage,5.577
+profile,thermal.stage,0.915
+profile,generation.lod1.first,16.691
+profile,hydraulic.stage,43.136
+profile,thermal.stage,1.150
+profile,generation.lod1.refine,79.719
+profile,mesh.surface_edge_flips,427.028
+profile,hydraulic.stage,270.380
+profile,hydraulic.stage,1430.666
+profile,thermal.stage,4.945
+profile,generation.lod0.broad,2563.335
+profile,hydraulic.stage,12129.399
+profile,generation.lod0.detail,12637.091
+river_cross_sections,unresolved=857,mean_width_metres=2.561,maximum_width_metres=13.821,mean_depth_metres=1.655,maximum_depth_metres=2.000
+profile,rivers.final,6744.635
+profile,mesh.projected_foldover_repair,1581.523
+profile,lod.simplify,1101.380
+profile,material.sharp_rock,204.521
+profile,terrain.index,0.000
+profile,caves.generate,0.001
+profile,decorations.rock_settling,5142.769
+profile,decorations.lazy,5149.787
+profile,sea_mask.distance_to_land,254.758
+profile,island.generate,32097.373
+       34.88 real        34.03 user         1.03 sys
+          3134423040  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+              437342  page reclaims
+                  62  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   2  voluntary context switches
+               10206  involuntary context switches
+        443896819954  instructions retired
+        140962938576  cycles elapsed
+          2810415768  peak memory footprint

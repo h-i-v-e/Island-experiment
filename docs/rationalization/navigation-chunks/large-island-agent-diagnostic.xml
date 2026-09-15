@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<test-run id="2" testcasecount="1" result="Passed" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0" engine-version="3.5.0.0" clr-version="4.0.30319.42000" start-time="2026-09-15 09:50:22Z" end-time="2026-09-15 09:50:48Z" duration="26.3500142">
+  <test-suite type="TestSuite" id="1000" name="island-unity" fullname="island-unity" runstate="Runnable" testcasecount="146" result="Passed" start-time="2026-09-15 09:50:22Z" end-time="2026-09-15 09:50:48Z" duration="26.350014" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+    <properties>
+      <property name="platform" value="EditMode" />
+    </properties>
+    <test-suite type="Assembly" id="1170" name="Motu.Tests.Editor.dll" fullname="/private/var/folders/29/fnbdz_fn4sjcgp2dqdf_jcb80000gn/T/motu-unity-validation.YJow7F/island-unity/Library/ScriptAssemblies/Motu.Tests.Editor.dll" runstate="Runnable" testcasecount="137" result="Passed" start-time="2026-09-15 09:50:22Z" end-time="2026-09-15 09:50:48Z" duration="26.325319" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+      <properties>
+        <property name="_PID" value="12476" />
+        <property name="_APPDOMAIN" value="Unity Child Domain" />
+        <property name="platform" value="EditMode" />
+        <property name="EditorOnly" value="True" />
+      </properties>
+      <test-suite type="TestSuite" id="1171" name="Motu" fullname="Motu" runstate="Runnable" testcasecount="137" result="Passed" start-time="2026-09-15 09:50:22Z" end-time="2026-09-15 09:50:48Z" duration="26.324884" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+        <properties />
+        <test-suite type="TestSuite" id="1172" name="Editor" fullname="Motu.Editor" runstate="Runnable" testcasecount="137" result="Passed" start-time="2026-09-15 09:50:22Z" end-time="2026-09-15 09:50:48Z" duration="26.324587" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+          <properties />
+          <test-suite type="TestFixture" id="1027" name="ChunkAgentComparisonTests" fullname="Motu.Editor.ChunkAgentComparisonTests" classname="Motu.Editor.ChunkAgentComparisonTests" runstate="Runnable" testcasecount="1" result="Passed" start-time="2026-09-15 09:50:22Z" end-time="2026-09-15 09:50:48Z" duration="26.322812" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+            <properties />
+            <test-case id="1028" name="CompareRealAgents" fullname="Motu.Editor.ChunkAgentComparisonTests.CompareRealAgents" methodname="CompareRealAgents" classname="Motu.Editor.ChunkAgentComparisonTests" runstate="Runnable" seed="641917003" result="Passed" start-time="2026-09-15 09:50:21Z" end-time="2026-09-15 09:50:48Z" duration="27.147966" asserts="0">
+              <properties>
+                <property name="_JOINTYPE" value="UnityCombinatorial" />
+                <property name="Timeout" value="600000" />
+                <property name="retryIteration" value="0" />
+                <property name="repeatIteration" value="0" />
+              </properties>
+              <output><![CDATA[NAV CONNECTIVITY: 256 queries, lost 2, gained 2
+Saving results to: /tmp/motu-nav-chunks/agent-tests.xml
+]]></output>
+            </test-case>
+          </test-suite>
+        </test-suite>
+      </test-suite>
+    </test-suite>
+  </test-suite>
+</test-run>

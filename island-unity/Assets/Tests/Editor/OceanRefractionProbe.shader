@@ -17,9 +17,9 @@ Shader "Hidden/Motu/Tests/Ocean Refraction"
             #pragma vertex Vertex
             #pragma fragment Fragment
             #pragma target 3.5
-            #include "Assets/Shaders/WaterCommon.cginc"
-            #include "Assets/Shaders/OceanWaves.cginc"
-            #include "Assets/Shaders/OceanOptics.cginc"
+            #include "Packages/com.motu.runtime/Runtime/Shaders/WaterCommon.cginc"
+            #include "Packages/com.motu.runtime/Runtime/Shaders/OceanWaves.cginc"
+            #include "Packages/com.motu.runtime/Runtime/Shaders/OceanOptics.cginc"
             float _ProbeSafe;
             float4 _ProbeRipple;
             struct Output

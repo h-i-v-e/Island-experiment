@@ -1,0 +1,23 @@
+{
+  "name": "com.motu.runtime",
+  "version": "0.1.0",
+  "displayName": "Motu Islands",
+  "description": "Procedural islands, streaming, and optional Built-in water and weather. macOS Apple Silicon native runtime.",
+  "unity": "6000.5",
+  "dependencies": {
+    "com.unity.modules.physics": "1.0.0",
+    "com.unity.modules.particlesystem": "1.0.0",
+    "com.unity.modules.jsonserialize": "1.0.0",
+    "com.unity.modules.imgui": "1.0.0",
+    "com.unity.modules.terrain": "1.0.0",
+    "com.unity.modules.terrainphysics": "1.0.0",
+    "com.unity.modules.imageconversion": "1.0.0"
+  },
+  "samples": [
+    {
+      "displayName": "Single Island",
+      "description": "Generate in a host-owned scene using public APIs.",
+      "path": "Samples~/SingleIsland"
+    }
+  ]
+}

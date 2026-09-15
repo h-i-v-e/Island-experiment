@@ -465,6 +465,10 @@ fn describe(parameter: &Parameter) -> (&'static str, &'static str) {
             "LAND OFFSET",
             "Moves the centred land field relative to the sea. Negative values isolate high ground into an archipelago.",
         ),
+        "--initial-soil-depth-metres" => (
+            "SOIL DEPTH",
+            "Initial loose soil below the land surface, in metres. Zero starts with bare bedrock; this does not raise the terrain.",
+        ),
         "--hydraulic-erosion-strength" => (
             "EROSION",
             "How aggressively running water carves gullies into the flanks.",

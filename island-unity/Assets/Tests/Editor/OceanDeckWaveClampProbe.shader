@@ -11,7 +11,7 @@ Shader "Hidden/Motu/Tests/Deck Wave Clamp"
             #pragma fragment Fragment
             #pragma target 3.5
             #include "UnityCG.cginc"
-            #include "Assets/Shaders/OceanDeckWaveClamp.cginc"
+            #include "Packages/com.motu.runtime/Runtime/Shaders/OceanDeckWaveClamp.cginc"
             sampler2D _MainTex;
             float4 Fragment(v2f_img input) : SV_Target
             {

@@ -1,0 +1,125 @@
+{
+  "scope": "CPU Island::generate, seed 17, 1024 initial points, 14 workers. Three process pairs ordered before/after, after/before, before/after; each warms up at 128 points. No concurrent build/test workload during timing; normal desktop apps remained open. Native CPU timing, not Unity frame performance.",
+  "machine": "Apple M4 Pro, 24 GiB, macOS ARM64",
+  "captured_utc": "2026-09-15T06:29:24.494892+00:00",
+  "build": "cargo build --manifest-path island-rs/Cargo.toml --locked --no-default-features --features profiling --profile profiling --bin generation-bench",
+  "variants": {
+    "before": {
+      "benchmark_sha256": "7fc039ea6270bbde3d496654af890088a7caa5f10f6fff63f00782ce91257b6d",
+      "runs": [
+        {
+          "pair": 1,
+          "milliseconds": 32366.015,
+          "rock_settling_ms": 5005.827,
+          "geometry_hash": "2597653885197063265",
+          "csv": "before-1.csv",
+          "stage_log": "before-1.log"
+        },
+        {
+          "pair": 2,
+          "milliseconds": 32877.628,
+          "rock_settling_ms": 5071.386,
+          "geometry_hash": "2597653885197063265",
+          "csv": "before-2.csv",
+          "stage_log": "before-2.log"
+        },
+        {
+          "pair": 3,
+          "milliseconds": 32474.922,
+          "rock_settling_ms": 5071.497,
+          "geometry_hash": "2597653885197063265",
+          "csv": "before-3.csv",
+          "stage_log": "before-3.log"
+        }
+      ],
+      "median_ms": 32474.922,
+      "median_rock_settling_ms": 5071.386
+    },
+    "after": {
+      "benchmark_sha256": "d28e34ad0f16973e45e7f239303cf3012a22f7eded70b9e2a3963928573994c1",
+      "runs": [
+        {
+          "pair": 1,
+          "milliseconds": 30719.722,
+          "rock_settling_ms": 3416.5,
+          "geometry_hash": "2597653885197063265",
+          "csv": "after-1.csv",
+          "stage_log": "after-1.log"
+        },
+        {
+          "pair": 2,
+          "milliseconds": 30997.567,
+          "rock_settling_ms": 3427.239,
+          "geometry_hash": "2597653885197063265",
+          "csv": "after-2.csv",
+          "stage_log": "after-2.log"
+        },
+        {
+          "pair": 3,
+          "milliseconds": 31063.509,
+          "rock_settling_ms": 3459.89,
+          "geometry_hash": "2597653885197063265",
+          "csv": "after-3.csv",
+          "stage_log": "after-3.log"
+        }
+      ],
+      "median_ms": 30997.567,
+      "median_rock_settling_ms": 3427.239
+    }
+  },
+  "baseline_source_sha256": "e26500aebb427265b8840030e9d9b769db3eb1695147c630d16821ee5a8db744",
+  "source_sha256": "73004db4a642f631654c5d92f9b7fc8f85b835b8064828654223e80f8ac3cd93",
+  "median_ms_reduction_percent": 4.549218008899292,
+  "median_rock_settling_ms_reduction_percent": 32.42007214595773,
+  "baseline_snapshot_provenance": "hydraulic-optimization/comparison.json: prior after benchmark hash exactly matches this before binary; compare newly generated complete snapshots against its retained hashes.",
+  "complete_snapshot_comparisons": [
+    {
+      "seed": 12345,
+      "terrain_size_seed_points": 128,
+      "bytes": 503512988,
+      "before_sha256": "8aff1fef40318c68b84001884c9e94db439fef717fd6284f1d2053be3b72e8f5",
+      "after_sha256": "8aff1fef40318c68b84001884c9e94db439fef717fd6284f1d2053be3b72e8f5",
+      "identical": true
+    },
+    {
+      "seed": 17,
+      "terrain_size_seed_points": 128,
+      "bytes": 585635290,
+      "before_sha256": "2b2c922f01c3aaf1da12a0b30779cc54e72805159395abcb0decb3c7426d23fa",
+      "after_sha256": "2b2c922f01c3aaf1da12a0b30779cc54e72805159395abcb0decb3c7426d23fa",
+      "identical": true
+    },
+    {
+      "seed": 2018,
+      "terrain_size_seed_points": 128,
+      "bytes": 524674208,
+      "before_sha256": "4e9ef6a7db3ea22ffb7425a8ca892f8abf5020d3520a031406151b583b4d6c65",
+      "after_sha256": "4e9ef6a7db3ea22ffb7425a8ca892f8abf5020d3520a031406151b583b4d6c65",
+      "identical": true
+    },
+    {
+      "seed": 42,
+      "terrain_size_seed_points": 128,
+      "bytes": 299869668,
+      "before_sha256": "3737ee12d83f2f7e50238cb4834a0e809469d8a860bf020309e629e707934ac1",
+      "after_sha256": "3737ee12d83f2f7e50238cb4834a0e809469d8a860bf020309e629e707934ac1",
+      "identical": true
+    },
+    {
+      "seed": 666,
+      "terrain_size_seed_points": 128,
+      "bytes": 452705862,
+      "before_sha256": "485edc1b70ad88afe641f462d485b4226b9a87f248f76c43cf4b883914c33024",
+      "after_sha256": "485edc1b70ad88afe641f462d485b4226b9a87f248f76c43cf4b883914c33024",
+      "identical": true
+    },
+    {
+      "seed": 17,
+      "terrain_size_seed_points": 1024,
+      "bytes": 905519856,
+      "before_sha256": "542426483bb7d3f0f06d7ea96f1aaa0bd70400a6ce4c043c9ff006fadeb75e5c",
+      "after_sha256": "542426483bb7d3f0f06d7ea96f1aaa0bd70400a6ce4c043c9ff006fadeb75e5c",
+      "identical": true
+    }
+  ]
+}

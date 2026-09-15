@@ -5383,3 +5383,85 @@ fn trace_discards_a_landlocked_path_when_no_ocean_route_exists() {
     assert!(rivers.is_empty());
     assert!(join_vertices.is_empty());
 }
+
+#[test]
+fn exported_multi_waterfall_mesh_preserves_vertical_flow_distance() {
+    // A prescribed channel guarantees three differently sized falls. Generated
+    // islands can legitimately hand all their rivers to the ocean instead.
+    let heights = [0.08_f32, 0.08, 0.06, 0.06, 0.03, 0.03, 0.01];
+    let points: Vec<Vec2> = (0..=4)
+        .flat_map(|y| (0..=8).map(move |x| Vec2::new(x as f32 * 0.01, y as f32 * 0.01)))
+        .collect();
+    let mut terrain = Mesh::delaunay(&points);
+    for vertex in &mut terrain.vertices {
+        let step = ((vertex.x / 0.01).round() as usize)
+            .saturating_sub(1)
+            .min(6);
+        vertex.z = heights[step] - 0.002;
+    }
+    let channel: Vec<usize> = (1..=7)
+        .map(|x| {
+            points
+                .iter()
+                .position(|p| *p == Vec2::new(x as f32 * 0.01, 0.02))
+                .unwrap()
+        })
+        .collect();
+    let nodes = channel
+        .iter()
+        .zip(heights)
+        .map(|(&vertex, surface)| RiverNode {
+            vertex,
+            flow: 10,
+            surface,
+            position: terrain.vertices[vertex],
+        })
+        .collect();
+    let network = RiverNetwork {
+        rivers: vec![River { nodes, join: None }],
+        join_vertices: vec![None],
+        waterfalls: vec![vec![false, true, false, true, false, true, false]],
+        river_mesh_ends: vec![None],
+        max_flow: 10,
+        max_height: 0.2,
+        ocean: vec![false; terrain.vertices.len()],
+        perimeter: vec![false; terrain.vertices.len()],
+        cross_sections: Vec::new(),
+    };
+    let adjacency = terrain.adjacency();
+    let water = build_test_river_mesh(&network, &mut terrain, &adjacency);
+    assert!(!water.triangles.is_empty());
+    assert!(water.uv.iter().all(|uv| uv.is_finite()));
+    let downstream: Vec<f32> = channel
+        .iter()
+        .map(|&vertex| {
+            let xy = terrain.vertices[vertex].truncate();
+            let index = water
+                .vertices
+                .iter()
+                .position(|p| p.truncate() == xy)
+                .expect("exported water must retain the channel centreline");
+            water.uv[index].y
+        })
+        .collect();
+    let mut mapped_falls = 0;
+    for (index, uv) in downstream.windows(2).enumerate() {
+        let drop = heights[index] - heights[index + 1];
+        let expected = 0.01_f32.hypot(drop);
+        assert!(
+            (uv[1] - uv[0] - expected).abs() < 1.0e-5,
+            "flow UV lost channel distance at segment {index}: {uv:?}, expected {expected}"
+        );
+        if drop > 0.001 {
+            mapped_falls += 1;
+        }
+    }
+    assert_eq!(mapped_falls, 3);
+    assert!(water.uv.iter().any(|uv| uv.x > 0.0));
+    assert!(
+        water
+            .perimeter_vertices()
+            .iter()
+            .all(|&i| water.uv[i].x == 0.0)
+    );
+}

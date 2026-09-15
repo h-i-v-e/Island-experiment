@@ -1,0 +1,41 @@
+name: Source and package checks
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  native:
+    env:
+      RUST_TEST_THREADS: 2
+      RAYON_NUM_THREADS: 2
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: island-rs
+      - run: cargo fmt --manifest-path island-rs/Cargo.toml -- --check
+      - run: cargo clippy --manifest-path island-rs/Cargo.toml --locked --no-default-features --lib -- -D warnings
+      - run: cargo test --manifest-path island-rs/Cargo.toml --locked --no-default-features
+      - run: python3 -m unittest discover -s scripts/tests
+      - run: python3 scripts/check-unity-packages.py
+      - run: python3 scripts/pack-unity.py artifacts
+      - uses: actions/upload-artifact@v4
+        with:
+          name: motu-unity-packages
+          path: artifacts/
+  tools:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        crate: [island-tree, island-bevy, island-material-studio]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ${{ matrix.crate }}
+      - run: sudo apt-get update && sudo apt-get install -y libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
+      - run: cargo check --manifest-path ${{ matrix.crate }}/Cargo.toml --locked

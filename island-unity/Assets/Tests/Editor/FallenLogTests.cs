@@ -1,5 +1,7 @@
 using System;
 using System.Runtime.InteropServices;
+using System.Threading.Tasks;
+using static Motu.Editor.ForestRenderingValidation;
 using Motu.Interop;
 using Motu.Islands;
 using Motu.Streaming;
@@ -34,14 +36,14 @@ namespace Motu.Editor
                 var prepared = new IslandPreparedForestData(
                     new IslandPreparedMesh[ForestTileStreamer.Lod2TileCount],
                     new IslandPreparedMesh[ForestTileStreamer.Lod2TileCount],
-                    new IslandPreparedMesh[ForestTileStreamer.Lod1TileCount],
-                    new IslandPreparedMesh[ForestTileStreamer.Lod1TileCount],
-                    new IslandPreparedMesh[ForestTileStreamer.Lod1TileCount], lod0,
                     new IslandPreparedTreeCollider[ForestTileStreamer.Lod1TileCount][], logs);
-                streamer.Initialize(parent.transform, material, material, material, material, material, prepared, true);
+                streamer.Initialize(parent.transform, material, material, material, material, material, prepared, true,
+                    (lod, key, cancellation) => Task.FromResult(PrepareRegion(lod, key,
+                        new IslandPreparedMesh[ForestTileStreamer.Lod1TileCount],
+                        lod == 0 ? lod0 : new IslandPreparedMesh[ForestTileStreamer.Lod1TileCount])));
                 Assert.That(streamer.Root.GetComponentsInChildren<BoxCollider>(true), Is.Empty);
-                streamer.UpdateLod1Neighborhood(Vector2Int.zero);
-                streamer.UpdateLod0Neighborhood(Vector2Int.zero);
+                RunPreparedTransition(streamer.UpdateLod1NeighborhoodIncremental(Vector2Int.zero, () => true));
+                RunPreparedTransition(streamer.UpdateLod0NeighborhoodIncremental(Vector2Int.zero, () => true));
                 var boxes = streamer.Root.GetComponentsInChildren<BoxCollider>();
                 Assert.That(boxes.Length, Is.EqualTo(1));
                 var box = boxes[0];
@@ -59,8 +61,8 @@ namespace Motu.Editor
                 Assert.That(box.gameObject.activeInHierarchy, Is.False);
                 streamer.SetVisible(true);
                 Assert.That(box.gameObject.activeInHierarchy, Is.True);
-                streamer.UpdateLod0Neighborhood(new Vector2Int(ForestTileStreamer.Lod1Resolution - 1,
-                    ForestTileStreamer.Lod1Resolution - 1));
+                RunPreparedTransition(streamer.UpdateLod0NeighborhoodIncremental(new Vector2Int(ForestTileStreamer.Lod1Resolution - 1,
+                    ForestTileStreamer.Lod1Resolution - 1), () => true));
                 Assert.That(streamer.Root.GetComponentsInChildren<BoxCollider>(true), Is.Empty);
             }
             finally { streamer.Dispose(); Object.DestroyImmediate(material); Object.DestroyImmediate(parent); }

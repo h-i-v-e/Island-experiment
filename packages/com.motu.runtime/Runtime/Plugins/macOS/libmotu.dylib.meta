@@ -1,0 +1,26 @@
+fileFormatVersion: 2
+guid: 40a94a2c799264f74af9545595e4218c
+PluginImporter:
+  externalObjects: {}
+  serializedVersion: 3
+  iconMap: {}
+  executionOrder: {}
+  defineConstraints: []
+  isPreloaded: 0
+  isOverridable: 1
+  isExplicitlyReferenced: 0
+  validateReferences: 1
+  platformData:
+    Editor:
+      enabled: 1
+      settings:
+        CPU: ARM64
+        DefaultValueInitialized: true
+        OS: OSX
+    OSXUniversal:
+      enabled: 1
+      settings:
+        CPU: ARM64
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 

@@ -1,4 +1,4 @@
-use std::{env, hint::black_box, process, time::Instant};
+use std::{env, fs, hint::black_box, path::PathBuf, process, time::Instant};
 
 use motu::{Island, IslandOptions, Mesh};
 
@@ -15,6 +15,7 @@ fn run() -> Result<(), String> {
     let mut terrain_size = 1024_u32;
     let mut repetitions = 3_usize;
     let mut seeds = Vec::new();
+    let mut snapshot_directory = None::<PathBuf>;
     let mut arguments = env::args().skip(1);
     while let Some(argument) = arguments.next() {
         match argument.as_str() {
@@ -25,10 +26,19 @@ fn run() -> Result<(), String> {
                 repetitions = parse(&argument, arguments.next())?;
             }
             "--seed" => seeds.push(parse(&argument, arguments.next())?),
+            "--snapshot-directory" => {
+                snapshot_directory = Some(PathBuf::from(
+                    arguments
+                        .next()
+                        .ok_or("--snapshot-directory requires a path")?,
+                ));
+            }
             "-h" | "--help" => {
                 println!(
                     "generation-bench [--terrain-size N] [--repetitions N] [--seed N]...\n\
-                     Generates no raster or Unity assets. One warm-up precedes measured runs."
+                     [--snapshot-directory PATH]\n\
+                     One warm-up precedes measured runs. Optional full snapshots are saved\n\
+                     after timing each run; no raster or Unity assets are generated."
                 );
                 return Ok(());
             }
@@ -40,6 +50,9 @@ fn run() -> Result<(), String> {
     }
     if repetitions == 0 {
         return Err("--repetitions must be greater than zero".into());
+    }
+    if let Some(directory) = &snapshot_directory {
+        fs::create_dir_all(directory).map_err(|error| error.to_string())?;
     }
 
     let options = IslandOptions {
@@ -71,6 +84,11 @@ fn run() -> Result<(), String> {
                 island.rivers().len(),
                 geometry_hash(mesh),
             );
+            if let Some(directory) = &snapshot_directory {
+                island
+                    .save(directory.join(format!("{seed}-{run}.motusnapshot")))
+                    .map_err(|error| error.to_string())?;
+            }
         }
     }
     Ok(())

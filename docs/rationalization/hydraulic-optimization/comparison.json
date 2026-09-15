@@ -1,0 +1,135 @@
+{
+  "scope": "CPU Island::generate, 1024 initial points, seed 17, 14 workers. Three process pairs ordered before/after, after/before, before/after. Each process has one 128-point warmup then one measured run. No concurrent test/build workload; normal desktop apps remained open. Profiled native binary; not Unity frame performance.",
+  "build": "cargo build --manifest-path island-rs/Cargo.toml --locked --no-default-features --features profiling --profile profiling --bin generation-bench",
+  "captured_utc": "2026-09-15T05:59:06.721225+00:00",
+  "machine": "Apple M4 Pro, 24 GiB, macOS ARM64",
+  "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)\nbinary: rustc\ncommit-hash: 2d8144b7880597b6e6d3dfd63a9a9efae3f533d3\ncommit-date: 2026-07-07\nhost: aarch64-apple-darwin\nrelease: 1.97.0\nLLVM version: 22.1.6",
+  "variants": {
+    "before": {
+      "benchmark_sha256": "c5f3bb739d8d8eed6ec93dafec9445c636c91ed05eea50b6d42230f8805cb663",
+      "runs": [
+        {
+          "pair": 1,
+          "milliseconds": 32666.535,
+          "hydraulic_ms": 14517.735,
+          "geometry_hash": "2597653885197063265",
+          "maximum_process_rss_bytes": 3298803712,
+          "csv": "before-perf-1024-1.csv",
+          "stage_log": "before-perf-1024-1.log"
+        },
+        {
+          "pair": 2,
+          "milliseconds": 32909.829,
+          "hydraulic_ms": 14683.485999999999,
+          "geometry_hash": "2597653885197063265",
+          "maximum_process_rss_bytes": 3088023552,
+          "csv": "before-perf-1024-2.csv",
+          "stage_log": "before-perf-1024-2.log"
+        },
+        {
+          "pair": 3,
+          "milliseconds": 33048.243,
+          "hydraulic_ms": 14610.803,
+          "geometry_hash": "2597653885197063265",
+          "maximum_process_rss_bytes": 3564224512,
+          "csv": "before-perf-1024-3.csv",
+          "stage_log": "before-perf-1024-3.log"
+        }
+      ],
+      "median_ms": 32909.829,
+      "median_hydraulic_ms": 14610.803
+    },
+    "after": {
+      "benchmark_sha256": "7fc039ea6270bbde3d496654af890088a7caa5f10f6fff63f00782ce91257b6d",
+      "runs": [
+        {
+          "pair": 1,
+          "milliseconds": 31932.758,
+          "hydraulic_ms": 13781.291,
+          "geometry_hash": "2597653885197063265",
+          "maximum_process_rss_bytes": 3599499264,
+          "csv": "after-perf-1024-1.csv",
+          "stage_log": "after-perf-1024-1.log"
+        },
+        {
+          "pair": 2,
+          "milliseconds": 32116.519,
+          "hydraulic_ms": 13803.317000000001,
+          "geometry_hash": "2597653885197063265",
+          "maximum_process_rss_bytes": 3258089472,
+          "csv": "after-perf-1024-2.csv",
+          "stage_log": "after-perf-1024-2.log"
+        },
+        {
+          "pair": 3,
+          "milliseconds": 32097.387,
+          "hydraulic_ms": 13880.338,
+          "geometry_hash": "2597653885197063265",
+          "maximum_process_rss_bytes": 3134423040,
+          "csv": "after-perf-1024-3.csv",
+          "stage_log": "after-perf-1024-3.log"
+        }
+      ],
+      "median_ms": 32097.387,
+      "median_hydraulic_ms": 13803.317000000001
+    }
+  },
+  "median_generation_reduction_percent": 2.468691040600668,
+  "median_hydraulic_reduction_percent": 5.526636694779874,
+  "complete_snapshot_comparisons": [
+    {
+      "seed": 12345,
+      "terrain_size_seed_points": 128,
+      "bytes": 503512988,
+      "before_sha256": "8aff1fef40318c68b84001884c9e94db439fef717fd6284f1d2053be3b72e8f5",
+      "after_sha256": "8aff1fef40318c68b84001884c9e94db439fef717fd6284f1d2053be3b72e8f5",
+      "identical": true
+    },
+    {
+      "seed": 17,
+      "terrain_size_seed_points": 128,
+      "bytes": 585635290,
+      "before_sha256": "2b2c922f01c3aaf1da12a0b30779cc54e72805159395abcb0decb3c7426d23fa",
+      "after_sha256": "2b2c922f01c3aaf1da12a0b30779cc54e72805159395abcb0decb3c7426d23fa",
+      "identical": true
+    },
+    {
+      "seed": 2018,
+      "terrain_size_seed_points": 128,
+      "bytes": 524674208,
+      "before_sha256": "4e9ef6a7db3ea22ffb7425a8ca892f8abf5020d3520a031406151b583b4d6c65",
+      "after_sha256": "4e9ef6a7db3ea22ffb7425a8ca892f8abf5020d3520a031406151b583b4d6c65",
+      "identical": true
+    },
+    {
+      "seed": 42,
+      "terrain_size_seed_points": 128,
+      "bytes": 299869668,
+      "before_sha256": "3737ee12d83f2f7e50238cb4834a0e809469d8a860bf020309e629e707934ac1",
+      "after_sha256": "3737ee12d83f2f7e50238cb4834a0e809469d8a860bf020309e629e707934ac1",
+      "identical": true
+    },
+    {
+      "seed": 666,
+      "terrain_size_seed_points": 128,
+      "bytes": 452705862,
+      "before_sha256": "485edc1b70ad88afe641f462d485b4226b9a87f248f76c43cf4b883914c33024",
+      "after_sha256": "485edc1b70ad88afe641f462d485b4226b9a87f248f76c43cf4b883914c33024",
+      "identical": true
+    },
+    {
+      "seed": 17,
+      "terrain_size_seed_points": 1024,
+      "bytes": 905519856,
+      "before_sha256": "542426483bb7d3f0f06d7ea96f1aaa0bd70400a6ce4c043c9ff006fadeb75e5c",
+      "after_sha256": "542426483bb7d3f0f06d7ea96f1aaa0bd70400a6ce4c043c9ff006fadeb75e5c",
+      "identical": true
+    }
+  ],
+  "source_sha256": {
+    "island-rs/src/terrain/erosion.rs": "39f982012193bc3271b80bfa12875fda09f01f2c56673142320740c59d034e81",
+    "island-rs/src/forest.rs": "7d39e365c4e5d2a55d9dc7232bc212e91d0a09f4ddaed08fd6790cee5a01fa91",
+    "island-rs/src/bin/generation_bench.rs": "0d7c5df2ffb9c535de8b8dadcaa3cce6bc70debfdf7c330b9839f51d2c8d675d"
+  },
+  "baseline_erosion_sha256": "e5fa6e0b10ea33927e9ba40d7fa0962ed46e86fef2cc37323734b20f6a5c30cb"
+}

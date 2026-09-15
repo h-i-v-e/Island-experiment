@@ -972,7 +972,7 @@ impl PreparedIsland {
                 width: Some(MATERIAL_TEXTURE_SIZE),
                 height: Some(MATERIAL_TEXTURE_SIZE),
                 normal_convention: NormalConvention::OpenGl,
-                materials: MaterialSelection::ALL,
+                materials: MaterialSelection::TERRAIN,
             },
         )
         .map_err(|error| format!("could not bake runtime materials: {error}"))?;

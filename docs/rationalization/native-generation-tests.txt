@@ -1,0 +1,59 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/generation.rs (island-rs/target/debug/deps/generation-581ccc2b41e1bdf7)
+
+running 34 tests
+test coarse_lod_surface_maps_capture_detail_and_occlusion ... ok
+test absolute_river_source_catchment_changes_river_generation ... ok
+test completely_submerged_profile_remains_finite ... ok
+test coarser_lods_are_refined_and_pinned_to_the_final_lod0_surface ... ok
+test every_final_river_reaches_the_sea_or_joins_one_that_does has been running for over 60 seconds
+test explicit_cpu_method_preserves_the_primary_generator ... ok
+test exported_terrain_is_clipped_ten_metres_below_sea_level ... ok
+test final_terrain_has_an_explicit_sea_plane_coastline ... ok
+test finest_lod_concentrates_detail_on_land ... ok
+test generation_is_deterministic ... ok
+test generation_is_deterministic_across_worker_counts ... ok
+test every_final_river_reaches_the_sea_or_joins_one_that_does ... ok
+test hydraulic_deposition_controls_change_terrain has been running for over 60 seconds
+test hydraulic_erosion_does_not_reverse_projected_faces ... ok
+test hydraulic_deposition_controls_change_terrain ... ok
+test hydraulic_erosion_strength_changes_terrain ... ok
+test initial_soil_depth_rejects_negative_and_non_finite_values ... ok
+test initial_soil_blanket_changes_eroded_terrain has been running for over 60 seconds
+test initial_soil_blanket_changes_eroded_terrain ... ok
+test lod0_render_uses_the_corrected_support_mesh ... ok
+test lods_reduce_mesh_density ... ok
+test native_options_are_not_limited_to_viewer_control_ranges ... ok
+test map_exports_have_expected_lengths ... ok
+test public_vectors_are_glam_types ... ok
+test rejects_inverted_or_non_positive_river_dimensions ... ok
+test rejects_non_finite_or_out_of_range_terrain_noise_controls ... ok
+test rejects_out_of_range_hydraulic_deposition_options ... ok
+test rejects_out_of_range_hydraulic_erosion_strength ... ok
+test rivers_are_continuous_flowing_terrain_submeshes_with_waterfalls ... FAILED
+test png_writer_emits_png_signature ... ok
+test save_and_load_regenerates_identical_island has been running for over 60 seconds
+test terrain_noise_controls_change_the_generated_island ... ok
+test unavailable_gpu_method_returns_an_error ... ok
+test version_fourteen_minimum_elevation_is_replaced_by_the_default_boost ... ok
+test save_and_load_regenerates_identical_island ... ok
+test version_ten_save_uses_new_river_source_defaults ... ok
+test version_thirteen_fraction_is_migrated_to_an_absolute_land_area ... ok
+test water_ratio_increases_connected_ocean_coverage has been running for over 60 seconds
+test water_ratio_increases_connected_ocean_coverage ... ok
+
+failures:
+
+---- rivers_are_continuous_flowing_terrain_submeshes_with_waterfalls stdout ----
+
+thread 'rivers_are_continuous_flowing_terrain_submeshes_with_waterfalls' (35760357) panicked at tests/generation.rs:121:5:
+assertion failed: river_mesh.uv.iter().any(|uv| uv.x > 0.0)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    rivers_are_continuous_flowing_terrain_submeshes_with_waterfalls
+
+test result: FAILED. 33 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 740.48s
+
+error: test failed, to rerun pass `--test generation`

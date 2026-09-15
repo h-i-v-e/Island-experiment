@@ -8,7 +8,7 @@ use std::collections::HashMap;
 
 use crate::{
     BoundingBox, Mesh, Vec2, Vec3,
-    mesh::{CLAMP_BOTTOM, CLAMP_LEFT, CLAMP_RIGHT, CLAMP_TOP},
+    mesh::{CLAMP_BOTTOM, CLAMP_LEFT, CLAMP_RIGHT, CLAMP_TOP, clamp_grid_boundaries},
 };
 
 const TRANSITION_FRACTION: f32 = 0.12;
@@ -87,8 +87,6 @@ impl<'a> MeshClipper<'a> {
         let mut output = vec![Mesh::default(); divisions * divisions];
         let mut remaps: Vec<HashMap<ClipVertexKey, u32>> =
             (0..output.len()).map(|_| HashMap::new()).collect();
-        let transition_width = transition_width(self.mesh, bounds);
-        let coarse_sampler = coarser.map(MeshSampler::new);
         let coordinate = |value: f32, minimum: f32, span: f32| {
             (((value - minimum) / span * divisions as f32).floor() as usize).min(divisions - 1)
         };
@@ -103,14 +101,17 @@ impl<'a> MeshClipper<'a> {
                 continue;
             }
             let source = indices.map(|index| {
-                morphed_vertex(
-                    self.mesh,
-                    index,
-                    bounds,
-                    coarse_sampler.as_ref(),
-                    clamp_sides,
-                    transition_width,
-                )
+                let position = self.mesh.vertices[index];
+                ClipVertex {
+                    position,
+                    normal: self.mesh.normals[index],
+                    uv: self
+                        .mesh
+                        .uv
+                        .get(index)
+                        .copied()
+                        .unwrap_or(position.truncate()),
+                }
             });
             let minimum_x = source
                 .iter()
@@ -157,51 +158,54 @@ impl<'a> MeshClipper<'a> {
                     append_clipped_triangle(
                         source,
                         tile_bounds,
-                        bounds,
-                        coarse_sampler.as_ref(),
-                        clamp_sides,
                         &mut output[tile],
                         &mut remaps[tile],
                     );
                 }
             }
         }
+        if let Some(coarser) = coarser.filter(|_| clamp_sides != 0) {
+            // Morph the clipped vertices, not the source triangle. A source
+            // triangle can span several groups with different side masks;
+            // morphing it first gives their shared cut different heights.
+            morph_clipped_tiles(
+                &mut output,
+                coarser,
+                bounds,
+                clamp_sides,
+                transition_width(self.mesh, bounds),
+            );
+            let coarse_patch = coarser.sliced(bounds);
+            clamp_grid_boundaries(&mut output, &coarse_patch, bounds, clamp_sides);
+        }
         output
     }
 }
 
-fn morphed_vertex(
-    mesh: &Mesh,
-    index: usize,
+fn morph_clipped_tiles(
+    tiles: &mut [Mesh],
+    coarser: &Mesh,
     bounds: BoundingBox,
-    coarse_sampler: Option<&MeshSampler<'_>>,
     clamp_sides: u8,
     transition_width: f32,
-) -> ClipVertex {
-    let position = mesh.vertices[index];
-    let uv = mesh.uv.get(index).copied().unwrap_or(position.truncate());
-    let Some(coarse_sampler) = coarse_sampler.filter(|_| clamp_sides != 0) else {
-        return ClipVertex {
-            position,
-            normal: mesh.normals[index],
-            uv,
-        };
-    };
-    let distance = clamp_distance(position, bounds, clamp_sides);
-    let detail_weight = smoothstep((distance / transition_width).clamp(0.0, 1.0));
-    let (coarse_height, coarse_normal) = coarse_sampler
-        .sample(position.truncate())
-        .unwrap_or((position.z, mesh.normals[index]));
-    ClipVertex {
-        position: Vec3::new(
-            position.x,
-            position.y,
-            (position.z - coarse_height).mul_add(detail_weight, coarse_height),
-        ),
-        normal: coarse_normal
-            .lerp(mesh.normals[index], detail_weight)
-            .normalize_or_zero(),
-        uv,
+) {
+    let coarse_sampler = MeshSampler::new(coarser);
+    for tile in tiles {
+        for (position, normal) in tile.vertices.iter_mut().zip(&mut tile.normals) {
+            let distance = clamp_distance(*position, bounds, clamp_sides);
+            if distance >= transition_width {
+                continue;
+            }
+            let detail_weight = smoothstep((distance / transition_width).clamp(0.0, 1.0));
+            let Some((coarse_height, coarse_normal)) = coarse_sampler.sample(position.truncate())
+            else {
+                continue;
+            };
+            position.z = (position.z - coarse_height).mul_add(detail_weight, coarse_height);
+            *normal = coarse_normal
+                .lerp(*normal, detail_weight)
+                .normalize_or_zero();
+        }
     }
 }
 
@@ -244,9 +248,6 @@ fn clamp_distance(position: Vec3, bounds: BoundingBox, sides: u8) -> f32 {
 fn append_clipped_triangle(
     source: [ClipVertex; 3],
     tile_bounds: BoundingBox,
-    outer_bounds: BoundingBox,
-    coarse_sampler: Option<&MeshSampler<'_>>,
-    clamp_sides: u8,
     output: &mut Mesh,
     remap: &mut HashMap<ClipVertexKey, u32>,
 ) {
@@ -264,7 +265,6 @@ fn append_clipped_triangle(
     let mut mapped = [0_u32; 8];
     for (index, vertex) in first[..length].iter().copied().enumerate() {
         let vertex = reproject_clip_vertex(vertex, source);
-        let vertex = clamp_outer_vertex(vertex, outer_bounds, coarse_sampler, clamp_sides);
         let key = ClipVertexKey::from(vertex);
         mapped[index] = *remap.entry(key).or_insert_with(|| {
             let mapped = output.vertices.len() as u32;
@@ -389,45 +389,6 @@ fn push_clip_vertex(output: &mut [ClipVertex; 8], length: &mut usize, vertex: Cl
         output[*length] = vertex;
         *length += 1;
     }
-}
-
-fn clamp_outer_vertex(
-    mut vertex: ClipVertex,
-    bounds: BoundingBox,
-    coarse_sampler: Option<&MeshSampler<'_>>,
-    clamp_sides: u8,
-) -> ClipVertex {
-    let Some(coarse_sampler) = coarse_sampler.filter(|_| clamp_sides != 0) else {
-        return vertex;
-    };
-    let epsilon =
-        ((bounds.max.x - bounds.min.x).abs() + (bounds.max.y - bounds.min.y).abs()) * 1.0e-6;
-    let mut boundary = false;
-    if clamp_sides & CLAMP_TOP != 0 && (vertex.position.y - bounds.max.y).abs() <= epsilon {
-        vertex.position.y = bounds.max.y;
-        vertex.uv.y = bounds.max.y;
-        boundary = true;
-    }
-    if clamp_sides & CLAMP_LEFT != 0 && (vertex.position.x - bounds.min.x).abs() <= epsilon {
-        vertex.position.x = bounds.min.x;
-        vertex.uv.x = bounds.min.x;
-        boundary = true;
-    }
-    if clamp_sides & CLAMP_BOTTOM != 0 && (vertex.position.y - bounds.min.y).abs() <= epsilon {
-        vertex.position.y = bounds.min.y;
-        vertex.uv.y = bounds.min.y;
-        boundary = true;
-    }
-    if clamp_sides & CLAMP_RIGHT != 0 && (vertex.position.x - bounds.max.x).abs() <= epsilon {
-        vertex.position.x = bounds.max.x;
-        vertex.uv.x = bounds.max.x;
-        boundary = true;
-    }
-    if boundary && let Some((height, normal)) = coarse_sampler.sample(vertex.position.truncate()) {
-        vertex.position.z = height;
-        vertex.normal = normal;
-    }
-    vertex
 }
 
 impl<'a> MeshSampler<'a> {
@@ -561,4 +522,147 @@ fn barycentric(point: Vec2, positions: [Vec2; 3]) -> Option<[f32; 3]> {
 
 fn smoothstep(value: f32) -> f32 {
     value * value * (3.0 - 2.0 * value)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn neighbouring_groups_with_different_clamps_share_the_same_edge() {
+        let mut fine = Mesh::delaunay(&[Vec2::ZERO, Vec2::X, Vec2::ONE, Vec2::Y]);
+        fine.vertices.iter_mut().for_each(|vertex| vertex.z = 0.2);
+        fine.calculate_normals();
+        let mut coarse = Mesh::delaunay(&[Vec2::ZERO, Vec2::X, Vec2::ONE, Vec2::Y]);
+        coarse.calculate_normals();
+        let bounds = |left, right| {
+            BoundingBox::new(
+                Vec3::new(left, 0.0, f32::MIN),
+                Vec3::new(right, 0.5, f32::MAX),
+            )
+        };
+        for (left_mask, right_mask) in [
+            (0, CLAMP_RIGHT),
+            (CLAMP_LEFT, 0),
+            (CLAMP_TOP, CLAMP_TOP | CLAMP_RIGHT),
+            (CLAMP_TOP | CLAMP_LEFT, CLAMP_TOP),
+            (CLAMP_BOTTOM, CLAMP_BOTTOM | CLAMP_RIGHT),
+            (CLAMP_BOTTOM | CLAMP_LEFT, CLAMP_BOTTOM),
+        ] {
+            let left = MeshClipper::new(&fine).sliced(bounds(0.0, 0.5), Some(&coarse), left_mask);
+            let right = MeshClipper::new(&fine).sliced(bounds(0.5, 1.0), Some(&coarse), right_mask);
+            let mut compared = 0;
+            for vertex in left
+                .vertices
+                .iter()
+                .filter(|vertex| (vertex.x - 0.5).abs() < 1.0e-7)
+            {
+                let other = right
+                    .vertices
+                    .iter()
+                    .find(|other| {
+                        (other.x - vertex.x).abs() < 1.0e-7 && (other.y - vertex.y).abs() < 1.0e-7
+                    })
+                    .unwrap();
+                assert!(
+                    (vertex.z - other.z).abs() < 1.0e-6,
+                    "neighbouring groups disagree at {vertex:?}: {other:?}"
+                );
+                compared += 1;
+            }
+            assert!(compared >= 2);
+        }
+    }
+
+    fn assert_edges_follow_coarse(tiles: &[Mesh], coarse: &Mesh, bounds: BoundingBox) {
+        let sampler = MeshSampler::new(coarse);
+        let mut edges = 0;
+        for tile in tiles {
+            assert_eq!(tile.normals.len(), tile.vertices.len());
+            assert_eq!(tile.uv.len(), tile.vertices.len());
+            for triangle in tile.triangles.chunks_exact(3) {
+                let vertices = [triangle[0], triangle[1], triangle[2]]
+                    .map(|index| tile.vertices[index as usize]);
+                assert!(
+                    (vertices[1] - vertices[0])
+                        .cross(vertices[2] - vertices[0])
+                        .z
+                        > 0.0
+                );
+                for edge in 0..3 {
+                    let a = vertices[edge];
+                    let b = vertices[(edge + 1) % 3];
+                    let boundary = [
+                        (0, bounds.min.x),
+                        (0, bounds.max.x),
+                        (1, bounds.min.y),
+                        (1, bounds.max.y),
+                    ]
+                    .into_iter()
+                    .any(|(axis, value)| {
+                        (a[axis] - value).abs() < 1.0e-8 && (b[axis] - value).abs() < 1.0e-8
+                    });
+                    if !boundary {
+                        continue;
+                    }
+                    for t in [0.0, 0.25, 0.5, 0.75, 1.0] {
+                        let point = a.lerp(b, t);
+                        let (height, _) = sampler.sample(point.truncate()).unwrap();
+                        assert!(
+                            (point.z - height).abs() < 1.0e-6,
+                            "boundary segment leaves coarse surface at {point:?}, expected {height}"
+                        );
+                    }
+                    edges += 1;
+                }
+            }
+        }
+        assert!(edges >= 4);
+    }
+
+    #[test]
+    fn both_clippers_stitch_all_sides_and_corners_at_streaming_scale() {
+        let corners = [Vec2::ZERO, Vec2::X, Vec2::ONE, Vec2::Y];
+        let mut points = corners.to_vec();
+        for t in [0.3, 0.7] {
+            points.extend([
+                Vec2::new(t, 0.0),
+                Vec2::new(t, 1.0),
+                Vec2::new(0.0, t),
+                Vec2::new(1.0, t),
+            ]);
+        }
+        for (minimum, extent) in [(0.0, 1.0), (17.0 / 64.0, 1.0 / 64.0)] {
+            let mut coarse = Mesh::delaunay(&points);
+            let mut fine = Mesh::delaunay(&corners);
+            for mesh in [&mut fine, &mut coarse] {
+                for vertex in &mut mesh.vertices {
+                    vertex.z = if corners.contains(&vertex.truncate()) {
+                        0.0
+                    } else {
+                        extent * 0.2
+                    };
+                    vertex.x = minimum + vertex.x * extent;
+                    vertex.y = minimum + vertex.y * extent;
+                }
+                mesh.uv = mesh
+                    .vertices
+                    .iter()
+                    .map(|vertex| vertex.truncate() * 0.7)
+                    .collect();
+                mesh.calculate_normals();
+            }
+            let bounds = BoundingBox::new(
+                Vec3::new(minimum, minimum, f32::MIN),
+                Vec3::new(minimum + extent, minimum + extent, f32::MAX),
+            );
+            for divisions in [1, 8] {
+                let tiles = fine.sliced_grid_clamped(bounds, divisions, &coarse, 15);
+                assert_edges_follow_coarse(&tiles, &coarse, bounds);
+                let tiles =
+                    MeshClipper::new(&fine).sliced_grid(bounds, divisions, Some(&coarse), 15);
+                assert_edges_follow_coarse(&tiles, &coarse, bounds);
+            }
+        }
+    }
 }

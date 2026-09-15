@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="utf-8"?>
+<test-run id="2" testcasecount="12" result="Passed" total="12" passed="12" failed="0" inconclusive="0" skipped="0" asserts="0" engine-version="3.5.0.0" clr-version="4.0.30319.42000" start-time="2026-09-15 19:12:42Z" end-time="2026-09-15 19:13:15Z" duration="32.9560162">
+  <test-suite type="TestSuite" id="1000" name="project" fullname="project" runstate="Runnable" testcasecount="12" result="Passed" start-time="2026-09-15 19:12:42Z" end-time="2026-09-15 19:13:15Z" duration="32.956016" total="12" passed="12" failed="0" inconclusive="0" skipped="0" asserts="0">
+    <properties>
+      <property name="platform" value="EditMode" />
+    </properties>
+    <test-suite type="Assembly" id="1017" name="Motu.Tests.Package.dll" fullname="/private/var/folders/29/fnbdz_fn4sjcgp2dqdf_jcb80000gn/T/motu-consumer.u4xHwV/project/Library/ScriptAssemblies/Motu.Tests.Package.dll" runstate="Runnable" testcasecount="12" result="Passed" start-time="2026-09-15 19:12:42Z" end-time="2026-09-15 19:13:15Z" duration="32.933287" total="12" passed="12" failed="0" inconclusive="0" skipped="0" asserts="0">
+      <properties>
+        <property name="_PID" value="67480" />
+        <property name="_APPDOMAIN" value="Unity Child Domain" />
+        <property name="platform" value="EditMode" />
+        <property name="EditorOnly" value="True" />
+      </properties>
+      <test-suite type="TestSuite" id="1018" name="Motu" fullname="Motu" runstate="Runnable" testcasecount="12" result="Passed" start-time="2026-09-15 19:12:42Z" end-time="2026-09-15 19:13:15Z" duration="32.932986" total="12" passed="12" failed="0" inconclusive="0" skipped="0" asserts="0">
+        <properties />
+        <test-suite type="TestSuite" id="1019" name="Tests" fullname="Motu.Tests" runstate="Runnable" testcasecount="12" result="Passed" start-time="2026-09-15 19:12:42Z" end-time="2026-09-15 19:13:15Z" duration="32.932669" total="12" passed="12" failed="0" inconclusive="0" skipped="0" asserts="0">
+          <properties />
+          <test-suite type="TestFixture" id="1001" name="EnvironmentOwnershipTests" fullname="Motu.Tests.EnvironmentOwnershipTests" classname="Motu.Tests.EnvironmentOwnershipTests" runstate="Runnable" testcasecount="1" result="Passed" start-time="2026-09-15 19:12:22Z" end-time="2026-09-15 19:12:23Z" duration="0.677469" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+            <properties />
+            <test-case id="1002" name="EnvironmentRestoresHostAcrossDisableReenableAndAdditiveUnload" fullname="Motu.Tests.EnvironmentOwnershipTests.EnvironmentRestoresHostAcrossDisableReenableAndAdditiveUnload" methodname="EnvironmentRestoresHostAcrossDisableReenableAndAdditiveUnload" classname="Motu.Tests.EnvironmentOwnershipTests" runstate="Runnable" seed="1431257221" result="Passed" start-time="2026-09-15 19:12:22Z" end-time="2026-09-15 19:12:23Z" duration="1.311460" asserts="0">
+              <properties>
+                <property name="_JOINTYPE" value="UnityCombinatorial" />
+                <property name="Timeout" value="180000" />
+              </properties>
+              <output><![CDATA[Disable the Motu environment before changing the active scene. The environment has been disabled to preserve the incoming scene's lighting.
+]]></output>
+            </test-case>
+          </test-suite>
+          <test-suite type="TestFixture" id="1003" name="ForestStreamingTests" fullname="Motu.Tests.ForestStreamingTests" classname="Motu.Tests.ForestStreamingTests" runstate="Runnable" testcasecount="3" result="Passed" start-time="2026-09-15 19:12:23Z" end-time="2026-09-15 19:12:23Z" duration="0.134674" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0">
+            <properties />
+            <test-case id="1005" name="PendingExportCanBeAbandonedWithoutInstallingOrKeepingDetails" fullname="Motu.Tests.ForestStreamingTests.PendingExportCanBeAbandonedWithoutInstallingOrKeepingDetails" methodname="PendingExportCanBeAbandonedWithoutInstallingOrKeepingDetails" classname="Motu.Tests.ForestStreamingTests" runstate="Runnable" seed="685690197" result="Passed" start-time="2026-09-15 19:12:23Z" end-time="2026-09-15 19:12:23Z" duration="0.006764" asserts="0">
+              <properties />
+            </test-case>
+            <test-case id="1006" name="TeleportAndUploadCancellationKeepOnlyTheWantedGroups" fullname="Motu.Tests.ForestStreamingTests.TeleportAndUploadCancellationKeepOnlyTheWantedGroups" methodname="TeleportAndUploadCancellationKeepOnlyTheWantedGroups" classname="Motu.Tests.ForestStreamingTests" runstate="Runnable" seed="968289965" result="Passed" start-time="2026-09-15 19:12:23Z" end-time="2026-09-15 19:12:23Z" duration="0.126610" asserts="0">
+              <properties />
+            </test-case>
+            <test-case id="1004" name="TileBoundsAssignEveryBoundaryToExactlyOneOwner" fullname="Motu.Tests.ForestStreamingTests.TileBoundsAssignEveryBoundaryToExactlyOneOwner" methodname="TileBoundsAssignEveryBoundaryToExactlyOneOwner" classname="Motu.Tests.ForestStreamingTests" runstate="Runnable" seed="1328354198" result="Passed" start-time="2026-09-15 19:12:23Z" end-time="2026-09-15 19:12:23Z" duration="0.000616" asserts="0">
+              <properties />
+            </test-case>
+          </test-suite>
+          <test-suite type="TestFixture" id="1007" name="HostIntegrationTests" fullname="Motu.Tests.HostIntegrationTests" classname="Motu.Tests.HostIntegrationTests" runstate="Runnable" testcasecount="7" result="Passed" start-time="2026-09-15 19:12:23Z" end-time="2026-09-15 19:12:41Z" duration="17.797472" total="7" passed="7" failed="0" inconclusive="0" skipped="0" asserts="0">
+            <properties />
+            <test-case id="1013" name="CacheEvictionPreservesHostFilesAndIncompleteWrites" fullname="Motu.Tests.HostIntegrationTests.CacheEvictionPreservesHostFilesAndIncompleteWrites" methodname="CacheEvictionPreservesHostFilesAndIncompleteWrites" classname="Motu.Tests.HostIntegrationTests" runstate="Runnable" seed="452177531" result="Passed" start-time="2026-09-15 19:12:23Z" end-time="2026-09-15 19:12:23Z" duration="0.004684" asserts="0">
+              <properties />
+            </test-case>
+            <test-case id="1012" name="CacheLocationIsSnapshottedWithoutCreatingDirectories" fullname="Motu.Tests.HostIntegrationTests.CacheLocationIsSnapshottedWithoutCreatingDirectories" methodname="CacheLocationIsSnapshottedWithoutCreatingDirectories" classname="Motu.Tests.HostIntegrationTests" runstate="Runnable" seed="135787470" result="Passed" start-time="2026-09-15 19:12:23Z" end-time="2026-09-15 19:12:23Z" duration="0.004245" asserts="0">
+              <properties />
+            </test-case>
+            <test-case id="1014" name="IslandGeneratesAndUnloadsWithoutMotuEnvironmentOrSamples" fullname="Motu.Tests.HostIntegrationTests.IslandGeneratesAndUnloadsWithoutMotuEnvironmentOrSamples" methodname="IslandGeneratesAndUnloadsWithoutMotuEnvironmentOrSamples" classname="Motu.Tests.HostIntegrationTests" runstate="Runnable" seed="546822966" result="Passed" start-time="2026-09-15 19:12:23Z" end-time="2026-09-15 19:12:41Z" duration="17.569272" asserts="0">
+              <properties>
+                <property name="_JOINTYPE" value="UnityCombinatorial" />
+                <property name="Timeout" value="1800000" />
+              </properties>
+              <output><![CDATA[MOTU LIFECYCLE cycle=1: generated and released all captured owned meshes/textures; handles=0
+]]></output>
+            </test-case>
+            <test-case id="1008" name="NativeBinaryMatchesManagedLayouts" fullname="Motu.Tests.HostIntegrationTests.NativeBinaryMatchesManagedLayouts" methodname="NativeBinaryMatchesManagedLayouts" classname="Motu.Tests.HostIntegrationTests" runstate="Runnable" seed="1845062527" result="Passed" start-time="2026-09-15 19:12:41Z" end-time="2026-09-15 19:12:41Z" duration="0.000068" asserts="0">
+              <properties />
+            </test-case>
+            <test-case id="1009" name="RuntimeDoesNotReferenceSamplesOrNavigation" fullname="Motu.Tests.HostIntegrationTests.RuntimeDoesNotReferenceSamplesOrNavigation" methodname="RuntimeDoesNotReferenceSamplesOrNavigation" classname="Motu.Tests.HostIntegrationTests" runstate="Runnable" seed="840892093" result="Passed" start-time="2026-09-15 19:12:41Z" end-time="2026-09-15 19:12:41Z" duration="0.000532" asserts="0">
+              <properties />
+            </test-case>
+            <test-case id="1010" name="ShaderLibraryContainsEveryRuntimeShader" fullname="Motu.Tests.HostIntegrationTests.ShaderLibraryContainsEveryRuntimeShader" methodname="ShaderLibraryContainsEveryRuntimeShader" classname="Motu.Tests.HostIntegrationTests" runstate="Runnable" seed="702818619" result="Passed" start-time="2026-09-15 19:12:41Z" end-time="2026-09-15 19:12:41Z" duration="0.000910" asserts="0">
+              <properties />
+            </test-case>
+            <test-case id="1011" name="SharedNoiseLivesUntilTheLastIslandReleasesIt" fullname="Motu.Tests.HostIntegrationTests.SharedNoiseLivesUntilTheLastIslandReleasesIt" methodname="SharedNoiseLivesUntilTheLastIslandReleasesIt" classname="Motu.Tests.HostIntegrationTests" runstate="Runnable" seed="830599038" result="Passed" start-time="2026-09-15 19:12:41Z" end-time="2026-09-15 19:12:41Z" duration="0.205287" asserts="0">
+              <properties />
+            </test-case>
+          </test-suite>
+          <test-suite type="TestFixture" id="1015" name="StreamingResponsivenessTests" fullname="Motu.Tests.StreamingResponsivenessTests" classname="Motu.Tests.StreamingResponsivenessTests" runstate="Runnable" testcasecount="1" result="Passed" start-time="2026-09-15 19:12:42Z" end-time="2026-09-15 19:13:15Z" duration="32.927993" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+            <properties />
+            <test-case id="1016" name="TravelUsesBackgroundExportsAndUnloadRetainsWorkerLease" fullname="Motu.Tests.StreamingResponsivenessTests.TravelUsesBackgroundExportsAndUnloadRetainsWorkerLease" methodname="TravelUsesBackgroundExportsAndUnloadRetainsWorkerLease" classname="Motu.Tests.StreamingResponsivenessTests" runstate="Runnable" seed="270838815" result="Passed" start-time="2026-09-15 19:12:41Z" end-time="2026-09-15 19:13:15Z" duration="33.544206" asserts="0">
+              <properties>
+                <property name="_JOINTYPE" value="UnityCombinatorial" />
+                <property name="Timeout" value="600000" />
+                <property name="retryIteration" value="0" />
+                <property name="repeatIteration" value="0" />
+              </properties>
+              <output><![CDATA[MOTU FOREST EXPORT EQUIVALENCE: 96 nonempty meshes compared exactly.
+MOTU STREAMING RESPONSIVENESS: syncGridMs=8.491, exportFrames=81, initialFocusMs=10.252, transitionFrames=1768, maxObservedFrameMs=10.208
+Saving results to: /var/folders/29/fnbdz_fn4sjcgp2dqdf_jcb80000gn/T//motu-consumer.u4xHwV/tests.xml
+]]></output>
+            </test-case>
+          </test-suite>
+        </test-suite>
+      </test-suite>
+    </test-suite>
+  </test-suite>
+</test-run>

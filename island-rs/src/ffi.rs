@@ -6,6 +6,7 @@
     clippy::missing_safety_doc
 )]
 
+mod abi;
 mod caves;
 
 use std::{

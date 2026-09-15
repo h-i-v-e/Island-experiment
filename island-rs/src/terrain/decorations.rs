@@ -517,12 +517,15 @@ pub(super) fn inside_decoration_bounds(point: Vec2) -> bool {
 }
 
 pub(super) fn simulate_rock_bodies(terrain: &Terrain, bodies: &mut [RockBody]) {
+    // Terrain is immutable and body order is fixed throughout this simulation.
+    // Discard the samples with the solver; nothing is stored on the island.
+    let mut contacts = vec![RockTerrainContact::default(); bodies.len()];
     let mut grid = RockCollisionGrid::new(bodies.len());
     for _ in 0..ROCK_SIMULATION_STEPS {
         if bodies.iter().all(|body| body.sleeping) {
             break;
         }
-        for body in &mut *bodies {
+        for (body, contact) in bodies.iter_mut().zip(&mut contacts) {
             body.supported = false;
             body.stable_support = false;
             if body.sleeping {
@@ -534,12 +537,12 @@ pub(super) fn simulate_rock_bodies(terrain: &Terrain, bodies: &mut [RockBody]) {
             body.velocity *= 0.999_5;
             body.centre += body.velocity * ROCK_SIMULATION_STEP;
             constrain_rock_to_island(body);
-            resolve_rock_terrain_contact(terrain, body);
+            contact.resolve(terrain, body);
         }
         grid.rebuild(bodies);
         resolve_rock_body_contacts(bodies, &grid);
-        for body in &mut *bodies {
-            resolve_rock_terrain_contact(terrain, body);
+        for (body, contact) in bodies.iter_mut().zip(&mut contacts) {
+            contact.resolve(terrain, body);
             if body.stable_support && body.velocity.length_squared() <= ROCK_SLEEP_SPEED.powi(2) {
                 body.quiet_steps = body.quiet_steps.saturating_add(1);
                 if body.quiet_steps >= ROCK_SLEEP_STEPS {
@@ -567,8 +570,32 @@ pub(super) fn constrain_rock_to_island(body: &mut RockBody) {
     }
 }
 
-pub(super) fn resolve_rock_terrain_contact(terrain: &Terrain, body: &mut RockBody) {
-    let (height, normal) = terrain.sample_surface(body.centre.x, body.centre.y);
+#[derive(Clone, Copy, Default)]
+struct RockTerrainContact {
+    sample: Option<(Vec2, f32, Vec3)>,
+}
+
+impl RockTerrainContact {
+    fn resolve(&mut self, terrain: &Terrain, body: &mut RockBody) {
+        let point = body.centre.truncate();
+        let (height, normal) = match self.sample {
+            Some((previous, height, normal))
+                if previous.x.to_bits() == point.x.to_bits()
+                    && previous.y.to_bits() == point.y.to_bits() =>
+            {
+                (height, normal)
+            }
+            _ => {
+                let (height, normal) = terrain.sample_surface(point.x, point.y);
+                self.sample = Some((point, height, normal));
+                (height, normal)
+            }
+        };
+        resolve_rock_surface_contact(body, height, normal);
+    }
+}
+
+fn resolve_rock_surface_contact(body: &mut RockBody, height: f32, normal: Vec3) {
     let contact_height = height + body.radius / normal.z.max(0.2);
     if body.centre.z > contact_height {
         return;
@@ -858,6 +885,93 @@ mod decoration_tests {
                 .iter()
                 .any(|&vertex| island.material.values[vertex as usize].y > 0.0)
         );
+    }
+
+    #[test]
+    fn cached_contacts_preserve_settling_bits_when_bodies_move_and_wake() {
+        for slope in [0.0, 0.2, 1.5] {
+            let normal = Vec3::new(-slope, 0.0, 1.0).normalize();
+            let terrain = Terrain::new(Mesh {
+                vertices: vec![
+                    Vec3::new(0.0, 0.0, 0.1),
+                    Vec3::new(1.0, 0.0, 0.1 + slope),
+                    Vec3::new(0.0, 1.0, 0.1),
+                ],
+                normals: vec![normal; 3],
+                triangles: vec![0, 1, 2],
+                uv: Vec::new(),
+            });
+            // Includes a sleeping support struck by a falling body, overlapping
+            // bodies that shift XY during pair contacts, and nearest-vertex fallback.
+            let mut bodies = vec![
+                body(0, Vec3::new(0.25, 0.25, 0.1 + slope * 0.25), 0.001),
+                body(1, Vec3::new(0.2505, 0.25, 0.102 + slope * 0.25), 0.001),
+                body(2, Vec3::new(0.2495, 0.2505, 0.102 + slope * 0.25), 0.001),
+                body(3, Vec3::new(0.9, 0.9, 0.2), 0.0005),
+            ];
+            bodies[0].sleeping = true;
+            bodies[1].velocity.z = -0.03;
+            bodies[2].velocity = Vec3::new(0.001, -0.001, -0.01);
+            bodies[3].velocity = Vec3::new(0.005, 0.001, -0.02);
+            let mut reference = bodies.clone();
+            simulate_without_contact_cache(&terrain, &mut reference);
+            simulate_rock_bodies(&terrain, &mut bodies);
+            for (actual, expected) in bodies.iter().zip(&reference) {
+                assert_eq!(
+                    actual.centre.to_array().map(f32::to_bits),
+                    expected.centre.to_array().map(f32::to_bits)
+                );
+                assert_eq!(
+                    actual.velocity.to_array().map(f32::to_bits),
+                    expected.velocity.to_array().map(f32::to_bits)
+                );
+                assert_eq!(actual, expected);
+            }
+        }
+    }
+
+    // Keep the pre-cache solver loop as an independent ordering/sampling oracle.
+    fn simulate_without_contact_cache(terrain: &Terrain, bodies: &mut [RockBody]) {
+        let mut grid = RockCollisionGrid::new(bodies.len());
+        for _ in 0..ROCK_SIMULATION_STEPS {
+            if bodies.iter().all(|body| body.sleeping) {
+                break;
+            }
+            for body in &mut *bodies {
+                body.supported = false;
+                body.stable_support = false;
+                if body.sleeping {
+                    body.supported = true;
+                    body.stable_support = true;
+                    continue;
+                }
+                body.velocity.z -= ROCK_GRAVITY * ROCK_SIMULATION_STEP;
+                body.velocity *= 0.999_5;
+                body.centre += body.velocity * ROCK_SIMULATION_STEP;
+                constrain_rock_to_island(body);
+                resolve_rock_terrain_contact(terrain, body);
+            }
+            grid.rebuild(bodies);
+            resolve_rock_body_contacts(bodies, &grid);
+            for body in &mut *bodies {
+                resolve_rock_terrain_contact(terrain, body);
+                if body.stable_support && body.velocity.length_squared() <= ROCK_SLEEP_SPEED.powi(2)
+                {
+                    body.quiet_steps = body.quiet_steps.saturating_add(1);
+                    if body.quiet_steps >= ROCK_SLEEP_STEPS {
+                        body.velocity = Vec3::ZERO;
+                        body.sleeping = true;
+                    }
+                } else {
+                    body.quiet_steps = 0;
+                }
+            }
+        }
+    }
+
+    fn resolve_rock_terrain_contact(terrain: &Terrain, body: &mut RockBody) {
+        let (height, normal) = terrain.sample_surface(body.centre.x, body.centre.y);
+        resolve_rock_surface_contact(body, height, normal);
     }
 
     pub(super) fn body(appearance_id: u32, centre: Vec3, radius: f32) -> RockBody {

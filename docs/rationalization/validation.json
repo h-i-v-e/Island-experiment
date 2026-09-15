@@ -1,0 +1,810 @@
+{
+  "scope": "Current evidence for package extraction; the full nine-phase audit is not complete.",
+  "platform": {
+    "unity": "6000.5.6f1",
+    "backend": [
+      "Mono",
+      "IL2CPP"
+    ],
+    "renderer": "Built-in / Metal",
+    "cpu": "Apple Silicon"
+  },
+  "starting_head": "2add9729525562e4aea1e09256dd676573e540c5",
+  "native_sha256": "a2a144aa06cc9488f92ed6bec0ae9dc6a1cd0b28fbe074932f43c0761e169fe3",
+  "unity_development": {
+    "result": "Skipped:Ignored",
+    "total": "134",
+    "passed": "126",
+    "failed": "0",
+    "skipped": "8",
+    "duration": "0.622082",
+    "start-time": "2026-09-14 23:28:07Z",
+    "end-time": "2026-09-14 23:28:08Z"
+  },
+  "consumer_20_cycles": {
+    "tests": {
+      "result": "Passed",
+      "total": "7",
+      "passed": "7",
+      "failed": "0",
+      "skipped": "0",
+      "duration": "532.2518155",
+      "start-time": "2026-09-14 23:47:47Z",
+      "end-time": "2026-09-14 23:56:39Z"
+    },
+    "scope": "20 cold generation/unload cycles; captured owned meshes/textures destroyed and native handles cleared. Not full-world RSS/GPU/travel proof.",
+    "harness_note": "Tests passed; shell script was edited while running and failed after tests. Mono build/player were subsequently resumed and passed in this same consumer."
+  },
+  "consumer_imported_sample": {
+    "result": "Passed",
+    "total": "7",
+    "passed": "7",
+    "failed": "0",
+    "skipped": "0",
+    "duration": "27.0136049",
+    "start-time": "2026-09-14 23:53:23Z",
+    "end-time": "2026-09-14 23:53:50Z"
+  },
+  "native_library": {
+    "passed": 415,
+    "failed": 0,
+    "ignored": 3,
+    "build": "release, CPU, panic=unwind for tests",
+    "evidence": "hydraulic-optimization/native-tests.txt"
+  },
+  "native_seams": {
+    "passed": 4,
+    "failed": 0,
+    "build": "release, CPU, panic=unwind for tests",
+    "evidence": "hydraulic-optimization/native-tests.txt"
+  },
+  "native_generation": {
+    "passed": 35,
+    "failed": 0,
+    "build": "release, CPU, panic=unwind for tests",
+    "evidence": "hydraulic-optimization/native-tests.txt"
+  },
+  "material_cli": {
+    "passed": 6,
+    "failed": 0,
+    "build": "release, CPU, panic=unwind for tests",
+    "evidence": "hydraulic-optimization/native-tests.txt"
+  },
+  "tree": {
+    "passed": 41,
+    "failed": 0,
+    "evidence": "tree-tests.txt"
+  },
+  "material_studio": {
+    "passed": 45,
+    "failed": 0,
+    "evidence": "material-studio-tests.txt"
+  },
+  "bevy": {
+    "passed": 104,
+    "failed": 0,
+    "evidence": "bevy-tests.txt"
+  },
+  "github_ci": "Workflows added, not executed; no licensed runner provisioned.",
+  "performance": {
+    "native": "generation-baseline.json",
+    "noise": "noise-benchmark.json",
+    "limitation": "No whole-frame FPS, GPU or full-world residency improvement claim.",
+    "native_stage_profiles": "generation-profile.json",
+    "hydraulic_optimization": "hydraulic-optimization/comparison.json"
+  },
+  "players": [
+    {
+      "name": "core_mono_long_run",
+      "artifacts": [
+        {
+          "package": "com.motu.navigation",
+          "version": "0.1.0",
+          "file": "com.motu.navigation-0.1.0.tgz",
+          "bytes": 7589,
+          "sha256": "b0e4f8745eb5426a53aa2bcefe02999edcc6e23cf7ecc341fb49849106a7b3fa"
+        },
+        {
+          "package": "com.motu.runtime",
+          "version": "0.1.0",
+          "file": "com.motu.runtime-0.1.0.tgz",
+          "bytes": 1551128,
+          "sha256": "cd849b9e8d32dce3b2952c1a151654e22bbf9474d7df6b932790546f41fb7c15"
+        }
+      ],
+      "build": [
+        "MOTU CONSUMER BUILD PASSED: Mono2x"
+      ],
+      "player": [
+        "MOTU CONSUMER PLAYER PASSED: terrain rendered, 2826 colours; shaders, native generation, host ownership, unload."
+      ]
+    },
+    {
+      "name": "core_il2cpp",
+      "artifacts": [
+        {
+          "package": "com.motu.navigation",
+          "version": "0.1.0",
+          "file": "com.motu.navigation-0.1.0.tgz",
+          "bytes": 7589,
+          "sha256": "b0e4f8745eb5426a53aa2bcefe02999edcc6e23cf7ecc341fb49849106a7b3fa"
+        },
+        {
+          "package": "com.motu.runtime",
+          "version": "0.1.0",
+          "file": "com.motu.runtime-0.1.0.tgz",
+          "bytes": 1551130,
+          "sha256": "0070d46a504301a71c9b0f234693f2c986f028d06685ca67babed1f2ae57b9fb"
+        }
+      ],
+      "build": [
+        "MOTU CONSUMER BUILD PASSED: IL2CPP"
+      ],
+      "player": [
+        "MOTU CONSUMER PLAYER PASSED: terrain rendered, 2826 colours; shaders, native generation, host ownership, unload."
+      ]
+    },
+    {
+      "name": "navigation_mono",
+      "artifacts": [
+        {
+          "package": "com.motu.navigation",
+          "version": "0.1.0",
+          "file": "com.motu.navigation-0.1.0.tgz",
+          "bytes": 7589,
+          "sha256": "b0e4f8745eb5426a53aa2bcefe02999edcc6e23cf7ecc341fb49849106a7b3fa"
+        },
+        {
+          "package": "com.motu.runtime",
+          "version": "0.1.0",
+          "file": "com.motu.runtime-0.1.0.tgz",
+          "bytes": 1551130,
+          "sha256": "0070d46a504301a71c9b0f234693f2c986f028d06685ca67babed1f2ae57b9fb"
+        }
+      ],
+      "build": [
+        "MOTU CONSUMER BUILD PASSED: Mono2x"
+      ],
+      "player": [
+        "MOTU CONSUMER NAVIGATION PASSED: full-resolution extension bake ready and registered.",
+        "MOTU CONSUMER PLAYER PASSED: terrain rendered, 2826 colours; shaders, native generation, host ownership, unload."
+      ]
+    },
+    {
+      "name": "sample_mono",
+      "artifacts": [
+        {
+          "package": "com.motu.navigation",
+          "version": "0.1.0",
+          "file": "com.motu.navigation-0.1.0.tgz",
+          "bytes": 7589,
+          "sha256": "b0e4f8745eb5426a53aa2bcefe02999edcc6e23cf7ecc341fb49849106a7b3fa"
+        },
+        {
+          "package": "com.motu.runtime",
+          "version": "0.1.0",
+          "file": "com.motu.runtime-0.1.0.tgz",
+          "bytes": 1551128,
+          "sha256": "cd849b9e8d32dce3b2952c1a151654e22bbf9474d7df6b932790546f41fb7c15"
+        }
+      ],
+      "build": [
+        "MOTU CONSUMER BUILD PASSED: Mono2x"
+      ],
+      "player": [
+        "MOTU CONSUMER PLAYER PASSED: terrain rendered, 2826 colours; shaders, native generation, host ownership, unload."
+      ]
+    },
+    {
+      "name": "navigation_il2cpp",
+      "artifacts": [
+        {
+          "package": "com.motu.navigation",
+          "version": "0.1.0",
+          "file": "com.motu.navigation-0.1.0.tgz",
+          "bytes": 7843,
+          "sha256": "07862bf8c17c033adce4e51bb843ab132b99479d810b92448c35e6647f1f8eaf"
+        },
+        {
+          "package": "com.motu.runtime",
+          "version": "0.1.0",
+          "file": "com.motu.runtime-0.1.0.tgz",
+          "bytes": 1551128,
+          "sha256": "cd849b9e8d32dce3b2952c1a151654e22bbf9474d7df6b932790546f41fb7c15"
+        }
+      ],
+      "build": [
+        "MOTU CONSUMER BUILD PASSED: IL2CPP"
+      ],
+      "player": [
+        "MOTU CONSUMER NAVIGATION PASSED: full-resolution extension bake ready and registered.",
+        "MOTU CONSUMER PLAYER PASSED: terrain rendered, 2826 colours; shaders, native generation, host ownership, unload."
+      ]
+    }
+  ],
+  "repository_read_denied_core_il2cpp": [
+    "MOTU CONSUMER PLAYER PASSED: terrain rendered, 2826 colours; shaders, native generation, host ownership, unload."
+  ],
+  "repository_read_denied_navigation_il2cpp": [
+    "MOTU CONSUMER NAVIGATION PASSED: full-resolution extension bake ready and registered.",
+    "MOTU CONSUMER PLAYER PASSED: terrain rendered, 2826 colours; shaders, native generation, host ownership, unload."
+  ],
+  "final_artifacts": [
+    {
+      "package": "com.motu.navigation",
+      "version": "0.1.0",
+      "file": "com.motu.navigation-0.1.0.tgz",
+      "bytes": 7843,
+      "sha256": "07862bf8c17c033adce4e51bb843ab132b99479d810b92448c35e6647f1f8eaf"
+    },
+    {
+      "package": "com.motu.runtime",
+      "version": "0.1.0",
+      "file": "com.motu.runtime-0.1.0.tgz",
+      "bytes": 1556927,
+      "sha256": "1b45b209fef2dff2b6f9dc3933d1462e679da211ba5cb40c345a9ad155b1c2d8"
+    }
+  ],
+  "navigation_after_il2cpp_fixes": {
+    "result": "Passed",
+    "total": "8",
+    "passed": "8",
+    "failed": "0",
+    "skipped": "0",
+    "duration": "1.3001658"
+  },
+  "environment_followup": {
+    "source_sha256": {
+      "packages/com.motu.runtime/Runtime/World/EnvironmentHostState.cs": "7e3f3540bafe0aac1f140967d8f11ec6314a86880b0bd26dd340c93b9e311029",
+      "packages/com.motu.runtime/Runtime/World/WorldEnvironmentController.Ownership.cs": "8867b08f5ee1d656575464f4f13fe6cba13a7cc0cf17531eda504bb25a153b01",
+      "packages/com.motu.runtime/Runtime/World/WorldEnvironmentController.cs": "f75cb181d4a4596a1d6c47c7da070cc4b3f395357642963f234e20b09bc94973",
+      "packages/com.motu.runtime/Runtime/World/WorldEnvironmentController.Environment.cs": "9dccbb948fe49ba1e7c0c79e10714f021bdb22af6786a6c62f29ebb47e7b4f29",
+      "packages/com.motu.runtime/Runtime/World/OceanSurfaceController.cs": "c8638ee5b5b6139d7cbca2fd18e0ad34f4be0fb64062eba3dca470c242dd2890",
+      "packages/com.motu.runtime/Runtime/World/OceanWaveMaskComposer.cs": "b32268859d28c82597c0165cb5e7ac254365421541c2505d61add4858e55eb85",
+      "packages/com.motu.runtime/Runtime/Rendering/OceanUnderwaterView.cs": "70da11e8d734ce439c8999f7c6153c213eb7eac3e9f96d81878643f8b6dd8bbc",
+      "packages/com.motu.runtime/Tests/Editor/EnvironmentOwnershipTests.cs": "60c3fd57339233c94e5f5a81f7c57b241601356d5674f5da07dd7eb1124ca542",
+      "scripts/unity-consumer/Assets/PackageSmokePlayer.cs": "7098c5f1c98e68a902d0bb7c66835575adbea9b3a646f5dc84647bdb6c04cfba",
+      "scripts/validate-unity-package.sh": "baadc78b86ab7d2f87116201c93eaa4c90b5260bbb8972f444b777224dcbb8b0",
+      "scripts/check-unity-packages.py": "181d54b734e26e2d10970eca31ea0d5d2f652a0f6d432c8c519766cf171d0787"
+    },
+    "all_unity_tests": {
+      "total": "142",
+      "passed": "134",
+      "failed": "0",
+      "skipped": "8",
+      "start-time": "2026-09-15 00:42:13Z",
+      "end-time": "2026-09-15 00:42:36Z",
+      "duration": "23.231061"
+    },
+    "fresh_consumer_tests": {
+      "total": "8",
+      "passed": "8",
+      "failed": "0",
+      "skipped": "0",
+      "start-time": "2026-09-15 00:40:21Z",
+      "end-time": "2026-09-15 00:40:47Z",
+      "duration": "25.6958935"
+    },
+    "artifacts": [
+      {
+        "package": "com.motu.navigation",
+        "version": "0.1.0",
+        "file": "com.motu.navigation-0.1.0.tgz",
+        "bytes": 7843,
+        "sha256": "07862bf8c17c033adce4e51bb843ab132b99479d810b92448c35e6647f1f8eaf"
+      },
+      {
+        "package": "com.motu.runtime",
+        "version": "0.1.0",
+        "file": "com.motu.runtime-0.1.0.tgz",
+        "bytes": 1556204,
+        "sha256": "1bfea91491dd285d3771292244784ce227b50b829edf76c9a2cb7449bdba69dd"
+      }
+    ],
+    "players": {
+      "il2cpp": [
+        "MOTU CONSUMER NAVIGATION PASSED: full-resolution extension bake ready and registered.",
+        "MOTU CONSUMER ENVIRONMENT PASSED: disable, same-frame re-enable, host restoration and additive unload.",
+        "MOTU CONSUMER PLAYER PASSED: terrain rendered, 2826 colours; shaders, native generation, host ownership, unload."
+      ],
+      "il2cpp_repository_reads_denied": [
+        "MOTU CONSUMER NAVIGATION PASSED: full-resolution extension bake ready and registered.",
+        "MOTU CONSUMER ENVIRONMENT PASSED: disable, same-frame re-enable, host restoration and additive unload.",
+        "MOTU CONSUMER PLAYER PASSED: terrain rendered, 2826 colours; shaders, native generation, host ownership, unload."
+      ],
+      "mono": [
+        "MOTU CONSUMER NAVIGATION PASSED: full-resolution extension bake ready and registered.",
+        "MOTU CONSUMER ENVIRONMENT PASSED: disable, same-frame re-enable, host restoration and additive unload.",
+        "MOTU CONSUMER PLAYER PASSED: terrain rendered, 2826 colours; shaders, native generation, host ownership, unload."
+      ]
+    },
+    "limitations": [
+      "One global environment owner. Disable before changing the active host scene. Additive environment scene unload while host stays active is supported.",
+      "No whole-frame performance or full-world residency measurement was added.",
+      "Native river integration fixture was unresolved at this earlier milestone; see native_contract_followup for the completed reconciliation."
+    ]
+  },
+  "native_generation_before_contract_reconciliation": {
+    "passed": 33,
+    "failed": 1,
+    "evidence": "native-generation-tests.txt",
+    "note": "Pre-existing empty-river fixture failure; full-resolution diagnostic exposes submerged-centreline assertion too. See KNOWN_FAILURES.md."
+  },
+  "native_contract_followup": {
+    "command": "RUST_TEST_THREADS=2 RAYON_NUM_THREADS=2 cargo test --manifest-path island-rs/Cargo.toml --locked --no-default-features",
+    "passed": 468,
+    "failed": 0,
+    "ignored": 3,
+    "evidence": "native-contract-suite.txt",
+    "clippy": "CPU library, -D warnings passed; native-contract-clippy.txt",
+    "profile_parser_tests": {
+      "passed": 4,
+      "failed": 0,
+      "command": "python3 -m unittest discover -s scripts/tests"
+    },
+    "source_sha256": {
+      "island-rs/src/rivers/tests.rs": "0d7a78dff77a2fabec0a813935bb0ce743317f7e43f5de3730239ce95ff4f449",
+      "island-rs/tests/generation.rs": "df0943c7f96f2800251a5948c2ca5a50e1791b7c14df4f301e89555478e798c2",
+      "scripts/summarize-generation-profile.py": "c9ae44d7c6a946b4033d119ff8c93d104ad20729131396534f3dc9cf169f68ee",
+      "scripts/tests/test_generation_profile.py": "338189e3348b67e611ed1d81b6a28bd09a50e66e847cc0d0b6ef0a6165473f00"
+    },
+    "scope": "Regression reconciliation and profiling tools only; native production algorithms and Unity packages unchanged in this follow-up. Unity/player evidence above belongs to the previous environment milestone and was not rerun here."
+  },
+  "hydraulic_optimization": {
+    "report": "NATIVE_OPTIMIZATION.md",
+    "comparison": "hydraulic-optimization/comparison.json",
+    "native_sha256": "912cf93b12dac3689e1bc4496231d97b18a4e5ea7dd70984aa6c634d599d102e",
+    "native_tests": {
+      "passed": 469,
+      "failed": 0,
+      "ignored": 3,
+      "evidence": "hydraulic-optimization/native-tests.txt"
+    },
+    "hydraulic_debug_tests": {
+      "passed": 16,
+      "failed": 0,
+      "evidence": "hydraulic-optimization/hydraulic-debug-tests.txt"
+    },
+    "forest_test": "Exact runtime-input assertion passes debug and release. Pre-change release failure reproduced in isolated checkout.",
+    "unity_development": {
+      "total": "142",
+      "passed": "134",
+      "failed": "0",
+      "skipped": "8",
+      "result": "Skipped:Ignored",
+      "start-time": "2026-09-15 06:01:33Z",
+      "end-time": "2026-09-15 06:01:57Z",
+      "duration": "23.2329646"
+    },
+    "development_player_build": "Passed",
+    "consumer_tests": {
+      "total": "8",
+      "passed": "8",
+      "failed": "0",
+      "skipped": "0",
+      "result": "Passed",
+      "start-time": "2026-09-15 05:59:40Z",
+      "end-time": "2026-09-15 06:00:05Z",
+      "duration": "24.9437592"
+    },
+    "consumer_il2cpp_build": [
+      "MOTU CONSUMER BUILD PASSED: IL2CPP"
+    ],
+    "consumer_il2cpp_player": [
+      "MOTU CONSUMER NAVIGATION PASSED: full-resolution extension bake ready and registered.",
+      "MOTU CONSUMER ENVIRONMENT PASSED: disable, same-frame re-enable, host restoration and additive unload.",
+      "MOTU CONSUMER PLAYER PASSED: terrain rendered, 2826 colours; shaders, native generation, host ownership, unload."
+    ],
+    "artifacts": [
+      {
+        "package": "com.motu.navigation",
+        "version": "0.1.0",
+        "file": "com.motu.navigation-0.1.0.tgz",
+        "bytes": 7843,
+        "sha256": "07862bf8c17c033adce4e51bb843ab132b99479d810b92448c35e6647f1f8eaf"
+      },
+      {
+        "package": "com.motu.runtime",
+        "version": "0.1.0",
+        "file": "com.motu.runtime-0.1.0.tgz",
+        "bytes": 1556173,
+        "sha256": "d8e31130e27022d43b51dc2ec0b0e7aa0c0e9fe408c0da67a0a27ebb3720348f"
+      }
+    ],
+    "limitations": [
+      "Default native seed-17 CPU benchmark, not frame/GPU or whole-world residency performance.",
+      "Eight development cave tests still require external fixtures. Full audit/release matrix remains open."
+    ],
+    "consumer_mono_build": [
+      "MOTU CONSUMER BUILD PASSED: Mono2x"
+    ],
+    "consumer_mono_player": [
+      "MOTU CONSUMER NAVIGATION PASSED: full-resolution extension bake ready and registered.",
+      "MOTU CONSUMER ENVIRONMENT PASSED: disable, same-frame re-enable, host restoration and additive unload.",
+      "MOTU CONSUMER PLAYER PASSED: terrain rendered, 2826 colours; shaders, native generation, host ownership, unload."
+    ]
+  },
+  "rock_optimization": {
+    "report": "ROCK_OPTIMIZATION.md",
+    "comparison": "rock-optimization/comparison.json",
+    "native_sha256": "660ccd560e836c238b42191c6ae8ec8cca06bbf86ce4ef70796ce506849a1f91",
+    "native_tests": {
+      "passed": 470,
+      "failed": 0,
+      "ignored": 3,
+      "evidence": "rock-optimization/native-tests.txt"
+    },
+    "decoration_debug_tests": {
+      "passed": 11,
+      "failed": 0,
+      "evidence": "rock-optimization/debug-tests.txt"
+    },
+    "unity_development": {
+      "total": "142",
+      "passed": "134",
+      "failed": "0",
+      "skipped": "8",
+      "result": "Skipped:Ignored",
+      "start-time": "2026-09-15 06:33:44Z",
+      "end-time": "2026-09-15 06:34:03Z",
+      "duration": "18.7221966"
+    },
+    "development_player_build": "Passed",
+    "consumer_tests": {
+      "total": "8",
+      "passed": "8",
+      "failed": "0",
+      "skipped": "0",
+      "result": "Passed",
+      "start-time": "2026-09-15 06:31:57Z",
+      "end-time": "2026-09-15 06:32:16Z",
+      "duration": "19.5762107"
+    },
+    "artifacts": [
+      {
+        "package": "com.motu.navigation",
+        "version": "0.1.0",
+        "file": "com.motu.navigation-0.1.0.tgz",
+        "bytes": 7843,
+        "sha256": "07862bf8c17c033adce4e51bb843ab132b99479d810b92448c35e6647f1f8eaf"
+      },
+      {
+        "package": "com.motu.runtime",
+        "version": "0.1.0",
+        "file": "com.motu.runtime-0.1.0.tgz",
+        "bytes": 1556433,
+        "sha256": "9824a833fef167d9edeeee8bb6b25d0d8569875e722e2f2e1d31280edbb38868"
+      }
+    ],
+    "consumer_il2cpp_build": [
+      "MOTU CONSUMER BUILD PASSED: IL2CPP"
+    ],
+    "consumer_il2cpp_player": [
+      "MOTU CONSUMER NAVIGATION PASSED: full-resolution extension bake ready and registered.",
+      "MOTU CONSUMER ENVIRONMENT PASSED: disable, same-frame re-enable, host restoration and additive unload.",
+      "MOTU CONSUMER PLAYER PASSED: terrain rendered, 2826 colours; shaders, native generation, host ownership, unload."
+    ],
+    "consumer_mono_build": [
+      "MOTU CONSUMER BUILD PASSED: Mono2x"
+    ],
+    "consumer_mono_player": [
+      "MOTU CONSUMER NAVIGATION PASSED: full-resolution extension bake ready and registered.",
+      "MOTU CONSUMER ENVIRONMENT PASSED: disable, same-frame re-enable, host restoration and additive unload.",
+      "MOTU CONSUMER PLAYER PASSED: terrain rendered, 2826 colours; shaders, native generation, host ownership, unload."
+    ],
+    "limitations": [
+      "Default native seed-17 CPU benchmark, not Unity frame/GPU or whole-world residency performance.",
+      "Eight development cave tests still require external fixtures. Full audit/release matrix remains open."
+    ]
+  },
+  "mesh_boundary_optimization": {
+    "report": "MESH_BOUNDARY_OPTIMIZATION.md",
+    "comparison": "mesh-boundary-optimization/comparison.json",
+    "native_sha256": "a2a144aa06cc9488f92ed6bec0ae9dc6a1cd0b28fbe074932f43c0761e169fe3",
+    "native_tests": {
+      "passed": 472,
+      "failed": 0,
+      "ignored": 3,
+      "evidence": "mesh-boundary-optimization/native-tests.txt"
+    },
+    "perimeter_debug_tests": {
+      "passed": 4,
+      "failed": 0,
+      "evidence": "mesh-boundary-optimization/debug-tests.txt"
+    },
+    "unity_development": {
+      "total": "142",
+      "passed": "134",
+      "failed": "0",
+      "skipped": "8",
+      "result": "Skipped:Ignored",
+      "start-time": "2026-09-15 08:40:40Z",
+      "end-time": "2026-09-15 08:40:59Z",
+      "duration": "19.2551125"
+    },
+    "development_player_build": "Passed",
+    "consumer_tests": {
+      "total": "8",
+      "passed": "8",
+      "failed": "0",
+      "skipped": "0",
+      "result": "Passed",
+      "start-time": "2026-09-15 08:38:52Z",
+      "end-time": "2026-09-15 08:39:12Z",
+      "duration": "19.5378253"
+    },
+    "artifacts": [
+      {
+        "package": "com.motu.navigation",
+        "version": "0.1.0",
+        "file": "com.motu.navigation-0.1.0.tgz",
+        "bytes": 7843,
+        "sha256": "07862bf8c17c033adce4e51bb843ab132b99479d810b92448c35e6647f1f8eaf"
+      },
+      {
+        "package": "com.motu.runtime",
+        "version": "0.1.0",
+        "file": "com.motu.runtime-0.1.0.tgz",
+        "bytes": 1556927,
+        "sha256": "1b45b209fef2dff2b6f9dc3933d1462e679da211ba5cb40c345a9ad155b1c2d8"
+      }
+    ],
+    "consumer_il2cpp_build": [
+      "MOTU CONSUMER BUILD PASSED: IL2CPP"
+    ],
+    "consumer_il2cpp_player": [
+      "MOTU CONSUMER NAVIGATION PASSED: full-resolution extension bake ready and registered.",
+      "MOTU CONSUMER ENVIRONMENT PASSED: disable, same-frame re-enable, host restoration and additive unload.",
+      "MOTU CONSUMER PLAYER PASSED: terrain rendered, 2826 colours; shaders, native generation, host ownership, unload."
+    ],
+    "consumer_mono_build": [
+      "MOTU CONSUMER BUILD PASSED: Mono2x"
+    ],
+    "consumer_mono_player": [
+      "MOTU CONSUMER NAVIGATION PASSED: full-resolution extension bake ready and registered.",
+      "MOTU CONSUMER ENVIRONMENT PASSED: disable, same-frame re-enable, host restoration and additive unload.",
+      "MOTU CONSUMER PLAYER PASSED: terrain rendered, 2826 colours; shaders, native generation, host ownership, unload."
+    ],
+    "limitations": [
+      "Default native seed-17 CPU benchmark, not Unity frame/GPU or whole-world residency performance.",
+      "Eight development cave tests require external fixtures; full audit/release matrix remains open.",
+      "Scratch storage can increase for sparse meshes with many isolated vertices; global RSS reduction is not claimed."
+    ]
+  },
+  "streaming_freezes": {
+    "date": "2026-09-15",
+    "report": "STREAMING_FREEZES.md",
+    "native_plugin_sha256": "a2a144aa06cc9488f92ed6bec0ae9dc6a1cd0b28fbe074932f43c0761e169fe3",
+    "native_plugin_changed": false,
+    "unity_development": {
+      "total": "143",
+      "passed": "135",
+      "failed": "0",
+      "skipped": "8",
+      "result": "Skipped:Ignored",
+      "start-time": "2026-09-15 09:07:09Z",
+      "end-time": "2026-09-15 09:07:30Z",
+      "duration": "21.7967997"
+    },
+    "development_player_build": "Passed",
+    "consumer_tests": {
+      "total": "9",
+      "passed": "9",
+      "failed": "0",
+      "skipped": "0",
+      "result": "Passed",
+      "start-time": "2026-09-15 09:05:21Z",
+      "end-time": "2026-09-15 09:05:46Z",
+      "duration": "24.8785006"
+    },
+    "legacy_fixture": {
+      "total": "1",
+      "passed": "1",
+      "failed": "0",
+      "skipped": "0",
+      "result": "Passed",
+      "start-time": "2026-09-15 09:04:46Z",
+      "end-time": "2026-09-15 09:05:13Z",
+      "duration": "26.9670149"
+    },
+    "observations": {
+      "legacy_initial_focus_ms": 284.123,
+      "new_initial_focus_ms": 9.431,
+      "consumer_initial_focus_ms": 9.98,
+      "development_transition_test_resumes": 1743,
+      "development_max_test_yield_interval_ms": 7.237,
+      "controlled_timing_comparison": false
+    },
+    "artifacts": [
+      {
+        "package": "com.motu.navigation",
+        "version": "0.1.0",
+        "file": "com.motu.navigation-0.1.0.tgz",
+        "bytes": 7843,
+        "sha256": "07862bf8c17c033adce4e51bb843ab132b99479d810b92448c35e6647f1f8eaf"
+      },
+      {
+        "package": "com.motu.runtime",
+        "version": "0.1.0",
+        "file": "com.motu.runtime-0.1.0.tgz",
+        "bytes": 1559485,
+        "sha256": "d0cc5b592a875a5d683fe4170d1a5686ccfb68e3e57bb7f92c0291d0ad59b53c"
+      }
+    ],
+    "package_validation": "207 GUIDs checked; 0 package errors",
+    "limitations": [
+      "Single fixture; no captured live freeze or whole-world/GPU frame percentile benchmark.",
+      "Atomic Unity uploads, batching and collider work can still exceed a frame budget.",
+      "Existing high allocation telemetry predates the largest navigation bake; memory causality remains unproven.",
+      "Eight external cave fixtures remain skipped; broader audit and distribution work remains open."
+    ],
+    "consumer_il2cpp_build": [
+      "MOTU CONSUMER BUILD PASSED: IL2CPP"
+    ],
+    "consumer_il2cpp_player": [
+      "MOTU CONSUMER NAVIGATION PASSED: full-resolution extension bake ready and registered.",
+      "MOTU CONSUMER STREAMING PASSED: LOD 1 and LOD 0 installed while frames advanced.",
+      "MOTU CONSUMER ENVIRONMENT PASSED: disable, same-frame re-enable, host restoration and additive unload.",
+      "MOTU CONSUMER PLAYER PASSED: terrain rendered, 3077 colours; shaders, native generation, host ownership, unload."
+    ],
+    "consumer_mono_build": [
+      "MOTU CONSUMER BUILD PASSED: Mono2x"
+    ],
+    "consumer_mono_player": [
+      "MOTU CONSUMER NAVIGATION PASSED: full-resolution extension bake ready and registered.",
+      "MOTU CONSUMER STREAMING PASSED: LOD 1 and LOD 0 installed while frames advanced.",
+      "MOTU CONSUMER ENVIRONMENT PASSED: disable, same-frame re-enable, host restoration and additive unload.",
+      "MOTU CONSUMER PLAYER PASSED: terrain rendered, 3076 colours; shaders, native generation, host ownership, unload."
+    ]
+  },
+  "navigation_chunks": {
+    "date": "2026-09-15",
+    "report": "NAVIGATION_CHUNKS.md",
+    "native_plugin_changed": false,
+    "native_plugin_sha256": "a2a144aa06cc9488f92ed6bec0ae9dc6a1cd0b28fbe074932f43c0761e169fe3",
+    "defaults": {
+      "chunk_metres": 128,
+      "maximum_build_workers": 1,
+      "agent_radius_metres": 0.5
+    },
+    "unity_development": {
+      "total": "146",
+      "passed": "138",
+      "failed": "0",
+      "skipped": "8",
+      "result": "Skipped:Ignored",
+      "start-time": "2026-09-15 09:57:57Z",
+      "end-time": "2026-09-15 09:58:19Z",
+      "duration": "22.1504014"
+    },
+    "development_player_build": "Passed",
+    "consumer_tests": {
+      "total": "9",
+      "passed": "9",
+      "failed": "0",
+      "skipped": "0",
+      "result": "Passed",
+      "start-time": "2026-09-15 10:00:02Z",
+      "end-time": "2026-09-15 10:00:24Z",
+      "duration": "22.0783092"
+    },
+    "artifacts": [
+      {
+        "package": "com.motu.navigation",
+        "version": "0.1.0",
+        "file": "com.motu.navigation-0.1.0.tgz",
+        "bytes": 13018,
+        "sha256": "963566cb6a949b01869df9a6f9381b563d563567430ea0f0319194f780b54c13"
+      },
+      {
+        "package": "com.motu.runtime",
+        "version": "0.1.0",
+        "file": "com.motu.runtime-0.1.0.tgz",
+        "bytes": 1559686,
+        "sha256": "77fb4b59296eb66082cbc9ddb6e2a0bbb57954c0fb0a369f06872cc7b913953a"
+      }
+    ],
+    "package_validation": "209 GUIDs checked; 0 package errors",
+    "large_island_diagnostic": "navigation-chunks/connectivity.json",
+    "limits": [
+      "Peak source mesh payload is not total native or process memory.",
+      "Two of 39 previously complete benchmark routes are partial through standard APIs/agents, despite a larger query reaching both destination polygons.",
+      "Eight external cave fixtures remain skipped; full-world lockups and resident vegetation memory are not resolved or verified by this fixture."
+    ],
+    "consumer_il2cpp_build": [
+      "MOTU CONSUMER BUILD PASSED: IL2CPP"
+    ],
+    "consumer_il2cpp_player": [
+      "MOTU CONSUMER NAVIGATION PASSED: full-resolution extension bake ready and registered.",
+      "MOTU CONSUMER STREAMING PASSED: LOD 1 and LOD 0 installed while frames advanced.",
+      "MOTU CONSUMER ENVIRONMENT PASSED: disable, same-frame re-enable, host restoration and additive unload.",
+      "MOTU CONSUMER PLAYER PASSED: terrain rendered, 3077 colours; shaders, native generation, host ownership, unload."
+    ],
+    "consumer_mono_build": [
+      "MOTU CONSUMER BUILD PASSED: Mono2x"
+    ],
+    "consumer_mono_player": [
+      "MOTU CONSUMER NAVIGATION PASSED: full-resolution extension bake ready and registered.",
+      "MOTU CONSUMER STREAMING PASSED: LOD 1 and LOD 0 installed while frames advanced.",
+      "MOTU CONSUMER ENVIRONMENT PASSED: disable, same-frame re-enable, host restoration and additive unload.",
+      "MOTU CONSUMER PLAYER PASSED: terrain rendered, 3076 colours; shaders, native generation, host ownership, unload."
+    ]
+  },
+  "forest_streaming": {
+    "date": "2026-09-16",
+    "report": "FOREST_STREAMING.md",
+    "native_plugin_changed": false,
+    "native_plugin_sha256": "a2a144aa06cc9488f92ed6bec0ae9dc6a1cd0b28fbe074932f43c0761e169fe3",
+    "unity_development": {
+      "total": "149",
+      "passed": "141",
+      "failed": "0",
+      "skipped": "8",
+      "result": "Skipped:Ignored",
+      "start-time": "2026-09-15 19:11:25Z",
+      "end-time": "2026-09-15 19:11:58Z",
+      "duration": "32.7535589"
+    },
+    "development_player_build": "Passed before pending-wireframe follow-up; final packages are checked in fresh consumer players.",
+    "large_island_payloads": "forest-streaming/large-island.json",
+    "package_validation": "211 GUIDs checked; 0 package errors",
+    "current_full_manual_reviews": 66,
+    "limits": [
+      "Payload bytes exclude native allocations, Unity/GPU buffers and allocator overhead; no RSS or whole-computer freeze result claimed.",
+      "Worker snapshot loading took 9.67 seconds; the densest individual LOD0 mesh upload took 10.23 ms in this single fixture.",
+      "Eight external cave fixtures remain skipped; whole-world travel recovery, GPU/frame matrix and complete source audit remain open.",
+      "Navigation long-route query differences are unchanged."
+    ],
+    "consumer_tests": {
+      "total": "12",
+      "passed": "12",
+      "failed": "0",
+      "skipped": "0",
+      "result": "Passed",
+      "start-time": "2026-09-15 19:12:42Z",
+      "end-time": "2026-09-15 19:13:15Z",
+      "duration": "32.9560162"
+    },
+    "artifacts": [
+      {
+        "package": "com.motu.navigation",
+        "version": "0.1.0",
+        "file": "com.motu.navigation-0.1.0.tgz",
+        "bytes": 13018,
+        "sha256": "963566cb6a949b01869df9a6f9381b563d563567430ea0f0319194f780b54c13"
+      },
+      {
+        "package": "com.motu.runtime",
+        "version": "0.1.0",
+        "file": "com.motu.runtime-0.1.0.tgz",
+        "bytes": 1563685,
+        "sha256": "68e089b4a2198c9f08be538e56735a1920ce94486ce9a8b771faf97c971772ef"
+      }
+    ],
+    "consumer_il2cpp_build": [
+      "MOTU CONSUMER BUILD PASSED: IL2CPP"
+    ],
+    "consumer_il2cpp_player": [
+      "MOTU CONSUMER NAVIGATION PASSED: full-resolution extension bake ready and registered.",
+      "MOTU CONSUMER STREAMING PASSED: LOD 1 and LOD 0 installed while frames advanced.",
+      "MOTU CONSUMER ENVIRONMENT PASSED: disable, same-frame re-enable, host restoration and additive unload.",
+      "MOTU CONSUMER PLAYER PASSED: terrain rendered, 3077 colours; shaders, native generation, host ownership, unload."
+    ],
+    "development_project": "/var/folders/29/fnbdz_fn4sjcgp2dqdf_jcb80000gn/T/motu-unity-validation.zrRfe9/island-unity",
+    "consumer_project": "/var/folders/29/fnbdz_fn4sjcgp2dqdf_jcb80000gn/T/motu-consumer.u4xHwV/project",
+    "consumer_mono_without_navigation_player": [
+      "MOTU CONSUMER STREAMING PASSED: LOD 1 and LOD 0 installed while frames advanced.",
+      "MOTU CONSUMER ENVIRONMENT PASSED: disable, same-frame re-enable, host restoration and additive unload.",
+      "MOTU CONSUMER PLAYER PASSED: terrain rendered, 3076 colours; shaders, native generation, host ownership, unload."
+    ],
+    "consumer_mono_build": [
+      "MOTU CONSUMER BUILD PASSED: Mono2x"
+    ],
+    "consumer_mono_player": [
+      "MOTU CONSUMER NAVIGATION PASSED: full-resolution extension bake ready and registered.",
+      "MOTU CONSUMER STREAMING PASSED: LOD 1 and LOD 0 installed while frames advanced.",
+      "MOTU CONSUMER ENVIRONMENT PASSED: disable, same-frame re-enable, host restoration and additive unload.",
+      "MOTU CONSUMER PLAYER PASSED: terrain rendered, 3076 colours; shaders, native generation, host ownership, unload."
+    ]
+  }
+}

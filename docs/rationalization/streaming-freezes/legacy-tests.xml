@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<test-run id="2" testcasecount="1" result="Passed" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0" engine-version="3.5.0.0" clr-version="4.0.30319.42000" start-time="2026-09-15 09:04:46Z" end-time="2026-09-15 09:05:13Z" duration="26.9670149">
+  <test-suite type="TestSuite" id="1000" name="MotuConsumer" fullname="MotuConsumer" runstate="Runnable" testcasecount="9" result="Passed" start-time="2026-09-15 09:04:46Z" end-time="2026-09-15 09:05:13Z" duration="26.967015" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+    <properties>
+      <property name="platform" value="EditMode" />
+    </properties>
+    <test-suite type="Assembly" id="1003" name="Motu.Tests.Editor.dll" fullname="/private/var/folders/29/fnbdz_fn4sjcgp2dqdf_jcb80000gn/T/motu-consumer.eKEoSJ/project/Library/ScriptAssemblies/Motu.Tests.Editor.dll" runstate="Runnable" testcasecount="1" result="Passed" start-time="2026-09-15 09:04:46Z" end-time="2026-09-15 09:05:13Z" duration="26.941337" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+      <properties>
+        <property name="_PID" value="64446" />
+        <property name="_APPDOMAIN" value="Unity Child Domain" />
+        <property name="platform" value="EditMode" />
+        <property name="EditorOnly" value="True" />
+      </properties>
+      <test-suite type="TestFixture" id="1001" name="StreamingBaselineTests" fullname="StreamingBaselineTests" classname="StreamingBaselineTests" runstate="Runnable" testcasecount="1" result="Passed" start-time="2026-09-15 09:04:46Z" end-time="2026-09-15 09:05:13Z" duration="26.940659" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+        <properties />
+        <test-case id="1002" name="LegacyApproach" fullname="StreamingBaselineTests.LegacyApproach" methodname="LegacyApproach" classname="StreamingBaselineTests" runstate="Runnable" seed="64114503" result="Passed" start-time="2026-09-15 09:04:45Z" end-time="2026-09-15 09:05:13Z" duration="27.596685" asserts="0">
+          <properties>
+            <property name="_JOINTYPE" value="UnityCombinatorial" />
+            <property name="Timeout" value="600000" />
+            <property name="retryIteration" value="0" />
+            <property name="repeatIteration" value="0" />
+          </properties>
+          <output><![CDATA[MOTU LEGACY APPROACH: blockedMs=284.123
+Saving results to: /tmp/motu-streaming-freeze/baseline-tests.xml
+]]></output>
+        </test-case>
+      </test-suite>
+    </test-suite>
+  </test-suite>
+</test-run>

@@ -1,0 +1,76 @@
+   Compiling libc v0.2.189
+   Compiling find-msvc-tools v0.1.11
+   Compiling shlex v2.0.1
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.24
+   Compiling version_check v0.9.5
+   Compiling crossbeam-utils v0.8.22
+   Compiling serde_core v1.0.229
+   Compiling pkg-config v0.3.34
+   Compiling autocfg v1.5.1
+   Compiling crossbeam-epoch v0.9.20
+   Compiling typenum v1.20.1
+   Compiling crossbeam-deque v0.8.7
+   Compiling cfg-if v1.0.4
+   Compiling simd-adler32 v0.3.10
+   Compiling crc32fast v1.5.1
+   Compiling generic-array v0.14.7
+   Compiling thiserror v2.0.20
+   Compiling num-traits v0.2.19
+   Compiling zstd-safe v7.2.4
+   Compiling serde v1.0.229
+   Compiling zmij v1.0.23
+   Compiling rayon-core v1.13.0
+   Compiling adler2 v2.0.1
+   Compiling miniz_oxide v0.8.9
+   Compiling serde_json v1.0.151
+   Compiling fdeflate v0.3.7
+   Compiling bitflags v1.3.2
+   Compiling bitflags v2.13.1
+   Compiling itoa v1.0.18
+   Compiling flate2 v1.1.9
+   Compiling memchr v2.8.3
+   Compiling either v1.18.0
+   Compiling png v0.17.16
+   Compiling syn v3.0.4
+   Compiling serde_derive v1.0.229
+   Compiling thiserror-impl v2.0.20
+   Compiling glam v0.33.5
+   Compiling float-cmp v0.10.0
+   Compiling jobserver v0.1.35
+   Compiling cc v1.4.4
+   Compiling block-buffer v0.10.4
+   Compiling crypto-common v0.1.7
+   Compiling digest v0.10.7
+   Compiling zstd-sys v2.0.16+zstd.1.5.7
+   Compiling meshopt v0.6.2
+   Compiling cpufeatures v0.2.17
+   Compiling sha2 v0.10.9
+   Compiling rayon v1.12.0
+   Compiling bincode v1.3.3
+   Compiling zstd v0.13.3
+   Compiling island-rs v0.1.0 (/var/folders/29/fnbdz_fn4sjcgp2dqdf_jcb80000gn/T/motu-rust-baseline-w9uumypm)
+    Finished `release` profile [optimized] target(s) in 1m 00s
+     Running unittests src/lib.rs (/var/folders/29/fnbdz_fn4sjcgp2dqdf_jcb80000gn/T/motu-rust-baseline-w9uumypm/target/release/deps/motu-e4d11d47a4a6ac29)
+
+running 1 test
+test forest::tests::coherent_scale_combines_forest_coverage_with_the_next_finer_octave ... FAILED
+
+failures:
+
+---- forest::tests::coherent_scale_combines_forest_coverage_with_the_next_finer_octave stdout ----
+
+thread 'forest::tests::coherent_scale_combines_forest_coverage_with_the_next_finer_octave' (37009703) panicked at src/forest.rs:1857:9:
+assertion `left == right` failed
+  left: 1067430166
+ right: 1067430164
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    forest::tests::coherent_scale_combines_forest_coverage_with_the_next_finer_octave
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 414 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `--lib`

@@ -1,0 +1,9 @@
+{
+  "previous_runtime_sha256": "0070d46a504301a71c9b0f234693f2c986f028d06685ca67babed1f2ae57b9fb",
+  "current_runtime_sha256": "cd849b9e8d32dce3b2952c1a151654e22bbf9474d7df6b932790546f41fb7c15",
+  "changed_members": [
+    "package/Tests/Editor/HostIntegrationTests.cs"
+  ],
+  "runtime_editor_assets_native_identical": true,
+  "reason": "The long-running test timeout increased from 10 to 30 minutes; runtime payload unchanged."
+}

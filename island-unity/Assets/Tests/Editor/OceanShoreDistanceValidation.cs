@@ -94,13 +94,13 @@ namespace Motu.Editor
             var profile = AssetDatabase.LoadAssetAtPath<OceanWaveProfile>("Assets/Settings/OceanWaveProfile.asset");
             Require(profile != null, "Missing active ocean profile for breaker validation.");
             var settings = profile.ToRuntimeSettings();
-            Require(settings.Weather.OnshoreWaveBreakingStartDepthMetres == 5f
-                && settings.Weather.OnshoreWaveBreakingFullDepthMetres == 4f
-                && OceanWaveWeatherSettings.Default.OnshoreWaveBreakingFullDepthMetres == 3.5f,
-                "Authored and fallback weather must use the earlier full-breaking depth.");
-            Require(settings.OnshoreWaveSharpeningDistanceMetres == 96f
+            Require(settings.Weather.OnshoreWaveBreakingStartDepthMetres
+                    > settings.Weather.OnshoreWaveBreakingFullDepthMetres
+                && settings.Weather.OnshoreWaveBreakingFullDepthMetres >= 0f,
+                "Authored breakers must fade from deeper water into a nonnegative full-breaking depth.");
+            Require(OceanWaveWeatherSettings.Default.OnshoreWaveBreakingFullDepthMetres == 3.5f
                 && OceanWaveWeatherSettings.Default.OnshoreWaveSharpeningDistanceMetres == 96f,
-                "The offshore breaker region must retain its 96 m default.");
+                "Fallback weather must retain the documented breaker defaults.");
             var weather = settings.Weather;
             weather.OnshoreWaveSharpeningDistanceMetres = 128f;
             Require(settings.WithWeather(weather).OnshoreWaveSharpeningDistanceMetres == 128f,

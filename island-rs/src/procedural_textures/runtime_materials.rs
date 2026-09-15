@@ -118,6 +118,12 @@ pub struct MaterialSelection {
 }
 
 impl MaterialSelection {
+    /// Ground materials only; tree bark is consumed by a separate vegetation renderer.
+    pub const TERRAIN: Self = Self {
+        tree_bark: false,
+        ..Self::ALL
+    };
+
     pub const ALL: Self = Self {
         dirt: true,
         forest_floor: true,

@@ -224,7 +224,7 @@ namespace Motu.Editor
                 if (Environment.GetEnvironmentVariable("MOTU_APPLY_WATERLINE_REBAKE") == "1")
                 {
                     var baked = ShipWaterlineTextureWindow.SaveAndAssign(ship.transform, result, forward, waterline,
-                        new ShipWaterlineTextureBuilder.Settings());
+                        new ShipWaterlineTextureBuilder.Settings(), "Assets/RebakedWaterline.png");
                     EditorSceneManager.SaveScene(ship.gameObject.scene);
                     Debug.Log("MOTU_WATERLINE_ASSET=" + AssetDatabase.GetAssetPath(baked));
                 }

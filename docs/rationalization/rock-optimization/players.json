@@ -1,0 +1,18 @@
+{
+  "consumer_il2cpp_build": [
+    "MOTU CONSUMER BUILD PASSED: IL2CPP"
+  ],
+  "consumer_il2cpp_player": [
+    "MOTU CONSUMER NAVIGATION PASSED: full-resolution extension bake ready and registered.",
+    "MOTU CONSUMER ENVIRONMENT PASSED: disable, same-frame re-enable, host restoration and additive unload.",
+    "MOTU CONSUMER PLAYER PASSED: terrain rendered, 2826 colours; shaders, native generation, host ownership, unload."
+  ],
+  "consumer_mono_build": [
+    "MOTU CONSUMER BUILD PASSED: Mono2x"
+  ],
+  "consumer_mono_player": [
+    "MOTU CONSUMER NAVIGATION PASSED: full-resolution extension bake ready and registered.",
+    "MOTU CONSUMER ENVIRONMENT PASSED: disable, same-frame re-enable, host restoration and additive unload.",
+    "MOTU CONSUMER PLAYER PASSED: terrain rendered, 2826 colours; shaders, native generation, host ownership, unload."
+  ]
+}

@@ -1,0 +1,287 @@
+Call graph:
+    4030 Thread_36971833   DispatchQueue_1: com.apple.main-thread  (serial)
+    + 4030 start  (in dyld) + 6992  [0x1801784e4]
+    +   4030 main  (in generation-bench) + 868  [0x1028fe5b8]
+    +     4030 _RINvNtNtCsfiKLhsWjRsE_3std3sys9backtrace28___rust_begin_short_backtraceFEuuECsggxMgBHMugq_16generation_bench  (in generation-bench) + 12  [0x1028fcf84]  backtrace.rs:166
+    +       4030 _RNvCsggxMgBHMugq_16generation_bench4main  (in generation-bench) + 2880  [0x1028fdbb4]  generation_bench.rs:8
+    +         4030 _RNvMs_NtNtCsjjhmRqPmbWu_4motu7terrain10generationNtB4_6Island8generate  (in generation-bench) + 264  [0x102916434]  generation.rs:311
+    +           4030 _RNvMs_NtNtCsjjhmRqPmbWu_4motu7terrain10generationNtB4_6Island24generate_with_cave_walks  (in generation-bench) + 3028  [0x102917018]  generation.rs:533
+    +             4030 _RNvNtNtCsjjhmRqPmbWu_4motu7terrain10generation20generate_detail_lod0  (in generation-bench) + 504  [0x10291d938]  generation.rs:1536
+    +               2894 _RNvNtNtCsjjhmRqPmbWu_4motu7terrain7erosion30hydraulic_erode_stage_with_sea  (in generation-bench) + 3184  [0x1029a429c]  erosion.rs:115
+    +               ! 2169 _RNvNtNtCsjjhmRqPmbWu_4motu7terrain7erosion30hydraulic_erode_stage_with_sea  (in generation-bench) + 2320,2368,...  [0x1029a3f3c,0x1029a3f6c,...]  erosion.rs:115
+    +               ! 237 _RNvMs_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB4_18ProjectedFaceAreas15update_incident  (in generation-bench) + 128  [0x102995610]  erosion.rs:313
+    +               ! : 94 _RNvNtNtCsjjhmRqPmbWu_4motu7terrain7erosion19projected_face_area  (in generation-bench) + 28,12,...  [0x10296ea18,0x10296ea08,...]  erosion.rs:797
+    +               ! : 78 _RNvNtNtCsjjhmRqPmbWu_4motu7terrain7erosion19projected_face_area  (in generation-bench) + 44,52,...  [0x10296ea28,0x10296ea30,...]  erosion.rs:798
+    +               ! : 35 _RNvNtNtCsjjhmRqPmbWu_4motu7terrain7erosion19projected_face_area  (in generation-bench) + 156  [0x10296ea98]  erosion.rs:802
+    +               ! : 15 _RNvNtNtCsjjhmRqPmbWu_4motu7terrain7erosion19projected_face_area  (in generation-bench) + 68,72,...  [0x10296ea40,0x10296ea44,...]  erosion.rs:799
+    +               ! : 14 _RNvNtNtCsjjhmRqPmbWu_4motu7terrain7erosion19projected_face_area  (in generation-bench) + 0  [0x10296e9fc]  erosion.rs:794
+    +               ! : 1 _RNvNtNtCsjjhmRqPmbWu_4motu7terrain7erosion19projected_face_area  (in generation-bench) + 104  [0x10296ea64]  index.rs:0
+    +               ! 180 _RNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB5_15HydraulicEroder11exchange_at  (in generation-bench) + 424,296,...  [0x1029a92f0,0x1029a9270,...]  erosion.rs:493
+    +               ! 95 _RNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB5_15HydraulicEroder11exchange_at  (in generation-bench) + 444  [0x1029a9304]  erosion.rs:494
+    +               ! 56 _RNvMs_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB4_18ProjectedFaceAreas15update_incident  (in generation-bench) + 112,24,...  [0x102995600,0x1029955a8,...]  erosion.rs:312
+    +               ! 50 _RNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB5_15HydraulicEroder11exchange_at  (in generation-bench) + 12,24  [0x1029a9154,0x1029a9160]  erosion.rs:471
+    +               ! 29 _RNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB5_15HydraulicEroder11exchange_at  (in generation-bench) + 92,280,...  [0x1029a91a4,0x1029a9260,...]  erosion.rs:477
+    +               ! 25 _RNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB5_15HydraulicEroder11exchange_at  (in generation-bench) + 80,188,...  [0x1029a9198,0x1029a9204,...]  erosion.rs:490
+    +               ! 20 _RNvMs_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB4_18ProjectedFaceAreas15update_incident  (in generation-bench) + 136  [0x102995618]  erosion.rs:313
+    +               ! 17 _RNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB5_15HydraulicEroder11exchange_at  (in generation-bench) + 68,196  [0x1029a918c,0x1029a920c]  erosion.rs:489
+    +               ! 7 _RNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB5_15HydraulicEroder11exchange_at  (in generation-bench) + 0  [0x1029a9148]  erosion.rs:463
+    +               ! 7 _RNvNtNtCsjjhmRqPmbWu_4motu7terrain7erosion19projected_face_area  (in generation-bench) + 160  [0x10296ea9c]  erosion.rs:802
+    +               ! 2 _RNvMs_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB4_18ProjectedFaceAreas15update_incident  (in generation-bench) + 0  [0x102995590]  erosion.rs:306
+    +               1041 _RNvNtNtCsjjhmRqPmbWu_4motu7terrain7erosion30hydraulic_erode_stage_with_sea  (in generation-bench) + 3092  [0x1029a4240]  erosion.rs:115
+    +               ! 690 _RNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB5_15HydraulicEroder16erosion_geometry  (in generation-bench) + 552  [0x1029a9060]  erosion.rs:441
+    +               ! : 541 _RNvMs_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB4_18ProjectedFaceAreas18safe_move_fraction  (in generation-bench) + 384  [0x10299551c]  erosion.rs:284
+    +               ! : | 207 _RNvMs_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB4_18ProjectedFaceAreas18safe_move_fraction  (in generation-bench) + 224,268,...  [0x10299547c,0x1029954a8,...]  erosion.rs:284
+    +               ! : | 138 _RNvNtNtCsjjhmRqPmbWu_4motu7terrain7erosion31projected_face_area_with_vertex  (in generation-bench) + 140,116,...  [0x10296eb98,0x10296eb80,...]  erosion.rs:816
+    +               ! : | 56 _RNvNtNtCsjjhmRqPmbWu_4motu7terrain7erosion31projected_face_area_with_vertex  (in generation-bench) + 12,16  [0x10296eb18,0x10296eb1c]  erosion.rs:812
+    +               ! : | 50 _RNvNtNtCsjjhmRqPmbWu_4motu7terrain7erosion31projected_face_area_with_vertex  (in generation-bench) + 204  [0x10296ebd8]  erosion.rs:824
+    +               ! : | 34 _RNvMs_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB4_18ProjectedFaceAreas18safe_move_fraction  (in generation-bench) + 396  [0x102995528]  erosion.rs:0
+    +               ! : | 29 _RNvNtNtCsjjhmRqPmbWu_4motu7terrain7erosion31projected_face_area_with_vertex  (in generation-bench) + 36,60  [0x10296eb30,0x10296eb48]  erosion.rs:814
+    +               ! : | 14 _RNvNtNtCsjjhmRqPmbWu_4motu7terrain7erosion31projected_face_area_with_vertex  (in generation-bench) + 24,28,...  [0x10296eb24,0x10296eb28,...]  erosion.rs:813
+    +               ! : | 6 _RNvNtNtCsjjhmRqPmbWu_4motu7terrain7erosion31projected_face_area_with_vertex  (in generation-bench) + 52,48  [0x10296eb40,0x10296eb3c]  erosion.rs:0
+    +               ! : | 6 _RNvNtNtCsjjhmRqPmbWu_4motu7terrain7erosion31projected_face_area_with_vertex  (in generation-bench) + 0  [0x10296eb0c]  erosion.rs:804
+    +               ! : | 1 _RNvMs_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB4_18ProjectedFaceAreas18safe_move_fraction  (in generation-bench) + 116  [0x102995410]  erosion.rs:304
+    +               ! : 101 _RNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB5_15HydraulicEroder16erosion_geometry  (in generation-bench) + 552  [0x1029a9060]  erosion.rs:441
+    +               ! : | 67 _RNvMs_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB4_18ProjectedFaceAreas18safe_move_fraction  (in generation-bench) + 284,296,...  [0x1029954b8,0x1029954c4,...]  erosion.rs:284
+    +               ! : | 25 _RNvMs_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB4_18ProjectedFaceAreas18safe_move_fraction  (in generation-bench) + 52,64,...  [0x1029953d0,0x1029953dc,...]  erosion.rs:282
+    +               ! : | 7 _RNvMs_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB4_18ProjectedFaceAreas18safe_move_fraction  (in generation-bench) + 200,204,...  [0x102995464,0x102995468,...]  erosion.rs:0
+    +               ! : | 2 _RNvMs_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB4_18ProjectedFaceAreas18safe_move_fraction  (in generation-bench) + 104  [0x102995404]  uint_macros.rs:0
+    +               ! : 29 _RNvMs_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB4_18ProjectedFaceAreas18safe_move_fraction  (in generation-bench) + 156,140,...  [0x102995438,0x102995428,...]  erosion.rs:304
+    +               ! : 19 _RNvMs_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB4_18ProjectedFaceAreas18safe_move_fraction  (in generation-bench) + 36,28,...  [0x1029953c0,0x1029953b8,...]  erosion.rs:274
+    +               ! 251 _RNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB5_15HydraulicEroder16erosion_geometry  (in generation-bench) + 352,412,...  [0x1029a8f98,0x1029a8fd4,...]  erosion.rs:440
+    +               ! 71 _RNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB5_15HydraulicEroder16erosion_geometry  (in generation-bench) + 36,64,...  [0x1029a8e5c,0x1029a8e78,...]  erosion.rs:438
+    +               ! 11 _RNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB5_15HydraulicEroder16erosion_geometry  (in generation-bench) + 12,4,...  [0x1029a8e44,0x1029a8e3c,...]  erosion.rs:437
+    +               ! 6 _RNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB5_15HydraulicEroder16erosion_geometry  (in generation-bench) + 636,628  [0x1029a90b4,0x1029a90ac]  erosion.rs:455
+    +               ! 3 _RNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB5_15HydraulicEroder16erosion_geometry  (in generation-bench) + 520,524,...  [0x1029a9040,0x1029a9044,...]  erosion.rs:441
+    +               ! 3 _RNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB5_15HydraulicEroder16erosion_geometry  (in generation-bench) + 648  [0x1029a90c0]  erosion.rs:461
+    +               ! 2 _RNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB5_15HydraulicEroder16erosion_geometry  (in generation-bench) + 564  [0x1029a906c]  erosion.rs:451
+    +               ! 1 _RNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB5_15HydraulicEroder16erosion_geometry  (in generation-bench) + 456  [0x1029a9000]  erosion.rs:0
+    +               ! 1 _RNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB5_15HydraulicEroder16erosion_geometry  (in generation-bench) + 556  [0x1029a9064]  erosion.rs:450
+    +               ! 1 _RNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB5_15HydraulicEroder16erosion_geometry  (in generation-bench) + 616  [0x1029a90a0]  erosion.rs:457
+    +               ! 1 _RNvNtNtCsjjhmRqPmbWu_4motu7terrain7erosion30hydraulic_erode_stage_with_sea  (in generation-bench) + 3152  [0x1029a427c]  erosion.rs:115
+    +               26 _RNvNtNtCsjjhmRqPmbWu_4motu7terrain7erosion30hydraulic_erode_stage_with_sea  (in generation-bench) + 3792  [0x1029a44fc]  erosion.rs:115
+    +               ! 25 _RINvNtNtNtNtCskumHb0IaX0X_4core5slice4sort8unstable9quicksort9quicksortjNCINvMB8_Sj16sort_unstable_byNCNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB1J_15HydraulicEroder21erode_reference_paths0E0EB1N_  (in generation-bench) + 5920  [0x1029aad7c]  quicksort.rs:74
+    +               ! : 24 _RINvNtNtNtNtCskumHb0IaX0X_4core5slice4sort8unstable9quicksort9quicksortjNCINvMB8_Sj16sort_unstable_byNCNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB1J_15HydraulicEroder21erode_reference_paths0E0EB1N_  (in generation-bench) + 5920  [0x1029aad7c]  quicksort.rs:74
+    +               ! : | 18 _RINvNtNtNtNtCskumHb0IaX0X_4core5slice4sort8unstable9quicksort9quicksortjNCINvMB8_Sj16sort_unstable_byNCNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB1J_15HydraulicEroder21erode_reference_paths0E0EB1N_  (in generation-bench) + 5920  [0x1029aad7c]  quicksort.rs:74
+    +               ! : | + 17 _RINvNtNtNtNtCskumHb0IaX0X_4core5slice4sort8unstable9quicksort9quicksortjNCINvMB8_Sj16sort_unstable_byNCNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB1J_15HydraulicEroder21erode_reference_paths0E0EB1N_  (in generation-bench) + 5920  [0x1029aad7c]  quicksort.rs:74
+    +               ! : | + ! 17 _RINvNtNtNtNtCskumHb0IaX0X_4core5slice4sort8unstable9quicksort9quicksortjNCINvMB8_Sj16sort_unstable_byNCNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB1J_15HydraulicEroder21erode_reference_paths0E0EB1N_  (in generation-bench) + 5920  [0x1029aad7c]  quicksort.rs:74
+    +               ! : | + !   17 _RINvNtNtNtNtCskumHb0IaX0X_4core5slice4sort8unstable9quicksort9quicksortjNCINvMB8_Sj16sort_unstable_byNCNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB1J_15HydraulicEroder21erode_reference_paths0E0EB1N_  (in generation-bench) + 5920  [0x1029aad7c]  quicksort.rs:74
+    +               ! : | + !     16 _RINvNtNtNtNtCskumHb0IaX0X_4core5slice4sort8unstable9quicksort9quicksortjNCINvMB8_Sj16sort_unstable_byNCNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB1J_15HydraulicEroder21erode_reference_paths0E0EB1N_  (in generation-bench) + 5920  [0x1029aad7c]  quicksort.rs:74
+    +               ! : | + !     : 12 _RINvNtNtNtNtCskumHb0IaX0X_4core5slice4sort8unstable9quicksort9quicksortjNCINvMB8_Sj16sort_unstable_byNCNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB1J_15HydraulicEroder21erode_reference_paths0E0EB1N_  (in generation-bench) + 5920  [0x1029aad7c]  quicksort.rs:74
+    +               ! : | + !     : | 9 _RINvNtNtNtNtCskumHb0IaX0X_4core5slice4sort8unstable9quicksort9quicksortjNCINvMB8_Sj16sort_unstable_byNCNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB1J_15HydraulicEroder21erode_reference_paths0E0EB1N_  (in generation-bench) + 5920  [0x1029aad7c]  quicksort.rs:74
+    +               ! : | + !     : | + 6 _RINvNtNtNtNtCskumHb0IaX0X_4core5slice4sort8unstable9quicksort9quicksortjNCINvMB8_Sj16sort_unstable_byNCNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB1J_15HydraulicEroder21erode_reference_paths0E0EB1N_  (in generation-bench) + 5920  [0x1029aad7c]  quicksort.rs:74
+    +               ! : | + !     : | + ! 3 _RINvNtNtNtNtCskumHb0IaX0X_4core5slice4sort8unstable9quicksort9quicksortjNCINvMB8_Sj16sort_unstable_byNCNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB1J_15HydraulicEroder21erode_reference_paths0E0EB1N_  (in generation-bench) + 5920  [0x1029aad7c]  quicksort.rs:74
+    +               ! : | + !     : | + ! : 1 _RINvNtNtNtNtCskumHb0IaX0X_4core5slice4sort8unstable9quicksort9quicksortjNCINvMB8_Sj16sort_unstable_byNCNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB1J_15HydraulicEroder21erode_reference_paths0E0EB1N_  (in generation-bench) + 5200  [0x1029aaaac]  quicksort.rs:31
+    +               ! : | + !     : | + ! : | 1 _RINvNtNtNtNtCskumHb0IaX0X_4core5slice4sort6shared9smallsort25insertion_sort_shift_leftjNCINvMB8_Sj16sort_unstable_byNCNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB1Y_15HydraulicEroder21erode_reference_paths0E0EB22_  (in generation-bench) + 244  [0x1029a9630]  smallsort.rs:596
+    +               ! : | + !     : | + ! : 1 _RINvNtNtNtNtCskumHb0IaX0X_4core5slice4sort8unstable9quicksort9quicksortjNCINvMB8_Sj16sort_unstable_byNCNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB1J_15HydraulicEroder21erode_reference_paths0E0EB1N_  (in generation-bench) + 6412  [0x1029aaf68]  quicksort.rs:31
+    +               ! : | + !     : | + ! : 1 _RINvNtNtNtNtCskumHb0IaX0X_4core5slice4sort8unstable9quicksort9quicksortjNCINvMB8_Sj16sort_unstable_byNCNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB1J_15HydraulicEroder21erode_reference_paths0E0EB1N_  (in generation-bench) + 5920  [0x1029aad7c]  quicksort.rs:74
+    +               ! : | + !     : | + ! :   1 _RINvNtNtNtNtCskumHb0IaX0X_4core5slice4sort8unstable9quicksort9quicksortjNCINvMB8_Sj16sort_unstable_byNCNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB1J_15HydraulicEroder21erode_reference_paths0E0EB1N_  (in generation-bench) + 5920  [0x1029aad7c]  quicksort.rs:74
+    +               ! : | + !     : | + ! :     1 _RINvNtNtNtNtCskumHb0IaX0X_4core5slice4sort8unstable9quicksort9quicksortjNCINvMB8_Sj16sort_unstable_byNCNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB1J_15HydraulicEroder21erode_reference_paths0E0EB1N_  (in generation-bench) + 2812  [0x1029aa158]  quicksort.rs:31
+    +               ! : | + !     : | + ! 1 _RINvNtNtNtNtCskumHb0IaX0X_4core5slice4sort8unstable9quicksort9quicksortjNCINvMB8_Sj16sort_unstable_byNCNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB1J_15HydraulicEroder21erode_reference_paths0E0EB1N_  (in generation-bench) + 5936  [0x1029aad8c]  quicksort.rs:30
+    +               ! : | + !     : | + ! 1 _RINvNtNtNtNtCskumHb0IaX0X_4core5slice4sort8unstable9quicksort9quicksortjNCINvMB8_Sj16sort_unstable_byNCNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB1J_15HydraulicEroder21erode_reference_paths0E0EB1N_  (in generation-bench) + 3556  [0x1029aa440]  quicksort.rs:31
+    +               ! : | + !     : | + ! : 1 _RINvNtNtNtNtCskumHb0IaX0X_4core5slice4sort6shared9smallsort25insertion_sort_shift_leftjNCINvMB8_Sj16sort_unstable_byNCNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB1Y_15HydraulicEroder21erode_reference_paths0E0EB22_  (in generation-bench) + 52  [0x1029a9570]  smallsort.rs:596
+    +               ! : | + !     : | + ! 1 _RINvNtNtNtNtCskumHb0IaX0X_4core5slice4sort8unstable9quicksort9quicksortjNCINvMB8_Sj16sort_unstable_byNCNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB1J_15HydraulicEroder21erode_reference_paths0E0EB1N_  (in generation-bench) + 5596  [0x1029aac38]  quicksort.rs:63
+    +               ! : | + !     : | + 2 _RINvNtNtNtNtCskumHb0IaX0X_4core5slice4sort8unstable9quicksort9quicksortjNCINvMB8_Sj16sort_unstable_byNCNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB1J_15HydraulicEroder21erode_reference_paths0E0EB1N_  (in generation-bench) + 6476,6592  [0x1029aafa8,0x1029ab01c]  quicksort.rs:31
+    +               ! : | + !     : | + 1 _RINvNtNtNtNtCskumHb0IaX0X_4core5slice4sort8unstable9quicksort9quicksortjNCINvMB8_Sj16sort_unstable_byNCNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB1J_15HydraulicEroder21erode_reference_paths0E0EB1N_  (in generation-bench) + 8  [0x1029a9664]  quicksort.rs:21
+    +               ! : | + !     : | 1 _RINvNtNtNtNtCskumHb0IaX0X_4core5slice4sort8unstable9quicksort9quicksortjNCINvMB8_Sj16sort_unstable_byNCNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB1J_15HydraulicEroder21erode_reference_paths0E0EB1N_  (in generation-bench) + 6648  [0x1029ab054]  quicksort.rs:31
+    +               ! : | + !     : | + 1 _platform_memmove  (in libsystem_platform.dylib) + 180  [0x18054d414]
+    +               ! : | + !     : | 1 _RINvNtNtNtNtCskumHb0IaX0X_4core5slice4sort8unstable9quicksort9quicksortjNCINvMB8_Sj16sort_unstable_byNCNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB1J_15HydraulicEroder21erode_reference_paths0E0EB1N_  (in generation-bench) + 3108  [0x1029aa280]  quicksort.rs:31
+    +               ! : | + !     : | 1 _RINvNtNtNtNtCskumHb0IaX0X_4core5slice4sort8unstable9quicksort9quicksortjNCINvMB8_Sj16sort_unstable_byNCNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB1J_15HydraulicEroder21erode_reference_paths0E0EB1N_  (in generation-bench) + 5632  [0x1029aac5c]  quicksort.rs:63
+    +               ! : | + !     : 1 _RINvNtNtNtNtCskumHb0IaX0X_4core5slice4sort8unstable9quicksort9quicksortjNCINvMB8_Sj16sort_unstable_byNCNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB1J_15HydraulicEroder21erode_reference_paths0E0EB1N_  (in generation-bench) + 5200  [0x1029aaaac]  quicksort.rs:31
+    +               ! : | + !     : | 1 _RINvNtNtNtNtCskumHb0IaX0X_4core5slice4sort6shared9smallsort25insertion_sort_shift_leftjNCINvMB8_Sj16sort_unstable_byNCNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB1Y_15HydraulicEroder21erode_reference_paths0E0EB22_  (in generation-bench) + 244  [0x1029a9630]  smallsort.rs:596
+    +               ! : | + !     : 1 _RINvNtNtNtNtCskumHb0IaX0X_4core5slice4sort8unstable9quicksort9quicksortjNCINvMB8_Sj16sort_unstable_byNCNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB1J_15HydraulicEroder21erode_reference_paths0E0EB1N_  (in generation-bench) + 6572  [0x1029ab008]  quicksort.rs:31
+    +               ! : | + !     : 1 _RINvNtNtNtNtCskumHb0IaX0X_4core5slice4sort8unstable9quicksort9quicksortjNCINvMB8_Sj16sort_unstable_byNCNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB1J_15HydraulicEroder21erode_reference_paths0E0EB1N_  (in generation-bench) + 5436  [0x1029aab98]  quicksort.rs:45
+    +               ! : | + !     : | 1 _RINvNtNtNtNtCskumHb0IaX0X_4core5slice4sort6shared5pivot11median3_recjNCINvMB8_Sj16sort_unstable_byNCNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB1G_15HydraulicEroder21erode_reference_paths0E0EB1K_  (in generation-bench) + 116  [0x1029ab9b0]  pivot.rs:68
+    +               ! : | + !     : |   1 _RINvNtNtNtNtCskumHb0IaX0X_4core5slice4sort6shared5pivot11median3_recjNCINvMB8_Sj16sort_unstable_byNCNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB1G_15HydraulicEroder21erode_reference_paths0E0EB1K_  (in generation-bench) + 144  [0x1029ab9cc]  pivot.rs:69
+    +               ! : | + !     : |     1 _RINvNtNtNtNtCskumHb0IaX0X_4core5slice4sort6shared5pivot11median3_recjNCINvMB8_Sj16sort_unstable_byNCNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB1G_15HydraulicEroder21erode_reference_paths0E0EB1K_  (in generation-bench) + 40  [0x1029ab964]  pivot.rs:65
+    +               ! : | + !     : 1 _RINvNtNtNtNtCskumHb0IaX0X_4core5slice4sort8unstable9quicksort9quicksortjNCINvMB8_Sj16sort_unstable_byNCNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB1J_15HydraulicEroder21erode_reference_paths0E0EB1N_  (in generation-bench) + 5632  [0x1029aac5c]  quicksort.rs:63
+    +               ! : | + !     1 _RINvNtNtNtNtCskumHb0IaX0X_4core5slice4sort8unstable9quicksort9quicksortjNCINvMB8_Sj16sort_unstable_byNCNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB1J_15HydraulicEroder21erode_reference_paths0E0EB1N_  (in generation-bench) + 1396  [0x1029a9bd0]  quicksort.rs:31
+    +               ! : | + 1 _RINvNtNtNtNtCskumHb0IaX0X_4core5slice4sort8unstable9quicksort9quicksortjNCINvMB8_Sj16sort_unstable_byNCNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB1J_15HydraulicEroder21erode_reference_paths0E0EB1N_  (in generation-bench) + 6572  [0x1029ab008]  quicksort.rs:31
+    +               ! : | 6 _RINvNtNtNtNtCskumHb0IaX0X_4core5slice4sort8unstable9quicksort9quicksortjNCINvMB8_Sj16sort_unstable_byNCNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB1J_15HydraulicEroder21erode_reference_paths0E0EB1N_  (in generation-bench) + 5632,5596,...  [0x1029aac5c,0x1029aac38,...]  quicksort.rs:63
+    +               ! : 1 _RINvNtNtNtNtCskumHb0IaX0X_4core5slice4sort8unstable9quicksort9quicksortjNCINvMB8_Sj16sort_unstable_byNCNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB1J_15HydraulicEroder21erode_reference_paths0E0EB1N_  (in generation-bench) + 5696  [0x1029aac9c]  quicksort.rs:63
+    +               ! 1 _RINvNtNtNtNtCskumHb0IaX0X_4core5slice4sort8unstable9quicksort9quicksortjNCINvMB8_Sj16sort_unstable_byNCNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB1J_15HydraulicEroder21erode_reference_paths0E0EB1N_  (in generation-bench) + 5696  [0x1029aac9c]  quicksort.rs:63
+    +               23 _RNvNtNtCsjjhmRqPmbWu_4motu7terrain7erosion30hydraulic_erode_stage_with_sea  (in generation-bench) + 3228  [0x1029a42c8]  erosion.rs:115
+    +               ! 19 _RNvNtNtCsjjhmRqPmbWu_4motu7terrain7erosion30hydraulic_erode_stage_with_sea  (in generation-bench) + 2688,2320,...  [0x1029a40ac,0x1029a3f3c,...]  erosion.rs:115
+    +               ! 3 _RNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB5_15HydraulicEroder17deposit_remaining  (in generation-bench) + 216,312,...  [0x1029a8bfc,0x1029a8c5c,...]  erosion.rs:519
+    +               ! 1 _RNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB5_15HydraulicEroder17deposit_remaining  (in generation-bench) + 20  [0x1029a8b38]  erosion.rs:0
+    +               22 _RNvNtNtCsjjhmRqPmbWu_4motu7terrain7erosion30hydraulic_erode_stage_with_sea  (in generation-bench) + 616  [0x1029a3894]  erosion.rs:115
+    +               ! 11 _RNvMNtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB2_19VertexFaceAdjacency3new  (in generation-bench) + 348  [0x102994ee8]  erosion.rs:237
+    +               ! : 11 _xzm_malloc_large_huge  (in libsystem_malloc.dylib) + 464  [0x18035f458]
+    +               ! :   11 xzm_segment_group_alloc_chunk  (in libsystem_malloc.dylib) + 1368  [0x180348954]
+    +               ! :     11 __bzero  (in libsystem_platform.dylib) + 64  [0x18054d070]
+    +               ! 4 _RNvMNtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB2_19VertexFaceAdjacency3new  (in generation-bench) + 432,472  [0x102994f3c,0x102994f64]  erosion.rs:241
+    +               ! 2 _RNvMNtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB2_19VertexFaceAdjacency3new  (in generation-bench) + 108  [0x102994df8]  erosion.rs:230
+    +               ! 2 _RNvMNtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB2_19VertexFaceAdjacency3new  (in generation-bench) + 488,540  [0x102994f74,0x102994fa8]  erosion.rs:242
+    +               ! 1 _RNvMNtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB2_19VertexFaceAdjacency3new  (in generation-bench) + 84  [0x102994de0]  erosion.rs:229
+    +               ! 1 _RNvMNtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB2_19VertexFaceAdjacency3new  (in generation-bench) + 232  [0x102994e74]  erosion.rs:233
+    +               ! 1 _RNvMNtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB2_19VertexFaceAdjacency3new  (in generation-bench) + 500  [0x102994f80]  erosion.rs:239
+    +               13 _RNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB5_15HydraulicEroder16erosion_geometry  (in generation-bench) + 664,660,...  [0x1029a90d0,0x1029a90cc,...]  erosion.rs:461
+    +               5 _RNvNtNtCsjjhmRqPmbWu_4motu7terrain7erosion30hydraulic_erode_stage_with_sea  (in generation-bench) + 628  [0x1029a38a0]  erosion.rs:115
+    +               ! 3 _RNvMs_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB4_18ProjectedFaceAreas3new  (in generation-bench) + 116  [0x1029950bc]  erosion.rs:257
+    +               ! : 3 _RNvNtNtCsjjhmRqPmbWu_4motu7terrain7erosion19projected_face_area  (in generation-bench) + 12,32  [0x10296ea08,0x10296ea1c]  erosion.rs:797
+    +               ! 1 _RNvMs_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB4_18ProjectedFaceAreas3new  (in generation-bench) + 160  [0x1029950e8]  erosion.rs:258
+    +               ! : 1 _platform_memmove  (in libsystem_platform.dylib) + 88  [0x18054d3b8]
+    +               ! 1 _RNvNtNtCsjjhmRqPmbWu_4motu7terrain7erosion19projected_face_area  (in generation-bench) + 160  [0x10296ea9c]  erosion.rs:802
+    +               2 _RNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB5_15HydraulicEroder11exchange_at  (in generation-bench) + 448  [0x1029a9308]  erosion.rs:494
+    +               2 _RNvMs_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB4_18ProjectedFaceAreas15update_incident  (in generation-bench) + 160  [0x102995630]  erosion.rs:315
+    +               1 _RNvNtNtCsjjhmRqPmbWu_4motu7terrain7erosion30hydraulic_erode_stage_with_sea  (in generation-bench) + 1904  [0x1029a3d9c]  erosion.rs:115
+    +               ! 1 _RNvNtNtCsjjhmRqPmbWu_4motu7terrain7erosion30hydraulic_erode_stage_with_sea  (in generation-bench) + 1988  [0x1029a3df0]  erosion.rs:115
+    +               1 _RNvNtNtCsjjhmRqPmbWu_4motu7terrain7erosion30hydraulic_erode_stage_with_sea  (in generation-bench) + 3588  [0x1029a4430]  erosion.rs:80
+    +                 1 _RINvNvMs2_NtCs6SjEax68zxx_5alloc7raw_vecINtB8_11RawVecInnerpE7reserve21do_reserve_and_handleNtNtBa_5alloc6GlobalECsjjhmRqPmbWu_4motu  (in generation-bench) + 88  [0x1029e93bc]  mod.rs:668
+    +                   1 _RNvMs4_NtCs6SjEax68zxx_5alloc7raw_vecNtB5_11RawVecInner11finish_growCsjjhmRqPmbWu_4motu  (in generation-bench) + 256  [0x1029e94f0]  mod.rs:556
+    +                     1 _realloc  (in libsystem_malloc.dylib) + 452  [0x18036ff14]
+    +                       1 _malloc_zone_realloc  (in libsystem_malloc.dylib) + 148  [0x18036f6f8]
+    +                         1 xzm_realloc  (in libsystem_malloc.dylib) + 880  [0x18035fef4]
+    +                           1 _platform_memmove  (in libsystem_platform.dylib) + 88  [0x18054d3b8]
+    4030 Thread_36971834
+    + 4030 thread_start  (in libsystem_pthread.dylib) + 8  [0x18053ec1c]
+    +   4030 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x180543c58]
+    +     4030 _RNvNvMs0_NtNtNtCsfiKLhsWjRsE_3std3sys6thread4unixNtB7_6Thread3new12thread_start  (in generation-bench) + 396  [0x1029dcb4c]  unix.rs:118
+    +       4030 _RNSNvYNCINvNtNtCsfiKLhsWjRsE_3std6thread9lifecycle15spawn_uncheckedNCNvXs0_NtCs6YpFmoX2kOG_10rayon_core8registryNtB1b_12DefaultSpawnNtB1b_11ThreadSpawn5spawn0uEs_0INtNtNtCskumHb0IaX0X_4core3ops8function6FnOnceuE9call_once6vtableB1d_  (in generation-bench) + 92  [0x1029b63f4]  function.rs:250
+    +         4030 _RINvNtNtCsfiKLhsWjRsE_3std3sys9backtrace28___rust_begin_short_backtraceNCNvXs0_NtCs6YpFmoX2kOG_10rayon_core8registryNtB1f_12DefaultSpawnNtB1f_11ThreadSpawn5spawn0uEB1h_  (in generation-bench) + 524  [0x1029b3b4c]  backtrace.rs:166
+    +           4030 _RNvMs8_NtCs6YpFmoX2kOG_10rayon_core8registryNtB5_12WorkerThread15wait_until_cold  (in generation-bench) + 1512  [0x1029f2c50]  registry.rs:806
+    +             4030 _pthread_cond_wait  (in libsystem_pthread.dylib) + 980  [0x180544128]
+    +               4030 __psynch_cvwait  (in libsystem_kernel.dylib) + 8  [0x18050350c]
+    4030 Thread_36971835
+    + 4030 thread_start  (in libsystem_pthread.dylib) + 8  [0x18053ec1c]
+    +   4030 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x180543c58]
+    +     4030 _RNvNvMs0_NtNtNtCsfiKLhsWjRsE_3std3sys6thread4unixNtB7_6Thread3new12thread_start  (in generation-bench) + 396  [0x1029dcb4c]  unix.rs:118
+    +       4030 _RNSNvYNCINvNtNtCsfiKLhsWjRsE_3std6thread9lifecycle15spawn_uncheckedNCNvXs0_NtCs6YpFmoX2kOG_10rayon_core8registryNtB1b_12DefaultSpawnNtB1b_11ThreadSpawn5spawn0uEs_0INtNtNtCskumHb0IaX0X_4core3ops8function6FnOnceuE9call_once6vtableB1d_  (in generation-bench) + 92  [0x1029b63f4]  function.rs:250
+    +         4030 _RINvNtNtCsfiKLhsWjRsE_3std3sys9backtrace28___rust_begin_short_backtraceNCNvXs0_NtCs6YpFmoX2kOG_10rayon_core8registryNtB1f_12DefaultSpawnNtB1f_11ThreadSpawn5spawn0uEB1h_  (in generation-bench) + 524  [0x1029b3b4c]  backtrace.rs:166
+    +           4030 _RNvMs8_NtCs6YpFmoX2kOG_10rayon_core8registryNtB5_12WorkerThread15wait_until_cold  (in generation-bench) + 1512  [0x1029f2c50]  registry.rs:806
+    +             4030 _pthread_cond_wait  (in libsystem_pthread.dylib) + 980  [0x180544128]
+    +               4030 __psynch_cvwait  (in libsystem_kernel.dylib) + 8  [0x18050350c]
+    4030 Thread_36971836
+    + 4030 thread_start  (in libsystem_pthread.dylib) + 8  [0x18053ec1c]
+    +   4030 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x180543c58]
+    +     4030 _RNvNvMs0_NtNtNtCsfiKLhsWjRsE_3std3sys6thread4unixNtB7_6Thread3new12thread_start  (in generation-bench) + 396  [0x1029dcb4c]  unix.rs:118
+    +       4030 _RNSNvYNCINvNtNtCsfiKLhsWjRsE_3std6thread9lifecycle15spawn_uncheckedNCNvXs0_NtCs6YpFmoX2kOG_10rayon_core8registryNtB1b_12DefaultSpawnNtB1b_11ThreadSpawn5spawn0uEs_0INtNtNtCskumHb0IaX0X_4core3ops8function6FnOnceuE9call_once6vtableB1d_  (in generation-bench) + 92  [0x1029b63f4]  function.rs:250
+    +         4030 _RINvNtNtCsfiKLhsWjRsE_3std3sys9backtrace28___rust_begin_short_backtraceNCNvXs0_NtCs6YpFmoX2kOG_10rayon_core8registryNtB1f_12DefaultSpawnNtB1f_11ThreadSpawn5spawn0uEB1h_  (in generation-bench) + 524  [0x1029b3b4c]  backtrace.rs:166
+    +           4030 _RNvMs8_NtCs6YpFmoX2kOG_10rayon_core8registryNtB5_12WorkerThread15wait_until_cold  (in generation-bench) + 1512  [0x1029f2c50]  registry.rs:806
+    +             4030 _pthread_cond_wait  (in libsystem_pthread.dylib) + 980  [0x180544128]
+    +               4030 __psynch_cvwait  (in libsystem_kernel.dylib) + 8  [0x18050350c]
+    4030 Thread_36971837
+    + 4030 thread_start  (in libsystem_pthread.dylib) + 8  [0x18053ec1c]
+    +   4030 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x180543c58]
+    +     4030 _RNvNvMs0_NtNtNtCsfiKLhsWjRsE_3std3sys6thread4unixNtB7_6Thread3new12thread_start  (in generation-bench) + 396  [0x1029dcb4c]  unix.rs:118
+    +       4030 _RNSNvYNCINvNtNtCsfiKLhsWjRsE_3std6thread9lifecycle15spawn_uncheckedNCNvXs0_NtCs6YpFmoX2kOG_10rayon_core8registryNtB1b_12DefaultSpawnNtB1b_11ThreadSpawn5spawn0uEs_0INtNtNtCskumHb0IaX0X_4core3ops8function6FnOnceuE9call_once6vtableB1d_  (in generation-bench) + 92  [0x1029b63f4]  function.rs:250
+    +         4030 _RINvNtNtCsfiKLhsWjRsE_3std3sys9backtrace28___rust_begin_short_backtraceNCNvXs0_NtCs6YpFmoX2kOG_10rayon_core8registryNtB1f_12DefaultSpawnNtB1f_11ThreadSpawn5spawn0uEB1h_  (in generation-bench) + 524  [0x1029b3b4c]  backtrace.rs:166
+    +           4030 _RNvMs8_NtCs6YpFmoX2kOG_10rayon_core8registryNtB5_12WorkerThread15wait_until_cold  (in generation-bench) + 1512  [0x1029f2c50]  registry.rs:806
+    +             4030 _pthread_cond_wait  (in libsystem_pthread.dylib) + 980  [0x180544128]
+    +               4030 __psynch_cvwait  (in libsystem_kernel.dylib) + 8  [0x18050350c]
+    4030 Thread_36971838
+    + 4030 thread_start  (in libsystem_pthread.dylib) + 8  [0x18053ec1c]
+    +   4030 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x180543c58]
+    +     4030 _RNvNvMs0_NtNtNtCsfiKLhsWjRsE_3std3sys6thread4unixNtB7_6Thread3new12thread_start  (in generation-bench) + 396  [0x1029dcb4c]  unix.rs:118
+    +       4030 _RNSNvYNCINvNtNtCsfiKLhsWjRsE_3std6thread9lifecycle15spawn_uncheckedNCNvXs0_NtCs6YpFmoX2kOG_10rayon_core8registryNtB1b_12DefaultSpawnNtB1b_11ThreadSpawn5spawn0uEs_0INtNtNtCskumHb0IaX0X_4core3ops8function6FnOnceuE9call_once6vtableB1d_  (in generation-bench) + 92  [0x1029b63f4]  function.rs:250
+    +         4030 _RINvNtNtCsfiKLhsWjRsE_3std3sys9backtrace28___rust_begin_short_backtraceNCNvXs0_NtCs6YpFmoX2kOG_10rayon_core8registryNtB1f_12DefaultSpawnNtB1f_11ThreadSpawn5spawn0uEB1h_  (in generation-bench) + 524  [0x1029b3b4c]  backtrace.rs:166
+    +           4030 _RNvMs8_NtCs6YpFmoX2kOG_10rayon_core8registryNtB5_12WorkerThread15wait_until_cold  (in generation-bench) + 1512  [0x1029f2c50]  registry.rs:806
+    +             4030 _pthread_cond_wait  (in libsystem_pthread.dylib) + 980  [0x180544128]
+    +               4030 __psynch_cvwait  (in libsystem_kernel.dylib) + 8  [0x18050350c]
+    4030 Thread_36971839
+    + 4030 thread_start  (in libsystem_pthread.dylib) + 8  [0x18053ec1c]
+    +   4030 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x180543c58]
+    +     4030 _RNvNvMs0_NtNtNtCsfiKLhsWjRsE_3std3sys6thread4unixNtB7_6Thread3new12thread_start  (in generation-bench) + 396  [0x1029dcb4c]  unix.rs:118
+    +       4030 _RNSNvYNCINvNtNtCsfiKLhsWjRsE_3std6thread9lifecycle15spawn_uncheckedNCNvXs0_NtCs6YpFmoX2kOG_10rayon_core8registryNtB1b_12DefaultSpawnNtB1b_11ThreadSpawn5spawn0uEs_0INtNtNtCskumHb0IaX0X_4core3ops8function6FnOnceuE9call_once6vtableB1d_  (in generation-bench) + 92  [0x1029b63f4]  function.rs:250
+    +         4030 _RINvNtNtCsfiKLhsWjRsE_3std3sys9backtrace28___rust_begin_short_backtraceNCNvXs0_NtCs6YpFmoX2kOG_10rayon_core8registryNtB1f_12DefaultSpawnNtB1f_11ThreadSpawn5spawn0uEB1h_  (in generation-bench) + 524  [0x1029b3b4c]  backtrace.rs:166
+    +           4030 _RNvMs8_NtCs6YpFmoX2kOG_10rayon_core8registryNtB5_12WorkerThread15wait_until_cold  (in generation-bench) + 1512  [0x1029f2c50]  registry.rs:806
+    +             4030 _pthread_cond_wait  (in libsystem_pthread.dylib) + 980  [0x180544128]
+    +               4030 __psynch_cvwait  (in libsystem_kernel.dylib) + 8  [0x18050350c]
+    4030 Thread_36971840
+    + 4030 thread_start  (in libsystem_pthread.dylib) + 8  [0x18053ec1c]
+    +   4030 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x180543c58]
+    +     4030 _RNvNvMs0_NtNtNtCsfiKLhsWjRsE_3std3sys6thread4unixNtB7_6Thread3new12thread_start  (in generation-bench) + 396  [0x1029dcb4c]  unix.rs:118
+    +       4030 _RNSNvYNCINvNtNtCsfiKLhsWjRsE_3std6thread9lifecycle15spawn_uncheckedNCNvXs0_NtCs6YpFmoX2kOG_10rayon_core8registryNtB1b_12DefaultSpawnNtB1b_11ThreadSpawn5spawn0uEs_0INtNtNtCskumHb0IaX0X_4core3ops8function6FnOnceuE9call_once6vtableB1d_  (in generation-bench) + 92  [0x1029b63f4]  function.rs:250
+    +         4030 _RINvNtNtCsfiKLhsWjRsE_3std3sys9backtrace28___rust_begin_short_backtraceNCNvXs0_NtCs6YpFmoX2kOG_10rayon_core8registryNtB1f_12DefaultSpawnNtB1f_11ThreadSpawn5spawn0uEB1h_  (in generation-bench) + 524  [0x1029b3b4c]  backtrace.rs:166
+    +           4030 _RNvMs8_NtCs6YpFmoX2kOG_10rayon_core8registryNtB5_12WorkerThread15wait_until_cold  (in generation-bench) + 1512  [0x1029f2c50]  registry.rs:806
+    +             4030 _pthread_cond_wait  (in libsystem_pthread.dylib) + 980  [0x180544128]
+    +               4030 __psynch_cvwait  (in libsystem_kernel.dylib) + 8  [0x18050350c]
+    4030 Thread_36971841
+    + 4030 thread_start  (in libsystem_pthread.dylib) + 8  [0x18053ec1c]
+    +   4030 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x180543c58]
+    +     4030 _RNvNvMs0_NtNtNtCsfiKLhsWjRsE_3std3sys6thread4unixNtB7_6Thread3new12thread_start  (in generation-bench) + 396  [0x1029dcb4c]  unix.rs:118
+    +       4030 _RNSNvYNCINvNtNtCsfiKLhsWjRsE_3std6thread9lifecycle15spawn_uncheckedNCNvXs0_NtCs6YpFmoX2kOG_10rayon_core8registryNtB1b_12DefaultSpawnNtB1b_11ThreadSpawn5spawn0uEs_0INtNtNtCskumHb0IaX0X_4core3ops8function6FnOnceuE9call_once6vtableB1d_  (in generation-bench) + 92  [0x1029b63f4]  function.rs:250
+    +         4030 _RINvNtNtCsfiKLhsWjRsE_3std3sys9backtrace28___rust_begin_short_backtraceNCNvXs0_NtCs6YpFmoX2kOG_10rayon_core8registryNtB1f_12DefaultSpawnNtB1f_11ThreadSpawn5spawn0uEB1h_  (in generation-bench) + 524  [0x1029b3b4c]  backtrace.rs:166
+    +           4030 _RNvMs8_NtCs6YpFmoX2kOG_10rayon_core8registryNtB5_12WorkerThread15wait_until_cold  (in generation-bench) + 1512  [0x1029f2c50]  registry.rs:806
+    +             4030 _pthread_cond_wait  (in libsystem_pthread.dylib) + 980  [0x180544128]
+    +               4030 __psynch_cvwait  (in libsystem_kernel.dylib) + 8  [0x18050350c]
+    4030 Thread_36971842
+    + 4030 thread_start  (in libsystem_pthread.dylib) + 8  [0x18053ec1c]
+    +   4030 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x180543c58]
+    +     4030 _RNvNvMs0_NtNtNtCsfiKLhsWjRsE_3std3sys6thread4unixNtB7_6Thread3new12thread_start  (in generation-bench) + 396  [0x1029dcb4c]  unix.rs:118
+    +       4030 _RNSNvYNCINvNtNtCsfiKLhsWjRsE_3std6thread9lifecycle15spawn_uncheckedNCNvXs0_NtCs6YpFmoX2kOG_10rayon_core8registryNtB1b_12DefaultSpawnNtB1b_11ThreadSpawn5spawn0uEs_0INtNtNtCskumHb0IaX0X_4core3ops8function6FnOnceuE9call_once6vtableB1d_  (in generation-bench) + 92  [0x1029b63f4]  function.rs:250
+    +         4030 _RINvNtNtCsfiKLhsWjRsE_3std3sys9backtrace28___rust_begin_short_backtraceNCNvXs0_NtCs6YpFmoX2kOG_10rayon_core8registryNtB1f_12DefaultSpawnNtB1f_11ThreadSpawn5spawn0uEB1h_  (in generation-bench) + 524  [0x1029b3b4c]  backtrace.rs:166
+    +           4030 _RNvMs8_NtCs6YpFmoX2kOG_10rayon_core8registryNtB5_12WorkerThread15wait_until_cold  (in generation-bench) + 1512  [0x1029f2c50]  registry.rs:806
+    +             4030 _pthread_cond_wait  (in libsystem_pthread.dylib) + 980  [0x180544128]
+    +               4030 __psynch_cvwait  (in libsystem_kernel.dylib) + 8  [0x18050350c]
+    4030 Thread_36971843
+    + 4030 thread_start  (in libsystem_pthread.dylib) + 8  [0x18053ec1c]
+    +   4030 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x180543c58]
+    +     4030 _RNvNvMs0_NtNtNtCsfiKLhsWjRsE_3std3sys6thread4unixNtB7_6Thread3new12thread_start  (in generation-bench) + 396  [0x1029dcb4c]  unix.rs:118
+    +       4030 _RNSNvYNCINvNtNtCsfiKLhsWjRsE_3std6thread9lifecycle15spawn_uncheckedNCNvXs0_NtCs6YpFmoX2kOG_10rayon_core8registryNtB1b_12DefaultSpawnNtB1b_11ThreadSpawn5spawn0uEs_0INtNtNtCskumHb0IaX0X_4core3ops8function6FnOnceuE9call_once6vtableB1d_  (in generation-bench) + 92  [0x1029b63f4]  function.rs:250
+    +         4030 _RINvNtNtCsfiKLhsWjRsE_3std3sys9backtrace28___rust_begin_short_backtraceNCNvXs0_NtCs6YpFmoX2kOG_10rayon_core8registryNtB1f_12DefaultSpawnNtB1f_11ThreadSpawn5spawn0uEB1h_  (in generation-bench) + 524  [0x1029b3b4c]  backtrace.rs:166
+    +           4030 _RNvMs8_NtCs6YpFmoX2kOG_10rayon_core8registryNtB5_12WorkerThread15wait_until_cold  (in generation-bench) + 1512  [0x1029f2c50]  registry.rs:806
+    +             4030 _pthread_cond_wait  (in libsystem_pthread.dylib) + 980  [0x180544128]
+    +               4030 __psynch_cvwait  (in libsystem_kernel.dylib) + 8  [0x18050350c]
+    4030 Thread_36971844
+    + 4030 thread_start  (in libsystem_pthread.dylib) + 8  [0x18053ec1c]
+    +   4030 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x180543c58]
+    +     4030 _RNvNvMs0_NtNtNtCsfiKLhsWjRsE_3std3sys6thread4unixNtB7_6Thread3new12thread_start  (in generation-bench) + 396  [0x1029dcb4c]  unix.rs:118
+    +       4030 _RNSNvYNCINvNtNtCsfiKLhsWjRsE_3std6thread9lifecycle15spawn_uncheckedNCNvXs0_NtCs6YpFmoX2kOG_10rayon_core8registryNtB1b_12DefaultSpawnNtB1b_11ThreadSpawn5spawn0uEs_0INtNtNtCskumHb0IaX0X_4core3ops8function6FnOnceuE9call_once6vtableB1d_  (in generation-bench) + 92  [0x1029b63f4]  function.rs:250
+    +         4030 _RINvNtNtCsfiKLhsWjRsE_3std3sys9backtrace28___rust_begin_short_backtraceNCNvXs0_NtCs6YpFmoX2kOG_10rayon_core8registryNtB1f_12DefaultSpawnNtB1f_11ThreadSpawn5spawn0uEB1h_  (in generation-bench) + 524  [0x1029b3b4c]  backtrace.rs:166
+    +           4030 _RNvMs8_NtCs6YpFmoX2kOG_10rayon_core8registryNtB5_12WorkerThread15wait_until_cold  (in generation-bench) + 1512  [0x1029f2c50]  registry.rs:806
+    +             4030 _pthread_cond_wait  (in libsystem_pthread.dylib) + 980  [0x180544128]
+    +               4030 __psynch_cvwait  (in libsystem_kernel.dylib) + 8  [0x18050350c]
+    4030 Thread_36971845
+    + 4030 thread_start  (in libsystem_pthread.dylib) + 8  [0x18053ec1c]
+    +   4030 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x180543c58]
+    +     4030 _RNvNvMs0_NtNtNtCsfiKLhsWjRsE_3std3sys6thread4unixNtB7_6Thread3new12thread_start  (in generation-bench) + 396  [0x1029dcb4c]  unix.rs:118
+    +       4030 _RNSNvYNCINvNtNtCsfiKLhsWjRsE_3std6thread9lifecycle15spawn_uncheckedNCNvXs0_NtCs6YpFmoX2kOG_10rayon_core8registryNtB1b_12DefaultSpawnNtB1b_11ThreadSpawn5spawn0uEs_0INtNtNtCskumHb0IaX0X_4core3ops8function6FnOnceuE9call_once6vtableB1d_  (in generation-bench) + 92  [0x1029b63f4]  function.rs:250
+    +         4030 _RINvNtNtCsfiKLhsWjRsE_3std3sys9backtrace28___rust_begin_short_backtraceNCNvXs0_NtCs6YpFmoX2kOG_10rayon_core8registryNtB1f_12DefaultSpawnNtB1f_11ThreadSpawn5spawn0uEB1h_  (in generation-bench) + 524  [0x1029b3b4c]  backtrace.rs:166
+    +           4030 _RNvMs8_NtCs6YpFmoX2kOG_10rayon_core8registryNtB5_12WorkerThread15wait_until_cold  (in generation-bench) + 1512  [0x1029f2c50]  registry.rs:806
+    +             4030 _pthread_cond_wait  (in libsystem_pthread.dylib) + 980  [0x180544128]
+    +               4030 __psynch_cvwait  (in libsystem_kernel.dylib) + 8  [0x18050350c]
+    4030 Thread_36971846
+    + 4030 thread_start  (in libsystem_pthread.dylib) + 8  [0x18053ec1c]
+    +   4030 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x180543c58]
+    +     4030 _RNvNvMs0_NtNtNtCsfiKLhsWjRsE_3std3sys6thread4unixNtB7_6Thread3new12thread_start  (in generation-bench) + 396  [0x1029dcb4c]  unix.rs:118
+    +       4030 _RNSNvYNCINvNtNtCsfiKLhsWjRsE_3std6thread9lifecycle15spawn_uncheckedNCNvXs0_NtCs6YpFmoX2kOG_10rayon_core8registryNtB1b_12DefaultSpawnNtB1b_11ThreadSpawn5spawn0uEs_0INtNtNtCskumHb0IaX0X_4core3ops8function6FnOnceuE9call_once6vtableB1d_  (in generation-bench) + 92  [0x1029b63f4]  function.rs:250
+    +         4030 _RINvNtNtCsfiKLhsWjRsE_3std3sys9backtrace28___rust_begin_short_backtraceNCNvXs0_NtCs6YpFmoX2kOG_10rayon_core8registryNtB1f_12DefaultSpawnNtB1f_11ThreadSpawn5spawn0uEB1h_  (in generation-bench) + 524  [0x1029b3b4c]  backtrace.rs:166
+    +           4030 _RNvMs8_NtCs6YpFmoX2kOG_10rayon_core8registryNtB5_12WorkerThread15wait_until_cold  (in generation-bench) + 1512  [0x1029f2c50]  registry.rs:806
+    +             4030 _pthread_cond_wait  (in libsystem_pthread.dylib) + 980  [0x180544128]
+    +               4030 __psynch_cvwait  (in libsystem_kernel.dylib) + 8  [0x18050350c]
+    4030 Thread_36971847
+      4030 thread_start  (in libsystem_pthread.dylib) + 8  [0x18053ec1c]
+        4030 _pthread_start  (in libsystem_pthread.dylib) + 136  [0x180543c58]
+          4030 _RNvNvMs0_NtNtNtCsfiKLhsWjRsE_3std3sys6thread4unixNtB7_6Thread3new12thread_start  (in generation-bench) + 396  [0x1029dcb4c]  unix.rs:118
+            4030 _RNSNvYNCINvNtNtCsfiKLhsWjRsE_3std6thread9lifecycle15spawn_uncheckedNCNvXs0_NtCs6YpFmoX2kOG_10rayon_core8registryNtB1b_12DefaultSpawnNtB1b_11ThreadSpawn5spawn0uEs_0INtNtNtCskumHb0IaX0X_4core3ops8function6FnOnceuE9call_once6vtableB1d_  (in generation-bench) + 92  [0x1029b63f4]  function.rs:250
+              4030 _RINvNtNtCsfiKLhsWjRsE_3std3sys9backtrace28___rust_begin_short_backtraceNCNvXs0_NtCs6YpFmoX2kOG_10rayon_core8registryNtB1f_12DefaultSpawnNtB1f_11ThreadSpawn5spawn0uEB1h_  (in generation-bench) + 524  [0x1029b3b4c]  backtrace.rs:166
+                4030 _RNvMs8_NtCs6YpFmoX2kOG_10rayon_core8registryNtB5_12WorkerThread15wait_until_cold  (in generation-bench) + 1512  [0x1029f2c50]  registry.rs:806
+                  4030 _pthread_cond_wait  (in libsystem_pthread.dylib) + 980  [0x180544128]
+                    4030 __psynch_cvwait  (in libsystem_kernel.dylib) + 8  [0x18050350c]
+
+Total number in stack (recursive counted multiple, when >=5):
+        14       _RINvNtNtCsfiKLhsWjRsE_3std3sys9backtrace28___rust_begin_short_backtraceNCNvXs0_NtCs6YpFmoX2kOG_10rayon_core8registryNtB1f_12DefaultSpawnNtB1f_11ThreadSpawn5spawn0uEB1h_  (in generation-bench) + 524  [0x1029b3b4c]  backtrace.rs:166
+        14       _RNSNvYNCINvNtNtCsfiKLhsWjRsE_3std6thread9lifecycle15spawn_uncheckedNCNvXs0_NtCs6YpFmoX2kOG_10rayon_core8registryNtB1b_12DefaultSpawnNtB1b_11ThreadSpawn5spawn0uEs_0INtNtNtCskumHb0IaX0X_4core3ops8function6FnOnceuE9call_once6vtableB1d_  (in generation-bench) + 92  [0x1029b63f4]  function.rs:250
+        14       _RNvMs8_NtCs6YpFmoX2kOG_10rayon_core8registryNtB5_12WorkerThread15wait_until_cold  (in generation-bench) + 1512  [0x1029f2c50]  registry.rs:806
+        14       _RNvNvMs0_NtNtNtCsfiKLhsWjRsE_3std3sys6thread4unixNtB7_6Thread3new12thread_start  (in generation-bench) + 396  [0x1029dcb4c]  unix.rs:118
+        14       __psynch_cvwait  (in libsystem_kernel.dylib) + 0  [0x180503504]
+        14       _pthread_cond_wait  (in libsystem_pthread.dylib) + 980  [0x180544128]
+        14       _pthread_start  (in libsystem_pthread.dylib) + 136  [0x180543c58]
+        14       thread_start  (in libsystem_pthread.dylib) + 8  [0x18053ec1c]
+        13       _RINvNtNtNtNtCskumHb0IaX0X_4core5slice4sort8unstable9quicksort9quicksortjNCINvMB8_Sj16sort_unstable_byNCNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB1J_15HydraulicEroder21erode_reference_paths0E0EB1N_  (in generation-bench) + 5920  [0x1029aad7c]  quicksort.rs:74
+        7       _RINvNtNtNtNtCskumHb0IaX0X_4core5slice4sort8unstable9quicksort9quicksortjNCINvMB8_Sj16sort_unstable_byNCNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB1J_15HydraulicEroder21erode_reference_paths0E0EB1N_  (in generation-bench) + 0  [0x1029a965c]  quicksort.rs:31
+        6       _RINvNtNtNtNtCskumHb0IaX0X_4core5slice4sort8unstable9quicksort9quicksortjNCINvMB8_Sj16sort_unstable_byNCNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB1J_15HydraulicEroder21erode_reference_paths0E0EB1N_  (in generation-bench) + 0  [0x1029a965c]  quicksort.rs:63
+
+Sort by top of stack, same collapsed (when >= 5):
+        __psynch_cvwait  (in libsystem_kernel.dylib)        56420
+        _RNvNtNtCsjjhmRqPmbWu_4motu7terrain7erosion30hydraulic_erode_stage_with_sea  (in generation-bench)        2190
+        _RNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB5_15HydraulicEroder11exchange_at  (in generation-bench)        405
+        _RNvMs_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB4_18ProjectedFaceAreas18safe_move_fraction  (in generation-bench)        391
+        _RNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB5_15HydraulicEroder16erosion_geometry  (in generation-bench)        363
+        _RNvNtNtCsjjhmRqPmbWu_4motu7terrain7erosion31projected_face_area_with_vertex  (in generation-bench)        299
+        _RNvNtNtCsjjhmRqPmbWu_4motu7terrain7erosion19projected_face_area  (in generation-bench)        248
+        _RNvMs_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB4_18ProjectedFaceAreas15update_incident  (in generation-bench)        80
+        _RINvNtNtNtNtCskumHb0IaX0X_4core5slice4sort8unstable9quicksort9quicksortjNCINvMB8_Sj16sort_unstable_byNCNvMs0_NtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB1J_15HydraulicEroder21erode_reference_paths0E0EB1N_  (in generation-bench)        21
+        _RNvMNtNtCsjjhmRqPmbWu_4motu7terrain7erosionNtB2_19VertexFaceAdjacency3new  (in generation-bench)        11
+        __bzero  (in libsystem_platform.dylib)        11
+

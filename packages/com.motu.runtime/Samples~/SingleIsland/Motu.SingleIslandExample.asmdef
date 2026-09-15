@@ -1,0 +1,5 @@
+{
+  "name": "Motu.SingleIslandExample",
+  "rootNamespace": "Motu.Samples",
+  "references": ["Motu.Runtime"]
+}

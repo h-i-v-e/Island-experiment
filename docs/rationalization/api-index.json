@@ -1,0 +1,4317 @@
+[
+  {
+    "file": "island-bevy/src/app/camera.rs",
+    "line": 331,
+    "declaration_start": "pub fn named(view: &str, variant: &str) -> Result<Self, String> {"
+  },
+  {
+    "file": "island-bevy/src/app/camera.rs",
+    "line": 345,
+    "declaration_start": "pub fn names() -> String {"
+  },
+  {
+    "file": "island-bevy/src/app/options.rs",
+    "line": 56,
+    "declaration_start": "pub fn label(&self) -> &'static str {"
+  },
+  {
+    "file": "island-bevy/src/app/options.rs",
+    "line": 256,
+    "declaration_start": "pub fn parameter(flag: &str) -> Option<&'static Parameter> {"
+  },
+  {
+    "file": "island-bevy/src/app/options.rs",
+    "line": 264,
+    "declaration_start": "pub fn reconcile(options: &mut IslandOptions) {"
+  },
+  {
+    "file": "island-bevy/src/app/options.rs",
+    "line": 277,
+    "declaration_start": "pub fn command_line(seed: u64, options: &IslandOptions, method: GenerationMethod) -> String {"
+  },
+  {
+    "file": "island-bevy/src/app/options.rs",
+    "line": 299,
+    "declaration_start": "pub fn non_default(options: &IslandOptions) -> String {"
+  },
+  {
+    "file": "island-bevy/src/app/options.rs",
+    "line": 315,
+    "declaration_start": "pub fn help_lines() -> String {"
+  },
+  {
+    "file": "island-bevy/src/app/screenshot.rs",
+    "line": 126,
+    "declaration_start": "pub fn render_target(&self) -> RenderTarget {"
+  },
+  {
+    "file": "island-bevy/src/environment/clouds.rs",
+    "line": 416,
+    "declaration_start": "pub fn new(field: Handle<Image>, look: &CloudLook) -> Self {"
+  },
+  {
+    "file": "island-bevy/src/environment/weather.rs",
+    "line": 318,
+    "declaration_start": "pub fn all() -> impl Iterator<Item = Self> {"
+  },
+  {
+    "file": "island-bevy/src/environment/weather.rs",
+    "line": 324,
+    "declaration_start": "pub fn look(self) -> &'static Look {"
+  },
+  {
+    "file": "island-bevy/src/environment/weather.rs",
+    "line": 330,
+    "declaration_start": "pub fn label(self) -> &'static str {"
+  },
+  {
+    "file": "island-bevy/src/environment/weather.rs",
+    "line": 337,
+    "declaration_start": "pub fn named(name: &str) -> Result<Self, String> {"
+  },
+  {
+    "file": "island-bevy/src/environment/weather.rs",
+    "line": 350,
+    "declaration_start": "pub fn names() -> String {"
+  },
+  {
+    "file": "island-bevy/src/environment/weather.rs",
+    "line": 363,
+    "declaration_start": "pub fn illuminance(&self) -> f32 {"
+  },
+  {
+    "file": "island-bevy/src/environment/weather.rs",
+    "line": 369,
+    "declaration_start": "pub fn has_clouds(&self) -> bool {"
+  },
+  {
+    "file": "island-bevy/src/environment/weather.rs",
+    "line": 375,
+    "declaration_start": "pub fn has_mist(&self) -> bool {"
+  },
+  {
+    "file": "island-bevy/src/environment/weather.rs",
+    "line": 384,
+    "declaration_start": "pub fn medium(&self) -> ScatteringMedium {"
+  },
+  {
+    "file": "island-bevy/src/environment/weather.rs",
+    "line": 397,
+    "declaration_start": "pub fn features(&self) -> Vec<&'static str> {"
+  },
+  {
+    "file": "island-bevy/src/environment/weather.rs",
+    "line": 417,
+    "declaration_start": "pub fn is_neutral(grading: &ColorGrading) -> bool {"
+  },
+  {
+    "file": "island-bevy/src/hash.rs",
+    "line": 6,
+    "declaration_start": "pub fn mix(value: u64, salt: u64) -> u64 {"
+  },
+  {
+    "file": "island-bevy/src/hash.rs",
+    "line": 15,
+    "declaration_start": "pub fn unit(hash: u64) -> f32 {"
+  },
+  {
+    "file": "island-bevy/src/hash.rs",
+    "line": 24,
+    "declaration_start": "pub fn choice(hash: u64, count: usize) -> usize {"
+  },
+  {
+    "file": "island-bevy/src/hash.rs",
+    "line": 33,
+    "declaration_start": "pub fn lattice_key_2(x: u64, y: u64) -> u64 {"
+  },
+  {
+    "file": "island-bevy/src/hash.rs",
+    "line": 39,
+    "declaration_start": "pub fn lattice_key_3(x: u64, y: u64, z: u64) -> u64 {"
+  },
+  {
+    "file": "island-bevy/src/island/cache.rs",
+    "line": 87,
+    "declaration_start": "pub fn key(seed: u64, options: &IslandOptions) -> u64 {"
+  },
+  {
+    "file": "island-bevy/src/island/cache.rs",
+    "line": 101,
+    "declaration_start": "pub fn path(method: GenerationMethod, key: u64) -> PathBuf {"
+  },
+  {
+    "file": "island-bevy/src/island/cache.rs",
+    "line": 114,
+    "declaration_start": "pub fn read(path: &Path, seed: u64, options: &IslandOptions) -> Option<IslandData> {"
+  },
+  {
+    "file": "island-bevy/src/island/cache.rs",
+    "line": 160,
+    "declaration_start": "pub fn write(path: &Path, seed: u64, data: &IslandData) -> io::Result<()> {"
+  },
+  {
+    "file": "island-bevy/src/island/chunk.rs",
+    "line": 63,
+    "declaration_start": "pub fn interior_sides(column: u32, row: u32) -> u8 {"
+  },
+  {
+    "file": "island-bevy/src/island/chunk.rs",
+    "line": 112,
+    "declaration_start": "pub fn vertices(&self) -> usize {"
+  },
+  {
+    "file": "island-bevy/src/island/chunk.rs",
+    "line": 132,
+    "declaration_start": "pub fn origin(chunk: &TerrainChunk) -> Vec3 {"
+  },
+  {
+    "file": "island-bevy/src/island/chunk.rs",
+    "line": 148,
+    "declaration_start": "pub fn bounds(column: u32, row: u32) -> BoundingBox {"
+  },
+  {
+    "file": "island-bevy/src/island/chunk.rs",
+    "line": 161,
+    "declaration_start": "pub fn sliced(source: &Mesh) -> Vec<Mesh> {"
+  },
+  {
+    "file": "island-bevy/src/island/chunk.rs",
+    "line": 188,
+    "declaration_start": "pub fn skirt(mesh: &mut Mesh, bounds: BoundingBox, depth: f32, sides: u8) -> Vec<u32> {"
+  },
+  {
+    "file": "island-bevy/src/island/chunk.rs",
+    "line": 270,
+    "declaration_start": "pub fn skirt_depth() -> f32 {"
+  },
+  {
+    "file": "island-bevy/src/island/convert.rs",
+    "line": 38,
+    "declaration_start": "pub fn island_to_world(x: f32, y: f32, z: f32) -> Vec3 {"
+  },
+  {
+    "file": "island-bevy/src/island/convert.rs",
+    "line": 49,
+    "declaration_start": "pub fn render_mesh(source: &motu::Mesh) -> Option<Mesh> {"
+  },
+  {
+    "file": "island-bevy/src/island/convert.rs",
+    "line": 61,
+    "declaration_start": "pub fn render_mesh_at(source: &motu::Mesh, origin: Vec3) -> Option<Mesh> {"
+  },
+  {
+    "file": "island-bevy/src/island/convert.rs",
+    "line": 112,
+    "declaration_start": "pub fn terrain_mesh("
+  },
+  {
+    "file": "island-bevy/src/island/convert.rs",
+    "line": 153,
+    "declaration_start": "pub fn river_mesh(source: &motu::Mesh, drops: &DropIndex) -> Option<Mesh> {"
+  },
+  {
+    "file": "island-bevy/src/island/convert.rs",
+    "line": 170,
+    "declaration_start": "pub fn rock_mesh(source: &motu::Mesh, drops: &DropIndex) -> Option<Mesh> {"
+  },
+  {
+    "file": "island-bevy/src/island/island_gen.rs",
+    "line": 122,
+    "declaration_start": "pub fn replace_variant("
+  },
+  {
+    "file": "island-bevy/src/island/island_gen.rs",
+    "line": 149,
+    "declaration_start": "pub fn variant_names() -> String {"
+  },
+  {
+    "file": "island-bevy/src/island/island_gen.rs",
+    "line": 285,
+    "declaration_start": "pub fn tier_vertices(&self, level: usize) -> usize {"
+  },
+  {
+    "file": "island-bevy/src/island/island_gen.rs",
+    "line": 307,
+    "declaration_start": "pub fn ground_height(&self, x: f32, z: f32) -> f32 {"
+  },
+  {
+    "file": "island-bevy/src/island/island_gen.rs",
+    "line": 416,
+    "declaration_start": "pub fn metres(self) -> f32 {"
+  },
+  {
+    "file": "island-bevy/src/island/island_gen.rs",
+    "line": 422,
+    "declaration_start": "pub fn strength(self) -> f32 {"
+  },
+  {
+    "file": "island-bevy/src/island/island_gen.rs",
+    "line": 524,
+    "declaration_start": "pub fn new(drops: &[RiverDrop]) -> Self {"
+  },
+  {
+    "file": "island-bevy/src/island/island_gen.rs",
+    "line": 537,
+    "declaration_start": "pub fn is_empty(&self) -> bool {"
+  },
+  {
+    "file": "island-bevy/src/island/island_gen.rs",
+    "line": 552,
+    "declaration_start": "pub fn field(&self, vertex: Vec3) -> DropField {"
+  },
+  {
+    "file": "island-bevy/src/island/island_gen.rs",
+    "line": 574,
+    "declaration_start": "pub fn spray(&self, vertex: Vec3) -> f32 {"
+  },
+  {
+    "file": "island-bevy/src/math.rs",
+    "line": 5,
+    "declaration_start": "pub fn smoothstep(low: f32, high: f32, value: f32) -> f32 {"
+  },
+  {
+    "file": "island-bevy/src/math.rs",
+    "line": 16,
+    "declaration_start": "pub fn octave_sum(first_period: u32, octaves: u32, mut sample: impl FnMut(u32, u32) -> f32) -> f32 {"
+  },
+  {
+    "file": "island-bevy/src/render/budget.rs",
+    "line": 90,
+    "declaration_start": "pub fn line(&self) -> String {"
+  },
+  {
+    "file": "island-bevy/src/render/capture.rs",
+    "line": 54,
+    "declaration_start": "pub fn elapsed_seconds(self) -> f64 {"
+  },
+  {
+    "file": "island-bevy/src/render/capture.rs",
+    "line": 150,
+    "declaration_start": "pub fn named(name: &str) -> Result<Self, String> {"
+  },
+  {
+    "file": "island-bevy/src/render/capture.rs",
+    "line": 164,
+    "declaration_start": "pub fn names() -> String {"
+  },
+  {
+    "file": "island-bevy/src/render/material_textures.rs",
+    "line": 32,
+    "declaration_start": "pub fn upload("
+  },
+  {
+    "file": "island-bevy/src/render/surface.rs",
+    "line": 172,
+    "declaration_start": "pub fn new("
+  },
+  {
+    "file": "island-bevy/src/render/surface.rs",
+    "line": 322,
+    "declaration_start": "pub fn new(world_metres: f32) -> Self {"
+  },
+  {
+    "file": "island-material-studio/src/app.rs",
+    "line": 51,
+    "declaration_start": "pub fn run(options: RunOptions) -> AppExit {"
+  },
+  {
+    "file": "island-material-studio/src/bake.rs",
+    "line": 78,
+    "declaration_start": "pub fn request(&mut self, recipe: TextureRecipe) -> Result<(), String> {"
+  },
+  {
+    "file": "island-material-studio/src/bake.rs",
+    "line": 104,
+    "declaration_start": "pub fn take_completion(&mut self) -> Option<BakeCompletion> {"
+  },
+  {
+    "file": "island-material-studio/src/document.rs",
+    "line": 132,
+    "declaration_start": "pub fn new(recipe: TextureRecipe) -> Result<Self, DocumentError> {"
+  },
+  {
+    "file": "island-material-studio/src/document.rs",
+    "line": 148,
+    "declaration_start": "pub fn from_recipe(recipe: TextureRecipe) -> Result<Self, DocumentError> {"
+  },
+  {
+    "file": "island-material-studio/src/document.rs",
+    "line": 154,
+    "declaration_start": "pub fn new_default() -> Self {"
+  },
+  {
+    "file": "island-material-studio/src/document.rs",
+    "line": 161,
+    "declaration_start": "pub fn default_recipe() -> TextureRecipe {"
+  },
+  {
+    "file": "island-material-studio/src/document.rs",
+    "line": 166,
+    "declaration_start": "pub fn open(path: impl AsRef<Path>) -> Result<Self, DocumentError> {"
+  },
+  {
+    "file": "island-material-studio/src/document.rs",
+    "line": 177,
+    "declaration_start": "pub fn open_replace(&mut self, path: impl AsRef<Path>) -> Result<(), DocumentError> {"
+  },
+  {
+    "file": "island-material-studio/src/document.rs",
+    "line": 185,
+    "declaration_start": "pub fn replace_from_path(&mut self, path: impl AsRef<Path>) -> Result<(), DocumentError> {"
+  },
+  {
+    "file": "island-material-studio/src/document.rs",
+    "line": 212,
+    "declaration_start": "pub fn recipe_snapshot(&self) -> TextureRecipe {"
+  },
+  {
+    "file": "island-material-studio/src/document.rs",
+    "line": 218,
+    "declaration_start": "pub fn source_path(&self) -> Option<&Path> {"
+  },
+  {
+    "file": "island-material-studio/src/document.rs",
+    "line": 224,
+    "declaration_start": "pub fn source_hash(&self) -> Option<&str> {"
+  },
+  {
+    "file": "island-material-studio/src/document.rs",
+    "line": 230,
+    "declaration_start": "pub fn source_byte_hash(&self) -> Option<&str> {"
+  },
+  {
+    "file": "island-material-studio/src/document.rs",
+    "line": 236,
+    "declaration_start": "pub fn saved_canonical_form(&self) -> Option<&[u8]> {"
+  },
+  {
+    "file": "island-material-studio/src/document.rs",
+    "line": 242,
+    "declaration_start": "pub fn last_saved_canonical_form(&self) -> Option<&[u8]> {"
+  },
+  {
+    "file": "island-material-studio/src/document.rs",
+    "line": 247,
+    "declaration_start": "pub fn current_canonical_form(&self) -> Result<Vec<u8>, DocumentError> {"
+  },
+  {
+    "file": "island-material-studio/src/document.rs",
+    "line": 265,
+    "declaration_start": "pub fn selected_layer_id(&self) -> Option<&str> {"
+  },
+  {
+    "file": "island-material-studio/src/document.rs",
+    "line": 271,
+    "declaration_start": "pub fn selected_layer(&self) -> Option<&str> {"
+  },
+  {
+    "file": "island-material-studio/src/document.rs",
+    "line": 277,
+    "declaration_start": "pub fn last_bake_recipe_hash(&self) -> Option<&str> {"
+  },
+  {
+    "file": "island-material-studio/src/document.rs",
+    "line": 283,
+    "declaration_start": "pub fn last_successful_bake_hash(&self) -> Option<&str> {"
+  },
+  {
+    "file": "island-material-studio/src/document.rs",
+    "line": 289,
+    "declaration_start": "pub fn last_bake_hash(&self) -> Option<&str> {"
+  },
+  {
+    "file": "island-material-studio/src/document.rs",
+    "line": 300,
+    "declaration_start": "pub fn select_layer(&mut self, id: Option<&str>) -> bool {"
+  },
+  {
+    "file": "island-material-studio/src/document.rs",
+    "line": 317,
+    "declaration_start": "pub fn edit<F>(&mut self, edit: F) -> bool"
+  },
+  {
+    "file": "island-material-studio/src/document.rs",
+    "line": 334,
+    "declaration_start": "pub fn apply_edit<F>(&mut self, edit: F) -> bool"
+  },
+  {
+    "file": "island-material-studio/src/document.rs",
+    "line": 343,
+    "declaration_start": "pub fn try_edit<F, E>(&mut self, edit: F) -> Result<bool, E>"
+  },
+  {
+    "file": "island-material-studio/src/document.rs",
+    "line": 364,
+    "declaration_start": "pub fn begin_gesture(&mut self) -> bool {"
+  },
+  {
+    "file": "island-material-studio/src/document.rs",
+    "line": 369,
+    "declaration_start": "pub fn end_gesture(&mut self) -> bool {"
+  },
+  {
+    "file": "island-material-studio/src/document.rs",
+    "line": 379,
+    "declaration_start": "pub fn cancel_gesture(&mut self) -> bool {"
+  },
+  {
+    "file": "island-material-studio/src/document.rs",
+    "line": 392,
+    "declaration_start": "pub fn undo(&mut self) -> bool {"
+  },
+  {
+    "file": "island-material-studio/src/document.rs",
+    "line": 405,
+    "declaration_start": "pub fn redo(&mut self) -> bool {"
+  },
+  {
+    "file": "island-material-studio/src/document.rs",
+    "line": 419,
+    "declaration_start": "pub fn normalized_recipe_hash(&self) -> Result<String, DocumentError> {"
+  },
+  {
+    "file": "island-material-studio/src/document.rs",
+    "line": 425,
+    "declaration_start": "pub fn record_successful_bake(&mut self, recipe_hash: impl Into<String>) {"
+  },
+  {
+    "file": "island-material-studio/src/document.rs",
+    "line": 430,
+    "declaration_start": "pub fn mark_bake_successful(&mut self, recipe_hash: impl Into<String>) {"
+  },
+  {
+    "file": "island-material-studio/src/document.rs",
+    "line": 435,
+    "declaration_start": "pub fn add_layer(&mut self, name: impl Into<String>) -> Result<String, DocumentError> {"
+  },
+  {
+    "file": "island-material-studio/src/document.rs",
+    "line": 454,
+    "declaration_start": "pub fn duplicate_layer(&mut self, id: &str) -> Result<String, DocumentError> {"
+  },
+  {
+    "file": "island-material-studio/src/document.rs",
+    "line": 460,
+    "declaration_start": "pub fn duplicate_layer_at(&mut self, index: usize) -> Result<String, DocumentError> {"
+  },
+  {
+    "file": "island-material-studio/src/document.rs",
+    "line": 483,
+    "declaration_start": "pub fn rename_layer(&mut self, id: &str, name: impl Into<String>) -> Result<(), DocumentError> {"
+  },
+  {
+    "file": "island-material-studio/src/document.rs",
+    "line": 491,
+    "declaration_start": "pub fn set_layer_enabled(&mut self, id: &str, enabled: bool) -> Result<(), DocumentError> {"
+  },
+  {
+    "file": "island-material-studio/src/document.rs",
+    "line": 498,
+    "declaration_start": "pub fn reorder_layer(&mut self, id: &str, new_index: usize) -> Result<(), DocumentError> {"
+  },
+  {
+    "file": "island-material-studio/src/document.rs",
+    "line": 524,
+    "declaration_start": "pub fn remove_layer(&mut self, id: &str) -> Result<RemovedLayer, DocumentError> {"
+  },
+  {
+    "file": "island-material-studio/src/document.rs",
+    "line": 552,
+    "declaration_start": "pub fn layer_index(&self, id: &str) -> Result<usize, DocumentError> {"
+  },
+  {
+    "file": "island-material-studio/src/document.rs",
+    "line": 562,
+    "declaration_start": "pub fn save(&mut self) -> Result<(), DocumentError> {"
+  },
+  {
+    "file": "island-material-studio/src/document.rs",
+    "line": 573,
+    "declaration_start": "pub fn save_overwrite(&mut self) -> Result<(), DocumentError> {"
+  },
+  {
+    "file": "island-material-studio/src/document.rs",
+    "line": 583,
+    "declaration_start": "pub fn save_as(&mut self, path: impl AsRef<Path>) -> Result<(), DocumentError> {"
+  },
+  {
+    "file": "island-material-studio/src/document.rs",
+    "line": 588,
+    "declaration_start": "pub fn resolve_conflict("
+  },
+  {
+    "file": "island-material-studio/src/document.rs",
+    "line": 605,
+    "declaration_start": "pub fn revert(&mut self) -> Result<(), DocumentError> {"
+  },
+  {
+    "file": "island-material-studio/src/file_io.rs",
+    "line": 133,
+    "declaration_start": "pub fn canonical_json_bytes<T: Serialize>(value: &T) -> Result<Vec<u8>, FileIoError> {"
+  },
+  {
+    "file": "island-material-studio/src/file_io.rs",
+    "line": 141,
+    "declaration_start": "pub fn canonical_json_string<T: Serialize>(value: &T) -> Result<String, FileIoError> {"
+  },
+  {
+    "file": "island-material-studio/src/file_io.rs",
+    "line": 153,
+    "declaration_start": "pub fn sha256_hex(bytes: &[u8]) -> String {"
+  },
+  {
+    "file": "island-material-studio/src/file_io.rs",
+    "line": 165,
+    "declaration_start": "pub fn parse_recipe_bytes(path: &Path, bytes: &[u8]) -> Result<LoadedRecipe, FileIoError> {"
+  },
+  {
+    "file": "island-material-studio/src/file_io.rs",
+    "line": 190,
+    "declaration_start": "pub fn read_recipe(path: impl AsRef<Path>) -> Result<LoadedRecipe, FileIoError> {"
+  },
+  {
+    "file": "island-material-studio/src/file_io.rs",
+    "line": 200,
+    "declaration_start": "pub fn file_hash(path: impl AsRef<Path>) -> Result<Option<String>, FileIoError> {"
+  },
+  {
+    "file": "island-material-studio/src/file_io.rs",
+    "line": 213,
+    "declaration_start": "pub fn check_external_change("
+  },
+  {
+    "file": "island-material-studio/src/file_io.rs",
+    "line": 231,
+    "declaration_start": "pub fn external_change("
+  },
+  {
+    "file": "island-material-studio/src/file_io.rs",
+    "line": 248,
+    "declaration_start": "pub fn write_recipe_atomic("
+  },
+  {
+    "file": "island-material-studio/src/file_io.rs",
+    "line": 262,
+    "declaration_start": "pub fn write_bytes_atomic(path: impl AsRef<Path>, bytes: &[u8]) -> Result<(), FileIoError> {"
+  },
+  {
+    "file": "island-material-studio/src/file_io.rs",
+    "line": 356,
+    "declaration_start": "pub fn conflict_from_error(error: &FileIoError) -> Option<&ExternalChangeConflict> {"
+  },
+  {
+    "file": "island-material-studio/src/history.rs",
+    "line": 45,
+    "declaration_start": "pub fn new(limit: usize) -> Self {"
+  },
+  {
+    "file": "island-material-studio/src/history.rs",
+    "line": 64,
+    "declaration_start": "pub fn set_limit(&mut self, limit: usize) {"
+  },
+  {
+    "file": "island-material-studio/src/history.rs",
+    "line": 74,
+    "declaration_start": "pub fn undo_len(&self) -> usize {"
+  },
+  {
+    "file": "island-material-studio/src/history.rs",
+    "line": 80,
+    "declaration_start": "pub fn redo_len(&self) -> usize {"
+  },
+  {
+    "file": "island-material-studio/src/history.rs",
+    "line": 86,
+    "declaration_start": "pub fn can_undo(&self) -> bool {"
+  },
+  {
+    "file": "island-material-studio/src/history.rs",
+    "line": 92,
+    "declaration_start": "pub fn can_redo(&self) -> bool {"
+  },
+  {
+    "file": "island-material-studio/src/history.rs",
+    "line": 98,
+    "declaration_start": "pub fn gesture_active(&self) -> bool {"
+  },
+  {
+    "file": "island-material-studio/src/history.rs",
+    "line": 104,
+    "declaration_start": "pub fn undo_entries(&self) -> impl DoubleEndedIterator<Item = &EditTransaction<T>> {"
+  },
+  {
+    "file": "island-material-studio/src/history.rs",
+    "line": 109,
+    "declaration_start": "pub fn clear(&mut self) {"
+  },
+  {
+    "file": "island-material-studio/src/history.rs",
+    "line": 123,
+    "declaration_start": "pub fn record(&mut self, before: T, after: T) -> bool {"
+  },
+  {
+    "file": "island-material-studio/src/history.rs",
+    "line": 142,
+    "declaration_start": "pub fn begin_gesture(&mut self, current: &T) -> bool {"
+  },
+  {
+    "file": "island-material-studio/src/history.rs",
+    "line": 156,
+    "declaration_start": "pub fn commit_gesture(&mut self, current: &T) -> Option<EditTransaction<T>> {"
+  },
+  {
+    "file": "island-material-studio/src/history.rs",
+    "line": 176,
+    "declaration_start": "pub fn cancel_gesture(&mut self) -> Option<T> {"
+  },
+  {
+    "file": "island-material-studio/src/history.rs",
+    "line": 185,
+    "declaration_start": "pub fn undo(&mut self, current: &T) -> Option<T> {"
+  },
+  {
+    "file": "island-material-studio/src/history.rs",
+    "line": 198,
+    "declaration_start": "pub fn redo(&mut self, current: &T) -> Option<T> {"
+  },
+  {
+    "file": "island-material-studio/src/preview.rs",
+    "line": 113,
+    "declaration_start": "pub fn request("
+  },
+  {
+    "file": "island-material-studio/src/preview.rs",
+    "line": 175,
+    "declaration_start": "pub fn cached_entries(&self) -> usize {"
+  },
+  {
+    "file": "island-material-studio/src/preview_images.rs",
+    "line": 42,
+    "declaration_start": "pub fn convert_preview("
+  },
+  {
+    "file": "island-material-studio/src/preview_images.rs",
+    "line": 53,
+    "declaration_start": "pub fn convert_preview_maps("
+  },
+  {
+    "file": "island-material-studio/src/preview_scene.rs",
+    "line": 71,
+    "declaration_start": "pub fn reset_view(&mut self) {"
+  },
+  {
+    "file": "island-material-studio/src/preview_scene.rs",
+    "line": 269,
+    "declaration_start": "pub fn interact(response: &egui::Response, controls: &mut LitPreviewControls) {"
+  },
+  {
+    "file": "island-material-studio/src/settings.rs",
+    "line": 104,
+    "declaration_start": "pub fn load(path: impl AsRef<Path>) -> Result<Self, SettingsError> {"
+  },
+  {
+    "file": "island-material-studio/src/settings.rs",
+    "line": 126,
+    "declaration_start": "pub fn load_or_default(path: impl AsRef<Path>) -> Result<Self, SettingsError> {"
+  },
+  {
+    "file": "island-material-studio/src/settings.rs",
+    "line": 132,
+    "declaration_start": "pub fn save(&self, path: impl AsRef<Path>) -> Result<(), SettingsError> {"
+  },
+  {
+    "file": "island-material-studio/src/settings.rs",
+    "line": 139,
+    "declaration_start": "pub fn remember_recent(&mut self, path: impl AsRef<Path>) {"
+  },
+  {
+    "file": "island-material-studio/src/settings.rs",
+    "line": 147,
+    "declaration_start": "pub fn forget_recent(&mut self, path: impl AsRef<Path>) -> bool {"
+  },
+  {
+    "file": "island-material-studio/src/settings.rs",
+    "line": 155,
+    "declaration_start": "pub fn prune_missing_recent(&mut self) -> usize {"
+  },
+  {
+    "file": "island-material-studio/src/settings.rs",
+    "line": 165,
+    "declaration_start": "pub fn default_path(app_name: &str) -> Option<PathBuf> {"
+  },
+  {
+    "file": "island-material-studio/src/ui/inspector.rs",
+    "line": 18,
+    "declaration_start": "pub fn draw("
+  },
+  {
+    "file": "island-material-studio/src/ui/layer_stack.rs",
+    "line": 7,
+    "declaration_start": "pub fn draw("
+  },
+  {
+    "file": "island-rs/src/caves.rs",
+    "line": 70,
+    "declaration_start": "pub fn floor_stones(&self) -> Mesh {"
+  },
+  {
+    "file": "island-rs/src/caves.rs",
+    "line": 105,
+    "declaration_start": "pub fn generate("
+  },
+  {
+    "file": "island-rs/src/caves.rs",
+    "line": 125,
+    "declaration_start": "pub fn generate_networks("
+  },
+  {
+    "file": "island-rs/src/caves.rs",
+    "line": 161,
+    "declaration_start": "pub fn generate_wandering("
+  },
+  {
+    "file": "island-rs/src/caves.rs",
+    "line": 214,
+    "declaration_start": "pub fn excludes(&self, point: Vec3, radius: f32) -> bool {"
+  },
+  {
+    "file": "island-rs/src/caves.rs",
+    "line": 228,
+    "declaration_start": "pub fn cut_surface(&self, mesh: Mesh) -> Mesh {"
+  },
+  {
+    "file": "island-rs/src/caves.rs",
+    "line": 236,
+    "declaration_start": "pub fn validate(&self) -> Result<(), String> {"
+  },
+  {
+    "file": "island-rs/src/caves/network.rs",
+    "line": 31,
+    "declaration_start": "pub fn validate(self, o: &CaveOptions) -> Result<Self, String> {"
+  },
+  {
+    "file": "island-rs/src/caves/options.rs",
+    "line": 85,
+    "declaration_start": "pub fn validate(self) -> Result<Self, String> {"
+  },
+  {
+    "file": "island-rs/src/caves/wandering.rs",
+    "line": 38,
+    "declaration_start": "pub fn validate(self) -> Result<Self, String> {"
+  },
+  {
+    "file": "island-rs/src/clouds.rs",
+    "line": 47,
+    "declaration_start": "pub fn rgba(&self) -> &[u8] {"
+  },
+  {
+    "file": "island-rs/src/clouds.rs",
+    "line": 131,
+    "declaration_start": "pub fn generate_cloud_weather_map("
+  },
+  {
+    "file": "island-rs/src/ffi.rs",
+    "line": 313,
+    "declaration_start": "pub extern \"C\" fn GetMotuRuntimeMaterialRevision() -> MotuMaterialRevision {"
+  },
+  {
+    "file": "island-rs/src/ffi.rs",
+    "line": 941,
+    "declaration_start": "pub extern \"C\" fn IsMotuGenerationMethodAvailable(generation_method: u8) -> u8 {"
+  },
+  {
+    "file": "island-rs/src/ffi.rs",
+    "line": 2048,
+    "declaration_start": "pub extern \"C\" fn CreateNormalMap3DC("
+  },
+  {
+    "file": "island-rs/src/ffi.rs",
+    "line": 2057,
+    "declaration_start": "pub extern \"C\" fn ReleaseNormalMap3DC(_data: *mut u8) {}"
+  },
+  {
+    "file": "island-rs/src/ffi.rs",
+    "line": 2167,
+    "declaration_start": "pub extern \"C\" fn SetLogFile(_path: *const c_char) {}"
+  },
+  {
+    "file": "island-rs/src/ffi/abi.rs",
+    "line": 10,
+    "declaration_start": "pub extern \"C\" fn GetMotuAbiVersion() -> u32 {"
+  },
+  {
+    "file": "island-rs/src/ffi/abi.rs",
+    "line": 16,
+    "declaration_start": "pub extern \"C\" fn GetMotuAbiTypeSize(type_id: u32) -> u32 {"
+  },
+  {
+    "file": "island-rs/src/ffi/abi.rs",
+    "line": 33,
+    "declaration_start": "pub extern \"C\" fn GetMotuAbiForestOffset(field_id: u32) -> u32 {"
+  },
+  {
+    "file": "island-rs/src/ffi/caves.rs",
+    "line": 15,
+    "declaration_start": "pub extern \"C\" fn GetLastCaveGenerationError() -> *const c_char {"
+  },
+  {
+    "file": "island-rs/src/ffi/caves.rs",
+    "line": 38,
+    "declaration_start": "pub extern \"C\" fn CaveAlgorithmRevision() -> u32 {"
+  },
+  {
+    "file": "island-rs/src/forest.rs",
+    "line": 74,
+    "declaration_start": "pub fn validate(self) -> Result<Self, String> {"
+  },
+  {
+    "file": "island-rs/src/math.rs",
+    "line": 17,
+    "declaration_start": "pub fn contains_xy(self, point: Vec2) -> bool {"
+  },
+  {
+    "file": "island-rs/src/mesh.rs",
+    "line": 74,
+    "declaration_start": "pub fn len(&self) -> usize {"
+  },
+  {
+    "file": "island-rs/src/mesh.rs",
+    "line": 79,
+    "declaration_start": "pub fn is_empty(&self) -> bool {"
+  },
+  {
+    "file": "island-rs/src/mesh.rs",
+    "line": 83,
+    "declaration_start": "pub fn iter(&self) -> impl Iterator<Item = &[usize]> {"
+  },
+  {
+    "file": "island-rs/src/mesh.rs",
+    "line": 101,
+    "declaration_start": "pub fn delaunay(points: &[Vec2]) -> Self {"
+  },
+  {
+    "file": "island-rs/src/mesh.rs",
+    "line": 191,
+    "declaration_start": "pub fn tessellated(&self) -> Self {"
+  },
+  {
+    "file": "island-rs/src/mesh.rs",
+    "line": 202,
+    "declaration_start": "pub fn tessellated_above(&self, threshold: f32) -> Self {"
+  },
+  {
+    "file": "island-rs/src/mesh.rs",
+    "line": 209,
+    "declaration_start": "pub fn tessellated_detail(&self, relief_threshold: f32) -> Self {"
+  },
+  {
+    "file": "island-rs/src/mesh.rs",
+    "line": 227,
+    "declaration_start": "pub fn tessellated_displaced(&self, displacement_ratio: f32) -> Self {"
+  },
+  {
+    "file": "island-rs/src/mesh.rs",
+    "line": 620,
+    "declaration_start": "pub fn smooth(&mut self) {"
+  },
+  {
+    "file": "island-rs/src/mesh.rs",
+    "line": 626,
+    "declaration_start": "pub fn smooth_land(&mut self) {"
+  },
+  {
+    "file": "island-rs/src/mesh.rs",
+    "line": 632,
+    "declaration_start": "pub fn smooth_seabed(&mut self) {"
+  },
+  {
+    "file": "island-rs/src/mesh.rs",
+    "line": 683,
+    "declaration_start": "pub fn adjacency(&self) -> Adjacency {"
+  },
+  {
+    "file": "island-rs/src/mesh.rs",
+    "line": 744,
+    "declaration_start": "pub fn perimeter_vertices(&self) -> BTreeSet<usize> {"
+  },
+  {
+    "file": "island-rs/src/mesh.rs",
+    "line": 809,
+    "declaration_start": "pub fn calculate_normals(&mut self) {"
+  },
+  {
+    "file": "island-rs/src/mesh.rs",
+    "line": 830,
+    "declaration_start": "pub fn surface_area_xy(&self) -> f32 {"
+  },
+  {
+    "file": "island-rs/src/mesh.rs",
+    "line": 946,
+    "declaration_start": "pub fn sliced(&self, bounds: BoundingBox) -> Self {"
+  },
+  {
+    "file": "island-rs/src/mesh.rs",
+    "line": 957,
+    "declaration_start": "pub fn sliced_grid(&self, bounds: BoundingBox, divisions: usize) -> Vec<Self> {"
+  },
+  {
+    "file": "island-rs/src/mesh.rs",
+    "line": 965,
+    "declaration_start": "pub fn sliced_grid_clamped("
+  },
+  {
+    "file": "island-rs/src/noise.rs",
+    "line": 33,
+    "declaration_start": "pub fn value(seed: u64, x: f32, y: f32) -> f32 {"
+  },
+  {
+    "file": "island-rs/src/noise.rs",
+    "line": 43,
+    "declaration_start": "pub fn fractal(seed: u64, x: f32, y: f32, octaves: u8) -> f32 {"
+  },
+  {
+    "file": "island-rs/src/png.rs",
+    "line": 15,
+    "declaration_start": "pub fn write_png(path: impl AsRef<Path>, width: u32, height: u32, rgb: &[u8]) -> io::Result<()> {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures.rs",
+    "line": 149,
+    "declaration_start": "pub fn evaluate_material(recipe: &TextureRecipe) -> Result<MaterialEvaluation, TextureError> {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures.rs",
+    "line": 160,
+    "declaration_start": "pub fn evaluate_material_with_parameters("
+  },
+  {
+    "file": "island-rs/src/procedural_textures.rs",
+    "line": 173,
+    "declaration_start": "pub fn resolve_texture_recipe("
+  },
+  {
+    "file": "island-rs/src/procedural_textures.rs",
+    "line": 186,
+    "declaration_start": "pub fn evaluate_resolved_material("
+  },
+  {
+    "file": "island-rs/src/procedural_textures.rs",
+    "line": 210,
+    "declaration_start": "pub fn generate_texture_set("
+  },
+  {
+    "file": "island-rs/src/procedural_textures.rs",
+    "line": 223,
+    "declaration_start": "pub fn generate_texture_set_with_parameters("
+  },
+  {
+    "file": "island-rs/src/procedural_textures.rs",
+    "line": 239,
+    "declaration_start": "pub fn texture_set_from_evaluation("
+  },
+  {
+    "file": "island-rs/src/procedural_textures.rs",
+    "line": 253,
+    "declaration_start": "pub fn texture_set_from_resolved_evaluation("
+  },
+  {
+    "file": "island-rs/src/procedural_textures.rs",
+    "line": 334,
+    "declaration_start": "pub fn write_texture_set("
+  },
+  {
+    "file": "island-rs/src/procedural_textures/albedo.rs",
+    "line": 59,
+    "declaration_start": "pub fn generate_albedo("
+  },
+  {
+    "file": "island-rs/src/procedural_textures/albedo.rs",
+    "line": 69,
+    "declaration_start": "pub fn generate_albedo_with_occlusion("
+  },
+  {
+    "file": "island-rs/src/procedural_textures/albedo.rs",
+    "line": 100,
+    "declaration_start": "pub fn generate_linear_albedo("
+  },
+  {
+    "file": "island-rs/src/procedural_textures/albedo.rs",
+    "line": 118,
+    "declaration_start": "pub fn apply_occlusion_linear("
+  },
+  {
+    "file": "island-rs/src/procedural_textures/albedo.rs",
+    "line": 142,
+    "declaration_start": "pub fn encode_linear_albedo("
+  },
+  {
+    "file": "island-rs/src/procedural_textures/albedo.rs",
+    "line": 159,
+    "declaration_start": "pub fn albedo_at_linear("
+  },
+  {
+    "file": "island-rs/src/procedural_textures/albedo.rs",
+    "line": 270,
+    "declaration_start": "pub fn encode_srgb(linear: f32) -> u8 {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/cellular.rs",
+    "line": 51,
+    "declaration_start": "pub fn metric(self, metric: CellularMetric) -> f32 {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/cellular.rs",
+    "line": 66,
+    "declaration_start": "pub fn sample(seed: u64, position: [f32; 2], period: Period2D, jitter: f32) -> CellularSample {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/cellular.rs",
+    "line": 225,
+    "declaration_start": "pub fn sample_with_frequency("
+  },
+  {
+    "file": "island-rs/src/procedural_textures/cellular.rs",
+    "line": 251,
+    "declaration_start": "pub fn distance(seed: u64, position: [f32; 2], period: Period2D, jitter: f32) -> f32 {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/cellular.rs",
+    "line": 257,
+    "declaration_start": "pub fn distance_to_edge(seed: u64, position: [f32; 2], period: Period2D, jitter: f32) -> f32 {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/cellular.rs",
+    "line": 263,
+    "declaration_start": "pub fn cell_value(seed: u64, position: [f32; 2], period: Period2D, jitter: f32) -> f32 {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/cracked_stone.rs",
+    "line": 56,
+    "declaration_start": "pub fn generate_height_values("
+  },
+  {
+    "file": "island-rs/src/procedural_textures/editor_protocol.rs",
+    "line": 43,
+    "declaration_start": "pub fn success() -> Self {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/editor_protocol.rs",
+    "line": 51,
+    "declaration_start": "pub fn failure(code: &'static str, message: impl Into<String>) -> Self {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/editor_protocol.rs",
+    "line": 69,
+    "declaration_start": "pub fn to_json(&self) -> Result<String, serde_json::Error> {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/editor_protocol.rs",
+    "line": 768,
+    "declaration_start": "pub fn property_metadata(pointer: &str) -> Option<&'static PropertyMetadata> {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/editor_protocol.rs",
+    "line": 796,
+    "declaration_start": "pub fn schema_document() -> Value {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/editor_protocol.rs",
+    "line": 1315,
+    "declaration_start": "pub fn metadata_coverage() -> Result<(), Vec<&'static str>> {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/editor_protocol.rs",
+    "line": 1350,
+    "declaration_start": "pub fn diagnostics_from_validation(errors: &RecipeValidationErrors) -> Vec<Diagnostic> {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/editor_protocol.rs",
+    "line": 1368,
+    "declaration_start": "pub fn validate_diagnostics(recipe: &TextureRecipe) -> Vec<Diagnostic> {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/editor_protocol.rs",
+    "line": 1488,
+    "declaration_start": "pub fn recipe_hash(recipe: &TextureRecipe) -> Result<String, String> {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/encoding.rs",
+    "line": 94,
+    "declaration_start": "pub fn pixel_count(self) -> Result<usize, OutputError> {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/encoding.rs",
+    "line": 169,
+    "declaration_start": "pub fn new("
+  },
+  {
+    "file": "island-rs/src/procedural_textures/encoding.rs",
+    "line": 195,
+    "declaration_start": "pub fn from_texture_set(textures: &'a super::image::TextureSet) -> Self {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/encoding.rs",
+    "line": 371,
+    "declaration_start": "pub fn encode_png_bytes("
+  },
+  {
+    "file": "island-rs/src/procedural_textures/encoding.rs",
+    "line": 408,
+    "declaration_start": "pub fn encode_gray16_png_bytes("
+  },
+  {
+    "file": "island-rs/src/procedural_textures/encoding.rs",
+    "line": 433,
+    "declaration_start": "pub fn write_png_bytes(path: &Path, bytes: &[u8]) -> Result<(), OutputError> {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/encoding.rs",
+    "line": 453,
+    "declaration_start": "pub fn write_texture_set("
+  },
+  {
+    "file": "island-rs/src/procedural_textures/encoding.rs",
+    "line": 546,
+    "declaration_start": "pub fn pack_unity_mask(height: &[u16], occlusion: &[u8]) -> Vec<u8> {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/encoding.rs",
+    "line": 557,
+    "declaration_start": "pub fn sha256_hex(bytes: &[u8]) -> String {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/encoding.rs",
+    "line": 575,
+    "declaration_start": "pub fn normalized_recipe_hash<T: Serialize>(recipe: &T) -> Result<String, OutputError> {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/field_program.rs",
+    "line": 33,
+    "declaration_start": "pub fn new("
+  },
+  {
+    "file": "island-rs/src/procedural_textures/field_program.rs",
+    "line": 71,
+    "declaration_start": "pub fn pixel_size(self) -> (f32, f32) {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/field_program.rs",
+    "line": 80,
+    "declaration_start": "pub fn texture_dimensions(self) -> super::image::TextureDimensions {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/field_program.rs",
+    "line": 103,
+    "declaration_start": "pub fn new(dimensions: FieldDimensions, values: Vec<f32>) -> Result<Self, FieldError> {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/field_program.rs",
+    "line": 119,
+    "declaration_start": "pub fn values(&self) -> &[f32] {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/field_program.rs",
+    "line": 124,
+    "declaration_start": "pub fn values_mut(&mut self) -> &mut [f32] {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/field_program.rs",
+    "line": 129,
+    "declaration_start": "pub fn into_values(self) -> Vec<f32> {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/field_program.rs",
+    "line": 134,
+    "declaration_start": "pub fn at(&self, x: u32, y: u32) -> f32 {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/field_program.rs",
+    "line": 141,
+    "declaration_start": "pub fn sample_wrapped(&self, x: i32, y: i32) -> f32 {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/field_program.rs",
+    "line": 153,
+    "declaration_start": "pub fn sample_bilinear_wrapped(&self, x: f32, y: f32) -> f32 {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/field_program.rs",
+    "line": 185,
+    "declaration_start": "pub fn evaluate("
+  },
+  {
+    "file": "island-rs/src/procedural_textures/field_program.rs",
+    "line": 207,
+    "declaration_start": "pub fn evaluate_recipe(recipe: &recipe::TextureRecipe) -> Result<HeightField, FieldError> {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/image.rs",
+    "line": 24,
+    "declaration_start": "pub fn new(width: u32, height: u32) -> Result<Self, ImageError> {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/image.rs",
+    "line": 45,
+    "declaration_start": "pub fn pixel_count(self) -> usize {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/image.rs",
+    "line": 139,
+    "declaration_start": "pub fn new(dimensions: TextureDimensions, pixels: Vec<T>) -> Result<Self, ImageError> {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/image.rs",
+    "line": 151,
+    "declaration_start": "pub fn from_dimensions(width: u32, height: u32, pixels: Vec<T>) -> Result<Self, ImageError> {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/image.rs",
+    "line": 156,
+    "declaration_start": "pub fn filled(dimensions: TextureDimensions, pixel: T) -> Self"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/image.rs",
+    "line": 186,
+    "declaration_start": "pub fn len(&self) -> usize {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/image.rs",
+    "line": 192,
+    "declaration_start": "pub fn is_empty(&self) -> bool {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/image.rs",
+    "line": 198,
+    "declaration_start": "pub fn pixels(&self) -> &[T] {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/image.rs",
+    "line": 204,
+    "declaration_start": "pub fn pixels_mut(&mut self) -> &mut [T] {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/image.rs",
+    "line": 210,
+    "declaration_start": "pub fn into_pixels(self) -> Vec<T> {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/image.rs",
+    "line": 216,
+    "declaration_start": "pub fn get(&self, x: u32, y: u32) -> Option<&T> {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/image.rs",
+    "line": 222,
+    "declaration_start": "pub fn get_mut(&mut self, x: u32, y: u32) -> Option<&mut T> {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/image.rs",
+    "line": 229,
+    "declaration_start": "pub fn row(&self, y: u32) -> Option<&[T]> {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/image.rs",
+    "line": 239,
+    "declaration_start": "pub fn row_mut(&mut self, y: u32) -> Option<&mut [T]> {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/image.rs",
+    "line": 250,
+    "declaration_start": "pub fn row_range(&self, y: u32) -> Option<Range<usize>> {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/image.rs",
+    "line": 259,
+    "declaration_start": "pub fn map<U, F>(self, mut map_pixel: F) -> Image<U>"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/image.rs",
+    "line": 350,
+    "declaration_start": "pub fn new("
+  },
+  {
+    "file": "island-rs/src/procedural_textures/layer_stack.rs",
+    "line": 46,
+    "declaration_start": "pub fn apply_albedo("
+  },
+  {
+    "file": "island-rs/src/procedural_textures/layer_stack.rs",
+    "line": 68,
+    "declaration_start": "pub fn evaluate_recipe(recipe: &TextureRecipe) -> Result<LayerEvaluation, FieldError> {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/layer_stack.rs",
+    "line": 74,
+    "declaration_start": "pub fn evaluate_layers("
+  },
+  {
+    "file": "island-rs/src/procedural_textures/layer_stack.rs",
+    "line": 324,
+    "declaration_start": "pub fn apply_remap(remap: &ScalarRemap, value: f32) -> f32 {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/noise.rs",
+    "line": 44,
+    "declaration_start": "pub fn new(octaves: u8, lacunarity: f32, gain: f32) -> Result<Self, NoiseParameterError> {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/noise.rs",
+    "line": 55,
+    "declaration_start": "pub fn validate(self) -> Result<(), NoiseParameterError> {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/noise.rs",
+    "line": 90,
+    "declaration_start": "pub fn value(seed: u64, position: [f32; 2], period: Period2D) -> f32 {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/noise.rs",
+    "line": 96,
+    "declaration_start": "pub fn sample_value(seed: u64, position: [f32; 2], period: Period2D) -> f32 {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/noise.rs",
+    "line": 101,
+    "declaration_start": "pub fn fbm("
+  },
+  {
+    "file": "island-rs/src/procedural_textures/noise.rs",
+    "line": 124,
+    "declaration_start": "pub fn fbm_with_parameters("
+  },
+  {
+    "file": "island-rs/src/procedural_textures/noise.rs",
+    "line": 134,
+    "declaration_start": "pub fn billow("
+  },
+  {
+    "file": "island-rs/src/procedural_textures/noise.rs",
+    "line": 157,
+    "declaration_start": "pub fn billow_with_parameters("
+  },
+  {
+    "file": "island-rs/src/procedural_textures/noise.rs",
+    "line": 167,
+    "declaration_start": "pub fn ridged("
+  },
+  {
+    "file": "island-rs/src/procedural_textures/noise.rs",
+    "line": 190,
+    "declaration_start": "pub fn ridged_with_parameters("
+  },
+  {
+    "file": "island-rs/src/procedural_textures/noise.rs",
+    "line": 205,
+    "declaration_start": "pub fn domain_warp("
+  },
+  {
+    "file": "island-rs/src/procedural_textures/noise.rs",
+    "line": 247,
+    "declaration_start": "pub fn warped_value("
+  },
+  {
+    "file": "island-rs/src/procedural_textures/noise.rs",
+    "line": 265,
+    "declaration_start": "pub fn warped_fbm("
+  },
+  {
+    "file": "island-rs/src/procedural_textures/normal.rs",
+    "line": 41,
+    "declaration_start": "pub fn normal_at("
+  },
+  {
+    "file": "island-rs/src/procedural_textures/normal.rs",
+    "line": 66,
+    "declaration_start": "pub fn derive_normals("
+  },
+  {
+    "file": "island-rs/src/procedural_textures/normal.rs",
+    "line": 96,
+    "declaration_start": "pub fn encode_normal(normal: Vec3) -> [u8; 3] {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/occlusion.rs",
+    "line": 79,
+    "declaration_start": "pub fn derive_occlusion("
+  },
+  {
+    "file": "island-rs/src/procedural_textures/occlusion.rs",
+    "line": 101,
+    "declaration_start": "pub fn occlusion_at(field: &HeightField, x: u32, y: u32, settings: OcclusionSettings) -> f32 {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/packing.rs",
+    "line": 25,
+    "declaration_start": "pub fn new(minimum: f32, maximum: f32, neutral: f32) -> Result<Self, PackingError> {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/packing.rs",
+    "line": 43,
+    "declaration_start": "pub fn normalized(self, value: f32) -> f32 {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/packing.rs",
+    "line": 75,
+    "declaration_start": "pub fn as_range(self) -> HeightRange {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/packing.rs",
+    "line": 101,
+    "declaration_start": "pub fn quantize_height("
+  },
+  {
+    "file": "island-rs/src/procedural_textures/packing.rs",
+    "line": 119,
+    "declaration_start": "pub fn pack_unity_mask("
+  },
+  {
+    "file": "island-rs/src/procedural_textures/packing.rs",
+    "line": 144,
+    "declaration_start": "pub fn quantize_height_value(value: f32, range: HeightRange) -> u16 {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/packing.rs",
+    "line": 150,
+    "declaration_start": "pub fn quantize_height_byte(value: f32, range: HeightRange) -> u8 {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/parameters.rs",
+    "line": 38,
+    "declaration_start": "pub fn is_valid(self) -> bool {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/parameters.rs",
+    "line": 109,
+    "declaration_start": "pub fn insert_colour("
+  },
+  {
+    "file": "island-rs/src/procedural_textures/parameters.rs",
+    "line": 118,
+    "declaration_start": "pub fn get(&self, name: &str) -> Option<ParameterValue> {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/parameters.rs",
+    "line": 122,
+    "declaration_start": "pub fn iter(&self) -> impl Iterator<Item = (&str, ParameterValue)> {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/parameters.rs",
+    "line": 127,
+    "declaration_start": "pub fn is_empty(&self) -> bool {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/parameters.rs",
+    "line": 159,
+    "declaration_start": "pub fn resolved(self) -> Option<LinearRgb> {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/parameters.rs",
+    "line": 202,
+    "declaration_start": "pub fn parameter_hash(&self) -> &str {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/parameters.rs",
+    "line": 242,
+    "declaration_start": "pub fn errors(&self) -> &[RecipeParameterError] {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/parameters.rs",
+    "line": 247,
+    "declaration_start": "pub fn is_empty(&self) -> bool {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/periodic.rs",
+    "line": 68,
+    "declaration_start": "pub fn wrap_x(self, coordinate: i64) -> u32 {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/periodic.rs",
+    "line": 74,
+    "declaration_start": "pub fn wrap_y(self, coordinate: i64) -> u32 {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/periodic.rs",
+    "line": 105,
+    "declaration_start": "pub fn wrap_coordinate(coordinate: i64, period: u32) -> u32 {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/periodic.rs",
+    "line": 117,
+    "declaration_start": "pub fn mix64(mut value: u64) -> u64 {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/periodic.rs",
+    "line": 131,
+    "declaration_start": "pub fn hash_2d(seed: u64, x: i64, y: i64, period: Period2D) -> u64 {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/periodic.rs",
+    "line": 145,
+    "declaration_start": "pub fn hash_2d_unwrapped(seed: u64, x: i64, y: i64) -> u64 {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/periodic.rs",
+    "line": 154,
+    "declaration_start": "pub fn hash_to_unit(hash: u64) -> f32 {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/periodic.rs",
+    "line": 162,
+    "declaration_start": "pub fn hash_to_signed(hash: u64) -> f32 {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/periodic.rs",
+    "line": 168,
+    "declaration_start": "pub fn fade(value: f32) -> f32 {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/periodic.rs",
+    "line": 175,
+    "declaration_start": "pub fn fade_quintic(value: f32) -> f32 {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/periodic.rs",
+    "line": 181,
+    "declaration_start": "pub fn lerp(a: f32, b: f32, amount: f32) -> f32 {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/periodic.rs",
+    "line": 190,
+    "declaration_start": "pub fn value_noise(seed: u64, position: [f32; 2], period: Period2D) -> f32 {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/preview.rs",
+    "line": 76,
+    "declaration_start": "pub fn generate_preview("
+  },
+  {
+    "file": "island-rs/src/procedural_textures/preview.rs",
+    "line": 92,
+    "declaration_start": "pub fn generate_preview_with_parameters("
+  },
+  {
+    "file": "island-rs/src/procedural_textures/preview.rs",
+    "line": 151,
+    "declaration_start": "pub fn layer_preview_maps("
+  },
+  {
+    "file": "island-rs/src/procedural_textures/recipe.rs",
+    "line": 585,
+    "declaration_start": "pub fn layered_noise_config(&self) -> Option<LayeredNoiseRecipeConfig> {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/recipe.rs",
+    "line": 609,
+    "declaration_start": "pub fn cracked_stone_config(&self) -> Option<CrackedStoneRecipeConfig> {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/recipe.rs",
+    "line": 645,
+    "declaration_start": "pub fn rounded_stones_config(&self) -> Option<RoundedStonesRecipeConfig> {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/rounded_stones.rs",
+    "line": 55,
+    "declaration_start": "pub fn generate_height_values("
+  },
+  {
+    "file": "island-rs/src/procedural_textures/runtime_materials.rs",
+    "line": 160,
+    "declaration_start": "pub fn runtime_material_revision() -> [u64; 2] {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/runtime_materials.rs",
+    "line": 276,
+    "declaration_start": "pub fn bake_island_materials("
+  },
+  {
+    "file": "island-rs/src/procedural_textures/validation.rs",
+    "line": 372,
+    "declaration_start": "pub fn issues(&self) -> &[RecipeValidationError] {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/validation.rs",
+    "line": 378,
+    "declaration_start": "pub fn is_empty(&self) -> bool {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/validation.rs",
+    "line": 384,
+    "declaration_start": "pub fn len(&self) -> usize {"
+  },
+  {
+    "file": "island-rs/src/procedural_textures/validation.rs",
+    "line": 408,
+    "declaration_start": "pub fn validate_recipe(recipe: &TextureRecipe) -> Result<(), RecipeValidationErrors> {"
+  },
+  {
+    "file": "island-rs/src/raster.rs",
+    "line": 21,
+    "declaration_start": "pub fn new(width: u32, height: u32) -> Self {"
+  },
+  {
+    "file": "island-rs/src/raster.rs",
+    "line": 40,
+    "declaration_start": "pub fn pixels(&self) -> &[u8] {"
+  },
+  {
+    "file": "island-rs/src/raster.rs",
+    "line": 45,
+    "declaration_start": "pub fn into_pixels(self) -> Vec<u8> {"
+  },
+  {
+    "file": "island-rs/src/raster.rs",
+    "line": 49,
+    "declaration_start": "pub fn render(&mut self, island: &Island) {"
+  },
+  {
+    "file": "island-rs/src/rivers.rs",
+    "line": 220,
+    "declaration_start": "pub fn target_half_widths(&self, source_width: f32, maximum_width: f32) -> Vec<f32> {"
+  },
+  {
+    "file": "island-rs/src/rivers.rs",
+    "line": 292,
+    "declaration_start": "pub fn source_flow(&self) -> u32 {"
+  },
+  {
+    "file": "island-rs/src/rng.rs",
+    "line": 12,
+    "declaration_start": "pub fn next_u64(&mut self) -> u64 {"
+  },
+  {
+    "file": "island-rs/src/rng.rs",
+    "line": 20,
+    "declaration_start": "pub fn unit(&mut self) -> f32 {"
+  },
+  {
+    "file": "island-rs/src/rng.rs",
+    "line": 25,
+    "declaration_start": "pub fn range(&mut self, start: f32, end: f32) -> f32 {"
+  },
+  {
+    "file": "island-rs/src/sea_mask.rs",
+    "line": 38,
+    "declaration_start": "pub fn rgba(&self) -> &[u8] {"
+  },
+  {
+    "file": "island-rs/src/sky.rs",
+    "line": 29,
+    "declaration_start": "pub fn generate_sky_dome() -> Mesh {"
+  },
+  {
+    "file": "island-rs/src/terrain/decorations.rs",
+    "line": 135,
+    "declaration_start": "pub fn trees(&self) -> &[Vec3] {"
+  },
+  {
+    "file": "island-rs/src/terrain/decorations.rs",
+    "line": 140,
+    "declaration_start": "pub fn bushes(&self) -> &[Vec3] {"
+  },
+  {
+    "file": "island-rs/src/terrain/generation.rs",
+    "line": 310,
+    "declaration_start": "pub fn generate(seed: u64, options: IslandOptions) -> Result<Self, String> {"
+  },
+  {
+    "file": "island-rs/src/terrain/generation.rs",
+    "line": 320,
+    "declaration_start": "pub fn generate_with_method("
+  },
+  {
+    "file": "island-rs/src/terrain/generation.rs",
+    "line": 339,
+    "declaration_start": "pub fn generate_with_forest("
+  },
+  {
+    "file": "island-rs/src/terrain/generation.rs",
+    "line": 354,
+    "declaration_start": "pub fn generate_with_forest_and_method("
+  },
+  {
+    "file": "island-rs/src/terrain/generation.rs",
+    "line": 374,
+    "declaration_start": "pub fn generate_with_forest_and_reeds("
+  },
+  {
+    "file": "island-rs/src/terrain/generation.rs",
+    "line": 395,
+    "declaration_start": "pub fn generate_with_forest_reeds_and_ferns("
+  },
+  {
+    "file": "island-rs/src/terrain/generation.rs",
+    "line": 454,
+    "declaration_start": "pub fn generate_with_caves("
+  },
+  {
+    "file": "island-rs/src/terrain/generation.rs",
+    "line": 479,
+    "declaration_start": "pub fn generate_with_cave_networks("
+  },
+  {
+    "file": "island-rs/src/terrain/generation.rs",
+    "line": 506,
+    "declaration_start": "pub fn generate_with_cave_walks("
+  },
+  {
+    "file": "island-rs/src/terrain/generation.rs",
+    "line": 719,
+    "declaration_start": "pub fn lod(&self, level: usize) -> Option<&Mesh> {"
+  },
+  {
+    "file": "island-rs/src/terrain/generation.rs",
+    "line": 730,
+    "declaration_start": "pub fn horizon_mesh(&self) -> Mesh {"
+  },
+  {
+    "file": "island-rs/src/terrain/generation.rs",
+    "line": 741,
+    "declaration_start": "pub fn render_lod(&self, level: usize) -> Option<&Mesh> {"
+  },
+  {
+    "file": "island-rs/src/terrain/generation.rs",
+    "line": 813,
+    "declaration_start": "pub fn rivers(&self) -> &[River] {"
+  },
+  {
+    "file": "island-rs/src/terrain/generation.rs",
+    "line": 823,
+    "declaration_start": "pub fn decorations(&self) -> &Decorations {"
+  },
+  {
+    "file": "island-rs/src/terrain/generation.rs",
+    "line": 830,
+    "declaration_start": "pub fn render(&self, width: u32, height: u32) -> Raster {"
+  },
+  {
+    "file": "island-rs/src/terrain/generation.rs",
+    "line": 837,
+    "declaration_start": "pub fn height_map(&self, width: u32, height: u32) -> Vec<f32> {"
+  },
+  {
+    "file": "island-rs/src/terrain/generation.rs",
+    "line": 858,
+    "declaration_start": "pub fn sea_depth_map(&self, width: u32, height: u32) -> Vec<f32> {"
+  },
+  {
+    "file": "island-rs/src/terrain/generation.rs",
+    "line": 867,
+    "declaration_start": "pub fn sea_mask(&self, width: u32, height: u32) -> Option<crate::SeaMask> {"
+  },
+  {
+    "file": "island-rs/src/terrain/generation.rs",
+    "line": 885,
+    "declaration_start": "pub fn surface_maps(&self, lod: usize, width: u32, height: u32) -> Option<SurfaceMaps> {"
+  },
+  {
+    "file": "island-rs/src/terrain/generation.rs",
+    "line": 897,
+    "declaration_start": "pub fn normal_map(&self, width: u32, height: u32) -> Vec<u8> {"
+  },
+  {
+    "file": "island-rs/src/terrain/generation.rs",
+    "line": 915,
+    "declaration_start": "pub fn foliage_map(&self, dimension: u32) -> Vec<u32> {"
+  },
+  {
+    "file": "island-rs/src/terrain/generation.rs",
+    "line": 944,
+    "declaration_start": "pub fn save(&self, path: impl AsRef<Path>) -> io::Result<()> {"
+  },
+  {
+    "file": "island-rs/src/terrain/generation.rs",
+    "line": 954,
+    "declaration_start": "pub fn load(path: impl AsRef<Path>) -> io::Result<Self> {"
+  },
+  {
+    "file": "island-rs/src/terrain/generation.rs",
+    "line": 968,
+    "declaration_start": "pub fn mesh_in(&self, lod: usize, bounds: BoundingBox) -> Option<Mesh> {"
+  },
+  {
+    "file": "island-rs/src/terrain/generation.rs",
+    "line": 975,
+    "declaration_start": "pub fn render_mesh_in(&self, lod: usize, bounds: BoundingBox, clamp_sides: u8) -> Option<Mesh> {"
+  },
+  {
+    "file": "island-rs/src/terrain/generation.rs",
+    "line": 1003,
+    "declaration_start": "pub fn render_mesh_grid("
+  },
+  {
+    "file": "island-rs/src/terrain/generation.rs",
+    "line": 1037,
+    "declaration_start": "pub fn material_values_for(&self, mesh: &Mesh) -> Vec<Vec4> {"
+  },
+  {
+    "file": "island-rs/src/terrain/generation.rs",
+    "line": 1063,
+    "declaration_start": "pub fn environment_values_for(&self, mesh: &Mesh) -> Vec<Vec2> {"
+  },
+  {
+    "file": "island-rs/src/terrain/sampling.rs",
+    "line": 152,
+    "declaration_start": "pub fn normal_rgb(&self) -> &[u8] {"
+  },
+  {
+    "file": "island-rs/src/terrain/sampling.rs",
+    "line": 157,
+    "declaration_start": "pub fn occlusion(&self) -> &[u8] {"
+  },
+  {
+    "file": "island-rs/src/terrain/sampling.rs",
+    "line": 194,
+    "declaration_start": "pub fn mesh(&self) -> &Mesh {"
+  },
+  {
+    "file": "island-rs/src/terrain/sampling.rs",
+    "line": 199,
+    "declaration_start": "pub fn vertices(&self) -> &[Vec3] {"
+  },
+  {
+    "file": "island-rs/src/terrain/sampling.rs",
+    "line": 204,
+    "declaration_start": "pub fn vertex_count(&self) -> usize {"
+  },
+  {
+    "file": "island-rs/src/terrain/sampling.rs",
+    "line": 209,
+    "declaration_start": "pub fn triangle_count(&self) -> usize {"
+  },
+  {
+    "file": "island-rs/src/terrain/sampling.rs",
+    "line": 214,
+    "declaration_start": "pub fn sample(&self, u: f32, v: f32) -> f32 {"
+  },
+  {
+    "file": "island-rs/src/terrain/sampling.rs",
+    "line": 238,
+    "declaration_start": "pub fn sample_normal(&self, u: f32, v: f32) -> Vec3 {"
+  },
+  {
+    "file": "island-rs/src/trees.rs",
+    "line": 1417,
+    "declaration_start": "pub fn generate_tree(seed: u64) -> TreeMeshes {"
+  },
+  {
+    "file": "island-tree/src/botany.rs",
+    "line": 27,
+    "declaration_start": "pub fn generate_nikau_frond_prototype("
+  },
+  {
+    "file": "island-tree/src/botany/generator.rs",
+    "line": 101,
+    "declaration_start": "pub fn generate_botanical_prototype("
+  },
+  {
+    "file": "island-tree/src/botany/impostor.rs",
+    "line": 187,
+    "declaration_start": "pub fn generate_botanical_impostor(prototype: &BotanicalPrototype) -> BotanicalImpostor {"
+  },
+  {
+    "file": "island-tree/src/botany/model.rs",
+    "line": 250,
+    "declaration_start": "pub fn sample(self, fraction: f32) -> (Vec3, Vec3, f32) {"
+  },
+  {
+    "file": "island-tree/src/render/compiler.rs",
+    "line": 77,
+    "declaration_start": "pub fn compile_static_impostor_with_recipe("
+  },
+  {
+    "file": "island-tree/src/render/compiler.rs",
+    "line": 93,
+    "declaration_start": "pub fn compile_botanical_impostor("
+  },
+  {
+    "file": "island-tree/src/render/compiler.rs",
+    "line": 185,
+    "declaration_start": "pub fn compile_static_prototype("
+  },
+  {
+    "file": "island-tree/src/render/compiler.rs",
+    "line": 209,
+    "declaration_start": "pub fn compile_static_prototype_with_recipe("
+  },
+  {
+    "file": "island-tree/src/render/compiler.rs",
+    "line": 236,
+    "declaration_start": "pub fn compile_static_middle_prototype_with_recipe("
+  },
+  {
+    "file": "island-unity/Assets/Editor/ForestStreamingBenchmark.cs",
+    "line": 19,
+    "declaration_start": "public static class ForestStreamingBenchmark"
+  },
+  {
+    "file": "island-unity/Assets/Editor/ForestStreamingBenchmark.cs",
+    "line": 41,
+    "declaration_start": "public static async void RunBatch()"
+  },
+  {
+    "file": "island-unity/Assets/Editor/IslandNavigationBenchmark.cs",
+    "line": 19,
+    "declaration_start": "public static class IslandNavigationBenchmark"
+  },
+  {
+    "file": "island-unity/Assets/Editor/IslandNavigationBenchmark.cs",
+    "line": 58,
+    "declaration_start": "public static async void RunBatch()"
+  },
+  {
+    "file": "island-unity/Assets/Editor/IslandNavigationBenchmark.cs",
+    "line": 169,
+    "declaration_start": "public sealed class IslandNavigationEditor : UnityEditor.Editor"
+  },
+  {
+    "file": "island-unity/Assets/Editor/IslandProjectSetup.cs",
+    "line": 17,
+    "declaration_start": "public static class IslandProjectSetup"
+  },
+  {
+    "file": "island-unity/Assets/Editor/IslandProjectSetup.cs",
+    "line": 26,
+    "declaration_start": "public static void CreateReplacementScenes()"
+  },
+  {
+    "file": "island-unity/Assets/Editor/IslandProjectSetup.cs",
+    "line": 34,
+    "declaration_start": "public static void CreateConventionalProjectAssets()"
+  },
+  {
+    "file": "island-unity/Assets/Editor/IslandProjectSetup.cs",
+    "line": 134,
+    "declaration_start": "public static void CreateMultiIslandSandbox()"
+  },
+  {
+    "file": "island-unity/Assets/Editor/IslandProjectSetup.cs",
+    "line": 252,
+    "declaration_start": "public static void CreateOceanWaveSandbox()"
+  },
+  {
+    "file": "island-unity/Assets/Editor/IslandProjectSetup.cs",
+    "line": 317,
+    "declaration_start": "public static void ValidateOceanWaveSandbox()"
+  },
+  {
+    "file": "island-unity/Assets/Editor/IslandProjectSetup.cs",
+    "line": 341,
+    "declaration_start": "public static void ValidateMultiIslandSandbox()"
+  },
+  {
+    "file": "island-unity/Assets/Editor/ShipHelmSetup.cs",
+    "line": 12,
+    "declaration_start": "public static class ShipHelmSetup"
+  },
+  {
+    "file": "island-unity/Assets/Editor/ShipHelmSetup.cs",
+    "line": 15,
+    "declaration_start": "public static void ConfigureSelectedShip()"
+  },
+  {
+    "file": "island-unity/Assets/Editor/TreeProjectSetup.cs",
+    "line": 14,
+    "declaration_start": "public static class TreeProjectSetup"
+  },
+  {
+    "file": "island-unity/Assets/Editor/TreeProjectSetup.cs",
+    "line": 20,
+    "declaration_start": "public static void CreateTreeSandbox()"
+  },
+  {
+    "file": "island-unity/Assets/Editor/TreeProjectSetup.cs",
+    "line": 70,
+    "declaration_start": "public static void ValidateTreeSandbox()"
+  },
+  {
+    "file": "island-unity/Assets/Editor/UnityProjectBuild.cs",
+    "line": 10,
+    "declaration_start": "public static class UnityProjectBuild"
+  },
+  {
+    "file": "island-unity/Assets/Editor/UnityProjectBuild.cs",
+    "line": 12,
+    "declaration_start": "public static void BuildPlayer()"
+  },
+  {
+    "file": "island-unity/Assets/Samples/Motu/CoherentWeatherDriver.cs",
+    "line": 9,
+    "declaration_start": "public class CoherentWeatherDriver : WorldWeatherDriver"
+  },
+  {
+    "file": "island-unity/Assets/Samples/Motu/FirstPersonController.cs",
+    "line": 9,
+    "declaration_start": "public sealed class FirstPersonController : MonoBehaviour"
+  },
+  {
+    "file": "island-unity/Assets/Samples/Motu/FirstPersonController.cs",
+    "line": 41,
+    "declaration_start": "public bool FollowsTerrainInFlyMode { get; private set; } = true;"
+  },
+  {
+    "file": "island-unity/Assets/Samples/Motu/FirstPersonController.cs",
+    "line": 43,
+    "declaration_start": "public bool IsActive { get; private set; }"
+  },
+  {
+    "file": "island-unity/Assets/Samples/Motu/FirstPersonController.cs",
+    "line": 44,
+    "declaration_start": "public bool IsCursorReleased { get; private set; }"
+  },
+  {
+    "file": "island-unity/Assets/Samples/Motu/FirstPersonController.cs",
+    "line": 45,
+    "declaration_start": "public bool IsFlyMode { get; private set; }"
+  },
+  {
+    "file": "island-unity/Assets/Samples/Motu/FirstPersonController.cs",
+    "line": 48,
+    "declaration_start": "public bool IsTorchOn => torchLight != null && torchLight.isActiveAndEnabled;"
+  },
+  {
+    "file": "island-unity/Assets/Samples/Motu/FirstPersonController.cs",
+    "line": 52,
+    "declaration_start": "public void Configure(OrbitCamera overviewCamera, IslandGenerator islandGenerator)"
+  },
+  {
+    "file": "island-unity/Assets/Samples/Motu/FirstPersonController.cs",
+    "line": 57,
+    "declaration_start": "public void Configure("
+  },
+  {
+    "file": "island-unity/Assets/Samples/Motu/FirstPersonController.cs",
+    "line": 83,
+    "declaration_start": "public void Enter(Vector3 groundPosition)"
+  },
+  {
+    "file": "island-unity/Assets/Samples/Motu/FirstPersonController.cs",
+    "line": 122,
+    "declaration_start": "public void BeginFlying("
+  },
+  {
+    "file": "island-unity/Assets/Samples/Motu/FirstPersonController.cs",
+    "line": 156,
+    "declaration_start": "public void SetIsland(IslandGenerator value)"
+  },
+  {
+    "file": "island-unity/Assets/Samples/Motu/FirstPersonController.cs",
+    "line": 161,
+    "declaration_start": "public void Teleport(Vector3 worldPosition) => Teleport(worldPosition, !IsActive || IsCursorReleased);"
+  },
+  {
+    "file": "island-unity/Assets/Samples/Motu/FirstPersonController.cs",
+    "line": 163,
+    "declaration_start": "public void Teleport(Vector3 worldPosition, bool releaseCursor)"
+  },
+  {
+    "file": "island-unity/Assets/Samples/Motu/FirstPersonController.cs",
+    "line": 178,
+    "declaration_start": "public void SetWorldSurface(IWorldSurfaceQuery value)"
+  },
+  {
+    "file": "island-unity/Assets/Samples/Motu/FirstPersonController.cs",
+    "line": 183,
+    "declaration_start": "public void Exit()"
+  },
+  {
+    "file": "island-unity/Assets/Samples/Motu/FirstPersonController.cs",
+    "line": 213,
+    "declaration_start": "public void ToggleTorch() => SetTorchEnabled(!torchRequested);"
+  },
+  {
+    "file": "island-unity/Assets/Samples/Motu/FirstPersonController.cs",
+    "line": 215,
+    "declaration_start": "public void SetTorchEnabled(bool active)"
+  },
+  {
+    "file": "island-unity/Assets/Samples/Motu/IslandDemoController.Cameras.cs",
+    "line": 7,
+    "declaration_start": "public sealed partial class IslandDemoController"
+  },
+  {
+    "file": "island-unity/Assets/Samples/Motu/IslandDemoController.Cameras.cs",
+    "line": 10,
+    "declaration_start": "public bool IsAtHelm => shipController != null && !awayFromHelm;"
+  },
+  {
+    "file": "island-unity/Assets/Samples/Motu/IslandDemoController.Cameras.cs",
+    "line": 14,
+    "declaration_start": "public bool ToggleShipCamera()"
+  },
+  {
+    "file": "island-unity/Assets/Samples/Motu/IslandDemoController.Cameras.cs",
+    "line": 31,
+    "declaration_start": "public bool TeleportPlayer(Vector3 destination, bool releaseCursor = true)"
+  },
+  {
+    "file": "island-unity/Assets/Samples/Motu/IslandDemoController.cs",
+    "line": 8,
+    "declaration_start": "public sealed partial class IslandDemoController : MonoBehaviour"
+  },
+  {
+    "file": "island-unity/Assets/Samples/Motu/IslandDemoController.cs",
+    "line": 53,
+    "declaration_start": "public bool ShowMinimap"
+  },
+  {
+    "file": "island-unity/Assets/Samples/Motu/IslandDemoController.cs",
+    "line": 63,
+    "declaration_start": "public void Configure("
+  },
+  {
+    "file": "island-unity/Assets/Samples/Motu/IslandDemoController.cs",
+    "line": 75,
+    "declaration_start": "public void ConfigureFlyStart("
+  },
+  {
+    "file": "island-unity/Assets/Samples/Motu/IslandDemoController.cs",
+    "line": 87,
+    "declaration_start": "public void ConfigureShipStart(ShipController controller, Camera camera)"
+  },
+  {
+    "file": "island-unity/Assets/Samples/Motu/IslandDemoController.cs",
+    "line": 96,
+    "declaration_start": "public bool VisitCave(Motu.Streaming.CaveStreamer caves, int index, bool chamber = false, int branch = -1)"
+  },
+  {
+    "file": "island-unity/Assets/Samples/Motu/OceanWaveSandboxController.cs",
+    "line": 11,
+    "declaration_start": "public sealed class OceanWaveSandboxController : MonoBehaviour"
+  },
+  {
+    "file": "island-unity/Assets/Samples/Motu/OceanWaveSandboxController.cs",
+    "line": 51,
+    "declaration_start": "public void ApplyWeather(WorldWeatherState value)"
+  },
+  {
+    "file": "island-unity/Assets/Samples/Motu/OceanWaveSandboxController.cs",
+    "line": 61,
+    "declaration_start": "public void Configure("
+  },
+  {
+    "file": "island-unity/Assets/Samples/Motu/OrbitCamera.cs",
+    "line": 6,
+    "declaration_start": "public sealed class OrbitCamera : MonoBehaviour"
+  },
+  {
+    "file": "island-unity/Assets/Samples/Motu/OrbitCamera.cs",
+    "line": 20,
+    "declaration_start": "public bool PointerInputBlocked { get; set; }"
+  },
+  {
+    "file": "island-unity/Assets/Samples/Motu/OrbitCamera.cs",
+    "line": 22,
+    "declaration_start": "public void SetTarget(Vector3 worldPosition)"
+  },
+  {
+    "file": "island-unity/Assets/Samples/Motu/OrbitCamera.cs",
+    "line": 27,
+    "declaration_start": "public void Configure(Vector3 initialTarget, float initialDistance)"
+  },
+  {
+    "file": "island-unity/Assets/Samples/Motu/OrbitCamera.cs",
+    "line": 36,
+    "declaration_start": "public void OrbitByDegrees(float yawDegrees, float pitchDegrees = 0f)"
+  },
+  {
+    "file": "island-unity/Assets/Samples/Motu/OrbitCamera.cs",
+    "line": 43,
+    "declaration_start": "public void ResetOrientation()"
+  },
+  {
+    "file": "island-unity/Assets/Samples/Motu/ProceduralTreePreview.cs",
+    "line": 12,
+    "declaration_start": "public sealed class ProceduralTreePreview : MonoBehaviour"
+  },
+  {
+    "file": "island-unity/Assets/Samples/Motu/ProceduralTreePreview.cs",
+    "line": 51,
+    "declaration_start": "public bool IsLod1Visible => showingLod1;"
+  },
+  {
+    "file": "island-unity/Assets/Samples/Motu/ProceduralTreePreview.cs",
+    "line": 82,
+    "declaration_start": "public void Configure("
+  },
+  {
+    "file": "island-unity/Assets/Samples/Motu/ProceduralTreePreview.cs",
+    "line": 98,
+    "declaration_start": "public void Regenerate()"
+  },
+  {
+    "file": "island-unity/Assets/Samples/Motu/ProceduralTreePreview.cs",
+    "line": 172,
+    "declaration_start": "public void GenerateNextSeed()"
+  },
+  {
+    "file": "island-unity/Assets/Samples/Motu/ProceduralTreePreview.cs",
+    "line": 178,
+    "declaration_start": "public void ToggleLod()"
+  },
+  {
+    "file": "island-unity/Assets/Samples/Motu/ShipBridgeCamera.cs",
+    "line": 9,
+    "declaration_start": "public sealed class ShipBridgeCamera : MonoBehaviour"
+  },
+  {
+    "file": "island-unity/Assets/Samples/Motu/ShipBridgeCamera.cs",
+    "line": 17,
+    "declaration_start": "public bool IsLooking => isActiveAndEnabled && Cursor.lockState == CursorLockMode.Locked;"
+  },
+  {
+    "file": "island-unity/Assets/Samples/Motu/ShipBridgeCamera.cs",
+    "line": 20,
+    "declaration_start": "public void Configure(Transform eye, Rigidbody rigidbody)"
+  },
+  {
+    "file": "island-unity/Assets/Samples/Motu/ShipBridgeCamera.cs",
+    "line": 50,
+    "declaration_start": "public void SnapToShip()"
+  },
+  {
+    "file": "island-unity/Assets/Samples/Motu/ShipBridgeCamera.cs",
+    "line": 60,
+    "declaration_start": "public void SetMouseLook(bool active)"
+  },
+  {
+    "file": "island-unity/Assets/Samples/Motu/ShipController.cs",
+    "line": 10,
+    "declaration_start": "public sealed class ShipController : MonoBehaviour"
+  },
+  {
+    "file": "island-unity/Assets/Samples/Motu/ShipController.cs",
+    "line": 35,
+    "declaration_start": "public bool ReadPlayerInput { get => readPlayerInput; set { readPlayerInput = value; SetInput(0, 0); } }"
+  },
+  {
+    "file": "island-unity/Assets/Samples/Motu/ShipController.cs",
+    "line": 39,
+    "declaration_start": "public void Configure(Transform helmReference, ShipBridgeCamera camera, IslandWorldManager manager)"
+  },
+  {
+    "file": "island-unity/Assets/Samples/Motu/ShipController.cs",
+    "line": 73,
+    "declaration_start": "public void SetInput(float forward, float rudder, bool braking = false)"
+  },
+  {
+    "file": "island-unity/Assets/Samples/Motu/ShipController.cs",
+    "line": 123,
+    "declaration_start": "public void Teleport(Vector3 destination)"
+  },
+  {
+    "file": "island-unity/Assets/Samples/Motu/TreeMeshView.cs",
+    "line": 8,
+    "declaration_start": "public sealed class TreeMeshView : MonoBehaviour"
+  },
+  {
+    "file": "island-unity/Assets/Samples/Motu/TreeMeshView.cs",
+    "line": 10,
+    "declaration_start": "public bool IsVisible { get; private set; }"
+  },
+  {
+    "file": "island-unity/Assets/Samples/Motu/TreeMeshView.cs",
+    "line": 20,
+    "declaration_start": "public void Toggle()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/BoulderTests.cs",
+    "line": 11,
+    "declaration_start": "public sealed class BoulderTests"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/BoulderTests.cs",
+    "line": 14,
+    "declaration_start": "public void NativeCentresAndRadiiMapToUnityAndExactlyOneOwnerTile()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/BoulderTests.cs",
+    "line": 36,
+    "declaration_start": "public void SpheresExistOnlyAtLod0AndRetireWithTheTerrainGroup()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/BoulderTests.cs",
+    "line": 80,
+    "declaration_start": "public void RockRenderBatchSurvivesLod0RetirementUntilLod1Leaves()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/BoulderTests.cs",
+    "line": 105,
+    "declaration_start": "public void BoulderNativeExportAcceptsNullIslandAndReleasesSafely()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/CaveTests.cs",
+    "line": 18,
+    "declaration_start": "public sealed class CaveTests"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/CaveTests.cs",
+    "line": 21,
+    "declaration_start": "public void GenerationFailureIncludesTheNativeReasonAndSeed()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/CaveTests.cs",
+    "line": 36,
+    "declaration_start": "[Serializable] private sealed class PackedMesh { public float[] vertices, normals; public int[] triangles; public bool collisionOnly, floorStones; }"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/CaveTests.cs",
+    "line": 47,
+    "declaration_start": "public void SettingsCopyAndNativeLayoutAreStable()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/CaveTests.cs",
+    "line": 77,
+    "declaration_start": "public void DefaultWalkSettingsArePreserved()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/CaveTests.cs",
+    "line": 91,
+    "declaration_start": "public void BranchProbabilityCanExceedEndingProbability(float ending, float branching)"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/CaveTests.cs",
+    "line": 101,
+    "declaration_start": "public void ScriptAssignedWalkValuesCannotBypassNativeRanges()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/CaveTests.cs",
+    "line": 121,
+    "declaration_start": "public void EveryNetworkSettingChangesTheSnapshotKeyAndRequestsOwnTheirCopy()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/CaveTests.cs",
+    "line": 148,
+    "declaration_start": "public void NativeCaveHasWalkableEntranceRoofAndBoundedInteriorQueries()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/CaveTests.cs",
+    "line": 273,
+    "declaration_start": "public void GeneratedCaveSurvivesNativeSnapshotAndUnityCollision()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/CaveTests.cs",
+    "line": 414,
+    "declaration_start": "public void CaveWallsUseTheStonePaletteWithRecipesEnabled()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/CaveTests.cs",
+    "line": 469,
+    "declaration_start": "public void GeneratedCaveExteriorUsesTerrainMaterial()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/CaveTests.cs",
+    "line": 542,
+    "declaration_start": "public void PlayerWalksToEverySideChamberAndBack(bool translated, bool wandering)"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/CaveTests.cs",
+    "line": 620,
+    "declaration_start": "public void JunctionFloorIsVisibleToOneSidedCollisionFromInside()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/FallenLogTests.cs",
+    "line": 16,
+    "declaration_start": "public sealed class FallenLogTests"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/FallenLogTests.cs",
+    "line": 19,
+    "declaration_start": "public void LogBoxesAndEndGrainUvsFollowTheirLod0WoodTile()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/FallenLogTests.cs",
+    "line": 72,
+    "declaration_start": "public void StandingTreeAndCanopyStreamingRetainsItsExistingBehaviour()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/FallenLogTests.cs",
+    "line": 81,
+    "declaration_start": "public void LogsStayStationaryWhileLivingTreesBendInStrongWind()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/FallenLogTests.cs",
+    "line": 115,
+    "declaration_start": "public void LogExportEntryPointAndManagedLayoutMatchNativePlugin()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/FallenLogTests.cs",
+    "line": 127,
+    "declaration_start": "public void ExposedEndsUseEndGrainAndIgnoreBarkMaps(bool noParallax)"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/IslandGeneratorValidation.cs",
+    "line": 19,
+    "declaration_start": "public static class IslandGeneratorValidation"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/IslandGeneratorValidation.cs",
+    "line": 24,
+    "declaration_start": "public static void BatchValidateNativeInterop()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/IslandGeneratorValidation.cs",
+    "line": 45,
+    "declaration_start": "public static void BatchValidateIslandWorldArchitecture()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/IslandGeneratorValidation.cs",
+    "line": 55,
+    "declaration_start": "public static void BatchValidateOceanWaves()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/IslandGeneratorValidation.cs",
+    "line": 62,
+    "declaration_start": "public static void BatchValidateRealtimeShadows()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/IslandGeneratorValidation.cs",
+    "line": 73,
+    "declaration_start": "public static void BatchValidateRealTimeAmbientOcclusion()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/IslandGeneratorValidation.cs",
+    "line": 84,
+    "declaration_start": "public static void BatchValidatePlanarWaterReflections()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/IslandGeneratorValidation.cs",
+    "line": 96,
+    "declaration_start": "public static void BatchValidateGrassWind()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/IslandLod3Tests.cs",
+    "line": 12,
+    "declaration_start": "public sealed class IslandLod3Tests"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/IslandLod3Tests.cs",
+    "line": 15,
+    "declaration_start": "public void EmptyHorizonExportInstallsWithoutARenderer()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/IslandLod3Tests.cs",
+    "line": 36,
+    "declaration_start": "public void OptionalHorizonStillRejectsInvalidAndRequiredEmptyMeshes()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/IslandLod3Tests.cs",
+    "line": 109,
+    "declaration_start": "public void SkyHorizonLighteningKeepsHazeAndDistantIslandsMatched(float solarHour)"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/IslandLod3Tests.cs",
+    "line": 151,
+    "declaration_start": "public void HorizonShaderRendersOnlyTheCurrentFlatColour()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/IslandNativeValidation.cs",
+    "line": 17,
+    "declaration_start": "public static class IslandNativeValidation"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/IslandNativeValidation.cs",
+    "line": 36,
+    "declaration_start": "public static void BatchValidateInitialSoilNative()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/IslandNativeValidation.cs",
+    "line": 65,
+    "declaration_start": "public static void BatchValidateNativeInterop()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/IslandNavigationTests.cs",
+    "line": 16,
+    "declaration_start": "public sealed class IslandNavigationTests"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/IslandNavigationTests.cs",
+    "line": 38,
+    "declaration_start": "public void AgentDimensionsDefaultToHalfMetreAndProfilesCopyThem()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/IslandNavigationTests.cs",
+    "line": 184,
+    "declaration_start": "public void FactoryNavigationSettingsAreCapturedByRequestProfile()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/IslandNavigationTests.cs",
+    "line": 368,
+    "declaration_start": "public void ObstaclesAndRiverAreasDoNotDependOnVisibleLods()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/IslandRenderingValidation.cs",
+    "line": 15,
+    "declaration_start": "public static class IslandRenderingValidation"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/IslandRenderingValidation.cs",
+    "line": 17,
+    "declaration_start": "public static void ValidateMaterialTextureCacheRoundTrip()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/MinimapTeleportValidation.cs",
+    "line": 8,
+    "declaration_start": "public static class MinimapTeleportValidation"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/MinimapTeleportValidation.cs",
+    "line": 16,
+    "declaration_start": "public void SetStreamingTarget(Transform target) => Target = target;"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/MinimapTeleportValidation.cs",
+    "line": 17,
+    "declaration_start": "public void PrepareStreamingAt(Vector3 point) => Prepared = point;"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/MinimapTeleportValidation.cs",
+    "line": 18,
+    "declaration_start": "public bool TrySnapToTerrain(Vector3 point, out Vector3 ground)"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/MinimapTeleportValidation.cs",
+    "line": 21,
+    "declaration_start": "public void SetFirstPersonViewActive(bool active) { }"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/MinimapTeleportValidation.cs",
+    "line": 24,
+    "declaration_start": "public static void BatchValidateMinimapTeleport()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/OceanAntialiasingTests.cs",
+    "line": 8,
+    "declaration_start": "public sealed class OceanAntialiasingTests"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/OceanAntialiasingTests.cs",
+    "line": 13,
+    "declaration_start": "public void WavesFadeBeforeUndersamplingAndRetainUnresolvedSlopeVariance(float wavelength)"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/OceanAntialiasingTests.cs",
+    "line": 55,
+    "declaration_start": "public void DistantFoamIsStableUnderSmallCameraMovements()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/OceanAntialiasingTests.cs",
+    "line": 115,
+    "declaration_start": "public void Dispose()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/OceanBuoyancyTests.cs",
+    "line": 14,
+    "declaration_start": "public sealed class OceanBuoyancyTests"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/OceanBuoyancyTests.cs",
+    "line": 80,
+    "declaration_start": "public void DelayedSamplesFadeInsteadOfSwitchingOffAtAQuarterSecond()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/OceanBuoyancyTests.cs",
+    "line": 169,
+    "declaration_start": "public void DryProbesDoNotApplyForcesAndSubmergedForcesAreBounded()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/OceanDeckWaveClampTests.cs",
+    "line": 9,
+    "declaration_start": "public sealed class OceanDeckWaveClampTests"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/OceanDeckWaveClampTests.cs",
+    "line": 12,
+    "declaration_start": "public void GpuCapsCrestsAtSeaPlaneWithoutHidingSubmergedDeckWater()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/OceanDeckWaveClampTests.cs",
+    "line": 80,
+    "declaration_start": "public void OpenSeaShipHasAnActiveDeckCapsule()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/OceanDomainWarpTests.cs",
+    "line": 8,
+    "declaration_start": "public sealed class OceanDomainWarpTests"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/OceanDomainWarpTests.cs",
+    "line": 11,
+    "declaration_start": "public void BroadWarpBreaksWaveRepeatsAndRemainsAnchoredToWorldWind()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/OceanFoamTests.cs",
+    "line": 9,
+    "declaration_start": "public sealed class OceanFoamTests"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/OceanFoamTests.cs",
+    "line": 12,
+    "declaration_start": "public void StoredAndWakeFoamFadeGraduallyBeforeTheirTextureBoundaries()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/OceanFoamTests.cs",
+    "line": 77,
+    "declaration_start": "public void SingleFoamPatternDriftsAndDeformsContinuously()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/OceanHullSprayTests.cs",
+    "line": 15,
+    "declaration_start": "public sealed class OceanHullSprayTests"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/OceanHullSprayTests.cs",
+    "line": 18,
+    "declaration_start": "public void DryEdgesDoNotEmitAndLaunchSpeedIsProportionalUntilCapped()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/OceanHullSprayTests.cs",
+    "line": 28,
+    "declaration_start": "public void StrengthUsesClosingRelativeMotionAndRemainsLinearInDepth()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/OceanHullSprayTests.cs",
+    "line": 109,
+    "declaration_start": "public void PartlyWetEdgesClipAtTheCrossingAndDensityDoesNotDependOnSubdivision()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/OceanHullSprayTests.cs",
+    "line": 133,
+    "declaration_start": "public void OutlineFollowsConcaveHullInsteadOfPaddedTextureAndClosesWithinBudget()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/OceanHullSprayTests.cs",
+    "line": 161,
+    "declaration_start": "public void SavedShipHasAClosedLoopAndCorrectNormalDespiteItsImportTransform()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/OceanOpticsTests.cs",
+    "line": 14,
+    "declaration_start": "public sealed class OceanOpticsTests"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/OceanOpticsTests.cs",
+    "line": 17,
+    "declaration_start": "public void ReflectionsBlendAtEveryViewportEdgeInsteadOfSwitchingAbruptly()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/OceanOpticsTests.cs",
+    "line": 56,
+    "declaration_start": "public void CoastalTintFadesWithDepthDistanceAndMaskBounds()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/OceanOpticsTests.cs",
+    "line": 95,
+    "declaration_start": "public void CalmAndRiverSuppressedSeaRejectsNewAndStoredFoam()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/OceanOpticsTests.cs",
+    "line": 177,
+    "declaration_start": "public void ExistingFoamSurvivesCrestsSeaLevelAndTroughs()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/OceanOpticsTests.cs",
+    "line": 232,
+    "declaration_start": "public void CoastalDepthEncodingPreservesBreakingAndProtectsTenMetreSeabed()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/OceanOpticsTests.cs",
+    "line": 257,
+    "declaration_start": "public void SeabedFadesBeforeMeshCutoffAtDifferentCameraAnglesAndSeaLevels()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/OceanOpticsTests.cs",
+    "line": 360,
+    "declaration_start": "public void AbsorptionUsesMetresAndRgbExtinctionAndFresnelIncreasesAtGrazingAngles()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/OceanOpticsTests.cs",
+    "line": 388,
+    "declaration_start": "public void WindRipplesAffectNormalsAndDistantDetailBecomesRoughness()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/OceanOpticsTests.cs",
+    "line": 443,
+    "declaration_start": "public void RefractionRejectsRenderedForegroundInBothTextureAxes()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/OceanOpticsTests.cs",
+    "line": 532,
+    "declaration_start": "public void PlanarReflectionCrossesClipPlaneWithoutFrustumErrors(bool simplified, float offset)"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/OceanShipWaveTests.cs",
+    "line": 11,
+    "declaration_start": "public sealed class OceanShipWaveTests"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/OceanShipWaveTests.cs",
+    "line": 14,
+    "declaration_start": "public void DisplacementFoamTracksActualHeightChangeIncludingHullClamping()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/OceanShipWaveTests.cs",
+    "line": 88,
+    "declaration_start": "public void HullClampShrinksAndFeathersBeforeReachingItsFlatCore()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/OceanShipWaveTests.cs",
+    "line": 359,
+    "declaration_start": "public void WakeRetainsItsPathExpiresAndResetsOnTeleport()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/OceanShipWaveTests.cs",
+    "line": 384,
+    "declaration_start": "public void OpenSeaShipUsesLinearUncompressedWaveTextures()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/OceanShoreDistanceValidation.cs",
+    "line": 10,
+    "declaration_start": "public static class OceanShoreDistanceValidation"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/OceanShoreDistanceValidation.cs",
+    "line": 12,
+    "declaration_start": "public static void BatchValidateShoreDistance()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/OceanTranslucencyTests.cs",
+    "line": 12,
+    "declaration_start": "public sealed class OceanTranslucencyTests"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/OceanTranslucencyTests.cs",
+    "line": 15,
+    "declaration_start": "public void CurvatureFollowsLocalCrestsSharpnessAndTransitionPhases()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/OceanTranslucencyTests.cs",
+    "line": 69,
+    "declaration_start": "public void HullCeilingUsesRenderedDepthLimitEvenWithLargeWeatherWaves()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/OceanTranslucencyTests.cs",
+    "line": 100,
+    "declaration_start": "public void HeightTranslucencyUsesLargestProfilePeakAndSoftSeaLevelFade()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/OceanTranslucencyTests.cs",
+    "line": 147,
+    "declaration_start": "public void BreakingWaveCurvatureMatchesItsCompressedLeadingFace()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/OceanTranslucencyTests.cs",
+    "line": 197,
+    "declaration_start": "public void CrestsScatterLightMostWhenBacklitAndStayDarkWithoutLight()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/OceanUnderwaterTests.cs",
+    "line": 12,
+    "declaration_start": "public sealed class OceanUnderwaterTests"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/OceanUnderwaterTests.cs",
+    "line": 19,
+    "declaration_start": "public void PartialSubmersionOnlyTintsWetPixels(bool orthographic, float roll)"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/OceanUnderwaterTests.cs",
+    "line": 57,
+    "declaration_start": "public void FullySubmergedViewStopsAbsorptionAtTheSurfaceAndForeground()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/OceanUnderwaterTests.cs",
+    "line": 90,
+    "declaration_start": "public void SurfaceExitDepthStaysAlignedWithARolledUnderwaterCamera()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/OceanUnderwaterTests.cs",
+    "line": 116,
+    "declaration_start": "public void WaterlineFollowsAnimatedWavesAndAboveWaterIsUnchanged()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/OceanUnderwaterTests.cs",
+    "line": 223,
+    "declaration_start": "public void Dispose()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/OceanWaveTransitionValidation.cs",
+    "line": 11,
+    "declaration_start": "public static class OceanWaveTransitionValidation"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/OceanWaveTransitionValidation.cs",
+    "line": 13,
+    "declaration_start": "public static void BatchValidateWaveTransitions()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/PlayerTorchTests.cs",
+    "line": 10,
+    "declaration_start": "public sealed class PlayerTorchTests"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/PlayerTorchTests.cs",
+    "line": 14,
+    "declaration_start": "public void SetStreamingTarget(Transform target) { }"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/PlayerTorchTests.cs",
+    "line": 15,
+    "declaration_start": "public void PrepareStreamingAt(Vector3 position) { }"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/PlayerTorchTests.cs",
+    "line": 16,
+    "declaration_start": "public bool TrySnapToTerrain(Vector3 position, out Vector3 ground)"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/PlayerTorchTests.cs",
+    "line": 22,
+    "declaration_start": "public void SetFirstPersonViewActive(bool active) { }"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/PlayerTorchTests.cs",
+    "line": 26,
+    "declaration_start": "public void TorchFollowsTheViewAndRemembersItsToggleAcrossCameraSwitches()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/PlayerTorchTests.cs",
+    "line": 69,
+    "declaration_start": "public void TorchIlluminatesCaveStoneWithTheSunStillPresent()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/RiverGeometryValidation.cs",
+    "line": 11,
+    "declaration_start": "public static class RiverGeometryValidation"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/RiverGeometryValidation.cs",
+    "line": 13,
+    "declaration_start": "public static void Run()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/RiverSurfaceTests.cs",
+    "line": 13,
+    "declaration_start": "public sealed class RiverSurfaceTests"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/RiverSurfaceTests.cs",
+    "line": 40,
+    "declaration_start": "public void RipplesTravelDownstreamAndFollowRotatedAndVerticalSurfaces()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/RiverSurfaceTests.cs",
+    "line": 144,
+    "declaration_start": "public void RenderBendRapidsBanksAndForegroundRocks()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/RiverSurfaceTests.cs",
+    "line": 242,
+    "declaration_start": "public void RiverCompositionPreservesShallowsAndAbsorbsWithDepth()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/RuntimeContractsTests.cs",
+    "line": 19,
+    "declaration_start": "public sealed class RuntimeContractsTests"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/RuntimeContractsTests.cs",
+    "line": 24,
+    "declaration_start": "public void TerrainBatchUsesCombinedMeshIndices(int unusedVertices)"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/RuntimeContractsTests.cs",
+    "line": 31,
+    "declaration_start": "[Test] public void WeatherAndWaves() => VegetationWindValidation.BatchValidateSharedWind();"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/RuntimeContractsTests.cs",
+    "line": 32,
+    "declaration_start": "[Test] public void ShoreBreaking() => OceanShoreDistanceValidation.BatchValidateShoreDistance();"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/RuntimeContractsTests.cs",
+    "line": 33,
+    "declaration_start": "[Test] public void WaveTransitions() => OceanWaveTransitionValidation.BatchValidateWaveTransitions();"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/RuntimeContractsTests.cs",
+    "line": 34,
+    "declaration_start": "[Test] public void MinimapTeleport() => MinimapTeleportValidation.BatchValidateMinimapTeleport();"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/RuntimeContractsTests.cs",
+    "line": 35,
+    "declaration_start": "[Test] public void SoilPolicyAndRequestIsolation() => IslandRequestValidation.ValidateSoilAndSnapshots();"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/RuntimeContractsTests.cs",
+    "line": 36,
+    "declaration_start": "[Test] public void CancellationAndRestart() => IslandRequestValidation.ValidateCancellation();"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/RuntimeContractsTests.cs",
+    "line": 38,
+    "declaration_start": "public void RuntimeOwnership()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/RuntimeContractsTests.cs",
+    "line": 43,
+    "declaration_start": "[Test] public void MaterialCacheRoundTrip() => MaterialCacheValidation.ValidateRoundTrip();"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/RuntimeContractsTests.cs",
+    "line": 44,
+    "declaration_start": "[Test] public void SupportedScenes() => SceneMigrationValidation.ValidateScenes();"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/RuntimeContractsTests.cs",
+    "line": 47,
+    "declaration_start": "public void ProfileCopiesPreserveValuesAndAuthoredAssets()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/RuntimeContractsTests.cs",
+    "line": 77,
+    "declaration_start": "public void VegetationTilesRetainOverlapAndRecoverFromInterruptedTravel()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/SceneMigrationValidation.cs",
+    "line": 10,
+    "declaration_start": "public static class SceneMigrationValidation"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/SceneMigrationValidation.cs",
+    "line": 17,
+    "declaration_start": "public static void ValidateScenes()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/SceneMigrationValidation.cs",
+    "line": 45,
+    "declaration_start": "public static void Reserialize()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/ShipControllerTests.cs",
+    "line": 12,
+    "declaration_start": "public sealed class ShipControllerTests"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/ShipControllerTests.cs",
+    "line": 15,
+    "declaration_start": "public void ThrottleCoastsReversesAndLimitsAcceleration()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/ShipControllerTests.cs",
+    "line": 71,
+    "declaration_start": "public void ExplicitShipTeleportClearsMotion()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/ShipControllerTests.cs",
+    "line": 93,
+    "declaration_start": "public void OpenSeaSceneStartsAtTheBridge()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/ShipViewTests.cs",
+    "line": 10,
+    "declaration_start": "public sealed class ShipViewTests"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/ShipViewTests.cs",
+    "line": 17,
+    "declaration_start": "public void PlayerLeavesShipBehindAndRemovesItOutsideTheCurrentCell(bool teleportFromHelm, bool flyAcrossBoundary)"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/ShipViewTests.cs",
+    "line": 125,
+    "declaration_start": "public void ImportedShipUsesTheTexturedMatteMaterial()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/ShipWaterlineTextureTests.cs",
+    "line": 12,
+    "declaration_start": "public sealed class ShipWaterlineTextureTests"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/ShipWaterlineTextureTests.cs",
+    "line": 30,
+    "declaration_start": "public void ConcaveSectionsStayConcaveAndSeparateHullsKeepTheGap()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/ShipWaterlineTextureTests.cs",
+    "line": 57,
+    "declaration_start": "public void OuterHullIsFilledAcrossInnerShellsAndOpenSlicesFailClearly()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/ShipWaterlineTextureTests.cs",
+    "line": 78,
+    "declaration_start": "public void BowRidgeFacesForwardAndClearanceExpandsOnlyTheConfiguredDistance()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/ShipWaterlineTextureTests.cs",
+    "line": 96,
+    "declaration_start": "public void MeshSliceUsesWorldTransformsAndFitsTheGeneratedTexture()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/ShipWaterlineTextureTests.cs",
+    "line": 129,
+    "declaration_start": "public void WiderBakedTransitionRetainsClampingFartherFromTheHull()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/ShipWaterlineTextureTests.cs",
+    "line": 155,
+    "declaration_start": "public void DefaultBlendStartsAtWaterlineAndExtendsOutward()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/ShipWaterlineTextureTests.cs",
+    "line": 172,
+    "declaration_start": "public void BowStaysCloseAndShortWhenClampBlendWidens()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/ShipWaterlineTextureTests.cs",
+    "line": 203,
+    "declaration_start": "public void ImportedShipProducesAnEnclosedRestingWaterline()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/ShipWaveTextureSetupTests.cs",
+    "line": 11,
+    "declaration_start": "public sealed class ShipWaveTextureSetupTests"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/ShipWaveTextureSetupTests.cs",
+    "line": 14,
+    "declaration_start": "public void DifferentPrefabTypesKeepTheirTexturesAndInstanceOverrides()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/ShipWaveTextureSetupTests.cs",
+    "line": 85,
+    "declaration_start": "public void GpuComposesDifferentHullAndWakeTexturesForTwoShips()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/UnityValidation.cs",
+    "line": 6,
+    "declaration_start": "public static class UnityValidation"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/UnityValidation.cs",
+    "line": 8,
+    "declaration_start": "public static void Run()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/UnityValidation.cs",
+    "line": 24,
+    "declaration_start": "public static void NativeExports() => IslandNativeValidation.BatchValidateNativeInterop();"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/VegetationWindValidation.cs",
+    "line": 9,
+    "declaration_start": "public static class VegetationWindValidation"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/VegetationWindValidation.cs",
+    "line": 11,
+    "declaration_start": "public static void BatchValidateSharedWind()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/WorldRoutingValidation.cs",
+    "line": 18,
+    "declaration_start": "public static void ValidateRoutingPolicy()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/WorldWeatherValidation.cs",
+    "line": 11,
+    "declaration_start": "public static class WorldWeatherValidation"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/WorldWeatherValidation.cs",
+    "line": 13,
+    "declaration_start": "public static void BatchValidateRuntimeWeather()"
+  },
+  {
+    "file": "island-unity/Assets/Tests/Editor/WorldWeatherValidation.cs",
+    "line": 375,
+    "declaration_start": "public sealed class RuntimeWeatherValidationDriver : WorldWeatherDriver"
+  },
+  {
+    "file": "island-unity/validation/island-empty-lod3-2026-09-13/EmptySnapshotReproTests.cs",
+    "line": 17,
+    "declaration_start": "public sealed class EmptySnapshotReproTests"
+  },
+  {
+    "file": "packages/com.motu.navigation/Runtime/IslandNavigation.cs",
+    "line": 18,
+    "declaration_start": "public sealed class IslandNavigationBuildReport"
+  },
+  {
+    "file": "packages/com.motu.navigation/Runtime/IslandNavigation.cs",
+    "line": 26,
+    "declaration_start": "public bool heightMesh, cancelled;"
+  },
+  {
+    "file": "packages/com.motu.navigation/Runtime/IslandNavigation.cs",
+    "line": 30,
+    "declaration_start": "public bool processResidentMemoryAvailable;"
+  },
+  {
+    "file": "packages/com.motu.navigation/Runtime/IslandNavigation.cs",
+    "line": 36,
+    "declaration_start": "public sealed class IslandNavigation : MonoBehaviour, IIslandNavigation"
+  },
+  {
+    "file": "packages/com.motu.navigation/Runtime/IslandNavigation.cs",
+    "line": 59,
+    "declaration_start": "public bool IsReady { get; private set; }"
+  },
+  {
+    "file": "packages/com.motu.navigation/Runtime/IslandNavigation.cs",
+    "line": 60,
+    "declaration_start": "public bool IsRegistered => chunks.Count != 0 && chunks.TrueForAll(chunk => chunk.instance.valid);"
+  },
+  {
+    "file": "packages/com.motu.navigation/Runtime/IslandNavigation.cs",
+    "line": 65,
+    "declaration_start": "public Task BuildCompletion { get; private set; }"
+  },
+  {
+    "file": "packages/com.motu.navigation/Runtime/IslandNavigation.cs",
+    "line": 275,
+    "declaration_start": "public void ConfigureAgent(NavMeshAgent agent)"
+  },
+  {
+    "file": "packages/com.motu.navigation/Runtime/IslandNavigation.cs",
+    "line": 284,
+    "declaration_start": "public void SetRegistered(bool active)"
+  },
+  {
+    "file": "packages/com.motu.navigation/Runtime/IslandNavigation.cs",
+    "line": 318,
+    "declaration_start": "public void Dispose()"
+  },
+  {
+    "file": "packages/com.motu.navigation/Runtime/IslandNavigationInstaller.cs",
+    "line": 6,
+    "declaration_start": "public static class IslandNavigationInstaller"
+  },
+  {
+    "file": "packages/com.motu.navigation/Runtime/IslandNavigationInstaller.cs",
+    "line": 9,
+    "declaration_start": "public static void Register()"
+  },
+  {
+    "file": "packages/com.motu.navigation/Runtime/IslandNavigationSources.cs",
+    "line": 162,
+    "declaration_start": "public void Dispose()"
+  },
+  {
+    "file": "packages/com.motu.runtime/Editor/IslandGeneratorEditor.cs",
+    "line": 10,
+    "declaration_start": "public sealed class IslandGeneratorEditor : UnityEditor.Editor"
+  },
+  {
+    "file": "packages/com.motu.runtime/Editor/IslandGeneratorEditor.cs",
+    "line": 27,
+    "declaration_start": "public sealed class OceanWaveProfileEditor : UnityEditor.Editor"
+  },
+  {
+    "file": "packages/com.motu.runtime/Editor/NoiseBenchmark.cs",
+    "line": 8,
+    "declaration_start": "public static class NoiseBenchmark"
+  },
+  {
+    "file": "packages/com.motu.runtime/Editor/NoiseBenchmark.cs",
+    "line": 10,
+    "declaration_start": "public static void Run()"
+  },
+  {
+    "file": "packages/com.motu.runtime/Editor/OceanBuoyancyEditor.cs",
+    "line": 8,
+    "declaration_start": "public sealed class OceanBuoyancyEditor : UnityEditor.Editor"
+  },
+  {
+    "file": "packages/com.motu.runtime/Editor/OceanHullSprayEditor.cs",
+    "line": 8,
+    "declaration_start": "public sealed class OceanHullSprayEditor : UnityEditor.Editor"
+  },
+  {
+    "file": "packages/com.motu.runtime/Editor/ShipDeckWaveClampSetup.cs",
+    "line": 9,
+    "declaration_start": "public static class ShipDeckWaveClampSetup"
+  },
+  {
+    "file": "packages/com.motu.runtime/Editor/ShipDeckWaveClampSetup.cs",
+    "line": 12,
+    "declaration_start": "public static void ConfigureSelectedTextures()"
+  },
+  {
+    "file": "packages/com.motu.runtime/Editor/ShipDeckWaveClampSetup.cs",
+    "line": 55,
+    "declaration_start": "public static void ConfigureSelectedShip()"
+  },
+  {
+    "file": "packages/com.motu.runtime/Editor/ShipWaterlineTextureBuilder.cs",
+    "line": 18,
+    "declaration_start": "public bool largestRegionOnly = true;"
+  },
+  {
+    "file": "packages/com.motu.runtime/Editor/ShipWaterlineTextureBuilder.cs",
+    "line": 19,
+    "declaration_start": "public bool bowWave = true;"
+  },
+  {
+    "file": "packages/com.motu.runtime/Editor/ShipWaterlineTextureWindow.cs",
+    "line": 12,
+    "declaration_start": "public sealed class ShipWaterlineTextureWindow : EditorWindow"
+  },
+  {
+    "file": "packages/com.motu.runtime/Editor/ShipWaterlineTextureWindow.cs",
+    "line": 28,
+    "declaration_start": "public static void Open()"
+  },
+  {
+    "file": "packages/com.motu.runtime/Editor/ShipWaveTextureWindow.cs",
+    "line": 8,
+    "declaration_start": "public sealed class ShipWaveTextureWindow : EditorWindow"
+  },
+  {
+    "file": "packages/com.motu.runtime/Editor/ShipWaveTextureWindow.cs",
+    "line": 15,
+    "declaration_start": "public static void Open()"
+  },
+  {
+    "file": "packages/com.motu.runtime/Editor/SingleIslandEditor.cs",
+    "line": 8,
+    "declaration_start": "public sealed class SingleIslandEditor : UnityEditor.Editor"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Gameplay/OceanBuoyancy.cs",
+    "line": 11,
+    "declaration_start": "public sealed class OceanBuoyancy : MonoBehaviour"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Gameplay/OceanBuoyancy.cs",
+    "line": 148,
+    "declaration_start": "public void FitProbesToHullBounds()"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Interop/NativeIslandHandle.cs",
+    "line": 48,
+    "declaration_start": "public void Dispose()"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Interop/NativeIslandHandle.cs",
+    "line": 80,
+    "declaration_start": "public void Dispose() => Interlocked.Exchange(ref owner, null)?.ReleaseReference();"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Islands/CoherentIslandFactory.cs",
+    "line": 7,
+    "declaration_start": "public sealed class CoherentIslandFactory : MonoBehaviour, IIslandGenerationRequestFactory"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Islands/CoherentIslandFactory.cs",
+    "line": 137,
+    "declaration_start": "public bool HasIsland(Vector2Int islandGridPosition)"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Islands/GridIslandGenerationRequestFactory.cs",
+    "line": 10,
+    "declaration_start": "public sealed class GridIslandGenerationRequestFactory :"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Islands/GridIslandGenerationRequestFactory.cs",
+    "line": 14,
+    "declaration_start": "public sealed class FixedIsland"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Islands/GridIslandGenerationRequestFactory.cs",
+    "line": 48,
+    "declaration_start": "public bool GeneratesUnlistedCells => generateUnlistedCells;"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Islands/GridIslandGenerationRequestFactory.cs",
+    "line": 85,
+    "declaration_start": "public void Configure("
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Islands/GridIslandGenerationRequestFactory.cs",
+    "line": 95,
+    "declaration_start": "public void SetFixedIslands(params FixedIsland[] definitions)"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Islands/IIslandGenerationRequestFactory.cs",
+    "line": 5,
+    "declaration_start": "public interface IIslandGenerationRequestFactory"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Islands/IIslandNavigation.cs",
+    "line": 7,
+    "declaration_start": "public interface IIslandNavigation : IDisposable"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Islands/IslandDescriptor.cs",
+    "line": 72,
+    "declaration_start": "public bool Equals(IslandDescriptor other) => IslandId == other.IslandId;"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Islands/IslandGenerationLifecycle.cs",
+    "line": 61,
+    "declaration_start": "public void Dispose()"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Islands/IslandGenerationProfile.cs",
+    "line": 6,
+    "declaration_start": "public sealed class IslandGenerationProfile"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Islands/IslandGenerationRequest.cs",
+    "line": 9,
+    "declaration_start": "public sealed class IslandGenerationRequest"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Islands/IslandGenerationRequestFactoryBase.cs",
+    "line": 8,
+    "declaration_start": "public abstract class IslandGenerationRequestFactoryBase : MonoBehaviour,"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Islands/IslandGenerationRequestFactoryBase.cs",
+    "line": 70,
+    "declaration_start": "public bool RandomizeMaterialColours"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Islands/IslandGenerationRequestFactoryBase.cs",
+    "line": 84,
+    "declaration_start": "public abstract bool HasIsland(Vector2Int islandGridPosition);"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Islands/IslandGenerationRequestFactoryBase.cs",
+    "line": 164,
+    "declaration_start": "public void ConfigureRenderingReferences("
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Islands/IslandGenerator.Environment.cs",
+    "line": 6,
+    "declaration_start": "public sealed partial class IslandGenerator"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Islands/IslandGenerator.Environment.cs",
+    "line": 133,
+    "declaration_start": "public void SetFirstPersonViewActive(bool active) =>"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Islands/IslandGenerator.Materials.cs",
+    "line": 13,
+    "declaration_start": "public sealed partial class IslandGenerator"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Islands/IslandGenerator.cs",
+    "line": 16,
+    "declaration_start": "public sealed partial class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Islands/IslandGenerator.cs",
+    "line": 91,
+    "declaration_start": "public bool IsGenerating => generationLifecycle.IsGenerating;"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Islands/IslandGenerator.cs",
+    "line": 92,
+    "declaration_start": "public bool HasActiveRuntime => islandRuntime != null"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Islands/IslandGenerator.cs",
+    "line": 94,
+    "declaration_start": "public bool HasRuntime => islandRuntime != null"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Islands/IslandGenerator.cs",
+    "line": 166,
+    "declaration_start": "public async Task<bool> GenerateAsync("
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Islands/IslandGenerator.cs",
+    "line": 257,
+    "declaration_start": "public void Clear()"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Islands/IslandGenerator.cs",
+    "line": 265,
+    "declaration_start": "public void SetStreamingTarget(Transform target)"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Islands/IslandGenerator.cs",
+    "line": 278,
+    "declaration_start": "public void PrepareStreamingAt(Vector3 worldPosition)"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Islands/IslandGenerator.cs",
+    "line": 283,
+    "declaration_start": "public void ClearStreamingFocus()"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Islands/IslandGenerator.cs",
+    "line": 311,
+    "declaration_start": "public void Configure("
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Islands/IslandGenerator.cs",
+    "line": 355,
+    "declaration_start": "public bool TryRaycastOverview(Ray worldRay, out Vector3 worldPoint)"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Islands/IslandGenerator.cs",
+    "line": 365,
+    "declaration_start": "public bool TrySnapToTerrain(Vector3 approximateWorldPoint, out Vector3 worldPoint)"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Islands/IslandGenerator.cs",
+    "line": 387,
+    "declaration_start": "public void ConfigureSceneReferences("
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Islands/IslandPreparedData.cs",
+    "line": 108,
+    "declaration_start": "public readonly struct IslandMaterialColours"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Islands/IslandPreparedData.cs",
+    "line": 459,
+    "declaration_start": "public void Dispose()"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Islands/IslandRuntime.Lod3.cs",
+    "line": 8,
+    "declaration_start": "public sealed partial class IslandRuntime"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Islands/IslandRuntime.Lod3.cs",
+    "line": 17,
+    "declaration_start": "public bool IsLod3Visible => lod3Object != null && lod3Object.activeInHierarchy;"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Islands/IslandRuntime.Lod3.cs",
+    "line": 50,
+    "declaration_start": "public void SetViewPosition(Vector3 worldPosition)"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Islands/IslandRuntime.cs",
+    "line": 22,
+    "declaration_start": "public sealed partial class IslandRuntime : MonoBehaviour, IDisposable"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Islands/IslandRuntime.cs",
+    "line": 199,
+    "declaration_start": "public void Dispose()"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Islands/IslandRuntimeInstaller.cs",
+    "line": 10,
+    "declaration_start": "public sealed partial class IslandGenerator"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Islands/IslandRuntimeLoop.cs",
+    "line": 5,
+    "declaration_start": "public sealed partial class IslandGenerator"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Islands/SingleIsland.cs",
+    "line": 11,
+    "declaration_start": "public sealed class SingleIsland : IslandGenerationRequestFactoryBase"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Islands/SingleIsland.cs",
+    "line": 18,
+    "declaration_start": "public bool GenerateOnStart { get => generateOnStart; set => generateOnStart = value; }"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Islands/SingleIsland.cs",
+    "line": 30,
+    "declaration_start": "public Task<bool> GenerateAsync(CancellationToken cancellation = default)"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Islands/SingleIsland.cs",
+    "line": 36,
+    "declaration_start": "public void Clear() => Generator.Clear();"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Rendering/OceanDeckWaveClamp.Wake.cs",
+    "line": 5,
+    "declaration_start": "public sealed partial class OceanDeckWaveClamp"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Rendering/OceanDeckWaveClamp.Wake.cs",
+    "line": 12,
+    "declaration_start": "public bool BowWaveInAlpha { get => bowWaveInAlpha; set => bowWaveInAlpha = value; }"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Rendering/OceanDeckWaveClamp.Wake.cs",
+    "line": 64,
+    "declaration_start": "public void ConfigureTextures(Texture2D hull, Texture2D wake)"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Rendering/OceanDeckWaveClamp.cs",
+    "line": 9,
+    "declaration_start": "public sealed partial class OceanDeckWaveClamp : MonoBehaviour"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Rendering/OceanDeckWaveClamp.cs",
+    "line": 27,
+    "declaration_start": "public void Configure(Vector3 localStart, Vector3 localEnd, float radius, float blend)"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Rendering/OceanHullSpray.cs",
+    "line": 9,
+    "declaration_start": "public sealed class OceanHullSpray : MonoBehaviour"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Rendering/OceanHullSpray.cs",
+    "line": 50,
+    "declaration_start": "public void SetWaterline(Vector3[] points, Material material)"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Rendering/OceanUnderwaterView.cs",
+    "line": 10,
+    "declaration_start": "public sealed class OceanUnderwaterView : MonoBehaviour"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Rendering/OceanUnderwaterView.cs",
+    "line": 24,
+    "declaration_start": "public void Configure(OceanSurfaceController surface) => ocean = surface;"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Rendering/PlanarWaterReflection.cs",
+    "line": 9,
+    "declaration_start": "public sealed class PlanarWaterReflection : MonoBehaviour"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Rendering/PlanarWaterReflection.cs",
+    "line": 59,
+    "declaration_start": "public bool UseSimplifiedShader => useSimplifiedShader;"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Rendering/PlanarWaterReflection.cs",
+    "line": 61,
+    "declaration_start": "public bool LastRenderUsedSimplifiedShader => lastRenderUsedSimplifiedShader;"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Rendering/PlanarWaterReflection.cs",
+    "line": 65,
+    "declaration_start": "public static bool IsReflectionCamera(Camera camera)"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Rendering/PlanarWaterReflection.cs",
+    "line": 70,
+    "declaration_start": "public void Configure(Transform plane)"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Rendering/RealTimeAmbientOcclusion.cs",
+    "line": 10,
+    "declaration_start": "public sealed class RealTimeAmbientOcclusion : MonoBehaviour"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Rendering/RealTimeAmbientOcclusion.cs",
+    "line": 14,
+    "declaration_start": "public enum Quality"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Rendering/SharedNoiseTexture.cs",
+    "line": 32,
+    "declaration_start": "public void Dispose()"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Rendering/TerrainMaterialTextureArrays.cs",
+    "line": 136,
+    "declaration_start": "public void Dispose()"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Rendering/WaterfallMistPool.cs",
+    "line": 9,
+    "declaration_start": "public sealed class WaterfallMistPool : MonoBehaviour"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Settings/IslandCaveSettings.cs",
+    "line": 8,
+    "declaration_start": "public sealed class IslandCaveSettings"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Settings/IslandCaveSettings.cs",
+    "line": 13,
+    "declaration_start": "public bool Enabled { get => enabled; set => enabled = value; }"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Settings/IslandCaveSettings.cs",
+    "line": 92,
+    "declaration_start": "public bool RandomWalk { get => randomWalk; set => randomWalk = value; }"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Settings/IslandCloudSettings.cs",
+    "line": 9,
+    "declaration_start": "public sealed class IslandCloudSettings"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Settings/IslandCloudSettings.cs",
+    "line": 76,
+    "declaration_start": "public bool Enabled { get => enabled; set => enabled = value; }"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Settings/IslandDebugSettings.cs",
+    "line": 9,
+    "declaration_start": "public sealed class IslandDebugSettings"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Settings/IslandDebugSettings.cs",
+    "line": 42,
+    "declaration_start": "public bool ShowMeshEdges { get => showMeshEdges; set => showMeshEdges = value; }"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Settings/IslandDebugSettings.cs",
+    "line": 44,
+    "declaration_start": "public bool ShowTreeMeshEdges { get => showTreeMeshEdges; set => showTreeMeshEdges = value; }"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Settings/IslandDebugSettings.cs",
+    "line": 46,
+    "declaration_start": "public bool ShowFrameRate { get => showFrameRate; set => showFrameRate = value; }"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Settings/IslandDebugSettings.cs",
+    "line": 48,
+    "declaration_start": "public bool ShowWaterfallFeet { get => showWaterfallFeet; set => showWaterfallFeet = value; }"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Settings/IslandFernSettings.cs",
+    "line": 9,
+    "declaration_start": "public sealed class IslandFernSettings"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Settings/IslandFernSettings.cs",
+    "line": 52,
+    "declaration_start": "public bool ShowFerns { get => showFerns; set => showFerns = value; }"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Settings/IslandForestSettings.cs",
+    "line": 9,
+    "declaration_start": "public sealed class IslandForestSettings"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Settings/IslandForestSettings.cs",
+    "line": 46,
+    "declaration_start": "public bool ShowForests { get => showForests; set => showForests = value; }"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Settings/IslandGenerationSettings.cs",
+    "line": 11,
+    "declaration_start": "public sealed class IslandGenerationSettings"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Settings/IslandGenerationSettings.cs",
+    "line": 91,
+    "declaration_start": "public bool UseSnapshotCache"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Settings/IslandNavigationSettings.cs",
+    "line": 7,
+    "declaration_start": "public sealed class IslandNavigationSettings"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Settings/IslandNavigationSettings.cs",
+    "line": 27,
+    "declaration_start": "public bool Enabled { get => enabled; set => enabled = value; }"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Settings/IslandNavigationSettings.cs",
+    "line": 37,
+    "declaration_start": "public bool ExcludeRiverBeds { get => excludeRiverBeds; set => excludeRiverBeds = value; }"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Settings/IslandNavigationSettings.cs",
+    "line": 38,
+    "declaration_start": "public bool LogBuildStatistics { get => logBuildStatistics; set => logBuildStatistics = value; }"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Settings/IslandNavigationSettings.cs",
+    "line": 41,
+    "declaration_start": "public void Validate()"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Settings/IslandParameterVariationSettings.cs",
+    "line": 8,
+    "declaration_start": "public sealed class IslandParameterVariationSettings"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Settings/IslandParameterVariationSettings.cs",
+    "line": 19,
+    "declaration_start": "public bool Enabled => enabled;"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Settings/IslandReedSettings.cs",
+    "line": 9,
+    "declaration_start": "public sealed class IslandReedSettings"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Settings/IslandReedSettings.cs",
+    "line": 55,
+    "declaration_start": "public bool ShowReeds { get => showReeds; set => showReeds = value; }"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Settings/IslandRenderingSettings.cs",
+    "line": 8,
+    "declaration_start": "public sealed class IslandRenderingSettings"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Settings/IslandRenderingSettings.cs",
+    "line": 152,
+    "declaration_start": "public bool ShowDistanceHaze"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Settings/IslandRenderingSettings.cs",
+    "line": 224,
+    "declaration_start": "public bool ShowRivers { get => showRivers; set => showRivers = value; }"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Settings/IslandRenderingSettings.cs",
+    "line": 225,
+    "declaration_start": "public bool ShowSea { get => showSea; set => showSea = value; }"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Settings/IslandRenderingSettings.cs",
+    "line": 226,
+    "declaration_start": "public bool ShowGrass { get => showGrass; set => showGrass = value; }"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Settings/IslandRenderingSettings.cs",
+    "line": 227,
+    "declaration_start": "public bool ShowRocks { get => showRocks; set => showRocks = value; }"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Settings/IslandRiverSettings.cs",
+    "line": 9,
+    "declaration_start": "public sealed class IslandRiverSettings"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Settings/IslandStreamingSettings.cs",
+    "line": 9,
+    "declaration_start": "public sealed class IslandStreamingSettings"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Settings/OceanWaveProfile.cs",
+    "line": 9,
+    "declaration_start": "public struct OceanWaveComponent"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Settings/OceanWaveProfile.cs",
+    "line": 72,
+    "declaration_start": "public readonly struct OceanWaveRuntimeSettings"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Settings/OceanWaveProfile.cs",
+    "line": 74,
+    "declaration_start": "public readonly bool Enabled;"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Settings/OceanWaveProfile.cs",
+    "line": 96,
+    "declaration_start": "public readonly bool OnshoreWaveEnabled;"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Settings/OceanWaveProfile.cs",
+    "line": 350,
+    "declaration_start": "public sealed class OceanWaveProfile : ScriptableObject"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Settings/WorldEnvironmentConfiguration.cs",
+    "line": 9,
+    "declaration_start": "public sealed class WorldEnvironmentConfiguration : ScriptableObject"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Settings/WorldEnvironmentSettings.cs",
+    "line": 8,
+    "declaration_start": "public sealed class WorldEnvironmentSettings"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Settings/WorldEnvironmentSettings.cs",
+    "line": 63,
+    "declaration_start": "public bool ShowDistanceHaze => showDistanceHaze;"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Settings/WorldEnvironmentSettings.cs",
+    "line": 64,
+    "declaration_start": "public bool ShowSea => showSea;"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Streaming/CaveCollisionScope.cs",
+    "line": 43,
+    "declaration_start": "public void Dispose()"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Streaming/CaveStreamer.cs",
+    "line": 17,
+    "declaration_start": "public sealed class CaveStreamer : MonoBehaviour, IDisposable"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Streaming/CaveStreamer.cs",
+    "line": 139,
+    "declaration_start": "public bool TryGetEntrance(int index, out Vector3 floor, out Vector3 inward)"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Streaming/CaveStreamer.cs",
+    "line": 148,
+    "declaration_start": "public bool TryGetChamber(int index, out Vector3 floor)"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Streaming/CaveStreamer.cs",
+    "line": 158,
+    "declaration_start": "public bool TryGetBranchChamber(int cave, int branch, out Vector3 floor)"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Streaming/CaveStreamer.cs",
+    "line": 168,
+    "declaration_start": "public bool TryFindGround(Vector3 near, float above, float below, out Vector3 point)"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Streaming/CaveStreamer.cs",
+    "line": 214,
+    "declaration_start": "public void Dispose()"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Streaming/FernTileStreamer.cs",
+    "line": 132,
+    "declaration_start": "public void Dispose()"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Streaming/ForestTileStreamer.cs",
+    "line": 286,
+    "declaration_start": "public void Dispose()"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Streaming/ReedTileStreamer.cs",
+    "line": 133,
+    "declaration_start": "public void Dispose()"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Streaming/StreamedMeshTile.cs",
+    "line": 47,
+    "declaration_start": "public void Dispose()"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Streaming/TerrainTileStreamer.Colliders.cs",
+    "line": 9,
+    "declaration_start": "public sealed partial class TerrainTileStreamer"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Streaming/TerrainTileStreamer.DetailStreaming.cs",
+    "line": 16,
+    "declaration_start": "public sealed partial class TerrainTileStreamer"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Streaming/TerrainTileStreamer.cs",
+    "line": 18,
+    "declaration_start": "public sealed partial class TerrainTileStreamer : MonoBehaviour"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Streaming/TerrainTileStreamer.cs",
+    "line": 385,
+    "declaration_start": "public void SetPlayerPosition(Vector3 worldPosition)"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Streaming/TerrainTileStreamer.cs",
+    "line": 500,
+    "declaration_start": "public void ClearPlayerFocus()"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Streaming/TerrainTileStreamer.cs",
+    "line": 541,
+    "declaration_start": "public bool TryRaycastOverview(Ray ray, out Vector3 point)"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Streaming/TerrainTileStreamer.cs",
+    "line": 579,
+    "declaration_start": "public bool TrySnapToCurrentCollider(Vector3 approximatePoint, out Vector3 point)"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Streaming/TerrainTileStreamer.cs",
+    "line": 621,
+    "declaration_start": "public void Dispose()"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Streaming/TerrainTileStreamer.cs",
+    "line": 688,
+    "declaration_start": "public void SetRiversVisible(bool visible)"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Streaming/TerrainTileStreamer.cs",
+    "line": 694,
+    "declaration_start": "public void SetGrassVisible(bool visible)"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Streaming/TerrainTileStreamer.cs",
+    "line": 713,
+    "declaration_start": "public void SetWaterfallFootDebug(bool visible)"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Streaming/TerrainTileStreamer.cs",
+    "line": 718,
+    "declaration_start": "public void SetRocksVisible(bool visible)"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Streaming/TerrainTileStreamer.cs",
+    "line": 726,
+    "declaration_start": "public void SetForestsVisible(bool visible)"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Streaming/TerrainTileStreamer.cs",
+    "line": 731,
+    "declaration_start": "public void SetReedsVisible(bool visible)"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Streaming/TerrainTileStreamer.cs",
+    "line": 736,
+    "declaration_start": "public void SetFernsVisible(bool visible)"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Streaming/TerrainTileStreamer.cs",
+    "line": 741,
+    "declaration_start": "public void SetMeshEdgesVisible(bool visible)"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/Streaming/TerrainTileStreamer.cs",
+    "line": 746,
+    "declaration_start": "public void SetTreeMeshEdgesVisible(bool visible)"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/World/CelestialLighting.cs",
+    "line": 5,
+    "declaration_start": "public static class CelestialLighting"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/World/CelestialLighting.cs",
+    "line": 136,
+    "declaration_start": "public readonly struct SolarState"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/World/CelestialLighting.cs",
+    "line": 168,
+    "declaration_start": "public readonly struct MoonState"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/World/CloudWeatherSettings.cs",
+    "line": 7,
+    "declaration_start": "public struct CloudWeatherSettings"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/World/CloudWeatherSettings.cs",
+    "line": 9,
+    "declaration_start": "public bool Enabled;"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/World/IWorldSurfaceQuery.cs",
+    "line": 5,
+    "declaration_start": "public interface IWorldSurfaceQuery"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/World/IslandWorldManager.Caves.cs",
+    "line": 7,
+    "declaration_start": "public sealed partial class IslandWorldManager"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/World/IslandWorldManager.Discovery.cs",
+    "line": 9,
+    "declaration_start": "public sealed partial class IslandWorldManager"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/World/IslandWorldManager.cs",
+    "line": 14,
+    "declaration_start": "public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQuery"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/World/IslandWorldManager.cs",
+    "line": 141,
+    "declaration_start": "public bool HasIsland(Vector2Int islandGridPosition)"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/World/IslandWorldManager.cs",
+    "line": 156,
+    "declaration_start": "public void ConfigureIslandGenerationRequestFactory(MonoBehaviour factoryComponent)"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/World/IslandWorldManager.cs",
+    "line": 166,
+    "declaration_start": "public void ConfigureWorldEnvironment(Light sunlight, Material seaMaterial)"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/World/IslandWorldManager.cs",
+    "line": 185,
+    "declaration_start": "public void ApplyWeather(WorldWeatherState weather)"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/World/IslandWorldManager.cs",
+    "line": 197,
+    "declaration_start": "public void SetWind(Vector2 direction, float speedMetresPerSecond)"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/World/IslandWorldManager.cs",
+    "line": 300,
+    "declaration_start": "public void SetStreamingTarget(Transform target)"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/World/IslandWorldManager.cs",
+    "line": 319,
+    "declaration_start": "public void PrepareStreamingAt(Vector3 worldPosition)"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/World/IslandWorldManager.cs",
+    "line": 327,
+    "declaration_start": "public bool TrySnapToTerrain("
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/World/IslandWorldManager.cs",
+    "line": 350,
+    "declaration_start": "public void SetFirstPersonViewActive(bool active)"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/World/OceanClipmapMeshBuilder.cs",
+    "line": 8,
+    "declaration_start": "public static class OceanClipmapMeshBuilder"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/World/OceanFoamHistory.cs",
+    "line": 69,
+    "declaration_start": "public void Dispose()"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/World/OceanSurfaceController.Animation.cs",
+    "line": 7,
+    "declaration_start": "public sealed partial class OceanSurfaceController"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/World/OceanSurfaceController.cs",
+    "line": 10,
+    "declaration_start": "public sealed partial class OceanSurfaceController : MonoBehaviour"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/World/OceanSurfaceController.cs",
+    "line": 91,
+    "declaration_start": "public void Install("
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/World/OceanSurfaceController.cs",
+    "line": 103,
+    "declaration_start": "public void Install("
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/World/OceanSurfaceController.cs",
+    "line": 142,
+    "declaration_start": "public void SetVisible(bool visible)"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/World/OceanSurfaceController.cs",
+    "line": 147,
+    "declaration_start": "public void ApplyWaveSettings(OceanWaveRuntimeSettings settings)"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/World/OceanSurfaceController.cs",
+    "line": 161,
+    "declaration_start": "public void ApplyWeatherWindScale(float waveHeightScale)"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/World/OceanSurfaceController.cs",
+    "line": 173,
+    "declaration_start": "public void ApplyWaveWeather(OceanWaveWeatherSettings weather)"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/World/OceanSurfaceSampler.cs",
+    "line": 148,
+    "declaration_start": "public void Dispose()"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/World/WorldEnvironmentController.Environment.cs",
+    "line": 12,
+    "declaration_start": "public sealed partial class WorldEnvironmentController"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/World/WorldEnvironmentController.Environment.cs",
+    "line": 67,
+    "declaration_start": "public void Initialize("
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/World/WorldEnvironmentController.Environment.cs",
+    "line": 113,
+    "declaration_start": "public void SetFirstPersonViewActive(bool active)"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/World/WorldEnvironmentController.Ownership.cs",
+    "line": 7,
+    "declaration_start": "public sealed partial class WorldEnvironmentController"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/World/WorldEnvironmentController.Weather.cs",
+    "line": 5,
+    "declaration_start": "public sealed partial class WorldEnvironmentController"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/World/WorldEnvironmentController.Weather.cs",
+    "line": 13,
+    "declaration_start": "public void ApplyWeather(WorldWeatherState value)"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/World/WorldEnvironmentController.cs",
+    "line": 14,
+    "declaration_start": "public sealed partial class WorldEnvironmentController : MonoBehaviour"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/World/WorldEnvironmentController.cs",
+    "line": 44,
+    "declaration_start": "public bool IsInstalled => skyDomeMaterial != null && SeaMaterial != null;"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/World/WorldEnvironmentController.cs",
+    "line": 63,
+    "declaration_start": "public void SetFollowTarget(Transform target)"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/World/WorldEnvironmentController.cs",
+    "line": 73,
+    "declaration_start": "public void Install("
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/World/WorldEnvironmentController.cs",
+    "line": 97,
+    "declaration_start": "public void Install("
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/World/WorldEnvironmentController.cs",
+    "line": 161,
+    "declaration_start": "public void SetSeaVisible(bool visible)"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/World/WorldEnvironmentController.cs",
+    "line": 167,
+    "declaration_start": "public void SetWind(Vector2 direction, float speedMetresPerSecond)"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/World/WorldEnvironmentController.cs",
+    "line": 190,
+    "declaration_start": "public void BindReflectionCamera(Camera camera)"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/World/WorldWeatherDriver.cs",
+    "line": 10,
+    "declaration_start": "public abstract class WorldWeatherDriver : MonoBehaviour"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/World/WorldWeatherDriver.cs",
+    "line": 16,
+    "declaration_start": "public abstract void UpdateWeather(ref WorldWeatherState weather, float deltaTime);"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/World/WorldWeatherState.cs",
+    "line": 7,
+    "declaration_start": "public struct OceanWaveWeatherSettings"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/World/WorldWeatherState.cs",
+    "line": 9,
+    "declaration_start": "public bool Enabled;"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/World/WorldWeatherState.cs",
+    "line": 25,
+    "declaration_start": "public bool OnshoreWaveEnabled;"
+  },
+  {
+    "file": "packages/com.motu.runtime/Runtime/World/WorldWeatherState.cs",
+    "line": 72,
+    "declaration_start": "public struct WorldWeatherState"
+  },
+  {
+    "file": "packages/com.motu.runtime/Samples~/SingleIsland/SingleIslandExample.cs",
+    "line": 7,
+    "declaration_start": "public sealed class SingleIslandExample : MonoBehaviour"
+  },
+  {
+    "file": "packages/com.motu.runtime/Tests/Editor/EnvironmentOwnershipTests.cs",
+    "line": 16,
+    "declaration_start": "public sealed class EnvironmentOwnershipTests"
+  },
+  {
+    "file": "packages/com.motu.runtime/Tests/Editor/ForestStreamingTests.cs",
+    "line": 15,
+    "declaration_start": "public sealed class ForestStreamingTests"
+  },
+  {
+    "file": "packages/com.motu.runtime/Tests/Editor/ForestStreamingTests.cs",
+    "line": 18,
+    "declaration_start": "public void TileBoundsAssignEveryBoundaryToExactlyOneOwner()"
+  },
+  {
+    "file": "packages/com.motu.runtime/Tests/Editor/ForestStreamingTests.cs",
+    "line": 39,
+    "declaration_start": "public void PendingExportCanBeAbandonedWithoutInstallingOrKeepingDetails()"
+  },
+  {
+    "file": "packages/com.motu.runtime/Tests/Editor/ForestStreamingTests.cs",
+    "line": 75,
+    "declaration_start": "public void TeleportAndUploadCancellationKeepOnlyTheWantedGroups()"
+  },
+  {
+    "file": "packages/com.motu.runtime/Tests/Editor/HostIntegrationTests.cs",
+    "line": 19,
+    "declaration_start": "public sealed class HostIntegrationTests"
+  },
+  {
+    "file": "packages/com.motu.runtime/Tests/Editor/HostIntegrationTests.cs",
+    "line": 22,
+    "declaration_start": "public void NativeBinaryMatchesManagedLayouts() => NativeAbi.Validate();"
+  },
+  {
+    "file": "packages/com.motu.runtime/Tests/Editor/HostIntegrationTests.cs",
+    "line": 25,
+    "declaration_start": "public void RuntimeDoesNotReferenceSamplesOrNavigation()"
+  },
+  {
+    "file": "packages/com.motu.runtime/Tests/Editor/HostIntegrationTests.cs",
+    "line": 35,
+    "declaration_start": "public void ShaderLibraryContainsEveryRuntimeShader()"
+  },
+  {
+    "file": "packages/com.motu.runtime/Tests/Editor/HostIntegrationTests.cs",
+    "line": 49,
+    "declaration_start": "public void SharedNoiseLivesUntilTheLastIslandReleasesIt()"
+  },
+  {
+    "file": "packages/com.motu.runtime/Tests/Editor/HostIntegrationTests.cs",
+    "line": 65,
+    "declaration_start": "public void CacheLocationIsSnapshottedWithoutCreatingDirectories()"
+  },
+  {
+    "file": "packages/com.motu.runtime/Tests/Editor/HostIntegrationTests.cs",
+    "line": 84,
+    "declaration_start": "public void CacheEvictionPreservesHostFilesAndIncompleteWrites()"
+  },
+  {
+    "file": "packages/com.motu.runtime/Tests/Editor/StreamingResponsivenessTests.cs",
+    "line": 18,
+    "declaration_start": "public sealed class StreamingResponsivenessTests"
+  },
+  {
+    "file": "scripts/unity-consumer/Assets/Editor/BuildConsumer.cs",
+    "line": 7,
+    "declaration_start": "public static class BuildConsumer"
+  },
+  {
+    "file": "scripts/unity-consumer/Assets/Editor/BuildConsumer.cs",
+    "line": 9,
+    "declaration_start": "public static void Run()"
+  },
+  {
+    "file": "scripts/unity-consumer/Assets/Editor/ExportPublicApi.cs",
+    "line": 9,
+    "declaration_start": "public static class ExportPublicApi"
+  },
+  {
+    "file": "scripts/unity-consumer/Assets/Editor/ExportPublicApi.cs",
+    "line": 11,
+    "declaration_start": "public static void Run()"
+  },
+  {
+    "file": "scripts/unity-consumer/Assets/PackageSmokePlayer.cs",
+    "line": 14,
+    "declaration_start": "public sealed class PackageSmokePlayer : MonoBehaviour"
+  }
+]

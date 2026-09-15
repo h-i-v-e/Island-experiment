@@ -1,0 +1,15 @@
+    Blocking waiting for file lock on build directory
+   Compiling island-rs v0.1.0 (/Users/jeromejohnson/Documents/GitHub/Island-experiment/island-rs)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.74s
+     Running tests/procedural_material_editor.rs (island-rs/target/debug/deps/procedural_material_editor-246ecda3f72e1dc9)
+
+running 6 tests
+test all_committed_recipes_use_the_current_valid_schema ... ok
+test previous_height_mask_tracks_the_rounded_stone_base_field ... ok
+test cli_colour_override_changes_only_albedo_derived_output ... ok
+test committed_recipes_retain_the_locked_128_pixel_map_hashes ... ok
+test preview_maps_match_a_final_bake_at_the_same_resolution ... ok
+test editor_cli_schema_validation_preview_and_failure_envelopes_are_valid_json ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.29s
+

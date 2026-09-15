@@ -1,0 +1,45 @@
+running 41 tests
+test botany::generator::tests::crown_environment_is_deterministic_asymmetric_and_bounded ... ok
+test botany::generator::tests::decussate_stations_form_opposite_pairs_and_reserve_the_tip ... ok
+test botany::generator::tests::foliage_cohorts_are_bounded_and_exposure_responsive ... ok
+test botany::generator::tests::canopy_light_field_darkens_leaves_below_real_foliage ... ok
+test botany::generator::tests::flush_leaf_age_is_coherent_and_younger_toward_the_tip ... ok
+test botany::generator::tests::bark_micro_relief_is_bounded_and_contains_fibres_and_pores ... ok
+test botany::generator::tests::leaf_profile_has_an_offset_shoulder_and_a_long_distal_taper ... ok
+test botany::generator::tests::leaf_archetypes_have_petiole_relief_and_age_semantics ... ok
+test botany::generator::tests::persistent_stub_is_short_thick_blunt_and_finite ... ok
+test botany::generator::tests::mature_bark_relief_is_seam_safe_bounded_and_maturity_gated ... ok
+test botany::generator::tests::previous_flush_is_basal_older_and_bounded_by_retention ... ok
+test botany::generator::tests::fine_shoot_retention_tracks_terminal_vigour ... ok
+test botany::generator::tests::seasonal_turn_preserves_the_old_base_and_bends_the_distal_flush ... ok
+test botany::generator::tests::secondary_fine_ramification_is_sparse_bounded_and_leaf_neutral ... ok
+test botany::generator::tests::epicormic_shoots_are_sparse_low_and_surface_rooted ... ok
+test botany::generator::tests::branch_runs_cover_every_live_axis_and_join_continuations ... ok
+test botany::harakeke::tests::harakeke_recipe_rejects_tree_like_fan_counts ... ok
+test botany::harakeke::tests::blade_material_is_waxy_and_thread_edged ... ok
+test botany::harakeke::tests::old_leaf_archetypes_keep_a_broad_asymmetric_damaged_tip ... ok
+test botany::generator::tests::competition_growth_is_productive_and_bounded_across_seeds ... ok
+test botany::harakeke::tests::harakeke_straps_are_broad_curved_and_physically_bounded ... ok
+test botany::model::tests::character_controls_reject_non_finite_or_unbounded_values ... ok
+test botany::model::tests::every_species_recipe_has_neutral_bounded_character_controls ... ok
+test botany::generator::tests::bark_height_wraps_and_depth_is_grayscale_with_relief ... ok
+test botany::harakeke::tests::harakeke_is_deterministic_dense_and_fan_built ... ok
+test botany::nikau::tests::frond_prototype_contains_one_axis_and_only_its_leaflets ... ok
+test render::compiler::tests::compiled_leaf_transform_maps_converted_width_and_normal_axes ... ok
+test botany::generator::tests::competition_crowns_meet_bounded_shape_gates ... ok
+test botany::nikau::tests::nikau_is_deterministic_solitary_and_pinnate ... ok
+test botany::generator::tests::pohutukawa_crowns_are_broad_low_forking_coastal_forms ... ok
+test botany::manuka::tests::manuka_is_deterministic_single_trunked_and_flowering ... ok
+test botany::kauri::tests::kauri_is_deterministic_clean_stemmed_and_emergent ... ok
+test botany::rimu::tests::rimu_is_deterministic_emergent_and_weeping ... ok
+test botany::generator::tests::generated_textures_have_complete_rgba_storage ... ok
+test botany::generator::tests::pohutukawa_leaf_planes_form_oblique_terminal_sprays ... ok
+test botany::generator::tests::pads_are_derived_from_real_terminal_leaf_envelopes ... ok
+test botany::generator::tests::graph_has_competition_hierarchy_and_exposed_terminal_organs ... ok
+test botany::generator::tests::leaf_organs_match_mature_pohutukawa_scale ... ok
+test botany::generator::tests::prototype_is_deterministic_bounded_and_complete ... ok
+test botany::impostor::tests::impostor_is_deterministic_transparent_and_bounded ... ok
+test render::compiler::tests::static_foliage_compiles_every_leaf_into_one_mesh ... ok
+
+test result: ok. 41 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 25.44s
+

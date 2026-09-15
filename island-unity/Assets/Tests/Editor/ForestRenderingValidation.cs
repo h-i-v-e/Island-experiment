@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.Rendering;
 using Motu.Interop;
@@ -15,6 +16,33 @@ namespace Motu.Editor
 {
     internal static class ForestRenderingValidation
     {
+        // These visual fixtures supply already completed exports; no worker or
+        // Unity frames are blocked by draining their upload enumerators here.
+        internal static void RunPreparedTransition(IEnumerator routine)
+        {
+            try
+            {
+                while (routine.MoveNext())
+                    if (routine.Current is IEnumerator nested) RunPreparedTransition(nested);
+            }
+            finally { (routine as IDisposable)?.Dispose(); }
+        }
+
+        internal static ForestMeshRegion PrepareRegion(int lod, Vector2Int key,
+            IslandPreparedMesh[] foliage, IslandPreparedMesh[] wood)
+        {
+            var divisions = lod == 1 ? Lod1Resolution / Lod2Resolution : 1;
+            var result = new ForestMeshRegion(divisions * divisions);
+            for (var index = 0; index < result.foliage.Length; index++)
+            {
+                var tile = key * divisions + new Vector2Int(index % divisions, index / divisions);
+                var source = tile.y * Lod1Resolution + tile.x;
+                result.foliage[index] = foliage[source];
+                result.wood[index] = wood[source];
+            }
+            return result;
+        }
+
         internal static void ValidateLowPolyCanopyShadowProxy(
             Material material,
             Material lod0Material)
@@ -54,10 +82,6 @@ namespace Motu.Editor
                 var prepared = new IslandPreparedForestData(
                     lod2,
                     lod2,
-                    lod1,
-                    new IslandPreparedMesh[Lod1TileCount],
-                    lod0,
-                    new IslandPreparedMesh[Lod1TileCount],
                     lod0Colliders);
                 streamer.Initialize(
                     parent.transform,
@@ -67,7 +91,9 @@ namespace Motu.Editor
                     material,
                     material,
                     prepared,
-                    true);
+                    true,
+                    (level, key, cancellation) => Task.FromResult(PrepareRegion(level, key,
+                        level == 0 ? lod0 : lod1, new IslandPreparedMesh[Lod1TileCount])));
                 var renderers = streamer.Root.GetComponentsInChildren<MeshRenderer>(true);
                 var foliageRenderer = Array.Find(
                     renderers,
@@ -98,8 +124,8 @@ namespace Motu.Editor
                     throw new InvalidOperationException(
                         "The forest did not create one shared low-poly canopy shadow proxy.");
                 }
-                streamer.UpdateLod1Neighborhood(Vector2Int.zero);
-                streamer.UpdateLod0Neighborhood(Vector2Int.zero);
+                RunPreparedTransition(streamer.UpdateLod1NeighborhoodIncremental(Vector2Int.zero, () => true));
+                RunPreparedTransition(streamer.UpdateLod0NeighborhoodIncremental(Vector2Int.zero, () => true));
                 var capsule = streamer.Root.GetComponentInChildren<CapsuleCollider>(true);
                 if (streamer.ActiveTrunkColliderCount != 1
                     || capsule == null
@@ -119,8 +145,8 @@ namespace Motu.Editor
                     throw new InvalidOperationException(
                         "The forest did not assign its double-sided material to LOD0 foliage.");
                 }
-                streamer.UpdateLod0Neighborhood(
-                    new Vector2Int(Lod1Resolution - 1, Lod1Resolution - 1));
+                RunPreparedTransition(streamer.UpdateLod0NeighborhoodIncremental(
+                    new Vector2Int(Lod1Resolution - 1, Lod1Resolution - 1), () => true));
                 if (streamer.ActiveTrunkColliderCount != 0)
                 {
                     throw new InvalidOperationException(

@@ -1,0 +1,1 @@
+MOTU STREAMING RESPONSIVENESS: syncGridMs=11.986, exportFrames=88, initialFocusMs=9.431, transitionFrames=1743, maxObservedFrameMs=7.237

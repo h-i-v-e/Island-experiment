@@ -1,0 +1,5 @@
+   Compiling island-rs v0.1.0 (/Users/jeromejohnson/Documents/GitHub/Island-experiment/island-rs)
+    Finished `release` profile [optimized] target(s) in 24.85s
+Deployed /Users/jeromejohnson/Documents/GitHub/Island-experiment/island-rs/../packages/com.motu.runtime/Runtime/Plugins/macOS/libmotu.dylib
+SHA-256: a2a144aa06cc9488f92ed6bec0ae9dc6a1cd0b28fbe074932f43c0761e169fe3
+Restart Unity to load the new native library.

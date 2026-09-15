@@ -4,10 +4,10 @@ set -eu
 
 crate_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 unity_dir="$crate_dir/../island-unity"
-plugin_dir="$unity_dir/Assets/Plugins/macOS"
+plugin_dir=${MOTU_PLUGIN_DIR:-"$crate_dir/../packages/com.motu.runtime/Runtime/Plugins/macOS"}
 
-if [ "$(uname -s)" != "Darwin" ]; then
-    echo "error: this script currently deploys only the macOS Unity plugin" >&2
+if [ "$(uname -s)" != "Darwin" ] || [ "$(uname -m)" != "arm64" ]; then
+    echo "error: this script currently deploys only the macOS Apple Silicon Unity plugin" >&2
     exit 1
 fi
 
@@ -50,6 +50,8 @@ if ! cmp -s "$library" "$destination"; then
     echo "error: deployed library does not match the build artifact" >&2
     exit 1
 fi
+
+python3 "$crate_dir/../scripts/write-native-manifest.py" "$destination"
 
 checksum=$(shasum -a 256 "$destination" | awk '{print $1}')
 echo "Deployed $destination"

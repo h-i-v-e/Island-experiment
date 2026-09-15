@@ -1,0 +1,728 @@
+Declared public Motu API (inherited Unity members excluded).
+
+Assembly: Motu.Navigation
+
+Motu.Navigation.IslandNavigation
+  Boolean IsReady
+  Boolean IsRegistered
+  Int32 AgentTypeId
+  Motu.Navigation.IslandNavigationBuildReport Report
+  System.Threading.Tasks.Task BuildCompletion
+  UnityEngine.AI.NavMeshData Data
+  Void .ctor()
+  Void ConfigureAgent(UnityEngine.AI.NavMeshAgent)
+  Void Dispose()
+  Void SetRegistered(Boolean)
+
+Motu.Navigation.IslandNavigationBuildReport
+  System.Boolean cancelled
+  System.Boolean heightMesh
+  System.Boolean processResidentMemoryAvailable
+  System.Double bakeMilliseconds
+  System.Double sourceUploadMilliseconds
+  System.Int32 agentTypeId
+  System.Int32 sourceCount
+  System.Int32 sourceTriangles
+  System.Int32 tileSize
+  System.Int64 navMeshReportedBytes
+  System.Int64 processResidentBaselineBytes
+  System.Int64 sampledProcessResidentPeakBytes
+  System.Int64 sampledUnityAllocatedPeakBytes
+  System.Int64 sourceMeshBufferBytes
+  System.Int64 unityAllocatedBaselineBytes
+  System.Single height
+  System.Single radius
+  System.Single voxelSize
+  System.String failure
+  Void .ctor()
+
+Motu.Navigation.IslandNavigationInstaller
+  Void Register()
+
+Assembly: Motu.Runtime
+
+Motu.Gameplay.OceanBuoyancy
+  Motu.World.OceanSurfaceController Ocean
+  Single Draft
+  Single SubmergedFraction
+  Void .ctor()
+  Void FitProbesToHullBounds()
+
+Motu.Islands.CoherentIslandFactory
+  Boolean HasIsland(UnityEngine.Vector2Int)
+  Motu.Islands.IslandGenerationRequest CreateIslandGenerationRequest(UnityEngine.Vector2Int)
+  Motu.Settings.IslandCaveSettings CaveSettings
+  Motu.Settings.IslandNavigationSettings NavigationSettings
+  Void .ctor()
+
+Motu.Islands.GridIslandGenerationRequestFactory
+  Boolean GeneratesUnlistedCells
+  Boolean HasIsland(UnityEngine.Vector2Int)
+  Int32 FixedIslandCount
+  Int32 Seed
+  Motu.Islands.GridIslandGenerationRequestFactory+FixedIsland
+  Motu.Islands.IslandGenerationRequest CreateIslandGenerationRequest(UnityEngine.Vector2Int)
+  Single UnlistedCellOccupancy
+  Void .ctor()
+  Void Configure(Int32, Boolean, Single)
+  Void SetFixedIslands(FixedIsland[])
+
+Motu.Islands.GridIslandGenerationRequestFactory+FixedIsland
+  System.String StableId
+  UnityEngine.Vector2Int GridPosition
+  Void .ctor(UnityEngine.Vector2Int, System.String)
+
+Motu.Islands.IIslandGenerationRequestFactory
+  Boolean HasIsland(UnityEngine.Vector2Int)
+  Motu.Islands.IslandGenerationRequest CreateIslandGenerationRequest(UnityEngine.Vector2Int)
+
+Motu.Islands.IIslandNavigation
+  Boolean IsReady
+  Boolean IsRegistered
+  System.Threading.Tasks.Task BuildCompletion
+  Void SetRegistered(Boolean)
+
+Motu.Islands.IslandGenerationProfile
+  Motu.Islands.IslandGenerationProfile Clone()
+  Motu.Settings.IslandCaveSettings Caves
+  Motu.Settings.IslandDebugSettings DebugSettings
+  Motu.Settings.IslandFernSettings Ferns
+  Motu.Settings.IslandForestSettings Forest
+  Motu.Settings.IslandGenerationSettings Generation
+  Motu.Settings.IslandNavigationSettings Navigation
+  Motu.Settings.IslandReedSettings Reeds
+  Motu.Settings.IslandRenderingSettings Rendering
+  Motu.Settings.IslandRiverSettings Rivers
+  Void .ctor(Motu.Settings.IslandGenerationSettings, Motu.Settings.IslandRiverSettings, Motu.Settings.IslandForestSettings, Motu.Settings.IslandReedSettings, Motu.Settings.IslandFernSettings, Motu.Settings.IslandRenderingSettings, Motu.Settings.IslandDebugSettings, Motu.Settings.IslandCaveSettings, Motu.Settings.IslandNavigationSettings)
+
+Motu.Islands.IslandGenerationRequest
+  Int32 RandomSeed
+  Motu.Islands.IslandMaterialColours MaterialColours
+  Motu.Settings.IslandCaveSettings Caves
+  Motu.Settings.IslandDebugSettings DebugSettings
+  Motu.Settings.IslandFernSettings Ferns
+  Motu.Settings.IslandForestSettings Forest
+  Motu.Settings.IslandGenerationSettings Generation
+  Motu.Settings.IslandNavigationSettings Navigation
+  Motu.Settings.IslandReedSettings Reeds
+  Motu.Settings.IslandRenderingSettings Rendering
+  Motu.Settings.IslandRiverSettings Rivers
+  Single WorldSizeMetres
+  System.String IslandId
+  UnityEngine.Vector2Int IslandGridPosition
+  Void .ctor(Int32, UnityEngine.Vector2Int, Motu.Islands.IslandGenerationProfile, Motu.Islands.IslandMaterialColours, System.String)
+  Void .ctor(Int32, UnityEngine.Vector2Int, Motu.Settings.IslandGenerationSettings, Motu.Settings.IslandRiverSettings, Motu.Settings.IslandForestSettings, Motu.Settings.IslandReedSettings, Motu.Settings.IslandFernSettings, Motu.Settings.IslandRenderingSettings, Motu.Islands.IslandMaterialColours, System.String)
+  Void .ctor(Int32, UnityEngine.Vector2Int, Motu.Settings.IslandGenerationSettings, Motu.Settings.IslandRiverSettings, Motu.Settings.IslandForestSettings, Motu.Settings.IslandReedSettings, Motu.Settings.IslandFernSettings, Motu.Settings.IslandRenderingSettings, Motu.Settings.IslandDebugSettings, Motu.Islands.IslandMaterialColours, System.String)
+
+Motu.Islands.IslandGenerationRequestFactoryBase
+  Boolean HasIsland(UnityEngine.Vector2Int)
+  Boolean RandomizeMaterialColours
+  Motu.Islands.IslandGenerationRequest CreateIslandGenerationRequest(UnityEngine.Vector2Int)
+  Motu.Settings.IslandCaveSettings CaveSettings
+  Motu.Settings.IslandDebugSettings DebugSettings
+  Motu.Settings.IslandFernSettings FernSettings
+  Motu.Settings.IslandForestSettings ForestSettings
+  Motu.Settings.IslandGenerationSettings GenerationSettings
+  Motu.Settings.IslandNavigationSettings NavigationSettings
+  Motu.Settings.IslandReedSettings ReedSettings
+  Motu.Settings.IslandRenderingSettings RenderingSettings
+  Motu.Settings.IslandRiverSettings RiverSettings
+  Single MaterialColourVariation
+  UnityEngine.Color DirtColour
+  UnityEngine.Color SandColour
+  UnityEngine.Color StoneColour
+  Void ConfigureRenderingReferences(UnityEngine.Material, UnityEngine.Material, UnityEngine.Material, UnityEngine.Material, UnityEngine.Material, UnityEngine.Material)
+
+Motu.Islands.IslandGenerator
+  Boolean HasActiveRuntime
+  Boolean HasRuntime
+  Boolean IsGenerating
+  Boolean TryRaycastOverview(UnityEngine.Ray, UnityEngine.Vector3 ByRef)
+  Boolean TrySnapToTerrain(UnityEngine.Vector3, UnityEngine.Vector3 ByRef)
+  Motu.Islands.IslandRuntime Runtime
+  Motu.Settings.IslandCaveSettings Caves
+  Motu.Settings.IslandDebugSettings DebugSettings
+  Motu.Settings.IslandFernSettings Ferns
+  Motu.Settings.IslandForestSettings Forest
+  Motu.Settings.IslandGenerationSettings Generation
+  Motu.Settings.IslandNavigationSettings Navigation
+  Motu.Settings.IslandReedSettings Reeds
+  Motu.Settings.IslandRenderingSettings Rendering
+  Motu.Settings.IslandRiverSettings Rivers
+  Motu.Settings.IslandStreamingSettings Streaming
+  Single GetTerrainOrSeaHeight(UnityEngine.Vector3)
+  Single WorldSizeMetres
+  System.String Status
+  System.Threading.Tasks.Task`1[System.Boolean] GenerateAsync(Motu.Islands.IslandGenerationRequest, System.Threading.CancellationToken, Single)
+  Void .ctor()
+  Void Clear()
+  Void ClearStreamingFocus()
+  Void Configure(Motu.Islands.IslandGenerationRequest, UnityEngine.Transform)
+  Void ConfigureSceneReferences(UnityEngine.Transform, UnityEngine.Material, UnityEngine.Material, UnityEngine.Material, UnityEngine.Material, UnityEngine.Material, UnityEngine.Material)
+  Void PrepareStreamingAt(UnityEngine.Vector3)
+  Void SetFirstPersonViewActive(Boolean)
+  Void SetStreamingTarget(UnityEngine.Transform)
+
+Motu.Islands.IslandMaterialColours
+  UnityEngine.Color Dirt
+  UnityEngine.Color Sand
+  UnityEngine.Color Stone
+  Void .ctor(UnityEngine.Color, UnityEngine.Color, UnityEngine.Color)
+
+Motu.Islands.IslandRuntime
+  Boolean IsLod3Visible
+  Int32 Lod3TriangleCount
+  Motu.Islands.IIslandNavigation Navigation
+  Motu.Streaming.CaveStreamer Caves
+  System.Single Lod3DistanceMetres
+  System.Single Lod3SubmergedDistanceMetres
+  Void .ctor()
+  Void Dispose()
+  Void SetViewPosition(UnityEngine.Vector3)
+
+Motu.Islands.SingleIsland
+  Boolean GenerateOnStart
+  Boolean HasIsland(UnityEngine.Vector2Int)
+  Motu.Islands.IslandGenerationRequest CreateIslandGenerationRequest(UnityEngine.Vector2Int)
+  Motu.Islands.IslandGenerator Generator
+  System.Threading.Tasks.Task`1[System.Boolean] GenerateAsync(System.Threading.CancellationToken)
+  UnityEngine.Transform StreamingTarget
+  Void .ctor()
+  Void Clear()
+
+Motu.Rendering.OceanDeckWaveClamp
+  Boolean BowWaveInAlpha
+  Single BowWavePullbackMetres
+  Single BowWaveTipBlendMetres
+  Single HullClampFeatherMetres
+  Single HullClampFootprintScale
+  UnityEngine.Texture2D HullTexture
+  UnityEngine.Texture2D WakeTexture
+  Void .ctor()
+  Void Configure(UnityEngine.Vector3, UnityEngine.Vector3, Single, Single)
+  Void ConfigureTextures(UnityEngine.Texture2D, UnityEngine.Texture2D)
+
+Motu.Rendering.OceanHullSpray
+  Int32 MaximumSamples
+  Int32 SampleCount
+  Single SampleSpacing
+  Void .ctor()
+  Void SetWaterline(UnityEngine.Vector3[], UnityEngine.Material)
+
+Motu.Rendering.OceanUnderwaterView
+  Void .ctor()
+  Void Configure(Motu.World.OceanSurfaceController)
+
+Motu.Rendering.PlanarWaterReflection
+  Boolean IsReflectionCamera(UnityEngine.Camera)
+  Boolean LastRenderUsedSimplifiedShader
+  Boolean UseSimplifiedShader
+  Int32 FrameInterval
+  Int32 ReflectionRenderCount
+  System.String ReplacementTag
+  System.String SimplifiedShaderName
+  System.String ViewerPositionName
+  UnityEngine.Camera ReflectionCamera
+  UnityEngine.Shader SimplifiedReflectionShader
+  UnityEngine.Transform ReflectionPlane
+  Void .ctor()
+  Void Configure(UnityEngine.Transform)
+
+Motu.Rendering.RealTimeAmbientOcclusion
+  Motu.Rendering.RealTimeAmbientOcclusion+Quality
+  System.String ShaderName
+  Void .ctor()
+
+Motu.Rendering.RealTimeAmbientOcclusion+Quality
+  Motu.Rendering.RealTimeAmbientOcclusion+Quality Balanced
+  Motu.Rendering.RealTimeAmbientOcclusion+Quality Performance
+  Motu.Rendering.RealTimeAmbientOcclusion+Quality Quality
+  System.Int32 value__
+
+Motu.Rendering.WaterfallMistPool
+  Void .ctor()
+
+Motu.Settings.IslandCaveSettings
+  Boolean Enabled
+  Boolean RandomWalk
+  Int32 CandidateLimit
+  Int32 MaximumBranches
+  Int32 MaximumCaves
+  Int32 SeedOffset
+  Single ApproachLength
+  Single ApproachSlope
+  Single ApproachStep
+  Single BranchChamberScale
+  Single BranchLengthMax
+  Single BranchLengthMin
+  Single BranchProbability
+  Single BroadAmplitude
+  Single BroadPeriod
+  Single ChamberHeight
+  Single ChamberWidth
+  Single EndProbability
+  Single EntranceHeight
+  Single EntranceWidth
+  Single FineAmplitude
+  Single FinePeriod
+  Single FloorRoughness
+  Single FloorSlope
+  Single HeightMax
+  Single HeightMin
+  Single LengthMax
+  Single LengthMin
+  Single MinimumFaceHeight
+  Single MinimumFaceSlope
+  Single RoofCover
+  Single RouteRadius
+  Single SeaClearance
+  Single SideCover
+  Single SideMargin
+  Single Spacing
+  Single TransitionLength
+  Single VoxelSize
+  Single WalkStepMetres
+  Single WalkTurnDegrees
+  Single WalkWidthVariation
+  Single WidthMax
+  Single WidthMin
+  Void .ctor()
+
+Motu.Settings.IslandCloudSettings
+  Boolean Enabled
+  Int32 Seed
+  Int32 WeatherMapResolution
+  Single AltitudeMetres
+  Single AmbientShadowStrength
+  Single BroadNoiseScale
+  Single BroadNoiseStrength
+  Single CelestialObscurationStrength
+  Single Coverage
+  Single Density
+  Single DetailStrength
+  Single ErosionStrength
+  Single LowElevationShadowFade
+  Single ShadowStrength
+  Single VerticalThicknessMetres
+  Single WorldSizeMetres
+  UnityEngine.Color DayColour
+  UnityEngine.Color NightColour
+  UnityEngine.Color SunsetColour
+  Void .ctor()
+
+Motu.Settings.IslandDebugSettings
+  Boolean ShowFrameRate
+  Boolean ShowMeshEdges
+  Boolean ShowTreeMeshEdges
+  Boolean ShowWaterfallFeet
+  UnityEngine.KeyCode ToggleFrameRateKey
+  UnityEngine.KeyCode ToggleMeshEdgesKey
+  UnityEngine.KeyCode ToggleTreeMeshEdgesKey
+  Void .ctor()
+
+Motu.Settings.IslandFernSettings
+  Boolean ShowFerns
+  Void .ctor()
+
+Motu.Settings.IslandForestSettings
+  Boolean ShowForests
+  System.Single forestNoiseThreshold
+  System.Single snowlineMetres
+  Void .ctor()
+
+Motu.Settings.IslandGenerationSettings
+  Boolean UseSnapshotCache
+  Int32 Seed
+  Int32 SnapshotCacheBudgetGiB
+  Single CoastalSlopeMultiplier
+  Single ContinentalNoiseFrequency
+  Single ContinentalNoiseStrength
+  Single DepositionMaximumSlopeDegrees
+  Single DetailNoiseFrequency
+  Single DetailNoiseStrength
+  Single HydraulicErosionStrength
+  Single InitialSoilDepthMetres
+  Single InlandSlopeMultiplier
+  Single LandMassOffset
+  Single MaximumHeightMetres
+  Single SedimentDepositionStrength
+  Single WaterRatio
+  Single WorldSizeMetres
+  System.String SnapshotCacheDirectory
+  Void .ctor()
+
+Motu.Settings.IslandNavigationSettings
+  Boolean Enabled
+  Boolean ExcludeRiverBeds
+  Boolean LogBuildStatistics
+  Int32 TileSize
+  Single AgentHeight
+  Single AgentRadius
+  Single MaximumSlope
+  Single MinimumGroundHeight
+  Single StepHeight
+  Single VoxelSize
+  Void .ctor()
+  Void Validate()
+
+Motu.Settings.IslandParameterVariationSettings
+  Boolean Enabled
+  Void .ctor()
+
+Motu.Settings.IslandReedSettings
+  Boolean ShowReeds
+  Void .ctor()
+
+Motu.Settings.IslandRenderingSettings
+  Boolean ShowDistanceHaze
+  Boolean ShowGrass
+  Boolean ShowRivers
+  Boolean ShowRocks
+  Boolean ShowSea
+  Motu.Settings.OceanWaveProfile OceanWaveProfile
+  Single DistanceHazeDensity
+  Single FullMoonLightIntensity
+  Single GrassColourNoiseWorldSizeMetres
+  Single MiddaySunIntensity
+  Single MidnightToNoonClockRateRatio
+  Single MoonEquatorOffsetDegrees
+  Single StarBrightness
+  Single StarDensity
+  Single StarSize
+  Single StartingMoonPhase
+  Single StartingSolarTimeHours
+  Single SunCycleDurationMinutes
+  Single SunLatitudeDegrees
+  UnityEngine.Color DistanceHazeColour
+  UnityEngine.Color GrassColourA
+  UnityEngine.Color GrassColourB
+  UnityEngine.Material GrassMaterial
+  UnityEngine.Material RiverMaterial
+  UnityEngine.Material RockMaterial
+  UnityEngine.Material SeaMaterial
+  UnityEngine.Material TerrainMaterial
+  UnityEngine.Material TreeFoliageMaterial
+  UnityEngine.Texture2D RiverNoise
+  UnityEngine.Texture3D CliffDetailNoise
+  Void .ctor()
+
+Motu.Settings.IslandRiverSettings
+  Void .ctor()
+
+Motu.Settings.IslandStreamingSettings
+  UnityEngine.Transform Target
+  Void .ctor()
+
+Motu.Settings.OceanWaveComponent
+  Single AmplitudeMetres
+  Single Choppiness
+  Single SpeedMetresPerSecond
+  Single WavelengthMetres
+  UnityEngine.Vector2 Direction
+  Void .ctor(UnityEngine.Vector2, Single, Single, Single, Single)
+
+Motu.Settings.OceanWaveProfile
+  Motu.Settings.OceanWaveRuntimeSettings ToRuntimeSettings()
+  Void .ctor()
+
+Motu.Settings.OceanWaveRuntimeSettings
+  Motu.Settings.OceanWaveComponent Wave0
+  Motu.Settings.OceanWaveComponent Wave1
+  Motu.Settings.OceanWaveComponent Wave2
+  Motu.Settings.OceanWaveComponent Wave3
+  Motu.Settings.OceanWaveRuntimeSettings Default
+  Motu.Settings.OceanWaveRuntimeSettings WithWeather(Motu.World.OceanWaveWeatherSettings)
+  Motu.World.OceanWaveWeatherSettings Weather
+  Single MaximumHorizontalDisplacement
+  Single MaximumVerticalDisplacement
+  System.Boolean Enabled
+  System.Boolean OnshoreWaveEnabled
+  System.Int32 MaskResolution
+  System.Int32 RingsPerSpacingLevel
+  System.Single AmplitudeVariation
+  System.Single DepthAllowancePower
+  System.Single DisplacementFadeEndMetres
+  System.Single DisplacementFadeStartMetres
+  System.Single DistanceAllowancePower
+  System.Single DomainWarpMetres
+  System.Single FineRadiusMetres
+  System.Single FineVertexSpacingMetres
+  System.Single MaskAnchorSnapMetres
+  System.Single MaskCoverageMetres
+  System.Single NoiseWorldSizeMetres
+  System.Single OnshoreWaveAmplitudeMetres
+  System.Single OnshoreWaveBreakingFullDepthMetres
+  System.Single OnshoreWaveBreakingStartDepthMetres
+  System.Single OnshoreWaveChoppiness
+  System.Single OnshoreWaveLeadingEdgeSharpness
+  System.Single OnshoreWaveSharpeningDistanceMetres
+  System.Single OnshoreWaveSpeedMetresPerSecond
+  System.Single OnshoreWaveWavelengthMetres
+  System.Single WhitecapCoverage
+  System.Single WhitecapDistortionScale
+  System.Single WhitecapDistortionSpeed
+  System.Single WhitecapHeightThreshold
+  System.Single WhitecapNoiseWorldSizeMetres
+  System.Single WhitecapSlopeThreshold
+  System.Single WhitecapStrength
+  UnityEngine.Color WhitecapColour
+  Void .ctor(Boolean, Single, Single, Int32, Single, Single, Single, Int32, Single, Single, Single, Single, Single, Single, UnityEngine.Color, Single, Single, Single, Single, Single, Single, Single, Boolean, Single, Single, Single, Single, Single, Single, Motu.Settings.OceanWaveComponent, Motu.Settings.OceanWaveComponent, Motu.Settings.OceanWaveComponent, Motu.Settings.OceanWaveComponent, Single, Single)
+
+Motu.Settings.WorldEnvironmentConfiguration
+  Motu.Settings.IslandCloudSettings Clouds
+  Motu.Settings.WorldEnvironmentSettings Environment
+  Void .ctor()
+
+Motu.Settings.WorldEnvironmentSettings
+  Boolean ShowDistanceHaze
+  Boolean ShowSea
+  Int32 Seed
+  Motu.Settings.OceanWaveProfile OceanWaveProfile
+  Single DistanceHazeDensity
+  Single FullMoonLightIntensity
+  Single MiddaySunIntensity
+  Single MidnightToNoonClockRateRatio
+  Single MoonEquatorOffsetDegrees
+  Single SeaLevelMetres
+  Single SkyHorizonLightening
+  Single StarBrightness
+  Single StarDensity
+  Single StarSize
+  Single StartingMoonPhase
+  Single StartingSolarTimeHours
+  Single SunCycleDurationMinutes
+  Single SunLatitudeDegrees
+  Single TreeWindBasePinHeightMetres
+  Single TreeWindFullBendHeightMetres
+  Single WindGustSizeMetres
+  Single WindSpeedMetresPerSecond
+  UnityEngine.Color DistanceHazeColour
+  UnityEngine.Color ZenithColour
+  UnityEngine.Light Sunlight
+  UnityEngine.Material SeaMaterial
+  UnityEngine.Texture2D WeatherNoise
+  UnityEngine.Vector2 WindDirection
+  Void .ctor()
+
+Motu.Streaming.CaveStreamer
+  Boolean TryFindGround(UnityEngine.Vector3, Single, Single, UnityEngine.Vector3 ByRef)
+  Boolean TryGetBranchChamber(Int32, Int32, UnityEngine.Vector3 ByRef)
+  Boolean TryGetChamber(Int32, UnityEngine.Vector3 ByRef)
+  Boolean TryGetEntrance(Int32, UnityEngine.Vector3 ByRef, UnityEngine.Vector3 ByRef)
+  Double ColliderCookMilliseconds
+  Double CopyMilliseconds
+  Double ExportMilliseconds
+  Double LongestColliderCookMilliseconds
+  Double MeshCreationMilliseconds
+  Int32 BranchCount
+  Int32 CaveCount
+  Int32 ColliderTriangles
+  Int32 GetBranchCount(Int32)
+  Int32 MeshCount
+  Int32 RenderTriangles
+  Int64 PreparedBufferBytes
+  Single InteriorAmbientFill
+  System.String Diagnostics
+  Void .ctor()
+  Void Dispose()
+
+Motu.Streaming.TerrainTileStreamer
+  Boolean TryRaycastOverview(UnityEngine.Ray, UnityEngine.Vector3 ByRef)
+  Boolean TrySnapToCurrentCollider(UnityEngine.Vector3, UnityEngine.Vector3 ByRef)
+  Int32 BaseTriangleCount
+  Int32 BaseVertexCount
+  Int32 WaterfallFootCount
+  Void .ctor()
+  Void ClearPlayerFocus()
+  Void Dispose()
+  Void SetFernsVisible(Boolean)
+  Void SetForestsVisible(Boolean)
+  Void SetGrassVisible(Boolean)
+  Void SetMeshEdgesVisible(Boolean)
+  Void SetPlayerPosition(UnityEngine.Vector3)
+  Void SetReedsVisible(Boolean)
+  Void SetRiversVisible(Boolean)
+  Void SetRocksVisible(Boolean)
+  Void SetTreeMeshEdgesVisible(Boolean)
+  Void SetWaterfallFootDebug(Boolean)
+
+Motu.World.CelestialLighting
+  MoonState EvaluateMoon(Single, Single, Single, Single, Single, Single)
+  Motu.World.CelestialLighting+MoonState
+  Motu.World.CelestialLighting+SolarState
+  Single EvaluateClockRateMultiplier(Single, Single)
+  SolarState EvaluateSun(Single, Single, Single)
+
+Motu.World.CelestialLighting+MoonState
+  Single Illumination
+  Single LightIntensity
+  Single OrbitLatitudeDegrees
+  Single Visibility
+  UnityEngine.Vector3 LocalDirection
+  UnityEngine.Vector3 LocalLightDirection
+
+Motu.World.CelestialLighting+SolarState
+  Single NightStrength
+  Single SkyExposure
+  Single SunHaloStrength
+  Single SunIntensity
+  Single SunVisibility
+  UnityEngine.Color AmbientColour
+  UnityEngine.Color SunColour
+  UnityEngine.Vector3 LocalDirection
+
+Motu.World.CloudWeatherSettings
+  Motu.World.CloudWeatherSettings Default
+  Motu.World.CloudWeatherSettings FromSettings(Motu.Settings.IslandCloudSettings)
+  System.Boolean Enabled
+  System.Single AltitudeMetres
+  System.Single AmbientShadowStrength
+  System.Single BroadNoiseScale
+  System.Single BroadNoiseStrength
+  System.Single CelestialObscurationStrength
+  System.Single Coverage
+  System.Single Density
+  System.Single DetailStrength
+  System.Single ErosionStrength
+  System.Single LowElevationShadowFade
+  System.Single ShadowStrength
+  System.Single VerticalThicknessMetres
+  System.Single WorldSizeMetres
+  UnityEngine.Color DayColour
+  UnityEngine.Color NightColour
+  UnityEngine.Color SunsetColour
+
+Motu.World.IslandWorldManager
+  Boolean HasIsland(UnityEngine.Vector2Int)
+  Boolean TrySnapToTerrain(UnityEngine.Vector3, UnityEngine.Vector3 ByRef)
+  Int32 GeneratingIslandCount
+  Int32 GetCaveAvailability(UnityEngine.Vector3, Motu.Streaming.CaveStreamer ByRef, Int32 ByRef)
+  Int32 KnownIslandCount
+  Int32 LoadedIslandCount
+  Int32 NativeHandleCount
+  Int32 QueuedIslandCount
+  Int32 ResidentIslandLimit
+  Motu.Islands.IIslandGenerationRequestFactory IslandGenerationRequestFactory
+  Motu.Islands.IslandGenerator FocusedIsland
+  Motu.Settings.WorldEnvironmentSettings GlobalEnvironmentSettings
+  Motu.World.WorldEnvironmentController EnvironmentController
+  Motu.World.WorldWeatherDriver WeatherDriver
+  Motu.World.WorldWeatherState Weather
+  Single GetTerrainOrSeaHeight(UnityEngine.Vector3)
+  System.Single IslandSizeMetres
+  UnityEngine.Vector2 LogicalPlayerPosition
+  UnityEngine.Vector2Int WorldToCell(UnityEngine.Vector3)
+  UnityEngine.Vector3 CellCentre(UnityEngine.Vector2Int, Single)
+  Void .ctor()
+  Void ApplyWeather(Motu.World.WorldWeatherState)
+  Void ConfigureIslandGenerationRequestFactory(UnityEngine.MonoBehaviour)
+  Void ConfigureWorldEnvironment(UnityEngine.Light, UnityEngine.Material)
+  Void PrepareStreamingAt(UnityEngine.Vector3)
+  Void SetFirstPersonViewActive(Boolean)
+  Void SetStreamingTarget(UnityEngine.Transform)
+  Void SetWind(UnityEngine.Vector2, Single)
+
+Motu.World.IWorldSurfaceQuery
+  Boolean TrySnapToTerrain(UnityEngine.Vector3, UnityEngine.Vector3 ByRef)
+  Single GetTerrainOrSeaHeight(UnityEngine.Vector3)
+  Void PrepareStreamingAt(UnityEngine.Vector3)
+  Void SetFirstPersonViewActive(Boolean)
+  Void SetStreamingTarget(UnityEngine.Transform)
+
+Motu.World.OceanClipmapMeshBuilder
+  System.Collections.Generic.List`1[System.Single] BuildAxisCoordinates(Single, Motu.Settings.OceanWaveRuntimeSettings)
+  System.Int32 MaximumTriangleCount
+  System.Int32 MaximumVertexCount
+  UnityEngine.Mesh Build(Single, Motu.Settings.OceanWaveRuntimeSettings, Boolean)
+
+Motu.World.OceanSurfaceController
+  Double LastWaveMaskCompositionMilliseconds
+  Int32 CoastalWaveBindingCount
+  Int32 LastOverlappingCoastalBindingCount
+  Int32 MeshTriangleCount
+  Int32 MeshVertexCount
+  Int32 WaveMaskCompositionCount
+  Motu.World.OceanWaveWeatherSettings Weather
+  UnityEngine.Material SurfaceMaterial
+  UnityEngine.Mesh SurfaceMesh
+  UnityEngine.Transform SurfaceTransform
+  Void .ctor()
+  Void ApplyWaveSettings(Motu.Settings.OceanWaveRuntimeSettings)
+  Void ApplyWaveWeather(Motu.World.OceanWaveWeatherSettings)
+  Void ApplyWeatherWindScale(Single)
+  Void Install(UnityEngine.Material, Single, Boolean)
+  Void Install(UnityEngine.Material, Single, Boolean, Motu.Settings.OceanWaveRuntimeSettings)
+  Void SetVisible(Boolean)
+
+Motu.World.OceanWaveWeatherSettings
+  Motu.Settings.OceanWaveComponent Wave0
+  Motu.Settings.OceanWaveComponent Wave1
+  Motu.Settings.OceanWaveComponent Wave2
+  Motu.Settings.OceanWaveComponent Wave3
+  Motu.World.OceanWaveWeatherSettings Default
+  System.Boolean Enabled
+  System.Boolean OnshoreWaveEnabled
+  System.Single AmplitudeVariation
+  System.Single DepthAllowancePower
+  System.Single DistanceAllowancePower
+  System.Single DomainWarpMetres
+  System.Single NoiseWorldSizeMetres
+  System.Single OnshoreWaveAmplitudeMetres
+  System.Single OnshoreWaveBreakingFullDepthMetres
+  System.Single OnshoreWaveBreakingStartDepthMetres
+  System.Single OnshoreWaveChoppiness
+  System.Single OnshoreWaveLeadingEdgeSharpness
+  System.Single OnshoreWaveSharpeningDistanceMetres
+  System.Single OnshoreWaveSpeedMetresPerSecond
+  System.Single OnshoreWaveWavelengthMetres
+  System.Single WhitecapCoverage
+  System.Single WhitecapDistortionScale
+  System.Single WhitecapDistortionSpeed
+  System.Single WhitecapHeightThreshold
+  System.Single WhitecapNoiseWorldSizeMetres
+  System.Single WhitecapSlopeThreshold
+  System.Single WhitecapStrength
+  UnityEngine.Color WhitecapColour
+
+Motu.World.WorldEnvironmentController
+  Boolean IsInstalled
+  Motu.World.WorldEnvironmentController FindOrCreate()
+  Motu.World.WorldWeatherDriver WeatherDriver
+  Motu.World.WorldWeatherState Weather
+  Single EvaluateWaveHeightScale(Single)
+  Single NightStrength
+  Single SkyExposure
+  Single WindSpeedMetresPerSecond
+  System.Single ReferenceWindSpeedMetresPerSecond
+  UnityEngine.Light MoonLight
+  UnityEngine.Material SeaMaterial
+  UnityEngine.Material SkyMaterial
+  UnityEngine.Mesh SkyMesh
+  UnityEngine.Texture2D WeatherNoiseTexture
+  UnityEngine.Transform OceanTransform
+  UnityEngine.Vector2 WindDirection
+  UnityEngine.Vector3 AnchorPosition
+  UnityEngine.Vector3 SnapAnchor(UnityEngine.Vector3, Single, Single)
+  Void .ctor()
+  Void ApplyWeather(Motu.World.WorldWeatherState)
+  Void BindReflectionCamera(UnityEngine.Camera)
+  Void Initialize(Motu.Settings.WorldEnvironmentSettings, Motu.Settings.IslandCloudSettings, Single, Single, UnityEngine.Transform)
+  Void Install(UnityEngine.Material, UnityEngine.Material, UnityEngine.Texture2D, UnityEngine.Texture2D, Single, Single, Single, Boolean, Motu.Settings.OceanWaveRuntimeSettings, UnityEngine.Light)
+  Void Install(UnityEngine.Material, UnityEngine.Material, UnityEngine.Texture2D, UnityEngine.Texture2D, Single, Single, Single, Boolean, UnityEngine.Light)
+  Void SetFirstPersonViewActive(Boolean)
+  Void SetFollowTarget(UnityEngine.Transform)
+  Void SetSeaVisible(Boolean)
+  Void SetWind(UnityEngine.Vector2, Single)
+
+Motu.World.WorldWeatherDriver
+  Void UpdateWeather(Motu.World.WorldWeatherState ByRef, Single)
+
+Motu.World.WorldWeatherState
+  Motu.World.CloudWeatherSettings Clouds
+  Motu.World.OceanWaveWeatherSettings Waves
+  Motu.World.WorldWeatherState FromEnvironment(Motu.Settings.WorldEnvironmentSettings, Motu.Settings.IslandCloudSettings)
+  System.Single TreeWindBasePinHeightMetres
+  System.Single TreeWindFullBendHeightMetres
+  System.Single WindGustSizeMetres
+  System.Single WindSpeedMetresPerSecond
+  UnityEngine.Vector2 WindDirection

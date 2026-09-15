@@ -1,0 +1,40 @@
+{
+    "snapshot": "3862e891cab768ffee3e0206a45f959aaacf08ce21a459406017feecec465a7b.motusnapshot",
+    "unityVersion": "6000.5.6f1",
+    "snapshotLoadMilliseconds": 9667.9827,
+    "avoidedPersistentDetailPayloadBytes": 2353712928,
+    "lods": [
+        {
+            "lod": 0,
+            "regions": 4096,
+            "nonEmptyRegions": 674,
+            "meshUploads": 2,
+            "wholeIslandManagedPayloadBytes": 2178258688,
+            "largestRegionPayloadBytes": 14164032,
+            "triangles": 45030372,
+            "largestRegion": {
+                "x": 31,
+                "y": 25
+            },
+            "allRegionExportMilliseconds": 4340.1278,
+            "largestRegionUploadMilliseconds": 12.2555,
+            "longestMeshUploadMilliseconds": 10.231
+        },
+        {
+            "lod": 1,
+            "regions": 64,
+            "nonEmptyRegions": 32,
+            "meshUploads": 76,
+            "wholeIslandManagedPayloadBytes": 175454240,
+            "largestRegionPayloadBytes": 20006048,
+            "triangles": 3425676,
+            "largestRegion": {
+                "x": 4,
+                "y": 6
+            },
+            "allRegionExportMilliseconds": 436.3501,
+            "largestRegionUploadMilliseconds": 14.060199999999999,
+            "longestMeshUploadMilliseconds": 0.9490000000000001
+        }
+    ]
+}

@@ -13,6 +13,7 @@ namespace Motu.Editor
         {
             var output = Environment.GetEnvironmentVariable("MOTU_PLAYER_OUTPUT");
             if (string.IsNullOrWhiteSpace(output)) output = "Builds/Motu.app";
+            UnityEditor.OSXStandalone.UserBuildSettings.architecture = UnityEditor.Build.OSArchitecture.ARM64;
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(output)));
             var report = BuildPipeline.BuildPlayer(new BuildPlayerOptions
             {

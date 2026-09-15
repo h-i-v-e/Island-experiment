@@ -750,7 +750,29 @@ impl Mesh {
     }
 
     pub(crate) fn perimeter_mask(&self) -> Vec<bool> {
-        let mut edges = Vec::with_capacity(self.triangles.len());
+        let vertex_count = self.vertices.len();
+        let mut perimeter = vec![false; vertex_count];
+        if self.triangles.len() < 3 {
+            return perimeter;
+        }
+
+        // Group each undirected edge by its lower endpoint. Sorting the small
+        // groups avoids a global sort of all triangle edges on detailed meshes.
+        let mut offsets = vec![0_usize; vertex_count + 1];
+        for triangle in self.triangles.chunks_exact(3) {
+            for (a, b) in [
+                (triangle[0], triangle[1]),
+                (triangle[1], triangle[2]),
+                (triangle[2], triangle[0]),
+            ] {
+                offsets[a.min(b) as usize + 1] += 1;
+            }
+        }
+        for vertex in 0..vertex_count {
+            offsets[vertex + 1] += offsets[vertex];
+        }
+        let mut neighbours = vec![0_u32; offsets[vertex_count]];
+        let mut cursor = offsets[..vertex_count].to_vec();
         for triangle in self.triangles.chunks_exact(3) {
             for (a, b) in [
                 (triangle[0], triangle[1]),
@@ -758,23 +780,28 @@ impl Mesh {
                 (triangle[2], triangle[0]),
             ] {
                 let (a, b) = ordered_edge(a, b);
-                edges.push((u64::from(a) << 32) | u64::from(b));
+                neighbours[cursor[a as usize]] = b;
+                cursor[a as usize] += 1;
             }
         }
-        edges.sort_unstable();
-        let mut perimeter = vec![false; self.vertices.len()];
-        let mut start = 0;
-        while start < edges.len() {
-            let edge = edges[start];
-            let mut end = start + 1;
-            while end < edges.len() && edges[end] == edge {
-                end += 1;
+        for (vertex, range) in offsets.windows(2).enumerate() {
+            let edges = &mut neighbours[range[0]..range[1]];
+            edges.sort_unstable();
+            let mut start = 0;
+            while start < edges.len() {
+                let neighbour = edges[start];
+                let mut end = start + 1;
+                while end < edges.len() && edges[end] == neighbour {
+                    end += 1;
+                }
+                // Exactly one incident face defines a boundary, including holes.
+                // Do not treat odd non-manifold incidence as a boundary.
+                if end - start == 1 {
+                    perimeter[vertex] = true;
+                    perimeter[neighbour as usize] = true;
+                }
+                start = end;
             }
-            if end - start == 1 {
-                perimeter[(edge >> 32) as usize] = true;
-                perimeter[(edge & u64::from(u32::MAX)) as usize] = true;
-            }
-            start = end;
         }
         perimeter
     }
@@ -932,8 +959,8 @@ impl Mesh {
     }
 
     /// Clips a fixed grid and projects selected outer edges onto a coarser LOD.
-    /// Fine edge vertices remain in place in XY while their height and normal
-    /// are interpolated along the coarser mesh's clipped boundary profile.
+    /// Splits fine edges at every coarser boundary bend before projecting their
+    /// height and normal, so the complete edge follows the coarse surface.
     #[must_use]
     pub fn sliced_grid_clamped(
         &self,
@@ -1433,7 +1460,7 @@ fn corner_sample_order(a: GridCornerSample, b: GridCornerSample) -> std::cmp::Or
         .then_with(|| a.normal.z.total_cmp(&b.normal.z))
 }
 
-fn clamp_grid_boundaries(
+pub(crate) fn clamp_grid_boundaries(
     meshes: &mut [Mesh],
     coarse_patch: &Mesh,
     bounds: BoundingBox,
@@ -1442,9 +1469,18 @@ fn clamp_grid_boundaries(
     let profiles = [CLAMP_TOP, CLAMP_LEFT, CLAMP_BOTTOM, CLAMP_RIGHT].map(|side| {
         (clamp_sides & side != 0).then(|| boundary_profile(coarse_patch, bounds, side))
     });
-    let epsilon =
-        ((bounds.max.x - bounds.min.x).abs() + (bounds.max.y - bounds.min.y).abs()) * 1.0e-6;
+    // LOD0 clipping canonicalizes coordinates to 1e-7. Small streaming groups
+    // must still recognize those rounded points as lying on the cut plane.
+    let epsilon = boundary_epsilon(bounds);
     for mesh in meshes {
+        for (side, profile) in [CLAMP_TOP, CLAMP_LEFT, CLAMP_BOTTOM, CLAMP_RIGHT]
+            .into_iter()
+            .zip(&profiles)
+        {
+            if let Some(profile) = profile {
+                split_boundary_edges(mesh, profile, bounds, side, epsilon);
+            }
+        }
         for index in 0..mesh.vertices.len() {
             for (profile_index, profile) in profiles.iter().enumerate() {
                 let Some(profile) = profile.as_deref() else {
@@ -1456,17 +1492,100 @@ fn clamp_grid_boundaries(
                 }
                 let coordinate = boundary_coordinate(mesh.vertices[index], side);
                 if let Some(sample) = sample_boundary(profile, coordinate) {
+                    match side {
+                        CLAMP_TOP => mesh.vertices[index].y = bounds.max.y,
+                        CLAMP_LEFT => mesh.vertices[index].x = bounds.min.x,
+                        CLAMP_BOTTOM => mesh.vertices[index].y = bounds.min.y,
+                        CLAMP_RIGHT => mesh.vertices[index].x = bounds.max.x,
+                        _ => unreachable!(),
+                    }
                     mesh.vertices[index].z = sample.height;
-                    mesh.normals[index] = sample.normal;
+                    if let Some(normal) = mesh.normals.get_mut(index) {
+                        *normal = sample.normal;
+                    }
                 }
             }
         }
     }
 }
 
+fn boundary_epsilon(bounds: BoundingBox) -> f32 {
+    (((bounds.max.x - bounds.min.x).abs() + (bounds.max.y - bounds.min.y).abs()) * 1.0e-6)
+        .max(f32::EPSILON)
+}
+
+/// Retriangulate only faces incident to the requested outer edge. Each new
+/// boundary segment retains the original opposite vertex and winding.
+fn split_boundary_edges(
+    mesh: &mut Mesh,
+    profile: &[BoundarySample],
+    bounds: BoundingBox,
+    side: u8,
+    epsilon: f32,
+) {
+    if profile.is_empty()
+        || !mesh
+            .vertices
+            .iter()
+            .any(|&vertex| vertex_is_on_side(vertex, bounds, side, epsilon))
+    {
+        return;
+    }
+    let triangles = std::mem::take(&mut mesh.triangles);
+    mesh.triangles.reserve(triangles.len());
+    for triangle in triangles.chunks_exact(3) {
+        let edge = (0..3).find(|&edge| {
+            [triangle[edge], triangle[(edge + 1) % 3]]
+                .into_iter()
+                .all(|index| {
+                    vertex_is_on_side(mesh.vertices[index as usize], bounds, side, epsilon)
+                })
+        });
+        let Some(edge) = edge else {
+            mesh.triangles.extend_from_slice(triangle);
+            continue;
+        };
+        let from = triangle[edge];
+        let to = triangle[(edge + 1) % 3];
+        let opposite = triangle[(edge + 2) % 3];
+        let a = mesh.vertices[from as usize];
+        let b = mesh.vertices[to as usize];
+        let start = boundary_coordinate(a, side);
+        let end = boundary_coordinate(b, side);
+        let lower = profile.partition_point(|sample| sample.coordinate <= start.min(end) + epsilon);
+        let upper = profile.partition_point(|sample| sample.coordinate < start.max(end) - epsilon);
+        let mut previous = from;
+        for offset in 0..upper.saturating_sub(lower) {
+            let sample = profile[if start < end {
+                lower + offset
+            } else {
+                upper - 1 - offset
+            }];
+            let interpolation = (sample.coordinate - start) / (end - start);
+            let mut position = a.lerp(b, interpolation);
+            if side == CLAMP_TOP || side == CLAMP_BOTTOM {
+                position.x = sample.coordinate;
+            } else {
+                position.y = sample.coordinate;
+            }
+            let index = mesh.vertices.len() as u32;
+            mesh.vertices.push(position);
+            if !mesh.normals.is_empty() {
+                mesh.normals.push(sample.normal);
+            }
+            if !mesh.uv.is_empty() {
+                mesh.uv
+                    .push(mesh.uv[from as usize].lerp(mesh.uv[to as usize], interpolation));
+            }
+            mesh.triangles.extend([previous, index, opposite]);
+            previous = index;
+        }
+        mesh.triangles.extend([previous, to, opposite]);
+    }
+}
+
 fn boundary_profile(mesh: &Mesh, bounds: BoundingBox, side: u8) -> Vec<BoundarySample> {
-    let epsilon =
-        ((bounds.max.x - bounds.min.x).abs() + (bounds.max.y - bounds.min.y).abs()) * 1.0e-6;
+    let epsilon = boundary_epsilon(bounds);
     let mut samples: Vec<BoundarySample> = mesh
         .vertices
         .iter()
@@ -2524,6 +2643,67 @@ mod tests {
                 && vertex.y < 1.0
                 && (vertex.z - vertex.x - vertex.y - 1.0).abs() < 1.0e-5
         }));
+    }
+
+    #[test]
+    fn perimeter_matches_edge_incidence_for_degenerate_and_non_manifold_faces() {
+        // Every three-face combination over three vertices, plus an isolated
+        // vertex: includes reversed/duplicate faces, self-edges and >2 uses.
+        for encoded in 0..3_usize.pow(9) {
+            let mut remaining = encoded;
+            let triangles = (0..9)
+                .map(|_| {
+                    let vertex = (remaining % 3) as u32;
+                    remaining /= 3;
+                    vertex
+                })
+                .collect();
+            let mesh = Mesh {
+                vertices: vec![Vec3::ZERO; 4],
+                triangles,
+                ..Mesh::default()
+            };
+            assert_eq!(mesh.perimeter_mask(), reference_perimeter(&mesh));
+        }
+    }
+
+    #[test]
+    fn perimeter_preserves_holes_disconnected_parts_and_empty_meshes() {
+        let mesh = Mesh {
+            vertices: vec![Vec3::ZERO; 12],
+            // Ring around a four-vertex hole, a disconnected triangle, then an
+            // isolated vertex. Positions are irrelevant to edge incidence.
+            triangles: vec![
+                0, 1, 5, 0, 5, 4, 1, 2, 6, 1, 6, 5, 2, 3, 7, 2, 7, 6, 3, 0, 4, 3, 4, 7, 8, 9, 10,
+            ],
+            ..Mesh::default()
+        };
+        let expected: Vec<bool> = (0..12).map(|vertex| vertex < 11).collect();
+        assert_eq!(mesh.perimeter_mask(), expected);
+        assert_eq!(mesh.perimeter_mask(), reference_perimeter(&mesh));
+        assert!(Mesh::default().perimeter_mask().is_empty());
+        let isolated = Mesh {
+            vertices: vec![Vec3::ZERO; 5],
+            ..Mesh::default()
+        };
+        assert_eq!(isolated.perimeter_mask(), vec![false; 5]);
+    }
+
+    fn reference_perimeter(mesh: &Mesh) -> Vec<bool> {
+        let mut incidence = std::collections::BTreeMap::new();
+        for face in mesh.triangles.chunks_exact(3) {
+            for (a, b) in [(face[0], face[1]), (face[1], face[2]), (face[2], face[0])] {
+                *incidence.entry((a.min(b), a.max(b))).or_insert(0) += 1;
+            }
+        }
+        let mut perimeter = vec![false; mesh.vertices.len()];
+        for ((a, b), count) in incidence {
+            if count == 1 {
+                perimeter[a as usize] = true;
+                perimeter[b as usize] = true;
+            }
+        }
+        perimeter
     }
 
     #[test]

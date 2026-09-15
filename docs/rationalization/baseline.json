@@ -1,0 +1,175 @@
+{
+  "head": "2add9729525562e4aea1e09256dd676573e540c5",
+  "working_tree_files": [
+    {
+      "path": "CODEBASE_RATIONALIZATION_AND_UNITY_PACKAGE_PLAN.md",
+      "bytes": 37374,
+      "sha256": "31930952838666509e2005e6f2ef4a00ae43b7529fc2f6c4f66fbd8c2cf48b06"
+    },
+    {
+      "path": "README.md",
+      "bytes": 3252,
+      "sha256": "e30a7868b442e6721ed47c14f3f49cd482b0e38458debdb2e35da9c945cd9340"
+    },
+    {
+      "path": "island-rs/src/mesh.rs",
+      "bytes": 98542,
+      "sha256": "33559f8b49632b5dade031cd4803b97c00149103904c6cd5269ee46258bb09f8"
+    },
+    {
+      "path": "island-rs/src/mesh_clipper.rs",
+      "bytes": 23913,
+      "sha256": "98ce52b1f143ce1d4782a99396a17b4a1c111164b1f44bd9e8939f227b282093"
+    },
+    {
+      "path": "island-rs/tests/seam_diagnostic.rs",
+      "bytes": 11811,
+      "sha256": "649e37c59ca102e9b105ee01f1cc6f0a1d89b1bc68f2a9a684cfd7b918ac092a"
+    },
+    {
+      "path": "island-unity/Assets/Editor/IslandNavigationBenchmark.cs",
+      "bytes": 10474,
+      "sha256": "d183fe35ea3024b851a6d136b098d77d5c0a1d2d689933019efaf7ca9b3e7f2a"
+    },
+    {
+      "path": "island-unity/Assets/Editor/IslandNavigationBenchmark.cs.meta",
+      "bytes": 60,
+      "sha256": "b60849c13cd299b030d825dfb43d912d2673f08a412961af2358baea2702bb98"
+    },
+    {
+      "path": "island-unity/Assets/Plugins/macOS/libmotu.dylib",
+      "bytes": 2426016,
+      "sha256": "378669830fcc7db28216382314e6a6f9d0f31a830591d18435d21de112a4703d"
+    },
+    {
+      "path": "island-unity/Assets/Scenes/OpenSeaWorld.unity",
+      "bytes": 35498,
+      "sha256": "4fddc4902134c85dd932601de0a267490839c77be1282aa22c6ded4b0a29ab53"
+    },
+    {
+      "path": "island-unity/Assets/Scripts/Interop/IslandMeshInterop.cs",
+      "bytes": 11573,
+      "sha256": "2271960b81ae118a5b20d39f09fc77bbb7ee163521f0c02dc46f8acf46a40e01"
+    },
+    {
+      "path": "island-unity/Assets/Scripts/Islands/CoherentIslandFactory.cs",
+      "bytes": 7449,
+      "sha256": "bd30fb8424c7f9b1199e0de4fab80413c61e192a7486e2000ef118ca29c5d363"
+    },
+    {
+      "path": "island-unity/Assets/Scripts/Islands/IslandGenerationProfile.cs",
+      "bytes": 2074,
+      "sha256": "a614122d861c85a7865416b8045ab70ebd3a64a295570e5c4b1a1dad47df0d59"
+    },
+    {
+      "path": "island-unity/Assets/Scripts/Islands/IslandGenerationRequest.cs",
+      "bytes": 6922,
+      "sha256": "8fc927a8ec92999deae438c6efd800a1e8b7145b71cc584295c7e22e1b51967a"
+    },
+    {
+      "path": "island-unity/Assets/Scripts/Islands/IslandGenerationRequestFactoryBase.cs",
+      "bytes": 7301,
+      "sha256": "c966abda0a486abbee3460a4466002a002cbaa15eecf50bf63000f140ccc6102"
+    },
+    {
+      "path": "island-unity/Assets/Scripts/Islands/IslandGenerator.cs",
+      "bytes": 18536,
+      "sha256": "aa6b4acaecde2e868d38d2bc2c622ff1e33fb3eba87ccc2451648ffa1c181e2e"
+    },
+    {
+      "path": "island-unity/Assets/Scripts/Islands/IslandPreparationPipeline.cs",
+      "bytes": 8675,
+      "sha256": "e8979ba7f68edb9a6c09640a09931258524fda385dd4b4bf40b4f55c79e5c344"
+    },
+    {
+      "path": "island-unity/Assets/Scripts/Islands/IslandPreparedData.cs",
+      "bytes": 19562,
+      "sha256": "bf80c0d7529a25718f667791b4424275610f6c53d62e5127d00a38bc521bb8d6"
+    },
+    {
+      "path": "island-unity/Assets/Scripts/Islands/IslandRuntime.cs",
+      "bytes": 10160,
+      "sha256": "38a7cc0b1f3ea9e087e8a44f0e902e28486c476e40bf95cc503b38e2848c0132"
+    },
+    {
+      "path": "island-unity/Assets/Scripts/Islands/IslandRuntimeInstaller.cs",
+      "bytes": 5922,
+      "sha256": "73c2c6120884100a61b3f87db12bf39cda7f0234cf4fcb0ea2a15bc274a6dd14"
+    },
+    {
+      "path": "island-unity/Assets/Scripts/Navigation.meta",
+      "bytes": 116,
+      "sha256": "a39d50c0491cbbad002d465548dd4ac61c3a67ac227c68007546e03160bd4ab0"
+    },
+    {
+      "path": "island-unity/Assets/Scripts/Navigation/IslandNavigation.cs",
+      "bytes": 11140,
+      "sha256": "e7088b1a9a6f110570e2391135e938243be3ab8e290f23711e25593881a31d31"
+    },
+    {
+      "path": "island-unity/Assets/Scripts/Navigation/IslandNavigation.cs.meta",
+      "bytes": 60,
+      "sha256": "b8f4925bebcb52423c9ffb1337aa7654df0379aaf4fc8c2b31c8951e1064718f"
+    },
+    {
+      "path": "island-unity/Assets/Scripts/Navigation/IslandNavigationSources.cs",
+      "bytes": 6228,
+      "sha256": "96428fe54c4eb8b72e9bcdd52da5e3278f12b0ababf93323284dcc1bad363569"
+    },
+    {
+      "path": "island-unity/Assets/Scripts/Navigation/IslandNavigationSources.cs.meta",
+      "bytes": 60,
+      "sha256": "d36add7c62b9cc7b5baa13dea13fea94f478a9dd81cadfef0372461482280cf0"
+    },
+    {
+      "path": "island-unity/Assets/Scripts/Settings/IslandNavigationSettings.cs",
+      "bytes": 3375,
+      "sha256": "20bcc6e6c39d78506f8849d508ddcb7fb40e6115e295343890e10ccfea0d5b8d"
+    },
+    {
+      "path": "island-unity/Assets/Scripts/Settings/IslandNavigationSettings.cs.meta",
+      "bytes": 60,
+      "sha256": "7ae675ce24463eac2087a460a8e7c46edc8800b6f8dca24129df3b42f1f57763"
+    },
+    {
+      "path": "island-unity/Assets/Tests/Editor/IslandNavigationTests.cs",
+      "bytes": 14762,
+      "sha256": "2bb6c70b8fbd71b93ec9c89f99621ce5890fa46315bb1e51188ce6666177e9be"
+    },
+    {
+      "path": "island-unity/Assets/Tests/Editor/IslandNavigationTests.cs.meta",
+      "bytes": 60,
+      "sha256": "a705023227098ec0846b14a36e8ac2bc7259c823636615ea7ea160a0281b67f0"
+    },
+    {
+      "path": "island-unity/Packages/manifest.json",
+      "bytes": 508,
+      "sha256": "a5f9b2c02f35ed3d03ca5215b821c322485b2dbcebc58ccb2d95f9f9872d8c4f"
+    },
+    {
+      "path": "island-unity/Packages/packages-lock.json",
+      "bytes": 2167,
+      "sha256": "fc4e8e17b7dc9053fa5ceada35bbfa05bd41fb380620ee0346462caf8c17efd6"
+    },
+    {
+      "path": "island-unity/validation/lod-seams-2026-09-14/README.md",
+      "bytes": 2614,
+      "sha256": "84b1f099ca57bad1d9628522a92e637761530b997275b9c794da28c9911d0376"
+    },
+    {
+      "path": "island-unity/validation/navigation-2026-09-15/README.md",
+      "bytes": 6162,
+      "sha256": "f3b88c704f9c78c229885c31862cf926b7a05e61171e9fc73f29d553b030a99a"
+    },
+    {
+      "path": "island-unity/validation/navigation-2026-09-15/benchmark.json",
+      "bytes": 1231,
+      "sha256": "20e0032dfb2b4efb1c90637b1d4070580e387c58f6e6b4195c8443e2aa7418cf"
+    },
+    {
+      "path": "island-unity/validation/navigation-2026-09-15/unity-tests.xml",
+      "bytes": 27354,
+      "sha256": "23b5b5d22502a6476c2cc33d54c84dcdd2547ae618a2cb5f5b4b2012b20ede2b"
+    }
+  ]
+}

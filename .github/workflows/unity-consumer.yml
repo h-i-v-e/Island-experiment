@@ -1,0 +1,19 @@
+name: Unity consumer player
+# A licensed, graphics-capable runner must be provisioned explicitly.
+# Manual only: do not execute untrusted PR code on a persistent self-hosted runner.
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  consumer:
+    runs-on: [self-hosted, macOS, ARM64, motu-unity]
+    timeout-minutes: 45
+    strategy:
+      matrix:
+        il2cpp: ['0', '1']
+      max-parallel: 1
+    steps:
+      - uses: actions/checkout@v4
+      - run: scripts/validate-unity-package.sh
+        env:
+          MOTU_IL2CPP: ${{ matrix.il2cpp }}

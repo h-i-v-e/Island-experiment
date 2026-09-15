@@ -1,0 +1,655 @@
+{
+  "captured_utc": "2026-09-15T01:51:23.532433+00:00",
+  "host": {
+    "machine": "Apple M4 Pro, 24 GiB",
+    "os": "macOS-26.6.2-arm64-arm-64bit-Mach-O"
+  },
+  "build_command": "cargo build --manifest-path island-rs/Cargo.toml --locked --no-default-features --features profiling --profile profiling --bin generation-bench",
+  "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)\nbinary: rustc\ncommit-hash: 2d8144b7880597b6e6d3dfd63a9a9efae3f533d3\ncommit-date: 2026-07-07\nhost: aarch64-apple-darwin\nrelease: 1.97.0\nLLVM version: 22.1.6",
+  "starting_head": "2add9729525562e4aea1e09256dd676573e540c5",
+  "working_tree_note": "Uncommitted rationalization and user changes; source hashes identify the measured tree.",
+  "source_sha256": {
+    "island-rs/Cargo.lock": "84168fe0c51ba397df70c92f46ffedd62881db9868ba5e924b79380b896dacbd",
+    "island-rs/Cargo.toml": "ad7e7c7ccf9318ad7240d97b09ad10460cd4c645938bf60c17eab8b3d9202b36",
+    "island-rs/build.rs": "35cbca0fcb54c39cccd24de500e6fcae9b8cfbd530f0509a7e139638f550414e",
+    "island-rs/src/bin/cave_probe.rs": "6f77a5e67deff876e0589825277e8f4f4d5e5d828712ebbfaacdf600e204b10d",
+    "island-rs/src/bin/generation_bench.rs": "30b58d1f3a8ab4ade06bc145a621ec4dc2c61d7d1515be9d5f85d34847b6f7a9",
+    "island-rs/src/bin/texture_baker.rs": "01fa0bb2b4440b245f9993d6d1865ebe21c9647367098dedee9a36c355247447",
+    "island-rs/src/caves/clearance.rs": "7a3466205059c1a369396621569f6f4044b64a03a961fbd8706512ba793cfdb3",
+    "island-rs/src/caves/field.rs": "9e35e5c9c2d5df7337b9997477d25f09f2a21db1d1880de97a7dc8e7c1f73597",
+    "island-rs/src/caves/network.rs": "5d6dbdb89d496ca8a0785f40837a344eb2e12e7c623bd095b9f24e92ee86ab4d",
+    "island-rs/src/caves/options.rs": "761bac9f8ba6399178f4cbe5677716593b4192b380fe2f11fbcf103dd877e07c",
+    "island-rs/src/caves/orientation.rs": "19b8384879504c1142c4be54a89992da06090fcf457cad6a123b4765403696b0",
+    "island-rs/src/caves/passage.rs": "55cde44af8fb91f8d1e1ffe76d76d47f30c1cac0cef7546c3345fd9c8a7ca621",
+    "island-rs/src/caves/placement.rs": "e4b24694072a09e727ee35e2bd7bbd5328c0b814a467ca7e640088a9a4af732c",
+    "island-rs/src/caves/portal.rs": "344ffed76e01da4a29b2f5451f796e735dd77e34fdc04e2153e90fa811f0d463",
+    "island-rs/src/caves/smoothing.rs": "039524a3d2f18d54ed74ba278a3818b8122c397f090cf26e2be5d697f4213d22",
+    "island-rs/src/caves/stitch.rs": "614084e1e139c807cec41574afd1c1b1d528225a80dd5c1071d6ee89745673b6",
+    "island-rs/src/caves/stones.rs": "8049de9a41c03f8e1617c23595d7b1d41ae670b715d2d43201d5666ddfa31af3",
+    "island-rs/src/caves/surface.rs": "6fe1c5e6569956d29865a07101df440901eeedbf619efc7195a5dce4369ab9d7",
+    "island-rs/src/caves/tests.rs": "9186b3d528ff120ad08f90af85461e7806eb76bab7cda6437aae1836b153de6b",
+    "island-rs/src/caves/volume.rs": "f6532c8c82671b1312983ce53bdc33d3fea620625df312117296f486fe750811",
+    "island-rs/src/caves/wandering.rs": "c6bb3ad7c346ec3918fac4f09a8de9c3c99cf73a8532691ef9dcc2dd85f6e5d0",
+    "island-rs/src/caves.rs": "d3cad3b2793227eada5a7438dafebbef5daa0490f259264f1bf3148ecd96059d",
+    "island-rs/src/clouds.rs": "279fc4038cd0befe9a284a532620f2cfe40a4b556d89972a5c7dd88e7abc678b",
+    "island-rs/src/clustered_foliage.rs": "4b53ee4f84ebb3439b3d4abfc83184a52b6e374dbc5f544512672c4faa93259d",
+    "island-rs/src/ferns.rs": "74523472a79b4d056e7941e8f8d9b04dc14f6a3d2f70f42b578f87b0376f90a6",
+    "island-rs/src/ffi/abi.rs": "00a2f27bf53e3d7a50fb3bb689c2334b692138da72c1cc9f12ef98b922c9441f",
+    "island-rs/src/ffi/caves.rs": "08a7987f39d0118c7d8e841e1e01aeb3678254a30d3ecbe1239e1d70a2710e53",
+    "island-rs/src/ffi.rs": "726b9d3c66a1a593a9d092da8d8d793881f92adcba99017fa32dbeaa47de4943",
+    "island-rs/src/forest/logs.rs": "007fa7a89419b447e7af700de26a62134e25aeeecd08a2d35bcce41b3cb54de8",
+    "island-rs/src/forest.rs": "9c4eed1e60a4b972f093ddd110fb0d66c23817c5f364016fc9192e64db547bb3",
+    "island-rs/src/geology.rs": "bf96e1d27907e8fbb7652bbb910276478dec2f4c175df522ef09e9d8c29a55a3",
+    "island-rs/src/lib.rs": "ee9759bb580a61f9250d988596a8f50a01bb9048772f6af4534215127e98fb28",
+    "island-rs/src/main.rs": "5680e7d9475ae3dbb642c796a0db8671e330062b21d03be8ee1c682c3e9fd932",
+    "island-rs/src/math.rs": "5f5b5b0e87287bb3198eac4f4039ed430e04055cfdafc2a8819cc010f6a01aff",
+    "island-rs/src/mesh.rs": "33559f8b49632b5dade031cd4803b97c00149103904c6cd5269ee46258bb09f8",
+    "island-rs/src/mesh_clipper.rs": "98ce52b1f143ce1d4782a99396a17b4a1c111164b1f44bd9e8939f227b282093",
+    "island-rs/src/noise.rs": "9bc5b22acfec0c5c6db5c83d1e7b952b848c21a9abe21cbab16e4fd66e0e68ab",
+    "island-rs/src/png.rs": "27e66c90abd5bc3efb584cb06edd565cd6c782d20138b52737f7a671320cafcb",
+    "island-rs/src/procedural_textures/albedo.rs": "4569158761b60d253f2f126518e7379fd424fec7bc77c8c1807365f55b200b8e",
+    "island-rs/src/procedural_textures/cellular.rs": "0de092501020b2fbb6c7ec177e2052da40a33d2666488f19887de21f9620c517",
+    "island-rs/src/procedural_textures/cracked_stone.rs": "191113ea05befe25351114c160894175038b48db3f3a7959c0bdacfb6925735f",
+    "island-rs/src/procedural_textures/editor_protocol.rs": "ca94c59d7aa128f27751037e08ba0933ea95b1d0e2e073c275bfe62519165705",
+    "island-rs/src/procedural_textures/encoding.rs": "5e73861121d2c8d2a860d5dfd20ee708d6bae061a8aaa1c9269de45409e149ba",
+    "island-rs/src/procedural_textures/field_program.rs": "6f71ce30ccaec7e0d03c4da7a23d63db24673b4171984a74ff350859a66b02bc",
+    "island-rs/src/procedural_textures/image.rs": "5131d49411fe00d00e9570f6df536309e4b9934f37badf2be53ac7e8ee51db64",
+    "island-rs/src/procedural_textures/layer_stack.rs": "a90443a4d44d6eb0aa043b89b281071d0ca0209356f6a2bad0546a71e7e0e1e3",
+    "island-rs/src/procedural_textures/noise.rs": "2de7f9e31c8e28ad56f4ce614c0d4b3d98b0a3fb4068721a7b7832420b5c6792",
+    "island-rs/src/procedural_textures/normal.rs": "35e85372e6b54f80633be261bdf07206ff71f905cf2bbdbcfd8fb85db8086873",
+    "island-rs/src/procedural_textures/occlusion.rs": "3d27f3eaa1d9c28b25148b91f7cf631914f903b4afb1efeca4be6f8b8c9be6c2",
+    "island-rs/src/procedural_textures/packing.rs": "049e98c7970665edca0926744d463662a584741aa660890312e9a601bb32081f",
+    "island-rs/src/procedural_textures/parameters.rs": "21b64fcfcee8d736fa6c33a06b35d12f9bd49bb51eb6f1bb3205da43fa50b97c",
+    "island-rs/src/procedural_textures/periodic.rs": "59a2909513ec296bc39616e5394846e4e81d93cf0c20d4b7282d48334fee822e",
+    "island-rs/src/procedural_textures/preview.rs": "0714fcd5a0567b43edd8e19847926fa95879651555cbc9a011308ebdaa7ff54c",
+    "island-rs/src/procedural_textures/recipe.rs": "533a1a4715caa5384fca0480fbf7ba66874d22e853e589dd1e6bd842976358fa",
+    "island-rs/src/procedural_textures/rounded_stones.rs": "3b093d77994f0b204fff97a0a97097c5a9cb91856293d811ecd89b7da85619fc",
+    "island-rs/src/procedural_textures/runtime_materials.rs": "e6b82678303e49fdd656078b50cd1494395449acc72576ddbc9cf2d4f7be6386",
+    "island-rs/src/procedural_textures/validation.rs": "307c3cab742028252a6ab27ba0bdf7bdfcb26ec9d2fba4d560657ed834021aff",
+    "island-rs/src/procedural_textures.rs": "fe6a7aebe155866eddc577e5a03db3e0dc73f81e0613717b57d8f5301f13a858",
+    "island-rs/src/profiling.rs": "712c67bed802fd04e05d49917bf8045b9f8f29d55366286a04bbe8346da081f2",
+    "island-rs/src/raster.rs": "23279ea916187fd8f99a234e6eaf3b5dccb38b81169c8e5b7379647deb24c385",
+    "island-rs/src/reeds.rs": "a4f5fdb779fc3263f10e47af51d9c2c3a1e9c45e25fda16b828afa097cf0d38b",
+    "island-rs/src/rivers/carving.rs": "bf9a8f11519d027be6e4b3c583fd359c8c7a53eb093643cc9b217621c7f833b7",
+    "island-rs/src/rivers/channel.rs": "8f54f977274437c1626a1d29f71b3d17215ff06ace5dbcf6934a78be138cd740",
+    "island-rs/src/rivers/geometry.rs": "184aa1864e0a97f0fbb5afeb77989292a17a9217a98a897d95f3daf472122a2b",
+    "island-rs/src/rivers/rocks.rs": "fe0e537703f863d0953ed4855f9ab7eb328b3d094acdee99a31001f3b6518a9a",
+    "island-rs/src/rivers/tests.rs": "0d7a78dff77a2fabec0a813935bb0ce743317f7e43f5de3730239ce95ff4f449",
+    "island-rs/src/rivers/tracing.rs": "9c5b5697e79e8e71fa85da40b5cf61a7b6159e583e77f2b07c8ef2d3f8971e2c",
+    "island-rs/src/rivers/waterfalls.rs": "f055ad6cf8c3081f5e54f61f88ec7fbd892f31133e4df4cd7e9e2050cd28f479",
+    "island-rs/src/rivers.rs": "7366ae310bd189f2b0b87c0c4f33e756427246fbe7d91ceacae54057260c170f",
+    "island-rs/src/rng.rs": "d72ceec75b73232ad8b50ac0592f0d5f923784e04c055fb67fd13fd57b708b86",
+    "island-rs/src/sea_mask.rs": "1b11ad3bba3a26ccbba539a6c723e2882245e69c510b245a61188fe546ca1013",
+    "island-rs/src/sky.rs": "11d1aa1e3d201f68996860d829f61e182b14eadb4a01c93e2879586d53c9a874",
+    "island-rs/src/terrain/coastal_uplift.rs": "43ed019909a1444dd635dbe891f665f92e63d617327a61a2a3d8d46bd3cc36a3",
+    "island-rs/src/terrain/decorations.rs": "e26500aebb427265b8840030e9d9b769db3eb1695147c630d16821ee5a8db744",
+    "island-rs/src/terrain/erosion.rs": "e5fa6e0b10ea33927e9ba40d7fa0962ed46e86fef2cc37323734b20f6a5c30cb",
+    "island-rs/src/terrain/generation.rs": "4b192ec10e1acb4f32574e734d490dc9d5e244a4aaa42a960d9c989b205880af",
+    "island-rs/src/terrain/generation_method.rs": "572b5b5d78e0a49e2e646855e5261b81f920a9791b850e3b3b1cdc6a4465edf3",
+    "island-rs/src/terrain/gpu_generation/erosion.rs": "2d2368911b1ff2c34742e4752b4aac35278256bb184bc2582cd210910da401cb",
+    "island-rs/src/terrain/gpu_generation/rocks.rs": "f16158d12221cbc6f21ed711e2094807f2d5f528399da8ebf67432eb376ea336",
+    "island-rs/src/terrain/gpu_generation.rs": "4f6a9603c471404ba580e59cb9b11678bbe1a70e9545dfa17257d6ecd9041c8b",
+    "island-rs/src/terrain/lod.rs": "f8cd485aca892ad58f88e1db16bda6b917f631f239e67a353577b1bdef23b6cd",
+    "island-rs/src/terrain/material.rs": "3e8636abfb7e64ebeee4967066951297317db1cacaf9e3669b44a20c91e8d7f6",
+    "island-rs/src/terrain/sampling.rs": "ee5458091e7fed89701edc8a0ff98c872d3508544952e0410081fe4b0bd117dd",
+    "island-rs/src/terrain/snapshot.rs": "3c71a1c33cf137f887f9cb7ac02cd8c641bad83990f739c9a6d0a8dfa93c7f29",
+    "island-rs/src/terrain/surface_maps.rs": "0ab5fa944070e3af9cb3f91f61e3479b277a4c0d6164516ee42b2165220291a7",
+    "island-rs/src/terrain.rs": "128814241a70514e2b69f91e11e8092941a6ee6e5514572f818e7a6c0cc6ccc0",
+    "island-rs/src/trees.rs": "f9515128d4dff442a8b50fdd722f3ccd562a2c81c073b6e422678c22c4622fbc"
+  },
+  "binary_sha256": "4f49ade02dafe9b1b02ccc6a4f64e834feebdfd146a22382d740ef045a16b2cf",
+  "workers": 14,
+  "experimental_mesh_flow": false,
+  "load_note": "No concurrent native test/build or Unity validation jobs. Normal desktop apps remained open; WindowServer and browser activity were present. This is stage attribution, not a controlled before/after speed comparison.",
+  "scope": "Default CPU generation including rock/decorations placement, one 128-point warmup then three measured runs per process; excludes Unity, navigation, export/baking and GPU passes. Stage timers are inclusive and overlap.",
+  "fixtures": [
+    {
+      "seed": 17,
+      "workers": 14,
+      "runs": 3,
+      "milliseconds": [
+        12875.216,
+        12769.358,
+        12845.13
+      ],
+      "median_ms": 12845.13,
+      "vertices": 843254,
+      "triangles": 1686367,
+      "geometry_hash": "4843310862424640330",
+      "identical_hash_across_runs": true,
+      "ranked_stages": [
+        {
+          "stage": "hydraulic.stage",
+          "inclusive_ms_per_run": [
+            3945.619,
+            3926.25,
+            3936.65
+          ],
+          "median_inclusive_ms": 3936.65,
+          "calls_per_run": [
+            7,
+            7,
+            7
+          ]
+        },
+        {
+          "stage": "generation.lod0.detail",
+          "inclusive_ms_per_run": [
+            3595.729,
+            3553.303,
+            3566.472
+          ],
+          "median_inclusive_ms": 3566.472,
+          "calls_per_run": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "stage": "rivers.final",
+          "inclusive_ms_per_run": [
+            2499.36,
+            2417.589,
+            2444.669
+          ],
+          "median_inclusive_ms": 2444.669,
+          "calls_per_run": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "stage": "decorations.lazy",
+          "inclusive_ms_per_run": [
+            2184.982,
+            2215.454,
+            2248.702
+          ],
+          "median_inclusive_ms": 2215.454,
+          "calls_per_run": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "stage": "decorations.rock_settling",
+          "inclusive_ms_per_run": [
+            2182.319,
+            2212.867,
+            2246.099
+          ],
+          "median_inclusive_ms": 2212.867,
+          "calls_per_run": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "stage": "mesh.projected_foldover_repair",
+          "inclusive_ms_per_run": [
+            1132.397,
+            1127.787,
+            1172.466
+          ],
+          "median_inclusive_ms": 1132.397,
+          "calls_per_run": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "stage": "generation.lod0.broad",
+          "inclusive_ms_per_run": [
+            983.566,
+            989.086,
+            1006.567
+          ],
+          "median_inclusive_ms": 989.086,
+          "calls_per_run": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "stage": "lod.simplify",
+          "inclusive_ms_per_run": [
+            520.188,
+            517.014,
+            531.167
+          ],
+          "median_inclusive_ms": 520.188,
+          "calls_per_run": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "stage": "mesh.surface_edge_flips",
+          "inclusive_ms_per_run": [
+            201.177,
+            201.517,
+            205.127
+          ],
+          "median_inclusive_ms": 201.517,
+          "calls_per_run": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "stage": "sea_mask.distance_to_land",
+          "inclusive_ms_per_run": [
+            119.998,
+            95.115,
+            108.567
+          ],
+          "median_inclusive_ms": 108.567,
+          "calls_per_run": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "stage": "material.sharp_rock",
+          "inclusive_ms_per_run": [
+            104.66,
+            105.416,
+            104.503
+          ],
+          "median_inclusive_ms": 104.66,
+          "calls_per_run": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "stage": "generation.lod1.refine",
+          "inclusive_ms_per_run": [
+            33.75,
+            34.602,
+            33.653
+          ],
+          "median_inclusive_ms": 33.75,
+          "calls_per_run": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "stage": "generation.lod1.first",
+          "inclusive_ms_per_run": [
+            9.141,
+            8.803,
+            8.585
+          ],
+          "median_inclusive_ms": 8.803,
+          "calls_per_run": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "stage": "thermal.stage",
+          "inclusive_ms_per_run": [
+            5.055,
+            4.969,
+            7.916
+          ],
+          "median_inclusive_ms": 5.055,
+          "calls_per_run": [
+            5,
+            5,
+            5
+          ]
+        },
+        {
+          "stage": "generation.lod2",
+          "inclusive_ms_per_run": [
+            2.97,
+            3.091,
+            3.155
+          ],
+          "median_inclusive_ms": 3.091,
+          "calls_per_run": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "stage": "generation.base",
+          "inclusive_ms_per_run": [
+            1.803,
+            1.84,
+            2.264
+          ],
+          "median_inclusive_ms": 1.84,
+          "calls_per_run": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "stage": "caves.generate",
+          "inclusive_ms_per_run": [
+            0.001,
+            0.001,
+            0.001
+          ],
+          "median_inclusive_ms": 0.001,
+          "calls_per_run": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "stage": "terrain.index",
+          "inclusive_ms_per_run": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "median_inclusive_ms": 0.0,
+          "calls_per_run": [
+            1,
+            1,
+            1
+          ]
+        }
+      ],
+      "terrain_size_seed_points": 512,
+      "matches_previous_baseline_geometry": true,
+      "csv": "generation-profile-512.csv",
+      "stage_log": "generation-profile-512.log",
+      "maximum_process_rss_bytes": 3213279232
+    },
+    {
+      "seed": 17,
+      "workers": 14,
+      "runs": 3,
+      "milliseconds": [
+        35524.382,
+        35455.303,
+        35774.517
+      ],
+      "median_ms": 35524.382,
+      "vertices": 1703943,
+      "triangles": 3407705,
+      "geometry_hash": "2597653885197063265",
+      "identical_hash_across_runs": true,
+      "ranked_stages": [
+        {
+          "stage": "hydraulic.stage",
+          "inclusive_ms_per_run": [
+            16219.601999999999,
+            16229.336000000001,
+            16391.638
+          ],
+          "median_inclusive_ms": 16229.336000000001,
+          "calls_per_run": [
+            7,
+            7,
+            7
+          ]
+        },
+        {
+          "stage": "generation.lod0.detail",
+          "inclusive_ms_per_run": [
+            14852.081,
+            14955.376,
+            15053.133
+          ],
+          "median_inclusive_ms": 14955.376,
+          "calls_per_run": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "stage": "rivers.final",
+          "inclusive_ms_per_run": [
+            6937.122,
+            6958.129,
+            6898.909
+          ],
+          "median_inclusive_ms": 6937.122,
+          "calls_per_run": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "stage": "decorations.lazy",
+          "inclusive_ms_per_run": [
+            5778.642,
+            5710.583,
+            5866.29
+          ],
+          "median_inclusive_ms": 5778.642,
+          "calls_per_run": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "stage": "decorations.rock_settling",
+          "inclusive_ms_per_run": [
+            5772.025,
+            5704.039,
+            5858.88
+          ],
+          "median_inclusive_ms": 5772.025,
+          "calls_per_run": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "stage": "generation.lod0.broad",
+          "inclusive_ms_per_run": [
+            2685.375,
+            2682.839,
+            2702.896
+          ],
+          "median_inclusive_ms": 2685.375,
+          "calls_per_run": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "stage": "mesh.projected_foldover_repair",
+          "inclusive_ms_per_run": [
+            1622.752,
+            1606.811,
+            1620.008
+          ],
+          "median_inclusive_ms": 1620.008,
+          "calls_per_run": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "stage": "lod.simplify",
+          "inclusive_ms_per_run": [
+            1120.642,
+            1145.708,
+            1152.958
+          ],
+          "median_inclusive_ms": 1145.708,
+          "calls_per_run": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "stage": "mesh.surface_edge_flips",
+          "inclusive_ms_per_run": [
+            449.92,
+            449.865,
+            447.092
+          ],
+          "median_inclusive_ms": 449.865,
+          "calls_per_run": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "stage": "sea_mask.distance_to_land",
+          "inclusive_ms_per_run": [
+            334.769,
+            249.81,
+            259.201
+          ],
+          "median_inclusive_ms": 259.201,
+          "calls_per_run": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "stage": "material.sharp_rock",
+          "inclusive_ms_per_run": [
+            208.57,
+            222.699,
+            221.625
+          ],
+          "median_inclusive_ms": 221.625,
+          "calls_per_run": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "stage": "generation.lod1.refine",
+          "inclusive_ms_per_run": [
+            82.148,
+            81.911,
+            81.452
+          ],
+          "median_inclusive_ms": 81.911,
+          "calls_per_run": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "stage": "generation.lod1.first",
+          "inclusive_ms_per_run": [
+            17.385,
+            17.293,
+            17.07
+          ],
+          "median_inclusive_ms": 17.293,
+          "calls_per_run": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "stage": "thermal.stage",
+          "inclusive_ms_per_run": [
+            8.104000000000001,
+            9.143,
+            7.38
+          ],
+          "median_inclusive_ms": 8.104000000000001,
+          "calls_per_run": [
+            5,
+            5,
+            5
+          ]
+        },
+        {
+          "stage": "generation.lod2",
+          "inclusive_ms_per_run": [
+            5.38,
+            5.558,
+            5.332
+          ],
+          "median_inclusive_ms": 5.38,
+          "calls_per_run": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "stage": "generation.base",
+          "inclusive_ms_per_run": [
+            5.071,
+            4.716,
+            5.169
+          ],
+          "median_inclusive_ms": 5.071,
+          "calls_per_run": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "stage": "caves.generate",
+          "inclusive_ms_per_run": [
+            0.001,
+            0.001,
+            0.001
+          ],
+          "median_inclusive_ms": 0.001,
+          "calls_per_run": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "stage": "terrain.index",
+          "inclusive_ms_per_run": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "median_inclusive_ms": 0.0,
+          "calls_per_run": [
+            1,
+            1,
+            1
+          ]
+        }
+      ],
+      "terrain_size_seed_points": 1024,
+      "matches_previous_baseline_geometry": true,
+      "csv": "generation-profile-1024.csv",
+      "stage_log": "generation-profile-1024.log",
+      "maximum_process_rss_bytes": 3032760320
+    }
+  ]
+}

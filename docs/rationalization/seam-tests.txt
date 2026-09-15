@@ -1,0 +1,11 @@
+running 4 tests
+test clamped_edges_include_coarse_slope_changes_between_fine_vertices ... ok
+test render_grid_preserves_sibling_boundaries has been running for over 60 seconds
+test rendered_lod_transitions_follow_complete_coarse_edges_on_visible_land has been running for over 60 seconds
+test two_side_clamps_share_one_coarse_corner_sample has been running for over 60 seconds
+test two_side_clamps_share_one_coarse_corner_sample ... ok
+test rendered_lod_transitions_follow_complete_coarse_edges_on_visible_land ... ok
+test render_grid_preserves_sibling_boundaries ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 80.98s
+

@@ -1830,10 +1830,14 @@ mod tests {
 
     #[test]
     fn coherent_scale_combines_forest_coverage_with_the_next_finer_octave() {
-        let seed = 2018;
-        let options = ForestOptions::default();
-        let point_metres = Vec2::new(347.0, 829.0);
-        let coverage = 0.7_f32;
+        // Compare runtime arithmetic on both paths. Constant-folding the
+        // reference's noise frequency can round differently in release builds.
+        let (seed, options, point_metres, coverage) = std::hint::black_box((
+            2018,
+            ForestOptions::default(),
+            Vec2::new(347.0, 829.0),
+            0.7_f32,
+        ));
         let fine_frequency = noise::FRACTAL_LACUNARITY.powi(i32::from(options.noise_octaves));
         let fine = noise::value(
             (seed ^ FOREST_NOISE_DOMAIN).wrapping_add(u64::from(options.noise_octaves)),

@@ -1,0 +1,528 @@
+   Compiling island-rs v0.1.0 (/Users/jeromejohnson/Documents/GitHub/Island-experiment/island-rs)
+    Finished `release` profile [optimized] target(s) in 1m 00s
+     Running unittests src/lib.rs (island-rs/target/release/deps/motu-9fa741e7b2b77ccb)
+
+running 418 tests
+test caves::portal::tests::exterior_crest_normals_follow_the_curve_and_preserve_join_normals ... ok
+test caves::orientation::tests::collapsed_corner_does_not_corrupt_connected_surface_facing ... ok
+test caves::portal::tests::rounded_lip_matches_the_cliff_and_passage_tangents ... ok
+test caves::portal::tests::floor_and_wall_share_every_edge_of_the_rounded_corner ... ok
+test caves::smoothing::tests::rounds_crease_without_splitting_shared_vertices_or_moving_anchors ... ok
+test caves::stitch::tests::clipped_neighbours_share_exact_subedges_without_moving_distant_vertices ... ok
+test caves::tests::approach_accepts_configured_steps_but_not_a_sustained_steep_slope ... ok
+test caves::tests::approach_checks_entire_landing ... ok
+test caves::stones::tests::stones_follow_real_edges_preserve_routes_and_repeat_after_snapshot ... ok
+test caves::tests::cliff_with_a_rounded_toe_can_have_an_entrance ... ok
+test caves::tests::disabled_caves_are_empty_and_options_are_bounded ... ok
+test caves::tests::candidate_selection_is_deterministic_and_respects_hazards ... ok
+test caves::tests::flat_island_has_no_entrance ... ok
+test caves::tests::entrance_cut_preserves_roof_and_passage_is_only_underground ... ok
+test caves::tests::frequent_branches_end_sooner_with_each_generation ... ok
+test caves::tests::network_options_and_snapshot_topology_are_bounded ... ok
+test caves::tests::oblique_volume_has_closed_interior ... ok
+test caves::tests::side_passages_connect_to_walkable_larger_chambers ... ok
+test caves::tests::thin_roof_and_narrow_ridge_are_rejected ... ok
+test caves::tests::oblique_volume_repairs_odd_edge_uses_from_collapsed_slivers ... ok
+test caves::tests::volume_crossings_are_air_and_loops_leave_rock_pillars ... ok
+test caves::tests::wandering_is_deterministic_and_ends_by_probability ... ok
+test clouds::tests::invalid_resolutions_are_rejected ... ok
+test clouds::tests::periodic_field_matches_after_complete_wrap ... ok
+test clouds::tests::weather_map_has_expected_size_and_varying_channels ... ok
+test clouds::tests::weather_map_is_deterministic_and_seeded ... ok
+test clustered_foliage::tests::branch_tip_supports_do_not_protrude_below_the_underside ... ok
+test clustered_foliage::tests::branch_tips_are_the_only_projected_control_samples ... ok
+test clustered_foliage::tests::canopy_billows_well_beyond_and_above_outer_branch_tips ... ok
+test clustered_foliage::tests::chaikin_boundary_replaces_control_corners_with_a_rounded_loop ... ok
+test clustered_foliage::tests::coarse_canopy_scales_uniformly_with_its_tree ... ok
+test clustered_foliage::tests::control_height_smoothing_softens_spikes_without_moving_pinned_supports ... ok
+test clustered_foliage::tests::distant_support_groups_remain_disconnected ... ok
+test clustered_foliage::tests::empty_and_invalid_inputs_are_safe ... ok
+test clustered_foliage::tests::generation_is_deterministic ... ok
+test clustered_foliage::tests::lod0_is_subdivided_and_shares_its_smoothed_coarse_vertices ... ok
+test clustered_foliage::tests::lod0_refines_less_geometry_than_full_blob_tessellation ... ok
+test clustered_foliage::tests::meshes_have_finite_geometry_and_are_closed ... ok
+test clustered_foliage::tests::perimeter_smoothing_moves_only_the_boundary_band_and_pins_supports ... ok
+test clustered_foliage::tests::tall_tips_raise_broad_shoulders_instead_of_narrow_spikes ... ok
+test clustered_foliage::tests::touching_boundary_loops_remain_independent ... ok
+test ferns::tests::clump_builds_curved_segmented_fronds_with_sidecars ... ok
+test ferns::tests::defaults_are_valid ... ok
+test ferns::tests::invalid_lengths_are_rejected ... ok
+test ferns::tests::placement_is_deterministic_and_records_terrain_support ... ok
+test ffi::abi::tests::version_one_preserves_generation_and_forest_layout ... ok
+test ffi::caves::tests::generation_error_preserves_native_reason_and_is_thread_local ... ok
+test ffi::tests::boulder_export_null_arguments_are_safe ... ok
+test ffi::tests::cloud_weather_map_export_has_matching_ownership ... ok
+test ffi::tests::cloud_weather_map_rejects_invalid_inputs_and_null_outputs ... ok
+test ffi::tests::fern_grid_null_island_leaves_a_default_export ... ok
+test ffi::tests::ffi_allocations_have_matching_release_functions ... ignored, slow export API lifecycle test; run explicitly when the export API changes
+test ffi::tests::forest_grid_default_bounds_are_valid ... ok
+test ffi::tests::forest_grid_invalid_inputs_leave_a_default_export ... ok
+test ffi::tests::forest_grid_null_island_leaves_a_default_export ... ok
+test ffi::tests::forest_grid_null_output_is_safe ... ok
+test ffi::tests::forest_grid_rejects_non_finite_bounds_directly ... ok
+test caves::tests::wandering_volume_preserves_entrance_and_all_routes ... ok
+test ffi::tests::forest_trunk_collider_null_island_leaves_a_default_export ... ok
+test ffi::tests::generation_method_availability_matches_compiled_features ... ok
+test ffi::tests::invalid_forest_options_reject_island_creation ... ok
+test ffi::tests::invalid_generation_method_rejects_island_creation ... ok
+test ffi::tests::motu_forest_options_forward_settings ... ok
+test ffi::tests::motu_options_forward_initial_soil_depth ... ok
+test ffi::tests::motu_options_forward_terrain_noise_settings ... ok
+test ffi::tests::null_island_leaves_a_default_sea_mask_export ... ok
+test ffi::tests::procedural_tree_exports_independently_releasable_meshes ... ok
+test ffi::tests::reed_grid_null_island_leaves_a_default_export ... ok
+test ffi::tests::reed_options_forward_every_setting ... ok
+test ffi::tests::runtime_material_ffi_owns_all_buffers_until_one_release ... ok
+test ffi::tests::runtime_material_ffi_rejects_invalid_requests_without_a_handle ... ok
+test ffi::tests::sky_dome_export_uses_standard_mesh_ownership ... ok
+test ffi::tests::sky_dome_null_output_is_safe ... ok
+test ffi::tests::terrain_collider_heightmap_dimensions_share_tile_edges ... ok
+test forest::logs::tests::caps_are_separate_outward_faces_and_axes_follow_the_log_at_every_lod ... ok
+test forest::logs::tests::crossing_tile_boundaries_keeps_one_whole_log_and_matching_cap_attributes ... ok
+test forest::logs::tests::full_segments_clear_trunks_and_other_logs_even_when_centres_are_far_apart ... ok
+test forest::logs::tests::placement_is_repeatable_density_zero_disables_and_water_and_steep_ground_reject ... ok
+test forest::tests::actual_exclusion_zone_includes_scaled_clearance_boundary ... ok
+test forest::tests::actual_exclusion_zone_rejects_close_nonadjacent_candidates ... ok
+test forest::tests::assembly_transforms_and_rebases_each_tree_range_deterministically ... ok
+test forest::tests::candidate_scale_clearance_applies_even_when_the_existing_tree_is_smaller ... ok
+test forest::tests::canopy_patch_keeps_all_member_trees_in_one_foliage_input ... ok
+test forest::tests::canopy_patch_members_are_ordered_deterministically ... ok
+test forest::tests::canopy_patches_cover_singletons_and_combine_a_fine_streaming_cell ... ok
+test forest::tests::coherent_habit_patches_keep_local_variants_in_one_growth_family ... ok
+test forest::tests::coherent_scale_combines_forest_coverage_with_the_next_finer_octave ... ok
+test forest::tests::completeness_matches_every_well_separated_vertex_above_the_strict_noise_threshold ... ok
+test forest::tests::custom_forest_options_round_trip_through_current_save ... ok
+test forest::tests::foliage_wind_data_uses_the_nearest_tree_root_per_vertex ... ok
+test forest::tests::forest_floor_marks_the_selected_support_triangle ... ok
+test forest::tests::identity_append_preserves_non_axis_uvs ... ok
+test forest::tests::options_reject_non_finite_and_out_of_range_values ... ok
+test forest::tests::owner_grid_copies_whole_tree_and_maps_visual_lods ... ok
+test forest::tests::placement_boundaries_enforce_sea_snow_slope_river_and_soil_rules ... ok
+test forest::tests::placement_rejects_malformed_topology_before_sampling_triangle_fans ... ok
+test forest::tests::placement_uses_exact_masks_and_exclusion_precedence ... ok
+test forest::tests::reed_support_vertices_are_excluded_from_tree_placement ... ok
+test forest::tests::settled_stone_vertices_are_excluded_without_mutating_soil ... ok
+test forest::tests::shader_beach_candidates_are_rejected_at_the_final_anchor ... ok
+test forest::tests::shader_patch_noise_matches_the_unity_lattice_hash ... ok
+test forest::tests::soil_richness_multiplies_coherent_forest_coverage ... ok
+test forest::tests::threshold_remaps_retained_scales_without_changing_other_appearance ... ok
+test forest::tests::transformed_wood_rotates_its_encoded_bark_axis ... ok
+test forest::tests::tree_anchor_moves_at_most_halfway_toward_a_selected_fan_centroid ... ok
+test forest::tests::trunk_collider_uses_the_final_lod2_root_and_tip_rings ... ok
+test forest::tests::zero_soil_is_visible_to_forest_selection ... ok
+test geology::tests::default_settings_preserve_the_original_height_field ... ok
+test geology::tests::zero_strength_noise_produces_finite_uniform_hardness ... ok
+test mesh::tests::clamped_grid_outer_edges_follow_the_coarser_mesh ... ok
+test mesh::tests::compact_adjacency_is_sorted_unique_and_symmetric ... ok
+test mesh::tests::delaunay_covers_square_with_irregular_faces ... ok
+test mesh::tests::displacement_tessellation_leaves_an_inclined_plane_flat ... ok
+test mesh::tests::displacement_tessellation_refines_a_local_feature_only ... ok
+test mesh::tests::grid_slicing_populates_every_touched_cell_in_one_partition ... ok
+test mesh::tests::grid_slicing_preserves_non_positional_uv_at_grid_corners ... ok
+test mesh::tests::grid_slicing_produces_identical_sibling_boundaries ... ok
+test mesh::tests::height_clipping_compacts_deep_vertices_and_splits_crossing_faces ... ok
+test mesh::tests::height_clipping_does_not_reuse_an_almost_coplanar_vertex_below_the_plane ... ok
+test mesh::tests::height_plane_constraint_reuses_crossings_and_builds_contour_edges ... ok
+test mesh::tests::projected_collinear_triangle_interpolation_remains_finite ... ok
+test mesh::tests::projected_foldover_repair_replaces_an_invalid_diagonal ... ok
+test mesh::tests::projected_foldover_repair_retains_a_protected_diagonal ... ok
+test mesh::tests::sandbox_seed_converging_waterfalls_do_not_create_water_towers ... ignored, full-resolution runtime scene regression
+test mesh::tests::sandbox_seed_lod1_streaming_tile_is_finite ... ignored, full-resolution runtime scene regression
+test mesh::tests::selective_tessellation_stitches_unsplit_neighbours ... ok
+test mesh::tests::smoothing_moves_interior_but_preserves_perimeter ... ok
+test mesh::tests::surface_edge_flips_improve_a_poor_3d_diagonal ... ok
+test mesh::tests::surface_edge_flips_retain_protected_features ... ok
+test mesh::tests::tessellation_shares_edge_midpoints ... ok
+test mesh::tests::tessellation_stencils_reference_only_the_old_generation ... ok
+test mesh_clipper::tests::both_clippers_stitch_all_sides_and_corners_at_streaming_scale ... ok
+test mesh_clipper::tests::neighbouring_groups_with_different_clamps_share_the_same_edge ... ok
+test png::tests::known_crc ... ok
+test png::tests::zlib_has_valid_wrapper ... ok
+test procedural_textures::albedo::tests::albedo_is_deterministic_and_rgb ... ok
+test procedural_textures::albedo::tests::invalid_palette_is_rejected ... ok
+test procedural_textures::albedo::tests::lower_trench_is_darker_than_flat_plateau ... ok
+test procedural_textures::albedo::tests::srgb_encoding_has_expected_endpoints ... ok
+test procedural_textures::cellular::tests::cellular_sample_wraps_across_both_axes ... ok
+test procedural_textures::cellular::tests::convenience_metrics_share_the_same_field ... ok
+test procedural_textures::cellular::tests::metrics_are_finite_and_bounded ... ok
+test procedural_textures::cellular::tests::rounded_edges_are_periodic_and_pull_voronoi_corners_inward ... ok
+test procedural_textures::cracked_stone::tests::cracked_stone_is_deterministic ... ok
+test procedural_textures::cracked_stone::tests::invalid_crack_profile_is_rejected ... ok
+test procedural_textures::cracked_stone::tests::source_height_wraps_across_both_axes ... ok
+test procedural_textures::editor_protocol::tests::diagnostics_use_json_pointers ... ok
+test procedural_textures::editor_protocol::tests::property_metadata_borrows_exact_and_indexed_entries ... ok
+test procedural_textures::editor_protocol::tests::schema_metadata_has_required_entries ... ok
+test procedural_textures::encoding::tests::force_is_required_for_existing_generated_files ... ok
+test procedural_textures::encoding::tests::force_still_rejects_an_unrelated_sidecar ... ok
+test procedural_textures::encoding::tests::gray16_is_network_order ... ok
+test procedural_textures::encoding::tests::output_is_atomic_and_manifest_is_last ... ok
+test procedural_textures::encoding::tests::output_profile_parser_accepts_only_documented_names ... ok
+test procedural_textures::encoding::tests::packed_mask_matches_unity_contract ... ok
+test procedural_textures::encoding::tests::png_formats_have_expected_headers ... ok
+test procedural_textures::encoding::tests::staged_set_preflight_preserves_destination_when_a_file_is_missing ... ok
+test procedural_textures::field_program::tests::dimensions_reject_invalid_domains ... ok
+test procedural_textures::field_program::tests::hash_is_stable_and_coordinate_sensitive ... ok
+test procedural_textures::field_program::tests::layered_field_is_deterministic_and_finite ... ok
+test procedural_textures::field_program::tests::periodic_value_matches_at_lattice_period ... ok
+test procedural_textures::field_program::tests::wrapped_field_sampling_uses_opposite_edges ... ok
+test procedural_textures::image::tests::constructors_validate_dimensions_and_buffers ... ok
+test procedural_textures::image::tests::rows_and_coordinates_are_borrowed_without_cloning ... ok
+test procedural_textures::image::tests::texture_set_rejects_mismatched_map_extents ... ok
+test procedural_textures::layer_stack::tests::earlier_layer_mask_uses_the_remapped_scalar_domain ... ok
+test procedural_textures::layer_stack::tests::every_albedo_blend_has_the_documented_numerical_response ... ok
+test procedural_textures::layer_stack::tests::every_height_blend_has_the_documented_numerical_response ... ok
+test procedural_textures::layer_stack::tests::every_scalar_source_is_finite_and_deterministic ... ok
+test procedural_textures::layer_stack::tests::layer_evaluation_is_periodic_and_deterministic ... ok
+test procedural_textures::layer_stack::tests::layers_route_to_height_albedo_both_or_neither_independently ... ok
+test procedural_textures::layer_stack::tests::previous_height_mask_reads_the_incoming_physical_height_field ... ok
+test procedural_textures::layer_stack::tests::remap_supports_invert_contrast_bias_and_curve ... ok
+test procedural_textures::noise::tests::all_fractal_shapes_are_periodic ... ok
+test procedural_textures::noise::tests::domain_warp_is_periodic ... ok
+test procedural_textures::noise::tests::fractal_parameters_reject_unsafe_values ... ok
+test procedural_textures::normal::tests::direct_x_only_inverts_green_channel ... ok
+test procedural_textures::normal::tests::flat_field_encodes_upward_normal ... ok
+test procedural_textures::normal::tests::wrapped_central_difference_handles_periodic_ramp ... ok
+test procedural_textures::occlusion::tests::flat_height_is_fully_open ... ok
+test procedural_textures::occlusion::tests::trench_floor_is_darker_than_plateau ... ok
+test procedural_textures::occlusion::tests::unsafe_quality_is_rejected ... ok
+test procedural_textures::occlusion::tests::wrapped_occlusion_is_deterministic_at_edges ... ok
+test procedural_textures::packing::tests::invalid_range_is_rejected ... ok
+test procedural_textures::packing::tests::mask_rejects_mismatched_occlusion ... ok
+test procedural_textures::packing::tests::quantization_clamps_and_preserves_endpoints ... ok
+test procedural_textures::packing::tests::unity_mask_obeys_channel_contract ... ok
+test procedural_textures::parameters::tests::parameter_values_serialize_in_name_order ... ok
+test procedural_textures::parameters::tests::relative_tint_preserves_authored_default_exactly ... ok
+test procedural_textures::periodic::tests::hash_repeats_at_period_boundaries ... ok
+test procedural_textures::periodic::tests::splitmix_finalizer_is_stable ... ok
+test procedural_textures::periodic::tests::value_noise_repeats_on_both_axes ... ok
+test procedural_textures::periodic::tests::wraps_negative_coordinates ... ok
+test procedural_textures::preview::tests::all_layer_diagnostics_preserve_stable_ids_and_dimensions ... ok
+test procedural_textures::preview::tests::packed_mask_uses_final_height_bytes ... ok
+test procedural_textures::preview::tests::preview_matches_final_texture_set_and_builds_selected_maps ... ok
+test procedural_textures::preview::tests::recipe_retains_output_profile_without_engine_normal_state ... ok
+test procedural_textures::preview::tests::unknown_selected_layer_is_omitted_without_affecting_maps ... ok
+test procedural_textures::rounded_stones::tests::cell_profiles_are_resolution_independent_and_cover_every_cell ... ok
+test procedural_textures::rounded_stones::tests::changing_seed_changes_the_stochastic_layout ... ok
+test procedural_textures::rounded_stones::tests::invalid_anisotropy_is_rejected ... ok
+test procedural_textures::rounded_stones::tests::rounded_stones_are_deterministic_and_have_gaps ... ok
+test procedural_textures::rounded_stones::tests::rounded_stones_leave_a_gap_on_both_sides_of_cell_boundaries ... ok
+test procedural_textures::runtime_materials::tests::beach_uses_the_engine_sand_colour ... ok
+test ffi::tests::forest_grid_valid_lifecycle_on_a_small_island ... ok
+test procedural_textures::runtime_materials::tests::embedded_runtime_material_revision_is_stable_and_nonzero ... ok
+test procedural_textures::runtime_materials::tests::fallen_stones_keep_engine_dirt_and_stone_colours_separate ... ok
+test procedural_textures::runtime_materials::tests::forest_floor_keeps_engine_dirt_as_its_visible_soil ... ok
+test procedural_textures::runtime_materials::tests::invalid_engine_colour_is_rejected_before_baking ... ok
+test procedural_textures::runtime_materials::tests::complete_runtime_set_bakes_in_memory ... ok
+test procedural_textures::runtime_materials::tests::sand_colour_changes_the_runtime_bake_identity ... ok
+test procedural_textures::runtime_materials::tests::tree_bark_uses_the_embedded_plate_bark_recipe ... ok
+test procedural_textures::tests::caller_selects_normal_convention_without_changing_recipe_content ... ok
+test procedural_textures::tests::generation_is_deterministic_and_maps_share_dimensions ... ok
+test procedural_textures::validation::tests::cracked_stone_evaluator_limits_are_reported_by_validation ... ok
+test procedural_textures::validation::tests::duplicate_and_forward_layer_references_are_rejected ... ok
+test procedural_textures::validation::tests::previous_height_mask_requires_an_ordered_finite_range ... ok
+test procedural_textures::validation::tests::remap_curves_must_be_monotonic ... ok
+test procedural_textures::validation::tests::rounded_stone_evaluator_limits_are_reported_by_validation ... ok
+test procedural_textures::validation::tests::valid_recipe_passes ... ok
+test reeds::tests::card_base_corners_follow_the_local_ground_plane ... ok
+test reeds::tests::defaults_form_dense_patches_on_the_immediate_bank ... ok
+test reeds::tests::options_reject_non_finite_values ... ok
+test reeds::tests::original_coast_with_nonzero_sea_proximity_suppresses_coastal_reeds ... ok
+test reeds::tests::placement_is_deterministic_and_builds_parallel_card_attributes ... ok
+test reeds::tests::post_carve_coast_with_zero_sea_proximity_produces_reed_clumps ... ok
+test reeds::tests::root_pulls_horizontally_and_down_toward_a_connected_water_vertex ... ok
+test reeds::tests::terrain_without_river_or_sea_produces_no_clumps ... ok
+test rivers::geometry::coastline_tests::coastline_edges_form_closed_loops_independent_of_order ... ok
+test rivers::geometry::coastline_tests::coastline_edges_may_end_at_the_mesh_perimeter ... ok
+test rivers::geometry::coastline_tests::coastline_xy_smoothing_is_one_simultaneous_three_point_average ... ok
+test rivers::geometry::coastline_tests::river_bank_xy_smoothing_keeps_a_buffer_around_hydraulic_anchors ... ok
+test rivers::geometry::coastline_tests::river_bank_xy_smoothing_rounds_the_shared_terrain_and_water_outline ... ok
+test rivers::rocks::tests::density_field_varies_without_hard_empty_regions ... ok
+test rivers::rocks::tests::large_boulder_sphere_matches_the_deformed_embedded_mesh ... ok
+test rivers::rocks::tests::projected_area_ignores_height ... ok
+test rivers::rocks::tests::river_rock_mesh_is_deterministic_and_complete ... ok
+test rivers::rocks::tests::river_rocks_are_not_placed_below_sea_level ... ok
+test rivers::rocks::tests::river_rocks_reject_steep_vertex_and_face_normals ... ok
+test rivers::rocks::tests::rock_prototype_is_closed_at_expected_detail ... ok
+test rivers::rocks::tests::settled_rocks_are_appended_to_the_existing_mesh ... ok
+test rivers::rocks::tests::size_distribution_strongly_favours_small_stones ... ok
+test rivers::tests::all_channel_footprints_use_one_ring_regardless_of_flow ... ok
+test rivers::tests::catchment_accumulates_projected_land_area_in_square_metres ... ok
+test rivers::tests::channel_nodes_keep_their_individual_floor_targets ... ok
+test rivers::tests::channel_rings_are_shaped_without_changing_topology ... ok
+test rivers::tests::channel_targets_only_widen_and_deepen_downstream ... ok
+test rivers::tests::completed_waterfall_repairs_a_bank_dragged_toward_the_lower_terrace ... ok
+test rivers::tests::confluence_is_reconciled_after_independent_vertical_displacement ... ok
+test rivers::tests::confluence_lowering_crosses_and_clears_consumed_waterfalls ... ok
+test rivers::tests::confluence_lowering_propagates_through_a_join_chain ... ok
+test rivers::tests::corridor_rings_share_the_centre_floor_then_smooth_into_the_banks ... ok
+test rivers::tests::delta_builds_a_raised_valley_and_spreads_offshore ... ok
+test rivers::tests::disabled_waterfall_placement_preserves_the_continuous_profile ... ok
+test rivers::tests::effective_height_noise_can_select_a_gentler_edge_on_flat_but_not_steep_terrain ... ok
+test rivers::tests::equal_confluence_level_lowers_only_the_receiver_reach_that_rises_after_it ... ok
+test procedural_textures::runtime_materials::tests::rock_and_river_stones_do_not_add_an_authored_hue ... ok
+test rivers::tests::final_channel_integrity_lowers_the_core_and_keeps_banks_pinned ... ok
+test rivers::tests::final_clearance_keeps_flood_filled_ocean_vertices_below_sea ... ok
+test rivers::tests::final_downstream_cleanup_only_squishes_convex_spikes ... ok
+test rivers::tests::final_one_ring_footprint_bridges_an_early_confluence_gap ... ok
+test rivers::tests::final_profile_limits_bed_grade_without_creating_late_waterfalls ... ok
+test rivers::tests::final_refined_surface_relaxation_follows_a_continuous_cross_channel_profile ... ok
+test rivers::tests::final_relaxation_does_not_collapse_waterfall_support_to_lower_water ... ok
+test rivers::tests::final_river_mesh_hands_only_the_carved_mouth_to_the_sea ... ok
+test rivers::tests::final_shared_surface_lowering_pulls_the_receiver_bed_downhill ... ok
+test rivers::tests::final_sharp_point_repair_leaves_an_inclined_plane_unchanged ... ok
+test rivers::tests::final_sharp_point_repair_refines_and_rounds_an_isolated_spike ... ok
+test rivers::tests::final_waterfall_edges_switch_relationship_at_the_lip_and_foot_planes ... ok
+test rivers::tests::final_waterfall_face_refinement_is_unconditional_and_reprojects_the_face ... ok
+test rivers::tests::final_waterfall_smoothing_freely_relaxes_face_banks_and_outer_ring ... ok
+test rivers::tests::fitted_channel_depth_starts_the_mouth_before_the_ocean_mask ... ok
+test rivers::tests::higher_confluence_reach_is_lowered_back_to_the_nearest_waterfall ... ok
+test rivers::tests::intermediate_lod_keeps_the_original_drop_when_every_site_conflicts ... ok
+test rivers::tests::intermediate_pass_does_not_carve_the_submerged_river_mouth ... ok
+test rivers::tests::later_river_sources_are_rejected_near_an_accepted_river_path ... ok
+test rivers::tests::low_elevation_sources_require_more_catchment_instead_of_being_excluded ... ok
+test rivers::tests::low_river_banks_are_lifted_with_a_smooth_outer_falloff ... ok
+test rivers::tests::lower_joined_river_reaches_previous_waterfall_and_keeps_flow_downhill ... ok
+test rivers::tests::lower_sibling_tributary_sets_the_shared_confluence_level ... ok
+test rivers::tests::meander_noise_scale_is_directly_proportional_to_average_edge_length ... ok
+test rivers::tests::nearby_river_pushes_a_waterfall_drop_upstream ... ok
+test rivers::tests::ocean_mask_excludes_a_disconnected_subsea_basin ... ok
+test rivers::tests::outer_valley_hardness_preserves_resistant_banks_after_loose_cover ... ok
+test rivers::tests::plunge_pool_is_centred_on_the_pulled_down_waterfall_fan ... ok
+test rivers::tests::pre_carve_valley_connects_touching_river_centrelines_without_a_dam ... ok
+test rivers::tests::pre_carve_valley_gently_lowers_several_rings_around_the_course ... ok
+test rivers::tests::pre_carve_waterfall_shoulders_raise_low_banks_without_moving_the_channel ... ok
+test rivers::tests::reconciled_profile_pulls_terrain_and_water_below_the_stale_corridor ... ok
+test rivers::tests::relocation_preserves_landing_space_between_same_river_waterfalls ... ok
+test rivers::tests::removing_an_invalid_parent_also_removes_its_dependent_tributaries ... ok
+test rivers::tests::river_corridor_refinement_caps_large_faces_in_the_bank_apron ... ok
+test rivers::tests::exported_multi_waterfall_mesh_preserves_vertical_flow_distance ... ok
+test rivers::tests::river_mesh_extraction_refines_the_authoritative_terrain_topology ... ok
+test rivers::tests::river_mesh_extraction_repairs_an_isolated_sharp_bed_point ... ok
+test rivers::tests::river_mesh_is_hard_clipped_at_sea_level ... ok
+test rivers::tests::river_mesh_omits_triangles_made_only_from_its_outer_ring ... ok
+test rivers::tests::river_mouth_reuses_the_last_existing_waterfall_for_its_submerged_channel ... ok
+test rivers::tests::river_reach_is_bounded_by_the_next_lip_and_previous_waterfall_bottom ... ok
+test rivers::tests::river_reach_uses_node_order_when_a_bend_crosses_a_waterfall_plane ... ok
+test rivers::tests::river_reaches_sea_only_when_its_terminal_vertex_is_in_the_ocean_mask ... ok
+test rivers::tests::river_uv_u_is_shortest_mesh_distance_from_the_bank ... ok
+test rivers::tests::river_without_a_waterfall_is_carved_entirely_below_the_sea_plane ... ok
+test rivers::tests::rivers_join_when_their_mesh_rings_touch_before_their_centrelines ... ok
+test rivers::tests::routed_rivers_have_monotonic_surfaces_and_valid_joins ... ok
+test rivers::tests::self_contact_index_ignores_the_local_tail_but_detects_a_return ... ok
+test rivers::tests::side_bypass_pushes_a_waterfall_to_the_next_complete_cross_channel_cut ... ok
+test rivers::tests::source_cutoff_falls_smoothly_with_elevation ... ok
+test rivers::tests::source_cutoff_is_an_absolute_world_space_area ... ok
+test rivers::tests::source_cutoff_rises_smoothly_with_routing_grade ... ok
+test rivers::tests::source_grade_uses_the_routed_edge_and_handles_sinks ... ok
+test rivers::tests::sources_are_the_upstream_boundary_of_local_candidates ... ok
+test rivers::tests::submerged_river_carves_accumulate_only_lowered_covered_vertices ... ok
+test rivers::tests::submerged_river_floor_uses_channel_depth_below_sea_not_below_its_profile ... ok
+test rivers::tests::trace_discards_a_landlocked_path_when_no_ocean_route_exists ... ok
+test rivers::tests::tributary_budget_transfer_and_outlet_export_are_conservative ... ok
+test rivers::tests::tributary_hands_off_to_sea_when_it_joins_inside_a_submerged_receiver_mouth ... ok
+test rivers::tests::tributary_keeps_its_water_when_it_joins_before_the_receiver_mouth ... ok
+test rivers::tests::vertices_within_ten_centimetres_of_sea_level_move_away_from_it ... ok
+test rivers::tests::waterfall_face_is_flat_across_the_channel_and_smooth_along_flow ... ok
+test rivers::tests::waterfall_face_is_pinned_while_downstream_water_allows_terrain_to_pierce ... ok
+test rivers::tests::waterfall_face_reaches_both_banks_when_coverage_is_wider_than_nominal_width ... ok
+test rivers::tests::waterfall_face_refinement_includes_one_ring_beyond_the_banks ... ok
+test rivers::tests::waterfall_geometry_does_not_cross_into_a_joined_river_or_remote_bend ... ok
+test rivers::tests::waterfall_height_and_frequency_increase_with_smoothed_gradient ... ok
+test rivers::tests::waterfall_lip_refinement_adds_detail_and_rounds_along_the_normal ... ok
+test rivers::tests::waterfall_plane_zones_and_upstream_blend_follow_the_classification_plane ... ok
+test rivers::tests::waterfall_profile_keeps_the_source_segment_on_a_supported_terrace ... ok
+test rivers::tests::waterfall_spacing_contains_the_full_channel_width_patch ... ok
+test rivers::tests::waterfall_terraces_are_carved_into_the_river_bed ... ok
+test rivers::tests::width_error_adds_or_removes_a_bounded_depth_compensation ... ok
+test sea_mask::tests::above_sea_terrain_suppresses_land_distance ... ok
+test sea_mask::tests::coast_wave_weight_uses_a_fixed_ten_metre_depth ... ok
+test sea_mask::tests::land_distance_is_linear_and_saturates_at_128_metres ... ok
+test sea_mask::tests::mask_channels_have_the_exact_interleaved_contract ... ok
+test sea_mask::tests::serial_and_threaded_bakes_match ... ok
+test sea_mask::tests::submerged_river_carve_is_exported_in_blue ... ok
+test sky::tests::dome_has_inward_hemisphere_horizon_skirt_and_a_split_uv_seam ... ok
+test terrain::coastal_uplift::tests::coastal_ring_is_watertight_and_extends_material_fields ... ok
+test terrain::coastal_uplift::tests::uplift_is_linear_in_hardness_and_does_not_raise_seabed ... ok
+test terrain::decorations::decoration_tests::body_contact_separates_overlapping_rocks_and_supports_the_upper_one ... ok
+test terrain::decorations::decoration_tests::collision_radius_matches_the_unity_size_ranges_deterministically ... ok
+test terrain::decorations::decoration_tests::drop_noise_keeps_low_regions_eligible_and_strengthens_dense_regions ... ok
+test terrain::decorations::decoration_tests::drop_sources_are_steep_faces ... ok
+test rivers::tests::river_mesh_banks_never_climb_terrain_and_centreline_stays_below_water ... ok
+test terrain::decorations::decoration_tests::large_boulders_use_the_same_steep_face_drops_with_a_separate_size_domain ... ok
+test terrain::decorations::decoration_tests::steep_face_weight_uses_surface_area_and_noise ... ok
+test terrain::decorations::decoration_tests::steep_terrain_contact_does_not_become_stable_support ... ok
+test terrain::decorations::decoration_tests::terrain_contact_lifts_a_falling_body_onto_the_surface ... ok
+test terrain::decorations::decoration_tests::triangle_sampling_stays_inside_the_source_face ... ok
+test terrain::erosion::hydraulic_tests::deposition_fades_smoothly_between_gentle_and_steep_slopes ... ok
+test terrain::erosion::hydraulic_tests::final_sharp_rock_pass_marks_a_protrusion_but_not_an_inclined_plane ... ok
+test terrain::erosion::hydraulic_tests::hydraulic_cap_preserves_projected_triangle_orientation_and_area ... ok
+test terrain::erosion::hydraulic_tests::hydraulic_erosion_moves_down_normal_but_deposition_stays_vertical ... ok
+test terrain::erosion::hydraulic_tests::hydraulic_erosion_peaks_at_forty_five_degrees_and_stops_at_vertical ... ok
+test terrain::erosion::hydraulic_tests::hydraulic_pass_retreats_sloped_mesh_laterally ... ok
+test terrain::erosion::hydraulic_tests::local_hydraulic_cap_is_edge_relative ... ok
+test terrain::erosion::hydraulic_tests::loose_material_is_removed_before_hard_bedrock ... ok
+test terrain::erosion::hydraulic_tests::material_volume_is_conserved_across_adaptive_tessellation ... ok
+test terrain::erosion::hydraulic_tests::non_eroding_steps_preserve_reference_step_bits ... ok
+test terrain::erosion::hydraulic_tests::sea_inclusive_path_carries_deposition_below_sea_level ... ok
+test terrain::erosion::hydraulic_tests::sediment_exchange_conserves_every_applied_transfer ... ok
+test terrain::erosion::hydraulic_tests::soil_blanket_protects_bedrock_until_exhausted ... ok
+test terrain::erosion::hydraulic_tests::steep_hydraulic_erosion_blends_from_the_normal_toward_vertical ... ok
+test terrain::erosion::hydraulic_tests::terrain_material_field_interpolates_at_export_positions ... ok
+test terrain::erosion::hydraulic_tests::vertical_faces_do_not_supply_hydraulic_sediment ... ok
+test terrain::generation::sea_proximity_tests::completely_submerged_profile_produces_a_finite_seabed ... ok
+test terrain::generation::sea_proximity_tests::local_vertex_repair_moves_a_folded_apex_to_its_one_ring_centroid ... ok
+test terrain::generation::sea_proximity_tests::local_vertex_repair_untangles_a_fold_with_no_valid_diagonal ... ok
+test terrain::generation::sea_proximity_tests::newly_submerged_candidates_connect_to_the_perimeter_ocean ... ok
+test terrain::generation::sea_proximity_tests::ocean_always_contains_the_mesh_perimeter ... ok
+test terrain::generation::sea_proximity_tests::saved_generation_method_rejects_unknown_tags ... ok
+test terrain::generation::sea_proximity_tests::saved_generation_methods_are_backward_compatible ... ok
+test terrain::generation::sea_proximity_tests::sea_proximity_stays_full_for_two_metres_then_fades_to_twenty ... ok
+test terrain::generation::sea_proximity_tests::sea_wave_suppression_does_not_expand_recursively ... ok
+test terrain::generation::sea_proximity_tests::sea_wave_suppression_unions_river_channels_and_expands_one_ring ... ok
+test terrain::generation::sea_proximity_tests::tessellation_edge_flips_preserve_deposited_material_volume ... ok
+test terrain::generation::sea_proximity_tests::version_eighteen_payload_uses_default_terrain_noise ... ok
+test terrain::generation::sea_proximity_tests::version_sixteen_payload_uses_default_forest_options ... ok
+test terrain::generation_method::tests::method_names_round_trip ... ok
+test terrain::generation_method::tests::unavailable_gpu_message_has_one_authority ... ok
+test terrain::lod::tests::coarser_lods_are_deterministic_subsets_of_the_finished_surface ... ok
+test terrain::lod::tests::compact_mesh_preserves_selected_vertex_attributes ... ok
+test terrain::lod::tests::horizon_lod_reduces_lod2_without_moving_vertices_or_domain_corners ... ok
+test terrain::material::tests::environment_records_forest_floor_and_stones_independently ... ok
+test terrain::material::tests::initial_soil_blanket_covers_only_land_in_world_metres ... ok
+test terrain::material::tests::reed_support_only_caps_the_selected_loose_cover_channel ... ok
+test terrain::material::tests::river_bed_and_forced_rock_use_independent_channels ... ok
+test terrain::material::tests::tessellated_material_transfer_preserves_mesh_topology ... ok
+test terrain::material::tests::tessellation_stencils_extend_cached_coastal_signals ... ok
+test terrain::snapshot::tests::header_rejects_an_unknown_version ... ok
+test terrain::surface_maps::tests::low_poly_canopy_projects_into_existing_occlusion ... ok
+test trees::tests::bark_axis_encoding_round_trips_branch_directions ... ok
+test trees::tests::branch_chance_increases_from_lower_to_upper_sections ... ok
+test trees::tests::branch_ring_projection_owns_parent_child_junction_edges ... ok
+test trees::tests::branch_sections_bend_progressively_toward_the_light ... ok
+test trees::tests::branches_use_square_openings_and_rise_from_the_source_face ... ok
+test trees::tests::connector_patch_duplicates_only_its_shading_vertices ... ok
+test trees::tests::consecutive_children_never_use_the_same_parent_face ... ok
+test trees::tests::different_seeds_generate_different_valid_trees ... ok
+test trees::tests::direct_subbranches_reduce_only_their_parents_growth_rate ... ok
+test trees::tests::downward_facing_sides_are_never_selected_for_children ... ok
+test trees::tests::every_extruded_ring_twists_within_its_local_45_degree_limit ... ok
+test trees::tests::every_interval_between_branch_junctions_omits_intermediate_rings ... ok
+test trees::tests::final_pass_tapers_every_axis_from_its_inherited_root_to_tip ... ok
+test trees::tests::generated_wood_is_geometrically_watertight_across_bark_seams ... ok
+test trees::tests::lod0_foliage_preserves_lod1_equivalents ... ok
+test trees::tests::lod0_wood_receives_two_tessellations_and_a_free_smooth ... ok
+test trees::tests::lod2_wood_is_one_closed_four_sided_trunk_span ... ok
+test trees::tests::main_trunk_keeps_two_metres_clear_of_branches ... ok
+test trees::tests::prototype_seeds_cover_upright_rounded_and_spreading_habits ... ok
+test trees::tests::single_tree_foliage_is_not_cube_per_tip_topology ... ok
+test trees::tests::single_tree_has_one_foliage_support_per_terminal_axis ... ok
+test trees::tests::terminal_ring_vertices_are_pinned_to_their_pre_projection_plane ... ok
+test trees::tests::tessellated_square_ring_edges_are_projected_out_to_the_tube_radius ... ok
+test trees::tests::top_face_is_excluded_only_for_branches_off_other_branches ... ok
+test trees::tests::tree_is_deterministic_and_has_terminal_foliage_supports ... ok
+test terrain::decorations::decoration_tests::generated_settlements_export_stones_without_clearing_vertex_cover ... ok
+
+test result: ok. 415 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 6.11s
+
+     Running unittests src/bin/generation_bench.rs (island-rs/target/release/deps/generation_bench-f495526c4f494bfa)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (island-rs/target/release/deps/island-d4f211637cbb7b21)
+
+running 2 tests
+test tests::rejects_unknown_options ... ok
+test tests::parses_generation_options ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/cave_probe.rs (island-rs/target/release/deps/island_cave_probe-32cdbd8e858c9baf)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/texture_baker.rs (island-rs/target/release/deps/island_texture_baker-2c7abf549d8df0b3)
+
+running 7 tests
+test tests::parses_direct_bake_invocation_without_subcommand ... ok
+test tests::generation_commands_require_the_callers_normal_convention ... ok
+test tests::parses_editor_commands ... ok
+test tests::preview_cleanup_rejects_absolute_paths ... ok
+test tests::preview_cleanup_rejects_parent_paths_before_deleting_anything ... ok
+test tests::scalar_normalization_is_finite ... ok
+test tests::preview_cleanup_rejects_symlink_paths_outside_output ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/generation.rs (island-rs/target/release/deps/generation-441a65ad041b74cb)
+
+running 35 tests
+test coarse_lod_surface_maps_capture_detail_and_occlusion ... ok
+test absolute_river_source_catchment_changes_river_generation ... ok
+test completely_submerged_profile_remains_finite ... ok
+test coarser_lods_are_refined_and_pinned_to_the_final_lod0_surface ... ok
+test explicit_cpu_method_preserves_the_primary_generator ... ok
+test exported_terrain_is_clipped_ten_metres_below_sea_level ... ok
+test final_terrain_has_an_explicit_sea_plane_coastline ... ok
+test finest_lod_concentrates_detail_on_land ... ok
+test every_final_river_reaches_the_sea_or_joins_one_that_does ... ok
+test generation_is_deterministic ... ok
+test generation_is_deterministic_across_worker_counts ... ok
+test hydraulic_deposition_controls_change_terrain ... ok
+test hydraulic_erosion_does_not_reverse_projected_faces ... ok
+test hydraulic_erosion_strength_changes_terrain ... ok
+test initial_soil_blanket_changes_eroded_terrain ... ok
+test initial_soil_depth_rejects_negative_and_non_finite_values ... ok
+test lod0_render_uses_the_corrected_support_mesh ... ok
+test lods_reduce_mesh_density ... ok
+test map_exports_have_expected_lengths ... ok
+test native_options_are_not_limited_to_viewer_control_ranges ... ok
+test png_writer_emits_png_signature ... ok
+test public_vectors_are_glam_types ... ok
+test rejects_inverted_or_non_positive_river_dimensions ... ok
+test rejects_non_finite_or_out_of_range_terrain_noise_controls ... ok
+test rejects_out_of_range_hydraulic_deposition_options ... ok
+test rejects_out_of_range_hydraulic_erosion_strength ... ok
+test save_and_load_regenerates_identical_island ... ok
+test generated_rivers_preserve_visible_mesh_and_flow_contracts ... ok
+test submerged_rivers_remain_queryable_without_a_visible_water_mesh ... ok
+test unavailable_gpu_method_returns_an_error ... ok
+test version_fourteen_minimum_elevation_is_replaced_by_the_default_boost ... ok
+test version_ten_save_uses_new_river_source_defaults ... ok
+test terrain_noise_controls_change_the_generated_island ... ok
+test version_thirteen_fraction_is_migrated_to_an_absolute_land_area ... ok
+test water_ratio_increases_connected_ocean_coverage ... ok
+
+test result: ok. 35 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 53.56s
+
+     Running tests/procedural_material_editor.rs (island-rs/target/release/deps/procedural_material_editor-30408587ed533ba9)
+
+running 6 tests
+test all_committed_recipes_use_the_current_valid_schema ... ok
+test committed_recipes_retain_the_locked_128_pixel_map_hashes ... ok
+test cli_colour_override_changes_only_albedo_derived_output ... ok
+test preview_maps_match_a_final_bake_at_the_same_resolution ... ok
+test editor_cli_schema_validation_preview_and_failure_envelopes_are_valid_json ... ok
+test previous_height_mask_tracks_the_rounded_stone_base_field ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.64s
+
+     Running tests/seam_diagnostic.rs (island-rs/target/release/deps/seam_diagnostic-609e2ef10061b8b3)
+
+running 4 tests
+test clamped_edges_include_coarse_slope_changes_between_fine_vertices ... ok
+test rendered_lod_transitions_follow_complete_coarse_edges_on_visible_land ... ok
+test render_grid_preserves_sibling_boundaries ... ok
+test two_side_clamps_share_one_coarse_corner_sample ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.72s
+
+   Doc-tests motu
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

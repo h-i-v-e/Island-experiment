@@ -84,11 +84,13 @@ fn json_stdout(output: &Output) -> Value {
 
 #[test]
 fn committed_recipes_retain_the_locked_128_pixel_map_hashes() {
+    // Albedo baselines include the authored stone_colour parameterization.
+    // Geometry-derived maps retain their original locked hashes.
     let cases = [
         (
             "cracked-stone.json",
             [
-                "6a83481118b0fd5c33b9b5e733b8f1315eeb9a49448f98a95eee73f47e4852d0",
+                "aaaf1b10c31e744ef9c170341f3e48a31b205e2d6847e15c7bf22ab5d1a979ac",
                 "bb7bdcb8e6b4fd1f39d0ff0028297eb89bdb66e9355acff94082f4823731ffcf",
                 "647ec5d03b221e419d5ad13e58c0acc3a38acd81ed4e7890337057fb43326704",
                 "24162171f56b2b122ba0def72a3e0676523ab72ff6d1231b990fa0b94b124ae9",
@@ -98,7 +100,7 @@ fn committed_recipes_retain_the_locked_128_pixel_map_hashes() {
         (
             "rounded-river-stones.json",
             [
-                "e24789a54569d84ae21f4443281ef6eae5a8fed6c8e8f033f53b9f879b7231cb",
+                "67e18d43a11e5a6610e55c6aaf8018a07c4452806f6f874ebe59530f3b85fdfc",
                 "ae0e92cd4de04c32975ef2fa58ccf0b1656a0377fc0bbb1b4cee15a1b43dce09",
                 "2e11eb58cd16aa7f0e7e50cc4a278eaf1363a6e93900c77e56699a03c190871c",
                 "f735d58824b221134e2da0e1ca719cf75e019a79fd1276c8c15f8190c1538799",

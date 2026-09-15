@@ -10,10 +10,10 @@ Shader "Hidden/Motu/Tests/Ocean Optics"
             #pragma vertex vert_img
             #pragma fragment Frag
             #pragma target 3.5
-            #include "Assets/Shaders/WaterCommon.cginc"
-            #include "Assets/Shaders/OceanWaves.cginc"
-            #include "Assets/Shaders/OceanOptics.cginc"
-            #include "Assets/Shaders/OceanShipWaves.cginc"
+            #include "Packages/com.motu.runtime/Runtime/Shaders/WaterCommon.cginc"
+            #include "Packages/com.motu.runtime/Runtime/Shaders/OceanWaves.cginc"
+            #include "Packages/com.motu.runtime/Runtime/Shaders/OceanOptics.cginc"
+            #include "Packages/com.motu.runtime/Runtime/Shaders/OceanShipWaves.cginc"
             float _ProbeMode, _ProbeDistance, _ProbeSpan;
             float4 _ProbeView, _ProbeLight;
             float4 Frag(v2f_img input) : SV_Target

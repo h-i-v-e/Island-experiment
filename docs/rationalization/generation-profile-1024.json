@@ -1,0 +1,276 @@
+{
+  "scope": "CPU Island::generate only. One initial warmup excluded. Stage times are inclusive and can overlap; do not add parent and child costs.",
+  "csv": "generation-profile-1024.csv",
+  "stage_log": "generation-profile-1024.log",
+  "fixtures": [
+    {
+      "seed": 17,
+      "workers": 14,
+      "runs": 3,
+      "milliseconds": [
+        35524.382,
+        35455.303,
+        35774.517
+      ],
+      "median_ms": 35524.382,
+      "vertices": 1703943,
+      "triangles": 3407705,
+      "geometry_hash": "2597653885197063265",
+      "identical_hash_across_runs": true,
+      "ranked_stages": [
+        {
+          "stage": "hydraulic.stage",
+          "inclusive_ms_per_run": [
+            16219.601999999999,
+            16229.336000000001,
+            16391.638
+          ],
+          "median_inclusive_ms": 16229.336000000001,
+          "calls_per_run": [
+            7,
+            7,
+            7
+          ]
+        },
+        {
+          "stage": "generation.lod0.detail",
+          "inclusive_ms_per_run": [
+            14852.081,
+            14955.376,
+            15053.133
+          ],
+          "median_inclusive_ms": 14955.376,
+          "calls_per_run": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "stage": "rivers.final",
+          "inclusive_ms_per_run": [
+            6937.122,
+            6958.129,
+            6898.909
+          ],
+          "median_inclusive_ms": 6937.122,
+          "calls_per_run": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "stage": "decorations.lazy",
+          "inclusive_ms_per_run": [
+            5778.642,
+            5710.583,
+            5866.29
+          ],
+          "median_inclusive_ms": 5778.642,
+          "calls_per_run": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "stage": "decorations.rock_settling",
+          "inclusive_ms_per_run": [
+            5772.025,
+            5704.039,
+            5858.88
+          ],
+          "median_inclusive_ms": 5772.025,
+          "calls_per_run": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "stage": "generation.lod0.broad",
+          "inclusive_ms_per_run": [
+            2685.375,
+            2682.839,
+            2702.896
+          ],
+          "median_inclusive_ms": 2685.375,
+          "calls_per_run": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "stage": "mesh.projected_foldover_repair",
+          "inclusive_ms_per_run": [
+            1622.752,
+            1606.811,
+            1620.008
+          ],
+          "median_inclusive_ms": 1620.008,
+          "calls_per_run": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "stage": "lod.simplify",
+          "inclusive_ms_per_run": [
+            1120.642,
+            1145.708,
+            1152.958
+          ],
+          "median_inclusive_ms": 1145.708,
+          "calls_per_run": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "stage": "mesh.surface_edge_flips",
+          "inclusive_ms_per_run": [
+            449.92,
+            449.865,
+            447.092
+          ],
+          "median_inclusive_ms": 449.865,
+          "calls_per_run": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "stage": "sea_mask.distance_to_land",
+          "inclusive_ms_per_run": [
+            334.769,
+            249.81,
+            259.201
+          ],
+          "median_inclusive_ms": 259.201,
+          "calls_per_run": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "stage": "material.sharp_rock",
+          "inclusive_ms_per_run": [
+            208.57,
+            222.699,
+            221.625
+          ],
+          "median_inclusive_ms": 221.625,
+          "calls_per_run": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "stage": "generation.lod1.refine",
+          "inclusive_ms_per_run": [
+            82.148,
+            81.911,
+            81.452
+          ],
+          "median_inclusive_ms": 81.911,
+          "calls_per_run": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "stage": "generation.lod1.first",
+          "inclusive_ms_per_run": [
+            17.385,
+            17.293,
+            17.07
+          ],
+          "median_inclusive_ms": 17.293,
+          "calls_per_run": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "stage": "thermal.stage",
+          "inclusive_ms_per_run": [
+            8.104000000000001,
+            9.143,
+            7.38
+          ],
+          "median_inclusive_ms": 8.104000000000001,
+          "calls_per_run": [
+            5,
+            5,
+            5
+          ]
+        },
+        {
+          "stage": "generation.lod2",
+          "inclusive_ms_per_run": [
+            5.38,
+            5.558,
+            5.332
+          ],
+          "median_inclusive_ms": 5.38,
+          "calls_per_run": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "stage": "generation.base",
+          "inclusive_ms_per_run": [
+            5.071,
+            4.716,
+            5.169
+          ],
+          "median_inclusive_ms": 5.071,
+          "calls_per_run": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "stage": "caves.generate",
+          "inclusive_ms_per_run": [
+            0.001,
+            0.001,
+            0.001
+          ],
+          "median_inclusive_ms": 0.001,
+          "calls_per_run": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "stage": "terrain.index",
+          "inclusive_ms_per_run": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "median_inclusive_ms": 0.0,
+          "calls_per_run": [
+            1,
+            1,
+            1
+          ]
+        }
+      ]
+    }
+  ]
+}

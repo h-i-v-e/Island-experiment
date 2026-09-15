@@ -1,0 +1,8 @@
+{
+  "name": "Motu.Tests.Package",
+  "references": ["Motu.Runtime", "UnityEngine.TestRunner", "UnityEditor.TestRunner"],
+  "includePlatforms": ["Editor"],
+  "overrideReferences": true,
+  "precompiledReferences": ["nunit.framework.dll"],
+  "defineConstraints": ["UNITY_INCLUDE_TESTS"]
+}

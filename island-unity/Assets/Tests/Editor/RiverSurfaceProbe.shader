@@ -10,9 +10,9 @@ Shader "Hidden/Motu/Tests/River Surface"
             #pragma vertex vert_img
             #pragma fragment Frag
             #pragma target 3.5
-            #include "Assets/Shaders/WaterCommon.cginc"
-            #include "Assets/Shaders/WaterOptics.cginc"
-            #include "Assets/Shaders/RiverSurface.cginc"
+            #include "Packages/com.motu.runtime/Runtime/Shaders/WaterCommon.cginc"
+            #include "Packages/com.motu.runtime/Runtime/Shaders/WaterOptics.cginc"
+            #include "Packages/com.motu.runtime/Runtime/Shaders/RiverSurface.cginc"
             float _ProbeMode, _ProbeTime, _ProbeSpan, _ProbeRapids, _ProbeMirror;
             float4 _ProbeOffset;
             float4x4 _ProbeRotation;

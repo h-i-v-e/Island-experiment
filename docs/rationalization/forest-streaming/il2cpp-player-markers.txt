@@ -1,0 +1,4 @@
+MOTU CONSUMER NAVIGATION PASSED: full-resolution extension bake ready and registered.
+MOTU CONSUMER STREAMING PASSED: LOD 1 and LOD 0 installed while frames advanced.
+MOTU CONSUMER ENVIRONMENT PASSED: disable, same-frame re-enable, host restoration and additive unload.
+MOTU CONSUMER PLAYER PASSED: terrain rendered, 3077 colours; shaders, native generation, host ownership, unload.

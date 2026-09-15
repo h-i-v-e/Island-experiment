@@ -1,5 +1,10 @@
 # Island Unity project
 
+Reusable runtime, shaders and generic authoring tools now live in the local
+[UPM packages](../packages/com.motu.runtime/README.md). This directory is their
+development host; use the package guide when adding Motu to another project.
+Historical validation documents retain paths from their recorded revision.
+
 A conventional scene-based Unity 6 project for the Rust generator in
 `../island-rs`. The reusable `IslandGenerator` component invokes the Rust C ABI
 and displays the irregular terrain, streamed detail, rivers, sea, vegetation

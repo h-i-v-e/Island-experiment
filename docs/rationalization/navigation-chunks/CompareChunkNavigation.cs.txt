@@ -1,0 +1,85 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
+using Motu.Interop;
+using Motu.Islands;
+using Motu.Navigation;
+using Motu.Settings;
+using UnityEditor;
+using Unity.Collections;
+using UnityEngine.Experimental.AI;
+using UnityEngine;
+using UnityEngine.AI;
+using Object = UnityEngine.Object;
+namespace Motu.Editor {
+public static class CompareChunkNavigation {
+ [Serializable] private sealed class Query { public Vector3 from, to, sampledFrom, sampledTo; public int legacy, chunked, agentStatus; public string expandedStatus; public Vector3 terminal; }
+ [Serializable] private sealed class Result { public List<Query> queries = new List<Query>(); public IslandNavigationBuildReport chunked; public int lostComplete, gainedComplete; }
+ public static async Task RunAsync() {
+  GameObject host = null;
+  try {
+   var prepared = await Task.Run(() => {
+    var handle = MotuNative.LoadMotuSnapshot(Environment.GetEnvironmentVariable("MOTU_NAV_SNAPSHOT"), out var status);
+    if(handle == IntPtr.Zero) throw new Exception("No snapshot: " + status);
+    try { return (IslandPreparationPipeline.PrepareNavigationMesh(handle, 2000f),
+      VegetationPreparation.PrepareForestTrunkColliders(handle, 2000f),
+      VegetationPreparation.PrepareForestTrunkColliders(handle, 2000f, true),
+      TerrainPreparation.PrepareBoulderColliders(handle, 2000f), CavePreparation.Prepare(handle, 2000f, CancellationToken.None)); }
+    finally { MotuNative.ReleaseMotu(handle); }
+   });
+   var points = new List<Vector3>(); var mesh = prepared.Item1;
+   var stride = Math.Max(1, mesh.triangles.Length / 3 / 2048);
+   for(var face=0;face<mesh.triangles.Length/3;face+=stride) {
+    var a=mesh.vertices[mesh.triangles[face*3]]; var b=mesh.vertices[mesh.triangles[face*3+1]]; var c=mesh.vertices[mesh.triangles[face*3+2]];
+    var centre=(a+b+c)/3f;
+    if(centre.y>=0 && Vector3.Cross(b-a,c-a).normalized.y >= Mathf.Cos(45*Mathf.Deg2Rad)) points.Add(centre);
+   }
+   var result = new Result();
+   for(var i=0;i<Math.Min(256,points.Count/2);i++) result.queries.Add(new Query { from=points[i],to=points[points.Count-1-i] });
+   int QueryPath(Query query, int type) {
+    var filter = new NavMeshQueryFilter { agentTypeID=type,areaMask=NavMesh.AllAreas };
+    if(!NavMesh.SamplePosition(query.from,out var a,.75f,filter) || !NavMesh.SamplePosition(query.to,out var b,.75f,filter)) return -1;
+    query.sampledFrom=a.position; query.sampledTo=b.position; var path=new NavMeshPath(); NavMesh.CalculatePath(a.position,b.position,filter,path); if(path.corners.Length!=0) query.terminal=path.corners[path.corners.Length-1]; return (int)path.status;
+   }
+   result = JsonUtility.FromJson<Result>(File.ReadAllText("/tmp/motu-nav-chunks/connectivity-first.json"));
+   result.lostComplete=0; result.gainedComplete=0;
+   host=new GameObject("Chunk comparison"); var current=host.AddComponent<IslandNavigation>();
+   await current.BuildAsync(mesh,null,prepared.Item4,prepared.Item5,new IslandNavigationSettings { LogBuildStatistics=false, ChunkSize=128 },CancellationToken.None,prepared.Item2,prepared.Item3);
+   foreach(var query in result.queries) { query.chunked=QueryPath(query,current.AgentTypeId); if(query.legacy==0 && query.chunked!=0) result.lostComplete++; if(query.legacy!=0 && query.chunked==0) result.gainedComplete++; }
+   foreach(var item in result.queries) if(item.legacy==0 && item.chunked!=0) {
+    using var query=new NavMeshQuery(NavMeshWorld.GetDefaultWorld(),Allocator.TempJob,65535);
+    var from=query.MapLocation(item.sampledFrom,Vector3.one*.1f,current.AgentTypeId);
+    var to=query.MapLocation(item.sampledTo,Vector3.one*.1f,current.AgentTypeId);
+    var status=query.BeginFindPath(from,to);
+    while((status & PathQueryStatus.InProgress)!=0) status=query.UpdateFindPath(10000,out _);
+    item.expandedStatus=status.ToString()+" / "+query.EndFindPath(out var nodes).ToString()+" nodes "+nodes;
+    using var polygons=new NativeArray<PolygonId>(nodes,Allocator.Temp);
+    query.GetPathResult(polygons);
+    item.expandedStatus+=" reached="+(nodes>0 && polygons[nodes-1].Equals(to.polygon));
+   }
+   var body=new GameObject("Actual path queries"); body.SetActive(false);
+   try {
+    var agent=body.AddComponent<NavMeshAgent>(); current.ConfigureAgent(agent); agent.speed=0;
+    var filter=new NavMeshQueryFilter { agentTypeID=current.AgentTypeId, areaMask=NavMesh.AllAreas };
+    foreach(var item in result.queries) {
+     item.agentStatus=-1;
+     if(item.legacy!=0) continue;
+     if(!NavMesh.SamplePosition(item.from,out var a,.75f,filter) || !NavMesh.SamplePosition(item.to,out var b,.75f,filter)) continue;
+     if(!body.activeSelf) { body.transform.position=a.position; body.SetActive(true); }
+     agent.ResetPath(); if(!agent.Warp(a.position) || !agent.SetDestination(b.position)) throw new Exception("Could not place path agent.");
+     var frame=Time.frameCount; var deadline=Time.realtimeSinceStartupAsDouble+30;
+     do { await Task.Yield(); if(Time.realtimeSinceStartupAsDouble>deadline) throw new Exception("Agent path timed out."); }
+     while(Time.frameCount==frame || agent.pathPending);
+     item.agentStatus=(int)agent.pathStatus;
+    }
+   } finally { Object.DestroyImmediate(body); }
+   result.chunked=current.Report;
+   File.WriteAllText("/tmp/motu-nav-chunks/connectivity.json",JsonUtility.ToJson(result,true));
+   Debug.Log($"NAV CONNECTIVITY: {result.queries.Count} queries, lost {result.lostComplete}, gained {result.gainedComplete}");
+
+  } catch(Exception error) { Debug.LogException(error); throw; }
+  finally { if(host!=null) Object.DestroyImmediate(host); }
+ }
+}}
