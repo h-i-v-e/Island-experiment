@@ -45,25 +45,25 @@ MonoBehaviour:
   onshoreWaveBreakingFullDepthMetres: 2
   wave0:
     direction: {x: 1, y: 0.18}
-    wavelengthMetres: 48
-    amplitudeMetres: 1.5
+    wavelengthMetres: 32
+    amplitudeMetres: 1.6
     speedMetresPerSecond: 3.6
     choppiness: 0
   wave1:
     direction: {x: 0.32, y: 1}
-    wavelengthMetres: 32
-    amplitudeMetres: 1
-    speedMetresPerSecond: 2.8
+    wavelengthMetres: 16
+    amplitudeMetres: 0.8
+    speedMetresPerSecond: 2.7
     choppiness: 0
   wave2:
     direction: {x: -0.82, y: 0.55}
-    wavelengthMetres: 9
-    amplitudeMetres: 0.12
-    speedMetresPerSecond: 2.1
+    wavelengthMetres: 8
+    amplitudeMetres: 0.4
+    speedMetresPerSecond: 1.8
     choppiness: 0
   wave3:
     direction: {x: 0.58, y: -0.81}
-    wavelengthMetres: 6
-    amplitudeMetres: 0.09
-    speedMetresPerSecond: 1.5
+    wavelengthMetres: 4
+    amplitudeMetres: 0.2
+    speedMetresPerSecond: 1.2
     choppiness: 0
