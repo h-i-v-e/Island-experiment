@@ -68,7 +68,7 @@ namespace Motu.Editor
                 "Sky absorption must stop at the water-to-air exit, not the far clip plane.");
             scene.Camera.transform.rotation = Quaternion.identity;
             var cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            var solid = new Material(Shader.Find("Standard"));
+            var solid = new Material(Shader.Find("Universal Render Pipeline/Lit"));
             try
             {
                 solid.color = Color.white;
@@ -204,7 +204,7 @@ namespace Motu.Editor
             internal Color[] Render(bool underwater)
             {
                 effect.enabled = underwater;
-                Camera.Render();
+                UrpTestCamera.Render(Camera);
                 var previous = RenderTexture.active;
                 RenderTexture.active = target;
                 image.ReadPixels(new Rect(0, 0, Size, Size), 0, 0);

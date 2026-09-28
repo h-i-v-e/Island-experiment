@@ -159,7 +159,7 @@ namespace Motu.Editor
                 material.SetTexture("_EndGrainMap", Texture2D.whiteTexture);
                 Color Read()
                 {
-                    camera.Render(); RenderTexture.active = target;
+                    UrpTestCamera.Render(camera); RenderTexture.active = target;
                     output.ReadPixels(new Rect(0, 0, 128, 128), 0, 0); output.Apply();
                     return output.GetPixel(64, 64);
                 }

@@ -1,5 +1,8 @@
 {
   "name": "Motu.Runtime",
   "rootNamespace": "Motu",
-  "references": []
+  "references": [
+    "Unity.RenderPipelines.Core.Runtime",
+    "Unity.RenderPipelines.Universal.Runtime"
+  ]
 }

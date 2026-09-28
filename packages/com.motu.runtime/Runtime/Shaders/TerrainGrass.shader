@@ -48,235 +48,285 @@ Shader "Motu/Terrain Grass"
 
     SubShader
     {
-        Tags { "RenderType"="TransparentCutout" "Queue"="AlphaTest" "IgnoreProjector"="True" "MotuReflection"="Grass" }
+        Tags { "RenderPipeline"="UniversalPipeline" "RenderType"="TransparentCutout" "Queue"="AlphaTest" "IgnoreProjector"="True" "MotuReflection"="Grass" }
         LOD 350
         Cull Off
         ZWrite On
 
         Pass
         {
-            Tags { "LightMode"="ForwardBase" }
+            Tags { "LightMode"="UniversalForwardOnly" }
 
-            CGPROGRAM
+            HLSLPROGRAM
             #define GRASS_SHELL_LAYER 0.0625
             #pragma vertex GrassVertex
             #pragma fragment GrassFragment
             #pragma target 3.5
-            #pragma multi_compile_fwdbase
+            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
+            #pragma multi_compile_fragment _ _SHADOWS_SOFT
+            #pragma multi_compile _ _ADDITIONAL_LIGHTS
+            #pragma multi_compile_fragment _ _ADDITIONAL_LIGHT_SHADOWS
             #pragma multi_compile_fog
             #include "TerrainGrassCommon.cginc"
-            ENDCG
+            ENDHLSL
         }
         Pass
         {
-            Tags { "LightMode"="ForwardBase" }
+            Tags { "LightMode"="MotuShell1" }
 
-            CGPROGRAM
+            HLSLPROGRAM
             #define GRASS_SHELL_LAYER 0.125
             #pragma vertex GrassVertex
             #pragma fragment GrassFragment
             #pragma target 3.5
-            #pragma multi_compile_fwdbase
+            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
+            #pragma multi_compile_fragment _ _SHADOWS_SOFT
+            #pragma multi_compile _ _ADDITIONAL_LIGHTS
+            #pragma multi_compile_fragment _ _ADDITIONAL_LIGHT_SHADOWS
             #pragma multi_compile_fog
             #include "TerrainGrassCommon.cginc"
-            ENDCG
+            ENDHLSL
         }
         Pass
         {
-            Tags { "LightMode"="ForwardBase" }
+            Tags { "LightMode"="MotuShell2" }
 
-            CGPROGRAM
+            HLSLPROGRAM
             #define GRASS_SHELL_LAYER 0.1875
             #pragma vertex GrassVertex
             #pragma fragment GrassFragment
             #pragma target 3.5
-            #pragma multi_compile_fwdbase
+            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
+            #pragma multi_compile_fragment _ _SHADOWS_SOFT
+            #pragma multi_compile _ _ADDITIONAL_LIGHTS
+            #pragma multi_compile_fragment _ _ADDITIONAL_LIGHT_SHADOWS
             #pragma multi_compile_fog
             #include "TerrainGrassCommon.cginc"
-            ENDCG
+            ENDHLSL
         }
         Pass
         {
-            Tags { "LightMode"="ForwardBase" }
+            Tags { "LightMode"="MotuShell3" }
 
-            CGPROGRAM
+            HLSLPROGRAM
             #define GRASS_SHELL_LAYER 0.25
             #pragma vertex GrassVertex
             #pragma fragment GrassFragment
             #pragma target 3.5
-            #pragma multi_compile_fwdbase
+            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
+            #pragma multi_compile_fragment _ _SHADOWS_SOFT
+            #pragma multi_compile _ _ADDITIONAL_LIGHTS
+            #pragma multi_compile_fragment _ _ADDITIONAL_LIGHT_SHADOWS
             #pragma multi_compile_fog
             #include "TerrainGrassCommon.cginc"
-            ENDCG
+            ENDHLSL
         }
         Pass
         {
-            Tags { "LightMode"="ForwardBase" }
+            Tags { "LightMode"="MotuShell4" }
 
-            CGPROGRAM
+            HLSLPROGRAM
             #define GRASS_SHELL_LAYER 0.3125
             #pragma vertex GrassVertex
             #pragma fragment GrassFragment
             #pragma target 3.5
-            #pragma multi_compile_fwdbase
+            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
+            #pragma multi_compile_fragment _ _SHADOWS_SOFT
+            #pragma multi_compile _ _ADDITIONAL_LIGHTS
+            #pragma multi_compile_fragment _ _ADDITIONAL_LIGHT_SHADOWS
             #pragma multi_compile_fog
             #include "TerrainGrassCommon.cginc"
-            ENDCG
+            ENDHLSL
         }
         Pass
         {
-            Tags { "LightMode"="ForwardBase" }
+            Tags { "LightMode"="MotuShell5" }
 
-            CGPROGRAM
+            HLSLPROGRAM
             #define GRASS_SHELL_LAYER 0.375
             #pragma vertex GrassVertex
             #pragma fragment GrassFragment
             #pragma target 3.5
-            #pragma multi_compile_fwdbase
+            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
+            #pragma multi_compile_fragment _ _SHADOWS_SOFT
+            #pragma multi_compile _ _ADDITIONAL_LIGHTS
+            #pragma multi_compile_fragment _ _ADDITIONAL_LIGHT_SHADOWS
             #pragma multi_compile_fog
             #include "TerrainGrassCommon.cginc"
-            ENDCG
+            ENDHLSL
         }
         Pass
         {
-            Tags { "LightMode"="ForwardBase" }
+            Tags { "LightMode"="MotuShell6" }
 
-            CGPROGRAM
+            HLSLPROGRAM
             #define GRASS_SHELL_LAYER 0.4375
             #pragma vertex GrassVertex
             #pragma fragment GrassFragment
             #pragma target 3.5
-            #pragma multi_compile_fwdbase
+            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
+            #pragma multi_compile_fragment _ _SHADOWS_SOFT
+            #pragma multi_compile _ _ADDITIONAL_LIGHTS
+            #pragma multi_compile_fragment _ _ADDITIONAL_LIGHT_SHADOWS
             #pragma multi_compile_fog
             #include "TerrainGrassCommon.cginc"
-            ENDCG
+            ENDHLSL
         }
         Pass
         {
-            Tags { "LightMode"="ForwardBase" }
+            Tags { "LightMode"="MotuShell7" }
 
-            CGPROGRAM
+            HLSLPROGRAM
             #define GRASS_SHELL_LAYER 0.5
             #pragma vertex GrassVertex
             #pragma fragment GrassFragment
             #pragma target 3.5
-            #pragma multi_compile_fwdbase
+            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
+            #pragma multi_compile_fragment _ _SHADOWS_SOFT
+            #pragma multi_compile _ _ADDITIONAL_LIGHTS
+            #pragma multi_compile_fragment _ _ADDITIONAL_LIGHT_SHADOWS
             #pragma multi_compile_fog
             #include "TerrainGrassCommon.cginc"
-            ENDCG
+            ENDHLSL
         }
         Pass
         {
-            Tags { "LightMode"="ForwardBase" }
+            Tags { "LightMode"="MotuShell8" }
 
-            CGPROGRAM
+            HLSLPROGRAM
             #define GRASS_SHELL_LAYER 0.5625
             #pragma vertex GrassVertex
             #pragma fragment GrassFragment
             #pragma target 3.5
-            #pragma multi_compile_fwdbase
+            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
+            #pragma multi_compile_fragment _ _SHADOWS_SOFT
+            #pragma multi_compile _ _ADDITIONAL_LIGHTS
+            #pragma multi_compile_fragment _ _ADDITIONAL_LIGHT_SHADOWS
             #pragma multi_compile_fog
             #include "TerrainGrassCommon.cginc"
-            ENDCG
+            ENDHLSL
         }
         Pass
         {
-            Tags { "LightMode"="ForwardBase" }
+            Tags { "LightMode"="MotuShell9" }
 
-            CGPROGRAM
+            HLSLPROGRAM
             #define GRASS_SHELL_LAYER 0.625
             #pragma vertex GrassVertex
             #pragma fragment GrassFragment
             #pragma target 3.5
-            #pragma multi_compile_fwdbase
+            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
+            #pragma multi_compile_fragment _ _SHADOWS_SOFT
+            #pragma multi_compile _ _ADDITIONAL_LIGHTS
+            #pragma multi_compile_fragment _ _ADDITIONAL_LIGHT_SHADOWS
             #pragma multi_compile_fog
             #include "TerrainGrassCommon.cginc"
-            ENDCG
+            ENDHLSL
         }
         Pass
         {
-            Tags { "LightMode"="ForwardBase" }
+            Tags { "LightMode"="MotuShell10" }
 
-            CGPROGRAM
+            HLSLPROGRAM
             #define GRASS_SHELL_LAYER 0.6875
             #pragma vertex GrassVertex
             #pragma fragment GrassFragment
             #pragma target 3.5
-            #pragma multi_compile_fwdbase
+            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
+            #pragma multi_compile_fragment _ _SHADOWS_SOFT
+            #pragma multi_compile _ _ADDITIONAL_LIGHTS
+            #pragma multi_compile_fragment _ _ADDITIONAL_LIGHT_SHADOWS
             #pragma multi_compile_fog
             #include "TerrainGrassCommon.cginc"
-            ENDCG
+            ENDHLSL
         }
         Pass
         {
-            Tags { "LightMode"="ForwardBase" }
+            Tags { "LightMode"="MotuShell11" }
 
-            CGPROGRAM
+            HLSLPROGRAM
             #define GRASS_SHELL_LAYER 0.75
             #pragma vertex GrassVertex
             #pragma fragment GrassFragment
             #pragma target 3.5
-            #pragma multi_compile_fwdbase
+            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
+            #pragma multi_compile_fragment _ _SHADOWS_SOFT
+            #pragma multi_compile _ _ADDITIONAL_LIGHTS
+            #pragma multi_compile_fragment _ _ADDITIONAL_LIGHT_SHADOWS
             #pragma multi_compile_fog
             #include "TerrainGrassCommon.cginc"
-            ENDCG
+            ENDHLSL
         }
         Pass
         {
-            Tags { "LightMode"="ForwardBase" }
+            Tags { "LightMode"="MotuShell12" }
 
-            CGPROGRAM
+            HLSLPROGRAM
             #define GRASS_SHELL_LAYER 0.8125
             #pragma vertex GrassVertex
             #pragma fragment GrassFragment
             #pragma target 3.5
-            #pragma multi_compile_fwdbase
+            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
+            #pragma multi_compile_fragment _ _SHADOWS_SOFT
+            #pragma multi_compile _ _ADDITIONAL_LIGHTS
+            #pragma multi_compile_fragment _ _ADDITIONAL_LIGHT_SHADOWS
             #pragma multi_compile_fog
             #include "TerrainGrassCommon.cginc"
-            ENDCG
+            ENDHLSL
         }
         Pass
         {
-            Tags { "LightMode"="ForwardBase" }
+            Tags { "LightMode"="MotuShell13" }
 
-            CGPROGRAM
+            HLSLPROGRAM
             #define GRASS_SHELL_LAYER 0.875
             #pragma vertex GrassVertex
             #pragma fragment GrassFragment
             #pragma target 3.5
-            #pragma multi_compile_fwdbase
+            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
+            #pragma multi_compile_fragment _ _SHADOWS_SOFT
+            #pragma multi_compile _ _ADDITIONAL_LIGHTS
+            #pragma multi_compile_fragment _ _ADDITIONAL_LIGHT_SHADOWS
             #pragma multi_compile_fog
             #include "TerrainGrassCommon.cginc"
-            ENDCG
+            ENDHLSL
         }
         Pass
         {
-            Tags { "LightMode"="ForwardBase" }
+            Tags { "LightMode"="MotuShell14" }
 
-            CGPROGRAM
+            HLSLPROGRAM
             #define GRASS_SHELL_LAYER 0.9375
             #pragma vertex GrassVertex
             #pragma fragment GrassFragment
             #pragma target 3.5
-            #pragma multi_compile_fwdbase
+            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
+            #pragma multi_compile_fragment _ _SHADOWS_SOFT
+            #pragma multi_compile _ _ADDITIONAL_LIGHTS
+            #pragma multi_compile_fragment _ _ADDITIONAL_LIGHT_SHADOWS
             #pragma multi_compile_fog
             #include "TerrainGrassCommon.cginc"
-            ENDCG
+            ENDHLSL
         }
         Pass
         {
-            Tags { "LightMode"="ForwardBase" }
+            Tags { "LightMode"="MotuShell15" }
 
-            CGPROGRAM
+            HLSLPROGRAM
             #define GRASS_SHELL_LAYER 1.0
             #pragma vertex GrassVertex
             #pragma fragment GrassFragment
             #pragma target 3.5
-            #pragma multi_compile_fwdbase
+            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
+            #pragma multi_compile_fragment _ _SHADOWS_SOFT
+            #pragma multi_compile _ _ADDITIONAL_LIGHTS
+            #pragma multi_compile_fragment _ _ADDITIONAL_LIGHT_SHADOWS
             #pragma multi_compile_fog
             #include "TerrainGrassCommon.cginc"
-            ENDCG
+            ENDHLSL
         }
+        UsePass "Motu/Planar Reflection Simplified/ReflectionGrass"
+
     }
 
     FallBack Off

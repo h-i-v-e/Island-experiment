@@ -444,7 +444,7 @@ namespace Motu.Editor
                 light.type = LightType.Directional;
                 light.intensity = 1;
                 RenderSettings.fog = false;
-                camera.Render();
+                UrpTestCamera.Render(camera);
                 RenderTexture.active = target;
                 pixels.ReadPixels(new Rect(0, 0, 32, 32), 0, 0);
                 pixels.Apply();
@@ -717,7 +717,7 @@ namespace Motu.Editor
                 {
                     camera.transform.position = eye;
                     camera.transform.LookAt(lookAt);
-                    camera.Render();
+                    UrpTestCamera.Render(camera);
                     RenderTexture.active = target;
                     image.ReadPixels(new Rect(0, 0, 1024, 768), 0, 0);
                     image.Apply();

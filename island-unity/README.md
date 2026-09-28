@@ -444,8 +444,8 @@ and less strongly perturbed relief. These change nearby lighting without changin
 mesh geometry.
 
 The sandbox camera also runs real-time screen-space ambient occlusion in the
-Built-in Render Pipeline. It reconstructs nearby opaque geometry from the
-camera depth-normal texture, evaluates a fixed sphere-sample kernel at half
+Universal Render Pipeline. Its Render Graph pass reconstructs nearby opaque geometry and normals from the
+camera depth texture, evaluates a fixed sphere-sample kernel at half
 resolution, and applies a depth- and normal-aware blur before transparent water
 is drawn. This adds live contact shading to terrain folds, cliff joins, and
 streamed rocks without baking another island texture. Tune the
@@ -595,7 +595,7 @@ For an editor compile plus native ABI, streamed tile, UV, support mesh,
 waterfall-foot export, fog-pool, and collider-cooking check, run:
 
 ```sh
-/Applications/Unity/Hub/Editor/6000.5.6f1/Unity.app/Contents/MacOS/Unity \
+/Applications/Unity/Hub/Editor/6000.6.0f1/Unity.app/Contents/MacOS/Unity \
   -batchmode -nographics -projectPath "$PWD" \
   -executeMethod Motu.Editor.UnityValidation.Run -quit
 ```
@@ -832,3 +832,22 @@ are removed. The coast overlay retains its shallow-water tint and edge fade.
 Flowing river foam, waterfall whitewater, refraction and geometric ocean waves
 remain active. The obsolete bank-band and coastal-stripe material controls have
 also been removed.
+
+## URP rendering
+
+The project uses URP 17.6 with Render Graph on Unity 6.6. `Assets/Settings/MotuURP.asset`
+is assigned at every quality level. `MotuRendererFeature` preserves the procedural
+grass and foliage shell passes, ambient occlusion before water refraction, and
+underwater composition after transparents. Water samples URP's full-resolution opaque
+texture and copied depth. Reflections use a separate renderer with simplified material
+passes; materials without those passes retain their normal URP rendering.
+
+`MotuUrp.hlsl` supplies URP transforms, main-light shadows, fog, ambient probes and
+additional-light helpers to the existing procedural material calculations. The cave
+shader evaluates the torch in its forward pass. The sample torch intensity is 6 to
+account for URP's distance attenuation. Surface shaders have explicit URP passes,
+and camera preparation uses `RenderPipelineManager` callbacks.
+
+Run `./validate.sh --suite graphics` for the pixel-based rendering checks, or
+`./validate.sh --suite all` for the complete suite and player build. Graphics tests
+submit URP camera render requests to explicit render textures.

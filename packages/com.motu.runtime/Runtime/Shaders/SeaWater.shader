@@ -77,7 +77,7 @@ Shader "Motu/Sea Water"
 
     SubShader
     {
-        Tags { "Queue"="Transparent" "RenderType"="Transparent" }
+        Tags { "RenderPipeline"="UniversalPipeline" "Queue"="Transparent" "RenderType"="Transparent" }
         Blend SrcAlpha OneMinusSrcAlpha
         // The composed deep-ocean colour is opaque. Writing depth prevents
         // distant wave triangles and their back faces from being drawn over
@@ -85,18 +85,21 @@ Shader "Motu/Sea Water"
         ZWrite On
         Cull Off
 
-        GrabPass { "_MotuWaterBackground" }
+
 
         Pass
         {
-            Tags { "LightMode"="ForwardBase" }
+            Tags { "LightMode"="UniversalForwardOnly" }
 
-            CGPROGRAM
+            HLSLPROGRAM
             #pragma vertex Vertex
             #pragma fragment Fragment
             #pragma target 3.5
             #pragma multi_compile_fog
-            #pragma multi_compile_fwdbase
+            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
+            #pragma multi_compile_fragment _ _SHADOWS_SOFT
+            #pragma multi_compile _ _ADDITIONAL_LIGHTS
+            #pragma multi_compile_fragment _ _ADDITIONAL_LIGHT_SHADOWS
 
             #include "WaterCommon.cginc"
             #include "OceanSurfaceGeometry.cginc"
@@ -161,7 +164,7 @@ Shader "Motu/Sea Water"
                     length(input.vertex.xz), output.deckWaveData);
                 output.pos = UnityWorldToClipPos(displacedWorldPosition);
                 output.screenPosition = ComputeScreenPos(output.pos);
-                output.grabPosition = ComputeGrabScreenPos(output.pos);
+                output.grabPosition = ComputeScreenPos(output.pos);
                 output.surfaceEyeDepth = -mul(
                     UNITY_MATRIX_V,
                     float4(displacedWorldPosition, 1.0)).z;
@@ -237,7 +240,7 @@ Shader "Motu/Sea Water"
                         smoothstep(.97, 1, sinTransmittedSquared));
                     float2 uv = input.grabPosition.xy / input.grabPosition.w;
                     float2 offset = mul((float3x3)UNITY_MATRIX_V, worldNormal).xy * _RefractionStrength * .15;
-                    float3 throughSurface = tex2D(_MotuWaterBackground, saturate(uv + offset)).rgb;
+                    float3 throughSurface = tex2D(_CameraOpaqueTexture, saturate(uv + offset)).rgb;
                     float3 underside = _Color.rgb * waterIllumination;
                     return float4(lerp(throughSurface, underside, reflection), 1);
                 }
@@ -268,7 +271,7 @@ Shader "Motu/Sea Water"
                 UNITY_APPLY_FOG(input.fogCoord, result);
                 return result;
             }
-            ENDCG
+            ENDHLSL
         }
     }
 }

@@ -6,7 +6,7 @@ Shader "Hidden/Motu/Tests/River Surface"
         Pass
         {
             ZTest Always ZWrite Off Cull Off
-            CGPROGRAM
+            HLSLPROGRAM
             #pragma vertex vert_img
             #pragma fragment Frag
             #pragma target 3.5
@@ -28,7 +28,7 @@ Shader "Hidden/Motu/Tests/River Surface"
                 float3 normal = MotuRiverDetailNormal(position, baseNormal, metres, _ProbeTime, _ProbeRapids, roughness);
                 return float4(normal, roughness);
             }
-            ENDCG
+            ENDHLSL
         }
     }
 }

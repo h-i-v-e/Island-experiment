@@ -8,31 +8,39 @@ Shader "Motu/Terrain Occlusion"
     }
     SubShader
     {
-        Tags { "RenderType"="Opaque" }
+        Tags { "RenderPipeline"="UniversalPipeline" "RenderType"="Opaque" }
         LOD 300
 
-        CGPROGRAM
-        #pragma surface Surface Standard fullforwardshadows addshadow
-        #pragma target 3.0
-
-        sampler2D _Occlusion;
-        fixed4 _Color;
-        half _OcclusionStrength;
-
-        struct Input
+        Pass
         {
-            float2 uv_Occlusion;
-            float3 worldPos;
-            float3 worldNormal;
-        };
-
-        void Surface(Input input, inout SurfaceOutputStandard output)
-        {
-            half occlusion = tex2D(_Occlusion, input.uv_Occlusion).r;
-            half bakedOcclusion = lerp(1.0, occlusion, _OcclusionStrength);
-            output.Occlusion = bakedOcclusion;
-
-            float elevation = input.worldPos.y;
+            Tags { "LightMode"="UniversalForwardOnly" }
+            HLSLPROGRAM
+            #pragma vertex Vertex
+            #pragma fragment Fragment
+            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE
+            #pragma multi_compile_fragment _ _SHADOWS_SOFT
+            #pragma multi_compile _ _ADDITIONAL_LIGHTS
+            #pragma multi_compile_fragment _ _ADDITIONAL_LIGHT_SHADOWS
+            #pragma multi_compile_fog
+            #include "MotuUrp.hlsl"
+            half4 _Color;
+            sampler2D _Occlusion; half _OcclusionStrength;
+            struct Attributes { float4 vertex : POSITION; float3 normal : NORMAL; float2 uv : TEXCOORD0; };
+            struct Varyings { float4 pos : SV_POSITION; float3 worldPosition : TEXCOORD0; half3 worldNormal : TEXCOORD1; float2 uv : TEXCOORD2; float fog : TEXCOORD3; };
+            Varyings Vertex(Attributes input)
+            {
+                Varyings output;
+                output.pos = TransformObjectToHClip(input.vertex.xyz);
+                output.worldPosition = TransformObjectToWorld(input.vertex.xyz);
+                output.worldNormal = TransformObjectToWorldNormal(input.normal);
+                output.uv = input.uv;
+                output.fog = ComputeFogFactor(output.pos.z);
+                return output;
+            }
+            half4 Fragment(Varyings input) : SV_Target
+            {
+                half bakedOcclusion = lerp(1.0, tex2D(_Occlusion, input.uv).r, _OcclusionStrength);
+            float elevation = input.worldPosition.y;
             float slope = 1.0 - saturate(input.worldNormal.y);
             fixed3 deep = fixed3(0.08, 0.16, 0.12);
             fixed3 sand = fixed3(0.62, 0.57, 0.34);
@@ -47,11 +55,29 @@ Shader "Motu/Terrain Occlusion"
             // Standard's Occlusion output attenuates indirect lighting only.
             // Apply the baked terrain occlusion to albedo as well so it remains
             // visible beneath the viewer's dominant directional sunlight.
-            output.Albedo = baseColor * _Color.rgb * bakedOcclusion;
-            output.Smoothness = 0.08;
-            output.Metallic = 0.0;
+            half3 albedo = baseColor * _Color.rgb * bakedOcclusion;
+
+                half3 normal = normalize(input.worldNormal);
+                InputData lighting = (InputData)0;
+                lighting.positionWS = input.worldPosition;
+                lighting.normalWS = normal;
+                lighting.viewDirectionWS = GetWorldSpaceNormalizeViewDir(input.worldPosition);
+                lighting.shadowCoord = TransformWorldToShadowCoord(input.worldPosition);
+                lighting.bakedGI = SampleSH(normal);
+                lighting.normalizedScreenSpaceUV = GetNormalizedScreenSpaceUV(input.pos);
+                lighting.shadowMask = half4(1,1,1,1);
+                SurfaceData surface = (SurfaceData)0;
+                surface.albedo = albedo;
+                surface.smoothness = 0.08;
+                surface.occlusion = bakedOcclusion;
+                surface.alpha = 1;
+                half4 colour = UniversalFragmentPBR(lighting, surface);
+                colour.rgb = MixFog(colour.rgb, input.fog);
+                return colour;
+            }
+            ENDHLSL
         }
-        ENDCG
+        UsePass "Hidden/Motu/Depth/ShadowCaster"
     }
-    FallBack "Diffuse"
+    FallBack Off
 }

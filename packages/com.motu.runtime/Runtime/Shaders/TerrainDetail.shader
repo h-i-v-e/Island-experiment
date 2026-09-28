@@ -83,24 +83,27 @@ Shader "Motu/Terrain Unified"
 
     SubShader
     {
-        Tags { "RenderType"="Opaque" "Queue"="Geometry" "MotuReflection"="Terrain" }
+        Tags { "RenderPipeline"="UniversalPipeline" "RenderType"="Opaque" "Queue"="Geometry" "MotuReflection"="Terrain" }
         LOD 300
 
         Pass
         {
-            Tags { "LightMode"="ForwardBase" }
+            Tags { "LightMode"="UniversalForwardOnly" }
 
-            CGPROGRAM
+            HLSLPROGRAM
             #pragma vertex Vertex
             #pragma fragment Fragment
             #pragma target 3.5
-            #pragma multi_compile_fwdbase
+            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
+            #pragma multi_compile_fragment _ _SHADOWS_SOFT
+            #pragma multi_compile _ _ADDITIONAL_LIGHTS
+            #pragma multi_compile_fragment _ _ADDITIONAL_LIGHT_SHADOWS
             #pragma multi_compile_fog
             #pragma shader_feature_local_fragment _ MOTU_TERRAIN_LOD1 MOTU_TERRAIN_LOD2
 
-            #include "UnityCG.cginc"
-            #include "Lighting.cginc"
-            #include "AutoLight.cginc"
+            #include "MotuUrp.hlsl"
+
+
 
             struct VertexInput
             {
@@ -1106,11 +1109,13 @@ Shader "Motu/Terrain Unified"
                 return color;
                 #endif
             }
-            ENDCG
+            ENDHLSL
         }
 
-        UsePass "Legacy Shaders/VertexLit/SHADOWCASTER"
+        UsePass "Hidden/Motu/Depth/ShadowCaster"
+        UsePass "Motu/Planar Reflection Simplified/ReflectionTerrain"
+
     }
 
-    FallBack "Diffuse"
+    FallBack Off
 }

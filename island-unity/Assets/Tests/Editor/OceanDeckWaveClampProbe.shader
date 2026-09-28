@@ -6,11 +6,11 @@ Shader "Hidden/Motu/Tests/Deck Wave Clamp"
         Pass
         {
             ZTest Always Cull Off ZWrite Off
-            CGPROGRAM
+            HLSLPROGRAM
             #pragma vertex vert_img
             #pragma fragment Fragment
             #pragma target 3.5
-            #include "UnityCG.cginc"
+            #include "Packages/com.motu.runtime/Runtime/Shaders/MotuUrp.hlsl"
             #include "Packages/com.motu.runtime/Runtime/Shaders/OceanDeckWaveClamp.cginc"
             sampler2D _MainTex;
             float4 Fragment(v2f_img input) : SV_Target
@@ -19,7 +19,7 @@ Shader "Hidden/Motu/Tests/Deck Wave Clamp"
                 float weight = MotuDeckWaveClampWeight(sample.xy);
                 return float4(sample.w + MotuClampDeckWaveHeight(sample.z, weight), weight, 0, 1);
             }
-            ENDCG
+            ENDHLSL
         }
     }
 }

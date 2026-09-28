@@ -307,7 +307,7 @@ namespace Motu.Editor
                 shadowVariants.WarmUp();
 
                 target.Create();
-                camera.Render();
+                UrpTestCamera.Render(camera);
 
                 if (ShaderUtil.ShaderHasError(woodShader)
                     || ShaderUtil.ShaderHasError(foliageShader)

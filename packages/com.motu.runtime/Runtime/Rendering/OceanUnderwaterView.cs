@@ -35,23 +35,21 @@ namespace Motu.Rendering
             material = null;
         }
 
-        private void OnRenderImage(RenderTexture source, RenderTexture destination)
+        internal Material PrepareMaterial()
         {
             if (ocean == null || ocean.SurfaceMaterial == null || ocean.SurfaceMesh == null
                 || ocean.SurfaceTransform == null || !ocean.SurfaceTransform.gameObject.activeInHierarchy
                 || (view.cullingMask & (1 << ocean.SurfaceTransform.gameObject.layer)) == 0
                 || PlanarWaterReflection.IsReflectionCamera(view))
             {
-                Graphics.Blit(source, destination);
-                return;
+                return null;
             }
             if (material == null)
             {
                 var shader = Resources.Load<Shader>("OceanUnderwater");
                 if (shader == null || !shader.isSupported)
                 {
-                    Graphics.Blit(source, destination);
-                    return;
+                    return null;
                 }
                 material = new Material(shader) { hideFlags = HideFlags.HideAndDontSave };
             }
@@ -76,34 +74,7 @@ namespace Motu.Rendering
             var tint = ocean.SurfaceMaterial.GetColor("_Color").linear;
             material.SetColor("_UnderwaterScatter", tint * illumination);
 
-            // Only the small near-plane map evaluates inverse wave positions.
-            // The full-resolution interface uses the actual displaced ocean mesh.
-            var near = RenderTexture.GetTemporary(32, 32, 0, RenderTextureFormat.RFloat, RenderTextureReadWrite.Linear);
-            var surface = RenderTexture.GetTemporary(source.width, source.height, 24,
-                RenderTextureFormat.RGFloat, RenderTextureReadWrite.Linear);
-            near.filterMode = FilterMode.Bilinear;
-            near.wrapMode = surface.wrapMode = TextureWrapMode.Clamp;
-            surface.filterMode = FilterMode.Point;
-            try
-            {
-                Graphics.Blit(source, near, material, 0);
-                Graphics.SetRenderTarget(surface);
-                GL.Clear(true, true, Color.clear);
-                material.SetPass(1);
-                Graphics.DrawMeshNow(ocean.SurfaceMesh, ocean.SurfaceTransform.localToWorldMatrix);
-                material.SetTexture("_UnderwaterNear", near);
-                material.SetTexture("_UnderwaterSurface", surface);
-                // Rebind after the explicit mesh pass; its texture slots differ.
-                material.SetTexture("_MainTex", source);
-                Graphics.Blit(source, destination, material, 2);
-            }
-            finally
-            {
-                // Image effects must leave their destination bound for the camera pipeline.
-                Graphics.SetRenderTarget(destination);
-                RenderTexture.ReleaseTemporary(surface);
-                RenderTexture.ReleaseTemporary(near);
-            }
+            return material;
         }
     }
 }

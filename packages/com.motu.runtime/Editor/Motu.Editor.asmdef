@@ -2,7 +2,11 @@
   "name": "Motu.Editor",
   "rootNamespace": "Motu",
   "references": [
-    "Motu.Runtime"
+    "Motu.Runtime",
+    "Unity.RenderPipelines.Core.Runtime",
+    "Unity.RenderPipelines.Universal.Runtime",
+    "Unity.RenderPipelines.Core.Editor",
+    "Unity.RenderPipelines.Universal.Editor"
   ],
   "includePlatforms": [
     "Editor"

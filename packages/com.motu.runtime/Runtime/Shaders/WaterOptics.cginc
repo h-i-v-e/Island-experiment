@@ -63,12 +63,9 @@ float3 MotuWaterRefractDepthSafe(float4 grabPosition, float4 screenPosition, flo
     float2 offset = (ripple + viewNormal * .22) * _RefractionStrength * depthWeight
         * lerp(.25, 1, saturate(dot(normal, view)));
     offset *= min(MotuWaterViewportFade(grabUv), MotuWaterViewportFade(depthUv));
-    // GrabPass and camera-depth textures can have opposite Y conventions.
+    // URP opaque colour and depth share the same viewport orientation.
     float2 depthOffset = offset;
-    #if UNITY_UV_STARTS_AT_TOP
-    depthOffset.y *= -_ProjectionParams.x;
-    #endif
-    float2 inset = abs(_MotuWaterBackground_TexelSize.xy) * 1.5;
+    float2 inset = abs(_CameraOpaqueTexture_TexelSize.xy) * 1.5;
     float2 candidateUv = depthUv + depthOffset;
     float inBounds = MotuWaterViewportFade((candidateUv - inset) / max(1 - 2 * inset, .001));
     float candidateDepth = MotuWaterEyeDepth(SAMPLE_DEPTH_TEXTURE(_CameraDepthTexture, saturate(candidateUv)));
@@ -85,7 +82,7 @@ float3 MotuWaterRefractDepthSafe(float4 grabPosition, float4 screenPosition, flo
     float3 viewInCamera = mul((float3x3)UNITY_MATRIX_V, view);
     pathLength = min(1000, eyeDistance / max(abs(viewInCamera.z), .05));
     scenePosition = MotuWaterScenePosition(finalDepthUv, finalDepth);
-    return tex2D(_MotuWaterBackground, finalGrabUv).rgb;
+    return tex2D(_CameraOpaqueTexture, finalGrabUv).rgb;
 }
 
 float3 MotuWaterRefractDepthSafe(float4 grabPosition, float4 screenPosition, float surfaceEyeDepth,

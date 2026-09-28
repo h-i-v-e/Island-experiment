@@ -110,7 +110,7 @@ namespace Motu.Editor
                 torch.renderMode = LightRenderMode.ForcePixel;
                 torch.range = 35;
                 torch.spotAngle = 75;
-                torch.intensity = 4;
+                torch.intensity = 6;
                 torch.shadows = LightShadows.Soft;
                 torch.cullingMask = 1 << 31;
                 RenderSettings.fog = false;
@@ -118,7 +118,7 @@ namespace Motu.Editor
                 RenderSettings.ambientLight = Color.black;
                 float Brightness()
                 {
-                    camera.Render();
+                    UrpTestCamera.Render(camera);
                     RenderTexture.active = target;
                     pixels.ReadPixels(new Rect(0, 0, 64, 64), 0, 0);
                     pixels.Apply();

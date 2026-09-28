@@ -11,7 +11,7 @@ Shader "Hidden/Motu/Ocean Wave Attenuation"
 
     SubShader
     {
-        Tags { "RenderType" = "Opaque" }
+        Tags { "RenderPipeline"="UniversalPipeline" "RenderType" = "Opaque" }
         Cull Off
         ZWrite Off
         ZTest Always
@@ -21,12 +21,12 @@ Shader "Hidden/Motu/Ocean Wave Attenuation"
 
         Pass
         {
-            CGPROGRAM
+            HLSLPROGRAM
             #pragma vertex vert_img
             #pragma fragment Fragment
             #pragma target 3.5
 
-            #include "UnityCG.cginc"
+            #include "MotuUrp.hlsl"
             #include "SeaMaskCommon.cginc"
 
             sampler2D _SeaMask;
@@ -70,7 +70,7 @@ Shader "Hidden/Motu/Ocean Wave Attenuation"
                     saturate(1.0h - seaMask.r),
                     riverCarveAllowance);
             }
-            ENDCG
+            ENDHLSL
         }
     }
 }

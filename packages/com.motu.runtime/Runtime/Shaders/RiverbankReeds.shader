@@ -11,9 +11,9 @@ Shader "Motu/Riverbank Reeds"
         [HideInInspector] _GrassPlayerPosition ("Player Position", Vector) = (0, 0, 0, 0)
     }
 
-    CGINCLUDE
-    #include "UnityCG.cginc"
-    #include "Lighting.cginc"
+    HLSLINCLUDE
+    #include "MotuUrp.hlsl"
+
 
     fixed4 _BaseColor;
     fixed4 _TipColor;
@@ -144,24 +144,27 @@ Shader "Motu/Riverbank Reeds"
         clip(silhouette - _Cutoff);
         clip(fade - dither);
     }
-    ENDCG
+    ENDHLSL
 
     SubShader
     {
-        Tags { "RenderType"="MotuReedCutout" "Queue"="AlphaTest" "IgnoreProjector"="True" "MotuReflection"="Reeds" }
+        Tags { "RenderPipeline"="UniversalPipeline" "RenderType"="MotuReedCutout" "Queue"="AlphaTest" "IgnoreProjector"="True" "MotuReflection"="Reeds" }
         Cull Off
         AlphaToMask On
 
         Pass
         {
-            Tags { "LightMode"="ForwardBase" }
+            Tags { "LightMode"="UniversalForwardOnly" }
             ZWrite On
 
-            CGPROGRAM
+            HLSLPROGRAM
             #pragma vertex ReedVertex
             #pragma fragment ReedFragment
             #pragma target 3.0
-            #pragma multi_compile_fwdbase
+            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
+            #pragma multi_compile_fragment _ _SHADOWS_SOFT
+            #pragma multi_compile _ _ADDITIONAL_LIGHTS
+            #pragma multi_compile_fragment _ _ADDITIONAL_LIGHT_SHADOWS
             #pragma multi_compile_fog
             #pragma multi_compile_instancing
 
@@ -188,7 +191,7 @@ Shader "Motu/Riverbank Reeds"
                 UNITY_APPLY_FOG(input.fogCoord, result);
                 return result;
             }
-            ENDCG
+            ENDHLSL
         }
 
         Pass
@@ -197,19 +200,18 @@ Shader "Motu/Riverbank Reeds"
             ZWrite On
             ZTest LEqual
 
-            CGPROGRAM
+            HLSLPROGRAM
             #pragma vertex ShadowVertex
             #pragma fragment ShadowFragment
             #pragma target 3.0
-            #pragma multi_compile_shadowcaster
+            #pragma multi_compile_vertex _ _CASTING_PUNCTUAL_LIGHT_SHADOW
 
             ReedShadowOutput ShadowVertex(ReedVertexInput input)
             {
                 ReedShadowOutput output;
                 float3 worldPosition = ReedWorldPosition(input);
                 float3 normal = UnityObjectToWorldNormal(input.normal);
-                output.pos = UnityApplyLinearShadowBias(
-                    UnityWorldToClipPos(worldPosition + normal * unity_LightShadowBias.z));
+                output.pos = MotuShadowPosition(worldPosition, normal);
                 output.uv = input.uv;
                 output.data = input.data;
                 output.rootDistance = distance(worldPosition.xz, _GrassPlayerPosition.xz);
@@ -229,8 +231,10 @@ Shader "Motu/Riverbank Reeds"
                 clip(fade - dither);
                 return 0;
             }
-            ENDCG
+            ENDHLSL
         }
+        UsePass "Motu/Planar Reflection Simplified/ReflectionReeds"
+
     }
     FallBack Off
 }

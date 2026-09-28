@@ -3,16 +3,17 @@ Shader "Hidden/Motu/Ocean Ship Wave Stamp"
     Properties { _StampTexture ("Linear displacement stamp", 2D) = "gray" {} }
     SubShader
     {
+        Tags { "RenderPipeline"="UniversalPipeline" }
         Pass
         {
             ZTest Always ZWrite Off Cull Off
             Blend One One
             BlendOp Max
-            CGPROGRAM
+            HLSLPROGRAM
             #pragma vertex Vertex
             #pragma fragment Fragment
             #pragma target 3.5
-            #include "UnityCG.cginc"
+            #include "../MotuUrp.hlsl"
             sampler2D _StampTexture;
             float4 _StampStrength;
             float4 _StampClampShape;
@@ -79,7 +80,7 @@ Shader "Hidden/Motu/Ocean Ship Wave Stamp"
                 float down = HullClamp(input.uv);
                 return float4(down * _StampStrength.x, up * _StampStrength.y, up * _StampStrength.z, 0);
             }
-            ENDCG
+            ENDHLSL
         }
     }
 }

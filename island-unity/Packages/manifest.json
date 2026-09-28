@@ -1,17 +1,19 @@
 {
   "dependencies": {
-    "com.unity.ide.visualstudio": "2.0.25",
-    "com.unity.nuget.newtonsoft-json": "3.2.1",
+    "com.motu.navigation": "file:../../packages/com.motu.navigation",
+    "com.motu.runtime": "file:../../packages/com.motu.runtime",
+    "com.unity.ide.visualstudio": "2.0.26",
+    "com.unity.nuget.newtonsoft-json": "3.2.2",
+    "com.unity.test-framework": "1.8.0",
+    "com.unity.modules.ai": "1.0.0",
     "com.unity.modules.imgui": "1.0.0",
+    "com.unity.modules.jsonserialize": "1.0.0",
     "com.unity.modules.particlesystem": "1.0.0",
     "com.unity.modules.physics": "1.0.0",
     "com.unity.modules.terrain": "1.0.0",
     "com.unity.modules.terrainphysics": "1.0.0",
-    "com.unity.test-framework": "1.7.0",
-    "com.unity.modules.jsonserialize": "1.0.0",
-    "com.unity.modules.ai": "1.0.0",
-    "com.motu.runtime": "file:../../packages/com.motu.runtime",
-    "com.motu.navigation": "file:../../packages/com.motu.navigation"
+    "com.unity.modules.tetgen": "1.0.0",
+    "com.unity.render-pipelines.universal": "17.6.0"
   },
   "testables": [
     "com.motu.runtime"

@@ -1,5 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Rendering;
+using UnityEngine.Rendering.Universal;
 
 namespace Motu.Rendering
 {
@@ -12,6 +14,8 @@ namespace Motu.Rendering
         internal const string MatrixName = "_PlanarReflectionMatrix";
         internal const string AvailableName = "_PlanarReflectionAvailable";
         public const string ViewerPositionName = "_PlanarReflectionViewerPosition";
+        internal const string FogSettingsName = "_MotuReflectionFogSettings";
+        internal const string FogColorName = "_MotuReflectionFogColor";
         public const string SimplifiedShaderName = "Motu/Planar Reflection Simplified";
         public const string ReplacementTag = "MotuReflection";
 
@@ -20,6 +24,8 @@ namespace Motu.Rendering
         private static readonly int ReflectionAvailableId = Shader.PropertyToID(AvailableName);
         private static readonly int ReflectionViewerPositionId = Shader.PropertyToID(
             ViewerPositionName);
+        private static readonly int ReflectionFogSettingsId = Shader.PropertyToID(FogSettingsName);
+        private static readonly int ReflectionFogColorId = Shader.PropertyToID(FogColorName);
         private static readonly HashSet<Camera> ReflectionCameras = new HashSet<Camera>();
 
         [Tooltip("Transform whose local XZ plane defines sea level.")]
@@ -76,6 +82,7 @@ namespace Motu.Rendering
         private void OnEnable()
         {
             sourceCamera = GetComponent<Camera>();
+            RenderPipelineManager.beginCameraRendering += BeginCameraRendering;
             EnsureSourceDepthTexture();
             ResolveSimplifiedShader();
             Shader.SetGlobalFloat(ReflectionAvailableId, 0f);
@@ -83,6 +90,7 @@ namespace Motu.Rendering
 
         private void OnDisable()
         {
+            RenderPipelineManager.beginCameraRendering -= BeginCameraRendering;
             ReleaseResources();
         }
 
@@ -98,7 +106,10 @@ namespace Motu.Rendering
             frameInterval = Mathf.Clamp(frameInterval, 1, 4);
         }
 
-        private void OnPreCull() => PrepareReflection();
+        private void BeginCameraRendering(ScriptableRenderContext context, Camera camera)
+        {
+            if (camera == sourceCamera) PrepareReflection();
+        }
 
         internal void PrepareReflection()
         {
@@ -234,6 +245,19 @@ namespace Motu.Rendering
             Shader.SetGlobalVector(
                 ReflectionViewerPositionId,
                 sourceCamera.transform.position);
+            // Supply scene fog to the reflection renderer's depth-based pass
+            // so its haze is measured from the real viewer, not the mirrored eye.
+            var fogMode = !RenderSettings.fog ? 0f : RenderSettings.fogMode switch
+            {
+                FogMode.ExponentialSquared => 1f,
+                FogMode.Exponential => 2f,
+                FogMode.Linear => 3f,
+                _ => 0f,
+            };
+            Shader.SetGlobalVector(ReflectionFogSettingsId, new Vector4(
+                RenderSettings.fogDensity, RenderSettings.fogStartDistance,
+                RenderSettings.fogEndDistance, fogMode));
+            Shader.SetGlobalColor(ReflectionFogColorId, RenderSettings.fogColor);
 
             var previousInvertCulling = GL.invertCulling;
             try
@@ -244,16 +268,14 @@ namespace Motu.Rendering
                     : null;
                 lastRenderUsedSimplifiedShader = replacementShader != null
                     && replacementShader.isSupported;
-                if (lastRenderUsedSimplifiedShader)
-                {
-                    reflectionCamera.RenderWithShader(
-                        replacementShader,
-                        ReplacementTag);
-                }
-                else
-                {
-                    reflectionCamera.Render();
-                }
+                var cameraData = reflectionCamera.GetUniversalAdditionalCameraData();
+                cameraData.renderShadows = false;
+                cameraData.requiresColorOption = CameraOverrideOption.Off;
+                cameraData.requiresDepthOption = RenderSettings.fog
+                    ? CameraOverrideOption.On : CameraOverrideOption.Off;
+                cameraData.SetRenderer(lastRenderUsedSimplifiedShader ? 1 : 0);
+                RenderPipeline.SubmitRenderRequest(reflectionCamera,
+                    new UniversalRenderPipeline.SingleCameraRequest { destination = reflectionTexture });
             }
             finally
             {
@@ -296,7 +318,7 @@ namespace Motu.Rendering
             // An oblique near plane must leave the camera on its rejected side.
             // While the viewer submerges, the mirrored eye reaches this plane
             // (at -clipPlaneOffset) and then crosses it. A plane through the eye
-            // makes the projection singular and RenderWithShader reports invalid
+            // makes the projection singular and camera culling reports invalid
             // frustum corners. Keep at least 1 cm between the eye and clip plane;
             // the normal above-water reflection and its waterline stay unchanged.
             var cameraDistance = Mathf.Min(

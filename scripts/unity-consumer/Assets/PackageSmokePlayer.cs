@@ -8,6 +8,8 @@ using Motu.Settings;
 using Motu.Streaming;
 using Motu.World;
 using UnityEngine;
+using UnityEngine.Rendering;
+using UnityEngine.Rendering.Universal;
 using UnityEngine.SceneManagement;
 
 // Only included in the standalone consumer fixture, never the reusable runtime.
@@ -52,7 +54,10 @@ public sealed class PackageSmokePlayer : MonoBehaviour
             await ValidateTravelStreaming(island);
             var target = new RenderTexture(320, 180, 24);
             camera.targetTexture = target;
-            camera.Render();
+            camera.gameObject.AddComponent<RealTimeAmbientOcclusion>();
+            camera.GetUniversalAdditionalCameraData();
+            RenderPipeline.SubmitRenderRequest(camera,
+                new UniversalRenderPipeline.SingleCameraRequest { destination = target });
             var previous = RenderTexture.active;
             RenderTexture.active = target;
             var capture = new Texture2D(320, 180, TextureFormat.RGBA32, false);

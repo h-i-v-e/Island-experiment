@@ -1,11 +1,14 @@
 using System;
 using UnityEngine;
+using UnityEngine.Rendering;
 using UnityEngine.SceneManagement;
 
 namespace Motu.World
 {
     public sealed partial class WorldEnvironmentController
     {
+        private void PrepareSrpCamera(ScriptableRenderContext context, Camera camera) => PrepareCameraRender(camera);
+
         private static WorldEnvironmentController activeOwner;
         private EnvironmentHostState hostState;
         private bool seaVisible;
@@ -19,7 +22,7 @@ namespace Motu.World
                 throw new InvalidOperationException("Motu supports one active global environment. Disable the current owner before initializing another.");
             hostState = new EnvironmentHostState();
             activeOwner = this;
-            Camera.onPreCull += PrepareCameraRender;
+            RenderPipelineManager.beginCameraRendering += PrepareSrpCamera;
             SceneManager.activeSceneChanged += ActiveSceneChanged;
             ApplyWeatherWindGlobals(Vector2.right, ReferenceWindSpeedMetresPerSecond);
             ApplyWeatherWindOffset(Vector2.zero);
@@ -27,7 +30,7 @@ namespace Motu.World
 
         private void ReleaseEnvironment()
         {
-            Camera.onPreCull -= PrepareCameraRender;
+            RenderPipelineManager.beginCameraRendering -= PrepareSrpCamera;
             SceneManager.activeSceneChanged -= ActiveSceneChanged;
             if (hostState == null) return;
             if (skyDomeObject != null) skyDomeObject.SetActive(false);

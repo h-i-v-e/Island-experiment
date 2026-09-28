@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using System.IO;
 using Motu.Rendering;
@@ -261,7 +262,7 @@ namespace Motu.Editor
             var floor = GameObject.CreatePrimitive(PrimitiveType.Plane);
             var cameraObject = new GameObject("Seabed cutoff validation camera");
             var material = new Material(Shader.Find("Motu/Sea Water"));
-            var bed = new Material(Shader.Find("Standard"));
+            var bed = new Material(Shader.Find("Universal Render Pipeline/Lit"));
             var target = new RenderTexture(128, 128, 24, RenderTextureFormat.ARGBFloat);
             var readback = new Texture2D(128, 128, TextureFormat.RGBAFloat, false, true);
             var oldTarget = RenderTexture.active;
@@ -296,7 +297,7 @@ namespace Motu.Editor
                 float Capture(bool visible)
                 {
                     floor.SetActive(visible);
-                    camera.Render();
+                    UrpTestCamera.Render(camera);
                     RenderTexture.active = target;
                     readback.ReadPixels(new Rect(0, 0, 128, 128), 0, 0);
                     readback.Apply();
@@ -448,8 +449,8 @@ namespace Motu.Editor
             var hull = GameObject.CreatePrimitive(PrimitiveType.Cube);
             var cameraObject = new GameObject("Refraction validation camera");
             var material = new Material(Shader.Find("Hidden/Motu/Tests/Ocean Refraction"));
-            var red = new Material(Shader.Find("Standard"));
-            var green = new Material(Shader.Find("Standard"));
+            var red = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+            var green = new Material(Shader.Find("Universal Render Pipeline/Lit"));
             var target = new RenderTexture(320, 320, 24);
             var readback = new Texture2D(320, 320, TextureFormat.RGB24, false);
             var oldTarget = RenderTexture.active;
@@ -483,7 +484,7 @@ namespace Motu.Editor
                 {
                     material.SetFloat("_RefractionStrength", strength);
                     material.SetFloat("_ProbeSafe", safe ? 1 : 0);
-                    camera.Render();
+                    UrpTestCamera.Render(camera);
                     RenderTexture.active = target;
                     readback.ReadPixels(new Rect(0, 0, 320, 320), 0, 0);
                     readback.Apply();
@@ -611,6 +612,81 @@ namespace Motu.Editor
                 Object.DestroyImmediate(below);
                 Object.DestroyImmediate(red);
                 Object.DestroyImmediate(blue);
+                Object.DestroyImmediate(pixels);
+                target.Release();
+                Object.DestroyImmediate(target);
+            }
+        }
+
+        [Test]
+        public void SimplifiedPlanarReflectionUsesSceneDistanceFog()
+        {
+            EditorSceneManager.NewScene(NewSceneSetup.EmptyScene);
+            var cameraObject = new GameObject("Fog reflection camera");
+            var planeObject = new GameObject("Fog reflection plane");
+            var cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            var material = new Material(Shader.Find("Motu/Terrain Unified")) { color = Color.red };
+            var target = new RenderTexture(320, 180, 24);
+            var pixels = new Texture2D(160, 90, TextureFormat.RGBA32, false);
+            var previousActive = RenderTexture.active;
+            var previousFog = RenderSettings.fog;
+            var previousMode = RenderSettings.fogMode;
+            var previousDensity = RenderSettings.fogDensity;
+            var previousColor = RenderSettings.fogColor;
+            try
+            {
+                cube.GetComponent<Renderer>().sharedMaterial = material;
+                cube.transform.position = new Vector3(0, 2, 0);
+                var camera = cameraObject.AddComponent<Camera>();
+                camera.enabled = false;
+                camera.clearFlags = CameraClearFlags.SolidColor;
+                camera.backgroundColor = Color.black;
+                camera.targetTexture = target;
+                cameraObject.transform.SetPositionAndRotation(
+                    new Vector3(0, 2, -10), Quaternion.Euler(10, 0, 0));
+                var reflection = cameraObject.AddComponent<PlanarWaterReflection>();
+                reflection.Configure(planeObject.transform);
+                var settings = new SerializedObject(reflection);
+                settings.FindProperty("frameInterval").intValue = 1;
+                settings.ApplyModifiedPropertiesWithoutUndo();
+
+                RenderSettings.fog = false;
+                reflection.PrepareReflection();
+                RenderTexture.active = reflection.ReflectionCamera.targetTexture;
+                pixels.ReadPixels(new Rect(0, 0, 160, 90), 0, 0);
+                pixels.Apply();
+                var clear = pixels.GetPixels();
+                var redIndex = Array.FindIndex(clear, pixel => pixel.r > 0.05f
+                    && pixel.r > pixel.b * 2f);
+                Assert.That(redIndex, Is.GreaterThanOrEqualTo(0),
+                    "The un-fogged test object must be visible in the reflection.");
+
+                RenderSettings.fog = true;
+                RenderSettings.fogMode = FogMode.ExponentialSquared;
+                RenderSettings.fogDensity = 0.5f;
+                RenderSettings.fogColor = Color.blue;
+                var previousRenders = reflection.ReflectionRenderCount;
+                reflection.PrepareReflection();
+                Assert.That(reflection.ReflectionRenderCount, Is.EqualTo(previousRenders + 1));
+                pixels.ReadPixels(new Rect(0, 0, 160, 90), 0, 0);
+                pixels.Apply();
+                var hazy = pixels.GetPixels()[redIndex];
+                Assert.That(hazy.b, Is.GreaterThan(0.3f),
+                    "Distant reflected geometry must take on the fog colour.");
+                Assert.That(hazy.r, Is.LessThan(clear[redIndex].r),
+                    "Fog must reduce the reflected object's un-fogged colour.");
+            }
+            finally
+            {
+                RenderSettings.fog = previousFog;
+                RenderSettings.fogMode = previousMode;
+                RenderSettings.fogDensity = previousDensity;
+                RenderSettings.fogColor = previousColor;
+                RenderTexture.active = previousActive;
+                Object.DestroyImmediate(cameraObject);
+                Object.DestroyImmediate(planeObject);
+                Object.DestroyImmediate(cube);
+                Object.DestroyImmediate(material);
                 Object.DestroyImmediate(pixels);
                 target.Release();
                 Object.DestroyImmediate(target);

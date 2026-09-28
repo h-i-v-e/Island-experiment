@@ -30,28 +30,31 @@ Shader "Motu/Tree Foliage Distant"
 
     SubShader
     {
-        Tags { "RenderType"="Opaque" "Queue"="Geometry" "IgnoreProjector"="True" "MotuReflection"="Foliage" }
+        Tags { "RenderPipeline"="UniversalPipeline" "RenderType"="Opaque" "Queue"="Geometry" "IgnoreProjector"="True" "MotuReflection"="Foliage" }
         LOD 200
 
         Pass
         {
-            Tags { "LightMode"="ForwardBase" }
+            Tags { "LightMode"="UniversalForwardOnly" }
             Cull [_CullMode]
             // LOD1 and LOD2 deliberately render the coarse canopy as a solid
             // surface. Sub-pixel cutout holes shimmer and expose the sky.
             AlphaToMask Off
 
-            CGPROGRAM
+            HLSLPROGRAM
             #pragma vertex Vertex
             #pragma fragment Fragment
             #pragma target 3.0
-            #pragma multi_compile_fwdbase
+            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
+            #pragma multi_compile_fragment _ _SHADOWS_SOFT
+            #pragma multi_compile _ _ADDITIONAL_LIGHTS
+            #pragma multi_compile_fragment _ _ADDITIONAL_LIGHT_SHADOWS
             #pragma multi_compile_fog
             #pragma multi_compile_instancing
 
-            #include "UnityCG.cginc"
-            #include "Lighting.cginc"
-            #include "AutoLight.cginc"
+            #include "MotuUrp.hlsl"
+
+
             #include "TreeSurfaceNoise.cginc"
             #include "TreeWindCommon.cginc"
 
@@ -146,7 +149,7 @@ Shader "Motu/Tree Foliage Distant"
                     saturate(_MotuNightStrength));
                 return result;
             }
-            ENDCG
+            ENDHLSL
         }
 
         Pass
@@ -157,14 +160,14 @@ Shader "Motu/Tree Foliage Distant"
             ZWrite On
             ZTest LEqual
 
-            CGPROGRAM
+            HLSLPROGRAM
             #pragma vertex ShadowVertex
             #pragma fragment ShadowFragment
             #pragma target 3.0
-            #pragma multi_compile_shadowcaster
+            #pragma multi_compile_vertex _ _CASTING_PUNCTUAL_LIGHT_SHADOW
             #pragma multi_compile_instancing
 
-            #include "UnityCG.cginc"
+            #include "MotuUrp.hlsl"
             #include "TreeSurfaceNoise.cginc"
             #include "TreeWindCommon.cginc"
 
@@ -207,9 +210,11 @@ Shader "Motu/Tree Foliage Distant"
             {
                 SHADOW_CASTER_FRAGMENT(input)
             }
-            ENDCG
+            ENDHLSL
         }
+        UsePass "Motu/Planar Reflection Simplified/ReflectionFoliage"
+
     }
 
-    FallBack "Diffuse"
+    FallBack Off
 }

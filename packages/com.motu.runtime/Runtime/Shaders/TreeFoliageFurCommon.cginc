@@ -1,6 +1,6 @@
-#include "UnityCG.cginc"
-#include "Lighting.cginc"
-#include "AutoLight.cginc"
+#include "MotuUrp.hlsl"
+
+
 #include "TreeSurfaceNoise.cginc"
 #include "TreeWindCommon.cginc"
 

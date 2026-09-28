@@ -21,7 +21,7 @@ case "$suite" in
     contracts) test_filter=Motu.Editor.RuntimeContractsTests ;;
     lifecycle) test_filter='Motu.Editor.RuntimeContractsTests.GenerationCancellationInstallationAndUnload;Motu.Editor.RuntimeContractsTests.RuntimeOwnership;Motu.Editor.RuntimeContractsTests.CancellationAndRestart' ;;
     streaming) test_filter='Motu.Editor.RuntimeContractsTests.TerrainBatchUsesCombinedMeshIndices;Motu.Editor.BoulderTests;Motu.Editor.FallenLogTests;Motu.Editor.IslandLod3Tests' ;;
-    graphics) test_filter='Motu.Editor.Ocean;Motu.Editor.RiverSurfaceTests;Motu.Editor.RuntimeContractsTests.ShoreBreaking;Motu.Editor.RuntimeContractsTests.WaveTransitions;Motu.Editor.RuntimeContractsTests.WeatherAndWaves' ;;
+    graphics) test_filter='Motu.Editor.UrpRenderingTests;Motu.Editor.PlayerTorchTests;Motu.Editor.Ocean;Motu.Editor.RiverSurfaceTests;Motu.Editor.RuntimeContractsTests.ShoreBreaking;Motu.Editor.RuntimeContractsTests.WaveTransitions;Motu.Editor.RuntimeContractsTests.WeatherAndWaves' ;;
     navigation) test_filter=Motu.Editor.IslandNavigationTests ;;
     serialization) test_filter='Motu.Editor.RuntimeContractsTests.SupportedScenes;Motu.Editor.RuntimeContractsTests.ProfileCopiesPreserveValuesAndAuthoredAssets;Motu.Editor.RuntimeContractsTests.MaterialCacheRoundTrip' ;;
     all) test_filter=Motu ;;

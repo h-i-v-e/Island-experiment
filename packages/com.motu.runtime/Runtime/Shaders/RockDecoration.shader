@@ -12,24 +12,27 @@ Shader "Motu/Rock Decoration"
 
     SubShader
     {
-        Tags { "RenderType"="Opaque" "Queue"="Geometry" "MotuReflection"="Rock" }
+        Tags { "RenderPipeline"="UniversalPipeline" "RenderType"="Opaque" "Queue"="Geometry" "MotuReflection"="Rock" }
         LOD 250
 
         Pass
         {
-            Tags { "LightMode"="ForwardBase" }
+            Tags { "LightMode"="UniversalForwardOnly" }
 
-            CGPROGRAM
+            HLSLPROGRAM
             #pragma vertex Vertex
             #pragma fragment Fragment
             #pragma target 3.0
-            #pragma multi_compile_fwdbase
+            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
+            #pragma multi_compile_fragment _ _SHADOWS_SOFT
+            #pragma multi_compile _ _ADDITIONAL_LIGHTS
+            #pragma multi_compile_fragment _ _ADDITIONAL_LIGHT_SHADOWS
             #pragma multi_compile_fog
             #pragma multi_compile_instancing
 
-            #include "UnityCG.cginc"
-            #include "Lighting.cginc"
-            #include "AutoLight.cginc"
+            #include "MotuUrp.hlsl"
+
+
 
             struct VertexInput
             {
@@ -109,12 +112,13 @@ Shader "Motu/Rock Decoration"
                     * (ambient + _LightColor0.rgb
                         * diffuse
                         * attenuation
-                        * cloud.directTransmittance);
+                        * cloud.directTransmittance
+                        + MotuAdditionalLighting(input.worldPosition, normal));
                 fixed4 result = fixed4(color, 1.0);
                 UNITY_APPLY_FOG(input.fogCoord, result);
                 return result;
             }
-            ENDCG
+            ENDHLSL
         }
 
         Pass
@@ -123,14 +127,14 @@ Shader "Motu/Rock Decoration"
             ZWrite On
             ZTest LEqual
 
-            CGPROGRAM
+            HLSLPROGRAM
             #pragma vertex ShadowVertex
             #pragma fragment ShadowFragment
             #pragma target 3.0
-            #pragma multi_compile_shadowcaster
+            #pragma multi_compile_vertex _ _CASTING_PUNCTUAL_LIGHT_SHADOW
             #pragma multi_compile_instancing
 
-            #include "UnityCG.cginc"
+            #include "MotuUrp.hlsl"
 
             struct ShadowInput
             {
@@ -158,9 +162,11 @@ Shader "Motu/Rock Decoration"
             {
                 SHADOW_CASTER_FRAGMENT(input)
             }
-            ENDCG
+            ENDHLSL
         }
+        UsePass "Motu/Planar Reflection Simplified/ReflectionRock"
+
     }
 
-    FallBack "Diffuse"
+    FallBack Off
 }

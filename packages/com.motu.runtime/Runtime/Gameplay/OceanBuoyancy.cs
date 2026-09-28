@@ -35,6 +35,11 @@ namespace Motu.Gameplay
         private Vector3[] worldPositions;
         private WaterSampleFilter[] waterSamples;
         private float nextOceanSearch;
+        // A cold shader or a large mesh upload can delay GPU readback across
+        // several physics steps. Keep the last local water height long enough
+        // for rendering to recover instead of removing all lift mid-stall.
+        private const float SampleHoldSeconds = 2f;
+        private const float SampleFadeSeconds = 4f;
 
         public OceanSurfaceController Ocean { get => ocean; set { ocean = value; ReleaseSampler(); } }
         public float Draft { get => draft; set => draft = Mathf.Max(0.01f, value); }
@@ -77,7 +82,8 @@ namespace Motu.Gameplay
             for (var i = 0; i < probes.Length; i++)
             {
                 var point = PhysicsProbePosition(probes[i]);
-                if (!sampler.TryGetHeight(i, point, Mathf.Max(draft, 0.5f), out var height, out var confidence))
+                if (!sampler.TryGetHeight(i, point, Mathf.Max(draft, 0.5f), out var height,
+                        out var confidence, SampleHoldSeconds, SampleFadeSeconds))
                 {
                     // Teleports must not carry a smoothed height from the old location.
                     waterSamples[i] = default;

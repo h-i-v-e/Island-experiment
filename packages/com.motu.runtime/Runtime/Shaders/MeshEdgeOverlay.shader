@@ -8,6 +8,7 @@ Shader "Motu/Mesh Edge Overlay"
 
     SubShader
     {
+        Tags { "RenderPipeline"="UniversalPipeline" }
         Tags
         {
             "Queue" = "Overlay+100"
@@ -24,11 +25,11 @@ Shader "Motu/Mesh Edge Overlay"
             Offset -1, -1
             Blend Off
 
-            CGPROGRAM
+            HLSLPROGRAM
             #pragma vertex Vert
             #pragma fragment Frag
             #pragma target 2.0
-            #include "UnityCG.cginc"
+            #include "MotuUrp.hlsl"
 
             struct VertexInput
             {
@@ -53,7 +54,7 @@ Shader "Motu/Mesh Edge Overlay"
             {
                 return fixed4(_Color.rgb, 1.0);
             }
-            ENDCG
+            ENDHLSL
         }
     }
 }

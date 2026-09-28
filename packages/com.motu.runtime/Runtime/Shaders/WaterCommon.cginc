@@ -1,9 +1,9 @@
 #ifndef MOTU_WATER_COMMON_INCLUDED
 #define MOTU_WATER_COMMON_INCLUDED
 
-#include "UnityCG.cginc"
-#include "Lighting.cginc"
-#include "AutoLight.cginc"
+#include "MotuUrp.hlsl"
+
+
 
 fixed4 _Color;
 half _ShallowOpacity;
@@ -20,8 +20,8 @@ half _PlanarReflectionDistortion;
 sampler2D _PlanarReflectionTexture;
 float4x4 _PlanarReflectionMatrix;
 half _PlanarReflectionAvailable;
-sampler2D _MotuWaterBackground;
-float4 _MotuWaterBackground_TexelSize;
+sampler2D _CameraOpaqueTexture;
+float4 _CameraOpaqueTexture_TexelSize;
 half _RefractionStrength;
 float _RefractionDepth;
 float4x4 _IslandWorldToLocal;
@@ -87,9 +87,9 @@ fixed3 MotuRefractScene(
     backgroundUv += distortion
         * (_RefractionStrength * depthWeight * lerp(0.25h, 1.0h, facing))
         * MotuWaterViewportFade(backgroundUv);
-    float2 edgeInset = _MotuWaterBackground_TexelSize.xy * 1.5;
+    float2 edgeInset = _CameraOpaqueTexture_TexelSize.xy * 1.5;
     backgroundUv = clamp(backgroundUv, edgeInset, 1.0 - edgeInset);
-    return tex2D(_MotuWaterBackground, backgroundUv).rgb;
+    return tex2D(_CameraOpaqueTexture, backgroundUv).rgb;
 }
 
 fixed3 MotuShadeWater(

@@ -23,9 +23,9 @@ Shader "Motu/Planar Reflection Simplified"
         _GrassPlayerPosition ("Player Position", Vector) = (0, 0, 0, 0)
     }
 
-    CGINCLUDE
-    #include "UnityCG.cginc"
-    #include "Lighting.cginc"
+    HLSLINCLUDE
+    #include "MotuUrp.hlsl"
+
     #include "WeatherWindCommon.cginc"
 
     struct ReflectionVertexInput
@@ -67,7 +67,6 @@ Shader "Motu/Planar Reflection Simplified"
     float _FernFadeEnd;
     float _WorldSize;
     float4 _GrassPlayerPosition;
-    float4 _PlanarReflectionViewerPosition;
     float4x4 _IslandWorldToLocal;
 
     #include "CloudCommon.cginc"
@@ -87,23 +86,6 @@ Shader "Motu/Planar Reflection Simplified"
         output.material = input.material;
         output.environment = input.environment;
         return output;
-    }
-
-    fixed4 ApplyReflectionDistanceHaze(
-        fixed4 colour,
-        float3 worldPosition)
-    {
-        #if defined(FOG_LINEAR) || defined(FOG_EXP) || defined(FOG_EXP2)
-            float hazeDistance = distance(
-                worldPosition,
-                _PlanarReflectionViewerPosition.xyz);
-            UNITY_CALC_FOG_FACTOR_RAW(hazeDistance);
-            colour.rgb = lerp(
-                unity_FogColor.rgb,
-                colour.rgb,
-                saturate(unityFogFactor));
-        #endif
-        return colour;
     }
 
     fixed3 ReflectionLighting(
@@ -131,7 +113,7 @@ Shader "Motu/Planar Reflection Simplified"
         fixed4 result = fixed4(
             ReflectionLighting(albedo, input.worldNormal, input.worldPosition),
             1.0h);
-        return ApplyReflectionDistanceHaze(result, input.worldPosition);
+        return result;
     }
 
     fixed4 TerrainFragment(ReflectionVertexOutput input) : SV_Target
@@ -185,87 +167,69 @@ Shader "Motu/Planar Reflection Simplified"
     {
         return FinishReflection(_RockColor.rgb * _RockTint.rgb, input);
     }
-    ENDCG
+    ENDHLSL
 
     SubShader
     {
-        Tags { "MotuReflection"="Terrain" "RenderType"="Opaque" }
-        LOD 50
+        Tags { "RenderPipeline"="UniversalPipeline" }
         Pass
         {
-            CGPROGRAM
+            Name "ReflectionTerrain"
+            Tags { "LightMode"="MotuReflection" }
+
+            HLSLPROGRAM
             #pragma vertex ReflectionVertex
             #pragma fragment TerrainFragment
             #pragma target 3.0
-            #pragma multi_compile_fog
             #pragma multi_compile_instancing
-            ENDCG
+            ENDHLSL
         }
-    }
-
-    SubShader
-    {
-        Tags { "MotuReflection"="Grass" "RenderType"="Opaque" }
-        LOD 50
-        Cull Off
-        Pass
+            Pass
         {
-            CGPROGRAM
+            Name "ReflectionGrass"
+            Tags { "LightMode"="MotuReflection" }
+            Cull Off
+            HLSLPROGRAM
             #pragma vertex ReflectionVertex
             #pragma fragment GrassFragment
             #pragma target 3.0
-            #pragma multi_compile_fog
             #pragma multi_compile_instancing
-            ENDCG
+            ENDHLSL
         }
-    }
-
-    SubShader
-    {
-        Tags { "MotuReflection"="Wood" "RenderType"="Opaque" }
-        LOD 50
-        Pass
+            Pass
         {
-            CGPROGRAM
+            Name "ReflectionWood"
+            Tags { "LightMode"="MotuReflection" }
+
+            HLSLPROGRAM
             #pragma vertex ReflectionVertex
             #pragma fragment WoodFragment
             #pragma target 3.0
-            #pragma multi_compile_fog
             #pragma multi_compile_instancing
-            ENDCG
+            ENDHLSL
         }
-    }
-
-    SubShader
-    {
-        Tags { "MotuReflection"="Foliage" "RenderType"="Opaque" }
-        LOD 50
-        Cull Off
-        Pass
+            Pass
         {
-            CGPROGRAM
+            Name "ReflectionFoliage"
+            Tags { "LightMode"="MotuReflection" }
+            Cull Off
+            HLSLPROGRAM
             #pragma vertex ReflectionVertex
             #pragma fragment FoliageFragment
             #pragma target 3.0
-            #pragma multi_compile_fog
             #pragma multi_compile_instancing
-            ENDCG
+            ENDHLSL
         }
-    }
-
-    SubShader
-    {
-        Tags { "MotuReflection"="Reeds" "RenderType"="TransparentCutout" }
-        LOD 50
-        Cull Off
-        AlphaToMask On
-        Pass
+            Pass
         {
-            CGPROGRAM
+            Name "ReflectionReeds"
+            Tags { "LightMode"="MotuReflection" }
+            Cull Off
+AlphaToMask On
+            HLSLPROGRAM
             #pragma vertex ReedReflectionVertex
             #pragma fragment ReedReflectionFragment
             #pragma target 3.0
-            #pragma multi_compile_fog
             struct ReedInput
             {
                 float4 vertex : POSITION;
@@ -361,41 +325,32 @@ Shader "Motu/Planar Reflection Simplified"
                 fixed4 result = fixed4(
                     ReflectionLighting(albedo, normal, input.worldPosition),
                     1.0h);
-                return ApplyReflectionDistanceHaze(result, input.worldPosition);
+                return result;
             }
-            ENDCG
+            ENDHLSL
         }
-    }
-
-    SubShader
-    {
-        Tags { "MotuReflection"="Rock" "RenderType"="Opaque" }
-        LOD 50
-        Pass
+            Pass
         {
-            CGPROGRAM
+            Name "ReflectionRock"
+            Tags { "LightMode"="MotuReflection" }
+
+            HLSLPROGRAM
             #pragma vertex ReflectionVertex
             #pragma fragment RockFragment
             #pragma target 3.0
-            #pragma multi_compile_fog
             #pragma multi_compile_instancing
-            ENDCG
+            ENDHLSL
         }
-    }
-
-    SubShader
-    {
-        Tags { "MotuReflection"="Ferns" "RenderType"="TransparentCutout" }
-        LOD 50
-        Cull Off
-        AlphaToMask On
-        Pass
+            Pass
         {
-            CGPROGRAM
+            Name "ReflectionFerns"
+            Tags { "LightMode"="MotuReflection" }
+            Cull Off
+AlphaToMask On
+            HLSLPROGRAM
             #pragma vertex FernReflectionVertex
             #pragma fragment FernReflectionFragment
             #pragma target 3.0
-            #pragma multi_compile_fog
 
             struct FernInput
             {
@@ -486,11 +441,10 @@ Shader "Motu/Planar Reflection Simplified"
                 fixed4 result = fixed4(
                     ReflectionLighting(albedo, normal, input.worldPosition),
                     1.0h);
-                return ApplyReflectionDistanceHaze(result, input.worldPosition);
+                return result;
             }
-            ENDCG
+            ENDHLSL
         }
-    }
-
+        }
     FallBack Off
 }

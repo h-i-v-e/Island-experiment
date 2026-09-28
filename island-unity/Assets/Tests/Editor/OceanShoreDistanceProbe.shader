@@ -5,11 +5,11 @@ Shader "Hidden/Motu/Ocean Shore Distance Probe"
         Pass
         {
             Cull Off ZWrite Off ZTest Always
-            CGPROGRAM
+            HLSLPROGRAM
             #pragma vertex vert_img
             #pragma fragment Fragment
             #pragma target 3.5
-            #include "UnityCG.cginc"
+            #include "Packages/com.motu.runtime/Runtime/Shaders/MotuUrp.hlsl"
             #include "Packages/com.motu.runtime/Runtime/Shaders/OceanWaves.cginc"
             float _ProbeFullSurface;
             float _ProbeBreakerShape;
@@ -48,7 +48,7 @@ Shader "Hidden/Motu/Ocean Shore Distance Probe"
                     input.uv, displacement, slope, influence, foam);
                 return float4(displacement.y, slope, influence);
             }
-            ENDCG
+            ENDHLSL
         }
     }
 }

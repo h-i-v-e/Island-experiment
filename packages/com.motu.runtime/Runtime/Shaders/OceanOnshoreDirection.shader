@@ -8,19 +8,19 @@ Shader "Hidden/Motu/Ocean Onshore Direction"
 
     SubShader
     {
-        Tags { "RenderType" = "Opaque" }
+        Tags { "RenderPipeline"="UniversalPipeline" "RenderType" = "Opaque" }
         Cull Off
         ZWrite Off
         ZTest Always
 
         Pass
         {
-            CGPROGRAM
+            HLSLPROGRAM
             #pragma vertex vert_img
             #pragma fragment Fragment
             #pragma target 3.5
 
-            #include "UnityCG.cginc"
+            #include "MotuUrp.hlsl"
             #include "SeaMaskCommon.cginc"
 
             sampler2D _MainTex;
@@ -63,7 +63,7 @@ Shader "Hidden/Motu/Ocean Onshore Direction"
                     influence,
                     centre);
             }
-            ENDCG
+            ENDHLSL
         }
     }
 }

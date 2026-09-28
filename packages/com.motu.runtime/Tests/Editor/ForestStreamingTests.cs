@@ -125,6 +125,66 @@ namespace Motu.Tests
             }
         }
 
+        [Test]
+        public void ReturningToCurrentTileReconcilesInterruptedForestNeighborhoods()
+        {
+            var root = new GameObject("Forest retarget test");
+            var material = new Material(Shader.Find("Motu/Tree Wood"));
+            var streamer = new ForestTileStreamer();
+            try
+            {
+                streamer.Initialize(root.transform, material, material, material, material, material,
+                    new IslandPreparedForestData(new IslandPreparedMesh[64],
+                        new IslandPreparedMesh[64], new IslandPreparedTreeCollider[4096][]),
+                    true, (lod, key, cancellation) =>
+                        Task.FromResult(new ForestMeshRegion(lod == 1 ? 64 : 1)));
+
+                var originalLod1 = new Vector2Int(3, 3);
+                Drain(streamer.UpdateLod1NeighborhoodIncremental(originalLod1, () => true));
+                Assert.IsTrue(streamer.Lod1NeighborhoodMatches(originalLod1));
+
+                var wanted = true;
+                var partial = Flatten(streamer.UpdateLod1NeighborhoodIncremental(
+                    new Vector2Int(4, 3), () => wanted));
+                try
+                {
+                    for (var step = 0; step < 100 && streamer.Lod1GroupCount != 7; step++)
+                        Assert.IsTrue(partial.MoveNext());
+                    Assert.AreEqual(7, streamer.Lod1GroupCount,
+                        "The interrupted move should leave a partially changed neighborhood.");
+                    wanted = false;
+                    while (partial.MoveNext()) { }
+                }
+                finally { (partial as IDisposable)?.Dispose(); }
+                Assert.IsFalse(streamer.Lod1NeighborhoodMatches(originalLod1));
+                Drain(streamer.UpdateLod1NeighborhoodIncremental(originalLod1, () => true));
+                Assert.IsTrue(streamer.Lod1NeighborhoodMatches(originalLod1));
+
+                var originalLod0 = new Vector2Int(24, 24);
+                Drain(streamer.UpdateLod0NeighborhoodIncremental(originalLod0, () => true));
+                Assert.IsTrue(streamer.Lod0NeighborhoodMatches(originalLod0));
+                wanted = true;
+                partial = Flatten(streamer.UpdateLod0NeighborhoodIncremental(
+                    new Vector2Int(25, 24), () => wanted));
+                try
+                {
+                    Assert.IsTrue(partial.MoveNext());
+                    wanted = false;
+                    while (partial.MoveNext()) { }
+                }
+                finally { (partial as IDisposable)?.Dispose(); }
+                Assert.IsFalse(streamer.Lod0NeighborhoodMatches(originalLod0));
+                Drain(streamer.UpdateLod0NeighborhoodIncremental(originalLod0, () => true));
+                Assert.IsTrue(streamer.Lod0NeighborhoodMatches(originalLod0));
+            }
+            finally
+            {
+                streamer.Dispose();
+                Object.DestroyImmediate(root);
+                Object.DestroyImmediate(material);
+            }
+        }
+
         private static void Drain(IEnumerator routine)
         {
             var flattened = Flatten(routine);

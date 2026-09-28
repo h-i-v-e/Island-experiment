@@ -91,10 +91,11 @@ namespace Motu.World
             => TryGetHeight(index, currentPosition, maximumTravel, out height, out _);
 
         internal bool TryGetHeight(int index, Vector3 currentPosition, float maximumTravel,
-            out float height, out float confidence)
+            out float height, out float confidence, float holdSeconds = .25f,
+            float fadeSeconds = 1f)
         {
             height = heights[index];
-            confidence = SampleConfidence(Time.time - sampleTimes[index]);
+            confidence = SampleConfidence(Time.time - sampleTimes[index], holdSeconds, fadeSeconds);
             var offset = currentPosition - sampledPositions[index];
             offset.y = 0f;
             return !disposed && confidence > 0f
@@ -111,11 +112,13 @@ namespace Motu.World
 
         internal float SampleAge(int index) => Time.time - sampleTimes[index];
 
-        internal static float SampleConfidence(float age)
+        internal static float SampleConfidence(float age, float holdSeconds = .25f,
+            float fadeSeconds = 1f)
         {
             // Hold through an ordinary delayed frame, then gradually lose support.
             // The former 0.25 s cutoff toggled individual probe forces on and off.
-            return 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(.25f, 1f, age));
+            return 1f - Mathf.SmoothStep(0f, 1f,
+                Mathf.InverseLerp(holdSeconds, Mathf.Max(holdSeconds + .001f, fadeSeconds), age));
         }
 
         private void Complete(AsyncGPUReadbackRequest request)

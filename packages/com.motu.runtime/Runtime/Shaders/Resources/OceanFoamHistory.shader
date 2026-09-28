@@ -3,14 +3,15 @@ Shader "Hidden/Motu/Ocean Foam History"
     Properties { _FoamPrevious ("Previous foam and displacement", 2D) = "black" {} }
     SubShader
     {
+        Tags { "RenderPipeline"="UniversalPipeline" }
         Pass
         {
             ZTest Always ZWrite Off Cull Off
-            CGPROGRAM
+            HLSLPROGRAM
             #pragma vertex vert_img
             #pragma fragment Frag
             #pragma target 3.5
-            #include "UnityCG.cginc"
+            #include "../MotuUrp.hlsl"
             #include "Packages/com.motu.runtime/Runtime/Shaders/OceanWaves.cginc"
             #include "Packages/com.motu.runtime/Runtime/Shaders/OceanShipWaves.cginc"
             #include "Packages/com.motu.runtime/Runtime/Shaders/OceanDeckWaveClamp.cginc"
@@ -68,7 +69,7 @@ Shader "Hidden/Motu/Ocean Foam History"
                 float active = smoothstep(0, .1, max(foamAllowance, max(shipField.z, boat)));
                 return float4(saturate(foam) * wet * active, displacement.xz, 1);
             }
-            ENDCG
+            ENDHLSL
         }
     }
 }

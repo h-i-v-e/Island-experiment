@@ -7,6 +7,7 @@ Shader "Motu/Waterfall Spray Particle"
 
     SubShader
     {
+        Tags { "RenderPipeline"="UniversalPipeline" }
         Tags
         {
             "Queue" = "Transparent+25"
@@ -16,20 +17,23 @@ Shader "Motu/Waterfall Spray Particle"
 
         Pass
         {
-            Tags { "LightMode" = "ForwardBase" }
+            Tags { "LightMode"="UniversalForwardOnly" }
             Cull Off
             ZWrite Off
             ZTest LEqual
             Blend SrcAlpha OneMinusSrcAlpha
 
-            CGPROGRAM
+            HLSLPROGRAM
             #pragma target 3.5
             #pragma vertex Vert
             #pragma fragment Frag
             #pragma multi_compile_fog
-            #pragma multi_compile_fwdbase
-            #include "UnityCG.cginc"
-            #include "AutoLight.cginc"
+            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
+            #pragma multi_compile_fragment _ _SHADOWS_SOFT
+            #pragma multi_compile _ _ADDITIONAL_LIGHTS
+            #pragma multi_compile_fragment _ _ADDITIONAL_LIGHT_SHADOWS
+            #include "MotuUrp.hlsl"
+
             #include "WaterfallSprayLighting.cginc"
 
             fixed4 _TintColor;
@@ -88,7 +92,7 @@ Shader "Motu/Waterfall Spray Particle"
                 UNITY_APPLY_FOG(input.fogCoord, result);
                 return result;
             }
-            ENDCG
+            ENDHLSL
         }
     }
 }

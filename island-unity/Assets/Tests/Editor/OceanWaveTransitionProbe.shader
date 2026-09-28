@@ -5,11 +5,11 @@ Shader "Hidden/Motu/Ocean Wave Transition Probe"
         Pass
         {
             Cull Off ZWrite Off ZTest Always
-            CGPROGRAM
+            HLSLPROGRAM
             #pragma vertex vert_img
             #pragma fragment Fragment
             #pragma target 3.5
-            #include "UnityCG.cginc"
+            #include "Packages/com.motu.runtime/Runtime/Shaders/MotuUrp.hlsl"
             #include "Packages/com.motu.runtime/Runtime/Shaders/OceanWaves.cginc"
             float4 _ProbeWorldRect;
             float _ProbeFilteredWaves, _ProbeFilteredFoam, _ProbePixelFootprint;
@@ -70,7 +70,7 @@ Shader "Hidden/Motu/Ocean Wave Transition Probe"
                 return float4(displacement.y, slope.x, slope.y,
                     _ProbeCurvature > 0.5 ? curvature : 1.0);
             }
-            ENDCG
+            ENDHLSL
         }
     }
 }

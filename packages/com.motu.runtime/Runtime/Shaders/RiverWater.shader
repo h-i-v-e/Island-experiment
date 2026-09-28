@@ -40,23 +40,26 @@ Shader "Motu/River Water"
 
     SubShader
     {
-        Tags { "Queue"="Transparent+10" "RenderType"="Transparent" }
+        Tags { "RenderPipeline"="UniversalPipeline" "Queue"="Transparent+10" "RenderType"="Transparent" }
         Blend SrcAlpha OneMinusSrcAlpha
         ZWrite Off
         Cull Off
 
-        GrabPass { "_MotuWaterBackground" }
+
 
         Pass
         {
-            Tags { "LightMode"="ForwardBase" }
+            Tags { "LightMode"="UniversalForwardOnly" }
 
-            CGPROGRAM
+            HLSLPROGRAM
             #pragma vertex Vertex
             #pragma fragment Fragment
             #pragma target 3.5
             #pragma multi_compile_fog
-            #pragma multi_compile_fwdbase
+            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
+            #pragma multi_compile_fragment _ _SHADOWS_SOFT
+            #pragma multi_compile _ _ADDITIONAL_LIGHTS
+            #pragma multi_compile_fragment _ _ADDITIONAL_LIGHT_SHADOWS
 
             #include "WaterCommon.cginc"
             #include "WaterOptics.cginc"
@@ -100,7 +103,7 @@ Shader "Motu/River Water"
                 output.worldNormal = normal;
                 output.riverUv = input.riverUv;
                 output.screenPosition = ComputeScreenPos(output.pos);
-                output.grabPosition = ComputeGrabScreenPos(output.pos);
+                output.grabPosition = ComputeScreenPos(output.pos);
                 output.surfaceEyeDepth = -UnityObjectToViewPos(input.vertex).z;
                 output.worldPosition = mul(unity_ObjectToWorld, input.vertex).xyz;
                 output.islandLocalPosition = mul(
@@ -189,7 +192,7 @@ Shader "Motu/River Water"
                 UNITY_APPLY_FOG(input.fogCoord, result);
                 return result;
             }
-            ENDCG
+            ENDHLSL
         }
     }
 }

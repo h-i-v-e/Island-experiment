@@ -29,26 +29,29 @@ Shader "Motu/Tree Foliage"
 
     SubShader
     {
-        Tags { "RenderType"="TransparentCutout" "Queue"="AlphaTest" "IgnoreProjector"="True" "MotuReflection"="Foliage" }
+        Tags { "RenderPipeline"="UniversalPipeline" "RenderType"="TransparentCutout" "Queue"="AlphaTest" "IgnoreProjector"="True" "MotuReflection"="Foliage" }
         LOD 350
 
         Pass
         {
-            Tags { "LightMode"="ForwardBase" }
+            Tags { "LightMode"="UniversalForwardOnly" }
             Cull [_CullMode]
             AlphaToMask On
 
-            CGPROGRAM
+            HLSLPROGRAM
             #pragma vertex Vertex
             #pragma fragment Fragment
             #pragma target 3.0
-            #pragma multi_compile_fwdbase
+            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
+            #pragma multi_compile_fragment _ _SHADOWS_SOFT
+            #pragma multi_compile _ _ADDITIONAL_LIGHTS
+            #pragma multi_compile_fragment _ _ADDITIONAL_LIGHT_SHADOWS
             #pragma multi_compile_fog
             #pragma multi_compile_instancing
 
-            #include "UnityCG.cginc"
-            #include "Lighting.cginc"
-            #include "AutoLight.cginc"
+            #include "MotuUrp.hlsl"
+
+
             #include "TreeSurfaceNoise.cginc"
             #include "TreeWindCommon.cginc"
 
@@ -148,159 +151,183 @@ Shader "Motu/Tree Foliage"
                 UNITY_APPLY_FOG(input.fogCoord, result);
                 return result;
             }
-            ENDCG
+            ENDHLSL
         }
 
         Pass
         {
-            Tags { "LightMode"="ForwardBase" }
+            Tags { "LightMode"="MotuShell1" }
             Cull Off
             ZWrite Off
             Blend SrcAlpha OneMinusSrcAlpha
 
-            CGPROGRAM
+            HLSLPROGRAM
             #define FOLIAGE_SHELL_LAYER 0.125
             #pragma vertex FoliageFurVertex
             #pragma fragment FoliageFurFragment
             #pragma target 3.0
-            #pragma multi_compile_fwdbase
+            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
+            #pragma multi_compile_fragment _ _SHADOWS_SOFT
+            #pragma multi_compile _ _ADDITIONAL_LIGHTS
+            #pragma multi_compile_fragment _ _ADDITIONAL_LIGHT_SHADOWS
             #pragma multi_compile_fog
             #pragma multi_compile_instancing
             #include "TreeFoliageFurCommon.cginc"
-            ENDCG
+            ENDHLSL
         }
 
         Pass
         {
-            Tags { "LightMode"="ForwardBase" }
+            Tags { "LightMode"="MotuShell2" }
             Cull Off
             ZWrite Off
             Blend SrcAlpha OneMinusSrcAlpha
 
-            CGPROGRAM
+            HLSLPROGRAM
             #define FOLIAGE_SHELL_LAYER 0.25
             #pragma vertex FoliageFurVertex
             #pragma fragment FoliageFurFragment
             #pragma target 3.0
-            #pragma multi_compile_fwdbase
+            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
+            #pragma multi_compile_fragment _ _SHADOWS_SOFT
+            #pragma multi_compile _ _ADDITIONAL_LIGHTS
+            #pragma multi_compile_fragment _ _ADDITIONAL_LIGHT_SHADOWS
             #pragma multi_compile_fog
             #pragma multi_compile_instancing
             #include "TreeFoliageFurCommon.cginc"
-            ENDCG
+            ENDHLSL
         }
 
         Pass
         {
-            Tags { "LightMode"="ForwardBase" }
+            Tags { "LightMode"="MotuShell3" }
             Cull Off
             ZWrite Off
             Blend SrcAlpha OneMinusSrcAlpha
 
-            CGPROGRAM
+            HLSLPROGRAM
             #define FOLIAGE_SHELL_LAYER 0.375
             #pragma vertex FoliageFurVertex
             #pragma fragment FoliageFurFragment
             #pragma target 3.0
-            #pragma multi_compile_fwdbase
+            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
+            #pragma multi_compile_fragment _ _SHADOWS_SOFT
+            #pragma multi_compile _ _ADDITIONAL_LIGHTS
+            #pragma multi_compile_fragment _ _ADDITIONAL_LIGHT_SHADOWS
             #pragma multi_compile_fog
             #pragma multi_compile_instancing
             #include "TreeFoliageFurCommon.cginc"
-            ENDCG
+            ENDHLSL
         }
 
         Pass
         {
-            Tags { "LightMode"="ForwardBase" }
+            Tags { "LightMode"="MotuShell4" }
             Cull Off
             ZWrite Off
             Blend SrcAlpha OneMinusSrcAlpha
 
-            CGPROGRAM
+            HLSLPROGRAM
             #define FOLIAGE_SHELL_LAYER 0.5
             #pragma vertex FoliageFurVertex
             #pragma fragment FoliageFurFragment
             #pragma target 3.0
-            #pragma multi_compile_fwdbase
+            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
+            #pragma multi_compile_fragment _ _SHADOWS_SOFT
+            #pragma multi_compile _ _ADDITIONAL_LIGHTS
+            #pragma multi_compile_fragment _ _ADDITIONAL_LIGHT_SHADOWS
             #pragma multi_compile_fog
             #pragma multi_compile_instancing
             #include "TreeFoliageFurCommon.cginc"
-            ENDCG
+            ENDHLSL
         }
 
         Pass
         {
-            Tags { "LightMode"="ForwardBase" }
+            Tags { "LightMode"="MotuShell5" }
             Cull Off
             ZWrite Off
             Blend SrcAlpha OneMinusSrcAlpha
 
-            CGPROGRAM
+            HLSLPROGRAM
             #define FOLIAGE_SHELL_LAYER 0.625
             #pragma vertex FoliageFurVertex
             #pragma fragment FoliageFurFragment
             #pragma target 3.0
-            #pragma multi_compile_fwdbase
+            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
+            #pragma multi_compile_fragment _ _SHADOWS_SOFT
+            #pragma multi_compile _ _ADDITIONAL_LIGHTS
+            #pragma multi_compile_fragment _ _ADDITIONAL_LIGHT_SHADOWS
             #pragma multi_compile_fog
             #pragma multi_compile_instancing
             #include "TreeFoliageFurCommon.cginc"
-            ENDCG
+            ENDHLSL
         }
 
         Pass
         {
-            Tags { "LightMode"="ForwardBase" }
+            Tags { "LightMode"="MotuShell6" }
             Cull Off
             ZWrite Off
             Blend SrcAlpha OneMinusSrcAlpha
 
-            CGPROGRAM
+            HLSLPROGRAM
             #define FOLIAGE_SHELL_LAYER 0.75
             #pragma vertex FoliageFurVertex
             #pragma fragment FoliageFurFragment
             #pragma target 3.0
-            #pragma multi_compile_fwdbase
+            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
+            #pragma multi_compile_fragment _ _SHADOWS_SOFT
+            #pragma multi_compile _ _ADDITIONAL_LIGHTS
+            #pragma multi_compile_fragment _ _ADDITIONAL_LIGHT_SHADOWS
             #pragma multi_compile_fog
             #pragma multi_compile_instancing
             #include "TreeFoliageFurCommon.cginc"
-            ENDCG
+            ENDHLSL
         }
 
         Pass
         {
-            Tags { "LightMode"="ForwardBase" }
+            Tags { "LightMode"="MotuShell7" }
             Cull Off
             ZWrite Off
             Blend SrcAlpha OneMinusSrcAlpha
 
-            CGPROGRAM
+            HLSLPROGRAM
             #define FOLIAGE_SHELL_LAYER 0.875
             #pragma vertex FoliageFurVertex
             #pragma fragment FoliageFurFragment
             #pragma target 3.0
-            #pragma multi_compile_fwdbase
+            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
+            #pragma multi_compile_fragment _ _SHADOWS_SOFT
+            #pragma multi_compile _ _ADDITIONAL_LIGHTS
+            #pragma multi_compile_fragment _ _ADDITIONAL_LIGHT_SHADOWS
             #pragma multi_compile_fog
             #pragma multi_compile_instancing
             #include "TreeFoliageFurCommon.cginc"
-            ENDCG
+            ENDHLSL
         }
 
         Pass
         {
-            Tags { "LightMode"="ForwardBase" }
+            Tags { "LightMode"="MotuShell8" }
             Cull Off
             ZWrite Off
             Blend SrcAlpha OneMinusSrcAlpha
 
-            CGPROGRAM
+            HLSLPROGRAM
             #define FOLIAGE_SHELL_LAYER 1.0
             #pragma vertex FoliageFurVertex
             #pragma fragment FoliageFurFragment
             #pragma target 3.0
-            #pragma multi_compile_fwdbase
+            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
+            #pragma multi_compile_fragment _ _SHADOWS_SOFT
+            #pragma multi_compile _ _ADDITIONAL_LIGHTS
+            #pragma multi_compile_fragment _ _ADDITIONAL_LIGHT_SHADOWS
             #pragma multi_compile_fog
             #pragma multi_compile_instancing
             #include "TreeFoliageFurCommon.cginc"
-            ENDCG
+            ENDHLSL
         }
 
         Pass
@@ -311,14 +338,14 @@ Shader "Motu/Tree Foliage"
             ZWrite On
             ZTest LEqual
 
-            CGPROGRAM
+            HLSLPROGRAM
             #pragma vertex ShadowVertex
             #pragma fragment ShadowFragment
             #pragma target 3.0
-            #pragma multi_compile_shadowcaster
+            #pragma multi_compile_vertex _ _CASTING_PUNCTUAL_LIGHT_SHADOW
             #pragma multi_compile_instancing
 
-            #include "UnityCG.cginc"
+            #include "MotuUrp.hlsl"
             #include "TreeSurfaceNoise.cginc"
             #include "TreeWindCommon.cginc"
 
@@ -376,9 +403,11 @@ Shader "Motu/Tree Foliage"
                 clip(alpha - _AlphaCutoff);
                 SHADOW_CASTER_FRAGMENT(input)
             }
-            ENDCG
+            ENDHLSL
         }
+        UsePass "Motu/Planar Reflection Simplified/ReflectionFoliage"
+
     }
 
-    FallBack "Transparent/Cutout/VertexLit"
+    FallBack Off
 }

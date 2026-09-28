@@ -29,25 +29,28 @@ Shader "Motu/Tree Wood"
 
     SubShader
     {
-        Tags { "RenderType"="Opaque" "Queue"="Geometry" "MotuReflection"="Wood" }
+        Tags { "RenderPipeline"="UniversalPipeline" "RenderType"="Opaque" "Queue"="Geometry" "MotuReflection"="Wood" }
         LOD 200
 
         Pass
         {
-            Tags { "LightMode"="ForwardBase" }
+            Tags { "LightMode"="UniversalForwardOnly" }
 
-            CGPROGRAM
+            HLSLPROGRAM
             #pragma vertex Vertex
             #pragma fragment Fragment
             #pragma target 3.0
-            #pragma multi_compile_fwdbase
+            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
+            #pragma multi_compile_fragment _ _SHADOWS_SOFT
+            #pragma multi_compile _ _ADDITIONAL_LIGHTS
+            #pragma multi_compile_fragment _ _ADDITIONAL_LIGHT_SHADOWS
             #pragma multi_compile_fog
             #pragma multi_compile_instancing
             #pragma shader_feature_local_fragment _ MOTU_TREE_BARK_NO_PARALLAX
 
-            #include "UnityCG.cginc"
-            #include "Lighting.cginc"
-            #include "AutoLight.cginc"
+            #include "MotuUrp.hlsl"
+
+
             #include "TreeSurfaceNoise.cginc"
             #include "TreeWindCommon.cginc"
 
@@ -341,7 +344,7 @@ Shader "Motu/Tree Wood"
                 UNITY_APPLY_FOG(input.fogCoord, result);
                 return result;
             }
-            ENDCG
+            ENDHLSL
         }
 
         Pass
@@ -350,15 +353,15 @@ Shader "Motu/Tree Wood"
             ZWrite On
             ZTest LEqual
 
-            CGPROGRAM
+            HLSLPROGRAM
             #pragma vertex ShadowVertex
             #pragma fragment ShadowFragment
             #pragma target 3.0
-            #pragma multi_compile_shadowcaster
+            #pragma multi_compile_vertex _ _CASTING_PUNCTUAL_LIGHT_SHADOW
             #pragma multi_compile_instancing
 
-            #include "UnityCG.cginc"
-            #include "Lighting.cginc"
+            #include "MotuUrp.hlsl"
+
             #include "TreeSurfaceNoise.cginc"
             #include "TreeWindCommon.cginc"
 
@@ -398,9 +401,11 @@ Shader "Motu/Tree Wood"
             {
                 SHADOW_CASTER_FRAGMENT(input)
             }
-            ENDCG
+            ENDHLSL
         }
+        UsePass "Motu/Planar Reflection Simplified/ReflectionWood"
+
     }
 
-    FallBack "Diffuse"
+    FallBack Off
 }

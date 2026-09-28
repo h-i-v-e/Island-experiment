@@ -16,12 +16,12 @@ Shader "Motu/Cave Surface"
     }
     SubShader
     {
-        Tags { "RenderType"="Opaque" "Queue"="Geometry" }
+        Tags { "RenderPipeline"="UniversalPipeline" "RenderType"="Opaque" "Queue"="Geometry" }
         LOD 200
-        CGINCLUDE
-            #include "UnityCG.cginc"
-            #include "Lighting.cginc"
-            #include "AutoLight.cginc"
+        HLSLINCLUDE
+            #include "../MotuUrp.hlsl"
+
+
             #include "../CloudCommon.cginc"
 
             UNITY_DECLARE_TEX2DARRAY(_TerrainAlbedoArray);
@@ -95,53 +95,33 @@ Shader "Motu/Cave Surface"
                 UNITY_LIGHT_ATTENUATION(attenuation, i, i.worldPosition);
                 half3 direct = _LightColor0.rgb * saturate(dot(normal, lightDirection))
                     * attenuation;
-                #if defined(UNITY_PASS_FORWARDADD)
-                    // Local lights (including the player torch) are unaffected
-                    // by overhead cloud cover or the cave's ambient darkness.
-                    fixed4 colour = fixed4(albedo * direct, 0);
-                    UNITY_APPLY_FOG_COLOR(i.fogCoord, colour, fixed4(0,0,0,0));
-                #else
-                    MotuCloudLighting cloud = MotuCloudSurfaceLighting(i.worldPosition);
-                    half3 ambient = ShadeSH9(half4(normal, 1)) * cloud.ambientTransmittance
-                        * clamp(i.caveData.x, 0.08, 1);
-                    // Normal-independent bounced light keeps sharp corners readable.
-                    // Apply once in the base pass; fade out at the exterior join.
-                    half interior = saturate((1.0h - i.caveData.x) / 0.92h);
-                    ambient = max(ambient, _InteriorAmbientFill * interior);
-                    #if defined(DIRECTIONAL) || defined(DIRECTIONAL_COOKIE)
-                        direct *= cloud.directTransmittance;
-                    #endif
-                    fixed4 colour = fixed4(albedo * (ambient + direct), 1);
-                    UNITY_APPLY_FOG(i.fogCoord, colour);
-                #endif
+                MotuCloudLighting cloud = MotuCloudSurfaceLighting(i.worldPosition);
+                half3 ambient = ShadeSH9(half4(normal, 1)) * cloud.ambientTransmittance
+                    * clamp(i.caveData.x, 0.08, 1);
+                half interior = saturate((1.0h - i.caveData.x) / 0.92h);
+                ambient = max(ambient, _InteriorAmbientFill * interior);
+                direct = direct * cloud.directTransmittance + MotuAdditionalLighting(i.worldPosition, normal);
+                fixed4 colour = fixed4(albedo * (ambient + direct), 1);
+                UNITY_APPLY_FOG(i.fogCoord, colour);
                 return colour;
             }
-        ENDCG
+        ENDHLSL
         Pass
         {
-            Tags { "LightMode"="ForwardBase" }
-            CGPROGRAM
+            Tags { "LightMode"="UniversalForwardOnly" }
+            HLSLPROGRAM
             #pragma vertex Vertex
             #pragma fragment Fragment
             #pragma target 3.5
-            #pragma multi_compile_fwdbase
+            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
+            #pragma multi_compile_fragment _ _SHADOWS_SOFT
+            #pragma multi_compile _ _ADDITIONAL_LIGHTS
+            #pragma multi_compile_fragment _ _ADDITIONAL_LIGHT_SHADOWS
             #pragma multi_compile_fog
-            ENDCG
+            ENDHLSL
         }
-        Pass
-        {
-            Tags { "LightMode"="ForwardAdd" }
-            Blend One One
-            ZWrite Off
-            CGPROGRAM
-            #pragma vertex Vertex
-            #pragma fragment Fragment
-            #pragma target 3.5
-            #pragma multi_compile_fwdadd_fullshadows
-            #pragma multi_compile_fog
-            ENDCG
-        }
-        UsePass "Legacy Shaders/VertexLit/SHADOWCASTER"
+
+        UsePass "Hidden/Motu/Depth/ShadowCaster"
     }
-    FallBack "Diffuse"
+    FallBack Off
 }

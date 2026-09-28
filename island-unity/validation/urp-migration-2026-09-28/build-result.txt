@@ -1,0 +1,3 @@
+MOTU URP CAPTURE IslandRuntimeSandbox: Main Camera, magenta=0, renderers=279
+Build Report
+MOTU PLAYER BUILD PASSED: Builds/Motu.app

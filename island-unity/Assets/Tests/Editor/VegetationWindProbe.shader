@@ -5,11 +5,11 @@ Shader "Hidden/Motu/Vegetation Wind Probe"
         Pass
         {
             ZTest Always Cull Off ZWrite Off
-            CGPROGRAM
+            HLSLPROGRAM
             #pragma vertex vert_img
             #pragma fragment Frag
             #pragma target 3.0
-            #include "UnityCG.cginc"
+            #include "Packages/com.motu.runtime/Runtime/Shaders/MotuUrp.hlsl"
             #include "Packages/com.motu.runtime/Runtime/Shaders/TreeWindCommon.cginc"
             #include "Packages/com.motu.runtime/Runtime/Shaders/CloudCommon.cginc"
             float4 _ProbePosition;
@@ -36,7 +36,7 @@ Shader "Hidden/Motu/Vegetation Wind Probe"
                     float4(.5, .5, 0, .5), 32);
                 return float4(displacement, tree.xz);
             }
-            ENDCG
+            ENDHLSL
         }
     }
 }

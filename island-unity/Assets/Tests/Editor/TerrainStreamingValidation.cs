@@ -17,6 +17,7 @@ namespace Motu.Editor
 
             var host = new GameObject("Terrain render batching validation host");
             TileGroup group = null;
+            TileGroup multiBatchGroup = null;
             try
             {
                 var streamer = host.AddComponent<TerrainTileStreamer>();
@@ -94,9 +95,34 @@ namespace Motu.Editor
                     throw new InvalidOperationException(
                         "Terrain tiles were not restored to their parent render batch.");
                 }
+
+                var multiRoot = new GameObject("LOD1 multi-batch validation group");
+                multiRoot.transform.SetParent(host.transform, false);
+                var multiTiles = new Tile[9];
+                multiBatchGroup = new TileGroup(multiRoot, multiTiles, 0);
+                for (var index = 0; index < multiTiles.Length; index++)
+                {
+                    var tileObject = new GameObject($"LOD1 validation tile {index}");
+                    tileObject.transform.SetParent(multiRoot.transform, false);
+                    var mesh = CreateBatchValidationMesh(index * 2f, 0);
+                    tileObject.AddComponent<MeshFilter>().sharedMesh = mesh;
+                    multiTiles[index] = new Tile(tileObject, mesh);
+                }
+                streamer.ConfigureTerrainBatch(multiBatchGroup, 1);
+                if (multiBatchGroup.renderBatches.Count != 2
+                    || multiBatchGroup.renderBatches[0].mesh.GetIndexCount(0) != 24
+                    || multiBatchGroup.renderBatches[1].mesh.GetIndexCount(0) != 3)
+                    throw new InvalidOperationException("LOD1 tiles were combined into one unbudgeted mesh.");
+                SetBatchedTileActive(multiBatchGroup, 8, false);
+                RebuildTerrainBatchIfDirty(multiBatchGroup);
+                if (multiBatchGroup.renderBatches[0].mesh.GetIndexCount(0) != 24
+                    || multiBatchGroup.renderBatches[1].mesh.GetIndexCount(0) != 0
+                    || multiBatchGroup.renderBatches[1].gameObject.activeSelf)
+                    throw new InvalidOperationException("LOD1 refinement changed the wrong render batch.");
             }
             finally
             {
+                DestroyGroup(multiBatchGroup);
                 DestroyGroup(group);
                 DestroyUnityObject(host);
             }

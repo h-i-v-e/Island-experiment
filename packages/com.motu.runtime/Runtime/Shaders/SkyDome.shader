@@ -26,6 +26,7 @@ Shader "Motu/Sky Dome"
 
     SubShader
     {
+        Tags { "RenderPipeline"="UniversalPipeline" }
         Tags
         {
             "Queue" = "Background"
@@ -39,11 +40,11 @@ Shader "Motu/Sky Dome"
 
         Pass
         {
-            CGPROGRAM
+            HLSLPROGRAM
             #pragma vertex Vert
             #pragma fragment Frag
             #pragma target 3.0
-            #include "UnityCG.cginc"
+            #include "MotuUrp.hlsl"
             #include "CloudCommon.cginc"
 
             fixed4 _HorizonColor;
@@ -343,7 +344,7 @@ Shader "Motu/Sky Dome"
                 // overlay on the camera clear colour.
                 return fixed4(sky.rgb, 1.0h);
             }
-            ENDCG
+            ENDHLSL
         }
     }
     Fallback Off

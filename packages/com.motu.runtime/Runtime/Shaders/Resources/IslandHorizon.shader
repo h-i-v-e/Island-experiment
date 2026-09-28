@@ -2,14 +2,14 @@ Shader "Motu/Island Horizon"
 {
     SubShader
     {
-        Tags { "Queue"="Geometry" "RenderType"="Opaque" }
+        Tags { "RenderPipeline"="UniversalPipeline" "Queue"="Geometry" "RenderType"="Opaque" }
         Cull Back ZWrite On
         Pass
         {
-            CGPROGRAM
+            HLSLPROGRAM
             #pragma vertex Vertex
             #pragma fragment Fragment
-            #include "UnityCG.cginc"
+            #include "../MotuUrp.hlsl"
             float4 _MotuIslandHorizonColour;
             float4 Vertex(float4 position : POSITION) : SV_POSITION
             {
@@ -19,7 +19,7 @@ Shader "Motu/Island Horizon"
             {
                 return float4(_MotuIslandHorizonColour.rgb, 1);
             }
-            ENDCG
+            ENDHLSL
         }
     }
 }

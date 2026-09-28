@@ -258,7 +258,7 @@ namespace Motu.Editor
                 Color[] Capture(float strength, string filename = null)
                 {
                     material.SetFloat("_WaveTranslucencyStrength", strength);
-                    camera.Render();
+                    UrpTestCamera.Render(camera);
                     RenderTexture.active = target;
                     readback.ReadPixels(new Rect(0, 0, target.width, target.height), 0, 0);
                     readback.Apply();

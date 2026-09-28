@@ -5,20 +5,20 @@ Shader "Hidden/Motu/Real-Time Ambient Occlusion"
     Properties
     {
         _MainTex ("Source", 2D) = "white" {}
-        _OcclusionTexture ("Ambient Occlusion", 2D) = "black" {}
     }
 
     SubShader
     {
+        Tags { "RenderPipeline"="UniversalPipeline" }
         Cull Off
         ZWrite Off
         ZTest Always
 
-        CGINCLUDE
-        #include "UnityCG.cginc"
+        HLSLINCLUDE
+        #include "MotuUrp.hlsl"
 
-        sampler2D _MainTex;
-        float4 _MainTex_TexelSize;
+        #include "Packages/com.unity.render-pipelines.core/Runtime/Utilities/Blit.hlsl"
+
         sampler2D _CameraDepthNormalsTexture;
         UNITY_DECLARE_DEPTH_TEXTURE(_CameraDepthTexture);
         sampler2D _OcclusionTexture;
@@ -33,20 +33,6 @@ Shader "Hidden/Motu/Real-Time Ambient Occlusion"
         static const float GeometryCoefficient = 0.8;
         static const float SelfOcclusionBias = 0.002;
         static const float Contrast = 0.6;
-
-        struct VertexOutput
-        {
-            float4 position : SV_POSITION;
-            float2 uv : TEXCOORD0;
-        };
-
-        VertexOutput Vertex(appdata_img input)
-        {
-            VertexOutput output;
-            output.position = UnityObjectToClipPos(input.vertex);
-            output.uv = input.texcoord.xy;
-            return output;
-        }
 
         half4 PackOcclusionNormal(half occlusion, half3 normal)
         {
@@ -84,8 +70,21 @@ Shader "Hidden/Motu/Real-Time Ambient Occlusion"
 
         float3 SampleViewNormal(float2 uv)
         {
-            float4 encoded = tex2D(_CameraDepthNormalsTexture, uv);
-            return DecodeViewNormalStereo(encoded) * float3(1.0, 1.0, -1.0);
+            float2 stepUv = rcp(_ScaledScreenParams.xy);
+            float depth = SampleEyeDepth(uv);
+            float left = SampleEyeDepth(uv - float2(stepUv.x, 0));
+            float right = SampleEyeDepth(uv + float2(stepUv.x, 0));
+            float down = SampleEyeDepth(uv - float2(0, stepUv.y));
+            float up = SampleEyeDepth(uv + float2(0, stepUv.y));
+            float2 diagonal = float2(unity_CameraProjection._m00, unity_CameraProjection._m11);
+            float3 center = float3((uv * 2 - 1) / diagonal * depth, depth);
+            float2 horizontal = float2(abs(right-depth) < abs(left-depth) ? stepUv.x : -stepUv.x, 0);
+            float2 vertical = float2(0, abs(up-depth) < abs(down-depth) ? stepUv.y : -stepUv.y);
+            float dx = horizontal.x > 0 ? right : left;
+            float dy = vertical.y > 0 ? up : down;
+            float3 a = float3(((uv+horizontal)*2-1) / diagonal * dx, dx) - center;
+            float3 b = float3(((uv+vertical)*2-1) / diagonal * dy, dy) - center;
+            return -normalize(cross(a,b)) * sign(horizontal.x * vertical.y);
         }
 
         half CompareNormal(half3 first, half3 second)
@@ -144,7 +143,7 @@ Shader "Hidden/Motu/Real-Time Ambient Occlusion"
             return direction * distanceFromOrigin;
         }
 
-        half4 EstimateOcclusion(VertexOutput input) : SV_Target
+        half4 EstimateOcclusion(Varyings input) : SV_Target
         {
             float2 diagonal = float2(
                 unity_CameraProjection._m00,
@@ -152,10 +151,10 @@ Shader "Hidden/Motu/Real-Time Ambient Occlusion"
             float2 offset = float2(
                 unity_CameraProjection._m02,
                 unity_CameraProjection._m12);
-            float centerDepth = SampleEyeDepth(input.uv);
-            float3 centerNormal = SampleViewNormal(input.uv);
+            float centerDepth = SampleEyeDepth(input.texcoord);
+            float3 centerNormal = SampleViewNormal(input.texcoord);
             float3 centerPosition = ReconstructViewPosition(
-                input.uv,
+                input.texcoord,
                 centerDepth,
                 diagonal,
                 offset);
@@ -169,7 +168,7 @@ Shader "Hidden/Motu/Real-Time Ambient Occlusion"
                     break;
                 }
 
-                float3 sampleVector = PickSamplePoint(input.uv, sampleIndex);
+                float3 sampleVector = PickSamplePoint(input.texcoord, sampleIndex);
                 sampleVector = faceforward(
                     sampleVector,
                     -centerNormal,
@@ -205,15 +204,15 @@ Shader "Hidden/Motu/Real-Time Ambient Occlusion"
             return PackOcclusionNormal(occlusion, centerNormal);
         }
 
-        half4 BlurHorizontal(VertexOutput input) : SV_Target
+        half4 BlurHorizontal(Varyings input) : SV_Target
         {
-            float2 delta = float2(_MainTex_TexelSize.x * 2.0, 0.0);
-            half4 center = tex2D(_MainTex, input.uv);
-            half4 nearA = tex2D(_MainTex, input.uv - delta * 1.3846153846);
-            half4 nearB = tex2D(_MainTex, input.uv + delta * 1.3846153846);
-            half4 farA = tex2D(_MainTex, input.uv - delta * 3.2307692308);
-            half4 farB = tex2D(_MainTex, input.uv + delta * 3.2307692308);
-            half3 normal = SampleViewNormal(input.uv);
+            float2 delta = float2(_BlitTexture_TexelSize.x * 2.0, 0.0);
+            half4 center = SAMPLE_TEXTURE2D_X(_BlitTexture, sampler_LinearClamp, input.texcoord);
+            half4 nearA = SAMPLE_TEXTURE2D_X(_BlitTexture, sampler_LinearClamp, input.texcoord - delta * 1.3846153846);
+            half4 nearB = SAMPLE_TEXTURE2D_X(_BlitTexture, sampler_LinearClamp, input.texcoord + delta * 1.3846153846);
+            half4 farA = SAMPLE_TEXTURE2D_X(_BlitTexture, sampler_LinearClamp, input.texcoord - delta * 3.2307692308);
+            half4 farB = SAMPLE_TEXTURE2D_X(_BlitTexture, sampler_LinearClamp, input.texcoord + delta * 3.2307692308);
+            half3 normal = SampleViewNormal(input.texcoord);
             half centerWeight = 0.2270270270h;
             half nearAWeight = CompareNormal(normal, PackedNormal(nearA)) * 0.3162162162h;
             half nearBWeight = CompareNormal(normal, PackedNormal(nearB)) * 0.3162162162h;
@@ -232,16 +231,16 @@ Shader "Hidden/Motu/Real-Time Ambient Occlusion"
             return PackOcclusionNormal(total / weight, normal);
         }
 
-        half4 BlurVertical(VertexOutput input) : SV_Target
+        half4 BlurVertical(Varyings input) : SV_Target
         {
             float2 delta = float2(
                 0.0,
-                _MainTex_TexelSize.y / DOWNSAMPLE * 2.0);
-            half4 center = tex2D(_MainTex, input.uv);
-            half4 nearA = tex2D(_MainTex, input.uv - delta * 1.3846153846);
-            half4 nearB = tex2D(_MainTex, input.uv + delta * 1.3846153846);
-            half4 farA = tex2D(_MainTex, input.uv - delta * 3.2307692308);
-            half4 farB = tex2D(_MainTex, input.uv + delta * 3.2307692308);
+                _BlitTexture_TexelSize.y / DOWNSAMPLE * 2.0);
+            half4 center = SAMPLE_TEXTURE2D_X(_BlitTexture, sampler_LinearClamp, input.texcoord);
+            half4 nearA = SAMPLE_TEXTURE2D_X(_BlitTexture, sampler_LinearClamp, input.texcoord - delta * 1.3846153846);
+            half4 nearB = SAMPLE_TEXTURE2D_X(_BlitTexture, sampler_LinearClamp, input.texcoord + delta * 1.3846153846);
+            half4 farA = SAMPLE_TEXTURE2D_X(_BlitTexture, sampler_LinearClamp, input.texcoord - delta * 3.2307692308);
+            half4 farB = SAMPLE_TEXTURE2D_X(_BlitTexture, sampler_LinearClamp, input.texcoord + delta * 3.2307692308);
             half3 normal = PackedNormal(center);
             half centerWeight = 0.2270270270h;
             half nearAWeight = CompareNormal(normal, PackedNormal(nearA)) * 0.3162162162h;
@@ -261,28 +260,36 @@ Shader "Hidden/Motu/Real-Time Ambient Occlusion"
             return PackOcclusionNormal(total / weight, normal);
         }
 
-        half4 Composite(VertexOutput input) : SV_Target
+        half4 Composite(Varyings input) : SV_Target
         {
-            fixed4 source = tex2D(_MainTex, input.uv);
+            fixed4 source = SAMPLE_TEXTURE2D_X(_BlitTexture, sampler_LinearClamp, input.texcoord);
+            // The bilateral upsample can reach neighbouring geometry at the skyline.
+            // Empty depth must remain untouched even when those neighbours are occluded.
+            float rawDepth = SAMPLE_DEPTH_TEXTURE(_CameraDepthTexture, input.texcoord);
+            #if UNITY_REVERSED_Z
+            if (rawDepth <= 0.00001) return source;
+            #else
+            if (rawDepth >= 0.99999) return source;
+            #endif
             float2 delta = _OcclusionTexture_TexelSize.xy / DOWNSAMPLE;
-            half4 center = tex2D(_OcclusionTexture, input.uv);
+            half4 center = tex2D(_OcclusionTexture, input.texcoord);
             half3 normal = PackedNormal(center);
             half total = PackedOcclusion(center);
             half weight = 1.0h;
 
-            half4 corner = tex2D(_OcclusionTexture, input.uv + delta);
+            half4 corner = tex2D(_OcclusionTexture, input.texcoord + delta);
             half cornerWeight = CompareNormal(normal, PackedNormal(corner));
             total += PackedOcclusion(corner) * cornerWeight;
             weight += cornerWeight;
-            corner = tex2D(_OcclusionTexture, input.uv - delta);
+            corner = tex2D(_OcclusionTexture, input.texcoord - delta);
             cornerWeight = CompareNormal(normal, PackedNormal(corner));
             total += PackedOcclusion(corner) * cornerWeight;
             weight += cornerWeight;
-            corner = tex2D(_OcclusionTexture, input.uv + float2(delta.x, -delta.y));
+            corner = tex2D(_OcclusionTexture, input.texcoord + float2(delta.x, -delta.y));
             cornerWeight = CompareNormal(normal, PackedNormal(corner));
             total += PackedOcclusion(corner) * cornerWeight;
             weight += cornerWeight;
-            corner = tex2D(_OcclusionTexture, input.uv + float2(-delta.x, delta.y));
+            corner = tex2D(_OcclusionTexture, input.texcoord + float2(-delta.x, delta.y));
             cornerWeight = CompareNormal(normal, PackedNormal(corner));
             total += PackedOcclusion(corner) * cornerWeight;
             weight += cornerWeight;
@@ -291,46 +298,46 @@ Shader "Hidden/Motu/Real-Time Ambient Occlusion"
             source.rgb *= 1.0h - occlusion;
             return source;
         }
-        ENDCG
+        ENDHLSL
 
         Pass
         {
             Name "Occlusion Estimation"
-            CGPROGRAM
-            #pragma vertex Vertex
+            HLSLPROGRAM
+            #pragma vertex Vert
             #pragma fragment EstimateOcclusion
             #pragma target 3.0
-            ENDCG
+            ENDHLSL
         }
 
         Pass
         {
             Name "Horizontal Bilateral Blur"
-            CGPROGRAM
-            #pragma vertex Vertex
+            HLSLPROGRAM
+            #pragma vertex Vert
             #pragma fragment BlurHorizontal
             #pragma target 3.0
-            ENDCG
+            ENDHLSL
         }
 
         Pass
         {
             Name "Vertical Bilateral Blur"
-            CGPROGRAM
-            #pragma vertex Vertex
+            HLSLPROGRAM
+            #pragma vertex Vert
             #pragma fragment BlurVertical
             #pragma target 3.0
-            ENDCG
+            ENDHLSL
         }
 
         Pass
         {
             Name "Composite"
-            CGPROGRAM
-            #pragma vertex Vertex
+            HLSLPROGRAM
+            #pragma vertex Vert
             #pragma fragment Composite
             #pragma target 3.0
-            ENDCG
+            ENDHLSL
         }
     }
 

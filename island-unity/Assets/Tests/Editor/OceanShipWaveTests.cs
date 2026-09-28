@@ -251,7 +251,7 @@ namespace Motu.Editor
                 camera.farClipPlane = 16000;
                 camera.depthTextureMode = DepthTextureMode.Depth;
                 camera.targetTexture = target;
-                camera.Render();
+                UrpTestCamera.Render(camera);
                 RenderTexture.active = target;
                 snapshot.ReadPixels(new Rect(0, 0, 1280, 720), 0, 0);
                 snapshot.Apply();

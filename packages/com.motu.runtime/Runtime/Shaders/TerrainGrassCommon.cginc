@@ -1,6 +1,6 @@
-#include "UnityCG.cginc"
-#include "Lighting.cginc"
-#include "AutoLight.cginc"
+#include "MotuUrp.hlsl"
+
+
 #include "TerrainCoverageCommon.cginc"
 
 struct GrassVertexInput

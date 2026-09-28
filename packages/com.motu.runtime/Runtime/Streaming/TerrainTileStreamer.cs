@@ -59,6 +59,7 @@ namespace Motu.Streaming
             internal readonly Mesh mesh;
             internal Mesh edgeMesh;
             internal int[] batchIndices;
+            internal int renderBatchIndex = -1;
             internal GameObject grassObject;
 
             internal Tile(GameObject gameObject, Mesh mesh, Mesh edgeMesh = null)
@@ -74,13 +75,11 @@ namespace Motu.Streaming
             internal readonly GameObject root;
             internal readonly Tile[] tiles;
             internal readonly byte clampSides;
-            // Coarse tiles retain independent active flags for LOD transitions and
-            // debug edges, but share one vertex buffer and renderer. Refinement
-            // only rebuilds this index list; it never recombines vertex data.
-            internal readonly List<int> activeBatchIndices = new List<int>();
+            // Keep LOD1 combines small enough to upload over several frames.
+            // Refinement only rebuilds indices within the affected batch.
+            internal readonly List<RenderBatch> renderBatches = new List<RenderBatch>();
             internal GameObject batchObject;
             internal Mesh batchMesh;
-            internal bool batchDirty;
             internal GameObject boulderColliderRoot;
 
             internal TileGroup(GameObject root, Tile[] tiles, byte clampSides)
@@ -88,6 +87,26 @@ namespace Motu.Streaming
                 this.root = root;
                 this.tiles = tiles;
                 this.clampSides = clampSides;
+            }
+        }
+
+        internal sealed class RenderBatch
+        {
+            internal readonly GameObject gameObject;
+            internal readonly Mesh mesh;
+            internal readonly int firstTile;
+            internal readonly int lastTile;
+            internal readonly List<int> activeIndices;
+            internal bool dirty = true;
+
+            internal RenderBatch(GameObject gameObject, Mesh mesh, int firstTile,
+                int lastTile, int indexCapacity)
+            {
+                this.gameObject = gameObject;
+                this.mesh = mesh;
+                this.firstTile = firstTile;
+                this.lastTile = lastTile;
+                activeIndices = new List<int>(indexCapacity);
             }
         }
 
@@ -399,7 +418,8 @@ namespace Motu.Streaming
                 requestedLod2 = LocalCell(localPosition, Lod2Resolution);
                 requestedLod1 = LocalCell(localPosition, Lod1Resolution);
 
-                if (requestedLod1 != currentLod1 || requestedLod2 != currentLod2)
+                if (requestedLod1 != currentLod1 || requestedLod2 != currentLod2
+                    || ForestNeighborhoodNeedsUpdate())
                 {
                     // Keep immediate collision, but build first-focus terrain via
                     // the same background/incremental path used during travel.
@@ -422,7 +442,8 @@ namespace Motu.Streaming
             yield return null;
             try
             {
-                while (requestedLod1 != currentLod1 || requestedLod2 != currentLod2)
+                while (requestedLod1 != currentLod1 || requestedLod2 != currentLod2
+                    || ForestNeighborhoodNeedsUpdate())
                 {
                     var targetLod2 = requestedLod2;
                     var targetLod1 = requestedLod1;
@@ -436,7 +457,9 @@ namespace Motu.Streaming
                         }
                     }
 
-                    if (targetLod2 != currentLod2)
+                    if (targetLod2 != currentLod2
+                        || forestStreamer != null
+                        && !forestStreamer.Lod1NeighborhoodMatches(targetLod2))
                     {
                         yield return forestStreamer?.UpdateLod1NeighborhoodIncremental(
                             targetLod2,
@@ -446,16 +469,21 @@ namespace Motu.Streaming
                             continue;
                         }
 
-                        yield return UpdateLod1NeighborhoodIncremental(targetLod2);
-                        if (targetLod2 != requestedLod2)
+                        if (targetLod2 != currentLod2)
                         {
-                            continue;
+                            yield return UpdateLod1NeighborhoodIncremental(targetLod2);
+                            if (targetLod2 != requestedLod2)
+                            {
+                                continue;
+                            }
+                            currentLod2 = targetLod2;
+                            yield return null;
                         }
-                        currentLod2 = targetLod2;
-                        yield return null;
                     }
 
-                    if (targetLod1 != currentLod1)
+                    if (targetLod1 != currentLod1
+                        || forestStreamer != null
+                        && !forestStreamer.Lod0NeighborhoodMatches(targetLod1))
                     {
                         yield return forestStreamer?.UpdateLod0NeighborhoodIncremental(
                             targetLod1,
@@ -465,29 +493,32 @@ namespace Motu.Streaming
                             continue;
                         }
 
-                        yield return reedStreamer?.UpdateLod0NeighborhoodIncremental(
-                            targetLod1,
-                            () => targetLod1 == requestedLod1);
-                        if (targetLod1 != requestedLod1)
+                        if (targetLod1 != currentLod1)
                         {
-                            continue;
-                        }
+                            yield return reedStreamer?.UpdateLod0NeighborhoodIncremental(
+                                targetLod1,
+                                () => targetLod1 == requestedLod1);
+                            if (targetLod1 != requestedLod1)
+                            {
+                                continue;
+                            }
 
-                        yield return fernStreamer?.UpdateLod0NeighborhoodIncremental(
-                            targetLod1,
-                            () => targetLod1 == requestedLod1);
-                        if (targetLod1 != requestedLod1)
-                        {
-                            continue;
-                        }
+                            yield return fernStreamer?.UpdateLod0NeighborhoodIncremental(
+                                targetLod1,
+                                () => targetLod1 == requestedLod1);
+                            if (targetLod1 != requestedLod1)
+                            {
+                                continue;
+                            }
 
-                        yield return UpdateLod0NeighborhoodIncremental(targetLod1);
-                        if (targetLod1 != requestedLod1)
-                        {
-                            continue;
+                            yield return UpdateLod0NeighborhoodIncremental(targetLod1);
+                            if (targetLod1 != requestedLod1)
+                            {
+                                continue;
+                            }
+                            currentLod1 = targetLod1;
+                            grassTilesDirty = true;
                         }
-                        currentLod1 = targetLod1;
-                        grassTilesDirty = true;
                     }
                 }
             }
@@ -496,6 +527,10 @@ namespace Motu.Streaming
                 transitionCoroutine = null;
             }
         }
+
+        private bool ForestNeighborhoodNeedsUpdate() => forestStreamer != null
+            && (!forestStreamer.Lod1NeighborhoodMatches(requestedLod2)
+                || !forestStreamer.Lod0NeighborhoodMatches(requestedLod1));
 
         public void ClearPlayerFocus()
         {
@@ -889,7 +924,10 @@ namespace Motu.Streaming
                     DestroyUnityObject(tile.mesh);
                 }
             }
-            DestroyUnityObject(group.batchMesh);
+            foreach (var batch in group.renderBatches)
+            {
+                DestroyUnityObject(batch.mesh);
+            }
             if (group.root != null)
             {
                 DestroyUnityObject(group.root);

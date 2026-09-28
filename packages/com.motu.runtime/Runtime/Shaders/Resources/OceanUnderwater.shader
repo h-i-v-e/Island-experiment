@@ -3,13 +3,14 @@ Shader "Hidden/Motu/Ocean Underwater"
     Properties { _MainTex ("Source", 2D) = "white" {} }
     SubShader
     {
+        Tags { "RenderPipeline"="UniversalPipeline" }
         Cull Off ZWrite Off ZTest Always
-        CGINCLUDE
-        #include "UnityCG.cginc"
+        HLSLINCLUDE
+        #include "../MotuUrp.hlsl"
         #include "Packages/com.motu.runtime/Runtime/Shaders/OceanSurfaceGeometry.cginc"
-        sampler2D _MainTex;
+        #include "Packages/com.unity.render-pipelines.core/Runtime/Utilities/Blit.hlsl"
         sampler2D_float _UnderwaterNear, _UnderwaterSurface;
-        float4 _MainTex_TexelSize;
+
         UNITY_DECLARE_DEPTH_TEXTURE(_CameraDepthTexture);
         float4x4 _UnderwaterInvProjection, _UnderwaterCameraToWorld, _UnderwaterVP, _UnderwaterView;
         float4 _UnderwaterOrigin, _UnderwaterParams, _UnderwaterScatter;
@@ -23,10 +24,10 @@ Shader "Hidden/Motu/Ocean Underwater"
             position.xy *= lerp(eyeDepth / max(-position.z, .0001), 1, _UnderwaterOrthographic);
             return float3(position.xy, -eyeDepth);
         }
-        float NearHeight(v2f_img input) : SV_Target
+        float NearHeight(Varyings input) : SV_Target
         {
             float3 nearPosition = mul(_UnderwaterCameraToWorld,
-                float4(ViewPosition(input.uv, _UnderwaterParams.w), 1)).xyz;
+                float4(ViewPosition(input.texcoord, _UnderwaterParams.w), 1)).xyz;
             float2 samplePosition = nearPosition.xz;
             float3 displacement;
             [unroll]
@@ -57,13 +58,10 @@ Shader "Hidden/Motu/Ocean Underwater"
             // A back face is an exit from water; a front face is an entry.
             return float2(input.depth, facing < 0 ? 1 : -1);
         }
-        float4 Composite(v2f_img input) : SV_Target
+        float4 Composite(Varyings input) : SV_Target
         {
-            float4 source = tex2D(_MainTex, input.uv);
-            float2 uv = input.uv;
-            #if UNITY_UV_STARTS_AT_TOP
-            if (_MainTex_TexelSize.y < 0) uv.y = 1 - uv.y;
-            #endif
+            float4 source = SAMPLE_TEXTURE2D_X(_BlitTexture, sampler_LinearClamp, input.texcoord);
+            float2 uv = input.texcoord;
             float signedDepth = tex2D(_UnderwaterNear, uv).r;
             float softness = max(_UnderwaterParams.z, fwidth(signedDepth));
             float wet = smoothstep(-softness, softness, signedDepth);
@@ -91,31 +89,31 @@ Shader "Hidden/Motu/Ocean Underwater"
             float3 water = source.rgb * transmission + _UnderwaterScatter.rgb * (1 - transmission);
             return float4(lerp(source.rgb, water, wet), source.a);
         }
-        ENDCG
+        ENDHLSL
         Pass
         {
-            CGPROGRAM
+            HLSLPROGRAM
             #pragma target 3.5
-            #pragma vertex vert_img
+            #pragma vertex Vert
             #pragma fragment NearHeight
-            ENDCG
+            ENDHLSL
         }
         Pass
         {
             ZWrite On ZTest LEqual
-            CGPROGRAM
+            HLSLPROGRAM
             #pragma target 3.5
             #pragma vertex SurfaceVertex
             #pragma fragment SurfaceFragment
-            ENDCG
+            ENDHLSL
         }
         Pass
         {
-            CGPROGRAM
+            HLSLPROGRAM
             #pragma target 3.5
-            #pragma vertex vert_img
+            #pragma vertex Vert
             #pragma fragment Composite
-            ENDCG
+            ENDHLSL
         }
     }
 }

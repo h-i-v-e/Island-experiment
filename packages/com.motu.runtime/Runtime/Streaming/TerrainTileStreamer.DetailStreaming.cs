@@ -15,6 +15,8 @@ namespace Motu.Streaming
 {
     public sealed partial class TerrainTileStreamer
     {
+        private const int Lod1TilesPerRenderBatch = 8;
+
         private IEnumerator UpdateLod1NeighborhoodIncremental(Vector2Int center)
         {
             var replacements = new List<KeyValuePair<Vector2Int, TileGroup>>(9);
@@ -23,6 +25,17 @@ namespace Motu.Streaming
             {
                 foreach (var key in desired)
                 {
+                    // River and rock meshes were previously all uploaded in the
+                    // activation frame after LOD 1 finished. Build their groups
+                    // while the coarse tile is still covering this area.
+                    yield return EnsureFeatureGroupIncremental(key, preparedRiverTiles,
+                        riverRoot, riverMaterial, "River", riverGroups,
+                        () => center == requestedLod2);
+                    if (center != requestedLod2) yield break;
+                    yield return EnsureFeatureGroupIncremental(key, preparedRiverRockTiles,
+                        riverRockRoot, rockMaterial, "River rock", riverRockGroups,
+                        () => center == requestedLod2);
+                    if (center != requestedLod2) yield break;
                     var clampSides = ClampSidesFor(key, center, Lod2Resolution);
                     if (lod1Groups.TryGetValue(key, out var existing)
                         && existing.clampSides == clampSides)
@@ -366,9 +379,13 @@ namespace Motu.Streaming
                     }
                 }
                 if (!isCurrent() || cancellation.IsCancellationRequested) yield break;
+                if (lod == 1)
+                {
+                    yield return ConfigureTerrainBatchesIncremental(group, lod, isCurrent, marker);
+                    if (!isCurrent() || cancellation.IsCancellationRequested) yield break;
+                }
                 using (marker.Auto())
                 {
-                    ConfigureTerrainBatch(group, lod);
                     ConfigureBoulderColliders(group, lod, parent);
                 }
                 accept(group);
@@ -390,16 +407,34 @@ namespace Motu.Streaming
 
         internal void ConfigureTerrainBatch(TileGroup group, int lod)
         {
-            if (group == null || lod == 0)
-            {
-                return;
-            }
+            if (group == null || lod == 0) return;
+            var batchSize = lod == 1 ? Lod1TilesPerRenderBatch : group.tiles.Length;
+            for (var first = 0; first < group.tiles.Length; first += batchSize)
+                ConfigureTerrainBatchRange(group, lod, first,
+                    Mathf.Min(first + batchSize, group.tiles.Length));
+        }
 
-            var instances = new List<CombineInstance>(group.tiles.Length);
+        private IEnumerator ConfigureTerrainBatchesIncremental(TileGroup group, int lod,
+            Func<bool> isCurrent, ProfilerMarker marker)
+        {
+            for (var first = 0; first < group.tiles.Length; first += Lod1TilesPerRenderBatch)
+            {
+                if (!isCurrent()) yield break;
+                using (marker.Auto())
+                    ConfigureTerrainBatchRange(group, lod, first,
+                        Mathf.Min(first + Lod1TilesPerRenderBatch, group.tiles.Length));
+                yield return null;
+            }
+        }
+
+        private void ConfigureTerrainBatchRange(TileGroup group, int lod, int first, int last)
+        {
+            var instances = new List<CombineInstance>(last - first);
             var totalVertexCount = 0;
             var totalIndexCount = 0;
-            foreach (var tile in group.tiles)
+            for (var index = first; index < last; index++)
             {
+                var tile = group.tiles[index];
                 if (tile == null)
                 {
                     continue;
@@ -425,7 +460,7 @@ namespace Motu.Streaming
             {
                 batchMesh = new Mesh
                 {
-                    name = $"Terrain LOD {lod} combined batch",
+                    name = $"Terrain LOD {lod} combined batch {group.renderBatches.Count}",
                     indexFormat = totalVertexCount > ushort.MaxValue
                         ? IndexFormat.UInt32
                         : IndexFormat.UInt16,
@@ -434,15 +469,15 @@ namespace Motu.Streaming
                 // submesh per tile long enough to capture Unity's actual index remapping.
                 batchMesh.CombineMeshes(instances.ToArray(), false, false, false);
                 var subMesh = 0;
-                foreach (var tile in group.tiles)
+                for (var index = first; index < last; index++)
                 {
+                    var tile = group.tiles[index];
                     if (tile != null)
                         tile.batchIndices = batchMesh.GetIndices(subMesh++);
                 }
                 batchMesh.subMeshCount = 1;
-                batchMesh.UploadMeshData(false);
 
-                batchObject = new GameObject($"Terrain LOD {lod} combined batch");
+                batchObject = new GameObject(batchMesh.name);
                 batchObject.layer = group.root.layer;
                 batchObject.transform.SetParent(group.root.transform, false);
                 batchObject.AddComponent<MeshFilter>().sharedMesh = batchMesh;
@@ -450,11 +485,18 @@ namespace Motu.Streaming
                     ? terrainLod1Material
                     : terrainLod2Material;
 
-                group.batchObject = batchObject;
-                group.batchMesh = batchMesh;
-                group.activeBatchIndices.Capacity = totalIndexCount;
-                group.batchDirty = true;
-                RebuildTerrainBatchIfDirty(group);
+                var batch = new RenderBatch(batchObject, batchMesh, first, last, totalIndexCount);
+                RebuildRenderBatch(group, batch);
+                batchMesh.UploadMeshData(false);
+                var batchIndex = group.renderBatches.Count;
+                group.renderBatches.Add(batch);
+                for (var index = first; index < last; index++)
+                    if (group.tiles[index] != null) group.tiles[index].renderBatchIndex = batchIndex;
+                if (group.batchMesh == null)
+                {
+                    group.batchObject = batchObject;
+                    group.batchMesh = batchMesh;
+                }
             }
             catch
             {
@@ -481,33 +523,35 @@ namespace Motu.Streaming
                 return;
             }
             tile.gameObject.SetActive(active);
-            if (group.batchMesh != null)
-            {
-                group.batchDirty = true;
-            }
+            if (tile.renderBatchIndex >= 0)
+                group.renderBatches[tile.renderBatchIndex].dirty = true;
         }
 
         internal static void RebuildTerrainBatchIfDirty(TileGroup group)
         {
-            if (group?.batchMesh == null || !group.batchDirty)
+            if (group == null) return;
+            foreach (var batch in group.renderBatches)
+                if (batch.dirty) RebuildRenderBatch(group, batch);
+        }
+
+        private static void RebuildRenderBatch(TileGroup group, RenderBatch batch)
+        {
+            batch.activeIndices.Clear();
+            for (var index = batch.firstTile; index < batch.lastTile; index++)
             {
-                return;
-            }
-            group.activeBatchIndices.Clear();
-            foreach (var tile in group.tiles)
-            {
+                var tile = group.tiles[index];
                 if (tile?.batchIndices != null && tile.gameObject.activeSelf)
                 {
-                    group.activeBatchIndices.AddRange(tile.batchIndices);
+                    batch.activeIndices.AddRange(tile.batchIndices);
                 }
             }
-            group.batchMesh.SetIndices(
-                group.activeBatchIndices,
+            batch.mesh.SetIndices(
+                batch.activeIndices,
                 MeshTopology.Triangles,
                 0,
                 false);
-            group.batchObject.SetActive(group.activeBatchIndices.Count != 0);
-            group.batchDirty = false;
+            batch.gameObject.SetActive(batch.activeIndices.Count != 0);
+            batch.dirty = false;
         }
 
         private void RebuildDirtyLod1Batches()
@@ -711,16 +755,67 @@ namespace Motu.Streaming
             }
         }
 
+        private IEnumerator EnsureFeatureGroupIncremental(Vector2Int parent,
+            IslandPreparedMesh[] preparedTiles, GameObject featureRoot,
+            Material material, string label,
+            Dictionary<Vector2Int, TileGroup> groups, Func<bool> stillWanted)
+        {
+            if (groups.ContainsKey(parent)) yield break;
+            TileGroup group = null;
+            try
+            {
+                var root = new GameObject($"{label} group {parent.x},{parent.y}");
+                root.SetActive(false);
+                root.layer = featureRoot.layer;
+                root.transform.SetParent(featureRoot.transform, false);
+                group = new TileGroup(root, new Tile[Divisions * Divisions], 0);
+                var timer = System.Diagnostics.Stopwatch.StartNew();
+                for (var localY = 0; localY < Divisions; localY++)
+                for (var localX = 0; localX < Divisions; localX++)
+                {
+                    if (!stillWanted()) yield break;
+                    var globalX = parent.x * Divisions + localX;
+                    var globalY = parent.y * Divisions + localY;
+                    var preparedIndex = globalY * Lod1Resolution + globalX;
+                    var prepared = preparedTiles[preparedIndex];
+                    if (prepared != null)
+                    {
+                        var mesh = IslandMeshInterop.CreateRiverMesh(prepared);
+                        var tile = new GameObject($"{label} LOD 1 tile {globalX},{globalY}");
+                        tile.layer = featureRoot.layer;
+                        tile.transform.SetParent(root.transform, false);
+                        tile.AddComponent<MeshFilter>().sharedMesh = mesh;
+                        tile.AddComponent<MeshRenderer>().sharedMaterial = material;
+                        group.tiles[localY * Divisions + localX] = new Tile(tile, mesh);
+                    }
+                    if (timer.Elapsed.TotalMilliseconds >= uploadBudgetMilliseconds)
+                    {
+                        yield return null;
+                        timer.Restart();
+                    }
+                }
+                if (!stillWanted()) yield break;
+                // Keep prepared data intact until the whole group is installed;
+                // cancelled transitions can then safely retry this region.
+                for (var localY = 0; localY < Divisions; localY++)
+                for (var localX = 0; localX < Divisions; localX++)
+                    preparedTiles[(parent.y * Divisions + localY) * Lod1Resolution
+                        + parent.x * Divisions + localX] = null;
+                groups.Add(parent, group);
+                group = null;
+            }
+            finally
+            {
+                if (group != null) DestroyGroup(group);
+            }
+        }
+
         private void SetRiverGroupActive(Vector2Int key, bool active)
         {
             if (!riverGroups.TryGetValue(key, out var group))
             {
-                if (!active)
-                {
-                    return;
-                }
-                group = CreateRiverGroup(key);
-                riverGroups.Add(key, group);
+                if (!active) return;
+                throw new InvalidOperationException($"River group {key} was not prepared.");
             }
             group.root?.SetActive(active);
         }
@@ -729,12 +824,8 @@ namespace Motu.Streaming
         {
             if (!riverRockGroups.TryGetValue(key, out var group))
             {
-                if (!active)
-                {
-                    return;
-                }
-                group = CreateRiverRockGroup(key);
-                riverRockGroups.Add(key, group);
+                if (!active) return;
+                throw new InvalidOperationException($"River rock group {key} was not prepared.");
             }
             group.root?.SetActive(active);
         }

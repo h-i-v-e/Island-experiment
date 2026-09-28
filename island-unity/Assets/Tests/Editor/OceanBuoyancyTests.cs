@@ -90,6 +90,11 @@ namespace Motu.Editor
                 previous = confidence;
             }
             Assert.That(OceanSurfaceSampler.SampleConfidence(1.01f), Is.Zero);
+            // Buoyancy uses a longer window when the renderer stops delivering
+            // readbacks; ordinary consumers retain the shorter default window.
+            Assert.That(OceanSurfaceSampler.SampleConfidence(1.5f, 2f, 4f), Is.EqualTo(1f));
+            Assert.That(OceanSurfaceSampler.SampleConfidence(3f, 2f, 4f), Is.EqualTo(.5f).Within(.001f));
+            Assert.That(OceanSurfaceSampler.SampleConfidence(4.01f, 2f, 4f), Is.Zero);
         }
 
         [UnityTest]

@@ -6,14 +6,15 @@ Shader "Hidden/Motu/Ocean Surface Query"
     }
     SubShader
     {
+        Tags { "RenderPipeline"="UniversalPipeline" }
         Pass
         {
             ZTest Always ZWrite Off Cull Off
-            CGPROGRAM
+            HLSLPROGRAM
             #pragma vertex vert_img
             #pragma fragment frag
             #pragma target 3.0
-            #include "UnityCG.cginc"
+            #include "../MotuUrp.hlsl"
             #pragma multi_compile_local __ MOTU_QUERY_VELOCITY
             #if defined(MOTU_QUERY_VELOCITY)
             static float queryTimeOffset = 0;
@@ -69,7 +70,7 @@ Shader "Hidden/Motu/Ocean Surface Query"
                 #endif
                 return float4(_QueryOceanOrigin.y + displacement.y, error, 0, 1);
             }
-            ENDCG
+            ENDHLSL
         }
     }
 }

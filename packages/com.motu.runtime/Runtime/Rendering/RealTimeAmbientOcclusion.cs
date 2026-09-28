@@ -5,7 +5,6 @@ namespace Motu.Rendering
     [ExecuteAlways]
     [RequireComponent(typeof(Camera))]
     [DisallowMultipleComponent]
-    [ImageEffectOpaque]
     [UnityEngine.Scripting.APIUpdating.MovedFrom(true, sourceNamespace: "", sourceAssembly: "Assembly-CSharp", sourceClassName: "RealTimeAmbientOcclusion")]
     public sealed class RealTimeAmbientOcclusion : MonoBehaviour
     {
@@ -22,7 +21,7 @@ namespace Motu.Rendering
         [SerializeField] private Quality quality = Quality.Quality;
         [SerializeField, Range(0f, 2.5f)] private float intensity = 0.6f;
         [SerializeField, Min(0.05f)] private float radius = 1.5f;
-        [SerializeField] private bool halfResolution = true;
+        [SerializeField] private bool halfResolution;
 
         private static readonly int AmbientOcclusionParametersId =
             Shader.PropertyToID("_AOParams");
@@ -50,52 +49,13 @@ namespace Motu.Rendering
             RequestDepthNormals();
         }
 
-        private void OnRenderImage(RenderTexture source, RenderTexture destination)
+        internal int ResolutionDivisor => halfResolution ? 2 : 1;
+
+        internal Material PrepareMaterial()
         {
-            if (intensity <= 0f || !EnsureMaterial())
-            {
-                Graphics.Blit(source, destination);
-                return;
-            }
-
-            RequestDepthNormals();
+            if (intensity <= 0f || !EnsureMaterial()) return null;
             ConfigureMaterial();
-
-            var divisor = halfResolution ? 2 : 1;
-            var width = Mathf.Max(1, source.width / divisor);
-            var height = Mathf.Max(1, source.height / divisor);
-            const RenderTextureFormat format = RenderTextureFormat.ARGB32;
-            var occlusion = RenderTexture.GetTemporary(
-                width,
-                height,
-                0,
-                format,
-                RenderTextureReadWrite.Linear);
-            var blurred = RenderTexture.GetTemporary(
-                width,
-                height,
-                0,
-                format,
-                RenderTextureReadWrite.Linear);
-            occlusion.filterMode = FilterMode.Bilinear;
-            occlusion.wrapMode = TextureWrapMode.Clamp;
-            blurred.filterMode = FilterMode.Bilinear;
-            blurred.wrapMode = TextureWrapMode.Clamp;
-
-            try
-            {
-                Graphics.Blit(source, occlusion, material, 0);
-                Graphics.Blit(occlusion, blurred, material, 1);
-                Graphics.Blit(blurred, occlusion, material, 2);
-
-                material.SetTexture(OcclusionTextureId, occlusion);
-                Graphics.Blit(source, destination, material, 3);
-            }
-            finally
-            {
-                RenderTexture.ReleaseTemporary(blurred);
-                RenderTexture.ReleaseTemporary(occlusion);
-            }
+            return material;
         }
 
         private void RequestDepthNormals()

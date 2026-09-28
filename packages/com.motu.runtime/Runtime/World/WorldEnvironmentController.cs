@@ -337,7 +337,7 @@ namespace Motu.World
             moonLight.shadowBias = sunlightTemplate.shadowBias;
             moonLight.shadowNormalBias = sunlightTemplate.shadowNormalBias;
             moonLight.shadowNearPlane = sunlightTemplate.shadowNearPlane;
-            moonLight.shadowResolution = sunlightTemplate.shadowResolution;
+            // URP controls directional shadow resolution on the pipeline asset.
         }
 
         private void BindExistingReflectionCameras()

@@ -152,8 +152,8 @@ namespace Motu.Editor
             var waterMesh = ChannelMesh(false);
             var bedMesh = ChannelMesh(true);
             var material = new Material(Shader.Find("Motu/River Water"));
-            var bedMaterial = new Material(Shader.Find("Standard"));
-            var rockMaterial = new Material(Shader.Find("Standard"));
+            var bedMaterial = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+            var rockMaterial = new Material(Shader.Find("Universal Render Pipeline/Lit"));
             var noise = ProceduralNoiseTextures.CreateRiverNoiseTexture();
             var target = new RenderTexture(768, 512, 24, RenderTextureFormat.ARGBFloat);
             var image = new Texture2D(768, 512, TextureFormat.RGBAFloat, false, true);
@@ -201,7 +201,7 @@ namespace Motu.Editor
                 camera.targetTexture = target;
                 Color[] Capture(string filename)
                 {
-                    camera.Render(); RenderTexture.active = target;
+                    UrpTestCamera.Render(camera); RenderTexture.active = target;
                     image.ReadPixels(new Rect(0, 0, 768, 512), 0, 0); image.Apply();
                     var pixels = image.GetPixels();
                     foreach (var pixel in pixels) Assert.IsTrue(float.IsFinite(pixel.r) && float.IsFinite(pixel.g) && float.IsFinite(pixel.b));
@@ -246,7 +246,7 @@ namespace Motu.Editor
             var bed = GameObject.CreatePrimitive(PrimitiveType.Plane);
             var cameraObject = new GameObject("River optics camera");
             var material = new Material(Shader.Find("Motu/River Water"));
-            var bedMaterial = new Material(Shader.Find("Standard"));
+            var bedMaterial = new Material(Shader.Find("Universal Render Pipeline/Lit"));
             var target = new RenderTexture(128, 128, 24, RenderTextureFormat.ARGBFloat);
             var image = new Texture2D(128, 128, TextureFormat.RGBAFloat, false, true);
             var noise = ProceduralNoiseTextures.CreateRiverNoiseTexture();
@@ -284,7 +284,7 @@ namespace Motu.Editor
                 Color Capture(float depth)
                 {
                     bed.transform.position = Vector3.down * depth;
-                    camera.Render();
+                    UrpTestCamera.Render(camera);
                     RenderTexture.active = target;
                     image.ReadPixels(new Rect(0, 0, 128, 128), 0, 0);
                     image.Apply();

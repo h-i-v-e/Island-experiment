@@ -7,11 +7,11 @@ Shader "Hidden/Motu/Tests/Ship Wave Field"
         Pass
         {
             ZTest Always Cull Off ZWrite Off
-            CGPROGRAM
+            HLSLPROGRAM
             #pragma vertex vert_img
             #pragma fragment Fragment
             #pragma target 3.5
-            #include "UnityCG.cginc"
+            #include "Packages/com.motu.runtime/Runtime/Shaders/MotuUrp.hlsl"
             #include "Packages/com.motu.runtime/Runtime/Shaders/OceanShipWaves.cginc"
             sampler2D _MainTex;
             float _ProbeDisplacementFoam;
@@ -31,7 +31,7 @@ Shader "Hidden/Motu/Tests/Ship Wave Field"
                 MotuShipWaveShading(sample.xy, sample.z, 0, _ProbeMaximumWaveHeight, normal, foam);
                 return float4(sample.w + MotuShipWaveHeight(sample.z, field, 0, _ProbeMaximumWaveHeight), field.x, field.y, foam);
             }
-            ENDCG
+            ENDHLSL
         }
     }
 }

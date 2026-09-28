@@ -1,9 +1,9 @@
 # Motu Islands
 
 Procedural Rust-generated terrain, streamed LODs, caves, vegetation, rivers, and
-optional Built-in ocean/weather rendering. This is a private 0.1.0 development
-package targeting Unity 6000.5.6f1 on macOS Apple Silicon with Metal and the
-Built-in render pipeline. Other platforms/pipelines are not currently supported.
+optional URP ocean/weather rendering. This is a private 0.1.0 development
+package targeting Unity 6000.6.0f1 on macOS Apple Silicon with Metal and the
+Universal Render Pipeline 17.6 with Render Graph. Other platforms/pipelines are not currently supported.
 
 ## Install
 
@@ -31,9 +31,20 @@ ship an Intel binary. Restart Unity when replacing the native binary in an alrea
    **Generate Island** explicitly. **Clear Island** cancels and releases it.
 
 Your camera, input, lighting, and scene settings remain yours. No sky, ocean,
-player, global weather controller, or demonstration scene is required. For depth
-refraction in rivers, enable depth textures on the camera you want to use; Motu
-islands do not scan or alter every camera in the host project.
+player, global weather controller, or demonstration scene is required. For river refraction, enable **Depth Texture** and **Opaque Texture** on the URP
+asset (opaque downsampling: None). Add `MotuRendererFeature` to a Forward renderer
+for the grass/foliage shells and camera effects. Use Copy Depth After Opaques,
+Intermediate Texture Always, and disable depth priming. Custom procedural materials
+retain their existing properties and instancing; they do not yet use the SRP Batcher.
+
+The sample project has `Assets/Settings/MotuURP.asset` with two renderers: the main
+renderer at index 0, and the simplified reflection renderer at index 1. The latter
+has an opaque layer mask of Nothing and a `MotuRendererFeature` with Simplified
+Reflections enabled; its feature draws simplified passes and falls back to normal
+URP passes for imported materials. Hosts using `PlanarWaterReflection` should use
+this renderer layout. Render Graph remains enabled; compatibility mode is not used.
+The package's **Motu > Rendering > Configure URP** command recreates this
+configuration and upgrades Standard materials through Unity's material upgrader.
 
 Material templates are optional: package shader references preserve the runtime
 shaders in a player build. Authored overrides are borrowed; generated materials

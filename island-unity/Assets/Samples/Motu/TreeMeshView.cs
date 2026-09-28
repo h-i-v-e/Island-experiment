@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.Rendering;
 
 namespace Motu.Rendering
 {
@@ -22,18 +23,26 @@ namespace Motu.Rendering
             IsVisible = !IsVisible;
         }
 
-        private void OnPreRender()
+        private void OnEnable()
         {
-            GL.wireframe = IsVisible;
+            RenderPipelineManager.beginCameraRendering += BeginCamera;
+            RenderPipelineManager.endCameraRendering += EndCamera;
         }
 
-        private void OnPostRender()
+        private void BeginCamera(ScriptableRenderContext context, Camera camera)
+        {
+            if (camera == GetComponent<Camera>()) GL.wireframe = IsVisible;
+        }
+
+        private void EndCamera(ScriptableRenderContext context, Camera camera)
         {
             GL.wireframe = false;
         }
 
         private void OnDisable()
         {
+            RenderPipelineManager.beginCameraRendering -= BeginCamera;
+            RenderPipelineManager.endCameraRendering -= EndCamera;
             GL.wireframe = false;
         }
     }

@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 namespace Motu.Rendering
 {
@@ -9,6 +10,8 @@ namespace Motu.Rendering
     public sealed partial class OceanDeckWaveClamp : MonoBehaviour
     {
         internal const int MaximumCapsules = 8;
+        private static void PrepareSrpCamera(ScriptableRenderContext context, Camera camera) => PrepareCamera(camera);
+
         private static readonly List<OceanDeckWaveClamp> Active = new List<OceanDeckWaveClamp>();
         private static readonly Vector4[] Endpoints = new Vector4[MaximumCapsules];
         private static readonly Vector4[] Parameters = new Vector4[MaximumCapsules];
@@ -37,7 +40,7 @@ namespace Motu.Rendering
         {
             body = GetComponentInParent<Rigidbody>();
             ResetTrail();
-            if (Active.Count == 0) Camera.onPreCull += PrepareCamera;
+            if (Active.Count == 0) RenderPipelineManager.beginCameraRendering += PrepareSrpCamera;
             if (!Active.Contains(this)) Active.Add(this);
             if (Active.Count > MaximumCapsules)
                 Debug.LogWarning($"Only {MaximumCapsules} active ocean deck capsules can be rendered at once.", this);
@@ -50,7 +53,7 @@ namespace Motu.Rendering
             Active.Remove(this);
             if (Active.Count == 0)
             {
-                Camera.onPreCull -= PrepareCamera;
+                RenderPipelineManager.beginCameraRendering -= PrepareSrpCamera;
                 OceanShipWaveField.Release();
             }
             BindGlobals();

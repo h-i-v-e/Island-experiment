@@ -25,7 +25,7 @@ namespace Motu.Gameplay
         [Header("Torch")]
         [SerializeField] private KeyCode toggleTorchKey = KeyCode.T;
         [SerializeField, Min(1f)] private float torchRangeMetres = 35f;
-        [SerializeField, Min(0f)] private float torchIntensity = 4f;
+        [SerializeField, Min(0f)] private float torchIntensity = 6f;
         [SerializeField, Range(1f, 179f)] private float torchSpotAngle = 75f;
         private Light torchLight;
         private bool torchRequested;

@@ -26,7 +26,7 @@ if os.environ.get('MOTU_IMPORT_SAMPLE') == '1':
             destination = project / 'Assets/ImportedExample' / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_bytes(archive.extractfile(member).read())
-manifest = {'dependencies': {'com.motu.runtime': 'file:' + str(artifact), 'com.unity.test-framework': '1.7.0'},
+manifest = {'dependencies': {'com.motu.runtime': 'file:' + str(artifact), 'com.unity.test-framework': '1.8.0'},
             'testables': ['com.motu.runtime']}
 if os.environ.get('MOTU_WITH_NAVIGATION') == '1':
     navigation = next((root / 'artifacts').glob('com.motu.navigation-*.tgz'))
@@ -34,6 +34,8 @@ if os.environ.get('MOTU_WITH_NAVIGATION') == '1':
 (project / 'Packages/manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
 PY
 echo "Consumer artifacts and logs: $validation_root"
+"$unity_editor" -batchmode -force-metal -projectPath "$validation_root/project" \
+    -executeMethod Motu.Editor.UrpProjectSetup.Configure -quit -logFile "$validation_root/urp-setup.log"
 "$unity_editor" -batchmode -force-metal -projectPath "$validation_root/project" \
     -runTests -testPlatform EditMode -testFilter Motu.Tests \
     -testResults "$validation_root/tests.xml" -logFile "$validation_root/tests.log"

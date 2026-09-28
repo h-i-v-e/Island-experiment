@@ -106,6 +106,10 @@ namespace Motu.Streaming
         internal int ActiveLod2TileCount => lod2Tiles.Count;
         internal int Lod1GroupCount => lod1Groups.Count;
         internal int Lod0GroupCount => lod0Groups.Count;
+        internal bool Lod1NeighborhoodMatches(Vector2Int center) =>
+            NeighborhoodMatches(lod1Groups, center, Lod2Resolution);
+        internal bool Lod0NeighborhoodMatches(Vector2Int center) =>
+            NeighborhoodMatches(lod0Groups, center, Lod1Resolution);
         internal int ActiveTrunkColliderCount =>
             trunkColliderRoot == null
                 ? 0
@@ -399,8 +403,12 @@ namespace Motu.Streaming
                 if (lod == 0)
                 {
                     var index = key.y * Lod1Resolution + key.x;
-                    CreateTrunkColliders(group.colliderRoot.transform, preparedLod0TrunkColliders[index], key);
-                    CreateTrunkColliders(group.colliderRoot.transform, preparedLod0LogColliders[index], key, fallenLogs: true);
+                    yield return CreateTrunkCollidersIncremental(group.colliderRoot.transform,
+                        preparedLod0TrunkColliders[index], key, wanted);
+                    if (!wanted()) yield break;
+                    yield return CreateTrunkCollidersIncremental(group.colliderRoot.transform,
+                        preparedLod0LogColliders[index], key, wanted, fallenLogs: true);
+                    if (!wanted()) yield break;
                 }
                 install(group);
                 pendingGroups.Remove(group);
@@ -438,18 +446,21 @@ namespace Motu.Streaming
             }
         }
 
-        private static void CreateTrunkColliders(
+        private IEnumerator CreateTrunkCollidersIncremental(
             Transform parent,
             IslandPreparedTreeCollider[] colliders,
             Vector2Int tile,
+            Func<bool> wanted,
             bool fallenLogs = false)
         {
             if (parent == null || colliders == null)
             {
-                return;
+                yield break;
             }
+            var timer = Stopwatch.StartNew();
             for (var index = 0; index < colliders.Length; index++)
             {
+                if (!wanted()) yield break;
                 var source = colliders[index];
                 var axis = source.top - source.bottom;
                 var length = axis.magnitude;
@@ -469,13 +480,20 @@ namespace Motu.Streaming
                 {
                     var box = colliderObject.AddComponent<BoxCollider>();
                     box.size = new Vector3(source.radius * 2f, length, source.radius * 2f);
-                    continue;
                 }
-                var capsule = colliderObject.AddComponent<CapsuleCollider>();
-                capsule.direction = 1;
-                capsule.center = Vector3.zero;
-                capsule.radius = source.radius;
-                capsule.height = Mathf.Max(length, source.radius * 2f);
+                else
+                {
+                    var capsule = colliderObject.AddComponent<CapsuleCollider>();
+                    capsule.direction = 1;
+                    capsule.center = Vector3.zero;
+                    capsule.radius = source.radius;
+                    capsule.height = Mathf.Max(length, source.radius * 2f);
+                }
+                if (timer.Elapsed.TotalMilliseconds >= uploadBudgetMilliseconds)
+                {
+                    yield return null;
+                    timer.Restart();
+                }
             }
         }
 
@@ -752,12 +770,32 @@ namespace Motu.Streaming
             return result;
         }
 
+        private static bool NeighborhoodMatches(
+            Dictionary<Vector2Int, Group> groups, Vector2Int center, int resolution)
+        {
+            var minimumX = Mathf.Max(center.x - NearbyRadius, 0);
+            var maximumX = Mathf.Min(center.x + NearbyRadius, resolution - 1);
+            var minimumY = Mathf.Max(center.y - NearbyRadius, 0);
+            var maximumY = Mathf.Min(center.y + NearbyRadius, resolution - 1);
+            if (groups.Count != (maximumX - minimumX + 1) * (maximumY - minimumY + 1))
+                return false;
+            for (var y = minimumY; y <= maximumY; y++)
+                for (var x = minimumX; x <= maximumX; x++)
+                    if (!groups.ContainsKey(new Vector2Int(x, y))) return false;
+            return true;
+        }
+
         private static void DestroyGroup(Group group)
         {
             if (group == null)
             {
                 return;
             }
+            // Destroy is deferred in play mode. Hide retired geometry now so it
+            // cannot render alongside an activated replacement for one frame.
+            group.foliageRoot?.SetActive(false);
+            group.woodRoot?.SetActive(false);
+            group.colliderRoot?.SetActive(false);
             foreach (var tile in group.tiles.Values)
             {
                 DestroyTile(tile);

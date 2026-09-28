@@ -6,7 +6,7 @@ Shader "Hidden/Motu/Tests/Ocean Optics"
         Pass
         {
             ZTest Always ZWrite Off Cull Off
-            CGPROGRAM
+            HLSLPROGRAM
             #pragma vertex vert_img
             #pragma fragment Frag
             #pragma target 3.5
@@ -41,7 +41,7 @@ Shader "Hidden/Motu/Tests/Ocean Optics"
                 float3 shipField = MotuShipWaveField(_ProbeView.xz);
                 return float4(MotuOceanHistoryFoam(_ProbeView.xz), shipField.z, shipField.xy);
             }
-            ENDCG
+            ENDHLSL
         }
     }
 }
