@@ -5,6 +5,7 @@ Shader "Motu/Sea Water"
         _RippleStrength ("Fine Ripple Strength", Range(0, 1)) = 0.12
         _RippleWorldSize ("Fine Ripple Wavelength (m)", Range(0.1, 3)) = 1.2
         _RippleSpeed ("Fine Ripple Animation Speed", Range(0, 3)) = 1
+        _SurfaceDistortionStrength ("Surface Distortion Strength", Range(0, 1)) = 1
         _SurfaceRoughness ("Surface Roughness", Range(0.04, 0.6)) = 0.16
         _WindRoughness ("Wind Roughness", Range(0, 0.4)) = 0.12
         _AbsorptionCoefficients ("RGB Absorption (per metre)", Vector) = (0.45, 0.12, 0.055, 0)
@@ -249,10 +250,11 @@ Shader "Motu/Sea Water"
                     * waterIllumination;
                 waterBody += WaveTranslucency(crestResponse, worldNormal,
                     viewDirection, input.worldPosition, shadowAttenuation, cloud);
-                // Reflections and refraction follow the animated surface detail,
-                // rather than a separate high-frequency distortion texture.
+                // Fine normals and the independent scrolling layer both distort
+                // reflections and refraction without moving the surface mesh.
                 float2 reflectionRipple = mul((float3x3)UNITY_MATRIX_V,
-                    detailNormal - analyticWaveNormal).xy;
+                    detailNormal - analyticWaveNormal).xy
+                    + MotuOceanSurfaceDistortion(input.worldPosition, _Time.y);
                 float pathLength;
                 float3 refractedPosition;
                 float3 refractedScene = MotuWaterRefractDepthSafe(input.grabPosition, input.screenPosition,

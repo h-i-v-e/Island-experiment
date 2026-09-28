@@ -21,6 +21,7 @@ float MotuOceanCoastalTint(float2 worldXZ)
 float _RippleStrength;
 float _RippleWorldSize;
 float _RippleSpeed;
+float _SurfaceDistortionStrength;
 float _WindRoughness;
 sampler2D _OceanFoamHistory;
 float4 _OceanFoamHistoryRect;
@@ -55,6 +56,17 @@ float2 MotuOceanRippleSlope(float2 uv)
     return float2(
         tex2Dlod(_NoiseTex, float4(uv + float2(stepUV, 0), 0, lod)).r - tex2Dlod(_NoiseTex, float4(uv - float2(stepUV, 0), 0, lod)).r,
         tex2Dlod(_NoiseTex, float4(uv + float2(0, stepUV), 0, lod)).r - tex2Dlod(_NoiseTex, float4(uv - float2(0, stepUV), 0, lod)).r);
+}
+
+float2 MotuOceanSurfaceDistortion(float3 worldPosition, float animationTime)
+{
+    // Restore the scrolling texture layer independently of geometric waves
+    // and the wind-driven normal ripples. Both optics paths use this offset.
+    float2 uv = MotuCloudWorldToLocal(worldPosition).xz / 8.0;
+    float2 noise = float2(
+        tex2D(_NoiseTex, uv + float2(animationTime * 0.025, 0)).r,
+        tex2D(_NoiseTex, uv.yx + float2(0, animationTime * 0.02)).g);
+    return (noise - 0.5) * saturate(_SurfaceDistortionStrength);
 }
 
 float3 MotuOceanRippleNormal(float3 worldPosition, float3 baseNormal, out float roughness)

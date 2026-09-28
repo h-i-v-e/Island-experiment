@@ -441,6 +441,41 @@ namespace Motu.Editor
         }
 
         [Test]
+        public void SurfaceDistortionAnimatesWithFlatWavesAndCalmWind()
+        {
+            var material = new Material(Shader.Find("Hidden/Motu/Tests/Ocean Optics"));
+            var noise = ProceduralNoiseTextures.CreateWeatherNoiseTexture();
+            try
+            {
+                material.SetTexture("_NoiseTex", noise);
+                material.SetFloat("_ProbeMode", 8);
+                material.SetFloat("_ProbeSpan", 64);
+                material.SetFloat("_GeometricWaves", 0);
+                material.SetVector("_MotuWeatherWind", Vector4.zero);
+                material.SetFloat("_SurfaceDistortionStrength", 1);
+                material.SetFloat("_ProbeDistance", 0);
+                var initial = Read(material);
+                material.SetFloat("_ProbeDistance", 10);
+                var moved = Read(material);
+                material.SetFloat("_SurfaceDistortionStrength", 0);
+                var disabled = Read(material);
+                float amplitude = 0, animation = 0;
+                for (var i = 0; i < initial.Length; i++)
+                {
+                    amplitude += Mathf.Abs(initial[i].r) + Mathf.Abs(initial[i].g);
+                    animation += Mathf.Abs(initial[i].r - moved[i].r)
+                        + Mathf.Abs(initial[i].g - moved[i].g);
+                    Assert.That(disabled[i].r, Is.Zero.Within(.0001f));
+                    Assert.That(disabled[i].g, Is.Zero.Within(.0001f));
+                }
+                Assert.That(amplitude / initial.Length, Is.GreaterThan(.05f));
+                Assert.That(animation / initial.Length, Is.GreaterThan(.01f));
+                Assert.IsFalse(ShaderUtil.ShaderHasError(material.shader));
+            }
+            finally { Object.DestroyImmediate(material); Object.DestroyImmediate(noise); }
+        }
+
+        [Test]
         public void RefractionRejectsRenderedForegroundInBothTextureAxes()
         {
             EditorSceneManager.NewScene(NewSceneSetup.EmptyScene);

@@ -28,6 +28,10 @@ Shader "Hidden/Motu/Tests/Ocean Optics"
                 if (_ProbeMode < 2.5) return MotuWaterSunSpecular(float3(0, 1, 0), normalize(_ProbeView.xyz), normalize(_ProbeLight.xyz), _SurfaceRoughness);
                 if (_ProbeMode < 3.5) return MotuWaterRefractionValidity(_ProbeDistance, 10);
                 if (_ProbeMode < 4.5) return MotuOceanCoastalTint(_ProbeView.xz);
+                if (_ProbeMode > 7.5)
+                    return float4(MotuOceanSurfaceDistortion(
+                        float3(input.uv.x * _ProbeSpan, 0, input.uv.y * _ProbeSpan),
+                        _ProbeDistance), 0, 1);
                 if (_ProbeMode > 6.5)
                 {
                     MotuCloudLighting cloud;
