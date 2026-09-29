@@ -10,8 +10,8 @@ namespace Motu.Islands
 {
     internal static class IslandSnapshotCache
     {
-        // Includes settled large boulders and their native collider records.
-        private const int CacheKeySchemaVersion = 9;
+        // Large boulders are subdivided, then smoothed by a quarter of a Laplacian step.
+        private const int CacheKeySchemaVersion = 10;
         private const string SnapshotExtension = ".motusnapshot";
 
         internal static string CacheDirectory

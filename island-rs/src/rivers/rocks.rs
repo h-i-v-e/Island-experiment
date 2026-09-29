@@ -14,6 +14,13 @@ const STONE_MAXIMUM_DIAMETER_METRES: f32 = 0.22;
 const BOULDER_MINIMUM_DIAMETER_METRES: f32 = 0.28;
 const BOULDER_MAXIMUM_DIAMETER_METRES: f32 = 0.65;
 const BOULDER_FRACTION: f32 = 0.01;
+/// Same cutoff as the boulder collider. Stones and the smaller boulder class
+/// stay on the faceted icosahedron; metre-scale bodies are subdivided.
+const LARGE_BOULDER_MINIMUM_RADIUS: f32 = 1.0 / ISLAND_WORLD_METRES;
+const LARGE_BOULDER_SUBDIVISIONS: usize = 2;
+/// Fraction of the Laplacian step actually applied. The rest of each vertex
+/// stays on the faceted cage, so the boulder keeps its irregular outline.
+const LARGE_BOULDER_SMOOTH_WEIGHT: f32 = 0.25;
 const MINIMUM_SURFACE_NORMAL_Z: f32 = 0.906_307_8;
 const PLACEMENT_CELL_METRES: f32 = 1.2;
 const MINIMUM_GAP_METRES: f32 = 0.03;
@@ -196,7 +203,7 @@ pub(crate) fn append_settled_rocks(
             },
             &mut rng,
         );
-        if rock.radius >= 1.0 / ISLAND_WORLD_METRES {
+        if rock.radius >= LARGE_BOULDER_MINIMUM_RADIUS {
             boulders.push(sphere);
         }
     }
@@ -266,7 +273,7 @@ fn append_rock(output: &mut Mesh, placement: RockPlacement, rng: &mut Rng) -> cr
             rng.range(0.58, 0.92)
         };
     let deformation_seed = rng.next_u64();
-    let first_vertex = output.vertices.len() as u32;
+    let mut rock = Mesh::default();
     let mut support = f32::MAX;
     for (index, direction) in prototype.vertices.iter().enumerate() {
         let variation = noise::fractal(
@@ -280,7 +287,7 @@ fn append_rock(output: &mut Mesh, placement: RockPlacement, rng: &mut Rng) -> cr
             + y_axis * (direction.y * horizontal_y * radius)
             + placement.normal * (direction.z * vertical * radius);
         support = support.min(offset.dot(placement.normal));
-        output.vertices.push(offset);
+        rock.vertices.push(offset);
     }
     let embed = vertical
         * if placement.boulder {
@@ -289,18 +296,58 @@ fn append_rock(output: &mut Mesh, placement: RockPlacement, rng: &mut Rng) -> cr
             rng.range(0.20, 0.48)
         };
     let centre = placement.position - placement.normal * (support + embed);
-    for vertex in &mut output.vertices[first_vertex as usize..] {
+    for vertex in &mut rock.vertices {
         *vertex += centre;
     }
-    output
-        .triangles
-        .extend(prototype.triangles.iter().map(|index| first_vertex + index));
-    let radius = output.vertices[first_vertex as usize..]
+    rock.triangles.extend_from_slice(&prototype.triangles);
+    if placement.radius >= LARGE_BOULDER_MINIMUM_RADIUS {
+        refine_large_boulder(&mut rock, centre);
+    }
+    let radius = rock
+        .vertices
         .iter()
         .map(|vertex| vertex.distance_squared(centre))
         .fold(0.0_f32, f32::max)
         .sqrt();
+    let first_vertex = output.vertices.len() as u32;
+    output
+        .triangles
+        .extend(rock.triangles.iter().map(|index| first_vertex + index));
+    output.vertices.append(&mut rock.vertices);
     centre.extend(radius)
+}
+
+/// Subdivides a placed metre-scale boulder, then moves each vertex a quarter
+/// of the way toward the Laplacian result. The bounding radius is restored so
+/// burial and the collider keep the coarse rock's size.
+fn refine_large_boulder(rock: &mut Mesh, centre: Vec3) {
+    let radius = bounding_radius(rock, centre);
+    for _ in 0..LARGE_BOULDER_SUBDIVISIONS {
+        let mut refined = rock.tessellated();
+        // smooth() replaces the vertex buffer, so keep the cage for the blend.
+        let placed = refined.vertices.clone();
+        refined.smooth();
+        for (vertex, placed) in refined.vertices.iter_mut().zip(placed) {
+            *vertex = placed.lerp(*vertex, LARGE_BOULDER_SMOOTH_WEIGHT);
+        }
+        *rock = refined;
+    }
+    let smoothed = bounding_radius(rock, centre);
+    if smoothed <= f32::EPSILON || !radius.is_finite() {
+        return;
+    }
+    let scale = radius / smoothed;
+    for vertex in &mut rock.vertices {
+        *vertex = centre + (*vertex - centre) * scale;
+    }
+}
+
+fn bounding_radius(rock: &Mesh, centre: Vec3) -> f32 {
+    rock.vertices
+        .iter()
+        .map(|vertex| vertex.distance_squared(centre))
+        .fold(0.0_f32, f32::max)
+        .sqrt()
 }
 
 fn rock_prototype() -> &'static RockPrototype {
@@ -470,6 +517,26 @@ mod tests {
                     .any(|v| (*v - rock.anchor).dot(normal) < 0.0),
                 "rock should remain embedded"
             );
+            let coarse = rock_prototype();
+            assert!(mesh.vertices.len() > coarse.vertices.len());
+            assert!(mesh.triangles.len() > coarse.triangles.len());
+            let mut coarse_mesh = Mesh::default();
+            let coarse_sphere = append_rock(
+                &mut coarse_mesh,
+                RockPlacement {
+                    position: rock.anchor,
+                    normal,
+                    face_normal_z: normal.z,
+                    radius: 0.2 / ISLAND_WORLD_METRES,
+                    boulder: true,
+                },
+                &mut Rng::new(1),
+            );
+            assert!(
+                flattest_face_fill(&mesh, centre)
+                    > flattest_face_fill(&coarse_mesh, coarse_sphere.truncate()),
+                "subdivision should lift flat face centres toward the hull"
+            );
             let small = SettledRock {
                 radius: 0.1 / ISLAND_WORLD_METRES,
                 ..rock
@@ -564,5 +631,24 @@ mod tests {
 
         assert!(steep_vertex_normals.vertices.is_empty());
         assert!(steep_faces.vertices.is_empty());
+    }
+
+    /// Centroid distance divided by the triangle's own vertex radius. A flat
+    /// facet sits well inside the hull, so its fill is lower.
+    fn flattest_face_fill(mesh: &Mesh, centre: Vec3) -> f32 {
+        mesh.triangles
+            .chunks_exact(3)
+            .map(|triangle| {
+                let vertices = [triangle[0], triangle[1], triangle[2]]
+                    .map(|index| mesh.vertices[index as usize]);
+                let centroid = (vertices[0] + vertices[1] + vertices[2]) / 3.0;
+                let vertex_radius = vertices
+                    .iter()
+                    .map(|vertex| vertex.distance(centre))
+                    .sum::<f32>()
+                    / 3.0;
+                centroid.distance(centre) / vertex_radius.max(f32::EPSILON)
+            })
+            .fold(f32::MAX, f32::min)
     }
 }
