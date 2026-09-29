@@ -44,7 +44,7 @@ float3 MotuTreeWindOffsetAtHeight(
     // Recover a stable world-space root so every vertex belonging to a tree or
     // its nearest canopy region samples exactly the same moving field.
     float3 rootWorldPosition = worldPosition - mul(
-        (float3x3)unity_ObjectToWorld,
+        (float3x3)GetObjectToWorldMatrix(),
         islandLocalPosition - treeRoot);
     float3 wind = MotuWindSample(rootWorldPosition.xz);
     return float3(wind.x, 0.0, wind.z)

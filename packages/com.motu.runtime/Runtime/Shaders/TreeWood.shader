@@ -261,7 +261,8 @@ Shader "Motu/Tree Wood"
                 UNITY_INITIALIZE_OUTPUT(VertexOutput, output);
                 UNITY_TRANSFER_INSTANCE_ID(input, output);
                 UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(output);
-                float3 surfaceWorldPosition = mul(unity_ObjectToWorld, input.vertex).xyz;
+                // Frustum culling uses this renderer matrix.
+                float3 surfaceWorldPosition = TransformObjectToWorld(input.vertex.xyz);
                 output.islandLocalPosition = mul(
                     _IslandWorldToLocal,
                     float4(surfaceWorldPosition, 1.0)).xyz;
@@ -384,7 +385,7 @@ Shader "Motu/Tree Wood"
                 ShadowOutput output;
                 UNITY_SETUP_INSTANCE_ID(v);
                 UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(output);
-                float3 worldPosition = mul(unity_ObjectToWorld, v.vertex).xyz;
+                float3 worldPosition = TransformObjectToWorld(v.vertex.xyz);
                 float3 islandLocalPosition = mul(
                     _IslandWorldToLocal,
                     float4(worldPosition, 1.0)).xyz;
@@ -392,7 +393,7 @@ Shader "Motu/Tree Wood"
                     worldPosition,
                     islandLocalPosition,
                     v.treeData);
-                v.vertex.xyz += mul((float3x3)unity_WorldToObject, windOffset);
+                v.vertex.xyz += mul((float3x3)GetWorldToObjectMatrix(), windOffset);
                 TRANSFER_SHADOW_CASTER_NORMALOFFSET(output)
                 return output;
             }

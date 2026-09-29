@@ -80,7 +80,9 @@ namespace Motu.Islands
             treeFoliageMaterial.CopyPropertiesFromMaterial(treeLod0FoliageMaterial);
             treeFoliageMaterial.SetFloat("_CullMode", (float)CullMode.Back);
             treeFoliageMaterial.renderQueue = (int)RenderQueue.Geometry;
-            treeFoliageMaterial.enableInstancing = true;
+            // The LOD2 canopy mesh is shared with its shadow proxy. Instancing
+            // that pair places the visible canopy on another object's matrix.
+            treeFoliageMaterial.enableInstancing = false;
             reedMaterial = CreateMaterial(
                 "Motu/Riverbank Reeds",
                 Reeds.BaseColour,
