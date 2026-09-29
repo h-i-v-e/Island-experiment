@@ -62,6 +62,8 @@ namespace Motu.Streaming
                 {
                     if (lod1Groups.TryGetValue(replacement.Key, out var existing))
                     {
+                        // Destroy waits a frame. Hide first so the old mesh cannot draw over its replacement.
+                        HideRetiredTerrain(existing);
                         lod1Groups.Remove(replacement.Key);
                         retired.Add(existing);
                     }
@@ -81,11 +83,13 @@ namespace Motu.Streaming
                 }
                 foreach (var key in removalScratch)
                 {
-                    retired.Add(lod1Groups[key]);
+                    var group = lod1Groups[key];
+                    HideRetiredTerrain(group);
+                    retired.Add(group);
                     lod1Groups.Remove(key);
-                    SetLod2TileActive(key, true);
                     SetRiverGroupActive(key, false);
                     SetRiverRockGroupActive(key, false);
+                    RevealLod2TileIfUncovered(key);
                 }
 
                 foreach (var key in desired)
@@ -95,6 +99,14 @@ namespace Motu.Streaming
                     SetRiverRockGroupActive(key, true);
                 }
                 RebuildTerrainBatchIfDirty(lod2Group);
+
+                // LOD 1 is installed before LOD 0 catches up. A new group is born
+                // with every tile visible, so hide any tile that still has detail.
+                foreach (var key in lod0Groups.Keys)
+                {
+                    SetLod1TileActive(key, false);
+                }
+                RebuildDirtyLod1Batches();
 
                 foreach (var group in retired)
                 {
@@ -154,6 +166,7 @@ namespace Motu.Streaming
                 {
                     if (lod0Groups.TryGetValue(replacement.Key, out var existing))
                     {
+                        HideRetiredTerrain(existing);
                         lod0Groups.Remove(replacement.Key);
                         retired.Add(existing);
                     }
@@ -173,15 +186,21 @@ namespace Motu.Streaming
                 }
                 foreach (var key in removalScratch)
                 {
-                    retired.Add(lod0Groups[key]);
+                    var group = lod0Groups[key];
+                    HideRetiredTerrain(group);
+                    retired.Add(group);
                     lod0Groups.Remove(key);
                     SetLod1TileActive(key, true);
+                    RevealLod2TileIfUncovered(new Vector2Int(
+                        key.x / Divisions,
+                        key.y / Divisions));
                 }
                 foreach (var key in desired)
                 {
                     SetLod1TileActive(key, false);
                 }
                 RebuildDirtyLod1Batches();
+                RebuildTerrainBatchIfDirty(lod2Group);
                 grassTilesDirty = true;
 
                 foreach (var group in retired)
@@ -206,6 +225,42 @@ namespace Motu.Streaming
                     }
                 }
             }
+        }
+
+        private static void HideRetiredTerrain(TileGroup group)
+        {
+            if (group?.root != null)
+            {
+                group.root.SetActive(false);
+            }
+        }
+
+        private bool Lod2CellContainsLod0(Vector2Int lod2Key)
+        {
+            var originX = lod2Key.x * Divisions;
+            var originY = lod2Key.y * Divisions;
+            var endX = originX + Divisions;
+            var endY = originY + Divisions;
+            foreach (var key in lod0Groups.Keys)
+            {
+                if (key.x >= originX && key.x < endX
+                    && key.y >= originY && key.y < endY)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // LOD 2 is the fallback under a whole coarse cell. Leave it hidden while
+        // any finer tile in that cell is still drawing.
+        private void RevealLod2TileIfUncovered(Vector2Int lod2Key)
+        {
+            if (lod1Groups.ContainsKey(lod2Key) || Lod2CellContainsLod0(lod2Key))
+            {
+                return;
+            }
+            SetLod2TileActive(lod2Key, true);
         }
 
         private static List<Vector2Int> NeighbourKeys(Vector2Int center, int resolution)

@@ -557,6 +557,7 @@ namespace Motu.Streaming
             }
             foreach (var entry in lod0Groups)
             {
+                HideRetiredTerrain(entry.Value);
                 SetLod1TileActive(entry.Key, true);
                 DestroyGroup(entry.Value);
             }
@@ -564,6 +565,7 @@ namespace Motu.Streaming
             RebuildDirtyLod1Batches();
             foreach (var entry in lod1Groups)
             {
+                HideRetiredTerrain(entry.Value);
                 SetLod2TileActive(entry.Key, true);
                 DestroyGroup(entry.Value);
             }
