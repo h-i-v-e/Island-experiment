@@ -107,6 +107,7 @@ namespace Motu.Streaming
                     renderer.sharedMaterial = material;
                     renderer.SetPropertyBlock(properties);
                     renderer.shadowCastingMode = ShadowCastingMode.TwoSided;
+                    renderer.receiveShadows = true;
                     if (floorStones)
                     {
                         await budget.YieldIfExceededAsync(cancellation);

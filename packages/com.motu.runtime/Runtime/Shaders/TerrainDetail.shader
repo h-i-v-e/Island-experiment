@@ -120,7 +120,7 @@ Shader "Motu/Terrain Unified"
                 float2 uv : TEXCOORD0;
                 float3 worldPosition : TEXCOORD1;
                 float3 geometricWorldNormal : TEXCOORD2;
-                SHADOW_COORDS(3)
+                float3 shadowRelativePosition : TEXCOORD3;
                 UNITY_FOG_COORDS(4)
                 half4 material : TEXCOORD5;
                 float3 islandLocalPosition : TEXCOORD6;
@@ -584,7 +584,7 @@ Shader "Motu/Terrain Unified"
                 baseColor *= 1.0h - max(wetSurfaceEffects, submerged) * bankCoverage * _WetDarkening;
 
                 float3 lightDirection = normalize(UnityWorldSpaceLightDir(input.worldPosition));
-                UNITY_LIGHT_ATTENUATION(attenuation, input, input.worldPosition);
+                half attenuation = MotuMainLightShadowAttenuation(input.shadowRelativePosition);
                 half diffuse = saturate(dot(normal, lightDirection)) * attenuation;
                 MotuCloudLighting cloud = MotuCloudSurfaceLighting(input.worldPosition);
                 half3 lighting = ShadeSH9(half4(normal, 1.0h))
@@ -601,6 +601,7 @@ Shader "Motu/Terrain Unified"
                 output.pos = UnityObjectToClipPos(input.vertex);
                 output.uv = input.uv;
                 output.worldPosition = mul(unity_ObjectToWorld, input.vertex).xyz;
+                output.shadowRelativePosition = MotuCameraRelativePosition(output.worldPosition);
                 output.islandLocalPosition = mul(
                     _IslandWorldToLocal,
                     float4(output.worldPosition, 1.0)).xyz;
@@ -1075,7 +1076,7 @@ Shader "Motu/Terrain Unified"
                     return fixed4(normal * 0.5h + 0.5h, 1.0h);
 
                 float3 lightDirection = normalize(UnityWorldSpaceLightDir(input.worldPosition));
-                UNITY_LIGHT_ATTENUATION(attenuation, input, input.worldPosition);
+                half attenuation = MotuMainLightShadowAttenuation(input.shadowRelativePosition);
                 half diffuse = saturate(dot(normal, lightDirection)) * attenuation;
                 MotuCloudLighting cloud = MotuCloudSurfaceLighting(input.worldPosition);
                 half3 direct = _LightColor0.rgb

@@ -17,8 +17,10 @@
 #define UnityObjectToWorldDir(v) TransformObjectToWorldDir(v)
 #define UnityObjectToViewPos(v) TransformWorldToView(TransformObjectToWorld((v).xyz))
 #define UnityWorldSpaceViewDir(v) GetWorldSpaceViewDir(v)
-#define UnityWorldSpaceLightDir(v) GetMainLight().direction
-#define _LightColor0 half4(GetMainLight().color, 1)
+// The no-argument GetMainLight() reports no shadow. Read the directional light
+// from the uniforms so a later shadowed sample keeps its attenuation.
+#define UnityWorldSpaceLightDir(v) _MainLightPosition.xyz
+#define _LightColor0 half4(_MainLightColor.rgb, 1)
 #define ShadeSH9(v) SampleSH((v).xyz)
 #undef UNITY_LIGHTMODEL_AMBIENT
 #define UNITY_LIGHTMODEL_AMBIENT half4(SampleSH(half3(0,1,0)), 1)
@@ -40,6 +42,22 @@ float Linear01Depth(float depth) { return Linear01Depth(depth, _ZBufferParams); 
 #define TRANSFER_SHADOW_WPOS(output, position)
 #define UNITY_TRANSFER_LIGHTING(output, uv)
 #define UNITY_LIGHT_ATTENUATION(name, input, position) half name = GetMainLight(TransformWorldToShadowCoord(position), position, half4(1, 1, 1, 1)).shadowAttenuation;
+
+// Island geometry is thousands of metres from the origin. Interpolating that
+// absolute position drops the bits that separate shadow texels, and the error
+// grows as the view becomes grazing, so the sample can read another cascade
+// tile. Interpolate the offset from the camera, then put the camera back
+// before URP's own cascade transform.
+float3 MotuCameraRelativePosition(float3 positionWS)
+{
+    return positionWS - GetCameraPositionWS();
+}
+
+half MotuMainLightShadowAttenuation(float3 cameraRelativePosition)
+{
+    float3 positionWS = cameraRelativePosition + GetCameraPositionWS();
+    return GetMainLight(TransformWorldToShadowCoord(positionWS), positionWS, half4(1, 1, 1, 1)).shadowAttenuation;
+}
 #define UNITY_FOG_COORDS(index) float fogCoord : TEXCOORD##index;
 #define UNITY_TRANSFER_FOG(output, clip) output.fogCoord = ComputeFogFactor((clip).z);
 #define UNITY_APPLY_FOG(coord, colour) colour.rgb = MixFog(colour.rgb, coord);

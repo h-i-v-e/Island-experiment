@@ -45,7 +45,7 @@ Shader "Motu/Cave Surface"
                 float2 caveData : TEXCOORD2;
                 float3 worldPosition : TEXCOORD3;
                 float3 worldNormal : TEXCOORD4;
-                UNITY_LIGHTING_COORDS(5, 6)
+                float3 shadowRelativePosition : TEXCOORD5;
                 UNITY_FOG_COORDS(7)
             };
             VertexOutput Vertex(VertexInput v)
@@ -57,6 +57,7 @@ Shader "Motu/Cave Surface"
                 o.localNormal = v.normal;
                 o.caveData = v.caveData;
                 o.worldPosition = mul(unity_ObjectToWorld, v.vertex).xyz;
+                o.shadowRelativePosition = MotuCameraRelativePosition(o.worldPosition);
                 o.worldNormal = UnityObjectToWorldNormal(v.normal);
                 UNITY_TRANSFER_LIGHTING(o, float2(0, 0));
                 UNITY_TRANSFER_FOG(o, o.pos);
@@ -92,7 +93,7 @@ Shader "Motu/Cave Surface"
                 normal = normalize(lerp(MotuProceduralRockNormal(
                     normal, i.localPosition, broadNoise), normal, floorBlend));
                 float3 lightDirection = normalize(UnityWorldSpaceLightDir(i.worldPosition));
-                UNITY_LIGHT_ATTENUATION(attenuation, i, i.worldPosition);
+                half attenuation = MotuMainLightShadowAttenuation(i.shadowRelativePosition);
                 half3 direct = _LightColor0.rgb * saturate(dot(normal, lightDirection))
                     * attenuation;
                 MotuCloudLighting cloud = MotuCloudSurfaceLighting(i.worldPosition);

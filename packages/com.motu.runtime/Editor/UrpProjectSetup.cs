@@ -32,6 +32,10 @@ namespace Motu.Editor
             pipeline.shadowDistance = 150;
             pipeline.shadowCascadeCount = 4;
             var serialized = new SerializedObject(pipeline);
+            // 3 keeps both the single-cascade and cascaded variants. Mode 1 strips
+            // cascades while this asset uses four, so a built player samples only
+            // the nearest tile and darkens surfaces that are not in that frustum.
+            serialized.FindProperty("m_PrefilteringModeMainLightShadows").intValue = 3;
             serialized.FindProperty("m_MainLightShadowsSupported").boolValue = true;
             serialized.FindProperty("m_AdditionalLightShadowsSupported").boolValue = true;
             serialized.FindProperty("m_SoftShadowsSupported").boolValue = true;

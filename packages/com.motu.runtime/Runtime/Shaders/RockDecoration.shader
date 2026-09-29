@@ -22,7 +22,7 @@ Shader "Motu/Rock Decoration"
             HLSLPROGRAM
             #pragma vertex Vertex
             #pragma fragment Fragment
-            #pragma target 3.0
+            #pragma target 3.5
             #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
             #pragma multi_compile_fragment _ _SHADOWS_SOFT
             #pragma multi_compile _ _ADDITIONAL_LIGHTS
@@ -46,7 +46,7 @@ Shader "Motu/Rock Decoration"
                 float4 pos : SV_POSITION;
                 float3 worldPosition : TEXCOORD0;
                 float3 worldNormal : TEXCOORD1;
-                SHADOW_COORDS(2)
+                float3 shadowRelativePosition : TEXCOORD2;
                 UNITY_FOG_COORDS(3)
                 UNITY_VERTEX_INPUT_INSTANCE_ID
                 UNITY_VERTEX_OUTPUT_STEREO
@@ -74,12 +74,12 @@ Shader "Motu/Rock Decoration"
                 UNITY_TRANSFER_INSTANCE_ID(v, output);
                 UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(output);
                 output.pos = UnityObjectToClipPos(v.vertex);
-                output.worldPosition = mul(unity_ObjectToWorld, v.vertex).xyz;
+                output.worldPosition = TransformObjectToWorld(v.vertex.xyz);
+                output.shadowRelativePosition = MotuCameraRelativePosition(output.worldPosition);
                 output.islandLocalPosition = mul(
                     _IslandWorldToLocal,
                     float4(output.worldPosition, 1.0)).xyz;
                 output.worldNormal = UnityObjectToWorldNormal(v.normal);
-                TRANSFER_SHADOW(output);
                 UNITY_TRANSFER_FOG(output, output.pos);
                 return output;
             }
@@ -107,7 +107,7 @@ Shader "Motu/Rock Decoration"
                     * cloud.ambientTransmittance;
                 half3 lightDirection = normalize(UnityWorldSpaceLightDir(input.worldPosition));
                 half diffuse = saturate(dot(normal, lightDirection));
-                UNITY_LIGHT_ATTENUATION(attenuation, input, input.worldPosition);
+                half attenuation = MotuMainLightShadowAttenuation(input.shadowRelativePosition);
                 fixed3 color = albedo
                     * (ambient + _LightColor0.rgb
                         * diffuse
@@ -130,7 +130,7 @@ Shader "Motu/Rock Decoration"
             HLSLPROGRAM
             #pragma vertex ShadowVertex
             #pragma fragment ShadowFragment
-            #pragma target 3.0
+            #pragma target 3.5
             #pragma multi_compile_vertex _ _CASTING_PUNCTUAL_LIGHT_SHADOW
             #pragma multi_compile_instancing
 

@@ -398,10 +398,18 @@ namespace Motu.Streaming
             }
         }
 
+        private static MeshRenderer AddShadowedRenderer(GameObject target, Material material)
+        {
+            var renderer = target.AddComponent<MeshRenderer>();
+            renderer.sharedMaterial = material;
+            renderer.shadowCastingMode = ShadowCastingMode.On;
+            renderer.receiveShadows = true;
+            return renderer;
+        }
+
         private void ConfigureTerrainRenderer(GameObject tileObject)
         {
-            var renderer = tileObject.AddComponent<MeshRenderer>();
-            renderer.sharedMaterial = terrainMaterial;
+            var renderer = AddShadowedRenderer(tileObject, terrainMaterial);
             renderer.SetPropertyBlock(lod0MaterialProperties);
         }
 
@@ -481,9 +489,9 @@ namespace Motu.Streaming
                 batchObject.layer = group.root.layer;
                 batchObject.transform.SetParent(group.root.transform, false);
                 batchObject.AddComponent<MeshFilter>().sharedMesh = batchMesh;
-                batchObject.AddComponent<MeshRenderer>().sharedMaterial = lod == 1
+                AddShadowedRenderer(batchObject, lod == 1
                     ? terrainLod1Material
-                    : terrainLod2Material;
+                    : terrainLod2Material);
 
                 var batch = new RenderBatch(batchObject, batchMesh, first, last, totalIndexCount);
                 RebuildRenderBatch(group, batch);
@@ -742,7 +750,7 @@ namespace Motu.Streaming
                         tileObject.layer = featureRoot.layer;
                         tileObject.transform.SetParent(root.transform, false);
                         tileObject.AddComponent<MeshFilter>().sharedMesh = mesh;
-                        tileObject.AddComponent<MeshRenderer>().sharedMaterial = material;
+                        AddShadowedRenderer(tileObject, material);
                         tiles[tileIndex] = new Tile(tileObject, mesh);
                     }
                 }
@@ -785,7 +793,7 @@ namespace Motu.Streaming
                         tile.layer = featureRoot.layer;
                         tile.transform.SetParent(root.transform, false);
                         tile.AddComponent<MeshFilter>().sharedMesh = mesh;
-                        tile.AddComponent<MeshRenderer>().sharedMaterial = material;
+                        AddShadowedRenderer(tile, material);
                         group.tiles[localY * Divisions + localX] = new Tile(tile, mesh);
                     }
                     if (timer.Elapsed.TotalMilliseconds >= uploadBudgetMilliseconds)
