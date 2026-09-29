@@ -50,6 +50,7 @@ namespace Motu.Islands
         public void SetViewPosition(Vector3 worldPosition)
         {
             var distance = Vector3.Distance(worldPosition, transform.position);
+            Navigation?.NoteViewerDistance(distance);
             if (lod3Object != null)
             {
                 var submersion = Mathf.SmoothStep(0f, 1f,

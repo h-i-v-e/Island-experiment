@@ -99,7 +99,7 @@ namespace Motu.Islands
                 generator.terrainStreamer.SetWaterfallFootDebug(
                     generator.DebugSettings.ShowWaterfallFeet);
                 generator.islandRuntime.InstallLod3(prepared.lod3, generator.Generation.MaximumHeightMetres);
-                if (prepared.navigationMesh != null && generator.Navigation.Enabled)
+                if (generator.Navigation.Enabled)
                     IslandNavigationIntegration.Install?.Invoke(generator.islandRuntime, prepared, generator.Navigation);
                 generator.islandRuntime.Activate();
                 var viewer = generator.Streaming.Target;

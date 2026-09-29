@@ -197,9 +197,12 @@ namespace Motu.Islands
 
             try
             {
+                // Open-sea islands defer the full-resolution navigation copy until
+                // the viewer is close. A standalone island still bakes at install.
                 prepared = await IslandGenerationWorker.GenerateAsync(
                     request,
-                    cancellation.Token);
+                    cancellation.Token,
+                    prepareNavigation: !managedByWorld);
                 cancellation.Token.ThrowIfCancellationRequested();
                 if (generationLifecycle.IsDestroyed || !isActiveAndEnabled)
                 {

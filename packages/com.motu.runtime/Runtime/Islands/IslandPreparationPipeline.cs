@@ -21,7 +21,8 @@ namespace Motu.Islands
 
         internal static IslandPreparedData PrepareIsland(
             IslandGenerationRequest request,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            bool prepareNavigation = true)
         {
             if (request == null) throw new ArgumentNullException(nameof(request));
             return PrepareIsland(
@@ -36,7 +37,8 @@ namespace Motu.Islands
                 cancellationToken,
                 request.SnapshotPath,
                 request.SnapshotCacheBudgetBytes,
-                request.CaveOptions, request.CaveNetworkOptions, request.CaveWalkOptions, request.Navigation.Enabled && IslandNavigationIntegration.IsAvailable);
+                request.CaveOptions, request.CaveNetworkOptions, request.CaveWalkOptions,
+                prepareNavigation && request.Navigation.Enabled && IslandNavigationIntegration.IsAvailable);
         }
 
         internal static IslandPreparedData PrepareIsland(

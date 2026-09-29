@@ -35,8 +35,14 @@ namespace Motu.Navigation
     [ExecuteAlways]
     public sealed class IslandNavigation : MonoBehaviour, IIslandNavigation
     {
+        // Cruise is about 8 m/s and the shore sits near 1 km from the island origin.
+        // Starting at 2.5 km leaves a few minutes to bake and skips islands that
+        // only pass through the generation radius.
+        internal const float ApproachDistanceMetres = 2500f;
+
         // Bound memory pressure across concurrently prepared islands.
         private static readonly SemaphoreSlim BuildGate = new SemaphoreSlim(1, 1);
+        private static readonly SemaphoreSlim ExportGate = new SemaphoreSlim(1, 1);
         private sealed class AgentType { internal int id, users; }
         private static readonly Dictionary<Vector4, AgentType> AgentTypes = new Dictionary<Vector4, AgentType>();
         private readonly CancellationTokenSource lifetime = new CancellationTokenSource();
@@ -56,6 +62,14 @@ namespace Motu.Navigation
         private IslandNavigationSettings settings;
         private Vector4 agentKey;
         private bool ownsAgentType, building, disposed, registerWhenReady = true;
+        private bool approachArmed;
+        private NativeIslandHandle approachSource;
+        private float approachWorldSize;
+        private IslandPreparedMesh approachTerrain;
+        private IslandPreparedForestData approachForest;
+        private IslandPreparedBoulderCollider[][] approachBoulders;
+        private IslandPreparedCaves approachCaves;
+        private IslandNavigationSettings approachSettings;
         public bool IsReady { get; private set; }
         public bool IsRegistered => chunks.Count != 0 && chunks.TrueForAll(chunk => chunk.instance.valid);
         public int AgentTypeId { get; private set; } = -1;
@@ -69,7 +83,86 @@ namespace Motu.Navigation
             IslandNavigationSettings configuration)
         {
             if (BuildCompletion != null) throw new InvalidOperationException("Navigation is already scheduled.");
+            approachArmed = false;
             BuildCompletion = BuildInBackgroundAsync(terrain, forest, boulders, caves, configuration.Copy());
+        }
+
+        internal void ArmApproachBuild(NativeIslandHandle source, float worldSize,
+            IslandPreparedForestData forest, IslandPreparedBoulderCollider[][] boulders,
+            IslandPreparedCaves caves, IslandNavigationSettings configuration)
+            => ArmApproachBuild(null, forest, boulders, caves, configuration, source, worldSize);
+
+        internal void ArmApproachBuild(IslandPreparedMesh terrain, IslandPreparedForestData forest,
+            IslandPreparedBoulderCollider[][] boulders, IslandPreparedCaves caves,
+            IslandNavigationSettings configuration, NativeIslandHandle source = null, float worldSize = 0f)
+        {
+            if (configuration == null) throw new ArgumentNullException(nameof(configuration));
+            if (BuildCompletion != null || approachArmed)
+                throw new InvalidOperationException("Navigation is already scheduled.");
+            if (terrain == null)
+            {
+                if (source == null || !source.IsValid)
+                    throw new ArgumentException("Deferred navigation requires a resident native island.", nameof(source));
+                if (!(worldSize > 0f))
+                    throw new ArgumentOutOfRangeException(nameof(worldSize));
+            }
+            approachTerrain = terrain;
+            approachSource = source;
+            approachWorldSize = worldSize;
+            approachForest = forest;
+            approachBoulders = boulders;
+            approachCaves = caves;
+            approachSettings = configuration.Copy();
+            approachArmed = true;
+        }
+
+        public void NoteViewerDistance(float distanceMetres)
+        {
+            if (!approachArmed || BuildCompletion != null || disposed || !float.IsFinite(distanceMetres)) return;
+            if (distanceMetres > ApproachDistanceMetres) return;
+            approachArmed = false;
+            BuildCompletion = ExportAndBuildAsync();
+        }
+
+        private async Task ExportAndBuildAsync()
+        {
+            try
+            {
+                await Task.Yield();
+                lifetime.Token.ThrowIfCancellationRequested();
+                var terrain = approachTerrain;
+                if (terrain == null)
+                {
+                    await ExportGate.WaitAsync(lifetime.Token);
+                    try
+                    {
+                        lifetime.Token.ThrowIfCancellationRequested();
+                        if (approachSource == null || !approachSource.IsValid) return;
+                        using var lease = approachSource.Acquire();
+                        var handle = lease.Value;
+                        var worldSize = approachWorldSize;
+                        terrain = await Task.Run(
+                            () => IslandPreparationPipeline.PrepareNavigationMesh(handle, worldSize),
+                            lifetime.Token);
+                    }
+                    finally { ExportGate.Release(); }
+                }
+                if (disposed || terrain == null) return;
+                await BuildAsync(terrain, approachForest, approachBoulders, approachCaves,
+                    approachSettings, lifetime.Token);
+            }
+            catch (OperationCanceledException) { }
+            catch (ObjectDisposedException) { }
+            catch (Exception error) { if (!disposed) Debug.LogException(error, this); }
+            finally
+            {
+                approachTerrain = null;
+                approachSource = null;
+                approachForest = null;
+                approachBoulders = null;
+                approachCaves = null;
+                approachSettings = null;
+            }
         }
 
         private async Task BuildInBackgroundAsync(IslandPreparedMesh terrain, IslandPreparedForestData forest,
@@ -227,16 +320,24 @@ namespace Motu.Navigation
                 var filter = new NavMeshQueryFilter { agentTypeID = AgentTypeId, areaMask = 1 };
                 var voxel = Report.voxelSize;
                 var accepted = new List<NavMeshLinkData>();
-                var index = 0;
-                while (index < candidates.Count)
+                // SamplePosition only sees registered data. Keep this neighbour pair
+                // registered across slice yields while the island may publish.
+                // A dormant or disabled island drops the pair before yielding.
+                var neighbourInstance = default(NavMeshDataInstance);
+                var currentInstance = default(NavMeshDataInstance);
+                try
                 {
-                    token.ThrowIfCancellationRequested();
-                    // Query only while both neighbours are temporarily registered.
-                    // Always remove them before yielding, including dormant builds.
-                    var a = NavMesh.AddNavMeshData(neighbour.data, transform.position, transform.rotation);
-                    var b = NavMesh.AddNavMeshData(current.data, transform.position, transform.rotation);
-                    try
+                    var index = 0;
+                    while (index < candidates.Count)
                     {
+                        token.ThrowIfCancellationRequested();
+                        if (!neighbourInstance.valid)
+                        {
+                            neighbourInstance = NavMesh.AddNavMeshData(
+                                neighbour.data, transform.position, transform.rotation);
+                            currentInstance = NavMesh.AddNavMeshData(
+                                current.data, transform.position, transform.rotation);
+                        }
                         var timer = Stopwatch.StartNew();
                         do
                         {
@@ -247,12 +348,22 @@ namespace Motu.Navigation
                                 seamLinks.Add(link);
                             }
                         } while (index < candidates.Count && timer.Elapsed.TotalMilliseconds < 2);
+                        if (disposed || !isActiveAndEnabled || !registerWhenReady)
+                            ReleaseSeamRegistration(ref neighbourInstance, ref currentInstance);
+                        if (index < candidates.Count) await Task.Yield();
                     }
-                    finally { a.Remove(); b.Remove(); }
-                    await Task.Yield();
                 }
+                finally { ReleaseSeamRegistration(ref neighbourInstance, ref currentInstance); }
             }
             Report.seamLinks = seamLinks.Count;
+        }
+
+        private static void ReleaseSeamRegistration(ref NavMeshDataInstance neighbour, ref NavMeshDataInstance current)
+        {
+            if (neighbour.valid) neighbour.Remove();
+            if (current.valid) current.Remove();
+            neighbour = default;
+            current = default;
         }
 
         private void SampleMemory(Process process)
@@ -319,6 +430,13 @@ namespace Motu.Navigation
         {
             if (disposed) return;
             disposed = true;
+            approachArmed = false;
+            approachSource = null;
+            approachTerrain = null;
+            approachForest = null;
+            approachBoulders = null;
+            approachCaves = null;
+            approachSettings = null;
             lifetime.Cancel();
             RemoveRegistration();
             IsReady = false;

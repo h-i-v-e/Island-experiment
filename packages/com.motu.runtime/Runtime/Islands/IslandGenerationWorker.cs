@@ -9,13 +9,14 @@ namespace Motu.Islands
         private static readonly SemaphoreSlim PreparationGate = new SemaphoreSlim(1, 1);
 
         internal static async Task<IslandPreparedData> GenerateAsync(
-            IslandGenerationRequest request, CancellationToken cancellationToken)
+            IslandGenerationRequest request, CancellationToken cancellationToken, bool prepareNavigation = true)
         {
             if (request == null) throw new System.ArgumentNullException(nameof(request));
             await PreparationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
-                return await Task.Run(() => IslandPreparationPipeline.PrepareIsland(request, cancellationToken),
+                return await Task.Run(() => IslandPreparationPipeline.PrepareIsland(
+                        request, cancellationToken, prepareNavigation),
                     cancellationToken).ConfigureAwait(false);
             }
             finally { PreparationGate.Release(); }

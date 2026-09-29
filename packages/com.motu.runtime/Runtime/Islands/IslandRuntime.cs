@@ -59,6 +59,7 @@ namespace Motu.Islands
             Navigation = value;
         }
         internal NativeIslandHandle NativeHandle => nativeHandle;
+        internal float WorldSizeMetres => coastalWaveWorldSize;
 
         internal static IslandRuntime Create(
             IslandDescriptor descriptor,

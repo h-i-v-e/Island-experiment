@@ -10,5 +10,9 @@ namespace Motu.Islands
         bool IsRegistered { get; }
         Task BuildCompletion { get; }
         void SetRegistered(bool registered);
+
+        /// <summary>Distance from the island origin, in metres. A world island
+        /// bakes only after the viewer comes within approach range.</summary>
+        void NoteViewerDistance(float distanceMetres);
     }
 }

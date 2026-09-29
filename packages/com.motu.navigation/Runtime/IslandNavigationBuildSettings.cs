@@ -17,7 +17,9 @@ namespace Motu.Navigation
             settings.voxelSize = configuration.VoxelSize > 0f ? configuration.VoxelSize : configuration.AgentRadius / 3f;
             settings.overrideTileSize = true;
             settings.tileSize = configuration.TileSize;
-            settings.buildHeightMesh = true;
+            // Height meshes dominate bake time and retained memory. Agent contact
+            // uses the navmesh polygon height instead.
+            settings.buildHeightMesh = false;
             settings.maxJobWorkers = (uint)configuration.MaximumBuildWorkers;
             settings.minRegionArea = 2f;
             return settings;

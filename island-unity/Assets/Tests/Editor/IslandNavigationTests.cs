@@ -47,7 +47,7 @@ namespace Motu.Editor
                 var build = settings.BuildSettings(type);
                 Assert.AreEqual(.75f, build.agentRadius);
                 Assert.AreEqual(.25f, build.voxelSize);
-                Assert.IsTrue(build.buildHeightMesh);
+                Assert.IsFalse(build.buildHeightMesh);
                 Assert.AreEqual(.5f, copied.AgentRadius);
                 Assert.AreEqual(128f, copied.ChunkSize);
                 Assert.AreEqual(1u, build.maxJobWorkers);
@@ -195,6 +195,31 @@ namespace Motu.Editor
                 factory.NavigationSettings.AgentRadius = .6f;
                 Assert.AreEqual(.8f, request.Navigation.AgentRadius);
                 Assert.AreEqual(.8f, request.Profile.Clone().Navigation.AgentRadius);
+            }
+            finally { Object.DestroyImmediate(host); }
+        }
+
+        [UnityTest]
+        public IEnumerator ApproachBuildWaitsUntilTheViewerIsNear()
+        {
+            var host = new GameObject("Deferred navigation");
+            var navigation = host.AddComponent<IslandNavigation>();
+            try
+            {
+                navigation.ArmApproachBuild(Ground(), null, null, IslandPreparedCaves.Empty,
+                    new IslandNavigationSettings { LogBuildStatistics = false });
+                navigation.NoteViewerDistance(IslandNavigation.ApproachDistanceMetres + 50f);
+                yield return null;
+                Assert.IsNull(navigation.BuildCompletion);
+                navigation.NoteViewerDistance(IslandNavigation.ApproachDistanceMetres);
+                var completion = navigation.BuildCompletion;
+                Assert.IsNotNull(completion);
+                navigation.NoteViewerDistance(0f);
+                Assert.AreSame(completion, navigation.BuildCompletion);
+                while (!completion.IsCompleted) yield return null;
+                completion.GetAwaiter().GetResult();
+                Assert.IsTrue(navigation.IsReady);
+                Assert.IsTrue(navigation.IsRegistered);
             }
             finally { Object.DestroyImmediate(host); }
         }
