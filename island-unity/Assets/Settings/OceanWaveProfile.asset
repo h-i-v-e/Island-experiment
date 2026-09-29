@@ -46,24 +46,24 @@ MonoBehaviour:
   wave0:
     direction: {x: 1, y: 0.18}
     wavelengthMetres: 32
-    amplitudeMetres: 1.6
+    amplitudeMetres: 1.5
     speedMetresPerSecond: 3.6
     choppiness: 0
   wave1:
     direction: {x: 0.32, y: 1}
-    wavelengthMetres: 16
-    amplitudeMetres: 0.8
+    wavelengthMetres: 24
+    amplitudeMetres: 1
     speedMetresPerSecond: 2.7
     choppiness: 0
   wave2:
     direction: {x: -0.82, y: 0.55}
     wavelengthMetres: 8
-    amplitudeMetres: 0.4
+    amplitudeMetres: 0.15
     speedMetresPerSecond: 1.8
     choppiness: 0
   wave3:
     direction: {x: 0.58, y: -0.81}
-    wavelengthMetres: 4
-    amplitudeMetres: 0.2
+    wavelengthMetres: 6
+    amplitudeMetres: 0.1
     speedMetresPerSecond: 1.2
     choppiness: 0
