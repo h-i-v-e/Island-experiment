@@ -36,7 +36,7 @@ MonoBehaviour:
   whitecapDistortionSpeed: 0.65
   onshoreWaveEnabled: 1
   onshoreWaveWavelengthMetres: 24
-  onshoreWaveAmplitudeMetres: 3
+  onshoreWaveAmplitudeMetres: 1
   onshoreWaveSpeedMetresPerSecond: 3
   onshoreWaveChoppiness: 1
   onshoreWaveLeadingEdgeSharpness: 1
