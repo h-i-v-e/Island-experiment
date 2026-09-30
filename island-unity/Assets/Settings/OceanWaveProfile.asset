@@ -16,7 +16,7 @@ MonoBehaviour:
   fineVertexSpacingMetres: 1
   fineRadiusMetres: 256
   ringsPerSpacingLevel: 8
-  displacementFadeStartMetres: 192
+  displacementFadeStartMetres: 64
   displacementFadeEndMetres: 256
   maskCoverageMetres: 1024
   maskResolution: 512
