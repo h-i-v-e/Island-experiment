@@ -579,9 +579,8 @@ Shader "Motu/Terrain Unified"
                 half wetSurfaceEffects = max(riverBankWetness, coastalWetness)
                     * aboveSea
                     * (1.0h - max(grassCoverage, coverage.snow));
-                // The river bed supplies its own appearance; wetness belongs on the banks.
-                half bankCoverage = 1.0h - saturate(weights.a.w);
-                baseColor *= 1.0h - max(wetSurfaceEffects, submerged) * bankCoverage * _WetDarkening;
+                // Distant terrain has no wet highlight. The bed still takes the wet darkening.
+                baseColor *= 1.0h - max(wetSurfaceEffects, submerged) * _WetDarkening;
 
                 float3 lightDirection = normalize(UnityWorldSpaceLightDir(input.worldPosition));
                 half attenuation = MotuMainLightShadowAttenuation(input.shadowRelativePosition);
@@ -1056,9 +1055,10 @@ Shader "Motu/Terrain Unified"
                 half wetSurfaceEffects = max(riverBankWetness, coastalWetness)
                     * aboveSea
                     * wettableCoverage;
-                // Fade every wet effect out as the final river-bed contribution reaches one.
+                // The wet highlight fades out on the river bed. The darkening stays,
+                // including where the bed is under water.
                 half bankCoverage = 1.0h - saturate(weights.a.w);
-                half wetDarkening = max(wetSurfaceEffects, submerged) * bankCoverage;
+                half wetDarkening = max(wetSurfaceEffects, submerged);
                 wetSurfaceEffects *= bankCoverage;
                 baseColor *= 1.0h - wetDarkening * _WetDarkening;
 
