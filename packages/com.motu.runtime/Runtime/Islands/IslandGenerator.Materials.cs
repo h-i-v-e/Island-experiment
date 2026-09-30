@@ -54,6 +54,7 @@ namespace Motu.Islands
                 Generation.WorldSizeMetres);
             CreateTreeBarkTextures(materialTextures.treeBark);
             treeWoodMaterial.SetTexture("_EndGrainMap", Resources.Load<Texture2D>("Motu/TreeEndGrain"));
+            treeWoodMaterial.SetColor("_GroundDirtColor", dirtColor);
             treeWoodMaterial.SetTexture("_CliffNoise3D", cliffNoiseTexture);
             treeWoodMaterial.enableInstancing = true;
             treeLod1WoodMaterial = new Material(treeWoodMaterial)

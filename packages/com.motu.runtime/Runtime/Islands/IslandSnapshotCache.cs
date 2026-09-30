@@ -10,8 +10,8 @@ namespace Motu.Islands
 {
     internal static class IslandSnapshotCache
     {
-        // Large boulders are subdivided, then smoothed by a quarter of a Laplacian step.
-        private const int CacheKeySchemaVersion = 10;
+        // Fallen-log roots are buried by their radius and fade from bark to dirt.
+        private const int CacheKeySchemaVersion = 15;
         private const string SnapshotExtension = ".motusnapshot";
 
         internal static string CacheDirectory

@@ -91,7 +91,7 @@ namespace Motu.Editor
                 material.SetVector("_MotuWeatherWind", new Vector4(1, 0, 30, 3));
                 material.SetVector("_MotuWindMaterial", new Vector4(5, 100, .2f, 0));
                 material.SetTexture("_MotuWindNoise", Texture2D.whiteTexture);
-                foreach (var tag in new[] { .5f, .25f, 0f })
+                foreach (var tag in new[] { .5f, .25f, .15f, 0f })
                 {
                     material.SetVector("_ProbeTreeData", new Vector4(.5f, .5f, .02f, tag));
                     Graphics.Blit(Texture2D.whiteTexture, target, material);
@@ -176,6 +176,17 @@ namespace Motu.Editor
                 material.SetTexture("_EndGrainMap", grain);
                 material.SetColor("_EndGrainColor", new Color(.62f, .44f, .25f));
                 Read();
+                material.SetColor("_GroundDirtColor", Color.cyan);
+                Tag(.15f);
+                var rotten = Read();
+                Assert.That(rotten.g, Is.GreaterThan(.5f));
+                Assert.That(rotten.b, Is.GreaterThan(.5f));
+                Assert.That(rotten.r, Is.LessThan(.2f));
+                material.SetTexture("_BarkAlbedoMap", Texture2D.whiteTexture);
+                material.SetColor("_EndGrainColor", Color.red);
+                var rottenAgain = Read();
+                Assert.That(rottenAgain.g, Is.EqualTo(rotten.g).Within(.03f), "Bark and end grain must not tint rotten wood.");
+                Assert.That(rottenAgain.r, Is.LessThan(.2f));
                 System.IO.File.WriteAllBytes(System.IO.Path.Combine(Application.temporaryCachePath, "motu-end-grain-preview.png"), output.EncodeToPNG());
                 Assert.IsFalse(ShaderUtil.ShaderHasError(material.shader));
             }

@@ -6,6 +6,7 @@ Shader "Motu/Tree Wood"
         _LightColor ("Light Bark", Color) = (0.42, 0.28, 0.14, 1)
         [NoScaleOffset] _EndGrainMap ("Exposed End Grain", 2D) = "white" {}
         _EndGrainColor ("End Grain Tint", Color) = (0.62, 0.44, 0.25, 1)
+        _GroundDirtColor ("Rotten Wood", Color) = (0.09, 0.055, 0.026, 1)
         _EndGrainDetail ("End Grain Detail", Range(0, 1)) = 0.8
         _BarkContrast ("Bark Colour Variation", Range(0, 1)) = 0.42
         [NoScaleOffset] _BarkAlbedoMap ("Bark Recipe Albedo", 2D) = "gray" {}
@@ -83,6 +84,7 @@ Shader "Motu/Tree Wood"
             fixed4 _LightColor;
             sampler2D _EndGrainMap;
             fixed4 _EndGrainColor;
+            fixed4 _GroundDirtColor;
             half _EndGrainDetail;
             half _BarkContrast;
             sampler2D _BarkAlbedoMap;
@@ -298,7 +300,10 @@ Shader "Motu/Tree Wood"
                 float3 treeRoot = MotuDecodeTreeRoot(input.treeData);
                 float3 barkPosition = input.islandLocalPosition - treeRoot * hasTreeRoot;
                 BarkRecipeSample bark;
-                if (input.treeData.w < 0.1)
+                // Root tubes run from bark (0.25) at the trunk to dirt (0.15) at the tip.
+                bool endGrain = input.treeData.w < 0.1;
+                float dirtBlend = saturate((0.25 - input.treeData.w) * 10.0);
+                if (endGrain)
                 {
                     // Cap vertices have their own UVs and normals. Never sample
                     // bark parallax or bark normals on exposed cross sections.
@@ -320,12 +325,16 @@ Shader "Motu/Tree Wood"
                 else
                 {
                     bark = SampleBarkRecipe(barkPosition, input.worldPosition, geometricNormal, barkAxis);
+                    bark.worldNormal = lerp(bark.worldNormal, geometricNormal, dirtBlend);
+                    bark.occlusion = lerp(bark.occlusion, 1.0, dirtBlend);
                 }
                 half3 normal = bark.worldNormal;
                 half broadVariation = 1.0 + noise.broad.r * _BarkContrast * 0.12;
                 fixed3 albedo = MotuRotateTreeHue(
                     saturate(bark.albedo * broadVariation),
                     noise.hue * 0.25);
+                if (!endGrain)
+                    albedo = lerp(albedo, _GroundDirtColor.rgb, dirtBlend);
                 half occlusion = lerp(1.0, bark.occlusion, _BarkOcclusionStrength);
                 MotuCloudLighting cloud = MotuCloudSurfaceLighting(input.worldPosition);
                 half3 ambient = max(

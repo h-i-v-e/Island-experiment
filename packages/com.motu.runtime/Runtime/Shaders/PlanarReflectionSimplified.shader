@@ -151,9 +151,10 @@ Shader "Motu/Planar Reflection Simplified"
 
     fixed4 WoodFragment(ReflectionVertexOutput input) : SV_Target
     {
+        float dirtBlend = saturate((0.25h - input.material.a) * 10.0h);
         fixed3 albedo = input.material.a < 0.1h
             ? _EndGrainColor.rgb
-            : lerp(_BaseColor.rgb, _LightColor.rgb, 0.38h);
+            : lerp(lerp(_BaseColor.rgb, _LightColor.rgb, 0.38h), _GroundDirtColor.rgb, dirtBlend);
         return FinishReflection(albedo, input);
     }
 
