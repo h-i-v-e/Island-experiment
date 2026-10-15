@@ -156,7 +156,7 @@ namespace Motu.World
             material.SetColor("_ReflectionColor", settings.ZenithColour);
             material.SetColor(
                 "_ReflectionHorizonColor",
-                Color.Lerp(settings.ZenithColour, Color.white, 0.35f));
+                settings.DistanceHazeColour * (1f + settings.SkyHorizonLightening));
             material.SetFloat("_ReflectionStrength", 0.65f);
             material.SetFloat("_PlanarReflectionWeight", 1f);
             material.SetFloat("_PlanarReflectionDistortion", 0.008f);
@@ -435,12 +435,15 @@ namespace Motu.World
             }
             skyDomeMaterial?.SetColor("_HorizonColor", CurrentSkyHorizonBaseColour());
             skyDomeMaterial?.SetFloat(SkyExposureId, currentSkyExposure);
+            SeaMaterial?.SetColor("_ReflectionHorizonColor", CurrentSkyHorizonBaseColour());
             Shader.SetGlobalColor("_MotuIslandHorizonColour", CurrentAtmosphericHorizonColour());
             RenderSettings.fog = environmentSettings.ShowDistanceHaze && firstPersonViewActive;
             if (RenderSettings.fog)
             {
                 RenderSettings.fogMode = FogMode.ExponentialSquared;
-                RenderSettings.fogColor = CurrentAtmosphericHorizonColour();
+                var colour = CurrentAtmosphericHorizonColour();
+                RenderSettings.fogColor = QualitySettings.activeColorSpace == ColorSpace.Linear
+                    ? colour.gamma : colour;
                 RenderSettings.fogDensity = environmentSettings.DistanceHazeDensity;
             }
         }
@@ -455,7 +458,12 @@ namespace Motu.World
 
         private Color CurrentAtmosphericHorizonColour()
         {
-            var colour = CurrentAtmosphericHorizonBaseColour() * currentSkyExposure;
+            // Global shader colours are uploaded verbatim; material Color properties
+            // are converted by Unity. Match the sky's conversion before exposure.
+            var colour = CurrentAtmosphericHorizonBaseColour();
+            if (QualitySettings.activeColorSpace == ColorSpace.Linear)
+                colour = colour.linear;
+            colour *= currentSkyExposure;
             colour.a = environmentSettings.DistanceHazeColour.a;
             return colour;
         }

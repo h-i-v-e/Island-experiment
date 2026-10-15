@@ -22,13 +22,14 @@ namespace Motu.Editor
                 throw new InvalidOperationException(
                     "Native island handles remained allocated after generation validation.");
             }
-            const float active = 6000f;
-            const float hysteresis = 500f;
+            const float active = 1000f;
+            const float preload = 1500f;
+            const float detailUnload = 1800f;
             const float generation = 10500f;
             const float unload = 12500f;
             const float discovery = 16000f;
-            if (!(active < active + hysteresis
-                && active + hysteresis < generation
+            if (!(active < preload && preload < detailUnload
+                && detailUnload < generation
                 && generation < unload
                 && unload < discovery))
             {

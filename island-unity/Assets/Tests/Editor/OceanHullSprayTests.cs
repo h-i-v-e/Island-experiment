@@ -70,7 +70,9 @@ namespace Motu.Editor
                 var points = new[] { new Vector3(7.5f, 50, 0), new Vector3(22.5f, -20, 0), new Vector3(.8f, 0, 0) };
                 var expectedHeights = new[] { 4.176f, 2.176f, 2.824f };
                 var omega = 3 * 2 * Mathf.PI / 30;
-                var expectedVelocities = new[] { Vector3.left * (.8f * omega), Vector3.right * (.8f * omega), Vector3.up * omega };
+                // Crests travel towards the authored direction, so orbital motion
+                // follows the negative time derivative of the spatial wave phase.
+                var expectedVelocities = new[] { Vector3.right * (.8f * omega), Vector3.left * (.8f * omega), Vector3.down * omega };
                 foreach (var timeScale in new[] { 1f, 2f })
                 {
                     ocean.ApplyWeatherWindScale(timeScale);

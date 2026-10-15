@@ -8,6 +8,19 @@ namespace Motu.Islands
         // Native generation and export can each retain large meshes. Queue before using a worker.
         private static readonly SemaphoreSlim PreparationGate = new SemaphoreSlim(1, 1);
 
+        internal static async Task<IslandPreparedMesh> GenerateHorizonAsync(
+            IslandGenerationRequest request, CancellationToken cancellationToken)
+        {
+            if (request == null) throw new System.ArgumentNullException(nameof(request));
+            await PreparationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                return await Task.Run(() => IslandPreparationPipeline.PrepareHorizon(request, cancellationToken),
+                    cancellationToken).ConfigureAwait(false);
+            }
+            finally { PreparationGate.Release(); }
+        }
+
         internal static async Task<IslandPreparedData> GenerateAsync(
             IslandGenerationRequest request, CancellationToken cancellationToken, bool prepareNavigation = true)
         {

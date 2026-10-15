@@ -182,7 +182,8 @@ namespace Motu.Islands
                     {
                         break;
                     }
-                    if (string.Equals(file.FullName, protectedPath, StringComparison.Ordinal))
+                    if (string.Equals(Path.GetFileNameWithoutExtension(file.FullName),
+                        Path.GetFileNameWithoutExtension(protectedPath), StringComparison.Ordinal))
                     {
                         continue;
                     }
@@ -204,7 +205,8 @@ namespace Motu.Islands
             for (var i = 0; i < 64; i++)
                 if (!(name[i] >= '0' && name[i] <= '9') && !(name[i] >= 'a' && name[i] <= 'f')) return false;
             var extension = name.Substring(64);
-            return extension == SnapshotExtension || extension == ".motumaterials";
+            return extension == SnapshotExtension || extension == ".motumaterials"
+                || extension == IslandHorizonCache.Extension;
         }
 
         private static void TryDelete(string path)

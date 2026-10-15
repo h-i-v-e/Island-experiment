@@ -125,13 +125,13 @@ namespace Motu.Editor
                     "Speed or wind-strength changes rewrote elapsed wave/foam travel.");
                 Advance(ocean, .25f);
                 Require(PhaseError(material.GetVector("_OceanWaveFrom0").w,
-                        phase + .25f * 7f * 2f * 2f * Mathf.PI / 30f) < .00001f,
+                        phase - .25f * 7f * 2f * 2f * Mathf.PI / 30f) < .00001f,
                     "Directional phase did not integrate the new speed over delta time.");
                 Require(PhaseError(material.GetFloat("_OnshoreWavePhase"),
                         shorePhase + .25f * 9f * 2f * 2f * Mathf.PI / weather.OnshoreWaveWavelengthMetres) < .00001f,
                     "Onshore phase did not integrate the new speed over delta time.");
                 var newFoam = material.GetVector("_OceanFoamTravel");
-                Require(Mathf.Abs(newFoam.x - foam.x - .525f) < .01f
+                Require(Mathf.Abs(newFoam.x - foam.x + .525f) < .01f
                     && PhaseError(newFoam.z, foam.z + .75f) < .00001f,
                     "Foam must drift with crests at 15% speed and integrate distortion continuously.");
                 var stoppedFoam = material.GetVector("_OceanFoamTravel");
@@ -147,6 +147,8 @@ namespace Motu.Editor
                 Require(ocean.SurfaceMesh == mesh
                     && MaxDifference(fieldBeforeRecentering, Render(probe, material, origins[1])) < .00001f,
                     "Recentering the ocean mesh changed the world-space wave field.");
+                ValidateTravelDirection(ocean, material, probe);
+                BatchValidateDistantWaveTransitionAmplitude();
                 var compiled = false;
                 for (var pass = 0; pass < material.passCount; pass++) compiled |= material.SetPass(pass);
                 Require(compiled && !ShaderUtil.ShaderHasError(seaShader) && !ShaderUtil.ShaderHasError(probeShader),
@@ -166,6 +168,185 @@ namespace Motu.Editor
         private static float PhaseError(float actual, float expected)
         {
             return Mathf.Abs(Mathf.DeltaAngle(actual * Mathf.Rad2Deg, expected * Mathf.Rad2Deg)) * Mathf.Deg2Rad;
+        }
+
+        public static void BatchValidateDistantWaveTransitionAmplitude()
+        {
+            var previousNoise = Shader.GetGlobalTexture("_MotuWindNoise");
+            var previousWind = Shader.GetGlobalVector("_MotuWeatherWind");
+            var previousOffset = Shader.GetGlobalVector("_MotuWindOffset");
+            var probe = new Material(Shader.Find("Hidden/Motu/Ocean Wave Transition Probe"));
+            try
+            {
+                Shader.SetGlobalTexture("_MotuWindNoise", Texture2D.grayTexture);
+                Shader.SetGlobalVector("_MotuWeatherWind", new Vector4(0, 1, 9, 1));
+                Shader.SetGlobalVector("_MotuWindOffset", Vector4.zero);
+                foreach (var distance in new[] { 0f, 4096f, -4096f, 8192f, 16384f })
+                {
+                    var root = new GameObject("Distant wave transition");
+                    var ocean = root.AddComponent<OceanSurfaceController>();
+                    var material = new Material(Shader.Find("Motu/Sea Water"));
+                    try
+                    {
+                        root.transform.position = new Vector3(distance, 0, 0);
+                        ocean.Install(material, 512, true);
+                        var weather = ocean.Weather;
+                        weather.Wave0 = new OceanWaveComponent(Vector2.up, 30, 1, 0);
+                        weather.Wave1 = new OceanWaveComponent(Vector2.right, 15, 0, 0);
+                        weather.Wave2 = new OceanWaveComponent(Vector2.left, 8, 0, 0);
+                        weather.Wave3 = new OceanWaveComponent(Vector2.down, 4, 0, 0);
+                        weather.DomainWarpMetres = 0;
+                        weather.AmplitudeVariation = 0;
+                        weather.OnshoreWaveEnabled = false;
+                        ocean.ApplyWaveWeather(weather);
+                        ocean.ApplyWeatherWindScale(1);
+                        Advance(ocean, 0);
+                        var origin = new Vector2(distance, 0);
+                        var baseline = Render(probe, material, origin);
+                        // A small turn puts origin-aligned banks half a cycle apart here.
+                        float angle = 30f / (2f * Mathf.Max(Mathf.Abs(distance), 4096f));
+                        weather.Wave0.Direction = new Vector2(Mathf.Sin(angle), Mathf.Cos(angle));
+                        ocean.ApplyWaveWeather(weather);
+                        Advance(ocean, 0);
+                        Require(MaxDifference(baseline, Render(probe, material, origin)) < .00001f,
+                            "Starting a direction transition must preserve the current field.");
+                        var from = material.GetVector("_OceanWaveFrom0");
+                        var to = material.GetVector("_OceanWaveTo0");
+                        float baselineEnergy = HeightEnergy(baseline);
+                        foreach (var blend in new[] { .25f, .5f, .75f })
+                        {
+                            float energy = HeightEnergy(Render(probe, material, origin, blend));
+                            Require(energy / baselineEnergy > .95f,
+                                $"Small wind shifts must not cancel distant waves: distance={distance}, blend={blend}, energy ratio={energy / baselineEnergy}.");
+                        }
+                        // Moving the ocean mesh must not rewrite a transition already underway.
+                        var beforeMove = Render(probe, material, origin, .5f);
+                        root.transform.position += new Vector3(16, 0, 16);
+                        Advance(ocean, 0);
+                        Require(material.GetVector("_OceanWaveFrom0") == from
+                            && material.GetVector("_OceanWaveTo0") == to
+                            && MaxDifference(beforeMove, Render(probe, material, origin, .5f)) < .00001f,
+                            "Recentering must preserve captured wave phases.");
+                        var destination = Render(probe, material, origin, 1);
+                        Advance(ocean, 4);
+                        Require(MaxDifference(destination, Render(probe, material, origin)) < .00001f,
+                            "Completing a distant transition must preserve its destination phase.");
+                        Debug.Log($"Distant wave transition retains amplitude at {distance} metres.");
+                    }
+                    finally { UnityEngine.Object.DestroyImmediate(root); }
+                }
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(probe);
+                Shader.SetGlobalTexture("_MotuWindNoise", previousNoise);
+                Shader.SetGlobalVector("_MotuWeatherWind", previousWind);
+                Shader.SetGlobalVector("_MotuWindOffset", previousOffset);
+            }
+        }
+
+        private static float HeightEnergy(Color[] field)
+        {
+            float energy = 0;
+            foreach (var pixel in field) energy += pixel.r * pixel.r;
+            return energy / field.Length;
+        }
+
+        private static void ValidateTravelDirection(OceanSurfaceController ocean, Material material, Material probe)
+        {
+            var weather = ocean.Weather;
+            weather.Wave0.SpeedMetresPerSecond = 3f;
+            weather.Wave0.Choppiness = 0f;
+            weather.OnshoreWaveEnabled = false;
+            ocean.ApplyWeatherWindScale(1f);
+            foreach (var direction in new[] { Vector2.right, Vector2.up, Vector2.left,
+                Vector2.down, new Vector2(1f, 1f).normalized })
+            {
+                weather.Wave0.Direction = direction;
+                ocean.ApplyWaveWeather(weather);
+                Advance(ocean, 4f);
+                var expected = Render(probe, material, -direction * .75f);
+                var foam = material.GetVector("_OceanFoamTravel");
+                Advance(ocean, .25f);
+                Require(MaxDifference(expected, Render(probe, material, Vector2.zero)) < .00002f,
+                    "GPU wave heights and normals must travel towards the authored direction.");
+                var drift = material.GetVector("_OceanFoamTravel") - foam;
+                Require(Vector2.Distance(new Vector2(drift.x, drift.y), direction * .1125f) < .001f,
+                    "Foam must drift towards the same direction as the wave crests.");
+            }
+            ValidateQueryVelocity(ocean, material, probe);
+        }
+
+        private static void ValidateQueryVelocity(OceanSurfaceController ocean, Material material, Material probe)
+        {
+            var queryShader = Shader.Find("Hidden/Motu/Ocean Surface Query");
+            Require(queryShader != null, "Missing ocean surface query shader.");
+            var query = new Material(queryShader);
+            var positions = new Texture2D(1, 1, TextureFormat.RGBAFloat, false, true);
+            var target = RenderTexture.GetTemporary(1, 2, 0, RenderTextureFormat.ARGBFloat, RenderTextureReadWrite.Linear);
+            var output = new Texture2D(1, 2, TextureFormat.RGBAFloat, false, true);
+            var previous = RenderTexture.active;
+            var from = material.GetVector("_OceanWaveFrom0");
+            var to = material.GetVector("_OceanWaveTo0");
+            try
+            {
+                var delta = .02f * ocean.Weather.Wave0.SpeedMetresPerSecond * 2f * Mathf.PI / from.z;
+                material.SetVector("_OceanWaveFrom0", from + new Vector4(0, 0, 0, delta));
+                material.SetVector("_OceanWaveTo0", to + new Vector4(0, 0, 0, delta));
+                var before = SampleHeight(probe, material);
+                material.SetVector("_OceanWaveFrom0", from - new Vector4(0, 0, 0, delta));
+                material.SetVector("_OceanWaveTo0", to - new Vector4(0, 0, 0, delta));
+                var after = SampleHeight(probe, material);
+                material.SetVector("_OceanWaveFrom0", from);
+                material.SetVector("_OceanWaveTo0", to);
+                query.CopyPropertiesFromMaterial(material);
+                positions.SetPixel(0, 0, Color.clear);
+                positions.Apply();
+                query.SetTexture("_QueryPositions", positions);
+                query.SetVector("_QueryOceanOrigin", Vector4.zero);
+                query.SetFloat("_QueryWaveTimeScale", 1f);
+                query.EnableKeyword("MOTU_QUERY_VELOCITY");
+                Graphics.Blit(Texture2D.blackTexture, target, query);
+                RenderTexture.active = target;
+                output.ReadPixels(new Rect(0, 0, 1, 2), 0, 0);
+                output.Apply();
+                Require(Mathf.Abs(output.GetPixel(0, 1).g - (after - before) / .04f) < .001f,
+                    "GPU physics-query velocity must predict the visible wave's travel direction.");
+                Require(!ShaderUtil.ShaderHasError(queryShader), "Ocean surface query shader failed to compile.");
+            }
+            finally
+            {
+                material.SetVector("_OceanWaveFrom0", from);
+                material.SetVector("_OceanWaveTo0", to);
+                RenderTexture.active = previous;
+                RenderTexture.ReleaseTemporary(target);
+                UnityEngine.Object.DestroyImmediate(output);
+                UnityEngine.Object.DestroyImmediate(positions);
+                UnityEngine.Object.DestroyImmediate(query);
+            }
+        }
+
+        private static float SampleHeight(Material probe, Material material)
+        {
+            probe.CopyPropertiesFromMaterial(material);
+            probe.SetVector("_ProbeWorldRect", Vector4.zero);
+            var target = RenderTexture.GetTemporary(1, 1, 0, RenderTextureFormat.ARGBFloat, RenderTextureReadWrite.Linear);
+            var output = new Texture2D(1, 1, TextureFormat.RGBAFloat, false, true);
+            var previous = RenderTexture.active;
+            try
+            {
+                Graphics.Blit(Texture2D.blackTexture, target, probe);
+                RenderTexture.active = target;
+                output.ReadPixels(new Rect(0, 0, 1, 1), 0, 0);
+                output.Apply();
+                return output.GetPixel(0, 0).r;
+            }
+            finally
+            {
+                RenderTexture.active = previous;
+                RenderTexture.ReleaseTemporary(target);
+                UnityEngine.Object.DestroyImmediate(output);
+            }
         }
 
         private static void Advance(OceanSurfaceController ocean, float deltaTime)

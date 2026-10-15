@@ -79,7 +79,7 @@ half3 MotuShadeFoliage(
     half backLighting = pow(saturate(-facing), 2.0h) * translucency;
     half3 ambient = max(
         ShadeSH9(half4(normal, 1.0h)) * cloud.ambientTransmittance,
-        half3(ambientFloor, ambientFloor, ambientFloor));
+        MotuDaylightAmbientFloor(ambientFloor));
     half3 directLight = lightColor * attenuation * cloud.directTransmittance;
     return albedo * (ambient + directLight * wrappedDiffuse)
         + transmissionColor * directLight * backLighting;

@@ -98,7 +98,7 @@ Shader "Motu/Planar Reflection Simplified"
         half3 ambient = max(
             ShadeSH9(half4(normal, 1.0h))
                 * cloud.ambientTransmittance,
-            0.08h);
+            MotuDaylightAmbientFloor(0.08h));
         half3 lightDirection = normalize(UnityWorldSpaceLightDir(worldPosition));
         half diffuse = saturate(dot(normal, lightDirection));
         return albedo * (ambient + _LightColor0.rgb

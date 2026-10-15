@@ -7,8 +7,10 @@ namespace Motu.Islands
 {
     public sealed partial class IslandRuntime
     {
-        public const float Lod3DistanceMetres = 2000f;
+        public const float DefaultLod3DistanceMetres = 1000f;
         public const float Lod3SubmergedDistanceMetres = 4000f;
+        internal const float Lod3SubmersionRangeMetres = Lod3SubmergedDistanceMetres - DefaultLod3DistanceMetres;
+        internal float Lod3DistanceMetres { get; set; } = DefaultLod3DistanceMetres;
         private GameObject lod3Object;
         private Mesh lod3Mesh;
         private bool lod3Installed;
@@ -53,8 +55,7 @@ namespace Motu.Islands
             Navigation?.NoteViewerDistance(distance);
             if (lod3Object != null)
             {
-                var submersion = Mathf.SmoothStep(0f, 1f,
-                    Mathf.InverseLerp(Lod3DistanceMetres, Lod3SubmergedDistanceMetres, distance));
+                var submersion = Lod3Submersion(distance, Lod3DistanceMetres);
                 // Move only the silhouette; residency and wave masks retain the true island centre.
                 lod3Object.transform.position = transform.position
                     - Vector3.up * (lod3MaximumHeightMetres * submersion);
@@ -65,6 +66,10 @@ namespace Motu.Islands
             if (State == IslandRuntimeState.Active || State == IslandRuntimeState.Dormant)
                 ApplyLodVisibility();
         }
+
+        internal static float Lod3Submersion(float distance, float switchDistance) => Mathf.SmoothStep(0f, 1f,
+            Mathf.InverseLerp(switchDistance,
+                switchDistance + Lod3SubmersionRangeMetres, distance));
 
         private void ApplyLodVisibility()
         {

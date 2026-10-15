@@ -56,9 +56,10 @@ namespace Motu.World
         private void AddDiscoveryCells(Vector3 centre)
         {
             var centreCell = WorldToCell(centre);
+            var radius = EffectiveDiscoveryRadius;
             var cellRadius = Mathf.CeilToInt(
-                discoveryRadiusMetres / IslandSizeMetres) + 1;
-            var maximumDistance = discoveryRadiusMetres
+                radius / IslandSizeMetres) + 1;
+            var maximumDistance = radius
                 + IslandSizeMetres * 0.75f;
             for (var z = -cellRadius; z <= cellRadius; z++)
             {
@@ -90,7 +91,7 @@ namespace Motu.World
         private void PruneDistantDescriptors(Vector3 current, Vector3 projected)
         {
             removalCells.Clear();
-            var retentionRadius = discoveryRadiusMetres + IslandSizeMetres * 2f;
+            var retentionRadius = EffectiveDiscoveryRadius + IslandSizeMetres * 2f;
             foreach (var pair in managedIslands)
             {
                 var entry = pair.Value;
@@ -108,6 +109,7 @@ namespace Motu.World
             {
                 var entry = managedIslands[cell];
                 DestroyGenerator(entry);
+                DestroyHorizon(entry);
                 managedIslands.Remove(cell);
             }
         }
@@ -117,7 +119,7 @@ namespace Motu.World
             foreach (var entry in managedIslands.Values)
             {
                 if (IsInsideGenerationCorridor(entry, 0f)
-                    && IsPreferredResident(entry))
+                    && (!WantsDetailedIsland(entry) || IsPreferredResident(entry)))
                 {
                     QueueGeneration(entry);
                 }
@@ -129,7 +131,7 @@ namespace Motu.World
             if (entry == null
                 || entry.Queued
                 || entry.Generating
-                || (entry.Generator != null && entry.Generator.HasRuntime)
+                || !NeedsGeneration(entry)
                 || Time.unscaledTime < entry.RetryAfterTime)
             {
                 return;
@@ -148,13 +150,17 @@ namespace Motu.World
                 var remainsRelevant = IsInsideGenerationCorridor(
                         entry,
                         cancellationHysteresisMetres)
-                    && IsPreferredResident(entry);
+                    && (entry.Generating
+                        ? entry.Horizon == null || KeepsDetailedIsland(entry)
+                        : NeedsGeneration(entry))
+                    && (!WantsDetailedIsland(entry) || IsPreferredResident(entry));
                 if (entry.Queued && !remainsRelevant)
                 {
                     entry.Queued = false;
                     entry.GenerationToken++;
                 }
-                if (entry.Generating && !remainsRelevant)
+                if (entry.Generating && (!remainsRelevant
+                    || (entry.Horizon != null && !KeepsDetailedIsland(entry))))
                 {
                     entry.GenerationToken++;
                     entry.GenerationCancellation?.Cancel();
@@ -166,7 +172,7 @@ namespace Motu.World
             IslandRuntimeEntry entry,
             float hysteresis)
         {
-            var radius = generationRadiusMetres + hysteresis;
+            var radius = EffectiveGenerationRadius + hysteresis;
             return DistanceFromIslandEdge(
                         DistanceToDescriptor(entry.Descriptor, lastQueryPosition),
                         entry.Descriptor) <= radius
@@ -200,31 +206,23 @@ namespace Motu.World
                         break;
                     }
                     entry.Queued = false;
-                    if (entry.Generator != null && entry.Generator.HasRuntime)
+                    if (!NeedsGeneration(entry)) continue;
+                    var loadingDetails = entry.Horizon != null;
+                    IslandGenerator generator = null;
+                    if (loadingDetails)
                     {
-                        continue;
+                        if (!WantsDetailedIsland(entry)) continue;
+                        if (!ReserveResidentCapacity(entry, out var releasedRuntime))
+                        {
+                            entry.RetryAfterTime = Time.unscaledTime + 1f;
+                            continue;
+                        }
+                        if (releasedRuntime)
+                            await System.Threading.Tasks.Task.Yield();
+                        if (destroyed) break;
+                        if (!WantsDetailedIsland(entry)) continue;
+                        generator = EnsureGenerator(entry);
                     }
-                    if (!ReserveResidentCapacity(entry, out var releasedRuntime))
-                    {
-                        entry.RetryAfterTime = Time.unscaledTime + 1f;
-                        continue;
-                    }
-                    if (releasedRuntime)
-                    {
-                        // Unity object destruction completes at the frame boundary.
-                        // Yield before allocating the next prepared island so old
-                        // meshes and textures cannot accumulate generation by generation.
-                        await System.Threading.Tasks.Task.Yield();
-                    }
-
-                    var generator = EnsureGenerator(entry);
-                    if (generator == null)
-                    {
-                        entry.RetryAfterTime = Time.unscaledTime
-                            + failedGenerationRetrySeconds;
-                        continue;
-                    }
-
                     var request = entry.GenerationRequest;
 
                     var generationToken = ++entry.GenerationToken;
@@ -233,10 +231,25 @@ namespace Motu.World
                     entry.GenerationCancellation = cancellation;
                     entry.Generating = true;
                     currentGeneration = entry;
-                    var generated = await generator.GenerateAsync(
-                        request,
-                        cancellation.Token,
-                        installationBudgetMilliseconds);
+                    var generated = false;
+                    try
+                    {
+                        if (loadingDetails)
+                            generated = await generator.GenerateAsync(request, cancellation.Token,
+                                installationBudgetMilliseconds);
+                        else
+                        {
+                            var mesh = await IslandGenerationWorker.GenerateHorizonAsync(request, cancellation.Token);
+                            cancellation.Token.ThrowIfCancellationRequested();
+                            if (!destroyed && generationToken == entry.GenerationToken)
+                            {
+                                InstallHorizon(entry, mesh);
+                                generated = true;
+                            }
+                        }
+                    }
+                    catch (OperationCanceledException) { }
+                    catch (Exception error) { Debug.LogException(error); }
                     var stale = generationToken != entry.GenerationToken;
                     var wasCancelled = cancellation.IsCancellationRequested;
                     entry.Generating = false;
@@ -248,7 +261,8 @@ namespace Motu.World
                     {
                         if (generated)
                         {
-                            generator.Clear();
+                            generator?.Clear();
+                            if (!loadingDetails) DestroyHorizon(entry);
                         }
                         continue;
                     }
@@ -258,7 +272,8 @@ namespace Motu.World
                                 entry,
                                 cancellationHysteresisMetres))
                         {
-                            generator.Clear();
+                            generator?.Clear();
+                            if (!loadingDetails) DestroyHorizon(entry);
                         }
                         if (hasQueryPosition)
                         {
@@ -297,19 +312,10 @@ namespace Motu.World
         private IslandRuntimeEntry SelectNextQueuedIsland()
         {
             IslandRuntimeEntry selected = null;
-            var selectedPriority = float.PositiveInfinity;
             foreach (var entry in managedIslands.Values)
             {
-                if (!entry.Queued || Time.unscaledTime < entry.RetryAfterTime)
-                {
-                    continue;
-                }
-                var priority = GenerationPriority(entry);
-                if (priority < selectedPriority)
-                {
-                    selected = entry;
-                    selectedPriority = priority;
-                }
+                if (!entry.Queued || Time.unscaledTime < entry.RetryAfterTime) continue;
+                if (selected == null || CompareGenerationPriority(entry, selected) < 0) selected = entry;
             }
             return selected;
         }
@@ -340,6 +346,7 @@ namespace Motu.World
                     (float)entry.Descriptor.LogicalZMetres),
                 Quaternion.identity);
             var generator = islandObject.AddComponent<IslandGenerator>();
+            generator.Lod3DistanceMetres = Lod3DistanceMetres;
             generator.Configure(entry.GenerationRequest);
             generator.ConfigureWorldManagement(worldEnvironment);
             generator.SetStreamingTarget(null);

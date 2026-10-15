@@ -8,7 +8,7 @@ namespace Motu.Settings
     [UnityEngine.Scripting.APIUpdating.MovedFrom(true, sourceNamespace: "", sourceAssembly: "Assembly-CSharp", sourceClassName: "OceanWaveComponent")]
     public struct OceanWaveComponent
     {
-        [Tooltip("Independent world X/Z wave direction. Global wind direction does not rotate this wave.")]
+        [Tooltip("Direction the wave crests travel towards, in world X/Z coordinates. Global wind does not rotate this wave; a weather driver can align it with the wind.")]
         [SerializeField] private Vector2 direction;
         [Tooltip("Distance between crests. Larger values make broader ocean swell.")]
         [Min(0.25f)] [SerializeField] private float wavelengthMetres;
@@ -77,6 +77,7 @@ namespace Motu.Settings
         public readonly int RingsPerSpacingLevel;
         public readonly float DisplacementFadeStartMetres;
         public readonly float DisplacementFadeEndMetres;
+        public float CoarseVertexSpacingMetres => FineVertexSpacingMetres * 8f;
         public readonly float MaskCoverageMetres;
         public readonly int MaskResolution;
         public readonly float MaskAnchorSnapMetres;
@@ -171,7 +172,7 @@ namespace Motu.Settings
             DisplacementFadeEndMetres = Mathf.Clamp(
                 displacementFadeEndMetres,
                 FineVertexSpacingMetres * 2f,
-                FineRadiusMetres);
+                FineRadiusMetres * 2f);
             DisplacementFadeStartMetres = Mathf.Clamp(
                 displacementFadeStartMetres,
                 0f,
@@ -358,9 +359,9 @@ namespace Motu.Settings
         [Min(16f)] [SerializeField] private float fineRadiusMetres = 256f;
         [Tooltip("Rows generated before the spacing doubles in the next outer band.")]
         [Range(2, 32)] [SerializeField] private int ringsPerSpacingLevel = 8;
-        [Tooltip("Distance at which geometric displacement starts fading into normal-only waves. This must remain inside the fine-mesh radius.")]
+        [Tooltip("Distance at which geometric displacement starts fading into normal-only waves. May extend into the coarser outer band.")]
         [Min(0f)] [SerializeField] private float displacementFadeStartMetres = 192f;
-        [Tooltip("Distance at which geometric displacement reaches zero. It is limited to the fine-mesh radius to prevent undersampled waves from shearing the mesh.")]
+        [Tooltip("Distance at which geometric displacement reaches zero, up to twice the fine-mesh radius. The outer band uses wider vertex spacing and filters out short waves.")]
         [Min(1f)] [SerializeField] private float displacementFadeEndMetres = 256f;
 
         [Header("Coastal Attenuation")]
@@ -494,7 +495,7 @@ namespace Motu.Settings
             displacementFadeEndMetres = Mathf.Clamp(
                 displacementFadeEndMetres,
                 fineVertexSpacingMetres * 2f,
-                fineRadiusMetres);
+                fineRadiusMetres * 2f);
             displacementFadeStartMetres = Mathf.Clamp(
                 displacementFadeStartMetres,
                 0f,

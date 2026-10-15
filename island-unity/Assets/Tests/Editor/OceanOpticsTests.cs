@@ -441,7 +441,60 @@ namespace Motu.Editor
         }
 
         [Test]
-        public void SurfaceDistortionAnimatesWithFlatWavesAndCalmWind()
+        public void WindShiftsDoNotSweepRipplesAroundTheWorldOrigin()
+        {
+            var material = new Material(Shader.Find("Hidden/Motu/Tests/Ocean Optics"));
+            var noise = ProceduralNoiseTextures.CreateWeatherNoiseTexture();
+            try
+            {
+                material.SetTexture("_NoiseTex", noise);
+                material.SetFloat("_ProbeMode", 1);
+                material.SetFloat("_ProbeSpan", 4);
+                material.SetFloat("_RippleStrength", .12f);
+                material.SetFloat("_RippleWorldSize", 1.2f);
+                material.SetFloat("_RippleSpeed", 1);
+                material.SetFloat("_SurfaceRoughness", .16f);
+                material.SetFloat("_WindRoughness", .12f);
+                foreach (var origin in new[] { new Vector2(4096, 0), Vector2.zero,
+                    new Vector2(-4096, 0), new Vector2(0, 4096), new Vector2(8192, -4096) })
+                foreach (var travel in new[] { Vector4.zero, new Vector4(12000, -7000, 0, 0) })
+                {
+                    material.SetVector("_ProbeOrigin", new Vector4(origin.x, origin.y, 0, 0));
+                    material.SetVector("_MotuWindOffset", travel);
+                    material.SetVector("_MotuWeatherWind", new Vector4(1, 0, 12, 1));
+                    var initial = Read(material);
+                    // A direction change affects future wind travel, never the current pattern.
+                    foreach (var degrees in new[] { .1f, 90f, 180f, 270f })
+                    {
+                        float angle = degrees * Mathf.Deg2Rad;
+                        material.SetVector("_MotuWeatherWind",
+                            new Vector4(Mathf.Cos(angle), Mathf.Sin(angle), 12, 1));
+                        var shifted = Read(material);
+                        for (var i = 0; i < initial.Length; i++)
+                        {
+                            Assert.That(shifted[i].r, Is.EqualTo(initial[i].r).Within(.00001f),
+                                $"Wind shifts must not sweep ripple normals at {origin}, after travel {travel}.");
+                            Assert.That(shifted[i].g, Is.EqualTo(initial[i].g).Within(.00001f));
+                            Assert.That(shifted[i].b, Is.EqualTo(initial[i].b).Within(.00001f));
+                            Assert.That(shifted[i].a, Is.EqualTo(initial[i].a).Within(.00001f));
+                        }
+                    }
+                    material.SetVector("_MotuWindOffset", travel + new Vector4(6, 0, 0, 0));
+                    var moving = Read(material);
+                    float animation = 0f;
+                    for (var i = 0; i < initial.Length; i++)
+                        animation += Mathf.Abs(moving[i].r - initial[i].r)
+                            + Mathf.Abs(moving[i].b - initial[i].b);
+                    Assert.That(animation / initial.Length, Is.GreaterThan(.001f),
+                        $"Wind travel must still animate ripples at {origin}.");
+                }
+                Assert.IsFalse(ShaderUtil.ShaderHasError(material.shader));
+            }
+            finally { Object.DestroyImmediate(material); Object.DestroyImmediate(noise); }
+        }
+
+        [Test]
+        public void SurfaceDistortionFollowsWindTravelAndStaysStillInCalmWeather()
         {
             var material = new Material(Shader.Find("Hidden/Motu/Tests/Ocean Optics"));
             var noise = ProceduralNoiseTextures.CreateWeatherNoiseTexture();
@@ -452,24 +505,62 @@ namespace Motu.Editor
                 material.SetFloat("_ProbeSpan", 64);
                 material.SetFloat("_GeometricWaves", 0);
                 material.SetVector("_MotuWeatherWind", Vector4.zero);
+                material.SetVector("_MotuWindOffset", Vector4.zero);
                 material.SetFloat("_SurfaceDistortionStrength", 1);
                 material.SetFloat("_ProbeDistance", 0);
                 var initial = Read(material);
                 material.SetFloat("_ProbeDistance", 10);
-                var moved = Read(material);
-                material.SetFloat("_SurfaceDistortionStrength", 0);
-                var disabled = Read(material);
-                float amplitude = 0, animation = 0;
+                var calm = Read(material);
+                float amplitude = 0;
                 for (var i = 0; i < initial.Length; i++)
                 {
                     amplitude += Mathf.Abs(initial[i].r) + Mathf.Abs(initial[i].g);
-                    animation += Mathf.Abs(initial[i].r - moved[i].r)
-                        + Mathf.Abs(initial[i].g - moved[i].g);
-                    Assert.That(disabled[i].r, Is.Zero.Within(.0001f));
-                    Assert.That(disabled[i].g, Is.Zero.Within(.0001f));
+                    Assert.That(calm[i].r, Is.EqualTo(initial[i].r).Within(.0001f));
+                    Assert.That(calm[i].g, Is.EqualTo(initial[i].g).Within(.0001f),
+                        "Elapsed time alone must not animate distortion in calm weather.");
                 }
                 Assert.That(amplitude / initial.Length, Is.GreaterThan(.05f));
-                Assert.That(animation / initial.Length, Is.GreaterThan(.01f));
+                foreach (var direction in new[] { Vector2.right, Vector2.up, Vector2.left,
+                    Vector2.down, new Vector2(1, 1).normalized })
+                {
+                    material.SetVector("_MotuWeatherWind", new Vector4(direction.x, direction.y, 9, 1));
+                    var travel = direction * 18f; // Two seconds at the reference wind speed.
+                    material.SetVector("_MotuWindOffset", Vector4.zero);
+                    var firstOrigin = -travel * (.20f / 9f);
+                    material.SetVector("_ProbeOrigin", new Vector4(firstOrigin.x, firstOrigin.y, 0, 0));
+                    var expectedFirst = Read(material);
+                    var secondOrigin = -travel * (.16f / 9f);
+                    material.SetVector("_ProbeOrigin", new Vector4(secondOrigin.x, secondOrigin.y, 0, 0));
+                    var expectedSecond = Read(material);
+                    material.SetVector("_ProbeOrigin", Vector4.zero);
+                    material.SetVector("_MotuWindOffset", new Vector4(travel.x, travel.y, 0, 0));
+                    var moved = Read(material);
+                    float animation = 0;
+                    for (var i = 0; i < initial.Length; i++)
+                    {
+                        Assert.That(moved[i].r, Is.EqualTo(expectedFirst[i].r).Within(.0001f),
+                            "First distortion layer must drift towards wind flow.");
+                        Assert.That(moved[i].g, Is.EqualTo(expectedSecond[i].g).Within(.0001f),
+                            "Second distortion layer must drift towards wind flow despite swapped UV axes.");
+                        animation += Mathf.Abs(initial[i].r - moved[i].r) + Mathf.Abs(initial[i].g - moved[i].g);
+                    }
+                    Assert.That(animation / initial.Length, Is.GreaterThan(.001f));
+                    // A changed wind redirects future travel; it must not jump the current pattern.
+                    material.SetVector("_MotuWeatherWind", new Vector4(-direction.x, -direction.y, 18, 1));
+                    var redirected = Read(material);
+                    for (var i = 0; i < moved.Length; i++)
+                    {
+                        Assert.That(redirected[i].r, Is.EqualTo(moved[i].r).Within(.0001f));
+                        Assert.That(redirected[i].g, Is.EqualTo(moved[i].g).Within(.0001f));
+                    }
+                }
+                material.SetFloat("_SurfaceDistortionStrength", 0);
+                var disabled = Read(material);
+                foreach (var pixel in disabled)
+                {
+                    Assert.That(pixel.r, Is.Zero.Within(.0001f));
+                    Assert.That(pixel.g, Is.Zero.Within(.0001f));
+                }
                 Assert.IsFalse(ShaderUtil.ShaderHasError(material.shader));
             }
             finally { Object.DestroyImmediate(material); Object.DestroyImmediate(noise); }

@@ -21,7 +21,7 @@ Shader "Hidden/Motu/Ocean Surface Query"
             float _QueryWaveTimeScale;
             float4 QueryPattern(float4 pattern, float speed)
             {
-                pattern.w += queryTimeOffset * speed * _QueryWaveTimeScale
+                pattern.w -= queryTimeOffset * speed * _QueryWaveTimeScale
                     * 6.28318530718 / max(pattern.z, .25);
                 return pattern;
             }

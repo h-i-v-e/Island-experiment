@@ -16,13 +16,16 @@ Shader "Hidden/Motu/Tests/Ocean Optics"
             #include "Packages/com.motu.runtime/Runtime/Shaders/OceanShipWaves.cginc"
             float _ProbeMode, _ProbeDistance, _ProbeSpan;
             float4 _ProbeView, _ProbeLight;
+            float2 _ProbeOrigin;
             float4 Frag(v2f_img input) : SV_Target
             {
                 if (_ProbeMode < .5) return float4(MotuWaterTransmission(_ProbeDistance), MotuWaterFresnel(input.uv.x));
                 if (_ProbeMode < 1.5)
                 {
                     float roughness;
-                    float3 normal = MotuOceanRippleNormal(float3(input.uv.x, 0, input.uv.y) * _ProbeSpan, float3(0, 1, 0), roughness);
+                    float3 normal = MotuOceanRippleNormal(
+                        float3(input.uv.x * _ProbeSpan + _ProbeOrigin.x, 0,
+                            input.uv.y * _ProbeSpan + _ProbeOrigin.y), float3(0, 1, 0), roughness);
                     return float4(normal, roughness);
                 }
                 if (_ProbeMode < 2.5) return MotuWaterSunSpecular(float3(0, 1, 0), normalize(_ProbeView.xyz), normalize(_ProbeLight.xyz), _SurfaceRoughness);
@@ -30,8 +33,8 @@ Shader "Hidden/Motu/Tests/Ocean Optics"
                 if (_ProbeMode < 4.5) return MotuOceanCoastalTint(_ProbeView.xz);
                 if (_ProbeMode > 7.5)
                     return float4(MotuOceanSurfaceDistortion(
-                        float3(input.uv.x * _ProbeSpan, 0, input.uv.y * _ProbeSpan),
-                        _ProbeDistance), 0, 1);
+                        float3(input.uv.x * _ProbeSpan + _ProbeOrigin.x, 0,
+                            input.uv.y * _ProbeSpan + _ProbeOrigin.y)), 0, 1);
                 if (_ProbeMode > 6.5)
                 {
                     MotuCloudLighting cloud;

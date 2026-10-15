@@ -71,6 +71,7 @@ namespace Motu.World
     /// <summary>A value snapshot of the world's runtime wind, wave and cloud controls.</summary>
     public struct WorldWeatherState
     {
+        /// <summary>Direction the wind blows towards, in world X/Z coordinates.</summary>
         public Vector2 WindDirection;
         public float WindSpeedMetresPerSecond;
         public float WindGustSizeMetres;

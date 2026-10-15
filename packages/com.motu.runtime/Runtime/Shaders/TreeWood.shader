@@ -340,7 +340,7 @@ Shader "Motu/Tree Wood"
                 half3 ambient = max(
                     ShadeSH9(half4(normal, 1.0))
                         * cloud.ambientTransmittance,
-                    half3(_BarkAmbientFloor, _BarkAmbientFloor, _BarkAmbientFloor));
+                    MotuDaylightAmbientFloor(_BarkAmbientFloor));
                 half3 lightDirection = normalize(UnityWorldSpaceLightDir(input.worldPosition));
                 half diffuse = saturate(dot(normal, lightDirection));
                 UNITY_LIGHT_ATTENUATION(attenuation, input, input.worldPosition);

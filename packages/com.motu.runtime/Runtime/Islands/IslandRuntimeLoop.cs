@@ -27,6 +27,7 @@ namespace Motu.Islands
                 var viewer = generator.Streaming.Target;
                 if (viewer != null) generator.islandRuntime?.SetViewPosition(viewer.position);
                 if (generator.terrainStreamer != null
+                    && generator.terrainStreamer.gameObject.activeInHierarchy
                     && generator.Streaming.Target != null)
                 {
                     generator.terrainStreamer.SetPlayerPosition(

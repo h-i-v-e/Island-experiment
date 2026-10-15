@@ -257,7 +257,11 @@ namespace Motu.Rendering
             Shader.SetGlobalVector(ReflectionFogSettingsId, new Vector4(
                 RenderSettings.fogDensity, RenderSettings.fogStartDistance,
                 RenderSettings.fogEndDistance, fogMode));
-            Shader.SetGlobalColor(ReflectionFogColorId, RenderSettings.fogColor);
+            // Global colours are uploaded verbatim, unlike material Color properties.
+            // Blend reflection fog in the same colour space as the render texture.
+            var fogColour = RenderSettings.fogColor;
+            Shader.SetGlobalColor(ReflectionFogColorId,
+                QualitySettings.activeColorSpace == ColorSpace.Linear ? fogColour.linear : fogColour);
 
             var previousInvertCulling = GL.invertCulling;
             try

@@ -42,6 +42,7 @@ Shader "Motu/Sea Water"
         [HideInInspector] _WaveAttenuationWorldRect ("Wave Attenuation World Rect", Vector) = (-1, -1, 0.5, 0.5)
         [HideInInspector] _WaveFadeStart ("Wave Fade Start", Float) = 320
         [HideInInspector] _WaveFadeEnd ("Wave Fade End", Float) = 480
+        [HideInInspector] _OceanGeometryLod ("Geometry LOD: Fine Radius, Spacing, Rows, Coarse Spacing", Vector) = (0, 0, 0, 0)
         [HideInInspector] _OceanWave0 ("Ocean Wave 0", Vector) = (1, 0, 30, 0.34)
         [HideInInspector] _OceanWave1 ("Ocean Wave 1", Vector) = (0, 1, 15, 0.18)
         [HideInInspector] _OceanWave2 ("Ocean Wave 2", Vector) = (-0.8, 0.5, 7.5, 0.09)
@@ -254,7 +255,7 @@ Shader "Motu/Sea Water"
                 // reflections and refraction without moving the surface mesh.
                 float2 reflectionRipple = mul((float3x3)UNITY_MATRIX_V,
                     detailNormal - analyticWaveNormal).xy
-                    + MotuOceanSurfaceDistortion(input.worldPosition, _Time.y);
+                    + MotuOceanSurfaceDistortion(input.worldPosition);
                 float pathLength;
                 float3 refractedPosition;
                 float3 refractedScene = MotuWaterRefractDepthSafe(input.grabPosition, input.screenPosition,

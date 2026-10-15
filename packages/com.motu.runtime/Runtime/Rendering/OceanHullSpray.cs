@@ -41,11 +41,25 @@ namespace Motu.Rendering
         private float nextOceanSearch;
         private float emissionBudget;
         private int firstSegment;
+        private int sampledFrame = -1;
 
         public float SampleSpacing => sampleSpacing;
         public int MaximumSamples => maximumSamples;
         public int SampleCount => waterline.Length;
         internal ParticleSystem Particles => particles;
+
+        /// <summary>Fresh waterline data shared with hull effects, without another GPU query.</summary>
+        public bool TryGetWaterlineSurface(int index, out Vector3 position, out float depth, out Vector3 waterVelocity)
+        {
+            position = waterVelocity = default;
+            depth = 0f;
+            if (!isActiveAndEnabled || sampledFrame != Time.frameCount || valid == null
+                || index < 0 || index >= valid.Length || !valid[index]) return false;
+            position = worldPoints[index];
+            depth = depths[index];
+            waterVelocity = waveVelocities[index];
+            return true;
+        }
 
         public void SetWaterline(Vector3[] points, Material material)
         {
@@ -108,6 +122,7 @@ namespace Motu.Rendering
                     && sampler.SampleAge(i) <= maximumSampleAge;
                 depths[i] = valid[i] ? height - point.y : 0;
             }
+            sampledFrame = Time.frameCount;
             EmitSegments(dt);
             sampler.Submit(ocean, worldPoints);
         }
@@ -158,6 +173,8 @@ namespace Motu.Rendering
                     direction = Quaternion.AngleAxis(UnityEngine.Random.Range(-directionSpread, directionSpread), Vector3.up) * direction;
                     var velocity = direction * LaunchSpeed(depth * strengthMultipliers[i], velocityPerMetre, maximumSpeed);
                     if (body != null) velocity += body.GetPointVelocity(position);
+                    // Raise only the emission origin; hull probes and their depths still follow the ship.
+                    position.y = 0f;
                     particles.Emit(new ParticleSystem.EmitParams
                     {
                         position = position,
@@ -238,10 +255,9 @@ namespace Motu.Rendering
             var renderer = particles.GetComponent<ParticleSystemRenderer>();
             particleRenderer = renderer;
             renderer.sharedMaterial = sprayMaterial;
-            renderer.renderMode = ParticleSystemRenderMode.Stretch;
-            renderer.velocityScale = .06f;
-            renderer.lengthScale = .4f;
-            renderer.cameraVelocityScale = 0;
+            renderer.renderMode = ParticleSystemRenderMode.Billboard;
+            // Face the camera's position individually, including close-up views.
+            renderer.alignment = ParticleSystemRenderSpace.Facing;
             renderer.shadowCastingMode = ShadowCastingMode.Off;
             renderer.receiveShadows = true;
             renderer.lightProbeUsage = LightProbeUsage.Off;
@@ -251,6 +267,7 @@ namespace Motu.Rendering
 
         private void ResetEmission()
         {
+            sampledFrame = -1;
             emissionBudget = 0;
             if (fractions == null) return;
             Array.Clear(fractions, 0, fractions.Length);

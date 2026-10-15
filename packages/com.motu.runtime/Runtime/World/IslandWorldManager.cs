@@ -19,6 +19,7 @@ namespace Motu.World
         {
             internal IslandDescriptor Descriptor { get; }
             internal IslandGenerator Generator { get; set; }
+            internal IslandHorizonRenderer Horizon { get; set; }
             internal IslandGenerationRequest GenerationRequest { get; }
             internal float RetryAfterTime { get; set; }
             internal bool Queued { get; set; }
@@ -29,8 +30,17 @@ namespace Motu.World
             internal IslandRuntimeEntry(
                 IslandGenerationRequest generationRequest)
             {
-                GenerationRequest = generationRequest
-                    ?? throw new ArgumentNullException(nameof(generationRequest));
+                if (generationRequest == null) throw new ArgumentNullException(nameof(generationRequest));
+                // World streaming requires a disk backing even if the standalone factory disables caching.
+                if (generationRequest.SnapshotPath == null)
+                {
+                    var profile = generationRequest.Profile.Clone();
+                    profile.Generation.UseSnapshotCache = true;
+                    generationRequest = IslandGenerationRequest.FromOwnedProfile(generationRequest.RandomSeed,
+                        generationRequest.IslandGridPosition, profile, generationRequest.MaterialColours,
+                        generationRequest.IslandId);
+                }
+                GenerationRequest = generationRequest;
                 Descriptor = generationRequest.Descriptor;
             }
         }
@@ -66,11 +76,45 @@ namespace Motu.World
         [SerializeField] private Transform streamingTarget;
 
         [Header("Island Residency")]
-        [Min(100f)] [SerializeField] private float activeRadiusMetres = 6000f;
-        [Min(0f)] [SerializeField] private float activeHysteresisMetres = 500f;
+        [Tooltip("Discard lightweight silhouettes beyond this distance from the island edge.")]
         [Min(100f)] [SerializeField] private float unloadRadiusMetres = 12500f;
+        [Tooltip("Maximum number of detailed island runtimes retained; silhouettes do not consume these slots.")]
         [Range(1, 8)] [SerializeField] private int maximumLoadedIslandCount = 3;
         [Min(1f)] [SerializeField] private float failedGenerationRetrySeconds = 15f;
+
+        [Header("Detailed Island Streaming")]
+        [Tooltip("Distance from the island centre where detailed terrain switches to the full-island LOD3 silhouette. Can also be changed at runtime for hardware quality settings.")]
+        [InspectorName("Visual LOD3 Distance (m)")]
+        [Min(1f)] [SerializeField] private float lod3DistanceMetres = IslandRuntime.DefaultLod3DistanceMetres;
+        [Tooltip("Begin loading details this far before the visual LOD3 switch. Travel prediction also preloads approaching islands.")]
+        [Min(0f)] [SerializeField] private float detailPreloadMarginMetres = 500f;
+        [Tooltip("Retain detailed meshes, textures and native data this far beyond the preload radius to avoid repeated loading.")]
+        [Min(100f)] [SerializeField] private float detailUnloadHysteresisMetres = 300f;
+
+        /// <summary>World-space distance from an island's centre at which its full-island LOD3 replaces detailed terrain.</summary>
+        public float Lod3DistanceMetres
+        {
+            get => lod3DistanceMetres;
+            set
+            {
+                if (float.IsNaN(value) || float.IsInfinity(value) || value < 1f)
+                    throw new ArgumentOutOfRangeException(nameof(value), "LOD3 distance must be finite and at least one metre.");
+                lod3DistanceMetres = value;
+                nextDiscoveryTime = 0f;
+                if (hasQueryPosition) UpdateResidencyAndFocus(lastQueryPosition);
+            }
+        }
+
+        public int HorizonIslandCount
+        {
+            get
+            {
+                var count = 0;
+                foreach (var entry in managedIslands.Values)
+                    if (entry.Horizon != null) count++;
+                return count;
+            }
+        }
 
         private readonly Dictionary<Vector2Int, IslandRuntimeEntry> managedIslands =
             new Dictionary<Vector2Int, IslandRuntimeEntry>();
@@ -289,6 +333,8 @@ namespace Motu.World
             {
                 entry.GenerationToken++;
                 entry.GenerationCancellation?.Cancel();
+                DestroyGenerator(entry);
+                DestroyHorizon(entry);
             }
             shutdown?.Dispose();
             shutdown = null;
@@ -352,41 +398,86 @@ namespace Motu.World
             worldEnvironment?.SetFirstPersonViewActive(active);
         }
 
+        private void OnValidate()
+        {
+            lod3DistanceMetres = float.IsNaN(lod3DistanceMetres) || float.IsInfinity(lod3DistanceMetres)
+                ? IslandRuntime.DefaultLod3DistanceMetres : Mathf.Max(1f, lod3DistanceMetres);
+            nextDiscoveryTime = 0f;
+        }
+
+        private float DetailPreloadRadius => Lod3DistanceMetres + Mathf.Max(0f, detailPreloadMarginMetres);
+        private float DetailUnloadRadius => DetailPreloadRadius + Mathf.Max(100f, detailUnloadHysteresisMetres);
+        private float EffectiveGenerationRadius => Mathf.Max(generationRadiusMetres, DetailPreloadRadius);
+        private float EffectiveDiscoveryRadius => Mathf.Max(discoveryRadiusMetres, EffectiveUnloadRadius());
+
+        private float ViewerDistance(IslandRuntimeEntry entry, Vector3 position) => Vector3.Distance(position,
+            new Vector3((float)entry.Descriptor.LogicalXMetres, SeaLevelWorldY(), (float)entry.Descriptor.LogicalZMetres));
+
+        private bool WantsDetailedIsland(IslandRuntimeEntry entry) =>
+            ViewerDistance(entry, lastQueryPosition) <= DetailPreloadRadius
+            || ViewerDistance(entry, projectedGenerationPosition) <= DetailPreloadRadius;
+
+        private bool KeepsDetailedIsland(IslandRuntimeEntry entry) =>
+            ViewerDistance(entry, lastQueryPosition) <= DetailUnloadRadius
+            || ViewerDistance(entry, projectedGenerationPosition) <= DetailPreloadRadius;
+
+        private bool NeedsGeneration(IslandRuntimeEntry entry) => entry.Horizon == null
+            || (WantsDetailedIsland(entry) && (entry.Generator == null || !entry.Generator.HasRuntime));
+
         private void UpdateResidencyAndFocus(Vector3 worldPosition)
         {
             foreach (var entry in managedIslands.Values)
             {
                 var generator = entry.Generator;
-                if (generator == null || generator.IsGenerating || !generator.HasRuntime)
+                if (generator != null) generator.Lod3DistanceMetres = Lod3DistanceMetres;
+                var beyondRetention = DistanceFromIslandEdge(DistanceToDescriptor(entry.Descriptor, worldPosition),
+                    entry.Descriptor) > EffectiveUnloadRadius()
+                    && DistanceFromIslandEdge(DistanceToDescriptor(entry.Descriptor, projectedGenerationPosition),
+                        entry.Descriptor) > EffectiveUnloadRadius();
+                if (beyondRetention && !entry.Generating)
                 {
+                    if (focusedIsland == generator) focusedIsland = null;
+                    generator?.Clear();
+                    DestroyHorizon(entry);
                     continue;
                 }
-                var distance = DistanceToDescriptor(entry.Descriptor, worldPosition);
-                if (DistanceFromIslandEdge(distance, entry.Descriptor)
-                    > EffectiveUnloadRadius())
+                if (generator != null && !generator.IsGenerating && generator.HasRuntime)
                 {
-                    if (focusedIsland == generator)
+                    if (!KeepsDetailedIsland(entry))
                     {
-                        focusedIsland = null;
+                        if (focusedIsland == generator) focusedIsland = null;
+                        // The independently owned silhouette survives releasing the complete runtime.
+                        generator.Clear();
                     }
-                    generator.Clear();
-                    continue;
+                    else generator.Runtime.SetViewPosition(worldPosition);
                 }
-
-                generator.Runtime.SetViewPosition(worldPosition);
-                var dormant = generator.Runtime.State == IslandRuntimeState.Dormant;
-                var shouldWake = dormant && distance <= activeRadiusMetres;
-                var shouldSleep = !dormant
-                    && generator != focusedIsland
-                    && distance > activeRadiusMetres + activeHysteresisMetres;
-                if (shouldWake || shouldSleep)
-                {
-                    generator.SetRuntimeDormant(shouldSleep);
-                }
+                entry.Horizon?.SetViewPosition(worldPosition,
+                    generator == null || generator.IsGenerating || !generator.HasRuntime, Lod3DistanceMetres);
             }
+            SetFocusedIsland(SelectFocusedIsland(worldPosition), worldPosition);
+        }
 
-            var selected = SelectFocusedIsland(worldPosition);
-            SetFocusedIsland(selected, worldPosition);
+        private static void DestroyHorizon(IslandRuntimeEntry entry)
+        {
+            if (entry.Horizon == null) return;
+            Motu.Rendering.UnityObjectLifetime.DestroyUnityObject(entry.Horizon.gameObject);
+            entry.Horizon = null;
+        }
+
+        private void InstallHorizon(IslandRuntimeEntry entry, IslandPreparedMesh mesh)
+        {
+            var root = new GameObject($"Island horizon {entry.Descriptor.WorldCell}");
+            root.transform.SetParent(transform, false);
+            root.transform.SetPositionAndRotation(new Vector3((float)entry.Descriptor.LogicalXMetres,
+                SeaLevelWorldY(), (float)entry.Descriptor.LogicalZMetres), Quaternion.identity);
+            try
+            {
+                var horizon = root.AddComponent<IslandHorizonRenderer>();
+                horizon.Initialize(mesh, entry.GenerationRequest.Generation.MaximumHeightMetres);
+                entry.Horizon = horizon;
+                horizon.SetViewPosition(lastQueryPosition, true, Lod3DistanceMetres);
+            }
+            catch { Motu.Rendering.UnityObjectLifetime.DestroyUnityObject(root); throw; }
         }
 
         private IslandGenerator SelectFocusedIsland(Vector3 worldPosition)
@@ -394,6 +485,7 @@ namespace Motu.World
             return managedIslands.TryGetValue(WorldToCell(worldPosition), out var entry)
                 && entry.Generator != null
                 && entry.Generator.HasRuntime
+                && !entry.Generator.IsGenerating
                     ? entry.Generator
                     : null;
         }
@@ -448,7 +540,8 @@ namespace Motu.World
             var betterCandidates = 0;
             foreach (var other in managedIslands.Values)
             {
-                if (other == candidate || !IsInsideGenerationCorridor(other, 0f))
+                if (other == candidate || !WantsDetailedIsland(other)
+                    || !IsInsideGenerationCorridor(other, 0f))
                 {
                     continue;
                 }
@@ -465,7 +558,10 @@ namespace Motu.World
             IslandRuntimeEntry first,
             IslandRuntimeEntry second)
         {
-            var comparison = GenerationPriority(first).CompareTo(
+            // A nearby upgrade must never wait behind a queue of distant silhouette misses.
+            var comparison = WantsDetailedIsland(second).CompareTo(WantsDetailedIsland(first));
+            if (comparison != 0) return comparison;
+            comparison = GenerationPriority(first).CompareTo(
                 GenerationPriority(second));
             return comparison != 0
                 ? comparison
@@ -509,6 +605,7 @@ namespace Motu.World
             }
 
             eviction.Generator.Clear();
+            eviction.Horizon?.SetViewPosition(lastQueryPosition, true, Lod3DistanceMetres);
             releasedRuntime = true;
             return LoadedIslandCount < ResidentIslandLimit;
         }
@@ -531,7 +628,7 @@ namespace Motu.World
         {
             return Mathf.Max(
                 Mathf.Max(unloadRadiusMetres, generationRadiusMetres),
-                activeRadiusMetres + activeHysteresisMetres + 1f);
+                Mathf.Max(DetailUnloadRadius + 1f, Lod3DistanceMetres + IslandRuntime.Lod3SubmersionRangeMetres));
         }
 
         public static Vector2Int WorldToCell(Vector3 worldPosition)

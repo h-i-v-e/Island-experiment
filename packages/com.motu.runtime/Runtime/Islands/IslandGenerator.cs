@@ -36,6 +36,7 @@ namespace Motu.Islands
         private GameObject runtimeRoot;
         private WorldEnvironmentController worldEnvironment;
         private bool managedByWorld;
+        private float lod3DistanceMetres = IslandRuntime.DefaultLod3DistanceMetres;
         private Material terrainMaterial;
         private Material terrainLod1Material;
         private Material terrainLod2Material;
@@ -97,6 +98,15 @@ namespace Motu.Islands
             && worldEnvironment.SkyMaterial != null
             && worldEnvironment.SeaMaterial != null;
         public IslandRuntime Runtime => islandRuntime;
+        internal float Lod3DistanceMetres
+        {
+            get => lod3DistanceMetres;
+            set
+            {
+                lod3DistanceMetres = value;
+                if (islandRuntime != null) islandRuntime.Lod3DistanceMetres = value;
+            }
+        }
         public string Status => status;
         public float WorldSizeMetres => Generation.WorldSizeMetres;
         private IslandGenerationProfile Profile =>
@@ -268,7 +278,7 @@ namespace Motu.Islands
         public void SetStreamingTarget(Transform target)
         {
             Streaming.Target = target;
-            if (terrainStreamer != null && target != null)
+            if (terrainStreamer != null && terrainStreamer.gameObject.activeInHierarchy && target != null)
             {
                 terrainStreamer.SetPlayerPosition(target.position);
             }
@@ -280,7 +290,8 @@ namespace Motu.Islands
 
         public void PrepareStreamingAt(Vector3 worldPosition)
         {
-            terrainStreamer?.SetPlayerPosition(worldPosition);
+            if (terrainStreamer != null && terrainStreamer.gameObject.activeInHierarchy)
+                terrainStreamer.SetPlayerPosition(worldPosition);
         }
 
         public void ClearStreamingFocus()

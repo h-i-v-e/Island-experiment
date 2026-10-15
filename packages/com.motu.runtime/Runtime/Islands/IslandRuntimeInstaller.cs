@@ -33,6 +33,7 @@ namespace Motu.Islands
                 generator.islandRuntime = IslandRuntime.Create(
                     descriptor,
                     generator.transform);
+                generator.islandRuntime.Lod3DistanceMetres = generator.Lod3DistanceMetres;
                 generator.runtimeRoot = generator.islandRuntime.gameObject;
                 generator.TransferMaterialOwnershipToRuntime();
                 generator.UpdateMaterialTransforms(true);

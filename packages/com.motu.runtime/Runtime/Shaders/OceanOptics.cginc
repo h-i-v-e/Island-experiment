@@ -58,14 +58,16 @@ float2 MotuOceanRippleSlope(float2 uv)
         tex2Dlod(_NoiseTex, float4(uv + float2(0, stepUV), 0, lod)).r - tex2Dlod(_NoiseTex, float4(uv - float2(0, stepUV), 0, lod)).r);
 }
 
-float2 MotuOceanSurfaceDistortion(float3 worldPosition, float animationTime)
+float2 MotuOceanSurfaceDistortion(float3 worldPosition)
 {
-    // Restore the scrolling texture layer independently of geometric waves
-    // and the wind-driven normal ripples. Both optics paths use this offset.
-    float2 uv = MotuCloudWorldToLocal(worldPosition).xz / 8.0;
+    // Use accumulated wind travel so direction/speed changes do not restart
+    // the pattern. Retain the old .20/.16 m/s drift rates at the 9 m/s reference wind.
+    float2 position = MotuCloudWorldToLocal(worldPosition).xz;
+    float2 firstUV = (position - _MotuWindOffset.xy * (0.20 / 9.0)) / 8.0;
+    float2 secondUV = ((position - _MotuWindOffset.xy * (0.16 / 9.0)) / 8.0).yx;
     float2 noise = float2(
-        tex2D(_NoiseTex, uv + float2(animationTime * 0.025, 0)).r,
-        tex2D(_NoiseTex, uv.yx + float2(0, animationTime * 0.02)).g);
+        tex2D(_NoiseTex, firstUV).r,
+        tex2D(_NoiseTex, secondUV).g);
     return (noise - 0.5) * saturate(_SurfaceDistortionStrength);
 }
 
@@ -80,11 +82,10 @@ float3 MotuOceanRippleNormal(float3 worldPosition, float3 baseNormal, out float 
     [branch]
     if (strength * resolved > .0001)
     {
-        float2 wind = MotuWindDirection();
-        float2 crossWind = float2(-wind.y, wind.x);
-        float2 position = float2(dot(worldPosition.xz, wind), dot(worldPosition.xz, crossWind));
-        float2 travel = float2(dot(_MotuWindOffset.xy, wind), dot(_MotuWindOffset.xy, crossWind))
-            * max(_RippleSpeed, 0);
+        // Keep the pattern in fixed world axes. Rotating its coordinates with
+        // each wind shift sweeps it around the origin, faster farther from it.
+        float2 position = worldPosition.xz;
+        float2 travel = _MotuWindOffset.xy * max(_RippleSpeed, 0);
         float span = wavelength * 64;
         float2 uv = (position - travel * .12) / float2(span, span * 1.3);
         float2 coarse = MotuOceanRippleSlope(uv);
@@ -93,14 +94,13 @@ float3 MotuOceanRippleNormal(float3 worldPosition, float3 baseNormal, out float 
         // translating as a single stamped texture. Use integrated wind travel
         // so weather speed changes do not restart the animation.
         const float c = .9063078, s = .4226183;
-        float2 secondPosition = position - travel * .20 - float2(0, travel.x * .035);
+        float2 secondPosition = position - travel * .20 - float2(-travel.y, travel.x) * .035;
         float2 fineUv = float2(c * secondPosition.x + s * secondPosition.y,
             -s * secondPosition.x + c * secondPosition.y) / (span * .62) + float2(.371, .619);
         float2 fine = MotuOceanRippleSlope(fineUv);
         fine = float2(c * fine.x - s * fine.y, s * fine.x + c * fine.y);
         float2 slope = (coarse + fine * .25) * strength * resolved * 1.5;
-        float2 worldSlope = wind * slope.x + crossWind * slope.y;
-        normal = normalize(baseNormal + float3(-worldSlope.x, 0, -worldSlope.y));
+        normal = normalize(baseNormal + float3(-slope.x, 0, -slope.y));
     }
     // Filter unresolved detail into the highlight lobe rather than shimmer.
     float variance = max(dot(ddx(normal), ddx(normal)), dot(ddy(normal), ddy(normal)));

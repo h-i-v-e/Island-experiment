@@ -31,9 +31,17 @@ namespace Motu.World
             internal Vector4 ShaderValue => new Vector4(
                 Direction.x, Direction.y, Wavelength, (float)Phase);
 
+            internal double PhaseAt(Vector2 position)
+            {
+                return Phase + ((double)Direction.x * position.x
+                    + (double)Direction.y * position.y) * TwoPi / Wavelength;
+            }
+
             internal void Advance(double travelMetres)
             {
-                Phase = (Phase + travelMetres * TwoPi / Wavelength) % TwoPi;
+                // The shader adds phase to the spatial term: subtract travel so crests
+                // move towards Direction, matching wind and the authored wave vector.
+                Phase = (Phase - travelMetres * TwoPi / Wavelength) % TwoPi;
             }
         }
 
@@ -121,11 +129,16 @@ namespace Motu.World
                 }
                 if (changed)
                 {
+                    var position = surfaceObject.transform.position;
+                    var anchor = new Vector2(position.x, position.z);
                     for (var index = 0; index < 4; index++)
                     {
                         outgoingWaves[index] = incomingWaves[index];
                         var requested = RequestedPattern(index);
-                        requested.Phase = incomingWaves[index].Phase;
+                        // Match crests near the viewer, not at the world origin.
+                        // Origin-aligned patterns can cancel during small turns far away.
+                        requested.Phase = (incomingWaves[index].PhaseAt(anchor)
+                            - requested.PhaseAt(anchor)) % TwoPi;
                         incomingWaves[index] = requested;
                     }
                     changingWaveDirection = true;
@@ -150,12 +163,11 @@ namespace Motu.World
             var foamDirection = Vector2.Lerp(
                 outgoingWaves[0].Direction, incomingWaves[0].Direction,
                 (previousBlend + WaveTransition) * 0.5f);
-            // The wave phase advances positively, so crests travel against its
-            // spatial direction vector. Drift the foam slowly with those crests.
+            // Drift the foam with crests, towards the main wave's travel direction.
             var foamDistance = (double)deltaTime * waveSettings.Wave0.SpeedMetresPerSecond
                 * weatherWaveScale * FoamDriftFraction;
-            foamTravelX -= foamDirection.x * foamDistance;
-            foamTravelZ -= foamDirection.y * foamDistance;
+            foamTravelX += foamDirection.x * foamDistance;
+            foamTravelZ += foamDirection.y * foamDistance;
             foamDistortionPhase = (foamDistortionPhase + (double)deltaTime
                 * waveSettings.WhitecapDistortionSpeed * weatherWaveScale) % TwoPi;
 

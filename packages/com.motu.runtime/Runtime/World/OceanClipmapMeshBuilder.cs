@@ -113,12 +113,35 @@ namespace Motu.World
 
             spacing *= 2f;
             var rowsAtSpacing = 0;
+            var hasCoarseDisplacement = settings.DisplacementFadeEndMetres > settings.FineRadiusMetres;
+            if (hasCoarseDisplacement)
+            {
+                // Keep enough samples for broad swell throughout the added band.
+                // A single shared grid keeps every spacing transition watertight.
+                var coarseExtent = Mathf.Min(settings.DisplacementFadeEndMetres, halfExtent);
+                while (current < coarseExtent)
+                {
+                    current = Mathf.Min(current + spacing, coarseExtent);
+                    positive.Add(current);
+                    if (++rowsAtSpacing >= settings.RingsPerSpacingLevel)
+                    {
+                        rowsAtSpacing = 0;
+                        spacing = Mathf.Min(spacing * 2f, settings.CoarseVertexSpacingMetres);
+                    }
+                }
+                spacing *= 2f;
+                rowsAtSpacing = 0;
+            }
+            // Beyond the last displaced vertex the surface is flat, so fewer
+            // rows per band pay for the extended swell without growing the grid budget.
+            var outerRows = hasCoarseDisplacement
+                ? Mathf.Max(2, settings.RingsPerSpacingLevel / 2) : settings.RingsPerSpacingLevel;
             while (current < halfExtent)
             {
                 current = Mathf.Min(current + spacing, halfExtent);
                 positive.Add(current);
                 rowsAtSpacing++;
-                if (rowsAtSpacing >= settings.RingsPerSpacingLevel)
+                if (rowsAtSpacing >= outerRows)
                 {
                     rowsAtSpacing = 0;
                     spacing *= 2f;

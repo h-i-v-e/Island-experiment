@@ -12,6 +12,7 @@ namespace Motu.World
         private static readonly int GeometricWavesId = Shader.PropertyToID("_GeometricWaves");
         private static readonly int WaveFadeStartId = Shader.PropertyToID("_WaveFadeStart");
         private static readonly int WaveFadeEndId = Shader.PropertyToID("_WaveFadeEnd");
+        private static readonly int GeometryLodId = Shader.PropertyToID("_OceanGeometryLod");
         private static readonly int Wave0Id = Shader.PropertyToID("_OceanWave0");
         private static readonly int Wave1Id = Shader.PropertyToID("_OceanWave1");
         private static readonly int Wave2Id = Shader.PropertyToID("_OceanWave2");
@@ -303,6 +304,11 @@ namespace Motu.World
             surfaceMaterial.SetFloat(
                 WaveFadeEndId,
                 waveSettings.DisplacementFadeEndMetres);
+            surfaceMaterial.SetVector(GeometryLodId,
+                waveSettings.DisplacementFadeEndMetres > waveSettings.FineRadiusMetres
+                    ? new Vector4(waveSettings.FineRadiusMetres, waveSettings.FineVertexSpacingMetres,
+                        waveSettings.RingsPerSpacingLevel, waveSettings.CoarseVertexSpacingMetres)
+                    : Vector4.zero);
             surfaceMaterial.SetVector(Wave0Id, WaveVector(waveSettings.Wave0));
             surfaceMaterial.SetVector(Wave1Id, WaveVector(waveSettings.Wave1));
             surfaceMaterial.SetVector(Wave2Id, WaveVector(waveSettings.Wave2));

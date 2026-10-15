@@ -26,6 +26,12 @@ fixed4 _MotuCloudAmbientColor;
 float _MotuCloudSunsetStrength;
 float _MotuCloudNightStrength;
 
+// Daytime readability must not become a source of illumination after sunset.
+half MotuDaylightAmbientFloor(half floorBrightness)
+{
+    return floorBrightness * (1.0h - saturate(_MotuCloudNightStrength));
+}
+
 float3 MotuCloudWorldToLocal(float3 worldPosition)
 {
     return worldPosition + _MotuEnvironmentWorldOffset.xyz;

@@ -42,6 +42,7 @@ float4 _OceanWaveChoppiness;
 float _GeometricWaves;
 float _WaveFadeStart;
 float _WaveFadeEnd;
+float4 _OceanGeometryLod;
 float _WaveNoiseWorldSize;
 float _WaveDomainWarp;
 float _WaveAmplitudeVariation;
@@ -294,8 +295,8 @@ void MotuAccumulateOnshoreWave(
 
 float MotuOceanWaveResolution(float wavelength, float pixelFootprint)
 {
-    // Fade before the two-pixels-per-cycle limit; zero footprint is the
-    // unfiltered field used by geometry, buoyancy and foam simulation.
+    // Fade before the two-samples-per-cycle limit; zero footprint retains
+    // the full wave field for the fine grid, buoyancy and foam simulation.
     return 1.0 - smoothstep(0.125, 0.5, pixelFootprint / max(wavelength, 0.25));
 }
 
@@ -565,6 +566,19 @@ float MotuOceanOrdinaryWaveAllowance(float4 coastalData, float onshoreInfluence)
         * (1.0 - saturate(onshoreInfluence));
 }
 
+float MotuOceanGeometryFootprint(float localRadius)
+{
+    if (_OceanGeometryLod.w <= 0.0 || localRadius <= _OceanGeometryLod.x)
+        return 0.0;
+    float spacing = max(_OceanGeometryLod.y, 0.5);
+    float rows = max(_OceanGeometryLod.z, 2.0);
+    float distance = localRadius - _OceanGeometryLod.x;
+    // Smoothly follow the 2x/4x/8x outer grid. Using radial distance is
+    // conservative at the corners of its square rings and avoids visible LOD seams.
+    float footprint = min(_OceanGeometryLod.w, 2.0 * spacing + distance / rows);
+    return footprint * smoothstep(0.0, 2.0 * spacing * rows, distance);
+}
+
 void MotuEvaluateOceanWaveDisplacement(
     float2 worldPosition,
     float localRadius,
@@ -583,10 +597,12 @@ void MotuEvaluateOceanWaveDisplacement(
     }
     float4 coastalData = MotuOceanCoastalData(worldPosition);
     float2 unusedBaseDerivative;
+    float unusedVariance, unusedCurvature;
+    float geometryFootprint = MotuOceanGeometryFootprint(localRadius);
     MotuEvaluateOceanWaveField(
-        worldPosition,
+        worldPosition, geometryFootprint, unusedVariance,
         displacement,
-        unusedBaseDerivative);
+        unusedBaseDerivative, unusedCurvature);
     float3 onshoreDisplacement;
     float2 unusedOnshoreDerivative;
     float onshoreInfluence;
@@ -597,6 +613,9 @@ void MotuEvaluateOceanWaveDisplacement(
         unusedOnshoreDerivative,
         onshoreInfluence,
         unusedBreakerFoamSlope);
+    // Breaking crests include finer shape than ordinary swell; remove them
+    // when the coarse grid cannot resolve even their first harmonic.
+    onshoreDisplacement *= MotuOceanWaveResolution(_OnshoreWaveParameters.x * 0.5, geometryFootprint);
     displacement *= MotuOceanOrdinaryWaveAllowance(coastalData, onshoreInfluence);
     float depthWaveScale = MotuOceanDepthWaveScale(coastalData);
     displacement = (displacement + onshoreDisplacement)
