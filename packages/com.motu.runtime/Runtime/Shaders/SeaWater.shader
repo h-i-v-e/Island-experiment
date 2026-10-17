@@ -154,6 +154,7 @@ Shader "Motu/Sea Water"
                 SHADOW_COORDS(5)
                 float2 waveSamplePosition : TEXCOORD6;
                 float4 deckWaveData : TEXCOORD7; // original height, clamp, final height, boat displacement
+                float hullClamped : TEXCOORD8;
             };
 
             VertexOutput Vertex(VertexInput input)
@@ -163,7 +164,7 @@ Shader "Motu/Sea Water"
                     unity_ObjectToWorld,
                     input.vertex).xyz;
                 float3 displacedWorldPosition = MotuOceanSurfacePosition(baseWorldPosition,
-                    length(input.vertex.xz), output.deckWaveData);
+                    length(input.vertex.xz), output.deckWaveData, output.hullClamped);
                 output.pos = UnityWorldToClipPos(displacedWorldPosition);
                 output.screenPosition = ComputeScreenPos(output.pos);
                 output.grabPosition = ComputeScreenPos(output.pos);
@@ -179,6 +180,7 @@ Shader "Motu/Sea Water"
 
             float4 Fragment(VertexOutput input, float facing : VFACE) : SV_Target
             {
+                MotuClipHullInterior(input.worldPosition);
                 float3 viewDirection = normalize(
                     _WorldSpaceCameraPos.xyz - input.worldPosition);
                 float3 analyticWaveNormal;
@@ -201,6 +203,11 @@ Shader "Motu/Sea Water"
                     foamAllowance, input.deckWaveData.z);
                 MotuShipWaveShading(input.worldPosition.xz, input.deckWaveData.x,
                     input.deckWaveData.y, MotuOceanClampHeightEnvelope(input.waveSamplePosition), analyticWaveNormal, whitecap);
+                if (input.hullClamped > .001)
+                {
+                    float3 surfaceNormal = normalize(cross(ddy(input.worldPosition), ddx(input.worldPosition)));
+                    analyticWaveNormal = surfaceNormal * (surfaceNormal.y < 0 ? -1 : 1);
+                }
                 // Add after hull suppression: displaced water at the hull should
                 // foam even where the boat has flattened an incoming crest.
                 float boatFoam = MotuShipDisplacementFoam(input.deckWaveData.w);

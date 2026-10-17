@@ -38,7 +38,7 @@ namespace Motu.Rendering
 
         private void OnEnable()
         {
-            body = GetComponentInParent<Rigidbody>();
+            body = waveBody != null ? waveBody : GetComponentInParent<Rigidbody>();
             ResetTrail();
             if (Active.Count == 0) RenderPipelineManager.beginCameraRendering += PrepareSrpCamera;
             if (!Active.Contains(this)) Active.Add(this);
@@ -83,7 +83,7 @@ namespace Motu.Rendering
             foreach (var capsule in Active)
             {
                 if (capsule == null || !capsule.isActiveAndEnabled) continue;
-                if (capsule.hullTexture != null) continue;
+                if (capsule.hullTexture != null || capsule.HasConvexHull) continue;
                 var a = capsule.transform.TransformPoint(capsule.start);
                 var b = capsule.transform.TransformPoint(capsule.end);
                 Endpoints[count] = new Vector4(a.x, a.z, b.x, b.z);
@@ -93,10 +93,20 @@ namespace Motu.Rendering
             Shader.SetGlobalVectorArray(EndpointsId, Endpoints);
             Shader.SetGlobalVectorArray(ParametersId, Parameters);
             Shader.SetGlobalInt(CountId, count);
+            BindHullGlobals();
         }
 
         private void OnDrawGizmosSelected()
         {
+            if (HasConvexHull)
+            {
+                var previous = Gizmos.matrix;
+                Gizmos.matrix = transform.localToWorldMatrix;
+                Gizmos.color = Color.cyan;
+                Gizmos.DrawWireMesh(convexHull.Boundary);
+                Gizmos.matrix = previous;
+                return;
+            }
             if (hullTexture != null)
             {
                 GetFootprint(out var centre, out var forward);

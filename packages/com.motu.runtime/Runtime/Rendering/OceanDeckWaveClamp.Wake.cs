@@ -5,6 +5,9 @@ namespace Motu.Rendering
     public sealed partial class OceanDeckWaveClamp
     {
         [Header("Texture displacement (optional)")]
+        [Tooltip("Optional motion source when the visual hull follows a separately rooted physics body.")]
+        [SerializeField] private Rigidbody waveBody;
+        public Rigidbody WaveBody { get => waveBody; set { waveBody = value; body = value; } }
         [Tooltip("Linear greyscale: black clamps crests to the sea plane, mid-grey does nothing, white adds Bow Height at full speed. Null uses the capsule instead.")]
         [SerializeField] private Texture2D hullTexture;
         [Tooltip("Generated waterline maps store an independent bow rise in alpha. Leave off for legacy greyscale stamps.")]
@@ -151,7 +154,7 @@ namespace Motu.Rendering
             GetFootprint(out var centre, out var forward);
             var speed = Application.isPlaying && body != null ? Mathf.Max(0, Vector3.Dot(body.linearVelocity, forward)) : 0;
             writer.Draw(hullTexture, centre, forward, textureSizeMetres,
-                1, bowHeight * Mathf.Clamp01(speed / fullWaveSpeed), waveFoam,
+                HasConvexHull ? 0 : 1, bowHeight * Mathf.Clamp01(speed / fullWaveSpeed), waveFoam,
                 hullClampFootprintScale, hullClampFeatherMetres, bowWavePullbackMetres,
                 bowWaveTipBlendMetres, (transform.TransformPoint(end) - transform.TransformPoint(start)).magnitude * .5f + radiusMetres, bowWaveInAlpha);
             if (wakeTexture == null) return;

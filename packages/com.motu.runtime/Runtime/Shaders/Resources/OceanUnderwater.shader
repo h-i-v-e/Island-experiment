@@ -42,7 +42,7 @@ Shader "Hidden/Motu/Ocean Underwater"
                 length(samplePosition - _UnderwaterOrigin.xz), deckData);
             return surface.y - nearPosition.y;
         }
-        struct SurfaceOutput { float4 pos : SV_POSITION; float depth : TEXCOORD0; };
+        struct SurfaceOutput { float4 pos : SV_POSITION; float depth : TEXCOORD0; float3 worldPosition : TEXCOORD1; };
         SurfaceOutput SurfaceVertex(appdata_base input)
         {
             float4 deckData;
@@ -51,10 +51,12 @@ Shader "Hidden/Motu/Ocean Underwater"
             SurfaceOutput output;
             output.pos = mul(_UnderwaterVP, float4(surface, 1));
             output.depth = -mul(_UnderwaterView, float4(surface, 1)).z;
+            output.worldPosition = surface;
             return output;
         }
         float2 SurfaceFragment(SurfaceOutput input, float facing : VFACE) : SV_Target
         {
+            MotuClipHullInterior(input.worldPosition);
             // A back face is an exit from water; a front face is an entry.
             return float2(input.depth, facing < 0 ? 1 : -1);
         }
