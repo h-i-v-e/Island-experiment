@@ -121,6 +121,28 @@ The **Ship and Shore Wave Audio** sample contains the corresponding hull and
 shore audio components and an isolated native audio validation command. TerraNullus
 already has these components in `Assets/Scripts`; avoid importing duplicate copies.
 
+`ShipAnchor` adds a slack bow rode to a rigidbody. A sailing controller calls
+`SetDeployed(true)` when sails are furled and `SetDeployed(false)` when they are
+unfurled. It catches only `TerrainCollider` seabed within 10 metres below mean
+sea level; otherwise it keeps drifting and searching beneath the moving bow.
+The default rode length reaches the bottom at 45 degrees when taut. Windage
+preserves existing momentum, takes up the slack, and lets bow tension turn the
+ship into the wind while normal land collisions remain active. Explicit ship
+teleports should call `ResetAfterTeleport()` after moving the rigidbody.
+While deployed, bounded yaw torque also turns the physical bow towards the
+wind's source (`-wind flow`), including while the rode is slack or the anchor is
+dragging in deep water. This applies force through physics and leaves collisions
+and the rode limit in control of the resulting motion.
+
+`ShipAnchorAudio` plays separate spatial clips for `Dropped`, `BottomContact`
+and `Tensioned`. The last event waits for an extended rode carrying real joint
+force, and fires once per deployment even if waves or wind changes reload the
+rope. `IsTaut` exposes the current loaded state separately from seabed contact.
+The [TerraNullus anchor integration patch](../../integrations/terranullus/anchor-integration.patch)
+records the host controller hooks, configured ExplorerShip components and prefab
+validation command. It references the host's existing sound assets without
+redistributing them; those changes are already applied in the local TerraNullus project.
+
 An uninitialized world controller does not change host shader globals or fog.
 Initializing it acquires the single global environment slot; a second active
 owner is rejected before it creates resources. Disable the owner to restore

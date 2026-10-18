@@ -1,0 +1,177 @@
+--- a/Assets/Samples/Motu/ShipController.cs
++++ b/Assets/Samples/Motu/ShipController.cs
+@@ -75,6 +75,7 @@
+ 
+         private Rigidbody body;
+         private OceanBuoyancy buoyancy;
++        private ShipAnchor anchor;
+         private Quaternion helmLocalRotation;
+         private Quaternion wheelRestLocalRotation;
+         private AudioSource wheelAudio;
+@@ -94,6 +95,7 @@
+             set
+             {
+                 sailsRaised = value;
++                anchor?.SetDeployed(!value);
+                 UpdateBuoyancySpeedMultiplier();
+                 Toggle(sailsDown, sailsUp, value);
+             }
+@@ -201,6 +203,8 @@
+         {
+             body = GetComponent<Rigidbody>();
+             buoyancy = GetComponent<OceanBuoyancy>();
++            anchor = GetComponent<ShipAnchor>();
++            if (anchor == null) anchor = gameObject.AddComponent<ShipAnchor>();
+             helmLocalRotation = helm != null ? Quaternion.Inverse(transform.rotation) * helm.rotation : Quaternion.identity;
+             wheelRestLocalRotation = wheel != null ? wheel.localRotation : Quaternion.identity;
+         }
+@@ -462,6 +466,7 @@
+             body.position = destination;
+             body.linearVelocity = Vector3.zero;
+             body.angularVelocity = Vector3.zero;
++            anchor?.ResetAfterTeleport();
+             bridgeCamera?.SnapToShip();
+             if (worldManager != null && bridgeCamera != null)
+                 worldManager.SetStreamingTarget(bridgeCamera.transform);
+--- a/Assets/Prefabs/ExplorerShip.prefab
++++ b/Assets/Prefabs/ExplorerShip.prefab
+@@ -182,6 +182,8 @@
+   - component: {fileID: 7100000000000000011}
+   - component: {fileID: 6290412933163519492}
+   - component: {fileID: 7100000000000000012}
++  - component: {fileID: 7100000000000000014}
++  - component: {fileID: 7100000000000000015}
+   m_Layer: 0
+   m_Name: Ship Physics
+   m_TagString: Untagged
+@@ -446,6 +448,42 @@
+   fullVolumeImpulsePerMass: 2
+   minimumClosingSpeed: 0.2
+   minimumImpactInterval: 0.2
++--- !u!114 &7100000000000000014
++MonoBehaviour:
++  m_ObjectHideFlags: 0
++  m_CorrespondingSourceObject: {fileID: 0}
++  m_PrefabInstance: {fileID: 0}
++  m_PrefabAsset: {fileID: 0}
++  m_GameObject: {fileID: 7100000000000000001}
++  m_Enabled: 1
++  m_EditorHideFlags: 0
++  m_Script: {fileID: 11500000, guid: 7976a08cea32421caa8e5716661bf004, type: 3}
++  m_Name: 
++  m_EditorClassIdentifier: Motu.Runtime::Motu.Gameplay.ShipAnchor
++  bowLocalPosition: {x: 0, y: 6, z: 14}
++  maximumCatchDepthMetres: 20
++  rodeAngleDegrees: 45
++  windDriftAcceleration: 0.04
++  maximumWindAcceleration: 0.2
++  windwardTurnRateDegrees: 3
++  windwardTurnResponseSeconds: 4
++  seaLevelMetres: 0
++--- !u!114 &7100000000000000015
++MonoBehaviour:
++  m_ObjectHideFlags: 0
++  m_CorrespondingSourceObject: {fileID: 0}
++  m_PrefabInstance: {fileID: 0}
++  m_PrefabAsset: {fileID: 0}
++  m_GameObject: {fileID: 7100000000000000001}
++  m_Enabled: 1
++  m_EditorHideFlags: 0
++  m_Script: {fileID: 11500000, guid: 8ec66707be2544f6a5127ea33e8186c8, type: 3}
++  m_Name: 
++  m_EditorClassIdentifier: Motu.Runtime::Motu.Gameplay.ShipAnchorAudio
++  dropClip: {fileID: 8300000, guid: 7052c96204e8de44599546057c1fdb9b, type: 3}
++  bottomContactClip: {fileID: 8300000, guid: c5e15f6af41264647a7fab1c3da8f6c8, type: 3}
++  tensionClip: {fileID: 8300000, guid: 6166d29871b5cd244bd40dae1e49ca8e, type: 3}
++  volume: 0.8
+ --- !u!1 &7589595918633853569
+ GameObject:
+   m_ObjectHideFlags: 0
+--- /dev/null
++++ b/Assets/Editor/ShipAnchoringValidation.cs
+@@ -0,0 +1,80 @@
++using System;
++using System.IO;
++using System.Reflection;
++using System.Text;
++using Motu.Gameplay;
++using UnityEditor;
++using UnityEngine;
++
++public static class ShipAnchoringValidation
++{
++    public const string ReportPath = "/tmp/terranullus-ship-anchoring.txt";
++
++    [MenuItem("Island/Validate Furled Sail Anchoring")]
++    public static void Run()
++    {
++        if (EditorApplication.isPlayingOrWillChangePlaymode)
++            throw new InvalidOperationException("Stop Play mode before validating the isolated ship prefab.");
++        var report = new StringBuilder();
++        var root = PrefabUtility.LoadPrefabContents("Assets/Prefabs/ExplorerShip.prefab");
++        try
++        {
++            var ship = root.GetComponentInChildren<ShipController>(true);
++            var anchor = ship.GetComponent<ShipAnchor>();
++            var body = ship.GetComponent<Rigidbody>();
++            Check(anchor != null && anchor.enabled, "Explorer prefab has an enabled bow anchor on its physics body", report);
++            var settings = new SerializedObject(anchor);
++            var bow = settings.FindProperty("bowLocalPosition").vector3Value;
++            Check(bow.z > 10f && bow.y > 3f, "Rode exits the bow above the resting waterline", report);
++            Check(settings.FindProperty("maximumCatchDepthMetres").floatValue == 10f,
++                "Only terrain seabed within ten metres can catch the anchor", report);
++            Check(settings.FindProperty("rodeAngleDegrees").floatValue == 45f,
++                "Prefab pays out a 45-degree rode", report);
++            Check(settings.FindProperty("windwardTurnRateDegrees").floatValue > 0f,
++                "Furled ship has slow wind-source turning assistance even before the rode becomes taut", report);
++            var audio = ship.GetComponent<ShipAnchorAudio>();
++            Check(audio != null && audio.enabled, "Explorer prefab has anchor event audio enabled", report);
++            var audioSettings = new SerializedObject(audio);
++            var drop = audioSettings.FindProperty("dropClip").objectReferenceValue as AudioClip;
++            var bottom = audioSettings.FindProperty("bottomContactClip").objectReferenceValue as AudioClip;
++            var tension = audioSettings.FindProperty("tensionClip").objectReferenceValue as AudioClip;
++            Check(drop != null && bottom != null && tension != null && drop != bottom && drop != tension && bottom != tension,
++                "Three distinct imported clips resolve for drop, bottom contact and first holding load", report);
++            typeof(ShipController).GetMethod("CacheBody", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(ship, null);
++            var controllerForward = (Vector3)typeof(ShipController).GetProperty("Forward", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(ship);
++            var anchorForward = Vector3.ProjectOnPlane(anchor.BowWorldPosition - body.worldCenterOfMass, Vector3.up).normalized;
++            Check(Vector3.Dot(controllerForward, anchorForward) > .99f,
++                "Anchor's physical bow agrees with the Explorer helm's forward axis", report);
++            body.linearVelocity = new Vector3(2f, 0f, 1f);
++            ship.SailsRaised = false;
++            Check(anchor.IsDeployed && Vector3.Distance(anchor.DeploymentPosition, anchor.BowWorldPosition) < .001f,
++                "Furling drops the anchor at the current bow", report);
++            Check(body.linearVelocity == new Vector3(2f, 0f, 1f), "Furling preserves sailing momentum", report);
++            var original = anchor.DeploymentPosition;
++            body.position += Vector3.right * 3f;
++            ship.SetInput(-1f, 0f);
++            Check(anchor.DeploymentPosition == original, "Holding the furl key does not move the original anchor drop", report);
++            ship.SetInput(1f, 0f);
++            Check(!anchor.IsDeployed && !anchor.IsHolding, "Unfurling immediately lifts the anchor", report);
++            ship.SetInput(-1f, 0f);
++            ship.Teleport(new Vector3(20f, body.position.y, 15f));
++            Check(anchor.IsDeployed && Vector3.Distance(anchor.DeploymentPosition, anchor.BowWorldPosition) < .001f,
++                "Explicit teleport redeploys at the destination instead of retaining an old-world constraint", report);
++            Check(ship.GetComponents<ShipAnchor>().Length == 1, "Controller reuses the configured anchor without duplicates", report);
++            report.AppendLine("SUCCESS: Explorer ship furling/anchor integration passed.");
++        }
++        catch (Exception error) { report.AppendLine("FAIL: " + error); Debug.LogException(error); }
++        finally
++        {
++            PrefabUtility.UnloadPrefabContents(root);
++            File.WriteAllText(ReportPath, report.ToString());
++            Debug.Log(report.ToString());
++        }
++    }
++
++    private static void Check(bool condition, string message, StringBuilder report)
++    {
++        if (!condition) throw new InvalidOperationException(message);
++        report.AppendLine("PASS: " + message);
++    }
++}
+--- /dev/null
++++ b/Assets/Editor/ShipAnchoringValidation.cs.meta
+@@ -0,0 +1,2 @@
++fileFormatVersion: 2
++guid: a61b19ec499144a5854cc129c930c3b0
