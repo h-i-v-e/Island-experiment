@@ -75,6 +75,9 @@ Shader "Motu/Sea Water"
         [HideInInspector] _OnshoreWaveEnabled ("Onshore Wave Enabled", Float) = 1
         [HideInInspector] _OnshoreWaveParameters ("Onshore Wave Parameters", Vector) = (12, 0.16, 2.2, 0.18)
         [HideInInspector] _OnshoreWaveBreaking ("Onshore Wave Breaking", Vector) = (0.95, 96, 5, 3.5)
+        [HideInInspector] _OceanShelterTex ("Island Shelter", 2D) = "black" {}
+        [HideInInspector] _OceanShelterWorldRect ("Island Shelter World Rect", Vector) = (0, 0, 0, 0)
+        [HideInInspector] _OceanShelterParameters ("Island Shelter Parameters", Vector) = (0.33333334, 0, 0, 0)
     }
 
     SubShader
@@ -216,6 +219,9 @@ Shader "Motu/Sea Water"
                         * max(_WhitecapStrength, 0.0));
                 float roughness;
                 float3 detailNormal = MotuOceanRippleNormal(input.worldPosition, analyticWaveNormal, roughness);
+                float shelterDetailScale = MotuOceanShelterDetailScale(input.waveSamplePosition);
+                detailNormal = normalize(lerp(analyticWaveNormal, detailNormal, shelterDetailScale));
+                roughness = lerp(0.04, roughness, shelterDetailScale);
                 // Unresolved wave slopes become a wider highlight instead of
                 // isolated bright pixels. Physical surface queries remain unfiltered.
                 roughness = clamp(sqrt(roughness * roughness + min(unresolvedWaveVariance, 0.35)), 0.04, 0.8);
@@ -262,7 +268,7 @@ Shader "Motu/Sea Water"
                 // reflections and refraction without moving the surface mesh.
                 float2 reflectionRipple = mul((float3x3)UNITY_MATRIX_V,
                     detailNormal - analyticWaveNormal).xy
-                    + MotuOceanSurfaceDistortion(input.worldPosition);
+                    + MotuOceanSurfaceDistortion(input.worldPosition) * shelterDetailScale;
                 float pathLength;
                 float3 refractedPosition;
                 float3 refractedScene = MotuWaterRefractDepthSafe(input.grabPosition, input.screenPosition,

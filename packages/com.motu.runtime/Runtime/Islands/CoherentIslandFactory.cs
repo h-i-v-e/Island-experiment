@@ -1,5 +1,6 @@
 using UnityEngine;
 using Motu.Settings;
+using Motu.World;
 
 namespace Motu.Islands
 {
@@ -9,6 +10,16 @@ namespace Motu.Islands
         private const float MIN_HEIGHT = 50, MAX_HEIGHT = 500;
 
         [SerializeField] private int seed = 42;
+
+        [Tooltip("Archipelago radius in 2 km grid cells. Also sets the south-to-north solar latitude range.")]
+        [Min(1)] [SerializeField] private int archipelegoRadius = 16;
+        public int ArchipelagoRadius => Mathf.Max(archipelegoRadius, 1);
+
+        public float GetSunLatitudeDegrees(float worldZ)
+        {
+            var radiusMetres = ArchipelagoRadius * IslandWorldManager.IslandSizeMetres;
+            return Mathf.Lerp(0f, 80f, Mathf.InverseLerp(-radiusMetres, radiusMetres, worldZ));
+        }
 
         [Tooltip("Coherent world-grid frequency used for island existence and height.")]
         [Min(0.001f)] [SerializeField] private float noiseScaleCoarse = 0.15f;
@@ -97,14 +108,6 @@ namespace Motu.Islands
             return output;
         }
 
-        private IslandRenderingSettings CreateRenderingSettings(
-            float y
-        )
-        {
-            renderingSettings.SunLatitudeDegrees = Mathf.Lerp(0f, 90f, Mathf.Clamp(-1f, 1f, y));
-            return renderingSettings;
-        }
-
         private IslandMaterialColours CreateIslandMaterialColours(System.Random random)
         {
             var earth = Color.Lerp(earthA, earthB, IslandRandom.RandomPositiveFloat(random));
@@ -116,39 +119,38 @@ namespace Motu.Islands
             );
         }
 
-        private float Prepare(Vector2Int islandGridPosition)
+        public bool HasIsland(Vector2Int islandGridPosition)
         {
+            int x = islandGridPosition.x, y = islandGridPosition.y;
+            var radius = (double)ArchipelagoRadius;
+            if ((x == 0 && y == 0) || (double)x * x + (double)y * y > radius * radius)
+            {
+                return false;
+            }
             var seed = (uint)this.seed;
             var noiseOffsetA = NoiseOffset(seed);
             var noiseOffsetB = NoiseOffset(seed * 3);
             var height = Mathf.PerlinNoise(
-                noiseOffsetA.x + islandGridPosition.x * noiseScaleCoarse,
-                noiseOffsetA.y + islandGridPosition.y * noiseScaleCoarse) * 0.25f +
+                noiseOffsetA.x + x * noiseScaleCoarse,
+                noiseOffsetA.y + y * noiseScaleCoarse) * 0.25f +
             Mathf.PerlinNoise(
-                noiseOffsetB.x + islandGridPosition.x * noiseScaleFine,
-                noiseOffsetB.y + islandGridPosition.y * noiseScaleFine) * 0.75f;
+                noiseOffsetB.x + x * noiseScaleFine,
+                noiseOffsetB.y + y * noiseScaleFine) * 0.75f;
             if (height < islandThreshold)
             {
-                return 0f;
+                return false;
             }
-            return height;
-        }
-
-        public bool HasIsland(Vector2Int islandGridPosition)
-        {
-            return Prepare(islandGridPosition) != 0f;
+            return true;
         }
 
         public IslandGenerationRequest CreateIslandGenerationRequest(
             Vector2Int islandGridPosition)
         {
-            var height = Prepare(islandGridPosition);
-            if (height == 0f)
+            if (!HasIsland(islandGridPosition))
             {
                 return null;
             }
-            var snowLine = islandGridPosition.y * 0.03f;
-            snowLine = 1 - Mathf.Clamp01(snowLine * snowLine);
+            var snowLine = 1f - Mathf.Max(islandGridPosition.y / (float)ArchipelagoRadius, 0f);
             var islandSeed = IslandRandom.SeedForCell(seed, islandGridPosition);
             var random = new System.Random(islandSeed);
             var profile = new IslandGenerationProfile(
@@ -156,7 +158,7 @@ namespace Motu.Islands
                 riverSettings,
                 CreateForestSettings(random, snowLine),
                 reedSettings, fernSettings,
-                CreateRenderingSettings(islandGridPosition.y * 0.03f),
+                renderingSettings,
                 new IslandDebugSettings(), caveSettings, navigationSettings
             );
             return IslandGenerationRequest.FromOwnedProfile(

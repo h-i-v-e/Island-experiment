@@ -3,6 +3,7 @@
 
 #include "WeatherWindCommon.cginc"
 #include "SeaMaskCommon.cginc"
+#include "OceanIslandShelter.cginc"
 
 // Query shaders may sample neighbouring times. Rendering keeps the exact
 // integrated phases and wind offset; these hooks compile away in surface passes.
@@ -109,12 +110,26 @@ float MotuOceanDepthWaveScale(float4 coastalData)
     return saturate(waterDepth / MotuOceanMaximumWaveHeight());
 }
 
+void MotuOceanApplyIslandShelter(float2 worldPosition,
+    inout float3 displacement, inout float2 heightDerivative,
+    inout float crestCurvature)
+{
+    float scale = MotuOceanShelterWaveScale(worldPosition);
+    // Differentiate h(x)*s(x), including the shelter gradient, so highlights
+    // follow the same slowly flattening surface seen by geometry and physics.
+    heightDerivative = heightDerivative * scale
+        + displacement.y * MotuOceanShelterScaleGradient(worldPosition);
+    displacement *= scale;
+    crestCurvature *= scale;
+}
+
 float MotuOceanClampHeightEnvelope(float2 worldPosition)
 {
     // Use the envelope of the rendered, depth-limited waves. Using the raw
     // weather amplitude here compresses the mask transition into a steep rim.
     float waterDepth = saturate(MotuOceanCoastalData(worldPosition).b) * MotuSeaMaskDepthMetres;
-    return min(MotuOceanMaximumWaveHeight(), waterDepth);
+    return min(MotuOceanMaximumWaveHeight(), waterDepth)
+        * MotuOceanShelterWaveScale(worldPosition);
 }
 
 void MotuOceanOnshoreField(
@@ -484,6 +499,10 @@ void MotuEvaluateOceanWaveField(
         heightDerivative,
         crestCurvature);
 
+    MotuOceanApplyIslandShelter(worldPosition,
+        displacement, heightDerivative, crestCurvature);
+    float shelterScale = MotuOceanShelterWaveScale(worldPosition);
+    unresolvedVariance *= shelterScale * shelterScale;
 }
 
 void MotuEvaluateOceanWaveField(float2 worldPosition,
@@ -546,6 +565,9 @@ void MotuEvaluateOnshoreWaveField(
         heightDerivative,
         breakerFoam,
         crestCurvature);
+    MotuOceanApplyIslandShelter(worldPosition,
+        displacement, heightDerivative, crestCurvature);
+    breakerFoam *= MotuOceanShelterWaveScale(worldPosition);
 }
 
 void MotuEvaluateOnshoreWaveField(float2 worldPosition, out float3 displacement,
@@ -801,7 +823,8 @@ void MotuEvaluateOceanWaveNormal(
     // coastal waves must not make the highlight roughness flicker either.
     float onshoreSlopeEnvelope = max(_OnshoreWaveParameters.y, 0.0)
         * max(_MotuWeatherWind.w, 0.0) * onshoreInfluence
-        * 6.28318530718 / max(_OnshoreWaveParameters.x, 1.0);
+        * 6.28318530718 / max(_OnshoreWaveParameters.x, 1.0)
+        * MotuOceanShelterWaveScale(worldPosition);
     float onshoreVariance = onshoreSlopeEnvelope * onshoreSlopeEnvelope * 0.5
         * (1.0 - onshoreResolved * onshoreResolved);
     onshoreDisplacement *= onshoreResolved;
@@ -809,6 +832,9 @@ void MotuEvaluateOceanWaveNormal(
     breakerFoam *= onshoreResolved;
     float normalAttenuation = MotuOceanOrdinaryWaveAllowance(coastalData, onshoreInfluence);
     foamAllowance = MotuOceanFoamAllowance(coastalData, normalAttenuation, onshoreInfluence);
+    foamAllowance *= lerp(1.0, smoothstep(0.15, 0.30, MotuOceanMaximumWaveHeight()
+        * MotuOceanShelterWaveScale(worldPosition)),
+        MotuOceanIslandShelter(worldPosition));
     float surfaceWaveAllowance = max(normalAttenuation, onshoreInfluence);
     [branch]
     if (surfaceWaveAllowance <= 0.0001)

@@ -112,6 +112,7 @@ namespace Motu.World
                 throw new System.ArgumentNullException(nameof(material));
             }
 
+            ResetIslandShelter();
             ReleaseFoamHistory();
             var previousMaterial = surfaceMaterial;
             surfaceMaterial = material;

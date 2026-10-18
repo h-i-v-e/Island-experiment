@@ -35,7 +35,7 @@ namespace Motu.Rendering
         private ParticleSystem particles;
         private ParticleSystemRenderer particleRenderer;
         private Vector3[] worldPoints, waveVelocities;
-        private float[] depths, strengthMultipliers, fractions;
+        private float[] depths, waveScales, strengthMultipliers, fractions;
         private bool[] valid;
         private WetSegment[] segments;
         private float nextOceanSearch;
@@ -50,14 +50,20 @@ namespace Motu.Rendering
 
         /// <summary>Fresh waterline data shared with hull effects, without another GPU query.</summary>
         public bool TryGetWaterlineSurface(int index, out Vector3 position, out float depth, out Vector3 waterVelocity)
+            => TryGetWaterlineSurface(index, out position, out depth, out waterVelocity, out _);
+
+        /// <summary>Includes the local island-shelter wave fraction used by the sampled surface.</summary>
+        public bool TryGetWaterlineSurface(int index, out Vector3 position, out float depth,
+            out Vector3 waterVelocity, out float waveScale)
         {
             position = waterVelocity = default;
-            depth = 0f;
+            depth = waveScale = 0f;
             if (!isActiveAndEnabled || sampledFrame != Time.frameCount || valid == null
                 || index < 0 || index >= valid.Length || !valid[index]) return false;
             position = worldPoints[index];
             depth = depths[index];
             waterVelocity = waveVelocities[index];
+            waveScale = waveScales[index];
             return true;
         }
 
@@ -92,6 +98,7 @@ namespace Motu.Rendering
                 catch (NotSupportedException error) { Debug.LogError(error.Message, this); enabled = false; return; }
                 worldPoints = new Vector3[waterline.Length];
                 depths = new float[waterline.Length];
+                waveScales = new float[waterline.Length];
                 waveVelocities = new Vector3[waterline.Length];
                 strengthMultipliers = new float[waterline.Length];
                 fractions = new float[waterline.Length];
@@ -118,7 +125,8 @@ namespace Motu.Rendering
             {
                 var point = transform.TransformPoint(waterline[i]);
                 worldPoints[i] = point;
-                valid[i] = sampler.TryGetSurface(i, point, maximumSampleTravel, out var height, out waveVelocities[i])
+                valid[i] = sampler.TryGetSurface(i, point, maximumSampleTravel,
+                    out var height, out waveVelocities[i], out waveScales[i])
                     && sampler.SampleAge(i) <= maximumSampleAge;
                 depths[i] = valid[i] ? height - point.y : 0;
             }

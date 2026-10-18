@@ -33,6 +33,7 @@ namespace Motu.World
 
         private readonly List<CoastalBinding> bindings = new List<CoastalBinding>();
         private OceanSurfaceController ocean;
+        private OceanIslandShelterField shelter;
         private OceanWaveRuntimeSettings settings;
         private Material compositionMaterial;
         private Material onshoreMaterial;
@@ -59,6 +60,11 @@ namespace Motu.World
                 ? owner
                 : throw new ArgumentNullException(nameof(owner));
             settings = waveSettings;
+            shelter = owner.EnsureIslandShelter();
+            shelter.ShelteredWaveFraction = waveSettings.ShelteredWaveFraction;
+            foreach (var binding in bindings)
+                if (binding.Owner != null && binding.Mask != null && binding.IslandTransform != null)
+                    shelter.Register(binding.Owner, binding.Mask, binding.IslandTransform, binding.WorldSize);
             EnsureResources();
             dirty = true;
         }
@@ -75,6 +81,7 @@ namespace Motu.World
             {
                 throw new ArgumentNullException(nameof(islandTransform));
             }
+            shelter?.Register(owner, mask, islandTransform, worldSize);
             for (var index = 0; index < bindings.Count; index++)
             {
                 if (bindings[index].Owner != owner)
@@ -99,6 +106,7 @@ namespace Motu.World
 
         internal void Unregister(IslandRuntime owner)
         {
+            shelter?.Unregister(owner);
             if (owner == null)
             {
                 return;

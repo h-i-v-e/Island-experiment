@@ -100,6 +100,27 @@ water worlds, URP, HDRP, XR and arbitrary origin shifting require additional wor
 Sample ship controls, minimap, preview UI and scene construction remain in the
 development project, outside this runtime assembly.
 
+With `CoherentIslandFactory`, the player's world Z position controls the shared
+solar latitude continuously across the archipelago radius. At the south edge
+(`-radius`, in 2 km grid cells), the noon sun is directly overhead; at the north
+edge (`+radius`), it is 10 degrees above the horizon. Positions beyond either
+edge retain that edge's latitude. Radius edits apply to lighting immediately.
+The moon follows the same observer latitude; **Moon Equator Offset Degrees**
+tilts its orbit towards the equator from that latitude (zero matches the sun's
+orbit latitude). Solar time and lunar phase continue normally while travelling.
+Other island factories use the authored world **Sun Latitude Degrees** value.
+
+Island lee attenuation comes from the shared GPU `MotuOceanShelterWaveScale`
+field used by ocean geometry and buoyancy. `OceanHullSpray.TryGetWaterlineSurface`
+also exposes that sampled fraction through its overload with `out waveScale`,
+without another GPU query. `OceanShoreSampler.Sample.Amplitude` includes island
+shelter; its `WaveScale` lets audio retain the same attenuation after volume
+saturation (`min(WaveScale, Amplitude / fullVolumeAmplitude)`). This keeps even
+large storm breakers quieter in protected water.
+The **Ship and Shore Wave Audio** sample contains the corresponding hull and
+shore audio components and an isolated native audio validation command. TerraNullus
+already has these components in `Assets/Scripts`; avoid importing duplicate copies.
+
 An uninitialized world controller does not change host shader globals or fog.
 Initializing it acquires the single global environment slot; a second active
 owner is rejected before it creates resources. Disable the owner to restore

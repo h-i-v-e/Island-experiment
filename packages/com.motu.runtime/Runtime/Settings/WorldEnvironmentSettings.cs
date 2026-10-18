@@ -41,9 +41,11 @@ namespace Motu.Settings
         [SerializeField] private Light sunlight;
         [Range(0.25f, 240f)] [SerializeField] private float sunCycleDurationMinutes = 20f;
         [Range(1f, 20f)] [SerializeField] private float midnightToNoonClockRateRatio = 10f;
+        [Tooltip("Fixed solar latitude. Coherent archipelagos instead derive it from the player's north/south position: 0 degrees at the south edge, 80 at the north edge.")]
         [Range(-80f, 80f)] [SerializeField] private float sunLatitudeDegrees = -36f;
         [Range(0f, 24f)] [SerializeField] private float startingSolarTimeHours = 8f;
         [Range(0f, 4f)] [SerializeField] private float middaySunIntensity = 1.25f;
+        [Tooltip("Degrees the moon's orbit is tilted towards the equator from the current solar latitude, including latitude changes as the player moves. Zero follows the sun's orbit latitude.")]
         [Range(0f, 45f)] [SerializeField] private float moonEquatorOffsetDegrees = 22f;
         [Range(0f, 1f)] [SerializeField] private float startingMoonPhase = 0.5f;
         [Range(0f, 1f)] [SerializeField] private float fullMoonLightIntensity = 0.14f;

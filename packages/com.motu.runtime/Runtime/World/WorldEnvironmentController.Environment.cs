@@ -63,6 +63,19 @@ namespace Motu.World
         private float lunarPhase;
         private float currentSkyExposure = 1f;
         private float currentNightStrength;
+        private float? sunLatitudeOverrideDegrees;
+
+        /// <summary>Runtime observer latitude; null uses the authored world latitude.</summary>
+        public float? SunLatitudeOverrideDegrees
+        {
+            get => sunLatitudeOverrideDegrees;
+            set => sunLatitudeOverrideDegrees = value.HasValue
+                ? Mathf.Clamp(value.Value, -80f, 80f)
+                : (float?)null;
+        }
+
+        public float SunLatitudeDegrees =>
+            sunLatitudeOverrideDegrees ?? environmentSettings?.SunLatitudeDegrees ?? 0f;
 
         public void Initialize(
             WorldEnvironmentSettings settings,
@@ -336,13 +349,14 @@ namespace Motu.World
                         / (cycleSeconds * CelestialLighting.LunarSynodicPeriodDays),
                     1f);
             }
+            var latitude = SunLatitudeDegrees;
             var state = CelestialLighting.EvaluateSun(
                 solarTimeHours,
-                environmentSettings.SunLatitudeDegrees,
+                latitude,
                 environmentSettings.MiddaySunIntensity);
             var moonState = CelestialLighting.EvaluateMoon(
                 solarTimeHours,
-                environmentSettings.SunLatitudeDegrees,
+                latitude,
                 environmentSettings.MoonEquatorOffsetDegrees,
                 lunarPhase,
                 environmentSettings.FullMoonLightIntensity,

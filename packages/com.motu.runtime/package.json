@@ -5,6 +5,7 @@
   "description": "Procedural islands, streaming, and optional URP water and weather. macOS Apple Silicon native runtime.",
   "unity": "6000.6",
   "dependencies": {
+    "com.unity.modules.audio": "1.0.0",
     "com.unity.modules.physics": "1.0.0",
     "com.unity.modules.particlesystem": "1.0.0",
     "com.unity.modules.jsonserialize": "1.0.0",
@@ -19,6 +20,11 @@
       "displayName": "Single Island",
       "description": "Generate in a host-owned scene using public APIs.",
       "path": "Samples~/SingleIsland"
+    },
+    {
+      "displayName": "Ship and Shore Wave Audio",
+      "description": "Spatial wave audio driven by the same sheltered ocean samples as buoyancy and hull spray.",
+      "path": "Samples~/ShipAudio"
     }
   ]
 }

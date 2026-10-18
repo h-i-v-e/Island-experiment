@@ -251,12 +251,14 @@ namespace Motu.World
             shutdown = new CancellationTokenSource();
             ResolveIslandGenerationRequestFactory();
             worldEnvironment = WorldEnvironmentController.FindOrCreate();
+            var target = ResolveStreamingTarget();
+            UpdateSunLatitude(target);
             worldEnvironment.Initialize(
                 EnvironmentSettings,
                 CloudSettings,
                 IslandSizeMetres,
                 IslandSizeMetres * 2.1f,
-                ResolveStreamingTarget());
+                target);
             worldEnvironment.WeatherDriver = weatherDriver;
             if (pendingWeather.HasValue)
             {
@@ -289,6 +291,7 @@ namespace Motu.World
         private void Update()
         {
             var target = ResolveStreamingTarget();
+            UpdateSunLatitude(target);
             if (target == null)
             {
                 return;
@@ -352,6 +355,7 @@ namespace Motu.World
             smoothedVelocity = Vector3.zero;
             nextDiscoveryTime = 0f;
             worldEnvironment?.SetFollowTarget(target);
+            UpdateSunLatitude(target);
             if (target != null)
             {
                 PrepareStreamingAt(target.position);
@@ -368,6 +372,15 @@ namespace Motu.World
             projectedGenerationPosition = worldPosition;
             hasQueryPosition = true;
             UpdateResidencyAndFocus(worldPosition);
+        }
+
+        private void UpdateSunLatitude(Transform target)
+        {
+            if (worldEnvironment == null) return;
+            worldEnvironment.SunLatitudeOverrideDegrees = target != null
+                && IslandGenerationRequestFactory is CoherentIslandFactory coherent
+                    ? coherent.GetSunLatitudeDegrees(target.position.z)
+                    : (float?)null;
         }
 
         public bool TrySnapToTerrain(

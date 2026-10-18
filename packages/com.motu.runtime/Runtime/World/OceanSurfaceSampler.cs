@@ -17,6 +17,7 @@ namespace Motu.World
         private readonly Vector3[] submittedPositions;
         private readonly Vector3[] sampledPositions;
         private readonly float[] heights;
+        private readonly float[] waveScales;
         private readonly Vector3[] velocities;
         private readonly float[] sampleTimes;
         private readonly Action<AsyncGPUReadbackRequest> onReadback;
@@ -47,6 +48,7 @@ namespace Motu.World
             submittedPositions = new Vector3[count];
             sampledPositions = new Vector3[count];
             heights = new float[count];
+            waveScales = new float[count];
             if (includeVelocity) velocities = new Vector3[count];
             sampleTimes = new float[count];
             for (var i = 0; i < count; i++) sampleTimes[i] = float.NegativeInfinity;
@@ -105,8 +107,13 @@ namespace Motu.World
 
         internal bool TryGetSurface(int index, Vector3 currentPosition, float maximumTravel,
             out float height, out Vector3 velocity)
+            => TryGetSurface(index, currentPosition, maximumTravel, out height, out velocity, out _);
+
+        internal bool TryGetSurface(int index, Vector3 currentPosition, float maximumTravel,
+            out float height, out Vector3 velocity, out float waveScale)
         {
             velocity = velocities != null ? velocities[index] : Vector3.zero;
+            waveScale = waveScales[index];
             return TryGetHeight(index, currentPosition, maximumTravel, out height) && velocities != null;
         }
 
@@ -134,7 +141,8 @@ namespace Motu.World
                 // Folded/extremely steep surfaces need not have a unique height.
                 // Reject a failed inversion instead of applying a wild impulse.
                 if (data[i].g > .1f || float.IsNaN(data[i].g)
-                    || float.IsNaN(data[i].r) || float.IsInfinity(data[i].r)) continue;
+                    || float.IsNaN(data[i].r) || float.IsInfinity(data[i].r)
+                    || !float.IsFinite(data[i].b)) continue;
                 if (velocities != null)
                 {
                     var motion = data[Count + i];
@@ -143,6 +151,7 @@ namespace Motu.World
                     velocities[i] = new Vector3(motion.r, motion.g, motion.b);
                 }
                 heights[i] = data[i].r;
+                waveScales[i] = Mathf.Clamp01(data[i].b);
                 sampledPositions[i] = submittedPositions[i];
                 sampleTimes[i] = submittedTime;
             }

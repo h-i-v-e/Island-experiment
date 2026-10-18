@@ -68,7 +68,10 @@ Shader "Hidden/Motu/Ocean Surface Query"
                     return float4((after - before) / (2 * stepSeconds), error);
                 }
                 #endif
-                return float4(_QueryOceanOrigin.y + displacement.y, error, 0, 1);
+                // Keep audio's local shelter gain in the existing height row,
+                // sampled at the same undeformed point as buoyancy and velocity.
+                return float4(_QueryOceanOrigin.y + displacement.y, error,
+                    MotuOceanShelterWaveScale(position), 1);
             }
             ENDHLSL
         }

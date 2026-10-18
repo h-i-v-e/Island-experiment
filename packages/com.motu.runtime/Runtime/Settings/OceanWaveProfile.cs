@@ -81,6 +81,7 @@ namespace Motu.Settings
         public readonly float MaskCoverageMetres;
         public readonly int MaskResolution;
         public readonly float MaskAnchorSnapMetres;
+        public readonly float ShelteredWaveFraction;
         public readonly float DepthAllowancePower;
         public readonly float DistanceAllowancePower;
         public readonly float NoiseWorldSizeMetres;
@@ -163,7 +164,8 @@ namespace Motu.Settings
             OceanWaveComponent wave2,
             OceanWaveComponent wave3,
             float onshoreWaveBreakingStartDepthMetres = 5f,
-            float onshoreWaveBreakingFullDepthMetres = 3.5f)
+            float onshoreWaveBreakingFullDepthMetres = 3.5f,
+            float shelteredWaveFraction = 1f / 3f)
         {
             Enabled = enabled;
             FineVertexSpacingMetres = Mathf.Clamp(fineVertexSpacingMetres, 0.5f, 16f);
@@ -179,6 +181,8 @@ namespace Motu.Settings
                 DisplacementFadeEndMetres - FineVertexSpacingMetres);
             MaskCoverageMetres = Mathf.Max(maskCoverageMetres, DisplacementFadeEndMetres * 2f);
             MaskResolution = Mathf.Clamp(Mathf.ClosestPowerOfTwo(maskResolution), 64, 2048);
+            WeatherValueValidation.RequireFinite(shelteredWaveFraction, nameof(shelteredWaveFraction));
+            ShelteredWaveFraction = Mathf.Clamp01(shelteredWaveFraction);
             var snapSteps = Mathf.Max(
                 1,
                 Mathf.RoundToInt(maskAnchorSnapMetres / FineVertexSpacingMetres));
@@ -298,7 +302,8 @@ namespace Motu.Settings
                 weather.Wave2,
                 weather.Wave3,
                 weather.OnshoreWaveBreakingStartDepthMetres,
-                weather.OnshoreWaveBreakingFullDepthMetres);
+                weather.OnshoreWaveBreakingFullDepthMetres,
+                ShelteredWaveFraction);
             // Include the maximum weather scale (2.5) and bounds size conversion.
             // Finite inputs can still overflow when their displacements are added.
             WeatherValueValidation.RequireFinite(
@@ -408,6 +413,15 @@ namespace Motu.Settings
         [UnityEngine.Serialization.FormerlySerializedAs("whitecapCounterflowSpeed")]
         [Range(0f, 2f)] [SerializeField] private float whitecapDistortionSpeed = 0.65f;
 
+        [Header("Island Lee Shelter")]
+        [Tooltip("Wave amplitude retained in the fully sheltered lee. 0 is flat, 0.33 is one-third size, 1 is full size. Applies to swell and shore breakers without a fixed height cap.")]
+        [Range(0f, 1f)] [SerializeField] private float shelteredWaveFraction = 1f / 3f;
+        public float ShelteredWaveFraction
+        {
+            get => Mathf.Clamp01(shelteredWaveFraction);
+            set { WeatherValueValidation.RequireFinite(value, nameof(value)); shelteredWaveFraction = Mathf.Clamp01(value); }
+        }
+
         [Header("Onshore Wave")]
         [Tooltip("Add an incoming wave guided by distance to shore across the 128-metre coastal band.")]
         [SerializeField] private bool onshoreWaveEnabled = true;
@@ -480,7 +494,8 @@ namespace Motu.Settings
                 wave2,
                 wave3,
                 onshoreWaveBreakingStartDepthMetres,
-                onshoreWaveBreakingFullDepthMetres);
+                onshoreWaveBreakingFullDepthMetres,
+                ShelteredWaveFraction);
         }
 
         private void OnValidate()
