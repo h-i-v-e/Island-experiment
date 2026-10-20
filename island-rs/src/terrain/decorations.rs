@@ -51,6 +51,7 @@ pub(super) const ROCK_WAKE_SPEED: f32 = 0.20 / ISLAND_WORLD_METRES;
 pub(super) const ROCK_SLEEP_STEPS: u8 = 24;
 pub(super) const ROCK_COLLISION_GRID_DIMENSION: usize = 256;
 pub(super) const ROCK_MINIMUM_SETTLED_NORMAL_Z: f32 = 0.906_307_8;
+const ROCK_MAXIMUM_WATER_DEPTH: f32 = 10.0 / ISLAND_WORLD_METRES;
 pub(super) const ROCK_DROP_SOURCE_MAXIMUM_NORMAL_Z: f32 = std::f32::consts::FRAC_1_SQRT_2;
 pub(super) const ROCK_APPEARANCE_DOMAIN: u64 = 0xd1b5_4a32_d192_ed03;
 pub(super) const ROCK_DROP_NOISE_DOMAIN: u64 = 0x3c6e_f372_fe94_f82b;
@@ -265,7 +266,7 @@ pub(super) fn generate_settled_rocks(
     let _timer = StageTimer::new("decorations.rock_settling");
     let mut bodies = spawn_rock_bodies(seed, terrain, body_target);
     // Keep small-stone source seeds intact and drop a sparse second population.
-    // Both populations settle together, so large rocks displace/support stones.
+    // Both populations settle together; only terrain-supported rocks are exported.
     bodies.extend(spawn_rock_bodies_with_offset(
         seed ^ LARGE_BOULDER_DROP_DOMAIN,
         terrain,
@@ -274,6 +275,23 @@ pub(super) fn generate_settled_rocks(
     ));
     settle_rock_bodies(terrain, &mut bodies, method)?;
 
+    let (rocks, stone_vertices) = terrain_supported_rocks(seed, terrain, &bodies);
+    if method == GenerationMethod::Gpu && std::env::var_os("MOTU_GPU_ROCK_STATS").is_some() {
+        eprintln!(
+            "gpu-rock-output rocks={} stone_vertices={}",
+            rocks.len(),
+            stone_vertices.len(),
+        );
+    }
+    Ok((rocks, stone_vertices))
+}
+
+/// Export terrain-supported bodies no deeper than 10 metres below sea level.
+fn terrain_supported_rocks(
+    seed: u64,
+    terrain: &Terrain,
+    bodies: &[RockBody],
+) -> (Vec<SettledRock>, Vec<u32>) {
     let mut rocks = Vec::with_capacity(bodies.len());
     let mut stone_vertices = Vec::new();
     for body in bodies {
@@ -285,7 +303,7 @@ pub(super) fn generate_settled_rocks(
             .truncate()
             .clamp(Vec2::splat(0.01), Vec2::splat(0.99));
         let (terrain_height, normal) = terrain.sample_surface(point.x, point.y);
-        if normal.z < ROCK_MINIMUM_SETTLED_NORMAL_Z {
+        if terrain_height < -ROCK_MAXIMUM_WATER_DEPTH || normal.z < ROCK_MINIMUM_SETTLED_NORMAL_Z {
             continue;
         }
         let Some((triangle, _)) =
@@ -294,7 +312,12 @@ pub(super) fn generate_settled_rocks(
             continue;
         };
         let terrain_centre_height = terrain_height + body.radius / normal.z.max(0.2);
-        let piled = body.centre.z > terrain_centre_height + body.radius * 0.35;
+        // Sphere contacts can leave a rock resting on another sphere. The
+        // deformed, embedded render mesh cannot preserve that support, so omit
+        // the piled body before it contributes geometry or vegetation masks.
+        if body.centre.z > terrain_centre_height + body.radius * 0.35 {
+            continue;
+        }
         stone_vertices.extend(triangle.map(|vertex| vertex as u32));
         if body.appearance_id & LARGE_BOULDER_APPEARANCE_FLAG != 0 {
             // Mark support across the footprint, not only under its centre, so
@@ -310,12 +333,7 @@ pub(super) fn generate_settled_rocks(
                 }
             }
         }
-        let anchor_height = if piled {
-            (body.centre.z - body.radius).max(terrain_height)
-        } else {
-            terrain_height
-        };
-        let anchor = point.extend(anchor_height);
+        let anchor = point.extend(terrain_height);
         if !anchor.is_finite() {
             continue;
         }
@@ -329,14 +347,7 @@ pub(super) fn generate_settled_rocks(
     }
     stone_vertices.sort_unstable();
     stone_vertices.dedup();
-    if method == GenerationMethod::Gpu && std::env::var_os("MOTU_GPU_ROCK_STATS").is_some() {
-        eprintln!(
-            "gpu-rock-output rocks={} stone_vertices={}",
-            rocks.len(),
-            stone_vertices.len(),
-        );
-    }
-    Ok((rocks, stone_vertices))
+    (rocks, stone_vertices)
 }
 
 #[cfg_attr(
@@ -821,6 +832,127 @@ mod decoration_tests {
 
         assert!(lower.centre.distance(upper.centre) >= 0.02 - 1.0e-6);
         assert!(upper.supported);
+    }
+
+    #[test]
+    fn stacked_stones_and_boulders_are_discarded_before_export() {
+        let terrain = Terrain::new(Mesh {
+            vertices: vec![
+                Vec3::new(0.0, 0.0, 0.1),
+                Vec3::new(1.0, 0.0, 0.1),
+                Vec3::new(0.0, 1.0, 0.1),
+            ],
+            normals: vec![Vec3::Z; 3],
+            triangles: vec![0, 1, 2],
+            ..Mesh::default()
+        });
+        // Exercise both visual-only stones and metre-scale collider boulders.
+        for radius in [0.1 / ISLAND_WORLD_METRES, 2.0 / ISLAND_WORLD_METRES] {
+            let mut lower = body(0, Vec3::new(0.25, 0.25, 0.1 + radius), radius);
+            resolve_rock_terrain_contact(&terrain, &mut lower);
+            lower.sleeping = true;
+            let mut upper = body(
+                LARGE_BOULDER_APPEARANCE_FLAG,
+                lower.centre + Vec3::Z * (radius * 1.5),
+                radius,
+            );
+            resolve_rock_pair(&mut lower, &mut upper);
+            assert!(upper.supported, "the solver treats a pile as supported");
+
+            let (rocks, stone_vertices) = terrain_supported_rocks(2018, &terrain, &[upper]);
+            assert!(
+                rocks.is_empty(),
+                "piled bodies must not create render meshes or colliders"
+            );
+            assert!(
+                stone_vertices.is_empty(),
+                "discarded rocks must not hide vegetation"
+            );
+
+            let (rocks, stone_vertices) = terrain_supported_rocks(2018, &terrain, &[lower, upper]);
+            assert_eq!(rocks.len(), 1);
+            assert_eq!(rocks[0].appearance_id, lower.appearance_id);
+            assert!((rocks[0].anchor.z - 0.1).abs() < 1.0e-7);
+            assert_eq!(stone_vertices, [0, 1, 2]);
+        }
+    }
+
+    #[test]
+    fn neighbouring_terrain_supported_rocks_are_retained_on_slopes() {
+        let slope = 0.2;
+        let normal = Vec3::new(-slope, 0.0, 1.0).normalize();
+        let terrain = Terrain::new(Mesh {
+            vertices: vec![
+                Vec3::new(0.0, 0.0, 0.1),
+                Vec3::new(1.0, 0.0, 0.1 + slope),
+                Vec3::new(0.0, 1.0, 0.1),
+            ],
+            normals: vec![normal; 3],
+            triangles: vec![0, 1, 2],
+            ..Mesh::default()
+        });
+        let mut bodies = [
+            body(0, Vec3::new(0.25, 0.25, 0.0), 0.1 / ISLAND_WORLD_METRES),
+            body(
+                LARGE_BOULDER_APPEARANCE_FLAG,
+                Vec3::new(0.26, 0.25, 0.0),
+                2.0 / ISLAND_WORLD_METRES,
+            ),
+        ];
+        for body in &mut bodies {
+            resolve_rock_terrain_contact(&terrain, body);
+        }
+        let (rocks, stone_vertices) = terrain_supported_rocks(2018, &terrain, &bodies);
+        assert_eq!(rocks.len(), 2);
+        assert!(!stone_vertices.is_empty());
+        for rock in &rocks {
+            assert!((rock.anchor.z - terrain.sample(rock.anchor.x, rock.anchor.y)).abs() < 1.0e-7);
+            assert_eq!(rock.normal, normal);
+        }
+    }
+
+    #[test]
+    fn stones_and_boulders_deeper_than_ten_metres_are_discarded_before_export() {
+        for depth_metres in [9.99, 10.0, 10.01] {
+            let height = -depth_metres / ISLAND_WORLD_METRES;
+            let terrain = Terrain::new(Mesh {
+                vertices: vec![
+                    Vec3::new(0.0, 0.0, height),
+                    Vec3::new(1.0, 0.0, height),
+                    Vec3::new(0.0, 1.0, height),
+                ],
+                normals: vec![Vec3::Z; 3],
+                triangles: vec![0, 1, 2],
+                ..Mesh::default()
+            });
+            for (appearance_id, radius_metres) in [(0, 0.1), (LARGE_BOULDER_APPEARANCE_FLAG, 2.0)] {
+                let mut rock_body = body(
+                    appearance_id,
+                    Vec3::new(0.25, 0.25, height),
+                    radius_metres / ISLAND_WORLD_METRES,
+                );
+                resolve_rock_terrain_contact(&terrain, &mut rock_body);
+                let (rocks, stone_vertices) = terrain_supported_rocks(2018, &terrain, &[rock_body]);
+                if depth_metres > 10.0 {
+                    assert!(
+                        rocks.is_empty(),
+                        "deep rocks must not create meshes or colliders"
+                    );
+                    assert!(
+                        stone_vertices.is_empty(),
+                        "deep rocks must not affect vegetation"
+                    );
+                } else {
+                    assert_eq!(
+                        rocks.len(),
+                        1,
+                        "rocks at or above the cutoff must be retained"
+                    );
+                    assert!((rocks[0].anchor.z - height).abs() < 1.0e-7);
+                    assert!(!stone_vertices.is_empty());
+                }
+            }
+        }
     }
 
     #[test]

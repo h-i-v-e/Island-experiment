@@ -10,8 +10,8 @@ namespace Motu.Islands
 {
     internal static class IslandSnapshotCache
     {
-        // Final seabed deepening uses the configured distance-from-land ratio.
-        private const int CacheKeySchemaVersion = 16;
+        // Discard piled rocks and rocks anchored more than 10 metres below sea level.
+        private const int CacheKeySchemaVersion = 18;
         private const string SnapshotExtension = ".motusnapshot";
 
         internal static string CacheDirectory
