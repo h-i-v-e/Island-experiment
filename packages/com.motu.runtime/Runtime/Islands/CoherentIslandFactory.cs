@@ -128,7 +128,7 @@ namespace Motu.Islands
             {
                 return false;
             }
-            var weight = Mathf.Sqrt(1f - (sqrDistance / (float)sqrRadius));
+            var weight = Mathf.Sin(1f - (sqrDistance / (float)sqrRadius));
             var seed = (uint)this.seed;
             var noiseOffsetA = NoiseOffset(seed);
             var noiseOffsetB = NoiseOffset(seed * 3);
