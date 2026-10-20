@@ -10,8 +10,8 @@ namespace Motu.Islands
 {
     internal static class IslandSnapshotCache
     {
-        // Fallen-log roots are buried by their radius and fade from bark to dirt.
-        private const int CacheKeySchemaVersion = 15;
+        // Final seabed deepening uses the configured distance-from-land ratio.
+        private const int CacheKeySchemaVersion = 16;
         private const string SnapshotExtension = ".motusnapshot";
 
         internal static string CacheDirectory
@@ -118,6 +118,7 @@ namespace Motu.Islands
             writer.Write(value.detailNoiseStrength);
             writer.Write(value.landMassOffset);
             writer.Write(value.initialSoilDepthMetres);
+            writer.Write(value.seabedDepthDistanceRatio);
         }
 
         private static void Write(BinaryWriter writer, MotuNative.ForestOptions value)

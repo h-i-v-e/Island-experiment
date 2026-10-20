@@ -548,6 +548,21 @@ impl Island {
             options.river_channel_settings(),
         )?;
         optimize_finished_terrain_surface(&mut lod0, &mut material, &river_bed);
+        // Reuse this horizontal distance field for the sea mask. No later stage
+        // changes terrain positions, so LODs, queries and decoration share the final bed.
+        let distance_to_land = {
+            let _timer = StageTimer::new("sea_mask.distance_to_land");
+            let land: Vec<bool> = lod0.vertices.iter().map(|vertex| vertex.z >= 0.0).collect();
+            graph_distances(&lod0, &lod0.adjacency(), &land)
+        };
+        {
+            let _timer = StageTimer::new("terrain.deepen_seabed");
+            deepen_seabed(
+                &mut lod0,
+                &distance_to_land,
+                options.seabed_depth_distance_ratio,
+            );
+        }
         let lod0_index = {
             let _timer = StageTimer::new("lod.simplify");
             regenerate_lods(&mut lod0, &mut lod1, &mut lod2)
@@ -651,16 +666,6 @@ impl Island {
         let mut material = TerrainMaterialField::from_surface(&material, &river_bed, &forced_rock);
         material.suppress_grass_at_vertices(reeds.forest_exclusion_vertices());
         material.suppress_grass_at_vertices(ferns.support_vertices());
-        let distance_to_land = {
-            let _timer = StageTimer::new("sea_mask.distance_to_land");
-            let land: Vec<bool> = terrain
-                .mesh()
-                .vertices
-                .iter()
-                .map(|vertex| vertex.z >= 0.0)
-                .collect();
-            graph_distances(terrain.mesh(), &terrain.mesh().adjacency(), &land)
-        };
         Ok(Self {
             caves,
             seed,
@@ -1729,6 +1734,20 @@ fn connected_ocean_from_perimeter(
     sea
 }
 
+fn deepen_seabed(mesh: &mut Mesh, distance_to_land: &[f32], ratio: f32) {
+    debug_assert_eq!(mesh.vertices.len(), distance_to_land.len());
+    if ratio == 0.0 {
+        return;
+    }
+    for (vertex, &distance) in mesh.vertices.iter_mut().zip(distance_to_land) {
+        // Entirely submerged maps have no land target and therefore infinite
+        // graph distances. Keep their existing finite bed rather than inventing a coast.
+        if vertex.z < 0.0 && distance.is_finite() {
+            vertex.z -= distance * ratio;
+        }
+    }
+}
+
 pub(super) fn graph_distances(mesh: &Mesh, adjacency: &Adjacency, target: &[bool]) -> Vec<f32> {
     let mut distances = vec![f32::INFINITY; mesh.vertices.len()];
     let mut queue = BinaryHeap::new();
@@ -1773,6 +1792,93 @@ mod sea_proximity_tests {
     use std::io::Cursor;
 
     use super::*;
+
+    #[test]
+    fn seabed_deepening_uses_horizontal_graph_distance_and_can_be_disabled() {
+        let mut mesh = Mesh {
+            vertices: vec![
+                Vec3::new(0.0, 0.0, 0.01),
+                Vec3::new(0.0, 0.1, 0.0),
+                Vec3::new(0.1, 0.0, -0.001),
+                Vec3::new(0.2, 0.0, -0.001),
+            ],
+            triangles: vec![0, 1, 2, 1, 2, 3],
+            ..Mesh::default()
+        };
+        let original = mesh.vertices.clone();
+        let distances = graph_distances(&mesh, &mesh.adjacency(), &[true, true, false, false]);
+        deepen_seabed(&mut mesh, &distances, 0.0);
+        assert_eq!(mesh.vertices, original);
+        deepen_seabed(&mut mesh, &distances, 0.1);
+        assert_eq!(&mesh.vertices[..2], &original[..2]);
+        assert!((mesh.vertices[2].z - (-0.011)).abs() < 1.0e-7);
+        assert!((mesh.vertices[3].z - (-0.021)).abs() < 1.0e-7);
+
+        let no_land = graph_distances(&mesh, &mesh.adjacency(), &[false; 4]);
+        let finite_bed = mesh.vertices.clone();
+        deepen_seabed(&mut mesh, &no_land, 0.1);
+        assert_eq!(mesh.vertices, finite_bed);
+    }
+
+    #[test]
+    fn final_seabed_deepening_survives_generation_and_lod_rebuild() {
+        let options = IslandOptions {
+            terrain_size: 65,
+            seabed_depth_distance_ratio: 0.0,
+            ..IslandOptions::default()
+        };
+        let original = Island::generate(2018, options).unwrap();
+        let deepened = Island::generate(
+            2018,
+            IslandOptions {
+                seabed_depth_distance_ratio: 0.1,
+                ..options
+            },
+        )
+        .unwrap();
+        assert_eq!(original.distance_to_land, deepened.distance_to_land);
+        let mut changed = 0;
+        for ((before, after), &distance) in original
+            .terrain
+            .vertices()
+            .iter()
+            .zip(deepened.terrain.vertices())
+            .zip(&original.distance_to_land)
+        {
+            assert_eq!(before.truncate(), after.truncate());
+            if before.z < 0.0 && distance.is_finite() {
+                assert!((after.z - (before.z - 0.1 * distance)).abs() < 1.0e-7);
+                changed += usize::from(after.z < before.z);
+            } else {
+                assert_eq!(before, after);
+            }
+        }
+        assert!(
+            changed > 100,
+            "a real island must have its offshore shelves lowered"
+        );
+        for lod in &deepened.coarser_lods {
+            for vertex in &lod.vertices {
+                assert!(
+                    deepened.terrain.vertices().contains(vertex),
+                    "LOD must use the final bed"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn seabed_deepening_rejects_invalid_ratios() {
+        for ratio in [-0.1, 1.1, f32::NAN, f32::INFINITY] {
+            let error = IslandOptions {
+                seabed_depth_distance_ratio: ratio,
+                ..IslandOptions::default()
+            }
+            .validate()
+            .unwrap_err();
+            assert!(error.contains("seabed_depth_distance_ratio"));
+        }
+    }
 
     #[test]
     fn completely_submerged_profile_produces_a_finite_seabed() {

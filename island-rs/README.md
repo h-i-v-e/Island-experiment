@@ -239,6 +239,15 @@ vertices for a typical finest LOD while leaving underwater regions coarser.
 Raster grids are created only as derived height, normal, foliage, sea-depth, or
 PNG outputs; they do not define terrain connectivity.
 
+After all erosion, river carving and terrain repairs, the seabed is lowered by
+`IslandOptions::seabed_depth_distance_ratio` times the same horizontal graph
+distance from land used by the sea mask. The default is `0.1`: an additional
+10 m of depth at 100 m from land. Set it to zero to disable. Land vertices are
+unchanged; maps with no land keep their finite existing bed. LODs and terrain
+queries are built from the deepened surface. Unity exposes this as **Seabed Depth
+Distance Ratio** under generation settings; regenerate to apply. Snapshot caches
+include the ratio and are invalidated for this generation change.
+
 Initial loose soil is controlled by `IslandOptions::initial_soil_depth_metres`
 (or CLI `--initial-soil-depth-metres`). It defaults to zero and must be finite and
 non-negative. A positive value makes the top N metres of land loose soil before

@@ -52,6 +52,10 @@ namespace Motu.Settings
         [Range(0.1f, 4f)]
         [SerializeField] private float coastalSlopeMultiplier = 1f;
 
+        [Tooltip("Final extra seabed drop as a fraction of distance from land. 0.1 adds 10 metres of depth at 100 metres offshore; zero disables it. Applied after erosion and river carving. Regenerate to apply.")]
+        [Range(0f, 1f)]
+        [SerializeField] private float seabedDepthDistanceRatio = 0.1f;
+
         [Tooltip("Spatial frequency of the broad noise shared by the original height field and hardness. Higher values can split the land into smaller island groups. Regenerate to apply.")]
         [Range(0.1f, 32f)]
         [SerializeField] private float continentalNoiseFrequency = 2.2f;
@@ -128,6 +132,13 @@ namespace Motu.Settings
             get => Mathf.Clamp(continentalNoiseFrequency, 0.1f, 128f);
             set => continentalNoiseFrequency = Mathf.Clamp(value, 0.1f, 128f);
         }
+        public float SeabedDepthDistanceRatio
+        {
+            get => SanitizeSeabedRatio(seabedDepthDistanceRatio);
+            set => seabedDepthDistanceRatio = SanitizeSeabedRatio(value);
+        }
+        private static float SanitizeSeabedRatio(float value) =>
+            float.IsNaN(value) || float.IsInfinity(value) ? 0.1f : Mathf.Clamp01(value);
         public float ContinentalNoiseStrength
         {
             get => Mathf.Clamp(continentalNoiseStrength, 0f, 4f);
@@ -180,6 +191,7 @@ namespace Motu.Settings
                 waterRatio = WaterRatio,
                 slopeMultiplier = InlandSlopeMultiplier,
                 coastalSlopeMultiplier = CoastalSlopeMultiplier,
+                seabedDepthDistanceRatio = SeabedDepthDistanceRatio,
                 continentalNoiseFrequency = ContinentalNoiseFrequency,
                 detailNoiseFrequency = DetailNoiseFrequency,
                 initialSoilDepthMetres = InitialSoilDepthMetres,

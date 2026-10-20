@@ -12,7 +12,7 @@ namespace Motu.Gameplay
     {
         [Tooltip("Optional. When empty, finds the active world ocean at runtime.")]
         [SerializeField] private OceanSurfaceController ocean;
-        [Header("Water sampling and simple probe flotation")]
+        [Header("Water sampling and draft")]
         [Tooltip("Water sampling positions in body-local space. With a hull profile these measure waves; without one they also act as buoyancy springs.")]
         [SerializeField] private Vector3[] probes =
         {
@@ -20,7 +20,7 @@ namespace Motu.Gameplay
             new Vector3(-0.8f, -0.5f, 0f), new Vector3(0.8f, -0.5f, 0f),
             new Vector3(-0.8f, -0.5f, 1.6f), new Vector3(0.8f, -0.5f, 1.6f),
         };
-        [Tooltip("Probe spring rest depth; with a hull profile, only the GPU sample travel tolerance uses this value.")]
+        [Tooltip("Without a hull profile: probe spring rest depth. With Hull Draft Loading attached: desired upright draft in world metres, measured up from the hull's lowest point; changing this adjusts loading mass. Otherwise hull flotation is determined by Rigidbody mass and this value only sets sampling tolerance.")]
         [Min(0.01f)] [SerializeField] private float draft = 0.5f;
         [Tooltip("Total lift when fully submerged, as a multiple of the body's weight. Must exceed one to float.")]
         [Min(1.01f)] [SerializeField] private float maximumLift = 2f;
@@ -40,6 +40,8 @@ namespace Motu.Gameplay
         [Min(0f)] [SerializeField] private float hullPressureDrag = .08f;
         [Tooltip("Cross-flow pressure coefficient for sideways motion through the submerged sides and vertical motion through the waterplane.")]
         [Min(0f)] [SerializeField] private float lateralDrag = 1.1f;
+        [Tooltip("Effective hull/keel lift slope per radian. Forward water flow increases lateral resistance at submerged depths, damping roll and leeway. Empirical: tune to the hull; zero disables the forward-speed contribution.")]
+        [Min(0f)] [SerializeField] private float keelLiftSlope = 2f;
         [Tooltip("Empirical wave-making resistance at Froude number 0.4, referenced to the submerged cross section. Requires hull-specific calibration.")]
         [Min(0f)] [SerializeField] private float waveResistance = .04f;
         [Tooltip("Water current in world metres per second, pointing towards its destination.")]
@@ -144,13 +146,17 @@ namespace Motu.Gameplay
             if (hullGeometry != null) ApplyHullForces(gravity);
         }
 
-        // Waves are sampled by the existing GPU probes. Interpolate their heights along the hull;
-        // the section polygon is then clipped against that water plane, including heel and pitch.
+        // Fit a local water plane to the existing probes. Keeping its cross-beam
+        // slope lets asymmetric immersion excite roll, including when stopped.
         public bool TryWaterHeight(Vector3 position, out float height, out float confidence)
+            => TryWaterPlane(position, out height, out _, out confidence);
+
+        internal bool TryWaterPlane(Vector3 position, out float height, out Vector3 normal, out float confidence)
         {
             height = confidence = 0f;
+            normal = Vector3.up;
             if (waterSamples == null || probes == null) return false;
-            float totalWeight = 0f, validWeight = 0f;
+            double totalWeight = 0, validWeight = 0, meanX = 0, meanZ = 0, meanHeight = 0;
             for (int i = 0; i < probes.Length; i++)
             {
                 Vector3 delta = PhysicsProbePosition(probes[i]) - position;
@@ -158,12 +164,39 @@ namespace Motu.Gameplay
                 float weight = 1f / Mathf.Max(delta.sqrMagnitude, 1f);
                 totalWeight += weight;
                 float valid = weight * waterSamples[i].Confidence;
-                height += valid * waterSamples[i].Height;
+                meanX += valid * delta.x;
+                meanZ += valid * delta.z;
+                meanHeight += valid * waterSamples[i].Height;
                 validWeight += valid;
             }
             if (validWeight <= .00001f) return false;
-            height /= validWeight;
-            confidence = validWeight / totalWeight;
+            meanX /= validWeight; meanZ /= validWeight; meanHeight /= validWeight;
+            double xx = 0, xz = 0, zz = 0, xh = 0, zh = 0;
+            for (int i = 0; i < probes.Length; i++)
+            {
+                Vector3 delta = PhysicsProbePosition(probes[i]) - position;
+                delta.y = 0f;
+                double weight = waterSamples[i].Confidence / Mathf.Max(delta.sqrMagnitude, 1f);
+                double x = delta.x - meanX, z = delta.z - meanZ;
+                double h = waterSamples[i].Height - meanHeight;
+                xx += weight * x * x; xz += weight * x * z; zz += weight * z * z;
+                xh += weight * x * h; zh += weight * z * h;
+            }
+            double determinant = xx * zz - xz * xz;
+            double slopeX = 0, slopeZ = 0;
+            if (determinant > 1e-6 * xx * zz && determinant > 1e-12)
+            {
+                slopeX = (xh * zz - zh * xz) / determinant;
+                slopeZ = (zh * xx - xh * xz) / determinant;
+            }
+            else if (xx + zz > 1e-12)
+            {
+                // Collinear surviving probes constrain only one slope direction.
+                slopeX = xh / (xx + zz); slopeZ = zh / (xx + zz);
+            }
+            height = (float)(meanHeight - slopeX * meanX - slopeZ * meanZ);
+            normal = new Vector3(-(float)slopeX, 1f, -(float)slopeZ).normalized;
+            confidence = (float)(validWeight / totalWeight);
             return true;
         }
 
@@ -195,7 +228,7 @@ namespace Motu.Gameplay
                 clippedHull = new Vector2[largest + 2];
             }
             Vector3 scale = transform.lossyScale;
-            Vector3 normal = Quaternion.Inverse(body.rotation) * Vector3.up;
+            Quaternion worldToBody = Quaternion.Inverse(body.rotation);
             DisplacedVolume = WettedSurfaceArea = SubmergedCrossSection = WaterlineLength = 0f;
             Vector3 weightedCentre = Vector3.zero;
             float firstStation = float.MaxValue, lastStation = float.MinValue;
@@ -203,9 +236,11 @@ namespace Motu.Gameplay
             {
                 var section = sections[i];
                 Vector3 station = body.position + body.rotation * Vector3.Scale(new Vector3(0, 0, section.station), scale);
-                if (!TryWaterHeight(station, out float height, out float confidence))
+                if (!TryWaterPlane(station, out float height, out var waterNormal, out float confidence))
                 { immersedSections[i] = default; sectionConfidence[i] = 0f; continue; }
-                var wet = ShipHullGeometry.Immerse(section, scale, normal, height - body.position.y, clippedHull);
+                Vector3 waterPoint = new Vector3(station.x, height, station.z);
+                var wet = ShipHullGeometry.Immerse(section, scale, worldToBody * waterNormal,
+                    Vector3.Dot(waterNormal, waterPoint - body.position), clippedHull);
                 immersedSections[i] = wet;
                 sectionConfidence[i] = confidence;
                 if (wet.area <= .00001f) continue;
@@ -245,9 +280,24 @@ namespace Motu.Gameplay
                 dampingForce = Mathf.Clamp(dampingForce, -Mathf.Abs(velocity.y) * sectionMass / Time.fixedDeltaTime,
                     Mathf.Abs(velocity.y) * sectionMass / Time.fixedDeltaTime);
                 body.AddForceAtPosition(Vector3.up * (waterDensity * gravity * volume + dampingForce), centre, ForceMode.Force);
-                float sideSpeed = Vector3.Dot(velocity, right);
-                float sideForce = -.5f * waterDensity * lateralDrag * wet.depth * length * sideSpeed * Mathf.Abs(sideSpeed) * confidence;
-                body.AddForceAtPosition(right * sideForce, centre, ForceMode.Force);
+                // Two Gauss points integrate the depth-squared roll lever instead
+                // of collapsing side pressure to one point near the roll axis.
+                float halfDepth = wet.depth * .5f;
+                float middle = (wet.minimumY + wet.maximumY) * .5f;
+                for (int strip = -1; strip <= 1; strip += 2)
+                {
+                    var local = wet.centre;
+                    local.y = middle + strip * halfDepth * .577350269f;
+                    Vector3 point = body.position + body.rotation * local;
+                    Vector3 flow = body.GetPointVelocity(point) - WaterVelocityAt(point);
+                    float sideSpeed = Vector3.Dot(flow, right);
+                    float forwardSpeed = Mathf.Abs(Vector3.Dot(flow, forward));
+                    float area = halfDepth * length * confidence;
+                    float sideForce = -.5f * waterDensity * area * sideSpeed
+                        * (lateralDrag * Mathf.Abs(sideSpeed) + keelLiftSlope * forwardSpeed);
+                    float maximumForce = .5f * sectionMass * Mathf.Abs(sideSpeed) / Time.fixedDeltaTime;
+                    body.AddForceAtPosition(right * Mathf.Clamp(sideForce, -maximumForce, maximumForce), point, ForceMode.Force);
+                }
             }
             // Evaluate resistance at the unboosted sailing speed, keeping the hull's
             // nonlinear friction and wave-drag curve intact for an artificial speed boost.

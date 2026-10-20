@@ -6,7 +6,7 @@ namespace Motu.Interop
     /// <summary>Checks scalar ABI metadata before passing any managed records to Rust.</summary>
     internal static class NativeAbi
     {
-        internal const uint Version = 1;
+        internal const uint Version = 2;
         private static readonly Lazy<bool> compatible = new Lazy<bool>(() => { Validate(); return true; });
         internal static void EnsureCompatible() => _ = compatible.Value;
         [DllImport("motu", CallingConvention = CallingConvention.Cdecl)]
@@ -26,7 +26,8 @@ namespace Motu.Interop
                 Type[] types = { typeof(MotuNative.Options), typeof(MotuNative.ForestOptions),
                     typeof(MotuNative.ReedOptions), typeof(MotuNative.FernOptions),
                     typeof(MotuNative.Vector3Array), typeof(MotuNative.TriangleArray),
-                    typeof(MotuNative.ExportMesh), typeof(MotuNative.ExportMeshGrid) };
+                    typeof(MotuNative.ExportMesh), typeof(MotuNative.ExportMeshGrid),
+                    typeof(MotuNative.LandBirdPerchExport), typeof(MotuNative.ExportLandBirdPerches) };
                 for (uint i = 0; i < types.Length; i++)
                     if (GetMotuAbiTypeSize(i) != Marshal.SizeOf(types[i]))
                         throw new InvalidOperationException($"Motu native layout mismatch for {types[i].Name}. Install matching native and managed packages.");

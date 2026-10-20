@@ -102,6 +102,7 @@ namespace Motu.Islands
                 generator.islandRuntime.InstallLod3(prepared.lod3, generator.Generation.MaximumHeightMetres);
                 if (generator.Navigation.Enabled)
                     IslandNavigationIntegration.Install?.Invoke(generator.islandRuntime, prepared, generator.Navigation);
+                generator.islandRuntime.InstallBirdPerches(prepared.landBirdPerches, generator.Forest.ShowForests, prepared.colliderHeightMap.maximumHeight);
                 generator.islandRuntime.Activate();
                 var viewer = generator.Streaming.Target;
                 if (viewer != null) generator.islandRuntime.SetViewPosition(viewer.position);

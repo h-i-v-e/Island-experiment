@@ -1,0 +1,43 @@
+--- a/Assets/Scripts/PlayerController.cs
++++ b/Assets/Scripts/PlayerController.cs
+@@ -12,6 +12,7 @@
+     private int consumedUseFrame = -1;
+     private Animator animator;
+     private BoatBoarding boarding;
++    private BoatPushing pushing;
+     private CharacterController characterController;
+     private InputActionMap playerActions;
+     private InputAction move;
+@@ -118,7 +119,7 @@
+ 
+     // Include transition destinations so the walking overlay is removed before
+     // the first boarding pose, and retained until an exit blend has finished.
+-    private bool IsBoatAnimation => boarding != null && boarding.ControlsRootMotion
++    private bool IsBoatAnimation => pushing != null && pushing.IsAnimating || boarding != null && boarding.ControlsRootMotion
+         || animator.GetCurrentAnimatorStateInfo(0).IsTag("Boat")
+         || animator.IsInTransition(0) && animator.GetNextAnimatorStateInfo(0).IsTag("Boat");
+ 
+@@ -154,6 +155,7 @@
+     {
+         animator = GetComponent<Animator>();
+         boarding = GetComponent<BoatBoarding>();
++        pushing = GetComponent<BoatPushing>();
+         animator.applyRootMotion = true;
+         animator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
+         characterController = GetComponent<CharacterController>();
+@@ -212,6 +214,7 @@
+     private void OnDisable()
+     {
+         if (boarding != null) boarding.CancelBoarding();
++        if (pushing != null) pushing.CancelPush();
+         externalMovement = Vector2.zero;
+         externalSprint = false;
+         if (!UsesPlayerInput) return;
+@@ -235,6 +238,7 @@
+ 
+     private void Jump(InputAction.CallbackContext context)
+     {
++        if (pushing != null) pushing.CancelPush();
+         if (boarding != null && boarding.State == BoatBoarding.BoardingState.Approaching) boarding.CancelBoarding();
+         if (constraint != null || IsBoatAnimation || boarding != null && boarding.ControlsRootMotion || airborne || !characterController.isGrounded)
+             return;

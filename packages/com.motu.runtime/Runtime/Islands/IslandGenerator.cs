@@ -398,6 +398,12 @@ namespace Motu.Islands
             return surfaceHeight;
         }
 
+        public bool TryGetTerrainSurface(Vector3 worldPosition, out TerrainSurfaceSample sample)
+        {
+            sample = default;
+            return terrainStreamer != null && terrainStreamer.TryGetTerrainSurface(worldPosition, out sample);
+        }
+
         public void ConfigureSceneReferences(
             Transform streamingTarget,
             Material terrainTemplate,

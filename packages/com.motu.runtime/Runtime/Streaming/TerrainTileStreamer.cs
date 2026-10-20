@@ -177,6 +177,7 @@ namespace Motu.Streaming
         private GameObject riverRockRoot;
         internal GameObject colliderRoot;
         private WaterfallMistPool waterfallMistPool;
+        private TerrainSurfaceMap footstepSurfaceMap;
         private ForestTileStreamer forestStreamer;
         private ReedTileStreamer reedStreamer;
         private FernTileStreamer fernStreamer;
@@ -198,6 +199,13 @@ namespace Motu.Streaming
         internal int ForestLod0GroupCount => forestStreamer?.Lod0GroupCount ?? 0;
         internal byte Lod1ClampSidesAt(Vector2Int key) => lod1Groups[key].clampSides;
         internal byte Lod0ClampSidesAt(Vector2Int key) => lod0Groups[key].clampSides;
+
+        /// <summary>Read the baked terrain coverage after its asynchronous readback completes.</summary>
+        public bool TryGetTerrainSurface(Vector3 worldPosition, out TerrainSurfaceSample sample)
+        {
+            sample = default;
+            return footstepSurfaceMap != null && footstepSurfaceMap.TryGetSample(worldPosition, out sample);
+        }
 
         internal async Task InitializeAsync(
             NativeIslandHandle handle,
@@ -361,6 +369,12 @@ namespace Motu.Streaming
                 BaseVertexCount += tile.mesh.vertexCount;
                 BaseTriangleCount += (int)tile.mesh.GetIndexCount(0) / 3;
             }
+            footstepSurfaceMap = new TerrainSurfaceMap(transform, worldSize, terrainMaterial);
+            footstepSurfaceMap.Bake(() =>
+            {
+                foreach (var tile in lod2Group.tiles)
+                    if (tile != null) Graphics.DrawMeshNow(tile.mesh, Matrix4x4.identity);
+            });
         }
 
         internal static IslandPreparedMesh[] PrepareOverviewTiles(
@@ -659,6 +673,7 @@ namespace Motu.Streaming
         {
             if (disposed) return;
             disposed = true;
+            footstepSurfaceMap?.Dispose(); footstepSurfaceMap = null;
             ClearPlayerFocus();
             foreach (var group in riverGroups.Values)
             {

@@ -6,10 +6,8 @@ namespace Motu.Rendering
     {
         private const int MaximumHulls = 4;
         [Header("Convex hull exclusion")]
-        [Tooltip("Baked in this Transform's local space. Replaces footprint suppression; bow waves and wake are retained. Clear to restore the footprint.")]
+        [Tooltip("Baked in this Transform's local space. Excludes interior water fragments and clamps only crests above the mean sea plane; replaces footprint suppression; bow waves and wake are retained. Clear to restore the footprint.")]
         [SerializeField] private OceanHullVolume convexHull;
-        [Tooltip("Inset from the underside in world metres, hiding the displaced water inside the hull skin.")]
-        [Range(.005f, .2f), SerializeField] private float hullSurfaceInset = .03f;
         public OceanHullVolume ConvexHull => convexHull;
         internal bool HasConvexHull => convexHull != null && convexHull.IsValid;
 
@@ -53,7 +51,7 @@ namespace Motu.Rendering
                 var minimum = centre - extent;
                 var maximum = centre + extent;
                 HullMinimum[count] = new Vector4(minimum.x, minimum.y, minimum.z, source.Length);
-                HullMaximum[count] = new Vector4(maximum.x, maximum.y, maximum.z, ship.hullSurfaceInset);
+                HullMaximum[count] = new Vector4(maximum.x, maximum.y, maximum.z, 0);
                 count++;
             }
             Shader.SetGlobalVectorArray(HullPlanesId, HullPlanes);

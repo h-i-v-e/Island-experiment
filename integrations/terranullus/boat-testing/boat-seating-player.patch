@@ -1,0 +1,90 @@
+--- a/Assets/Scripts/PlayerController.cs
++++ b/Assets/Scripts/PlayerController.cs
+@@ -5,6 +5,7 @@
+ class PlayerController: MonoBehaviour
+ {
+     private Animator animator;
++    private BoatBoarding boarding;
+     private CharacterController characterController;
+     private InputActionMap playerActions;
+     private InputAction move;
+@@ -93,16 +94,32 @@
+ 
+     // Include transition destinations so the walking overlay is removed before
+     // the first boarding pose, and retained until an exit blend has finished.
+-    private bool IsBoatAnimation => animator.GetCurrentAnimatorStateInfo(0).IsTag("Boat")
++    private bool IsBoatAnimation => boarding != null && boarding.ControlsRootMotion
++        || animator.GetCurrentAnimatorStateInfo(0).IsTag("Boat")
+         || animator.IsInTransition(0) && animator.GetNextAnimatorStateInfo(0).IsTag("Boat");
+ 
+     public bool IsSupportedBy(Transform surface) => surface != null
+         && (ground != null && ground.IsChildOf(surface)
+-            || constraint is Component component && component.transform.IsChildOf(surface));
++            || constraint is Component component && component.transform.IsChildOf(surface)
++            || boarding != null && boarding.ControlsRootMotion && boarding.CurrentSeat != null
++                && boarding.CurrentSeat.transform.IsChildOf(surface));
++
++    public void CarryBoatFacing(float degrees) => lookYaw += degrees;
++
++    public void ResetBoatSupport()
++    {
++        ground = null;
++        groundVelocity = Vector3.zero;
++        verticalSpeed = 0f;
++        airborne = false;
++        sideLayerWeight = sideLayerWeightVelocity = 0f;
++        leftFootWeight = rightFootWeight = pelvisOffset = 0f;
++    }
+ 
+     private void Awake()
+     {
+         animator = GetComponent<Animator>();
++        boarding = GetComponent<BoatBoarding>();
+         animator.applyRootMotion = true;
+         animator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
+         characterController = GetComponent<CharacterController>();
+@@ -148,6 +165,7 @@
+ 
+     private void OnDisable()
+     {
++        if (boarding != null) boarding.CancelBoarding();
+         look.performed -= UpdateLook;
+         jumpAction.performed -= Jump;
+         playerActions.Disable();
+@@ -168,7 +186,8 @@
+ 
+     private void Jump(InputAction.CallbackContext context)
+     {
+-        if (constraint != null || IsBoatAnimation || airborne || !characterController.isGrounded)
++        if (boarding != null && boarding.State == BoatBoarding.BoardingState.Approaching) boarding.CancelBoarding();
++        if (constraint != null || IsBoatAnimation || boarding != null && boarding.ControlsRootMotion || airborne || !characterController.isGrounded)
+             return;
+ 
+         verticalSpeed = jumpSpeed;
+@@ -186,10 +205,14 @@
+         lookDelta = Vector2.zero;
+         Vector2 moveInput = constraint == null ? Vector2.ClampMagnitude(MovementInput, 1f) : Vector2.zero;
+ 
+-        if (IsBoatAnimation)
+-        {
+-            animator.SetFloat(xAxis, moveInput.x, Mathf.Max(0f, blendDamp), Time.deltaTime);
+-            animator.SetFloat(yAxis, Mathf.Max(0f, moveInput.y), Mathf.Max(0f, blendDamp), Time.deltaTime);
++        if (boarding != null && boarding.TryGetApproachInput(out var assistedMovement, out float assistedHeading))
++        { moveInput = assistedMovement; lookYaw = assistedHeading; }
++
++        if (IsBoatAnimation || boarding != null && boarding.ControlsRootMotion)
++        {
++            bool canRow = boarding == null || !boarding.ControlsRootMotion || boarding.CanRow;
++            animator.SetFloat(xAxis, canRow ? moveInput.x : 0f, Mathf.Max(0f, blendDamp), Time.deltaTime);
++            animator.SetFloat(yAxis, canRow ? Mathf.Max(0f, moveInput.y) : 0f, Mathf.Max(0f, blendDamp), Time.deltaTime);
+             animator.SetFloat(sideAxis, 0f);
+             sideLayerWeight = sideLayerWeightVelocity = 0f;
+             if (sideStepLayer >= 0) animator.SetLayerWeight(sideStepLayer, 0f);
+@@ -219,6 +242,7 @@
+ 
+     private void OnAnimatorMove()
+     {
++        if (boarding != null && boarding.ApplyAnimatorMotion()) return;
+         // Carry the point beneath the player with any moving or rotating ground.
+         if (constraint == null && ground != null)
+         {

@@ -99,6 +99,8 @@ namespace Motu.Islands
                 var waterfallFeet = PrepareWaterfallFeet(handle, worldSize);
                 cancellationToken.ThrowIfCancellationRequested();
                 var cavesPrepared = CavePreparation.Prepare(handle, worldSize, cancellationToken);
+                var landBirdPerches = PrepareLandBirdPerches(handle, worldSize);
+                cancellationToken.ThrowIfCancellationRequested();
                 var result = new IslandPreparedData(
                     handle,
                     !generated,
@@ -115,7 +117,7 @@ namespace Motu.Islands
                     colliderHeightMap,
                     materialTextures,
                     cavesPrepared,
-                    boulderColliders, navigationMesh);
+                    boulderColliders, navigationMesh, landBirdPerches);
                 handle = IntPtr.Zero;
                 return result;
             }

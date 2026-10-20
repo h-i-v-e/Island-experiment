@@ -52,7 +52,8 @@ pub use rivers::{River, RiverNode};
 pub use sea_mask::SeaMask;
 pub use sky::{SKY_DOME_RADIUS, generate_sky_dome};
 pub use terrain::{
-    Decoration, Decorations, GenerationMethod, Island, IslandOptions, SurfaceMaps, Terrain,
+    Decoration, Decorations, GenerationMethod, Island, IslandOptions, LandBirdPerch, SurfaceMaps,
+    Terrain,
 };
 pub use trees::{TreeMeshes, generate_tree};
 

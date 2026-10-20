@@ -8,10 +8,10 @@ use std::mem::{offset_of, size_of};
 /// Increment when field meanings, layouts, or ownership contracts change incompatibly.
 #[unsafe(no_mangle)]
 pub extern "C" fn GetMotuAbiVersion() -> u32 {
-    1
+    2
 }
 
-/// Zero means unknown type. IDs are part of ABI version 1.
+/// Zero means unknown type. IDs are stable across ABI versions.
 #[unsafe(no_mangle)]
 pub extern "C" fn GetMotuAbiTypeSize(type_id: u32) -> u32 {
     let bytes = match type_id {
@@ -23,6 +23,8 @@ pub extern "C" fn GetMotuAbiTypeSize(type_id: u32) -> u32 {
         5 => size_of::<TriangleExportArray>(),
         6 => size_of::<ExportMesh>(),
         7 => size_of::<ExportMeshGrid>(),
+        8 => size_of::<crate::terrain::LandBirdPerch>(),
+        9 => size_of::<super::ExportLandBirdPerches>(),
         _ => return 0,
     };
     u32::try_from(bytes).expect("ABI records fit in u32")
@@ -46,9 +48,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn version_one_preserves_generation_and_forest_layout() {
-        assert_eq!(GetMotuAbiVersion(), 1);
-        assert_eq!(GetMotuAbiTypeSize(0), 80);
+    fn version_two_extends_generation_and_preserves_forest_layout() {
+        assert_eq!(GetMotuAbiVersion(), 2);
+        assert_eq!(GetMotuAbiTypeSize(0), 84);
         assert_eq!(GetMotuAbiTypeSize(1), 32);
         assert_eq!(GetMotuAbiTypeSize(99), 0);
         assert_eq!(

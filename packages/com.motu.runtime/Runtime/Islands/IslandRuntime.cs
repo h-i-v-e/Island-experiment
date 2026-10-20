@@ -42,6 +42,15 @@ namespace Motu.Islands
         internal IslandDescriptor Descriptor { get; private set; }
         internal IslandRuntimeState State { get; private set; }
         internal TerrainTileStreamer TerrainStreamer { get; private set; }
+        public IslandBirdPerches BirdPerches { get; private set; }
+        internal void InstallBirdPerches(LandBirdPerch[] anchors, bool treesVisible, float terrainMaximumHeight)
+        {
+            RequireInstalling();
+            var root = new GameObject("Land bird perches");
+            root.transform.SetParent(transform, false);
+            BirdPerches = root.AddComponent<IslandBirdPerches>();
+            BirdPerches.Initialize(anchors, treesVisible, terrainMaximumHeight);
+        }
         public CaveStreamer Caves { get; private set; }
         internal void SetCaveStreamer(CaveStreamer caves)
         {
@@ -181,6 +190,7 @@ namespace Motu.Islands
             }
             State = dormant ? IslandRuntimeState.Dormant : IslandRuntimeState.Active;
             Navigation?.SetRegistered(!dormant);
+            if (BirdPerches != null) BirdPerches.gameObject.SetActive(!dormant);
             // A dormant resident island keeps its inexpensive horizon silhouette.
             ApplyLodVisibility();
             if (!dormant)
@@ -221,6 +231,7 @@ namespace Motu.Islands
                 gameObject.SetActive(false);
             }
 
+            if (BirdPerches != null) BirdPerches.gameObject.SetActive(false);
             Navigation?.Dispose();
             Navigation = null;
             ReleaseLod3();

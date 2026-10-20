@@ -1,0 +1,1150 @@
+--- a/Assets/TheOne.controller
++++ b/Assets/TheOne.controller
+@@ -22,7 +22,7 @@
+   m_ExitPosition: {x: 800, y: 120, z: 0}
+   m_ParentStateMachinePosition: {x: 800, y: 20, z: 0}
+   m_DefaultState: {fileID: -1423371939952679029}
+---- !u!1101 &-7876291921351181804
++--- !u!1101 &-7679759967557689858
+ AnimatorStateTransition:
+   m_ObjectHideFlags: 1
+   m_CorrespondingSourceObject: {fileID: 0}
+@@ -33,20 +33,81 @@
+   - m_ConditionMode: 6
+     m_ConditionEvent: Locamotion
+     m_EventTreshold: 0
+-  m_DstStateMachine: {fileID: 0}
+-  m_DstState: {fileID: 0}
+-  m_Solo: 0
+-  m_Mute: 0
+-  m_IsExit: 1
+-  serializedVersion: 3
+-  m_TransitionDuration: 0.25
+-  m_TransitionOffset: 0
+-  m_ExitTime: 0.8909091
+-  m_HasExitTime: 1
+-  m_HasFixedDuration: 1
+-  m_InterruptionSource: 0
+-  m_OrderedInterruption: 1
+-  m_CanTransitionToSelf: 1
++  - m_ConditionMode: 2
++    m_ConditionEvent: PortSide
++    m_EventTreshold: 0
++  m_DstStateMachine: {fileID: 0}
++  m_DstState: {fileID: 8746021181605892984}
++  m_Solo: 0
++  m_Mute: 0
++  m_IsExit: 0
++  serializedVersion: 3
++  m_TransitionDuration: 0.16
++  m_TransitionOffset: 0
++  m_ExitTime: 1
++  m_HasExitTime: 0
++  m_HasFixedDuration: 1
++  m_InterruptionSource: 0
++  m_OrderedInterruption: 1
++  m_CanTransitionToSelf: 0
++--- !u!1101 &-7054449256657196214
++AnimatorStateTransition:
++  m_ObjectHideFlags: 1
++  m_CorrespondingSourceObject: {fileID: 0}
++  m_PrefabInstance: {fileID: 0}
++  m_PrefabAsset: {fileID: 0}
++  m_Name: 
++  m_Conditions:
++  - m_ConditionMode: 6
++    m_ConditionEvent: Locamotion
++    m_EventTreshold: 1
++  - m_ConditionMode: 1
++    m_ConditionEvent: PortSide
++    m_EventTreshold: 0
++  - m_ConditionMode: 1
++    m_ConditionEvent: ClimbFromWater
++    m_EventTreshold: 0
++  m_DstStateMachine: {fileID: 0}
++  m_DstState: {fileID: -6886428535668959026}
++  m_Solo: 0
++  m_Mute: 0
++  m_IsExit: 0
++  serializedVersion: 3
++  m_TransitionDuration: 0.12
++  m_TransitionOffset: 0
++  m_ExitTime: 1
++  m_HasExitTime: 0
++  m_HasFixedDuration: 1
++  m_InterruptionSource: 0
++  m_OrderedInterruption: 1
++  m_CanTransitionToSelf: 0
++--- !u!1102 &-6886428535668959026
++AnimatorState:
++  serializedVersion: 6
++  m_ObjectHideFlags: 1
++  m_CorrespondingSourceObject: {fileID: 0}
++  m_PrefabInstance: {fileID: 0}
++  m_PrefabAsset: {fileID: 0}
++  m_Name: ClimbToBoatLeft
++  m_Speed: 1
++  m_CycleOffset: 0
++  m_Transitions:
++  - {fileID: 2717638847200901646}
++  m_StateMachineBehaviours: []
++  m_Position: {x: 50, y: 50, z: 0}
++  m_IKOnFeet: 0
++  m_WriteDefaultValues: 1
++  m_Mirror: 0
++  m_SpeedParameterActive: 0
++  m_MirrorParameterActive: 0
++  m_CycleOffsetParameterActive: 0
++  m_TimeParameterActive: 0
++  m_Motion: {fileID: 1827226128182048838, guid: 8a467c32bbeb0b14eb02856858cab36d, type: 3}
++  m_Tag: Boat
++  m_SpeedParameter: 
++  m_MirrorParameter: 
++  m_CycleOffsetParameter: 
++  m_TimeParameter: 
+ --- !u!1102 &-5860851891743902923
+ AnimatorState:
+   serializedVersion: 6
+@@ -58,7 +119,7 @@
+   m_Speed: 1
+   m_CycleOffset: 0
+   m_Transitions:
+-  - {fileID: -2992197444060679483}
++  - {fileID: -4032405125460155699}
+   m_StateMachineBehaviours: []
+   m_Position: {x: 50, y: 50, z: 0}
+   m_IKOnFeet: 0
+@@ -69,7 +130,7 @@
+   m_CycleOffsetParameterActive: 0
+   m_TimeParameterActive: 0
+   m_Motion: {fileID: 1827226128182048838, guid: 79e3da8162e7fc24880393ecf38e0760, type: 3}
+-  m_Tag: 
++  m_Tag: Boat
+   m_SpeedParameter: 
+   m_MirrorParameter: 
+   m_CycleOffsetParameter: 
+@@ -85,8 +146,10 @@
+   m_Speed: 1
+   m_CycleOffset: 0
+   m_Transitions:
+-  - {fileID: 5287720155232607683}
+-  - {fileID: -4057226388014115887}
++  - {fileID: 6183105032897657627}
++  - {fileID: -7054449256657196214}
++  - {fileID: -1800622821382280725}
++  - {fileID: 2738431210999632925}
+   m_StateMachineBehaviours: []
+   m_Position: {x: 50, y: 50, z: 0}
+   m_IKOnFeet: 0
+@@ -124,34 +187,6 @@
+   m_ExitPosition: {x: 800, y: 120, z: 0}
+   m_ParentStateMachinePosition: {x: 800, y: 20, z: 0}
+   m_DefaultState: {fileID: 3797929139453588664}
+---- !u!1101 &-4057226388014115887
+-AnimatorStateTransition:
+-  m_ObjectHideFlags: 1
+-  m_CorrespondingSourceObject: {fileID: 0}
+-  m_PrefabInstance: {fileID: 0}
+-  m_PrefabAsset: {fileID: 0}
+-  m_Name: 
+-  m_Conditions:
+-  - m_ConditionMode: 6
+-    m_ConditionEvent: Locamotion
+-    m_EventTreshold: 1
+-  - m_ConditionMode: 2
+-    m_ConditionEvent: PortSide
+-    m_EventTreshold: 0
+-  m_DstStateMachine: {fileID: 0}
+-  m_DstState: {fileID: -3885128497118551976}
+-  m_Solo: 0
+-  m_Mute: 0
+-  m_IsExit: 0
+-  serializedVersion: 3
+-  m_TransitionDuration: 0.25
+-  m_TransitionOffset: 0
+-  m_ExitTime: 0.74537283
+-  m_HasExitTime: 1
+-  m_HasFixedDuration: 1
+-  m_InterruptionSource: 0
+-  m_OrderedInterruption: 1
+-  m_CanTransitionToSelf: 1
+ --- !u!206 &-4049538642870157945
+ BlendTree:
+   m_ObjectHideFlags: 1
+@@ -303,6 +338,28 @@
+   m_UseAutomaticThresholds: 0
+   m_NormalizedBlendValues: 0
+   m_BlendType: 2
++--- !u!1101 &-4032405125460155699
++AnimatorStateTransition:
++  m_ObjectHideFlags: 1
++  m_CorrespondingSourceObject: {fileID: 0}
++  m_PrefabInstance: {fileID: 0}
++  m_PrefabAsset: {fileID: 0}
++  m_Name: 
++  m_Conditions: []
++  m_DstStateMachine: {fileID: 0}
++  m_DstState: {fileID: -5829103746102847194}
++  m_Solo: 0
++  m_Mute: 0
++  m_IsExit: 0
++  serializedVersion: 3
++  m_TransitionDuration: 0.18
++  m_TransitionOffset: 0
++  m_ExitTime: 1
++  m_HasExitTime: 1
++  m_HasFixedDuration: 1
++  m_InterruptionSource: 0
++  m_OrderedInterruption: 1
++  m_CanTransitionToSelf: 0
+ --- !u!1102 &-3885128497118551976
+ AnimatorState:
+   serializedVersion: 6
+@@ -314,7 +371,7 @@
+   m_Speed: 1
+   m_CycleOffset: 0
+   m_Transitions:
+-  - {fileID: 3795884451199249590}
++  - {fileID: 6586400310624453777}
+   m_StateMachineBehaviours: []
+   m_Position: {x: 50, y: 50, z: 0}
+   m_IKOnFeet: 0
+@@ -325,31 +382,11 @@
+   m_CycleOffsetParameterActive: 0
+   m_TimeParameterActive: 0
+   m_Motion: {fileID: 1827226128182048838, guid: 3599cf206297a4741992bd4814bf4c4c, type: 3}
+-  m_Tag: 
++  m_Tag: Boat
+   m_SpeedParameter: 
+   m_MirrorParameter: 
+   m_CycleOffsetParameter: 
+   m_TimeParameter: 
+---- !u!1109 &-3224785043527440855
+-AnimatorTransition:
+-  m_ObjectHideFlags: 1
+-  m_CorrespondingSourceObject: {fileID: 0}
+-  m_PrefabInstance: {fileID: 0}
+-  m_PrefabAsset: {fileID: 0}
+-  m_Name: 
+-  m_Conditions:
+-  - m_ConditionMode: 2
+-    m_ConditionEvent: PortSide
+-    m_EventTreshold: 0
+-  - m_ConditionMode: 6
+-    m_ConditionEvent: Locamotion
+-    m_EventTreshold: 0
+-  m_DstStateMachine: {fileID: 0}
+-  m_DstState: {fileID: 8746021181605892984}
+-  m_Solo: 0
+-  m_Mute: 0
+-  m_IsExit: 0
+-  serializedVersion: 1
+ --- !u!1107 &-3121670918596224948
+ AnimatorStateMachine:
+   serializedVersion: 7
+@@ -383,6 +420,12 @@
+   - serializedVersion: 1
+     m_State: {fileID: 8746021181605892984}
+     m_Position: {x: 690, y: 290, z: 0}
++  - serializedVersion: 1
++    m_State: {fileID: -6886428535668959026}
++    m_Position: {x: 250, y: 550, z: 0}
++  - serializedVersion: 1
++    m_State: {fileID: 6808823550134030828}
++    m_Position: {x: 500, y: 550, z: 0}
+   m_ChildStateMachines:
+   - serializedVersion: 1
+     m_StateMachine: {fileID: -8917972266900048274}
+@@ -392,16 +435,14 @@
+   m_EntryTransitions: []
+   m_StateMachineTransitions:
+   - first: {fileID: -8917972266900048274}
+-    second:
+-    - {fileID: -527097042787693442}
+-    - {fileID: -3224785043527440855}
++    second: []
+   m_StateMachineBehaviours: []
+   m_AnyStatePosition: {x: 50, y: 20, z: 0}
+   m_EntryPosition: {x: 50, y: 120, z: 0}
+   m_ExitPosition: {x: 800, y: 120, z: 0}
+   m_ParentStateMachinePosition: {x: 800, y: 20, z: 0}
+   m_DefaultState: {fileID: -5829103746102847194}
+---- !u!1101 &-2992197444060679483
++--- !u!1101 &-2861937131638629779
+ AnimatorStateTransition:
+   m_ObjectHideFlags: 1
+   m_CorrespondingSourceObject: {fileID: 0}
+@@ -410,19 +451,19 @@
+   m_Name: 
+   m_Conditions: []
+   m_DstStateMachine: {fileID: 0}
+-  m_DstState: {fileID: -5829103746102847194}
+-  m_Solo: 0
+-  m_Mute: 0
+-  m_IsExit: 0
+-  serializedVersion: 3
+-  m_TransitionDuration: 0.25
+-  m_TransitionOffset: 0
+-  m_ExitTime: 0.95
++  m_DstState: {fileID: -1423371939952679029}
++  m_Solo: 0
++  m_Mute: 0
++  m_IsExit: 0
++  serializedVersion: 3
++  m_TransitionDuration: 0.16
++  m_TransitionOffset: 0
++  m_ExitTime: 1
+   m_HasExitTime: 1
+   m_HasFixedDuration: 1
+   m_InterruptionSource: 0
+   m_OrderedInterruption: 1
+-  m_CanTransitionToSelf: 1
++  m_CanTransitionToSelf: 0
+ --- !u!1102 &-2618362726882582742
+ AnimatorState:
+   serializedVersion: 6
+@@ -434,7 +475,7 @@
+   m_Speed: 1
+   m_CycleOffset: 0
+   m_Transitions:
+-  - {fileID: -282092482894890357}
++  - {fileID: 1663889581149371003}
+   m_StateMachineBehaviours: []
+   m_Position: {x: 50, y: 50, z: 0}
+   m_IKOnFeet: 0
+@@ -445,11 +486,70 @@
+   m_CycleOffsetParameterActive: 0
+   m_TimeParameterActive: 0
+   m_Motion: {fileID: 1827226128182048838, guid: 8d4b7b397bb41784d82ba10236559735, type: 3}
+-  m_Tag: 
++  m_Tag: Boat
+   m_SpeedParameter: 
+   m_MirrorParameter: 
+   m_CycleOffsetParameter: 
+   m_TimeParameter: 
++--- !u!1101 &-2344230477106192787
++AnimatorStateTransition:
++  m_ObjectHideFlags: 1
++  m_CorrespondingSourceObject: {fileID: 0}
++  m_PrefabInstance: {fileID: 0}
++  m_PrefabAsset: {fileID: 0}
++  m_Name: 
++  m_Conditions:
++  - m_ConditionMode: 6
++    m_ConditionEvent: Locamotion
++    m_EventTreshold: 0
++  - m_ConditionMode: 1
++    m_ConditionEvent: PortSide
++    m_EventTreshold: 0
++  m_DstStateMachine: {fileID: 0}
++  m_DstState: {fileID: -5860851891743902923}
++  m_Solo: 0
++  m_Mute: 0
++  m_IsExit: 0
++  serializedVersion: 3
++  m_TransitionDuration: 0.16
++  m_TransitionOffset: 0
++  m_ExitTime: 1
++  m_HasExitTime: 0
++  m_HasFixedDuration: 1
++  m_InterruptionSource: 0
++  m_OrderedInterruption: 1
++  m_CanTransitionToSelf: 0
++--- !u!1101 &-1800622821382280725
++AnimatorStateTransition:
++  m_ObjectHideFlags: 1
++  m_CorrespondingSourceObject: {fileID: 0}
++  m_PrefabInstance: {fileID: 0}
++  m_PrefabAsset: {fileID: 0}
++  m_Name: 
++  m_Conditions:
++  - m_ConditionMode: 6
++    m_ConditionEvent: Locamotion
++    m_EventTreshold: 1
++  - m_ConditionMode: 2
++    m_ConditionEvent: PortSide
++    m_EventTreshold: 0
++  - m_ConditionMode: 2
++    m_ConditionEvent: ClimbFromWater
++    m_EventTreshold: 0
++  m_DstStateMachine: {fileID: 0}
++  m_DstState: {fileID: -3885128497118551976}
++  m_Solo: 0
++  m_Mute: 0
++  m_IsExit: 0
++  serializedVersion: 3
++  m_TransitionDuration: 0.12
++  m_TransitionOffset: 0
++  m_ExitTime: 1
++  m_HasExitTime: 0
++  m_HasFixedDuration: 1
++  m_InterruptionSource: 0
++  m_OrderedInterruption: 1
++  m_CanTransitionToSelf: 0
+ --- !u!1102 &-1423371939952679029
+ AnimatorState:
+   serializedVersion: 6
+@@ -461,7 +561,8 @@
+   m_Speed: 1
+   m_CycleOffset: 0
+   m_Transitions:
+-  - {fileID: -7876291921351181804}
++  - {fileID: -2344230477106192787}
++  - {fileID: -7679759967557689858}
+   m_StateMachineBehaviours: []
+   m_Position: {x: 50, y: 50, z: 0}
+   m_IKOnFeet: 0
+@@ -472,7 +573,7 @@
+   m_CycleOffsetParameterActive: 0
+   m_TimeParameterActive: 0
+   m_Motion: {fileID: -1140617418553464390}
+-  m_Tag: 
++  m_Tag: Boat
+   m_SpeedParameter: 
+   m_MirrorParameter: 
+   m_CycleOffsetParameter: 
+@@ -524,70 +625,6 @@
+   m_UseAutomaticThresholds: 1
+   m_NormalizedBlendValues: 0
+   m_BlendType: 2
+---- !u!1101 &-729589256025639472
+-AnimatorStateTransition:
+-  m_ObjectHideFlags: 1
+-  m_CorrespondingSourceObject: {fileID: 0}
+-  m_PrefabInstance: {fileID: 0}
+-  m_PrefabAsset: {fileID: 0}
+-  m_Name: 
+-  m_Conditions: []
+-  m_DstStateMachine: {fileID: 0}
+-  m_DstState: {fileID: -5829103746102847194}
+-  m_Solo: 0
+-  m_Mute: 0
+-  m_IsExit: 0
+-  serializedVersion: 3
+-  m_TransitionDuration: 0.25
+-  m_TransitionOffset: 0
+-  m_ExitTime: 0.95
+-  m_HasExitTime: 1
+-  m_HasFixedDuration: 1
+-  m_InterruptionSource: 0
+-  m_OrderedInterruption: 1
+-  m_CanTransitionToSelf: 1
+---- !u!1109 &-527097042787693442
+-AnimatorTransition:
+-  m_ObjectHideFlags: 1
+-  m_CorrespondingSourceObject: {fileID: 0}
+-  m_PrefabInstance: {fileID: 0}
+-  m_PrefabAsset: {fileID: 0}
+-  m_Name: 
+-  m_Conditions:
+-  - m_ConditionMode: 1
+-    m_ConditionEvent: PortSide
+-    m_EventTreshold: 0
+-  - m_ConditionMode: 6
+-    m_ConditionEvent: Locamotion
+-    m_EventTreshold: 0
+-  m_DstStateMachine: {fileID: 0}
+-  m_DstState: {fileID: -5860851891743902923}
+-  m_Solo: 0
+-  m_Mute: 0
+-  m_IsExit: 0
+-  serializedVersion: 1
+---- !u!1101 &-282092482894890357
+-AnimatorStateTransition:
+-  m_ObjectHideFlags: 1
+-  m_CorrespondingSourceObject: {fileID: 0}
+-  m_PrefabInstance: {fileID: 0}
+-  m_PrefabAsset: {fileID: 0}
+-  m_Name: 
+-  m_Conditions: []
+-  m_DstStateMachine: {fileID: 0}
+-  m_DstState: {fileID: -1423371939952679029}
+-  m_Solo: 0
+-  m_Mute: 0
+-  m_IsExit: 0
+-  serializedVersion: 3
+-  m_TransitionDuration: 0.25
+-  m_TransitionOffset: 0
+-  m_ExitTime: 0.95
+-  m_HasExitTime: 1
+-  m_HasFixedDuration: 1
+-  m_InterruptionSource: 0
+-  m_OrderedInterruption: 1
+-  m_CanTransitionToSelf: 1
+ --- !u!91 &9100000
+ AnimatorController:
+   m_ObjectHideFlags: 0
+@@ -639,6 +676,12 @@
+     m_DefaultInt: 0
+     m_DefaultBool: 0
+     m_Controller: {fileID: 9100000}
++  - m_Name: ClimbFromWater
++    m_Type: 4
++    m_DefaultFloat: 0
++    m_DefaultInt: 0
++    m_DefaultBool: 0
++    m_Controller: {fileID: 9100000}
+   m_AnimatorLayers:
+   - serializedVersion: 5
+     m_Name: Base Layer
+@@ -665,7 +708,7 @@
+     m_SyncedLayerAffectsTiming: 0
+     m_Controller: {fileID: 9100000}
+   m_EvaluateTransitionsOnStart: 1
+---- !u!1101 &3795884451199249590
++--- !u!1101 &1663889581149371003
+ AnimatorStateTransition:
+   m_ObjectHideFlags: 1
+   m_CorrespondingSourceObject: {fileID: 0}
+@@ -679,14 +722,67 @@
+   m_Mute: 0
+   m_IsExit: 0
+   serializedVersion: 3
+-  m_TransitionDuration: 0.25
+-  m_TransitionOffset: 0
+-  m_ExitTime: 0.95
++  m_TransitionDuration: 0.16
++  m_TransitionOffset: 0
++  m_ExitTime: 1
+   m_HasExitTime: 1
+   m_HasFixedDuration: 1
+   m_InterruptionSource: 0
+   m_OrderedInterruption: 1
+-  m_CanTransitionToSelf: 1
++  m_CanTransitionToSelf: 0
++--- !u!1101 &2717638847200901646
++AnimatorStateTransition:
++  m_ObjectHideFlags: 1
++  m_CorrespondingSourceObject: {fileID: 0}
++  m_PrefabInstance: {fileID: 0}
++  m_PrefabAsset: {fileID: 0}
++  m_Name: 
++  m_Conditions: []
++  m_DstStateMachine: {fileID: 0}
++  m_DstState: {fileID: -1423371939952679029}
++  m_Solo: 0
++  m_Mute: 0
++  m_IsExit: 0
++  serializedVersion: 3
++  m_TransitionDuration: 0.16
++  m_TransitionOffset: 0
++  m_ExitTime: 1
++  m_HasExitTime: 1
++  m_HasFixedDuration: 1
++  m_InterruptionSource: 0
++  m_OrderedInterruption: 1
++  m_CanTransitionToSelf: 0
++--- !u!1101 &2738431210999632925
++AnimatorStateTransition:
++  m_ObjectHideFlags: 1
++  m_CorrespondingSourceObject: {fileID: 0}
++  m_PrefabInstance: {fileID: 0}
++  m_PrefabAsset: {fileID: 0}
++  m_Name: 
++  m_Conditions:
++  - m_ConditionMode: 6
++    m_ConditionEvent: Locamotion
++    m_EventTreshold: 1
++  - m_ConditionMode: 2
++    m_ConditionEvent: PortSide
++    m_EventTreshold: 0
++  - m_ConditionMode: 1
++    m_ConditionEvent: ClimbFromWater
++    m_EventTreshold: 0
++  m_DstStateMachine: {fileID: 0}
++  m_DstState: {fileID: 6808823550134030828}
++  m_Solo: 0
++  m_Mute: 0
++  m_IsExit: 0
++  serializedVersion: 3
++  m_TransitionDuration: 0.12
++  m_TransitionOffset: 0
++  m_ExitTime: 1
++  m_HasExitTime: 0
++  m_HasFixedDuration: 1
++  m_InterruptionSource: 0
++  m_OrderedInterruption: 1
++  m_CanTransitionToSelf: 0
+ --- !u!1102 &3797929139453588664
+ AnimatorState:
+   serializedVersion: 6
+@@ -713,6 +809,28 @@
+   m_MirrorParameter: 
+   m_CycleOffsetParameter: 
+   m_TimeParameter: 
++--- !u!1101 &4472829647678262159
++AnimatorStateTransition:
++  m_ObjectHideFlags: 1
++  m_CorrespondingSourceObject: {fileID: 0}
++  m_PrefabInstance: {fileID: 0}
++  m_PrefabAsset: {fileID: 0}
++  m_Name: 
++  m_Conditions: []
++  m_DstStateMachine: {fileID: 0}
++  m_DstState: {fileID: -5829103746102847194}
++  m_Solo: 0
++  m_Mute: 0
++  m_IsExit: 0
++  serializedVersion: 3
++  m_TransitionDuration: 0.18
++  m_TransitionOffset: 0
++  m_ExitTime: 1
++  m_HasExitTime: 1
++  m_HasFixedDuration: 1
++  m_InterruptionSource: 0
++  m_OrderedInterruption: 1
++  m_CanTransitionToSelf: 0
+ --- !u!1102 &4829103746102847101
+ AnimatorState:
+   serializedVersion: 6
+@@ -806,6 +924,9 @@
+   - m_ConditionMode: 1
+     m_ConditionEvent: Jump
+     m_EventTreshold: 0
++  - m_ConditionMode: 6
++    m_ConditionEvent: Locamotion
++    m_EventTreshold: 0
+   m_DstStateMachine: {fileID: 0}
+   m_DstState: {fileID: 4829103746102847101}
+   m_Solo: 0
+@@ -914,7 +1035,7 @@
+   m_InterruptionSource: 0
+   m_OrderedInterruption: 1
+   m_CanTransitionToSelf: 1
+---- !u!1101 &5287720155232607683
++--- !u!1101 &6183105032897657627
+ AnimatorStateTransition:
+   m_ObjectHideFlags: 1
+   m_CorrespondingSourceObject: {fileID: 0}
+@@ -928,20 +1049,72 @@
+   - m_ConditionMode: 1
+     m_ConditionEvent: PortSide
+     m_EventTreshold: 0
++  - m_ConditionMode: 2
++    m_ConditionEvent: ClimbFromWater
++    m_EventTreshold: 0
+   m_DstStateMachine: {fileID: 0}
+   m_DstState: {fileID: -2618362726882582742}
+   m_Solo: 0
+   m_Mute: 0
+   m_IsExit: 0
+   serializedVersion: 3
+-  m_TransitionDuration: 0.25
+-  m_TransitionOffset: 0
+-  m_ExitTime: 0.74537283
++  m_TransitionDuration: 0.12
++  m_TransitionOffset: 0
++  m_ExitTime: 1
++  m_HasExitTime: 0
++  m_HasFixedDuration: 1
++  m_InterruptionSource: 0
++  m_OrderedInterruption: 1
++  m_CanTransitionToSelf: 0
++--- !u!1101 &6586400310624453777
++AnimatorStateTransition:
++  m_ObjectHideFlags: 1
++  m_CorrespondingSourceObject: {fileID: 0}
++  m_PrefabInstance: {fileID: 0}
++  m_PrefabAsset: {fileID: 0}
++  m_Name: 
++  m_Conditions: []
++  m_DstStateMachine: {fileID: 0}
++  m_DstState: {fileID: -1423371939952679029}
++  m_Solo: 0
++  m_Mute: 0
++  m_IsExit: 0
++  serializedVersion: 3
++  m_TransitionDuration: 0.16
++  m_TransitionOffset: 0
++  m_ExitTime: 1
+   m_HasExitTime: 1
+   m_HasFixedDuration: 1
+   m_InterruptionSource: 0
+   m_OrderedInterruption: 1
+-  m_CanTransitionToSelf: 1
++  m_CanTransitionToSelf: 0
++--- !u!1102 &6808823550134030828
++AnimatorState:
++  serializedVersion: 6
++  m_ObjectHideFlags: 1
++  m_CorrespondingSourceObject: {fileID: 0}
++  m_PrefabInstance: {fileID: 0}
++  m_PrefabAsset: {fileID: 0}
++  m_Name: ClimbToBoatRight
++  m_Speed: 1
++  m_CycleOffset: 0
++  m_Transitions:
++  - {fileID: -2861937131638629779}
++  m_StateMachineBehaviours: []
++  m_Position: {x: 50, y: 50, z: 0}
++  m_IKOnFeet: 0
++  m_WriteDefaultValues: 1
++  m_Mirror: 0
++  m_SpeedParameterActive: 0
++  m_MirrorParameterActive: 0
++  m_CycleOffsetParameterActive: 0
++  m_TimeParameterActive: 0
++  m_Motion: {fileID: 1827226128182048838, guid: b61ca4487794ede46831fb63c03962f3, type: 3}
++  m_Tag: Boat
++  m_SpeedParameter: 
++  m_MirrorParameter: 
++  m_CycleOffsetParameter: 
++  m_TimeParameter: 
+ --- !u!206 &8609891356662606503
+ BlendTree:
+   m_ObjectHideFlags: 1
+@@ -1056,7 +1229,7 @@
+   m_Speed: 1
+   m_CycleOffset: 0
+   m_Transitions:
+-  - {fileID: -729589256025639472}
++  - {fileID: 4472829647678262159}
+   m_StateMachineBehaviours: []
+   m_Position: {x: 50, y: 50, z: 0}
+   m_IKOnFeet: 0
+@@ -1067,7 +1240,7 @@
+   m_CycleOffsetParameterActive: 0
+   m_TimeParameterActive: 0
+   m_Motion: {fileID: 1827226128182048838, guid: 01dc62cde2a5a3848a0101636de7132a, type: 3}
+-  m_Tag: 
++  m_Tag: Boat
+   m_SpeedParameter: 
+   m_MirrorParameter: 
+   m_CycleOffsetParameter: 
+--- a/Assets/Scripts/PlayerController.cs
++++ b/Assets/Scripts/PlayerController.cs
+@@ -91,6 +91,11 @@
+     public InputAction Interact => interact;
+     public bool AtRest => characterController.isGrounded && MovementInput.sqrMagnitude < 0.0001f;
+ 
++    // Include transition destinations so the walking overlay is removed before
++    // the first boarding pose, and retained until an exit blend has finished.
++    private bool IsBoatAnimation => animator.GetCurrentAnimatorStateInfo(0).IsTag("Boat")
++        || animator.IsInTransition(0) && animator.GetNextAnimatorStateInfo(0).IsTag("Boat");
++
+     public bool IsSupportedBy(Transform surface) => surface != null
+         && (ground != null && ground.IsChildOf(surface)
+             || constraint is Component component && component.transform.IsChildOf(surface));
+@@ -163,7 +168,7 @@
+ 
+     private void Jump(InputAction.CallbackContext context)
+     {
+-        if (constraint != null || airborne || !characterController.isGrounded)
++        if (constraint != null || IsBoatAnimation || airborne || !characterController.isGrounded)
+             return;
+ 
+         verticalSpeed = jumpSpeed;
+@@ -180,6 +185,18 @@
+         pitch = Mathf.Clamp(pitch - lookDelta.y * lookSensitivity, MinPitch, MaxPitch);
+         lookDelta = Vector2.zero;
+         Vector2 moveInput = constraint == null ? Vector2.ClampMagnitude(MovementInput, 1f) : Vector2.zero;
++
++        if (IsBoatAnimation)
++        {
++            animator.SetFloat(xAxis, moveInput.x, Mathf.Max(0f, blendDamp), Time.deltaTime);
++            animator.SetFloat(yAxis, Mathf.Max(0f, moveInput.y), Mathf.Max(0f, blendDamp), Time.deltaTime);
++            animator.SetFloat(sideAxis, 0f);
++            sideLayerWeight = sideLayerWeightVelocity = 0f;
++            if (sideStepLayer >= 0) animator.SetLayerWeight(sideStepLayer, 0f);
++            animator.ResetTrigger(jump);
++            animator.ResetTrigger(land);
++            return;
++        }
+ 
+         // The base layer keeps the idle turn clips; movement uses the directional layer.
+         float turn = constraint == null ? Mathf.DeltaAngle(transform.eulerAngles.y, lookYaw) / TurnBlendDegrees : 0f;
+@@ -234,6 +251,8 @@
+             return;
+         }
+         // Use root motion for distance and gravity, and steer the directional clips toward the aim.
++        if (IsBoatAnimation)
++            lookYaw += Mathf.DeltaAngle(0f, animator.deltaRotation.eulerAngles.y);
+         transform.rotation *= animator.deltaRotation;
+         Vector3 delta = animator.deltaPosition;
+         if (!airborne && sideLayerWeight > 0f)
+@@ -363,7 +382,9 @@
+         Vector3 aim = Quaternion.Euler(pitch, lookYaw, 0f) * Vector3.forward;
+         Vector3 origin = head != null ? head.position : cameraTransform.position;
+         // Keep the torso steady while the hands hold a target; look with the head.
+-        animator.SetLookAtWeight(1f, 1f - gripWeight, 1f, 0f, 0.5f * gripWeight);
++        // Keep looking available aboard without twisting the rowing torso.
++        animator.SetLookAtWeight(1f, IsBoatAnimation ? 0f : 1f - gripWeight, 1f, 0f,
++            IsBoatAnimation ? .5f : .5f * gripWeight);
+         animator.SetLookAtPosition(origin + aim * LookDistance);
+         PlantFeet();
+     }
+@@ -416,7 +437,7 @@
+         animator.SetIKRotationWeight(AvatarIKGoal.RightFoot, 0f);
+         animator.SetIKHintPositionWeight(AvatarIKHint.LeftKnee, 0f);
+         animator.SetIKHintPositionWeight(AvatarIKHint.RightKnee, 0f);
+-        if (airborne || !characterController.isGrounded)
++        if (IsBoatAnimation || airborne || !characterController.isGrounded)
+         {
+             leftFootWeight = rightFootWeight = pelvisOffset = 0f;
+             return;
+--- a/Assets/Small_Boat_Anim_Set/Animations/Boat_Enter_ClimbUpFromLeftSide.fbx.meta
++++ b/Assets/Small_Boat_Anim_Set/Animations/Boat_Enter_ClimbUpFromLeftSide.fbx.meta
+@@ -1,7 +1,14 @@
+ fileFormatVersion: 2
+ guid: 8a467c32bbeb0b14eb02856858cab36d
++AssetOrigin:
++  serializedVersion: 1
++  productId: 222836
++  packageName: Small Boat Anim Set
++  packageVersion: 1.0
++  assetPath: Assets/Small_Boat_Anim_Set/Animations/Boat_Enter_ClimbUpFromLeftSide.fbx
++  uploadId: 503963
+ ModelImporter:
+-  serializedVersion: 20200
++  serializedVersion: 24600
+   internalIDToNameTable:
+   - first:
+       74: 1827226128182048838
+@@ -12,14 +19,14 @@
+     materialName: 0
+     materialSearch: 1
+     materialLocation: 1
++    searchTexturesGlobally: 1
+   animations:
+     legacyGenerateAnimations: 4
+     bakeSimulation: 0
+     resampleCurves: 1
+     optimizeGameObjects: 0
++    removeConstantScaleCurves: 0
+     motionNodeName: 
+-    rigImportErrors: 
+-    rigImportWarnings: "Copied Avatar Rig Configuration mis-match. Bone length in copied configuration does not match position in animation file:\n\t'ball_l' : position error = 2.143301 mm\n\t'ball_r' : position error = 4.792206 mm\n"
+     animationImportErrors: 
+     animationImportWarnings: "\nClip 'Take 001' has import animation warnings that might lower retargeting quality:\nNote: Activate translation DOF on avatar to improve retargeting quality.\n\t'upperarm_r' has translation animation that will be discarded.\n\t'hand_r' has translation animation that will be discarded.\n\t'neck_01' has translation animation that will be discarded.\n\t'foot_l' has translation animation that will be discarded.\n\t'ball_l' has translation animation that will be discarded.\n\t'foot_r' has translation animation that will be discarded.\n\t'ball_r' has translation animation that will be discarded.\n"
+     animationRetargetingWarnings: 
+@@ -37,26 +44,26 @@
+     - serializedVersion: 16
+       name: Boat_Enter_ClimbUpFromLeftSide
+       takeName: Take 001
+-      internalID: 0
++      internalID: 1827226128182048838
+       firstFrame: 0
+       lastFrame: 120
+       wrapMode: 0
+-      orientationOffsetY: 0
++      orientationOffsetY: -4.3947754
+       level: 0
+       cycleOffset: 0
+       loop: 0
+       hasAdditiveReferencePose: 0
+-      loopTime: 1
++      loopTime: 0
+       loopBlend: 0
+-      loopBlendOrientation: 1
++      loopBlendOrientation: 0
+       loopBlendPositionY: 1
+-      loopBlendPositionXZ: 1
++      loopBlendPositionXZ: 0
+       keepOriginalOrientation: 1
+       keepOriginalPositionY: 1
+       keepOriginalPositionXZ: 0
+       heightFromFeet: 0
+       mirror: 0
+-      bodyMask: 01000000010000000100000001000000010000000100000001000000010000000100000001000000010000000100000001000000
++      bodyMask: 01000000010000000100000001000000010000000100000001000000010000000100000001000000010000000100000001000000u
+       curves: []
+       events: []
+       transformMask: []
+@@ -71,10 +78,14 @@
+     addColliders: 0
+     useSRGBMaterialColor: 1
+     sortHierarchyByName: 1
++    preBakeConvexCollisionMesh: 0
++    preBakeTriangleCollisionMesh: 0
++    importPhysicalCameras: 1
+     importVisibility: 1
+     importBlendShapes: 1
+     importCameras: 1
+     importLights: 1
++    nodeNameCollisionStrategy: 0
+     fileIdsGeneration: 2
+     swapUVChannels: 0
+     generateSecondaryUV: 0
+@@ -86,6 +97,12 @@
+     skinWeightsMode: 0
+     maxBonesPerVertex: 4
+     minBoneWeight: 0.001
++    optimizeBones: 1
++    generateMeshLods: 0
++    meshLodGenerationFlags: 0
++    maximumMeshLod: -1
++    importUVs: -1
++    importVertexColors: 1
+     meshOptimizationFlags: -1
+     indexFormat: 0
+     secondaryUVAngleDistortion: 8
+@@ -96,6 +113,7 @@
+     secondaryUVMinObjectScale: 1
+     secondaryUVPackMargin: 4
+     useFileScale: 1
++    strictVertexDataChecks: 0
+   tangentSpace:
+     normalSmoothAngle: 60
+     normalImportMode: 0
+@@ -104,6 +122,7 @@
+     legacyComputeAllNormalsFromSmoothingGroupsWhenMeshHasBlendShapes: 0
+     blendShapeNormalImportMode: 1
+     normalSmoothingSource: 0
++    calculateBlendshapeNormalsDeltaFromImportedNormals: 1
+   referencedClips: []
+   importAnimation: 1
+   humanDescription:
+@@ -884,14 +903,9 @@
+   humanoidOversampling: 1
+   avatarSetup: 2
+   addHumanoidExtraRootOnlyWhenUsingAvatar: 1
++  importBlendShapeDeformPercent: 0
++  remapMaterialsIfMaterialImportModeIsNone: 1
+   additionalBone: 0
+   userData: 
+   assetBundleName: 
+   assetBundleVariant: 
+-AssetOrigin:
+-  serializedVersion: 1
+-  productId: 222836
+-  packageName: Small Boat Anim Set
+-  packageVersion: 1.0
+-  assetPath: Assets/Small_Boat_Anim_Set/Animations/Boat_Enter_ClimbUpFromLeftSide.fbx
+-  uploadId: 503963
+--- a/Assets/Small_Boat_Anim_Set/Animations/Boat_Enter_ClimbUpFromRightSide.fbx.meta
++++ b/Assets/Small_Boat_Anim_Set/Animations/Boat_Enter_ClimbUpFromRightSide.fbx.meta
+@@ -1,7 +1,14 @@
+ fileFormatVersion: 2
+ guid: b61ca4487794ede46831fb63c03962f3
++AssetOrigin:
++  serializedVersion: 1
++  productId: 222836
++  packageName: Small Boat Anim Set
++  packageVersion: 1.0
++  assetPath: Assets/Small_Boat_Anim_Set/Animations/Boat_Enter_ClimbUpFromRightSide.fbx
++  uploadId: 503963
+ ModelImporter:
+-  serializedVersion: 20200
++  serializedVersion: 24600
+   internalIDToNameTable:
+   - first:
+       74: 1827226128182048838
+@@ -12,14 +19,14 @@
+     materialName: 0
+     materialSearch: 1
+     materialLocation: 1
++    searchTexturesGlobally: 1
+   animations:
+     legacyGenerateAnimations: 4
+     bakeSimulation: 0
+     resampleCurves: 1
+     optimizeGameObjects: 0
++    removeConstantScaleCurves: 0
+     motionNodeName: 
+-    rigImportErrors: 
+-    rigImportWarnings: "Copied Avatar Rig Configuration mis-match. Bone length in copied configuration does not match position in animation file:\n\t'ball_l' : position error = 3.063275 mm\n\t'ball_r' : position error = 5.019933 mm\n"
+     animationImportErrors: 
+     animationImportWarnings: "\nClip 'Take 001' has import animation warnings that might lower retargeting quality:\nNote: Activate translation DOF on avatar to improve retargeting quality.\n\t'hand_r' has translation animation that will be discarded.\n\t'neck_01' has translation animation that will be discarded.\n\t'calf_l' has translation animation that will be discarded.\n\t'foot_l' has translation animation that will be discarded.\n\t'ball_l' has translation animation that will be discarded.\n\t'foot_r' has translation animation that will be discarded.\n\t'ball_r' has translation animation that will be discarded.\n"
+     animationRetargetingWarnings: 
+@@ -37,26 +44,26 @@
+     - serializedVersion: 16
+       name: Boat_Enter_ClimbUpFromRightSide
+       takeName: Take 001
+-      internalID: 0
++      internalID: 1827226128182048838
+       firstFrame: 0
+       lastFrame: 120
+       wrapMode: 0
+-      orientationOffsetY: 0
++      orientationOffsetY: -14.235382
+       level: 0
+       cycleOffset: 0
+       loop: 0
+       hasAdditiveReferencePose: 0
+-      loopTime: 1
++      loopTime: 0
+       loopBlend: 0
+-      loopBlendOrientation: 1
++      loopBlendOrientation: 0
+       loopBlendPositionY: 1
+-      loopBlendPositionXZ: 1
++      loopBlendPositionXZ: 0
+       keepOriginalOrientation: 1
+       keepOriginalPositionY: 1
+       keepOriginalPositionXZ: 0
+       heightFromFeet: 0
+       mirror: 0
+-      bodyMask: 01000000010000000100000001000000010000000100000001000000010000000100000001000000010000000100000001000000
++      bodyMask: 01000000010000000100000001000000010000000100000001000000010000000100000001000000010000000100000001000000u
+       curves: []
+       events: []
+       transformMask: []
+@@ -71,10 +78,14 @@
+     addColliders: 0
+     useSRGBMaterialColor: 1
+     sortHierarchyByName: 1
++    preBakeConvexCollisionMesh: 0
++    preBakeTriangleCollisionMesh: 0
++    importPhysicalCameras: 1
+     importVisibility: 1
+     importBlendShapes: 1
+     importCameras: 1
+     importLights: 1
++    nodeNameCollisionStrategy: 0
+     fileIdsGeneration: 2
+     swapUVChannels: 0
+     generateSecondaryUV: 0
+@@ -86,6 +97,12 @@
+     skinWeightsMode: 0
+     maxBonesPerVertex: 4
+     minBoneWeight: 0.001
++    optimizeBones: 1
++    generateMeshLods: 0
++    meshLodGenerationFlags: 0
++    maximumMeshLod: -1
++    importUVs: -1
++    importVertexColors: 1
+     meshOptimizationFlags: -1
+     indexFormat: 0
+     secondaryUVAngleDistortion: 8
+@@ -96,6 +113,7 @@
+     secondaryUVMinObjectScale: 1
+     secondaryUVPackMargin: 4
+     useFileScale: 1
++    strictVertexDataChecks: 0
+   tangentSpace:
+     normalSmoothAngle: 60
+     normalImportMode: 0
+@@ -104,6 +122,7 @@
+     legacyComputeAllNormalsFromSmoothingGroupsWhenMeshHasBlendShapes: 0
+     blendShapeNormalImportMode: 1
+     normalSmoothingSource: 0
++    calculateBlendshapeNormalsDeltaFromImportedNormals: 1
+   referencedClips: []
+   importAnimation: 1
+   humanDescription:
+@@ -884,14 +903,9 @@
+   humanoidOversampling: 1
+   avatarSetup: 2
+   addHumanoidExtraRootOnlyWhenUsingAvatar: 1
++  importBlendShapeDeformPercent: 0
++  remapMaterialsIfMaterialImportModeIsNone: 1
+   additionalBone: 0
+   userData: 
+   assetBundleName: 
+   assetBundleVariant: 
+-AssetOrigin:
+-  serializedVersion: 1
+-  productId: 222836
+-  packageName: Small Boat Anim Set
+-  packageVersion: 1.0
+-  assetPath: Assets/Small_Boat_Anim_Set/Animations/Boat_Enter_ClimbUpFromRightSide.fbx
+-  uploadId: 503963
+--- a/Assets/Small_Boat_Anim_Set/Animations/Boat_Enter_FromLeftSide.fbx.meta
++++ b/Assets/Small_Boat_Anim_Set/Animations/Boat_Enter_FromLeftSide.fbx.meta
+@@ -44,20 +44,20 @@
+     - serializedVersion: 16
+       name: Boat_Enter_FromLeftSide
+       takeName: Take 001
+-      internalID: 0
++      internalID: 1827226128182048838
+       firstFrame: 0
+       lastFrame: 150
+       wrapMode: 0
+-      orientationOffsetY: 90
++      orientationOffsetY: 7.869385
+       level: 0
+       cycleOffset: 0
+       loop: 0
+       hasAdditiveReferencePose: 0
+-      loopTime: 1
++      loopTime: 0
+       loopBlend: 0
+-      loopBlendOrientation: 1
++      loopBlendOrientation: 0
+       loopBlendPositionY: 1
+-      loopBlendPositionXZ: 1
++      loopBlendPositionXZ: 0
+       keepOriginalOrientation: 1
+       keepOriginalPositionY: 1
+       keepOriginalPositionXZ: 0
+--- a/Assets/Small_Boat_Anim_Set/Animations/Boat_Enter_FromRightSide.fbx.meta
++++ b/Assets/Small_Boat_Anim_Set/Animations/Boat_Enter_FromRightSide.fbx.meta
+@@ -44,20 +44,20 @@
+     - serializedVersion: 16
+       name: Boat_Enter_FromRightSide
+       takeName: Take 001
+-      internalID: 0
++      internalID: 1827226128182048838
+       firstFrame: 0
+       lastFrame: 150
+       wrapMode: 0
+-      orientationOffsetY: -90
++      orientationOffsetY: 7.9658203
+       level: 0
+       cycleOffset: 0
+       loop: 0
+       hasAdditiveReferencePose: 0
+-      loopTime: 1
++      loopTime: 0
+       loopBlend: 0
+-      loopBlendOrientation: 1
++      loopBlendOrientation: 0
+       loopBlendPositionY: 1
+-      loopBlendPositionXZ: 1
++      loopBlendPositionXZ: 0
+       keepOriginalOrientation: 1
+       keepOriginalPositionY: 1
+       keepOriginalPositionXZ: 0
+--- a/Assets/Small_Boat_Anim_Set/Animations/Boat_Exit_ToLeftSide.fbx.meta
++++ b/Assets/Small_Boat_Anim_Set/Animations/Boat_Exit_ToLeftSide.fbx.meta
+@@ -44,7 +44,7 @@
+     - serializedVersion: 16
+       name: Boat_Exit_ToLeftSide
+       takeName: Take 001
+-      internalID: 0
++      internalID: 1827226128182048838
+       firstFrame: 210
+       lastFrame: 360
+       wrapMode: 0
+@@ -53,11 +53,11 @@
+       cycleOffset: 0
+       loop: 0
+       hasAdditiveReferencePose: 0
+-      loopTime: 1
++      loopTime: 0
+       loopBlend: 0
+-      loopBlendOrientation: 1
++      loopBlendOrientation: 0
+       loopBlendPositionY: 1
+-      loopBlendPositionXZ: 1
++      loopBlendPositionXZ: 0
+       keepOriginalOrientation: 1
+       keepOriginalPositionY: 1
+       keepOriginalPositionXZ: 0
+--- a/Assets/Small_Boat_Anim_Set/Animations/Boat_Exit_ToRightSide.fbx.meta
++++ b/Assets/Small_Boat_Anim_Set/Animations/Boat_Exit_ToRightSide.fbx.meta
+@@ -44,7 +44,7 @@
+     - serializedVersion: 16
+       name: Boat_Exit_ToRightSide
+       takeName: Take 001
+-      internalID: 0
++      internalID: 1827226128182048838
+       firstFrame: 210
+       lastFrame: 360
+       wrapMode: 0
+@@ -53,11 +53,11 @@
+       cycleOffset: 0
+       loop: 0
+       hasAdditiveReferencePose: 0
+-      loopTime: 1
++      loopTime: 0
+       loopBlend: 0
+-      loopBlendOrientation: 1
++      loopBlendOrientation: 0
+       loopBlendPositionY: 1
+-      loopBlendPositionXZ: 1
++      loopBlendPositionXZ: 0
+       keepOriginalOrientation: 1
+       keepOriginalPositionY: 1
+       keepOriginalPositionXZ: 0

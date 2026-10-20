@@ -1,0 +1,110 @@
+--- a/Assets/Scripts/PlayerController.cs
++++ b/Assets/Scripts/PlayerController.cs
+@@ -2,8 +2,13 @@
+ using UnityEngine.InputSystem;
+ 
+ [RequireComponent(typeof(Animator), typeof(CharacterController), typeof(AudioSource))]
+-class PlayerController: MonoBehaviour
++public class PlayerController: MonoBehaviour
+ {
++    public enum ControlSource { PlayerInput, External }
++    [Header("Character control")]
++    [SerializeField] private ControlSource controlSource;
++    private Vector2 externalMovement;
++    private bool externalSprint;
+     private Animator animator;
+     private BoatBoarding boarding;
+     private CharacterController characterController;
+@@ -88,9 +93,19 @@
+         }
+     }
+ 
+-    public Vector2 MovementInput => move.ReadValue<Vector2>();
++    public bool UsesPlayerInput => controlSource == ControlSource.PlayerInput;
++    public Vector2 MovementInput => UsesPlayerInput ? move.ReadValue<Vector2>() : externalMovement;
+     public InputAction Interact => interact;
+     public bool AtRest => characterController.isGrounded && MovementInput.sqrMagnitude < 0.0001f;
++
++    // NPC intent goes through the same root motion, collisions and IK as input.
++    public void SetExternalMotion(Vector2 movement, float heading, bool running = false)
++    {
++        if (UsesPlayerInput) return;
++        externalMovement = Vector2.ClampMagnitude(movement, 1f);
++        externalSprint = running;
++        lookYaw = heading;
++    }
+ 
+     // Include transition destinations so the walking overlay is removed before
+     // the first boarding pose, and retained until an exit blend has finished.
+@@ -124,13 +139,17 @@
+         animator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
+         characterController = GetComponent<CharacterController>();
+         sideStepLayer = animator.GetLayerIndex(SideStepLayerName);
+-        playerActions = InputSystem.actions.FindActionMap("Player", true).Clone();
+-        move = playerActions.FindAction("Move", true);
+-        look = playerActions.FindAction("Look", true);
+-        sprint = playerActions.FindAction("Sprint", true);
+-        jumpAction = playerActions.FindAction("Jump", true);
+-        interact = playerActions.FindAction("Interact", true);
+-        cameraTransform = GetComponentInChildren<Camera>().transform;
++        if (UsesPlayerInput)
++        {
++            playerActions = InputSystem.actions.FindActionMap("Player", true).Clone();
++            move = playerActions.FindAction("Move", true);
++            look = playerActions.FindAction("Look", true);
++            sprint = playerActions.FindAction("Sprint", true);
++            jumpAction = playerActions.FindAction("Jump", true);
++            interact = playerActions.FindAction("Interact", true);
++        }
++        var view = GetComponentInChildren<Camera>();
++        cameraTransform = view != null ? view.transform : null;
+         head = animator.GetBoneTransform(HumanBodyBones.Head);
+         leftFoot = animator.GetBoneTransform(HumanBodyBones.LeftFoot);
+         rightFoot = animator.GetBoneTransform(HumanBodyBones.RightFoot);
+@@ -156,6 +175,9 @@
+         pelvisOffset = 0f;
+         lastLeftFootstep = lastRightFootstep = float.NegativeInfinity;
+         lookYaw = transform.eulerAngles.y;
++        externalMovement = Vector2.zero;
++        externalSprint = false;
++        if (!UsesPlayerInput) return;
+         look.performed += UpdateLook;
+         jumpAction.performed += Jump;
+         playerActions.Enable();
+@@ -166,6 +188,9 @@
+     private void OnDisable()
+     {
+         if (boarding != null) boarding.CancelBoarding();
++        externalMovement = Vector2.zero;
++        externalSprint = false;
++        if (!UsesPlayerInput) return;
+         look.performed -= UpdateLook;
+         jumpAction.performed -= Jump;
+         playerActions.Disable();
+@@ -175,7 +200,7 @@
+ 
+     private void OnDestroy()
+     {
+-        playerActions.Dispose();
++        playerActions?.Dispose();
+     }
+ 
+     public void UpdateLook(InputAction.CallbackContext context)
+@@ -224,7 +249,7 @@
+         // The base layer keeps the idle turn clips; movement uses the directional layer.
+         float turn = constraint == null ? Mathf.DeltaAngle(transform.eulerAngles.y, lookYaw) / TurnBlendDegrees : 0f;
+         float damp = Mathf.Max(blendDamp, 0f);
+-        bool running = sprint.IsPressed();
++        bool running = UsesPlayerInput ? sprint.IsPressed() : externalSprint;
+         float moveScale = running ? 1f : WalkScale;
+         animator.SetFloat(xAxis, Mathf.Clamp(turn, -1f, 1f), damp, Time.deltaTime);
+         animator.SetFloat(yAxis, moveInput.y * moveScale, damp, Time.deltaTime);
+@@ -408,7 +433,7 @@
+             fadingConstraint = null;
+         // Direction comes from the mouse, not the camera, so the head cannot feed back into the aim.
+         Vector3 aim = Quaternion.Euler(pitch, lookYaw, 0f) * Vector3.forward;
+-        Vector3 origin = head != null ? head.position : cameraTransform.position;
++        Vector3 origin = head != null ? head.position : transform.position + Vector3.up * 1.6f;
+         // Keep the torso steady while the hands hold a target; look with the head.
+         // Keep looking available aboard without twisting the rowing torso.
+         animator.SetLookAtWeight(1f, IsBoatAnimation ? 0f : 1f - gripWeight, 1f, 0f,

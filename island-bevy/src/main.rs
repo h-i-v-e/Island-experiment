@@ -371,6 +371,7 @@ mod tests {
             river_maximum_depth_metres: 3.5,
             terrain_size: 512,
             initial_soil_depth_metres: 2.5,
+            seabed_depth_distance_ratio: 0.25,
         };
         let line = options::command_line(4242, &found, GenerationMethod::Gpu);
         let reopened = command(&line.split(' ').collect::<Vec<_>>()).unwrap();

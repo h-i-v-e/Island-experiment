@@ -151,6 +151,40 @@ namespace Motu.Tests
             Assert.That(sea.Body.linearVelocity.x, Is.EqualTo(3f).Within(.001f));
         }
 
+        [TestCase(90f)]
+        [TestCase(2f)]
+        public void FurledWindAlignmentScalesWithWindSpeedEvenNearTheTarget(float headingError)
+        {
+            float reference = YawAfterWindStep(9f, headingError);
+            Assert.That(Mathf.Abs(reference), Is.GreaterThan(.00001f));
+            Assert.That(YawAfterWindStep(4.5f, headingError), Is.EqualTo(reference * .5f).Within(.000001f));
+            Assert.That(YawAfterWindStep(18f, headingError), Is.EqualTo(reference * 2f).Within(.000001f));
+            Assert.That(YawAfterWindStep(0f, headingError), Is.EqualTo(0f).Within(.000001f));
+        }
+
+        private static float YawAfterWindStep(float speed, float headingError)
+        {
+            using var sea = new Anchorage(15f);
+            sea.Body.angularDamping = 0f;
+            Set(sea.Anchor, "windDriftAcceleration", 0f);
+            sea.Anchor.SetDeployed(true);
+            var wind = -(Quaternion.Euler(0, headingError, 0) * Vector3.forward) * speed;
+            sea.Step(wind);
+            return sea.Body.angularVelocity.y;
+        }
+
+        [TestCase(true, 0f)]
+        [TestCase(false, 18f)]
+        public void CalmWeatherAndDeployedSailsDoNotBrakeExistingYaw(bool furled, float windSpeed)
+        {
+            using var sea = new Anchorage(15f);
+            sea.Body.angularDamping = 0f;
+            sea.Body.angularVelocity = Vector3.up * .15f;
+            sea.Anchor.SetDeployed(furled);
+            sea.Step(Vector3.right * windSpeed);
+            Assert.That(sea.Body.angularVelocity.y, Is.EqualTo(.15f).Within(.000001f));
+        }
+
         [Test]
         public void TeleportingRedeploysInsteadOfYankingTheShipBackToItsOldAnchor()
         {

@@ -109,6 +109,7 @@ Shader "Motu/Sea Water"
             #include "WaterCommon.cginc"
             #include "OceanSurfaceGeometry.cginc"
             #include "OceanOptics.cginc"
+            #include "OceanWaterImpacts.cginc"
 
             half4 _WaveTranslucencyColour;
             half _WaveTranslucencyStrength;
@@ -157,7 +158,7 @@ Shader "Motu/Sea Water"
                 SHADOW_COORDS(5)
                 float2 waveSamplePosition : TEXCOORD6;
                 float4 deckWaveData : TEXCOORD7; // original height, clamp, final height, boat displacement
-                float hullClamped : TEXCOORD8;
+                float4 hullSurfaceNormal : TEXCOORD8;
             };
 
             VertexOutput Vertex(VertexInput input)
@@ -166,8 +167,11 @@ Shader "Motu/Sea Water"
                 float3 baseWorldPosition = mul(
                     unity_ObjectToWorld,
                     input.vertex).xyz;
+                float hullClamped;
                 float3 displacedWorldPosition = MotuOceanSurfacePosition(baseWorldPosition,
-                    length(input.vertex.xz), output.deckWaveData, output.hullClamped);
+                    length(input.vertex.xz), output.deckWaveData, hullClamped);
+                output.hullSurfaceNormal = MotuOceanHullSurfaceNormal(baseWorldPosition,
+                    length(input.vertex.xz), displacedWorldPosition, hullClamped);
                 output.pos = UnityWorldToClipPos(displacedWorldPosition);
                 output.screenPosition = ComputeScreenPos(output.pos);
                 output.grabPosition = ComputeScreenPos(output.pos);
@@ -206,11 +210,7 @@ Shader "Motu/Sea Water"
                     foamAllowance, input.deckWaveData.z);
                 MotuShipWaveShading(input.worldPosition.xz, input.deckWaveData.x,
                     input.deckWaveData.y, MotuOceanClampHeightEnvelope(input.waveSamplePosition), analyticWaveNormal, whitecap);
-                if (input.hullClamped > .001)
-                {
-                    float3 surfaceNormal = normalize(cross(ddy(input.worldPosition), ddx(input.worldPosition)));
-                    analyticWaveNormal = surfaceNormal * (surfaceNormal.y < 0 ? -1 : 1);
-                }
+                analyticWaveNormal = MotuOceanBlendHullNormal(analyticWaveNormal, input.hullSurfaceNormal);
                 // Add after hull suppression: displaced water at the hull should
                 // foam even where the boat has flattened an incoming crest.
                 float boatFoam = MotuShipDisplacementFoam(input.deckWaveData.w);
@@ -219,9 +219,14 @@ Shader "Motu/Sea Water"
                         * max(_WhitecapStrength, 0.0));
                 float roughness;
                 float3 detailNormal = MotuOceanRippleNormal(input.worldPosition, analyticWaveNormal, roughness);
+                float impactFoam;
+                float2 impactSlope;
+                MotuOceanWaterImpacts(input.worldPosition.xz, pixelFootprint, impactFoam, impactSlope);
+                whitecap = max(whitecap, impactFoam);
                 float shelterDetailScale = MotuOceanShelterDetailScale(input.waveSamplePosition);
                 detailNormal = normalize(lerp(analyticWaveNormal, detailNormal, shelterDetailScale));
                 roughness = lerp(0.04, roughness, shelterDetailScale);
+                detailNormal = normalize(detailNormal + float3(impactSlope.x, 0, impactSlope.y));
                 // Unresolved wave slopes become a wider highlight instead of
                 // isolated bright pixels. Physical surface queries remain unfiltered.
                 roughness = clamp(sqrt(roughness * roughness + min(unresolvedWaveVariance, 0.35)), 0.04, 0.8);

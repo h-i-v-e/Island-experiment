@@ -33,6 +33,7 @@ namespace Motu.Interop
             internal float detailNoiseStrength;
             internal float landMassOffset;
             internal float initialSoilDepthMetres;
+            internal float seabedDepthDistanceRatio;
         }
 
         // Forest controls are kept in a separate native block. The byte fields
@@ -445,6 +446,24 @@ namespace Motu.Interop
         internal static extern void CreateFernMeshGrid(
             IntPtr handle,
             out ExportMeshGrid output);
+
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct LandBirdPerchExport
+        {
+            internal NativeVector3 position;
+            internal float yawRadians;
+            internal uint kind, tile;
+        }
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct ExportLandBirdPerches
+        {
+            internal IntPtr handle, data;
+            internal int length;
+        }
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern void CreateLandBirdPerches(IntPtr handle, uint divisions, out ExportLandBirdPerches output);
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern void ReleaseLandBirdPerches(ref ExportLandBirdPerches output);
 
         [StructLayout(LayoutKind.Sequential)]
         internal struct ExportBoulderColliders

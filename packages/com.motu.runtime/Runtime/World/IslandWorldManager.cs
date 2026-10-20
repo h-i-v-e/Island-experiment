@@ -383,6 +383,32 @@ namespace Motu.World
                     : (float?)null;
         }
 
+        /// <summary>Read-only terrain collider residency at a world position.</summary>
+        public bool HasActiveTerrainColliderAt(Vector3 worldPosition)
+        {
+            if (!managedIslands.TryGetValue(WorldToCell(worldPosition), out var entry)) return false;
+            var terrain = entry.Generator != null ? entry.Generator.Runtime?.TerrainStreamer : null;
+            return terrain != null && terrain.HasActiveColliderAt(worldPosition);
+        }
+
+        /// <summary>Whether an unattended body can simulate here without missing island collision.</summary>
+        public bool IsTerrainCollisionReadyAt(Vector3 worldPosition)
+        {
+            // Empty sea cells never have terrain colliders. Their absence must
+            // not freeze floating bodies when the player leaves them behind.
+            var factory = IslandGenerationRequestFactory;
+            return factory != null && !factory.HasIsland(WorldToCell(worldPosition))
+                || HasActiveTerrainColliderAt(worldPosition);
+        }
+
+        /// <summary>Read the generated surface without changing streaming focus.</summary>
+        public bool TryGetTerrainSurface(Vector3 worldPosition, out TerrainSurfaceSample sample)
+        {
+            sample = default;
+            return managedIslands.TryGetValue(WorldToCell(worldPosition), out var entry)
+                && entry.Generator != null && entry.Generator.TryGetTerrainSurface(worldPosition, out sample);
+        }
+
         public bool TrySnapToTerrain(
             Vector3 approximateWorldPoint,
             out Vector3 worldPoint)

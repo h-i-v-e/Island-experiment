@@ -1,0 +1,40 @@
+--- a/Assets/Scripts/PlayerController.cs
++++ b/Assets/Scripts/PlayerController.cs
+@@ -139,6 +139,16 @@
+         leftFootWeight = rightFootWeight = pelvisOffset = 0f;
+     }
+ 
++    public void ResumeFromBoat(Vector3 inheritedVelocity)
++    {
++        ResetBoatSupport();
++        groundVelocity = Vector3.ProjectOnPlane(inheritedVelocity, Vector3.up);
++        verticalSpeed = inheritedVelocity.y;
++        airborne = true;
++        // A boat may be pitching and rolling; walking/falling stays upright.
++        transform.rotation = Quaternion.Euler(0, transform.eulerAngles.y, 0);
++    }
++
+     private void Awake()
+     {
+         animator = GetComponent<Animator>();
+@@ -338,7 +348,9 @@
+             delta.z = carry.z;
+         }
+ 
+-        delta.y += verticalSpeed * Time.deltaTime;
++        // Animation supplies horizontal travel. Its hip/root height must not
++        // cancel gravity after stepping or climbing off a moving boat.
++        delta.y = verticalSpeed * Time.deltaTime;
+         characterController.Move(delta);
+ 
+         if (airborne && characterController.isGrounded && verticalSpeed <= 0f)
+--- a/Assets/Scripts/FloatingShip.cs
++++ b/Assets/Scripts/FloatingShip.cs
+@@ -46,6 +46,7 @@
+     private static readonly List<HullRestore> pendingRestores = new List<HullRestore>();
+     private static bool restoreHooked;
+     private static int queuedFrame = -1;
++    public Rigidbody Hull => hull;
+ 
+     // Set before enabling a runtime-spawned boat, retaining its authored draft
+     // offset while allowing oceans whose mean surface is not at world Y = 0.

@@ -22,7 +22,7 @@ namespace Motu.Gameplay
         [Min(0f)] [SerializeField] private float windDriftAcceleration = .04f;
         [Tooltip("Maximum windage acceleration even in a storm, in m/s squared.")]
         [Min(0f)] [SerializeField] private float maximumWindAcceleration = .2f;
-        [Tooltip("Maximum assisted yaw rate towards the wind's source while furled, including while the rode is slack or dragging. Zero disables assistance.")]
+        [Tooltip("Maximum assisted yaw rate at 9 m/s wind towards the wind's source while furled, including while the rode is slack or dragging. Scales linearly with wind speed; zero disables assistance.")]
         [Min(0f)] [SerializeField] private float windwardTurnRateDegrees = 3f;
         [Min(.1f)] [SerializeField] private float windwardTurnResponseSeconds = 4f;
         [Tooltip("Fallback mean sea level when no ocean is assigned to the ship's buoyancy.")]
@@ -113,8 +113,11 @@ namespace Motu.Gameplay
             // the physical bow rather than the imported model's local axes.
             float angle = Vector3.SignedAngle(bowDirection, -windVelocity, Vector3.up);
             float response = Mathf.Max(.1f, windwardTurnResponseSeconds);
-            float maximumRate = windwardTurnRateDegrees * Mathf.Deg2Rad;
-            float targetRate = Mathf.Clamp(angle * Mathf.Deg2Rad / response, -maximumRate, maximumRate);
+            float windScale = windVelocity.magnitude / 9f;
+            float referenceRate = windwardTurnRateDegrees * Mathf.Deg2Rad;
+            float maximumRate = referenceRate * windScale;
+            // Scale the whole approach, including small heading corrections near alignment.
+            float targetRate = Mathf.Clamp(angle * Mathf.Deg2Rad / response, -referenceRate, referenceRate) * windScale;
             float rateResponse = 4f / response;
             float acceleration = Mathf.Clamp((targetRate - body.angularVelocity.y) * rateResponse,
                 -maximumRate * rateResponse, maximumRate * rateResponse);

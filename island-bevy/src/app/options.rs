@@ -62,7 +62,7 @@ impl Parameter {
 ///
 /// `terrain_size` is the one field that is not an `f32` and is handled beside
 /// the table, under [`TERRAIN_SIZE_FLAG`].
-pub const PARAMETERS: [Parameter; 20] = [
+pub const PARAMETERS: [Parameter; 21] = [
     // Validated only as finite and above zero. Past about 0.5 the massif
     // reaches heights the river and coastal passes were never framed against.
     Parameter {
@@ -240,6 +240,14 @@ pub const PARAMETERS: [Parameter; 20] = [
         maximum: 10.0,
         logarithmic: false,
         field: |options| &mut options.initial_soil_depth_metres,
+    },
+    Parameter {
+        flag: "--seabed-depth-distance-ratio",
+        group: Group::Terrain,
+        minimum: 0.0,
+        maximum: 1.0,
+        logarithmic: false,
+        field: |options| &mut options.seabed_depth_distance_ratio,
     },
 ];
 

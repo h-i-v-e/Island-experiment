@@ -81,6 +81,10 @@ fn parse(arguments: impl Iterator<Item = String>) -> Result<Option<Command>, Str
             "--max-height" => {
                 command.options.max_height = parse_value(&argument, &value(&mut arguments)?)?;
             }
+            "--seabed-depth-distance-ratio" => {
+                command.options.seabed_depth_distance_ratio =
+                    parse_value(&argument, &value(&mut arguments)?)?;
+            }
             "--initial-soil-depth-metres" => {
                 command.options.initial_soil_depth_metres =
                     parse_value(&argument, &value(&mut arguments)?)?;
@@ -143,6 +147,8 @@ fn print_help() {
            --terrain-size <N>     Alias for --seed-points\n\
            --water-ratio <RATIO>  Water coverage [default: 0.6]\n\
            --max-height <HEIGHT>  Normalized maximum elevation [default: 0.2]\n\
+           --seabed-depth-distance-ratio <RATIO>\n\
+                                  Final seabed drop / distance from land [default: 0.1]\n\
            --initial-soil-depth-metres <METRES>\n\
                                   Initial loose soil on land [default: 0]\n\
            --hydraulic-erosion-strength <S>\n\
@@ -177,6 +183,8 @@ mod tests {
                 "0.7",
                 "--initial-soil-depth-metres",
                 "2.5",
+                "--seabed-depth-distance-ratio",
+                "0.25",
                 "--hydraulic-erosion-strength",
                 "1.5",
                 "--hydraulic-deposition-strength",
@@ -196,6 +204,7 @@ mod tests {
         .unwrap()
         .unwrap();
         assert!((command.options.initial_soil_depth_metres - 2.5).abs() < f32::EPSILON);
+        assert!((command.options.seabed_depth_distance_ratio - 0.25).abs() < f32::EPSILON);
         assert_eq!(command.seed, 42);
         assert_eq!(command.width, 320);
         assert!((command.options.water_ratio - 0.7).abs() < f32::EPSILON);

@@ -122,11 +122,13 @@ namespace Motu.Islands
         public bool HasIsland(Vector2Int islandGridPosition)
         {
             int x = islandGridPosition.x, y = islandGridPosition.y;
-            var radius = (double)ArchipelagoRadius;
-            if ((x == 0 && y == 0) || (double)x * x + (double)y * y > radius * radius)
+            var sqrRadius = ArchipelagoRadius * ArchipelagoRadius;
+            var sqrDistance = x * x + y * y;
+            if (sqrDistance == 0 || sqrDistance >= sqrRadius)
             {
                 return false;
             }
+            var weight = Mathf.Sqrt(1f - (sqrDistance / (float)sqrRadius));
             var seed = (uint)this.seed;
             var noiseOffsetA = NoiseOffset(seed);
             var noiseOffsetB = NoiseOffset(seed * 3);
@@ -136,7 +138,7 @@ namespace Motu.Islands
             Mathf.PerlinNoise(
                 noiseOffsetB.x + x * noiseScaleFine,
                 noiseOffsetB.y + y * noiseScaleFine) * 0.75f;
-            if (height < islandThreshold)
+            if (height * weight < islandThreshold)
             {
                 return false;
             }

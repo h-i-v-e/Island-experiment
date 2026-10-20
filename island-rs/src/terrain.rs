@@ -32,6 +32,8 @@ use crate::{
     rng::Rng,
 };
 
+mod bird_perches;
+pub use bird_perches::LandBirdPerch;
 mod coastal_uplift;
 mod decorations;
 mod erosion;
@@ -124,6 +126,9 @@ pub struct IslandOptions {
     /// Zero starts with bare bedrock. Does not raise the terrain or coat the seabed.
     #[serde(default)]
     pub initial_soil_depth_metres: f32,
+    /// Final seabed drop per unit of horizontal graph distance from land.
+    /// Zero disables deepening; 0.1 drops another 10 metres at 100 metres offshore.
+    pub seabed_depth_distance_ratio: f32,
 }
 
 impl Default for IslandOptions {
@@ -150,6 +155,7 @@ impl Default for IslandOptions {
             river_maximum_depth_metres: 2.0,
             terrain_size: 1024,
             initial_soil_depth_metres: 0.0,
+            seabed_depth_distance_ratio: 0.1,
         }
     }
 }
@@ -196,6 +202,11 @@ impl IslandOptions {
         }
         if !self.initial_soil_depth_metres.is_finite() || self.initial_soil_depth_metres < 0.0 {
             return Err("initial_soil_depth_metres must be finite and non-negative".into());
+        }
+        if !self.seabed_depth_distance_ratio.is_finite()
+            || !(0.0..=1.0).contains(&self.seabed_depth_distance_ratio)
+        {
+            return Err("seabed_depth_distance_ratio must be between 0 and 1".into());
         }
         if !self.hydraulic_erosion_strength.is_finite()
             || !(0.0..=8.0).contains(&self.hydraulic_erosion_strength)

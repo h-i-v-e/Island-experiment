@@ -64,9 +64,10 @@ pub struct MotuOptions {
     pub detailNoiseStrength: f32,
     pub landMassOffset: f32,
     pub initialSoilDepthMetres: f32,
+    pub seabedDepthDistanceRatio: f32,
 }
 
-const _: () = assert!(size_of::<MotuOptions>() == size_of::<[f32; 20]>());
+const _: () = assert!(size_of::<MotuOptions>() == size_of::<[f32; 21]>());
 
 #[derive(Clone, Copy, Debug)]
 #[repr(C)]
@@ -99,6 +100,7 @@ impl From<MotuOptions> for IslandOptions {
             detail_noise_strength: value.detailNoiseStrength,
             land_mass_offset: value.landMassOffset,
             initial_soil_depth_metres: value.initialSoilDepthMetres,
+            seabed_depth_distance_ratio: value.seabedDepthDistanceRatio,
             hydraulic_erosion_strength: value.hydraulicErosionStrength,
             hydraulic_deposition_strength: value.hydraulicDepositionStrength,
             hydraulic_deposition_slope_degrees: value.hydraulicDepositionSlopeDegrees,
@@ -1643,6 +1645,50 @@ pub unsafe extern "C" fn ReleaseWaterfallFeet(output: *mut ExportWaterfallFeet) 
     *output = ExportWaterfallFeet::default();
 }
 
+/// Owned sparse wildlife anchors in normalized Rust XYZ (Z up).
+#[derive(Clone, Copy, Debug, Default)]
+#[repr(C)]
+pub struct ExportLandBirdPerches {
+    pub handle: *mut c_void,
+    pub data: *const crate::terrain::LandBirdPerch,
+    pub length: i32,
+}
+const _: () = assert!(size_of::<crate::terrain::LandBirdPerch>() == 24);
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn CreateLandBirdPerches(
+    handle: *const c_void,
+    divisions: u32,
+    output: *mut ExportLandBirdPerches,
+) {
+    let Some(output) = (unsafe { output.as_mut() }) else {
+        return;
+    };
+    *output = ExportLandBirdPerches::default();
+    let Some(island) = (unsafe { island_ref(handle) }) else {
+        return;
+    };
+    if divisions == 0 || divisions > 256 {
+        return;
+    }
+    let owner = Box::new(island.land_bird_perches(divisions));
+    output.data = owner.as_ptr();
+    output.length = length_i32(owner.len());
+    output.handle = Box::into_raw(owner).cast();
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ReleaseLandBirdPerches(output: *mut ExportLandBirdPerches) {
+    let Some(output) = (unsafe { output.as_mut() }) else {
+        return;
+    };
+    if !output.handle.is_null() {
+        // SAFETY: this handle came from CreateLandBirdPerches and is released once.
+        drop(unsafe { Box::from_raw(output.handle.cast::<Vec<crate::terrain::LandBirdPerch>>()) });
+    }
+    *output = ExportLandBirdPerches::default();
+}
+
 /// Exports one compact capsule description for every placed central trunk.
 ///
 /// Positions and radii use normalized island coordinates. The returned owner
@@ -2500,6 +2546,21 @@ mod tests {
     }
 
     #[test]
+    fn land_bird_perch_export_null_arguments_are_safe() {
+        let mut output = ExportLandBirdPerches::default();
+        // SAFETY: null arguments and repeated release of reset exports are supported.
+        unsafe {
+            CreateLandBirdPerches(ptr::null(), 64, ptr::null_mut());
+            CreateLandBirdPerches(ptr::null(), 64, &raw mut output);
+            ReleaseLandBirdPerches(&raw mut output);
+            ReleaseLandBirdPerches(&raw mut output);
+            ReleaseLandBirdPerches(ptr::null_mut());
+        }
+        assert!(output.handle.is_null() && output.data.is_null());
+        assert_eq!(output.length, 0);
+    }
+
+    #[test]
     fn boulder_export_null_arguments_are_safe() {
         let mut output = ExportBoulderColliders::default();
         // SAFETY: null arguments are supported and output remains owned here.
@@ -2527,6 +2588,11 @@ mod tests {
         };
         let island = Island::generate_with_forest(2018, terrain_options, forest_options)
             .expect("small island generation should succeed");
+        if let Ok(path) = std::env::var("MOTU_LAND_PERCH_FIXTURE") {
+            island
+                .save(path)
+                .expect("save optional Unity native interop fixture");
+        }
         let expected_collider_count = i32::try_from(island.forest_meshes().trees.len()).unwrap();
         let expected_log_count = i32::try_from(island.forest_meshes().logs.len()).unwrap();
         let expected_boulder_count = i32::try_from(island.decorations().boulders.len()).unwrap();
@@ -2536,6 +2602,31 @@ mod tests {
         // SAFETY: handle is a freshly allocated Island and each output is a
         // distinct writable value released through its paired grid function.
         unsafe {
+            let expected = island_ref(handle).unwrap().land_bird_perches(64);
+            assert!(
+                !expected.is_empty(),
+                "real generated forest should have treetop perches"
+            );
+            let mut land = ExportLandBirdPerches::default();
+            CreateLandBirdPerches(handle, 64, &raw mut land);
+            assert!(!land.handle.is_null());
+            let records = std::slice::from_raw_parts(land.data, land.length as usize);
+            assert_eq!(records, expected);
+            let mut tiles = std::collections::HashSet::new();
+            for record in records {
+                assert!(record.position.is_finite() && record.position.z > 0.0);
+                assert!(tiles.insert(record.tile));
+            }
+            eprintln!(
+                "Generated land bird perches: {} ({} tree, {} cliff)",
+                records.len(),
+                records.iter().filter(|p| p.kind == 0).count(),
+                records.iter().filter(|p| p.kind == 1).count()
+            );
+            ReleaseLandBirdPerches(&raw mut land);
+            assert!(land.handle.is_null() && land.data.is_null() && land.length == 0);
+            CreateLandBirdPerches(handle, 0, &raw mut land);
+            assert!(land.handle.is_null());
             let mut horizon = ExportMesh::default();
             CreateIslandLod3Mesh(handle, &raw mut horizon);
             assert!(!horizon.handle.is_null());
@@ -2774,6 +2865,7 @@ mod tests {
             detailNoiseStrength: 0.22,
             landMassOffset: 0.0,
             initialSoilDepthMetres: 0.0,
+            seabedDepthDistanceRatio: 0.1,
         }
     }
 
@@ -2809,6 +2901,15 @@ mod tests {
             ..test_options()
         });
         assert!((options.initial_soil_depth_metres - 2.5).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn motu_options_forward_seabed_depth_ratio() {
+        let options = IslandOptions::from(MotuOptions {
+            seabedDepthDistanceRatio: 0.25,
+            ..test_options()
+        });
+        assert!((options.seabed_depth_distance_ratio - 0.25).abs() < f32::EPSILON);
     }
 
     #[test]

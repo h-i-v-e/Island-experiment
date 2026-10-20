@@ -15,7 +15,7 @@ for path in sorted(inputs):
         source.update(str(path.relative_to(ROOT)).encode())
         source.update(path.read_bytes())
 data = {
-    'abi_version': 1, 'target': 'aarch64-apple-darwin', 'library': plugin.name,
+    'abi_version': 2, 'target': 'aarch64-apple-darwin', 'library': plugin.name,
     'sha256': hashlib.sha256(plugin.read_bytes()).hexdigest(),
     'rustc': subprocess.check_output(['rustc', '--version'], text=True).strip(),
     'source_tree_sha256': source.hexdigest(),

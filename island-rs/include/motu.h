@@ -85,6 +85,8 @@ typedef struct {
     float riverSourceDepthMetres, riverMaximumDepthMetres;
     float continentalNoiseStrength, detailNoiseStrength, landMassOffset;
     float initialSoilDepthMetres;
+    /* Extra final seabed drop / horizontal distance from land, in [0, 1]. */
+    float seabedDepthDistanceRatio;
 } MotuOptions;
 /* Shared axis/radius description: capsules for standing trunks, boxes for logs.
  * All positions and radii use normalized island coordinates. */

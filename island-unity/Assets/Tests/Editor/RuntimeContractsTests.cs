@@ -33,6 +33,34 @@ namespace Motu.Editor
         [Test] public void WaveTransitions() => OceanWaveTransitionValidation.BatchValidateWaveTransitions();
         [Test] public void MinimapTeleport() => MinimapTeleportValidation.BatchValidateMinimapTeleport();
         [Test] public void SoilPolicyAndRequestIsolation() => IslandRequestValidation.ValidateSoilAndSnapshots();
+        [Test]
+        public void SeabedDepthConfiguration()
+        {
+            Motu.Interop.NativeAbi.Validate();
+            var profile = new IslandGenerationProfile(new IslandGenerationSettings(), new IslandRiverSettings(),
+                new IslandForestSettings(), new IslandReedSettings(), new IslandFernSettings(),
+                new IslandRenderingSettings(), new IslandDebugSettings());
+            var original = new IslandGenerationRequest(42, Vector2Int.zero, profile, default);
+            Assert.That(original.Options.seabedDepthDistanceRatio, Is.EqualTo(0.1f));
+            profile.Generation.SeabedDepthDistanceRatio = 0.25f;
+            var deeper = new IslandGenerationRequest(42, Vector2Int.zero, profile, default);
+            Assert.That(deeper.Options.seabedDepthDistanceRatio, Is.EqualTo(0.25f));
+            Assert.That(deeper.SnapshotPath, Is.Not.EqualTo(original.SnapshotPath));
+            profile.Generation.SeabedDepthDistanceRatio = 0f;
+            var disabled = new IslandGenerationRequest(42, Vector2Int.zero, profile, default);
+            Assert.That(disabled.Options.seabedDepthDistanceRatio, Is.Zero);
+            Assert.That(disabled.SnapshotPath, Is.Not.EqualTo(original.SnapshotPath));
+            Assert.That(deeper.Generation.SeabedDepthDistanceRatio, Is.EqualTo(0.25f));
+            foreach (var invalid in new[] { float.NaN, float.PositiveInfinity, float.NegativeInfinity })
+            {
+                profile.Generation.SeabedDepthDistanceRatio = invalid;
+                Assert.That(profile.Generation.SeabedDepthDistanceRatio, Is.EqualTo(0.1f));
+            }
+            profile.Generation.SeabedDepthDistanceRatio = -1f;
+            Assert.That(profile.Generation.SeabedDepthDistanceRatio, Is.Zero);
+            profile.Generation.SeabedDepthDistanceRatio = 2f;
+            Assert.That(profile.Generation.SeabedDepthDistanceRatio, Is.EqualTo(1f));
+        }
         [Test] public void CancellationAndRestart() => IslandRequestValidation.ValidateCancellation();
         [Test]
         public void RuntimeOwnership()

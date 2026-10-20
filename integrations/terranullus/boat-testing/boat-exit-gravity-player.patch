@@ -1,0 +1,65 @@
+--- a/Assets/Scripts/PlayerController.cs
++++ b/Assets/Scripts/PlayerController.cs
+@@ -61,6 +61,7 @@
+     private float sideLayerWeightVelocity;
+     private float verticalSpeed;
+     private bool airborne;
++    private int lastMovementFrame = -1;
+     // Learn the clip speed per unit of movement blend for airborne carry.
+     private float movementSpeedPerAxis;
+     private InputAction interact;
+@@ -156,6 +157,9 @@
+         animator.applyRootMotion = true;
+         animator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
+         characterController = GetComponent<CharacterController>();
++        // Small downward sweeps maintain ground contact even at high frame
++        // rates. A movement threshold can discard them and disable foot IK.
++        characterController.minMoveDistance = 0f;
+         sideStepLayer = animator.GetLayerIndex(SideStepLayerName);
+         if (UsesPlayerInput)
+         {
+@@ -187,6 +191,7 @@
+         sideLayerWeightVelocity = 0f;
+         verticalSpeed = 0f;
+         airborne = false;
++        lastMovementFrame = -1;
+         movementSpeedPerAxis = 0f;
+         leftFootWeight = 0f;
+         rightFootWeight = 0f;
+@@ -287,6 +292,13 @@
+     private void OnAnimatorMove()
+     {
+         if (boarding != null && boarding.ApplyAnimatorMotion()) return;
++        MoveCharacter(animator.deltaPosition, animator.deltaRotation);
++    }
++
++    private void MoveCharacter(Vector3 delta, Quaternion rootRotation)
++    {
++        if (!characterController.enabled || Time.deltaTime <= 0f || lastMovementFrame == Time.frameCount) return;
++        lastMovementFrame = Time.frameCount;
+         // Carry the point beneath the player with any moving or rotating ground.
+         if (constraint == null && ground != null)
+         {
+@@ -320,9 +332,8 @@
+         }
+         // Use root motion for distance and gravity, and steer the directional clips toward the aim.
+         if (IsBoatAnimation)
+-            lookYaw += Mathf.DeltaAngle(0f, animator.deltaRotation.eulerAngles.y);
+-        transform.rotation *= animator.deltaRotation;
+-        Vector3 delta = animator.deltaPosition;
++            lookYaw += Mathf.DeltaAngle(0f, rootRotation.eulerAngles.y);
++        transform.rotation *= rootRotation;
+         if (!airborne && sideLayerWeight > 0f)
+         {
+             float yawError = Mathf.DeltaAngle(transform.eulerAngles.y, lookYaw);
+@@ -366,6 +377,10 @@
+ 
+     private void LateUpdate()
+     {
++        // Idle, paused or missing animation motion must not suspend physics.
++        // The normal animation pass moves first; this only fills a missed frame.
++        if (lastMovementFrame != Time.frameCount && (boarding == null || !boarding.ControlsRootMotion))
++            MoveCharacter(Vector3.zero, Quaternion.identity);
+         if (head == null || cameraTransform == null || headRollStabilisation <= 0f
+             || !cameraTransform.IsChildOf(head)) return;
+ 

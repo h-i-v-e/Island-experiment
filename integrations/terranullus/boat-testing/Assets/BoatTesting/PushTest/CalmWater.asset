@@ -1,0 +1,70 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 08d142d570354704a237659606796789, type: 3}
+  m_Name: CalmWater
+  m_EditorClassIdentifier: Motu.Runtime::Motu.Settings.OceanWaveProfile
+  enableGeometricWaves: 1
+  fineVertexSpacingMetres: 0.5
+  fineRadiusMetres: 64
+  ringsPerSpacingLevel: 8
+  displacementFadeStartMetres: 127.5
+  displacementFadeEndMetres: 128
+  maskCoverageMetres: 1024
+  maskResolution: 512
+  maskAnchorSnapMetres: 16
+  depthAllowancePower: 1.35
+  distanceAllowancePower: 1.15
+  noiseWorldSizeMetres: 2048
+  domainWarpMetres: 4
+  amplitudeVariation: 0.15
+  whitecapColour: {r: 0.9, g: 0.96, b: 1, a: 1}
+  whitecapStrength: 0
+  whitecapHeightThreshold: 0.68
+  whitecapSlopeThreshold: 0.12
+  whitecapCoverage: 0.58
+  whitecapNoiseWorldSizeMetres: 7
+  whitecapDistortionScale: 0.32
+  whitecapDistortionSpeed: 0.65
+  shelteredWaveFraction: 0.33333334
+  onshoreWaveEnabled: 0
+  onshoreWaveWavelengthMetres: 12
+  onshoreWaveAmplitudeMetres: 0.16
+  onshoreWaveSpeedMetresPerSecond: 2.2
+  onshoreWaveChoppiness: 0.18
+  onshoreWaveLeadingEdgeSharpness: 0.95
+  onshoreWaveSharpeningDistanceMetres: 96
+  onshoreWaveBreakingStartDepthMetres: 5
+  onshoreWaveBreakingFullDepthMetres: 3.5
+  wave0:
+    direction: {x: 1, y: 0.18}
+    wavelengthMetres: 16
+    amplitudeMetres: 0
+    speedMetresPerSecond: 2
+    choppiness: 0
+  wave1:
+    direction: {x: 0.32, y: 1}
+    wavelengthMetres: 8
+    amplitudeMetres: 0
+    speedMetresPerSecond: 1.5
+    choppiness: 0
+  wave2:
+    direction: {x: -0.82, y: 0.55}
+    wavelengthMetres: 4
+    amplitudeMetres: 0
+    speedMetresPerSecond: 1
+    choppiness: 0
+  wave3:
+    direction: {x: 0.58, y: -0.81}
+    wavelengthMetres: 2
+    amplitudeMetres: 0
+    speedMetresPerSecond: 0.7
+    choppiness: 0

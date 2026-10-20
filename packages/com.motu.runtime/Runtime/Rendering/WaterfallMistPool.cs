@@ -2,6 +2,8 @@ using System;
 using UnityEngine;
 using UnityEngine.Rendering;
 using Motu.Islands;
+using Motu.Settings;
+using Motu.World;
 
 namespace Motu.Rendering
 {
@@ -16,6 +18,8 @@ namespace Motu.Rendering
         private const float SurfaceClearance = 0.08f;
         private const float SeaLevel = 0f;
         private const int Lod0NeighborhoodRadius = 1;
+        // WaterfallPatch.face_run(): two 1.25 m refinement edges in a 2000 m island.
+        private const float NormalizedFaceRun = 2.5f / IslandWorldManager.IslandSizeMetres;
 
         private static readonly int DensityId = Shader.PropertyToID("_Density");
         private static readonly int NoiseOffsetId = Shader.PropertyToID("_NoiseOffset");
@@ -25,7 +29,7 @@ namespace Motu.Rendering
             internal readonly GameObject volumeObject;
             internal readonly Transform volumeTransform;
             internal readonly MeshRenderer renderer;
-            internal readonly ParticleSystem spray;
+            internal readonly AudioSource audio;
             internal readonly MaterialPropertyBlock properties = new MaterialPropertyBlock();
             internal int footIndex = -1;
 
@@ -33,12 +37,12 @@ namespace Motu.Rendering
                 GameObject volumeObject,
                 Transform volumeTransform,
                 MeshRenderer renderer,
-                ParticleSystem spray)
+                AudioSource audio)
             {
                 this.volumeObject = volumeObject;
                 this.volumeTransform = volumeTransform;
                 this.renderer = renderer;
-                this.spray = spray;
+                this.audio = audio;
             }
         }
 
@@ -47,9 +51,10 @@ namespace Motu.Rendering
         private readonly float[] nearestDistances = new float[PoolSize];
 
         private WaterfallFootIndex index;
+        private float faceRun;
+        [SerializeField] private WaterfallAudioProfile audioProfile;
         private Mesh sharedVolumeMesh;
         private Material sharedMistMaterial;
-        private Material sharedSprayMaterial;
         private Vector3 lastQueryPosition = new Vector3(float.PositiveInfinity, 0f, 0f);
         private Vector2Int lastLod1 = new Vector2Int(-1, -1);
         private bool riversVisible;
@@ -89,41 +94,13 @@ namespace Motu.Rendering
                 return count;
             }
         }
-        internal int CreatedSpraySystemCount
-        {
-            get
-            {
-                var count = 0;
-                for (var slotIndex = 0; slotIndex < slots.Length; slotIndex++)
-                {
-                    if (slots[slotIndex]?.spray != null)
-                    {
-                        count++;
-                    }
-                }
-                return count;
-            }
-        }
-        internal int ActiveSpraySystemCount
-        {
-            get
-            {
-                var count = 0;
-                for (var slotIndex = 0; slotIndex < slots.Length; slotIndex++)
-                {
-                    if (slots[slotIndex]?.spray.isPlaying == true)
-                    {
-                        count++;
-                    }
-                }
-                return count;
-            }
-        }
-
         internal void Initialize(IslandPreparedWaterfallFoot[] feet, float worldSize, bool visible)
         {
             index = new WaterfallFootIndex(feet, worldSize);
+            faceRun = NormalizedFaceRun * worldSize;
             riversVisible = visible;
+            if (audioProfile == null)
+                audioProfile = Resources.Load<WaterfallAudioProfile>("WaterfallAudio");
             CreateSharedVisuals();
             for (var slotIndex = 0; slotIndex < slots.Length; slotIndex++)
             {
@@ -134,7 +111,7 @@ namespace Motu.Rendering
         internal void SetPlayerPosition(Vector3 worldPosition, Vector2Int activeLod1)
         {
             currentPlayerPosition = worldPosition;
-            if (!riversVisible || index == null || index.Count == 0)
+            if (!isActiveAndEnabled || !riversVisible || index == null || index.Count == 0)
             {
                 return;
             }
@@ -189,10 +166,8 @@ namespace Motu.Rendering
                 }
             }
             DestroyUnityObject(sharedMistMaterial);
-            DestroyUnityObject(sharedSprayMaterial);
             DestroyUnityObject(sharedVolumeMesh);
             sharedMistMaterial = null;
-            sharedSprayMaterial = null;
             sharedVolumeMesh = null;
             index = null;
         }
@@ -208,7 +183,7 @@ namespace Motu.Rendering
                     continue;
                 }
                 var foot = index.FootAt(footIndex);
-                if ((foot.position - playerPosition).sqrMagnitude > retirementSquared
+                if (DistanceToImpactSquared(foot, playerPosition) > retirementSquared
                     || !IsInActiveLod0Area(foot.position, activeLod1))
                 {
                     ReleaseSlot(slots[slotIndex]);
@@ -219,7 +194,7 @@ namespace Motu.Rendering
             var activationSquared = ActivationRadius * ActivationRadius;
             index.CellsIntersecting(
                 playerPosition,
-                ActivationRadius,
+                ActivationRadius + faceRun,
                 out var minimumX,
                 out var maximumX,
                 out var minimumY,
@@ -241,7 +216,7 @@ namespace Motu.Rendering
                         {
                             continue;
                         }
-                        var distanceSquared = (foot.position - playerPosition).sqrMagnitude;
+                        var distanceSquared = DistanceToImpactSquared(foot, playerPosition);
                         if (distanceSquared <= activationSquared)
                         {
                             InsertNearest(footIndex, distanceSquared, ref nearestCount);
@@ -312,8 +287,7 @@ namespace Motu.Rendering
                 {
                     continue;
                 }
-                var candidateDistance =
-                    (index.FootAt(footIndex).position - playerPosition).sqrMagnitude;
+                var candidateDistance = DistanceToImpactSquared(index.FootAt(footIndex), playerPosition);
                 if (candidateDistance > distanceSquared)
                 {
                     distanceSquared = candidateDistance;
@@ -342,30 +316,65 @@ namespace Motu.Rendering
                 && Mathf.Abs(cell.y - activeLod1.y) <= Lod0NeighborhoodRadius;
         }
 
+        private float DistanceToImpactSquared(IslandPreparedWaterfallFoot foot, Vector3 position)
+        {
+            return TryGetImpactPosition(foot, out var impact)
+                ? (impact - position).sqrMagnitude : float.PositiveInfinity;
+        }
+
+        private bool TryGetImpactPosition(IslandPreparedWaterfallFoot foot, out Vector3 impact)
+        {
+            impact = foot.position;
+            if (impact.y >= SeaLevel) return true;
+            float upperSurface = foot.position.y + foot.drop;
+            if (upperSurface <= SeaLevel) return false;
+
+            // Match WaterfallPatch.face_surface_at: the face descends from lip
+            // to foot using smoothstep, not a straight segment. Invert that
+            // profile at sea level, then move upstream to the actual crossing.
+            float target = (upperSurface - SeaLevel) / foot.drop;
+            float low = 0f, high = 1f;
+            for (int iteration = 0; iteration < 20; iteration++)
+            {
+                float t = (low + high) * .5f;
+                float heightBlend = t * t * (3f - 2f * t);
+                if (heightBlend < target) low = t;
+                else high = t;
+            }
+            float progress = (low + high) * .5f;
+            impact -= DownstreamDirection(foot) * (faceRun * (1f - progress));
+            impact.y = SeaLevel;
+            return true;
+        }
+
+        private static Vector3 DownstreamDirection(IslandPreparedWaterfallFoot foot)
+        {
+            var direction = Vector3.ProjectOnPlane(foot.direction, Vector3.up).normalized;
+            return direction.sqrMagnitude < .5f ? Vector3.forward : direction;
+        }
+
         private void AssignSlot(Slot slot, int footIndex)
         {
             var foot = index.FootAt(footIndex);
+            if (!TryGetImpactPosition(foot, out var impactPosition))
+            {
+                ReleaseSlot(slot);
+                return;
+            }
             var impact = Mathf.InverseLerp(0.5f, 8f, foot.drop);
-            // Extend beyond both banks so the continuous lower mist covers the
-            // entire impact line even when the waterfall width is near a clamp.
+            // Cover the full impact line with overlap at both banks.
             var width = Mathf.Clamp(foot.halfWidth * 2.7f, 3f, 24f);
             var depth = Mathf.Clamp(foot.halfWidth * 1.25f, 1.5f, 8f);
             var height = Mathf.Clamp(
                 Mathf.Lerp(1.2f, 2.4f, impact) + width * 0.12f,
                 1.3f,
                 3.5f);
-            var direction = Vector3.ProjectOnPlane(foot.direction, Vector3.up).normalized;
-            if (direction.sqrMagnitude < 0.5f)
-            {
-                direction = Vector3.forward;
-            }
-            var impactPosition = foot.position;
-            impactPosition.y = Mathf.Max(impactPosition.y, SeaLevel);
+            var direction = DownstreamDirection(foot);
 
             slot.footIndex = footIndex;
             // Waterfall records and the player query are island-local. Keep the
             // assigned effect local to the river root as well so translated or
-            // rotated islands do not leave their mist and spray near world zero.
+            // rotated islands do not leave their mist and sound near world zero.
             slot.volumeObject.transform.localPosition = impactPosition;
             slot.volumeObject.transform.localRotation = Quaternion.LookRotation(
                 direction,
@@ -387,15 +396,23 @@ namespace Motu.Rendering
                     0f));
             slot.renderer.SetPropertyBlock(slot.properties);
             slot.renderer.enabled = true;
-            ConfigureAssignedSpray(slot.spray, width, depth, impact);
-            slot.spray.Clear(true);
-            slot.spray.Play(true);
+            if (slot.audio != null)
+            {
+                slot.audio.Stop();
+                float size = Mathf.InverseLerp(.5f, 6f, foot.halfWidth);
+                slot.audio.volume = audioProfile.Volume * Mathf.Lerp(.45f, 1f, impact * .6f + size * .4f);
+                // Start each waterfall at a stable, different loop phase to avoid
+                // nearby falls reinforcing the same recording in lockstep.
+                slot.audio.time = Mathf.Repeat(footIndex * .6180339f, 1f)
+                    * Mathf.Max(0f, slot.audio.clip.length - .01f);
+                slot.audio.Play();
+            }
         }
 
         private static void ReleaseSlot(Slot slot)
         {
             slot.renderer.enabled = false;
-            slot.spray.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+            if (slot.audio != null) slot.audio.Stop();
             slot.footIndex = -1;
         }
 
@@ -430,28 +447,21 @@ namespace Motu.Rendering
             renderer.allowOcclusionWhenDynamic = false;
             renderer.enabled = false;
 
-            var sprayObject = new GameObject("Impact spray");
-            sprayObject.layer = gameObject.layer;
-            sprayObject.transform.SetParent(volumeObject.transform, false);
-            sprayObject.transform.localPosition = Vector3.up * SurfaceClearance;
-            // The exported foot direction points downstream. Tilt its local
-            // forward axis upward so droplets launch out from the impact line,
-            // then let world gravity pull them back into the plunge pool.
-            sprayObject.transform.localRotation = Quaternion.Euler(-24f, 0f, 0f);
-            var spray = sprayObject.AddComponent<ParticleSystem>();
-            ConfigureSharedSpray(spray);
-            var sprayRenderer = sprayObject.GetComponent<ParticleSystemRenderer>();
-            sprayRenderer.sharedMaterial = sharedSprayMaterial;
-            sprayRenderer.renderMode = ParticleSystemRenderMode.Stretch;
-            sprayRenderer.velocityScale = 0.07f;
-            sprayRenderer.lengthScale = 0.34f;
-            sprayRenderer.cameraVelocityScale = 0f;
-            sprayRenderer.shadowCastingMode = ShadowCastingMode.Off;
-            sprayRenderer.receiveShadows = true;
-            sprayRenderer.lightProbeUsage = LightProbeUsage.Off;
-            sprayRenderer.reflectionProbeUsage = ReflectionProbeUsage.Off;
-            sprayRenderer.allowOcclusionWhenDynamic = false;
-            return new Slot(volumeObject, fogObject.transform, renderer, spray);
+            AudioSource audio = null;
+            if (audioProfile != null && audioProfile.Loop != null)
+            {
+                audio = volumeObject.AddComponent<AudioSource>();
+                audio.playOnAwake = false;
+                audio.clip = audioProfile.Loop;
+                audio.loop = true;
+                audio.spatialBlend = 1f;
+                audio.dopplerLevel = 0f;
+                audio.rolloffMode = AudioRolloffMode.Linear;
+                audio.minDistance = audioProfile.MinimumDistance;
+                audio.maxDistance = audioProfile.MaximumDistance;
+                audio.priority = 160;
+            }
+            return new Slot(volumeObject, fogObject.transform, renderer, audio);
         }
 
         private void CreateSharedVisuals()
@@ -465,117 +475,7 @@ namespace Motu.Rendering
             {
                 name = "Waterfall foot fog material"
             };
-            var sprayShader = Motu.Rendering.MotuShaders.Find("Motu/Waterfall Spray Particle");
-            if (sprayShader == null)
-            {
-                throw new InvalidOperationException(
-                    "The waterfall spray particle shader is unavailable.");
-            }
-            sharedSprayMaterial = new Material(sprayShader)
-            {
-                name = "Waterfall impact spray material"
-            };
             sharedVolumeMesh = CreateUnitCube();
-        }
-
-        private static void ConfigureSharedSpray(ParticleSystem spray)
-        {
-            var main = spray.main;
-            main.loop = true;
-            main.playOnAwake = false;
-            main.simulationSpace = ParticleSystemSimulationSpace.World;
-            main.startLifetime = new ParticleSystem.MinMaxCurve(0.48f, 0.95f);
-            main.startSpeed = new ParticleSystem.MinMaxCurve(1f, 2.25f);
-            main.startSize = new ParticleSystem.MinMaxCurve(0.11f, 0.32f);
-            main.startColor = new ParticleSystem.MinMaxGradient(
-                new Color(0.76f, 0.88f, 0.93f, 0.44f),
-                new Color(0.92f, 0.97f, 1f, 0.72f));
-            main.gravityModifier = new ParticleSystem.MinMaxCurve(1.05f, 1.45f);
-            main.maxParticles = 1200;
-
-            var emission = spray.emission;
-            emission.enabled = true;
-            emission.rateOverTime = 108f;
-
-            var shape = spray.shape;
-            shape.enabled = true;
-            shape.shapeType = ParticleSystemShapeType.Box;
-            shape.scale = new Vector3(3f, 0.08f, 1f);
-            shape.randomDirectionAmount = 0.16f;
-
-            var velocity = spray.velocityOverLifetime;
-            velocity.enabled = true;
-            velocity.space = ParticleSystemSimulationSpace.Local;
-            velocity.x = new ParticleSystem.MinMaxCurve(-0.32f, 0.32f);
-            // Unity requires every axis in this module to use the same curve mode.
-            // Two identical constants keep Y/Z neutral while matching X's mode.
-            velocity.y = new ParticleSystem.MinMaxCurve(0f, 0f);
-            velocity.z = new ParticleSystem.MinMaxCurve(0f, 0f);
-
-            var noise = spray.noise;
-            noise.enabled = true;
-            noise.quality = ParticleSystemNoiseQuality.Medium;
-            noise.separateAxes = true;
-            noise.strengthX = new ParticleSystem.MinMaxCurve(0.12f, 0.34f);
-            noise.strengthY = new ParticleSystem.MinMaxCurve(0.02f, 0.07f);
-            noise.strengthZ = new ParticleSystem.MinMaxCurve(0.08f, 0.24f);
-            noise.frequency = 0.65f;
-            noise.scrollSpeed = 0.22f;
-            noise.damping = true;
-            noise.octaveCount = 2;
-
-            var colour = spray.colorOverLifetime;
-            colour.enabled = true;
-            var gradient = new Gradient();
-            gradient.SetKeys(
-                new[]
-                {
-                    new GradientColorKey(Color.white, 0f),
-                    new GradientColorKey(new Color(0.82f, 0.92f, 0.96f), 1f),
-                },
-                new[]
-                {
-                    new GradientAlphaKey(0f, 0f),
-                    new GradientAlphaKey(0.92f, 0.12f),
-                    new GradientAlphaKey(0.48f, 0.58f),
-                    new GradientAlphaKey(0f, 1f),
-                });
-            colour.color = gradient;
-
-            var size = spray.sizeOverLifetime;
-            size.enabled = true;
-            var sizeCurve = new AnimationCurve(
-                new Keyframe(0f, 0.35f),
-                new Keyframe(0.18f, 1f),
-                new Keyframe(1f, 0.55f));
-            size.size = new ParticleSystem.MinMaxCurve(1f, sizeCurve);
-
-            spray.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-        }
-
-        private static void ConfigureAssignedSpray(
-            ParticleSystem spray,
-            float width,
-            float depth,
-            float impact)
-        {
-            var shape = spray.shape;
-            shape.scale = new Vector3(
-                Mathf.Max(width * 0.82f, 1f),
-                0.08f,
-                Mathf.Max(depth * 0.48f, 0.45f));
-
-            var emission = spray.emission;
-            emission.rateOverTime = Mathf.Lerp(80f, 260f, impact)
-                * Mathf.Clamp(width / 5f, 0.65f, 2.2f);
-
-            var main = spray.main;
-            main.startSpeed = new ParticleSystem.MinMaxCurve(
-                Mathf.Lerp(0.9f, 1.4f, impact),
-                Mathf.Lerp(1.8f, 2.9f, impact));
-            main.gravityModifier = new ParticleSystem.MinMaxCurve(
-                Mathf.Lerp(1.05f, 1.2f, impact),
-                Mathf.Lerp(1.4f, 1.75f, impact));
         }
 
         private static Mesh CreateUnitCube()
@@ -618,15 +518,16 @@ namespace Motu.Rendering
             for (var footIndex = 0; footIndex < index.Count; footIndex++)
             {
                 var foot = index.FootAt(footIndex);
-                if ((foot.position - currentPlayerPosition).sqrMagnitude > retirementSquared)
+                if (DistanceToImpactSquared(foot, currentPlayerPosition) > retirementSquared)
                 {
                     continue;
                 }
                 Gizmos.color = IsAssigned(footIndex)
                     ? Color.yellow
                     : new Color(1f, 0.45f, 0.9f, 0.75f);
-                Gizmos.DrawSphere(foot.position, IsAssigned(footIndex) ? 0.45f : 0.2f);
-                Gizmos.DrawRay(foot.position, foot.direction * Mathf.Max(foot.halfWidth, 1f));
+                TryGetImpactPosition(foot, out var impactPosition);
+                Gizmos.DrawSphere(impactPosition, IsAssigned(footIndex) ? 0.45f : 0.2f);
+                Gizmos.DrawRay(impactPosition, foot.direction * Mathf.Max(foot.halfWidth, 1f));
             }
         }
 
@@ -654,6 +555,11 @@ namespace Motu.Rendering
         private void OnDestroy()
         {
             DisposePool();
+        }
+
+        private void OnDisable()
+        {
+            ClearPlayerFocus();
         }
     }
 }

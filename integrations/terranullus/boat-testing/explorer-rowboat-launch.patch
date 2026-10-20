@@ -1,0 +1,354 @@
+--- a/Assets/Scripts/PlayerController.cs
++++ b/Assets/Scripts/PlayerController.cs
+@@ -9,6 +9,7 @@
+     [SerializeField] private ControlSource controlSource;
+     private Vector2 externalMovement;
+     private bool externalSprint;
++    private int consumedUseFrame = -1;
+     private Animator animator;
+     private BoatBoarding boarding;
+     private CharacterController characterController;
+@@ -96,6 +97,13 @@
+     public bool UsesPlayerInput => controlSource == ControlSource.PlayerInput;
+     public Vector2 MovementInput => UsesPlayerInput ? move.ReadValue<Vector2>() : externalMovement;
+     public InputAction Interact => interact;
++    public bool UsePressed => consumedUseFrame != Time.frameCount && interact != null && interact.WasPressedThisFrame();
++    public bool TryConsumeUse()
++    {
++        if (!UsePressed) return false;
++        consumedUseFrame = Time.frameCount;
++        return true;
++    }
+     public bool AtRest => characterController.isGrounded && MovementInput.sqrMagnitude < 0.0001f;
+ 
+     // NPC intent goes through the same root motion, collisions and IK as input.
+@@ -178,6 +186,7 @@
+         externalMovement = Vector2.zero;
+         externalSprint = false;
+         if (!UsesPlayerInput) return;
++        consumedUseFrame = -1;
+         look.performed += UpdateLook;
+         jumpAction.performed += Jump;
+         playerActions.Enable();
+--- a/Assets/Scripts/ShipsWheel.cs
++++ b/Assets/Scripts/ShipsWheel.cs
+@@ -1,5 +1,4 @@
+ using Motu.Gameplay;
+-using Motu.World;
+ using UnityEngine;
+ 
+ public class ShipsWheel : MonoBehaviour, IKConstraint
+@@ -29,7 +28,6 @@
+     private FloatingShip floatingShip;
+     private PlayerController playerController;
+     private Camera playerCamera;
+-    private IslandWorldManager world;
+     private float savedFarClip;
+     private bool adoptedPlayerCamera;
+     private bool overlapping;
+@@ -42,7 +40,7 @@
+     private void OnTriggerEnter(Collider other)
+     {
+         PlayerController player = other.GetComponent<PlayerController>();
+-        if (player == null)
++        if (player == null || !player.UsesPlayerInput)
+             return;
+ 
+         playerController = player;
+@@ -77,11 +75,11 @@
+         if (playerController == null)
+             return;
+ 
+-        var interact = playerController.Interact;
+-        if (interact == null || !interact.WasPressedThisFrame())
++        if (!playerController.UsePressed)
+             return;
+         if (!active && !overlapping)
+             return;
++        if (!playerController.TryConsumeUse()) return;
+ 
+         active = !active;
+         if (active && bodyPosition != null)
+@@ -113,43 +111,14 @@
+         playerCamera = playerController.GetComponentInChildren<Camera>(true);
+         if (playerCamera == null)
+             return;
+-
+-        // The helmsman keeps the camera on his head. A bridge camera would replace that view.
+-        ShipBridgeCamera[] bridges = FindObjectsByType<ShipBridgeCamera>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+-        float farthest = playerCamera.farClipPlane;
+-        for (int i = 0; i < bridges.Length; i++)
+-        {
+-            Camera bridgeCamera = bridges[i].GetComponent<Camera>();
+-            if (bridgeCamera != null && bridgeCamera != playerCamera)
+-            {
+-                if (bridgeCamera.farClipPlane > farthest)
+-                    farthest = bridgeCamera.farClipPlane;
+-                if (bridgeCamera.CompareTag("MainCamera"))
+-                    bridgeCamera.tag = "Untagged";
+-                bridgeCamera.enabled = false;
+-            }
+-            bridges[i].enabled = false;
+-        }
+-        if (farthest > playerCamera.farClipPlane)
++        float previousFarClip = playerCamera.farClipPlane;
++        PlayerView.Activate(playerController);
++        if (playerCamera.farClipPlane > previousFarClip)
+         {
+             if (!adoptedPlayerCamera)
+-                savedFarClip = playerCamera.farClipPlane;
+-            playerCamera.farClipPlane = farthest;
++                savedFarClip = previousFarClip;
+             adoptedPlayerCamera = true;
+         }
+-
+-        playerCamera.enabled = true;
+-        playerCamera.tag = "MainCamera";
+-        // Disabling a bridge camera unlocks the cursor. The player camera keeps it locked.
+-        Cursor.lockState = CursorLockMode.Locked;
+-        Cursor.visible = false;
+-
+-        if (world == null)
+-            world = FindAnyObjectByType<IslandWorldManager>();
+-        if (world == null)
+-            return;
+-        world.SetStreamingTarget(playerCamera.transform);
+-        world.SetFirstPersonViewActive(true);
+     }
+ 
+     private void OnDisable()
+--- a/Assets/Scripts/FloatingShip.cs
++++ b/Assets/Scripts/FloatingShip.cs
+@@ -46,6 +46,14 @@
+     private static readonly List<HullRestore> pendingRestores = new List<HullRestore>();
+     private static bool restoreHooked;
+     private static int queuedFrame = -1;
++
++    // Set before enabling a runtime-spawned boat, retaining its authored draft
++    // offset while allowing oceans whose mean surface is not at world Y = 0.
++    public void ConfigureLaunchHeight(float rootHeight)
++    {
++        if (prepared) throw new System.InvalidOperationException("Set launch height before enabling the boat.");
++        restingRootY = rootHeight;
++    }
+ 
+     private void OnEnable()
+     {
+--- a/Assets/Prefabs/ExplorerShip.prefab
++++ b/Assets/Prefabs/ExplorerShip.prefab
+@@ -31,6 +31,39 @@
+   m_Children: []
+   m_Father: {fileID: 3587718843743430360}
+   m_LocalEulerAnglesHint: {x: 0, y: 0, z: -40.586}
++--- !u!1 &76254672255944951
++GameObject:
++  m_ObjectHideFlags: 0
++  m_CorrespondingSourceObject: {fileID: 0}
++  m_PrefabInstance: {fileID: 0}
++  m_PrefabAsset: {fileID: 0}
++  serializedVersion: 6
++  m_Component:
++  - component: {fileID: 1773046117506767861}
++  m_Layer: 0
++  m_Name: Rowboat launch points
++  m_TagString: Untagged
++  m_Icon: {fileID: 0}
++  m_NavMeshLayer: 0
++  m_StaticEditorFlags: 0
++  m_IsActive: 1
++--- !u!4 &1773046117506767861
++Transform:
++  m_ObjectHideFlags: 0
++  m_CorrespondingSourceObject: {fileID: 0}
++  m_PrefabInstance: {fileID: 0}
++  m_PrefabAsset: {fileID: 0}
++  m_GameObject: {fileID: 76254672255944951}
++  serializedVersion: 2
++  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
++  m_LocalPosition: {x: 0, y: 0, z: 0}
++  m_LocalScale: {x: 1, y: 1, z: 1}
++  m_ConstrainProportionsScale: 0
++  m_Children:
++  - {fileID: 2583884114031711380}
++  - {fileID: 5320606966851157058}
++  m_Father: {fileID: 623947206051308783}
++  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+ --- !u!1 &1762586498331826297
+ GameObject:
+   m_ObjectHideFlags: 0
+@@ -165,6 +198,68 @@
+   m_ConstrainProportionsScale: 0
+   m_Children: []
+   m_Father: {fileID: 623947206051308783}
++  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
++--- !u!1 &3625729103501528037
++GameObject:
++  m_ObjectHideFlags: 0
++  m_CorrespondingSourceObject: {fileID: 0}
++  m_PrefabInstance: {fileID: 0}
++  m_PrefabAsset: {fileID: 0}
++  serializedVersion: 6
++  m_Component:
++  - component: {fileID: 2583884114031711380}
++  m_Layer: 0
++  m_Name: Starboard launch
++  m_TagString: Untagged
++  m_Icon: {fileID: 0}
++  m_NavMeshLayer: 0
++  m_StaticEditorFlags: 0
++  m_IsActive: 1
++--- !u!4 &2583884114031711380
++Transform:
++  m_ObjectHideFlags: 0
++  m_CorrespondingSourceObject: {fileID: 0}
++  m_PrefabInstance: {fileID: 0}
++  m_PrefabAsset: {fileID: 0}
++  m_GameObject: {fileID: 3625729103501528037}
++  serializedVersion: 2
++  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
++  m_LocalPosition: {x: 8.351608, y: 0, z: 2.67}
++  m_LocalScale: {x: 1, y: 1, z: 1}
++  m_ConstrainProportionsScale: 0
++  m_Children: []
++  m_Father: {fileID: 1773046117506767861}
++  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
++--- !u!1 &6819522021611256119
++GameObject:
++  m_ObjectHideFlags: 0
++  m_CorrespondingSourceObject: {fileID: 0}
++  m_PrefabInstance: {fileID: 0}
++  m_PrefabAsset: {fileID: 0}
++  serializedVersion: 6
++  m_Component:
++  - component: {fileID: 5320606966851157058}
++  m_Layer: 0
++  m_Name: Port launch
++  m_TagString: Untagged
++  m_Icon: {fileID: 0}
++  m_NavMeshLayer: 0
++  m_StaticEditorFlags: 0
++  m_IsActive: 1
++--- !u!4 &5320606966851157058
++Transform:
++  m_ObjectHideFlags: 0
++  m_CorrespondingSourceObject: {fileID: 0}
++  m_PrefabInstance: {fileID: 0}
++  m_PrefabAsset: {fileID: 0}
++  m_GameObject: {fileID: 6819522021611256119}
++  serializedVersion: 2
++  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
++  m_LocalPosition: {x: -8.335503, y: 0, z: 2.67}
++  m_LocalScale: {x: 1, y: 1, z: 1}
++  m_ConstrainProportionsScale: 0
++  m_Children: []
++  m_Father: {fileID: 1773046117506767861}
+   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+ --- !u!1 &7100000000000000001
+ GameObject:
+@@ -803,6 +898,9 @@
+     - targetCorrespondingSourceObject: {fileID: -8679921383154817045, guid: 03b31d475ad38405e8f42e9ac0e83847, type: 3}
+       insertIndex: -1
+       addedObject: {fileID: 2829647944303706820}
++    - targetCorrespondingSourceObject: {fileID: -8679921383154817045, guid: 03b31d475ad38405e8f42e9ac0e83847, type: 3}
++      insertIndex: -1
++      addedObject: {fileID: 1773046117506767861}
+     m_AddedComponents:
+     - targetCorrespondingSourceObject: {fileID: 919132149155446097, guid: 03b31d475ad38405e8f42e9ac0e83847, type: 3}
+       insertIndex: -1
+@@ -1273,13 +1371,49 @@
+     m_RemovedComponents: []
+     m_RemovedGameObjects: []
+     m_AddedGameObjects: []
+-    m_AddedComponents: []
++    m_AddedComponents:
++    - targetCorrespondingSourceObject: {fileID: 151974, guid: e87bf632e58223940b2a56c89b15c4cc, type: 3}
++      insertIndex: -1
++      addedObject: {fileID: 5748701982116210469}
+   m_SourcePrefab: {fileID: 100100000, guid: e87bf632e58223940b2a56c89b15c4cc, type: 3}
++--- !u!23 &2829647944301850628 stripped
++MeshRenderer:
++  m_CorrespondingSourceObject: {fileID: 2309582, guid: e87bf632e58223940b2a56c89b15c4cc, type: 3}
++  m_PrefabInstance: {fileID: 2829647944303873482}
++  m_PrefabAsset: {fileID: 0}
+ --- !u!4 &2829647944303706820 stripped
+ Transform:
+   m_CorrespondingSourceObject: {fileID: 429838, guid: e87bf632e58223940b2a56c89b15c4cc, type: 3}
+   m_PrefabInstance: {fileID: 2829647944303873482}
+   m_PrefabAsset: {fileID: 0}
++--- !u!1 &2829647944304024684 stripped
++GameObject:
++  m_CorrespondingSourceObject: {fileID: 151974, guid: e87bf632e58223940b2a56c89b15c4cc, type: 3}
++  m_PrefabInstance: {fileID: 2829647944303873482}
++  m_PrefabAsset: {fileID: 0}
++--- !u!114 &5748701982116210469
++MonoBehaviour:
++  m_ObjectHideFlags: 0
++  m_CorrespondingSourceObject: {fileID: 0}
++  m_PrefabInstance: {fileID: 0}
++  m_PrefabAsset: {fileID: 0}
++  m_GameObject: {fileID: 2829647944304024684}
++  m_Enabled: 1
++  m_EditorHideFlags: 0
++  m_Script: {fileID: 11500000, guid: e60e8abd6d8cb4767a0ca14171ca1030, type: 3}
++  m_Name: 
++  m_EditorClassIdentifier: Assembly-CSharp::ShipRowboatLaunch
++  ship: {fileID: 7100000000000000006}
++  shipFrame: {fileID: 623947206051308783}
++  stowedHull: {fileID: 2829647944301850628}
++  launchPoint: {fileID: 5320606966851157058}
++  rowboatPrefab: {fileID: 3356581278933018211, guid: 4716e3af744dd46bba0f54352fde9f28, type: 3}
++  rowerPrefab: {fileID: 2647751032923128948, guid: 488868e7f7baa4c32b227d066c992351, type: 3}
++  passengerSeatName: Passenger aft
++  useDistance: 2.25
++  clearanceBounds:
++    m_Center: {x: -0.007691622, y: 0.59864825, z: -0.00019669533}
++    m_Extent: {x: 1.0261538, y: 0.64128757, z: 2.64997}
+ --- !u!1001 &2954604310539213009
+ PrefabInstance:
+   m_ObjectHideFlags: 0
+@@ -1631,8 +1765,44 @@
+     m_RemovedComponents: []
+     m_RemovedGameObjects: []
+     m_AddedGameObjects: []
+-    m_AddedComponents: []
++    m_AddedComponents:
++    - targetCorrespondingSourceObject: {fileID: 151974, guid: e87bf632e58223940b2a56c89b15c4cc, type: 3}
++      insertIndex: -1
++      addedObject: {fileID: 2949955952398900651}
+   m_SourcePrefab: {fileID: 100100000, guid: e87bf632e58223940b2a56c89b15c4cc, type: 3}
++--- !u!23 &5793975890393238436 stripped
++MeshRenderer:
++  m_CorrespondingSourceObject: {fileID: 2309582, guid: e87bf632e58223940b2a56c89b15c4cc, type: 3}
++  m_PrefabInstance: {fileID: 5793975890395412074}
++  m_PrefabAsset: {fileID: 0}
++--- !u!1 &5793975890395293644 stripped
++GameObject:
++  m_CorrespondingSourceObject: {fileID: 151974, guid: e87bf632e58223940b2a56c89b15c4cc, type: 3}
++  m_PrefabInstance: {fileID: 5793975890395412074}
++  m_PrefabAsset: {fileID: 0}
++--- !u!114 &2949955952398900651
++MonoBehaviour:
++  m_ObjectHideFlags: 0
++  m_CorrespondingSourceObject: {fileID: 0}
++  m_PrefabInstance: {fileID: 0}
++  m_PrefabAsset: {fileID: 0}
++  m_GameObject: {fileID: 5793975890395293644}
++  m_Enabled: 1
++  m_EditorHideFlags: 0
++  m_Script: {fileID: 11500000, guid: e60e8abd6d8cb4767a0ca14171ca1030, type: 3}
++  m_Name: 
++  m_EditorClassIdentifier: Assembly-CSharp::ShipRowboatLaunch
++  ship: {fileID: 7100000000000000006}
++  shipFrame: {fileID: 623947206051308783}
++  stowedHull: {fileID: 5793975890393238436}
++  launchPoint: {fileID: 2583884114031711380}
++  rowboatPrefab: {fileID: 3356581278933018211, guid: 4716e3af744dd46bba0f54352fde9f28, type: 3}
++  rowerPrefab: {fileID: 2647751032923128948, guid: 488868e7f7baa4c32b227d066c992351, type: 3}
++  passengerSeatName: Passenger aft
++  useDistance: 2.25
++  clearanceBounds:
++    m_Center: {x: -0.007691622, y: 0.59864825, z: -0.00019669533}
++    m_Extent: {x: 1.0261538, y: 0.64128757, z: 2.64997}
+ --- !u!4 &5793975890395576676 stripped
+ Transform:
+   m_CorrespondingSourceObject: {fileID: 429838, guid: e87bf632e58223940b2a56c89b15c4cc, type: 3}

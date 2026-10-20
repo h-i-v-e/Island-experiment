@@ -8,6 +8,18 @@ namespace Motu.Streaming
 {
     public sealed partial class TerrainTileStreamer
     {
+        /// <summary>Tests collision residency without moving the viewer or requesting more terrain.</summary>
+        public bool HasActiveColliderAt(Vector3 worldPosition)
+        {
+            if (disposed || !gameObject.activeInHierarchy || worldSize <= 0f) return false;
+            var local = transform.InverseTransformPoint(worldPosition);
+            float half = worldSize * .5f;
+            if (local.x < -half || local.x > half || local.z < -half || local.z > half) return false;
+            var key = LocalCell(local, Lod1Resolution);
+            return colliderTiles.TryGetValue(key, out var tile) && tile.collider != null
+                && tile.collider.enabled && tile.collider.gameObject.activeInHierarchy;
+        }
+
         internal void UpdateColliderNeighborhood(Vector2Int center)
         {
             var created = new List<KeyValuePair<Vector2Int, ColliderTile>>(9);

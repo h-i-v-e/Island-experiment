@@ -37,7 +37,7 @@ namespace Motu.Editor
         {
             var settings = new IslandGenerationSettings { InitialSoilDepthMetres = 2.5f };
             var options = settings.ToNativeOptions(new IslandRiverSettings());
-            if (Marshal.SizeOf<MotuNative.Options>() != 80)
+            if (Marshal.SizeOf<MotuNative.Options>() != 84)
                 throw new InvalidOperationException("Initial soil native options layout is incorrect.");
             var handle = MotuNative.CreateMotu(17, ref options);
             if (handle == IntPtr.Zero)
@@ -920,7 +920,7 @@ namespace Motu.Editor
                         new Vector3(-999.9f, -2f, -999.9f),
                         Vector3.up,
                         1f,
-                        2f),
+                        4f),
                     new IslandPreparedWaterfallFoot(Vector3.zero, Vector3.forward, 2f, 4f),
                     new IslandPreparedWaterfallFoot(
                         new Vector3(999.9f, 2f, 999.9f),
@@ -970,38 +970,16 @@ namespace Motu.Editor
                     pool.Initialize(indexFeet, ValidationWorldSize, true);
                     if (pool.PoolCount != 32
                         || pool.CreatedVolumeCount != 32
-                        || pool.CreatedSpraySystemCount != 32)
+                        || mistRoot.GetComponentsInChildren<ParticleSystem>(true).Length != 0)
                     {
                         throw new InvalidOperationException(
-                            "The waterfall-effects pool is not fixed at 32 mist/spray slots.");
+                            "The waterfall-effects pool must contain 32 mist volumes without particle emitters.");
                     }
                     pool.SetPlayerPosition(indexFeet[0].position, Vector2Int.zero);
-                    if (pool.ActiveVolumeCount != 1
-                        || pool.ActiveSpraySystemCount != 1)
+                    if (pool.ActiveVolumeCount != 1)
                     {
                         throw new InvalidOperationException(
-                            "A nearby waterfall foot did not activate its mist and spray.");
-                    }
-                    var activeSpray = Array.Find(
-                        mistRoot.GetComponentsInChildren<ParticleSystem>(true),
-                        spray => spray.isPlaying);
-                    var sprayVelocity = activeSpray?.velocityOverLifetime;
-                    if (activeSpray == null
-                        || activeSpray.main.simulationSpace
-                            != ParticleSystemSimulationSpace.World
-                        || activeSpray.main.startSpeed.constantMin <= 0f
-                        || activeSpray.main.startSpeed.constantMax > 2.91f
-                        || activeSpray.main.startSize.constantMin < 0.1f
-                        || activeSpray.main.gravityModifier.constantMin < 1f
-                        || activeSpray.main.maxParticles < 1000
-                        || activeSpray.emission.rateOverTime.constant < 50f
-                        || activeSpray.transform.forward.y <= 0f
-                        || !sprayVelocity.HasValue
-                        || sprayVelocity.Value.x.mode != sprayVelocity.Value.y.mode
-                        || sprayVelocity.Value.x.mode != sprayVelocity.Value.z.mode)
-                    {
-                        throw new InvalidOperationException(
-                            "Waterfall spray is not configured as a dense outward ballistic arc.");
+                            "A nearby waterfall foot did not activate its mist.");
                     }
                     var activeMistRenderer = Array.Find(
                         mistRoot.GetComponentsInChildren<MeshRenderer>(true),
@@ -1010,7 +988,7 @@ namespace Motu.Editor
                         new Vector3(
                             indexFeet[0].position.x,
                             SeaHeight,
-                            indexFeet[0].position.z));
+                            indexFeet[0].position.z - 1.25f));
                     var activeEffect = activeMistRenderer != null
                         ? activeMistRenderer.transform.parent
                         : null;
@@ -1023,22 +1001,20 @@ namespace Motu.Editor
                             <= expectedImpactPosition.y)
                     {
                         throw new InvalidOperationException(
-                            "Translated waterfall effects were not placed at the local sea-level foot or directed downstream.");
+                            "Translated waterfall effects were not placed at the sea-plane crossing of the face or directed downstream.");
                     }
                     pool.SetPlayerPosition(
                         indexFeet[0].position,
                         new Vector2Int(
                             WaterfallFootIndex.Resolution - 1,
                             WaterfallFootIndex.Resolution - 1));
-                    if (pool.ActiveVolumeCount != 0
-                        || pool.ActiveSpraySystemCount != 0)
+                    if (pool.ActiveVolumeCount != 0)
                     {
                         throw new InvalidOperationException(
                             "Waterfall effects remained active outside the LOD 0 neighborhood.");
                     }
                     pool.ClearPlayerFocus();
-                    if (pool.ActiveVolumeCount != 0
-                        || pool.ActiveSpraySystemCount != 0)
+                    if (pool.ActiveVolumeCount != 0)
                     {
                         throw new InvalidOperationException(
                             "Clearing waterfall focus did not clear waterfall effects.");

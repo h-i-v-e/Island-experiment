@@ -17,7 +17,7 @@ namespace Motu.Gameplay
 
         public struct ImmersedSection
         {
-            public float area, wettedPerimeter, waterlineWidth, depth;
+            public float area, wettedPerimeter, waterlineWidth, depth, minimumY, maximumY;
             public Vector3 centre;
         }
 
@@ -70,6 +70,8 @@ namespace Motu.Gameplay
             result.area = (float)(Math.Abs(twiceArea) * .5);
             result.centre = new Vector3((float)(cx / (3 * twiceArea)), (float)(cy / (3 * twiceArea)), z);
             result.depth = maximumY - minimumY;
+            result.minimumY = minimumY;
+            result.maximumY = maximumY;
             result.waterlineWidth = crossings >= 2 ? Vector2.Distance(firstCrossing, secondCrossing) : 0f;
             return result;
         }

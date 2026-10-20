@@ -1,0 +1,63 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 82db5f547f544c04aaf53bf6b2a194fb, type: 3}
+  m_Name: CalmEnvironment
+  m_EditorClassIdentifier: Motu.Runtime::Motu.Settings.WorldEnvironmentConfiguration
+  environment:
+    seed: 8675309
+    zenithColour: {r: 0.49, g: 0.68, b: 0.82, a: 1}
+    distanceHazeColour: {r: 0.62, g: 0.6, b: 0.54, a: 1}
+    skyHorizonLightening: 0.08
+    distanceHazeDensity: 0.00055
+    showDistanceHaze: 1
+    showSea: 1
+    seaLevelMetres: 0
+    seaMaterial: {fileID: 2100000, guid: f7e64c96dada84bf1bae7f46e0e94f50, type: 2}
+    weatherNoise: {fileID: 0}
+    oceanWaveProfile: {fileID: 11400000, guid: 78414526220aa4385a3b329063cbcfb9, type: 2}
+    windDirection: {x: 1, y: 0.25}
+    windSpeedMetresPerSecond: 0
+    windGustSizeMetres: 12
+    treeWindBasePinHeightMetres: 0.6
+    treeWindFullBendHeightMetres: 9
+    sunlight: {fileID: 0}
+    sunCycleDurationMinutes: 240
+    midnightToNoonClockRateRatio: 10
+    sunLatitudeDegrees: -25
+    startingSolarTimeHours: 12
+    middaySunIntensity: 1.25
+    moonEquatorOffsetDegrees: 22
+    startingMoonPhase: 0.5
+    fullMoonLightIntensity: 0.14
+    starDensity: 0.18
+    starBrightness: 1.35
+    starSize: 0.052
+  clouds:
+    enabled: 0
+    seed: 173
+    weatherMapResolution: 256
+    coverage: 0.48
+    density: 2.1
+    altitudeMetres: 650
+    verticalThicknessMetres: 280
+    worldSizeMetres: 2200
+    broadNoiseScale: 6
+    broadNoiseStrength: 0.65
+    detailStrength: 0.52
+    erosionStrength: 0.38
+    dayColour: {r: 0.92, g: 0.94, b: 0.96, a: 1}
+    sunsetColour: {r: 0.92, g: 0.48, b: 0.24, a: 1}
+    nightColour: {r: 0.035, g: 0.055, b: 0.1, a: 1}
+    shadowStrength: 0.72
+    ambientShadowStrength: 0.12
+    celestialObscurationStrength: 1
+    lowElevationShadowFade: 0.09

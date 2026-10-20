@@ -400,6 +400,7 @@ namespace Motu.Islands
         internal readonly IslandPreparedColliderHeightMap colliderHeightMap;
         internal readonly IslandPreparedCaves caves;
         internal readonly IslandPreparedBoulderCollider[][] boulderColliders;
+        internal readonly LandBirdPerch[] landBirdPerches;
         internal readonly IslandPreparedMaterialTextures materialTextures;
 
         internal IslandPreparedData(
@@ -418,7 +419,8 @@ namespace Motu.Islands
             IslandPreparedColliderHeightMap colliderHeightMap,
             IslandPreparedMaterialTextures materialTextures,
             IslandPreparedCaves caves = null,
-            IslandPreparedBoulderCollider[][] boulderColliders = null, IslandPreparedMesh navigationMesh = null)
+            IslandPreparedBoulderCollider[][] boulderColliders = null, IslandPreparedMesh navigationMesh = null,
+            LandBirdPerch[] landBirdPerches = null)
         {
             this.handle = new NativeIslandHandle(handle);
             this.loadedFromSnapshot = loadedFromSnapshot;
@@ -426,6 +428,7 @@ namespace Motu.Islands
             this.seaMask = seaMask;
             this.lod3 = lod3;
             this.navigationMesh = navigationMesh;
+            this.landBirdPerches = landBirdPerches ?? Array.Empty<LandBirdPerch>();
             this.overviewTiles = overviewTiles;
             this.riverTiles = riverTiles;
             this.riverRockTiles = riverRockTiles;

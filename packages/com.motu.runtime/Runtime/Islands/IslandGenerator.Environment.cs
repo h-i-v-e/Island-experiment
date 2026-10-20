@@ -72,6 +72,7 @@ namespace Motu.Islands
             {
                 appliedShowForests = Forest.ShowForests;
                 terrainStreamer?.SetForestsVisible(Forest.ShowForests);
+                if (islandRuntime?.BirdPerches != null) islandRuntime.BirdPerches.TreesVisible = Forest.ShowForests;
             }
             if (appliedShowReeds != Reeds.ShowReeds)
             {

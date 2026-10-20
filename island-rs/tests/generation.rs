@@ -901,6 +901,7 @@ fn save_and_load_regenerates_identical_island() {
         31,
         IslandOptions {
             initial_soil_depth_metres: 2.5,
+            seabed_depth_distance_ratio: 0.25,
             hydraulic_erosion_strength: 1.75,
             hydraulic_deposition_strength: 2.25,
             hydraulic_deposition_slope_degrees: 18.0,

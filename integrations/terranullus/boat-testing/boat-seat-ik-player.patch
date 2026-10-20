@@ -1,0 +1,21 @@
+--- a/Assets/Scripts/PlayerController.cs
++++ b/Assets/Scripts/PlayerController.cs
+@@ -392,6 +392,10 @@
+ 
+     private void OnAnimatorIK(int layerIndex)
+     {
++        // Solve once, after the visible locomotion layer. Boat poses use the base
++        // layer, with the walking overlay disabled, so its IK pass owns the seat.
++        int solveLayer = !IsBoatAnimation && sideStepLayer >= 0 && animator.GetLayerWeight(sideStepLayer) > .0001f ? sideStepLayer : 0;
++        if (layerIndex != solveLayer) return;
+         constraintBlend = Mathf.MoveTowards(constraintBlend, constraint != null ? 1f : 0f,
+             Time.deltaTime / Mathf.Max(blendDamp, 0.01f));
+         float gripWeight = Mathf.SmoothStep(0f, 1f, constraintBlend);
+@@ -411,6 +415,7 @@
+             IsBoatAnimation ? .5f : .5f * gripWeight);
+         animator.SetLookAtPosition(origin + aim * LookDistance);
+         PlantFeet();
++        if (boarding != null) boarding.ApplySeatIK();
+     }
+ 
+     // Animation events in the imported locomotion clips use these names.

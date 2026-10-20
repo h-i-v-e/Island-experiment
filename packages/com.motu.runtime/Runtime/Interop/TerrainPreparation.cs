@@ -16,6 +16,36 @@ namespace Motu.Interop
 {
     internal static class TerrainPreparation
     {
+        internal static LandBirdPerch[] PrepareLandBirdPerches(IntPtr handle, float worldSize)
+        {
+            const int resolution = TerrainTileStreamer.Lod1Resolution;
+            MotuNative.CreateLandBirdPerches(handle, resolution, out var export);
+            try
+            {
+                if (Marshal.SizeOf<MotuNative.LandBirdPerchExport>() != 24 || export.handle == IntPtr.Zero
+                    || export.length < 0 || export.length > resolution * resolution
+                    || (export.length > 0 && export.data == IntPtr.Zero))
+                    throw new InvalidOperationException("The native land bird perch export is invalid.");
+                var anchors = new LandBirdPerch[export.length];
+                var occupied = new bool[resolution * resolution];
+                for (int i = 0; i < anchors.Length; i++)
+                {
+                    var value = Marshal.PtrToStructure<MotuNative.LandBirdPerchExport>(IntPtr.Add(export.data, i * 24));
+                    var p = value.position;
+                    if (!IsFinite(p.x) || !IsFinite(p.y) || !IsFinite(p.z) || !IsFinite(value.yawRadians)
+                        || p.x < 0 || p.x >= 1 || p.y < 0 || p.y >= 1 || p.z <= 0
+                        || value.kind > 1 || value.tile >= occupied.Length || occupied[value.tile]
+                        || value.tile != (int)(p.y * resolution) * resolution + (int)(p.x * resolution))
+                        throw new InvalidOperationException("The native land bird perch record is invalid.");
+                    occupied[value.tile] = true;
+                    anchors[i] = new LandBirdPerch(new Vector3((p.x - .5f) * worldSize, p.z * worldSize,
+                        (p.y - .5f) * worldSize), value.yawRadians * Mathf.Rad2Deg, (LandBirdPerchKind)value.kind, (int)value.tile);
+                }
+                return anchors;
+            }
+            finally { MotuNative.ReleaseLandBirdPerches(ref export); }
+        }
+
         internal static IslandPreparedBoulderCollider[][] PrepareBoulderColliders(IntPtr handle, float worldSize)
         {
             MotuNative.CreateBoulderColliders(handle, out var export);

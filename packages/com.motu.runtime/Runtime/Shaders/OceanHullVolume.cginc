@@ -5,7 +5,7 @@
 int _MotuHullCount;
 float4 _MotuHullPlanes[512];
 float4 _MotuHullMinimum[4]; // XYZ world AABB, W face count
-float4 _MotuHullMaximum[4]; // XYZ world AABB, W surface inset
+float4 _MotuHullMaximum[4]; // XYZ world AABB, W unused
 
 bool MotuHullVerticalInterval(float2 xz, int hull, out float bottom, out float top)
 {
@@ -31,13 +31,19 @@ bool MotuHullVerticalInterval(float2 xz, int hull, out float bottom, out float t
             if (plane.y < 0) bottom = max(bottom, height);
             else top = min(top, height);
         }
-        if (bottom > top) return false;
+        // World-space plane arithmetic loses sub-millimetre precision far
+        // from the origin. Keep grazing intersections at the narrow hull tips.
+        if (bottom > top + .002) return false;
     }
-    return bottom <= top;
+    top = max(top, bottom);
+    return true;
 }
 
-float MotuClampToConvexHulls(float3 position)
+float MotuClampToConvexHulls(float3 position, float seaPlaneHeight)
 {
+    // Compare with the undisplaced ocean plane, not a fixed world-space zero.
+    // Preserve troughs and vertices exactly on the plane.
+    if (position.y <= seaPlaneHeight) return position.y;
     float height = position.y;
     [loop]
     for (int hull = 0; hull < _MotuHullCount; hull++)
@@ -45,9 +51,9 @@ float MotuClampToConvexHulls(float3 position)
         float bottom, top;
         if (MotuHullVerticalInterval(position.xz, hull, bottom, top))
             // Project a downward ray onto the underside, never onto the deck.
-            // Leave troughs already below the hull alone. This is a dry-ship visual,
+            // Only crests above the mean sea plane reach this projection. This is a dry-ship visual,
             // not a simulation of waves overtopping and flooding the deck.
-            height = min(height, bottom + min(_MotuHullMaximum[hull].w, (top - bottom) * .5));
+            height = min(height, bottom + min(.03, (top - bottom) * .5));
     }
     return height;
 }
@@ -75,7 +81,7 @@ bool MotuInsideConvexHull(float3 position)
 
 void MotuClipHullInterior(float3 position)
 {
-    // Vertex clamping cannot prevent triangle interiors crossing a convex hull.
+    // Also remove triangle interiors crossing the dry hull volume.
     if (MotuInsideConvexHull(position)) clip(-1);
 }
 #endif

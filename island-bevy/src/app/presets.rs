@@ -39,6 +39,7 @@ const DEFAULTS: IslandOptions = IslandOptions {
     // [`Preset::options`].
     terrain_size: 1024,
     initial_soil_depth_metres: 0.0,
+    seabed_depth_distance_ratio: 0.1,
 };
 
 /// One curated island.

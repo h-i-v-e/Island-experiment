@@ -9,7 +9,7 @@ using UnityEngine.Rendering;
 namespace Motu.Editor
 {
     /// <summary>Editor-only convex envelope; no collider cooking or mesh reads at runtime.</summary>
-    public static class OceanHullVolumeBuilder
+    public static partial class OceanHullVolumeBuilder
     {
         private readonly struct Face
         {
@@ -47,8 +47,74 @@ namespace Motu.Editor
         public static void BakePoints(OceanHullVolume volume, List<Vector3> points)
         {
             if (points == null || points.Count < 4) throw new ArgumentException("Hull needs at least four points.");
+            BakePoints(volume, points, false, 0);
+        }
+
+        private static void BakePoints(OceanHullVolume volume, List<Vector3> points, bool interior, float inset)
+        {
+            if (points == null || points.Count < 4) throw new ArgumentException("Hull needs at least four points.");
             var bounds = new Bounds(points[0], Vector3.zero);
             foreach (var p in points) bounds.Encapsulate(p);
+            var faces = BuildFaces(points, bounds);
+            Vector4[] planes;
+            if (interior)
+            {
+                // Use every face of the reduced point hull. Dropping faces would
+                // expand it again, which is the wrong direction for exclusion.
+                if (faces.Count > OceanHullVolume.MaximumPlanes) throw new InvalidOperationException("Interior hull exceeds plane budget.");
+                planes = new Vector4[faces.Count];
+                for (int i = 0; i < faces.Count; i++) { planes[i] = faces[i].Plane; planes[i].w += inset; }
+            }
+            else
+            {
+
+                // Merge coplanar triangles. If needed, retain angularly diverse support
+                // planes: this expands the envelope rather than cutting into the ship.
+                var candidates = new List<Vector3>();
+                foreach (var face in faces)
+                {
+                    Vector3 n = face.Plane;
+                    if (n.sqrMagnitude < .5f || candidates.Exists(other => Vector3.Dot(n, other) > .999999f)) continue;
+                    candidates.Add(n);
+                }
+                var normals = new List<Vector3> { Vector3.right, Vector3.left, Vector3.up, Vector3.down, Vector3.forward, Vector3.back };
+                while (normals.Count < OceanHullVolume.MaximumPlanes && candidates.Count > 0)
+                {
+                    int best = 0;
+                    float bestSeparation = -1;
+                    for (int i = 0; i < candidates.Count; i++)
+                    {
+                        float similarity = -1;
+                        foreach (var n in normals) similarity = Mathf.Max(similarity, Vector3.Dot(n, candidates[i]));
+                        if (1 - similarity > bestSeparation) { bestSeparation = 1 - similarity; best = i; }
+                    }
+                    if (bestSeparation < .000001f) break;
+                    normals.Add(candidates[best]);
+                    candidates.RemoveAt(best);
+                }
+                planes = new Vector4[normals.Count];
+                for (int i = 0; i < planes.Length; i++)
+                {
+                    float support = float.NegativeInfinity;
+                    foreach (var point in points) support = Mathf.Max(support, Vector3.Dot(normals[i], point));
+                    planes[i] = new Vector4(normals[i].x, normals[i].y, normals[i].z, -support);
+                }
+            }
+            var mesh = BoundaryMesh(planes, bounds.size.magnitude * 2);
+            mesh.name = volume.name + " Boundary";
+            var previous = volume.Boundary;
+            volume.SetGeometry(planes, mesh);
+            if (AssetDatabase.Contains(volume))
+            {
+                AssetDatabase.AddObjectToAsset(mesh, volume);
+                if (previous != null && AssetDatabase.IsSubAsset(previous)) UnityEngine.Object.DestroyImmediate(previous, true);
+                EditorUtility.SetDirty(volume);
+            }
+            else if (previous != null) UnityEngine.Object.DestroyImmediate(previous);
+        }
+
+        private static List<Face> BuildFaces(List<Vector3> points, Bounds bounds)
+        {
             float epsilon = Mathf.Max(.0001f, bounds.size.magnitude * .00001f);
             int a = 0, b = 0, c = 0, d = 0;
             int axis = bounds.size.x >= bounds.size.y && bounds.size.x >= bounds.size.z ? 0 : bounds.size.y >= bounds.size.z ? 1 : 2;
@@ -99,48 +165,7 @@ namespace Motu.Editor
                 foreach (var pair in horizon.Values) faces.Add(new Face(pair.Item1, pair.Item2, p, points, interior));
             }
 
-            // Merge coplanar triangles. If needed, retain angularly diverse support
-            // planes: this expands the envelope rather than cutting into the ship.
-            var candidates = new List<Vector3>();
-            foreach (var face in faces)
-            {
-                Vector3 n = face.Plane;
-                if (n.sqrMagnitude < .5f || candidates.Exists(other => Vector3.Dot(n, other) > .999999f)) continue;
-                candidates.Add(n);
-            }
-            var normals = new List<Vector3> { Vector3.right, Vector3.left, Vector3.up, Vector3.down, Vector3.forward, Vector3.back };
-            while (normals.Count < OceanHullVolume.MaximumPlanes && candidates.Count > 0)
-            {
-                int best = 0;
-                float bestSeparation = -1;
-                for (int i = 0; i < candidates.Count; i++)
-                {
-                    float similarity = -1;
-                    foreach (var n in normals) similarity = Mathf.Max(similarity, Vector3.Dot(n, candidates[i]));
-                    if (1 - similarity > bestSeparation) { bestSeparation = 1 - similarity; best = i; }
-                }
-                if (bestSeparation < .000001f) break;
-                normals.Add(candidates[best]);
-                candidates.RemoveAt(best);
-            }
-            var planes = new Vector4[normals.Count];
-            for (int i = 0; i < planes.Length; i++)
-            {
-                float support = float.NegativeInfinity;
-                foreach (var point in points) support = Mathf.Max(support, Vector3.Dot(normals[i], point));
-                planes[i] = new Vector4(normals[i].x, normals[i].y, normals[i].z, -support);
-            }
-            var mesh = BoundaryMesh(planes, bounds.size.magnitude * 2);
-            mesh.name = volume.name + " Boundary";
-            var previous = volume.Boundary;
-            volume.SetGeometry(planes, mesh);
-            if (AssetDatabase.Contains(volume))
-            {
-                AssetDatabase.AddObjectToAsset(mesh, volume);
-                if (previous != null && AssetDatabase.IsSubAsset(previous)) UnityEngine.Object.DestroyImmediate(previous, true);
-                EditorUtility.SetDirty(volume);
-            }
-            else if (previous != null) UnityEngine.Object.DestroyImmediate(previous);
+            return faces;
         }
 
         private static Mesh BoundaryMesh(Vector4[] planes, float extent)
