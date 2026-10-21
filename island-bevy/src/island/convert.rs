@@ -141,6 +141,12 @@ pub fn terrain_mesh(
     mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, weights);
     mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, environment);
     mesh.insert_attribute(Mesh::ATTRIBUTE_UV_1, wetness);
+    // A separate attribute leaves the environment and river-wetness channels
+    // intact. LOD0 carries its existing coordinates but does not sample a bake.
+    let surface_uv: Vec<[f32; 2]> = (0..source.vertices.len())
+        .map(|index| source.uv.get(index).copied().unwrap_or_default().to_array())
+        .collect();
+    mesh.insert_attribute(crate::surface::TERRAIN_SURFACE_UV, surface_uv);
     Some(mesh)
 }
 

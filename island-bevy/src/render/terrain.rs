@@ -14,12 +14,18 @@
 //! translation, and geometry left in world space puts every chunk at the
 //! island's centre for both.
 
-use bevy::{camera::visibility::VisibilityRange, prelude::*};
+use bevy::{
+    asset::RenderAssetUsages,
+    camera::visibility::VisibilityRange,
+    image::{ImageAddressMode, ImageFilterMode, ImageSampler, ImageSamplerDescriptor},
+    prelude::*,
+    render::render_resource::{Extent3d, TextureDimension, TextureFormat},
+};
 use motu::ISLAND_WORLD_METRES;
 
 use crate::{
     budget::BudgetItem,
-    capture::DebugView,
+    capture::{DebugView, TerrainComparison},
     chunk::{self, TerrainChunk},
     convert::island_to_world,
     island_gen::{
@@ -77,6 +83,7 @@ fn spawn_terrain(
     mut prepared: ResMut<PreparedMeshes>,
     mut prepared_materials: ResMut<PreparedMaterialTextures>,
     view: Res<DebugView>,
+    comparison: Res<TerrainComparison>,
 ) {
     let island = &island.0;
     let Some(material_textures) = prepared_materials.textures.take() else {
@@ -95,6 +102,22 @@ fn spawn_terrain(
         }
     };
 
+    // RGB is the island-space full-detail normal; alpha is terrain AO. A
+    // single linear image avoids spending separate texture/sampler slots on
+    // maps that always share the same atlas coordinates.
+    let neutral_surface = images.add(surface_image(1, 1, vec![128, 128, 255, 255]));
+    let surface_maps = island.surface_atlases.each_ref().map(|maps| {
+        maps.as_ref().map(|maps| {
+            let rgba = maps
+                .normal_rgb
+                .chunks_exact(3)
+                .zip(&maps.occlusion)
+                .flat_map(|(normal, &occlusion)| [normal[0], normal[1], normal[2], occlusion])
+                .collect();
+            images.add(surface_image(maps.width, maps.height, rgba))
+        })
+    });
+
     // The extension writes base colour, roughness and reflectance outright, so
     // what the base material still decides is only how the surface is drawn:
     // opaque, single-sided, shadow casting and receiving. One handle per level
@@ -106,12 +129,18 @@ fn spawn_terrain(
     let chunk_metres = ISLAND_WORLD_METRES / f32::from(divisions);
     let ground: Vec<Handle<TerrainMaterial>> = (0..chunk::TIERS)
         .map(|level| {
+            let surface_map = level
+                .checked_sub(1)
+                .and_then(|index| surface_maps.get(index))
+                .and_then(Option::as_ref);
             let mut extension = TerrainExtension::new(
                 island.options.max_height,
                 ISLAND_WORLD_METRES,
                 chunk_metres,
                 u32::try_from(level).unwrap_or(0),
                 &atlases,
+                surface_map.unwrap_or(&neutral_surface).clone(),
+                comparison.surface_maps && surface_map.is_some(),
             );
             // Asset events are flushed after Update. Seed the current view at
             // construction so a newly spawned diagnostic island cannot draw
@@ -130,7 +159,14 @@ fn spawn_terrain(
             warn!("missing prepared meshes for terrain chunk {index}");
             continue;
         };
-        spawned += spawn_chunk(&mut commands, &mut meshes, &ground, chunk, rendered);
+        spawned += spawn_chunk(
+            &mut commands,
+            &mut meshes,
+            &ground,
+            chunk,
+            rendered,
+            comparison.forced_lod,
+        );
     }
     if spawned == 0 {
         warn!("island has no terrain chunks");
@@ -160,6 +196,80 @@ fn spawn_terrain(
     }
 }
 
+/// Filter distant terrain without exhausting the native eight-texel gutters.
+/// Only the first two downsampled levels are generated: their four-texel
+/// footprints fit those gutters, whereas a complete chain mixes chart interiors.
+/// Packed normal channels are averaged linearly and renormalized in the shader.
+fn surface_image(width: u32, height: u32, rgba: Vec<u8>) -> Image {
+    let mut image = Image::new(
+        Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        rgba,
+        TextureFormat::Rgba8Unorm,
+        RenderAssetUsages::RENDER_WORLD,
+    );
+    let mip_levels = append_surface_mips(
+        image
+            .data
+            .as_mut()
+            .expect("a new image retains its pixel data"),
+        width as usize,
+        height as usize,
+    );
+    image.texture_descriptor.mip_level_count = u32::from(mip_levels);
+    image.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
+        address_mode_u: ImageAddressMode::ClampToEdge,
+        address_mode_v: ImageAddressMode::ClampToEdge,
+        mag_filter: ImageFilterMode::Linear,
+        min_filter: ImageFilterMode::Linear,
+        mipmap_filter: ImageFilterMode::Linear,
+        lod_max_clamp: f32::from(mip_levels - 1),
+        ..default()
+    });
+    image
+}
+
+/// Appends two box-filtered levels in wgpu's level-major order. Integer source
+/// bounds include the last row/column of an odd cropped atlas, and a dimension
+/// already at one stays at one while the other dimension shrinks.
+fn append_surface_mips(rgba: &mut Vec<u8>, mut width: usize, mut height: usize) -> u8 {
+    let mut offset = 0;
+    let mut levels = 1;
+    while levels < 3 && (width > 1 || height > 1) {
+        let next_width = (width / 2).max(1);
+        let next_height = (height / 2).max(1);
+        let next_offset = rgba.len();
+        rgba.reserve(next_width * next_height * 4);
+        for y in 0..next_height {
+            for x in 0..next_width {
+                let mut total = [0_u32; 4];
+                let mut samples = 0;
+                for source_y in y * height / next_height..(y + 1) * height / next_height {
+                    for source_x in x * width / next_width..(x + 1) * width / next_width {
+                        let pixel = offset + (source_y * width + source_x) * 4;
+                        for (sum, &channel) in total.iter_mut().zip(&rgba[pixel..pixel + 4]) {
+                            *sum += u32::from(channel);
+                        }
+                        samples += 1;
+                    }
+                }
+                rgba.extend(
+                    total.map(|sum| u8::try_from((sum + samples / 2) / samples).unwrap_or(255)),
+                );
+            }
+        }
+        offset = next_offset;
+        width = next_width;
+        height = next_height;
+        levels += 1;
+    }
+    levels
+}
+
 /// One chunk's levels, or none at all where the generator left the square
 /// empty. Returns how many entities were spawned.
 fn spawn_chunk(
@@ -168,16 +278,20 @@ fn spawn_chunk(
     ground: &[Handle<TerrainMaterial>],
     chunk: &TerrainChunk,
     rendered: &mut [Option<Mesh>; chunk::TIERS],
+    forced_lod: Option<usize>,
 ) -> usize {
     let centre = chunk::origin(chunk);
     let origin = island_to_world(centre.x, centre.y, centre.z);
     let mut spawned = 0;
     for (level, mesh) in rendered.iter_mut().enumerate() {
+        if forced_lod.is_some_and(|selected| selected != level) {
+            continue;
+        }
         let Some(mesh) = mesh.take() else {
             continue;
         };
         let vertices = u32::try_from(mesh.count_vertices()).unwrap_or(u32::MAX);
-        commands.spawn((
+        let mut entity = commands.spawn((
             Name::new(format!(
                 "Terrain chunk {},{} LOD {level}",
                 chunk.column, chunk.row
@@ -187,8 +301,10 @@ fn spawn_chunk(
             Mesh3d(meshes.add(mesh)),
             MeshMaterial3d(ground[level].clone()),
             Transform::from_translation(origin),
-            tier(level),
         ));
+        if forced_lod.is_none() {
+            entity.insert(tier(level));
+        }
         spawned += 1;
     }
     spawned
@@ -221,8 +337,48 @@ fn tier(level: usize) -> VisibilityRange {
 mod tests {
     use motu::ISLAND_WORLD_METRES;
 
-    use super::{FAR_METRES, tier};
+    use bevy::image::ImageSampler;
+
+    use super::{FAR_METRES, surface_image, tier};
     use crate::chunk;
+
+    #[test]
+    fn surface_mips_preserve_constant_normals_and_occlusion_for_cropped_atlases() {
+        let pixel = [54, 170, 243, 112];
+        // Cropped atlases can have odd heights or a dimension already at one.
+        for (width, height, expected_levels, expected_pixels) in [
+            (8, 8, 3_u8, 64 + 16 + 4),
+            (7, 5, 3, 35 + 6 + 1),
+            (1, 7, 3, 7 + 3 + 1),
+            (2, 1, 2, 2 + 1),
+            (1, 1, 1, 1),
+        ] {
+            let image = surface_image(width, height, pixel.repeat((width * height) as usize));
+            assert_eq!(
+                image.texture_descriptor.mip_level_count,
+                u32::from(expected_levels)
+            );
+            let data = image.data.as_ref().unwrap();
+            assert_eq!(data.len(), expected_pixels * 4);
+            assert!(data.chunks_exact(4).all(|sample| sample == pixel));
+            let ImageSampler::Descriptor(sampler) = &image.sampler else {
+                panic!("surface maps require an explicit sampler");
+            };
+            assert_eq!(
+                sampler.lod_max_clamp.to_bits(),
+                f32::from(expected_levels - 1).to_bits()
+            );
+        }
+    }
+
+    #[test]
+    fn surface_mips_include_the_last_row_and_column_of_odd_atlases() {
+        let mut pixels = vec![0; 3 * 3 * 4];
+        pixels[8 * 4..].fill(252);
+        let image = surface_image(3, 3, pixels);
+        assert_eq!(image.texture_descriptor.mip_level_count, 2);
+        assert_eq!(&image.data.as_ref().unwrap()[36..], &[28; 4]);
+    }
 
     /// Every level starts where the finer one ends. A gap there would leave a
     /// band of distance with no ground drawn at all, and an overlap would draw

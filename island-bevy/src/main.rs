@@ -33,7 +33,7 @@ use motu::{GenerationMethod, IslandOptions};
 use crate::{
     budget::BudgetPlugin,
     camera::{FlyCameraPlugin, ViewPose},
-    capture::{CapturePlugin, DebugView},
+    capture::{CapturePlugin, DebugView, TerrainComparison},
     clouds::CloudPlugin,
     hud::HudPlugin,
     island_gen::{GenerationSettings, IslandGenPlugin},
@@ -69,6 +69,7 @@ struct Command {
     variant_name: String,
     weather: Weather,
     debug_view: DebugView,
+    terrain_comparison: TerrainComparison,
     screenshot: Option<PathBuf>,
     no_cache: bool,
 }
@@ -87,6 +88,7 @@ impl Default for Command {
             variant_name: String::from(island_gen::DEFAULT_VARIANT),
             weather: Weather::default(),
             debug_view: DebugView::default(),
+            terrain_comparison: TerrainComparison::default(),
             screenshot: None,
             no_cache: false,
         }
@@ -152,6 +154,7 @@ fn main() {
     app.insert_resource(ClearColor(Color::BLACK))
         .insert_resource(command.view)
         .insert_resource(command.weather)
+        .insert_resource(command.terrain_comparison)
         .insert_resource(GenerationSettings {
             seed: command.seed,
             options: command.options,
@@ -238,6 +241,30 @@ fn parse(arguments: impl Iterator<Item = String>) -> Result<Option<Command>, Str
             "--debug-view" => {
                 command.debug_view = DebugView::named(&value(&mut arguments)?)?;
             }
+            "--terrain-lod" => {
+                command.terrain_comparison.forced_lod = match value(&mut arguments)?.as_str() {
+                    "auto" => None,
+                    "0" => Some(0),
+                    "1" => Some(1),
+                    "2" => Some(2),
+                    selected => {
+                        return Err(format!(
+                            "invalid value for --terrain-lod: {selected:?}; expected auto, 0, 1 or 2"
+                        ));
+                    }
+                };
+            }
+            "--lod-surface-maps" => {
+                command.terrain_comparison.surface_maps = match value(&mut arguments)?.as_str() {
+                    "on" => true,
+                    "off" => false,
+                    selected => {
+                        return Err(format!(
+                            "invalid value for --lod-surface-maps: {selected:?}; expected on or off"
+                        ));
+                    }
+                };
+            }
             "--screenshot" => command.screenshot = Some(PathBuf::from(value(&mut arguments)?)),
             "--no-cache" => command.no_cache = true,
             // Every remaining generator parameter is spelled by the table, so
@@ -298,6 +325,11 @@ Options:
   --debug-view <NAME>     Switch the terrain and water surfaces to one
                           diagnostic channel [default: off]. The HUD offers the
                           same list; a capture can be taken of any of them
+  --terrain-lod <LEVEL>   Force every terrain chunk to LOD 0, 1 or 2, or use
+                          distance-based selection with auto [default: auto]
+  --lod-surface-maps <on|off>
+                          Use baked LOD 1/2 normal and occlusion atlases
+                          [default: on]; LOD 0 keeps its ordinary shading
   --screenshot <PATH>     Capture one PNG once the island has settled, then exit
                           Nothing opens: the scene renders into an offscreen
                           2560x1440 image and no HUD is built, so a capture
@@ -338,7 +370,7 @@ cursor back until you click. See README.md for the rest of the controls.",
 mod tests {
     use motu::{GenerationMethod, IslandOptions};
 
-    use super::{DebugView, ViewPose, Weather, options, parse};
+    use super::{DebugView, TerrainComparison, ViewPose, Weather, options, parse};
 
     fn command(arguments: &[&str]) -> Result<super::Command, String> {
         parse(arguments.iter().copied().map(String::from)).map(Option::unwrap)
@@ -414,6 +446,65 @@ mod tests {
     fn caching_is_on_unless_it_is_turned_off() {
         assert!(!command(&[]).unwrap().no_cache);
         assert!(command(&["--no-cache"]).unwrap().no_cache);
+    }
+
+    #[test]
+    fn selects_terrain_comparison_modes() {
+        assert_eq!(
+            command(&[]).unwrap().terrain_comparison,
+            TerrainComparison::default()
+        );
+        for (value, forced_lod) in [
+            ("auto", None),
+            ("0", Some(0)),
+            ("1", Some(1)),
+            ("2", Some(2)),
+        ] {
+            assert_eq!(
+                command(&["--terrain-lod", value])
+                    .unwrap()
+                    .terrain_comparison
+                    .forced_lod,
+                forced_lod
+            );
+        }
+        for (value, enabled) in [("on", true), ("off", false)] {
+            assert_eq!(
+                command(&["--lod-surface-maps", value])
+                    .unwrap()
+                    .terrain_comparison
+                    .surface_maps,
+                enabled
+            );
+        }
+        let replaced = command(&[
+            "--terrain-lod",
+            "1",
+            "--terrain-lod",
+            "auto",
+            "--lod-surface-maps",
+            "off",
+            "--lod-surface-maps",
+            "on",
+        ])
+        .unwrap();
+        assert_eq!(replaced.terrain_comparison, TerrainComparison::default());
+    }
+
+    #[test]
+    fn rejects_invalid_terrain_comparison_modes() {
+        for (flag, invalid, expected) in [
+            ("--terrain-lod", "3", "expected auto, 0, 1 or 2"),
+            ("--terrain-lod", "-1", "expected auto, 0, 1 or 2"),
+            ("--lod-surface-maps", "yes", "expected on or off"),
+        ] {
+            let error = command(&[flag, invalid]).unwrap_err();
+            assert!(error.contains(flag) && error.contains(expected), "{error}");
+        }
+        for flag in ["--terrain-lod", "--lod-surface-maps"] {
+            let error = command(&[flag]).unwrap_err();
+            assert!(error.contains("requires a value"), "{error}");
+        }
     }
 
     #[test]

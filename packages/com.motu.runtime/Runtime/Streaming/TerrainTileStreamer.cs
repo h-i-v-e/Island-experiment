@@ -382,7 +382,7 @@ namespace Motu.Streaming
             float terrainWorldSize)
         {
             var area = new MotuNative.ExportArea(0f, 0f, 1f, 1f);
-            MotuNative.CreateMeshGrid(handle, ref area, 2, Divisions, 0, out var export);
+            MotuNative.CreateTerrainAtlasMeshGrid(handle, ref area, 2, Divisions, 0, out var export);
             try
             {
                 if (export.handle == IntPtr.Zero

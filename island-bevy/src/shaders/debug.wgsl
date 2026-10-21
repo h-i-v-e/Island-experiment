@@ -18,6 +18,9 @@ const DEPTH: u32 = 6u;
 const STATE: u32 = 7u;
 const FOAMLESS: u32 = 8u;
 const CHUNKS: u32 = 9u;
+const SURFACE_NORMALS: u32 = 10u;
+const SURFACE_OCCLUSION: u32 = 11u;
+const SURFACE_UVS: u32 = 12u;
 
 /// A scalar channel as a colour: black, blue, green, white. Every capture goes
 /// through the same exposure and tone curve the scene does, and a grey ramp

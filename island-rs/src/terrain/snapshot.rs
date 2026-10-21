@@ -226,6 +226,8 @@ impl IslandSnapshotOwned {
             forest_stats: self.forest_stats,
             forest_options: self.forest_options,
             decorations: OnceLock::from(self.decorations),
+            #[cfg(feature = "surface-atlas")]
+            surface_atlases: super::surface_atlas::SurfaceAtlasCache::default(),
         })
     }
 }

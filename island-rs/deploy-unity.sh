@@ -17,7 +17,7 @@ if [ ! -f "$unity_dir/ProjectSettings/ProjectVersion.txt" ]; then
 fi
 
 cd "$crate_dir"
-cargo build --release --lib --locked --no-default-features
+cargo build --release --lib --locked --no-default-features --features surface-atlas
 
 target_dir=${CARGO_TARGET_DIR:-target}
 case "$target_dir" in

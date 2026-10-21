@@ -49,6 +49,8 @@ pub struct Island {
     pub(super) forest_stats: ForestGenerationStats,
     pub(super) forest_options: ForestOptions,
     pub(super) decorations: OnceLock<Decorations>,
+    #[cfg(feature = "surface-atlas")]
+    pub(super) surface_atlases: super::surface_atlas::SurfaceAtlasCache,
 }
 
 pub(super) struct FinalRiverGeneration {
@@ -687,6 +689,8 @@ impl Island {
             forest_stats,
             forest_options,
             decorations: OnceLock::from(decorations),
+            #[cfg(feature = "surface-atlas")]
+            surface_atlases: super::surface_atlas::SurfaceAtlasCache::default(),
         })
     }
 

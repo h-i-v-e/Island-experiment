@@ -15,6 +15,8 @@ namespace Motu.Interop
         private static extern uint GetMotuAbiTypeSize(uint typeId);
         [DllImport("motu", CallingConvention = CallingConvention.Cdecl)]
         private static extern uint GetMotuAbiForestOffset(uint fieldId);
+        [DllImport("motu", CallingConvention = CallingConvention.Cdecl)]
+        private static extern uint GetMotuTerrainSurfaceAtlasVersion();
 
         internal static void Validate()
         {
@@ -23,6 +25,8 @@ namespace Motu.Interop
                 var actual = GetMotuAbiVersion();
                 if (actual != Version)
                     throw new InvalidOperationException($"Motu native ABI {actual} does not match managed ABI {Version}. Install matching packages and restart Unity.");
+                if (GetMotuTerrainSurfaceAtlasVersion() != 1)
+                    throw new InvalidOperationException("Motu native terrain atlases are unavailable. Rebuild with the surface-atlas feature and restart Unity.");
                 Type[] types = { typeof(MotuNative.Options), typeof(MotuNative.ForestOptions),
                     typeof(MotuNative.ReedOptions), typeof(MotuNative.FernOptions),
                     typeof(MotuNative.Vector3Array), typeof(MotuNative.TriangleArray),
@@ -42,7 +46,7 @@ namespace Motu.Interop
             }
             catch (EntryPointNotFoundException error)
             {
-                throw new InvalidOperationException("Motu native library predates this package's ABI handshake. Install the matching native binary and restart Unity.", error);
+                throw new InvalidOperationException("Motu native library is missing APIs required by this package. Install the matching native binary and restart Unity.", error);
             }
         }
     }

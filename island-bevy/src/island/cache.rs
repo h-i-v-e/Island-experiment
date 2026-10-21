@@ -23,7 +23,7 @@ use motu::{GenerationMethod, IslandOptions, Mesh, Vec2, Vec3, Vec4};
 use crate::{
     chunk::{self, ChunkTier, TIERS, TerrainChunk},
     hash::mix,
-    island_gen::{IslandData, RiverDrop},
+    island_gen::{IslandData, LodSurfaceMaps, RiverDrop},
     options,
 };
 
@@ -44,7 +44,9 @@ use crate::{
 /// CPU river and waterfall builder. 9 carries the fourth material channel and
 /// the independent forest-floor/stone pair. 10 expands the serialized option
 /// header with the tunable continental/detail noise and land-mass offset.
-const CACHE_FORMAT_VERSION: u32 = 11;
+// 12 adds independent baked surface atlases and UVs for LOD1 and LOD2.
+// 13 rebakes small-chart coverage, complete gutters and precise source normals.
+const CACHE_FORMAT_VERSION: u32 = 13;
 
 const MAGIC: &[u8; 8] = b"MOTUBVY\0";
 /// Distinguishes a cache key from the crate's other hashed values.
@@ -138,6 +140,14 @@ pub fn read(path: &Path, seed: u64, options: &IslandOptions) -> Option<IslandDat
     let trees = reader.points()?;
     let bushes = reader.points()?;
     let heights = reader.scalars()?;
+    let mut surface_atlases = [None, None];
+    for maps in &mut surface_atlases {
+        *maps = match reader.u32()? {
+            0 => None,
+            1 => Some(reader.surface_maps()?),
+            _ => return None,
+        };
+    }
     // Anything left over means the entry was written to a layout this file no
     // longer reads, whatever version it claims.
     if !reader.bytes.is_empty() {
@@ -146,6 +156,7 @@ pub fn read(path: &Path, seed: u64, options: &IslandOptions) -> Option<IslandDat
     Some(IslandData {
         options: *options,
         terrain_chunks,
+        surface_atlases,
         river_mesh,
         river_rock_mesh,
         river_drops,
@@ -181,10 +192,26 @@ pub fn write(path: &Path, seed: u64, data: &IslandData) -> io::Result<()> {
     write_points(&mut writer, &data.bushes)?;
     write_count(&mut writer, data.heights.len())?;
     write_scalars(&mut writer, &data.heights)?;
+    for maps in &data.surface_atlases {
+        write_surface_maps(&mut writer, maps.as_ref())?;
+    }
     writer
         .into_inner()
         .map_err(io::IntoInnerError::into_error)?;
     fs::rename(&temporary, path)
+}
+
+fn write_surface_maps(writer: &mut impl Write, maps: Option<&LodSurfaceMaps>) -> io::Result<()> {
+    writer.write_all(&u32::from(maps.is_some()).to_le_bytes())?;
+    if let Some(maps) = maps {
+        writer.write_all(&maps.width.to_le_bytes())?;
+        writer.write_all(&maps.height.to_le_bytes())?;
+        write_count(writer, maps.normal_rgb.len())?;
+        writer.write_all(&maps.normal_rgb)?;
+        write_count(writer, maps.occlusion.len())?;
+        writer.write_all(&maps.occlusion)?;
+    }
+    Ok(())
 }
 
 /// The grid position, then every level of detail in order, in the order
@@ -353,6 +380,29 @@ impl<'a> Reader<'a> {
         self.array(WORD, Self::f32)
     }
 
+    fn surface_maps(&mut self) -> Option<LodSurfaceMaps> {
+        let width = self.u32()?;
+        let height = self.u32()?;
+        if width == 0 || height == 0 || width > 8192 || height > 8192 {
+            return None;
+        }
+        let pixels = usize::try_from(width).ok()?.checked_mul(height as usize)?;
+        if usize::try_from(self.u32()?).ok()? != pixels.checked_mul(3)? {
+            return None;
+        }
+        let normal_rgb = self.take(pixels * 3)?.to_vec();
+        if usize::try_from(self.u32()?).ok()? != pixels {
+            return None;
+        }
+        let occlusion = self.take(pixels)?.to_vec();
+        Some(LodSurfaceMaps {
+            width,
+            height,
+            normal_rgb,
+            occlusion,
+        })
+    }
+
     /// Field order matches [`write_drops`], and struct expressions evaluate in
     /// the order written.
     fn drops(&mut self) -> Option<Vec<RiverDrop>> {
@@ -446,7 +496,10 @@ mod tests {
 
     use motu::{GenerationMethod, IslandOptions, Mesh, Vec2, Vec3, Vec4};
 
-    use super::{ChunkTier, IslandData, RiverDrop, TIERS, TerrainChunk, key, path, read, write};
+    use super::{
+        ChunkTier, IslandData, LodSurfaceMaps, RiverDrop, TIERS, TerrainChunk, key, path, read,
+        write,
+    };
 
     /// One chunk whose three levels are all different lengths, so a level read
     /// out of order cannot still parse.
@@ -502,6 +555,15 @@ mod tests {
             // it was written with, and the reader is what the round trip has to
             // hold, not the grid size.
             terrain_chunks: vec![chunk(0, 0), chunk(1, 0), chunk(0, 1)],
+            surface_atlases: [
+                Some(LodSurfaceMaps {
+                    width: 2,
+                    height: 1,
+                    normal_rgb: vec![128, 127, 255, 160, 80, 240],
+                    occlusion: vec![180, 255],
+                }),
+                None,
+            ],
             river_mesh: Mesh {
                 vertices: vec![Vec3::X, Vec3::Y],
                 normals: vec![Vec3::Z; 2],
@@ -773,5 +835,15 @@ mod tests {
             gpu.parent().and_then(std::path::Path::file_name),
             Some(std::ffi::OsStr::new("gpu"))
         );
+    }
+
+    #[test]
+    fn incomplete_surface_atlas_pixels_are_a_cache_miss() {
+        let path = scratch("incomplete-surface-map");
+        let mut data = island();
+        data.surface_atlases[0].as_mut().unwrap().normal_rgb.pop();
+        write(&path, 42, &data).unwrap();
+        assert!(read(&path, 42, &data.options).is_none());
+        fs::remove_file(path).unwrap();
     }
 }

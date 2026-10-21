@@ -25,11 +25,26 @@
 //! material carries before it does.
 
 use bevy::{
-    pbr::{ExtendedMaterial, MaterialExtension, MaterialPlugin},
+    mesh::{MeshVertexAttribute, MeshVertexBufferLayoutRef},
+    pbr::{
+        ExtendedMaterial, MaterialExtension, MaterialExtensionKey, MaterialExtensionPipeline,
+        MaterialPlugin,
+    },
     prelude::*,
-    render::render_resource::{AsBindGroup, ShaderType},
+    render::render_resource::{
+        AsBindGroup, RenderPipelineDescriptor, ShaderType, SpecializedMeshPipelineError,
+        VertexFormat,
+    },
     shader::ShaderRef,
 };
+
+/// Independent chart coordinates for the LOD terrain normal/occlusion atlas.
+/// The two standard UV channels continue carrying terrain environment/wetness.
+pub const TERRAIN_SURFACE_UV: MeshVertexAttribute = MeshVertexAttribute::new(
+    "TerrainSurfaceUv",
+    0x6d6f_7475_0001,
+    VertexFormat::Float32x2,
+);
 
 /// The terrain surface: the generator's material triple per vertex, every band,
 /// detail layer and surface response per pixel.
@@ -140,6 +155,8 @@ pub struct TerrainSettings {
     /// The diagnostic channel the fragment output is switched to, or zero.
     /// Written by `capture`; `debug.wgsl` spells the numbering.
     pub debug_view: u32,
+    /// Whether this level has an unwrapped LOD0 normal/occlusion bake.
+    pub surface_maps: u32,
     /// Engine-selected linear colours also used as fallbacks while authoring
     /// and as the recipe anchors supplied to the runtime baker.
     pub dirt_colour: Vec4,
@@ -163,6 +180,10 @@ pub struct TerrainExtension {
     #[texture(105)]
     #[sampler(106)]
     pub material_mask: Handle<Image>,
+    /// Linear object-space normal in RGB, terrain occlusion in alpha.
+    #[texture(107)]
+    #[sampler(108)]
+    pub surface_map: Handle<Image>,
 }
 
 impl TerrainExtension {
@@ -175,6 +196,8 @@ impl TerrainExtension {
         chunk_metres: f32,
         lod_level: u32,
         atlases: &crate::material_textures::MaterialAtlases,
+        surface_map: Handle<Image>,
+        surface_maps: bool,
     ) -> Self {
         Self {
             settings: TerrainSettings {
@@ -185,6 +208,7 @@ impl TerrainExtension {
                 chunk_metres: chunk_metres.max(1.0),
                 lod_level,
                 debug_view: 0,
+                surface_maps: u32::from(surface_maps),
                 dirt_colour: atlases.dirt_colour.extend(1.0),
                 stone_colour: atlases.stone_colour.extend(1.0),
                 sand_colour: atlases.sand_colour.extend(1.0),
@@ -192,11 +216,35 @@ impl TerrainExtension {
             material_albedo: atlases.albedo.clone(),
             material_normal: atlases.normal.clone(),
             material_mask: atlases.mask.clone(),
+            surface_map,
         }
     }
 }
 
 impl MaterialExtension for TerrainExtension {
+    fn vertex_shader() -> ShaderRef {
+        "embedded://island_bevy/shaders/terrain.wgsl".into()
+    }
+
+    fn specialize(
+        _pipeline: &MaterialExtensionPipeline,
+        descriptor: &mut RenderPipelineDescriptor,
+        layout: &MeshVertexBufferLayoutRef,
+        _key: MaterialExtensionKey<Self>,
+    ) -> Result<(), SpecializedMeshPipelineError> {
+        // Keep Bevy's selected standard attributes, including its different
+        // prepass locations. All attributes share the original interleaved
+        // stride, so appending the chart attribute also leaves shadows and
+        // motion-vector/prepass pipelines intact.
+        let surface = layout
+            .0
+            .get_layout(&[TERRAIN_SURFACE_UV.at_shader_location(8)])?;
+        descriptor.vertex.buffers[0]
+            .attributes
+            .extend(surface.attributes);
+        Ok(())
+    }
+
     fn fragment_shader() -> ShaderRef {
         "embedded://island_bevy/shaders/terrain.wgsl".into()
     }

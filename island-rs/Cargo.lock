@@ -502,6 +502,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "uvunwrap",
  "wgpu",
  "zstd",
 ]
@@ -1123,6 +1124,15 @@ name = "unicode-width"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4ac048d71ede7ee76d585517add45da530660ef4390e49b098733c6e897f254"
+
+[[package]]
+name = "uvunwrap"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9dcf6453679f6c292df121f82e8f296cbcd4bfeecacdfe8965f2df08549519df"
+dependencies = [
+ "rayon",
+]
 
 [[package]]
 name = "version_check"

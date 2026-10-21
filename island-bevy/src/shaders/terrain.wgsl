@@ -1,12 +1,18 @@
 // Terrain surface. The generator's material triple arrives per vertex and
 // everything else — bands, detail, roughness, wetness — is resolved per pixel.
 //
-// Only the forward fragment shader is replaced. The prepass and deferred
-// shaders stay the standard ones, so depth, motion vectors, occlusion, contact
+// The forward vertex stage adds chart UVs; the fragment stage shades the
+// terrain. The prepass and deferred shaders stay standard, so depth, motion
+// vectors, occlusion, contact
 // shadows and the shadow cascades all still see this surface.
 
 #import bevy_pbr::{
-    forward_io::{VertexOutput, FragmentOutput},
+    forward_io::{Vertex, VertexOutput, FragmentOutput},
+    mesh_bindings::mesh,
+    mesh_functions,
+    skinning,
+    morph::{morph_position, morph_normal, morph_tangent},
+    view_transformations::position_world_to_clip,
     mesh_view_bindings::view,
     pbr_fragment::pbr_input_from_standard_material,
     pbr_functions::{alpha_discard, apply_pbr_lighting, main_pass_post_lighting_processing},
@@ -17,7 +23,7 @@
 // Only defined when the chunk this fragment belongs to is inside the crossfade
 // between two levels of detail, which is also the only time the function exists.
 #ifdef VISIBILITY_RANGE_DITHER
-#import bevy_pbr::pbr_functions::visibility_range_dither;
+#import bevy_pbr::pbr_functions;
 #endif
 
 // Linear-space band colours, each written above as the sRGB triple it came
@@ -95,6 +101,7 @@ struct TerrainSettings {
     lod_level: u32,
     /// The diagnostic channel this surface answers with, or `debug::OFF`.
     debug_view: u32,
+    surface_maps: u32,
     dirt_colour: vec4<f32>,
     stone_colour: vec4<f32>,
     sand_colour: vec4<f32>,
@@ -107,6 +114,8 @@ struct TerrainSettings {
 @group(#{MATERIAL_BIND_GROUP}) @binding(104) var material_normal_sampler: sampler;
 @group(#{MATERIAL_BIND_GROUP}) @binding(105) var material_mask: texture_2d<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(106) var material_mask_sampler: sampler;
+@group(#{MATERIAL_BIND_GROUP}) @binding(107) var surface_map: texture_2d<f32>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(108) var surface_map_sampler: sampler;
 
 fn material_atlas_uv(uv: vec2<f32>, slot: vec2<f32>) -> vec2<f32> {
     let dimensions = vec2<f32>(textureDimensions(material_albedo));
@@ -151,14 +160,145 @@ fn chunk_readout(world: vec3<f32>) -> vec3<f32> {
     return level * chequer;
 }
 
+struct TerrainVertexOutput {
+    // This is `clip position` when the struct is used as a vertex stage output
+    // and `frag coord` when used as a fragment stage input
+    @builtin(position) position: vec4<f32>,
+    @location(0) world_position: vec4<f32>,
+    @location(1) world_normal: vec3<f32>,
+#ifdef VERTEX_UVS_A
+    @location(2) uv: vec2<f32>,
+#endif
+#ifdef VERTEX_UVS_B
+    @location(3) uv_b: vec2<f32>,
+#endif
+#ifdef VERTEX_TANGENTS
+    @location(4) world_tangent: vec4<f32>,
+#endif
+#ifdef VERTEX_COLORS
+    @location(5) color: vec4<f32>,
+#endif
+#ifdef VERTEX_OUTPUT_INSTANCE_INDEX
+    @location(6) @interpolate(flat) instance_index: u32,
+#endif
+#ifdef VISIBILITY_RANGE_DITHER
+    @location(7) @interpolate(flat) visibility_range_dither: i32,
+#endif
+    @location(8) surface_uv: vec2<f32>,
+}
+
+#ifdef MORPH_TARGETS
+// The instance_index parameter must match vertex_in.instance_index. This is a work around for a wgpu dx12 bug.
+// See https://github.com/gfx-rs/naga/issues/2416
+fn morph_vertex(vertex_in: Vertex, instance_index: u32) -> Vertex {
+    var vertex = vertex_in;
+    let first_vertex = mesh[instance_index].first_vertex_index;
+    let vertex_index = vertex.index - first_vertex;
+
+    let weight_count = bevy_pbr::morph::layer_count(instance_index);
+    for (var i: u32 = 0u; i < weight_count; i ++) {
+        let weight = bevy_pbr::morph::weight_at(i, instance_index);
+        if weight == 0.0 {
+            continue;
+        }
+        vertex.position += weight * morph_position(vertex_index, i, instance_index);
+#ifdef VERTEX_NORMALS
+        vertex.normal += weight * morph_normal(vertex_index, i, instance_index);
+#endif
+#ifdef VERTEX_TANGENTS
+        vertex.tangent += vec4(weight * morph_tangent(vertex_index, i, instance_index), 0.0);
+#endif
+    }
+    return vertex;
+}
+#endif
+
+@vertex
+fn vertex(vertex_no_morph: Vertex, @location(8) surface_uv: vec2<f32>) -> TerrainVertexOutput {
+    var out: TerrainVertexOutput;
+    out.surface_uv = surface_uv;
+
+#ifdef MORPH_TARGETS
+    var vertex = morph_vertex(vertex_no_morph, vertex_no_morph.instance_index);
+#else
+    var vertex = vertex_no_morph;
+#endif
+
+    let mesh_world_from_local = mesh_functions::get_world_from_local(vertex_no_morph.instance_index);
+
+#ifdef SKINNED
+    // Use vertex_no_morph.instance_index instead of vertex.instance_index to work around a wgpu dx12 bug.
+    // See https://github.com/gfx-rs/naga/issues/2416 .
+    var world_from_local = skinning::skin_model(
+        vertex.joint_indices,
+        vertex.joint_weights,
+        vertex_no_morph.instance_index
+    );
+#else
+    var world_from_local = mesh_world_from_local;
+#endif
+
+#ifdef VERTEX_NORMALS
+#ifdef SKINNED
+    out.world_normal = skinning::skin_normals(world_from_local, vertex.normal);
+#else
+    out.world_normal = mesh_functions::mesh_normal_local_to_world(
+        vertex.normal,
+        // Use vertex_no_morph.instance_index instead of vertex.instance_index to work around a wgpu dx12 bug.
+        // See https://github.com/gfx-rs/naga/issues/2416
+        vertex_no_morph.instance_index
+    );
+#endif
+#endif
+
+#ifdef VERTEX_POSITIONS
+    out.world_position = mesh_functions::mesh_position_local_to_world(world_from_local, vec4<f32>(vertex.position, 1.0));
+    out.position = position_world_to_clip(out.world_position.xyz);
+#endif
+
+#ifdef VERTEX_UVS_A
+    out.uv = vertex.uv;
+#endif
+#ifdef VERTEX_UVS_B
+    out.uv_b = vertex.uv_b;
+#endif
+
+#ifdef VERTEX_TANGENTS
+    out.world_tangent = mesh_functions::mesh_tangent_local_to_world(
+        world_from_local,
+        vertex.tangent,
+        // Use vertex_no_morph.instance_index instead of vertex.instance_index to work around a wgpu dx12 bug.
+        // See https://github.com/gfx-rs/naga/issues/2416
+        vertex_no_morph.instance_index
+    );
+#endif
+
+#ifdef VERTEX_COLORS
+    out.color = vertex.color;
+#endif
+
+#ifdef VERTEX_OUTPUT_INSTANCE_INDEX
+    // Use vertex_no_morph.instance_index instead of vertex.instance_index to work around a wgpu dx12 bug.
+    // See https://github.com/gfx-rs/naga/issues/2416
+    out.instance_index = vertex_no_morph.instance_index;
+#endif
+
+#ifdef VISIBILITY_RANGE_DITHER
+    out.visibility_range_dither = mesh_functions::get_visibility_range_dither_level(
+        vertex_no_morph.instance_index, mesh_world_from_local[3]);
+#endif
+
+    return out;
+}
+
 @fragment
-fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> FragmentOutput {
+fn fragment(in: VertexOutput, @location(8) surface_uv: vec2<f32>, @builtin(front_facing) is_front: bool) -> FragmentOutput {
     // Two levels of one chunk are both drawn across the margin they share, each
     // keeping the pixels the other discards. The prepass answers the same way
     // through Bevy's own shader, so depth, motion vectors and the shadow
     // cascades all see the same half of each.
 #ifdef VISIBILITY_RANGE_DITHER
-    visibility_range_dither(in.position, in.visibility_range_dither);
+    pbr_functions::visibility_range_dither(in.position, in.visibility_range_dither);
 #endif
 
     var pbr_input = pbr_input_from_standard_material(in, is_front);
@@ -182,7 +322,15 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
 #endif
 
     let world = in.world_position.xyz;
-    let normal = normalize(pbr_input.world_normal);
+    // The atlas records the full-resolution terrain's absolute Z-up normal.
+    // Terrain entities are translated only; swapping Y/Z matches conversion.
+    // Read unconditionally so texture derivatives stay uniform across modes.
+    let surface = textureSample(surface_map, surface_map_sampler, surface_uv);
+    let island_normal = surface.rgb * 2.0 - 1.0;
+    let surface_normal = normalize(vec3<f32>(island_normal.x, island_normal.z, island_normal.y));
+    let use_surface_map = settings.surface_maps != 0u;
+    let normal = normalize(select(pbr_input.world_normal, surface_normal, use_surface_map));
+    let terrain_occlusion = select(1.0, surface.a, use_surface_map);
     // Island space put sea level at zero and elevation on world up, so world
     // height is already the generator's elevation in metres.
     let metres = world.y;
@@ -205,6 +353,20 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         readout = debug::ramp(slope);
     } else if settings.debug_view == debug::CHUNKS {
         readout = chunk_readout(world);
+    } else if settings.debug_view == debug::SURFACE_NORMALS {
+        readout = normal * 0.5 + 0.5;
+    } else if settings.debug_view == debug::SURFACE_OCCLUSION {
+        readout = vec3<f32>(terrain_occlusion);
+    } else if settings.debug_view == debug::SURFACE_UVS {
+        // Global atlas coordinates locate each chart; the fine chequer makes
+        // chart distortion and discontinuities visible on the surface.
+        let cell = vec2<i32>(floor(surface_uv * 64.0));
+        let chequer = select(0.58, 1.0, (cell.x + cell.y) % 2 == 0);
+        readout = select(
+            vec3<f32>(0.0),
+            vec3<f32>(surface_uv, 0.5) * chequer,
+            use_surface_map,
+        );
     } else {
         diagnosing = false;
     }
@@ -385,6 +547,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         max(max(river_material_weight, forest_material_weight), stones_material_weight),
     );
     albedo *= mix(1.0, baked_occlusion, 0.38);
+    pbr_input.diffuse_occlusion *= vec3<f32>(terrain_occlusion);
 
     // The waterline stays damp, and so does a river bank. Sea proximity places
     // the first; the second arrives per vertex, because the generator publishes

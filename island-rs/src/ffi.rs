@@ -8,6 +8,7 @@
 
 mod abi;
 mod caves;
+mod surface_atlas;
 
 use std::{
     alloc::{Layout, alloc, dealloc, handle_alloc_error},

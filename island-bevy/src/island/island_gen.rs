@@ -53,6 +53,8 @@ pub const HEIGHT_GRID: u32 = 512;
 /// Runtime material resolution selected by this engine. Recipes are baked on
 /// the island task and uploaded only after the complete group arrives.
 const MATERIAL_TEXTURE_SIZE: u32 = 512;
+/// Independent whole-island surface atlases for the two simplified meshes.
+const LOD_SURFACE_DIMENSIONS: [u32; 2] = [2048, 1024];
 const DIRT_BASE: LinearRgb = LinearRgb::new(0.09, 0.055, 0.026);
 const STONE_BASE: LinearRgb = LinearRgb::new(0.25, 0.27, 0.24);
 const SAND_BASE: LinearRgb = LinearRgb::new(0.53982, 0.44515, 0.18138);
@@ -205,12 +207,18 @@ pub struct IslandReady;
 #[derive(Component)]
 pub struct IslandEntity;
 
-/// Everything the renderer reads off a generated island, and nothing else.
-///
-/// The generator's `Island` is dropped as soon as this is built, which is what
-/// lets the same data come off disk as easily as out of a generation run: these
-/// are plain `motu` values with public fields, where `Island` is opaque and its
-/// own save file only stores the seed to regenerate from.
+/// Cacheable normal and occlusion pixels belonging to one unwrapped LOD.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct LodSurfaceMaps {
+    pub width: u32,
+    pub height: u32,
+    /// Absolute LOD0 normals in native XYZ (Z-up), encoded as linear RGB8.
+    pub normal_rgb: Vec<u8>,
+    pub occlusion: Vec<u8>,
+}
+
+/// Everything the renderer reads off a generated island. The native island is
+/// dropped after this payload is built; subsequent launches read it from cache.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct IslandData {
     /// The options the island was generated with. The shaders read scale off
@@ -225,6 +233,8 @@ pub struct IslandData {
     /// fall's spray leaves. The wetness is measured here because the generator
     /// publishes channels, not a distance to them.
     pub terrain_chunks: Vec<TerrainChunk>,
+    /// LOD1 first, then LOD2; no baked surface maps are used by LOD0.
+    pub surface_atlases: [Option<LodSurfaceMaps>; 2],
     pub river_mesh: Mesh,
     pub river_rock_mesh: Mesh,
     /// Every fall the channels carry. The water surface, the rock beside it and
@@ -243,13 +253,13 @@ pub struct IslandData {
 impl IslandData {
     /// Built on the generation task, which is also what moves the generator's
     /// lazy decoration pass and the terrain slicing off the main thread.
-    fn new(island: &Island) -> (Self, DropIndex) {
+    fn new(island: &Island) -> Result<(Self, DropIndex), String> {
         let decorations = island.decorations();
         let started = Instant::now();
         let river_drops = river_drops(island);
         let drops = DropIndex::new(&river_drops);
         let banks = WetBanks::new(island);
-        let terrain_chunks = terrain_chunks(island, &banks, &drops);
+        let (terrain_chunks, surface_atlases) = terrain_chunks(island, &banks, &drops)?;
         let tallest = river_drops
             .iter()
             .map(|drop| drop.metres())
@@ -268,6 +278,7 @@ impl IslandData {
         let data = Self {
             options: island.options(),
             terrain_chunks,
+            surface_atlases,
             river_mesh: island.river_mesh().clone(),
             river_rock_mesh: island.river_rock_mesh().clone(),
             river_drops,
@@ -276,7 +287,7 @@ impl IslandData {
             heights: island.height_map(HEIGHT_GRID, HEIGHT_GRID),
             rivers: u32::try_from(island.rivers().len()).unwrap_or(u32::MAX),
         };
-        (data, drops)
+        Ok((data, drops))
     }
 
     /// Vertices across every chunk at one level of detail, which is what the
@@ -335,11 +346,37 @@ impl IslandData {
 /// The skirt is hung after both are measured and copies them from the vertex it
 /// hangs from, so an apron shades as the ground above it does rather than as
 /// ground twenty-four metres lower — which, beside a channel, would read as wet.
-fn terrain_chunks(island: &Island, banks: &WetBanks, drops: &DropIndex) -> Vec<TerrainChunk> {
+fn terrain_chunks(
+    island: &Island,
+    banks: &WetBanks,
+    drops: &DropIndex,
+) -> Result<(Vec<TerrainChunk>, [Option<LodSurfaceMaps>; 2]), String> {
     let depth = chunk::skirt_depth();
-    let mut levels: Vec<Vec<Mesh>> = (0..chunk::TIERS)
-        .map(|level| island.lod(level).map_or_else(Vec::new, chunk::sliced))
-        .collect();
+    let mut levels = vec![island.lod(0).map_or_else(Vec::new, chunk::sliced)];
+    let mut surface_atlases = [None, None];
+    for (index, dimension) in LOD_SURFACE_DIMENSIONS.into_iter().enumerate() {
+        let started = Instant::now();
+        let atlas = island.surface_atlas(index + 1, dimension)?;
+        info!(
+            "LOD{} surface atlas: {}x{}, {} vertices, baked in {:.0} ms",
+            index + 1,
+            atlas.maps.width(),
+            atlas.maps.height(),
+            atlas.mesh.vertices.len(),
+            started.elapsed().as_secs_f32() * 1_000.0,
+        );
+        levels.push(atlas.mesh.sliced_grid_preserving_uv_seams(
+            motu::BoundingBox::default(),
+            chunk::DIVISIONS as usize,
+        ));
+        let (width, height, normal_rgb, occlusion) = atlas.maps.into_parts();
+        surface_atlases[index] = Some(LodSurfaceMaps {
+            width,
+            height,
+            normal_rgb,
+            occlusion,
+        });
+    }
     let mut chunks = Vec::with_capacity((chunk::DIVISIONS * chunk::DIVISIONS) as usize);
     for row in 0..chunk::DIVISIONS {
         for column in 0..chunk::DIVISIONS {
@@ -348,14 +385,21 @@ fn terrain_chunks(island: &Island, banks: &WetBanks, drops: &DropIndex) -> Vec<T
             let sides = chunk::interior_sides(column, row);
             let mut tiers = Vec::with_capacity(chunk::TIERS);
             let (mut surface_low, mut surface_high) = (f32::MAX, f32::MIN);
-            for level in &mut levels {
+            for (level_index, level) in levels.iter_mut().enumerate() {
                 let mut mesh = level.get_mut(index).map(std::mem::take).unwrap_or_default();
                 for vertex in &mesh.vertices {
                     surface_low = surface_low.min(vertex.z);
                     surface_high = surface_high.max(vertex.z);
                 }
+                // Material queries require island XY, whereas the render copy
+                // now carries atlas UVs. With UVs temporarily absent, native
+                // sampling uses each vertex's XY directly, without a mesh copy.
+                let surface_uv = (level_index != 0).then(|| std::mem::take(&mut mesh.uv));
                 let mut materials = island.material_values_for(&mesh);
                 let mut environment = island.environment_values_for(&mesh);
+                if let Some(surface_uv) = surface_uv {
+                    mesh.uv = surface_uv;
+                }
                 let mut river_wetness = banks.measure(&mesh, drops);
                 for source in chunk::skirt(&mut mesh, bounds, depth, sides) {
                     let source = source as usize;
@@ -381,7 +425,7 @@ fn terrain_chunks(island: &Island, banks: &WetBanks, drops: &DropIndex) -> Vec<T
             });
         }
     }
-    chunks
+    Ok((chunks, surface_atlases))
 }
 
 /// One fall on one channel, in the generator's normalized island space: x and y
@@ -1112,7 +1156,7 @@ fn island_data(
     } else {
         info!("island cache miss: {}", path.display());
     }
-    let (data, drops) = IslandData::new(&Island::generate_with_method(seed, options, method)?);
+    let (data, drops) = IslandData::new(&Island::generate_with_method(seed, options, method)?)?;
     match cache::write(&path, seed, &data) {
         Ok(()) => info!("island cache written: {}", path.display()),
         Err(error) => warn!(

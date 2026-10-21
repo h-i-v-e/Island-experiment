@@ -138,6 +138,12 @@ pub struct SurfaceMaps {
 }
 
 impl SurfaceMaps {
+    /// Transfers baked texture buffers to a renderer without copying pixels.
+    #[must_use]
+    pub fn into_parts(self) -> (u32, u32, Vec<u8>, Vec<u8>) {
+        (self.width, self.height, self.normal_rgb, self.occlusion)
+    }
+
     #[must_use]
     pub const fn width(&self) -> u32 {
         self.width
@@ -275,6 +281,52 @@ impl Terrain {
         sample_mesh_surface(&self.mesh, &self.triangle_index, u, v)
     }
 
+    /// Atlas baking needs interpolation even on sub-metre source triangles.
+    /// Double precision and translated edges avoid the legacy sampler's
+    /// absolute projected-area cutoff without changing physics or field queries.
+    #[cfg(feature = "surface-atlas")]
+    pub(crate) fn sample_atlas_surface(&self, u: f32, v: f32) -> (f32, Vec3) {
+        let point = Vec2::new(u.clamp(0.0, 1.0), v.clamp(0.0, 1.0)).as_dvec2();
+        self.triangle_index
+            .candidates(point.as_vec2())
+            .iter()
+            .find_map(|&face| {
+                let offset = face as usize * 3;
+                let triangle = [
+                    self.mesh.triangles[offset] as usize,
+                    self.mesh.triangles[offset + 1] as usize,
+                    self.mesh.triangles[offset + 2] as usize,
+                ];
+                let positions = triangle.map(|index| self.mesh.vertices[index].as_dvec3());
+                let first = positions[1].truncate() - positions[0].truncate();
+                let second = positions[2].truncate() - positions[0].truncate();
+                let relative = point - positions[0].truncate();
+                let area = first.perp_dot(second);
+                if !area.is_finite() || area == 0.0 {
+                    return None;
+                }
+                let b = relative.perp_dot(second) / area;
+                let c = first.perp_dot(relative) / area;
+                let weights = [1.0 - b - c, b, c];
+                if weights
+                    .iter()
+                    .any(|&weight| !weight.is_finite() || weight < -1.0e-5)
+                {
+                    return None;
+                }
+                let height = positions[0].z * weights[0]
+                    + positions[1].z * weights[1]
+                    + positions[2].z * weights[2];
+                let normals = triangle.map(|index| self.mesh.normals[index].as_dvec3());
+                let normal =
+                    (normals[0] * weights[0] + normals[1] * weights[1] + normals[2] * weights[2])
+                        .try_normalize()
+                        .map_or(Vec3::Z, glam::DVec3::as_vec3);
+                Some((height as f32, normal))
+            })
+            .unwrap_or_else(|| self.sample_surface(u, v))
+    }
+
     pub(crate) fn sample_support(&self, point: Vec2) -> TerrainSupportSample {
         let point = point.clamp(Vec2::ZERO, Vec2::ONE);
         sample_mesh_triangle(&self.mesh, &self.triangle_index, point).map_or_else(
@@ -400,4 +452,62 @@ pub(super) fn bury_river_banks(mesh: &mut Mesh, terrain: &Mesh, triangle_index: 
             vertex.z = vertex.z.min(terrain_height);
         });
     mesh.calculate_normals();
+}
+
+#[cfg(all(test, feature = "surface-atlas"))]
+mod atlas_sampling_tests {
+    use super::*;
+
+    fn varying_normal_triangle(offset: Vec2, scale: f32) -> Terrain {
+        Terrain::new(Mesh {
+            vertices: vec![
+                offset.extend(0.0),
+                (offset + Vec2::X * scale).extend(0.3),
+                (offset + Vec2::Y * scale).extend(0.6),
+            ],
+            normals: vec![Vec3::Z, Vec3::X, Vec3::Y],
+            triangles: vec![0, 1, 2],
+            ..Mesh::default()
+        })
+    }
+
+    #[test]
+    fn atlas_sampler_interpolates_tiny_triangles_without_changing_legacy_sampling() {
+        let expected = Vec3::ONE.normalize();
+        for scale in [1.0, 0.0001] {
+            let terrain = varying_normal_triangle(Vec2::ZERO, scale);
+            let point = Vec2::splat(scale / 3.0);
+            let (height, normal) = terrain.sample_atlas_surface(point.x, point.y);
+            assert!((height - 0.3).abs() < 1.0e-6);
+            assert!(normal.distance(expected) < 1.0e-6);
+            if scale < 0.001 {
+                let (legacy_height, legacy_normal) = terrain.sample_surface(point.x, point.y);
+                assert!(legacy_height.abs() < f32::EPSILON);
+                assert!(legacy_normal.distance(Vec3::Z) < f32::EPSILON);
+                assert!(normal.dot(legacy_normal) < 0.6);
+            }
+        }
+    }
+
+    #[test]
+    fn atlas_sampler_retains_precision_on_offset_tiny_triangles() {
+        let offset = Vec2::new(0.25, 0.5);
+        let scale = 0.0001;
+        let terrain = varying_normal_triangle(offset, scale);
+        let point = offset + Vec2::splat(scale / 3.0);
+        let (height, normal) = terrain.sample_atlas_surface(point.x, point.y);
+        // Input positions are still f32, so their offset quantization limits
+        // the centroid precision before the double-precision interpolation.
+        assert!((height - 0.3).abs() < 0.001);
+        assert!(normal.distance(Vec3::ONE.normalize()) < 0.001);
+    }
+
+    #[test]
+    fn atlas_sampler_retains_the_existing_fallback_outside_the_surface() {
+        let terrain = varying_normal_triangle(Vec2::ZERO, 0.1);
+        let expected = terrain.sample_surface(0.09, 0.09);
+        let actual = terrain.sample_atlas_surface(0.09, 0.09);
+        assert!((actual.0 - expected.0).abs() < f32::EPSILON);
+        assert!(actual.1.distance(expected.1) < f32::EPSILON);
+    }
 }

@@ -51,6 +51,16 @@ shaders in a player build. Authored overrides are borrowed; generated materials
 are owned and released by the island. Identical procedural ground noise is shared
 between resident islands and released after the final owner unloads.
 
+LOD1 and LOD2 terrain use separate mesh UV unwraps and normal/occlusion atlases
+baked from the detailed native terrain. Their page sizes are 2048 and 1024 pixels
+respectively; unused rows are cropped. When fragmented terrain requires multiple
+pages, they share a larger texture with remapped UVs and the same texel padding.
+Streaming preserves UV chart seams,
+and textures use three mip levels to keep filtering within the chart gutters.
+LOD0 keeps its existing planar maps. Atlases are derived when preparing an island,
+including islands loaded from existing snapshots; no cache deletion is required.
+Native development builds must enable `surface-atlas` (`deploy-unity.sh` does this).
+
 ```csharp
 using Motu.Islands;
 using UnityEngine;

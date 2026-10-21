@@ -32,7 +32,11 @@ namespace Motu.Streaming
             byte clampSides, float worldSize, CancellationToken cancellation)
         {
             cancellation.ThrowIfCancellationRequested();
-            MotuNative.CreateMeshGrid(handle, ref area, lod, divisions, clampSides, out var export);
+            MotuNative.ExportMeshGrid export;
+            if (lod == 0)
+                MotuNative.CreateMeshGrid(handle, ref area, lod, divisions, clampSides, out export);
+            else
+                MotuNative.CreateTerrainAtlasMeshGrid(handle, ref area, lod, divisions, clampSides, out export);
             try
             {
                 if (export.handle == IntPtr.Zero || export.data == IntPtr.Zero

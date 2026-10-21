@@ -589,7 +589,11 @@ Shader "Motu/Terrain Unified"
                 half3 lighting = ShadeSH9(half4(normal, 1.0h))
                         * cloud.ambientTransmittance
                     + _LightColor0.rgb * diffuse * cloud.directTransmittance;
-                fixed4 color = fixed4(baseColor * _Color.rgb * lighting, 1.0h);
+                half sharedOcclusion = lerp(
+                    1.0h,
+                    tex2D(_Occlusion, input.uv).r,
+                    _OcclusionStrength);
+                fixed4 color = fixed4(baseColor * _Color.rgb * lighting * sharedOcclusion, 1.0h);
                 UNITY_APPLY_FOG(input.fogCoord, color);
                 return color;
             }
@@ -620,11 +624,17 @@ Shader "Motu/Terrain Unified"
                 if (_WorldNormalWeight > 0.5h)
                 {
                     float3 encoded = tex2D(_WorldNormal, input.uv).rgb;
-                    float3 localNormal = normalize(float3(
+                    float3 localNormal = float3(
                         encoded.r * 2.0 - 1.0,
                         encoded.b * 2.0 - 1.0,
-                        encoded.g * 2.0 - 1.0));
-                    geometricNormal = normalize(UnityObjectToWorldNormal(localNormal));
+                        encoded.g * 2.0 - 1.0);
+                    // Blank RGB128 texels and nearly cancelling filtered normals
+                    // have no reliable direction. Keep the mesh normal instead
+                    // of magnifying their quantization into a false diagonal.
+                    if (dot(localNormal, localNormal) > 1.0e-4)
+                    {
+                        geometricNormal = normalize(UnityObjectToWorldNormal(normalize(localNormal)));
+                    }
                 }
 
                 float3 localPosition = input.islandLocalPosition;

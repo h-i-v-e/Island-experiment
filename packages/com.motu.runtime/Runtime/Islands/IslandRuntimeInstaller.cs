@@ -40,7 +40,7 @@ namespace Motu.Islands
                 generator.islandHandle = prepared.TakeHandle();
                 generator.islandRuntime.AdoptNativeHandle(generator.islandHandle);
 
-                generator.CreateSurfaceTextures(prepared.surfaceMaps);
+                generator.CreateSurfaceTextures(prepared.surfaceMaps, prepared.lodSurfaceMaps);
                 await frameBudget.YieldIfExceededAsync(cancellationToken);
                 generator.CreateSeaMaskTexture(prepared.seaMask);
                 await frameBudget.YieldIfExceededAsync(cancellationToken, true);

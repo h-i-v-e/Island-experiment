@@ -43,6 +43,10 @@ namespace Motu.Islands
         private Material grassMaterial;
         private Texture2D terrainNormalTexture;
         private Texture2D terrainOcclusionTexture;
+        private Texture2D terrainLod1NormalTexture;
+        private Texture2D terrainLod1OcclusionTexture;
+        private Texture2D terrainLod2NormalTexture;
+        private Texture2D terrainLod2OcclusionTexture;
         private Texture2D seaMaskTexture;
         private Texture3D cliffNoiseTexture;
         private Texture2D riverNoiseTexture;
@@ -449,9 +453,17 @@ namespace Motu.Islands
             terrainLod2Material?.SetTexture("_Occlusion", null);
             DestroyUnityObject(terrainNormalTexture);
             DestroyUnityObject(terrainOcclusionTexture);
+            DestroyUnityObject(terrainLod1NormalTexture);
+            DestroyUnityObject(terrainLod1OcclusionTexture);
+            DestroyUnityObject(terrainLod2NormalTexture);
+            DestroyUnityObject(terrainLod2OcclusionTexture);
             DestroyUnityObject(seaMaskTexture);
             terrainNormalTexture = null;
             terrainOcclusionTexture = null;
+            terrainLod1NormalTexture = null;
+            terrainLod1OcclusionTexture = null;
+            terrainLod2NormalTexture = null;
+            terrainLod2OcclusionTexture = null;
             seaMaskTexture = null;
 
             islandHandle?.Dispose();
@@ -484,6 +496,10 @@ namespace Motu.Islands
             meshEdgeMaterial = null;
             terrainNormalTexture = null;
             terrainOcclusionTexture = null;
+            terrainLod1NormalTexture = null;
+            terrainLod1OcclusionTexture = null;
+            terrainLod2NormalTexture = null;
+            terrainLod2OcclusionTexture = null;
             seaMaskTexture = null;
             cliffNoiseTexture = null;
             riverNoiseTexture = null;

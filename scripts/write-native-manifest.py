@@ -20,8 +20,11 @@ data = {
     'rustc': subprocess.check_output(['rustc', '--version'], text=True).strip(),
     'source_tree_sha256': source.hexdigest(),
     'cargo_lock_sha256': hashlib.sha256((ROOT / 'island-rs/Cargo.lock').read_bytes()).hexdigest(),
-    'build': 'cargo build --release --lib --locked --no-default-features',
-    'supported_player_architecture': 'Apple Silicon', 'render_pipeline': 'Built-in',
-    'unity_version': '6000.5.6f1'
+    'build': 'cargo build --release --lib --locked --no-default-features --features surface-atlas',
+    'features': ['surface-atlas'], 'terrain_surface_atlas_version': 1,
+    'supported_player_architecture': 'Apple Silicon', 'render_pipeline': 'Universal',
+    'unity_version': next(line.split(': ', 1)[1] for line in
+                          (ROOT / 'island-unity/ProjectSettings/ProjectVersion.txt').read_text().splitlines()
+                          if line.startswith('m_EditorVersion: '))
 }
 plugin.with_name('native-artifact.json').write_text(json.dumps(data, indent=2) + '\n')

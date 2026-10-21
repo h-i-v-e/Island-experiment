@@ -36,6 +36,8 @@ Options are applied in the order given, so a later one wins: `--variant eroded
 | `--view <NAME>` | `overview` | Named camera pose to open on and to reset to; see below. |
 | `--weather <NAME>` | `clear` | Named weather look: sun, haze, cloud and its ground shadow, mist and grade as one set; see below. |
 | `--debug-view <NAME>` | `off` | Switch the terrain and water surfaces to one diagnostic channel; see below. |
+| `--terrain-lod <auto\|0\|1\|2>` | `auto` | Force one terrain LOD for comparisons from the same camera. |
+| `--lod-surface-maps <on\|off>` | `on` | Enable or disable the LOD1/LOD2 unwrapped normal and occlusion maps. LOD0 is unchanged. |
 | `--screenshot <PATH>` | — | Render one 2560×1440 PNG offscreen once the island has settled, write `<PATH>.txt` beside it, then exit. No window opens. |
 | `--no-cache` | off | Generate even when a cached island matches these inputs; the entry is rewritten either way. Applies to the HUD's rebuilds as well as to the first island. See below. |
 | `-h`, `--help` | — | Print usage. |
@@ -531,6 +533,9 @@ parse time with the valid ones listed.
 | `state` | River | Which of the four water states the surface is in: calm blue, running green, plunge orange, falling white. |
 | `foamless` | River | Ordinary shading with every foam contribution removed, which is where a fall has to still read as a body of water. |
 | `chunks` | Terrain | Which square of the terrain grid the ground belongs to and which level of detail is drawing it: green for LOD 0, amber for LOD 1, red for LOD 2, each chunk's square in two tones so the seams between them can be read. |
+| `surface-normals` | Terrain | Baked LOD0 normals on LOD1/LOD2, or geometric normals when the maps are disabled. |
+| `surface-occlusion` | Terrain | Baked terrain and canopy occlusion; white when the maps are disabled. |
+| `surface-uvs` | Terrain | Unwrapped atlas coordinates and a checker grid for inspecting stretching and seams. |
 
 Each surface answers only the views that name a channel it carries and shades
 normally under the rest, so a terrain channel is still seen through the water
@@ -784,6 +789,38 @@ The grid costs vertices twice over: a boundary vertex belongs to both chunks
 that share it, and every interior edge grows its apron. At LOD 0 that is 5.9 per
 cent for the duplication and 6.0 for the skirt; all three levels together are
 2.16 M vertices resident against the single mesh's 1.67 M.
+
+### Coarse terrain surface atlas experiment
+
+LOD1 and LOD2 each unwrap their final whole-island mesh in the Rust generator,
+then bake full-detail LOD0 normals and terrain/canopy occlusion into that layout.
+LOD1 uses a 2048-wide atlas and LOD2 a 1024-wide atlas; their packed heights can
+be smaller. Chunk clipping preserves the chart UV seams, and a dedicated vertex
+attribute keeps these UVs separate from material and river-wetness data. LOD0
+retains its existing coordinates and shading.
+
+The normal is stored in native island XYZ space. The renderer combines normal
+RGB and occlusion alpha in one linear texture per LOD, with eight-pixel chart
+gutters and a limited base/half/quarter mip chain. Filtering is capped at the
+last level to avoid bleeding between charts; distant minification still needs
+visual evaluation before treating this experiment as production-ready.
+Gutter texels sample the full-detail terrain through their boundary face's
+UV-to-world mapping, avoiding the normal discontinuities caused by copying the
+nearest interior pixel. Pixel buffers move into the cache payload; chunks share
+uploaded textures through cloned Bevy asset handles rather than copied images.
+
+To compare the same coarse mesh with and without the bake:
+
+```sh
+cargo run -- --seed 666 --view mountain --terrain-lod 1 --lod-surface-maps off --screenshot /tmp/lod1-off.png
+cargo run -- --seed 666 --view mountain --terrain-lod 1 --lod-surface-maps on --screenshot /tmp/lod1-on.png
+```
+
+Use `--terrain-lod 2` for the second atlas, and `--terrain-lod auto` for normal
+distance-based selection. Capture sidecars record both comparison settings.
+The viewer cache contract is version 12; older entries regenerate once to add
+the maps. The native feature is opt-in (`surface-atlas`), so existing Unity
+exports and native island snapshots retain their current layout.
 
 ## Surface materials
 

@@ -45,7 +45,11 @@ mod lod;
 mod material;
 mod sampling;
 mod snapshot;
+#[cfg(feature = "surface-atlas")]
+mod surface_atlas;
 mod surface_maps;
+#[cfg(feature = "surface-atlas")]
+pub use surface_atlas::SurfaceAtlas;
 
 pub(crate) use decorations::SettledRock;
 pub use decorations::{Decoration, Decorations};

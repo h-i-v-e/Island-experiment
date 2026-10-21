@@ -116,6 +116,44 @@ namespace Motu.Interop
                 MotuNative.ReleaseSurfaceMaps(ref surfaceMaps);
             }
         }
+        internal static IslandPreparedSurfaceMaps PrepareSurfaceAtlas(
+            IntPtr handle, int lod, int dimension)
+        {
+            // The requested dimension is one unwrap page. Native packing can
+            // combine several pages into a larger rectangular texture.
+            var status = MotuNative.CreateTerrainSurfaceAtlas(handle, lod, dimension, out var maps);
+            try
+            {
+                if (status != 1 || maps.handle == IntPtr.Zero
+                    || maps.normalRgb == IntPtr.Zero || maps.occlusion == IntPtr.Zero
+                    || maps.width <= 0 || maps.width > 8192
+                    || maps.height <= 0 || maps.height > 8192)
+                {
+                    var error = new byte[1024];
+                    string reason;
+                    try
+                    {
+                        var length = MotuNative.GetTerrainSurfaceAtlasError(handle, lod, error, error.Length);
+                        reason = System.Text.Encoding.UTF8.GetString(error, 0, Math.Min(Math.Max(length, 0), error.Length - 1));
+                    }
+                    catch (EntryPointNotFoundException)
+                    {
+                        reason = "Native atlas diagnostics are unavailable; restart Unity to load the updated plugin.";
+                    }
+                    throw new InvalidOperationException(
+                        $"The Rust generator returned an invalid LOD{lod} terrain atlas "
+                        + $"(status {status}, {maps.width}x{maps.height}). {reason}");
+                }
+                var pixels = checked(maps.width * maps.height);
+                var normalRgb = new byte[checked(pixels * 3)];
+                var occlusion = new byte[pixels];
+                Marshal.Copy(maps.normalRgb, normalRgb, 0, normalRgb.Length);
+                Marshal.Copy(maps.occlusion, occlusion, 0, occlusion.Length);
+                return new IslandPreparedSurfaceMaps(maps.width, maps.height, normalRgb, occlusion);
+            }
+            finally { MotuNative.ReleaseTerrainSurfaceAtlas(ref maps); }
+        }
+
         internal static IslandPreparedColliderHeightMap PrepareColliderHeightMap(
             IntPtr handle,
             float terrainWorldSize)

@@ -38,6 +38,42 @@ pub const FROZEN_SECONDS: f32 = 27.5;
 /// hashes inside their useful range, however long the viewer itself stays open.
 pub const WATER_CLOCK_WRAP_SECONDS: f32 = 20_000.0;
 
+/// Reproducible terrain comparisons at the same camera pose. LOD 0 keeps its
+/// regular shading; the surface-map switch applies to the LOD 1/2 atlases.
+#[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TerrainComparison {
+    /// `None` keeps the ordinary distance-based LOD selection.
+    pub forced_lod: Option<usize>,
+    pub surface_maps: bool,
+}
+
+impl Default for TerrainComparison {
+    fn default() -> Self {
+        Self {
+            forced_lod: None,
+            surface_maps: true,
+        }
+    }
+}
+
+impl TerrainComparison {
+    #[must_use]
+    pub const fn lod_label(self) -> &'static str {
+        match self.forced_lod {
+            None => "auto",
+            Some(0) => "0",
+            Some(1) => "1",
+            Some(2) => "2",
+            Some(_) => "invalid",
+        }
+    }
+
+    #[must_use]
+    pub const fn surface_maps_label(self) -> &'static str {
+        if self.surface_maps { "on" } else { "off" }
+    }
+}
+
 /// The bounded seconds the water shaders take their motion from, followed by
 /// high-precision elapsed seconds for CPU-side cloud projection. The latter is
 /// reduced spatially before it reaches a transform and never enters a shader.
@@ -92,11 +128,17 @@ pub enum DebugView {
     /// LOD 2, with the chunk's own square shaded in two tones so the seams
     /// between them can be read.
     Chunks,
+    /// Terrain: the world-space normal after applying the LOD surface atlas.
+    SurfaceNormals,
+    /// Terrain: the baked surface occlusion factor, white where unoccluded.
+    SurfaceOcclusion,
+    /// Terrain: the unwrapped LOD atlas coordinates in red and green.
+    SurfaceUvs,
 }
 
 impl DebugView {
     /// In the order `--debug-view`, the help text and the HUD list them.
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 13] = [
         Self::Off,
         Self::Weights,
         Self::Wetness,
@@ -107,6 +149,9 @@ impl DebugView {
         Self::State,
         Self::Foamless,
         Self::Chunks,
+        Self::SurfaceNormals,
+        Self::SurfaceOcclusion,
+        Self::SurfaceUvs,
     ];
 
     /// The name `--debug-view` spells this view with.
@@ -123,6 +168,9 @@ impl DebugView {
             Self::State => "state",
             Self::Foamless => "foamless",
             Self::Chunks => "chunks",
+            Self::SurfaceNormals => "surface-normals",
+            Self::SurfaceOcclusion => "surface-occlusion",
+            Self::SurfaceUvs => "surface-uvs",
         }
     }
 
@@ -141,6 +189,9 @@ impl DebugView {
             Self::State => 7,
             Self::Foamless => 8,
             Self::Chunks => 9,
+            Self::SurfaceNormals => 10,
+            Self::SurfaceOcclusion => 11,
+            Self::SurfaceUvs => 12,
         }
     }
 

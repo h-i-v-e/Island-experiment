@@ -313,8 +313,18 @@ namespace Motu.Islands
                 appliedGrassColourNoiseWorldSize);
         }
 
-        private void CreateSurfaceTextures(IslandPreparedSurfaceMaps surfaceMaps)
+        private void CreateSurfaceTextures(
+            IslandPreparedSurfaceMaps surfaceMaps,
+            IslandPreparedSurfaceMaps[] lodSurfaceMaps = null)
         {
+            if (!terrainMaterial.HasProperty("_WorldNormal")
+                || !terrainMaterial.HasProperty("_Occlusion"))
+            {
+                throw new InvalidOperationException(
+                    "The unified terrain shader does not expose its shared surface textures.");
+            }
+            // Keep LOD0's planar maps and full mip chain unchanged. Its normal
+            // map remains disabled by the streamer's per-renderer property.
             terrainOcclusionTexture = CreateSurfaceTexture(
                 "Motu Shared Terrain Occlusion",
                 surfaceMaps.dimension,
@@ -327,18 +337,54 @@ namespace Motu.Islands
                 TextureFormat.RGB24,
                 surfaceMaps.normalRgb);
             islandRuntime?.OwnTexture(terrainNormalTexture);
-            if (!terrainMaterial.HasProperty("_WorldNormal")
-                || !terrainMaterial.HasProperty("_Occlusion"))
-            {
-                throw new InvalidOperationException(
-                    "The unified terrain shader does not expose its shared surface textures.");
-            }
             terrainMaterial.SetTexture("_WorldNormal", terrainNormalTexture);
             terrainMaterial.SetTexture("_Occlusion", terrainOcclusionTexture);
-            terrainLod1Material.SetTexture("_WorldNormal", terrainNormalTexture);
-            terrainLod1Material.SetTexture("_Occlusion", terrainOcclusionTexture);
-            terrainLod2Material.SetTexture("_WorldNormal", terrainNormalTexture);
-            terrainLod2Material.SetTexture("_Occlusion", terrainOcclusionTexture);
+            BindLodSurfaceTextures(
+                terrainLod1Material,
+                lodSurfaceMaps != null && lodSurfaceMaps.Length > 0 ? lodSurfaceMaps[0] : null,
+                1,
+                out terrainLod1NormalTexture,
+                out terrainLod1OcclusionTexture);
+            BindLodSurfaceTextures(
+                terrainLod2Material,
+                lodSurfaceMaps != null && lodSurfaceMaps.Length > 1 ? lodSurfaceMaps[1] : null,
+                2,
+                out terrainLod2NormalTexture,
+                out terrainLod2OcclusionTexture);
+        }
+
+        private void BindLodSurfaceTextures(
+            Material material,
+            IslandPreparedSurfaceMaps maps,
+            int lod,
+            out Texture2D normal,
+            out Texture2D occlusion)
+        {
+            normal = null;
+            occlusion = null;
+            if (maps == null)
+            {
+                // Legacy prepared payloads retain the original planar mesh UVs.
+                material.SetTexture("_WorldNormal", terrainNormalTexture);
+                material.SetTexture("_Occlusion", terrainOcclusionTexture);
+                return;
+            }
+            occlusion = CreateSurfaceAtlasTexture(
+                $"Motu Terrain LOD{lod} Atlas Occlusion",
+                maps.width,
+                maps.height,
+                TextureFormat.R8,
+                maps.occlusion);
+            islandRuntime?.OwnTexture(occlusion);
+            normal = CreateSurfaceAtlasTexture(
+                $"Motu Terrain LOD{lod} Atlas World Normal",
+                maps.width,
+                maps.height,
+                TextureFormat.RGB24,
+                maps.normalRgb);
+            islandRuntime?.OwnTexture(normal);
+            material.SetTexture("_WorldNormal", normal);
+            material.SetTexture("_Occlusion", occlusion);
         }
 
         private void CreateSeaMaskTexture(IslandPreparedSeaMask seaMask)

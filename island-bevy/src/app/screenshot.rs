@@ -50,7 +50,7 @@ use motu::{GenerationMethod, IslandOptions};
 use crate::{
     budget::RenderBudget,
     camera::{self, ViewPose},
-    capture::{DebugView, WaterClock},
+    capture::{DebugView, TerrainComparison, WaterClock},
     island_gen::{GeneratedIsland, GenerationSettings},
     options,
     weather::Weather,
@@ -221,6 +221,7 @@ struct Recorded<'w> {
     weather: Res<'w, Weather>,
     clock: Res<'w, WaterClock>,
     debug_view: Res<'w, DebugView>,
+    terrain_comparison: Res<'w, TerrainComparison>,
     /// Absent only where there is no wgpu backend, which is also where there is
     /// nothing to capture.
     adapter: Option<Res<'w, RenderAdapterInfo>>,
@@ -314,6 +315,7 @@ fn write_metadata(path: &std::path::Path, recorded: &Recorded) {
         pose: *recorded.pose,
         weather: *recorded.weather,
         debug_view: *recorded.debug_view,
+        terrain_comparison: *recorded.terrain_comparison,
         water_clock: recorded.clock.0,
         adapter: recorded.adapter.as_ref().map_or_else(
             || String::from("unknown"),
@@ -338,6 +340,7 @@ struct Metadata {
     pose: ViewPose,
     weather: Weather,
     debug_view: DebugView,
+    terrain_comparison: TerrainComparison,
     water_clock: f32,
     adapter: String,
     resolution: UVec2,
@@ -380,6 +383,11 @@ impl Metadata {
             format!("target: {}", vector(self.pose.target)),
             format!("weather: {}", self.weather.label()),
             format!("debug-view: {}", self.debug_view.label()),
+            format!("terrain-lod: {}", self.terrain_comparison.lod_label()),
+            format!(
+                "lod-surface-maps: {}",
+                self.terrain_comparison.surface_maps_label()
+            ),
             format!("sun-direction: {}", vector(look.sun_direction)),
             format!("exposure-ev100: {}", camera::EXPOSURE.ev100),
             format!("water-clock-seconds: {}", self.water_clock),
@@ -406,8 +414,8 @@ mod tests {
     use motu::{GenerationMethod, IslandOptions};
 
     use super::{
-        CAPTURE_FORMAT, CAPTURE_RESOLUTION, DebugView, Metadata, TextureFormat, UVec2, Vec3,
-        ViewPose, Weather, sidecar,
+        CAPTURE_FORMAT, CAPTURE_RESOLUTION, DebugView, Metadata, TerrainComparison, TextureFormat,
+        UVec2, Vec3, ViewPose, Weather, sidecar,
     };
 
     fn metadata() -> Metadata {
@@ -427,6 +435,10 @@ mod tests {
             },
             weather: Weather::default(),
             debug_view: DebugView::Flow,
+            terrain_comparison: TerrainComparison {
+                forced_lod: Some(1),
+                surface_maps: false,
+            },
             water_clock: 27.5,
             adapter: String::from("Apple M3 Pro (Metal)"),
             resolution: UVec2::new(2560, 1440),
@@ -459,6 +471,8 @@ mod tests {
                 "target",
                 "weather",
                 "debug-view",
+                "terrain-lod",
+                "lod-surface-maps",
                 "sun-direction",
                 "exposure-ev100",
                 "water-clock-seconds",
@@ -478,6 +492,8 @@ mod tests {
             "eye: -531.5, 6.3, 339",
             "weather: clear",
             "debug-view: flow",
+            "terrain-lod: 1",
+            "lod-surface-maps: off",
             "water-clock-seconds: 27.5",
             "warm-up-frames: 320",
             "resolution: 2560x1440",

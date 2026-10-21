@@ -66,6 +66,11 @@ namespace Motu.Islands
                 cancellationToken.ThrowIfCancellationRequested();
                 var surfaceMaps = PrepareSurfaceMaps(handle, SurfaceMapDimension);
                 cancellationToken.ThrowIfCancellationRequested();
+                var lodSurfaceMaps = new IslandPreparedSurfaceMaps[2];
+                lodSurfaceMaps[0] = PrepareSurfaceAtlas(handle, 1, 2048);
+                cancellationToken.ThrowIfCancellationRequested();
+                lodSurfaceMaps[1] = PrepareSurfaceAtlas(handle, 2, 1024);
+                cancellationToken.ThrowIfCancellationRequested();
                 var seaMask = PrepareSeaMask(handle, SurfaceMapDimension);
                 cancellationToken.ThrowIfCancellationRequested();
                 var materialTextures = PrepareMaterialTextures(
@@ -117,7 +122,8 @@ namespace Motu.Islands
                     colliderHeightMap,
                     materialTextures,
                     cavesPrepared,
-                    boulderColliders, navigationMesh, landBirdPerches);
+                    boulderColliders, navigationMesh, landBirdPerches,
+                    lodSurfaceMaps: lodSurfaceMaps);
                 handle = IntPtr.Zero;
                 return result;
             }

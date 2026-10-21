@@ -43,6 +43,12 @@ pub extern "C" fn GetMotuAbiForestOffset(field_id: u32) -> u32 {
     u32::try_from(offset).expect("ABI offsets fit in u32")
 }
 
+/// Version of the optional Unity terrain atlas exports; zero means unavailable.
+#[unsafe(no_mangle)]
+pub extern "C" fn GetMotuTerrainSurfaceAtlasVersion() -> u32 {
+    u32::from(cfg!(feature = "surface-atlas"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

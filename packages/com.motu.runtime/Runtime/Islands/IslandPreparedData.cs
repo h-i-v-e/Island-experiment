@@ -81,13 +81,25 @@ namespace Motu.Islands
 
     internal sealed class IslandPreparedSurfaceMaps
     {
-        internal readonly int dimension;
+        internal readonly int width;
+        internal readonly int height;
+        internal int dimension => width;
         internal readonly byte[] normalRgb;
         internal readonly byte[] occlusion;
 
         internal IslandPreparedSurfaceMaps(int dimension, byte[] normalRgb, byte[] occlusion)
+            : this(dimension, dimension, normalRgb, occlusion) { }
+
+        internal IslandPreparedSurfaceMaps(int width, int height, byte[] normalRgb, byte[] occlusion)
         {
-            this.dimension = dimension;
+            if (width <= 0 || height <= 0 || width > 8192 || height > 8192)
+                throw new ArgumentOutOfRangeException(nameof(width), "Invalid terrain map dimensions.");
+            var pixels = checked(width * height);
+            if (normalRgb == null || normalRgb.Length != checked(pixels * 3)
+                || occlusion == null || occlusion.Length != pixels)
+                throw new ArgumentException("Terrain map pixels do not match their dimensions.");
+            this.width = width;
+            this.height = height;
             this.normalRgb = normalRgb;
             this.occlusion = occlusion;
         }
@@ -387,6 +399,7 @@ namespace Motu.Islands
         internal NativeIslandHandle handle;
         internal readonly bool loadedFromSnapshot;
         internal readonly IslandPreparedSurfaceMaps surfaceMaps;
+        internal readonly IslandPreparedSurfaceMaps[] lodSurfaceMaps;
         internal readonly IslandPreparedSeaMask seaMask;
         internal readonly IslandPreparedMesh lod3;
         internal readonly IslandPreparedMesh navigationMesh;
@@ -420,11 +433,16 @@ namespace Motu.Islands
             IslandPreparedMaterialTextures materialTextures,
             IslandPreparedCaves caves = null,
             IslandPreparedBoulderCollider[][] boulderColliders = null, IslandPreparedMesh navigationMesh = null,
-            LandBirdPerch[] landBirdPerches = null)
+            LandBirdPerch[] landBirdPerches = null,
+            IslandPreparedSurfaceMaps[] lodSurfaceMaps = null)
         {
+            if (lodSurfaceMaps == null || lodSurfaceMaps.Length != 2
+                || lodSurfaceMaps[0] == null || lodSurfaceMaps[1] == null)
+                throw new ArgumentException("Both coarse terrain atlases are required.", nameof(lodSurfaceMaps));
             this.handle = new NativeIslandHandle(handle);
             this.loadedFromSnapshot = loadedFromSnapshot;
             this.surfaceMaps = surfaceMaps;
+            this.lodSurfaceMaps = lodSurfaceMaps;
             this.seaMask = seaMask;
             this.lod3 = lod3;
             this.navigationMesh = navigationMesh;

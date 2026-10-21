@@ -531,6 +531,22 @@ namespace Motu.Interop
         internal static extern void ReleaseSurfaceMaps(ref ExportSurfaceMaps output);
 
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern byte CreateTerrainSurfaceAtlas(
+            IntPtr handle, int lod, int dimension, out ExportSurfaceMaps output);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int GetTerrainSurfaceAtlasError(
+            IntPtr handle, int lod, [Out] byte[] output, int capacity);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern void ReleaseTerrainSurfaceAtlas(ref ExportSurfaceMaps output);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern void CreateTerrainAtlasMeshGrid(
+            IntPtr handle, ref ExportArea area, int lod, int divisions,
+            byte clampSides, out ExportMeshGrid output);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         internal static extern void CreateSeaMask(
             IntPtr handle,
             int dimension,

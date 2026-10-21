@@ -2,12 +2,16 @@
   "abi_version": 2,
   "target": "aarch64-apple-darwin",
   "library": "libmotu.dylib",
-  "sha256": "4a3d66545bbe4ca570e8909575627ff352ff7a3d52fcf31ac7c7494d9b69abc3",
+  "sha256": "4b32ed6a372b4ef8862448e7ae0c079ec2457e1f0bc176c41a3dbad012e8d434",
   "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)",
-  "source_tree_sha256": "477ac430cebba88864abc4cb6933b61f5b011407b54edbe411abdf1eedb0c2c4",
-  "cargo_lock_sha256": "84168fe0c51ba397df70c92f46ffedd62881db9868ba5e924b79380b896dacbd",
-  "build": "cargo build --release --lib --locked --no-default-features",
+  "source_tree_sha256": "efebbf7e3f30c9f85a0c0d6f411acfdc3d45aa8f387fdd162e0d8d9d7271aec8",
+  "cargo_lock_sha256": "67156139b61039d916e6c848454d2c26bbb5b71df9073bf982d3c63a70f48155",
+  "build": "cargo build --release --lib --locked --no-default-features --features surface-atlas",
+  "features": [
+    "surface-atlas"
+  ],
+  "terrain_surface_atlas_version": 1,
   "supported_player_architecture": "Apple Silicon",
-  "render_pipeline": "Built-in",
-  "unity_version": "6000.5.6f1"
+  "render_pipeline": "Universal",
+  "unity_version": "6000.6.0f1"
 }

@@ -958,6 +958,40 @@ impl Mesh {
         self.sliced_grid_unclamped(bounds, divisions)
     }
 
+    /// Clips a fixed grid without welding vertices across distinct UV charts.
+    /// Atlas UVs are interpolated within each source face and remain separate
+    /// at chart seams, including seams passing through grid corners.
+    #[must_use]
+    pub fn sliced_grid_preserving_uv_seams(
+        &self,
+        bounds: BoundingBox,
+        divisions: usize,
+    ) -> Vec<Self> {
+        self.sliced_grid_impl(bounds, divisions, true, |position, uv| ClipVertexKey {
+            position: VertexKey::from(position),
+            uv: uv.unwrap_or_default().to_array().map(f32::to_bits),
+        })
+    }
+
+    /// Clips atlas geometry and clamps heights/normals to a coarser boundary,
+    /// retaining separate chart vertices and interpolating only the fine UVs.
+    #[must_use]
+    pub fn sliced_grid_clamped_preserving_uv_seams(
+        &self,
+        bounds: BoundingBox,
+        divisions: usize,
+        coarser: &Self,
+        clamp_sides: u8,
+    ) -> Vec<Self> {
+        let mut output = self.sliced_grid_preserving_uv_seams(bounds, divisions);
+        if clamp_sides != 0
+            && let Some(coarse_patch) = coarser.sliced_grid_unclamped(bounds, 1).pop()
+        {
+            clamp_grid_boundaries(&mut output, &coarse_patch, bounds, clamp_sides);
+        }
+        output
+    }
+
     /// Clips a fixed grid and projects selected outer edges onto a coarser LOD.
     /// Splits fine edges at every coarser boundary bend before projecting their
     /// height and normal, so the complete edge follows the coarse surface.
@@ -981,6 +1015,18 @@ impl Mesh {
     }
 
     fn sliced_grid_unclamped(&self, bounds: BoundingBox, divisions: usize) -> Vec<Self> {
+        self.sliced_grid_impl(bounds, divisions, false, |position, _| {
+            VertexKey::from(position)
+        })
+    }
+
+    fn sliced_grid_impl<K: Eq + std::hash::Hash>(
+        &self,
+        bounds: BoundingBox,
+        divisions: usize,
+        preserve_uv_seams: bool,
+        vertex_key: impl Fn(Vec3, Option<Vec2>) -> K + Copy,
+    ) -> Vec<Self> {
         if divisions == 0 {
             return Vec::new();
         }
@@ -993,8 +1039,7 @@ impl Mesh {
 
         let tile_count = divisions * divisions;
         let mut output = vec![Self::default(); tile_count];
-        let mut remaps: Vec<HashMap<VertexKey, u32>> =
-            (0..tile_count).map(|_| HashMap::new()).collect();
+        let mut remaps: Vec<HashMap<K, u32>> = (0..tile_count).map(|_| HashMap::new()).collect();
         let coordinate = |value: f32, minimum: f32, span: f32| {
             (((value - minimum) / span * divisions as f32).floor() as usize).min(divisions - 1)
         };
@@ -1055,13 +1100,20 @@ impl Mesh {
                         tile_bounds,
                         &mut output[tile],
                         &mut remaps[tile],
+                        vertex_key,
                     );
                 }
             }
         }
-        canonicalize_grid_corners(&mut output, bounds, divisions);
+        canonicalize_grid_corners(&mut output, bounds, divisions, preserve_uv_seams);
         output
     }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+struct ClipVertexKey {
+    position: VertexKey,
+    uv: [u32; 2],
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -1200,12 +1252,13 @@ fn map_height_clip_vertex(
     }
 }
 
-fn append_clipped_triangle(
+fn append_clipped_triangle<K: Eq + std::hash::Hash>(
     source: &Mesh,
     indices: [u32; 3],
     bounds: BoundingBox,
     output: &mut Mesh,
-    remap: &mut HashMap<VertexKey, u32>,
+    remap: &mut HashMap<K, u32>,
+    vertex_key: impl Fn(Vec3, Option<Vec2>) -> K,
 ) {
     let positions = indices.map(|index| source.vertices[index as usize]);
     let normals = indices.map(|index| source.normals[index as usize]);
@@ -1227,7 +1280,7 @@ fn append_clipped_triangle(
     let mut mapped = [0_u32; 8];
     for (index, &point) in first[..length].iter().enumerate() {
         let (position, normal, vertex_uv) = interpolate_triangle(point, positions, normals, uv);
-        let key = VertexKey::from(position);
+        let key = vertex_key(position, vertex_uv);
         mapped[index] = *remap.entry(key).or_insert_with(|| {
             let mapped = output.vertices.len() as u32;
             output.vertices.push(position);
@@ -1391,7 +1444,12 @@ struct GridCornerSample {
     uv: Vec2,
 }
 
-fn canonicalize_grid_corners(meshes: &mut [Mesh], bounds: BoundingBox, divisions: usize) {
+fn canonicalize_grid_corners(
+    meshes: &mut [Mesh],
+    bounds: BoundingBox,
+    divisions: usize,
+    preserve_uv_seams: bool,
+) {
     let width = bounds.max.x - bounds.min.x;
     let height = bounds.max.y - bounds.min.y;
     let coordinate_scale = [bounds.min.x, bounds.min.y, bounds.max.x, bounds.max.y]
@@ -1399,6 +1457,25 @@ fn canonicalize_grid_corners(meshes: &mut [Mesh], bounds: BoundingBox, divisions
         .map(f32::abs)
         .fold(1.0_f32, f32::max);
     let epsilon = coordinate_scale * f32::EPSILON * 4.0;
+    if preserve_uv_seams {
+        // Atlas meshes may already include cave lips: several surfaces can
+        // cross one XY grid corner at different heights. Snap XY only; retain
+        // each surface's height, normal and chart UV rather than joining it
+        // to whichever surface happens to have the greatest elevation.
+        for mesh in meshes {
+            for vertex in &mut mesh.vertices {
+                let grid_x = ((vertex.x - bounds.min.x) / width * divisions as f32).round();
+                let grid_y = ((vertex.y - bounds.min.y) / height * divisions as f32).round();
+                let x = bounds.min.x + width * grid_x / divisions as f32;
+                let y = bounds.min.y + height * grid_y / divisions as f32;
+                if (vertex.x - x).abs() <= epsilon && (vertex.y - y).abs() <= epsilon {
+                    vertex.x = x;
+                    vertex.y = y;
+                }
+            }
+        }
+        return;
+    }
     for grid_y in 0..=divisions {
         let y = bounds.min.y + height * grid_y as f32 / divisions as f32;
         let first_tile_y = grid_y.saturating_sub(1).min(divisions - 1);

@@ -51,6 +51,8 @@ pub use reeds::ReedOptions;
 pub use rivers::{River, RiverNode};
 pub use sea_mask::SeaMask;
 pub use sky::{SKY_DOME_RADIUS, generate_sky_dome};
+#[cfg(feature = "surface-atlas")]
+pub use terrain::SurfaceAtlas;
 pub use terrain::{
     Decoration, Decorations, GenerationMethod, Island, IslandOptions, LandBirdPerch, SurfaceMaps,
     Terrain,
