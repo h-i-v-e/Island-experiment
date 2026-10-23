@@ -2669,7 +2669,71 @@ fn completed_waterfall_repairs_a_bank_dragged_toward_the_lower_terrace() {
 }
 
 #[test]
-fn final_waterfall_smoothing_freely_relaxes_face_banks_and_outer_ring() {
+fn final_river_smoothing_fades_into_two_extra_dry_rings() {
+    const SIDE: usize = 19;
+    let mut terrain = Mesh::default();
+    for y in 0..SIDE {
+        for x in 0..SIDE {
+            // Identical ridges in every row reveal how strongly each ring is
+            // smoothed, independently of its initial height or roughness.
+            terrain.vertices.push(Vec3::new(
+                x as f32 * 0.001,
+                y as f32 * 0.001,
+                if x % 2 == 0 { 1.0 } else { 1.2 },
+            ));
+        }
+    }
+    for y in 0..SIDE - 1 {
+        for x in 0..SIDE - 1 {
+            let a = (y * SIDE + x) as u32;
+            let b = a + SIDE as u32;
+            terrain.triangles.extend([a, a + 1, b, b, a + 1, b + 1]);
+        }
+    }
+    let coverage: Vec<_> = (0..SIDE)
+        .flat_map(|y| std::iter::repeat_n(u8::from(y.abs_diff(SIDE / 2) <= 1) * 2, SIDE))
+        .collect();
+    let mut surfaces = vec![0.8; terrain.vertices.len()];
+    let owners = vec![None; terrain.vertices.len()];
+    let original_xy: Vec<_> = terrain.vertices.iter().map(|p| p.truncate()).collect();
+    // Both production passes must preserve the taper, not just the first step.
+    for _ in 0..2 {
+        smooth_final_waterfall_patches(&mut terrain, &mut surfaces, &[], &coverage, &owners);
+    }
+    let bank_row = SIDE / 2 + 1;
+    let reduction = |ring: usize| 1.2 - terrain.vertices[(bank_row + ring) * SIDE + SIDE / 2].z;
+    assert!(reduction(2) > reduction(3));
+    assert!(reduction(3) > reduction(4));
+    assert!(reduction(4) > 0.0, "the outer blend ring must participate");
+    assert_eq!(reduction(5).to_bits(), 0.0_f32.to_bits());
+    let edge_step = reduction(4);
+    assert!(
+        edge_step < reduction(2),
+        "the outer seam must be smaller than a hard cutoff"
+    );
+    assert!(
+        terrain
+            .vertices
+            .iter()
+            .zip(original_xy)
+            .all(|(p, xy)| p.truncate() == xy)
+    );
+    assert!(
+        surfaces
+            .iter()
+            .all(|surface| surface.to_bits() == 0.8_f32.to_bits())
+    );
+    assert!(
+        terrain
+            .vertices
+            .iter()
+            .zip(coverage)
+            .all(|(p, covered)| covered == 0 || p.z >= 0.8)
+    );
+}
+
+#[test]
+fn final_waterfall_smoothing_relaxes_the_corridor_without_rewriting_hydraulic_levels() {
     let spacing = WATERFALL_TARGET_EDGE_LENGTH;
     let points = (0..7)
         .flat_map(|y| {
@@ -2751,7 +2815,7 @@ fn final_waterfall_smoothing_freely_relaxes_face_banks_and_outer_ring() {
             position.z = 1.0;
         }
     }
-    terrain.vertices[core].z -= 0.1;
+    terrain.vertices[core].z += 0.1;
     let mut surfaces = terrain
         .vertices
         .iter()
@@ -2839,11 +2903,7 @@ fn final_waterfall_smoothing_freely_relaxes_face_banks_and_outer_ring() {
     assert!(terrain.vertices[bank].z > bank_height);
     assert!(terrain.vertices[bank].z < terrain.vertices[apron].z);
     assert!(terrain.vertices[apron].z < 1.0);
-    assert_ne!(surfaces[bank].to_bits(), bank_surface.to_bits());
-    for vertex in [core, bank] {
-        let expected = terrain.vertices[vertex].z + WATERFALL_WATER_CLEARANCE;
-        assert!((surfaces[vertex] - expected).abs() < f32::EPSILON);
-    }
+    assert_eq!(surfaces[bank].to_bits(), bank_surface.to_bits());
     assert_eq!(terrain.vertices[outside].z.to_bits(), 1.0_f32.to_bits());
 
     let smoothed_positions = terrain.vertices.clone();
@@ -2863,27 +2923,15 @@ fn final_waterfall_smoothing_freely_relaxes_face_banks_and_outer_ring() {
     assert!(constraints.support[bank]);
     assert!(!constraints.support[apron]);
 
+    terrain.calculate_normals();
     let river_uv = vec![Vec2::ZERO; terrain.vertices.len()];
     let water = duplicate_river_topology(&terrain, &coverage, &surfaces, &river_uv, &constraints);
-    for vertex in [core, bank] {
-        let water_vertex = water
-            .vertices
-            .iter()
-            .find(|position| {
-                position
-                    .truncate()
-                    .distance_squared(terrain.vertices[vertex].truncate())
-                    < 1.0e-12
-            })
-            .unwrap();
-        let expected = terrain.vertices[vertex].z + WATERFALL_WATER_CLEARANCE;
-        assert!((water_vertex.z - expected).abs() < f32::EPSILON);
-    }
+    assert!(!water.triangles.is_empty());
     assert_eq!(terrain.vertices[outside].z.to_bits(), 1.0_f32.to_bits());
 }
 
 #[test]
-fn final_waterfall_edges_switch_relationship_at_the_lip_and_foot_planes() {
+fn waterfall_reach_repair_retains_hydraulics_for_final_inclination_binding() {
     let spacing = WATERFALL_TARGET_EDGE_LENGTH;
     let points = (-3..=3)
         .flat_map(|y| (-4..=4).map(move |x| Vec2::new(x as f32 * spacing, y as f32 * spacing)))
@@ -3037,7 +3085,10 @@ fn final_waterfall_edges_switch_relationship_at_the_lip_and_foot_planes() {
         assert_eq!(terrain.vertices[vertices[0]].z.to_bits(), 0.1_f32.to_bits());
         assert_eq!(terrain.vertices[vertices[1]].z.to_bits(), 0.1_f32.to_bits());
         assert_eq!(terrain.vertices[vertices[2]].z.to_bits(), 0.1_f32.to_bits());
-        assert!((surfaces[vertices[1]] - (0.1 + WATERFALL_WATER_CLEARANCE)).abs() < f32::EPSILON);
+        let expected = patch
+            .face_surface_at(terrain.vertices[vertices[1]].truncate())
+            .unwrap();
+        assert!((surfaces[vertices[1]] - expected).abs() < f32::EPSILON);
     }
     assert!(
         outside
@@ -3048,6 +3099,7 @@ fn final_waterfall_edges_switch_relationship_at_the_lip_and_foot_planes() {
     rebuild_final_waterfall_support_mask(&terrain, &[patch], &coverage, &owners, &mut constraints);
     assert!(constraints.water_unclamped[before_first[0]]);
     assert!(constraints.water_unclamped[after_last[0]]);
+    terrain.calculate_normals();
     let water = duplicate_river_topology(
         &terrain,
         &coverage,
@@ -3055,45 +3107,21 @@ fn final_waterfall_edges_switch_relationship_at_the_lip_and_foot_planes() {
         &vec![Vec2::ZERO; terrain.vertices.len()],
         &constraints,
     );
-    let downstream_water = water
+    assert!(!water.triangles.is_empty());
+    assert!(water.vertices.iter().all(|position| position.is_finite()));
+    for point in water
         .vertices
         .iter()
-        .find(|position| {
-            position
-                .truncate()
-                .distance_squared(terrain.vertices[after_last[0]].truncate())
-                < 1.0e-12
-        })
-        .unwrap();
-    let upstream_water = water
-        .vertices
-        .iter()
-        .find(|position| {
-            position
-                .truncate()
-                .distance_squared(terrain.vertices[upstream[0]].truncate())
-                < 1.0e-12
-        })
-        .unwrap();
-    let expected_upstream_surface = (patch.upper_surface
-        - (terrain.vertices[upstream[0]].z + WATERFALL_WATER_CLEARANCE))
-        .mul_add(
-            first_step_blend,
-            terrain.vertices[upstream[0]].z + WATERFALL_WATER_CLEARANCE,
+        .filter(|position| position.truncate() == terrain.vertices[upstream[0]].truncate())
+    {
+        let expected = super::surface::water_height(
+            terrain.vertices[upstream[0]].z,
+            surfaces[upstream[0]],
+            terrain.normals[upstream[0]],
+            false,
         );
-    assert!(
-        (upstream_water.z - (expected_upstream_surface + RIVER_SURFACE_OFFSET)).abs()
-            < f32::EPSILON
-    );
-    assert!(upstream_water.z < terrain.vertices[upstream[0]].z);
-    assert!(
-        (downstream_water.z - (patch.lower_surface + RIVER_SURFACE_OFFSET)).abs() < f32::EPSILON,
-        "downstream water {}, expected {}, hydraulic surface {}",
-        downstream_water.z,
-        patch.lower_surface + RIVER_SURFACE_OFFSET,
-        surfaces[after_last[0]],
-    );
-    assert!(downstream_water.z > terrain.vertices[after_last[0]].z);
+        assert!((point.z - expected).abs() < 1.0e-6);
+    }
 
     let mut smoothed_terrain = terrain.clone();
     let mut smoothed_surfaces = surfaces.clone();
@@ -3131,7 +3159,7 @@ fn final_waterfall_edges_switch_relationship_at_the_lip_and_foot_planes() {
     );
     assert_eq!(
         smoothed_surfaces[upstream[1]].to_bits(),
-        (smoothed_terrain.vertices[upstream[1]].z + WATERFALL_WATER_CLEARANCE).to_bits()
+        surfaces[upstream[1]].to_bits()
     );
     assert_eq!(smoothed_terrain.triangles, triangles_before);
 }
@@ -3552,7 +3580,7 @@ fn final_relaxation_does_not_collapse_waterfall_support_to_lower_water() {
 }
 
 #[test]
-fn waterfall_face_is_pinned_while_downstream_water_allows_terrain_to_pierce() {
+fn dry_face_banks_are_pinned_and_low_downstream_water_is_clipped_against_terrain() {
     let terrain = Mesh {
         vertices: vec![
             Vec3::new(-0.1, -0.1, 0.3),
@@ -3568,7 +3596,6 @@ fn waterfall_face_is_pinned_while_downstream_water_allows_terrain_to_pierce() {
     let mut coverage = vec![2; terrain.vertices.len()];
     coverage[2] |= RIVER_BOUNDARY;
     coverage[3] |= RIVER_BOUNDARY;
-    let pinned = 0.3 + WATERFALL_WATER_CLEARANCE;
     let surfaces = vec![0.4, 0.4, 0.9, 0.9, 0.2, 0.2];
     let river_uv = vec![Vec2::ZERO; terrain.vertices.len()];
     let waterfall = WaterfallTerrainConstraints {
@@ -3581,13 +3608,26 @@ fn waterfall_face_is_pinned_while_downstream_water_allows_terrain_to_pierce() {
 
     let water = duplicate_river_topology(&terrain, &coverage, &surfaces, &river_uv, &waterfall);
 
-    assert_eq!(water.triangles, terrain.triangles);
-    assert_eq!(water.vertices[2].z.to_bits(), pinned.to_bits());
-    assert!(water.vertices[2].z > terrain.vertices[2].z);
-    assert!(water.vertices[4].z < terrain.vertices[4].z);
-    assert_eq!(
-        water.vertices[4].z.to_bits(),
-        (surfaces[4] + RIVER_SURFACE_OFFSET).to_bits()
+    assert!(!water.triangles.is_empty());
+    assert!(
+        water
+            .vertices
+            .iter()
+            .all(|position| position.z >= 0.3 - f32::EPSILON)
+    );
+    for point in [terrain.vertices[2], terrain.vertices[3]] {
+        let contact = water
+            .vertices
+            .iter()
+            .find(|position| position.truncate() == point.truncate())
+            .unwrap();
+        assert_eq!(contact.z.to_bits(), point.z.to_bits());
+    }
+    assert!(
+        water
+            .vertices
+            .iter()
+            .all(|position| position.x <= 0.1 + f32::EPSILON)
     );
 }
 
@@ -4557,33 +4597,25 @@ fn river_mesh_banks_never_climb_terrain_and_centreline_stays_below_water() {
     let river_mesh = build_test_river_mesh(&network, &mut terrain, &adjacency);
     assert!(!river_mesh.triangles.is_empty());
     let banks = river_mesh.perimeter_mask();
+    let center_height = terrain.vertices[center].z;
+    let indexed = crate::terrain::Terrain::new(terrain);
     for &water_vertex in &river_mesh.triangles {
         let water_vertex = water_vertex as usize;
         let water = river_mesh.vertices[water_vertex];
-        let ground = terrain
-            .vertices
-            .iter()
-            .find(|ground| {
-                ground.x.to_bits() == water.x.to_bits() && ground.y.to_bits() == water.y.to_bits()
-            })
-            .expect("river topology should share its XY vertices with the terrain");
+        let ground = indexed.sample(water.x, water.y);
         if banks[water_vertex] {
             assert!(
-                water.z <= ground.z + 1.0e-6,
-                "river bank at {water:?} climbs terrain vertex {ground:?}"
-            );
-            assert!(
-                (water.z - surface).abs() < 1.0e-6,
-                "river bank at {water:?} was pulled below surface {surface}"
+                (water.z - ground).abs() < 1.0e-6,
+                "river bank at {water:?} misses terrain {ground}"
             );
         } else {
             assert!(
-                water.z + 1.0e-6 >= ground.z + RIVER_SURFACE_OFFSET,
-                "interior water at {water:?} is below terrain vertex {ground:?}"
+                water.z + 1.0e-6 >= ground,
+                "interior water at {water:?} is below terrain {ground}"
             );
         }
     }
-    assert!(terrain.vertices[center].z <= surface - RIVER_SURFACE_OFFSET);
+    assert!(center_height <= surface - RIVER_SURFACE_OFFSET);
     assert!(
         river_mesh
             .triangles

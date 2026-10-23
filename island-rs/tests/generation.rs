@@ -58,16 +58,76 @@ fn land_component_sizes(mesh: &motu::Mesh) -> Vec<usize> {
     sizes
 }
 
+// Independent projected half-plane oracle for refined water contacts. The
+// legacy public height query deliberately falls back below an absolute face
+// area, so it cannot validate sub-metre waterfall bank contacts.
+struct RiverContactPlanes<'a> {
+    mesh: &'a motu::Mesh,
+    bins: Vec<Vec<usize>>,
+}
+
+impl<'a> RiverContactPlanes<'a> {
+    const SIDE: usize = 128;
+
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    fn cell(value: f32) -> usize {
+        (value.clamp(0.0, 1.0) * Self::SIDE as f32)
+            .floor()
+            .min((Self::SIDE - 1) as f32) as usize
+    }
+
+    fn new(mesh: &'a motu::Mesh) -> Self {
+        let mut bins = vec![Vec::new(); Self::SIDE * Self::SIDE];
+        for (i, face) in mesh.triangles.chunks_exact(3).enumerate() {
+            let [a, b, c] = [face[0], face[1], face[2]].map(|v| mesh.vertices[v as usize]);
+            let low = a.min(b).min(c);
+            let high = a.max(b).max(c);
+            for y in Self::cell(low.y)..=Self::cell(high.y) {
+                for x in Self::cell(low.x)..=Self::cell(high.x) {
+                    bins[y * Self::SIDE + x].push(i);
+                }
+            }
+        }
+        Self { mesh, bins }
+    }
+
+    fn distance(&self, point: motu::Vec3) -> Option<f64> {
+        let candidates = &self.bins[Self::cell(point.y) * Self::SIDE + Self::cell(point.x)];
+        let point = point.as_dvec3();
+        candidates.iter().find_map(|&face| {
+            let face = &self.mesh.triangles[face * 3..face * 3 + 3];
+            let [a, b, c] =
+                [face[0], face[1], face[2]].map(|v| self.mesh.vertices[v as usize].as_dvec3());
+            let normal = (b - a).cross(c - a);
+            if normal.z <= 0.0 {
+                return None;
+            }
+            for (start, end) in [(a, b), (b, c), (c, a)] {
+                let cross = (end - start)
+                    .truncate()
+                    .perp_dot((point - start).truncate());
+                if cross < -normal.z * 1.0e-8 {
+                    return None;
+                }
+            }
+            Some(normal.normalize().dot(point - a))
+        })
+    }
+}
+
 fn assert_river_mesh_bank_and_centreline_clearance(island: &Island) {
     let banks = island.river_mesh().perimeter_vertices();
+    let planes = RiverContactPlanes::new(island.terrain().mesh());
     for &river_vertex in &island.river_mesh().triangles {
         let river_vertex = river_vertex as usize;
         let water = island.river_mesh().vertices[river_vertex];
-        let ground = island.terrain().sample(water.x, water.y);
         if banks.contains(&river_vertex) && water.z > 0.0 {
+            let distance = planes
+                .distance(water)
+                .expect("water bank must project onto terrain");
             assert!(
-                water.z <= ground + 1.0e-6,
-                "river bank climbs terrain at {water:?}; terrain height is {ground}"
+                distance <= 1.0e-6,
+                "river bank floats at {water:?}; plane distance {distance}"
             );
         }
     }

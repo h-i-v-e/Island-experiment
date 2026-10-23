@@ -570,7 +570,7 @@ impl Island {
             regenerate_lods(&mut lod0, &mut lod1, &mut lod2)
         };
         bury_river_banks(&mut river_mesh, &lod0, &lod0_index);
-        river_mesh = river_mesh.clipped_above(0.0);
+        river_mesh = crate::rivers::clip_river_above_sea(river_mesh);
         encode_bank_distance_in_uv(&mut river_mesh);
         let forced_rock = sharp_rock_mask(&lod0);
         let terrain = {

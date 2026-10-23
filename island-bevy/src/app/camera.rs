@@ -36,7 +36,10 @@ use bevy::{
 };
 use motu::ISLAND_WORLD_METRES;
 
-use crate::{island_gen::GeneratedIsland, screenshot::CaptureTarget};
+use crate::{
+    island_gen::{GeneratedIsland, IslandReady},
+    screenshot::CaptureTarget,
+};
 
 /// The named capture poses. The first entry is the default. Everything below
 /// `overview` was framed on seed 666 at terrain size 1024, which is where the
@@ -329,6 +332,9 @@ impl ViewPose {
     /// `--variant` name, falling back to the view's shared pose. An unknown
     /// variant resolves to that shared pose; `island_gen` is what rejects it.
     pub fn named(view: &str, variant: &str) -> Result<Self, String> {
+        if matches!(view, "waterfall" | "mouth") {
+            return Ok(Self::default());
+        }
         let entry = VIEWS
             .iter()
             .find(|entry| entry.name == view)
@@ -346,6 +352,7 @@ impl ViewPose {
         VIEWS
             .iter()
             .map(|entry| entry.name)
+            .chain(["waterfall", "mouth"])
             .collect::<Vec<_>>()
             .join(", ")
     }
@@ -432,12 +439,57 @@ pub struct UiFocus {
     pub shown: bool,
 }
 
+/// Automatically frame an actual generated fall instead of a fixed world pose.
+#[derive(Resource, Default)]
+pub enum RiverInspectionView {
+    #[default]
+    Off,
+    Waterfall,
+    Mouth,
+}
+
+fn focus_generated_river(
+    mut ready: MessageReader<IslandReady>,
+    inspection: Res<RiverInspectionView>,
+    island: Option<Res<GeneratedIsland>>,
+    mut pose: ResMut<ViewPose>,
+    mut cameras: Query<(&mut FlyCamera, &mut Transform)>,
+) {
+    if ready.read().count() == 0 || matches!(*inspection, RiverInspectionView::Off) {
+        return;
+    }
+    let Some(island) = island else {
+        return;
+    };
+    let Some(drop) = island
+        .0
+        .river_drops
+        .iter()
+        .filter(|drop| !matches!(*inspection, RiverInspectionView::Mouth) || drop.foot.z <= 0.0)
+        .max_by(|a, b| a.metres().total_cmp(&b.metres()))
+    else {
+        return;
+    };
+    let foot = crate::convert::island_to_world(drop.foot.x, drop.foot.y, drop.foot.z.max(0.0));
+    let direction = Vec3::new(drop.direction.x, 0.0, drop.direction.y);
+    let width = drop.half_width * ISLAND_WORLD_METRES;
+    let distance = (width * 4.0).max(drop.metres() * 2.5).max(15.0);
+    pose.target = foot + Vec3::Y * (drop.metres() * 0.45);
+    pose.eye = foot + direction * distance + Vec3::Y * (drop.metres() * 0.7 + 3.0);
+    for (mut camera, mut transform) in &mut cameras {
+        *transform = pose.transform();
+        camera.resync(transform.rotation);
+        camera.orbit = None;
+    }
+}
+
 pub struct FlyCameraPlugin;
 
 impl Plugin for FlyCameraPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ViewPose>()
             .init_resource::<CameraMode>()
+            .init_resource::<RiverInspectionView>()
             .init_resource::<UiFocus>()
             .add_systems(Startup, spawn_camera)
             // Chained: the mode is settled before the cursor is decided for it,
@@ -452,6 +504,7 @@ impl Plugin for FlyCameraPlugin {
             .add_systems(
                 Update,
                 (
+                    focus_generated_river,
                     switch_mode,
                     reset,
                     grab_cursor,

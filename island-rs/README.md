@@ -224,6 +224,29 @@ before hardness-weighted bedrock, transfers area-weighted sediment volumes
 through tributaries, records alluvial/delta/shelf raises as loose cover, and
 exports the unused balance from the final carve-only outlets.
 
+Rivers use the finishing fixes developed in Planet-experiment, adapted to
+Island's horizontal XY plane and Z-up terrain. Waterfall placement follows the
+incoming channel tangent, with one lateral span for crest and foot and a
+sloping 2.5-metre shaping run. Existing channel and waterfall tessellation stays
+local. The upstream weighted height smoothing is followed by twelve height-only
+Jacobi passes over the whole river and its bank apron. The existing two-ring
+apron keeps full smoothing strength, followed by two extra dry rings with
+smoothstep falloff into untouched terrain. Hydraulic levels and submerged
+outlets stay fixed. After shaping and coastline refinement, both the
+original bank outline and newly exposed wet contacts are walked upstream;
+lower upstream bank vertices are raised until all retained edges agree.
+
+The final terrain normal's dot product with Z-up controls water height across
+the entire river: a vertical face uses 3 cm clearance, a flat reach uses its
+hydraulic level, and smoothstep blends between them. Dry banks remain on the
+terrain. Shared edge intersections clip water against the supporting terrain
+triangles and sea plane, retaining continuous UVs. Sea-level terminal channels
+keep their carved cross-section through lifting and smoothing, and additional
+submerged carving updates the sea-wave suppression field.
+Final bank burial interpolates the refined supporting faces in double precision.
+Sea clipping welds coincident contacts and removes collapsed faces while keeping
+valid thin contact triangles, so numerical seams do not become artificial banks.
+
 Accepted waterfall patches retain one authoritative foot record during final
 river placement. `CreateWaterfallFeet` exports each foot's position, downstream
 direction, half-width, and vertical drop without rescanning the finished water

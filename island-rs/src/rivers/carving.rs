@@ -635,7 +635,12 @@ pub(super) fn planned_waterfall_patch(
 
     let upper_position = mesh.vertices[upper.vertex].truncate();
     let lower_position = mesh.vertices[lower.vertex].truncate();
-    let direction = (lower_position - upper_position).try_normalize()?;
+    let direction = segment
+        .checked_sub(1)
+        .and_then(|previous| {
+            (upper_position - mesh.vertices[nodes[previous].vertex].truncate()).try_normalize()
+        })
+        .or_else(|| (lower_position - upper_position).try_normalize())?;
     let follows_upstream = segment.checked_sub(1).is_none_or(|previous| {
         (upper_position - mesh.vertices[nodes[previous].vertex].truncate())
             .try_normalize()

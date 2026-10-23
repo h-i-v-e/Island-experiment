@@ -153,6 +153,11 @@ fn main() {
     // ever seen if the GPU cannot run it.
     app.insert_resource(ClearColor(Color::BLACK))
         .insert_resource(command.view)
+        .insert_resource(match command.view_name.as_str() {
+            "waterfall" => camera::RiverInspectionView::Waterfall,
+            "mouth" => camera::RiverInspectionView::Mouth,
+            _ => camera::RiverInspectionView::Off,
+        })
         .insert_resource(command.weather)
         .insert_resource(command.terrain_comparison)
         .insert_resource(GenerationSettings {
@@ -528,6 +533,10 @@ mod tests {
             ViewPose::named("river-level4", "default").unwrap()
         );
         assert_ne!(command.view, ViewPose::default());
+        for generated in ["waterfall", "mouth"] {
+            assert!(ViewPose::named(generated, "default").is_ok());
+            assert!(ViewPose::names().contains(generated));
+        }
     }
 
     #[test]

@@ -46,7 +46,9 @@ use crate::{
 /// header with the tunable continental/detail noise and land-mass offset.
 // 12 adds independent baked surface atlases and UVs for LOD1 and LOD2.
 // 13 rebakes small-chart coverage, complete gutters and precise source normals.
-const CACHE_FORMAT_VERSION: u32 = 13;
+// 14 retires terrain/water generated before the Planet river fixes were ported.
+// 15 feathers final river smoothing into two additional dry terrain rings.
+const CACHE_FORMAT_VERSION: u32 = 15;
 
 const MAGIC: &[u8; 8] = b"MOTUBVY\0";
 /// Distinguishes a cache key from the crate's other hashed values.

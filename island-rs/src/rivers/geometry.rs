@@ -322,8 +322,7 @@ pub(super) fn finalize_river_geometry(
         surfaces,
         river_uv,
         waterfall_constraints,
-    )
-    .clipped_above(0.0);
+    );
     encode_bank_distance_in_uv(&mut river_mesh);
     (river_mesh, river_bed)
 }
@@ -1221,7 +1220,7 @@ fn apply_xy_candidates(terrain: &mut Mesh, candidates: Vec<Option<Vec2>>) -> usi
     moved
 }
 
-fn river_bank_edges(terrain: &Mesh, coverage: &[u8]) -> Vec<[u32; 2]> {
+pub(super) fn river_bank_edges(terrain: &Mesh, coverage: &[u8]) -> Vec<[u32; 2]> {
     let mut edges = Vec::new();
     for triangle in terrain.triangles.chunks_exact(3) {
         if !is_river_bed_triangle(triangle, coverage) {
@@ -1409,6 +1408,7 @@ pub(super) fn lift_river_banks_to_surface(
             || perimeter[vertex]
             || ocean.get(vertex).copied().unwrap_or(false)
             || !surface.is_finite()
+            || surface <= 0.0
             || surface <= terrain.vertices[vertex].z
         {
             continue;
@@ -1449,6 +1449,7 @@ pub(super) fn lift_river_banks_to_surface(
                 || protected[neighbour]
                 || perimeter[neighbour]
                 || ocean.get(neighbour).copied().unwrap_or(false)
+                || terrain.vertices[neighbour].z < 0.0
             {
                 continue;
             }
@@ -1952,11 +1953,19 @@ impl<'a> RiverGeometryBuilder<'a> {
     pub(super) fn build(mut self) -> BuiltRiverGeometry {
         self.refine_channel();
         let patches = derive_waterfall_patches(self.network, self.terrain);
+        super::finishing::align_waterfall_corridors(self.terrain, &mut self.buffers, &patches);
         let mut constraints = self.refine_waterfalls(&patches);
+        super::finishing::protect_sea_outlets(
+            self.terrain,
+            self.material,
+            &self.buffers,
+            &mut constraints,
+        );
         self.finish_channel(&constraints);
         self.finish_waterfalls(&patches, &mut constraints);
         self.constrain_coastline(&patches, &mut constraints);
         self.smooth_river_banks(&constraints);
+        super::finishing::grade_upstream_banks(self.terrain, self.network, &self.buffers);
         self.assemble(&patches, &constraints)
     }
 
@@ -2028,15 +2037,6 @@ impl<'a> RiverGeometryBuilder<'a> {
         patches: &[WaterfallPatch],
         constraints: &mut WaterfallTerrainConstraints,
     ) {
-        for _ in 0..WATERFALL_FINAL_SMOOTHING_PASSES {
-            smooth_final_waterfall_patches(
-                self.terrain,
-                &mut self.buffers.surfaces,
-                patches,
-                &self.buffers.coverage,
-                &self.buffers.owners,
-            );
-        }
         enforce_final_waterfall_edge_relationships(
             self.terrain,
             &mut self.buffers.surfaces,
@@ -2059,6 +2059,17 @@ impl<'a> RiverGeometryBuilder<'a> {
             &self.buffers.coverage,
             &self.buffers.owners,
         );
+        for _ in 0..WATERFALL_FINAL_SMOOTHING_PASSES {
+            smooth_final_waterfall_patches(
+                self.terrain,
+                &mut self.buffers.surfaces,
+                patches,
+                &self.buffers.coverage,
+                &self.buffers.owners,
+            );
+        }
+        enforce_waterfall_downstream_ceiling(self.terrain, &constraints.terrain_ceiling);
+        super::finishing::grade_upstream_banks(self.terrain, self.network, &self.buffers);
         rebuild_final_waterfall_support_mask(
             self.terrain,
             patches,

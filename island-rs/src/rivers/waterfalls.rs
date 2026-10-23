@@ -59,6 +59,24 @@ pub(super) enum WaterfallPlaneZone {
 }
 
 impl WaterfallPatch {
+    /// One lateral frame through the drop, fading into the natural channel.
+    pub(super) fn corridor_at(self, point: Vec2, distance: f32, width: f32) -> (f32, f32) {
+        let (along, lateral) = self.local_coordinates(point);
+        let weight = if along < -Self::face_run() {
+            (along + Self::face_run() + WATERFALL_EDGE_BLEND_RUN) / WATERFALL_EDGE_BLEND_RUN
+        } else if along > 0.0 {
+            1.0 - along / self.downstream_extent()
+        } else {
+            1.0
+        };
+        let apron = smoothstep(lateral.abs() / self.half_width - 1.5);
+        let weight = smoothstep(weight) * (1.0 - apron);
+        (
+            (lateral - distance).mul_add(weight, distance),
+            (self.half_width - width).mul_add(weight, width),
+        )
+    }
+
     pub(super) fn face_run() -> f32 {
         2.0 * WATERFALL_TARGET_EDGE_LENGTH
     }
@@ -274,7 +292,13 @@ pub(super) fn derive_waterfall_patches(
             let upper_centre = terrain.vertices[upper.vertex].truncate();
             let lower_centre = terrain.vertices[lower.vertex].truncate();
             let separation = upper_centre.distance(lower_centre);
-            let Some(direction) = (lower_centre - upper_centre).try_normalize() else {
+            let incoming = segment.checked_sub(1).map(|previous| {
+                upper_centre - terrain.vertices[river.nodes[previous].vertex].truncate()
+            });
+            let Some(direction) = incoming
+                .and_then(Vec2::try_normalize)
+                .or_else(|| (lower_centre - upper_centre).try_normalize())
+            else {
                 continue;
             };
             let upper_section = network
@@ -669,12 +693,42 @@ pub(super) fn recess_waterfall_notches(
     notch_owners
 }
 
-/// Applies the final unconstrained relaxation to each tessellated waterfall,
-/// through the river banks and their first dry-side ring. Terrain XYZ moves
-/// toward the complete one-ring average, then covered water is derived from
-/// the adjusted terrain with the normal waterfall clearance. Vertices outside
-/// the patch anchor the blend. This intentionally runs after every carve, pin,
-/// bank lift, and normal river relaxation stage.
+/// Full influence through the existing two-ring apron, fading across two more
+/// rings to the untouched terrain. Distances follow mesh edges, so both sides
+/// of a narrow land strip share the strongest influence rather than adding it.
+fn final_river_smoothing_weights(adjacency: &Adjacency, coverage: &[u8]) -> Vec<f32> {
+    const FULL_RINGS: u8 = 2;
+    const BLEND_RINGS: u8 = 2;
+    let mut weights: Vec<_> = coverage
+        .iter()
+        .map(|&covered| f32::from(covered != 0))
+        .collect();
+    let mut frontier: Vec<_> = coverage
+        .iter()
+        .enumerate()
+        .filter_map(|(vertex, &covered)| (covered != 0).then_some(vertex))
+        .collect();
+    let mut start = 0;
+    for ring in 1..=FULL_RINGS + BLEND_RINGS {
+        let weight =
+            smoothstep(f32::from(FULL_RINGS + BLEND_RINGS + 1 - ring) / f32::from(BLEND_RINGS + 1));
+        let end = frontier.len();
+        for index in start..end {
+            for &neighbour in &adjacency[frontier[index]] {
+                if weights[neighbour] == 0.0 {
+                    weights[neighbour] = weight;
+                    frontier.push(neighbour);
+                }
+            }
+        }
+        start = end;
+    }
+    weights
+}
+
+/// Six simultaneous height passes over the complete river and a feathered
+/// apron. Tessellation remains local, but smoothing has no lip/foot cutoff.
+/// Hydraulic heights stay fixed; final inclination binds water only once.
 pub(super) fn smooth_final_waterfall_patches(
     terrain: &mut Mesh,
     surfaces: &mut [f32],
@@ -682,59 +736,67 @@ pub(super) fn smooth_final_waterfall_patches(
     coverage: &[u8],
     owners: &[Option<RiverOwnerKey>],
 ) -> usize {
-    debug_assert_eq!(terrain.vertices.len(), surfaces.len());
-    debug_assert_eq!(terrain.vertices.len(), coverage.len());
-    debug_assert_eq!(terrain.vertices.len(), owners.len());
-    if patches.is_empty() {
-        return 0;
-    }
-
     let adjacency = terrain.adjacency();
     let perimeter = terrain.perimeter_mask();
-    let selected =
+    let weights = final_river_smoothing_weights(&adjacency, coverage);
+    let banks = waterfall_bank_mask(&adjacency, &perimeter, coverage);
+    let fall_apron =
         waterfall_face_bank_apron_mask(terrain, patches, coverage, owners, &adjacency, &perimeter);
-    let mut snapshot = terrain.vertices.clone();
+    let floors: Vec<_> = terrain
+        .vertices
+        .iter()
+        .enumerate()
+        .map(|(i, position)| {
+            if banks[i] && !fall_apron[i] {
+                position.z.min(surfaces[i])
+            } else {
+                f32::NEG_INFINITY
+            }
+        })
+        .collect();
+    let ceilings: Vec<_> = terrain
+        .vertices
+        .iter()
+        .enumerate()
+        .map(|(i, position)| {
+            if coverage[i] != 0 && !banks[i] && surfaces[i].is_finite() {
+                (surfaces[i] - WATERFALL_WATER_CLEARANCE).max(position.z)
+            } else {
+                f32::INFINITY
+            }
+        })
+        .collect();
+    let mut snapshot: Vec<_> = terrain.vertices.iter().map(|position| position.z).collect();
     let mut moved = vec![false; terrain.vertices.len()];
     for _ in 0..WATERFALL_EDGE_SMOOTHING_PASSES {
-        for vertex in 0..terrain.vertices.len() {
-            if !selected[vertex] || perimeter[vertex] || adjacency[vertex].is_empty() {
+        for (i, position) in terrain.vertices.iter_mut().enumerate() {
+            // Submerged mouths are roots, never banks to be filled by a pass.
+            if weights[i] == 0.0
+                || perimeter[i]
+                || snapshot[i] <= 0.0
+                || adjacency[i].is_empty()
+                || (coverage[i] != 0 && surfaces[i] <= 0.0)
+            {
                 continue;
             }
-            let (position_total, count) = adjacency[vertex].iter().fold(
-                (snapshot[vertex], 1_u32),
-                |(position_total, count), &neighbour| {
-                    (position_total + snapshot[neighbour], count + 1)
-                },
-            );
-            let inverse_count = 1.0 / count as f32;
-            let average = position_total * inverse_count;
-            let target = snapshot[vertex].lerp(average, WATERFALL_EDGE_SMOOTHING);
-            if target.distance_squared(terrain.vertices[vertex]) > f32::EPSILON {
-                terrain.vertices[vertex] = target;
-                moved[vertex] = true;
+            let average = (snapshot[i] + adjacency[i].iter().map(|&j| snapshot[j]).sum::<f32>())
+                / (adjacency[i].len() + 1) as f32;
+            let target = (average - snapshot[i])
+                .mul_add(WATERFALL_EDGE_SMOOTHING * weights[i], snapshot[i])
+                .max(floors[i])
+                .max(0.0)
+                .min(ceilings[i]);
+            if target.to_bits() != position.z.to_bits() {
+                position.z = target;
+                moved[i] = true;
             }
         }
-        snapshot.copy_from_slice(&terrain.vertices);
+        snapshot
+            .iter_mut()
+            .zip(&terrain.vertices)
+            .for_each(|(height, position)| *height = position.z);
     }
-
-    let banks = waterfall_bank_mask(&adjacency, &perimeter, coverage);
-    let zones = classify_waterfall_vertices(terrain, patches, coverage, owners, &adjacency, &banks);
-    for (vertex, (&remaining, zone)) in coverage.iter().zip(zones).enumerate() {
-        if remaining != 0
-            && zone.is_some_and(|classification| classification.zone == WaterfallPlaneZone::Face)
-        {
-            surfaces[vertex] = terrain.vertices[vertex].z + WATERFALL_WATER_CLEARANCE;
-        }
-    }
-
-    if !terrain.uv.is_empty() {
-        for (vertex, &was_moved) in moved.iter().enumerate() {
-            if was_moved {
-                terrain.uv[vertex] = terrain.vertices[vertex].truncate();
-            }
-        }
-    }
-    moved.into_iter().filter(|&was_moved| was_moved).count()
+    moved.into_iter().filter(|&moved| moved).count()
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -845,7 +907,10 @@ pub(super) fn enforce_final_waterfall_edge_relationships(
         }
         match zone.map(|classification| classification.zone) {
             Some(WaterfallPlaneZone::Face) => {
-                let target = terrain.vertices[vertex].z + WATERFALL_WATER_CLEARANCE;
+                let patch = patches[zone.expect("classified face").patch];
+                let target = patch
+                    .face_surface_at(terrain.vertices[vertex].truncate())
+                    .unwrap_or(patch.lower_surface);
                 if surfaces[vertex].to_bits() != target.to_bits() {
                     surfaces[vertex] = target;
                     adjusted += 1;
@@ -855,7 +920,7 @@ pub(super) fn enforce_final_waterfall_edge_relationships(
                 if reaches.constrained[vertex] =>
             {
                 let hydraulic_surface = surfaces[vertex];
-                if !hydraulic_surface.is_finite() {
+                if !hydraulic_surface.is_finite() || hydraulic_surface <= 0.0 {
                     continue;
                 }
                 let lift = reaches.normal_blend[vertex];
@@ -870,30 +935,13 @@ pub(super) fn enforce_final_waterfall_edge_relationships(
         }
     }
 
-    for vertex in 0..terrain.vertices.len() {
-        if coverage[vertex] == 0 || !reaches.constrained[vertex] {
-            continue;
-        }
-        let normal = reaches.normal_blend[vertex];
-        if normal >= 1.0 || !surfaces[vertex].is_finite() {
-            continue;
-        }
-        let hydraulic_surface = surfaces[vertex];
-        let hugging_surface = terrain.vertices[vertex].z + WATERFALL_WATER_CLEARANCE;
-        let target = (hydraulic_surface - hugging_surface).mul_add(normal, hugging_surface);
-        if surfaces[vertex].to_bits() != target.to_bits() {
-            surfaces[vertex] = target;
-            adjusted += 1;
-        }
-    }
     adjusted
 }
 
 /// Smooths the upstream terrain apron after water pinning and bank lifting.
 /// The Jacobi relaxation is strongest at the waterfall lip and fades to zero
-/// at the upstream end of the pin/lift transition. River-edge water is then
-/// pinned back to the moved terrain; the interior hydraulic surface remains
-/// unchanged.
+/// at the upstream end of the pin/lift transition. XY and hydraulic heights
+/// stay fixed; the final water pass binds the complete surface to inclination.
 pub(super) fn smooth_pinned_waterfall_terrain(
     terrain: &mut Mesh,
     surfaces: &mut [f32],
@@ -943,7 +991,12 @@ pub(super) fn smooth_pinned_waterfall_terrain(
     for _ in 0..WATERFALL_EDGE_SMOOTHING_PASSES {
         for vertex in 0..terrain.vertices.len() {
             let weight = weights[vertex];
-            if weight <= 0.0 || perimeter[vertex] || adjacency[vertex].is_empty() {
+            if weight <= 0.0
+                || perimeter[vertex]
+                || adjacency[vertex].is_empty()
+                || snapshot[vertex].z <= 0.0
+                || (coverage[vertex] != 0 && surfaces[vertex] <= 0.0)
+            {
                 continue;
             }
             let (total, count) = adjacency[vertex]
@@ -953,7 +1006,10 @@ pub(super) fn smooth_pinned_waterfall_terrain(
                     (total + snapshot[neighbour], count + 1)
                 });
             let average = total / count as f32;
-            let target = snapshot[vertex].lerp(average, WATERFALL_EDGE_SMOOTHING * weight);
+            let mut target = snapshot[vertex];
+            target.z = (average.z - target.z)
+                .mul_add(WATERFALL_EDGE_SMOOTHING * weight, target.z)
+                .max(0.0);
             if target != terrain.vertices[vertex] {
                 terrain.vertices[vertex] = target;
                 moved[vertex] = true;
@@ -962,11 +1018,6 @@ pub(super) fn smooth_pinned_waterfall_terrain(
         snapshot.copy_from_slice(&terrain.vertices);
     }
 
-    for vertex in 0..terrain.vertices.len() {
-        if weights[vertex] > 0.0 && coverage[vertex] != 0 && banks[vertex] {
-            surfaces[vertex] = terrain.vertices[vertex].z + WATERFALL_WATER_CLEARANCE;
-        }
-    }
     if !terrain.uv.is_empty() {
         for (vertex, &was_moved) in moved.iter().enumerate() {
             if was_moved {
@@ -1339,7 +1390,10 @@ pub(super) fn repair_collapsed_waterfall_banks(
 
     let mut repaired = 0;
     for (vertex, target) in targets.into_iter().enumerate() {
-        if !target.is_finite() || target <= terrain.vertices[vertex].z {
+        if !target.is_finite()
+            || target <= terrain.vertices[vertex].z
+            || (terrain.vertices[vertex].z <= 0.0 && surfaces[vertex] <= 0.0)
+        {
             continue;
         }
         terrain.vertices[vertex].z = target;

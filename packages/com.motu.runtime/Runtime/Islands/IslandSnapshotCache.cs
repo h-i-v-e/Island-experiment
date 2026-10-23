@@ -10,8 +10,8 @@ namespace Motu.Islands
 {
     internal static class IslandSnapshotCache
     {
-        // Discard piled rocks and rocks anchored more than 10 metres below sea level.
-        private const int CacheKeySchemaVersion = 18;
+        // Retire geometry generated before the feathered river-bank smoothing.
+        private const int CacheKeySchemaVersion = 20;
         private const string SnapshotExtension = ".motusnapshot";
 
         internal static string CacheDirectory

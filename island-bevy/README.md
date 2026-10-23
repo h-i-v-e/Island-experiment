@@ -135,6 +135,11 @@ defaults and of any option given before it.
 
 ### Views
 
+A generated waterfall can be inspected with `--view waterfall`, or its sea
+outlet with `--view mouth`. These views frame an actual drop after generation
+and work across seeds; `R` returns to that generated pose. If no suitable fall
+exists, they retain the overview pose.
+
 A view is a named camera pose. It is where the camera opens and where `R`
 returns to, so a `--view` plus a `--screenshot` is a repeatable capture. The
 five close poses were framed on seed 666 at terrain size 1024; other seeds, and

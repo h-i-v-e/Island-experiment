@@ -20,8 +20,10 @@ use crate::{
 
 mod carving;
 mod channel;
+mod finishing;
 mod geometry;
 mod rocks;
+mod surface;
 mod tracing;
 mod waterfalls;
 
@@ -51,6 +53,7 @@ use rocks::generate_river_rock_mesh;
 pub(crate) use rocks::{
     append_settled_rocks, density_acceptance as rock_density_acceptance, sample_rock_size,
 };
+pub(crate) use surface::clip_above_sea as clip_river_above_sea;
 pub(crate) use tracing::fix_inland_seas;
 use tracing::{
     RouteState, WaterfallClearanceIndex, calculate_flow_and_catchment, find_sources,

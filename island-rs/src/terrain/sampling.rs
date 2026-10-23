@@ -429,29 +429,121 @@ pub(super) fn bury_river_banks(mesh: &mut Mesh, terrain: &Mesh, triangle_index: 
                         terrain.triangles[offset + 1] as usize,
                         terrain.triangles[offset + 2] as usize,
                     ];
-                    barycentric(
-                        point,
-                        terrain.vertices[triangle[0]].truncate(),
-                        terrain.vertices[triangle[1]].truncate(),
-                        terrain.vertices[triangle[2]].truncate(),
-                    )
-                    .map(|weights| {
-                        weights[0].mul_add(
-                            terrain.vertices[triangle[0]].z,
-                            weights[1].mul_add(
-                                terrain.vertices[triangle[1]].z,
-                                weights[2] * terrain.vertices[triangle[2]].z,
-                            ),
-                        )
-                    })
+                    river_bank_height(point, triangle.map(|i| terrain.vertices[i]))
                 })
                 .min_by(f32::total_cmp)
                 .unwrap_or_else(|| {
                     terrain.vertices[triangle_index.nearest_vertex(terrain, point)].z
                 });
-            vertex.z = vertex.z.min(terrain_height);
+            // A submerged bank is an ocean handoff, not a dry contact to bury
+            // into the seabed. Keep the boundary on the sea surface so the
+            // later clip cannot expose a new floating edge above it.
+            vertex.z = if terrain_height <= 0.0 {
+                0.0
+            } else {
+                vertex.z.min(terrain_height)
+            };
         });
     mesh.calculate_normals();
+}
+
+/// Waterfall refinement makes sub-metre faces. The legacy height sampler's
+/// absolute area cutoff skips those faces and can bury a correctly pinned bank
+/// at an unrelated nearest vertex. Use translated double-precision edges here;
+/// physics and material-field sampling retain their existing query contract.
+#[allow(clippy::cast_possible_truncation)]
+fn river_bank_height(point: Vec2, triangle: [Vec3; 3]) -> Option<f32> {
+    let [a, b, c] = triangle.map(Vec3::as_dvec3);
+    let first = b.truncate() - a.truncate();
+    let second = c.truncate() - a.truncate();
+    let relative = point.as_dvec2() - a.truncate();
+    let area = first.perp_dot(second);
+    if !area.is_finite() || area == 0.0 {
+        return None;
+    }
+    let b_weight = relative.perp_dot(second) / area;
+    let c_weight = first.perp_dot(relative) / area;
+    let weights = [1.0 - b_weight - c_weight, b_weight, c_weight];
+    if weights.iter().any(|w| !w.is_finite() || *w < -1.0e-5) {
+        return None;
+    }
+    Some((a.z * weights[0] + b.z * weights[1] + c.z * weights[2]) as f32)
+}
+
+#[cfg(test)]
+mod river_bank_burial_tests {
+    use super::*;
+
+    #[test]
+    fn submerged_bank_hands_water_to_the_sea_surface_instead_of_the_seabed() {
+        let terrain = Mesh {
+            vertices: vec![
+                Vec3::new(0.0, 0.0, -0.01),
+                Vec3::new(1.0, 0.0, -0.01),
+                Vec3::new(0.0, 1.0, -0.01),
+            ],
+            triangles: vec![0, 1, 2],
+            ..Mesh::default()
+        };
+        let mut water = Mesh {
+            vertices: terrain
+                .vertices
+                .iter()
+                .map(|p| Vec3::new(p.x, p.y, 0.00001))
+                .collect(),
+            triangles: vec![0, 1, 2],
+            ..Mesh::default()
+        };
+        bury_river_banks(&mut water, &terrain, &TriangleIndex::new(&terrain));
+        assert!(water.vertices.iter().all(|p| p.z.abs() < f32::EPSILON));
+        assert!(
+            crate::rivers::clip_river_above_sea(water)
+                .triangles
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn final_bank_burial_interpolates_refined_faces_instead_of_nearest_vertex_heights() {
+        let origin = Vec2::new(0.25, 0.5);
+        let side = 0.0001;
+        let terrain = Mesh {
+            vertices: vec![
+                origin.extend(0.0),
+                (origin + Vec2::X * side).extend(0.0003),
+                (origin + Vec2::Y * side).extend(0.0006),
+            ],
+            triangles: vec![0, 1, 2],
+            ..Mesh::default()
+        };
+        let points = [
+            Vec2::splat(side * 0.25),
+            Vec2::new(side * 0.5, side * 0.25),
+            Vec2::new(side * 0.25, side * 0.5),
+        ]
+        .map(|p| origin + p);
+        let expected = points.map(|p| {
+            river_bank_height(
+                p,
+                [
+                    terrain.vertices[0],
+                    terrain.vertices[1],
+                    terrain.vertices[2],
+                ],
+            )
+            .unwrap()
+        });
+        let mut water = Mesh {
+            vertices: points.iter().map(|p| p.extend(0.001)).collect(),
+            triangles: vec![0, 1, 2],
+            ..Mesh::default()
+        };
+        bury_river_banks(&mut water, &terrain, &TriangleIndex::new(&terrain));
+        for (position, expected) in water.vertices.iter().zip(expected) {
+            assert!((position.z - expected).abs() < 1.0e-8);
+            assert!(position.z > 0.0002);
+        }
+    }
 }
 
 #[cfg(all(test, feature = "surface-atlas"))]

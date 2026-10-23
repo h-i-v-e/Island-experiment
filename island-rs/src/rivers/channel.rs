@@ -1,12 +1,12 @@
 use super::{
-    Adjacency, BinaryHeap, CHANNEL_FOOTPRINT_RINGS, HashMap, MAX_RIVER_RINGS,
-    MAXIMUM_RING_MOVE_FRACTION, MAXIMUM_WIDTH_DEPTH_COMPENSATION, Mesh, ProjectedFaceAreas,
-    RIVER_BOUNDARY, RIVER_CHANNEL_DRAINAGE_FLOOR, RIVER_CORRIDOR_SMOOTHING, RIVER_SURFACE_OFFSET,
+    Adjacency, BinaryHeap, CHANNEL_FOOTPRINT_RINGS, MAX_RIVER_RINGS, MAXIMUM_RING_MOVE_FRACTION,
+    MAXIMUM_WIDTH_DEPTH_COMPENSATION, Mesh, ProjectedFaceAreas, RIVER_BOUNDARY,
+    RIVER_CHANNEL_DRAINAGE_FLOOR, RIVER_CORRIDOR_SMOOTHING, RIVER_SURFACE_OFFSET,
     RIVER_VALLEY_APRON_RINGS, RIVER_VALLEY_BANK_DEPTH_FRACTION, RIVER_VALLEY_DRAINAGE_FLOOR, River,
     RiverChannelFootprintOwner, RiverChannelParameters, RiverChannelSettings, RiverCrossSection,
     RiverFootprint, RiverNetwork, RiverNode, RiverOwnerKey, RiverSedimentBudget, RiverTerrain,
-    RouteState, Vec2, Vec3, VertexFaceAdjacency, WATERFALL_WATER_CLEARANCE,
-    WaterfallTerrainConstraints, average_edge_length, confluence_connector, unfitted_river_depth,
+    RouteState, Vec2, Vec3, VertexFaceAdjacency, WaterfallTerrainConstraints, average_edge_length,
+    confluence_connector, unfitted_river_depth,
 };
 
 #[cfg(feature = "profiling")]
@@ -1181,81 +1181,7 @@ pub(super) fn duplicate_river_topology(
     waterfall: &WaterfallTerrainConstraints,
 ) -> Mesh {
     debug_assert_eq!(terrain.vertices.len(), waterfall.support.len());
-    debug_assert_eq!(terrain.vertices.len(), waterfall.water_unclamped.len());
-    let selected_count = coverage.iter().filter(|&&remaining| remaining > 0).count();
-    let mut mapping = vec![u32::MAX; terrain.vertices.len()];
-    let mut xy_mapping = HashMap::<(u32, u32), u32>::with_capacity(selected_count);
-    let mut minimum_heights = Vec::<f32>::with_capacity(selected_count);
-    let mut out = Mesh {
-        vertices: Vec::with_capacity(selected_count),
-        normals: Vec::new(),
-        triangles: Vec::new(),
-        uv: Vec::with_capacity(selected_count),
-    };
-
-    for (index, &remaining) in coverage.iter().enumerate() {
-        if remaining == 0 {
-            continue;
-        }
-        let mut vertex = terrain.vertices[index];
-        let boundary = is_river_boundary(remaining);
-        let waterfall_support = waterfall.support[index];
-        let water_unclamped = waterfall.water_unclamped[index];
-        let minimum_height = if boundary || waterfall_support || water_unclamped {
-            f32::NEG_INFINITY
-        } else {
-            vertex.z + RIVER_SURFACE_OFFSET
-        };
-        vertex.z = if waterfall_support {
-            vertex.z + WATERFALL_WATER_CLEARANCE
-        } else if boundary {
-            vertex.z.min(surfaces[index])
-        } else if water_unclamped {
-            surfaces[index] + RIVER_SURFACE_OFFSET
-        } else {
-            (surfaces[index] + RIVER_SURFACE_OFFSET).max(minimum_height)
-        };
-        let key = (vertex.x.to_bits(), vertex.y.to_bits());
-        if let Some(&mapped) = xy_mapping.get(&key) {
-            mapping[index] = mapped;
-            let mapped = mapped as usize;
-            if boundary || minimum_heights[mapped] == f32::NEG_INFINITY {
-                out.vertices[mapped].z = out.vertices[mapped].z.min(vertex.z);
-                minimum_heights[mapped] = f32::NEG_INFINITY;
-            } else {
-                out.vertices[mapped].z = out.vertices[mapped].z.max(vertex.z);
-                minimum_heights[mapped] = minimum_heights[mapped].max(minimum_height);
-            }
-            out.uv[mapped] = (out.uv[mapped] + river_uv[index]) * 0.5;
-            continue;
-        }
-        let mapped = out.vertices.len() as u32;
-        mapping[index] = mapped;
-        xy_mapping.insert(key, mapped);
-        out.vertices.push(vertex);
-        minimum_heights.push(minimum_height);
-        out.uv.push(river_uv[index]);
-    }
-
-    for triangle in terrain.triangles.chunks_exact(3) {
-        let mapped = [
-            mapping[triangle[0] as usize],
-            mapping[triangle[1] as usize],
-            mapping[triangle[2] as usize],
-        ];
-        let boundary_only = triangle
-            .iter()
-            .all(|&vertex| is_river_boundary(coverage[vertex as usize]));
-        let distinct = mapped[0] != mapped[1] && mapped[1] != mapped[2] && mapped[2] != mapped[0];
-        if mapped.iter().all(|&vertex| vertex != u32::MAX) && distinct && !boundary_only {
-            out.triangles.extend(mapped);
-        }
-    }
-    for (vertex, &minimum_height) in out.vertices.iter_mut().zip(&minimum_heights) {
-        vertex.z = vertex.z.max(minimum_height);
-    }
-    out.calculate_normals();
-    out
+    super::surface::build(terrain, coverage, surfaces, river_uv)
 }
 
 /// Replaces the river mesh's lateral UV coordinate with the shortest
