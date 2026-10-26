@@ -28,6 +28,23 @@ the [runtime package installation guide](packages/com.motu.runtime/README.md).
 - [`island-unity`](island-unity/) consumes these packages and retains the authored
   scenes, sample controls, and integration/graphics tests.
 
+## Planet experiment
+
+- [`planet-rs`](planet-rs/) generates spherical terrain, erosion, rivers and waterfalls.
+- [`planet-bevy`](planet-bevy/) displays streamed terrain LODs, first-person exploration,
+  vegetation, and detailed ocean and river effects.
+
+Run the planet viewer from this repository root:
+
+```sh
+cargo run --locked -p planet-bevy -- --seed 42
+```
+
+The root Cargo workspace contains these two Planet crates. The Island applications
+retain their independent workspaces and existing manifest-based build commands.
+See the [Planet viewer guide](planet-bevy/README.md) for controls, rendering tools,
+and validation commands, and the [Planet plan](planet-rs/PLANET_PLAN.md) for its geometry contract.
+
 ## Experimental GPU generation
 
 The original CPU generator remains the primary runtime implementation. The

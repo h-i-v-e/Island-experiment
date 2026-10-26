@@ -1,0 +1,14 @@
+[package]
+name = "planet-bevy"
+version = "0.1.0"
+edition = "2024"
+description = "Minimal finished-mesh viewer for the planet experiment"
+license = "UNLICENSED"
+
+[dependencies]
+bevy = { version = "0.19.1", default-features = false, features = ["3d", "ui", "png", "default_font", "multi_threaded"] }
+bevy_egui = { version = "0.42", default-features = false, features = ["render", "default_fonts"] }
+planet-rs = { path = "../planet-rs" }
+
+[lints]
+workspace = true

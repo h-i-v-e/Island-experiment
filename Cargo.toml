@@ -1,0 +1,18 @@
+[workspace]
+members = ["planet-rs", "planet-bevy"]
+default-members = ["planet-bevy"]
+exclude = ["island-rs", "island-bevy", "island-tree", "island-material-studio"]
+resolver = "3"
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[workspace.lints.clippy]
+all = "warn"
+pedantic = "warn"

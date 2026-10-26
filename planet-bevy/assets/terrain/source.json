@@ -1,0 +1,85 @@
+{
+  "resolution": 512,
+  "normal_convention": "OpenGL",
+  "palette_srgb": [
+    [
+      0.09,
+      0.055,
+      0.026
+    ],
+    [
+      0.3,
+      0.32,
+      0.29
+    ],
+    [
+      0.62,
+      0.57,
+      0.34
+    ]
+  ],
+  "layers": [
+    {
+      "name": "dirt",
+      "tile_metres": [
+        2.0,
+        2.0
+      ],
+      "neutral_height": 0.5
+    },
+    {
+      "name": "forest_floor",
+      "tile_metres": [
+        2.0,
+        2.0
+      ],
+      "neutral_height": 0.42857141590037295
+    },
+    {
+      "name": "rock",
+      "tile_metres": [
+        4.0,
+        4.0
+      ],
+      "neutral_height": 0.5
+    },
+    {
+      "name": "river_bed",
+      "tile_metres": [
+        2.0,
+        2.0
+      ],
+      "neutral_height": 0.0
+    },
+    {
+      "name": "beach",
+      "tile_metres": [
+        3.0,
+        3.0
+      ],
+      "neutral_height": 0.5
+    },
+    {
+      "name": "fallen_stones",
+      "tile_metres": [
+        2.0,
+        2.0
+      ],
+      "neutral_height": 0.3043478225658883
+    }
+  ],
+  "native_sha256": "e6b440ba0e6a346119e48c511904c8819703ed6b5438ce5608c1c4a1a2fe4d4b",
+  "source_sha256": {
+    "TerrainDetail.shader": "46bf5e76740e86659d1c6f2bc30d69472ac132589f7a2082b911d13975474edd",
+    "TerrainCoverageCommon.cginc": "92827ed97a8275439d4863f45b4991bdcd471211addb334da6e554d14bbac1d3",
+    "TerrainRockCommon.cginc": "b9bc61ec08cd55dc3d83b7b4bac73cddad4ac7204c8c5a6dc5220b907fabc1ac"
+  },
+  "recipe_sha256": {
+    "Dirt.json": "a71565ee39092bca8154a2ddfa7fe12b5e2f85a08e8948d5a93289785869552c",
+    "ForestFloor.json": "933c218c2327c8c81116deaed584a2e5a45a6b2abb0df763d61928d39c817897",
+    "cracked-stone.json": "7ba185654654dd9f03ef5f5894abb2aa232949b9c96d243247e3f654ab7269a1",
+    "rounded-river-stones.json": "c1f55ac49d23ce4f82028d0371cc14c8bc96681d52cd70322c7240d184dccd37",
+    "Beach.json": "e2c8bc1a01bdeeb3a437d2f00d060c5ab540f48949cdc3dea33e1dd01e57ff20",
+    "FallenStones.json": "7b4b7d35ae3050e9bbecc51e9f94aeafd13146ef7923eebd73325b7c0a8afe8a"
+  }
+}
