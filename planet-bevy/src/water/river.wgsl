@@ -40,6 +40,8 @@ fn river_water(input:VertexOutput,pbr:PbrInput,front:bool)->vec4<f32> {
  let strength=water.river.x*mix(1.0,1.5,rapids);
  var normal=normalize(base-(ug*slope.x+vg*slope.y)*scale*strength*1.5);
  let v=normalize(view.world_position-position);
+ let face_normal=normalize(cross(dx,dy));
+ let geometric=select(-face_normal,face_normal,dot(face_normal,v)>=0.0);
  normal=select(-normal,normal,dot(normal,v)>=0.0);
  let variance=max(dot(dpdx(normal),dpdx(normal)),dot(dpdy(normal),dpdy(normal)));
  let roughness=clamp(sqrt(pow(water.river.w+rapids*0.18,2.0)+strength*strength*(1.0-resolved.y*resolved.y)*0.5+min(variance,0.2)),0.04,0.8);
@@ -63,7 +65,7 @@ fn river_water(input:VertexOutput,pbr:PbrInput,front:bool)->vec4<f32> {
  let estuary_surface=estuary*smoothstep(0.65,0.96,abs(dot(base,up)));
  parameters.absorption=mix(water.absorption,vec4<f32>(0.45,0.12,0.055,water.absorption.a),estuary_surface);
  parameters.optics.x=mix(water.optics.x,0.65,estuary_surface);
- let optics=shade_water(position,input.position.xy,normal,up,v,ripple,lit_body,roughness,parameters,false,!front);
+ let optics=shade_water(position,input.position.xy,normal,geometric,up,v,ripple,lit_body,roughness,parameters,false,!front);
  lit.material.base_color=vec4<f32>(0.85,0.93,1.0,1.0);
  let lit_foam=apply_pbr_lighting(lit).rgb;
  return vec4<f32>(mix(optics.colour,lit_foam,foam),1.0);

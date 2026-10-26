@@ -49,6 +49,8 @@ fn ripple_gradient(uv:vec3<f32>,lod:f32)->vec3<f32>{
  let impact=water_impacts(n,ocean.shape.x,footprint,contacts);
  normal=normalize(normal+impact.xyz);
  let view_direction=normalize(view.world_position-input.world_position.xyz);
+ let face_normal=normalize(cross(dpdx(input.world_position.xyz),dpdy(input.world_position.xyz)));
+ let geometric=select(-face_normal,face_normal,dot(face_normal,view_direction)>=0.0);
  normal=select(-normal,normal,dot(normal,view_direction)>=0.0);
  var vertex_out:VertexOutput;
  vertex_out.position=input.position;vertex_out.world_position=input.world_position;vertex_out.world_normal=n;
@@ -87,7 +89,7 @@ fn ripple_gradient(uv:vec3<f32>,lod:f32)->vec3<f32>{
  let normal_variance=max(dot(dpdx(normal),dpdx(normal)),dot(dpdy(normal),dpdy(normal)));
  let roughness=clamp(sqrt(pow(ocean.shading.x+0.09,2.0)+min(wave.variance,0.35)+0.007*(1.0-resolved*resolved)+min(normal_variance,0.2)),0.04,0.8);
  var optical_settings=optics;optical_settings.shape.z*=ocean.shading.y/0.8;
- let shaded=shade_water(input.world_position.xyz,input.position.xy,normal,n,view_direction,optical_ripple,lit_body,roughness,optical_settings,true,!front);
+ let shaded=shade_water(input.world_position.xyz,input.position.xy,normal,geometric,n,view_direction,optical_ripple,lit_body,roughness,optical_settings,true,!front);
  let coastal_tint=(1.0-clamp(wave.depth/10.0,0.0,1.0))*mix(1.0,0.35,clamp(wave.distance/16.0,0.0,1.0))*optics.effects.w;
  pbr.material.base_color=vec4<f32>(0.79,0.91,1.0,1.0);
  let lit_foam=apply_pbr_lighting(pbr).rgb;

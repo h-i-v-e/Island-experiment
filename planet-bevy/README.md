@@ -225,13 +225,17 @@ are adapted to the spherical viewer:
 | River flow | Generated metre coordinates follow the drainage network, sharing downstream phase through confluences and clipped chunk edges. Cotangent gradients orient broad/fine ripple normals through bends and vertical falls. |
 | Rapids and waterfalls | Slope uses the normal's alignment with radial up. Rapids roughness, stretched travelling foam and fine falling-water streaks use Unity's scales, thresholds and 9 m/s fall speed. |
 | Estuaries | Flat low river surfaces blend into ocean absorption and reflection settings within 2 m of sea level. |
-| Depth optics | RGB Beer–Lambert absorption, dielectric Fresnel, roughness-filtered glints and sun/shadow lighting. Distorted colour lookups reject foreground banks and revalidate the final sample. |
-| Independent distortion | Moving detail distorts both reflections and refraction separately from the geometric waves and subtle ripple normals. |
+| Depth optics | RGB Beer–Lambert absorption, dielectric Fresnel, roughness-filtered glints and sun/shadow lighting. Distorted colour lookups reject foreground and above-water banks, bound displacement by water depth, and revalidate the final sample. |
+| Independent surface detail | Animated ripple normals bend reflected rays. Refraction has a separate moving distortion bounded by water depth and physical scale. Reflected rays reject false silhouette hits and fall back to sky. |
 | Ocean detail | Filtered scalar-noise gradients, two moving ripple bands, unresolved slope variance, backlit crest translucency, coastal tint and whitecap coverage. |
 | Persistent foam | Two 512² GPU textures cover a 256 m local patch. Foam is reprojected across the sphere, advected by displacement changes and drift, deposited and exponentially faded with Unity's 6 s lifetime. Dry and suppressed areas clear; regeneration resets the history. |
 | Water contacts | Up to 32 expanding foam/normal rings follow the displaced ocean. First-person sea footsteps and landings emit them. |
 | Waterfall foot mist | At most 32 nearby LOD0 feet use animated, shadow-lit volumes with 28 depth-clipped ray-march samples, rising wisps and downstream dissipation. Placement samples the final river and terrain surfaces so the dense base clears the finished landing. One proxy mesh and unchanged active instances are reused. |
 | Underwater | A per-pixel, displaced waterline applies RGB extinction and suspended-particle haze. The actual scene/surface depth stops absorption at the first exit. The underside uses water-to-air Fresnel and total internal reflection. |
+
+Scene colour, depth and mist lookups convert between camera viewport and full
+render-target coordinates, including the offset introduced by the open parameter
+panel. The GPU optics probe covers both full and offset viewports.
 
 These shader changes do not move river vertices or alter bank pinning, carving,
 waterfall placement, or the four wandering wave-source profiles. River LOD1–3
@@ -359,6 +363,7 @@ cargo run -p planet-bevy -- --sphere-only --wireframe
 
 cargo test --workspace --locked
 cargo clippy --workspace --all-targets --locked -- -D warnings
+python3 planet-bevy/tools/check_water_optics.py # native GPU reflection/refraction regression
 ```
 
 Use `--help` for seed, count, radius, and sweep-axis options. The initial

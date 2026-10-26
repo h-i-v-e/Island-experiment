@@ -1,5 +1,5 @@
 #import bevy_pbr::{forward_io::{VertexOutput,FragmentOutput},mesh_functions::get_world_from_local,mesh_view_bindings::{view,lights}}
-#import planet_bevy::water::{scene_point,water_shadow}
+#import planet_bevy::water::{scene_point,water_shadow,view_uv}
 struct MistUniform {shape:vec4<f32>,timing:vec4<f32>}
 @group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> mist:MistUniform;
 @group(#{MATERIAL_BIND_GROUP}) @binding(1) var mist_noise:texture_3d<f32>;
@@ -19,7 +19,7 @@ fn volume_noise(p:vec3<f32>)->f32 {return textureSampleLevel(mist_noise,mist_sam
  let near=max(max(near3.x,near3.y),max(near3.z,0.0));let far=min(far3.x,min(far3.y,far3.z));
  if far<=near {discard;}
  let step=(far-near)/28.0;var optical=0.0;
- let background=scene_point(input.position.xy/view.viewport.zw,mist.shape.x);
+ let background=scene_point(view_uv(input.position.xy),mist.shape.x);
  for(var i=0u;i<28u;i+=1u) {
   let point=origin+ray*(near+(f32(i)+0.5)*step);
   let world=transform[3].xyz+basis*(point*scale);
