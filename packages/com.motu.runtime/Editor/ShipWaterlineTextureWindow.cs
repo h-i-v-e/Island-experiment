@@ -144,7 +144,7 @@ namespace Motu.Editor
                 segments = ShipWaterlineTextureBuilder.Slice(shipRoot, sourceMesh, waterlineWorldY, previewForward);
                 preview = ShipWaterlineTextureBuilder.Build(segments, settings);
                 previewRootMatrix = shipRoot.localToWorldMatrix;
-                message = "Preview ready. Saving fits the texture position, direction and size to this slice. Saving applies the convex edge blend at full scale and the separate alpha bow rise at the waterline. Wake texture and wave-height tuning are retained.";
+                message = "Preview ready. Saving fits the texture position, direction and size to this slice. Saving applies the convex edge blend at full scale and the separate alpha bow rise at the waterline. Wave-height and foam tuning are retained.";
                 SceneView.RepaintAll();
             }
             catch (Exception exception) { message = exception.Message; }

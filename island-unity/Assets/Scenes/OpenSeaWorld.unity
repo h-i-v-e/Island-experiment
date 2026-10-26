@@ -670,12 +670,6 @@ MonoBehaviour:
   bowHeight: 1.2
   fullWaveSpeed: 8
   waveFoam: 0.8
-  wakeTexture: {fileID: 0}
-  wakeSizeMetres: {x: 18, y: 14}
-  wakeHeight: 0.8
-  wakeLifetime: 20
-  wakeSpacing: 3
-  wakeSpreadMetresPerSecond: 0.35
   start: {x: -0.0067785513, y: 0.0000059885087, z: -0.0038135534}
   end: {x: 0.0027129285, y: 0.0000059885087, z: -0.0038135534}
   radiusMetres: 3.0627196

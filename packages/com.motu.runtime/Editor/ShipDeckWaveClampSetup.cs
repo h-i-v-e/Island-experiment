@@ -14,20 +14,16 @@ namespace Motu.Editor
             ShipWaveTextureWindow.Open();
         }
 
-        internal static OceanDeckWaveClamp ApplyTextures(GameObject ship, Texture2D hull, Texture2D wake)
+        internal static OceanDeckWaveClamp ApplyHullTexture(GameObject ship, Texture2D hull)
         {
             if (EditorApplication.isPlaying) throw new InvalidOperationException("Set up ship textures outside Play Mode.");
             if (ship == null) throw new InvalidOperationException("Choose a ship first.");
             if (EditorUtility.IsPersistent(ship)) throw new InvalidOperationException("Open the ship prefab in Prefab Mode to edit its textures.");
-            // Resolve both paths before reimporting: they may refer to the same asset.
             var hullPath = AssetDatabase.GetAssetPath(hull);
-            var wakePath = AssetDatabase.GetAssetPath(wake);
             if (!string.IsNullOrEmpty(hullPath) && AssetImporter.GetAtPath(hullPath) is TextureImporter) hull = LoadLinearTexture(hullPath);
-            if (!string.IsNullOrEmpty(wakePath) && AssetImporter.GetAtPath(wakePath) is TextureImporter)
-                wake = wakePath == hullPath ? hull : LoadLinearTexture(wakePath);
             var component = ship.GetComponent<OceanDeckWaveClamp>() ?? Undo.AddComponent<OceanDeckWaveClamp>(ship);
             Undo.RecordObject(component, "Set ship wave textures");
-            component.ConfigureTextures(hull, wake);
+            component.ConfigureHullTexture(hull);
             EditorUtility.SetDirty(component);
             PrefabUtility.RecordPrefabInstancePropertyModifications(component);
             EditorSceneManager.MarkSceneDirty(ship.scene);

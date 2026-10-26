@@ -39,7 +39,6 @@ namespace Motu.Rendering
         private void OnEnable()
         {
             body = waveBody != null ? waveBody : GetComponentInParent<Rigidbody>();
-            ResetTrail();
             if (Active.Count == 0) RenderPipelineManager.beginCameraRendering += PrepareSrpCamera;
             if (!Active.Contains(this)) Active.Add(this);
             if (Active.Count > MaximumCapsules)
@@ -49,7 +48,6 @@ namespace Motu.Rendering
 
         private void OnDisable()
         {
-            ResetTrail();
             Active.Remove(this);
             if (Active.Count == 0)
             {
@@ -65,8 +63,6 @@ namespace Motu.Rendering
             blendMetres = Mathf.Max(.01f, blendMetres);
             textureSizeMetres = new Vector2(Mathf.Max(1, textureSizeMetres.x), Mathf.Max(1, textureSizeMetres.y));
             fullWaveSpeed = Mathf.Max(.1f, fullWaveSpeed);
-            wakeLifetime = Mathf.Max(.1f, wakeLifetime);
-            wakeSpacing = Mathf.Max(.5f, wakeSpacing);
         }
 
         // Read the interpolated render pose immediately before each camera,
@@ -74,7 +70,7 @@ namespace Motu.Rendering
         private static void PrepareCamera(Camera camera)
         {
             BindGlobals();
-            OceanShipWaveField.Render(Active, camera.transform.position, Time.time);
+            OceanShipWaveField.Render(Active, camera.transform.position);
         }
 
         internal static void BindGlobals()

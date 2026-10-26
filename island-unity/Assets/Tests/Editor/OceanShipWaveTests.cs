@@ -112,7 +112,7 @@ namespace Motu.Editor
                 {
                     ship.HullClampFootprintScale = scale;
                     ship.HullClampFeatherMetres = feather;
-                    OceanShipWaveField.Render(new[] { ship }, Vector3.zero, 0);
+                    OceanShipWaveField.Render(new[] { ship }, Vector3.zero);
                     Graphics.Blit(input, target, material);
                     RenderTexture.active = target;
                     output.ReadPixels(new Rect(0, 0, 65, 1), 0, 0);
@@ -189,7 +189,7 @@ namespace Motu.Editor
                 {
                     ship.BowWavePullbackMetres = pullback;
                     ship.BowWaveTipBlendMetres = tipBlend;
-                    OceanShipWaveField.Render(new[] { ship }, Vector3.zero, 0);
+                    OceanShipWaveField.Render(new[] { ship }, Vector3.zero);
                     Graphics.Blit(input, target, material);
                     RenderTexture.active = target;
                     output.ReadPixels(new Rect(0, 0, 6, 1), 0, 0);
@@ -221,7 +221,7 @@ namespace Motu.Editor
         }
 
         [UnityTest]
-        public IEnumerator CruisingShipKeepsHullWavesWithoutAnAftWake()
+        public IEnumerator CruisingShipKeepsHullWavesAndSpray()
         {
             EditorSceneManager.OpenScene("Assets/Scenes/OpenSeaWorld.unity");
             yield return new EnterPlayMode();
@@ -234,10 +234,8 @@ namespace Motu.Editor
             Assert.That(ship.SpeedMetresPerSecond, Is.GreaterThan(3));
             Assert.IsNotNull(Camera.main.GetComponent<OceanUnderwaterView>(), "The active world camera must receive underwater rendering.");
             Assert.IsNotNull(emitter.HullTexture, "Hull waves must remain assigned.");
-            Assert.IsNull(emitter.WakeTexture, "The scene ship must not emit aft wake stamps.");
-            Assert.That(emitter.TrailCount, Is.Zero, "Cruising must not deposit an aft wake.");
             Assert.IsTrue(ship.GetComponent<OceanHullSpray>().enabled, "Hull spray must remain enabled.");
-            var cameraObject = new GameObject("Ship wake validation camera");
+            var cameraObject = new GameObject("Ship bow-wave validation camera");
             var camera = cameraObject.AddComponent<Camera>();
             var target = new RenderTexture(1280, 720, 24);
             var snapshot = new Texture2D(1280, 720, TextureFormat.RGB24, false);
@@ -255,7 +253,7 @@ namespace Motu.Editor
                 RenderTexture.active = target;
                 snapshot.ReadPixels(new Rect(0, 0, 1280, 720), 0, 0);
                 snapshot.Apply();
-                System.IO.File.WriteAllBytes(System.IO.Path.Combine(System.IO.Path.GetTempPath(), "motu-ship-no-aft-wake-preview.png"), snapshot.EncodeToPNG());
+                System.IO.File.WriteAllBytes(System.IO.Path.Combine(System.IO.Path.GetTempPath(), "motu-ship-bow-wave-preview.png"), snapshot.EncodeToPNG());
                 Assert.IsFalse(ShaderUtil.ShaderHasError(Shader.Find("Motu/Sea Water")));
             }
             finally
@@ -288,7 +286,7 @@ namespace Motu.Editor
             // Exercise the authored texture channels without the optional bow reshaping.
             ship.BowWavePullbackMetres = 0;
             ship.BowWaveTipBlendMetres = 0;
-            ship.ConfigureTextures(texture, Texture2D.whiteTexture);
+            ship.ConfigureHullTexture(texture);
             var material = new Material(Shader.Find("Hidden/Motu/Tests/Ship Wave Field"));
             var input = new Texture2D(4, 1, TextureFormat.RGBAFloat, false, true) { filterMode = FilterMode.Point };
             var target = new RenderTexture(4, 1, 0, RenderTextureFormat.ARGBFloat, RenderTextureReadWrite.Linear);
@@ -299,9 +297,9 @@ namespace Motu.Editor
                 input.SetPixels(new[] { new Color(86, 200, 2, 7), new Color(100, 200, 2, 7),
                     new Color(114, 200, 2, 7), new Color(86, 200, -2, 7) });
                 input.Apply();
-                Color[] Read(float now = 0)
+                Color[] Read()
                 {
-                    OceanShipWaveField.Render(new[] { ship }, new Vector3(100, 0, 200), now);
+                    OceanShipWaveField.Render(new[] { ship }, new Vector3(100, 0, 200));
                     Graphics.Blit(input, target, material);
                     RenderTexture.active = target;
                     output.ReadPixels(new Rect(0, 0, 4, 1), 0, 0);
@@ -332,12 +330,6 @@ namespace Motu.Editor
                 Assert.That(Read()[2].r, Is.EqualTo(9).Within(.01), "Reverse motion does not generate a wave ahead of the bow.");
                 host.transform.position += Vector3.right * 80;
                 Assert.That(Read()[0].r, Is.EqualTo(9).Within(.01), "Old hull footprint clears after moving.");
-                // A deposited white section stays put and fades instead of following a turn.
-                ship.AdvanceTrail(new Vector3(100, 0, 200), Vector3.right, 8, 0);
-                ship.AdvanceTrail(new Vector3(106, 0, 200), Vector3.right, 8, 1);
-                Assert.That(Read(1)[1].r, Is.GreaterThan(9.5));
-                Assert.That(Read(11)[1].r, Is.InRange(9.1f, 9.3f));
-                Assert.That(Read(22)[1].r, Is.EqualTo(9).Within(.01));
                 Assert.IsFalse(ShaderUtil.ShaderHasError(Resources.Load<Shader>("OceanShipWaveStamp")));
                 Assert.IsFalse(ShaderUtil.ShaderHasError(Shader.Find("Motu/Sea Water")));
             }
@@ -356,31 +348,6 @@ namespace Motu.Editor
         }
 
         [Test]
-        public void WakeRetainsItsPathExpiresAndResetsOnTeleport()
-        {
-            var host = new GameObject("Wake trail fixture");
-            try
-            {
-                var ship = host.AddComponent<OceanDeckWaveClamp>();
-                ship.AdvanceTrail(Vector3.zero, Vector3.forward, 8, 0);
-                ship.AdvanceTrail(Vector3.forward * 9, Vector3.forward, 8, 1);
-                Assert.That(ship.TrailCount, Is.EqualTo(3));
-                var first = ship.TrailAt(0);
-                ship.AdvanceTrail(new Vector3(9, 0, 9), Vector3.right, 8, 2);
-                Assert.That(ship.TrailAt(0).Position, Is.EqualTo(first.Position));
-                Assert.That(ship.TrailAt(0).Forward, Is.EqualTo(Vector3.forward));
-                Assert.That(ship.TrailAt(ship.TrailCount-1).Forward, Is.EqualTo(Vector3.right));
-                ship.AdvanceTrail(new Vector3(1000, 0, 9), Vector3.right, 8, 3);
-                Assert.That(ship.TrailCount, Is.Zero, "Teleport clears old trail without connecting destinations.");
-                ship.AdvanceTrail(new Vector3(1009, 0, 9), Vector3.right, 8, 4);
-                Assert.That(ship.TrailCount, Is.EqualTo(3));
-                ship.AdvanceTrail(new Vector3(1009, 0, 9), Vector3.right, 0, 25);
-                Assert.That(ship.TrailCount, Is.Zero, "Old wake expires even when stationary.");
-            }
-            finally { Object.DestroyImmediate(host); }
-        }
-
-        [Test]
         public void OpenSeaShipUsesLinearUncompressedWaveTextures()
         {
             EditorSceneManager.OpenScene("Assets/Scenes/OpenSeaWorld.unity");
@@ -389,8 +356,8 @@ namespace Motu.Editor
                 var ships = Object.FindObjectsByType<OceanDeckWaveClamp>(FindObjectsSortMode.None);
                 Assert.That(ships, Is.Not.Empty);
                 foreach (var ship in ships)
-                foreach (var texture in new[] { ship.HullTexture, ship.WakeTexture })
                 {
+                    var texture = ship.HullTexture;
                     if (texture == null) continue;
                     var path = AssetDatabase.GetAssetPath(texture);
                     var importer = (TextureImporter)AssetImporter.GetAtPath(path);

@@ -257,8 +257,8 @@ namespace Motu.Editor
                 // Deck rendering must not flatten the wave sampled by its own probes.
                 var deck = root.AddComponent<Motu.Rendering.OceanDeckWaveClamp>();
                 deck.Configure(Vector3.zero, Vector3.right * 30, 5, 2);
-                deck.ConfigureTextures(Texture2D.blackTexture, null);
-                Motu.Rendering.OceanShipWaveField.Render(new[] { deck }, Vector3.zero, 0);
+                deck.ConfigureHullTexture(Texture2D.blackTexture);
+                Motu.Rendering.OceanShipWaveField.Render(new[] { deck }, Vector3.zero);
                 yield return Query(sampler, ocean, positions, new[] { 4f, 2f });
                 ocean.SetWaveAttenuation(coast, Texture2D.blackTexture, new Vector4(0, -10, .01f, .05f));
                 yield return Query(sampler, ocean, positions, new[] { 3.25f, 2.75f });

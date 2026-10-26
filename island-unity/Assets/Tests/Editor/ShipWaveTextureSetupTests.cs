@@ -31,11 +31,9 @@ namespace Motu.Editor
                     return texture;
                 }
                 var hullA = Texture("Hull A", Color.black);
-                var wakeA = Texture("Wake A", Color.white);
                 var hullB = Texture("Hull B", Color.gray);
-                var wakeB = Texture("Wake B", new Color(.75f,.75f,.75f));
-                var a = ShipDeckWaveClampSetup.ApplyTextures(first, hullA, wakeA);
-                var b = ShipDeckWaveClampSetup.ApplyTextures(second, hullB, wakeB);
+                var a = ShipDeckWaveClampSetup.ApplyHullTexture(first, hullA);
+                var b = ShipDeckWaveClampSetup.ApplyHullTexture(second, hullB);
                 a.Configure(Vector3.left*4, Vector3.right*8, 2, 3);
                 var prefabA = PrefabUtility.SaveAsPrefabAsset(first, folder + "/A.prefab");
                 var prefabB = PrefabUtility.SaveAsPrefabAsset(second, folder + "/B.prefab");
@@ -46,11 +44,9 @@ namespace Motu.Editor
                 a = instanceA.GetComponent<OceanDeckWaveClamp>();
                 b = instanceB.GetComponent<OceanDeckWaveClamp>();
                 Assert.AreEqual(hullA, a.HullTexture);
-                Assert.AreEqual(wakeA, a.WakeTexture);
                 Assert.AreEqual(hullB, b.HullTexture);
-                Assert.AreEqual(wakeB, b.WakeTexture);
                 a.GetFootprint(out var centre, out var forward);
-                // Switching the picker target loads that ship's pair and performs no mutation.
+                // Switching the picker target loads that ship's texture and performs no mutation.
                 window = ScriptableObject.CreateInstance<ShipWaveTextureWindow>();
                 window.LoadShip(instanceA);
                 var picker = new SerializedObject(window);
@@ -58,11 +54,9 @@ namespace Motu.Editor
                 window.LoadShip(instanceB);
                 picker.Update();
                 Assert.AreEqual(hullB, picker.FindProperty("hullTexture").objectReferenceValue);
-                Assert.AreEqual(wakeB, picker.FindProperty("wakeTexture").objectReferenceValue);
-                ShipDeckWaveClampSetup.ApplyTextures(instanceA, hullB, null);
+                ShipDeckWaveClampSetup.ApplyHullTexture(instanceA, hullB);
                 Assert.AreEqual(hullB, a.HullTexture);
-                Assert.IsNull(a.WakeTexture);
-                Assert.AreEqual(wakeB, b.WakeTexture);
+                Assert.AreEqual(hullB, b.HullTexture);
                 Assert.AreEqual(hullA, prefabA.GetComponent<OceanDeckWaveClamp>().HullTexture);
                 a.GetFootprint(out var afterCentre, out var afterForward);
                 Assert.AreEqual(centre, afterCentre);
@@ -82,11 +76,11 @@ namespace Motu.Editor
         }
 
         [Test]
-        public void GpuComposesDifferentHullAndWakeTexturesForTwoShips()
+        public void GpuComposesDifferentHullTexturesForTwoShips()
         {
             EditorSceneManager.NewScene(NewSceneSetup.EmptyScene);
-            var first = new GameObject("Black hull with white wake");
-            var second = new GameObject("Neutral hull and wake");
+            var first = new GameObject("Black hull");
+            var second = new GameObject("Neutral hull");
             var neutral = new Texture2D(1, 1, TextureFormat.RGBA32, false, true);
             neutral.SetPixel(0,0,new Color(128f/255,128f/255,128f/255)); neutral.Apply();
             var material = new Material(Shader.Find("Hidden/Motu/Tests/Ship Wave Field"));
@@ -99,15 +93,9 @@ namespace Motu.Editor
                 second.transform.position = Vector3.right*50;
                 var a = first.AddComponent<OceanDeckWaveClamp>();
                 var b = second.AddComponent<OceanDeckWaveClamp>();
-                a.ConfigureTextures(Texture2D.blackTexture, Texture2D.whiteTexture);
-                b.ConfigureTextures(neutral, neutral);
-                foreach (var ship in new[] { a, b })
-                {
-                    var position = ship.transform.position;
-                    ship.AdvanceTrail(position + Vector3.back*33, Vector3.forward, 8, 0);
-                    ship.AdvanceTrail(position + Vector3.back*30, Vector3.forward, 8, 1);
-                }
-                OceanShipWaveField.Render(new[] { a, b }, Vector3.zero, 1);
+                a.ConfigureHullTexture(Texture2D.blackTexture);
+                b.ConfigureHullTexture(neutral);
+                OceanShipWaveField.Render(new[] { a, b }, Vector3.zero);
                 input.SetPixels(new[] { new Color(0,0,2,7), new Color(50,0,2,7), new Color(0,-30,2,7), new Color(50,-30,2,7) });
                 input.Apply();
                 Graphics.Blit(input, target, material);
@@ -116,8 +104,8 @@ namespace Motu.Editor
                 var pixels = output.GetPixels();
                 Assert.That(pixels[0].r, Is.EqualTo(7).Within(.01), "First ship's black hull clamps the crest.");
                 Assert.That(pixels[1].r, Is.EqualTo(9).Within(.01), "Second ship's neutral hull leaves the same crest alone.");
-                Assert.That(pixels[2].r, Is.EqualTo(9.8).Within(.01), "First ship leaves its own white wake.");
-                Assert.That(pixels[3].r, Is.EqualTo(9).Within(.01), "Second ship samples its own neutral wake texture.");
+                Assert.That(pixels[2].r, Is.EqualTo(9).Within(.01), "Water behind the first ship remains unchanged.");
+                Assert.That(pixels[3].r, Is.EqualTo(9).Within(.01), "Water behind the second ship remains unchanged.");
             }
             finally
             {

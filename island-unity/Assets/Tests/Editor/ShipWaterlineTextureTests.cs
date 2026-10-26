@@ -112,14 +112,13 @@ namespace Motu.Editor
                 Assert.That(result.SectionBounds.center.x, Is.EqualTo(1).Within(.001));
                 Assert.That(result.SectionBounds.center.y, Is.EqualTo(2).Within(.001));
                 var component = root.AddComponent<OceanDeckWaveClamp>();
-                component.ConfigureTextures(null, Texture2D.whiteTexture);
                 var worldCentre = root.transform.position + Vector3.back + Vector3.right*2;
                 component.FitGeneratedHullTexture(result.Texture, worldCentre, Vector3.right, result.SectionBounds.size, result.TextureBounds.size);
                 component.GetFootprint(out var centre, out var forward);
                 Assert.That(Vector3.Distance(centre,worldCentre), Is.LessThan(.001));
                 Assert.That(Vector3.Dot(forward,Vector3.right), Is.GreaterThan(.999));
                 var serialized = new SerializedObject(component);
-                Assert.AreEqual(Texture2D.whiteTexture, serialized.FindProperty("wakeTexture").objectReferenceValue);
+                Assert.AreEqual(result.Texture, component.HullTexture);
                 Assert.AreEqual(result.TextureBounds.size, serialized.FindProperty("textureSizeMetres").vector2Value);
             }
             finally { if (result != null) Object.DestroyImmediate(result.Texture); Object.DestroyImmediate(root); }

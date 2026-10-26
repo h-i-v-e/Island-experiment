@@ -5,7 +5,7 @@ using UnityEngine.Rendering;
 namespace Motu.Rendering
 {
     // Compose stamps once into a local world-space field, avoiding a texture
-    // sample per wake section at every ocean vertex and fragment.
+    // sample per ship at every ocean vertex and fragment.
     internal static class OceanShipWaveField
     {
         private const float Span = 512;
@@ -52,7 +52,7 @@ namespace Motu.Rendering
             }
         }
 
-        internal static void Render(IReadOnlyList<OceanDeckWaveClamp> ships, Vector3 centre, float now)
+        internal static void Render(IReadOnlyList<OceanDeckWaveClamp> ships, Vector3 centre)
         {
             var anyTextures = false;
             foreach (var ship in ships)
@@ -73,7 +73,7 @@ namespace Motu.Rendering
                 quad.vertices = new[] { new Vector3(-.5f, 0, -.5f), new Vector3(.5f, 0, -.5f), new Vector3(.5f, 0, .5f), new Vector3(-.5f, 0, .5f) };
                 quad.uv = new[] { Vector2.zero, Vector2.right, Vector2.one, Vector2.up };
                 quad.triangles = new[] { 0, 1, 2, 0, 2, 3 };
-                commands = new CommandBuffer { name = "Ship bow waves and wake" };
+                commands = new CommandBuffer { name = "Ship bow waves" };
             }
             centre.x = Mathf.Round(centre.x / 8) * 8;
             centre.z = Mathf.Round(centre.z / 8) * 8;
@@ -85,7 +85,7 @@ namespace Motu.Rendering
             commands.SetGlobalVector(RectId, rect);
             var writer = new StampWriter(centre);
             foreach (var ship in ships)
-                if (ship != null && ship.isActiveAndEnabled) ship.DrawStamps(writer, now);
+                if (ship != null && ship.isActiveAndEnabled) ship.DrawHullStamp(writer);
             // Immediate rendering must restore the caller's target (including reflection cameras).
             var previousTarget = RenderTexture.active;
             Graphics.ExecuteCommandBuffer(commands);

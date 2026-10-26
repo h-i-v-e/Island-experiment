@@ -666,21 +666,19 @@ Inside the capsule, positive ocean wave displacement is capped at the undisplace
 
 This is a rendering adjustment only: buoyancy continues to sample the original waves. Up to eight active capsules are supported, with overlapping regions taking the strongest clamp. Leave a small margin around the decks because the ocean is triangulated; very coarse distant mesh triangles can cross the capsule boundary.
 
-## Textured bow waves and wake
+## Textured bow waves
 
-The ship's **Ocean Deck Wave Clamp** accepts a hull texture and a wake texture. **ShipHullWaves.png** and **ShipWake.png** under `Assets/Textures` are the original templates. **Island > Set Up Selected Ship Texture Waves** opens a picker populated from the selected ship. Choose its own hull and wake textures, then apply; imported images are configured as linear, uncompressed textures without mipmaps. There are no fixed texture paths in the setup command.
+The ship's **Ocean Deck Wave Clamp** accepts a hull wave texture. **Island > Set Up Selected Ship Texture Waves** opens a picker populated from the selected ship. Applying the hull texture preserves the fitted waterline shape and wave tuning, and imports the image as linear, uncompressed data without mipmaps.
 
-- **Black** clamps positive displacement to the undisplaced sea plane, including any added wake crossing the deck. Troughs remain unchanged; submerged decks still receive water.
-- **Mid-grey** leaves the ocean unchanged. Both 127 and 128 are treated as neutral for 8-bit images.
-- **White** adds the configured height at full speed. Intermediate shades blend those effects. Texture top points from Start to End, towards the bow. Use neutral grey at the borders.
+- **Black** clamps positive displacement to the undisplaced sea plane. Troughs remain unchanged; submerged decks still receive water.
+- **Mid-grey** leaves the ocean unchanged. Both 127 and 128 are neutral for 8-bit images.
+- **White** adds the configured bow height at full speed. Intermediate shades blend those effects. Texture top points from Start to End, towards the bow. Use neutral grey at the borders.
 
-Each ship prefab stores its own **Hull Texture**, **Wake Texture**, dimensions and tuning on **Ocean Deck Wave Clamp**. Edit the prefab in Prefab Mode to configure that ship type, or override the textures on an individual scene instance. Opening the picker or changing the target preserves each ship's existing assignments. Applying textures leaves its fitted waterline shape and wave tuning intact. Scripts can use `ConfigureTextures(hull, wake)`; `HullTexture` and `WakeTexture` expose the current pair.
+Each ship prefab stores its own **Hull Texture**, dimensions and tuning. Edit the prefab in Prefab Mode, or override the texture on a scene instance. Scripts can use `ConfigureHullTexture(hull)`; `HullTexture` exposes the assignment.
 
 **Hull Texture** follows the ship. **Texture Size Metres** controls its world width/length regardless of imported model scale. **Bow Height**, **Full Wave Speed**, and **Wave Foam** control the speed-driven bow crest. Reverse travel suppresses the forward bow wave. The deck clamp stays active at rest. Clear Hull Texture to return to the capsule fallback.
 
-**Wake Texture** is deposited behind the moving ship every **Wake Spacing** metres. Sections remain in world space as the ship turns, widen at **Wake Spread Metres Per Second**, and fade over **Wake Lifetime** seconds. Configure **Wake Height** and **Wake Size Metres** independently. Stopping leaves the existing wake to fade; teleports clear the trail. The bounded history holds up to 96 sections per ship, so very long lifetimes or small spacing can retire the oldest sections early.
-
-The render field covers 512 x 512 metres around each camera at 0.5-metre texel spacing and fades at its edges. Overlapping stamps use their strongest clamp and raised height, preventing repeated wake sections from accumulating excessive height. Black areas take priority over raised waves. Surface normals and foam respond to the modified height. Buoyancy queries deliberately continue to sample the original waves, so ships do not react to their own visual wake.
+The render field covers 512 x 512 metres around each camera at 0.5-metre texel spacing and fades at its edges. Overlapping ships use the strongest clamp and raised height. Surface normals and foam respond to the modified height. Buoyancy continues to sample the original waves. Trailing wake stamps are no longer generated.
 
 ## Waterline texture generator
 
@@ -689,9 +687,9 @@ Select the ship and open **Island > Waterline Texture Generator**, outside Play 
 1. Set **Waterline World Y**, or use **Estimate Waterline From Buoyancy** (average probe height plus Draft). This estimates the resting waterline in the current authoring pose; it does not depend on a passing wave. A blue plane and vertical handle in Scene view let you inspect and move the slice. **Local Bow Direction** controls texture orientation.
 2. Adjust **Deck Clearance**, **Edge Blend**, and optionally the bow ridge offset/width. The waterline can be narrower than the decks, so leave sufficient clearance for deck overhang and ocean mesh triangles. **Gap Closure** seals small cracks at texture resolution. **Largest Region Only** removes disconnected fittings; turn it off for multiple hulls.
 3. Click **Generate Preview**. Yellow Scene lines show the mesh intersection. The tool fills the enclosed outline, retaining concavities and filling nested inner shells, then creates a black clamp area, neutral grey exterior, and optional white bow ridge. An empty or unclosed slice reports an error instead of inventing an outline.
-4. Click **Save New Texture & Assign To Ship**, then save the scene. A uniquely named PNG is created under `Assets/Textures`, imported as linear, uncompressed 2D data without resizing or mipmaps. The tool fits the texture's centre, orientation and world dimensions on the wave component while retaining the wake texture and height/foam tuning. Previous textures remain available.
+4. Click **Save New Texture & Assign To Ship**, then save the scene. A uniquely named PNG is created under `Assets/Textures`, imported as linear, uncompressed 2D data without resizing or mipmaps. The tool fits the texture's centre, orientation and world dimensions on the wave component while retaining height/foam tuning. Previous textures remain available.
 
-OpenSeaWorld uses **Pirate Ship High Poly Waterline.png**, generated from the estimated resting waterline with 1.5 m deck clearance. The trailing wake texture is unassigned, disabling aft wake stamps; hull bow waves, contact foam, and spray remain enabled. Regenerate after changing hull geometry or draft.
+OpenSeaWorld uses **Pirate Ship High Poly Waterline.png**, generated from the estimated resting waterline with 1.5 m deck clearance. Hull bow waves, contact foam, and spray remain enabled; there is no trailing-wake emitter. Regenerate after changing hull geometry or draft.
 
 ### Wave-driven ship spray
 
