@@ -22,9 +22,17 @@ Shader "Hidden/Motu/Ocean Wave Transition Probe"
             float _ProbeFoamActivity;
             float _ProbeSurfaceTranslucency;
             float _ProbeRadius;
+            float _ProbeGeometry;
 
             float4 Fragment(v2f_img input) : SV_Target
             {
+                if (_ProbeGeometry > 0.5)
+                {
+                    float3 displacement;
+                    MotuEvaluateOceanWaveDisplacement(
+                        _ProbeWorldRect.xy + input.uv * _ProbeWorldRect.zw, _ProbeRadius, displacement);
+                    return float4(displacement.y, MotuOceanGeometryFootprint(_ProbeRadius), 0, 1);
+                }
                 if (_ProbeFilteredWaves > 0.5 || _ProbeFilteredFoam > 0.5)
                 {
                     float2 world = _ProbeWorldRect.xy + input.uv * _ProbeWorldRect.zw;

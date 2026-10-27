@@ -78,6 +78,7 @@ namespace Motu.Settings
         public readonly float DisplacementFadeStartMetres;
         public readonly float DisplacementFadeEndMetres;
         public float CoarseVertexSpacingMetres => FineVertexSpacingMetres * 8f;
+        public float DistantVertexSpacingMetres => CoarseVertexSpacingMetres * 2f;
         public readonly float MaskCoverageMetres;
         public readonly int MaskResolution;
         public readonly float MaskAnchorSnapMetres;
@@ -174,7 +175,7 @@ namespace Motu.Settings
             DisplacementFadeEndMetres = Mathf.Clamp(
                 displacementFadeEndMetres,
                 FineVertexSpacingMetres * 2f,
-                FineRadiusMetres * 2f);
+                FineRadiusMetres * 4f);
             DisplacementFadeStartMetres = Mathf.Clamp(
                 displacementFadeStartMetres,
                 0f,
@@ -366,7 +367,7 @@ namespace Motu.Settings
         [Range(2, 32)] [SerializeField] private int ringsPerSpacingLevel = 8;
         [Tooltip("Distance at which geometric displacement starts fading into normal-only waves. May extend into the coarser outer band.")]
         [Min(0f)] [SerializeField] private float displacementFadeStartMetres = 192f;
-        [Tooltip("Distance at which geometric displacement reaches zero, up to twice the fine-mesh radius. The outer band uses wider vertex spacing and filters out short waves.")]
+        [Tooltip("Distance at which geometric displacement reaches zero, up to four times the fine-mesh radius. Beyond twice the fine radius, another band doubles the coarse vertex spacing and filters out short waves.")]
         [Min(1f)] [SerializeField] private float displacementFadeEndMetres = 256f;
 
         [Header("Coastal Attenuation")]
@@ -510,7 +511,7 @@ namespace Motu.Settings
             displacementFadeEndMetres = Mathf.Clamp(
                 displacementFadeEndMetres,
                 fineVertexSpacingMetres * 2f,
-                fineRadiusMetres * 2f);
+                fineRadiusMetres * 4f);
             displacementFadeStartMetres = Mathf.Clamp(
                 displacementFadeStartMetres,
                 0f,

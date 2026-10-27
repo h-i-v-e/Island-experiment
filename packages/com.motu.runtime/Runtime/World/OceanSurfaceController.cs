@@ -308,7 +308,9 @@ namespace Motu.World
             surfaceMaterial.SetVector(GeometryLodId,
                 waveSettings.DisplacementFadeEndMetres > waveSettings.FineRadiusMetres
                     ? new Vector4(waveSettings.FineRadiusMetres, waveSettings.FineVertexSpacingMetres,
-                        waveSettings.RingsPerSpacingLevel, waveSettings.CoarseVertexSpacingMetres)
+                        waveSettings.RingsPerSpacingLevel,
+                        waveSettings.DisplacementFadeEndMetres > waveSettings.FineRadiusMetres * 2f
+                            ? waveSettings.DistantVertexSpacingMetres : waveSettings.CoarseVertexSpacingMetres)
                     : Vector4.zero);
             surfaceMaterial.SetVector(Wave0Id, WaveVector(waveSettings.Wave0));
             surfaceMaterial.SetVector(Wave1Id, WaveVector(waveSettings.Wave1));

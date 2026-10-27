@@ -595,9 +595,13 @@ float MotuOceanGeometryFootprint(float localRadius)
     float spacing = max(_OceanGeometryLod.y, 0.5);
     float rows = max(_OceanGeometryLod.z, 2.0);
     float distance = localRadius - _OceanGeometryLod.x;
-    // Smoothly follow the 2x/4x/8x outer grid. Using radial distance is
-    // conservative at the corners of its square rings and avoids visible LOD seams.
-    float footprint = min(_OceanGeometryLod.w, 2.0 * spacing + distance / rows);
+    // Smoothly follow the 2x/4x/8x outer grid, then the 16x distant band.
+    // Radial distance is conservative at square-ring corners and avoids LOD seams.
+    float coarseSpacing = min(_OceanGeometryLod.w, 8.0 * spacing);
+    float footprint = min(coarseSpacing, 2.0 * spacing + distance / rows);
+    footprint += max(0.0, _OceanGeometryLod.w - coarseSpacing)
+        * smoothstep(2.0 * _OceanGeometryLod.x,
+            2.0 * _OceanGeometryLod.x + _OceanGeometryLod.w * rows, localRadius);
     return footprint * smoothstep(0.0, 2.0 * spacing * rows, distance);
 }
 

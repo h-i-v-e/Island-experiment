@@ -114,11 +114,13 @@ namespace Motu.World
             spacing *= 2f;
             var rowsAtSpacing = 0;
             var hasCoarseDisplacement = settings.DisplacementFadeEndMetres > settings.FineRadiusMetres;
+            var hasDistantDisplacement = settings.DisplacementFadeEndMetres > settings.FineRadiusMetres * 2f;
             if (hasCoarseDisplacement)
             {
                 // Keep enough samples for broad swell throughout the added band.
                 // A single shared grid keeps every spacing transition watertight.
-                var coarseExtent = Mathf.Min(settings.DisplacementFadeEndMetres, halfExtent);
+                var coarseExtent = Mathf.Min(settings.FineRadiusMetres * 2f,
+                    Mathf.Min(settings.DisplacementFadeEndMetres, halfExtent));
                 while (current < coarseExtent)
                 {
                     current = Mathf.Min(current + spacing, coarseExtent);
@@ -129,12 +131,24 @@ namespace Motu.World
                         spacing = Mathf.Min(spacing * 2f, settings.CoarseVertexSpacingMetres);
                     }
                 }
+                if (hasDistantDisplacement)
+                {
+                    // Preserve the existing coarse band, then add a half-density
+                    // band reaching twice as far with the same shared vertices.
+                    spacing = settings.DistantVertexSpacingMetres;
+                    var distantExtent = Mathf.Min(settings.DisplacementFadeEndMetres, halfExtent);
+                    while (current < distantExtent)
+                    {
+                        current = Mathf.Min(current + spacing, distantExtent);
+                        positive.Add(current);
+                    }
+                }
                 spacing *= 2f;
                 rowsAtSpacing = 0;
             }
             // Beyond the last displaced vertex the surface is flat, so fewer
             // rows per band pay for the extended swell without growing the grid budget.
-            var outerRows = hasCoarseDisplacement
+            var outerRows = hasDistantDisplacement ? 2 : hasCoarseDisplacement
                 ? Mathf.Max(2, settings.RingsPerSpacingLevel / 2) : settings.RingsPerSpacingLevel;
             while (current < halfExtent)
             {
