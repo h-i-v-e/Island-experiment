@@ -54,6 +54,12 @@ namespace Motu.Settings
         [Range(0.02f, 0.12f)] [SerializeField] private float starSize = 0.052f;
 
         public int Seed => seed;
+        public WorldEnvironmentSettings WithSeed(int value)
+        {
+            var settings = (WorldEnvironmentSettings)MemberwiseClone();
+            settings.seed = value;
+            return settings;
+        }
         public Color ZenithColour => zenithColour;
         public Color DistanceHazeColour => distanceHazeColour;
         public float SkyHorizonLightening

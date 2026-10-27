@@ -10,6 +10,8 @@ namespace Motu.Islands
         private const float MIN_HEIGHT = 50, MAX_HEIGHT = 500;
 
         [SerializeField] private int seed = 42;
+        /// <summary>Set before world discovery or generation starts.</summary>
+        public int Seed { get => seed; set => seed = value; }
 
         [Tooltip("Archipelago radius in 2 km grid cells. Also sets the south-to-north solar latitude range.")]
         [Min(1)] [SerializeField] private int archipelegoRadius = 16;

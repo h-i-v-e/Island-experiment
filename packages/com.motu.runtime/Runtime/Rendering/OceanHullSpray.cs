@@ -121,13 +121,19 @@ namespace Motu.Rendering
             }
             particleRenderer.sharedMaterial = sprayMaterial;
             var dt = Mathf.Min(Time.deltaTime, .05f);
+            // Keep a few frames of readback latency at lower frame rates, but
+            // never revive a long-stale contact after a stalled renderer.
+            float allowedAge = Mathf.Max(maximumSampleAge, Mathf.Min(.5f, Time.smoothDeltaTime * 4f));
             for (var i = 0; i < waterline.Length; i++)
             {
                 var point = transform.TransformPoint(waterline[i]);
                 worldPoints[i] = point;
-                valid[i] = sampler.TryGetSurface(i, point, maximumSampleTravel,
+                float age = sampler.SampleAge(i);
+                float travel = OceanSurfaceSampler.MotionTravelAllowance(maximumSampleTravel,
+                    body != null ? body.GetPointVelocity(point) : Vector3.zero, age, allowedAge);
+                valid[i] = sampler.TryGetSurface(i, point, travel,
                     out var height, out waveVelocities[i], out waveScales[i])
-                    && sampler.SampleAge(i) <= maximumSampleAge;
+                    && age <= allowedAge;
                 depths[i] = valid[i] ? height - point.y : 0;
             }
             sampledFrame = Time.frameCount;

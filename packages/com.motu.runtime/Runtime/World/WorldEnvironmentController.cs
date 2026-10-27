@@ -227,6 +227,7 @@ namespace Motu.World
 
         private void Update()
         {
+            if (Time.timeScale <= 0f) return;
             if (hostState == null || !IsInstalled || environmentSettings == null || cloudSettings == null)
             {
                 return;

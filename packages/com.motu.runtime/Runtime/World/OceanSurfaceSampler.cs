@@ -119,6 +119,17 @@ namespace Motu.World
 
         internal float SampleAge(int index) => Time.time - sampleTimes[index];
 
+        internal static float MotionTravelAllowance(float tolerance, Vector3 pointVelocity,
+            float sampleAge, float maximumAge)
+        {
+            // A readback describes where the moving probe was when submitted.
+            // Account for ordinary hull travel while retaining the spatial guard
+            // against teleports. Vertical motion does not invalidate a water height.
+            float age = float.IsFinite(sampleAge) ? Mathf.Clamp(sampleAge, 0f, maximumAge) : 0f;
+            pointVelocity.y = 0f;
+            return tolerance + pointVelocity.magnitude * age;
+        }
+
         internal static float SampleConfidence(float age, float holdSeconds = .25f,
             float fadeSeconds = 1f)
         {

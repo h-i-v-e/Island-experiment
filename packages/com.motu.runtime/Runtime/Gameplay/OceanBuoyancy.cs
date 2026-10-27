@@ -55,6 +55,8 @@ namespace Motu.Gameplay
         private Vector3[] worldPositions;
         private WaterSampleFilter[] waterSamples;
         private float nextOceanSearch;
+        private float[] probeBuoyancy;
+        private int reducedBuoyancyProbes;
         // A cold shader or a large mesh upload can delay GPU readback across
         // several physics steps. Keep the last local water height long enough
         // for rendering to recover instead of removing all lift mid-stall.
@@ -64,6 +66,32 @@ namespace Motu.Gameplay
         public OceanSurfaceController Ocean { get => ocean; set { ocean = value; ReleaseSampler(); } }
         public float Draft { get => draft; set => draft = Mathf.Max(0.01f, value); }
         public float SubmergedFraction { get; private set; }
+        public int ProbeCount => probes != null ? probes.Length : 0;
+
+        public Vector3 GetProbeWorldPosition(int index) => PhysicsProbePosition(probes[index]);
+        public float GetProbeBuoyancy(int index)
+        {
+            if (index < 0 || index >= ProbeCount) throw new ArgumentOutOfRangeException(nameof(index));
+            return probeBuoyancy != null && probeBuoyancy.Length == ProbeCount ? probeBuoyancy[index] : 1f;
+        }
+        /// <summary>Runtime lift remaining at a marker. Water sampling and hull resistance stay active.</summary>
+        public void SetProbeBuoyancy(int index, float remaining)
+        {
+            if (index < 0 || index >= ProbeCount) throw new ArgumentOutOfRangeException(nameof(index));
+            if (float.IsNaN(remaining) || float.IsInfinity(remaining)) throw new ArgumentOutOfRangeException(nameof(remaining));
+            if (probeBuoyancy == null || probeBuoyancy.Length != ProbeCount)
+            {
+                probeBuoyancy = new float[ProbeCount];
+                Array.Fill(probeBuoyancy, 1f);
+                reducedBuoyancyProbes = 0;
+            }
+            remaining = Mathf.Clamp01(remaining);
+            if (probeBuoyancy[index] < 1f) reducedBuoyancyProbes--;
+            probeBuoyancy[index] = remaining;
+            if (remaining < 1f) reducedBuoyancyProbes++;
+        }
+        public void ResetProbeBuoyancy()
+        { probeBuoyancy = null; reducedBuoyancyProbes = 0; }
 
         public ShipHullGeometry HullGeometry => hullGeometry;
         public float WaterDensity => waterDensity;
@@ -119,7 +147,9 @@ namespace Motu.Gameplay
             for (var i = 0; i < probes.Length; i++)
             {
                 var point = PhysicsProbePosition(probes[i]);
-                if (!sampler.TryGetHeight(i, point, Mathf.Max(draft, 0.5f), out var height,
+                float sampleTravel = OceanSurfaceSampler.MotionTravelAllowance(Mathf.Max(draft, .5f),
+                    body.GetPointVelocity(point), sampler.SampleAge(i), SampleHoldSeconds);
+                if (!sampler.TryGetHeight(i, point, sampleTravel, out var height,
                         out var confidence, SampleHoldSeconds, SampleFadeSeconds))
                 {
                     // Teleports must not carry a smoothed height from the old location.
@@ -129,7 +159,7 @@ namespace Motu.Gameplay
                 waterSamples[i].Update(height, confidence, Time.fixedDeltaTime, surfaceSmoothingSeconds);
                 if (hullGeometry != null)
                 {
-                    Vector3 velocity = sampler.TryGetSurface(i, point, Mathf.Max(draft, .5f), out _, out var sampledVelocity)
+                    Vector3 velocity = sampler.TryGetSurface(i, point, sampleTravel, out _, out var sampledVelocity)
                         ? sampledVelocity : Vector3.zero;
                     float blend = surfaceSmoothingSeconds > 0f ? 1f - Mathf.Exp(-Time.fixedDeltaTime / surfaceSmoothingSeconds) : 1f;
                     waterSamples[i].Velocity = Vector3.Lerp(waterSamples[i].Velocity, velocity, blend);
@@ -140,6 +170,7 @@ namespace Motu.Gameplay
                 {
                     var acceleration = ProbeAcceleration(waterSamples[i].Height - point.y, body.GetPointVelocity(point),
                         gravity, draft, maximumLift, damping, waterDrag, Time.fixedDeltaTime);
+                    acceleration.y *= GetProbeBuoyancy(i);
                     ApplyProbeAcceleration(body, acceleration * (waterSamples[i].Confidence / probes.Length), point);
                 }
             }
@@ -279,7 +310,8 @@ namespace Motu.Gameplay
                 // A dissipative step may stop motion but must not reverse it in a single tick.
                 dampingForce = Mathf.Clamp(dampingForce, -Mathf.Abs(velocity.y) * sectionMass / Time.fixedDeltaTime,
                     Mathf.Abs(velocity.y) * sectionMass / Time.fixedDeltaTime);
-                body.AddForceAtPosition(Vector3.up * (waterDensity * gravity * volume + dampingForce), centre, ForceMode.Force);
+                ApplyHullBuoyancy(waterDensity * gravity * volume, centre);
+                body.AddForceAtPosition(Vector3.up * dampingForce, centre, ForceMode.Force);
                 // Two Gauss points integrate the depth-squared roll lever instead
                 // of collapsing side pressure to one point near the roll axis.
                 float halfDepth = wet.depth * .5f;
@@ -315,6 +347,35 @@ namespace Motu.Gameplay
             body.AddForce(forward * (resistance * (forwardSpeedMultiplier - 1f)), ForceMode.Force);
         }
 
+        private void ApplyHullBuoyancy(float lift, Vector3 centre)
+        {
+            if (reducedBuoyancyProbes == 0 || ProbeCount == 0)
+            {
+                body.AddForceAtPosition(Vector3.up * lift, centre, ForceMode.Force);
+                return;
+            }
+            // Distribute section lift over nearby markers. Centre their lever
+            // arms on the section's original centre of buoyancy: intact lift
+            // retains its original force/torque, local flooding tilts the hull,
+            // and removing every marker leaves neither lift nor residual torque.
+            float weights = 0f;
+            Vector3 weightedPoint = Vector3.zero;
+            for (int i = 0; i < ProbeCount; i++)
+            {
+                Vector3 point = GetProbeWorldPosition(i);
+                float weight = 1f / Mathf.Max(Vector3.ProjectOnPlane(point - centre, Vector3.up).sqrMagnitude, 1f);
+                weights += weight; weightedPoint += point * weight;
+            }
+            weightedPoint /= weights;
+            for (int i = 0; i < ProbeCount; i++)
+            {
+                Vector3 point = GetProbeWorldPosition(i);
+                float weight = 1f / Mathf.Max(Vector3.ProjectOnPlane(point - centre, Vector3.up).sqrMagnitude, 1f);
+                body.AddForceAtPosition(Vector3.up * (lift * weight / weights * GetProbeBuoyancy(i)),
+                    centre + point - weightedPoint, ForceMode.Force);
+            }
+        }
+
         internal static void ApplyProbeAcceleration(Rigidbody rigidbody, Vector3 acceleration, Vector3 point)
         {
             // Convert the desired linear acceleration to a physical force. Using
@@ -325,6 +386,7 @@ namespace Motu.Gameplay
 
         internal Vector3 PhysicsProbePosition(Vector3 localPoint)
         {
+            if (body == null) body = GetComponent<Rigidbody>();
             // With interpolation, Transform contains the delayed render pose.
             // Using it in a spring introduces position feedback one step late.
             return body.position + body.rotation * Vector3.Scale(localPoint, transform.lossyScale);

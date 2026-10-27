@@ -59,6 +59,7 @@ namespace Motu.World
         [SerializeField] private WorldWeatherDriver weatherDriver;
 
         private WorldWeatherState? pendingWeather;
+        private WorldEnvironmentSettings runtimeEnvironmentSettings;
 
         [Header("World Grid Discovery")]
         [Min(1000f)] [SerializeField] private float discoveryRadiusMetres = 16000f;
@@ -189,9 +190,9 @@ namespace Motu.World
         }
 
         private WorldEnvironmentSettings EnvironmentSettings =>
-            worldEnvironmentConfiguration != null
+            runtimeEnvironmentSettings ?? (worldEnvironmentConfiguration != null
                 ? worldEnvironmentConfiguration.Environment
-                : worldEnvironmentSettings ??= new WorldEnvironmentSettings();
+                : worldEnvironmentSettings ??= new WorldEnvironmentSettings());
         private IslandCloudSettings CloudSettings =>
             worldEnvironmentConfiguration != null
                 ? worldEnvironmentConfiguration.Clouds
@@ -210,6 +211,14 @@ namespace Motu.World
         public void ConfigureWorldEnvironment(Light sunlight, Material seaMaterial)
         {
             worldEnvironmentSettings.AssignSceneReferences(sunlight, seaMaterial);
+        }
+
+        /// <summary>Override this voyage's environment seed before Awake, preserving authored settings.</summary>
+        public void ConfigureEnvironmentSeed(int seed)
+        {
+            if (worldEnvironment != null)
+                throw new InvalidOperationException("Configure the environment seed before world initialization.");
+            runtimeEnvironmentSettings = EnvironmentSettings.WithSeed(seed);
         }
 
         public WorldWeatherDriver WeatherDriver
