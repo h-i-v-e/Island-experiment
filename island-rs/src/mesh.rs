@@ -420,6 +420,50 @@ impl Mesh {
         added
     }
 
+    /// Insert shared edge points and stitch every incident face. The fractions
+    /// refer to the ordered input edges; existing positions remain unchanged.
+    pub(crate) fn split_edges(
+        &mut self,
+        fractions: &BTreeMap<(u32, u32), f32>,
+    ) -> Vec<EdgeSplitStencil> {
+        let mut splits = Vec::with_capacity(fractions.len());
+        let indices: BTreeMap<_, _> = fractions
+            .iter()
+            .map(|(&(a, b), &t)| {
+                assert!(a < b && t > 0.0 && t < 1.0);
+                let vertex = self.vertices.len() as u32;
+                self.vertices
+                    .push(self.vertices[a as usize].lerp(self.vertices[b as usize], t));
+                if !self.uv.is_empty() {
+                    self.uv
+                        .push(self.uv[a as usize].lerp(self.uv[b as usize], t));
+                }
+                splits.push(EdgeSplitStencil {
+                    vertex,
+                    edge: [a, b],
+                    interpolation: t,
+                });
+                ((a, b), vertex)
+            })
+            .collect();
+        let triangles = std::mem::take(&mut self.triangles);
+        self.triangles.reserve(triangles.len() + splits.len() * 6);
+        for face in triangles.chunks_exact(3) {
+            let [a, b, c] = [face[0], face[1], face[2]];
+            add_conforming_triangle(
+                &mut self.triangles,
+                a,
+                b,
+                c,
+                indices.get(&ordered_edge(a, b)).copied(),
+                indices.get(&ordered_edge(a, c)).copied(),
+                indices.get(&ordered_edge(c, b)).copied(),
+            );
+        }
+        self.normals.clear();
+        splits
+    }
+
     pub(crate) fn constrain_height_plane(&mut self, height: f32) -> HeightConstraintResult {
         let source_triangles = std::mem::take(&mut self.triangles);
         let mut triangles = Vec::with_capacity(source_triangles.len() * 2);

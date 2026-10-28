@@ -7,6 +7,10 @@ fn main(){
     let args:Vec<_>=std::env::args_os().collect();
     let waves=std::fs::read_to_string(&args[1]).unwrap();
     let waves=format!("struct OceanUniform{}",waves.split_once("struct OceanUniform").unwrap().1).replace("#{MATERIAL_BIND_GROUP}","0");
+    let path=std::path::PathBuf::from(&args[1]);
+    let material=std::fs::read_to_string(path.parent().unwrap().parent().unwrap().join("environment/material.wgsl")).unwrap();
+    let shared_sampler=material.lines().find(|line|line.contains("@binding(102)")).unwrap().replace("#{MATERIAL_BIND_GROUP}","0");
+    let waves=waves+"\n"+&shared_sampler;
     let foam=std::fs::read_to_string(&args[2]).unwrap().lines().filter(|l|!l.starts_with("#import")).collect::<Vec<_>>().join("\n");
     let instance=wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let adapter=bevy_tasks::block_on(instance.request_adapter(&Default::default())).unwrap();

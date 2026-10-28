@@ -7,7 +7,10 @@ use bevy::{
         ImageSamplerDescriptor, ImageType,
     },
     prelude::*,
-    render::render_resource::{Extent3d, TextureDimension, TextureFormat},
+    render::{
+        render_resource::{Extent3d, TextureDimension, TextureFormat},
+        storage::ShaderBuffer,
+    },
 };
 
 #[derive(Resource, Default)]
@@ -18,9 +21,26 @@ pub struct TerrainTextures {
     pub noise: Handle<Image>,
     pub detail_mask: Handle<Image>,
     pub detail_mapping: crate::lod_material::DetailMapping,
+    pub detail_frame: Handle<ShaderBuffer>,
+    pub environment: Handle<ShaderBuffer>,
+    pub environment_sky: Handle<Image>,
+    pub forest_mask: Handle<Image>,
 }
 
 impl TerrainTextures {
+    pub fn set_detail_mapping(
+        &mut self,
+        mapping: crate::lod_material::DetailMapping,
+        buffers: &mut Assets<ShaderBuffer>,
+    ) {
+        if self.detail_mapping != mapping {
+            if let Some(mut buffer) = buffers.get_mut(&self.detail_frame) {
+                buffer.set_data(mapping);
+            }
+            self.detail_mapping = mapping;
+        }
+    }
+
     pub fn extension(&self, radius: f32) -> crate::lod_material::SurfaceExtension {
         crate::lod_material::SurfaceExtension {
             terrain: crate::lod_material::TerrainSettings {
@@ -32,13 +52,22 @@ impl TerrainTextures {
             mask: Some(self.mask.clone()),
             noise: Some(self.noise.clone()),
             detail_mask: Some(self.detail_mask.clone()),
-            detail_mapping: self.detail_mapping,
+            detail_mapping: self.detail_frame.clone(),
+            environment: self.environment.clone(),
+            environment_sky: Some(self.environment_sky.clone()),
+            forest_mask: Some(self.forest_mask.clone()),
             ..default()
         }
     }
 }
 
-pub fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
+pub fn setup(
+    mut commands: Commands,
+    mut images: ResMut<Assets<Image>>,
+    mut buffers: ResMut<Assets<ShaderBuffer>>,
+    environment: Res<crate::environment::settings::EnvironmentAssets>,
+    reflection: Res<crate::environment::reflections::SkyReflectionAssets>,
+) {
     commands.insert_resource(TerrainTextures {
         albedo: images.add(array_image(
             include_bytes!("../assets/terrain/albedo.png"),
@@ -54,7 +83,16 @@ pub fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
         )),
         noise: images.add(cliff_noise()),
         detail_mask: images.add(crate::details::mask_image(vec![0; 512 * 512 * 4])),
+        environment: environment.uniform.clone(),
+        environment_sky: reflection.cube.clone(),
+        forest_mask: images.add(crate::forest::mask::image(vec![
+            0;
+            crate::forest::mask::PIXELS
+        ])),
         detail_mapping: default(),
+        detail_frame: buffers.add(ShaderBuffer::from(
+            crate::lod_material::DetailMapping::default(),
+        )),
     });
 }
 
@@ -244,6 +282,102 @@ fn cliff_noise() -> Image {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn moving_detail_frame_writes_one_shared_buffer_without_dirtying_materials() {
+        use crate::{
+            details::GrassMaterial,
+            lod_material::{DetailMapping, LodMaterial},
+        };
+        use bevy::asset::{AssetApp, AssetEvent, AssetPlugin};
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+            .init_asset::<ShaderBuffer>()
+            .init_asset::<LodMaterial>()
+            .init_asset::<GrassMaterial>();
+        let handle = app
+            .world_mut()
+            .resource_mut::<Assets<ShaderBuffer>>()
+            .add(ShaderBuffer::from(DetailMapping::default()));
+        let mut textures = TerrainTextures {
+            detail_frame: handle.clone(),
+            ..default()
+        };
+        let ground = || LodMaterial {
+            extension: textures.extension(1000.0),
+            ..default()
+        };
+        // Retain the material handles throughout the frame update.
+        let _terrain: Vec<_> = (0..400)
+            .map(|_| {
+                app.world_mut()
+                    .resource_mut::<Assets<LodMaterial>>()
+                    .add(ground())
+            })
+            .collect();
+        let _grass: Vec<_> = (0..16)
+            .map(|_| {
+                app.world_mut()
+                    .resource_mut::<Assets<GrassMaterial>>()
+                    .add(GrassMaterial {
+                        base: ground(),
+                        ..default()
+                    })
+            })
+            .collect();
+        app.update();
+        app.world_mut()
+            .resource_mut::<Messages<AssetEvent<ShaderBuffer>>>()
+            .clear();
+        app.world_mut()
+            .resource_mut::<Messages<AssetEvent<LodMaterial>>>()
+            .clear();
+        app.world_mut()
+            .resource_mut::<Messages<AssetEvent<GrassMaterial>>>()
+            .clear();
+        let mapping = DetailMapping {
+            origin: Vec4::new(50.0, 1000.0, 25.0, 160.0),
+            tangent: Vec4::X,
+            bitangent: Vec4::Z,
+        };
+        textures.set_detail_mapping(
+            mapping,
+            &mut app.world_mut().resource_mut::<Assets<ShaderBuffer>>(),
+        );
+        app.update();
+        let writes = app
+            .world_mut()
+            .resource_mut::<Messages<AssetEvent<ShaderBuffer>>>()
+            .drain()
+            .filter(|e| e.is_modified(handle.id()))
+            .count();
+        assert_eq!(writes, 1);
+        assert!(
+            app.world()
+                .resource::<Messages<AssetEvent<LodMaterial>>>()
+                .is_empty()
+        );
+        assert!(
+            app.world()
+                .resource::<Messages<AssetEvent<GrassMaterial>>>()
+                .is_empty()
+        );
+        let expected = ShaderBuffer::from(mapping);
+        let buffers = app.world().resource::<Assets<ShaderBuffer>>();
+        let data = buffers.get(&handle).unwrap().data.as_ref().unwrap();
+        assert_eq!(data.len(), 48);
+        assert_eq!(Some(data), expected.data.as_ref());
+        textures.set_detail_mapping(
+            mapping,
+            &mut app.world_mut().resource_mut::<Assets<ShaderBuffer>>(),
+        );
+        app.update();
+        assert!(
+            app.world()
+                .resource::<Messages<AssetEvent<ShaderBuffer>>>()
+                .is_empty()
+        );
+    }
 
     #[test]
     fn baked_arrays_have_isolated_full_mip_chains_and_correct_colour_spaces() {

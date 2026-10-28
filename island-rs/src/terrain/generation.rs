@@ -1646,6 +1646,23 @@ pub(super) fn create_seed_points(seed: u64, count: usize) -> Vec<Vec2> {
     points
 }
 
+/// Automatic island factories opt into this check before requesting generation.
+/// Use the same initial classification as generation; do not erode or refine.
+pub(crate) fn resolve_land_mass_offset(seed: u64, options: IslandOptions) -> f32 {
+    if options.land_mass_offset >= 0.0 {
+        return options.land_mass_offset;
+    }
+    let points = create_seed_points(seed, options.terrain_size as usize);
+    let mut mesh = Mesh::delaunay(&points);
+    let adjacency = mesh.adjacency();
+    assign_elevations(&mut mesh, &adjacency, seed, options);
+    if mesh.vertices.iter().any(|vertex| vertex.z > 0.0) {
+        options.land_mass_offset
+    } else {
+        0.0
+    }
+}
+
 pub(super) fn assign_elevations(
     mesh: &mut Mesh,
     adjacency: &Adjacency,
@@ -1881,6 +1898,68 @@ mod sea_proximity_tests {
             .validate()
             .unwrap_err();
             assert!(error.contains("seabed_depth_distance_ratio"));
+        }
+    }
+
+    #[test]
+    fn automatic_land_offset_rescues_the_submerged_factory_cell() {
+        let options = IslandOptions {
+            max_height: 0.212_369_93,
+            water_ratio: 0.899_575_4,
+            slope_multiplier: 0.988_750_64,
+            coastal_slope_multiplier: 1.991_407_5,
+            continental_noise_frequency: 3.352_553_1,
+            continental_noise_strength: 0.606_563_1,
+            detail_noise_frequency: 24.612_303,
+            detail_noise_strength: 0.393_436_9,
+            land_mass_offset: -0.399_528_2,
+            ..IslandOptions::default()
+        };
+        let seed = 677_934_609;
+        assert_eq!(resolve_land_mass_offset(seed, options), 0.0);
+        let points = create_seed_points(seed, options.terrain_size as usize);
+        let mut mesh = Mesh::delaunay(&points);
+        let adjacency = mesh.adjacency();
+        assign_elevations(&mut mesh, &adjacency, seed, options);
+        assert!(mesh.vertices.iter().all(|vertex| vertex.z < 0.0));
+        assign_elevations(
+            &mut mesh,
+            &adjacency,
+            seed,
+            IslandOptions {
+                land_mass_offset: 0.0,
+                ..options
+            },
+        );
+        assert!(mesh.vertices.iter().any(|vertex| vertex.z > 0.0));
+    }
+
+    #[test]
+    fn automatic_land_offset_preserves_a_surviving_archipelago() {
+        let options = IslandOptions {
+            water_ratio: 0.776_804_57,
+            continental_noise_frequency: 3.961_108_7,
+            continental_noise_strength: 0.051_644_36,
+            detail_noise_frequency: 26.843_174,
+            detail_noise_strength: 0.948_355_6,
+            land_mass_offset: -0.241_722_4,
+            ..IslandOptions::default()
+        };
+        assert_eq!(
+            resolve_land_mass_offset(2_055_219_424, options),
+            options.land_mass_offset
+        );
+        for offset in [0.0, 0.1] {
+            assert_eq!(
+                resolve_land_mass_offset(
+                    42,
+                    IslandOptions {
+                        land_mass_offset: offset,
+                        ..options
+                    }
+                ),
+                offset
+            );
         }
     }
 

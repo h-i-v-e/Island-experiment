@@ -9,9 +9,12 @@ use bevy::{
     mesh::MeshVertexBufferLayoutRef,
     pbr::{Material, MaterialPipeline, MaterialPipelineKey},
     prelude::*,
-    render::render_resource::{
-        AsBindGroup, CompareFunction, Face, RenderPipelineDescriptor, ShaderType,
-        SpecializedMeshPipelineError,
+    render::{
+        render_resource::{
+            AsBindGroup, CompareFunction, Face, RenderPipelineDescriptor, ShaderType,
+            SpecializedMeshPipelineError,
+        },
+        storage::ShaderBuffer,
     },
     shader::ShaderRef,
 };
@@ -27,6 +30,12 @@ pub struct MistMaterial {
     #[texture(1, dimension = "3d")]
     #[sampler(2)]
     pub noise: Handle<Image>,
+    // Shared optics' water_shadow also samples the cached global cloud column.
+    #[storage(123, read_only)]
+    pub environment: Handle<ShaderBuffer>,
+    #[texture(126, dimension = "cube")]
+    #[sampler(102)]
+    pub environment_sky: Handle<Image>,
 }
 impl Material for MistMaterial {
     fn fragment_shader() -> ShaderRef {
@@ -170,6 +179,8 @@ fn update(
                 timing: Vec4::new(world.seconds, length, 0.0, 0.0),
             },
             noise: textures.noise.clone(),
+            environment: textures.environment.clone(),
+            environment_sky: textures.environment_sky.clone(),
         });
         let entity = commands
             .spawn((

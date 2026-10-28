@@ -346,6 +346,9 @@ namespace Motu.Interop
         internal static extern void ReleaseMotu(IntPtr handle);
 
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern float ResolveMotuLandMassOffset(int seed, ref Options options);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         internal static extern int SaveMotuSnapshot(IntPtr handle, string path);
 
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]

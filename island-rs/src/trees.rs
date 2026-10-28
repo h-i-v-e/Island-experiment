@@ -14,6 +14,8 @@ const TREE_SEED_SALT: u64 = 0x7472_6565_5f77_6f6f;
 const TREE_SHAPE_SEED_SALT: u64 = 0x7472_6565_5f73_6870;
 const WOOD_IRREGULARITY_DOMAIN: u64 = 0x776f_6f64_5f69_7272;
 const MINIMUM_UPWARD_DIRECTION: f32 = 0.12;
+const MAXIMUM_STEP_TWIST_RADIANS: f32 = FRAC_PI_4;
+const MAXIMUM_SPAN_TWIST_RADIANS: f32 = FRAC_PI_4;
 const CROSS_SECTION_VERTICES: usize = 4;
 const TRUNK_BASE_FLARE_SCALE: f32 = 1.32;
 const TRUNK_BUTTRESS_VARIATION: f32 = 0.12;
@@ -106,7 +108,7 @@ impl Default for TreeOptions {
             branch_probability: [0.05, 1.0],
             bend: 0.09,
             phototropism: 0.32,
-            maximum_twist_radians: FRAC_PI_4,
+            maximum_twist_radians: MAXIMUM_STEP_TWIST_RADIANS,
             tip_radius_scale: 0.18,
             child_upward_bias: 0.36,
             child_section_length_ratio: 0.82,
@@ -141,7 +143,6 @@ impl TreeOptions {
                 branch_probability: [0.03, 0.86],
                 bend: 0.055,
                 phototropism: 0.55,
-                maximum_twist_radians: 0.58,
                 tip_radius_scale: 0.12,
                 child_upward_bias: 0.50,
                 child_section_length_ratio: 0.76,
@@ -157,7 +158,6 @@ impl TreeOptions {
                 branch_probability: [0.07, 0.92],
                 bend: 0.09,
                 phototropism: 0.38,
-                maximum_twist_radians: FRAC_PI_4,
                 tip_radius_scale: 0.14,
                 child_upward_bias: 0.36,
                 child_section_length_ratio: 0.82,
@@ -173,7 +173,6 @@ impl TreeOptions {
                 branch_probability: [0.12, 0.96],
                 bend: 0.13,
                 phototropism: 0.24,
-                maximum_twist_radians: FRAC_PI_4,
                 tip_radius_scale: 0.16,
                 child_upward_bias: 0.22,
                 child_section_length_ratio: 0.90,
@@ -211,7 +210,7 @@ impl TreeOptions {
             && self.branch_probability[0] <= self.branch_probability[1]
             && self.branch_probability[1] <= 1.0
             && self.phototropism <= 1.0
-            && self.maximum_twist_radians <= FRAC_PI_4
+            && self.maximum_twist_radians <= MAXIMUM_STEP_TWIST_RADIANS
             && self.tip_radius_scale < 1.0
             && self.child_upward_bias < 1.0
             && self.child_section_length_ratio <= 1.0
@@ -222,6 +221,7 @@ impl TreeOptions {
 struct GrowingAxis {
     ring: [u32; CROSS_SECTION_VERTICES],
     unmeshed_sections: u8,
+    unmeshed_twist_radians: f32,
     centre: Vec3,
     direction: Vec3,
     x_axis: Vec3,
@@ -238,6 +238,10 @@ struct GrowingAxis {
 }
 
 impl GrowingAxis {
+    fn needs_interval_end(&self, child: bool, step: AxisStep) -> bool {
+        self.unmeshed_sections > 0 && (child || !step.safe_to_compact())
+    }
+
     fn continuation(
         &self,
         ring: [u32; CROSS_SECTION_VERTICES],
@@ -248,6 +252,11 @@ impl GrowingAxis {
         Self {
             ring,
             unmeshed_sections,
+            unmeshed_twist_radians: if unmeshed_sections == 0 {
+                0.0
+            } else {
+                step.span_twist_radians
+            },
             centre: step.centre,
             direction: step.direction,
             x_axis: step.x_axis,
@@ -270,11 +279,24 @@ struct AxisStep {
     centre: Vec3,
     direction: Vec3,
     x_axis: Vec3,
+    span_twist_radians: f32,
+    span_frame_twist_radians: f32,
     radius: f32,
     section_length: f32,
     taper_scale: f32,
     remaining_sections: u8,
     continues: bool,
+}
+
+impl AxisStep {
+    fn safe_to_compact(self) -> bool {
+        self.span_twist_radians.abs() <= MAXIMUM_SPAN_TWIST_RADIANS
+            && self.span_frame_twist_radians <= MAXIMUM_SPAN_TWIST_RADIANS
+    }
+
+    fn omit_ring(self, compact: bool, child: bool) -> bool {
+        compact && !child && self.continues && self.safe_to_compact()
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -378,6 +400,24 @@ struct TreeGenerationStats {
     taper: Vec<TaperRecord>,
 }
 
+impl TreeGenerationStats {
+    fn record_direction(&mut self, axis: &GrowingAxis, current: Vec3, twist_radians: f32) {
+        self.directions.push(DirectionRecord {
+            depth: axis.depth,
+            sections_grown: axis.sections_grown,
+            previous: axis.direction,
+            current,
+            twist_radians,
+        });
+    }
+
+    fn record_omitted_rings(&mut self, count: u8) {
+        self.collapsed_intermediate_rings = self
+            .collapsed_intermediate_rings
+            .saturating_add(u16::from(count));
+    }
+}
+
 struct TreeGenerator {
     seed: u64,
     options: TreeOptions,
@@ -439,6 +479,7 @@ impl TreeGenerator {
         generator.pending.push_back(GrowingAxis {
             ring,
             unmeshed_sections: 0,
+            unmeshed_twist_radians: 0.0,
             centre,
             direction: Vec3::Z,
             x_axis: Vec3::X,
@@ -517,17 +558,9 @@ impl TreeGenerator {
             (_, 0) => axis.direction,
             _ => bend_toward_light(axis.direction, random_direction, self.options.phototropism),
         };
-        let twist_radians = self.rng.range(
-            -self.options.maximum_twist_radians,
-            self.options.maximum_twist_radians,
-        );
-        self.stats.directions.push(DirectionRecord {
-            depth: axis.depth,
-            sections_grown: axis.sections_grown,
-            previous: axis.direction,
-            current: direction,
-            twist_radians,
-        });
+        let maximum_twist = self.options.maximum_twist_radians;
+        let twist_radians = self.rng.range(-maximum_twist, maximum_twist);
+        self.stats.record_direction(axis, direction, twist_radians);
         let transported_x_axis = transported_x_axis(axis.x_axis, direction);
         let x_axis = twisted_x_axis(transported_x_axis, direction, twist_radians);
         let next_y_axis = direction.cross(x_axis).normalize_or_zero();
@@ -549,6 +582,8 @@ impl TreeGenerator {
             centre,
             direction,
             x_axis,
+            span_twist_radians: axis.unmeshed_twist_radians + twist_radians,
+            span_frame_twist_radians: tube_frame_twist(&self.wood, &axis.ring, direction, x_axis),
             radius,
             section_length,
             taper_scale,
@@ -560,10 +595,12 @@ impl TreeGenerator {
         };
 
         // Keep simulating hidden growth steps so bend, taper, and branch
-        // placement remain unchanged. Their intermediate rings are omitted,
-        // leaving one four-sided span between branch junctions before LOD 0
-        // tessellation and weighted tube projection.
-        if self.options.single_section_between_branches && !will_spawn_branch && step.continues {
+        // placement remain unchanged. Omit rings only while the visible span's
+        // twist stays small; later tessellation cannot recover omitted frames.
+        if step.omit_ring(
+            self.options.single_section_between_branches,
+            will_spawn_branch,
+        ) {
             self.pending.push_back(axis.continuation(
                 axis.ring,
                 axis.unmeshed_sections.saturating_add(1),
@@ -573,7 +610,7 @@ impl TreeGenerator {
             return;
         }
 
-        let lower_ring = if will_spawn_branch && axis.unmeshed_sections > 0 {
+        let lower_ring = if axis.needs_interval_end(will_spawn_branch, step) {
             self.emit_branch_interval_end(axis)
         } else {
             axis.ring
@@ -598,11 +635,8 @@ impl TreeGenerator {
         };
         if spawned_face.is_none() {
             self.connect_tube_segment(lower_ring, ring);
-            if !will_spawn_branch {
-                self.stats.collapsed_intermediate_rings = self
-                    .stats
-                    .collapsed_intermediate_rings
-                    .saturating_add(u16::from(axis.unmeshed_sections));
+            if !will_spawn_branch && lower_ring == axis.ring {
+                self.stats.record_omitted_rings(axis.unmeshed_sections);
             }
         }
         if step.continues {
@@ -628,10 +662,8 @@ impl TreeGenerator {
             axis.taper_scale,
         );
         self.connect_tube_segment(axis.ring, lower_ring);
-        self.stats.collapsed_intermediate_rings = self
-            .stats
-            .collapsed_intermediate_rings
-            .saturating_add(u16::from(axis.unmeshed_sections.saturating_sub(1)));
+        self.stats
+            .record_omitted_rings(axis.unmeshed_sections.saturating_sub(1));
         lower_ring
     }
 
@@ -655,9 +687,11 @@ impl TreeGenerator {
             && (must_reach_cap || self.rng.unit() < probability)
     }
 
+    #[allow(clippy::too_many_lines)] // Keep the connected opening, collar and continuation in one transaction.
     fn spawn_child(&mut self, parent: ChildSource<'_>) -> Option<u8> {
         let face_normals = branch_face_normals(&self.wood, parent);
-        let upward_faces = eligible_branch_faces(face_normals, parent.depth);
+        let upward_faces =
+            eligible_branch_faces(face_normals, parent.depth, self.options.child_upward_bias);
         let face = branch_face(
             self.rng.next_u64(),
             parent.previous_branch_face,
@@ -725,6 +759,7 @@ impl TreeGenerator {
         self.pending.push_back(GrowingAxis {
             ring,
             unmeshed_sections: 0,
+            unmeshed_twist_radians: 0.0,
             centre: collar_centre,
             direction,
             x_axis,
@@ -885,7 +920,7 @@ impl TubeProjectionSegment {
     fn projected_surface(self, position: Vec3) -> Option<(Vec3, f32)> {
         let centreline = self.upper_centre - self.lower_centre;
         let length_squared = centreline.length_squared();
-        if length_squared <= f32::EPSILON {
+        if length_squared <= f32::EPSILON * f32::EPSILON {
             return None;
         }
         let raw_progress = (position - self.lower_centre).dot(centreline) / length_squared;
@@ -1363,8 +1398,17 @@ fn branch_growth_rate(direct_children: u8) -> f32 {
 fn eligible_branch_faces(
     face_normals: [Vec3; CROSS_SECTION_VERTICES],
     parent_depth: u8,
+    upward_bias: f32,
 ) -> [bool; CROSS_SECTION_VERTICES] {
-    let mut eligible = face_normals.map(|normal| normal.z >= 0.0);
+    // Slight trunk lean makes half its side normals point below the horizon.
+    // Judge those sides by the branch's actual upward-biased growth instead.
+    let mut eligible = face_normals.map(|normal| {
+        if parent_depth == 0 {
+            branch_direction(normal, upward_bias).z >= MINIMUM_UPWARD_DIRECTION
+        } else {
+            normal.z >= 0.0
+        }
+    });
     if parent_depth > 0 {
         let top_face = (0..CROSS_SECTION_VERTICES)
             .max_by(|&left, &right| face_normals[left].z.total_cmp(&face_normals[right].z))
@@ -1407,6 +1451,18 @@ fn transported_x_axis(previous: Vec3, direction: Vec3) -> Vec3 {
         };
         reference.cross(direction).normalize_or(Vec3::X)
     }
+}
+
+fn tube_frame_twist(
+    mesh: &Mesh,
+    lower: &[u32; CROSS_SECTION_VERTICES],
+    direction: Vec3,
+    x_axis: Vec3,
+) -> f32 {
+    // Opposite corners retain the ring axis even with unequal root buttresses.
+    let lower_x =
+        (mesh.vertices[lower[0] as usize] - mesh.vertices[lower[2] as usize]).normalize_or(Vec3::X);
+    transported_x_axis(lower_x, direction).angle_between(x_axis)
 }
 
 fn twisted_x_axis(x_axis: Vec3, direction: Vec3, radians: f32) -> Vec3 {
@@ -1665,13 +1721,30 @@ mod tests {
         let face_normals = [Vec3::Z, Vec3::X, -Vec3::Z, -Vec3::X];
 
         assert_eq!(
-            eligible_branch_faces(face_normals, 0),
+            eligible_branch_faces(face_normals, 0, 0.36),
             [true, true, false, true]
         );
         assert_eq!(
-            eligible_branch_faces(face_normals, 1),
+            eligible_branch_faces(face_normals, 1, 0.36),
             [false, true, false, true]
         );
+    }
+
+    #[test]
+    fn leaning_trunks_can_branch_on_both_sides_without_growing_downward() {
+        let lean = Vec3::new(0.15, -0.08, 1.0).normalize();
+        let x = transported_x_axis(Vec3::X, lean);
+        let y = lean.cross(x);
+        let face_normals = [x, y, -x, -y];
+        for bias in [0.22, 0.36, 0.50] {
+            assert_eq!(eligible_branch_faces(face_normals, 0, bias), [true; 4]);
+            assert!(
+                face_normals
+                    .into_iter()
+                    .all(|normal| { branch_direction(normal, bias).z >= MINIMUM_UPWARD_DIRECTION })
+            );
+        }
+        assert!(!eligible_branch_faces([Vec3::NEG_Z; 4], 0, 0.22)[0]);
     }
 
     #[test]
@@ -1734,12 +1807,15 @@ mod tests {
     }
 
     #[test]
-    fn every_extruded_ring_twists_within_its_local_45_degree_limit() {
+    fn every_growth_step_twists_by_at_most_45_degrees() {
         let (_, stats) = generated(2018);
 
-        assert!(stats.directions.iter().all(|sample| {
-            sample.twist_radians >= -FRAC_PI_4 && sample.twist_radians <= FRAC_PI_4
-        }));
+        assert!(
+            stats
+                .directions
+                .iter()
+                .all(|sample| { sample.twist_radians.abs() <= MAXIMUM_STEP_TWIST_RADIANS })
+        );
         assert!(
             stats
                 .directions
@@ -1753,11 +1829,62 @@ mod tests {
                 .any(|sample| sample.twist_radians > 0.0)
         );
 
+        assert!(
+            stats
+                .directions
+                .iter()
+                .any(|sample| sample.twist_radians.abs().to_degrees() > 30.0)
+        );
+
         let positive = twisted_x_axis(Vec3::X, Vec3::Z, FRAC_PI_4);
         let negative = twisted_x_axis(Vec3::X, Vec3::Z, -FRAC_PI_4);
         let diagonal = std::f32::consts::FRAC_1_SQRT_2;
         assert!((positive - Vec3::new(diagonal, diagonal, 0.0)).length() < 1.0e-7);
         assert!((negative - Vec3::new(diagonal, -diagonal, 0.0)).length() < 1.0e-7);
+    }
+
+    #[test]
+    fn trunk_keeps_rotating_after_180_degrees_of_total_growth_twist() {
+        let mut generator = TreeGenerator::new(
+            42,
+            TreeOptions {
+                trunk_sections: 32,
+                maximum_child_branches: 0,
+                ..TreeOptions::default()
+            },
+        );
+        while let Some(axis) = generator.pending.pop_front() {
+            generator.extend_axis(&axis);
+        }
+        let steps = &generator.stats.directions;
+        let total: f32 = steps.iter().map(|step| step.twist_radians.abs()).sum();
+        assert!(total > std::f32::consts::PI);
+        assert!(steps.last().unwrap().twist_radians.abs() > 1.0e-4);
+        assert!(generator.stats.collapsed_intermediate_rings > 0);
+    }
+
+    #[test]
+    fn final_tube_spans_do_not_combine_growth_into_large_twists() {
+        for seed in (0..256).chain([2018, 1234, 98765]) {
+            let mut generator = TreeGenerator::new(seed, TreeOptions::for_seed(seed));
+            while let Some(axis) = generator.pending.pop_front() {
+                generator.extend_axis(&axis);
+            }
+            for span in &generator.tube_segments {
+                let axis = |ring: &[u32; CROSS_SECTION_VERTICES]| {
+                    (generator.wood.vertices[ring[0] as usize]
+                        - generator.wood.vertices[ring[2] as usize])
+                        .normalize()
+                };
+                let normal = ring_plane(&generator.wood, &span.upper).normal;
+                let lower = transported_x_axis(axis(&span.lower), normal);
+                let angle = lower.angle_between(axis(&span.upper)).to_degrees();
+                assert!(
+                    angle <= MAXIMUM_SPAN_TWIST_RADIANS.to_degrees() + 0.25,
+                    "seed {seed}: one visible tube span twists {angle} degrees"
+                );
+            }
+        }
     }
 
     #[test]
@@ -1826,6 +1953,26 @@ mod tests {
                         != tree.lod0_wood.vertices[lod0_vertex as usize]
                 })
         );
+    }
+
+    #[test]
+    fn short_retained_spans_still_round_to_the_tube_surface() {
+        let span = TubeProjectionSegment {
+            source: TubeSegment {
+                lower: [0; CROSS_SECTION_VERTICES],
+                upper: [1; CROSS_SECTION_VERTICES],
+            },
+            lower_centre: Vec3::ZERO,
+            upper_centre: Vec3::Z * (0.2 / ISLAND_WORLD_METRES),
+            lower_radius: 0.1 / ISLAND_WORLD_METRES,
+            upper_radius: 0.1 / ISLAND_WORLD_METRES,
+        };
+        let midpoint = (Vec3::Z * 0.1 + Vec3::X * 0.03) / ISLAND_WORLD_METRES;
+        let (rounded, _) = span
+            .projected_surface(midpoint)
+            .expect("20cm spans are not degenerate");
+        let expected = (Vec3::Z * 0.1 + Vec3::X * 0.1) / ISLAND_WORLD_METRES;
+        assert!(rounded.distance(expected) < 1.0e-9);
     }
 
     #[test]
@@ -2036,7 +2183,8 @@ mod tests {
         assert!(stats.branches.iter().all(|branch| {
             branch.origin.is_finite()
                 && branch.source_normal.is_normalized()
-                && branch.source_normal.z >= 0.0
+                && (branch.parent_depth == 0 || branch.source_normal.z >= 0.0)
+                && branch.direction.z > 0.0
                 && (branch.direction
                     - branch_direction(branch.source_normal, options.child_upward_bias))
                 .length()

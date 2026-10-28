@@ -986,6 +986,25 @@ pub unsafe extern "C" fn CreateMotuWithForestAndMethod(
 }
 
 #[unsafe(no_mangle)]
+/// Resolves an automatic island's offset using its initial land/sea mask.
+/// Explicit generation entry points retain support for fully submerged profiles.
+///
+/// # Safety
+/// Non-null options must point to a readable `MotuOptions` during this call.
+pub unsafe extern "C" fn ResolveMotuLandMassOffset(seed: i32, options: *const MotuOptions) -> f32 {
+    let options = if options.is_null() {
+        IslandOptions::default()
+    } else {
+        // SAFETY: the caller guarantees readable options for this call.
+        unsafe { (*options).into() }
+    };
+    if options.validate().is_err() {
+        return options.land_mass_offset;
+    }
+    crate::terrain::resolve_land_mass_offset(u64::from(seed.cast_unsigned()), options)
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn ReleaseMotu(handle: *mut c_void) {
     if !handle.is_null() {
         // SAFETY: handle came from CreateMotu or LoadMotu and is released once.

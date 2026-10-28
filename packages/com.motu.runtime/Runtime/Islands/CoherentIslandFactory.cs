@@ -1,5 +1,6 @@
 using UnityEngine;
 using Motu.Settings;
+using Motu.Interop;
 using Motu.World;
 
 namespace Motu.Islands
@@ -165,6 +166,9 @@ namespace Motu.Islands
                 renderingSettings,
                 new IslandDebugSettings(), caveSettings, navigationSettings
             );
+            // Resolve the land mask before erosion, refinement, rivers or caching.
+            var nativeOptions = profile.Generation.ToNativeOptions(profile.Rivers);
+            profile.Generation.LandMassOffset = MotuNative.ResolveMotuLandMassOffset(islandSeed, ref nativeOptions);
             return IslandGenerationRequest.FromOwnedProfile(
                 islandSeed,
                 islandGridPosition,

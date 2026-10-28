@@ -48,7 +48,9 @@ use crate::{
 // 13 rebakes small-chart coverage, complete gutters and precise source normals.
 // 14 retires terrain/water generated before the Planet river fixes were ported.
 // 15 feathers final river smoothing into two additional dry terrain rings.
-const CACHE_FORMAT_VERSION: u32 = 15;
+// 16 grades shared clipped contacts after freezing the inclination blend.
+// 17 separates full waterfall support patches, including bends and bank aprons.
+const CACHE_FORMAT_VERSION: u32 = 17;
 
 const MAGIC: &[u8; 8] = b"MOTUBVY\0";
 /// Distinguishes a cache key from the crate's other hashed values.

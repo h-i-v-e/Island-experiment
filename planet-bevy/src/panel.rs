@@ -12,7 +12,7 @@ use bevy::{
 };
 use bevy_egui::{EguiContexts, egui};
 use planet_rs::{PlanetError, PlanetOptions, PlanetTerrain, TerrainOptions, generate_terrain};
-use std::{mem, time::Instant};
+use std::{mem, sync::Arc, time::Instant};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct Settings {
@@ -68,7 +68,7 @@ impl Settings {
 
 struct Snapshot {
     settings: Settings,
-    terrain: PlanetTerrain,
+    terrain: Arc<PlanetTerrain>,
 }
 struct Job {
     task: Task<Result<PlanetTerrain, PlanetError>>,
@@ -156,7 +156,7 @@ impl Panel {
     pub(super) fn pending_terrain(&self) -> Option<(&PlanetTerrain, GenerationMode)> {
         self.pending
             .as_ref()
-            .map(|(snapshot, _)| (&snapshot.terrain, snapshot.settings.mode))
+            .map(|(snapshot, _)| (snapshot.terrain.as_ref(), snapshot.settings.mode))
     }
 
     pub(super) fn activate_pending(&mut self, scene: &mut Scene) {
@@ -198,7 +198,13 @@ pub(super) fn update_generation(mut panel: ResMut<Panel>, mut refresh: ResMut<Re
                     terrain.elevations.len(),
                     elapsed
                 );
-                panel.pending = Some((Snapshot { settings, terrain }, Action::Generate));
+                panel.pending = Some((
+                    Snapshot {
+                        settings,
+                        terrain: Arc::new(terrain),
+                    },
+                    Action::Generate,
+                ));
                 panel.error = None;
                 panel.status = format!(
                     "Generated in {:.1}s · preparing render",
@@ -250,6 +256,13 @@ pub(super) fn update_generation(mut panel: ResMut<Panel>, mut refresh: ResMut<Re
     }
 }
 
+#[derive(bevy::ecs::system::SystemParam)]
+pub(super) struct WeatherPanel<'w> {
+    environment: Option<ResMut<'w, super::environment::EnvironmentSettings>>,
+    forest_options: Option<ResMut<'w, super::forest::ForestSettings>>,
+    forests: Option<ResMut<'w, super::forest::Forests>>,
+}
+
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 pub(super) fn draw(
     mut contexts: EguiContexts,
@@ -267,7 +280,13 @@ pub(super) fn draw(
     mut ocean: Option<ResMut<super::ocean::OceanSettings>>,
     ocean_stats: Option<Res<super::ocean::OceanWorld>>,
     mut water: Option<ResMut<super::water::WaterSettings>>,
+    weather: WeatherPanel,
 ) {
+    let WeatherPanel {
+        mut environment,
+        mut forest_options,
+        mut forests,
+    } = weather;
     let Ok(ctx) = contexts.ctx_mut() else {
         return;
     };
@@ -284,32 +303,44 @@ pub(super) fn draw(
             .fixed_pos([16.0, 16.0])
             .show(ctx, |ui| {
                 egui::Frame::popup(ui.style()).show(ui, |ui| {
-                    ui.strong(format!(
-                        "First person · planet radius {:.0} m",
-                        scene.terrain.topology.radius
-                    ));
-                    ui.label("WASD: move · Mouse: look · Shift: run · Space: jump");
-                    ui.label("Esc: return to orbit · Tab: release mouse");
-                    if !explorer.captured() {
-                        ui.label("Mouse released · view paused for screenshots.");
-                        ui.label("Click the world to resume looking around.");
-                        if ui.button("Return to orbit").clicked() {
-                            explorer.return_to_orbit = true;
-                        }
-                        streaming_controls(ui, &mut streaming, &stats, &mut chunks);
-                        if let Some(options) = ocean.as_mut() {
-                            ocean_controls(ui, options, ocean_stats.as_deref());
-                        }
-                        if let Some(options) = water.as_mut() {
-                            water_controls(ui, options);
-                        }
-                        if let Some(options) = lighting.as_mut() {
-                            lighting_controls(ui, options);
-                        }
-                        if let Some(options) = detail_settings.as_mut() {
-                            detail_controls(ui, options, detail_stats.as_deref());
-                        }
-                    }
+                    egui::ScrollArea::vertical()
+                        .max_height((ctx.viewport_rect().height() - 48.0).max(100.0))
+                        .show(ui, |ui| {
+                            ui.strong(format!(
+                                "First person · planet radius {:.0} m",
+                                scene.terrain.topology.radius
+                            ));
+                            ui.label("WASD: move · Mouse: look · Shift: run · Space: jump");
+                            ui.label("Esc: return to orbit · Tab: release mouse");
+                            if !explorer.captured() {
+                                ui.label("Mouse released · view paused for screenshots.");
+                                ui.label("Click the world to resume looking around.");
+                                if ui.button("Return to orbit").clicked() {
+                                    explorer.return_to_orbit = true;
+                                }
+                                streaming_controls(ui, &mut streaming, &stats, &mut chunks);
+                                if let Some(options) = ocean.as_mut() {
+                                    ocean_controls(ui, options, ocean_stats.as_deref());
+                                }
+                                if let Some(options) = water.as_mut() {
+                                    water_controls(ui, options);
+                                }
+                                if let Some(options) = environment.as_mut() {
+                                    environment_controls(ui, options);
+                                }
+                                if let Some(options) = lighting.as_mut() {
+                                    lighting_controls(ui, options);
+                                }
+                                if let Some(options) = detail_settings.as_mut() {
+                                    detail_controls(ui, options, detail_stats.as_deref());
+                                }
+                                if let (Some(options), Some(world)) =
+                                    (forest_options.as_deref_mut(), forests.as_deref_mut())
+                                {
+                                    forest_controls(ui, options, world);
+                                }
+                            }
+                        });
                 });
             });
         let center = ctx.viewport_rect().center();
@@ -356,9 +387,11 @@ pub(super) fn draw(
                 if let Some(options) = detail_settings.as_mut() {
                     detail_controls(ui, options, detail_stats.as_deref());
                 }
+                if let (Some(options),Some(world))=(forest_options.as_deref_mut(),forests.as_deref_mut()) {forest_controls(ui,options,world);}
                 if let Some(options) = lighting.as_mut() {lighting_controls(ui, options);}
                 if let Some(options)=ocean.as_mut() {ocean_controls(ui,options,ocean_stats.as_deref());}
                 if let Some(options)=water.as_mut() {water_controls(ui,options);}
+                if let Some(options)=environment.as_mut() {environment_controls(ui,options);}
                 settings_controls(ui, &mut panel);
                 ui.add_space(10.0);
                 ui.small("Sea level stays at the original sphere radius.\nOcean cuts run only at LOD 2 and LOD 1.");
@@ -480,6 +513,33 @@ fn detail_controls(
     });
 }
 
+fn forest_controls(
+    ui: &mut egui::Ui,
+    options: &mut super::forest::ForestSettings,
+    world: &mut super::forest::Forests,
+) {
+    egui::CollapsingHeader::new("Forests").show(ui, |ui| {
+        ui.checkbox(&mut options.enabled, "Forests");
+        ui.add(egui::Slider::new(&mut options.distance, 80.0..=400.0).text("Detailed trees (m)"));
+        ui.small(format!(
+            "{} trees · {} detailed · {} simplified",
+            world.trees,
+            world.detailed,
+            world.simplified_trees()
+        ));
+        if ui
+            .add_enabled(
+                options.enabled && world.trees > 0,
+                egui::Button::new("Inspect forest"),
+            )
+            .clicked()
+        {
+            world.inspect = true;
+        }
+        ui.small("Tree detail follows distance in every view.");
+    });
+}
+
 fn streaming_controls(
     ui: &mut egui::Ui,
     settings: &mut super::streaming::StreamingSettings,
@@ -542,6 +602,34 @@ fn streaming_controls(
             }
             ui.small("Coarse fallback stays loaded. Detailed chunks stream nearby.");
         });
+}
+
+fn environment_controls(ui: &mut egui::Ui, settings: &mut super::environment::EnvironmentSettings) {
+    egui::CollapsingHeader::new("Atmosphere & clouds").show(ui, |ui| {
+        ui.checkbox(&mut settings.atmosphere, "Atmosphere");
+        ui.add(egui::Slider::new(&mut settings.atmosphere_height,20.0..=2000.0).logarithmic(true).text("Air height (m)"));
+        ui.add(egui::Slider::new(&mut settings.haze,0.0..=5.0).text("Haze"));
+        ui.separator();
+        ui.checkbox(&mut settings.clouds,"Volumetric clouds");
+        ui.checkbox(&mut settings.clear_terrain,"Keep cloud base above mountains");
+        ui.add(egui::Slider::new(&mut settings.coverage,0.0..=1.0).text("Coverage"));
+        ui.add(egui::Slider::new(&mut settings.density,0.0..=8.0).text("Density"));
+        ui.add(egui::Slider::new(&mut settings.cloud_base,1.0..=1500.0).text("Cloud base (m)"));
+        ui.add(egui::Slider::new(&mut settings.cloud_thickness,5.0..=1000.0).text("Thickness (m)"));
+        ui.add(egui::Slider::new(&mut settings.cloud_scale,10.0..=2000.0).logarithmic(true).text("Formation size (m)"));
+        ui.add(egui::Slider::new(&mut settings.wind_speed,0.0..=40.0).text("Wind (m/s)"));
+        ui.add(egui::Slider::new(&mut settings.shadow_strength,0.0..=1.0).text("Cloud shadows"));
+        ui.horizontal(|ui| {
+            ui.label("Cloud quality");
+            for (value,label) in [(0,"Low"),(1,"Balanced"),(2,"High")] {ui.selectable_value(&mut settings.quality,value,label);}
+        });
+        ui.checkbox(&mut settings.temporal,"Temporal reconstruction");
+        ui.checkbox(&mut settings.paused,"Pause weather");
+        ui.separator();
+        ui.add(egui::Slider::new(&mut settings.sun_azimuth,-180.0..=180.0).text("Sun azimuth"));
+        ui.add(egui::Slider::new(&mut settings.sun_elevation,-90.0..=90.0).text("Sun elevation"));
+        ui.small("Daylight depends on your location on the planet. Air height expands to include the cloud layer.");
+    });
 }
 
 fn generation_buttons(ui: &mut egui::Ui, panel: &mut Panel) {
@@ -689,7 +777,7 @@ fn display_controls(
             refresh.terrain = true;
         }
     });
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.label("View:");
         for (label, view) in [
             ("Front", View::Front),
@@ -697,6 +785,9 @@ fn display_controls(
             ("River", View::River),
             ("Falls", View::Waterfall),
             ("Mouth", View::Mouth),
+            ("Sky", View::Sky),
+            ("Clouds", View::Clouds),
+            ("Forest", View::Forest),
         ] {
             if ui.button(label).clicked() {
                 panel.view = Some(view);
@@ -790,6 +881,8 @@ pub(super) fn apply_view(
     scene: Res<Scene>,
     mut cameras: Query<(&mut Camera, &mut Orbit, &mut Transform)>,
     mut initial: ResMut<InitialOrbit>,
+    environment: Option<Res<super::environment::EnvironmentSettings>>,
+    mut forests: Option<ResMut<super::forest::Forests>>,
 ) {
     let view = panel.view.take();
     for (mut camera, mut orbit, mut transform) in &mut cameras {
@@ -816,7 +909,15 @@ pub(super) fn apply_view(
             }
         }
         if let Some(view) = view {
-            *orbit = initial_orbit(view, &scene.terrain);
+            if view == View::Forest
+                && let Some(forests) = forests.as_mut()
+            {
+                forests.inspect = true;
+            }
+            let defaults = super::environment::EnvironmentSettings::default();
+            let settings = environment.as_deref().unwrap_or(&defaults);
+            *orbit = super::environment_orbit(view, &scene.terrain, settings)
+                .unwrap_or_else(|| initial_orbit(view, &scene.terrain));
             initial.0 = *orbit;
             *transform = orbit_transform(&orbit);
         }
@@ -855,7 +956,7 @@ mod tests {
             .insert_resource(Panel::new(settings, false))
             .init_resource::<Refresh>()
             .insert_resource(Scene {
-                terrain: settings.generate().unwrap(),
+                terrain: Arc::new(settings.generate().unwrap()),
                 seed: settings.planet.seed,
                 generation: settings.mode,
                 bed: BedView::Carved,
@@ -893,7 +994,7 @@ mod tests {
         let mut app = app();
         app.insert_resource(Panel::new(settings, false));
         let mut scene = app.world_mut().resource_mut::<Scene>();
-        scene.terrain = settings.generate().unwrap();
+        scene.terrain = Arc::new(settings.generate().unwrap());
         scene.generation = settings.mode;
         scene.no_ocean = true;
         let orbit = initial_orbit(View::Front, &scene.terrain);

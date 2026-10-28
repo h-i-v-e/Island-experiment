@@ -37,6 +37,7 @@ cargo run -p planet-bevy -- [options]
   --lod-surface-maps on|off Baked normal and occlusion maps for LOD1–3 (on)
   --surface-view shaded|normals|occlusion  Inspect the baked surface maps
   --no-shadows              Disable sun shadow maps
+  --no-forests              Disable procedural forests
   --shadow-distance M       Surface shadow range, 20..3000 m (300)
   --shadow-bias M           Shadow depth bias in metres, 0..0.25 (0.02)
   --no-ssao                 Disable final-depth ambient occlusion
@@ -59,7 +60,24 @@ cargo run -p planet-bevy -- [options]
   --waterfall-mist F       Plunge mist density multiplier, 0..2 (1)
   --water-foam F           Persistent ocean foam strength, 0..2 (0.8)
   --no-underwater          Disable underwater absorption and haze
-  --view front|back|river|waterfall|mouth|grass|ocean|shore|underwater   Inspection camera (front)
+  --no-atmosphere           Disable atmospheric scattering
+  --no-clouds               Disable volumetric clouds and cloud shadows
+  --atmosphere-height M     Minimum atmosphere thickness, 20..2000 m (200)
+  --atmosphere-haze F       Atmospheric optical density, 0..5 (1)
+  --cloud-coverage F        Cloud cover, 0..1 (0.42)
+  --cloud-density F         Cloud optical density, 0..8 (1.2)
+  --cloud-base M            Cloud base, 1..1500 m (100)
+  --clouds-through-terrain  Allow clouds around mountain tops
+  --cloud-thickness M       Cloud layer thickness, 5..1000 m (55)
+  --cloud-scale M           Formation size, 10..2000 m (90)
+  --cloud-wind F            Wind speed, 0..40 m/s (1.5)
+  --cloud-shadow F          Surface cloud shadow strength, 0..1 (0.6)
+  --cloud-quality low|balanced|high   Cloud quality (balanced)
+  --no-cloud-temporal       Disable temporal cloud reconstruction
+  --environment-paused      Freeze cloud weather for inspection
+  --sun-azimuth D           Global sun azimuth, -180..180 degrees (-31)
+  --sun-elevation D         Global sun elevation, -90..90 degrees (34.45)
+  --view front|back|river|waterfall|mouth|grass|ocean|shore|underwater|sky|clouds|forest   Inspection camera (front)
   --export PATH.obj         Export terrain mesh in physical units
   --validate-only           Generate/validate/export without a GPU or window
   --screenshot PATH.png     Render offscreen to a new PNG and exit
@@ -91,6 +109,9 @@ pub enum View {
     Ocean,
     Shore,
     Underwater,
+    Sky,
+    Clouds,
+    Forest,
 }
 
 impl View {
@@ -105,9 +126,12 @@ impl View {
             "ocean" => Self::Ocean,
             "shore" => Self::Shore,
             "underwater" => Self::Underwater,
+            "sky" => Self::Sky,
+            "clouds" => Self::Clouds,
+            "forest" => Self::Forest,
             _ => {
                 return Err(String::from(
-                    "view must be front, back, river, waterfall, mouth, grass, ocean, shore or underwater",
+                    "view must be front, back, river, waterfall, mouth, grass, ocean, shore, underwater, sky, clouds or forest",
                 ));
             }
         })
@@ -152,6 +176,8 @@ pub struct Command {
     pub lighting: crate::lighting::LightingSettings,
     pub ocean: crate::ocean::OceanSettings,
     pub water: crate::water::WaterSettings,
+    pub environment: crate::environment::EnvironmentSettings,
+    pub forest: crate::forest::ForestSettings,
 }
 
 impl Default for Command {
@@ -176,6 +202,8 @@ impl Default for Command {
             lighting: crate::lighting::LightingSettings::default(),
             ocean: crate::ocean::OceanSettings::default(),
             water: crate::water::WaterSettings::default(),
+            environment: crate::environment::EnvironmentSettings::default(),
+            forest: crate::forest::ForestSettings::default(),
         }
     }
 }
@@ -188,9 +216,15 @@ impl Command {
             match flag.as_str() {
                 "-h" | "--help" => return Ok(None),
                 "--ocean-paused" => command.ocean.paused = true,
+                "--no-atmosphere" => command.environment.atmosphere = false,
+                "--no-clouds" => command.environment.clouds = false,
+                "--no-cloud-temporal" => command.environment.temporal = false,
+                "--clouds-through-terrain" => command.environment.clear_terrain = false,
+                "--environment-paused" => command.environment.paused = true,
                 "--no-ocean-waves" => command.ocean.waves = false,
                 "--no-underwater" => command.water.underwater = false,
                 "--no-shadows" => command.lighting.shadows = false,
+                "--no-forests" => command.forest.enabled = false,
                 "--no-ssao" => command.lighting.ao = false,
                 "--ao-only" => command.lighting.ao_only = true,
                 "--ao-half" => command.lighting.half_resolution = true,
@@ -215,6 +249,7 @@ impl Command {
         command.lighting.validate()?;
         command.ocean.validate()?;
         command.water.validate()?;
+        command.environment.validate()?;
         command
             .terrain
             .validate()
@@ -249,7 +284,36 @@ impl Command {
         Ok(Some(command))
     }
 
+    fn apply_environment_value(&mut self, flag: &str, value: &str) -> Result<bool, String> {
+        match flag {
+            "--atmosphere-height" => self.environment.atmosphere_height = number(value, flag)?,
+            "--atmosphere-haze" => self.environment.haze = number(value, flag)?,
+            "--cloud-coverage" => self.environment.coverage = number(value, flag)?,
+            "--cloud-density" => self.environment.density = number(value, flag)?,
+            "--cloud-base" => self.environment.cloud_base = number(value, flag)?,
+            "--cloud-thickness" => self.environment.cloud_thickness = number(value, flag)?,
+            "--cloud-scale" => self.environment.cloud_scale = number(value, flag)?,
+            "--cloud-wind" => self.environment.wind_speed = number(value, flag)?,
+            "--cloud-shadow" => self.environment.shadow_strength = number(value, flag)?,
+            "--sun-azimuth" => self.environment.sun_azimuth = number(value, flag)?,
+            "--sun-elevation" => self.environment.sun_elevation = number(value, flag)?,
+            "--cloud-quality" => {
+                self.environment.quality = match value {
+                    "low" => 0,
+                    "balanced" => 1,
+                    "high" => 2,
+                    _ => return Err("cloud quality must be low, balanced or high".into()),
+                }
+            }
+            _ => return Ok(false),
+        }
+        Ok(true)
+    }
+
     fn apply_value(&mut self, flag: &str, value: &str) -> Result<(), String> {
+        if self.apply_environment_value(flag, value)? {
+            return Ok(());
+        }
         match flag {
             "--water-distortion" => self.water.distortion = number(value, flag)?,
             "--water-reflections" => self.water.reflections = number(value, flag)?,
@@ -348,6 +412,40 @@ fn number<T: FromStr>(value: &str, flag: &str) -> Result<T, String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn atmosphere_and_cloud_controls_parse_and_reject_invalid_values() {
+        let parsed = super::Command::parse(
+            [
+                "--no-cloud-temporal",
+                "--clouds-through-terrain",
+                "--cloud-coverage",
+                "0.6",
+                "--cloud-base",
+                "75",
+                "--cloud-quality",
+                "high",
+                "--sun-elevation",
+                "-12",
+                "--environment-paused",
+                "--view",
+                "clouds",
+            ]
+            .map(String::from),
+        )
+        .unwrap()
+        .unwrap();
+        assert!(!parsed.environment.temporal && !parsed.environment.clear_terrain);
+        assert!(parsed.environment.paused && parsed.environment.quality == 2);
+        assert_eq!(parsed.view, super::View::Clouds);
+        for args in [
+            ["--cloud-coverage", "1.1"],
+            ["--cloud-density", "NaN"],
+            ["--cloud-quality", "extreme"],
+            ["--cloud-thickness", "0"],
+        ] {
+            assert!(super::Command::parse(args.map(String::from)).is_err());
+        }
+    }
     use super::*;
     fn parse(args: &[&str]) -> Result<Option<Command>, String> {
         Command::parse(args.iter().map(|arg| String::from(*arg)))

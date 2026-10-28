@@ -36,8 +36,8 @@ use std::{
 
 const LEVELS: usize = 4;
 const LOAD_LIMIT: usize = 4;
-// Vertex colours now carry Unity's hardness/cover/river/sea material channels.
-const CACHE_GENERATION: u64 = 8;
+// Retire cached chunks baked before waterfall support patches were separated.
+const CACHE_GENERATION: u64 = 9;
 
 #[derive(Resource, Clone, Copy)]
 pub(crate) struct StreamingSettings {
@@ -1575,7 +1575,7 @@ mod tests {
         let terrain = settings.generate().unwrap();
         let orbit = crate::initial_orbit(crate::command::View::Front, &terrain);
         let scene = Scene {
-            terrain,
+            terrain: terrain.into(),
             seed: 42,
             generation: GenerationMode::Sphere,
             bed: BedView::Carved,

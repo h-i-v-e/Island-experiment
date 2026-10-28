@@ -60,6 +60,7 @@ use erosion::{
 pub(crate) use erosion::{ProjectedFaceAreas, VertexFaceAdjacency, bedrock_erosion_rate};
 use generation::GenerationScratch;
 pub use generation::Island;
+pub(crate) use generation::resolve_land_mass_offset;
 #[cfg(test)]
 use generation::sharp_rock_mask;
 pub use generation_method::GenerationMethod;

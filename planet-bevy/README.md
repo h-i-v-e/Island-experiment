@@ -67,6 +67,15 @@ the app releases the mouse. The parameters panel returns in orbit mode.
 The radius control and `--radius` use metres and set walking scale and export
 units together.
 
+Nearby rock patches refresh after 12 metres of movement. Their terrain query,
+local snapshot and rock generation run on a worker sharing immutable terrain and
+BVH buffers; refreshing a patch does not copy terrain on the movement thread.
+Each job retains its generation until completion, while displayed rock contacts
+remain local to the explorer.
+The moving rock-mask coordinate frame uses one shared 48-byte GPU buffer. Patch
+updates keep terrain and grass material bindings intact instead of rewriting the
+coordinate frame on every material.
+
 River finishing now ports the original Island generator's fixed downstream
 profiles, five-segment gradient response, terrace spacing, and waterfall lip /
 face / landing construction into radial heights and local tangent planes.
@@ -81,6 +90,13 @@ Waterfall placement also reserves the receiving channel's full bank apron around
 each junction. If a proposed upstream blend, face or landing overlaps that zone,
 the terrace step waits for a safe position farther upstream. The lower channel
 stays clear into the merge. Short branches without enough room omit the fall.
+Placement also keeps the complete support rectangles of neighbouring waterfalls
+separate, including crossing bank aprons and the upstream blend. Conflicting
+steps wait farther upstream, leaving a 75 cm gap at the default radius. Delayed
+terrace drops retain their planned height and can combine at the next clear
+position, so moving a fall does not excavate the upstream river more deeply. This
+prevents one waterfall's lower profile from cutting through another's bank
+repair. Chunk cache generation 9 retires meshes baked before this separation.
 Island's bank lift raises low bank vertices
 to the water surface and blends a 4–20 metre apron into the outer terrain at
 the default radius. Final boundary water vertices are pinned to the actual
@@ -262,6 +278,98 @@ Offscreen captures now wait for GPU pipeline compilation and fail on shader
 errors. For local shader iteration only, `PLANET_LIVE_WATER_SHADERS=1` reloads
 the repository's shader sources during a capture. Ordinary packaged viewers
 continue to use their embedded sources.
+
+## Forests
+
+Forests reuse Unity Island's procedural tree generator through the local `motu`
+library. Four shared prototypes supply branched wood, detailed foliage, eight
+nearby leaf shells, and a coarse distant canopy. Bark and foliage use procedural
+surface detail, radial wind, sun shadows, cloud shadows and the final depth buffer.
+Growth steps rotate by at most 45 degrees, with no trunk-wide rotation budget.
+Intermediate rings are omitted only while net twist and endpoint-frame rotation
+stay within 45 degrees; otherwise a support ring is retained before
+tessellation and smoothing. The final rounding pass supports those short spans.
+Trunk-side branch eligibility uses the resulting upward-biased growth direction,
+so a slight trunk lean does not exclude branches on half the trunk. Branch count
+and tessellation levels stay unchanged.
+
+Seeded equal-area candidates keep density independent of terrain tessellation.
+Roots are fitted to the displayed terrain, with radial up and clearance around
+river beds, beaches, steep ground and the snowline. A seamless globe mask from
+the accepted roots supplies forest-floor shading and removes grass below trees.
+Placement and prototype generation run on a worker retaining the current terrain
+generation and sharing its immutable query index when available. Meshes are
+shared by instances; coarse uploads and nearby spawns have per-frame limits.
+
+Trees select their LOD by camera distance in both orbit and first-person views.
+Fine wood is used within 30 m, leaf shells nearby, and detailed foliage out to
+240 m by default. Beyond the detailed range, trees use the simplified canopy.
+Each coarse canopy stays visible until its detailed replacement is ready, then
+hands back when the tree leaves the range. Meshes remain shared between trees,
+and coarse forest cells beyond the planet's curvature are hidden conservatively.
+
+Use **Forest** or **Inspect forest** to visit a lit grove. The **Forests** section
+controls visibility and the detailed-tree range. Forest assets and roots are
+replaced when the planet is regenerated. For command-line comparisons:
+
+```sh
+cargo run -p planet-bevy -- --view forest
+cargo run -p planet-bevy -- --no-forests
+```
+
+## Atmosphere and volumetric clouds
+
+The atmosphere is a true planet-centred scattering shell, visible from both
+surface and orbit. Bevy's scattering lookup textures use metre-based optical
+coefficients adjusted to the small planet, with a persistent 64-pixel sky-light
+probe. The existing directional sun drives atmospheric and cloud lighting.
+
+Clouds occupy a separate spherical layer. A seeded, seamless 3D density field
+rotates around the globe with the wind; it is independent of the camera and has
+no longitude or polar seams. Its elevated shell remains visible beyond the solid
+planet silhouette from orbit; only rays that actually hit the ground are clipped.
+Coverage, density, formation size, cloud base and
+thickness are live controls under **Atmosphere & clouds**. The default base is
+100 m, thickness 55 m and formation scale 90 m. **Keep cloud base above mountains**
+raises the base when necessary; disable it to let clouds surround mountain tops. The atmosphere
+always extends at least 20 m above the effective cloud top.
+
+Low quality uses quarter-width/height cloud buffers and 16 view samples;
+balanced uses half-width/height and 24; high retains half resolution with 40.
+Opaque and transmissive final depth stop the cloud march. Depth-aware upsampling
+keeps cloud fog off foreground terrain, grass and water. Temporal reconstruction
+accumulates only cloud radiance/transmittance, follows camera and wind motion,
+and rejects changed depth, disocclusions and vanished clouds. Histories reset
+for regeneration, changed weather settings, teleporting and viewport changes.
+The checkbox disables reconstruction for comparisons.
+
+Cloud shadows share a low-resolution global cloud-column map. Rivers and ocean
+sample a persistent 64²×6 sky/cloud reflection cube, refreshing one face per
+frame and all six after a reset. The reflection's cloud field and illumination
+match the volume; its clear-sky colour and foreground cloud haze approximate
+the atmosphere instead of sampling Bevy's exact scattering lookup tables.
+Cached shadows approximate attenuation of aggregate surface lighting, with an
+indirect-light floor. These approximations keep weather updates bounded without
+rewriting terrain materials or adding a cloud march to every water fragment.
+
+The 3D camera renders in HDR; clouds composite after SSAO and before underwater
+extinction and tone mapping. The UI remains a separate overlay. **Sky** frames
+the atmosphere from near the ground; **Clouds** places the camera within the
+current cloud layer. These views also work from the command line:
+
+```sh
+cargo run -p planet-bevy -- --view sky
+cargo run -p planet-bevy -- --view clouds --cloud-coverage 0.65
+cargo run -p planet-bevy -- --cloud-quality low --no-cloud-temporal
+cargo run -p planet-bevy -- --environment-paused --sun-elevation -15
+cargo run -p planet-bevy -- --no-atmosphere --no-clouds
+python3 planet-bevy/tools/check_clouds.py
+python3 planet-bevy/tools/check_environment.py
+```
+
+Captures include environment settings and settled offscreen frame-interval
+statistics in their `.png.txt` metadata. Those intervals are end-to-end timings,
+not GPU timestamp measurements.
 
 ## Planet chunks, LOD and streaming
 

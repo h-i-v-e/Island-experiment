@@ -10,7 +10,10 @@ fn map(value: u8) -> CoastMap {
 }
 fn fixture() -> (App, Entity) {
     let mut scene = crate::collision::test_scene();
-    scene.terrain.topology.radius = 40.0;
+    std::sync::Arc::get_mut(&mut scene.terrain)
+        .unwrap()
+        .topology
+        .radius = 40.0;
     scene.no_ocean = false;
     let mut world = OceanWorld::default();
     world.install_maps(map(200));

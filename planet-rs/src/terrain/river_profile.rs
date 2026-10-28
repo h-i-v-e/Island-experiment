@@ -40,7 +40,64 @@ impl Default for WaterfallBlend {
     }
 }
 
+/// A local tangent rectangle covering the face, upstream blend and dry apron.
+#[derive(Clone, Copy)]
+struct SupportBounds {
+    centre: DVec3,
+    along: DVec3,
+    across: DVec3,
+}
+
+impl SupportBounds {
+    fn radius_on(self, axis: DVec3) -> f64 {
+        self.along.dot(axis).abs() + self.across.dot(axis).abs()
+    }
+}
+
 impl Waterfall {
+    fn support_bounds(self) -> SupportBounds {
+        let upstream = -self.face_run * 2.0;
+        let downstream = self.half_width * 1.5 + 0.00075;
+        SupportBounds {
+            centre: self.lip + self.direction * ((upstream + downstream) * 0.5),
+            along: self.direction * ((downstream - upstream) * 0.5),
+            across: self.lip.cross(self.direction) * (self.half_width * 2.5),
+        }
+    }
+
+    fn overlaps_support(self, other: Self) -> bool {
+        if self.lip.dot(other.lip) <= 0.0 {
+            return false;
+        }
+        let a = self.support_bounds();
+        let b = other.support_bounds();
+        let delta = b.centre - a.centre;
+        // Leave 75cm at the default 1km radius between tangent support patches.
+        // This also covers their small spherical projection error.
+        let gap = 0.00075;
+        let radius =
+            a.along.length() + a.across.length() + b.along.length() + b.across.length() + gap;
+        if delta.length_squared() > radius * radius {
+            return false;
+        }
+        // Four separating axes catch crossing aprons even when neither lip is
+        // inside the other rectangle. All geometry stays on the stack.
+        [
+            self.direction,
+            self.lip.cross(self.direction),
+            other.direction,
+            other.lip.cross(other.direction),
+        ]
+        .into_iter()
+        .all(|axis| delta.dot(axis).abs() <= a.radius_on(axis) + b.radius_on(axis) + gap)
+    }
+
+    fn clears_junctions(self, junctions: &[Junction]) -> bool {
+        !junctions
+            .iter()
+            .any(|junction| self.footprint_contains(junction.point, junction.half_width * 2.5))
+    }
+
     /// Use one straight centreline and width across the drop. The face may
     /// slope downstream; its crest and foot must share the same lateral span.
     /// Fade into the natural channel on the existing repair/landing shoulders.
@@ -239,6 +296,7 @@ fn stepped(
     }
     let reference_height = 0.2; // Island's 200 m reference at the default 1 km radius.
     let mut level = levels[path[end]];
+    let mut pending_drop = 0.0;
     let mut reach_length = 0.0;
     let mut half_width: f64 = 0.0;
     for index in (0..end).rev() {
@@ -253,8 +311,20 @@ fn stepped(
         let target_fall = reference_height * (0.0075 + (0.018 - 0.0075) * response);
         let required_length =
             (reference_height * 0.006 * (1.0 - response * 0.9)).max(0.00075 + half_width * 2.5);
-        let natural_surface = natural[index].max(level);
-        if index > 0 && natural_surface - level >= target_fall && reach_length >= required_length {
+        // Keep the hydraulic height budget independent of whether placement
+        // can accept this step yet. Delayed drops accumulate instead of
+        // permanently lowering the rest of the river upstream.
+        let planned_level = level + pending_drop;
+        let natural_surface = natural[index].max(planned_level);
+        let requested_drop = if index > 0
+            && natural_surface - planned_level >= target_fall
+            && reach_length >= required_length
+        {
+            target_fall
+        } else {
+            0.0
+        };
+        if index > 0 && pending_drop + requested_drop > 0.0 {
             let lip = mesh.directions[from];
             // The top belongs to the incoming reach. Using the outgoing
             // tangent at a bend can put it beside the actual feeding channel.
@@ -267,21 +337,24 @@ fn stepped(
                 lip,
                 direction,
                 half_width: width(from),
-                upper_surface: level + target_fall,
+                upper_surface: planned_level + requested_drop,
                 lower_surface: level,
                 face_run: 0.0025,
             };
             // Defer the same terrace step farther upstream until the whole
-            // support/landing footprint clears every merge's dry bank apron.
+            // support/landing footprint clears each merge and existing fall.
             // The lower run-in keeps its downstream profile while we search.
-            if !junctions
-                .iter()
-                .any(|junction| fall.footprint_contains(junction.point, junction.half_width * 2.5))
-            {
-                waterfalls.push(fall);
-                level += target_fall;
-                reach_length = 0.0;
-                half_width = 0.0;
+            if fall.clears_junctions(junctions) {
+                if requested_drop > 0.0 {
+                    pending_drop += requested_drop;
+                    reach_length = 0.0;
+                    half_width = 0.0;
+                }
+                if !waterfalls.iter().any(|&other| fall.overlaps_support(other)) {
+                    waterfalls.push(fall);
+                    level += pending_drop;
+                    pending_drop = 0.0;
+                }
             }
         }
         levels[from] = level.min(natural_surface);
@@ -344,6 +417,10 @@ mod tests {
                 .first()
                 .expect("a long branch still has room for a fall");
             assert!(
+                first.upper_surface - first.lower_surface <= 0.0036 + 1.0e-12,
+                "keep the established junction deferral height when no other fall blocks placement"
+            );
+            assert!(
                 first.upper_vertex < original.waterfalls[0].upper_vertex,
                 "defer the drop upstream instead of placing it beside the junction"
             );
@@ -367,6 +444,129 @@ mod tests {
                     .all(|r| moved.levels[r.from] >= moved.levels[r.to])
             );
         }
+    }
+
+    #[test]
+    fn crossing_waterfall_aprons_conflict_even_when_both_lips_are_outside() {
+        let base = Waterfall {
+            upper_vertex: 0,
+            lower_vertex: 1,
+            upstream_vertex: 2,
+            lip: DVec3::Z,
+            direction: DVec3::X,
+            half_width: 0.003,
+            upper_surface: 0.04,
+            lower_surface: 0.036,
+            face_run: 0.0025,
+        };
+        let lip = DVec3::new(0.009, 0.009, 1.0).normalize();
+        let crossing = Waterfall {
+            lip,
+            direction: (DVec3::Y - lip * lip.y).normalize(),
+            ..base
+        };
+        assert!(!base.footprint_contains(crossing.lip, 0.0));
+        assert!(!crossing.footprint_contains(base.lip, 0.0));
+        assert!(base.overlaps_support(crossing));
+        assert!(crossing.overlaps_support(base));
+        assert!(!base.overlaps_support(Waterfall {
+            lip: -base.lip,
+            ..base
+        }));
+        let separated = Waterfall {
+            lip: DVec3::new(0.03, 0.0, 1.0).normalize(),
+            ..base
+        };
+        assert!(!base.overlaps_support(separated));
+    }
+
+    #[test]
+    fn curved_terraces_never_place_a_lip_inside_another_falls_support() {
+        for pole in [1.0, -1.0] {
+            let mesh = PlanetMesh {
+                directions: (0..81)
+                    .map(|i| {
+                        let i = f64::from(i);
+                        DVec3::new(i * 0.0015, 0.006 * (i * 0.4).sin(), pole).normalize()
+                    })
+                    .collect(),
+                triangles: Vec::new(),
+                radius: 1000.0,
+            };
+            let path: Vec<_> = (0..81).collect();
+            let natural: Vec<_> = (0..81)
+                .map(|i| 0.10 * (1.0 - f64::from(i) / 80.0))
+                .collect();
+            let mut falls = Vec::new();
+            stepped(
+                &mesh,
+                &path,
+                &natural,
+                &|_| 0.006,
+                &mut natural.clone(),
+                &mut Vec::new(),
+                &mut falls,
+                &[],
+            );
+            assert!(
+                falls.len() >= 3,
+                "keep multiple waterfalls along a long river"
+            );
+            for (i, &fall) in falls.iter().enumerate() {
+                for &other in &falls[i + 1..] {
+                    assert!(
+                        !fall.overlaps_support(other),
+                        "a later fall must move upstream before its lip cuts into another support patch"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn delayed_terraces_preserve_the_upstream_height_budget() {
+        let mesh = PlanetMesh {
+            directions: (0..=100)
+                .map(|i| {
+                    let angle = f64::from(i) * 0.002;
+                    DVec3::new(angle.sin(), 0.0, angle.cos())
+                })
+                .collect(),
+            triangles: Vec::new(),
+            radius: 1000.0,
+        };
+        let path: Vec<_> = (0..=100).collect();
+        let natural: Vec<_> = (0..=100)
+            .map(|i| 0.08 * (1.0 - f64::from(i) / 100.0))
+            .collect();
+        let mut levels = natural.clone();
+        let mut falls = Vec::new();
+        stepped(
+            &mesh,
+            &path,
+            &natural,
+            &|_| 0.003,
+            &mut levels,
+            &mut Vec::new(),
+            &mut falls,
+            &[],
+        );
+        assert!(
+            falls
+                .iter()
+                .any(|f| f.upper_surface - f.lower_surface > 0.0036),
+            "combine delayed terrace heights rather than losing their drop budget"
+        );
+        let total_drop: f64 = falls
+            .iter()
+            .map(|f| f.upper_surface - f.lower_surface)
+            .sum();
+        assert!(
+            total_drop > 0.063,
+            "the 200m fixture schedules about 66m of drop; deferred placement must retain it"
+        );
+        assert!((levels[0] - total_drop).abs() < 1.0e-12);
+        assert!(levels.windows(2).all(|pair| pair[0] >= pair[1]));
     }
 
     #[test]
@@ -488,10 +688,8 @@ mod tests {
                 fall.upper_vertex > 0,
                 "source cannot feed an unsupported curtain"
             );
-            assert!(
-                (0.0015 - 1.0e-12..=0.0036 + 1.0e-12)
-                    .contains(&(fall.upper_surface - fall.lower_surface))
-            );
+            assert!(fall.upper_surface - fall.lower_surface >= 0.0015 - 1.0e-12);
+            assert!(fall.upper_surface <= natural[fall.upper_vertex] + 1.0e-12);
             let upstream = (fall.lip - fall.direction * fall.face_run).normalize();
             assert!((fall.surface_at(upstream).unwrap() - fall.upper_surface).abs() < 1.0e-8);
             assert!((fall.surface_at(fall.lip).unwrap() - fall.lower_surface).abs() < 1.0e-12);

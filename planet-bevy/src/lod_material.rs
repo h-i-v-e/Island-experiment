@@ -5,7 +5,10 @@ use bevy::{
     image::{ImageAddressMode, ImageFilterMode, ImageSampler, ImageSamplerDescriptor},
     pbr::{ExtendedMaterial, MaterialExtension},
     prelude::*,
-    render::render_resource::{AsBindGroup, Extent3d, ShaderType, TextureDimension, TextureFormat},
+    render::{
+        render_resource::{AsBindGroup, Extent3d, ShaderType, TextureDimension, TextureFormat},
+        storage::ShaderBuffer,
+    },
     shader::{ShaderRef, load_shader_library},
 };
 
@@ -70,7 +73,6 @@ pub struct SurfaceExtension {
     #[sampler(102)]
     pub surface_map: Option<Handle<Image>>,
     #[texture(103)]
-    #[sampler(104)]
     pub river_map: Option<Handle<Image>>,
     #[uniform(105)]
     pub terrain: TerrainSettings,
@@ -84,8 +86,8 @@ pub struct SurfaceExtension {
     #[texture(110, dimension = "3d")]
     #[sampler(111)]
     pub noise: Option<Handle<Image>>,
-    #[uniform(112)]
-    pub detail_mapping: DetailMapping,
+    #[storage(112, read_only)]
+    pub detail_mapping: Handle<ShaderBuffer>,
     #[texture(113)]
     #[sampler(114)]
     pub detail_mask: Option<Handle<Image>>,
@@ -94,6 +96,12 @@ pub struct SurfaceExtension {
     #[texture(121)]
     #[sampler(122)]
     pub water_noise: Option<Handle<Image>>,
+    #[storage(123, read_only)]
+    pub environment: Handle<ShaderBuffer>,
+    #[texture(126, dimension = "cube")]
+    pub environment_sky: Option<Handle<Image>>,
+    #[texture(128)]
+    pub forest_mask: Option<Handle<Image>>,
 }
 
 impl MaterialExtension for SurfaceExtension {

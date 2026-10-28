@@ -7,7 +7,9 @@ mod chunk_policy;
 mod collision;
 mod command;
 mod details;
+mod environment;
 mod explore;
+mod forest;
 mod lighting;
 mod lod_material;
 mod ocean;
@@ -21,6 +23,7 @@ use std::{
     fs::File,
     io::{BufWriter, Write},
     process,
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -36,9 +39,9 @@ use bevy_egui::{EguiPlugin, EguiPrimaryContextPass, PrimaryEguiContext, input::E
 use command::{BedView, Command, GenerationMode, RiverDisplay, View};
 use planet_rs::PlanetTerrain;
 
-#[derive(Resource)]
+#[derive(Resource, Clone)]
 struct Scene {
-    terrain: PlanetTerrain,
+    terrain: Arc<PlanetTerrain>,
     seed: u64,
     generation: GenerationMode,
     bed: BedView,
@@ -93,7 +96,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let chunk_settings = command.streaming;
     let terrain = configuration.generate()?;
     let mesh = &terrain.topology;
-    let initial_orbit = initial_orbit(command.view, &terrain);
+    let initial_orbit = environment_orbit(command.view, &terrain, &command.environment)
+        .unwrap_or_else(|| initial_orbit(command.view, &terrain));
     println!(
         "Validated seed {}: {} vertices, {} edges, {} triangles; radius {}. Generation + validation: {:.2?}",
         command.options.seed,
@@ -120,9 +124,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         EguiPlugin::default(),
         lod_material::LodMaterialPlugin,
         details::DetailPlugin,
+        forest::ForestPlugin,
         ocean::OceanPlugin,
         water::WaterPlugin,
         lighting::LightingPlugin,
+        environment::EnvironmentPlugin,
         WireframePlugin::default(),
     ))
     .insert_resource(WireframeConfig {
@@ -145,10 +151,15 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     .insert_resource(command.lighting)
     .insert_resource(command.ocean)
     .insert_resource(command.water)
+    .insert_resource(command.environment)
+    .insert_resource(command.forest)
+    .insert_resource(forest::Forests::with_inspection(
+        command.view == View::Forest,
+    ))
     .init_resource::<explore::Explorer>()
     .insert_resource(ClearColor(Color::srgb(0.018, 0.025, 0.045)))
     .insert_resource(Scene {
-        terrain,
+        terrain: Arc::new(terrain),
         seed: command.options.seed,
         generation: command.generation,
         bed: command.bed,
@@ -168,6 +179,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             streaming::prepare_update,
             explore::update,
             streaming::update,
+            forest::update,
             details::update,
             ocean::update,
             water::update,
@@ -275,14 +287,6 @@ fn setup(
         bevy::light::CascadeShadowConfig::default(),
         Transform::from_xyz(-3.0, 4.0, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
-    commands.spawn((
-        DirectionalLight {
-            illuminance: 2_000.0,
-            color: Color::srgb(0.45, 0.62, 1.0),
-            ..default()
-        },
-        Transform::from_xyz(4.0, -1.0, -3.0).looking_at(Vec3::ZERO, Vec3::Y),
-    ));
     let orbit = initial_view.0;
     let mut camera = commands.spawn((
         Camera3d {
@@ -292,6 +296,7 @@ fn setup(
             ..default()
         },
         Msaa::Off,
+        bevy::camera::Hdr,
         bevy::core_pipeline::prepass::DepthPrepass,
         bevy::anti_alias::fxaa::Fxaa::default(),
         bevy::pbr::ScreenSpaceTransmission::default(),
@@ -428,7 +433,53 @@ fn initial_orbit(view: View, terrain: &PlanetTerrain) -> Orbit {
             orbit.maximum = 0.5;
         }
     }
-    ocean::inspection_orbit(view, terrain).unwrap_or(orbit)
+    environment_orbit(view, terrain, &environment::EnvironmentSettings::default())
+        .or_else(|| ocean::inspection_orbit(view, terrain))
+        .unwrap_or(orbit)
+}
+
+#[allow(clippy::cast_possible_truncation)] // Physical metre heights become normalized GPU positions.
+fn environment_orbit(
+    view: View,
+    terrain: &PlanetTerrain,
+    settings: &environment::EnvironmentSettings,
+) -> Option<Orbit> {
+    if !matches!(view, View::Sky | View::Clouds) {
+        return None;
+    }
+    let land = initial_orbit(View::Grass, terrain);
+    let up = land.focus.normalize_or_zero();
+    let up = if up.length_squared() > 0.5 {
+        up
+    } else {
+        Vec3::Y
+    };
+    let radius = terrain.topology.radius as f32;
+    let highest = terrain.elevations.iter().copied().fold(0.0, f64::max) as f32 * radius;
+    let (base, _) = environment::settings::effective_layers(settings, highest);
+    let altitude = if view == View::Clouds {
+        base + settings.cloud_thickness * 0.45
+    } else {
+        (land.focus.length() - 1.0) * radius + 1.7
+    };
+    let eye = up * (1.0 + altitude / radius);
+    let sun = settings.sun_direction();
+    let tangent = (sun - up * sun.dot(up))
+        .try_normalize()
+        .unwrap_or_else(|| up.any_orthonormal_vector());
+    let forward = (tangent + up * 0.22).normalize();
+    let frame = Quat::from_rotation_arc(Vec3::Y, up);
+    let local_offset = frame.inverse() * -forward;
+    let orbit = Orbit {
+        focus: eye + forward * 0.04,
+        frame,
+        distance: 0.04,
+        pitch: local_offset.y.asin(),
+        yaw: local_offset.x.atan2(local_offset.z),
+        minimum: 0.001,
+        maximum: 0.5,
+    };
+    Some(orbit)
 }
 
 fn orbit_transform(orbit: &Orbit) -> Transform {

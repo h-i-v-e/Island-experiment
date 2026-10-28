@@ -1,12 +1,13 @@
 use super::{
     Adjacency, ENABLE_WATERFALL_PLUNGE_POOLS, HashMap, ISLAND_WORLD_METRES, Mesh, RIVER_BOUNDARY,
-    RIVER_SURFACE_OFFSET, RiverMeshBuffers, RiverNetwork, RiverOwnerKey, SEA_PLANE_CLEARANCE,
-    SurfaceMaterial, Vec2, Vec3, VecDeque, WATERFALL_APRON_WIDTH_MULTIPLIER,
-    WATERFALL_DOWNSTREAM_SPIKE_ALLOWANCE, WATERFALL_DOWNSTREAM_SPIKE_PASSES,
-    WATERFALL_EDGE_BLEND_RUN, WATERFALL_EDGE_SMOOTHING, WATERFALL_EDGE_SMOOTHING_PASSES,
-    WATERFALL_FINAL_BANK_DROP_FRACTION, WATERFALL_FINAL_BANK_EDGE_DROP_FRACTION,
-    WATERFALL_LANDING_LENGTH_MULTIPLIER, WATERFALL_POOL_MAXIMUM_DEPTH, WATERFALL_POOL_MINIMUM_DROP,
-    WATERFALL_REFINEMENT_PASSES, WATERFALL_TARGET_EDGE_LENGTH, WATERFALL_WATER_CLEARANCE,
+    RIVER_SURFACE_OFFSET, RiverCrossSection, RiverMeshBuffers, RiverNetwork, RiverNode,
+    RiverOwnerKey, SEA_PLANE_CLEARANCE, SurfaceMaterial, Vec2, Vec3, VecDeque,
+    WATERFALL_APRON_WIDTH_MULTIPLIER, WATERFALL_DOWNSTREAM_SPIKE_ALLOWANCE,
+    WATERFALL_DOWNSTREAM_SPIKE_PASSES, WATERFALL_EDGE_BLEND_RUN, WATERFALL_EDGE_SMOOTHING,
+    WATERFALL_EDGE_SMOOTHING_PASSES, WATERFALL_FINAL_BANK_DROP_FRACTION,
+    WATERFALL_FINAL_BANK_EDGE_DROP_FRACTION, WATERFALL_LANDING_LENGTH_MULTIPLIER,
+    WATERFALL_POOL_MAXIMUM_DEPTH, WATERFALL_POOL_MINIMUM_DROP, WATERFALL_REFINEMENT_PASSES,
+    WATERFALL_SUPPORT_RUN, WATERFALL_TARGET_EDGE_LENGTH, WATERFALL_WATER_CLEARANCE,
     mark_river_boundary,
 };
 
@@ -59,6 +60,74 @@ pub(super) enum WaterfallPlaneZone {
 }
 
 impl WaterfallPatch {
+    pub(super) fn for_segment(
+        mesh: &Mesh,
+        nodes: &[RiverNode],
+        segment: usize,
+        drop: f32,
+        cross_sections: &[RiverCrossSection],
+    ) -> Option<Self> {
+        let (&upper, &lower) = nodes.get(segment).zip(nodes.get(segment + 1))?;
+        let upper_position = mesh.vertices[upper.vertex].truncate();
+        let lower_position = mesh.vertices[lower.vertex].truncate();
+        let direction = segment
+            .checked_sub(1)
+            .and_then(|previous| {
+                (upper_position - mesh.vertices[nodes[previous].vertex].truncate()).try_normalize()
+            })
+            .or_else(|| (lower_position - upper_position).try_normalize())?;
+        let upper_section = cross_sections.get(segment).copied().unwrap_or_default();
+        let lower_section = cross_sections.get(segment + 1).copied().unwrap_or_default();
+        let half_width = upper_section
+            .target_half_width
+            .max(lower_section.target_half_width)
+            .max(upper_section.achieved_width * 0.5)
+            .max(lower_section.achieved_width * 0.5)
+            .max(WATERFALL_TARGET_EDGE_LENGTH);
+        Some(Self {
+            river: 0,
+            segment: segment as u32,
+            upper_vertex: upper.vertex,
+            upper_centre: upper_position,
+            direction,
+            across: Vec2::new(-direction.y, direction.x),
+            upper_surface: drop,
+            lower_surface: 0.0,
+            lower_floor: 0.0,
+            half_width,
+            support_run: upper_position
+                .distance(lower_position)
+                .max(WATERFALL_TARGET_EDGE_LENGTH),
+            pool: None,
+        })
+    }
+
+    /// Project the full face, upstream pin blend, landing and dry-bank apron.
+    fn support_rectangle(self) -> (Vec2, Vec2, Vec2) {
+        let upstream = -Self::face_run() - WATERFALL_EDGE_BLEND_RUN;
+        let downstream = self.downstream_extent();
+        (
+            self.upper_centre + self.direction * ((upstream + downstream) * 0.5),
+            self.direction * ((downstream - upstream) * 0.5),
+            self.across * (self.half_width * 2.5).max(self.lateral_extent()),
+        )
+    }
+
+    pub(super) fn overlaps_support(self, other: Self) -> bool {
+        let (a, along_a, across_a) = self.support_rectangle();
+        let (b, along_b, across_b) = other.support_rectangle();
+        let delta = b - a;
+        [self.direction, self.across, other.direction, other.across]
+            .into_iter()
+            .all(|axis| {
+                let radius = along_a.dot(axis).abs()
+                    + across_a.dot(axis).abs()
+                    + along_b.dot(axis).abs()
+                    + across_b.dot(axis).abs();
+                delta.dot(axis).abs() <= radius + WATERFALL_SUPPORT_RUN
+            })
+    }
+
     /// One lateral frame through the drop, fading into the natural channel.
     pub(super) fn corridor_at(self, point: Vec2, distance: f32, width: f32) -> (f32, f32) {
         let (along, lateral) = self.local_coordinates(point);

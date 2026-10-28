@@ -1,4 +1,5 @@
 #define_import_path planet_bevy::river
+#import planet_bevy::environment_material::material_cloud_light
 #import planet_bevy::water::{WaterUniform,shade_water,water_shadow}
 #import bevy_pbr::{forward_io::VertexOutput,pbr_types::PbrInput,pbr_functions::apply_pbr_lighting,mesh_view_bindings::{view,lights}}
 @group(#{MATERIAL_BIND_GROUP}) @binding(120) var<uniform> water:WaterUniform;
@@ -59,7 +60,8 @@ fn river_water(input:VertexOutput,pbr:PbrInput,front:bool)->vec4<f32> {
  let body=vec3<f32>(0.002322,0.063724,0.263273);
  var lit=pbr;lit.N=normal;lit.material.base_color=vec4<f32>(body,1.0);lit.material.specular_transmission=0.0;
  lit.material.perceptual_roughness=1.0;lit.material.reflectance=vec3<f32>(0.0);
- let lit_body=apply_pbr_lighting(lit).rgb;
+ let cloud_light=material_cloud_light(position);
+ let lit_body=apply_pbr_lighting(lit).rgb*cloud_light;
  let ripple=(view.view_from_world*vec4<f32>(normal-base,0.0)).xy+distortion;
  var parameters=water;
  let estuary_surface=estuary*smoothstep(0.65,0.96,abs(dot(base,up)));
@@ -67,6 +69,6 @@ fn river_water(input:VertexOutput,pbr:PbrInput,front:bool)->vec4<f32> {
  parameters.optics.x=mix(water.optics.x,0.65,estuary_surface);
  let optics=shade_water(position,input.position.xy,normal,geometric,up,v,ripple,lit_body,roughness,parameters,false,!front);
  lit.material.base_color=vec4<f32>(0.85,0.93,1.0,1.0);
- let lit_foam=apply_pbr_lighting(lit).rgb;
+ let lit_foam=apply_pbr_lighting(lit).rgb*cloud_light;
  return vec4<f32>(mix(optics.colour,lit_foam,foam),1.0);
 }

@@ -1,3 +1,4 @@
+#import planet_bevy::environment_material::{material_cloud_light,environment_sky_sampler}
 // Unity Island ground shading with radial gravity, plus streamed LOD normal/occlusion atlases.
 // Water keeps StandardMaterial shading.
 #import bevy_pbr::{
@@ -25,10 +26,8 @@ struct SurfaceSettings {
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> settings: SurfaceSettings;
 @group(#{MATERIAL_BIND_GROUP}) @binding(101) var surface_map: texture_2d<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(102) var surface_map_sampler: sampler;
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(103) var river_map: texture_2d<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(104) var river_map_sampler: sampler;
 
 #import planet_bevy::ground::{ground, shade_ground, volume_noise, perturb, ROCK}
 #import planet_bevy::river::river_water
@@ -48,8 +47,8 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     let atlas_uv = vec2<f32>(0.0);
 #endif
     // Sample outside the mode branch so implicit derivatives remain uniform.
-    let surface = textureSample(surface_map, surface_map_sampler, atlas_uv);
-    let river = textureSample(river_map, river_map_sampler, atlas_uv).r;
+    let surface = textureSample(surface_map, environment_sky_sampler, atlas_uv);
+    let river = textureSample(river_map, environment_sky_sampler, atlas_uv).r;
     let normal_to_world = mat2x4_f32_to_mat3x3_unpack(
         mesh[in.instance_index].local_from_world_transpose_a,
         mesh[in.instance_index].local_from_world_transpose_b,
@@ -136,6 +135,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     var out: FragmentOutput;
     if (pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_UNLIT_BIT) == 0u {
         out.color = apply_pbr_lighting(pbr_input);
+        out.color = vec4<f32>(out.color.rgb * material_cloud_light(in.world_position.xyz), out.color.a);
     } else {
         out.color = pbr_input.material.base_color;
     }

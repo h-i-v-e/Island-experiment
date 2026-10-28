@@ -1,4 +1,5 @@
 #define_import_path planet_bevy::water
+#import planet_bevy::environment_material::{material_cloud_shadow,material_sky}
 #import bevy_pbr::{mesh_view_bindings::{view,lights,view_transmission_texture},shadows::fetch_directional_shadow,
  transmission::fetch_transmissive_background_non_rough}
 #ifdef DEPTH_PREPASS
@@ -35,10 +36,13 @@ fn scene_colour(uv:vec2<f32>)->vec3<f32> {
  return fetch_transmissive_background_non_rough(colour_uv,vec3<f32>(0.0,0.0,1.0)).rgb;
 }
 fn water_fresnel(cosine:f32)->f32 {return 0.02037+0.97963*pow(1.0-clamp(cosine,0.0,1.0),5.0);}
-fn water_shadow(p:vec3<f32>,normal:vec3<f32>,pixel:vec2<f32>)->f32 {
+fn water_geometry_shadow(p:vec3<f32>,normal:vec3<f32>,pixel:vec2<f32>)->f32 {
  if (lights.directional_lights[0].flags&1u)==0u {return 1.0;}
  let z=(view.view_from_world*vec4<f32>(p,1.0)).z;
  return fetch_directional_shadow(0u,vec4<f32>(p,1.0),normal,z,pixel);
+}
+fn water_shadow(p:vec3<f32>,normal:vec3<f32>,pixel:vec2<f32>)->f32 {
+ return water_geometry_shadow(p,normal,pixel)*material_cloud_shadow(p);
 }
 fn sun_glint(normal:vec3<f32>,v:vec3<f32>,roughness:f32)->f32 {
  let l=lights.directional_lights[0].direction_to_light;
@@ -146,7 +150,7 @@ fn shade_water(p:vec3<f32>,pixel:vec2<f32>,normal:vec3<f32>,geometric:vec3<f32>,
  var fresnel=water_fresnel(dot(normal,v));
  let reflected=reflect(-v,normal);
  let daylight=0.03+0.97*smoothstep(-0.08,0.2,dot(up,lights.directional_lights[0].direction_to_light));
- let sky=mix(vec3<f32>(0.420,0.587,0.749),vec3<f32>(0.205,0.420,0.638),clamp(dot(reflected,up),0.0,1.0))*daylight;
+ let sky=material_sky(reflected)*view.exposure;
  var reflection=sky;
  let reflection_distance=length(view.world_position-p)*radius;
  if settings.optics.w>0.0 && !underside &&reflection_distance<160.0 {
@@ -161,8 +165,11 @@ fn shade_water(p:vec3<f32>,pixel:vec2<f32>,normal:vec3<f32>,geometric:vec3<f32>,
    reflection=mix(sky,blurred,hit.weight*settings.optics.w*(1.0-smoothstep(100.0,160.0,reflection_distance)));
   }
  }
- let shadow=water_shadow(p,normal,pixel);
- reflection*=mix(0.3,1.0,shadow);
+ let geometry_shadow=water_geometry_shadow(p,normal,pixel);
+ let shadow=geometry_shadow*material_cloud_shadow(p);
+ // The reflected cube already contains the lit cloud volume. Cloud shadows
+ // attenuate direct glints, not that incoming sky radiance a second time.
+ reflection*=mix(0.3,1.0,geometry_shadow);
  if underside {
   let transmitted_squared=1.333*1.333*(1.0-pow(max(dot(normal,v),0.0),2.0));
   fresnel=mix(fresnel,1.0,smoothstep(0.97,1.0,transmitted_squared));

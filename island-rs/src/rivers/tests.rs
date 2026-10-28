@@ -1866,8 +1866,9 @@ fn nearby_river_pushes_a_waterfall_drop_upstream() {
         &mut nodes,
         &mut waterfalls,
         3,
-        WaterfallRelocation {
+        &mut WaterfallRelocation {
             clearance: &clearance,
+            patches: &mut Vec::new(),
             site: None,
             river: 0,
         },
@@ -1933,8 +1934,9 @@ fn relocation_preserves_landing_space_between_same_river_waterfalls() {
         &mut nodes,
         &mut waterfalls,
         7,
-        WaterfallRelocation {
+        &mut WaterfallRelocation {
             clearance: &clearance,
+            patches: &mut Vec::new(),
             site: None,
             river: 0,
         },
@@ -1950,6 +1952,300 @@ fn relocation_preserves_landing_space_between_same_river_waterfalls() {
     let required_spacing = WATERFALL_SUPPORT_RUN
         + sections[2].target_half_width * (1.0 + WATERFALL_LANDING_LENGTH_MULTIPLIER);
     assert!(relocated_spacing + f32::EPSILON >= required_spacing);
+}
+
+#[test]
+fn bent_same_river_waterfalls_relocate_without_overlapping_support_or_losing_height() {
+    let mesh = Mesh {
+        vertices: (0..41)
+            .map(|i| {
+                let i = i as f32;
+                Vec3::new(i * 0.0015, 0.006 * (i * 0.4).sin(), 0.2)
+            })
+            .collect(),
+        ..Mesh::default()
+    };
+    let mut nodes: Vec<_> = (0..41)
+        .map(|vertex| RiverNode {
+            vertex,
+            flow: 10,
+            surface: 0.16 - vertex as f32 * 0.003,
+            position: mesh.vertices[vertex],
+        })
+        .collect();
+    let rivers = vec![River {
+        nodes: nodes.clone(),
+        join: None,
+    }];
+    let clearance = WaterfallClearanceIndex::new(&rivers, &mesh, 10, 0.001);
+    let sections = vec![
+        RiverCrossSection {
+            target_half_width: 0.003,
+            ..Default::default()
+        };
+        41
+    ];
+    let mut falls = vec![false; 41];
+    for segment in [8, 16, 24, 32] {
+        falls[segment] = true;
+    }
+    let original_drop: f32 = falls
+        .iter()
+        .enumerate()
+        .filter(|(_, f)| **f)
+        .map(|(i, _)| nodes[i].surface - nodes[i + 1].surface)
+        .sum();
+    assert!(relocate_conflicting_waterfalls(
+        &mesh,
+        &mut nodes,
+        &mut falls,
+        40,
+        &mut WaterfallRelocation {
+            clearance: &clearance,
+            patches: &mut Vec::new(),
+            site: None,
+            river: 0
+        },
+        &sections,
+        &mut Vec::new()
+    ));
+    let network = RiverNetwork {
+        rivers: vec![River {
+            nodes: nodes.clone(),
+            join: None,
+        }],
+        waterfalls: vec![falls.clone()],
+        cross_sections: vec![sections],
+        river_mesh_ends: vec![None],
+        join_vertices: vec![None],
+        max_flow: 10,
+        max_height: 0.2,
+        ocean: vec![false; 41],
+        perimeter: vec![false; 41],
+    };
+    let patches = derive_waterfall_patches(&network, &mesh);
+    assert_eq!(
+        patches.len(),
+        4,
+        "this long river has space to retain every drop"
+    );
+    for (i, &patch) in patches.iter().enumerate() {
+        assert!(
+            patches[i + 1..]
+                .iter()
+                .all(|&other| !patch.overlaps_support(other)),
+            "path spacing must not permit intersecting waterfall patches at a bend"
+        );
+    }
+    let final_drop: f32 = falls
+        .iter()
+        .enumerate()
+        .filter(|(_, f)| **f)
+        .map(|(i, _)| nodes[i].surface - nodes[i + 1].surface)
+        .sum();
+    assert!((original_drop - final_drop).abs() < 1e-6);
+    assert!(
+        nodes
+            .windows(2)
+            .all(|pair| pair[0].surface >= pair[1].surface)
+    );
+}
+
+#[test]
+fn waterfall_support_reservations_span_rivers_and_rejected_rivers_release_them() {
+    let mesh = Mesh {
+        vertices: (0..2)
+            .flat_map(|row| (0..9).map(move |i| Vec3::new(i as f32 * 0.01, row as f32 * 0.03, 0.2)))
+            .collect(),
+        ..Mesh::default()
+    };
+    let rivers: Vec<_> = (0..2)
+        .map(|row| River {
+            nodes: (0..9)
+                .map(|i| RiverNode {
+                    vertex: row * 9 + i,
+                    flow: 10,
+                    surface: if i <= 6 { 0.15 } else { 0.1 },
+                    position: mesh.vertices[row * 9 + i],
+                })
+                .collect(),
+            join: None,
+        })
+        .collect();
+    // The actual widened banks overlap, while the narrow natural centrelines
+    // clear the older foreign-river node test.
+    let clearance = WaterfallClearanceIndex::new(&rivers, &mesh, 10, 0.0001);
+    let sections = vec![
+        RiverCrossSection {
+            target_half_width: 0.01,
+            ..Default::default()
+        };
+        9
+    ];
+    let mut accepted = Vec::new();
+    for (river, path) in rivers.iter().enumerate() {
+        let mut nodes = path.nodes.clone();
+        let mut falls = vec![false; nodes.len()];
+        falls[6] = true;
+        assert!(relocate_conflicting_waterfalls(
+            &mesh,
+            &mut nodes,
+            &mut falls,
+            8,
+            &mut WaterfallRelocation {
+                clearance: &clearance,
+                patches: &mut accepted,
+                site: None,
+                river
+            },
+            &sections,
+            &mut Vec::new()
+        ));
+        assert!((nodes[0].surface - nodes[8].surface - 0.05).abs() < 1e-6);
+    }
+    assert_eq!(accepted.len(), 2);
+    assert!(!accepted[0].overlaps_support(accepted[1]));
+    assert!(
+        accepted[1].segment < 6,
+        "the second river must respect the first river's full support"
+    );
+    let mut provisional = vec![WaterfallPatch {
+        upper_centre: Vec2::new(0.01, 0.0),
+        half_width: 0.0001,
+        support_run: 0.001,
+        ..accepted[0]
+    }];
+    let previous = provisional.len();
+    let mut nodes = rivers[0].nodes.clone();
+    for (i, node) in nodes.iter_mut().enumerate() {
+        node.surface = if i <= 1 {
+            0.3
+        } else if i == 2 {
+            0.2
+        } else {
+            0.1
+        };
+    }
+    let mut falls = vec![false; nodes.len()];
+    falls[1] = true;
+    falls[2] = true;
+    assert!(!relocate_conflicting_waterfalls(
+        &mesh,
+        &mut nodes,
+        &mut falls,
+        8,
+        &mut WaterfallRelocation {
+            clearance: &clearance,
+            patches: &mut provisional,
+            site: None,
+            river: 0
+        },
+        &sections,
+        &mut Vec::new()
+    ));
+    assert_eq!(
+        provisional.len(),
+        previous,
+        "an invalid river must release any provisional support rectangles"
+    );
+}
+
+#[test]
+fn crowded_waterfalls_merge_upstream_and_keep_all_recorded_drop_height() {
+    let mesh = Mesh {
+        vertices: (0..9)
+            .map(|i| Vec3::new(i as f32 * 0.01, 0.0, 0.3))
+            .collect(),
+        ..Mesh::default()
+    };
+    let mut nodes: Vec<_> = (0..9)
+        .map(|vertex| RiverNode {
+            vertex,
+            flow: 10,
+            surface: 0.25 - (vertex.saturating_sub(1).min(3) as f32) * 0.05,
+            position: mesh.vertices[vertex],
+        })
+        .collect();
+    let rivers = vec![River {
+        nodes: nodes.clone(),
+        join: None,
+    }];
+    let clearance = WaterfallClearanceIndex::new(&rivers, &mesh, 10, 0.0001);
+    let sections = vec![
+        RiverCrossSection {
+            target_half_width: 0.01,
+            ..Default::default()
+        };
+        9
+    ];
+    let mut falls = vec![false; 9];
+    falls[1..=3].fill(true);
+    let mut accepted = Vec::new();
+    assert!(relocate_conflicting_waterfalls(
+        &mesh,
+        &mut nodes,
+        &mut falls,
+        8,
+        &mut WaterfallRelocation {
+            clearance: &clearance,
+            patches: &mut accepted,
+            site: None,
+            river: 0
+        },
+        &sections,
+        &mut Vec::new()
+    ));
+    assert_eq!(falls.iter().filter(|&&fall| fall).count(), 1);
+    assert!(falls[1]);
+    assert_eq!(accepted.len(), 1);
+    assert!((accepted[0].upper_surface - accepted[0].lower_surface - 0.15).abs() < 1e-6);
+    assert!((nodes[0].surface - nodes[8].surface - 0.15).abs() < 1e-6);
+    assert!(
+        nodes
+            .windows(2)
+            .all(|pair| pair[0].surface >= pair[1].surface)
+    );
+}
+
+#[test]
+fn flat_waterfall_flags_do_not_reserve_support_or_reject_a_river() {
+    let mesh = Mesh {
+        vertices: (0..4)
+            .map(|i| Vec3::new(i as f32 * 0.01, 0.0, 0.2))
+            .collect(),
+        ..Default::default()
+    };
+    let mut nodes: Vec<_> = (0..4)
+        .map(|vertex| RiverNode {
+            vertex,
+            flow: 10,
+            surface: 0.2,
+            position: mesh.vertices[vertex],
+        })
+        .collect();
+    let rivers = vec![River {
+        nodes: nodes.clone(),
+        join: None,
+    }];
+    let clearance = WaterfallClearanceIndex::new(&rivers, &mesh, 10, 0.001);
+    let mut accepted = Vec::new();
+    let mut falls = vec![false, true, true, false];
+    assert!(relocate_conflicting_waterfalls(
+        &mesh,
+        &mut nodes,
+        &mut falls,
+        3,
+        &mut WaterfallRelocation {
+            clearance: &clearance,
+            patches: &mut accepted,
+            site: None,
+            river: 0
+        },
+        &[],
+        &mut Vec::new()
+    ));
+    assert!(accepted.is_empty());
+    assert!(falls.iter().all(|&fall| !fall));
 }
 
 #[test]
@@ -2001,8 +2297,9 @@ fn intermediate_lod_keeps_the_original_drop_when_every_site_conflicts() {
         &mut nodes,
         &mut waterfalls,
         3,
-        WaterfallRelocation {
+        &mut WaterfallRelocation {
             clearance: &clearance,
+            patches: &mut Vec::new(),
             site: None,
             river: 0,
         },
@@ -2098,8 +2395,9 @@ fn side_bypass_pushes_a_waterfall_to_the_next_complete_cross_channel_cut() {
         &mut nodes,
         &mut waterfalls,
         width - 1,
-        WaterfallRelocation {
+        &mut WaterfallRelocation {
             clearance: &clearance,
+            patches: &mut Vec::new(),
             site: Some(site),
             river: 0,
         },
@@ -2122,8 +2420,9 @@ fn side_bypass_pushes_a_waterfall_to_the_next_complete_cross_channel_cut() {
         &mut nodes,
         &mut waterfalls,
         width - 1,
-        WaterfallRelocation {
+        &mut WaterfallRelocation {
             clearance: &clearance,
+            patches: &mut Vec::new(),
             site: Some(blocked_site),
             river: 0,
         },

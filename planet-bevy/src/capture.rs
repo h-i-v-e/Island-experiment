@@ -38,7 +38,24 @@ struct CaptureProgress {
     requested: bool,
     saved: bool,
     completed_frames: usize,
+    frame_times: Vec<f64>,
+    previous_frame: Option<Instant>,
 }
+impl CaptureProgress {
+    fn record_frame_time(&mut self) {
+        let now = Instant::now();
+        if self.settled_frames > 8 {
+            if let Some(previous) = self.previous_frame.replace(now) {
+                self.frame_times
+                    .push(now.duration_since(previous).as_secs_f64() * 1000.0);
+            }
+        } else {
+            self.previous_frame = None;
+            self.frame_times.clear();
+        }
+    }
+}
+
 #[derive(Resource, Clone)]
 struct GpuReady(Arc<AtomicU8>);
 
@@ -66,6 +83,8 @@ impl Plugin for CapturePlugin {
                 requested: false,
                 saved: false,
                 completed_frames: 0,
+                frame_times: Vec::with_capacity(120),
+                previous_frame: None,
             })
             .add_systems(Update, capture);
     }
@@ -83,6 +102,8 @@ fn capture(
     details: Res<crate::details::Details>,
     ocean: Res<crate::ocean::OceanWorld>,
     lighting: Res<crate::lighting::LightingSettings>,
+    environment: Res<crate::environment::EnvironmentSettings>,
+    forests: Option<Res<crate::forest::Forests>>,
     gpu: Res<GpuReady>,
 ) {
     if gpu.0.load(Ordering::Acquire) == 2 {
@@ -94,12 +115,14 @@ fn capture(
     progress.settled_frames = if chunks.settled()
         && details.settled()
         && ocean.settled()
+        && forests.as_ref().is_none_or(|world| world.settled())
         && gpu.0.load(Ordering::Acquire) == 1
     {
         progress.settled_frames + 1
     } else {
         0
     };
+    progress.record_frame_time();
     if progress.saved {
         progress.completed_frames += 1;
         if progress.completed_frames >= 4 {
@@ -144,6 +167,7 @@ fn capture(
             "{summary}grass_patches: {}\nstones: {}\nboulders: {}\n",
             details.grass_patches, details.stones, details.boulders
         );
+        let summary = format!("{summary}{}", forest_summary(forests.as_deref()));
         let summary = format!(
             "{summary}sun_shadows: {}\nshadow_distance_m: {}\nshadow_bias_m: {}\ndepth_ao: {}\nao_radius_m: {}\nao_intensity: {}\nao_samples: {}\nao_half_resolution: {}\nao_only: {}\n",
             lighting.shadows,
@@ -159,6 +183,10 @@ fn capture(
         let summary = format!(
             "{summary}ocean_vertices: {}\nocean_triangles: {}\nocean_rings: {}\nocean_map_size: {}\n",
             ocean.vertices, ocean.triangles, ocean.rings, ocean.map_size
+        );
+        let summary = format!(
+            "{summary}{}",
+            environment_summary(&environment, &progress.frame_times)
         );
         println!("{summary}");
         if let Err(error) = std::fs::write(progress.path.with_extension("png.txt"), summary) {
@@ -195,6 +223,42 @@ fn check_pipelines(cache: Res<bevy::render::render_resource::PipelineCache>, rea
     );
 }
 
+fn environment_summary(
+    settings: &crate::environment::EnvironmentSettings,
+    frames: &[f64],
+) -> String {
+    format!(
+        "atmosphere: {}\nclouds: {}\ncloud_quality: {}\ncloud_coverage: {}\ncloud_density: {}\ncloud_base_m: {}\ncloud_thickness_m: {}\nweather_paused: {}\ncloud_temporal: {}\n{}",
+        settings.atmosphere,
+        settings.clouds,
+        settings.quality,
+        settings.coverage,
+        settings.density,
+        settings.cloud_base,
+        settings.cloud_thickness,
+        settings.paused,
+        settings.temporal,
+        frame_timing_summary(frames)
+    )
+}
+
+// These are end-to-end offscreen frame intervals, not GPU timestamp timings.
+fn frame_timing_summary(frames: &[f64]) -> String {
+    if frames.is_empty() {
+        return String::new();
+    }
+    let mut sorted = frames.to_vec();
+    sorted.sort_unstable_by(f64::total_cmp);
+    let percentile = |p: usize| sorted[((sorted.len() - 1) * p / 100).min(sorted.len() - 1)];
+    format!(
+        "capture_frame_samples: {}\ncapture_frame_median_ms: {:.3}\ncapture_frame_p95_ms: {:.3}\ncapture_frame_max_ms: {:.3}\n",
+        sorted.len(),
+        percentile(50),
+        percentile(95),
+        percentile(100)
+    )
+}
+
 // Explicit opt-in for local GPU iteration. Packaged viewers always use embedded shaders.
 fn refresh_shader_sources(
     mut shaders: ResMut<Assets<Shader>>,
@@ -223,4 +287,15 @@ fn refresh_shader_sources(
             *shader = replacement;
         }
     }
+}
+
+fn forest_summary(forests: Option<&crate::forest::Forests>) -> String {
+    forests.map_or_else(String::new, |forests| {
+        format!(
+            "forest_trees: {}\nforest_detailed_trees: {}\nforest_simplified_trees: {}\n",
+            forests.trees,
+            forests.detailed,
+            forests.simplified_trees()
+        )
+    })
 }

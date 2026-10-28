@@ -13,7 +13,8 @@ mod tests {
     use super::*;
     #[test]
     fn channel_coordinates_follow_the_network_and_survive_edge_clipping() {
-        let mut terrain = crate::collision::test_scene().terrain;
+        let mut terrain =
+            std::sync::Arc::try_unwrap(crate::collision::test_scene().terrain).unwrap();
         for (i, (p, h)) in [
             (DVec3::new(0.0, 1.0, 0.02), 0.02),
             (DVec3::Y, 0.01),

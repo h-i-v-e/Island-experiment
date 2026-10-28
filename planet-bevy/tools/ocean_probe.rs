@@ -18,6 +18,11 @@ fn main() {
     let source = source.split("struct OceanUniform").nth(1).unwrap();
     let source = format!("struct OceanUniform{}", source.split("@vertex fn vertex").next().unwrap())
         .replace("#{MATERIAL_BIND_GROUP}", "0");
+    // The shipping material and ocean now share their clamp/filter sampler.
+    let path=std::path::PathBuf::from(std::env::args_os().nth(1).unwrap());
+    let material=std::fs::read_to_string(path.parent().unwrap().parent().unwrap().join("environment/material.wgsl")).unwrap();
+    let sampler=material.lines().find(|line|line.contains("@binding(102)")).unwrap().replace("#{MATERIAL_BIND_GROUP}","0");
+    let source=source+"\n"+&sampler;
     let source = source + "\n@group(0) @binding(0) var<storage,read> inputs:array<vec4<f32>>;\n@group(0) @binding(1) var<storage,read_write> output:array<vec4<f32>>;\n@compute @workgroup_size(1) fn probe(@builtin(global_invocation_id) id:vec3<u32>){let input=inputs[id.x];var w=waves_at(input.xyz,abs(input.w));if input.w<0.0 {let s=swell_at(input.xyz,ocean.sources[0],COMPONENTS[0],SPEEDS[0],0.1);w=Waves(s.displacement,s.slope,s.crest,0.0,s.variance,0.0,0.0);}let offset=id.x*4u;output[offset]=vec4<f32>(w.displacement,w.crest);output[offset+1u]=vec4<f32>(w.slope,w.foam);output[offset+2u]=vec4<f32>(w.variance,w.depth,w.distance,0.0);output[offset+3u]=coast(input.xyz);}\n";
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let adapter = bevy_tasks::block_on(instance.request_adapter(&Default::default())).unwrap();

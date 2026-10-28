@@ -1,11 +1,11 @@
 use super::{
     Adjacency, BinaryHeap, HashSet, MAXIMUM_GENTLE_RIVER_GRADE, Mesh, Ordering,
     RIVER_CHANNEL_DRAINAGE_FLOOR, RIVER_SURFACE_OFFSET, RiverChannelSettings, RiverCrossSection,
-    RiverNode, RiverSedimentBudget, SurfaceMaterial, Vec2, VecDeque,
-    WATERFALL_LANDING_LENGTH_MULTIPLIER, WATERFALL_REFERENCE_ISLAND_HEIGHT,
-    WATERFALL_SITE_BYPASS_MAX_HOPS, WATERFALL_SITE_MINIMUM_BANK_SPAN_FRACTION,
-    WATERFALL_SUPPORT_RUN, WATERFALL_TARGET_EDGE_LENGTH, WaterfallClearanceIndex, WaterfallPatch,
-    WaterfallPlacement, expand_vertex_mask_through_river_to_banks,
+    RiverNode, RiverSedimentBudget, SurfaceMaterial, VecDeque, WATERFALL_LANDING_LENGTH_MULTIPLIER,
+    WATERFALL_REFERENCE_ISLAND_HEIGHT, WATERFALL_SITE_BYPASS_MAX_HOPS,
+    WATERFALL_SITE_MINIMUM_BANK_SPAN_FRACTION, WATERFALL_SUPPORT_RUN, WATERFALL_TARGET_EDGE_LENGTH,
+    WaterfallClearanceIndex, WaterfallPatch, WaterfallPlacement,
+    expand_vertex_mask_through_river_to_banks,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -109,6 +109,7 @@ pub(super) struct RiverProfileEnvironment<'a> {
 pub(super) struct RiverProfileScratch {
     pub(super) gradients: Vec<f32>,
     pub(super) waterfall_drops: Vec<WaterfallDrop>,
+    pub(super) waterfall_patches: Vec<WaterfallPatch>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -128,9 +129,10 @@ impl RiverCarveScratch {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug)]
 pub(super) struct WaterfallRelocation<'a> {
     pub(super) clearance: &'a WaterfallClearanceIndex,
+    pub(super) patches: &'a mut Vec<WaterfallPatch>,
     pub(super) site: Option<WaterfallSiteEnvironment<'a>>,
     pub(super) river: usize,
 }
@@ -633,14 +635,10 @@ pub(super) fn planned_waterfall_patch(
         return None;
     }
 
-    let upper_position = mesh.vertices[upper.vertex].truncate();
+    let patch = WaterfallPatch::for_segment(mesh, nodes, segment, drop, cross_sections)?;
+    let upper_position = patch.upper_centre;
     let lower_position = mesh.vertices[lower.vertex].truncate();
-    let direction = segment
-        .checked_sub(1)
-        .and_then(|previous| {
-            (upper_position - mesh.vertices[nodes[previous].vertex].truncate()).try_normalize()
-        })
-        .or_else(|| (lower_position - upper_position).try_normalize())?;
+    let direction = patch.direction;
     let follows_upstream = segment.checked_sub(1).is_none_or(|previous| {
         (upper_position - mesh.vertices[nodes[previous].vertex].truncate())
             .try_normalize()
@@ -655,30 +653,7 @@ pub(super) fn planned_waterfall_patch(
         return None;
     }
 
-    let upper_section = cross_sections.get(segment).copied().unwrap_or_default();
-    let lower_section = cross_sections.get(segment + 1).copied().unwrap_or_default();
-    let half_width = upper_section
-        .target_half_width
-        .max(lower_section.target_half_width)
-        .max(upper_section.achieved_width * 0.5)
-        .max(lower_section.achieved_width * 0.5)
-        .max(WATERFALL_TARGET_EDGE_LENGTH);
-    Some(WaterfallPatch {
-        river: 0,
-        segment: segment as u32,
-        upper_vertex: upper.vertex,
-        upper_centre: upper_position,
-        direction,
-        across: Vec2::new(-direction.y, direction.x),
-        upper_surface: drop,
-        lower_surface: 0.0,
-        lower_floor: 0.0,
-        half_width,
-        support_run: upper_position
-            .distance(lower_position)
-            .max(WATERFALL_TARGET_EDGE_LENGTH),
-        pool: None,
-    })
+    Some(patch)
 }
 
 pub(super) fn complete_waterfall_face(
@@ -800,12 +775,135 @@ pub(super) fn waterfall_face_has_side_bypass(
     false
 }
 
+/// Borrow the immutable placement geometry until terrace heights are rebuilt.
+#[derive(Clone, Copy)]
+struct WaterfallSearch<'a> {
+    mesh: &'a Mesh,
+    nodes: &'a [RiverNode],
+    sections: &'a [RiverCrossSection],
+    end: usize,
+    first_patch: usize,
+}
+
+impl WaterfallSearch<'_> {
+    fn clear(self, relocation: &WaterfallRelocation<'_>, segment: usize, height: f32) -> bool {
+        WaterfallPatch::for_segment(self.mesh, self.nodes, segment, height, self.sections)
+            .is_some_and(|patch| {
+                relocation
+                    .patches
+                    .iter()
+                    .all(|&other| !patch.overlaps_support(other))
+            })
+    }
+
+    fn select(
+        self,
+        relocation: &WaterfallRelocation<'_>,
+        drop: WaterfallDrop,
+        limit: usize,
+        downstream: Option<usize>,
+    ) -> Option<usize> {
+        let original = drop.segment.min(limit);
+        let spacing = |segment| {
+            has_downstream_waterfall_spacing(self.nodes, self.sections, segment, downstream)
+        };
+        (1..=original)
+            .rev()
+            .find(|&segment| {
+                spacing(segment)
+                    && self.clear(relocation, segment, drop.height)
+                    && !relocation.clearance.conflicts(
+                        relocation.river,
+                        self.mesh,
+                        self.nodes,
+                        segment,
+                    )
+                    && relocation.site.is_none_or(|environment| {
+                        valid_waterfall_site(
+                            self.mesh,
+                            self.nodes,
+                            segment,
+                            drop.height,
+                            self.sections,
+                            environment,
+                        )
+                    })
+            })
+            .or_else(|| {
+                // Preserve the coarse pass's foreign-river fallback, while still
+                // requiring complete separation from other waterfall supports.
+                (relocation.site.is_none()
+                    && original > 0
+                    && spacing(original)
+                    && self.clear(relocation, original, drop.height))
+                .then_some(original)
+            })
+    }
+
+    fn reserve(self, relocation: &mut WaterfallRelocation<'_>, segment: usize, height: f32) {
+        let mut patch =
+            WaterfallPatch::for_segment(self.mesh, self.nodes, segment, height, self.sections)
+                .expect("selected waterfall has a finite support rectangle");
+        patch.river = relocation.river as u32;
+        relocation.patches.push(patch);
+    }
+
+    fn merge(
+        self,
+        relocation: &mut WaterfallRelocation<'_>,
+        drops: &mut [WaterfallDrop],
+        index: usize,
+        waterfalls: &mut [bool],
+    ) -> Option<usize> {
+        if relocation.patches.len() == self.first_patch {
+            return None;
+        }
+        let previous = relocation
+            .patches
+            .pop()
+            .expect("a same-river patch is reserved");
+        let previous_segment = previous.segment as usize;
+        let height = drops[index].height
+            + drops[index + 1..]
+                .iter()
+                .filter(|drop| drop.placed && drop.segment == previous_segment)
+                .map(|drop| drop.height)
+                .sum::<f32>();
+        let downstream = relocation
+            .patches
+            .get(self.first_patch..)
+            .and_then(|patches| patches.last())
+            .map(|patch| patch.segment as usize);
+        let limit = downstream.map_or(self.end.saturating_sub(1), |segment| {
+            segment.saturating_sub(1)
+        });
+        let combined = WaterfallDrop {
+            height,
+            ..drops[index]
+        };
+        let Some(segment) = self.select(relocation, combined, limit, downstream) else {
+            relocation.patches.push(previous);
+            return None;
+        };
+        // Both height records remain independent. The reconstruction below
+        // sums all records moved to this common upstream site.
+        for drop in &mut drops[index + 1..] {
+            if drop.placed && drop.segment == previous_segment {
+                drop.segment = segment;
+            }
+        }
+        waterfalls[previous_segment] = false;
+        self.reserve(relocation, segment, height);
+        Some(segment)
+    }
+}
+
 pub(super) fn relocate_conflicting_waterfalls(
     mesh: &Mesh,
     nodes: &mut [RiverNode],
     waterfalls: &mut [bool],
     end: usize,
-    relocation: WaterfallRelocation<'_>,
+    relocation: &mut WaterfallRelocation<'_>,
     cross_sections: &[RiverCrossSection],
     scratch: &mut Vec<WaterfallDrop>,
 ) -> bool {
@@ -815,66 +913,47 @@ pub(super) fn relocate_conflicting_waterfalls(
         waterfalls[..end]
             .iter()
             .enumerate()
-            .filter(|(_, waterfall)| **waterfall)
-            .map(|(segment, _)| WaterfallDrop {
-                segment,
-                height: (nodes[segment].surface - nodes[segment + 1].surface).max(0.0),
-                placed: true,
+            .filter_map(|(segment, &fall)| {
+                let height = (nodes[segment].surface - nodes[segment + 1].surface).max(0.0);
+                (fall && height > RIVER_SURFACE_OFFSET).then_some(WaterfallDrop {
+                    segment,
+                    height,
+                    placed: true,
+                })
             }),
     );
+    waterfalls[..end].fill(false);
     if scratch.is_empty() {
         return true;
     }
-
-    waterfalls[..end].fill(false);
+    let first_patch = relocation.patches.len();
+    let search = WaterfallSearch {
+        mesh,
+        nodes,
+        sections: cross_sections,
+        end,
+        first_patch,
+    };
     let mut upstream_limit = end.saturating_sub(1);
     let mut nearest_downstream = None;
     let mut all_placed = true;
-    for drop in scratch.iter_mut().rev() {
-        let original = drop.segment.min(upstream_limit);
-        let selected = (1..=original)
-            .rev()
-            .find(|&segment| {
-                has_downstream_waterfall_spacing(nodes, cross_sections, segment, nearest_downstream)
-                    && !relocation
-                        .clearance
-                        .conflicts(relocation.river, mesh, nodes, segment)
-                    && relocation.site.is_none_or(|environment| {
-                        valid_waterfall_site(
-                            mesh,
-                            nodes,
-                            segment,
-                            drop.height,
-                            cross_sections,
-                            environment,
-                        )
-                    })
-            })
-            // Intermediate erosion LODs retain the historical best-effort
-            // behavior. Only the final LOD 0 pass may reject a whole river.
-            .or_else(|| {
-                (relocation.site.is_none()
-                    && original > 0
-                    && has_downstream_waterfall_spacing(
-                        nodes,
-                        cross_sections,
-                        original,
-                        nearest_downstream,
-                    ))
-                .then_some(original)
-            });
+    for index in (0..scratch.len()).rev() {
+        let drop = scratch[index];
+        let selected = search
+            .select(relocation, drop, upstream_limit, nearest_downstream)
+            .inspect(|&segment| search.reserve(relocation, segment, drop.height))
+            .or_else(|| search.merge(relocation, scratch, index, waterfalls));
         if let Some(segment) = selected {
-            drop.segment = segment;
-            drop.placed = true;
+            scratch[index].segment = segment;
+            scratch[index].placed = true;
             waterfalls[segment] = true;
             upstream_limit = segment.saturating_sub(1);
             nearest_downstream = Some(segment);
         } else {
-            drop.placed = false;
+            scratch[index].placed = false;
             all_placed = false;
         }
     }
-
     let mut level = nodes[end].surface;
     for segment in (0..end).rev() {
         for drop in scratch
@@ -884,6 +963,9 @@ pub(super) fn relocate_conflicting_waterfalls(
             level += drop.height;
         }
         nodes[segment].surface = level.min(nodes[segment].surface);
+    }
+    if !all_placed {
+        relocation.patches.truncate(first_patch);
     }
     all_placed
 }

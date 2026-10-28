@@ -10,8 +10,8 @@ namespace Motu.Islands
 {
     internal static class IslandSnapshotCache
     {
-        // Retire geometry generated before the feathered river-bank smoothing.
-        private const int CacheKeySchemaVersion = 20;
+        // Retire cached channels generated before full waterfall-support separation.
+        private const int CacheKeySchemaVersion = 23;
         private const string SnapshotExtension = ".motusnapshot";
 
         internal static string CacheDirectory

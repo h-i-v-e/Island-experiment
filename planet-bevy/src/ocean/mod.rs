@@ -18,6 +18,7 @@ use bevy::{
         AsBindGroup, Extent3d, ShaderType, TextureDimension, TextureViewDescriptor,
         TextureViewDimension,
     },
+    render::storage::ShaderBuffer,
     shader::ShaderRef,
     tasks::{AsyncComputeTaskPool, Task, block_on, poll_once},
 };
@@ -104,6 +105,10 @@ pub struct OceanExtension {
     pub foam_frame: foam::FoamFrame,
     #[uniform(109)]
     pub impacts: crate::water::ImpactUniform,
+    #[storage(123, read_only)]
+    pub environment: Handle<ShaderBuffer>,
+    #[texture(126, dimension = "cube")]
+    pub environment_sky: Handle<Image>,
 }
 pub type OceanMaterial = ExtendedMaterial<StandardMaterial, OceanExtension>;
 impl MaterialExtension for OceanExtension {
@@ -331,6 +336,8 @@ pub fn update(
                 foam: default(),
                 foam_frame: default(),
                 impacts: default(),
+                environment: textures.environment.clone(),
+                environment_sky: textures.environment_sky.clone(),
             },
         }));
     }

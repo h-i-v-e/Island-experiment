@@ -11,11 +11,10 @@ use super::{
     SHARP_POINT_SMOOTHING_PASSES, SurfaceMaterial, Vec2, VecDeque,
     WATERFALL_FINAL_SMOOTHING_PASSES, WATERFALL_TARGET_EDGE_LENGTH, WaterfallFoot, WaterfallPatch,
     WaterfallPinEnvironment, WaterfallTerrainConstraints, build_river_footprint,
-    derive_waterfall_patches, detect_failed_final_waterfalls, duplicate_river_topology,
-    encode_bank_distance_in_uv, enforce_final_waterfall_edge_relationships,
-    enforce_waterfall_downstream_ceiling, generate_river_rock_mesh, is_river_bed_triangle,
-    is_river_boundary, mark_river_boundary, pin_waterfalls_to_terrain,
-    rebuild_final_waterfall_support_mask, recess_waterfall_notches,
+    derive_waterfall_patches, detect_failed_final_waterfalls, encode_bank_distance_in_uv,
+    enforce_final_waterfall_edge_relationships, enforce_waterfall_downstream_ceiling,
+    generate_river_rock_mesh, is_river_bed_triangle, is_river_boundary, mark_river_boundary,
+    pin_waterfalls_to_terrain, rebuild_final_waterfall_support_mask, recess_waterfall_notches,
     repair_collapsed_waterfall_banks, river_topology_masks, smooth_final_waterfall_patches,
     smooth_pinned_waterfall_terrain, smoothstep, squish_waterfall_downstream_spikes,
 };
@@ -299,32 +298,6 @@ pub(super) fn confluence_connector(
     }
     path.reverse();
     path
-}
-
-pub(super) fn finalize_river_geometry(
-    network: &RiverNetwork,
-    terrain: &mut Mesh,
-    coverage: &[u8],
-    surfaces: &[f32],
-    river_uv: &[Vec2],
-    owners: &[Option<RiverOwnerKey>],
-    waterfall_constraints: &WaterfallTerrainConstraints,
-) -> (Mesh, Vec<bool>) {
-    // Keep the tessellated river topology fixed after carving and smoothing.
-    // Flipping an edge here can connect vertices from opposite sides of the
-    // settled channel profile, creating sharp bed ridges or accidental dams.
-    terrain.calculate_normals();
-    let river_bed = river_topology_masks(terrain, coverage).0;
-    let visible_coverage = visible_river_water_coverage(network, terrain, coverage, owners);
-    let mut river_mesh = duplicate_river_topology(
-        terrain,
-        &visible_coverage,
-        surfaces,
-        river_uv,
-        waterfall_constraints,
-    );
-    encode_bank_distance_in_uv(&mut river_mesh);
-    (river_mesh, river_bed)
 }
 
 /// Hands the carved, submerged side of a final river mouth to the sea plane.
@@ -1770,7 +1743,7 @@ impl RiverMeshBuffers {
         extend_river_attributes_after_tessellation(stencils, self);
     }
 
-    fn extend_after_edge_splits(&mut self, stencils: &[EdgeSplitStencil]) {
+    pub(super) fn extend_after_edge_splits(&mut self, stencils: &[EdgeSplitStencil]) {
         self.coverage.reserve(stencils.len());
         self.surfaces.reserve(stencils.len());
         self.river_uv.reserve(stencils.len());
@@ -1965,8 +1938,15 @@ impl<'a> RiverGeometryBuilder<'a> {
         self.finish_waterfalls(&patches, &mut constraints);
         self.constrain_coastline(&patches, &mut constraints);
         self.smooth_river_banks(&constraints);
-        super::finishing::grade_upstream_banks(self.terrain, self.network, &self.buffers);
-        self.assemble(&patches, &constraints)
+        super::finishing::grade_upstream_banks(self.terrain, self.network, &self.buffers, &patches);
+        let river_mesh = super::contact_banks::finish(
+            self.terrain,
+            self.material,
+            self.network,
+            &mut self.buffers,
+            &patches,
+        );
+        self.assemble(&patches, river_mesh)
     }
 
     fn refine_channel(&mut self) {
@@ -2069,7 +2049,7 @@ impl<'a> RiverGeometryBuilder<'a> {
             );
         }
         enforce_waterfall_downstream_ceiling(self.terrain, &constraints.terrain_ceiling);
-        super::finishing::grade_upstream_banks(self.terrain, self.network, &self.buffers);
+        super::finishing::grade_upstream_banks(self.terrain, self.network, &self.buffers, patches);
         rebuild_final_waterfall_support_mask(
             self.terrain,
             patches,
@@ -2119,11 +2099,7 @@ impl<'a> RiverGeometryBuilder<'a> {
         );
     }
 
-    fn assemble(
-        self,
-        patches: &[WaterfallPatch],
-        constraints: &WaterfallTerrainConstraints,
-    ) -> BuiltRiverGeometry {
+    fn assemble(self, patches: &[WaterfallPatch], mut river_mesh: Mesh) -> BuiltRiverGeometry {
         let failed_waterfalls = if ENABLE_FINAL_WATERFALL_REJECTION {
             detect_failed_final_waterfalls(
                 self.terrain,
@@ -2134,15 +2110,8 @@ impl<'a> RiverGeometryBuilder<'a> {
         } else {
             Vec::new()
         };
-        let (river_mesh, river_bed) = finalize_river_geometry(
-            self.network,
-            self.terrain,
-            &self.buffers.coverage,
-            &self.buffers.surfaces,
-            &self.buffers.river_uv,
-            &self.buffers.owners,
-            constraints,
-        );
+        let river_bed = river_topology_masks(self.terrain, &self.buffers.coverage).0;
+        encode_bank_distance_in_uv(&mut river_mesh);
         let river_rock_mesh = if failed_waterfalls.is_empty() {
             generate_river_rock_mesh(self.seed, self.terrain, &self.buffers.coverage)
         } else {

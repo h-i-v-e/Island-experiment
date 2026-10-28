@@ -9,6 +9,7 @@ license = "UNLICENSED"
 bevy = { version = "0.19.1", default-features = false, features = ["3d", "ui", "png", "default_font", "multi_threaded"] }
 bevy_egui = { version = "0.42", default-features = false, features = ["render", "default_fonts"] }
 planet-rs = { path = "../planet-rs" }
+motu = { package = "island-rs", path = "../island-rs", default-features = false }
 
 [lints]
 workspace = true

@@ -1,8 +1,8 @@
 #define_import_path planet_bevy::waves
+#import planet_bevy::environment_material::environment_sky_sampler
 struct OceanUniform {shape:vec4<f32>,waves:vec4<f32>,shading:vec4<f32>,viewer:vec4<f32>,sources:array<vec4<f32>,4>}
 @group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> ocean:OceanUniform;
 @group(#{MATERIAL_BIND_GROUP}) @binding(101) var coast_map:texture_cube<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(102) var coast_sampler:sampler;
 @group(#{MATERIAL_BIND_GROUP}) @binding(103) var ocean_noise:texture_3d<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(104) var noise_sampler:sampler;
 struct OceanOutput {
@@ -16,7 +16,7 @@ struct OceanOutput {
 struct Waves {displacement:vec3<f32>,slope:vec3<f32>,crest:f32,foam:f32,variance:f32,depth:f32,distance:f32}
 const COMPONENTS=array<vec2<f32>,4>(vec2<f32>(30.0,0.34),vec2<f32>(15.0,0.18),vec2<f32>(7.5,0.09),vec2<f32>(4.0,0.04));
 const SPEEDS=array<f32,4>(3.6,2.8,2.1,1.5);
-fn coast(n:vec3<f32>)->vec4<f32> {return textureSampleLevel(coast_map,coast_sampler,n,0.0);}
+fn coast(n:vec3<f32>)->vec4<f32> {return textureSampleLevel(coast_map,environment_sky_sampler,n,0.0);}
 fn noise(p:vec3<f32>)->vec3<f32> {return textureSampleLevel(ocean_noise,noise_sampler,p,0.0).rgb;}
 fn allowance(c:vec4<f32>)->f32 {
  let depth=c.r*10.0;let distance=c.g*128.0;

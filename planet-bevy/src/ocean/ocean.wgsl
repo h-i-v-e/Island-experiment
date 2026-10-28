@@ -1,3 +1,4 @@
+#import planet_bevy::environment_material::material_cloud_light
 // Four wandering spherical wave sources; Island's ripple/coastal optics.
 #import bevy_pbr::{forward_io::{Vertex,VertexOutput,FragmentOutput},mesh_functions,
  view_transformations::position_world_to_clip,mesh_view_bindings::{view,lights},
@@ -81,7 +82,8 @@ fn ripple_gradient(uv:vec3<f32>,lod:f32)->vec3<f32>{
  let face_weight=pow(1.0-max(dot(normal,view_direction),0.0),2.0);
  let daylight=smoothstep(0.0,0.1,dot(n,lights.directional_lights[0].direction_to_light));
  let crest_light=vec3<f32>(0.006,0.264,0.147)*wave.crest*face_weight*(0.03+6.0*backlight*shadow*daylight)*lights.directional_lights[0].color.rgb*view.exposure*0.08;
- let lit_body=apply_pbr_lighting(pbr).rgb+crest_light;
+ let cloud_light=material_cloud_light(input.world_position.xyz);
+ let lit_body=apply_pbr_lighting(pbr).rgb*cloud_light+crest_light;
  let analytic=normalize(n-wave.slope);
  let distortion=noise((p-vec3<f32>(ocean.viewer.w*0.20,0.0,ocean.viewer.w*0.16))/2.0)-0.5;
  let detail=(view.view_from_world*vec4<f32>(normal-analytic,0.0)).xy;
@@ -92,7 +94,7 @@ fn ripple_gradient(uv:vec3<f32>,lod:f32)->vec3<f32>{
  let shaded=shade_water(input.world_position.xyz,input.position.xy,normal,geometric,n,view_direction,optical_ripple,lit_body,roughness,optical_settings,true,!front);
  let coastal_tint=(1.0-clamp(wave.depth/10.0,0.0,1.0))*mix(1.0,0.35,clamp(wave.distance/16.0,0.0,1.0))*optics.effects.w;
  pbr.material.base_color=vec4<f32>(0.79,0.91,1.0,1.0);
- let lit_foam=apply_pbr_lighting(pbr).rgb;
+ let lit_foam=apply_pbr_lighting(pbr).rgb*cloud_light;
  let colour=mix(mix(shaded.colour,lit_body,coastal_tint),lit_foam,foam);
  var out:FragmentOutput;
  out.color=main_pass_post_lighting_processing(pbr,vec4<f32>(colour,1.0));

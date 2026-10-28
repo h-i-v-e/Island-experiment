@@ -597,6 +597,14 @@ MonoBehaviour:
   damping: 0.7
   waterDrag: 0.08
   surfaceSmoothingSeconds: 0.15
+  hullGeometry: {fileID: 0}
+  waterDensity: 1025
+  waterViscosity: 0.00000119
+  hullPressureDrag: 0.08
+  lateralDrag: 1.1
+  keelLiftSlope: 2
+  waveResistance: 0.04
+  waterCurrent: {x: 0, y: 0, z: 0}
 --- !u!54 &982990072
 Rigidbody:
   m_ObjectHideFlags: 0
@@ -660,6 +668,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 2ddb926b5585402a9256d050beb949d9, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Motu.Runtime::Motu.Rendering.OceanDeckWaveClamp
+  convexHull: {fileID: 0}
+  waveBody: {fileID: 0}
   hullTexture: {fileID: 2800000, guid: a25b050cec0f944ef85e9d5f6bfa4cf2, type: 3}
   bowWaveInAlpha: 1
   textureSizeMetres: {x: 32.203545, y: 47.109184}
@@ -1068,11 +1078,12 @@ MonoBehaviour:
   cancellationHysteresisMetres: 1800
   installationBudgetMilliseconds: 4
   streamingTarget: {fileID: 1388680752}
-  activeRadiusMetres: 3500
-  activeHysteresisMetres: 500
   unloadRadiusMetres: 4000
   maximumLoadedIslandCount: 4
   failedGenerationRetrySeconds: 15
+  lod3DistanceMetres: 1000
+  detailPreloadMarginMetres: 500
+  detailUnloadHysteresisMetres: 300
 --- !u!4 &2028956460
 Transform:
   m_ObjectHideFlags: 0
@@ -1100,7 +1111,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 3549d4439b0224cdab83a35ac1fa3122, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::CoherentIslandFactory
-  seed: 42
+  seed: 1840
+  archipelegoRadius: 16
   noiseScaleCoarse: 0.15
   noiseScaleFine: 0.75
   islandThreshold: 0.6

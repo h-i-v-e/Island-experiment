@@ -598,7 +598,7 @@ mod tests {
     #[test]
     fn settling_obeys_radial_gravity_and_ten_metre_seabed_limit() {
         let scene = crate::collision::test_scene();
-        let snapshot = Snapshot::new(&scene, &[]);
+        let snapshot = Snapshot::new(&scene.terrain, false, &[]);
         for up in [DVec3::Y, -DVec3::Y, DVec3::Z] {
             let sample = Sample {
                 point: up * 1.01,

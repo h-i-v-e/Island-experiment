@@ -3,11 +3,12 @@
 use crate::{Scene, command::BedView, surface};
 use bevy::prelude::*;
 use planet_rs::{DVec3, PlanetTerrain};
+use std::sync::Arc;
 
 pub(super) struct Ground {
-    points: Vec<DVec3>,
-    faces: Vec<usize>,
-    nodes: Vec<Node>,
+    points: Arc<Vec<DVec3>>,
+    faces: Arc<Vec<usize>>,
+    nodes: Arc<Vec<Node>>,
     pub outer_radius: f32,
     rocks: Vec<RockCollider>,
 }
@@ -30,6 +31,34 @@ enum Contents {
 }
 
 impl Ground {
+    /// Terrain-only root, slope and interpolated material for radial vegetation.
+    pub(crate) fn forest_sample(
+        &self,
+        terrain: &PlanetTerrain,
+        up: Vec3,
+        original: bool,
+    ) -> Option<(Vec3, Vec3, [f32; 4])> {
+        let origin = up * self.outer_radius;
+        let (distance, face) = self.intersect(terrain, 0, origin, -up, self.outer_radius)?;
+        let point = origin - up * distance;
+        let ids = terrain.topology.triangles[face].map(|i| i as usize);
+        let [anchor, second, third] = ids.map(|i| self.points[i]);
+        let normal = (second - anchor).cross(third - anchor);
+        let area = normal.length_squared();
+        if area <= 1.0e-28 {
+            return None;
+        }
+        let delta = DVec3::from_array(point.to_array().map(f64::from)) - anchor;
+        let weight_b = delta.cross(third - anchor).dot(normal) / area;
+        let weight_c = (second - anchor).cross(delta).dot(normal) / area;
+        #[allow(clippy::cast_possible_truncation)]
+        let weights = [1.0 - weight_b - weight_c, weight_b, weight_c].map(|x| x as f32);
+        let materials = ids.map(|i| surface::terrain_material(terrain, i, original));
+        let material =
+            std::array::from_fn(|channel| (0..3).map(|i| materials[i][channel] * weights[i]).sum());
+        Some((point, surface::vector(normal.normalize()), material))
+    }
+
     pub fn new(scene: &Scene) -> Self {
         let points: Vec<_> = (0..scene.terrain.elevations.len())
             .map(|i| surface::displayed_position(&scene.terrain, i, scene.bed == BedView::Original))
@@ -40,9 +69,9 @@ impl Ground {
             .fold(1.0, f32::max)
             + 0.01;
         let mut ground = Self {
-            points,
-            faces: (0..scene.terrain.topology.triangles.len()).collect(),
-            nodes: Vec::new(),
+            points: Arc::new(points),
+            faces: Arc::new((0..scene.terrain.topology.triangles.len()).collect()),
+            nodes: Arc::default(),
             outer_radius,
             rocks: Vec::new(),
         };
@@ -61,11 +90,13 @@ impl Ground {
             }
         }
         let node = self.nodes.len();
-        self.nodes.push(Node {
-            min: min - Vec3::splat(1.0e-6),
-            max: max + Vec3::splat(1.0e-6),
-            contents: Contents::Leaf { start, end },
-        });
+        Arc::get_mut(&mut self.nodes)
+            .expect("exclusive index construction")
+            .push(Node {
+                min: min - Vec3::splat(1.0e-6),
+                max: max + Vec3::splat(1.0e-6),
+                contents: Contents::Leaf { start, end },
+            });
         if end - start > 16 {
             let size = max - min;
             let axis = if size.x >= size.y && size.x >= size.z {
@@ -82,12 +113,14 @@ impl Ground {
                     .map(|&i| self.points[i as usize][axis])
                     .sum::<f64>()
             };
-            self.faces[start..end].select_nth_unstable_by(middle - start, |&a, &b| {
-                center(a).total_cmp(&center(b)).then(a.cmp(&b))
-            });
+            Arc::get_mut(&mut self.faces).expect("exclusive index construction")[start..end]
+                .select_nth_unstable_by(middle - start, |&a, &b| {
+                    center(a).total_cmp(&center(b)).then(a.cmp(&b))
+                });
             let left = self.build(terrain, start, middle);
             let right = self.build(terrain, middle, end);
-            self.nodes[node].contents = Contents::Branch { left, right };
+            Arc::get_mut(&mut self.nodes).expect("exclusive index construction")[node].contents =
+                Contents::Branch { left, right };
         }
         node
     }
@@ -118,6 +151,18 @@ impl Ground {
             .chain(terrain_hit)
             .min_by(f32::total_cmp)?;
         Some(origin + direction * distance)
+    }
+
+    /// Share the immutable BVH with detail workers. Decorative rock contacts
+    /// remain owned by the explorer and are never part of terrain snapshots.
+    pub fn terrain_query(&self) -> Self {
+        Self {
+            points: Arc::clone(&self.points),
+            faces: Arc::clone(&self.faces),
+            nodes: Arc::clone(&self.nodes),
+            outer_radius: self.outer_radius,
+            rocks: Vec::new(),
+        }
     }
 
     pub fn set_rocks(&mut self, rocks: Vec<RockCollider>) {
@@ -300,7 +345,8 @@ pub(super) fn test_scene() -> Scene {
                 ..TerrainOptions::default()
             },
         )
-        .unwrap(),
+        .unwrap()
+        .into(),
         seed: 42,
         generation: GenerationMode::Terrain,
         bed: BedView::Carved,
@@ -316,14 +362,50 @@ mod tests {
     use super::*;
 
     #[test]
+    fn detail_workers_share_the_index_and_retain_their_terrain_generation() {
+        let mut scene = test_scene();
+        let mut ground = Ground::new(&scene);
+        let query = ground.terrain_query();
+        assert!(Arc::ptr_eq(&ground.points, &query.points));
+        assert!(Arc::ptr_eq(&ground.faces, &query.faces));
+        assert!(Arc::ptr_eq(&ground.nodes, &query.nodes));
+        let up = Vec3::Y;
+        let floor = query.radius(&scene.terrain, up).unwrap();
+        ground.set_rocks(vec![RockCollider {
+            centre: up * (floor + 0.003),
+            radius: 0.001,
+        }]);
+        assert!(ground.radius(&scene.terrain, up).unwrap() > floor + 0.002);
+        assert_eq!(query.radius(&scene.terrain, up), Some(floor));
+
+        // A regeneration can be published while a worker still reads the old
+        // terrain. The worker owns only Arc handles and its local snapshot.
+        let terrain = Arc::clone(&scene.terrain);
+        let mut next = test_scene().terrain;
+        for elevation in &mut Arc::get_mut(&mut next).unwrap().elevations {
+            *elevation += 0.03;
+        }
+        scene.terrain = next;
+        let worker = std::thread::spawn(move || {
+            let faces = query.nearby_faces(&terrain, up, 0.3);
+            assert!(!faces.is_empty());
+            query.radius(&terrain, up).unwrap()
+        });
+        assert!((worker.join().unwrap() - floor).abs() < 1.0e-6);
+        let updated = Ground::new(&scene).radius(&scene.terrain, up).unwrap();
+        assert!((updated - floor * 1.03).abs() < 1.0e-6);
+    }
+
+    #[test]
     fn water_support_samples_clipped_render_geometry_and_ignores_rocks() {
         let mut scene = test_scene();
         let points = scene.terrain.topology.triangles[0]
             .map(|i| surface::displayed_position(&scene.terrain, i as usize, false));
         let middle = (points[0] + points[1] + points[2]) / 3.0;
-        scene.terrain.river_surface.positions = points.map(|p| middle.lerp(p, 0.2) * 1.003).into();
-        scene.terrain.river_surface.triangles = vec![[0, 1, 2]];
-        scene.terrain.river_surface.terrain_faces = vec![0];
+        let terrain = Arc::get_mut(&mut scene.terrain).unwrap();
+        terrain.river_surface.positions = points.map(|p| middle.lerp(p, 0.2) * 1.003).into();
+        terrain.river_surface.triangles = vec![[0, 1, 2]];
+        terrain.river_surface.terrain_faces = vec![0];
         let mut ground = Ground::new(&scene);
         let up = surface::vector(middle.normalize());
         let (floor, water) = ground.water_support(&scene.terrain, up).unwrap();

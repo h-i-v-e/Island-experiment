@@ -20,6 +20,7 @@ use crate::{
 
 mod carving;
 mod channel;
+mod contact_banks;
 mod finishing;
 mod geometry;
 mod rocks;
@@ -35,13 +36,15 @@ use carving::{
     lower_profile_reach_through_confluence, relocate_conflicting_waterfalls,
     river_mouth_transition, river_ocean_entry, shape_and_carve_river, unfitted_river_depth,
 };
+#[cfg(test)]
+use channel::duplicate_river_topology;
 pub(crate) use channel::encode_bank_distance_in_uv;
 use channel::{
     ConfluenceCarveTarget, apply_averaged, build_river_footprint, carve_confluence_connectors,
-    carve_river_corridor, duplicate_river_topology, is_river_bed_triangle, is_river_boundary,
-    lower_river_surroundings, mark_river_boundary, record_confluence_carve_target,
-    river_half_width, river_ring_count, river_topology_masks, shape_channel_ring_vertices,
-    smooth_river_corridor, target_cross_sections, update_achieved_cross_sections,
+    carve_river_corridor, is_river_bed_triangle, is_river_boundary, lower_river_surroundings,
+    mark_river_boundary, record_confluence_carve_target, river_half_width, river_ring_count,
+    river_topology_masks, shape_channel_ring_vertices, smooth_river_corridor,
+    target_cross_sections, update_achieved_cross_sections,
 };
 use geometry::{
     BuiltRiverGeometry, RiverChannelFootprintOwner, RiverFootprint, RiverGeometryBuilder,
@@ -880,8 +883,9 @@ impl RiverNetwork {
                     &mut self.rivers[river_index].nodes,
                     &mut self.waterfalls[river_index],
                     profile_end,
-                    WaterfallRelocation {
+                    &mut WaterfallRelocation {
                         clearance,
+                        patches: &mut scratch.waterfall_patches,
                         site: site_environment,
                         river: river_index,
                     },

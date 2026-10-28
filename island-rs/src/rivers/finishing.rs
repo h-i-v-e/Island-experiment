@@ -94,7 +94,7 @@ pub(super) fn protect_sea_outlets(
     carved
 }
 
-fn outlet_ids(network: &RiverNetwork) -> Vec<usize> {
+pub(super) fn outlet_ids(network: &RiverNetwork) -> Vec<usize> {
     (0..network.rivers.len())
         .map(|start| {
             let mut current = start;
@@ -150,8 +150,10 @@ pub(super) fn grade_upstream_banks(
     terrain: &mut Mesh,
     network: &RiverNetwork,
     buffers: &RiverMeshBuffers,
+    patches: &[WaterfallPatch],
 ) -> usize {
     let outlets = outlet_ids(network);
+    let stations = super::contact_banks::bank_stations(terrain, buffers, patches);
     let mut retained = BTreeSet::new();
     let mut upstream = HashMap::<usize, Vec<usize>>::new();
     let mut total = 0;
@@ -172,7 +174,7 @@ pub(super) fn grade_upstream_banks(
             if outlets.get(first.river as usize) != outlets.get(second.river as usize) {
                 continue;
             }
-            let delta = buffers.river_uv[a].y - buffers.river_uv[b].y;
+            let delta = stations[a] - stations[b];
             if delta.abs() <= 1.0e-8 {
                 continue;
             }
@@ -354,7 +356,7 @@ mod tests {
                 &buffers.owners,
             );
         }
-        grade_upstream_banks(&mut terrain, &network, &buffers);
+        grade_upstream_banks(&mut terrain, &network, &buffers, &[patch]);
         assert_eq!(terrain.vertices[mouth].z.to_bits(), bed.to_bits());
         assert!(water_height(bed, buffers.surfaces[mouth], Vec3::X, false) <= 0.0);
     }
@@ -399,7 +401,7 @@ mod tests {
             buffers.surfaces[i] = if p.z > 0.0 { 0.005 } else { 0.0 };
         }
         let sea = terrain.vertices[4 * 15 + 12];
-        assert!(grade_upstream_banks(&mut terrain, &network, &buffers) > 0);
+        assert!(grade_upstream_banks(&mut terrain, &network, &buffers, &[]) > 0);
         for [a, b] in river_bank_edges(&terrain, &buffers.coverage) {
             let [a, b] = [a as usize, b as usize];
             if terrain.vertices[a].z <= 0.0 || terrain.vertices[b].z <= 0.0 {

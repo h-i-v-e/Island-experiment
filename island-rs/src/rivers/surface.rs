@@ -26,11 +26,8 @@ struct Corner {
     fields: [f32; 2],
 }
 
-pub(super) fn build(terrain: &Mesh, coverage: &[u8], surfaces: &[f32], uv: &[Vec2]) -> Mesh {
-    let mut out = Mesh::default();
-    let mut vertices = vec![None; terrain.vertices.len()];
-    let mut edges = BTreeMap::new();
-    let heights: Vec<_> = terrain
+pub(super) fn water_heights(terrain: &Mesh, coverage: &[u8], surfaces: &[f32]) -> Vec<f32> {
+    terrain
         .vertices
         .iter()
         .enumerate()
@@ -42,7 +39,29 @@ pub(super) fn build(terrain: &Mesh, coverage: &[u8], surfaces: &[f32], uv: &[Vec
                 is_river_boundary(coverage[i]),
             )
         })
-        .collect();
+        .collect()
+}
+
+#[cfg(test)]
+pub(super) fn build(terrain: &Mesh, coverage: &[u8], surfaces: &[f32], uv: &[Vec2]) -> Mesh {
+    build_with_heights(
+        terrain,
+        coverage,
+        &water_heights(terrain, coverage, surfaces),
+        uv,
+    )
+}
+
+/// Keep the inclination blend frozen through final contact grading.
+pub(super) fn build_with_heights(
+    terrain: &Mesh,
+    coverage: &[u8],
+    heights: &[f32],
+    uv: &[Vec2],
+) -> Mesh {
+    let mut out = Mesh::default();
+    let mut vertices = vec![None; terrain.vertices.len()];
+    let mut edges = BTreeMap::new();
     let fields: Vec<_> = heights
         .iter()
         .zip(&terrain.vertices)

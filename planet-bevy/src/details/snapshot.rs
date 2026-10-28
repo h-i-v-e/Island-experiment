@@ -1,6 +1,6 @@
 //! A render-independent local terrain snapshot owned by a detail worker.
-use crate::{Scene, command::BedView, surface};
-use planet_rs::DVec3;
+use crate::surface;
+use planet_rs::{DVec3, PlanetTerrain};
 
 pub struct Triangle {
     pub id: usize,
@@ -56,18 +56,17 @@ struct Node {
 }
 
 impl Snapshot {
-    pub fn new(scene: &Scene, faces: &[usize]) -> Self {
-        let original = scene.bed == BedView::Original;
+    pub fn new(terrain: &PlanetTerrain, original: bool, faces: &[usize]) -> Self {
         let triangles = faces
             .iter()
             .map(|&face| {
-                let vertices = scene.terrain.topology.triangles[face];
+                let vertices = terrain.topology.triangles[face];
                 Triangle {
                     id: face,
                     points: vertices
-                        .map(|i| surface::displayed_position(&scene.terrain, i as usize, original)),
+                        .map(|i| surface::displayed_position(terrain, i as usize, original)),
                     material: vertices
-                        .map(|i| surface::terrain_material(&scene.terrain, i as usize, original)),
+                        .map(|i| surface::terrain_material(terrain, i as usize, original)),
                 }
             })
             .collect();
@@ -219,7 +218,7 @@ mod tests {
         for up in [bevy::prelude::Vec3::Y, -bevy::prelude::Vec3::Y] {
             let faces = ground.nearby_faces(&scene.terrain, up, 0.3);
             assert!(!faces.is_empty());
-            let mut snapshot = Snapshot::new(&scene, &faces);
+            let mut snapshot = Snapshot::new(&scene.terrain, false, &faces);
             snapshot.prepare();
             // Preparing again must replace the index, including its root.
             snapshot.prepare();

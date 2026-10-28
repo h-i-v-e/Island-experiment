@@ -5,14 +5,14 @@ use super::{
     RIVER_VALLEY_APRON_RINGS, RIVER_VALLEY_BANK_DEPTH_FRACTION, RIVER_VALLEY_DRAINAGE_FLOOR, River,
     RiverChannelFootprintOwner, RiverChannelParameters, RiverChannelSettings, RiverCrossSection,
     RiverFootprint, RiverNetwork, RiverNode, RiverOwnerKey, RiverSedimentBudget, RiverTerrain,
-    RouteState, Vec2, Vec3, VertexFaceAdjacency, WaterfallTerrainConstraints, average_edge_length,
-    confluence_connector, unfitted_river_depth,
+    RouteState, Vec2, Vec3, VertexFaceAdjacency, average_edge_length, confluence_connector,
+    unfitted_river_depth,
 };
 
 #[cfg(feature = "profiling")]
 use super::ISLAND_WORLD_METRES;
 #[cfg(test)]
-use super::WATERFALL_LIP_SMOOTHING;
+use super::{WATERFALL_LIP_SMOOTHING, WaterfallTerrainConstraints};
 
 #[derive(Clone, Copy, Debug)]
 pub(super) struct RiverMeshCandidate {
@@ -1173,6 +1173,7 @@ pub(super) fn is_river_bed_triangle(triangle: &[u32], coverage: &[u8]) -> bool {
             .all(|&vertex| is_river_boundary(coverage[vertex as usize]))
 }
 
+#[cfg(test)]
 pub(super) fn duplicate_river_topology(
     terrain: &Mesh,
     coverage: &[u8],

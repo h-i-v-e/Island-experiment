@@ -31,9 +31,9 @@ The generator provides:
   hardness/forced-rock, loose-cover, and river-bed vertex attributes;
 - one XY-safe support surface shared by simulation, collision, and LOD 0
   rendering, with geometrically clipped tile slicing and LOD edge clamping;
-- tree, bush, and rock placement plus packed foliage; coarse tree wood keeps
-  one four-sided span between branch junctions before LOD0 tessellation and
-  junction-aware tube projection;
+- tree, bush, and rock placement plus packed foliage; coarse tree wood merges
+  growth sections only while their net twist and endpoint-frame rotation stay
+  within 45 degrees, before LOD0 tessellation and junction-aware tube projection;
 - sea-depth maps and a final-terrain RG sea mask carrying coastal wave depth
   and distance from land;
 - flat spatial triangle indexing, parallel RGB rendering, and a built-in PNG encoder;
@@ -234,7 +234,12 @@ apron keeps full smoothing strength, followed by two extra dry rings with
 smoothstep falloff into untouched terrain. Hydraulic levels and submerged
 outlets stay fixed. After shaping and coastline refinement, both the
 original bank outline and newly exposed wet contacts are walked upstream;
-lower upstream bank vertices are raised until all retained edges agree.
+lower upstream bank vertices are raised until all retained edges agree. The
+inclination blend is then frozen and its actual clipped bank contacts are
+inserted into the shared terrain with conforming edge splits. A final lift-only
+walk grades these visible contacts upstream without recalculating the blend.
+Waterfall bank ordering uses one flow axis across both sides of the drop,
+independently of the animation UVs, which retain their full 3D flow distance.
 
 The final terrain normal's dot product with Z-up controls water height across
 the entire river: a vertical face uses 3 cm clearance, a flat reach uses its
@@ -277,6 +282,26 @@ non-negative. A positive value makes the top N metres of land loose soil before
 erosion, without changing the initial surface height or coating the seabed.
 Erosion removes this loose cover before bedrock. Native snapshot format version 4
 includes the setting; older cached snapshots must be regenerated.
+
+Waterfall relocation checks the complete face, upstream pin blend, landing and
+bank apron against accepted waterfalls on every river. Path length alone cannot
+establish clearance at a bend. Conflicting drops move upstream using their
+existing recorded heights, preserving the total drop on accepted rivers. If
+separate drops cannot fit, they combine at a clear upstream site. Flat flags
+left by profile reconciliation reserve no support space. A river rejected by the existing site policy releases its provisional reservations.
+Unity snapshot cache schema 23 and Island Bevy cache format 17 retire geometry
+built before these placement checks. Restart an open Unity editor/player after
+installing the rebuilt native plugin, then regenerate cached islands.
+
+Procedural trees use up to 45 degrees of twist per growth step, with no total
+trunk rotation cap. Intermediate rings are retained wherever merging would exceed
+45 degrees. Trunk branches are permitted on either side of a lean when their
+upward-biased growth direction is safe, avoiding one-sided crowns without
+increasing the branch count. These rules are shared by Planet, Island forests
+and the `CreateProceduralTree` Unity export. Unity snapshot cache schema 23
+retires previously generated forest meshes and overlapping waterfall supports.
+After deploying the native plugin, restart an already open Unity editor or
+player to load it.
 
 Build the dynamic library with `cargo build --release`. The result is named
 `motu` (`libmotu.dylib`, `libmotu.so`, or `motu.dll`, depending on platform).

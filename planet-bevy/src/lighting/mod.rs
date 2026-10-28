@@ -142,9 +142,8 @@ mod tests {
         world.get_mut::<Transform>(camera).unwrap().translation = Vec3::Y * 1.01;
         app.update();
         for (radius, expected) in [(1000.0, 0.3_f32), (2000.0, 0.15)] {
-            app.world_mut()
-                .resource_mut::<Scene>()
-                .terrain
+            std::sync::Arc::get_mut(&mut app.world_mut().resource_mut::<Scene>().terrain)
+                .unwrap()
                 .topology
                 .radius = radius;
             app.update();

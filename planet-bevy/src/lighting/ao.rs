@@ -70,6 +70,7 @@ impl Plugin for AmbientOcclusionPlugin {
                 .add_systems(
                     Core3d,
                     draw.in_set(Core3dSystems::EarlyPostProcess)
+                        .before(crate::environment::CloudsPost)
                         .before(crate::water::WaterPost),
                 );
         }

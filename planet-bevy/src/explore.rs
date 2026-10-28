@@ -34,6 +34,28 @@ struct Player {
 }
 
 impl Explorer {
+    pub(crate) fn shared_ground(&self, scene: &Scene) -> Option<Ground> {
+        (self.geometry
+            == Some((
+                scene.terrain.elevations.as_ptr() as usize,
+                scene.bed,
+                scene.generation,
+            )))
+        .then(|| self.ground.as_ref().map(Ground::terrain_query))
+        .flatten()
+    }
+
+    pub(crate) fn adopt_ground(&mut self, scene: &Scene, ground: Ground) {
+        if self.shared_ground(scene).is_none() {
+            self.geometry = Some((
+                scene.terrain.elevations.as_ptr() as usize,
+                scene.bed,
+                scene.generation,
+            ));
+            self.ground = Some(ground);
+        }
+    }
+
     pub(crate) fn clear_detail_rocks(&mut self) {
         if let Some(ground) = &mut self.ground {
             ground.set_rocks(Vec::new());

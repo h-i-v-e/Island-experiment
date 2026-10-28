@@ -15,9 +15,10 @@ struct TerrainSettings {
 @group(#{MATERIAL_BIND_GROUP}) @binding(109) var ground_sampler: sampler;
 @group(#{MATERIAL_BIND_GROUP}) @binding(110) var cliff_noise: texture_3d<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(111) var cliff_sampler: sampler;
+@group(#{MATERIAL_BIND_GROUP}) @binding(128) var forest_mask: texture_2d<f32>;
 
 struct DetailMapping { origin: vec4<f32>, tangent: vec4<f32>, bitangent: vec4<f32> }
-@group(#{MATERIAL_BIND_GROUP}) @binding(112) var<uniform> detail_mapping: DetailMapping;
+@group(#{MATERIAL_BIND_GROUP}) @binding(112) var<storage, read> detail_mapping: DetailMapping;
 @group(#{MATERIAL_BIND_GROUP}) @binding(113) var detail_mask: texture_2d<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(114) var detail_sampler: sampler;
 fn detail_environment(p: vec3<f32>) -> vec2<f32> {
@@ -96,13 +97,18 @@ fn build_coverage(p: vec3<f32>, up_dot: f32, elevation: f32, material: vec4<f32>
     let boundary = clamp(c.noise.broad.b * 0.55 + c.noise.large.b * 0.45, -1.0, 1.0);
     c.rock = max(max(geology_rock, forced) * (1.0 - cover),
         max(cliff, c.beach * antialiased_mask(slope - (0.10 + boundary * 0.18 * 0.25))));
-    c.forest = 0.0;
+    let direction=normalize(p);
+    let forest_uv=vec2<f32>(atan2(direction.z,direction.x)/6.2831853+0.5,
+        clamp(asin(clamp(direction.y,-1.0,1.0))/3.14159265+0.5,0.0009765625,0.9990234375));
+    c.forest=textureSample(forest_mask,cliff_sampler,forest_uv).r
+        *smoothstep(0.90,0.98,up_dot)*(1.0-c.river)*(1.0-c.beach);
     let stone_noise = clamp(c.noise.detail.r * 0.45 + c.noise.detail.b * 0.55, -1.0, 1.0);
     c.stones = coherent_mask(detail_environment(p).r, stone_noise, 0.22, 0.16) * step(0.0, elevation);
     let grass_distance = dot(patches.rg, vec2<f32>(0.65, 0.35)) - (1.0 - cover);
     let grass_width = max(0.18, fwidth(grass_distance));
     c.grass = smoothstep(-grass_width, grass_width, grass_distance) * smoothstep(0.0, 0.20, cover) * step(0.0, elevation);
     c.snow = antialiased_mask(elevation - (ground.snow_line + c.noise.large.r * 18.0 + c.noise.broad.g * 2.5)) * (1.0 - cliff);
+    c.forest*=1.0-c.snow;
     c.coastal = clamp(c.noise.detail.g * 0.65 + (c.noise.grain.r * 2.0 - 1.0) * 0.35, -1.0, 1.0);
     // Unity's 37–45 degree shoulder converges to exclusive procedural stone.
     let progress = 1.0 - smoothstep(cos(radians(45.0)), cos(radians(37.0)), clamp(up_dot, 0.0, 1.0));

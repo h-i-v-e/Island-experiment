@@ -19,11 +19,15 @@ use bevy::{
     pbr::{ExtendedMaterial, MaterialExtension},
     prelude::*,
     render::render_resource::{AsBindGroup, Extent3d, ShaderType, TextureDimension, TextureFormat},
+    render::storage::ShaderBuffer,
     shader::ShaderRef,
     tasks::{AsyncComputeTaskPool, Task, block_on, poll_once},
 };
 use planet_rs::DVec3;
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 pub struct DetailPlugin;
 impl Plugin for DetailPlugin {
@@ -201,6 +205,7 @@ pub fn update(
     mut materials: ResMut<Assets<LodMaterial>>,
     mut grass_materials: ResMut<Assets<GrassMaterial>>,
     mut images: ResMut<Assets<Image>>,
+    mut frame_buffers: ResMut<Assets<ShaderBuffer>>,
 ) {
     let Ok(camera) = cameras.single() else {
         return;
@@ -303,16 +308,22 @@ pub fn update(
             active.config != config || active.patch.centre.distance(centre) * radius > 12.0
         });
     if needs_patch && world.job.is_none() {
-        let faces = ground.nearby_faces(&scene.terrain, foot, (150.0 / radius) as f32);
-        let snapshot = snapshot::Snapshot::new(&scene, &faces);
+        // The worker retains this generation and its immutable BVH. Movement
+        // keeps using the same index without copying or locking the terrain.
+        let terrain = Arc::clone(&scene.terrain);
+        let query = ground.terrain_query();
+        let original = scene.bed == BedView::Original;
         let seed = scene.seed;
         let level = chunks.partition_level();
         let options = *settings;
         world.job = Some(Job {
             geometry,
             config,
-            task: AsyncComputeTaskPool::get()
-                .spawn(async move { rocks::build(snapshot, centre, radius, seed, level, options) }),
+            task: AsyncComputeTaskPool::get().spawn(async move {
+                let faces = query.nearby_faces(&terrain, foot, (150.0 / radius) as f32);
+                let snapshot = snapshot::Snapshot::new(&terrain, original, &faces);
+                rocks::build(snapshot, centre, radius, seed, level, options)
+            }),
         });
     }
     if let Some(job) = &mut world.job
@@ -399,18 +410,11 @@ pub fn update(
         }
     }
     if let Some(mapping) = mapping_update {
-        textures.detail_mapping = mapping;
-        for (_, material) in materials.iter_mut() {
-            if material.extension.detail_mapping != mapping {
-                material.extension.detail_mapping = mapping;
-            }
-        }
-        for handle in &world.materials {
-            if let Some(mut material) = grass_materials.get_mut(handle) {
-                material.base.extension.detail_mapping = mapping;
-            }
-        }
+        // One 48-byte write updates every terrain/grass shader without
+        // marking hundreds of materials dirty and rebuilding their bindings.
+        textures.set_detail_mapping(mapping, &mut frame_buffers);
     }
+
     let grass_enabled = settings.grass
         && !streaming.colours
         && streaming.surface_debug == 0
@@ -492,6 +496,7 @@ mod tests {
             .init_resource::<Assets<LodMaterial>>()
             .init_resource::<Assets<GrassMaterial>>()
             .init_resource::<Assets<Image>>()
+            .init_resource::<Assets<ShaderBuffer>>()
             .add_systems(Update, update);
         app.world_mut()
             .spawn((orbit, Transform::from_xyz(0.0, 3.0, 0.0)));
