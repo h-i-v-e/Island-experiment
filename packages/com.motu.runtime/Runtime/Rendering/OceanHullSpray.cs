@@ -19,6 +19,17 @@ namespace Motu.Rendering
         [Min(0)] [SerializeField] private float maximumSpeed = 18f;
         [Range(0, 90)] [SerializeField] private float launchAngle = 65f;
         [Range(0, 30)] [SerializeField] private float directionSpread = 12f;
+        [Header("Water over gunwales")]
+        [Tooltip("Follow the sampled wave up the hull, stop at the gunwale and spray inward when the wave reaches it.")]
+        [SerializeField] private bool gunwaleOverflow;
+        [Tooltip("Fallback rise above the authored waterline, along hull-up, in ship-local metres. Used when no individual profile is configured.")]
+        [InspectorName("Default Gunwale Height")]
+        [Min(0)] [SerializeField] private float gunwaleHeight = 4.2f;
+        [Tooltip("Individual rise above each corresponding waterline point, along hull-up, in ship-local metres. The limit interpolates along each edge, including the closing edge.")]
+        [SerializeField] private float[] gunwaleHeights = Array.Empty<float>();
+        [Tooltip("Over-deck jet angle above the ship's deck plane. Gravity then brings the water onto the deck.")]
+        [Range(-45, 45)] [SerializeField] private float inwardLaunchAngle = 10f;
+        [Header("Emission")]
         [Tooltip("Particles per second, per metre of waterline, per metre of wave penetration.")]
         [Min(0)] [SerializeField] private float emissionDensity = 24f;
         [Min(1)] [SerializeField] private int maximumEmissionRate = 1500;
@@ -47,6 +58,14 @@ namespace Motu.Rendering
         public int MaximumSamples => maximumSamples;
         public int SampleCount => waterline.Length;
         internal ParticleSystem Particles => particles;
+        public bool HasGunwaleProfile => gunwaleHeights != null && gunwaleHeights.Length == waterline.Length && waterline.Length > 0;
+        public float GetGunwaleHeight(int index)
+        {
+            if (index < 0 || index >= waterline.Length) throw new ArgumentOutOfRangeException(nameof(index));
+            return Mathf.Max(0, HasGunwaleProfile ? gunwaleHeights[index] : gunwaleHeight);
+        }
+        internal float GunwaleHeightAlongEdge(int index, float t) =>
+            Mathf.Lerp(GetGunwaleHeight(index), GetGunwaleHeight((index + 1) % waterline.Length), t);
 
         /// <summary>Fresh waterline data shared with hull effects, without another GPU query.</summary>
         public bool TryGetWaterlineSurface(int index, out Vector3 position, out float depth, out Vector3 waterVelocity)
@@ -185,13 +204,24 @@ namespace Motu.Rendering
                     var t = segment.Sample(UnityEngine.Random.value);
                     var position = Vector3.Lerp(worldPoints[i], worldPoints[j], t);
                     var depth = Mathf.Max(0, Mathf.Lerp(depths[i], depths[j], t));
-                    var angle = (launchAngle + UnityEngine.Random.Range(-directionSpread, directionSpread)) * Mathf.Deg2Rad;
-                    var direction = (outward * Mathf.Cos(angle) + Vector3.up * Mathf.Sin(angle)).normalized;
-                    direction = Quaternion.AngleAxis(UnityEngine.Random.Range(-directionSpread, directionSpread), Vector3.up) * direction;
+                    bool overGunwale = false;
+                    // Opt-in overtopping follows the local wave crest. The cap is
+                    // measured along the ship's tilted hull-up axis, so the origin
+                    // remains at the rail instead of drifting into the deck.
+                    if (gunwaleOverflow)
+                    {
+                        float maximumRise = transform.TransformVector(waterlineUp.normalized * GunwaleHeightAlongEdge(i, t)).magnitude;
+                        if (!TryProjectCappedEmissionOrigin(position, up, position.y + depth, maximumRise,
+                            out position, out overGunwale)) continue;
+                    }
+                    else if (!TryProjectEmissionOrigin(position, up, surfaceHeight, out position)) continue;
+                    var liftAxis = overGunwale ? up.normalized : Vector3.up;
+                    var horizontal = overGunwale ? -outward : outward;
+                    var angle = ((overGunwale ? inwardLaunchAngle : launchAngle)
+                        + UnityEngine.Random.Range(-directionSpread, directionSpread)) * Mathf.Deg2Rad;
+                    var direction = (horizontal * Mathf.Cos(angle) + liftAxis * Mathf.Sin(angle)).normalized;
+                    direction = Quaternion.AngleAxis(UnityEngine.Random.Range(-directionSpread, directionSpread), liftAxis) * direction;
                     var velocity = direction * LaunchSpeed(depth * strengthMultipliers[i], velocityPerMetre, maximumSpeed);
-                    // Intersect the sea plane along the authored hull-up axis.
-                    // Raising in world Y would move a heeled origin inboard.
-                    if (!TryProjectEmissionOrigin(position, up, surfaceHeight, out position)) continue;
                     if (body != null) velocity += body.GetPointVelocity(position);
                     particles.Emit(new ParticleSystem.EmitParams
                     {
@@ -214,6 +244,20 @@ namespace Motu.Rendering
             // launch distant spray or reverse the lift direction when capsized.
             if (hullUp.y <= .01f) return false;
             origin += hullUp * ((surfaceHeight - point.y) / hullUp.y);
+            return true;
+        }
+
+        internal static bool TryProjectCappedEmissionOrigin(Vector3 point, Vector3 hullUp,
+            float surfaceHeight, float maximumRise, out Vector3 origin, out bool overGunwale)
+        {
+            origin = point;
+            overGunwale = false;
+            var up = hullUp.normalized;
+            if (up.y <= .01f) return false;
+            float rise = (surfaceHeight - point.y) / up.y;
+            float cap = Mathf.Max(0, maximumRise);
+            overGunwale = rise >= cap;
+            origin += up * Mathf.Min(rise, cap);
             return true;
         }
 
@@ -317,6 +361,16 @@ namespace Motu.Rendering
                 Gizmos.DrawLine(a, b);
                 Gizmos.DrawSphere(a, .06f);
                 Gizmos.DrawRay((a + b) * .5f, Vector3.Cross(transform.TransformDirection(waterlineUp), (b - a).normalized) * .4f);
+            }
+            if (!gunwaleOverflow) return;
+            Gizmos.color = new Color(1, .65f, .15f);
+            for (var i = 0; i < waterline.Length; i++)
+            {
+                var a = transform.TransformPoint(waterline[i] + waterlineUp.normalized * GetGunwaleHeight(i));
+                var b = transform.TransformPoint(waterline[(i + 1) % waterline.Length] + waterlineUp.normalized * GetGunwaleHeight((i + 1) % waterline.Length));
+                Gizmos.DrawLine(a, b);
+                var outward = Vector3.Cross(transform.TransformDirection(waterlineUp), (b - a).normalized).normalized;
+                Gizmos.DrawRay((a + b) * .5f, -outward * .7f);
             }
         }
     }

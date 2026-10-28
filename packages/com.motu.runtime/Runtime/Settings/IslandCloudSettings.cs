@@ -21,7 +21,7 @@ namespace Motu.Settings
         [Range(0f, 1f)]
         [SerializeField] private float coverage = 0.48f;
 
-        [Tooltip("Optical thickness of formed clouds.")]
+        [Tooltip("Cloud mass per metre. Denser or deeper clouds absorb more light.")]
         [Range(0f, 8f)]
         [SerializeField] private float density = 2.1f;
 
@@ -52,6 +52,38 @@ namespace Motu.Settings
         [Tooltip("Amount by which fine noise erodes cloud edges.")]
         [Range(0f, 1f)]
         [SerializeField] private float erosionStrength = 0.38f;
+
+        [Tooltip("Size of the three-dimensional cloud billows in metres.")]
+        [Range(50f, 1000f)]
+        [SerializeField] private float billowSizeMetres = 250f;
+
+        [Tooltip("Size of the fine shapes that erode the cloud edges in metres.")]
+        [Range(10f, 300f)]
+        [SerializeField] private float erosionSizeMetres = 50f;
+
+        [Tooltip("Cloud profile: 0 is layered stratus, 0.5 is cumulus, 1 is towering storm cloud.")]
+        [Range(0f, 1f)]
+        [SerializeField] private float cloudType = 0.5f;
+
+        [Tooltip("Strength of the three-dimensional billows within the weather pattern.")]
+        [Range(0f, 1f)]
+        [SerializeField] private float billowStrength = 0.65f;
+
+        [Tooltip("How far sunlight penetrates clouds. Larger values soften dark interiors.")]
+        [Range(0.25f, 3f)]
+        [SerializeField] private float sunlightPenetration = 1f;
+
+        [Tooltip("Difference in wind drift between the base and top of each cloud.")]
+        [Range(0f, 1f)]
+        [SerializeField] private float windShear = 0.15f;
+
+        [Tooltip("Speed at which cloud shapes slowly evolve as they drift.")]
+        [Range(0f, 1f)]
+        [SerializeField] private float evolution = 0.1f;
+
+        [Tooltip("Cloud rendering quality: 0 Low, 1 Balanced, 2 High.")]
+        [Range(0, 2)]
+        [SerializeField] private int quality = 1;
 
         [SerializeField] private Color dayColour = new Color(0.92f, 0.94f, 0.96f, 1f);
         [SerializeField] private Color sunsetColour = new Color(0.92f, 0.48f, 0.24f, 1f);
@@ -95,6 +127,26 @@ namespace Motu.Settings
         public float BroadNoiseStrength { get => Mathf.Clamp01(broadNoiseStrength); set => broadNoiseStrength = Mathf.Clamp01(value); }
         public float DetailStrength { get => Mathf.Clamp01(detailStrength); set => detailStrength = Mathf.Clamp01(value); }
         public float ErosionStrength { get => Mathf.Clamp01(erosionStrength); set => erosionStrength = Mathf.Clamp01(value); }
+        public float BillowSizeMetres
+        {
+            get => billowSizeMetres == 0f ? 250f : Mathf.Clamp(billowSizeMetres, 50f, 1000f);
+            set => billowSizeMetres = Mathf.Clamp(value, 50f, 1000f);
+        }
+        public float ErosionSizeMetres
+        {
+            get => erosionSizeMetres == 0f ? 50f : Mathf.Clamp(erosionSizeMetres, 10f, 300f);
+            set => erosionSizeMetres = Mathf.Clamp(value, 10f, 300f);
+        }
+        public float CloudType { get => Mathf.Clamp01(cloudType); set => cloudType = Mathf.Clamp01(value); }
+        public float BillowStrength { get => Mathf.Clamp01(billowStrength); set => billowStrength = Mathf.Clamp01(value); }
+        public float SunlightPenetration
+        {
+            get => sunlightPenetration == 0f ? 1f : Mathf.Clamp(sunlightPenetration, 0.25f, 3f);
+            set => sunlightPenetration = Mathf.Clamp(value, 0.25f, 3f);
+        }
+        public float WindShear { get => Mathf.Clamp01(windShear); set => windShear = Mathf.Clamp01(value); }
+        public float Evolution { get => Mathf.Clamp01(evolution); set => evolution = Mathf.Clamp01(value); }
+        public int Quality { get => Mathf.Clamp(quality, 0, 2); set => quality = Mathf.Clamp(value, 0, 2); }
         public Color DayColour { get => dayColour; set => dayColour = value; }
         public Color SunsetColour { get => sunsetColour; set => sunsetColour = value; }
         public Color NightColour { get => nightColour; set => nightColour = value; }

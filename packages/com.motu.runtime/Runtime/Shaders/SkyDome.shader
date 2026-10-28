@@ -330,8 +330,13 @@ Shader "Motu/Sky Dome"
                 half cloudTransmittance = pow(
                     max(cloudVolume.transmittance, 0.0001h),
                     max(_MotuCloudCelestialStrength, 0.0));
+                // Distant cloud radiance converges to the same atmospheric
+                // horizon as water and terrain. Keep opacity so this never
+                // opens a clear stripe beneath an overcast sky.
+                half horizonHaze = (1.0h - smoothstep(0.0h, 0.08h, (half)max(skyDirection.y, 0.0))) * 0.55h;
+                fixed3 cloudColour = lerp(cloudVolume.averageColour, _HorizonColor.rgb * _SkyExposure, horizonHaze);
                 sky.rgb = sky.rgb * cloudTransmittance
-                    + cloudVolume.averageColour * (1.0h - cloudTransmittance);
+                    + cloudColour * (1.0h - cloudTransmittance);
                 // Stars are tiny HDR sources, so ordinary translucent-cloud
                 // blending can leave them visibly punching through. Treat the
                 // integrated volume as a substantially denser astronomical

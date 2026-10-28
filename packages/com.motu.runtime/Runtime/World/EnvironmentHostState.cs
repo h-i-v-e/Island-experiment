@@ -27,16 +27,17 @@ namespace Motu.World
             "_MotuCloudEnabled", "_MotuCloudCoverage", "_MotuCloudDensity", "_MotuCloudAltitude",
             "_MotuCloudWorldSize", "_MotuCloudShadowStrength", "_MotuCloudAmbientShadowStrength",
             "_MotuCloudCelestialStrength", "_MotuCloudLowElevationFade", "_MotuCloudLightActive",
-            "_MotuCloudSunsetStrength", "_MotuCloudNightStrength");
+            "_MotuCloudSunsetStrength", "_MotuCloudNightStrength", "_MotuCloudDomeRadius");
         private readonly GlobalValues<Vector4> vectors = new GlobalValues<Vector4>(Shader.GetGlobalVector, Shader.SetGlobalVector,
             "_MotuEnvironmentWorldOffset", "_MotuWeatherWind", "_MotuWindMaterial", "_MotuTreeWindHeights",
             "_MotuWindOffset", "_MotuCloudVolume", "_MotuCloudBroadNoise", "_MotuCloudDetailErosion",
-            "_MotuCloudWindOffset", "_MotuCloudLightDirection");
+            "_MotuCloudWindOffset", "_MotuCloudNoiseOffset", "_MotuCloudLightDirection", "_MotuCloudShape", "_MotuCloudMotion",
+            "_MotuCloudLighting");
         private readonly GlobalValues<Color> colours = new GlobalValues<Color>(Shader.GetGlobalColor, Shader.SetGlobalColor,
             "_MotuCloudDayColor", "_MotuCloudSunsetColor", "_MotuCloudNightColor", "_MotuCloudLightColor",
             "_MotuCloudAmbientColor", "_MotuIslandHorizonColour");
         private readonly GlobalValues<Texture> textures = new GlobalValues<Texture>(Shader.GetGlobalTexture, Shader.SetGlobalTexture,
-            "_MotuCloudWeatherTex", "_MotuWindNoise");
+            "_MotuCloudWeatherTex", "_MotuWindNoise", "_MotuCloudShapeTex", "_MotuCloudErosionTex");
 
         internal bool HasSameActiveScene => scene == SceneManager.GetActiveScene();
 

@@ -57,6 +57,7 @@ namespace Motu.World
         private Light sunlight;
         private int environmentSeed;
         private Vector2 windTravelOffset;
+        private float cloudDomeRadius;
         private bool firstPersonViewActive;
         private bool solarClockInitialized;
         private float solarTimeHours;
@@ -87,6 +88,9 @@ namespace Motu.World
             if (settings == null) throw new ArgumentNullException(nameof(settings));
             if (clouds == null) throw new ArgumentNullException(nameof(clouds));
             AcquireEnvironment();
+            CloudNoiseTextures.EnsureBound();
+            cloudDomeRadius = domeRadiusMetres;
+            Shader.SetGlobalFloat("_MotuCloudDomeRadius", cloudDomeRadius);
             environmentSettings = settings;
             cloudSettings = clouds;
             this.weather = WorldWeatherState.FromEnvironment(settings, clouds);
@@ -195,13 +199,12 @@ namespace Motu.World
                 windTravelOffset += travel;
             }
             var worldSize = clouds.WorldSizeMetres;
-            var broadWorldSize = worldSize * clouds.BroadNoiseScale;
             var cloudWindOffset = windTravelOffset;
+            // Only the periodic weather texture can wrap. Broad lattice noise
+            // shares continuous travel with the independent volume noise.
             var cloudBroadWindOffset = windTravelOffset * 0.18f;
             cloudWindOffset.x = Mathf.Repeat(cloudWindOffset.x, worldSize);
             cloudWindOffset.y = Mathf.Repeat(cloudWindOffset.y, worldSize);
-            cloudBroadWindOffset.x = Mathf.Repeat(cloudBroadWindOffset.x, broadWorldSize);
-            cloudBroadWindOffset.y = Mathf.Repeat(cloudBroadWindOffset.y, broadWorldSize);
             var enabled = clouds.Enabled
                 && clouds.Coverage > 0f
                 && clouds.Density > 0f
@@ -225,6 +228,20 @@ namespace Motu.World
             Shader.SetGlobalVector(
                 "_MotuCloudDetailErosion",
                 new Vector4(clouds.DetailStrength, clouds.ErosionStrength, 0f, 0f));
+            Shader.SetGlobalVector(
+                "_MotuCloudShape",
+                new Vector4(clouds.BillowSizeMetres, clouds.ErosionSizeMetres, clouds.CloudType, clouds.BillowStrength));
+            Shader.SetGlobalVector(
+                "_MotuCloudMotion",
+                new Vector4(clouds.WindShear, clouds.Evolution, clouds.Quality, 0f));
+            Shader.SetGlobalVector(
+                "_MotuCloudLighting",
+                new Vector4(clouds.SunlightPenetration, 0f, 0f, 0f));
+            // The weather map wraps at its own period, but the independent 3D
+            // noise must retain continuous travel across those map boundaries.
+            Shader.SetGlobalVector(
+                "_MotuCloudNoiseOffset",
+                new Vector4(windTravelOffset.x, windTravelOffset.y, 0f, 0f));
             Shader.SetGlobalVector(
                 "_MotuCloudWindOffset",
                 new Vector4(

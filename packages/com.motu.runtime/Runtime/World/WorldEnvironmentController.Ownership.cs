@@ -1,4 +1,5 @@
 using System;
+using Motu.Rendering;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.SceneManagement;
@@ -55,6 +56,8 @@ namespace Motu.World
         private void ResumeEnvironment()
         {
             AcquireEnvironment();
+            CloudNoiseTextures.EnsureBound();
+            Shader.SetGlobalFloat("_MotuCloudDomeRadius", cloudDomeRadius);
             hostState.BorrowLight(sunlight);
             skyDomeObject.SetActive(true);
             ocean.enabled = true;

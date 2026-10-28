@@ -16,6 +16,14 @@ namespace Motu.World
         public float BroadNoiseStrength;
         public float DetailStrength;
         public float ErosionStrength;
+        public float BillowSizeMetres;
+        public float ErosionSizeMetres;
+        public float CloudType;
+        public float BillowStrength;
+        public float SunlightPenetration;
+        public float WindShear;
+        public float Evolution;
+        public int Quality;
         public Color DayColour;
         public Color SunsetColour;
         public Color NightColour;
@@ -41,6 +49,14 @@ namespace Motu.World
                 BroadNoiseStrength = settings.BroadNoiseStrength,
                 DetailStrength = settings.DetailStrength,
                 ErosionStrength = settings.ErosionStrength,
+                BillowSizeMetres = settings.BillowSizeMetres,
+                ErosionSizeMetres = settings.ErosionSizeMetres,
+                CloudType = settings.CloudType,
+                BillowStrength = settings.BillowStrength,
+                SunlightPenetration = settings.SunlightPenetration,
+                WindShear = settings.WindShear,
+                Evolution = settings.Evolution,
+                Quality = settings.Quality,
                 DayColour = settings.DayColour,
                 SunsetColour = settings.SunsetColour,
                 NightColour = settings.NightColour,
@@ -62,6 +78,13 @@ namespace Motu.World
             WeatherValueValidation.RequireFinite(BroadNoiseStrength, nameof(BroadNoiseStrength));
             WeatherValueValidation.RequireFinite(DetailStrength, nameof(DetailStrength));
             WeatherValueValidation.RequireFinite(ErosionStrength, nameof(ErosionStrength));
+            WeatherValueValidation.RequireFinite(BillowSizeMetres, nameof(BillowSizeMetres));
+            WeatherValueValidation.RequireFinite(ErosionSizeMetres, nameof(ErosionSizeMetres));
+            WeatherValueValidation.RequireFinite(CloudType, nameof(CloudType));
+            WeatherValueValidation.RequireFinite(BillowStrength, nameof(BillowStrength));
+            WeatherValueValidation.RequireFinite(SunlightPenetration, nameof(SunlightPenetration));
+            WeatherValueValidation.RequireFinite(WindShear, nameof(WindShear));
+            WeatherValueValidation.RequireFinite(Evolution, nameof(Evolution));
             WeatherValueValidation.RequireFinite(DayColour, nameof(DayColour));
             WeatherValueValidation.RequireFinite(SunsetColour, nameof(SunsetColour));
             WeatherValueValidation.RequireFinite(NightColour, nameof(NightColour));
@@ -79,6 +102,14 @@ namespace Motu.World
             result.BroadNoiseStrength = Mathf.Clamp01(BroadNoiseStrength);
             result.DetailStrength = Mathf.Clamp01(DetailStrength);
             result.ErosionStrength = Mathf.Clamp01(ErosionStrength);
+            result.BillowSizeMetres = Mathf.Clamp(BillowSizeMetres, 50f, 1000f);
+            result.ErosionSizeMetres = Mathf.Clamp(ErosionSizeMetres, 10f, 300f);
+            result.CloudType = Mathf.Clamp01(CloudType);
+            result.BillowStrength = Mathf.Clamp01(BillowStrength);
+            result.SunlightPenetration = Mathf.Clamp(SunlightPenetration, 0.25f, 3f);
+            result.WindShear = Mathf.Clamp01(WindShear);
+            result.Evolution = Mathf.Clamp01(Evolution);
+            result.Quality = Mathf.Clamp(Quality, 0, 2);
             result.ShadowStrength = Mathf.Clamp01(ShadowStrength);
             result.AmbientShadowStrength = Mathf.Clamp(AmbientShadowStrength, 0f, 0.5f);
             result.CelestialObscurationStrength = Mathf.Clamp(CelestialObscurationStrength, 0f, 2f);
