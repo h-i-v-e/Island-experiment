@@ -143,6 +143,9 @@ namespace Motu.Rendering
 
         private void EmitSegments(float dt)
         {
+            var up = transform.TransformDirection(waterlineUp);
+            var surfaceHeight = ocean != null && ocean.SurfaceTransform != null
+                ? ocean.SurfaceTransform.position.y : 0f;
             var demand = 0f;
             for (var i = 0; i < worldPoints.Length; i++)
             {
@@ -150,7 +153,7 @@ namespace Motu.Rendering
                 segments[i] = valid[i] && valid[j]
                     ? WetSegment.Between(depths[i], depths[j], Vector3.Distance(worldPoints[i], worldPoints[j])) : default;
                 var tangent = (worldPoints[j] - worldPoints[i]).normalized;
-                var outward = Vector3.Cross(transform.TransformDirection(waterlineUp), tangent).normalized;
+                var outward = Vector3.Cross(up, tangent).normalized;
                 var shipVelocity = body != null ? body.GetPointVelocity((worldPoints[i] + worldPoints[j]) * .5f) : Vector3.zero;
                 var waveVelocity = (waveVelocities[i] + waveVelocities[j]) * .5f;
                 strengthMultipliers[i] = StrengthMultiplier(shipVelocity, waveVelocity, outward, relativeVelocityInfluence);
@@ -176,7 +179,7 @@ namespace Motu.Rendering
                 emissionBudget -= count;
                 var j = (i + 1) % worldPoints.Length;
                 var tangent = (worldPoints[j] - worldPoints[i]).normalized;
-                var outward = Vector3.Cross(transform.TransformDirection(waterlineUp), tangent).normalized;
+                var outward = Vector3.Cross(up, tangent).normalized;
                 for (var p = 0; p < count; p++)
                 {
                     var t = segment.Sample(UnityEngine.Random.value);
@@ -186,9 +189,10 @@ namespace Motu.Rendering
                     var direction = (outward * Mathf.Cos(angle) + Vector3.up * Mathf.Sin(angle)).normalized;
                     direction = Quaternion.AngleAxis(UnityEngine.Random.Range(-directionSpread, directionSpread), Vector3.up) * direction;
                     var velocity = direction * LaunchSpeed(depth * strengthMultipliers[i], velocityPerMetre, maximumSpeed);
+                    // Intersect the sea plane along the authored hull-up axis.
+                    // Raising in world Y would move a heeled origin inboard.
+                    if (!TryProjectEmissionOrigin(position, up, surfaceHeight, out position)) continue;
                     if (body != null) velocity += body.GetPointVelocity(position);
-                    // Raise only the emission origin; hull probes and their depths still follow the ship.
-                    position.y = 0f;
                     particles.Emit(new ParticleSystem.EmitParams
                     {
                         position = position,
@@ -200,6 +204,17 @@ namespace Motu.Rendering
                 }
             }
             firstSegment = (firstSegment + 1) % worldPoints.Length;
+        }
+
+        internal static bool TryProjectEmissionOrigin(Vector3 point, Vector3 hullUp,
+            float surfaceHeight, out Vector3 origin)
+        {
+            origin = point;
+            // A hull on its side has no stable upward intersection. Do not
+            // launch distant spray or reverse the lift direction when capsized.
+            if (hullUp.y <= .01f) return false;
+            origin += hullUp * ((surfaceHeight - point.y) / hullUp.y);
+            return true;
         }
 
         internal static float StrengthMultiplier(Vector3 shipVelocity, Vector3 waveVelocity, Vector3 outward, float influence)
