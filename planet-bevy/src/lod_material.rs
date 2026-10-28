@@ -100,6 +100,8 @@ pub struct SurfaceExtension {
     pub environment: Handle<ShaderBuffer>,
     #[texture(126, dimension = "cube")]
     pub environment_sky: Option<Handle<Image>>,
+    #[texture(127, dimension = "cube")]
+    pub environment_shadows: Option<Handle<Image>>,
     #[texture(128)]
     pub forest_mask: Option<Handle<Image>>,
 }

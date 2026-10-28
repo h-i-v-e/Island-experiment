@@ -30,12 +30,14 @@ pub struct MistMaterial {
     #[texture(1, dimension = "3d")]
     #[sampler(2)]
     pub noise: Handle<Image>,
-    // Shared optics' water_shadow also samples the cached global cloud column.
+    // Shared optics' water_shadow also samples the global cloud optical depth.
     #[storage(123, read_only)]
     pub environment: Handle<ShaderBuffer>,
     #[texture(126, dimension = "cube")]
     #[sampler(102)]
     pub environment_sky: Handle<Image>,
+    #[texture(127, dimension = "cube")]
+    pub environment_shadows: Handle<Image>,
 }
 impl Material for MistMaterial {
     fn fragment_shader() -> ShaderRef {
@@ -181,6 +183,7 @@ fn update(
             noise: textures.noise.clone(),
             environment: textures.environment.clone(),
             environment_sky: textures.environment_sky.clone(),
+            environment_shadows: textures.environment_shadows.clone(),
         });
         let entity = commands
             .spawn((

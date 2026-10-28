@@ -109,6 +109,8 @@ pub struct OceanExtension {
     pub environment: Handle<ShaderBuffer>,
     #[texture(126, dimension = "cube")]
     pub environment_sky: Handle<Image>,
+    #[texture(127, dimension = "cube")]
+    pub environment_shadows: Handle<Image>,
 }
 pub type OceanMaterial = ExtendedMaterial<StandardMaterial, OceanExtension>;
 impl MaterialExtension for OceanExtension {
@@ -338,6 +340,7 @@ pub fn update(
                 impacts: default(),
                 environment: textures.environment.clone(),
                 environment_sky: textures.environment_sky.clone(),
+                environment_shadows: textures.environment_shadows.clone(),
             },
         }));
     }

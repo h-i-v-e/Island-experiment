@@ -343,9 +343,19 @@ and rejects changed depth, disocclusions and vanished clouds. Histories reset
 for regeneration, changed weather settings, teleporting and viewport changes.
 The checkbox disables reconstruction for comparisons.
 
-Cloud shadows share a low-resolution global cloud-column map. Rivers and ocean
-sample a persistent 64²×6 sky/cloud reflection cube, refreshing one face per
-frame and all six after a reset. The reflection's cloud field and illumination
+Cloud shadows use a dedicated 256²×6 global optical-depth cube, integrating
+eight samples through the cloud shell toward the sun. Terrain at every LOD,
+including orbital views, and water, rocks, grass and trees share this projection.
+Its 3D noise repeats on all axes, matching the visible cloud volume even when
+the seed offsets lie beyond one noise tile. The map follows the same weather/wind
+as the visible volume, refreshes one face
+per frame, and rebuilds all six when weather settings or the planet change.
+Camera movement does not reset it. Receivers above the layer remain unshadowed;
+receivers inside it use the remaining optical path. The **Cloud shadows** slider
+controls strength without hiding the visible clouds.
+
+Rivers and ocean sample a separate persistent 64²×6 sky/cloud reflection cube,
+refreshing one face per frame and all six after a reset. The reflection's cloud field and illumination
 match the volume; its clear-sky colour and foreground cloud haze approximate
 the atmosphere instead of sampling Bevy's exact scattering lookup tables.
 Cached shadows approximate attenuation of aggregate surface lighting, with an

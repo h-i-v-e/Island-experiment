@@ -255,23 +255,55 @@ fn test(@builtin(global_invocation_id) id:vec3<u32>) {{
         (runs[4][5][0] - runs[0][6][0]).abs() < 1e-5,
         "wind must rotate the global volume coherently"
     );
-    check_reflection_cube(&device, &queue, &view, &sampler, &common, &base);
+    check_environment_cube(
+        &device,
+        &queue,
+        &view,
+        &sampler,
+        &common,
+        &base,
+        "reflections.wgsl",
+    );
+    check_environment_cube(
+        &device,
+        &queue,
+        &view,
+        &sampler,
+        &common,
+        &base,
+        "shadows.wgsl",
+    );
+    // Seed 42 places all three noise coordinates beyond the first tile. This
+    // must still use the same repeating volume as the visible cloud pass.
+    let mut seeded = base;
+    seeded[27] = 7.760_986_3;
+    seeded[4] = 0.85;
+    check_environment_cube(
+        &device,
+        &queue,
+        &view,
+        &sampler,
+        &common,
+        &seeded,
+        "shadows.wgsl",
+    );
     check_air(&device, &queue, &common, &base);
     println!(
         "Environment GPU: radial bounds, density/lighting finite, wind covariance, disabled/clear coverage, planet night shadow and surface shadow passed"
     );
 }
 
-fn check_reflection_cube(
+fn check_environment_cube(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     noise: &wgpu::TextureView,
     noise_sampler: &wgpu::Sampler,
     common: &str,
     base: &[f32; 28],
+    filename: &str,
 ) {
     let folder = std::path::PathBuf::from(std::env::args_os().nth(1).unwrap());
-    let source = std::fs::read_to_string(folder.with_file_name("reflections.wgsl")).unwrap();
+    let source = std::fs::read_to_string(folder.with_file_name(filename)).unwrap();
     let reflection = source
         .lines()
         .filter(|line| !line.starts_with('#'))
@@ -396,13 +428,17 @@ fn check_reflection_cube(
     drop(mapped);
     readback.unmap();
 
+    if filename == "reflections.wgsl" {
+        println!("Reflection cube GPU: all six HDR faces finite and populated");
+        return;
+    }
     let material = std::fs::read_to_string(folder.with_file_name("material.wgsl")).unwrap();
     let start = material.find("fn material_cloud_shadow").unwrap();
     let end = material.find("fn material_sky").unwrap();
     let helpers = &material[start..end];
     let source = format!(
         r#"{common}
-@group(0) @binding(0) var environment_sky:texture_cube<f32>;
+@group(0) @binding(0) var environment_shadows:texture_cube<f32>;
 @group(0) @binding(1) var environment_sky_sampler:sampler;
 @group(0) @binding(2) var<uniform> environment:EnvironmentUniform;
 @group(0) @binding(3) var<storage,read> points:array<vec4<f32>>;
@@ -428,7 +464,10 @@ fn probe(@builtin(global_invocation_id) id:vec3<u32>) {{
         compilation_options: Default::default(),
         cache: None,
     });
-    let positions = bytes(&[0.0, 1.0, 0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 1.2, 0.0, 0.0]);
+    let positions = bytes(&[
+        0.0, 1.0, 0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 1.2, 0.0, 0.0, 0.0, 1.04, 0.0, 0.0, 0.0,
+        1.15, 0.0, 0.0,
+    ]);
     let positions = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: None,
         contents: &positions,
@@ -436,13 +475,13 @@ fn probe(@builtin(global_invocation_id) id:vec3<u32>) {{
     });
     let result = device.create_buffer(&wgpu::BufferDescriptor {
         label: None,
-        size: 48,
+        size: 80,
         usage: wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::STORAGE,
         mapped_at_creation: false,
     });
     let readback = device.create_buffer(&wgpu::BufferDescriptor {
         label: None,
-        size: 48,
+        size: 80,
         usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
         mapped_at_creation: false,
     });
@@ -450,13 +489,25 @@ fn probe(@builtin(global_invocation_id) id:vec3<u32>) {{
         dimension: Some(wgpu::TextureViewDimension::Cube),
         ..Default::default()
     });
-    for mode in 0..3 {
+    let mut ground_shadow = 1.0;
+    for mode in 0..6 {
         let mut parameters = *base;
         if mode == 1 {
             parameters[7] = 0.0;
         }
         if mode == 2 {
             parameters[6] = 0.0;
+        }
+        if mode == 3 {
+            parameters[24] = 0.0;
+            parameters[25] = 3.0;
+            parameters[26] = 1.0;
+        }
+        if mode == 4 {
+            parameters[4] = 0.0;
+        }
+        if mode == 5 {
+            parameters[5] = 0.0;
         }
         let settings = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: None,
@@ -496,7 +547,7 @@ fn probe(@builtin(global_invocation_id) id:vec3<u32>) {{
             pass.set_bind_group(0, &group, &[]);
             pass.dispatch_workgroups(1, 1, 1);
         }
-        encoder.copy_buffer_to_buffer(&result, 0, &readback, 0, 48);
+        encoder.copy_buffer_to_buffer(&result, 0, &readback, 0, 80);
         queue.submit([encoder.finish()]);
         let (tx, rx) = mpsc::channel();
         readback
@@ -523,6 +574,20 @@ fn probe(@builtin(global_invocation_id) id:vec3<u32>) {{
         );
         if mode == 0 {
             assert!(values[0][0] < 0.99, "cache must cast a shadow");
+            ground_shadow = values[0][0];
+            assert!(
+                (values[3][0] - ground_shadow).abs() < 1e-6,
+                "altitude along the same sun ray must preserve below-cloud shadows"
+            );
+            assert!(
+                values[4][0] > ground_shadow,
+                "receivers inside the upper layer must only see the remaining optical path"
+            );
+        } else if mode == 3 {
+            assert_eq!(
+                values[0][0], ground_shadow,
+                "orbital and ground cameras must receive identical surface shadows"
+            );
         } else {
             assert!(
                 values.iter().all(|v| v[0] == 1.0),
@@ -533,7 +598,7 @@ fn probe(@builtin(global_invocation_id) id:vec3<u32>) {{
         readback.unmap();
     }
     println!(
-        "Reflection cube GPU: all six HDR faces finite; global cached density bounded; cached shadows, night, layer bounds and disabled controls passed"
+        "Cloud shadow cube GPU: six finite optical-depth faces, ground/orbit agreement, elevated receivers, partial layer, night and stale-cache disable controls passed"
     );
 }
 

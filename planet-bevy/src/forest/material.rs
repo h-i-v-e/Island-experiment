@@ -34,6 +34,8 @@ pub struct ForestExtension {
     #[texture(126, dimension = "cube")]
     #[sampler(102)]
     pub environment_sky: Option<Handle<Image>>,
+    #[texture(127, dimension = "cube")]
+    pub environment_shadows: Option<Handle<Image>>,
 }
 pub type ForestMaterial = ExtendedMaterial<StandardMaterial, ForestExtension>;
 impl MaterialExtension for ForestExtension {
@@ -75,6 +77,7 @@ pub(super) fn create_materials(
                 noise: Some(textures.noise.clone()),
                 environment: textures.environment.clone(),
                 environment_sky: Some(textures.environment_sky.clone()),
+                environment_shadows: Some(textures.environment_shadows.clone()),
             },
         })
     })

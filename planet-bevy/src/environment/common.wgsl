@@ -61,32 +61,74 @@ fn environment_sun_visibility(p: vec3<f32>, parameters: EnvironmentUniform) -> f
     let discriminant = projection * projection - dot(p, p) + 1.0;
     return select(1.0, 0.0, projection < 0.0 && discriminant > 0.0);
 }
+// Signed sunward entry/exit distances through the shell, measured from an
+// anchor inside it. The inner positive root selects this planet's near layer.
+fn environment_shadow_interval(anchor: vec3<f32>, parameters: EnvironmentUniform) -> vec2<f32> {
+    let direction = normalize(parameters.sun.xyz);
+    let inner = 1.0 + parameters.shape.y / parameters.shape.x;
+    let outer = inner + parameters.shape.z / parameters.shape.x;
+    let projection = dot(anchor, direction);
+    let square = dot(anchor, anchor);
+    return vec2<f32>(-projection + sqrt(max(projection * projection - square + inner * inner, 0.0)),
+        -projection + sqrt(max(projection * projection - square + outer * outer, 0.0)));
+}
+// A sun ray is indexed by its intersection with the middle cloud sphere.
+// This is independent of the viewer and applies to every terrain LOD. The
+// fourth component clips the optical path for receivers inside the clouds.
+fn environment_shadow_coordinate(p: vec3<f32>, parameters: EnvironmentUniform) -> vec4<f32> {
+    let direction = normalize(parameters.sun.xyz);
+    let elevation = dot(normalize(p), direction);
+    if elevation <= 0.015 || (length(p) - 1.0) * parameters.shape.x >= parameters.shape.y + parameters.shape.z {
+        return vec4<f32>(0.0);
+    }
+    let middle_radius = 1.0 + (parameters.shape.y + parameters.shape.z * 0.5) / parameters.shape.x;
+    let projection = dot(p, direction);
+    let discriminant = projection * projection - dot(p, p) + middle_radius * middle_radius;
+    if discriminant <= 0.0 { return vec4<f32>(0.0); }
+    let distance = -projection + sqrt(discriminant);
+    let middle = p + direction * distance;
+    let interval = environment_shadow_interval(middle, parameters);
+    let remaining = clamp((interval.y - max(interval.x, -distance)) / max(interval.y - interval.x, 0.000001), 0.0, 1.0);
+    return vec4<f32>(middle / middle_radius, remaining);
+}
+fn environment_shadow_optical_depth(anchor: vec3<f32>, parameters: EnvironmentUniform,
+    noise: texture_3d<f32>, noise_sampler: sampler) -> f32 {
+    if parameters.weather.w < 0.5 || parameters.weather.x <= 0.0 || parameters.weather.y <= 0.0
+        || dot(anchor, parameters.sun.xyz) <= 0.0 { return 0.0; }
+    let interval = environment_shadow_interval(anchor, parameters);
+    let stride = max(interval.y - interval.x, 0.0) / 8.0;
+    let direction = normalize(parameters.sun.xyz);
+    var optical_depth = 0.0;
+    for (var i = 0u; i < 8u; i += 1u) {
+        let sample = anchor + direction * (interval.x + (f32(i) + 0.5) * stride);
+        optical_depth += environment_density(sample, parameters, noise, noise_sampler);
+    }
+    return optical_depth * stride * parameters.shape.x * environment_extinction(parameters);
+}
 fn environment_shadow(p: vec3<f32>, parameters: EnvironmentUniform,
     noise: texture_3d<f32>, noise_sampler: sampler) -> f32 {
     if parameters.weather.w < 0.5 || parameters.weather.z <= 0.0 || parameters.weather.x <= 0.0 {
         return 1.0;
     }
-    let direction = normalize(parameters.sun.xyz);
-    let up = normalize(p);
-    let elevation = dot(up, direction);
-    if elevation <= 0.015 || (length(p) - 1.0) * parameters.shape.x >= parameters.shape.y + parameters.shape.z {
-        return 1.0;
-    }
-    let middle_radius = 1.0 + (parameters.shape.y + parameters.shape.z * 0.45) / parameters.shape.x;
-    let projection = dot(p, direction);
-    let discriminant = projection * projection - dot(p, p) + middle_radius * middle_radius;
-    if discriminant <= 0.0 { return 1.0; }
-    let distance = -projection + sqrt(discriminant);
-    if distance <= 0.0 { return 1.0; }
-    let middle = p + direction * distance;
-    let offset = direction * (parameters.shape.z * 0.24 / parameters.shape.x);
-    let density = environment_density(middle - offset, parameters, noise, noise_sampler) * 0.25
-        + environment_density(middle, parameters, noise, noise_sampler) * 0.5
-        + environment_density(middle + offset, parameters, noise, noise_sampler) * 0.25;
-    let slant = min(1.0 / max(elevation, 0.12), 5.0);
-    let transmission = exp(-density * parameters.shape.z * slant * environment_extinction(parameters));
+    let coordinate = environment_shadow_coordinate(p, parameters);
+    if coordinate.w <= 0.0 { return 1.0; }
+    let radius = 1.0 + (parameters.shape.y + parameters.shape.z * 0.5) / parameters.shape.x;
+    let optical_depth = environment_shadow_optical_depth(coordinate.xyz * radius, parameters, noise, noise_sampler);
+    let transmission = exp(-optical_depth * coordinate.w);
+    let elevation = dot(normalize(p), normalize(parameters.sun.xyz));
     let strength = parameters.weather.z * smoothstep(0.015, 0.13, elevation);
     return mix(1.0, transmission, strength);
+}
+fn environment_cube_direction(face: u32, uv: vec2<f32>) -> vec3<f32> {
+    let p = uv * 2.0 - 1.0;
+    switch face {
+        case 0u: { return normalize(vec3<f32>(1.0, -p.y, -p.x)); }
+        case 1u: { return normalize(vec3<f32>(-1.0, -p.y, p.x)); }
+        case 2u: { return normalize(vec3<f32>(p.x, 1.0, p.y)); }
+        case 3u: { return normalize(vec3<f32>(p.x, -1.0, -p.y)); }
+        case 4u: { return normalize(vec3<f32>(p.x, -p.y, 1.0)); }
+        default: { return normalize(vec3<f32>(-p.x, -p.y, -1.0)); }
+    }
 }
 // Exposed by the surface integration as an approximate direct-light factor.
 // A floor preserves indirect skylight beneath dense cloud shadows.

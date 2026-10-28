@@ -24,6 +24,7 @@ pub struct TerrainTextures {
     pub detail_frame: Handle<ShaderBuffer>,
     pub environment: Handle<ShaderBuffer>,
     pub environment_sky: Handle<Image>,
+    pub environment_shadows: Handle<Image>,
     pub forest_mask: Handle<Image>,
 }
 
@@ -55,6 +56,7 @@ impl TerrainTextures {
             detail_mapping: self.detail_frame.clone(),
             environment: self.environment.clone(),
             environment_sky: Some(self.environment_sky.clone()),
+            environment_shadows: Some(self.environment_shadows.clone()),
             forest_mask: Some(self.forest_mask.clone()),
             ..default()
         }
@@ -85,6 +87,7 @@ pub fn setup(
         detail_mask: images.add(crate::details::mask_image(vec![0; 512 * 512 * 4])),
         environment: environment.uniform.clone(),
         environment_sky: reflection.cube.clone(),
+        environment_shadows: reflection.shadows.clone(),
         forest_mask: images.add(crate::forest::mask::image(vec![
             0;
             crate::forest::mask::PIXELS
