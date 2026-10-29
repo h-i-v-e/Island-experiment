@@ -186,9 +186,29 @@ the paths. Each source radiates outward in true surface distance `d`, using
 and zero outside that range. Here `R` is the physical planet radius: **1 km along
 the surface** on the default planet. Each contribution has zero height and slope
 at both ends, with maximum amplitude halfway out. The four contributions overlap;
-other sources can still contribute at a source's centre. The original 30, 15,
-7.5 and 4 m wavelengths remain, and analytic derivatives provide matching normals.
+other sources can still contribute at a source's centre. The manual wavelengths
+are 60, 30, 15 and 8 m, twice their original lengths. The default wave-height
+multiplier is 2; setting **Wave height scale** to 1 restores the old amplitude.
+Analytic derivatives provide matching normals.
 Coastal breakers and shallow-water suppression apply after the swells combine.
+
+Shore waves have a 24 m wavelength and use Island's asymmetric breaker profile.
+They start steepening below 5 m depth and reach full shaping by 3.5 m: the
+shore-facing rise compresses while the back stretches to preserve the complete
+wavelength. Shaping fades outside the 96 m coastal band and on coarse geometry.
+The shore wave retains its depth-capped amplitude through the ordinary swell's
+shallow/distance fade, with river outlets excluded. Normals include both the
+depth transition and coastal envelope gradients; breaker foam follows the crest.
+
+Foam uses Island's improved single-texture breakup: smoothly blended, animated
+cellular distortion makes rounded pockets in a 7 m repeating noise volume.
+Fixed 3D coordinates keep it continuous around the globe. Ordinary whitecaps
+form only in the top 20% of the **signed combined** wave crest envelope, with
+strength rising linearly to full at 18 m/s wind (9 m/s in manual-wave mode).
+Coastal breakers and contact rings share the same breakup. Stored trails use a
+stable local wave envelope, so they survive troughs but clear in calm water and
+flattened river mouths. History is mapped to the displaced world surface using
+a bounded inverse solve, and follows the same animation clock as the waves.
 
 One closed spherical mesh rotates its dense pole beneath the camera, including
 when walking around the planet. Concentric rings start at **1 m spacing within
@@ -283,8 +303,9 @@ continue to use their embedded sources.
 
 Forests reuse Unity Island's procedural tree generator through the local `motu`
 library. Four shared prototypes supply branched wood, detailed foliage, eight
-nearby leaf shells, and a coarse distant canopy. Bark and foliage use procedural
-surface detail, radial wind, sun shadows, cloud shadows and the final depth buffer.
+nearby leaf shells, and a coarse distant trunk and canopy. Bark and foliage use
+procedural surface detail, radial wind, sun shadows, cloud shadows and the final
+depth buffer.
 Growth steps rotate by at most 45 degrees, with no trunk-wide rotation budget.
 Intermediate rings are omitted only while net twist and endpoint-frame rotation
 stay within 45 degrees; otherwise a support ring is retained before
@@ -303,7 +324,10 @@ shared by instances; coarse uploads and nearby spawns have per-frame limits.
 
 Trees select their LOD by camera distance in both orbit and first-person views.
 Fine wood is used within 30 m, leaf shells nearby, and detailed foliage out to
-240 m by default. Beyond the detailed range, trees use the simplified canopy.
+240 m by default. Beyond the detailed range, trees use the simplified canopy
+and Island's single straight, four-sided LOD2 trunk (8 vertices, 12 triangles).
+Both parts share one mesh and draw, with separate foliage/bark shading, so far
+trees stay attached to the ground without increasing draw calls.
 Each coarse canopy stays visible until its detailed replacement is ready, then
 hands back when the tree leaves the range. Meshes remain shared between trees,
 and coarse forest cells beyond the planet's curvature are hidden conservatively.
@@ -314,6 +338,7 @@ replaced when the planet is regenerated. For command-line comparisons:
 
 ```sh
 cargo run -p planet-bevy -- --view forest
+cargo run -p planet-bevy -- --view forest --forest-distance 0 # inspect coarse trunks/canopies
 cargo run -p planet-bevy -- --no-forests
 ```
 
@@ -521,11 +546,20 @@ shadows, while water and fur shells receive them. Modest ambient skylight keeps
 shadowed rock detail visible.
 
 Indirect ambient and sky-probe light follows radial solar elevation at each
-surface point. Day-side lighting is unchanged; twilight fades smoothly to a
-4% ambient floor on the night side. Terrain at every LOD, stones, grass, trees,
+surface point. A broad twilight band fades skylight from full strength at
+8.6° solar elevation to the existing 4% night floor below −20.5°. A quintic
+curve joins both ends gently, avoiding a sharp shoulder along the terminator.
+Terrain at every LOD, stones, grass, trees,
 river/ocean bodies and foam share this fade. Cached water-sky reflections follow
 the same local factor, so a day-side orbital sky probe cannot illuminate the
-night-side sea. Direct sun lighting retains its existing shadowing.
+night-side sea. Direct sun lighting retains its existing shadowing. Clouds
+and atmospheric haze use a soft planetary penumbra centred on their own raised
+horizon, so high clouds retain sunset light after the ground enters night.
+Twilight illumination shifts progressively from neutral daylight through amber
+to red, then releases the tint into the dim night floor. Terrain, vegetation,
+water bodies, foam, reflections and waterfall mist share the same radial colour
+filter; cloud colour follows its altitude-adjusted sunset. Existing light is
+filtered rather than adding an emissive ring around the planet.
 
 AO uses an independent WGSL hemisphere-probe implementation of the Unity effect.
 Its defaults match OpenSeaWorld's settings: strength 0.3, radius 0.05 metres,
@@ -726,7 +760,8 @@ reflections. Fine billows add procedural detail to the simulated formations.
 The navigable planet remains 1 km in radius. Atmospheric dynamics use a
 6,371 km effective climate radius and 600 climate seconds per real second;
 wind samples remain in m/s. Ocean wave groups use the actual planet's metres and
-real seconds. A directional spectrum (8 directions × 3 wavelengths) grows under
+real seconds. A directional spectrum (8 directions × 3 wavelengths: 10, 30 and
+80 m) grows under
 surface wind, travels over water, loses energy at land and shallow boundaries,
 and retains swell when wind falls. The renderer reconstructs the dominant
 spectrum using 36 globally anchored travelling modes (six irregular axes, both

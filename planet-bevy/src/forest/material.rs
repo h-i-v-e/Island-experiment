@@ -1,7 +1,7 @@
 use crate::terrain_material::TerrainTextures;
 use bevy::{
     asset::{RenderAssetUsages, embedded_asset},
-    mesh::{Indices, PrimitiveTopology},
+    mesh::{Indices, PrimitiveTopology, VertexAttributeValues},
     pbr::{ExtendedMaterial, MaterialExtension},
     prelude::*,
     render::{
@@ -119,9 +119,27 @@ pub(super) fn upload(source: motu::TreeMeshes, meshes: &mut Assets<Mesh>) -> Pro
         wood: meshes.add(mesh(&source.lod0_wood, false)),
         branches: meshes.add(mesh(&source.lod1_wood, false)),
         leaves: meshes.add(mesh(&source.lod0_foliage, false)),
-        canopy: meshes.add(mesh(&source.lod1_foliage, false)),
+        canopy: meshes.add(distant_mesh(&source)),
         shells: meshes.add(shells),
     }
+}
+fn distant_mesh(source: &motu::TreeMeshes) -> Mesh {
+    let mut canopy = mesh(&source.lod1_foliage, false);
+    let mut trunk = mesh(&source.lod2_wood, false);
+    let Some(VertexAttributeValues::Float32x4(colours)) =
+        trunk.attribute_mut(Mesh::ATTRIBUTE_COLOR)
+    else {
+        unreachable!("tree meshes always carry float vertex colours");
+    };
+    // G distinguishes bark from foliage within one distant-tree draw. R keeps
+    // its existing shell-layer meaning; detailed wood uses its material kind.
+    for colour in colours {
+        colour[1] = 0.0;
+    }
+    canopy
+        .merge(&trunk)
+        .expect("tree parts share their topology and vertex attributes");
+    canopy
 }
 fn mesh(source: &motu::Mesh, shells: bool) -> Mesh {
     let layers = if shells { 8 } else { 1 };
@@ -152,4 +170,42 @@ fn mesh(source: &motu::Mesh, shells: bool) -> Mesh {
     .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
     .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, colours)
     .with_inserted_indices(Indices::U32(indices))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn distant_tree_keeps_island_trunk_geometry_in_one_shared_mesh() {
+        let source = motu::generate_tree(2018);
+        let canopy_vertices = source.lod1_foliage.vertices.len();
+        let canopy_indices = source.lod1_foliage.triangles.len();
+        let trunk_positions: [[f32; 3]; 8] =
+            std::array::from_fn(|i| source.lod2_wood.vertices[i].to_array());
+        let mut assets = Assets::<Mesh>::default();
+        let model = upload(source, &mut assets);
+        // Four near meshes and one combined distant mesh; no extra trunk draw.
+        assert_eq!(assets.len(), 5);
+        let distant = assets.get(&model.canopy).unwrap();
+        let positions = distant
+            .attribute(Mesh::ATTRIBUTE_POSITION)
+            .unwrap()
+            .as_float3()
+            .unwrap();
+        assert_eq!(positions.len(), canopy_vertices + 8);
+        for (actual, expected) in positions[canopy_vertices..].iter().zip(&trunk_positions) {
+            assert_eq!(actual.map(f32::to_bits), expected.map(f32::to_bits));
+        }
+        assert_eq!(distant.indices().unwrap().len(), canopy_indices + 36);
+        let VertexAttributeValues::Float32x4(colours) =
+            distant.attribute(Mesh::ATTRIBUTE_COLOR).unwrap()
+        else {
+            panic!("missing distant-tree material tags");
+        };
+        assert!(colours[..canopy_vertices].iter().all(|c| c[1] > 0.5));
+        assert!(colours[canopy_vertices..].iter().all(|c| c[1] < 0.5));
+        model.remove(&mut assets);
+        assert!(assets.is_empty(), "regeneration must release shared meshes");
+    }
 }

@@ -29,6 +29,25 @@ async fn run() {
 fn test(@builtin(global_invocation_id) id:vec3<u32>) {{
  if id.x>=arrayLength(&points) {{return;}}
  let p=points[id.x].xyz;
+ if parameters.simulation.w < -3.5 {{
+   let elevations=array<f32,10>(-0.8,-0.35,-0.25,-0.18,-0.1,0.0,0.08,0.15,0.5,0.9);
+   let elevation=elevations[id.x];
+   let radial=vec3<f32>(sqrt(1.0-elevation*elevation),elevation,0.0);
+   results[id.x]=vec4<f32>(environment_surface_tint(radial,parameters),environment_ambient_weight(radial,parameters));return;
+ }}
+ if parameters.simulation.w < -2.5 {{
+   let elevation=-0.5+f32(id.x)*0.1;
+   let radial=vec3<f32>(sqrt(1.0-elevation*elevation),elevation,0.0);
+   let offset=-0.06+f32(id.x)*(0.12/9.0);
+   let surface=vec3<f32>(sqrt(1.0-offset*offset),offset,0.0);
+   let radius=1.1;let horizon=-sqrt(1.0-1.0/(radius*radius));
+   let raised_elevation=horizon+offset;
+   let cloud=vec3<f32>(sqrt(1.0-raised_elevation*raised_elevation),raised_elevation,0.0)*radius;
+   results[id.x]=vec4<f32>(environment_ambient_weight(radial,parameters),
+     environment_sun_visibility(surface,parameters),environment_sun_visibility(cloud,parameters),
+     environment_sun_visibility(normalize(cloud),parameters));
+   return;
+ }}
  if parameters.simulation.w < -1.5 {{
    var rotated=parameters;rotated.sun=vec4<f32>(parameters.sun.yzx,parameters.sun.w);
    rotated.viewer=vec4<f32>(0.0,-3.0,0.0,0.0);
@@ -198,7 +217,7 @@ fn test(@builtin(global_invocation_id) id:vec3<u32>) {{
     ];
     base[7] = base[1];
     let mut runs: Vec<Vec<[f32; 4]>> = Vec::new();
-    for mode in 0..16 {
+    for mode in 0..18 {
         let mut parameters = base;
         if mode == 1 {
             parameters[7] = 0.0;
@@ -238,9 +257,9 @@ fn test(@builtin(global_invocation_id) id:vec3<u32>) {{
             parameters[28] = 2.0;
             parameters[29] = 3600.0;
         }
-        if mode == 15 {
+        if mode >= 15 {
             parameters = base;
-            parameters[31] = -2.0;
+            parameters[31] = -(mode as f32 - 13.0);
         }
         let settings = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: None,
@@ -307,11 +326,10 @@ fn test(@builtin(global_invocation_id) id:vec3<u32>) {{
             values.iter().flatten().all(|v| v.is_finite()),
             "nonfinite weather result: {values:?}"
         );
-        assert!(
-            values
-                .iter()
-                .all(|v| (0.0..=1.0).contains(&v[0]) && (0.0..=1.0).contains(&v[1]))
-        );
+        assert!(values.iter().all(
+            |v| (0.0..=if mode == 17 { 1.2 } else { 1.0 }).contains(&v[0])
+                && (0.0..=1.0).contains(&v[1])
+        ));
         if mode == 0 {
             assert!(
                 values[0][0] < 1e-5 && values[1][0] < 1e-5,
@@ -372,6 +390,77 @@ fn test(@builtin(global_invocation_id) id:vec3<u32>) {{
             }
             println!(
                 "Night ambient GPU: day unchanged, 4 percent night floor, twilight blend, radius/rotation/camera invariance passed"
+            );
+        }
+        if mode == 16 {
+            assert!((values[0][0] - 0.04).abs() < 1e-6 && (values[9][0] - 1.0).abs() < 1e-6);
+            assert!(
+                values[3][0] > 0.10,
+                "twilight does not reach into the night hemisphere"
+            );
+            assert!(
+                values[5][0] < 0.95 && values[6][0] > 0.95,
+                "day-side shoulder is too abrupt"
+            );
+            assert!(
+                values.windows(2).all(|p| p[0][0] <= p[1][0]),
+                "twilight brightness must increase toward the Sun"
+            );
+            assert!(
+                values.windows(2).all(|p| p[1][0] - p[0][0] < 0.35),
+                "twilight retains a steep brightness step"
+            );
+            for column in [1, 2] {
+                assert!(values[0][column] < 0.0001 && values[9][column] > 0.9999);
+                assert!(
+                    values[1..9]
+                        .iter()
+                        .all(|v| v[column] > 0.0 && v[column] < 1.0),
+                    "atmospheric night shadow must have a penumbra"
+                );
+                assert!(values.windows(2).all(|p| p[0][column] <= p[1][column]));
+            }
+            assert!(
+                values.iter().all(|v| (v[1] - v[2]).abs() < 0.00001),
+                "cloud penumbra must follow its raised horizon"
+            );
+            assert!(
+                values.iter().all(|v| v[3] == 0.0),
+                "illuminated high clouds must remain above night-side ground"
+            );
+            println!(
+                "Twilight GPU: broad smooth surface band, unchanged day/night endpoints, continuous altitude-aware cloud/haze penumbra passed"
+            );
+        }
+        if mode == 17 {
+            for i in [0, 1, 7, 8, 9] {
+                assert!(
+                    values[i][..3].iter().all(|v| (v - 1.0).abs() < 1e-5),
+                    "day/deep-night tint changed: {:?}",
+                    values[i]
+                );
+            }
+            let ratio = |i: usize, c: usize| values[i][c] / values[i][0];
+            for c in [1, 2] {
+                assert!(
+                    ratio(5, c) > ratio(4, c) && ratio(4, c) > ratio(3, c),
+                    "twilight must progressively lose green/blue toward sunset"
+                );
+            }
+            assert!(
+                values[3][0] > 1.0 && ratio(3, 1) < 0.35 && ratio(3, 2) < 0.15,
+                "late twilight should be red"
+            );
+            assert!(
+                values[2][1] > values[3][1],
+                "red tint should fade back into deep night"
+            );
+            assert!(
+                (values[0][3] - 0.04).abs() < 1e-6,
+                "red shift must preserve deep-night brightness"
+            );
+            println!(
+                "Twilight colour GPU: neutral daylight/night, progressively amber-to-red transition, dark night floor and no emissive band passed"
             );
         }
         if mode == 6 {

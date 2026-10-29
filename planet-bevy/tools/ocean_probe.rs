@@ -38,7 +38,31 @@ fn weather_lower(n:vec3<f32>)->vec4<f32> {let w=weather_fixture.wind.xyz;return 
 fn weather_swell(n:vec3<f32>,index:u32)->vec4<f32> {let w=select(weather_fixture.second,weather_fixture.first,index==0u);return vec4<f32>(w.xyz-n*dot(n,w.xyz),w.w);}
 fn weather_swell_previous(n:vec3<f32>,index:u32)->vec4<f32> {let w=select(weather_fixture.previous_second,weather_fixture.previous_first,index==0u);return vec4<f32>(w.xyz-n*dot(n,w.xyz),w.w);}
 "#;
-    let source = source + "\n@group(0) @binding(0) var<storage,read> inputs:array<vec4<f32>>;\n@group(0) @binding(1) var<storage,read_write> output:array<vec4<f32>>;\n@compute @workgroup_size(1) fn probe(@builtin(global_invocation_id) id:vec3<u32>){let input=inputs[id.x];if input.w < -2.0 {
+    let source = source + "\n@group(0) @binding(0) var<storage,read> inputs:array<vec4<f32>>;\n@group(0) @binding(1) var<storage,read_write> output:array<vec4<f32>>;\n@compute @workgroup_size(1) fn probe(@builtin(global_invocation_id) id:vec3<u32>){let input=inputs[id.x];if input.w < -32.0 {
+ let sample=waves_at_surface(input.xyz,0.5,0.01);let displayed=normalize(sample.base+sample.wave.displacement/ocean.shape.x);
+ let offset=id.x*4u;
+ output[offset]=vec4<f32>(sample.base,length(displayed-input.xyz)*ocean.shape.x);
+ output[offset+1u]=vec4<f32>(sample.wave.displacement,length(sample.base-input.xyz)*ocean.shape.x);return;
+}if input.w < -16.0 {
+ let offset=id.x*4u;
+ output[offset]=vec4<f32>(foam_coordinates(input.xyz),foam_patches(input.xyz,0.1));
+ output[offset+1u]=vec4<f32>(foam_crest(input.x,input.y,input.z),0.0,0.0,0.0);return;
+}if input.w < -4.0 {
+ let d=input.x;let depth=input.y;let wavelength=SHORE_WAVELENGTH;let k=6.28318530718/wavelength;
+ let phase=d*k+input.z;let footprint=-input.w-4.0;let epsilon=0.002;
+ let shape=shore_breaker_shape(phase,d,depth,wavelength,footprint);
+ let plus_d=shore_breaker_shape(phase+k*epsilon,d+epsilon,depth,wavelength,footprint);
+ let minus_d=shore_breaker_shape(phase-k*epsilon,d-epsilon,depth,wavelength,footprint);
+ let plus_depth=shore_breaker_shape(phase,d,depth+epsilon,wavelength,footprint);
+ let minus_depth=shore_breaker_shape(phase,d,depth-epsilon,wavelength,footprint);
+ let periodic=shore_breaker_shape(phase+6.28318530718,d,depth,wavelength,footprint);
+ let offset=id.x*4u;
+ output[offset]=vec4<f32>(shape.height,shape.distance_derivative,shape.depth_derivative,shape.foam);
+ output[offset+1u]=vec4<f32>((plus_d.height-minus_d.height)/(2.0*epsilon),(plus_depth.height-minus_depth.height)/(2.0*epsilon),sin(phase),manual_wave_height_bound());
+ output[offset+2u]=vec4<f32>(periodic.height,periodic.distance_derivative,periodic.depth_derivative,periodic.foam);
+ output[offset+3u]=vec4<f32>(SHORE_WAVELENGTH,COMPONENTS[0].x,WEATHER_LENGTHS[0],WEATHER_LENGTHS[2]);
+ return;
+}if input.w < -2.0 {
  let p=input.xyz*ocean.shape.x;let axis=normalize(vec3<f32>(0.4,0.7,0.3));
  let domain=weather_domain(p,15.0,1u);let gradient=weather_domain_gradient(axis,domain);
  let ex=vec3<f32>(0.125,0.0,0.0);let ey=ex.zxy;let ez=ex.yzx;
@@ -47,7 +71,7 @@ fn weather_swell_previous(n:vec3<f32>,index:u32)->vec4<f32> {let w=select(weathe
  dot(weather_domain(p+ey,15.0,1u).position-weather_domain(p-ey,15.0,1u).position,axis),
  dot(weather_domain(p+ez,15.0,1u).position-weather_domain(p-ez,15.0,1u).position,axis))/0.25;
  output[id.x*4u]=vec4<f32>(gradient,0.0);output[id.x*4u+1u]=vec4<f32>(fd,0.0);return;
-}var w=waves_at(input.xyz,abs(input.w));if input.w<0.0 {let s=swell_at(input.xyz,ocean.sources[0],COMPONENTS[0],SPEEDS[0],0.1);w=Waves(s.displacement,s.slope,s.crest,0.0,s.variance,0.0,0.0);}let offset=id.x*4u;output[offset]=vec4<f32>(w.displacement,w.crest);output[offset+1u]=vec4<f32>(w.slope,w.foam);output[offset+2u]=vec4<f32>(w.variance,w.depth,w.distance,0.0);output[offset+3u]=coast(input.xyz);}\n";
+}var w=waves_at(input.xyz,abs(input.w));if input.w<0.0 {let s=swell_at(input.xyz,ocean.sources[0],COMPONENTS[0],SPEEDS[0],0.1);w=Waves(s.displacement,s.slope,s.crest,0.0,s.variance,0.0,0.0,0.0,0.0);}let offset=id.x*4u;output[offset]=vec4<f32>(w.displacement,w.crest);output[offset+1u]=vec4<f32>(w.slope,w.foam);output[offset+2u]=vec4<f32>(w.variance,w.depth,w.distance,0.0);output[offset+3u]=coast(input.xyz);}\n";
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let adapter = bevy_tasks::block_on(instance.request_adapter(&Default::default())).unwrap();
     let (device, queue) = bevy_tasks::block_on(adapter.request_device(&Default::default())).unwrap();
@@ -65,11 +89,15 @@ fn weather_swell_previous(n:vec3<f32>,index:u32)->vec4<f32> {let w=select(weathe
         usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST, view_formats: &[],
     });
     let cube = texture(wgpu::TextureDimension::D2, 8, 8, 6);
-    let volume = texture(wgpu::TextureDimension::D3, 1, 1, 1);
-    queue.write_texture(volume.as_image_copy(), &[128;4], wgpu::TexelCopyBufferLayout { offset:0, bytes_per_row:Some(4), rows_per_image:Some(1) }, volume.size());
+    let volume = texture(wgpu::TextureDimension::D3, 16, 16, 16);
+    queue.write_texture(volume.as_image_copy(), &vec![128;16*16*16*4], wgpu::TexelCopyBufferLayout { offset:0, bytes_per_row:Some(64), rows_per_image:Some(16) }, volume.size());
     let cube_view = cube.create_view(&wgpu::TextureViewDescriptor { dimension:Some(wgpu::TextureViewDimension::Cube), ..Default::default() });
     let noise_view = volume.create_view(&Default::default());
     let sampler = device.create_sampler(&wgpu::SamplerDescriptor { mag_filter:wgpu::FilterMode::Linear, min_filter:wgpu::FilterMode::Linear, ..Default::default() });
+    let repeat_sampler=device.create_sampler(&wgpu::SamplerDescriptor {
+        address_mode_u:wgpu::AddressMode::Repeat,address_mode_v:wgpu::AddressMode::Repeat,address_mode_w:wgpu::AddressMode::Repeat,
+        mag_filter:wgpu::FilterMode::Linear,min_filter:wgpu::FilterMode::Linear,..Default::default()
+    });
     let mut directions = Vec::new();
     for face in 0..6 {
         for (x,y) in [(1,1),(6,1),(1,6),(6,6)] {
@@ -118,7 +146,7 @@ fn weather_swell_previous(n:vec3<f32>,index:u32)->vec4<f32> {let w=select(weathe
             wgpu::BindGroupEntry { binding:101, resource:wgpu::BindingResource::TextureView(&cube_view) },
             wgpu::BindGroupEntry { binding:102, resource:wgpu::BindingResource::Sampler(&sampler) },
             wgpu::BindGroupEntry { binding:103, resource:wgpu::BindingResource::TextureView(&noise_view) },
-            wgpu::BindGroupEntry { binding:104, resource:wgpu::BindingResource::Sampler(&sampler) },
+            wgpu::BindGroupEntry { binding:104, resource:wgpu::BindingResource::Sampler(&repeat_sampler) },
             wgpu::BindGroupEntry { binding:129, resource:weather.as_entire_binding() },
         ] });
         let mut encoder = device.create_command_encoder(&Default::default());
@@ -176,7 +204,7 @@ fn weather_swell_previous(n:vec3<f32>,index:u32)->vec4<f32> {let w=select(weathe
                 let a=std::f32::consts::PI*theta;
                 (a.sin().powi(2),std::f32::consts::TAU*a.sin()*a.cos()/1000.)
             } else {(0.,0.)};
-            let k=std::f32::consts::TAU/30.;
+            let k=std::f32::consts::TAU/60.;
             let phase=(theta*1000.-time*3.6)*k+0.7;
             let expected=0.34*envelope*phase.sin();
             let height:f32=(0..3).map(|j|n[j]*row[j]).sum();
@@ -191,6 +219,58 @@ fn weather_swell_previous(n:vec3<f32>,index:u32)->vec4<f32> {let w=select(weathe
             assert!(row.iter().all(|v|v.is_finite()));
         }
     }
+    // The production breaker must retain its period and smoothly reproduce a
+    // sine offshore, while its shallow shore-facing rise steepens. Check BOTH
+    // distance and bathymetry derivatives against independent finite differences.
+    let mut breaker_points=Vec::new();
+    for distance in [4.0_f32,32.0,60.0,82.0,95.0,100.0] {
+        for depth in [0.15_f32,3.0,3.5,4.2,5.0,8.0] {
+            for phase in 0..48 {
+                let offset=std::f32::consts::TAU*(phase as f32/48.0-distance/24.0);
+                breaker_points.push([distance,depth,offset]);
+            }
+        }
+    }
+    for (point,row) in breaker_points.iter().zip(dispatch(&breaker_points,&wet,0.,0.,2.,-4.1)) {
+        assert!(row.iter().all(|v|v.is_finite()));
+        assert!(row[0].abs()<=1.00001 && (0.0..=1.0).contains(&row[3]));
+        assert!((row[1]-row[4]).abs()<0.012,"breaker distance slope disagrees with geometry: {row:?}");
+        // Smoothstep clamp endpoints have one-sided curvature; a finite
+        // stencil straddles that curvature, while the exact C1 derivative is zero.
+        if point[1]==3.5 || point[1]==5.0 {
+            assert!(row[2].abs()<0.000001,"depth clamp must join with zero slope");
+        } else {
+            assert!((row[2]-row[5]).abs()<0.015,"breaker depth transition slope disagrees with geometry: {row:?}");
+        }
+        for j in 0..4 {assert!((row[j]-row[j+8]).abs()<0.0002,"breaker lost its complete wavelength: {row:?}");}
+        assert_eq!(&row[12..16],&[24.,60.,10.,80.],"wavelength scales did not double");
+    }
+    let leading=0.5_f32-0.46*0.95;
+    let samples=[
+        [32.,3.,std::f32::consts::TAU*(leading*0.5-0.25-32./24.)],
+        [32.,3.,std::f32::consts::TAU*(leading+(1.-leading)*0.5-0.25-32./24.)],
+    ];
+    let steep=dispatch(&samples,&wet,0.,0.,2.,-4.1);
+    assert!(steep[0][1]>1.8 && steep[0][1]>steep[1][1].abs()*10.,"leading face failed to steepen and stretch its rear: {steep:?}");
+    for point in [[32.,8.,0.3],[110.,3.,0.3]] {
+        let row=dispatch(&[point],&wet,0.,0.,2.,-4.1)[0];
+        assert!((row[0]-row[6]).abs()<0.00001 && row[3]<0.00001,"deep/offshore wave should remain sinusoidal");
+    }
+    let coarse=dispatch(&samples,&wet,0.,0.,2.,-10.0);
+    assert!(coarse.iter().all(|row|(row[0]-row[6]).abs()<0.00001 && row[3]<0.00001),"coarse geometry must filter unresolved steep faces");
+    let double_height=dispatch(&directions,&wet,0.,0.,2.,0.1);
+    for (a,b) in baseline.iter().zip(double_height) {
+        for j in [0,1,2,4,5,6] {assert!((a[j]*2.-b[j]).abs()<0.0001,"manual amplitude multiplier is not linear: {a:?} vs {b:?}");}
+        assert!((a[3]-b[3]).abs()<0.0001,"normalized crest strength should not depend on amplitude");
+    }
+    // Isolate coastal geometry on the opposite hemisphere from every manual
+    // source. A one-metre-deep shore must retain a visible depth-capped wave,
+    // rather than applying the open-water distance/depth fade a second time.
+    let close=dispatch(&[[0.,-1.,0.]],&constant([26,4,0,255]),0.,0.,2.,0.1)[0];
+    assert!(-close[1]>0.08 && -close[1]<26./25.5,"coastal wave disappeared or crossed its seabed: {close:?}");
+    let river=dispatch(&[[0.,-1.,0.]],&constant([26,4,255,255]),0.,0.,2.,0.1)[0];
+    assert!(river[..3].iter().all(|v|v.abs()<0.000001) && river[7]<0.000001,"breaker leaked into a river outlet");
+    println!("Shore breaker GPU PASS: compressed front/stretched rear, preserved period, sine/deep/coarse limits, distance/depth derivatives, bounded foam, doubled wavelengths and amplitude.");
     let pattern:Vec<u8>=(0..6).flat_map(|face| (0..8).flat_map(move |y| (0..8).flat_map(move |x| {
         let n=direction(face,(x as f32+0.5)/4.-1.,(y as f32+0.5)/4.-1.);
         [(n[0]*0.5+0.5).mul_add(255.,0.).round() as u8, (n[1]*0.5+0.5).mul_add(255.,0.).round() as u8, (n[2]*0.5+0.5).mul_add(255.,0.).round() as u8,255]
@@ -204,7 +284,7 @@ fn weather_swell_previous(n:vec3<f32>,index:u32)->vec4<f32> {let w=select(weathe
     // phase, opposite/changed winds change the sea, and swapping dominant
     // spectrum ranks only exchanges energy contributions.
     let weather = weather_state([
-        12., 0., 3., 1., 0.418879, 0., 0., 0.45, 0., 0., 0.1570796, 0.3,
+        12., 0., 3., 1., 0.2094395, 0., 0., 0.45, 0., 0., 0.0785398, 0.3,
     ]);
     weather_fixture.replace(weather);
     let storm = dispatch(&directions, &wet, 1.2, 0., 1., 0.1);
@@ -217,7 +297,7 @@ fn weather_swell_previous(n:vec3<f32>,index:u32)->vec4<f32> {let w=select(weathe
         "storm has no waves"
     );
     let swapped = weather_state([
-        12., 0., 3., 1., 0., 0., 0.1570796, 0.3, 0.418879, 0., 0., 0.45,
+        12., 0., 3., 1., 0., 0., 0.0785398, 0.3, 0.2094395, 0., 0., 0.45,
     ]);
     weather_fixture.replace(swapped);
     let ranked = dispatch(&directions, &wet, 1.2, 0., 1., 0.1);
@@ -229,7 +309,7 @@ fn weather_swell_previous(n:vec3<f32>,index:u32)->vec4<f32> {let w=select(weathe
             );
         }
     }
-    let opposing = weather_state([0.,0.,0.,1., 0.418879,0.,0.,0.45, -0.418879,0.,0.,0.45]);
+    let opposing = weather_state([0.,0.,0.,1., 0.2094395,0.,0.,0.45, -0.2094395,0.,0.,0.45]);
     weather_fixture.replace(opposing);
     let opposing_reference=dispatch(&directions, &wet,1.2,0.,1.,0.1);
     for blend in [0.0,0.25,0.5,0.75,1.0] {
@@ -267,6 +347,9 @@ fn weather_swell_previous(n:vec3<f32>,index:u32)->vec4<f32> {let w=select(weathe
             .map(|p| p[..3].iter().map(|v| v * v).sum::<f32>())
             .sum::<f32>()
     };
+    let doubled=dispatch(&directions,&wet,1.2,0.,2.,0.1);
+    let height_ratio=(energy(&doubled)/energy(&storm)).sqrt();
+    assert!((1.85..2.05).contains(&height_ratio),"weather waves did not approximately double in height: {height_ratio}");
     assert!(
         energy(&filtered) < energy(&storm) * 0.02,
         "distant weather waves did not filter out"
@@ -339,7 +422,7 @@ fn weather_swell_previous(n:vec3<f32>,index:u32)->vec4<f32> {let w=select(weathe
         })
         .collect();
     weather_fixture.replace(weather_state([
-        0., 0., 0., 1., 0.418879, 0., 0., 0.6, 0., 0., 0.418879, 0.6,
+        0., 0., 0., 1., 0.2094395, 0., 0., 0.6, 0., 0., 0.2094395, 0.6,
     ]));
     let field = dispatch(&patch, &wet, 1.2, 0., 1., 0.1);
     let heights: Vec<f32> = field
@@ -366,6 +449,33 @@ fn weather_swell_previous(n:vec3<f32>,index:u32)->vec4<f32> {let w=select(weathe
     println!(
         "Weather ocean GPU PASS: anchored phases, spectrum-rank/mid-blend invariance, smooth time, directional chop, persistent swell, calm identity, cube/axis continuity, footprint filtering, shallow-bed bounds, nonlattice crossing seas and bent-wave derivatives."
     );
+    // Exercise the shipping signed-combined-crest selector, including wave
+    // cancellation and wind saturation, rather than a positive-component sum.
+    let thresholds=dispatch(&[[0.7,1.,18.],[0.9,1.,18.],[1.,1.,18.],[1.,1.,9.],[1.,1.,0.],[-1.,1.,18.],[1.,0.,18.],[1.,1.,36.]],&wet,0.,0.,2.,-20.);
+    for (row,expected) in thresholds.iter().zip([0.,0.5,1.,0.5,0.,0.,0.,1.]) {
+        assert!((row[4]-expected).abs()<0.00001,"combined crest/wind gate: {row:?}");
+    }
+    let noise:Vec<u8>=(0..16*16*16).flat_map(|i| {
+        let x=(i%16) as f32*std::f32::consts::TAU/16.;let y=(i/16%16) as f32*std::f32::consts::TAU/16.;let z=(i/256) as f32*std::f32::consts::TAU/16.;
+        let v=((0.5+(x.sin()+y.cos()+z.sin())/6.)*255.).round() as u8;[v,v,v,255]
+    }).collect();
+    queue.write_texture(volume.as_image_copy(),&noise,wgpu::TexelCopyBufferLayout{offset:0,bytes_per_row:Some(64),rows_per_image:Some(16)},volume.size());
+    let mut pattern_points:Vec<[f32;3]>=(0..128).map(|i|[i as f32*0.173,i as f32*0.317,i as f32*0.523]).collect();
+    // Cross 3D cell boundaries on every axis, away from easy symmetry points.
+    for axis in 0..3 {for boundary in [-3.,0.,4.] {for side in [-0.00001,0.00001] {
+        let mut p=[2.3,1.7,-4.1];p[axis]=boundary*7./1.28+side;pattern_points.push(p);
+    }}}
+    let pattern=dispatch(&pattern_points,&wet,0.,0.,2.,-20.);
+    let later=dispatch(&pattern_points,&wet,0.001,0.,2.,-20.);
+    let animated=dispatch(&pattern_points,&wet,1.,0.,2.,-20.);
+    assert!(pattern[..128].iter().any(|p|p[3]<0.05)&&pattern[..128].iter().any(|p|p[3]>0.95),"foam noise failed to break coverage into clear pockets");
+    for (a,b) in pattern.iter().zip(&later) {for j in 0..3 {assert!((a[j]-b[j]).abs()<0.002,"foam distortion jumps in time");}}
+    assert!(pattern.iter().zip(animated).any(|(a,b)|(a[3]-b[3]).abs()>0.1),"foam texture did not animate");
+    for pair in pattern[128..].chunks_exact(2) {for j in 0..4 {assert!((pair[0][j]-pair[1][j]).abs()<0.001,"foam distortion tears at a cell boundary: {pair:?}");}}
+    let inverse=dispatch(&directions,&wet,1.2,0.,2.,-40.);
+    assert!(inverse.iter().all(|row|row[3]<0.03),"foam inverse mapping missed displaced world location: {} m",inverse.iter().map(|row|row[3]).fold(0.0_f32,f32::max));
+    assert!(inverse.iter().any(|row|row[7]>0.05),"inverse mapping never followed horizontal displacement");
+    println!("Foam source GPU PASS: signed combined height, top-20-percent threshold, linear wind strength, calm suppression, rounded 3D breakup, animation, continuous cell boundaries and displaced-world inverse mapping.");
     println!("Ocean GPU PASS: anchored animation; dry/shallow/zero/far limits; finite poles; tangent slopes; all six hardware cube faces; spherical sine profile, radial symmetry, outward propagation and zero-height/zero-slope endpoints.");
 }
 

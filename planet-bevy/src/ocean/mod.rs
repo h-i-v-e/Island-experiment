@@ -44,7 +44,7 @@ impl Default for OceanSettings {
     fn default() -> Self {
         Self {
             waves: true,
-            amplitude: 1.0,
+            amplitude: 2.0,
             speed: 1.0,
             source_drift: 0.35,
             choppiness: 0.18,

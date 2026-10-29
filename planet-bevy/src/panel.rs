@@ -553,7 +553,8 @@ fn forest_controls(
 ) {
     egui::CollapsingHeader::new("Forests").show(ui, |ui| {
         ui.checkbox(&mut options.enabled, "Forests");
-        ui.add(egui::Slider::new(&mut options.distance, 80.0..=400.0).text("Detailed trees (m)"));
+        ui.add(egui::Slider::new(&mut options.distance, 0.0..=400.0).text("Detailed trees (m)"))
+            .on_hover_text("Set to 0 to show only the coarse trunks and canopies.");
         ui.small(format!(
             "{} trees · {} detailed · {} simplified",
             world.trees,

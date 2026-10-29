@@ -4,7 +4,7 @@ use super::{
 };
 use crate::DVec3;
 pub const DIRECTIONS: usize = 8;
-pub const WAVELENGTHS: [f64; 3] = [5.0, 15.0, 40.0];
+pub const WAVELENGTHS: [f64; 3] = [10.0, 30.0, 80.0];
 fn heading(normal: DVec3, bin: usize) -> DVec3 {
     let (east, north) = basis(normal);
     let angle = std::f64::consts::TAU * (bin % DIRECTIONS) as f64 / DIRECTIONS as f64;

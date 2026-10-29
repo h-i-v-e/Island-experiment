@@ -1,4 +1,4 @@
-#import planet_bevy::environment_material::{material_cloud_light,material_ambient_weight,environment_sky_sampler}
+#import planet_bevy::environment_material::{material_cloud_light,material_ambient_weight,material_twilight_tint,environment_sky_sampler}
 #import planet_bevy::weather::{weather_enabled,weather_debug_mode,weather_debug_colour}
 // Unity Island ground shading with radial gravity, plus streamed LOD normal/occlusion atlases.
 // Water keeps StandardMaterial shading.
@@ -139,7 +139,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         pbr_input.diffuse_occlusion*=vec3<f32>(ambient);
         pbr_input.specular_occlusion*=ambient;
         out.color = apply_pbr_lighting(pbr_input);
-        out.color = vec4<f32>(out.color.rgb * material_cloud_light(in.world_position.xyz), out.color.a);
+        out.color = vec4<f32>(out.color.rgb * material_cloud_light(in.world_position.xyz)*material_twilight_tint(in.world_position.xyz), out.color.a);
     } else {
         out.color = pbr_input.material.base_color;
     }

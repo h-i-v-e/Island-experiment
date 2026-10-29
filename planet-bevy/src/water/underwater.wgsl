@@ -1,6 +1,6 @@
 #import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput
 #import bevy_render::view::View
-#import planet_bevy::waves::{ocean,waves_at}
+#import planet_bevy::waves::{ocean,waves_at,manual_wave_height_bound}
 struct Submerge {parameters:vec4<f32>,absorption:vec4<f32>,scatter:vec4<f32>}
 @group(0) @binding(0) var source:texture_2d<f32>;
 @group(0) @binding(1) var linear_sampler:sampler;
@@ -13,7 +13,7 @@ fn world_position(uv:vec2<f32>,depth:f32)->vec3<f32>{
 @fragment fn composite(input:FullscreenVertexOutput)->@location(0) vec4<f32> {
  let colour=textureSampleLevel(source,linear_sampler,input.uv,0.0);
  let radius=settings.parameters.x;
- let maximum=max(settings.parameters.y-1.0,ocean.waves.x*0.81*ocean.shape.w);
+ let maximum=max(settings.parameters.y-1.0,manual_wave_height_bound()*ocean.shape.w);
  if (length(view.world_position)-1.0)*radius>maximum+0.1 {return colour;}
  let near_position=world_position(input.uv,1.0);
  var n=normalize(near_position);var displacement=vec3<f32>(0.0);

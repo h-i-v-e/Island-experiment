@@ -77,6 +77,10 @@ fn settings(
             .as_ref()
             .and_then(|w| w.stats.as_ref())
             .map_or(0.0, |s| s.maximum_wave_height),
+        weather
+            .as_ref()
+            .and_then(|w| w.stats.as_ref())
+            .map_or(20.0, |s| s.maximum_wind),
     );
     for (entity, camera) in &cameras {
         let sun = Vec3::new(-3.0, 4.0, 5.0).normalize();
@@ -103,17 +107,27 @@ fn settings(
         });
     }
 }
-// The weather renderer distributes energy over 18 modes. Cauchy-Schwarz
-// bounds their combined crest by about2.2*Hs; add margin for local chop and
-// shoreline waves. This only gates the pass; its pixel test uses exact waves.
+// The 36 swell modes have a Cauchy-Schwarz crest bound of 3*Hs. Wind chop
+// occupies at most six signed axes in two bands; bound it from actual wind
+// rather than a fixed storm allowance that enables this pass above calm water.
+// This only gates the pass; its pixel test still uses the exact wave field.
 #[allow(clippy::cast_possible_truncation)]
-fn crest_bound(ocean: &crate::ocean::OceanSettings, weather: bool, significant_height: f64) -> f32 {
+fn crest_bound(
+    ocean: &crate::ocean::OceanSettings,
+    weather: bool,
+    significant_height: f64,
+    maximum_wind: f64,
+) -> f32 {
     if !ocean.waves {
         return 0.0;
     }
-    let legacy = ocean.amplitude * 0.81;
+    let shore = 0.16 * (1.0 + 0.22 * ocean.choppiness);
+    let legacy = ocean.amplitude * (0.65 + shore);
     if weather {
-        legacy.max(ocean.amplitude * (3.0 * significant_height as f32 + 2.0))
+        let chop = (maximum_wind * maximum_wind * 0.0012).min(0.45) as f32;
+        legacy.max(
+            ocean.amplitude * (3.0 * significant_height as f32 + 12.0_f32.sqrt() * chop + shore),
+        )
     } else {
         legacy
     }
@@ -283,9 +297,15 @@ mod tests {
     #[test]
     fn weather_crests_can_activate_above_the_legacy_waterline() {
         let mut ocean = crate::ocean::OceanSettings::default();
-        assert!(crest_bound(&ocean, true, 2.0) > crest_bound(&ocean, false, 2.0));
-        assert!(crest_bound(&ocean, true, 2.0) > 2.0);
+        assert!(crest_bound(&ocean, true, 2.0, 20.0) > crest_bound(&ocean, false, 2.0, 20.0));
+        assert!(crest_bound(&ocean, true, 2.0, 20.0) > 2.0);
+        let moderate = crest_bound(&ocean, true, 0.6, 8.0);
+        assert!(
+            moderate < 5.0,
+            "a beach camera above moderate seas must skip underwater marching"
+        );
+        assert!(crest_bound(&ocean, true, 0.6, 20.0) > moderate);
         ocean.waves = false;
-        assert!(crest_bound(&ocean, true, 2.0).abs() < f32::EPSILON);
+        assert!(crest_bound(&ocean, true, 2.0, 20.0).abs() < f32::EPSILON);
     }
 }

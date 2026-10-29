@@ -162,7 +162,12 @@ fn update(
         if ocean_settings.paused || weather_paused || solar.as_ref().is_some_and(|s| s.paused) {
             0.0
         } else {
-            time.delta_secs() * ocean_settings.speed
+            time.delta_secs()
+                * ocean_settings.speed
+                * weather
+                    .as_ref()
+                    .filter(|weather| weather.enabled)
+                    .map_or(1.0, |weather| weather.speed as f32)
         };
     let previous = history.index;
     let next = 1 - previous;

@@ -9,9 +9,34 @@ struct EnvironmentUniform {
 // Global ambient/sky probes cannot distinguish the two planetary hemispheres.
 // Fade indirect light by radial solar elevation, keeping daylight unchanged and
 // a small night floor. Surface normals must not turn cliffs into false day sides.
+fn environment_twilight(lower:f32,upper:f32,elevation:f32)->f32 {
+    let t=clamp((elevation-lower)/(upper-lower),0.0,1.0);
+    // Zero first and second derivatives avoid visible shoulders at either end.
+    return t*t*t*(t*(t*6.0-15.0)+10.0);
+}
 fn environment_ambient_weight(p:vec3<f32>,parameters:EnvironmentUniform)->f32 {
     let elevation=dot(normalize(p),normalize(parameters.sun.xyz));
-    return mix(0.04,1.0,smoothstep(-0.20,0.0,elevation));
+    // Broad artistic twilight: full daylight above +8.6 degrees, the existing
+    // 4% night floor below -20.5 degrees. Mid-twilight remains at -5.7 degrees.
+    return mix(0.04,1.0,environment_twilight(-0.35,0.15,elevation));
+}
+// Filter the existing illumination rather than adding an emissive red band.
+// Sunset deepens from amber into red as solar elevation falls, then releases
+// the tint into the unchanged dim night floor at the end of the twilight band.
+fn environment_sunset_palette(progress:f32)->vec3<f32> {
+    let amber=mix(vec3<f32>(1.0),vec3<f32>(1.14,0.63,0.28),
+        environment_twilight(0.0,0.60,progress));
+    let red=mix(amber,vec3<f32>(1.18,0.24,0.08),
+        environment_twilight(0.45,1.0,progress));
+    return red;
+}
+fn environment_twilight_colour(elevation:f32)->vec3<f32> {
+    let progress=1.0-environment_twilight(-0.35,0.15,elevation);
+    let remaining_light=environment_twilight(-0.35,-0.18,elevation);
+    return mix(vec3<f32>(1.0),environment_sunset_palette(progress),remaining_light);
+}
+fn environment_surface_tint(p:vec3<f32>,parameters:EnvironmentUniform)->vec3<f32> {
+    return environment_twilight_colour(dot(normalize(p),normalize(parameters.sun.xyz)));
 }
 fn environment_rotate(q: vec4<f32>, p: vec3<f32>) -> vec3<f32> {
     return p + 2.0 * cross(q.xyz, cross(q.xyz, p) + q.w * p);
@@ -190,9 +215,13 @@ fn environment_extinction(parameters: EnvironmentUniform) -> f32 {
 }
 fn environment_sun_visibility(p: vec3<f32>, parameters: EnvironmentUniform) -> f32 {
     let direction = normalize(parameters.sun.xyz);
-    let projection = dot(p, direction);
-    let discriminant = projection * projection - dot(p, p) + 1.0;
-    return select(1.0, 0.0, projection < 0.0 && discriminant > 0.0);
+    let radius=max(length(p),1.0);
+    let elevation=dot(p/radius,direction);
+    // Elevated clouds/haze see sunset later than the ground. Centre a soft
+    // planetary penumbra on that altitude's geometric horizon, rather than
+    // switching a whole atmospheric sample from full sunlight to black.
+    let horizon=-sqrt(max(1.0-1.0/(radius*radius),0.0));
+    return environment_twilight(horizon-0.06,horizon+0.06,elevation);
 }
 // Signed sunward entry/exit distances through the shell, measured from an
 // anchor inside it. The inner positive root selects this planet's near layer.
@@ -290,8 +319,13 @@ fn environment_cloud_light(p: vec3<f32>, view_direction: vec3<f32>, parameters: 
     let cosine = clamp(dot(view_direction, sun), -1.0, 1.0);
     let phase = 0.6975 / pow(max(1.3025 - 1.1 * cosine, 0.08), 1.5);
     let altitude_light = smoothstep(-0.15, 0.15, dot(normalize(p), sun));
-    let sunset = 1.0 - smoothstep(0.0, 0.3, abs(dot(normalize(p), sun)));
-    let direct_colour = mix(parameters.light.rgb, vec3<f32>(1.0, 0.48, 0.22), sunset * 0.45);
+    // Clouds see a lower horizon than the ground. Their sunset colour follows
+    // that same raised horizon as the soft planetary shadow, including orbit.
+    let radius=max(length(p),1.0);
+    let horizon=-sqrt(max(1.0-1.0/(radius*radius),0.0));
+    let sunset_progress=1.0-environment_twilight(horizon-0.06,0.15,dot(normalize(p),sun));
+    let tint=environment_sunset_palette(sunset_progress);
+    let direct_colour = parameters.light.rgb;
     var lighting_base=parameters.shape.y;
     if parameters.simulation.x>0.5 {
         let terrain=environment_weather_sample(normalize(p),5,parameters,weather_map,noise_sampler).z;
@@ -302,7 +336,7 @@ fn environment_cloud_light(p: vec3<f32>, view_direction: vec3<f32>, parameters: 
     let ambient_visibility=0.35+0.65*exp(-first_density*2.5);
     let ambient = vec3<f32>(0.34, 0.48, 0.70) * parameters.sun.w * 0.006 * altitude_light*skylight*ambient_visibility;
     let direct = direct_colour * parameters.sun.w * (0.035 + phase * 0.022) * transmission * daylight;
-    return ambient + direct + vec3<f32>(0.12, 0.17, 0.28);
+    return (ambient + direct)*tint + vec3<f32>(0.12, 0.17, 0.28);
 }
 fn environment_clear_sky(p: vec3<f32>, direction: vec3<f32>, parameters: EnvironmentUniform) -> vec3<f32> {
     if parameters.light.w < 0.5 { return vec3<f32>(0.0); }
@@ -314,6 +348,6 @@ fn environment_clear_sky(p: vec3<f32>, direction: vec3<f32>, parameters: Environ
     let zenith = vec3<f32>(0.09, 0.27, 0.60);
     let sky = mix(horizon, zenith, pow(elevation, 0.35));
     let sunset = exp(-abs(sun_height) * 8.0) * pow(max(dot(direction, parameters.sun.xyz), 0.0), 4.0);
-    return (sky * day + vec3<f32>(1.0, 0.22, 0.05) * sunset * 0.32) * parameters.sun.w * 0.018
+    return (sky * day * environment_surface_tint(p,parameters) + vec3<f32>(1.0, 0.22, 0.05) * sunset * 0.32) * parameters.sun.w * 0.018
         + vec3<f32>(0.08, 0.12, 0.22);
 }

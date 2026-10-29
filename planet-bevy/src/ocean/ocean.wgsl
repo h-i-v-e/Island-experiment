@@ -1,4 +1,4 @@
-#import planet_bevy::environment_material::{material_cloud_light,material_ambient_weight}
+#import planet_bevy::environment_material::{material_cloud_light,material_ambient_weight,material_twilight_tint}
 #import planet_bevy::weather::{weather_enabled,weather_debug_mode,weather_debug_colour,weather_lower,weather_swell}
 // Coupled wind/swell waves, with manual sources as a fallback.
 #import bevy_pbr::{forward_io::{Vertex,VertexOutput,FragmentOutput},mesh_functions,
@@ -67,12 +67,13 @@ fn ripple_gradient(uv:vec3<f32>,lod:f32)->vec3<f32>{
  let deep=vec3<f32>(0.002322,0.063724,0.263273);
  let coastal=vec3<f32>(0.008,0.12,0.14);
  let water=mix(deep,coastal,shallow*0.65);
- let foam_scale=foam_frame.tangent.w/(max(dot(n,foam_frame.origin.xyz),0.00001)*2.0*max(foam_frame.origin.w,0.001));
- let foam_uv=vec2<f32>(dot(n,foam_frame.tangent.xyz),dot(n,foam_frame.bitangent.xyz))*foam_scale+0.5;
+ let foam_direction=normalize(input.world_position.xyz);
+ let foam_scale=foam_frame.tangent.w/(max(dot(foam_direction,foam_frame.origin.xyz),0.00001)*2.0*max(foam_frame.origin.w,0.001));
+ let foam_uv=vec2<f32>(dot(foam_direction,foam_frame.tangent.xyz),dot(foam_direction,foam_frame.bitangent.xyz))*foam_scale+0.5;
  let foam_radius=length((foam_uv-0.5)*2.0);
  let stored_foam=textureSampleLevel(foam_history,foam_sampler,clamp(foam_uv,vec2<f32>(0.0),vec2<f32>(1.0)),0.0).r
-     *(1.0-smoothstep(0.5,1.0,foam_radius))*optics.effects.x*select(0.0,1.0,dot(n,foam_frame.origin.xyz)>0.0);
- let foam=clamp(max(max(wave.foam,stored_foam),impact.w),0.0,1.0);
+     *(1.0-smoothstep(0.5,1.0,foam_radius))*optics.effects.x*select(0.0,1.0,dot(foam_direction,foam_frame.origin.xyz)>0.0);
+ let foam=clamp(max(max(wave.foam,stored_foam*wave.foam_allowance),impact.w*wave.foam_pattern),0.0,1.0);
  pbr.material.base_color=vec4<f32>(water,1.0);
  pbr.material.specular_transmission=0.0;
  pbr.material.reflectance=vec3<f32>(0.0);
@@ -85,8 +86,9 @@ fn ripple_gradient(uv:vec3<f32>,lod:f32)->vec3<f32>{
  let ambient=material_ambient_weight(input.world_position.xyz);
  pbr.diffuse_occlusion*=vec3<f32>(ambient);pbr.specular_occlusion*=ambient;
  let crest_light=vec3<f32>(0.006,0.264,0.147)*wave.crest*face_weight*(0.03*ambient+6.0*backlight*shadow*daylight)*lights.directional_lights[0].color.rgb*view.exposure*0.08;
- let cloud_light=material_cloud_light(input.world_position.xyz);
- let lit_body=apply_pbr_lighting(pbr).rgb*cloud_light+crest_light;
+ let tint=material_twilight_tint(input.world_position.xyz);
+ let cloud_light=material_cloud_light(input.world_position.xyz)*tint;
+ let lit_body=apply_pbr_lighting(pbr).rgb*cloud_light+crest_light*tint;
  let analytic=normalize(n-wave.slope);
  let distortion=noise((p-vec3<f32>(ocean.viewer.w*0.20,0.0,ocean.viewer.w*0.16))/2.0)-0.5;
  let detail=(view.view_from_world*vec4<f32>(normal-analytic,0.0)).xy;

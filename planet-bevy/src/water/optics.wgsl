@@ -1,5 +1,5 @@
 #define_import_path planet_bevy::water
-#import planet_bevy::environment_material::{material_cloud_shadow,material_sky,material_ambient_weight}
+#import planet_bevy::environment_material::{material_cloud_shadow,material_sky,material_ambient_weight,material_twilight_tint}
 #import bevy_pbr::{mesh_view_bindings::{view,lights,view_transmission_texture},shadows::fetch_directional_shadow,
  transmission::fetch_transmissive_background_non_rough}
 #ifdef DEPTH_PREPASS
@@ -150,7 +150,8 @@ fn shade_water(p:vec3<f32>,pixel:vec2<f32>,normal:vec3<f32>,geometric:vec3<f32>,
  var fresnel=water_fresnel(dot(normal,v));
  let reflected=reflect(-v,normal);
  let daylight=0.03+0.97*smoothstep(-0.08,0.2,dot(up,lights.directional_lights[0].direction_to_light));
- let sky=material_sky(reflected)*view.exposure*material_ambient_weight(p);
+ let twilight_tint=material_twilight_tint(p);
+ let sky=material_sky(reflected)*view.exposure*material_ambient_weight(p)*twilight_tint;
  var reflection=sky;
  let reflection_distance=length(view.world_position-p)*radius;
  if settings.optics.w>0.0 && !underside &&reflection_distance<160.0 {
@@ -175,6 +176,6 @@ fn shade_water(p:vec3<f32>,pixel:vec2<f32>,normal:vec3<f32>,geometric:vec3<f32>,
   fresnel=mix(fresnel,1.0,smoothstep(0.97,1.0,transmitted_squared));
   volume=refracted;reflection=lit_body;
  }
- let glint=lights.directional_lights[0].color.rgb*view.exposure*sun_glint(normal,v,roughness)*settings.optics.y*shadow;
+ let glint=lights.directional_lights[0].color.rgb*view.exposure*sun_glint(normal,v,roughness)*settings.optics.y*shadow*twilight_tint;
  return WaterOptics(mix(volume,reflection,clamp(fresnel*settings.optics.x,0.0,1.0))+glint,path,point.position);
 }

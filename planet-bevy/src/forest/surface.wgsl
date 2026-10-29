@@ -3,7 +3,7 @@
     pbr_fragment::pbr_input_from_standard_material,
     pbr_functions::{apply_pbr_lighting,main_pass_post_lighting_processing}}
 #import planet_bevy::forest::{forest,tree_wind,tree_clip,tree_noise}
-#import planet_bevy::environment_material::{material_cloud_light,material_ambient_weight}
+#import planet_bevy::environment_material::{material_cloud_light,material_ambient_weight,material_twilight_tint}
 @vertex fn vertex(input:Vertex)->VertexOutput {
     var out:VertexOutput;
     let transform=mesh_functions::get_world_from_local(input.instance_index);
@@ -28,7 +28,9 @@
     let detail=tree_noise(p/4.8+0.173);
     var pbr=pbr_input_from_standard_material(input,front);
     var colour:vec3<f32>;
-    if forest.shape.y<0.5 {
+    // Coarse trees carry the Island LOD2 trunk and crown in one shared mesh.
+    let wood=forest.shape.y<0.5 || (forest.shape.y>2.5 && input.color.g<0.5);
+    if wood {
         let up=normalize(root);
         let height=dot(input.world_position.xyz-root,up)*forest.shape.x;
         let tangent=p-up*height*0.96;
@@ -52,6 +54,6 @@
     // Bevy's leaf-transmission ambient lobe bypasses diffuse occlusion.
     pbr.material.diffuse_transmission*=ambient;
     let lit=apply_pbr_lighting(pbr);
-    out.color=main_pass_post_lighting_processing(pbr,vec4<f32>(lit.rgb*material_cloud_light(input.world_position.xyz),lit.a));
+    out.color=main_pass_post_lighting_processing(pbr,vec4<f32>(lit.rgb*material_cloud_light(input.world_position.xyz)*material_twilight_tint(input.world_position.xyz),lit.a));
     return out;
 }

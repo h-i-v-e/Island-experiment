@@ -38,6 +38,7 @@ cargo run -p planet-bevy -- [options]
   --surface-view shaded|normals|occlusion  Inspect the baked surface maps
   --no-shadows              Disable sun shadow maps
   --no-forests              Disable procedural forests
+  --forest-distance M       Detailed tree range, 0..400 m (240; 0 = all coarse)
   --shadow-distance M       Surface shadow range, 20..3000 m (300)
   --shadow-bias M           Shadow depth bias in metres, 0..0.25 (0.02)
   --no-ssao                 Disable final-depth ambient occlusion
@@ -46,7 +47,7 @@ cargo run -p planet-bevy -- [options]
   --ao-samples N            Hemisphere samples: 6, 10 or 12 (12)
   --ao-half                 Half-resolution AO with bilateral upsampling
   --ao-only                 Show the screen-space AO visibility
-  --ocean-amplitude F       Ocean wave height multiplier, 0..3 (1)
+  --ocean-amplitude F       Ocean wave height multiplier, 0..3 (2)
   --ocean-speed F           Ocean animation multiplier, 0..4 (1)
   --ocean-drift F           Source wandering speed, 0..2 m/s (0.35)
   --ocean-refraction F      Screen-space refraction, 0..1 (0.8)
@@ -271,6 +272,10 @@ impl Command {
             }
         }
         command.lighting.validate()?;
+        if !command.forest.distance.is_finite() || !(0.0..=400.0).contains(&command.forest.distance)
+        {
+            return Err("detailed tree distance must be 0..400 m".into());
+        }
         command.ocean.validate()?;
         command.water.validate()?;
         command.environment.validate()?;
@@ -390,6 +395,7 @@ impl Command {
             "--chunk-level" => self.streaming.level = number(value, flag)?,
             "--chunk-budget-mb" => self.streaming.budget_mb = number(value, flag)?,
             "--lod-error" => self.streaming.target_pixels = number(value, flag)?,
+            "--forest-distance" => self.forest.distance = number(value, flag)?,
             "--lod-surface-maps" => {
                 self.streaming.surface_maps = match value {
                     "on" => true,
@@ -459,6 +465,24 @@ fn number<T: FromStr>(value: &str, flag: &str) -> Result<T, String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn forest_distance_can_force_coarse_trees_and_rejects_invalid_ranges() {
+        for distance in ["0", "80", "240", "400"] {
+            let command = super::Command::parse(["--forest-distance", distance].map(str::to_owned))
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                command.forest.distance.to_bits(),
+                distance.parse::<f32>().unwrap().to_bits()
+            );
+            assert!(command.forest.enabled);
+        }
+        for distance in ["-1", "401", "NaN", "inf"] {
+            assert!(
+                super::Command::parse(["--forest-distance", distance].map(str::to_owned)).is_err()
+            );
+        }
+    }
     #[test]
     fn solar_controls_parse_and_reject_invalid_orbits() {
         let command = Command::parse(

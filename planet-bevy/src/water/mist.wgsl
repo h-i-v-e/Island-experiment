@@ -1,5 +1,5 @@
 #import planet_bevy::weather::weather_wind
-#import planet_bevy::environment_material::environment
+#import planet_bevy::environment_material::{environment,material_twilight_tint}
 #import bevy_pbr::{forward_io::{VertexOutput,FragmentOutput},mesh_functions::get_world_from_local,mesh_view_bindings::{view,lights}}
 #import planet_bevy::water::{scene_point,water_shadow,view_uv}
 struct MistUniform {shape:vec4<f32>,timing:vec4<f32>}
@@ -47,6 +47,6 @@ fn volume_noise(p:vec3<f32>)->f32 {return textureSampleLevel(mist_noise,mist_sam
  let up=normalize(input.world_position.xyz);
  let daylight=0.03+0.97*smoothstep(-0.08,0.2,dot(up,lights.directional_lights[0].direction_to_light));
  let shadow=water_shadow(input.world_position.xyz,up,input.position.xy);
- let colour=vec3<f32>(0.78,0.86,0.89)*(0.72+shadow*0.72)*daylight;
+ let colour=vec3<f32>(0.78,0.86,0.89)*(0.72+shadow*0.72)*daylight*material_twilight_tint(input.world_position.xyz);
  return FragmentOutput(vec4<f32>(colour,alpha));
 }
