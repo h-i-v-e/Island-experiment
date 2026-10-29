@@ -20,6 +20,15 @@ fixed3 MotuWaterfallSprayLighting(
         * terrainVisibility
         * cloud.directTransmittance
         * 0.72h;
+#if defined(_ADDITIONAL_LIGHTS)
+    uint count = GetAdditionalLightsCount();
+    for (uint index = 0; index < count; ++index)
+    {
+        Light light = GetAdditionalLight(index, worldPosition, half4(1, 1, 1, 1));
+        direct += light.color * light.distanceAttenuation * light.shadowAttenuation
+            * MotuAdditionalLightCloudTransmittance(index, worldPosition, light.direction) * 0.72h;
+    }
+#endif
     return tint * (ambient + direct);
 }
 

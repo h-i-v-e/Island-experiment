@@ -27,15 +27,16 @@ namespace Motu.World
             "_MotuCloudEnabled", "_MotuCloudCoverage", "_MotuCloudDensity", "_MotuCloudAltitude",
             "_MotuCloudWorldSize", "_MotuCloudShadowStrength", "_MotuCloudAmbientShadowStrength",
             "_MotuCloudCelestialStrength", "_MotuCloudLowElevationFade", "_MotuCloudLightActive",
-            "_MotuCloudSunsetStrength", "_MotuCloudNightStrength", "_MotuCloudDomeRadius");
+            "_MotuCloudSunsetStrength", "_MotuCloudNightStrength", "_MotuCloudDomeRadius",
+            "_MotuCloudSecondaryLightActive");
         private readonly GlobalValues<Vector4> vectors = new GlobalValues<Vector4>(Shader.GetGlobalVector, Shader.SetGlobalVector,
             "_MotuEnvironmentWorldOffset", "_MotuWeatherWind", "_MotuWindMaterial", "_MotuTreeWindHeights",
             "_MotuWindOffset", "_MotuCloudVolume", "_MotuCloudBroadNoise", "_MotuCloudDetailErosion",
             "_MotuCloudWindOffset", "_MotuCloudNoiseOffset", "_MotuCloudLightDirection", "_MotuCloudShape", "_MotuCloudMotion",
-            "_MotuCloudLighting");
+            "_MotuCloudLighting", "_MotuCloudSecondaryLightDirection");
         private readonly GlobalValues<Color> colours = new GlobalValues<Color>(Shader.GetGlobalColor, Shader.SetGlobalColor,
             "_MotuCloudDayColor", "_MotuCloudSunsetColor", "_MotuCloudNightColor", "_MotuCloudLightColor",
-            "_MotuCloudAmbientColor", "_MotuIslandHorizonColour");
+            "_MotuCloudAmbientColor", "_MotuIslandHorizonColour", "_MotuCloudSecondaryLightColor");
         private readonly GlobalValues<Texture> textures = new GlobalValues<Texture>(Shader.GetGlobalTexture, Shader.SetGlobalTexture,
             "_MotuCloudWeatherTex", "_MotuWindNoise", "_MotuCloudShapeTex", "_MotuCloudErosionTex");
 
@@ -44,6 +45,14 @@ namespace Motu.World
         internal void BorrowLight(Light light)
         {
             if (light != null && !lights.ContainsKey(light)) lights.Add(light, new LightState(light));
+        }
+
+        internal float GetAuthoredShadowStrength(Light light)
+        {
+            // Reinitializing the sky during a fade must not capture the faded
+            // value as the new maximum. Use the original borrowed-light state.
+            return light != null && lights.TryGetValue(light, out var state)
+                ? state.ShadowStrength : 1f;
         }
 
         internal void PrepareCamera(Camera camera, OceanSurfaceController ocean, Color? background = null)
@@ -100,16 +109,19 @@ namespace Motu.World
             private readonly Quaternion rotation;
             private readonly Color colour;
             private readonly float intensity;
+            internal readonly float ShadowStrength;
             private readonly bool enabled;
             internal LightState(Light light)
             {
                 position = light.transform.position; rotation = light.transform.rotation;
                 colour = light.color; intensity = light.intensity; enabled = light.enabled;
+                ShadowStrength = light.shadowStrength;
             }
             internal void Restore(Light light)
             {
                 light.transform.SetPositionAndRotation(position, rotation);
                 light.color = colour; light.intensity = intensity; light.enabled = enabled;
+                light.shadowStrength = ShadowStrength;
             }
         }
 

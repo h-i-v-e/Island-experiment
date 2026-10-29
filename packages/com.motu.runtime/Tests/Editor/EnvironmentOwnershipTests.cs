@@ -40,7 +40,7 @@ namespace Motu.Tests
             try
             {
                 var sun = lightObject.AddComponent<Light>();
-                sun.type = LightType.Directional; sun.intensity = .37f; sun.color = Color.cyan;
+                sun.type = LightType.Directional; sun.intensity = .37f; sun.color = Color.cyan; sun.shadowStrength = .63f;
                 sun.transform.SetPositionAndRotation(new Vector3(1, 2, 3), Quaternion.Euler(21, 32, 43));
                 var rotation = sun.transform.rotation;
                 RenderSettings.sun = sun;
@@ -50,6 +50,11 @@ namespace Motu.Tests
                 Shader.SetGlobalVector("_MotuWeatherWind", new Vector4(2, 3, 4, 5));
                 Shader.SetGlobalFloat("_MotuCloudEnabled", .25f);
                 SetCloudGlobals(45, priorShape, priorMotion, priorLighting, priorNoiseOffset, priorShapeNoise, priorErosionNoise);
+                var priorSecondaryDirection = new Vector4(3, 4, 5, 6);
+                var priorSecondaryColour = Color.green;
+                Shader.SetGlobalVector("_MotuCloudSecondaryLightDirection", priorSecondaryDirection);
+                Shader.SetGlobalColor("_MotuCloudSecondaryLightColor", priorSecondaryColour);
+                Shader.SetGlobalFloat("_MotuCloudSecondaryLightActive", .35f);
                 Shader.SetGlobalColor("_MotuIslandHorizonColour", Color.yellow);
                 Shader.SetGlobalTexture("_MotuWindNoise", Texture2D.whiteTexture);
                 var camera = cameraObject.AddComponent<Camera>();
@@ -84,6 +89,11 @@ namespace Motu.Tests
                 // Nonzero travel must survive release/resume, not merely rebind zero.
                 environment.ApplyCloudSettings(2f);
                 var installedNoiseOffset = Shader.GetGlobalVector("_MotuCloudNoiseOffset");
+                var installedSecondaryDirection = Shader.GetGlobalVector("_MotuCloudSecondaryLightDirection");
+                var installedSecondaryColour = Shader.GetGlobalColor("_MotuCloudSecondaryLightColor");
+                var installedSecondaryActive = Shader.GetGlobalFloat("_MotuCloudSecondaryLightActive");
+                Assert.AreNotEqual(priorSecondaryDirection, installedSecondaryDirection);
+                Assert.AreNotEqual(.35f, installedSecondaryActive);
                 Assert.Greater(installedNoiseOffset.sqrMagnitude, 0);
                 environment.SetFirstPersonViewActive(true);
                 environment.BindReflectionCamera(camera);
@@ -115,6 +125,7 @@ namespace Motu.Tests
                 Assert.AreEqual(Color.red, RenderSettings.ambientLight);
                 Assert.AreSame(sun, RenderSettings.sun);
                 Assert.AreEqual(.37f, sun.intensity); Assert.AreEqual(Color.cyan, sun.color);
+                Assert.AreEqual(.63f, sun.shadowStrength, "Releasing the environment must restore the authored shadow strength.");
                 Assert.AreEqual(new Vector3(1, 2, 3), sun.transform.position);
                 Assert.Less(Quaternion.Angle(rotation, sun.transform.rotation), .001f);
                 Assert.AreEqual(Color.green, camera.backgroundColor);
@@ -128,9 +139,11 @@ namespace Motu.Tests
                 Assert.AreSame(Texture2D.whiteTexture, Shader.GetGlobalTexture("_MotuWindNoise"));
                 Assert.IsFalse(environment.OceanTransform.gameObject.activeSelf);
                 AssertCloudGlobals(45, priorShape, priorMotion, priorLighting, priorNoiseOffset, priorShapeNoise, priorErosionNoise);
+                AssertCloudSecondaryLight(priorSecondaryDirection, priorSecondaryColour, .35f);
 
                 // Exercise the deferred-Destroy race before the next frame.
                 environment.enabled = true;
+                AssertCloudSecondaryLight(installedSecondaryDirection, installedSecondaryColour, installedSecondaryActive);
                 AssertCloudGlobals(64, installedShape, installedMotion, installedLighting, installedNoiseOffset,
                     installedShapeNoise, installedErosionNoise);
                 environment.BindReflectionCamera(camera);
@@ -140,6 +153,9 @@ namespace Motu.Tests
                 Assert.IsNotNull(camera.GetComponent<OceanUnderwaterView>());
                 Assert.IsTrue(environment.OceanTransform.gameObject.activeSelf);
                 installedNoiseOffset = Shader.GetGlobalVector("_MotuCloudNoiseOffset");
+                installedSecondaryDirection = Shader.GetGlobalVector("_MotuCloudSecondaryLightDirection");
+                installedSecondaryColour = Shader.GetGlobalColor("_MotuCloudSecondaryLightColor");
+                installedSecondaryActive = Shader.GetGlobalFloat("_MotuCloudSecondaryLightActive");
                 environment.enabled = false;
                 yield return null;
                 Assert.IsNull(camera.GetComponent<OceanUnderwaterView>());
@@ -151,7 +167,12 @@ namespace Motu.Tests
                 var revisedLighting = new Vector4(.71f, .72f, .73f, .74f);
                 var revisedNoiseOffset = new Vector4(81, 82, 83, 84);
                 SetCloudGlobals(85, revisedShape, revisedMotion, revisedLighting, revisedNoiseOffset, priorErosionNoise, priorShapeNoise);
+                var revisedSecondaryDirection = new Vector4(8, 7, 6, 5);
+                Shader.SetGlobalVector("_MotuCloudSecondaryLightDirection", revisedSecondaryDirection);
+                Shader.SetGlobalColor("_MotuCloudSecondaryLightColor", Color.magenta);
+                Shader.SetGlobalFloat("_MotuCloudSecondaryLightActive", .65f);
                 environment.enabled = true;
+                AssertCloudSecondaryLight(installedSecondaryDirection, installedSecondaryColour, installedSecondaryActive);
                 AssertCloudGlobals(64, installedShape, installedMotion, installedLighting, installedNoiseOffset,
                     installedShapeNoise, installedErosionNoise);
                 environment.BindReflectionCamera(camera);
@@ -161,6 +182,7 @@ namespace Motu.Tests
                 Assert.IsTrue(installedSky == null && installedSea == null, "Unloading leaked environment materials.");
                 Assert.AreEqual(Color.blue, RenderSettings.fogColor, "Re-enable did not capture the new host state.");
                 AssertCloudGlobals(85, revisedShape, revisedMotion, revisedLighting, revisedNoiseOffset, priorErosionNoise, priorShapeNoise);
+                AssertCloudSecondaryLight(revisedSecondaryDirection, Color.magenta, .65f);
                 Assert.IsNull(camera.GetComponent<OceanUnderwaterView>());
                 Assert.IsTrue(borrowedUnderwater != null);
                 Assert.AreSame(priorOcean, borrowedUnderwater.Surface);
@@ -191,6 +213,13 @@ namespace Motu.Tests
             }
             yield return null;
             yield return new ExitPlayMode();
+        }
+
+        private static void AssertCloudSecondaryLight(Vector4 direction, Color colour, float active)
+        {
+            Assert.AreEqual(direction, Shader.GetGlobalVector("_MotuCloudSecondaryLightDirection"));
+            Assert.AreEqual(colour, Shader.GetGlobalColor("_MotuCloudSecondaryLightColor"));
+            Assert.AreEqual(active, Shader.GetGlobalFloat("_MotuCloudSecondaryLightActive"));
         }
 
         private static void SetCloudGlobals(float radius, Vector4 shape, Vector4 motion, Vector4 lighting,

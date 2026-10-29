@@ -169,6 +169,7 @@ fixed4 GrassFragment(GrassVertexOutput input) : SV_Target
         * diffuse
         * shadowAttenuation
         * cloud.directTransmittance;
+    direct += MotuAdditionalLighting(input.worldPosition, lightingNormal);
     half3 ambient = _GrassAmbientColor.rgb * cloud.ambientTransmittance;
     float2 grassColorUv = localPosition.xz
         / max(_GrassColorNoiseWorldSize, 1.0);

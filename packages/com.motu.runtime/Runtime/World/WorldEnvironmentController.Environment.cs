@@ -40,6 +40,9 @@ namespace Motu.World
         private static readonly int CloudLightDirectionId = Shader.PropertyToID("_MotuCloudLightDirection");
         private static readonly int CloudLightActiveId = Shader.PropertyToID("_MotuCloudLightActive");
         private static readonly int CloudLightColourId = Shader.PropertyToID("_MotuCloudLightColor");
+        private static readonly int CloudSecondaryLightDirectionId = Shader.PropertyToID("_MotuCloudSecondaryLightDirection");
+        private static readonly int CloudSecondaryLightActiveId = Shader.PropertyToID("_MotuCloudSecondaryLightActive");
+        private static readonly int CloudSecondaryLightColourId = Shader.PropertyToID("_MotuCloudSecondaryLightColor");
         private static readonly int WeatherWindId = Shader.PropertyToID("_MotuWeatherWind");
         private static readonly int WindMaterialId = Shader.PropertyToID("_MotuWindMaterial");
         private static readonly int TreeWindHeightsId = Shader.PropertyToID("_MotuTreeWindHeights");
@@ -55,6 +58,16 @@ namespace Motu.World
         private WorldEnvironmentSettings environmentSettings;
         private IslandCloudSettings cloudSettings;
         private Light sunlight;
+
+        [Header("Celestial shadow handover")]
+        [Tooltip("No directional shadows while the Sun is within this many degrees of the horizon, on either side.")]
+        [Range(0f, 5f)]
+        [SerializeField] private float shadowFreeHorizonDegrees = 0.25f;
+
+        [Tooltip("Sun or Moon shadows reach their authored strength this many degrees away from the handover horizon.")]
+        [Range(0.5f, 15f)]
+        [SerializeField] private float fullShadowElevationDegrees = 3f;
+
         private int environmentSeed;
         private Vector2 windTravelOffset;
         private float cloudDomeRadius;
@@ -402,38 +415,65 @@ namespace Motu.World
             ApplyStarRotation(moonState.OrbitLatitudeDegrees);
             SeaMaterial?.SetFloat(WaterSkyExposureId, currentSkyExposure);
 
+            var sunAboveHorizon = sunDirection.y > 0f;
+            var moonAboveHorizon = moonDirection.y > 0f;
+            var clearAngle = Mathf.Clamp(shadowFreeHorizonDegrees, 0f, 5f);
+            var fullAngle = Mathf.Clamp(fullShadowElevationDegrees, clearAngle + 0.1f, 15f);
+            var clearElevation = Mathf.Sin(clearAngle * Mathf.Deg2Rad);
+            var fullElevation = Mathf.Sin(fullAngle * Mathf.Deg2Rad);
+            var maximumShadowStrength = hostState.GetAuthoredShadowStrength(sunlight);
             if (sunlight != null)
             {
                 PositionDirectionalLight(sunlight, sunDirection);
                 sunlight.color = state.SunColour;
                 sunlight.intensity = state.SunIntensity;
-                sunlight.enabled = state.SunIntensity > 0.0001f;
+                sunlight.enabled = sunAboveHorizon;
+                sunlight.shadowStrength = maximumShadowStrength * Mathf.SmoothStep(0f, 1f,
+                    Mathf.InverseLerp(clearElevation, fullElevation, sunDirection.y));
             }
-            var moonShadows = state.SunVisibility <= 0.0001f
-                && state.SunIntensity <= 0.0001f
-                && moonState.LightIntensity > 0.0001f;
             if (moonLight != null)
             {
                 PositionDirectionalLight(moonLight, moonDirection);
                 moonLight.color = MoonLightColour;
                 moonLight.intensity = moonState.LightIntensity;
-                moonLight.enabled = moonShadows;
+                moonLight.enabled = moonAboveHorizon;
+                // Fade the outgoing map completely before changing main light,
+                // then leave a small shadow-free interval before the other fades
+                // in. Moonrise/moonset also fade instead of introducing a map.
+                var moonHorizonFade = Mathf.SmoothStep(0f, 1f,
+                    Mathf.InverseLerp(clearElevation, fullElevation, moonDirection.y));
+                var handoverFade = sunlight == null ? 1f : Mathf.SmoothStep(0f, 1f,
+                    Mathf.InverseLerp(clearElevation, fullElevation, -sunDirection.y));
+                moonLight.shadowStrength = maximumShadowStrength * moonHorizonFade * handoverFade;
             }
-            var activeDirection = moonShadows ? moonDirection : sunDirection;
-            var activeColour = moonShadows
-                ? MoonLightColour * moonState.LightIntensity
-                : state.SunColour * state.SunIntensity;
-            RenderSettings.sun = moonShadows && moonLight != null ? moonLight : sunlight;
+            var moonIsPrimary = moonLight != null && moonAboveHorizon
+                && (!sunAboveHorizon || sunlight == null);
+            var sunColour = sunAboveHorizon
+                ? state.SunColour * state.SunIntensity : Color.black;
+            var moonColour = moonLight != null && moonAboveHorizon
+                ? MoonLightColour * moonState.LightIntensity : Color.black;
+            RenderSettings.sun = moonIsPrimary ? moonLight : sunlight;
             RenderSettings.ambientMode = AmbientMode.Flat;
             RenderSettings.ambientLight = state.AmbientColour;
-            Shader.SetGlobalVector(CloudLightDirectionId, activeDirection);
-            Shader.SetGlobalFloat(
-                CloudLightActiveId,
-                activeColour.maxColorComponent > 0.0001f ? 1f : 0f);
-            Shader.SetGlobalColor(CloudLightColourId, activeColour);
+            ApplyCloudCelestialLight(
+                CloudLightDirectionId, CloudLightColourId, CloudLightActiveId,
+                moonIsPrimary ? moonDirection : sunDirection,
+                moonIsPrimary ? moonColour : sunColour);
+            ApplyCloudCelestialLight(
+                CloudSecondaryLightDirectionId, CloudSecondaryLightColourId, CloudSecondaryLightActiveId,
+                moonIsPrimary ? sunDirection : moonDirection,
+                moonIsPrimary ? sunColour : moonColour);
             Shader.SetGlobalColor("_MotuCloudAmbientColor", state.AmbientColour);
             Shader.SetGlobalFloat("_MotuCloudSunsetStrength", state.SunHaloStrength);
             Shader.SetGlobalFloat("_MotuCloudNightStrength", state.NightStrength);
+        }
+
+        private static void ApplyCloudCelestialLight(
+            int directionId, int colourId, int activeId, Vector3 direction, Color colour)
+        {
+            Shader.SetGlobalVector(directionId, direction);
+            Shader.SetGlobalColor(colourId, colour);
+            Shader.SetGlobalFloat(activeId, colour.maxColorComponent > 0f ? 1f : 0f);
         }
 
         private void ApplyStarRotation(float orbitLatitudeDegrees)

@@ -29,6 +29,23 @@ float MotuWaterSunSpecular(float3 normal, float3 view, float3 light, float rough
     return distribution * visibility * MotuWaterFresnel(vh) * nl;
 }
 
+float3 MotuWaterAdditionalSpecular(float3 normal, float3 view, float3 worldPosition, float roughness)
+{
+    float3 specular = 0;
+    #if defined(_ADDITIONAL_LIGHTS)
+    uint count = GetAdditionalLightsCount();
+    for (uint index = 0; index < count; ++index)
+    {
+        Light light = GetAdditionalLight(index, worldPosition, half4(1, 1, 1, 1));
+        float attenuation = light.distanceAttenuation * light.shadowAttenuation
+            * MotuAdditionalLightCloudTransmittance(index, worldPosition, light.direction);
+        specular += light.color * attenuation * _SunGlintStrength
+            * MotuWaterSunSpecular(normal, view, light.direction, roughness);
+    }
+    #endif
+    return specular;
+}
+
 float3 MotuWaterTransmission(float distanceMetres)
 {
     return exp(-max(_AbsorptionCoefficients.rgb, 0) * max(_AbsorptionStrength, 0) * clamp(distanceMetres, 0, 1000));
@@ -110,7 +127,10 @@ float3 MotuWaterShadeOptics(float3 body, float3 refracted, float pathLength, flo
     float fresnel = saturate(MotuWaterFresnel(dot(normal, view)) * _ReflectionStrength);
     float3 light = normalize(UnityWorldSpaceLightDir(worldPosition));
     float glint = MotuWaterSunSpecular(normal, view, light, roughness) * _SunGlintStrength
-        * shadow * cloud.directTransmittance * _WaterSkyExposure;
-    return volume * (1-fresnel) + reflection * fresnel + _LightColor0.rgb * glint;
+        * shadow * cloud.directTransmittance;
+    // Direct lights carry their own intensity. Sky exposure applies to the
+    // reflected environment, not to moonlight or nearby lantern highlights.
+    return volume * (1-fresnel) + reflection * fresnel + _LightColor0.rgb * glint
+        + MotuWaterAdditionalSpecular(normal, view, worldPosition, roughness);
 }
 #endif

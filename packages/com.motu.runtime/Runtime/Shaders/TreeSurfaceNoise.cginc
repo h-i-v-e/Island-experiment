@@ -82,7 +82,8 @@ half3 MotuShadeFoliage(
         MotuDaylightAmbientFloor(ambientFloor));
     half3 directLight = lightColor * attenuation * cloud.directTransmittance;
     return albedo * (ambient + directLight * wrappedDiffuse)
-        + transmissionColor * directLight * backLighting;
+        + transmissionColor * directLight * backLighting
+        + MotuAdditionalFoliageLighting(worldPosition, normal, albedo, transmissionColor, translucency);
 }
 
 half MotuTreeCanopyAlpha(

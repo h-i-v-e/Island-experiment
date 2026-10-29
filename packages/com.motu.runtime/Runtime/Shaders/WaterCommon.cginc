@@ -44,6 +44,24 @@ float3 MotuFacingWaterNormal(float3 worldNormal, float3 viewDirection)
     return normal * (dot(normal, viewDirection) >= 0.0 ? 1.0 : -1.0);
 }
 
+half3 MotuWaterAdditionalGlints(float3 reflectionDirection, float3 worldPosition)
+{
+    half3 glints = 0;
+    #if defined(_ADDITIONAL_LIGHTS)
+    uint count = GetAdditionalLightsCount();
+    for (uint index = 0; index < count; ++index)
+    {
+        Light light = GetAdditionalLight(index, worldPosition, half4(1, 1, 1, 1));
+        half attenuation = light.distanceAttenuation * light.shadowAttenuation
+            * MotuAdditionalLightCloudTransmittance(index, worldPosition, light.direction);
+        half alignment = saturate(dot(reflectionDirection, light.direction));
+        glints += light.color * pow(alignment, _SunGlintSharpness)
+            * _SunGlintStrength * attenuation;
+    }
+    #endif
+    return glints;
+}
+
 float MotuWaterEyeDepth(float rawDepth)
 {
     float perspectiveDepth = LinearEyeDepth(rawDepth);
@@ -150,9 +168,9 @@ fixed3 MotuShadeWater(
     half sunGlint = pow(sunAlignment, _SunGlintSharpness)
         * _SunGlintStrength
         * shadowAttenuation
-        * cloud.directTransmittance
-        * _WaterSkyExposure;
-    return water + _LightColor0.rgb * sunGlint;
+        * cloud.directTransmittance;
+    return water + _LightColor0.rgb * sunGlint
+        + MotuWaterAdditionalGlints(reflectionDirection, worldPosition);
 }
 
 fixed3 MotuWaterIllumination(
@@ -173,7 +191,8 @@ fixed3 MotuWaterIllumination(
         + _LightColor0.rgb
             * diffuse
             * shadowAttenuation
-            * cloud.directTransmittance;
+            * cloud.directTransmittance
+        + MotuAdditionalLighting(worldPosition, worldNormal);
 }
 
 #endif

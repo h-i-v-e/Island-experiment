@@ -349,7 +349,8 @@ Shader "Motu/Tree Wood"
                         + _LightColor0.rgb
                             * diffuse
                             * attenuation
-                            * cloud.directTransmittance),
+                            * cloud.directTransmittance
+                        + MotuAdditionalLighting(input.worldPosition, normal)),
                     1.0);
                 UNITY_APPLY_FOG(input.fogCoord, result);
                 return result;

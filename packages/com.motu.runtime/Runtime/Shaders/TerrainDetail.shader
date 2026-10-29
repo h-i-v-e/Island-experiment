@@ -588,7 +588,8 @@ Shader "Motu/Terrain Unified"
                 MotuCloudLighting cloud = MotuCloudSurfaceLighting(input.worldPosition);
                 half3 lighting = ShadeSH9(half4(normal, 1.0h))
                         * cloud.ambientTransmittance
-                    + _LightColor0.rgb * diffuse * cloud.directTransmittance;
+                    + _LightColor0.rgb * diffuse * cloud.directTransmittance
+                    + MotuAdditionalLighting(input.worldPosition, normal);
                 half sharedOcclusion = lerp(
                     1.0h,
                     tex2D(_Occlusion, input.uv).r,
@@ -1092,6 +1093,7 @@ Shader "Motu/Terrain Unified"
                 half3 direct = _LightColor0.rgb
                     * diffuse
                     * cloud.directTransmittance;
+                direct += MotuAdditionalLighting(input.worldPosition, normal);
                 half3 ambient = ShadeSH9(half4(normal, 1.0h))
                     * cloud.ambientTransmittance;
                 float3 viewDirection = normalize(UnityWorldSpaceViewDir(input.worldPosition));
@@ -1111,7 +1113,9 @@ Shader "Motu/Terrain Unified"
                     * (_WetSpecularStrength * 0.12h)
                     * wetSurfaceEffects;
                 half3 wetReflection = _LightColor0.rgb * wetHighlight
-                    + ambient * wetFresnel * occlusion;
+                    + ambient * wetFresnel * occlusion
+                    + MotuAdditionalSpecularLighting(input.worldPosition, normal, viewDirection, wetHighlightPower)
+                        * _WetSpecularStrength * wetSurfaceEffects;
                 fixed4 color = fixed4(
                     baseColor * _Color.rgb * occlusion * (ambient + direct)
                         + wetReflection,

@@ -84,6 +84,26 @@ float4 MotuShadowPosition(float3 worldPosition, float3 worldNormal)
 #define TRANSFER_SHADOW_CASTER_NORMALOFFSET(output) output.pos = MotuShadowPosition(TransformObjectToWorld(v.vertex.xyz), TransformObjectToWorldNormal(v.normal));
 #define SHADOW_CASTER_FRAGMENT(input) return 0;
 
+#include "CloudCommon.cginc"
+
+half MotuAdditionalLightCloudTransmittance(uint lightIndex, float3 worldPosition, half3 lightDirection)
+{
+    // URP packs directionals with position.w=0; point/spot lights have w=1.
+    // Only celestial light crosses the cloud layer before reaching the surface.
+#if USE_CLUSTER_LIGHT_LOOP
+    int perObjectIndex = lightIndex;
+#else
+    int perObjectIndex = GetPerObjectLightIndex(lightIndex);
+#endif
+#if USE_STRUCTURED_BUFFER_FOR_LIGHT_DATA
+    float positionW = _AdditionalLightsBuffer[perObjectIndex].position.w;
+#else
+    float positionW = _AdditionalLightsPosition[perObjectIndex].w;
+#endif
+    if (positionW > 0.5) return 1.0h;
+    return MotuCloudSurfaceLightingForDirection(worldPosition, lightDirection).directTransmittance;
+}
+
 half3 MotuAdditionalLighting(float3 worldPosition, half3 normal)
 {
     half3 result = 0;
@@ -93,9 +113,49 @@ half3 MotuAdditionalLighting(float3 worldPosition, half3 normal)
     {
         Light light = GetAdditionalLight(index, worldPosition, half4(1,1,1,1));
         result += light.color * saturate(dot(normal, light.direction))
-            * light.distanceAttenuation * light.shadowAttenuation;
+            * light.distanceAttenuation * light.shadowAttenuation
+            * MotuAdditionalLightCloudTransmittance(index, worldPosition, light.direction);
     }
     #endif
+    return result;
+}
+
+half3 MotuAdditionalFoliageLighting(float3 worldPosition, half3 normal,
+    half3 albedo, half3 transmissionColor, half translucency)
+{
+    half3 result = 0;
+#if defined(_ADDITIONAL_LIGHTS)
+    uint count = GetAdditionalLightsCount();
+    for (uint index = 0; index < count; ++index)
+    {
+        Light light = GetAdditionalLight(index, worldPosition, half4(1, 1, 1, 1));
+        half facing = dot(normal, light.direction);
+        half wrapped = saturate((facing + 0.28h) / 1.28h);
+        half backLighting = pow(saturate(-facing), 2.0h) * translucency;
+        half3 irradiance = light.color * light.distanceAttenuation * light.shadowAttenuation
+            * MotuAdditionalLightCloudTransmittance(index, worldPosition, light.direction);
+        result += irradiance * (albedo * wrapped + transmissionColor * backLighting);
+    }
+#endif
+    return result;
+}
+
+half3 MotuAdditionalSpecularLighting(float3 worldPosition, half3 normal,
+    float3 viewDirection, half exponent)
+{
+    half3 result = 0;
+#if defined(_ADDITIONAL_LIGHTS)
+    uint count = GetAdditionalLightsCount();
+    for (uint index = 0; index < count; ++index)
+    {
+        Light light = GetAdditionalLight(index, worldPosition, half4(1, 1, 1, 1));
+        half3 halfway = normalize(light.direction + viewDirection + float3(0, 0.000001, 0));
+        half specular = pow(saturate(dot(normal, halfway)), max(exponent, 1.0h))
+            * step(0.0h, dot(normal, light.direction));
+        result += light.color * specular * light.distanceAttenuation * light.shadowAttenuation
+            * MotuAdditionalLightCloudTransmittance(index, worldPosition, light.direction);
+    }
+#endif
     return result;
 }
 

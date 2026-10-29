@@ -181,12 +181,13 @@ Shader "Motu/Riverbank Reeds"
                 half3 ambient = max(
                     ShadeSH9(half4(normal, 1.0h))
                         * cloud.ambientTransmittance,
-                    0.10h);
+                    MotuDaylightAmbientFloor(0.10h));
                 fixed4 result = fixed4(
                     albedo * (ambient + _LightColor0.rgb
                         * attenuation
                         * (0.18h + 0.82h * diffuse)
-                        * cloud.directTransmittance),
+                        * cloud.directTransmittance
+                        + MotuAdditionalLighting(input.worldPosition, normal)),
                     1.0h);
                 UNITY_APPLY_FOG(input.fogCoord, result);
                 return result;

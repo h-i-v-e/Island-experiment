@@ -103,7 +103,8 @@ Shader "Motu/Planar Reflection Simplified"
         half diffuse = saturate(dot(normal, lightDirection));
         return albedo * (ambient + _LightColor0.rgb
             * (0.18h + diffuse * 0.72h)
-            * cloud.directTransmittance);
+            * cloud.directTransmittance
+            + MotuAdditionalLighting(worldPosition, normal));
     }
 
     fixed4 FinishReflection(
@@ -183,6 +184,8 @@ Shader "Motu/Planar Reflection Simplified"
             #pragma fragment TerrainFragment
             #pragma target 3.0
             #pragma multi_compile_instancing
+            #pragma multi_compile _ _ADDITIONAL_LIGHTS
+            #pragma multi_compile_fragment _ _ADDITIONAL_LIGHT_SHADOWS
             ENDHLSL
         }
             Pass
@@ -195,6 +198,8 @@ Shader "Motu/Planar Reflection Simplified"
             #pragma fragment GrassFragment
             #pragma target 3.0
             #pragma multi_compile_instancing
+            #pragma multi_compile _ _ADDITIONAL_LIGHTS
+            #pragma multi_compile_fragment _ _ADDITIONAL_LIGHT_SHADOWS
             ENDHLSL
         }
             Pass
@@ -207,6 +212,8 @@ Shader "Motu/Planar Reflection Simplified"
             #pragma fragment WoodFragment
             #pragma target 3.0
             #pragma multi_compile_instancing
+            #pragma multi_compile _ _ADDITIONAL_LIGHTS
+            #pragma multi_compile_fragment _ _ADDITIONAL_LIGHT_SHADOWS
             ENDHLSL
         }
             Pass
@@ -219,6 +226,8 @@ Shader "Motu/Planar Reflection Simplified"
             #pragma fragment FoliageFragment
             #pragma target 3.0
             #pragma multi_compile_instancing
+            #pragma multi_compile _ _ADDITIONAL_LIGHTS
+            #pragma multi_compile_fragment _ _ADDITIONAL_LIGHT_SHADOWS
             ENDHLSL
         }
             Pass
@@ -340,6 +349,8 @@ AlphaToMask On
             #pragma fragment RockFragment
             #pragma target 3.0
             #pragma multi_compile_instancing
+            #pragma multi_compile _ _ADDITIONAL_LIGHTS
+            #pragma multi_compile_fragment _ _ADDITIONAL_LIGHT_SHADOWS
             ENDHLSL
         }
             Pass

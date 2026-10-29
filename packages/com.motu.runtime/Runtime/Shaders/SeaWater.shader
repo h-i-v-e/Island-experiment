@@ -134,6 +134,18 @@ Shader "Motu/Sea Water"
                 // keeps curved crests visible at other sun orientations.
                 half3 illumination = _LightColor0.rgb * shadowAttenuation
                     * cloud.directTransmittance * daylight * throughWave * faceWeight;
+                #if defined(_ADDITIONAL_LIGHTS)
+                uint count = GetAdditionalLightsCount();
+                for (uint index = 0; index < count; ++index)
+                {
+                    Light light = GetAdditionalLight(index, worldPosition, half4(1, 1, 1, 1));
+                    half attenuation = light.distanceAttenuation * light.shadowAttenuation
+                        * MotuAdditionalLightCloudTransmittance(index, worldPosition, light.direction);
+                    half backscatter = pow(saturate(dot(viewDirection, -light.direction)),
+                        max(_WaveTranslucencyFalloff, 1.0h));
+                    illumination += light.color * attenuation * backscatter * faceWeight;
+                }
+                #endif
                 illumination += UNITY_LIGHTMODEL_AMBIENT.rgb
                     * cloud.ambientTransmittance * max(_WaveTranslucencyAmbient, 0.0h)
                     * faceWeight;

@@ -175,11 +175,12 @@ Shader "Motu/Forest Ferns"
                 half3 ambient = max(
                     ShadeSH9(half4(normal, 1.0h))
                         * cloud.ambientTransmittance,
-                    0.10h);
+                    MotuDaylightAmbientFloor(0.10h));
                 fixed4 result = fixed4(
                     albedo * (ambient + _LightColor0.rgb
                         * (0.22h + 0.78h * diffuse)
-                        * cloud.directTransmittance),
+                        * cloud.directTransmittance
+                        + MotuAdditionalLighting(input.worldPosition, normal)),
                     1.0h);
                 UNITY_APPLY_FOG(input.fogCoord, result);
                 return result;

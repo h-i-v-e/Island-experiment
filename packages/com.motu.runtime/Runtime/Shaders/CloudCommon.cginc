@@ -21,6 +21,9 @@ float _MotuCloudLowElevationFade;
 float4 _MotuCloudLightDirection;
 float4 _MotuEnvironmentWorldOffset;
 float _MotuCloudLightActive;
+float4 _MotuCloudSecondaryLightDirection;
+fixed4 _MotuCloudSecondaryLightColor;
+float _MotuCloudSecondaryLightActive;
 fixed4 _MotuCloudLightColor;
 fixed4 _MotuCloudAmbientColor;
 float _MotuCloudSunsetStrength;
@@ -121,13 +124,13 @@ half MotuCloudOpticalTransmittance(half density, half strength)
         * 1.442695h);
 }
 
-half MotuCloudSurfaceDensity(float3 worldPosition)
+half MotuCloudSurfaceDensityInDirection(float3 worldPosition, float3 direction)
 {
-    if (_MotuCloudEnabled < 0.5 || _MotuCloudLightActive < 0.5)
+    if (_MotuCloudEnabled < 0.5)
         return 0.0h;
 
     float3 localPosition = MotuCloudWorldToLocal(worldPosition);
-    float3 lightDirection = normalize(_MotuCloudLightDirection.xyz);
+    float3 lightDirection = normalize(direction + float3(0.0, 0.000001, 0.0));
     float heightToCloud = _MotuCloudAltitude - localPosition.y;
     if (heightToCloud <= 0.0 || lightDirection.y <= 0.0001)
         return 0.0h;
@@ -141,15 +144,21 @@ half MotuCloudSurfaceDensity(float3 worldPosition)
     return MotuCloudDensityAtLocalPosition(cloudPosition) * elevationFade;
 }
 
+half MotuCloudSurfaceDensity(float3 worldPosition)
+{
+    return _MotuCloudLightActive < 0.5 ? 0.0h
+        : MotuCloudSurfaceDensityInDirection(worldPosition, _MotuCloudLightDirection.xyz);
+}
+
 struct MotuCloudLighting
 {
     half directTransmittance;
     half ambientTransmittance;
 };
 
-MotuCloudLighting MotuCloudSurfaceLighting(float3 worldPosition)
+MotuCloudLighting MotuCloudSurfaceLightingForDirection(float3 worldPosition, float3 lightDirection)
 {
-    half density = MotuCloudSurfaceDensity(worldPosition);
+    half density = MotuCloudSurfaceDensityInDirection(worldPosition, lightDirection);
     half optical = MotuCloudOpticalTransmittance(density, 1.0h);
     MotuCloudLighting lighting;
     lighting.directTransmittance = lerp(
@@ -159,6 +168,14 @@ MotuCloudLighting MotuCloudSurfaceLighting(float3 worldPosition)
     lighting.ambientTransmittance = 1.0h
         - density * saturate(_MotuCloudAmbientShadowStrength);
     return lighting;
+}
+
+MotuCloudLighting MotuCloudSurfaceLighting(float3 worldPosition)
+{
+    // Legacy callers shade the URP main light. The controller keeps the primary
+    // celestial slot aligned with that source while the secondary stays active.
+    return MotuCloudSurfaceLightingForDirection(worldPosition,
+        _MotuCloudLightActive > 0.5 ? _MotuCloudLightDirection.xyz : float3(0.0, -1.0, 0.0));
 }
 
 // A fixed reference length keeps density a mass-per-metre control. Increasing
@@ -320,10 +337,10 @@ float4 MotuCloudRayIntervals(float3 origin, float3 direction, float2 centre, flo
     return spans;
 }
 
-half MotuCloudSunTransmittance(float3 position, float2 centre, float radius, float heightFraction)
+half MotuCloudLightTransmittance(float3 position, float2 centre, float radius, float3 lightDirection, half active)
 {
-    if (_MotuCloudLightActive < 0.5) return 0.0h;
-    float3 direction = normalize(_MotuCloudLightDirection.xyz + float3(0.0, 0.000001, 0.0));
+    if (active < 0.5) return 0.0h;
+    float3 direction = normalize(lightDirection + float3(0.0, 0.000001, 0.0));
     float4 spans = MotuCloudRayIntervals(position, direction, centre, radius, radius * 2.0);
     int count = _MotuCloudMotion.z < 0.5 ? 2 : (_MotuCloudMotion.z > 1.5 ? 5 : 3);
     float opticalDepth = 0.0;
@@ -347,28 +364,44 @@ half MotuCloudSunTransmittance(float3 position, float2 centre, float radius, flo
         / (280.0 * penetration) * 1.442695);
 }
 
-fixed3 MotuCloudSkyColour(half density, float3 viewDirection, half sunlight, half heightFraction)
+half MotuCloudSunTransmittance(float3 position, float2 centre, float radius, float heightFraction)
+{
+    return MotuCloudLightTransmittance(position, centre, radius,
+        _MotuCloudLightDirection.xyz, _MotuCloudLightActive);
+}
+
+fixed3 MotuCloudScatteringFromLight(float3 viewDirection, half sunlight, half column,
+    float3 lightDirection, fixed3 lightColour)
+{
+    lightDirection = normalize(lightDirection + float3(0.0, 0.000001, 0.0));
+    half cosine = dot(viewDirection, lightDirection);
+    const half anisotropy = 0.55h;
+    half phase = (1.0h - anisotropy * anisotropy)
+        / pow(max(1.0h + anisotropy * anisotropy - 2.0h * anisotropy * cosine, 0.08h), 1.5h);
+    return lightColour * (sunlight * (0.70h + phase * 0.15h)
+        + (1.0h - sunlight) * exp2(-column * 0.35h) * 0.16h);
+}
+
+fixed3 MotuCloudSkyColour(half density, float3 viewDirection, half sunlight,
+    half secondaryLight, half heightFraction)
 {
     half night = saturate(_MotuCloudNightStrength);
     half sunset = saturate(_MotuCloudSunsetStrength) * (1.0h - night);
     fixed3 albedo = lerp(_MotuCloudDayColor.rgb, _MotuCloudSunsetColor.rgb, sunset * 0.45h);
     albedo = lerp(albedo, min(_MotuCloudNightColor.rgb * 8.0h, 3.0h), night);
-    float3 lightDirection = normalize(_MotuCloudLightDirection.xyz + float3(0.0, 0.000001, 0.0));
-    half cosine = dot(viewDirection, lightDirection);
-    const half anisotropy = 0.55h;
-    half phase = (1.0h - anisotropy * anisotropy)
-        / pow(max(1.0h + anisotropy * anisotropy - 2.0h * anisotropy * cosine, 0.08h), 1.5h);
     half column = density * max(_MotuCloudDensity, 0.0)
         * (MotuCloudLayerThickness() / 280.0) * (1.0h - heightFraction);
     half skyVisibility = exp2(-column * 0.45h);
     fixed3 ambient = _MotuCloudAmbientColor.rgb
         * (0.28h + skyVisibility * 0.72h) * lerp(0.65h, 1.0h, heightFraction);
-    fixed3 direct = _MotuCloudLightColor.rgb * sunlight * (0.70h + phase * 0.15h);
-    // Approximate light scattered back out of the cloud, retaining shaded
-    // detail without an emissive night floor or a flat painted grey underside.
-    fixed3 scattered = _MotuCloudLightColor.rgb * (1.0h - sunlight)
-        * exp2(-column * 0.35h) * 0.16h;
-    return albedo * (ambient + direct + scattered);
+    // Integrate each direction independently. Slot swaps at the horizon do not
+    // replace the other body's existing illumination or count ambient twice.
+    fixed3 scattered = MotuCloudScatteringFromLight(viewDirection, sunlight, column,
+        _MotuCloudLightDirection.xyz, _MotuCloudLightColor.rgb * step(0.5h, (half)_MotuCloudLightActive));
+    scattered += MotuCloudScatteringFromLight(viewDirection, secondaryLight, column,
+        _MotuCloudSecondaryLightDirection.xyz,
+        _MotuCloudSecondaryLightColor.rgb * step(0.5h, (half)_MotuCloudSecondaryLightActive));
+    return albedo * (ambient + scattered);
 }
 
 struct MotuCloudSkyVolume
@@ -420,7 +453,9 @@ MotuCloudSkyVolume MotuCloudSkyVolumeAt(
                 * (stepLength / 280.0) * 1.442695h);
             half heightFraction = saturate(MotuCloudHeightFraction(position, centre, radius));
             half sunlight = MotuCloudSunTransmittance(position, centre, radius, heightFraction);
-            fixed3 colour = MotuCloudSkyColour(density, direction, sunlight, heightFraction);
+            half secondaryLight = MotuCloudLightTransmittance(position, centre, radius,
+                _MotuCloudSecondaryLightDirection.xyz, _MotuCloudSecondaryLightActive);
+            fixed3 colour = MotuCloudSkyColour(density, direction, sunlight, secondaryLight, heightFraction);
             radiance += transmittance * opacity * colour;
             transmittance *= 1.0h - opacity;
         }
