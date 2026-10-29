@@ -172,6 +172,41 @@ Shader "Motu/Sky Dome"
                 faceUv = faceUv * 0.5 + 0.5;
             }
 
+            float MotuStarAntialiasWidth(float3 direction, float faceIndex, float2 offset)
+            {
+                // Differentiate the smooth direction before projecting onto the
+                // selected cube face. frac/cell hashes and face changes are
+                // discontinuities, not a star's screen-space footprint.
+                float3 axis = faceIndex < 1.5 ? float3(1, 0, 0)
+                    : faceIndex < 3.5 ? float3(0, 1, 0) : float3(0, 0, 1);
+                float major = dot(direction, axis);
+                float3 dx = ddx(direction);
+                float3 dy = ddy(direction);
+                dx = (dx - direction * (dot(dx, axis) / major)) / abs(major);
+                dy = (dy - direction * (dot(dy, axis) / major)) / abs(major);
+                float2 faceDx;
+                float2 faceDy;
+                if (faceIndex < 1.5)
+                {
+                    faceDx = float2(-sign(direction.x) * dx.z, dx.y);
+                    faceDy = float2(-sign(direction.x) * dy.z, dy.y);
+                }
+                else if (faceIndex < 3.5)
+                {
+                    faceDx = float2(dx.x, -sign(direction.y) * dx.z);
+                    faceDy = float2(dy.x, -sign(direction.y) * dy.z);
+                }
+                else
+                {
+                    faceDx = float2(sign(direction.z) * dx.x, dx.y);
+                    faceDy = float2(sign(direction.z) * dy.x, dy.y);
+                }
+                float2 radial = offset / max(length(offset), 0.00001);
+                // Face UV spans half the projected coordinate; there are 40
+                // cells per face, followed by the existing 1.5-pixel softening.
+                return max((abs(dot(radial, faceDx)) + abs(dot(radial, faceDy))) * 30.0, 0.002);
+            }
+
             fixed3 MotuNightStars(float3 skyDirection)
             {
                 float3 rotationAxis = normalize(_StarRotation.xyz);
@@ -199,7 +234,7 @@ Shader "Motu/Sky Dome"
                     key + float3(19.1, 23.7, 13.9));
                 float radius = _StarSettings.z * lerp(0.55, 1.25, variation);
                 float distanceToStar = length(cellCoordinate - centre);
-                float antialias = max(fwidth(distanceToStar) * 1.5, 0.002);
+                float antialias = MotuStarAntialiasWidth(starDirection, faceIndex, cellCoordinate - centre);
                 float core = 1.0 - smoothstep(
                     radius - antialias,
                     radius + antialias,
