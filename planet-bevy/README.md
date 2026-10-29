@@ -520,6 +520,13 @@ frustum culling and planet horizon culling remain active. Terrain and stones cas
 shadows, while water and fur shells receive them. Modest ambient skylight keeps
 shadowed rock detail visible.
 
+Indirect ambient and sky-probe light follows radial solar elevation at each
+surface point. Day-side lighting is unchanged; twilight fades smoothly to a
+4% ambient floor on the night side. Terrain at every LOD, stones, grass, trees,
+river/ocean bodies and foam share this fade. Cached water-sky reflections follow
+the same local factor, so a day-side orbital sky probe cannot illuminate the
+night-side sea. Direct sun lighting retains its existing shadowing.
+
 AO uses an independent WGSL hemisphere-probe implementation of the Unity effect.
 Its defaults match OpenSeaWorld's settings: strength 0.3, radius 0.05 metres,
 12 samples at full resolution. It reads the completed opaque depth buffer after

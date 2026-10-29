@@ -29,6 +29,14 @@ async fn run() {
 fn test(@builtin(global_invocation_id) id:vec3<u32>) {{
  if id.x>=arrayLength(&points) {{return;}}
  let p=points[id.x].xyz;
+ if parameters.simulation.w < -1.5 {{
+   var rotated=parameters;rotated.sun=vec4<f32>(parameters.sun.yzx,parameters.sun.w);
+   rotated.viewer=vec4<f32>(0.0,-3.0,0.0,0.0);
+   results[id.x]=vec4<f32>(environment_ambient_weight(p,parameters),
+     environment_ambient_weight(p*3.0,parameters),environment_ambient_weight(p.yzx,rotated),
+     environment_ambient_weight(vec3<f32>(0.9949874,-0.1,0.0),parameters));
+   return;
+ }}
  if parameters.simulation.w < -0.5 {{
    let flow=environment_cloud_flow(p,normalize(p),vec3<f32>(15.0,0.0,6.0),parameters);
    let changed=environment_cloud_flow(p,normalize(p),vec3<f32>(16.0,0.0,6.0),parameters);
@@ -190,7 +198,7 @@ fn test(@builtin(global_invocation_id) id:vec3<u32>) {{
     ];
     base[7] = base[1];
     let mut runs: Vec<Vec<[f32; 4]>> = Vec::new();
-    for mode in 0..15 {
+    for mode in 0..16 {
         let mut parameters = base;
         if mode == 1 {
             parameters[7] = 0.0;
@@ -229,6 +237,10 @@ fn test(@builtin(global_invocation_id) id:vec3<u32>) {{
             parameters = base;
             parameters[28] = 2.0;
             parameters[29] = 3600.0;
+        }
+        if mode == 15 {
+            parameters = base;
+            parameters[31] = -2.0;
         }
         let settings = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: None,
@@ -341,6 +353,26 @@ fn test(@builtin(global_invocation_id) id:vec3<u32>) {{
                     runs[5][i]
                 );
             }
+        }
+        if mode == 15 {
+            assert!((values[2][0] - 1.0).abs() < 1e-6, "day ambient changed");
+            assert!(
+                (values[3][0] - 0.04).abs() < 1e-6,
+                "night ambient was not reduced"
+            );
+            for value in &values {
+                assert!(
+                    (value[0] - value[1]).abs() < 1e-6 && (value[0] - value[2]).abs() < 1e-6,
+                    "ambient must follow the planet/Sun rather than radius or orbit camera: {value:?}"
+                );
+                assert!(
+                    (value[3] - 0.52).abs() < 1e-5,
+                    "twilight must blend continuously"
+                );
+            }
+            println!(
+                "Night ambient GPU: day unchanged, 4 percent night floor, twilight blend, radius/rotation/camera invariance passed"
+            );
         }
         if mode == 6 {
             assert!(

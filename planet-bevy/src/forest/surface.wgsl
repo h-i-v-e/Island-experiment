@@ -3,7 +3,7 @@
     pbr_fragment::pbr_input_from_standard_material,
     pbr_functions::{apply_pbr_lighting,main_pass_post_lighting_processing}}
 #import planet_bevy::forest::{forest,tree_wind,tree_clip,tree_noise}
-#import planet_bevy::environment_material::material_cloud_light
+#import planet_bevy::environment_material::{material_cloud_light,material_ambient_weight}
 @vertex fn vertex(input:Vertex)->VertexOutput {
     var out:VertexOutput;
     let transform=mesh_functions::get_world_from_local(input.instance_index);
@@ -46,6 +46,11 @@
     pbr.material.base_color=vec4<f32>(colour,1.0);
     pbr.material.perceptual_roughness=0.94;
     var out:FragmentOutput;
+    let ambient=material_ambient_weight(input.world_position.xyz);
+    pbr.diffuse_occlusion*=vec3<f32>(ambient);
+    pbr.specular_occlusion*=ambient;
+    // Bevy's leaf-transmission ambient lobe bypasses diffuse occlusion.
+    pbr.material.diffuse_transmission*=ambient;
     let lit=apply_pbr_lighting(pbr);
     out.color=main_pass_post_lighting_processing(pbr,vec4<f32>(lit.rgb*material_cloud_light(input.world_position.xyz),lit.a));
     return out;

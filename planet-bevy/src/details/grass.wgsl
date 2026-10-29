@@ -1,4 +1,4 @@
-#import planet_bevy::environment_material::{material_cloud_light,environment}
+#import planet_bevy::environment_material::{material_cloud_light,material_ambient_weight,environment}
 #import planet_bevy::weather::{weather_enabled,weather_wind}
 // Motu/Terrain Grass: sixteen alpha-cut shells, radial growth and tangent wind.
 #import bevy_pbr::{forward_io::{Vertex, VertexOutput, FragmentOutput}, mesh_functions,
@@ -109,6 +109,9 @@ fn blade_field(p: vec2<f32>, layer: f32) -> f32 {
     pbr.material.perceptual_roughness=0.98;
     pbr.N=normalize(mix(normal,up,0.35)+input.wind*0.08);
     var out: FragmentOutput;
+    let ambient=material_ambient_weight(input.world_position.xyz);
+    pbr.diffuse_occlusion*=vec3<f32>(ambient);
+    pbr.specular_occlusion*=ambient;
     let lighting=apply_pbr_lighting(pbr);
     out.color=main_pass_post_lighting_processing(pbr,vec4<f32>(lighting.rgb*material_cloud_light(input.world_position.xyz),lighting.a));
     return out;

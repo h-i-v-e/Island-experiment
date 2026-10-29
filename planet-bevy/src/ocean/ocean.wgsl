@@ -1,4 +1,4 @@
-#import planet_bevy::environment_material::material_cloud_light
+#import planet_bevy::environment_material::{material_cloud_light,material_ambient_weight}
 #import planet_bevy::weather::{weather_enabled,weather_debug_mode,weather_debug_colour,weather_lower,weather_swell}
 // Coupled wind/swell waves, with manual sources as a fallback.
 #import bevy_pbr::{forward_io::{Vertex,VertexOutput,FragmentOutput},mesh_functions,
@@ -82,7 +82,9 @@ fn ripple_gradient(uv:vec3<f32>,lod:f32)->vec3<f32>{
  let backlight=pow(max(dot(view_direction,-lights.directional_lights[0].direction_to_light),0.0),4.0);
  let face_weight=pow(1.0-max(dot(normal,view_direction),0.0),2.0);
  let daylight=smoothstep(0.0,0.1,dot(n,lights.directional_lights[0].direction_to_light));
- let crest_light=vec3<f32>(0.006,0.264,0.147)*wave.crest*face_weight*(0.03+6.0*backlight*shadow*daylight)*lights.directional_lights[0].color.rgb*view.exposure*0.08;
+ let ambient=material_ambient_weight(input.world_position.xyz);
+ pbr.diffuse_occlusion*=vec3<f32>(ambient);pbr.specular_occlusion*=ambient;
+ let crest_light=vec3<f32>(0.006,0.264,0.147)*wave.crest*face_weight*(0.03*ambient+6.0*backlight*shadow*daylight)*lights.directional_lights[0].color.rgb*view.exposure*0.08;
  let cloud_light=material_cloud_light(input.world_position.xyz);
  let lit_body=apply_pbr_lighting(pbr).rgb*cloud_light+crest_light;
  let analytic=normalize(n-wave.slope);

@@ -1,5 +1,5 @@
 #define_import_path planet_bevy::environment_material
-#import planet_bevy::environment::{EnvironmentUniform, environment_shadow_coordinate}
+#import planet_bevy::environment::{EnvironmentUniform, environment_shadow_coordinate,environment_ambient_weight}
 @group(#{MATERIAL_BIND_GROUP}) @binding(123) var<storage, read> environment: EnvironmentUniform;
 @group(#{MATERIAL_BIND_GROUP}) @binding(126) var environment_sky: texture_cube<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(127) var environment_shadows: texture_cube<f32>;
@@ -19,6 +19,9 @@ fn material_cloud_shadow(p: vec3<f32>) -> f32 {
 }
 fn material_cloud_light(p: vec3<f32>) -> f32 {
     return mix(0.35, 1.0, material_cloud_shadow(p));
+}
+fn material_ambient_weight(p:vec3<f32>)->f32 {
+    return environment_ambient_weight(p,environment);
 }
 fn material_sky(direction: vec3<f32>) -> vec3<f32> {
     return textureSampleLevel(environment_sky, environment_sky_sampler, direction, 0.0).rgb;

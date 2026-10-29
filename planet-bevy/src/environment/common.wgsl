@@ -6,6 +6,13 @@ struct EnvironmentUniform {
     shape: vec4<f32>, weather: vec4<f32>, wind: vec4<f32>,
     sun: vec4<f32>, light: vec4<f32>, air: vec4<f32>, viewer: vec4<f32>, simulation: vec4<f32>,
 }
+// Global ambient/sky probes cannot distinguish the two planetary hemispheres.
+// Fade indirect light by radial solar elevation, keeping daylight unchanged and
+// a small night floor. Surface normals must not turn cliffs into false day sides.
+fn environment_ambient_weight(p:vec3<f32>,parameters:EnvironmentUniform)->f32 {
+    let elevation=dot(normalize(p),normalize(parameters.sun.xyz));
+    return mix(0.04,1.0,smoothstep(-0.20,0.0,elevation));
+}
 fn environment_rotate(q: vec4<f32>, p: vec3<f32>) -> vec3<f32> {
     return p + 2.0 * cross(q.xyz, cross(q.xyz, p) + q.w * p);
 }
