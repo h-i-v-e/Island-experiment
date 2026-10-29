@@ -94,6 +94,7 @@ namespace Motu.Settings
         public readonly float WhitecapSlopeThreshold;
         public readonly float WhitecapCoverage;
         public readonly float WhitecapNoiseWorldSizeMetres;
+        public readonly float WhitecapFullWindSpeedMetresPerSecond;
         public readonly float WhitecapDistortionScale;
         public readonly float WhitecapDistortionSpeed;
         public readonly bool OnshoreWaveEnabled;
@@ -166,7 +167,8 @@ namespace Motu.Settings
             OceanWaveComponent wave3,
             float onshoreWaveBreakingStartDepthMetres = 5f,
             float onshoreWaveBreakingFullDepthMetres = 3.5f,
-            float shelteredWaveFraction = 1f / 3f)
+            float shelteredWaveFraction = 1f / 3f,
+            float whitecapFullWindSpeedMetresPerSecond = 18f)
         {
             Enabled = enabled;
             FineVertexSpacingMetres = Mathf.Clamp(fineVertexSpacingMetres, 0.5f, 16f);
@@ -195,6 +197,7 @@ namespace Motu.Settings
             AmplitudeVariation = Mathf.Clamp(amplitudeVariation, 0f, 0.75f);
             WhitecapColour = whitecapColour;
             WhitecapStrength = Mathf.Clamp(whitecapStrength, 0f, 2f);
+            WhitecapFullWindSpeedMetresPerSecond = Mathf.Clamp(whitecapFullWindSpeedMetresPerSecond, 1f, 50f);
             WhitecapHeightThreshold = Mathf.Clamp(whitecapHeightThreshold, 0.5f, 0.98f);
             WhitecapSlopeThreshold = Mathf.Clamp01(whitecapSlopeThreshold);
             WhitecapCoverage = Mathf.Clamp01(whitecapCoverage);
@@ -304,7 +307,8 @@ namespace Motu.Settings
                 weather.Wave3,
                 weather.OnshoreWaveBreakingStartDepthMetres,
                 weather.OnshoreWaveBreakingFullDepthMetres,
-                ShelteredWaveFraction);
+                ShelteredWaveFraction,
+                WhitecapFullWindSpeedMetresPerSecond);
             // Include the maximum weather scale (2.5) and bounds size conversion.
             // Finite inputs can still overflow when their displacements are added.
             WeatherValueValidation.RequireFinite(
@@ -397,13 +401,15 @@ namespace Motu.Settings
             0.96f,
             1f,
             1f);
-        [Tooltip("Overall visibility of whitecaps. Set to zero to disable them.")]
+        [Tooltip("Master visibility of wind-driven, noise-textured foam formed within the top twenty percent of the combined maximum crest height. Set to zero to disable whitecaps.")]
         [Range(0f, 2f)] [SerializeField] private float whitecapStrength = 0.85f;
-        [Tooltip("Normalized crest height at which foam starts forming. Lower values produce whitecaps on more waves.")]
-        [Range(0.5f, 0.98f)] [SerializeField] private float whitecapHeightThreshold = 0.68f;
-        [Tooltip("Surface slope needed for full breaking-wave foam. Crest height can still produce a smaller amount on a locally flat peak.")]
-        [Range(0f, 1f)] [SerializeField] private float whitecapSlopeThreshold = 0.12f;
-        [Tooltip("Fraction of eligible crests retained after coherent breakup noise.")]
+        [Tooltip("Wind speed at which crest foam reaches full strength. Foam scales linearly from zero wind to this speed. 18 m/s is approximately 35 knots.")]
+        [Range(1f, 50f)] [SerializeField] private float whitecapFullWindSpeedMetresPerSecond = 18f;
+        [Tooltip("Legacy serialized threshold. Ordinary foam now always starts at 80 percent of the combined maximum crest height.")]
+        [HideInInspector, Range(0.5f, 0.98f)] [SerializeField] private float whitecapHeightThreshold = 0.68f;
+        [Tooltip("Legacy serialized threshold. Ordinary foam strength now follows wind speed.")]
+        [HideInInspector, Range(0f, 1f)] [SerializeField] private float whitecapSlopeThreshold = 0.12f;
+        [Tooltip("Fraction of eligible wave crests retained after coherent fine-noise breakup; also used for coastal and boat foam.")]
         [Range(0f, 1f)] [SerializeField] private float whitecapCoverage = 0.58f;
         [Tooltip("World-space size of coherent gaps and clusters within the whitecaps.")]
         [Range(0.5f, 64f)] [SerializeField] private float whitecapNoiseWorldSizeMetres = 7f;
@@ -496,7 +502,8 @@ namespace Motu.Settings
                 wave3,
                 onshoreWaveBreakingStartDepthMetres,
                 onshoreWaveBreakingFullDepthMetres,
-                ShelteredWaveFraction);
+                ShelteredWaveFraction,
+                whitecapFullWindSpeedMetresPerSecond);
         }
 
         private void OnValidate()

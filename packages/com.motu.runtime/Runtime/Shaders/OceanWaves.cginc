@@ -53,6 +53,7 @@ float _WhitecapHeightThreshold;
 float _WhitecapSlopeThreshold;
 float _WhitecapCoverage;
 float _WhitecapNoiseWorldSize;
+float _WhitecapFullWindSpeed;
 float _WhitecapDistortionScale;
 float _WhitecapDistortionStrength;
 float _WhitecapDistortionSpeed;
@@ -326,7 +327,9 @@ void MotuAccumulateOceanWave(
     inout float unresolvedVariance,
     inout float3 displacement,
     inout float2 heightDerivative,
-    inout float crestCurvature)
+    inout float crestCurvature,
+    out float componentHeight,
+    out float2 componentHeightEnvelope)
 {
     float2 direction = pattern.xy;
     float wavelength = max(pattern.z, 0.25);
@@ -353,12 +356,28 @@ void MotuAccumulateOceanWave(
         * ((1.0 - resolved * resolved)
             + 4.0 * crestBias * crestBias * (1.0 - harmonicResolved * harmonicResolved));
     crestCurvature += amplitude * waveNumber * waveNumber * crestShape;
-    displacement.y += amplitude * (waveSin * resolved - crestBias * waveCosDouble * harmonicResolved);
+    componentHeight = amplitude * (waveSin * resolved - crestBias * waveCosDouble * harmonicResolved);
+    componentHeightEnvelope = amplitude * float2(
+        -resolved + crestBias * harmonicResolved,
+        resolved + crestBias * harmonicResolved);
+    displacement.y += componentHeight;
     displacement.xz += direction
         * (amplitude * saturate(choppiness) * waveCos * resolved);
     heightDerivative += direction
         * (amplitude * waveNumber
             * (waveCos * resolved + 2.0 * crestBias * waveSinDouble * harmonicResolved));
+}
+
+void MotuAccumulateOceanWave(float4 pattern, float baseAmplitude, float choppiness,
+    float amplitudeScale, float contributionWeight, float2 worldPosition, float pixelFootprint,
+    inout float unresolvedVariance, inout float3 displacement, inout float2 heightDerivative,
+    inout float crestCurvature)
+{
+    float unusedHeight;
+    float2 unusedEnvelope;
+    MotuAccumulateOceanWave(pattern, baseAmplitude, choppiness, amplitudeScale,
+        contributionWeight, worldPosition, pixelFootprint, unresolvedVariance,
+        displacement, heightDerivative, crestCurvature, unusedHeight, unusedEnvelope);
 }
 
 void MotuAccumulateOceanWaveTransition(
@@ -372,21 +391,40 @@ void MotuAccumulateOceanWaveTransition(
     inout float unresolvedVariance,
     inout float3 displacement,
     inout float2 heightDerivative,
-    inout float crestCurvature)
+    inout float crestCurvature,
+    out float maximumHeight)
 {
     float blend = saturate(_OceanWaveTransition);
+    float componentHeight;
+    float2 componentEnvelope;
     MotuAccumulateOceanWave(
         outgoingPattern, baseAmplitude, choppiness,
         amplitudeScale, 1.0 - blend, worldPosition, pixelFootprint, unresolvedVariance,
-        displacement, heightDerivative, crestCurvature);
+        displacement, heightDerivative, crestCurvature, componentHeight, componentEnvelope);
     [branch]
     if (blend > 0.0)
     {
+        float incomingHeight;
+        float2 incomingEnvelope;
         MotuAccumulateOceanWave(
             incomingPattern, baseAmplitude, choppiness,
             amplitudeScale, blend, worldPosition, pixelFootprint, unresolvedVariance,
-            displacement, heightDerivative, crestCurvature);
+            displacement, heightDerivative, crestCurvature, incomingHeight, incomingEnvelope);
+        componentHeight += incomingHeight;
+        componentEnvelope += incomingEnvelope;
     }
+    maximumHeight = max(componentEnvelope.y, 0.0);
+}
+
+void MotuAccumulateOceanWaveTransition(float4 outgoingPattern, float4 incomingPattern,
+    float baseAmplitude, float choppiness, float amplitudeScale, float2 worldPosition,
+    float pixelFootprint, inout float unresolvedVariance, inout float3 displacement,
+    inout float2 heightDerivative, inout float crestCurvature)
+{
+    float unusedMaximumHeight;
+    MotuAccumulateOceanWaveTransition(outgoingPattern, incomingPattern,
+        baseAmplitude, choppiness, amplitudeScale, worldPosition, pixelFootprint,
+        unresolvedVariance, displacement, heightDerivative, crestCurvature, unusedMaximumHeight);
 }
 
 float MotuOceanWaveAmplitudeScale(
@@ -428,12 +466,14 @@ void MotuEvaluateOceanWaveField(
     out float unresolvedVariance,
     out float3 displacement,
     out float2 heightDerivative,
-    out float crestCurvature)
+    out float crestCurvature,
+    out float maximumHeight)
 {
     unresolvedVariance = 0.0;
     crestCurvature = 0.0;
     displacement = 0.0;
     heightDerivative = 0.0;
+    float4 maximumHeights = 0.0;
     float2 windAdvectedPosition = MOTU_OCEAN_SAMPLE_WIND_POSITION(worldPosition);
     float2 domainWarp = MotuOceanDomainWarp(windAdvectedPosition);
     float longestWavelength = max(
@@ -464,7 +504,7 @@ void MotuEvaluateOceanWaveField(
         pixelFootprint, unresolvedVariance,
         displacement,
         heightDerivative,
-        crestCurvature);
+        crestCurvature, maximumHeights.x);
     MotuAccumulateOceanWaveTransition(
         MOTU_OCEAN_SAMPLE_PATTERN(_OceanWaveFrom1, _OceanWaveSpeeds.y),
         MOTU_OCEAN_SAMPLE_PATTERN(_OceanWaveTo1, _OceanWaveSpeeds.y),
@@ -475,7 +515,7 @@ void MotuEvaluateOceanWaveField(
         pixelFootprint, unresolvedVariance,
         displacement,
         heightDerivative,
-        crestCurvature);
+        crestCurvature, maximumHeights.y);
     MotuAccumulateOceanWaveTransition(
         MOTU_OCEAN_SAMPLE_PATTERN(_OceanWaveFrom2, _OceanWaveSpeeds.z),
         MOTU_OCEAN_SAMPLE_PATTERN(_OceanWaveTo2, _OceanWaveSpeeds.z),
@@ -486,7 +526,7 @@ void MotuEvaluateOceanWaveField(
         pixelFootprint, unresolvedVariance,
         displacement,
         heightDerivative,
-        crestCurvature);
+        crestCurvature, maximumHeights.z);
     MotuAccumulateOceanWaveTransition(
         MOTU_OCEAN_SAMPLE_PATTERN(_OceanWaveFrom3, _OceanWaveSpeeds.w),
         MOTU_OCEAN_SAMPLE_PATTERN(_OceanWaveTo3, _OceanWaveSpeeds.w),
@@ -497,12 +537,22 @@ void MotuEvaluateOceanWaveField(
         pixelFootprint, unresolvedVariance,
         displacement,
         heightDerivative,
-        crestCurvature);
+        crestCurvature, maximumHeights.w);
 
     MotuOceanApplyIslandShelter(worldPosition,
         displacement, heightDerivative, crestCurvature);
     float shelterScale = MotuOceanShelterWaveScale(worldPosition);
     unresolvedVariance *= shelterScale * shelterScale;
+    maximumHeight = dot(maximumHeights, float4(1, 1, 1, 1)) * shelterScale;
+}
+
+void MotuEvaluateOceanWaveField(float2 worldPosition, float pixelFootprint,
+    out float unresolvedVariance, out float3 displacement,
+    out float2 heightDerivative, out float crestCurvature)
+{
+    float unusedMaximumHeight;
+    MotuEvaluateOceanWaveField(worldPosition, pixelFootprint, unresolvedVariance,
+        displacement, heightDerivative, crestCurvature, unusedMaximumHeight);
 }
 
 void MotuEvaluateOceanWaveField(float2 worldPosition,
@@ -696,19 +746,18 @@ float MotuOceanFoamAllowance(float4 coastalData, float ordinaryAllowance, float 
 
 float MotuOceanFoamHeightAllowance(float heightAboveSeaPlane)
 {
-    // A large authored envelope does not imply a visible crest: cancellation,
-    // depth limits, and mesh flattening can leave only a few centimetres.
+    // Coastal breakers retain their existing visible-height limit. Ordinary
+    // whitecaps use the combined directional wave height and its own maximum.
     return smoothstep(0.10, 0.25, heightAboveSeaPlane);
 }
 
 float MotuOceanSurfaceFoam(float freshFoam, float storedFoam,
     float localWaveAllowance, float renderedHeight)
 {
-    // Height limits formation of fresh whitecaps. Already deposited foam
-    // rides the surface through sea level and troughs instead of being sliced
-    // by a height contour. Calm/river suppression uses the local wave envelope.
-    return max(freshFoam * MotuOceanFoamHeightAllowance(renderedHeight),
-        storedFoam * localWaveAllowance);
+    // Fresh wave foam already owns its combined analytic height mask. Avoid
+    // applying another height threshold after distant geometry fades flat.
+    // Stored coastal/wake foam still uses the local activity allowance.
+    return max(freshFoam, storedFoam * localWaveAllowance);
 }
 
 float2 MotuFoamCellSeed(float2 cell)
@@ -787,13 +836,15 @@ void MotuEvaluateOceanWaveNormal(
     out float3 worldNormal,
     out float whitecap,
     out float crestResponse,
-    out float foamAllowance)
+    out float foamAllowance,
+    out float coastalWhitecap)
 {
     unresolvedVariance = 0;
     worldNormal = float3(0.0, 1.0, 0.0);
     whitecap = 0.0;
     crestResponse = 0.0;
     foamAllowance = 0.0;
+    coastalWhitecap = 0.0;
     float geometricWaveWeight = saturate(_GeometricWaves);
     [branch]
     if (geometricWaveWeight <= 0.0001)
@@ -804,11 +855,12 @@ void MotuEvaluateOceanWaveNormal(
     float3 baseDisplacement;
     float2 baseHeightDerivative;
     float baseCurvature;
+    float maximumHeight;
     MotuEvaluateOceanWaveField(
         worldPosition, pixelFootprint, unresolvedVariance,
         baseDisplacement,
         baseHeightDerivative,
-        baseCurvature);
+        baseCurvature, maximumHeight);
 
     float3 onshoreDisplacement;
     float2 onshoreHeightDerivative;
@@ -864,32 +916,30 @@ void MotuEvaluateOceanWaveNormal(
 
     crestResponse = MotuOceanHeightTranslucency(combinedDisplacement.y * geometricWaveWeight);
 
-    float maximumAmplitude = max(
-        MotuOceanMaximumWaveHeight() * depthWaveScale,
-        0.001);
-    float normalizedHeight = saturate(
-        0.5 + combinedDisplacement.y / (2.0 * maximumAmplitude));
-    float threshold = clamp(_WhitecapHeightThreshold, 0.5, 0.98);
-    float crest = smoothstep(
-        threshold,
-        min(threshold + 0.16, 0.999),
-        normalizedHeight);
-    float slopeThreshold = saturate(_WhitecapSlopeThreshold);
-    float slope = length(heightDerivative);
-    float breakingSlope = smoothstep(
-        slopeThreshold,
-        slopeThreshold + 0.24,
-        slope);
-
     float brokenPatches = MotuOceanFoamPatches(worldPosition, pixelFootprint);
-    float slopeWeight = lerp(0.35, 1.0, breakingSlope);
-    float ordinaryWhitecap = crest
-        * slopeWeight
-        * brokenPatches;
+    // A single threshold against the maximum simultaneous crest of all four
+    // directional waves. Fresh foam forms only in the highest twenty percent,
+    // with wind-driven strength and the existing fine foam breakup.
+    float crestMask = maximumHeight > 0.000001
+        ? smoothstep(maximumHeight * 0.80, maximumHeight, baseDisplacement.y) : 0.0;
+    float windStrength = saturate(max(_MotuWeatherWind.z, 0.0)
+        / max(_WhitecapFullWindSpeed, 0.001));
+    float ordinaryWhitecap = crestMask * windStrength
+        * normalAttenuation * geometricWaveWeight * brokenPatches;
     float breakerWhitecap = breakerFoam * geometricWaveWeight * brokenPatches;
-    whitecap = max(ordinaryWhitecap, breakerWhitecap)
-        * max(_WhitecapStrength, 0.0) * foamAllowance
+    float masterWeight = max(_WhitecapStrength, 0.0) * foamAllowance;
+    coastalWhitecap = breakerWhitecap * masterWeight
         * MotuOceanFoamHeightAllowance(combinedDisplacement.y * geometricWaveWeight);
+    whitecap = max(ordinaryWhitecap * masterWeight, coastalWhitecap);
+}
+
+void MotuEvaluateOceanWaveNormal(float2 worldPosition, float pixelFootprint,
+    out float unresolvedVariance, out float3 worldNormal, out float whitecap,
+    out float crestResponse, out float foamAllowance)
+{
+    float unusedCoastalWhitecap;
+    MotuEvaluateOceanWaveNormal(worldPosition, pixelFootprint, unresolvedVariance,
+        worldNormal, whitecap, crestResponse, foamAllowance, unusedCoastalWhitecap);
 }
 
 void MotuEvaluateOceanWaveNormal(float2 worldPosition,

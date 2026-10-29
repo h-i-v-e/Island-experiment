@@ -116,6 +116,7 @@ namespace Motu.Editor
                     material.SetFloat("_WhitecapHeightThreshold", .5f);
                     material.SetFloat("_WhitecapCoverage", 1);
                     material.SetFloat("_WhitecapStrength", 1);
+                    material.SetFloat("_WhitecapFullWindSpeed",18);
                     material.SetTexture("_WaveAttenuationTex", mask);
                     material.SetVector("_WaveAttenuationWorldRect", new Vector4(-8, -8, 1f / 16, 1f / 16));
                     material.SetVector("_OceanWaveFrom0", new Vector4(1, 0, 32, Mathf.PI * .5f));
@@ -216,7 +217,8 @@ namespace Motu.Editor
                 surface.SetVector("_ProbeView", new Vector4(0, 1, 0, 1));
                 Assert.That(Read(surface, 1)[0].r, Is.Zero, "Fully calm water must still hide stored foam.");
                 surface.SetVector("_ProbeView", new Vector4(1, 0, 1, 0));
-                Assert.That(Read(surface, 1)[0].r, Is.Zero, "A flattened crest must not generate fresh foam.");
+                Assert.That(Read(surface, 1)[0].r, Is.EqualTo(1),
+                    "Fresh foam already has its analytic combined-height formation mask.");
                 surface.SetVector("_ProbeView", new Vector4(1, 0, 1, 1));
                 Assert.That(Read(surface, 1)[0].r, Is.EqualTo(1), "Real crests must retain fresh whitecaps.");
             }
@@ -856,7 +858,7 @@ namespace Motu.Editor
             var oldCapsules = Shader.GetGlobalInt("_MotuDeckCapsuleCount");
             try
             {
-                Shader.SetGlobalVector("_MotuWeatherWind", new Vector4(1, 0, 0, 1));
+                Shader.SetGlobalVector("_MotuWeatherWind", new Vector4(1, 0, 18, 1));
                 Shader.SetGlobalTexture("_MotuWindNoise", Texture2D.whiteTexture);
                 Shader.SetGlobalFloat("_MotuShipWaveEnabled", 0);
                 Shader.SetGlobalInt("_MotuDeckCapsuleCount", 0);
@@ -875,6 +877,7 @@ namespace Motu.Editor
                 for (var i = 0; i < 5; i++) { history.Update(material, Vector3.zero, .05f); yield return null; }
                 var deposited = FoamAt(history, new Vector2(8, 0));
                 Assert.That(deposited, Is.GreaterThan(.05));
+                Shader.SetGlobalVector("_MotuWeatherWind",new Vector4(1,0,0,1));
                 material.SetFloat("_WhitecapStrength", 0);
                 history.Update(material, new Vector3(4, 0, 0), .05f);
                 yield return null;

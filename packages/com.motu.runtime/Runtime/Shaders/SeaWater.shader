@@ -12,6 +12,7 @@ Shader "Motu/Sea Water"
         _AbsorptionStrength ("Absorption Strength", Range(0, 4)) = 1
         _PersistentFoamStrength ("Persistent Foam Strength", Range(0, 2)) = 0.8
         _FoamLifetime ("Foam Lifetime (seconds)", Range(0.1, 30)) = 6
+        [HideInInspector] _WhitecapFullWindSpeed ("Full Foam Wind Speed (m/s)", Range(1, 50)) = 18
         _FoamDepositRate ("Foam Deposit Rate", Range(0, 10)) = 2
         [HideInInspector] _OceanFoamHistory ("Foam History", 2D) = "black" {}
         [HideInInspector] _OceanFoamHistoryRect ("Foam History World Rect", Vector) = (0, 0, 0, 0)

@@ -33,6 +33,7 @@ namespace Motu.World
             "_WhitecapHeightThreshold");
         private static readonly int WhitecapSlopeThresholdId = Shader.PropertyToID(
             "_WhitecapSlopeThreshold");
+        private static readonly int WhitecapFullWindSpeedId = Shader.PropertyToID("_WhitecapFullWindSpeed");
         private static readonly int WhitecapCoverageId = Shader.PropertyToID(
             "_WhitecapCoverage");
         private static readonly int WhitecapNoiseWorldSizeId = Shader.PropertyToID(
@@ -344,6 +345,7 @@ namespace Motu.World
                 WhitecapSlopeThresholdId,
                 waveSettings.WhitecapSlopeThreshold);
             surfaceMaterial.SetFloat(WhitecapCoverageId, waveSettings.WhitecapCoverage);
+            surfaceMaterial.SetFloat(WhitecapFullWindSpeedId, waveSettings.WhitecapFullWindSpeedMetresPerSecond);
             surfaceMaterial.SetFloat(
                 WhitecapNoiseWorldSizeId,
                 waveSettings.WhitecapNoiseWorldSizeMetres);
