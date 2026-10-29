@@ -25,6 +25,7 @@ pub struct TerrainTextures {
     pub environment: Handle<ShaderBuffer>,
     pub environment_sky: Handle<Image>,
     pub environment_shadows: Handle<Image>,
+    pub global_weather: Handle<Image>,
     pub forest_mask: Handle<Image>,
 }
 
@@ -57,6 +58,7 @@ impl TerrainTextures {
             environment: self.environment.clone(),
             environment_sky: Some(self.environment_sky.clone()),
             environment_shadows: Some(self.environment_shadows.clone()),
+            global_weather: Some(self.global_weather.clone()),
             forest_mask: Some(self.forest_mask.clone()),
             ..default()
         }
@@ -69,6 +71,7 @@ pub fn setup(
     mut buffers: ResMut<Assets<ShaderBuffer>>,
     environment: Res<crate::environment::settings::EnvironmentAssets>,
     reflection: Res<crate::environment::reflections::SkyReflectionAssets>,
+    weather: Res<crate::weather::WeatherFrame>,
 ) {
     commands.insert_resource(TerrainTextures {
         albedo: images.add(array_image(
@@ -88,6 +91,7 @@ pub fn setup(
         environment: environment.uniform.clone(),
         environment_sky: reflection.cube.clone(),
         environment_shadows: reflection.shadows.clone(),
+        global_weather: weather.texture.clone(),
         forest_mask: images.add(crate::forest::mask::image(vec![
             0;
             crate::forest::mask::PIXELS

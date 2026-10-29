@@ -1,9 +1,10 @@
 //! Native GPU checks for the actual production WGSL, including shifted camera viewports.
 use std::{borrow::Cow, path::PathBuf, sync::mpsc, time::Duration};
 use wgpu::util::DeviceExt;
+mod weather_fixture;
 
 const SIZE: u32 = 96;
-const OUTPUT_BYTES: u64 = 8 * 16;
+const OUTPUT_BYTES: u64 = 10 * 16;
 fn bytes(values: &[f32]) -> Vec<u8> {
     values
         .iter()
@@ -55,7 +56,7 @@ struct View {{view_from_clip:mat4x4<f32>,world_from_view:mat4x4<f32>,viewport:ve
 {common}
 {air}
 {clouds}
-@group(0) @binding(11) var<storage,read_write> output:array<vec4<f32>>;
+@group(0) @binding(12) var<storage,read_write> output:array<vec4<f32>>;
 // Independent dense radial quadrature: these fixtures have constant spatial
 // noise and radial views, so Beer-Lambert attenuation depends only on altitude.
 // This retains the near-roof interior case when cloud shaping changes.
@@ -71,7 +72,27 @@ fn reference_transmission()->f32 {{
  for(var i=0u;i<512u;i+=1u) {{
    let altitude=start+(f32(i)+0.5)*step;
    let point=normalize(view.world_position)*(1.0+altitude/radius);
-   optical+=environment_density(point,weather,cloud_noise,noise_sampler)*step*environment_extinction(weather);
+   optical+=environment_density(point,weather,cloud_noise,noise_sampler,weather_map)*step*environment_extinction(weather);
+ }}
+ return exp(-optical);
+}}
+// Dense full-ray quadrature includes empty cavity sections rather than using
+// the production interval split/sample allocator. This independently checks
+// attenuation across long orbital chords as well as single radial columns.
+fn reference_ray_transmission()->f32 {{
+ let pixel=depth_pixel(vec2<f32>(0.5));
+ let ray=ray_direction(viewport_uv(vec2<f32>(pixel)+0.5));
+ let origin=view.world_position;
+ let shell=sphere_interval(origin,ray,1.0+environment_cloud_top(weather)/weather.shape.x);
+ let start=max(shell.x,0.0);
+ var end=min(shell.y,scene_distance(pixel)/weather.shape.x);
+ let body=sphere_interval(origin,ray,1.0);
+ if length(origin)>1.00001 && body.y>=body.x && body.x>0.0 {{end=min(end,body.x);}}
+ if end<=start {{return 1.0;}}
+ let stride=(end-start)/2048.0;
+ var optical=0.0;
+ for(var i=0u;i<2048u;i+=1u) {{
+  optical+=environment_density(origin+ray*(start+(f32(i)+0.5)*stride),weather,cloud_noise,noise_sampler,weather_map)*stride*weather.shape.x*environment_extinction(weather);
  }}
  return exp(-optical);
 }}
@@ -84,13 +105,15 @@ fn reference_transmission()->f32 {{
  output[2]=composite_at(pixel);
  output[3]=composite_at(vec2<i32>(0));
  let up=normalize(view.world_position);
- output[4]=vec4<f32>(environment_density(up*1.13,weather,cloud_noise,noise_sampler),
-   environment_density(up*0.99,weather,cloud_noise,noise_sampler),
-   environment_density(up*1.3,weather,cloud_noise,noise_sampler),0.0);
- output[5]=vec4<f32>(environment_density(normalize(vec3<f32>(0.000001,0.0,1.0))*1.13,weather,cloud_noise,noise_sampler),
-   environment_density(normalize(vec3<f32>(-0.000001,0.0,1.0))*1.13,weather,cloud_noise,noise_sampler),0.0,0.0);
+ output[4]=vec4<f32>(environment_density(up*1.13,weather,cloud_noise,noise_sampler,weather_map),
+   environment_density(up*0.99,weather,cloud_noise,noise_sampler,weather_map),
+   environment_density(up*1.3,weather,cloud_noise,noise_sampler,weather_map),0.0);
+ output[5]=vec4<f32>(environment_density(normalize(vec3<f32>(0.000001,0.0,1.0))*1.13,weather,cloud_noise,noise_sampler,weather_map),
+   environment_density(normalize(vec3<f32>(-0.000001,0.0,1.0))*1.13,weather,cloud_noise,noise_sampler,weather_map),0.0,0.0);
  output[6]=temporal_at(vec2<i32>(48)).colour;
  output[7]=vec4<f32>(previous_cloud_point(vec3<f32>(0.0,1.12,0.0)),reference_transmission());
+ output[8]=vec4<f32>(f32(cloud_sample_budget(60.0,16u,true)),f32(cloud_sample_budget(480.0,16u,true)),f32(cloud_sample_budget(2000.0,16u,true)),f32(cloud_sample_budget(480.0,24u,false)));
+ output[9]=vec4<f32>(reference_ray_transmission(),cloud_history_limit(true,0.0),cloud_history_limit(true,20.0),cloud_history_limit(true,120.0));
 }}
 "#
     );
@@ -99,6 +122,7 @@ fn reference_transmission()->f32 {{
     let (device, queue) =
         bevy_tasks::block_on(adapter.request_device(&Default::default())).unwrap();
     println!("Cloud GPU: {:?}", adapter.get_info());
+    let weather_map = weather_fixture::image(&device, &queue);
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("shipping_cloud_helpers"),
         source: wgpu::ShaderSource::Wgsl(Cow::Owned(source)),
@@ -330,6 +354,26 @@ fn reference_transmission()->f32 {{
         ),
         (
             "limb_far",
+            [0.0, 1.0, 0.0],
+            3.5,
+            true,
+            false,
+            false,
+            true,
+            1.0,
+        ),
+        (
+            "limb_depth_mismatch",
+            [0.0, 1.0, 0.0],
+            3.5,
+            true,
+            false,
+            false,
+            true,
+            1.0,
+        ),
+        (
+            "limb_depth_mixed",
             [0.0, 1.0, 0.0],
             3.5,
             true,
@@ -609,6 +653,28 @@ fn reference_transmission()->f32 {{
                 size,
             );
         }
+        if name == "limb_depth_mismatch" || name == "limb_depth_mixed" {
+            let samples: Vec<_> = (0..count)
+                .flat_map(|i| {
+                    let distance = if name == "limb_depth_mixed" && i % 2 == 0 {
+                        1_000_000.0
+                    } else {
+                        20.0
+                    };
+                    [distance, 120.0]
+                })
+                .collect();
+            queue.write_texture(
+                guide.as_image_copy(),
+                &bytes(&samples),
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(SIZE * 8),
+                    rows_per_image: Some(SIZE),
+                },
+                size,
+            );
+        }
         let forward = if name.starts_with("limb_") || name == "beyond_clouds" {
             // Impact radius lies outside terrain but inside the cloud shell.
             // The far camera enters the cloud shell more than one radius away.
@@ -705,7 +771,12 @@ fn reference_transmission()->f32 {{
             position[1],
             position[2],
             0.,
+            0.,
+            0.,
+            6_371_000.,
+            0.,
         ];
+        if parameters[7]>0.0 {parameters[7]=parameters[1];}
         if name == "history_wind" {
             parameters[8..12].copy_from_slice(&[0.0, 0.0, 0.015_f32.sin(), 0.015_f32.cos()]);
         }
@@ -813,6 +884,10 @@ fn reference_transmission()->f32 {{
                 },
                 wgpu::BindGroupEntry {
                     binding: 11,
+                    resource: wgpu::BindingResource::TextureView(&weather_map),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 12,
                     resource: output.as_entire_binding(),
                 },
             ],
@@ -878,6 +953,11 @@ fn reference_transmission()->f32 {{
                 (0.01..0.99).contains(&transmission),
                 "{name}: cloud shell disappeared beyond the solid planet silhouette"
             );
+            assert!(
+                (transmission - result[36]).abs() < 0.012,
+                "{name}: tangent-ray attenuation differs from dense reference: {transmission} vs {}",
+                result[36]
+            );
         } else {
             let reference = result[31];
             assert!(
@@ -935,6 +1015,15 @@ fn reference_transmission()->f32 {{
                     "invalid history survived rejection"
                 ),
             }
+        } else if name == "limb_depth_mismatch" || name == "limb_depth_mixed" {
+            let expected: [f32; 3] =
+                std::array::from_fn(|i| result[i] + [0.1, 0.2, 0.3][i] * transmission);
+            for (actual, expected) in result[8..11].iter().zip(expected) {
+                assert!(
+                    (actual - expected).abs() < 0.0002,
+                    "{name}: the full-resolution limb ray lost its cloud when coarse guides saw foreground"
+                );
+            }
         } else if foreground {
             for (actual, expected) in result[8..11].iter().zip([0.1, 0.2, 0.3]) {
                 assert!(
@@ -975,6 +1064,13 @@ fn reference_transmission()->f32 {{
             (result[20] - result[21]).abs() < 0.0001,
             "longitude seam in weather field"
         );
+        assert_eq!(
+            &result[32..36],
+            &[16.0, 60.0, 80.0, 48.0],
+            "long orbital and ground paths must bound sample spacing"
+        );
+        assert!(result[37]>0.95 && result[38]>0.8 && result[39]<0.4,
+            "paused and ordinary weather must accumulate detail while accelerated weather stays reactive");
         drop(mapped);
         readback.unmap();
     }

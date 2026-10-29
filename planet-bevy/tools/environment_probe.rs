@@ -1,6 +1,7 @@
 //! Native GPU checks of the shipping spherical weather-density/light helpers.
 use std::{borrow::Cow, sync::mpsc};
 use wgpu::util::DeviceExt;
+mod weather_fixture;
 
 fn main() {
     bevy_tasks::block_on(run());
@@ -23,14 +24,23 @@ async fn run() {
 @group(0) @binding(2) var<uniform> parameters:EnvironmentUniform;
 @group(0) @binding(3) var<storage,read> points:array<vec4<f32>>;
 @group(0) @binding(4) var<storage,read_write> results:array<vec4<f32>>;
+@group(0) @binding(5) var weather_map:texture_cube_array<f32>;
 @compute @workgroup_size(32)
 fn test(@builtin(global_invocation_id) id:vec3<u32>) {{
  if id.x>=arrayLength(&points) {{return;}}
  let p=points[id.x].xyz;
- let density=environment_density(p,parameters,noise,noise_sampler);
- let shadow=environment_shadow(p,parameters,noise,noise_sampler);
+ if parameters.simulation.w < -0.5 {{
+   let flow=environment_cloud_flow(p,normalize(p),vec3<f32>(15.0,0.0,6.0),parameters);
+   let changed=environment_cloud_flow(p,normalize(p),vec3<f32>(16.0,0.0,6.0),parameters);
+   let feature=mix(sin(dot(flow.second,vec3<f32>(0.031,0.043,0.057))),
+     sin(dot(flow.first,vec3<f32>(0.031,0.043,0.057))),flow.blend);
+   results[id.x]=vec4<f32>(length(flow.first-changed.first),length(flow.second-changed.second),feature,flow.blend);
+   return;
+ }}
+ let density=environment_density(p,parameters,noise,noise_sampler,weather_map);
+ let shadow=environment_shadow(p,parameters,noise,noise_sampler,weather_map);
  let visibility=environment_sun_visibility(p,parameters);
- let illumination=environment_cloud_light(p,normalize(p),parameters,noise,noise_sampler);
+ let illumination=environment_cloud_light(p,normalize(p),parameters,noise,noise_sampler,weather_map);
  results[id.x]=vec4<f32>(density,shadow,visibility,length(illumination));
 }}
 "#
@@ -72,7 +82,7 @@ fn test(@builtin(global_invocation_id) id:vec3<u32>) {{
                 let wave = |v: i32| (v as f32 * std::f32::consts::TAU / 16.0).sin();
                 pixels.extend([
                     ((0.63 + 0.16 * wave(x) + 0.1 * wave(y)) * 255.0) as u8,
-                    ((0.6 + 0.25 * wave(z)) * 255.0) as u8,
+                    ((0.8 + 0.15 * wave(z)) * 255.0) as u8,
                     ((0.55 + 0.2 * wave(x + y)) * 255.0) as u8,
                     255,
                 ]);
@@ -94,6 +104,8 @@ fn test(@builtin(global_invocation_id) id:vec3<u32>) {{
         },
     );
     let view = texture.create_view(&Default::default());
+    let weather_map = weather_fixture::image_with_previous(&device, &queue, 0.0);
+    let thin_weather = weather_fixture::image_with_density(&device, &queue, 0.2);
     let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
         address_mode_u: wgpu::AddressMode::Repeat,
         address_mode_v: wgpu::AddressMode::Repeat,
@@ -111,6 +123,8 @@ fn test(@builtin(global_invocation_id) id:vec3<u32>) {{
         [1.13, 0.0, 0.0, 0.0],
         [0.0, 0.0, -1.13, 0.0],
         [0.0, 0.0, 1.13, 0.0],
+        [0.0, 1.205, 0.0, 0.0], // upper simulated cloud layer
+        [0.0, 1.25, 0.0, 0.0],  // above both simulated layers
     ]
     .into_iter()
     .flatten()
@@ -140,12 +154,43 @@ fn test(@builtin(global_invocation_id) id:vec3<u32>) {{
         compilation_options: Default::default(),
         cache: None,
     });
-    let base = [
-        1000.0, 100.0, 60.0, 140.0, 0.65, 1.8, 0.7, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0, 0.0,
-        12000.0, 1.0, 1.0, 1.0, 1.0, 200.0, 1.0, 24.0, 0.0, 0.0, 1.0017, 0.0, 0.37,
+    let mut base = [
+        1000.0,
+        100.0,
+        60.0,
+        140.0,
+        0.65,
+        1.8,
+        0.7,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        1.0,
+        0.0,
+        12000.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        200.0,
+        1.0,
+        24.0,
+        0.0,
+        0.0,
+        1.0017,
+        0.0,
+        0.37,
+        0.0,
+        0.0,
+        6_371_000.0,
+        0.0,
     ];
-    let mut runs = Vec::new();
-    for mode in 0..5 {
+    base[7] = base[1];
+    let mut runs: Vec<Vec<[f32; 4]>> = Vec::new();
+    for mode in 0..15 {
         let mut parameters = base;
         if mode == 1 {
             parameters[7] = 0.0;
@@ -159,6 +204,31 @@ fn test(@builtin(global_invocation_id) id:vec3<u32>) {{
         if mode == 4 {
             parameters[9] = std::f32::consts::FRAC_1_SQRT_2;
             parameters[11] = std::f32::consts::FRAC_1_SQRT_2;
+        }
+        if mode >= 5 {
+            parameters[28] = match mode {
+                5 => 2.0,
+                6 => 1.0,
+                _ => 1.5,
+            };
+            parameters[29] = 3600.0;
+        }
+        if mode >= 8 {
+            parameters[28] = 2.0;
+            parameters[29] = match mode {
+                8 => 900.0,
+                9 => 432_900.0,
+                10 => 432_000.0 - 0.0625,
+                11 => 432_000.0 + 0.0625,
+                12 => 432_900.0 - 0.0625,
+                _ => 432_900.0 + 0.0625,
+            };
+            parameters[31] = -1.0;
+        }
+        if mode == 14 {
+            parameters = base;
+            parameters[28] = 2.0;
+            parameters[29] = 3600.0;
         }
         let settings = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: None,
@@ -188,6 +258,14 @@ fn test(@builtin(global_invocation_id) id:vec3<u32>) {{
                 wgpu::BindGroupEntry {
                     binding: 4,
                     resource: output.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: wgpu::BindingResource::TextureView(if mode == 14 {
+                        &thin_weather
+                    } else {
+                        &weather_map
+                    }),
                 },
             ],
         });
@@ -233,6 +311,71 @@ fn test(@builtin(global_invocation_id) id:vec3<u32>) {{
             assert!(
                 values[4][1] < 0.99,
                 "dense overhead cloud should cast a surface shadow"
+            );
+        }
+        if mode == 5 {
+            assert!(
+                values[2][0] > 0.001,
+                "simulated low condensate must form cloud"
+            );
+            assert!(
+                values[8][0] > 0.001,
+                "simulated upper condensate must form a separate high layer"
+            );
+            assert_eq!(
+                values[9][0], 0.0,
+                "simulated clouds escaped the expanded radial shell"
+            );
+            assert!(
+                values[4][1] < 0.99,
+                "simulated layers must cast shared shadows"
+            );
+        }
+        if mode == 14 {
+            assert!(runs[5][2][0] > 0.001);
+            for i in [2, 8] {
+                assert!(
+                    (values[i][0] - runs[5][i][0] * 0.2).abs() < 0.001,
+                    "in-cloud opacity must vary independently of coverage: {:?} vs {:?}",
+                    values[i],
+                    runs[5][i]
+                );
+            }
+        }
+        if mode == 6 {
+            assert!(
+                values.iter().all(|v| v[0] == 0.0 && v[1] == 1.0),
+                "previous clear weather snapshot must render without cloud"
+            );
+        }
+        if mode == 7 {
+            assert!(
+                values[2][0] <= runs[5][2][0],
+                "cloud interpolation must approach current condensate monotonically"
+            );
+        }
+        if (8..14).contains(&mode) {
+            assert!(
+                values.iter().all(|v| v[0] < 0.45 && v[1] < 0.45),
+                "1m/s changing wind must not drag billow coordinates by multi-day travel: {values:?}"
+            );
+        }
+        if mode == 9 {
+            assert!(
+                values
+                    .iter()
+                    .zip(&runs[8])
+                    .all(|(a, b)| (a[0] - b[0]).abs() < 0.0001 && (a[1] - b[1]).abs() < 0.0001),
+                "wind-change sensitivity must stay bounded from day zero to day five"
+            );
+        }
+        if mode == 11 || mode == 13 {
+            assert!(
+                values
+                    .iter()
+                    .zip(&runs[mode - 1])
+                    .all(|(a, b)| (a[2] - b[2]).abs() < 0.001),
+                "flow-noise windows must crossfade continuously when either phase resets"
             );
         }
         if mode == 1 || mode == 2 {
@@ -287,9 +430,22 @@ fn test(@builtin(global_invocation_id) id:vec3<u32>) {{
         &seeded,
         "shadows.wgsl",
     );
+    // Local sea-cloud bases must use the same projection sphere when baking
+    // the cache and when sampling it from terrain, vegetation and water.
+    seeded[7] = 45.0;
+    seeded[28] = 2.0;
+    check_environment_cube(
+        &device,
+        &queue,
+        &view,
+        &sampler,
+        &common,
+        &seeded,
+        "shadows.wgsl",
+    );
     check_air(&device, &queue, &common, &base);
     println!(
-        "Environment GPU: radial bounds, density/lighting finite, wind covariance, disabled/clear coverage, planet night shadow and surface shadow passed"
+        "Environment GPU: radial bounds, density/lighting finite, wind covariance, five-day bounded flow and window continuity, disabled/clear coverage, planet night shadow and surface shadow passed"
     );
 }
 
@@ -299,9 +455,10 @@ fn check_environment_cube(
     noise: &wgpu::TextureView,
     noise_sampler: &wgpu::Sampler,
     common: &str,
-    base: &[f32; 28],
+    base: &[f32; 32],
     filename: &str,
 ) {
+    let weather_map = weather_fixture::image(device, queue);
     let folder = std::path::PathBuf::from(std::env::args_os().nth(1).unwrap());
     let source = std::fs::read_to_string(folder.with_file_name(filename)).unwrap();
     let reflection = source
@@ -374,6 +531,10 @@ fn check_environment_cube(
                 binding: 3,
                 resource: settings.as_entire_binding(),
             },
+            wgpu::BindGroupEntry {
+                binding: 4,
+                resource: wgpu::BindingResource::TextureView(&weather_map),
+            },
         ],
     });
     let readback = device.create_buffer(&wgpu::BufferDescriptor {
@@ -443,12 +604,14 @@ fn check_environment_cube(
 @group(0) @binding(2) var<uniform> environment:EnvironmentUniform;
 @group(0) @binding(3) var<storage,read> points:array<vec4<f32>>;
 @group(0) @binding(4) var<storage,read_write> results:array<vec4<f32>>;
+@group(0) @binding(5) var cloud_noise:texture_3d<f32>;
+@group(0) @binding(6) var global_weather:texture_cube_array<f32>;
 {helpers}
 @compute @workgroup_size(8)
 fn probe(@builtin(global_invocation_id) id:vec3<u32>) {{
  if id.x>=arrayLength(&points) {{return;}}
  let p=points[id.x].xyz;
- results[id.x]=vec4<f32>(material_cloud_shadow(p),material_cloud_light(p),0.0,0.0);
+ results[id.x]=vec4<f32>(material_cloud_shadow(p),material_cloud_light(p),environment_shadow(p,environment,cloud_noise,environment_sky_sampler,global_weather),0.0);
 }}
 "#
     );
@@ -465,8 +628,34 @@ fn probe(@builtin(global_invocation_id) id:vec3<u32>) {{
         cache: None,
     });
     let positions = bytes(&[
-        0.0, 1.0, 0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 1.2, 0.0, 0.0, 0.0, 1.04, 0.0, 0.0, 0.0,
-        1.15, 0.0, 0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        -1.0,
+        0.0,
+        0.0,
+        0.0,
+        1.3,
+        0.0,
+        0.0,
+        0.0,
+        1.04,
+        0.0,
+        0.0,
+        0.0,
+        1.15,
+        0.0,
+        0.0,
+        0.5,
+        0.866_025_4,
+        0.0,
+        0.0,
+        -0.6,
+        0.8,
+        0.0,
+        0.0,
     ]);
     let positions = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: None,
@@ -475,13 +664,13 @@ fn probe(@builtin(global_invocation_id) id:vec3<u32>) {{
     });
     let result = device.create_buffer(&wgpu::BufferDescriptor {
         label: None,
-        size: 80,
+        size: 112,
         usage: wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::STORAGE,
         mapped_at_creation: false,
     });
     let readback = device.create_buffer(&wgpu::BufferDescriptor {
         label: None,
-        size: 80,
+        size: 112,
         usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
         mapped_at_creation: false,
     });
@@ -538,6 +727,14 @@ fn probe(@builtin(global_invocation_id) id:vec3<u32>) {{
                     binding: 4,
                     resource: result.as_entire_binding(),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: wgpu::BindingResource::TextureView(noise),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 6,
+                    resource: wgpu::BindingResource::TextureView(&weather_map),
+                },
             ],
         });
         let mut encoder = device.create_command_encoder(&Default::default());
@@ -547,7 +744,7 @@ fn probe(@builtin(global_invocation_id) id:vec3<u32>) {{
             pass.set_bind_group(0, &group, &[]);
             pass.dispatch_workgroups(1, 1, 1);
         }
-        encoder.copy_buffer_to_buffer(&result, 0, &readback, 0, 80);
+        encoder.copy_buffer_to_buffer(&result, 0, &readback, 0, 112);
         queue.submit([encoder.finish()]);
         let (tx, rx) = mpsc::channel();
         readback
@@ -564,6 +761,10 @@ fn probe(@builtin(global_invocation_id) id:vec3<u32>) {{
             .collect();
         assert!(values.iter().flatten().all(|v| v.is_finite()));
         assert!(values.iter().all(|v| (0.3 - 1e-5..=1.0).contains(&v[0])));
+        assert!(
+            values.iter().all(|v| (v[0] - v[2]).abs() < 0.04),
+            "cached cloud projection disagrees with the production density: {values:?}"
+        );
         assert_eq!(
             values[1][0], 1.0,
             "night-side surface must not receive extra cloud shadow"
@@ -602,7 +803,7 @@ fn probe(@builtin(global_invocation_id) id:vec3<u32>) {{
     );
 }
 
-fn check_air(device: &wgpu::Device, queue: &wgpu::Queue, common: &str, base: &[f32; 28]) {
+fn check_air(device: &wgpu::Device, queue: &wgpu::Queue, common: &str, base: &[f32; 32]) {
     let path = std::path::PathBuf::from(std::env::args_os().nth(1).unwrap());
     let air = std::fs::read_to_string(path.with_file_name("air.wgsl")).unwrap();
     let air = air

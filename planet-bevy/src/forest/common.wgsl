@@ -1,5 +1,6 @@
 #define_import_path planet_bevy::forest
 #import planet_bevy::environment_material::{environment,material_cloud_light}
+#import planet_bevy::weather::{weather_enabled,weather_wind}
 #import bevy_pbr::mesh_view_bindings::view
 struct ForestUniform {shape:vec4<f32>}
 @group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> forest:ForestUniform;
@@ -12,11 +13,12 @@ fn tree_noise(p:vec3<f32>)->vec3<f32> {
 fn tree_wind(point:vec3<f32>,root:vec3<f32>)->vec3<f32> {
     let up=normalize(root);
     let height=max(dot(point-root,up)*forest.shape.x,0.0);
-    let wind=vec3<f32>(0.7,0.1,0.3);
+    let wind=weather_wind(root);
+    let wind_strength=select(1.0,clamp(length(wind)/10.0,0.0,3.0),weather_enabled());
     let tangent=normalize(wind-up*dot(wind,up)+vec3<f32>(0.00001));
     let phase=dot(root*forest.shape.x,vec3<f32>(0.031,0.027,0.043))+environment.air.w*1.3;
     let strength=min(height*height/144.0,1.0);
-    return tangent*(sin(phase)*0.12+sin(phase*2.37)*0.035)*strength/forest.shape.x;
+    return tangent*(sin(phase)*0.12+sin(phase*2.37)*0.035)*strength*wind_strength/forest.shape.x;
 }
 fn canopy_alpha(point:vec3<f32>,root:vec3<f32>)->f32 {
     let up=normalize(root);

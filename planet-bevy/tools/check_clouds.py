@@ -27,3 +27,12 @@ with tempfile.TemporaryDirectory(prefix="planet-clouds-") as directory:
     subprocess.run([
         str(executable), str(REPO / "planet-bevy/src/environment")
     ], cwd=REPO, check=True)
+
+with tempfile.TemporaryDirectory(prefix="planet-cloud-morphology-") as directory:
+    executable = Path(directory) / "probe"
+    subprocess.run([
+        "rustc", "--edition=2024", str(Path(__file__).with_name("cloud_volume_probe.rs")),
+        "-L", f"dependency={deps}", "--extern", f"wgpu={library('wgpu')}",
+        "--extern", f"bevy_tasks={library('bevy_tasks')}", "-o", str(executable),
+    ], cwd=REPO, check=True)
+    subprocess.run([str(executable), str(REPO / "planet-bevy/src/environment/common.wgsl")], cwd=REPO, check=True)

@@ -1,3 +1,5 @@
+#import planet_bevy::weather::weather_wind
+#import planet_bevy::environment_material::environment
 #import bevy_pbr::{forward_io::{VertexOutput,FragmentOutput},mesh_functions::get_world_from_local,mesh_view_bindings::{view,lights}}
 #import planet_bevy::water::{scene_point,water_shadow,view_uv}
 struct MistUniform {shape:vec4<f32>,timing:vec4<f32>}
@@ -25,14 +27,14 @@ fn volume_noise(p:vec3<f32>)->f32 {return textureSampleLevel(mist_noise,mist_sam
   let world=transform[3].xyz+basis*(point*scale);
   let eye=-(view.view_from_world*vec4<f32>(world,1.0)).z*mist.shape.x;
   if background.valid>0.0 &&eye>=background.eye {continue;}
-  let q=point*3.2+vec3<f32>(mist.timing.x*0.035,mist.timing.x*0.055,-mist.timing.x*0.025);
+  let q=point*3.2+vec3<f32>(environment.air.w*0.035,environment.air.w*0.055,-environment.air.w*0.025)-transpose(basis)*weather_wind(world)*environment.air.w*0.012;
   let broad=volume_noise(q);let detail=volume_noise(q*2.13+7.1);
   let warp=vec3<f32>(volume_noise(q*0.57+11.7),volume_noise(q*0.51-5.3),volume_noise(q*0.63+23.1))-0.5;
   let footprint=(point.xz+warp.xz*vec2<f32>(0.055,0.085))*2.0;
   let horizontal=smoothstep(-0.16,0.16,1.0-pow(abs(footprint.x),6.0)-pow(abs(footprint.y),4.0)+(broad-0.5)*0.28);
   let foot_edge=1.0-smoothstep(0.04,0.96,clamp((point.z+0.5)*(1.0+(broad-0.5)*0.22+warp.z*0.16),0.0,1.0));
   let h=clamp(point.y+0.5,0.0,1.0);
-  let rising=volume_noise(vec3<f32>(q.x*0.72,q.z*0.72,mist.timing.x*0.075));
+  let rising=volume_noise(vec3<f32>(q.x*0.72,q.z*0.72,environment.air.w*0.075));
   let ceiling=mix(0.32,1.02,smoothstep(0.14,0.86,rising));
   let top=1.0-smoothstep(ceiling-0.15,ceiling+0.035,h);
   let threshold=mix(0.18,0.61,h);let water_coherent=broad*0.52+detail*0.25+rising*0.23;

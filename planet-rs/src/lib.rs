@@ -17,8 +17,10 @@ pub mod chunk_lod;
 pub mod chunks;
 mod noise;
 pub mod ocean_surface;
+pub mod solar;
 pub mod surface_atlas;
 pub mod terrain;
+pub mod weather;
 
 pub use terrain::{
     OceanPass, OceanStage, PlanetTerrain, RiverSegment, TerrainOptions, TerrainStats, Waterfall,

@@ -16,7 +16,10 @@ use bevy::{
             RenderPassDescriptor, RenderPipelineDescriptor, Sampler, SamplerBindingType,
             SamplerDescriptor, ShaderStages, ShaderType, TextureDescriptor, TextureDimension,
             TextureFormat, TextureSampleType, TextureUsages, UniformBuffer, VertexState,
-            binding_types::{sampler, texture_2d, texture_3d, texture_depth_2d, uniform_buffer},
+            binding_types::{
+                sampler, texture_2d, texture_3d, texture_cube_array, texture_depth_2d,
+                uniform_buffer,
+            },
         },
         renderer::{RenderContext, RenderDevice, RenderQueue, ViewQuery},
         texture::{CachedTexture, GpuImage, TextureCache},
@@ -59,6 +62,7 @@ struct CameraFrame {
     forward: Vec3,
     viewport: UVec4,
     wind: Vec4,
+    simulation: Vec4,
     exposure: f32,
     revision: u64,
     seconds: f32,
@@ -75,6 +79,7 @@ impl CameraFrame {
             forward: *view.world_from_view.forward(),
             viewport: view.viewport,
             wind: weather.uniform.wind,
+            simulation: weather.uniform.simulation,
             exposure: camera.exposure,
             revision: weather.revision,
             seconds: weather.uniform.air.w,
@@ -82,6 +87,9 @@ impl CameraFrame {
     }
     fn compatible(self, next: Self, radius: f32) -> bool {
         self.revision == next.revision
+            && (self.simulation.x > 0.5) == (next.simulation.x > 0.5)
+            && next.simulation.y >= self.simulation.y
+            && (self.simulation.x < 0.5 || next.simulation.y - self.simulation.y <= 600.0)
             && self.viewport == next.viewport
             && self.projection.abs_diff_eq(next.projection, 0.00001)
             && self.position.distance(next.position) * radius <= 50.0
@@ -105,7 +113,13 @@ impl TemporalUniform {
             previous_clip_from_world: previous.clip_from_world,
             previous_eye: previous.position.extend(previous.exposure),
             previous_viewport: previous.viewport.as_vec4(),
-            previous_wind: previous.wind,
+            // Simulation reprojection uses its previous climate clock; legacy
+            // procedural weather retains the inverse rotation quaternion.
+            previous_wind: if previous.simulation.x > 0.5 {
+                Vec4::new(previous.simulation.y, 0.0, 0.0, 0.0)
+            } else {
+                previous.wind
+            },
             controls: Vec4::new(
                 f32::from(u8::from(valid)),
                 f32::from(u8::try_from(phase % 8).unwrap()),
@@ -317,6 +331,7 @@ fn initialize(
                 uniform_buffer::<TemporalUniform>(false),
                 texture_2d(TextureSampleType::Float { filterable: true }),
                 texture_2d(TextureSampleType::Float { filterable: false }),
+                texture_cube_array(TextureSampleType::Float { filterable: true }),
             ),
         ),
     );
@@ -414,11 +429,12 @@ fn draw(
     };
     let (target, depth, index, mut textures) = view.into_inner();
     let composite = pipelines.composite(target.main_texture_format(), &cache, &mut composites);
-    let (Some(estimate), Some(composite), Some(temporal), Some(noise)) = (
+    let (Some(estimate), Some(composite), Some(temporal), Some(noise), Some(global_weather)) = (
         cache.get_render_pipeline(pipelines.estimate),
         cache.get_render_pipeline(composite),
         cache.get_render_pipeline(pipelines.temporal),
         images.get(&frame.noise),
+        images.get(&frame.weather),
     ) else {
         return;
     };
@@ -449,6 +465,7 @@ fn draw(
                 temporal_binding.clone(),
                 history_colour,
                 history_distance,
+                &global_weather.texture_view,
             )),
         )
     };
@@ -518,10 +535,27 @@ mod tests {
             forward: Vec3::Z,
             viewport: UVec4::new(690, 0, 1870, 1600),
             wind: Vec4::W,
+            simulation: Vec4::ZERO,
             exposure: 0.001,
             revision: 3,
             seconds: 1.0,
         }
+    }
+    #[test]
+    fn simulation_history_rejects_mode_changes_clock_rewinds_and_large_steps() {
+        let mut previous = history_frame();
+        previous.simulation = Vec4::new(1.0, 1200.0, 6_371_000.0, 0.0);
+        let mut next = previous;
+        next.simulation.y += 120.0;
+        next.simulation.x = 1.4;
+        assert!(previous.compatible(next, 1000.0));
+        for clock in [1100.0, 1900.0] {
+            next.simulation.y = clock;
+            assert!(!previous.compatible(next, 1000.0));
+        }
+        next = previous;
+        next.simulation.x = 0.0;
+        assert!(!previous.compatible(next, 1000.0));
     }
     #[test]
     fn history_resets_for_teleports_projection_viewport_and_world_changes() {

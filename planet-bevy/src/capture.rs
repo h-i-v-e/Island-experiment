@@ -90,7 +90,7 @@ impl Plugin for CapturePlugin {
     }
 }
 
-#[allow(clippy::too_many_arguments)] // Bevy system resources.
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)] // Bevy capture resources and report.
 fn capture(
     mut commands: Commands,
     target: Res<CaptureTarget>,
@@ -105,14 +105,23 @@ fn capture(
     environment: Res<crate::environment::EnvironmentSettings>,
     forests: Option<Res<crate::forest::Forests>>,
     gpu: Res<GpuReady>,
+    weather: Res<crate::weather::WeatherFrame>,
+    weather_controls: Res<crate::weather::WeatherControls>,
+    solar: Res<crate::solar::SolarFrame>,
 ) {
     if gpu.0.load(Ordering::Acquire) == 2 {
         error!("Capture stopped: GPU shader compilation failed");
         exit.write(AppExit::error());
         return;
     }
+    if weather.error.is_some() {
+        error!("Capture stopped: weather failed {:?}", weather.error);
+        exit.write(AppExit::error());
+        return;
+    }
     progress.frames += 1;
-    progress.settled_frames = if chunks.settled()
+    progress.settled_frames = if (!weather_controls.enabled || weather.ready)
+        && chunks.settled()
         && details.settled()
         && ocean.settled()
         && forests.as_ref().is_none_or(|world| world.settled())
@@ -167,7 +176,19 @@ fn capture(
             "{summary}grass_patches: {}\nstones: {}\nboulders: {}\n",
             details.grass_patches, details.stones, details.boulders
         );
-        let summary = format!("{summary}{}", forest_summary(forests.as_deref()));
+        let summary = format!(
+            "{summary}{}\nweather_enabled: {}\nweather_simulation_paused: {}\nweather_seconds: {}\nweather_ticks: {}\nweather_stats: {:?}\n",
+            forest_summary(forests.as_deref()),
+            weather_controls.enabled,
+            weather_controls.paused,
+            weather.seconds,
+            weather.ticks,
+            weather.stats
+        );
+        let summary = format!(
+            "{summary}solar_enabled: {}\nsolar_seconds: {}\nsolar_state: {:?}\n",
+            solar.enabled, solar.seconds, solar.state
+        );
         let summary = format!(
             "{summary}sun_shadows: {}\nshadow_distance_m: {}\nshadow_bias_m: {}\ndepth_ao: {}\nao_radius_m: {}\nao_intensity: {}\nao_samples: {}\nao_half_resolution: {}\nao_only: {}\n",
             lighting.shadows,

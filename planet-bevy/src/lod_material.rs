@@ -102,6 +102,8 @@ pub struct SurfaceExtension {
     pub environment_sky: Option<Handle<Image>>,
     #[texture(127, dimension = "cube")]
     pub environment_shadows: Option<Handle<Image>>,
+    #[texture(129, dimension = "cube_array")]
+    pub global_weather: Option<Handle<Image>>,
     #[texture(128)]
     pub forest_mask: Option<Handle<Image>>,
 }

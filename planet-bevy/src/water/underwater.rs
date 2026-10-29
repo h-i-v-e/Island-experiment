@@ -2,6 +2,7 @@
 use super::WaterSettings;
 use crate::{
     Orbit, Scene,
+    environment::EnvironmentUniform,
     ocean::{OceanFrame, OceanUniform},
 };
 use bevy::{
@@ -22,10 +23,12 @@ use bevy::{
             RenderPipelineDescriptor, Sampler, SamplerBindingType, SamplerDescriptor, ShaderStages,
             ShaderType, TextureFormat, TextureSampleType, UniformBuffer, VertexState,
             binding_types::{
-                sampler, texture_2d, texture_3d, texture_cube, texture_depth_2d, uniform_buffer,
+                sampler, storage_buffer_read_only, texture_2d, texture_3d, texture_cube,
+                texture_cube_array, texture_depth_2d, uniform_buffer,
             },
         },
         renderer::{RenderContext, RenderDevice, RenderQueue, ViewQuery},
+        storage::GpuShaderBuffer,
         texture::GpuImage,
         view::{ViewDepthTexture, ViewTarget, ViewUniform, ViewUniformOffset, ViewUniforms},
     },
@@ -34,6 +37,7 @@ use bevy::{
 use std::collections::HashMap;
 #[derive(Component, Clone, Copy, ExtractComponent, ShaderType)]
 struct Submerge {
+    // Radius, zero disabled or one plus safe crest height, transition, range.
     parameters: Vec4,
     absorption: Vec4,
     scatter: Vec4,
@@ -56,14 +60,24 @@ impl Plugin for UnderwaterPlugin {
         }
     }
 }
-#[allow(clippy::cast_possible_truncation)]
+#[allow(clippy::cast_possible_truncation, clippy::too_many_arguments)]
 fn settings(
     mut commands: Commands,
     scene: Res<Scene>,
     options: Res<WaterSettings>,
     ocean: Res<crate::ocean::OceanSettings>,
+    weather: Option<Res<crate::weather::WeatherFrame>>,
+    controls: Option<Res<crate::weather::WeatherControls>>,
     cameras: Query<(Entity, &Transform), With<Orbit>>,
 ) {
+    let crest = crest_bound(
+        &ocean,
+        controls.as_ref().is_some_and(|c| c.enabled) && weather.as_ref().is_some_and(|w| w.ready),
+        weather
+            .as_ref()
+            .and_then(|w| w.stats.as_ref())
+            .map_or(0.0, |s| s.maximum_wave_height),
+    );
     for (entity, camera) in &cameras {
         let sun = Vec3::new(-3.0, 4.0, 5.0).normalize();
         let up = camera.translation.normalize();
@@ -75,9 +89,9 @@ fn settings(
                     && !scene.no_ocean
                     && scene.generation == crate::command::GenerationMode::Terrain
                     && (camera.translation.length() - 1.0) * scene.terrain.topology.radius as f32
-                        <= ocean.amplitude * 0.81 + 0.1
+                        <= crest + 0.1
                 {
-                    1.0
+                    1.0 + crest
                 } else {
                     0.0
                 },
@@ -89,6 +103,22 @@ fn settings(
         });
     }
 }
+// The weather renderer distributes energy over 18 modes. Cauchy-Schwarz
+// bounds their combined crest by about2.2*Hs; add margin for local chop and
+// shoreline waves. This only gates the pass; its pixel test uses exact waves.
+#[allow(clippy::cast_possible_truncation)]
+fn crest_bound(ocean: &crate::ocean::OceanSettings, weather: bool, significant_height: f64) -> f32 {
+    if !ocean.waves {
+        return 0.0;
+    }
+    let legacy = ocean.amplitude * 0.81;
+    if weather {
+        legacy.max(ocean.amplitude * (3.0 * significant_height as f32 + 2.0))
+    } else {
+        legacy
+    }
+}
+
 #[derive(Resource)]
 struct Pipeline {
     layout: BindGroupLayoutDescriptor,
@@ -123,6 +153,11 @@ fn initialize(
                     texture_3d(TextureSampleType::Float { filterable: true }),
                 ),
                 (104, sampler(SamplerBindingType::Filtering)),
+                (123, storage_buffer_read_only::<EnvironmentUniform>(false)),
+                (
+                    129,
+                    texture_cube_array(TextureSampleType::Float { filterable: true }),
+                ),
             ),
         ),
     );
@@ -149,6 +184,7 @@ fn draw(
     pipeline: Option<Res<Pipeline>>,
     record: Option<Res<OceanFrame>>,
     images: Res<RenderAssets<GpuImage>>,
+    buffers: Res<RenderAssets<GpuShaderBuffer>>,
     cache: Res<PipelineCache>,
     uniforms: Res<ComponentUniforms<Submerge>>,
     views: Res<ViewUniforms>,
@@ -167,7 +203,12 @@ fn draw(
     if record.coast == Handle::default() {
         return;
     }
-    let (Some(coast), Some(noise)) = (images.get(&record.coast), images.get(&record.noise)) else {
+    let (Some(coast), Some(noise), Some(weather), Some(environment)) = (
+        images.get(&record.coast),
+        images.get(&record.noise),
+        images.get(&record.weather),
+        buffers.get(&record.environment),
+    ) else {
         return;
     };
     let id = *pipelines
@@ -215,6 +256,8 @@ fn draw(
             (102, &coast.sampler),
             (103, &noise.texture_view),
             (104, &noise.sampler),
+            (123, environment.buffer.as_entire_binding()),
+            (129, &weather.texture_view),
         )),
     );
     let mut pass = ctx
@@ -232,4 +275,17 @@ fn draw(
     pass.set_pipeline(compiled);
     pass.set_bind_group(0, &group, &[view_index.offset, index.index()]);
     pass.draw(0..3, 0..1);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn weather_crests_can_activate_above_the_legacy_waterline() {
+        let mut ocean = crate::ocean::OceanSettings::default();
+        assert!(crest_bound(&ocean, true, 2.0) > crest_bound(&ocean, false, 2.0));
+        assert!(crest_bound(&ocean, true, 2.0) > 2.0);
+        ocean.waves = false;
+        assert!(crest_bound(&ocean, true, 2.0).abs() < f32::EPSILON);
+    }
 }

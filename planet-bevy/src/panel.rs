@@ -261,6 +261,10 @@ pub(super) struct WeatherPanel<'w> {
     environment: Option<ResMut<'w, super::environment::EnvironmentSettings>>,
     forest_options: Option<ResMut<'w, super::forest::ForestSettings>>,
     forests: Option<ResMut<'w, super::forest::Forests>>,
+    simulation: Option<ResMut<'w, super::weather::WeatherControls>>,
+    fields: Option<Res<'w, super::weather::WeatherFrame>>,
+    solar_controls: Option<ResMut<'w, super::solar::SolarControls>>,
+    solar_frame: Option<Res<'w, super::solar::SolarFrame>>,
 }
 
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
@@ -286,6 +290,10 @@ pub(super) fn draw(
         mut environment,
         mut forest_options,
         mut forests,
+        mut simulation,
+        fields,
+        mut solar_controls,
+        solar_frame,
     } = weather;
     let Ok(ctx) = contexts.ctx_mut() else {
         return;
@@ -326,7 +334,27 @@ pub(super) fn draw(
                                     water_controls(ui, options);
                                 }
                                 if let Some(options) = environment.as_mut() {
-                                    environment_controls(ui, options);
+                                    environment_controls(
+                                        ui,
+                                        options,
+                                        solar_controls.as_ref().is_some_and(|s| s.enabled),
+                                    );
+                                    if let Some(simulation) = simulation.as_deref_mut() {
+                                        weather_controls(
+                                            ui,
+                                            simulation,
+                                            fields.as_deref(),
+                                            solar_controls.as_ref().is_some_and(|s| s.enabled),
+                                        );
+                                    }
+                                }
+                                if let Some(solar) = solar_controls.as_deref_mut() {
+                                    crate::solar::controls(
+                                        ui,
+                                        solar,
+                                        solar_frame.as_deref(),
+                                        scene.terrain.topology.radius,
+                                    );
                                 }
                                 if let Some(options) = lighting.as_mut() {
                                     lighting_controls(ui, options);
@@ -391,7 +419,9 @@ pub(super) fn draw(
                 if let Some(options) = lighting.as_mut() {lighting_controls(ui, options);}
                 if let Some(options)=ocean.as_mut() {ocean_controls(ui,options,ocean_stats.as_deref());}
                 if let Some(options)=water.as_mut() {water_controls(ui,options);}
-                if let Some(options)=environment.as_mut() {environment_controls(ui,options);}
+                if let Some(options)=environment.as_mut() {environment_controls(ui,options,solar_controls.as_ref().is_some_and(|s|s.enabled));}
+                if let Some(options)=simulation.as_deref_mut() { weather_controls(ui,options,fields.as_deref(),solar_controls.as_ref().is_some_and(|s|s.enabled)); }
+                if let Some(solar)=solar_controls.as_deref_mut() {crate::solar::controls(ui,solar,solar_frame.as_deref(),scene.terrain.topology.radius);}
                 settings_controls(ui, &mut panel);
                 ui.add_space(10.0);
                 ui.small("Sea level stays at the original sphere radius.\nOcean cuts run only at LOD 2 and LOD 1.");
@@ -435,7 +465,10 @@ fn ocean_controls(
         ui.checkbox(&mut settings.paused, "Freeze animation");
         ui.add(egui::Slider::new(&mut settings.amplitude, 0.0..=3.0).text("Wave height scale"));
         ui.add(egui::Slider::new(&mut settings.speed, 0.0..=4.0).text("Wave speed"));
-        ui.add(egui::Slider::new(&mut settings.source_drift, 0.0..=2.0).text("Source drift (m/s)"));
+        ui.add(
+            egui::Slider::new(&mut settings.source_drift, 0.0..=2.0)
+                .text("Manual source drift (m/s)"),
+        );
         ui.add(egui::Slider::new(&mut settings.choppiness, 0.0..=1.0).text("Choppiness"));
         ui.add(egui::Slider::new(&mut settings.foam, 0.0..=2.0).text("Foam"));
         ui.add(egui::Slider::new(&mut settings.roughness, 0.04..=0.8).text("Roughness"));
@@ -449,7 +482,7 @@ fn ocean_controls(
             ui.selectable_value(&mut settings.debug, 0, "Shaded");
             ui.selectable_value(&mut settings.debug, 1, "Depth");
             ui.selectable_value(&mut settings.debug, 2, "Land distance");
-            ui.selectable_value(&mut settings.debug, 3, "Sources");
+            ui.selectable_value(&mut settings.debug, 3, "Wave drivers");
         });
         if let Some(stats) = stats {
             ui.small(&stats.status);
@@ -604,7 +637,11 @@ fn streaming_controls(
         });
 }
 
-fn environment_controls(ui: &mut egui::Ui, settings: &mut super::environment::EnvironmentSettings) {
+fn environment_controls(
+    ui: &mut egui::Ui,
+    settings: &mut super::environment::EnvironmentSettings,
+    solar_enabled: bool,
+) {
     egui::CollapsingHeader::new("Atmosphere & clouds").show(ui, |ui| {
         ui.checkbox(&mut settings.atmosphere, "Atmosphere");
         ui.add(egui::Slider::new(&mut settings.atmosphere_height,20.0..=2000.0).logarithmic(true).text("Air height (m)"));
@@ -614,10 +651,10 @@ fn environment_controls(ui: &mut egui::Ui, settings: &mut super::environment::En
         ui.checkbox(&mut settings.clear_terrain,"Keep cloud base above mountains");
         ui.add(egui::Slider::new(&mut settings.coverage,0.0..=1.0).text("Coverage"));
         ui.add(egui::Slider::new(&mut settings.density,0.0..=8.0).text("Density"));
-        ui.add(egui::Slider::new(&mut settings.cloud_base,1.0..=1500.0).text("Cloud base (m)"));
+        ui.add(egui::Slider::new(&mut settings.cloud_base,1.0..=1500.0).text("Minimum cloud base (m)"));
         ui.add(egui::Slider::new(&mut settings.cloud_thickness,5.0..=1000.0).text("Thickness (m)"));
         ui.add(egui::Slider::new(&mut settings.cloud_scale,10.0..=2000.0).logarithmic(true).text("Formation size (m)"));
-        ui.add(egui::Slider::new(&mut settings.wind_speed,0.0..=40.0).text("Wind (m/s)"));
+        ui.add(egui::Slider::new(&mut settings.wind_speed,0.0..=40.0).text("Manual cloud drift (m/s)"));
         ui.add(egui::Slider::new(&mut settings.shadow_strength,0.0..=1.0).text("Cloud shadows"));
         ui.horizontal(|ui| {
             ui.label("Cloud quality");
@@ -626,8 +663,9 @@ fn environment_controls(ui: &mut egui::Ui, settings: &mut super::environment::En
         ui.checkbox(&mut settings.temporal,"Temporal reconstruction");
         ui.checkbox(&mut settings.paused,"Pause weather");
         ui.separator();
-        ui.add(egui::Slider::new(&mut settings.sun_azimuth,-180.0..=180.0).text("Sun azimuth"));
-        ui.add(egui::Slider::new(&mut settings.sun_elevation,-90.0..=90.0).text("Sun elevation"));
+        ui.add_enabled(!solar_enabled, egui::Slider::new(&mut settings.sun_azimuth,-180.0..=180.0).text("Sun azimuth"));
+        ui.add_enabled(!solar_enabled, egui::Slider::new(&mut settings.sun_elevation,-90.0..=90.0).text("Sun elevation"));
+        if solar_enabled {ui.small("Sun position follows the Solar system controls.");}
         ui.small("Daylight depends on your location on the planet. Air height expands to include the cloud layer.");
     });
 }
@@ -922,6 +960,111 @@ pub(super) fn apply_view(
             *transform = orbit_transform(&orbit);
         }
     }
+}
+
+fn weather_controls(
+    ui: &mut egui::Ui,
+    controls: &mut crate::weather::WeatherControls,
+    frame: Option<&crate::weather::WeatherFrame>,
+    solar_enabled: bool,
+) {
+    egui::CollapsingHeader::new("Global weather simulation").show(ui, |ui| {
+        ui.checkbox(&mut controls.enabled, "Simulated global weather");
+        ui.horizontal(|ui| {
+            ui.checkbox(&mut controls.paused, "Pause weather");
+            if ui.button("Step").clicked() {
+                controls.paused = true;
+                controls.step = true;
+            }
+        });
+        ui.add(egui::Slider::new(&mut controls.speed, 0.0..=10.0).text("Time speed"));
+        egui::ComboBox::from_label("Weather map")
+            .selected_text(
+                [
+                    "Shaded",
+                    "Pressure",
+                    "Wind speed",
+                    "Humidity",
+                    "Clouds",
+                    "Rain",
+                    "Wave energy",
+                    "Temperature",
+                ][controls.debug.min(7) as usize],
+            )
+            .show_ui(ui, |ui| {
+                for (i, name) in [
+                    "Shaded",
+                    "Pressure",
+                    "Wind speed",
+                    "Humidity",
+                    "Clouds",
+                    "Rain",
+                    "Wave energy",
+                    "Temperature",
+                ]
+                .iter()
+                .enumerate()
+                {
+                    ui.selectable_value(&mut controls.debug, u32::try_from(i).unwrap(), *name);
+                }
+            });
+        if controls.debug != 0 {
+            ui.small("Blue: low · Red: high. Clouds can be hidden above for a clear map.");
+        }
+        ui.label("Climate settings (apply below)");
+        ui.add(egui::Slider::new(&mut controls.model.humidity, 0.2..=2.0).text("Moisture"));
+        ui.add(
+            egui::Slider::new(&mut controls.model.solar_heating, 0.2..=2.0).text("Solar heating"),
+        );
+        let mut hours = controls.model.rotation_period / 3600.0;
+        if ui
+            .add_enabled(
+                !solar_enabled,
+                egui::Slider::new(&mut hours, 4.0..=72.0).text("Rotation (hours)"),
+            )
+            .changed()
+        {
+            controls.model.rotation_period = hours * 3600.0;
+        }
+        if solar_enabled {
+            ui.small("Rotation follows the Solar system day setting.");
+        }
+        if ui.button("Apply climate / restart weather").clicked() {
+            controls.reset = controls.reset.wrapping_add(1);
+        }
+        if let Some(frame) = frame {
+            if let Some(error) = &frame.error {
+                ui.colored_label(egui::Color32::LIGHT_RED, error);
+            }
+            if controls.enabled && !frame.ready {
+                ui.small("Preparing global weather…");
+            }
+            if let Some(stats) = &frame.stats {
+                ui.small(format!(
+                    "Weather time {:.1} h · {} ticks",
+                    frame.seconds / 3600.0,
+                    frame.ticks
+                ));
+                ui.small(format!(
+                    "Wind {:.1} / {:.1} m/s mean/max · Cloud cover ~{:.0}%",
+                    stats.mean_wind,
+                    stats.maximum_wind,
+                    stats.cloud_coverage * 100.0
+                ));
+                ui.small(format!(
+                    "Clear regions {:.0}% · Overcast regions {:.0}%",
+                    stats.clear_area * 100.0,
+                    stats.overcast_area * 100.0
+                ));
+                ui.small(format!(
+                    "Temperature {:.0}–{:.0} °C · Waves up to {:.2} m",
+                    stats.minimum_temperature - 273.15,
+                    stats.maximum_temperature - 273.15,
+                    stats.maximum_wave_height
+                ));
+            }
+        }
+    });
 }
 
 #[cfg(test)]

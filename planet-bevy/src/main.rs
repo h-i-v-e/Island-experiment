@@ -14,10 +14,12 @@ mod lighting;
 mod lod_material;
 mod ocean;
 mod panel;
+mod solar;
 mod streaming;
 mod surface;
 mod terrain_material;
 mod water;
+mod weather;
 
 use std::{
     fs::File,
@@ -129,6 +131,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         water::WaterPlugin,
         lighting::LightingPlugin,
         environment::EnvironmentPlugin,
+        weather::WeatherPlugin,
+        solar::SolarPlugin,
         WireframePlugin::default(),
     ))
     .insert_resource(WireframeConfig {
@@ -152,6 +156,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     .insert_resource(command.ocean)
     .insert_resource(command.water)
     .insert_resource(command.environment)
+    .insert_resource(command.weather)
+    .insert_resource(command.solar)
     .insert_resource(command.forest)
     .insert_resource(forest::Forests::with_inspection(
         command.view == View::Forest,

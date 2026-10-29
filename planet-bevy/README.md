@@ -324,27 +324,39 @@ surface and orbit. Bevy's scattering lookup textures use metre-based optical
 coefficients adjusted to the small planet, with a persistent 64-pixel sky-light
 probe. The existing directional sun drives atmospheric and cloud lighting.
 
-Clouds occupy a separate spherical layer. A seeded, seamless 3D density field
-rotates around the globe with the wind; it is independent of the camera and has
-no longitude or polar seams. Its elevated shell remains visible beyond the solid
-planet silhouette from orbit; only rays that actually hit the ground are clipped.
-Coverage, density, formation size, cloud base and
-thickness are live controls under **Atmosphere & clouds**. The default base is
-100 m, thickness 55 m and formation scale 90 m. **Keep cloud base above mountains**
-raises the base when necessary; disable it to let clouds surround mountain tops. The atmosphere
-always extends at least 20 m above the effective cloud top.
+Clouds fill a spherical volume with distinct lower cumulus and upper cirrus.
+A dedicated periodic 3D coherent/Worley texture gives the lower clouds rounded
+billows, eroded edges and uneven tops, grouped into wider cloud banks. The upper
+layer is thinner and feathered along the local wind. Multi-step sunlight
+attenuation gives the bodies darker interiors and illuminated edges. Both layers
+remain independent of the camera, with no longitude or polar seams, and extend
+beyond the terrain silhouette when viewed from orbit.
 
-Low quality uses quarter-width/height cloud buffers and 16 view samples;
-balanced uses half-width/height and 24; high retains half resolution with 40.
+Coverage, density, formation size, minimum cloud base and thickness are live
+controls under **Atmosphere & clouds**. The defaults are 45 m minimum base,
+55 m thickness and 90 m formation scale. In simulated weather, **Keep cloud base
+above mountains** uses a conservative local terrain ceiling plus 20 m clearance,
+so a distant mountain does not lift sea clouds everywhere. Disable it to let
+clouds surround mountain tops. The manual procedural fallback uses global terrain
+clearance. The atmosphere always extends at least 20 m above the highest possible
+cloud top (the conservative base plus 2.5 times the thickness).
+
+Low quality uses quarter-width/height cloud buffers and 16 view samples.
+Balanced uses half resolution and 24 samples both on the ground and in orbit,
+retaining the finer silhouettes from space. High uses half resolution and
+40 samples. Long grazing paths increase sampling up to 80 steps, keeping cloud
+edges resolved both from space and when looking across the sky from the ground.
 Opaque and transmissive final depth stop the cloud march. Depth-aware upsampling
 keeps cloud fog off foreground terrain, grass and water. Temporal reconstruction
 accumulates only cloud radiance/transmittance, follows camera and wind motion,
 and rejects changed depth, disocclusions and vanished clouds. Histories reset
 for regeneration, changed weather settings, teleporting and viewport changes.
+History weighting also follows climate advancement: calm or paused weather
+retains fine detail, while accelerated weather reduces accumulation.
 The checkbox disables reconstruction for comparisons.
 
 Cloud shadows use a dedicated 256²×6 global optical-depth cube, integrating
-eight samples through the cloud shell toward the sun. Terrain at every LOD,
+twelve samples through the cloud shell toward the sun. Terrain at every LOD,
 including orbital views, and water, rocks, grass and trees share this projection.
 Its 3D noise repeats on all axes, matching the visible cloud volume even when
 the seed offsets lie beyond one noise tile. The map follows the same weather/wind
@@ -691,3 +703,151 @@ water edges above sea level must meet that plane.
 cargo run -p planet-bevy -- --view river --no-rivers --no-ocean
 # Press B to switch between the carved and pre-carve terrain.
 ```
+
+
+## Coupled global weather
+
+Global weather is enabled by default. A deterministic, reduced two-layer
+atmosphere evolves pressure, temperature, tangential winds, humidity, condensate
+and rainfall on a 64×64×6 cube sphere. Shared finite-volume edge fluxes conserve
+air and transported moisture across faces. Solar heating, land/sea thermal
+response, topography, Coriolis, evaporation, condensation, convection and rain
+supply the forcing and moisture cycle. Cloud water produces the visible low and
+upper cloud layers; their density and local winds also drive shadows and sky
+reflections. Fine billows add procedural detail to the simulated formations.
+
+The navigable planet remains 1 km in radius. Atmospheric dynamics use a
+6,371 km effective climate radius and 600 climate seconds per real second;
+wind samples remain in m/s. Ocean wave groups use the actual planet's metres and
+real seconds. A directional spectrum (8 directions × 3 wavelengths) grows under
+surface wind, travels over water, loses energy at land and shallow boundaries,
+and retains swell when wind falls. The renderer reconstructs the dominant
+spectrum using 36 globally anchored travelling modes (six irregular axes, both
+propagation signs, and three wavelength bands). Each axis has different,
+slightly different wavelength offsets, preventing crossing seas from forming the
+rectangular lattice produced by the old three-axis reconstruction. Mode energies
+are normalized so this spreads the existing wave energy rather than adding
+more height; crest phase remains fixed as wind and swell rankings change.
+A smooth, wavelength-scaled bend of the wave domain breaks up long straight
+crests. The matching analytic phase gradient drives normals, horizontal chop,
+and footprint filtering, keeping geometry, foam and underwater masking on the
+same wave surface. The bounded domain deformation cannot fold.
+This is a bounded visual reconstruction rather than a full spectral ocean renderer.
+
+Grass, trees, ocean foam and mist sample the same local wind. Clouds use the
+appropriate atmospheric layer. Weather and ocean animation share the master
+pause/speed controls. The original procedural weather and four manual wave
+sources remain available with `--no-weather`.
+
+**Global weather simulation** in the parameter panel includes pause, single
+step, time speed and shaded/pressure/wind/humidity/cloud/rain/wave/temperature
+maps. The wind map includes tangent direction arrows. Hide the visible clouds
+when inspecting surface maps. Climate moisture, solar heating and rotation
+settings take effect with **Apply climate / restart weather**. A new planet
+resets weather to its own seed and topography.
+
+The worker owns simulation and packing buffers. Completed snapshots transfer
+through shared immutable bytes into one persistent GPU cube-array image; GPU
+uploads do not recreate texture objects or terrain material bindings. Rendering
+blends previous/current snapshots, including layer winds and cloud water;
+swell mode energies blend independently to avoid opposing-packet cancellation.
+Catch-up is bounded, so an overloaded worker slows weather instead of blocking
+the render thread. No simulation work depends on the camera or active terrain LOD.
+
+Examples:
+
+```sh
+cargo run -p planet-bevy -- --weather-view wind --no-clouds --no-atmosphere
+cargo run -p planet-bevy -- --weather-paused --weather-hours 24
+cargo run -p planet-bevy -- --weather-speed 2 --view ocean
+cargo run -p planet-bevy -- --weather-grid 32 --weather-humidity 1.4
+```
+
+`--weather-hours` advances the model on the worker before its first snapshot
+(0–240 climate hours); a large value can take some time. `--weather-grid` controls
+initial simulation resolution, 4–128 cells per face edge. Rain is currently a
+simulated moisture sink and diagnostic field; falling rain particles are not
+part of this version. Weather state is reproducible from seed/settings and fixed
+steps; it is not currently saved across application restarts.
+
+## Scaled solar system
+
+The planet retains its 1 km sea-level radius. The default Sun has a radius of
+109.2 km and the orbit has a semimajor axis of 23,481 km, preserving Earth/Sun
+size and distance ratios ([NASA Sun fact sheet](https://nssdc.gsfc.nasa.gov/planetary/factsheet/sunfact.html),
+[Earth fact sheet](https://nssdc.gsfc.nasa.gov/planetary/factsheet/earthfact.html)).
+The analytic Kepler orbit and axial spin use double precision. Rendering,
+streaming and collision stay in the moving planet's local frame, avoiding distant
+world-coordinate precision problems. The sky renders the Sun at its calculated
+angular size; the Solar system panel shows the heliocentric orbit with enlarged
+body markers. It is not a free-flight solar-system camera.
+
+**Solar system** provides independent sidereal day and year periods, axial tilt,
+eccentricity, Sun radius and orbital radius. **Apply system / restart weather**
+starts the configured system at its epoch and rebuilds weather. The shared weather
+clock drives the Sun direction, apparent size, inverse-square irradiance,
+terrain/atmosphere/cloud lighting and climate heating. Every atmospheric substep
+samples the moving Sun, including warm-up; the weather rotation force follows
+the selected day period. Default spin is 24 hours, orbit is 365.256 days and tilt
+is 23.44 degrees. **Pause the system and weather** freezes their clocks together.
+Weather speed accelerates both; the day/year values remain independent.
+
+```sh
+cargo run -p planet-bevy -- --solar-day 12 --solar-year 20 --solar-tilt 30
+cargo run -p planet-bevy -- --solar-eccentricity 0.2 --weather-hours 6 --weather-paused
+cargo run -p planet-bevy -- --no-solar --sun-elevation 35
+```
+
+`--solar-orbit` and `--solar-radius` specify ratios to the planet radius;
+`--solar-paused` freezes the system. `--no-solar` restores manual Sun controls and
+manual climate rotation. With weather disabled, the solar clock advances using
+the configured climate time scale and weather speed.
+
+The weather transport now includes conservative pressure stabilization to damp
+stationary cell-alternating modes, and cloud optics reconstruct coverage across
+a small geodesic neighbourhood without changing the simulation's physical
+budgets. At the planetary limb, reduced-resolution sky/terrain ambiguities use
+the actual full-resolution ray; long grazing paths receive additional bounded
+samples. These corrections address grid patterns and noisy or missing halo
+clouds separately from orbital lighting.
+
+## Balanced cloud lifecycle
+
+Cloud area and in-cloud water density are separate. The worker evolves vapour
+and liquid water; a bounded sub-grid total-water distribution diagnoses the
+saturated area of each cell. Dense local cloud can therefore have high opacity
+without occupying most of the sky. A calibrated formation threshold maps that
+area onto the coherent noise volume; the previous condensate-to-coverage boost
+is removed. Both layers have independent optical density and precipitation.
+
+Surface temperature responds to sunlight with faster land heating and slower
+sea heating. Evaporation uses the surface/air vapour difference, local wind and
+water availability. Land draws from a finite soil reservoir, replenished by rain;
+excess drains as runoff. Low-level wind convergence and signed terrain lift
+cool rising air and warm sinking air. Vertical exchange mixes moisture and
+potential temperature, including dry upper air, and concentrates convection in
+locally buoyant regions. Phase changes include latent heat, and continuous
+fallout removes thin cloud as well as heavy rain, leaving no protected residue.
+
+There is no global coverage quota. **Moisture** changes the water supply;
+**Coverage** and **Density** remain appearance controls. The panel's cloud cover
+is an estimated column fraction combining both layers with random overlap.
+Clear/overcast region diagnostics count cells below 15% or above 85% estimated
+column cover. These differ from the fraction of a particular screenshot covered
+by clouds, especially along long orbital grazing rays.
+
+The shared GPU field now holds six cubes per snapshot: lower wind/area, upper
+wind/area, climate, two swell packets, and separate lower/upper optical densities.
+The optical cube also carries the render-only conservative terrain ceiling;
+the mean orography used by the weather simulation is unchanged.
+Current and previous snapshots occupy one persistent 72-face cube-array texture.
+Sky, cloud shadows, reflections, terrain, vegetation, water and mist use the same
+interpolated weather state. Wave phases and the solar clock are preserved.
+
+Regression coverage includes ten solar days across multiple seeds, persistent
+clear regions and regional contrast, closed atmospheric water flux budgets,
+finite land-water recycling, thin-cloud dissipation and independent area/density.
+Native GPU probes also verify independent opacity, snapshot interpolation,
+planetary-limb rendering, shadows and reflections. `--weather-hours 240` can
+start a paused inspection after ten simulated days; long warm-ups run on the
+weather worker and may take a few minutes at the full grid resolution.

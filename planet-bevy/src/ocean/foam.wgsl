@@ -1,4 +1,5 @@
 #import planet_bevy::waves::{ocean,waves_at,coast,allowance}
+#import planet_bevy::weather::{weather_enabled,weather_lower}
 struct FoamFrame {origin:vec4<f32>,tangent:vec4<f32>,bitangent:vec4<f32>}
 struct Step {current:FoamFrame,previous:FoamFrame,parameters:vec4<f32>}
 @group(0) @binding(0) var previous:texture_2d<f32>;
@@ -28,7 +29,8 @@ fn old(n:vec3<f32>)->vec4<f32>{
  var velocity=(tangent-before.gba)/max(dt,0.001);
  velocity*=min(1.0,5.0/max(length(velocity),0.001));
  if step.parameters.w>0.5 {velocity=vec3<f32>(0.0);}
- let wind=vec3<f32>(0.08,0.0,0.025);let drift=wind-n*dot(wind,n);
+ let wind=select(vec3<f32>(0.08,0.0,0.025),weather_lower(n).xyz*0.025,weather_enabled());
+ let drift=wind-n*dot(wind,n);
  let advected=normalize(n-(velocity+drift)*dt/ocean.shape.x);
  let foam=old(advected).r*exp(-dt/max(step.parameters.y,0.1))+wave.foam*(1.0-exp(-step.parameters.z*dt));
  textureStore(next,vec2<i32>(id.xy),vec4<f32>(clamp(foam,0.0,1.0)*wet*water_active,tangent));

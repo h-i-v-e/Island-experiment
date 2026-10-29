@@ -1,4 +1,5 @@
-#import planet_bevy::environment_material::material_cloud_light
+#import planet_bevy::environment_material::{material_cloud_light,environment}
+#import planet_bevy::weather::{weather_enabled,weather_wind}
 // Motu/Terrain Grass: sixteen alpha-cut shells, radial growth and tangent wind.
 #import bevy_pbr::{forward_io::{Vertex, VertexOutput, FragmentOutput}, mesh_functions,
     mesh_view_bindings::globals, view_transformations::position_world_to_clip,
@@ -23,13 +24,15 @@ struct GrassOutput {
     let transform = mesh_functions::get_world_from_local(input.instance_index);
     let root = mesh_functions::mesh_position_local_to_world(transform, vec4<f32>(input.position, 1.0)).xyz;
     let normal = mesh_functions::mesh_normal_local_to_world(input.normal, input.instance_index);
-    let gust = textureSampleLevel(cliff_noise, cliff_sampler, root * ground.radius / 30.0 + vec3<f32>(globals.time * 0.015, 0.0, globals.time * 0.009), 0.0).g;
-    let wind_direction = normalize(vec3<f32>(0.7, 0.1, 0.3));
+    let gust = textureSampleLevel(cliff_noise, cliff_sampler, root * ground.radius / 30.0 + vec3<f32>(environment.air.w * 0.015, 0.0, environment.air.w * 0.009), 0.0).g;
+    let local_wind = weather_wind(root);
+    let wind_direction = normalize(local_wind + vec3<f32>(0.00001));
+    let wind_strength = select(1.0, clamp(length(local_wind) / 10.0, 0.0, 3.0), weather_enabled());
     let tangent = wind_direction - normal * dot(wind_direction, normal);
     let wind = tangent * inverseSqrt(max(dot(tangent, tangent), 0.0001));
     let fraction = grass.layer.x;
     let world = root + normal * (grass.shape.x * fraction / ground.radius)
-        + wind * (0.035 * gust * fraction * fraction / ground.radius);
+        + wind * (0.035 * wind_strength * gust * fraction * fraction / ground.radius);
     out.position = position_world_to_clip(world);
     out.world_position = vec4<f32>(world, 1.0);
     out.world_normal = normal;

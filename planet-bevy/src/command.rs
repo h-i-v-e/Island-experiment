@@ -60,13 +60,29 @@ cargo run -p planet-bevy -- [options]
   --waterfall-mist F       Plunge mist density multiplier, 0..2 (1)
   --water-foam F           Persistent ocean foam strength, 0..2 (0.8)
   --no-underwater          Disable underwater absorption and haze
+  --no-solar               Use manual Sun direction instead of orbit/spin
+  --solar-paused           Pause solar motion and weather
+  --solar-day H            Sidereal spin period in hours (24)
+  --solar-year D           Orbital period in days (365.256)
+  --solar-tilt D           Axial tilt in degrees (23.44)
+  --solar-eccentricity F   Orbital eccentricity (0)
+  --solar-orbit R          Orbit semimajor axis / planet radius (23481)
+  --solar-radius R         Sun radius / planet radius (109.2)
+  --no-weather             Use the previous procedural weather and manual waves
+  --weather-paused         Freeze simulated weather and wave animation
+  --weather-hours H        Start with 0..240 simulated weather hours (0)
+  --weather-speed F        Weather simulation speed, 0..20 (1)
+  --weather-grid N         Weather cells per cube face edge (64)
+  --weather-humidity F     Climate moisture multiplier (1)
+  --weather-rotation S     Climate rotation period in seconds (86400)
+  --weather-view MODE      shaded|pressure|wind|humidity|clouds|rain|waves|temperature
   --no-atmosphere           Disable atmospheric scattering
   --no-clouds               Disable volumetric clouds and cloud shadows
   --atmosphere-height M     Minimum atmosphere thickness, 20..2000 m (200)
   --atmosphere-haze F       Atmospheric optical density, 0..5 (1)
   --cloud-coverage F        Cloud cover, 0..1 (0.42)
   --cloud-density F         Cloud optical density, 0..8 (1.2)
-  --cloud-base M            Cloud base, 1..1500 m (100)
+  --cloud-base M            Minimum cloud base, 1..1500 m (45)
   --clouds-through-terrain  Allow clouds around mountain tops
   --cloud-thickness M       Cloud layer thickness, 5..1000 m (55)
   --cloud-scale M           Formation size, 10..2000 m (90)
@@ -177,6 +193,8 @@ pub struct Command {
     pub ocean: crate::ocean::OceanSettings,
     pub water: crate::water::WaterSettings,
     pub environment: crate::environment::EnvironmentSettings,
+    pub weather: crate::weather::WeatherControls,
+    pub solar: crate::solar::SolarControls,
     pub forest: crate::forest::ForestSettings,
 }
 
@@ -203,6 +221,8 @@ impl Default for Command {
             ocean: crate::ocean::OceanSettings::default(),
             water: crate::water::WaterSettings::default(),
             environment: crate::environment::EnvironmentSettings::default(),
+            weather: crate::weather::WeatherControls::default(),
+            solar: crate::solar::SolarControls::default(),
             forest: crate::forest::ForestSettings::default(),
         }
     }
@@ -217,6 +237,10 @@ impl Command {
                 "-h" | "--help" => return Ok(None),
                 "--ocean-paused" => command.ocean.paused = true,
                 "--no-atmosphere" => command.environment.atmosphere = false,
+                "--no-solar" => command.solar.enabled = false,
+                "--solar-paused" => command.solar.paused = true,
+                "--no-weather" => command.weather.enabled = false,
+                "--weather-paused" => command.weather.paused = true,
                 "--no-clouds" => command.environment.clouds = false,
                 "--no-cloud-temporal" => command.environment.temporal = false,
                 "--clouds-through-terrain" => command.environment.clear_terrain = false,
@@ -250,6 +274,17 @@ impl Command {
         command.ocean.validate()?;
         command.water.validate()?;
         command.environment.validate()?;
+        command.weather.model.validate()?;
+        command.solar.model.validate()?;
+        command.solar.draft = command.solar.model;
+        if !command.weather.warmup_hours.is_finite()
+            || !(0.0..=240.0).contains(&command.weather.warmup_hours)
+        {
+            return Err("initial weather hours must be 0..240".into());
+        }
+        if !command.weather.speed.is_finite() || !(0.0..=20.0).contains(&command.weather.speed) {
+            return Err("weather speed must be 0..20".into());
+        }
         command
             .terrain
             .validate()
@@ -286,6 +321,18 @@ impl Command {
 
     fn apply_environment_value(&mut self, flag: &str, value: &str) -> Result<bool, String> {
         match flag {
+            "--solar-day" => self.solar.model.rotation_period=number::<f64>(value,flag)?*3600.0,
+            "--solar-year" => self.solar.model.orbital_period=number::<f64>(value,flag)?*86400.0,
+            "--solar-tilt" => self.solar.model.axial_tilt=number::<f64>(value,flag)?.to_radians(),
+            "--solar-eccentricity" => self.solar.model.eccentricity=number(value,flag)?,
+            "--solar-orbit" => self.solar.model.orbit_radius_ratio=number(value,flag)?,
+            "--solar-radius" => self.solar.model.sun_radius_ratio=number(value,flag)?,
+            "--weather-hours" => self.weather.warmup_hours = number(value, flag)?,
+            "--weather-speed" => self.weather.speed = number(value, flag)?,
+            "--weather-grid" => self.weather.model.face_size = number(value, flag)?,
+            "--weather-humidity" => self.weather.model.humidity = number(value, flag)?,
+            "--weather-rotation" => self.weather.model.rotation_period = number(value, flag)?,
+            "--weather-view" => self.weather.debug = match value { "shaded"=>0,"pressure"=>1,"wind"=>2,"humidity"=>3,"clouds"=>4,"rain"=>5,"waves"=>6,"temperature"=>7,_=>return Err("weather view must be shaded, pressure, wind, humidity, clouds, rain, waves or temperature".into()) },
             "--atmosphere-height" => self.environment.atmosphere_height = number(value, flag)?,
             "--atmosphere-haze" => self.environment.haze = number(value, flag)?,
             "--cloud-coverage" => self.environment.coverage = number(value, flag)?,
@@ -412,6 +459,77 @@ fn number<T: FromStr>(value: &str, flag: &str) -> Result<T, String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn solar_controls_parse_and_reject_invalid_orbits() {
+        let command = Command::parse(
+            [
+                "--solar-day",
+                "12",
+                "--solar-year",
+                "20",
+                "--solar-tilt",
+                "30",
+                "--solar-eccentricity",
+                "0.2",
+                "--solar-paused",
+            ]
+            .map(str::to_owned),
+        )
+        .unwrap()
+        .unwrap();
+        assert!(command.solar.enabled && command.solar.paused);
+        assert!((command.solar.model.rotation_period - 43200.0).abs() < 1e-10);
+        assert!((command.solar.model.orbital_period - 20.0 * 86400.0).abs() < 1e-10);
+        assert_eq!(command.solar.model, command.solar.draft);
+        for args in [
+            ["--solar-day", "0"],
+            ["--solar-tilt", "NaN"],
+            ["--solar-eccentricity", "1"],
+            ["--solar-orbit", "100"],
+        ] {
+            assert!(Command::parse(args.map(str::to_owned)).is_err());
+        }
+        assert!(
+            !Command::parse(["--no-solar".to_owned()])
+                .unwrap()
+                .unwrap()
+                .solar
+                .enabled
+        );
+    }
+    #[test]
+    fn global_weather_controls_parse_and_bound_worker_work() {
+        let command = Command::parse(
+            [
+                "--weather-paused",
+                "--weather-speed",
+                "2",
+                "--weather-grid",
+                "16",
+                "--weather-view",
+                "wind",
+                "--weather-hours",
+                "6",
+            ]
+            .map(str::to_string),
+        )
+        .unwrap()
+        .unwrap();
+        assert!(command.weather.paused && command.weather.enabled);
+        assert_eq!(command.weather.model.face_size, 16);
+        assert_eq!(command.weather.debug, 2);
+        assert!((command.weather.warmup_hours - 6.0).abs() < f64::EPSILON);
+        for arguments in [
+            ["--weather-grid", "0"],
+            ["--weather-speed", "21"],
+            ["--weather-hours", "241"],
+            ["--weather-humidity", "NaN"],
+            ["--weather-view", "bad"],
+        ] {
+            assert!(Command::parse(arguments.map(str::to_string)).is_err());
+        }
+    }
+
     #[test]
     fn atmosphere_and_cloud_controls_parse_and_reject_invalid_values() {
         let parsed = super::Command::parse(

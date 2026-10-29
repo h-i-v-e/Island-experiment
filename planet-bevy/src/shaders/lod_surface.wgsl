@@ -1,4 +1,5 @@
 #import planet_bevy::environment_material::{material_cloud_light,environment_sky_sampler}
+#import planet_bevy::weather::{weather_enabled,weather_debug_mode,weather_debug_colour}
 // Unity Island ground shading with radial gravity, plus streamed LOD normal/occlusion atlases.
 // Water keeps StandardMaterial shading.
 #import bevy_pbr::{
@@ -145,5 +146,6 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     } else if settings.enabled != 0u && settings.debug == 2u {
         out.color = vec4<f32>(vec3<f32>(occlusion), 1.0);
     }
+    if weather_enabled() && weather_debug_mode() > 0u { out.color = vec4<f32>(weather_debug_colour(in.world_position.xyz), 1.0); }
     return out;
 }

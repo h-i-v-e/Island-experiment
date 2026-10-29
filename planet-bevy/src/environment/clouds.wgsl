@@ -3,7 +3,7 @@
 #import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput
 #import bevy_render::view::View
 #import planet_bevy::environment_air::environment_air
-#import planet_bevy::environment::{EnvironmentUniform,environment_density,environment_cloud_light,environment_extinction,environment_rotate}
+#import planet_bevy::environment::{EnvironmentUniform,environment_density,environment_cloud_light,environment_extinction,environment_rotate,environment_cloud_top,environment_cloud_bottom,environment_local_cloud_base,environment_weather_sample}
 @group(0) @binding(0) var scene_colour: texture_2d<f32>;
 @group(0) @binding(1) var noise_sampler: sampler;
 @group(0) @binding(2) var scene_depth: texture_depth_2d;
@@ -19,6 +19,7 @@ struct TemporalSettings {
 @group(0) @binding(8) var<uniform> temporal_settings:TemporalSettings;
 @group(0) @binding(9) var history_colour:texture_2d<f32>;
 @group(0) @binding(10) var history_distance:texture_2d<f32>;
+@group(0) @binding(11) var weather_map:texture_cube_array<f32>;
 
 fn sphere_interval(origin: vec3<f32>, direction: vec3<f32>, radius: f32) -> vec2<f32> {
     let b=dot(origin,direction);
@@ -65,21 +66,28 @@ fn integrate_segment(origin:vec3<f32>,direction:vec3<f32>,interval:vec2<f32>,cou
     let step_metres=step*weather.shape.x;
     let air=environment_air(origin,origin+direction*((interval.x+interval.y)*0.5),weather);
     var colour=initial.colour.rgb;var transmission=initial.colour.a;var moment=initial.moment;
-    for(var i=0u;i<40u;i+=1u) {
+    for(var i=0u;i<80u;i+=1u) {
         if i>=count || transmission<0.012 {break;}
         let distance=interval.x+(f32(i)+jitter)*step;
         let point=origin+direction*distance;
-        let density=environment_density(point,weather,cloud_noise,noise_sampler);
+        let density=environment_density(point,weather,cloud_noise,noise_sampler,weather_map);
         // Empty samples never perform the extra sun-directed density lookups.
         if density<0.001 {continue;}
         let optical=density*environment_extinction(weather)*step_metres;
         let opacity=1.0-exp(-min(optical,30.0));
-        let lighting=(environment_cloud_light(point,direction,weather,cloud_noise,noise_sampler)*air.transmission+air.inscattering)*view.exposure;
+        let lighting=(environment_cloud_light(point,direction,weather,cloud_noise,noise_sampler,weather_map)*air.transmission+air.inscattering)*view.exposure;
         colour+=transmission*opacity*lighting;
         moment+=transmission*opacity*distance*weather.shape.x;
         transmission*=1.0-opacity;
     }
     return CloudIntegration(vec4<f32>(colour,transmission),moment);
+}
+// Orbital tangent and shallow ground rays can cross long cloud paths. A fixed
+// sample count leaves bright/dark specks along their eroded edges. Bound spatial
+// spacing, retaining the requested budget on short rays and a hard 80-step cap.
+fn cloud_sample_budget(path_metres:f32,requested:u32,orbital:bool)->u32 {
+    let spacing=select(10.0,8.0,orbital);
+    return max(requested,u32(clamp(ceil(path_metres/spacing),1.0,80.0)));
 }
 fn estimate_at(low_pixel:vec2<f32>)->CloudResult {
     // This pass binds scene_colour as a dummy cloud_colour input. Its physical
@@ -93,8 +101,8 @@ fn estimate_at(low_pixel:vec2<f32>)->CloudResult {
     let maximum=scene_distance(pixel);
     var result=CloudResult(vec4<f32>(0.0,0.0,0.0,1.0),vec2<f32>(maximum,0.0));
     if weather.weather.w<=0.0 || weather.weather.x<=0.0 || weather.weather.y<=0.0 {return result;}
-    let inner=1.0+weather.shape.y/weather.shape.x;
-    let outer=inner+weather.shape.z/weather.shape.x;
+    let inner=1.0+environment_cloud_bottom(weather)/weather.shape.x;
+    let outer=1.0+environment_cloud_top(weather)/weather.shape.x;
     let shell=sphere_interval(origin,direction,outer);
     var end=min(shell.y,maximum/weather.shape.x);
     let body=sphere_interval(origin,direction,1.0);
@@ -113,7 +121,7 @@ fn estimate_at(low_pixel:vec2<f32>)->CloudResult {
     let second_length=max(second.y-second.x,0.0);
     let total=first_length+second_length;
     if total<=0.0 {return result;}
-    let budget=u32(clamp(weather.air.z,8.0,40.0));
+    let budget=cloud_sample_budget(total*weather.shape.x,u32(clamp(weather.air.z,8.0,40.0)),length(origin)>outer);
     let first_budget=select(budget,budget-1u,second_length>0.0);
     let first_steps=select(u32(clamp(round(f32(budget)*first_length/total),1.0,f32(first_budget))),0u,first_length<=0.0);
     let second_steps=select(budget-first_steps,0u,second_length<=0.0);
@@ -126,6 +134,19 @@ fn estimate_at(low_pixel:vec2<f32>)->CloudResult {
 }
 // Reproject the same advected density feature, not the stationary terrain.
 fn previous_cloud_point(point:vec3<f32>)->vec3<f32> {
+    if weather.simulation.x > 0.5 {
+        let n = normalize(point);
+        let altitude = (length(point) - 1.0) * weather.shape.x;
+        let terrain=environment_weather_sample(n,5,weather,weather_map,noise_sampler).z;
+        let base=environment_local_cloud_base(weather,terrain);
+        let layer = select(0, 1, altitude >= base + weather.shape.z * 1.55);
+        let wind = environment_weather_sample(n, layer, weather, weather_map, noise_sampler).xyz;
+        let tangent = wind - n * dot(wind, n);
+        let speed = length(tangent);
+        let elapsed = max(weather.simulation.y - temporal_settings.previous_wind.x, 0.0);
+        let angle = speed * elapsed / max(weather.simulation.z, 1.0);
+        return (n * cos(angle) - tangent / max(speed, 0.00001) * sin(angle)) * length(point);
+    }
     let inverse_previous=vec4<f32>(-temporal_settings.previous_wind.xyz,temporal_settings.previous_wind.w);
     return environment_rotate(inverse_previous,environment_rotate(weather.wind,point));
 }
@@ -151,6 +172,11 @@ fn accept_history(guide:vec2<f32>,previous_guide:vec2<f32>,cloud_point:vec3<f32>
         if previous_guide.x+0.1<expected_cloud {return false;}
     }
     return true;
+}
+fn cloud_history_limit(simulated:bool,climate_elapsed:f32)->f32 {
+    // Ordinary or paused weather needs accumulation to resolve fine billows.
+    // Reduce history only when accelerated climate changes invalidate it.
+    return select(0.98,mix(0.98,0.35,smoothstep(5.0,60.0,climate_elapsed)),simulated);
 }
 fn temporal_at(pixel:vec2<i32>)->CloudResult {
     let size=vec2<i32>(textureDimensions(cloud_colour));
@@ -192,7 +218,8 @@ fn temporal_at(pixel:vec2<i32>)->CloudResult {
     // local cloud neighbourhood, preventing long white trails behind edges.
     old=clamp(old,lower,upper);
     let motion=length((projected.xy-uv)*vec2<f32>(size));
-    let blend=temporal_settings.controls.w*mix(1.0,0.55,smoothstep(2.0,20.0,motion));
+    let elapsed=max(weather.simulation.y-temporal_settings.previous_wind.x,0.0);
+    let blend=min(temporal_settings.controls.w,cloud_history_limit(weather.simulation.x>0.5,elapsed))*mix(1.0,0.55,smoothstep(2.0,20.0,motion));
     result.colour=mix(current,old,blend);
     return result;
 }
@@ -205,19 +232,28 @@ fn composite_at(pixel:vec2<i32>)->vec4<f32> {
     let coordinate=uv*vec2<f32>(size)-0.5;
     let base=vec2<i32>(floor(coordinate));let fraction=fract(coordinate);
     var sum=vec4<f32>(0.0);var weight_sum=0.0;
+    var mixed_silhouette=false;
+    let sky=distance>=999999.0;
     for(var y=0;y<2;y+=1) {
         for(var x=0;x<2;x+=1) {
             let q=clamp(base+vec2<i32>(x,y),vec2<i32>(0),size-1);
             let guide=textureLoad(cloud_distance,q,0).r;
+            mixed_silhouette=mixed_silhouette || ((guide>=999999.0)!=sky);
             let spatial=select(1.0-fraction.x,fraction.x,x==1)*select(1.0-fraction.y,fraction.y,y==1);
             let tolerance=max(0.5,distance*0.015);
             let weight=spatial*exp2(-abs(guide-distance)/tolerance);
             sum+=textureLoad(cloud_colour,q,0)*weight;weight_sum+=weight;
         }
     }
-    // A foreground silhouette must never inherit a sky neighbour's cloud fog.
-    if weight_sum<0.001 {return scene;}
-    let clouds=sum/weight_sum;
+    // The reduced pixels can all see terrain while this full-resolution ray
+    // sees sky (or vice versa). Returning the uncomposited scene cuts holes in
+    // the cloud halo. Reintegrate only these silhouette pixels with their own
+    // depth/ray; foreground leaves still terminate the ray before the clouds.
+    var clouds=vec4<f32>(0.0,0.0,0.0,1.0);
+    if mixed_silhouette || weight_sum<0.001 {
+        let divisor=select(2.0,4.0,weather.air.z<=16.0);
+        clouds=estimate_at(uv*ceil(view.viewport.zw/divisor)).colour;
+    } else {clouds=sum/weight_sum;}
     return vec4<f32>(clouds.rgb+scene.rgb*clamp(clouds.a,0.0,1.0),scene.a);
 }
 

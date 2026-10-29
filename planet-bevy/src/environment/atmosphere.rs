@@ -23,7 +23,12 @@ impl Plugin for PlanetAtmospherePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<AtmosphereWorld>()
             .init_resource::<Assets<ScatteringMedium>>()
-            .add_systems(Update, update.after(crate::explore::update));
+            .add_systems(
+                Update,
+                update
+                    .after(crate::explore::update)
+                    .after(crate::solar::SolarUpdate),
+            );
         if let Some(render) = app.get_sub_app_mut(RenderApp) {
             render.add_systems(
                 ExtractSchedule,
@@ -113,6 +118,7 @@ pub(super) fn update(
     mut commands: Commands,
     scene: Res<Scene>,
     settings: Res<EnvironmentSettings>,
+    solar: Option<Res<crate::solar::SolarFrame>>,
     mut world: ResMut<AtmosphereWorld>,
     mut media: ResMut<Assets<ScatteringMedium>>,
     mut cameras: Query<
@@ -153,7 +159,14 @@ pub(super) fn update(
         height,
         settings.atmosphere,
     );
-    let direction = settings.sun_direction();
+    let direction = solar
+        .as_ref()
+        .filter(|s| s.enabled)
+        .and_then(|s| s.state)
+        .map_or_else(
+            || settings.sun_direction(),
+            |s| Vec3::from_array(s.sun_direction.to_array().map(|v| v as f32)),
+        );
     let up = if direction.y.abs() > 0.99 {
         Vec3::Z
     } else {

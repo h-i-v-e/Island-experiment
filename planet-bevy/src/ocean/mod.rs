@@ -111,6 +111,8 @@ pub struct OceanExtension {
     pub environment_sky: Handle<Image>,
     #[texture(127, dimension = "cube")]
     pub environment_shadows: Handle<Image>,
+    #[texture(129, dimension = "cube_array")]
+    pub global_weather: Handle<Image>,
 }
 pub type OceanMaterial = ExtendedMaterial<StandardMaterial, OceanExtension>;
 impl MaterialExtension for OceanExtension {
@@ -224,6 +226,9 @@ pub fn update(
     time: Res<Time>,
     scene: Res<Scene>,
     settings: Res<OceanSettings>,
+    weather: Option<Res<crate::weather::WeatherControls>>,
+    environment: Option<Res<crate::environment::EnvironmentSettings>>,
+    solar: Option<Res<crate::solar::SolarFrame>>,
     textures: Res<TerrainTextures>,
     mut world: ResMut<OceanWorld>,
     cameras: Query<&Transform, (With<Orbit>, Without<OceanSurface>)>,
@@ -242,8 +247,15 @@ pub fn update(
     {
         world.sources = Some(sources::WaveSources::new(scene.seed));
     }
-    if !settings.paused {
-        let seconds = time.delta_secs_f64() * f64::from(settings.speed);
+    let weather_paused = weather.as_ref().is_some_and(|w| w.enabled && w.paused)
+        || environment.as_ref().is_some_and(|e| e.paused);
+    if !settings.paused && !weather_paused && !solar.as_ref().is_some_and(|s| s.paused) {
+        let seconds = time.delta_secs_f64()
+            * f64::from(settings.speed)
+            * weather
+                .as_ref()
+                .filter(|w| w.enabled)
+                .map_or(1.0, |w| w.speed);
         world.seconds += seconds as f32;
         world.sources.as_mut().unwrap().advance(
             seconds,
@@ -341,6 +353,7 @@ pub fn update(
                 environment: textures.environment.clone(),
                 environment_sky: textures.environment_sky.clone(),
                 environment_shadows: textures.environment_shadows.clone(),
+                global_weather: textures.global_weather.clone(),
             },
         }));
     }

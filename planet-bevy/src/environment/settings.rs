@@ -37,7 +37,7 @@ impl Default for EnvironmentSettings {
             haze: 1.0,
             coverage: 0.42,
             density: 1.2,
-            cloud_base: 100.0,
+            cloud_base: 45.0,
             cloud_thickness: 55.0,
             cloud_scale: 90.0,
             wind_speed: 1.5,
@@ -82,9 +82,9 @@ impl EnvironmentSettings {
 
 #[derive(Clone, Copy, Debug, Default, Reflect, ShaderType)]
 pub struct EnvironmentUniform {
-    /// radius metres, cloud base metres, cloud thickness metres, cloud noise scale metres.
+    /// radius metres, conservative maximum base metres, thickness metres, noise scale metres.
     pub shape: Vec4,
-    /// coverage, density, surface shadow strength, cloud enabled (0/1).
+    /// coverage, density, shadow strength, minimum cloud base metres (zero disables clouds).
     pub weather: Vec4,
     /// Inverse wind rotation quaternion, used to sample an anchored spherical weather field.
     pub wind: Vec4,
@@ -96,11 +96,15 @@ pub struct EnvironmentUniform {
     pub air: Vec4,
     /// Normalized render-space camera xyz, seed-derived spatial offset w.
     pub viewer: Vec4,
+    /// Zero disables simulation; otherwise x=1+snapshot blend. Then simulation
+    /// seconds, effective weather radius metres, and diagnostic mode.
+    pub simulation: Vec4,
 }
 #[derive(Resource, Clone, Default, ExtractResource)]
 pub struct EnvironmentFrame {
     pub uniform: EnvironmentUniform,
     pub noise: Handle<Image>,
+    pub weather: Handle<Image>,
     pub quality: u32,
     pub temporal: bool,
     pub enabled: bool,
@@ -109,17 +113,18 @@ pub struct EnvironmentFrame {
 #[derive(Resource, Default)]
 pub struct EnvironmentAssets {
     pub uniform: Handle<ShaderBuffer>,
+    pub cloud_noise: Handle<Image>,
 }
 
-/// Keep the default layer above generated mountain tops; the explicit sliders
-/// remain in metres and show their requested minimum base/atmosphere heights.
+/// Conservative global bounds; simulated clouds use the local terrain ceiling
+/// within these bounds. Sliders remain requested minimum heights in metres.
 pub fn effective_layers(settings: &EnvironmentSettings, maximum_terrain_height: f32) -> (f32, f32) {
     let base = if settings.clear_terrain {
         settings.cloud_base.max(maximum_terrain_height + 20.0)
     } else {
         settings.cloud_base
     };
-    let top = base + settings.cloud_thickness;
+    let top = base + settings.cloud_thickness * 2.5;
     (base, settings.atmosphere_height.max(top + 20.0))
 }
 

@@ -15,9 +15,11 @@ use bevy::{
             BindGroupLayoutEntries, CachedComputePipelineId, ComputePipelineDescriptor, Extent3d,
             FilterMode, PipelineCache, Sampler, SamplerBindingType, SamplerDescriptor,
             ShaderStages, ShaderType, StorageTextureAccess, TextureDimension, TextureFormat,
-            TextureSampleType, TextureUsages, TextureViewDescriptor, TextureViewDimension,
-            UniformBuffer,
-            binding_types::{sampler, texture_3d, texture_storage_2d_array, uniform_buffer},
+            TextureId, TextureSampleType, TextureUsages, TextureViewDescriptor,
+            TextureViewDimension, UniformBuffer,
+            binding_types::{
+                sampler, texture_3d, texture_cube_array, texture_storage_2d_array, uniform_buffer,
+            },
         },
         renderer::{RenderContext, RenderDevice, RenderQueue},
         texture::GpuImage,
@@ -99,13 +101,15 @@ struct Pipeline {
     shadow_id: CachedComputePipelineId,
     sampler: Sampler,
 }
+type ReflectionKey = (AssetId<Image>, AssetId<Image>, AssetId<Image>, TextureId);
+
 #[derive(Resource, Default)]
 struct ReflectionWorld {
     settings: UniformBuffer<ReflectionStep>,
     shadow_settings: UniformBuffer<ReflectionStep>,
     group: Option<BindGroup>,
     shadow_group: Option<BindGroup>,
-    key: Option<(AssetId<Image>, AssetId<Image>, AssetId<Image>)>,
+    key: Option<ReflectionKey>,
     face: u32,
     faces: u32,
     revision: Option<u64>,
@@ -133,6 +137,7 @@ fn initialize(
                     StorageTextureAccess::WriteOnly,
                 ),
                 uniform_buffer::<ReflectionStep>(false),
+                texture_cube_array(TextureSampleType::Float { filterable: true }),
             ),
         ),
     );
@@ -168,10 +173,11 @@ fn prepare(
     cache: Res<PipelineCache>,
     mut world: ResMut<ReflectionWorld>,
 ) {
-    let (Some(cube), Some(shadows), Some(noise)) = (
+    let (Some(cube), Some(shadows), Some(noise), Some(global_weather)) = (
         images.get(&assets.cube),
         images.get(&assets.shadows),
         images.get(&frame.noise),
+        images.get(&frame.weather),
     ) else {
         return;
     };
@@ -206,7 +212,12 @@ fn prepare(
     });
     world.settings.write_buffer(&device, &queue);
     world.face = (face + 1) % 6;
-    let key = (assets.cube.id(), assets.shadows.id(), frame.noise.id());
+    let key = (
+        assets.cube.id(),
+        assets.shadows.id(),
+        frame.noise.id(),
+        global_weather.texture.id(),
+    );
     if world.key != Some(key) {
         let storage = cube.texture.create_view(&TextureViewDescriptor {
             dimension: Some(TextureViewDimension::D2Array),
@@ -220,6 +231,7 @@ fn prepare(
                 &pipeline.sampler,
                 &storage,
                 world.settings.binding().unwrap(),
+                &global_weather.texture_view,
             )),
         ));
         let shadow_storage = shadows.texture.create_view(&TextureViewDescriptor {
@@ -234,6 +246,7 @@ fn prepare(
                 &pipeline.sampler,
                 &shadow_storage,
                 world.shadow_settings.binding().unwrap(),
+                &global_weather.texture_view,
             )),
         ));
         world.key = Some(key);

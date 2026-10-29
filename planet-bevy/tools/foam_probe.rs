@@ -10,7 +10,7 @@ fn main(){
     let path=std::path::PathBuf::from(&args[1]);
     let material=std::fs::read_to_string(path.parent().unwrap().parent().unwrap().join("environment/material.wgsl")).unwrap();
     let shared_sampler=material.lines().find(|line|line.contains("@binding(102)")).unwrap().replace("#{MATERIAL_BIND_GROUP}","0");
-    let waves=waves+"\n"+&shared_sampler;
+    let waves=waves+"\n"+&shared_sampler+"\nfn weather_blend()->f32{return 1.0;}\nfn weather_swell_previous(n:vec3<f32>,i:u32)->vec4<f32>{return vec4<f32>(0.0);}\nfn weather_enabled()->bool{return false;}\nfn weather_lower(n:vec3<f32>)->vec4<f32>{return vec4<f32>(0.0); }\nfn weather_swell(n:vec3<f32>,i:u32)->vec4<f32>{return vec4<f32>(0.0); }\n";
     let foam=std::fs::read_to_string(&args[2]).unwrap().lines().filter(|l|!l.starts_with("#import")).collect::<Vec<_>>().join("\n");
     let instance=wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let adapter=bevy_tasks::block_on(instance.request_adapter(&Default::default())).unwrap();

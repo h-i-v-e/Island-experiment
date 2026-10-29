@@ -1,5 +1,6 @@
 //! Viewer-centred foam history, reprojected in fixed spherical coordinates.
 use super::{OceanMaterial, OceanSettings, OceanUniform, OceanWorld, Orbit};
+use crate::environment::EnvironmentUniform;
 use bevy::asset::{RenderAssetUsages, embedded_asset};
 use bevy::image::{ImageFilterMode, ImageSampler, ImageSamplerDescriptor};
 use bevy::prelude::*;
@@ -17,10 +18,12 @@ use bevy::{
             ShaderStages, StorageTextureAccess, TextureFormat, TextureSampleType, TextureUsages,
             UniformBuffer,
             binding_types::{
-                sampler, texture_2d, texture_3d, texture_cube, texture_storage_2d, uniform_buffer,
+                sampler, storage_buffer_read_only, texture_2d, texture_3d, texture_cube,
+                texture_cube_array, texture_storage_2d, uniform_buffer,
             },
         },
         renderer::{RenderContext, RenderDevice, RenderQueue},
+        storage::{GpuShaderBuffer, ShaderBuffer},
         texture::GpuImage,
     },
     shader::ShaderDefVal,
@@ -55,6 +58,8 @@ pub(crate) struct OceanFrame {
     pub ocean: OceanUniform,
     pub coast: Handle<Image>,
     pub noise: Handle<Image>,
+    pub environment: Handle<ShaderBuffer>,
+    pub weather: Handle<Image>,
     previous: Handle<Image>,
     next: Handle<Image>,
     step: Step,
@@ -118,6 +123,9 @@ fn update(
     mut images: ResMut<Assets<Image>>,
     mut materials: ResMut<Assets<OceanMaterial>>,
     scene: Res<crate::Scene>,
+    weather: Option<Res<crate::weather::WeatherControls>>,
+    environment: Option<Res<crate::environment::EnvironmentSettings>>,
+    solar: Option<Res<crate::solar::SolarFrame>>,
 ) {
     let (Some(handle), Ok(camera)) = (&world.material, cameras.single()) else {
         return;
@@ -144,17 +152,26 @@ fn update(
         material.extension.settings.shape.x,
     );
     let reset = history.key != Some(material.extension.coast.id());
-    let delta = if ocean_settings.paused {
-        0.0
-    } else {
-        time.delta_secs() * ocean_settings.speed
-    };
+    let weather_paused = weather
+        .as_ref()
+        .is_some_and(|weather| weather.enabled && weather.paused)
+        || environment
+            .as_ref()
+            .is_some_and(|environment| environment.paused);
+    let delta =
+        if ocean_settings.paused || weather_paused || solar.as_ref().is_some_and(|s| s.paused) {
+            0.0
+        } else {
+            time.delta_secs() * ocean_settings.speed
+        };
     let previous = history.index;
     let next = 1 - previous;
     record.ocean = material.extension.settings;
     record.active = true;
     record.coast = material.extension.coast.clone();
     record.noise = material.extension.noise.clone();
+    record.environment = material.extension.environment.clone();
+    record.weather = material.extension.global_weather.clone();
     record.previous = pair[previous].clone();
     record.next = pair[next].clone();
     record.step = Step {
@@ -210,6 +227,11 @@ fn initialize(
                 texture_3d(TextureSampleType::Float { filterable: true }),
             ),
             (104, sampler(SamplerBindingType::Filtering)),
+            (123, storage_buffer_read_only::<EnvironmentUniform>(false)),
+            (
+                129,
+                texture_cube_array(TextureSampleType::Float { filterable: true }),
+            ),
         ),
     );
     let layout = BindGroupLayoutDescriptor::new("planet_foam_history", &entries);
@@ -231,10 +253,12 @@ fn initialize(
         }),
     });
 }
+#[allow(clippy::too_many_arguments)] // Shared material buffers and images are borrowed from render assets.
 fn prepare(
     mut commands: Commands,
     record: Res<OceanFrame>,
     images: Res<RenderAssets<GpuImage>>,
+    buffers: Res<RenderAssets<GpuShaderBuffer>>,
     pipeline: Res<Pipeline>,
     device: Res<RenderDevice>,
     queue: Res<RenderQueue>,
@@ -244,11 +268,13 @@ fn prepare(
         commands.remove_resource::<Prepared>();
         return;
     }
-    let (Some(previous), Some(next), Some(coast), Some(noise)) = (
+    let (Some(previous), Some(next), Some(coast), Some(noise), Some(weather), Some(environment)) = (
         images.get(&record.previous),
         images.get(&record.next),
         images.get(&record.coast),
         images.get(&record.noise),
+        images.get(&record.weather),
+        buffers.get(&record.environment),
     ) else {
         commands.remove_resource::<Prepared>();
         return;
@@ -270,6 +296,8 @@ fn prepare(
             (102, &coast.sampler),
             (103, &noise.texture_view),
             (104, &noise.sampler),
+            (123, environment.buffer.as_entire_binding()),
+            (129, &weather.texture_view),
         )),
     );
     commands.insert_resource(Prepared { group });

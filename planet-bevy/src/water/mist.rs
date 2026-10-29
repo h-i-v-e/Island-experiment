@@ -38,6 +38,8 @@ pub struct MistMaterial {
     pub environment_sky: Handle<Image>,
     #[texture(127, dimension = "cube")]
     pub environment_shadows: Handle<Image>,
+    #[texture(129, dimension = "cube_array")]
+    pub global_weather: Handle<Image>,
 }
 impl Material for MistMaterial {
     fn fragment_shader() -> ShaderRef {
@@ -184,6 +186,7 @@ fn update(
             environment: textures.environment.clone(),
             environment_sky: textures.environment_sky.clone(),
             environment_shadows: textures.environment_shadows.clone(),
+            global_weather: textures.global_weather.clone(),
         });
         let entity = commands
             .spawn((

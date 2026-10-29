@@ -1,5 +1,6 @@
 #import planet_bevy::environment_material::material_cloud_light
-// Four wandering spherical wave sources; Island's ripple/coastal optics.
+#import planet_bevy::weather::{weather_enabled,weather_debug_mode,weather_debug_colour,weather_lower,weather_swell}
+// Coupled wind/swell waves, with manual sources as a fallback.
 #import bevy_pbr::{forward_io::{Vertex,VertexOutput,FragmentOutput},mesh_functions,
  view_transformations::position_world_to_clip,mesh_view_bindings::{view,lights},
  pbr_fragment::pbr_input_from_standard_material,
@@ -112,5 +113,10 @@ fn ripple_gradient(uv:vec3<f32>,lod:f32)->vec3<f32>{
   }
   out.color=vec4<f32>(clamp(colour,vec3<f32>(0.0),vec3<f32>(1.0)),1.0);
  }
+ if ocean.shading.z>2.5 && weather_enabled() {
+  let drivers=vec2<f32>(length(weather_lower(n).xyz)/20.0,(weather_swell(n,0u).w+weather_swell(n,1u).w)/2.0);
+  out.color=vec4<f32>(clamp(vec3<f32>(drivers.x,drivers.y,1.0-drivers.x),vec3<f32>(0.0),vec3<f32>(1.0)),1.0);
+ }
+ if weather_enabled() && weather_debug_mode()>0u {out.color=vec4<f32>(weather_debug_colour(input.world_position.xyz),1.0);}
  return out;
 }
