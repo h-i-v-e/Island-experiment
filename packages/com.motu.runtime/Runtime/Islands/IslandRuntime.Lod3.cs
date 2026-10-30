@@ -73,6 +73,8 @@ namespace Motu.Islands
 
         private void ApplyLodVisibility()
         {
+            TerrainStreamer?.RefreshPinnedColliders();
+            RefreshNavigationRegistration();
             var far = beyondLod3Distance || State == IslandRuntimeState.Dormant;
             // Cancel pending tile transitions before deactivating their coroutine owner.
             if (far && TerrainStreamer != null && TerrainStreamer.gameObject.activeSelf)

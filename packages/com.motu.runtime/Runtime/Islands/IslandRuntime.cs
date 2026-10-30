@@ -189,7 +189,7 @@ namespace Motu.Islands
                 UnregisterCoastalWaveMask();
             }
             State = dormant ? IslandRuntimeState.Dormant : IslandRuntimeState.Active;
-            Navigation?.SetRegistered(!dormant);
+            RefreshNavigationRegistration();
             if (BirdPerches != null) BirdPerches.gameObject.SetActive(!dormant);
             // A dormant resident island keeps its inexpensive horizon silhouette.
             ApplyLodVisibility();
@@ -197,6 +197,16 @@ namespace Motu.Islands
             {
                 RegisterCoastalWaveMask();
             }
+        }
+
+        internal void RefreshNavigationRegistration()
+        {
+            if (State != IslandRuntimeState.Active && State != IslandRuntimeState.Dormant) return;
+            bool pinned = TerrainStreamer != null && TerrainStreamer.HasNavigationPins;
+            Navigation?.SetRegistered(State == IslandRuntimeState.Active || pinned);
+            // A resident NPC may need navigation after the viewer has left.
+            // This can bake this resident island; it never generates a new one.
+            if (pinned) Navigation?.NoteViewerDistance(0f);
         }
 
         internal void MarkFailed()

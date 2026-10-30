@@ -375,6 +375,7 @@ namespace Motu.Streaming
                 foreach (var tile in lod2Group.tiles)
                     if (tile != null) Graphics.DrawMeshNow(tile.mesh, Matrix4x4.identity);
             });
+            RegisterPinResidency();
         }
 
         internal static IslandPreparedMesh[] PrepareOverviewTiles(
@@ -556,7 +557,8 @@ namespace Motu.Streaming
             grassMaterial?.SetFloat(GrassEnabledId, 0f);
             lastGrassPosition = new Vector3(float.PositiveInfinity, 0f, 0f);
             waterfallMistPool?.ClearPlayerFocus();
-            RemoveAllColliderTiles();
+            if (disposed) RemoveAllColliderTiles();
+            else RetainPinnedColliders();
             currentLod2 = InvalidCell;
             currentLod1 = InvalidCell;
             requestedLod2 = InvalidCell;
@@ -673,6 +675,9 @@ namespace Motu.Streaming
         {
             if (disposed) return;
             disposed = true;
+            TerrainAreaPin.UnregisterResident(this);
+            pinnedColliderCells.Clear(); incomingPinCells.Clear();
+            HasNavigationPins = false;
             footstepSurfaceMap?.Dispose(); footstepSurfaceMap = null;
             ClearPlayerFocus();
             foreach (var group in riverGroups.Values)

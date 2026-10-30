@@ -11,7 +11,7 @@ namespace Motu.Streaming
         /// <summary>Tests collision residency without moving the viewer or requesting more terrain.</summary>
         public bool HasActiveColliderAt(Vector3 worldPosition)
         {
-            if (disposed || !gameObject.activeInHierarchy || worldSize <= 0f) return false;
+            if (disposed || worldSize <= 0f) return false;
             var local = transform.InverseTransformPoint(worldPosition);
             float half = worldSize * .5f;
             if (local.x < -half || local.x > half || local.z < -half || local.z > half) return false;
@@ -22,6 +22,7 @@ namespace Motu.Streaming
 
         internal void UpdateColliderNeighborhood(Vector2Int center)
         {
+            RefreshPinnedColliders();
             var created = new List<KeyValuePair<Vector2Int, ColliderTile>>(9);
             try
             {
@@ -64,7 +65,7 @@ namespace Motu.Streaming
                 if (Mathf.Abs(key.x - center.x) > NearbyRadius
                     || Mathf.Abs(key.y - center.y) > NearbyRadius)
                 {
-                    removalScratch.Add(key);
+                    if (!pinnedColliderCells.Contains(key)) removalScratch.Add(key);
                 }
             }
             foreach (var key in removalScratch)
@@ -94,6 +95,7 @@ namespace Motu.Streaming
 
         internal IEnumerator UpdateColliderNeighborhoodIncremental(Vector2Int center)
         {
+            RefreshPinnedColliders();
             var desired = NeighbourKeys(center, Lod1Resolution);
             foreach (var key in desired)
             {
@@ -115,14 +117,16 @@ namespace Motu.Streaming
             removalScratch.Clear();
             foreach (var key in colliderTiles.Keys)
             {
-                if (!desiredSet.Contains(key))
+                if (!desiredSet.Contains(key) && !pinnedColliderCells.Contains(key))
                 {
                     removalScratch.Add(key);
                 }
             }
             foreach (var key in removalScratch)
             {
-                var tile = colliderTiles[key];
+                // An actor can move onto this tile while an earlier retirement
+                // yielded. Its new pin takes precedence over the old snapshot.
+                if (pinnedColliderCells.Contains(key) || !colliderTiles.TryGetValue(key, out var tile)) continue;
                 tile.collider.enabled = false;
                 colliderTiles.Remove(key);
                 DestroyColliderTile(tile);
