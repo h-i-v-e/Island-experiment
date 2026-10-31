@@ -8,11 +8,13 @@ use crate::{
 use bevy::{light::SunDisk, prelude::*};
 use planet_rs::solar::{SolarSettings, SolarState, SolarSystem};
 
-#[derive(Resource, Clone, Copy, Debug)]
+#[derive(Resource, Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct SolarControls {
     pub enabled: bool,
     pub model: SolarSettings,
     pub draft: SolarSettings,
+    #[serde(skip)]
     pub revision: u64,
     pub paused: bool,
 }

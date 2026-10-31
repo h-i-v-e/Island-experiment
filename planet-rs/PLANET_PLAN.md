@@ -154,13 +154,15 @@ water-ratio thresholding, coast-distance height remapping, inland-water removal,
 and sea exclusion masks are not applied. Any submerged site can receive a river.
 Dry pits are connected by a sea-seeded priority flood and downhill incision;
 all-dry worlds remain valid without manufactured outlets or a changed sea level.
-At the end of LOD2 (first refinement) and LOD1 (third refinement), disconnected
-seas are connected by a nearest-sea walk using angular mesh-edge distances.
-Channels lower actual terrain below the original sea radius and blend their
-banks. The walk continues from the sea just reached until all seas join at that
-stage. Subsequent erosion and smoothing may disconnect them again; there is no
-late ocean repair, allowing the finished terrain to evolve naturally. All-dry
-worlds remain dry. `--separate-seas` disables this requested global-ocean stage.
+After initial terrain/erosion, each impact batch, each refinement stage, and
+final terrain smoothing/erosion, retain the largest submerged component by
+spherical surface area as the global ocean. Fill all other seas to at least
+0.5 physical metres above the original sea radius, recording the added loose
+material separately from incision. There are no ocean-connecting channel cuts.
+The final fill occurs before river profiling and final river-bed carving, so
+rivers can cut through the raised basins without being plugged afterward.
+All-dry worlds remain dry; single seas stay unchanged. `--keep-inland-seas`
+(alias `--separate-seas`) disables filling for comparison.
 
 See [the routing algorithm background](https://arxiv.org/abs/1511.04463).
 
@@ -219,6 +221,23 @@ and post-carve radial heights on the final topology. Water animation remains sep
 
 ## Later milestones
 
+The tectonic source also supports irregular continental fragments carried by
+plate motion and branching subsiding rift basins. Fragmentation and fragment
+scale control how strongly crust departs from whole plate cells; rift strength
+and branching levels control the additional fault-basin network. Zero
+fragmentation restores the original plate-cell crust, while zero rift strength
+or levels disables the new basins without removing existing boundary extension.
+These source fields are sampled before erosion and through terrain refinement;
+river/waterfall profiles retain their existing later ordering. Mountain belts,
+side ridges, volcanoes and impact craters remain supported, sea level is the
+original sphere, and inland-sea filling continues through terrain generation
+before final river carving.
+The viewer exposes all four controls in Tectonic plates, persists them with
+other settings, and supports matching `--tectonic-fragmentation`,
+`--tectonic-fragment-scale`, `--tectonic-rifts`, and `--tectonic-rift-branches`
+CLI options. Drowned-valley and marine sediment transport models remain future
+coastal-generation work.
+
 1. Completed: deterministic elevation evaluated in 3D direction space, displacing
    vertices radially as `(radius + height(direction)) * direction`. Recompute
    normals and audit material sampling for sphere seams and pole distortion.
@@ -249,3 +268,17 @@ Capture and visually inspect the actual Bevy result. Leave source changes
 uncommitted for review. Terrain acceptance also covers multiple seeds, radial
 radius scaling, downhill routes reaching water, all-dry/all-wet worlds, and
 seam/pole continuity of the 3D noise.
+
+
+## Upstream river narrowing
+
+A shared per-vertex width field combines flow growth with represented river-path
+distance, narrows headwaters and tributaries and preserves mouth widths. Reach
+endpoints interpolate that field continuously through shared junctions. Before
+waterfall profiling and river tessellation, a radial port of Island's channel
+ring pull brings bank vertices toward the centreline with a per-face orientation
+guard. Centreline, merge rings, submerged vertices and radial heights stay fixed.
+The frozen widths also size refinement targets and waterfall/support footprints;
+existing downstream carving, bank pinning and upstream contact grading still run
+afterward. `--river-taper 0` restores the previous width/geometry rule; 1 is the
+default. The viewer exposes the remembered control as **Upstream narrowing**.

@@ -39,7 +39,8 @@ const LOAD_LIMIT: usize = 4;
 // Retire cached chunks baked before waterfall support patches were separated.
 const CACHE_GENERATION: u64 = 9;
 
-#[derive(Resource, Clone, Copy)]
+#[derive(Resource, Clone, Copy, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub(crate) struct StreamingSettings {
     pub level: u8,
     pub horizon: bool,

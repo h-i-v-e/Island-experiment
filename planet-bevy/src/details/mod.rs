@@ -39,7 +39,8 @@ impl Plugin for DetailPlugin {
     }
 }
 
-#[derive(Resource, Clone, Copy, PartialEq)]
+#[derive(Resource, Clone, Copy, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct DetailSettings {
     pub grass: bool,
     pub stones: bool,

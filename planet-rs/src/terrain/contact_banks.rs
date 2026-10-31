@@ -49,7 +49,7 @@ pub(super) fn finish(
     banks: &[(usize, usize)],
     old_drainage: Drainage,
     old_rivers: Vec<RiverSegment>,
-    settings: TerrainOptions,
+    settings: &TerrainOptions,
 ) -> Result<Finished, PlanetError> {
     let built = water_mesh::build_with_sources(mesh, fields.heights, fields.water);
     let edges = built.surface.dry_bank_edges();
@@ -321,12 +321,12 @@ mod tests {
                 })
                 .collect();
             let levels = vec![0.0215; heights.len()];
-            let footprints = Footprints::new(&mesh, &rivers, &levels, settings, 0.0);
+            let footprints = Footprints::new(&mesh, &rivers, &levels, &settings, 0.0);
             let mut hardness = vec![0.5; heights.len()];
             let mut soil = vec![0.002; heights.len()];
             let graph = SurfaceGraph::new(&mesh);
             let (drainage, _, _) =
-                drainage::carve(&mesh.directions, &graph, &mut heights, &mut soil, settings);
+                drainage::carve(&mesh.directions, &graph, &mut heights, &mut soil, &settings);
             let before_surface = water_mesh::build(&mesh, &heights, &water);
             assert!(
                 dips(&before_surface, &footprints) > 0,
@@ -351,7 +351,7 @@ mod tests {
                 &banks,
                 drainage,
                 rivers,
-                settings,
+                &settings,
             )
             .unwrap();
             assert!(

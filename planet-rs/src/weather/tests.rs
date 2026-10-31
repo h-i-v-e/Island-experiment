@@ -517,6 +517,28 @@ fn cube_snapshot_packs_every_layer_and_clouds_form_from_saturation() {
         (sim.reconstructed_clouds(i)[0].fraction as f32).to_bits()
     );
 }
+
+#[test]
+fn snow_temperature_reference_uses_mean_land_height_without_the_cloud_ceiling_or_seabed() {
+    let settings = WeatherSettings {
+        face_size: 4,
+        ..WeatherSettings::default()
+    };
+    let mut surface = WeatherSurface::uniform(4, 37.5);
+    surface.heights[0] = -40.0;
+    surface.cloud_heights.fill(250.0);
+    let simulation = WeatherSimulation::new(42, settings, surface).unwrap();
+    let snapshot = simulation.snapshot();
+    let count = 6 * 4 * 4;
+    for i in 0..count {
+        let fields = snapshot.pixels[CLOUD_OPTICS * count + i];
+        assert_eq!(fields[2].to_bits(), 250.0_f32.to_bits());
+        assert_eq!(
+            fields[3].to_bits(),
+            if i == 0 { 0.0_f32 } else { 37.5_f32 }.to_bits()
+        );
+    }
+}
 #[test]
 fn weather_rejects_invalid_controls_and_surface_mismatches() {
     for size in [0, 3, 129, u32::MAX] {

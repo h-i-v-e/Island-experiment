@@ -14,10 +14,7 @@ impl SurfaceGraph {
         for face in &mesh.triangles {
             let [a, b, c] = face.map(|i| i as usize);
             let [pa, pb, pc] = [a, b, c].map(|i| mesh.directions[i]);
-            let area = 2.0
-                * pa.dot(pb.cross(pc))
-                    .abs()
-                    .atan2(1.0 + pa.dot(pb) + pb.dot(pc) + pc.dot(pa));
+            let area = solid_angle(pa, pb, pc);
             for (vertex, left, right) in [(a, b, c), (b, c, a), (c, a, b)] {
                 neighbours[vertex].extend([left, right]);
                 areas[vertex] += area / 3.0;
@@ -41,6 +38,13 @@ impl SurfaceGraph {
                 slope(a).total_cmp(&slope(b)).then_with(|| b.cmp(&a))
             })
     }
+}
+
+pub(super) fn solid_angle(a: DVec3, b: DVec3, c: DVec3) -> f64 {
+    2.0 * a
+        .dot(b.cross(c))
+        .abs()
+        .atan2(1.0 + a.dot(b) + b.dot(c) + c.dot(a))
 }
 
 pub(super) fn arc(a: DVec3, b: DVec3) -> f64 {

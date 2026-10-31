@@ -23,14 +23,17 @@ use planet_rs::weather::{
 };
 use std::sync::Arc;
 
-#[derive(Resource, Clone, Copy, Debug)]
+#[derive(Resource, Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct WeatherControls {
     pub enabled: bool,
     pub paused: bool,
     pub speed: f64,
     pub warmup_hours: f64,
     pub debug: u32,
+    #[serde(skip)]
     pub step: bool,
+    #[serde(skip)]
     pub reset: u64,
     pub model: WeatherSettings,
 }

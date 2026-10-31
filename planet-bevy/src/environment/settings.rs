@@ -6,7 +6,8 @@ use bevy::{
 };
 
 #[allow(clippy::struct_excessive_bools)] // Independent atmosphere, cloud, placement and animation switches.
-#[derive(Resource, Clone, Copy, Debug, PartialEq)]
+#[derive(Resource, Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct EnvironmentSettings {
     pub atmosphere: bool,
     pub clouds: bool,

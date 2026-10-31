@@ -1,6 +1,7 @@
 #define_import_path planet_bevy::ground
 
 #import planet_bevy::radial::radial_mapping
+#import planet_bevy::weather::weather_snow_line
 
 // Ported from Motu/Terrain Unified, TerrainCoverageCommon and TerrainRockCommon.
 // Radial elevation and up replace Unity's Y height and Y-up; all lengths are metres.
@@ -107,7 +108,8 @@ fn build_coverage(p: vec3<f32>, up_dot: f32, elevation: f32, material: vec4<f32>
     let grass_distance = dot(patches.rg, vec2<f32>(0.65, 0.35)) - (1.0 - cover);
     let grass_width = max(0.18, fwidth(grass_distance));
     c.grass = smoothstep(-grass_width, grass_width, grass_distance) * smoothstep(0.0, 0.20, cover) * step(0.0, elevation);
-    c.snow = antialiased_mask(elevation - (ground.snow_line + c.noise.large.r * 18.0 + c.noise.broad.g * 2.5)) * (1.0 - cliff);
+    let snow_line = weather_snow_line(p, ground.snow_line);
+    c.snow = antialiased_mask(elevation - (snow_line + c.noise.large.r * 18.0 + c.noise.broad.g * 2.5)) * (1.0 - cliff) * step(0.0, elevation);
     c.forest*=1.0-c.snow;
     c.coastal = clamp(c.noise.detail.g * 0.65 + (c.noise.grain.r * 2.0 - 1.0) * 0.35, -1.0, 1.0);
     // Unity's 37–45 degree shoulder converges to exclusive procedural stone.

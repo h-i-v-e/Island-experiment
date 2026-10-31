@@ -18,7 +18,8 @@ use bevy::{
 pub use flow::FlowField;
 pub use impacts::ImpactUniform;
 
-#[derive(Resource, Clone, Copy, Debug, PartialEq)]
+#[derive(Resource, Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct WaterSettings {
     pub distortion: f32,
     pub absorption: f32,

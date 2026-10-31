@@ -38,6 +38,7 @@ pub struct SurfaceSettings {
 #[derive(Clone, Copy, Debug, Reflect, ShaderType)]
 pub struct TerrainSettings {
     pub radius: f32,
+    /// Fixed fallback in metres when live weather is disabled or not ready.
     pub snow_line: f32,
     pub detail: f32,
     pub padding: f32,

@@ -23,7 +23,8 @@ pub mod terrain;
 pub mod weather;
 
 pub use terrain::{
-    OceanPass, OceanStage, PlanetTerrain, RiverSegment, TerrainOptions, TerrainStats, Waterfall,
+    ImpactCrater, ImpactOptions, NoiseKind, NoiseLayer, OceanPass, OceanStage, PlanetTerrain,
+    RiverSegment, TectonicOptions, TerrainOptions, TerrainSource, TerrainStats, Volcano, Waterfall,
     generate_terrain,
 };
 
@@ -32,7 +33,8 @@ pub const MAX_VERTICES: usize = 8_192;
 /// Keep f64 projection roundoff much smaller than the gap between sites.
 const MIN_SITE_DISTANCE_SQUARED: f64 = 1.0e-14;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct PlanetOptions {
     pub seed: u64,
     pub vertex_count: usize,

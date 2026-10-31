@@ -11,14 +11,24 @@ use bevy::{
     tasks::{AsyncComputeTaskPool, Task, block_on, poll_once},
 };
 use bevy_egui::{EguiContexts, egui};
-use planet_rs::{PlanetError, PlanetOptions, PlanetTerrain, TerrainOptions, generate_terrain};
+use planet_rs::{
+    NoiseKind, NoiseLayer, PlanetError, PlanetOptions, PlanetTerrain, TerrainOptions,
+    TerrainSource, generate_terrain,
+};
 use std::{mem, sync::Arc, time::Instant};
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub(super) struct Settings {
     pub planet: PlanetOptions,
     pub terrain: TerrainOptions,
     pub mode: GenerationMode,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self::from(&Command::default())
+    }
 }
 
 impl From<&Command> for Settings {
@@ -32,9 +42,10 @@ impl From<&Command> for Settings {
 }
 
 impl Settings {
-    pub fn generate(self) -> Result<PlanetTerrain, PlanetError> {
+    pub fn generate(&self) -> Result<PlanetTerrain, PlanetError> {
         let terrain = if self.mode == GenerationMode::Sphere {
             TerrainOptions {
+                impacts: planet_rs::ImpactOptions::default(),
                 relief: 0.0,
                 land_bias: 0.0,
                 hydraulic_passes: 0,
@@ -52,11 +63,14 @@ impl Settings {
         generate_terrain(self.planet, terrain)
     }
 
-    fn validate(self) -> Result<(), String> {
+    pub(super) fn validate(&self) -> Result<(), String> {
         self.terrain.validate().map_err(|e| e.to_string())?;
         if !(4..=8192).contains(&self.planet.vertex_count)
             || !self.planet.radius.is_finite()
             || self.planet.radius <= 0.0
+            || !self.planet.sweep_direction.is_finite()
+            || !self.planet.sweep_direction.length_squared().is_finite()
+            || self.planet.sweep_direction.length_squared() < 1.0e-20
         {
             return Err(String::from(
                 "Use 4–8192 starting points and a positive radius.",
@@ -99,26 +113,30 @@ pub(super) struct Panel {
     action: Option<Action>,
     hidden: bool,
     status: String,
+    sea_coverage: Option<f64>,
     error: Option<String>,
     viewport: Option<(egui::Rect, f32)>,
     view: Option<View>,
+    last_view: View,
 }
 
 impl Panel {
-    pub fn new(settings: Settings, hidden: bool) -> Self {
+    pub fn new(settings: &Settings, hidden: bool) -> Self {
         Self {
-            draft: settings,
+            draft: *settings,
             seed: settings.planet.seed.to_string(),
-            applied: settings,
+            applied: *settings,
             previous: None,
             pending: None,
             job: None,
             action: None,
             hidden,
             status: String::from("Ready"),
+            sea_coverage: None,
             error: None,
             viewport: None,
             view: None,
+            last_view: View::Front,
         }
     }
 
@@ -136,6 +154,20 @@ impl Panel {
         };
         settings.validate()?;
         Ok(settings)
+    }
+
+    pub(super) fn restore_draft(&mut self, draft: &Settings, view: View) {
+        self.draft = *draft;
+        self.seed = draft.planet.seed.to_string();
+        self.last_view = view;
+    }
+    pub(super) fn remembered_generation(&self) -> (Settings, Option<Settings>, bool, View) {
+        (
+            self.applied,
+            self.settings().ok(),
+            self.hidden,
+            self.last_view,
+        )
     }
 
     fn show_snapshot(&mut self, scene: &mut Scene, snapshot: Snapshot) {
@@ -162,6 +194,7 @@ impl Panel {
     pub(super) fn activate_pending(&mut self, scene: &mut Scene) {
         if let Some((snapshot, action)) = self.pending.take() {
             self.show_snapshot(scene, snapshot);
+            self.sea_coverage = Some(scene.terrain.sea_area_fraction());
             self.status = match action {
                 Action::Generate => format!("Showing seed {} · render ready", scene.seed),
                 Action::Previous => {
@@ -265,6 +298,7 @@ pub(super) struct WeatherPanel<'w> {
     fields: Option<Res<'w, super::weather::WeatherFrame>>,
     solar_controls: Option<ResMut<'w, super::solar::SolarControls>>,
     solar_frame: Option<Res<'w, super::solar::SolarFrame>>,
+    preferences: Option<Res<'w, super::preferences::PreferencesStore>>,
 }
 
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
@@ -294,6 +328,7 @@ pub(super) fn draw(
         fields,
         mut solar_controls,
         solar_frame,
+        preferences,
     } = weather;
     let Ok(ctx) = contexts.ctx_mut() else {
         return;
@@ -401,10 +436,19 @@ pub(super) fn draw(
                 }
             });
     } else {
+        let sea = *panel
+            .sea_coverage
+            .get_or_insert_with(|| scene.terrain.sea_area_fraction())
+            * 100.0;
         egui::Panel::left("planet parameters").default_size(345.0).size_range(320.0..=440.0).resizable(true).show(&mut viewport_ui, |ui| {
             ui.heading("Planet experiment");
             ui.label(format!("Showing seed {}", scene.seed));
             ui.small(format!("{} terrain vertices · {} water triangles", scene.terrain.elevations.len(), scene.terrain.river_surface.triangles.len()));
+            ui.small(format!("Estimated sea area: {sea:.1}%"));
+            if let Some(preferences)=preferences.as_ref() {
+                if let Some(error)=preferences.error.as_deref() {ui.colored_label(egui::Color32::YELLOW,format!("Settings could not be saved: {error}"));}
+                else {ui.small("Settings remembered between launches");}
+            }
             ui.separator();
             generation_buttons(ui, &mut panel);
             ui.separator();
@@ -412,6 +456,7 @@ pub(super) fn draw(
             streaming_controls(ui, &mut streaming, &stats, &mut chunks);
             ui.separator();
             egui::ScrollArea::vertical().auto_shrink([false,false]).show(ui, |ui| {
+                settings_controls(ui, &mut panel);
                 if let Some(options) = detail_settings.as_mut() {
                     detail_controls(ui, options, detail_stats.as_deref());
                 }
@@ -422,7 +467,6 @@ pub(super) fn draw(
                 if let Some(options)=environment.as_mut() {environment_controls(ui,options,solar_controls.as_ref().is_some_and(|s|s.enabled));}
                 if let Some(options)=simulation.as_deref_mut() { weather_controls(ui,options,fields.as_deref(),solar_controls.as_ref().is_some_and(|s|s.enabled)); }
                 if let Some(solar)=solar_controls.as_deref_mut() {crate::solar::controls(ui,solar,solar_frame.as_deref(),scene.terrain.topology.radius);}
-                settings_controls(ui, &mut panel);
                 ui.add_space(10.0);
                 ui.small("Sea level stays at the original sphere radius.\nOcean cuts run only at LOD 2 and LOD 1.");
                 ui.small("Click the planet to explore on foot.\nDrag to orbit; scroll to zoom.\nHome: reset view · F1: hide controls · Esc: exit");
@@ -720,7 +764,7 @@ fn generation_buttons(ui: &mut egui::Ui, panel: &mut Panel) {
         if ui
             .button("Full detail")
             .on_hover_text(
-                "Set 4096 starting points, 5 refinements, and 2 river refinements. Then Generate.",
+                "Set 4096 starting points, 5 refinements, and 3 river refinements. Then Generate.",
             )
             .clicked()
         {
@@ -821,6 +865,9 @@ fn display_controls(
         for (label, view) in [
             ("Front", View::Front),
             ("Back", View::Back),
+            ("Mountains", View::Mountains),
+            ("Volcanoes", View::Volcanoes),
+            ("Craters", View::Craters),
             ("River", View::River),
             ("Falls", View::Waterfall),
             ("Mouth", View::Mouth),
@@ -832,6 +879,72 @@ fn display_controls(
                 panel.view = Some(view);
             }
         }
+    });
+}
+
+fn noise_controls(ui: &mut egui::Ui, terrain: &mut TerrainOptions) {
+    egui::CollapsingHeader::new("Initial noise layers").default_open(true).show(ui,|ui| {
+        ui.horizontal(|ui| {
+            if ui.button("Classic blend").clicked() { terrain.noise_layers=NoiseLayer::classic(); }
+            if ui.button("Voronoi plates blend").clicked() { terrain.noise_layers=NoiseLayer::plates(); }
+        });
+        for (i,layer) in terrain.noise_layers.iter_mut().enumerate() {
+            ui.group(|ui| {
+                ui.horizontal(|ui| {
+                    ui.label(format!("Layer {}",i+1));
+                    egui::ComboBox::from_id_salt(("initial-noise-kind",i)).selected_text(layer.kind.label()).show_ui(ui,|ui| {
+                        for kind in [NoiseKind::Fractal,NoiseKind::Ridged,NoiseKind::Voronoi] {
+                            ui.selectable_value(&mut layer.kind,kind,kind.label());
+                        }
+                    });
+                });
+                ui.add(egui::Slider::new(&mut layer.frequency,0.01..=100.0).logarithmic(true).text("Frequency"))
+                    .on_hover_text("Higher frequency makes smaller terrain features.");
+                ui.add(egui::Slider::new(&mut layer.weight,0.0..=2.0).text("Height weight"))
+                    .on_hover_text("Relative share of the initial height field. Zero turns this layer off; Relief sets the overall height.");
+            });
+        }
+        ui.small("Weights normalize. Set a weight to zero to disable its layer. Apply with Generate.");
+        ui.small("Voronoi plates makes broad interiors and warped boundary ridges; it is a terrain pattern, not a plate simulation.");
+    });
+}
+
+fn tectonic_controls(ui: &mut egui::Ui, terrain: &mut TerrainOptions, radius: f64) {
+    egui::CollapsingHeader::new("Tectonic plates").default_open(true).show(ui, |ui| {
+        let t = &mut terrain.tectonics;
+        ui.add(egui::Slider::new(&mut t.plates, 4..=64).text("Plate count"));
+        ui.add(egui::Slider::new(&mut t.steps, 1..=128).text("Drift steps"))
+            .on_hover_text("More steps resolve the same drift history more accurately; they do not increase total movement.");
+        ui.add(egui::Slider::new(&mut t.drift, 0.0..=1.0).text("Drift distance (radians)"))
+            .on_hover_text("Total motion around the sphere. Zero stops plate motion and boundary deformation.");
+        ui.add(egui::Slider::new(&mut t.continental_fraction, 0.0..=1.0).text("Continental plate fraction"))
+            .on_hover_text("Continental crust starts higher than oceanic crust. This sets the fraction of plate seeds, not a fixed land or sea area.");
+        ui.add(egui::Slider::new(&mut t.fragmentation, 0.0..=1.0).text("Continental fragmentation"))
+            .on_hover_text("Breaks the regular plate-shaped crust into irregular continental fragments carried by plate motion. Zero restores the original plate-cell crust.");
+        ui.add(egui::Slider::new(&mut t.fragment_scale, 0.35..=2.0).text("Continental fragment size"))
+            .on_hover_text("Relative size of the continental fragments. Larger values make broader pieces; smaller values make finer coastal structure.");
+        ui.add(egui::Slider::new(&mut t.rift_strength, 0.0..=2.0).text("Rift basin strength"))
+            .on_hover_text("Sinks branching fault basins where continental crust stretches, forming gulfs and straits. Zero disables the additional basins; the original narrow boundary rifts remain.");
+        ui.add(egui::Slider::new(&mut t.rift_branching, 0..=4).text("Rift branching levels"))
+            .on_hover_text("Successive branches create smaller fault valleys. Zero disables the additional rift basin network.");
+        ui.add(egui::Slider::new(&mut t.boundary_width, 0.05..=1.0).text("Mountain belt width"))
+            .on_hover_text("Width of the narrow boundary spine and its surrounding foothills.");
+        let width = (4.0*std::f64::consts::PI/f64::from(t.plates)).sqrt()*t.boundary_width*0.12*radius;
+        ui.small(format!("Nominal spine half-width: {width:.1} m"));
+        ui.add(egui::Slider::new(&mut t.deformation, 0.0..=3.0).text("Push / pull strength"));
+        ui.add(egui::Slider::new(&mut t.branching,0.0..=1.0).text("Branching ridge strength"))
+            .on_hover_text("Spurs attach at each convex bend apex at full parent height. Strength controls how much height they retain farther out; zero disables them.");
+        ui.add(egui::Slider::new(&mut t.branch_depth,0..=4).text("Branching levels"))
+            .on_hover_text("Successive generations are shorter, narrower and lower. Zero disables the branch network.");
+        ui.add(egui::Slider::new(&mut t.ruggedness, 0.0..=1.0).text("Mountain ruggedness"))
+            .on_hover_text("Irregular linked summits, saddles and bends. Zero gives an idealised continuous ridge.");
+        ui.add(egui::Slider::new(&mut t.volcanism, 0.0..=3.0).text("Volcanic activity"))
+            .on_hover_text("Procedural cone chains along sliding plate boundaries; zero disables them.");
+        ui.add(egui::Slider::new(&mut t.volcano_spacing, 0.5..=3.0).text("Volcano spacing"));
+        ui.add(egui::Slider::new(&mut t.detail, 0.0..=0.25).text("Noise detail"))
+            .on_hover_text("Small contribution from the noise layers below. Zero uses only plate-derived heights.");
+        ui.small("Compression raises terrain and hardens rock; separation lowers terrain and weakens rock.");
+        ui.small("A simplified drift model with oceanic and continental crust. Apply with Generate.");
     });
 }
 
@@ -851,16 +964,16 @@ fn settings_controls(ui: &mut egui::Ui, panel: &mut Panel) {
             let t = &mut panel.draft.terrain;
             ui.add(egui::Slider::new(&mut t.relief, 0.0..=0.45).text("Relief"));
             ui.add(egui::Slider::new(&mut t.land_bias, -0.3..=0.3).text("Land bias"));
-            ui.add(
-                egui::Slider::new(&mut t.continental_frequency, 0.1..=20.0)
-                    .logarithmic(true)
-                    .text("Continental frequency"),
-            );
-            ui.add(
-                egui::Slider::new(&mut t.detail_frequency, 0.1..=100.0)
-                    .logarithmic(true)
-                    .text("Detail frequency"),
-            );
+            ui.horizontal(|ui| {
+                ui.label("Terrain source");
+                egui::ComboBox::from_id_salt("terrain-source").selected_text(t.source.label()).show_ui(ui, |ui| {
+                    for source in [TerrainSource::Noise, TerrainSource::Tectonics] {
+                        ui.selectable_value(&mut t.source, source, source.label());
+                    }
+                });
+            });
+            if t.source == TerrainSource::Tectonics { tectonic_controls(ui, t, panel.draft.planet.radius); }
+            noise_controls(ui,t);
             ui.horizontal(|ui| {
                 ui.label("Radius (metres)");
                 ui.add(
@@ -882,15 +995,32 @@ fn settings_controls(ui: &mut egui::Ui, panel: &mut Panel) {
             };
         });
     let t = &mut panel.draft.terrain;
+    egui::CollapsingHeader::new("Impact craters").show(ui, |ui| {
+        ui.checkbox(&mut t.impacts.enabled,"Generate impact craters");
+        ui.add_enabled_ui(t.impacts.enabled, |ui| {
+            ui.add(egui::Slider::new(&mut t.impacts.per_stage,0..=24).text("Impacts per stage"));
+            ui.add(egui::Slider::new(&mut t.impacts.size,0.25..=3.0).text("Crater size"));
+            ui.add(egui::Slider::new(&mut t.impacts.strength,0.0..=3.0).text("Impact strength"));
+        });
+        ui.small("Seeded batches before erosion and each terrain stage. Later impacts are smaller; bowls lower terrain and rims lift it. Apply with Generate.");
+    });
     egui::CollapsingHeader::new("Erosion").show(ui, |ui| {
-        ui.add(egui::Slider::new(&mut t.erosion_strength, 0.0..=4.0).text("Hydraulic strength"));
-        ui.add(egui::Slider::new(&mut t.hydraulic_passes, 0..=128).text("Hydraulic sweeps"));
-        ui.add(egui::Slider::new(&mut t.thermal_passes, 0..=128).text("Thermal passes"));
+        ui.add(egui::Slider::new(&mut t.erosion_strength, 0.0..=8.0).text("Hydraulic strength"))
+            .on_hover_text("Higher strength removes and transports more material per sweep.");
+        ui.add(egui::Slider::new(&mut t.hydraulic_passes, 0..=128).text("Hydraulic sweeps"))
+            .on_hover_text("Each sweep adds a full rainfall/transport pass. More sweeps deepen erosion and take longer to generate.");
+        ui.add(egui::Slider::new(&mut t.thermal_passes, 0..=128).text("Thermal passes"))
+            .on_hover_text("Independent slope relaxation. Set this and hydraulic strength to zero to compare without erosion.");
+        ui.small("Apply with Generate. For stronger erosion try strength 2–4 and 4–8 sweeps.");
+        ui.small("Hydraulic and thermal erosion are independent; river carving is a separate stage.");
     });
     egui::CollapsingHeader::new("Tessellation & smoothing").show(ui, |ui| {
-        ui.add(egui::Slider::new(&mut t.refinement_passes, 0..=6).text("Refinement stages"));
+        ui.add(egui::Slider::new(&mut t.refinement_passes, 0..=6).text("Refinement stages"))
+            .on_hover_text("All requested stages run without a vertex budget. Adaptive stages select terrain curvature.");
         ui.add(egui::Slider::new(&mut t.smoothing_passes, 0..=12).text("Smoothing passes"));
         ui.add(egui::Slider::new(&mut t.river_refinement_passes, 0..=3).text("River refinements"));
+        ui.small(format!("Adaptive spacing cutoff: {:.3} m at this radius. No refinement vertex budget.", panel.draft.planet.radius * 0.0002));
+        ui.small(format!("Seabed detail stops at {:.1} m depth; smoothing fades before this depth.", panel.draft.planet.radius * 0.01));
     });
     egui::CollapsingHeader::new("Rivers & seas").show(ui, |ui| {
         ui.add(
@@ -910,7 +1040,10 @@ fn settings_controls(ui: &mut egui::Ui, panel: &mut Panel) {
                 .fixed_decimals(4)
                 .text("River depth"),
         );
-        ui.checkbox(&mut t.connect_seas, "Connect seas at LOD 2 / LOD 1");
+        ui.add(egui::Slider::new(&mut t.river_taper, 0.0..=1.0).text("Upstream narrowing"))
+            .on_hover_text("Narrow headwaters that widen gradually downstream. Set to zero to compare with the previous river widths. Apply with Generate.");
+        ui.checkbox(&mut t.connect_seas, "Fill inland seas before river carving")
+            .on_hover_text("Keep the largest ocean; fill isolated seas to at least 0.5 m above sea level before the final river carve.");
     });
 }
 
@@ -921,9 +1054,13 @@ pub(super) fn apply_view(
     mut cameras: Query<(&mut Camera, &mut Orbit, &mut Transform)>,
     mut initial: ResMut<InitialOrbit>,
     environment: Option<Res<super::environment::EnvironmentSettings>>,
+    solar_frame: Option<Res<super::solar::SolarFrame>>,
     mut forests: Option<ResMut<super::forest::Forests>>,
 ) {
     let view = panel.view.take();
+    if let Some(view) = view {
+        panel.last_view = view;
+    }
     for (mut camera, mut orbit, mut transform) in &mut cameras {
         if let Some((rect, scale)) = panel.viewport {
             let position = UVec2::new(
@@ -955,7 +1092,25 @@ pub(super) fn apply_view(
             }
             let defaults = super::environment::EnvironmentSettings::default();
             let settings = environment.as_deref().unwrap_or(&defaults);
-            *orbit = super::environment_orbit(view, &scene.terrain, settings)
+            let mountains = if matches!(view, View::Mountains | View::Volcanoes | View::Craters) {
+                let sun = solar_frame
+                    .as_deref()
+                    .filter(|frame| frame.enabled)
+                    .and_then(|frame| frame.state)
+                    .map_or_else(
+                        || {
+                            planet_rs::DVec3::from_array(
+                                settings.sun_direction().to_array().map(f64::from),
+                            )
+                        },
+                        |state| state.sun_direction,
+                    );
+                super::geology_orbit(view, &scene.terrain, sun)
+            } else {
+                None
+            };
+            *orbit = mountains
+                .or_else(|| super::environment_orbit(view, &scene.terrain, settings))
                 .unwrap_or_else(|| initial_orbit(view, &scene.terrain));
             initial.0 = *orbit;
             *transform = orbit_transform(&orbit);
@@ -1076,6 +1231,86 @@ mod tests {
     use std::collections::BTreeSet;
     use std::{thread, time::Duration};
 
+    #[test]
+    fn tectonic_generate_captures_draft_settings_and_previous_restores_the_source() {
+        let mut app = app();
+        let original = app.world().resource::<Scene>().terrain.elevations.as_ptr();
+        let original_geology = app.world().resource::<Panel>().applied.terrain.tectonics;
+        {
+            let mut panel = app.world_mut().resource_mut::<Panel>();
+            // The generic UI fixture has only 64 points and no refinement;
+            // use enough source samples to resolve the narrower crust fragments.
+            panel.draft.planet.vertex_count = 512;
+            panel.draft.terrain.source = TerrainSource::Tectonics;
+            panel.draft.terrain.river_catchment = 1.0;
+            panel.draft.terrain.tectonics.steps = 16;
+            panel.draft.terrain.tectonics.branching = 0.6;
+            panel.draft.terrain.tectonics.branch_depth = 2;
+            panel.draft.terrain.tectonics.volcanism = 0.75;
+            panel.draft.terrain.tectonics.fragmentation = 0.9;
+            panel.draft.terrain.tectonics.fragment_scale = 0.8;
+            panel.draft.terrain.tectonics.rift_strength = 1.2;
+            panel.draft.terrain.tectonics.rift_branching = 3;
+            panel.draft.terrain.impacts = planet_rs::ImpactOptions {
+                enabled: true,
+                per_stage: 2,
+                ..default()
+            };
+            panel.action = Some(Action::Generate);
+        }
+        app.update();
+        {
+            let mut panel = app.world_mut().resource_mut::<Panel>();
+            panel.draft.terrain.source = TerrainSource::Noise;
+            panel.draft.terrain.tectonics.drift = 0.7;
+            panel.draft.terrain.tectonics.fragmentation = 0.0;
+            panel.draft.terrain.tectonics.rift_strength = 0.0;
+        }
+        finish(&mut app);
+        activate(&mut app);
+        let panel = app.world().resource::<Panel>();
+        assert_eq!(panel.applied.terrain.source, TerrainSource::Tectonics);
+        assert_eq!(panel.applied.planet.vertex_count, 512);
+        assert_eq!(panel.applied.terrain.tectonics.steps, 16);
+        assert!((panel.applied.terrain.tectonics.branching - 0.6).abs() < f64::EPSILON);
+        assert_eq!(panel.applied.terrain.tectonics.branch_depth, 2);
+        assert!(panel.applied.terrain.impacts.enabled);
+        assert_eq!(panel.applied.terrain.impacts.per_stage, 2);
+        assert!((panel.applied.terrain.tectonics.volcanism - 0.75).abs() < f64::EPSILON);
+        assert!((panel.applied.terrain.tectonics.fragmentation - 0.9).abs() < f64::EPSILON);
+        assert!((panel.applied.terrain.tectonics.fragment_scale - 0.8).abs() < f64::EPSILON);
+        assert!((panel.applied.terrain.tectonics.rift_strength - 1.2).abs() < f64::EPSILON);
+        assert_eq!(panel.applied.terrain.tectonics.rift_branching, 3);
+        assert_eq!(
+            panel.applied.terrain.tectonics.drift.to_bits(),
+            0.25_f64.to_bits()
+        );
+        assert!(
+            panel.sea_coverage.is_some_and(|f| f > 0.1 && f < 0.99),
+            "resolved fragment fixture should retain both land and sea: {:?}",
+            panel.sea_coverage
+        );
+        assert_ne!(
+            app.world().resource::<Scene>().terrain.elevations.as_ptr(),
+            original
+        );
+        app.world_mut().resource_mut::<Panel>().action = Some(Action::Previous);
+        app.update();
+        activate(&mut app);
+        assert_eq!(
+            app.world().resource::<Panel>().applied.terrain.source,
+            TerrainSource::Noise
+        );
+        assert_eq!(
+            app.world().resource::<Scene>().terrain.elevations.as_ptr(),
+            original
+        );
+        assert_eq!(
+            app.world().resource::<Panel>().applied.terrain.tectonics,
+            original_geology
+        );
+    }
+
     fn settings() -> Settings {
         Settings {
             planet: PlanetOptions {
@@ -1097,7 +1332,7 @@ mod tests {
         let settings = settings();
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
-            .insert_resource(Panel::new(settings, false))
+            .insert_resource(Panel::new(&settings, false))
             .init_resource::<Refresh>()
             .insert_resource(Scene {
                 terrain: Arc::new(settings.generate().unwrap()),
@@ -1135,8 +1370,9 @@ mod tests {
     fn rendering_app() -> App {
         let mut settings = settings();
         settings.mode = GenerationMode::Sphere;
+        settings.terrain.impacts.enabled = true;
         let mut app = app();
-        app.insert_resource(Panel::new(settings, false));
+        app.insert_resource(Panel::new(&settings, false));
         let mut scene = app.world_mut().resource_mut::<Scene>();
         scene.terrain = Arc::new(settings.generate().unwrap());
         scene.generation = settings.mode;
@@ -1195,7 +1431,9 @@ mod tests {
     }
 
     fn finish_render(app: &mut App) {
-        let deadline = Instant::now() + Duration::from_secs(15);
+        // A new terrain key also rebuilds the fixture's fallback ocean LODs;
+        // cold-cache runs need time for that mesh as well as the tiny terrain.
+        let deadline = Instant::now() + Duration::from_mins(1);
         loop {
             app.update();
             if app.world().resource::<streaming::ChunkWorld>().settled()
@@ -1205,7 +1443,9 @@ mod tests {
             }
             assert!(
                 Instant::now() < deadline,
-                "render preparation must complete"
+                "render preparation must complete: status={}, panel_error={:?}",
+                app.world().resource::<streaming::StreamingStats>().status,
+                app.world().resource::<Panel>().error,
             );
             thread::sleep(Duration::from_millis(1));
         }
@@ -1248,6 +1488,61 @@ mod tests {
     }
 
     #[test]
+    fn noise_edits_regenerate_render_and_collision_at_the_same_seed_and_previous_restores_them() {
+        let mut app = rendering_app();
+        {
+            let mut panel = app.world_mut().resource_mut::<Panel>();
+            panel.draft.mode = GenerationMode::Terrain;
+            panel.action = Some(Action::Generate);
+        }
+        finish_render(&mut app);
+        let original_positions = displayed_positions(&mut app);
+        let original = app.world().resource::<Scene>().terrain.elevations.as_ptr();
+        app.world_mut()
+            .resource_mut::<Panel>()
+            .draft
+            .terrain
+            .noise_layers = NoiseLayer::plates();
+        app.update();
+        assert_eq!(
+            displayed_positions(&mut app),
+            original_positions,
+            "draft edits changed active rendering"
+        );
+        assert_eq!(
+            app.world().resource::<Scene>().terrain.elevations.as_ptr(),
+            original
+        );
+        app.world_mut().resource_mut::<Panel>().action = Some(Action::Generate);
+        finish_render(&mut app);
+        assert_eq!(app.world().resource::<Scene>().seed, 42);
+        assert_ne!(
+            app.world().resource::<Scene>().terrain.elevations.as_ptr(),
+            original
+        );
+        assert_ne!(
+            displayed_positions(&mut app),
+            original_positions,
+            "new noise reused stale render data"
+        );
+        assert_eq!(
+            app.world().resource::<Panel>().applied.terrain.noise_layers,
+            NoiseLayer::plates()
+        );
+        app.world_mut().resource_mut::<Panel>().action = Some(Action::Previous);
+        finish_render(&mut app);
+        assert_eq!(
+            app.world().resource::<Scene>().terrain.elevations.as_ptr(),
+            original
+        );
+        assert_eq!(displayed_positions(&mut app), original_positions);
+        assert_eq!(
+            app.world().resource::<Panel>().applied.terrain.noise_layers,
+            NoiseLayer::classic()
+        );
+    }
+
+    #[test]
     fn render_failure_keeps_the_active_planet_and_previous_can_be_retried() {
         let mut app = app();
         let original = app.world().resource::<Scene>().terrain.elevations.as_ptr();
@@ -1282,7 +1577,7 @@ mod tests {
 
     #[test]
     fn seed_editing_preserves_the_full_u64_and_validates_combined_relief() {
-        let mut panel = Panel::new(settings(), false);
+        let mut panel = Panel::new(&settings(), false);
         panel.seed = u64::MAX.to_string();
         assert_eq!(panel.settings().unwrap().planet.seed, u64::MAX);
         panel.seed = String::from("unfinished");

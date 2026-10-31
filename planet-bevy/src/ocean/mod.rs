@@ -25,7 +25,8 @@ use bevy::{
 pub(crate) use cache::prepare as prepare_maps;
 use planet_rs::ocean_surface::{CoastMap, OceanGrid, OceanGridOptions};
 
-#[derive(Resource, Clone, Copy, Debug, PartialEq)]
+#[derive(Resource, Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct OceanSettings {
     pub waves: bool,
     pub amplitude: f32,

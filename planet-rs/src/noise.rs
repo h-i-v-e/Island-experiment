@@ -61,6 +61,45 @@ pub(crate) fn fractal(seed: u64, point: DVec3, octaves: u8) -> f64 {
     total / weight
 }
 
+/// Warped F2-F1 cellular ridges: broad plate interiors with connected uplifted
+/// boundaries. This is a tectonic-style height field, not a plate simulation.
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+pub(crate) fn voronoi_plates(seed: u64, point: DVec3) -> f64 {
+    let warp = DVec3::new(
+        fractal(seed ^ 0x4528_21e6_38d0_1377, point * 0.7, 3),
+        fractal(seed ^ 0xbe54_66cf_34e9_0c6c, point * 0.7, 3),
+        fractal(seed ^ 0xc0ac_29b7_c97c_50dd, point * 0.7, 3),
+    );
+    let point = point + warp * 0.55;
+    let base = point.floor().to_array().map(|v| v as i64);
+    let mut nearest = [f64::INFINITY; 2];
+    // Generous fixed neighbourhood retains the two nearest jittered sites even
+    // across cell boundaries. Seeds/features depend only on planet coordinates.
+    for z in -2..=2 {
+        for y in -2..=2 {
+            for x in -2..=2 {
+                let cell = [base[0] + x, base[1] + y, base[2] + z];
+                let feature = DVec3::new(
+                    cell[0] as f64 + 0.5 + 0.35 * lattice(seed, cell),
+                    cell[1] as f64 + 0.5 + 0.35 * lattice(seed ^ 0x3f84_d5b5_b547_0917, cell),
+                    cell[2] as f64 + 0.5 + 0.35 * lattice(seed ^ 0x9216_d5d9_8979_fb1b, cell),
+                );
+                let distance = point.distance_squared(feature);
+                if distance < nearest[0] {
+                    nearest = [distance, nearest[0]];
+                } else if distance < nearest[1] {
+                    nearest[1] = distance;
+                }
+            }
+        }
+    }
+    let gap = (nearest[1].sqrt() - nearest[0].sqrt()) / 0.45;
+    let t = gap.clamp(0.0, 1.0);
+    let edge = 1.0 - t * t * (3.0 - 2.0 * t);
+    let broad = fractal(seed ^ 0xd131_0ba6_98df_b5ac, point * 0.45, 3);
+    (1.6 * edge * edge - 0.65 + 0.2 * broad).clamp(-1.0, 1.0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

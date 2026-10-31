@@ -19,8 +19,8 @@ const HEADER_PREFIX_BYTES: usize = 44;
 const HEADER_BYTES: u64 = 52;
 const VERTEX_BYTES: u64 = 65;
 const TRIANGLE_BYTES: u64 = 12;
-const MAX_VERTICES: u32 = 2_000_000;
-const MAX_TRIANGLES: u32 = 4_000_000;
+// Cache corruption/allocation guard for one file, not a planet vertex budget.
+// Payload counts are checked against their encoded size and actual file length.
 const MAX_FILE_BYTES: u64 = 256 * 1024 * 1024;
 const MAX_ATLAS_DIMENSION: u32 = 8192;
 const MAX_ATLAS_BYTES: u64 = MAX_FILE_BYTES;
@@ -453,10 +453,6 @@ fn validate_world(world: &CachedWorld) -> io::Result<()> {
                 .iter()
                 .any(|error| !error.is_finite() || *error < 0.0)
             || chunk.errors.windows(2).any(|pair| pair[1] < pair[0])
-            || chunk
-                .triangles
-                .iter()
-                .any(|&count| count > MAX_TRIANGLES as usize)
         {
             return Err(invalid("invalid indexed chunk LOD metadata"));
         }
@@ -569,7 +565,7 @@ fn validate_counts(vertices: u32, triangles: u32, width: u32, height: u32) -> io
         + u64::from(vertices) * VERTEX_BYTES
         + u64::from(triangles) * TRIANGLE_BYTES
         + atlas_bytes;
-    if vertices > MAX_VERTICES || triangles > MAX_TRIANGLES || bytes > MAX_FILE_BYTES {
+    if bytes > MAX_FILE_BYTES {
         return Err(invalid("chunk exceeds allocation limits"));
     }
     Ok(bytes)
@@ -1074,7 +1070,7 @@ mod tests {
         world.chunks[0].vertex_counts.pop();
         assert!(cache.write_index(&world).is_err());
         world = indexed_world();
-        world.chunks[0].vertex_counts[1] = MAX_VERTICES as usize + 1;
+        world.chunks[0].vertex_counts[1] = u32::MAX as usize;
         assert!(cache.write_index(&world).is_err());
         world = indexed_world();
         world.chunks[0].atlas_sizes[1] = [8192, 8192];
@@ -1093,5 +1089,11 @@ mod tests {
         bytes.extend_from_slice(&0_u64.to_le_bytes());
         fs::write(cache.path(17, 2), bytes).expect("oversized header");
         assert!(cache.read(17, 2).is_err());
+    }
+
+    #[test]
+    fn legitimate_payload_counts_are_not_limited_by_the_old_planet_vertex_budget() {
+        assert!(validate_counts(2_000_001, 4_000_002, 0, 0).is_ok());
+        assert!(validate_counts(u32::MAX, u32::MAX, 0, 0).is_err());
     }
 }

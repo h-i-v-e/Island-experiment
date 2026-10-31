@@ -30,7 +30,8 @@ pub const CLOUD_OPTICS: usize = 5;
 pub const LAYERS: usize = 6;
 const STEP: f64 = 0.25;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct WeatherSettings {
     pub face_size: u32,
     /// Atmospheric seconds per real second. Wave groups still travel in real metres/seconds.
@@ -449,7 +450,10 @@ impl WeatherSimulation {
                 optical_clouds[0].density as f32,
                 optical_clouds[1].density as f32,
                 self.surface.cloud_heights[i] as f32,
-                0.0,
+                // Reference height of the lower-air temperature. Keep the
+                // mean orography separate from the conservative cloud ceiling
+                // so fine terrain can derive a local freezing altitude.
+                self.surface.heights[i].max(0.0) as f32,
             ];
             let weight = cell.area / total_area;
             for (layer, wind) in [s.lower_wind, s.upper_wind].into_iter().enumerate() {

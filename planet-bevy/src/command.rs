@@ -1,19 +1,46 @@
-use planet_rs::{PlanetOptions, TerrainOptions};
+use planet_rs::{NoiseLayer, PlanetOptions, TerrainOptions};
 use std::{path::PathBuf, str::FromStr};
 
 pub const HELP: &str = "Planet experiment — radial terrain, erosion, oceans and rivers
 
 cargo run -p planet-bevy -- [options]
+  --no-settings             Start from defaults without reading/writing preferences
+  --settings-file PATH      Use a separate preferences file
   --seed N                  Deterministic seed (42)
   --vertices N              Surface points, 4..8192 (4096)
   --radius R                Sea-level radius in metres (1000 = 1 km)
   --sweep-axis x|y|z         Sphere construction plane normal (y)
-  --relief F                Noise amplitude / sea radius (0.16)
+  --relief F                Terrain amplitude / sea radius (0.16)
   --land-bias F             Signed elevation offset / radius (0)
-  --continental-frequency F Continental noise frequency (2.2)
-  --detail-frequency F      Detail noise frequency (12)
-  --erosion-passes N        Sequential hydraulic sweeps per stage, 0..128 (1)
-  --erosion-strength F      Hydraulic stage strength, 0..4 (1)
+  --terrain-source TYPE     noise or tectonics (noise)
+  --tectonic-plates N       Large spherical Voronoi plates, 4..64 (16)
+  --tectonic-steps N        Drift integration steps, 1..128 (48)
+  --tectonic-drift F        Total angular drift, 0..1 radians (0.25)
+  --tectonic-continents F   Continental plate fraction, 0..1 (0.375)
+  --tectonic-fragmentation F  Irregular continental fragments, 0..1 (0.75)
+  --tectonic-fragment-scale F  Continental fragment size, 0.35..2 (1)
+  --tectonic-rifts F        Branching rift basin strength, 0..2 (0.65)
+  --tectonic-rift-branches N  Rift branching levels, 0..4 (2)
+  --tectonic-width F        Mountain belt width scale, 0.05..1 (0.35)
+  --tectonic-deformation F  Compression/rift strength, 0..3 (1)
+  --tectonic-branching F    Descending side-ridge strength, 0..1 (0.8)
+  --tectonic-branch-depth N Recursive ridge levels, 0..4 (3)
+  --tectonic-ruggedness F   Mountain peaks, saddles and bends, 0..1 (0.8)
+  --tectonic-volcanism F    Sliding-boundary volcanic cone strength, 0..3 (1)
+  --volcano-spacing F       Volcanic chain spacing, 0.5..3 (1)
+  --impacts                 Add seeded crater batches before terrain stages
+  --impact-count N          Craters in each batch, 0..24 (4)
+  --impact-size F           Crater size multiplier, 0.25..3 (1)
+  --impact-strength F       Bowl and raised rim strength, 0..3 (1)
+  --tectonic-detail F       Extra noise contribution, 0..0.25 (0.08)
+  --noise-preset classic|plates  Initial terrain blend (classic)
+  --noise-N-type TYPE       Layer N=1..3: fractal, ridged or voronoi
+  --noise-N-frequency F     Layer N frequency, 0.01..100 (2.2, 12, 3)
+  --noise-N-weight F        Relative height weight, 0..2 (0.78, 0.22, 0)
+  --continental-frequency F Alias for --noise-1-frequency
+  --detail-frequency F      Alias for --noise-2-frequency
+  --erosion-passes N        Cumulative hydraulic sweeps per stage, 0..128 (1)
+  --erosion-strength F      Hydraulic stage strength, 0..8 (1)
   --thermal-passes N        Thermal passes, 0..128 (8)
   --river-catchment F       Rainfall area / whole sphere area (0.0015)
   --river-depth F           Channel depth / radius (0.0015)
@@ -21,13 +48,15 @@ cargo run -p planet-bevy -- [options]
   --smoothings N            Smoothing passes per stage, 0..12 (3)
   --river-refinements N     Local channel tessellation stages, 0..3 (3)
   --river-width F           Base angular channel half-width (0.003)
+  --river-taper F           Upstream narrowing, 0 legacy to 1 full taper (1)
   --no-rivers               Hide river meshes/textures to inspect carved beds
   --uncarved                Inspect terrain before the final channel carve
   --sphere-only             Original undeformed triangulation
-  --separate-seas           Disable ocean-connecting channels for comparison
+  --keep-inland-seas        Disable isolated-sea filling (alias --separate-seas)
   --no-ocean                Start with sea hidden to inspect the seabed
   --hide-controls           Start with the parameter panel hidden (F1 toggles)
   --wireframe               Start with terrain triangle edges visible
+  --flat | --smooth         Choose terrain shading
   --chunk-level N           Icosahedron split depth, 0..3 (2 = 320 cells)
   --chunk-colours           Colour chunks to inspect boundaries
   --no-horizon              Disable planet horizon culling for comparison
@@ -94,7 +123,7 @@ cargo run -p planet-bevy -- [options]
   --environment-paused      Freeze cloud weather for inspection
   --sun-azimuth D           Global sun azimuth, -180..180 degrees (-31)
   --sun-elevation D         Global sun elevation, -90..90 degrees (34.45)
-  --view front|back|river|waterfall|mouth|grass|ocean|shore|underwater|sky|clouds|forest   Inspection camera (front)
+  --view front|back|mountains|volcanoes|craters|river|waterfall|mouth|grass|ocean|shore|underwater|sky|clouds|forest   Inspection camera (front)
   --export PATH.obj         Export terrain mesh in physical units
   --validate-only           Generate/validate/export without a GPU or window
   --screenshot PATH.png     Render offscreen to a new PNG and exit
@@ -107,18 +136,21 @@ Sea level stays at the original radius. No forced water ratio, island falloff,
 or perimeter ocean. Rivers end at the first submerged vertex.
 Small random point sets can fail whole-sphere coverage.";
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum GenerationMode {
     Sphere,
     #[default]
     Terrain,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum View {
     #[default]
     Front,
     Back,
+    Mountains,
+    Volcanoes,
+    Craters,
     River,
     Waterfall,
     Mouth,
@@ -136,6 +168,9 @@ impl View {
         Ok(match value {
             "front" => Self::Front,
             "back" => Self::Back,
+            "mountains" => Self::Mountains,
+            "volcanoes" => Self::Volcanoes,
+            "craters" => Self::Craters,
             "river" => Self::River,
             "waterfall" => Self::Waterfall,
             "mouth" => Self::Mouth,
@@ -148,21 +183,21 @@ impl View {
             "forest" => Self::Forest,
             _ => {
                 return Err(String::from(
-                    "view must be front, back, river, waterfall, mouth, grass, ocean, shore, underwater, sky, clouds or forest",
+                    "view must be front, back, mountains, volcanoes, craters, river, waterfall, mouth, grass, ocean, shore, underwater, sky, clouds or forest",
                 ));
             }
         })
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum BedView {
     #[default]
     Carved,
     Original,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum RiverDisplay {
     #[default]
     Show,
@@ -185,6 +220,8 @@ pub struct Command {
     pub no_ocean: bool,
     pub view: View,
     pub wireframe: bool,
+    pub smooth: Option<bool>,
+    pub details: crate::details::DetailSettings,
     pub panel: PanelVisibility,
     pub export: Option<PathBuf>,
     pub screenshot: Option<PathBuf>,
@@ -213,6 +250,8 @@ impl Default for Command {
             no_ocean: false,
             view: View::Front,
             wireframe: false,
+            smooth: None,
+            details: crate::details::DetailSettings::default(),
             panel: PanelVisibility::Show,
             export: None,
             screenshot: None,
@@ -230,11 +269,19 @@ impl Default for Command {
 }
 
 impl Command {
-    pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Option<Self>, String> {
-        let mut command = Self::default();
+    pub fn parse(args: impl IntoIterator<Item = impl AsRef<str>>) -> Result<Option<Self>, String> {
+        Self::parse_from(Self::default(), args)
+    }
+    pub(super) fn parse_from(
+        mut command: Self,
+        args: impl IntoIterator<Item = impl AsRef<str>>,
+    ) -> Result<Option<Self>, String> {
         let mut args = args.into_iter();
+        let mut solar_edited = false;
         while let Some(flag) = args.next() {
-            match flag.as_str() {
+            let flag = flag.as_ref();
+            solar_edited |= flag.starts_with("--solar-") && flag != "--solar-paused";
+            match flag {
                 "-h" | "--help" => return Ok(None),
                 "--ocean-paused" => command.ocean.paused = true,
                 "--no-atmosphere" => command.environment.atmosphere = false,
@@ -253,13 +300,20 @@ impl Command {
                 "--no-ssao" => command.lighting.ao = false,
                 "--ao-only" => command.lighting.ao_only = true,
                 "--ao-half" => command.lighting.half_resolution = true,
+                "--flat" => command.smooth = Some(false),
+                "--smooth" => command.smooth = Some(true),
                 "--wireframe" => command.wireframe = true,
                 "--chunk-colours" => command.streaming.colours = true,
                 "--no-horizon" => command.streaming.horizon = false,
                 "--hide-controls" => command.panel = PanelVisibility::Hidden,
                 "--validate-only" => command.validate_only = true,
-                "--sphere-only" => command.generation = GenerationMode::Sphere,
-                "--separate-seas" => command.terrain.connect_seas = false,
+                "--impacts" => command.terrain.impacts.enabled = true,
+                "--no-impacts" => command.terrain.impacts.enabled = false,
+                "--sphere-only" => {
+                    command.generation = GenerationMode::Sphere;
+                    command.smooth = None;
+                }
+                "--separate-seas" | "--keep-inland-seas" => command.terrain.connect_seas = false,
                 "--no-ocean" => command.no_ocean = true,
                 "--no-rivers" => command.rivers = RiverDisplay::Hide,
                 "--uncarved" => command.bed = BedView::Original,
@@ -267,44 +321,14 @@ impl Command {
                     let value = args.next().ok_or_else(|| {
                         format!("{flag} requires a value or is not a supported option")
                     })?;
-                    command.apply_value(&flag, &value)?;
+                    command.apply_value(flag, value.as_ref())?;
                 }
             }
         }
-        command.lighting.validate()?;
-        if !command.forest.distance.is_finite() || !(0.0..=400.0).contains(&command.forest.distance)
-        {
-            return Err("detailed tree distance must be 0..400 m".into());
+        if solar_edited {
+            command.solar.draft = command.solar.model;
         }
-        command.ocean.validate()?;
-        command.water.validate()?;
-        command.environment.validate()?;
-        command.weather.model.validate()?;
-        command.solar.model.validate()?;
-        command.solar.draft = command.solar.model;
-        if !command.weather.warmup_hours.is_finite()
-            || !(0.0..=240.0).contains(&command.weather.warmup_hours)
-        {
-            return Err("initial weather hours must be 0..240".into());
-        }
-        if !command.weather.speed.is_finite() || !(0.0..=20.0).contains(&command.weather.speed) {
-            return Err("weather speed must be 0..20".into());
-        }
-        command
-            .terrain
-            .validate()
-            .map_err(|error| error.to_string())?;
-        if command.streaming.level > 3 {
-            return Err(String::from("chunk level must be 0..3"));
-        }
-        if !(1..=512).contains(&command.streaming.budget_mb)
-            || !command.streaming.target_pixels.is_finite()
-            || !(0.25..=16.0).contains(&command.streaming.target_pixels)
-        {
-            return Err(String::from(
-                "chunk budget must be 1..512 MiB and LOD error 0.25..16 pixels",
-            ));
-        }
+        command.validate_settings()?;
         if command.validate_only && command.screenshot.is_some() {
             return Err(String::from(
                 "--validate-only cannot be combined with --screenshot",
@@ -322,6 +346,60 @@ impl Command {
             }
         }
         Ok(Some(command))
+    }
+
+    pub(super) fn validate_settings(&self) -> Result<(), String> {
+        crate::panel::Settings::from(self).validate()?;
+        self.lighting.validate()?;
+        if !self.forest.distance.is_finite() || !(0.0..=400.0).contains(&self.forest.distance) {
+            return Err("detailed tree distance must be 0..400 m".into());
+        }
+        self.ocean.validate()?;
+        self.water.validate()?;
+        self.environment.validate()?;
+        self.weather.model.validate()?;
+        self.solar.model.validate()?;
+        if !self.weather.warmup_hours.is_finite()
+            || !(0.0..=240.0).contains(&self.weather.warmup_hours)
+        {
+            return Err("initial weather hours must be 0..240".into());
+        }
+        if !self.weather.speed.is_finite() || !(0.0..=20.0).contains(&self.weather.speed) {
+            return Err("weather speed must be 0..20".into());
+        }
+        self.terrain.validate().map_err(|error| error.to_string())?;
+        if self.streaming.level > 3 {
+            return Err(String::from("chunk level must be 0..3"));
+        }
+        if !(1..=512).contains(&self.streaming.budget_mb)
+            || !self.streaming.target_pixels.is_finite()
+            || !(0.25..=16.0).contains(&self.streaming.target_pixels)
+        {
+            return Err(String::from(
+                "chunk budget must be 1..512 MiB and LOD error 0.25..16 pixels",
+            ));
+        }
+        if self.streaming.forced_lod.is_some_and(|lod| lod > 3)
+            || self.streaming.surface_debug > 2
+            || self.weather.debug > 7
+        {
+            return Err("invalid saved diagnostic or LOD selection".into());
+        }
+        for (name, value, lo, hi) in [
+            ("grass height", self.details.height, 0.02, 0.5),
+            ("grass density", self.details.density, 2.0, 32.0),
+            ("rock density", self.details.rock_density, 0.2, 2.0),
+            ("ocean choppiness", self.ocean.choppiness, 0.0, 1.0),
+            ("ocean foam", self.ocean.foam, 0.0, 2.0),
+            ("ocean roughness", self.ocean.roughness, 0.04, 0.8),
+            ("fine ocean radius", self.ocean.fine_radius, 16.0, 256.0),
+            ("ocean spacing", self.ocean.spacing, 0.5, 4.0),
+        ] {
+            if !value.is_finite() || !(lo..=hi).contains(&value) {
+                return Err(format!("{name} must be {lo}..{hi}"));
+            }
+        }
+        Ok(())
     }
 
     fn apply_environment_value(&mut self, flag: &str, value: &str) -> Result<bool, String> {
@@ -362,8 +440,78 @@ impl Command {
         Ok(true)
     }
 
+    fn apply_noise_value(&mut self, flag: &str, value: &str) -> Result<bool, String> {
+        if flag == "--noise-preset" {
+            self.terrain.noise_layers = match value {
+                "classic" => NoiseLayer::classic(),
+                "plates" => NoiseLayer::plates(),
+                _ => return Err("noise preset must be classic or plates".into()),
+            };
+            return Ok(true);
+        }
+        if let Some(layer_flag) = flag.strip_prefix("--noise-") {
+            let (index, parameter) = layer_flag
+                .split_once('-')
+                .ok_or("noise flag must specify a layer 1..3 and type, frequency or weight")?;
+            let index: usize = number(index, flag)?;
+            let layer = index
+                .checked_sub(1)
+                .and_then(|i| self.terrain.noise_layers.get_mut(i))
+                .ok_or("noise layer must be 1, 2 or 3")?;
+            match parameter {
+                "type" => layer.kind = value.parse().map_err(str::to_owned)?,
+                "frequency" => layer.frequency = number(value, flag)?,
+                "weight" => layer.weight = number(value, flag)?,
+                _ => return Err("noise layer parameter must be type, frequency or weight".into()),
+            }
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
+    fn apply_tectonic_value(&mut self, flag: &str, value: &str) -> Result<bool, String> {
+        match flag {
+            "--terrain-source" => self.terrain.source = value.parse()?,
+            "--tectonic-plates" => self.terrain.tectonics.plates = number(value, flag)?,
+            "--tectonic-steps" => self.terrain.tectonics.steps = number(value, flag)?,
+            "--tectonic-drift" => self.terrain.tectonics.drift = number(value, flag)?,
+            "--tectonic-continents" => {
+                self.terrain.tectonics.continental_fraction = number(value, flag)?;
+            }
+            "--tectonic-fragmentation" => {
+                self.terrain.tectonics.fragmentation = number(value, flag)?;
+            }
+            "--tectonic-fragment-scale" => {
+                self.terrain.tectonics.fragment_scale = number(value, flag)?;
+            }
+            "--tectonic-rifts" => self.terrain.tectonics.rift_strength = number(value, flag)?,
+            "--tectonic-rift-branches" => {
+                self.terrain.tectonics.rift_branching = number(value, flag)?;
+            }
+            "--tectonic-width" => self.terrain.tectonics.boundary_width = number(value, flag)?,
+            "--tectonic-deformation" => self.terrain.tectonics.deformation = number(value, flag)?,
+            "--tectonic-branching" => self.terrain.tectonics.branching = number(value, flag)?,
+            "--tectonic-branch-depth" => self.terrain.tectonics.branch_depth = number(value, flag)?,
+            "--tectonic-ruggedness" => self.terrain.tectonics.ruggedness = number(value, flag)?,
+            "--tectonic-volcanism" => self.terrain.tectonics.volcanism = number(value, flag)?,
+            "--volcano-spacing" => self.terrain.tectonics.volcano_spacing = number(value, flag)?,
+            "--impact-count" => self.terrain.impacts.per_stage = number(value, flag)?,
+            "--impact-size" => self.terrain.impacts.size = number(value, flag)?,
+            "--impact-strength" => self.terrain.impacts.strength = number(value, flag)?,
+            "--tectonic-detail" => self.terrain.tectonics.detail = number(value, flag)?,
+            _ => return Ok(false),
+        }
+        Ok(true)
+    }
+
     fn apply_value(&mut self, flag: &str, value: &str) -> Result<(), String> {
         if self.apply_environment_value(flag, value)? {
+            return Ok(());
+        }
+        if self.apply_noise_value(flag, value)? {
+            return Ok(());
+        }
+        if self.apply_tectonic_value(flag, value)? {
             return Ok(());
         }
         match flag {
@@ -429,8 +577,10 @@ impl Command {
             "--radius" => self.options.radius = number(value, flag)?,
             "--relief" => self.terrain.relief = number(value, flag)?,
             "--land-bias" => self.terrain.land_bias = number(value, flag)?,
-            "--continental-frequency" => self.terrain.continental_frequency = number(value, flag)?,
-            "--detail-frequency" => self.terrain.detail_frequency = number(value, flag)?,
+            "--continental-frequency" => {
+                self.terrain.noise_layers[0].frequency = number(value, flag)?;
+            }
+            "--detail-frequency" => self.terrain.noise_layers[1].frequency = number(value, flag)?,
             "--erosion-strength" => self.terrain.erosion_strength = number(value, flag)?,
             "--erosion-passes" => self.terrain.hydraulic_passes = number(value, flag)?,
             "--thermal-passes" => self.terrain.thermal_passes = number(value, flag)?,
@@ -440,6 +590,7 @@ impl Command {
             "--smoothings" => self.terrain.smoothing_passes = number(value, flag)?,
             "--river-refinements" => self.terrain.river_refinement_passes = number(value, flag)?,
             "--river-width" => self.terrain.river_width = number(value, flag)?,
+            "--river-taper" => self.terrain.river_taper = number(value, flag)?,
             "--sweep-axis" => {
                 self.options.sweep_direction = match value {
                     "x" => planet_rs::DVec3::X,
@@ -465,6 +616,290 @@ fn number<T: FromStr>(value: &str, flag: &str) -> Result<T, String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn upstream_narrowing_parses_and_rejects_invalid_strengths() {
+        for (value, expected) in [("0", 0.0), ("0.6", 0.6), ("1", 1.0)] {
+            assert_eq!(
+                Command::parse(["--river-taper", value])
+                    .unwrap()
+                    .unwrap()
+                    .terrain
+                    .river_taper
+                    .to_bits(),
+                f64::to_bits(expected)
+            );
+        }
+        for value in ["-0.01", "1.01", "NaN", "inf"] {
+            assert!(Command::parse(["--river-taper", value]).is_err());
+        }
+    }
+    #[test]
+    fn inland_sea_filling_is_enabled_by_default_and_both_opt_out_names_work() {
+        assert!(Command::default().terrain.connect_seas);
+        for flag in ["--keep-inland-seas", "--separate-seas"] {
+            let command = Command::parse([flag]).unwrap().unwrap();
+            assert!(!command.terrain.connect_seas);
+        }
+    }
+
+    #[test]
+    fn geological_features_parse_and_reject_invalid_settings() {
+        let parsed = Command::parse(
+            [
+                "--impacts",
+                "--impact-count",
+                "7",
+                "--impact-size",
+                "1.5",
+                "--impact-strength",
+                "2",
+                "--tectonic-volcanism",
+                "0.5",
+                "--volcano-spacing",
+                "2",
+                "--view",
+                "craters",
+            ]
+            .map(str::to_owned),
+        )
+        .unwrap()
+        .unwrap();
+        assert!(parsed.terrain.impacts.enabled);
+        assert_eq!(parsed.terrain.impacts.per_stage, 7);
+        assert!((parsed.terrain.impacts.size - 1.5).abs() < f64::EPSILON);
+        assert!((parsed.terrain.impacts.strength - 2.0).abs() < f64::EPSILON);
+        assert!((parsed.terrain.tectonics.volcanism - 0.5).abs() < f64::EPSILON);
+        assert!((parsed.terrain.tectonics.volcano_spacing - 2.0).abs() < f64::EPSILON);
+        assert_eq!(parsed.view, View::Craters);
+        for args in [
+            ["--impact-count", "25"],
+            ["--impact-size", "NaN"],
+            ["--impact-strength", "-1"],
+            ["--tectonic-volcanism", "4"],
+            ["--volcano-spacing", "0"],
+        ] {
+            assert!(Command::parse(args.map(str::to_owned)).is_err());
+        }
+        assert_eq!(View::parse("volcanoes").unwrap(), View::Volcanoes);
+    }
+
+    #[test]
+    fn hydraulic_strength_accepts_eight_and_rejects_values_above_it() {
+        let command = parse(&["--erosion-strength", "8"]).unwrap().unwrap();
+        assert!((command.terrain.erosion_strength - 8.0).abs() < f64::EPSILON);
+        for value in ["8.001", "-1", "NaN", "inf"] {
+            assert!(parse(&["--erosion-strength", value]).is_err());
+        }
+    }
+
+    #[test]
+    fn fractal_ridge_controls_parse_and_reject_unbounded_branching() {
+        let options = parse(&[
+            "--tectonic-branching",
+            "0.65",
+            "--tectonic-branch-depth",
+            "4",
+        ])
+        .unwrap()
+        .unwrap()
+        .terrain
+        .tectonics;
+        assert!((options.branching - 0.65).abs() < f64::EPSILON);
+        assert_eq!(options.branch_depth, 4);
+        for args in [
+            ["--tectonic-branching", "NaN"],
+            ["--tectonic-branching", "1.1"],
+            ["--tectonic-branching", "-1"],
+            ["--tectonic-branch-depth", "5"],
+        ] {
+            assert!(parse(&args).is_err());
+        }
+    }
+
+    #[test]
+    fn coastal_geology_controls_parse_and_validate_finite_bounds() {
+        let options = parse(&[
+            "--terrain-source",
+            "tectonics",
+            "--tectonic-fragmentation",
+            "0.9",
+            "--tectonic-fragment-scale",
+            "1.6",
+            "--tectonic-rifts",
+            "1.25",
+            "--tectonic-rift-branches",
+            "4",
+        ])
+        .unwrap()
+        .unwrap()
+        .terrain
+        .tectonics;
+        assert!((options.fragmentation - 0.9).abs() < f64::EPSILON);
+        assert!((options.fragment_scale - 1.6).abs() < f64::EPSILON);
+        assert!((options.rift_strength - 1.25).abs() < f64::EPSILON);
+        assert_eq!(options.rift_branching, 4);
+        let disabled = parse(&[
+            "--tectonic-fragmentation",
+            "0",
+            "--tectonic-rifts",
+            "0",
+            "--tectonic-rift-branches",
+            "0",
+        ])
+        .unwrap()
+        .unwrap();
+        assert!(disabled.terrain.tectonics.fragmentation.abs() < f64::EPSILON);
+        assert!(disabled.terrain.tectonics.rift_strength.abs() < f64::EPSILON);
+        assert_eq!(disabled.terrain.tectonics.rift_branching, 0);
+        for args in [
+            ["--tectonic-fragmentation", "NaN"],
+            ["--tectonic-fragmentation", "1.01"],
+            ["--tectonic-fragmentation", "-0.01"],
+            ["--tectonic-fragment-scale", "0.34"],
+            ["--tectonic-fragment-scale", "2.01"],
+            ["--tectonic-fragment-scale", "inf"],
+            ["--tectonic-rifts", "-0.01"],
+            ["--tectonic-rifts", "2.01"],
+            ["--tectonic-rifts", "NaN"],
+            ["--tectonic-rift-branches", "5"],
+            ["--tectonic-rift-branches", "-1"],
+        ] {
+            assert!(parse(&args).is_err(), "accepted {args:?}");
+        }
+    }
+
+    #[test]
+    fn tectonic_source_and_controls_parse_and_reject_invalid_models() {
+        let parsed = parse(&[
+            "--terrain-source",
+            "tectonics",
+            "--tectonic-plates",
+            "24",
+            "--tectonic-steps",
+            "64",
+            "--tectonic-drift",
+            "0.4",
+            "--tectonic-continents",
+            "0.3",
+            "--tectonic-width",
+            "0.2",
+            "--tectonic-deformation",
+            "1.5",
+            "--tectonic-detail",
+            "0",
+            "--tectonic-ruggedness",
+            "0.7",
+            "--view",
+            "mountains",
+        ])
+        .unwrap()
+        .unwrap();
+        assert_eq!(parsed.terrain.source, planet_rs::TerrainSource::Tectonics);
+        assert_eq!(parsed.view, View::Mountains);
+        assert_eq!(parsed.terrain.tectonics.plates, 24);
+        assert_eq!(parsed.terrain.tectonics.steps, 64);
+        assert_eq!(parsed.terrain.tectonics.drift.to_bits(), 0.4_f64.to_bits());
+        assert_eq!(
+            parsed.terrain.tectonics.continental_fraction.to_bits(),
+            0.3_f64.to_bits()
+        );
+        assert_eq!(
+            parsed.terrain.tectonics.boundary_width.to_bits(),
+            0.2_f64.to_bits()
+        );
+        assert_eq!(
+            parsed.terrain.tectonics.deformation.to_bits(),
+            1.5_f64.to_bits()
+        );
+        assert!(parsed.terrain.tectonics.detail.abs() < f64::EPSILON);
+        assert_eq!(
+            parsed.terrain.tectonics.ruggedness.to_bits(),
+            0.7_f64.to_bits()
+        );
+        for flags in [
+            ["--terrain-source", "unknown"],
+            ["--tectonic-plates", "3"],
+            ["--tectonic-plates", "65"],
+            ["--tectonic-steps", "0"],
+            ["--tectonic-drift", "NaN"],
+            ["--tectonic-continents", "1.1"],
+            ["--tectonic-width", "0"],
+            ["--tectonic-deformation", "4"],
+            ["--tectonic-detail", "-1"],
+            ["--tectonic-ruggedness", "1.1"],
+        ] {
+            assert!(parse(&flags).is_err(), "accepted {flags:?}");
+        }
+    }
+
+    #[test]
+    fn noise_layers_parse_independently_and_keep_legacy_frequency_aliases() {
+        let parsed = parse(&[
+            "--noise-preset",
+            "plates",
+            "--noise-1-frequency",
+            "1.4",
+            "--noise-2-type",
+            "ridged",
+            "--noise-2-weight",
+            "0.3",
+            "--noise-3-frequency",
+            "4.5",
+            "--noise-3-weight",
+            "0.6",
+        ])
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            parsed.terrain.noise_layers[0].frequency.to_bits(),
+            1.4_f64.to_bits()
+        );
+        assert_eq!(
+            parsed.terrain.noise_layers[1].kind,
+            planet_rs::NoiseKind::Ridged
+        );
+        assert_eq!(
+            parsed.terrain.noise_layers[1].weight.to_bits(),
+            0.3_f64.to_bits()
+        );
+        assert_eq!(
+            parsed.terrain.noise_layers[2].kind,
+            planet_rs::NoiseKind::Voronoi
+        );
+        assert_eq!(
+            parsed.terrain.noise_layers[2].frequency.to_bits(),
+            4.5_f64.to_bits()
+        );
+        assert_eq!(
+            parsed.terrain.noise_layers[2].weight.to_bits(),
+            0.6_f64.to_bits()
+        );
+        let alias = parse(&["--continental-frequency", "3", "--detail-frequency", "20"])
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            alias.terrain.noise_layers[0].frequency.to_bits(),
+            3.0_f64.to_bits()
+        );
+        assert_eq!(
+            alias.terrain.noise_layers[1].frequency.to_bits(),
+            20.0_f64.to_bits()
+        );
+        for flags in [
+            ["--noise-0-weight", "1"],
+            ["--noise-4-frequency", "1"],
+            ["--noise-1-type", "bad"],
+            ["--noise-1-octaves", "2"],
+            ["--noise-2-frequency", "NaN"],
+            ["--noise-3-frequency", "101"],
+            ["--noise-3-weight", "-1"],
+            ["--noise-3-weight", "inf"],
+            ["--noise-2-weight", "3"],
+            ["--noise-preset", "bad"],
+        ] {
+            assert!(parse(&flags).is_err(), "accepted {flags:?}");
+        }
+    }
     #[test]
     fn forest_distance_can_force_coarse_trees_and_rejects_invalid_ranges() {
         for distance in ["0", "80", "240", "400"] {

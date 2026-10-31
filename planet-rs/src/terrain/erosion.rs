@@ -12,7 +12,7 @@ pub(super) fn erode(
     heights: &mut [f64],
     hardness: &[f64],
     soil: &mut [f64],
-    options: TerrainOptions,
+    options: &TerrainOptions,
 ) {
     if options.erosion_strength > 0.0 && options.hydraulic_passes > 0 {
         HydraulicPaths::new(directions, graph, heights, hardness, soil, options).run();
@@ -30,7 +30,7 @@ struct HydraulicPaths<'a> {
     hardness: &'a [f64],
     soil: &'a mut [f64],
     edges: Vec<Vec<(usize, f64)>>,
-    options: TerrainOptions,
+    options: &'a TerrainOptions,
     /// Fixed for the whole stage, including every source and hydraulic sweep.
     /// Restrict added slope as well as height on small, irregular control cells.
     bounds: Vec<(f64, f64)>,
@@ -44,7 +44,7 @@ impl<'a> HydraulicPaths<'a> {
         heights: &'a mut [f64],
         hardness: &'a [f64],
         soil: &'a mut [f64],
-        options: TerrainOptions,
+        options: &'a TerrainOptions,
     ) -> Self {
         let edges: Vec<Vec<_>> = graph
             .neighbours
@@ -57,7 +57,11 @@ impl<'a> HydraulicPaths<'a> {
                     .collect()
             })
             .collect();
-        let max_shift = heights.iter().copied().fold(0.0, f64::max) * 0.012;
+        // Strength and sweeps are cumulative erosion-time controls. Let their
+        // stage budget grow too; otherwise paths immediately saturate the same
+        // small allowance and higher settings cannot deepen the terrain.
+        let exposure = options.erosion_strength * f64::from(options.hydraulic_passes);
+        let max_shift = heights.iter().copied().fold(0.0, f64::max) * 0.012 * exposure;
         let bounds = heights
             .iter()
             .zip(&edges)
@@ -87,9 +91,10 @@ impl<'a> HydraulicPaths<'a> {
         let mut order: Vec<_> = (0..self.heights.len()).collect();
         let mut visited = vec![0; self.heights.len()];
         let mut path = 0;
-        // The pass count controls repeated source paths; normalize stage time so
-        // more passes resolve transport rather than multiplying its strength.
-        let strength = self.options.erosion_strength / f64::from(self.options.hydraulic_passes);
+        // Each sweep applies another full interval of rain/transport. Splitting
+        // strength by the count made the UI's extra sweeps nearly cancel out.
+        // All paths still share the same spacing-limited bounds for this stage.
+        let strength = self.options.erosion_strength;
         for _ in 0..self.options.hydraulic_passes {
             order.sort_unstable_by(|&a, &b| {
                 self.heights[b].total_cmp(&self.heights[a]).then(a.cmp(&b))
@@ -303,6 +308,81 @@ mod tests {
     use crate::{PlanetOptions, generate};
 
     #[test]
+    fn hydraulic_strength_and_sweeps_have_cumulative_effect_with_bounded_conservative_transport() {
+        let mesh = generate(PlanetOptions {
+            vertex_count: 1024,
+            ..PlanetOptions::default()
+        })
+        .unwrap();
+        let graph = SurfaceGraph::new(&mesh);
+        let original: Vec<_> = mesh
+            .directions
+            .iter()
+            .map(|p| 0.18 * p.y + 0.025 * (p.x * 15.0).sin())
+            .collect();
+        let hardness = vec![0.4; original.len()];
+        let material = |h: &[f64]| {
+            h.iter()
+                .zip(&graph.areas)
+                .map(|(height, area)| height * area)
+                .sum::<f64>()
+        };
+        let before = material(&original);
+        let excavation = |strength, passes| {
+            let mut heights = original.clone();
+            let mut soil = vec![0.002; heights.len()];
+            erode(
+                &mesh.directions,
+                &graph,
+                &mut heights,
+                &hardness,
+                &mut soil,
+                &TerrainOptions {
+                    erosion_strength: strength,
+                    hydraulic_passes: passes,
+                    thermal_passes: 0,
+                    ..TerrainOptions::default()
+                },
+            );
+            assert!(
+                (material(&heights) - before).abs() < 1e-12,
+                "erosion lost sediment"
+            );
+            let mut cut = 0.0;
+            for (i, (&height, &old)) in heights.iter().zip(&original).enumerate() {
+                let shortest = graph.neighbours[i]
+                    .iter()
+                    .map(|&j| arc(mesh.directions[i], mesh.directions[j]))
+                    .fold(f64::INFINITY, f64::min);
+                assert!(
+                    (height - old).abs() <= shortest * 0.25 + 1e-12,
+                    "tiny control cell escaped its spike guard"
+                );
+                assert!(soil[i].is_finite() && soil[i] >= 0.0);
+                cut += (old - height).max(0.0) * graph.areas[i];
+            }
+            cut
+        };
+        let normal = excavation(1.0, 1);
+        let stronger = excavation(4.0, 1);
+        let repeated = excavation(1.0, 8);
+        let extreme = excavation(8.0, 1);
+        assert!(
+            extreme >= stronger,
+            "strength eight should retain cumulative erosion while respecting the same guards"
+        );
+        assert!(normal > 1e-5);
+        assert!(
+            stronger > normal * 1.5,
+            "strength still saturates at the default budget: {normal} -> {stronger}"
+        );
+        assert!(
+            repeated > normal * 1.5,
+            "additional sweeps still cancel their own strength: {normal} -> {repeated}"
+        );
+    }
+
+    #[test]
     fn many_strong_paths_share_stage_limits_and_conserve_material() {
         let mesh = generate(PlanetOptions {
             vertex_count: 512,
@@ -322,18 +402,19 @@ mod tests {
             .sum();
         let hardness = vec![0.2; heights.len()];
         let mut soil = vec![0.002; heights.len()];
+        let options = TerrainOptions {
+            erosion_strength: 4.0,
+            hydraulic_passes: 16,
+            thermal_passes: 0,
+            ..TerrainOptions::default()
+        };
         let mut paths = HydraulicPaths::new(
             &mesh.directions,
             &graph,
             &mut heights,
             &hardness,
             &mut soil,
-            TerrainOptions {
-                erosion_strength: 4.0,
-                hydraulic_passes: 16,
-                thermal_passes: 0,
-                ..TerrainOptions::default()
-            },
+            &options,
         );
         paths.run();
         for (&height, &(low, high)) in paths.heights.iter().zip(&paths.bounds) {
@@ -369,13 +450,14 @@ mod tests {
         let before = heights.clone();
         let hardness = vec![0.4; heights.len()];
         let mut soil = vec![0.0; heights.len()];
+        let options = TerrainOptions::default();
         let mut paths = HydraulicPaths::new(
             &mesh.directions,
             &graph,
             &mut heights,
             &hardness,
             &mut soil,
-            TerrainOptions::default(),
+            &options,
         );
         let volume = 0.001;
         paths.terminal_sediment[0] = volume;
@@ -421,7 +503,7 @@ mod tests {
             &mut heights,
             &hardness,
             &mut soil,
-            TerrainOptions {
+            &TerrainOptions {
                 thermal_passes: 0,
                 ..TerrainOptions::default()
             },
@@ -448,7 +530,7 @@ mod tests {
             &mut untouched,
             &hardness,
             &mut vec![0.002; heights.len()],
-            TerrainOptions {
+            &TerrainOptions {
                 erosion_strength: 0.0,
                 thermal_passes: 0,
                 ..TerrainOptions::default()
@@ -482,7 +564,7 @@ mod tests {
             &mut heights,
             &hardness,
             &mut soil,
-            TerrainOptions::default(),
+            &TerrainOptions::default(),
         );
         assert!((before - material(&heights)).abs() < 1.0e-12);
         assert!(

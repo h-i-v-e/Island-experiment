@@ -13,7 +13,8 @@ use std::f64::consts::{PI, TAU};
 pub const EARTH_ORBIT_RADIUS_RATIO: f64 = 149_598_000.0 / 6_371.0;
 pub const SUN_RADIUS_RATIO: f64 = 695_700.0 / 6_371.0;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct SolarSettings {
     /// Orbital semimajor axis divided by the planet's radius.
     pub orbit_radius_ratio: f64,

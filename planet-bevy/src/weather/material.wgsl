@@ -12,6 +12,15 @@ fn weather_sample(n:vec3<f32>, layer:i32)->vec4<f32> {
 fn weather_lower(n: vec3<f32>) -> vec4<f32> { return weather_sample(n,0); }
 fn weather_upper(n: vec3<f32>) -> vec4<f32> { return weather_sample(n,1); }
 fn weather_climate(n: vec3<f32>) -> vec4<f32> { return weather_sample(n,2); }
+fn weather_snow_line(n: vec3<f32>, fallback: f32) -> f32 {
+    if !weather_enabled() { return fallback; }
+    let temperature_kelvin = weather_climate(n).x;
+    let reference_metres = weather_sample(n,5).w;
+    // Match the small world's weather orography: 20 climate metres per
+    // terrain metre, at 0.0065 K per climate metre. Temperature already
+    // includes cooling at reference_metres; do not cool it a second time.
+    return reference_metres + (temperature_kelvin - 273.15) / 0.13;
+}
 fn weather_blend() -> f32 { return clamp(environment.simulation.x - 1.0, 0.0, 1.0); }
 fn weather_swell(n: vec3<f32>, index: u32) -> vec4<f32> { if weather_blend()<=0.0001 {return vec4<f32>(0.0);} return textureSampleLevel(global_weather,environment_sky_sampler,normalize(n),i32(3u+min(index,1u)),0.0); }
 fn weather_swell_previous(n: vec3<f32>, index: u32) -> vec4<f32> { if weather_blend()>=0.9999 {return vec4<f32>(0.0);} return textureSampleLevel(global_weather,environment_sky_sampler,normalize(n),i32(9u+min(index,1u)),0.0); }

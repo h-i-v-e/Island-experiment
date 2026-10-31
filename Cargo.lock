@@ -4266,6 +4266,8 @@ dependencies = [
  "half",
  "island-rs",
  "planet-rs",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -4274,6 +4276,7 @@ version = "0.1.0"
 dependencies = [
  "glam 0.33.5",
  "robust",
+ "serde",
  "uvunwrap",
 ]
 

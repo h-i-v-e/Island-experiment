@@ -37,7 +37,7 @@ points, five refinements, and three river refinements. These buttons edit the
 settings; press Generate to apply them. **Defaults** resets the draft settings.
 
 The collapsible sections expose terrain/noise, hydraulic and thermal erosion,
-tessellation/smoothing, river width/depth/catchment, and the early sea connection
+tessellation/smoothing, river width/depth/upstream narrowing/catchment, and inland-sea filling
 passes. Visibility, shading, edges, and Front/Back/River camera buttons act
 immediately. **F1** hides or shows the panel (`--hide-controls` starts it hidden).
 Dragging or scrolling inside the panel leaves the camera alone.
@@ -103,6 +103,10 @@ the default radius. Final boundary water vertices are pinned to the actual
 terrain, including after drainage repair; there is no width cut through open
 water. Vertical waterfall faces retain a three-centimetre surface clearance
 at the default radius, with their dry banks pinned to the terrain.
+Water binding uses slope along the river flow, so steep sideways banks do not
+grow waterfall-like water sheets. The planned river level caps ordinary reaches;
+terrain above it stays dry even inside a channel footprint. Actual waterfall
+supports retain their clearance after bank grading.
 River finishing keeps the profile and ownership fixed through up to three
 width-based tessellation passes, with a two-ring terrain apron. Edge targets
 are 1.5–5 metres at the default radius. A separate 1.25-metre-target pass and
@@ -524,8 +528,11 @@ python3 planet-bevy/tools/check_water_optics.py # native GPU reflection/refracti
 Use `--help` for seed, count, radius, and sweep-axis options. The initial
 all-face scan and exhaustive validation have quadratic cost; point counts are
 limited to 4–8192 for the initial Delaunay sphere. Subsequent conforming
-refinement supports up to two million terrain vertices. Optional adaptive stages
-stop before exceeding their budget, reserving room for local river refinement. Very small random sets can fail whole-sphere coverage and
+refinement has no vertex-count budget: every requested terrain, river and
+waterfall subdivision runs unless its eligible surface selection is empty. There is no
+one-million terrain reservation or two-million final-mesh cap. Indices still
+use the renderer's `u32` format, and refinement buffer reservations report
+allocation errors. Very small random sets can fail whole-sphere coverage and
 are rejected with a seed/count diagnostic. Trees, caves, atmosphere, animated water and generation animation are later
 adaptations.
 
@@ -586,6 +593,20 @@ Island's recipe/procedural transitions, height blending, 37–45 degree rock
 shoulder, grass ground colour, noisy snow line, detail normals, local occlusion,
 wet banks and shared eight-step parallax ray. Nearby LOD0 terrain also uses the
 sixteen-layer `Motu/Terrain Grass` fur port described below.
+
+With **Weather** enabled, snow follows the local simulated freezing altitude:
+colder regions have a lower snow line, while warmer regions have a higher one.
+The shared terrain and grass coverage shader updates at every LOD as weather
+changes, without regenerating terrain. It uses filtered, interpolated weather
+snapshots and the temperature's mean terrain reference height, so mountain
+cooling is not counted twice. The vertical response matches the existing small
+planet weather model (0.13 K per terrain metre, about 7.7 m per degree).
+The existing patch noise and slope rules remain, and submerged ground is
+excluded. If weather is disabled or still initializing, the fixed 100 m snow
+line is used. This changes visible coverage; it does not simulate snow depth or
+accumulation. `python3 planet-bevy/tools/check_snow.py` exercises the actual
+weather shader on the GPU, including climate changes, cube seams, reference
+height, snapshot blending and the disabled fallback.
 
 Elevation is distance from the original sea sphere; slope uses the normal's dot
 product with radial up. Physical material sizes remain 2/2/4/2/3/2 metres as in
@@ -655,11 +676,219 @@ python3 planet-bevy/tools/bake_island_materials.py .
 
 Sea level is the original sphere radius R. A terrain vertex is
 `direction * R * (1 + relative_elevation)`; local down is `-direction`.
-Continental and detail noise are evaluated in Cartesian 3D and can displace
+
+The **Planet & terrain → Initial noise layers** section has three independent
+layers. Each has a noise type (**Fractal**, **Ridged fractal**, or **Voronoi
+plates**), frequency and relative height weight. Higher frequency makes smaller
+features; zero weight disables a layer. Weights normalize before the overall
+**Relief** multiplier and **Land bias** are applied, keeping radial bounds and
+sea level predictable. Click **Generate** to apply edits; **Previous** restores
+the previous settings and terrain together.
+
+**Classic blend** preserves the existing seed layouts: 78% continental fractal
+at frequency 2.2, 22% detail fractal at 12, and a disabled third Voronoi layer at 3.
+**Voronoi plates blend** sets those weights to 58%, 17% and 25%. The cellular
+option uses domain-warped nearest-site boundaries for broad interiors and
+connected mountain-like ridges. It is a tectonic-style pattern, not a physical
+plate simulation. All types sample fixed 3D coordinates, including the poles
+and longitude seam. Existing later erosion, refinement and river stages still
+apply; disabling all three layers also disables refinement's extra noise.
+
+```sh
+cargo run -p planet-bevy -- --noise-preset plates
+cargo run -p planet-bevy -- --noise-1-frequency 1.4 --noise-2-weight 0.3 --noise-3-weight 0.6
+cargo run -p planet-bevy -- --noise-2-type ridged --noise-3-type voronoi --noise-3-frequency 4
+```
+
+The original `--continental-frequency` and `--detail-frequency` flags remain
+aliases for the frequencies of layers 1 and 2.
+
+### Remembered settings
+
+Normal interactive launches remember the last successfully displayed planet,
+valid pending generation edits (including seed, noise layers, tectonics, erosion
+and refinement), display switches, terrain detail, forests, streaming/LOD,
+lighting, water/ocean, atmosphere/clouds, weather and solar controls. Pending
+parameters return in the panel while the last successful planet is shown;
+press **Generate** to apply them. Simulation elapsed time and walking position
+are not part of the settings snapshot.
+
+Edits autosave after a short debounce in a background job. The final pending
+edit is flushed on a normal exit, and each file replacement is atomic. On macOS
+the file is `~/Library/Application Support/Planet experiment/settings.json`.
+Command-line options override saved values. `--no-settings` starts from defaults
+without reading or writing the saved file; `--settings-file PATH` uses a separate
+file. Screenshot/validation runs use defaults unless a settings file is explicitly
+supplied, and never write preferences. Invalid or unsupported files are reported
+and ignored; they are left intact until valid settings are changed.
+
+Hydraulic strength now ranges from **0 to 8** in the panel and through
+`--erosion-strength`. The existing material-conservation and coastal spike guards
+still apply at the higher settings.
+
+### Tectonic drift terrain
+
+Choose **Planet & terrain → Terrain source → Tectonic drift**, then **Generate**.
+The noise-layer source remains available for comparison, and **Previous**
+restores the complete earlier source/settings/terrain together.
+
+This option seeds 4–64 large spherical Voronoi plates with random tangent drift
+directions. Each plate moves by rotation around an axis through the planet's
+centre. Actual finite Voronoi edges define narrow mountain/rift belts. Relative
+velocity across each edge determines convergence or separation; history is
+backtracked with the plate pair's mean motion to accumulate belt strength.
+Convergence raises a narrow spine and lower foothills, separation cuts a rift,
+and parallel slip is tracked separately for volcanic chain placement. Continental/oceanic collisions shift uplift
+towards the continental side. Belt junctions use a maximum instead of adding
+spikes, and finite endpoints prevent phantom ranges around whole great circles.
+Continental interiors are low plains above the deeper oceanic crust. Compression
+hardens the rock and extension weakens it before erosion and river generation.
+
+Controls cover **Plate count**, **Drift steps**, **Drift distance (radians)**,
+**Continental plate fraction**, **Continental fragmentation**, **Continental fragment size**,
+**Rift basin strength**, **Rift branching levels**, **Mountain belt width**, **Push / pull strength**,
+**Mountain ruggedness**, **Volcanic activity**, **Volcano spacing**, and **Noise detail**. Ruggedness varies summit heights,
+saddles, belt width and lateral bends along each finite edge. Set it to zero for
+an idealised continuous ridge. Increasing steps improves integration of the same total
+drift; it does not multiply uplift. Zero drift disables boundary deformation.
+Zero noise detail uses only plate-derived heights. Detail gently bends the
+height belts and adds small terrain variation; hardness stays geological.
+The default spine half-width is about 37 m on a 1 km planet with 16 plates;
+foothills taper out to four times that distance. The width control scales both.
+History snapshots are reduced to force samples along final edges, so elapsed
+drift does not smear a range into a broad mound. Meshes are processed in place.
+
+**Continental fragmentation** (default 0.75, range 0–1) gives the crust irregular
+continental pieces carried by their plates, rather than making each continent
+follow an entire smooth plate cell. **Continental fragment size** (default 1,
+range 0.35–2) controls their relative scale. Smaller pieces make finer coastal
+structure; larger pieces make broader continental margins. Set fragmentation to
+zero to compare against the original plate-cell crust. The existing plate-boundary
+mountain ranges, volcanoes and fractal side ridges remain in the terrain model.
+
+**Rift basin strength** (default 0.65, range 0–2) adds sinking, branching fault
+basins associated with stretching crust. **Rift branching levels** (default 2,
+maximum 4) adds progressively smaller branches. Where the basins reach below
+the original sea sphere they can form gulfs, straits and offshore fragments.
+Set basin strength or branching levels to zero to disable this additional network;
+the existing narrow extensional plate-boundary valleys remain. Both crust
+fragments and rift basins feed the continuous terrain source before erosion,
+river profiles and waterfalls are finalized. Refinement resolves their source
+geometry without restoring material already eroded. Sea level stays fixed, and
+the stage-by-stage basin fill raises isolated seas above water before the final
+river carve.
+These are procedural geological approximations, not a crust-mass solver.
+
+The four controls apply with **Generate**, are restored by **Previous** with the
+other terrain parameters, and are included in remembered settings. For an
+unaffected command-line comparison, use `--no-settings`:
+
+```sh
+cargo run -p planet-bevy -- --no-settings --terrain-source tectonics --tectonic-fragmentation 0.9 --tectonic-fragment-scale 0.8 --tectonic-rifts 1 --tectonic-rift-branches 3
+cargo run -p planet-bevy -- --no-settings --terrain-source tectonics --tectonic-fragmentation 0 --tectonic-rifts 0
+```
+
+**Branching ridge strength** (default 0.8) adds a seeded fractal spur network
+on the convex, outward side of bends in compressional ranges. **Branching levels** (default 3, maximum
+4) controls recursion: each spur bends along the sphere and forks into shorter,
+narrower ridges. Each interior maximum/minimum of the main range's lateral
+wobble gets an attachment; recursive branches attach at their parent's bend
+joints. Joins start at exactly the parent's crest height, then descend towards
+lowland, leaving valleys between neighbouring branches. Strength controls the
+height retained farther out instead of lowering the join. Each attachment measures the local
+turn in the sphere's tangent plane and points away from its centre of curvature;
+recursive subranges follow the same rule. Straight sections and exact inflections
+without a clear outward side receive no attachment. Increasing branching levels
+preserves the existing coarser network. Ridge junctions take the larger
+uplift instead of adding heights, preserving the main crest and avoiding spikes.
+Zero strength or zero levels restores the main ranges without side branches.
+Zero drift or push/pull strength produces no compressional spur network.
+
+The ridges are continuous source geometry sampled at every terrain stage, so
+the existing erosion cuts into and drains them. Local feature selection resolves
+small spurs between coarse vertices; Cartesian spatial indexing avoids checking
+every branch at every terrain vertex and retains the deep-seabed cutoff away
+from observable terrain. Branches own small segment records; the existing mesh
+and material arrays are borrowed throughout refinement. The compact plate-history
+snapshots remain copied because force integration needs earlier drift states.
+
+```sh
+cargo run -p planet-bevy -- --terrain-source tectonics --view mountains
+cargo run -p planet-bevy -- --terrain-source tectonics --tectonic-branching 1 --tectonic-branch-depth 4
+cargo run -p planet-bevy -- --terrain-source tectonics --tectonic-branching 0
+```
+
+Every terrain refinement stage resamples the tectonic source at inserted
+vertices, adding only its interpolation residual so existing erosion cuts and
+deposits survive. River and waterfall subdivisions retain their frozen routing
+and do not resample tectonic heights. **View → Mountains** focuses on a high
+sunlit region for inspecting ranges; `--view mountains` selects the same view.
+
+This is a simplified kinematic model, not a mantle/slab or crust-mass solver.
+The continental fraction selects a share of plate seeds, not a target land area.
+Sea level remains the original sphere; Relief scales the signed height field
+and Land bias shifts it. Subsequent smoothing, erosion and bank shaping can
+change the coast. Generation output and the panel's sea-area readout
+report estimated **sea surface area**, clipping triangles at zero elevation,
+rather than treating adaptively sampled vertex counts as area.
+
+```sh
+cargo run -p planet-bevy -- --terrain-source tectonics
+cargo run -p planet-bevy -- --terrain-source tectonics --tectonic-plates 24 --tectonic-drift 0.4
+cargo run -p planet-bevy -- --terrain-source tectonics --tectonic-continents 0.3 --tectonic-deformation 1.5 --tectonic-detail 0
+```
+
+The spherical velocity basis follows [GPlates' Euler-pole plate kinematics](https://www.gplates.org/docs/pygplates/sample-code/pygplates_find_divergence_at_subduction_zones_and_convergence_at_ridges);
+the uplift, crust and hardness response here are procedural game-terrain rules.
+
+### Volcano chains and impact craters
+
+Tectonic mode places irregularly spaced cones along finite boundary sections
+where relative sideways shear dominates compression and extension. Cones have
+sloping flanks and a small summit caldera; they participate in the existing
+smoothing, erosion and river pipeline. **Volcanic activity** controls uplift
+(zero disables it) and **Volcano spacing** spreads the cones along each chain.
+Zero drift produces no volcanoes. Belt/cone overlaps use the larger uplift,
+avoiding additive spikes. Shear-driven volcanism is an artistic terrain rule:
+[USGS describes transform faults as mainly seismic rather than volcanic](https://pubs.usgs.gov/pdf/planet.pdf).
+
+Enable **Impact craters → Generate impact craters**, then press **Generate**.
+This works with either terrain source and is off by default for direct terrain
+comparisons. **Impacts per stage**, **Crater size** and **Impact strength** are
+configurable. Each seeded batch targets random directions snapped to current
+mesh vertices, avoiding a bias towards dense river meshes. A radial profile
+lowers a bowl, raises its rim and blends an ejecta apron into surrounding terrain,
+following the [basic crater morphology described by NASA](https://www.nasa.gov/wp-content/uploads/2009/07/impact-craters.pdf).
+
+One batch arrives before initial erosion and another before each terrain
+refinement stage. Radius halves per stage, with random variation within each
+batch, so older large impacts weather through more erosion stages than the
+younger small craters. At the default 4096 starting points and 1 km radius, initial bowl
+radii are about 73–183 m; stage-five radii are about 2–6 m. Sizes scale with the
+planet and starting-point spacing. Impacts are added before river routing and
+never during waterfall refinement. Their cumulative source is bounded for
+extreme overlapping impacts. New terrain vertices add the crater source's
+interpolation residual, preserving existing erosion rather than restoring
+pristine bowls on every pass.
+
+Local refinement also resolves visible volcanic summits and crater rims that
+fall between coarse vertices, while retaining the deep-seabed detail cutoff
+away from those features. **View → Volcanoes** and **View → Craters** focus on a
+large sunlit feature; generation output reports the feature counts. The original
+Sphere-only mode disables impacts along with terrain deformation. Very coarse
+starting meshes with reduced river refinement can still fail hydraulic bank-coordinate validation; retain
+the default three river refinement passes for these terrain features.
+
+```sh
+cargo run -p planet-bevy -- --terrain-source tectonics --impacts --view volcanoes
+cargo run -p planet-bevy -- --terrain-source tectonics --impacts --impact-count 8 --impact-size 1.5 --view craters
+```
+
+In noise-layer mode, three initial layers are evaluated in Cartesian 3D and can displace
 every site above or below sea level. No island falloff, perimeter mask,
 water-ratio percentile or coastal height remapping is used.
 
-The pipeline adapts the inherited stage order to a sphere: noise/geology and initial soil,
+The pipeline adapts the inherited stage order to a sphere: initial heights/geology and soil,
 hydraulic erosion with sediment transport/deposition, thermal relaxation,
 two broad shared-edge subdivisions followed by up to three curvature-selected
 refinements, tangent-plane position relaxation and conservative radial smoothing,
@@ -671,10 +900,14 @@ and three smoothing passes per stage. Like the island CPU reference, hydraulic
 paths run sequentially from high terrain, retain downhill momentum and sediment,
 and observe earlier paths' edits. Transport uses area-weighted volumes, hardness,
 loose soil, slope-dependent deposition, and terminal sediment fans. One sweep per
-stage is the default; `--erosion-passes` repeats it and `--erosion-strength`
-controls its strength. Hydraulic height changes share a cumulative per-stage
-budget limited by local vertex spacing, so converging paths cannot repeatedly
-excavate or pile sediment onto a tiny coastal cell. Terminal sediment spreads
+stage is the default; `--erosion-passes` adds full rainfall/transport sweeps and
+`--erosion-strength` controls each sweep's strength. Both increase the shared
+stage allowance, so stronger settings can deepen valleys instead of hitting the
+same fixed height cap. The cumulative height-change budget remains limited to
+one quarter of each vertex's shortest adjacent edge, so converging paths cannot
+repeatedly excavate or pile sediment onto a tiny coastal cell. For a clearer
+erosion comparison, try strength 2–4 with 4–8 sweeps, then **Generate**. Hydraulic
+and thermal erosion are independent; river carving is a separate stage. Terminal sediment spreads
 over an angular footprint of at least 0.015 radians, preferring submerged cells;
 when that footprint fills, excess travels farther outward. Sediment is conserved
 without clamping terrain to sea level. Final fine erosion runs after finishing smoothing and
@@ -693,21 +926,23 @@ and transport use solid-angle control areas. Eroded sediment can deposit on
 the seabed. The transport budget is an area-weighted height approximation,
 not a volumetric fluid or sediment simulation.
 
-By default, disconnected seas are joined at the end of LOD2 (first refinement)
-and LOD1 (third refinement). Starting from the first sea in stable vertex order,
-a multi-source shortest-path search finds the nearest unconnected sea by angular
-mesh-edge distance, cuts a channel below the original sea radius, then continues
-from the sea just reached. The cut has a submerged core and blended bank apron;
-any other seas incidentally reached are joined as well. Excavation is recorded
-as exported sediment. Sea level and the initial land bias stay fixed; no target water ratio is
-imposed. Dry worlds stay dry, and already connected oceans need no cuts.
+By default, each terrain stage retains the largest submerged component as the
+global ocean, measured by spherical surface area rather than vertex count.
+All other submerged components, including inland impact-crater seas, are raised
+to at least **0.5 physical metres above the original sea sphere**. Added height
+is recorded as loose basin fill and reported separately from river incision.
+The ocean itself and existing dry land are unchanged by this pass; no connecting
+channels are excavated and sea level stays fixed.
 
-Later smoothing, erosion, or river incision can separate shallow water again.
-Those later disconnections are allowed: no final ocean repair carves narrow
-channels into the finished terrain. The LOD2/LOD1 cuts remain actual terrain
-excavations that evolve during subsequent generation. `--separate-seas`
-disables the early connection passes for comparison. Console output reports sea counts and channels for each
-stage; `PlanetTerrain::ocean_passes` retains those diagnostics.
+Filling runs after initial terrain/erosion, impact batches and refinement stages.
+The last fill follows final terrain smoothing/erosion, **before river profiles
+are built and the final river beds are carved**. Rivers can subsequently cut
+through the filled basins; there is no post-carve fill that could plug them or
+alter finished waterfalls. A single sea and all-dry worlds need no filling.
+**Fill inland seas before river carving** toggles this behavior. Use
+`--keep-inland-seas` (or the older alias `--separate-seas`) to disable it. The saved
+settings flag remains compatible. Console output and `PlanetTerrain::ocean_passes`
+report each stage's sea count, filled components, raised sites and added material.
 
 Every vertex below R remains a valid river drainage root. A sea-seeded minimax flood finds spill routes, prefers downhill
 neighbours where possible, and incises intervening saddles so the final land
@@ -726,18 +961,56 @@ The sea is a separate render mesh at R; toggling it does not change terrain.
 
 The default uses two broad tessellations, up to three curvature-selected
 refinements, and up to three local corridor refinements. Shared midpoint IDs and conforming transition triangles prevent
-cracks. The broad stages add diminishing 3D displacement; later adaptive stages
-interpolate the existing relief. Each broad/adaptive stage relaxes positions, smooths radial
+cracks. Adaptive terrain subdivision stops below an average angular edge spacing
+of 0.0002 radians: **0.2 m at the default 1 km radius**, scaling with radius.
+Curvature and the chosen stage count still decide where detail is added; this
+is not a uniform 0.2 m grid over the whole globe. All subdivision selections,
+including the broad and river stages, skip triangles whose three corners are
+deeper than **10 m at the default 1 km radius** (0.01 radii). The ocean shader
+already hides the seabed by 9.5 m. Shore-crossing triangles retain detail, and
+shared-edge transition splits keep the deep/shallow boundary watertight.
+Positional and height smoothing fade between 6 and 10 m depth; deeper sites
+remain fixed, including during material-conservation corrections. These depth
+thresholds scale with the terrain radius. Frozen deep neighbours still supply
+boundary heights to shallow smoothing, avoiding an artificial rise along the
+coast. Cuts and fills are balanced by reducing the larger total, preserving
+material and the depth fade without lifting unrelated vertices.
+Erosion and inland-sea filling
+continue to operate independently of this detail selection.
+The broad stages add diminishing
+3D displacement; later adaptive stages interpolate the existing relief. Each broad/adaptive stage relaxes positions, smooths radial
 heights conservatively, and runs hydraulic/thermal erosion. River detail is
-added afterward, without re-routing or erosion between its subdivisions. Sea and land use
-the same smoothing rules. Final channels have flow-scaled widths, broad-bottomed
+added afterward, without re-routing or erosion between its subdivisions. Land and
+visible shallows share the conservative smoothing rules. Final channels have
+widths that grow downstream, broad-bottomed
 beds, and blended bank aprons with smoothed outlines. Terrain is cut before water is constructed.
+
+**Upstream narrowing** under **Rivers & seas** blends the previous catchment-only
+widths (0) with a source-to-mouth taper (1, the default). As in Island, growth
+combines accumulated flow and distance along the represented river network;
+headwaters and tributaries narrow while downstream channels retain their mouth
+widths. Widths are shared at junctions and interpolate along every reach, so the
+old early catchment cap no longer makes most of a river uniformly wide.
+
+Before river tessellation or waterfall placement, adjacent bank-ring vertices
+are pulled inward in the sphere's tangent directions. Centreline, junction-ring
+and submerged vertices stay fixed, radial heights are unchanged, and every move
+keeps a positive face-orientation margin. Bank shaping, refinement, waterfall
+span and final carving use one frozen width field. Finer local edge targets
+resolve narrow headwaters down to the existing 0.2 m spacing at the default
+radius. Later bank pinning, smoothing, upstream grading and waterfall alignment
+remain in their existing order. Change **Upstream narrowing**, then **Generate**;
+it is saved with the other settings. CLI: `--river-taper 0..1`.
+
+LOD selection and the streaming memory budget continue to control displayed
+and resident chunk detail. Generation still constructs the full detailed
+planet, so allowing more refinement increases generation time and CPU memory.
 Water triangles share the terrain topology, clip at actual bank intersections,
 and share cached edge vertices through confluences; they are not free-floating
 ribbons. Every water triangle is checked against its supporting bed plane, and exposed
 water edges above sea level must meet that plane.
 
-`--refinements`, `--smoothings`, `--river-refinements`, `--river-width`, and
+`--refinements`, `--smoothings`, `--river-refinements`, `--river-width`, `--river-taper`, and
 `--river-depth` control these stages. To inspect carving directly:
 
 ```sh

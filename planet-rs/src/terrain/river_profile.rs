@@ -176,12 +176,29 @@ pub(super) struct Profile {
     pub waterfalls: Vec<Waterfall>,
 }
 
+#[cfg(test)]
 pub(super) fn build(
     mesh: &PlanetMesh,
     heights: &[f64],
     drainage: &Drainage,
     rivers: &[RiverSegment],
-    settings: TerrainOptions,
+    settings: &TerrainOptions,
+) -> Profile {
+    let widths: Vec<_> = drainage
+        .catchment
+        .iter()
+        .map(|&q| super::river_widths::legacy(q, settings))
+        .collect();
+    with_widths(mesh, heights, drainage, rivers, settings, &widths)
+}
+
+pub(super) fn with_widths(
+    mesh: &PlanetMesh,
+    heights: &[f64],
+    drainage: &Drainage,
+    rivers: &[RiverSegment],
+    settings: &TerrainOptions,
+    widths: &[f64],
 ) -> Profile {
     let mut active = vec![false; heights.len()];
     let mut main_upstream = vec![None; heights.len()];
@@ -202,9 +219,7 @@ pub(super) fn build(
                 .clamp(1.0, 3.0)
                 .sqrt()
     };
-    let width = |i: usize| {
-        settings.river_width * (drainage.catchment[i] / threshold).sqrt().clamp(1.0, 3.0)
-    };
+    let width = |i: usize| widths[i];
     let junctions: Vec<_> = incoming
         .into_iter()
         .filter(|&(_, count)| count > 1)
@@ -410,8 +425,8 @@ mod tests {
                 drainage.receivers[river.from] = Some(river.to);
                 drainage.catchment[river.from] = river.catchment;
             }
-            let original = build(&mesh, &heights, &drainage, &rivers[..40], settings);
-            let moved = build(&mesh, &heights, &drainage, &rivers, settings);
+            let original = build(&mesh, &heights, &drainage, &rivers[..40], &settings);
+            let moved = build(&mesh, &heights, &drainage, &rivers, &settings);
             let first = moved
                 .waterfalls
                 .first()

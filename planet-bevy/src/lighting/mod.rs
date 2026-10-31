@@ -8,7 +8,8 @@ use bevy::{
 };
 
 #[allow(clippy::struct_excessive_bools)] // Independent renderer feature switches.
-#[derive(Resource, Clone, Copy, Debug, PartialEq)]
+#[derive(Resource, Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct LightingSettings {
     pub shadows: bool,
     pub shadow_distance: f32,

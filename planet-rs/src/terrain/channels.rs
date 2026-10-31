@@ -16,7 +16,7 @@ struct Reach {
     b: DVec3,
     water_a: f64,
     water_b: f64,
-    width: f64,
+    widths: [f64; 2],
     depth: f64,
     catchment: f64,
     /// Arc distance from the downstream endpoint to this river's sea outlet.
@@ -31,6 +31,7 @@ pub(super) struct Footprints<'a> {
     waterfalls: &'a [Waterfall],
     reach_waterfalls: Vec<Vec<usize>>,
     fall_stations: Vec<Option<BankStation>>,
+    tapered: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -56,12 +57,24 @@ pub(super) struct BankStation {
 }
 
 impl<'a> Footprints<'a> {
+    #[cfg(test)]
     pub fn new(
         mesh: &PlanetMesh,
         rivers: &[RiverSegment],
         levels: &[f64],
-        settings: TerrainOptions,
+        settings: &TerrainOptions,
         padding: f64,
+    ) -> Self {
+        Self::with_widths(mesh, rivers, levels, settings, padding, &[])
+    }
+
+    pub fn with_widths(
+        mesh: &PlanetMesh,
+        rivers: &[RiverSegment],
+        levels: &[f64],
+        settings: &TerrainOptions,
+        padding: f64,
+        widths: &[f64],
     ) -> Self {
         let mut result = Self {
             reaches: Vec::with_capacity(rivers.len()),
@@ -70,6 +83,7 @@ impl<'a> Footprints<'a> {
             waterfalls: &[],
             reach_waterfalls: Vec::new(),
             fall_stations: Vec::new(),
+            tapered: !widths.is_empty() && settings.river_taper > 0.0,
         };
         let threshold = settings.river_catchment * 4.0 * std::f64::consts::PI;
         for river in rivers {
@@ -81,13 +95,19 @@ impl<'a> Footprints<'a> {
                 b: mesh.directions[river.to],
                 water_a: levels[river.from],
                 water_b: levels[river.to],
-                width: settings.river_width * factor,
+                widths: [river.from, river.to].map(|i| {
+                    widths
+                        .get(i)
+                        .filter(|_| settings.river_taper > 0.0)
+                        .copied()
+                        .unwrap_or(settings.river_width * factor)
+                }),
                 depth: settings.river_depth * factor.sqrt(),
                 catchment: river.catchment,
                 outlet_distance: 0.0,
                 outlet: river.to,
             };
-            let margin = DVec3::splat(reach.width * 3.0 + padding);
+            let margin = DVec3::splat(reach.widths[0].max(reach.widths[1]) * 3.0 + padding);
             let min = result.key(reach.a.min(reach.b) - margin);
             let max = result.key(reach.a.max(reach.b) + margin);
             let id = result.reaches.len();
@@ -305,9 +325,10 @@ impl<'a> Footprints<'a> {
                 fall.surface_at(point).map(|surface| (i, fall, surface))
             })
             .min_by(|a, b| a.2.total_cmp(&b.2));
-        let ownership_ratio = distance / r.width;
-        let (distance, width) = patch.map_or((distance, r.width), |(_, fall, _)| {
-            fall.corridor_at(point, distance, r.width)
+        let width = r.widths[0] + (r.widths[1] - r.widths[0]) * t;
+        let ownership_ratio = distance / width;
+        let (distance, width) = patch.map_or((distance, width), |(_, fall, _)| {
+            fall.corridor_at(point, distance, width)
         });
         Sample {
             reach: id,
@@ -333,8 +354,11 @@ impl<'a> Footprints<'a> {
             .flatten()
             .filter_map(move |&id| {
                 let sample = self.sample(id, point);
-                (sample.ownership_ratio <= 3.0 + self.cell_size / self.reaches[id].width)
-                    .then_some(sample)
+                (sample.ownership_ratio
+                    <= 3.0
+                        + self.cell_size
+                            / self.reaches[id].widths[0].min(self.reaches[id].widths[1]))
+                .then_some(sample)
             })
     }
 
@@ -362,7 +386,11 @@ impl<'a> Footprints<'a> {
             .zip(&pins.widths)
             .map(|((&core, &bank), &width)| {
                 if core || bank {
-                    width.clamp(0.0015, 0.005)
+                    if self.tapered {
+                        (width * 0.5).clamp(0.0002, 0.005)
+                    } else {
+                        width.clamp(0.0015, 0.005)
+                    }
                 } else {
                     f64::INFINITY
                 }
@@ -537,7 +565,20 @@ impl<'a> Footprints<'a> {
             .iter()
             .map(|s| s.map_or_else(WaterfallBlend::default, |s| s.blend))
             .collect();
-        BankPins::new(graph, levels, &distances, widths, support).with_blends(blends)
+        let flows = samples
+            .iter()
+            .map(|sample| {
+                sample.map_or(DVec3::ZERO, |s| {
+                    s.fall.map_or_else(
+                        || self.reaches[s.reach].b - self.reaches[s.reach].a,
+                        |id| self.waterfalls[id].direction,
+                    )
+                })
+            })
+            .collect();
+        BankPins::new(graph, levels, &distances, widths, support)
+            .with_blends(blends)
+            .with_flows(flows)
     }
 
     #[cfg(test)]
@@ -637,6 +678,106 @@ impl<'a> Footprints<'a> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn final_water_surface_is_narrower_upstream_and_keeps_its_banks_in_contact() {
+        let mut mesh = PlanetMesh {
+            directions: Vec::new(),
+            triangles: Vec::new(),
+            radius: 1000.0,
+        };
+        for row in 0..21 {
+            for col in 0..9 {
+                mesh.directions.push(
+                    DVec3::new(
+                        (f64::from(col) - 1.0) * 0.004,
+                        (f64::from(row) - 10.0) * 0.0005,
+                        1.0,
+                    )
+                    .normalize(),
+                );
+            }
+        }
+        for row in 0..20 {
+            for col in 0..8 {
+                let a = row * 9 + col;
+                mesh.triangles
+                    .extend([[a, a + 1, a + 9], [a + 1, a + 10, a + 9]]);
+            }
+        }
+        let settings = TerrainOptions::default();
+        let q = settings.river_catchment * 4.0 * std::f64::consts::PI;
+        let rivers: Vec<_> = (91..97)
+            .map(|from| RiverSegment {
+                from,
+                to: from + 1,
+                catchment: q,
+            })
+            .collect();
+        let mut widths = vec![0.0; 189];
+        for col in 0..7 {
+            widths[91 + col] = 0.0005 + f64::from(u32::try_from(col).unwrap()) * 0.0005;
+        }
+        let footprint =
+            Footprints::with_widths(&mesh, &rivers, &[0.02; 189], &settings, 0.0, &widths);
+        let mut heights = vec![0.03; 189];
+        let mut soil = vec![0.002; 189];
+        footprint.carve(&mesh, &mut heights, &mut soil);
+        let graph = SurfaceGraph::new(&mesh);
+        let pins = footprint.bank_pins(&mesh, &graph, &heights);
+        let water = pins.into_water(&mesh, &heights);
+        let surface = super::super::water_mesh::build_with_sources(&mesh, &heights, &water).surface;
+        surface.validate(&mesh, &heights).unwrap();
+        let span = |col: f64| {
+            surface
+                .positions
+                .iter()
+                .filter_map(|p| {
+                    let n = p.normalize();
+                    ((n.x - col * 0.004).abs() < 0.0002).then_some(n.y.abs())
+                })
+                .fold(0.0_f64, f64::max)
+        };
+        assert!(span(1.0) > 0.0003);
+        assert!(
+            span(5.0) > span(1.0) * 1.8,
+            "the rendered surface must follow the narrower headwater footprint"
+        );
+    }
+
+    #[test]
+    fn tapered_reaches_interpolate_and_share_the_same_junction_width() {
+        let mesh = PlanetMesh {
+            directions: [0.0, 0.01, 0.02]
+                .map(|x| DVec3::new(x, 0.0, 1.0).normalize())
+                .to_vec(),
+            triangles: Vec::new(),
+            radius: 1000.0,
+        };
+        let settings = TerrainOptions::default();
+        let q = settings.river_catchment * 4.0 * std::f64::consts::PI;
+        let rivers = [
+            RiverSegment {
+                from: 0,
+                to: 1,
+                catchment: q,
+            },
+            RiverSegment {
+                from: 1,
+                to: 2,
+                catchment: q * 4.0,
+            },
+        ];
+        let widths = [0.0005, 0.002, 0.004];
+        let footprints =
+            Footprints::with_widths(&mesh, &rivers, &[0.04; 3], &settings, 0.0, &widths);
+        assert!((footprints.sample(0, mesh.directions[0]).width - widths[0]).abs() < 1e-12);
+        assert!((footprints.sample(0, mesh.directions[1]).width - widths[1]).abs() < 1e-12);
+        assert!((footprints.sample(1, mesh.directions[1]).width - widths[1]).abs() < 1e-12);
+        let middle = (mesh.directions[0] + mesh.directions[1]).normalize();
+        let w = footprints.sample(0, middle).width;
+        assert!(w > widths[0] && w < widths[1]);
+    }
+
     use super::*;
 
     fn sea_outlet_mesh() -> (PlanetMesh, [f64; 81]) {
@@ -706,7 +847,7 @@ mod tests {
             })
             .collect();
         let footprint =
-            Footprints::new(&mesh, &rivers, &levels, settings, 0.0).with_waterfalls(&falls);
+            Footprints::new(&mesh, &rivers, &levels, &settings, 0.0).with_waterfalls(&falls);
         let mut heights = original;
         let mut soil = [0.0; 81];
         footprint.carve(&mesh, &mut heights, &mut soil);
@@ -737,7 +878,7 @@ mod tests {
             ..settings
         };
         let (drains, _, _) =
-            drainage::carve(&mesh.directions, &graph, &mut heights, &mut soil, routing);
+            drainage::carve(&mesh.directions, &graph, &mut heights, &mut soil, &routing);
         pins.relax_river_support(&graph, &drains, &mut heights, &mut soil);
         let stations = footprint.bank_stations(&mesh, &pins);
         let edges = Footprints::upstream_banks(&mesh, &pins, &original, &heights, &stations);
@@ -747,7 +888,7 @@ mod tests {
             &mut heights,
             &mut soil,
             &edges,
-            routing,
+            &routing,
         )
         .unwrap();
         let openings: Vec<_> = pins
@@ -819,7 +960,7 @@ mod tests {
                     &mesh,
                     &rivers,
                     &vec![0.03; mesh.directions.len()],
-                    settings,
+                    &settings,
                     0.0,
                 );
                 let mut heights = vec![0.02; mesh.directions.len()];
@@ -893,7 +1034,7 @@ mod tests {
             lower_surface: 0.036,
             face_run: 0.0025,
         }];
-        let footprint = Footprints::new(&mesh, &rivers, &[0.04, 0.04, 0.04, 0.036], settings, 0.0)
+        let footprint = Footprints::new(&mesh, &rivers, &[0.04, 0.04, 0.04, 0.036], &settings, 0.0)
             .with_waterfalls(&falls);
         for x in [-0.0024, -0.00125, -0.0001] {
             for lateral in [0.0_f64, 0.0029, 0.0031] {
@@ -962,7 +1103,7 @@ mod tests {
                 },
             ],
             &[0.04, 0.036, 0.02, 0.02],
-            settings,
+            &settings,
             0.0,
         )
         .with_waterfalls(&falls);
@@ -1031,7 +1172,7 @@ mod tests {
                 face_run: 0.0025,
             }];
             let footprints =
-                Footprints::new(&mesh, &rivers, &levels, settings, 0.0).with_waterfalls(&falls);
+                Footprints::new(&mesh, &rivers, &levels, &settings, 0.0).with_waterfalls(&falls);
             for vertex in [4, 6, 7] {
                 assert!(falls[0].surface_at(mesh.directions[vertex]).is_some());
                 let sample = footprints.owner(mesh.directions[vertex]).unwrap();
@@ -1092,7 +1233,7 @@ mod tests {
             to: 1,
             catchment: settings.river_catchment * 4.0 * std::f64::consts::PI,
         };
-        let footprint = Footprints::new(&mesh, &[river], &[0.04; 3], settings, 0.0);
+        let footprint = Footprints::new(&mesh, &[river], &[0.04; 3], &settings, 0.0);
         assert!(
             footprint
                 .refinement_faces(&mesh, &graph, &[0.06; 3])
@@ -1107,7 +1248,7 @@ mod tests {
                 .collect(),
             ..mesh
         };
-        let footprint = Footprints::new(&coarse, &[river], &[0.04; 3], settings, 0.0);
+        let footprint = Footprints::new(&coarse, &[river], &[0.04; 3], &settings, 0.0);
         assert!(
             footprint
                 .refinement_faces(&coarse, &graph, &[0.06; 3])
@@ -1139,7 +1280,7 @@ mod tests {
             to: 1,
             catchment: threshold,
         };
-        let footprint = Footprints::new(&mesh, &[river], &[0.04; 5], settings, 0.0);
+        let footprint = Footprints::new(&mesh, &[river], &[0.04; 5], &settings, 0.0);
         let mut heights = vec![0.06, 0.06, 0.045, 0.08, 0.07];
         let (before, banks) = footprint.water_field(&mesh, &graph, &heights);
         footprint.carve(&mesh, &mut heights, &mut [0.002; 5]);

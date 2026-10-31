@@ -28,6 +28,20 @@ fn flat_weight(normal: DVec3, up: DVec3) -> f64 {
     flat * flat * (3.0 - 2.0 * flat)
 }
 
+fn river_flat_weight(normal: DVec3, up: DVec3, flow: DVec3) -> f64 {
+    let tangent = (flow - up * flow.dot(up)).normalize_or_zero();
+    if tangent == DVec3::ZERO || !normal.is_finite() {
+        return flat_weight(normal, up);
+    }
+    // Only the normal's downstream component describes a falling water face.
+    // A steep cross-channel bank must keep the planned water level rather than
+    // acquiring a film of water up its side. For a longitudinal ramp this is
+    // exactly the original inclination blend, including its gentle flat toe.
+    let along = normal.dot(tangent).clamp(-1.0, 1.0);
+    let flat = (1.0 - along * along).max(0.0).sqrt();
+    flat * flat * (3.0 - 2.0 * flat)
+}
+
 pub(super) struct BankPins {
     pub levels: Vec<f64>,
     pub widths: Vec<f64>,
@@ -37,6 +51,7 @@ pub(super) struct BankPins {
     pub sea_openings: Vec<bool>,
     support: Vec<bool>,
     blends: Vec<WaterfallBlend>,
+    flows: Vec<DVec3>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -93,12 +108,36 @@ impl BankPins {
             sea_openings,
             support,
             blends: Vec::new(),
+            flows: Vec::new(),
         }
     }
 
     pub fn with_blends(mut self, blends: Vec<WaterfallBlend>) -> Self {
         self.blends = blends;
         self
+    }
+
+    pub fn with_flows(mut self, flows: Vec<DVec3>) -> Self {
+        self.flows = flows;
+        self
+    }
+
+    fn water_weight(&self, i: usize, normal: DVec3, up: DVec3) -> f64 {
+        river_flat_weight(normal, up, self.flows.get(i).copied().unwrap_or_default())
+    }
+
+    /// Submerged river mouths remain openings, including beneath a frozen
+    /// waterfall footprint. Bank support must not dam them after excavation.
+    pub fn preserve_ocean(&mut self, heights: &[f64]) {
+        for (i, &height) in heights.iter().enumerate() {
+            if height < 0.0 {
+                self.sea_openings[i] = true;
+                self.core[i] = false;
+                self.boundary[i] = false;
+                self.support[i] = false;
+                self.levels[i] = 0.0;
+            }
+        }
     }
 
     fn blend(&self, vertex: usize) -> WaterfallBlend {
@@ -199,8 +238,11 @@ impl BankPins {
             .iter()
             .enumerate()
             .map(|(i, &height)| {
-                let water =
-                    self.water_level(i, height, flat_weight(normals[i], mesh.directions[i]));
+                let water = self.water_level(
+                    i,
+                    height,
+                    self.water_weight(i, normals[i], mesh.directions[i]),
+                );
                 water > 0.0 && (1.0 + water) / (1.0 + height) - 1.0 > 1.0e-10
             })
             .collect();
@@ -490,6 +532,14 @@ impl BankPins {
         };
         let hugging = height + FALL_CLEARANCE;
         let water = hugging + (regular - hugging) * flat;
+        // On ordinary reaches the planned profile is also a ceiling: terrain
+        // above it is dry land, even inside the footprint. Actual waterfall
+        // supports must keep their clearance if final bank grading lifts them.
+        let water = if self.support[i] {
+            water
+        } else {
+            water.min(regular)
+        };
         // A dry bank is the water/terrain contact. Preserve that contact even
         // when its adjacent river face is steep, rather than wetting the rim.
         if self.boundary[i] {
@@ -505,8 +555,11 @@ impl BankPins {
         // used for every vertex, independent of patch masks and update order.
         let normals = super::normals(mesh, heights);
         for (i, &height) in heights.iter().enumerate() {
-            self.levels[i] =
-                self.water_level(i, height, flat_weight(normals[i], mesh.directions[i]));
+            self.levels[i] = self.water_level(
+                i,
+                height,
+                self.water_weight(i, normals[i], mesh.directions[i]),
+            );
         }
         self.levels
     }
@@ -516,6 +569,120 @@ impl BankPins {
 mod tests {
     use super::*;
     use crate::DVec3;
+
+    #[test]
+    fn sideways_banks_stay_dry_while_downstream_faces_keep_their_clearance() {
+        let (_, graph, _) = fixture();
+        for up in [
+            DVec3::X,
+            -DVec3::X,
+            DVec3::Y,
+            -DVec3::Y,
+            DVec3::Z,
+            -DVec3::Z,
+        ] {
+            let flow = up.any_orthonormal_vector();
+            let side = up.cross(flow);
+            let mut pins = BankPins::new(
+                &graph,
+                vec![0.04; 8],
+                &[1.0; 8],
+                vec![0.003; 8],
+                vec![false; 8],
+            )
+            .with_flows(vec![flow; 8]);
+            for height in [0.035, 0.039, 0.05] {
+                for tilt in [0.0_f64, 0.5, 0.99, 1.0] {
+                    let normal = up * tilt + side * (1.0 - tilt * tilt).sqrt();
+                    let water = pins.water_level(0, height, pins.water_weight(0, normal, up));
+                    assert!(
+                        (water - 0.04).abs() < 1e-12,
+                        "lateral slope must not wet the bank"
+                    );
+                    let falling = up * tilt + flow * (1.0 - tilt * tilt).sqrt();
+                    assert!(
+                        (pins.water_weight(0, falling, up) - flat_weight(falling, up)).abs()
+                            < 1e-12,
+                        "longitudinal ramps must preserve the original smooth waterfall blend"
+                    );
+                }
+                let face = pins.water_level(0, height, pins.water_weight(0, flow, up));
+                assert!((face - (height + FALL_CLEARANCE).min(0.04)).abs() < 1e-12);
+                pins.support[0] = true;
+                let raised_face = pins.water_level(0, height, pins.water_weight(0, flow, up));
+                assert!((raised_face - height - FALL_CLEARANCE).abs() < 1e-12);
+                pins.support[0] = false;
+            }
+        }
+    }
+
+    #[test]
+    fn steep_gully_water_stays_across_the_bed_instead_of_climbing_the_sides() {
+        use super::super::water_mesh;
+
+        for south in [false, true] {
+            let mut mesh = PlanetMesh {
+                directions: Vec::new(),
+                triangles: Vec::new(),
+                radius: 1000.0,
+            };
+            let mut heights = Vec::new();
+            let mut flows = Vec::new();
+            // Close the gully around the equator so there are no artificial
+            // wet mesh boundaries at its ends; every water edge is a real bank.
+            for row in 0..128 {
+                let x = f64::from(row) * std::f64::consts::TAU / 128.0;
+                for y in [-0.004_f64, -0.003, -0.001, 0.0, 0.001, 0.003, 0.004] {
+                    let p = DVec3::new(x.cos() * y.cos(), x.sin() * y.cos(), y.sin());
+                    let flow = DVec3::new(-x.sin(), x.cos(), 0.0);
+                    mesh.directions.push(if south { -p } else { p });
+                    flows.push(if south { -flow } else { flow });
+                    heights.push(if y.abs() > 0.002 { 0.05 } else { 0.035 });
+                }
+            }
+            for row in 0..128 {
+                for column in 0..6 {
+                    let i = row * 7 + column;
+                    let next = ((row + 1) % 128) * 7 + column;
+                    let faces = [[i, next, i + 1], [i + 1, next, next + 1]];
+                    mesh.triangles
+                        .extend(faces.map(|[a, b, c]| if south { [a, c, b] } else { [a, b, c] }));
+                }
+            }
+            let graph = SurfaceGraph::new(&mesh);
+            // Deliberately cover the steep sides with the geometric footprint:
+            // high interior vertices must be clipped dry, not coated with water.
+            let pins = BankPins::new(
+                &graph,
+                vec![0.04; 896],
+                &[1.0; 896],
+                vec![0.005; 896],
+                vec![false; 896],
+            )
+            .with_flows(flows);
+            let water = pins.into_water(&mesh, &heights);
+            for (&water, &height) in water.iter().zip(&heights) {
+                assert!((water - 0.04).abs() < 1e-6);
+                if height > 0.04 {
+                    assert!(water < height, "the high bank must remain dry");
+                }
+            }
+            let surface = water_mesh::build(&mesh, &heights, &water);
+            surface.validate(&mesh, &heights).unwrap();
+            assert!(!surface.triangles.is_empty());
+            for face in &surface.triangles {
+                for &id in face {
+                    assert!(surface.positions[id as usize].length() < 1.040_001);
+                }
+                let [a, b, c] = face.map(|id| surface.positions[id as usize]);
+                let normal = (b - a).cross(c - a).normalize();
+                assert!(
+                    normal.dot(a.normalize()) > 0.99,
+                    "water must not have sideways walls"
+                );
+            }
+        }
+    }
 
     #[test]
     fn inclination_controls_water_height_globally_at_every_radial_orientation() {
@@ -936,7 +1103,7 @@ mod tests {
                 &graph,
                 &mut heights,
                 &mut soil,
-                TerrainOptions {
+                &TerrainOptions {
                     river_depth: 0.0,
                     ..TerrainOptions::default()
                 },

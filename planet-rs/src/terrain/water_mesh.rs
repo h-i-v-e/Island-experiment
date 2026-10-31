@@ -188,10 +188,9 @@ fn bank_source(
     }
 }
 
-#[allow(clippy::cast_possible_truncation)]
 fn append(surface: &mut RiverSurface, point: DVec3) -> u32 {
-    // Input geometry is bounded to two million vertices.
-    let id = surface.positions.len() as u32;
+    let id =
+        u32::try_from(surface.positions.len()).expect("river surface exceeds u32 index format");
     surface.positions.push(point);
     id
 }

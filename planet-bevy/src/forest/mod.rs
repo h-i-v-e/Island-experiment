@@ -28,7 +28,8 @@ impl Plugin for ForestPlugin {
             .init_resource::<Forests>();
     }
 }
-#[derive(Resource, Clone, Copy)]
+#[derive(Resource, Clone, Copy, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct ForestSettings {
     pub enabled: bool,
     pub distance: f32,

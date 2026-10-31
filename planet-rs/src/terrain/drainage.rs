@@ -143,7 +143,7 @@ impl Drainage {
         }
     }
 
-    fn rivers(&self, options: TerrainOptions) -> Vec<RiverSegment> {
+    fn rivers(&self, options: &TerrainOptions) -> Vec<RiverSegment> {
         let threshold = options.river_catchment * 4.0 * std::f64::consts::PI;
         self.receivers
             .iter()
@@ -170,7 +170,7 @@ pub(super) fn lift_banks(
     heights: &mut [f64],
     soil: &mut [f64],
     upstream_banks: &[(usize, usize)],
-    options: TerrainOptions,
+    options: &TerrainOptions,
 ) -> Result<(Drainage, Vec<RiverSegment>), PlanetError> {
     let count = heights.len();
     let mut upstream = HashMap::<usize, Vec<usize>>::new();
@@ -258,7 +258,7 @@ pub(super) fn carve(
     graph: &SurfaceGraph,
     heights: &mut [f64],
     soil: &mut [f64],
-    options: TerrainOptions,
+    options: &TerrainOptions,
 ) -> (Drainage, Vec<RiverSegment>, f64) {
     let mut drainage = route(directions, graph, heights);
     let threshold = options.river_catchment * 4.0 * std::f64::consts::PI;
@@ -289,7 +289,7 @@ pub(super) fn repair(
     graph: &SurfaceGraph,
     heights: &mut [f64],
     soil: &mut [f64],
-    options: TerrainOptions,
+    options: &TerrainOptions,
     drainage: &mut Drainage,
     depths: &mut [f64],
 ) -> (Vec<RiverSegment>, f64) {
@@ -357,7 +357,7 @@ mod tests {
             &mut heights,
             &mut soil,
             &edges,
-            TerrainOptions::default(),
+            &TerrainOptions::default(),
         )
         .unwrap();
         for (down, up) in edges {
@@ -412,7 +412,7 @@ mod tests {
             &graph,
             &mut heights,
             &mut vec![0.002; 64],
-            TerrainOptions::default(),
+            &TerrainOptions::default(),
         );
         for start in 0..64 {
             let mut current = start;
@@ -444,7 +444,7 @@ mod tests {
                 &graph,
                 &mut heights,
                 &mut vec![0.002; 32],
-                TerrainOptions::default(),
+                &TerrainOptions::default(),
             );
             assert!(drains.receivers.iter().all(Option::is_none));
             assert!(rivers.is_empty());

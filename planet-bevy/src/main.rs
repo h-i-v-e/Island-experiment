@@ -14,6 +14,7 @@ mod lighting;
 mod lod_material;
 mod ocean;
 mod panel;
+mod preferences;
 mod solar;
 mod streaming;
 mod surface;
@@ -38,7 +39,7 @@ use bevy::{
     winit::WinitPlugin,
 };
 use bevy_egui::{EguiPlugin, EguiPrimaryContextPass, PrimaryEguiContext, input::EguiWantsInput};
-use command::{BedView, Command, GenerationMode, RiverDisplay, View};
+use command::{BedView, GenerationMode, RiverDisplay, View};
 use planet_rs::PlanetTerrain;
 
 #[derive(Resource, Clone)]
@@ -89,10 +90,15 @@ fn main() {
 
 #[allow(clippy::too_many_lines)] // Viewer plugin and system registration.
 fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let Some(command) = Command::parse(std::env::args().skip(1))? else {
+    let Some(startup) = preferences::startup(std::env::args().skip(1))? else {
         println!("{}", command::HELP);
         return Ok(());
     };
+    let preferences::Startup {
+        command,
+        draft,
+        store,
+    } = startup;
     let started = Instant::now();
     let configuration = panel::Settings::from(&command);
     let chunk_settings = command.streaming;
@@ -121,6 +127,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     // identically for tiny and astronomical physical radii. Export retains units.
     let capturing = command.screenshot.is_some();
     let mut app = App::new();
+    let mut parameters = panel::Panel::new(
+        &configuration,
+        command.panel == command::PanelVisibility::Hidden,
+    );
+    parameters.restore_draft(&draft, command.view);
     app.add_plugins((
         viewer_plugins(capturing),
         EguiPlugin::default(),
@@ -143,15 +154,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         auto_create_primary_context: false,
         ..default()
     })
-    .insert_resource(panel::Panel::new(
-        configuration,
-        command.panel == command::PanelVisibility::Hidden,
-    ))
+    .insert_resource(parameters)
     .init_resource::<panel::Refresh>()
     .init_resource::<streaming::ChunkWorld>()
     .init_resource::<streaming::StreamingStats>()
     .add_systems(Startup, terrain_material::setup)
     .insert_resource(chunk_settings)
+    .insert_resource(command.details)
     .insert_resource(command.lighting)
     .insert_resource(command.ocean)
     .insert_resource(command.water)
@@ -172,7 +181,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         river_display: command.rivers,
         no_ocean: command.no_ocean,
         wireframe: command.wireframe,
-        smooth: command.generation == GenerationMode::Terrain,
+        smooth: command
+            .smooth
+            .unwrap_or(command.generation == GenerationMode::Terrain),
     })
     .insert_resource(InitialOrbit(initial_orbit))
     .add_systems(Startup, setup)
@@ -198,6 +209,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         EguiPrimaryContextPass,
         (panel::draw, panel::apply_view).chain(),
     );
+    if let Some(store) = store {
+        app.insert_resource(store);
+    }
+    app.add_systems(Last, preferences::remember);
     if let Some(path) = command.screenshot {
         app.add_plugins(ScheduleRunnerPlugin::run_loop(Duration::from_millis(5)))
             .add_plugins(capture::CapturePlugin { path });
@@ -249,11 +264,25 @@ fn print_terrain_stats(terrain: &PlanetTerrain) {
         stats.water_triangles
     );
     println!("Ocean: {} connected component(s)", stats.sea_components);
+    println!(
+        "Sea coverage (sphere-area estimate): {:.1}%",
+        stats.submerged_area_fraction * 100.0
+    );
     println!("Waterfalls: {}", terrain.waterfalls.len());
+    println!(
+        "Geology: {} volcanic cones, {} impact craters",
+        terrain.volcanoes.len(),
+        terrain.impact_craters.len()
+    );
     for pass in &terrain.ocean_passes {
         println!(
-            "Ocean {:?}: {} -> {} seas, {} channel(s), {} sites",
-            pass.stage, pass.seas_before, pass.seas_after, pass.channels, pass.vertices
+            "Ocean {:?}: {} -> {} seas, {} inland sea(s) filled, {} raised / {} sites",
+            pass.stage,
+            pass.seas_before,
+            pass.seas_after,
+            pass.filled_seas,
+            pass.filled_vertices,
+            pass.vertices
         );
     }
 }
@@ -338,6 +367,86 @@ fn setup(
     if let Some(target) = target {
         ui_camera.insert(target.render_target());
     }
+}
+
+fn geology_orbit(view: View, terrain: &PlanetTerrain, sun: planet_rs::DVec3) -> Option<Orbit> {
+    if view == View::Mountains {
+        return mountain_orbit(terrain, sun);
+    }
+    let candidates: Vec<_> = match view {
+        View::Volcanoes => terrain
+            .volcanoes
+            .iter()
+            .map(|v| (v.centre, v.angular_radius))
+            .collect(),
+        View::Craters => terrain
+            .impact_craters
+            .iter()
+            .map(|c| (c.centre, c.angular_radius * 1.8))
+            .collect(),
+        _ => return None,
+    };
+    let ground = |p: planet_rs::DVec3| {
+        terrain
+            .topology
+            .directions
+            .iter()
+            .enumerate()
+            .max_by(|a, b| a.1.dot(p).total_cmp(&b.1.dot(p)))
+            .map_or(0.0, |(i, _)| terrain.elevations[i])
+    };
+    let pick = |daylight: bool| {
+        candidates
+            .iter()
+            .filter(|&&(p, _)| (!daylight || p.dot(sun) > 0.3) && ground(p) > 0.001)
+            .max_by(|a, b| a.1.total_cmp(&b.1))
+            .copied()
+    };
+    let (p, r) = pick(true).or_else(|| pick(false))?;
+    let up = surface::vector(p);
+    let frame = Quat::from_rotation_arc(Vec3::Y, up);
+    let light = frame.inverse() * surface::vector(sun);
+    #[allow(clippy::cast_possible_truncation)] // Normalized rendering coordinates.
+    let (height, distance) = (
+        ground(p).max(0.0) as f32,
+        (r * 5.0).clamp(0.025, 0.9) as f32,
+    );
+    Some(Orbit {
+        focus: up * (1.0 + height),
+        frame,
+        yaw: light.x.atan2(light.z),
+        pitch: 0.85,
+        distance,
+        minimum: 0.005,
+        maximum: 4.0,
+    })
+}
+
+fn mountain_orbit(terrain: &PlanetTerrain, sun: planet_rs::DVec3) -> Option<Orbit> {
+    let best = |daylight: bool| {
+        terrain
+            .elevations
+            .iter()
+            .enumerate()
+            .filter(|(i, h)| {
+                **h > 0.0 && (!daylight || terrain.topology.directions[*i].dot(sun) > 0.3)
+            })
+            .max_by(|a, b| a.1.total_cmp(b.1))
+            .map(|(i, _)| i)
+    };
+    let i = best(true).or_else(|| best(false))?;
+    let up = surface::vector(terrain.topology.directions[i]);
+    let frame = Quat::from_rotation_arc(Vec3::Y, up);
+    let light = frame.inverse() * surface::vector(sun);
+    Some(Orbit {
+        focus: surface::vector(terrain.normalized_position(i)),
+        frame,
+        yaw: light.x.atan2(light.z),
+        pitch: 0.85,
+        distance: 0.45,
+        minimum: 0.005,
+        maximum: 4.0,
+    })
 }
 
 #[allow(clippy::cast_possible_truncation)] // Rendering uses normalized f32 positions.
@@ -450,6 +559,13 @@ fn environment_orbit(
     terrain: &PlanetTerrain,
     settings: &environment::EnvironmentSettings,
 ) -> Option<Orbit> {
+    if matches!(view, View::Mountains | View::Volcanoes | View::Craters) {
+        return geology_orbit(
+            view,
+            terrain,
+            planet_rs::DVec3::from_array(settings.sun_direction().to_array().map(f64::from)),
+        );
+    }
     if !matches!(view, View::Sky | View::Clouds) {
         return None;
     }
@@ -590,5 +706,91 @@ fn update_edges(
         } else if !scene.wireframe && enabled {
             commands.entity(entity).remove::<Wireframe>();
         }
+    }
+}
+
+#[cfg(test)]
+mod mountain_view_tests {
+    use super::*;
+    #[test]
+    fn crater_inspection_requires_a_dry_floor_and_returns_none_for_submerged_impacts() {
+        let mut terrain = planet_rs::generate_terrain(
+            planet_rs::PlanetOptions {
+                vertex_count: 128,
+                ..default()
+            },
+            planet_rs::TerrainOptions {
+                relief: 0.0,
+                land_bias: 0.2,
+                impacts: planet_rs::ImpactOptions {
+                    enabled: true,
+                    ..default()
+                },
+                refinement_passes: 1,
+                river_refinement_passes: 0,
+                hydraulic_passes: 0,
+                thermal_passes: 0,
+                smoothing_passes: 0,
+                connect_seas: false,
+                ..default()
+            },
+        )
+        .unwrap();
+        let orbit = geology_orbit(View::Craters, &terrain, planet_rs::DVec3::Y).unwrap();
+        assert!(orbit.focus.length() > 1.01);
+        assert!(
+            terrain
+                .impact_craters
+                .iter()
+                .any(|c| surface::vector(c.centre).dot(orbit.focus.normalize()) > 0.99999)
+        );
+        terrain.elevations.fill(-0.1);
+        assert!(geology_orbit(View::Craters, &terrain, planet_rs::DVec3::Y).is_none());
+        assert!(geology_orbit(View::Front, &terrain, planet_rs::DVec3::Y).is_none());
+    }
+
+    #[test]
+    fn inspection_chooses_a_peak_lit_by_the_actual_sun_and_handles_a_water_world() {
+        let mut terrain = planet_rs::generate_terrain(
+            planet_rs::PlanetOptions {
+                vertex_count: 32,
+                ..default()
+            },
+            planet_rs::TerrainOptions {
+                relief: 0.0,
+                land_bias: -0.1,
+                hydraulic_passes: 0,
+                thermal_passes: 0,
+                refinement_passes: 0,
+                river_refinement_passes: 0,
+                smoothing_passes: 0,
+                connect_seas: false,
+                ..default()
+            },
+        )
+        .unwrap();
+        let points = &terrain.topology.directions;
+        let positive = (0..points.len())
+            .max_by(|&a, &b| points[a].x.total_cmp(&points[b].x))
+            .unwrap();
+        let negative = (0..points.len())
+            .min_by(|&a, &b| points[a].x.total_cmp(&points[b].x))
+            .unwrap();
+        terrain.elevations[positive] = 0.06;
+        terrain.elevations[negative] = 0.08;
+        let a = mountain_orbit(&terrain, planet_rs::DVec3::X).unwrap();
+        let b = mountain_orbit(&terrain, -planet_rs::DVec3::X).unwrap();
+        assert!(
+            a.focus
+                .distance(surface::vector(terrain.normalized_position(positive)))
+                < 1.0e-6
+        );
+        assert!(
+            b.focus
+                .distance(surface::vector(terrain.normalized_position(negative)))
+                < 1.0e-6
+        );
+        terrain.elevations.fill(-0.1);
+        assert!(mountain_orbit(&terrain, planet_rs::DVec3::X).is_none());
     }
 }
