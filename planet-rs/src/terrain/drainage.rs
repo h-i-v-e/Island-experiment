@@ -43,7 +43,7 @@ impl PartialOrd for State {
     }
 }
 
-fn route(directions: &[DVec3], graph: &SurfaceGraph, heights: &[f64]) -> Drainage {
+pub(super) fn route(directions: &[DVec3], graph: &SurfaceGraph, heights: &[f64]) -> Drainage {
     let count = heights.len();
     let mut receivers = vec![None; count];
     let mut spills = vec![f64::INFINITY; count];

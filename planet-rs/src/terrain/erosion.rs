@@ -20,6 +20,10 @@ pub(super) fn erode(
     thermal(directions, graph, heights, soil, options.thermal_passes);
 }
 
+pub(super) fn bedrock_rate(hardness: f64) -> f64 {
+    0.08 + 0.92 * (1.0 - hardness).powi(2)
+}
+
 /// Spherical adaptation of Island's sequential reference paths. Each path sees
 /// the changes made by previous paths: converging flows develop actual gullies
 /// rather than applying a single simultaneous height delta. Sediment is carried
@@ -145,7 +149,7 @@ impl<'a> HydraulicPaths<'a> {
                                 )
                                 .min(drop * 0.2 * self.graph.areas[current]);
                         let loose = requested.min(self.soil[current] * self.graph.areas[current]);
-                        let rock_rate = 0.08 + 0.92 * (1.0 - self.hardness[current]).powi(2);
+                        let rock_rate = bedrock_rate(self.hardness[current]);
                         let removed = loose + (requested - loose) * rock_rate;
                         self.heights[current] -= removed / self.graph.areas[current];
                         self.soil[current] =

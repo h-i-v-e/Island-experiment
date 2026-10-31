@@ -14,6 +14,7 @@ mod random;
 mod refine;
 mod river_banks;
 mod river_profile;
+mod river_stages;
 mod river_widths;
 mod tectonics;
 mod water_mesh;
@@ -284,6 +285,7 @@ impl PlanetTerrain {
             settings,
             tectonics: tectonic_field,
             impacts: impacts::ImpactField::new(seed, settings.impacts, topology.directions.len()),
+            river_exported: 0.0,
         };
         let mut ocean_passes = Vec::new();
         formation.initialize(
@@ -341,7 +343,7 @@ impl PlanetTerrain {
             soil_depth,
             drainage: channels.drainage,
             rivers: channels.rivers,
-            incised_material: channels.incised_material,
+            incised_material: channels.incised_material + formation.river_exported,
             channel_depths: channels.channel_depths,
             bank_lifts: channels.bank_lifts,
             bank_added_material: channels.bank_added_material,
@@ -772,6 +774,7 @@ struct Formation<'a> {
     settings: &'a TerrainOptions,
     tectonics: Option<&'a tectonics::TectonicField>,
     impacts: impacts::ImpactField,
+    river_exported: f64,
 }
 
 impl Formation<'_> {
@@ -802,6 +805,9 @@ impl Formation<'_> {
             soil,
             self.settings,
         );
+        self.river_exported +=
+            river_stages::carve(topology, &graph, elevations, hardness, soil, self.settings)
+                .exported;
         ocean::fill_stage(
             topology,
             &graph,
@@ -827,6 +833,7 @@ fn refine_stages(
         settings,
         tectonics: tectonic_field,
         impacts,
+        river_exported,
     } = formation;
     let settings = *settings;
     let seed = *seed;
@@ -892,6 +899,15 @@ fn refine_stages(
             soil_depth,
             settings,
         );
+        *river_exported += river_stages::carve(
+            topology,
+            &graph,
+            elevations,
+            bedrock_hardness,
+            soil_depth,
+            settings,
+        )
+        .exported;
         refinement_vertices.push(topology.directions.len());
         let stage = match pass {
             0 => OceanStage::Lod2,

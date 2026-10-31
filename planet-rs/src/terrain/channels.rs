@@ -483,37 +483,45 @@ impl<'a> Footprints<'a> {
     pub fn carve(&self, mesh: &PlanetMesh, heights: &mut [f64], soil: &mut [f64]) {
         for i in 0..heights.len() {
             let original = heights[i];
-            let mut target = original;
-            if let Some(Sample {
-                distance,
-                width,
-                depth,
-                water,
-                pinned,
-                ..
-            }) = self.owner(mesh.directions[i])
-            {
-                let x = distance / width;
-                if x < 1.0 {
-                    let clearance = if water <= 0.0 {
-                        // Below the last fall, retain a submerged channel /
-                        // plunge pool, rather than the face's thin 3cm film.
-                        depth.max(super::banks::FALL_CLEARANCE) * (1.0 - x.powi(4))
-                    } else if pinned {
-                        0.00003
-                    } else {
-                        depth * (1.0 - x.powi(4))
-                    };
-                    target = target.min(water - clearance);
-                } else if x < 2.5 {
-                    let t = ((x - 1.0) / 1.5).clamp(0.0, 1.0);
-                    let blend = t * t * (3.0 - 2.0 * t);
-                    target = target.min(water + (original - water) * blend);
-                }
-            }
+            let (target, _) = self.bed_target(mesh.directions[i], original);
             heights[i] = target;
             soil[i] = (soil[i] - (original - target)).max(0.0);
         }
+    }
+
+    /// Target terrain height and whether this is the protected channel core.
+    pub fn bed_target(&self, direction: DVec3, original: f64) -> (f64, bool) {
+        let mut target = original;
+        let mut core = false;
+        if let Some(Sample {
+            distance,
+            width,
+            depth,
+            water,
+            pinned,
+            ..
+        }) = self.owner(direction)
+        {
+            let x = distance / width;
+            if x < 1.0 {
+                core = true;
+                let clearance = if water <= 0.0 {
+                    // Below the last fall, retain a submerged channel /
+                    // plunge pool, rather than the face's thin 3cm film.
+                    depth.max(super::banks::FALL_CLEARANCE) * (1.0 - x.powi(4))
+                } else if pinned {
+                    0.00003
+                } else {
+                    depth * (1.0 - x.powi(4))
+                };
+                target = target.min(water - clearance);
+            } else if x < 2.5 {
+                let t = ((x - 1.0) / 1.5).clamp(0.0, 1.0);
+                let blend = t * t * (3.0 - 2.0 * t);
+                target = target.min(water + (original - water) * blend);
+            }
+        }
+        (target, core)
     }
 
     fn field_samples(&self, mesh: &PlanetMesh, graph: &SurfaceGraph) -> Vec<Option<Sample>> {

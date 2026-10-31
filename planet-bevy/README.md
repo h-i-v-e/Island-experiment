@@ -76,6 +76,16 @@ The moving rock-mask coordinate frame uses one shared 48-byte GPU buffer. Patch
 updates keep terrain and grass material bindings intact instead of rewriting the
 coordinate frame on every material.
 
+After initial erosion and each terrain refinement stage, a fresh river network
+excavates channels without adding river tessellation, waterfalls or water meshes.
+Loose soil is removed before hardness-dependent bedrock. Excavated volume flows
+downstream, with up to 70% available to gentle alluvial banks and the remainder
+feeding coastal fans. Channel cores stay clear of deposits; fill heights are
+limited by local cell spacing to avoid sediment spikes. Material leaving the
+bounded coastal fan is recorded as export to the unresolved ocean. These passes
+use the existing river depth, width, taper and catchment controls. Inland-sea
+filling follows each pass, before the final detailed river carve.
+
 River finishing now ports the original Island generator's fixed downstream
 profiles, five-segment gradient response, terrace spacing, and waterfall lip /
 face / landing construction into radial heights and local tangent planes.

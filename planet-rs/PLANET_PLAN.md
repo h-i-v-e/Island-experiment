@@ -171,7 +171,11 @@ original radius and water meshes fitted to the final carved terrain. Smooth
 normals, elevation/slope/material colours, opposite-hemisphere capture, and
 sea/river visibility controls support inspection. Two broad conforming subdivisions followed by curvature-selected refinements,
 tangent-plane positional relaxation and conservative radial smoothing, and
-sequential momentum/sediment erosion stages are followed by up to three width-targeted
+sequential momentum/sediment erosion stages now also excavate river corridors
+and carry their sediment to alluvial banks and bounded coastal fans. These
+intermediate passes rebuild routing without adding river mesh detail or
+waterfalls, and include any exported remainder in the material ledger. They
+are followed by up to three width-targeted
 river-corridor subdivisions with a two-ring apron, separate waterfall-patch
 and final-face detail tiers,
 Island's stepped river profiles and waterfall patches in local tangent frames,
