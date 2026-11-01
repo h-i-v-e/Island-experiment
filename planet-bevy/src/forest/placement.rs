@@ -12,7 +12,7 @@ use std::f32::consts::TAU;
 pub(super) const VARIANTS: usize = 4;
 const SPACING: f32 = 10.0;
 const MAX_CANDIDATES: usize = 200_000;
-const MAX_TREES: usize = 24_000;
+const MAX_TREES: usize = 64_000;
 
 pub(super) struct Plant {
     pub transform: Transform,
@@ -29,17 +29,19 @@ pub(super) struct Built {
     pub pixels: Vec<u8>,
 }
 
-pub(super) fn build(scene: Scene, shared: Option<Ground>) -> Built {
+pub(super) fn build(scene: Scene, shared: Option<Ground>, density: f32) -> Built {
     let ground = shared.unwrap_or_else(|| Ground::new(&scene));
     let radius = scene.terrain.topology.radius as f32;
-    let count = ((4.0 * std::f32::consts::PI * radius * radius / SPACING.powi(2)) as usize)
+    let base_count = ((4.0 * std::f32::consts::PI * radius * radius / SPACING.powi(2)) as usize)
         .clamp(32, MAX_CANDIDATES);
+    let count = (base_count as f32 * density) as usize;
+    let mut accepted = 0;
     let locator = CellLocator::new(2).expect("fixed forest cell depth");
     let original = scene.bed == BedView::Original;
     let mut plants = Vec::new();
     for index in 0..count {
         let up = candidate(index, count, scene.seed);
-        if coverage(up * radius, scene.seed) < 0.60 {
+        if coverage(up * radius, scene.seed) < 0.58 {
             continue;
         }
         let Some((point, normal, material)) = ground.forest_sample(&scene.terrain, up, original)
@@ -65,11 +67,17 @@ pub(super) fn build(scene: Scene, shared: Option<Ground>) -> Built {
             continue;
         }
         let key = mix(scene.seed ^ index as u64 ^ 0x7472_6565_726f_6f74);
-        let scale = 1.0 + unit(key) * 0.60;
+        let temperature = mean_temperature(up, (point.length() - 1.0) * radius, scene.seed);
+        let survival = ((temperature + 10.0) / 6.0).clamp(0.0, 1.0);
+        if unit(mix(key ^ 0x626f_7265_616c)) > survival {
+            continue;
+        }
+        let conifer = unit(mix(key ^ 0x7069_6e65)) < conifer_weight(temperature);
+        let scale = (1.0 + unit(key) * 0.60) * (0.70 + 0.30 * survival);
         let rotation =
             Quat::from_rotation_arc(Vec3::Z, up) * Quat::from_rotation_z(unit(mix(key)) * TAU);
         let root = point - up * (0.08 / radius);
-        plants.push(Plant {
+        let plant = Plant {
             root,
             transform: Transform::from_translation(root)
                 .with_rotation(rotation)
@@ -77,16 +85,24 @@ pub(super) fn build(scene: Scene, shared: Option<Ground>) -> Built {
             owner: locator
                 .owner(DVec3::from_array(up.to_array().map(f64::from)))
                 .unwrap(),
-            variant: (mix(key ^ 0x0013) % VARIANTS as u64) as usize,
-        });
-        if plants.len() == MAX_TREES {
-            break;
+            variant: (mix(key ^ 0x0013) % VARIANTS as u64) as usize
+                + if conifer { VARIANTS } else { 0 },
+        };
+        accepted += 1;
+        if plants.len() < MAX_TREES {
+            plants.push(plant);
+        } else {
+            let slot = mix(key ^ 0x7265_7365_7276) as usize % accepted;
+            if slot < MAX_TREES {
+                plants[slot] = plant;
+            }
         }
     }
-    let prototypes = [2018, 42, 1234, 98765]
+    let mut prototypes: Vec<_> = [2018, 42, 1234, 98765]
         .into_iter()
         .map(motu::generate_tree)
         .collect();
+    prototypes.extend((0..VARIANTS).map(super::models::conifer));
     let upper = 1.0 + scene.terrain.elevations.iter().copied().fold(0.0, f64::max) as f32;
     let occluder = 1.0 + scene.terrain.elevations.iter().copied().fold(0.0, f64::min) as f32;
     let pixels = super::mask::build(&plants, radius);
@@ -102,21 +118,37 @@ pub(super) fn build(scene: Scene, shared: Option<Ground>) -> Built {
 
 fn suitable(point: Vec3, normal: Vec3, material: [f32; 4], radius: f32) -> bool {
     let height = (point.length() - 1.0) * radius;
-    (4.0..90.0).contains(&height)
+    (4.0..400.0).contains(&height)
         && normal.dot(point.normalize()) >= 0.927_183_87
         && material[1] >= 0.25
         && material[2] < 0.03
+}
+
+// Annual-mean estimate mirrors the weather model's latitude/lapse-rate baseline.
+// Mature biomes do not change species when a transient cold front passes.
+pub(super) fn mean_temperature(up: Vec3, height: f32, seed: u64) -> f32 {
+    20.0 - 30.0 * up.y * up.y - height.max(0.0) * 0.09
+        + (noise(up * 5.0, seed ^ 0x636c_696d_6174) - 0.5) * 4.0
+}
+pub(super) fn conifer_weight(temperature: f32) -> f32 {
+    let cold = ((12.0 - temperature) / 10.0).clamp(0.0, 1.0);
+    cold * cold * (3.0 - 2.0 * cold)
 }
 
 fn candidate(index: usize, count: usize, seed: u64) -> Vec3 {
     let y = 1.0 - 2.0 * (index as f32 + 0.5) / count as f32;
     let azimuth = index as f64 * 2.399_963_229_728_653 + f64::from(unit(mix(seed)) * TAU);
     let radial = (1.0 - y * y).sqrt();
-    Vec3::new(
+    let up = Vec3::new(
         radial * azimuth.cos() as f32,
         y,
         radial * azimuth.sin() as f32,
-    )
+    );
+    let key = mix(seed ^ index as u64 ^ 0x6a69_7474_6572);
+    let angle = unit(key) * TAU;
+    let extent = (4.0 * std::f32::consts::PI / count as f32).sqrt() * 0.22 * unit(mix(key)).sqrt();
+    let tangent = up.any_orthonormal_vector();
+    (up + (tangent * angle.cos() + up.cross(tangent) * angle.sin()) * extent).normalize()
 }
 
 fn mix(mut value: u64) -> u64 {
@@ -155,6 +187,18 @@ mod tests {
     use super::*;
 
     #[test]
+    fn cold_biomes_follow_latitude_and_elevation_with_a_mixed_transition() {
+        let equator = mean_temperature(Vec3::X, 20.0, 42);
+        let mountain = mean_temperature(Vec3::X, 200.0, 42);
+        let boreal = mean_temperature(Vec3::new(0.6, 0.8, 0.0), 20.0, 42);
+        assert!(equator > mountain + 10.0 && equator > boreal + 10.0);
+        assert!(conifer_weight(equator) < 0.05);
+        assert!(conifer_weight(mountain) > 0.7 && conifer_weight(boreal) > 0.9);
+        assert!((conifer_weight(7.0) - 0.5).abs() < 1e-6);
+        assert!(mean_temperature(Vec3::Y, 300.0, 42) < -10.0);
+        assert!(mean_temperature(-Vec3::Y, 300.0, 42) < -10.0);
+    }
+    #[test]
     fn roots_are_repeatable_equal_area_and_radially_upright() {
         for index in 0..1000 {
             let up = candidate(index, 1000, 42);
@@ -180,7 +224,7 @@ mod tests {
                 [0.3, 0.8, 0.0, 0.0],
                 1000.0
             ));
-            assert!(!suitable(up * 1.11, up, [0.3, 0.8, 0.0, 0.0], 1000.0));
+            assert!(!suitable(up * 1.5, up, [0.3, 0.8, 0.0, 0.0], 1000.0));
         }
     }
 
@@ -189,7 +233,7 @@ mod tests {
         let mut scene = crate::collision::test_scene();
         let terrain = std::sync::Arc::get_mut(&mut scene.terrain).unwrap();
         terrain.elevations.fill(0.025);
-        terrain.soil_depth.fill(0.003);
+        terrain.soil_depth.fill(3.0 / terrain.topology.radius);
         terrain.channel_depths.fill(0.0);
         let ground = Ground::new(&scene);
         for up in [Vec3::Y, -Vec3::Y, Vec3::X, -Vec3::X, Vec3::Z, -Vec3::Z] {

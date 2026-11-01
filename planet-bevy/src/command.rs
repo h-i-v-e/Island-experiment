@@ -8,11 +8,11 @@ cargo run -p planet-bevy -- [options]
   --settings-file PATH      Use a separate preferences file
   --seed N                  Deterministic seed (42)
   --vertices N              Surface points, 4..8192 (4096)
-  --radius R                Sea-level radius in metres (1000 = 1 km)
+  --radius R                Sea-level radius in metres (2000 = 2 km)
   --sweep-axis x|y|z         Sphere construction plane normal (y)
   --relief F                Terrain amplitude / sea radius (0.16)
   --land-bias F             Signed elevation offset / radius (0)
-  --terrain-source TYPE     noise or tectonics (noise)
+  --terrain-source TYPE     tectonics or moon (tectonics)
   --tectonic-plates N       Large spherical Voronoi plates, 4..64 (16)
   --tectonic-steps N        Drift integration steps, 1..128 (48)
   --tectonic-drift F        Total angular drift, 0..1 radians (0.25)
@@ -33,7 +33,7 @@ cargo run -p planet-bevy -- [options]
   --impact-size F           Crater size multiplier, 0.25..3 (1)
   --impact-strength F       Bowl and raised rim strength, 0..3 (1)
   --tectonic-detail F       Extra noise contribution, 0..0.25 (0.08)
-  --noise-preset classic|plates  Initial terrain blend (classic)
+  --noise-preset classic|plates  Tectonic microrelief blend (classic)
   --noise-N-type TYPE       Layer N=1..3: fractal, ridged or voronoi
   --noise-N-frequency F     Layer N frequency, 0.01..100 (2.2, 12, 3)
   --noise-N-weight F        Relative height weight, 0..2 (0.78, 0.22, 0)
@@ -65,8 +65,10 @@ cargo run -p planet-bevy -- [options]
   --lod-error F             Screen-space error target, 0.25..16 pixels (2)
   --lod-surface-maps on|off Baked normal and occlusion maps for LOD1–3 (on)
   --surface-view shaded|normals|occlusion  Inspect the baked surface maps
+  --dirt-colour RRGGBB      Bare soil colour, in display sRGB hexadecimal
   --no-shadows              Disable sun shadow maps
   --no-forests              Disable procedural forests
+  --forest-density D      Tree density multiplier, 0.25..4 (2)
   --forest-distance M       Detailed tree range, 0..400 m (240; 0 = all coarse)
   --shadow-distance M       Surface shadow range, 20..3000 m (300)
   --shadow-bias M           Shadow depth bias in metres, 0..0.25 (0.02)
@@ -91,12 +93,28 @@ cargo run -p planet-bevy -- [options]
   --water-foam F           Persistent ocean foam strength, 0..2 (0.8)
   --no-underwater          Disable underwater absorption and haze
   --no-solar               Use manual Sun direction instead of orbit/spin
-  --solar-paused           Pause solar motion and weather
-  --solar-day H            Sidereal spin period in hours (24)
-  --solar-year D           Orbital period in days (365.256)
+  --no-moon                Hide the companion moon
+  --no-stars               Hide the surrounding star sphere
+  --star-brightness F      Star intensity, 0..3 (1)
+  --companion-radius F     Moon radius / planet radius, 0.05..0.4 (0.175)
+  --companion-distance F   Moon distance / planet radius, 2..10 (3)
+  --companion-period D     Moon period in physical minutes; sets distance (2..10 radii)
+  --companion-angle DEG    Starting orbital angle (110)
+  --moon-albedo F          Moon geometric reflectivity, 0..1 (0.12)
+  --moonlight-strength F   Reflected light brightness, 0..20 (8; 0 disables)
+  --moonlight-shadows      Enable reflected light shadows (off by default)
+  --no-moonlight-shadows   Disable only the reflected light shadow pass
+  --moon-relief F          Lunar height multiplier, 0..2 (1)
+  --moon-craters F         Lunar crater density, 0..3 (1)
+  --moon-maria F           Basalt-flooded basin fraction, 0..1 (0.65)
+  --moon-weathering F      Old impact softening, 0..1 (0.65)
+  --moon-refinements N     Full dry surface subdivisions, 0..5 (3)
+  --solar-day-minutes M    Real minutes per planet day at 1x speed (30)
+  --solar-day H            Advanced spin period in model hours (24)
+  --solar-year D           Physical year in 24-hour days; sets orbital distance
   --solar-tilt D           Axial tilt in degrees (23.44)
   --solar-eccentricity F   Orbital eccentricity (0)
-  --solar-orbit R          Orbit semimajor axis / planet radius (23481)
+  --solar-orbit R          Orbit semimajor axis / planet radius (1249)
   --solar-radius R         Sun radius / planet radius (109.2)
   --no-weather             Use the previous procedural weather and manual waves
   --weather-paused         Freeze simulated weather and wave animation
@@ -123,7 +141,7 @@ cargo run -p planet-bevy -- [options]
   --environment-paused      Freeze cloud weather for inspection
   --sun-azimuth D           Global sun azimuth, -180..180 degrees (-31)
   --sun-elevation D         Global sun elevation, -90..90 degrees (34.45)
-  --view front|back|mountains|volcanoes|craters|river|waterfall|mouth|grass|ocean|shore|underwater|sky|clouds|forest   Inspection camera (front)
+  --view front|back|mountains|volcanoes|craters|river|waterfall|mouth|grass|ocean|shore|underwater|sky|clouds|forest|conifers|moon|system|sun|solar   Inspection camera (front)
   --export PATH.obj         Export terrain mesh in physical units
   --validate-only           Generate/validate/export without a GPU or window
   --screenshot PATH.png     Render offscreen to a new PNG and exit
@@ -161,6 +179,11 @@ pub enum View {
     Sky,
     Clouds,
     Forest,
+    Conifers,
+    Moon,
+    System,
+    Sun,
+    Solar,
 }
 
 impl View {
@@ -181,9 +204,14 @@ impl View {
             "sky" => Self::Sky,
             "clouds" => Self::Clouds,
             "forest" => Self::Forest,
+            "conifers" => Self::Conifers,
+            "moon" => Self::Moon,
+            "system" => Self::System,
+            "sun" => Self::Sun,
+            "solar" => Self::Solar,
             _ => {
                 return Err(String::from(
-                    "view must be front, back, mountains, volcanoes, craters, river, waterfall, mouth, grass, ocean, shore, underwater, sky, clouds or forest",
+                    "view must be front, back, mountains, volcanoes, craters, river, waterfall, mouth, grass, ocean, shore, underwater, sky, clouds, forest, conifers, moon, system, sun or solar",
                 ));
             }
         })
@@ -222,6 +250,7 @@ pub struct Command {
     pub wireframe: bool,
     pub smooth: Option<bool>,
     pub details: crate::details::DetailSettings,
+    pub appearance: crate::terrain_material::TerrainAppearance,
     pub panel: PanelVisibility,
     pub export: Option<PathBuf>,
     pub screenshot: Option<PathBuf>,
@@ -252,6 +281,7 @@ impl Default for Command {
             wireframe: false,
             smooth: None,
             details: crate::details::DetailSettings::default(),
+            appearance: crate::terrain_material::TerrainAppearance::default(),
             panel: PanelVisibility::Show,
             export: None,
             screenshot: None,
@@ -278,14 +308,35 @@ impl Command {
     ) -> Result<Option<Self>, String> {
         let mut args = args.into_iter();
         let mut solar_edited = false;
+        let mut year_seconds = None;
+        let mut moon_seconds = None;
         while let Some(flag) = args.next() {
             let flag = flag.as_ref();
-            solar_edited |= flag.starts_with("--solar-") && flag != "--solar-paused";
+            solar_edited |= flag.starts_with("--solar-")
+                && !matches!(flag, "--solar-paused" | "--solar-day-minutes");
             match flag {
                 "-h" | "--help" => return Ok(None),
+                "--solar-year" | "--companion-period" => {
+                    let value = args
+                        .next()
+                        .ok_or_else(|| format!("{flag} requires a value"))?;
+                    let period: f64 = number(value.as_ref(), flag)?;
+                    if !period.is_finite() || period <= 0.0 {
+                        return Err(format!("{flag} must be finite and positive"));
+                    }
+                    if flag == "--solar-year" {
+                        year_seconds = Some(period * 86400.0);
+                    } else {
+                        moon_seconds = Some(period * 60.0);
+                    }
+                }
                 "--ocean-paused" => command.ocean.paused = true,
                 "--no-atmosphere" => command.environment.atmosphere = false,
                 "--no-solar" => command.solar.enabled = false,
+                "--no-moon" => command.solar.companion.enabled = false,
+                "--moonlight-shadows" => command.solar.companion.light.shadows = true,
+                "--no-moonlight-shadows" => command.solar.companion.light.shadows = false,
+                "--no-stars" => command.solar.stars.enabled = false,
                 "--solar-paused" => command.solar.paused = true,
                 "--no-weather" => command.weather.enabled = false,
                 "--weather-paused" => command.weather.paused = true,
@@ -322,19 +373,47 @@ impl Command {
                         format!("{flag} requires a value or is not a supported option")
                     })?;
                     command.apply_value(flag, value.as_ref())?;
+                    if flag == "--solar-orbit" {
+                        year_seconds = None;
+                    }
+                    if flag == "--companion-distance" {
+                        moon_seconds = None;
+                    }
                 }
             }
         }
-        if solar_edited {
-            command.solar.draft = command.solar.model;
+        command.finish_orbits(solar_edited, year_seconds, moon_seconds)
+    }
+
+    fn finish_orbits(
+        mut self,
+        solar_edited: bool,
+        year_seconds: Option<f64>,
+        moon_seconds: Option<f64>,
+    ) -> Result<Option<Self>, String> {
+        if let Some(seconds) = year_seconds {
+            self.solar.model.orbit_radius_ratio = self
+                .solar
+                .model
+                .orbit_ratio_for_period(self.options.radius, seconds);
         }
-        command.validate_settings()?;
-        if command.validate_only && command.screenshot.is_some() {
+        if let Some(seconds) = moon_seconds {
+            self.solar.companion.orbit.distance_ratio = self
+                .solar
+                .companion
+                .orbit
+                .distance_for_period(self.options.radius, seconds);
+        }
+        if solar_edited {
+            self.solar.draft = self.solar.model;
+        }
+        self.validate_settings()?;
+        if self.validate_only && self.screenshot.is_some() {
             return Err(String::from(
                 "--validate-only cannot be combined with --screenshot",
             ));
         }
-        if let Some(path) = &command.screenshot {
+        if let Some(path) = &self.screenshot {
             if path
                 .extension()
                 .is_none_or(|ext| !ext.eq_ignore_ascii_case("png"))
@@ -345,10 +424,14 @@ impl Command {
                 return Err(format!("screenshot already exists: {}", path.display()));
             }
         }
-        Ok(Some(command))
+        Ok(Some(self))
     }
 
     pub(super) fn validate_settings(&self) -> Result<(), String> {
+        self.appearance.validate()?;
+        if !self.forest.density.is_finite() || !(0.25..=4.0).contains(&self.forest.density) {
+            return Err("forest density must be 0.25..4".into());
+        }
         crate::panel::Settings::from(self).validate()?;
         self.lighting.validate()?;
         if !self.forest.distance.is_finite() || !(0.0..=400.0).contains(&self.forest.distance) {
@@ -358,7 +441,14 @@ impl Command {
         self.water.validate()?;
         self.environment.validate()?;
         self.weather.model.validate()?;
-        self.solar.model.validate()?;
+        self.solar.validate()?;
+        if self.solar.enabled && self.solar.companion.enabled {
+            self.solar
+                .companion
+                .orbit
+                .validate_for(self.solar.model, self.options.radius)?;
+        }
+        self.solar.climate_settings(self.weather.model).validate()?;
         if !self.weather.warmup_hours.is_finite()
             || !(0.0..=240.0).contains(&self.weather.warmup_hours)
         {
@@ -404,8 +494,19 @@ impl Command {
 
     fn apply_environment_value(&mut self, flag: &str, value: &str) -> Result<bool, String> {
         match flag {
+            "--moon-albedo" => self.solar.companion.light.albedo=number(value,flag)?,
+            "--moonlight-strength" => self.solar.companion.light.strength=number(value,flag)?,
+            "--star-brightness" => self.solar.stars.brightness=number(value,flag)?,
+            "--companion-radius" => self.solar.companion.orbit.radius_ratio=number(value,flag)?,
+            "--companion-distance" => self.solar.companion.orbit.distance_ratio=number(value,flag)?,
+            "--companion-angle" => self.solar.companion.orbit.initial_angle=number::<f64>(value,flag)?.to_radians(),
+            "--moon-relief" => self.terrain.moon.relief = number(value,flag)?,
+            "--moon-craters" => self.terrain.moon.crater_density = number(value,flag)?,
+            "--moon-maria" => self.terrain.moon.maria = number(value,flag)?,
+            "--moon-weathering" => self.terrain.moon.weathering = number(value,flag)?,
+            "--moon-refinements" => self.terrain.moon.refinements = number(value,flag)?,
+            "--solar-day-minutes" => self.solar.day_minutes = number(value,flag)?,
             "--solar-day" => self.solar.model.rotation_period=number::<f64>(value,flag)?*3600.0,
-            "--solar-year" => self.solar.model.orbital_period=number::<f64>(value,flag)?*86400.0,
             "--solar-tilt" => self.solar.model.axial_tilt=number::<f64>(value,flag)?.to_radians(),
             "--solar-eccentricity" => self.solar.model.eccentricity=number(value,flag)?,
             "--solar-orbit" => self.solar.model.orbit_radius_ratio=number(value,flag)?,
@@ -505,13 +606,10 @@ impl Command {
     }
 
     fn apply_value(&mut self, flag: &str, value: &str) -> Result<(), String> {
-        if self.apply_environment_value(flag, value)? {
-            return Ok(());
-        }
-        if self.apply_noise_value(flag, value)? {
-            return Ok(());
-        }
-        if self.apply_tectonic_value(flag, value)? {
+        if self.apply_environment_value(flag, value)?
+            || self.apply_noise_value(flag, value)?
+            || self.apply_tectonic_value(flag, value)?
+        {
             return Ok(());
         }
         match flag {
@@ -543,7 +641,9 @@ impl Command {
             "--chunk-level" => self.streaming.level = number(value, flag)?,
             "--chunk-budget-mb" => self.streaming.budget_mb = number(value, flag)?,
             "--lod-error" => self.streaming.target_pixels = number(value, flag)?,
+            "--forest-density" => self.forest.density = number(value, flag)?,
             "--forest-distance" => self.forest.distance = number(value, flag)?,
+            "--dirt-colour" => self.appearance.set_dirt_hex(value)?,
             "--lod-surface-maps" => {
                 self.streaming.surface_maps = match value {
                     "on" => true,
@@ -901,6 +1001,17 @@ mod tests {
         }
     }
     #[test]
+    fn forest_density_is_configurable_and_bounds_worker_placement() {
+        let command = Command::parse(["--forest-density", "3", "--view", "conifers"])
+            .unwrap()
+            .unwrap();
+        assert!((command.forest.density - 3.0).abs() < 1e-6);
+        assert_eq!(command.view, View::Conifers);
+        for value in ["0", "NaN", "5"] {
+            assert!(Command::parse(["--forest-density", value]).is_err());
+        }
+    }
+    #[test]
     fn forest_distance_can_force_coarse_trees_and_rejects_invalid_ranges() {
         for distance in ["0", "80", "240", "400"] {
             let command = super::Command::parse(["--forest-distance", distance].map(str::to_owned))
@@ -915,6 +1026,188 @@ mod tests {
         for distance in ["-1", "401", "NaN", "inf"] {
             assert!(
                 super::Command::parse(["--forest-distance", distance].map(str::to_owned)).is_err()
+            );
+        }
+    }
+    #[test]
+    fn companion_and_stars_parse_validate_and_preserve_pending_solar_edits() {
+        let mut initial = Command::default();
+        initial.solar.draft.axial_tilt = 0.5;
+        let parsed = Command::parse_from(
+            initial,
+            [
+                "--view",
+                "system",
+                "--companion-radius",
+                "0.2",
+                "--companion-distance",
+                "4",
+                "--star-brightness",
+                "0.7",
+            ]
+            .map(str::to_owned),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(parsed.view, View::System);
+        assert!((parsed.solar.companion.orbit.radius_ratio - 0.2).abs() < 1e-9);
+        assert!((parsed.solar.draft.axial_tilt - 0.5).abs() < 1e-9);
+        for flags in [
+            ["--companion-radius", "1"],
+            ["--companion-distance", "1"],
+            ["--companion-period", "0"],
+            ["--star-brightness", "NaN"],
+        ] {
+            assert!(Command::parse(flags.map(str::to_owned)).is_err());
+        }
+        let legacy: crate::solar::SolarControls = serde_json::from_str("{}").unwrap();
+        assert!(legacy.companion.enabled && legacy.stars.enabled);
+    }
+
+    #[test]
+    fn moonlight_controls_validate_without_altering_geometry_or_pending_solar_edits() {
+        let mut initial = Command::default();
+        initial.solar.draft.axial_tilt = 0.5;
+        let recipe = initial.solar.companion.recipe;
+        let result = Command::parse_from(
+            initial,
+            ["--moon-albedo", "0.2", "--moonlight-strength", "4"].map(str::to_owned),
+        )
+        .unwrap()
+        .unwrap();
+        assert!((result.solar.companion.light.albedo - 0.2).abs() < 1e-9);
+        assert!((result.solar.companion.light.strength - 4.0).abs() < 1e-9);
+        assert_eq!(result.solar.companion.recipe, recipe);
+        assert!((result.solar.draft.axial_tilt - 0.5).abs() < 1e-9);
+        for flags in [
+            ["--moon-albedo", "NaN"],
+            ["--moon-albedo", "1.1"],
+            ["--moonlight-strength", "-1"],
+            ["--moonlight-strength", "21"],
+        ] {
+            assert!(Command::parse(flags.map(str::to_owned)).is_err());
+        }
+        let shadowless = Command::parse(["--no-moonlight-shadows".to_owned()])
+            .unwrap()
+            .unwrap();
+        assert!(!shadowless.solar.companion.light.shadows);
+        let shadowed = Command::parse(["--moonlight-shadows".to_owned()])
+            .unwrap()
+            .unwrap();
+        assert!(shadowed.solar.companion.light.shadows);
+        assert!(shadowless.solar.companion.light.strength > 0.0);
+        let legacy: crate::moon::CompanionSettings = serde_json::from_str("{}").unwrap();
+        assert_eq!(legacy.light, crate::moonlight::MoonlightSettings::default());
+    }
+
+    #[test]
+    fn moon_recipe_controls_parse_and_validate() {
+        let parsed = Command::parse(
+            [
+                "--terrain-source",
+                "moon",
+                "--radius",
+                "350",
+                "--moon-craters",
+                "1.5",
+            ]
+            .map(str::to_owned),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(parsed.terrain.source, planet_rs::TerrainSource::Moon);
+        let legacy: TerrainOptions = serde_json::from_str(r#"{"source":"Noise"}"#).unwrap();
+        assert_eq!(legacy.source, planet_rs::TerrainSource::Tectonics);
+        assert!((parsed.terrain.moon.crater_density - 1.5).abs() < 1e-9);
+        for args in [
+            ["--moon-relief", "3"],
+            ["--moon-refinements", "6"],
+            ["--moon-craters", "NaN"],
+            ["--moon-maria", "2"],
+            ["--terrain-source", "noise"],
+        ] {
+            assert!(Command::parse(args.map(str::to_owned)).is_err());
+        }
+    }
+
+    #[test]
+    fn live_day_duration_preserves_model_hours_and_pending_orbit_edits() {
+        let mut saved = Command::default();
+        saved.solar.draft.axial_tilt = 0.5;
+        let parsed = Command::parse_from(saved, ["--solar-day-minutes", "60"].map(str::to_owned))
+            .unwrap()
+            .unwrap();
+        assert!((parsed.solar.day_minutes - 60.0).abs() < 1e-9);
+        assert!((parsed.solar.model.rotation_period - 86400.0).abs() < 1e-9);
+        assert!((parsed.solar.draft.axial_tilt - 0.5).abs() < 1e-9);
+        assert!(
+            (parsed
+                .solar
+                .climate_settings(parsed.weather.model)
+                .time_scale
+                - 24.0)
+                .abs()
+                < 1e-9
+        );
+        for value in ["0", "NaN", "1441"] {
+            assert!(Command::parse(["--solar-day-minutes", value].map(str::to_owned)).is_err());
+        }
+    }
+
+    #[test]
+    fn linked_period_overrides_use_final_body_sizes_and_last_orbit_option_wins() {
+        for args in [
+            vec![
+                "--solar-year",
+                "10",
+                "--radius",
+                "3000",
+                "--companion-period",
+                "12",
+            ],
+            vec![
+                "--radius",
+                "3000",
+                "--companion-period",
+                "12",
+                "--solar-year",
+                "10",
+            ],
+        ] {
+            let command = Command::parse(args).unwrap().unwrap();
+            assert!((command.solar.model.orbital_period(3000.0) - 10.0 * 86400.0).abs() < 1e-8);
+            assert!((command.solar.companion.orbit.orbital_period(3000.0) - 720.0).abs() < 1e-8);
+        }
+        let command = Command::parse([
+            "--solar-year",
+            "10",
+            "--solar-orbit",
+            "20000",
+            "--companion-period",
+            "12",
+            "--companion-distance",
+            "3",
+        ])
+        .unwrap()
+        .unwrap();
+        assert!((command.solar.model.orbit_radius_ratio - 20000.0).abs() < 1e-9);
+        assert!((command.solar.companion.orbit.distance_ratio - 3.0).abs() < 1e-9);
+        for args in [
+            ["--solar-year", "NaN"],
+            ["--companion-period", "inf"],
+            ["--companion-period", "0"],
+            ["--companion-period", "10000"],
+        ] {
+            assert!(Command::parse(args).is_err());
+        }
+    }
+
+    #[test]
+    fn physical_solar_body_views_parse() {
+        for (name, expected) in [("sun", View::Sun), ("solar", View::Solar)] {
+            assert_eq!(
+                Command::parse(["--view", name]).unwrap().unwrap().view,
+                expected
             );
         }
     }
@@ -938,7 +1231,10 @@ mod tests {
         .unwrap();
         assert!(command.solar.enabled && command.solar.paused);
         assert!((command.solar.model.rotation_period - 43200.0).abs() < 1e-10);
-        assert!((command.solar.model.orbital_period - 20.0 * 86400.0).abs() < 1e-10);
+        assert!(
+            (command.solar.model.orbital_period(command.options.radius) - 20.0 * 86400.0).abs()
+                < 1e-8
+        );
         assert_eq!(command.solar.model, command.solar.draft);
         for args in [
             ["--solar-day", "0"],
@@ -1214,6 +1510,24 @@ mod tests {
             ["--shadow-distance", "0"],
         ] {
             assert!(parse(&flags).is_err());
+        }
+    }
+    #[test]
+    fn dirt_colour_cli_converts_display_rgb_and_rejects_invalid_values() {
+        let command = Command::parse(["--dirt-colour", "#ff8000"])
+            .unwrap()
+            .unwrap();
+        let colour = command.appearance.dirt_colour;
+        assert!((colour[0] - 1.0).abs() < f32::EPSILON);
+        assert!((colour[1] - 0.215_861).abs() < 1e-5);
+        assert!(colour[2].abs() < f32::EPSILON);
+        for value in ["bad", "1234567", "GG0011", "ff00🟤"] {
+            assert!(Command::parse(["--dirt-colour", value]).is_err());
+        }
+        let mut command = Command::default();
+        for colour in [[f32::NAN, 0.0, 0.0], [2.0, 0.0, 0.0], [-0.1, 0.0, 0.0]] {
+            command.appearance.dirt_colour = colour;
+            assert!(command.validate_settings().is_err());
         }
     }
 }

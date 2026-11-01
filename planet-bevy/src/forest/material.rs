@@ -68,8 +68,9 @@ pub(super) fn create_materials(
                 } else {
                     AlphaMode::Opaque
                 },
-                double_sided: kind != 0,
-                cull_mode: (kind == 0).then_some(bevy::render::render_resource::Face::Back),
+                double_sided: matches!(kind, 1 | 2),
+                cull_mode: matches!(kind, 0 | 3)
+                    .then_some(bevy::render::render_resource::Face::Back),
                 ..default()
             },
             extension: ForestExtension {
@@ -90,23 +91,34 @@ pub(super) struct Prototype {
     pub wood: Handle<Mesh>,
     pub branches: Handle<Mesh>,
     pub leaves: Handle<Mesh>,
-    pub shells: Handle<Mesh>,
+    pub shells: Option<Handle<Mesh>>,
     pub canopy: Handle<Mesh>,
+    pub conifer: bool,
 }
 impl Prototype {
     pub fn remove(self, meshes: &mut Assets<Mesh>) {
         for handle in [
-            self.wood,
-            self.branches,
-            self.leaves,
+            Some(self.wood),
+            Some(self.branches),
+            Some(self.leaves),
             self.shells,
-            self.canopy,
-        ] {
+            Some(self.canopy),
+        ]
+        .into_iter()
+        .flatten()
+        {
             meshes.remove(handle.id());
         }
     }
 }
 pub(super) fn upload(source: motu::TreeMeshes, meshes: &mut Assets<Mesh>) -> Prototype {
+    upload_species(source, false, meshes)
+}
+pub(super) fn upload_species(
+    source: motu::TreeMeshes,
+    conifer: bool,
+    meshes: &mut Assets<Mesh>,
+) -> Prototype {
     info!(
         "Tree prototype: {} fine wood / {} branch / {} fine foliage / {} coarse foliage triangles",
         source.lod0_wood.triangles.len() / 3,
@@ -114,18 +126,28 @@ pub(super) fn upload(source: motu::TreeMeshes, meshes: &mut Assets<Mesh>) -> Pro
         source.lod0_foliage.triangles.len() / 3,
         source.lod1_foliage.triangles.len() / 3
     );
-    let shells = mesh(&source.lod1_foliage, true);
+    // Conifers have solid needle whorls and never use broadleaf fur shells.
+    // Uploading an empty placeholder triggers Bevy's slab allocator diagnostic.
+    let shells = (!conifer).then(|| meshes.add(mesh(&source.lod1_foliage, true, false)));
     Prototype {
-        wood: meshes.add(mesh(&source.lod0_wood, false)),
-        branches: meshes.add(mesh(&source.lod1_wood, false)),
-        leaves: meshes.add(mesh(&source.lod0_foliage, false)),
-        canopy: meshes.add(distant_mesh(&source)),
-        shells: meshes.add(shells),
+        wood: meshes.add(mesh(&source.lod0_wood, false, conifer)),
+        branches: meshes.add(mesh(&source.lod1_wood, false, conifer)),
+        leaves: meshes.add(mesh(&source.lod0_foliage, false, conifer)),
+        canopy: meshes.add(distant_mesh(&source, conifer)),
+        shells,
+        conifer,
     }
 }
-fn distant_mesh(source: &motu::TreeMeshes) -> Mesh {
-    let mut canopy = mesh(&source.lod1_foliage, false);
-    let mut trunk = mesh(&source.lod2_wood, false);
+fn distant_mesh(source: &motu::TreeMeshes, conifer: bool) -> Mesh {
+    let simplified;
+    let crown = if conifer {
+        &source.lod1_foliage
+    } else {
+        simplified = super::models::broadleaf_crown(&source.lod1_foliage);
+        &simplified
+    };
+    let mut canopy = mesh(crown, false, conifer);
+    let mut trunk = mesh(&source.lod2_wood, false, conifer);
     let Some(VertexAttributeValues::Float32x4(colours)) =
         trunk.attribute_mut(Mesh::ATTRIBUTE_COLOR)
     else {
@@ -141,7 +163,7 @@ fn distant_mesh(source: &motu::TreeMeshes) -> Mesh {
         .expect("tree parts share their topology and vertex attributes");
     canopy
 }
-fn mesh(source: &motu::Mesh, shells: bool) -> Mesh {
+fn mesh(source: &motu::Mesh, shells: bool, conifer: bool) -> Mesh {
     let layers = if shells { 8 } else { 1 };
     let mut positions = Vec::with_capacity(source.vertices.len() * layers);
     let mut normals = Vec::with_capacity(positions.capacity());
@@ -158,7 +180,7 @@ fn mesh(source: &motu::Mesh, shells: bool) -> Mesh {
             positions
                 .push((point + normal * (0.45 * fraction / motu::ISLAND_WORLD_METRES)).to_array());
             normals.push(normal.to_array());
-            colours.push([fraction, 1.0, 1.0, 1.0]);
+            colours.push([fraction, 1.0, if conifer { 0.0 } else { 1.0 }, 1.0]);
         }
         indices.extend(source.triangles.iter().map(|i| offset + i));
     }
@@ -177,10 +199,27 @@ mod tests {
     use super::*;
 
     #[test]
+    fn conifer_prototypes_upload_only_nonempty_meshes_and_release_them() {
+        let mut assets = Assets::<Mesh>::default();
+        for variant in 0..4 {
+            let model = upload_species(super::super::models::conifer(variant), true, &mut assets);
+            assert!(model.shells.is_none());
+            assert_eq!(assets.len(), 4);
+            for (_, mesh) in assets.iter() {
+                assert!(mesh.count_vertices() > 0);
+                assert!(mesh.indices().is_some_and(|indices| indices.len() >= 3));
+            }
+            model.remove(&mut assets);
+            assert!(assets.is_empty());
+        }
+    }
+
+    #[test]
     fn distant_tree_keeps_island_trunk_geometry_in_one_shared_mesh() {
         let source = motu::generate_tree(2018);
-        let canopy_vertices = source.lod1_foliage.vertices.len();
-        let canopy_indices = source.lod1_foliage.triangles.len();
+        let coarse = super::super::models::broadleaf_crown(&source.lod1_foliage);
+        let canopy_vertices = coarse.vertices.len();
+        let canopy_indices = coarse.triangles.len();
         let trunk_positions: [[f32; 3]; 8] =
             std::array::from_fn(|i| source.lod2_wood.vertices[i].to_array());
         let mut assets = Assets::<Mesh>::default();

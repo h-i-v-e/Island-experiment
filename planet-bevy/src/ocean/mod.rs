@@ -275,7 +275,8 @@ pub fn update(
             images.remove(old.id());
         }
     }
-    if scene.generation != GenerationMode::Terrain || world.map.is_none() {
+    if scene.generation != GenerationMode::Terrain || scene.terrain.is_moon() || world.map.is_none()
+    {
         world.job = None;
         world.job_options = None;
         if let Some(entity) = world.entity

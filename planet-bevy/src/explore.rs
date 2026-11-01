@@ -11,11 +11,13 @@ use bevy::{
 };
 
 const EYE_HEIGHT: f32 = 1.7;
-const GRAVITY: f32 = 9.81;
+#[allow(clippy::cast_possible_truncation)] // Shared physical constant, converted for the f32 movement integrator.
+const GRAVITY: f32 = planet_rs::solar::gravity::PLANET_SURFACE_GRAVITY as f32;
 
 #[derive(Resource, Default)]
 pub(super) struct Explorer {
     player: Option<Player>,
+    pub flight: Option<crate::flight::Flight>,
     pub return_to_orbit: bool,
     press: Option<Vec2>,
     drag: f32,
@@ -65,6 +67,9 @@ impl Explorer {
         self.ensure_ground(scene);
         self.ground.as_mut().expect("displayed terrain query index")
     }
+    pub fn navigating(&self) -> bool {
+        self.walking() || self.flight.is_some()
+    }
     pub fn walking(&self) -> bool {
         self.player.is_some()
     }
@@ -75,7 +80,8 @@ impl Explorer {
             .map(|p| p.up)
     }
     pub fn captured(&self) -> bool {
-        self.player.as_ref().is_some_and(|player| player.captured)
+        self.flight.as_ref().is_some_and(|flight| flight.captured)
+            || self.player.as_ref().is_some_and(|player| player.captured)
     }
 
     fn ensure_ground(&mut self, scene: &Scene) {
@@ -106,6 +112,7 @@ impl Explorer {
         if let Some(ground) = &self.ground {
             let mut point = ground.hit(&scene.terrain, ray.origin, *ray.direction, 50.0);
             if !scene.no_ocean
+                && !scene.terrain.is_moon()
                 && scene.generation == GenerationMode::Terrain
                 && let Some(sea) = sea_hit(ray.origin, *ray.direction)
                 && point.is_none_or(|p| {
@@ -208,7 +215,7 @@ impl Player {
 
 fn support(ground: &Ground, scene: &Scene, up: Vec3) -> Option<f32> {
     ground.radius(&scene.terrain, up).map(|height| {
-        if scene.no_ocean || scene.generation == GenerationMode::Sphere {
+        if scene.no_ocean || scene.terrain.is_moon() || scene.generation == GenerationMode::Sphere {
             height
         } else {
             height.max(1.0)
@@ -246,6 +253,7 @@ fn return_to_orbit(
     orbit: &Orbit,
 ) {
     explorer.player = None;
+    explorer.flight = None;
     explorer.return_to_orbit = false;
     explorer.press = None;
     *transform = orbit_transform(orbit);
@@ -257,12 +265,103 @@ fn return_to_orbit(
     }
 }
 
+fn flight_controls(
+    explorer: &mut Explorer,
+    input: &ControlsInput,
+    solar_state: Option<planet_rs::solar::SolarState>,
+    camera: (&Orbit, &mut Transform, &mut Projection),
+    window: (&Window, &mut CursorOptions),
+    seconds: f64,
+    radius: f32,
+) -> bool {
+    let (orbit, transform, projection) = camera;
+    let (window, cursor) = window;
+    let keyboard = !input.wants.wants_any_keyboard_input();
+    let pointer = !input.wants.wants_any_pointer_input();
+    if keyboard
+        && input.keys.just_pressed(KeyCode::KeyF)
+        && explorer.flight.is_none()
+        && let Some(state) = solar_state
+    {
+        explorer.flight = Some(crate::flight::Flight::enter(
+            transform,
+            state,
+            f64::from(radius),
+        ));
+        explorer.player = None;
+        if let Projection::Perspective(lens) = &mut *projection {
+            if explorer.lens.is_none() {
+                explorer.lens = Some((lens.fov, lens.near));
+            }
+            lens.fov = 75.0_f32.to_radians();
+        }
+    } else if explorer.flight.is_some() && input.keys.just_pressed(KeyCode::KeyF) {
+        explorer.return_to_orbit = true;
+    }
+    if explorer.flight.is_some() {
+        if explorer.return_to_orbit
+            || input.keys.just_pressed(KeyCode::Escape)
+            || solar_state.is_none()
+        {
+            return_to_orbit(explorer, transform, projection, orbit);
+            cursor.grab_mode = CursorGrabMode::None;
+            cursor.visible = true;
+        } else if let (Some(flight), Some(state)) = (&mut explorer.flight, solar_state) {
+            if !window.focused || input.keys.just_pressed(KeyCode::Tab) {
+                flight.captured = false;
+            } else if pointer && input.buttons.just_pressed(MouseButton::Left) {
+                flight.captured = true;
+            }
+            if flight.captured && window.focused {
+                let axis = |a, b| {
+                    f32::from(u8::from(input.keys.pressed(a)))
+                        - f32::from(u8::from(input.keys.pressed(b)))
+                };
+                let movement = if keyboard {
+                    Vec3::new(
+                        axis(KeyCode::KeyD, KeyCode::KeyA),
+                        axis(KeyCode::KeyE, KeyCode::KeyQ),
+                        axis(KeyCode::KeyS, KeyCode::KeyW),
+                    )
+                } else {
+                    Vec3::ZERO
+                };
+                let scroll = input.scroll.delta.y
+                    * if input.scroll.unit == crate::MouseScrollUnit::Line {
+                        1.0
+                    } else {
+                        0.05
+                    };
+                flight.advance(
+                    movement,
+                    input.motion.delta,
+                    scroll,
+                    input.keys.pressed(KeyCode::ShiftLeft)
+                        || input.keys.pressed(KeyCode::ShiftRight),
+                    seconds,
+                    state.sun_radius,
+                );
+            }
+            *transform = flight.camera(state, f64::from(radius));
+            cursor.grab_mode = if flight.captured && window.focused {
+                CursorGrabMode::Locked
+            } else {
+                CursorGrabMode::None
+            };
+            cursor.visible = !flight.captured || !window.focused;
+        }
+        return true;
+    }
+    false
+}
+
 #[allow(clippy::cast_possible_truncation)]
 pub(super) fn update(
     input: ControlsInput,
     time: Res<Time>,
     scene: Res<Scene>,
     mut explorer: ResMut<Explorer>,
+    solar: Option<Res<crate::solar::SolarFrame>>,
     mut windows: Query<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
     mut cameras: Query<(&Camera, &Orbit, &mut Transform, &mut Projection)>,
 ) {
@@ -275,6 +374,17 @@ pub(super) fn update(
     let keyboard = !input.wants.wants_any_keyboard_input();
     let pointer = !input.wants.wants_any_pointer_input();
     let radius = scene.terrain.topology.radius as f32;
+    if flight_controls(
+        &mut explorer,
+        &input,
+        solar.as_ref().and_then(|s| s.state),
+        (orbit, &mut transform, &mut projection),
+        (window, &mut cursor),
+        time.delta_secs_f64(),
+        radius,
+    ) {
+        return;
+    }
     if explorer.walking() {
         // These remain available when Tab gives the HUD button keyboard focus.
         if explorer.return_to_orbit || input.keys.just_pressed(KeyCode::Escape) {
@@ -359,6 +469,102 @@ pub(super) fn update(
 mod tests {
     use super::*;
     use crate::{collision::test_scene, command::View, initial_orbit};
+
+    #[test]
+    fn flight_entry_movement_mouse_release_and_return_use_the_normal_controller_path() {
+        use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
+        use bevy::time::TimeUpdateStrategy;
+        use bevy_egui::input::EguiWantsInput;
+        use std::time::Duration;
+        let scene = test_scene();
+        let state = planet_rs::solar::SolarSystem::new(
+            planet_rs::solar::SolarSettings::default(),
+            scene.terrain.topology.radius,
+        )
+        .unwrap()
+        .state(0.0);
+        let orbit = initial_orbit(View::Front, &scene.terrain);
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<ButtonInput<MouseButton>>()
+            .init_resource::<AccumulatedMouseScroll>()
+            .init_resource::<AccumulatedMouseMotion>()
+            .init_resource::<EguiWantsInput>()
+            .init_resource::<Explorer>()
+            .init_resource::<crate::solar::SolarFrame>()
+            .insert_resource(crate::InitialOrbit(orbit))
+            .insert_resource(scene)
+            .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(
+                100,
+            )))
+            .add_systems(Update, update);
+        app.world_mut()
+            .resource_mut::<crate::solar::SolarFrame>()
+            .state = Some(state);
+        app.world_mut().spawn((
+            Window {
+                focused: true,
+                ..default()
+            },
+            PrimaryWindow,
+        ));
+        app.world_mut().spawn((
+            Camera::default(),
+            orbit,
+            crate::orbit_transform(&orbit),
+            Projection::default(),
+        ));
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::KeyF);
+        app.update();
+        assert!(app.world().resource::<Explorer>().flight.is_some());
+        let start = app
+            .world()
+            .resource::<Explorer>()
+            .flight
+            .as_ref()
+            .unwrap()
+            .position;
+        {
+            let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+            keys.reset_all();
+            keys.press(KeyCode::KeyW);
+        }
+        app.update();
+        let moved = app
+            .world()
+            .resource::<Explorer>()
+            .flight
+            .as_ref()
+            .unwrap()
+            .position;
+        assert!(moved.distance(start) > 900.0);
+        {
+            let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+            keys.reset_all();
+            keys.press(KeyCode::Tab);
+            keys.press(KeyCode::KeyW);
+        }
+        app.update();
+        let explorer = app.world().resource::<Explorer>();
+        assert!(!explorer.captured());
+        assert_eq!(explorer.flight.as_ref().unwrap().position, moved);
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .reset_all();
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Left);
+        app.update();
+        assert!(app.world().resource::<Explorer>().captured());
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::Escape);
+        app.update();
+        assert!(!app.world().resource::<Explorer>().navigating());
+    }
 
     #[test]
     fn mouse_look_and_navigation_keys_work_even_when_the_hud_has_keyboard_focus() {
@@ -464,36 +670,78 @@ mod tests {
     fn walking_at_both_poles_keeps_radial_up_ground_contact_and_metre_scale() {
         let scene = test_scene();
         let ground = Ground::new(&scene);
-        assert!((scene.terrain.topology.radius - 1000.0).abs() < f64::EPSILON);
+        let radius = 2000.0_f32;
+        assert!((scene.terrain.topology.radius - f64::from(radius)).abs() < f64::EPSILON);
         for up in [Vec3::Y, -Vec3::Y, Vec3::X, -Vec3::X, Vec3::Z, -Vec3::Z] {
             let feet = support(&ground, &scene, up).unwrap();
             let mut player = Player::land(up * feet, -up, Vec3::Y, feet);
             for _ in 0..120 {
-                player.step(&ground, &scene, Vec2::Y, 4.5, 1000.0, 1.0 / 120.0);
+                player.step(&ground, &scene, Vec2::Y, 4.5, radius, 1.0 / 120.0);
             }
-            assert!((player.up.distance(up) * 1000.0 - 4.5).abs() < 0.05);
+            assert!((player.up.distance(up) * radius - 4.5).abs() < 0.05);
             assert!(player.up.dot(player.heading).abs() < 1.0e-5);
             assert!(player.feet >= support(&ground, &scene, player.up).unwrap() - 1.0e-6);
-            let camera = player.transform(1000.0);
-            assert!((camera.translation.length() - player.feet - 0.0017).abs() < 1.0e-6);
+            let camera = player.transform(radius);
+            assert!(
+                (camera.translation.length() - player.feet - EYE_HEIGHT / radius).abs() < 1.0e-6
+            );
             assert!(camera.up().dot(player.up) > 0.99);
         }
+    }
+
+    #[test]
+    fn moon_basin_floor_has_no_invisible_sea_plane() {
+        let mut scene = test_scene();
+        let terrain = planet_rs::generate_terrain(
+            planet_rs::PlanetOptions {
+                vertex_count: 256,
+                radius: 350.0,
+                ..default()
+            },
+            planet_rs::TerrainOptions {
+                source: planet_rs::TerrainSource::Moon,
+                moon: planet_rs::terrain::moon::MoonOptions {
+                    refinements: 1,
+                    ..default()
+                },
+                ..default()
+            },
+        )
+        .unwrap();
+        let low = terrain
+            .elevations
+            .iter()
+            .enumerate()
+            .min_by(|a, b| a.1.total_cmp(b.1))
+            .unwrap()
+            .0;
+        let up = crate::surface::vector(terrain.topology.directions[low]);
+        scene.terrain = std::sync::Arc::new(terrain);
+        let ground = Ground::new(&scene);
+        let floor = support(&ground, &scene, up).unwrap();
+        assert!(
+            floor < 0.99,
+            "a crater basin must remain below the reference sphere"
+        );
+        assert!((floor - ground.radius(&scene.terrain, up).unwrap()).abs() < 1e-6);
     }
 
     #[test]
     fn radial_gravity_returns_jumps_to_ground_and_visible_seas_support_the_player() {
         let mut scene = test_scene();
         let ground = Ground::new(&scene);
+        let radius = 2000.0_f32;
+        assert!((scene.terrain.topology.radius - f64::from(radius)).abs() < f64::EPSILON);
         for up in [Vec3::Y, -Vec3::Y] {
             let feet = support(&ground, &scene, up).unwrap();
             let mut player = Player::land(up * feet, Vec3::Z, Vec3::Y, feet);
             player.vertical_speed = 5.0;
             let mut peak = feet;
             for _ in 0..240 {
-                player.step(&ground, &scene, Vec2::ZERO, 4.5, 1000.0, 1.0 / 120.0);
+                player.step(&ground, &scene, Vec2::ZERO, 4.5, radius, 1.0 / 120.0);
                 peak = peak.max(player.feet);
             }
-            assert!((peak - feet) * 1000.0 > 1.2);
+            assert!((peak - feet) * radius > 1.2);
             assert!((player.feet - feet).abs() < 1.0e-6);
             assert!(player.vertical_speed.abs() < f32::EPSILON);
         }

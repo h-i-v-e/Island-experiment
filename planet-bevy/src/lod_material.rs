@@ -41,6 +41,7 @@ pub struct TerrainSettings {
     /// Fixed fallback in metres when live weather is disabled or not ready.
     pub snow_line: f32,
     pub detail: f32,
+    /// One for the dry Moon recipe, zero for terrestrial materials.
     pub padding: f32,
     pub colour: Vec4,
 }
@@ -92,6 +93,8 @@ pub struct SurfaceExtension {
     #[texture(113)]
     #[sampler(114)]
     pub detail_mask: Option<Handle<Image>>,
+    #[storage(116, read_only)]
+    pub palette: Handle<ShaderBuffer>,
     #[uniform(120)]
     pub water: crate::water::WaterUniform,
     #[texture(121)]

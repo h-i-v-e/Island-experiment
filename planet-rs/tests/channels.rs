@@ -104,3 +104,69 @@ fn disabling_refinement_keeps_seed_topology_and_options_are_bounded() {
         assert!(generate_terrain(options, settings).is_err());
     }
 }
+
+#[test]
+fn inland_channel_keeps_its_water_when_excavation_crosses_zero_height() {
+    use planet_rs::{DVec3, ImpactOptions, OceanStage, TectonicOptions};
+    // Regression from seed 44: the channel crosses zero near this inland
+    // location, while its original land is 14 m high and water is 4.5 m high.
+    let terrain = generate_terrain(
+        PlanetOptions {
+            seed: 44,
+            vertex_count: 1024,
+            ..PlanetOptions::default()
+        },
+        TerrainOptions {
+            relief: 0.2,
+            erosion_strength: 6.0,
+            hydraulic_passes: 2,
+            thermal_passes: 4,
+            refinement_passes: 3,
+            river_refinement_passes: 3,
+            tectonics: TectonicOptions {
+                steps: 32,
+                boundary_width: 1.0,
+                branching: 1.0,
+                detail: 0.25,
+                ..TectonicOptions::default()
+            },
+            impacts: ImpactOptions {
+                enabled: true,
+                per_stage: 8,
+                ..ImpactOptions::default()
+            },
+            ..TerrainOptions::default()
+        },
+    )
+    .unwrap();
+    let location = DVec3::new(-0.985_134, -0.066_730, -0.158_300).normalize();
+    let radius = terrain.topology.radius;
+    let (i, distance) = terrain
+        .topology
+        .directions
+        .iter()
+        .enumerate()
+        .filter(|&(i, _)| {
+            terrain.elevations[i] < 0.0
+                && (terrain.elevations[i] + terrain.channel_depths[i] - terrain.bank_lifts[i])
+                    * radius
+                    > 10.0
+        })
+        .map(|(i, &p)| (i, p.distance(location) * radius))
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .expect("excavated inland channel");
+    assert!(
+        distance < 5.0,
+        "reproduce the affected section, distance {distance}"
+    );
+    assert!(
+        terrain.water_elevations[i] * radius > 2.0,
+        "crossing sea-level in the bed must not remove the inland river water"
+    );
+    assert_eq!(
+        terrain.ocean_passes.last().unwrap().stage,
+        OceanStage::FinalTerrain,
+        "inland-sea filling must finish before the final channel excavation"
+    );
+    terrain.validate().unwrap();
+}

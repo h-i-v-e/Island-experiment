@@ -47,7 +47,7 @@ impl Default for PlanetOptions {
         Self {
             seed: 42,
             vertex_count: 1_024,
-            radius: 1000.0,
+            radius: 2000.0,
             sweep_direction: DVec3::Y,
         }
     }

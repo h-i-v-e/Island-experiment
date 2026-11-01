@@ -59,6 +59,8 @@ pub struct WeatherFrame {
     pub pending: bool,
     pub seconds: f64,
     pub previous_seconds: f64,
+    pub orbital_seconds: f64,
+    pub previous_orbital_seconds: f64,
     pub age: f64,
     pub epoch: u64,
     pub ticks: u64,
@@ -68,6 +70,11 @@ pub struct WeatherFrame {
 }
 
 impl WeatherFrame {
+    pub fn render_orbital_seconds(&self) -> f64 {
+        self.previous_orbital_seconds
+            + (self.orbital_seconds - self.previous_orbital_seconds)
+                * (self.age / 0.25).clamp(0.0, 1.0)
+    }
     pub fn render_seconds(&self) -> f64 {
         self.previous_seconds
             + (self.seconds - self.previous_seconds) * (self.age / 0.25).clamp(0.0, 1.0)
@@ -105,6 +112,7 @@ struct Identity {
     solar_enabled: bool,
 }
 struct Batch {
+    orbital_seconds: f64,
     simulation: WeatherSimulation,
     size: u32,
     seconds: f64,
@@ -218,10 +226,19 @@ fn update(
         frame.ready = false;
         frame.seconds = 0.0;
         frame.previous_seconds = 0.0;
+        frame.orbital_seconds = 0.0;
+        frame.previous_orbital_seconds = 0.0;
         frame.ticks = 0;
         frame.stats = None;
         frame.error = None;
         frame.epoch = frame.epoch.wrapping_add(1);
+    }
+    if scene.terrain.is_moon() {
+        world.task = None;
+        world.simulation = None;
+        frame.ready = false;
+        frame.pending = false;
+        return;
     }
     if let Some(task) = world.task.as_mut()
         && let Some(result) = block_on(poll_once(task))
@@ -233,6 +250,12 @@ fn update(
                 upload.size = batch.size;
                 upload.bytes = batch.bytes;
                 upload.revision = upload.revision.wrapping_add(1);
+                frame.previous_orbital_seconds = if frame.ready {
+                    frame.orbital_seconds
+                } else {
+                    batch.orbital_seconds
+                };
+                frame.orbital_seconds = batch.orbital_seconds;
                 frame.previous_seconds = if frame.ready {
                     frame.seconds
                 } else {
@@ -284,11 +307,10 @@ fn update(
     let previous = world.simulation.take();
     let previous_bytes = upload.bytes.clone();
     let terrain = scene.terrain.clone();
-    let mut settings = controls.model;
+    let settings = solar
+        .as_ref()
+        .map_or(controls.model, |s| s.climate_settings(controls.model));
     let solar_model = solar.as_ref().filter(|s| s.enabled).map(|s| s.model);
-    if let Some(solar) = solar_model {
-        settings.rotation_period = solar.rotation_period;
-    }
     let warmup_hours = controls.warmup_hours;
     let seed = scene.seed;
     let sun = planet_rs::DVec3::from_array(environment.sun_direction().to_array().map(f64::from));
@@ -322,7 +344,10 @@ fn run_batch(
 ) -> Result<Batch, String> {
     let initializing = previous.is_none();
     let mut simulation = match previous {
-        Some(simulation) => simulation,
+        Some(mut simulation) => {
+            simulation.set_time_scale(settings.time_scale)?;
+            simulation
+        }
         None => WeatherSimulation::new(
             seed,
             settings,
@@ -383,6 +408,7 @@ fn run_batch(
         bytes.extend_from_within(..current_len);
     }
     Ok(Batch {
+        orbital_seconds: simulation.orbital_seconds(),
         simulation,
         size,
         seconds,
@@ -560,6 +586,50 @@ mod tests {
         wait_for(&mut app, |f| f.ready && f.epoch > epoch);
         assert_eq!(app.world().resource::<WeatherFrame>().ticks, 0);
         assert_eq!(app.world().resource::<WeatherFrame>().texture, texture);
+    }
+
+    #[test]
+    fn day_cycle_changes_apply_to_the_existing_worker_without_a_reset_or_texture_replacement() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .insert_resource(crate::collision::test_scene())
+            .insert_resource(WeatherControls {
+                paused: true,
+                model: WeatherSettings {
+                    face_size: 4,
+                    ..WeatherSettings::default()
+                },
+                ..WeatherControls::default()
+            })
+            .init_resource::<crate::solar::SolarControls>()
+            .init_resource::<EnvironmentSettings>()
+            .init_resource::<WeatherFrame>()
+            .init_resource::<WeatherUpload>()
+            .init_resource::<Worker>()
+            .init_resource::<Assets<Image>>()
+            .add_systems(Startup, setup)
+            .add_systems(Update, update);
+        wait_for(&mut app, |f| f.ready);
+        let epoch = app.world().resource::<WeatherFrame>().epoch;
+        let texture = app.world().resource::<WeatherFrame>().texture.clone();
+        app.world_mut().resource_mut::<WeatherControls>().step = true;
+        wait_for(&mut app, |f| f.ticks == 1);
+        assert!((app.world().resource::<WeatherFrame>().seconds - 12.0).abs() < 1e-9);
+        assert!((app.world().resource::<WeatherFrame>().orbital_seconds - 0.25).abs() < 1e-9);
+        app.world_mut()
+            .resource_mut::<crate::solar::SolarControls>()
+            .day_minutes = 60.0;
+        app.world_mut().resource_mut::<WeatherControls>().step = true;
+        wait_for(&mut app, |f| f.ticks == 2);
+        let frame = app.world().resource::<WeatherFrame>();
+        assert_eq!(frame.epoch, epoch);
+        assert_eq!(frame.texture, texture);
+        assert!((frame.orbital_seconds - 0.5).abs() < 1e-9);
+        assert!(
+            (frame.seconds - 18.0).abs() < 1e-9,
+            "30→60 minutes must halve only future clock advancement"
+        );
+        assert_eq!(app.world().resource::<Assets<Image>>().len(), 1);
     }
 
     #[test]

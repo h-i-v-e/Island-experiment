@@ -45,6 +45,7 @@ impl Settings {
     pub fn generate(&self) -> Result<PlanetTerrain, PlanetError> {
         let terrain = if self.mode == GenerationMode::Sphere {
             TerrainOptions {
+                source: TerrainSource::Tectonics,
                 impacts: planet_rs::ImpactOptions::default(),
                 relief: 0.0,
                 land_bias: 0.0,
@@ -121,6 +122,13 @@ pub(super) struct Panel {
 }
 
 impl Panel {
+    pub fn inspection_view(&self) -> View {
+        self.last_view
+    }
+    pub fn inspecting_moon(&self) -> bool {
+        self.last_view == View::Moon
+    }
+
     pub fn new(settings: &Settings, hidden: bool) -> Self {
         Self {
             draft: *settings,
@@ -291,6 +299,7 @@ pub(super) fn update_generation(mut panel: ResMut<Panel>, mut refresh: ResMut<Re
 
 #[derive(bevy::ecs::system::SystemParam)]
 pub(super) struct WeatherPanel<'w> {
+    appearance: Option<ResMut<'w, super::terrain_material::TerrainAppearance>>,
     environment: Option<ResMut<'w, super::environment::EnvironmentSettings>>,
     forest_options: Option<ResMut<'w, super::forest::ForestSettings>>,
     forests: Option<ResMut<'w, super::forest::Forests>>,
@@ -321,6 +330,7 @@ pub(super) fn draw(
     weather: WeatherPanel,
 ) {
     let WeatherPanel {
+        mut appearance,
         mut environment,
         mut forest_options,
         mut forests,
@@ -341,7 +351,7 @@ pub(super) fn draw(
             .layer_id(egui::LayerId::background())
             .max_rect(ctx.viewport_rect()),
     );
-    if explorer.walking() {
+    if explorer.navigating() {
         egui::Area::new(egui::Id::new("first person controls"))
             .fixed_pos([16.0, 16.0])
             .show(ctx, |ui| {
@@ -349,17 +359,27 @@ pub(super) fn draw(
                     egui::ScrollArea::vertical()
                         .max_height((ctx.viewport_rect().height() - 48.0).max(100.0))
                         .show(ui, |ui| {
+                            if let Some(flight) = &explorer.flight {
+                                ui.strong("Space flight");
+                                ui.label(format!("Speed {:.1} km/s · distance from Sun {:.0} km", flight.speed / 1000.0, flight.position.length() / 1000.0));
+                                ui.label("WASD: fly · Q/E: down/up · Mouse: look");
+                                ui.label("Wheel: speed · Shift: boost · F/Esc: return · Tab: release mouse");
+                            } else {
                             ui.strong(format!(
                                 "First person · planet radius {:.0} m",
                                 scene.terrain.topology.radius
                             ));
                             ui.label("WASD: move · Mouse: look · Shift: run · Space: jump");
-                            ui.label("Esc: return to orbit · Tab: release mouse");
+                            ui.label("Esc: return to orbit · Tab: release mouse · F: space flight");
+                            }
                             if !explorer.captured() {
                                 ui.label("Mouse released · view paused for screenshots.");
                                 ui.label("Click the world to resume looking around.");
                                 if ui.button("Return to orbit").clicked() {
                                     explorer.return_to_orbit = true;
+                                }
+                                if let Some(options) = appearance.as_mut() {
+                                    appearance_controls(ui, options);
                                 }
                                 streaming_controls(ui, &mut streaming, &stats, &mut chunks);
                                 if let Some(options) = ocean.as_mut() {
@@ -389,6 +409,7 @@ pub(super) fn draw(
                                         solar,
                                         solar_frame.as_deref(),
                                         scene.terrain.topology.radius,
+                                        simulation.as_ref().map_or(1.0, |w| w.speed),
                                     );
                                 }
                                 if let Some(options) = lighting.as_mut() {
@@ -453,6 +474,7 @@ pub(super) fn draw(
             generation_buttons(ui, &mut panel);
             ui.separator();
             display_controls(ui, &mut scene, &mut refresh, &mut panel);
+            if let Some(options)=appearance.as_mut() {appearance_controls(ui,options);}
             streaming_controls(ui, &mut streaming, &stats, &mut chunks);
             ui.separator();
             egui::ScrollArea::vertical().auto_shrink([false,false]).show(ui, |ui| {
@@ -466,10 +488,10 @@ pub(super) fn draw(
                 if let Some(options)=water.as_mut() {water_controls(ui,options);}
                 if let Some(options)=environment.as_mut() {environment_controls(ui,options,solar_controls.as_ref().is_some_and(|s|s.enabled));}
                 if let Some(options)=simulation.as_deref_mut() { weather_controls(ui,options,fields.as_deref(),solar_controls.as_ref().is_some_and(|s|s.enabled)); }
-                if let Some(solar)=solar_controls.as_deref_mut() {crate::solar::controls(ui,solar,solar_frame.as_deref(),scene.terrain.topology.radius);}
+                if let Some(solar)=solar_controls.as_deref_mut() {crate::solar::controls(ui,solar,solar_frame.as_deref(),scene.terrain.topology.radius,simulation.as_ref().map_or(1.0,|w|w.speed));}
                 ui.add_space(10.0);
                 ui.small("Sea level stays at the original sphere radius.\nOcean cuts run only at LOD 2 and LOD 1.");
-                ui.small("Click the planet to explore on foot.\nDrag to orbit; scroll to zoom.\nHome: reset view · F1: hide controls · Esc: exit");
+                ui.small("Click the planet to explore on foot.\nDrag to orbit; scroll to zoom · F: space flight.\nHome: reset view · F1: hide controls · Esc: exit");
             });
         });
     }
@@ -597,11 +619,14 @@ fn forest_controls(
 ) {
     egui::CollapsingHeader::new("Forests").show(ui, |ui| {
         ui.checkbox(&mut options.enabled, "Forests");
+        ui.add(egui::Slider::new(&mut options.density, 0.25..=4.0).text("Forest density"))
+            .on_hover_text("Rebuilds placement in the background. Close detail remains bounded.");
         ui.add(egui::Slider::new(&mut options.distance, 0.0..=400.0).text("Detailed trees (m)"))
-            .on_hover_text("Set to 0 to show only the coarse trunks and canopies.");
+            .on_hover_text("Maximum range for the 96 closest detailed trees; foliage shells are limited to 12. Set to 0 for coarse shared trunks and canopies.");
         ui.small(format!(
-            "{} trees · {} detailed · {} simplified",
+            "{} trees ({} conifers) · {} detailed · {} simplified",
             world.trees,
+            world.conifers,
             world.detailed,
             world.simplified_trees()
         ));
@@ -613,8 +638,44 @@ fn forest_controls(
             .clicked()
         {
             world.inspect = true;
+            world.inspect_conifers = false;
+        }
+        if ui
+            .add_enabled(
+                options.enabled && world.conifers > 0,
+                egui::Button::new("Inspect conifers"),
+            )
+            .clicked()
+        {
+            world.inspect = true;
+            world.inspect_conifers = true;
         }
         ui.small("Tree detail follows distance in every view.");
+    });
+}
+
+fn appearance_controls(
+    ui: &mut egui::Ui,
+    settings: &mut ResMut<super::terrain_material::TerrainAppearance>,
+) {
+    egui::CollapsingHeader::new("Terrain appearance").show(ui, |ui| {
+        let mut colour = settings.dirt_colour;
+        let mut changed = false;
+        ui.horizontal(|ui| {
+            ui.label("Dirt colour");
+            changed |= ui.color_edit_button_rgb(&mut colour).changed();
+            if ui.button("Reset").clicked() {
+                colour = super::terrain_material::TerrainAppearance::default().dirt_colour;
+                changed = true;
+            }
+        });
+        ui.small("Updates live and is remembered between launches.");
+        let updated = super::terrain_material::TerrainAppearance {
+            dirt_colour: colour,
+        };
+        if changed && updated != **settings {
+            **settings = updated;
+        }
     });
 }
 
@@ -865,6 +926,10 @@ fn display_controls(
         for (label, view) in [
             ("Front", View::Front),
             ("Back", View::Back),
+            ("System", View::System),
+            ("Moon", View::Moon),
+            ("Sun", View::Sun),
+            ("Solar system", View::Solar),
             ("Mountains", View::Mountains),
             ("Volcanoes", View::Volcanoes),
             ("Craters", View::Craters),
@@ -874,6 +939,7 @@ fn display_controls(
             ("Sky", View::Sky),
             ("Clouds", View::Clouds),
             ("Forest", View::Forest),
+            ("Conifers", View::Conifers),
         ] {
             if ui.button(label).clicked() {
                 panel.view = Some(view);
@@ -883,7 +949,7 @@ fn display_controls(
 }
 
 fn noise_controls(ui: &mut egui::Ui, terrain: &mut TerrainOptions) {
-    egui::CollapsingHeader::new("Initial noise layers").default_open(true).show(ui,|ui| {
+    egui::CollapsingHeader::new("Fine tectonic detail").default_open(true).show(ui,|ui| {
         ui.horizontal(|ui| {
             if ui.button("Classic blend").clicked() { terrain.noise_layers=NoiseLayer::classic(); }
             if ui.button("Voronoi plates blend").clicked() { terrain.noise_layers=NoiseLayer::plates(); }
@@ -901,7 +967,7 @@ fn noise_controls(ui: &mut egui::Ui, terrain: &mut TerrainOptions) {
                 ui.add(egui::Slider::new(&mut layer.frequency,0.01..=100.0).logarithmic(true).text("Frequency"))
                     .on_hover_text("Higher frequency makes smaller terrain features.");
                 ui.add(egui::Slider::new(&mut layer.weight,0.0..=2.0).text("Height weight"))
-                    .on_hover_text("Relative share of the initial height field. Zero turns this layer off; Relief sets the overall height.");
+                    .on_hover_text("Relative share of tectonic microrelief. Zero disables this layer; Fine surface roughness sets its total contribution.");
             });
         }
         ui.small("Weights normalize. Set a weight to zero to disable its layer. Apply with Generate.");
@@ -941,11 +1007,40 @@ fn tectonic_controls(ui: &mut egui::Ui, terrain: &mut TerrainOptions, radius: f6
         ui.add(egui::Slider::new(&mut t.volcanism, 0.0..=3.0).text("Volcanic activity"))
             .on_hover_text("Procedural cone chains along sliding plate boundaries; zero disables them.");
         ui.add(egui::Slider::new(&mut t.volcano_spacing, 0.5..=3.0).text("Volcano spacing"));
-        ui.add(egui::Slider::new(&mut t.detail, 0.0..=0.25).text("Noise detail"))
+        ui.add(egui::Slider::new(&mut t.detail, 0.0..=0.25).text("Fine surface roughness"))
             .on_hover_text("Small contribution from the noise layers below. Zero uses only plate-derived heights.");
         ui.small("Compression raises terrain and hardens rock; separation lowers terrain and weakens rock.");
         ui.small("A simplified drift model with oceanic and continental crust. Apply with Generate.");
     });
+}
+
+fn recipe_controls(ui: &mut egui::Ui, settings: &mut Settings) {
+    let t = &mut settings.terrain;
+    if t.source == TerrainSource::Tectonics {
+        ui.add(egui::Slider::new(&mut t.relief, 0.0..=0.45).text("Relief"));
+        ui.add(egui::Slider::new(&mut t.land_bias, -0.3..=0.3).text("Land bias"));
+    }
+    let previous = t.source;
+    egui::ComboBox::from_label("Terrain recipe")
+        .selected_text(t.source.label())
+        .show_ui(ui, |ui| {
+            for source in [TerrainSource::Tectonics, TerrainSource::Moon] {
+                ui.selectable_value(&mut t.source, source, source.label());
+            }
+        });
+    if t.source != previous {
+        settings.planet.radius = if t.source == TerrainSource::Moon {
+            350.0
+        } else {
+            2000.0
+        };
+    }
+    if t.source == TerrainSource::Moon {
+        crate::moon::controls(ui, &mut t.moon);
+    } else {
+        tectonic_controls(ui, t, settings.planet.radius);
+        noise_controls(ui, t);
+    }
 }
 
 fn settings_controls(ui: &mut egui::Ui, panel: &mut Panel) {
@@ -961,19 +1056,7 @@ fn settings_controls(ui: &mut egui::Ui, panel: &mut Panel) {
                     .logarithmic(true)
                     .text("Starting points"),
             );
-            let t = &mut panel.draft.terrain;
-            ui.add(egui::Slider::new(&mut t.relief, 0.0..=0.45).text("Relief"));
-            ui.add(egui::Slider::new(&mut t.land_bias, -0.3..=0.3).text("Land bias"));
-            ui.horizontal(|ui| {
-                ui.label("Terrain source");
-                egui::ComboBox::from_id_salt("terrain-source").selected_text(t.source.label()).show_ui(ui, |ui| {
-                    for source in [TerrainSource::Noise, TerrainSource::Tectonics] {
-                        ui.selectable_value(&mut t.source, source, source.label());
-                    }
-                });
-            });
-            if t.source == TerrainSource::Tectonics { tectonic_controls(ui, t, panel.draft.planet.radius); }
-            noise_controls(ui,t);
+            recipe_controls(ui, &mut panel.draft);
             ui.horizontal(|ui| {
                 ui.label("Radius (metres)");
                 ui.add(
@@ -984,7 +1067,7 @@ fn settings_controls(ui: &mut egui::Ui, panel: &mut Panel) {
             })
             .response
             .on_hover_text(
-                "Default 1000 m (1 km). Sets walking scale and export units; orbit appearance stays constant.",
+                "Default 2000 m (2 km). Sets walking scale and export units; Sun and orbital distances scale with this radius.",
             );
             let mut sphere = panel.draft.mode == GenerationMode::Sphere;
             ui.checkbox(&mut sphere, "Undeformed sphere");
@@ -995,6 +1078,9 @@ fn settings_controls(ui: &mut egui::Ui, panel: &mut Panel) {
             };
         });
     let t = &mut panel.draft.terrain;
+    if t.source == TerrainSource::Moon {
+        return;
+    }
     egui::CollapsingHeader::new("Impact craters").show(ui, |ui| {
         ui.checkbox(&mut t.impacts.enabled,"Generate impact craters");
         ui.add_enabled_ui(t.impacts.enabled, |ui| {
@@ -1085,10 +1171,11 @@ pub(super) fn apply_view(
             }
         }
         if let Some(view) = view {
-            if view == View::Forest
+            if matches!(view, View::Forest | View::Conifers)
                 && let Some(forests) = forests.as_mut()
             {
                 forests.inspect = true;
+                forests.inspect_conifers = view == View::Conifers;
             }
             let defaults = super::environment::EnvironmentSettings::default();
             let settings = environment.as_deref().unwrap_or(&defaults);
@@ -1133,7 +1220,7 @@ fn weather_controls(
                 controls.step = true;
             }
         });
-        ui.add(egui::Slider::new(&mut controls.speed, 0.0..=10.0).text("Time speed"));
+        ui.add(egui::Slider::new(&mut controls.speed, 0.0..=10.0).text("Simulation speed (×)"));
         egui::ComboBox::from_label("Weather map")
             .selected_text(
                 [
@@ -1176,14 +1263,14 @@ fn weather_controls(
         if ui
             .add_enabled(
                 !solar_enabled,
-                egui::Slider::new(&mut hours, 4.0..=72.0).text("Rotation (hours)"),
+                egui::Slider::new(&mut hours, 4.0..=72.0).text("Coriolis period (model hours)"),
             )
             .changed()
         {
             controls.model.rotation_period = hours * 3600.0;
         }
         if solar_enabled {
-            ui.small("Rotation follows the Solar system day setting.");
+            ui.small("Day/night cycle speed is in the Solar system section.");
         }
         if ui.button("Apply climate / restart weather").clicked() {
             controls.reset = controls.reset.wrapping_add(1);
@@ -1232,6 +1319,33 @@ mod tests {
     use std::{thread, time::Duration};
 
     #[test]
+    fn moon_generate_and_previous_switch_the_complete_body_recipe() {
+        let mut app = app();
+        let original = app.world().resource::<Scene>().terrain.elevations.as_ptr();
+        {
+            let mut panel = app.world_mut().resource_mut::<Panel>();
+            panel.draft.terrain.source = TerrainSource::Moon;
+            panel.draft.planet.radius = 350.0;
+            panel.draft.terrain.moon.refinements = 1;
+            panel.action = Some(Action::Generate);
+        }
+        app.update();
+        finish(&mut app);
+        activate(&mut app);
+        let terrain = &app.world().resource::<Scene>().terrain;
+        assert!(terrain.is_moon());
+        assert_eq!(terrain.stats().sea_components, 0);
+        assert!(terrain.river_surface.triangles.is_empty());
+        assert!(terrain.elevations.iter().any(|h| *h < 0.0));
+        app.world_mut().resource_mut::<Panel>().action = Some(Action::Previous);
+        app.update();
+        activate(&mut app);
+        let terrain = &app.world().resource::<Scene>().terrain;
+        assert!(!terrain.is_moon());
+        assert_eq!(terrain.elevations.as_ptr(), original);
+    }
+
+    #[test]
     fn tectonic_generate_captures_draft_settings_and_previous_restores_the_source() {
         let mut app = app();
         let original = app.world().resource::<Scene>().terrain.elevations.as_ptr();
@@ -1261,7 +1375,7 @@ mod tests {
         app.update();
         {
             let mut panel = app.world_mut().resource_mut::<Panel>();
-            panel.draft.terrain.source = TerrainSource::Noise;
+            panel.draft.terrain.source = TerrainSource::Tectonics;
             panel.draft.terrain.tectonics.drift = 0.7;
             panel.draft.terrain.tectonics.fragmentation = 0.0;
             panel.draft.terrain.tectonics.rift_strength = 0.0;
@@ -1299,7 +1413,7 @@ mod tests {
         activate(&mut app);
         assert_eq!(
             app.world().resource::<Panel>().applied.terrain.source,
-            TerrainSource::Noise
+            TerrainSource::Tectonics
         );
         assert_eq!(
             app.world().resource::<Scene>().terrain.elevations.as_ptr(),

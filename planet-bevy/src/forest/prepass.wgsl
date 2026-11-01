@@ -30,7 +30,7 @@
 #ifdef PREPASS_FRAGMENT
 @fragment fn fragment(input:VertexOutput)->FragmentOutput {
     let root=mesh_functions::get_world_from_local(input.instance_index)[3].xyz;
-    tree_clip(input.world_position.xyz,root,input.color.r);
+    tree_clip(input.world_position.xyz,root,input.color.r,input.color.b);
     var out:FragmentOutput;
 #ifdef NORMAL_PREPASS
     out.normal=vec4<f32>(input.world_normal*0.5+0.5,1.0);
@@ -46,6 +46,6 @@
 #else
 @fragment fn fragment(input:VertexOutput) {
     let root=mesh_functions::get_world_from_local(input.instance_index)[3].xyz;
-    tree_clip(input.world_position.xyz,root,input.color.r);
+    tree_clip(input.world_position.xyz,root,input.color.r,input.color.b);
 }
 #endif

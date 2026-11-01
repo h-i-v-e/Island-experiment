@@ -9,14 +9,19 @@ mod command;
 mod details;
 mod environment;
 mod explore;
+mod flight;
 mod forest;
 mod lighting;
 mod lod_material;
+mod moon;
+mod moonlight;
 mod ocean;
 mod panel;
 mod preferences;
 mod solar;
+mod stars;
 mod streaming;
+mod sun;
 mod surface;
 mod terrain_material;
 mod water;
@@ -144,6 +149,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         environment::EnvironmentPlugin,
         weather::WeatherPlugin,
         solar::SolarPlugin,
+        moon::CompanionPlugin,
+        stars::StarPlugin,
+        sun::SunBodyPlugin,
         WireframePlugin::default(),
     ))
     .insert_resource(WireframeConfig {
@@ -159,8 +167,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     .init_resource::<streaming::ChunkWorld>()
     .init_resource::<streaming::StreamingStats>()
     .add_systems(Startup, terrain_material::setup)
+    .add_systems(Update, terrain_material::sync_palette)
     .insert_resource(chunk_settings)
     .insert_resource(command.details)
+    .insert_resource(command.appearance)
     .insert_resource(command.lighting)
     .insert_resource(command.ocean)
     .insert_resource(command.water)
@@ -168,9 +178,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     .insert_resource(command.weather)
     .insert_resource(command.solar)
     .insert_resource(command.forest)
-    .insert_resource(forest::Forests::with_inspection(
-        command.view == View::Forest,
-    ))
+    .insert_resource(forest::Forests::with_view(command.view))
     .init_resource::<explore::Explorer>()
     .insert_resource(ClearColor(Color::srgb(0.018, 0.025, 0.045)))
     .insert_resource(Scene {
@@ -200,7 +208,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             details::update,
             ocean::update,
             water::update,
-            lighting::update,
+            lighting::update.after(moon::MoonUpdate),
             update_edges,
         )
             .chain(),
@@ -247,6 +255,12 @@ fn viewer_plugins(capturing: bool) -> PluginGroupBuilder {
 
 fn print_terrain_stats(terrain: &PlanetTerrain) {
     let stats = terrain.stats();
+    if terrain.is_moon() {
+        println!(
+            "Moon recipe: dry highlands, impact basins and basalt maria; reference radius {} m",
+            terrain.topology.radius
+        );
+    }
     println!(
         "Terrain: {} land / {} submerged sites, {} river segments. Relative heights: {:.5}..{:.5}. Sea radius: {}",
         stats.land_vertices,
@@ -332,6 +346,14 @@ fn setup(
         },
         Msaa::Off,
         bevy::camera::Hdr,
+        bevy::post_process::bloom::Bloom {
+            intensity: 0.12,
+            prefilter: bevy::post_process::bloom::BloomPrefilter {
+                threshold: 2.0,
+                threshold_softness: 0.5,
+            },
+            ..bevy::post_process::bloom::Bloom::NATURAL
+        },
         bevy::core_pipeline::prepass::DepthPrepass,
         bevy::anti_alias::fxaa::Fxaa::default(),
         bevy::pbr::ScreenSpaceTransmission::default(),
@@ -449,9 +471,8 @@ fn mountain_orbit(terrain: &PlanetTerrain, sun: planet_rs::DVec3) -> Option<Orbi
     })
 }
 
-#[allow(clippy::cast_possible_truncation)] // Rendering uses normalized f32 positions.
-fn initial_orbit(view: View, terrain: &PlanetTerrain) -> Orbit {
-    let mut orbit = Orbit {
+fn wide_orbit(view: View) -> Orbit {
+    Orbit {
         yaw: 0.45
             + if view == View::Back {
                 std::f32::consts::PI
@@ -459,12 +480,27 @@ fn initial_orbit(view: View, terrain: &PlanetTerrain) -> Orbit {
                 0.0
             },
         pitch: 0.25,
-        distance: 3.5,
+        distance: if view == View::System { 7.5 } else { 3.5 },
         focus: Vec3::ZERO,
         frame: Quat::IDENTITY,
         minimum: 1.15,
         maximum: 12.0,
-    };
+    }
+}
+
+#[allow(clippy::cast_possible_truncation)] // Rendering uses normalized f32 positions.
+fn initial_orbit(view: View, terrain: &PlanetTerrain) -> Orbit {
+    if let Some(orbit) = sun::initial_inspection(view, terrain.topology.radius) {
+        return orbit;
+    }
+    if view == View::Moon {
+        return if terrain.is_moon() {
+            wide_orbit(View::Front)
+        } else {
+            moon::inspection_orbit(terrain.topology.radius)
+        };
+    }
+    let mut orbit = wide_orbit(view);
     if matches!(view, View::Waterfall | View::Mouth)
         && let Some(fall) = terrain
             .waterfalls
@@ -628,13 +664,17 @@ fn controls(
 ) {
     let keyboard = !input.wants.wants_any_keyboard_input();
     let pointer = !input.wants.wants_any_pointer_input();
-    if keyboard && !explorer.walking() && input.keys.just_pressed(KeyCode::Escape) {
+    if keyboard
+        && !explorer.navigating()
+        && !input.keys.just_pressed(KeyCode::KeyF)
+        && input.keys.just_pressed(KeyCode::Escape)
+    {
         exit.write(AppExit::Success);
     }
-    if keyboard && !explorer.walking() && input.keys.just_pressed(KeyCode::KeyW) {
+    if keyboard && !explorer.navigating() && input.keys.just_pressed(KeyCode::KeyW) {
         scene.wireframe = !scene.wireframe;
     }
-    if keyboard && !explorer.walking() && input.keys.just_pressed(KeyCode::KeyS) {
+    if keyboard && !explorer.navigating() && input.keys.just_pressed(KeyCode::KeyS) {
         scene.smooth = !scene.smooth;
         refresh.terrain = true;
     }
@@ -657,7 +697,7 @@ fn controls(
         };
     }
     for (mut orbit, mut transform) in &mut cameras {
-        if explorer.walking() {
+        if explorer.navigating() {
             continue;
         }
         if keyboard && input.keys.just_pressed(KeyCode::Home) {

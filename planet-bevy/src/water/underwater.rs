@@ -91,6 +91,7 @@ fn settings(
                 scene.terrain.topology.radius as f32,
                 if options.underwater
                     && !scene.no_ocean
+                    && !scene.terrain.is_moon()
                     && scene.generation == crate::command::GenerationMode::Terrain
                     && (camera.translation.length() - 1.0) * scene.terrain.topology.radius as f32
                         <= crest + 0.1

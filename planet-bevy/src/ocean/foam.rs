@@ -137,6 +137,7 @@ fn update(
     if altitude > 200.0
         || scene.no_ocean
         || scene.generation != crate::command::GenerationMode::Terrain
+        || scene.terrain.is_moon()
     {
         history.key = None;
         record.active = false;

@@ -11,6 +11,9 @@ pub fn vector(point: DVec3) -> Vec3 {
 /// All distances are converted to metres before choosing material coverage.
 #[allow(clippy::cast_possible_truncation)]
 pub(crate) fn terrain_material(terrain: &PlanetTerrain, i: usize, uncarved: bool) -> [f32; 4] {
+    if terrain.is_moon() {
+        return terrain.lunar_albedo[i];
+    }
     let radius = terrain.topology.radius;
     let soil_metres = terrain.soil_depth[i] * radius;
     let elevation = (surface_height(terrain, i, uncarved)) * radius;

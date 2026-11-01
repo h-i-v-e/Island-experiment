@@ -240,7 +240,8 @@ pub fn update(
     // No local mesh work while looking at the whole planet from orbit.
     let upper = world.upper;
     let far = f64::from(eye.length()) > upper + 160.0 / radius
-        || scene.generation != GenerationMode::Terrain;
+        || scene.generation != GenerationMode::Terrain
+        || scene.terrain.is_moon();
     if !settings.stones && !settings.boulders && (world.active.is_some() || world.job.is_some()) {
         clear_models(&mut world, &mut commands, &mut meshes);
         world.job = None;

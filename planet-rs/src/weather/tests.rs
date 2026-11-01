@@ -1,6 +1,32 @@
 use super::*;
 
 #[test]
+fn changing_clock_rate_keeps_elapsed_time_remainder_and_weather_state() {
+    let mut sim = simulation(4);
+    assert_eq!(sim.advance(0.375, DVec3::Y), 1);
+    assert!((sim.seconds - 150.0).abs() < 1e-10);
+    assert!((sim.orbital_seconds() - 0.25).abs() < 1e-12);
+    let ticks = sim.ticks;
+    sim.set_time_scale(60.0).unwrap();
+    assert_eq!(sim.ticks, ticks);
+    assert!((sim.seconds - 150.0).abs() < 1e-10);
+    assert!((sim.orbital_seconds() - 0.25).abs() < 1e-12);
+    assert_eq!(
+        sim.advance(0.125, DVec3::Y),
+        1,
+        "retain the previous fixed-step remainder"
+    );
+    assert!((sim.seconds - 165.0).abs() < 1e-10);
+    for invalid in [f64::NAN, -1.0, 3601.0] {
+        assert!(sim.set_time_scale(invalid).is_err());
+    }
+    assert_eq!(sim.advance(0.25, DVec3::Y), 1);
+    assert!((sim.seconds - 180.0).abs() < 1e-10);
+    assert!((sim.orbital_seconds() - 0.75).abs() < 1e-12);
+    assert_eq!(sim.ticks, ticks + 2);
+}
+
+#[test]
 fn cloud_clearance_covers_cube_edge_peaks_without_changing_mean_orography() {
     let mut terrain = crate::generate_terrain(
         crate::PlanetOptions {

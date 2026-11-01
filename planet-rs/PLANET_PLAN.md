@@ -15,6 +15,9 @@ commit history is inherited from Island-experiment at
 Island-experiment repository, with its own root Cargo workspace. The Island
 crates retain their independent workspaces and build configurations. The Planet
 crates were moved back from the separate fork on 27 October 2026.
+The default planet radius is now 2,000 m. Sun radius and orbital distance are
+scaled from that radius: about 218.4 km and 46,962 km respectively, with the
+existing day/year periods, apparent Sun size and relative irradiance retained.
 
 ## First milestone: a plain, closed sphere
 
@@ -286,3 +289,17 @@ The frozen widths also size refinement targets and waterfall/support footprints;
 existing downstream carving, bank pinning and upstream contact grading still run
 afterward. `--river-taper 0` restores the previous width/geometry rule; 1 is the
 default. The viewer exposes the remembered control as **Upstream narrowing**.
+
+## Dry Moon recipe preview
+
+The terrestrial source is tectonic drift; legacy saved Noise selections migrate
+to it. `TerrainSource::Moon` samples independent impact geology from `MoonField`:
+ancient multi-ring basins, basalt maria, softened old craters, fresh bowls and
+complex craters with terraces/central peaks, plus albedo ejecta rays. Dry surface
+subdivision samples that analytic field and bypasses hydraulic erosion, sea
+filling and rivers. The viewer uses the existing chunk LOD/collision paths with
+lunar regolith shading and no atmospheric or terrestrial vegetation effects.
+The recipe also feeds the rendered companion: a 0.175R moon in a 3R circular,
+eight-day, tidally locked orbit transformed through the rotating solar frame.
+A persistent inertial star cube surrounds the system. Spacecraft travel and
+walking-controller transfer between bodies remain future work.

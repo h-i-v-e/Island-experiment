@@ -107,6 +107,15 @@ fn update_frame(
     cameras: Query<&Transform, With<Orbit>>,
     suns: Query<&DirectionalLight, With<Sun>>,
 ) {
+    // A dry recipe preview has no atmosphere, without overwriting the saved
+    // terrestrial appearance when switching back with Previous/Generate.
+    let mut effective = *settings;
+    if scene.terrain.is_moon() {
+        effective.atmosphere = false;
+        effective.clouds = false;
+        effective.haze = 0.0;
+    }
+    let settings = &effective;
     let Ok(camera) = cameras.single() else {
         return;
     };
@@ -160,7 +169,7 @@ fn update_frame(
                 .filter(|c| c.enabled)
                 .map_or(1.0, |c| c.speed);
     }
-    let (base, atmosphere_height) = settings::effective_layers(&settings, clock.maximum_height);
+    let (base, atmosphere_height) = settings::effective_layers(settings, clock.maximum_height);
     let minimum_base = if active && weather.as_ref().is_some_and(|w| w.ready) {
         settings.cloud_base
     } else {

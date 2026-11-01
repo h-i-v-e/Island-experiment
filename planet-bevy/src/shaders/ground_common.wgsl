@@ -22,6 +22,8 @@ struct DetailMapping { origin: vec4<f32>, tangent: vec4<f32>, bitangent: vec4<f3
 @group(#{MATERIAL_BIND_GROUP}) @binding(112) var<storage, read> detail_mapping: DetailMapping;
 @group(#{MATERIAL_BIND_GROUP}) @binding(113) var detail_mask: texture_2d<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(114) var detail_sampler: sampler;
+struct GroundPalette { dirt: vec4<f32> }
+@group(#{MATERIAL_BIND_GROUP}) @binding(116) var<storage, read> ground_palette: GroundPalette;
 fn detail_environment(p: vec3<f32>) -> vec2<f32> {
     if detail_mapping.origin.w <= 0.0 { return vec2<f32>(0.0); }
     let offset = p - detail_mapping.origin.xyz;
@@ -235,7 +237,8 @@ fn shade_ground(p: vec3<f32>, normal: vec3<f32>, view: vec3<f32>, material: vec4
     let beach_variation = clamp(n.detail.r * 0.65 + n.large.b * 0.35, -1.0, 1.0);
     let simple_beach = SAND * (1.0 + beach_variation * 0.08);
     let underlying = height_weights(array<f32, 6>(clamp(1.0 - max(c.rock, c.beach), 0.0, 1.0), 0.0, c.rock, 0.0, c.beach, 0.0), array<f32, 6>(0.5, 0.5, 0.5, 0.5, 0.5, 0.5));
-    let underlying_colour = DIRT * underlying[0] + ROCK * underlying[2] + simple_beach * underlying[4];
+    let dirt = ground_palette.dirt.rgb;
+    let underlying_colour = dirt * underlying[0] + ROCK * underlying[2] + simple_beach * underlying[4];
     let q = p / 160.0;
     let fine_dirt = volume_noise(q * 96.0 + vec3<f32>(0.79, 0.17, 0.53)) * 2.0 - 1.0;
     let fine_rock = n.broad * 0.45 + (volume_noise(q * 16.0 + vec3<f32>(0.37, 0.61, 0.83)) * 2.0 - 1.0) * 0.55;
@@ -244,7 +247,7 @@ fn shade_ground(p: vec3<f32>, normal: vec3<f32>, view: vec3<f32>, material: vec4
         perturb(normal, fine_rock, 0.12 * detail_fade), normal,
         perturb(normal, fine_sand, 0.10 * detail_fade), normal);
     let underlying_normal = normalize(simple_normals[0] * underlying[0] + simple_normals[2] * underlying[2] + simple_normals[4] * underlying[4]);
-    let simple_colours = array<vec3<f32>, 6>(DIRT, underlying_colour, ROCK, underlying_colour, simple_beach, underlying_colour);
+    let simple_colours = array<vec3<f32>, 6>(dirt, underlying_colour, ROCK, underlying_colour, simple_beach, underlying_colour);
     var result = GroundSurface(vec3<f32>(0.0), vec3<f32>(0.0), 0.0, 0.0);
     for (var i = 0; i < 6; i += 1) {
         if weights[i] > 0.001 {
@@ -252,7 +255,9 @@ fn shade_ground(p: vec3<f32>, normal: vec3<f32>, view: vec3<f32>, material: vec4
             var layer_normal = select(simple_normals[i], underlying_normal, i == 1 || i == 3 || i == 5);
             var ao = 1.0;
             if gates[i] > 0.001 {
-                colour = mix(colour, layer_sample(ground_albedo, displaced, i, projection).rgb, gates[i]);
+                var recipe_colour = layer_sample(ground_albedo, displaced, i, projection).rgb;
+                if i == 0 { recipe_colour = clamp(recipe_colour * dirt / DIRT, vec3<f32>(0.0), vec3<f32>(1.0)); }
+                colour = mix(colour, recipe_colour, gates[i]);
                 let grad = layer_gradient(displaced, i, projection);
                 let recipe_normal = normalize(normal + grad - normal * dot(grad, normal));
                 layer_normal = normalize(mix(layer_normal, recipe_normal, gates[i]));

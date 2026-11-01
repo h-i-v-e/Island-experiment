@@ -544,7 +544,16 @@ fn prepare(
     let cache = ChunkCache::new(directory, key);
     let ocean = if water && detailed_ocean {
         progress.store(usize::MAX, Ordering::Relaxed);
-        Some(crate::ocean::prepare_maps(&cache, &parts[0].1, radius)?)
+        let river = parts
+            .iter()
+            .find(|(layer, _)| *layer == 2)
+            .map(|(_, mesh)| mesh);
+        Some(crate::ocean::prepare_maps(
+            &cache,
+            &parts[0].1,
+            river,
+            radius,
+        )?)
     } else {
         None
     };
@@ -789,17 +798,19 @@ fn install(
             images,
             (metadata.layer == 2).then_some(&world.flow),
         );
+        let mut extension = textures.extension(
+            if (metadata.layer == 0 && scene.generation == GenerationMode::Terrain)
+                || metadata.layer == 2
+            {
+                scene.terrain.topology.radius as f32
+            } else {
+                0.0
+            },
+        );
+        extension.terrain.padding = if scene.terrain.is_moon() { 1.0 } else { 0.0 };
         let material = materials.add(LodMaterial {
             base: layer_material(metadata.layer),
-            extension: textures.extension(
-                if (metadata.layer == 0 && scene.generation == GenerationMode::Terrain)
-                    || metadata.layer == 2
-                {
-                    scene.terrain.topology.radius as f32
-                } else {
-                    0.0
-                },
-            ),
+            extension,
         });
         let entity = commands
             .spawn((
@@ -864,7 +875,7 @@ pub(crate) fn prepare_update(
             .pending_terrain()
             .unwrap_or((&scene.terrain, scene.generation));
         let mut parts = vec![(0, terrain_source(terrain, generation, scene.bed))];
-        let water = generation != GenerationMode::Sphere;
+        let water = generation != GenerationMode::Sphere && !terrain.is_moon();
         if water {
             parts.push((2, river_source(terrain)));
         }
@@ -1003,7 +1014,7 @@ pub(crate) fn update(
     for (entry_index, entry) in world.entries.iter_mut().enumerate() {
         let bounds = entry.metadata.bounds;
         let show_layer = match entry.metadata.layer {
-            1 => !scene.no_ocean,
+            1 => !scene.no_ocean && !scene.terrain.is_moon(),
             2 => {
                 scene.river_display == RiverDisplay::Show
                     && terrain_lods.get(&(entry.metadata.id % 100_000)) == Some(&0)
@@ -1239,7 +1250,7 @@ pub(crate) fn update(
             entry,
             &settings,
             scene.smooth,
-            scene.river_display == RiverDisplay::Show,
+            scene.river_display == RiverDisplay::Show && !scene.terrain.is_moon(),
             &mut materials,
         );
         if entry.visible {
@@ -1249,6 +1260,7 @@ pub(crate) fn update(
                 entry.metadata.layer == 0
                     && entry.selected > 0
                     && scene.river_display == RiverDisplay::Show
+                    && !scene.terrain.is_moon()
                     && entry.river_atlases[entry.selected].is_some(),
             );
             if settings.surface_maps
@@ -1330,6 +1342,8 @@ fn update_material(
         }
         let terrain_mode = if entry.metadata.layer == 2 && !settings.colours {
             4
+        } else if material.extension.terrain.padding > 0.5 {
+            if settings.colours { 2 } else { 5 }
         } else if material.extension.terrain.radius > 0.0 {
             if settings.colours { 2 } else { 1 }
         } else {

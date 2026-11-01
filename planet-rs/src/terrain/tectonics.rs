@@ -13,16 +13,17 @@ use std::collections::BTreeMap;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum TerrainSource {
     #[default]
-    Noise,
+    #[serde(alias = "Noise")]
     Tectonics,
+    Moon,
 }
 
 impl TerrainSource {
     #[must_use]
     pub const fn label(self) -> &'static str {
         match self {
-            Self::Noise => "Noise layers",
             Self::Tectonics => "Tectonic drift",
+            Self::Moon => "Moon (impact geology)",
         }
     }
 }
@@ -31,9 +32,11 @@ impl std::str::FromStr for TerrainSource {
     type Err = &'static str;
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value {
-            "noise" => Ok(Self::Noise),
             "tectonics" => Ok(Self::Tectonics),
-            _ => Err("terrain source must be noise or tectonics"),
+            "moon" => Ok(Self::Moon),
+            _ => Err(
+                "terrain source must be tectonics or moon (the old noise generator has been removed)",
+            ),
         }
     }
 }

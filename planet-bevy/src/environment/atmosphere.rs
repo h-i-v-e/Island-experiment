@@ -133,13 +133,18 @@ pub(super) fn update(
     >,
     mut suns: Query<&mut Transform, (With<Sun>, Without<Orbit>)>,
 ) {
+    let mut effective = *settings;
+    if scene.terrain.is_moon() {
+        effective.atmosphere = false;
+    }
+    let settings = &effective;
     let (geometry, radius) = geometry(&scene);
     if world.geometry != Some(geometry) {
         world.maximum_height = (scene.terrain.elevations.iter().copied().fold(0.0, f64::max)
             * scene.terrain.topology.radius) as f32;
         world.geometry = Some(geometry);
     }
-    let (_, height) = effective_layers(&settings, world.maximum_height);
+    let (_, height) = effective_layers(settings, world.maximum_height);
     let medium_key = (height.to_bits(), settings.haze.to_bits());
     if world.medium_key != Some(medium_key) {
         let next = medium(height, settings.haze);
@@ -257,10 +262,11 @@ fn configure_shell(
 #[allow(clippy::type_complexity)] // Main-world camera filters inside extraction.
 fn disable_render_atmosphere(
     settings: Extract<Res<EnvironmentSettings>>,
+    scene: Extract<Res<Scene>>,
     cameras: Extract<Query<RenderEntity, (With<Orbit>, With<Camera3d>)>>,
     mut commands: Commands,
 ) {
-    if settings.atmosphere {
+    if settings.atmosphere && !scene.terrain.is_moon() {
         return;
     }
     for camera in &cameras {

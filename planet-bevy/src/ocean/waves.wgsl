@@ -29,7 +29,9 @@ fn allowance(c:vec4<f32>)->f32 {
  let shore=pow(clamp(distance/16.0,0.0,1.0),1.15);
  let shallow=pow(clamp(depth/5.0,0.0,1.0),1.35);
  let maximum=max(manual_wave_height_bound(),0.001);
- return min(shore,shallow)*clamp(depth/maximum,0.0,1.0)*(1.0-c.b*0.85);
+ // Actual river contact edges are stamped fully flat in the coastal map.
+ // Residual swell here separates the ocean from the static river mesh.
+ return min(shore,shallow)*clamp(depth/maximum,0.0,1.0)*(1.0-c.b);
 }
 fn shore_allowance(c:vec4<f32>)->f32 {
  // Island's coastal wave keeps its amplitude through the ordinary swell's

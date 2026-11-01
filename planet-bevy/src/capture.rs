@@ -90,6 +90,16 @@ impl Plugin for CapturePlugin {
     }
 }
 
+#[derive(bevy::ecs::system::SystemParam)]
+struct CaptureState<'w> {
+    weather_controls: Res<'w, crate::weather::WeatherControls>,
+    solar_controls: Res<'w, crate::solar::SolarControls>,
+    scene: Res<'w, crate::Scene>,
+    moon: Res<'w, crate::moon::MoonWorld>,
+    moonlight: Res<'w, crate::moonlight::MoonlightFrame>,
+    star: Res<'w, crate::sun::SunWorld>,
+}
+
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)] // Bevy capture resources and report.
 fn capture(
     mut commands: Commands,
@@ -106,11 +116,24 @@ fn capture(
     forests: Option<Res<crate::forest::Forests>>,
     gpu: Res<GpuReady>,
     weather: Res<crate::weather::WeatherFrame>,
-    weather_controls: Res<crate::weather::WeatherControls>,
+    context: CaptureState,
     solar: Res<crate::solar::SolarFrame>,
 ) {
+    let CaptureState {
+        weather_controls,
+        solar_controls,
+        scene,
+        moon,
+        moonlight,
+        star,
+    } = context;
     if gpu.0.load(Ordering::Acquire) == 2 {
         error!("Capture stopped: GPU shader compilation failed");
+        exit.write(AppExit::error());
+        return;
+    }
+    if let Some(error) = &moon.error {
+        error!("Capture stopped: {error}");
         exit.write(AppExit::error());
         return;
     }
@@ -120,17 +143,19 @@ fn capture(
         return;
     }
     progress.frames += 1;
-    progress.settled_frames = if (!weather_controls.enabled || weather.ready)
-        && chunks.settled()
-        && details.settled()
-        && ocean.settled()
-        && forests.as_ref().is_none_or(|world| world.settled())
-        && gpu.0.load(Ordering::Acquire) == 1
-    {
-        progress.settled_frames + 1
-    } else {
-        0
-    };
+    progress.settled_frames =
+        if (!weather_controls.enabled || scene.terrain.is_moon() || weather.ready)
+            && chunks.settled()
+            && details.settled()
+            && ocean.settled()
+            && moon.settled()
+            && forests.as_ref().is_none_or(|world| world.settled())
+            && gpu.0.load(Ordering::Acquire) == 1
+        {
+            progress.settled_frames + 1
+        } else {
+            0
+        };
     progress.record_frame_time();
     if progress.saved {
         progress.completed_frames += 1;
@@ -179,15 +204,49 @@ fn capture(
         let summary = format!(
             "{summary}{}\nweather_enabled: {}\nweather_simulation_paused: {}\nweather_seconds: {}\nweather_ticks: {}\nweather_stats: {:?}\n",
             forest_summary(forests.as_deref()),
-            weather_controls.enabled,
+            weather_controls.enabled && !scene.terrain.is_moon(),
             weather_controls.paused,
             weather.seconds,
             weather.ticks,
             weather.stats
         );
         let summary = format!(
-            "{summary}solar_enabled: {}\nsolar_seconds: {}\nsolar_state: {:?}\n",
-            solar.enabled, solar.seconds, solar.state
+            "{summary}solar_enabled: {}\nsolar_seconds: {}\norbital_seconds: {}\nsolar_state: {:?}\n",
+            solar.enabled, solar.seconds, solar.orbital_seconds, solar.state
+        );
+        let summary = format!(
+            "{summary}planet_orbit_period_s: {}\nmoon_orbit_period_s: {}\nmoon_orbit_speed_m_s: {}\n",
+            solar_controls
+                .model
+                .orbital_period(scene.terrain.topology.radius),
+            solar_controls
+                .companion
+                .orbit
+                .orbital_period(scene.terrain.topology.radius),
+            solar_controls
+                .companion
+                .orbit
+                .orbital_speed(scene.terrain.topology.radius),
+        );
+        let summary = format!(
+            "{summary}sun_mesh: {}\nsun_render_position: {:?}\nsun_render_radius: {}\n",
+            star.active, star.position, star.radius
+        );
+        let summary = format!(
+            "{summary}companion_moon: {}\nmoon_position: {:?}\nmoon_lod: {}\nstar_sphere: {}\n",
+            solar_controls.companion.enabled, moon.position, moon.lod, solar_controls.stars.enabled
+        );
+        let summary = format!(
+            "{summary}moonlight_centre_lux: {}\nmoonlight_phase: {}\nmoonlight_sunlight: {}\n",
+            moonlight.lux, moonlight.phase, moonlight.sunlight
+        );
+        let summary = format!(
+            "{summary}solar_day_minutes_at_1x: {}\nclock_model_seconds_per_real_second: {}\n",
+            solar_controls.day_minutes,
+            solar_controls
+                .climate_settings(weather_controls.model)
+                .time_scale
+                * weather_controls.speed,
         );
         let summary = format!(
             "{summary}sun_shadows: {}\nshadow_distance_m: {}\nshadow_bias_m: {}\ndepth_ao: {}\nao_radius_m: {}\nao_intensity: {}\nao_samples: {}\nao_half_resolution: {}\nao_only: {}\n",
@@ -207,7 +266,14 @@ fn capture(
         );
         let summary = format!(
             "{summary}{}",
-            environment_summary(&environment, &progress.frame_times)
+            environment_summary(
+                &crate::environment::EnvironmentSettings {
+                    atmosphere: environment.atmosphere && !scene.terrain.is_moon(),
+                    clouds: environment.clouds && !scene.terrain.is_moon(),
+                    ..*environment
+                },
+                &progress.frame_times
+            )
         );
         println!("{summary}");
         if let Err(error) = std::fs::write(progress.path.with_extension("png.txt"), summary) {
@@ -313,8 +379,9 @@ fn refresh_shader_sources(
 fn forest_summary(forests: Option<&crate::forest::Forests>) -> String {
     forests.map_or_else(String::new, |forests| {
         format!(
-            "forest_trees: {}\nforest_detailed_trees: {}\nforest_simplified_trees: {}\n",
+            "forest_trees: {}\nforest_conifers: {}\nforest_detailed_trees: {}\nforest_simplified_trees: {}\n",
             forests.trees,
+            forests.conifers,
             forests.detailed,
             forests.simplified_trees()
         )

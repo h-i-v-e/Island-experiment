@@ -11,6 +11,7 @@ use crate::{
     panel::{Panel, Settings},
     solar::SolarControls,
     streaming::StreamingSettings,
+    terrain_material::TerrainAppearance,
     water::WaterSettings,
     weather::WeatherControls,
 };
@@ -61,6 +62,7 @@ impl Default for Display {
 struct RenderSettings {
     streaming: StreamingSettings,
     details: DetailSettings,
+    appearance: TerrainAppearance,
     forest: ForestSettings,
     lighting: LightingSettings,
     ocean: OceanSettings,
@@ -79,6 +81,7 @@ impl RenderSettings {
         Self {
             streaming: c.streaming,
             details: c.details,
+            appearance: c.appearance,
             forest: c.forest,
             lighting: c.lighting,
             ocean: c.ocean,
@@ -158,6 +161,7 @@ impl Snapshot {
             },
             streaming: self.render.streaming,
             details: self.render.details,
+            appearance: self.render.appearance,
             forest: self.render.forest,
             lighting: self.render.lighting,
             ocean: self.render.ocean,
@@ -204,6 +208,7 @@ fn read(path: &Path) -> Result<Option<Snapshot>, String> {
     }
     let mut settings: Snapshot =
         serde_json::from_reader(BufReader::new(file)).map_err(|e| e.to_string())?;
+    settings.render.solar.migrate_legacy_sun();
     settings.render = settings.render.canonical();
     settings.validate()?;
     Ok(Some(settings))
@@ -418,6 +423,7 @@ pub(super) struct LiveSettings<'w> {
     scene: Res<'w, Scene>,
     streaming: Res<'w, StreamingSettings>,
     details: Res<'w, DetailSettings>,
+    appearance: Res<'w, TerrainAppearance>,
     forest: Res<'w, ForestSettings>,
     lighting: Res<'w, LightingSettings>,
     ocean: Res<'w, OceanSettings>,
@@ -445,6 +451,7 @@ impl LiveSettings<'_> {
             render: RenderSettings {
                 streaming: *self.streaming,
                 details: *self.details,
+                appearance: *self.appearance,
                 forest: *self.forest,
                 lighting: *self.lighting,
                 ocean: *self.ocean,
@@ -519,7 +526,9 @@ mod tests {
         s.display.view = View::Mountains;
         s.render.details.density = 17.0;
         s.render.details.grass = false;
+        s.render.appearance.set_dirt_hex("936D3C").unwrap();
         s.render.forest.distance = 190.0;
+        s.render.forest.density = 2.7;
         s.render.streaming.forced_lod = Some(2);
         s.render.lighting.ao_radius = 0.12;
         s.render.ocean.foam = 2.0;
@@ -527,9 +536,73 @@ mod tests {
         s.render.environment.coverage = 0.61;
         s.render.weather.model.humidity = 0.7;
         s.render.solar.model.axial_tilt = 0.37;
+        s.render.solar.day_minutes = 45.0;
+        s.render.solar.companion.orbit.distance_ratio = 4.0;
+        s.render.solar.companion.recipe.crater_density = 1.4;
+        s.render.solar.companion.light.albedo = 0.2;
+        s.render.solar.companion.light.strength = 3.0;
+        s.render.solar.companion.light.shadows = true;
+        s.render.solar.stars.brightness = 0.8;
+        s.draft.terrain.moon.crater_density = 1.3;
         s.render.solar.draft = s.render.solar.model;
         s
     }
+    #[test]
+    fn legacy_default_sun_moves_closer_without_touching_custom_orbits_or_user_settings() {
+        use planet_rs::solar::{EARTH_ORBIT_RADIUS_RATIO, SolarSystem};
+        let folder = Folder::new();
+        let mut old = serde_json::to_value(edited()).unwrap();
+        for name in ["model", "draft"] {
+            let model = &mut old["render"]["solar"][name];
+            model["orbit_radius_ratio"] = EARTH_ORBIT_RADIUS_RATIO.into();
+            model
+                .as_object_mut()
+                .unwrap()
+                .remove("irradiance_reference_ratio");
+        }
+        std::fs::write(folder.file(), serde_json::to_vec(&old).unwrap()).unwrap();
+        let loaded = read(&folder.file()).unwrap().unwrap();
+        let model = loaded.render.solar.model;
+        let moon = loaded.render.solar.companion.orbit;
+        assert!(
+            (model.sun_radius_ratio / (model.orbit_radius_ratio - 1.0)
+                - moon.radius_ratio / (moon.distance_ratio - 1.0))
+                .abs()
+                < 1e-12
+        );
+        assert!(
+            (SolarSystem::new(model, 2000.0)
+                .unwrap()
+                .state(0.0)
+                .irradiance_ratio
+                - 1.0)
+                .abs()
+                < 1e-12
+        );
+        let mut expected = edited();
+        expected.render.solar.model = loaded.render.solar.model;
+        expected.render.solar.draft = loaded.render.solar.draft;
+        assert_eq!(loaded, expected);
+        old["render"]["solar"]["model"]["orbit_radius_ratio"] = 20000.0.into();
+        std::fs::write(folder.file(), serde_json::to_vec(&old).unwrap()).unwrap();
+        let custom = read(&folder.file()).unwrap().unwrap().render.solar.model;
+        assert!((custom.orbit_radius_ratio - 20000.0).abs() < 1e-9);
+        assert!((custom.irradiance_reference_ratio - EARTH_ORBIT_RADIUS_RATIO).abs() < 1e-9);
+    }
+
+    #[test]
+    fn legacy_independent_periods_are_ignored_and_orbital_distances_are_preserved() {
+        let old = r#"{"model":{"orbital_period":31557600.0,"orbit_radius_ratio":20000.0},"companion":{"orbit":{"period_days":8.0,"distance_ratio":4.0}},"day_minutes":60.0}"#;
+        let loaded: SolarControls = serde_json::from_str(old).unwrap();
+        loaded.validate().unwrap();
+        assert!((loaded.model.orbit_radius_ratio - 20000.0).abs() < 1e-9);
+        assert!((loaded.companion.orbit.distance_ratio - 4.0).abs() < 1e-9);
+        assert!((loaded.day_minutes - 60.0).abs() < 1e-9);
+        let saved = serde_json::to_value(loaded).unwrap();
+        assert!(saved["model"].get("orbital_period").is_none());
+        assert!(saved["companion"]["orbit"].get("period_days").is_none());
+    }
+
     #[test]
     fn file_roundtrip_preserves_every_group_and_pending_edits_without_float_drift() {
         let folder = Folder::new();
@@ -706,6 +779,7 @@ mod tests {
             })
             .insert_resource(command.streaming)
             .insert_resource(command.details)
+            .insert_resource(command.appearance)
             .insert_resource(command.forest)
             .insert_resource(command.lighting)
             .insert_resource(command.ocean)

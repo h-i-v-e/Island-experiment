@@ -72,7 +72,7 @@ impl Waterfall {
         let a = self.support_bounds();
         let b = other.support_bounds();
         let delta = b.centre - a.centre;
-        // Leave 75cm at the default 1km radius between tangent support patches.
+        // Leave 75cm at the 1km reference radius between tangent support patches.
         // This also covers their small spherical projection error.
         let gap = 0.00075;
         let radius =
@@ -309,7 +309,7 @@ fn stepped(
         }
         gradients.push(total / weights);
     }
-    let reference_height = 0.2; // Island's 200 m reference at the default 1 km radius.
+    let reference_height = 0.2; // Island's 200 m reference on a 1 km planet.
     let mut level = levels[path[end]];
     let mut pending_drop = 0.0;
     let mut reach_length = 0.0;

@@ -106,6 +106,19 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         pbr_input.diffuse_occlusion *= vec3<f32>(ground_ao);
         pbr_input.specular_occlusion *= ground_ao;
         pbr_input.material.perceptual_roughness = mix(0.92, 0.35, ground_surface.wet);
+    } else if settings.terrain == 5u {
+        // Lunar albedo comes from impact geology, independent of Earth soil,
+        // grass, altitude snow and water. Fine regolith remains seam-free.
+        let q = metres * 1.8;
+        let grit = volume_noise(q) * 2.0 - 1.0;
+        let fine = volume_noise(q * 4.3 + vec3<f32>(0.37, 0.61, 0.83)) * 2.0 - 1.0;
+        let fade = 1.0 - smoothstep(0.04, 0.8, footprint);
+#ifdef VERTEX_COLORS
+        pbr_input.material.base_color = vec4<f32>(in.color.rgb * (1.0 + (grit * 0.06 + fine * 0.03) * fade), 1.0);
+#endif
+        let local_normal = normalize(transpose(world_linear) * normal);
+        pbr_input.N = normalize(normal_to_world * perturb(local_normal, grit * 0.4 + fine * 0.6, 0.09 * fade));
+        pbr_input.material.perceptual_roughness = 1.0;
     } else if settings.terrain == 3u {
         let local_normal = normalize(transpose(world_linear) * normal);
         let q = metres / 160.0;
@@ -139,7 +152,9 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         pbr_input.diffuse_occlusion*=vec3<f32>(ambient);
         pbr_input.specular_occlusion*=ambient;
         out.color = apply_pbr_lighting(pbr_input);
-        out.color = vec4<f32>(out.color.rgb * material_cloud_light(in.world_position.xyz)*material_twilight_tint(in.world_position.xyz), out.color.a);
+        if settings.terrain != 5u {
+            out.color = vec4<f32>(out.color.rgb * material_cloud_light(in.world_position.xyz)*material_twilight_tint(in.world_position.xyz), out.color.a);
+        }
     } else {
         out.color = pbr_input.material.base_color;
     }

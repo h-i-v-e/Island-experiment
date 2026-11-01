@@ -259,6 +259,7 @@ pub struct WeatherSimulation {
     waves: Vec<[f64; 24]>,
     wave_next: Vec<[f64; 24]>,
     seconds: f64,
+    orbital_seconds: f64,
     remainder: f64,
     ticks: u64,
     solar_flux: f64,
@@ -352,6 +353,7 @@ impl WeatherSimulation {
             waves: vec![[0.0; 24]; count],
             wave_next: vec![[0.0; 24]; count],
             seconds: 0.0,
+            orbital_seconds: 0.0,
             remainder: 0.0,
             ticks: 0,
             solar_flux: 1.0,
@@ -359,11 +361,31 @@ impl WeatherSimulation {
         result.initialize_waves();
         Ok(result)
     }
+    /// Change the amount of model time per real second without discarding the
+    /// current atmosphere, waves, accumulated time or fixed-step remainder.
+    /// # Errors
+    /// Rejects an invalid climate clock rate.
+    pub fn set_time_scale(&mut self, time_scale: f64) -> Result<(), String> {
+        let settings = WeatherSettings {
+            time_scale,
+            ..self.settings
+        };
+        settings.validate()?;
+        self.settings.time_scale = time_scale;
+        Ok(())
+    }
+
+    /// Physical seconds shared by orbital motion and wave propagation.
+    #[must_use]
+    pub const fn orbital_seconds(&self) -> f64 {
+        self.orbital_seconds
+    }
+
     /// Fixed real-time stepping is independent of rendering frame cadence.
     /// Returns the number of fixed steps completed. The caller bounds worker batches.
     pub fn advance(&mut self, real_seconds: f64, sun_direction: DVec3) -> u32 {
         let sun = sun_direction.try_normalize().unwrap_or(DVec3::Y);
-        self.advance_forcing(real_seconds, |_| (sun, 1.0))
+        self.advance_forcing(real_seconds, |_, _| (sun, 1.0))
     }
     /// Uses orbital position and spin at every atmosphere substep, including warm-up.
     pub fn advance_with_solar(
@@ -371,12 +393,16 @@ impl WeatherSimulation {
         real_seconds: f64,
         solar: &crate::solar::SolarSystem,
     ) -> u32 {
-        self.advance_forcing(real_seconds, |seconds| {
-            let state = solar.state(seconds);
+        self.advance_forcing(real_seconds, |orbital_seconds, spin_seconds| {
+            let state = solar.state_at(orbital_seconds, spin_seconds);
             (state.sun_direction, state.irradiance_ratio)
         })
     }
-    fn advance_forcing(&mut self, real_seconds: f64, forcing: impl Fn(f64) -> (DVec3, f64)) -> u32 {
+    fn advance_forcing(
+        &mut self,
+        real_seconds: f64,
+        forcing: impl Fn(f64, f64) -> (DVec3, f64),
+    ) -> u32 {
         if !real_seconds.is_finite() || real_seconds <= 0.0 || self.settings.time_scale == 0.0 {
             return 0;
         }
@@ -394,13 +420,17 @@ impl WeatherSimulation {
                 * self.settings.effective_radius;
             let substeps = (dt / (minimum / 400.0).max(1.0)).ceil().max(1.0) as u32;
             for substep in 0..substeps {
-                let (sun, flux) =
-                    forcing(self.seconds + dt * (f64::from(substep) + 0.5) / f64::from(substeps));
+                let fraction = (f64::from(substep) + 0.5) / f64::from(substeps);
+                let (sun, flux) = forcing(
+                    self.orbital_seconds + STEP * fraction,
+                    self.seconds + dt * fraction,
+                );
                 self.solar_flux = flux;
                 self.atmosphere_step(dt / f64::from(substeps), sun);
             }
             self.wave_step(STEP);
             self.seconds += dt;
+            self.orbital_seconds += STEP;
             self.ticks += 1;
             steps += 1;
         }

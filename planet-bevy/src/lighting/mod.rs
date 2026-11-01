@@ -88,6 +88,7 @@ fn cascades(settings: &LightingSettings, radius: f64, eye: Vec3) -> CascadeShado
 pub fn update(
     settings: Res<LightingSettings>,
     scene: Res<Scene>,
+    companion: Option<Res<crate::moon::MoonWorld>>,
     mut cameras: Query<(&Transform, &mut AoSettings), With<Orbit>>,
     mut suns: Query<(&mut DirectionalLight, &mut CascadeShadowConfig), With<Sun>>,
 ) {
@@ -101,6 +102,21 @@ pub fn update(
     for (mut light, mut config) in &mut suns {
         if light.shadow_maps_enabled != settings.shadows {
             light.shadow_maps_enabled = settings.shadows;
+        }
+        // Bare lunar slopes expose orbit shadow acne that foliage hid on the
+        // terrestrial recipe. Use the engine's normal offset at orbital scale,
+        // retaining the close-surface value for contact shadows on foot.
+        let lunar_height = if scene.terrain.is_moon() {
+            Some(camera.translation.length())
+        } else {
+            companion
+                .as_ref()
+                .and_then(|m| m.nearby_surface(camera.translation))
+        };
+        let t = lunar_height.map_or(0.0, |height| ((height - 1.03) / 0.22).clamp(0.0, 1.0));
+        let normal_bias = 0.4 + 1.4 * t * t * (3.0 - 2.0 * t);
+        if light.shadow_normal_bias.to_bits() != normal_bias.to_bits() {
+            light.shadow_normal_bias = normal_bias;
         }
         let bias = settings.shadow_bias / scene.terrain.topology.radius as f32;
         if light.shadow_depth_bias.to_bits() != bias.to_bits() {
@@ -132,6 +148,68 @@ mod tests {
         app.update();
         app
     }
+    #[test]
+    fn lunar_orbit_shadow_offset_restores_the_close_surface_and_terrestrial_values() {
+        let mut app = app();
+        let terrain = planet_rs::generate_terrain(
+            planet_rs::PlanetOptions {
+                vertex_count: 16,
+                ..default()
+            },
+            planet_rs::TerrainOptions {
+                source: planet_rs::TerrainSource::Moon,
+                moon: planet_rs::terrain::moon::MoonOptions {
+                    refinements: 0,
+                    ..default()
+                },
+                ..default()
+            },
+        )
+        .unwrap();
+        let original = app.world().resource::<Scene>().terrain.clone();
+        app.world_mut().resource_mut::<Scene>().terrain = std::sync::Arc::new(terrain);
+        let world = app.world_mut();
+        let camera = world
+            .query_filtered::<Entity, With<Orbit>>()
+            .single(world)
+            .unwrap();
+        for (distance, expected) in [(3.5, 1.8_f32), (1.005, 0.4)] {
+            app.world_mut()
+                .get_mut::<Transform>(camera)
+                .unwrap()
+                .translation = Vec3::Y * distance;
+            app.update();
+            let world = app.world_mut();
+            assert!(
+                (world
+                    .query_filtered::<&DirectionalLight, With<Sun>>()
+                    .single(world)
+                    .unwrap()
+                    .shadow_normal_bias
+                    - expected)
+                    .abs()
+                    < 1e-5
+            );
+        }
+        app.world_mut().resource_mut::<Scene>().terrain = original;
+        app.world_mut()
+            .get_mut::<Transform>(camera)
+            .unwrap()
+            .translation = Vec3::Y * 3.5;
+        app.update();
+        let world = app.world_mut();
+        assert!(
+            (world
+                .query_filtered::<&DirectionalLight, With<Sun>>()
+                .single(world)
+                .unwrap()
+                .shadow_normal_bias
+                - 0.4)
+                .abs()
+                < 1e-5
+        );
+    }
+
     #[test]
     fn metre_scale_and_runtime_toggles_survive_radius_changes() {
         let mut app = app();

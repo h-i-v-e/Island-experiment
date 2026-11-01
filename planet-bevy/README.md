@@ -1,5 +1,17 @@
 # Planet experiment
 
+The current default is a **2000 m radius** tectonic planet. A separate dry Moon
+recipe, companion Moon, star sphere and visitable Sun use the same scaled solar
+system. Day/night speed remains independently adjustable.
+
+- [Solar system, gravity-linked orbits and space-flight controls](ORBITS.md)
+- [Dense radial forests, cold-climate conifers and rendering budgets](FORESTS.md)
+
+Inland seas are filled before final river excavation. River beds newly carved
+below zero retain their above-sea water profile; existing ocean openings stay
+clear. The moving ocean is flattened at actual river contact edges and blends
+back to waves beyond each outlet.
+
 The spherical planet generator and Bevy viewer in the Island-experiment
 repository. A closed spherical mesh is built from seeded random surface vertices,
 using a translating plane to order an incremental

@@ -8,13 +8,80 @@ use bevy::{
     },
     prelude::*,
     render::{
-        render_resource::{Extent3d, TextureDimension, TextureFormat},
+        render_resource::{Extent3d, ShaderType, TextureDimension, TextureFormat},
         storage::ShaderBuffer,
     },
 };
 
+#[derive(Resource, Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct TerrainAppearance {
+    /// Linear RGB. The colour picker and hex CLI convert from display sRGB.
+    pub dirt_colour: [f32; 3],
+}
+
+impl Default for TerrainAppearance {
+    fn default() -> Self {
+        Self {
+            dirt_colour: [0.008_540, 0.004_401, 0.002_012],
+        }
+    }
+}
+
+impl TerrainAppearance {
+    pub fn validate(&self) -> Result<(), String> {
+        if self
+            .dirt_colour
+            .iter()
+            .all(|c| c.is_finite() && (0.0..=1.0).contains(c))
+        {
+            Ok(())
+        } else {
+            Err("dirt colour components must be finite and 0..1".into())
+        }
+    }
+
+    pub fn set_dirt_hex(&mut self, value: &str) -> Result<(), String> {
+        let value = value.strip_prefix('#').unwrap_or(value);
+        if value.len() != 6 || !value.bytes().all(|c| c.is_ascii_hexdigit()) {
+            return Err("dirt colour must be six hexadecimal digits (RRGGBB)".into());
+        }
+        let [_, r, g, b] = u32::from_str_radix(value, 16)
+            .map_err(|e| e.to_string())?
+            .to_be_bytes();
+        let [r, g, b, _] = Color::srgb_u8(r, g, b).to_linear().to_f32_array();
+        self.dirt_colour = [r, g, b];
+        Ok(())
+    }
+
+    fn palette(self) -> GroundPalette {
+        GroundPalette {
+            dirt: Vec3::from_array(self.dirt_colour).extend(1.0),
+        }
+    }
+}
+
+#[derive(Clone, Copy, ShaderType)]
+struct GroundPalette {
+    dirt: Vec4,
+}
+
+/// Every terrain/grass LOD shares this buffer, including chunks loaded later.
+pub fn sync_palette(
+    appearance: Res<TerrainAppearance>,
+    textures: Res<TerrainTextures>,
+    mut buffers: ResMut<Assets<ShaderBuffer>>,
+) {
+    if appearance.is_changed()
+        && let Some(mut buffer) = buffers.get_mut(&textures.palette)
+    {
+        buffer.set_data(appearance.palette());
+    }
+}
+
 #[derive(Resource, Default)]
 pub struct TerrainTextures {
+    pub palette: Handle<ShaderBuffer>,
     pub albedo: Handle<Image>,
     pub normal: Handle<Image>,
     pub mask: Handle<Image>,
@@ -49,6 +116,7 @@ impl TerrainTextures {
                 radius,
                 ..default()
             },
+            palette: self.palette.clone(),
             albedo: Some(self.albedo.clone()),
             normal: Some(self.normal.clone()),
             mask: Some(self.mask.clone()),
@@ -72,8 +140,10 @@ pub fn setup(
     environment: Res<crate::environment::settings::EnvironmentAssets>,
     reflection: Res<crate::environment::reflections::SkyReflectionAssets>,
     weather: Res<crate::weather::WeatherFrame>,
+    appearance: Res<TerrainAppearance>,
 ) {
     commands.insert_resource(TerrainTextures {
+        palette: buffers.add(ShaderBuffer::from(appearance.palette())),
         albedo: images.add(array_image(
             include_bytes!("../assets/terrain/albedo.png"),
             true,
@@ -289,6 +359,97 @@ fn cliff_noise() -> Image {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dirt_edits_update_one_shared_buffer_without_dirtying_ground_or_grass_materials() {
+        use crate::{details::GrassMaterial, lod_material::LodMaterial};
+        use bevy::asset::{AssetApp, AssetEvent, AssetPlugin};
+
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+            .init_asset::<ShaderBuffer>()
+            .init_asset::<LodMaterial>()
+            .init_asset::<GrassMaterial>()
+            .init_resource::<TerrainAppearance>()
+            .add_systems(Update, sync_palette);
+        let handle = app
+            .world_mut()
+            .resource_mut::<Assets<ShaderBuffer>>()
+            .add(ShaderBuffer::from(TerrainAppearance::default().palette()));
+        let textures = TerrainTextures {
+            palette: handle.clone(),
+            ..default()
+        };
+        let ground = LodMaterial {
+            extension: textures.extension(1000.0),
+            ..default()
+        };
+        assert_eq!(ground.extension.palette, handle);
+        let terrain = app
+            .world_mut()
+            .resource_mut::<Assets<LodMaterial>>()
+            .add(ground.clone());
+        let grass = app
+            .world_mut()
+            .resource_mut::<Assets<GrassMaterial>>()
+            .add(GrassMaterial {
+                base: ground,
+                ..default()
+            });
+        app.insert_resource(textures);
+        app.update();
+        app.world_mut()
+            .resource_mut::<Messages<AssetEvent<ShaderBuffer>>>()
+            .clear();
+        app.world_mut()
+            .resource_mut::<Messages<AssetEvent<LodMaterial>>>()
+            .clear();
+        app.world_mut()
+            .resource_mut::<Messages<AssetEvent<GrassMaterial>>>()
+            .clear();
+        app.world_mut()
+            .resource_mut::<TerrainAppearance>()
+            .set_dirt_hex("BD793A")
+            .unwrap();
+        app.update();
+        let writes = app
+            .world_mut()
+            .resource_mut::<Messages<AssetEvent<ShaderBuffer>>>()
+            .drain()
+            .filter(|e| e.is_modified(handle.id()))
+            .count();
+        assert_eq!(writes, 1);
+        assert!(
+            app.world()
+                .resource::<Messages<AssetEvent<LodMaterial>>>()
+                .is_empty()
+        );
+        assert!(
+            app.world()
+                .resource::<Messages<AssetEvent<GrassMaterial>>>()
+                .is_empty()
+        );
+        let expected = ShaderBuffer::from(app.world().resource::<TerrainAppearance>().palette());
+        {
+            let buffers = app.world().resource::<Assets<ShaderBuffer>>();
+            let materials = app.world().resource::<Assets<LodMaterial>>();
+            let shells = app.world().resource::<Assets<GrassMaterial>>();
+            assert_eq!(buffers.get(&handle).unwrap().data, expected.data);
+            assert_eq!(materials.get(&terrain).unwrap().extension.palette, handle);
+            assert_eq!(shells.get(&grass).unwrap().base.extension.palette, handle);
+        }
+        let future = app.world().resource::<TerrainTextures>().extension(1000.0);
+        assert_eq!(
+            future.palette, handle,
+            "later streamed chunks must inherit the same live palette"
+        );
+        app.update();
+        assert!(
+            app.world()
+                .resource::<Messages<AssetEvent<ShaderBuffer>>>()
+                .is_empty()
+        );
+    }
 
     #[test]
     fn moving_detail_frame_writes_one_shared_buffer_without_dirtying_materials() {

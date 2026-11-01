@@ -105,8 +105,8 @@ fn final_rivers_can_cut_filled_basins_without_a_late_fill_plugging_them() {
 #[test]
 fn impact_seas_are_filled_at_every_terrain_stage_including_without_refinement() {
     for (seed, source, refinements) in [
-        (42, TerrainSource::Noise, 0),
-        (42, TerrainSource::Noise, 3),
+        (42, TerrainSource::Tectonics, 0),
+        (42, TerrainSource::Tectonics, 3),
         (73, TerrainSource::Tectonics, 3),
     ] {
         let terrain = generate_terrain(

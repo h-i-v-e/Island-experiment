@@ -2,6 +2,7 @@
 #![allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
 pub(crate) mod mask;
 mod material;
+mod models;
 mod placement;
 
 use crate::{
@@ -33,12 +34,14 @@ impl Plugin for ForestPlugin {
 pub struct ForestSettings {
     pub enabled: bool,
     pub distance: f32,
+    pub density: f32,
 }
 impl Default for ForestSettings {
     fn default() -> Self {
         Self {
             enabled: true,
             distance: 240.0,
+            density: 2.0,
         }
     }
 }
@@ -48,13 +51,15 @@ struct Key {
     seed: u64,
     bed: BedView,
     mode: GenerationMode,
+    density: u32,
 }
 struct Group {
     entity: Entity,
     direction: Vec3,
 }
 struct NearTree {
-    entities: [Entity; 3],
+    entities: [Entity; 2],
+    shell: Option<Entity>,
     fine_wood: bool,
     shells: bool,
 }
@@ -63,6 +68,7 @@ struct NearTree {
 #[derive(Resource, Default)]
 pub struct Forests {
     key: Option<Key>,
+    density_edit: Option<(u32, std::time::Instant)>,
     job: Option<Task<Built>>,
     plants: Vec<Plant>,
     prototypes: Vec<Prototype>,
@@ -80,13 +86,19 @@ pub struct Forests {
     pending: bool,
     was_enabled: bool,
     pub trees: usize,
+    pub conifers: usize,
     pub detailed: usize,
     pub inspect: bool,
+    pub inspect_conifers: bool,
 }
 impl Forests {
-    pub fn with_inspection(inspect: bool) -> Self {
+    pub fn with_view(view: crate::command::View) -> Self {
         Self {
-            inspect,
+            inspect: matches!(
+                view,
+                crate::command::View::Forest | crate::command::View::Conifers
+            ),
+            inspect_conifers: view == crate::command::View::Conifers,
             ..default()
         }
     }
@@ -126,6 +138,7 @@ impl Forests {
         self.wanted.clear();
         self.uploaded = 0;
         self.trees = 0;
+        self.conifers = 0;
         self.eye = None;
         self.job = None;
         self.pending = false;
@@ -135,7 +148,7 @@ impl Forests {
             if let Some(&canopy) = self.canopies.get(id) {
                 commands.entity(canopy).insert(Visibility::Inherited);
             }
-            for entity in tree.entities {
+            for entity in tree.entities.into_iter().chain(tree.shell) {
                 commands.entity(entity).despawn();
             }
         }
@@ -165,7 +178,9 @@ pub fn update(
         seed: scene.seed,
         bed: scene.bed,
         mode: scene.generation,
+        density: settings.density.to_bits(),
     };
+    let key = generation_key(&mut world, key);
     if world.key != Some(key) {
         world.clear(&mut commands, &mut meshes, &mut materials);
         world.key = Some(key);
@@ -173,7 +188,7 @@ pub fn update(
             *image = mask::image(vec![0; mask::PIXELS]);
         }
     }
-    if !settings.enabled || scene.generation != GenerationMode::Terrain {
+    if !settings.enabled || scene.generation != GenerationMode::Terrain || scene.terrain.is_moon() {
         if world.was_enabled {
             world.clear_near(&mut commands);
             for group in world.groups.values() {
@@ -199,8 +214,11 @@ pub fn update(
         // the worker owns root queries and prototype construction.
         let source = scene.as_ref().clone();
         let query = explorer.shared_ground(&scene);
-        world.job =
-            Some(AsyncComputeTaskPool::get().spawn(async move { placement::build(source, query) }));
+        let settings_density = settings.density;
+        world.job = Some(
+            AsyncComputeTaskPool::get()
+                .spawn(async move { placement::build(source, query, settings_density) }),
+        );
     }
     if let Some(job) = &mut world.job
         && let Some(built) = block_on(poll_once(job))
@@ -215,10 +233,22 @@ pub fn update(
         world.pixels = built.pixels;
         world.plants = built.plants;
         world.trees = world.plants.len();
+        world.conifers = world
+            .plants
+            .iter()
+            .filter(|p| p.variant >= placement::VARIANTS)
+            .count();
         world.prototypes = built
             .prototypes
             .into_iter()
-            .map(|p| material::upload(p, &mut meshes))
+            .enumerate()
+            .map(|(i, p)| {
+                if i >= placement::VARIANTS {
+                    material::upload_species(p, true, &mut meshes)
+                } else {
+                    material::upload(p, &mut meshes)
+                }
+            })
             .collect();
         world.materials = Some(material::create_materials(
             scene.terrain.topology.radius as f32,
@@ -238,17 +268,32 @@ pub fn update(
     let radius = scene.terrain.topology.radius as f32;
     if world.inspect {
         world.inspect = false;
-        if let Some(plant) = world.plants.iter().max_by(|a, b| {
-            let sun = Vec3::new(-3.0, 4.0, 5.0).normalize();
-            a.root
-                .normalize()
-                .dot(sun)
-                .total_cmp(&b.root.normalize().dot(sun))
-        }) {
+        if let Some(plant) = world
+            .plants
+            .iter()
+            .filter(|p| !world.inspect_conifers || p.variant >= placement::VARIANTS)
+            .max_by(|a, b| {
+                let score = |p: &Plant| {
+                    let up = p.root.normalize();
+                    let light = up.dot(Vec3::new(-3.0, 4.0, 5.0).normalize());
+                    let cold = if world.inspect_conifers {
+                        placement::conifer_weight(placement::mean_temperature(
+                            up,
+                            (p.root.length() - 1.0) * radius,
+                            scene.seed,
+                        )) * 0.6
+                    } else {
+                        0.0
+                    };
+                    light + cold
+                };
+                score(a).total_cmp(&score(b))
+            })
+        {
             *orbit = inspection(plant, radius);
             *camera = orbit_transform(&orbit);
             initial.0 = *orbit;
-            explorer.return_to_orbit = explorer.walking();
+            explorer.return_to_orbit = explorer.navigating();
         }
     }
     let moved = world
@@ -289,11 +334,40 @@ pub fn update(
                 .distance_squared(camera.translation)
                 .total_cmp(&plants[b].root.distance_squared(camera.translation))
         });
+        wanted.truncate(96);
         world.wanted = wanted;
     }
-    update_near(&mut world, camera.translation, radius, &mut commands);
+    if moved || changed || world.wanted.iter().any(|id| !world.near.contains_key(id)) {
+        update_near(&mut world, camera.translation, radius, &mut commands);
+    }
     world.pending = world.uploaded < world.plants.len()
         || world.wanted.iter().any(|id| !world.near.contains_key(id));
+}
+
+fn generation_key(world: &mut Forests, mut target: Key) -> Key {
+    if let Some(previous) = world.key
+        && previous.pointer == target.pointer
+        && previous.seed == target.seed
+        && previous.bed == target.bed
+        && previous.mode == target.mode
+        && previous.density != target.density
+    {
+        if world
+            .density_edit
+            .is_none_or(|(bits, _)| bits != target.density)
+        {
+            world.density_edit = Some((target.density, std::time::Instant::now()));
+        }
+        if world
+            .density_edit
+            .is_some_and(|(_, when)| when.elapsed() < std::time::Duration::from_millis(350))
+        {
+            target.density = previous.density;
+        }
+    } else {
+        world.density_edit = None;
+    }
+    target
 }
 
 fn horizon_visible(eye: Vec3, direction: Vec3, occluder: f32, outer: f32) -> bool {
@@ -347,14 +421,14 @@ fn update_near(world: &mut Forests, eye: Vec3, radius: f32, commands: &mut Comma
             if let Some(&canopy) = world.canopies.get(*id) {
                 commands.entity(canopy).insert(Visibility::Inherited);
             }
-            for entity in tree.entities {
+            for entity in tree.entities.into_iter().chain(tree.shell) {
                 commands.entity(entity).despawn();
             }
             false
         }
     });
     let mut spawned = 0;
-    for &id in &world.wanted {
+    for (rank, &id) in world.wanted.iter().enumerate() {
         let plant = &world.plants[id];
         let model = &world.prototypes[plant.variant];
         let fine = plant.root.distance(eye) * radius < 30.0;
@@ -366,14 +440,16 @@ fn update_near(world: &mut Forests, eye: Vec3, radius: f32, commands: &mut Comma
                     .entity(tree.entities[0])
                     .insert(Mesh3d(wood.clone()));
             }
-            let shells = plant.root.distance(eye) * radius < 38.0;
+            let shells = rank < 12 && !model.conifer && plant.root.distance(eye) * radius < 38.0;
             if tree.shells != shells {
                 tree.shells = shells;
-                commands.entity(tree.entities[2]).insert(if shells {
-                    Visibility::Visible
-                } else {
-                    Visibility::Hidden
-                });
+                if let Some(entity) = tree.shell {
+                    commands.entity(entity).insert(if shells {
+                        Visibility::Visible
+                    } else {
+                        Visibility::Hidden
+                    });
+                }
             }
         } else if spawned < 4 {
             if let Some(&canopy) = world.canopies.get(id) {
@@ -381,25 +457,31 @@ fn update_near(world: &mut Forests, eye: Vec3, radius: f32, commands: &mut Comma
             }
             let handles = world.materials.as_ref().unwrap();
             let entities = std::array::from_fn(|kind| {
-                let mesh = match kind {
-                    0 => wood,
-                    1 => &model.leaves,
-                    _ => &model.shells,
-                };
-                let mut entity = commands.spawn((
-                    Mesh3d(mesh.clone()),
-                    MeshMaterial3d(handles[kind].clone()),
-                    plant.transform,
-                ));
-                if kind == 2 {
-                    entity.insert((NotShadowCaster, Visibility::Hidden));
-                }
-                entity.id()
+                let mesh = if kind == 0 { wood } else { &model.leaves };
+                commands
+                    .spawn((
+                        Mesh3d(mesh.clone()),
+                        MeshMaterial3d(handles[kind].clone()),
+                        plant.transform,
+                    ))
+                    .id()
+            });
+            let shell = model.shells.as_ref().map(|mesh| {
+                commands
+                    .spawn((
+                        Mesh3d(mesh.clone()),
+                        MeshMaterial3d(handles[2].clone()),
+                        plant.transform,
+                        NotShadowCaster,
+                        Visibility::Hidden,
+                    ))
+                    .id()
             });
             world.near.insert(
                 id,
                 NearTree {
                     entities,
+                    shell,
                     fine_wood: fine,
                     shells: false,
                 },
@@ -413,9 +495,18 @@ fn update_near(world: &mut Forests, eye: Vec3, radius: f32, commands: &mut Comma
 fn inspection(plant: &Plant, radius: f32) -> Orbit {
     let up = plant.root.normalize();
     Orbit {
-        focus: plant.root + up * (7.0 / radius),
+        focus: plant.root
+            + up * (if plant.variant >= placement::VARIANTS {
+                13.0
+            } else {
+                7.0
+            } / radius),
         frame: Quat::from_rotation_arc(Vec3::Y, up),
-        distance: 22.0 / radius,
+        distance: if plant.variant >= placement::VARIANTS {
+            38.0
+        } else {
+            22.0
+        } / radius,
         yaw: 0.5,
         pitch: -0.15,
         minimum: 0.5 / radius,
@@ -438,8 +529,9 @@ mod tests {
             wood: make(),
             branches: make(),
             leaves: make(),
-            shells: make(),
+            shells: Some(make()),
             canopy: make(),
+            conifer: false,
         }
     }
 
@@ -450,6 +542,7 @@ mod tests {
             seed: scene.seed,
             bed: scene.bed,
             mode: scene.generation,
+            density: ForestSettings::default().density.to_bits(),
         };
         let orbit = crate::initial_orbit(crate::command::View::Front, &scene.terrain);
         let mut app = App::new();
@@ -615,6 +708,22 @@ mod tests {
         assert_eq!(app.world().resource::<Forests>().simplified_trees(), 12);
     }
 
+    #[test]
+    fn dense_stands_keep_a_fixed_near_detail_budget_and_reach_a_settled_state() {
+        let (mut app, camera, _) = forest_app(160);
+        app.world_mut()
+            .get_mut::<Transform>(camera)
+            .unwrap()
+            .translation = Vec3::Y * 1.025;
+        for _ in 0..32 {
+            app.update();
+        }
+        let world = app.world().resource::<Forests>();
+        assert_eq!(world.detailed, 96);
+        assert_eq!(world.simplified_trees(), 64);
+        assert_eq!(world.near.values().filter(|tree| tree.shells).count(), 12);
+        assert!(world.settled());
+    }
     #[test]
     fn conservative_canopy_culling_keeps_near_cells_and_hides_far_side() {
         assert!(horizon_visible(Vec3::Y * 2.5, Vec3::Y, 0.92, 1.10));

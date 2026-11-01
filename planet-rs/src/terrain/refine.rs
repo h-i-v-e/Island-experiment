@@ -55,12 +55,12 @@ impl Displacement<'_> {
 }
 
 // Angular spacing retains the generator's radius-scaling contract: this is
-// 0.2 metres on the default 1 km planet, formerly 2 metres. It is an adaptive
+// 0.4 metres on the default 2 km planet (0.2 m at the 1 km reference radius). It is an adaptive
 // stopping criterion, not a demand for a uniform global grid at this spacing.
 const MIN_ADAPTIVE_EDGE_ANGLE: f64 = 0.0002;
 
 // The ocean's seabed visibility fades from 6 to 9.5 metres. Keep a small
-// margin at the default 1 km radius, preserving terrain's radius scaling.
+// margin at the 1 km reference radius, preserving terrain's radius scaling.
 const SEABED_DETAIL_DEPTH: f64 = 0.01;
 const SEABED_SMOOTH_FULL_DEPTH: f64 = 0.006;
 

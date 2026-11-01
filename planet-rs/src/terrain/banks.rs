@@ -127,9 +127,10 @@ impl BankPins {
     }
 
     /// Submerged river mouths remain openings, including beneath a frozen
-    /// waterfall footprint. Bank support must not dam them after excavation.
-    pub fn preserve_ocean(&mut self, heights: &[f64]) {
-        for (i, &height) in heights.iter().enumerate() {
+    /// waterfall footprint. Use pre-carve terrain: newly excavated inland beds
+    /// below zero still belong to their original above-sea river profile.
+    pub fn preserve_ocean(&mut self, original: &[f64]) {
+        for (i, &height) in original.iter().enumerate() {
             if height < 0.0 {
                 self.sea_openings[i] = true;
                 self.core[i] = false;
@@ -569,6 +570,29 @@ impl BankPins {
 mod tests {
     use super::*;
     use crate::DVec3;
+
+    #[test]
+    fn ocean_mask_preserves_real_sea_but_not_newly_excavated_inland_beds() {
+        let (mesh, graph, _) = fixture();
+        let original = [0.014, 0.014, 0.014, 0.014, 0.014, 0.014, 0.014, -0.002];
+        let bed = [-0.0001, 0.001, 0.001, 0.001, 0.001, 0.001, 0.001, -0.004];
+        let mut pins = BankPins::new(
+            &graph,
+            vec![0.0045; 8],
+            &[1.0; 8],
+            vec![0.003; 8],
+            vec![true; 8],
+        );
+        pins.preserve_ocean(&original);
+        assert!(pins.core[0] && !pins.sea_openings[0]);
+        assert!(!pins.core[7] && pins.sea_openings[7]);
+        // Flat inland water must remain one continuous profile across the
+        // bed's zero contour, while the existing sea is never lifted closed.
+        let water = pins.into_water(&mesh, &bed);
+        assert!((water[0] - 0.0045).abs() < 1e-12);
+        assert!((water[1] - water[0]).abs() < 1e-12);
+        assert!(water[7] < 0.0);
+    }
 
     #[test]
     fn sideways_banks_stay_dry_while_downstream_faces_keep_their_clearance() {

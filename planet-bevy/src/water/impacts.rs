@@ -79,7 +79,7 @@ pub fn update(
     }
     if !ocean.paused {
         impacts.step(time.delta_secs() * ocean.speed);
-        let contact = (!scene.no_ocean)
+        let contact = (!scene.no_ocean && !scene.terrain.is_moon())
             .then(|| explorer.sea_contact(scene.terrain.topology.radius as f32))
             .flatten();
         if let Some(point) = contact {

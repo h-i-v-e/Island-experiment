@@ -27,7 +27,8 @@ fn canopy_alpha(point:vec3<f32>,root:vec3<f32>)->f32 {
     let detail=tree_noise(column/13.0+0.37);
     return smoothstep(0.30,0.38,broad.r*0.65+detail.b*0.35);
 }
-fn tree_clip(point:vec3<f32>,root:vec3<f32>,layer:f32) {
+fn tree_clip(point:vec3<f32>,root:vec3<f32>,layer:f32,species:f32) {
+    if species<0.5 {return;}
     if forest.shape.y<0.5 || forest.shape.y>2.5 {return;}
     if canopy_alpha(point,root)<0.5 {discard;}
     if forest.shape.y>1.5 {

@@ -3,6 +3,10 @@
 //! Positions are heliocentric metres in double precision. The planet's terrain,
 //! collision and rendering can remain in their existing planet-local frame;
 //! only the sampled local Sun direction and irradiance need cross that boundary.
+pub mod gravity;
+pub mod moon;
+pub mod moonlight;
+
 use crate::DVec3;
 use glam::DQuat;
 use std::f64::consts::{PI, TAU};
@@ -12,6 +16,12 @@ use std::f64::consts::{PI, TAU};
 /// and <https://nssdc.gsfc.nasa.gov/planetary/factsheet/earthfact.html>.
 pub const EARTH_ORBIT_RADIUS_RATIO: f64 = 149_598_000.0 / 6_371.0;
 pub const SUN_RADIUS_RATIO: f64 = 695_700.0 / 6_371.0;
+/// Match the overhead Moon's angular disk for an observer on the planet surface.
+pub const DEFAULT_ORBIT_RADIUS_RATIO: f64 =
+    1.0 + SUN_RADIUS_RATIO * (moon::DEFAULT_DISTANCE_RATIO - 1.0) / moon::DEFAULT_RADIUS_RATIO;
+const fn legacy_irradiance_reference() -> f64 {
+    EARTH_ORBIT_RADIUS_RATIO
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
@@ -19,8 +29,11 @@ pub struct SolarSettings {
     /// Orbital semimajor axis divided by the planet's radius.
     pub orbit_radius_ratio: f64,
     pub sun_radius_ratio: f64,
-    /// Orbital and sidereal spin periods in simulation seconds.
-    pub orbital_period: f64,
+    /// Distance in planet radii receiving unit irradiance from the reference Sun.
+    /// Legacy files retain the former luminosity until explicitly disk-matched.
+    #[serde(default = "legacy_irradiance_reference")]
+    pub irradiance_reference_ratio: f64,
+    /// Sidereal spin period in climate/model seconds; orbital periods derive from gravity.
     pub rotation_period: f64,
     /// Angle between the planet's north axis and orbital +Y, in radians.
     pub axial_tilt: f64,
@@ -32,9 +45,9 @@ pub struct SolarSettings {
 impl Default for SolarSettings {
     fn default() -> Self {
         Self {
-            orbit_radius_ratio: EARTH_ORBIT_RADIUS_RATIO,
+            orbit_radius_ratio: DEFAULT_ORBIT_RADIUS_RATIO,
             sun_radius_ratio: SUN_RADIUS_RATIO,
-            orbital_period: 365.256 * 86_400.0,
+            irradiance_reference_ratio: DEFAULT_ORBIT_RADIUS_RATIO,
             rotation_period: 86_400.0,
             axial_tilt: 23.44_f64.to_radians(),
             eccentricity: 0.0,
@@ -44,13 +57,60 @@ impl Default for SolarSettings {
     }
 }
 impl SolarSettings {
+    /// Match both angular radii at conjunction above a surface observer, keeping
+    /// the current irradiance and the gravity-derived period/distance link.
+    /// Eccentric orbits match at the semimajor distance and vary over the year.
+    /// # Errors
+    /// Rejects invalid bodies, star intersections and unsafe lunar orbits.
+    pub fn match_moon_disk(&mut self, moon: moon::MoonOrbit) -> Result<(), String> {
+        self.validate()?;
+        moon.validate()?;
+        let mut matched = *self;
+        matched.orbit_radius_ratio =
+            1.0 + self.sun_radius_ratio * (moon.distance_ratio - 1.0) / moon.radius_ratio;
+        matched.irradiance_reference_ratio *= matched.orbit_radius_ratio / self.orbit_radius_ratio;
+        matched.validate()?;
+        moon.validate_for(matched, 1.0)?;
+        *self = matched;
+        Ok(())
+    }
+
+    #[must_use]
+    pub fn gravitational_parameter(self, radius: f64) -> f64 {
+        gravity::sun_mu(self, radius) + gravity::planet_mu(radius)
+    }
+    #[must_use]
+    pub fn orbital_period(self, radius: f64) -> f64 {
+        gravity::period(
+            self.orbit_radius_ratio * radius,
+            self.gravitational_parameter(radius),
+        )
+    }
+    #[must_use]
+    pub fn orbit_ratio_for_period(self, radius: f64, seconds: f64) -> f64 {
+        gravity::semimajor(seconds, self.gravitational_parameter(radius)) / radius
+    }
+    /// Conservative periapsis Hill radius for the planet in physical metres.
+    #[must_use]
+    pub fn hill_radius(self, radius: f64) -> f64 {
+        self.orbit_radius_ratio
+            * radius
+            * (1.0 - self.eccentricity)
+            * (gravity::planet_mu(radius) / (3.0 * gravity::sun_mu(self, radius))).cbrt()
+    }
+
     /// # Errors
     /// Rejects non-finite, degenerate or star-intersecting configurations.
     pub fn validate(self) -> Result<(), String> {
         for (name, value, minimum, maximum) in [
             ("orbit radius ratio", self.orbit_radius_ratio, 2.0, 1.0e12),
             ("Sun radius ratio", self.sun_radius_ratio, 0.001, 1.0e8),
-            ("orbital period", self.orbital_period, 1.0, 1.0e15),
+            (
+                "irradiance reference ratio",
+                self.irradiance_reference_ratio,
+                0.001,
+                1.0e12,
+            ),
             ("rotation period", self.rotation_period, 1.0, 1.0e15),
             ("axial tilt", self.axial_tilt, 0.0, PI),
             ("orbital eccentricity", self.eccentricity, 0.0, 0.95),
@@ -72,6 +132,8 @@ impl SolarSettings {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SolarState {
     pub planet_position: DVec3,
+    /// Relative orbital velocity in heliocentric axes, metres per physical second.
+    pub planet_velocity: DVec3,
     /// Unit direction from planet centre towards the Sun, in planet-local axes.
     pub sun_direction: DVec3,
     pub local_to_inertial: DQuat,
@@ -79,12 +141,31 @@ pub struct SolarState {
     pub sun_radius: f64,
     /// Apparent angular radius in radians, not the diameter.
     pub angular_radius: f64,
-    /// Irradiance relative to the default scaled Sun at the default orbit.
-    /// Changing Sun radius assumes constant stellar surface brightness.
+    /// Irradiance relative to the configured reference luminosity.
+    /// Ordinary distance edits retain inverse-square falloff; disk matching
+    /// adjusts luminosity to preserve the existing daylight and climate.
     pub irradiance_ratio: f64,
     /// Wrapped true orbital anomaly and sidereal spin angle, in radians.
     pub orbit_angle: f64,
     pub spin_angle: f64,
+}
+
+impl SolarState {
+    /// Convert heliocentric metres into rotating planet-local metres.
+    #[must_use]
+    pub fn inertial_to_local(self, position: DVec3) -> DVec3 {
+        self.local_to_inertial.conjugate() * (position - self.planet_position)
+    }
+    /// Convert rotating planet-local metres into heliocentric metres.
+    #[must_use]
+    pub fn local_to_inertial_position(self, position: DVec3) -> DVec3 {
+        self.planet_position + self.local_to_inertial * position
+    }
+    /// The Sun is fixed at the heliocentric origin, never attached to a camera.
+    #[must_use]
+    pub fn sun_position(self) -> DVec3 {
+        self.inertial_to_local(DVec3::ZERO)
+    }
 }
 
 /// Validated configuration, owning only scalars. Sampling borrows it and allocates nothing.
@@ -118,9 +199,24 @@ impl SolarSystem {
     /// Negative times sample before the epoch; non-finite times sample the epoch.
     #[must_use]
     pub fn state(&self, seconds: f64) -> SolarState {
-        let time = if seconds.is_finite() { seconds } else { 0.0 };
+        self.state_at(seconds, seconds)
+    }
+    /// Orbit uses physical seconds; spin may use an independently paced climate clock.
+    #[must_use]
+    pub fn state_at(&self, orbital_seconds: f64, spin_seconds: f64) -> SolarState {
+        let time = if orbital_seconds.is_finite() {
+            orbital_seconds
+        } else {
+            0.0
+        };
+        let spin = if spin_seconds.is_finite() {
+            spin_seconds
+        } else {
+            0.0
+        };
         let settings = self.settings;
-        let mean = phase(time, settings.orbital_period, settings.initial_orbit_angle);
+        let period = settings.orbital_period(self.planet_radius);
+        let mean = phase(time, period, settings.initial_orbit_angle);
         let eccentric = eccentric_anomaly(mean, settings.eccentricity);
         let (sine, cosine) = eccentric.sin_cos();
         let semimajor = settings.orbit_radius_ratio * self.planet_radius;
@@ -130,14 +226,21 @@ impl SolarSystem {
             -semimajor * (1.0 - settings.eccentricity.powi(2)).sqrt() * sine,
         );
         let distance = planet_position.length();
-        let spin_angle = phase(time, settings.rotation_period, settings.initial_spin_angle);
+        let velocity_scale = TAU / period * semimajor / (1.0 - settings.eccentricity * cosine);
+        let planet_velocity = DVec3::new(
+            -sine,
+            0.0,
+            -(1.0 - settings.eccentricity.powi(2)).sqrt() * cosine,
+        ) * velocity_scale;
+        let spin_angle = phase(spin, settings.rotation_period, settings.initial_spin_angle);
         let local_to_inertial =
             DQuat::from_rotation_z(settings.axial_tilt) * DQuat::from_rotation_y(spin_angle);
         let sun_direction = local_to_inertial.conjugate() * (-planet_position / distance);
         let sun_radius = settings.sun_radius_ratio * self.planet_radius;
-        let reference_distance = EARTH_ORBIT_RADIUS_RATIO * self.planet_radius;
+        let reference_distance = settings.irradiance_reference_ratio * self.planet_radius;
         SolarState {
             planet_position,
+            planet_velocity,
             sun_direction,
             local_to_inertial,
             distance,
@@ -178,13 +281,157 @@ mod tests {
     use super::*;
 
     #[test]
-    fn scaled_sun_has_earthlike_angular_size_on_a_one_kilometre_planet() {
-        let system = SolarSystem::new(SolarSettings::default(), 1000.0).unwrap();
+    fn the_real_sun_remains_at_the_heliocentric_origin_in_every_render_frame() {
+        let system = SolarSystem::new(SolarSettings::default(), 2000.0).unwrap();
+        for time in [0.0, 1000.0, 5000.0, 10000.0] {
+            let state = system.state_at(time, time * 48.0);
+            let sun = state.sun_position();
+            assert!(state.local_to_inertial_position(sun).length() < 1e-8);
+            assert!(sun.normalize().distance(state.sun_direction) < 1e-12);
+            assert!((sun.length() - state.distance).abs() < 1e-8);
+            let ship = DVec3::new(300_000.0, 5000.0, -200_000.0);
+            assert!(
+                state
+                    .local_to_inertial_position(state.inertial_to_local(ship))
+                    .distance(ship)
+                    < 1e-8
+            );
+        }
+    }
+    #[test]
+    fn matching_surface_disks_keeps_daylight_and_a_safe_gravity_linked_moon() {
+        for (sun_radius, moon_radius, moon_distance, eccentricity) in [
+            (SUN_RADIUS_RATIO, 0.175, 3.0, 0.0),
+            (SUN_RADIUS_RATIO, 0.175, 3.0, 0.2),
+            (90.0, 0.12, 4.0, 0.0),
+        ] {
+            let moon = moon::MoonOrbit {
+                radius_ratio: moon_radius,
+                distance_ratio: moon_distance,
+                ..moon::MoonOrbit::default()
+            };
+            let mut settings = SolarSettings {
+                orbit_radius_ratio: EARTH_ORBIT_RADIUS_RATIO,
+                irradiance_reference_ratio: EARTH_ORBIT_RADIUS_RATIO,
+                sun_radius_ratio: sun_radius,
+                eccentricity,
+                ..SolarSettings::default()
+            };
+            let before = SolarSystem::new(settings, 2000.0).unwrap().state(0.0);
+            settings.match_moon_disk(moon).unwrap();
+            let sun_angle =
+                (settings.sun_radius_ratio / (settings.orbit_radius_ratio - 1.0)).asin();
+            let moon_angle = (moon.radius_ratio / (moon.distance_ratio - 1.0)).asin();
+            assert!((sun_angle - moon_angle).abs() < 1e-12);
+            moon.validate_for(settings, 2000.0).unwrap();
+            let system = SolarSystem::new(settings, 2000.0).unwrap();
+            let after = system.state(0.0);
+            assert!((after.irradiance_ratio / before.irradiance_ratio - 1.0).abs() < 1e-12);
+            assert!(
+                (system
+                    .state(settings.orbital_period(2000.0))
+                    .planet_position
+                    - after.planet_position)
+                    .length()
+                    < 1e-7
+            );
+            let once = settings;
+            settings.match_moon_disk(moon).unwrap();
+            assert_eq!(once, settings);
+        }
+        let mut settings = SolarSettings::default();
+        let original = settings;
+        assert!(
+            settings
+                .match_moon_disk(moon::MoonOrbit {
+                    radius_ratio: 0.4,
+                    distance_ratio: 2.0,
+                    ..moon::MoonOrbit::default()
+                })
+                .is_err()
+        );
+        assert_eq!(
+            settings, original,
+            "failed matches preserve the active settings"
+        );
+    }
+
+    #[test]
+    fn gravity_sets_period_speed_and_conserves_elliptic_energy_and_momentum() {
+        let radius = 2000.0;
+        let settings = SolarSettings {
+            eccentricity: 0.4,
+            ..SolarSettings::default()
+        };
+        let system = SolarSystem::new(settings, radius).unwrap();
+        let a = settings.orbit_radius_ratio * radius;
+        let mu = settings.gravitational_parameter(radius);
+        let period = settings.orbital_period(radius);
+        assert!(
+            (settings.orbit_ratio_for_period(radius, period) / settings.orbit_radius_ratio - 1.0)
+                .abs()
+                < 1e-12
+        );
+        let reference = system.state(0.0);
+        let angular_momentum = reference.planet_position.cross(reference.planet_velocity);
+        for i in 0..100 {
+            let time = period * f64::from(i) / 100.0;
+            let state = system.state(time);
+            let energy = state.planet_velocity.length_squared() / 2.0 - mu / state.distance;
+            assert!((energy / (-mu / (2.0 * a)) - 1.0).abs() < 1e-12);
+            assert!(
+                state
+                    .planet_position
+                    .cross(state.planet_velocity)
+                    .distance(angular_momentum)
+                    / angular_momentum.length()
+                    < 1e-12
+            );
+            let dt = 0.01;
+            let acceleration = (system.state(time + dt).planet_velocity
+                - system.state(time - dt).planet_velocity)
+                / (2.0 * dt);
+            let gravity = -state.planet_position * (mu / state.distance.powi(3));
+            assert!(acceleration.distance(gravity) / gravity.length() < 1e-6);
+            assert_eq!(
+                system.state_at(time, 123.0).planet_position,
+                state.planet_position
+            );
+        }
+        let farther = SolarSettings {
+            orbit_radius_ratio: settings.orbit_radius_ratio * 2.0,
+            ..settings
+        };
+        assert!((farther.orbital_period(radius) / period - 2.0_f64.powf(1.5)).abs() < 1e-12);
+    }
+
+    #[test]
+    fn scaled_system_follows_the_two_kilometre_default_and_preserves_angular_size_and_heating() {
+        let radius = crate::PlanetOptions::default().radius;
+        let system = SolarSystem::new(SolarSettings::default(), radius).unwrap();
         let state = system.state(0.0);
-        assert!((state.sun_radius / 1000.0 - 109.2).abs() < 0.1);
-        assert!((state.distance / 1000.0 - 23_481.0).abs() < 1.0);
-        assert!((2.0 * state.angular_radius.to_degrees() - 0.533).abs() < 0.002);
+        assert!((state.sun_radius / 1000.0 - 218.4).abs() < 0.1);
+        assert!((state.distance / 1000.0 - 2497.953).abs() < 1.0);
+        assert!((2.0 * state.angular_radius.to_degrees() - 10.032).abs() < 0.002);
         assert!((state.irradiance_ratio - 1.0).abs() < 1.0e-12);
+        let previous = SolarSystem::new(SolarSettings::default(), 1000.0)
+            .unwrap()
+            .state(0.0);
+        assert!((state.sun_radius - previous.sun_radius * 2.0).abs() < 1e-9);
+        assert!((state.distance - previous.distance * 2.0).abs() < 1e-8);
+        for time in [
+            0.0,
+            43_200.0,
+            system.settings().orbital_period(system.planet_radius()) * 0.5,
+        ] {
+            let current = system.state(time);
+            let old = SolarSystem::new(SolarSettings::default(), 1000.0)
+                .unwrap()
+                .state_at(time / (2.0_f64).sqrt(), time);
+            assert!(current.sun_direction.distance(old.sun_direction) < 1e-12);
+            assert!((current.angular_radius - old.angular_radius).abs() < 1e-12);
+            assert!((current.irradiance_ratio - old.irradiance_ratio).abs() < 1e-12);
+        }
         let large = SolarSystem::new(SolarSettings::default(), 6_371_000.0)
             .unwrap()
             .state(0.0);
@@ -194,18 +441,22 @@ mod tests {
 
     #[test]
     fn spin_produces_day_and_night_without_translating_local_terrain() {
-        let settings = SolarSettings {
-            orbital_period: 1.0e15,
-            ..SolarSettings::default()
-        };
+        let settings = SolarSettings::default();
         let system = SolarSystem::new(settings, 1000.0).unwrap();
-        let noon = system.sun_direction(0.0);
+        let noon = system.state_at(0.0, 0.0).sun_direction;
         let observer = DVec3::new(noon.x, 0.0, noon.z).normalize();
         assert!(observer.dot(noon) > 0.9);
-        assert!(observer.dot(system.sun_direction(settings.rotation_period * 0.5)) < -0.9);
+        assert!(
+            observer.dot(
+                system
+                    .state_at(0.0, settings.rotation_period * 0.5)
+                    .sun_direction
+            ) < -0.9
+        );
         assert!(
             system
-                .sun_direction(settings.rotation_period)
+                .state_at(0.0, settings.rotation_period)
+                .sun_direction
                 .distance(noon)
                 < 1.0e-9
         );
@@ -220,7 +471,7 @@ mod tests {
         };
         let system = SolarSystem::new(settings, 1000.0).unwrap();
         let start = system.state(0.0);
-        let later = system.state(settings.orbital_period * 0.001);
+        let later = system.state(settings.orbital_period(system.planet_radius()) * 0.001);
         assert!(
             start
                 .planet_position
@@ -239,9 +490,19 @@ mod tests {
         let settings = SolarSettings::default();
         let system = SolarSystem::new(settings, 1000.0).unwrap();
         assert!((system.sun_direction(0.0).y.asin() - settings.axial_tilt).abs() < 1.0e-12);
-        assert!(system.sun_direction(settings.orbital_period * 0.25).y.abs() < 1.0e-12);
         assert!(
-            (system.sun_direction(settings.orbital_period * 0.5).y.asin() + settings.axial_tilt)
+            system
+                .sun_direction(settings.orbital_period(system.planet_radius()) * 0.25)
+                .y
+                .abs()
+                < 1.0e-12
+        );
+        assert!(
+            (system
+                .sun_direction(settings.orbital_period(system.planet_radius()) * 0.5)
+                .y
+                .asin()
+                + settings.axial_tilt)
                 .abs()
                 < 1.0e-12
         );
@@ -255,21 +516,21 @@ mod tests {
         };
         let system = SolarSystem::new(settings, 1000.0).unwrap();
         let periapsis = system.state(0.0);
-        let apoapsis = system.state(settings.orbital_period * 0.5);
+        let apoapsis = system.state(settings.orbital_period(system.planet_radius()) * 0.5);
         let semimajor = settings.orbit_radius_ratio * 1000.0;
         assert!((periapsis.distance / semimajor - 0.8).abs() < 1.0e-12);
         assert!((apoapsis.distance / semimajor - 1.2).abs() < 1.0e-12);
         assert!((periapsis.irradiance_ratio / apoapsis.irradiance_ratio - 2.25).abs() < 1.0e-12);
         assert!(
             system
-                .state(settings.orbital_period)
+                .state(settings.orbital_period(system.planet_radius()))
                 .planet_position
                 .distance(periapsis.planet_position)
                 < 1.0e-7
         );
         assert!(
             system
-                .state(-settings.orbital_period)
+                .state(-settings.orbital_period(system.planet_radius()))
                 .planet_position
                 .distance(periapsis.planet_position)
                 < 1.0e-7
@@ -279,7 +540,7 @@ mod tests {
     #[test]
     fn moving_the_orbit_changes_brightness_and_orientation_round_trips() {
         let settings = SolarSettings {
-            orbit_radius_ratio: EARTH_ORBIT_RADIUS_RATIO * 2.0,
+            orbit_radius_ratio: DEFAULT_ORBIT_RADIUS_RATIO * 2.0,
             ..SolarSettings::default()
         };
         let system = SolarSystem::new(settings, 1000.0).unwrap();
@@ -301,13 +562,15 @@ mod tests {
         let system = SolarSystem::new(
             SolarSettings {
                 eccentricity: 0.95,
+                orbit_radius_ratio: EARTH_ORBIT_RADIUS_RATIO,
                 ..SolarSettings::default()
             },
             1000.0,
         )
         .unwrap();
         for index in 0..200 {
-            let time = f64::from(index) * system.settings().orbital_period / 199.0;
+            let time =
+                f64::from(index) * system.settings().orbital_period(system.planet_radius()) / 199.0;
             let state = system.state(time);
             assert!(state.planet_position.is_finite());
             assert!(state.sun_direction.is_finite());
@@ -319,10 +582,6 @@ mod tests {
     #[test]
     fn invalid_settings_and_star_intersections_are_rejected() {
         for settings in [
-            SolarSettings {
-                orbital_period: 0.0,
-                ..SolarSettings::default()
-            },
             SolarSettings {
                 rotation_period: f64::NAN,
                 ..SolarSettings::default()

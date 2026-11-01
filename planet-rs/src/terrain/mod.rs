@@ -9,6 +9,7 @@ mod feature_index;
 mod graph;
 mod impacts;
 mod initial_noise;
+pub mod moon;
 mod ocean;
 mod random;
 mod refine;
@@ -39,6 +40,7 @@ pub struct TerrainOptions {
     pub noise_layers: [NoiseLayer; 3],
     pub source: TerrainSource,
     pub tectonics: TectonicOptions,
+    pub moon: moon::MoonOptions,
     pub impacts: ImpactOptions,
     pub erosion_strength: f64,
     pub hydraulic_passes: u32,
@@ -65,8 +67,9 @@ impl Default for TerrainOptions {
             relief: 0.16,
             land_bias: 0.0,
             noise_layers: NoiseLayer::classic(),
-            source: TerrainSource::Noise,
+            source: TerrainSource::Tectonics,
             tectonics: TectonicOptions::default(),
+            moon: moon::MoonOptions::default(),
             impacts: ImpactOptions::default(),
             erosion_strength: 1.0,
             hydraulic_passes: 1,
@@ -87,6 +90,10 @@ impl TerrainOptions {
     /// # Errors
     /// Rejects nonfinite/unbounded inputs and displacement through the centre.
     pub fn validate(&self) -> Result<(), PlanetError> {
+        self.moon.validate()?;
+        if self.source == TerrainSource::Moon {
+            return Ok(());
+        }
         self.tectonics.validate()?;
         self.impacts.validate()?;
         if self.refinement_passes > 6
@@ -156,6 +163,8 @@ pub struct PlanetTerrain {
     pub topology: PlanetMesh,
     /// Signed radial elevation / original radius. Sea level is always zero.
     pub elevations: Vec<f64>,
+    /// Linear albedo for a dry lunar body; empty for the terrestrial recipe.
+    pub lunar_albedo: Vec<[f32; 4]>,
     pub normals: Vec<DVec3>,
     pub bedrock_hardness: Vec<f64>,
     pub soil_depth: Vec<f64>,
@@ -194,7 +203,7 @@ pub struct TerrainStats {
     pub sea_components: usize,
 }
 
-/// Full CPU pipeline: spherical topology, continental/detail noise, geology,
+/// Terrestrial CPU pipeline: spherical topology, tectonic drift and geology,
 /// hydraulic/thermal erosion, drainage, river carving, and final normals.
 ///
 /// # Errors
@@ -204,39 +213,36 @@ pub fn generate_terrain(
     settings: TerrainOptions,
 ) -> Result<PlanetTerrain, PlanetError> {
     settings.validate()?;
-    let mesh = generate(planet)?;
-    if settings.source == TerrainSource::Tectonics {
-        let field = tectonics::TectonicField::new(planet.seed, settings.tectonics);
-        let mut elevations = Vec::with_capacity(mesh.directions.len());
-        let mut hardness = Vec::with_capacity(mesh.directions.len());
-        for &point in &mesh.directions {
-            let plate = field.initial_sample(point, planet.seed, &settings);
-            elevations.push(settings.land_bias + settings.relief * plate.height);
-            hardness.push(plate.hardness);
-        }
-        let mut terrain = PlanetTerrain::from_initial_fields(
-            mesh,
-            elevations,
-            Some(hardness),
-            Some(&field),
-            planet.seed,
-            &settings,
-        )?;
-        terrain.volcanoes = field.into_volcanoes();
-        return Ok(terrain);
+    if settings.source == TerrainSource::Moon {
+        return moon::generate_terrain(planet, settings.moon);
     }
-    let elevations = mesh
-        .directions
-        .iter()
-        .map(|&p| {
-            settings.land_bias
-                + settings.relief * initial_noise::sample(planet.seed, p, &settings.noise_layers)
-        })
-        .collect();
-    PlanetTerrain::from_elevations(mesh, elevations, planet.seed, settings)
+    let mesh = generate(planet)?;
+    let field = tectonics::TectonicField::new(planet.seed, settings.tectonics);
+    let mut elevations = Vec::with_capacity(mesh.directions.len());
+    let mut hardness = Vec::with_capacity(mesh.directions.len());
+    for &point in &mesh.directions {
+        let plate = field.initial_sample(point, planet.seed, &settings);
+        elevations.push(settings.land_bias + settings.relief * plate.height);
+        hardness.push(plate.hardness);
+    }
+    let mut terrain = PlanetTerrain::from_initial_fields(
+        mesh,
+        elevations,
+        Some(hardness),
+        Some(&field),
+        planet.seed,
+        &settings,
+    )?;
+    terrain.volcanoes = field.into_volcanoes();
+    Ok(terrain)
 }
 
 impl PlanetTerrain {
+    #[must_use]
+    pub fn is_moon(&self) -> bool {
+        !self.lunar_albedo.is_empty()
+    }
+
     /// Applies the terrain pipeline to explicit relative elevations. Useful for
     /// authored worlds and reproducible drainage fixtures as well as noise.
     ///
@@ -338,6 +344,7 @@ impl PlanetTerrain {
         let terrain = Self {
             topology,
             elevations,
+            lunar_albedo: Vec::new(),
             normals,
             bedrock_hardness,
             soil_depth,
@@ -379,6 +386,9 @@ impl PlanetTerrain {
     /// interpolated zero elevation. Independent of adaptive vertex density.
     #[must_use]
     pub fn sea_area_fraction(&self) -> f64 {
+        if self.is_moon() {
+            return 0.0;
+        }
         let mut area = 0.0;
         for face in &self.topology.triangles {
             let heights = face.map(|i| self.elevations[i as usize]);
@@ -414,8 +424,16 @@ impl PlanetTerrain {
     #[must_use]
     pub fn stats(&self) -> TerrainStats {
         TerrainStats {
-            land_vertices: self.elevations.iter().filter(|&&h| h >= 0.0).count(),
-            submerged_vertices: self.elevations.iter().filter(|&&h| h < 0.0).count(),
+            land_vertices: if self.is_moon() {
+                self.elevations.len()
+            } else {
+                self.elevations.iter().filter(|&&h| h >= 0.0).count()
+            },
+            submerged_vertices: if self.is_moon() {
+                0
+            } else {
+                self.elevations.iter().filter(|&&h| h < 0.0).count()
+            },
             submerged_area_fraction: self.sea_area_fraction(),
             river_segments: self.rivers.len(),
             minimum_elevation: self
@@ -431,7 +449,11 @@ impl PlanetTerrain {
             carved_vertices: self.channel_depths.iter().filter(|&&d| d > 1.0e-10).count(),
             maximum_channel_depth: self.channel_depths.iter().copied().fold(0.0, f64::max),
             water_triangles: self.river_surface.triangles.len(),
-            sea_components: ocean::count(&SurfaceGraph::new(&self.topology), &self.elevations),
+            sea_components: if self.is_moon() {
+                0
+            } else {
+                ocean::count(&SurfaceGraph::new(&self.topology), &self.elevations)
+            },
         }
     }
 
@@ -576,7 +598,10 @@ fn finish_channels(
     footprints.carve(topology, elevations, soil_depth);
     let mut pins = footprints.bank_pins(topology, &graph, elevations);
     if settings.connect_seas {
-        pins.preserve_ocean(elevations);
+        // A deep inland river bed can cross zero during excavation. It is
+        // still part of its above-sea river, not a new ocean opening. Freeze
+        // the sea mask before carving so water does not vanish at that contour.
+        pins.preserve_ocean(&original);
     }
     pins.lift(topology, &graph, &original, elevations, soil_depth);
     footprints.relax_bed(topology, &graph, elevations, soil_depth, &pins);
@@ -722,6 +747,20 @@ fn normals(mesh: &PlanetMesh, elevations: &[f64]) -> Vec<DVec3> {
 
 fn validate_drainage(terrain: &PlanetTerrain) -> Result<(), PlanetError> {
     let count = terrain.elevations.len();
+    if terrain.is_moon() {
+        if terrain.lunar_albedo.len() != count
+            || terrain
+                .lunar_albedo
+                .iter()
+                .flatten()
+                .any(|c| !c.is_finite() || !(0.0..=1.0).contains(c))
+            || !terrain.rivers.is_empty()
+            || terrain.drainage.receivers.iter().any(Option::is_some)
+        {
+            return Err(PlanetError::InvalidTopology("lunar terrain must be dry"));
+        }
+        return Ok(());
+    }
     let graph = SurfaceGraph::new(&terrain.topology);
     let has_sea = terrain.elevations.iter().any(|&h| h < 0.0);
     if has_sea && terrain.drainage.order.len() != count {

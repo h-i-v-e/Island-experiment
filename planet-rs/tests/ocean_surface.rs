@@ -163,3 +163,73 @@ fn fully_wet_and_dry_maps_have_finite_unambiguous_fallbacks() {
         );
     }
 }
+
+#[test]
+fn river_handoffs_flatten_ocean_with_filter_margin_and_seam_safe_feather() {
+    let size = 128;
+    let original = [123, 87, 0, 148];
+    let mut map = CoastMap {
+        size,
+        pixels: original.repeat(size as usize * size as usize * 6),
+    };
+    let directions = [
+        DVec3::X,
+        -DVec3::Y,
+        DVec3::new(1.0, 0.0, 1.0).normalize(),
+        DVec3::new(-1.0, -1.0, -1.0).normalize(),
+    ];
+    let contacts: Vec<_> = directions
+        .iter()
+        .map(|&n| {
+            let tangent = n.cross(DVec3::new(0.2, 0.8, 0.3)).normalize();
+            [
+                (n - tangent * 0.04).normalize(),
+                (n + tangent * 0.04).normalize(),
+            ]
+        })
+        .collect();
+    map.flatten_sea_contacts(&contacts);
+    for [a, b] in contacts {
+        for step in 0..=50 {
+            let centre = a.lerp(b, f64::from(step) / 50.0).normalize();
+            let (face, x, y) = cube_pixel(centre, size);
+            // Every potential bilinear footprint texel must be fully flat,
+            // including those across cube face seams and corners.
+            for dy in -1..=1 {
+                for dx in -1..=1 {
+                    let direction = cube_direction(
+                        face,
+                        (f64::from(x) + f64::from(dx) + 0.5) * 2.0 / f64::from(size) - 1.0,
+                        (f64::from(y) + f64::from(dy) + 0.5) * 2.0 / f64::from(size) - 1.0,
+                    );
+                    let (face, x, y) = cube_pixel(direction, size);
+                    assert_eq!(
+                        map.pixels[((face * size as usize + y as usize) * size as usize
+                            + x as usize)
+                            * 4
+                            + 2],
+                        255
+                    );
+                }
+            }
+        }
+    }
+    assert!(
+        map.pixels.chunks_exact(4).any(|p| p[2] > 0 && p[2] < 255),
+        "smooth feather"
+    );
+    assert!(
+        map.pixels.chunks_exact(4).filter(|p| p[2] == 0).count()
+            > size as usize * size as usize * 5,
+        "open ocean remains wavy"
+    );
+    assert!(
+        map.pixels
+            .chunks_exact(4)
+            .all(|p| p[0] == original[0] && p[1] == original[1] && p[3] == original[3]),
+        "depth and shore fields are preserved"
+    );
+    let before = map.pixels.clone();
+    map.flatten_sea_contacts(&[[DVec3::ZERO, DVec3::X], [DVec3::NAN, DVec3::Y]]);
+    assert_eq!(map.pixels, before);
+}

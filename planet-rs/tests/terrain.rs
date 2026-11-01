@@ -57,15 +57,10 @@ fn sea_level_stays_at_original_radius_for_dry_wet_and_zero_noise_worlds() {
         )
         .unwrap();
         assert_eq!(terrain.topology.radius.to_bits(), 1000.0_f64.to_bits());
-        assert!(
-            terrain
-                .elevations
-                .iter()
-                .all(|&h| (h - bias).abs() < f64::EPSILON)
-        );
+        assert!(terrain.elevations.iter().all(|&h| (h - bias).abs() < 1e-12));
         assert!(terrain.rivers.is_empty());
         for i in 0..terrain.elevations.len() {
-            assert!((terrain.position(i).length() - 1000.0 * (1.0 + bias)).abs() < 1.0e-9);
+            assert!((terrain.position(i).length() - 1000.0 * (1.0 + bias)).abs() < 1.0e-8);
         }
     }
 }
@@ -133,7 +128,10 @@ fn raising_relief_does_not_drain_seas_without_fixed_metre_basin_filling() {
                 relief,
                 land_bias: 0.0,
                 noise_layers: planet_rs::NoiseLayer::plates(),
-                refinement_passes: 3,
+                refinement_passes: 0,
+                hydraulic_passes: 0,
+                thermal_passes: 0,
+                smoothing_passes: 0,
                 river_refinement_passes: 0,
                 river_catchment: 1.0,
                 river_depth: 0.0,
@@ -147,7 +145,10 @@ fn raising_relief_does_not_drain_seas_without_fixed_metre_basin_filling() {
     };
     let low = submerged_fraction(&terrain(0.08));
     let high = submerged_fraction(&terrain(0.32));
-    assert!(low > 0.3 && high < 0.5);
+    assert!(
+        low > 0.1 && low < 0.95,
+        "tectonic world should have land and sea: {low}"
+    );
     assert!(
         high >= low - 0.005,
         "raising relief removed sea area: low={low:.4}, high={high:.4}"
@@ -308,7 +309,7 @@ fn plate_layers_survive_refinement_drainage_and_radial_validation() {
 }
 
 #[test]
-fn disabling_every_noise_layer_also_disables_refinement_noise() {
+fn disabling_microrelief_retains_tectonic_geology_through_refinement() {
     let mut layers = planet_rs::NoiseLayer::classic();
     for layer in &mut layers {
         layer.weight = 0.0;
@@ -324,13 +325,35 @@ fn disabling_every_noise_layer_also_disables_refinement_noise() {
             hydraulic_passes: 0,
             thermal_passes: 0,
             river_depth: 0.0,
+            river_catchment: 1.0,
             connect_seas: false,
             ..TerrainOptions::default()
         },
     )
     .unwrap();
     assert!(terrain.topology.directions.len() > 256);
-    assert!(terrain.elevations.iter().all(|h| (*h - 0.02).abs() < 1e-12));
+    assert!(terrain.elevations.iter().any(|h| (*h - 0.02).abs() > 0.001));
+    let expected = generate_terrain(
+        planet(42),
+        TerrainOptions {
+            tectonics: planet_rs::TectonicOptions {
+                detail: 0.0,
+                ..Default::default()
+            },
+            land_bias: 0.02,
+            refinement_passes: 1,
+            smoothing_passes: 0,
+            river_refinement_passes: 0,
+            hydraulic_passes: 0,
+            thermal_passes: 0,
+            river_depth: 0.0,
+            river_catchment: 1.0,
+            connect_seas: false,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(terrain.elevations, expected.elevations);
 }
 
 #[test]
@@ -365,7 +388,10 @@ fn tectonic_worlds_refine_erode_and_keep_sea_at_the_original_radius() {
                 .iter()
                 .all(|h| h.is_finite() && (0.05..=0.95).contains(h))
         );
-        assert_eq!(t.topology.radius.to_bits(), 1000.0_f64.to_bits());
+        assert_eq!(
+            t.topology.radius.to_bits(),
+            PlanetOptions::default().radius.to_bits()
+        );
     }
 }
 
