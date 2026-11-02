@@ -13,6 +13,8 @@ use std::{
 };
 
 pub(super) const FALL_CLEARANCE: f64 = 0.00003;
+const BANK_FULL_RINGS: u32 = 2;
+const BANK_BLEND_RINGS: u32 = 2;
 
 fn flat_weight(normal: DVec3, up: DVec3) -> f64 {
     let alignment = normal.dot(up);
@@ -232,6 +234,58 @@ impl BankPins {
         Self::outline_edges(mesh, &self.core, &self.boundary)
     }
 
+    /// Grade the same full-strength dry rungs that support smoothing modifies.
+    /// Keep the outer fade free to join natural terrain; extending strict bank
+    /// constraints across the whole carved valley can lift its receiving bed.
+    pub fn apron_outlines(
+        &self,
+        mesh: &PlanetMesh,
+        graph: &SurfaceGraph,
+        apron: &[bool],
+    ) -> Vec<(usize, usize)> {
+        let mut rungs = vec![u32::MAX; self.core.len()];
+        let mut queue = Vec::new();
+        for (i, rung) in rungs.iter_mut().enumerate() {
+            if self.core[i] {
+                *rung = 0;
+            } else if self.boundary[i] {
+                *rung = 1;
+                queue.push(i);
+            }
+        }
+        let mut cursor = 0;
+        while cursor < queue.len() {
+            let i = queue[cursor];
+            cursor += 1;
+            if rungs[i] > BANK_FULL_RINGS {
+                continue;
+            }
+            for &next in &graph.neighbours[i] {
+                if apron[next] && rungs[next] == u32::MAX {
+                    rungs[next] = rungs[i] + 1;
+                    queue.push(next);
+                }
+            }
+        }
+        let mut counts = BTreeMap::<_, usize>::new();
+        for face in &mesh.triangles {
+            let [a, b, c] = face.map(|i| i as usize);
+            for (a, b, c) in [(a, b, c), (b, c, a), (c, a, b)] {
+                if rungs[a] >= 2
+                    && rungs[a] != u32::MAX
+                    && rungs[a] == rungs[b]
+                    && rungs[c] < rungs[a]
+                {
+                    *counts.entry((a.min(b), a.max(b))).or_default() += 1;
+                }
+            }
+        }
+        counts
+            .into_iter()
+            .filter_map(|(edge, count)| (count == 1).then_some(edge))
+            .collect()
+    }
+
     /// Follow the final water binding, including slopes and any newly dry core.
     pub fn final_outline(&self, mesh: &PlanetMesh, heights: &[f64]) -> Vec<(usize, usize)> {
         let normals = super::normals(mesh, heights);
@@ -400,8 +454,6 @@ impl BankPins {
     /// Breadth-first visits use the strongest nearby river influence once,
     /// including on narrow land strips between neighbouring channels.
     fn smoothing_weights(&self, graph: &SurfaceGraph) -> Vec<f64> {
-        const FULL_RINGS: u32 = 2;
-        const BLEND_RINGS: u32 = 2;
         let mut weights: Vec<_> = self
             .core
             .iter()
@@ -414,9 +466,9 @@ impl BankPins {
             .filter_map(|(i, &weight)| (weight > 0.0).then_some(i))
             .collect();
         let mut start = 0;
-        for ring in 1..=FULL_RINGS + BLEND_RINGS {
-            let progress = (f64::from(FULL_RINGS + BLEND_RINGS + 1 - ring)
-                / f64::from(BLEND_RINGS + 1))
+        for ring in 1..=BANK_FULL_RINGS + BANK_BLEND_RINGS {
+            let progress = (f64::from(BANK_FULL_RINGS + BANK_BLEND_RINGS + 1 - ring)
+                / f64::from(BANK_BLEND_RINGS + 1))
             .clamp(0.0, 1.0);
             let weight = progress * progress * (3.0 - 2.0 * progress);
             let end = frontier.len();
@@ -570,6 +622,61 @@ impl BankPins {
 mod tests {
     use super::*;
     use crate::DVec3;
+
+    #[test]
+    fn dry_apron_contours_match_smoothing_and_leave_distant_valley_slopes_free() {
+        let mesh = PlanetMesh {
+            directions: (0..5)
+                .flat_map(|row| {
+                    (0..81).map(move |col| {
+                        DVec3::new(f64::from(row) * 0.0001, f64::from(col - 40) * 0.0001, 1.0)
+                            .normalize()
+                    })
+                })
+                .collect(),
+            triangles: (0..4)
+                .flat_map(|row| {
+                    (0..80).flat_map(move |col| {
+                        let i = row * 81 + col;
+                        [[i, i + 81, i + 1], [i + 1, i + 81, i + 82]]
+                    })
+                })
+                .collect(),
+            radius: 2000.0,
+        };
+        let graph = SurfaceGraph::new(&mesh);
+        let distances: Vec<_> = (0..5)
+            .flat_map(|_| (0..81).map(|col: i32| 0.0015 - f64::from((col - 40).abs()) * 0.0001))
+            .collect();
+        let pins = BankPins::new(
+            &graph,
+            vec![0.02; 405],
+            &distances,
+            vec![0.0015; 405],
+            vec![false; 405],
+        );
+        let apron: Vec<_> = (0..5)
+            .flat_map(|_| (0..81).map(|col: i32| (col - 40).abs() <= 37))
+            .collect();
+        let edges = pins.apron_outlines(&mesh, &graph, &apron);
+        assert!(
+            edges
+                .iter()
+                .all(|&(a, b)| [a, b].iter().all(|&i| (23..=57).contains(&(i % 81)))),
+            "do not grade distant valley slopes as if they were banks"
+        );
+        assert!(
+            edges
+                .iter()
+                .any(|&(a, b)| [a, b].iter().any(|&i| i % 81 == 23 || i % 81 == 57)),
+            "include both full-strength bank smoothing rungs"
+        );
+        assert!(edges.iter().all(|&(a, b)| {
+            [a, b]
+                .iter()
+                .all(|&i| !pins.core[i] && !pins.boundary[i] && apron[i])
+        }));
+    }
 
     #[test]
     fn ocean_mask_preserves_real_sea_but_not_newly_excavated_inland_beds() {

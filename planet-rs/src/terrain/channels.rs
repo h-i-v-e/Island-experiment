@@ -154,20 +154,35 @@ impl<'a> Footprints<'a> {
         }
     }
 
-    /// Freeze hydraulic coordinates for final wet-outline bank grading.
-    /// Shared outline indices retain river order as heights and the wet outline
-    /// settle; the final inclination still uses the actual terrain geometry.
-    pub fn bank_stations(&self, mesh: &PlanetMesh, pins: &BankPins) -> Vec<Option<BankStation>> {
+    /// Freeze hydraulic coordinates for the water contact and dry bank apron.
+    /// Later contour rungs must have coordinates too: restricting these to the
+    /// original wet outline silently skips the dry shoulders behind falls.
+    pub fn bank_stations(&self, mesh: &PlanetMesh) -> Vec<Option<BankStation>> {
         mesh.directions
             .iter()
-            .enumerate()
-            .map(|(i, &point)| {
-                if !pins.core[i] && !pins.boundary[i] {
-                    return None;
-                }
-                self.bank_station_at(point)
-            })
+            .map(|&point| self.bank_station_at(point))
             .collect()
+    }
+
+    /// Keep the smoothing rungs inside the carved footprint. Ownership and
+    /// stations separate neighbouring rivers; the original radial sea mask
+    /// keeps their ocean openings clear.
+    pub fn apron_outlines(
+        &self,
+        mesh: &PlanetMesh,
+        graph: &SurfaceGraph,
+        pins: &BankPins,
+    ) -> Vec<(usize, usize)> {
+        let apron: Vec<_> = mesh
+            .directions
+            .iter()
+            .map(|&point| {
+                self.owner(point).is_some_and(|sample| {
+                    sample.water > 0.0 && sample.distance < sample.width * 2.5
+                })
+            })
+            .collect();
+        pins.apron_outlines(mesh, graph, &apron)
     }
 
     pub(super) fn bank_station_at(&self, point: DVec3) -> Option<BankStation> {
@@ -195,7 +210,9 @@ impl<'a> Footprints<'a> {
 
     /// Actual outline edges, directed downstream -> upstream on each bank.
     /// River distance gives an ordering even on flat water terraces. Follow both
-    /// the original corridor and the final wet outline, including inserted falls.
+    /// the original corridor, final wet outline and dry apron contours,
+    /// including inserted falls. Keep each contour separate so grading does
+    /// not flatten the cross-bank slope or bridge the river bed.
     /// A physical outline can span several short reaches or change bank side at
     /// a confluence: shared outlet ownership, not immediate reach IDs or side
     /// signs, determines whether that edge belongs to one connected river.
@@ -205,9 +222,12 @@ impl<'a> Footprints<'a> {
         original: &[f64],
         heights: &[f64],
         stations: &[Option<BankStation>],
+        apron: &[(usize, usize)],
     ) -> Vec<(usize, usize)> {
         let mut outline = pins.outline(mesh);
         outline.extend(pins.final_outline(mesh, heights));
+        outline.extend_from_slice(apron);
+
         outline.sort_unstable();
         outline.dedup();
         outline
@@ -698,6 +718,104 @@ impl<'a> Footprints<'a> {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn upstream_grading_includes_dry_shoulders_behind_the_water_contact() {
+        use super::super::drainage;
+        for pole in [1.0, -1.0] {
+            let mut mesh = PlanetMesh {
+                directions: Vec::new(),
+                triangles: Vec::new(),
+                radius: 2000.0,
+            };
+            let mut heights = Vec::new();
+            for row in 0..11 {
+                for col in 0..9 {
+                    mesh.directions.push(
+                        DVec3::new(f64::from(row) * 0.001, f64::from(col - 4) * 0.001, pole)
+                            .normalize(),
+                    );
+                    heights.push(if row == 0 {
+                        -0.001
+                    } else if col == 0 || col == 8 {
+                        0.005
+                    } else if (3..=5).contains(&col) {
+                        0.01
+                    } else {
+                        0.014
+                    });
+                }
+            }
+            for row in 0..10 {
+                for col in 0..8 {
+                    let i = row * 9 + col;
+                    let faces = [[i, i + 9, i + 1], [i + 1, i + 9, i + 10]];
+                    mesh.triangles
+                        .extend(faces.map(|f| if pole > 0.0 { f } else { [f[0], f[2], f[1]] }));
+                }
+            }
+            // Each dry shoulder has an open downhill route away from the river,
+            // so ordinary drainage repair cannot fix this upstream bank dip.
+            let shoulders = [5 * 9 + 1, 5 * 9 + 7];
+            for i in shoulders {
+                heights[i] = 0.011;
+            }
+            let original = heights.clone();
+            let graph = SurfaceGraph::new(&mesh);
+            let settings = TerrainOptions {
+                river_width: 0.0015,
+                ..TerrainOptions::default()
+            };
+            let rivers: Vec<_> = (0..10)
+                .map(|row| RiverSegment {
+                    from: (row + 1) * 9 + 4,
+                    to: row * 9 + 4,
+                    catchment: settings.river_catchment * 4.0 * std::f64::consts::PI,
+                })
+                .collect();
+            let footprint =
+                Footprints::new(&mesh, &rivers, &vec![0.012; heights.len()], &settings, 0.0);
+            let pins = footprint.bank_pins(&mesh, &graph, &heights);
+            assert!(
+                shoulders
+                    .iter()
+                    .all(|&i| !pins.core[i] && !pins.boundary[i])
+            );
+            let stations = footprint.bank_stations(&mesh);
+            let apron = footprint.apron_outlines(&mesh, &graph, &pins);
+            let edges =
+                Footprints::upstream_banks(&mesh, &pins, &original, &heights, &stations, &apron);
+            let mut soil = vec![0.0; heights.len()];
+            drainage::lift_banks(
+                &mesh.directions,
+                &graph,
+                &mut heights,
+                &mut soil,
+                &edges,
+                &settings,
+            )
+            .unwrap();
+            for i in shoulders {
+                assert!(
+                    heights[i] >= heights[i - 9],
+                    "the dry bank must not dip walking upstream behind the lip"
+                );
+            }
+            for (down, up) in edges {
+                assert!(heights[up] >= heights[down]);
+            }
+            assert!(
+                heights[..9].iter().all(|&h| h < 0.0),
+                "the sea opening must stay clear"
+            );
+            for row in 1..11 {
+                assert!(
+                    (heights[row * 9 + 4] - original[row * 9 + 4]).abs() < 1e-12,
+                    "do not fill the river bed"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn final_water_surface_is_narrower_upstream_and_keeps_its_banks_in_contact() {
         let mut mesh = PlanetMesh {
             directions: Vec::new(),
@@ -899,8 +1017,10 @@ mod tests {
         let (drains, _, _) =
             drainage::carve(&mesh.directions, &graph, &mut heights, &mut soil, &routing);
         pins.relax_river_support(&graph, &drains, &mut heights, &mut soil);
-        let stations = footprint.bank_stations(&mesh, &pins);
-        let edges = Footprints::upstream_banks(&mesh, &pins, &original, &heights, &stations);
+        let stations = footprint.bank_stations(&mesh);
+        let apron = footprint.apron_outlines(&mesh, &graph, &pins);
+        let edges =
+            Footprints::upstream_banks(&mesh, &pins, &original, &heights, &stations, &apron);
         drainage::lift_banks(
             &mesh.directions,
             &graph,
@@ -1069,12 +1189,14 @@ mod tests {
                 let mut heights = vec![0.02; mesh.directions.len()];
                 heights[..7].fill(-0.01);
                 let pins = footprint.bank_pins(&mesh, &graph, &heights);
-                let stations = footprint.bank_stations(&mesh, &pins);
-                let edges = Footprints::upstream_banks(&mesh, &pins, &heights, &heights, &stations);
+                let stations = footprint.bank_stations(&mesh);
+                let apron = footprint.apron_outlines(&mesh, &graph, &pins);
+                let edges =
+                    Footprints::upstream_banks(&mesh, &pins, &heights, &heights, &stations, &apron);
                 assert_eq!(
                     edges.len(),
-                    14,
-                    "both banks, owner transitions and endpoint caps must be represented"
+                    28,
+                    "both contacts and dry outer contours must survive owner transitions and endpoint caps"
                 );
                 let mut left = 0;
                 let mut right = 0;

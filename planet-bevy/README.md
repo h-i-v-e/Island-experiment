@@ -376,6 +376,34 @@ cargo run -p planet-bevy -- --view forest --forest-distance 0 # inspect coarse t
 cargo run -p planet-bevy -- --no-forests
 ```
 
+### Upstream bank grading
+
+The final uphill-only pass covers both the water contact and the two full-strength
+bank smoothing rungs behind it, bounded by the carved footprint. It follows
+separate contour rungs on each bank while the outer smoothing fade joins the
+natural valley. Hydraulic coordinates
+are frozen for that dry apron too, and its constraints survive the later clipped
+water-contact insertion. This closes the gap where a correctly graded waterline
+could leave a dip in the dry shoulder behind a waterfall. Original ocean openings
+stay protected. The streaming cache generation changes so rebuilt terrain cannot
+reuse older waterfall geometry.
+
+### Riverbank reeds and rushes
+
+Both reeds and rushes grow only along rivers. They share Island's pre-carve
+sea-proximity rule: the original sea mask is captured before final channel
+excavation, stays full for 2 m and fades to zero over 20 m of surface distance.
+Bank-contact tessellation interpolates this preserved map. Ordinary sea shores
+are excluded; river channels excavated below sea level can still receive plants
+where the map identifies inland terrain rather than the original ocean fringe.
+Above sea level, plants follow the clipped river-water boundary. Reeds occupy
+the inner row and rushes the outer row, within a 0.8 m bank band. The existing
+soil, slope, temperature, waterfall clearance and dry-root checks still apply.
+Placement runs on a worker; shared meshes, 60 m visibility and the existing
+instance budgets keep streaming bounded. F1 → **Riverbank plants** controls both
+species, density and **Inspect riverbank**; CLI: `--no-reeds`, `--no-rushes`,
+`--reed-density` and `--view reeds`.
+
 ## Atmosphere and volumetric clouds
 
 The atmosphere is a true planet-centred scattering shell, visible from both

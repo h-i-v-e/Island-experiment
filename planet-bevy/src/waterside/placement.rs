@@ -1,4 +1,6 @@
-//! Root rows follow the actual clipped banks, in radial metres on every hemisphere.
+//! River-only root rows follow clipped banks on every hemisphere. Island's
+//! preserved pre-carve sea mask excludes natural ocean shores while retaining
+//! sea-level channels created later by river excavation.
 #![allow(
     clippy::cast_possible_truncation,
     clippy::cast_precision_loss,
@@ -19,7 +21,7 @@ struct Edge {
     a: Vec3,
     b: Vec3,
     wet: Vec3,
-    river: bool,
+    above_sea: bool,
 }
 fn mix(mut key: u64) -> u64 {
     key = (key ^ (key >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
@@ -48,7 +50,7 @@ fn edges(scene: &Scene) -> Vec<Edge> {
                 a: surface::vector(a),
                 b: surface::vector(b),
                 wet: surface::vector(water.positions[c as usize]),
-                river: true,
+                above_sea: true,
             })
         })
         .collect();
@@ -58,14 +60,22 @@ fn edges(scene: &Scene) -> Vec<Edge> {
         if !h.iter().any(|&h| h < 0.0) || !h.iter().any(|&h| h > 0.0) {
             continue;
         }
-        // Newly excavated inland beds are still rivers, not new sea shores.
-        if !ids.iter().any(|&i| {
-            terrain.elevations[i] < 0.0
-                && terrain.elevations[i] + terrain.channel_depths[i] - terrain.bank_lifts[i] < 0.0
-        }) || ids.iter().any(|&i| {
-            terrain.water_elevations[i] > 0.0
-                && terrain.water_elevations[i] > terrain.elevations[i] + 1e-8
-        }) {
+        // Match Island: sea-level banks qualify only where final excavation
+        // introduced water away from the original ocean's 20 m coastal fringe.
+        let sea_proximity = ids
+            .iter()
+            .map(|&i| terrain.pre_carve_sea_proximity[i])
+            .sum::<f64>()
+            / 3.0;
+        if sea_proximity > 1e-4
+            || !ids
+                .iter()
+                .any(|&i| terrain.elevations[i] < 0.0 && terrain.channel_depths[i] > 1e-10)
+            || ids.iter().any(|&i| {
+                terrain.water_elevations[i] > 0.0
+                    && terrain.water_elevations[i] > terrain.elevations[i] + 1e-8
+            })
+        {
             continue;
         }
         let points = ids.map(|i| surface::vector(terrain.topology.directions[i]));
@@ -84,7 +94,7 @@ fn edges(scene: &Scene) -> Vec<Edge> {
                 a: cut[0],
                 b: cut[1],
                 wet,
-                river: false,
+                above_sea: false,
             });
         }
     }
@@ -176,15 +186,13 @@ pub(super) fn build(scene: &Scene, ground: &Ground, settings: Settings) -> Vec<P
                 if near_fall(scene, up) {
                     continue;
                 }
-                if noise(bank * radius / 8.0, scene.seed ^ 0x7265_6564)
-                    < if edge.river { 0.38 } else { 0.60 }
-                {
+                if noise(bank * radius / 8.0, scene.seed ^ 0x7265_6564) < 0.38 {
                     continue;
                 }
                 let offset = if row == 0 {
-                    0.18 + unit(key ^ 2) * 0.28
+                    0.15 + unit(key ^ 2) * 0.25
                 } else {
-                    0.62 + unit(key ^ 2) * 0.45
+                    0.48 + unit(key ^ 2) * 0.28
                 };
                 let Some(sample) = ground.surface_sample(
                     &scene.terrain,
@@ -195,7 +203,7 @@ pub(super) fn build(scene: &Scene, ground: &Ground, settings: Settings) -> Vec<P
                 };
                 let height = (sample.point.length() - 1.0) * radius;
                 let difference = (sample.point.length() - bank.length()) * radius;
-                let rush = row == 1 || (!edge.river && unit(key ^ 5) < 0.65);
+                let rush = row == 1;
                 if sample.normal.dot(up) < 0.85
                     || sample.material[1] < 0.12
                     || sample.clearance > 1e-8
@@ -204,15 +212,6 @@ pub(super) fn build(scene: &Scene, ground: &Ground, settings: Settings) -> Vec<P
                     || mean_temperature(up, height, scene.seed) < 1.0
                 {
                     continue;
-                }
-                if !edge.river {
-                    let seaward = (bank - outward * (3.0 / radius)).normalize();
-                    if ground
-                        .surface_sample(&scene.terrain, seaward, original)
-                        .is_none_or(|probe| (probe.point.length() - 1.0) * radius < -1.0)
-                    {
-                        continue;
-                    }
                 }
                 if near_fall(scene, sample.point.normalize())
                     || !occupied.accept(sample.point * radius, spacing * 0.65)
@@ -231,7 +230,7 @@ pub(super) fn build(scene: &Scene, ground: &Ground, settings: Settings) -> Vec<P
                     root,
                     outward,
                     rush,
-                    river: edge.river,
+                    above_sea: edge.above_sea,
                     variant: (mix(key ^ 6) % 4) as usize,
                     transform: Transform::from_translation(root)
                         .with_rotation(rotation)
@@ -256,6 +255,47 @@ pub(super) fn build(scene: &Scene, ground: &Ground, settings: Settings) -> Vec<P
 mod tests {
     use super::*;
     #[test]
+    fn ocean_shores_are_excluded_but_new_sea_level_river_channels_remain_eligible() {
+        let mut scene = crate::collision::test_scene();
+        let terrain = std::sync::Arc::get_mut(&mut scene.terrain).unwrap();
+        terrain.elevations.fill(0.001);
+        terrain.elevations[0] = -0.001;
+        terrain.channel_depths.fill(0.0);
+        terrain.bank_lifts.fill(0.0);
+        terrain.water_elevations.fill(0.0);
+        terrain.pre_carve_sea_proximity.fill(1.0);
+        terrain.river_surface = planet_rs::terrain::RiverSurface::default();
+        assert!(
+            edges(&scene).is_empty(),
+            "an ordinary ocean shore has no plants"
+        );
+
+        // Identical final shoreline, created instead by carving an inland river.
+        let terrain = std::sync::Arc::get_mut(&mut scene.terrain).unwrap();
+        terrain.pre_carve_sea_proximity.fill(0.0);
+        terrain.channel_depths[0] = 0.002;
+        assert!(
+            !edges(&scene).is_empty(),
+            "retain rivers cut below sea level"
+        );
+
+        let terrain = std::sync::Arc::get_mut(&mut scene.terrain).unwrap();
+        terrain.pre_carve_sea_proximity[0] = 1.0;
+        assert!(
+            edges(&scene).is_empty(),
+            "excavation cannot bypass the original ocean mask"
+        );
+
+        let terrain = std::sync::Arc::get_mut(&mut scene.terrain).unwrap();
+        terrain.pre_carve_sea_proximity.fill(0.0);
+        terrain.channel_depths.fill(0.0);
+        assert!(
+            edges(&scene).is_empty(),
+            "low terrain alone is not a river bank"
+        );
+    }
+
+    #[test]
     fn bank_clumps_are_deterministic_radial_and_keep_clear_of_water_and_falls() {
         let mut scene = crate::collision::test_scene();
         scene.terrain = planet_rs::generate_terrain(
@@ -278,10 +318,6 @@ mod tests {
             "representative planet needs actual bank vegetation"
         );
         assert!(first.iter().any(|p| p.rush) && first.iter().any(|p| !p.rush));
-        assert!(
-            first.iter().any(|p| p.river),
-            "river banks must receive plants too"
-        );
         assert_eq!(first.len(), second.len());
         let radius = scene.terrain.topology.radius as f32;
         for (a, b) in first.iter().zip(&second) {

@@ -17,6 +17,7 @@ mod river_banks;
 mod river_profile;
 mod river_stages;
 mod river_widths;
+mod sea_proximity;
 mod tectonics;
 mod water_mesh;
 
@@ -180,6 +181,9 @@ pub struct PlanetTerrain {
     /// Area-weighted relative material added by net bank/support shaping.
     pub bank_added_material: f64,
     pub water_elevations: Vec<f64>,
+    /// Original ocean proximity, frozen before the final river carve and
+    /// interpolated through contact splits. Full within 2 m, zero beyond 20 m.
+    pub pre_carve_sea_proximity: Vec<f64>,
     pub river_surface: RiverSurface,
     pub waterfalls: Vec<Waterfall>,
     /// Base mesh count followed by each global and channel refinement count.
@@ -355,6 +359,7 @@ impl PlanetTerrain {
             bank_lifts: channels.bank_lifts,
             bank_added_material: channels.bank_added_material,
             water_elevations: channels.water_elevations,
+            pre_carve_sea_proximity: channels.pre_carve_sea_proximity,
             river_surface: channels.river_surface,
             waterfalls: channels.waterfalls,
             refinement_vertices,
@@ -474,6 +479,7 @@ impl PlanetTerrain {
             self.channel_depths.len(),
             self.bank_lifts.len(),
             self.water_elevations.len(),
+            self.pre_carve_sea_proximity.len(),
         ]
         .iter()
         .any(|&n| n != count)
@@ -495,6 +501,8 @@ impl PlanetTerrain {
                 || self.soil_depth[i] < 0.0
                 || !self.bank_lifts[i].is_finite()
                 || self.bank_lifts[i] < 0.0
+                || !self.pre_carve_sea_proximity[i].is_finite()
+                || !(0.0..=1.0).contains(&self.pre_carve_sea_proximity[i])
             {
                 return Err(PlanetError::InvalidTopology(
                     "invalid radial terrain/material data",
@@ -521,6 +529,7 @@ struct FinishedChannels {
     bank_lifts: Vec<f64>,
     bank_added_material: f64,
     water_elevations: Vec<f64>,
+    pre_carve_sea_proximity: Vec<f64>,
     river_surface: RiverSurface,
     waterfalls: Vec<Waterfall>,
     incised_material: f64,
@@ -595,6 +604,7 @@ fn finish_channels(
     }
     // Snapshot radial heights for the original sea mask and the B comparison.
     let mut original = elevations.clone();
+    let mut pre_carve_sea_proximity = sea_proximity::build(topology, &graph, &original);
     footprints.carve(topology, elevations, soil_depth);
     let mut pins = footprints.bank_pins(topology, &graph, elevations);
     if settings.connect_seas {
@@ -624,7 +634,8 @@ fn finish_channels(
     pins.relax_river_support(&graph, &drainage, elevations, soil_depth);
     // Keep the hydraulic river order stable while the final wet outline and
     // bank grading settle. Waterfall shaping retains its original face run.
-    let bank_stations = footprints.bank_stations(topology, &pins);
+    let bank_stations = footprints.bank_stations(topology);
+    let bank_apron = footprints.apron_outlines(topology, &graph, &pins);
     // Last height operation: follow each bank upstream and lift dips. Rebuild
     // rainfall routing with a lift-only flood, so neither drainage repair nor
     // smoothing can cut holes back into the finished banks.
@@ -640,6 +651,7 @@ fn finish_channels(
             &original,
             elevations,
             &bank_stations,
+            &bank_apron,
         ));
         bank_edges.sort_unstable();
         bank_edges.dedup();
@@ -683,6 +695,7 @@ fn finish_channels(
             soil: soil_depth,
             original: &mut original,
             water: &mut water_elevations,
+            sea_proximity: &mut pre_carve_sea_proximity,
         },
         &footprints,
         &bank_edges,
@@ -692,6 +705,14 @@ fn finish_channels(
     )?;
     if topology.directions.len() != previous_vertices {
         refinement_vertices.push(topology.directions.len());
+    }
+    if bank_edges
+        .iter()
+        .any(|&(down, up)| elevations[up] < elevations[down])
+    {
+        return Err(PlanetError::InvalidTopology(
+            "upstream bank apron dip after final contact grading",
+        ));
     }
     drainage = contacts.drainage;
     rivers = contacts.rivers;
@@ -724,6 +745,7 @@ fn finish_channels(
         bank_lifts,
         bank_added_material,
         water_elevations,
+        pre_carve_sea_proximity,
         river_surface,
         waterfalls: profile.waterfalls,
         incised_material,

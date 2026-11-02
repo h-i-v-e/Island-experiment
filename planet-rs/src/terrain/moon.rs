@@ -303,6 +303,7 @@ pub(super) fn generate_terrain(
         bank_lifts: vec![0.0; count],
         bank_added_material: 0.0,
         water_elevations: vec![0.0; count],
+        pre_carve_sea_proximity: vec![0.0; count],
         river_surface: super::RiverSurface::default(),
         waterfalls: Vec::new(),
         refinement_vertices: (0..=options.refinements)

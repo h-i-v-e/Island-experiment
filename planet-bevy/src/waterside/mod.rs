@@ -49,7 +49,7 @@ struct Plant {
     transform: Transform,
     outward: Vec3,
     rush: bool,
-    river: bool,
+    above_sea: bool,
     variant: usize,
 }
 type PlacementJob = (Key, Task<(Vec<Plant>, Ground)>);
@@ -261,8 +261,8 @@ impl World {
                     .normalize()
                     .dot(Vec3::new(-3.0, 4.0, 5.0).normalize())
             };
-            (a.river && score(a) > 0.3)
-                .cmp(&(b.river && score(b) > 0.3))
+            (a.above_sea && score(a) > 0.3)
+                .cmp(&(b.above_sea && score(b) > 0.3))
                 .then_with(|| score(a).total_cmp(&score(b)))
         })?;
         let frame = Quat::from_rotation_arc(Vec3::Y, plant.root.normalize());
@@ -398,7 +398,7 @@ mod tests {
                 transform: Transform::from_translation(Vec3::Y),
                 outward: Vec3::X,
                 rush: i % 2 == 0,
-                river: true,
+                above_sea: true,
                 variant: i % 4,
             })
             .collect();

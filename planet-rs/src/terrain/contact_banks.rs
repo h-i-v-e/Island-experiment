@@ -17,6 +17,7 @@ pub(super) struct Fields<'a> {
     pub soil: &'a mut Vec<f64>,
     pub original: &'a mut Vec<f64>,
     pub water: &'a mut Vec<f64>,
+    pub sea_proximity: &'a mut Vec<f64>,
 }
 
 pub(super) struct Finished {
@@ -214,6 +215,9 @@ fn insert_contacts(
             .original
             .push(fields.original[a] + (fields.original[b] - fields.original[a]) * t);
         fields.water.push(fields.heights[vertex]);
+        fields.sea_proximity.push(
+            fields.sea_proximity[a] + (fields.sea_proximity[b] - fields.sea_proximity[a]) * t,
+        );
     }
     sources
         .into_iter()
@@ -335,6 +339,7 @@ mod tests {
             let before = heights.clone();
             let clearance: Vec<_> = water.iter().zip(&heights).map(|(w, h)| w - h).collect();
             let mut original = heights.clone();
+            let mut sea_proximity = super::super::sea_proximity::build(&mesh, &graph, &original);
             let banks: Vec<_> = (1..5)
                 .flat_map(|row| [1, 3].map(move |col| ((row + 1) * 5 + col, row * 5 + col)))
                 .collect();
@@ -346,6 +351,7 @@ mod tests {
                     soil: &mut soil,
                     original: &mut original,
                     water: &mut water,
+                    sea_proximity: &mut sea_proximity,
                 },
                 &footprints,
                 &banks,
@@ -359,6 +365,12 @@ mod tests {
                 "clipped contacts must become real shared terrain vertices"
             );
             assert_eq!(dips(&result.surface, &footprints), 0);
+            assert_eq!(sea_proximity.len(), heights.len());
+            assert!(
+                sea_proximity
+                    .iter()
+                    .all(|p| p.is_finite() && (0.0..=1.0).contains(p))
+            );
             result.surface.validate(&mesh, &heights).unwrap();
             for i in 0..before.len() {
                 assert!(heights[i] >= before[i], "contact grading is lift-only");

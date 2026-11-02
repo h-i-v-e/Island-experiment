@@ -68,7 +68,7 @@ cargo run -p planet-bevy -- [options]
   --dirt-colour RRGGBB      Bare soil colour, in display sRGB hexadecimal
   --no-shadows              Disable sun shadow maps
   --no-reeds                Hide riverbank reeds
-  --no-rushes               Hide shoreline rushes
+  --no-rushes               Hide riverbank rushes
   --reed-density N          Waterside clump density (0..3, default 1)
   --no-forests              Disable procedural forests
   --no-pine-needles         Hide close conifer needle sprays

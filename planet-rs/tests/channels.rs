@@ -163,6 +163,10 @@ fn inland_channel_keeps_its_water_when_excavation_crosses_zero_height() {
         terrain.water_elevations[i] * radius > 2.0,
         "crossing sea-level in the bed must not remove the inland river water"
     );
+    assert!(
+        terrain.pre_carve_sea_proximity[i] < 1e-4,
+        "the pre-carve map must retain this inland channel instead of treating its excavated bed as ocean"
+    );
     assert_eq!(
         terrain.ocean_passes.last().unwrap().stage,
         OceanStage::FinalTerrain,

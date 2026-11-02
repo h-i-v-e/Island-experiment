@@ -36,8 +36,8 @@ use std::{
 
 const LEVELS: usize = 4;
 const LOAD_LIMIT: usize = 4;
-// Retire shelves baked before sea-level receivers kept their own river profile.
-const CACHE_GENERATION: u64 = 10;
+// Retire banks baked before the dry apron received upstream grading too.
+const CACHE_GENERATION: u64 = 11;
 
 #[derive(Resource, Clone, Copy, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
