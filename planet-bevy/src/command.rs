@@ -67,7 +67,13 @@ cargo run -p planet-bevy -- [options]
   --surface-view shaded|normals|occlusion  Inspect the baked surface maps
   --dirt-colour RRGGBB      Bare soil colour, in display sRGB hexadecimal
   --no-shadows              Disable sun shadow maps
+  --no-reeds                Hide riverbank reeds
+  --no-rushes               Hide shoreline rushes
+  --reed-density N          Waterside clump density (0..3, default 1)
   --no-forests              Disable procedural forests
+  --no-pine-needles         Hide close conifer needle sprays
+  --no-ferns                Hide near-ground fern rosettes
+  --no-fallen-logs          Hide fitted fallen wood
   --forest-density D      Tree density multiplier, 0.25..4 (2)
   --forest-distance M       Detailed tree range, 0..400 m (240; 0 = all coarse)
   --shadow-distance M       Surface shadow range, 20..3000 m (300)
@@ -141,7 +147,7 @@ cargo run -p planet-bevy -- [options]
   --environment-paused      Freeze cloud weather for inspection
   --sun-azimuth D           Global sun azimuth, -180..180 degrees (-31)
   --sun-elevation D         Global sun elevation, -90..90 degrees (34.45)
-  --view front|back|mountains|volcanoes|craters|river|waterfall|mouth|grass|ocean|shore|underwater|sky|clouds|forest|conifers|moon|system|sun|solar   Inspection camera (front)
+  --view front|back|mountains|volcanoes|craters|river|waterfall|mouth|grass|ocean|shore|underwater|sky|clouds|forest|conifers|needles|undergrowth|reeds|moon|system|sun|solar   Inspection camera (front)
   --export PATH.obj         Export terrain mesh in physical units
   --validate-only           Generate/validate/export without a GPU or window
   --screenshot PATH.png     Render offscreen to a new PNG and exit
@@ -180,6 +186,9 @@ pub enum View {
     Clouds,
     Forest,
     Conifers,
+    Needles,
+    Undergrowth,
+    Reeds,
     Moon,
     System,
     Sun,
@@ -205,13 +214,16 @@ impl View {
             "clouds" => Self::Clouds,
             "forest" => Self::Forest,
             "conifers" => Self::Conifers,
+            "needles" => Self::Needles,
+            "undergrowth" => Self::Undergrowth,
+            "reeds" => Self::Reeds,
             "moon" => Self::Moon,
             "system" => Self::System,
             "sun" => Self::Sun,
             "solar" => Self::Solar,
             _ => {
                 return Err(String::from(
-                    "view must be front, back, mountains, volcanoes, craters, river, waterfall, mouth, grass, ocean, shore, underwater, sky, clouds, forest, conifers, moon, system, sun or solar",
+                    "view must be front, back, mountains, volcanoes, craters, river, waterfall, mouth, grass, ocean, shore, underwater, sky, clouds, forest, conifers, needles, undergrowth, reeds, moon, system, sun or solar",
                 ));
             }
         })
@@ -263,6 +275,7 @@ pub struct Command {
     pub weather: crate::weather::WeatherControls,
     pub solar: crate::solar::SolarControls,
     pub forest: crate::forest::ForestSettings,
+    pub waterside: crate::waterside::Settings,
 }
 
 impl Default for Command {
@@ -294,6 +307,7 @@ impl Default for Command {
             weather: crate::weather::WeatherControls::default(),
             solar: crate::solar::SolarControls::default(),
             forest: crate::forest::ForestSettings::default(),
+            waterside: crate::waterside::Settings::default(),
         }
     }
 }
@@ -347,7 +361,12 @@ impl Command {
                 "--no-ocean-waves" => command.ocean.waves = false,
                 "--no-underwater" => command.water.underwater = false,
                 "--no-shadows" => command.lighting.shadows = false,
+                "--no-pine-needles" => command.forest.pine_needles = false,
+                "--no-ferns" => command.forest.ferns = false,
+                "--no-fallen-logs" => command.forest.fallen_logs = false,
                 "--no-forests" => command.forest.enabled = false,
+                "--no-reeds" => command.waterside.reeds = false,
+                "--no-rushes" => command.waterside.rushes = false,
                 "--no-ssao" => command.lighting.ao = false,
                 "--ao-only" => command.lighting.ao_only = true,
                 "--ao-half" => command.lighting.half_resolution = true,
@@ -433,6 +452,7 @@ impl Command {
             return Err("forest density must be 0.25..4".into());
         }
         crate::panel::Settings::from(self).validate()?;
+        self.waterside.validate()?;
         self.lighting.validate()?;
         if !self.forest.distance.is_finite() || !(0.0..=400.0).contains(&self.forest.distance) {
             return Err("detailed tree distance must be 0..400 m".into());
@@ -641,6 +661,7 @@ impl Command {
             "--chunk-level" => self.streaming.level = number(value, flag)?,
             "--chunk-budget-mb" => self.streaming.budget_mb = number(value, flag)?,
             "--lod-error" => self.streaming.target_pixels = number(value, flag)?,
+            "--reed-density" => self.waterside.density = number(value, flag)?,
             "--forest-density" => self.forest.density = number(value, flag)?,
             "--forest-distance" => self.forest.distance = number(value, flag)?,
             "--dirt-colour" => self.appearance.set_dirt_hex(value)?,
@@ -716,6 +737,42 @@ fn number<T: FromStr>(value: &str, flag: &str) -> Result<T, String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn riverbank_controls_validate_and_roundtrip() {
+        let command = Command::parse(["--no-reeds", "--reed-density", "2.3", "--view", "reeds"])
+            .unwrap()
+            .unwrap();
+        assert!(!command.waterside.reeds && command.waterside.rushes);
+        assert_eq!(command.view, super::View::Reeds);
+        let json = serde_json::to_string(&command.waterside).unwrap();
+        assert_eq!(
+            serde_json::from_str::<crate::waterside::Settings>(&json).unwrap(),
+            command.waterside
+        );
+        assert_eq!(
+            serde_json::from_str::<crate::waterside::Settings>("{}").unwrap(),
+            crate::waterside::Settings::default()
+        );
+        for value in ["-1", "3.1", "NaN"] {
+            assert!(Command::parse(["--reed-density", value]).is_err());
+        }
+    }
+    #[test]
+    fn undergrowth_visibility_and_inspection_are_configurable() {
+        let c = Command::parse(["--no-ferns", "--no-fallen-logs", "--view", "undergrowth"])
+            .unwrap()
+            .unwrap();
+        assert!(!c.forest.ferns && !c.forest.fallen_logs);
+        assert_eq!(c.view, super::View::Undergrowth);
+        let legacy: crate::forest::ForestSettings = serde_json::from_str("{}").unwrap();
+        assert!(legacy.ferns && legacy.fallen_logs && legacy.pine_needles);
+        let pine = Command::parse(["--no-pine-needles", "--view", "needles"])
+            .unwrap()
+            .unwrap();
+        assert!(!pine.forest.pine_needles);
+        assert_eq!(pine.view, super::View::Needles);
+    }
+
     #[test]
     fn upstream_narrowing_parses_and_rejects_invalid_strengths() {
         for (value, expected) in [("0", 0.0), ("0.6", 0.6), ("1", 1.0)] {

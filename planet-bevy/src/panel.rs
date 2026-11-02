@@ -303,6 +303,8 @@ pub(super) struct WeatherPanel<'w> {
     environment: Option<ResMut<'w, super::environment::EnvironmentSettings>>,
     forest_options: Option<ResMut<'w, super::forest::ForestSettings>>,
     forests: Option<ResMut<'w, super::forest::Forests>>,
+    waterside_options: Option<ResMut<'w, super::waterside::Settings>>,
+    waterside: Option<ResMut<'w, super::waterside::World>>,
     simulation: Option<ResMut<'w, super::weather::WeatherControls>>,
     fields: Option<Res<'w, super::weather::WeatherFrame>>,
     solar_controls: Option<ResMut<'w, super::solar::SolarControls>>,
@@ -334,6 +336,8 @@ pub(super) fn draw(
         mut environment,
         mut forest_options,
         mut forests,
+        mut waterside_options,
+        mut waterside,
         mut simulation,
         fields,
         mut solar_controls,
@@ -423,6 +427,7 @@ pub(super) fn draw(
                                 {
                                     forest_controls(ui, options, world);
                                 }
+                                if let (Some(options),Some(world))=(waterside_options.as_deref_mut(),waterside.as_deref_mut()) {waterside_controls(ui,options,world);}
                             }
                         });
                 });
@@ -483,6 +488,7 @@ pub(super) fn draw(
                     detail_controls(ui, options, detail_stats.as_deref());
                 }
                 if let (Some(options),Some(world))=(forest_options.as_deref_mut(),forests.as_deref_mut()) {forest_controls(ui,options,world);}
+                if let (Some(options),Some(world))=(waterside_options.as_deref_mut(),waterside.as_deref_mut()) {waterside_controls(ui,options,world);}
                 if let Some(options) = lighting.as_mut() {lighting_controls(ui, options);}
                 if let Some(options)=ocean.as_mut() {ocean_controls(ui,options,ocean_stats.as_deref());}
                 if let Some(options)=water.as_mut() {water_controls(ui,options);}
@@ -501,6 +507,30 @@ pub(super) fn draw(
     ));
 }
 
+fn waterside_controls(
+    ui: &mut egui::Ui,
+    options: &mut super::waterside::Settings,
+    world: &mut super::waterside::World,
+) {
+    egui::CollapsingHeader::new("Riverbank plants").show(ui, |ui| {
+        ui.checkbox(&mut options.reeds, "Reeds");
+        ui.checkbox(&mut options.rushes, "Rushes");
+        ui.add(egui::Slider::new(&mut options.density, 0.0..=3.0).text("Density"));
+        ui.small(format!(
+            "{} reeds · {} rushes · {} visible",
+            world.reeds, world.rushes, world.visible
+        ));
+        if ui
+            .add_enabled(
+                (options.reeds || options.rushes) && world.reeds + world.rushes > 0,
+                egui::Button::new("Inspect riverbank"),
+            )
+            .clicked()
+        {
+            world.inspect = true;
+        }
+    });
+}
 fn water_controls(ui: &mut egui::Ui, settings: &mut super::water::WaterSettings) {
     egui::CollapsingHeader::new("Sea & river effects").show(ui, |ui| {
         ui.add(egui::Slider::new(&mut settings.distortion, 0.0..=1.5).text("Surface distortion"));
@@ -619,6 +649,14 @@ fn forest_controls(
 ) {
     egui::CollapsingHeader::new("Forests").show(ui, |ui| {
         ui.checkbox(&mut options.enabled, "Forests");
+        ui.checkbox(&mut options.ferns, "Ferns");
+        ui.checkbox(&mut options.fallen_logs, "Fallen logs");
+        ui.checkbox(&mut options.pine_needles, "Close pine needles");
+        if ui.add_enabled(options.enabled && world.conifers>0,egui::Button::new("Inspect pine needles")).clicked() {world.inspect=true;world.inspect_conifers=true;world.inspect_needles=true;}
+        ui.small(format!("{} / {} ferns · {} / {} logs visible", world.undergrowth.visible_ferns, world.undergrowth.ferns, world.undergrowth.visible_logs, world.undergrowth.logs));
+        if ui.add_enabled(options.enabled && world.undergrowth.logs > 0, egui::Button::new("Inspect forest floor")).clicked() {
+            world.undergrowth.inspect = true;
+        }
         ui.add(egui::Slider::new(&mut options.density, 0.25..=4.0).text("Forest density"))
             .on_hover_text("Rebuilds placement in the background. Close detail remains bounded.");
         ui.add(egui::Slider::new(&mut options.distance, 0.0..=400.0).text("Detailed trees (m)"))
@@ -639,6 +677,7 @@ fn forest_controls(
         {
             world.inspect = true;
             world.inspect_conifers = false;
+            world.inspect_needles = false;
         }
         if ui
             .add_enabled(
@@ -649,6 +688,7 @@ fn forest_controls(
         {
             world.inspect = true;
             world.inspect_conifers = true;
+            world.inspect_needles = false;
         }
         ui.small("Tree detail follows distance in every view.");
     });
@@ -669,7 +709,7 @@ fn appearance_controls(
                 changed = true;
             }
         });
-        ui.small("Updates live and is remembered between launches.");
+        ui.small("Updates live; ground textures rebuild after you pause editing. Settings are remembered.");
         let updated = super::terrain_material::TerrainAppearance {
             dirt_colour: colour,
         };
@@ -940,6 +980,9 @@ fn display_controls(
             ("Clouds", View::Clouds),
             ("Forest", View::Forest),
             ("Conifers", View::Conifers),
+            ("Pine needles", View::Needles),
+            ("Forest floor", View::Undergrowth),
+            ("Riverbank plants", View::Reeds),
         ] {
             if ui.button(label).clicked() {
                 panel.view = Some(view);
@@ -1133,7 +1176,11 @@ fn settings_controls(ui: &mut egui::Ui, panel: &mut Panel) {
     });
 }
 
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::too_many_arguments
+)] // Camera and optional inspection controllers.
 pub(super) fn apply_view(
     mut panel: ResMut<Panel>,
     scene: Res<Scene>,
@@ -1142,6 +1189,7 @@ pub(super) fn apply_view(
     environment: Option<Res<super::environment::EnvironmentSettings>>,
     solar_frame: Option<Res<super::solar::SolarFrame>>,
     mut forests: Option<ResMut<super::forest::Forests>>,
+    mut waterside: Option<ResMut<super::waterside::World>>,
 ) {
     let view = panel.view.take();
     if let Some(view) = view {
@@ -1171,11 +1219,22 @@ pub(super) fn apply_view(
             }
         }
         if let Some(view) = view {
-            if matches!(view, View::Forest | View::Conifers)
+            if matches!(view, View::Forest | View::Conifers | View::Needles)
                 && let Some(forests) = forests.as_mut()
             {
                 forests.inspect = true;
-                forests.inspect_conifers = view == View::Conifers;
+                forests.inspect_conifers = matches!(view, View::Conifers | View::Needles);
+                forests.inspect_needles = view == View::Needles;
+            }
+            if view == View::Undergrowth
+                && let Some(world) = forests.as_deref_mut()
+            {
+                world.undergrowth.inspect = true;
+            }
+            if view == View::Reeds
+                && let Some(world) = waterside.as_deref_mut()
+            {
+                world.inspect = true;
             }
             let defaults = super::environment::EnvironmentSettings::default();
             let settings = environment.as_deref().unwrap_or(&defaults);

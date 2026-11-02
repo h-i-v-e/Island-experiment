@@ -19,8 +19,9 @@ pub(super) fn register(app: &mut App) {
 }
 #[derive(Clone, Copy, Debug, Default, Reflect, ShaderType)]
 pub struct ForestUniform {
-    /// Physical radius, wood/fine/shell/coarse kind, shell range, reserved.
+    /// Physical radius, material kind, detail range, close pine-detail toggle.
     pub shape: Vec4,
+    pub viewer: Vec4,
 }
 #[derive(Asset, AsBindGroup, Clone, Debug, Default, Reflect)]
 pub struct ForestExtension {
@@ -59,31 +60,51 @@ pub(super) fn create_materials(
     textures: &TerrainTextures,
     materials: &mut Assets<ForestMaterial>,
 ) -> [Handle<ForestMaterial>; 4] {
-    std::array::from_fn(|kind| {
-        materials.add(ForestMaterial {
-            base: StandardMaterial {
-                perceptual_roughness: 0.94,
-                alpha_mode: if matches!(kind, 1 | 2) {
-                    AlphaMode::Mask(0.5)
-                } else {
-                    AlphaMode::Opaque
-                },
-                double_sided: matches!(kind, 1 | 2),
-                cull_mode: matches!(kind, 0 | 3)
-                    .then_some(bevy::render::render_resource::Face::Back),
-                ..default()
+    std::array::from_fn(|kind| create_material(radius, kind, textures, materials))
+}
+pub(crate) fn create_material(
+    radius: f32,
+    kind: usize,
+    textures: &TerrainTextures,
+    materials: &mut Assets<ForestMaterial>,
+) -> Handle<ForestMaterial> {
+    materials.add(ForestMaterial {
+        base: StandardMaterial {
+            perceptual_roughness: 0.94,
+            alpha_mode: if matches!(kind, 1 | 2 | 4 | 6 | 7) {
+                AlphaMode::Mask(0.5)
+            } else {
+                AlphaMode::Opaque
             },
-            extension: ForestExtension {
-                settings: ForestUniform {
-                    shape: Vec4::new(radius, f32::from(u8::try_from(kind).unwrap()), 28.0, 0.0),
-                },
-                noise: Some(textures.noise.clone()),
-                environment: textures.environment.clone(),
-                environment_sky: Some(textures.environment_sky.clone()),
-                environment_shadows: Some(textures.environment_shadows.clone()),
-                global_weather: Some(textures.global_weather.clone()),
+            double_sided: matches!(kind, 1 | 2 | 4 | 6 | 7),
+            cull_mode: matches!(kind, 0 | 3 | 5)
+                .then_some(bevy::render::render_resource::Face::Back),
+            ..default()
+        },
+        extension: ForestExtension {
+            settings: ForestUniform {
+                shape: Vec4::new(
+                    radius,
+                    f32::from(u8::try_from(kind).unwrap()),
+                    if kind >= 6 {
+                        60.0
+                    } else if kind == 4 {
+                        50.0
+                    } else if kind == 5 {
+                        160.0
+                    } else {
+                        28.0
+                    },
+                    0.0,
+                ),
+                viewer: Vec4::ZERO,
             },
-        })
+            noise: Some(textures.noise.clone()),
+            environment: textures.environment.clone(),
+            environment_sky: Some(textures.environment_sky.clone()),
+            environment_shadows: Some(textures.environment_shadows.clone()),
+            global_weather: Some(textures.global_weather.clone()),
+        },
     })
 }
 
@@ -126,9 +147,13 @@ pub(super) fn upload_species(
         source.lod0_foliage.triangles.len() / 3,
         source.lod1_foliage.triangles.len() / 3
     );
-    // Conifers have solid needle whorls and never use broadleaf fur shells.
-    // Uploading an empty placeholder triggers Bevy's slab allocator diagnostic.
-    let shells = (!conifer).then(|| meshes.add(mesh(&source.lod1_foliage, true, false)));
+    // Needle volume borrows the fine crown; all instances share one mesh per variant.
+    // Broadleaf shells keep their existing builder and separate cutout rules.
+    let shells = Some(if conifer {
+        meshes.add(super::needles::crown(&source.lod0_foliage))
+    } else {
+        meshes.add(mesh(&source.lod1_foliage, true, false))
+    });
     Prototype {
         wood: meshes.add(mesh(&source.lod0_wood, false, conifer)),
         branches: meshes.add(mesh(&source.lod1_wood, false, conifer)),
@@ -203,8 +228,8 @@ mod tests {
         let mut assets = Assets::<Mesh>::default();
         for variant in 0..4 {
             let model = upload_species(super::super::models::conifer(variant), true, &mut assets);
-            assert!(model.shells.is_none());
-            assert_eq!(assets.len(), 4);
+            assert!(model.shells.is_some());
+            assert_eq!(assets.len(), 5);
             for (_, mesh) in assets.iter() {
                 assert!(mesh.count_vertices() > 0);
                 assert!(mesh.indices().is_some_and(|indices| indices.len() >= 3));

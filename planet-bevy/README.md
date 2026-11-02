@@ -191,6 +191,14 @@ across bends.
 Use **Falls** in the view controls (or `--view waterfall`) to inspect a cascade.
 Use **Mouth** (`--view mouth`) to inspect a final waterfall entering the sea.
 The graded ocean mesh described below retains fine curvature at waterfall mouths.
+
+Sea-level receiving reaches retain their natural centreline, width and zero-height
+profile, even when a bend passes back through the upstream waterfall rectangle.
+They cannot inherit the face lift, straightening or extra face subdivision. This
+prevents a sideways water curtain or a raised support shelf from damming the sea
+channel. The above-sea waterfall approach keeps its existing alignment and bank
+pinning. Chunk cache generation 10 retires the old shelf geometry.
+
 River geometry now also uses Island's animated water shading, adapted to radial up.
 
 ## Spherical ocean

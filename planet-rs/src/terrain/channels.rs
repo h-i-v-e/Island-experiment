@@ -321,6 +321,13 @@ impl<'a> Footprints<'a> {
             .into_iter()
             .flatten()
             .filter_map(|&i| {
+                // Sea-level receivers keep their own channel, including bends
+                // that enter the face rectangle or its downstream landing apron.
+                // Otherwise the face both lifts their bed and moves their banks
+                // sideways, building a shelf/dam across the ocean passage.
+                if r.water_a <= 0.0 && r.water_b <= 0.0 {
+                    return None;
+                }
                 let fall = self.waterfalls[i];
                 fall.surface_at(point).map(|surface| (i, fall, surface))
             })
@@ -448,6 +455,10 @@ impl<'a> Footprints<'a> {
                             .into_iter()
                             .flatten()
                             .any(|&i| {
+                                let reach = self.reaches[s.reach];
+                                if reach.water_a <= 0.0 && reach.water_b <= 0.0 {
+                                    return false;
+                                }
                                 let fall = self.waterfalls[i];
                                 let along = (point - fall.lip).dot(fall.direction);
                                 (-fall.face_run..=0.0).contains(&along)
@@ -918,6 +929,90 @@ mod tests {
             openings.iter().all(|&i| water[i] < 0.0),
             "the sea supplies the surface at the opening"
         );
+    }
+
+    #[test]
+    fn sea_channel_bending_back_beside_its_waterfall_keeps_its_own_level() {
+        let (mesh, original) = sea_outlet_mesh();
+        let route = [
+            9 + 4,
+            3 * 9 + 4,
+            4 * 9 + 4,
+            5 * 9 + 4,
+            5 * 9 + 7, // Receiving channel also turns sideways in the landing apron.
+            3 * 9 + 5,
+            2 * 9 + 5,
+            8 * 9 + 8,
+        ];
+        let settings = TerrainOptions {
+            river_width: 0.002,
+            ..TerrainOptions::default()
+        };
+        let catchment = settings.river_catchment * 4.0 * std::f64::consts::PI;
+        let rivers: Vec<_> = route
+            .windows(2)
+            .map(|pair| RiverSegment {
+                from: pair[0],
+                to: pair[1],
+                catchment,
+            })
+            .collect();
+        let mut levels = vec![0.004; original.len()];
+        for &i in &route[3..] {
+            levels[i] = 0.0;
+        }
+        let falls = [Waterfall {
+            upper_vertex: route[2],
+            lower_vertex: route[3],
+            upstream_vertex: route[1],
+            lip: DVec3::Z,
+            direction: DVec3::X,
+            half_width: 0.002,
+            upper_surface: 0.004,
+            lower_surface: 0.0,
+            face_run: 0.0025,
+        }];
+        let footprint =
+            Footprints::new(&mesh, &rivers, &levels, &settings, 0.0).with_waterfalls(&falls);
+        for &vertex in &route[4..7] {
+            assert!(falls[0].surface_at(mesh.directions[vertex]).is_some());
+            let sample = footprint.owner(mesh.directions[vertex]).unwrap();
+            assert!(
+                sample.water.abs() < 1e-12,
+                "a receiving sea channel must not inherit the upstream waterfall plane: {}",
+                sample.water
+            );
+            assert!(
+                !sample.pinned,
+                "never raise the receiving channel as waterfall support"
+            );
+        }
+        let approach = footprint.owner(mesh.directions[route[1]]).unwrap();
+        assert!(
+            approach.pinned && approach.water > 0.0,
+            "retain the actual falling face"
+        );
+        for &vertex in &route[4..7] {
+            let sample = footprint.owner(mesh.directions[vertex]).unwrap();
+            assert!(
+                sample.distance < 1e-10 && (sample.width - settings.river_width).abs() < 1e-12,
+                "the receiving sea channel keeps its centreline and width through the landing apron"
+            );
+        }
+        let mut heights = original;
+        let mut soil = [0.0; 81];
+        footprint.carve(&mesh, &mut heights, &mut soil);
+        let graph = SurfaceGraph::new(&mesh);
+        let mut pins = footprint.bank_pins(&mesh, &graph, &heights);
+        pins.preserve_ocean(&original);
+        pins.lift(&mesh, &graph, &original, &mut heights, &mut soil);
+        for &i in &route[4..7] {
+            assert!(pins.sea_openings[i]);
+            assert!(
+                heights[i] < -settings.river_depth * 0.5,
+                "waterfall support dammed its receiving channel"
+            );
+        }
     }
 
     #[test]

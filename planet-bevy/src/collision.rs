@@ -11,12 +11,63 @@ pub(super) struct Ground {
     nodes: Arc<Vec<Node>>,
     pub outer_radius: f32,
     rocks: Vec<RockCollider>,
+    logs: Vec<LogCollider>,
 }
 
 #[derive(Clone, Copy, Debug)]
 pub struct RockCollider {
     pub centre: Vec3,
     pub radius: f32,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct LogCollider {
+    pub a: Vec3,
+    pub b: Vec3,
+    pub radius: f32,
+}
+impl LogCollider {
+    fn hit(self, origin: Vec3, direction: Vec3, limit: f32) -> Option<f32> {
+        let axis = self.b - self.a;
+        let offset = origin - self.a;
+        let length = axis.length_squared();
+        let along = axis.dot(direction);
+        let start = axis.dot(offset);
+        let first = length - along * along;
+        let second = length * offset.dot(direction) - start * along;
+        let third = length * (offset.length_squared() - self.radius * self.radius) - start * start;
+        let discriminant = second * second - first * third;
+        let body = if first > 1e-16 && discriminant >= 0.0 {
+            let hit = (-second - discriminant.sqrt()) / first;
+            let station = start + hit * along;
+            (hit >= 0.0 && hit <= limit && station > 0.0 && station < length).then_some(hit)
+        } else {
+            None
+        };
+        [self.a, self.b]
+            .into_iter()
+            .filter_map(|centre| {
+                let offset = origin - centre;
+                let projection = offset.dot(direction);
+                let discriminant =
+                    projection * projection - offset.length_squared() + self.radius * self.radius;
+                if discriminant < 0.0 {
+                    return None;
+                }
+                let hit = -projection - discriminant.sqrt();
+                (hit >= 0.0 && hit <= limit).then_some(hit)
+            })
+            .chain(body)
+            .min_by(f32::total_cmp)
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct SurfaceSample {
+    pub point: Vec3,
+    pub normal: Vec3,
+    pub material: [f32; 4],
+    pub clearance: f64,
 }
 
 struct Node {
@@ -38,6 +89,20 @@ impl Ground {
         up: Vec3,
         original: bool,
     ) -> Option<(Vec3, Vec3, [f32; 4])> {
+        let sample = self.surface_sample(terrain, up, original)?;
+        (original || sample.clearance <= 1.0e-8).then_some((
+            sample.point,
+            sample.normal,
+            sample.material,
+        ))
+    }
+
+    pub(crate) fn surface_sample(
+        &self,
+        terrain: &PlanetTerrain,
+        up: Vec3,
+        original: bool,
+    ) -> Option<SurfaceSample> {
         let origin = up * self.outer_radius;
         let (distance, face) = self.intersect(terrain, 0, origin, -up, self.outer_radius)?;
         let point = origin - up * distance;
@@ -53,10 +118,21 @@ impl Ground {
         let weight_c = (second - anchor).cross(delta).dot(normal) / area;
         #[allow(clippy::cast_possible_truncation)]
         let weights = [1.0 - weight_b - weight_c, weight_b, weight_c].map(|x| x as f32);
+        let clearance = (0..3)
+            .map(|i| {
+                (terrain.water_elevations[ids[i]] - terrain.elevations[ids[i]])
+                    * f64::from(weights[i])
+            })
+            .sum();
         let materials = ids.map(|i| surface::terrain_material(terrain, i, original));
         let material =
             std::array::from_fn(|channel| (0..3).map(|i| materials[i][channel] * weights[i]).sum());
-        Some((point, surface::vector(normal.normalize()), material))
+        Some(SurfaceSample {
+            point,
+            normal: surface::vector(normal.normalize()),
+            material,
+            clearance,
+        })
     }
 
     pub fn new(scene: &Scene) -> Self {
@@ -74,6 +150,7 @@ impl Ground {
             nodes: Arc::default(),
             outer_radius,
             rocks: Vec::new(),
+            logs: Vec::new(),
         };
         ground.build(&scene.terrain, 0, ground.faces.len());
         ground
@@ -148,6 +225,11 @@ impl Ground {
                 let hit = -b - discriminant.sqrt();
                 (hit >= 0.0 && hit <= limit).then_some(hit)
             })
+            .chain(
+                self.logs
+                    .iter()
+                    .filter_map(|log| log.hit(origin, direction, limit)),
+            )
             .chain(terrain_hit)
             .min_by(f32::total_cmp)?;
         Some(origin + direction * distance)
@@ -162,7 +244,12 @@ impl Ground {
             nodes: Arc::clone(&self.nodes),
             outer_radius: self.outer_radius,
             rocks: Vec::new(),
+            logs: Vec::new(),
         }
+    }
+
+    pub(crate) fn set_logs(&mut self, logs: Vec<LogCollider>) {
+        self.logs = logs;
     }
 
     pub fn set_rocks(&mut self, rocks: Vec<RockCollider>) {
@@ -360,6 +447,40 @@ pub(super) fn test_scene() -> Scene {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn vegetation_rejects_thin_river_water_even_without_a_deep_bed_colour() {
+        let mut scene = test_scene();
+        let terrain = std::sync::Arc::get_mut(&mut scene.terrain).unwrap();
+        for (water, &height) in terrain.water_elevations.iter_mut().zip(&terrain.elevations) {
+            *water = height - 0.00001;
+        }
+        let up = surface::vector(terrain.topology.directions[0]);
+        let ground = Ground::new(&scene);
+        assert!(ground.forest_sample(&scene.terrain, up, false).is_some());
+        let terrain = std::sync::Arc::get_mut(&mut scene.terrain).unwrap();
+        for (water, &height) in terrain.water_elevations.iter_mut().zip(&terrain.elevations) {
+            *water = height + 0.00003;
+        }
+        assert!(ground.forest_sample(&scene.terrain, up, false).is_none());
+    }
+
+    #[test]
+    fn fallen_log_capsule_supports_the_shaft_and_ends_with_radial_gravity() {
+        for up in [Vec3::X, -Vec3::Y, Vec3::Z] {
+            let axis = up.any_orthonormal_vector();
+            let log = LogCollider {
+                a: axis * -2.0,
+                b: axis * 2.0,
+                radius: 0.3,
+            };
+            let hit = log.hit(up * 2.0, -up, 4.0).unwrap();
+            assert!((hit - 1.7).abs() < 1e-5);
+            assert!(log.hit(up * 2.0 + axis * 2.2, -up, 4.0).is_some());
+            assert!(log.hit(up * 2.0 + axis * 2.5, -up, 4.0).is_none());
+            assert!(log.hit(axis * 4.0, -axis, 6.0).is_some());
+        }
+    }
 
     #[test]
     fn detail_workers_share_the_index_and_retain_their_terrain_generation() {

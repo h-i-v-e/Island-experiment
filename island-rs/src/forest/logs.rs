@@ -741,6 +741,48 @@ pub(super) fn append_to_tile(
     Ok(())
 }
 
+/// Shared, stationary Z-up model; its shaft lies along local X and rests on Z=0.
+#[derive(Clone, Debug)]
+pub struct FallenLogPrototype {
+    pub meshes: [Mesh; 3],
+    /// Native bark prefix; later vertices use the broken end-grain material.
+    pub bark_vertices: [usize; 3],
+    pub length_metres: f32,
+    pub radius_metres: f32,
+}
+
+/// Reuse Island's broken roots, branch stubs and closed caps at three LODs.
+#[must_use]
+pub fn generate_fallen_log(seed: u64) -> FallenLogPrototype {
+    let mut rng = crate::rng::Rng::new(seed);
+    let length_metres = rng.range(3.0, 8.0);
+    let radius_metres = rng.range(0.18, 0.45);
+    // A translation gives otherwise identical dimensions independent detail
+    // variation; remove it after the native geometry has been constructed.
+    let offset = Vec3::Y * rng.range(-0.1, 0.1);
+    let half_length = length_metres * 0.5 / ISLAND_WORLD_METRES;
+    let radius = radius_metres / ISLAND_WORLD_METRES;
+    let log = FallenLog {
+        bottom: Vec3::new(-half_length, 0.0, radius) + offset,
+        top: Vec3::new(half_length, 0.0, radius) + offset,
+        radius,
+        ranges: [MeshRange::default(); 3],
+    };
+    let meshes = std::array::from_fn(|lod| {
+        let mut mesh = log_mesh(&log, lod, None);
+        for p in &mut mesh.vertices {
+            *p -= offset;
+        }
+        mesh
+    });
+    FallenLogPrototype {
+        meshes,
+        bark_vertices: std::array::from_fn(|lod| bark_vertex_count(&log, lod)),
+        length_metres,
+        radius_metres,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -12,6 +12,7 @@
 )]
 
 mod logs;
+pub use logs::{FallenLogPrototype, generate_fallen_log};
 
 use std::{
     collections::{BTreeMap, HashMap},

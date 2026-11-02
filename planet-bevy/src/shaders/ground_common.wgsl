@@ -22,7 +22,7 @@ struct DetailMapping { origin: vec4<f32>, tangent: vec4<f32>, bitangent: vec4<f3
 @group(#{MATERIAL_BIND_GROUP}) @binding(112) var<storage, read> detail_mapping: DetailMapping;
 @group(#{MATERIAL_BIND_GROUP}) @binding(113) var detail_mask: texture_2d<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(114) var detail_sampler: sampler;
-struct GroundPalette { dirt: vec4<f32> }
+struct GroundPalette { dirt: vec4<f32>, texture_dirt: vec4<f32> }
 @group(#{MATERIAL_BIND_GROUP}) @binding(116) var<storage, read> ground_palette: GroundPalette;
 fn detail_environment(p: vec3<f32>) -> vec2<f32> {
     if detail_mapping.origin.w <= 0.0 { return vec2<f32>(0.0); }
@@ -256,7 +256,7 @@ fn shade_ground(p: vec3<f32>, normal: vec3<f32>, view: vec3<f32>, material: vec4
             var ao = 1.0;
             if gates[i] > 0.001 {
                 var recipe_colour = layer_sample(ground_albedo, displaced, i, projection).rgb;
-                if i == 0 { recipe_colour = clamp(recipe_colour * dirt / DIRT, vec3<f32>(0.0), vec3<f32>(1.0)); }
+                if i == 0 { recipe_colour = clamp(recipe_colour * dirt / max(ground_palette.texture_dirt.rgb, vec3<f32>(0.000001)), vec3<f32>(0.0), vec3<f32>(1.0)); }
                 colour = mix(colour, recipe_colour, gates[i]);
                 let grad = layer_gradient(displaced, i, projection);
                 let recipe_normal = normalize(normal + grad - normal * dot(grad, normal));

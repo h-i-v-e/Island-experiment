@@ -64,6 +64,7 @@ struct RenderSettings {
     details: DetailSettings,
     appearance: TerrainAppearance,
     forest: ForestSettings,
+    waterside: crate::waterside::Settings,
     lighting: LightingSettings,
     ocean: OceanSettings,
     water: WaterSettings,
@@ -83,6 +84,7 @@ impl RenderSettings {
             details: c.details,
             appearance: c.appearance,
             forest: c.forest,
+            waterside: c.waterside,
             lighting: c.lighting,
             ocean: c.ocean,
             water: c.water,
@@ -163,6 +165,7 @@ impl Snapshot {
             details: self.render.details,
             appearance: self.render.appearance,
             forest: self.render.forest,
+            waterside: self.render.waterside,
             lighting: self.render.lighting,
             ocean: self.render.ocean,
             water: self.render.water,
@@ -425,6 +428,7 @@ pub(super) struct LiveSettings<'w> {
     details: Res<'w, DetailSettings>,
     appearance: Res<'w, TerrainAppearance>,
     forest: Res<'w, ForestSettings>,
+    waterside: Res<'w, crate::waterside::Settings>,
     lighting: Res<'w, LightingSettings>,
     ocean: Res<'w, OceanSettings>,
     water: Res<'w, WaterSettings>,
@@ -453,6 +457,7 @@ impl LiveSettings<'_> {
                 details: *self.details,
                 appearance: *self.appearance,
                 forest: *self.forest,
+                waterside: *self.waterside,
                 lighting: *self.lighting,
                 ocean: *self.ocean,
                 water: *self.water,
@@ -529,6 +534,11 @@ mod tests {
         s.render.appearance.set_dirt_hex("936D3C").unwrap();
         s.render.forest.distance = 190.0;
         s.render.forest.density = 2.7;
+        s.render.forest.ferns = false;
+        s.render.forest.fallen_logs = false;
+        s.render.forest.pine_needles = false;
+        s.render.waterside.reeds = false;
+        s.render.waterside.density = 2.3;
         s.render.streaming.forced_lod = Some(2);
         s.render.lighting.ao_radius = 0.12;
         s.render.ocean.foam = 2.0;
@@ -613,6 +623,7 @@ mod tests {
         assert_eq!(Settings::from(&loaded.command), expected.applied);
         assert_eq!(loaded.draft, expected.draft);
         assert_eq!(loaded.command.details, expected.render.details);
+        assert_eq!(loaded.command.waterside, expected.render.waterside);
         assert_eq!(loaded.command.streaming, expected.render.streaming);
         assert_eq!(loaded.command.solar.draft, expected.render.solar.draft);
         assert_eq!(loaded.command.view, View::Mountains);
@@ -781,6 +792,7 @@ mod tests {
             .insert_resource(command.details)
             .insert_resource(command.appearance)
             .insert_resource(command.forest)
+            .insert_resource(command.waterside)
             .insert_resource(command.lighting)
             .insert_resource(command.ocean)
             .insert_resource(command.water)
@@ -809,6 +821,7 @@ mod tests {
         assert_eq!(loaded.draft.planet.seed, 74);
         assert!((loaded.command.environment.coverage - 0.72).abs() < f32::EPSILON);
         assert_eq!(loaded.command.details, expected.render.details);
+        assert_eq!(loaded.command.waterside, expected.render.waterside);
         assert_eq!(loaded.draft.terrain.tectonics.branch_depth, 4);
     }
 }

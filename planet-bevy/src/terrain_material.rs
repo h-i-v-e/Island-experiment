@@ -1,5 +1,6 @@
 //! Unity Island's ground recipe arrays, shared by every streamed terrain chunk.
-//! CPU assets are decoded once; entities only retain inexpensive image handles.
+//! Recipe colour maps update on a worker; streamed entities retain shared handles.
+mod colour;
 use bevy::{
     asset::RenderAssetUsages,
     image::{
@@ -12,6 +13,7 @@ use bevy::{
         storage::ShaderBuffer,
     },
 };
+pub(crate) use colour::{BakedPalette, ColourBaker, rebake_albedo};
 
 #[derive(Resource, Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
@@ -55,8 +57,12 @@ impl TerrainAppearance {
     }
 
     fn palette(self) -> GroundPalette {
+        self.palette_with_reference(TerrainAppearance::default().dirt_colour)
+    }
+    fn palette_with_reference(self, reference: [f32; 3]) -> GroundPalette {
         GroundPalette {
             dirt: Vec3::from_array(self.dirt_colour).extend(1.0),
+            texture_dirt: Vec3::from_array(reference).extend(1.0),
         }
     }
 }
@@ -64,18 +70,22 @@ impl TerrainAppearance {
 #[derive(Clone, Copy, ShaderType)]
 struct GroundPalette {
     dirt: Vec4,
+    texture_dirt: Vec4,
 }
 
 /// Every terrain/grass LOD shares this buffer, including chunks loaded later.
 pub fn sync_palette(
     appearance: Res<TerrainAppearance>,
     textures: Res<TerrainTextures>,
+    reference: Option<Res<BakedPalette>>,
     mut buffers: ResMut<Assets<ShaderBuffer>>,
 ) {
-    if appearance.is_changed()
+    if (appearance.is_changed() || reference.as_ref().is_some_and(DetectChanges::is_changed))
         && let Some(mut buffer) = buffers.get_mut(&textures.palette)
     {
-        buffer.set_data(appearance.palette());
+        buffer.set_data(appearance.palette_with_reference(
+            reference.map_or_else(|| TerrainAppearance::default().dirt_colour, |p| p.0),
+        ));
     }
 }
 
@@ -198,6 +208,10 @@ fn array_image(png: &[u8], srgb: bool) -> Image {
     image
         .reinterpret_stacked_2d_as_array(6)
         .expect("six ground recipe layers");
+    mipmapped_array(image, srgb)
+}
+
+fn mipmapped_array(mut image: Image, srgb: bool) -> Image {
     let size = image.width() as usize;
     assert_eq!(image.height() as usize, size);
     let base = image.data.take().expect("decoded texture pixels");
@@ -237,6 +251,7 @@ fn array_image(png: &[u8], srgb: bool) -> Image {
             width /= 2;
         }
     }
+    image.sampler = sampler();
     image.data = Some(data);
     image.texture_descriptor.mip_level_count = size.ilog2() + 1;
     image

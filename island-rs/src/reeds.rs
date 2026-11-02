@@ -590,10 +590,59 @@ fn append_clump(tile: &mut ReedMeshTile, clump: Clump) {
     }
 }
 
+/// Shared origin-centred Z-up reed/rush clump, one metre high in Island units.
+#[must_use]
+pub fn generate_reed(seed: u64, rush: bool) -> Mesh {
+    let mut rng = Rng::new(seed);
+    let mut tile = ReedMeshTile::default();
+    append_clump(
+        &mut tile,
+        Clump {
+            root: Vec3::ZERO,
+            ground_normal: Vec3::Z,
+            height_metres: 1.0,
+            width_metres: rng.range(0.34, 0.48),
+            variant: f32::from(rush),
+            tint: rng.unit(),
+            stiffness: if rush { 0.75 } else { 0.45 },
+            phase: rng.unit(),
+        },
+    );
+    tile.mesh
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    #[test]
+    fn shared_clumps_are_finite_rooted_and_deterministic() {
+        for rush in [false, true] {
+            let first = generate_reed(123, rush);
+            let second = generate_reed(123, rush);
+            assert_eq!(first.vertices, second.vertices);
+            assert_eq!(first.triangles.len(), 72);
+            assert_eq!(first.vertices.len(), 32);
+            assert!(
+                first
+                    .vertices
+                    .iter()
+                    .all(|p| p.is_finite() && p.z >= 0.0 && p.z <= 0.00101)
+            );
+            assert!(
+                first
+                    .normals
+                    .iter()
+                    .all(|n| n.is_finite() && (n.length() - 1.0).abs() < 0.001)
+            );
+            assert!(
+                first
+                    .uv
+                    .iter()
+                    .all(|uv| uv.is_finite() && uv.min_element() >= 0.0 && uv.max_element() <= 1.0)
+            );
+        }
+    }
     fn river_bank_mesh() -> (Mesh, Vec<bool>) {
         let vertices = vec![
             Vec3::new(0.0, 0.0, 0.01),

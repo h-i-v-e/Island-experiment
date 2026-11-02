@@ -412,6 +412,34 @@ fn append_clump(tile: &mut FernMeshTile, clump: FernClump) {
     }
 }
 
+/// One origin-centred, Z-up fern rosette for shared instanced rendering.
+/// Geometry uses the same normalized units and frond builder as Island beds.
+#[must_use]
+pub fn generate_fern(seed: u64) -> Mesh {
+    let mut rng = Rng::new(seed);
+    let mut tile = FernMeshTile::default();
+    append_clump(
+        &mut tile,
+        FernClump {
+            root: Vec3::ZERO,
+            normal: Vec3::Z,
+            length_metres: 1.0,
+            fronds: 6 + (rng.next_u64() % 4) as usize,
+            rotation: rng.unit() * TAU,
+            variant: rng.unit(),
+            tint: rng.unit(),
+            flexibility: 0.8,
+            phase: rng.unit(),
+        },
+    );
+    // Face winding and geometric normals agree for two-sided lighting.
+    for face in tile.mesh.triangles.chunks_exact_mut(3) {
+        face.swap(1, 2);
+    }
+    tile.mesh.calculate_normals();
+    tile.mesh
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

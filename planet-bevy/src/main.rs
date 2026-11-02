@@ -25,6 +25,7 @@ mod sun;
 mod surface;
 mod terrain_material;
 mod water;
+mod waterside;
 mod weather;
 
 use std::{
@@ -167,7 +168,16 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     .init_resource::<streaming::ChunkWorld>()
     .init_resource::<streaming::StreamingStats>()
     .add_systems(Startup, terrain_material::setup)
-    .add_systems(Update, terrain_material::sync_palette)
+    .init_resource::<terrain_material::ColourBaker>()
+    .init_resource::<terrain_material::BakedPalette>()
+    .add_systems(
+        Update,
+        (
+            terrain_material::rebake_albedo,
+            terrain_material::sync_palette,
+        )
+            .chain(),
+    )
     .insert_resource(chunk_settings)
     .insert_resource(command.details)
     .insert_resource(command.appearance)
@@ -178,6 +188,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     .insert_resource(command.weather)
     .insert_resource(command.solar)
     .insert_resource(command.forest)
+    .insert_resource(command.waterside)
+    .insert_resource(waterside::World::with_view(command.view))
     .insert_resource(forest::Forests::with_view(command.view))
     .init_resource::<explore::Explorer>()
     .insert_resource(ClearColor(Color::srgb(0.018, 0.025, 0.045)))
@@ -205,6 +217,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             explore::update,
             streaming::update,
             forest::update,
+            waterside::update,
             details::update,
             ocean::update,
             water::update,

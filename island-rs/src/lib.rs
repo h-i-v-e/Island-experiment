@@ -29,8 +29,9 @@ mod terrain;
 mod trees;
 
 pub use clouds::{CloudWeatherError, CloudWeatherMap, generate_cloud_weather_map};
-pub use ferns::FernOptions;
+pub use ferns::{FernOptions, generate_fern};
 pub use forest::ForestOptions;
+pub use forest::{FallenLogPrototype, generate_fallen_log};
 pub use glam::{Vec2, Vec3, Vec4};
 pub use math::BoundingBox;
 pub use mesh::{Adjacency, Mesh};
@@ -47,7 +48,7 @@ pub use procedural_textures::{
     write_texture_set,
 };
 pub use raster::Raster;
-pub use reeds::ReedOptions;
+pub use reeds::{ReedOptions, generate_reed};
 pub use rivers::{River, RiverNode};
 pub use sea_mask::SeaMask;
 pub use sky::{SKY_DOME_RADIUS, generate_sky_dome};

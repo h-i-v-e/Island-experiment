@@ -1,13 +1,18 @@
 #import bevy_pbr::{prepass_io::{Vertex,VertexOutput,FragmentOutput},mesh_functions,
     mesh_view_bindings::view,view_transformations::position_world_to_clip,
     pbr_prepass_functions::calculate_motion_vector}
-#import planet_bevy::forest::{tree_wind,tree_clip}
+#import planet_bevy::forest::{tree_wind,tree_clip,undergrowth_clip,pine_clip}
 @vertex fn vertex(input:Vertex)->VertexOutput {
     var out:VertexOutput;
     let transform=mesh_functions::get_world_from_local(input.instance_index);
     let root=transform[3].xyz;
     let world=mesh_functions::mesh_position_local_to_world(transform,vec4<f32>(input.position,1.0)).xyz;
-    out.world_position=vec4<f32>(world+tree_wind(world,root),1.0);
+    var progress=0.0;
+#ifdef VERTEX_UVS_A
+    progress=input.uv.y;
+    out.uv=input.uv;
+#endif
+    out.world_position=vec4<f32>(world+tree_wind(world,root,progress),1.0);
     out.position=position_world_to_clip(out.world_position.xyz);
 #ifdef UNCLIPPED_DEPTH_ORTHO_EMULATION
     out.unclipped_depth=out.position.z;
@@ -31,6 +36,10 @@
 @fragment fn fragment(input:VertexOutput)->FragmentOutput {
     let root=mesh_functions::get_world_from_local(input.instance_index)[3].xyz;
     tree_clip(input.world_position.xyz,root,input.color.r,input.color.b);
+#ifdef VERTEX_UVS_A
+    undergrowth_clip(input.world_position.xyz,root,input.uv,input.color);
+    pine_clip(input.world_position.xyz,input.uv,input.color);
+#endif
     var out:FragmentOutput;
 #ifdef NORMAL_PREPASS
     out.normal=vec4<f32>(input.world_normal*0.5+0.5,1.0);
@@ -47,5 +56,9 @@
 @fragment fn fragment(input:VertexOutput) {
     let root=mesh_functions::get_world_from_local(input.instance_index)[3].xyz;
     tree_clip(input.world_position.xyz,root,input.color.r,input.color.b);
+#ifdef VERTEX_UVS_A
+    undergrowth_clip(input.world_position.xyz,root,input.uv,input.color);
+    pine_clip(input.world_position.xyz,input.uv,input.color);
+#endif
 }
 #endif

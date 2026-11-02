@@ -22,6 +22,7 @@ pub(super) struct Plant {
 }
 pub(super) struct Built {
     pub plants: Vec<Plant>,
+    pub undergrowth: super::undergrowth::Built,
     pub prototypes: Vec<motu::TreeMeshes>,
     pub ground: Ground,
     pub upper: f32,
@@ -106,8 +107,10 @@ pub(super) fn build(scene: Scene, shared: Option<Ground>, density: f32) -> Built
     let upper = 1.0 + scene.terrain.elevations.iter().copied().fold(0.0, f64::max) as f32;
     let occluder = 1.0 + scene.terrain.elevations.iter().copied().fold(0.0, f64::min) as f32;
     let pixels = super::mask::build(&plants, radius);
+    let undergrowth = super::undergrowth::build(&scene, &ground, &plants);
     Built {
         plants,
+        undergrowth,
         prototypes,
         ground,
         upper,
@@ -126,7 +129,7 @@ fn suitable(point: Vec3, normal: Vec3, material: [f32; 4], radius: f32) -> bool 
 
 // Annual-mean estimate mirrors the weather model's latitude/lapse-rate baseline.
 // Mature biomes do not change species when a transient cold front passes.
-pub(super) fn mean_temperature(up: Vec3, height: f32, seed: u64) -> f32 {
+pub(crate) fn mean_temperature(up: Vec3, height: f32, seed: u64) -> f32 {
     20.0 - 30.0 * up.y * up.y - height.max(0.0) * 0.09
         + (noise(up * 5.0, seed ^ 0x636c_696d_6174) - 0.5) * 4.0
 }
@@ -159,7 +162,7 @@ fn mix(mut value: u64) -> u64 {
 fn unit(value: u64) -> f32 {
     (value >> 40) as f32 / 16_777_215.0
 }
-fn noise(point: Vec3, seed: u64) -> f32 {
+pub(crate) fn noise(point: Vec3, seed: u64) -> f32 {
     let cell = point.floor().as_ivec3();
     // Use point-floor for negative coordinates too: the field wraps all poles.
     let f = point - point.floor();

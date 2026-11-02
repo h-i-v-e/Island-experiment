@@ -3,7 +3,10 @@
 pub(crate) mod mask;
 mod material;
 mod models;
+mod needles;
 mod placement;
+pub(crate) use placement::{mean_temperature, noise};
+pub(crate) mod undergrowth;
 
 use crate::{
     InitialOrbit, Orbit, Scene,
@@ -17,7 +20,8 @@ use bevy::{
     prelude::*,
     tasks::{AsyncComputeTaskPool, Task, block_on, poll_once},
 };
-use material::{ForestMaterial, Prototype};
+use material::Prototype;
+pub(crate) use material::{ForestMaterial, create_material};
 use placement::{Built, Plant};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -29,12 +33,16 @@ impl Plugin for ForestPlugin {
             .init_resource::<Forests>();
     }
 }
+#[allow(clippy::struct_excessive_bools)] // Independent vegetation visibility controls.
 #[derive(Resource, Clone, Copy, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct ForestSettings {
     pub enabled: bool,
     pub distance: f32,
     pub density: f32,
+    pub ferns: bool,
+    pub fallen_logs: bool,
+    pub pine_needles: bool,
 }
 impl Default for ForestSettings {
     fn default() -> Self {
@@ -42,6 +50,9 @@ impl Default for ForestSettings {
             enabled: true,
             distance: 240.0,
             density: 2.0,
+            ferns: true,
+            fallen_logs: true,
+            pine_needles: true,
         }
     }
 }
@@ -71,6 +82,7 @@ pub struct Forests {
     density_edit: Option<(u32, std::time::Instant)>,
     job: Option<Task<Built>>,
     plants: Vec<Plant>,
+    pub(crate) undergrowth: undergrowth::World,
     prototypes: Vec<Prototype>,
     materials: Option<[Handle<ForestMaterial>; 4]>,
     groups: BTreeMap<u32, Group>,
@@ -80,6 +92,7 @@ pub struct Forests {
     wanted: Vec<usize>,
     eye: Option<Vec3>,
     range: u32,
+    needle_detail: bool,
     pixels: Vec<u8>,
     upper: f32,
     occluder: f32,
@@ -90,17 +103,26 @@ pub struct Forests {
     pub detailed: usize,
     pub inspect: bool,
     pub inspect_conifers: bool,
+    pub inspect_needles: bool,
 }
 impl Forests {
     pub fn with_view(view: crate::command::View) -> Self {
-        Self {
+        let mut result = Self {
             inspect: matches!(
                 view,
-                crate::command::View::Forest | crate::command::View::Conifers
+                crate::command::View::Forest
+                    | crate::command::View::Conifers
+                    | crate::command::View::Needles
             ),
-            inspect_conifers: view == crate::command::View::Conifers,
+            inspect_conifers: matches!(
+                view,
+                crate::command::View::Conifers | crate::command::View::Needles
+            ),
+            inspect_needles: view == crate::command::View::Needles,
             ..default()
-        }
+        };
+        result.undergrowth.inspect = view == crate::command::View::Undergrowth;
+        result
     }
     pub fn simplified_trees(&self) -> usize {
         self.canopies.len()
@@ -111,7 +133,7 @@ impl Forests {
                 .count()
     }
     pub fn settled(&self) -> bool {
-        self.job.is_none() && !self.pending && !self.inspect
+        self.job.is_none() && !self.pending && !self.inspect && self.undergrowth.settled()
     }
 
     fn clear(
@@ -125,6 +147,7 @@ impl Forests {
         }
         self.canopies.clear();
         self.clear_near(commands);
+        self.undergrowth.clear(commands, meshes, materials);
         for model in self.prototypes.drain(..) {
             model.remove(meshes);
         }
@@ -142,8 +165,12 @@ impl Forests {
         self.eye = None;
         self.job = None;
         self.pending = false;
+        // Fresh crown materials must receive saved detail flags after a rebuild,
+        // even when the camera, range and needle toggle have not changed.
+        self.was_enabled = false;
     }
     fn clear_near(&mut self, commands: &mut Commands) {
+        self.undergrowth.hide(commands);
         for (id, tree) in self.near.drain() {
             if let Some(&canopy) = self.canopies.get(id) {
                 commands.entity(canopy).insert(Visibility::Inherited);
@@ -183,6 +210,9 @@ pub fn update(
     let key = generation_key(&mut world, key);
     if world.key != Some(key) {
         world.clear(&mut commands, &mut meshes, &mut materials);
+        if let Some(logs) = world.undergrowth.colliders() {
+            explorer.terrain_ground(&scene).set_logs(logs);
+        }
         world.key = Some(key);
         if let Some(mut image) = images.get_mut(&textures.forest_mask) {
             *image = mask::image(vec![0; mask::PIXELS]);
@@ -198,9 +228,13 @@ pub fn update(
                 *image = mask::image(vec![0; mask::PIXELS]);
             }
         }
+        if let Some(logs) = world.undergrowth.colliders() {
+            explorer.terrain_ground(&scene).set_logs(logs);
+        }
         world.was_enabled = false;
         world.pending = false;
         world.inspect = false;
+        world.undergrowth.inspect = false;
         return;
     }
     if !world.was_enabled
@@ -224,6 +258,13 @@ pub fn update(
         && let Some(built) = block_on(poll_once(job))
     {
         world.job = None;
+        world.undergrowth.upload(
+            built.undergrowth,
+            scene.terrain.topology.radius as f32,
+            &textures,
+            &mut meshes,
+            &mut materials,
+        );
         explorer.adopt_ground(&scene, built.ground);
         world.upper = built.upper;
         world.occluder = built.occluder;
@@ -266,6 +307,25 @@ pub fn update(
         return;
     }
     let radius = scene.terrain.topology.radius as f32;
+    if world.undergrowth.inspect {
+        world.undergrowth.inspect = false;
+        if let Some(view) = world.undergrowth.inspection(radius, &world.plants) {
+            *orbit = view;
+            *camera = orbit_transform(&orbit);
+            initial.0 = *orbit;
+            explorer.return_to_orbit = explorer.navigating();
+        }
+    }
+    world.undergrowth.update(
+        camera.translation,
+        radius,
+        &settings,
+        &mut commands,
+        &mut materials,
+    );
+    if let Some(logs) = world.undergrowth.colliders() {
+        explorer.terrain_ground(&scene).set_logs(logs);
+    }
     if world.inspect {
         world.inspect = false;
         if let Some(plant) = world
@@ -290,7 +350,7 @@ pub fn update(
                 score(a).total_cmp(&score(b))
             })
         {
-            *orbit = inspection(plant, radius);
+            *orbit = inspection(plant, radius, world.inspect_needles, &world.plants);
             *camera = orbit_transform(&orbit);
             initial.0 = *orbit;
             explorer.return_to_orbit = explorer.navigating();
@@ -299,11 +359,27 @@ pub fn update(
     let moved = world
         .eye
         .is_none_or(|eye| eye.distance(camera.translation) * radius > 3.0);
-    let changed = !world.was_enabled || world.range != settings.distance.to_bits();
+    let changed = !world.was_enabled
+        || world.range != settings.distance.to_bits()
+        || world.needle_detail != settings.pine_needles;
+    world.needle_detail = settings.pine_needles;
     world.range = settings.distance.to_bits();
     world.was_enabled = true;
     let uploading = world.uploaded < world.plants.len();
     upload_canopies(&mut world, &mut commands);
+    if changed && let Some(handles) = &world.materials {
+        for handle in &handles[1..=2] {
+            if let Some(mut material) = materials.get_mut(handle) {
+                material.extension.settings.shape.w = f32::from(u8::from(settings.pine_needles));
+            }
+        }
+    }
+    if (moved || changed)
+        && let Some(handles) = &world.materials
+        && let Some(mut material) = materials.get_mut(&handles[2])
+    {
+        material.extension.settings.viewer = camera.translation.extend(0.0);
+    }
     if moved || changed || uploading {
         world.eye = Some(camera.translation);
         let eye = camera.translation;
@@ -431,7 +507,11 @@ fn update_near(world: &mut Forests, eye: Vec3, radius: f32, commands: &mut Comma
     for (rank, &id) in world.wanted.iter().enumerate() {
         let plant = &world.plants[id];
         let model = &world.prototypes[plant.variant];
-        let fine = plant.root.distance(eye) * radius < 30.0;
+        let distance = plant.root.distance(eye) * radius;
+        let fine = distance < 30.0;
+        let shells = rank < 12
+            && distance < if model.conifer { 32.0 } else { 38.0 }
+            && (!model.conifer || world.needle_detail);
         let wood = if fine { &model.wood } else { &model.branches };
         if let Some(tree) = world.near.get_mut(&id) {
             if tree.fine_wood != fine {
@@ -440,7 +520,6 @@ fn update_near(world: &mut Forests, eye: Vec3, radius: f32, commands: &mut Comma
                     .entity(tree.entities[0])
                     .insert(Mesh3d(wood.clone()));
             }
-            let shells = rank < 12 && !model.conifer && plant.root.distance(eye) * radius < 38.0;
             if tree.shells != shells {
                 tree.shells = shells;
                 if let Some(entity) = tree.shell {
@@ -467,15 +546,20 @@ fn update_near(world: &mut Forests, eye: Vec3, radius: f32, commands: &mut Comma
                     .id()
             });
             let shell = model.shells.as_ref().map(|mesh| {
-                commands
-                    .spawn((
-                        Mesh3d(mesh.clone()),
-                        MeshMaterial3d(handles[2].clone()),
-                        plant.transform,
-                        NotShadowCaster,
-                        Visibility::Hidden,
-                    ))
-                    .id()
+                let mut entity = commands.spawn((
+                    Mesh3d(mesh.clone()),
+                    MeshMaterial3d(handles[2].clone()),
+                    plant.transform,
+                    if shells {
+                        Visibility::Visible
+                    } else {
+                        Visibility::Hidden
+                    },
+                ));
+                if !model.conifer {
+                    entity.insert(NotShadowCaster);
+                }
+                entity.id()
             });
             world.near.insert(
                 id,
@@ -483,7 +567,7 @@ fn update_near(world: &mut Forests, eye: Vec3, radius: f32, commands: &mut Comma
                     entities,
                     shell,
                     fine_wood: fine,
-                    shells: false,
+                    shells,
                 },
             );
             spawned += 1;
@@ -492,7 +576,10 @@ fn update_near(world: &mut Forests, eye: Vec3, radius: f32, commands: &mut Comma
     world.detailed = world.near.len();
 }
 
-fn inspection(plant: &Plant, radius: f32) -> Orbit {
+fn inspection(plant: &Plant, radius: f32, needles: bool, plants: &[Plant]) -> Orbit {
+    if needles {
+        return needle_inspection(plant, radius, plants);
+    }
     let up = plant.root.normalize();
     Orbit {
         focus: plant.root
@@ -512,6 +599,58 @@ fn inspection(plant: &Plant, radius: f32) -> Orbit {
         minimum: 0.5 / radius,
         maximum: 0.5,
     }
+}
+
+fn needle_inspection(plant: &Plant, radius: f32, plants: &[Plant]) -> Orbit {
+    let up = plant.root.normalize();
+    let frame = Quat::from_rotation_arc(Vec3::Y, up);
+    let light = frame.inverse() * Vec3::new(-3.0, 4.0, 5.0).normalize();
+    let scale = plant.transform.scale.x * radius / motu::ISLAND_WORLD_METRES;
+    let mut view = Orbit {
+        focus: plant.root + up * (4.5 * scale / radius),
+        frame,
+        distance: 4.8 * scale / radius,
+        yaw: light.x.atan2(light.z),
+        pitch: 0.03,
+        minimum: 0.3 / radius,
+        maximum: 0.5,
+    };
+    // Find a clear approach instead of putting the viewer inside a neighbour's
+    // canopy. This runs only on an explicit inspection request.
+    view.yaw = (0..16)
+        .map(|step| view.yaw + step as f32 * std::f32::consts::TAU / 16.0)
+        .max_by(|&a, &b| {
+            let score = |yaw| {
+                let candidate = Orbit { yaw, ..view };
+                let eye = orbit_transform(&candidate).translation;
+                let clearance = plants
+                    .iter()
+                    .filter(|p| {
+                        p.root.distance(plant.root) * radius > 0.1
+                            && p.root.distance(eye) * radius < 25.0
+                    })
+                    .map(|p| {
+                        let other_scale = p.transform.scale.x * radius / motu::ISLAND_WORLD_METRES;
+                        let delta = (eye - p.root) * radius;
+                        let height = delta.dot(p.root.normalize());
+                        if height < 1.6 * other_scale || height > 22.0 * other_scale {
+                            return 20.0;
+                        }
+                        let side = (delta - p.root.normalize() * height).length();
+                        let width = if p.variant >= placement::VARIANTS {
+                            3.8 * other_scale * (1.0 - height / (20.0 * other_scale)).max(0.1)
+                        } else {
+                            5.0 * other_scale
+                        };
+                        side - width
+                    })
+                    .fold(20.0, f32::min);
+                clearance.min(4.0) + (yaw - view.yaw).cos() * 0.5
+            };
+            score(a).total_cmp(&score(b))
+        })
+        .unwrap_or(view.yaw);
+    view
 }
 
 #[cfg(test)]
@@ -676,6 +815,10 @@ mod tests {
         assert!(app.world().get_entity(group).is_err());
         assert!(app.world().resource::<Forests>().plants.is_empty());
         assert!(app.world().resource::<Forests>().prototypes.is_empty());
+        assert!(
+            !app.world().resource::<Forests>().was_enabled,
+            "new crown materials must reapply saved needle flags"
+        );
     }
 
     #[test]
@@ -706,6 +849,74 @@ mod tests {
         app.update();
         assert!(app.world().resource::<Forests>().near.is_empty());
         assert_eq!(app.world().resource::<Forests>().simplified_trees(), 12);
+    }
+
+    #[test]
+    fn pine_volume_appears_on_first_upload_obeys_the_shared_budget_and_toggles_live() {
+        let (mut app, camera, _) = forest_app(20);
+        app.world_mut().resource_mut::<Forests>().prototypes[0].conifer = true;
+        app.world_mut()
+            .get_mut::<Transform>(camera)
+            .unwrap()
+            .translation = Vec3::Y * 1.025;
+        app.update();
+        let first = app.world().resource::<Forests>().near[&0].shell.unwrap();
+        assert_eq!(
+            app.world().get::<Visibility>(first),
+            Some(&Visibility::Visible)
+        );
+        assert!(app.world().get::<NotShadowCaster>(first).is_none());
+        for _ in 0..5 {
+            app.update();
+        }
+        assert_eq!(
+            app.world()
+                .resource::<Forests>()
+                .near
+                .values()
+                .filter(|t| t.shells)
+                .count(),
+            12
+        );
+        app.world_mut()
+            .resource_mut::<ForestSettings>()
+            .pine_needles = false;
+        app.update();
+        assert!(
+            app.world()
+                .resource::<Forests>()
+                .near
+                .values()
+                .all(|t| !t.shells)
+        );
+        assert_eq!(
+            app.world().get::<Visibility>(first),
+            Some(&Visibility::Hidden)
+        );
+        app.world_mut()
+            .resource_mut::<ForestSettings>()
+            .pine_needles = true;
+        app.update();
+        assert_eq!(
+            app.world().get::<Visibility>(first),
+            Some(&Visibility::Visible)
+        );
+        app.world_mut()
+            .get_mut::<Transform>(camera)
+            .unwrap()
+            .translation
+            .x = 0.06;
+        app.update();
+        assert!(
+            app.world()
+                .resource::<Forests>()
+                .near
+                .values()
+                .all(|t| !t.shells)
+        );
+        app.world_mut().resource_mut::<ForestSettings>().enabled = false;
+        app.update();
+        assert!(app.world().get_entity(first).is_err());
     }
 
     #[test]

@@ -36,8 +36,8 @@ use std::{
 
 const LEVELS: usize = 4;
 const LOAD_LIMIT: usize = 4;
-// Retire cached chunks baked before waterfall support patches were separated.
-const CACHE_GENERATION: u64 = 9;
+// Retire shelves baked before sea-level receivers kept their own river profile.
+const CACHE_GENERATION: u64 = 10;
 
 #[derive(Resource, Clone, Copy, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(default)]

@@ -38,6 +38,7 @@ struct CaptureProgress {
     requested: bool,
     saved: bool,
     completed_frames: usize,
+    dirt_edited: bool,
     frame_times: Vec<f64>,
     previous_frame: Option<Instant>,
 }
@@ -83,6 +84,7 @@ impl Plugin for CapturePlugin {
                 requested: false,
                 saved: false,
                 completed_frames: 0,
+                dirt_edited: false,
                 frame_times: Vec::with_capacity(120),
                 previous_frame: None,
             })
@@ -98,6 +100,9 @@ struct CaptureState<'w> {
     moon: Res<'w, crate::moon::MoonWorld>,
     moonlight: Res<'w, crate::moonlight::MoonlightFrame>,
     star: Res<'w, crate::sun::SunWorld>,
+    palette: Option<Res<'w, crate::terrain_material::ColourBaker>>,
+    appearance: ResMut<'w, crate::terrain_material::TerrainAppearance>,
+    waterside: Option<Res<'w, crate::waterside::World>>,
 }
 
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)] // Bevy capture resources and report.
@@ -126,6 +131,9 @@ fn capture(
         moon,
         moonlight,
         star,
+        palette,
+        mut appearance,
+        waterside,
     } = context;
     if gpu.0.load(Ordering::Acquire) == 2 {
         error!("Capture stopped: GPU shader compilation failed");
@@ -150,12 +158,27 @@ fn capture(
             && ocean.settled()
             && moon.settled()
             && forests.as_ref().is_none_or(|world| world.settled())
+            && palette.as_ref().is_none_or(|baker| baker.settled())
+            && waterside.as_ref().is_none_or(|world| world.settled())
             && gpu.0.load(Ordering::Acquire) == 1
         {
             progress.settled_frames + 1
         } else {
             0
         };
+    // Capture-only live-edit probe exercises the same resource path as the picker.
+    if progress.settled_frames == 30 && !progress.dirt_edited {
+        progress.dirt_edited = true;
+        if let Ok(value) = std::env::var("PLANET_CAPTURE_DIRT_EDIT") {
+            let rgb: Vec<f32> = value.split(',').filter_map(|v| v.parse().ok()).collect();
+            if let [r, g, b] = rgb.as_slice() {
+                let [r, g, b, _] = Color::srgb(*r, *g, *b).to_linear().to_f32_array();
+                appearance.dirt_colour = [r, g, b];
+                progress.settled_frames = 0;
+                info!("Capture live soil colour edit applied");
+            }
+        }
+    }
     progress.record_frame_time();
     if progress.saved {
         progress.completed_frames += 1;
@@ -203,7 +226,14 @@ fn capture(
         );
         let summary = format!(
             "{summary}{}\nweather_enabled: {}\nweather_simulation_paused: {}\nweather_seconds: {}\nweather_ticks: {}\nweather_stats: {:?}\n",
-            forest_summary(forests.as_deref()),
+            format_args!(
+                "{}{}",
+                forest_summary(forests.as_deref()),
+                waterside.as_ref().map_or_else(String::new, |w| format!(
+                    " · reeds {} / rushes {} / visible {}",
+                    w.reeds, w.rushes, w.visible
+                ))
+            ),
             weather_controls.enabled && !scene.terrain.is_moon(),
             weather_controls.paused,
             weather.seconds,
@@ -379,11 +409,12 @@ fn refresh_shader_sources(
 fn forest_summary(forests: Option<&crate::forest::Forests>) -> String {
     forests.map_or_else(String::new, |forests| {
         format!(
-            "forest_trees: {}\nforest_conifers: {}\nforest_detailed_trees: {}\nforest_simplified_trees: {}\n",
+            "forest_trees: {}\nforest_conifers: {}\nforest_detailed_trees: {}\nforest_simplified_trees: {}\nforest_ferns: {}\nforest_logs: {}\nvisible_ferns: {}\nvisible_logs: {}\n",
             forests.trees,
             forests.conifers,
             forests.detailed,
-            forests.simplified_trees()
+            forests.simplified_trees(), forests.undergrowth.ferns, forests.undergrowth.logs,
+            forests.undergrowth.visible_ferns, forests.undergrowth.visible_logs
         )
     })
 }
