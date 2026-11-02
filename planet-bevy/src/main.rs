@@ -342,7 +342,7 @@ fn setup(
             illuminance: 12_000.0,
             shadow_maps_enabled: true,
             shadow_depth_bias: 0.000_02,
-            shadow_normal_bias: 0.4,
+            shadow_normal_bias: DirectionalLight::DEFAULT_SHADOW_NORMAL_BIAS,
             ..default()
         },
         lighting::Sun,

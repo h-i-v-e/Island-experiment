@@ -89,15 +89,6 @@ impl MoonWorld {
         self.active && self.entity.is_some()
     }
 
-    pub fn nearby_surface(&self, eye: Vec3) -> Option<f32> {
-        if !self.active || self.entity.is_none() || self.radius <= 0.0 {
-            return None;
-        }
-        let distance = eye.distance(self.position);
-        (distance < self.radius * 6.0 && distance - self.radius < (eye.length() - 1.0).max(0.0))
-            .then_some(distance / self.radius)
-    }
-
     pub fn settled(&self) -> bool {
         !self.active
             || (self.installed == self.requested && self.job.is_none() && self.entity.is_some())
@@ -491,9 +482,6 @@ mod tests {
         assert!((app.world().get::<Transform>(entity).unwrap().scale.x - 0.25).abs() < 1e-6);
         let world = app.world().resource::<MoonWorld>();
         assert!(world.job.is_none());
-        let eye = world.position + Vec3::Y * world.radius * 3.5;
-        assert!((world.nearby_surface(eye).unwrap() - 3.5).abs() < 1e-5);
-        assert!(world.nearby_surface(Vec3::Y * 1.001).is_none());
         assert_eq!(world.meshes, handles);
         assert_eq!(world.material, material);
         assert_eq!(app.world().resource::<Assets<LodMaterial>>().len(), 1);

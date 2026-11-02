@@ -604,6 +604,9 @@ Tab in first person. These controls take effect without regenerating the planet.
 The sun uses four 2048-square shadow cascades, Gaussian PCF filtering and a
 300 metre surface range, following the Unity project's lighting configuration.
 Distances and the 2 cm depth bias are converted to the viewer's normalized units.
+The receiver also uses Bevy's 1.8-texel normal offset on both bodies, at the
+surface and from orbit. This scales with each cascade's footprint to suppress
+Sun-aligned self-shadow stripes while keeping close-up contact shadows.
 Orbital views expand the cascades to include the planet. Terrain outside the
 camera frustum can still cast shadows from its resident LOD; the camera's own
 frustum culling and planet horizon culling remain active. Terrain and stones cast
