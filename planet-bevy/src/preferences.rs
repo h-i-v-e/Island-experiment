@@ -647,7 +647,10 @@ mod tests {
         }"#;
         fs::write(folder.file(), legacy).unwrap();
         let loaded = startup(folder.args()).unwrap().unwrap();
-        let mut expected = Settings::default();
+        let mut expected = Settings {
+            terrain: planet_rs::TerrainOptions::default(),
+            ..Settings::default()
+        };
         expected.planet.seed = 73;
         expected.planet.vertex_count = 512;
         expected.terrain.source = planet_rs::TerrainSource::Tectonics;
@@ -695,6 +698,38 @@ mod tests {
         assert_eq!(fresh.command.options, Command::default().options);
         assert_eq!(read(&folder.file()).unwrap(), Some(original));
     }
+    #[test]
+    fn missing_preferences_and_no_settings_use_the_complete_viewer_preset() {
+        let folder = Folder::new();
+        let expected = Snapshot::default();
+        let fresh = startup(folder.args()).unwrap().unwrap();
+        assert_eq!(
+            Snapshot::from_command(&fresh.command, &fresh.draft),
+            expected
+        );
+        // Remembered values still win normally; --no-settings bypasses every group.
+        let saved = edited();
+        write(&folder.file(), &saved).unwrap();
+        let mut args = folder.args().to_vec();
+        args.push("--no-settings".into());
+        let independent = startup(args.clone()).unwrap().unwrap();
+        assert_eq!(
+            Snapshot::from_command(&independent.command, &independent.draft),
+            expected
+        );
+        args.extend(["--seed", "99"].map(str::to_owned));
+        let overridden = startup(args).unwrap().unwrap();
+        let mut expected_override = expected;
+        expected_override.applied.planet.seed = 99;
+        expected_override.draft.planet.seed = 99;
+        assert_eq!(
+            Snapshot::from_command(&overridden.command, &overridden.draft),
+            expected_override
+        );
+        assert!(independent.store.is_none() && overridden.store.is_none());
+        assert_eq!(read(&folder.file()).unwrap(), Some(saved));
+    }
+
     #[test]
     fn corrupt_or_future_settings_are_preserved_until_the_user_changes_a_valid_setting() {
         let folder = Folder::new();

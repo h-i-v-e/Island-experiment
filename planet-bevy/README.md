@@ -735,6 +735,15 @@ aliases for the frequencies of layers 1 and 2.
 
 ### Remembered settings
 
+The viewer startup preset uses the reviewed local configuration with **seed 42**:
+2000 m radius, 4096 initial points, relief 0.2, 32 tectonic steps, belt width 1,
+branching 1, microrelief 0.25, eight impacts per stage, erosion strength 6,
+two hydraulic sweeps and four thermal passes. Rendering starts with the selected
+soil colour, rock density 0.5, forest density 4, AO strength 1, a 300 m atmosphere
+and a five-minute day. **Defaults** restores this generation preset; the soil
+colour **Reset** restores its soil colour. Native library defaults and the
+embedded textures' reference palette remain independent of this viewer preset.
+
 Normal interactive launches remember the last successfully displayed planet,
 valid pending generation edits (including seed, noise layers, tectonics, erosion
 and refinement), display switches, terrain detail, forests, streaming/LOD,
@@ -883,8 +892,8 @@ avoiding additive spikes. Shear-driven volcanism is an artistic terrain rule:
 [USGS describes transform faults as mainly seismic rather than volcanic](https://pubs.usgs.gov/pdf/planet.pdf).
 
 Enable **Impact craters → Generate impact craters**, then press **Generate**.
-This works with either terrain source and is off by default for direct terrain
-comparisons. **Impacts per stage**, **Crater size** and **Impact strength** are
+This works with either terrain source and is enabled in the viewer preset;
+use `--no-impacts` for direct terrain comparisons. **Impacts per stage**, **Crater size** and **Impact strength** are
 configurable. Each seeded batch targets random directions snapped to current
 mesh vertices, avoiding a bias towards dense river meshes. A radial profile
 lowers a bowl, raises its rim and blends an ejecta apron into surrounding terrain,
@@ -929,8 +938,8 @@ The default uses five broad/adaptive refinement stages (`--refinements 0..6`)
 and three smoothing passes per stage. Like the island CPU reference, hydraulic
 paths run sequentially from high terrain, retain downhill momentum and sediment,
 and observe earlier paths' edits. Transport uses area-weighted volumes, hardness,
-loose soil, slope-dependent deposition, and terminal sediment fans. One sweep per
-stage is the default; `--erosion-passes` adds full rainfall/transport sweeps and
+loose soil, slope-dependent deposition, and terminal sediment fans. Two sweeps per
+stage are the viewer default; `--erosion-passes` adds full rainfall/transport sweeps and
 `--erosion-strength` controls each sweep's strength. Both increase the shared
 stage allowance, so stronger settings can deepen valleys instead of hitting the
 same fixed height cap. The cumulative height-change budget remains limited to

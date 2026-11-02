@@ -705,7 +705,7 @@ fn appearance_controls(
             ui.label("Dirt colour");
             changed |= ui.color_edit_button_rgb(&mut colour).changed();
             if ui.button("Reset").clicked() {
-                colour = super::terrain_material::TerrainAppearance::default().dirt_colour;
+                colour = Command::default().appearance.dirt_colour;
                 changed = true;
             }
         });

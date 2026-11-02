@@ -10,38 +10,38 @@ cargo run -p planet-bevy -- [options]
   --vertices N              Surface points, 4..8192 (4096)
   --radius R                Sea-level radius in metres (2000 = 2 km)
   --sweep-axis x|y|z         Sphere construction plane normal (y)
-  --relief F                Terrain amplitude / sea radius (0.16)
+  --relief F                Terrain amplitude / sea radius (0.2)
   --land-bias F             Signed elevation offset / radius (0)
   --terrain-source TYPE     tectonics or moon (tectonics)
   --tectonic-plates N       Large spherical Voronoi plates, 4..64 (16)
-  --tectonic-steps N        Drift integration steps, 1..128 (48)
+  --tectonic-steps N        Drift integration steps, 1..128 (32)
   --tectonic-drift F        Total angular drift, 0..1 radians (0.25)
   --tectonic-continents F   Continental plate fraction, 0..1 (0.375)
   --tectonic-fragmentation F  Irregular continental fragments, 0..1 (0.75)
   --tectonic-fragment-scale F  Continental fragment size, 0.35..2 (1)
   --tectonic-rifts F        Branching rift basin strength, 0..2 (0.65)
   --tectonic-rift-branches N  Rift branching levels, 0..4 (2)
-  --tectonic-width F        Mountain belt width scale, 0.05..1 (0.35)
+  --tectonic-width F        Mountain belt width scale, 0.05..1 (1)
   --tectonic-deformation F  Compression/rift strength, 0..3 (1)
-  --tectonic-branching F    Descending side-ridge strength, 0..1 (0.8)
+  --tectonic-branching F    Descending side-ridge strength, 0..1 (1)
   --tectonic-branch-depth N Recursive ridge levels, 0..4 (3)
   --tectonic-ruggedness F   Mountain peaks, saddles and bends, 0..1 (0.8)
   --tectonic-volcanism F    Sliding-boundary volcanic cone strength, 0..3 (1)
   --volcano-spacing F       Volcanic chain spacing, 0.5..3 (1)
-  --impacts                 Add seeded crater batches before terrain stages
-  --impact-count N          Craters in each batch, 0..24 (4)
+  --impacts | --no-impacts  Enable/disable seeded crater batches (on)
+  --impact-count N          Craters in each batch, 0..24 (8)
   --impact-size F           Crater size multiplier, 0.25..3 (1)
   --impact-strength F       Bowl and raised rim strength, 0..3 (1)
-  --tectonic-detail F       Extra noise contribution, 0..0.25 (0.08)
+  --tectonic-detail F       Extra noise contribution, 0..0.25 (0.25)
   --noise-preset classic|plates  Tectonic microrelief blend (classic)
   --noise-N-type TYPE       Layer N=1..3: fractal, ridged or voronoi
   --noise-N-frequency F     Layer N frequency, 0.01..100 (2.2, 12, 3)
   --noise-N-weight F        Relative height weight, 0..2 (0.78, 0.22, 0)
   --continental-frequency F Alias for --noise-1-frequency
   --detail-frequency F      Alias for --noise-2-frequency
-  --erosion-passes N        Cumulative hydraulic sweeps per stage, 0..128 (1)
-  --erosion-strength F      Hydraulic stage strength, 0..8 (1)
-  --thermal-passes N        Thermal passes, 0..128 (8)
+  --erosion-passes N        Cumulative hydraulic sweeps per stage, 0..128 (2)
+  --erosion-strength F      Hydraulic stage strength, 0..8 (6)
+  --thermal-passes N        Thermal passes, 0..128 (4)
   --river-catchment F       Rainfall area / whole sphere area (0.0015)
   --river-depth F           Channel depth / radius (0.0015)
   --refinements N           Broad/adaptive tessellation stages, 0..6 (5)
@@ -74,13 +74,13 @@ cargo run -p planet-bevy -- [options]
   --no-pine-needles         Hide close conifer needle sprays
   --no-ferns                Hide near-ground fern rosettes
   --no-fallen-logs          Hide fitted fallen wood
-  --forest-density D      Tree density multiplier, 0.25..4 (2)
+  --forest-density D      Tree density multiplier, 0.25..4 (4)
   --forest-distance M       Detailed tree range, 0..400 m (240; 0 = all coarse)
   --shadow-distance M       Surface shadow range, 20..3000 m (300)
   --shadow-bias M           Shadow depth bias in metres, 0..0.25 (0.02)
   --no-ssao                 Disable final-depth ambient occlusion
   --ao-radius M             AO radius in metres, 0.01..20 (0.05)
-  --ao-intensity F          AO strength, 0..2.5 (0.3)
+  --ao-intensity F          AO strength, 0..2.5 (1)
   --ao-samples N            Hemisphere samples: 6, 10 or 12 (12)
   --ao-half                 Half-resolution AO with bilateral upsampling
   --ao-only                 Show the screen-space AO visibility
@@ -115,7 +115,7 @@ cargo run -p planet-bevy -- [options]
   --moon-maria F           Basalt-flooded basin fraction, 0..1 (0.65)
   --moon-weathering F      Old impact softening, 0..1 (0.65)
   --moon-refinements N     Full dry surface subdivisions, 0..5 (3)
-  --solar-day-minutes M    Real minutes per planet day at 1x speed (30)
+  --solar-day-minutes M    Real minutes per planet day at 1x speed (5)
   --solar-day H            Advanced spin period in model hours (24)
   --solar-year D           Physical year in 24-hour days; sets orbital distance
   --solar-tilt D           Axial tilt in degrees (23.44)
@@ -132,7 +132,7 @@ cargo run -p planet-bevy -- [options]
   --weather-view MODE      shaded|pressure|wind|humidity|clouds|rain|waves|temperature
   --no-atmosphere           Disable atmospheric scattering
   --no-clouds               Disable volumetric clouds and cloud shadows
-  --atmosphere-height M     Minimum atmosphere thickness, 20..2000 m (200)
+  --atmosphere-height M     Minimum atmosphere thickness, 20..2000 m (300)
   --atmosphere-haze F       Atmospheric optical density, 0..5 (1)
   --cloud-coverage F        Cloud cover, 0..1 (0.42)
   --cloud-density F         Cloud optical density, 0..8 (1.2)
@@ -280,12 +280,33 @@ pub struct Command {
 
 impl Default for Command {
     fn default() -> Self {
+        // The reviewed interactive profile is the viewer's startup/reset preset.
+        // Keep library and baked-texture reference defaults independent of it.
         Self {
             options: PlanetOptions {
+                seed: 42,
                 vertex_count: 4096,
                 ..PlanetOptions::default()
             },
-            terrain: TerrainOptions::default(),
+            terrain: TerrainOptions {
+                relief: 0.2,
+                tectonics: planet_rs::TectonicOptions {
+                    steps: 32,
+                    boundary_width: 1.0,
+                    branching: 1.0,
+                    detail: 0.25,
+                    ..planet_rs::TectonicOptions::default()
+                },
+                impacts: planet_rs::ImpactOptions {
+                    enabled: true,
+                    per_stage: 8,
+                    ..planet_rs::ImpactOptions::default()
+                },
+                erosion_strength: 6.0,
+                hydraulic_passes: 2,
+                thermal_passes: 4,
+                ..TerrainOptions::default()
+            },
             generation: GenerationMode::Terrain,
             bed: BedView::Carved,
             rivers: RiverDisplay::Show,
@@ -293,20 +314,38 @@ impl Default for Command {
             view: View::Front,
             wireframe: false,
             smooth: None,
-            details: crate::details::DetailSettings::default(),
-            appearance: crate::terrain_material::TerrainAppearance::default(),
+            details: crate::details::DetailSettings {
+                rock_density: 0.5,
+                ..crate::details::DetailSettings::default()
+            },
+            appearance: crate::terrain_material::TerrainAppearance {
+                dirt_colour: [0.351_417_66, 0.185_716_1, 0.061_378_28],
+            },
             panel: PanelVisibility::Show,
             export: None,
             screenshot: None,
             validate_only: false,
             streaming: crate::streaming::StreamingSettings::default(),
-            lighting: crate::lighting::LightingSettings::default(),
+            lighting: crate::lighting::LightingSettings {
+                ao_intensity: 1.0,
+                ..crate::lighting::LightingSettings::default()
+            },
             ocean: crate::ocean::OceanSettings::default(),
             water: crate::water::WaterSettings::default(),
-            environment: crate::environment::EnvironmentSettings::default(),
+            environment: crate::environment::EnvironmentSettings {
+                clear_terrain: false,
+                atmosphere_height: 300.0,
+                ..crate::environment::EnvironmentSettings::default()
+            },
             weather: crate::weather::WeatherControls::default(),
-            solar: crate::solar::SolarControls::default(),
-            forest: crate::forest::ForestSettings::default(),
+            solar: crate::solar::SolarControls {
+                day_minutes: 5.0,
+                ..crate::solar::SolarControls::default()
+            },
+            forest: crate::forest::ForestSettings {
+                density: 4.0,
+                ..crate::forest::ForestSettings::default()
+            },
             waterside: crate::waterside::Settings::default(),
         }
     }
@@ -1456,7 +1495,7 @@ mod tests {
         assert_eq!(command.streaming.forced_lod, Some(1));
         assert!(!command.streaming.surface_maps);
         assert_eq!(command.streaming.surface_debug, 2);
-        assert_eq!(command.terrain, TerrainOptions::default());
+        assert_eq!(command.terrain, Command::default().terrain);
     }
     #[test]
     fn ocean_controls_keep_generation_fixed_and_reject_invalid_values() {
@@ -1488,7 +1527,7 @@ mod tests {
                 .debug,
             3
         );
-        assert_eq!(command.terrain, TerrainOptions::default());
+        assert_eq!(command.terrain, Command::default().terrain);
         for args in [
             ["--ocean-amplitude", "NaN"],
             ["--ocean-speed", "-1"],
@@ -1522,7 +1561,7 @@ mod tests {
         .unwrap()
         .unwrap();
         assert!(!command.water.underwater && command.view == View::Underwater);
-        assert_eq!(command.terrain, TerrainOptions::default());
+        assert_eq!(command.terrain, Command::default().terrain);
         assert!((command.water.absorption - 2.0).abs() < f32::EPSILON);
         for args in [
             ["--water-distortion", "NaN"],
