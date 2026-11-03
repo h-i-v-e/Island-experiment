@@ -65,7 +65,7 @@ namespace Motu.Editor
         public static void BatchValidateNativeInterop()
         {
             IslandOwnershipValidation.ValidateOwnershipContract();
-            if (Marshal.SizeOf<MotuNative.Options>() != sizeof(float) * 20
+            if (Marshal.SizeOf<MotuNative.Options>() != sizeof(float) * 21
                 || Marshal.SizeOf<MotuNative.ForestOptions>() != 32
                 || Marshal.SizeOf<MotuNative.ReedOptions>() != sizeof(float) * 8
                 || Marshal.SizeOf<MotuNative.FernOptions>() != sizeof(float) * 8

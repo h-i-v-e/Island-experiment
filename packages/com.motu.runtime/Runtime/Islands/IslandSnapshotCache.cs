@@ -10,8 +10,8 @@ namespace Motu.Islands
 {
     internal static class IslandSnapshotCache
     {
-        // Retire cached channels generated before full waterfall-support separation.
-        private const int CacheKeySchemaVersion = 23;
+        // Retire channels generated before dry shoulder grading and retained contacts.
+        private const int CacheKeySchemaVersion = 24;
         private const string SnapshotExtension = ".motusnapshot";
 
         internal static string CacheDirectory

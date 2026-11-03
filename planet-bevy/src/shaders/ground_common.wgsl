@@ -107,9 +107,13 @@ fn build_coverage(p: vec3<f32>, up_dot: f32, elevation: f32, material: vec4<f32>
         *smoothstep(0.90,0.98,up_dot)*(1.0-c.river)*(1.0-c.beach);
     let stone_noise = clamp(c.noise.detail.r * 0.45 + c.noise.detail.b * 0.55, -1.0, 1.0);
     c.stones = coherent_mask(detail_environment(p).r, stone_noise, 0.22, 0.16) * step(0.0, elevation);
-    let grass_distance = dot(patches.rg, vec2<f32>(0.65, 0.35)) - (1.0 - cover);
-    let grass_width = max(0.18, fwidth(grass_distance));
-    c.grass = smoothstep(-grass_width, grass_width, grass_distance) * smoothstep(0.0, 0.20, cover) * step(0.0, elevation);
+    // Soil richness controls where bare patches can form. The grass bias
+    // keeps even poor soil mostly grassy; richer soil closes the gaps fully.
+    // A gradual soil response lets noise shape the patch edges naturally.
+    let bare_threshold = 0.41 * (1.0 - smoothstep(0.0, 0.35, cover));
+    let grass_distance = dot(patches.rg, vec2<f32>(0.65, 0.35)) - bare_threshold;
+    let grass_width = max(0.05, fwidth(grass_distance));
+    c.grass = smoothstep(-grass_width, grass_width, grass_distance) * step(0.0, elevation);
     let snow_line = weather_snow_line(p, ground.snow_line);
     c.snow = antialiased_mask(elevation - (snow_line + c.noise.large.r * 18.0 + c.noise.broad.g * 2.5)) * (1.0 - cliff) * step(0.0, elevation);
     c.forest*=1.0-c.snow;

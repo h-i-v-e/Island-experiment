@@ -704,6 +704,14 @@ and 10–20 metre stochastic distance fade. Growth follows the terrain normal;
 slope and elevation use radial up. A single radial tuft field mirrors between
 hemispheres at the equator, with no blend between separate planar patterns.
 Coverage excludes rivers, bare rock, beaches, snow and rock footprints.
+Soil richness determines grass coverage: rich soil supports continuous grass,
+and bare dirt patches collect on poorer, stripped ground. A gradual response
+favours grass even on poor soil, keeping bare coverage near the roughly 10%
+goal on the saved terrain. Noise shapes patches within soil-poor regions;
+it does not punch holes into rich ground. Interiors show
+full dirt with no blades, with blending confined to their boundaries. The area
+varies with the planet's soils. Ground colour at every LOD and the close-up
+shells share this mask. Forest floors retain their own coverage.
 Shells are removed when their source chunk leaves LOD0 or the camera is more
 than 30 metres above the ground.
 

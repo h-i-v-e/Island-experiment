@@ -144,41 +144,45 @@ fn wet_outline(terrain: &Mesh, buffers: &RiverMeshBuffers) -> Vec<[u32; 2]> {
         .collect()
 }
 
-/// Walk both the authored banks and every newly exposed wet outline from sea
-/// toward the source. Accumulate constraints as lifting reveals new contacts.
+/// Walk authored banks, full-strength dry smoothing rungs and newly exposed
+/// wet outlines upstream. Return the frozen constraints for contact finishing.
 pub(super) fn grade_upstream_banks(
     terrain: &mut Mesh,
     network: &RiverNetwork,
     buffers: &RiverMeshBuffers,
     patches: &[WaterfallPatch],
-) -> usize {
+) -> Vec<(usize, usize)> {
     let outlets = outlet_ids(network);
     let stations = super::contact_banks::bank_stations(terrain, buffers, patches);
+    let apron =
+        super::bank_apron::constraints(terrain, network, buffers, patches, &stations, &outlets);
     let mut retained = BTreeSet::new();
     let mut upstream = HashMap::<usize, Vec<usize>>::new();
-    let mut total = 0;
     loop {
         terrain.calculate_normals();
         let edges = river_bank_edges(terrain, &buffers.coverage)
             .into_iter()
             .chain(wet_outline(terrain, buffers));
         let mut queue = VecDeque::new();
-        for [a, b] in edges {
+        let ordered = edges.filter_map(|[a, b]| {
             let [a, b] = [a as usize, b as usize];
             if terrain.vertices[a].z <= 0.0 || terrain.vertices[b].z <= 0.0 {
-                continue;
+                return None;
             }
             let (Some(first), Some(second)) = (buffers.owners[a], buffers.owners[b]) else {
-                continue;
+                return None;
             };
             if outlets.get(first.river as usize) != outlets.get(second.river as usize) {
-                continue;
+                return None;
             }
             let delta = stations[a] - stations[b];
             if delta.abs() <= 1.0e-8 {
-                continue;
+                return None;
             }
             let (down, up) = if delta > 0.0 { (a, b) } else { (b, a) };
+            Some((down, up))
+        });
+        for (down, up) in ordered.chain(apron.iter().copied()) {
             if retained.insert((down, up)) {
                 upstream.entry(down).or_default().push(up);
                 queue.push_back(down);
@@ -198,12 +202,11 @@ pub(super) fn grade_upstream_banks(
                 }
             }
         }
-        total += raised;
         if raised == 0 {
             break;
         }
     }
-    total
+    retained.into_iter().collect()
 }
 
 #[cfg(test)]
@@ -217,18 +220,25 @@ mod tests {
     use crate::{Vec2, Vec3};
 
     fn fixture() -> (Mesh, RiverMeshBuffers, RiverNetwork, WaterfallPatch) {
+        fixture_with_rows(9)
+    }
+
+    fn fixture_with_rows(rows: u32) -> (Mesh, RiverMeshBuffers, RiverNetwork, WaterfallPatch) {
         let step = 1.0 / super::super::ISLAND_WORLD_METRES;
         let mut terrain = Mesh::default();
-        for y in 0..9 {
+        for y in 0..rows {
             for x in 0..15 {
-                let point = Vec2::new((x as f32 - 10.0) * step, (y as f32 - 4.0) * step);
+                let point = Vec2::new(
+                    (x as f32 - 10.0) * step,
+                    (y as f32 - (rows - 1) as f32 * 0.5) * step,
+                );
                 terrain
                     .vertices
                     .push(point.extend(if x >= 11 { -step } else { step * 4.0 }));
                 terrain.uv.push(point);
             }
         }
-        for y in 0..8 {
+        for y in 0..rows - 1 {
             for x in 0..14 {
                 let a = y * 15 + x;
                 terrain
@@ -249,7 +259,7 @@ mod tests {
         let patch = WaterfallPatch {
             river: 0,
             segment: 1,
-            upper_vertex: 4 * 15 + 10,
+            upper_vertex: rows as usize / 2 * 15 + 10,
             upper_centre: Vec2::ZERO,
             direction: Vec2::X,
             across: Vec2::Y,
@@ -401,7 +411,15 @@ mod tests {
             buffers.surfaces[i] = if p.z > 0.0 { 0.005 } else { 0.0 };
         }
         let sea = terrain.vertices[4 * 15 + 12];
-        assert!(grade_upstream_banks(&mut terrain, &network, &buffers, &[]) > 0);
+        let before = terrain.vertices.clone();
+        grade_upstream_banks(&mut terrain, &network, &buffers, &[]);
+        assert!(
+            terrain
+                .vertices
+                .iter()
+                .zip(before)
+                .any(|(after, before)| after.z > before.z)
+        );
         for [a, b] in river_bank_edges(&terrain, &buffers.coverage) {
             let [a, b] = [a as usize, b as usize];
             if terrain.vertices[a].z <= 0.0 || terrain.vertices[b].z <= 0.0 {
@@ -432,6 +450,52 @@ mod tests {
             assert!(crest.distance(foot) > 0.0);
         }
     }
+    #[test]
+    fn dry_shoulder_rungs_are_graded_and_survive_final_water_contact_splitting() {
+        let (mut terrain, mut buffers, network, patch) = fixture_with_rows(15);
+        let step = 1.0 / super::super::ISLAND_WORLD_METRES;
+        let dry = [3 * 15 + 4, 4 * 15 + 4, 10 * 15 + 4, 11 * 15 + 4];
+        let fade = [2 * 15 + 4, 12 * 15 + 4];
+        let bed = 7 * 15 + 4;
+        let sea = 7 * 15 + 12;
+        for i in dry.into_iter().chain(fade).chain([bed]) {
+            terrain.vertices[i].z = step;
+        }
+        assert!(dry.iter().all(|&i| buffers.coverage[i] == 0));
+        let bank_edges = river_bank_edges(&terrain, &buffers.coverage);
+        assert!(
+            dry.iter()
+                .all(|&i| !bank_edges.iter().any(|e| e.contains(&(i as u32))))
+        );
+        let original_bed = terrain.vertices[bed];
+        let original_sea = terrain.vertices[sea];
+        let edges = grade_upstream_banks(&mut terrain, &network, &buffers, &[patch]);
+        for &i in &dry {
+            assert!((terrain.vertices[i].z - step * 4.0).abs() < 1.0e-7);
+        }
+        let mut material = SurfaceMaterial::empty(terrain.vertices.len());
+        let water = super::super::contact_banks::finish(
+            &mut terrain,
+            &mut material,
+            &network,
+            &mut buffers,
+            &[patch],
+            &edges,
+        );
+        assert!(!water.triangles.is_empty());
+        for &i in &dry {
+            assert!((terrain.vertices[i].z - step * 4.0).abs() < 1.0e-7);
+        }
+        for i in fade {
+            assert!(
+                (terrain.vertices[i].z - step).abs() < 1.0e-7,
+                "leave the outer fade unconstrained"
+            );
+        }
+        assert_eq!(terrain.vertices[bed], original_bed);
+        assert_eq!(terrain.vertices[sea], original_sea);
+    }
+
     #[test]
     fn alignment_fades_through_the_whole_upstream_shoulder() {
         let (terrain, mut buffers, _, patch) = fixture();

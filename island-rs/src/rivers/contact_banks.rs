@@ -16,6 +16,7 @@ pub(super) fn finish(
     network: &RiverNetwork,
     buffers: &mut RiverMeshBuffers,
     patches: &[WaterfallPatch],
+    bank_constraints: &[(usize, usize)],
 ) -> Mesh {
     terrain.calculate_normals();
     let mut visible =
@@ -30,7 +31,15 @@ pub(super) fn finish(
         &mut water,
         &mut stations,
     );
-    grade_contacts(terrain, network, buffers, &visible, &mut water, &stations);
+    grade_contacts(
+        terrain,
+        network,
+        buffers,
+        &visible,
+        &mut water,
+        &stations,
+        bank_constraints,
+    );
     terrain.calculate_normals();
     surface::build_with_heights(terrain, &visible, &water, &buffers.river_uv)
 }
@@ -171,10 +180,15 @@ fn grade_contacts(
     visible: &[u8],
     water: &mut [f32],
     stations: &[f32],
+    bank_constraints: &[(usize, usize)],
 ) {
     let outlets = super::finishing::outlet_ids(network);
     let mut upstream = HashMap::<usize, Vec<usize>>::new();
     let mut queue = VecDeque::new();
+    for &(down, up) in bank_constraints {
+        upstream.entry(down).or_default().push(up);
+        queue.push_back(down);
+    }
     for (a, b) in dry_edges(terrain, visible, water) {
         let (Some(first), Some(second)) = (buffers.owners[a], buffers.owners[b]) else {
             continue;
@@ -194,9 +208,10 @@ fn grade_contacts(
         for &up in upstream.get(&down).into_iter().flatten() {
             let lift = terrain.vertices[down].z - terrain.vertices[up].z;
             if lift > 0.0 {
+                let gap = clearance(water[up], terrain.vertices[up].z);
                 terrain.vertices[up].z = terrain.vertices[down].z;
                 // Preserve the frozen clearance, including the 3cm face gap.
-                water[up] = terrain.vertices[up].z;
+                water[up] = terrain.vertices[up].z + gap;
                 queue.push_back(up);
             }
         }
@@ -337,6 +352,7 @@ mod tests {
             &visible,
             &mut water,
             &stations,
+            &[],
         );
         let finished = surface::build_with_heights(&terrain, &visible, &water, &buffers.river_uv);
         assert_eq!(surface_dips(&finished), 0);
@@ -393,6 +409,31 @@ mod tests {
     }
 
     #[test]
+    fn retained_shoulder_constraints_preserve_clearance_during_a_late_contact_lift() {
+        let (mut terrain, buffers, network) = strip();
+        terrain.vertices[0].z = 0.04;
+        terrain.vertices[1].z = 0.02;
+        let untouched = terrain.vertices[2];
+        let mut water = vec![0.0; terrain.vertices.len()];
+        water[1] = 0.023;
+        let gap = water[1] - terrain.vertices[1].z;
+        let visible = vec![0; terrain.vertices.len()];
+        let stations = bank_stations(&terrain, &buffers, &[]);
+        grade_contacts(
+            &mut terrain,
+            &network,
+            &buffers,
+            &visible,
+            &mut water,
+            &stations,
+            &[(0, 1)],
+        );
+        assert!((terrain.vertices[1].z - 0.04).abs() < 1.0e-7);
+        assert!((water[1] - terrain.vertices[1].z - gap).abs() < 1.0e-7);
+        assert_eq!(terrain.vertices[2], untouched);
+    }
+
+    #[test]
     fn final_builder_grades_the_inclination_blended_contact() {
         let (mut terrain, mut buffers, network) = strip();
         for (i, height) in buffers.surfaces.iter_mut().enumerate() {
@@ -405,7 +446,14 @@ mod tests {
         let before = surface::build(&terrain, &visible, &buffers.surfaces, &buffers.river_uv);
         assert!(surface_dips(&before) > 0);
         let mut material = SurfaceMaterial::empty(terrain.vertices.len());
-        let finished = finish(&mut terrain, &mut material, &network, &mut buffers, &[]);
+        let finished = finish(
+            &mut terrain,
+            &mut material,
+            &network,
+            &mut buffers,
+            &[],
+            &[],
+        );
         assert_eq!(surface_dips(&finished), 0);
         assert!(!finished.triangles.is_empty());
     }

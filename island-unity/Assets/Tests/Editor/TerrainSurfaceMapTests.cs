@@ -16,12 +16,18 @@ namespace Motu.Editor
             internal readonly GameObject Root = new GameObject("Footstep surface fixture");
             internal readonly Material Material = new Material(Shader.Find("Motu/Terrain Unified"));
             readonly Texture3D noise = new Texture3D(2, 2, 2, TextureFormat.RGBA32, false);
+            readonly Texture2D grassPatches = new Texture2D(2, 2, TextureFormat.RGBA32, false);
             internal Ground()
             {
                 var pixels = new Color[8]; for (int i = 0; i < 8; i++) pixels[i] = new Color(.5f, .5f, .5f, 1);
                 noise.SetPixels(pixels); noise.Apply();
                 Material.SetTexture("_CliffNoise3D", noise);
-                Material.SetTexture("_GrassPatchNoise", Texture2D.whiteTexture);
+                // The same patch value is bare on poor soil and grassy on rich
+                // soil, exercising the shared terrain/query/grass response.
+                grassPatches.SetPixels(new[] { Color.gray * .4f, Color.gray * .4f,
+                    Color.gray * .4f, Color.gray * .4f });
+                grassPatches.Apply();
+                Material.SetTexture("_GrassPatchNoise", grassPatches);
                 Material.SetFloat("_SnowLine", 1000);
             }
             internal static Mesh Quad(float height, Color material, Vector2 environment, float south = -1000, float north = 1000)
@@ -35,7 +41,7 @@ namespace Motu.Editor
                 mesh.triangles = new[] { 0, 1, 2, 0, 2, 3 };
                 return mesh;
             }
-            public void Dispose() { Object.DestroyImmediate(Root); Object.DestroyImmediate(Material); Object.DestroyImmediate(noise); }
+            public void Dispose() { Object.DestroyImmediate(Root); Object.DestroyImmediate(Material); Object.DestroyImmediate(noise); Object.DestroyImmediate(grassPatches); }
         }
 
         [TestCase(TerrainSurfaceKind.Dirt)]

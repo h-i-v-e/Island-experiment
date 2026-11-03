@@ -766,7 +766,7 @@ pub(super) fn recess_waterfall_notches(
 /// rings to the untouched terrain. Distances follow mesh edges, so both sides
 /// of a narrow land strip share the strongest influence rather than adding it.
 fn final_river_smoothing_weights(adjacency: &Adjacency, coverage: &[u8]) -> Vec<f32> {
-    const FULL_RINGS: u8 = 2;
+    use super::bank_apron::FULL_RINGS;
     const BLEND_RINGS: u8 = 2;
     let mut weights: Vec<_> = coverage
         .iter()

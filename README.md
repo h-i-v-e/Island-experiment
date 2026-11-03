@@ -45,6 +45,19 @@ retain their independent workspaces and existing manifest-based build commands.
 See the [Planet viewer guide](planet-bevy/README.md) for controls, rendering tools,
 and validation commands, and the [Planet plan](planet-rs/PLANET_PLAN.md) for its geometry contract.
 
+## Shared terrain and river finishing
+
+Unity's shared terrain coverage follows Planet's soil-based grass response:
+rich ground closes bare patches, while poorer ground retains fully bare dirt
+patches with narrow blended edges. Terrain, grass shells and surface queries
+use the same mask; coverage varies with the generated soil distribution.
+
+Island river finishing grades the two full-strength dry smoothing rungs as
+well as the water-contact banks. Hydraulic ownership keeps separate rivers
+apart, the outer smoothing fade stays free, and final contact splitting retains
+the bank constraints and frozen water clearance. Snapshot cache schema 24
+regenerates islands built before this shoulder repair.
+
 ## Experimental GPU generation
 
 The original CPU generator remains the primary runtime implementation. The

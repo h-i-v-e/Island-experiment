@@ -1938,13 +1938,19 @@ impl<'a> RiverGeometryBuilder<'a> {
         self.finish_waterfalls(&patches, &mut constraints);
         self.constrain_coastline(&patches, &mut constraints);
         self.smooth_river_banks(&constraints);
-        super::finishing::grade_upstream_banks(self.terrain, self.network, &self.buffers, &patches);
+        let bank_constraints = super::finishing::grade_upstream_banks(
+            self.terrain,
+            self.network,
+            &self.buffers,
+            &patches,
+        );
         let river_mesh = super::contact_banks::finish(
             self.terrain,
             self.material,
             self.network,
             &mut self.buffers,
             &patches,
+            &bank_constraints,
         );
         self.assemble(&patches, river_mesh)
     }

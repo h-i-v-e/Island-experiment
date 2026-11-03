@@ -228,12 +228,15 @@ MotuTerrainCoverage MotuBuildTerrainCoverage(
     float2 grassUv = localPosition.xz / max(_GrassPatchNoiseWorldSize, 0.1);
     half2 grassLayers = tex2D(_GrassPatchNoise, grassUv).rg;
     half grassPatch = grassLayers.r * 0.65h + grassLayers.g * 0.35h;
-    half grassDistance = grassPatch - (1.0h - looseCover);
+    // Soil richness closes bare patches on fertile ground. Bias poor soil
+    // toward grass too, while retaining fully bare patches where soil is thin.
+    // Match Planet's response; noise shapes patches only in soil-poor regions.
+    half bareThreshold = 0.41h * (1.0h - smoothstep(0.0h, 0.35h, looseCover));
+    half grassDistance = grassPatch - bareThreshold;
     result.grass = smoothstep(
-        -max(0.18h, fwidth(grassDistance)),
-        max(0.18h, fwidth(grassDistance)),
+        -max(0.05h, fwidth(grassDistance)),
+        max(0.05h, fwidth(grassDistance)),
         grassDistance)
-        * smoothstep(0.0h, 0.20h, looseCover)
         * step(0.0h, elevation);
 
     float noisySnowLine = _SnowLine

@@ -18,6 +18,7 @@ use crate::{
     },
 };
 
+mod bank_apron;
 mod carving;
 mod channel;
 mod contact_banks;
