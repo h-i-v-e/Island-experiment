@@ -21,7 +21,6 @@ namespace Motu.Editor
         private const string OceanWaveScenePath = "Assets/Scenes/OceanRuntimeSandbox.unity";
         private const string MaterialFolder = "Assets/Materials";
         private const string OceanWaveProfilePath = "Assets/Settings/OceanWaveProfile.asset";
-        private const string TreeFoliageMaterialPath = "Assets/Materials/TreeFoliage.mat";
 
         public static void CreateReplacementScenes()
         {
@@ -53,12 +52,6 @@ namespace Motu.Editor
                 $"{MaterialFolder}/IslandRock.mat",
                 "Motu/Rock Decoration");
             rock.enableInstancing = true;
-            var treeFoliage = AssetDatabase.LoadAssetAtPath<Material>(TreeFoliageMaterialPath);
-            if (treeFoliage == null)
-            {
-                throw new InvalidOperationException(
-                    "Create or refresh the TreeSandbox foliage material before creating the island sandbox.");
-            }
 
             var scene = EditorSceneManager.NewScene(
                 NewSceneSetup.EmptyScene,
@@ -101,8 +94,7 @@ namespace Motu.Editor
                 grass,
                 river,
                 sea,
-                rock,
-                treeFoliage);
+                rock);
             requestFactory.SetFixedIslands(
                 new GridIslandGenerationRequestFactory.FixedIsland(
                     Vector2Int.zero,
@@ -153,12 +145,6 @@ namespace Motu.Editor
                 $"{MaterialFolder}/IslandRock.mat",
                 "Motu/Rock Decoration");
             rock.enableInstancing = true;
-            var treeFoliage = AssetDatabase.LoadAssetAtPath<Material>(TreeFoliageMaterialPath);
-            if (treeFoliage == null)
-            {
-                throw new InvalidOperationException(
-                    "Create or refresh the TreeSandbox foliage material before creating the multi-island sandbox.");
-            }
 
             var sceneExists = File.Exists(MultiIslandScenePath);
             var scene = sceneExists
@@ -192,8 +178,7 @@ namespace Motu.Editor
                 grass,
                 river,
                 sea,
-                rock,
-                treeFoliage);
+                rock);
 
             var cameraObject = new GameObject("Main Camera");
             cameraObject.tag = "MainCamera";

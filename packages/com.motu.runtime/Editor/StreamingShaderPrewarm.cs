@@ -28,16 +28,20 @@ namespace Motu.Editor
 
             Compile(AssetDatabase.LoadAssetAtPath<Material>(VariantPath + "TerrainLod1.mat"));
             Compile(AssetDatabase.LoadAssetAtPath<Material>(VariantPath + "TerrainLod2.mat"));
-            Compile(AssetDatabase.LoadAssetAtPath<Material>(VariantPath + "TreeWoodLod1.mat"));
+
 
             // These first appear after LOD 1, often while the boat is moving.
             // Compile their visible passes before physics starts as well.
             CompileShader("Motu/Terrain Unified");
             CompileShader("Motu/Terrain Grass");
+            for (var kind = 0; kind < 5; ++kind)
+                Compile(AssetDatabase.LoadAssetAtPath<Material>(VariantPath + $"PlanetForest{kind}.mat"));
+            CompileShader("Motu/Planet Forest", allPasses: true);
             CompileShader("Motu/Tree Wood");
-            CompileShader("Motu/Tree Foliage");
-            CompileShader("Motu/Tree Foliage Distant");
             CompileShader("Motu/Riverbank Reeds");
+            var reedClumps = AssetDatabase.LoadAssetAtPath<Material>(VariantPath + "ReedClumps.mat");
+            if (reedClumps != null)
+                for (var pass = 0; pass < reedClumps.passCount; pass++) Compile(reedClumps, pass);
             CompileShader("Motu/Forest Ferns");
             CompileShader("Motu/Rock Decoration");
             CompileShader("Motu/River Water");

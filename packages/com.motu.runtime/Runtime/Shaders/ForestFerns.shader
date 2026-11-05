@@ -96,11 +96,9 @@ Shader "Motu/Forest Ferns"
 
     float3 FernWorldPosition(FernVertexInput input)
     {
-        float3 worldPosition = mul(unity_ObjectToWorld, input.vertex).xyz;
+        float3 worldPosition = TransformObjectToWorld(input.vertex.xyz);
         float2 rootLocal = (input.root - 0.5) * _WorldSize;
-        float2 rootWorld = mul(
-            unity_ObjectToWorld,
-            float4(rootLocal.x, 0.0, rootLocal.y, 1.0)).xz;
+        float2 rootWorld = TransformObjectToWorld(float3(rootLocal.x, 0.0, rootLocal.y)).xz;
         float3 wind = MotuWindSample(rootWorld);
         float bend = input.uv.y * input.uv.y;
         float flexibility = lerp(0.45, 1.0, saturate(input.data.z));
@@ -198,11 +196,13 @@ Shader "Motu/Forest Ferns"
             #pragma vertex ShadowVertex
             #pragma fragment ShadowFragment
             #pragma target 3.0
+            #pragma multi_compile_instancing
             #pragma multi_compile_vertex _ _CASTING_PUNCTUAL_LIGHT_SHADOW
 
             FernShadowOutput ShadowVertex(FernVertexInput input)
             {
                 FernShadowOutput output;
+                UNITY_SETUP_INSTANCE_ID(input);
                 float3 worldPosition = FernWorldPosition(input);
                 float3 normal = UnityObjectToWorldNormal(input.normal);
                 output.pos = MotuShadowPosition(worldPosition, normal);

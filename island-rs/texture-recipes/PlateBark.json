@@ -31,7 +31,10 @@
         "octaves": 4,
         "lacunarity": 2.0,
         "gain": 0.48,
-        "offset": [0.0, 0.0],
+        "offset": [
+          0.0,
+          0.0
+        ],
         "seed_domain": 6021,
         "domain_warp": {
           "amplitude": 0.18,
@@ -61,7 +64,9 @@
       "outputs": {
         "height": {
           "enabled": true,
-          "blend": { "kind": "add" },
+          "blend": {
+            "kind": "add"
+          },
           "strength_m": 0.007
         },
         "albedo": {
@@ -71,9 +76,39 @@
           "colour_map": {
             "kind": "gradient",
             "stops": [
-              { "position": 0.0, "colour": [0.09, 0.065, 0.042] },
-              { "position": 0.55, "colour": [0.18, 0.125, 0.076] },
-              { "position": 1.0, "colour": [0.31, 0.22, 0.13] }
+              {
+                "position": 0.0,
+                "colour": {
+                  "parameter": "wood_colour",
+                  "base": [
+                    0.09,
+                    0.065,
+                    0.042
+                  ]
+                }
+              },
+              {
+                "position": 0.55,
+                "colour": {
+                  "parameter": "wood_colour",
+                  "base": [
+                    0.18,
+                    0.125,
+                    0.076
+                  ]
+                }
+              },
+              {
+                "position": 1.0,
+                "colour": {
+                  "parameter": "wood_colour",
+                  "base": [
+                    0.31,
+                    0.22,
+                    0.13
+                  ]
+                }
+              }
             ]
           },
           "hue_influence": 0.0,
@@ -92,7 +127,10 @@
         "octaves": 5,
         "lacunarity": 2.0,
         "gain": 0.52,
-        "offset": [0.17, -0.29],
+        "offset": [
+          0.17,
+          -0.29
+        ],
         "seed_domain": 7341,
         "domain_warp": {
           "amplitude": 0.42,
@@ -112,10 +150,22 @@
         "bias": -0.08,
         "clamp": true,
         "curve": [
-          { "position": 0.0, "value": 0.0 },
-          { "position": 0.45, "value": 0.08 },
-          { "position": 0.62, "value": 0.72 },
-          { "position": 1.0, "value": 1.0 }
+          {
+            "position": 0.0,
+            "value": 0.0
+          },
+          {
+            "position": 0.45,
+            "value": 0.08
+          },
+          {
+            "position": 0.62,
+            "value": 0.72
+          },
+          {
+            "position": 1.0,
+            "value": 1.0
+          }
         ]
       },
       "mask": {
@@ -127,7 +177,9 @@
       "outputs": {
         "height": {
           "enabled": true,
-          "blend": { "kind": "add" },
+          "blend": {
+            "kind": "add"
+          },
           "strength_m": 0.0025
         },
         "albedo": {
@@ -137,11 +189,52 @@
           "colour_map": {
             "kind": "gradient",
             "stops": [
-              { "position": 0.0, "colour": [0.105, 0.074, 0.046] },
-              { "position": 0.46, "colour": [0.13, 0.105, 0.071] },
-              { "position": 0.63, "colour": [0.16, 0.205, 0.145] },
-              { "position": 0.82, "colour": [0.235, 0.29, 0.205] },
-              { "position": 1.0, "colour": [0.34, 0.39, 0.28] }
+              {
+                "position": 0.0,
+                "colour": {
+                  "parameter": "wood_colour",
+                  "base": [
+                    0.105,
+                    0.074,
+                    0.046
+                  ]
+                }
+              },
+              {
+                "position": 0.46,
+                "colour": {
+                  "parameter": "wood_colour",
+                  "base": [
+                    0.13,
+                    0.105,
+                    0.071
+                  ]
+                }
+              },
+              {
+                "position": 0.63,
+                "colour": [
+                  0.16,
+                  0.205,
+                  0.145
+                ]
+              },
+              {
+                "position": 0.82,
+                "colour": [
+                  0.235,
+                  0.29,
+                  0.205
+                ]
+              },
+              {
+                "position": 1.0,
+                "colour": [
+                  0.34,
+                  0.39,
+                  0.28
+                ]
+              }
             ]
           },
           "hue_influence": 0.0,
@@ -160,7 +253,10 @@
         "octaves": 1,
         "lacunarity": 2.0,
         "gain": 0.5,
-        "offset": [0.0, 0.0],
+        "offset": [
+          0.0,
+          0.0
+        ],
         "seed_domain": 8117,
         "domain_warp": null,
         "cellular_jitter": 0.78
@@ -190,7 +286,9 @@
       "outputs": {
         "height": {
           "enabled": true,
-          "blend": { "kind": "add" },
+          "blend": {
+            "kind": "add"
+          },
           "strength_m": 0.0015
         },
         "albedo": {
@@ -199,8 +297,16 @@
           "strength": 0.2,
           "colour_map": {
             "kind": "ramp",
-            "first": [0.12, 0.16, 0.105],
-            "second": [0.38, 0.43, 0.315]
+            "first": [
+              0.12,
+              0.16,
+              0.105
+            ],
+            "second": [
+              0.38,
+              0.43,
+              0.315
+            ]
           },
           "hue_influence": 0.0,
           "saturation_influence": 0.0,
@@ -224,16 +330,55 @@
     "cavity_strength": 1.75,
     "horizon_strength": 0.95,
     "power": 1.15,
-    "combine": { "kind": "multiply" }
+    "combine": {
+      "kind": "multiply"
+    }
   },
   "albedo": {
-    "base_color": [0.105, 0.074, 0.046],
-    "warm_color": [0.245, 0.155, 0.085],
+    "base_color": {
+      "parameter": "wood_colour"
+    },
+    "warm_color": {
+      "parameter": "wood_colour",
+      "base": [
+        0.245,
+        0.155,
+        0.085
+      ]
+    },
     "palette": [
-      [0.078, 0.052, 0.032],
-      [0.125, 0.082, 0.048],
-      [0.19, 0.12, 0.067],
-      [0.285, 0.19, 0.11]
+      {
+        "parameter": "wood_colour",
+        "base": [
+          0.078,
+          0.052,
+          0.032
+        ]
+      },
+      {
+        "parameter": "wood_colour",
+        "base": [
+          0.125,
+          0.082,
+          0.048
+        ]
+      },
+      {
+        "parameter": "wood_colour",
+        "base": [
+          0.19,
+          0.12,
+          0.067
+        ]
+      },
+      {
+        "parameter": "wood_colour",
+        "base": [
+          0.285,
+          0.19,
+          0.11
+        ]
+      }
     ],
     "variation": 0.42,
     "crack_darkening": 0.68,
@@ -242,5 +387,19 @@
     "mineral_brightness": 0.22,
     "occlusion_influence": 0.16
   },
-  "output_profiles": ["separate", "motu_unity_terrain"]
+  "output_profiles": [
+    "separate",
+    "motu_unity_terrain"
+  ],
+  "parameters": {
+    "wood_colour": {
+      "kind": "colour",
+      "default": [
+        0.105,
+        0.074,
+        0.046
+      ],
+      "description": "Base wood colour; recolours the bark while preserving plate variation and lichen."
+    }
+  }
 }

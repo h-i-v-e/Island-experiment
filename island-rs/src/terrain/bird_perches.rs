@@ -46,21 +46,14 @@ fn generate(
     }
     let mut tiles = vec![None; (divisions * divisions) as usize];
     let mut rng = Rng::new(seed ^ 0x6269_7264_7065_7263);
-    // Upward-facing canopy skin, rather than trunk height or a guessed tree size.
-    for triangle in forest.lod0_foliage.triangles.chunks_exact(3) {
-        let [a, b, c] = vertices(&forest.lod0_foliage, triangle);
-        let normal = (b - a).cross(c - a).normalize_or_zero();
-        if normal.z < 0.85 {
-            continue;
-        }
-        let position = (a + b + c) / 3.0;
+    let mut visit_canopy = |position: Vec3| {
         let Some(tile) = tile_index(position, divisions) else {
-            continue;
+            return;
         };
         if tiles[tile].is_some_and(|p: LandBirdPerch| p.position.z >= position.z)
             || position.z - terrain.sample(position.x, position.y) < 3.0 / ISLAND_WORLD_METRES
         {
-            continue;
+            return;
         }
         insert(
             &mut tiles,
@@ -69,6 +62,39 @@ fn generate(
             rng.unit() * std::f32::consts::TAU,
             0,
         );
+    };
+    if let Some(hybrid) = &forest.hybrid {
+        // Derive one stable exposed perch from each shared crown, then place it
+        // using the same transform as the renderer, without baking every crown.
+        let tips: Vec<_> = hybrid
+            .prototypes
+            .iter()
+            .map(|tree| {
+                tree.lod0_foliage
+                    .vertices
+                    .iter()
+                    .copied()
+                    .max_by(|a, b| a.z.total_cmp(&b.z))
+            })
+            .collect();
+        for tree in forest.placements() {
+            if let Some(tip) = tips[usize::from(tree.prototype)] {
+                let (sin, cos) = tree.yaw_radians.sin_cos();
+                visit_canopy(
+                    tree.anchor
+                        + Vec3::new(tip.x * cos - tip.y * sin, tip.x * sin + tip.y * cos, tip.z)
+                            * tree.scale,
+                );
+            }
+        }
+    } else {
+        // Upward-facing canopy skin, rather than a guessed tree size.
+        for triangle in forest.lod0_foliage.triangles.chunks_exact(3) {
+            let [a, b, c] = vertices(&forest.lod0_foliage, triangle);
+            if (b - a).cross(c - a).normalize_or_zero().z >= 0.85 {
+                visit_canopy((a + b + c) / 3.0);
+            }
+        }
     }
     let mesh = terrain.mesh();
     for triangle in mesh.triangles.chunks_exact(3) {
@@ -224,6 +250,34 @@ mod tests {
         assert_eq!(perches, generate(&terrain, &material, &forest, 42, 64));
         assert_eq!(perches[0].tile, 13 * 64 + 13);
     }
+    #[test]
+    fn shared_crowns_keep_transformed_perches_without_baked_foliage() {
+        let terrain = plateau();
+        let material = TerrainMaterialField {
+            values: vec![crate::Vec4::ZERO; 4],
+        };
+        let forest = ForestMeshes {
+            placements: vec![crate::forest::TreePlacement {
+                seed_ordinal: 0,
+                terrain_vertex: 0,
+                anchor: Vec3::new(0.2, 0.2, 0.01),
+                yaw_radians: 1.2,
+                scale: 2.0,
+                prototype: 0,
+            }],
+            hybrid: Some(crate::forest::hybrid::HybridForest {
+                prototypes: vec![crate::generate_conifer(0)].into(),
+                broadleaf_count: 0,
+            }),
+            ..ForestMeshes::default()
+        };
+        let perches = generate(&terrain, &material, &forest, 42, 64);
+        assert_eq!(perches.len(), 1);
+        assert_eq!(perches[0].kind, 0);
+        assert!((perches[0].position.z - 0.01) * ISLAND_WORLD_METRES > 26.0);
+        assert_eq!(perches, generate(&terrain, &material, &forest, 42, 64));
+    }
+
     #[test]
     fn cliff_requires_level_feet_and_a_real_drop() {
         let mesh = Mesh {

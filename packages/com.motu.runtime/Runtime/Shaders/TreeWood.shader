@@ -2,6 +2,11 @@ Shader "Motu/Tree Wood"
 {
     Properties
     {
+        [HideInInspector] _MotuTreeLodEnabled ("Distance LOD", Float) = 0
+        [HideInInspector] _MotuTreeLodRanges ("Distance LOD Ranges", Vector) = (0, 1, 180, 240)
+        [HideInInspector] _MotuTreeLodViewer ("Distance LOD Viewer", Vector) = (0, 0, 0, 0)
+
+        [HideInInspector] _MotuInstancedTree ("Shared Tree Prototype", Float) = 0
         _BaseColor ("Dark Bark", Color) = (0.16, 0.085, 0.045, 1)
         _LightColor ("Light Bark", Color) = (0.42, 0.28, 0.14, 1)
         [NoScaleOffset] _EndGrainMap ("Exposed End Grain", 2D) = "white" {}
@@ -114,6 +119,12 @@ Shader "Motu/Tree Wood"
                 if (axis.z < 0.0)
                 {
                     axis.xy = (1.0 - abs(axis.yx)) * sign(axis.xy);
+                }
+                // Native branch axes are XY/Z-up; Unity maps them to XZ/Y-up.
+                if (_MotuInstancedTree > 0.5)
+                {
+                    float3 worldAxis = mul((float3x3)GetObjectToWorldMatrix(), axis.xzy);
+                    axis = mul((float3x3)_IslandWorldToLocal, worldAxis).xzy;
                 }
                 return normalize(axis);
             }
@@ -288,6 +299,7 @@ Shader "Motu/Tree Wood"
             fixed4 Fragment(VertexOutput input) : SV_Target
             {
                 UNITY_SETUP_INSTANCE_ID(input);
+                MotuTreeLodClip(input.pos.xy);
                 half3 geometricNormal = normalize(input.worldNormal);
                 MotuTreeNoiseSample noise = MotuSampleTreeNoise(
                     input.islandLocalPosition);
@@ -387,6 +399,7 @@ Shader "Motu/Tree Wood"
             struct ShadowOutput
             {
                 V2F_SHADOW_CASTER;
+                UNITY_VERTEX_INPUT_INSTANCE_ID
                 UNITY_VERTEX_OUTPUT_STEREO
             };
 
@@ -394,6 +407,7 @@ Shader "Motu/Tree Wood"
             {
                 ShadowOutput output;
                 UNITY_SETUP_INSTANCE_ID(v);
+                UNITY_TRANSFER_INSTANCE_ID(v, output);
                 UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(output);
                 float3 worldPosition = TransformObjectToWorld(v.vertex.xyz);
                 float3 islandLocalPosition = mul(
@@ -410,6 +424,8 @@ Shader "Motu/Tree Wood"
 
             float4 ShadowFragment(ShadowOutput input) : SV_Target
             {
+                UNITY_SETUP_INSTANCE_ID(input);
+                MotuTreeLodClip(input.pos.xy);
                 SHADOW_CASTER_FRAGMENT(input)
             }
             ENDHLSL

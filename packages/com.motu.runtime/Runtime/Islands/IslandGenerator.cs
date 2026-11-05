@@ -53,17 +53,14 @@ namespace Motu.Islands
         private Texture2D grassPatchNoiseTexture;
         private TerrainMaterialTextureArrays terrainMaterialTextures;
         private Material rockMaterial;
+        internal Material fallenLogMaterial;
+        private Texture2D fallenLogBarkAlbedoTexture;
+        private Texture2D fallenLogBarkHeightTexture;
+        private Texture2D fallenLogBarkNormalTexture;
+        private Texture2D fallenLogBarkOcclusionTexture;
         private Material riverMaterial;
         private Material seaMaterial;
         private Material meshEdgeMaterial;
-        internal Material treeWoodMaterial;
-        private Material treeLod1WoodMaterial;
-        private Texture2D treeBarkAlbedoTexture;
-        private Texture2D treeBarkHeightTexture;
-        private Texture2D treeBarkNormalTexture;
-        private Texture2D treeBarkOcclusionTexture;
-        private Material treeFoliageMaterial;
-        private Material treeLod0FoliageMaterial;
         private Material reedMaterial;
         private Material fernMaterial;
         private string status = "Ready";
@@ -83,7 +80,6 @@ namespace Motu.Islands
         private Color? appliedFernBaseColour;
         private Color? appliedFernTipColour;
         private bool? appliedShowMeshEdges;
-        private bool? appliedShowTreeMeshEdges;
         private bool? appliedWaterfallDebug;
         private Color? appliedGrassColourA;
         private Color? appliedGrassColourB;
@@ -366,7 +362,6 @@ namespace Motu.Islands
             currentSkyExposure = environment.SkyExposure;
             currentNightStrength = environment.NightStrength;
             riverMaterial?.SetFloat(WaterSkyExposureId, currentSkyExposure);
-            treeFoliageMaterial?.SetFloat(NightStrengthId, currentNightStrength);
             SyncHostLighting();
         }
 
@@ -482,14 +477,6 @@ namespace Motu.Islands
             terrainLod2Material = null;
             grassMaterial = null;
             rockMaterial = null;
-            treeWoodMaterial = null;
-            treeLod1WoodMaterial = null;
-            treeBarkAlbedoTexture = null;
-            treeBarkHeightTexture = null;
-            treeBarkNormalTexture = null;
-            treeBarkOcclusionTexture = null;
-            treeFoliageMaterial = null;
-            treeLod0FoliageMaterial = null;
             reedMaterial = null;
             fernMaterial = null;
             riverMaterial = null;

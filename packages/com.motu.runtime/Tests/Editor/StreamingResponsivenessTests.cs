@@ -1,9 +1,9 @@
 using System;
 using System.Collections;
 using System.Diagnostics;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Collections.Generic;
 using Motu.Interop;
 using Motu.Islands;
 using Motu.Streaming;
@@ -17,76 +17,13 @@ namespace Motu.Tests
 {
     public sealed class StreamingResponsivenessTests
     {
-        private static IEnumerator CheckForestExports(NativeIslandHandle owner)
+        private static int NeighborhoodColliderCount(IslandPreparedTreeCollider[][] tiles, Vector2Int center)
         {
-            // Select a populated region using only the cheap overview. Reference
-            // exports stay region-sized too; regression tests must not recreate
-            // the multi-gigabyte whole-island detail allocation being removed.
-            var overviewTask = Task.Run(() => VegetationPreparation.PrepareForestMeshGrid(owner.Value, 10000f, 2, 8, true));
-            while (!overviewTask.IsCompleted) yield return null;
-            var overview = overviewTask.GetAwaiter().GetResult();
-            var largest = 0;
-            for (var index = 1; index < overview.Length; index++)
-                if ((overview[index]?.vertices.Length ?? 0) > (overview[largest]?.vertices.Length ?? 0)) largest = index;
-            Assert.IsNotNull(overview[largest], "Fixture must contain wood.");
-            var samples = new HashSet<Vector2Int> { Vector2Int.zero, new Vector2Int(7, 7),
-                new Vector2Int(largest % 8, largest / 8) };
-            var comparedMeshes = 0;
-            for (var lod = 0; lod <= 1; lod++)
-                foreach (var key in samples)
-                {
-                    var level = lod;
-                    var area = new MotuNative.ExportArea(key.x / 8f, key.y / 8f, (key.x + 1) / 8f, (key.y + 1) / 8f);
-                    var baseline = Task.Run(() => new[]
-                    {
-                        VegetationPreparation.PrepareForestMeshGrid(owner.Value, 10000f, level, 8, false, area),
-                        VegetationPreparation.PrepareForestMeshGrid(owner.Value, 10000f, level, 8, true, area)
-                    });
-                    while (!baseline.IsCompleted) yield return null;
-                    var expected = baseline.GetAwaiter().GetResult();
-                    ForestMeshRegion actual = null;
-                    if (lod == 1)
-                    {
-                        var export = ForestGridWorker.PrepareAsync(owner, 10000f, lod, key, CancellationToken.None);
-                        while (!export.IsCompleted) yield return null;
-                        actual = export.GetAwaiter().GetResult();
-                    }
-                    for (var index = 0; index < 64; index++)
-                    {
-                        // The legacy area's maximum edge is inclusive; compare
-                        // interior cells where its ownership matches the full grid.
-                        if ((index % 8 == 7 && key.x != 7) || (index / 8 == 7 && key.y != 7)) continue;
-                        if (lod == 0)
-                        {
-                            var tile = key * 8 + new Vector2Int(index % 8, index / 8);
-                            var export = ForestGridWorker.PrepareAsync(owner, 10000f, lod, tile, CancellationToken.None);
-                            while (!export.IsCompleted) yield return null;
-                            actual = export.GetAwaiter().GetResult();
-                        }
-                        var channels = new[] { actual.foliage, actual.wood };
-                        for (var channel = 0; channel < channels.Length; channel++)
-                        {
-                            var before = expected[channel][index];
-                            var after = channels[channel][lod == 1 ? index : 0];
-                            if (before == null) { Assert.IsNull(after); continue; }
-                            Assert.IsNotNull(after);
-                            comparedMeshes++;
-                            CollectionAssert.AreEqual(before.vertices, after.vertices);
-                            CollectionAssert.AreEqual(before.triangles, after.triangles);
-                            CollectionAssert.AreEqual(before.normals, after.normals);
-                            CollectionAssert.AreEqual(before.uv, after.uv);
-                            CollectionAssert.AreEqual(before.material, after.material);
-                            CollectionAssert.AreEqual(before.environment, after.environment);
-                        }
-                    }
-                }
-            Assert.Greater(comparedMeshes, 0);
-            UnityEngine.Debug.Log($"MOTU FOREST EXPORT EQUIVALENCE: {comparedMeshes} nonempty meshes compared exactly.");
-            using var cancelled = new CancellationTokenSource();
-            cancelled.Cancel();
-            var abandoned = ForestGridWorker.PrepareAsync(owner, 10000f, 0, Vector2Int.zero, cancelled.Token);
-            while (!abandoned.IsCompleted) yield return null;
-            Assert.IsTrue(abandoned.IsCanceled);
+            var count = 0;
+            for (var y = Mathf.Max(0, center.y - 1); y <= Mathf.Min(63, center.y + 1); y++)
+                for (var x = Mathf.Max(0, center.x - 1); x <= Mathf.Min(63, center.x + 1); x++)
+                    count += tiles[y * 64 + x]?.Length ?? 0;
+            return count;
         }
 
         [UnityTest, Timeout(600000)]
@@ -103,7 +40,7 @@ namespace Motu.Tests
             island.GenerationSettings.WaterRatio = .85f;
             island.GenerationSettings.UseSnapshotCache = false;
             island.NavigationSettings.Enabled = false;
-            JsonUtility.FromJsonOverwrite("{\"forestPrototypeCount\":1}", island.ForestSettings);
+            JsonUtility.FromJsonOverwrite("{\"experimentalInstancedTrees\":false,\"forestPrototypeCount\":1}", island.ForestSettings);
             JsonUtility.FromJsonOverwrite("{\"materialTextureResolution\":16}", island.RenderingSettings);
             NativeIslandHandle.Lease heldLease = null;
             try
@@ -114,7 +51,29 @@ namespace Motu.Tests
                 var runtime = island.Generator.Runtime;
                 var owner = runtime.NativeHandle;
                 var streamer = runtime.TerrainStreamer;
-                yield return CheckForestExports(owner);
+                var forests = host.GetComponentsInChildren<InstancedForestRenderer>(true);
+                Assert.AreEqual(1, forests.Length, "Every generated island must use the shared forest renderer.");
+                var forest = forests[0];
+                Assert.AreEqual(12, forest.PrototypeCount, "Four shared variants for each of broadleaf, pine and palm.");
+                Assert.Greater(forest.InstanceCount, 0, "Fixture must contain compact tree placements.");
+                Assert.IsTrue(forest.GetComponentsInChildren<MeshRenderer>(true)
+                    .All(renderer => renderer.name.StartsWith("Fallen logs tile ", StringComparison.Ordinal)),
+                    "Standing-tree visuals must not allocate tile or per-tree renderers; only authored fallen-log tiles use meshes.");
+                var compactExport = Task.Run(() =>
+                {
+                    using var lease = owner.Acquire();
+                    return (catalog: HybridForestNative.Prepare(owner.Value, 10000f),
+                        trunks: VegetationPreparation.PrepareForestTrunkColliders(owner.Value, 10000f),
+                        logs: VegetationPreparation.PrepareForestTrunkColliders(owner.Value, 10000f, fallenLogs: true));
+                });
+                while (!compactExport.IsCompleted) yield return null;
+                var compact = compactExport.GetAwaiter().GetResult();
+                Assert.IsNotNull(compact.catalog);
+                Assert.AreEqual(forest.InstanceCount, compact.catalog.instances.Length);
+                Assert.AreEqual(4, compact.catalog.broadleafCount);
+                Assert.AreEqual(12, compact.catalog.prototypes.Length);
+                Assert.AreEqual(4096, compact.trunks.Length);
+                Assert.AreEqual(4096, compact.logs.Length);
                 // This is the synchronous preparation previously called by the
                 // movement handler, without its additional Unity upload cost.
                 var area = new MotuNative.ExportArea(.5f, .5f, .625f, .625f);
@@ -157,6 +116,16 @@ namespace Motu.Tests
                 }
                 Assert.AreEqual(9, streamer.lod1Groups.Count);
                 Assert.AreEqual(9, streamer.lod0Groups.Count);
+                Assert.AreEqual(9, streamer.ForestColliderTileCount,
+                    "Forest collision ownership must remain bounded to the active 3x3 LOD0 owner grid.");
+                var expectedTrunks = NeighborhoodColliderCount(compact.trunks, streamer.requestedLod1);
+                var expectedLogs = NeighborhoodColliderCount(compact.logs, streamer.requestedLod1);
+                Assert.AreEqual(expectedTrunks, streamer.ForestTrunkColliderCount);
+                Assert.AreEqual(expectedLogs, streamer.ForestLogColliderCount);
+                Assert.AreEqual(expectedTrunks, forest.GetComponentsInChildren<CapsuleCollider>().Length,
+                    "Only nearby trunk capsules may be installed.");
+                Assert.AreEqual(expectedLogs, forest.GetComponentsInChildren<BoxCollider>().Length,
+                    "Only nearby fallen-log boxes may be installed.");
                 // Interrupt another transition, then unload while a lease is held.
                 streamer.SetPlayerPosition(new Vector3(2000f, 0f, 2000f));
                 yield return null;

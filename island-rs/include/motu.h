@@ -115,6 +115,10 @@ typedef struct {
     float minimumScale, maximumScale;
     float fallenLogDensity;
 } MotuForestOptions;
+/* Optional experimental forest controls. Legacy MotuForestOptions stays 32 bytes. */
+typedef struct { float latitudeDegrees, altitudeCooling; uint32_t variantsPerSpecies; } MotuHybridForestOptions;
+typedef struct { Vector3Export anchor; float yawRadians, scale; uint32_t prototype; } MotuHybridTreeInstance;
+
 typedef struct {
     float bankWidthMetres, patchSizeMetres, coverageThreshold, spacingMetres;
     float rushRatio, minimumHeightMetres, maximumHeightMetres, maximumSlopeDegrees;
@@ -209,6 +213,26 @@ MOTU_EXPORT uint8_t BakeMotuMaterialTextures(const MotuMaterialInputs *inputs,
                                               const MotuMaterialBakeOptions *options,
                                               ExportMaterialTextureSet *output);
 MOTU_EXPORT void ReleaseMaterialTextureSet(ExportMaterialTextureSet *output);
+MOTU_EXPORT void* CreateMotuWithHybridForest(int32_t seed, const MotuOptions* options,
+    const MotuForestOptions* forest, const MotuReedOptions* reeds, const MotuFernOptions* ferns,
+    const MotuCaveOptions* caves, const MotuCaveNetworkOptions* network, const MotuCaveWalkOptions* walk,
+    const MotuHybridForestOptions* hybrid);
+MOTU_EXPORT uint32_t GetHybridForestCatalogVersion(void);
+/* species 0: broadleaf, 1: pine, 2: palm. Release maps with ReleaseMaterialTextureSet. */
+MOTU_EXPORT uint8_t BakeHybridForestBark(uint32_t species, uint32_t resolution,
+    ExportMaterialTextureSet* output);
+/* Returns 3*N prototypes ordered broadleaf, pine, palm; broadleafCount is N variants per species. */
+MOTU_EXPORT uint32_t GetHybridForestInfo(const void *handle, uint32_t *treeCount, uint32_t *broadleafCount);
+MOTU_EXPORT uint32_t CopyHybridForestInstances(const void *handle, MotuHybridTreeInstance *output, uint32_t capacity);
+/* Catalog v6: wood0, foliage0, wood1, foliage1, wood2, foliage2, shells, twig cards.
+   Palm shells/twig cards are owned empty meshes. Material.b: broadleaf=1, pine=0, palm=2.
+   Palm material.a is LOD stage 0, 1 or 2 for complementary cross-fades.
+   Release every mesh with ReleaseMesh. */
+MOTU_EXPORT void CreateHybridForestPrototypeMesh(const void *handle, uint32_t prototype, uint32_t kind, ExportMesh *output);
+/* Shared-catalog forest fallen logs only: fixed 8x8 LOD0 owner grid.
+   Legacy forest handles return an empty default export. Release with ReleaseMeshGrid. */
+MOTU_EXPORT void CreateForestLogMeshGrid(const void *handle, ExportMeshGrid *output);
+
 MOTU_EXPORT void CreateProceduralTree(int32_t seed, ExportMesh *lod0Wood,
                                       ExportMesh *lod0Foliage, ExportMesh *lod1Wood,
                                       ExportMesh *lod1Foliage);
@@ -242,6 +266,23 @@ MOTU_EXPORT void ReleaseForestTrunkColliders(ExportForestTrunkColliders *output)
 MOTU_EXPORT void CreateBoulderColliders(const void *handle, ExportBoulderColliders *output);
 MOTU_EXPORT void ReleaseBoulderColliders(ExportBoulderColliders *output);
 MOTU_EXPORT void CreateReedMeshGrid(const void *handle, ExportMeshGrid *output);
+/* 48-byte compact clump record. Native normalized Z-up roots/normals; sizes in metres. */
+typedef struct {
+    Vector3Export root, ground_normal;
+    float height_metres, width_metres, variant, tint, stiffness, phase;
+} ReedInstanceData;
+typedef struct {
+    void *handle;
+    const ReedInstanceData *data;
+    uint32_t length;
+    const uint32_t *tile_offsets;
+    uint32_t tile_offsets_length;
+    uint32_t tile_resolution;
+} ExportReedInstances;
+/* Fixed 64x64 owner grid; tile i uses [tile_offsets[i], tile_offsets[i+1]).
+   Release every successful export, including an empty grid, exactly once. */
+MOTU_EXPORT void CreateReedInstances(const void *handle, ExportReedInstances *output);
+MOTU_EXPORT void ReleaseReedInstances(ExportReedInstances *output);
 MOTU_EXPORT void CreateFernMeshGrid(const void *handle, ExportMeshGrid *output);
 MOTU_EXPORT void CreateWaterfallFeet(const void *handle, ExportWaterfallFeet *output);
 MOTU_EXPORT void ReleaseWaterfallFeet(ExportWaterfallFeet *output);

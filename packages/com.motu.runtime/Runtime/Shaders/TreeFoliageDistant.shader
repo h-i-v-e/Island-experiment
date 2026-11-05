@@ -2,6 +2,12 @@ Shader "Motu/Tree Foliage Distant"
 {
     Properties
     {
+        [HideInInspector] _MotuFarTree ("Combined Distant Tree", Float) = 0
+        [HideInInspector] _MotuTreeLodEnabled ("Distance LOD", Float) = 0
+        [HideInInspector] _MotuTreeLodRanges ("Distance LOD Ranges", Vector) = (0, 1, 180, 240)
+        [HideInInspector] _MotuTreeLodViewer ("Distance LOD Viewer", Vector) = (0, 0, 0, 0)
+
+        [HideInInspector] _MotuInstancedTree ("Shared Tree Prototype", Float) = 0
         _BaseColor ("Shadow Green", Color) = (0.045, 0.16, 0.035, 1)
         _LightColor ("Sunlit Green", Color) = (0.28, 0.48, 0.16, 1)
         _TranslucencyColor ("Leaf Transmitted Light", Color) = (0.30, 0.42, 0.10, 1)
@@ -75,6 +81,7 @@ Shader "Motu/Tree Foliage Distant"
                 SHADOW_COORDS(2)
                 UNITY_FOG_COORDS(3)
                 float3 islandLocalPosition : TEXCOORD4;
+                half bark : TEXCOORD5;
                 UNITY_VERTEX_INPUT_INSTANCE_ID
                 UNITY_VERTEX_OUTPUT_STEREO
             };
@@ -85,6 +92,7 @@ Shader "Motu/Tree Foliage Distant"
             half _FoliageTranslucency;
             half _FoliageAmbientFloor;
             half _MotuNightStrength;
+            half _MotuFarTree;
 
             VertexOutput Vertex(VertexInput input)
             {
@@ -106,6 +114,7 @@ Shader "Motu/Tree Foliage Distant"
                     input.windData.x);
                 output.worldPosition = surfaceWorldPosition + windOffset;
                 output.pos = UnityWorldToClipPos(output.worldPosition);
+                output.bark = input.treeData.b * _MotuFarTree;
                 output.worldNormal = MotuTreeWindNormal(
                     UnityObjectToWorldNormal(input.normal),
                     windOffset);
@@ -117,6 +126,7 @@ Shader "Motu/Tree Foliage Distant"
             fixed4 Fragment(VertexOutput input) : SV_Target
             {
                 UNITY_SETUP_INSTANCE_ID(input);
+                MotuTreeLodClip(input.pos.xy);
                 half3 normal = normalize(input.worldNormal);
                 MotuTreeNoiseSample noise = MotuSampleTreeNoise(input.islandLocalPosition);
                 normal = MotuPerturbTreeNormal(normal, noise);
@@ -127,6 +137,7 @@ Shader "Motu/Tree Foliage Distant"
                 fixed3 albedo = MotuRotateTreeHue(
                     lerp(_BaseColor.rgb, _LightColor.rgb, lightBlend),
                     noise.hue);
+                albedo = lerp(albedo, half3(0.19, 0.105, 0.055), saturate(input.bark));
                 fixed4 result = fixed4(
                     MotuShadeFoliage(
                         albedo,
@@ -185,6 +196,7 @@ Shader "Motu/Tree Foliage Distant"
             struct ShadowOutput
             {
                 V2F_SHADOW_CASTER;
+                UNITY_VERTEX_INPUT_INSTANCE_ID
                 UNITY_VERTEX_OUTPUT_STEREO
             };
 
@@ -193,6 +205,7 @@ Shader "Motu/Tree Foliage Distant"
                 ShadowOutput output;
                 UNITY_SETUP_INSTANCE_ID(v);
                 UNITY_INITIALIZE_OUTPUT(ShadowOutput, output);
+                UNITY_TRANSFER_INSTANCE_ID(v, output);
                 UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(output);
                 float3 worldPosition = TransformObjectToWorld(v.vertex.xyz);
                 float3 islandLocalPosition = mul(
@@ -210,6 +223,8 @@ Shader "Motu/Tree Foliage Distant"
 
             float4 ShadowFragment(ShadowOutput input) : SV_Target
             {
+                UNITY_SETUP_INSTANCE_ID(input);
+                MotuTreeLodClip(input.pos.xy);
                 SHADOW_CASTER_FRAGMENT(input)
             }
             ENDHLSL

@@ -1,6 +1,6 @@
 {
   "name": "Motu.Tests.Package",
-  "references": ["Motu.Runtime", "UnityEngine.TestRunner", "UnityEditor.TestRunner"],
+  "references": ["Motu.Runtime", "UnityEngine.TestRunner", "UnityEditor.TestRunner", "Unity.RenderPipelines.Universal.Runtime"],
   "includePlatforms": ["Editor"],
   "overrideReferences": true,
   "precompiledReferences": ["nunit.framework.dll"],

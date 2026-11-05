@@ -25,6 +25,8 @@ pub extern "C" fn GetMotuAbiTypeSize(type_id: u32) -> u32 {
         7 => size_of::<ExportMeshGrid>(),
         8 => size_of::<crate::terrain::LandBirdPerch>(),
         9 => size_of::<super::ExportLandBirdPerches>(),
+        10 => size_of::<super::reed_instances::ReedInstanceData>(),
+        11 => size_of::<super::reed_instances::ExportReedInstances>(),
         _ => return 0,
     };
     u32::try_from(bytes).expect("ABI records fit in u32")
@@ -58,6 +60,8 @@ mod tests {
         assert_eq!(GetMotuAbiVersion(), 2);
         assert_eq!(GetMotuAbiTypeSize(0), 84);
         assert_eq!(GetMotuAbiTypeSize(1), 32);
+        assert_eq!(GetMotuAbiTypeSize(10), 48);
+        assert_eq!(GetMotuAbiTypeSize(11), 40);
         assert_eq!(GetMotuAbiTypeSize(99), 0);
         assert_eq!(
             [0, 1, 2, 3].map(|id| GetMotuAbiForestOffset(id)),

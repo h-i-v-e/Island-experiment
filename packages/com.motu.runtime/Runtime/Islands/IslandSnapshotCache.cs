@@ -10,8 +10,8 @@ namespace Motu.Islands
 {
     internal static class IslandSnapshotCache
     {
-        // Retire channels generated before dry shoulder grading and retained contacts.
-        private const int CacheKeySchemaVersion = 24;
+        // Shared species catalogs and climate now participate in native snapshots.
+        private const int CacheKeySchemaVersion = 25;
         private const string SnapshotExtension = ".motusnapshot";
 
         internal static string CacheDirectory
@@ -83,6 +83,10 @@ namespace Motu.Islands
                 writer.Write(request.WorldSizeMetres);
                 Write(writer, request.Options);
                 Write(writer, request.ForestOptions);
+                writer.Write(HybridForestNative.CatalogVersion);
+                writer.Write(request.HybridForestOptions.latitudeDegrees);
+                writer.Write(request.HybridForestOptions.altitudeCooling);
+                writer.Write(request.HybridForestOptions.variantsPerSpecies);
                 Write(writer, request.ReedOptions);
                 Write(writer, request.FernOptions);
                 writer.Write(CaveNative.AlgorithmRevision);

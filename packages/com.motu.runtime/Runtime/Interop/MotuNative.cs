@@ -425,22 +425,6 @@ namespace Motu.Interop
         internal static extern void ReleaseMeshWithUV(ref ExportMeshWithUv output);
 
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
-        internal static extern void CreateForestWoodMeshGrid(
-            IntPtr handle,
-            ref ExportArea area,
-            int visualLod,
-            int divisions,
-            out ExportMeshGrid output);
-
-        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
-        internal static extern void CreateForestFoliageMeshGrid(
-            IntPtr handle,
-            ref ExportArea area,
-            int visualLod,
-            int divisions,
-            out ExportMeshGrid output);
-
-        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         internal static extern void CreateReedMeshGrid(
             IntPtr handle,
             out ExportMeshGrid output);

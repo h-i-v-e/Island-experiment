@@ -268,26 +268,24 @@ namespace Motu.Islands
 
     internal sealed class IslandPreparedForestData
     {
-        internal readonly IslandPreparedMesh[] lod2FoliageTiles;
-        internal readonly IslandPreparedMesh[] lod2WoodTiles;
+        internal readonly HybridForestData hybrid;
+        internal readonly IslandPreparedMesh[] fallenLogTiles;
         internal readonly IslandPreparedTreeCollider[][] lod0TrunkColliderTiles;
         internal readonly IslandPreparedTreeCollider[][] lod0LogColliderTiles;
 
-        internal IslandPreparedForestData(
-            IslandPreparedMesh[] lod2FoliageTiles,
-            IslandPreparedMesh[] lod2WoodTiles,
+        internal IslandPreparedForestData(HybridForestData hybrid,
             IslandPreparedTreeCollider[][] lod0TrunkColliderTiles,
-            IslandPreparedTreeCollider[][] lod0LogColliderTiles = null)
+            IslandPreparedTreeCollider[][] lod0LogColliderTiles = null,
+            IslandPreparedMesh[] fallenLogTiles = null)
         {
-            ValidateLength(lod2FoliageTiles, ForestTileStreamer.Lod2TileCount);
-            ValidateLength(lod2WoodTiles, ForestTileStreamer.Lod2TileCount);
-            ValidateLength(lod0TrunkColliderTiles, ForestTileStreamer.Lod1TileCount);
-            this.lod2FoliageTiles = lod2FoliageTiles;
-            this.lod2WoodTiles = lod2WoodTiles;
+            this.hybrid = hybrid ?? throw new ArgumentNullException(nameof(hybrid));
+            this.fallenLogTiles = fallenLogTiles ?? new IslandPreparedMesh[64];
+            ValidateLength(this.fallenLogTiles, 64);
+            ValidateLength(lod0TrunkColliderTiles, ForestTileStreamer.Lod0TileCount);
             this.lod0TrunkColliderTiles = lod0TrunkColliderTiles;
             this.lod0LogColliderTiles = lod0LogColliderTiles
-                ?? new IslandPreparedTreeCollider[ForestTileStreamer.Lod1TileCount][];
-            ValidateLength(this.lod0LogColliderTiles, ForestTileStreamer.Lod1TileCount);
+                ?? new IslandPreparedTreeCollider[ForestTileStreamer.Lod0TileCount][];
+            ValidateLength(this.lod0LogColliderTiles, ForestTileStreamer.Lod0TileCount);
         }
 
         private static void ValidateLength<T>(T[] tiles, int expectedLength)
@@ -407,7 +405,7 @@ namespace Motu.Islands
         internal readonly IslandPreparedMesh[] riverTiles;
         internal readonly IslandPreparedMesh[] riverRockTiles;
         internal readonly IslandPreparedForestData forest;
-        internal readonly IslandPreparedMesh[] reedTiles;
+        internal readonly IslandPreparedReedTile[] reedTiles;
         internal readonly IslandPreparedMesh[] fernTiles;
         internal readonly IslandPreparedWaterfallFoot[] waterfallFeet;
         internal readonly IslandPreparedColliderHeightMap colliderHeightMap;
@@ -426,7 +424,7 @@ namespace Motu.Islands
             IslandPreparedMesh[] riverTiles,
             IslandPreparedMesh[] riverRockTiles,
             IslandPreparedForestData forest,
-            IslandPreparedMesh[] reedTiles,
+            IslandPreparedReedTile[] reedTiles,
             IslandPreparedMesh[] fernTiles,
             IslandPreparedWaterfallFoot[] waterfallFeet,
             IslandPreparedColliderHeightMap colliderHeightMap,

@@ -32,8 +32,9 @@ namespace Motu.Settings
         [Tooltip("Optional stone and boulder material template. A per-island copy is created at runtime.")]
         [SerializeField] private Material rockMaterial;
 
-        [Tooltip("Optional generated-tree foliage material template. A per-island copy is created at runtime.")]
-        [SerializeField] private Material treeFoliageMaterial;
+        // Retain the authored reference when loading older profiles. Shared species
+        // materials are owned by the forest catalog.
+        [SerializeField, HideInInspector] private Material treeFoliageMaterial;
 
         [Tooltip("Optional authored replacement for the generated 3D cliff-detail noise.")]
         [SerializeField] private Texture3D cliffDetailNoise;

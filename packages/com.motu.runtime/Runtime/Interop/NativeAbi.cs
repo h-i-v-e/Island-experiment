@@ -31,7 +31,8 @@ namespace Motu.Interop
                     typeof(MotuNative.ReedOptions), typeof(MotuNative.FernOptions),
                     typeof(MotuNative.Vector3Array), typeof(MotuNative.TriangleArray),
                     typeof(MotuNative.ExportMesh), typeof(MotuNative.ExportMeshGrid),
-                    typeof(MotuNative.LandBirdPerchExport), typeof(MotuNative.ExportLandBirdPerches) };
+                    typeof(MotuNative.LandBirdPerchExport), typeof(MotuNative.ExportLandBirdPerches),
+                    typeof(ReedInstancesNative.Instance), typeof(ReedInstancesNative.Export) };
                 for (uint i = 0; i < types.Length; i++)
                     if (GetMotuAbiTypeSize(i) != Marshal.SizeOf(types[i]))
                         throw new InvalidOperationException($"Motu native layout mismatch for {types[i].Name}. Install matching native and managed packages.");

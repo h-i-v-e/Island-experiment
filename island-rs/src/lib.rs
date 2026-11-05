@@ -30,8 +30,8 @@ mod trees;
 
 pub use clouds::{CloudWeatherError, CloudWeatherMap, generate_cloud_weather_map};
 pub use ferns::{FernOptions, generate_fern};
-pub use forest::ForestOptions;
 pub use forest::{FallenLogPrototype, generate_fallen_log};
+pub use forest::{ForestOptions, HybridForestOptions};
 pub use glam::{Vec2, Vec3, Vec4};
 pub use math::BoundingBox;
 pub use mesh::{Adjacency, Mesh};
@@ -58,7 +58,10 @@ pub use terrain::{
     Decoration, Decorations, GenerationMethod, Island, IslandOptions, LandBirdPerch, SurfaceMaps,
     Terrain,
 };
-pub use trees::{TreeMeshes, generate_tree};
+pub use trees::{
+    BranchTip, TreeMeshes, TreeShells, broadleaf_crown, generate_conifer, generate_palm,
+    generate_tree, tree_shells, twig_cards,
+};
 
 /// Width represented by one normalized island coordinate in Unity.
 pub const ISLAND_WORLD_METRES: f32 = 2_000.0;

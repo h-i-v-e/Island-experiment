@@ -22,11 +22,8 @@ namespace Motu.Islands
             terrainLod2Material?.SetMatrix(IslandWorldToLocalId, worldToLocal);
             grassMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
             rockMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
+            fallenLogMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
             riverMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
-            treeWoodMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
-            treeLod1WoodMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
-            treeFoliageMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
-            treeLod0FoliageMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
             reedMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
             fernMaterial?.SetMatrix(IslandWorldToLocalId, worldToLocal);
         }
@@ -104,11 +101,6 @@ namespace Motu.Islands
             {
                 appliedShowMeshEdges = DebugSettings.ShowMeshEdges;
                 terrainStreamer?.SetMeshEdgesVisible(DebugSettings.ShowMeshEdges);
-            }
-            if (appliedShowTreeMeshEdges != DebugSettings.ShowTreeMeshEdges)
-            {
-                appliedShowTreeMeshEdges = DebugSettings.ShowTreeMeshEdges;
-                terrainStreamer?.SetTreeMeshEdgesVisible(DebugSettings.ShowTreeMeshEdges);
             }
             if (appliedWaterfallDebug != DebugSettings.ShowWaterfallFeet)
             {

@@ -27,7 +27,7 @@ namespace Motu.Streaming
             try
             {
                 mesh.name = name;
-                root = new GameObject(name);
+                root = new GameObject(name) { layer = parent.gameObject.layer };
                 root.transform.SetParent(parent, false);
                 root.AddComponent<MeshFilter>().sharedMesh = mesh;
                 var renderer = root.AddComponent<MeshRenderer>();

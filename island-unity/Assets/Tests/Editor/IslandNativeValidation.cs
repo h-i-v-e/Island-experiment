@@ -574,9 +574,8 @@ namespace Motu.Editor
                     DestroyImmediate(validationRockMaterial);
                 }
 
-                ValidateTreeSurfaceShader("Motu/Tree Wood", "wood");
-                ValidateTreeSurfaceShader("Motu/Tree Foliage", "foliage");
-                ValidateDistantFoliageShader();
+                ValidateFallenLogSurfaceShader();
+                ValidateSharedForestShader();
 
                 var riverWaterShader = Shader.Find("Motu/River Water");
                 if (riverWaterShader == null

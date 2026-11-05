@@ -47,43 +47,16 @@ namespace Motu.Islands
             grassMaterial.SetTexture("_CliffNoise3D", cliffNoiseTexture);
             CopyTerrainBlendSettingsToGrass();
             ApplySnowlineSettings();
-            treeWoodMaterial = CreateMaterial(
+            fallenLogMaterial = CreateMaterial(
                 "Motu/Tree Wood",
                 new Color(0.16f, 0.085f, 0.045f, 1f),
                 null,
                 Generation.WorldSizeMetres);
-            CreateTreeBarkTextures(materialTextures.treeBark);
-            treeWoodMaterial.SetTexture("_EndGrainMap", Resources.Load<Texture2D>("Motu/TreeEndGrain"));
-            treeWoodMaterial.SetColor("_GroundDirtColor", dirtColor);
-            treeWoodMaterial.SetTexture("_CliffNoise3D", cliffNoiseTexture);
-            treeWoodMaterial.enableInstancing = true;
-            treeLod1WoodMaterial = new Material(treeWoodMaterial)
-            {
-                name = "Island tree LOD1 wood material (no parallax)",
-            };
-            treeLod1WoodMaterial.EnableKeyword("MOTU_TREE_BARK_NO_PARALLAX");
-            treeLod1WoodMaterial.enableInstancing = true;
-            treeLod0FoliageMaterial = CreateMaterial(
-                "Motu/Tree Foliage",
-                new Color(0.08f, 0.28f, 0.055f, 1f),
-                Rendering.TreeFoliageMaterial,
-                Generation.WorldSizeMetres);
-            treeLod0FoliageMaterial.SetTexture("_CliffNoise3D", cliffNoiseTexture);
-            treeLod0FoliageMaterial.SetFloat("_CullMode", (float)CullMode.Off);
-            treeLod0FoliageMaterial.enableInstancing = true;
-            var distantFoliageShader = Motu.Rendering.MotuShaders.Find("Motu/Tree Foliage Distant")
-                ?? throw new InvalidOperationException(
-                    "Could not find shader 'Motu/Tree Foliage Distant'.");
-            treeFoliageMaterial = new Material(distantFoliageShader)
-            {
-                name = "Island distant tree foliage material (base canopy only)",
-            };
-            treeFoliageMaterial.CopyPropertiesFromMaterial(treeLod0FoliageMaterial);
-            treeFoliageMaterial.SetFloat("_CullMode", (float)CullMode.Back);
-            treeFoliageMaterial.renderQueue = (int)RenderQueue.Geometry;
-            // The LOD2 canopy mesh is shared with its shadow proxy. Instancing
-            // that pair places the visible canopy on another object's matrix.
-            treeFoliageMaterial.enableInstancing = false;
+            CreateFallenLogBarkTextures(materialTextures.treeBark);
+            fallenLogMaterial.SetTexture("_EndGrainMap", Resources.Load<Texture2D>("Motu/TreeEndGrain"));
+            fallenLogMaterial.SetColor("_GroundDirtColor", dirtColor);
+            fallenLogMaterial.SetTexture("_CliffNoise3D", cliffNoiseTexture);
+            fallenLogMaterial.enableInstancing = false;
             reedMaterial = CreateMaterial(
                 "Motu/Riverbank Reeds",
                 Reeds.BaseColour,
@@ -418,14 +391,11 @@ namespace Motu.Islands
             islandRuntime.OwnMaterial(terrainLod2Material);
             islandRuntime.OwnMaterial(grassMaterial);
             islandRuntime.OwnMaterial(rockMaterial);
-            islandRuntime.OwnMaterial(treeWoodMaterial);
-            islandRuntime.OwnMaterial(treeLod1WoodMaterial);
-            islandRuntime.OwnTexture(treeBarkAlbedoTexture);
-            islandRuntime.OwnTexture(treeBarkHeightTexture);
-            islandRuntime.OwnTexture(treeBarkNormalTexture);
-            islandRuntime.OwnTexture(treeBarkOcclusionTexture);
-            islandRuntime.OwnMaterial(treeFoliageMaterial);
-            islandRuntime.OwnMaterial(treeLod0FoliageMaterial);
+            islandRuntime.OwnMaterial(fallenLogMaterial);
+            islandRuntime.OwnTexture(fallenLogBarkAlbedoTexture);
+            islandRuntime.OwnTexture(fallenLogBarkHeightTexture);
+            islandRuntime.OwnTexture(fallenLogBarkNormalTexture);
+            islandRuntime.OwnTexture(fallenLogBarkOcclusionTexture);
             islandRuntime.OwnMaterial(reedMaterial);
             islandRuntime.OwnMaterial(fernMaterial);
             islandRuntime.OwnMaterial(riverMaterial);
@@ -436,10 +406,10 @@ namespace Motu.Islands
         }
 
 
-        internal void CreateTreeBarkTextures(IslandPreparedMaterialTexture bark)
+        internal void CreateFallenLogBarkTextures(IslandPreparedMaterialTexture bark)
         {
             if (bark == null) throw new ArgumentNullException(nameof(bark));
-            treeBarkAlbedoTexture = CreateRuntimeMaterialTexture(
+            fallenLogBarkAlbedoTexture = CreateRuntimeMaterialTexture(
                 "Motu Runtime Tree Bark Albedo",
                 bark.width,
                 bark.height,
@@ -448,44 +418,44 @@ namespace Motu.Islands
                 bark.albedoRgb);
             try
             {
-                treeBarkHeightTexture = CreateRuntimeMaterialTexture(
+                fallenLogBarkHeightTexture = CreateRuntimeMaterialTexture(
                     "Motu Runtime Tree Bark Height",
                     bark.width,
                     bark.height,
                     TextureFormat.R16,
                     true,
                     bark.heightR16);
-                treeBarkNormalTexture = CreateRuntimeMaterialTexture(
+                fallenLogBarkNormalTexture = CreateRuntimeMaterialTexture(
                     "Motu Runtime Tree Bark Normal",
                     bark.width,
                     bark.height,
                     TextureFormat.RGB24,
                     true,
                     bark.normalRgb);
-                treeBarkOcclusionTexture = CreateRuntimeMaterialTexture(
+                fallenLogBarkOcclusionTexture = CreateRuntimeMaterialTexture(
                     "Motu Runtime Tree Bark Occlusion",
                     bark.width,
                     bark.height,
                     TextureFormat.R8,
                     true,
                     bark.occlusion);
-                treeWoodMaterial.SetTexture("_BarkAlbedoMap", treeBarkAlbedoTexture);
-                treeWoodMaterial.SetTexture("_BarkHeightMap", treeBarkHeightTexture);
-                treeWoodMaterial.SetTexture("_BarkNormalMap", treeBarkNormalTexture);
-                treeWoodMaterial.SetTexture("_BarkOcclusionMap", treeBarkOcclusionTexture);
-                treeWoodMaterial.SetFloat("_BarkTileWidthMetres", bark.physicalTileWidthMetres);
-                treeWoodMaterial.SetFloat("_BarkTileHeightMetres", bark.physicalTileHeightMetres);
+                fallenLogMaterial.SetTexture("_BarkAlbedoMap", fallenLogBarkAlbedoTexture);
+                fallenLogMaterial.SetTexture("_BarkHeightMap", fallenLogBarkHeightTexture);
+                fallenLogMaterial.SetTexture("_BarkNormalMap", fallenLogBarkNormalTexture);
+                fallenLogMaterial.SetTexture("_BarkOcclusionMap", fallenLogBarkOcclusionTexture);
+                fallenLogMaterial.SetFloat("_BarkTileWidthMetres", bark.physicalTileWidthMetres);
+                fallenLogMaterial.SetFloat("_BarkTileHeightMetres", bark.physicalTileHeightMetres);
             }
             catch
             {
-                DestroyUnityObject(treeBarkAlbedoTexture);
-                DestroyUnityObject(treeBarkHeightTexture);
-                DestroyUnityObject(treeBarkNormalTexture);
-                DestroyUnityObject(treeBarkOcclusionTexture);
-                treeBarkAlbedoTexture = null;
-                treeBarkHeightTexture = null;
-                treeBarkNormalTexture = null;
-                treeBarkOcclusionTexture = null;
+                DestroyUnityObject(fallenLogBarkAlbedoTexture);
+                DestroyUnityObject(fallenLogBarkHeightTexture);
+                DestroyUnityObject(fallenLogBarkNormalTexture);
+                DestroyUnityObject(fallenLogBarkOcclusionTexture);
+                fallenLogBarkAlbedoTexture = null;
+                fallenLogBarkHeightTexture = null;
+                fallenLogBarkNormalTexture = null;
+                fallenLogBarkOcclusionTexture = null;
                 throw;
             }
         }
@@ -501,14 +471,11 @@ namespace Motu.Islands
             DestroyUnityObject(terrainLod2Material);
             DestroyUnityObject(grassMaterial);
             DestroyUnityObject(rockMaterial);
-            DestroyUnityObject(treeWoodMaterial);
-            DestroyUnityObject(treeLod1WoodMaterial);
-            DestroyUnityObject(treeBarkAlbedoTexture);
-            DestroyUnityObject(treeBarkHeightTexture);
-            DestroyUnityObject(treeBarkNormalTexture);
-            DestroyUnityObject(treeBarkOcclusionTexture);
-            DestroyUnityObject(treeFoliageMaterial);
-            DestroyUnityObject(treeLod0FoliageMaterial);
+            DestroyUnityObject(fallenLogMaterial);
+            DestroyUnityObject(fallenLogBarkAlbedoTexture);
+            DestroyUnityObject(fallenLogBarkHeightTexture);
+            DestroyUnityObject(fallenLogBarkNormalTexture);
+            DestroyUnityObject(fallenLogBarkOcclusionTexture);
             DestroyUnityObject(reedMaterial);
             DestroyUnityObject(fernMaterial);
             DestroyUnityObject(riverMaterial);
@@ -521,14 +488,11 @@ namespace Motu.Islands
             terrainLod2Material = null;
             grassMaterial = null;
             rockMaterial = null;
-            treeWoodMaterial = null;
-            treeLod1WoodMaterial = null;
-            treeBarkAlbedoTexture = null;
-            treeBarkHeightTexture = null;
-            treeBarkNormalTexture = null;
-            treeBarkOcclusionTexture = null;
-            treeFoliageMaterial = null;
-            treeLod0FoliageMaterial = null;
+            fallenLogMaterial = null;
+            fallenLogBarkAlbedoTexture = null;
+            fallenLogBarkHeightTexture = null;
+            fallenLogBarkNormalTexture = null;
+            fallenLogBarkOcclusionTexture = null;
             reedMaterial = null;
             fernMaterial = null;
             riverMaterial = null;
@@ -553,7 +517,6 @@ namespace Motu.Islands
             appliedFernBaseColour = null;
             appliedFernTipColour = null;
             appliedShowMeshEdges = null;
-            appliedShowTreeMeshEdges = null;
             appliedWaterfallDebug = null;
             appliedGrassColourA = null;
             appliedGrassColourB = null;

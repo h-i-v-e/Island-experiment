@@ -8,6 +8,7 @@ half _TreeNoiseFineScale;
 half _TreeNormalStrength;
 half _TreeHueVariationDegrees;
 float4x4 _IslandWorldToLocal;
+float _MotuNeedleFoliage;
 
 #include "CloudCommon.cginc"
 
@@ -92,11 +93,11 @@ half MotuTreeCanopyAlpha(
     half edgeSoftness,
     half materialAlpha)
 {
-    // Hold the vertical coordinate constant so upper and lower canopy faces
-    // cut out together, producing genuine openings through the draped shell.
+    // Broadleaf shells share column holes. Needles use a 3D cutout so pine
+    // fronds have small varied gaps rather than long vertical slots.
     float3 columnPosition = float3(
         islandLocalPosition.x,
-        0.0,
+        islandLocalPosition.y * saturate(_MotuNeedleFoliage),
         islandLocalPosition.z) / max(_TreeNoisePeriod, 0.1);
     half3 broad = tex3D(
         _CliffNoise3D,

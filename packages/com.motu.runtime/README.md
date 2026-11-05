@@ -87,12 +87,24 @@ Generating again after a completed request clears the previous island. Different
 islands queue native preparation to bound peak transient memory. Cancellation is
 cooperative: an in-progress native call finishes before its handle is released.
 
-Forest detail is exported only for nearby LOD1/LOD0 regions, through one forest
-worker across resident islands. Uploads use the installation frame budget, then
-release their managed source arrays. Coarse canopies remain visible while detail
-loads; moving away or clearing focus releases detailed Unity meshes and LOD0
-trunk/log colliders. Native forest geometry and coarse rendering remain resident.
-A single mesh upload or collider operation can exceed the cooperative budget.
+Forests use shared instanced broadleaf, pine and palm catalogs. Latitude and
+altitude select species; `Variants Per Species` controls the shared prototypes.
+Older experiment flags no longer select a different renderer. Standing trees
+cast their own shadows and reflections without combined tree tiles or canopy
+proxies. Nearby 3x3 owner tiles install budgeted trunk and fallen-log colliders;
+clearing focus releases those colliders while the visual forest remains resident.
+Authored fallen-log graphics use a separate sparse grid of at most 64 mesh tiles.
+
+Native snapshot version 20 stores climate and compact catalog metadata, restoring
+shared prototypes on load. Climate, variants and catalog version participate in
+cache identity; older caches regenerate automatically. Restart Unity after
+replacing the native plugin.
+
+Reeds and rushes store compact native placements and share one 32-vertex clump
+mesh across islands. Only the nearby 3x3 LOD0 owner tiles acquire draw batches,
+with at most 128 instances per batch. Height, width, bank slope, colour variation,
+stiffness and phase remain per clump; colour, shadow and reflection passes share
+the same geometry and wind.
 
 For lower-level use, construct `IslandGenerationRequest` from a profile and palette
 and call public `IslandGenerator.GenerateAsync(request, cancellationToken, budget)`.
@@ -135,14 +147,22 @@ already has these components in `Assets/Scripts`; avoid importing duplicate copi
 `SetDeployed(true)` when sails are furled and `SetDeployed(false)` when they are
 unfurled. It catches only `TerrainCollider` seabed within 10 metres below mean
 sea level; otherwise it keeps drifting and searching beneath the moving bow.
-The default rode length reaches the bottom at 45 degrees when taut. Windage
-preserves existing momentum, takes up the slack, and lets bow tension turn the
-ship into the wind while normal land collisions remain active. Explicit ship
-teleports should call `ResetAfterTeleport()` after moving the rigidbody.
-While deployed, bounded yaw torque also turns the physical bow towards the
-wind's source (`-wind flow`), including while the rode is slack or the anchor is
-dragging in deep water. This applies force through physics and leaves collisions
-and the rode limit in control of the resulting motion.
+The default rode length reaches the bottom at 45 degrees when taut. Hull windage
+acts with every sail setting, including eased sheets in irons and an anchor that
+is raised or dragging. Its acceleration scales with squared relative downwind
+air speed and is capped in storms. Forward velocity uses the same unboosted
+speed as sail pressure through `OceanBuoyancy.ForwardSpeedMultiplier`; the hull's
+water resistance continues to oppose the resulting drift. Existing momentum is
+preserved. Windage takes up slack, and the native bow rode holds the ship inside
+its swing circle while normal land collisions remain active.
+Bounded windward yaw assistance starts only when the seabed catch first has a
+taut rode carrying real load (`IsTaut`). `HasBitten` retains that first bite until
+the anchor is raised, so passing waves or changing wind cannot stop the turn by
+temporarily slackening the rode. A dropped, dragging or never-loaded slack
+anchor does not automatically turn the bow. Explicit ship teleports should call
+`ResetAfterTeleport()` after moving the rigidbody. TerraNullus's
+`ShipWindDriftValidation.Run` exercises irons, sailing-speed windage and the
+transition from slack drift to an anchored swing using native physics.
 
 `ShipAnchorAudio` plays separate spatial clips for `Dropped`, `BottomContact`
 and `Tensioned`. The last event waits for an extended rode carrying real joint

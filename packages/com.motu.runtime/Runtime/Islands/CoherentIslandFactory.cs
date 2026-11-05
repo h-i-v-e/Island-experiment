@@ -78,10 +78,11 @@ namespace Motu.Islands
             maximumHeightScale = Mathf.Max(maximumHeightScale, minimumHeightScale);*/
         }
 
-        private static IslandForestSettings CreateForestSettings(System.Random random, float snowLine)
+        private IslandForestSettings CreateForestSettings(System.Random random, float snowLine, float latitude)
         {
             return new IslandForestSettings
             {
+                ForestLatitudeDegrees = latitude,
                 snowlineMetres = snowLine * MAX_HEIGHT,
                 forestNoiseThreshold = Mathf.Lerp(0.3f, 0.9f, (float)random.NextDouble())
             };
@@ -161,7 +162,7 @@ namespace Motu.Islands
             var profile = new IslandGenerationProfile(
                 CreateGenerationSettings(random),
                 riverSettings,
-                CreateForestSettings(random, snowLine),
+                CreateForestSettings(random, snowLine, GetSunLatitudeDegrees(islandGridPosition.y * IslandWorldManager.IslandSizeMetres)),
                 reedSettings, fernSettings,
                 renderingSettings,
                 new IslandDebugSettings(), caveSettings, navigationSettings

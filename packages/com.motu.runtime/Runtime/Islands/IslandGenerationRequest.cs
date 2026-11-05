@@ -25,6 +25,7 @@ namespace Motu.Islands
         internal IslandDescriptor Descriptor { get; }
         internal MotuNative.Options Options { get; }
         internal MotuNative.ForestOptions ForestOptions { get; }
+        internal HybridForestNative.Options HybridForestOptions => Profile.Forest.HybridOptions;
         internal MotuNative.ReedOptions ReedOptions { get; }
         internal MotuNative.FernOptions FernOptions { get; }
         internal CaveNative.Options CaveOptions { get; }

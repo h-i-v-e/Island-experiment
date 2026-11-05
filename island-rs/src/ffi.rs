@@ -8,6 +8,8 @@
 
 mod abi;
 mod caves;
+mod hybrid_forest;
+mod reed_instances;
 mod surface_atlas;
 
 use std::{
@@ -128,6 +130,7 @@ impl From<MotuForestOptions> for ForestOptions {
             minimum_scale: value.minimumScale,
             maximum_scale: value.maximumScale,
             fallen_log_density: value.fallenLogDensity,
+            hybrid: None,
         }
     }
 }

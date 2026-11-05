@@ -220,7 +220,8 @@ namespace Motu.Settings
                 noiseThreshold = forest.ForestNoiseThreshold,
                 noiseOctaves = 4,
                 snowlineMetres = ToNativeForestMetres(forest.SnowlineMetres),
-                prototypeCount = (byte)forest.ForestPrototypeCount,
+                // Placement chooses a variant before the climate selects its species.
+                prototypeCount = (byte)forest.HybridOptions.variantsPerSpecies,
                 minimumScale = forest.MinimumTreeScale,
                 maximumScale = forest.MaximumTreeScale,
                 fallenLogDensity = forest.FallenLogDensity,

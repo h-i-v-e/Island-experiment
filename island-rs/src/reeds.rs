@@ -14,6 +14,7 @@ use std::{
     cmp::Ordering,
     collections::{BinaryHeap, HashMap},
     f32::consts::FRAC_PI_4,
+    sync::OnceLock,
 };
 
 use crate::{
@@ -108,26 +109,54 @@ pub(crate) struct ReedMeshTile {
     pub(crate) environment: Vec<Vec2>,
 }
 
-#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub(crate) struct ReedMeshes {
-    tiles: Vec<ReedMeshTile>,
+    instances: Vec<ReedInstanceData>,
+    tile_offsets: Vec<u32>,
     forest_exclusion_vertices: Vec<u32>,
-    clump_count: usize,
+    #[serde(skip)]
+    tiles: OnceLock<Vec<ReedMeshTile>>,
+}
+
+impl PartialEq for ReedMeshes {
+    fn eq(&self, other: &Self) -> bool {
+        self.instances == other.instances
+            && self.tile_offsets == other.tile_offsets
+            && self.forest_exclusion_vertices == other.forest_exclusion_vertices
+    }
 }
 
 impl Default for ReedMeshes {
     fn default() -> Self {
         Self {
-            tiles: vec![ReedMeshTile::default(); REED_TILE_RESOLUTION * REED_TILE_RESOLUTION],
+            instances: Vec::new(),
+            tile_offsets: vec![0; REED_TILE_RESOLUTION * REED_TILE_RESOLUTION + 1],
             forest_exclusion_vertices: Vec::new(),
-            clump_count: 0,
+            tiles: OnceLock::new(),
         }
     }
 }
 
 impl ReedMeshes {
     pub(crate) fn tiles(&self) -> &[ReedMeshTile] {
-        &self.tiles
+        self.tiles.get_or_init(|| {
+            let mut tiles =
+                vec![ReedMeshTile::default(); REED_TILE_RESOLUTION * REED_TILE_RESOLUTION];
+            for (tile, range) in tiles.iter_mut().zip(self.tile_offsets.windows(2)) {
+                for &clump in &self.instances[range[0] as usize..range[1] as usize] {
+                    append_clump(tile, clump);
+                }
+            }
+            tiles
+        })
+    }
+
+    pub(crate) fn instances(&self) -> &[ReedInstanceData] {
+        &self.instances
+    }
+
+    pub(crate) fn tile_offsets(&self) -> &[u32] {
+        &self.tile_offsets
     }
 
     pub(crate) fn forest_exclusion_vertices(&self) -> &[u32] {
@@ -136,7 +165,7 @@ impl ReedMeshes {
 
     #[cfg(test)]
     fn clump_count(&self) -> usize {
-        self.clump_count
+        self.instances.len()
     }
 }
 
@@ -169,17 +198,21 @@ impl Ord for QueueEntry {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
-struct Clump {
-    root: Vec3,
-    ground_normal: Vec3,
-    height_metres: f32,
-    width_metres: f32,
-    variant: f32,
-    tint: f32,
-    stiffness: f32,
-    phase: f32,
+/// One clump in native normalized Z-up coordinates, with physical dimensions in metres.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[repr(C)]
+pub struct ReedInstanceData {
+    pub root: Vec3,
+    pub ground_normal: Vec3,
+    pub height_metres: f32,
+    pub width_metres: f32,
+    pub variant: f32,
+    pub tint: f32,
+    pub stiffness: f32,
+    pub phase: f32,
 }
+
+const _: () = assert!(size_of::<ReedInstanceData>() == 48);
 
 #[allow(clippy::too_many_lines)]
 pub(crate) fn generate_reeds(
@@ -348,7 +381,7 @@ pub(crate) fn generate_reeds(
             let height = options.minimum_height_metres
                 + height_range
                     * rng.range(if rush { 0.0 } else { 0.35 }, if rush { 0.6 } else { 1.0 });
-            clumps.push(Clump {
+            clumps.push(ReedInstanceData {
                 root,
                 ground_normal: (terrain.normals[indices[0]]
                     + terrain.normals[indices[1]]
@@ -367,16 +400,21 @@ pub(crate) fn generate_reeds(
 
     exclusion.sort_unstable();
     exclusion.dedup();
-    let mut result = ReedMeshes {
-        forest_exclusion_vertices: exclusion,
-        clump_count: clumps.len(),
-        ..ReedMeshes::default()
-    };
-    for clump in clumps {
-        let tile = owner_tile(clump.root);
-        append_clump(&mut result.tiles[tile], clump);
+    // Stable owner ordering preserves each tile's original placement order.
+    clumps.sort_by_key(|clump| owner_tile(clump.root));
+    let mut tile_offsets = vec![0_u32; REED_TILE_RESOLUTION * REED_TILE_RESOLUTION + 1];
+    for clump in &clumps {
+        tile_offsets[owner_tile(clump.root) + 1] += 1;
     }
-    Ok(result)
+    for tile in 1..tile_offsets.len() {
+        tile_offsets[tile] += tile_offsets[tile - 1];
+    }
+    Ok(ReedMeshes {
+        instances: clumps,
+        tile_offsets,
+        forest_exclusion_vertices: exclusion,
+        tiles: OnceLock::new(),
+    })
 }
 
 fn validate_inputs(terrain: &Mesh, surface: ReedSurface<'_>) -> Result<(), String> {
@@ -547,7 +585,7 @@ fn owner_tile(root: Vec3) -> usize {
     y * REED_TILE_RESOLUTION + x
 }
 
-fn append_clump(tile: &mut ReedMeshTile, clump: Clump) {
+fn append_clump(tile: &mut ReedMeshTile, clump: ReedInstanceData) {
     let height = clump.height_metres / ISLAND_WORLD_METRES;
     let half_width = 0.5 * clump.width_metres / ISLAND_WORLD_METRES;
     let material = Vec4::new(clump.variant, clump.tint, clump.stiffness, clump.phase);
@@ -597,7 +635,7 @@ pub fn generate_reed(seed: u64, rush: bool) -> Mesh {
     let mut tile = ReedMeshTile::default();
     append_clump(
         &mut tile,
-        Clump {
+        ReedInstanceData {
             root: Vec3::ZERO,
             ground_normal: Vec3::Z,
             height_metres: 1.0,
@@ -713,7 +751,7 @@ mod tests {
         let mut tile = ReedMeshTile::default();
         append_clump(
             &mut tile,
-            Clump {
+            ReedInstanceData {
                 root,
                 ground_normal,
                 height_metres: 1.0,
@@ -753,10 +791,44 @@ mod tests {
             spacing_metres: 0.2,
             ..ReedOptions::default()
         };
+        let generation_started = std::time::Instant::now();
         let first = generate_reeds(7, &mesh, surface, options).unwrap();
+        let generation_elapsed = generation_started.elapsed();
         let second = generate_reeds(7, &mesh, surface, options).unwrap();
         assert_eq!(first, second);
         assert!(first.clump_count() > 0);
+        assert!(
+            first.tiles.get().is_none(),
+            "generation must retain compact placements only"
+        );
+        assert_eq!(first.tile_offsets().len(), 4097);
+        assert_eq!(first.tile_offsets()[4096] as usize, first.clump_count());
+        for (tile, range) in first.tile_offsets().windows(2).enumerate() {
+            assert!(range[0] <= range[1]);
+            assert!(
+                first.instances()[range[0] as usize..range[1] as usize]
+                    .iter()
+                    .all(|clump| owner_tile(clump.root) == tile)
+            );
+        }
+        let serialization_started = std::time::Instant::now();
+        let compact_encoded = bincode::serialize(&first).unwrap();
+        let serialization_elapsed = serialization_started.elapsed();
+        assert!(
+            first.tiles.get().is_none(),
+            "serializing must not expand meshes"
+        );
+        let expansion_started = std::time::Instant::now();
+        first.tiles();
+        let expansion_elapsed = expansion_started.elapsed();
+        let expanded_bytes = first.clump_count() * (32 * (12 + 12 + 8 + 16 + 8) + 72 * 4);
+        let compact_bytes =
+            first.clump_count() * size_of::<ReedInstanceData>() + size_of_val(first.tile_offsets());
+        println!(
+            "reed bank fixture: {} clumps, expanded payload {expanded_bytes} bytes, compact payload {compact_bytes} bytes (48 vs 2080 bytes/clump + 16388-byte owner offsets), snapshot {} bytes; generation {generation_elapsed:?}, compact serialization {serialization_elapsed:?}, legacy expansion {expansion_elapsed:?}",
+            first.clump_count(),
+            compact_encoded.len()
+        );
         assert!(
             first
                 .tiles()
@@ -771,6 +843,26 @@ mod tests {
             assert_eq!(tile.mesh.vertices.len(), tile.environment.len());
             assert!(tile.mesh.vertices.iter().all(|value| value.is_finite()));
         }
+        assert_eq!(
+            first, second,
+            "legacy mesh cache must not change placement equality"
+        );
+        assert_eq!(
+            first
+                .tiles()
+                .iter()
+                .map(|tile| tile.mesh.vertices.len())
+                .sum::<usize>(),
+            first.clump_count() * 32
+        );
+        let encoded = bincode::serialize(&first).unwrap();
+        let restored: ReedMeshes = bincode::deserialize(&encoded).unwrap();
+        assert_eq!(first, restored);
+        assert!(
+            restored.tiles.get().is_none(),
+            "snapshots must store placements only"
+        );
+        assert_eq!(first.tiles(), restored.tiles());
     }
 
     #[test]

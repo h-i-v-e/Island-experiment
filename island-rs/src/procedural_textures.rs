@@ -22,6 +22,7 @@ pub mod preview;
 pub mod recipe;
 pub mod rounded_stones;
 pub mod runtime_materials;
+pub mod tree_bark;
 pub mod validation;
 
 use std::{fmt, path::Path};

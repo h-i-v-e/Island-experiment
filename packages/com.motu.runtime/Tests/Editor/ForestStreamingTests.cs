@@ -1,8 +1,6 @@
 using System;
 using System.Collections;
-using System.Collections.Generic;
-using System.Threading;
-using System.Threading.Tasks;
+using System.Linq;
 using Motu.Interop;
 using Motu.Islands;
 using Motu.Streaming;
@@ -15,173 +13,276 @@ namespace Motu.Tests
     public sealed class ForestStreamingTests
     {
         [Test]
-        public void TileBoundsAssignEveryBoundaryToExactlyOneOwner()
+        public void IslandsShareInstancedModelsWithoutCreatingAnotherVisualTreeSystem()
         {
-            for (var x = 0; x < 64; x++)
+            var data = ForestData();
+            using var first = new ForestFixture(data);
+            using var second = new ForestFixture(data);
+            var firstRenderer = first.Renderer;
+            Assert.AreSame(firstRenderer.Models, second.Renderer.Models);
+            Assert.AreEqual(3, firstRenderer.InstanceCount);
+            Assert.AreEqual(3, firstRenderer.PrototypeCount);
+            Assert.AreEqual(1, first.Host.GetComponentsInChildren<InstancedForestRenderer>(true).Length);
+            Assert.IsEmpty(first.Host.GetComponentsInChildren<MeshRenderer>(true));
+            Assert.IsEmpty(first.Host.GetComponentsInChildren<MeshFilter>(true));
+            Assert.AreEqual(0, first.Streamer.ColliderTileCount);
+            var sharedMesh = second.Renderer.Models.meshes[0][0];
+            first.Streamer.Dispose();
+            Assert.IsTrue(sharedMesh != null, "The other island retains its shared GPU catalog.");
+            second.Streamer.Dispose();
+            Assert.IsTrue(sharedMesh == null, "The final island releases its prototype meshes.");
+            Assert.DoesNotThrow(first.Streamer.Dispose);
+            Assert.DoesNotThrow(second.Streamer.Dispose);
+        }
+
+        [Test]
+        public void OnlyTheFinestNeighborhoodOwnsCollidersAndClearingKeepsVisualInstances()
+        {
+            using var scene = new ForestFixture(ForestData(), CollidersEverywhere());
+            foreach (var center in new[] { new Vector2Int(24, 24), new Vector2Int(25, 24), Vector2Int.zero,
+                new Vector2Int(63, 63), new Vector2Int(24, 24) })
             {
-                var area = ForestGridWorker.TileArea(x, x);
-                var boundary = (x + 1) / 64f;
-                Assert.AreEqual(x / 64f, area.min.x);
-                Assert.AreEqual(x / 64f, area.min.y);
-                Assert.AreEqual(area.max.x, area.max.y);
-                if (x == 63) Assert.AreEqual(1f, area.max.x);
+                Drain(scene.Streamer.UpdateLod0NeighborhoodIncremental(center, () => true));
+                var count = center.x == 0 || center.x == 63 ? 4 : 9;
+                Assert.IsTrue(scene.Streamer.Lod0NeighborhoodMatches(center));
+                Assert.AreEqual(count, scene.Streamer.ColliderTileCount);
+                Assert.AreEqual(count, scene.Streamer.ActiveTrunkColliderCount);
+                Assert.AreEqual(count, scene.Streamer.ActiveLogColliderCount);
+                Assert.AreEqual(count, scene.Streamer.Root.GetComponentsInChildren<CapsuleCollider>(true).Length);
+                Assert.AreEqual(count, scene.Streamer.Root.GetComponentsInChildren<BoxCollider>(true).Length);
+            }
+            var models = scene.Renderer.Models;
+            scene.Streamer.ClearPlayerFocus();
+            Assert.AreEqual(0, scene.Streamer.ColliderTileCount);
+            Assert.AreEqual(0, scene.Streamer.ActiveTrunkColliderCount);
+            Assert.AreEqual(0, scene.Streamer.ActiveLogColliderCount);
+            Assert.IsEmpty(scene.Streamer.Root.GetComponentsInChildren<Collider>(true));
+            Assert.AreSame(models, scene.Renderer.Models);
+            Assert.AreEqual(3, scene.Renderer.InstanceCount);
+            Drain(scene.Streamer.UpdateLod0NeighborhoodIncremental(new Vector2Int(24, 24), () => true));
+            Assert.AreEqual(9, scene.Streamer.ColliderTileCount);
+            Assert.IsTrue(scene.Host.GetComponentsInChildren<Transform>(true).All(item => item.gameObject.layer == 27));
+        }
+
+        [Test]
+        public void AuthoredFallenLogsKeepGraphicsWithTheirCollidersAndReleaseOwnedMeshes()
+        {
+            var logTiles = new IslandPreparedMesh[64];
+            logTiles[63] = new IslandPreparedMesh(new[] { LogBottom, LogTop, LogBottom + Vector3.up },
+                new[] { Vector3.forward, Vector3.forward, Vector3.forward }, new[] { 0, 1, 2 },
+                Array.Empty<Vector2>(), Array.Empty<Color>(), Array.Empty<Vector2>());
+            using var scene = new ForestFixture(ForestData(), CollidersEverywhere(), logTiles);
+            var visual = scene.Streamer.Root.GetComponentsInChildren<MeshRenderer>(true).Single();
+            var mesh = visual.GetComponent<MeshFilter>().sharedMesh;
+            Assert.AreEqual("Motu/Tree Wood", visual.sharedMaterial.shader.name);
+            Assert.AreEqual(UnityEngine.Rendering.ShadowCastingMode.On, visual.shadowCastingMode);
+            Assert.IsTrue(visual.receiveShadows);
+            Assert.AreEqual(3, mesh.vertexCount);
+            Assert.AreEqual(27, visual.gameObject.layer);
+            Assert.AreEqual(1, scene.Streamer.Root.GetComponentsInChildren<InstancedForestRenderer>(true).Length);
+            Drain(scene.Streamer.UpdateLod0NeighborhoodIncremental(new Vector2Int(24, 24), () => true));
+            Assert.AreEqual(9, scene.Streamer.ActiveLogColliderCount);
+            scene.Streamer.SetVisible(false);
+            Assert.IsFalse(visual.gameObject.activeInHierarchy);
+            Assert.IsTrue(scene.Streamer.Root.GetComponentsInChildren<BoxCollider>(true).All(item => !item.gameObject.activeInHierarchy));
+            scene.Streamer.SetVisible(true);
+            Assert.IsTrue(visual.gameObject.activeInHierarchy);
+            Assert.AreEqual(9, scene.Streamer.Root.GetComponentsInChildren<BoxCollider>().Length);
+            scene.Streamer.ClearPlayerFocus();
+            Assert.AreEqual(0, scene.Streamer.ActiveLogColliderCount);
+            Assert.IsTrue(mesh != null, "Authored log graphics remain resident while nearby collision ownership changes.");
+            Assert.IsTrue(visual.gameObject.activeInHierarchy);
+            scene.Streamer.Dispose();
+            Assert.IsTrue(mesh == null, "The streamer releases the uploaded fallen-log mesh.");
+            Assert.IsTrue(visual == null);
+        }
+
+        [Test]
+        public void TrunkCapsulesAndLogBoxesPreserveAuthoredEndpointsAndDimensions()
+        {
+            using var scene = new ForestFixture(ForestData(), CollidersEverywhere());
+            Drain(scene.Streamer.UpdateLod0NeighborhoodIncremental(Vector2Int.zero, () => true));
+            var capsule = scene.Streamer.Root.GetComponentInChildren<CapsuleCollider>();
+            Assert.AreEqual(Vector3.zero, capsule.center);
+            Assert.AreEqual(1, capsule.direction);
+            Assert.AreEqual(.3f, capsule.radius);
+            Assert.AreEqual(TrunkAxis.magnitude, capsule.height, .00001f);
+            Assert.That(Vector3.Distance(capsule.transform.localPosition, (TrunkBottom + TrunkTop) * .5f), Is.LessThan(.00001f));
+            Assert.That(Vector3.Dot(capsule.transform.localRotation * Vector3.up, TrunkAxis.normalized), Is.GreaterThan(.99999f));
+            var box = scene.Streamer.Root.GetComponentInChildren<BoxCollider>();
+            Assert.AreEqual(new Vector3(.4f, LogAxis.magnitude, .4f), box.size);
+            Assert.That(Vector3.Distance(box.transform.localPosition, (LogBottom + LogTop) * .5f), Is.LessThan(.00001f));
+            Assert.That(Vector3.Dot(box.transform.localRotation * Vector3.up, LogAxis.normalized), Is.GreaterThan(.99999f));
+        }
+
+        [Test]
+        public void DisposingAPartialColliderUploadDestroysItsInactivePendingTile()
+        {
+            using var scene = new ForestFixture(ForestData(), HeavyFirstTile());
+            var routine = Flatten(scene.Streamer.UpdateLod0NeighborhoodIncremental(Vector2Int.zero, () => true));
+            try
+            {
+                Assert.IsTrue(routine.MoveNext());
+                Assert.AreEqual(0, scene.Streamer.ColliderTileCount);
+                Assert.AreEqual(0, scene.Streamer.ActiveTrunkColliderCount);
+                var pending = scene.Streamer.Root.GetComponentsInChildren<CapsuleCollider>(true);
+                Assert.AreEqual(32, pending.Length, "Even a large time budget permits only 32 colliders before yielding.");
+                Assert.IsTrue(pending.All(collider => !collider.gameObject.activeInHierarchy));
+            }
+            finally { (routine as IDisposable)?.Dispose(); }
+            Assert.IsEmpty(scene.Streamer.Root.GetComponentsInChildren<Collider>(true));
+            Assert.AreEqual(0, scene.Streamer.Root.transform.childCount);
+            Assert.AreEqual(0, scene.Streamer.ColliderTileCount);
+        }
+
+        [TestCase(false)]
+        [TestCase(true)]
+        public void ClearingOrDisposingInvalidatesASuspendedUpload(bool disposeStreamer)
+        {
+            using var scene = new ForestFixture(ForestData(), HeavyFirstTile());
+            var routine = Flatten(scene.Streamer.UpdateLod0NeighborhoodIncremental(Vector2Int.zero, () => true));
+            try
+            {
+                Assert.IsTrue(routine.MoveNext());
+                if (disposeStreamer) scene.Streamer.Dispose(); else scene.Streamer.ClearPlayerFocus();
+                Assert.IsFalse(routine.MoveNext(), "A stale iterator cannot install colliders after ownership is cleared.");
+                Assert.AreEqual(0, scene.Streamer.ColliderTileCount);
+                Assert.AreEqual(0, scene.Streamer.ActiveTrunkColliderCount);
+                Assert.IsEmpty(scene.Host.GetComponentsInChildren<Collider>(true));
+                if (disposeStreamer)
+                {
+                    Assert.IsNull(scene.Streamer.Root);
+                    Assert.AreEqual(0, scene.Host.transform.childCount);
+                }
                 else
                 {
-                    Assert.Less(area.max.x, boundary);
-                    Assert.AreEqual(boundary, BitConverter.Int32BitsToSingle(
-                        BitConverter.SingleToInt32Bits(area.max.x) + 1));
-                    Assert.AreEqual(boundary, ForestGridWorker.TileArea(x + 1, x + 1).min.x);
+                    Drain(scene.Streamer.UpdateLod0NeighborhoodIncremental(new Vector2Int(8, 8), () => true));
+                    Assert.IsTrue(scene.Streamer.Lod0NeighborhoodMatches(new Vector2Int(8, 8)));
+                    Assert.AreEqual(3, scene.Renderer.InstanceCount);
                 }
             }
+            finally { (routine as IDisposable)?.Dispose(); }
         }
 
         [Test]
-        public void PendingExportCanBeAbandonedWithoutInstallingOrKeepingDetails()
+        public void ANewTargetRetiresPendingWorkAndAnInterruptedMoveCanReturnToItsOldTile()
         {
-            var root = new GameObject("Forest cancellation test");
-            var material = new Material(Shader.Find("Motu/Tree Wood"));
-            var streamer = new ForestTileStreamer();
-            var completion = new TaskCompletionSource<ForestMeshRegion>();
-            CancellationToken requested = default;
-            IEnumerator routine = null;
+            using var scene = new ForestFixture(ForestData(), HeavyFirstTile());
+            var old = Flatten(scene.Streamer.UpdateLod0NeighborhoodIncremental(Vector2Int.zero, () => true));
             try
             {
-                var prepared = new IslandPreparedForestData(new IslandPreparedMesh[64],
-                    new IslandPreparedMesh[64], new IslandPreparedTreeCollider[4096][]);
-                streamer.Initialize(root.transform, material, material, material, material, material, prepared, true,
-                    (lod, key, token) => { requested = token; return completion.Task; });
-                routine = Flatten(streamer.UpdateLod1NeighborhoodIncremental(Vector2Int.zero, () => true));
-                Assert.IsTrue(routine.MoveNext());
-                Assert.AreEqual(0, streamer.Lod1GroupCount);
-                streamer.ClearPlayerFocus();
-                Assert.IsTrue(requested.IsCancellationRequested);
-                completion.SetResult(new ForestMeshRegion(64));
-                while (routine.MoveNext()) { }
-                Assert.AreEqual(0, streamer.Lod1GroupCount);
-                Assert.IsEmpty(root.GetComponentsInChildren<MeshFilter>(true));
-                streamer.Dispose();
-                Assert.AreEqual(1, root.GetComponentsInChildren<Transform>(true).Length);
+                Assert.IsTrue(old.MoveNext());
+                Drain(scene.Streamer.UpdateLod0NeighborhoodIncremental(new Vector2Int(8, 8), () => true));
+                Assert.IsFalse(old.MoveNext());
+                Assert.IsEmpty(scene.Streamer.Root.GetComponentsInChildren<Collider>(true));
+                Assert.IsTrue(scene.Streamer.Lod0NeighborhoodMatches(new Vector2Int(8, 8)));
             }
-            finally
+            finally { (old as IDisposable)?.Dispose(); }
+            var wanted = true;
+            var partial = Flatten(scene.Streamer.UpdateLod0NeighborhoodIncremental(new Vector2Int(9, 8), () => wanted));
+            try
             {
-                (routine as IDisposable)?.Dispose();
-                streamer.Dispose();
-                Object.DestroyImmediate(root);
-                Object.DestroyImmediate(material);
+                Assert.IsTrue(partial.MoveNext());
+                Assert.AreEqual(8, scene.Streamer.ColliderTileCount);
+                wanted = false;
+                Assert.IsFalse(partial.MoveNext());
+                Assert.IsFalse(scene.Streamer.Lod0NeighborhoodMatches(new Vector2Int(8, 8)));
             }
+            finally { (partial as IDisposable)?.Dispose(); }
+            Drain(scene.Streamer.UpdateLod0NeighborhoodIncremental(new Vector2Int(8, 8), () => true));
+            Assert.IsTrue(scene.Streamer.Lod0NeighborhoodMatches(new Vector2Int(8, 8)));
         }
 
         [Test]
-        public void TeleportAndUploadCancellationKeepOnlyTheWantedGroups()
+        public void VisibilityDisablesTheInstancedRendererAndItsResidentCollidersTogether()
         {
-            var root = new GameObject("Forest upload cancellation test");
-            var material = new Material(Shader.Find("Motu/Tree Wood"));
-            var streamer = new ForestTileStreamer();
-            var mesh = new IslandPreparedMesh(new[] { Vector3.zero, Vector3.right, Vector3.forward },
-                new[] { Vector3.up, Vector3.up, Vector3.up }, new[] { 0, 2, 1 },
+            using var scene = new ForestFixture(ForestData(), CollidersEverywhere());
+            Drain(scene.Streamer.UpdateLod0NeighborhoodIncremental(new Vector2Int(24, 24), () => true));
+            scene.Streamer.SetVisible(false);
+            Assert.IsFalse(scene.Renderer.isActiveAndEnabled);
+            Assert.AreEqual(9, scene.Streamer.ColliderTileCount);
+            Assert.IsTrue(scene.Streamer.Root.GetComponentsInChildren<Collider>(true).All(collider => !collider.gameObject.activeInHierarchy));
+            scene.Streamer.SetVisible(true);
+            Assert.IsTrue(scene.Renderer.isActiveAndEnabled);
+            Assert.AreEqual(9, scene.Streamer.Root.GetComponentsInChildren<CapsuleCollider>().Length);
+            Assert.IsEmpty(scene.Streamer.Root.GetComponentsInChildren<MeshRenderer>(true));
+        }
+
+        [Test]
+        public void InvalidColliderDataRollsBackTheWholePendingTile()
+        {
+            var trunks = new IslandPreparedTreeCollider[ForestTileStreamer.Lod0TileCount][];
+            trunks[0] = new[] { Trunk(), new IslandPreparedTreeCollider(Vector3.zero, Vector3.zero, .3f) };
+            using var scene = new ForestFixture(ForestData(), trunks);
+            Assert.Throws<InvalidOperationException>(() => Drain(scene.Streamer.UpdateLod0NeighborhoodIncremental(Vector2Int.zero, () => true)));
+            Assert.AreEqual(0, scene.Streamer.ColliderTileCount);
+            Assert.AreEqual(0, scene.Streamer.ActiveTrunkColliderCount);
+            Assert.IsEmpty(scene.Streamer.Root.GetComponentsInChildren<Collider>(true));
+        }
+
+        private static readonly Vector3 TrunkBottom = new Vector3(2, .2f, 3);
+        private static readonly Vector3 TrunkTop = new Vector3(2.25f, 4.2f, 3.5f);
+        private static readonly Vector3 TrunkAxis = TrunkTop - TrunkBottom;
+        private static readonly Vector3 LogBottom = new Vector3(1, .3f, 5);
+        private static readonly Vector3 LogTop = new Vector3(4, .6f, 5.5f);
+        private static readonly Vector3 LogAxis = LogTop - LogBottom;
+        private static IslandPreparedTreeCollider Trunk() => new IslandPreparedTreeCollider(TrunkBottom, TrunkTop, .3f);
+
+        private static IslandPreparedTreeCollider[][] CollidersEverywhere()
+        {
+            var result = new IslandPreparedTreeCollider[ForestTileStreamer.Lod0TileCount][];
+            var source = new[] { Trunk() };
+            for (var i = 0; i < result.Length; ++i) result[i] = source;
+            return result;
+        }
+
+        private static IslandPreparedTreeCollider[][] HeavyFirstTile()
+        {
+            var result = new IslandPreparedTreeCollider[ForestTileStreamer.Lod0TileCount][];
+            result[0] = Enumerable.Repeat(Trunk(), 64).ToArray();
+            return result;
+        }
+
+        private static HybridForestData ForestData()
+        {
+            var triangle = new IslandPreparedMesh(new[] { Vector3.zero, Vector3.up * 4, Vector3.right },
+                new[] { Vector3.forward, Vector3.forward, Vector3.forward }, new[] { 0, 1, 2 },
                 Array.Empty<Vector2>(), Array.Empty<Color>(), Array.Empty<Vector2>());
-            var overview = new IslandPreparedMesh[64]; overview[0] = mesh;
-            ForestMeshRegion exported = null;
-            try
+            var prototypes = new IslandPreparedMesh[3][];
+            var instances = new HybridForestNative.Instance[3];
+            for (var i = 0; i < 3; ++i)
             {
-                streamer.Initialize(root.transform, material, material, material, material, material,
-                    new IslandPreparedForestData(overview, new IslandPreparedMesh[64], new IslandPreparedTreeCollider[4096][]),
-                    true, (lod, key, cancellation) =>
-                    {
-                        exported = new ForestMeshRegion(lod == 1 ? 64 : 1);
-                        for (var i = 0; i < exported.foliage.Length; i++) exported.foliage[i] = mesh;
-                        return Task.FromResult(exported);
-                    }, .1);
-                using (var partial = (IDisposable)Flatten(streamer.UpdateLod1NeighborhoodIncremental(Vector2Int.zero, () => true)))
-                {
-                    Assert.IsTrue(((IEnumerator)partial).MoveNext());
-                    Assert.AreEqual(0, streamer.Lod1GroupCount, "The upload must still be pending.");
-                    var beforeEdges = root.GetComponentsInChildren<MeshFilter>(true).Length;
-                    streamer.SetMeshEdgesVisible(true);
-                    Assert.Greater(root.GetComponentsInChildren<MeshFilter>(true).Length, beforeEdges + 1,
-                        "Wireframe toggles must also reach already uploaded pending tiles.");
-                    streamer.ClearPlayerFocus();
-                }
-                Assert.AreEqual(0, streamer.Lod1GroupCount);
-                // Only overview, its shared shadow and its wireframe survive a partial upload.
-                Assert.AreEqual(3, root.GetComponentsInChildren<MeshFilter>(true).Length);
-                for (var cycle = 0; cycle < 3; cycle++)
-                {
-                    Drain(streamer.UpdateLod1NeighborhoodIncremental(new Vector2Int(3, 3), () => true));
-                    Assert.AreEqual(9, streamer.Lod1GroupCount);
-                    Assert.That(exported.foliage, Is.All.Null);
-                    Drain(streamer.UpdateLod1NeighborhoodIncremental(new Vector2Int(7, 7), () => true));
-                    Assert.AreEqual(4, streamer.Lod1GroupCount);
-                    streamer.ClearPlayerFocus();
-                    Assert.AreEqual(0, streamer.Lod1GroupCount);
-                    Assert.AreEqual(3, root.GetComponentsInChildren<MeshFilter>(true).Length);
-                }
+                prototypes[i] = Enumerable.Repeat(triangle, 8).ToArray();
+                instances[i] = new HybridForestNative.Instance { anchor = new Vector3(.5f + i * .01f, .5f, 0), scale = 1, prototype = (uint)i };
             }
-            finally
-            {
-                streamer.Dispose();
-                Object.DestroyImmediate(root);
-                Object.DestroyImmediate(material);
-            }
+            return new HybridForestData(prototypes, instances, 1, 1000);
         }
 
-        [Test]
-        public void ReturningToCurrentTileReconcilesInterruptedForestNeighborhoods()
+        private sealed class ForestFixture : IDisposable
         {
-            var root = new GameObject("Forest retarget test");
-            var material = new Material(Shader.Find("Motu/Tree Wood"));
-            var streamer = new ForestTileStreamer();
-            try
+            internal readonly GameObject Host = new GameObject("Instanced forest streaming test") { layer = 27 };
+            internal readonly ForestTileStreamer Streamer = new ForestTileStreamer();
+            internal InstancedForestRenderer Renderer => Streamer.Root.GetComponent<InstancedForestRenderer>();
+            private readonly Material fallenLogMaterial;
+
+            internal ForestFixture(HybridForestData data, IslandPreparedTreeCollider[][] trunks = null,
+                IslandPreparedMesh[] fallenLogTiles = null)
             {
-                streamer.Initialize(root.transform, material, material, material, material, material,
-                    new IslandPreparedForestData(new IslandPreparedMesh[64],
-                        new IslandPreparedMesh[64], new IslandPreparedTreeCollider[4096][]),
-                    true, (lod, key, cancellation) =>
-                        Task.FromResult(new ForestMeshRegion(lod == 1 ? 64 : 1)));
-
-                var originalLod1 = new Vector2Int(3, 3);
-                Drain(streamer.UpdateLod1NeighborhoodIncremental(originalLod1, () => true));
-                Assert.IsTrue(streamer.Lod1NeighborhoodMatches(originalLod1));
-
-                var wanted = true;
-                var partial = Flatten(streamer.UpdateLod1NeighborhoodIncremental(
-                    new Vector2Int(4, 3), () => wanted));
-                try
-                {
-                    for (var step = 0; step < 100 && streamer.Lod1GroupCount != 7; step++)
-                        Assert.IsTrue(partial.MoveNext());
-                    Assert.AreEqual(7, streamer.Lod1GroupCount,
-                        "The interrupted move should leave a partially changed neighborhood.");
-                    wanted = false;
-                    while (partial.MoveNext()) { }
-                }
-                finally { (partial as IDisposable)?.Dispose(); }
-                Assert.IsFalse(streamer.Lod1NeighborhoodMatches(originalLod1));
-                Drain(streamer.UpdateLod1NeighborhoodIncremental(originalLod1, () => true));
-                Assert.IsTrue(streamer.Lod1NeighborhoodMatches(originalLod1));
-
-                var originalLod0 = new Vector2Int(24, 24);
-                Drain(streamer.UpdateLod0NeighborhoodIncremental(originalLod0, () => true));
-                Assert.IsTrue(streamer.Lod0NeighborhoodMatches(originalLod0));
-                wanted = true;
-                partial = Flatten(streamer.UpdateLod0NeighborhoodIncremental(
-                    new Vector2Int(25, 24), () => wanted));
-                try
-                {
-                    Assert.IsTrue(partial.MoveNext());
-                    wanted = false;
-                    while (partial.MoveNext()) { }
-                }
-                finally { (partial as IDisposable)?.Dispose(); }
-                Assert.IsFalse(streamer.Lod0NeighborhoodMatches(originalLod0));
-                Drain(streamer.UpdateLod0NeighborhoodIncremental(originalLod0, () => true));
-                Assert.IsTrue(streamer.Lod0NeighborhoodMatches(originalLod0));
+                var logs = new IslandPreparedTreeCollider[ForestTileStreamer.Lod0TileCount][];
+                if (trunks != null)
+                    for (var i = 0; i < trunks.Length; ++i)
+                        if (trunks[i]?.Length == 1) logs[i] = new[] { new IslandPreparedTreeCollider(LogBottom, LogTop, .2f) };
+                if (fallenLogTiles != null) fallenLogMaterial = new Material(Shader.Find("Motu/Tree Wood"));
+                Streamer.Initialize(Host.transform, new IslandPreparedForestData(data,
+                    trunks ?? new IslandPreparedTreeCollider[ForestTileStreamer.Lod0TileCount][], logs, fallenLogTiles),
+                    true, double.MaxValue, null, fallenLogMaterial);
             }
-            finally
+
+            public void Dispose()
             {
-                streamer.Dispose();
-                Object.DestroyImmediate(root);
-                Object.DestroyImmediate(material);
+                Streamer.Dispose();
+                Object.DestroyImmediate(Host);
+                if (fallenLogMaterial != null) Object.DestroyImmediate(fallenLogMaterial);
             }
         }
 

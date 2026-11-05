@@ -1,6 +1,5 @@
 using System;
 using System.Runtime.InteropServices;
-using System.Threading.Tasks;
 using static Motu.Editor.ForestRenderingValidation;
 using Motu.Interop;
 using Motu.Islands;
@@ -16,7 +15,7 @@ namespace Motu.Editor
     public sealed class FallenLogTests
     {
         [Test]
-        public void LogBoxesAndEndGrainUvsFollowTheirLod0WoodTile()
+        public void LogBoxesFollowNearbyOwnersAndAuthoredLogMeshesRemainVisible()
         {
             var parent = new GameObject("Fallen log streaming validation");
             var material = new Material(Shader.Find("Motu/Tree Wood"));
@@ -29,20 +28,14 @@ namespace Motu.Editor
                     new[] { Vector2.right, Vector2.right, Vector2.right },
                     new[] { new Color(.5f, .5f, .02f, 0), new Color(.5f, .5f, .02f, 0), new Color(.5f, .5f, .02f, 0) },
                     new[] { Vector2.zero, Vector2.right, Vector2.up });
-                var lod0 = new IslandPreparedMesh[ForestTileStreamer.Lod1TileCount]; lod0[0] = wood;
-                var logs = new IslandPreparedTreeCollider[ForestTileStreamer.Lod1TileCount][];
+                var logTiles = new IslandPreparedMesh[64]; logTiles[0] = wood;
+                var logs = new IslandPreparedTreeCollider[ForestTileStreamer.Lod0TileCount][];
                 var bottom = new Vector3(2, 3, 4); var top = new Vector3(6, 4, 7);
                 logs[0] = new[] { new IslandPreparedTreeCollider(bottom, top, .3f) };
-                var prepared = new IslandPreparedForestData(
-                    new IslandPreparedMesh[ForestTileStreamer.Lod2TileCount],
-                    new IslandPreparedMesh[ForestTileStreamer.Lod2TileCount],
-                    new IslandPreparedTreeCollider[ForestTileStreamer.Lod1TileCount][], logs);
-                streamer.Initialize(parent.transform, material, material, material, material, material, prepared, true,
-                    (lod, key, cancellation) => Task.FromResult(PrepareRegion(lod, key,
-                        new IslandPreparedMesh[ForestTileStreamer.Lod1TileCount],
-                        lod == 0 ? lod0 : new IslandPreparedMesh[ForestTileStreamer.Lod1TileCount])));
+                var prepared = new IslandPreparedForestData(SharedCatalogFixture(),
+                    new IslandPreparedTreeCollider[ForestTileStreamer.Lod0TileCount][], logs, logTiles);
+                streamer.Initialize(parent.transform, prepared, true, fallenLogMaterial: material);
                 Assert.That(streamer.Root.GetComponentsInChildren<BoxCollider>(true), Is.Empty);
-                RunPreparedTransition(streamer.UpdateLod1NeighborhoodIncremental(Vector2Int.zero, () => true));
                 RunPreparedTransition(streamer.UpdateLod0NeighborhoodIncremental(Vector2Int.zero, () => true));
                 var boxes = streamer.Root.GetComponentsInChildren<BoxCollider>();
                 Assert.That(boxes.Length, Is.EqualTo(1));
@@ -61,20 +54,20 @@ namespace Motu.Editor
                 Assert.That(box.gameObject.activeInHierarchy, Is.False);
                 streamer.SetVisible(true);
                 Assert.That(box.gameObject.activeInHierarchy, Is.True);
-                RunPreparedTransition(streamer.UpdateLod0NeighborhoodIncremental(new Vector2Int(ForestTileStreamer.Lod1Resolution - 1,
-                    ForestTileStreamer.Lod1Resolution - 1), () => true));
+                RunPreparedTransition(streamer.UpdateLod0NeighborhoodIncremental(new Vector2Int(ForestTileStreamer.Lod0Resolution - 1,
+                    ForestTileStreamer.Lod0Resolution - 1), () => true));
                 Assert.That(streamer.Root.GetComponentsInChildren<BoxCollider>(true), Is.Empty);
+                Assert.That(streamer.Root.GetComponentsInChildren<MeshRenderer>().Length, Is.EqualTo(1),
+                    "Retiring a nearby collision tile must preserve the authored fallen-log surface.");
+                Assert.That(streamer.Root.GetComponentInChildren<InstancedForestRenderer>().InstanceCount, Is.EqualTo(1));
             }
             finally { streamer.Dispose(); Object.DestroyImmediate(material); Object.DestroyImmediate(parent); }
         }
 
         [Test]
-        public void StandingTreeAndCanopyStreamingRetainsItsExistingBehaviour()
+        public void StandingTreesUseSharedCatalogsAndNearbyTrunkCollision()
         {
-            var material = new Material(Shader.Find("Motu/Tree Foliage"));
-            var lod0Material = new Material(material);
-            try { ForestRenderingValidation.ValidateLowPolyCanopyShadowProxy(material, lod0Material); }
-            finally { Object.DestroyImmediate(material); Object.DestroyImmediate(lod0Material); }
+            ValidateSharedTreeCatalogAndCollision();
         }
 
         [Test]
@@ -98,7 +91,8 @@ namespace Motu.Editor
                     RenderTexture.active = target;
                     output.ReadPixels(new Rect(0, 0, 1, 1), 0, 0); output.Apply();
                     var value = output.GetPixel(0, 0);
-                    Assert.That(value.a, Is.EqualTo(1).Within(.0001f), "All forest surfaces retain their owning root.");
+                    Assert.That(value.a, Is.EqualTo(tag == .15f ? 0 : 1).Within(.0001f),
+                        "Living wood, fallen bark and end-grain tags expose roots; stationary rotten wood needs no wind root.");
                     if (tag == .5f) Assert.That(value.r, Is.GreaterThan(1));
                     else Assert.That(new Vector3(value.r, value.g, value.b).magnitude, Is.LessThan(.0001f));
                 }
@@ -155,6 +149,7 @@ namespace Motu.Editor
                 camera.backgroundColor = Color.magenta; camera.targetTexture = target;
                 if (noParallax) material.EnableKeyword("MOTU_TREE_BARK_NO_PARALLAX");
                 material.SetFloat("_BarkAmbientFloor", 1);
+                material.SetFloat("_TreeHueVariationDegrees", 0);
                 material.SetColor("_EndGrainColor", Color.green);
                 material.SetTexture("_EndGrainMap", Texture2D.whiteTexture);
                 Color Read()

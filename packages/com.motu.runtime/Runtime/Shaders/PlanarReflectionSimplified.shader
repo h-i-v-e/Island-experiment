@@ -27,6 +27,7 @@ Shader "Motu/Planar Reflection Simplified"
     #include "MotuUrp.hlsl"
 
     #include "WeatherWindCommon.cginc"
+    #include "TreeLodCommon.cginc"
 
     struct ReflectionVertexInput
     {
@@ -45,6 +46,7 @@ Shader "Motu/Planar Reflection Simplified"
         float3 localPosition : TEXCOORD2;
         half4 material : TEXCOORD3;
         half2 environment : TEXCOORD4;
+        UNITY_VERTEX_INPUT_INSTANCE_ID
         UNITY_VERTEX_OUTPUT_STEREO
     };
 
@@ -66,6 +68,7 @@ Shader "Motu/Planar Reflection Simplified"
     float _FernFadeStart;
     float _FernFadeEnd;
     float _WorldSize;
+    half _MotuFarTree;
     float4 _GrassPlayerPosition;
     float4x4 _IslandWorldToLocal;
 
@@ -76,9 +79,10 @@ Shader "Motu/Planar Reflection Simplified"
         ReflectionVertexOutput output;
         UNITY_SETUP_INSTANCE_ID(input);
         UNITY_INITIALIZE_OUTPUT(ReflectionVertexOutput, output);
+        UNITY_TRANSFER_INSTANCE_ID(input, output);
         UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(output);
         output.position = UnityObjectToClipPos(input.vertex);
-        output.worldPosition = mul(unity_ObjectToWorld, input.vertex).xyz;
+        output.worldPosition = TransformObjectToWorld(input.vertex.xyz);
         output.localPosition = mul(
             _IslandWorldToLocal,
             float4(output.worldPosition, 1.0)).xyz;
@@ -152,6 +156,8 @@ Shader "Motu/Planar Reflection Simplified"
 
     fixed4 WoodFragment(ReflectionVertexOutput input) : SV_Target
     {
+        UNITY_SETUP_INSTANCE_ID(input);
+        MotuTreeLodClip(input.position.xy);
         float dirtBlend = saturate((0.25h - input.material.a) * 10.0h);
         fixed3 albedo = input.material.a < 0.1h
             ? _EndGrainColor.rgb
@@ -161,7 +167,10 @@ Shader "Motu/Planar Reflection Simplified"
 
     fixed4 FoliageFragment(ReflectionVertexOutput input) : SV_Target
     {
+        UNITY_SETUP_INSTANCE_ID(input);
+        MotuTreeLodClip(input.position.xy);
         fixed3 albedo = lerp(_BaseColor.rgb, _LightColor.rgb, 0.42h);
+        albedo = lerp(albedo, half3(0.19, 0.105, 0.055), saturate(input.material.b * _MotuFarTree));
         return FinishReflection(albedo, input);
     }
 
@@ -235,11 +244,15 @@ Shader "Motu/Planar Reflection Simplified"
             Name "ReflectionReeds"
             Tags { "LightMode"="MotuReflection" }
             Cull Off
-AlphaToMask On
+            AlphaToMask On
             HLSLPROGRAM
             #pragma vertex ReedReflectionVertex
             #pragma fragment ReedReflectionFragment
             #pragma target 3.0
+            #pragma multi_compile_instancing
+            #pragma multi_compile _ MOTU_REED_CLUMPS
+            #pragma instancing_options forcemaxcount:128
+            #include "ReedClumpCommon.cginc"
             struct ReedInput
             {
                 float4 vertex : POSITION;
@@ -247,6 +260,7 @@ AlphaToMask On
                 float2 uv : TEXCOORD0;
                 float2 root : TEXCOORD1;
                 float4 data : COLOR;
+                UNITY_VERTEX_INPUT_INSTANCE_ID
             };
 
             struct ReedOutput
@@ -257,71 +271,30 @@ AlphaToMask On
                 float2 uv : TEXCOORD2;
                 half4 data : TEXCOORD3;
                 float distanceToPlayer : TEXCOORD4;
+                UNITY_VERTEX_OUTPUT_STEREO
             };
-
-            float ReedHash(float value)
-            {
-                return frac(sin(value * 91.3458 + 17.13) * 47453.5453);
-            }
-
-            float ReedReflectionMask(float2 uv, float4 data)
-            {
-                float mask = 0.0;
-                [unroll]
-                for (int stem = 0; stem < 7; stem++)
-                {
-                    float seed = stem + data.w * 19.0 + data.y * 37.0 + data.x * 11.0;
-                    float centre = (stem + 0.5) / 7.0 + (ReedHash(seed) - 0.5) * 0.075;
-                    float height = lerp(0.60, 1.0, ReedHash(seed + 2.7))
-                        * lerp(1.0, 0.78, data.x);
-                    float lean = (ReedHash(seed + 7.1) - 0.5) * 0.12 * uv.y;
-                    float width = lerp(0.010, 0.025, ReedHash(seed + 4.2))
-                        * lerp(0.55, 1.0, data.x)
-                        * lerp(1.0, 0.45, saturate(uv.y / max(height, 0.01)));
-                    float blade = 1.0 - smoothstep(
-                        width,
-                        width + fwidth(uv.x) * 1.5,
-                        abs(uv.x - centre - lean));
-                    blade *= 1.0 - smoothstep(height, height + fwidth(uv.y) * 2.0, uv.y);
-                    blade *= step(0.015, uv.y);
-                    float2 headDelta = float2(
-                        (uv.x - centre - lean) / 0.035,
-                        (uv.y - height + 0.015) / 0.075);
-                    float head = (1.0 - smoothstep(0.70, 1.0, dot(headDelta, headDelta)))
-                        * (1.0 - data.x);
-                    mask = max(mask, max(blade, head));
-                }
-                return mask;
-            }
 
             ReedOutput ReedReflectionVertex(ReedInput input)
             {
                 ReedOutput output;
-                float3 worldPosition = mul(unity_ObjectToWorld, input.vertex).xyz;
-                float2 rootLocal = (input.root - 0.5) * _WorldSize;
-                float2 rootWorld = mul(
-                    unity_ObjectToWorld,
-                    float4(rootLocal.x, 0.0, rootLocal.y, 1.0)).xz;
-                float3 wind = MotuWindSample(rootWorld);
-                float bend = input.uv.y * input.uv.y;
-                float flexibility = lerp(1.0, 0.35, saturate(input.data.z));
-                worldPosition.xz += wind.xz
-                    * (MotuWindDisplacementStrength()
-                        * wind.y
-                        * flexibility
-                        * bend);
+                UNITY_SETUP_INSTANCE_ID(input);
+                UNITY_INITIALIZE_OUTPUT(ReedOutput, output);
+                UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(output);
+                float4 data = MotuReedData(input.data);
+                float3 worldPosition = MotuReedWorldPosition(
+                    input.vertex.xyz, input.uv, input.root, data);
                 output.worldPosition = worldPosition;
                 output.position = UnityWorldToClipPos(worldPosition);
                 output.worldNormal = UnityObjectToWorldNormal(input.normal);
                 output.uv = input.uv;
-                output.data = input.data;
+                output.data = data;
                 output.distanceToPlayer = distance(worldPosition.xz, _GrassPlayerPosition.xz);
                 return output;
             }
 
             fixed4 ReedReflectionFragment(ReedOutput input, fixed facing : VFACE) : SV_Target
             {
-                float mask = ReedReflectionMask(input.uv, input.data);
+                float mask = MotuReedSilhouette(input.uv, input.data);
                 float fade = 1.0 - smoothstep(
                     _ReedFadeStart,
                     _ReedFadeEnd,

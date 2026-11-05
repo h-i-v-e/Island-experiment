@@ -1,13 +1,9 @@
 using Motu.Interop;
 using static Motu.Rendering.ProceduralNoiseTextures;
-using Motu.Islands;
 using static UnityEngine.Object;
-using static Motu.Islands.IslandGenerator;
-using static Motu.Editor.IslandRenderingValidation;
 using System;
 using UnityEngine;
 using UnityEngine.Rendering;
-using Motu.Rendering;
 using Motu.Streaming;
 
 namespace Motu.Editor
@@ -20,188 +16,94 @@ namespace Motu.Editor
             ValidateRuntimeTreeBarkMaterialBinding();
         }
 
-        internal static void ValidateTreeSurfaceShader(string shaderName, string label)
+        internal static void ValidateFallenLogSurfaceShader()
         {
-            var shader = Shader.Find(shaderName);
-            if (shader == null
-                || !shader.isSupported
-                || UnityEditor.ShaderUtil.ShaderHasError(shader))
-            {
-                throw new InvalidOperationException(
-                    $"The tree {label} shader is missing or unsupported.");
-            }
+            var shader = Shader.Find("Motu/Tree Wood");
+            if (shader == null || !shader.isSupported || UnityEditor.ShaderUtil.ShaderHasError(shader))
+                throw new InvalidOperationException("The fallen-log wood shader is missing or unsupported.");
             var material = new Material(shader);
-            Material lod0Material = null;
             var noise = CreateCliffNoiseTexture();
             try
             {
-                if (!material.HasProperty("_BaseColor")
-                    || !material.HasProperty("_LightColor")
-                    || !material.HasProperty("_CliffNoise3D")
-                    || !material.HasProperty("_TreeNoisePeriod")
-                    || !material.HasProperty("_TreeNoiseDetailScale")
-                    || !material.HasProperty("_TreeNoiseFineScale")
-                    || !material.HasProperty("_TreeNormalStrength")
-                    || !material.HasProperty("_TreeHueVariationDegrees")
-                    || !material.HasProperty("_WorldSize"))
+                foreach (var property in new[]
                 {
-                    throw new InvalidOperationException(
-                        $"The tree {label} shader is missing its layered-noise properties.");
-                }
-                if (label == "wood"
-                    && (!material.HasProperty("_BarkAlbedoMap")
-                        || !material.HasProperty("_BarkHeightMap")
-                        || !material.HasProperty("_BarkNormalMap")
-                        || !material.HasProperty("_BarkOcclusionMap")
-                        || !material.HasProperty("_BarkTileWidthMetres")
-                        || !material.HasProperty("_BarkTileHeightMetres")
-                        || !material.HasProperty("_BarkNormalMapStrength")
-                        || !material.HasProperty("_BarkParallaxStrengthMetres")
-                        || !material.HasProperty("_BarkOcclusionStrength")
-                        || !material.HasProperty("_BarkAmbientFloor")
-                        || !material.HasProperty("_WorldSize")))
-                {
-                    throw new InvalidOperationException(
-                        "The tree wood shader is missing its directional bark properties.");
-                }
-                if (label == "foliage"
-                    && (!material.HasProperty("_CanopyCoverage")
-                        || !material.HasProperty("_CanopyEdgeSoftness")
-                        || !material.HasProperty("_AlphaCutoff")
-                        || !material.HasProperty("_FoliageFurHeight")
-                        || !material.HasProperty("_FoliageLeafWorldSize")
-                        || !material.HasProperty("_FoliageLeafCoverage")
-                        || !material.HasProperty("_FoliageLeafEdgeSoftness")
-                        || !material.HasProperty("_TranslucencyColor")
-                        || !material.HasProperty("_FoliageTranslucency")
-                        || !material.HasProperty("_FoliageAmbientFloor")
-                        || !material.HasProperty("_CullMode")
-                        || !material.HasProperty("_GrassPlayerPosition")
-                        || !material.HasProperty("_GrassRadius")
-                        || !material.HasProperty("_GrassFadeWidth")))
-                {
-                    throw new InvalidOperationException(
-                        "The tree foliage shader is missing its canopy or fur properties.");
-                }
-                if (label == "foliage" && material.passCount != 10)
-                {
-                    throw new InvalidOperationException(
-                        "The tree foliage shader must contain one canopy pass, eight fur passes, "
-                        + "and one shadow pass.");
-                }
-                if (label == "foliage"
-                    && (material.renderQueue != (int)RenderQueue.AlphaTest
-                        || material.FindPass("ShadowCaster") < 0))
-                {
-                    throw new InvalidOperationException(
-                        "The tree foliage shader must expose an alpha-tested shadow caster.");
-                }
-                if (label == "foliage")
-                {
-                    material.SetFloat("_CullMode", (float)CullMode.Back);
-                    lod0Material = new Material(material);
-                    lod0Material.SetFloat("_CullMode", (float)CullMode.Off);
-                    ForestRenderingValidation.ValidateLowPolyCanopyShadowProxy(
-                        material,
-                        lod0Material);
-                }
+                    "_BaseColor", "_LightColor", "_CliffNoise3D", "_TreeNoisePeriod", "_TreeNoiseDetailScale",
+                    "_TreeNoiseFineScale", "_TreeNormalStrength", "_TreeHueVariationDegrees", "_WorldSize",
+                    "_BarkAlbedoMap", "_BarkHeightMap", "_BarkNormalMap", "_BarkOcclusionMap",
+                    "_BarkTileWidthMetres", "_BarkTileHeightMetres", "_BarkNormalMapStrength",
+                    "_BarkParallaxStrengthMetres", "_BarkOcclusionStrength", "_BarkAmbientFloor",
+                    "_EndGrainMap", "_EndGrainColor", "_GroundDirtColor",
+                })
+                    if (!material.HasProperty(property))
+                        throw new InvalidOperationException($"The fallen-log shader is missing its authored {property} surface detail.");
                 material.SetTexture("_CliffNoise3D", noise);
                 if (material.GetTexture("_CliffNoise3D") != noise)
-                {
-                    throw new InvalidOperationException(
-                        $"The tree {label} shader did not retain its 3D noise texture.");
-                }
+                    throw new InvalidOperationException("The fallen-log shader did not retain its shared 3D detail texture.");
             }
-            finally
+            finally { DestroyImmediate(noise); DestroyImmediate(material); }
+        }
+
+        internal static void ValidateSharedForestShader()
+        {
+            var shader = Shader.Find("Motu/Planet Forest");
+            if (shader == null || !shader.isSupported || UnityEditor.ShaderUtil.ShaderHasError(shader))
+                throw new InvalidOperationException("The shared standing-tree shader is missing or unsupported.");
+            var material = new Material(shader) { enableInstancing = true };
+            var noise = CreateCliffNoiseTexture();
+            try
             {
-                DestroyImmediate(noise);
-                DestroyImmediate(lod0Material);
-                DestroyImmediate(material);
+                foreach (var pass in new[] { "Forward", "ShadowCaster", "DepthOnly", "Reflection" })
+                {
+                    var index = material.FindPass(pass);
+                    if (index < 0) throw new InvalidOperationException($"Shared standing trees are missing the {pass} pass.");
+                    UnityEditor.ShaderUtil.CompilePass(material, index, true);
+                }
+                if (UnityEditor.ShaderUtil.ShaderHasError(shader) || material.renderQueue != (int)RenderQueue.AlphaTest)
+                    throw new InvalidOperationException("The instanced standing-tree passes must compile with alpha-tested silhouettes.");
+                foreach (var property in new[]
+                {
+                    "_ForestKind", "_Cull", "_ForestNoise", "_TwigCard", "_PalmFrond",
+                    "_ForestBarkAlbedoHeight", "_ForestBarkNormalOcclusion", "_ForestBarkTileSizes", "_ForestPalmBarkTileSize",
+                })
+                    if (!material.HasProperty(property))
+                        throw new InvalidOperationException($"Shared standing trees are missing the {property} species surface contract.");
+                material.SetTexture("_ForestNoise", noise);
+                if (material.GetTexture("_ForestNoise") != noise)
+                    throw new InvalidOperationException("Shared standing trees did not retain their detail noise texture.");
+                ForestRenderingValidation.ValidateSharedTreeCatalogAndCollision();
+                ValidateRuntimeTreeBarkMaterialBinding();
             }
+            finally { DestroyImmediate(noise); DestroyImmediate(material); }
         }
 
         private static void ValidateRuntimeTreeBarkMaterialBinding()
         {
-            const int resolution = 16;
-            var prepared = MaterialPreparation.PrepareMaterialTextures(
-                new IslandMaterialColours(
-                    new Color(0.09f, 0.055f, 0.026f),
-                    new Color(0.30f, 0.32f, 0.29f),
-                    new Color(0.62f, 0.57f, 0.34f)),
-                resolution);
-            var shader = Shader.Find("Motu/Tree Wood")
-                ?? throw new InvalidOperationException("Could not find shader 'Motu/Tree Wood'.");
-            var host = new GameObject("Runtime tree bark validation");
-            host.SetActive(false);
-            var generator = host.AddComponent<IslandGenerator>();
-            generator.treeWoodMaterial = new Material(shader);
+            PlanetForestModels models = null;
             try
             {
-                generator.CreateTreeBarkTextures(prepared.treeBark);
-                var material = generator.treeWoodMaterial;
-                foreach (var property in new[]
+                models = PlanetForestModels.Acquire(ForestRenderingValidation.SharedCatalogFixture(), null);
+                var material = models.Material(0);
+                var sources = HybridForestNative.SharedBarkMaps;
+                foreach (var property in new[] { "_ForestBarkAlbedoHeight", "_ForestBarkNormalOcclusion" })
                 {
-                    "_BarkAlbedoMap",
-                    "_BarkHeightMap",
-                    "_BarkNormalMap",
-                    "_BarkOcclusionMap",
-                })
-                {
-                    var texture = material.GetTexture(property) as Texture2D;
-                    if (texture == null
-                        || texture.width != resolution
-                        || texture.height != resolution
-                        || texture.wrapMode != TextureWrapMode.Repeat)
-                    {
-                        throw new InvalidOperationException(
-                            $"Runtime tree bark did not bind a valid {property} texture.");
-                    }
+                    var texture = material.GetTexture(property) as Texture2DArray;
+                    if (texture == null || texture.depth != 3 || texture.width != sources[0].width
+                        || texture.height != sources[0].height || texture.wrapMode != TextureWrapMode.Repeat
+                        || models.Material(5).GetTexture(property) != texture)
+                        throw new InvalidOperationException($"Shared standing trees did not retain the three-species {property} array.");
                 }
-                if (!Mathf.Approximately(
-                        material.GetFloat("_BarkTileWidthMetres"),
-                        prepared.treeBark.physicalTileWidthMetres)
-                    || !Mathf.Approximately(
-                        material.GetFloat("_BarkTileHeightMetres"),
-                        prepared.treeBark.physicalTileHeightMetres))
-                {
-                    throw new InvalidOperationException(
-                        "Runtime tree bark did not preserve the recipe's physical tile dimensions.");
-                }
+                var sizes = material.GetVector("_ForestBarkTileSizes");
+                var palm = material.GetVector("_ForestPalmBarkTileSize");
+                if (!Mathf.Approximately(sizes.x, sources[0].physicalTileWidthMetres)
+                    || !Mathf.Approximately(sizes.y, sources[0].physicalTileHeightMetres)
+                    || !Mathf.Approximately(sizes.z, sources[1].physicalTileWidthMetres)
+                    || !Mathf.Approximately(sizes.w, sources[1].physicalTileHeightMetres)
+                    || !Mathf.Approximately(palm.x, sources[2].physicalTileWidthMetres)
+                    || !Mathf.Approximately(palm.y, sources[2].physicalTileHeightMetres))
+                    throw new InvalidOperationException("Standing-tree bark must preserve each species recipe's physical tile dimensions.");
             }
-            finally
-            {
-                generator.DestroyRuntimeMaterials();
-                DestroyImmediate(host);
-            }
+            finally { models?.Release(); }
         }
 
-        internal static void ValidateDistantFoliageShader()
-        {
-            var shader = Shader.Find("Motu/Tree Foliage Distant");
-            if (shader == null
-                || !shader.isSupported
-                || UnityEditor.ShaderUtil.ShaderHasError(shader))
-            {
-                throw new InvalidOperationException(
-                    "The distant tree foliage shader is missing or unsupported.");
-            }
-            var material = new Material(shader);
-            try
-            {
-                if (material.passCount != 2
-                    || material.FindPass("ShadowCaster") < 0
-                    || material.renderQueue != (int)RenderQueue.Geometry
-                    || !material.HasProperty("_WorldSize")
-                    || !material.HasProperty("_MotuNightStrength"))
-                {
-                    throw new InvalidOperationException(
-                        "Distant foliage is missing its base, wind, or shadow contract.");
-                }
-            }
-            finally
-            {
-                DestroyImmediate(material);
-            }
-        }
     }
 }

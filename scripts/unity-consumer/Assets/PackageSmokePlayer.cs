@@ -40,6 +40,11 @@ public sealed class PackageSmokePlayer : MonoBehaviour
             island.NavigationSettings.Enabled = Environment.GetEnvironmentVariable("MOTU_WITH_NAVIGATION") == "1";
             JsonUtility.FromJsonOverwrite("{\"materialTextureResolution\":16}", island.RenderingSettings);
             JsonUtility.FromJsonOverwrite("{\"forestPrototypeCount\":1}", island.ForestSettings);
+            if (Environment.GetEnvironmentVariable("MOTU_FOREST_EXPERIMENT") == "1")
+            {
+                island.ForestSettings.ForestLatitudeDegrees = 45f;
+                island.ForestSettings.forestNoiseThreshold = .35f;
+            }
             if (!await island.GenerateAsync()) throw new Exception(island.Generator.Status);
             if (island.NavigationSettings.Enabled)
             {

@@ -35,6 +35,7 @@ namespace Motu.Islands
                 request.MaterialColours,
                 request.MaterialTextureResolution,
                 cancellationToken,
+                request.HybridForestOptions,
                 request.SnapshotPath,
                 request.SnapshotCacheBudgetBytes,
                 request.CaveOptions, request.CaveNetworkOptions, request.CaveWalkOptions,
@@ -51,6 +52,7 @@ namespace Motu.Islands
             IslandMaterialColours materialColours,
             int materialTextureResolution,
             CancellationToken cancellationToken,
+            HybridForestNative.Options hybridForestOptions,
             string snapshotPath = null,
             long snapshotCacheBudgetBytes = 0L,
             CaveNative.Options? caveOptions = null,
@@ -60,7 +62,7 @@ namespace Motu.Islands
             cancellationToken.ThrowIfCancellationRequested();
             var handle = LoadOrGenerateNative(islandSeed, options, forestOptions, reedOptions,
                 fernOptions, snapshotPath, snapshotCacheBudgetBytes, caveOptions, networkOptions,
-                walkOptions, out var generated);
+                walkOptions, out var generated, hybridForestOptions);
             try
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -97,7 +99,7 @@ namespace Motu.Islands
                 cancellationToken.ThrowIfCancellationRequested();
                 var forest = PrepareForestData(handle, worldSize);
                 cancellationToken.ThrowIfCancellationRequested();
-                var reedTiles = PrepareReedMeshGrid(handle, worldSize);
+                var reedTiles = ReedInstancesNative.Prepare(handle, worldSize);
                 cancellationToken.ThrowIfCancellationRequested();
                 var fernTiles = PrepareFernMeshGrid(handle, worldSize);
                 cancellationToken.ThrowIfCancellationRequested();
@@ -149,7 +151,7 @@ namespace Motu.Islands
             var handle = LoadOrGenerateNative(request.RandomSeed, request.Options, request.ForestOptions,
                 request.ReedOptions, request.FernOptions, request.SnapshotPath,
                 request.SnapshotCacheBudgetBytes, request.CaveOptions, request.CaveNetworkOptions,
-                request.CaveWalkOptions, out _);
+                request.CaveWalkOptions, out _, request.HybridForestOptions);
             try
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -165,7 +167,8 @@ namespace Motu.Islands
             MotuNative.ForestOptions forestOptions, MotuNative.ReedOptions reedOptions,
             MotuNative.FernOptions fernOptions, string snapshotPath, long snapshotCacheBudgetBytes,
             CaveNative.Options? caveOptions, CaveNative.NetworkOptions? networkOptions,
-            CaveNative.WalkOptions? walkOptions, out bool generated)
+            CaveNative.WalkOptions? walkOptions, out bool generated,
+            HybridForestNative.Options hybridForestOptions)
         {
             var handle = IslandSnapshotCache.TryLoad(snapshotPath, out var loadStatus);
             generated = handle == IntPtr.Zero;
@@ -175,8 +178,9 @@ namespace Motu.Islands
             var walk = walkOptions ?? new Motu.Settings.IslandCaveSettings { RandomWalk = false }.ToNativeWalk();
             if (CaveNative.CaveAlgorithmRevision() != CaveNative.AlgorithmRevision)
                 throw new InvalidOperationException("The native cave library revision does not match this Unity build.");
-            handle = CaveNative.CreateMotuWithCaveWalks(islandSeed, ref options,
-                ref forestOptions, ref reedOptions, ref fernOptions, ref caves, ref network, ref walk);
+            var hybrid = hybridForestOptions;
+            handle = HybridForestNative.CreateMotuWithHybridForest(islandSeed, ref options,
+                ref forestOptions, ref reedOptions, ref fernOptions, ref caves, ref network, ref walk, ref hybrid);
             if (handle == IntPtr.Zero)
             {
                 // Copy on this worker before another native call replaces its error.

@@ -2,9 +2,11 @@
 #define MOTU_TREE_WIND_COMMON_INCLUDED
 
 float _WorldSize;
+float _MotuInstancedTree;
 float4 _MotuTreeWindHeights;
 
 #include "WeatherWindCommon.cginc"
+#include "TreeLodCommon.cginc"
 
 float MotuHasTreeRoot(float4 treeData)
 {
@@ -15,6 +17,8 @@ float MotuHasTreeRoot(float4 treeData)
 
 float3 MotuDecodeTreeRoot(float4 treeData)
 {
+    if (_MotuInstancedTree > 0.5)
+        return mul(_IslandWorldToLocal, mul(GetObjectToWorldMatrix(), float4(0, 0, 0, 1))).xyz;
     return float3(
         (treeData.x - 0.5) * _WorldSize,
         treeData.z * _WorldSize,
@@ -46,6 +50,11 @@ float3 MotuTreeWindOffsetAtHeight(
     float3 rootWorldPosition = worldPosition - mul(
         (float3x3)GetObjectToWorldMatrix(),
         islandLocalPosition - treeRoot);
+    if (_MotuInstancedTree > 0.5)
+    {
+        rootWorldPosition = mul(GetObjectToWorldMatrix(), float4(0, 0, 0, 1)).xyz;
+        heightAboveGround = max(worldPosition.y - rootWorldPosition.y, 0.0);
+    }
     float3 wind = MotuWindSample(rootWorldPosition.xz);
     return float3(wind.x, 0.0, wind.z)
         * (MotuWindDisplacementStrength()

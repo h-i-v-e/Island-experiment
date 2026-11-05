@@ -154,7 +154,6 @@ namespace Motu.Gameplay
             {
                 var debug = debugIsland.DebugSettings;
                 if (debug.ToggleMeshEdgesKey != KeyCode.None && Input.GetKeyDown(debug.ToggleMeshEdgesKey)) debug.ShowMeshEdges = !debug.ShowMeshEdges;
-                if (debug.ToggleTreeMeshEdgesKey != KeyCode.None && Input.GetKeyDown(debug.ToggleTreeMeshEdgesKey)) debug.ShowTreeMeshEdges = !debug.ShowTreeMeshEdges;
                 if (debug.ToggleFrameRateKey != KeyCode.None && Input.GetKeyDown(debug.ToggleFrameRateKey)) debug.ShowFrameRate = !debug.ShowFrameRate;
             }
             if (switchCameraKey != KeyCode.None && Input.GetKeyDown(switchCameraKey))
@@ -557,7 +556,6 @@ namespace Motu.Gameplay
             }
             GUILayout.Label(
                 $"{island.DebugSettings.ToggleMeshEdgesKey}: mesh edges | "
-                + $"{island.DebugSettings.ToggleTreeMeshEdgesKey}: tree wireframe | "
                 + $"{island.DebugSettings.ToggleFrameRateKey}: frame rate");
         }
     }

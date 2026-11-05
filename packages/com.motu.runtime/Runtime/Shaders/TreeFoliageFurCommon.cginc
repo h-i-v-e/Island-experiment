@@ -49,7 +49,7 @@ FoliageFurVertexOutput FoliageFurVertex(FoliageFurVertexInput input)
     UNITY_INITIALIZE_OUTPUT(FoliageFurVertexOutput, output);
     UNITY_TRANSFER_INSTANCE_ID(input, output);
     UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(output);
-    float3 originalWorldPosition = mul(unity_ObjectToWorld, input.vertex).xyz;
+    float3 originalWorldPosition = TransformObjectToWorld(input.vertex.xyz);
     float3 islandLocalPosition = mul(
         _IslandWorldToLocal,
         float4(originalWorldPosition, 1.0)).xyz;
@@ -77,6 +77,7 @@ FoliageFurVertexOutput FoliageFurVertex(FoliageFurVertexInput input)
 fixed4 FoliageFurFragment(FoliageFurVertexOutput input) : SV_Target
 {
     UNITY_SETUP_INSTANCE_ID(input);
+    MotuTreeLodClip(input.pos.xy);
 
     // Match the fur grass transition exactly: every shell fades together over
     // the final band of the player radius rather than losing random fragments.

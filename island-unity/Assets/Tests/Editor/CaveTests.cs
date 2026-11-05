@@ -26,7 +26,7 @@ namespace Motu.Editor
             var handles = NativeIslandHandle.ActiveCount;
             var error = Assert.Throws<InvalidOperationException>(() =>
                 IslandPreparationPipeline.PrepareIsland(731, default, default, default, default,
-                    2000f, default, 16, CancellationToken.None,
+                    2000f, default, 16, CancellationToken.None, new IslandForestSettings().HybridOptions,
                     caveOptions: caves.ToNative(), networkOptions: caves.ToNativeNetwork(), walkOptions: walk));
             StringAssert.Contains("island seed 731", error.Message);
             StringAssert.Contains("invalid cave walk settings", error.Message);

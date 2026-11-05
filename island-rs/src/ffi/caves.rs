@@ -90,6 +90,35 @@ pub unsafe extern "C" fn CreateMotuWithCaveWalks(
     network: *const CaveNetworkOptions,
     walk: *const CaveWalkOptions,
 ) -> *mut c_void {
+    // SAFETY: forwards the legacy blocks without enabling the experiment.
+    unsafe {
+        CreateMotuWithHybridForest(
+            seed,
+            options,
+            forest,
+            reeds,
+            ferns,
+            caves,
+            network,
+            walk,
+            ptr::null(),
+        )
+    }
+}
+
+/// Additive opt-in API; does not change any existing C option block layout.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn CreateMotuWithHybridForest(
+    seed: i32,
+    options: *const MotuOptions,
+    forest: *const MotuForestOptions,
+    reeds: *const MotuReedOptions,
+    ferns: *const MotuFernOptions,
+    caves: *const CaveOptions,
+    network: *const CaveNetworkOptions,
+    walk: *const CaveWalkOptions,
+    hybrid: *const crate::forest::HybridForestOptions,
+) -> *mut c_void {
     // SAFETY: optional blocks must be readable for their documented C sizes.
     LAST_GENERATION_ERROR.with_borrow_mut(Vec::clear);
     let (options, forest, reeds, ferns, caves, network, walk) = unsafe {
@@ -107,6 +136,9 @@ pub unsafe extern "C" fn CreateMotuWithCaveWalks(
             walk.as_ref().copied().unwrap_or_default(),
         )
     };
+    let mut forest: crate::ForestOptions = forest;
+    // SAFETY: an optional experimental block is readable for its repr(C) size.
+    forest.hybrid = unsafe { hybrid.as_ref().copied() };
     Island::generate_with_cave_walks(
         u64::from(seed.cast_unsigned()),
         options,

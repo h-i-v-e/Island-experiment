@@ -303,6 +303,18 @@ pub(super) fn generate_final_rivers(
 }
 
 impl Island {
+    pub(crate) fn hybrid_forest(
+        &self,
+    ) -> Option<(
+        &crate::forest::hybrid::HybridForest,
+        &[crate::forest::TreePlacement],
+    )> {
+        self.forest
+            .hybrid
+            .as_ref()
+            .map(|hybrid| (hybrid, self.forest.placements.as_slice()))
+    }
+
     /// Generates an island and all derived assets.
     ///
     /// # Errors
@@ -774,6 +786,10 @@ impl Island {
     #[must_use]
     pub(crate) fn reed_mesh_tiles(&self) -> &[ReedMeshTile] {
         self.reeds.tiles()
+    }
+
+    pub(crate) fn reed_instances(&self) -> &ReedMeshes {
+        &self.reeds
     }
 
     #[must_use]

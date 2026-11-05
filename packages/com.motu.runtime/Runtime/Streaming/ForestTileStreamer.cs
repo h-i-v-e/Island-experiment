@@ -1,823 +1,241 @@
-using static Motu.Rendering.UnityObjectLifetime;
 using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Threading;
-using System.Threading.Tasks;
-using UnityEngine;
-using UnityEngine.Rendering;
-using Motu.Interop;
 using Motu.Islands;
-using Motu.World;
+using UnityEngine;
+using static Motu.Rendering.UnityObjectLifetime;
 
 namespace Motu.Streaming
 {
-    // Forest geometry is already spatially batched by Rust without splitting a
-    // placed tree's wood or a shared foliage cluster. This helper only owns the
-    // Unity lifetime and visual-LOD state. Render geometry remains batched; only
-    // active LOD0 trunks receive individual collision-only GameObjects.
+    // Visual trees belong to one instanced renderer. Only the player's 3x3
+    // finest terrain neighborhood creates trunk and fallen-log collision objects.
     internal sealed class ForestTileStreamer : IDisposable
     {
-        internal const int Lod2Resolution = 8;
-        internal const int Lod1Resolution = 64;
-        internal const int Lod2TileCount = Lod2Resolution * Lod2Resolution;
-        internal const int Lod1TileCount = Lod1Resolution * Lod1Resolution;
-
-        private const int Lod2TilePerLod1Region = Lod1Resolution / Lod2Resolution;
+        internal const int Lod0Resolution = 64;
+        internal const int Lod0TileCount = Lod0Resolution * Lod0Resolution;
         private const int NearbyRadius = 1;
+        private const int MaximumCollidersPerSlice = 32;
 
-        private sealed class Tile
+        private sealed class ColliderTile
         {
-            internal readonly GameObject foliageObject;
-            internal readonly GameObject woodObject;
-            internal readonly Mesh foliageMesh;
-            internal readonly Mesh woodMesh;
-            internal GameObject foliageEdgeObject;
-            internal GameObject woodEdgeObject;
-            internal Mesh foliageEdgeMesh;
-            internal Mesh woodEdgeMesh;
-
-            internal Tile(
-                GameObject foliageObject,
-                Mesh foliageMesh,
-                GameObject woodObject,
-                Mesh woodMesh)
-            {
-                this.foliageObject = foliageObject;
-                this.foliageMesh = foliageMesh;
-                this.woodObject = woodObject;
-                this.woodMesh = woodMesh;
-            }
-
-            internal void SetActive(bool active)
-            {
-                foliageObject?.SetActive(active);
-                woodObject?.SetActive(active);
-            }
+            internal readonly GameObject root;
+            internal int trunks, logs;
+            internal ColliderTile(GameObject root) => this.root = root;
         }
 
-        private sealed class Group
-        {
-            internal readonly GameObject foliageRoot;
-            internal readonly GameObject woodRoot;
-            internal readonly GameObject colliderRoot;
-            internal readonly Dictionary<Vector2Int, Tile> tiles =
-                new Dictionary<Vector2Int, Tile>();
-
-            internal Group(
-                GameObject foliageRoot,
-                GameObject woodRoot,
-                GameObject colliderRoot)
-            {
-                this.foliageRoot = foliageRoot;
-                this.woodRoot = woodRoot;
-                this.colliderRoot = colliderRoot;
-            }
-        }
-
-        private readonly Dictionary<Vector2Int, Tile> lod2Tiles =
-            new Dictionary<Vector2Int, Tile>();
-        private readonly Dictionary<Vector2Int, Group> lod1Groups =
-            new Dictionary<Vector2Int, Group>();
-        private readonly Dictionary<Vector2Int, Group> lod0Groups =
-            new Dictionary<Vector2Int, Group>();
-        private readonly List<Vector2Int> childRemovalScratch = new List<Vector2Int>(64);
-
+        private readonly Dictionary<Vector2Int, ColliderTile> tiles = new Dictionary<Vector2Int, ColliderTile>();
+        private readonly HashSet<ColliderTile> pending = new HashSet<ColliderTile>();
+        private readonly List<StreamedMeshTile> fallenLogs = new List<StreamedMeshTile>(64);
         private GameObject forestRoot;
-        private GameObject foliageRoot;
-        private GameObject woodRoot;
-        private GameObject canopyShadowRoot;
-        private GameObject trunkColliderRoot;
-        private Material foliageMaterial;
-        private Material lod0FoliageMaterial;
-        private Material woodMaterial;
-        private Material lod1WoodMaterial;
-        private Material meshEdgeMaterial;
-        private IslandPreparedTreeCollider[][] preparedLod0TrunkColliders;
-        private IslandPreparedTreeCollider[][] preparedLod0LogColliders;
-        private Func<int, Vector2Int, CancellationToken, Task<ForestMeshRegion>> prepareRegion;
-        private CancellationTokenSource lifetime = new CancellationTokenSource();
-        private readonly HashSet<Group> pendingGroups = new HashSet<Group>();
+        private InstancedForestRenderer renderer;
+        private IslandPreparedTreeCollider[][] trunks, logs;
         private double uploadBudgetMilliseconds;
+        private int revision;
         private bool initialized;
-        private bool meshEdgesVisible;
 
-        internal int ActiveLod2TileCount => lod2Tiles.Count;
-        internal int Lod1GroupCount => lod1Groups.Count;
-        internal int Lod0GroupCount => lod0Groups.Count;
-        internal bool Lod1NeighborhoodMatches(Vector2Int center) =>
-            NeighborhoodMatches(lod1Groups, center, Lod2Resolution);
-        internal bool Lod0NeighborhoodMatches(Vector2Int center) =>
-            NeighborhoodMatches(lod0Groups, center, Lod1Resolution);
-        internal int ActiveTrunkColliderCount =>
-            trunkColliderRoot == null
-                ? 0
-                : trunkColliderRoot.GetComponentsInChildren<CapsuleCollider>().Length;
         internal GameObject Root => forestRoot;
+        internal int ColliderTileCount => tiles.Count;
+        internal int ActiveTrunkColliderCount { get; private set; }
+        internal int ActiveLogColliderCount { get; private set; }
 
-        internal void Initialize(
-            Transform parent,
-            Material sharedFoliageMaterial,
-            Material sharedLod0FoliageMaterial,
-            Material sharedWoodMaterial,
-            Material sharedLod1WoodMaterial,
-            Material sharedMeshEdgeMaterial,
-            IslandPreparedForestData prepared,
-            bool showForests,
-            Func<int, Vector2Int, CancellationToken, Task<ForestMeshRegion>> prepareRegion,
-            double uploadBudgetMilliseconds = 4.0)
+        internal void Initialize(Transform parent, IslandPreparedForestData prepared, bool showForests,
+            double uploadBudgetMilliseconds = 4.0, Texture detailNoise = null, Material fallenLogMaterial = null)
         {
-            if (initialized)
-            {
-                throw new InvalidOperationException("The forest tile streamer is already initialized.");
-            }
-            if (parent == null)
-            {
-                throw new ArgumentNullException(nameof(parent));
-            }
-            if (prepared == null)
-            {
-                throw new ArgumentNullException(nameof(prepared));
-            }
-            if (sharedFoliageMaterial == null
-                || sharedLod0FoliageMaterial == null
-                || sharedWoodMaterial == null
-                || sharedLod1WoodMaterial == null)
-            {
-                throw new InvalidOperationException(
-                    "Forest wood and foliage materials must be available before streaming.");
-            }
-            if (sharedMeshEdgeMaterial == null)
-            {
-                throw new InvalidOperationException(
-                    "The tree mesh-edge material must be available before streaming.");
-            }
-
-            lifetime ??= new CancellationTokenSource();
-            this.prepareRegion = prepareRegion ?? throw new ArgumentNullException(nameof(prepareRegion));
+            if (initialized) throw new InvalidOperationException("The forest streamer is already initialized.");
+            if (parent == null) throw new ArgumentNullException(nameof(parent));
+            if (prepared == null) throw new ArgumentNullException(nameof(prepared));
+            if (prepared.hybrid == null) throw new ArgumentException("The instanced forest catalog is required.", nameof(prepared));
+            if (double.IsNaN(uploadBudgetMilliseconds) || double.IsInfinity(uploadBudgetMilliseconds))
+                throw new ArgumentOutOfRangeException(nameof(uploadBudgetMilliseconds));
             this.uploadBudgetMilliseconds = Math.Max(.1, uploadBudgetMilliseconds);
-            foliageMaterial = sharedFoliageMaterial;
-            lod0FoliageMaterial = sharedLod0FoliageMaterial;
-            woodMaterial = sharedWoodMaterial;
-            lod1WoodMaterial = sharedLod1WoodMaterial;
-            meshEdgeMaterial = sharedMeshEdgeMaterial;
-            preparedLod0TrunkColliders = prepared.lod0TrunkColliderTiles;
-            preparedLod0LogColliders = prepared.lod0LogColliderTiles;
-
+            trunks = prepared.lod0TrunkColliderTiles;
+            logs = prepared.lod0LogColliderTiles;
             try
             {
-                forestRoot = new GameObject("Forests");
+                forestRoot = new GameObject("Instanced Forest") { layer = parent.gameObject.layer };
                 forestRoot.transform.SetParent(parent, false);
-                foliageRoot = new GameObject("Forest Foliage");
-                foliageRoot.transform.SetParent(forestRoot.transform, false);
-                woodRoot = new GameObject("Forest Wood");
-                woodRoot.transform.SetParent(forestRoot.transform, false);
-                canopyShadowRoot = new GameObject("Low-Poly Canopy Shadows");
-                canopyShadowRoot.transform.SetParent(forestRoot.transform, false);
-                trunkColliderRoot = new GameObject("Forest Trunk Colliders (LOD 0 Only)");
-                trunkColliderRoot.transform.SetParent(forestRoot.transform, false);
-
-                CreateInitialLod2Tiles(prepared.lod2FoliageTiles, prepared.lod2WoodTiles);
                 forestRoot.SetActive(showForests);
+                renderer = forestRoot.AddComponent<InstancedForestRenderer>();
+                renderer.Initialize(forestRoot.transform, prepared.hybrid, detailNoise);
+                CreateFallenLogs(prepared.fallenLogTiles, fallenLogMaterial);
                 initialized = true;
             }
-            catch
-            {
-                Dispose();
-                throw;
-            }
+            catch { Dispose(); throw; }
         }
 
-        internal void SetVisible(bool visible)
+        private void CreateFallenLogs(IslandPreparedMesh[] prepared, Material material)
         {
-            forestRoot?.SetActive(visible);
+            if (prepared == null) return;
+            for (var index = 0; index < prepared.Length; ++index)
+            {
+                var source = prepared[index];
+                if (source == null || source.triangles.Length == 0) continue;
+                if (material == null)
+                    throw new ArgumentNullException(nameof(material), "Authored fallen logs require their wood material.");
+                fallenLogs.Add(StreamedMeshTile.Create(source, forestRoot.transform, material,
+                    $"Fallen logs tile {index % 8},{index / 8}"));
+            }
         }
 
-        internal void SetMeshEdgesVisible(bool visible)
+        internal void SetVisible(bool visible) => forestRoot?.SetActive(visible);
+
+        internal bool Lod0NeighborhoodMatches(Vector2Int center)
         {
-            if (meshEdgesVisible == visible)
-            {
-                return;
-            }
-            meshEdgesVisible = visible;
-            foreach (var tile in lod2Tiles.Values)
-            {
-                SetTileMeshEdgesVisible(tile, visible);
-            }
-            SetGroupMeshEdgesVisible(lod1Groups, visible);
-            SetGroupMeshEdgesVisible(lod0Groups, visible);
-            foreach (var group in pendingGroups)
-                foreach (var tile in group.tiles.Values) SetTileMeshEdgesVisible(tile, visible);
+            if (!initialized) return false;
+            var expected = Neighborhood(center);
+            if (tiles.Count != expected.Count) return false;
+            foreach (var key in expected) if (!tiles.ContainsKey(key)) return false;
+            return true;
         }
-
-        internal IEnumerator UpdateLod1NeighborhoodIncremental(Vector2Int center, Func<bool> stillWanted)
-            => UpdateNeighborhoodIncremental(1, center, stillWanted);
 
         internal IEnumerator UpdateLod0NeighborhoodIncremental(Vector2Int center, Func<bool> stillWanted)
-            => UpdateNeighborhoodIncremental(0, center, stillWanted);
-
-        private IEnumerator UpdateNeighborhoodIncremental(int lod, Vector2Int center, Func<bool> stillWanted)
         {
             if (!initialized) yield break;
-            var token = lifetime.Token;
-            bool Wanted() => initialized && !token.IsCancellationRequested && stillWanted();
-            var groups = lod == 1 ? lod1Groups : lod0Groups;
-            var incoming = NeighbourKeys(center, lod == 1 ? Lod2Resolution : Lod1Resolution);
-            var incomingSet = new HashSet<Vector2Int>(incoming);
-            // Retire obsolete details before allocating their replacements. The
-            // already resident overview remains visible during export/upload.
+            if (stillWanted == null) throw new ArgumentNullException(nameof(stillWanted));
+            var request = ++revision;
+            DestroyPending();
+            bool Wanted() => initialized && request == revision && stillWanted();
+            var incoming = Neighborhood(center);
+            var wantedKeys = new HashSet<Vector2Int>(incoming);
             var retired = new List<Vector2Int>();
-            foreach (var key in groups.Keys)
-                if (!incomingSet.Contains(key)) retired.Add(key);
+            foreach (var key in tiles.Keys) if (!wantedKeys.Contains(key)) retired.Add(key);
             foreach (var key in retired)
             {
                 if (!Wanted()) yield break;
-                if (lod == 1)
-                {
-                    RemoveLod0GroupsOwnedBy(key);
-                    SetLod2TileActive(key, true);
-                }
-                else SetLod1TileActive(key, true);
-                DestroyGroup(groups[key]);
-                groups.Remove(key);
+                var tile = tiles[key];
+                tiles.Remove(key);
+                ActiveTrunkColliderCount -= tile.trunks;
+                ActiveLogColliderCount -= tile.logs;
+                DestroyTile(tile);
                 yield return null;
             }
             foreach (var key in incoming)
             {
                 if (!Wanted()) yield break;
-                if (groups.ContainsKey(key)) continue;
-                yield return CreateGroupIncremental(lod, key, Wanted, token, group =>
+                if (tiles.ContainsKey(key)) continue;
+                var tile = CreatePendingTile(key);
+                try
                 {
-                    groups.Add(key, group);
-                    group.foliageRoot.SetActive(true);
-                    group.woodRoot.SetActive(true);
-                    group.colliderRoot?.SetActive(true);
-                    if (lod == 1) SetLod2TileActive(key, false);
-                    else SetLod1TileActive(key, false);
-                });
+                    var index = key.y * Lod0Resolution + key.x;
+                    var timer = Stopwatch.StartNew();
+                    var sliceCount = 0;
+                    for (var kind = 0; kind < 2; ++kind)
+                    {
+                        if (!Wanted()) yield break;
+                        var source = (kind == 0 ? trunks : logs)[index];
+                        if (source == null) continue;
+                        for (var collider = 0; collider < source.Length; ++collider)
+                        {
+                            if (!Wanted()) yield break;
+                            CreateCollider(tile.root.transform, source[collider], key, collider, kind == 1);
+                            if (kind == 0) ++tile.trunks; else ++tile.logs;
+                            if (++sliceCount < MaximumCollidersPerSlice
+                                && timer.Elapsed.TotalMilliseconds < uploadBudgetMilliseconds) continue;
+                            yield return null;
+                            if (!Wanted()) yield break;
+                            timer.Restart();
+                            sliceCount = 0;
+                        }
+                    }
+                    if (!Wanted()) yield break;
+                    tiles.Add(key, tile);
+                    pending.Remove(tile);
+                    ActiveTrunkColliderCount += tile.trunks;
+                    ActiveLogColliderCount += tile.logs;
+                    tile.root.SetActive(true);
+                }
+                finally
+                {
+                    // Disposing a coroutine, retargeting it, clearing focus, and
+                    // exceptions all retire an unfinished tile without activation.
+                    if (pending.Remove(tile)) DestroyTile(tile);
+                }
                 yield return null;
             }
         }
 
         internal void ClearPlayerFocus()
         {
-            lifetime?.Cancel();
-            lifetime?.Dispose();
-            lifetime = new CancellationTokenSource();
-            foreach (var pending in pendingGroups) DestroyGroup(pending);
-            pendingGroups.Clear();
-            foreach (var entry in lod0Groups)
-            {
-                SetLod1TileActive(entry.Key, true);
-                DestroyGroup(entry.Value);
-            }
-            lod0Groups.Clear();
+            ++revision;
+            DestroyPending();
+            foreach (var tile in tiles.Values) DestroyTile(tile);
+            tiles.Clear();
+            ActiveTrunkColliderCount = ActiveLogColliderCount = 0;
+        }
 
-            foreach (var entry in lod1Groups)
-            {
-                SetLod2TileActive(entry.Key, true);
-                DestroyGroup(entry.Value);
-            }
-            lod1Groups.Clear();
+        private ColliderTile CreatePendingTile(Vector2Int key)
+        {
+            var root = new GameObject($"Forest colliders {key.x},{key.y}") { layer = forestRoot.layer };
+            root.transform.SetParent(forestRoot.transform, false);
+            root.SetActive(false);
+            var tile = new ColliderTile(root);
+            pending.Add(tile);
+            return tile;
+        }
 
-            foreach (var tile in lod2Tiles.Values)
+        private static void CreateCollider(Transform parent, IslandPreparedTreeCollider source,
+            Vector2Int tile, int index, bool fallenLog)
+        {
+            var axis = source.top - source.bottom;
+            var length = axis.magnitude;
+            if (!(length > Mathf.Epsilon) || float.IsInfinity(length)
+                || !(source.radius > 0) || float.IsInfinity(source.radius))
+                throw new InvalidOperationException($"Forest collider {tile.x},{tile.y}:{index} is degenerate.");
+            var root = new GameObject($"Forest {(fallenLog ? "log" : "trunk")} collider {tile.x},{tile.y}:{index}")
+                { layer = parent.gameObject.layer };
+            root.transform.SetParent(parent, false);
+            root.transform.localPosition = (source.bottom + source.top) * .5f;
+            root.transform.localRotation = Quaternion.FromToRotation(Vector3.up, axis / length);
+            if (fallenLog)
             {
-                tile.SetActive(true);
+                var box = root.AddComponent<BoxCollider>();
+                box.size = new Vector3(source.radius * 2, length, source.radius * 2);
             }
+            else
+            {
+                var capsule = root.AddComponent<CapsuleCollider>();
+                capsule.direction = 1;
+                capsule.center = Vector3.zero;
+                capsule.radius = source.radius;
+                capsule.height = Mathf.Max(length, source.radius * 2);
+            }
+        }
+
+        private static List<Vector2Int> Neighborhood(Vector2Int center)
+        {
+            var result = new List<Vector2Int>(9);
+            for (var y = center.y - NearbyRadius; y <= center.y + NearbyRadius; ++y)
+                for (var x = center.x - NearbyRadius; x <= center.x + NearbyRadius; ++x)
+                    if (x >= 0 && y >= 0 && x < Lod0Resolution && y < Lod0Resolution)
+                        result.Add(new Vector2Int(x, y));
+            return result;
+        }
+
+        private void DestroyPending()
+        {
+            foreach (var tile in pending) DestroyTile(tile);
+            pending.Clear();
+        }
+
+        private static void DestroyTile(ColliderTile tile)
+        {
+            if (tile.root == null) return;
+            tile.root.SetActive(false);
+            DestroyUnityObject(tile.root);
         }
 
         public void Dispose()
         {
+            initialized = false;
             ClearPlayerFocus();
-            foreach (var tile in lod2Tiles.Values)
-            {
-                DestroyTile(tile);
-            }
-            lod2Tiles.Clear();
+            renderer?.Release();
+            renderer = null;
+            foreach (var tile in fallenLogs) tile.Dispose();
+            fallenLogs.Clear();
             DestroyUnityObject(forestRoot);
             forestRoot = null;
-            foliageRoot = null;
-            woodRoot = null;
-            canopyShadowRoot = null;
-            trunkColliderRoot = null;
-            foliageMaterial = null;
-            lod0FoliageMaterial = null;
-            woodMaterial = null;
-            lod1WoodMaterial = null;
-            meshEdgeMaterial = null;
-            preparedLod0TrunkColliders = null;
-            preparedLod0LogColliders = null;
-            initialized = false;
-            lifetime.Dispose();
-            lifetime = null;
-            prepareRegion = null;
-            meshEdgesVisible = false;
+            trunks = logs = null;
         }
-
-        private void CreateInitialLod2Tiles(IslandPreparedMesh[] preparedLod2Foliage, IslandPreparedMesh[] preparedLod2Wood)
-        {
-            for (var y = 0; y < Lod2Resolution; y++)
-            {
-                for (var x = 0; x < Lod2Resolution; x++)
-                {
-                    var key = new Vector2Int(x, y);
-                    var tileIndex = y * Lod2Resolution + x;
-                    var preparedFoliage = preparedLod2Foliage[tileIndex];
-                    var preparedWood = preparedLod2Wood[tileIndex];
-                    if (preparedFoliage == null && preparedWood == null)
-                    {
-                        continue;
-                    }
-                    var tile = CreateTile(
-                        preparedFoliage,
-                        preparedWood,
-                        foliageMaterial,
-                        lod1WoodMaterial,
-                        foliageRoot.transform,
-                        woodRoot.transform,
-                        $"Forest LOD 2 tile {x},{y}");
-                    lod2Tiles.Add(key, tile);
-                    if (tile.foliageMesh != null)
-                    {
-                        CreateRendererObject(
-                            $"Forest canopy shadow tile {x},{y}",
-                            canopyShadowRoot.transform,
-                            tile.foliageMesh,
-                            foliageMaterial,
-                            ShadowCastingMode.ShadowsOnly);
-                    }
-                }
-            }
-        }
-
-        private IEnumerator CreateGroupIncremental(int lod, Vector2Int key, Func<bool> wanted,
-            CancellationToken lifetimeToken, Action<Group> install)
-        {
-            using var request = CancellationTokenSource.CreateLinkedTokenSource(lifetimeToken);
-            var preparation = prepareRegion(lod, key, request.Token);
-            // Stopping a Unity coroutine can leave its task unobserved. The worker
-            // owns its native lease until copying finishes, even during unload.
-            _ = preparation.ContinueWith(task => { _ = task.Exception; },
-                CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
-                TaskScheduler.Default);
-            Group group = null;
-            try
-            {
-                while (!preparation.IsCompleted)
-                {
-                    if (!wanted()) yield break;
-                    yield return null;
-                }
-                if (!wanted()) yield break;
-                var region = preparation.GetAwaiter().GetResult();
-                var divisions = lod == 1 ? Lod2TilePerLod1Region : 1;
-                if (region.foliage.Length != divisions * divisions || region.wood.Length != divisions * divisions)
-                    throw new InvalidOperationException("The prepared forest region has an invalid tile count.");
-                group = CreateGroupRoots($"Forest LOD {lod} group {key.x},{key.y}", lod == 0);
-                pendingGroups.Add(group);
-                group.foliageRoot.SetActive(false);
-                group.woodRoot.SetActive(false);
-                group.colliderRoot?.SetActive(false);
-                var timer = Stopwatch.StartNew();
-                for (var index = 0; index < region.foliage.Length; index++)
-                {
-                    if (!wanted()) yield break;
-                    var tileKey = key * divisions + new Vector2Int(index % divisions, index / divisions);
-                    if (region.foliage[index] != null || region.wood[index] != null)
-                        group.tiles.Add(tileKey, CreateTile(region.foliage[index], region.wood[index],
-                            lod == 0 ? lod0FoliageMaterial : foliageMaterial,
-                            lod == 0 ? woodMaterial : lod1WoodMaterial,
-                            group.foliageRoot.transform, group.woodRoot.transform,
-                            $"Forest LOD {lod} tile {tileKey.x},{tileKey.y}"));
-                    // Unity owns the uploaded mesh; detail arrays are not a cache.
-                    region.foliage[index] = null;
-                    region.wood[index] = null;
-                    if (timer.Elapsed.TotalMilliseconds >= uploadBudgetMilliseconds)
-                    {
-                        yield return null;
-                        timer.Restart();
-                    }
-                }
-                if (!wanted()) yield break;
-                if (lod == 0)
-                {
-                    var index = key.y * Lod1Resolution + key.x;
-                    yield return CreateTrunkCollidersIncremental(group.colliderRoot.transform,
-                        preparedLod0TrunkColliders[index], key, wanted);
-                    if (!wanted()) yield break;
-                    yield return CreateTrunkCollidersIncremental(group.colliderRoot.transform,
-                        preparedLod0LogColliders[index], key, wanted, fallenLogs: true);
-                    if (!wanted()) yield break;
-                }
-                install(group);
-                pendingGroups.Remove(group);
-            }
-            finally
-            {
-                request.Cancel();
-                if (group != null && pendingGroups.Remove(group)) DestroyGroup(group);
-            }
-        }
-
-        private Group CreateGroupRoots(string name, bool createColliderRoot)
-        {
-            var groupFoliageRoot = new GameObject($"{name} foliage");
-            groupFoliageRoot.transform.SetParent(foliageRoot.transform, false);
-            GameObject groupWoodRoot = null;
-            GameObject groupColliderRoot = null;
-            try
-            {
-                groupWoodRoot = new GameObject($"{name} wood");
-                groupWoodRoot.transform.SetParent(woodRoot.transform, false);
-                if (createColliderRoot)
-                {
-                    groupColliderRoot = new GameObject($"{name} trunk colliders");
-                    groupColliderRoot.transform.SetParent(trunkColliderRoot.transform, false);
-                }
-                return new Group(groupFoliageRoot, groupWoodRoot, groupColliderRoot);
-            }
-            catch
-            {
-                DestroyUnityObject(groupFoliageRoot);
-                DestroyUnityObject(groupWoodRoot);
-                DestroyUnityObject(groupColliderRoot);
-                throw;
-            }
-        }
-
-        private IEnumerator CreateTrunkCollidersIncremental(
-            Transform parent,
-            IslandPreparedTreeCollider[] colliders,
-            Vector2Int tile,
-            Func<bool> wanted,
-            bool fallenLogs = false)
-        {
-            if (parent == null || colliders == null)
-            {
-                yield break;
-            }
-            var timer = Stopwatch.StartNew();
-            for (var index = 0; index < colliders.Length; index++)
-            {
-                if (!wanted()) yield break;
-                var source = colliders[index];
-                var axis = source.top - source.bottom;
-                var length = axis.magnitude;
-                if (length <= Mathf.Epsilon || source.radius <= 0f)
-                {
-                    throw new InvalidOperationException(
-                        $"Forest trunk collider {tile.x},{tile.y}:{index} is degenerate.");
-                }
-                var colliderObject = new GameObject(
-                    $"Forest {(fallenLogs ? "log" : "trunk")} collider {tile.x},{tile.y}:{index}");
-                colliderObject.transform.SetParent(parent, false);
-                colliderObject.transform.localPosition = (source.bottom + source.top) * 0.5f;
-                colliderObject.transform.localRotation = Quaternion.FromToRotation(
-                    Vector3.up,
-                    axis / length);
-                if (fallenLogs)
-                {
-                    var box = colliderObject.AddComponent<BoxCollider>();
-                    box.size = new Vector3(source.radius * 2f, length, source.radius * 2f);
-                }
-                else
-                {
-                    var capsule = colliderObject.AddComponent<CapsuleCollider>();
-                    capsule.direction = 1;
-                    capsule.center = Vector3.zero;
-                    capsule.radius = source.radius;
-                    capsule.height = Mathf.Max(length, source.radius * 2f);
-                }
-                if (timer.Elapsed.TotalMilliseconds >= uploadBudgetMilliseconds)
-                {
-                    yield return null;
-                    timer.Restart();
-                }
-            }
-        }
-
-        private Tile CreateTile(
-            IslandPreparedMesh foliage,
-            IslandPreparedMesh wood,
-            Material tileFoliageMaterial,
-            Material tileWoodMaterial,
-            Transform foliageParent,
-            Transform woodParent,
-            string name)
-        {
-            Mesh foliageMesh = null;
-            Mesh woodMesh = null;
-            GameObject foliageObject = null;
-            GameObject woodObject = null;
-            Tile tile = null;
-            try
-            {
-                if (foliage != null)
-                {
-                    foliageMesh = CreateForestMesh(foliage, $"{name} foliage");
-                    ExpandFoliageBounds(foliageMesh, tileFoliageMaterial);
-                    ExpandWindBounds(foliageMesh, tileFoliageMaterial);
-                    foliageObject = CreateRendererObject(
-                        $"{name} foliage",
-                        foliageParent,
-                        foliageMesh,
-                        tileFoliageMaterial,
-                        ShadowCastingMode.Off);
-                }
-                if (wood != null)
-                {
-                    woodMesh = CreateForestMesh(wood, $"{name} wood");
-                    ExpandWindBounds(woodMesh, tileWoodMaterial);
-                    woodObject = CreateRendererObject(
-                        $"{name} wood",
-                        woodParent,
-                        woodMesh,
-                        tileWoodMaterial,
-                        ShadowCastingMode.On);
-                }
-                tile = new Tile(foliageObject, foliageMesh, woodObject, woodMesh);
-                SetTileMeshEdgesVisible(tile, meshEdgesVisible);
-                return tile;
-            }
-            catch
-            {
-                if (tile != null)
-                {
-                    DestroyTile(tile);
-                }
-                else
-                {
-                    DestroyUnityObject(foliageObject);
-                    DestroyUnityObject(woodObject);
-                    DestroyUnityObject(foliageMesh);
-                    DestroyUnityObject(woodMesh);
-                }
-                throw;
-            }
-        }
-
-        private static void ExpandFoliageBounds(Mesh mesh, Material material)
-        {
-            if (mesh == null
-                || material == null
-                || !material.HasProperty("_FoliageFurHeight"))
-            {
-                return;
-            }
-            var bounds = mesh.bounds;
-            bounds.Expand(Mathf.Max(material.GetFloat("_FoliageFurHeight"), 0f) * 2f);
-            mesh.bounds = bounds;
-        }
-
-        private static void ExpandWindBounds(Mesh mesh, Material material)
-        {
-            if (mesh == null
-                || material == null)
-            {
-                return;
-            }
-            var maximumOffset = WorldEnvironmentController.VegetationDisplacementAtReferenceSpeedMetres
-                * 2.5f; // Maximum shared speed response; gust and bend weights are at most one.
-            if (maximumOffset <= 0f)
-            {
-                return;
-            }
-            var bounds = mesh.bounds;
-            bounds.Expand(new Vector3(maximumOffset * 2f, 0f, maximumOffset * 2f));
-            mesh.bounds = bounds;
-        }
-
-        private static GameObject CreateRendererObject(
-            string name,
-            Transform parent,
-            Mesh mesh,
-            Material material,
-            ShadowCastingMode shadowCastingMode)
-        {
-            var gameObject = new GameObject(name);
-            gameObject.transform.SetParent(parent, false);
-            try
-            {
-                gameObject.AddComponent<MeshFilter>().sharedMesh = mesh;
-                var renderer = gameObject.AddComponent<MeshRenderer>();
-                renderer.sharedMaterial = material;
-                renderer.shadowCastingMode = shadowCastingMode;
-                renderer.receiveShadows = shadowCastingMode != ShadowCastingMode.ShadowsOnly;
-                if (shadowCastingMode == ShadowCastingMode.ShadowsOnly)
-                {
-                    renderer.lightProbeUsage = LightProbeUsage.Off;
-                    renderer.reflectionProbeUsage = ReflectionProbeUsage.Off;
-                }
-                return gameObject;
-            }
-            catch
-            {
-                DestroyUnityObject(gameObject);
-                throw;
-            }
-        }
-
-        private static GameObject CreateEdgeRendererObject(
-            string name,
-            GameObject sourceObject,
-            Mesh edgeMesh,
-            Material material)
-        {
-            var gameObject = new GameObject(name);
-            gameObject.transform.SetParent(sourceObject.transform, false);
-            try
-            {
-                gameObject.AddComponent<MeshFilter>().sharedMesh = edgeMesh;
-                var renderer = gameObject.AddComponent<MeshRenderer>();
-                renderer.sharedMaterial = material;
-                renderer.shadowCastingMode = ShadowCastingMode.Off;
-                renderer.receiveShadows = false;
-                return gameObject;
-            }
-            catch
-            {
-                DestroyUnityObject(gameObject);
-                throw;
-            }
-        }
-
-        private void SetTileMeshEdgesVisible(Tile tile, bool visible)
-        {
-            if (tile == null)
-            {
-                return;
-            }
-            if (visible)
-            {
-                EnsureEdgeRenderer(
-                    tile.foliageObject,
-                    tile.foliageMesh,
-                    ref tile.foliageEdgeObject,
-                    ref tile.foliageEdgeMesh);
-                EnsureEdgeRenderer(
-                    tile.woodObject,
-                    tile.woodMesh,
-                    ref tile.woodEdgeObject,
-                    ref tile.woodEdgeMesh);
-            }
-            tile.foliageEdgeObject?.SetActive(visible);
-            tile.woodEdgeObject?.SetActive(visible);
-        }
-
-        private void EnsureEdgeRenderer(
-            GameObject sourceObject,
-            Mesh sourceMesh,
-            ref GameObject edgeObject,
-            ref Mesh edgeMesh)
-        {
-            if (sourceObject == null || sourceMesh == null || edgeObject != null)
-            {
-                return;
-            }
-            var createdMesh = TerrainTileStreamer.CreateEdgeMesh(sourceMesh);
-            try
-            {
-                var createdObject = CreateEdgeRendererObject(
-                    $"{sourceObject.name} wireframe",
-                    sourceObject,
-                    createdMesh,
-                    meshEdgeMaterial);
-                edgeMesh = createdMesh;
-                edgeObject = createdObject;
-            }
-            catch
-            {
-                DestroyUnityObject(createdMesh);
-                throw;
-            }
-        }
-
-        private void SetGroupMeshEdgesVisible(
-            Dictionary<Vector2Int, Group> groups,
-            bool visible)
-        {
-            foreach (var group in groups.Values)
-            {
-                foreach (var tile in group.tiles.Values)
-                {
-                    SetTileMeshEdgesVisible(tile, visible);
-                }
-            }
-        }
-
-        private static Mesh CreateForestMesh(IslandPreparedMesh source, string name)
-        {
-            var mesh = IslandMeshInterop.CreateGeneratedMesh(source);
-            mesh.name = name;
-            return mesh;
-        }
-
-        private void RemoveLod0GroupsOwnedBy(Vector2Int parent)
-        {
-            // Gather keys before removing children from the live dictionary.
-            childRemovalScratch.Clear();
-            foreach (var key in lod0Groups.Keys)
-            {
-                if (key.x / Lod2TilePerLod1Region == parent.x
-                    && key.y / Lod2TilePerLod1Region == parent.y)
-                {
-                    childRemovalScratch.Add(key);
-                }
-            }
-            foreach (var key in childRemovalScratch)
-            {
-                SetLod1TileActive(key, true);
-                DestroyGroup(lod0Groups[key]);
-                lod0Groups.Remove(key);
-            }
-        }
-
-        private void SetLod2TileActive(Vector2Int key, bool active)
-        {
-            if (lod2Tiles.TryGetValue(key, out var tile))
-            {
-                tile.SetActive(active);
-            }
-        }
-
-        private void SetLod1TileActive(Vector2Int key, bool active)
-        {
-            var parent = new Vector2Int(
-                key.x / Lod2TilePerLod1Region,
-                key.y / Lod2TilePerLod1Region);
-            if (lod1Groups.TryGetValue(parent, out var group)
-                && group.tiles.TryGetValue(key, out var tile))
-            {
-                tile.SetActive(active);
-            }
-        }
-
-        private static List<Vector2Int> NeighbourKeys(Vector2Int center, int resolution)
-        {
-            var result = new List<Vector2Int>(9);
-            var minimumX = Mathf.Max(center.x - NearbyRadius, 0);
-            var maximumX = Mathf.Min(center.x + NearbyRadius, resolution - 1);
-            var minimumY = Mathf.Max(center.y - NearbyRadius, 0);
-            var maximumY = Mathf.Min(center.y + NearbyRadius, resolution - 1);
-            for (var y = minimumY; y <= maximumY; y++)
-            {
-                for (var x = minimumX; x <= maximumX; x++)
-                {
-                    result.Add(new Vector2Int(x, y));
-                }
-            }
-            return result;
-        }
-
-        private static bool NeighborhoodMatches(
-            Dictionary<Vector2Int, Group> groups, Vector2Int center, int resolution)
-        {
-            var minimumX = Mathf.Max(center.x - NearbyRadius, 0);
-            var maximumX = Mathf.Min(center.x + NearbyRadius, resolution - 1);
-            var minimumY = Mathf.Max(center.y - NearbyRadius, 0);
-            var maximumY = Mathf.Min(center.y + NearbyRadius, resolution - 1);
-            if (groups.Count != (maximumX - minimumX + 1) * (maximumY - minimumY + 1))
-                return false;
-            for (var y = minimumY; y <= maximumY; y++)
-                for (var x = minimumX; x <= maximumX; x++)
-                    if (!groups.ContainsKey(new Vector2Int(x, y))) return false;
-            return true;
-        }
-
-        private static void DestroyGroup(Group group)
-        {
-            if (group == null)
-            {
-                return;
-            }
-            // Destroy is deferred in play mode. Hide retired geometry now so it
-            // cannot render alongside an activated replacement for one frame.
-            group.foliageRoot?.SetActive(false);
-            group.woodRoot?.SetActive(false);
-            group.colliderRoot?.SetActive(false);
-            foreach (var tile in group.tiles.Values)
-            {
-                DestroyTile(tile);
-            }
-            DestroyUnityObject(group.foliageRoot);
-            DestroyUnityObject(group.woodRoot);
-            DestroyUnityObject(group.colliderRoot);
-        }
-
-        private static void DestroyTile(Tile tile)
-        {
-            if (tile == null)
-            {
-                return;
-            }
-            DestroyUnityObject(tile.foliageObject);
-            DestroyUnityObject(tile.woodObject);
-            DestroyUnityObject(tile.foliageEdgeMesh);
-            DestroyUnityObject(tile.woodEdgeMesh);
-            DestroyUnityObject(tile.foliageMesh);
-            DestroyUnityObject(tile.woodMesh);
-        }
-
     }
 }

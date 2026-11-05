@@ -26,10 +26,6 @@ namespace Motu.Streaming
             new ProfilerMarker("Motu.TerrainStreaming.LOD1");
         private static readonly ProfilerMarker Lod0TransitionMarker =
             new ProfilerMarker("Motu.TerrainStreaming.LOD0");
-        private static readonly ProfilerMarker ForestLod1TransitionMarker =
-            new ProfilerMarker("Motu.TerrainStreaming.ForestLOD1");
-        private static readonly ProfilerMarker ForestLod0TransitionMarker =
-            new ProfilerMarker("Motu.TerrainStreaming.ForestLOD0");
         private static readonly ProfilerMarker ReedTransitionMarker =
             new ProfilerMarker("Motu.TerrainStreaming.Reeds");
         private static readonly ProfilerMarker FernTransitionMarker =
@@ -151,10 +147,6 @@ namespace Motu.Streaming
         internal Material terrainLod1Material;
         internal Material terrainLod2Material;
         private Material grassMaterial;
-        private Material treeWoodMaterial;
-        private Material treeLod1WoodMaterial;
-        private Material treeFoliageMaterial;
-        private Material treeLod0FoliageMaterial;
         private Material reedMaterial;
         private Material fernMaterial;
         private MaterialPropertyBlock lod0MaterialProperties;
@@ -194,9 +186,9 @@ namespace Motu.Streaming
         internal int Lod0GroupCount => lod0Groups.Count;
         internal int TerrainColliderCount => colliderTiles.Count;
         internal bool HasCurrentCollider => colliderTiles.Count != 0;
-        internal int ForestLod2TileCount => forestStreamer?.ActiveLod2TileCount ?? 0;
-        internal int ForestLod1GroupCount => forestStreamer?.Lod1GroupCount ?? 0;
-        internal int ForestLod0GroupCount => forestStreamer?.Lod0GroupCount ?? 0;
+        internal int ForestColliderTileCount => forestStreamer?.ColliderTileCount ?? 0;
+        internal int ForestTrunkColliderCount => forestStreamer?.ActiveTrunkColliderCount ?? 0;
+        internal int ForestLogColliderCount => forestStreamer?.ActiveLogColliderCount ?? 0;
         internal byte Lod1ClampSidesAt(Vector2Int key) => lod1Groups[key].clampSides;
         internal byte Lod0ClampSidesAt(Vector2Int key) => lod0Groups[key].clampSides;
 
@@ -214,10 +206,7 @@ namespace Motu.Streaming
             Material sharedTerrainLod2Material,
             Material sharedGrassMaterial,
             Material sharedRockMaterial,
-            Material sharedTreeWoodMaterial,
-            Material sharedTreeLod1WoodMaterial,
-            Material sharedTreeFoliageMaterial,
-            Material sharedTreeLod0FoliageMaterial,
+            Material fallenLogMaterial,
             Material sharedReedMaterial,
             Material sharedFernMaterial,
             Material waterMaterial,
@@ -227,7 +216,7 @@ namespace Motu.Streaming
             IslandPreparedMesh[] riverTiles,
             IslandPreparedMesh[] riverRockTiles,
             IslandPreparedForestData preparedForest,
-            IslandPreparedMesh[] preparedReedTiles,
+            IslandPreparedReedTile[] preparedReedTiles,
             IslandPreparedMesh[] preparedFernTiles,
             IslandPreparedWaterfallFoot[] waterfallFeet,
             IslandPreparedColliderHeightMap preparedColliderHeightMap,
@@ -248,32 +237,10 @@ namespace Motu.Streaming
             terrainLod1Material = sharedTerrainLod1Material;
             terrainLod2Material = sharedTerrainLod2Material;
             grassMaterial = sharedGrassMaterial;
-            treeWoodMaterial = sharedTreeWoodMaterial;
-            treeLod1WoodMaterial = sharedTreeLod1WoodMaterial;
-            treeFoliageMaterial = sharedTreeFoliageMaterial;
-            treeLod0FoliageMaterial = sharedTreeLod0FoliageMaterial;
             reedMaterial = sharedReedMaterial;
             fernMaterial = sharedFernMaterial;
             terrainMaterial.SetFloat(GrassEnabledId, 0f);
             grassMaterial.SetFloat(GrassEnabledId, 0f);
-            if (treeFoliageMaterial != null)
-            {
-                treeFoliageMaterial.SetFloat(
-                    GrassRadiusId,
-                    grassMaterial.GetFloat(GrassRadiusId));
-                treeFoliageMaterial.SetFloat(
-                    GrassFadeWidthId,
-                    grassMaterial.GetFloat(GrassFadeWidthId));
-            }
-            if (treeLod0FoliageMaterial != null)
-            {
-                treeLod0FoliageMaterial.SetFloat(
-                    GrassRadiusId,
-                    grassMaterial.GetFloat(GrassRadiusId));
-                treeLod0FoliageMaterial.SetFloat(
-                    GrassFadeWidthId,
-                    grassMaterial.GetFloat(GrassFadeWidthId));
-            }
             grassBoundsRadius = grassMaterial.GetFloat(GrassRadiusId)
                 + grassMaterial.GetFloat(GrassHeightId);
             lod0MaterialProperties = new MaterialPropertyBlock();
@@ -330,17 +297,8 @@ namespace Motu.Streaming
             riverRockRoot.transform.SetParent(transform, false);
             riverRockRoot.SetActive(showRocks);
             forestStreamer = new ForestTileStreamer();
-            forestStreamer.Initialize(
-                transform,
-                treeFoliageMaterial,
-                treeLod0FoliageMaterial,
-                treeWoodMaterial,
-                treeLod1WoodMaterial,
-                meshEdgeMaterial,
-                preparedForest,
-                showForests,
-                (lod, key, cancellation) => ForestGridWorker.PrepareAsync(nativeOwner, worldSize, lod, key, cancellation),
-                uploadBudgetMilliseconds);
+            forestStreamer.Initialize(transform, preparedForest, showForests,
+                uploadBudgetMilliseconds, terrainMaterial.GetTexture("_CliffNoise3D"), fallenLogMaterial);
             reedStreamer = new ReedTileStreamer();
             reedStreamer.Initialize(
                 transform,
@@ -426,8 +384,6 @@ namespace Motu.Streaming
                 terrainMaterial.SetFloat(GrassEnabledId, grassVisible ? 1f : 0f);
                 grassMaterial.SetVector(GrassPlayerPositionId, worldPosition);
                 grassMaterial.SetFloat(GrassEnabledId, grassVisible ? 1f : 0f);
-                treeFoliageMaterial?.SetVector(GrassPlayerPositionId, worldPosition);
-                treeLod0FoliageMaterial?.SetVector(GrassPlayerPositionId, worldPosition);
                 reedMaterial?.SetVector(GrassPlayerPositionId, worldPosition);
                 fernMaterial?.SetVector(GrassPlayerPositionId, worldPosition);
                 requestedLod2 = LocalCell(localPosition, Lod2Resolution);
@@ -472,28 +428,12 @@ namespace Motu.Streaming
                         }
                     }
 
-                    if (targetLod2 != currentLod2
-                        || forestStreamer != null
-                        && !forestStreamer.Lod1NeighborhoodMatches(targetLod2))
+                    if (targetLod2 != currentLod2)
                     {
-                        yield return forestStreamer?.UpdateLod1NeighborhoodIncremental(
-                            targetLod2,
-                            () => targetLod2 == requestedLod2);
-                        if (targetLod2 != requestedLod2)
-                        {
-                            continue;
-                        }
-
-                        if (targetLod2 != currentLod2)
-                        {
-                            yield return UpdateLod1NeighborhoodIncremental(targetLod2);
-                            if (targetLod2 != requestedLod2)
-                            {
-                                continue;
-                            }
-                            currentLod2 = targetLod2;
-                            yield return null;
-                        }
+                        yield return UpdateLod1NeighborhoodIncremental(targetLod2);
+                        if (targetLod2 != requestedLod2) continue;
+                        currentLod2 = targetLod2;
+                        yield return null;
                     }
 
                     if (targetLod1 != currentLod1
@@ -544,8 +484,7 @@ namespace Motu.Streaming
         }
 
         private bool ForestNeighborhoodNeedsUpdate() => forestStreamer != null
-            && (!forestStreamer.Lod1NeighborhoodMatches(requestedLod2)
-                || !forestStreamer.Lod0NeighborhoodMatches(requestedLod1));
+            && !forestStreamer.Lod0NeighborhoodMatches(requestedLod1);
 
         public void ClearPlayerFocus()
         {
@@ -708,10 +647,6 @@ namespace Motu.Streaming
             preparedRiverRockTiles = null;
             preparedBoulderColliders = null;
             colliderHeightMap = null;
-            treeWoodMaterial = null;
-            treeLod1WoodMaterial = null;
-            treeFoliageMaterial = null;
-            treeLod0FoliageMaterial = null;
             reedMaterial = null;
             fernMaterial = null;
             terrainLod1Material = null;
@@ -798,11 +733,6 @@ namespace Motu.Streaming
         public void SetMeshEdgesVisible(bool visible)
         {
             meshEdgesVisible = visible;
-        }
-
-        public void SetTreeMeshEdgesVisible(bool visible)
-        {
-            forestStreamer?.SetMeshEdgesVisible(visible);
         }
 
         private void LateUpdate()

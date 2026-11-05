@@ -1,0 +1,203 @@
+{
+  "name": "PalmBark",
+  "seed": 89413,
+  "width": 1024,
+  "height": 1024,
+  "physical_tile_width_m": 1.0,
+  "physical_tile_height_m": 1.8,
+  "material": {
+    "kind": "cracked_stone",
+    "cells_x": 3,
+    "cells_y": 18,
+    "cell_jitter": 0.22,
+    "warp_amplitude": 0.06,
+    "crack_width": 0.022,
+    "shoulder_width": 0.065,
+    "crack_depth": 0.014,
+    "slab_variation": 0.003,
+    "fracture_probability": 0.12,
+    "fracture_depth": 0.005,
+    "surface_amplitude": 0.002,
+    "broad_variation": 0.003
+  },
+  "layers": [
+    {
+      "id": "palm-fibre",
+      "name": "Fine palm fibres",
+      "enabled": true,
+      "source": {
+        "kind": "ridged",
+        "frequency": 36,
+        "octaves": 3,
+        "lacunarity": 2.0,
+        "gain": 0.48,
+        "offset": [
+          0.0,
+          0.0
+        ],
+        "seed_domain": 6021,
+        "domain_warp": {
+          "amplitude": 0.18,
+          "frequency": 4,
+          "octaves": 2,
+          "lacunarity": 2.0,
+          "gain": 0.5,
+          "seed_domain": 6022
+        },
+        "cellular_jitter": 0.25
+      },
+      "remap": {
+        "input_min": -1.0,
+        "input_max": 1.0,
+        "invert": false,
+        "contrast": 1.15,
+        "bias": 0.0,
+        "clamp": true,
+        "curve": null
+      },
+      "mask": null,
+      "outputs": {
+        "height": {
+          "enabled": true,
+          "blend": {
+            "kind": "add"
+          },
+          "strength_m": 0.0015
+        },
+        "albedo": {
+          "enabled": true,
+          "blend": "overlay",
+          "strength": 0.12,
+          "colour_map": {
+            "kind": "gradient",
+            "stops": [
+              {
+                "position": 0.0,
+                "colour": {
+                  "parameter": "wood_colour",
+                  "base": [
+                    0.18,
+                    0.14,
+                    0.09
+                  ]
+                }
+              },
+              {
+                "position": 0.55,
+                "colour": {
+                  "parameter": "wood_colour",
+                  "base": [
+                    0.32,
+                    0.26,
+                    0.18
+                  ]
+                }
+              },
+              {
+                "position": 1.0,
+                "colour": {
+                  "parameter": "wood_colour",
+                  "base": [
+                    0.46,
+                    0.39,
+                    0.28
+                  ]
+                }
+              }
+            ]
+          },
+          "hue_influence": 0.0,
+          "saturation_influence": 0.0,
+          "value_influence": 0.0
+        }
+      }
+    }
+  ],
+  "normal_scale": 0.65,
+  "displacement": {
+    "minimum_m": -0.024,
+    "maximum_m": 0.012,
+    "base_m": 0.0,
+    "displacement_map": true
+  },
+  "occlusion": {
+    "directions": 12,
+    "samples": 8,
+    "radius": 0.7,
+    "max_radius": 5.0,
+    "cavity_strength": 1.1,
+    "horizon_strength": 0.7,
+    "power": 1.15,
+    "combine": {
+      "kind": "multiply"
+    }
+  },
+  "albedo": {
+    "base_color": {
+      "parameter": "wood_colour"
+    },
+    "warm_color": {
+      "parameter": "wood_colour",
+      "base": [
+        0.38,
+        0.31,
+        0.21
+      ]
+    },
+    "palette": [
+      {
+        "parameter": "wood_colour",
+        "base": [
+          0.12,
+          0.09,
+          0.055
+        ]
+      },
+      {
+        "parameter": "wood_colour",
+        "base": [
+          0.22,
+          0.17,
+          0.11
+        ]
+      },
+      {
+        "parameter": "wood_colour",
+        "base": [
+          0.34,
+          0.27,
+          0.18
+        ]
+      },
+      {
+        "parameter": "wood_colour",
+        "base": [
+          0.46,
+          0.38,
+          0.27
+        ]
+      }
+    ],
+    "variation": 0.24,
+    "crack_darkening": 0.32,
+    "shoulder_variation": 0.12,
+    "mineral_density": 0.01,
+    "mineral_brightness": 0.1,
+    "occlusion_influence": 0.12
+  },
+  "output_profiles": [
+    "separate",
+    "motu_unity_terrain"
+  ],
+  "parameters": {
+    "wood_colour": {
+      "kind": "colour",
+      "default": [
+        0.29,
+        0.23,
+        0.155
+      ],
+      "description": "Palm stem colour; preserves horizontal leaf scars and fine fibres."
+    }
+  }
+}

@@ -11,7 +11,9 @@
     clippy::cast_sign_loss
 )]
 
+pub(crate) mod hybrid;
 mod logs;
+pub use hybrid::HybridForestOptions;
 pub use logs::{FallenLogPrototype, generate_fallen_log};
 
 use std::{
@@ -44,6 +46,8 @@ pub struct ForestOptions {
     /// Fraction of standing trees near which a fallen log is attempted.
     #[serde(default = "default_fallen_log_density")]
     pub fallen_log_density: f32,
+    /// Shared broadleaf, pine and palm catalog with climate-driven species selection.
+    pub hybrid: Option<HybridForestOptions>,
 }
 
 fn default_fallen_log_density() -> f32 {
@@ -61,6 +65,7 @@ impl Default for ForestOptions {
             minimum_scale: 1.0,
             maximum_scale: 2.0,
             fallen_log_density: default_fallen_log_density(),
+            hybrid: None,
         }
     }
 }
@@ -100,6 +105,9 @@ impl ForestOptions {
         }
         if !self.fallen_log_density.is_finite() || !(0.0..=1.0).contains(&self.fallen_log_density) {
             return Err("forest fallen_log_density must be finite and between 0 and 1".into());
+        }
+        if let Some(hybrid) = self.hybrid {
+            hybrid.validate()?;
         }
         Ok(self)
     }
@@ -400,6 +408,7 @@ pub(crate) struct ForestMeshes {
     pub(crate) clusters: Vec<ForestClusterRanges>,
     pub(crate) placements: Vec<TreePlacement>,
     pub(crate) logs: Vec<logs::FallenLog>,
+    pub(crate) hybrid: Option<hybrid::HybridForest>,
 }
 
 impl ForestMeshes {
@@ -450,7 +459,7 @@ impl ForestMeshes {
         let span = Vec2::new(bounds.max.x - bounds.min.x, bounds.max.y - bounds.min.y);
         match kind {
             ForestMeshKind::Wood => {
-                for tree in &self.trees {
+                for tree in self.trees.iter().filter(|_| self.hybrid.is_none()) {
                     if !bounds.contains_xy(tree.anchor.truncate()) {
                         continue;
                     }
@@ -688,8 +697,12 @@ pub(crate) fn generate_forest_with_caves(
         select_placements(island_seed, terrain.mesh(), surface, options)?;
     placements.retain(|tree| !caves.excludes(tree.anchor * ISLAND_WORLD_METRES, 3.0));
     stats.accepted_trees = placements.len();
-    let prototypes = generate_prototypes(island_seed, options)?;
-    let mut meshes = assemble_forest(island_seed, &placements, &prototypes, terrain)?;
+    let mut meshes = if let Some(hybrid) = options.hybrid {
+        hybrid::assemble(island_seed, &mut placements, terrain, options, hybrid)?
+    } else {
+        let prototypes = generate_prototypes(island_seed, options)?;
+        assemble_forest(island_seed, &placements, &prototypes, terrain)?
+    };
     logs::append_logs(&mut meshes, island_seed, terrain, surface, options, caves)?;
     debug_assert_eq!(stats.accepted_trees, meshes.trees.len());
     Ok((meshes, stats))
@@ -2481,6 +2494,7 @@ mod tests {
                 lod1_foliage: range,
             }],
             placements: Vec::new(),
+            hybrid: None,
             logs: Vec::new(),
         };
         let bounds = BoundingBox::new(Vec3::new(0.0, 0.0, f32::MIN), Vec3::new(1.0, 1.0, f32::MAX));
@@ -2794,6 +2808,7 @@ mod tests {
             minimum_scale: 0.7,
             maximum_scale: 1.4,
             fallen_log_density: 0.3,
+            hybrid: None,
         };
         let island = Island::generate_with_forest(
             31,

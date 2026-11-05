@@ -22,7 +22,7 @@ use crate::{
 };
 
 const SNAPSHOT_MAGIC: [u8; 8] = *b"MOTUSNP\0";
-const SNAPSHOT_VERSION: u16 = 18;
+const SNAPSHOT_VERSION: u16 = 20;
 const COMPRESSION_ZSTD: u8 = 1;
 const HEADER_LENGTH: u64 = 8 + 2 + 1 + 1 + 8 + 32;
 const MAXIMUM_COMPRESSED_BYTES: u64 = 8 * 1024 * 1024 * 1024;
@@ -374,10 +374,206 @@ mod tests {
     use super::*;
 
     #[test]
+    fn shared_forest_snapshot_roundtrip_retains_catalog_placements_and_collision_proxies() {
+        for latitude_degrees in [0.0, 70.0] {
+            let forest_options = ForestOptions {
+                noise_threshold: 0.0,
+                prototype_count: 2,
+                hybrid: Some(crate::forest::HybridForestOptions {
+                    latitude_degrees,
+                    altitude_cooling: 0.0,
+                    variants_per_species: 2,
+                }),
+                ..ForestOptions::default()
+            };
+            let island = Island::shared_forest_fixture(forest_options);
+            assert!(
+                !island.forest.placements.is_empty(),
+                "fixture must contain live trees"
+            );
+            let path = temporary_path(&std::env::temp_dir().join("motu-shared-forest-snapshot"));
+            save(&island, &path).unwrap();
+            let restored = load(&path).unwrap();
+            if latitude_degrees == 0.0 {
+                assert_unsupported_catalog_is_rejected(&path, &island.forest);
+            }
+            fs::remove_file(&path).unwrap();
+            assert_eq!(restored.forest_options, forest_options);
+            assert_eq!(restored.forest, island.forest);
+            assert_eq!(restored.forest_stats, island.forest_stats);
+            assert_eq!(restored.reeds, island.reeds);
+            assert_eq!(restored.ferns, island.ferns);
+            let catalog = island.forest.hybrid.as_ref().unwrap();
+            let restored_catalog = restored.forest.hybrid.as_ref().unwrap();
+            assert!(std::sync::Arc::ptr_eq(
+                &catalog.prototypes,
+                &restored_catalog.prototypes
+            ));
+            assert_eq!(restored_catalog.prototypes.len(), 6);
+            assert_eq!(restored.forest.placements, island.forest.placements);
+            if latitude_degrees > 60.0 {
+                assert!(
+                    restored
+                        .forest
+                        .placements
+                        .iter()
+                        .all(|tree| (2..4).contains(&tree.prototype))
+                );
+            } else {
+                assert!(
+                    restored
+                        .forest
+                        .placements
+                        .iter()
+                        .any(|tree| tree.prototype < 2)
+                );
+                assert!(
+                    restored
+                        .forest
+                        .placements
+                        .iter()
+                        .any(|tree| tree.prototype >= 4)
+                );
+            }
+            let colliders = island
+                .forest
+                .trunk_colliders()
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap();
+            let restored_colliders = restored
+                .forest
+                .trunk_colliders()
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap();
+            assert!(!colliders.is_empty());
+            assert_eq!(restored_colliders, colliders);
+            assert!(restored.forest.lod0_foliage.vertices.is_empty());
+            assert_eq!(
+                restored.forest.lod1_foliage.vertices.len(),
+                colliders.len() * 5
+            );
+            println!(
+                "shared forest snapshot: latitude {latitude_degrees}, {} placements, {} colliders, six shared prototypes",
+                restored.forest.placements.len(),
+                colliders.len()
+            );
+        }
+    }
+
+    impl Island {
+        pub(crate) fn shared_forest_fixture(forest_options: ForestOptions) -> Self {
+            let vertices = (0_u16..6)
+                .flat_map(|y| {
+                    (0_u16..6).map(move |x| {
+                        crate::Vec3::new(0.3 + f32::from(x) * 0.02, 0.3 + f32::from(y) * 0.02, 0.02)
+                    })
+                })
+                .collect::<Vec<_>>();
+            let triangles = (0_u32..5)
+                .flat_map(|y| {
+                    (0_u32..5).flat_map(move |x| {
+                        let row = y * 6 + x;
+                        [row, row + 1, row + 6, row + 1, row + 7, row + 6]
+                    })
+                })
+                .collect();
+            let vertex_count = vertices.len();
+            let terrain = Terrain::new(Mesh {
+                normals: vec![crate::Vec3::Z; vertex_count],
+                uv: vertices.iter().map(|vertex| vertex.truncate()).collect(),
+                vertices,
+                triangles,
+            });
+            let (forest, forest_stats) = crate::forest::generate_forest(
+                2018,
+                &terrain,
+                crate::forest::ForestSurface {
+                    river_bed: &vec![false; vertex_count],
+                    stones: &[],
+                    reeds: &[],
+                    deposited_depths: &vec![0.001; vertex_count],
+                    sea_proximity: &vec![0.0; vertex_count],
+                },
+                forest_options,
+            )
+            .unwrap();
+            Self {
+                caves: crate::caves::CaveSet::default(),
+                seed: 2018,
+                options: IslandOptions {
+                    terrain_size: 16,
+                    ..IslandOptions::default()
+                },
+                generation_method: GenerationMethod::Cpu,
+                material: TerrainMaterialField {
+                    values: vec![crate::Vec4::ZERO; vertex_count],
+                },
+                environment: TerrainEnvironmentField {
+                    values: vec![crate::Vec2::ZERO; vertex_count],
+                },
+                coarser_lods: [terrain.mesh().clone(), terrain.mesh().clone()],
+                terrain,
+                rivers: Vec::new(),
+                distance_to_land: vec![0.0; vertex_count],
+                submerged_river_carve: vec![0.0; vertex_count],
+                river_mesh: Mesh::default(),
+                river_rock_mesh: Mesh::default(),
+                waterfall_feet: Vec::new(),
+                reeds: ReedMeshes::default(),
+                ferns: FernMeshes::default(),
+                forest,
+                forest_stats,
+                forest_options,
+                decorations: OnceLock::from(Decorations::default()),
+                #[cfg(feature = "surface-atlas")]
+                surface_atlases: super::super::surface_atlas::SurfaceAtlasCache::default(),
+            }
+        }
+    }
+
+    fn assert_unsupported_catalog_is_rejected(path: &Path, forest: &ForestMeshes) {
+        let snapshot = fs::read(path).unwrap();
+        let mut payload = zstd::stream::decode_all(&snapshot[HEADER_LENGTH as usize..]).unwrap();
+        let forest_bytes = bincode_options().serialize(forest).unwrap();
+        let forest_start = payload
+            .windows(forest_bytes.len())
+            .position(|bytes| bytes == forest_bytes)
+            .unwrap();
+        // Hybrid metadata is the final forest field: version u32, variant count u8.
+        let catalog_start = forest_start + forest_bytes.len() - 5;
+        let catalog_version = crate::forest::hybrid::CATALOG_VERSION;
+        assert_eq!(
+            &payload[catalog_start..catalog_start + 4],
+            catalog_version.to_le_bytes()
+        );
+        payload[catalog_start..catalog_start + 4]
+            .copy_from_slice(&(catalog_version + 1).to_le_bytes());
+        let compressed =
+            zstd::stream::encode_all(payload.as_slice(), ZSTD_COMPRESSION_LEVEL).unwrap();
+        let checksum: [u8; 32] = Sha256::digest(&compressed).into();
+        let mut file = File::create(path).unwrap();
+        write_header(
+            &mut file,
+            u64::try_from(compressed.len()).unwrap(),
+            checksum,
+        )
+        .unwrap();
+        file.write_all(&compressed).unwrap();
+        drop(file);
+        let error = load(path).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert!(
+            error
+                .to_string()
+                .contains("unsupported forest catalog version")
+        );
+    }
+
+    #[test]
     fn header_rejects_an_unknown_version() {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&SNAPSHOT_MAGIC);
-        bytes.extend_from_slice(&(SNAPSHOT_VERSION + 1).to_le_bytes());
+        bytes.extend_from_slice(&(SNAPSHOT_VERSION - 1).to_le_bytes());
         bytes.extend_from_slice(&[COMPRESSION_ZSTD, 0]);
         bytes.extend_from_slice(&0_u64.to_le_bytes());
         bytes.extend_from_slice(&[0_u8; 32]);
