@@ -21,6 +21,7 @@ pub(super) fn register(app: &mut App) {
 pub struct ForestUniform {
     /// Physical radius, material kind, detail range, close pine-detail toggle.
     pub shape: Vec4,
+    /// Viewer position and selected-detail boundary; zero W keeps far meshes full.
     pub viewer: Vec4,
 }
 #[derive(Asset, AsBindGroup, Clone, Debug, Default, Reflect)]
@@ -30,6 +31,9 @@ pub struct ForestExtension {
     #[texture(110, dimension = "3d")]
     #[sampler(111)]
     pub noise: Option<Handle<Image>>,
+    #[texture(112)]
+    #[sampler(113)]
+    pub palm_frond: Option<Handle<Image>>,
     #[storage(123, read_only)]
     pub environment: Handle<ShaderBuffer>,
     #[texture(126, dimension = "cube")]
@@ -59,8 +63,13 @@ pub(super) fn create_materials(
     radius: f32,
     textures: &TerrainTextures,
     materials: &mut Assets<ForestMaterial>,
-) -> [Handle<ForestMaterial>; 4] {
-    std::array::from_fn(|kind| create_material(radius, kind, textures, materials))
+    palm_frond: &Handle<Image>,
+) -> [Handle<ForestMaterial>; 5] {
+    std::array::from_fn(|kind| {
+        let handle = create_material(radius, kind.min(3), textures, materials);
+        materials.get_mut(&handle).unwrap().extension.palm_frond = Some(palm_frond.clone());
+        handle
+    })
 }
 pub(crate) fn create_material(
     radius: f32,
@@ -102,6 +111,7 @@ pub(crate) fn create_material(
                 viewer: Vec4::ZERO,
             },
             noise: Some(textures.noise.clone()),
+            palm_frond: None,
             environment: textures.environment.clone(),
             environment_sky: Some(textures.environment_sky.clone()),
             environment_shadows: Some(textures.environment_shadows.clone()),
@@ -114,9 +124,11 @@ pub(super) struct Prototype {
     pub wood: Handle<Mesh>,
     pub branches: Handle<Mesh>,
     pub leaves: Handle<Mesh>,
+    pub middle_leaves: Option<Handle<Mesh>>,
     pub shells: Option<Handle<Mesh>>,
     pub canopy: Handle<Mesh>,
     pub conifer: bool,
+    pub palm: bool,
 }
 impl Prototype {
     pub fn remove(self, meshes: &mut Assets<Mesh>) {
@@ -124,6 +136,7 @@ impl Prototype {
             Some(self.wood),
             Some(self.branches),
             Some(self.leaves),
+            self.middle_leaves,
             self.shells,
             Some(self.canopy),
         ]
@@ -142,6 +155,17 @@ pub(super) fn upload_species(
     conifer: bool,
     meshes: &mut Assets<Mesh>,
 ) -> Prototype {
+    upload_kind(source, conifer, false, meshes)
+}
+pub(super) fn upload_palm(source: motu::TreeMeshes, meshes: &mut Assets<Mesh>) -> Prototype {
+    upload_kind(source, false, true, meshes)
+}
+fn upload_kind(
+    source: motu::TreeMeshes,
+    conifer: bool,
+    palm: bool,
+    meshes: &mut Assets<Mesh>,
+) -> Prototype {
     info!(
         "Tree prototype: {} fine wood / {} branch / {} fine foliage / {} coarse foliage triangles",
         source.lod0_wood.triangles.len() / 3,
@@ -151,30 +175,49 @@ pub(super) fn upload_species(
     );
     // Needle volume borrows the fine crown; all instances share one mesh per variant.
     // Broadleaf shells keep their existing builder and separate cutout rules.
-    let shells = Some(if conifer {
-        meshes.add(super::needles::crown(&source.lod0_foliage))
-    } else {
-        meshes.add(mesh(&source.lod1_foliage, true, false))
+    let shells = (!palm).then(|| {
+        if conifer {
+            meshes.add(super::needles::crown(&source.lod0_foliage))
+        } else {
+            meshes.add(mesh(&source.lod1_foliage, true, 1.0))
+        }
     });
+    let species = if palm {
+        2.0
+    } else if conifer {
+        0.0
+    } else {
+        1.0
+    };
     Prototype {
-        wood: meshes.add(mesh(&source.lod0_wood, false, conifer)),
-        branches: meshes.add(mesh(&source.lod1_wood, false, conifer)),
-        leaves: meshes.add(mesh(&source.lod0_foliage, false, conifer)),
-        canopy: meshes.add(distant_mesh(&source, conifer)),
+        wood: meshes.add(staged_mesh(&source.lod0_wood, species, palm, 0.0)),
+        branches: meshes.add(staged_mesh(&source.lod1_wood, species, palm, 1.0)),
+        leaves: meshes.add(staged_mesh(&source.lod0_foliage, species, palm, 0.0)),
+        middle_leaves: (conifer || palm)
+            .then(|| meshes.add(staged_mesh(&source.lod1_foliage, species, palm, 1.0))),
+        canopy: meshes.add(distant_mesh(&source, conifer, palm)),
         shells,
         conifer,
+        palm,
     }
 }
-fn distant_mesh(source: &motu::TreeMeshes, conifer: bool) -> Mesh {
+fn distant_mesh(source: &motu::TreeMeshes, conifer: bool, palm: bool) -> Mesh {
     let simplified;
-    let crown = if conifer {
-        &source.lod1_foliage
+    let crown = if conifer || palm {
+        &source.lod2_foliage
     } else {
         simplified = super::models::broadleaf_crown(&source.lod1_foliage);
         &simplified
     };
-    let mut canopy = mesh(crown, false, conifer);
-    let mut trunk = mesh(&source.lod2_wood, false, conifer);
+    let species = if palm {
+        2.0
+    } else if conifer {
+        0.0
+    } else {
+        1.0
+    };
+    let mut canopy = staged_mesh(crown, species, palm, 2.0);
+    let mut trunk = staged_mesh(&source.lod2_wood, species, palm, 2.0);
     let Some(VertexAttributeValues::Float32x4(colours)) =
         trunk.attribute_mut(Mesh::ATTRIBUTE_COLOR)
     else {
@@ -190,7 +233,29 @@ fn distant_mesh(source: &motu::TreeMeshes, conifer: bool) -> Mesh {
         .expect("tree parts share their topology and vertex attributes");
     canopy
 }
-fn mesh(source: &motu::Mesh, shells: bool, conifer: bool) -> Mesh {
+fn staged_mesh(source: &motu::Mesh, species: f32, palm: bool, stage: f32) -> Mesh {
+    let mut uploaded = mesh(source, false, species);
+    if palm {
+        let Some(VertexAttributeValues::Float32x4(colours)) =
+            uploaded.attribute_mut(Mesh::ATTRIBUTE_COLOR)
+        else {
+            unreachable!("tree meshes always carry float vertex colours");
+        };
+        for colour in colours {
+            colour[3] = stage;
+        }
+        uploaded.insert_attribute(
+            Mesh::ATTRIBUTE_UV_0,
+            source
+                .uv
+                .iter()
+                .map(motu::Vec2::to_array)
+                .collect::<Vec<_>>(),
+        );
+    }
+    uploaded
+}
+fn mesh(source: &motu::Mesh, shells: bool, species: f32) -> Mesh {
     let layers = if shells { 8 } else { 1 };
     let mut positions = Vec::with_capacity(source.vertices.len() * layers);
     let mut normals = Vec::with_capacity(positions.capacity());
@@ -207,7 +272,7 @@ fn mesh(source: &motu::Mesh, shells: bool, conifer: bool) -> Mesh {
             positions
                 .push((point + normal * (0.45 * fraction / motu::ISLAND_WORLD_METRES)).to_array());
             normals.push(normal.to_array());
-            colours.push([fraction, 1.0, if conifer { 0.0 } else { 1.0 }, 1.0]);
+            colours.push([fraction, 1.0, species, 1.0]);
         }
         indices.extend(source.triangles.iter().map(|i| offset + i));
     }
@@ -246,7 +311,8 @@ mod tests {
         for variant in 0..4 {
             let model = upload_species(super::super::models::conifer(variant), true, &mut assets);
             assert!(model.shells.is_some());
-            assert_eq!(assets.len(), 5);
+            assert!(model.middle_leaves.is_some());
+            assert_eq!(assets.len(), 6);
             for (_, mesh) in assets.iter() {
                 assert!(mesh.count_vertices() > 0);
                 assert!(mesh.indices().is_some_and(|indices| indices.len() >= 3));
@@ -254,6 +320,95 @@ mod tests {
             model.remove(&mut assets);
             assert!(assets.is_empty());
         }
+    }
+
+    #[test]
+    fn palm_prototypes_keep_three_geometric_crowns_without_shells() {
+        let source = super::super::models::palm(0);
+        let far_vertices = source.lod2_foliage.vertices.len();
+        let trunk_vertices = source.lod2_wood.vertices.len();
+        let mut assets = Assets::<Mesh>::default();
+        let model = upload_palm(source, &mut assets);
+        assert!(model.palm);
+        assert!(!model.conifer);
+        assert!(model.shells.is_none());
+        assert!(model.middle_leaves.is_some());
+        assert_eq!(assets.len(), 5);
+        for handle in [
+            &model.leaves,
+            model.middle_leaves.as_ref().unwrap(),
+            &model.canopy,
+        ] {
+            let uploaded = assets.get(handle).unwrap();
+            let VertexAttributeValues::Float32x4(colours) =
+                uploaded.attribute(Mesh::ATTRIBUTE_COLOR).unwrap()
+            else {
+                panic!("missing explicit species material data");
+            };
+            assert!(
+                colours
+                    .iter()
+                    .all(|colour| (colour[2] - 2.0).abs() < f32::EPSILON)
+            );
+        }
+        for (handle, stage) in [
+            (&model.wood, 0.0),
+            (&model.leaves, 0.0),
+            (&model.branches, 1.0),
+            (model.middle_leaves.as_ref().unwrap(), 1.0),
+            (&model.canopy, 2.0),
+        ] {
+            let mesh = assets.get(handle).unwrap();
+            assert_eq!(
+                mesh.attribute(Mesh::ATTRIBUTE_UV_0).unwrap().len(),
+                mesh.count_vertices()
+            );
+            let VertexAttributeValues::Float32x4(colours) =
+                mesh.attribute(Mesh::ATTRIBUTE_COLOR).unwrap()
+            else {
+                panic!("missing stage tags")
+            };
+            assert!(colours.iter().all(|colour| colour[3] == stage));
+        }
+        assert_eq!(
+            assets.get(&model.canopy).unwrap().count_vertices(),
+            far_vertices + trunk_vertices
+        );
+        model.remove(&mut assets);
+        assert!(assets.is_empty());
+    }
+
+    #[test]
+    fn palm_materials_share_one_frond_texture_across_full_and_fading_canopies() {
+        let mut images = Assets::<Image>::default();
+        let frond = images.add(super::super::palm::image());
+        let mut materials = Assets::<ForestMaterial>::default();
+        let handles = create_materials(1000.0, &TerrainTextures::default(), &mut materials, &frond);
+        assert_eq!(materials.len(), 5);
+        assert_eq!(images.len(), 1);
+        assert!(handles.iter().all(|handle| {
+            materials.get(handle).unwrap().extension.palm_frond.as_ref() == Some(&frond)
+        }));
+        assert_eq!(
+            materials
+                .get(&handles[3])
+                .unwrap()
+                .extension
+                .settings
+                .shape
+                .y,
+            3.0
+        );
+        assert_eq!(
+            materials
+                .get(&handles[4])
+                .unwrap()
+                .extension
+                .settings
+                .shape
+                .y,
+            3.0
+        );
     }
 
     #[test]

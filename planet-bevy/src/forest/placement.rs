@@ -68,16 +68,17 @@ pub(super) fn build(scene: Scene, shared: Option<Ground>, density: f32) -> Built
             continue;
         }
         let key = mix(scene.seed ^ index as u64 ^ 0x7472_6565_726f_6f74);
-        let temperature = mean_temperature(up, (point.length() - 1.0) * radius, scene.seed);
+        let height = (point.length() - 1.0) * radius;
+        let temperature = mean_temperature(up, height, scene.seed);
         let survival = ((temperature + 10.0) / 6.0).clamp(0.0, 1.0);
         if unit(mix(key ^ 0x626f_7265_616c)) > survival {
             continue;
         }
-        let conifer = unit(mix(key ^ 0x7069_6e65)) < conifer_weight(temperature);
+        let species = species_offset(unit(mix(key ^ 0x7069_6e65)), temperature, up.y, height);
         let scale = (1.0 + unit(key) * 0.60) * (0.70 + 0.30 * survival);
         let rotation =
             Quat::from_rotation_arc(Vec3::Z, up) * Quat::from_rotation_z(unit(mix(key)) * TAU);
-        let root = point - up * (0.08 / radius);
+        let root = point;
         let plant = Plant {
             root,
             transform: Transform::from_translation(root)
@@ -86,8 +87,7 @@ pub(super) fn build(scene: Scene, shared: Option<Ground>, density: f32) -> Built
             owner: locator
                 .owner(DVec3::from_array(up.to_array().map(f64::from)))
                 .unwrap(),
-            variant: (mix(key ^ 0x0013) % VARIANTS as u64) as usize
-                + if conifer { VARIANTS } else { 0 },
+            variant: (mix(key ^ 0x0013) % VARIANTS as u64) as usize + species * VARIANTS,
         };
         accepted += 1;
         if plants.len() < MAX_TREES {
@@ -104,6 +104,8 @@ pub(super) fn build(scene: Scene, shared: Option<Ground>, density: f32) -> Built
         .map(motu::generate_tree)
         .collect();
     prototypes.extend((0..VARIANTS).map(super::models::conifer));
+    prototypes.extend((0..VARIANTS).map(super::models::palm));
+    fit_roots(&mut plants, &prototypes, &ground, &scene);
     let upper = 1.0 + scene.terrain.elevations.iter().copied().fold(0.0, f64::max) as f32;
     let occluder = 1.0 + scene.terrain.elevations.iter().copied().fold(0.0, f64::min) as f32;
     let pixels = super::mask::build(&plants, radius);
@@ -117,6 +119,71 @@ pub(super) fn build(scene: Scene, shared: Option<Ground>, density: f32) -> Built
         occluder,
         pixels,
     }
+}
+
+fn fit_roots(
+    plants: &mut [Plant],
+    prototypes: &[motu::TreeMeshes],
+    ground: &Ground,
+    scene: &Scene,
+) {
+    let radius = scene.terrain.topology.radius as f32;
+    let original = scene.bed == BedView::Original;
+    // Cache each shared base rim once; fitting only retained trees bounds terrain queries.
+    let rims: Vec<_> = prototypes.iter().map(base_rim).collect();
+    for plant in plants {
+        plant.root = fitted_root(
+            plant.root,
+            plant.transform.rotation,
+            plant.transform.scale.x,
+            &rims[plant.variant],
+            radius,
+            |up| {
+                ground
+                    .forest_sample(&scene.terrain, up, original)
+                    .map(|s| s.0)
+            },
+        );
+        plant.transform.translation = plant.root;
+    }
+}
+
+fn base_rim(tree: &motu::TreeMeshes) -> Vec<Vec3> {
+    let mut rim = Vec::new();
+    for point in tree
+        .lod0_wood
+        .vertices
+        .iter()
+        .chain(&tree.lod1_wood.vertices)
+        .chain(&tree.lod2_wood.vertices)
+        .filter(|p| p.z.abs() <= f32::EPSILON)
+    {
+        let point = Vec3::from_array(point.to_array());
+        if !rim.contains(&point) {
+            rim.push(point);
+        }
+    }
+    rim
+}
+
+fn fitted_root(
+    point: Vec3,
+    rotation: Quat,
+    scale: f32,
+    rim: &[Vec3],
+    radius: f32,
+    sample: impl Fn(Vec3) -> Option<Vec3>,
+) -> Vec3 {
+    let up = point.normalize();
+    let centre_height = sample(up).unwrap_or(point).dot(up);
+    let lowest = rim
+        .iter()
+        .filter_map(|p| {
+            let offset = rotation * (*p * scale);
+            sample((point + offset).normalize()).map(|ground| (ground - offset).dot(up))
+        })
+        .fold(centre_height, f32::min);
+    up * (lowest - 0.08 / radius)
 }
 
 fn suitable(point: Vec3, normal: Vec3, material: [f32; 4], radius: f32) -> bool {
@@ -136,6 +203,29 @@ pub(crate) fn mean_temperature(up: Vec3, height: f32, seed: u64) -> f32 {
 pub(super) fn conifer_weight(temperature: f32) -> f32 {
     let cold = ((12.0 - temperature) / 10.0).clamp(0.0, 1.0);
     cold * cold * (3.0 - 2.0 * cold)
+}
+
+fn palm_weight(temperature: f32, latitude_sine: f32, height: f32) -> f32 {
+    let warmth = smooth_unit((temperature - 12.0) / 8.0);
+    let lowland = 1.0 - smooth_unit((height - 40.0) / 120.0);
+    let tropical = 1.0 - smooth_unit((latitude_sine * latitude_sine - 0.08) / 0.42);
+    0.72 * warmth * lowland * tropical
+}
+
+fn species_offset(choice: f32, temperature: f32, latitude_sine: f32, height: f32) -> usize {
+    let conifer = conifer_weight(temperature);
+    if choice < conifer {
+        1
+    } else if choice < conifer + (1.0 - conifer) * palm_weight(temperature, latitude_sine, height) {
+        2
+    } else {
+        0
+    }
+}
+
+fn smooth_unit(value: f32) -> f32 {
+    let value = value.clamp(0.0, 1.0);
+    value * value * (3.0 - 2.0 * value)
 }
 
 fn candidate(index: usize, count: usize, seed: u64) -> Vec3 {
@@ -188,6 +278,62 @@ pub(super) fn coverage(point: Vec3, seed: u64) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn all_species_roots_bury_the_complete_shared_rim_on_radial_slopes() {
+        for tree in [
+            motu::generate_tree(2018),
+            motu::generate_conifer(0),
+            motu::generate_palm(0),
+        ] {
+            let rim = base_rim(&tree);
+            assert!(!rim.is_empty());
+            for up in [Vec3::Y, -Vec3::Y, Vec3::X] {
+                let point = up * 1.02;
+                let tangent = up.any_orthonormal_vector();
+                for slope in [-0.4, 0.0, 0.4] {
+                    let normal = (up - tangent * slope).normalize();
+                    let sample =
+                        |probe: Vec3| Some(probe * (normal.dot(point) / normal.dot(probe)));
+                    for scale in [0.7, 1.0, 2.0] {
+                        let scale = scale * motu::ISLAND_WORLD_METRES / 1000.0;
+                        let rotation =
+                            Quat::from_rotation_arc(Vec3::Z, up) * Quat::from_rotation_z(0.9);
+                        let root = fitted_root(point, rotation, scale, &rim, 1000.0, sample);
+                        for p in &rim {
+                            let placed = root + rotation * (*p * scale);
+                            assert!(normal.dot(placed) < normal.dot(point));
+                        }
+                        assert!(
+                            root.distance(fitted_root(root, rotation, scale, &rim, 1000.0, sample))
+                                < 1e-6
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn palms_have_a_smooth_mixed_warm_lowland_range_and_no_cold_or_high_range() {
+        assert_eq!(palm_weight(20.0, 0.0, 0.0), 0.72);
+        assert!(palm_weight(18.0, 0.0, 20.0) > palm_weight(16.0, 0.0, 20.0));
+        assert!(palm_weight(20.0, 0.0, 60.0) > palm_weight(20.0, 0.0, 100.0));
+        for latitude in [-1.0, -0.8, 0.8, 1.0] {
+            assert_eq!(palm_weight(20.0, latitude, 20.0), 0.0);
+        }
+        assert_eq!(palm_weight(12.0, 0.0, 20.0), 0.0);
+        assert_eq!(palm_weight(20.0, 0.0, 160.0), 0.0);
+        let mut counts = [0; 3];
+        for i in 0..1000 {
+            counts[species_offset(i as f32 / 1000.0, 20.0, 0.0, 20.0)] += 1;
+            assert_ne!(species_offset(i as f32 / 1000.0, 0.0, 0.0, 20.0), 2);
+            assert_ne!(species_offset(i as f32 / 1000.0, 20.0, 0.0, 180.0), 2);
+        }
+        assert_eq!(counts, [280, 0, 720]);
+        assert_eq!(species_offset(0.5, 0.0, 0.0, 20.0), 1);
+        assert_eq!(palm_weight(20.0, 0.4, 20.0), palm_weight(20.0, -0.4, 20.0));
+    }
 
     #[test]
     fn cold_biomes_follow_latitude_and_elevation_with_a_mixed_transition() {

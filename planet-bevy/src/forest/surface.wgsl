@@ -2,7 +2,7 @@
     view_transformations::position_world_to_clip,
     pbr_fragment::pbr_input_from_standard_material,
     pbr_functions::{apply_pbr_lighting,main_pass_post_lighting_processing}}
-#import planet_bevy::forest::{forest,tree_wind,tree_clip,undergrowth_clip,tree_noise,reed_head,pine_clip}
+#import planet_bevy::forest::{forest,tree_wind,tree_clip,palm_lod_clip,palm_frond_clip,undergrowth_clip,tree_noise,reed_head,pine_clip}
 #import bevy_pbr::mesh_view_bindings::view
 #import planet_bevy::environment_material::{material_cloud_light,material_ambient_weight,material_twilight_tint}
 @vertex fn vertex(input:Vertex)->VertexOutput {
@@ -29,9 +29,11 @@
 @fragment fn fragment(input:VertexOutput,@builtin(front_facing) front:bool)->FragmentOutput {
     let root=mesh_functions::get_world_from_local(input.instance_index)[3].xyz;
     tree_clip(input.world_position.xyz,root,input.color.r,input.color.b);
+    palm_lod_clip(root,input.color,input.position.xy);
 #ifdef VERTEX_UVS_A
     undergrowth_clip(input.world_position.xyz,root,input.uv,input.color);
     pine_clip(input.world_position.xyz,input.uv,input.color);
+    palm_frond_clip(input.uv,input.color);
 #endif
     let p=input.world_position.xyz*forest.shape.x;
     let broad=tree_noise(p/24.0);
@@ -92,6 +94,11 @@
         let tangent=p-up*height*0.96;
         let bark=tree_noise(tangent/0.8);
         colour=mix(vec3<f32>(0.021,0.011,0.006),vec3<f32>(0.10,0.061,0.027),bark.r)*mix(0.75,1.15,detail.g);
+    } else if input.color.b>1.5 {
+        // Fine leaflets and cutout ribbons share the same restrained green palette.
+        colour=mix(vec3<f32>(0.028,0.092,0.012),vec3<f32>(0.055,0.155,0.023),input.color.r)*mix(0.97,1.03,detail.g);
+        pbr.material.diffuse_transmission=0.0;
+        pbr.material.thickness=0.0;
     } else {
         let light=clamp(0.25+broad.g*0.55+detail.r*0.20,0.0,1.0);
         colour=mix(vec3<f32>(0.008,0.038,0.006),vec3<f32>(0.064,0.196,0.022),light);

@@ -1,7 +1,7 @@
 #import bevy_pbr::{prepass_io::{Vertex,VertexOutput,FragmentOutput},mesh_functions,
     mesh_view_bindings::view,view_transformations::position_world_to_clip,
     pbr_prepass_functions::calculate_motion_vector}
-#import planet_bevy::forest::{tree_wind,tree_clip,undergrowth_clip,pine_clip}
+#import planet_bevy::forest::{tree_wind,tree_clip,palm_lod_clip,palm_frond_clip,undergrowth_clip,pine_clip}
 @vertex fn vertex(input:Vertex)->VertexOutput {
     var out:VertexOutput;
     let transform=mesh_functions::get_world_from_local(input.instance_index);
@@ -36,9 +36,11 @@
 @fragment fn fragment(input:VertexOutput)->FragmentOutput {
     let root=mesh_functions::get_world_from_local(input.instance_index)[3].xyz;
     tree_clip(input.world_position.xyz,root,input.color.r,input.color.b);
+    palm_lod_clip(root,input.color,input.position.xy);
 #ifdef VERTEX_UVS_A
     undergrowth_clip(input.world_position.xyz,root,input.uv,input.color);
     pine_clip(input.world_position.xyz,input.uv,input.color);
+    palm_frond_clip(input.uv,input.color);
 #endif
     var out:FragmentOutput;
 #ifdef NORMAL_PREPASS
@@ -56,9 +58,11 @@
 @fragment fn fragment(input:VertexOutput) {
     let root=mesh_functions::get_world_from_local(input.instance_index)[3].xyz;
     tree_clip(input.world_position.xyz,root,input.color.r,input.color.b);
+    palm_lod_clip(root,input.color,input.position.xy);
 #ifdef VERTEX_UVS_A
     undergrowth_clip(input.world_position.xyz,root,input.uv,input.color);
     pine_clip(input.world_position.xyz,input.uv,input.color);
+    palm_frond_clip(input.uv,input.color);
 #endif
 }
 #endif

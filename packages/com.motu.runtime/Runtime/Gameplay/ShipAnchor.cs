@@ -18,11 +18,11 @@ namespace Motu.Gameplay
         [Min(.1f)] [SerializeField] private float maximumCatchDepthMetres = 10f;
         [Tooltip("Rode angle from vertical when fully extended. 45 degrees leaves horizontal swing room equal to the bow-to-bottom drop.")]
         [Range(5f, 80f)] [SerializeField] private float rodeAngleDegrees = 45f;
-        [Tooltip("Gentle downwind acceleration at 9 m/s wind, with sails furled. Existing momentum is retained.")]
+        [Tooltip("Hull windage acceleration at 9 m/s relative wind, with any sail setting including irons. Existing momentum is retained.")]
         [Min(0f)] [SerializeField] private float windDriftAcceleration = .04f;
         [Tooltip("Maximum windage acceleration even in a storm, in m/s squared.")]
         [Min(0f)] [SerializeField] private float maximumWindAcceleration = .2f;
-        [Tooltip("Maximum assisted yaw rate at 9 m/s wind towards the wind's source while furled, including while the rode is slack or dragging. Scales linearly with wind speed; zero disables assistance.")]
+        [Tooltip("Maximum assisted yaw rate at 9 m/s wind towards the wind's source after the seabed catch first takes load. Temporary wave slack does not stop turning. Scales linearly with wind speed; zero disables assistance.")]
         [Min(0f)] [SerializeField] private float windwardTurnRateDegrees = 3f;
         [Min(.1f)] [SerializeField] private float windwardTurnResponseSeconds = 4f;
         [Tooltip("Fallback mean sea level when no ocean is assigned to the ship's buoyancy.")]
@@ -41,6 +41,7 @@ namespace Motu.Gameplay
         public bool IsDeployed { get; private set; }
         public bool IsHolding => rode != null;
         public bool IsTaut { get; private set; }
+        public bool HasBitten => IsHolding && tensionReported;
         public Vector3 DeploymentPosition { get; private set; }
         public Vector3 AnchorPosition { get; private set; }
         public float RodeLengthMetres { get; private set; }
@@ -90,23 +91,35 @@ namespace Motu.Gameplay
 
         internal void Simulate(Vector3 windVelocity)
         {
-            if (!IsDeployed || !isActiveAndEnabled || body == null || body.isKinematic) return;
-            if (!IsHolding) TryCatch();
-            UpdateTension();
+            if (!isActiveAndEnabled || body == null || body.isKinematic) return;
+            if (IsDeployed)
+            {
+                if (!IsHolding) TryCatch();
+                UpdateTension();
+            }
             // Windage acts behind the bow attachment. Rode tension then turns
             // the bow upwind through normal rigidbody torque, leaving yaw free.
             windVelocity.y = 0f;
             if (windVelocity.sqrMagnitude <= .0001f) return;
-            var flow = windVelocity - Vector3.ProjectOnPlane(body.linearVelocity, Vector3.up);
+            if (buoyancy != null && buoyancy.isActiveAndEnabled && buoyancy.SubmergedFraction <= .05f) return;
+            var direction = windVelocity.normalized;
+            var bow = Vector3.ProjectOnPlane(BowWorldPosition - body.worldCenterOfMass, Vector3.up).normalized;
+            // Match the sailing model's unboosted forward-speed convention.
+            // Windage is independent of sheet tension, so irons still drifts.
+            float multiplier = buoyancy != null ? buoyancy.ForwardSpeedMultiplier : 1f;
+            var velocity = body.linearVelocity - bow * (Vector3.Dot(body.linearVelocity, bow) * (1f - 1f / multiplier));
+            float relativeSpeed = Mathf.Max(0f, windVelocity.magnitude - Vector3.Dot(velocity, direction));
             float acceleration = Mathf.Min(Mathf.Max(0f, maximumWindAcceleration),
-                Mathf.Max(0f, windDriftAcceleration) * flow.sqrMagnitude / 81f);
-            body.AddForce(flow.normalized * (body.mass * acceleration), ForceMode.Force);
+                Mathf.Max(0f, windDriftAcceleration) * relativeSpeed * relativeSpeed / 81f);
+            body.AddForce(direction * (body.mass * acceleration), ForceMode.Force);
             TurnBowIntoWind(windVelocity);
         }
 
         private void TurnBowIntoWind(Vector3 windVelocity)
         {
-            if (windwardTurnRateDegrees <= 0f) return;
+            // First real tension establishes the bite for this deployment.
+            // Waves may slacken the same caught rode without releasing the anchor.
+            if (!HasBitten || windwardTurnRateDegrees <= 0f) return;
             var bowDirection = Vector3.ProjectOnPlane(BowWorldPosition - body.worldCenterOfMass, Vector3.up).normalized;
             if (bowDirection.sqrMagnitude < .5f) return;
             // Weather direction is where air travels. Aim at its source, using

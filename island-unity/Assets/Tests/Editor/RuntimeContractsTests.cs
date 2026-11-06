@@ -106,6 +106,7 @@ namespace Motu.Editor
         {
             var host = new GameObject("Vegetation ownership fixture");
             var material = new Material(Shader.Find("Motu/Forest Ferns"));
+            var reedMaterial = new Material(Shader.Find("Motu/Riverbank Reeds"));
             using var reeds = new ReedTileStreamer();
             using var ferns = new FernTileStreamer();
             try
@@ -114,31 +115,42 @@ namespace Motu.Editor
                     new[] { Vector3.up, Vector3.up, Vector3.up }, new[] { 0, 1, 2 },
                     Array.Empty<Vector2>(), Array.Empty<Color>(), Array.Empty<Vector2>());
                 var prepared = Enumerable.Repeat(triangle, 64 * 64).ToArray();
-                reeds.Initialize(host.transform, material, prepared, true);
+                var reedTile = new IslandPreparedReedTile(new[]
+                {
+                    new IslandPreparedReedPlacement(Vector3.zero, Vector3.up, 2f, .2f, Vector4.zero),
+                });
+                reeds.Initialize(host.transform, reedMaterial,
+                    Enumerable.Repeat(reedTile, ReedTileStreamer.TileCount).ToArray(), true);
                 ferns.Initialize(host.transform, material, prepared, true);
                 reeds.UpdateLod0Neighborhood(new Vector2Int(31, 32));
                 ferns.UpdateLod0Neighborhood(new Vector2Int(31, 32));
                 Assert.AreEqual(9, reeds.ActiveTileCount);
+                Assert.AreEqual(9, reeds.ActiveInstanceCount);
                 Assert.AreEqual(9, ferns.ActiveTileCount);
+                var reedMesh = reeds.SharedMesh;
                 var before = host.GetComponentsInChildren<MeshFilter>().Select(value => value.sharedMesh).ToArray();
                 reeds.UpdateLod0Neighborhood(new Vector2Int(32, 32));
                 ferns.UpdateLod0Neighborhood(new Vector2Int(32, 32));
                 var after = host.GetComponentsInChildren<MeshFilter>().Select(value => value.sharedMesh).ToArray();
-                Assert.AreEqual(12, before.Intersect(after).Count(), "Six tiles per species should be retained.");
+                Assert.AreEqual(6, before.Intersect(after).Count(), "Six fern tile meshes should be retained.");
+                Assert.AreSame(reedMesh, reeds.SharedMesh, "Reed neighborhoods share one clump mesh.");
+                Assert.AreEqual(9, reeds.ActiveInstanceCount);
                 var interrupted = reeds.UpdateLod0NeighborhoodIncremental(new Vector2Int(50, 50), () => false);
                 Assert.IsTrue(interrupted.MoveNext());
                 Assert.IsFalse(interrupted.MoveNext());
                 reeds.UpdateLod0Neighborhood(Vector2Int.zero);
                 ferns.UpdateLod0Neighborhood(Vector2Int.zero);
                 Assert.AreEqual(4, reeds.ActiveTileCount);
+                Assert.AreEqual(4, reeds.ActiveInstanceCount);
                 Assert.AreEqual(4, ferns.ActiveTileCount);
                 reeds.Dispose();
                 ferns.Dispose();
                 Assert.IsEmpty(host.GetComponentsInChildren<MeshFilter>());
                 Assert.IsTrue(after.All(mesh => mesh == null), "Disposal leaked uploaded meshes.");
-                Assert.IsTrue(material != null, "A tile disposed its borrowed material.");
+                Assert.IsNull(reeds.SharedMesh);
+                Assert.IsTrue(material != null && reedMaterial != null, "A tile disposed its borrowed material.");
             }
-            finally { Object.DestroyImmediate(host); Object.DestroyImmediate(material); }
+            finally { Object.DestroyImmediate(host); Object.DestroyImmediate(material); Object.DestroyImmediate(reedMaterial); }
         }
 
         [UnityTest, Timeout(600000), Category("NativeIntegration")]

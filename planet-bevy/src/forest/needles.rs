@@ -5,62 +5,61 @@ use bevy::{
     mesh::{Indices, PrimitiveTopology},
     prelude::*,
 };
-use motu::{Mesh as SourceMesh, Vec3 as Point};
-use std::f32::consts::{PI, TAU};
+use motu::Mesh as SourceMesh;
+#[cfg(test)]
+use motu::Vec3 as Point;
 
+#[cfg(test)]
 pub(super) const LAYERS: usize = 4;
+#[cfg(test)]
 pub(super) const LENGTH: f32 = 0.12;
 
 /// Borrow one fine crown; geometry and stable physical UVs are shared by every
 /// instance of that variant. Fibres lean out and down along the branches.
 pub(super) fn crown(source: &SourceMesh) -> Mesh {
-    let mut points = Vec::new();
-    let mut normals = Vec::new();
-    let mut uv = Vec::new();
-    let mut data = Vec::new();
-    let mut indices = Vec::new();
-    for layer in 1..=LAYERS {
-        let fraction = layer as f32 / LAYERS as f32;
-        for face in source.triangles.chunks_exact(3) {
-            let vertices: [Point; 3] = std::array::from_fn(|i| source.vertices[face[i] as usize]);
-            let angles = vertices.map(|p| p.y.atan2(p.x));
-            let wrap = angles.iter().copied().fold(f32::NEG_INFINITY, f32::max)
-                - angles.iter().copied().fold(f32::INFINITY, f32::min)
-                > PI;
-            let whorl = (face[0] as usize / 27) * 27;
-            let radius = source.vertices[whorl + 9].truncate().length() * motu::ISLAND_WORLD_METRES;
-            for (index, &id) in face.iter().enumerate() {
-                let point = source.vertices[id as usize];
-                let normal = source.normals[id as usize];
-                let angle = angles[index]
-                    + if wrap && angles[index] < 0.0 {
-                        TAU
-                    } else {
-                        0.0
-                    };
-                indices.push(points.len() as u32);
-                points.push(
-                    (point
-                        + needle_direction(point, normal)
-                            * (fraction * LENGTH / motu::ISLAND_WORLD_METRES))
-                        .to_array(),
-                );
-                normals.push(normal.to_array());
-                uv.push([angle * radius, point.z * motu::ISLAND_WORLD_METRES]);
-                data.push([fraction, 1.0, 0.0, 0.0]);
-            }
-        }
-    }
+    let shells = motu::tree_shells(source, true);
     Mesh::new(
         PrimitiveTopology::TriangleList,
         RenderAssetUsages::RENDER_WORLD,
     )
-    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, points)
-    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
-    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uv)
-    .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, data)
-    .with_inserted_indices(Indices::U32(indices))
+    .with_inserted_attribute(
+        Mesh::ATTRIBUTE_POSITION,
+        shells
+            .mesh
+            .vertices
+            .iter()
+            .map(motu::Vec3::to_array)
+            .collect::<Vec<_>>(),
+    )
+    .with_inserted_attribute(
+        Mesh::ATTRIBUTE_NORMAL,
+        shells
+            .mesh
+            .normals
+            .iter()
+            .map(motu::Vec3::to_array)
+            .collect::<Vec<_>>(),
+    )
+    .with_inserted_attribute(
+        Mesh::ATTRIBUTE_UV_0,
+        shells
+            .mesh
+            .uv
+            .iter()
+            .map(motu::Vec2::to_array)
+            .collect::<Vec<_>>(),
+    )
+    .with_inserted_attribute(
+        Mesh::ATTRIBUTE_COLOR,
+        shells
+            .layers
+            .iter()
+            .map(|&layer| [layer, 1.0, 0.0, 0.0])
+            .collect::<Vec<_>>(),
+    )
+    .with_inserted_indices(Indices::U32(shells.mesh.triangles))
 }
+#[cfg(test)]
 fn needle_direction(point: Point, normal: Point) -> Point {
     let radial = Point::new(point.x, point.y, 0.0).normalize_or_zero();
     // Follow the branch instead of projecting straight out from the crown.
@@ -75,7 +74,7 @@ mod tests {
         for variant in 0..4 {
             let tree = super::super::models::conifer(variant);
             let detail = crown(&tree.lod0_foliage);
-            assert_eq!(detail.indices().unwrap().len() / 3, 1152);
+            assert_eq!(detail.indices().unwrap().len() / 3, 3072);
             let points = detail
                 .attribute(Mesh::ATTRIBUTE_POSITION)
                 .unwrap()

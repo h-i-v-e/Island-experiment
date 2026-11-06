@@ -4,6 +4,7 @@ pub(crate) mod mask;
 mod material;
 mod models;
 mod needles;
+mod palm;
 mod placement;
 pub(crate) use placement::{mean_temperature, noise};
 pub(crate) mod undergrowth;
@@ -71,6 +72,7 @@ struct Group {
 struct NearTree {
     entities: [Entity; 2],
     shell: Option<Entity>,
+    palm_transition: Option<[Entity; 2]>,
     fine_wood: bool,
     shells: bool,
 }
@@ -84,7 +86,8 @@ pub struct Forests {
     plants: Vec<Plant>,
     pub(crate) undergrowth: undergrowth::World,
     prototypes: Vec<Prototype>,
-    materials: Option<[Handle<ForestMaterial>; 4]>,
+    materials: Option<[Handle<ForestMaterial>; 5]>,
+    palm_frond: Option<Handle<Image>>,
     groups: BTreeMap<u32, Group>,
     canopies: Vec<Entity>,
     uploaded: usize,
@@ -141,6 +144,7 @@ impl Forests {
         commands: &mut Commands,
         meshes: &mut Assets<Mesh>,
         materials: &mut Assets<ForestMaterial>,
+        images: &mut Assets<Image>,
     ) {
         for (_, group) in std::mem::take(&mut self.groups) {
             commands.entity(group.entity).despawn();
@@ -155,6 +159,9 @@ impl Forests {
             for handle in handles {
                 materials.remove(handle.id());
             }
+        }
+        if let Some(handle) = self.palm_frond.take() {
+            images.remove(handle.id());
         }
         self.plants.clear();
         self.pixels.clear();
@@ -173,9 +180,17 @@ impl Forests {
         self.undergrowth.hide(commands);
         for (id, tree) in self.near.drain() {
             if let Some(&canopy) = self.canopies.get(id) {
-                commands.entity(canopy).insert(Visibility::Inherited);
+                commands.entity(canopy).insert((
+                    Visibility::Inherited,
+                    MeshMaterial3d(self.materials.as_ref().unwrap()[4].clone()),
+                ));
             }
-            for entity in tree.entities.into_iter().chain(tree.shell) {
+            for entity in tree
+                .entities
+                .into_iter()
+                .chain(tree.shell)
+                .chain(tree.palm_transition.into_iter().flatten())
+            {
                 commands.entity(entity).despawn();
             }
         }
@@ -209,7 +224,7 @@ pub fn update(
     };
     let key = generation_key(&mut world, key);
     if world.key != Some(key) {
-        world.clear(&mut commands, &mut meshes, &mut materials);
+        world.clear(&mut commands, &mut meshes, &mut materials, &mut images);
         if let Some(logs) = world.undergrowth.colliders() {
             explorer.terrain_ground(&scene).set_logs(logs);
         }
@@ -277,25 +292,30 @@ pub fn update(
         world.conifers = world
             .plants
             .iter()
-            .filter(|p| p.variant >= placement::VARIANTS)
+            .filter(|p| is_conifer(p.variant))
             .count();
         world.prototypes = built
             .prototypes
             .into_iter()
             .enumerate()
             .map(|(i, p)| {
-                if i >= placement::VARIANTS {
+                if i >= placement::VARIANTS * 2 {
+                    material::upload_palm(p, &mut meshes)
+                } else if is_conifer(i) {
                     material::upload_species(p, true, &mut meshes)
                 } else {
                     material::upload(p, &mut meshes)
                 }
             })
             .collect();
+        let palm_frond = images.add(palm::image());
         world.materials = Some(material::create_materials(
             scene.terrain.topology.radius as f32,
             &textures,
             &mut materials,
+            &palm_frond,
         ));
+        world.palm_frond = Some(palm_frond);
         info!(
             "Planet forest: {} terrain-fitted trees, {} shared Unity variants",
             world.trees,
@@ -331,7 +351,7 @@ pub fn update(
         if let Some(plant) = world
             .plants
             .iter()
-            .filter(|p| !world.inspect_conifers || p.variant >= placement::VARIANTS)
+            .filter(|p| !world.inspect_conifers || is_conifer(p.variant))
             .max_by(|a, b| {
                 let score = |p: &Plant| {
                     let up = p.root.normalize();
@@ -374,12 +394,6 @@ pub fn update(
             }
         }
     }
-    if (moved || changed)
-        && let Some(handles) = &world.materials
-        && let Some(mut material) = materials.get_mut(&handles[2])
-    {
-        material.extension.settings.viewer = camera.translation.extend(0.0);
-    }
     if moved || changed || uploading {
         world.eye = Some(camera.translation);
         let eye = camera.translation;
@@ -413,9 +427,23 @@ pub fn update(
         wanted.truncate(96);
         world.wanted = wanted;
     }
-    if moved || changed || world.wanted.iter().any(|id| !world.near.contains_key(id)) {
+    if moved
+        || changed
+        || world.wanted.iter().any(|id| !world.near.contains_key(id))
+        || world
+            .near
+            .keys()
+            .any(|&id| world.prototypes[world.plants[id].variant].palm)
+    {
         update_near(&mut world, camera.translation, radius, &mut commands);
     }
+    update_palm_viewer(
+        &world,
+        camera.translation,
+        radius,
+        settings.distance,
+        &mut materials,
+    );
     world.pending = world.uploaded < world.plants.len()
         || world.wanted.iter().any(|id| !world.near.contains_key(id));
 }
@@ -472,11 +500,18 @@ fn upload_canopies(world: &mut Forests, commands: &mut Commands) {
         let canopy = commands
             .spawn((
                 Mesh3d(world.prototypes[plant.variant].canopy.clone()),
-                MeshMaterial3d(world.materials.as_ref().unwrap()[3].clone()),
+                MeshMaterial3d(
+                    world.materials.as_ref().unwrap()[if world.near.contains_key(&index) {
+                        3
+                    } else {
+                        4
+                    }]
+                    .clone(),
+                ),
                 plant.transform,
                 NotShadowCaster,
                 ChildOf(group.entity),
-                if world.near.contains_key(&index) {
+                if world.near.contains_key(&index) && !world.prototypes[plant.variant].palm {
                     Visibility::Hidden
                 } else {
                     Visibility::Inherited
@@ -489,36 +524,35 @@ fn upload_canopies(world: &mut Forests, commands: &mut Commands) {
 }
 
 fn update_near(world: &mut Forests, eye: Vec3, radius: f32, commands: &mut Commands) {
-    let wanted: HashSet<_> = world.wanted.iter().copied().collect();
-    world.near.retain(|id, tree| {
-        if wanted.contains(id) {
-            true
-        } else {
-            if let Some(&canopy) = world.canopies.get(*id) {
-                commands.entity(canopy).insert(Visibility::Inherited);
-            }
-            for entity in tree.entities.into_iter().chain(tree.shell) {
-                commands.entity(entity).despawn();
-            }
-            false
-        }
-    });
+    release_unwanted_near(world, commands);
     let mut spawned = 0;
     for (rank, &id) in world.wanted.iter().enumerate() {
         let plant = &world.plants[id];
         let model = &world.prototypes[plant.variant];
         let distance = plant.root.distance(eye) * radius;
         let fine = distance < 30.0;
-        let shells = rank < 12
+        let shells = model.shells.is_some()
+            && rank < 12
             && distance < if model.conifer { 32.0 } else { 38.0 }
+            && (!model.conifer || fine)
             && (!model.conifer || world.needle_detail);
         let wood = if fine { &model.wood } else { &model.branches };
+        let leaves = if fine || (!model.conifer && !model.palm) {
+            &model.leaves
+        } else {
+            model.middle_leaves.as_ref().unwrap_or(&model.leaves)
+        };
         if let Some(tree) = world.near.get_mut(&id) {
             if tree.fine_wood != fine {
                 tree.fine_wood = fine;
                 commands
                     .entity(tree.entities[0])
                     .insert(Mesh3d(wood.clone()));
+                if model.conifer || model.palm {
+                    commands
+                        .entity(tree.entities[1])
+                        .insert(Mesh3d(leaves.clone()));
+                }
             }
             if tree.shells != shells {
                 tree.shells = shells;
@@ -532,11 +566,18 @@ fn update_near(world: &mut Forests, eye: Vec3, radius: f32, commands: &mut Comma
             }
         } else if spawned < 4 {
             if let Some(&canopy) = world.canopies.get(id) {
-                commands.entity(canopy).insert(Visibility::Hidden);
+                commands.entity(canopy).insert((
+                    if model.palm {
+                        Visibility::Inherited
+                    } else {
+                        Visibility::Hidden
+                    },
+                    MeshMaterial3d(world.materials.as_ref().unwrap()[3].clone()),
+                ));
             }
             let handles = world.materials.as_ref().unwrap();
             let entities = std::array::from_fn(|kind| {
-                let mesh = if kind == 0 { wood } else { &model.leaves };
+                let mesh = if kind == 0 { wood } else { leaves };
                 commands
                     .spawn((
                         Mesh3d(mesh.clone()),
@@ -566,6 +607,7 @@ fn update_near(world: &mut Forests, eye: Vec3, radius: f32, commands: &mut Comma
                 NearTree {
                     entities,
                     shell,
+                    palm_transition: None,
                     fine_wood: fine,
                     shells,
                 },
@@ -573,7 +615,130 @@ fn update_near(world: &mut Forests, eye: Vec3, radius: f32, commands: &mut Comma
             spawned += 1;
         }
     }
+    update_palm_transitions(world, eye, radius, commands);
     world.detailed = world.near.len();
+}
+
+fn release_unwanted_near(world: &mut Forests, commands: &mut Commands) {
+    let wanted: HashSet<_> = world.wanted.iter().copied().collect();
+    world.near.retain(|id, tree| {
+        if wanted.contains(id) {
+            true
+        } else {
+            if let Some(&canopy) = world.canopies.get(*id) {
+                commands.entity(canopy).insert((
+                    Visibility::Inherited,
+                    MeshMaterial3d(world.materials.as_ref().unwrap()[4].clone()),
+                ));
+            }
+            for entity in tree
+                .entities
+                .into_iter()
+                .chain(tree.shell)
+                .chain(tree.palm_transition.into_iter().flatten())
+            {
+                commands.entity(entity).despawn();
+            }
+            false
+        }
+    });
+}
+
+fn update_palm_transitions(world: &mut Forests, eye: Vec3, radius: f32, commands: &mut Commands) {
+    let boundary = detail_boundary(world, eye, radius, f32::from_bits(world.range));
+    let handles = world.materials.as_ref().unwrap();
+    for (&id, tree) in &mut world.near {
+        let plant = &world.plants[id];
+        let model = &world.prototypes[plant.variant];
+        if !model.palm {
+            continue;
+        }
+        let distance = plant.root.distance(eye) * radius;
+        let weights = palm_lod_weights(distance, boundary);
+        let blending = weights[0] > 0.0 && weights[1] > 0.0;
+        if blending && tree.palm_transition.is_none() {
+            tree.palm_transition = Some(std::array::from_fn(|kind| {
+                let mesh = if kind == 0 {
+                    &model.branches
+                } else {
+                    model.middle_leaves.as_ref().unwrap()
+                };
+                commands
+                    .spawn((
+                        Mesh3d(mesh.clone()),
+                        MeshMaterial3d(handles[kind].clone()),
+                        plant.transform,
+                    ))
+                    .id()
+            }));
+        }
+        if let Some(entities) = tree.palm_transition {
+            for entity in entities {
+                commands.entity(entity).insert(if blending {
+                    Visibility::Inherited
+                } else {
+                    Visibility::Hidden
+                });
+            }
+        }
+    }
+}
+
+fn update_palm_viewer(
+    world: &Forests,
+    eye: Vec3,
+    radius: f32,
+    range: f32,
+    materials: &mut Assets<ForestMaterial>,
+) {
+    // The far transition belongs to selected canopies only; unselected and
+    // pending roots retain the fifth shared material with full coverage.
+    let boundary = detail_boundary(world, eye, radius, range);
+    if let Some(handles) = &world.materials {
+        for (kind, handle) in handles.iter().enumerate() {
+            if let Some(mut material) = materials.get_mut(handle) {
+                material.extension.settings.viewer =
+                    eye.extend(if kind == 4 { 0.0 } else { boundary.max(0.001) });
+            }
+        }
+    }
+}
+
+fn detail_boundary(world: &Forests, eye: Vec3, radius: f32, range: f32) -> f32 {
+    let farthest = world
+        .wanted
+        .iter()
+        .map(|&id| world.plants[id].root.distance(eye) * radius)
+        .fold(0.0, f32::max);
+    // Near upload order follows distance, whereas canopy upload follows plant
+    // order. Keep complete near coverage until every represented palm has its
+    // far mesh, including when a selected root is beyond the upload cursor.
+    if world
+        .near
+        .keys()
+        .any(|&id| id >= world.canopies.len() && world.prototypes[world.plants[id].variant].palm)
+    {
+        return range.max(farthest + 8.0);
+    }
+    if world.wanted.len() == 96 {
+        range.min(farthest)
+    } else {
+        range
+    }
+}
+
+fn palm_lod_weights(distance: f32, boundary: f32) -> [f32; 3] {
+    let smoothstep = |start: f32, end: f32| {
+        let t = ((distance - start) / (end - start)).clamp(0.0, 1.0);
+        t * t * (3.0 - 2.0 * t)
+    };
+    let middle = smoothstep(24.0, 30.0);
+    let far = smoothstep((boundary - 8.0).max(0.0), boundary.max(0.001));
+    [(1.0 - middle) * (1.0 - far), middle * (1.0 - far), far]
+}
+
+fn is_conifer(variant: usize) -> bool {
+    (placement::VARIANTS..placement::VARIANTS * 2).contains(&variant)
 }
 
 fn inspection(plant: &Plant, radius: f32, needles: bool, plants: &[Plant]) -> Orbit {
@@ -582,14 +747,9 @@ fn inspection(plant: &Plant, radius: f32, needles: bool, plants: &[Plant]) -> Or
     }
     let up = plant.root.normalize();
     Orbit {
-        focus: plant.root
-            + up * (if plant.variant >= placement::VARIANTS {
-                13.0
-            } else {
-                7.0
-            } / radius),
+        focus: plant.root + up * (if is_conifer(plant.variant) { 13.0 } else { 7.0 } / radius),
         frame: Quat::from_rotation_arc(Vec3::Y, up),
-        distance: if plant.variant >= placement::VARIANTS {
+        distance: if is_conifer(plant.variant) {
             38.0
         } else {
             22.0
@@ -637,7 +797,7 @@ fn needle_inspection(plant: &Plant, radius: f32, plants: &[Plant]) -> Orbit {
                             return 20.0;
                         }
                         let side = (delta - p.root.normalize() * height).length();
-                        let width = if p.variant >= placement::VARIANTS {
+                        let width = if is_conifer(p.variant) {
                             3.8 * other_scale * (1.0 - height / (20.0 * other_scale)).max(0.1)
                         } else {
                             5.0 * other_scale
@@ -668,9 +828,11 @@ mod tests {
             wood: make(),
             branches: make(),
             leaves: make(),
+            middle_leaves: Some(make()),
             shells: Some(make()),
             canopy: make(),
             conifer: false,
+            palm: false,
         }
     }
 
@@ -722,6 +884,280 @@ mod tests {
         app.update();
         let group = app.world().resource::<Forests>().groups[&0].entity;
         (app, camera, group)
+    }
+
+    #[test]
+    fn pine_crowns_change_mesh_by_distance_without_replacing_the_tree() {
+        let (mut app, camera, _) = forest_app(1);
+        app.world_mut().resource_mut::<Forests>().prototypes[0].conifer = true;
+        app.world_mut()
+            .get_mut::<Transform>(camera)
+            .unwrap()
+            .translation = Vec3::Y * 1.025;
+        app.update();
+        let leaves = app.world().resource::<Forests>().near[&0].entities[1];
+        assert_eq!(
+            &app.world().get::<Mesh3d>(leaves).unwrap().0,
+            &app.world().resource::<Forests>().prototypes[0].leaves
+        );
+        app.world_mut()
+            .get_mut::<Transform>(camera)
+            .unwrap()
+            .translation
+            .x = 0.1;
+        app.update();
+        assert_eq!(
+            app.world().resource::<Forests>().near[&0].entities[1],
+            leaves
+        );
+        assert_eq!(
+            &app.world().get::<Mesh3d>(leaves).unwrap().0,
+            app.world().resource::<Forests>().prototypes[0]
+                .middle_leaves
+                .as_ref()
+                .unwrap()
+        );
+        app.world_mut()
+            .get_mut::<Transform>(camera)
+            .unwrap()
+            .translation
+            .x = 0.4;
+        app.update();
+        assert!(app.world().resource::<Forests>().near.is_empty());
+        let canopy = app.world().resource::<Forests>().canopies[0];
+        assert_eq!(
+            app.world().get::<Visibility>(canopy),
+            Some(&Visibility::Inherited)
+        );
+    }
+
+    #[test]
+    fn palm_crowns_change_lod_without_needles_or_replacing_the_tree() {
+        let (mut app, camera, _) = forest_app(1);
+        {
+            let mut forest = app.world_mut().resource_mut::<Forests>();
+            forest.prototypes[0].palm = true;
+            forest.prototypes[0].shells = None;
+        }
+        app.world_mut()
+            .get_mut::<Transform>(camera)
+            .unwrap()
+            .translation = Vec3::Y * 1.025;
+        app.update();
+        assert!(app.world().resource::<Forests>().near[&0].shell.is_none());
+        assert!(!app.world().resource::<Forests>().near[&0].shells);
+        let leaves = app.world().resource::<Forests>().near[&0].entities[1];
+        assert_eq!(
+            &app.world().get::<Mesh3d>(leaves).unwrap().0,
+            &app.world().resource::<Forests>().prototypes[0].leaves
+        );
+        app.world_mut()
+            .get_mut::<Transform>(camera)
+            .unwrap()
+            .translation
+            .x = 0.1;
+        app.update();
+        assert_eq!(
+            app.world().resource::<Forests>().near[&0].entities[1],
+            leaves
+        );
+        assert_eq!(
+            &app.world().get::<Mesh3d>(leaves).unwrap().0,
+            app.world().resource::<Forests>().prototypes[0]
+                .middle_leaves
+                .as_ref()
+                .unwrap()
+        );
+        app.world_mut()
+            .get_mut::<Transform>(camera)
+            .unwrap()
+            .translation
+            .x = 0.4;
+        app.update();
+        assert!(app.world().resource::<Forests>().near.is_empty());
+        let canopy = app.world().resource::<Forests>().canopies[0];
+        assert_eq!(
+            app.world().get::<Visibility>(canopy),
+            Some(&Visibility::Inherited)
+        );
+    }
+
+    #[test]
+    fn palm_transition_entities_are_reused_and_released_with_the_near_tree() {
+        let (mut app, camera, _) = forest_app(1);
+        let radius = app.world().resource::<Scene>().terrain.topology.radius as f32;
+        let handles = std::array::from_fn(|_| {
+            app.world_mut()
+                .resource_mut::<Assets<ForestMaterial>>()
+                .add(ForestMaterial::default())
+        });
+        {
+            let mut forest = app.world_mut().resource_mut::<Forests>();
+            forest.prototypes[0].palm = true;
+            forest.prototypes[0].shells = None;
+            forest.materials = Some(handles.clone());
+        }
+        let move_to = |app: &mut App, metres: f32| {
+            app.world_mut()
+                .get_mut::<Transform>(camera)
+                .unwrap()
+                .translation = Vec3::Y * 1.02 + Vec3::X * (metres / radius);
+            app.update();
+        };
+        move_to(&mut app, 27.0);
+        let (primary, transition, canopy) = {
+            let forest = app.world().resource::<Forests>();
+            let tree = &forest.near[&0];
+            assert!(tree.fine_wood);
+            assert!(tree.shell.is_none());
+            (
+                tree.entities,
+                tree.palm_transition.unwrap(),
+                forest.canopies[0],
+            )
+        };
+        assert_eq!(
+            app.world().get::<Visibility>(canopy),
+            Some(&Visibility::Inherited)
+        );
+        assert_eq!(
+            &app.world()
+                .get::<MeshMaterial3d<ForestMaterial>>(canopy)
+                .unwrap()
+                .0,
+            &handles[3]
+        );
+        move_to(&mut app, 29.0); // Also update inside the 3m selection hysteresis.
+        assert_eq!(
+            app.world().resource::<Forests>().near[&0].palm_transition,
+            Some(transition)
+        );
+        move_to(&mut app, 31.0);
+        let tree = &app.world().resource::<Forests>().near[&0];
+        assert_eq!(tree.entities, primary);
+        assert!(!tree.fine_wood);
+        for entity in transition {
+            assert_eq!(
+                app.world().get::<Visibility>(entity),
+                Some(&Visibility::Hidden)
+            );
+        }
+        move_to(&mut app, 26.0);
+        assert_eq!(
+            app.world().resource::<Forests>().near[&0].palm_transition,
+            Some(transition)
+        );
+        for entity in transition {
+            assert_eq!(
+                app.world().get::<Visibility>(entity),
+                Some(&Visibility::Inherited)
+            );
+        }
+        move_to(&mut app, 300.0);
+        assert!(app.world().resource::<Forests>().near.is_empty());
+        for entity in primary.into_iter().chain(transition) {
+            assert!(app.world().get_entity(entity).is_err());
+        }
+        assert_eq!(
+            &app.world()
+                .get::<MeshMaterial3d<ForestMaterial>>(canopy)
+                .unwrap()
+                .0,
+            &handles[4]
+        );
+        let frond = app
+            .world_mut()
+            .resource_mut::<Assets<Image>>()
+            .add(palm::image());
+        app.world_mut().resource_mut::<Forests>().palm_frond = Some(frond.clone());
+        app.world_mut().resource_mut::<ForestSettings>().enabled = false;
+        app.insert_resource(crate::collision::test_scene());
+        app.update();
+        assert!(
+            app.world()
+                .resource::<Assets<Image>>()
+                .get(&frond)
+                .is_none()
+        );
+        assert!(handles.iter().all(|handle| {
+            app.world()
+                .resource::<Assets<ForestMaterial>>()
+                .get(handle)
+                .is_none()
+        }));
+    }
+
+    #[test]
+    fn palm_far_fade_waits_for_uploaded_canopies_and_uses_current_selected_extent() {
+        let (mut app, _, _) = forest_app(96);
+        let mut forest = app.world_mut().resource_mut::<Forests>();
+        forest.prototypes[0].palm = true;
+        forest.wanted = (0..96).collect();
+        for plant in &mut forest.plants {
+            plant.root = Vec3::X * 20.0;
+        }
+        // Cached distance order can differ after camera movement.
+        forest.plants[0].root = Vec3::X * 80.0;
+        forest.plants[95].root = Vec3::X * 30.0;
+        assert_eq!(detail_boundary(&forest, Vec3::ZERO, 1.0, 240.0), 80.0);
+        let last = forest.canopies.pop().unwrap();
+        forest.near.insert(
+            95,
+            NearTree {
+                entities: [Entity::PLACEHOLDER; 2],
+                shell: None,
+                palm_transition: None,
+                fine_wood: false,
+                shells: false,
+            },
+        );
+        let boundary = detail_boundary(&forest, Vec3::ZERO, 1.0, 240.0);
+        assert!(boundary >= 88.0);
+        for &id in &forest.wanted {
+            assert_eq!(
+                palm_lod_weights(forest.plants[id].root.length(), boundary)[2],
+                0.0
+            );
+        }
+        forest.canopies.push(last);
+        assert_eq!(detail_boundary(&forest, Vec3::ZERO, 1.0, 240.0), 80.0);
+    }
+
+    #[test]
+    fn palm_lod_weights_partition_fine_middle_and_dense_far_boundaries() {
+        for boundary in [18.0, 27.0, 96.0, 240.0] {
+            for distance in [
+                0.0, 12.0, 18.0, 24.0, 26.0, 27.0, 29.0, 30.0, 32.0, 90.0, 235.0, 240.0, 300.0,
+            ] {
+                let weights = palm_lod_weights(distance, boundary);
+                assert!((weights.iter().sum::<f32>() - 1.0).abs() < 0.000001);
+                let edges = [0.0, weights[0], weights[0] + weights[1], 1.0];
+                for threshold in [
+                    0.0,
+                    0.125,
+                    0.5,
+                    0.999999,
+                    weights[0],
+                    weights[0] + weights[1],
+                ] {
+                    if threshold < 1.0 {
+                        assert_eq!(
+                            edges
+                                .windows(2)
+                                .filter(|edge| threshold >= edge[0] && threshold < edge[1])
+                                .count(),
+                            1
+                        );
+                    }
+                }
+            }
+        }
+        assert_eq!(palm_lod_weights(18.0, 18.0), [0.0, 0.0, 1.0]);
+        assert_eq!(palm_lod_weights(30.0, 240.0), [0.0, 1.0, 0.0]);
+        let shader = include_str!("common.wgsl");
+        assert!(shader.contains("middle=smoothstep(24.0,30.0,distance)"));
+        assert!(shader.contains("max(0.0,boundary-8.0),boundary,distance"));
+        assert!(shader.contains("threshold<lower || threshold>=upper"));
     }
 
     #[test]

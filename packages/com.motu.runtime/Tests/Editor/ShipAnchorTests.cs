@@ -148,12 +148,12 @@ namespace Motu.Tests
             Assert.IsFalse(sea.Anchor.IsHolding);
             Assert.That(sea.Body.linearVelocity, Is.EqualTo(Vector3.right * 3f));
             sea.Step(Vector3.right * 9);
-            Assert.That(sea.Body.linearVelocity.x, Is.EqualTo(3f).Within(.001f));
+            Assert.That(sea.Body.linearVelocity.x, Is.GreaterThan(3f), "Windage continues after lifting the anchor.");
         }
 
         [TestCase(90f)]
         [TestCase(2f)]
-        public void FurledWindAlignmentScalesWithWindSpeedEvenNearTheTarget(float headingError)
+        public void TautAnchorWindAlignmentScalesWithWindSpeedEvenNearTheTarget(float headingError)
         {
             float reference = YawAfterWindStep(9f, headingError);
             Assert.That(Mathf.Abs(reference), Is.GreaterThan(.00001f));
@@ -164,12 +164,20 @@ namespace Motu.Tests
 
         private static float YawAfterWindStep(float speed, float headingError)
         {
-            using var sea = new Anchorage(15f);
+            using var sea = new Anchorage();
             sea.Body.angularDamping = 0f;
-            Set(sea.Anchor, "windDriftAcceleration", 0f);
             sea.Anchor.SetDeployed(true);
+            for (int i = 0; i < 9000 && !sea.Anchor.IsTaut; i++) sea.Step(Vector3.right * 9);
+            Assert.IsTrue(sea.Anchor.IsTaut, "Establish real native rode tension before testing assistance.");
+            // Isolate assisted yaw from the native rode's torque, which the
+            // anchorage swing tests exercise independently.
+            var joint = sea.Ship.GetComponent<ConfigurableJoint>();
+            joint.xMotion = joint.yMotion = joint.zMotion = ConfigurableJointMotion.Free;
+            sea.Body.rotation = Quaternion.identity;
+            sea.Body.linearVelocity = sea.Body.angularVelocity = Vector3.zero;
             var wind = -(Quaternion.Euler(0, headingError, 0) * Vector3.forward) * speed;
-            sea.Step(wind);
+            typeof(ShipAnchor).GetMethod("TurnBowIntoWind", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(sea.Anchor, new object[] { wind });
+            sea.Physics.Simulate(.02f);
             return sea.Body.angularVelocity.y;
         }
 
@@ -183,6 +191,31 @@ namespace Motu.Tests
             sea.Anchor.SetDeployed(furled);
             sea.Step(Vector3.right * windSpeed);
             Assert.That(sea.Body.angularVelocity.y, Is.EqualTo(.15f).Within(.000001f));
+        }
+
+        [TestCase(0f, 0f)]
+        [TestCase(4.5f, .01f)]
+        [TestCase(9f, .04f)]
+        [TestCase(18f, .16f)]
+        [TestCase(36f, .2f)]
+        public void RaisedAnchorStillHasWindage(float windSpeed, float expectedAcceleration)
+        {
+            using var sea = new Anchorage(15f);
+            sea.Step(Vector3.right * windSpeed);
+            Assert.IsFalse(sea.Anchor.IsDeployed);
+            Assert.That(sea.Body.linearVelocity.x / .02f, Is.EqualTo(expectedAcceleration).Within(.00001f));
+            Assert.That(sea.Body.angularVelocity.y, Is.EqualTo(0).Within(.000001f));
+        }
+
+        [Test]
+        public void BottomContactDoesNotTurnTheShipBeforeRodeTension()
+        {
+            using var sea = new Anchorage();
+            sea.Anchor.SetDeployed(true);
+            sea.Step(Vector3.right * 9);
+            Assert.IsTrue(sea.Anchor.IsHolding);
+            Assert.IsFalse(sea.Anchor.IsTaut);
+            Assert.That(sea.Body.angularVelocity.y, Is.EqualTo(0).Within(.000001f));
         }
 
         [Test]
@@ -209,6 +242,34 @@ namespace Motu.Tests
                 "Bow tension and windage must turn the ship to face into the wind.");
             Assert.That(Vector3.Distance(sea.Anchor.BowWorldPosition, sea.Anchor.AnchorPosition),
                 Is.LessThan(sea.Anchor.RodeLengthMetres + .1f));
+        }
+
+        [Test]
+        public void FirstBiteKeepsTurningThroughWaveSlackUntilTheAnchorIsRaised()
+        {
+            using var sea = new Anchorage();
+            sea.Anchor.SetDeployed(true);
+            Assert.IsFalse(sea.Anchor.HasBitten);
+            for (int i = 0; i < 9000 && !sea.Anchor.IsTaut; i++) sea.Step(Vector3.right * 9);
+            Assert.IsTrue(sea.Anchor.IsTaut);
+            Assert.IsTrue(sea.Anchor.HasBitten);
+            // Keep the same seabed catch, but move its bow inside the slack
+            // circle as a passing wave can do after the first holding load.
+            sea.Body.rotation = Quaternion.identity;
+            sea.Body.position = new Vector3(sea.Anchor.AnchorPosition.x, 0, sea.Anchor.AnchorPosition.z - 4);
+            sea.Body.linearVelocity = sea.Body.angularVelocity = Vector3.zero;
+            UnityEngine.Physics.SyncTransforms();
+            sea.Step(Vector3.right * 9, 50);
+            Assert.IsFalse(sea.Anchor.IsTaut);
+            Assert.IsTrue(sea.Anchor.HasBitten);
+            Assert.That(sea.Body.angularVelocity.y, Is.LessThan(-.001f));
+            sea.Anchor.SetDeployed(false);
+            Assert.IsFalse(sea.Anchor.HasBitten);
+            sea.Body.angularVelocity = Vector3.zero;
+            sea.Step(Vector3.right * 9, 50);
+            Assert.That(sea.Body.angularVelocity.y, Is.EqualTo(0f).Within(.00001f));
+            sea.Anchor.SetDeployed(true);
+            Assert.IsFalse(sea.Anchor.HasBitten, "A fresh drop must take load again before turning.");
         }
 
         [Test]
@@ -264,15 +325,15 @@ namespace Motu.Tests
         }
 
         [Test]
-        public void DeepWaterAlsoTurnsTheBowUpwindWhileTheAnchorDrags()
+        public void DeepWaterKeepsItsHeadingWhileTheAnchorDrags()
         {
             using var sea = new Anchorage(15);
             sea.Body.angularDamping = .6f;
             sea.Anchor.SetDeployed(true);
             sea.Step(Vector3.forward * 9f, 6000);
             Assert.IsFalse(sea.Anchor.IsHolding);
-            Assert.That(Vector3.Dot(sea.Body.rotation * Vector3.forward, Vector3.back), Is.GreaterThan(.95f));
-            Assert.That(sea.Body.position.z, Is.GreaterThan(1f), "Continue drifting downwind while facing the source.");
+            Assert.That(Quaternion.Angle(sea.Body.rotation, Quaternion.identity), Is.LessThan(.001f));
+            Assert.That(sea.Body.position.z, Is.GreaterThan(1f), "Continue drifting downwind without windward assistance.");
         }
 
         [Test]

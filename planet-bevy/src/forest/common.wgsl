@@ -6,6 +6,8 @@ struct ForestUniform {shape:vec4<f32>,viewer:vec4<f32>}
 @group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> forest:ForestUniform;
 @group(#{MATERIAL_BIND_GROUP}) @binding(110) var forest_noise:texture_3d<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(111) var forest_sampler:sampler;
+@group(#{MATERIAL_BIND_GROUP}) @binding(112) var palm_frond:texture_2d<f32>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(113) var palm_sampler:sampler;
 fn tree_noise(p:vec3<f32>)->vec3<f32> {
     return textureSampleLevel(forest_noise,forest_sampler,p,0.0).rgb;
 }
@@ -33,7 +35,7 @@ fn canopy_alpha(point:vec3<f32>,root:vec3<f32>)->f32 {
     return smoothstep(0.30,0.38,broad.r*0.65+detail.b*0.35);
 }
 fn tree_clip(point:vec3<f32>,root:vec3<f32>,layer:f32,species:f32) {
-    if species<0.5 {return;}
+    if species<0.5 || species>1.5 {return;}
     if forest.shape.y<0.5 || forest.shape.y>2.5 {return;}
     if canopy_alpha(point,root)<0.5 {discard;}
     if forest.shape.y>1.5 {
@@ -140,4 +142,36 @@ fn pine_clip(point:vec3<f32>,uv:vec2<f32>,data:vec4<f32>) {
     let cell=floor(point*forest.shape.x*128.0);
     let threshold=fract(sin(dot(cell,vec3<f32>(12.9898,78.233,37.719)))*43758.5453);
     if fade<=threshold {discard;}
+}
+
+// Vertex alpha is the palm LOD stage, shared by foliage and its matching wood.
+// Each stage partitions the same raster pixel despite its different mesh depth.
+fn palm_lod_weights(distance:f32,boundary:f32)->vec3<f32> {
+    let middle=smoothstep(24.0,30.0,distance);
+    let far=smoothstep(max(0.0,boundary-8.0),boundary,distance);
+    return vec3<f32>((1.0-middle)*(1.0-far),middle*(1.0-far),far);
+}
+fn palm_lod_clip(root:vec3<f32>,data:vec4<f32>,pixel:vec2<f32>) {
+    if data.b<1.5 || forest.viewer.w<=0.0 {return;}
+    let weights=palm_lod_weights(distance(root,forest.viewer.xyz)*forest.shape.x,forest.viewer.w);
+    let cell=vec2<u32>(floor(pixel));
+    var hash=cell.x*0x9e3779b9u ^ cell.y*0x85ebca6bu;
+    hash=(hash ^ (hash>>16u))*0x7feb352du;
+    hash=(hash ^ (hash>>15u))*0x846ca68bu;
+    hash=hash ^ (hash>>16u);
+    let threshold=f32(hash & 0x00ffffffu)/16777216.0;
+    let lower=select(select(0.0,weights.x,data.a>0.5),weights.x+weights.y,data.a>1.5);
+    let upper=select(select(weights.x,weights.x+weights.y,data.a>0.5),1.0,data.a>1.5);
+    if threshold<lower || threshold>=upper {discard;}
+}
+fn palm_frond_clip(uv:vec2<f32>,data:vec4<f32>) {
+    // Native/Unity V=0 is the root at the PNG's bottom; WebGPU V=0 is its top.
+    let chart=vec2<f32>(uv.x,1.0-uv.y);
+    // Derivatives stay outside the species branch; only ribbons fetch the map.
+    let dx=dpdx(chart);
+    let dy=dpdy(chart);
+    let wood=forest.shape.y<0.5 || (forest.shape.y>2.5 && data.g<0.5);
+    if data.b>1.5 && data.a>0.5 && !wood {
+        if textureSampleGrad(palm_frond,palm_sampler,chart,dx,dy).a<0.5 {discard;}
+    }
 }
