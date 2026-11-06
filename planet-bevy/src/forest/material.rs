@@ -71,7 +71,9 @@ pub(crate) fn create_material(
     materials.add(ForestMaterial {
         base: StandardMaterial {
             perceptual_roughness: 0.94,
-            alpha_mode: if matches!(kind, 1 | 2 | 4 | 6 | 7) {
+            // Palm LOD fades also clip wood and distant crowns. Opaque depth
+            // prepasses can skip the fragment shader and fill their cutout gaps.
+            alpha_mode: if matches!(kind, 0..=4 | 6 | 7) {
                 AlphaMode::Mask(0.5)
             } else {
                 AlphaMode::Opaque
@@ -222,6 +224,21 @@ fn mesh(source: &motu::Mesh, shells: bool, conifer: bool) -> Mesh {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tree_lod_materials_keep_fragment_clipping_in_depth_and_shadow_passes() {
+        let mut materials = Assets::<ForestMaterial>::default();
+        let textures = TerrainTextures::default();
+        for kind in 0..=3 {
+            let handle = create_material(1000.0, kind, &textures, &mut materials);
+            let material = materials.get(&handle).unwrap();
+            let key = bevy::pbr::alpha_mode_pipeline_key(material.base.alpha_mode, &Msaa::Off);
+            assert!(
+                key.contains(bevy::pbr::MeshPipelineKey::MAY_DISCARD),
+                "Palm LOD clipping must run in depth and shadow passes for material kind {kind}",
+            );
+        }
+    }
 
     #[test]
     fn conifer_prototypes_upload_only_nonempty_meshes_and_release_them() {
