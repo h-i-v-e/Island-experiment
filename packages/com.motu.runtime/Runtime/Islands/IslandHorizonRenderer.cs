@@ -65,7 +65,7 @@ namespace Motu.Islands
         {
             // World installation precedes horizon installation. Resolve once;
             // visual LOD, terrain residency and renderer visibility do not own shelter.
-            var ocean = FindFirstObjectByType<OceanSurfaceController>();
+            var ocean = FindAnyObjectByType<OceanSurfaceController>();
             shelterField = ocean != null ? ocean.GetComponent<OceanIslandShelterField>() : null;
             if (shelterField == null) return;
             var shader = Resources.Load<Shader>("IslandShelterLand")

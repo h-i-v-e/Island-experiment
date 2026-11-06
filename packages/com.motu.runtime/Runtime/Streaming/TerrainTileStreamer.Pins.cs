@@ -29,10 +29,11 @@ namespace Motu.Streaming
             if (disposed || colliderHeightMap == null || colliderRoot == null) return;
             incomingPinCells.Clear();
             bool navigation = false;
+            var worldToLocal = transform.worldToLocalMatrix;
             foreach (var pin in TerrainAreaPin.Sources)
             {
                 if (pin == null || !pin.TryGetWorldBounds(out var worldBounds)) continue;
-                var bounds = TerrainAreaPin.TransformBounds(transform.worldToLocalMatrix, worldBounds);
+                var bounds = TerrainAreaPin.TransformBounds(worldToLocal, worldBounds);
                 float half = worldSize * .5f;
                 if (bounds.max.x < -half || bounds.min.x > half || bounds.max.z < -half || bounds.min.z > half) continue;
                 var minimum = LocalCell(bounds.min, Lod1Resolution);

@@ -8,7 +8,10 @@ namespace Motu.World
 {
     public sealed partial class WorldEnvironmentController
     {
-        private void PrepareSrpCamera(ScriptableRenderContext context, Camera camera) => PrepareCameraRender(camera);
+        private void PrepareSrpCamera(ScriptableRenderContext context, Camera camera)
+        {
+            if (CanReceiveEnvironmentCallbacks()) PrepareCameraRender(camera);
+        }
 
         private static WorldEnvironmentController activeOwner;
         private EnvironmentHostState hostState;
@@ -31,8 +34,7 @@ namespace Motu.World
 
         private void ReleaseEnvironment()
         {
-            RenderPipelineManager.beginCameraRendering -= PrepareSrpCamera;
-            SceneManager.activeSceneChanged -= ActiveSceneChanged;
+            UnsubscribeEnvironmentEvents();
             if (hostState == null) return;
             if (skyDomeObject != null) skyDomeObject.SetActive(false);
             if (moonLight != null) moonLight.enabled = false;
@@ -42,11 +44,29 @@ namespace Motu.World
             if (activeOwner == this) activeOwner = null;
         }
 
+        private void UnsubscribeEnvironmentEvents()
+        {
+            RenderPipelineManager.beginCameraRendering -= PrepareSrpCamera;
+            SceneManager.activeSceneChanged -= ActiveSceneChanged;
+        }
+
+        private bool CanReceiveEnvironmentCallbacks()
+        {
+            if (this != null) return true;
+            // Edit-mode audits can initialize an owner without Unity delivering
+            // its lifecycle callbacks. Detach the destroyed target without
+            // restoring its obsolete host snapshot into a subsequent owner.
+            UnsubscribeEnvironmentEvents();
+            hostState = null;
+            if (ReferenceEquals(activeOwner, this)) activeOwner = null;
+            return false;
+        }
+
         private void ActiveSceneChanged(Scene previous, Scene next)
         {
             // Unity can deliver the initial activation notification after Awake
             // has already acquired this same scene's environment.
-            if (hostState == null || hostState.HasSameActiveScene) return;
+            if (!CanReceiveEnvironmentCallbacks() || hostState == null || hostState.HasSameActiveScene) return;
             // RenderSettings belongs to the active scene. The host should disable
             // us before switching it; never keep writing into the incoming scene.
             Debug.LogWarning("Disable the Motu environment before changing the active scene. The environment has been disabled to preserve the incoming scene's lighting.", this);

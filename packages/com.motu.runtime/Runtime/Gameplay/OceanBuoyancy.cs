@@ -117,7 +117,7 @@ namespace Motu.Gameplay
             if (body == null || body.isKinematic || probes == null || probes.Length == 0) return;
             if (ocean == null && Time.unscaledTime >= nextOceanSearch)
             {
-                ocean = FindFirstObjectByType<OceanSurfaceController>();
+                ocean = FindAnyObjectByType<OceanSurfaceController>();
                 nextOceanSearch = Time.unscaledTime + 1f;
             }
             if (ocean == null || !ocean.isActiveAndEnabled || ocean.SurfaceMaterial == null) return;

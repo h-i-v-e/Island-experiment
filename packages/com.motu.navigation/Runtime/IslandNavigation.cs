@@ -52,10 +52,9 @@ namespace Motu.Navigation
         {
             internal NavMeshData data;
             internal NavMeshDataInstance instance;
-            internal Bounds bounds;
-            internal Vector2Int key;
         }
         private readonly List<ChunkData> chunks = new List<ChunkData>();
+        private readonly Dictionary<Vector2Int, ChunkData> chunksByKey = new Dictionary<Vector2Int, ChunkData>();
         private readonly List<NavMeshLinkData> seamLinks = new List<NavMeshLinkData>();
         private readonly List<NavMeshLinkInstance> linkInstances = new List<NavMeshLinkInstance>();
         private AsyncOperation operation;
@@ -256,7 +255,9 @@ namespace Motu.Navigation
                     Report.peakChunkSources = Math.Max(Report.peakChunkSources, sources.sources.Count);
                     Report.peakChunkSourceMeshBytes = Math.Max(Report.peakChunkSourceMeshBytes, sources.meshBytes);
                     data = new NavMeshData(AgentTypeId) { name = $"Island LOD0 navigation {chunk.key.x},{chunk.key.y}" };
-                    chunks.Add(new ChunkData { data = data, bounds = chunk.bounds, key = chunk.key });
+                    var current = new ChunkData { data = data };
+                    chunks.Add(current);
+                    chunksByKey.Add(chunk.key, current);
                     timer.Restart();
                     operation = NavMeshBuilder.UpdateNavMeshDataAsync(data, build, sources.sources, chunk.bounds);
                     while (!operation.isDone)
@@ -273,7 +274,7 @@ namespace Motu.Navigation
                     operation = null;
                     sources.Dispose(); sources = null;
                     timer.Restart();
-                    await ConnectChunkAsync(chunk, chunks[chunks.Count - 1], token);
+                    await ConnectChunkAsync(chunk, current, token);
                     Report.seamMilliseconds += timer.Elapsed.TotalMilliseconds;
                     SampleMemory(process);
                     chunk.parts.Clear();
@@ -314,8 +315,7 @@ namespace Motu.Navigation
             {
                 var acrossX = axis == 0;
                 var neighbourKey = source.key - (acrossX ? Vector2Int.right : Vector2Int.up);
-                var neighbour = chunks.Find(chunk => chunk.key == neighbourKey);
-                if (neighbour == null) continue;
+                if (!chunksByKey.TryGetValue(neighbourKey, out var neighbour)) continue;
                 var candidates = await Task.Run(() => IslandNavigationSeams.Prepare(source, acrossX, settings, token), token);
                 var filter = new NavMeshQueryFilter { agentTypeID = AgentTypeId, areaMask = 1 };
                 var voxel = Report.voxelSize;
@@ -413,7 +413,7 @@ namespace Motu.Navigation
 
         private void RemoveRegistration()
         {
-            foreach (var link in linkInstances) if (link.valid) link.Remove();
+            foreach (var link in linkInstances) if (NavMesh.IsLinkValid(link)) NavMesh.RemoveLink(link);
             linkInstances.Clear();
             foreach (var chunk in chunks)
             {
@@ -448,7 +448,7 @@ namespace Motu.Navigation
         {
             RemoveRegistration();
             foreach (var chunk in chunks) DestroyUnityObject(chunk.data);
-            chunks.Clear(); seamLinks.Clear(); data = null;
+            chunks.Clear(); chunksByKey.Clear(); seamLinks.Clear(); data = null;
             if (ownsAgentType)
             {
                 var type = AgentTypes[agentKey];

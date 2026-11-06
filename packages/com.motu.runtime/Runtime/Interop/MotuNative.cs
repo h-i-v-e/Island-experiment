@@ -154,18 +154,6 @@ namespace Motu.Interop
         }
 
         [StructLayout(LayoutKind.Sequential)]
-        internal struct ExportMeshWithUv
-        {
-            internal IntPtr handle;
-            internal Vector3Array vertices;
-            internal Vector3Array normals;
-            internal TriangleArray triangles;
-            internal Vector2Array uv;
-            internal Vector4Array material;
-            internal Vector2Array environment;
-        }
-
-        [StructLayout(LayoutKind.Sequential)]
         internal struct ExportMeshGrid
         {
             internal IntPtr handle;
@@ -328,21 +316,6 @@ namespace Motu.Interop
             ref ForestOptions forestOptions);
 
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
-        internal static extern IntPtr CreateMotuWithForestAndReeds(
-            int seed,
-            ref Options options,
-            ref ForestOptions forestOptions,
-            ref ReedOptions reedOptions);
-
-        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
-        internal static extern IntPtr CreateMotuWithForestReedsAndFerns(
-            int seed,
-            ref Options options,
-            ref ForestOptions forestOptions,
-            ref ReedOptions reedOptions,
-            ref FernOptions fernOptions);
-
-        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         internal static extern void ReleaseMotu(IntPtr handle);
 
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
@@ -402,12 +375,6 @@ namespace Motu.Interop
         internal static extern void ReleaseMeshGrid(ref ExportMeshGrid output);
 
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
-        internal static extern void CreateRiverMesh(
-            IntPtr handle,
-            IntPtr area,
-            out ExportMeshWithUv output);
-
-        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         internal static extern void CreateRiverMeshGrid(
             IntPtr handle,
             ref ExportArea area,
@@ -419,14 +386,6 @@ namespace Motu.Interop
             IntPtr handle,
             ref ExportArea area,
             int divisions,
-            out ExportMeshGrid output);
-
-        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
-        internal static extern void ReleaseMeshWithUV(ref ExportMeshWithUv output);
-
-        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
-        internal static extern void CreateReedMeshGrid(
-            IntPtr handle,
             out ExportMeshGrid output);
 
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]

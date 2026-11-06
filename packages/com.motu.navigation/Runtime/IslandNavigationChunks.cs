@@ -26,12 +26,11 @@ namespace Motu.Navigation
         }
         internal readonly List<Chunk> chunks = new List<Chunk>();
         internal int sourceTriangles;
-        internal float size, padding;
 
         internal static IslandNavigationChunks Prepare(IslandPreparedMesh terrain, IslandPreparedCaves caves,
             float size, float padding, float minimumHeight, bool excludeRiverBeds, CancellationToken cancellation)
         {
-            var result = new IslandNavigationChunks { size = size, padding = padding };
+            var result = new IslandNavigationChunks();
             var cells = new Dictionary<Vector2Int, Chunk>();
             var minimumY = float.PositiveInfinity;
             var maximumY = float.NegativeInfinity;

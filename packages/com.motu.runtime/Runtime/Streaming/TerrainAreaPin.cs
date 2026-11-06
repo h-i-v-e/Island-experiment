@@ -56,9 +56,9 @@ namespace Motu.Streaming
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void RestoreWithoutSceneReload()
         {
-            foreach (var pin in FindObjectsByType<TerrainAreaPin>(FindObjectsSortMode.None))
+            foreach (var pin in FindObjectsByType<TerrainAreaPin>())
                 if (pin.isActiveAndEnabled) sources.Add(pin);
-            foreach (var terrain in FindObjectsByType<TerrainTileStreamer>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+            foreach (var terrain in FindObjectsByType<TerrainTileStreamer>(FindObjectsInactive.Include))
                 terrain.RegisterPinResidency();
             RefreshAll();
         }

@@ -33,12 +33,6 @@ namespace Motu.Islands
         [Tooltip("Cells whose coherent sample falls below this value remain open sea.")]
         [Range(0f, 1f)] [SerializeField] private float islandThreshold = 0.25f;
 
-        /*[Tooltip("Height multiplier at the lowest accepted coherent sample.")]
-        [Min(0f)] [SerializeField] private float minimumHeightScale = 0.35f;
-
-        [Tooltip("Height multiplier at the strongest coherent sample.")]
-        [Min(0f)] [SerializeField] private float maximumHeightScale = 1.15f;*/
-
         [Header("Navigation (reload islands to apply)")]
         [SerializeField] private IslandNavigationSettings navigationSettings = new IslandNavigationSettings();
         public IslandNavigationSettings NavigationSettings => navigationSettings;
@@ -69,14 +63,6 @@ namespace Motu.Islands
 
         [SerializeField] private IslandCaveSettings caveSettings = new IslandCaveSettings();
         public IslandCaveSettings CaveSettings => caveSettings;
-
-        private void OnValidate()
-        {
-            //noiseScale = Mathf.Max(noiseScale, 0.001f);
-            //islandThreshold = Mathf.Clamp01(islandThreshold);
-            /*minimumHeightScale = Mathf.Max(minimumHeightScale, 0f);
-            maximumHeightScale = Mathf.Max(maximumHeightScale, minimumHeightScale);*/
-        }
 
         private IslandForestSettings CreateForestSettings(System.Random random, float snowLine, float latitude)
         {
@@ -126,8 +112,12 @@ namespace Motu.Islands
         public bool HasIsland(Vector2Int islandGridPosition)
         {
             int x = islandGridPosition.x, y = islandGridPosition.y;
-            var sqrRadius = ArchipelagoRadius * ArchipelagoRadius;
-            var sqrDistance = x * x + y * y;
+            int radius = ArchipelagoRadius;
+            if (x <= -radius || x >= radius || y <= -radius || y >= radius) return false;
+            // Reject the outer square first so even extreme coordinates cannot
+            // overflow the sum; retain the authored exclusive circular edge.
+            long sqrRadius = (long)radius * radius;
+            long sqrDistance = (long)x * x + (long)y * y;
             if (sqrDistance == 0 || sqrDistance >= sqrRadius)
             {
                 return false;

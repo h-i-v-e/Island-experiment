@@ -11,7 +11,6 @@ namespace Motu.Streaming
         internal sealed class Batch
         {
             internal Vector2Int cell;
-            internal bool coarse = true;
             internal int prototype;
             internal int[] indices;
             internal Matrix4x4[] local;
@@ -29,7 +28,6 @@ namespace Motu.Streaming
         internal int PrototypeCount => Models?.meshes.Length ?? 0;
         internal int SharedVertexCount => Models?.vertexCount ?? 0;
         internal int SubmittedBatches { get; set; }
-        internal int SubmittedShadowBatches { get; set; }
         internal int SubmittedDetailedCrowns { get; set; }
         internal int SubmittedShellTrees { get; set; }
         internal int SubmittedTwigCardTrees { get; set; }

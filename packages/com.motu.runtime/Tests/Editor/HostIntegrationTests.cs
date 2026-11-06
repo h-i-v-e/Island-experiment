@@ -139,7 +139,7 @@ namespace Motu.Tests
                     Assert.AreSame(light, RenderSettings.sun);
                     Assert.AreEqual(fog, RenderSettings.fog);
                     Assert.AreEqual(ambient, RenderSettings.ambientLight);
-                    Assert.AreEqual(1, Object.FindObjectsByType<Camera>(FindObjectsSortMode.None).Length);
+                    Assert.AreEqual(1, Object.FindObjectsByType<Camera>().Length);
                     var textures = host.GetComponentsInChildren<Renderer>(true).SelectMany(r => r.sharedMaterials)
                         .Where(m => m != null).SelectMany(m => m.GetTexturePropertyNames().Select(m.GetTexture))
                         .Where(t => t != null && !EditorUtility.IsPersistent(t)).Distinct().ToArray();

@@ -10,6 +10,12 @@ namespace Motu.World
     internal sealed class OceanSurfaceSampler : IDisposable
     {
         internal const int MaximumCount = 512;
+        private static readonly int QueryWaveTimeScaleId = Shader.PropertyToID("_QueryWaveTimeScale");
+        private static readonly int QueryPositionsId = Shader.PropertyToID("_QueryPositions");
+        private static readonly int QueryOceanOriginId = Shader.PropertyToID("_QueryOceanOrigin");
+        private static readonly int WindNoiseId = Shader.PropertyToID("_MotuWindNoise");
+        private static readonly int WeatherWindId = Shader.PropertyToID("_MotuWeatherWind");
+        private static readonly int WindOffsetId = Shader.PropertyToID("_MotuWindOffset");
         private readonly Material material;
         private readonly Texture2D positions;
         private readonly RenderTexture results;
@@ -73,14 +79,14 @@ namespace Motu.World
             // variant after every copy so height-only buoyancy keeps its old cost.
             if (velocities != null) material.EnableKeyword("MOTU_QUERY_VELOCITY");
             else material.DisableKeyword("MOTU_QUERY_VELOCITY");
-            material.SetFloat("_QueryWaveTimeScale", ocean.WaveTimeScale);
-            material.SetTexture("_QueryPositions", positions);
-            material.SetVector("_QueryOceanOrigin", ocean.SurfaceTransform.position);
+            material.SetFloat(QueryWaveTimeScaleId, ocean.WaveTimeScale);
+            material.SetTexture(QueryPositionsId, positions);
+            material.SetVector(QueryOceanOriginId, ocean.SurfaceTransform.position);
             // Snapshot global wind too: the query must use the same field as the
             // surface, even when a weather driver changes it the following frame.
-            material.SetTexture("_MotuWindNoise", Shader.GetGlobalTexture("_MotuWindNoise") ?? Texture2D.grayTexture);
-            material.SetVector("_MotuWeatherWind", Shader.GetGlobalVector("_MotuWeatherWind"));
-            material.SetVector("_MotuWindOffset", Shader.GetGlobalVector("_MotuWindOffset"));
+            material.SetTexture(WindNoiseId, Shader.GetGlobalTexture(WindNoiseId) ?? Texture2D.grayTexture);
+            material.SetVector(WeatherWindId, Shader.GetGlobalVector(WeatherWindId));
+            material.SetVector(WindOffsetId, Shader.GetGlobalVector(WindOffsetId));
             var previous = RenderTexture.active;
             Graphics.Blit(Texture2D.blackTexture, results, material);
             RenderTexture.active = previous;

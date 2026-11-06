@@ -1,9 +1,11 @@
 using System;
 using System.Collections;
+using System.Reflection;
 using Motu.Rendering;
 using Motu.Settings;
 using Motu.World;
 using NUnit.Framework;
+using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -15,6 +17,69 @@ namespace Motu.Tests
 {
     public sealed class EnvironmentOwnershipTests
     {
+        [TestCase(false)]
+        [TestCase(true)]
+        public void DestroyedEditModeOwnerCannotChangeTheNextHost(bool renderCallback)
+        {
+            EditorSceneManager.NewScene(NewSceneSetup.EmptyScene);
+            var hostScene = SceneManager.GetActiveScene();
+            string hostPath = AssetDatabase.GenerateUniqueAssetPath("Assets/MotuEnvironmentOwnershipHost.unity");
+            Assert.IsTrue(EditorSceneManager.SaveScene(hostScene, hostPath));
+            var incomingScene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Additive);
+            SceneManager.SetActiveScene(hostScene);
+            var baseline = new EnvironmentHostState();
+            var root = new GameObject("Edit-mode environment owner");
+            var cameraRoot = new GameObject("Subsequent host camera");
+            GameObject nextRoot = null;
+            WorldEnvironmentController nextOwner = null;
+            const BindingFlags methods = BindingFlags.Instance | BindingFlags.NonPublic;
+            var type = typeof(WorldEnvironmentController);
+            var acquire = type.GetMethod("AcquireEnvironment", methods);
+            var release = type.GetMethod("ReleaseEnvironment", methods);
+            try
+            {
+                var owner = root.AddComponent<WorldEnvironmentController>();
+                // Isolate ownership from mesh/material generation, as editor
+                // audits initialize the same ownership contract synchronously.
+                acquire.Invoke(owner, null);
+                type.GetField("environmentSettings", methods).SetValue(owner, new WorldEnvironmentSettings());
+                var sceneChanged = (Action<Scene, Scene>)Delegate.CreateDelegate(typeof(Action<Scene, Scene>),
+                    owner, type.GetMethod("ActiveSceneChanged", methods));
+                var render = (Action<ScriptableRenderContext, Camera>)Delegate.CreateDelegate(
+                    typeof(Action<ScriptableRenderContext, Camera>), owner, type.GetMethod("PrepareSrpCamera", methods));
+                Object.DestroyImmediate(root); root = null;
+                Assert.IsTrue(owner == null);
+                var hostWind = new Vector4(19, 23, 29, 31);
+                Shader.SetGlobalVector("_MotuWeatherWind", hostWind);
+                if (!renderCallback) SceneManager.SetActiveScene(incomingScene);
+
+                nextRoot = new GameObject("Next environment owner");
+                nextOwner = nextRoot.AddComponent<WorldEnvironmentController>();
+                acquire.Invoke(nextOwner, null);
+                var ownedWind = Shader.GetGlobalVector("_MotuWeatherWind");
+                var camera = cameraRoot.AddComponent<Camera>();
+                camera.enabled = false; camera.backgroundColor = Color.magenta;
+                if (renderCallback) render(default, camera);
+                else sceneChanged(hostScene, incomingScene);
+                Assert.AreEqual(Color.magenta, camera.backgroundColor, "A destroyed owner changed the incoming camera.");
+                Assert.AreEqual(ownedWind, Shader.GetGlobalVector("_MotuWeatherWind"), "A destroyed owner restored stale globals.");
+                Assert.IsNull(type.GetField("hostState", methods).GetValue(owner), "A destroyed callback retained its host snapshot.");
+                Assert.AreSame(nextOwner, type.GetField("activeOwner", BindingFlags.Static | BindingFlags.NonPublic).GetValue(null));
+                release.Invoke(nextOwner, null);
+                Assert.AreEqual(hostWind, Shader.GetGlobalVector("_MotuWeatherWind"), "The next owner did not restore its own host.");
+            }
+            finally
+            {
+                if (nextOwner != null) release.Invoke(nextOwner, null);
+                Object.DestroyImmediate(root); Object.DestroyImmediate(nextRoot); Object.DestroyImmediate(cameraRoot);
+                SceneManager.SetActiveScene(hostScene);
+                EditorSceneManager.CloseScene(incomingScene, true);
+                baseline.Restore();
+                EditorSceneManager.NewScene(NewSceneSetup.EmptyScene);
+                Assert.IsTrue(AssetDatabase.DeleteAsset(hostPath), "Temporary ownership scene was not removed.");
+            }
+        }
+
         [UnityTest, Timeout(180000)]
         public IEnumerator EnvironmentRestoresHostAcrossDisableReenableAndAdditiveUnload()
         {

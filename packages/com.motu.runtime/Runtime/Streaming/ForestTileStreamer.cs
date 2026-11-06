@@ -83,9 +83,12 @@ namespace Motu.Streaming
         internal bool Lod0NeighborhoodMatches(Vector2Int center)
         {
             if (!initialized) return false;
-            var expected = Neighborhood(center);
-            if (tiles.Count != expected.Count) return false;
-            foreach (var key in expected) if (!tiles.ContainsKey(key)) return false;
+            if (!NeighborhoodBounds(center, out var minimum, out var maximum)) return tiles.Count == 0;
+            var expectedCount = (maximum.x - minimum.x + 1) * (maximum.y - minimum.y + 1);
+            if (tiles.Count != expectedCount) return false;
+            for (var y = minimum.y; y <= maximum.y; ++y)
+                for (var x = minimum.x; x <= maximum.x; ++x)
+                    if (!tiles.ContainsKey(new Vector2Int(x, y))) return false;
             return true;
         }
 
@@ -205,11 +208,23 @@ namespace Motu.Streaming
         private static List<Vector2Int> Neighborhood(Vector2Int center)
         {
             var result = new List<Vector2Int>(9);
-            for (var y = center.y - NearbyRadius; y <= center.y + NearbyRadius; ++y)
-                for (var x = center.x - NearbyRadius; x <= center.x + NearbyRadius; ++x)
-                    if (x >= 0 && y >= 0 && x < Lod0Resolution && y < Lod0Resolution)
-                        result.Add(new Vector2Int(x, y));
+            if (!NeighborhoodBounds(center, out var minimum, out var maximum)) return result;
+            for (var y = minimum.y; y <= maximum.y; ++y)
+                for (var x = minimum.x; x <= maximum.x; ++x)
+                    result.Add(new Vector2Int(x, y));
             return result;
+        }
+
+        private static bool NeighborhoodBounds(Vector2Int center, out Vector2Int minimum, out Vector2Int maximum)
+        {
+            minimum = maximum = default;
+            // Reject distant centres before adding/subtracting the radius, so
+            // even extreme outside coordinates cannot overflow the bounds.
+            if (center.x < -NearbyRadius || center.y < -NearbyRadius
+                || center.x >= Lod0Resolution + NearbyRadius || center.y >= Lod0Resolution + NearbyRadius) return false;
+            minimum = new Vector2Int(Mathf.Max(0, center.x - NearbyRadius), Mathf.Max(0, center.y - NearbyRadius));
+            maximum = new Vector2Int(Mathf.Min(Lod0Resolution - 1, center.x + NearbyRadius), Mathf.Min(Lod0Resolution - 1, center.y + NearbyRadius));
+            return true;
         }
 
         private void DestroyPending()

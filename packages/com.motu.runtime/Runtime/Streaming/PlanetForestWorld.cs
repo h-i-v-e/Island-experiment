@@ -88,7 +88,6 @@ namespace Motu.Streaming
             {
                 forest.SubmittedBatches = forest.SubmittedDetailedCrowns = forest.SubmittedFarTrees = forest.SubmittedShellTrees = 0;
                 forest.SubmittedTwigCardTrees = 0;
-                forest.SubmittedShadowBatches = 0;
                 forest.LastPineFoliageKind = -1;
                 forest.LastPineFoliageLod = -1;
                 forest.LastPalmFoliageLod = -1;

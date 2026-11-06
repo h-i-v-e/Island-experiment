@@ -1,10 +1,12 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.Linq;
 using Motu.Interop;
 using Motu.Islands;
 using Motu.Streaming;
 using NUnit.Framework;
+using Unity.Profiling;
 using UnityEngine;
 using Object = UnityEngine.Object;
 
@@ -63,6 +65,96 @@ namespace Motu.Tests
             Assert.AreEqual(9, scene.Streamer.ColliderTileCount);
             Assert.IsTrue(scene.Host.GetComponentsInChildren<Transform>(true).All(item => item.gameObject.layer == 27));
         }
+
+        [Test]
+        public void ReadinessMatchesTheExactClippedNeighborhoodIncludingOutsideCentres()
+        {
+            using var scene = new ForestFixture(ForestData());
+            foreach (var resident in NeighborhoodCenters)
+            {
+                Drain(scene.Streamer.UpdateLod0NeighborhoodIncremental(resident, () => true));
+                var expected = NeighborhoodKeys(resident);
+                Assert.AreEqual(expected.Count, scene.Streamer.ColliderTileCount, $"Resident centre {resident}");
+                foreach (var requested in NeighborhoodCenters)
+                    Assert.AreEqual(expected.SetEquals(NeighborhoodKeys(requested)), scene.Streamer.Lod0NeighborhoodMatches(requested),
+                        $"Resident centre {resident}, requested centre {requested}");
+            }
+            scene.Streamer.Dispose();
+            Assert.IsFalse(scene.Streamer.Lod0NeighborhoodMatches(Vector2Int.zero));
+            Assert.IsFalse(scene.Streamer.Lod0NeighborhoodMatches(new Vector2Int(-2, 8)));
+            using var uninitialized = new ForestTileStreamer();
+            Assert.IsFalse(uninitialized.Lod0NeighborhoodMatches(new Vector2Int(-2, 8)));
+        }
+
+        [Test]
+        public void RepeatedReadinessChecksAllocateNoManagedObjects()
+        {
+            using var scene = new ForestFixture(ForestData());
+            var center = new Vector2Int(24, 24);
+            var adjacent = center + Vector2Int.right;
+            var outside = new Vector2Int(-2, 8);
+            Drain(scene.Streamer.UpdateLod0NeighborhoodIncremental(center, () => true));
+            for (var i = 0; i < 64; ++i)
+            {
+                scene.Streamer.Lod0NeighborhoodMatches(center);
+                scene.Streamer.Lod0NeighborhoodMatches(adjacent);
+                scene.Streamer.Lod0NeighborhoodMatches(outside);
+            }
+            using (var calibration = AllocationRecorder())
+            {
+                var retained = new byte[64 * 1024]; retained[0] = 1;
+                GC.KeepAlive(retained);
+                calibration.Stop();
+                Assert.That(AllocationBlocks(calibration), Is.GreaterThan(0), "The counter must observe a real retained 64KB allocation.");
+            }
+            var correct = true;
+            using (var measured = AllocationRecorder())
+            {
+                for (var i = 0; i < 1024; ++i)
+                {
+                    correct &= scene.Streamer.Lod0NeighborhoodMatches(center);
+                    correct &= !scene.Streamer.Lod0NeighborhoodMatches(adjacent);
+                    correct &= !scene.Streamer.Lod0NeighborhoodMatches(outside);
+                }
+                measured.Stop();
+                Assert.AreEqual(0, AllocationBlocks(measured), "Matching, wrong-key and outside readiness checks must not allocate.");
+            }
+            Assert.IsTrue(correct);
+        }
+
+        private static readonly Vector2Int[] NeighborhoodCenters =
+        {
+            new Vector2Int(24, 24), new Vector2Int(25, 24), new Vector2Int(0, 24), new Vector2Int(63, 24),
+            new Vector2Int(-1, 24), new Vector2Int(64, 24), Vector2Int.zero, new Vector2Int(63, 63),
+            new Vector2Int(-1, -1), new Vector2Int(-1, 64), new Vector2Int(64, -1), new Vector2Int(64, 64),
+            new Vector2Int(-2, 24), new Vector2Int(65, 24), new Vector2Int(24, -2), new Vector2Int(24, 65),
+            new Vector2Int(int.MinValue, 24), new Vector2Int(int.MaxValue - 1, 24),
+            new Vector2Int(24, int.MinValue + 1), new Vector2Int(24, int.MaxValue)
+        };
+
+        private static readonly Vector2Int[] NeighborhoodOffsets =
+        {
+            new Vector2Int(-1, -1), new Vector2Int(0, -1), new Vector2Int(1, -1),
+            new Vector2Int(-1, 0), Vector2Int.zero, new Vector2Int(1, 0),
+            new Vector2Int(-1, 1), new Vector2Int(0, 1), new Vector2Int(1, 1)
+        };
+
+        private static HashSet<Vector2Int> NeighborhoodKeys(Vector2Int center)
+        {
+            var result = new HashSet<Vector2Int>();
+            foreach (var offset in NeighborhoodOffsets)
+            {
+                var x = (long)center.x + offset.x;
+                var y = (long)center.y + offset.y;
+                if (x >= 0 && y >= 0 && x < 64 && y < 64) result.Add(new Vector2Int((int)x, (int)y));
+            }
+            return result;
+        }
+
+        private static ProfilerRecorder AllocationRecorder() => ProfilerRecorder.StartNew(ProfilerCategory.Internal, "GC.Alloc", 1,
+            ProfilerRecorderOptions.SumAllSamplesInFrame | ProfilerRecorderOptions.CollectOnlyOnCurrentThread);
+
+        private static long AllocationBlocks(ProfilerRecorder recorder) => recorder.Count == 0 ? 0 : recorder.GetSample(0).Count;
 
         [Test]
         public void AuthoredFallenLogsKeepGraphicsWithTheirCollidersAndReleaseOwnedMeshes()

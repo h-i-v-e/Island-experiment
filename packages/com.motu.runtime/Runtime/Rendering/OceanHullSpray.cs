@@ -104,7 +104,7 @@ namespace Motu.Rendering
         {
             if (ocean == null && Time.unscaledTime >= nextOceanSearch)
             {
-                ocean = FindFirstObjectByType<OceanSurfaceController>();
+                ocean = FindAnyObjectByType<OceanSurfaceController>();
                 nextOceanSearch = Time.unscaledTime + 1f;
             }
             if (waterline == null || waterline.Length < 3 || waterline.Length > OceanSurfaceSampler.MaximumCount || ocean == null
