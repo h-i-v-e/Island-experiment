@@ -30,7 +30,7 @@ impl RiverTerrain<'_> {
         depth: f32,
         budget: &mut RiverSedimentBudget,
     ) {
-        if depth <= 0.0 {
+        if depth <= 0.0 || self.material.is_pinned(self.mesh.vertices[vertex]) {
             return;
         }
         let loose_removed = depth.min(self.material.depths()[vertex]);
@@ -51,6 +51,9 @@ impl RiverTerrain<'_> {
         drainage_floor: f32,
         budget: &mut RiverSedimentBudget,
     ) {
+        if self.material.is_pinned(self.mesh.vertices[vertex]) {
+            return;
+        }
         let requested = (self.mesh.vertices[vertex].z - target).max(0.0);
         if requested == 0.0 {
             return;
@@ -76,7 +79,11 @@ impl RiverTerrain<'_> {
         available_volume: &mut f64,
     ) -> f64 {
         let area = f64::from(self.control_areas[vertex].max(0.0));
-        if requested_depth <= 0.0 || area <= f64::EPSILON || *available_volume <= 0.0 {
+        if requested_depth <= 0.0
+            || area <= f64::EPSILON
+            || *available_volume <= 0.0
+            || self.material.is_pinned(self.mesh.vertices[vertex])
+        {
             return 0.0;
         }
         let volume = (f64::from(requested_depth) * area).min(*available_volume);
@@ -85,6 +92,79 @@ impl RiverTerrain<'_> {
         self.material.depths_mut()[vertex] += depth;
         *available_volume -= volume;
         volume
+    }
+}
+
+#[cfg(test)]
+mod coastal_pin_tests {
+    use super::*;
+    use crate::Vec3;
+
+    #[test]
+    fn river_carving_and_delta_deposition_preserve_pins_and_sediment_budgets() {
+        let mut mesh = Mesh {
+            vertices: vec![
+                Vec3::new(0.0, 0.375, -0.006_422_86),
+                Vec3::new(1.0, 0.75, 0.02),
+                Vec3::new(0.5, 0.5, 0.1),
+            ],
+            triangles: vec![0, 1, 2],
+            ..Mesh::default()
+        };
+        let adjacency = mesh.adjacency();
+        let mut material = SurfaceMaterial::coastal_for_test(mesh.vertices.len());
+        material.depths_mut().fill(0.02);
+        let positions_before = mesh.vertices.clone();
+        let material_before = material.clone();
+        let mut budget = RiverSedimentBudget {
+            carried: 0.5,
+            loose_eroded: 0.3,
+            bedrock_eroded: 0.2,
+            ..RiverSedimentBudget::default()
+        };
+        let budget_before = budget;
+        let mut available_volume = 1.0;
+        let mut terrain = RiverTerrain {
+            mesh: &mut mesh,
+            adjacency: &adjacency,
+            material: &mut material,
+            bedrock_rates: &[1.0; 3],
+            control_areas: &[1.0; 3],
+        };
+        for vertex in [0, 1] {
+            terrain.lower_vertex_exactly(vertex, 0.01, &mut budget);
+            terrain.carve_vertex(vertex, -0.1, 1.0, &mut budget);
+            assert!(
+                terrain
+                    .deposit_vertex(vertex, 0.02, &mut available_volume)
+                    .abs()
+                    < f64::EPSILON
+            );
+        }
+        assert_eq!(terrain.mesh.vertices, positions_before);
+        assert_eq!(*terrain.material, material_before);
+        assert_eq!(available_volume.to_bits(), 1.0_f64.to_bits());
+        let volumes = |budget: RiverSedimentBudget| {
+            [
+                budget.carried,
+                budget.loose_eroded,
+                budget.bedrock_eroded,
+                budget.deposited,
+                budget.exported,
+            ]
+            .map(f64::to_bits)
+        };
+        assert_eq!(volumes(budget), volumes(budget_before));
+
+        terrain.lower_vertex_exactly(2, 0.01, &mut budget);
+        assert!((terrain.mesh.vertices[2].z - 0.09).abs() < f32::EPSILON);
+        terrain.carve_vertex(2, -0.1, 1.0, &mut budget);
+        assert!((terrain.mesh.vertices[2].z + 0.1).abs() < f32::EPSILON);
+        assert!(terrain.deposit_vertex(2, 0.02, &mut available_volume) > 0.0);
+        assert!((terrain.mesh.vertices[2].z + 0.08).abs() < f32::EPSILON);
+        assert!((terrain.material.depths()[2] - 0.02).abs() < f32::EPSILON);
+        assert!(budget.carried > budget_before.carried);
+        assert!(available_volume < 1.0);
     }
 }
 

@@ -20,14 +20,16 @@ namespace Motu.Islands
 
             internal async Task InstallAsync(
                 IslandPreparedData prepared,
-                IslandDescriptor descriptor,
+                IslandGenerationRequest request,
                 float worldSize,
                 CancellationToken cancellationToken,
                 UnityFrameBudget frameBudget)
             {
+                var descriptor = request.Descriptor;
                 generator.ClearGeneratedContent();
                 generator.DestroyRuntimeMaterials();
                 generator.BuildRuntimeMaterials(prepared.materialTextures);
+                generator.BindTerrainFieldCoordinates(descriptor, request.CoastalInlandSouth);
                 await frameBudget.YieldIfExceededAsync(cancellationToken);
 
                 generator.islandRuntime = IslandRuntime.Create(
@@ -96,7 +98,8 @@ namespace Motu.Islands
                     prepared.boulderColliders);
                 generator.terrainStreamer.SetWaterfallFootDebug(
                     generator.DebugSettings.ShowWaterfallFeet);
-                generator.islandRuntime.InstallLod3(prepared.lod3, generator.Generation.MaximumHeightMetres);
+                generator.islandRuntime.InstallLod3(prepared.lod3, generator.Generation.MaximumHeightMetres,
+                    generator.Generation.TerrainShape);
                 if (generator.Navigation.Enabled)
                     IslandNavigationIntegration.Install?.Invoke(generator.islandRuntime, prepared, generator.Navigation);
                 generator.islandRuntime.InstallBirdPerches(prepared.landBirdPerches, generator.Forest.ShowForests, prepared.colliderHeightMap.maximumHeight);

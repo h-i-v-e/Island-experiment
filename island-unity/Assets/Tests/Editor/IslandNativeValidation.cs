@@ -1048,8 +1048,15 @@ namespace Motu.Editor
                         throw new InvalidOperationException(
                             "Native terrain-collider height-map dimensions are invalid.");
                     }
-                    var heights = new float[checked(expectedDimension * expectedDimension)];
-                    Marshal.Copy(nativeHeightMap.data, heights, 0, heights.Length);
+                    var heights = IslandPreparedColliderHeightMap.AllocateSamples(
+                        checked(expectedDimension * expectedDimension));
+                    var offset = 0;
+                    foreach (var block in heights)
+                    {
+                        Marshal.Copy(IntPtr.Add(nativeHeightMap.data, checked(offset * sizeof(float))),
+                            block, 0, block.Length);
+                        offset += block.Length;
+                    }
                     var preparedHeightMap = new IslandPreparedColliderHeightMap(
                         expectedDimension,
                         validationSamplesPerTile,

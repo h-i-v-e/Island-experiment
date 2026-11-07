@@ -1,6 +1,6 @@
 use std::{env, error::Error, path::PathBuf, process, time::Instant};
 
-use motu::{Island, IslandOptions, write_png};
+use motu::{CoastalStripOptions, Island, IslandOptions, write_png};
 
 #[derive(Debug)]
 struct Command {
@@ -9,6 +9,8 @@ struct Command {
     height: u32,
     output: PathBuf,
     options: IslandOptions,
+    coastal_strip: bool,
+    coast: CoastalStripOptions,
 }
 
 impl Default for Command {
@@ -19,6 +21,8 @@ impl Default for Command {
             height: 1024,
             output: PathBuf::from("test.png"),
             options: IslandOptions::default(),
+            coastal_strip: false,
+            coast: CoastalStripOptions::default(),
         }
     }
 }
@@ -36,7 +40,11 @@ fn run() -> Result<(), Box<dyn Error>> {
         return Ok(());
     };
     let started = Instant::now();
-    let island = Island::generate(command.seed, command.options)?;
+    let island = if command.coastal_strip {
+        Island::generate_coastal_strip(command.seed, command.options, command.coast)?
+    } else {
+        Island::generate(command.seed, command.options)?
+    };
     let raster = island.render(command.width, command.height);
     write_png(
         &command.output,
@@ -57,6 +65,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+#[allow(clippy::too_many_lines)] // One declarative match keeps CLI flags and their destination fields together.
 fn parse(arguments: impl Iterator<Item = String>) -> Result<Option<Command>, String> {
     let mut command = Command::default();
     let mut arguments = arguments.peekable();
@@ -72,6 +81,32 @@ fn parse(arguments: impl Iterator<Item = String>) -> Result<Option<Command>, Str
             "--width" => command.width = parse_value(&argument, &value(&mut arguments)?)?,
             "--height" => command.height = parse_value(&argument, &value(&mut arguments)?)?,
             "-o" | "--output" => command.output = PathBuf::from(value(&mut arguments)?),
+            "--terrain-shape" => {
+                command.coastal_strip = match value(&mut arguments)?.as_str() {
+                    "island" => false,
+                    "coastal-strip" => true,
+                    other => {
+                        return Err(format!(
+                            "unknown terrain shape {other:?}; expected island or coastal-strip"
+                        ));
+                    }
+                };
+            }
+            "--coastal-section-index" => {
+                command.coast.section_index = parse_value(&argument, &value(&mut arguments)?)?;
+            }
+            "--coastal-section-count" => {
+                command.coast.section_count = parse_value(&argument, &value(&mut arguments)?)?;
+            }
+            "--coastal-seam-segments" => {
+                command.coast.seam_segments = parse_value(&argument, &value(&mut arguments)?)?;
+            }
+            "--coastal-seam-blend-width" => {
+                command.coast.seam_blend_width = parse_value(&argument, &value(&mut arguments)?)?;
+            }
+            "--coastal-seam-ridge-height" => {
+                command.coast.seam_ridge_height = parse_value(&argument, &value(&mut arguments)?)?;
+            }
             "--terrain-size" | "--seed-points" => {
                 command.options.terrain_size = parse_value(&argument, &value(&mut arguments)?)?;
             }
@@ -119,6 +154,9 @@ fn parse(arguments: impl Iterator<Item = String>) -> Result<Option<Command>, Str
     if command.width == 0 || command.height == 0 {
         return Err("image width and height must be greater than zero".into());
     }
+    if command.coastal_strip {
+        command.coast.validate(command.options)?;
+    }
     Ok(Some(command))
 }
 
@@ -143,6 +181,12 @@ fn print_help() {
            --width <PX>           Output width [default: 1024]\n\
            --height <PX>          Output height [default: 1024]\n\
            -o, --output <PATH>    PNG destination [default: test.png]\n\
+           --terrain-shape <SHAPE> island or coastal-strip [default: island]\n\
+           --coastal-section-index <N> Canonical section index [default: 0]\n\
+           --coastal-section-count <N> Repeat period in sections [default: 8]\n\
+           --coastal-seam-segments <N> Fixed edge intervals [default: 32]\n\
+           --coastal-seam-blend-width <F> Normalized seam collar [default: 0.08]\n\
+           --coastal-seam-ridge-height <F> Extra normalized seam height [default: 0.02]\n\
            --seed-points <N>      Delaunay seed-point count [default: 1024]\n\
            --terrain-size <N>     Alias for --seed-points\n\
            --water-ratio <RATIO>  Water coverage [default: 0.6]\n\
@@ -170,6 +214,52 @@ fn print_help() {
 #[cfg(test)]
 mod tests {
     use super::parse;
+
+    #[test]
+    fn coastal_sections_are_explicit_and_validate_the_repeat_identity() {
+        let command = parse(
+            [
+                "--terrain-shape",
+                "coastal-strip",
+                "--coastal-section-count",
+                "4",
+                "--coastal-section-index",
+                "3",
+                "--coastal-seam-segments",
+                "33",
+                "--coastal-seam-blend-width",
+                "0.1",
+                "--coastal-seam-ridge-height",
+                "0",
+            ]
+            .into_iter()
+            .map(str::to_owned),
+        )
+        .unwrap()
+        .unwrap();
+        assert!(command.coastal_strip);
+        assert_eq!(command.coast.section_count, 4);
+        assert_eq!(command.coast.section_index, 3);
+        assert_eq!(command.coast.seam_segments, 33);
+        for arguments in [
+            vec!["--terrain-shape", "cylinder"],
+            vec![
+                "--terrain-shape",
+                "coastal-strip",
+                "--coastal-section-count",
+                "0",
+            ],
+            vec![
+                "--terrain-shape",
+                "coastal-strip",
+                "--coastal-section-index",
+                "8",
+            ],
+        ] {
+            assert!(parse(arguments.into_iter().map(str::to_owned)).is_err());
+        }
+        assert!(!parse(std::iter::empty()).unwrap().unwrap().coastal_strip);
+    }
 
     #[test]
     fn parses_generation_options() {

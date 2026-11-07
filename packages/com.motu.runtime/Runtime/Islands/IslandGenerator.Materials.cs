@@ -7,11 +7,48 @@ using System.Runtime.InteropServices;
 using UnityEngine;
 using UnityEngine.Rendering;
 using Motu.Rendering;
+using Motu.Settings;
 
 namespace Motu.Islands
 {
     public sealed partial class IslandGenerator
     {
+        private static readonly int TerrainFieldOffsetId = Shader.PropertyToID("_MotuTerrainFieldOffset");
+        private static readonly int TerrainSeamId = Shader.PropertyToID("_MotuTerrainSeam");
+
+        internal static Vector4 TerrainFieldOffset(IslandDescriptor descriptor, IslandTerrainShape shape,
+            bool coastalInlandSouth = false)
+        {
+            if (shape != IslandTerrainShape.CoastalStrip) return Vector4.zero;
+            var direction = coastalInlandSouth ? -1f : 1f;
+            return new Vector4((float)descriptor.LogicalXMetres * direction, 0f,
+                (float)descriptor.LogicalZMetres * direction, 0f);
+        }
+
+        internal static Vector4 TerrainSeamSettings(IslandGenerationSettings generation) =>
+            generation.TerrainShape == IslandTerrainShape.CoastalStrip
+                ? new Vector4(generation.WorldSizeMetres * .5f, generation.CoastalSeamBlendWidthMetres, 0f, 0f)
+                : Vector4.zero;
+
+        private void BindTerrainFieldCoordinates(IslandDescriptor descriptor, bool coastalInlandSouth)
+        {
+            // The offset uses logical metres, so floating-origin moves do not
+            // change the material phase or the local matrices used for queries.
+            var offset = TerrainFieldOffset(descriptor, Generation.TerrainShape, coastalInlandSouth);
+            var seam = TerrainSeamSettings(Generation);
+            SetTerrainFieldCoordinates(terrainMaterial, offset, seam);
+            SetTerrainFieldCoordinates(terrainLod1Material, offset, seam);
+            SetTerrainFieldCoordinates(terrainLod2Material, offset, seam);
+            SetTerrainFieldCoordinates(grassMaterial, offset, seam);
+        }
+
+        private static void SetTerrainFieldCoordinates(Material material, Vector4 offset, Vector4 seam)
+        {
+            if (material == null) return;
+            if (material.HasProperty(TerrainFieldOffsetId)) material.SetVector(TerrainFieldOffsetId, offset);
+            if (material.HasProperty(TerrainSeamId)) material.SetVector(TerrainSeamId, seam);
+        }
+
         private void BuildRuntimeMaterials(IslandPreparedMaterialTextures materialTextures)
         {
             var skyColor = new Color(0.49f, 0.68f, 0.82f);

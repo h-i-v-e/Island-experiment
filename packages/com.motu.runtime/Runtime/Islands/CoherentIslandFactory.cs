@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.Serialization;
 using Motu.Settings;
 using Motu.Interop;
 using Motu.World;
@@ -14,9 +15,24 @@ namespace Motu.Islands
         /// <summary>Set before world discovery or generation starts.</summary>
         public int Seed { get => seed; set => seed = value; }
 
-        [Tooltip("Archipelago radius in 2 km grid cells. Also sets the south-to-north solar latitude range.")]
+        [Header("Coastal Terrain Generation")]
+        [Tooltip("Shared terrain profile for the northern and southern coasts. The section count sets the world's circumference in repeating 2 km cells; interior islands use their own deterministic profiles.")]
+        [FormerlySerializedAs("coastalStripGeneration")]
+        [SerializeField] private IslandGenerationSettings terrainGeneration = new IslandGenerationSettings
+            { TerrainShape = IslandTerrainShape.CoastalStrip };
+        public IslandGenerationSettings TerrainGeneration => terrainGeneration ??=
+            new IslandGenerationSettings { TerrainShape = IslandTerrainShape.CoastalStrip };
+        public IslandGenerationSettings CoastalStripGeneration => TerrainGeneration;
+        public int WorldSectionCount => TerrainGeneration.CoastalSectionCount;
+
+        [Tooltip("North/south half-height in 2 km cells. The outer rows are continuous coasts; no terrain exists beyond them. Also sets the south-to-north solar latitude range.")]
+        [InspectorName("World Half-Height (Cells)")]
         [Min(1)] [SerializeField] private int archipelegoRadius = 16;
         public int ArchipelagoRadius => Mathf.Max(archipelegoRadius, 1);
+        public int TopCoastRow => ArchipelagoRadius;
+        public int BottomCoastRow => -ArchipelagoRadius;
+        public Vector2Int StartingCell => new Vector2Int(0, BottomCoastRow + 1);
+        public Vector3 StartingPosition(float y = 0f) => IslandWorldManager.CellCentre(StartingCell, y);
 
         public float GetSunLatitudeDegrees(float worldZ)
         {
@@ -111,32 +127,14 @@ namespace Motu.Islands
 
         public bool HasIsland(Vector2Int islandGridPosition)
         {
-            int x = islandGridPosition.x, y = islandGridPosition.y;
-            int radius = ArchipelagoRadius;
-            if (x <= -radius || x >= radius || y <= -radius || y >= radius) return false;
-            // Reject the outer square first so even extreme coordinates cannot
-            // overflow the sum; retain the authored exclusive circular edge.
-            long sqrRadius = (long)radius * radius;
-            long sqrDistance = (long)x * x + (long)y * y;
-            if (sqrDistance == 0 || sqrDistance >= sqrRadius)
-            {
-                return false;
-            }
-            var weight = Mathf.Sin(2f - (2 * sqrDistance / (float)sqrRadius));
-            var seed = (uint)this.seed;
-            var noiseOffsetA = NoiseOffset(seed);
-            var noiseOffsetB = NoiseOffset(seed * 3);
-            var height = Mathf.PerlinNoise(
-                noiseOffsetA.x + x * noiseScaleCoarse,
-                noiseOffsetA.y + y * noiseScaleCoarse) * 0.25f +
-            Mathf.PerlinNoise(
-                noiseOffsetB.x + x * noiseScaleFine,
-                noiseOffsetB.y + y * noiseScaleFine) * 0.75f;
-            if (height * weight < islandThreshold)
-            {
-                return false;
-            }
-            return true;
+            var y = islandGridPosition.y;
+            if (y < BottomCoastRow || y > TopCoastRow) return false;
+            if (y == BottomCoastRow || y == TopCoastRow) return true;
+            var x = CanonicalX(islandGridPosition.x);
+            if (x == 0 && y == StartingCell.y) return false;
+            var sample = PeriodicNoise(x, y, noiseScaleCoarse, (uint)seed) * 0.25f +
+                PeriodicNoise(x, y, noiseScaleFine, unchecked((uint)seed * 3u)) * 0.75f;
+            return sample >= islandThreshold;
         }
 
         public IslandGenerationRequest CreateIslandGenerationRequest(
@@ -146,8 +144,11 @@ namespace Motu.Islands
             {
                 return null;
             }
+            if (islandGridPosition.y == BottomCoastRow || islandGridPosition.y == TopCoastRow)
+                return CreateCoastalStripRequest(islandGridPosition);
             var snowLine = 1f - Mathf.Max(islandGridPosition.y / (float)ArchipelagoRadius, 0f);
-            var islandSeed = IslandRandom.SeedForCell(seed, islandGridPosition);
+            var seedCell = new Vector2Int(CanonicalX(islandGridPosition.x), islandGridPosition.y);
+            var islandSeed = IslandRandom.SeedForCell(seed, seedCell);
             var random = new System.Random(islandSeed);
             var profile = new IslandGenerationProfile(
                 CreateGenerationSettings(random),
@@ -166,6 +167,46 @@ namespace Motu.Islands
                 profile,
                 CreateIslandMaterialColours(random)
                 );
+        }
+
+        private IslandGenerationRequest CreateCoastalStripRequest(Vector2Int cell)
+        {
+            var inlandSouth = cell.y == BottomCoastRow;
+            var coastSeed = inlandSouth ? unchecked(seed ^ 0x6D2B79F5) : seed;
+            var generation = CoastalStripGeneration.Copy();
+            generation.TerrainShape = IslandTerrainShape.CoastalStrip;
+            generation.Seed = coastSeed;
+            // Do not apply per-cell height, noise, seed or sea-level variation:
+            // each tile samples one shared periodic original field.
+            var random = new System.Random(coastSeed);
+            var snowLine = 1f - Mathf.Max(cell.y / (float)ArchipelagoRadius, 0f);
+            var profile = new IslandGenerationProfile(generation, riverSettings,
+                CreateForestSettings(random, snowLine,
+                    GetSunLatitudeDegrees(cell.y * IslandWorldManager.IslandSizeMetres)),
+                reedSettings, fernSettings, renderingSettings, new IslandDebugSettings(),
+                caveSettings, navigationSettings);
+            return IslandGenerationRequest.FromOwnedProfile(coastSeed, cell, profile,
+                CreateIslandMaterialColours(random), coastalInlandSouth: inlandSouth);
+        }
+
+        private int CanonicalX(int x)
+        {
+            var width = WorldSectionCount;
+            var section = x % width;
+            if (section < 0) section += width;
+            return section >= (width + 1) / 2 ? section - width : section;
+        }
+
+        private float PeriodicNoise(int x, int y, float scale, uint noiseSeed)
+        {
+            // Reduce before converting to float so distant aliases sample exactly
+            // the same smoothly repeating field, including across the closing seam.
+            var phase = x / (double)WorldSectionCount * (System.Math.PI * 2d);
+            var radius = WorldSectionCount * (double)scale / (System.Math.PI * 2d);
+            var offset = NoiseOffset(noiseSeed);
+            return Mathf.PerlinNoise(
+                offset.x + (float)(System.Math.Cos(phase) * radius),
+                offset.y + (float)(System.Math.Sin(phase) * radius + y * (double)scale));
         }
 
         private static float HashToNoiseCoordinate(uint hash)

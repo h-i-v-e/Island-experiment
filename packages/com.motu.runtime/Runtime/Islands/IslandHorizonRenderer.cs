@@ -1,5 +1,6 @@
 using System;
 using Motu.Interop;
+using Motu.Settings;
 using Motu.World;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -14,12 +15,15 @@ namespace Motu.Islands
         private Material material;
         private MeshRenderer meshRenderer;
         private float maximumHeight;
+        private bool fixedCoastalSeams;
         private RenderTexture shelterLand;
         private OceanIslandShelterField shelterField;
 
-        internal void Initialize(IslandPreparedMesh prepared, float height)
+        internal void Initialize(IslandPreparedMesh prepared, float height,
+            IslandTerrainShape terrainShape = IslandTerrainShape.Island)
         {
             maximumHeight = height;
+            fixedCoastalSeams = terrainShape == IslandTerrainShape.CoastalStrip;
             if (prepared == null) return;
             var shader = Resources.Load<Shader>("IslandHorizon")
                 ?? throw new InvalidOperationException("The island horizon shader is unavailable.");
@@ -44,7 +48,7 @@ namespace Motu.Islands
         {
             if (meshRenderer == null) return;
             var distance = Vector3.Distance(position, transform.position);
-            var submersion = IslandRuntime.Lod3Submersion(distance, lod3DistanceMetres);
+            var submersion = fixedCoastalSeams ? 0f : IslandRuntime.Lod3Submersion(distance, lod3DistanceMetres);
             meshRenderer.transform.localPosition = Vector3.down * (maximumHeight * submersion);
             meshRenderer.enabled = visible;
         }

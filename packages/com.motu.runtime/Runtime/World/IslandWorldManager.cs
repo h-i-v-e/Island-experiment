@@ -38,7 +38,7 @@ namespace Motu.World
                     profile.Generation.UseSnapshotCache = true;
                     generationRequest = IslandGenerationRequest.FromOwnedProfile(generationRequest.RandomSeed,
                         generationRequest.IslandGridPosition, profile, generationRequest.MaterialColours,
-                        generationRequest.IslandId);
+                        generationRequest.IslandId, generationRequest.CoastalInlandSouth);
                 }
                 GenerationRequest = generationRequest;
                 Descriptor = generationRequest.Descriptor;
@@ -84,7 +84,7 @@ namespace Motu.World
         [Min(1f)] [SerializeField] private float failedGenerationRetrySeconds = 15f;
 
         [Header("Detailed Island Streaming")]
-        [Tooltip("Distance from the island centre where detailed terrain switches to the full-island LOD3 silhouette. Can also be changed at runtime for hardware quality settings.")]
+        [Tooltip("Distance from the island centre, or outside a coastal section's footprint, where detailed terrain switches to LOD3. Can also be changed at runtime for hardware quality settings.")]
         [InspectorName("Visual LOD3 Distance (m)")]
         [Min(1f)] [SerializeField] private float lod3DistanceMetres = IslandRuntime.DefaultLod3DistanceMetres;
         [Tooltip("Begin loading details this far before the visual LOD3 switch. Travel prediction also preloads approaching islands.")]
@@ -458,8 +458,34 @@ namespace Motu.World
         private float EffectiveGenerationRadius => Mathf.Max(generationRadiusMetres, DetailPreloadRadius);
         private float EffectiveDiscoveryRadius => Mathf.Max(discoveryRadiusMetres, EffectiveUnloadRadius());
 
-        private float ViewerDistance(IslandRuntimeEntry entry, Vector3 position) => Vector3.Distance(position,
-            new Vector3((float)entry.Descriptor.LogicalXMetres, SeaLevelWorldY(), (float)entry.Descriptor.LogicalZMetres));
+        private float ViewerDistance(IslandRuntimeEntry entry, Vector3 position)
+        {
+            var relative = position - new Vector3((float)entry.Descriptor.LogicalXMetres,
+                SeaLevelWorldY(), (float)entry.Descriptor.LogicalZMetres);
+            var generation = entry.GenerationRequest.Generation;
+            return generation.TerrainShape == IslandTerrainShape.CoastalStrip
+                ? CoastalDetailDistance(generation, relative)
+                : relative.magnitude;
+        }
+
+        internal static float CoastalDetailDistance(IslandGenerationSettings generation, Vector3 relative)
+        {
+            var size = generation.WorldSizeMetres;
+            var halfSize = size * .5f;
+            // Bay relief is bounded above before the extra watershed ridge.
+            // The shallow-water floor retains full fine noise; include its
+            // amplitude and room for staged displacement/deposition below sea.
+            var fieldBound = 1f + .30f * generation.ContinentalNoiseStrength + 2f * generation.DetailNoiseStrength
+                + Mathf.Abs(generation.LandMassOffset);
+            var maximum = generation.MaximumHeightMetres
+                + generation.CoastalSeamRidgeHeightMetres + size * .25f;
+            var minimum = -generation.MaximumHeightMetres * fieldBound * .28f
+                - size * (Mathf.Sqrt(2f) * generation.SeabedDepthDistanceRatio + .25f);
+            var x = Mathf.Max(Mathf.Abs(relative.x) - halfSize, 0f);
+            var z = Mathf.Max(Mathf.Abs(relative.z) - halfSize, 0f);
+            var y = relative.y < minimum ? minimum - relative.y : Mathf.Max(relative.y - maximum, 0f);
+            return Mathf.Sqrt(x * x + y * y + z * z);
+        }
 
         private bool WantsDetailedIsland(IslandRuntimeEntry entry) =>
             ViewerDistance(entry, lastQueryPosition) <= DetailPreloadRadius
@@ -517,11 +543,12 @@ namespace Motu.World
             var root = new GameObject($"Island horizon {entry.Descriptor.WorldCell}");
             root.transform.SetParent(transform, false);
             root.transform.SetPositionAndRotation(new Vector3((float)entry.Descriptor.LogicalXMetres,
-                SeaLevelWorldY(), (float)entry.Descriptor.LogicalZMetres), Quaternion.identity);
+                SeaLevelWorldY(), (float)entry.Descriptor.LogicalZMetres), entry.GenerationRequest.WorldRotation);
             try
             {
                 var horizon = root.AddComponent<IslandHorizonRenderer>();
-                horizon.Initialize(mesh, entry.GenerationRequest.Generation.MaximumHeightMetres);
+                horizon.Initialize(mesh, entry.GenerationRequest.Generation.MaximumHeightMetres,
+                    entry.GenerationRequest.Generation.TerrainShape);
                 entry.Horizon = horizon;
                 horizon.SetViewPosition(lastQueryPosition, true, Lod3DistanceMetres);
             }

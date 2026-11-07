@@ -33,11 +33,30 @@ float _SnowEdgeNoiseMetres;
 float _SnowMacroNoiseMetres;
 float4 _TerrainLayerWorldSizesA;
 float4 _TerrainLayerWorldSizesB;
+float4 _MotuTerrainFieldOffset;
+float4 _MotuTerrainSeam;
 half4 _TerrainHeightInfluencesA;
 half4 _TerrainHeightInfluencesB;
 half _TerrainHeightBlendDepth;
 half _TopTextureFadeOutSlope;
 half _SteepStoneBlendWidth;
+
+// Coastal sections use a common logical metre field. Geometry, map UVs and
+// sea-level height stay island-local, including after a floating-origin move.
+float3 MotuTerrainFieldPosition(float3 localPosition)
+{
+    return localPosition + float3(_MotuTerrainFieldOffset.x, 0, _MotuTerrainFieldOffset.z);
+}
+
+// Independently baked normal/AO maps cannot see the neighboring section.
+// At a join use the shared boundary normal and neutral AO, then recover the
+// baked detail smoothly within this section's collar. X=0 disables the fade.
+half MotuTerrainBakedMapWeight(float3 localPosition)
+{
+    if (_MotuTerrainSeam.x <= 0) return 1;
+    float edgeDistance = max(_MotuTerrainSeam.x - abs(localPosition.x), 0);
+    return smoothstep(0, max(_MotuTerrainSeam.y, 0.001), edgeDistance);
+}
 
 struct MotuTerrainNoise
 {
@@ -86,7 +105,7 @@ half MotuCoherentMask(
 
 MotuTerrainNoise MotuSampleTerrainNoise(float3 localPosition)
 {
-    float3 position = localPosition / max(_CliffNoisePeriod, 1.0);
+    float3 position = MotuTerrainFieldPosition(localPosition) / max(_CliffNoisePeriod, 1.0);
     MotuTerrainNoise result;
     result.broad = tex3D(_CliffNoise3D, position).rgb * 2.0h - 1.0h;
     result.macro = tex3D(
@@ -169,7 +188,7 @@ MotuTerrainCoverage MotuBuildTerrainCoverage(
         * seaProximity
         * sandAltitude
         * (1.0h - result.river);
-    float2 sandUv = localPosition.xz / max(_SandPatchNoiseWorldSize, 0.1)
+    float2 sandUv = MotuTerrainFieldPosition(localPosition).xz / max(_SandPatchNoiseWorldSize, 0.1)
         + float2(0.37, 0.73);
     half2 sandLayers = tex2D(_GrassPatchNoise, sandUv).rg;
     half sandPatch = sandLayers.r * 0.40h + sandLayers.g * 0.60h;
@@ -225,7 +244,7 @@ MotuTerrainCoverage MotuBuildTerrainCoverage(
         _StonesEdgeBlendWidth)
         * step(0.0h, elevation);
 
-    float2 grassUv = localPosition.xz / max(_GrassPatchNoiseWorldSize, 0.1);
+    float2 grassUv = MotuTerrainFieldPosition(localPosition).xz / max(_GrassPatchNoiseWorldSize, 0.1);
     half2 grassLayers = tex2D(_GrassPatchNoise, grassUv).rg;
     half grassPatch = grassLayers.r * 0.65h + grassLayers.g * 0.35h;
     // Soil richness closes bare patches on fertile ground. Bias poor soil
@@ -306,7 +325,7 @@ half MotuLayerHeightInfluence(int layer)
 
 float2 MotuLayerUv(float3 localPosition, int layer)
 {
-    return localPosition.xz / max(MotuLayerWorldSize(layer), 0.01);
+    return MotuTerrainFieldPosition(localPosition).xz / max(MotuLayerWorldSize(layer), 0.01);
 }
 
 half2 MotuSampleTerrainMask(float3 localPosition, int layer)

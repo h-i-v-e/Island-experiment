@@ -248,6 +248,92 @@ impl Mesh {
         })
     }
 
+    /// Splits coastal join and inland edges alongside adaptive interior refinement.
+    /// Neighbouring sections double the same boundary partition while the
+    /// seaward partition stays fixed. Blend support is added after erosion.
+    pub(crate) fn tessellated_displaced_refining_boundary(&self, ratio: f32) -> TessellationResult {
+        let adjacency = self.adjacency();
+        let selected: Vec<bool> = self
+            .vertices
+            .iter()
+            .enumerate()
+            .map(|(index, _)| {
+                self.normal_displacement_ratio(&adjacency, index)
+                    .is_some_and(|value| value.abs() > ratio)
+            })
+            .collect();
+        self.tessellated_incident_with_boundary(&selected, |a, b| {
+            (a.x <= 0.0 && b.x <= 0.0) || (a.x >= 1.0 && b.x >= 1.0) || (a.y >= 1.0 && b.y >= 1.0)
+        })
+    }
+
+    pub(crate) fn tessellate_incident_preserving_boundary(
+        &mut self,
+        selected: &[bool],
+    ) -> Vec<NewVertexStencil> {
+        let TessellationResult { mesh, new_vertices } =
+            self.tessellated_incident_with_boundary(selected, |_, _| false);
+        *self = mesh;
+        new_vertices
+    }
+
+    fn tessellated_incident_with_boundary(
+        &self,
+        selected: &[bool],
+        refine_boundary: impl Fn(Vec3, Vec3) -> bool,
+    ) -> TessellationResult {
+        debug_assert_eq!(selected.len(), self.vertices.len());
+        let boundary = self.perimeter_mask();
+        let mut out = Self {
+            vertices: self.vertices.clone(),
+            uv: self.uv.clone(),
+            ..Self::default()
+        };
+        let mut midpoints = HashMap::<u64, (u32, usize)>::new();
+        let mut added = Vec::new();
+        for triangle in self.triangles.chunks_exact(3) {
+            let refine_interior = triangle.iter().any(|&v| selected[v as usize]);
+            let [a, b, c] = [triangle[0], triangle[1], triangle[2]];
+            for (left, right, opposite) in [(a, b, c), (a, c, b), (b, c, a)] {
+                let perimeter = boundary[left as usize] && boundary[right as usize];
+                let refine = if perimeter {
+                    refine_boundary(self.vertices[left as usize], self.vertices[right as usize])
+                } else {
+                    refine_interior
+                };
+                if !refine {
+                    continue;
+                }
+                midpoint(
+                    left,
+                    right,
+                    opposite,
+                    self,
+                    &mut out,
+                    &mut midpoints,
+                    &mut added,
+                );
+            }
+        }
+        for triangle in self.triangles.chunks_exact(3) {
+            let [a, b, c] = [triangle[0], triangle[1], triangle[2]];
+            add_conforming_triangle(
+                &mut out.triangles,
+                a,
+                b,
+                c,
+                conforming_midpoint(midpoints.get(&packed_edge(a, b)), c, &mut added),
+                conforming_midpoint(midpoints.get(&packed_edge(a, c)), b, &mut added),
+                conforming_midpoint(midpoints.get(&packed_edge(c, b)), a, &mut added),
+            );
+        }
+        out.calculate_normals();
+        TessellationResult {
+            mesh: out,
+            new_vertices: added,
+        }
+    }
+
     /// Returns signed displacement along the vertex normal relative to the
     /// average position of its neighbours, normalized by mean edge length.
     /// Positive values protrude out of the local surface.
@@ -465,6 +551,20 @@ impl Mesh {
     }
 
     pub(crate) fn constrain_height_plane(&mut self, height: f32) -> HeightConstraintResult {
+        self.constrain_height_plane_with_boundary_order(height, false)
+    }
+
+    /// Uses one geometric interpolation direction on the fixed unit-square
+    /// boundary, independent of each coastal section's local vertex IDs.
+    pub(crate) fn constrain_coastal_height_plane(&mut self, height: f32) -> HeightConstraintResult {
+        self.constrain_height_plane_with_boundary_order(height, true)
+    }
+
+    fn constrain_height_plane_with_boundary_order(
+        &mut self,
+        height: f32,
+        canonical_boundary: bool,
+    ) -> HeightConstraintResult {
         let source_triangles = std::mem::take(&mut self.triangles);
         let mut triangles = Vec::with_capacity(source_triangles.len() * 2);
         let mut intersections = HashMap::<(u32, u32), u32>::new();
@@ -485,6 +585,7 @@ impl Mesh {
                 triangle,
                 height,
                 true,
+                canonical_boundary,
                 &mut intersections,
                 &mut result.splits,
             );
@@ -493,6 +594,7 @@ impl Mesh {
                 triangle,
                 height,
                 false,
+                canonical_boundary,
                 &mut intersections,
                 &mut result.splits,
             );
@@ -1193,16 +1295,18 @@ fn clip_triangle_above(
         if current_inside != previous_inside {
             let previous_z = vertices[previous as usize].z;
             let current_z = vertices[current as usize].z;
-            let interpolation = (minimum_z - previous_z) / (current_z - previous_z);
             let intersection = if is_on_height_plane(previous_z, minimum_z) {
                 HeightClipVertex::Existing(previous)
             } else if is_on_height_plane(current_z, minimum_z) {
                 HeightClipVertex::Existing(current)
             } else {
+                let [from, to] = height_interpolation_edge(vertices, [previous, current], true);
+                let from_z = vertices[from as usize].z;
+                let to_z = vertices[to as usize].z;
                 HeightClipVertex::Edge {
-                    from: previous,
-                    to: current,
-                    interpolation,
+                    from,
+                    to,
+                    interpolation: (minimum_z - from_z) / (to_z - from_z),
                 }
             };
             push_height_clip_vertex(&mut output, &mut length, intersection);
@@ -1781,6 +1885,7 @@ fn height_intersection_vertex(
     a: u32,
     b: u32,
     height: f32,
+    canonical_boundary: bool,
     intersections: &mut HashMap<(u32, u32), u32>,
     splits: &mut Vec<EdgeSplitStencil>,
 ) -> u32 {
@@ -1788,7 +1893,9 @@ fn height_intersection_vertex(
     if let Some(&vertex) = intersections.get(&edge) {
         return vertex;
     }
-    let [edge_a, edge_b] = [edge.0 as usize, edge.1 as usize];
+    let interpolation_edge =
+        height_interpolation_edge(&mesh.vertices, [edge.0, edge.1], canonical_boundary);
+    let [edge_a, edge_b] = interpolation_edge.map(|vertex| vertex as usize);
     let [a_height, b_height] = [
         mesh.vertices[edge_a].z - height,
         mesh.vertices[edge_b].z - height,
@@ -1804,11 +1911,27 @@ fn height_intersection_vertex(
     }
     splits.push(EdgeSplitStencil {
         vertex,
-        edge: [edge.0, edge.1],
+        edge: interpolation_edge,
         interpolation,
     });
     intersections.insert(edge, vertex);
     vertex
+}
+
+#[allow(clippy::float_cmp)] // These are exact shared domain edges, not a proximity test.
+fn height_interpolation_edge(
+    vertices: &[Vec3],
+    edge: [u32; 2],
+    canonical_boundary: bool,
+) -> [u32; 2] {
+    let [a, b] = [vertices[edge[0] as usize], vertices[edge[1] as usize]];
+    let domain_edge =
+        (a.x == b.x && (a.x == 0.0 || a.x == 1.0)) || (a.y == b.y && (a.y == 0.0 || a.y == 1.0));
+    if canonical_boundary && domain_edge && a.x.total_cmp(&b.x).then(a.y.total_cmp(&b.y)).is_gt() {
+        [edge[1], edge[0]]
+    } else {
+        edge
+    }
 }
 
 fn clip_triangle_to_height_side(
@@ -1816,6 +1939,7 @@ fn clip_triangle_to_height_side(
     triangle: [u32; 3],
     height: f32,
     keep_above: bool,
+    canonical_boundary: bool,
     intersections: &mut HashMap<(u32, u32), u32>,
     splits: &mut Vec<EdgeSplitStencil>,
 ) -> Vec<u32> {
@@ -1844,6 +1968,7 @@ fn clip_triangle_to_height_side(
                 current,
                 next,
                 height,
+                canonical_boundary,
                 intersections,
                 splits,
             ));
@@ -2110,14 +2235,11 @@ fn orient_projected_triangle(
     Some(triangle)
 }
 
-fn projected_area_twice(vertices: &[Vec3], triangle: [u32; 3]) -> f64 {
-    let [a, b, c] = triangle.map(|vertex| vertices[vertex as usize]);
-    let first = b - a;
-    let second = c - a;
-    f64::from(first.x).mul_add(
-        f64::from(second.y),
-        -(f64::from(first.y) * f64::from(second.x)),
-    )
+pub(crate) fn projected_area_twice(vertices: &[Vec3], triangle: [u32; 3]) -> f64 {
+    // Promote before subtraction: thin coastal faces can lose their signed
+    // area if the edge vectors are rounded in f32 first.
+    let [a, b, c] = triangle.map(|vertex| vertices[vertex as usize].truncate().as_dvec2());
+    (b - a).perp_dot(c - a)
 }
 
 fn surface_triangle_quality(vertices: &[Vec3], triangle: [u32; 3]) -> f32 {
@@ -2464,6 +2586,136 @@ mod tests {
             !(heights.iter().any(|height| *height > 0.0)
                 && heights.iter().any(|height| *height < 0.0))
         }));
+    }
+
+    #[test]
+    fn coastal_height_crossings_ignore_vertex_ids_and_keep_attribute_stencils_oriented() {
+        let mut expected = None;
+        for axis in [0, 1] {
+            for boundary in [0.0, 1.0] {
+                for reverse in [false, true] {
+                    let point = |along, height| {
+                        if axis == 0 {
+                            Vec3::new(boundary, along, height)
+                        } else {
+                            Vec3::new(along, boundary, height)
+                        }
+                    };
+                    let mut vertices = vec![
+                        point(0.111_111_11, 0.014_782_693),
+                        point(0.222_222_22, -0.003_573_773_7),
+                        Vec3::new(0.5, 0.5, 0.02),
+                    ];
+                    let mut uv = vec![Vec2::new(2.0, 3.0), Vec2::new(7.0, 11.0), Vec2::ZERO];
+                    if reverse {
+                        vertices.swap(0, 1);
+                        uv.swap(0, 1);
+                    }
+                    let area = (vertices[1] - vertices[0])
+                        .truncate()
+                        .perp_dot((vertices[2] - vertices[0]).truncate());
+                    let mut mesh = Mesh {
+                        vertices,
+                        uv,
+                        triangles: if area > 0.0 {
+                            vec![0, 1, 2]
+                        } else {
+                            vec![0, 2, 1]
+                        },
+                        ..Mesh::default()
+                    };
+                    let constrained = mesh.constrain_coastal_height_plane(0.0);
+                    let split = constrained
+                        .splits
+                        .iter()
+                        .find(|split| split.edge.iter().all(|&vertex| vertex < 2))
+                        .unwrap();
+                    let [a, b] = split.edge.map(|index| index as usize);
+                    assert!(mesh.vertices[a][1 - axis] < mesh.vertices[b][1 - axis]);
+                    let vertex = split.vertex as usize;
+                    assert_eq!(
+                        mesh.uv[vertex],
+                        mesh.uv[a].lerp(mesh.uv[b], split.interpolation)
+                    );
+                    let sample = (mesh.vertices[vertex][1 - axis].to_bits(), mesh.uv[vertex]);
+                    if let Some(expected) = expected {
+                        assert_eq!(
+                            sample, expected,
+                            "axis {axis}, side {boundary}, reverse {reverse}"
+                        );
+                    } else {
+                        expected = Some(sample);
+                    }
+                    assert_eq!(mesh.projected_foldover_count(), 0);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn render_floor_crossings_match_on_every_domain_edge_with_opposite_vertex_ids() {
+        let mut expected = None;
+        for axis in [0, 1] {
+            for boundary in [0.0, 1.0] {
+                for reverse in [false, true] {
+                    let point = |along, height| {
+                        if axis == 0 {
+                            Vec3::new(boundary, along, height)
+                        } else {
+                            Vec3::new(along, boundary, height)
+                        }
+                    };
+                    let mut vertices = vec![
+                        point(0.111_111_11, 0.014_782_693 - 0.005),
+                        point(0.222_222_22, -0.003_573_773_7 - 0.005),
+                        Vec3::new(0.5, 0.5, 0.02),
+                    ];
+                    let mut uv = vec![Vec2::new(2.0, 3.0), Vec2::new(7.0, 11.0), Vec2::ZERO];
+                    let mut normals = vec![Vec3::X, Vec3::Y, Vec3::Z];
+                    if reverse {
+                        vertices.swap(0, 1);
+                        uv.swap(0, 1);
+                        normals.swap(0, 1);
+                    }
+                    let area = (vertices[1] - vertices[0])
+                        .truncate()
+                        .perp_dot((vertices[2] - vertices[0]).truncate());
+                    let mesh = Mesh {
+                        vertices,
+                        uv,
+                        normals,
+                        triangles: if area > 0.0 {
+                            vec![0, 1, 2]
+                        } else {
+                            vec![0, 2, 1]
+                        },
+                    }
+                    .clipped_above(-0.005);
+                    let vertex = mesh
+                        .vertices
+                        .iter()
+                        .position(|point| {
+                            point[axis].to_bits() == boundary.to_bits()
+                                && point.z.to_bits() == (-0.005_f32).to_bits()
+                        })
+                        .unwrap();
+                    let sample = (
+                        mesh.vertices[vertex][1 - axis].to_bits(),
+                        mesh.uv[vertex],
+                        mesh.normals[vertex],
+                    );
+                    if let Some(expected) = expected {
+                        assert_eq!(
+                            sample, expected,
+                            "axis {axis}, side {boundary}, reverse {reverse}"
+                        );
+                    } else {
+                        expected = Some(sample);
+                    }
+                    assert_eq!(mesh.projected_foldover_count(), 0);
+                }
+            }
+        }
     }
 
     #[test]

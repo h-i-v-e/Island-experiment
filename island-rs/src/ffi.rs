@@ -8,6 +8,7 @@
 
 mod abi;
 mod caves;
+mod coastal_strip;
 mod hybrid_forest;
 mod reed_instances;
 mod surface_atlas;

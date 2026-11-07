@@ -240,11 +240,16 @@ pub(super) fn generate_final_rivers(
     material: &SurfaceMaterial,
     source_rule: RiverSourceRule,
     channel_settings: RiverChannelSettings,
+    coastal_strip: Option<super::coastal_strip::CoastalStripField>,
 ) -> Result<FinalRiverGeneration, String> {
     let _timer = StageTimer::new("rivers.final");
     let mut prepared_lod0 = lod0.clone();
     let detail_adjacency = prepared_lod0.adjacency();
-    let ocean = fix_inland_seas(&mut prepared_lod0, &detail_adjacency);
+    let ocean = if coastal_strip.is_some() {
+        crate::rivers::fix_coastal_inland_seas(&mut prepared_lod0, &detail_adjacency)
+    } else {
+        fix_inland_seas(&mut prepared_lod0, &detail_adjacency)
+    };
     let mut prepared_material = material.clone();
     prepared_material.set_sea_proximity(sea_proximity_strengths(
         &prepared_lod0,
@@ -255,12 +260,16 @@ pub(super) fn generate_final_rivers(
     loop {
         let mut attempt_lod0 = prepared_lod0.clone();
         let mut attempt_material = prepared_material.clone();
-        let mut network = RiverNetwork::generate_with_ocean(
+        let excluded = coastal_strip
+            .map(|field| field.river_exclusions(&attempt_lod0, &detail_adjacency))
+            .unwrap_or_default();
+        let mut network = RiverNetwork::generate_with_ocean_avoiding(
             &mut attempt_lod0,
             &detail_adjacency,
             source_rule,
             ocean.clone(),
             seed,
+            &excluded,
         );
         network.shape_with_settings_and_waterfall_rejections(
             &mut attempt_lod0,
@@ -528,6 +537,93 @@ impl Island {
         walk_options: CaveWalkOptions,
         method: GenerationMethod,
     ) -> Result<Self, String> {
+        Self::generate_with_shape(
+            seed,
+            options,
+            None,
+            forest_options,
+            reed_options,
+            fern_options,
+            cave_options,
+            network_options,
+            walk_options,
+            method,
+        )
+    }
+
+    /// Generates a periodic coastal section with default vegetation and CPU processing.
+    /// # Errors
+    /// Returns invalid terrain or strip settings, or generation failures.
+    pub fn generate_coastal_strip(
+        seed: u64,
+        options: IslandOptions,
+        strip_options: super::CoastalStripOptions,
+    ) -> Result<Self, String> {
+        Self::generate_coastal_strip_with_cave_walks(
+            seed,
+            options,
+            strip_options,
+            ForestOptions::default(),
+            ReedOptions::default(),
+            FernOptions::default(),
+            CaveOptions::default(),
+            CaveNetworkOptions::default(),
+            CaveWalkOptions::default(),
+            GenerationMethod::Cpu,
+        )
+    }
+
+    /// Generates one independently processable section of a periodic flat coast.
+    /// Boundary positions and hardness come from one shared noise field.
+    /// # Errors
+    /// Returns invalid strip, terrain, vegetation, cave or generation errors.
+    #[allow(clippy::too_many_arguments)]
+    pub fn generate_coastal_strip_with_cave_walks(
+        seed: u64,
+        options: IslandOptions,
+        strip_options: super::CoastalStripOptions,
+        forest_options: ForestOptions,
+        reed_options: ReedOptions,
+        fern_options: FernOptions,
+        cave_options: CaveOptions,
+        network_options: CaveNetworkOptions,
+        walk_options: CaveWalkOptions,
+        method: GenerationMethod,
+    ) -> Result<Self, String> {
+        let strip_options = strip_options.validate(options)?;
+        if method != GenerationMethod::Cpu {
+            return Err(
+                "coastal strips currently require CPU generation to preserve seam constraints"
+                    .into(),
+            );
+        }
+        Self::generate_with_shape(
+            seed,
+            options,
+            Some(strip_options),
+            forest_options,
+            reed_options,
+            fern_options,
+            cave_options,
+            network_options,
+            walk_options,
+            method,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+    fn generate_with_shape(
+        seed: u64,
+        options: IslandOptions,
+        strip_options: Option<super::CoastalStripOptions>,
+        forest_options: ForestOptions,
+        reed_options: ReedOptions,
+        fern_options: FernOptions,
+        cave_options: CaveOptions,
+        network_options: CaveNetworkOptions,
+        walk_options: CaveWalkOptions,
+        method: GenerationMethod,
+    ) -> Result<Self, String> {
         let walk_options = walk_options.validate()?;
         let network_options = network_options.validate(&cave_options)?;
         let cave_options = cave_options.validate()?;
@@ -538,8 +634,15 @@ impl Island {
         let reed_options = reed_options.validate()?;
         let fern_options = fern_options.validate()?;
         let mut scratch = GenerationScratch::new(method);
+        scratch.coastal_strip =
+            strip_options.map(|strip| super::coastal_strip::CoastalStripField {
+                seed,
+                terrain: options,
+                options: strip,
+            });
         let (base, material) = generate_base(seed, options, &mut scratch)?;
-        let context = GenerationContext::new(seed, options);
+        let mut context = GenerationContext::new(seed, options);
+        context.coastal_strip = scratch.coastal_strip;
         let (mut lod2, material) = generate_lod2(&base, material, context, &mut scratch)?;
         let (lod1, material) = generate_first_lod1(&lod2, material, context, &mut scratch)?;
         let (mut lod1, material) = refine_lod1_again(&lod1, material, context, &mut scratch)?;
@@ -550,8 +653,8 @@ impl Island {
             mut material,
             rivers,
             mut river_mesh,
-            river_bed,
-            submerged_river_carve,
+            mut river_bed,
+            mut submerged_river_carve,
             mut river_rock_mesh,
             waterfall_feet,
         } = generate_final_rivers(
@@ -560,26 +663,73 @@ impl Island {
             &material,
             context.river_source_rule,
             options.river_channel_settings(),
+            context.coastal_strip,
         )?;
+        if let Some(field) = context.coastal_strip {
+            let splits = field.add_blend_support(&mut lod0);
+            material.extend_after_edge_splits(&splits);
+            for split in splits {
+                let [a, b] = split.edge.map(|vertex| vertex as usize);
+                river_bed.push(river_bed[a] || river_bed[b]);
+                submerged_river_carve.push(
+                    (submerged_river_carve[b] - submerged_river_carve[a])
+                        .mul_add(split.interpolation, submerged_river_carve[a]),
+                );
+            }
+        }
         optimize_finished_terrain_surface(&mut lod0, &mut material, &river_bed);
-        // Reuse this horizontal distance field for the sea mask. No later stage
-        // changes terrain positions, so LODs, queries and decoration share the final bed.
-        let distance_to_land = {
+        if let Some(field) = context.coastal_strip {
+            // Rivers avoid the boundary collar. Blend before measuring the
+            // shoreline so wave and shore queries use the resulting land mask.
+            field.blend_boundary_heights(&mut lod0);
+        }
+        // Reuse this horizontal distance field for the sea mask. Subsequent
+        // seabed deepening preserves horizontal positions and the land mask.
+        let mut distance_to_land = {
             let _timer = StageTimer::new("sea_mask.distance_to_land");
             let land: Vec<bool> = lod0.vertices.iter().map(|vertex| vertex.z >= 0.0).collect();
             graph_distances(&lod0, &lod0.adjacency(), &land)
         };
+        if let Some(field) = context.coastal_strip {
+            for (distance, &position) in distance_to_land.iter_mut().zip(&lod0.vertices) {
+                if super::coastal_strip::CoastalStripField::is_pinned(position) {
+                    *distance = field.boundary_distance_to_land(position.truncate());
+                }
+            }
+        }
         {
             let _timer = StageTimer::new("terrain.deepen_seabed");
-            deepen_seabed(
-                &mut lod0,
-                &distance_to_land,
-                options.seabed_depth_distance_ratio,
-            );
+            if context.coastal_strip.is_some() {
+                let pinned: Vec<_> = lod0
+                    .vertices
+                    .iter()
+                    .map(|&p| material.is_pinned(p))
+                    .collect();
+                for (index, vertex) in lod0.vertices.iter_mut().enumerate() {
+                    if !pinned[index] && vertex.z < 0.0 && distance_to_land[index].is_finite() {
+                        let weight = 1.0
+                            - super::coastal_strip::CoastalStripField::pin_weight(
+                                vertex.truncate(),
+                            );
+                        vertex.z -=
+                            distance_to_land[index] * options.seabed_depth_distance_ratio * weight;
+                    }
+                }
+            } else {
+                deepen_seabed(
+                    &mut lod0,
+                    &distance_to_land,
+                    options.seabed_depth_distance_ratio,
+                );
+            }
         }
         let lod0_index = {
             let _timer = StageTimer::new("lod.simplify");
-            regenerate_lods(&mut lod0, &mut lod1, &mut lod2)
+            if let Some(field) = context.coastal_strip {
+                super::lod::regenerate_coastal_lods(&mut lod0, &mut lod1, &mut lod2, field)
+            } else {
+                regenerate_lods(&mut lod0, &mut lod1, &mut lod2)
+            }
         };
         bury_river_banks(&mut river_mesh, &lod0, &lod0_index);
         river_mesh = crate::rivers::clip_river_above_sea(river_mesh);
@@ -675,11 +825,21 @@ impl Island {
                 *value = true;
             }
         }
-        let environment =
+        let mut environment =
             TerrainEnvironmentField::from_masks(&forest_floor, decorations.stone_vertices());
+        if context.coastal_strip.is_some() {
+            for (value, &position) in environment.values.iter_mut().zip(&terrain.mesh().vertices) {
+                if super::coastal_strip::CoastalStripField::is_pinned(position) {
+                    *value = Vec2::ZERO;
+                }
+            }
+        }
         let mut material = TerrainMaterialField::from_surface(&material, &river_bed, &forced_rock);
         material.suppress_grass_at_vertices(reeds.forest_exclusion_vertices());
         material.suppress_grass_at_vertices(ferns.support_vertices());
+        if let Some(field) = context.coastal_strip {
+            field.apply_boundary_materials(terrain.mesh(), &mut material);
+        }
         Ok(Self {
             caves,
             seed,
@@ -873,7 +1033,7 @@ impl Island {
                 let v = y as f32 / height.saturating_sub(1).max(1) as f32;
                 for (x, value) in row.iter_mut().enumerate() {
                     let u = x as f32 / width.saturating_sub(1).max(1) as f32;
-                    *value = self.terrain.sample(u, v);
+                    *value = self.terrain.sample_height_map(u, v);
                 }
             });
         output
@@ -1154,6 +1314,7 @@ pub(super) struct GenerationContext {
     pub(super) seed: u64,
     pub(super) options: IslandOptions,
     pub(super) river_source_rule: RiverSourceRule,
+    pub(super) coastal_strip: Option<super::coastal_strip::CoastalStripField>,
 }
 
 #[derive(Default)]
@@ -1163,6 +1324,7 @@ pub(super) struct GenerationScratch {
     #[cfg(feature = "gpu-generation")]
     pub(super) gpu_particle_erosion: GpuParticleErosionScratch,
     pub(super) bedrock_rates: Vec<f32>,
+    pub(super) coastal_strip: Option<super::coastal_strip::CoastalStripField>,
 }
 
 impl GenerationScratch {
@@ -1175,11 +1337,35 @@ impl GenerationScratch {
 }
 
 impl GenerationContext {
+    fn tessellate(self, mesh: &Mesh) -> super::TessellationResult {
+        self.coastal_strip.map_or_else(
+            || mesh.tessellated_displaced_attributed(DETAIL_DISPLACEMENT_RATIO),
+            |field| field.tessellate(mesh),
+        )
+    }
+
+    fn rivers(self, mesh: &mut Mesh, adjacency: &Adjacency) -> RiverNetwork {
+        if let Some(field) = self.coastal_strip {
+            let ocean = crate::rivers::fix_coastal_inland_seas(mesh, adjacency);
+            let excluded = field.river_exclusions(mesh, adjacency);
+            RiverNetwork::generate_with_ocean_avoiding(
+                mesh,
+                adjacency,
+                self.river_source_rule,
+                ocean,
+                self.seed,
+                &excluded,
+            )
+        } else {
+            RiverNetwork::generate(mesh, adjacency, self.river_source_rule, self.seed)
+        }
+    }
     pub(super) fn new(seed: u64, options: IslandOptions) -> Self {
         Self {
             seed,
             options,
             river_source_rule: options.river_source_rule(),
+            coastal_strip: None,
         }
     }
 }
@@ -1190,13 +1376,19 @@ pub(super) fn generate_base(
     scratch: &mut GenerationScratch,
 ) -> Result<(Mesh, SurfaceMaterial), String> {
     let _timer = StageTimer::new("generation.base");
-    let points = create_seed_points(seed, options.terrain_size as usize);
-    let mut mesh = Mesh::delaunay(&points);
-    let mut material = SurfaceMaterial::empty(mesh.vertices.len());
+    let (mut mesh, mut material) = if let Some(field) = scratch.coastal_strip {
+        field.initial()
+    } else {
+        let points = create_seed_points(seed, options.terrain_size as usize);
+        let mut mesh = Mesh::delaunay(&points);
+        let adjacency = mesh.adjacency();
+        let geology = assign_elevations(&mut mesh, &adjacency, seed, options);
+        let mut material = SurfaceMaterial::empty(mesh.vertices.len());
+        material.initialize_geology(&mesh, geology);
+        material.initialize_soil(&mesh, options.initial_soil_depth_metres);
+        (mesh, material)
+    };
     let adjacency = mesh.adjacency();
-    let geology = assign_elevations(&mut mesh, &adjacency, seed, options);
-    material.initialize_geology(&mesh, geology);
-    material.initialize_soil(&mesh, options.initial_soil_depth_metres);
     hydraulic_erode_stage(&mut mesh, &adjacency, &mut material, 0.45, options, scratch)?;
     erode_mesh(&mut mesh, &adjacency, &mut material, options, 5);
     mesh.calculate_normals();
@@ -1230,7 +1422,7 @@ fn optimize_finished_terrain_surface(
     });
 
     let protected_height = PROTECTED_COAST_HEIGHT_METRES / ISLAND_WORLD_METRES;
-    let mut protected_vertices = vec![false; mesh.vertices.len()];
+    let mut protected_vertices = perimeter.clone();
     let mut protected_edges = HashSet::<(u32, u32)>::new();
     for triangle in mesh.triangles.chunks_exact(3).filter(|triangle| {
         triangle.iter().any(|&vertex| {
@@ -1413,7 +1605,7 @@ pub(super) fn generate_lod2(
     scratch: &mut GenerationScratch,
 ) -> Result<(Mesh, SurfaceMaterial), String> {
     let _timer = StageTimer::new("generation.lod2");
-    let tessellation = base.tessellated_displaced_attributed(DETAIL_DISPLACEMENT_RATIO);
+    let tessellation = context.tessellate(base);
     let (mut mesh, mut material) = material.into_tessellated(base, tessellation);
     let adjacency = mesh.adjacency();
     mesh.smooth_with(&adjacency);
@@ -1426,12 +1618,7 @@ pub(super) fn generate_lod2(
         scratch,
     )?;
     erode_mesh(&mut mesh, &adjacency, &mut material, context.options, 4);
-    let mut rivers = RiverNetwork::generate(
-        &mut mesh,
-        &adjacency,
-        context.river_source_rule,
-        context.seed,
-    );
+    let mut rivers = context.rivers(&mut mesh, &adjacency);
     rivers.shape_with_settings(
         &mut mesh,
         &adjacency,
@@ -1454,7 +1641,7 @@ pub(super) fn generate_first_lod1(
     scratch: &mut GenerationScratch,
 ) -> Result<(Mesh, SurfaceMaterial), String> {
     let _timer = StageTimer::new("generation.lod1.first");
-    let tessellation = lod2.tessellated_displaced_attributed(DETAIL_DISPLACEMENT_RATIO);
+    let tessellation = context.tessellate(lod2);
     let (mut mesh, mut material) = material.into_tessellated(lod2, tessellation);
     let adjacency = mesh.adjacency();
     mesh.smooth_with(&adjacency);
@@ -1467,12 +1654,7 @@ pub(super) fn generate_first_lod1(
         scratch,
     )?;
     erode_mesh(&mut mesh, &adjacency, &mut material, context.options, 4);
-    let mut rivers = RiverNetwork::generate(
-        &mut mesh,
-        &adjacency,
-        context.river_source_rule,
-        context.seed,
-    );
+    let mut rivers = context.rivers(&mut mesh, &adjacency);
     rivers.shape_with_settings(
         &mut mesh,
         &adjacency,
@@ -1495,7 +1677,7 @@ pub(super) fn generate_broad_lod0(
     scratch: &mut GenerationScratch,
 ) -> Result<(Mesh, SurfaceMaterial), String> {
     let _timer = StageTimer::new("generation.lod0.broad");
-    let tessellation = lod1.tessellated_displaced_attributed(DETAIL_DISPLACEMENT_RATIO);
+    let tessellation = context.tessellate(lod1);
     let (mut mesh, mut material) = material.into_tessellated(lod1, tessellation);
     mutate_surface_preserving_material_volume(
         &mut mesh,
@@ -1514,7 +1696,7 @@ pub(super) fn generate_broad_lod0(
     )?;
     mesh.calculate_normals();
 
-    let tessellation = mesh.tessellated_displaced_attributed(DETAIL_DISPLACEMENT_RATIO);
+    let tessellation = context.tessellate(&mesh);
     (mesh, material) = material.into_tessellated(&mesh, tessellation);
     let adjacency = mesh.adjacency();
     hydraulic_erode_stage(
@@ -1526,12 +1708,7 @@ pub(super) fn generate_broad_lod0(
         scratch,
     )?;
     erode_mesh(&mut mesh, &adjacency, &mut material, context.options, 2);
-    let mut rivers = RiverNetwork::generate(
-        &mut mesh,
-        &adjacency,
-        context.river_source_rule,
-        context.seed,
-    );
+    let mut rivers = context.rivers(&mut mesh, &adjacency);
     rivers.shape_with_settings(
         &mut mesh,
         &adjacency,
@@ -1554,8 +1731,10 @@ pub(super) fn generate_detail_lod0(
     scratch: &mut GenerationScratch,
 ) -> Result<(Mesh, SurfaceMaterial), String> {
     let _timer = StageTimer::new("generation.lod0.detail");
-    coastal_uplift::prepare(&mut lod0, &mut material);
-    let tessellation = lod0.tessellated_displaced_attributed(DETAIL_DISPLACEMENT_RATIO);
+    if context.coastal_strip.is_none() {
+        coastal_uplift::prepare(&mut lod0, &mut material);
+    }
+    let tessellation = context.tessellate(&lod0);
     let (mut mesh, mut material) = material.into_tessellated(&lod0, tessellation);
     let adjacency = mesh.adjacency();
     hydraulic_erode_stage_depositing_across_sea(
@@ -1580,7 +1759,7 @@ pub(super) fn refine_lod1_again(
     scratch: &mut GenerationScratch,
 ) -> Result<(Mesh, SurfaceMaterial), String> {
     let _timer = StageTimer::new("generation.lod1.refine");
-    let tessellation = lod1.tessellated_displaced_attributed(DETAIL_DISPLACEMENT_RATIO);
+    let tessellation = context.tessellate(lod1);
     let (mut refined, mut material) = material.into_tessellated(lod1, tessellation);
     let adjacency = refined.adjacency();
     refined.smooth_with(&adjacency);
@@ -1593,12 +1772,7 @@ pub(super) fn refine_lod1_again(
         scratch,
     )?;
     erode_mesh(&mut refined, &adjacency, &mut material, context.options, 3);
-    let mut rivers = RiverNetwork::generate(
-        &mut refined,
-        &adjacency,
-        context.river_source_rule,
-        context.seed,
-    );
+    let mut rivers = context.rivers(&mut refined, &adjacency);
     rivers.shape_with_settings(
         &mut refined,
         &adjacency,
@@ -1822,6 +1996,40 @@ fn sea_proximity_strengths(mesh: &Mesh, adjacency: &Adjacency, sea: &[bool]) -> 
         .into_iter()
         .map(|distance| (1.0 - (distance - full_strength_distance) / fade_distance).clamp(0.0, 1.0))
         .collect()
+}
+
+#[cfg(test)]
+mod height_map_tests {
+    use super::*;
+
+    #[test]
+    fn height_map_samples_precise_final_faces_on_the_requested_lattice() {
+        let mut island = Island::generate(
+            42,
+            IslandOptions {
+                terrain_size: 16,
+                ..IslandOptions::default()
+            },
+        )
+        .unwrap();
+        let point = Vec2::new(0.25, 0.5);
+        let side = 1.0 / 8192.0;
+        island.terrain = Terrain::new(Mesh {
+            vertices: vec![
+                (point - Vec2::splat(side)).extend(0.0),
+                (point + Vec2::new(side, -side)).extend(6.0),
+                (point + Vec2::Y * side).extend(0.0),
+            ],
+            triangles: vec![0, 1, 2],
+            ..Mesh::default()
+        });
+        let map = island.height_map(9, 9);
+        assert_eq!(map.len(), 81);
+        assert!((map[4 * 9 + 2] - 1.5).abs() < f32::EPSILON);
+        assert!(island.terrain.sample(point.x, point.y).abs() < f32::EPSILON);
+        assert!(island.height_map(0, 9).is_empty());
+        assert!(island.height_map(9, 0).is_empty());
+    }
 }
 
 #[cfg(test)]

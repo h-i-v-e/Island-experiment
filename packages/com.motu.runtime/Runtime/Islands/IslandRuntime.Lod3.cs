@@ -1,5 +1,7 @@
 using System;
 using Motu.Interop;
+using Motu.Settings;
+using Motu.World;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -15,14 +17,17 @@ namespace Motu.Islands
         private Mesh lod3Mesh;
         private bool lod3Installed;
         private float lod3MaximumHeightMetres;
+        private bool lod3FixedCoastalSeams;
         private bool beyondLod3Distance;
         public bool IsLod3Visible => lod3Object != null && lod3Object.activeInHierarchy;
         public int Lod3TriangleCount => lod3Mesh != null ? (int)lod3Mesh.GetIndexCount(0) / 3 : 0;
 
-        internal void InstallLod3(IslandPreparedMesh prepared, float maximumHeightMetres)
+        internal void InstallLod3(IslandPreparedMesh prepared, float maximumHeightMetres,
+            IslandTerrainShape terrainShape = IslandTerrainShape.Island)
         {
             RequireInstalling();
             lod3MaximumHeightMetres = maximumHeightMetres;
+            lod3FixedCoastalSeams = terrainShape == IslandTerrainShape.CoastalStrip;
             if (prepared == null)
             {
                 // Fully submerged cells have no horizon surface, but can still finish installation.
@@ -51,11 +56,15 @@ namespace Motu.Islands
 
         public void SetViewPosition(Vector3 worldPosition)
         {
-            var distance = Vector3.Distance(worldPosition, transform.position);
+            var distance = lod3FixedCoastalSeams
+                ? DistanceToCoastalFootprint(worldPosition)
+                : Vector3.Distance(worldPosition, transform.position);
             Navigation?.NoteViewerDistance(distance);
             if (lod3Object != null)
             {
-                var submersion = Lod3Submersion(distance, Lod3DistanceMetres);
+                // A coast horizon shares edges with independently resident sections.
+                // Sinking by tile-centre distance would reopen those fixed seams.
+                var submersion = lod3FixedCoastalSeams ? 0f : Lod3Submersion(distance, Lod3DistanceMetres);
                 // Move only the silhouette; residency and wave masks retain the true island centre.
                 lod3Object.transform.position = transform.position
                     - Vector3.up * (lod3MaximumHeightMetres * submersion);
@@ -70,6 +79,15 @@ namespace Motu.Islands
         internal static float Lod3Submersion(float distance, float switchDistance) => Mathf.SmoothStep(0f, 1f,
             Mathf.InverseLerp(switchDistance,
                 switchDistance + Lod3SubmersionRangeMetres, distance));
+
+        private float DistanceToCoastalFootprint(Vector3 worldPosition)
+        {
+            var local = transform.InverseTransformPoint(worldPosition);
+            var halfSize = IslandWorldManager.IslandSizeMetres * .5f;
+            var nearest = new Vector3(Mathf.Clamp(local.x, -halfSize, halfSize), local.y,
+                Mathf.Clamp(local.z, -halfSize, halfSize));
+            return Vector3.Distance(worldPosition, transform.TransformPoint(nearest));
+        }
 
         private void ApplyLodVisibility()
         {

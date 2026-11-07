@@ -67,6 +67,7 @@ pub(crate) struct GeologyField {
     noise: TerrainNoiseSettings,
     low_raw_hardness: f32,
     inverse_raw_range: f32,
+    periodic_strip: Option<(u32, u32)>,
 }
 
 impl GeologyField {
@@ -88,19 +89,54 @@ impl GeologyField {
             noise,
             low_raw_hardness: low,
             inverse_raw_range: 1.0 / (high - low).max(1.0e-5),
+            periodic_strip: None,
         }
+    }
+
+    pub(crate) fn periodic(seed: u64, options: IslandOptions, section: u32, count: u32) -> Self {
+        let noise = TerrainNoiseSettings::from(options);
+        let range = options.continental_noise_strength + options.detail_noise_strength;
+        Self {
+            seed,
+            noise,
+            low_raw_hardness: -range,
+            inverse_raw_range: 1.0 / (2.0 * range).max(1.0e-5),
+            periodic_strip: Some((section, count)),
+        }
+    }
+
+    fn sample(self, position: Vec2) -> TerrainNoiseSample {
+        let position = self.periodic_strip.map_or(position, |(section, count)| {
+            periodic_coordinates(position, section, count)
+        });
+        terrain_noise(self.seed, position, self.noise)
     }
 
     #[must_use]
     pub(crate) fn hardness(self, position: Vec2) -> f32 {
-        let normalized = ((terrain_noise(self.seed, position, self.noise)
-            .material_component(self.noise)
+        let normalized = ((self.sample(position).material_component(self.noise)
             - self.low_raw_hardness)
             * self.inverse_raw_range)
             .clamp(0.0, 1.0);
         let hardness = normalized * normalized * (3.0 - 2.0 * normalized);
         hardness * hardness * (3.0 - 2.0 * hardness)
     }
+}
+
+/// Canonical integer seam identities avoid phase drift at adjacent and wrapped ends.
+#[allow(clippy::cast_possible_truncation)] // Generation stores f32 positions after f64 phase reduction.
+pub(crate) fn periodic_coordinates(position: Vec2, section: u32, count: u32) -> Vec2 {
+    let along = if position.x.to_bits() == 1.0_f32.to_bits() {
+        f64::from((section + 1) % count)
+    } else {
+        (f64::from(section % count) + f64::from(position.x)).rem_euclid(f64::from(count))
+    };
+    let angle = along / f64::from(count) * std::f64::consts::TAU;
+    let radius = f64::from(count) / std::f64::consts::TAU;
+    Vec2::new(
+        (angle.cos() * radius) as f32 + position.y * 0.37,
+        (angle.sin() * radius) as f32 + position.y,
+    )
 }
 
 #[cfg(test)]

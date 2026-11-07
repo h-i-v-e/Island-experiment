@@ -109,11 +109,12 @@ fixed4 GrassFragment(GrassVertexOutput input) : SV_Target
         _GrassRadius,
         playerDistance);
     float2 radialFadeCell = floor(
-        input.islandLocalSurfacePosition.xz * max(_GrassDensity, 0.1));
+        MotuTerrainFieldPosition(input.islandLocalSurfacePosition).xz * max(_GrassDensity, 0.1));
     clip(radialWeight - GrassHash(radialFadeCell + float2(43.17, 19.73)));
 
     half3 normal = normalize(input.worldNormal);
     float3 localPosition = input.islandLocalSurfacePosition;
+    float3 fieldPosition = MotuTerrainFieldPosition(localPosition);
     MotuTerrainCoverage coverage = MotuBuildTerrainCoverage(
         localPosition,
         normal,
@@ -127,7 +128,7 @@ fixed4 GrassFragment(GrassVertexOutput input) : SV_Target
     clip(localPosition.y);
     clip(grassCoverage - 0.5h);
 
-    float2 regularCoordinate = localPosition.xz * max(_GrassDensity, 0.1);
+    float2 regularCoordinate = fieldPosition.xz * max(_GrassDensity, 0.1);
     float2 warpCoordinate = regularCoordinate * 0.18;
     float2 domainWarp = float2(
         GrassValueNoise(warpCoordinate + float2(13.7, 4.3)),
@@ -171,7 +172,7 @@ fixed4 GrassFragment(GrassVertexOutput input) : SV_Target
         * cloud.directTransmittance;
     direct += MotuAdditionalLighting(input.worldPosition, lightingNormal);
     half3 ambient = _GrassAmbientColor.rgb * cloud.ambientTransmittance;
-    float2 grassColorUv = localPosition.xz
+    float2 grassColorUv = fieldPosition.xz
         / max(_GrassColorNoiseWorldSize, 1.0);
     half grassColorNoise = tex2D(_GrassPatchNoise, grassColorUv).b;
     fixed3 grassColor = lerp(

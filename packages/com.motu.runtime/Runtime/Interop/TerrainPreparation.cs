@@ -156,11 +156,12 @@ namespace Motu.Interop
 
         internal static IslandPreparedColliderHeightMap PrepareColliderHeightMap(
             IntPtr handle,
-            float terrainWorldSize)
+            float terrainWorldSize,
+            int samplesPerTile = TerrainTileStreamer.ColliderSamplesPerTile)
         {
             var mapPointer = MotuNative.CreateTerrainColliderHeightMap(
                 handle,
-                TerrainTileStreamer.ColliderSamplesPerTile);
+                samplesPerTile);
             try
             {
                 if (mapPointer == IntPtr.Zero)
@@ -172,7 +173,7 @@ namespace Motu.Interop
                     mapPointer);
                 var expectedDimension = checked(
                     TerrainTileStreamer.Lod1Resolution
-                    * (TerrainTileStreamer.ColliderSamplesPerTile - 1)
+                    * (samplesPerTile - 1)
                     + 1);
                 if (native.data == IntPtr.Zero
                     || native.width != expectedDimension
@@ -182,11 +183,18 @@ namespace Motu.Interop
                         "The Rust generator returned invalid terrain-collider height-map data.");
                 }
 
-                var heights = new float[checked(native.width * native.height)];
-                Marshal.Copy(native.data, heights, 0, heights.Length);
+                var heights = IslandPreparedColliderHeightMap.AllocateSamples(
+                    checked(native.width * native.height));
+                var offset = 0;
+                foreach (var block in heights)
+                {
+                    Marshal.Copy(IntPtr.Add(native.data, checked(offset * sizeof(float))),
+                        block, 0, block.Length);
+                    offset += block.Length;
+                }
                 return new IslandPreparedColliderHeightMap(
                     native.width,
-                    TerrainTileStreamer.ColliderSamplesPerTile,
+                    samplesPerTile,
                     heights,
                     terrainWorldSize);
             }

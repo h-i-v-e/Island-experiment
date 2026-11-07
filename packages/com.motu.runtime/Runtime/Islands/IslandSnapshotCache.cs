@@ -10,8 +10,8 @@ namespace Motu.Islands
 {
     internal static class IslandSnapshotCache
     {
-        // Shared species catalogs and climate now participate in native snapshots.
-        private const int CacheKeySchemaVersion = 25;
+        // Terrain shape and the canonical periodic section identify baked coast snapshots.
+        private const int CacheKeySchemaVersion = 26;
         private const string SnapshotExtension = ".motusnapshot";
 
         internal static string CacheDirectory
@@ -81,6 +81,18 @@ namespace Motu.Islands
                 writer.Write(request.Descriptor.GeneratorSchemaVersion);
                 writer.Write(request.Descriptor.Seed);
                 writer.Write(request.WorldSizeMetres);
+                writer.Write((int)request.Generation.TerrainShape);
+                if (request.CoastalStripOptions.HasValue)
+                {
+                    var strip = request.CoastalStripOptions.Value;
+                    writer.Write(CoastalStripNative.ApiVersion);
+                    writer.Write(CoastalStripNative.AlgorithmRevision);
+                    writer.Write(strip.sectionIndex);
+                    writer.Write(strip.sectionCount);
+                    writer.Write(strip.seamSegments);
+                    writer.Write(strip.seamBlendWidth);
+                    writer.Write(strip.seamRidgeHeight);
+                }
                 Write(writer, request.Options);
                 Write(writer, request.ForestOptions);
                 writer.Write(HybridForestNative.CatalogVersion);

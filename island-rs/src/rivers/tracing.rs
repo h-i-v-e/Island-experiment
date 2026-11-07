@@ -62,6 +62,33 @@ pub(crate) fn fix_inland_seas(mesh: &mut Mesh, adjacency: &Adjacency) -> Vec<boo
     ocean
 }
 
+/// Treat every submerged external sample as ocean; never alter a pinned coast edge.
+pub(crate) fn fix_coastal_inland_seas(mesh: &mut Mesh, adjacency: &Adjacency) -> Vec<bool> {
+    let perimeter = mesh.perimeter_mask();
+    let mut ocean = vec![false; mesh.vertices.len()];
+    let mut fringe = Vec::new();
+    for (i, &edge) in perimeter.iter().enumerate() {
+        if edge && mesh.vertices[i].z <= 0.0 {
+            ocean[i] = true;
+            fringe.push(i);
+        }
+    }
+    while let Some(vertex) = fringe.pop() {
+        for &neighbor in &adjacency[vertex] {
+            if !ocean[neighbor] && mesh.vertices[neighbor].z <= 0.0 {
+                ocean[neighbor] = true;
+                fringe.push(neighbor);
+            }
+        }
+    }
+    for (index, vertex) in mesh.vertices.iter_mut().enumerate() {
+        if vertex.z <= 0.0 && !ocean[index] && !perimeter[index] {
+            vertex.z = f32::EPSILON;
+        }
+    }
+    ocean
+}
+
 pub(super) fn map_downstream(mesh: &Mesh, adjacency: &Adjacency) -> Vec<usize> {
     adjacency
         .iter()
@@ -427,6 +454,7 @@ impl RiverSourceExclusionGrid {
 }
 
 pub(super) struct RiverPathTracer<'a> {
+    excluded: &'a [bool],
     pub(super) mesh: &'a mut Mesh,
     pub(super) adjacency: &'a Adjacency,
     pub(super) flow: &'a [u32],
@@ -528,7 +556,8 @@ impl RiverPathTracer<'_> {
                 river_effective_height(self.mesh, current, self.seed, self.meander_scale);
             let mut next = None::<(usize, f32)>;
             for &candidate in &self.adjacency[current] {
-                if seen.contains(&candidate)
+                if self.excluded.get(candidate).copied().unwrap_or(false)
+                    || seen.contains(&candidate)
                     || self.mesh.vertices[candidate].z >= self.mesh.vertices[current].z
                 {
                     continue;
@@ -563,6 +592,9 @@ impl RiverPathTracer<'_> {
                 seen.insert(next);
                 self_contact.register(next, path.len() - 1);
                 continue;
+            }
+            if !self.excluded.is_empty() {
+                break;
             }
             let Some(escape) = escape_sink(
                 self.mesh,
@@ -600,6 +632,7 @@ impl RiverPathTracer<'_> {
     }
 }
 
+#[cfg(test)]
 pub(super) fn trace_rivers(
     mesh: &mut Mesh,
     adjacency: &Adjacency,
@@ -607,6 +640,18 @@ pub(super) fn trace_rivers(
     sources: &[usize],
     ocean: &[bool],
     seed: u64,
+) -> (Vec<River>, Vec<Option<usize>>) {
+    trace_rivers_avoiding(mesh, adjacency, flow, sources, ocean, seed, &[])
+}
+
+pub(super) fn trace_rivers_avoiding(
+    mesh: &mut Mesh,
+    adjacency: &Adjacency,
+    flow: &[u32],
+    sources: &[usize],
+    ocean: &[bool],
+    seed: u64,
+    excluded: &[bool],
 ) -> (Vec<River>, Vec<Option<usize>>) {
     let mut rivers = Vec::<River>::new();
     let mut join_vertices = Vec::<Option<usize>>::new();
@@ -640,6 +685,7 @@ pub(super) fn trace_rivers(
             join,
             join_vertex,
         } = RiverPathTracer {
+            excluded,
             mesh,
             adjacency,
             flow,

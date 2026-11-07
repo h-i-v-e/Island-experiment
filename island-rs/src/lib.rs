@@ -55,8 +55,8 @@ pub use sky::{SKY_DOME_RADIUS, generate_sky_dome};
 #[cfg(feature = "surface-atlas")]
 pub use terrain::SurfaceAtlas;
 pub use terrain::{
-    Decoration, Decorations, GenerationMethod, Island, IslandOptions, LandBirdPerch, SurfaceMaps,
-    Terrain,
+    CoastalStripOptions, Decoration, Decorations, GenerationMethod, Island, IslandOptions,
+    LandBirdPerch, SurfaceMaps, Terrain,
 };
 pub use trees::{
     BranchTip, TreeMeshes, TreeShells, broadleaf_crown, generate_conifer, generate_palm,

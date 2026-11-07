@@ -84,7 +84,7 @@ fn hydraulic_erode_stage_with_sea(
             .map(|&hardness| bedrock_erosion_rate(hardness)),
     );
     #[cfg(feature = "gpu-generation")]
-    if scratch.method == GenerationMethod::Gpu && !include_sea {
+    if scratch.method == GenerationMethod::Gpu && !include_sea && material.coastal_strip.is_none() {
         super::gpu_generation::erode_particle_batches_gpu(
             mesh,
             adjacency,
@@ -473,6 +473,9 @@ impl<'a> HydraulicEroder<'a> {
         deposition_weight: f32,
         geometry: Option<ErosionGeometry>,
     ) {
+        if self.material.is_pinned(self.mesh.vertices[current]) {
+            return;
+        }
         let geometry = geometry.unwrap_or(ErosionGeometry {
             direction: Vec3::Z,
             slope_weight: 0.0,
@@ -892,7 +895,7 @@ pub(super) fn deposit_sediment_fan(
     settings: HydraulicErosionSettings,
 ) {
     let rate = (settings.deposition_strength * 0.35).min(1.0);
-    if *sediment <= 0.0 || rate == 0.0 {
+    if *sediment <= 0.0 || rate == 0.0 || material.is_pinned(mesh.vertices[center]) {
         return;
     }
 
@@ -900,7 +903,7 @@ pub(super) fn deposit_sediment_fan(
     let mut total_weight = 1.0_f32;
     for &neighbour in &adjacency[center] {
         let candidate = mesh.vertices[neighbour];
-        if candidate.z < 0.0 {
+        if candidate.z < 0.0 || material.is_pinned(candidate) {
             continue;
         }
         let horizontal_distance = (candidate - center_position)
@@ -917,7 +920,7 @@ pub(super) fn deposit_sediment_fan(
     material.depths_mut()[center] += deposit_per_weight;
     for &neighbour in &adjacency[center] {
         let candidate = mesh.vertices[neighbour];
-        if candidate.z < 0.0 {
+        if candidate.z < 0.0 || material.is_pinned(candidate) {
             continue;
         }
         let horizontal_distance = (candidate - center_position)
@@ -951,13 +954,16 @@ pub(super) fn erode_mesh(
             .map(|index| {
                 let neighbours = &adjacency[index];
                 let height = mesh.vertices[index].z;
-                if height <= 0.0 {
+                if height <= 0.0 || material.is_pinned(mesh.vertices[index]) {
                     return None;
                 }
                 let lowest = neighbours
                     .iter()
                     .copied()
-                    .filter(|neighbour| mesh.vertices[*neighbour].z > 0.0)
+                    .filter(|neighbour| {
+                        mesh.vertices[*neighbour].z > 0.0
+                            && !material.is_pinned(mesh.vertices[*neighbour])
+                    })
                     .min_by(|left, right| {
                         mesh.vertices[*left].z.total_cmp(&mesh.vertices[*right].z)
                     })?;

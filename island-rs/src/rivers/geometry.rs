@@ -786,7 +786,7 @@ fn refine_river_corridor_mesh(
         }
 
         let loose_volume = material.volume(terrain);
-        let stencils = terrain.tessellate_incident_to(&marked);
+        let stencils = material.tessellate_incident_to(terrain, &marked);
         material.extend_after_tessellation(loose_volume, terrain, &stencils);
         buffers.extend_after_tessellation(&stencils);
         added_vertices += stencils.len();
@@ -1495,7 +1495,7 @@ fn repair_sharp_terrain_points(
     }
 
     let loose_volume = material.volume(terrain);
-    let stencils = terrain.tessellate_incident_to(&sharp);
+    let stencils = material.tessellate_incident_to(terrain, &sharp);
     material.extend_after_tessellation(loose_volume, terrain, &stencils);
 
     let mut patch = sharp;
@@ -1845,7 +1845,7 @@ fn constrain_final_sea_plane_topology(
     constraints: &mut WaterfallTerrainConstraints,
 ) {
     let loose_volume = material.volume(terrain);
-    let constrained = terrain.constrain_height_plane(0.0);
+    let constrained = material.constrain_height_plane(terrain, 0.0);
     if constrained.edges.is_empty() {
         return;
     }
@@ -1873,7 +1873,7 @@ fn constrain_final_sea_plane_topology(
             coast_vertices[vertex as usize] = true;
         }
     }
-    let stencils = terrain.tessellate_incident_to(&coast_vertices);
+    let stencils = material.tessellate_incident_to(terrain, &coast_vertices);
     material.extend_after_tessellation(loose_volume, terrain, &stencils);
     buffers.extend_after_tessellation(&stencils);
     extend_waterfall_constraints_after_tessellation(constraints, &stencils);

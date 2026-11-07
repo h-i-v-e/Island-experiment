@@ -2,6 +2,8 @@ Shader "Motu/Terrain Unified"
 {
     Properties
     {
+        [HideInInspector] _MotuTerrainFieldOffset ("Logical terrain field offset", Vector) = (0, 0, 0, 0)
+        [HideInInspector] _MotuTerrainSeam ("Coastal half width and baked map collar", Vector) = (0, 0, 0, 0)
         _Color ("Tint", Color) = (1, 1, 1, 1)
         _RockColor ("Exposed Rock", Color) = (0.30, 0.32, 0.29, 1)
         _ForestFloorColor ("Forest Floor Tint", Color) = (1, 1, 1, 1)
@@ -488,6 +490,7 @@ Shader "Motu/Terrain Unified"
                 half4 candidatesA,
                 half2 candidatesB)
             {
+                float3 fieldPosition = MotuTerrainFieldPosition(localPosition);
                 MotuBaseWeights weights = MotuHeightBlendBase(
                     candidatesA,
                     candidatesB,
@@ -521,7 +524,7 @@ Shader "Motu/Terrain Unified"
                     * (1.0h - coverage.snow);
                 half grassColorNoise = tex2D(
                     _GrassPatchNoise,
-                    localPosition.xz / max(_GrassColorNoiseWorldSize, 1.0)).b;
+                    fieldPosition.xz / max(_GrassColorNoiseWorldSize, 1.0)).b;
                 fixed3 grassColor = lerp(
                     _GrassColorA.rgb,
                     _GrassColorB.rgb,
@@ -529,7 +532,7 @@ Shader "Motu/Terrain Unified"
                 baseColor = lerp(baseColor, grassColor, grassCoverage);
                 baseColor = lerp(baseColor, fixed3(0.82, 0.84, 0.81), coverage.snow);
 
-                float3 noisePosition = localPosition / max(_CliffNoisePeriod, 1.0);
+                float3 noisePosition = fieldPosition / max(_CliffNoisePeriod, 1.0);
                 half3 dirtNormal = PerturbNormal(
                     geometricNormal,
                     noisePosition,
@@ -593,7 +596,7 @@ Shader "Motu/Terrain Unified"
                 half sharedOcclusion = lerp(
                     1.0h,
                     tex2D(_Occlusion, input.uv).r,
-                    _OcclusionStrength);
+                    _OcclusionStrength * MotuTerrainBakedMapWeight(localPosition));
                 fixed4 color = fixed4(baseColor * _Color.rgb * lighting * sharedOcclusion, 1.0h);
                 UNITY_APPLY_FOG(input.fogCoord, color);
                 return color;
@@ -620,6 +623,8 @@ Shader "Motu/Terrain Unified"
 
             fixed4 Fragment(VertexOutput input) : SV_Target
             {
+                float3 localPosition = input.islandLocalPosition;
+                half bakedMapWeight = MotuTerrainBakedMapWeight(localPosition);
                 half3 geometricNormal = normalize(input.geometricWorldNormal);
                 UNITY_BRANCH
                 if (_WorldNormalWeight > 0.5h)
@@ -634,11 +639,12 @@ Shader "Motu/Terrain Unified"
                     // of magnifying their quantization into a false diagonal.
                     if (dot(localNormal, localNormal) > 1.0e-4)
                     {
-                        geometricNormal = normalize(UnityObjectToWorldNormal(normalize(localNormal)));
+                        geometricNormal = normalize(lerp(geometricNormal,
+                            UnityObjectToWorldNormal(normalize(localNormal)), bakedMapWeight));
                     }
                 }
 
-                float3 localPosition = input.islandLocalPosition;
+                float3 fieldPosition = MotuTerrainFieldPosition(localPosition);
                 half elevation = localPosition.y;
                 half3 localGeometricNormal = normalize(mul(
                     (float3x3)_IslandWorldToLocal,
@@ -789,7 +795,7 @@ Shader "Motu/Terrain Unified"
                 float2 parallaxWorldOffset = float2(0.0, 0.0);
                 #if !defined(MOTU_TERRAIN_LOD1)
                     parallaxWorldOffset = BlendedParallaxWorldOffset(
-                        localPosition.xz,
+                        fieldPosition.xz,
                         localViewDirection,
                         undisplacedWeights,
                         parallaxProjectionA,
@@ -893,7 +899,7 @@ Shader "Motu/Terrain Unified"
                     + beach * weights.b.x
                     + stones * weights.b.y;
 
-                float2 grassColorUv = localPosition.xz
+                float2 grassColorUv = fieldPosition.xz
                     / max(_GrassColorNoiseWorldSize, 1.0);
                 half grassColorNoise = tex2D(_GrassPatchNoise, grassColorUv).b;
                 fixed3 grassColor = lerp(
@@ -922,7 +928,7 @@ Shader "Motu/Terrain Unified"
                 fixed3 snowColor = fixed3(0.82, 0.84, 0.81);
                 baseColor = lerp(baseColor, snowColor, coverage.snow);
 
-                float3 noisePosition = localPosition / max(_CliffNoisePeriod, 1.0);
+                float3 noisePosition = fieldPosition / max(_CliffNoisePeriod, 1.0);
                 half3 simpleDirtNormal = PerturbNormal(
                     geometricNormal,
                     noisePosition,
@@ -935,7 +941,7 @@ Shader "Motu/Terrain Unified"
                     saturate(dirtUnderlayProjection
                         * MotuLayerNormalStrength(MOTU_LAYER_DIRT))));
                 half3 simpleRockNormal = MotuProceduralRockNormal(
-                    geometricNormal, localPosition, coverage.noise.broad);
+                    geometricNormal, fieldPosition, coverage.noise.broad);
                 half3 rockNormal = normalize(lerp(
                     simpleRockNormal,
                     ArrayWorldNormal(rockUv, MOTU_LAYER_ROCK),
@@ -1006,7 +1012,7 @@ Shader "Motu/Terrain Unified"
                 half sharedOcclusion = lerp(
                     1.0h,
                     tex2D(_Occlusion, input.uv).r,
-                    _OcclusionStrength);
+                    _OcclusionStrength * bakedMapWeight);
                 half dirtOcclusion = lerp(
                     1.0h,
                     dirtMask.g,

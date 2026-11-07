@@ -119,6 +119,27 @@ pub unsafe extern "C" fn CreateMotuWithHybridForest(
     walk: *const CaveWalkOptions,
     hybrid: *const crate::forest::HybridForestOptions,
 ) -> *mut c_void {
+    // SAFETY: forwards the unchanged optional C blocks without selecting a strip.
+    unsafe {
+        create_terrain(
+            seed, options, forest, reeds, ferns, caves, network, walk, hybrid, None,
+        )
+    }
+}
+
+#[allow(clippy::too_many_arguments)] // The additive C APIs share one option conversion path.
+pub(super) unsafe fn create_terrain(
+    seed: i32,
+    options: *const MotuOptions,
+    forest: *const MotuForestOptions,
+    reeds: *const MotuReedOptions,
+    ferns: *const MotuFernOptions,
+    caves: *const CaveOptions,
+    network: *const CaveNetworkOptions,
+    walk: *const CaveWalkOptions,
+    hybrid: *const crate::forest::HybridForestOptions,
+    strip: Option<crate::CoastalStripOptions>,
+) -> *mut c_void {
     // SAFETY: optional blocks must be readable for their documented C sizes.
     LAST_GENERATION_ERROR.with_borrow_mut(Vec::clear);
     let (options, forest, reeds, ferns, caves, network, walk) = unsafe {
@@ -139,21 +160,42 @@ pub unsafe extern "C" fn CreateMotuWithHybridForest(
     let mut forest: crate::ForestOptions = forest;
     // SAFETY: an optional experimental block is readable for its repr(C) size.
     forest.hybrid = unsafe { hybrid.as_ref().copied() };
-    Island::generate_with_cave_walks(
-        u64::from(seed.cast_unsigned()),
-        options,
-        forest,
-        reeds,
-        ferns,
-        caves,
-        network,
-        walk,
-        GenerationMethod::Cpu,
-    )
-    .map_or_else(
+    let seed_bits = u64::from(seed.cast_unsigned());
+    let result = if let Some(strip) = strip {
+        Island::generate_coastal_strip_with_cave_walks(
+            seed_bits,
+            options,
+            strip,
+            forest,
+            reeds,
+            ferns,
+            caves,
+            network,
+            walk,
+            GenerationMethod::Cpu,
+        )
+    } else {
+        Island::generate_with_cave_walks(
+            seed_bits,
+            options,
+            forest,
+            reeds,
+            ferns,
+            caves,
+            network,
+            walk,
+            GenerationMethod::Cpu,
+        )
+    };
+    result.map_or_else(
         |error| {
             let error = format!("island seed {seed}: {error}");
-            eprintln!("CreateMotuWithCaveWalks: {error}");
+            let entry = if strip.is_some() {
+                "CreateMotuWithCoastalStrip"
+            } else {
+                "CreateMotuWithCaveWalks"
+            };
+            eprintln!("{entry}: {error}");
             LAST_GENERATION_ERROR.with_borrow_mut(|message| {
                 *message = error.into_bytes();
                 message.push(0);

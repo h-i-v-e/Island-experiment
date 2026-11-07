@@ -2,6 +2,8 @@ Shader "Motu/Terrain Grass"
 {
     Properties
     {
+        [HideInInspector] _MotuTerrainFieldOffset ("Logical terrain field offset", Vector) = (0, 0, 0, 0)
+        [HideInInspector] _MotuTerrainSeam ("Coastal half width and baked map collar", Vector) = (0, 0, 0, 0)
         [HideInInspector] _GrassEnabled ("Grass Enabled", Float) = 0
         _GrassPlayerPosition ("Player Position", Vector) = (0, 0, 0, 0)
         _GrassRadius ("Grass Outer Radius (metres)", Float) = 20

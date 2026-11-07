@@ -112,6 +112,68 @@ and call public `IslandGenerator.GenerateAsync(request, cancellationToken, budge
 queries, and `Clear()` expose lifetime and readiness. Terrain ready does not mean
 navigation is ready; use the optional navigation package's readiness contract.
 
+## Periodic coastal strips
+
+**Terrain Shape > Coastal Strip** selects a flat coastal section instead of a
+circular island. Each section still occupies a 2,000-metre square and uses the
+normal preparation, terrain streaming, rivers, materials, vegetation, colliders,
+and optional navigation path. Local X follows the strip; local Z runs from the
+low seaward edge to the high inland edge. The terrain repeats along X rather
+than being physically bent into a cylinder. Each section forms a broad bay
+between headlands, with a noisier mountain mass behind it. Fine relief continues
+through the shallow bay rather than following the coastal ramp, allowing small
+offshore islands to emerge. The existing continental/detail noise controls tune
+that relief; water ratio shifts the shoreline without compressing the inland
+climb into a thin wall.
+
+`CoherentIslandFactory` builds a complete cylindrical world with a coastal row
+at both north/south limits and noise-selected islands in between. The geometry
+stays flat and repeats along X. **Coastal Section Count** in the shared coastal
+terrain profile sets the circumference: the default eight sections repeat after
+16 kilometres. **World Half-Height (Cells)** sets the north/south coast rows;
+the existing serialized archipelago radius is retained for scene compatibility.
+Both coastlines face the interior, with their higher inland faces pointing out
+of the world. Each coastline shares a field and seed across its sections.
+
+The two existing coarse/fine world-noise layers decide whether each interior
+square contains an island. They sample a periodic field around the circumference,
+without the old circular boundary or sine-based radial weighting. Island seeds,
+settings and cached terrain repeat with their canonical X cell while every
+physical copy keeps its own world placement. Negative X works the same way.
+
+The player starts at the centre of the square one row north of the bottom coast,
+at X=0. That square and its periodic copies always remain empty, regardless of
+the seed or island threshold. The demo applies this start to the ship or flying
+player while preserving the authored height. `StartingCell` and
+`StartingPosition(worldY)` expose the same location for other game controllers.
+
+**Coastal Seam Segments** controls initial boundary sampling. Each terrain
+refinement doubles the seam and rear-edge segments and samples their heights
+from the original noise. Finished terrain and normals blend back to that field
+over 30 metres on either side of joins and inward from the rear mountains. All
+render LODs retain the final dense seam profile. LOD1/2 also retain the smoothing
+strip with an additional triangle budget to preserve interior detail. **Coastal Seam Blend Width
+Metres** controls the wider watershed and river-exclusion collar.
+**Coastal Seam Ridge Height Metres** adds a drainage divide at the join, fading
+towards the sea; zero disables that extra ridge. The ridge does not
+replace boundary constraints: terrain processing and render LODs retain the
+shared seam. Pinning freezes the shared original noise profile, so the edge's
+height varies with the field instead of becoming a level ridge. The section
+boundaries remain grid-aligned in plan; the shorelines and mountain profiles
+are irregular. Sections are independent drainage basins, so rivers do not continue
+from one section into another.
+
+Coastal settings and the coastal algorithm revision participate in snapshot
+cache identity. Repeated copies of a canonical section reuse its generated data
+while retaining distinct world placement. Standalone generation settings still
+default to circular islands. The bay revision automatically bypasses cached
+wall-shaped coastal terrain. A native revision check prevents an older loaded
+library from writing that old geometry into the new cache entries.
+Coastal generation currently uses the CPU pipeline; explicitly selecting GPU
+generation for a coastal section returns an error.
+After installing the updated native library, restart Unity before generating a
+coast in an editor that has already loaded Motu.
+
 ## World and water
 
 `IslandWorldManager` and `WorldEnvironmentController` retain the existing streamed

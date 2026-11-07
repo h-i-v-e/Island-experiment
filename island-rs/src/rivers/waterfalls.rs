@@ -496,7 +496,7 @@ fn refine_waterfall_terrain(
             break;
         }
         let loose_volume = material.volume(terrain);
-        let stencils = terrain.tessellate_incident_to(&marked);
+        let stencils = material.tessellate_incident_to(terrain, &marked);
         material.extend_after_tessellation(loose_volume, terrain, &stencils);
         buffers.extend_after_tessellation(&stencils);
         added += stencils.len();
@@ -586,7 +586,7 @@ fn tessellate_final_waterfall_faces(
     }
 
     let loose_volume = material.volume(terrain);
-    let stencils = terrain.tessellate_incident_to(&marked);
+    let stencils = material.tessellate_incident_to(terrain, &marked);
     material.extend_after_tessellation(loose_volume, terrain, &stencils);
     buffers.extend_after_tessellation(&stencils);
     stencils.len()

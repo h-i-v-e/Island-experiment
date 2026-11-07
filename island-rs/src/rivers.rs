@@ -58,11 +58,13 @@ pub(crate) use rocks::{
     append_settled_rocks, density_acceptance as rock_density_acceptance, sample_rock_size,
 };
 pub(crate) use surface::clip_above_sea as clip_river_above_sea;
-pub(crate) use tracing::fix_inland_seas;
+#[cfg(test)]
+use tracing::trace_rivers;
 use tracing::{
     RouteState, WaterfallClearanceIndex, calculate_flow_and_catchment, find_sources,
-    map_downstream, trace_rivers, update_join_flows,
+    map_downstream, update_join_flows,
 };
+pub(crate) use tracing::{fix_coastal_inland_seas, fix_inland_seas};
 pub(crate) use waterfalls::WaterfallFoot;
 use waterfalls::{
     WaterfallPatch, WaterfallPinEnvironment, WaterfallTerrainConstraints, derive_waterfall_patches,
@@ -332,13 +334,26 @@ impl RiverNetwork {
         ocean: Vec<bool>,
         seed: u64,
     ) -> Self {
+        Self::generate_with_ocean_avoiding(mesh, adjacency, source_rule, ocean, seed, &[])
+    }
+
+    pub(crate) fn generate_with_ocean_avoiding(
+        mesh: &mut Mesh,
+        adjacency: &Adjacency,
+        source_rule: RiverSourceRule,
+        ocean: Vec<bool>,
+        seed: u64,
+        excluded: &[bool],
+    ) -> Self {
         debug_assert_eq!(ocean.len(), mesh.vertices.len());
         let perimeter = mesh.perimeter_mask();
         let downstream = map_downstream(mesh, adjacency);
         let (flow, catchment_areas) = calculate_flow_and_catchment(mesh, &downstream);
-        let sources = find_sources(mesh, adjacency, &downstream, &catchment_areas, source_rule);
-        let (mut rivers, join_vertices) =
-            trace_rivers(mesh, adjacency, &flow, &sources, &ocean, seed);
+        let mut sources = find_sources(mesh, adjacency, &downstream, &catchment_areas, source_rule);
+        sources.retain(|&source| !excluded.get(source).copied().unwrap_or(false));
+        let (mut rivers, join_vertices) = tracing::trace_rivers_avoiding(
+            mesh, adjacency, &flow, &sources, &ocean, seed, excluded,
+        );
         update_join_flows(&mut rivers, &join_vertices);
         let max_flow = rivers
             .iter()

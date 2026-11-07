@@ -11,6 +11,7 @@ pub(crate) struct SurfaceMaterial {
     pub(super) bedrock_hardness: Vec<f32>,
     sea_proximity: Vec<f32>,
     submerged_river_carve: Option<Vec<f32>>,
+    pub(super) coastal_strip: Option<super::coastal_strip::CoastalStripField>,
 }
 
 impl SurfaceMaterial {
@@ -20,6 +21,46 @@ impl SurfaceMaterial {
             bedrock_hardness: vec![0.0; vertex_count],
             sea_proximity: vec![0.0; vertex_count],
             submerged_river_carve: None,
+            coastal_strip: None,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn coastal_for_test(vertex_count: usize) -> Self {
+        let mut material = Self::empty(vertex_count);
+        material.coastal_strip = Some(super::coastal_strip::CoastalStripField {
+            seed: 42,
+            terrain: super::IslandOptions::default(),
+            options: super::CoastalStripOptions::default(),
+        });
+        material
+    }
+
+    pub(crate) fn tessellate_incident_to(
+        &self,
+        terrain: &mut Mesh,
+        selected: &[bool],
+    ) -> Vec<NewVertexStencil> {
+        if self.coastal_strip.is_some() {
+            terrain.tessellate_incident_preserving_boundary(selected)
+        } else {
+            terrain.tessellate_incident_to(selected)
+        }
+    }
+
+    pub(crate) fn is_pinned(&self, position: super::Vec3) -> bool {
+        self.coastal_strip.is_some() && super::coastal_strip::CoastalStripField::is_pinned(position)
+    }
+
+    pub(crate) fn constrain_height_plane(
+        &self,
+        terrain: &mut Mesh,
+        height: f32,
+    ) -> crate::mesh::HeightConstraintResult {
+        if self.coastal_strip.is_some() {
+            terrain.constrain_coastal_height_plane(height)
+        } else {
+            terrain.constrain_height_plane(height)
         }
     }
 
@@ -367,6 +408,7 @@ mod tests {
             bedrock_hardness: vec![0.5; source.vertices.len()],
             sea_proximity: vec![0.0; source.vertices.len()],
             submerged_river_carve: None,
+            coastal_strip: None,
         };
         let tessellation = TessellationResult {
             mesh: source.clone(),
@@ -426,6 +468,7 @@ mod tests {
             bedrock_hardness: vec![0.25, 0.5, 0.75],
             sea_proximity: vec![1.0, 0.5, 0.0],
             submerged_river_carve: None,
+            coastal_strip: None,
         };
 
         let field = TerrainMaterialField::from_surface(

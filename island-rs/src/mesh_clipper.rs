@@ -373,19 +373,31 @@ fn interpolate_clip_vertex(a: ClipVertex, b: ClipVertex, interpolation: f32) -> 
 
 fn canonicalize_clip_vertex(mut vertex: ClipVertex) -> ClipVertex {
     let canonical = |value: f32| (value * 10_000_000.0).round() / 10_000_000.0;
-    vertex.position = vertex.position.map(canonical);
+    // The outer profile is shared verbatim by all terrain LODs. Rounding
+    // its along-edge coordinate changes which normal a coarse profile samples,
+    // particularly beside close shoreline intersections.
+    if !on_domain_edge(vertex.position) {
+        vertex.position = vertex.position.map(canonical);
+        vertex.uv = vertex.uv.map(canonical);
+    }
     vertex.normal = vertex.normal.map(canonical).normalize_or_zero();
-    vertex.uv = vertex.uv.map(canonical);
     vertex
 }
 
+fn on_domain_edge(position: Vec3) -> bool {
+    position.x <= 0.0 || position.x >= 1.0 || position.y <= 0.0 || position.y >= 1.0
+}
+
 fn push_clip_vertex(output: &mut [ClipVertex; 8], length: &mut usize, vertex: ClipVertex) {
-    if *length == 0
-        || output[*length - 1]
-            .position
-            .distance_squared(vertex.position)
-            > f32::EPSILON.powi(2)
-    {
+    let distinct = *length == 0 || {
+        let previous = output[*length - 1].position;
+        if on_domain_edge(previous) && on_domain_edge(vertex.position) {
+            previous != vertex.position
+        } else {
+            previous.distance_squared(vertex.position) > f32::EPSILON.powi(2)
+        }
+    };
+    if distinct {
         output[*length] = vertex;
         *length += 1;
     }
@@ -509,15 +521,24 @@ fn triangle_touches_bounds(vertices: [Vec3; 3], bounds: BoundingBox) -> bool {
 }
 
 fn barycentric(point: Vec2, positions: [Vec2; 3]) -> Option<[f32; 3]> {
+    // Dense coastal edges produce thin, valid faces. A unit-scale f32 area
+    // cutoff drops them, while f32 cancellation leaks the opposite vertex's
+    // normal into a shared edge. Evaluate their projected weights in f64.
+    let positions = positions.map(Vec2::as_dvec2);
+    let point = point.as_dvec2();
     let denominator = (positions[1] - positions[0]).perp_dot(positions[2] - positions[0]);
-    if denominator.abs() <= f32::EPSILON {
+    if denominator.abs() <= f64::EPSILON {
         return None;
     }
     let second = (point - positions[0]).perp_dot(positions[2] - positions[0]) / denominator;
     let third = (positions[1] - positions[0]).perp_dot(point - positions[0]) / denominator;
     let first = 1.0 - second - third;
     let epsilon = -1.0e-5;
-    (first >= epsilon && second >= epsilon && third >= epsilon).then_some([first, second, third])
+    (first >= epsilon && second >= epsilon && third >= epsilon).then_some([
+        first as f32,
+        second as f32,
+        third as f32,
+    ])
 }
 
 fn smoothstep(value: f32) -> f32 {
@@ -527,6 +548,45 @@ fn smoothstep(value: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn clipping_preserves_close_original_samples_on_the_domain_edge() {
+        let a = Vec3::new(1.0, 0.5117433, 0.0000412867);
+        let b = Vec3::new(1.0, 0.51174337, 0.0000413888);
+        let mesh = Mesh {
+            vertices: vec![a, b, Vec3::new(0.8, 0.7, 0.2)],
+            normals: vec![Vec3::Z, (Vec3::Y + Vec3::Z).normalize(), Vec3::Z],
+            triangles: vec![0, 1, 2],
+            ..Mesh::default()
+        };
+        let clipped =
+            MeshClipper::new(&mesh).sliced(BoundingBox::new(Vec3::ZERO, Vec3::ONE), None, 0);
+        for point in [a, b] {
+            assert!(
+                clipped.vertices.contains(&point),
+                "shared edge sample was rounded: {point:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn thin_coastal_faces_remain_sampleable_without_opposite_normal_leakage() {
+        let a = Vec3::new(1.0, 0.75, 0.2);
+        let b = Vec3::new(1.0, 0.75 + 1.0 / 65536.0, 0.3);
+        let c = Vec3::new(1.0 - 1.0 / 4096.0, 1.0, 0.4);
+        let midpoint = (a + b) * 0.5;
+        let mesh = Mesh {
+            vertices: vec![a, b, c],
+            normals: vec![Vec3::Z, Vec3::Y, Vec3::X],
+            triangles: vec![0, 1, 2],
+            ..Mesh::default()
+        };
+        let (height, normal) = MeshSampler::new(&mesh)
+            .sample(midpoint.truncate())
+            .expect("thin boundary faces must support LOD morph sampling");
+        assert!((height - midpoint.z).abs() < 1.0e-7);
+        assert!((normal - (Vec3::Y + Vec3::Z).normalize()).length() < 1.0e-7);
+    }
 
     #[test]
     fn neighbouring_groups_with_different_clamps_share_the_same_edge() {

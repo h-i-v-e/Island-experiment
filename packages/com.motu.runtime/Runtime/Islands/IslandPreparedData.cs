@@ -300,8 +300,12 @@ namespace Motu.Islands
 
     internal sealed class IslandPreparedColliderHeightMap
     {
+        // An 8193-square map in one array remains resident after collection in
+        // Unity's Mono runtime. Keep the full-resolution samples in 1 MiB blocks
+        // so unloading an island can reclaim them without a huge managed object.
+        internal const int SamplesPerBlock = 256 * 1024;
         private const float VerticalSafetyMarginMetres = 1f;
-        private readonly float[] normalizedHeights;
+        private readonly float[][] normalizedHeights;
 
         internal readonly int dimension;
         internal readonly int samplesPerTile;
@@ -313,50 +317,94 @@ namespace Motu.Islands
         internal IslandPreparedColliderHeightMap(
             int mapDimension,
             int tileSamples,
-            float[] heights,
+            float[][] heights,
             float terrainWorldSize)
         {
             var expectedDimension = checked(
                 TerrainTileStreamer.Lod1Resolution * (tileSamples - 1) + 1);
-            if (mapDimension != expectedDimension
-                || heights == null
-                || heights.Length != checked(mapDimension * mapDimension))
+            if (mapDimension != expectedDimension)
             {
                 throw new InvalidOperationException(
                     "The terrain-collider height map dimensions are invalid.");
             }
-
+            ValidateBlocks(heights, checked(mapDimension * mapDimension));
             dimension = mapDimension;
             samplesPerTile = tileSamples;
             normalizedHeights = heights;
-            var minimum = float.PositiveInfinity;
-            var maximum = float.NegativeInfinity;
-            for (var index = 0; index < heights.Length; index++)
-            {
-                var height = heights[index] * terrainWorldSize;
-                if (float.IsNaN(height) || float.IsInfinity(height))
-                {
-                    throw new InvalidOperationException(
-                        "The terrain-collider height map contains a non-finite sample.");
-                }
-                heights[index] = height;
-                minimum = Math.Min(minimum, height);
-                maximum = Math.Max(maximum, height);
-            }
-
-            minimumHeight = minimum;
-            maximumHeight = maximum;
-            verticalOrigin = minimum - VerticalSafetyMarginMetres;
+            (minimumHeight, maximumHeight) = ScaleHeights(terrainWorldSize);
+            verticalOrigin = minimumHeight - VerticalSafetyMarginMetres;
             verticalSize = Math.Max(
-                maximum - minimum + VerticalSafetyMarginMetres * 2f,
+                maximumHeight - minimumHeight + VerticalSafetyMarginMetres * 2f,
                 VerticalSafetyMarginMetres * 2f);
-            for (var index = 0; index < heights.Length; index++)
+            NormalizeHeights();
+        }
+
+        internal static float[][] AllocateSamples(int count)
+        {
+            if (count <= 0) throw new ArgumentOutOfRangeException(nameof(count));
+            var blocks = new float[(count - 1) / SamplesPerBlock + 1][];
+            for (var index = 0; index < blocks.Length; index++)
             {
-                heights[index] = (heights[index] - verticalOrigin) / verticalSize;
+                blocks[index] = new float[Math.Min(SamplesPerBlock, count)];
+                count -= blocks[index].Length;
+            }
+            return blocks;
+        }
+
+        private static void ValidateBlocks(float[][] blocks, int count)
+        {
+            if (blocks == null || blocks.Length != (count - 1) / SamplesPerBlock + 1)
+            {
+                throw new InvalidOperationException("The terrain-collider sample blocks are invalid.");
+            }
+            foreach (var block in blocks)
+            {
+                var expectedLength = Math.Min(SamplesPerBlock, count);
+                if (block == null || block.Length != expectedLength)
+                {
+                    throw new InvalidOperationException("The terrain-collider sample block length is invalid.");
+                }
+                count -= block.Length;
             }
         }
 
-        internal float[,] CopyTileHeights(Vector2Int tile)
+        private (float minimum, float maximum) ScaleHeights(float terrainWorldSize)
+        {
+            var minimum = float.PositiveInfinity;
+            var maximum = float.NegativeInfinity;
+            foreach (var block in normalizedHeights)
+            {
+                for (var index = 0; index < block.Length; index++)
+                {
+                    var height = block[index] * terrainWorldSize;
+                    if (float.IsNaN(height) || float.IsInfinity(height))
+                    {
+                        throw new InvalidOperationException(
+                            "The terrain-collider height map contains a non-finite sample.");
+                    }
+                    block[index] = height;
+                    minimum = Math.Min(minimum, height);
+                    maximum = Math.Max(maximum, height);
+                }
+            }
+            return (minimum, maximum);
+        }
+
+        private void NormalizeHeights()
+        {
+            foreach (var block in normalizedHeights)
+            {
+                for (var index = 0; index < block.Length; index++)
+                {
+                    block[index] = (block[index] - verticalOrigin) / verticalSize;
+                }
+            }
+        }
+
+        private float NormalizedHeightAt(int index) =>
+            normalizedHeights[index / SamplesPerBlock][index % SamplesPerBlock];
+
+        internal float[,] CopyTileHeights(Vector2Int tile, bool reverseAxes = false)
         {
             if (tile.x < 0
                 || tile.y < 0
@@ -372,10 +420,12 @@ namespace Motu.Islands
             var sourceY = tile.y * intervalsPerTile;
             for (var localY = 0; localY < samplesPerTile; localY++)
             {
-                var sourceOffset = (sourceY + localY) * dimension + sourceX;
+                var row = reverseAxes ? intervalsPerTile - localY : localY;
+                var sourceOffset = (sourceY + row) * dimension + sourceX;
                 for (var localX = 0; localX < samplesPerTile; localX++)
                 {
-                    result[localY, localX] = normalizedHeights[sourceOffset + localX];
+                    var column = reverseAxes ? intervalsPerTile - localX : localX;
+                    result[localY, localX] = NormalizedHeightAt(sourceOffset + column);
                 }
             }
             return result;
@@ -388,7 +438,7 @@ namespace Motu.Islands
                 throw new ArgumentOutOfRangeException();
             }
             return verticalOrigin
-                + normalizedHeights[sampleY * dimension + sampleX] * verticalSize;
+                + NormalizedHeightAt(sampleY * dimension + sampleX) * verticalSize;
         }
     }
 

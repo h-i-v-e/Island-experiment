@@ -344,7 +344,7 @@ namespace Motu.World
                     (float)entry.Descriptor.LogicalXMetres,
                     SeaLevelWorldY(),
                     (float)entry.Descriptor.LogicalZMetres),
-                Quaternion.identity);
+                entry.GenerationRequest.WorldRotation);
             var generator = islandObject.AddComponent<IslandGenerator>();
             generator.Lod3DistanceMetres = Lod3DistanceMetres;
             generator.Configure(entry.GenerationRequest);

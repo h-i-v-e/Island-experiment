@@ -28,6 +28,7 @@ namespace Motu.Tests
             try
             {
                 var factory = CreateFactory(host, 1840);
+                SetField(factory, "islandThreshold", 0f);
                 var cell = new Vector2Int(2, 0);
                 var request = factory.CreateIslandGenerationRequest(cell);
                 Assert.That(request, Is.Not.Null);
@@ -84,7 +85,7 @@ namespace Motu.Tests
                 }
                 Assert.That(count, Is.GreaterThan(0));
                 Assert.That(archipelagos, Is.GreaterThan(0), "Surviving archipelagos must keep their offsets.");
-                Assert.That(factory.HasIsland(Vector2Int.zero), Is.False);
+                Assert.That(factory.HasIsland(factory.StartingCell), Is.False);
             }
             finally { Object.DestroyImmediate(host); }
         }

@@ -201,7 +201,6 @@ namespace Motu.Islands
             var installationStarted = false;
             var islandSeed = request.RandomSeed;
             var worldSize = request.WorldSizeMetres;
-            var descriptor = request.Descriptor;
             var installationBudget = new UnityFrameBudget(
                 installationFrameBudgetMilliseconds);
 
@@ -224,7 +223,7 @@ namespace Motu.Islands
                 var runtimeInstaller = new IslandRuntimeInstaller(this);
                 await runtimeInstaller.InstallAsync(
                     prepared,
-                    descriptor,
+                    request,
                     worldSize,
                     cancellation.Token,
                     installationBudget);

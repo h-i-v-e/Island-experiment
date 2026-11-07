@@ -70,6 +70,8 @@ namespace Motu.Islands
         }
 
         public bool Equals(IslandDescriptor other) => IslandId == other.IslandId;
+        internal IslandDescriptor WithBoundingRadius(float radius) => new IslandDescriptor(
+            IslandId, WorldCell, LogicalXMetres, LogicalZMetres, Seed, radius, GeneratorSchemaVersion);
         public override bool Equals(object value) =>
             value is IslandDescriptor other && Equals(other);
         public override int GetHashCode() => IslandId.GetHashCode();

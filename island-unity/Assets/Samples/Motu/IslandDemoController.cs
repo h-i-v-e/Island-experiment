@@ -29,6 +29,7 @@ namespace Motu.Gameplay
         [SerializeField] private KeyCode switchCameraKey = KeyCode.F;
         [Header("Play Mode Start")]
         [SerializeField] private bool startInFlyMode;
+        [Tooltip("Coherent worlds use their reserved open-sea start cell and retain this height.")]
         [SerializeField] private Vector3 flyStartPosition = new Vector3(0f, 4f, -1800f);
         [SerializeField] private float flyStartYawDegrees;
         [SerializeField] private float flyStartPitchDegrees;
@@ -119,8 +120,14 @@ namespace Motu.Gameplay
                 Debug.LogWarning("IslandDemoController is missing its scene references.", this);
                 return;
             }
+            var coherentWorld = worldManager.IslandGenerationRequestFactory as CoherentIslandFactory;
             if (shipController != null)
             {
+                if (coherentWorld != null)
+                {
+                    shipController.Teleport(coherentWorld.StartingPosition());
+                    shipController.GetComponent<ShipAnchor>()?.ResetAfterTeleport();
+                }
                 orbitCamera.enabled = false;
                 if (firstPersonController != null) firstPersonController.enabled = false;
                 worldManager.SetStreamingTarget(viewerCamera.transform);
@@ -128,7 +135,9 @@ namespace Motu.Gameplay
                 return;
             }
             orbitCamera.Configure(
-                IslandWorldManager.CellCentre(Vector2Int.zero, 60f),
+                coherentWorld != null
+                    ? coherentWorld.StartingPosition(60f)
+                    : IslandWorldManager.CellCentre(Vector2Int.zero, 60f),
                 IslandWorldManager.IslandSizeMetres * 1.15f);
             firstPersonController?.Configure(
                 orbitCamera,
@@ -138,12 +147,17 @@ namespace Motu.Gameplay
 
         private void Start()
         {
-            if (shipController == null && startInFlyMode && firstPersonController != null)
+            var coherentWorld = worldManager.IslandGenerationRequestFactory as CoherentIslandFactory;
+            if (shipController == null && (startInFlyMode || coherentWorld != null)
+                && firstPersonController != null)
             {
                 firstPersonController.BeginFlying(
-                    flyStartPosition,
+                    coherentWorld != null
+                        ? coherentWorld.StartingPosition(flyStartPosition.y)
+                        : flyStartPosition,
                     flyStartYawDegrees,
-                    flyStartPitchDegrees);
+                    flyStartPitchDegrees,
+                    followTerrain: coherentWorld == null);
             }
         }
 

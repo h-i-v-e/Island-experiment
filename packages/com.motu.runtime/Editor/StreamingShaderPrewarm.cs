@@ -21,6 +21,8 @@ namespace Motu.Editor
         private static void OnPlayModeStateChanged(PlayModeStateChange state)
         {
             if (state != PlayModeStateChange.ExitingEditMode
+                || EditorApplication.isCompiling
+                || EditorUtility.scriptCompilationFailed
                 || Object.FindAnyObjectByType<IslandWorldManager>() == null)
             {
                 return;

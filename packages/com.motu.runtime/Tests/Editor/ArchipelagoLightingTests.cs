@@ -142,27 +142,28 @@ namespace Motu.Tests
         }
 
         [Test]
-        public void RadiusRejectsFarCoordinatesEvenWhenIntSquaresWouldOverflow()
+        public void NorthSouthBoundsRemainSafeForExtremeCoordinatesAndRadiusEdits()
         {
             using var fixture = new Fixture();
             SetField(fixture.Factory, "islandThreshold", 0f);
             Assert.That(fixture.Factory.HasIsland(new Vector2Int(15, 0)), Is.True);
-            Assert.That(fixture.Factory.HasIsland(new Vector2Int(16, 0)), Is.False);
-            Assert.That(fixture.Factory.HasIsland(new Vector2Int(16, 1)), Is.False);
-            Assert.That(fixture.Factory.HasIsland(new Vector2Int(46341, 0)), Is.False);
-            Assert.That(fixture.Factory.HasIsland(new Vector2Int(65536, 0)), Is.False);
-            Assert.That(fixture.Factory.HasIsland(new Vector2Int(65536, 1)), Is.False);
+            Assert.That(fixture.Factory.HasIsland(new Vector2Int(16, 0)), Is.True);
+            Assert.That(fixture.Factory.HasIsland(new Vector2Int(46341, 16)), Is.True);
+            Assert.That(fixture.Factory.HasIsland(new Vector2Int(65536, 17)), Is.False);
+            Assert.That(fixture.Factory.HasIsland(new Vector2Int(int.MinValue, -16)), Is.True);
             Assert.That(fixture.Factory.HasIsland(new Vector2Int(int.MinValue, int.MinValue)), Is.False);
-            Assert.That(fixture.Factory.HasIsland(Vector2Int.zero), Is.False);
+            Assert.That(fixture.Factory.HasIsland(Vector2Int.zero), Is.True);
             SetField(fixture.Factory, "archipelegoRadius", 5);
             Assert.That(fixture.Factory.HasIsland(new Vector2Int(3, 3)), Is.True);
-            Assert.That(fixture.Factory.HasIsland(new Vector2Int(3, 4)), Is.False);
+            Assert.That(fixture.Factory.HasIsland(new Vector2Int(3, 4)), Is.True);
+            Assert.That(fixture.Factory.HasIsland(new Vector2Int(3, 6)), Is.False);
             SetField(fixture.Factory, "archipelegoRadius", 50000);
             Assert.That(fixture.Factory.HasIsland(new Vector2Int(49999, 0)), Is.True);
-            Assert.That(fixture.Factory.HasIsland(new Vector2Int(50000, 0)), Is.False);
+            Assert.That(fixture.Factory.HasIsland(new Vector2Int(50000, 0)), Is.True);
+            Assert.That(fixture.Factory.HasIsland(new Vector2Int(50000, 50001)), Is.False);
             SetField(fixture.Factory, "archipelegoRadius", int.MaxValue);
             Assert.That(fixture.Factory.HasIsland(new Vector2Int(int.MaxValue - 1, 0)), Is.True);
-            Assert.That(fixture.Factory.HasIsland(new Vector2Int(int.MaxValue - 1, int.MaxValue - 1)), Is.False);
+            Assert.That(fixture.Factory.HasIsland(new Vector2Int(int.MaxValue - 1, int.MaxValue - 1)), Is.True);
             Assert.That(fixture.Factory.HasIsland(new Vector2Int(int.MinValue, int.MinValue)), Is.False);
             SetField(fixture.Factory, "archipelegoRadius", 0);
             Assert.That(fixture.Factory.ArchipelagoRadius, Is.EqualTo(1));

@@ -62,6 +62,44 @@ Useful options:
 
 ## Generation methods
 
+### Periodic coastal sections
+
+`Island::generate_coastal_strip(seed, options, strip_options)` generates one
+square section using the shared CPU terrain pipeline. All sections use one seed
+and identical terrain/seam settings; only `CoastalStripOptions.section_index`
+changes. X follows the coast and repeats after `section_count` sections. Y=0 is
+seaward and Y=1 is inland. The output remains flat, with normalized coordinates
+covering one 2,000-metre square.
+
+Each section has a broad indented bay between headlands and an irregular inland
+mountain mass. Continental noise warps the shore and mountains; fine noise stays
+active across the shallow water so detached islands can form. The cross-coast
+gradient is deliberately gentler than the island falloff, including at high
+water ratios. Pinned edges retain their sampled noise heights, not a constant
+back-edge elevation.
+
+For a native PNG preview:
+
+```sh
+cargo run --release --no-default-features --bin island -- \
+  --terrain-shape coastal-strip --seed 42 --coastal-section-count 8 \
+  --coastal-section-index 0 --water-ratio 0.6 --output coast-0.png
+```
+
+`--coastal-seam-segments` sets the initial edge partition. Each terrain refinement
+doubles the join and rear-mountain segments, sampling their heights from the
+original periodic noise. Finished erosion blends back to that field over 30
+metres on each side of a join (and inward from the rear edge). LOD1/2 retain
+this strip with an additional triangle budget, preserving interior detail. The seam blend
+width and ridge height flags use normalized section units; their defaults `0.08` and
+`0.02` correspond to 160 and 40 metres. Set the ridge height to zero to omit the
+additional drainage divide. Independently processed section interiors share
+the same final dense seam geometry at every render LOD; rivers remain
+inside their section rather than crossing a join. The coastal generator is
+CPU-only and rejects explicit GPU generation.
+
+### Circular islands
+
 `Island::generate` and `Island::generate_with_forest` always use the primary CPU
 implementation. Normal builds include the GPU code, but applications still
 select it explicitly when they want the experimental path:

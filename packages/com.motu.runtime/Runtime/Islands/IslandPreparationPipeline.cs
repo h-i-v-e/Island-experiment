@@ -39,7 +39,8 @@ namespace Motu.Islands
                 request.SnapshotPath,
                 request.SnapshotCacheBudgetBytes,
                 request.CaveOptions, request.CaveNetworkOptions, request.CaveWalkOptions,
-                prepareNavigation && request.Navigation.Enabled && IslandNavigationIntegration.IsAvailable);
+                prepareNavigation && request.Navigation.Enabled && IslandNavigationIntegration.IsAvailable,
+                request.CoastalStripOptions);
         }
 
         internal static IslandPreparedData PrepareIsland(
@@ -57,12 +58,13 @@ namespace Motu.Islands
             long snapshotCacheBudgetBytes = 0L,
             CaveNative.Options? caveOptions = null,
             CaveNative.NetworkOptions? networkOptions = null,
-            CaveNative.WalkOptions? walkOptions = null, bool prepareNavigation = true)
+            CaveNative.WalkOptions? walkOptions = null, bool prepareNavigation = true,
+            CoastalStripNative.Options? coastalStripOptions = null)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var handle = LoadOrGenerateNative(islandSeed, options, forestOptions, reedOptions,
                 fernOptions, snapshotPath, snapshotCacheBudgetBytes, caveOptions, networkOptions,
-                walkOptions, out var generated, hybridForestOptions);
+                walkOptions, out var generated, hybridForestOptions, coastalStripOptions);
             try
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -151,7 +153,7 @@ namespace Motu.Islands
             var handle = LoadOrGenerateNative(request.RandomSeed, request.Options, request.ForestOptions,
                 request.ReedOptions, request.FernOptions, request.SnapshotPath,
                 request.SnapshotCacheBudgetBytes, request.CaveOptions, request.CaveNetworkOptions,
-                request.CaveWalkOptions, out _, request.HybridForestOptions);
+                request.CaveWalkOptions, out _, request.HybridForestOptions, request.CoastalStripOptions);
             try
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -163,13 +165,14 @@ namespace Motu.Islands
             finally { MotuNative.ReleaseMotu(handle); }
         }
 
-        private static IntPtr LoadOrGenerateNative(int islandSeed, MotuNative.Options options,
+        internal static IntPtr LoadOrGenerateNative(int islandSeed, MotuNative.Options options,
             MotuNative.ForestOptions forestOptions, MotuNative.ReedOptions reedOptions,
             MotuNative.FernOptions fernOptions, string snapshotPath, long snapshotCacheBudgetBytes,
             CaveNative.Options? caveOptions, CaveNative.NetworkOptions? networkOptions,
             CaveNative.WalkOptions? walkOptions, out bool generated,
-            HybridForestNative.Options hybridForestOptions)
+            HybridForestNative.Options hybridForestOptions, CoastalStripNative.Options? coastalStripOptions = null)
         {
+            if (coastalStripOptions.HasValue) CoastalStripNative.EnsureCompatible();
             var handle = IslandSnapshotCache.TryLoad(snapshotPath, out var loadStatus);
             generated = handle == IntPtr.Zero;
             if (!generated) return handle;
@@ -179,8 +182,16 @@ namespace Motu.Islands
             if (CaveNative.CaveAlgorithmRevision() != CaveNative.AlgorithmRevision)
                 throw new InvalidOperationException("The native cave library revision does not match this Unity build.");
             var hybrid = hybridForestOptions;
-            handle = HybridForestNative.CreateMotuWithHybridForest(islandSeed, ref options,
-                ref forestOptions, ref reedOptions, ref fernOptions, ref caves, ref network, ref walk, ref hybrid);
+            if (coastalStripOptions.HasValue)
+            {
+                var strip = coastalStripOptions.Value;
+                handle = CoastalStripNative.CreateMotuWithCoastalStrip(islandSeed, ref options,
+                    ref forestOptions, ref reedOptions, ref fernOptions, ref caves, ref network, ref walk,
+                    ref hybrid, ref strip);
+            }
+            else
+                handle = HybridForestNative.CreateMotuWithHybridForest(islandSeed, ref options,
+                    ref forestOptions, ref reedOptions, ref fernOptions, ref caves, ref network, ref walk, ref hybrid);
             if (handle == IntPtr.Zero)
             {
                 // Copy on this worker before another native call replaces its error.

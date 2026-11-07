@@ -34,7 +34,9 @@ use crate::{
 
 mod bird_perches;
 pub use bird_perches::LandBirdPerch;
+mod coastal_strip;
 mod coastal_uplift;
+pub use coastal_strip::CoastalStripOptions;
 mod decorations;
 mod erosion;
 mod generation;

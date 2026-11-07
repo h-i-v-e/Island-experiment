@@ -117,6 +117,13 @@ typedef struct {
 } MotuForestOptions;
 /* Optional experimental forest controls. Legacy MotuForestOptions stays 32 bytes. */
 typedef struct { float latitudeDegrees, altitudeCooling; uint32_t variantsPerSpecies; } MotuHybridForestOptions;
+/* Coastal API v1: square sections, normalized to their world size. Native X
+ * follows the periodic strip; Y=0 is seaward and Y=1 is inland. Keep all fields
+ * except sectionIndex identical across sections generated with the same seed. */
+typedef struct {
+    uint32_t sectionIndex, sectionCount, seamSegments;
+    float seamBlendWidth, seamRidgeHeight;
+} MotuCoastalStripOptions;
 typedef struct { Vector3Export anchor; float yawRadians, scale; uint32_t prototype; } MotuHybridTreeInstance;
 
 typedef struct {
@@ -218,6 +225,15 @@ MOTU_EXPORT void* CreateMotuWithHybridForest(int32_t seed, const MotuOptions* op
     const MotuCaveOptions* caves, const MotuCaveNetworkOptions* network, const MotuCaveWalkOptions* walk,
     const MotuHybridForestOptions* hybrid);
 MOTU_EXPORT uint32_t GetHybridForestCatalogVersion(void);
+MOTU_EXPORT uint32_t GetCoastalStripApiVersion(void);
+MOTU_EXPORT uint32_t GetCoastalStripAlgorithmRevision(void);
+MOTU_EXPORT uint32_t GetCoastalStripOptionsSize(void);
+/* Null blocks use defaults; errors use GetLastCaveGenerationError on this thread.
+ * Release a successful section handle with ReleaseMotu. */
+MOTU_EXPORT void* CreateMotuWithCoastalStrip(int32_t seed, const MotuOptions* options,
+    const MotuForestOptions* forest, const MotuReedOptions* reeds, const MotuFernOptions* ferns,
+    const MotuCaveOptions* caves, const MotuCaveNetworkOptions* network, const MotuCaveWalkOptions* walk,
+    const MotuHybridForestOptions* hybrid, const MotuCoastalStripOptions* strip);
 /* species 0: broadleaf, 1: pine, 2: palm. Release maps with ReleaseMaterialTextureSet. */
 MOTU_EXPORT uint8_t BakeHybridForestBark(uint32_t species, uint32_t resolution,
     ExportMaterialTextureSet* output);

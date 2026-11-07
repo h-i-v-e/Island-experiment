@@ -12,6 +12,9 @@ namespace Motu.Islands
         public Vector2Int IslandGridPosition => Descriptor.WorldCell;
         public string IslandId => Descriptor.IslandId;
         public float WorldSizeMetres => IslandWorldManager.IslandSizeMetres;
+        public bool CoastalInlandSouth { get; }
+        public Quaternion WorldRotation => CoastalInlandSouth
+            ? new Quaternion(0f, 1f, 0f, 0f) : Quaternion.identity;
         public IslandGenerationSettings Generation => Profile?.Generation;
         public IslandRiverSettings Rivers => Profile?.Rivers;
         public IslandForestSettings Forest => Profile?.Forest;
@@ -24,6 +27,7 @@ namespace Motu.Islands
 
         internal IslandDescriptor Descriptor { get; }
         internal MotuNative.Options Options { get; }
+        internal CoastalStripNative.Options? CoastalStripOptions { get; }
         internal MotuNative.ForestOptions ForestOptions { get; }
         internal HybridForestNative.Options HybridForestOptions => Profile.Forest.HybridOptions;
         internal MotuNative.ReedOptions ReedOptions { get; }
@@ -135,19 +139,26 @@ namespace Motu.Islands
         // Only use with a fresh profile whose ownership is transferred to this request.
         internal static IslandGenerationRequest FromOwnedProfile(
             int seed, Vector2Int cell, IslandGenerationProfile profile,
-            IslandMaterialColours colours, string stableId = null) =>
-            new IslandGenerationRequest(IslandDescriptor.Request(seed, cell, stableId), profile, colours);
+            IslandMaterialColours colours, string stableId = null, bool coastalInlandSouth = false) =>
+            new IslandGenerationRequest(IslandDescriptor.Request(seed, cell, stableId), profile, colours,
+                coastalInlandSouth);
 
         private IslandGenerationRequest(
             IslandDescriptor descriptor,
             IslandGenerationProfile profile,
-            IslandMaterialColours materialColours)
+            IslandMaterialColours materialColours,
+            bool coastalInlandSouth = false)
         {
             Profile = Require(profile, nameof(profile));
             Profile.Generation.Seed = descriptor.Seed;
+            CoastalInlandSouth = coastalInlandSouth
+                && Profile.Generation.TerrainShape == IslandTerrainShape.CoastalStrip;
 
-            Descriptor = descriptor;
+            Descriptor = Profile.Generation.TerrainShape == IslandTerrainShape.CoastalStrip
+                ? descriptor.WithBoundingRadius(WorldSizeMetres * Mathf.Sqrt(0.5f))
+                : descriptor;
             Options = Profile.Generation.ToNativeOptions(Profile.Rivers);
+            CoastalStripOptions = Profile.Generation.ToNativeCoastalStripOptions(descriptor.WorldCell, CoastalInlandSouth);
             ForestOptions = Profile.Generation.ToNativeForestOptions(Profile.Forest);
             ReedOptions = Profile.Generation.ToNativeReedOptions(Profile.Reeds);
             FernOptions = Profile.Generation.ToNativeFernOptions(Profile.Ferns);

@@ -159,15 +159,23 @@ namespace Motu.Streaming
                     tileSize,
                     colliderHeightMap.verticalSize,
                     tileSize);
-                terrainData.SetHeights(0, 0, colliderHeightMap.CopyTileHeights(key));
-
+                // Unity heightfield collision uses world +X/+Z even when its
+                // parent faces south. Bake that half-turn into the samples and
+                // world-space minimum corner instead of rotating the collider.
+                var reverseAxes = Vector3.Dot(transform.forward, Vector3.back) > .99999f;
+                terrainData.SetHeights(0, 0, colliderHeightMap.CopyTileHeights(key, reverseAxes));
 
                 tileObject = new GameObject($"LOD 1 terrain collider {key.x},{key.y}");
                 tileObject.transform.SetParent(colliderRoot.transform, false);
-                tileObject.transform.localPosition = new Vector3(
+                var localOrigin = new Vector3(
                     -worldSize * 0.5f + key.x * tileSize,
                     colliderHeightMap.verticalOrigin,
                     -worldSize * 0.5f + key.y * tileSize);
+                if (reverseAxes)
+                    tileObject.transform.SetPositionAndRotation(
+                        transform.TransformPoint(localOrigin + new Vector3(tileSize, 0f, tileSize)), Quaternion.identity);
+                else
+                    tileObject.transform.localPosition = localOrigin;
 
                 var hiddenTerrain = tileObject.AddComponent<Terrain>();
                 hiddenTerrain.terrainData = terrainData;

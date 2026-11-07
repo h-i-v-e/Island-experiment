@@ -240,6 +240,42 @@ impl Terrain {
         )
     }
 
+    /// Collider height maps need the final surface even where river refinement
+    /// creates tiny projected faces. Keep this separate from generation and
+    /// decoration queries, whose historical sampling contract remains stable.
+    pub(crate) fn sample_height_map(&self, u: f32, v: f32) -> f32 {
+        let point = Vec2::new(u.clamp(0.0, 1.0), v.clamp(0.0, 1.0));
+        if let Some((triangle, weights)) =
+            sample_domain_edge(&self.mesh, &self.triangle_index, point)
+        {
+            return weights[0].mul_add(
+                self.mesh.vertices[triangle[0]].z,
+                weights[1].mul_add(
+                    self.mesh.vertices[triangle[1]].z,
+                    weights[2] * self.mesh.vertices[triangle[2]].z,
+                ),
+            );
+        }
+        self.triangle_index
+            .candidates(point)
+            .iter()
+            .find_map(|&face| {
+                let offset = face as usize * 3;
+                let triangle = [
+                    self.mesh.triangles[offset],
+                    self.mesh.triangles[offset + 1],
+                    self.mesh.triangles[offset + 2],
+                ];
+                precise_height(
+                    point,
+                    triangle.map(|index| self.mesh.vertices[index as usize]),
+                )
+            })
+            .unwrap_or_else(|| {
+                self.mesh.vertices[self.triangle_index.nearest_vertex(&self.mesh, point)].z
+            })
+    }
+
     #[must_use]
     pub fn sample_normal(&self, u: f32, v: f32) -> Vec3 {
         sample_mesh_triangle(
@@ -394,6 +430,9 @@ pub(super) fn sample_mesh_triangle(
     triangle_index: &TriangleIndex,
     point: Vec2,
 ) -> Option<([usize; 3], [f32; 3])> {
+    if let Some(sample) = sample_domain_edge(mesh, triangle_index, point) {
+        return Some(sample);
+    }
     triangle_index.candidates(point).iter().find_map(|&face| {
         let offset = face as usize * 3;
         let triangle = [
@@ -408,6 +447,79 @@ pub(super) fn sample_mesh_triangle(
             mesh.vertices[triangle[2]].truncate(),
         )
         .map(|weights| (triangle, weights))
+    })
+}
+
+/// Translated double-precision edges retain nondegenerate sub-metre faces.
+/// Only numerical slack is accepted at an edge; clamping and normalising the
+/// weights prevents a tolerated negative weight from extrapolating a steep face.
+#[allow(clippy::cast_possible_truncation)]
+fn precise_height(point: Vec2, triangle: [Vec3; 3]) -> Option<f32> {
+    let [a, b, c] = triangle.map(Vec3::as_dvec3);
+    let first = b.truncate() - a.truncate();
+    let second = c.truncate() - a.truncate();
+    let relative = point.as_dvec2() - a.truncate();
+    let area = first.perp_dot(second);
+    if !area.is_finite() || area == 0.0 {
+        return None;
+    }
+    let b_weight = relative.perp_dot(second) / area;
+    let c_weight = first.perp_dot(relative) / area;
+    let weights = [1.0 - b_weight - c_weight, b_weight, c_weight];
+    if weights
+        .iter()
+        .any(|weight| !weight.is_finite() || *weight < -1.0e-12)
+    {
+        return None;
+    }
+    let weights = weights.map(|weight| weight.max(0.0));
+    let sum = weights.iter().sum::<f64>();
+    Some(((a.z * weights[0] + b.z * weights[1] + c.z * weights[2]) / sum) as f32)
+}
+
+// Domain edges are an exact geometry contract, not a proximity test. Their
+// one-dimensional interpolation avoids rejecting skinny adjacent triangles or
+// accepting a slightly extrapolated interior triangle through barycentric slack.
+#[allow(clippy::float_cmp)]
+fn sample_domain_edge(
+    mesh: &Mesh,
+    triangle_index: &TriangleIndex,
+    point: Vec2,
+) -> Option<([usize; 3], [f32; 3])> {
+    let axis = if point.x == 0.0 || point.x == 1.0 {
+        0
+    } else if point.y == 0.0 || point.y == 1.0 {
+        1
+    } else {
+        return None;
+    };
+    let along = 1 - axis;
+    triangle_index.candidates(point).iter().find_map(|&face| {
+        let offset = face as usize * 3;
+        let triangle = [
+            mesh.triangles[offset] as usize,
+            mesh.triangles[offset + 1] as usize,
+            mesh.triangles[offset + 2] as usize,
+        ];
+        for (a, b) in [(0, 1), (1, 2), (2, 0)] {
+            let start = mesh.vertices[triangle[a]];
+            let end = mesh.vertices[triangle[b]];
+            if start[axis] != point[axis] || end[axis] != point[axis] {
+                continue;
+            }
+            let span = f64::from(end[along]) - f64::from(start[along]);
+            if span == 0.0 {
+                continue;
+            }
+            let fraction = (f64::from(point[along]) - f64::from(start[along])) / span;
+            if (0.0..=1.0).contains(&fraction) {
+                let mut weights = [0.0; 3];
+                weights[a] = (1.0 - fraction) as f32;
+                weights[b] = fraction as f32;
+                return Some((triangle, weights));
+            }
+        }
+        None
     })
 }
 
@@ -468,6 +580,106 @@ fn river_bank_height(point: Vec2, triangle: [Vec3; 3]) -> Option<f32> {
         return None;
     }
     Some((a.z * weights[0] + b.z * weights[1] + c.z * weights[2]) as f32)
+}
+
+#[cfg(test)]
+mod domain_edge_sampling_tests {
+    use super::*;
+
+    #[test]
+    fn boundary_fields_interpolate_even_when_adjacent_faces_are_tiny() {
+        for (edge, interior) in [(0.0, 1.0e-8), (1.0, 1.0 - f32::EPSILON * 0.5)] {
+            let terrain = Terrain::new(Mesh {
+                vertices: vec![
+                    Vec3::new(edge, 0.0, 2.0),
+                    Vec3::new(edge, 1.0, 6.0),
+                    Vec3::new(interior, 0.5, 100.0),
+                ],
+                normals: vec![Vec3::Z; 3],
+                triangles: vec![0, 1, 2],
+                ..Mesh::default()
+            });
+
+            assert!((terrain.sample(edge, 0.25) - 3.0).abs() < f32::EPSILON);
+            assert!((terrain.sample_height_map(edge, 0.25) - 3.0).abs() < f32::EPSILON);
+            let material = terrain.sample_vertex_scalar(&[0.2, 0.6, 1.0], edge, 0.25);
+            assert!((material - 0.3).abs() < f32::EPSILON);
+            assert_eq!(terrain.sample_normal(edge, 0.25), Vec3::Z);
+        }
+    }
+}
+
+#[cfg(test)]
+mod height_map_sampling_tests {
+    use super::*;
+
+    fn terrain(triangle: [Vec3; 3]) -> Terrain {
+        Terrain::new(Mesh {
+            vertices: triangle.to_vec(),
+            triangles: vec![0, 1, 2],
+            ..Mesh::default()
+        })
+    }
+
+    #[test]
+    fn tiny_offset_faces_interpolate_without_changing_generation_queries() {
+        let point = Vec2::new(0.25, 0.5);
+        let side = 1.0 / 8192.0;
+        let terrain = terrain([
+            (point - Vec2::splat(side)).extend(0.0),
+            (point + Vec2::new(side, -side)).extend(6.0),
+            (point + Vec2::Y * side).extend(0.0),
+        ]);
+        assert!((terrain.sample_height_map(point.x, point.y) - 1.5).abs() < f32::EPSILON);
+        assert!(terrain.sample(point.x, point.y).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn measured_coastal_height_map_cell_uses_its_supporting_face() {
+        // Seed 42, section 0 of 8, default density: the legacy area cutoff
+        // selected the 11.125 m vertex instead of this 5.498 m surface point.
+        let terrain = terrain([
+            Vec3::new(0.118_192_14, 0.929_920_6, 0.0),
+            Vec3::new(0.118_295_3, 0.930_385, 0.005_562_614),
+            Vec3::new(0.117_995_165, 0.929_984_6, 0.0),
+        ]);
+        let point = Vec2::new(242.0 / 2048.0, 1905.0 / 2048.0);
+        assert!((terrain.sample_height_map(point.x, point.y) - 0.002_748_797_4).abs() < 1.0e-9);
+        assert!(terrain.sample(point.x, point.y) > 0.005);
+    }
+
+    #[test]
+    fn collinear_faces_keep_the_nearest_vertex_fallback() {
+        let vertices = [
+            Vec3::new(0.125, 0.125, 1.0),
+            Vec3::new(0.25, 0.25, 9.0),
+            Vec3::new(0.5, 0.5, 17.0),
+        ];
+        let terrain = terrain(vertices);
+        assert!(precise_height(Vec2::splat(0.25), vertices).is_none());
+        assert!((terrain.sample_height_map(0.25, 0.25) - 9.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn nearby_outside_points_do_not_extrapolate_a_steep_face() {
+        let triangle = [
+            Vec3::new(0.25, 0.5, 0.0),
+            Vec3::new(0.75, 0.5, 100_000.0),
+            Vec3::new(0.25, 0.75, 100_000.0),
+        ];
+        let point = Vec2::new(0.5, 0.5 - 1.0e-6);
+        assert!(
+            barycentric(
+                point,
+                triangle[0].truncate(),
+                triangle[1].truncate(),
+                triangle[2].truncate()
+            )
+            .is_some()
+        );
+        assert!(precise_height(point, triangle).is_none());
+        assert!(precise_height(Vec2::new(0.5, 0.5), triangle).is_some());
+    }
 }
 
 #[cfg(test)]

@@ -13,6 +13,22 @@ namespace Motu.Settings
         // Values are copied; authored Unity asset references intentionally remain shared.
         internal IslandGenerationSettings Copy() => (IslandGenerationSettings)MemberwiseClone();
 
+        [Tooltip("Island uses a radial falloff. Coastal Strip repeats along world X, with sea at local -Z and inland heights at local +Z.")]
+        [SerializeField] private IslandTerrainShape terrainShape;
+
+        [Header("Coastal Strip")]
+        [Tooltip("Number of 2 km sections before the shared height and hardness fields repeat along X.")]
+        [Range(1, 4096)] [SerializeField] private int coastalSectionCount = 8;
+
+        [Tooltip("Fixed edge segments shared by adjacent sections and every terrain LOD.")]
+        [Range(8, 256)] [SerializeField] private int coastalSeamSegments = 32;
+
+        [Tooltip("Width of the protected transition beside each section seam, in metres.")]
+        [Range(40f, 500f)] [SerializeField] private float coastalSeamBlendWidthMetres = 160f;
+
+        [Tooltip("Extra original-field seam ridge, fading towards the sea, to keep drainage inside each section. Zero disables the extra ridge.")]
+        [Min(0f)] [SerializeField] private float coastalSeamRidgeHeightMetres = 40f;
+
         [Tooltip("Restore previously generated islands from the persistent on-disk snapshot cache.")]
         [SerializeField] private bool useSnapshotCache = true;
 
@@ -40,7 +56,7 @@ namespace Motu.Settings
         [Min(1f)]
         [SerializeField] private float maximumHeightMetres = 400f;
 
-        [Tooltip("Normalized proportion of the generated map intended to be water. Regenerate to apply.")]
+        [Tooltip("Water/land balance for islands, or shoreline position within coastal bays. Regenerate to apply.")]
         [Range(0.60f, 0.95f)]
         [SerializeField] private float waterRatio = 0.95f;
 
@@ -60,7 +76,7 @@ namespace Motu.Settings
         [Range(0.1f, 32f)]
         [SerializeField] private float continentalNoiseFrequency = 2.2f;
 
-        [Tooltip("Strength of the broad noise relative to the radial island falloff. Regenerate to apply.")]
+        [Tooltip("Broad terrain noise strength. Coastal strips use it to vary their shoreline and inland mountains. Regenerate to apply.")]
         [Range(0f, 4f)]
         [SerializeField] private float continentalNoiseStrength = 0.78f;
 
@@ -68,7 +84,7 @@ namespace Motu.Settings
         [Range(0.1f, 64f)]
         [SerializeField] private float detailNoiseFrequency = 12f;
 
-        [Tooltip("Strength of the fine noise relative to the broad layer and radial island falloff. Regenerate to apply.")]
+        [Tooltip("Fine terrain relief strength. In coastal bays it can also raise small offshore islands. Regenerate to apply.")]
         [Range(0f, 4f)]
         [SerializeField] private float detailNoiseStrength = 0.22f;
 
@@ -105,6 +121,38 @@ namespace Motu.Settings
         internal long SnapshotCacheBudgetBytes =>
             (long)SnapshotCacheBudgetGiB * 1024L * 1024L * 1024L;
         public int Seed { get => seed; set => seed = value; }
+        public IslandTerrainShape TerrainShape
+        {
+            get => terrainShape;
+            set
+            {
+                if (value != IslandTerrainShape.Island && value != IslandTerrainShape.CoastalStrip)
+                    throw new ArgumentOutOfRangeException(nameof(value));
+                terrainShape = value;
+            }
+        }
+        public int CoastalSectionCount
+        {
+            get => Mathf.Clamp(coastalSectionCount, 1, 4096);
+            set => coastalSectionCount = Mathf.Clamp(value, 1, 4096);
+        }
+        public int CoastalSeamSegments
+        {
+            get => Mathf.Clamp(coastalSeamSegments, 8, 256);
+            set => coastalSeamSegments = Mathf.Clamp(value, 8, 256);
+        }
+        public float CoastalSeamBlendWidthMetres
+        {
+            get => FiniteClamp(coastalSeamBlendWidthMetres, 160f, 40f, 500f);
+            set => coastalSeamBlendWidthMetres = FiniteClamp(value, 160f, 40f, 500f);
+        }
+        public float CoastalSeamRidgeHeightMetres
+        {
+            get => FiniteClamp(coastalSeamRidgeHeightMetres, 40f, 0f, MaximumHeightMetres);
+            set => coastalSeamRidgeHeightMetres = FiniteClamp(value, 40f, 0f, MaximumHeightMetres);
+        }
+        private static float FiniteClamp(float value, float fallback, float minimum, float maximum) =>
+            Mathf.Clamp(float.IsNaN(value) || float.IsInfinity(value) ? fallback : value, minimum, maximum);
         public float WorldSizeMetres => IslandWorldManager.IslandSizeMetres;
         public float MaximumHeightMetres
         {
@@ -209,6 +257,25 @@ namespace Motu.Settings
                 continentalNoiseStrength = ContinentalNoiseStrength,
                 detailNoiseStrength = DetailNoiseStrength,
                 landMassOffset = LandMassOffset,
+            };
+        }
+
+        internal CoastalStripNative.Options? ToNativeCoastalStripOptions(Vector2Int worldCell, bool inlandSouth = false)
+        {
+            if (TerrainShape == IslandTerrainShape.Island) return null;
+            if (TerrainShape != IslandTerrainShape.CoastalStrip)
+                throw new ArgumentOutOfRangeException(nameof(TerrainShape), "Unknown terrain shape.");
+            var count = CoastalSectionCount;
+            // Positive modulo keeps the west side of section zero continuous too.
+            var index = (inlandSouth ? -(long)worldCell.x : worldCell.x) % count;
+            if (index < 0) index += count;
+            return new CoastalStripNative.Options
+            {
+                sectionIndex = (uint)index,
+                sectionCount = (uint)count,
+                seamSegments = (uint)CoastalSeamSegments,
+                seamBlendWidth = CoastalSeamBlendWidthMetres / WorldSizeMetres,
+                seamRidgeHeight = CoastalSeamRidgeHeightMetres / WorldSizeMetres,
             };
         }
 
