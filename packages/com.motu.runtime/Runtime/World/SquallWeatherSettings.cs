@@ -21,6 +21,8 @@ namespace Motu.World
         [Min(.1f)] public float MaximumSpawnIntervalSeconds;
         [Min(10f)] public float MinimumSpawnDistanceMetres;
         [Min(10f)] public float MaximumSpawnDistanceMetres;
+        [Tooltip("Full width of the horizon spawning arc, centred directly upwind. 90 means 45 degrees either side; 360 allows all bearings.")]
+        [Range(0f, 360f)] public float SpawnArcDegrees;
         [Range(0f, MaximumSupportedSpeedMultiplier)] public float MinimumSpeedMultiplier;
         [Range(0f, MaximumSupportedSpeedMultiplier)] public float MaximumSpeedMultiplier;
         [Min(1f)] public float SpeedVariationSeconds;
@@ -53,10 +55,11 @@ namespace Motu.World
 
         public static SquallWeatherSettings Default => new SquallWeatherSettings
         {
-            Version = 4, Enabled = true, AutomaticSpawning = true, MaximumActiveSqualls = 3,
+            Version = 5, Enabled = true, AutomaticSpawning = true, MaximumActiveSqualls = 3,
             MinimumDiameterMetres = MinimumSupportedDiameterMetres, MaximumDiameterMetres = MaximumSupportedDiameterMetres,
             MinimumSpawnIntervalSeconds = 45f, MaximumSpawnIntervalSeconds = 150f,
             MinimumSpawnDistanceMetres = 2400f, MaximumSpawnDistanceMetres = 3200f,
+            SpawnArcDegrees = 90f,
             MinimumSpeedMultiplier = 0f, MaximumSpeedMultiplier = MaximumSupportedSpeedMultiplier, SpeedVariationSeconds = 45f,
             MaximumHeadingDeviationDegrees = 45f, HeadingVariationSeconds = 90f,
             LifetimeSeconds = 600f, FadeSeconds = 6f,
@@ -71,7 +74,7 @@ namespace Motu.World
         internal SquallWeatherSettings Validated()
         {
             var result = this;
-            if (result.Version < 4) result.Upgrade();
+            if (result.Version < 5) result.Upgrade();
             result.MaximumActiveSqualls = Mathf.Clamp(result.MaximumActiveSqualls, 1, MaximumSupportedSqualls);
             result.MinimumDiameterMetres = Clamp(MinimumDiameterMetres, MinimumSupportedDiameterMetres, MaximumSupportedDiameterMetres);
             result.MaximumDiameterMetres = Clamp(MaximumDiameterMetres, result.MinimumDiameterMetres, MaximumSupportedDiameterMetres);
@@ -82,6 +85,7 @@ namespace Motu.World
             float spawnLimit = result.VisibilityDistanceMetres * .85f;
             result.MinimumSpawnDistanceMetres = Clamp(MinimumSpawnDistanceMetres, 10f, spawnLimit);
             result.MaximumSpawnDistanceMetres = Clamp(MaximumSpawnDistanceMetres, result.MinimumSpawnDistanceMetres, spawnLimit);
+            result.SpawnArcDegrees = Clamp(result.SpawnArcDegrees, 0f, 360f);
             result.MinimumSpeedMultiplier = Clamp(result.MinimumSpeedMultiplier, 0f, MaximumSupportedSpeedMultiplier);
             result.MaximumSpeedMultiplier = Clamp(result.MaximumSpeedMultiplier, result.MinimumSpeedMultiplier, MaximumSupportedSpeedMultiplier);
             result.SpeedVariationSeconds = Clamp(result.SpeedVariationSeconds, 1f, 600f);
@@ -122,9 +126,13 @@ namespace Motu.World
                 MaximumHeadingDeviationDegrees = defaults.MaximumHeadingDeviationDegrees;
                 HeadingVariationSeconds = defaults.HeadingVariationSeconds;
             }
-            SurfaceWetness = defaults.SurfaceWetness;
-            WettingSeconds = defaults.WettingSeconds;
-            DryingSeconds = defaults.DryingSeconds;
+            if (Version < 4)
+            {
+                SurfaceWetness = defaults.SurfaceWetness;
+                WettingSeconds = defaults.WettingSeconds;
+                DryingSeconds = defaults.DryingSeconds;
+            }
+            SpawnArcDegrees = defaults.SpawnArcDegrees;
             Version = defaults.Version;
         }
 

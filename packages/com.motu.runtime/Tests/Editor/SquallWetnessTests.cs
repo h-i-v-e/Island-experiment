@@ -67,14 +67,14 @@ namespace Motu.Tests
             settings.MaximumHeadingDeviationDegrees = 17;
             settings.HeadingVariationSeconds = 23;
             settings = settings.Validated();
-            Assert.That(settings.Version, Is.EqualTo(4));
+            Assert.That(settings.Version, Is.EqualTo(SquallWeatherSettings.Default.Version));
             Assert.That(settings.SurfaceWetness, Is.EqualTo(.75f));
             Assert.That(settings.WettingSeconds, Is.EqualTo(6));
             Assert.That(settings.DryingSeconds, Is.EqualTo(40));
             Assert.That(settings.MaximumHeadingDeviationDegrees, Is.EqualTo(17));
             Assert.That(settings.HeadingVariationSeconds, Is.EqualTo(23));
             settings.SurfaceWetness = 0;
-            Assert.That(settings.Validated().SurfaceWetness, Is.Zero, "An explicit version-4 opt-out must remain off.");
+            Assert.That(settings.Validated().SurfaceWetness, Is.Zero, "An explicit wetness opt-out must remain off.");
         }
 
         [Test]

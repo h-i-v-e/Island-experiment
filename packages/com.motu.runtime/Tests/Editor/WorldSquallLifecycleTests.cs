@@ -54,10 +54,12 @@ namespace Motu.Tests
         }
 
         [Test]
-        public void SeededHorizonSpawnsCoverAllBearingsAndNeverReplaceALiveCell()
+        public void SeededHorizonSpawnsStayInTheDefaultUpwindArcAndNeverReplaceALiveCell()
         {
             var settings = environment.Weather.Squalls;
-            int quadrants = 0;
+            Assert.That(settings.SpawnArcDegrees, Is.EqualTo(90));
+            var minimumAngle = 180f;
+            var maximumAngle = -180f;
             for (int i = 0; i < 24; i++)
             {
                 Assert.IsTrue(environment.SpawnSquall());
@@ -66,13 +68,65 @@ namespace Motu.Tests
                 Assert.That(cell.DiameterMetres, Is.InRange(200f, 1000f));
                 Assert.That(new Vector2(offset.x, offset.z).magnitude,
                     Is.InRange(settings.MinimumSpawnDistanceMetres - .001f, settings.MaximumSpawnDistanceMetres + .001f));
-                quadrants |= 1 << ((offset.x >= 0 ? 1 : 0) + (offset.z >= 0 ? 2 : 0));
+                var angle = Vector2.SignedAngle(-environment.WindDirection, new Vector2(offset.x, offset.z));
+                Assert.That(angle, Is.InRange(-45.001f, 45.001f));
+                minimumAngle = Mathf.Min(minimumAngle, angle);
+                maximumAngle = Mathf.Max(maximumAngle, angle);
                 Assert.IsFalse(environment.SpawnSquall(target.transform.position, 500));
                 Assert.That(environment.Squall.Seed, Is.EqualTo(cell.Seed));
                 Assert.That(environment.Squall.Center, Is.EqualTo(cell.Center));
                 environment.ClearSquall();
             }
-            Assert.That(quadrants, Is.EqualTo(15), "Random horizon bearings must include every quadrant.");
+            Assert.That(minimumAngle, Is.LessThan(-20), "Spawns should cover both sides of the upwind arc.");
+            Assert.That(maximumAngle, Is.GreaterThan(20));
+        }
+
+        [TestCase(0f)]
+        [TestCase(30f)]
+        [TestCase(180f)]
+        [TestCase(360f)]
+        public void HorizonArcUsesTheLiveWindAndConfiguredFullWidth(float arc)
+        {
+            for (var i = 0; i < 24; ++i)
+            {
+                environment.ClearSquall();
+                var weather = environment.Weather;
+                weather.Squalls.SpawnArcDegrees = arc;
+                // Turn the live wind between spawns, including across north.
+                var heading = i * 137.5f * Mathf.Deg2Rad;
+                weather.WindDirection = new Vector2(Mathf.Sin(heading), Mathf.Cos(heading));
+                environment.ApplyWeather(weather);
+                Assert.That(environment.SpawnSquall(), Is.True);
+                var offset = environment.Squall.Center - target.transform.position;
+                Assert.That(Vector2.Angle(-environment.WindDirection, new Vector2(offset.x, offset.z)),
+                    Is.LessThanOrEqualTo(arc * .5f + .03f));
+            }
+        }
+
+        [Test]
+        public void PreviousSettingsGainAnUpwindArcWithoutResettingWetnessAndAuthoredZeroSurvives()
+        {
+            var settings = SquallWeatherSettings.Default;
+            settings.Version = 4;
+            settings.SpawnArcDegrees = 0;
+            settings.SurfaceWetness = .23f; settings.WettingSeconds = 11; settings.DryingSeconds = 91;
+            settings.MaximumHeadingDeviationDegrees = 17;
+            settings = settings.Validated();
+            Assert.That(settings.Version, Is.EqualTo(SquallWeatherSettings.Default.Version));
+            Assert.That(settings.SpawnArcDegrees, Is.EqualTo(90));
+            Assert.That(settings.SurfaceWetness, Is.EqualTo(.23f));
+            Assert.That(settings.WettingSeconds, Is.EqualTo(11));
+            Assert.That(settings.DryingSeconds, Is.EqualTo(91));
+            Assert.That(settings.MaximumHeadingDeviationDegrees, Is.EqualTo(17));
+            settings.SpawnArcDegrees = 0;
+            settings = JsonUtility.FromJson<SquallWeatherSettings>(JsonUtility.ToJson(settings)).Validated();
+            Assert.That(settings.SpawnArcDegrees, Is.Zero);
+            settings.SpawnArcDegrees = -10;
+            Assert.That(settings.Validated().SpawnArcDegrees, Is.Zero);
+            settings.SpawnArcDegrees = 400;
+            Assert.That(settings.Validated().SpawnArcDegrees, Is.EqualTo(360));
+            settings.SpawnArcDegrees = float.NaN;
+            Assert.Throws<ArgumentOutOfRangeException>(() => settings.Validated());
         }
 
         [Test]

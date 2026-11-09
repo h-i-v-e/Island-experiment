@@ -82,7 +82,7 @@ namespace Motu.World
             squallSpawnCountdown = SquallRange(settings.MinimumSpawnIntervalSeconds, settings.MaximumSpawnIntervalSeconds);
         }
 
-        /// <summary>Spawns a cell at a random horizon bearing, keeping new rain cores apart.</summary>
+        /// <summary>Spawns a cell within the current upwind horizon arc, keeping new rain cores apart.</summary>
         public bool SpawnSquall() => SpawnSquall(out _);
 
         public bool SpawnSquall(out WorldSquallState spawned)
@@ -92,9 +92,11 @@ namespace Motu.World
             InitializeSqualls();
             var settings = weather.Squalls;
             var diameter = SquallRange(settings.MinimumDiameterMetres, settings.MaximumDiameterMetres);
+            var upwindBearing = Mathf.Atan2(-weather.WindDirection.x, -weather.WindDirection.y);
+            var halfArc = settings.SpawnArcDegrees * .5f * Mathf.Deg2Rad;
             for (var attempt = 0; attempt < 8; attempt++)
             {
-                var bearing = SquallRange(0f, Mathf.PI * 2f);
+                var bearing = upwindBearing + SquallRange(-halfArc, halfArc);
                 var radial = new Vector3(Mathf.Sin(bearing), 0f, Mathf.Cos(bearing));
                 var center = SquallTarget.position + radial
                     * SquallRange(settings.MinimumSpawnDistanceMetres, settings.MaximumSpawnDistanceMetres);

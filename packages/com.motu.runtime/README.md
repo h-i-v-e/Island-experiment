@@ -350,9 +350,13 @@ travel. Speed retains its separate coherent variation, from zero to **eight
 times ambient wind speed** by default. The wind/wave field's
 advection velocity matches the curved motion. A standalone environment with
 no scheduling driver, including the weather playground, retains its explicit
-automatic preview controls. Manual horizon spawning remains available on both
-the driver and environment. New horizon cells try to keep their rain cores
-apart; explicitly positioned cells can overlap.
+automatic preview controls. Automatic and manual horizon spawning both choose
+a random bearing within **Spawn Arc Degrees**, centred directly upwind of the
+ship using the current wind direction. The default **90-degree** arc spans
+45 degrees either side of upwind, encouraging cells to travel towards the ship.
+The weather playground exposes this as **Upwind spawn arc**: zero spawns directly
+upwind, while 360 restores the full horizon. New horizon cells try to keep their
+rain cores apart; explicitly positioned cells can overlap and bypass the arc.
 
 `WorldEnvironmentController.ActiveSquallCount` and `GetSquall(index)` expose the
 active cells. `Squall` retains the first active cell for existing displays.
