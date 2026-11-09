@@ -16,6 +16,85 @@ const GOLDEN_SIZE: u32 = 128;
 static NEXT_TEST_DIRECTORY: AtomicUsize = AtomicUsize::new(0);
 
 #[test]
+fn wooden_planks_roundtrip_deterministically_and_colour_overrides_preserve_relief() {
+    use motu::procedural_textures::{
+        LinearRgb, PreviewSettings, RecipeParameterValues, generate_preview,
+        generate_texture_set_with_parameters,
+    };
+    let mut recipe = load_recipe("wooden-planks.json");
+    recipe.width = 128;
+    recipe.height = 256;
+    let restored: TextureRecipe =
+        serde_json::from_slice(&serde_json::to_vec(&recipe).unwrap()).unwrap();
+    assert_eq!(restored, recipe);
+    let baked = generate_texture_set(&recipe, NormalConvention::OpenGl).unwrap();
+    let repeated = generate_texture_set(&restored, NormalConvention::OpenGl).unwrap();
+    assert_eq!(baked.albedo, repeated.albedo);
+    assert_eq!(baked.height, repeated.height);
+    let preview = generate_preview(
+        &recipe,
+        &PreviewSettings {
+            normal_convention: NormalConvention::OpenGl,
+            selected_layer_id: None,
+        },
+    )
+    .unwrap();
+    assert_eq!(baked.albedo, preview.textures.albedo);
+    assert_eq!(baked.normal, preview.textures.normal);
+    let mut overrides = RecipeParameterValues::new();
+    overrides.insert_colour("wood_colour", LinearRgb::new(0.12, 0.07, 0.03));
+    let recoloured =
+        generate_texture_set_with_parameters(&recipe, &overrides, NormalConvention::OpenGl)
+            .unwrap();
+    assert_ne!(baked.albedo, recoloured.albedo);
+    assert_eq!(baked.height, recoloured.height);
+    assert_eq!(baked.normal, recoloured.normal);
+    assert_eq!(baked.occlusion, recoloured.occlusion);
+    let mut changed_seed = recipe.clone();
+    changed_seed.seed += 1;
+    let varied = generate_texture_set(&changed_seed, NormalConvention::OpenGl).unwrap();
+    assert_ne!(baked.albedo, varied.albedo);
+    assert_ne!(baked.height, varied.height);
+}
+
+#[test]
+fn wooden_planks_invalid_counts_and_physical_seams_have_editor_diagnostics() {
+    use motu::procedural_textures::MaterialModel;
+    let mut recipe = load_recipe("wooden-planks.json");
+    let MaterialModel::WoodenPlanks(settings) = &mut recipe.material else {
+        unreachable!()
+    };
+    settings.planks = 0;
+    settings.grain_scale = 0;
+    settings.joints_per_plank = 65;
+    settings.seam_width_m = f32::NAN;
+    let diagnostics = motu::procedural_textures::editor_protocol::validate_diagnostics(&recipe);
+    for path in [
+        "/material/planks",
+        "/material/grain_scale",
+        "/material/joints_per_plank",
+        "/material/seam_width_m",
+    ] {
+        assert!(
+            diagnostics.iter().any(|issue| issue.pointer == path),
+            "missing {path}"
+        );
+    }
+    let mut recipe = load_recipe("wooden-planks.json");
+    let MaterialModel::WoodenPlanks(settings) = &mut recipe.material else {
+        unreachable!()
+    };
+    settings.seam_width_m = 0.2;
+    assert!(validate_recipe(&recipe).is_err());
+    let schema = motu::procedural_textures::schema_document();
+    assert_eq!(
+        schema["$defs"]["wooden_planks_material"]["properties"]["kind"]["const"],
+        "wooden_planks"
+    );
+    assert!(motu::procedural_textures::property_metadata("/material/grain_scale").is_some());
+}
+
+#[test]
 fn masonry_preview_and_bake_share_stone_colours_and_preserve_relief_when_tinted() {
     use motu::procedural_textures::{MaterialModel, PreviewSettings, generate_preview};
     let mut recipe = load_recipe("cracked-stone.json");
@@ -104,6 +183,7 @@ fn all_committed_recipes_use_the_current_valid_schema() {
         "PlateBark.json",
         "cracked-stone.json",
         "rounded-river-stones.json",
+        "wooden-planks.json",
     ] {
         let recipe = load_recipe(recipe_name);
         validate_recipe(&recipe).unwrap_or_else(|error| panic!("{recipe_name}: {error}"));
@@ -243,7 +323,16 @@ fn editor_cli_schema_validation_preview_and_failure_envelopes_are_valid_json() {
             .is_some_and(|items| items.len() >= 100)
     );
 
-    for recipe_name in ["cracked-stone.json", "rounded-river-stones.json"] {
+    for recipe_name in [
+        "cracked-stone.json",
+        "rounded-river-stones.json",
+        "wooden-planks.json",
+    ] {
+        let minimum_maps = if load_recipe(recipe_name).layers.is_empty() {
+            6
+        } else {
+            9
+        };
         let recipe = recipe_path(recipe_name);
         let recipe = recipe.to_str().expect("UTF-8 recipe path");
         let validation = run_baker(&["validate", "--recipe", recipe, "--json"]);
@@ -274,7 +363,7 @@ fn editor_cli_schema_validation_preview_and_failure_envelopes_are_valid_json() {
         assert!(
             preview["generated_maps"]
                 .as_array()
-                .is_some_and(|maps| maps.len() >= 9)
+                .is_some_and(|maps| maps.len() >= minimum_maps)
         );
         assert!(
             preview_directory

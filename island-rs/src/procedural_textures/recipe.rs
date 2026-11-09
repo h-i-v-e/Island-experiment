@@ -522,6 +522,41 @@ pub enum MaterialModel {
     },
     /// Half-bond stonework with continuous mortar courses and varied dressed stones.
     Masonry(MasonrySettings),
+    /// Longitudinal wood grain on bevelled boards with optional staggered end joints.
+    WoodenPlanks(WoodenPlanksSettings),
+}
+
+/// Physical controls for periodic boards. Grain and board length run along V.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct WoodenPlanksSettings {
+    pub planks: u32,
+    /// Zero gives continuous boards, useful for a door leaf.
+    pub joints_per_plank: u32,
+    pub seam_width_m: f32,
+    pub bevel_width_m: f32,
+    pub seam_depth_m: f32,
+    /// Growth-ring bands across each board, independent of image resolution.
+    pub grain_scale: u32,
+    pub grain_strength_m: f32,
+    pub plank_variation_m: f32,
+    pub colour_variation: f32,
+}
+
+impl Default for WoodenPlanksSettings {
+    fn default() -> Self {
+        Self {
+            planks: 6,
+            joints_per_plank: 0,
+            seam_width_m: 0.005,
+            bevel_width_m: 0.003,
+            seam_depth_m: 0.0045,
+            grain_scale: 8,
+            grain_strength_m: 0.00035,
+            plank_variation_m: 0.0005,
+            colour_variation: 0.18,
+        }
+    }
 }
 
 /// Physical controls for periodic, half-bond masonry. Relief values are metres.

@@ -428,6 +428,32 @@ fn validate_root(recipe: &TextureRecipe, errors: &mut RecipeValidationErrors) {
     validate_tile_size("width", recipe.physical_tile_width_m, errors);
     validate_tile_size("height", recipe.physical_tile_height_m, errors);
     validate_material(&recipe.material, recipe.width, recipe.height, errors);
+    if let MaterialModel::WoodenPlanks(settings) = &recipe.material {
+        let board_width = recipe.physical_tile_width_m
+            / f32::from(u16::try_from(settings.planks).unwrap_or(u16::MAX));
+        validate_maximum(
+            "material.seam_width_m",
+            settings.seam_width_m,
+            board_width * 0.4,
+            errors,
+        );
+        validate_maximum(
+            "material.bevel_width_m",
+            settings.bevel_width_m,
+            board_width * 0.2,
+            errors,
+        );
+        if settings.joints_per_plank > 0 {
+            validate_maximum(
+                "material.seam_width_m",
+                settings.seam_width_m,
+                recipe.physical_tile_height_m
+                    / f32::from(u16::try_from(settings.joints_per_plank).unwrap_or(u16::MAX))
+                    * 0.4,
+                errors,
+            );
+        }
+    }
     validate_parameters(&recipe.parameters, errors);
 
     if recipe.layers.len() > MAX_LAYERS {
@@ -567,6 +593,32 @@ fn validate_material(
     errors: &mut RecipeValidationErrors,
 ) {
     match material {
+        MaterialModel::WoodenPlanks(settings) => {
+            validate_nonzero("material.planks", settings.planks, errors);
+            validate_integer_maximum("material.planks", settings.planks, width.min(128), errors);
+            validate_integer_maximum(
+                "material.joints_per_plank",
+                settings.joints_per_plank,
+                height.min(64),
+                errors,
+            );
+            validate_nonzero("material.grain_scale", settings.grain_scale, errors);
+            validate_integer_maximum("material.grain_scale", settings.grain_scale, 64, errors);
+            validate_positive("material.seam_width_m", settings.seam_width_m, errors);
+            validate_positive("material.bevel_width_m", settings.bevel_width_m, errors);
+            for (path, value) in [
+                ("material.seam_depth_m", settings.seam_depth_m),
+                ("material.grain_strength_m", settings.grain_strength_m),
+                ("material.plank_variation_m", settings.plank_variation_m),
+            ] {
+                validate_nonnegative(path, value, errors);
+            }
+            validate_normalized(
+                "material.colour_variation",
+                settings.colour_variation,
+                errors,
+            );
+        }
         MaterialModel::Masonry(settings) => {
             validate_nonzero("material.cells_x", settings.cells_x, errors);
             validate_nonzero("material.cells_y", settings.cells_y, errors);

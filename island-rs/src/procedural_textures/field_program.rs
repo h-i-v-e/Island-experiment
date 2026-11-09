@@ -174,6 +174,7 @@ impl HeightField {
 pub enum FieldProgram {
     /// Staggered courses of dressed stone with recessed mortar.
     Masonry(recipe::MasonrySettings),
+    WoodenPlanks(recipe::WoodenPlanksSettings),
     /// A small, general-purpose fBM field for material experiments.
     Layered(LayeredField),
     /// Connected, bevelled cellular slabs with branching fractures.
@@ -190,6 +191,9 @@ impl FieldProgram {
         seed: u64,
     ) -> Result<HeightField, FieldError> {
         let values = match self {
+            Self::WoodenPlanks(settings) => {
+                super::wooden_planks::generate_height_values(settings, dimensions, seed)
+            }
             Self::Masonry(settings) => {
                 super::masonry::generate_height_values(settings, dimensions, seed)
             }
@@ -226,6 +230,7 @@ impl FieldProgram {
             recipe.physical_tile_height_m,
         )?;
         let program = match &recipe.material {
+            recipe::MaterialModel::WoodenPlanks(settings) => Self::WoodenPlanks(*settings),
             recipe::MaterialModel::Masonry(settings) => Self::Masonry(*settings),
             recipe::MaterialModel::LayeredNoise {
                 frequency,

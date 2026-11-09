@@ -151,11 +151,13 @@ cargo run -p planet-bevy -- [options]
   --export PATH.obj         Export terrain mesh in physical units
   --validate-only           Generate/validate/export without a GPU or window
   --screenshot PATH.png     Render offscreen to a new PNG and exit
+  --building-recipe PATH    Building Studio recipe to place with H (default: hut)
   -h, --help                Show help
 
 Click the planet: first person. Drag: orbit; scroll: zoom.
 On foot: WASD move; mouse look; Shift run; Space jump; Tab release mouse;
 Esc return to orbit. In orbit: W edges; S shading; O sea; R rivers; B beds.
+H places a procedural building on clear dry ground; E operates its doors.
 Sea level stays at the original radius. No forced water ratio, island falloff,
 or perimeter ocean. Rivers end at the first submerged vertex.
 Small random point sets can fail whole-sphere coverage.";
@@ -266,6 +268,7 @@ pub struct Command {
     pub panel: PanelVisibility,
     pub export: Option<PathBuf>,
     pub screenshot: Option<PathBuf>,
+    pub building_recipe: Option<PathBuf>,
     pub validate_only: bool,
     pub streaming: crate::streaming::StreamingSettings,
     pub lighting: crate::lighting::LightingSettings,
@@ -324,6 +327,7 @@ impl Default for Command {
             panel: PanelVisibility::Show,
             export: None,
             screenshot: None,
+            building_recipe: None,
             validate_only: false,
             streaming: crate::streaming::StreamingSettings::default(),
             lighting: crate::lighting::LightingSettings {
@@ -751,20 +755,23 @@ impl Command {
             "--river-refinements" => self.terrain.river_refinement_passes = number(value, flag)?,
             "--river-width" => self.terrain.river_width = number(value, flag)?,
             "--river-taper" => self.terrain.river_taper = number(value, flag)?,
-            "--sweep-axis" => {
-                self.options.sweep_direction = match value {
-                    "x" => planet_rs::DVec3::X,
-                    "y" => planet_rs::DVec3::Y,
-                    "z" => planet_rs::DVec3::Z,
-                    _ => return Err(String::from("sweep axis must be x, y, or z")),
-                }
-            }
+            "--sweep-axis" => self.options.sweep_direction = sweep_axis(value)?,
             "--view" => self.view = View::parse(value)?,
             "--export" => self.export = Some(value.into()),
             "--screenshot" => self.screenshot = Some(value.into()),
+            "--building-recipe" => self.building_recipe = Some(value.into()),
             _ => return Err(format!("unknown option: {flag}")),
         }
         Ok(())
+    }
+}
+
+fn sweep_axis(value: &str) -> Result<planet_rs::DVec3, String> {
+    match value {
+        "x" => Ok(planet_rs::DVec3::X),
+        "y" => Ok(planet_rs::DVec3::Y),
+        "z" => Ok(planet_rs::DVec3::Z),
+        _ => Err(String::from("sweep axis must be x, y, or z")),
     }
 }
 

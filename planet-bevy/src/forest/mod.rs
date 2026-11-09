@@ -109,6 +109,21 @@ pub struct Forests {
     pub inspect_needles: bool,
 }
 impl Forests {
+    /// Reserve the building and entrance approach clear of resident tree roots.
+    pub(crate) fn placement_obstructed(&self, root: &GlobalTransform, size: Vec2) -> bool {
+        if !self.was_enabled {
+            return false;
+        }
+        let inverse = root.affine().matrix3.inverse();
+        self.plants.iter().any(|plant| {
+            let local = inverse * (plant.root - root.translation());
+            local.y > -1.0
+                && local.y < 25.0
+                && local.x.abs() < size.x * 0.5 + 3.0
+                && local.z.abs() < size.y * 0.5 + 3.0
+        })
+    }
+
     pub fn with_view(view: crate::command::View) -> Self {
         let mut result = Self {
             inspect: matches!(

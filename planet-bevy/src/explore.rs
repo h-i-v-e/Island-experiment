@@ -167,6 +167,7 @@ impl Player {
         )
     }
 
+    #[cfg(test)]
     fn step(
         &mut self,
         ground: &Ground,
@@ -176,12 +177,29 @@ impl Player {
         radius: f32,
         dt: f32,
     ) {
-        let previous = support(ground, scene, self.up).unwrap_or(self.feet);
+        self.step_with_buildings(ground, scene, input, speed, radius, dt, None);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn step_with_buildings(
+        &mut self,
+        ground: &Ground,
+        scene: &Scene,
+        input: Vec2,
+        speed: f32,
+        radius: f32,
+        dt: f32,
+        buildings: Option<&crate::buildings::Contacts>,
+    ) {
+        let previous = support_with_buildings(ground, scene, self.up, self.feet, buildings)
+            .unwrap_or(self.feet);
         let grounded = self.vertical_speed <= 0.0 && self.feet <= previous + 0.02 / radius;
         let right = self.heading.cross(self.up).normalize();
         let movement = (right * input.x + self.heading * input.y) * (speed * dt / radius);
         let candidate = (self.up * self.feet + movement).normalize();
-        let Some(next_floor) = support(ground, scene, candidate) else {
+        let Some(next_floor) =
+            support_with_buildings(ground, scene, candidate, self.feet, buildings)
+        else {
             return;
         };
         // Grounded slopes up to 50 degrees and steps up to 35 cm are walkable.
@@ -192,7 +210,15 @@ impl Player {
         } else {
             0.02
         };
-        let floor = if climb <= allowed {
+        let blocked = buildings.is_some_and(|contacts| {
+            crate::buildings::blocked(
+                contacts,
+                candidate * next_floor.max(self.feet),
+                candidate,
+                radius,
+            )
+        });
+        let floor = if climb <= allowed && !blocked {
             let turn = Quat::from_rotation_arc(self.up, candidate);
             let heading = turn * self.heading;
             self.heading = (heading - candidate * heading.dot(candidate)).normalize();
@@ -205,12 +231,36 @@ impl Player {
             self.feet = floor;
         }
         self.vertical_speed -= GRAVITY * dt;
+        let previous_feet = self.feet;
         self.feet += self.vertical_speed * dt / radius;
+        if self.vertical_speed > 0.0
+            && buildings.is_some_and(|contacts| {
+                crate::buildings::blocked(contacts, self.up * self.feet, self.up, radius)
+            })
+        {
+            self.feet = previous_feet;
+            self.vertical_speed = 0.0;
+        }
         if self.feet <= floor {
             self.feet = floor;
             self.vertical_speed = 0.0;
         }
     }
+}
+
+#[allow(clippy::cast_possible_truncation)] // Same validated renderer radius as movement.
+fn support_with_buildings(
+    ground: &Ground,
+    scene: &Scene,
+    up: Vec3,
+    feet: f32,
+    buildings: Option<&crate::buildings::Contacts>,
+) -> Option<f32> {
+    let terrain = support(ground, scene, up);
+    let radius = scene.terrain.topology.radius as f32;
+    let building = buildings
+        .and_then(|contacts| crate::buildings::support(contacts, up * feet, up, 0.35 / radius));
+    terrain.into_iter().chain(building).max_by(f32::total_cmp)
 }
 
 fn support(ground: &Ground, scene: &Scene, up: Vec3) -> Option<f32> {
@@ -355,7 +405,77 @@ fn flight_controls(
     false
 }
 
-#[allow(clippy::cast_possible_truncation)]
+#[allow(clippy::cast_possible_truncation)] // Validated physical radius converted to renderer units.
+fn walking_controls(
+    explorer: &mut Explorer,
+    input: &ControlsInput,
+    scene: &Scene,
+    window: &Window,
+    camera: (&Orbit, &mut Transform, &mut Projection),
+    time: &Time,
+    buildings: &crate::buildings::Contacts,
+) {
+    let (orbit, transform, projection) = camera;
+    let keyboard = !input.wants.wants_any_keyboard_input();
+    let pointer = !input.wants.wants_any_pointer_input();
+    let radius = scene.terrain.topology.radius as f32;
+    // These remain available when Tab gives the HUD button keyboard focus.
+    if explorer.return_to_orbit || input.keys.just_pressed(KeyCode::Escape) {
+        return_to_orbit(explorer, transform, projection, orbit);
+    } else {
+        explorer.ensure_ground(scene);
+        let Explorer { player, ground, .. } = explorer;
+        if let (Some(player), Some(ground)) = (player, ground) {
+            let was_captured = player.captured;
+            if !window.focused || input.keys.just_pressed(KeyCode::Tab) {
+                player.captured = false;
+            } else if pointer && input.buttons.just_pressed(MouseButton::Left) {
+                player.captured = true;
+            }
+            if player.captured && window.focused {
+                if was_captured {
+                    player.heading =
+                        (Quat::from_axis_angle(player.up, -input.motion.delta.x * 0.0025)
+                            * player.heading)
+                            .normalize();
+                    player.pitch = (player.pitch - input.motion.delta.y * 0.0025).clamp(-1.5, 1.5);
+                }
+                if keyboard {
+                    let (movement, speed) = movement_intent(&input.keys);
+                    if input.keys.just_pressed(KeyCode::Space)
+                        && support_with_buildings(
+                            ground,
+                            scene,
+                            player.up,
+                            player.feet,
+                            Some(buildings),
+                        )
+                        .is_some_and(|floor| player.feet <= floor + 0.02 / radius)
+                    {
+                        player.vertical_speed = 5.0;
+                    }
+                    let mut remaining = time.delta_secs().min(0.1);
+                    while remaining > 0.0 {
+                        let dt = remaining.min(1.0 / 120.0);
+                        player.step_with_buildings(
+                            ground,
+                            scene,
+                            movement,
+                            speed,
+                            radius,
+                            dt,
+                            Some(buildings),
+                        );
+                        remaining -= dt;
+                    }
+                }
+            }
+            *transform = player.transform(radius);
+        }
+    }
+}
+
+#[allow(clippy::cast_possible_truncation, clippy::too_many_arguments)] // Bevy camera/input/collision parameters.
 pub(super) fn update(
     input: ControlsInput,
     time: Res<Time>,
@@ -364,6 +484,7 @@ pub(super) fn update(
     solar: Option<Res<crate::solar::SolarFrame>>,
     mut windows: Query<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
     mut cameras: Query<(&Camera, &Orbit, &mut Transform, &mut Projection)>,
+    buildings: crate::buildings::Contacts,
 ) {
     let Ok((window, mut cursor)) = windows.single_mut() else {
         return;
@@ -371,7 +492,6 @@ pub(super) fn update(
     let Ok((camera, orbit, mut transform, mut projection)) = cameras.single_mut() else {
         return;
     };
-    let keyboard = !input.wants.wants_any_keyboard_input();
     let pointer = !input.wants.wants_any_pointer_input();
     let radius = scene.terrain.topology.radius as f32;
     if flight_controls(
@@ -386,47 +506,15 @@ pub(super) fn update(
         return;
     }
     if explorer.walking() {
-        // These remain available when Tab gives the HUD button keyboard focus.
-        if explorer.return_to_orbit || input.keys.just_pressed(KeyCode::Escape) {
-            return_to_orbit(&mut explorer, &mut transform, &mut projection, orbit);
-        } else {
-            explorer.ensure_ground(&scene);
-            let Explorer { player, ground, .. } = &mut *explorer;
-            if let (Some(player), Some(ground)) = (player, ground) {
-                let was_captured = player.captured;
-                if !window.focused || input.keys.just_pressed(KeyCode::Tab) {
-                    player.captured = false;
-                } else if pointer && input.buttons.just_pressed(MouseButton::Left) {
-                    player.captured = true;
-                }
-                if player.captured && window.focused {
-                    if was_captured {
-                        player.heading =
-                            (Quat::from_axis_angle(player.up, -input.motion.delta.x * 0.0025)
-                                * player.heading)
-                                .normalize();
-                        player.pitch =
-                            (player.pitch - input.motion.delta.y * 0.0025).clamp(-1.5, 1.5);
-                    }
-                    if keyboard {
-                        let (movement, speed) = movement_intent(&input.keys);
-                        if input.keys.just_pressed(KeyCode::Space)
-                            && support(ground, &scene, player.up)
-                                .is_some_and(|floor| player.feet <= floor + 0.02 / radius)
-                        {
-                            player.vertical_speed = 5.0;
-                        }
-                        let mut remaining = time.delta_secs().min(0.1);
-                        while remaining > 0.0 {
-                            let dt = remaining.min(1.0 / 120.0);
-                            player.step(ground, &scene, movement, speed, radius, dt);
-                            remaining -= dt;
-                        }
-                    }
-                }
-                *transform = player.transform(radius);
-            }
-        }
+        walking_controls(
+            &mut explorer,
+            &input,
+            &scene,
+            window,
+            (orbit, &mut transform, &mut projection),
+            &time,
+            &buildings,
+        );
     } else {
         if pointer && input.buttons.just_pressed(MouseButton::Left) {
             explorer.press = window.cursor_position().filter(|&p| {
@@ -469,6 +557,133 @@ pub(super) fn update(
 mod tests {
     use super::*;
     use crate::{collision::test_scene, command::View, initial_orbit};
+
+    #[test]
+    #[allow(clippy::too_many_lines, clippy::cast_possible_truncation)] // One complete closed/open/jump scenario at several radial sites.
+    fn building_collision_blocks_closed_doors_and_allows_open_door_entry() {
+        use bevy::ecs::system::SystemState;
+        use island_building::{
+            BuildingRecipe, generate,
+            interaction::BuildingInstance,
+            render::{bevy_to_native, compile_building},
+        };
+        let mut recipe = BuildingRecipe::hut();
+        recipe.atlas_size = 128;
+        let compiled = compile_building(
+            std::sync::Arc::new(generate(&recipe).unwrap()),
+            &mut Assets::default(),
+            &mut Assets::default(),
+            &mut Assets::default(),
+        );
+        for up in [Vec3::Y, Vec3::NEG_Y, Vec3::X] {
+            let scene = crate::buildings::test_flat_site(up);
+            let ground = Ground::new(&scene);
+            let radius = scene.terrain.topology.radius as f32;
+            let ground_height = ground.radius(&scene.terrain, up).unwrap();
+            let root = Transform::from_translation(up * (ground_height + 0.1 / radius))
+                .with_rotation(Quat::from_rotation_arc(Vec3::Y, up))
+                .with_scale(Vec3::splat(radius.recip()));
+            let global = GlobalTransform::from(root);
+            let outside = root.transform_point(Vec3::new(0.0, 0.005, recipe.depth * 0.5 + 1.0));
+            let heading = root.rotation * Vec3::NEG_Z;
+            let mut player = Player::land(outside, heading, up, outside.length());
+            let mut world = World::new();
+            let entity = world
+                .spawn((
+                    BuildingInstance::new(
+                        std::sync::Arc::clone(&compiled),
+                        String::from("entry-test"),
+                    ),
+                    global,
+                ))
+                .id();
+            let mut state = SystemState::<crate::buildings::Contacts>::new(&mut world);
+            {
+                let contacts = state.get(&world).expect("valid building contact query");
+                for _ in 0..100 {
+                    player.step_with_buildings(
+                        &ground,
+                        &scene,
+                        Vec2::Y,
+                        2.8,
+                        radius,
+                        1.0 / 120.0,
+                        Some(&contacts),
+                    );
+                }
+            }
+            let closed = bevy_to_native(
+                global
+                    .affine()
+                    .inverse()
+                    .transform_point3(player.up * player.feet),
+            );
+            assert!(
+                closed[1] < -recipe.depth * 0.5,
+                "closed leaf must block the normal controller"
+            );
+            {
+                let mut instance = world.get_mut::<BuildingInstance>(entity).unwrap();
+                let angle = instance.prototype.source.doors[0].swing_angle;
+                instance.doors.get_mut("entrance").unwrap().angle = angle;
+            }
+            {
+                let contacts = state.get(&world).expect("valid building contact query");
+                for _ in 0..125 {
+                    player.step_with_buildings(
+                        &ground,
+                        &scene,
+                        Vec2::Y,
+                        2.8,
+                        radius,
+                        1.0 / 120.0,
+                        Some(&contacts),
+                    );
+                }
+            }
+            let opened = bevy_to_native(
+                global
+                    .affine()
+                    .inverse()
+                    .transform_point3(player.up * player.feet),
+            );
+            assert!(
+                opened[1] > -recipe.depth * 0.5 + 0.5,
+                "open door must allow entry: {opened:?}"
+            );
+            assert!(
+                opened[2].abs() < 0.01,
+                "interior floor must support radial walking: {opened:?}"
+            );
+            {
+                let contacts = state.get(&world).expect("valid building contact query");
+                player.vertical_speed = 5.0;
+                let mut peak: f32 = 0.0;
+                for _ in 0..240 {
+                    player.step_with_buildings(
+                        &ground,
+                        &scene,
+                        Vec2::ZERO,
+                        2.8,
+                        radius,
+                        1.0 / 120.0,
+                        Some(&contacts),
+                    );
+                    let position = bevy_to_native(
+                        global
+                            .affine()
+                            .inverse()
+                            .transform_point3(player.up * player.feet),
+                    );
+                    peak = peak.max(position[2]);
+                }
+                assert!(
+                    peak > 0.6 && peak < recipe.wall_height - 1.7,
+                    "ceiling must stop the capsule during a normal jump: {peak}"
+                );
+            }
+        }
+    }
 
     #[test]
     fn flight_entry_movement_mouse_release_and_return_use_the_normal_controller_path() {

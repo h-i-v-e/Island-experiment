@@ -1,7 +1,7 @@
 [workspace]
 members = ["planet-rs", "planet-bevy"]
 default-members = ["planet-bevy"]
-exclude = ["island-rs", "island-bevy", "island-tree", "island-material-studio"]
+exclude = ["island-rs", "island-bevy", "island-tree", "island-material-studio", "island-building"]
 resolver = "3"
 
 [profile.dev]

@@ -25,6 +25,7 @@ pub mod rounded_stones;
 pub mod runtime_materials;
 pub mod tree_bark;
 pub mod validation;
+pub mod wooden_planks;
 
 use std::{fmt, path::Path};
 
@@ -196,6 +197,14 @@ pub fn evaluate_resolved_material(
     let mut albedo_linear = albedo::generate_linear_albedo(field, config, recipe.seed)?;
     if let MaterialModel::Masonry(settings) = &recipe.material {
         masonry::tint_stones(
+            &mut albedo_linear,
+            settings,
+            field.dimensions(),
+            recipe.seed,
+        );
+    }
+    if let MaterialModel::WoodenPlanks(settings) = &recipe.material {
+        wooden_planks::tint_boards(
             &mut albedo_linear,
             settings,
             field.dimensions(),

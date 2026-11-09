@@ -1,0 +1,80 @@
+{
+  "name": "Wooden planks",
+  "seed": 24731,
+  "parameters": {
+    "wood_colour": {
+      "kind": "colour",
+      "default": [
+        0.32,
+        0.14,
+        0.055
+      ],
+      "description": "Linear timber colour; changes colour without changing boards, seams or relief."
+    }
+  },
+  "width": 1024,
+  "height": 1024,
+  "physical_tile_width_m": 1.2,
+  "physical_tile_height_m": 2.4,
+  "material": {
+    "kind": "wooden_planks",
+    "planks": 6,
+    "joints_per_plank": 0,
+    "seam_width_m": 0.005,
+    "bevel_width_m": 0.003,
+    "seam_depth_m": 0.0045,
+    "grain_scale": 8,
+    "grain_strength_m": 0.00035,
+    "plank_variation_m": 0.0005,
+    "colour_variation": 0.18
+  },
+  "layers": [],
+  "normal_scale": 0.8,
+  "displacement": {
+    "minimum_m": -0.006,
+    "maximum_m": 0.002,
+    "base_m": 0.0,
+    "displacement_map": true
+  },
+  "occlusion": {
+    "directions": 8,
+    "samples": 5,
+    "radius": 2.0,
+    "max_radius": 20.0,
+    "cavity_strength": 0.8,
+    "horizon_strength": 0.7,
+    "power": 1.0,
+    "combine": {
+      "kind": "multiply"
+    }
+  },
+  "albedo": {
+    "base_color": {
+      "parameter": "wood_colour",
+      "base": [
+        0.32,
+        0.14,
+        0.055
+      ]
+    },
+    "warm_color": {
+      "parameter": "wood_colour",
+      "base": [
+        0.45,
+        0.23,
+        0.095
+      ]
+    },
+    "palette": [],
+    "variation": 0.15,
+    "crack_darkening": 0.08,
+    "shoulder_variation": 0.0,
+    "mineral_density": 0.0,
+    "mineral_brightness": 0.0,
+    "occlusion_influence": 0.0
+  },
+  "output_profiles": [
+    "separate",
+    "motu_unity_terrain"
+  ]
+}

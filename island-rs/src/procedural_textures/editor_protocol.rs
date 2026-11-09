@@ -297,6 +297,46 @@ pub const EDITABLE_METADATA: &[PropertyMetadata] = &[
         tooltip: "Small periodic imperfections along stone edges",
     },
     PropertyMetadata {
+        pointer: "/material/planks",
+        label: "Boards across tile",
+        tooltip: "Number of longitudinal boards across U",
+    },
+    PropertyMetadata {
+        pointer: "/material/joints_per_plank",
+        label: "End joints per board",
+        tooltip: "Zero makes continuous door-length boards; positive values add staggered joints",
+    },
+    PropertyMetadata {
+        pointer: "/material/seam_width_m",
+        label: "Board seam width",
+        tooltip: "Physical gap width in metres",
+    },
+    PropertyMetadata {
+        pointer: "/material/bevel_width_m",
+        label: "Board bevel",
+        tooltip: "Physical bevel around each recessed seam in metres",
+    },
+    PropertyMetadata {
+        pointer: "/material/seam_depth_m",
+        label: "Seam depth",
+        tooltip: "Physical recess below the board face in metres",
+    },
+    PropertyMetadata {
+        pointer: "/material/grain_scale",
+        label: "Growth rings per board",
+        tooltip: "Growth-ring bands across each board; grain runs along V",
+    },
+    PropertyMetadata {
+        pointer: "/material/grain_strength_m",
+        label: "Grain relief",
+        tooltip: "Physical growth-ring relief in metres",
+    },
+    PropertyMetadata {
+        pointer: "/material/plank_variation_m",
+        label: "Board relief variation",
+        tooltip: "Independent board face elevation variation in metres",
+    },
+    PropertyMetadata {
         pointer: "/material/colour_variation",
         label: "Stone colour variation",
         tooltip: "Independent stone brightness and warmth",
@@ -1015,11 +1055,13 @@ pub fn schema_document() -> Value {
                     {"$ref": "#/$defs/layered_noise_material"},
                     {"$ref": "#/$defs/cracked_stone_material"},
                     {"$ref": "#/$defs/rounded_stones_material"},
-                    {"$ref": "#/$defs/masonry_material"}
+                    {"$ref": "#/$defs/masonry_material"},
+                    {"$ref": "#/$defs/wooden_planks_material"}
                 ]
             },
             "layered_noise_material": {"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {"kind": {"const": "layered_noise"}, "frequency": {"type": "number", "exclusiveMinimum": 0}, "amplitude": {"type": "number"}, "octaves": {"type": "integer", "minimum": 1, "maximum": 16}, "lacunarity": {"type": "number", "exclusiveMinimum": 0}, "gain": {"type": "number"}, "offset": {"type": "number"}}},
             "cracked_stone_material": {"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {"kind": {"const": "cracked_stone"}, "cells_x": {"type": "integer", "minimum": 1}, "cells_y": {"type": "integer", "minimum": 1}, "cell_jitter": {"type": "number", "minimum": 0, "maximum": 1}, "warp_amplitude": {"type": "number", "minimum": 0, "maximum": 0.45}, "crack_width": {"type": "number", "exclusiveMinimum": 0}, "shoulder_width": {"type": "number", "minimum": 0}, "crack_depth": {"type": "number", "minimum": 0}, "slab_variation": {"type": "number", "minimum": 0}, "fracture_probability": {"type": "number", "minimum": 0, "maximum": 1}, "fracture_depth": {"type": "number", "minimum": 0}, "surface_amplitude": {"type": "number", "minimum": 0}, "broad_variation": {"type": "number", "minimum": 0}}},
+            "wooden_planks_material": {"type":"object","additionalProperties":false,"required":["kind"],"properties":{"kind":{"const":"wooden_planks"},"planks":{"type":"integer","minimum":1,"maximum":128},"joints_per_plank":{"type":"integer","minimum":0,"maximum":64},"grain_scale":{"type":"integer","minimum":1,"maximum":64},"seam_width_m":{"type":"number","exclusiveMinimum":0},"bevel_width_m":{"type":"number","exclusiveMinimum":0},"seam_depth_m":{"type":"number","minimum":0},"grain_strength_m":{"type":"number","minimum":0},"plank_variation_m":{"type":"number","minimum":0},"colour_variation":{"type":"number","minimum":0,"maximum":1}}},
             "masonry_material": {"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {"kind": {"const": "masonry"}, "cells_x": {"type": "integer", "minimum": 1}, "cells_y": {"type": "integer", "minimum": 2, "multipleOf": 2}, "joint_jitter": {"type": "number", "minimum": 0, "maximum": 0.2}, "mortar_width": {"type": "number", "exclusiveMinimum": 0}, "bevel_width": {"type": "number", "exclusiveMinimum": 0}, "mortar_depth": {"type": "number", "minimum": 0}, "edge_roughness": {"type": "number", "minimum": 0}, "colour_variation": {"type": "number", "minimum": 0, "maximum": 1}, "stone_variation": {"type": "number", "minimum": 0}, "surface_amplitude": {"type": "number", "minimum": 0}}},
             "rounded_stones_material": {"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {"kind": {"const": "rounded_stones"}, "cells_x": {"type": "integer", "minimum": 1}, "cells_y": {"type": "integer", "minimum": 1}, "stone_radius": {"type": "number", "exclusiveMinimum": 0, "maximum": 1}, "cell_jitter": {"type": "number", "minimum": 0, "maximum": 1}, "warp_amplitude": {"type": "number", "minimum": 0, "maximum": 0.4}, "anisotropy": {"type": "number", "exclusiveMinimum": 0}, "stone_height": {"type": "number", "minimum": 0}, "stone_variation": {"type": "number", "minimum": 0}, "gap_height": {"type": "number"}, "sand_amplitude": {"type": "number", "minimum": 0}, "edge_softness": {"type": "number", "exclusiveMinimum": 0}}},
             "displacement": {"type": "object", "additionalProperties": false, "required": ["minimum_m", "maximum_m", "base_m"], "properties": {"minimum_m": {"type": "number"}, "maximum_m": {"type": "number"}, "base_m": {"type": "number"}, "displacement_map": {"type": "boolean"}}},
@@ -1067,6 +1109,22 @@ fn metadata_value(item: &PropertyMetadata) -> Value {
         "/material/cells_x" | "/material/cells_y" => {
             (json!(8), Some([1.0, u32::MAX as f64]), Some("cells"))
         }
+        "/material/planks" => (json!(6), Some([1.0, 128.0]), Some("boards")),
+        "/material/joints_per_plank" => (json!(0), Some([0.0, 64.0]), Some("joints")),
+        "/material/grain_scale" => (json!(8), Some([1.0, 64.0]), Some("rings/board")),
+        "/material/seam_width_m" => (
+            json!(0.005),
+            Some([f64::EPSILON, f32::MAX as f64]),
+            Some("m"),
+        ),
+        "/material/bevel_width_m" => (
+            json!(0.003),
+            Some([f64::EPSILON, f32::MAX as f64]),
+            Some("m"),
+        ),
+        "/material/seam_depth_m" => (json!(0.0045), Some([0.0, f32::MAX as f64]), Some("m")),
+        "/material/grain_strength_m" => (json!(0.00035), Some([0.0, f32::MAX as f64]), Some("m")),
+        "/material/plank_variation_m" => (json!(0.0005), Some([0.0, f32::MAX as f64]), Some("m")),
         "/material/joint_jitter" => (json!(0.08), Some([0.0, 0.2]), None),
         "/material/mortar_width" => (json!(0.016), Some([0.0, f32::MAX as f64]), Some("m")),
         "/material/bevel_width" => (json!(0.014), Some([0.0, f32::MAX as f64]), Some("m")),
@@ -1315,6 +1373,7 @@ fn metadata_type(pointer: &str) -> &'static str {
         | "/parameters/*/default" => "array",
         "/displacement/displacement_map" => "boolean",
         "/occlusion/directions" | "/occlusion/samples" => "integer",
+        "/material/planks" | "/material/joints_per_plank" | "/material/grain_scale" => "integer",
         _ => "number",
     }
 }
@@ -1326,7 +1385,8 @@ fn metadata_enum(pointer: &str) -> Option<Value> {
             "layered_noise",
             "cracked_stone",
             "rounded_stones",
-            "masonry"
+            "masonry",
+            "wooden_planks"
         ])),
         "/output_profiles" => Some(json!(["separate", "motu_unity_terrain"])),
         "/layers/*/source/kind" | "/layers/*/mask/source/kind" => Some(json!([

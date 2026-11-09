@@ -925,6 +925,7 @@ mod tests {
         for (index, bytes) in [
             include_bytes!("../../island-rs/texture-recipes/cracked-stone.json").as_slice(),
             include_bytes!("../../island-rs/texture-recipes/rounded-river-stones.json").as_slice(),
+            include_bytes!("../../island-rs/texture-recipes/wooden-planks.json").as_slice(),
         ]
         .into_iter()
         .enumerate()

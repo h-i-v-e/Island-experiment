@@ -1,6 +1,7 @@
 //! A finished spherical mesh with orbit controls; no generation animation.
 #![allow(clippy::needless_pass_by_value)]
 
+mod buildings;
 mod capture;
 mod chunk_cache;
 mod chunk_policy;
@@ -155,6 +156,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         sun::SunBodyPlugin,
         WireframePlugin::default(),
     ))
+    .add_plugins(buildings::BuildingPlugin)
     .insert_resource(WireframeConfig {
         default_color: Color::srgb(0.07, 0.14, 0.19),
         ..default()
@@ -192,6 +194,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     .insert_resource(waterside::World::with_view(command.view))
     .insert_resource(forest::Forests::with_view(command.view))
     .init_resource::<explore::Explorer>()
+    .insert_resource(buildings::BuildingWorld::with_recipe(
+        command.building_recipe.as_deref(),
+    ))
     .insert_resource(ClearColor(Color::srgb(0.018, 0.025, 0.045)))
     .insert_resource(Scene {
         terrain: Arc::new(terrain),

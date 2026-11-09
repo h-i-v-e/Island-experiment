@@ -256,6 +256,29 @@ impl Ground {
         self.rocks = rocks;
     }
 
+    /// Tests resident rock/log contacts against a placement and its approach.
+    pub(crate) fn placement_obstructed(
+        &self,
+        root: &GlobalTransform,
+        size: Vec2,
+        height: f32,
+    ) -> bool {
+        let inverse = root.affine().matrix3.inverse();
+        let local = |point| inverse * (point - root.translation());
+        let scale = inverse.x_axis.length();
+        let min = Vec3::new(-size.x * 0.5, -0.03, -size.y * 0.5);
+        let max = Vec3::new(size.x * 0.5, height, size.y * 0.5);
+        self.rocks.iter().any(|rock| {
+            let point = local(rock.centre);
+            point.distance_squared(point.clamp(min, max)) < (rock.radius * scale).powi(2)
+        }) || self.logs.iter().any(|log| {
+            let a = local(log.a);
+            let b = local(log.b);
+            let padding = Vec3::splat(log.radius * scale);
+            bounds_hit(min - padding, max + padding, a, b - a, 1.0)
+        })
+    }
+
     pub fn nearby_faces(&self, terrain: &PlanetTerrain, centre: Vec3, radius: f32) -> Vec<usize> {
         fn visit(
             ground: &Ground,

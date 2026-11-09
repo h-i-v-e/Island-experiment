@@ -21,6 +21,10 @@ the [runtime package installation guide](packages/com.motu.runtime/README.md).
   nīkau, harakeke, mānuka, kauri, and rimu generators, their Bevy materials and
   static-mesh compiler, and the interactive `tree-lab` editor with repeatable
   headless captures. Landscape placement policy remains in `island-bevy`.
+- [`island-building`](island-building/) owns saved procedural-building recipes,
+  walkable empty interiors, hinged doors, transparent close windows, three LODs,
+  exterior atlas baking, and the standalone Building Studio. Planet provides the
+  first terrain-placement and exploration adapter.
 - [`packages/com.motu.runtime`](packages/com.motu.runtime/) contains the reusable
   Unity runtime, editor tools, shaders, and Apple Silicon native plugin.
 - [`packages/com.motu.navigation`](packages/com.motu.navigation/) is the optional

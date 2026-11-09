@@ -3291,6 +3291,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "island-building"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "island-rs",
+ "png 0.18.1",
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "island-rs"
 version = "0.1.0"
 dependencies = [
@@ -4264,6 +4276,7 @@ dependencies = [
  "bevy",
  "bevy_egui",
  "half",
+ "island-building",
  "island-rs",
  "planet-rs",
  "serde",

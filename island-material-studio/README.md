@@ -53,6 +53,24 @@ For repeatable visual acceptance, `--window-size 1100x700`,
 `--preview-tab lit`, and `--screenshot /tmp/studio.png` are also available.
 They are test-only conveniences and do not change recipe state.
 
+The shared `Wooden planks` model supplies recessed seams, softened board edges,
+board colour variation and longitudinal grain. Open
+`island-rs/texture-recipes/wooden-planks.json` to start with six continuous boards
+across a 1.2 × 2.4 metre tile. Boards and grain run along V. Set end joints to zero
+for door-length boards, or increase the count for staggered timber joints. The
+`wood_colour` parameter changes colour while retaining the same height, normals
+and occlusion. Material Studio opens, edits, saves and reopens this typed recipe
+through its normal document workflow.
+
+Generate the same maps directly with the shared evaluator:
+
+```sh
+cargo run --manifest-path island-rs/Cargo.toml --no-default-features \
+  --bin island-texture-baker -- preview \
+  --recipe island-rs/texture-recipes/wooden-planks.json \
+  --output /tmp/wooden-planks-preview --size 512 --normal-convention open-gl
+```
+
 On macOS, create an optimized ad-hoc-signed application bundle with:
 
 ```sh
@@ -61,6 +79,10 @@ On macOS, create an optimized ad-hoc-signed application bundle with:
 
 The bundle is written to `island-material-studio/dist/Procedural Material
 Studio.app`. The packager refuses to replace an existing bundle implicitly.
+Use `--debug` to package an incremental development build in the shared repository
+target, or `--debug --no-build` after verifying that executable is current. The
+bundle includes sample material JSON files in `Contents/Resources/recipes` and
+honours `CARGO_TARGET_DIR`.
 
 Document and persistence tests can run headlessly with `cargo test
 --manifest-path island-material-studio/Cargo.toml`; packaging validation is

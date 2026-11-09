@@ -79,6 +79,38 @@ the app releases the mouse. The parameters panel returns in orbit mode.
 The radius control and `--radius` use metres and set walking scale and export
 units together.
 
+## Procedural buildings
+
+Author buildings in the [Building Studio](../island-building/README.md), then
+select a recipe when launching Planet:
+
+```sh
+cargo run -p planet-bevy -- --building-recipe island-building/recipes/cottage.json
+```
+
+Press **H** while aiming at level, dry ground to place a building. On foot, it
+places ahead of the explorer. Without a recipe path, H uses the built-in hut.
+Placement checks the footprint and entrance approach, fits a level foundation,
+and rejects water, unsuitable height differences, and overlapping buildings.
+Recipe reads, scene reads/writes, and generation run in the background. Walk
+through an open entrance with the normal
+controller; **E** opens or closes a nearby door from either side. Walls, fixed
+glass, closed doors, floors, and ceilings participate in exploration collision.
+
+The collapsible **Buildings** window accepts recipe and scene paths and provides
+Place, Save scene, and Load scene. Scene files retain placement transforms and
+door angles, and bind to the generated terrain and its physical radius. Loading
+prepares all replacement buildings before changing the displayed scene; a failed
+generation retains existing placements. Existing scene files must be loaded
+before overwriting, and external edits produce a conflict. Material recipe paths
+remain references to their source directory; use a Studio export's `recipe.json`
+to place a building with portable material dependencies.
+
+LOD0 keeps the walkable interior and transparent glass. LOD1 removes interior
+render surfaces and uses opaque windows; LOD2 uses the baked exterior atlas on a
+minimal 3D shell. Nearby openings and occupants keep LOD0 resident. Door state
+and structural collision are independent of the active visual LOD.
+
 Nearby rock patches refresh after 12 metres of movement. Their terrain query,
 local snapshot and rock generation run on a worker sharing immutable terrain and
 BVH buffers; refreshing a patch does not copy terrain on the movement thread.

@@ -194,6 +194,7 @@ fn material_editor(ui: &mut egui::Ui, material: &mut MaterialModel) -> bool {
         MaterialModel::CrackedStone { .. } => 1,
         MaterialModel::RoundedStones { .. } => 2,
         MaterialModel::Masonry(_) => 3,
+        MaterialModel::WoodenPlanks(_) => 4,
     };
     let mut selected = current;
     egui::ComboBox::from_label("Kind")
@@ -203,6 +204,7 @@ fn material_editor(ui: &mut egui::Ui, material: &mut MaterialModel) -> bool {
                 "Cracked stone",
                 "Rounded stones",
                 "Coursed masonry",
+                "Wooden planks",
             ][selected],
         )
         .show_ui(ui, |ui| {
@@ -210,12 +212,46 @@ fn material_editor(ui: &mut egui::Ui, material: &mut MaterialModel) -> bool {
             ui.selectable_value(&mut selected, 1, "Cracked stone");
             ui.selectable_value(&mut selected, 2, "Rounded stones");
             ui.selectable_value(&mut selected, 3, "Coursed masonry");
+            ui.selectable_value(&mut selected, 4, "Wooden planks");
         });
     if selected != current {
         *material = material_default(selected);
         changed = true;
     }
     match material {
+        MaterialModel::WoodenPlanks(settings) => {
+            changed |= u32_row(ui, "Boards across U", &mut settings.planks, 1.0);
+            changed |= u32_row(
+                ui,
+                "End joints (0 = continuous)",
+                &mut settings.joints_per_plank,
+                1.0,
+            );
+            changed |= u32_row(ui, "Growth rings per board", &mut settings.grain_scale, 1.0);
+            changed |= f32_row(ui, "Seam width (m)", &mut settings.seam_width_m, 0.0005);
+            changed |= f32_row(ui, "Bevel width (m)", &mut settings.bevel_width_m, 0.0005);
+            changed |= f32_row(ui, "Seam depth (m)", &mut settings.seam_depth_m, 0.0005);
+            changed |= f32_row(
+                ui,
+                "Grain relief (m)",
+                &mut settings.grain_strength_m,
+                0.00005,
+            );
+            changed |= f32_row(
+                ui,
+                "Board relief variation (m)",
+                &mut settings.plank_variation_m,
+                0.00005,
+            );
+            changed |= f32_row_range(
+                ui,
+                "Board colour variation",
+                &mut settings.colour_variation,
+                0.01,
+                0.0..=1.0,
+            );
+            ui.label("Longitudinal grain and board length run along V.");
+        }
         MaterialModel::Masonry(settings) => {
             changed |= u32_row(ui, "Stones per course", &mut settings.cells_x, 1.0);
             changed |= u32_row(ui, "Courses (even)", &mut settings.cells_y, 2.0);
@@ -374,7 +410,8 @@ fn material_default(kind: usize) -> MaterialModel {
         1 => serde_json::from_value(serde_json::json!({ "kind": "cracked_stone" })).unwrap(),
         2 => serde_json::from_value(serde_json::json!({ "kind": "rounded_stones" })).unwrap(),
         3 => serde_json::from_value(serde_json::json!({ "kind": "masonry" })).unwrap(),
-        _ => unreachable!("material selector has exactly four variants"),
+        4 => serde_json::from_value(serde_json::json!({ "kind": "wooden_planks" })).unwrap(),
+        _ => unreachable!("material selector has exactly five variants"),
     }
 }
 
