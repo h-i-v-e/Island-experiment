@@ -30,6 +30,7 @@ mod trees;
 
 pub use clouds::{CloudWeatherError, CloudWeatherMap, generate_cloud_weather_map};
 pub use ferns::{FernOptions, generate_fern};
+pub use forest::shadows::ForestShadowMask;
 pub use forest::{FallenLogPrototype, generate_fallen_log};
 pub use forest::{ForestOptions, HybridForestOptions};
 pub use glam::{Vec2, Vec3, Vec4};

@@ -171,6 +171,7 @@ namespace Motu.Streaming
         private WaterfallMistPool waterfallMistPool;
         private TerrainSurfaceMap footstepSurfaceMap;
         private ForestTileStreamer forestStreamer;
+        private ForestShadowMask forestShadowMask;
         private ReedTileStreamer reedStreamer;
         private FernTileStreamer fernStreamer;
         private Vector2Int currentLod2 = InvalidCell;
@@ -299,6 +300,9 @@ namespace Motu.Streaming
             forestStreamer = new ForestTileStreamer();
             forestStreamer.Initialize(transform, preparedForest, showForests,
                 uploadBudgetMilliseconds, terrainMaterial.GetTexture("_CliffNoise3D"), fallenLogMaterial);
+            forestShadowMask = new ForestShadowMask(preparedForest.hybrid,
+                terrainMaterial, terrainLod1Material, terrainLod2Material);
+            forestShadowMask.SetVisible(showForests);
             reedStreamer = new ReedTileStreamer();
             reedStreamer.Initialize(
                 transform,
@@ -633,6 +637,8 @@ namespace Motu.Streaming
             waterfallMistPool = null;
             forestStreamer?.Dispose();
             forestStreamer = null;
+            forestShadowMask?.Dispose();
+            forestShadowMask = null;
             reedStreamer?.Dispose();
             reedStreamer = null;
             fernStreamer?.Dispose();
@@ -718,6 +724,7 @@ namespace Motu.Streaming
         public void SetForestsVisible(bool visible)
         {
             forestStreamer?.SetVisible(visible);
+            forestShadowMask?.SetVisible(visible);
         }
 
         public void SetReedsVisible(bool visible)

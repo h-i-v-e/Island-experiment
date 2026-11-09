@@ -11,6 +11,35 @@ pub struct HybridTreeInstance {
 }
 const _: () = assert!(size_of::<HybridTreeInstance>() == 24);
 
+/// Bake directly into caller-owned R8 pixels; returns bytes written or zero.
+/// Capacity must cover resolution squared bytes. No native image allocation or
+/// release is needed. Invalid inputs leave caller storage unchanged.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn CopyHybridForestShadowMask(
+    handle: *const c_void,
+    resolution: u32,
+    output: *mut u8,
+    capacity: u32,
+) -> u32 {
+    let Some(length) = crate::forest::shadows::pixel_count(resolution) else {
+        return 0;
+    };
+    if output.is_null() || (capacity as usize) < length {
+        return 0;
+    }
+    let Some(island) = (unsafe { island_ref(handle) }) else {
+        return 0;
+    };
+    // SAFETY: the caller supplies writable, non-aliasing storage of at least
+    // capacity bytes; length is bounded by the validated 2048-square layout.
+    let pixels = unsafe { std::slice::from_raw_parts_mut(output, length) };
+    if island.write_forest_shadow_mask(resolution, pixels) {
+        u32::try_from(length).unwrap_or(0)
+    } else {
+        0
+    }
+}
+
 /// Exports fallen logs only, as a fixed 8x8 owner grid for a shared-catalog forest.
 /// Release every successful export with `ReleaseMeshGrid`, including empty grids.
 #[unsafe(no_mangle)]
@@ -268,6 +297,123 @@ fn prototype_mesh(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shadow_mask_ffi_matches_the_shared_rust_bake_without_touching_padding() {
+        let island = crate::Island::shared_forest_fixture(crate::ForestOptions {
+            noise_threshold: 0.0,
+            prototype_count: 1,
+            hybrid: Some(crate::HybridForestOptions {
+                latitude_degrees: 0.0,
+                altitude_cooling: 0.0,
+                variants_per_species: 1,
+            }),
+            ..crate::ForestOptions::default()
+        });
+        let expected = island.forest_shadow_mask(256).unwrap();
+        assert_eq!(expected.resolution(), 256);
+        assert!(expected.pixels().contains(&255));
+        let mut pixels = vec![17; expected.pixels().len() + 32];
+        // SAFETY: the island remains live, output covers capacity writable bytes.
+        let written = unsafe {
+            CopyHybridForestShadowMask(
+                std::ptr::from_ref(&island).cast(),
+                256,
+                pixels.as_mut_ptr(),
+                u32::try_from(pixels.len()).unwrap(),
+            )
+        };
+        assert_eq!(written, 256 * 256);
+        assert_eq!(&pixels[..expected.pixels().len()], expected.pixels());
+        assert!(pixels[expected.pixels().len()..].iter().all(|&p| p == 17));
+        let allocation = expected.pixels().as_ptr();
+        let transferred = expected.into_pixels();
+        assert_eq!(
+            transferred.as_ptr(),
+            allocation,
+            "Rust renderers can take ownership without copying the image"
+        );
+    }
+
+    #[test]
+    fn shadow_mask_rejects_invalid_inputs_without_modifying_caller_storage() {
+        let island = crate::Island::shared_forest_fixture(crate::ForestOptions {
+            noise_threshold: 1.0,
+            prototype_count: 1,
+            ..crate::ForestOptions::default()
+        });
+        let mut pixels = [17; 4];
+        // SAFETY: nulls are supported, and the output is valid for its capacity.
+        unsafe {
+            for resolution in [0, 3, 4096, u32::MAX] {
+                assert_eq!(
+                    CopyHybridForestShadowMask(
+                        std::ptr::from_ref(&island).cast(),
+                        resolution,
+                        pixels.as_mut_ptr(),
+                        4
+                    ),
+                    0
+                );
+            }
+            assert_eq!(
+                CopyHybridForestShadowMask(std::ptr::null(), 1, pixels.as_mut_ptr(), 4),
+                0
+            );
+            assert_eq!(
+                CopyHybridForestShadowMask(
+                    std::ptr::from_ref(&island).cast(),
+                    256,
+                    pixels.as_mut_ptr(),
+                    4
+                ),
+                0
+            );
+            assert_eq!(
+                CopyHybridForestShadowMask(
+                    std::ptr::from_ref(&island).cast(),
+                    1,
+                    std::ptr::null_mut(),
+                    4
+                ),
+                0
+            );
+            assert_eq!(
+                CopyHybridForestShadowMask(
+                    std::ptr::from_ref(&island).cast(),
+                    1,
+                    pixels.as_mut_ptr(),
+                    4
+                ),
+                0
+            );
+        }
+        assert_eq!(pixels, [17; 4]);
+        assert!(island.forest_shadow_mask(256).is_none());
+        assert!(!island.write_forest_shadow_mask(2, &mut pixels));
+        assert_eq!(pixels, [17; 4]);
+    }
+
+    #[test]
+    fn empty_shared_forests_clear_masks_and_reject_wrong_buffer_lengths() {
+        let island = crate::Island::shared_forest_fixture(crate::ForestOptions {
+            noise_threshold: 1.0,
+            prototype_count: 1,
+            hybrid: Some(crate::HybridForestOptions {
+                latitude_degrees: 0.0,
+                altitude_cooling: 0.0,
+                variants_per_species: 1,
+            }),
+            ..crate::ForestOptions::default()
+        });
+        assert_eq!(island.forest_shadow_mask(1).unwrap().pixels(), &[0]);
+        let mut pixels = [17; 4];
+        assert!(!island.write_forest_shadow_mask(1, &mut pixels));
+        assert!(!island.write_forest_shadow_mask(3, &mut pixels));
+        assert_eq!(pixels, [17; 4]);
+        assert!(island.write_forest_shadow_mask(2, &mut pixels));
+        assert_eq!(pixels, [0; 4]);
+    }
 
     #[test]
     fn fallen_log_grid_null_handles_leave_default_exports() {

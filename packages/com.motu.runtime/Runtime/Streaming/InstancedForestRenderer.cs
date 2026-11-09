@@ -32,6 +32,8 @@ namespace Motu.Streaming
         internal int SubmittedShellTrees { get; set; }
         internal int SubmittedTwigCardTrees { get; set; }
         internal int SubmittedFarTrees { get; set; }
+        internal int SubmittedFarShadowTrees { get; set; }
+        internal int SubmittedShadowOnlyTrees { get; set; }
         internal int LastPineFoliageKind { get; set; } = -1;
         internal int LastPineFoliageLod { get; set; } = -1;
         internal int SubmittedPalmFineTrees { get; set; }

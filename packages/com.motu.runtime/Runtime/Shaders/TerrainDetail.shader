@@ -81,6 +81,9 @@ Shader "Motu/Terrain Unified"
         _CoastalWetnessNoiseStrength ("Coastal Wetness Noise Strength", Range(0, 0.45)) = 0.18
         _CoastalWetnessBlendWidth ("Coastal Wetness Blend Width", Range(0.01, 0.5)) = 0.06
         [HideInInspector] _TerrainDebugView ("Terrain Debug View", Float) = 0
+        [NoScaleOffset] [HideInInspector] _MotuForestShadowMask ("Overhead forest shadow", 2D) = "black" {}
+        [HideInInspector] _MotuForestShadowUV ("Forest shadow coordinates", Vector) = (0, 0, 0, 0)
+        [HideInInspector] _MotuForestShadowStrength ("Forest shadow enabled", Float) = 0
     }
 
     SubShader
@@ -178,6 +181,7 @@ Shader "Motu/Terrain Unified"
 
             #include "TerrainCoverageCommon.cginc"
             #include "TerrainRockCommon.cginc"
+            #include "ForestShadowCommon.hlsl"
             #include "WeatherWindCommon.cginc"
             #include "CloudCommon.cginc"
 
@@ -587,12 +591,14 @@ Shader "Motu/Terrain Unified"
 
                 float3 lightDirection = normalize(UnityWorldSpaceLightDir(input.worldPosition));
                 half attenuation = MotuMainLightShadowAttenuation(input.shadowRelativePosition);
+                attenuation = MotuForestGroundShadow(localPosition, input.worldPosition, attenuation);
                 half diffuse = saturate(dot(normal, lightDirection)) * attenuation;
                 MotuCloudLighting cloud = MotuCloudSurfaceLighting(input.worldPosition);
                 half3 lighting = ShadeSH9(half4(normal, 1.0h))
                         * cloud.ambientTransmittance
                     + _LightColor0.rgb * diffuse * cloud.directTransmittance
-                    + MotuAdditionalLighting(input.worldPosition, normal);
+                    + MotuAdditionalLighting(input.worldPosition, normal,
+                        MotuForestGroundShadow(localPosition, input.worldPosition, 1.0h));
                 half sharedOcclusion = lerp(
                     1.0h,
                     tex2D(_Occlusion, input.uv).r,
@@ -1094,12 +1100,14 @@ Shader "Motu/Terrain Unified"
 
                 float3 lightDirection = normalize(UnityWorldSpaceLightDir(input.worldPosition));
                 half attenuation = MotuMainLightShadowAttenuation(input.shadowRelativePosition);
+                attenuation = MotuForestGroundShadow(localPosition, input.worldPosition, attenuation);
                 half diffuse = saturate(dot(normal, lightDirection)) * attenuation;
                 MotuCloudLighting cloud = MotuCloudSurfaceLighting(input.worldPosition);
                 half3 direct = _LightColor0.rgb
                     * diffuse
                     * cloud.directTransmittance;
-                direct += MotuAdditionalLighting(input.worldPosition, normal);
+                direct += MotuAdditionalLighting(input.worldPosition, normal,
+                        MotuForestGroundShadow(localPosition, input.worldPosition, 1.0h));
                 half3 ambient = ShadeSH9(half4(normal, 1.0h))
                     * cloud.ambientTransmittance;
                 float3 viewDirection = normalize(UnityWorldSpaceViewDir(input.worldPosition));
@@ -1120,7 +1128,8 @@ Shader "Motu/Terrain Unified"
                     * wetSurfaceEffects;
                 half3 wetReflection = _LightColor0.rgb * wetHighlight
                     + ambient * wetFresnel * occlusion
-                    + MotuAdditionalSpecularLighting(input.worldPosition, normal, viewDirection, wetHighlightPower)
+                    + MotuAdditionalSpecularLighting(input.worldPosition, normal, viewDirection, wetHighlightPower,
+                        MotuForestGroundShadow(localPosition, input.worldPosition, 1.0h))
                         * _WetSpecularStrength * wetSurfaceEffects;
                 fixed4 color = fixed4(
                     baseColor * _Color.rgb * occlusion * (ambient + direct)

@@ -2,6 +2,7 @@ Shader "Motu/Planet Forest"
 {
     Properties
     {
+        [PerRendererData] _MotuForestAmbientWood ("Ambient only wood", Float) = 0
         [NoScaleOffset] _ForestNoise ("Planet forest noise", 3D) = "gray" {}
         [NoScaleOffset] _PalmFrond ("Shared palm frond cutout", 2D) = "white" {}
         [HideInInspector] _PalmLodDistances ("Palm LOD fade distances", Vector) = (24,30,228,240)

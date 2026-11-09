@@ -72,6 +72,14 @@ namespace Motu.Tests
                 Assert.AreEqual(forest.InstanceCount, compact.catalog.instances.Length);
                 Assert.AreEqual(4, compact.catalog.broadleafCount);
                 Assert.AreEqual(12, compact.catalog.prototypes.Length);
+                Assert.AreEqual(2048, compact.catalog.shadowResolution);
+                Assert.AreEqual(2048 * 2048, compact.catalog.shadowPixels.Length);
+                Assert.IsTrue(compact.catalog.shadowPixels.Any(pixel => pixel == 255), "Real native placements must populate the shared mask.");
+                Assert.IsTrue(compact.catalog.shadowPixels.All(pixel => pixel == 0 || pixel == 255), "The native base mask must remain binary.");
+                var shadowTexture = streamer.terrainMaterial.GetTexture("_MotuForestShadowMask") as Texture2D;
+                Assert.IsNotNull(shadowTexture, "Island installation must upload the native forest mask.");
+                Assert.AreEqual(TextureFormat.R8, shadowTexture.format);
+                Assert.IsFalse(shadowTexture.isReadable);
                 Assert.AreEqual(4096, compact.trunks.Length);
                 Assert.AreEqual(4096, compact.logs.Length);
                 // This is the synchronous preparation previously called by the

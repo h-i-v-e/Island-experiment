@@ -12,9 +12,21 @@ namespace Motu.Interop
         internal readonly HybridForestNative.Instance[] instances;
         internal readonly int broadleafCount;
         internal readonly float worldSize;
+        internal readonly int shadowResolution;
+        internal readonly byte[] shadowPixels;
         internal HybridForestData(IslandPreparedMesh[][] prototypes, HybridForestNative.Instance[] instances,
-            int broadleafCount, float worldSize)
-        { this.prototypes = prototypes; this.instances = instances; this.broadleafCount = broadleafCount; this.worldSize = worldSize; }
+            int broadleafCount, float worldSize, int shadowResolution = 1, byte[] shadowPixels = null)
+        {
+            this.prototypes = prototypes;
+            this.instances = instances;
+            this.broadleafCount = broadleafCount;
+            this.worldSize = worldSize;
+            this.shadowResolution = shadowResolution;
+            this.shadowPixels = shadowPixels ?? new byte[1];
+            if (shadowResolution < 1 || shadowResolution > 2048 || (shadowResolution & (shadowResolution - 1)) != 0
+                || this.shadowPixels.Length != checked(shadowResolution * shadowResolution))
+                throw new ArgumentException("Invalid native forest shadow mask dimensions.");
+        }
     }
 
     internal static class HybridForestNative
@@ -70,6 +82,8 @@ namespace Motu.Interop
         private static extern uint GetHybridForestInfo(IntPtr handle, out uint trees, out uint broadleafCount);
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         private static extern uint CopyHybridForestInstances(IntPtr handle, [Out] Instance[] instances, uint capacity);
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        private static extern uint CopyHybridForestShadowMask(IntPtr handle, uint resolution, [Out] byte[] pixels, uint capacity);
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         private static extern void CreateHybridForestPrototypeMesh(IntPtr handle, uint prototype, uint kind,
             out MotuNative.ExportMesh mesh);
@@ -146,7 +160,27 @@ namespace Motu.Interop
                     Prototypes[key] = new WeakReference<IslandPreparedMesh[][]>(prototypes);
                 }
             }
-            return new HybridForestData(prototypes, instances, checked((int)broadleaf), worldSize);
+            var shadowResolution = trees == 0 ? 1
+                : Mathf.Clamp(Mathf.NextPowerOfTwo(Mathf.CeilToInt(worldSize / 2f)), 256, 2048);
+            var shadowPixels = PrepareShadowMask(handle, shadowResolution);
+            return new HybridForestData(prototypes, instances, checked((int)broadleaf), worldSize, shadowResolution, shadowPixels);
+        }
+
+        // Runs on the island preparation worker. Rust writes into this pinned
+        // managed allocation; the main thread only uploads it and creates mips.
+        private static byte[] PrepareShadowMask(IntPtr handle, int resolution)
+        {
+            var pixels = new byte[checked(resolution * resolution)];
+            try
+            {
+                if (CopyHybridForestShadowMask(handle, (uint)resolution, pixels, (uint)pixels.Length) != pixels.Length)
+                    throw new InvalidOperationException("Incomplete native forest shadow mask.");
+            }
+            catch (EntryPointNotFoundException error)
+            {
+                throw new InvalidOperationException("Restart Unity to load the native forest shadow-mask generator.", error);
+            }
+            return pixels;
         }
     }
 }

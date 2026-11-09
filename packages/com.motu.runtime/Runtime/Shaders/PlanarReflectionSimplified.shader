@@ -25,6 +25,7 @@ Shader "Motu/Planar Reflection Simplified"
 
     HLSLINCLUDE
     #include "MotuUrp.hlsl"
+    #include "ForestShadowCommon.hlsl"
 
     #include "WeatherWindCommon.cginc"
     #include "TreeLodCommon.cginc"
@@ -95,7 +96,8 @@ Shader "Motu/Planar Reflection Simplified"
     fixed3 ReflectionLighting(
         fixed3 albedo,
         half3 worldNormal,
-        float3 worldPosition)
+        float3 worldPosition,
+        half forestShadow = 1.0h)
     {
         half3 normal = normalize(worldNormal);
         MotuCloudLighting cloud = MotuCloudSurfaceLighting(worldPosition);
@@ -107,8 +109,8 @@ Shader "Motu/Planar Reflection Simplified"
         half diffuse = saturate(dot(normal, lightDirection));
         return albedo * (ambient + _LightColor0.rgb
             * (0.18h + diffuse * 0.72h)
-            * cloud.directTransmittance
-            + MotuAdditionalLighting(worldPosition, normal));
+            * cloud.directTransmittance * forestShadow
+            + MotuAdditionalLighting(worldPosition, normal, forestShadow));
     }
 
     fixed4 FinishReflection(
@@ -145,7 +147,10 @@ Shader "Motu/Planar Reflection Simplified"
             _SnowLine + 8.0,
             input.localPosition.y) * smoothstep(0.12h, 0.55h, up);
         albedo = lerp(albedo, fixed3(0.82h, 0.84h, 0.81h), snowWeight);
-        return FinishReflection(albedo * _Color.rgb, input);
+        // Simplified reflections have no live shadow pass. Use the overhead
+        // canopy throughout rather than reflecting brightly lit forest floors.
+        return fixed4(ReflectionLighting(albedo * _Color.rgb, input.worldNormal,
+            input.worldPosition, MotuForestBakedShadow(input.localPosition)), 1.0h);
     }
 
     fixed4 GrassFragment(ReflectionVertexOutput input) : SV_Target

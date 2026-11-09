@@ -4,22 +4,24 @@ using System.Collections.Generic;
 using Unity.Profiling;
 using UnityEngine;
 using UnityEngine.Rendering;
+using GroupKey = System.ValueTuple<Motu.Streaming.PlanetForestModels, int, int, int, bool, UnityEngine.Rendering.ShadowCastingMode>;
 
 namespace Motu.Streaming
 {
     // Planet's 96/12 budgets apply to the entire view, never separately to each island.
-    internal static class PlanetForestWorld
+    internal static partial class PlanetForestWorld
     {
         internal const int DetailedLimit = 96, ShellLimit = 12;
         internal const float FineWoodDistanceSquared = 30f * 30f;
         private const int BatchLimit = 256;
+        private static readonly int AmbientWoodId = Shader.PropertyToID("_MotuForestAmbientWood");
         private static readonly List<InstancedForestRenderer> Forests = new List<InstancedForestRenderer>();
         private static readonly Dictionary<Camera, View> Views = new Dictionary<Camera, View>();
         private static readonly List<Camera> DeadCameras = new List<Camera>();
         private static readonly ProfilerMarker SubmitMarker = new ProfilerMarker("Motu.Forest.Submit");
         private static readonly ProfilerMarker SelectionMarker = new ProfilerMarker("Motu.Forest.SelectNearest96");
-        private static readonly Dictionary<(PlanetForestModels, int, int, int, bool), Group> Groups = new Dictionary<(PlanetForestModels, int, int, int, bool), Group>();
-        private static readonly List<(PlanetForestModels, int, int, int, bool)> Forgotten = new List<(PlanetForestModels, int, int, int, bool)>();
+        private static readonly Dictionary<GroupKey, Group> Groups = new Dictionary<GroupKey, Group>();
+        private static readonly List<GroupKey> Forgotten = new List<GroupKey>();
         private static int revision;
         private readonly struct Tree : IEquatable<Tree>
         {
@@ -42,12 +44,15 @@ namespace Motu.Streaming
             internal readonly MaterialPropertyBlock properties = new MaterialPropertyBlock();
             internal readonly MaterialPropertyBlock farProperties = new MaterialPropertyBlock();
             internal Vector4 palmDistances;
+            internal Vector3 shadowEye;
+            internal float shadowDistanceSquared;
         }
         private sealed class Group
         {
             internal PlanetForestModels models;
             internal int prototype, kind, count, layer;
             internal bool fullPalmFar;
+            internal ShadowCastingMode shadows;
             internal Matrix4x4[] matrices;
             internal Bounds bounds;
         }
@@ -88,6 +93,7 @@ namespace Motu.Streaming
             {
                 forest.SubmittedBatches = forest.SubmittedDetailedCrowns = forest.SubmittedFarTrees = forest.SubmittedShellTrees = 0;
                 forest.SubmittedTwigCardTrees = 0;
+                forest.SubmittedFarShadowTrees = forest.SubmittedShadowOnlyTrees = 0;
                 forest.LastPineFoliageKind = -1;
                 forest.LastPineFoliageLod = -1;
                 forest.LastPalmFoliageLod = -1;
@@ -102,6 +108,9 @@ namespace Motu.Streaming
                 Views.Add(camera, view = new View());
             }
             var eye = camera.transform.position;
+            var shadowDistance = ShadowDistance(camera);
+            view.shadowEye = eye;
+            view.shadowDistanceSquared = shadowDistance * shadowDistance;
             if (view.revision != revision || view.mask != camera.cullingMask || (view.eye - eye).sqrMagnitude > 9f)
                 Select(view, camera);
             ConfigurePalmLod(view, eye);
@@ -109,32 +118,7 @@ namespace Motu.Streaming
             view.properties.SetVector("_MotuForestViewer", eye);
             try
             {
-                // Distant crowns remain individual and do not cast shadows, just as in Planet.
-                foreach (var forest in Forests)
-                {
-                    if ((camera.cullingMask & (1 << forest.gameObject.layer)) == 0
-                        || !GeometryUtility.TestPlanesAABB(view.planes, forest.WorldBounds)) continue;
-                    foreach (var batch in forest.batches)
-                    {
-                        if (!GeometryUtility.TestPlanesAABB(view.planes, batch.worldBounds)) continue;
-                        foreach (var index in batch.indices)
-                        {
-                            if (view.selected.Contains(new Tree(forest, index, 0))) continue;
-                            Add(forest, index, 4, batch.worldBounds, camera, forest.Models.IsPalm(batch.prototype));
-                            ++forest.SubmittedFarTrees;
-                            if (forest.Models.IsPine(batch.prototype))
-                            {
-                                forest.LastPineFoliageKind = 3;
-                                forest.LastPineFoliageLod = 2;
-                            }
-                            if (forest.Models.IsPalm(batch.prototype))
-                            {
-                                forest.LastPalmFoliageLod = 2;
-                                ++forest.SubmittedPalmFarTrees;
-                            }
-                        }
-                    }
-                }
+                SubmitFarTrees(view, camera);
                 for (var rank = 0; rank < view.count; ++rank)
                 {
                     var tree = view.nearest[rank];
@@ -275,13 +259,19 @@ namespace Motu.Streaming
             view.mask = camera.cullingMask;
             view.revision = revision;
         }
-        private static void Add(InstancedForestRenderer forest, int index, int kind, Bounds bounds, Camera camera, bool fullPalmFar = false)
+        private static void Add(InstancedForestRenderer forest, int index, int kind, Bounds bounds, Camera camera,
+            bool fullPalmFar = false, ShadowCastingMode? shadowMode = null)
         {
             var prototype = forest.Prototypes[index];
-            var key = (forest.Models, prototype, kind, forest.gameObject.layer, fullPalmFar);
+            var shadows = shadowMode ?? (kind == 4 ? FarShadowMode(Views[camera], bounds, true)
+                : kind == 3 && prototype < forest.Models.broadleafCount ? ShadowCastingMode.Off : ShadowCastingMode.On);
+            var key = (forest.Models, prototype, kind, forest.gameObject.layer, fullPalmFar, shadows);
             if (!Groups.TryGetValue(key, out var group))
-                Groups.Add(key, group = new Group { models = forest.Models, prototype = prototype, kind = kind, layer = forest.gameObject.layer, fullPalmFar = fullPalmFar });
+                Groups.Add(key, group = new Group { models = forest.Models, prototype = prototype, kind = kind,
+                    layer = forest.gameObject.layer, fullPalmFar = fullPalmFar, shadows = shadows });
             if (group.models.meshes[prototype][kind] == null) return;
+            if (kind == 4 && shadows != ShadowCastingMode.Off) ++forest.SubmittedFarShadowTrees;
+            if (shadows == ShadowCastingMode.ShadowsOnly) ++forest.SubmittedShadowOnlyTrees;
             group.matrices ??= ArrayPool<Matrix4x4>.Shared.Rent(BatchLimit);
             if (group.count == 0) group.bounds = bounds; else group.bounds.Encapsulate(bounds);
             group.matrices[group.count++] = forest.World[index];
@@ -292,9 +282,9 @@ namespace Motu.Streaming
         private static void Flush(Group group, Camera camera)
         {
             if (group.count == 0) return;
-            var shadows = group.kind == 4 || (group.kind == 3 && group.prototype < group.models.broadleafCount)
-                ? ShadowCastingMode.Off : ShadowCastingMode.On;
+            var shadows = group.shadows;
             var properties = group.fullPalmFar ? Views[camera].farProperties : Views[camera].properties;
+            properties.SetFloat(AmbientWoodId, shadows == ShadowCastingMode.Off ? 1f : 0f);
             var material = group.models.Material(group.kind);
             var mesh = group.models.meshes[group.prototype][group.kind];
             if (SystemInfo.supportsInstancing)

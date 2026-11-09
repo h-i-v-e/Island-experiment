@@ -9,6 +9,7 @@ float4 _PalmLodDistances;
 float _PalmLodEnabled;
 float4 _TwigCard_ST;
 float _ForestKind;
+float _MotuForestAmbientWood;
 float3 _MotuForestViewer;
 #include "PlanetForestBark.hlsl"
 
@@ -257,6 +258,12 @@ half4 ForestFragment(ForestOutput input, bool front : SV_IsFrontFace) : SV_Targe
     surface.normalTS = half3(0,0,1);
     surface.occlusion = occlusion;
     surface.alpha = 1;
+    if (wood && _MotuForestAmbientWood > 0.5)
+    {
+        // Distant combined meshes retain lit foliage, but their trunks and
+        // branches must not acquire unshadowed direct or specular sunlight.
+        return half4(MixFog(colour * lighting.bakedGI * occlusion, input.fog), 1);
+    }
     half4 result = UniversalFragmentPBR(lighting,surface);
     result.rgb *= cloud.directTransmittance;
     Light sun = GetMainLight(lighting.shadowCoord,input.world,lighting.shadowMask);

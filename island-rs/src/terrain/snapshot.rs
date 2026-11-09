@@ -411,6 +411,11 @@ mod tests {
             ));
             assert_eq!(restored_catalog.prototypes.len(), 6);
             assert_eq!(restored.forest.placements, island.forest.placements);
+            assert_eq!(
+                restored.forest_shadow_mask(256),
+                island.forest_shadow_mask(256),
+                "the shared bake must derive identically from an existing snapshot"
+            );
             if latitude_degrees > 60.0 {
                 assert!(
                     restored

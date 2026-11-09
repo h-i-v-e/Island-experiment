@@ -385,7 +385,9 @@ namespace Motu.Tests
                 Assert.AreEqual(96, a.SubmittedDetailedCrowns + b.SubmittedDetailedCrowns, "The 96-tree budget is global.");
                 Assert.AreEqual(96, a.SubmittedTwigCardTrees + b.SubmittedTwigCardTrees, "Cards share the existing nearest-tree selection.");
                 Assert.AreEqual(12, a.SubmittedShellTrees + b.SubmittedShellTrees, "Only the nearest twelve get shells.");
-                Assert.LessOrEqual(a.SubmittedBatches + b.SubmittedBatches, 10, "Dense trees are packed, never submitted one by one.");
+                Assert.Greater(b.SubmittedShadowOnlyTrees, 0, "The offscreen island must remain eligible to shadow visible ground.");
+                Assert.LessOrEqual(a.SubmittedBatches + b.SubmittedBatches, 14,
+                    "Visible and offscreen shadow-only trees remain packed, never submitted one by one.");
                 camera.transform.position = new Vector3(10, 22, -90);
                 a.Submit(camera);
                 Assert.AreEqual(96, a.SubmittedDetailedCrowns + b.SubmittedDetailedCrowns, "Detailed crowns persist beyond 64 m.");

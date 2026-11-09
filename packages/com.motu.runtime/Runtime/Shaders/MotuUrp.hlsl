@@ -86,7 +86,8 @@ float4 MotuShadowPosition(float3 worldPosition, float3 worldNormal)
 
 #include "CloudCommon.cginc"
 
-half MotuAdditionalLightCloudTransmittance(uint lightIndex, float3 worldPosition, half3 lightDirection)
+half MotuAdditionalLightCloudTransmittance(uint lightIndex, float3 worldPosition,
+    half3 lightDirection, half directionalShadow = 1.0h)
 {
     // URP packs directionals with position.w=0; point/spot lights have w=1.
     // Only celestial light crosses the cloud layer before reaching the surface.
@@ -101,10 +102,10 @@ half MotuAdditionalLightCloudTransmittance(uint lightIndex, float3 worldPosition
     float positionW = _AdditionalLightsPosition[perObjectIndex].w;
 #endif
     if (positionW > 0.5) return 1.0h;
-    return MotuCloudSurfaceLightingForDirection(worldPosition, lightDirection).directTransmittance;
+    return MotuCloudSurfaceLightingForDirection(worldPosition, lightDirection).directTransmittance * directionalShadow;
 }
 
-half3 MotuAdditionalLighting(float3 worldPosition, half3 normal)
+half3 MotuAdditionalLighting(float3 worldPosition, half3 normal, half directionalShadow = 1.0h)
 {
     half3 result = 0;
     #if defined(_ADDITIONAL_LIGHTS)
@@ -114,7 +115,7 @@ half3 MotuAdditionalLighting(float3 worldPosition, half3 normal)
         Light light = GetAdditionalLight(index, worldPosition, half4(1,1,1,1));
         result += light.color * saturate(dot(normal, light.direction))
             * light.distanceAttenuation * light.shadowAttenuation
-            * MotuAdditionalLightCloudTransmittance(index, worldPosition, light.direction);
+            * MotuAdditionalLightCloudTransmittance(index, worldPosition, light.direction, directionalShadow);
     }
     #endif
     return result;
@@ -141,7 +142,7 @@ half3 MotuAdditionalFoliageLighting(float3 worldPosition, half3 normal,
 }
 
 half3 MotuAdditionalSpecularLighting(float3 worldPosition, half3 normal,
-    float3 viewDirection, half exponent)
+    float3 viewDirection, half exponent, half directionalShadow = 1.0h)
 {
     half3 result = 0;
 #if defined(_ADDITIONAL_LIGHTS)
@@ -153,7 +154,7 @@ half3 MotuAdditionalSpecularLighting(float3 worldPosition, half3 normal,
         half specular = pow(saturate(dot(normal, halfway)), max(exponent, 1.0h))
             * step(0.0h, dot(normal, light.direction));
         result += light.color * specular * light.distanceAttenuation * light.shadowAttenuation
-            * MotuAdditionalLightCloudTransmittance(index, worldPosition, light.direction);
+            * MotuAdditionalLightCloudTransmittance(index, worldPosition, light.direction, directionalShadow);
     }
 #endif
     return result;

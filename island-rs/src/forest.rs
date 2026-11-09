@@ -13,6 +13,7 @@
 
 pub(crate) mod hybrid;
 mod logs;
+pub(crate) mod shadows;
 pub use hybrid::HybridForestOptions;
 pub use logs::{FallenLogPrototype, generate_fallen_log};
 

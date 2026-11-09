@@ -89,11 +89,33 @@ cooperative: an in-progress native call finishes before its handle is released.
 
 Forests use shared instanced broadleaf, pine and palm catalogs. Latitude and
 altitude select species; `Variants Per Species` controls the shared prototypes.
-Older experiment flags no longer select a different renderer. Standing trees
-cast their own shadows and reflections without combined tree tiles or canopy
-proxies. Nearby 3x3 owner tiles install budgeted trunk and fallen-log colliders;
+Older experiment flags no longer select a different renderer. Every standing
+tree within URP's per-camera shadow range casts a live shadow using its current
+LOD, independently of the 96-tree detail budget. Nearby offscreen regions submit
+shadow-only instances so turning the camera does not discard their shadows.
+The range respects the pipeline distance, camera far clip and camera shadow toggle;
+distant instanced crowns outside it use the baked ground mask below.
+Wood in non-shadow-casting draws receives ambient light only, while foliage
+keeps its usual lighting. Nearby 3x3 owner tiles install budgeted trunk and fallen-log colliders;
 clearing focus releases those colliders while the visual forest remains resident.
 Authored fallen-log graphics use a separate sparse grid of at most 64 mesh tiles.
+
+The shared Rust core bakes canopy-sized overhead circles from all standing tree
+placements into a binary R8 shadow mask. Rust renderers can use
+`Island::forest_shadow_mask` or reuse their own pixel allocation with
+`Island::write_forest_shadow_mask`. Unity's preparation worker calls the same
+generator through `CopyHybridForestShadowMask`, writing directly into its upload
+buffer; its main thread only uploads the texture and builds mipmaps.
+Existing snapshots derive the mask from their saved placements and shared catalog,
+so this feature does not invalidate caches or enlarge snapshots.
+Filtered mipmaps retain coverage in the
+distance; a 2 km island uses a 1024-square texture (about 1.33 MiB including mips),
+with no retained CPU pixels or per-frame bake. Ground lighting blends the mask
+into URP's live shadow fade, including the last cascade boundary, without
+darkening ambient light. Simplified terrain reflections use the same mask.
+The bake follows the island transform, is released on unload, and follows the
+forest visibility toggle. It approximates an overhead sun, independent of time
+of day; it does not replace nearby moving shadows.
 
 Native snapshot version 20 stores climate and compact catalog metadata, restoring
 shared prototypes on load. Climate, variants and catalog version participate in
