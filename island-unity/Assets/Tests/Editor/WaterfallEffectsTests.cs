@@ -65,12 +65,20 @@ namespace Motu.Editor
             internal readonly WaterfallFootIndex Index;
             readonly WaterfallAudioProfile profile;
             readonly AudioClip clip;
-            internal Falls(int count, float? uniformDrop = null, float baseHeight = 2f, float? uniformHalfWidth = null)
+            internal Falls(int count, float? uniformDrop = null, float baseHeight = 2f, float? uniformHalfWidth = null,
+                float audioRange = 150f, bool audible = false)
             {
                 clip = AudioClip.Create("Synthetic waterfall loop", 44100, 1, 44100, false);
+                if (audible)
+                {
+                    var samples = new float[44100];
+                    for (var i = 0; i < samples.Length; i++) samples[i] = .03f * Mathf.Sin(i * 2f * Mathf.PI * 220f / 44100f);
+                    clip.SetData(samples, 0);
+                }
                 profile = ScriptableObject.CreateInstance<WaterfallAudioProfile>();
                 var serialized = new SerializedObject(profile);
                 serialized.FindProperty("loop").objectReferenceValue = clip;
+                serialized.FindProperty("maximumDistance").floatValue = audioRange;
                 serialized.ApplyModifiedPropertiesWithoutUndo();
                 Pool = Root.AddComponent<WaterfallMistPool>();
                 serialized = new SerializedObject(Pool);
@@ -165,6 +173,72 @@ namespace Motu.Editor
             Assert.That(falls.Playing.Length, Is.EqualTo(32));
             Assert.That(falls.Playing.Select(source => source.transform.position).Distinct().Count(), Is.EqualTo(32));
             Assert.That(falls.Sprays, Is.Empty);
+        }
+
+        [Test]
+        public void LeavingTheNearestTerrainDetailHidesMistWithoutStoppingOrRestartingAudibleWater()
+        {
+            using var falls = new Falls(1);
+            falls.Focus(new Vector3(60, 2, 0));
+            var source = falls.Playing.Single();
+            source.time = .3f;
+            falls.Focus(new Vector3(65, 2, 0));
+            Assert.That(falls.Pool.ActiveVolumeCount, Is.Zero, "The close-detail mist can retire at the tile boundary.");
+            Assert.That(falls.Playing.Single(), Is.SameAs(source));
+            Assert.That(source.time, Is.GreaterThanOrEqualTo(.29f));
+            Assert.That(Vector3.Distance(source.transform.position, new Vector3(65, 2, 0)), Is.LessThan(source.maxDistance));
+            falls.Focus(new Vector3(160, 2, 0));
+            Assert.That(source.isPlaying, Is.True, "The silent loop may remain pooled until the retirement margin.");
+            Assert.That(Vector3.Distance(source.transform.position, new Vector3(160, 2, 0)), Is.GreaterThan(source.maxDistance));
+            falls.Focus(new Vector3(240, 2, 0));
+            Assert.That(source.isPlaying, Is.False, "Release occurs after spatial attenuation has reached zero.");
+        }
+
+        [Test]
+        public void AudioCanActivateOutsideTheVisualNeighborhoodAndOutliveTheDefaultRetirementRadius()
+        {
+            using var falls = new Falls(1, audioRange: 300);
+            falls.Focus(new Vector3(250, 2, 0));
+            Assert.That(falls.Playing.Length, Is.EqualTo(1));
+            Assert.That(falls.Pool.ActiveVolumeCount, Is.Zero);
+            falls.Focus(new Vector3(320, 2, 0));
+            Assert.That(falls.Playing, Is.Empty);
+        }
+
+        [UnityTest]
+        public IEnumerator NativeWaterfallAudioContinuesAudiblyAcrossTheTerrainDetailBoundary()
+        {
+            EditorSceneManager.NewScene(NewSceneSetup.EmptyScene);
+            yield return new EnterPlayMode();
+            var listener = new GameObject("Waterfall continuity listener"); listener.AddComponent<AudioListener>();
+            var oldPause = AudioListener.pause; var oldVolume = AudioListener.volume;
+            using var falls = new Falls(1, audible: true);
+            try
+            {
+                AudioListener.pause = false; AudioListener.volume = 1;
+                var samples = new float[512]; var before = 0f; var after = 0f;
+                foreach (var position in new[] { 60f, 65f })
+                {
+                    listener.transform.position = new Vector3(position, 2, 0);
+                    falls.Focus(listener.transform.position);
+                    yield return new WaitForSecondsRealtime(.2f);
+                    var until = Time.realtimeSinceStartup + .15f;
+                    var peak = 0f;
+                    while (Time.realtimeSinceStartup < until)
+                    {
+                        AudioListener.GetOutputData(samples, 0);
+                        foreach (var value in samples) peak = Mathf.Max(peak, Mathf.Abs(value));
+                        yield return null;
+                    }
+                    if (position == 60) before = peak; else after = peak;
+                }
+                Assert.That(before, Is.GreaterThan(.0001f));
+                Assert.That(after, Is.GreaterThan(before * .5f), "Crossing the tile boundary must not cut the native audible loop.");
+                var directory = "/tmp/squall-thunder-waterfalls-20261109"; System.IO.Directory.CreateDirectory(directory);
+                System.IO.File.WriteAllText(System.IO.Path.Combine(directory, "waterfall-native-mixer.txt"),
+                    $"Peak listener samples before LOD boundary: {before}; after: {after}\n");
+            }
+            finally { AudioListener.pause = oldPause; AudioListener.volume = oldVolume; Object.DestroyImmediate(listener); }
         }
 
         [TestCase(2f, 8f, .5f, 0f)]

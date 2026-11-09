@@ -30,12 +30,14 @@ namespace Motu.World
             SceneManager.activeSceneChanged += ActiveSceneChanged;
             ApplyWeatherWindGlobals(Vector2.right, ReferenceWindSpeedMetresPerSecond);
             ApplyWeatherWindOffset(Vector2.zero);
+            PublishSquallField();
         }
 
         private void ReleaseEnvironment()
         {
             UnsubscribeEnvironmentEvents();
             if (hostState == null) return;
+            SuspendSqualls();
             if (skyDomeObject != null) skyDomeObject.SetActive(false);
             if (moonLight != null) moonLight.enabled = false;
             if (ocean != null) { ocean.SetVisible(false); ocean.enabled = false; }
@@ -92,6 +94,7 @@ namespace Motu.World
                 ApplyDistanceHazeSettings();
             }
             BindExistingReflectionCameras();
+            PublishSquallField();
         }
     }
 }

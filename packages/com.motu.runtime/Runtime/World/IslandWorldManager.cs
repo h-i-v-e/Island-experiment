@@ -11,7 +11,7 @@ namespace Motu.World
     [DefaultExecutionOrder(-1000)]
     [DisallowMultipleComponent]
     [UnityEngine.Scripting.APIUpdating.MovedFrom(true, sourceNamespace: "", sourceAssembly: "Assembly-CSharp", sourceClassName: "IslandWorldManager")]
-    public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQuery
+    public sealed partial class IslandWorldManager : MonoBehaviour, IWorldSurfaceQuery, ITerrainFootprintQuery
     {
         public const float IslandSizeMetres = 2000f;
 

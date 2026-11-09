@@ -520,6 +520,41 @@ pub enum MaterialModel {
         #[serde(default = "default_edge_softness")]
         edge_softness: f32,
     },
+    /// Half-bond stonework with continuous mortar courses and varied dressed stones.
+    Masonry(MasonrySettings),
+}
+
+/// Physical controls for periodic, half-bond masonry. Relief values are metres.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct MasonrySettings {
+    pub cells_x: u32,
+    pub cells_y: u32,
+    pub joint_jitter: f32,
+    pub mortar_width: f32,
+    pub bevel_width: f32,
+    pub mortar_depth: f32,
+    pub stone_variation: f32,
+    pub edge_roughness: f32,
+    pub surface_amplitude: f32,
+    pub colour_variation: f32,
+}
+
+impl Default for MasonrySettings {
+    fn default() -> Self {
+        Self {
+            cells_x: 4,
+            cells_y: 4,
+            joint_jitter: 0.08,
+            mortar_width: 0.016,
+            bevel_width: 0.014,
+            mortar_depth: 0.027,
+            stone_variation: 0.006,
+            edge_roughness: 0.0025,
+            surface_amplitude: 0.002,
+            colour_variation: 0.28,
+        }
+    }
 }
 
 impl Default for MaterialModel {

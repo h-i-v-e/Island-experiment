@@ -12,6 +12,7 @@ pub mod encoding;
 pub mod field_program;
 pub mod image;
 pub mod layer_stack;
+pub mod masonry;
 pub mod noise;
 pub mod normal;
 pub mod occlusion;
@@ -193,6 +194,14 @@ pub fn evaluate_resolved_material(
     let occlusion = occlusion::derive_occlusion(field, occlusion_settings(recipe))?;
     let config = albedo_config(recipe);
     let mut albedo_linear = albedo::generate_linear_albedo(field, config, recipe.seed)?;
+    if let MaterialModel::Masonry(settings) = &recipe.material {
+        masonry::tint_stones(
+            &mut albedo_linear,
+            settings,
+            field.dimensions(),
+            recipe.seed,
+        );
+    }
     layers.apply_albedo(&recipe.layers, &mut albedo_linear)?;
     albedo::apply_occlusion_linear(&mut albedo_linear, field.dimensions(), config, &occlusion)?;
     Ok(MaterialEvaluation {

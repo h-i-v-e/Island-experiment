@@ -15,6 +15,51 @@ const BAKER: &str = env!("CARGO_BIN_EXE_island-texture-baker");
 const GOLDEN_SIZE: u32 = 128;
 static NEXT_TEST_DIRECTORY: AtomicUsize = AtomicUsize::new(0);
 
+#[test]
+fn masonry_preview_and_bake_share_stone_colours_and_preserve_relief_when_tinted() {
+    use motu::procedural_textures::{MaterialModel, PreviewSettings, generate_preview};
+    let mut recipe = load_recipe("cracked-stone.json");
+    recipe.width = 96;
+    recipe.height = 48;
+    recipe.physical_tile_width_m = 2.4;
+    recipe.physical_tile_height_m = 1.2;
+    recipe.layers.clear();
+    recipe.material = serde_json::from_value(serde_json::json!({"kind": "masonry"})).unwrap();
+    let baked = generate_texture_set(&recipe, NormalConvention::OpenGl).unwrap();
+    let preview = generate_preview(
+        &recipe,
+        &PreviewSettings {
+            normal_convention: NormalConvention::OpenGl,
+            selected_layer_id: None,
+        },
+    )
+    .unwrap();
+    assert_eq!(baked.albedo, preview.textures.albedo);
+    assert_eq!(baked.normal, preview.textures.normal);
+    let MaterialModel::Masonry(settings) = &mut recipe.material else {
+        unreachable!()
+    };
+    settings.colour_variation = 0.8;
+    let tinted = generate_texture_set(&recipe, NormalConvention::OpenGl).unwrap();
+    assert_ne!(baked.albedo, tinted.albedo);
+    assert_eq!(baked.height, tinted.height);
+    assert_eq!(baked.normal, tinted.normal);
+}
+
+#[test]
+fn odd_masonry_courses_have_an_editor_diagnostic_at_the_course_control() {
+    let mut recipe = load_recipe("cracked-stone.json");
+    recipe.material =
+        serde_json::from_value(serde_json::json!({"kind": "masonry", "cells_y": 3})).unwrap();
+    let diagnostics = motu::procedural_textures::editor_protocol::validate_diagnostics(&recipe);
+    assert!(
+        diagnostics
+            .iter()
+            .any(|issue| issue.pointer == "/material/cells_y"
+                && issue.code == "masonry.even_courses")
+    );
+}
+
 struct TestDirectory(PathBuf);
 
 impl TestDirectory {

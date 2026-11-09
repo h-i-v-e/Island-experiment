@@ -762,6 +762,10 @@ MonoBehaviour:
   maximumSpeed: 18
   launchAngle: 40
   directionSpread: 20
+  gunwaleOverflow: 0
+  gunwaleHeight: 4.2
+  gunwaleHeights: []
+  inwardLaunchAngle: 10
   emissionDensity: 32
   maximumEmissionRate: 1500
   maximumParticles: 2500
@@ -1061,6 +1065,14 @@ MonoBehaviour:
     broadNoiseStrength: 0.65
     detailStrength: 0.52
     erosionStrength: 0.38
+    billowSizeMetres: 250
+    erosionSizeMetres: 50
+    cloudType: 0.5
+    billowStrength: 0.65
+    sunlightPenetration: 1
+    windShear: 0.15
+    evolution: 0.1
+    quality: 1
     dayColour: {r: 0.92, g: 0.94, b: 0.96, a: 1}
     sunsetColour: {r: 0.92, g: 0.48, b: 0.24, a: 1}
     nightColour: {r: 0.035, g: 0.055, b: 0.1, a: 1}
@@ -1111,6 +1123,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 3549d4439b0224cdab83a35ac1fa3122, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::CoherentIslandFactory
+  experimentalInstancedTrees: 1
   seed: 1840
   archipelegoRadius: 16
   noiseScaleCoarse: 0.15

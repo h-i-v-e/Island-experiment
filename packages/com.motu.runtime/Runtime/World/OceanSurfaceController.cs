@@ -64,6 +64,7 @@ namespace Motu.World
         private OceanWaveRuntimeSettings waveSettings;
         private float surfaceDiameterMetres;
         private float weatherWaveScale = 1f;
+        private float squallWindMultiplier = 1f;
 
         public Transform SurfaceTransform => surfaceObject != null
             ? surfaceObject.transform
@@ -170,6 +171,16 @@ namespace Motu.World
                 return;
             }
             weatherWaveScale = waveHeightScale;
+            UpdateSurfaceMeshBounds();
+        }
+
+        /// <summary>Expands the mesh envelope for local storms without changing ambient wave phases.</summary>
+        public void ApplySquallWindMultiplier(float windMultiplier)
+        {
+            WeatherValueValidation.RequireFinite(windMultiplier, nameof(windMultiplier));
+            windMultiplier = Mathf.Max(1f, windMultiplier);
+            if (Mathf.Approximately(squallWindMultiplier, windMultiplier)) return;
+            squallWindMultiplier = windMultiplier;
             UpdateSurfaceMeshBounds();
         }
 
@@ -283,11 +294,16 @@ namespace Motu.World
                 surfaceDiameterMetres * 0.5f,
                 waveSettings.DisplacementFadeEndMetres
                     + waveSettings.FineVertexSpacingMetres);
+            var stormActivity = 1f - 1f / squallWindMultiplier;
+            var windScale = weatherWaveScale * Mathf.Sqrt(squallWindMultiplier);
+            // Match OceanWaves.cginc: short storm waves reserve an additional
+            // 20 percent of the directional envelope at full local activity.
+            var chopMargin = waveSettings.MaximumVerticalDisplacement * windScale * .20f * stormActivity;
             var horizontalMargin = waveSettings.MaximumHorizontalDisplacement
-                * weatherWaveScale
+                * windScale + chopMargin
                 + 1f;
             var verticalMargin = waveSettings.MaximumVerticalDisplacement
-                * weatherWaveScale
+                * windScale + chopMargin
                 + 1f;
             surfaceMesh.bounds = new Bounds(
                 Vector3.zero,

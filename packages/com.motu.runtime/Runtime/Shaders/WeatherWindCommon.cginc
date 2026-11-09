@@ -1,6 +1,8 @@
 #ifndef MOTU_WEATHER_WIND_COMMON_INCLUDED
 #define MOTU_WEATHER_WIND_COMMON_INCLUDED
 
+#include "WorldSquallField.cginc"
+
 // One world-owned contract drives every wind-animated material.
 // WeatherWind: XY normalized world X/Z direction, Z metres per second, W
 // speed-derived response scale. WindMaterial: X vegetation displacement at the
@@ -20,6 +22,30 @@ float2 MotuWindDirection()
         float2(1.0, 0.0),
         windDirection,
         step(1.0e-4, directionLengthSquared));
+}
+
+float MotuWindSpeedAt(float2 worldPosition)
+{
+    return max(_MotuWeatherWind.z, 0.0) * MotuSquallWindMultiplier(worldPosition);
+}
+
+float MotuWindResponseGain(float2 worldPosition)
+{
+    float maximumGain = max(1.0, 2.5 / max(_MotuWeatherWind.w, 0.001));
+    return min(sqrt(MotuSquallWindMultiplier(worldPosition)), maximumGain);
+}
+
+float2 MotuWindResponseGainGradient(float2 worldPosition)
+{
+    float windGain = sqrt(MotuSquallWindMultiplier(worldPosition));
+    float maximumGain = max(1.0, 2.5 / max(_MotuWeatherWind.w, 0.001));
+    if (windGain >= maximumGain) return 0.0;
+    return MotuSquallWindMultiplierGradient(worldPosition) * (0.5 / max(windGain, 0.001));
+}
+
+float MotuWindResponseScale(float2 worldPosition)
+{
+    return max(_MotuWeatherWind.w, 0.0) * MotuWindResponseGain(worldPosition);
 }
 
 float MotuWindDisplacementStrength()
@@ -62,6 +88,8 @@ float3 MotuWindSample(float2 worldPosition)
         broadWindNoise.b * 0.75 + detailWindNoise.r * 0.25);
 
     // Gusts vary force, never the world-space heading chosen by the driver.
+    // Vegetation retains its authored ambient displacement and culling envelope;
+    // ships and ocean waves sample the local squall response explicitly.
     return float3(
         windDirection.x,
         lerp(0.2, 1.0, gust) * max(_MotuWeatherWind.w, 0.0),

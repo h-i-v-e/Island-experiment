@@ -204,28 +204,27 @@ float MotuCloudHeightFraction(float3 position, float2 centre, float radius)
     return (position.y - MotuCloudLayerBaseAt(position.xz, centre, radius)) / MotuCloudLayerThickness();
 }
 
-half MotuCloudVolumeDensity(float3 position, float2 centre, float radius)
+// Shared sculpting kernel. The sky and finite weather volumes provide their
+// own layer coordinates and clock while using the same billows and erosion.
+half MotuCloudSculptedDensity(float3 position, float height, half weather,
+    float4 shapeSettings, float4 erosionSettings, float4 motionSettings,
+    float2 flow, float evolution)
 {
-    float height = MotuCloudHeightFraction(position, centre, radius);
-    if (height <= 0.0 || height >= 1.0 || _MotuCloudEnabled < 0.5)
-        return 0.0h;
-    half cumulus = saturate(_MotuCloudShape.z * 2.0);
-    half storm = saturate((_MotuCloudShape.z - 0.5) * 2.0);
+    if (height <= 0.0 || height >= 1.0) return 0.0h;
+    half cumulus = saturate(shapeSettings.z * 2.0);
+    half storm = saturate((shapeSettings.z - 0.5) * 2.0);
     half topStart = lerp(lerp(0.86h, 0.48h, cumulus), 0.68h, storm);
     half baseRamp = lerp(lerp(0.055h, 0.42h, cumulus), 0.50h, storm);
     half profile = smoothstep(0.0h, baseRamp, (half)height)
         * (1.0h - smoothstep(topStart, 1.0h, (half)height));
-    half weather = MotuCloudDensityAtLocalPosition(position.xz);
     half density = weather * profile;
-    half shapeStrength = saturate(_MotuCloudShape.w);
+    half shapeStrength = saturate(shapeSettings.w);
     if (shapeStrength <= 0.0001h || density <= 0.0001h)
         return density;
 
-    float billowSize = max(_MotuCloudShape.x, 50.0);
-    float erosionSize = max(_MotuCloudShape.y, 10.0);
-    float2 flow = _MotuCloudNoiseOffset.xy;
-    float shear = (height - 0.5) * saturate(_MotuCloudMotion.x);
-    float evolution = _Time.y * saturate(_MotuCloudMotion.y);
+    float billowSize = max(shapeSettings.x, 50.0);
+    float erosionSize = max(shapeSettings.y, 10.0);
+    float shear = (height - 0.5) * saturate(motionSettings.x);
     float3 advected = float3(position.xz - flow * (1.0 + shear), position.y);
     // Cache textures contain three/four billows per tile. The small vertical
     // phase evolves the shape much more slowly than the wind transports it.
@@ -241,9 +240,20 @@ half MotuCloudVolumeDensity(float3 position, float2 centre, float radius)
     float3 detailUv = advected / (erosionSize * 4.0)
         + evolution * float3(-0.004, 0.003, 0.005);
     half erosion = 1.0h - tex3Dlod(_MotuCloudErosionTex, float4(detailUv, 0)).r;
-    sculpted = saturate(sculpted - erosion * saturate(_MotuCloudDetailErosion.y)
+    sculpted = saturate(sculpted - erosion * saturate(erosionSettings.y)
         * shapeStrength * (1.0h - sculpted) * 0.32h);
     return sculpted;
+}
+
+half MotuCloudVolumeDensity(float3 position, float2 centre, float radius)
+{
+    float height = MotuCloudHeightFraction(position, centre, radius);
+    if (height <= 0.0 || height >= 1.0 || _MotuCloudEnabled < 0.5)
+        return 0.0h;
+    return MotuCloudSculptedDensity(position, height,
+        MotuCloudDensityAtLocalPosition(position.xz), _MotuCloudShape,
+        _MotuCloudDetailErosion, _MotuCloudMotion, _MotuCloudNoiseOffset.xy,
+        _Time.y * saturate(_MotuCloudMotion.y));
 }
 
 // Stable quadratic roots prevent cancellation for almost vertical rays.
@@ -382,15 +392,13 @@ fixed3 MotuCloudScatteringFromLight(float3 viewDirection, half sunlight, half co
         + (1.0h - sunlight) * exp2(-column * 0.35h) * 0.16h);
 }
 
-fixed3 MotuCloudSkyColour(half density, float3 viewDirection, half sunlight,
-    half secondaryLight, half heightFraction)
+fixed3 MotuCloudSkyColourForColumn(half column, float3 viewDirection,
+    half sunlight, half secondaryLight, half heightFraction)
 {
     half night = saturate(_MotuCloudNightStrength);
     half sunset = saturate(_MotuCloudSunsetStrength) * (1.0h - night);
     fixed3 albedo = lerp(_MotuCloudDayColor.rgb, _MotuCloudSunsetColor.rgb, sunset * 0.45h);
     albedo = lerp(albedo, min(_MotuCloudNightColor.rgb * 8.0h, 3.0h), night);
-    half column = density * max(_MotuCloudDensity, 0.0)
-        * (MotuCloudLayerThickness() / 280.0) * (1.0h - heightFraction);
     half skyVisibility = exp2(-column * 0.45h);
     fixed3 ambient = _MotuCloudAmbientColor.rgb
         * (0.28h + skyVisibility * 0.72h) * lerp(0.65h, 1.0h, heightFraction);
@@ -402,6 +410,14 @@ fixed3 MotuCloudSkyColour(half density, float3 viewDirection, half sunlight,
         _MotuCloudSecondaryLightDirection.xyz,
         _MotuCloudSecondaryLightColor.rgb * step(0.5h, (half)_MotuCloudSecondaryLightActive));
     return albedo * (ambient + scattered);
+}
+
+fixed3 MotuCloudSkyColour(half density, float3 viewDirection, half sunlight,
+    half secondaryLight, half heightFraction)
+{
+    half column = density * max(_MotuCloudDensity, 0.0)
+        * (MotuCloudLayerThickness() / 280.0) * (1.0h - heightFraction);
+    return MotuCloudSkyColourForColumn(column, viewDirection, sunlight, secondaryLight, heightFraction);
 }
 
 struct MotuCloudSkyVolume

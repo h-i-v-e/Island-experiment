@@ -79,6 +79,7 @@ namespace Motu.World
         public float TreeWindFullBendHeightMetres;
         public OceanWaveWeatherSettings Waves;
         public CloudWeatherSettings Clouds;
+        public SquallWeatherSettings Squalls;
 
         public static WorldWeatherState FromEnvironment(
             WorldEnvironmentSettings settings, IslandCloudSettings clouds = null)
@@ -87,6 +88,7 @@ namespace Motu.World
             return new WorldWeatherState
             {
                 Clouds = clouds != null ? CloudWeatherSettings.FromSettings(clouds) : CloudWeatherSettings.Default,
+                Squalls = settings.Squalls,
                 WindDirection = settings.WindDirection,
                 WindSpeedMetresPerSecond = settings.WindSpeedMetresPerSecond,
                 WindGustSizeMetres = settings.WindGustSizeMetres,
@@ -117,6 +119,7 @@ namespace Motu.World
                 24f);
             result.Waves = OceanWaveRuntimeSettings.Default.WithWeather(Waves).Weather;
             result.Clouds = Clouds.Validated();
+            result.Squalls = Squalls.Validated();
             return result;
         }
     }

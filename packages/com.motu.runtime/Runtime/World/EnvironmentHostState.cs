@@ -31,6 +31,7 @@ namespace Motu.World
             "_MotuCloudSecondaryLightActive");
         private readonly GlobalValues<Vector4> vectors = new GlobalValues<Vector4>(Shader.GetGlobalVector, Shader.SetGlobalVector,
             "_MotuEnvironmentWorldOffset", "_MotuWeatherWind", "_MotuWindMaterial", "_MotuTreeWindHeights",
+            "_MotuSquall", "_MotuSquallWind", "_MotuSquall1", "_MotuSquallWind1", "_MotuSquall2", "_MotuSquallWind2",
             "_MotuWindOffset", "_MotuCloudVolume", "_MotuCloudBroadNoise", "_MotuCloudDetailErosion",
             "_MotuCloudWindOffset", "_MotuCloudNoiseOffset", "_MotuCloudLightDirection", "_MotuCloudShape", "_MotuCloudMotion",
             "_MotuCloudLighting", "_MotuCloudSecondaryLightDirection");

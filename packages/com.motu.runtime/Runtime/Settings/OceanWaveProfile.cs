@@ -309,12 +309,13 @@ namespace Motu.Settings
                 weather.OnshoreWaveBreakingFullDepthMetres,
                 ShelteredWaveFraction,
                 WhitecapFullWindSpeedMetresPerSecond);
-            // Include the maximum weather scale (2.5) and bounds size conversion.
+            // Include ambient scale 2.5, squall wind up to 5x, its short-wave
+            // allowance, and full bounds size (maximum combined factor < 13).
             // Finite inputs can still overflow when their displacements are added.
             WeatherValueValidation.RequireFinite(
-                updated.MaximumVerticalDisplacement * 5f + 2f, nameof(weather));
+                updated.MaximumVerticalDisplacement * 13f + 2f, nameof(weather));
             WeatherValueValidation.RequireFinite(
-                updated.MaximumHorizontalDisplacement * 5f + 2f, nameof(weather));
+                updated.MaximumHorizontalDisplacement * 13f + 2f, nameof(weather));
             return updated;
         }
 

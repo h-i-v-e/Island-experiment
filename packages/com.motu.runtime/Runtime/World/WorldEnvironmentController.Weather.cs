@@ -21,6 +21,7 @@ namespace Motu.World
             ocean.ApplyWaveWeather(weather.Waves);
             ApplyWeatherWind();
             ApplyCloudSettings(0f);
+            RefreshSquallSettings();
         }
 
         internal void UpdateWeatherDriver(float deltaTime)

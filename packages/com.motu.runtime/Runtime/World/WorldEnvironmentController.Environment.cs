@@ -108,6 +108,7 @@ namespace Motu.World
             cloudSettings = clouds;
             this.weather = WorldWeatherState.FromEnvironment(settings, clouds);
             environmentSeed = settings.Seed;
+            InitializeSqualls();
             sunlight = settings.Sunlight != null ? settings.Sunlight : hostState.Sun;
             hostState.BorrowLight(sunlight);
             SetFollowTarget(target);
@@ -138,6 +139,7 @@ namespace Motu.World
             ApplyWeatherWind();
             ApplyCloudSettings(0f);
             ApplyDistanceHazeSettings();
+            RefreshSquallSettings();
         }
 
         public void SetFirstPersonViewActive(bool active)

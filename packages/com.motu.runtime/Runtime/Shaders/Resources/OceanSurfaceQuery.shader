@@ -18,6 +18,7 @@ Shader "Hidden/Motu/Ocean Surface Query"
             #pragma multi_compile_local __ MOTU_QUERY_VELOCITY
             #if defined(MOTU_QUERY_VELOCITY)
             static float queryTimeOffset = 0;
+            #define MOTU_SQUALL_TIME_OFFSET queryTimeOffset
             float _QueryWaveTimeScale;
             float4 QueryPattern(float4 pattern, float speed)
             {

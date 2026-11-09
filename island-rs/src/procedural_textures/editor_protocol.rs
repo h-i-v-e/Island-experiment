@@ -272,6 +272,36 @@ pub const EDITABLE_METADATA: &[PropertyMetadata] = &[
         tooltip: "Rounded-stone edge softness",
     },
     PropertyMetadata {
+        pointer: "/material/joint_jitter",
+        label: "Joint variation",
+        tooltip: "Variation in stone widths within each staggered course",
+    },
+    PropertyMetadata {
+        pointer: "/material/mortar_width",
+        label: "Mortar width",
+        tooltip: "Physical mortar joint width",
+    },
+    PropertyMetadata {
+        pointer: "/material/bevel_width",
+        label: "Stone bevel",
+        tooltip: "Physical dressed stone edge bevel",
+    },
+    PropertyMetadata {
+        pointer: "/material/mortar_depth",
+        label: "Mortar depth",
+        tooltip: "Depth of recessed mortar",
+    },
+    PropertyMetadata {
+        pointer: "/material/edge_roughness",
+        label: "Chipped edges",
+        tooltip: "Small periodic imperfections along stone edges",
+    },
+    PropertyMetadata {
+        pointer: "/material/colour_variation",
+        label: "Stone colour variation",
+        tooltip: "Independent stone brightness and warmth",
+    },
+    PropertyMetadata {
         pointer: "/layers",
         label: "Layers",
         tooltip: "Ordered material layer stack",
@@ -984,11 +1014,13 @@ pub fn schema_document() -> Value {
                 "oneOf": [
                     {"$ref": "#/$defs/layered_noise_material"},
                     {"$ref": "#/$defs/cracked_stone_material"},
-                    {"$ref": "#/$defs/rounded_stones_material"}
+                    {"$ref": "#/$defs/rounded_stones_material"},
+                    {"$ref": "#/$defs/masonry_material"}
                 ]
             },
             "layered_noise_material": {"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {"kind": {"const": "layered_noise"}, "frequency": {"type": "number", "exclusiveMinimum": 0}, "amplitude": {"type": "number"}, "octaves": {"type": "integer", "minimum": 1, "maximum": 16}, "lacunarity": {"type": "number", "exclusiveMinimum": 0}, "gain": {"type": "number"}, "offset": {"type": "number"}}},
             "cracked_stone_material": {"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {"kind": {"const": "cracked_stone"}, "cells_x": {"type": "integer", "minimum": 1}, "cells_y": {"type": "integer", "minimum": 1}, "cell_jitter": {"type": "number", "minimum": 0, "maximum": 1}, "warp_amplitude": {"type": "number", "minimum": 0, "maximum": 0.45}, "crack_width": {"type": "number", "exclusiveMinimum": 0}, "shoulder_width": {"type": "number", "minimum": 0}, "crack_depth": {"type": "number", "minimum": 0}, "slab_variation": {"type": "number", "minimum": 0}, "fracture_probability": {"type": "number", "minimum": 0, "maximum": 1}, "fracture_depth": {"type": "number", "minimum": 0}, "surface_amplitude": {"type": "number", "minimum": 0}, "broad_variation": {"type": "number", "minimum": 0}}},
+            "masonry_material": {"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {"kind": {"const": "masonry"}, "cells_x": {"type": "integer", "minimum": 1}, "cells_y": {"type": "integer", "minimum": 2, "multipleOf": 2}, "joint_jitter": {"type": "number", "minimum": 0, "maximum": 0.2}, "mortar_width": {"type": "number", "exclusiveMinimum": 0}, "bevel_width": {"type": "number", "exclusiveMinimum": 0}, "mortar_depth": {"type": "number", "minimum": 0}, "edge_roughness": {"type": "number", "minimum": 0}, "colour_variation": {"type": "number", "minimum": 0, "maximum": 1}, "stone_variation": {"type": "number", "minimum": 0}, "surface_amplitude": {"type": "number", "minimum": 0}}},
             "rounded_stones_material": {"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {"kind": {"const": "rounded_stones"}, "cells_x": {"type": "integer", "minimum": 1}, "cells_y": {"type": "integer", "minimum": 1}, "stone_radius": {"type": "number", "exclusiveMinimum": 0, "maximum": 1}, "cell_jitter": {"type": "number", "minimum": 0, "maximum": 1}, "warp_amplitude": {"type": "number", "minimum": 0, "maximum": 0.4}, "anisotropy": {"type": "number", "exclusiveMinimum": 0}, "stone_height": {"type": "number", "minimum": 0}, "stone_variation": {"type": "number", "minimum": 0}, "gap_height": {"type": "number"}, "sand_amplitude": {"type": "number", "minimum": 0}, "edge_softness": {"type": "number", "exclusiveMinimum": 0}}},
             "displacement": {"type": "object", "additionalProperties": false, "required": ["minimum_m", "maximum_m", "base_m"], "properties": {"minimum_m": {"type": "number"}, "maximum_m": {"type": "number"}, "base_m": {"type": "number"}, "displacement_map": {"type": "boolean"}}},
             "occlusion": {"type": "object", "additionalProperties": false, "properties": {"directions": {"type": "integer", "minimum": 1, "maximum": 32}, "samples": {"type": "integer", "minimum": 1, "maximum": 16}, "radius": {"type": "number", "minimum": 0}, "max_radius": {"type": "number", "minimum": 0}, "cavity_strength": {"type": "number", "minimum": 0}, "horizon_strength": {"type": "number", "minimum": 0}, "power": {"type": "number", "exclusiveMinimum": 0}, "combine": {"oneOf": [{"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {"kind": {"const": "multiply"}}}, {"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {"kind": {"const": "weighted_minimum"}, "cavity_weight": {"type": "number", "minimum": 0, "maximum": 1}, "horizon_weight": {"type": "number", "minimum": 0, "maximum": 1}}}]}}},
@@ -1035,6 +1067,12 @@ fn metadata_value(item: &PropertyMetadata) -> Value {
         "/material/cells_x" | "/material/cells_y" => {
             (json!(8), Some([1.0, u32::MAX as f64]), Some("cells"))
         }
+        "/material/joint_jitter" => (json!(0.08), Some([0.0, 0.2]), None),
+        "/material/mortar_width" => (json!(0.016), Some([0.0, f32::MAX as f64]), Some("m")),
+        "/material/bevel_width" => (json!(0.014), Some([0.0, f32::MAX as f64]), Some("m")),
+        "/material/mortar_depth" => (json!(0.027), Some([0.0, f32::MAX as f64]), Some("m")),
+        "/material/edge_roughness" => (json!(0.0025), Some([0.0, f32::MAX as f64]), Some("m")),
+        "/material/colour_variation" => (json!(0.28), Some([0.0, 1.0]), None),
         "/material/cell_jitter" => (json!(0.25), Some([0.0, 1.0]), None),
         "/material/warp_amplitude" => (json!(0.15), Some([0.0, 0.45]), None),
         "/material/crack_width" => (json!(0.035), Some([f64::EPSILON, f32::MAX as f64]), None),
@@ -1284,7 +1322,12 @@ fn metadata_type(pointer: &str) -> &'static str {
 fn metadata_enum(pointer: &str) -> Option<Value> {
     match pointer {
         "/parameters/*/kind" => Some(json!(["colour"])),
-        "/material/kind" => Some(json!(["layered_noise", "cracked_stone", "rounded_stones"])),
+        "/material/kind" => Some(json!([
+            "layered_noise",
+            "cracked_stone",
+            "rounded_stones",
+            "masonry"
+        ])),
         "/output_profiles" => Some(json!(["separate", "motu_unity_terrain"])),
         "/layers/*/source/kind" | "/layers/*/mask/source/kind" => Some(json!([
             "value",
@@ -1374,6 +1417,9 @@ pub fn validate_diagnostics(recipe: &TextureRecipe) -> Vec<Diagnostic> {
 
 fn issue_pointer_code(issue: &RecipeValidationError) -> (String, &'static str) {
     match issue {
+        RecipeValidationError::OddMasonryCourseCount { .. } => {
+            ("/material/cells_y".into(), "masonry.even_courses")
+        }
         RecipeValidationError::EmptyName => ("/name".into(), "name.empty"),
         RecipeValidationError::InvalidName { .. } => ("/name".into(), "name.invalid"),
         RecipeValidationError::ZeroDimensions { .. } => ("/width".into(), "dimensions.zero"),

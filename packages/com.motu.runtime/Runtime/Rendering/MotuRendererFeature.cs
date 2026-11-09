@@ -14,6 +14,7 @@ namespace Motu.Rendering
         private GeometryPass[] geometry;
         private EffectPass ambientOcclusion, underwater;
         private ReflectionFogPass reflectionFog;
+        private SquallVolumePass squall;
 
         public override void Create()
         {
@@ -30,12 +31,14 @@ namespace Motu.Rendering
             }
             ambientOcclusion = new EffectPass(false);
             underwater = new EffectPass(true);
+            squall = new SquallVolumePass();
         }
 
         public override void AddRenderPasses(ScriptableRenderer renderer, ref RenderingData renderingData)
         {
             foreach (var pass in geometry) renderer.EnqueuePass(pass);
             var camera = renderingData.cameraData.camera;
+            if (SquallVisualRenderer.NeedsRender(camera)) renderer.EnqueuePass(squall);
             if (PlanarWaterReflection.IsReflectionCamera(camera))
             {
                 if (reflectionFog != null && RenderSettings.fog)
@@ -52,7 +55,51 @@ namespace Motu.Rendering
         {
             ambientOcclusion?.Dispose();
             reflectionFog?.Dispose();
+            squall?.Dispose();
             reflectionFog = null;
+            squall = null;
+        }
+
+        private sealed class SquallVolumePass : ScriptableRenderPass
+        {
+            private static readonly ShaderTagId Tag = new ShaderTagId("MotuSquallVolume");
+            private readonly CopyDepthPass depthAfterWater;
+            private sealed class Data { public RendererListHandle list; }
+
+            public SquallVolumePass()
+            {
+                renderPassEvent = RenderPassEvent.AfterRenderingTransparents;
+                depthAfterWater = new CopyDepthPass(renderPassEvent,
+                    Shader.Find("Hidden/Universal Render Pipeline/CopyDepth"));
+                ConfigureInput(ScriptableRenderPassInput.Depth);
+                requiresIntermediateTexture = true;
+            }
+
+            public void Dispose() => depthAfterWater.Dispose();
+
+            public override void RecordRenderGraph(RenderGraph graph, ContextContainer frame)
+            {
+                var resources = frame.Get<UniversalResourceData>();
+                if (resources.isActiveTargetBackBuffer) return;
+                // Water writes its displaced surface into the active depth
+                // attachment after URP's opaque depth copy. Resolve that exact
+                // surface before integrating rain, including troughs and hulls.
+                depthAfterWater.Render(graph, frame, resources.cameraDepthTexture,
+                    resources.activeDepthTexture, true, "Motu depth after water");
+
+                var camera = frame.Get<UniversalCameraData>();
+                var rendering = frame.Get<UniversalRenderingData>();
+                var drawing = RenderingUtils.CreateDrawingSettings(Tag, rendering, camera,
+                    frame.Get<UniversalLightData>(), SortingCriteria.CommonTransparent);
+                var filtering = new FilteringSettings(RenderQueueRange.transparent, camera.camera.cullingMask);
+                using var builder = graph.AddRasterRenderPass<Data>("Motu squall volume", out var data);
+                data.list = graph.CreateRendererList(new RendererListParams(rendering.cullResults, drawing, filtering));
+                builder.UseRendererList(data.list);
+                builder.UseTexture(resources.cameraDepthTexture, AccessFlags.Read);
+                builder.SetRenderAttachment(resources.activeColorTexture, 0);
+                builder.SetRenderAttachmentDepth(resources.activeDepthTexture, AccessFlags.Read);
+                builder.SetRenderFunc(static (Data pass, RasterGraphContext context) => context.cmd.DrawRendererList(pass.list));
+            }
         }
 
         private sealed class ReflectionFogPass : ScriptableRenderPass

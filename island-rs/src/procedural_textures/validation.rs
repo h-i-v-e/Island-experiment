@@ -31,6 +31,9 @@ pub const MAX_AO_RADIUS: f32 = 4096.0;
 /// One precise reason a recipe cannot be evaluated.
 #[derive(Clone, Debug, PartialEq)]
 pub enum RecipeValidationError {
+    OddMasonryCourseCount {
+        value: u32,
+    },
     EmptyName,
     InvalidName {
         name: String,
@@ -185,6 +188,10 @@ pub enum RecipeValidationError {
 impl fmt::Display for RecipeValidationError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::OddMasonryCourseCount { value } => write!(
+                formatter,
+                "material.cells_y must be even for a seamless half-bond tile, found {value}"
+            ),
             Self::EmptyName => formatter.write_str("recipe name must not be empty"),
             Self::InvalidName { name } => {
                 write!(formatter, "recipe name is not file-safe: {name:?}")
@@ -560,6 +567,34 @@ fn validate_material(
     errors: &mut RecipeValidationErrors,
 ) {
     match material {
+        MaterialModel::Masonry(settings) => {
+            validate_nonzero("material.cells_x", settings.cells_x, errors);
+            validate_nonzero("material.cells_y", settings.cells_y, errors);
+            validate_integer_maximum("material.cells_x", settings.cells_x, width, errors);
+            validate_integer_maximum("material.cells_y", settings.cells_y, height, errors);
+            if !settings.cells_y.is_multiple_of(2) {
+                errors.push(RecipeValidationError::OddMasonryCourseCount {
+                    value: settings.cells_y,
+                });
+            }
+            validate_nonnegative("material.joint_jitter", settings.joint_jitter, errors);
+            validate_maximum("material.joint_jitter", settings.joint_jitter, 0.2, errors);
+            validate_positive("material.mortar_width", settings.mortar_width, errors);
+            validate_positive("material.bevel_width", settings.bevel_width, errors);
+            validate_nonnegative("material.mortar_depth", settings.mortar_depth, errors);
+            validate_nonnegative("material.stone_variation", settings.stone_variation, errors);
+            validate_nonnegative("material.edge_roughness", settings.edge_roughness, errors);
+            validate_nonnegative(
+                "material.surface_amplitude",
+                settings.surface_amplitude,
+                errors,
+            );
+            validate_normalized(
+                "material.colour_variation",
+                settings.colour_variation,
+                errors,
+            );
+        }
         MaterialModel::LayeredNoise {
             frequency,
             amplitude,

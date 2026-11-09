@@ -111,11 +111,11 @@ Shader "Hidden/Motu/Ocean Shore Query"
                 [unroll] for (int iteration = 0; iteration < 8; iteration++)
                 {
                     MotuEvaluateOnshoreWaveField(position, displacement, derivative, influence, foam);
-                    displacement *= MotuOceanDepthWaveScale(MotuOceanCoastalData(position));
+                    displacement *= MotuOceanDepthWaveScale(MotuOceanCoastalData(position), position);
                     position += (target - position - displacement.xz) * .75;
                 }
                 MotuEvaluateOnshoreWaveField(position, displacement, derivative, influence, foam);
-                float depthScale = MotuOceanDepthWaveScale(MotuOceanCoastalData(position));
+                float depthScale = MotuOceanDepthWaveScale(MotuOceanCoastalData(position), position);
                 displacement *= depthScale;
                 if (length(position + displacement.xz - target) > .1) return 0;
                 // Check both the world contact and the undisplaced wave position:

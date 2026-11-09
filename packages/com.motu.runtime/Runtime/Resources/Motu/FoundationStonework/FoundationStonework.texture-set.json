@@ -1,0 +1,70 @@
+{
+  "output_format_version": "2",
+  "profile": "motu_unity_terrain",
+  "name": "FoundationStonework",
+  "dimensions": {
+    "width": 2048,
+    "height": 1024
+  },
+  "metadata": {
+    "generator_algorithm_version": "1",
+    "recipe_hash": "96c7a3d188e73deff2c26c9ee9bd8a2621a1d4dd78d37fe5abe8f7f575c28b4e",
+    "parameter_hash": "1eaf267577c2345cfa607e3b08d021c85d4a8406c561d1c39753cffafcf063be",
+    "seed": 41827,
+    "physical_tile_width_m": 2.4,
+    "physical_tile_height_m": 1.2,
+    "height_min_m": -0.04,
+    "height_max_m": 0.02,
+    "neutral_height_m": 0.0,
+    "displacement_map": true,
+    "normal_convention": "open_gl"
+  },
+  "maps": [
+    {
+      "file": "FoundationStonework_albedo.png",
+      "format": "RGB8",
+      "color_space": "sRGB",
+      "width": 2048,
+      "height": 1024,
+      "sha256": "6f3928b5c4c4ba27c1d178b53a0b0ba9fefb62728813abcdc4a87b1fc52188b8"
+    },
+    {
+      "file": "FoundationStonework_height.png",
+      "format": "Gray16",
+      "color_space": "linear",
+      "width": 2048,
+      "height": 1024,
+      "sha256": "5a00082fe2c790665fdbd37510a1e923cfc0bfd0bab9ac2a334b2d16de445066"
+    },
+    {
+      "file": "FoundationStonework_normal.png",
+      "format": "RGB8",
+      "color_space": "linear",
+      "width": 2048,
+      "height": 1024,
+      "sha256": "ad06c84bcf112e90e0c613f4e5585847eb66a464c3c20a3032c227d0052c8e16"
+    },
+    {
+      "file": "FoundationStonework_occlusion.png",
+      "format": "Gray8",
+      "color_space": "linear",
+      "width": 2048,
+      "height": 1024,
+      "sha256": "956586a02db01b274e254c5a18e0b80b520110e5e21cc24a9c3c0068aa2c595d"
+    },
+    {
+      "file": "FoundationStonework_mask.png",
+      "format": "RGBA8",
+      "color_space": "linear",
+      "width": 2048,
+      "height": 1024,
+      "sha256": "59eb81273bdb1b5c9a83c9e87ca9af018748ca57cd1da29975d481dc53ea1d80"
+    }
+  ],
+  "packed_channels": [
+    "A=opaque_one",
+    "B=unused_zero",
+    "G=occlusion",
+    "R=height_8bit"
+  ]
+}

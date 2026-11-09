@@ -172,6 +172,8 @@ impl HeightField {
 /// The field pass selected by a texture recipe.
 #[derive(Clone, Debug, PartialEq)]
 pub enum FieldProgram {
+    /// Staggered courses of dressed stone with recessed mortar.
+    Masonry(recipe::MasonrySettings),
     /// A small, general-purpose fBM field for material experiments.
     Layered(LayeredField),
     /// Connected, bevelled cellular slabs with branching fractures.
@@ -188,6 +190,9 @@ impl FieldProgram {
         seed: u64,
     ) -> Result<HeightField, FieldError> {
         let values = match self {
+            Self::Masonry(settings) => {
+                super::masonry::generate_height_values(settings, dimensions, seed)
+            }
             Self::Layered(config) => evaluate_layered(*config, dimensions, seed),
             Self::CrackedStone(config) => {
                 cracked_stone::generate_height_values(*config, dimensions, seed)
@@ -221,6 +226,7 @@ impl FieldProgram {
             recipe.physical_tile_height_m,
         )?;
         let program = match &recipe.material {
+            recipe::MaterialModel::Masonry(settings) => Self::Masonry(*settings),
             recipe::MaterialModel::LayeredNoise {
                 frequency,
                 amplitude,

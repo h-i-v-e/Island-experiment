@@ -112,6 +112,133 @@ and call public `IslandGenerator.GenerateAsync(request, cancellationToken, budge
 queries, and `Clear()` expose lifetime and readiness. Terrain ready does not mean
 navigation is ready; use the optional navigation package's readiness contract.
 
+## Building footprint queries
+
+`IslandWorldManager` and a standalone `IslandGenerator` implement
+`ITerrainFootprintQuery`. Give the query a rectangle in world XZ, with full width
+and depth in metres and an optional Unity Y-axis rotation:
+
+```csharp
+var footprint = new TerrainFootprint(
+    new Vector2(buildingPosition.x, buildingPosition.z),
+    new Vector2(12f, 8f),
+    yawDegrees: 30f);
+var status = world.QueryTerrainFootprint(footprint, out var ground);
+
+bool canBuild = status == TerrainFootprintQueryStatus.Complete
+    && ground.IsDryLand
+    && ground.MinimumSeaClearance >= 1f
+    && ground.HeightRange <= .75f
+    && ground.MaximumSlopeDegrees <= 8f;
+if (canBuild)
+{
+    // Example policy: place a level foundation above the highest terrain.
+    float foundationHeight = ground.MaximumHeight;
+}
+```
+
+An axis-aligned Unity `Rect` is also accepted through
+`new TerrainFootprint(worldXZRectangle)`. Rectangle queries use the prepared CPU
+collision heightfield, including every intersected lattice cell inside the
+rectangle rather than just its corners. Height bounds and maximum slope are
+conservative at that lattice's resolution; boundary cells can extend slightly
+outside the rectangle. The default 2,000-metre island has about 0.244-metre
+heightfield spacing. These are terrain bounds, excluding caves, trees, rocks,
+other buildings and animated water waves.
+
+Results include `MinimumHeight`, `MaximumHeight`, `HeightRange`,
+`MaximumSlopeDegrees`, `MinimumSeaClearance`, `RequestedArea`, `TerrainArea`,
+`OpenSeaArea`, `UnknownArea`, `CoverageFraction` and `TestedCellCount`. Areas are
+square metres. A complete query can contain underwater terrain or known open
+sea; `IsDryLand` additionally requires full terrain coverage at or above the
+base sea plane. The clearance, slope and relief limits in the example are
+building policy, so choose them for each structure. Check `HasTerrain` before
+using height or slope values: those are `NaN` when no terrain is available.
+
+World queries cross section boundaries, including the rotated south coast.
+They leave streaming focus, generation requests and collider residency alone,
+and do not depend on the GPU material readback. Expected terrain without a
+prepared heightfield returns `Incomplete`; a factory-confirmed empty sea cell
+contributes known open-sea coverage. A standalone generator treats portions
+outside its terrain as unknown. Scaled or tilted terrain returns
+`UnsupportedTransform`; translation and yaw are supported.
+
+The synchronous main-thread call has a shared default budget of 262,144 world
+section and heightfield-cell candidate tests. Pass `maximumCellTests` explicitly
+for a larger footprint. `WorkLimitExceeded` preserves partial evidence and
+never reports complete coverage. Invalid dimensions, non-finite coordinates,
+positions beyond the world grid's float precision or an invalid budget return
+`InvalidInput`. The query reuses existing sample blocks
+and small stack buffers, without copying heightfields or creating colliders.
+
+## Runtime building foundations
+
+Add **Motu > Placement > Terrain Foundation** (`Motu.World.TerrainFoundation`)
+to a building or the root of a building/prop group. Active child mesh bounds
+define a rectangle aligned with the root's yaw, including scaled and rotated
+children. Collider bounds are used when the group has no active meshes.
+**Footprint Root** can instead point to a parent group from a child component.
+
+At runtime the component finds an `IslandWorldManager` or `IslandGenerator`,
+or uses the explicitly assigned **Terrain Source**. It queries the entire
+padded rectangle through `ITerrainFootprintQuery`. Width and depth round up
+before probing so the query includes the complete enlarged base. Dimensions
+are whole texture repeats on every face: width uses the tile width, depth
+uses the shortest shared repeat of tile width and height (for walls and caps),
+and thickness uses the tile height. With the default 2.4 by 1.2 metre tile,
+both horizontal dimensions grow in 2.4 metre steps and thickness grows downward
+in 1.2 metre steps. The level platform top is
+exactly `MaximumHeight`; its bottom reaches `MinimumHeight`, plus the optional
+**Embedment Metres** below that point. **Minimum Thickness Metres** keeps flat
+ground foundations solid. By default the content root moves only vertically
+so the lowest building/prop bound rests on the top. Disable **Align Object To
+Platform** if a placement system already positions the content.
+
+The generated child has a shared stonework material and a collider. Stonework
+repeats in physical metres on all faces instead of stretching to fill each
+platform. Padding, thickness, embedment, texture tile dimensions and a material
+override are available in the Inspector. An assigned material override uses
+the same metre-based UVs. The default tile is 2.4 by 1.2 metres.
+
+Unknown, missing, over-budget and partly open-sea footprints never produce a
+base or move the group. Dry land is required by default. Automatic placement
+retries missing terrain/source data every half second for up to **Terrain Wait
+Seconds** (default 30), then stops with a status message. It never requests
+terrain generation or changes streaming focus. A successful component does no
+per-frame work. Runtime placement code can build/refit explicitly:
+
+```csharp
+var foundation = building.AddComponent<TerrainFoundation>();
+foundation.PaddingMetres = .5f;
+if (foundation.TryBuild(world))
+    Debug.Log($"Foundation top: {foundation.GroundSample.MaximumHeight}");
+```
+
+`TryBuild()` auto-detects the provider; `TryBuild(ITerrainFootprintQuery)` accepts
+one directly. Inspect `Status`, `GroundSample`, `Footprint`, `IsBuilt` and
+`Platform` for placement feedback. Rebuild after moving or changing a group;
+the same owned mesh/object is reused, and the generated base is excluded from
+subsequent bounds. Failed rebuilds leave a previously valid base untouched.
+
+`Materials/FoundationStonework.recipe.json` is editable in **Island Material
+Studio**, the standalone Rust application. The **Coursed masonry** model uses
+half-stone staggered courses, slightly varied stone widths, bevelled/chipped
+edges, textured stone faces, per-stone colour variation and recessed mortar.
+Even course counts make the running bond tile seamlessly vertically.
+Its baked albedo, normal, AO,
+height, packed mask and metadata live in
+`Runtime/Resources/Motu/FoundationStonework/`; the shared Unity URP material is
+`Runtime/Resources/Motu/FoundationStonework.mat`. Re-bake with the same Rust
+generator used by the Studio, preserving Unity `.meta` files:
+
+```sh
+cargo run --manifest-path island-rs/Cargo.toml --no-default-features \
+  --bin island-texture-baker -- \
+  --recipe packages/com.motu.runtime/Materials/FoundationStonework.recipe.json \
+  --output packages/com.motu.runtime/Runtime/Resources/Motu/FoundationStonework \
+  --profile motu_unity_terrain --normal-convention open-gl --force
+```
+
 ## Periodic coastal strips
 
 **Terrain Shape > Coastal Strip** selects a flat coastal section instead of a
@@ -173,6 +300,109 @@ Coastal generation currently uses the CPU pipeline; explicitly selecting GPU
 generation for a coastal section returns an error.
 After installing the updated native library, restart Unity before generating a
 coast in an editor that has already loaded Motu.
+
+## Coherent weather and travelling squalls
+
+The game and island demo's `CoherentWeatherDriver` components own automatic
+squall formation. Their **Travelling squalls** controls include the active limit
+(default three, adjustable from one to three) and a **Squall Formation Threshold**
+(default 0.45). Formation activity combines cloud coverage (65%) with wind
+strength (35%, reaching full activity at 25 m/s). Above the threshold this is
+smoothly mapped to a zero-to-one activity value. Current activity continuously
+controls the supported population (up to the authored limit), cell strength
+and formation rate within the configured minimum/maximum interval. There is
+no separate random spawn clock: fair weather resets formation progress, and
+a long frame creates at most one new cell.
+
+An assigned coherent driver retains ownership when disabled, so disabling
+the driver pauses formation. Existing cloud/rain/lightning and local wind gains
+follow the changing weather, blending over **Fade Seconds**. Improving weather
+reduces the supported population; excess cells dissolve even when nearby.
+Lifetime expiry still protects encounterable cells while weather supports them.
+Movement follows the current ambient wind speed, with independent coherent
+heading noise wandering up to **45 degrees either side of downwind**. The cone
+tracks the live wind direction; each cell has its own heading sequence. The
+**Maximum Heading Deviation Degrees** and **Heading Variation Seconds** controls
+default to 45 degrees and 90 seconds. A zero angle restores straight downwind
+travel. Speed retains its separate coherent variation, from zero to **eight
+times ambient wind speed** by default. The wind/wave field's
+advection velocity matches the curved motion. A standalone environment with
+no scheduling driver, including the weather playground, retains its explicit
+automatic preview controls. Manual horizon spawning remains available on both
+the driver and environment. New horizon cells try to keep their rain cores
+apart; explicitly positioned cells can overlap.
+
+`WorldEnvironmentController.ActiveSquallCount` and `GetSquall(index)` expose the
+active cells. `Squall` retains the first active cell for existing displays.
+`SpawnSquall(out WorldSquallState spawned)` returns the actual new cell, while
+`ClearSquall()` clears all cells. `WindSpeedAt(worldPoint)` and
+`SquallWindMultiplierAt(worldXZ)` sample the strongest local cell. Overlapping
+gains do not multiply. The same three fields and their advection velocities
+drive vegetation, rendered waves and buoyancy queries; each GPU query snapshots
+all three fields so a later weather update cannot change an in-flight result.
+
+Under a squall the ocean's existing waves grow with the square root of the local
+wind multiplier, including when ambient weather has reached its ordinary height
+cap. Three shorter, crest-biased wind-wave bands add geometric chop inside the
+same footprint. They use the integrated wind phase and fade through the storm's
+edge and lifecycle; outside water keeps its original wave field. Whitecaps cover
+more of each crest and deposit more foam, including in already windy weather.
+The rendered surface, normals, foam history and buoyancy queries share this
+response. Shallow-water limits and island shelter still apply, and culling
+bounds include both the increased height and horizontal storm chop.
+
+Squall diameters range from **200 to 1,000 metres across**. Lightning frequency
+scales continuously with travel speed: the authored **Lightning Interval Seconds**
+applies at top speed, slower cells strike less often, and stopped cells never
+strike. Its clock retains phase across speed changes and does not depend on
+visual culling. Each strike has one thunder clap, including bolts with several
+flash sub-pulses.
+
+Rain intensity increases smoothly from zero at the rain-core edge to full
+intensity at its centre, for both the distant rain volume and nearby droplets.
+Leaving the cell stops new drops while airborne drops finish their world-space
+fall and fade over their lifetime. They remain renderable when the cloud itself
+has moved out of view.
+
+The storm also carries a depth-clipped volumetric rain curtain, independently
+visible with nearby droplets disabled. Broad wind-slanted shafts and finer
+noise fall through the full cloud-to-water column. Their texture filtering
+follows ray-sample spacing and camera resolution to avoid distant shimmer.
+The whole curtain slants downwind with the actual weather wind and local squall
+boost, independently of the cell's wandering travel speed. Nearby drops use
+the same drift and spawn upwind so they still pass the viewer in strong wind.
+Sea mist stays anchored to the real sea level while the cloud proxy sinks at
+the horizon. Rain and cloud share the same integration and scene/water depth,
+so nearer hulls and terrain occlude the rain while distant surfaces disappear
+gradually through its depth.
+
+A `Resources/SquallAudio` (`SquallAudioProfile`) asset supplies near, medium
+and far thunder banks, volume and listening range. TerraNullus uses all four
+recordings in each group under `Assets/LightningSounds`. Selection happens at
+sound arrival: near is reserved for the emitting storm's active rain core;
+medium covers outside the core up to half the current squall visibility range;
+far covers the outer half and beyond. With4km visibility, far starts at2km.
+The boundary uses the live storm centre, independent of bolt jitter and the
+4km hearing range. Each bank varies recordings without immediate repeats.
+The former single-clip field remains a fallback for older audio profiles. Thunder travels at a configurable default **343 m/s**, using the
+active listener's distance from the fixed strike position and updating for player
+movement while the sound is on its way. The default 4 km spatial range carries
+horizon thunder, with distance muffling. Custom 3D volume rolloff retains full
+volume within 50 m, reaches **75% at 1 km** and **50% at 2 km**, then fades smoothly
+to silence at 4 km. These gains multiply the recording and storm's base volume.
+Emitted sounds survive storm movement,
+culling and retirement; environment release stops their bounded voice pool.
+
+Waterfall audio now follows its spatial range independently of close-detail
+mist. Leaving the nearest terrain-detail neighborhood hides mist without
+stopping or restarting an audible loop. Slots retire beyond both the visual
+retirement margin and the authored audio range, after the linear rolloff is silent.
+
+Each cell has its own cloud/rain/lightning visuals. The render pass shares one
+depth copy and draws every visible volume, including when another cell is off
+camera. Cloud noise textures remain shared, and close-rain particle budgets
+remain bounded per cell. Additional visible volumetric clouds add GPU work;
+the active limit is the quality control for that cost.
 
 ## World and water
 

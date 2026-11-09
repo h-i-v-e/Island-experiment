@@ -1,0 +1,280 @@
+{
+  "name": "FoundationStonework",
+  "seed": 41827,
+  "parameters": {
+    "stone_colour": {
+      "kind": "colour",
+      "default": [
+        0.25,
+        0.235,
+        0.21
+      ],
+      "description": "Weathered foundation masonry"
+    }
+  },
+  "width": 2048,
+  "height": 1024,
+  "physical_tile_width_m": 2.4,
+  "physical_tile_height_m": 1.2,
+  "material": {
+    "kind": "masonry",
+    "cells_x": 4,
+    "cells_y": 4,
+    "joint_jitter": 0.1,
+    "mortar_width": 0.016,
+    "bevel_width": 0.014,
+    "mortar_depth": 0.027,
+    "stone_variation": 0.006,
+    "edge_roughness": 0.004,
+    "surface_amplitude": 0.0035,
+    "colour_variation": 0.38
+  },
+  "layers": [
+    {
+      "id": "broad-colour-and-relief",
+      "name": "Broad colour and relief",
+      "enabled": true,
+      "source": {
+        "kind": "fbm",
+        "frequency": 3,
+        "octaves": 3,
+        "lacunarity": 2.0,
+        "gain": 0.5,
+        "offset": [
+          0.0,
+          0.0
+        ],
+        "seed_domain": 101,
+        "domain_warp": null
+      },
+      "remap": {
+        "input_min": -1.0,
+        "input_max": 1.0,
+        "invert": false,
+        "contrast": 1.0,
+        "bias": 0.0,
+        "clamp": true
+      },
+      "mask": null,
+      "outputs": {
+        "height": {
+          "enabled": true,
+          "blend": {
+            "kind": "add"
+          },
+          "strength_m": 0.001
+        },
+        "albedo": {
+          "enabled": true,
+          "blend": "mix",
+          "strength": 0.2,
+          "colour_map": {
+            "kind": "gradient",
+            "stops": [
+              {
+                "position": 0.0,
+                "colour": [
+                  0.12,
+                  0.11,
+                  0.095
+                ]
+              },
+              {
+                "position": 1.0,
+                "colour": [
+                  0.35,
+                  0.32,
+                  0.27
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "stone-grain",
+      "name": "Fine mineral grain",
+      "enabled": true,
+      "source": {
+        "kind": "fbm",
+        "frequency": 128,
+        "octaves": 2,
+        "lacunarity": 2.0,
+        "gain": 0.5,
+        "offset": [
+          0.0,
+          0.0
+        ],
+        "seed_domain": 8191,
+        "domain_warp": null
+      },
+      "remap": {
+        "input_min": -1.0,
+        "input_max": 1.0,
+        "invert": false,
+        "contrast": 1.0,
+        "bias": 0.0,
+        "clamp": true
+      },
+      "mask": {
+        "kind": "previous_height",
+        "bottom_m": -0.02,
+        "top_m": -0.006,
+        "invert": false
+      },
+      "outputs": {
+        "height": {
+          "enabled": false,
+          "blend": {
+            "kind": "add"
+          },
+          "strength_m": 0
+        },
+        "albedo": {
+          "enabled": true,
+          "blend": "multiply",
+          "strength": 0.35,
+          "colour_map": {
+            "kind": "gradient",
+            "stops": [
+              {
+                "position": 0.0,
+                "colour": [
+                  0.45,
+                  0.43,
+                  0.4
+                ]
+              },
+              {
+                "position": 1.0,
+                "colour": [
+                  0.95,
+                  0.93,
+                  0.88
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "recessed-mortar",
+      "name": "Dark recessed mortar",
+      "enabled": true,
+      "source": {
+        "kind": "fbm",
+        "frequency": 6,
+        "octaves": 3,
+        "lacunarity": 2.0,
+        "gain": 0.5,
+        "offset": [
+          0.0,
+          0.0
+        ],
+        "seed_domain": 101,
+        "domain_warp": null
+      },
+      "remap": {
+        "input_min": -1.0,
+        "input_max": 1.0,
+        "invert": false,
+        "contrast": 1.0,
+        "bias": 0.0,
+        "clamp": true
+      },
+      "mask": {
+        "kind": "previous_height",
+        "bottom_m": -0.018,
+        "top_m": -0.008,
+        "invert": true
+      },
+      "outputs": {
+        "height": {
+          "enabled": false,
+          "blend": {
+            "kind": "add"
+          },
+          "strength_m": 0
+        },
+        "albedo": {
+          "enabled": true,
+          "blend": "mix",
+          "strength": 0.9,
+          "colour_map": {
+            "kind": "gradient",
+            "stops": [
+              {
+                "position": 0.0,
+                "colour": [
+                  0.065,
+                  0.06,
+                  0.05
+                ]
+              },
+              {
+                "position": 1.0,
+                "colour": [
+                  0.09,
+                  0.082,
+                  0.065
+                ]
+              }
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "normal_scale": 1.0,
+  "displacement": {
+    "minimum_m": -0.04,
+    "maximum_m": 0.02,
+    "base_m": 0.0,
+    "displacement_map": true
+  },
+  "occlusion": {
+    "directions": 8,
+    "samples": 6,
+    "radius": 1.0,
+    "max_radius": 8.0,
+    "cavity_strength": 1.3,
+    "horizon_strength": 0.7,
+    "power": 1.0,
+    "combine": {
+      "kind": "multiply"
+    }
+  },
+  "albedo": {
+    "base_color": {
+      "parameter": "stone_colour"
+    },
+    "warm_color": [
+      0.34,
+      0.29,
+      0.23
+    ],
+    "palette": [
+      {
+        "parameter": "stone_colour"
+      },
+      {
+        "parameter": "stone_colour"
+      },
+      {
+        "parameter": "stone_colour"
+      }
+    ],
+    "variation": 0.6,
+    "crack_darkening": 0.65,
+    "shoulder_variation": 0.08,
+    "mineral_density": 0.012,
+    "mineral_brightness": 0.08,
+    "occlusion_influence": 0.18
+  },
+  "output_profiles": [
+    "separate",
+    "motu_unity_terrain"
+  ]
+}

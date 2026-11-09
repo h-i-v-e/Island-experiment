@@ -236,12 +236,14 @@ namespace Motu.World
             UpdateSolarLighting(Time.unscaledDeltaTime);
             ApplyCloudSettings(Time.unscaledDeltaTime);
             ApplyWeatherWind();
+            AdvanceSqualls(Time.deltaTime);
             ApplyDistanceHazeSettings();
         }
 
         private void LateUpdate()
         {
             UpdateAnchor(false);
+            UpdateSquallVisuals(Time.timeScale > 0f ? Time.deltaTime : 0f);
         }
 
         private void OnValidate()
@@ -252,6 +254,7 @@ namespace Motu.World
         private void OnDestroy()
         {
             ReleaseEnvironment();
+            DisposeSqualls();
             DestroyUnityObject(skyDomeObject);
             DestroyUnityObject(moonLightObject);
             if (ownsOcean) DestroyUnityObject(ocean);

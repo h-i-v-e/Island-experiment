@@ -193,20 +193,68 @@ fn material_editor(ui: &mut egui::Ui, material: &mut MaterialModel) -> bool {
         MaterialModel::LayeredNoise { .. } => 0,
         MaterialModel::CrackedStone { .. } => 1,
         MaterialModel::RoundedStones { .. } => 2,
+        MaterialModel::Masonry(_) => 3,
     };
     let mut selected = current;
     egui::ComboBox::from_label("Kind")
-        .selected_text(["Layered noise", "Cracked stone", "Rounded stones"][selected])
+        .selected_text(
+            [
+                "Layered noise",
+                "Cracked stone",
+                "Rounded stones",
+                "Coursed masonry",
+            ][selected],
+        )
         .show_ui(ui, |ui| {
             ui.selectable_value(&mut selected, 0, "Layered noise");
             ui.selectable_value(&mut selected, 1, "Cracked stone");
             ui.selectable_value(&mut selected, 2, "Rounded stones");
+            ui.selectable_value(&mut selected, 3, "Coursed masonry");
         });
     if selected != current {
         *material = material_default(selected);
         changed = true;
     }
     match material {
+        MaterialModel::Masonry(settings) => {
+            changed |= u32_row(ui, "Stones per course", &mut settings.cells_x, 1.0);
+            changed |= u32_row(ui, "Courses (even)", &mut settings.cells_y, 2.0);
+            changed |= f32_row_range(
+                ui,
+                "Joint variation",
+                &mut settings.joint_jitter,
+                0.01,
+                0.0..=0.2,
+            );
+            changed |= f32_row(ui, "Mortar width (m)", &mut settings.mortar_width, 0.001);
+            changed |= f32_row(ui, "Stone bevel (m)", &mut settings.bevel_width, 0.001);
+            changed |= f32_row(ui, "Mortar depth (m)", &mut settings.mortar_depth, 0.001);
+            changed |= f32_row(
+                ui,
+                "Stone relief variation (m)",
+                &mut settings.stone_variation,
+                0.001,
+            );
+            changed |= f32_row(
+                ui,
+                "Chipped edges (m)",
+                &mut settings.edge_roughness,
+                0.0005,
+            );
+            changed |= f32_row(
+                ui,
+                "Surface grain (m)",
+                &mut settings.surface_amplitude,
+                0.0005,
+            );
+            changed |= f32_row_range(
+                ui,
+                "Stone colour variation",
+                &mut settings.colour_variation,
+                0.01,
+                0.0..=1.0,
+            );
+        }
         MaterialModel::LayeredNoise {
             frequency,
             amplitude,
@@ -325,7 +373,8 @@ fn material_default(kind: usize) -> MaterialModel {
         0 => MaterialModel::default(),
         1 => serde_json::from_value(serde_json::json!({ "kind": "cracked_stone" })).unwrap(),
         2 => serde_json::from_value(serde_json::json!({ "kind": "rounded_stones" })).unwrap(),
-        _ => unreachable!("material selector has exactly three variants"),
+        3 => serde_json::from_value(serde_json::json!({ "kind": "masonry" })).unwrap(),
+        _ => unreachable!("material selector has exactly four variants"),
     }
 }
 

@@ -17,6 +17,42 @@ namespace Motu.Gameplay
         [SerializeField]
         private int seed = 42;
 
+        [Header("Travelling squalls")]
+        [SerializeField] private SquallWeatherSettings squalls = SquallWeatherSettings.Default;
+        public SquallWeatherSettings Squalls { get => squalls.Validated(); set => squalls = value.Validated(); }
+        [Tooltip("Cloud and wind activity above which squalls develop. Their number and strength follow the changing weather.")]
+        [Range(0f, 1f)] [SerializeField] private float squallFormationThreshold = .45f;
+        private readonly CoherentSquallScheduler squallScheduler = new CoherentSquallScheduler();
+        public float SquallFormationThreshold
+        {
+            get => squallFormationThreshold;
+            set
+            {
+                if (!float.IsFinite(value)) throw new ArgumentOutOfRangeException(nameof(value));
+                squallFormationThreshold = Mathf.Clamp01(value);
+            }
+        }
+        public override bool ControlsSquallSpawning => true;
+        public override float GetSquallActivity(WorldWeatherState weather) =>
+            CoherentSquallScheduler.WeatherActivity(weather, squallFormationThreshold);
+        public override void UpdateSquallSpawning(WorldEnvironmentController environment, float deltaTime) =>
+            squallScheduler.Advance(environment, deltaTime, squallFormationThreshold);
+
+
+        [ContextMenu("Spawn squall on horizon")]
+        private void SpawnSquallOnHorizon()
+        {
+            var environment = FindAnyObjectByType<WorldEnvironmentController>();
+            if (environment == null || !environment.IsInstalled) return;
+            var weather = environment.Weather;
+            weather.Squalls = squalls;
+            environment.ApplyWeather(weather);
+            environment.SpawnSquall();
+        }
+
+        [ContextMenu("Clear all squalls")]
+        private void ClearSquall() => FindAnyObjectByType<WorldEnvironmentController>()?.ClearSquall();
+
         readonly struct DirectionAndSpeed
         {
             internal readonly Vector2 direction;
@@ -45,6 +81,7 @@ namespace Motu.Gameplay
             directionOffset = (float)random.NextDouble() * 1024f;
             cloudOffset = (float)random.NextDouble() * 1024f;
             elapsedSeconds = 0f;
+            squallScheduler.Reset();
         }
 
         private static Vector2 Rotate(Vector2 v, float delta) {
@@ -80,6 +117,7 @@ namespace Motu.Gameplay
 
         public override void UpdateWeather(ref WorldWeatherState weather, float deltaTime)
         {
+            weather.Squalls = squalls;
             elapsedSeconds += Mathf.Max(deltaTime, 0f);
             var fine = DirectionFromNoise(125f + elapsedSeconds * 0.0125f);
             var minor = DirectionFromNoise(25f + elapsedSeconds * 0.0025f);

@@ -217,7 +217,7 @@ Shader "Motu/Sea Water"
                     foamAllowance);
                 float2 oceanOrigin = float2(unity_ObjectToWorld._m03, unity_ObjectToWorld._m23);
                 float crestResponse = MotuOceanSurfaceTranslucency(input.deckWaveData.z,
-                    analyticCrestResponse, length(input.waveSamplePosition - oceanOrigin));
+                    analyticCrestResponse, length(input.waveSamplePosition - oceanOrigin), input.waveSamplePosition);
                 whitecap = MotuOceanSurfaceFoam(whitecap,
                     MotuOceanHistoryFoam(input.worldPosition.xz),
                     foamAllowance, input.deckWaveData.z);

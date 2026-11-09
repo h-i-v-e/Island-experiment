@@ -174,7 +174,9 @@ namespace Motu.Rendering
 
         private void RefreshAssignments(Vector3 playerPosition, Vector2Int activeLod1)
         {
-            var retirementSquared = RetirementRadius * RetirementRadius;
+            var audioRadius = audioProfile != null && audioProfile.Loop != null ? audioProfile.MaximumDistance : 0f;
+            var retirementRadius = Mathf.Max(RetirementRadius, audioRadius + RequeryMovement);
+            var retirementSquared = retirementRadius * retirementRadius;
             for (var slotIndex = 0; slotIndex < slots.Length; slotIndex++)
             {
                 var footIndex = slots[slotIndex].footIndex;
@@ -183,18 +185,26 @@ namespace Motu.Rendering
                     continue;
                 }
                 var foot = index.FootAt(footIndex);
-                if (DistanceToImpactSquared(foot, playerPosition) > retirementSquared
-                    || !IsInActiveLod0Area(foot.position, activeLod1))
+                var distanceSquared = DistanceToImpactSquared(foot, playerPosition);
+                if (distanceSquared > retirementSquared)
                 {
                     ReleaseSlot(slots[slotIndex]);
+                }
+                else
+                {
+                    // Mist belongs to the nearest terrain detail, but its loop
+                    // must remain alive until spatial attenuation reaches silence.
+                    slots[slotIndex].renderer.enabled = distanceSquared <= RetirementRadius * RetirementRadius
+                        && IsInActiveLod0Area(foot.position, activeLod1);
                 }
             }
 
             var nearestCount = 0;
-            var activationSquared = ActivationRadius * ActivationRadius;
+            var activationRadius = Mathf.Max(ActivationRadius, audioRadius);
+            var activationSquared = activationRadius * activationRadius;
             index.CellsIntersecting(
                 playerPosition,
-                ActivationRadius + faceRun,
+                activationRadius + faceRun,
                 out var minimumX,
                 out var maximumX,
                 out var minimumY,
@@ -212,12 +222,11 @@ namespace Motu.Rendering
                             continue;
                         }
                         var foot = index.FootAt(footIndex);
-                        if (!IsInActiveLod0Area(foot.position, activeLod1))
-                        {
-                            continue;
-                        }
                         var distanceSquared = DistanceToImpactSquared(foot, playerPosition);
-                        if (distanceSquared <= activationSquared)
+                        var mistNearby = distanceSquared <= ActivationRadius * ActivationRadius
+                            && IsInActiveLod0Area(foot.position, activeLod1);
+                        var audible = distanceSquared < audioRadius * audioRadius;
+                        if (distanceSquared <= activationSquared && (mistNearby || audible))
                         {
                             InsertNearest(footIndex, distanceSquared, ref nearestCount);
                         }
@@ -232,7 +241,7 @@ namespace Motu.Rendering
             {
                 if (slots[slotIndex].footIndex < 0)
                 {
-                    AssignSlot(slots[slotIndex], nearestIndices[nearestOffset++]);
+                    AssignSlot(slots[slotIndex], nearestIndices[nearestOffset++], playerPosition, activeLod1);
                 }
             }
             while (nearestOffset < nearestCount)
@@ -247,7 +256,7 @@ namespace Motu.Rendering
                 {
                     break;
                 }
-                AssignSlot(slots[farthestSlot], nearestIndices[nearestOffset++]);
+                AssignSlot(slots[farthestSlot], nearestIndices[nearestOffset++], playerPosition, activeLod1);
             }
         }
 
@@ -353,7 +362,7 @@ namespace Motu.Rendering
             return direction.sqrMagnitude < .5f ? Vector3.forward : direction;
         }
 
-        private void AssignSlot(Slot slot, int footIndex)
+        private void AssignSlot(Slot slot, int footIndex, Vector3 playerPosition, Vector2Int activeLod1)
         {
             var foot = index.FootAt(footIndex);
             if (!TryGetImpactPosition(foot, out var impactPosition))
@@ -395,7 +404,8 @@ namespace Motu.Rendering
                     Mathf.Repeat(footIndex * 0.7320508f, 1f) * 17f,
                     0f));
             slot.renderer.SetPropertyBlock(slot.properties);
-            slot.renderer.enabled = true;
+            slot.renderer.enabled = (impactPosition - playerPosition).sqrMagnitude <= ActivationRadius * ActivationRadius
+                && IsInActiveLod0Area(foot.position, activeLod1);
             if (slot.audio != null)
             {
                 slot.audio.Stop();

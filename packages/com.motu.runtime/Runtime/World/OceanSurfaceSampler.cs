@@ -87,6 +87,7 @@ namespace Motu.World
             material.SetTexture(WindNoiseId, Shader.GetGlobalTexture(WindNoiseId) ?? Texture2D.grayTexture);
             material.SetVector(WeatherWindId, Shader.GetGlobalVector(WeatherWindId));
             material.SetVector(WindOffsetId, Shader.GetGlobalVector(WindOffsetId));
+            WorldSquallShader.SnapshotTo(material);
             var previous = RenderTexture.active;
             Graphics.Blit(Texture2D.blackTexture, results, material);
             RenderTexture.active = previous;

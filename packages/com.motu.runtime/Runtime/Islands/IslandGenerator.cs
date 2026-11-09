@@ -13,7 +13,7 @@ using Motu.World;
 namespace Motu.Islands
 {
     [UnityEngine.Scripting.APIUpdating.MovedFrom(true, sourceNamespace: "", sourceAssembly: "Assembly-CSharp", sourceClassName: "IslandGenerator")]
-    public sealed partial class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery
+    public sealed partial class IslandGenerator : MonoBehaviour, IWorldSurfaceQuery, ITerrainFootprintQuery
     {
         private const float SeaHeight = 0f;
         private const float RockPatchNoiseDetailScale = 8f;
