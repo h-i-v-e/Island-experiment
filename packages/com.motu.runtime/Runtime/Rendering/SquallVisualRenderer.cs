@@ -13,7 +13,7 @@ namespace Motu.Rendering
     internal sealed class SquallVisualRenderer : IDisposable
     {
         private const int BoltSegments = 32, MainSegments = 16;
-        private const float RainFallSpeed = 38f;
+        private const float RainFallSpeed = WorldSquallRain.FallSpeed;
         private readonly GameObject root;
         private readonly Transform cloud;
         private readonly MeshRenderer cloudRenderer, boltRenderer;
@@ -130,9 +130,9 @@ namespace Motu.Rendering
             root.transform.SetPositionAndRotation(state.Center - Vector3.up * sinking, Quaternion.identity);
             if (!registered) { visibleOwners.Add(this); registered = true; }
             UpdateLightning(state, settings, viewer, diameter);
-            var rainDrift = Vector2.ClampMagnitude(windVelocity * .85f, 40f);
+            var rainDrift = WorldSquallRain.Drift(windVelocity);
             ConfigureVolume(state, settings, diameter, cloudBase, thickness, rainDrift);
-            UpdateDrops(state, settings, viewer, diameter, cloudBase, rainDrift);
+            UpdateDrops(state, settings, viewer, cloudBase, rainDrift);
         }
 
         private void ConfigureVolume(WorldSquallState state, SquallWeatherSettings settings,
@@ -244,16 +244,12 @@ namespace Motu.Rendering
         }
 
         private void UpdateDrops(WorldSquallState state, SquallWeatherSettings settings, Vector3 viewer,
-            float diameter, float cloudBase, Vector2 rainDrift)
+            float cloudBase, Vector2 rainDrift)
         {
             float advance = previousAge < 0 ? 0 : Mathf.Clamp(state.AgeSeconds - previousAge, 0, .1f);
             previousAge = state.AgeSeconds;
-            Vector2 delta = new Vector2(viewer.x - state.Center.x, viewer.z - state.Center.z);
-            delta -= rainDrift * (Mathf.Max(0, root.transform.position.y + cloudBase - viewer.y) / RainFallSpeed);
-            // Match the distant rain volume: gentle at the rim, heaviest at the centre.
-            float coverage = Mathf.SmoothStep(0, 1, 1 - delta.magnitude / (diameter * .5f));
-            float localRain = coverage * state.Strength * Mathf.Max(0, settings.RainIntensity);
-            localRain *= Mathf.Lerp(.4f, 1f, state.SpeedMultiplier / Mathf.Max(.001f, settings.MaximumSpeedMultiplier));
+            float localRain = WorldSquallRain.IntensityAt(state, settings, viewer, rainDrift,
+                root.transform.position.y + cloudBase);
             drops.transform.position = viewer;
             if (advance <= 0) return;
             if (localRain > 0) EmitDrops(viewer, advance, localRain, rainDrift);
@@ -286,7 +282,7 @@ namespace Motu.Rendering
                     position = viewer + new Vector3(Mathf.Cos(angle) * radius - upwind.x, height,
                         Mathf.Sin(angle) * radius - upwind.y),
                     velocity = new Vector3(drift.x, -fallSpeed, drift.y),
-                    startLifetime = 1.35f, startSize = .035f + Unit(Hash(hash + 4)) * .025f,
+                    startLifetime = WorldSquallRain.ParticleLifetime, startSize = .035f + Unit(Hash(hash + 4)) * .025f,
                     startColor = new Color(.55f, .62f, .68f, .7f), randomSeed = hash,
                 };
                 drops.Emit(drop, 1);

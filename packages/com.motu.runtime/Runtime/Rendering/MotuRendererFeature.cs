@@ -8,13 +8,14 @@ using UnityEngine.Rendering.Universal.Internal;
 namespace Motu.Rendering
 {
     /// <summary>Procedural shell layers, simplified reflections and camera effects for URP Render Graph.</summary>
-    public sealed class MotuRendererFeature : ScriptableRendererFeature
+    public sealed partial class MotuRendererFeature : ScriptableRendererFeature
     {
         [SerializeField] private bool simplifiedReflections;
         private GeometryPass[] geometry;
         private EffectPass ambientOcclusion, underwater;
         private ReflectionFogPass reflectionFog;
         private SquallVolumePass squall;
+        private SquallWetnessPass wetness;
 
         public override void Create()
         {
@@ -32,6 +33,7 @@ namespace Motu.Rendering
             ambientOcclusion = new EffectPass(false);
             underwater = new EffectPass(true);
             squall = new SquallVolumePass();
+            wetness = new SquallWetnessPass();
         }
 
         public override void AddRenderPasses(ScriptableRenderer renderer, ref RenderingData renderingData)
@@ -47,6 +49,9 @@ namespace Motu.Rendering
             }
             if (camera.TryGetComponent<RealTimeAmbientOcclusion>(out var ao) && ao.isActiveAndEnabled)
                 renderer.EnqueuePass(ambientOcclusion);
+            if (renderingData.cameraData.renderType == CameraRenderType.Base
+                && camera.TryGetComponent<SquallSurfaceWetness>(out var surfaceWetness) && surfaceWetness.NeedsRender)
+                renderer.EnqueuePass(wetness);
             if (camera.TryGetComponent<OceanUnderwaterView>(out var view) && view.isActiveAndEnabled)
                 renderer.EnqueuePass(underwater);
         }
@@ -56,6 +61,7 @@ namespace Motu.Rendering
             ambientOcclusion?.Dispose();
             reflectionFog?.Dispose();
             squall?.Dispose();
+            wetness?.Dispose();
             reflectionFog = null;
             squall = null;
         }

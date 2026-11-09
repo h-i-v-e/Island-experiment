@@ -560,7 +560,7 @@ namespace Motu.World
             }
             var colour = CurrentSkyHorizonBaseColour() * currentSkyExposure;
             colour.a = 1f;
-            hostState.PrepareCamera(camera, ocean, colour);
+            hostState.PrepareCamera(camera, ocean, colour, this);
         }
     }
 }

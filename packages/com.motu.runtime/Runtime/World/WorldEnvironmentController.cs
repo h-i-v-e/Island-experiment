@@ -189,7 +189,7 @@ namespace Motu.World
 
         public void BindReflectionCamera(Camera camera)
         {
-            hostState?.PrepareCamera(camera, ocean);
+            hostState?.PrepareCamera(camera, ocean, environment: this);
         }
 
         public static Vector3 SnapAnchor(

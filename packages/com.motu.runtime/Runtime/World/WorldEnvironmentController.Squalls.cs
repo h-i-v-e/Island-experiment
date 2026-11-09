@@ -26,6 +26,21 @@ namespace Motu.World
         public Transform SquallSpawnTarget { get => squallSpawnTarget; set => squallSpawnTarget = value; }
         private Transform SquallTarget => squallSpawnTarget != null ? squallSpawnTarget : followTarget;
 
+        /// <summary>Local rainfall shared by visible drops and screen-space surface wetness.</summary>
+        public float SquallRainIntensityAt(Vector3 worldPosition)
+        {
+            if (!weather.Squalls.Enabled) return 0;
+            var rain = 0f;
+            foreach (var cell in squalls)
+            {
+                if (!cell.Active) continue;
+                var drift = WorldSquallRain.Drift(weather.WindDirection * WindSpeedAt(cell.Center));
+                rain += WorldSquallRain.IntensityAt(cell, weather.Squalls, worldPosition, drift,
+                    cell.Center.y + Mathf.Max(15, weather.Squalls.CloudBaseMetres));
+            }
+            return rain;
+        }
+
         public WorldSquallState GetSquall(int index)
         {
             if (index < 0 || index >= activeSquallCount) throw new ArgumentOutOfRangeException(nameof(index));

@@ -38,6 +38,13 @@ namespace Motu.World
         [Range(0f, 1.5f)] public float CloudFringeFraction;
         [Range(0f, 1f)] public float DistantOpacity;
         [Range(0f, 4f)] public float RainIntensity;
+        [Header("Surface wetness")]
+        [Range(0f, 1f)] public float SurfaceWetness;
+        [Tooltip("Seconds of full rain needed to reach full wetness.")]
+        [Min(.1f)] public float WettingSeconds;
+        [Tooltip("Drying starts only after rain and its airborne droplets have stopped.")]
+        [Min(.1f)] public float DryingSeconds;
+        [Header("Lightning")]
         [Tooltip("Strike interval at maximum travel speed. Frequency scales with speed, reaching zero when stopped.")]
         [Min(.2f)] public float LightningIntervalSeconds;
         [Range(0f, 20f)] public float LightningBrightness;
@@ -46,7 +53,7 @@ namespace Motu.World
 
         public static SquallWeatherSettings Default => new SquallWeatherSettings
         {
-            Version = 3, Enabled = true, AutomaticSpawning = true, MaximumActiveSqualls = 3,
+            Version = 4, Enabled = true, AutomaticSpawning = true, MaximumActiveSqualls = 3,
             MinimumDiameterMetres = MinimumSupportedDiameterMetres, MaximumDiameterMetres = MaximumSupportedDiameterMetres,
             MinimumSpawnIntervalSeconds = 45f, MaximumSpawnIntervalSeconds = 150f,
             MinimumSpawnDistanceMetres = 2400f, MaximumSpawnDistanceMetres = 3200f,
@@ -57,13 +64,14 @@ namespace Motu.World
             CloudBaseMetres = 60f, CloudThicknessMetres = 100f, CloudDarkness = .9f,
             CloudFringeFraction = .65f, DistantOpacity = .18f,
             RainIntensity = 1f, LightningIntervalSeconds = 2.5f, LightningBrightness = 5f,
+            SurfaceWetness = .75f, WettingSeconds = 6f, DryingSeconds = 40f,
             HorizonStartMetres = 1000f, VisibilityDistanceMetres = 4000f,
         };
 
         internal SquallWeatherSettings Validated()
         {
             var result = this;
-            if (result.Version < 3) result.Upgrade();
+            if (result.Version < 4) result.Upgrade();
             result.MaximumActiveSqualls = Mathf.Clamp(result.MaximumActiveSqualls, 1, MaximumSupportedSqualls);
             result.MinimumDiameterMetres = Clamp(MinimumDiameterMetres, MinimumSupportedDiameterMetres, MaximumSupportedDiameterMetres);
             result.MaximumDiameterMetres = Clamp(MaximumDiameterMetres, result.MinimumDiameterMetres, MaximumSupportedDiameterMetres);
@@ -89,6 +97,9 @@ namespace Motu.World
             result.CloudFringeFraction = Clamp(result.CloudFringeFraction, 0f, 1.5f);
             result.DistantOpacity = Clamp(result.DistantOpacity, 0f, 1f);
             result.RainIntensity = Clamp(RainIntensity, 0f, 4f);
+            result.SurfaceWetness = Clamp(result.SurfaceWetness, 0f, 1f);
+            result.WettingSeconds = Clamp(result.WettingSeconds, .1f, 120f);
+            result.DryingSeconds = Clamp(result.DryingSeconds, .1f, 3600f);
             result.LightningIntervalSeconds = Clamp(LightningIntervalSeconds, .2f, 60f);
             result.LightningBrightness = Clamp(LightningBrightness, 0f, 20f);
             return result;
@@ -106,8 +117,14 @@ namespace Motu.World
                 DistantOpacity = defaults.DistantOpacity;
             }
             if (Version < 2 && MaximumActiveSqualls <= 0) MaximumActiveSqualls = defaults.MaximumActiveSqualls;
-            MaximumHeadingDeviationDegrees = defaults.MaximumHeadingDeviationDegrees;
-            HeadingVariationSeconds = defaults.HeadingVariationSeconds;
+            if (Version < 3)
+            {
+                MaximumHeadingDeviationDegrees = defaults.MaximumHeadingDeviationDegrees;
+                HeadingVariationSeconds = defaults.HeadingVariationSeconds;
+            }
+            SurfaceWetness = defaults.SurfaceWetness;
+            WettingSeconds = defaults.WettingSeconds;
+            DryingSeconds = defaults.DryingSeconds;
             Version = defaults.Version;
         }
 

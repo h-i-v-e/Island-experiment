@@ -56,7 +56,8 @@ namespace Motu.World
                 ? state.ShadowStrength : 1f;
         }
 
-        internal void PrepareCamera(Camera camera, OceanSurfaceController ocean, Color? background = null)
+        internal void PrepareCamera(Camera camera, OceanSurfaceController ocean, Color? background = null,
+            WorldEnvironmentController environment = null)
         {
             if (camera == null || PlanarWaterReflection.IsReflectionCamera(camera)) return;
             if (!cameras.TryGetValue(camera, out var state))
@@ -64,7 +65,7 @@ namespace Motu.World
                 state = new CameraState(camera);
                 cameras.Add(camera, state);
             }
-            state.Bind(camera, ocean);
+            state.Bind(camera, ocean, environment);
             if (background.HasValue)
             {
                 camera.depthTextureMode |= DepthTextureMode.Depth;
@@ -135,17 +136,21 @@ namespace Motu.World
             private OceanUnderwaterView underwater;
             private OceanSurfaceController previousOcean;
             private bool addedUnderwater;
+            private SquallSurfaceWetness wetness;
+            private WorldEnvironmentController previousEnvironment;
+            private bool addedWetness;
             internal CameraState(Camera camera)
             {
                 background = camera.backgroundColor; depth = camera.depthTextureMode;
                 reflection = camera.GetComponent<PlanarWaterReflection>();
                 plane = reflection != null ? reflection.ReflectionPlane : null;
             }
-            internal void Bind(Camera camera, OceanSurfaceController ocean)
+            internal void Bind(Camera camera, OceanSurfaceController ocean, WorldEnvironmentController environment)
             {
                 if (ocean == null || ocean.SurfaceTransform == null) return;
                 reflection?.Configure(ocean.SurfaceTransform);
                 if (camera.cameraType != CameraType.Game) return;
+                BindWetness(camera, environment);
                 if (underwater == null)
                 {
                     underwater = camera.GetComponent<OceanUnderwaterView>();
@@ -158,9 +163,33 @@ namespace Motu.World
                 }
                 underwater.Configure(ocean);
             }
+            private void BindWetness(Camera camera, WorldEnvironmentController environment)
+            {
+                if (environment == null) return;
+                if (wetness == null)
+                {
+                    wetness = camera.GetComponent<SquallSurfaceWetness>();
+                    if (wetness != null && wetness.PendingOwnerRemoval) { wetness = null; return; }
+                    addedWetness = wetness == null;
+                    if (addedWetness) wetness = camera.gameObject.AddComponent<SquallSurfaceWetness>();
+                    else previousEnvironment = wetness.Environment;
+                }
+                wetness.Configure(environment);
+            }
             internal void Restore(Camera camera)
             {
                 if (reflection != null) reflection.Configure(plane);
+                if (wetness != null)
+                {
+                    if (addedWetness)
+                    {
+                        wetness.PendingOwnerRemoval = true;
+                        wetness.enabled = false;
+                        wetness.Configure(null);
+                        UnityObjectLifetime.DestroyUnityObject(wetness);
+                    }
+                    else wetness.Configure(previousEnvironment);
+                }
                 if (underwater != null)
                 {
                     if (addedUnderwater)

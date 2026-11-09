@@ -386,6 +386,20 @@ Leaving the cell stops new drops while airborne drops finish their world-space
 fall and fade over their lifetime. They remain renderable when the cloud itself
 has moved out of view.
 
+Squall surface wetness automatically binds to game cameras. It uses the same
+wind-slanted local rainfall as the nearby drops, darkening opaque ground, rock
+and deck surfaces and adding a shadowed sun highlight, sky sheen and subtle
+animated ripples. **Surface Wetness** controls the strength (default **0.75**);
+**Wetting Seconds** defaults to **6 seconds** of full rain. Wetness holds its
+peak while any rain continues, waits for the last airborne drops, then fades
+over **Drying Seconds** (default **40 seconds**). These controls are also exposed
+in the TerraNullus weather playground.
+
+This is a camera-local screen-space approximation, rather than persistent
+wetness stored on each object. The depth-based pass runs before transparent
+water and rain, skips sky and submerged surfaces, and does no drawing when dry
+or when its strength is zero. It does not render in planar-reflection cameras.
+
 The storm also carries a depth-clipped volumetric rain curtain, independently
 visible with nearby droplets disabled. Broad wind-slanted shafts and finer
 noise fall through the full cloud-to-water column. Their texture filtering
