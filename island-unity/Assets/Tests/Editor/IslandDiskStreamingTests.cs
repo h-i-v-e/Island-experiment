@@ -221,6 +221,8 @@ namespace Motu.Editor
             var snapshotPath = IslandSnapshotCache.PathFor(request);
             Assert.IsTrue(IslandHorizonCache.TrySave(snapshotPath, Triangle(), 1024 * 1024));
             var manager = root.AddComponent<IslandWorldManager>();
+            // Isolate silhouette retention from speed-based detail preparation.
+            JsonUtility.FromJsonOverwrite("{\"detailPreparationLeadSeconds\":0}", manager);
             manager.ConfigureIslandGenerationRequestFactory(factory);
             manager.SetStreamingTarget(target.transform);
             root.SetActive(true);

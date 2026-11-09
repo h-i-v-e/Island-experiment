@@ -454,6 +454,18 @@ water worlds, URP, HDRP, XR and arbitrary origin shifting require additional wor
 Sample ship controls, minimap, preview UI and scene construction remain in the
 development project, outside this runtime assembly.
 
+World discovery batches its candidates before starting generation, prioritising
+nearby detailed islands over distant silhouette cache misses. Finishing a
+silhouette immediately makes its detail upgrade eligible without waiting for
+another world update. **Detail Preparation Lead Seconds** adds a speed-based
+preload margin (default **120 seconds**, bounded by **Maximum Look Ahead Metres**)
+to the existing fixed margin and travel prediction. Stationary viewers keep the
+fixed margin. The resident island limit and single native preparation worker
+remain in effect; this starts approaching islands earlier without allowing
+additional simultaneous generations or unbounded detailed residency.
+The viewer's current island and visual detail range take precedence over
+predicted destinations when allocating those resident slots.
+
 With `CoherentIslandFactory`, the player's world Z position controls the shared
 solar latitude continuously across the archipelago radius. At the south edge
 (`-radius`, in 2 km grid cells), the noon sun is directly overhead; at the north

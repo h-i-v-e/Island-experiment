@@ -137,10 +137,6 @@ namespace Motu.World
                 return;
             }
             entry.Queued = true;
-            if (!queueRunning)
-            {
-                ProcessGenerationQueue();
-            }
         }
 
         private void CancelObsoleteGeneration()
@@ -200,6 +196,10 @@ namespace Motu.World
             {
                 while (!destroyed)
                 {
+                    // Finish ranking discovery before dispatching. A completed
+                    // silhouette can now need details; promote that upgrade
+                    // before another distant cache miss occupies the worker.
+                    QueueDesiredGeneration();
                     var entry = SelectNextQueuedIsland();
                     if (entry == null)
                     {

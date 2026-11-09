@@ -89,6 +89,8 @@ namespace Motu.World
         [Min(1f)] [SerializeField] private float lod3DistanceMetres = IslandRuntime.DefaultLod3DistanceMetres;
         [Tooltip("Begin loading details this far before the visual LOD3 switch. Travel prediction also preloads approaching islands.")]
         [Min(0f)] [SerializeField] private float detailPreloadMarginMetres = 500f;
+        [Tooltip("Additional preparation margin based on travel speed. Capped by Maximum Look Ahead Metres; resident island and worker limits still apply.")]
+        [Min(0f)] [SerializeField] private float detailPreparationLeadSeconds = 120f;
         [Tooltip("Retain detailed meshes, textures and native data this far beyond the preload radius to avoid repeated loading.")]
         [Min(100f)] [SerializeField] private float detailUnloadHysteresisMetres = 300f;
 
@@ -453,7 +455,10 @@ namespace Motu.World
             nextDiscoveryTime = 0f;
         }
 
-        private float DetailPreloadRadius => Lod3DistanceMetres + Mathf.Max(0f, detailPreloadMarginMetres);
+        private float DetailPreloadRadius => Lod3DistanceMetres + Mathf.Max(
+            Mathf.Max(0f, detailPreloadMarginMetres),
+            Mathf.Min(Mathf.Max(0f, maximumLookAheadMetres),
+                smoothedVelocity.magnitude * Mathf.Max(0f, detailPreparationLeadSeconds)));
         private float DetailUnloadRadius => DetailPreloadRadius + Mathf.Max(100f, detailUnloadHysteresisMetres);
         private float EffectiveGenerationRadius => Mathf.Max(generationRadiusMetres, DetailPreloadRadius);
         private float EffectiveDiscoveryRadius => Mathf.Max(discoveryRadiusMetres, EffectiveUnloadRadius());
@@ -633,8 +638,11 @@ namespace Motu.World
             IslandRuntimeEntry first,
             IslandRuntimeEntry second)
         {
-            // A nearby upgrade must never wait behind a queue of distant silhouette misses.
-            var comparison = WantsDetailedIsland(second).CompareTo(WantsDetailedIsland(first));
+            // Terrain needed now wins over predicted destinations; lookahead
+            // must not displace the island beneath the viewer at the resident cap.
+            var comparison = NeedsImmediateDetails(second).CompareTo(NeedsImmediateDetails(first));
+            if (comparison != 0) return comparison;
+            comparison = WantsDetailedIsland(second).CompareTo(WantsDetailedIsland(first));
             if (comparison != 0) return comparison;
             comparison = GenerationPriority(first).CompareTo(
                 GenerationPriority(second));
@@ -644,6 +652,10 @@ namespace Motu.World
                     first.Descriptor.IslandId,
                     second.Descriptor.IslandId);
         }
+
+        private bool NeedsImmediateDetails(IslandRuntimeEntry entry) =>
+            entry.Descriptor.WorldCell == WorldToCell(lastQueryPosition)
+            || ViewerDistance(entry, lastQueryPosition) <= Lod3DistanceMetres;
 
         private bool ReserveResidentCapacity(
             IslandRuntimeEntry incoming,
