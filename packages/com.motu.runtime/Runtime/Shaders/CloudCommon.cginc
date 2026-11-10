@@ -1,6 +1,8 @@
 #ifndef MOTU_CLOUD_COMMON_INCLUDED
 #define MOTU_CLOUD_COMMON_INCLUDED
 
+#include "WorldSquallLighting.cginc"
+
 sampler2D _MotuCloudWeatherTex;
 float _MotuCloudEnabled;
 float _MotuCloudCoverage;
@@ -167,6 +169,9 @@ MotuCloudLighting MotuCloudSurfaceLightingForDirection(float3 worldPosition, flo
         saturate(_MotuCloudShadowStrength));
     lighting.ambientTransmittance = 1.0h
         - density * saturate(_MotuCloudAmbientShadowStrength);
+    half storm = MotuSquallCloudTransmittance(worldPosition, lightDirection);
+    lighting.directTransmittance *= storm;
+    lighting.ambientTransmittance *= lerp(.65h, 1.0h, storm);
     return lighting;
 }
 

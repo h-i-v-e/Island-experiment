@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
+using System.Reflection;
 using Motu.Rendering;
 using Motu.Settings;
 using Motu.World;
@@ -41,6 +42,80 @@ namespace Motu.Editor
             Assert.That(OceanHullSpray.LaunchSpeed(.5f * strength, 6, 18), Is.EqualTo(6));
             Assert.That(OceanHullSpray.LaunchSpeed(1 * strength, 6, 18), Is.EqualTo(12));
             Assert.That(OceanHullSpray.LaunchSpeed(-1 * strength, 6, 18), Is.Zero);
+        }
+
+        [UnityTest]
+        public IEnumerator DetachedBodyKeepsMovingSprayAliveThroughDelayedReadbackThenRejectsTeleports()
+        {
+            const BindingFlags hidden = BindingFlags.Instance | BindingFlags.NonPublic;
+            var ship = new GameObject("Visual hull with separate physics");
+            var physics = new GameObject("Detached simulated hull");
+            var seaRoot = new GameObject("Delayed spray sea");
+            OceanSurfaceSampler sampler = null;
+            try
+            {
+                seaRoot.transform.position = Vector3.up * 4;
+                var ocean = seaRoot.AddComponent<OceanSurfaceController>();
+                ocean.Install(new Material(Shader.Find("Motu/Sea Water")), 128, true);
+                var weather = ocean.Weather; weather.Enabled = false; ocean.ApplyWaveWeather(weather);
+                var body = physics.AddComponent<Rigidbody>(); body.useGravity = false;
+                body.linearVelocity = Vector3.right * 25;
+                var spray = ship.AddComponent<OceanHullSpray>(); spray.enabled = false;
+                var loop = new[] { new Vector3(-4,0,-10), new Vector3(4,0,-10), new Vector3(4,0,10), new Vector3(-4,0,10) };
+                spray.SetWaterline(loop, Resources.Load<Material>("Motu/ShipWaterlineSpray"));
+                var data = new SerializedObject(spray);
+                data.FindProperty("body").objectReferenceValue = body;
+                data.FindProperty("ocean").objectReferenceValue = ocean;
+                data.FindProperty("gunwaleOverflow").boolValue = true;
+                data.FindProperty("gunwaleHeight").floatValue = 2;
+                data.ApplyModifiedPropertiesWithoutUndo();
+                typeof(OceanHullSpray).GetMethod("OnEnable", hidden).Invoke(spray, null);
+                Assert.That(typeof(OceanHullSpray).GetField("body", hidden).GetValue(spray), Is.SameAs(body));
+                typeof(OceanHullSpray).GetMethod("LateUpdate", hidden).Invoke(spray, null);
+                sampler = (OceanSurfaceSampler)typeof(OceanHullSpray).GetField("sampler", hidden).GetValue(spray);
+                var deadline = Time.realtimeSinceStartup + 10;
+                while (sampler.Pending && Time.realtimeSinceStartup < deadline) yield return null;
+                Assert.That(sampler.Pending, Is.False);
+                var times = (float[])typeof(OceanSurfaceSampler).GetField("sampleTimes", hidden).GetValue(sampler);
+                for (var i = 0; i < times.Length; ++i) times[i] = Time.time - .35f;
+                // Seven metres of ordinary travel exceeds the former fixed
+                // one-metre guard when the visual hull has no parent Rigidbody.
+                ship.transform.position = Vector3.right * 7;
+                typeof(OceanHullSpray).GetMethod("LateUpdate", hidden).Invoke(spray, null);
+                Assert.That(spray.Particles.particleCount, Is.GreaterThan(0));
+                var particles = new ParticleSystem.Particle[2500];
+                var count = spray.Particles.GetParticles(particles);
+                for (var i = 0; i < count; ++i)
+                {
+                    Assert.That(particles[i].velocity.x, Is.GreaterThan(5), "Spray inherits the detached ship body's motion.");
+                    Assert.That(particles[i].position.y, Is.EqualTo(4).Within(.003f), "Delayed water still emits from the true crest.");
+                }
+                ship.transform.position += Vector3.right * 100;
+                spray.Particles.Clear();
+                typeof(OceanHullSpray).GetMethod("LateUpdate", hidden).Invoke(spray, null);
+                Assert.That(spray.Particles.particleCount, Is.Zero, "Teleports cannot revive spray from the previous location.");
+                ship.transform.position = Vector3.right * 7;
+                for (var i = 0; i < times.Length; ++i) times[i] = Time.time - 10;
+                typeof(OceanHullSpray).GetMethod("LateUpdate", hidden).Invoke(spray, null);
+                Assert.That(spray.Particles.particleCount, Is.Zero, "Expired samples cannot keep emitting.");
+            }
+            finally
+            {
+                Object.DestroyImmediate(ship); Object.DestroyImmediate(physics); Object.DestroyImmediate(seaRoot);
+            }
+        }
+
+        [TestCase(1f / 60)]
+        [TestCase(.1f)]
+        [TestCase(.5f)]
+        public void SpraySampleWindowBridgesSlowFramesAndFadesBeforeExpiring(float frameSeconds)
+        {
+            OceanHullSpray.SampleWindow(.2f, frameSeconds, out var hold, out var fade);
+            Assert.That(hold, Is.GreaterThanOrEqualTo(Mathf.Min(2, frameSeconds * 8)));
+            Assert.That(fade, Is.GreaterThan(hold).And.LessThanOrEqualTo(4));
+            Assert.That(OceanSurfaceSampler.SampleConfidence(hold, hold, fade), Is.EqualTo(1));
+            Assert.That(OceanSurfaceSampler.SampleConfidence((hold + fade) * .5f, hold, fade), Is.EqualTo(.5f).Within(.001f));
+            Assert.That(OceanSurfaceSampler.SampleConfidence(fade + .01f, hold, fade), Is.Zero);
         }
 
         [UnityTest]
@@ -157,6 +232,55 @@ namespace Motu.Editor
                 Assert.That(ShipSprayLoopBuilder.Build(hull, .1f, 32).Length, Is.EqualTo(32));
             }
             finally { Object.DestroyImmediate(hull.Texture); }
+        }
+
+        [TestCase(-1)]
+        [TestCase(0)]
+        [TestCase(1)]
+        public void RebakingReusesTheAuthoredEmitterAcrossThePhysicsHierarchy(int emitterLevel)
+        {
+            var ship = new GameObject("Rebaked hull fixture");
+            ShipWaterlineTextureBuilder.Result hull = null;
+            try
+            {
+                ship.transform.SetPositionAndRotation(new Vector3(100, 7, 200), Quaternion.Euler(0, 63, 0));
+                var child = new GameObject("Nested hull"); child.transform.SetParent(ship.transform, false);
+                child.transform.localPosition = new Vector3(2, 3, -1);
+                child.transform.localRotation = Quaternion.Euler(-90, 0, 0);
+                child.transform.localScale = Vector3.one * 1000;
+                var source = emitterLevel < 0 ? child.transform : ship.transform;
+                var target = emitterLevel > 0 ? child.transform : ship.transform;
+                var spray = target.gameObject.AddComponent<OceanHullSpray>();
+                var settings = new SerializedObject(spray);
+                settings.FindProperty("gunwaleOverflow").boolValue = true;
+                settings.FindProperty("gunwaleHeight").floatValue = 6;
+                settings.ApplyModifiedPropertiesWithoutUndo();
+                var slices = new List<ShipWaterlineTextureBuilder.Segment>();
+                var corners = new[] { new Vector2(-4,-8), new Vector2(4,-8), new Vector2(4,8), new Vector2(-4,8) };
+                for (var i = 0; i < corners.Length; i++)
+                    slices.Add(new ShipWaterlineTextureBuilder.Segment(corners[i], corners[(i + 1) % corners.Length]));
+                hull = ShipWaterlineTextureBuilder.Build(slices, new ShipWaterlineTextureBuilder.Settings
+                    { resolution = 128, gapClosure = 0, bowWave = false });
+                var forward = ship.transform.forward;
+                Assert.That(ShipSprayLoopBuilder.Assign(source, hull, forward, 4), Is.SameAs(spray));
+                Assert.That(ship.GetComponentsInChildren<OceanHullSpray>(true).Length, Is.EqualTo(1));
+                settings.Update();
+                Assert.That(settings.FindProperty("gunwaleOverflow").boolValue, Is.True);
+                Assert.That(settings.FindProperty("gunwaleHeight").floatValue, Is.EqualTo(6));
+                var outline = ShipSprayLoopBuilder.Build(hull, spray.SampleSpacing, spray.MaximumSamples);
+                var points = settings.FindProperty("waterline");
+                var origin = source.position; origin.y = 4;
+                var right = Vector3.Cross(Vector3.up, forward);
+                for (var i = 0; i < points.arraySize; i++)
+                {
+                    var actual = target.TransformPoint(points.GetArrayElementAtIndex(i).vector3Value);
+                    var expected = origin + right * outline[i].x + forward * outline[i].y;
+                    Assert.That(Vector3.Distance(actual, expected), Is.LessThan(.001f), "The waterline stays in the original slice frame.");
+                }
+                Assert.That(Vector3.Dot(target.TransformDirection(settings.FindProperty("waterlineUp").vector3Value), Vector3.up),
+                    Is.GreaterThan(.999f));
+            }
+            finally { if (hull != null) Object.DestroyImmediate(hull.Texture); Object.DestroyImmediate(ship); }
         }
 
         [Test]

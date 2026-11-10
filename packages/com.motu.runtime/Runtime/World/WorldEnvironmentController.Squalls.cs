@@ -7,12 +7,13 @@ namespace Motu.World
 {
     public sealed partial class WorldEnvironmentController
     {
-        [Tooltip("Optional ship around which squalls spawn. When empty, the environment's follow target is used.")]
+        [Tooltip("Optional ship or other reference around which new squalls spawn. If empty, use the environment follow target, such as the weather-test camera. Spawn distances are measured to the storm centre and the spawn arc is centred upwind using the current wind direction.")]
         [SerializeField] private Transform squallSpawnTarget;
-        [Tooltip("Thunder recording and propagation settings. Defaults to Resources/SquallAudio.")]
+        [Tooltip("Thunder clip banks, gain, distance attenuation and sound propagation speed. When unassigned, the environment loads Resources/SquallAudio. Clips are chosen from the near, medium or far bank when delayed thunder reaches the listener.")]
         [SerializeField] private SquallAudioProfile squallAudioProfile;
         private SquallThunderAudio squallThunder;
         private bool searchedSquallAudio;
+        private WorldSquallLighting squallLighting;
         private readonly WorldSquallState[] squalls = new WorldSquallState[SquallWeatherSettings.MaximumSupportedSqualls];
         private readonly SquallVisualRenderer[] squallVisuals = new SquallVisualRenderer[SquallWeatherSettings.MaximumSupportedSqualls];
         private readonly float[] squallRetirementTimes = new float[SquallWeatherSettings.MaximumSupportedSqualls];
@@ -297,6 +298,13 @@ namespace Motu.World
             // even after an earlier physical slot has retired.
             while (published < squalls.Length) WorldSquallShader.Publish(published++, default);
             ocean?.ApplySquallWindMultiplier(peak);
+            squallLighting ??= new WorldSquallLighting();
+            var source = RenderSettings.sun;
+            if (source == null || !source.enabled || source.intensity <= 0)
+                source = sunlight != null && sunlight.enabled && sunlight.intensity > 0 ? sunlight : moonLight;
+            var anchor = SquallTarget != null ? SquallTarget.position : transform.position;
+            anchor.y = seaLevel;
+            squallLighting.Update(squalls, weather.Squalls, source, anchor);
         }
 
         private void UpdateSquallVisuals(float deltaTime)
@@ -329,6 +337,7 @@ namespace Motu.World
 
         private void SuspendSqualls()
         {
+            squallLighting?.Dispose(); squallLighting = null;
             for (var slot = 0; slot < squallVisuals.Length; slot++)
                 squallVisuals[slot]?.UpdateVisuals(default, weather.Squalls, transform.position, 0f);
             ocean?.ApplySquallWindMultiplier(1f);
@@ -337,6 +346,7 @@ namespace Motu.World
 
         private void DisposeSqualls()
         {
+            squallLighting?.Dispose(); squallLighting = null;
             squallThunder?.Dispose();
             squallThunder = null;
             for (var slot = 0; slot < squallVisuals.Length; slot++)

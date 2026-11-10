@@ -63,6 +63,7 @@ namespace Motu.Rendering
                 state.Amount * environment.Weather.Squalls.SurfaceWetness, state.Rain, Time.time,
                 sea != null ? sea.position.y : 0));
             material.SetFloat("_MotuWetFogEnabled", RenderSettings.fog ? 1 : 0);
+            material.SetColor("_MotuWetAmbient", RenderSettings.ambientLight);
             return material;
         }
 

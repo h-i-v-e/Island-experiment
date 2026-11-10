@@ -24,7 +24,7 @@ namespace Motu.Settings
         [Tooltip("Optional global coherent noise shared by ocean waves and vegetation wind. Red and green drive structure; blue supplies broad grass colour variation. A suitable texture is generated when unset.")]
         [SerializeField] private Texture2D weatherNoise;
         [SerializeField] private OceanWaveProfile oceanWaveProfile;
-        [Tooltip("Travelling rain and lightning cells with a local wind increase. Only one cell is active at a time.")]
+        [Tooltip("Shared default settings for travelling storm clouds, rain, lightning and local wind/wave boosts, with up to three simultaneous cells. A Coherent Weather Driver supplies its own live squall settings; without a driver these settings control standalone automatic or manual storms.")]
         [SerializeField] private Motu.World.SquallWeatherSettings squalls = Motu.World.SquallWeatherSettings.Default;
         [Tooltip("Direction the wind blows towards, in world X/Z coordinates.")]
         [SerializeField] private Vector2 windDirection = new Vector2(1f, 0.25f);

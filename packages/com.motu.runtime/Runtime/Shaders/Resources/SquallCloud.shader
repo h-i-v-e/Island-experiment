@@ -8,7 +8,7 @@ Shader "Motu/Squall Cloud"
         Pass
         {
             // The renderer feature copies the real water/opaque depth first.
-            Tags { "LightMode"="MotuSquallVolume" }
+            Tags { "LightMode"="MotuSquallCloud" }
             HLSLPROGRAM
             #pragma vertex Vertex
             #pragma fragment Fragment
@@ -17,6 +17,7 @@ Shader "Motu/Squall Cloud"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/DeclareDepthTexture.hlsl"
             #include "../SquallVolume.cginc"
             float4 _MotuIslandHorizonColour;
+            float4 _MotuSquallRenderSize;
             struct Input { float4 vertex : POSITION; };
             struct Varyings { float4 position : SV_POSITION; float3 world : TEXCOORD0; };
             Varyings Vertex(Input input)
@@ -50,7 +51,7 @@ Shader "Motu/Squall Cloud"
                 float3 low = min(t0, t1), high = max(t0, t1);
                 float enter = max(0, max(low.x, max(low.y, low.z)));
                 float leave = min(high.x, min(high.y, high.z));
-                leave = min(leave, SceneDistance(input.position.xy / _ScaledScreenParams.xy, ray, forward));
+                leave = min(leave, SceneDistance(input.position.xy / _MotuSquallRenderSize.xy, ray, forward));
                 if (leave <= enter) return 0;
                 const int budget = 48;
                 float stepLength = (leave - enter) / budget;
@@ -68,8 +69,8 @@ Shader "Motu/Squall Cloud"
                     float travel = enter + (sampleIndex + phase) * stepLength;
                     float3 position = rayOrigin + ray * travel - _SquallOrigin.xyz;
                     half cloud = MotuSquallCloudDensity(position);
-                    float pixelFootprint = lerp(2 * travel / max(1, _ScaledScreenParams.y * abs(UNITY_MATRIX_P[1][1])),
-                        2 * unity_OrthoParams.y / _ScaledScreenParams.y, unity_OrthoParams.w);
+                    float pixelFootprint = lerp(2 * travel / max(1, _MotuSquallRenderSize.y * abs(UNITY_MATRIX_P[1][1])),
+                        2 * unity_OrthoParams.y / _MotuSquallRenderSize.y, unity_OrthoParams.w);
                     half rain = MotuSquallRainDensity(position, max(stepLength, pixelFootprint));
                     float cloudExtinction = cloud * _SquallLayer.w / 280;
                     // Keep the storm-sized curtain readable behind nearby drops.

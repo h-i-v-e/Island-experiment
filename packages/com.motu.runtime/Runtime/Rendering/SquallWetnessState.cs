@@ -20,10 +20,10 @@ namespace Motu.Rendering
             if (rain > 0)
             {
                 remainingDrops = WorldSquallRain.ParticleLifetime;
-                // Falling intensity at the storm's edge must never dry a wet
-                // surface. Accumulate towards the new target, or hold the peak.
-                Amount = Mathf.Max(Amount, Mathf.MoveTowards(Amount, Rain,
-                    deltaTime * rain / Mathf.Max(.1f, wettingSeconds)));
+                // Even drizzle eventually wets a surface completely. Intensity
+                // changes the accumulation rate, rather than capping wetness.
+                Amount = Mathf.MoveTowards(Amount, 1,
+                    deltaTime * rain / Mathf.Max(.1f, wettingSeconds));
                 return;
             }
             var dryTime = Mathf.Max(0, deltaTime - remainingDrops);

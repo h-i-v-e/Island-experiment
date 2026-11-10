@@ -140,9 +140,15 @@ namespace Motu.Tests
             Assert.That(MeanDifference(wet, paused), Is.LessThan(1f / 255),
                 "A paused weather clock must keep the world-space rain volume stable.");
             var later = fixture.Render(1, 2, Vector3.zero, "outside-animated");
-            foreach (var diameter in new[] { 200f, 1000f })
-            foreach (var intensity in new[] { 1f, 4f })
-                fixture.Render(intensity, 2, Vector3.zero, $"diameter-{diameter}-rain-{intensity}", diameter);
+            foreach (var diameter in new[] { 200f, 1000f, 2000f })
+            {
+                var noRain = fixture.Render(0, 2, Vector3.zero, null, diameter);
+                foreach (var intensity in new[] { 1f, 4f })
+                {
+                    var rain = fixture.Render(intensity, 2, Vector3.zero, $"diameter-{diameter}-rain-{intensity}", diameter);
+                    AssertVisible(noRain, rain, $"Rain curtain at {diameter} m diameter and intensity {intensity}");
+                }
+            }
             Assert.That(MeanDifference(wet, later), Is.GreaterThan(.001f),
                 "Rain shafts must visibly evolve without a camera or storm translation.");
         }
@@ -215,6 +221,41 @@ namespace Motu.Tests
                     "A surface inside the storm must retain the nearer rain and remove the farther rain.");
                 Assert.That(foreground, Is.LessThan(behind * .03f),
                     "An opaque surface before the volume must hide the rain behind it.");
+            }
+            finally { Object.DestroyImmediate(blocker); Object.DestroyImmediate(material); }
+        }
+
+        [UnityTest]
+        public IEnumerator HalfResolutionRainDoesNotBleedAcrossThinForegroundSilhouettes()
+        {
+            RequireUrp();
+            using var fixture = new Fixture();
+            var blocker = fixture.Blocker(out var material);
+            try
+            {
+                blocker.transform.position = new Vector3(.3f, 12, -250);
+                yield return null;
+                foreach (var width in new[] { 20f, .8f })
+                {
+                    blocker.transform.localScale = new Vector3(width, 200, 1);
+                    var dry = fixture.Render(0, 0, Vector3.zero);
+                    var wet = fixture.Render(1, 0, Vector3.zero, "foreground-width-" + width);
+                    var centre = fixture.Camera.WorldToScreenPoint(blocker.transform.position);
+                    var left = fixture.Camera.WorldToScreenPoint(blocker.transform.position - Vector3.right * width * .5f);
+                    var right = fixture.Camera.WorldToScreenPoint(blocker.transform.position + Vector3.right * width * .5f);
+                    var checkedPixels = 0;
+                    var row = Mathf.FloorToInt(centre.y);
+                    for (var x = Mathf.CeilToInt(left.x - .5f); x + .5f < right.x; ++x)
+                    {
+                        Assert.That(Difference(dry[row * 640 + x], wet[row * 640 + x]), Is.LessThan(2f / 255),
+                            "Foreground deck/mast pixels must occlude rain even when narrower than the low-resolution volume texel.");
+                        checkedPixels++;
+                    }
+                    Assert.That(checkedPixels, Is.GreaterThan(0));
+                    var outside = row * 640 + Mathf.CeilToInt(right.x) + 5;
+                    Assert.That(Difference(dry[outside], wet[outside]), Is.GreaterThan(.01f),
+                        "Rain beside the foreground silhouette must remain visible.");
+                }
             }
             finally { Object.DestroyImmediate(blocker); Object.DestroyImmediate(material); }
         }

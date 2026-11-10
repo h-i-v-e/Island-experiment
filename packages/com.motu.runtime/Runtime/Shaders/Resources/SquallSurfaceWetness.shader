@@ -18,6 +18,7 @@ Shader "Hidden/Motu/Squall Surface Wetness"
             #include "Packages/com.unity.render-pipelines.core/Runtime/Utilities/Blit.hlsl"
             float4 _MotuWetness; // amount, rainfall, animation time, sea level
             float _MotuWetFogEnabled;
+            half4 _MotuWetAmbient;
 
             float3 SurfacePosition(float2 uv)
             {
@@ -77,16 +78,19 @@ Shader "Hidden/Motu/Squall Surface Wetness"
                     Noise(rippleFlow + 19.7) - .5) * ripple);
                 Light sun = GetMainLight(TransformWorldToShadowCoord(position), position, half4(1,1,1,1));
                 float3 halfway = normalize(sun.direction + view + float3(0,.0001,0));
-                float highlight = pow(saturate(dot(normal, halfway)), 96)
+                float highlight = pow(saturate(dot(normal, halfway)), 48)
                     * saturate(dot(normal, sun.direction)) * sun.shadowAttenuation;
-                float fresnel = .04 + .45*pow(1-saturate(dot(normal, view)), 5);
+                float grazing = pow(1 - saturate(dot(normal, view)), 2);
+                float skyPatch = smoothstep(.35, .8, Noise(reflect(-view, normal).xz * 6 + 7.3));
+                float skyReflection = lerp(.08, 1.1, grazing) * lerp(.45, 1, skyPatch);
                 MotuCloudLighting cloud = MotuCloudSurfaceLightingForDirection(position, sun.direction);
                 // Fullscreen draws have no per-object light/probe data. The
                 // directional sun has no distance falloff; use the weather's
-                // global ambient colour instead of an object's SH probe.
-                half3 sky = _MotuCloudAmbientColor.rgb * cloud.ambientTransmittance;
-                source.rgb *= 1 - wet * .18;
-                source.rgb += wet * (sky * fresnel * .65 + sun.color * highlight * .8 * cloud.directTransmittance);
+                // scene ambient colour instead of an object's SH probe.
+                half3 sky = _MotuWetAmbient.rgb * cloud.ambientTransmittance;
+                source.rgb *= 1 - wet * .30;
+                source.rgb += wet * (sky * skyReflection * 1.5
+                    + sun.color * highlight * 1.1 * cloud.directTransmittance);
                 return source;
             }
             ENDHLSL

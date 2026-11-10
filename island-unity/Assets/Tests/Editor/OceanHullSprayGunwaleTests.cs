@@ -44,7 +44,7 @@ namespace Motu.Editor
         [TestCase(-35f, -12f)]
         [TestCase(0f, 0f)]
         [TestCase(35f, 12f)]
-        public void OriginFollowsWaveUntilRailAndNeverRisesAboveIt(float heel, float pitch)
+        public void OriginFollowsTheUnclampedCrestWhileStayingVerticallyAboveTheRail(float heel, float pitch)
         {
             var rotation = Quaternion.Euler(pitch, 63, heel);
             var up = rotation * Vector3.up;
@@ -52,10 +52,12 @@ namespace Motu.Editor
             foreach (float rise in new[] { .5f, 1.999f, 2f, 3f, 100f })
             {
                 float wave = point.y + up.y * rise;
-                Assert.That(OceanHullSpray.TryProjectCappedEmissionOrigin(point, up, wave, 2, out var origin, out var over), Is.True);
-                Assert.That(Vector3.Distance(origin, point + up * Mathf.Min(rise, 2)), Is.LessThan(.0001f));
+                Assert.That(OceanHullSpray.TryProjectGunwaleEmissionOrigin(point, up, wave, 2, out var origin, out var over), Is.True);
+                var expected = point + up * Mathf.Min(rise, 2);
+                expected.y = wave;
+                Assert.That(Vector3.Distance(origin, expected), Is.LessThan(.0001f));
                 Assert.That(over, Is.EqualTo(rise >= 2));
-                if (!over) Assert.That(origin.y, Is.EqualTo(wave).Within(.0001f));
+                Assert.That(origin.y, Is.EqualTo(wave).Within(.0001f));
             }
         }
 
@@ -64,7 +66,7 @@ namespace Motu.Editor
         [TestCase(180f)]
         public void CapsizedHullDoesNotCreateDistantDeckSpray(float heel)
         {
-            Assert.That(OceanHullSpray.TryProjectCappedEmissionOrigin(Vector3.zero, Quaternion.Euler(0, 0, heel) * Vector3.up,
+            Assert.That(OceanHullSpray.TryProjectGunwaleEmissionOrigin(Vector3.zero, Quaternion.Euler(0, 0, heel) * Vector3.up,
                 8, 2, out _, out var over), Is.False);
             Assert.That(over, Is.False);
         }
@@ -75,7 +77,7 @@ namespace Motu.Editor
         [TestCase(-35f, -12f, false, true)]
         [TestCase(35f, 12f, false, true)]
         [TestCase(35f, 12f, true, true)]
-        public void ActualEmissionsCapAtRailAndTurnInwardOnlyOnOvertoppedEdges(float heel, float pitch, bool imported, bool individual)
+        public void ActualEmissionsFollowCrestsAndTurnInwardOnlyOnOvertoppedEdges(float heel, float pitch, bool imported, bool individual)
         {
             var ship = new GameObject("Capped hull spray fixture");
             var material = new Material(Shader.Find("Motu/Waterfall Spray Particle"));
@@ -94,6 +96,7 @@ namespace Motu.Editor
                 for (int i = 0; i < 4; i++) { points[i] = ship.transform.TransformPoint(local[i]); depths[i] = -points[i].y; }
                 Set(spray, "worldPoints", points); Set(spray, "depths", depths);
                 Set(spray, "waveVelocities", new Vector3[4]); Set(spray, "strengthMultipliers", new float[4]);
+                Set(spray, "sampleConfidences", new[] { 1f, 1f, 1f, 1f });
                 Set(spray, "fractions", new float[4]); Set(spray, "valid", new[] { true, true, true, true });
                 Set(spray, "segments", new OceanHullSpray.WetSegment[4]);
                 Invoke(spray, "CreateParticles"); Invoke(spray, "EmitSegments", .05f);
@@ -101,12 +104,17 @@ namespace Motu.Editor
                 Assert.That(count, Is.GreaterThan(30));
                 CheckFresh(spray, ship.transform, local, snapshot, count, out int inward, out int outward);
                 Assert.That(inward, Is.GreaterThan(0)); Assert.That(outward, Is.GreaterThan(0));
-                // A submerged rail remains the origin even for a much higher crest.
+                // A much higher crest lifts the inward sheet above the submerged rail.
                 for (int i = 0; i < 4; i++) depths[i] += 20;
                 spray.Particles.Clear(); Invoke(spray, "EmitSegments", .05f);
                 count = spray.Particles.GetParticles(snapshot);
                 CheckFresh(spray, ship.transform, local, snapshot, count, out inward, out outward);
                 Assert.That(inward, Is.EqualTo(count)); Assert.That(outward, Is.Zero);
+                for (int i = 0; i < count; i++)
+                {
+                    Assert.That(snapshot[i].startLifetime, Is.GreaterThan(.9f), "Tall sheets must live long enough to fall onto the deck.");
+                    Assert.That(snapshot[i].startSize, Is.GreaterThan(.12f), "Overtopping spray widens to hide the clipped-water edge.");
+                }
             }
             finally { Object.DestroyImmediate(ship); Object.DestroyImmediate(material); }
         }
@@ -119,33 +127,72 @@ namespace Motu.Editor
             int count, out int inward, out int outward)
         {
             inward = outward = 0;
-            var localUp = (Vector3)typeof(OceanHullSpray).GetField("waterlineUp", Hidden).GetValue(spray);
+            var localUp = ((Vector3)typeof(OceanHullSpray).GetField("waterlineUp", Hidden).GetValue(spray)).normalized;
             var up = ship.TransformDirection(localUp).normalized;
-            float tolerance = .0005f / ship.TransformVector(localUp).magnitude;
+            var upScale = ship.TransformVector(localUp).magnitude;
+            var points = (Vector3[])typeof(OceanHullSpray).GetField("worldPoints", Hidden).GetValue(spray);
+            var depths = (float[])typeof(OceanHullSpray).GetField("depths", Hidden).GetValue(spray);
             for (int i = 0; i < count; i++)
             {
-                var projected = ship.InverseTransformPoint(snapshot[i].position);
-                float rise = Vector3.Dot(projected - local[0], localUp);
-                projected -= localUp * rise;
                 int nearest = -1; float nearestT = 0, error = float.PositiveInfinity;
-                for (int edge = 0; edge < 4; edge++)
+                for (int edge = 0; edge < local.Length; edge++)
                 {
-                    var a = local[edge]; var b = local[(edge + 1) % 4];
-                    float t = Mathf.Clamp01(Vector3.Dot(projected - a, b - a) / (b - a).sqrMagnitude);
-                    float distance = ship.TransformVector(projected - Vector3.Lerp(a, b, t)).magnitude;
-                    if (distance < error) { error = distance; nearest = edge; nearestT = t; }
+                    var next = (edge + 1) % local.Length;
+                    var a = points[edge]; var b = points[next];
+                    var waveA = a.y + depths[edge]; var waveB = b.y + depths[next];
+                    var overA = waveA - (a + up * (spray.GetGunwaleHeight(edge) * upScale)).y;
+                    var overB = waveB - (b + up * (spray.GetGunwaleHeight(next) * upScale)).y;
+                    var split = overA * overB < 0 ? overA / (overA - overB) : 1;
+                    // Emission follows two joined lines: the hull side below
+                    // the rail, then a vertical curtain above its X/Z outline.
+                    for (int part = 0; part < 2; part++)
+                    {
+                        var from = part == 0 ? 0 : split; var to = part == 0 ? split : 1;
+                        if (to - from < .000001f) continue;
+                        var first = ExpectedOrigin(spray, points, depths, edge, from, up, upScale);
+                        var last = ExpectedOrigin(spray, points, depths, edge, to, up, upScale);
+                        var line = last - first;
+                        var along = line.sqrMagnitude > .000001f
+                            ? Mathf.Clamp01(Vector3.Dot(snapshot[i].position - first, line) / line.sqrMagnitude) : 0;
+                        var t = Mathf.Lerp(from, to, along);
+                        var distance = Vector3.Distance(snapshot[i].position,
+                            ExpectedOrigin(spray, points, depths, edge, t, up, upScale));
+                        if (distance < error) { error = distance; nearest = edge; nearestT = t; }
+                    }
                 }
-                Assert.That(error, Is.LessThan(.002f), "Origins retain their hull-relative outline.");
-                var tangent = ship.TransformDirection(local[(nearest + 1) % 4] - local[nearest]).normalized;
-                var normal = Vector3.Cross(up, tangent).normalized;
-                float across = Vector3.Dot(snapshot[i].velocity, normal);
-                float localCap = Mathf.Lerp(spray.GetGunwaleHeight(nearest), spray.GetGunwaleHeight((nearest + 1) % 4), nearestT);
-                Assert.That(rise, Is.LessThanOrEqualTo(localCap + tolerance));
-                if (Mathf.Abs(rise - localCap) < tolerance)
-                { Assert.That(across, Is.LessThan(0), "Water at the gunwale travels across the deck."); inward++; }
+                Assert.That(error, Is.LessThan(.003f), "Fresh spray follows the sampled crest at the correct hull edge.");
+                var j = (nearest + 1) % local.Length;
+                var point = Vector3.Lerp(points[nearest], points[j], nearestT);
+                var waveHeight = Mathf.Lerp(points[nearest].y + depths[nearest], points[j].y + depths[j], nearestT);
+                var rail = point + up * (spray.GunwaleHeightAlongEdge(nearest, nearestT) * upScale);
+                Assert.That(snapshot[i].position.y, Is.EqualTo(waveHeight).Within(.003f));
+                var normal = Vector3.Cross(up, (points[j] - points[nearest]).normalized).normalized;
+                var across = Vector3.Dot(snapshot[i].velocity, normal);
+                var over = waveHeight - rail.y;
+                if (over > .002f || Mathf.Abs(over) <= .002f && across < 0)
+                {
+                    Assert.That(across, Is.LessThan(0), "Overtopping water must travel across the deck.");
+                    Assert.That(Vector2.Distance(new Vector2(snapshot[i].position.x, snapshot[i].position.z),
+                        new Vector2(rail.x, rail.z)), Is.LessThan(.003f), "Tall crests stay vertically above the rail.");
+                    inward++;
+                }
                 else
-                { Assert.That(across, Is.GreaterThan(0), "Lower spray retains its outward direction."); outward++; }
+                {
+                    Assert.That(across, Is.GreaterThan(0), "Lower spray retains its outward direction.");
+                    outward++;
+                }
             }
+        }
+
+        static Vector3 ExpectedOrigin(OceanHullSpray spray, Vector3[] points, float[] depths,
+            int edge, float t, Vector3 up, float scale)
+        {
+            var next = (edge + 1) % points.Length;
+            var point = Vector3.Lerp(points[edge], points[next], t);
+            var height = Mathf.Lerp(points[edge].y + depths[edge], points[next].y + depths[next], t);
+            OceanHullSpray.TryProjectGunwaleEmissionOrigin(point, up, height,
+                spray.GunwaleHeightAlongEdge(edge, t) * scale, out var origin, out _);
+            return origin;
         }
 
         [UnityTest]

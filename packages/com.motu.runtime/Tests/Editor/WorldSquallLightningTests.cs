@@ -70,7 +70,7 @@ namespace Motu.Tests
         }
 
         [Test]
-        public void StoppingAStormDoesNotFlashAndThousandMetreCloudsUseTheirFullFootprint()
+        public void StoppingAStormDoesNotFlashAndTwoThousandMetreCloudsUseTheirFullFootprint()
         {
             var root = new GameObject("Stationary storm fixture");
             using var visuals = new SquallVisualRenderer(root.transform);
@@ -80,9 +80,9 @@ namespace Motu.Tests
                 settings.MinimumSpeedMultiplier = settings.MaximumSpeedMultiplier = 0;
                 for (var age = 0; age < 20; age++) visuals.UpdateVisuals(State(7129, age, settings, false), settings, Vector3.zero, 1);
                 Assert.That(visuals.FlashStrength, Is.Zero);
-                Assert.That(settings.MaximumDiameterMetres, Is.EqualTo(1000));
+                Assert.That(settings.MaximumDiameterMetres, Is.EqualTo(2000));
                 var volume = visuals.Root.transform.Find("Volumetric squall cloud and rain");
-                Assert.That(volume.localScale.x, Is.EqualTo(1000 * (1 + settings.CloudFringeFraction)).Within(.001f));
+                Assert.That(volume.localScale.x, Is.EqualTo(2000 * (1 + settings.CloudFringeFraction)).Within(.001f));
             }
             finally { Object.DestroyImmediate(root); }
         }

@@ -36,11 +36,21 @@ namespace Motu.Tests
             Assert.That(sliced.Amount, Is.EqualTo(whole.Amount).Within(.00001f));
             var before = sliced.Amount;
             sliced.Advance(.05f, 10, 6, 40);
-            Assert.That(sliced.Amount, Is.EqualTo(before));
+            Assert.That(sliced.Amount, Is.GreaterThan(before), "Fresh rain must add moisture rather than only holding it.");
             sliced.Advance(1, 6, 6, 40);
             Assert.That(sliced.Amount, Is.EqualTo(1));
             sliced.Advance(0, 0, 6, 40);
             Assert.That(sliced.Amount, Is.EqualTo(1), "Pausing must not dry surfaces.");
+        }
+
+        [Test]
+        public void SustainedLightRainEventuallySoaksSurfacesCompletely()
+        {
+            var state = new SquallWetnessState();
+            state.Advance(.1f, 30, 6, 40);
+            Assert.That(state.Amount, Is.EqualTo(.5f).Within(.0001f));
+            state.Advance(.1f, 30, 6, 40);
+            Assert.That(state.Amount, Is.EqualTo(1).Within(.0001f));
         }
 
         [Test]

@@ -65,7 +65,7 @@ namespace Motu.Tests
                 Assert.IsTrue(environment.SpawnSquall());
                 var cell = environment.Squall;
                 var offset = cell.Center - target.transform.position;
-                Assert.That(cell.DiameterMetres, Is.InRange(200f, 1000f));
+                Assert.That(cell.DiameterMetres, Is.InRange(200f, 2000f));
                 Assert.That(new Vector2(offset.x, offset.z).magnitude,
                     Is.InRange(settings.MinimumSpawnDistanceMetres - .001f, settings.MaximumSpawnDistanceMetres + .001f));
                 var angle = Vector2.SignedAngle(-environment.WindDirection, new Vector2(offset.x, offset.z));
@@ -130,17 +130,18 @@ namespace Motu.Tests
         }
 
         [Test]
-        public void MaximumSizeSpawnsAFullThousandMetrePhysicalFootprint()
+        public void MaximumSizeSpawnsAFullTwoThousandMetrePhysicalFootprint()
         {
             Assert.That(environment.Weather.Squalls.MinimumDiameterMetres, Is.EqualTo(200));
-            Assert.That(environment.Weather.Squalls.MaximumDiameterMetres, Is.EqualTo(1000));
-            Assert.That(environment.SpawnSquall(target.transform.position, 1000), Is.True);
-            Assert.That(environment.Squall.DiameterMetres, Is.EqualTo(1000));
-            Assert.That(environment.Squall.Field.RadiusMetres, Is.EqualTo(500));
+            Assert.That(environment.Weather.Squalls.MaximumDiameterMetres, Is.EqualTo(2000));
+            Assert.That(environment.SpawnSquall(target.transform.position, 2000), Is.True);
+            Assert.That(environment.Squall.DiameterMetres, Is.EqualTo(2000));
+            Assert.That(environment.Squall.Field.RadiusMetres, Is.EqualTo(1000));
         }
 
         [TestCase(100f, 200f)]
-        [TestCase(1200f, 1000f)]
+        [TestCase(1200f, 1200f)]
+        [TestCase(2200f, 2000f)]
         public void ExplicitSpawnsRespectTheSupportedDiameterRange(float requested, float expected)
         {
             Assert.That(environment.SpawnSquall(target.transform.position, requested), Is.True);

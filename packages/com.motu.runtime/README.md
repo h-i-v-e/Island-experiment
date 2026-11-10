@@ -377,7 +377,7 @@ The rendered surface, normals, foam history and buoyancy queries share this
 response. Shallow-water limits and island shelter still apply, and culling
 bounds include both the increased height and horizontal storm chop.
 
-Squall diameters range from **200 to 1,000 metres across**. Lightning frequency
+Squall diameters range from **200 to 2,000 metres across**. Lightning frequency
 scales continuously with travel speed: the authored **Lightning Interval Seconds**
 applies at top speed, slower cells strike less often, and stopped cells never
 strike. Its clock retains phase across speed changes and does not depend on
@@ -394,8 +394,10 @@ Squall surface wetness automatically binds to game cameras. It uses the same
 wind-slanted local rainfall as the nearby drops, darkening opaque ground, rock
 and deck surfaces and adding a shadowed sun highlight, sky sheen and subtle
 animated ripples. **Surface Wetness** controls the strength (default **0.75**);
-**Wetting Seconds** defaults to **6 seconds** of full rain. Wetness holds its
-peak while any rain continues, waits for the last airborne drops, then fades
+**Wetting Seconds** defaults to **6 seconds** of full rain. Sustained lighter
+rain also soaks surfaces completely, at a slower rate. A broader sky reflection
+and patchy sheen remain visible under overcast light. Wetness never dries
+while any rain continues, waits for the last airborne drops, then fades
 over **Drying Seconds** (default **40 seconds**). These controls are also exposed
 in the TerraNullus weather playground.
 
@@ -403,6 +405,19 @@ This is a camera-local screen-space approximation, rather than persistent
 wetness stored on each object. The depth-based pass runs before transparent
 water and rain, skips sky and submerged surfaces, and does no drawing when dry
 or when its strength is zero. It does not render in planar-reflection cameras.
+
+Storm clouds project soft, animated shadows in the current sun or moon direction.
+A 512-pixel directional-light cookie shades ordinary URP ship/building materials;
+the terrain, ocean and foliage use the matching world-space shadow calculation.
+The footprint includes the patchy cloud fringe and moves independently of the
+distance-bent cloud proxy. **Cloud Darkness** controls its optical depth. Existing
+light cookies and their mapping are combined while active and restored on release.
+Lightning uses a storm-sized, inverse-square point light without a separate
+point-light shadow map, so strikes illuminate real decks, hulls and scenery as well as the
+cloud. **Lightning Brightness** controls both the bolt and surface illumination.
+Large cloud/rain volumes render at half resolution with depth-aware upsampling.
+Small distant volumes, nearby droplets and lightning bolts retain full resolution,
+including the narrow rain curtain where it meets the horizon.
 
 The storm also carries a depth-clipped volumetric rain curtain, independently
 visible with nearby droplets disabled. Broad wind-slanted shafts and finer
@@ -486,6 +501,16 @@ large storm breakers quieter in protected water.
 The **Ship and Shore Wave Audio** sample contains the corresponding hull and
 shore audio components and an isolated native audio validation command. TerraNullus
 already has these components in `Assets/Scripts`; avoid importing duplicate copies.
+
+`OceanHullSpray` follows the unclamped wave samples up the hull. With **Gunwale
+Overflow** enabled, waves above the individual rail profile emit inward from
+their actual crest height, vertically above the rail. Taller crests produce
+larger, longer-lived falling spray to cover the clipped water edge; the existing
+particle and emission limits still apply. Rebuilding the spray loop reuses an
+existing hull emitter, including one above or below the selected physics root.
+Assign **Body** when the visual hull follows a separately simulated Rigidbody.
+Spray reuses motion-compensated GPU samples through brief frame stalls and fades
+them out as they age; teleports and expired samples still stop emission.
 
 `ShipAnchor` adds a slack bow rode to a rigidbody. A sailing controller calls
 `SetDeployed(true)` when sails are furled and `SetDeployed(false)` when they are

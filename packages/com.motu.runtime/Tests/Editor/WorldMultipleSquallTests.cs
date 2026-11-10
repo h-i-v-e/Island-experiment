@@ -155,6 +155,8 @@ namespace Motu.Tests
             var weather = environment.Weather;
             var settings = weather.Squalls;
             settings.AutomaticSpawning = true;
+            // Test formation timing independently of room for large rain cores.
+            settings.MinimumDiameterMetres = settings.MaximumDiameterMetres = 200;
             settings.MinimumSpawnIntervalSeconds = settings.MaximumSpawnIntervalSeconds = .25f;
             weather.Squalls = settings;
             weather.Clouds.Coverage = 0;

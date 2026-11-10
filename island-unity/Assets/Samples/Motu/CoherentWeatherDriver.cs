@@ -18,9 +18,10 @@ namespace Motu.Gameplay
         private int seed = 42;
 
         [Header("Travelling squalls")]
+        [Tooltip("Storm-cell settings applied to the live weather by this driver. With automatic spawning enabled, current cloud cover and wind control how many cells are supported, how strong they are and how quickly they form. Expand for size, upwind spawning, motion, rain, wetness and lightning controls.")]
         [SerializeField] private SquallWeatherSettings squalls = SquallWeatherSettings.Default;
         public SquallWeatherSettings Squalls { get => squalls.Validated(); set => squalls = value.Validated(); }
-        [Tooltip("Cloud and wind activity above which squalls develop. Their number and strength follow the changing weather.")]
+        [Tooltip("Minimum combined weather activity needed for automatic storm formation (0-1). Activity is 65% cloud coverage plus 35% wind strength, with the wind contribution reaching full strength at 25 m/s. Above this threshold, worse weather increases cell count, strength and formation rate; below it, formation resets and unsupported cells fade. Lower values allow squalls in milder weather.")]
         [Range(0f, 1f)] [SerializeField] private float squallFormationThreshold = .45f;
         private readonly CoherentSquallScheduler squallScheduler = new CoherentSquallScheduler();
         public float SquallFormationThreshold

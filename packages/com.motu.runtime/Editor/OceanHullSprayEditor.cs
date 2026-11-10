@@ -40,7 +40,7 @@ namespace Motu.Editor
                 }
             }
             serializedObject.ApplyModifiedProperties();
-            EditorGUILayout.HelpBox("Orange numbered handles mark the individual gunwale switch heights. Drag each handle along hull-up to match the local rail, or edit its value above. Heights interpolate between neighbouring points, including across the closing edge. Blue handles edit the resting waterline. Particles pass through the hull.", MessageType.Info);
+            EditorGUILayout.HelpBox("Orange numbered handles mark the individual gunwale switch heights. Drag each handle along hull-up to match the local rail, or edit its value above. Above the rail, spray starts at the sampled wave height, stays vertically above the rail and travels inward. Heights interpolate around the closed loop. Blue handles edit the resting waterline. Particles pass through the hull.", MessageType.Info);
         }
 
         private void InitializeHeights(SerializedProperty points, SerializedProperty heights)

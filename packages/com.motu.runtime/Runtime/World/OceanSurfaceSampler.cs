@@ -118,10 +118,16 @@ namespace Motu.World
 
         internal bool TryGetSurface(int index, Vector3 currentPosition, float maximumTravel,
             out float height, out Vector3 velocity, out float waveScale)
+            => TryGetSurface(index, currentPosition, maximumTravel, out height, out velocity, out waveScale, out _);
+
+        internal bool TryGetSurface(int index, Vector3 currentPosition, float maximumTravel,
+            out float height, out Vector3 velocity, out float waveScale, out float confidence,
+            float holdSeconds = .25f, float fadeSeconds = 1f)
         {
             velocity = velocities != null ? velocities[index] : Vector3.zero;
             waveScale = waveScales[index];
-            return TryGetHeight(index, currentPosition, maximumTravel, out height) && velocities != null;
+            return TryGetHeight(index, currentPosition, maximumTravel, out height, out confidence, holdSeconds, fadeSeconds)
+                && velocities != null;
         }
 
         internal float SampleAge(int index) => Time.time - sampleTimes[index];

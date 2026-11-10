@@ -9,6 +9,8 @@ namespace Motu.Rendering
     public sealed class OceanHullSpray : MonoBehaviour
     {
         [SerializeField] private OceanSurfaceController ocean;
+        [Tooltip("Ship physics body, including a body detached from the visual hull at launch. Supplies motion for sample reuse and inherited spray velocity. When empty, uses a parent Rigidbody.")]
+        [SerializeField] private Rigidbody body;
         [SerializeField] private Material sprayMaterial;
         [Tooltip("Closed waterline in ship-local coordinates, ordered around the authored waterline normal. Do not repeat the first point.")]
         [SerializeField] private Vector3[] waterline = Array.Empty<Vector3>();
@@ -20,7 +22,7 @@ namespace Motu.Rendering
         [Range(0, 90)] [SerializeField] private float launchAngle = 65f;
         [Range(0, 30)] [SerializeField] private float directionSpread = 12f;
         [Header("Water over gunwales")]
-        [Tooltip("Follow the sampled wave up the hull, stop at the gunwale and spray inward when the wave reaches it.")]
+        [Tooltip("Follow the sampled wave up the hull. Above the gunwale, emit inward at the unclamped crest height, vertically above the rail, so the falling spray covers the clipped water edge.")]
         [SerializeField] private bool gunwaleOverflow;
         [Tooltip("Fallback rise above the authored waterline, along hull-up, in ship-local metres. Used when no individual profile is configured.")]
         [InspectorName("Default Gunwale Height")]
@@ -42,11 +44,10 @@ namespace Motu.Rendering
         [Min(.01f)] [SerializeField] private float maximumSampleAge = .2f;
 
         private OceanSurfaceSampler sampler;
-        private Rigidbody body;
         private ParticleSystem particles;
         private ParticleSystemRenderer particleRenderer;
         private Vector3[] worldPoints, waveVelocities;
-        private float[] depths, waveScales, strengthMultipliers, fractions;
+        private float[] depths, waveScales, sampleConfidences, strengthMultipliers, fractions;
         private bool[] valid;
         private WetSegment[] segments;
         private float nextOceanSearch;
@@ -96,7 +97,7 @@ namespace Motu.Rendering
 
         private void OnEnable()
         {
-            body = GetComponentInParent<Rigidbody>();
+            if (body == null) body = GetComponentInParent<Rigidbody>();
             if (particles != null) particles.Play();
         }
 
@@ -118,6 +119,7 @@ namespace Motu.Rendering
                 worldPoints = new Vector3[waterline.Length];
                 depths = new float[waterline.Length];
                 waveScales = new float[waterline.Length];
+                sampleConfidences = new float[waterline.Length];
                 waveVelocities = new Vector3[waterline.Length];
                 strengthMultipliers = new float[waterline.Length];
                 fractions = new float[waterline.Length];
@@ -140,19 +142,18 @@ namespace Motu.Rendering
             }
             particleRenderer.sharedMaterial = sprayMaterial;
             var dt = Mathf.Min(Time.deltaTime, .05f);
-            // Keep a few frames of readback latency at lower frame rates, but
-            // never revive a long-stale contact after a stalled renderer.
-            float allowedAge = Mathf.Max(maximumSampleAge, Mathf.Min(.5f, Time.smoothDeltaTime * 4f));
+            // Bridge delayed GPU frames, then fade spray instead of cutting the
+            // entire closed loop off. Keep both the age and teleport guards.
+            SampleWindow(maximumSampleAge, Time.smoothDeltaTime, out var hold, out var fade);
             for (var i = 0; i < waterline.Length; i++)
             {
                 var point = transform.TransformPoint(waterline[i]);
                 worldPoints[i] = point;
                 float age = sampler.SampleAge(i);
                 float travel = OceanSurfaceSampler.MotionTravelAllowance(maximumSampleTravel,
-                    body != null ? body.GetPointVelocity(point) : Vector3.zero, age, allowedAge);
+                    body != null ? body.GetPointVelocity(point) : Vector3.zero, age, fade);
                 valid[i] = sampler.TryGetSurface(i, point, travel,
-                    out var height, out waveVelocities[i], out waveScales[i])
-                    && age <= allowedAge;
+                    out var height, out waveVelocities[i], out waveScales[i], out sampleConfidences[i], hold, fade);
                 depths[i] = valid[i] ? height - point.y : 0;
             }
             sampledFrame = Time.frameCount;
@@ -175,7 +176,8 @@ namespace Motu.Rendering
                 var outward = Vector3.Cross(up, tangent).normalized;
                 var shipVelocity = body != null ? body.GetPointVelocity((worldPoints[i] + worldPoints[j]) * .5f) : Vector3.zero;
                 var waveVelocity = (waveVelocities[i] + waveVelocities[j]) * .5f;
-                strengthMultipliers[i] = StrengthMultiplier(shipVelocity, waveVelocity, outward, relativeVelocityInfluence);
+                strengthMultipliers[i] = StrengthMultiplier(shipVelocity, waveVelocity, outward, relativeVelocityInfluence)
+                    * Mathf.Min(sampleConfidences[i], sampleConfidences[j]);
                 demand += segments[i].Integral * strengthMultipliers[i];
                 if (segments[i].Integral <= 0) fractions[i] = 0;
             }
@@ -204,17 +206,23 @@ namespace Motu.Rendering
                     var t = segment.Sample(UnityEngine.Random.value);
                     var position = Vector3.Lerp(worldPoints[i], worldPoints[j], t);
                     var depth = Mathf.Max(0, Mathf.Lerp(depths[i], depths[j], t));
+                    var hullContact = position;
+                    var overflowHeight = 0f;
                     bool overGunwale = false;
-                    // Opt-in overtopping follows the local wave crest. The cap is
-                    // measured along the ship's tilted hull-up axis, so the origin
-                    // remains at the rail instead of drifting into the deck.
+                    // Follow the true crest. Above the rail only world height
+                    // increases: keep the curtain aligned with the hull edge
+                    // instead of projecting far outwards along a heeled hull-up.
                     if (gunwaleOverflow)
                     {
                         float maximumRise = transform.TransformVector(waterlineUp.normalized * GunwaleHeightAlongEdge(i, t)).magnitude;
-                        if (!TryProjectCappedEmissionOrigin(position, up, position.y + depth, maximumRise,
+                        var rail = position + up.normalized * maximumRise;
+                        if (!TryProjectGunwaleEmissionOrigin(position, up, position.y + depth, maximumRise,
                             out position, out overGunwale)) continue;
+                        hullContact = overGunwale ? rail : position;
+                        overflowHeight = overGunwale ? Mathf.Max(0, position.y - rail.y) : 0;
                     }
                     else if (!TryProjectEmissionOrigin(position, up, surfaceHeight, out position)) continue;
+                    else hullContact = position;
                     var liftAxis = overGunwale ? up.normalized : Vector3.up;
                     var horizontal = overGunwale ? -outward : outward;
                     var angle = ((overGunwale ? inwardLaunchAngle : launchAngle)
@@ -222,13 +230,24 @@ namespace Motu.Rendering
                     var direction = (horizontal * Mathf.Cos(angle) + liftAxis * Mathf.Sin(angle)).normalized;
                     direction = Quaternion.AngleAxis(UnityEngine.Random.Range(-directionSpread, directionSpread), liftAxis) * direction;
                     var velocity = direction * LaunchSpeed(depth * strengthMultipliers[i], velocityPerMetre, maximumSpeed);
-                    if (body != null) velocity += body.GetPointVelocity(position);
+                    if (body != null) velocity += body.GetPointVelocity(hullContact);
+                    var particleLifetime = lifetime * UnityEngine.Random.Range(.7f, 1.3f);
+                    var size = particleSize * UnityEngine.Random.Range(.65f, 1.4f);
+                    if (overflowHeight > 0)
+                    {
+                        // Let tall sheets reach the deck, with larger droplets
+                        // to conceal the water cutout. Existing count/rate caps
+                        // still bound the effect during extreme waves.
+                        var fallTime = Mathf.Sqrt(2 * overflowHeight / Mathf.Max(.1f, Mathf.Abs(Physics.gravity.y)));
+                        particleLifetime = Mathf.Max(particleLifetime, Mathf.Min(3f, fallTime + .25f));
+                        size *= Mathf.Lerp(1, 2.5f, Mathf.Clamp01(overflowHeight / 3));
+                    }
                     particles.Emit(new ParticleSystem.EmitParams
                     {
                         position = position,
                         velocity = velocity,
-                        startLifetime = lifetime * UnityEngine.Random.Range(.7f, 1.3f),
-                        startSize = particleSize * UnityEngine.Random.Range(.65f, 1.4f),
+                        startLifetime = particleLifetime,
+                        startSize = size,
                         startColor = new Color(.86f, .93f, .96f, .75f)
                     }, 1);
                 }
@@ -247,7 +266,7 @@ namespace Motu.Rendering
             return true;
         }
 
-        internal static bool TryProjectCappedEmissionOrigin(Vector3 point, Vector3 hullUp,
+        internal static bool TryProjectGunwaleEmissionOrigin(Vector3 point, Vector3 hullUp,
             float surfaceHeight, float maximumRise, out Vector3 origin, out bool overGunwale)
         {
             origin = point;
@@ -258,7 +277,14 @@ namespace Motu.Rendering
             float cap = Mathf.Max(0, maximumRise);
             overGunwale = rise >= cap;
             origin += up * Mathf.Min(rise, cap);
+            if (overGunwale) origin.y = surfaceHeight;
             return true;
+        }
+
+        internal static void SampleWindow(float configuredAge, float frameSeconds, out float hold, out float fade)
+        {
+            hold = Mathf.Max(configuredAge, Mathf.Min(2f, frameSeconds * 8f));
+            fade = Mathf.Max(hold + .3f, Mathf.Min(4f, hold * 2f));
         }
 
         internal static float StrengthMultiplier(Vector3 shipVelocity, Vector3 waveVelocity, Vector3 outward, float influence)

@@ -95,7 +95,7 @@ namespace Motu.Tests
             typeof(WorldEnvironmentController).GetMethod("OnDisable", BindingFlags.Instance | BindingFlags.NonPublic)
                 .Invoke(environment, null);
 
-        private sealed class Fixture : IDisposable
+        internal sealed class Fixture : IDisposable
         {
             private readonly EnvironmentHostState baseline = new EnvironmentHostState();
             private readonly GameObject root = new GameObject("Wet surface render fixture");

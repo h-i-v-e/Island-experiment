@@ -69,6 +69,24 @@ namespace Motu.Rendering
             return false;
         }
 
+        internal static int VolumeResolutionDivisor(Camera camera)
+        {
+            GeometryUtility.CalculateFrustumPlanes(camera, frustumPlanes);
+            foreach (var owner in visibleOwners)
+            {
+                if (!owner.Visible || !owner.root.activeInHierarchy
+                    || (camera.cullingMask & (1 << owner.root.layer)) == 0) continue;
+                var bounds = owner.cloudRenderer.bounds;
+                if (!GeometryUtility.TestPlanesAABB(frustumPlanes, bounds)) continue;
+                float span = camera.orthographic ? camera.orthographicSize * 2
+                    : Mathf.Sqrt(bounds.SqrDistance(camera.transform.position)) * 2 * Mathf.Tan(camera.fieldOfView * .5f * Mathf.Deg2Rad);
+                if (Mathf.Max(bounds.size.x, bounds.size.y, bounds.size.z) > span * .75f) return 2;
+            }
+            // A distant curtain may be only a pixel tall at sea level. Keep
+            // those small volumes sharp; they already shade very few pixels.
+            return 1;
+        }
+
         internal SquallVisualRenderer(Transform parent)
         {
             if (parent == null) throw new ArgumentNullException(nameof(parent));
@@ -87,7 +105,10 @@ namespace Motu.Rendering
                 flashLight = new GameObject("Squall lightning light").AddComponent<Light>();
                 flashLight.transform.SetParent(root.transform, false);
                 flashLight.type = LightType.Point; flashLight.color = new Color(.72f, .84f, 1);
-                flashLight.shadows = LightShadows.None; flashLight.enabled = false;
+                // A point-light shadow needs six scene views per flash. Keep
+                // surface illumination; the moving cloud cookie owns shadows.
+                flashLight.shadows = LightShadows.None;
+                flashLight.enabled = false;
                 CloudNoiseTextures.EnsureBound();
                 root.SetActive(false);
             }
@@ -183,9 +204,12 @@ namespace Motu.Rendering
                 : age >= .215f && age < .26f ? .4f : 0;
             FlashStrength = pulse * Mathf.Max(0, settings.LightningBrightness) * state.Strength * distanceFade;
             boltRenderer.enabled = FlashStrength > 0;
-            flashLight.enabled = FlashStrength > 0 && Vector3.Distance(viewer, state.Center) < 800;
-            flashLight.range = Mathf.Clamp(diameter * .9f, 120, 450);
-            flashLight.intensity = FlashStrength * 8;
+            flashLight.range = Mathf.Clamp(diameter * 1.25f, 300, 3000);
+            flashLight.enabled = FlashStrength > 0
+                && Vector3.Distance(viewer, state.Center + mainPoints[0]) < flashLight.range;
+            // URP point lights use inverse-square falloff. A cloud-height flash
+            // needs enough intensity to illuminate surfaces hundreds of metres away.
+            flashLight.intensity = FlashStrength * 100000f;
             flashLight.transform.localPosition = mainPoints[0];
             if (!boltRenderer.enabled) return;
             WriteLightning(viewer);

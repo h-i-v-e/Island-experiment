@@ -56,6 +56,7 @@ namespace Motu.Editor
                 Set(spray, "depths", new[] { 1f, 1f, 1f, 1f });
                 Set(spray, "waveVelocities", new Vector3[4]);
                 Set(spray, "strengthMultipliers", new float[4]);
+                Set(spray, "sampleConfidences", new[] { 1f, 1f, 1f, 1f });
                 Set(spray, "fractions", new float[4]);
                 Set(spray, "valid", new[] { true, true, true, true });
                 Set(spray, "segments", new OceanHullSpray.WetSegment[4]);

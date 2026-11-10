@@ -111,14 +111,17 @@ namespace Motu.Editor
 
         internal static OceanHullSpray Assign(Transform root, ShipWaterlineTextureBuilder.Result hull, Vector3 forward, float worldY)
         {
-            var spray = root.GetComponent<OceanHullSpray>();
+            // The physical rigidbody can be a child of the visual hull. Reuse
+            // its authored emitter instead of adding an outward-only duplicate.
+            var spray = root.GetComponentInParent<OceanHullSpray>() ?? root.GetComponentInChildren<OceanHullSpray>(true);
+            var target = spray != null ? spray.transform : root;
             var outline = Build(hull, spray != null ? spray.SampleSpacing : 1f, spray != null ? spray.MaximumSamples : 256);
             var points = new Vector3[outline.Length];
             var origin = root.position;
             origin.y = worldY;
             var right = Vector3.Cross(Vector3.up, forward);
             for (var i = 0; i < outline.Length; i++)
-                points[i] = root.InverseTransformPoint(origin + right * outline[i].x + forward * outline[i].y);
+                points[i] = target.InverseTransformPoint(origin + right * outline[i].x + forward * outline[i].y);
             var material = Resources.Load<Material>("Motu/ShipWaterlineSpray");
             if (material == null) throw new InvalidOperationException("The package spray material is unavailable.");
             if (spray == null) spray = Undo.AddComponent<OceanHullSpray>(root.gameObject);
