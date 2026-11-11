@@ -120,6 +120,19 @@ impl OrientedBox {
     }
 }
 impl DoorDescriptor {
+    /// Solid leaf bounds in the same hinge-local frame as its mesh and hardware.
+    #[must_use]
+    pub fn local_bounds(&self) -> BoxCollider {
+        BoxCollider {
+            min: [0., self.depth_offset - self.thickness * 0.5, 0.],
+            max: [
+                self.width,
+                self.depth_offset + self.thickness * 0.5,
+                self.height,
+            ],
+        }
+    }
+
     /// `angle` is relative to the closed pose. Positive rotations are native +Z yaw.
     #[must_use]
     pub fn collider_at(&self, angle: f32) -> OrientedBox {
@@ -127,8 +140,8 @@ impl DoorDescriptor {
         let (s, c) = yaw.sin_cos();
         OrientedBox {
             centre: [
-                self.hinge[0] + c * self.width * 0.5,
-                self.hinge[1] + s * self.width * 0.5,
+                self.hinge[0] + c * self.width * 0.5 - s * self.depth_offset,
+                self.hinge[1] + s * self.width * 0.5 + c * self.depth_offset,
                 self.hinge[2] + self.height * 0.5,
             ],
             half_extents: [self.width * 0.5, self.thickness * 0.5, self.height * 0.5],

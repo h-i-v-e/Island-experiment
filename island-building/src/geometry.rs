@@ -6,6 +6,7 @@ use crate::{
     MeshPart, OpeningKind, PartitionAxis, RoofCovering, RoofKind, collision::BoxCollider,
 };
 pub mod chimney;
+pub(crate) mod door_panels;
 mod hardware;
 pub(crate) mod roof_covering;
 pub(crate) mod thatch;
@@ -139,7 +140,7 @@ fn slabs(b: &mut Builder, r: &BuildingRecipe, colliders: &mut Vec<BoxCollider>) 
         min: [-r.width * 0.5, -r.depth * 0.5, -r.floor_thickness],
         max: [r.width * 0.5, r.depth * 0.5, 0.],
     };
-    b.cube(MaterialSlot::Floor, floor.min, floor.max);
+    board_slab(b, r, MaterialSlot::Floor, floor);
     colliders.push(floor);
     let min = [
         -r.width * 0.5 + r.wall_thickness,
@@ -154,8 +155,40 @@ fn slabs(b: &mut Builder, r: &BuildingRecipe, colliders: &mut Vec<BoxCollider>) 
             min: [a[0], a[1], ceiling_height(r)],
             max: [c[0], c[1], ceiling_top(r)],
         };
-        b.cube(MaterialSlot::Interior, ceiling.min, ceiling.max);
+        board_slab(b, r, MaterialSlot::Ceiling, ceiling);
         colliders.push(ceiling);
+    }
+}
+
+fn board_slab(
+    builder: &mut Builder,
+    recipe: &BuildingRecipe,
+    slot: MaterialSlot,
+    bounds: BoxCollider,
+) {
+    let origin = timber_frame::joists::grid(recipe).map_or(0., |grid| grid.origin);
+    let start = builder.mesh(slot).positions.len();
+    builder.cube(slot, bounds.min, bounds.max);
+    let mesh = builder.mesh(slot);
+    for ((point, normal), uv) in mesh.positions[start..]
+        .iter()
+        .zip(&mesh.normals[start..])
+        .zip(&mut mesh.uvs[start..])
+    {
+        // One room-wide chart keeps boards continuous around the chimney cutout.
+        // U runs across the boards; V follows their length, across the joists.
+        *uv = if normal[2].abs() > 0.5 {
+            [point[0] * 0.5, (point[1] - origin) * 0.5]
+        } else {
+            [
+                if normal[0].abs() > 0.5 {
+                    point[1]
+                } else {
+                    point[0]
+                } * 0.5,
+                point[2] * 0.5,
+            ]
+        };
     }
 }
 
@@ -229,20 +262,33 @@ fn door_leaf(r: &BuildingRecipe, opening: &crate::OpeningRecipe) -> DoorDescript
                 -opening.width * 0.5 + DOOR_EDGE_CLEARANCE
             },
         DOOR_FLOOR_CLEARANCE,
-        // The outside leaf face seats against the full-depth jamb. Keeping its
-        // hinge beyond that plane lets the slab swing inward without clipping it.
-        r.wall_thickness + DOOR_THICKNESS * 0.5 + DOOR_JAMB_CLEARANCE,
+        // The inside face sits flush with the lining. Pivot at that face so the
+        // thickness swings into the opening rather than through the hinge jamb.
+        r.wall_thickness + DOOR_JAMB_CLEARANCE,
     );
     let width = opening.width - DOOR_EDGE_CLEARANCE * 2.;
     let height = opening.height - DOOR_EDGE_CLEARANCE - DOOR_FLOOR_CLEARANCE;
     let thickness = DOOR_THICKNESS;
-    let mut leaf = Builder::default();
-    leaf.cube(
-        MaterialSlot::Door,
-        [0., -thickness * 0.5, 0.],
-        [width, thickness * 0.5, height],
-    );
-    let mesh = leaf.finish().parts.remove(0).mesh;
+    let mut mesh = if opening.door_style == crate::DoorStyle::FrameAndPanel {
+        door_panels::near(width, height, thickness)
+    } else {
+        let mut leaf = Builder::default();
+        leaf.cube(
+            MaterialSlot::Door,
+            [0., -thickness * 0.5, 0.],
+            [width, thickness * 0.5, height],
+        );
+        leaf.finish().parts.remove(0).mesh
+    };
+    let depth_offset = thickness * if right { 0.5 } else { -0.5 };
+    let mut hardware_mesh = hardware::door_knobs(width, height, thickness);
+    for point in mesh
+        .positions
+        .iter_mut()
+        .chain(&mut hardware_mesh.positions)
+    {
+        point[1] += depth_offset;
+    }
     DoorDescriptor {
         id: opening.id.clone(),
         hinge,
@@ -251,8 +297,9 @@ fn door_leaf(r: &BuildingRecipe, opening: &crate::OpeningRecipe) -> DoorDescript
         width,
         height,
         thickness,
+        depth_offset,
         mesh,
-        hardware_mesh: hardware::door_knobs(width, height, thickness),
+        hardware_mesh,
         exterior: true,
     }
 }

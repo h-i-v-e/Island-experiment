@@ -211,6 +211,8 @@ impl StudioDocument {
                 &mut relocated.materials.door_recipe,
                 &mut relocated.materials.chimney_recipe,
                 &mut relocated.materials.timber_recipe,
+                &mut relocated.materials.floor_recipe,
+                &mut relocated.materials.ceiling_recipe,
             ]
             .into_iter()
             .flatten()
@@ -260,6 +262,8 @@ fn validate_dependencies(recipe: &BuildingRecipe, base: &Path) -> Result<(), Doc
         &recipe.materials.door_recipe,
         &recipe.materials.chimney_recipe,
         &recipe.materials.timber_recipe,
+        &recipe.materials.floor_recipe,
+        &recipe.materials.ceiling_recipe,
     ]
     .into_iter()
     .flatten()
@@ -394,7 +398,7 @@ mod tests {
     }
 
     #[test]
-    fn moving_a_building_document_preserves_its_door_material_dependency() {
+    fn moving_a_building_document_preserves_its_wood_material_dependencies() {
         let source = path("door-source").with_extension("");
         let destination = path("door-moved").with_extension("");
         fs::create_dir(&source).unwrap();
@@ -406,6 +410,8 @@ mod tests {
         .unwrap();
         let mut recipe = BuildingRecipe::hut();
         recipe.materials.door_recipe = Some("wood.json".into());
+        recipe.materials.floor_recipe = Some("wood.json".into());
+        recipe.materials.ceiling_recipe = Some("wood.json".into());
         fs::write(
             source.join("building.json"),
             serde_json::to_vec(&recipe).unwrap(),
@@ -416,11 +422,16 @@ mod tests {
             .save_as(&destination.join("building.json"))
             .unwrap();
         let loaded = StudioDocument::open(&destination.join("building.json")).unwrap();
-        let reference = loaded.recipe().materials.door_recipe.as_deref().unwrap();
-        assert_eq!(
-            fs::canonicalize(reference).unwrap(),
-            fs::canonicalize(source.join("wood.json")).unwrap()
-        );
+        for reference in [
+            &loaded.recipe().materials.door_recipe,
+            &loaded.recipe().materials.floor_recipe,
+            &loaded.recipe().materials.ceiling_recipe,
+        ] {
+            assert_eq!(
+                fs::canonicalize(reference.as_deref().unwrap()).unwrap(),
+                fs::canonicalize(source.join("wood.json")).unwrap()
+            );
+        }
         fs::remove_dir_all(source).unwrap();
         fs::remove_dir_all(destination).unwrap();
     }

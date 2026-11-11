@@ -591,6 +591,8 @@ pub struct WoodenPlanksSettings {
     pub planks: u32,
     /// Zero gives continuous boards, useful for a door leaf.
     pub joints_per_plank: u32,
+    /// Alternate rows share end joints, offset by half a board length.
+    pub regular_stagger: bool,
     pub seam_width_m: f32,
     pub bevel_width_m: f32,
     pub seam_depth_m: f32,
@@ -606,6 +608,7 @@ impl Default for WoodenPlanksSettings {
         Self {
             planks: 6,
             joints_per_plank: 0,
+            regular_stagger: false,
             seam_width_m: 0.005,
             bevel_width_m: 0.003,
             seam_depth_m: 0.0045,

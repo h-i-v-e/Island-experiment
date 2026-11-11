@@ -21,7 +21,7 @@ open "island-building/dist/Building Studio.app"
 
 The default package command builds release; `--debug` uses incremental development
 artifacts. `--no-build` reuses an executable you have already verified is current.
-The bundle includes the three building recipes, the wooden plank, coursed stone, slate and thatch material recipes,
+The bundle includes the three building recipes, the wooden plank, floorboard, coursed stone, slate and thatch material recipes,
 and this README in `Contents/Resources`.
 Packaging protects an existing bundle and honours `CARGO_TARGET_DIR`.
 
@@ -45,6 +45,35 @@ shared material recipe. Clearing the reference restores the door palette colour.
 The reusable source recipe is [`wooden-planks.json`](../island-rs/texture-recipes/wooden-planks.json):
 six boards across a 1.2 × 2.4 m tile with editable grain, bevelled seams, colour,
 and optional staggered end joints.
+
+Floors and ceilings use built-in **wooden boards**, with 20 cm wide boards,
+equal lengths, a regular half-board stagger, narrow bevelled seams and subtle grain.
+The reusable recipe is [`wooden-floorboards.json`](../island-rs/texture-recipes/wooden-floorboards.json),
+editable in Material Studio. **Materials → Floor** and **Ceiling** recolour the
+built-in surfaces independently; each has its own **Choose JSON…** material
+selector. Clearing a custom reference restores the built-in boards. Ceiling
+boards run across the exposed joists and stay aligned around the chimney
+opening. In timber-framed buildings, full board lengths fit two joist bays:
+even rows meet alternate joists and odd rows meet the joists between them.
+Plank end seams remain visible on the floor; the supporting floor joists are
+concealed. Ceiling end seams sit over the exposed ceiling joists. End seams
+are filtered across texture pixels so the narrow joints survive preview sampling.
+The standalone recipe uses 2.4 m boards. **Regular half-board stagger** in
+Material Studio controls this pattern and requires an even number of boards
+across the tile. Interior walls and fireplace surrounds retain their plaster finish.
+These interior materials appear at LOD0.
+
+**Openings → Door style → 18th-century panels** selects a Georgian-style
+six-panel frame-and-panel leaf for that door. It has solid stiles and rails,
+small upper panels, taller middle/lower panels, moulded borders and raised fields
+on both faces. Grain follows the stiles and panels vertically and the rails
+horizontally when a material is assigned. Door colour/material, knob, hinge,
+clearances and opening action use the existing controls. LOD1 keeps a simpler
+closed exterior; LOD2 bakes the panel design. Older recipes keep **Plank** doors.
+The recipe value is `"door_style": "frame_and_panel"` on the opening.
+Both door styles seat within the lining, with the inside face flush with the
+room-side frame and the hinge at that face so the leaf swings clear of the jamb.
+The design draws on the [Georgian Group's historic front-door examples](https://georgiangroup.org.uk/wp-content/uploads/2024/07/GGM_Brooking_09_Front_doors.pdf).
 
 **Structure → Wall construction → Wattle & daub** adds pale plaster infill with
 timber posts, rails, braces and gable framing. Timber defaults to 14 cm wide,

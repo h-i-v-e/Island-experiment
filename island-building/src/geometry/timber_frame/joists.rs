@@ -2,19 +2,33 @@
 use super::{Builder, BuildingRecipe, MaterialSlot, WallStyle, roof_overlap};
 use crate::collision::BoxCollider;
 
+pub(crate) struct JoistGrid {
+    pub origin: f32,
+    pub spacing: f32,
+    bays: u16,
+}
+
 // Validated room depths and bay widths require at most 54 equal bays.
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-fn stations(recipe: &BuildingRecipe) -> impl Iterator<Item = f32> {
+pub(crate) fn grid(recipe: &BuildingRecipe) -> Option<JoistGrid> {
+    if recipe.walls.style != WallStyle::WattleAndDaub {
+        return None;
+    }
     let inner = recipe.depth * 0.5 - recipe.wall_thickness - recipe.walls.frame_projection;
     // Include a virtual end beam at each wall, giving equal clear gaps at both ends too.
     let span = inner * 2. + recipe.walls.beam_width;
-    let bays = if recipe.walls.style == WallStyle::WattleAndDaub {
-        (span / recipe.walls.bay_width).ceil().max(2.) as u16
-    } else {
-        1
-    };
-    let step = span / f32::from(bays);
-    (1..bays).map(move |i| -span * 0.5 + f32::from(i) * step)
+    let bays = (span / recipe.walls.bay_width).ceil().max(2.) as u16;
+    Some(JoistGrid {
+        origin: -span * 0.5,
+        spacing: span / f32::from(bays),
+        bays,
+    })
+}
+
+fn stations(recipe: &BuildingRecipe) -> impl Iterator<Item = f32> {
+    grid(recipe)
+        .into_iter()
+        .flat_map(|grid| (1..grid.bays).map(move |i| grid.origin + f32::from(i) * grid.spacing))
 }
 
 fn chimney_clearance(recipe: &BuildingRecipe) -> Option<BoxCollider> {

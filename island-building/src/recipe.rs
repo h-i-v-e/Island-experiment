@@ -99,6 +99,47 @@ pub enum HingeSide {
     Left,
     Right,
 }
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DoorStyle {
+    #[default]
+    Plank,
+    FrameAndPanel,
+}
+
+impl DoorStyle {
+    #[allow(clippy::trivially_copy_pass_by_ref)] // Serde's skip predicate borrows the field.
+    const fn is_plank(&self) -> bool {
+        matches!(self, Self::Plank)
+    }
+}
+
+#[cfg(test)]
+mod door_style_tests {
+    use super::*;
+
+    #[test]
+    fn legacy_openings_keep_plank_doors_and_panel_choices_round_trip() {
+        let value = serde_json::to_value(BuildingRecipe::hut()).unwrap();
+        assert!(
+            value["openings"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|o| o.get("door_style").is_none())
+        );
+        let mut recipe: BuildingRecipe = serde_json::from_value(value).unwrap();
+        assert_eq!(recipe.openings[0].door_style, DoorStyle::Plank);
+        recipe.openings[0].door_style = DoorStyle::FrameAndPanel;
+        let encoded = serde_json::to_value(&recipe).unwrap();
+        assert_eq!(encoded["openings"][0]["door_style"], "frame_and_panel");
+        assert_eq!(
+            serde_json::from_value::<BuildingRecipe>(encoded).unwrap(),
+            recipe
+        );
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct OpeningRecipe {
@@ -112,6 +153,8 @@ pub struct OpeningRecipe {
     pub sill: f32,
     pub hinge: HingeSide,
     pub swing_degrees: f32,
+    #[serde(default, skip_serializing_if = "DoorStyle::is_plank")]
+    pub door_style: DoorStyle,
 }
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -266,6 +309,8 @@ pub struct MaterialPalette {
     pub wall: [f32; 3],
     pub roof: [f32; 3],
     pub floor: [f32; 3],
+    #[serde(default = "default_ceiling_colour")]
+    pub ceiling: [f32; 3],
     pub interior: [f32; 3],
     pub trim: [f32; 3],
     pub door: [f32; 3],
@@ -285,6 +330,10 @@ pub struct MaterialPalette {
     pub chimney_recipe: Option<String>,
     #[serde(default)]
     pub timber_recipe: Option<String>,
+    #[serde(default)]
+    pub floor_recipe: Option<String>,
+    #[serde(default)]
+    pub ceiling_recipe: Option<String>,
 }
 impl Default for MaterialPalette {
     fn default() -> Self {
@@ -292,6 +341,7 @@ impl Default for MaterialPalette {
             wall: [0.62, 0.38, 0.22],
             roof: [0.23, 0.28, 0.29],
             floor: [0.38, 0.27, 0.17],
+            ceiling: default_ceiling_colour(),
             interior: [0.76, 0.72, 0.61],
             trim: [0.82, 0.76, 0.61],
             door: [0.30, 0.20, 0.12],
@@ -303,6 +353,8 @@ impl Default for MaterialPalette {
             door_recipe: None,
             chimney_recipe: None,
             timber_recipe: None,
+            floor_recipe: None,
+            ceiling_recipe: None,
         }
     }
 }
@@ -311,6 +363,9 @@ const fn default_chimney_colour() -> [f32; 3] {
 }
 const fn default_timber_colour() -> [f32; 3] {
     [0.09, 0.045, 0.022]
+}
+const fn default_ceiling_colour() -> [f32; 3] {
+    [0.38, 0.27, 0.17]
 }
 
 impl Default for BuildingRecipe {
@@ -349,6 +404,7 @@ impl BuildingRecipe {
                     sill: 0.,
                     hinge: HingeSide::Left,
                     swing_degrees: 105.,
+                    door_style: DoorStyle::Plank,
                 },
                 OpeningRecipe {
                     id: "window-east".into(),
@@ -360,6 +416,7 @@ impl BuildingRecipe {
                     sill: 0.95,
                     hinge: HingeSide::Left,
                     swing_degrees: 90.,
+                    door_style: DoorStyle::Plank,
                 },
                 OpeningRecipe {
                     id: "window-west".into(),
@@ -371,6 +428,7 @@ impl BuildingRecipe {
                     sill: 0.95,
                     hinge: HingeSide::Left,
                     swing_degrees: 90.,
+                    door_style: DoorStyle::Plank,
                 },
             ],
             partitions: Vec::new(),
@@ -408,6 +466,7 @@ impl BuildingRecipe {
                 sill: 0.95,
                 hinge: HingeSide::Left,
                 swing_degrees: 90.,
+                door_style: DoorStyle::Plank,
             },
             OpeningRecipe {
                 id: "rear-window".into(),
@@ -419,6 +478,7 @@ impl BuildingRecipe {
                 sill: 0.95,
                 hinge: HingeSide::Left,
                 swing_degrees: 90.,
+                door_style: DoorStyle::Plank,
             },
         ]);
         r

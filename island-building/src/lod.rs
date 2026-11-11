@@ -11,6 +11,10 @@ pub(crate) fn middle(recipe: &BuildingRecipe) -> BuildingLod {
     }
     for o in &recipe.openings {
         geometry::frame(&mut builder, recipe, o, false);
+        if o.kind == crate::OpeningKind::Door && o.door_style == crate::DoorStyle::FrameAndPanel {
+            geometry::door_panels::proxy(&mut builder, recipe, o);
+            continue;
+        }
         let facade = o.facade;
         let a = o.offset - o.width * 0.5;
         let slot = if o.kind == crate::OpeningKind::Window {

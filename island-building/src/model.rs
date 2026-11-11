@@ -14,6 +14,7 @@ pub enum MaterialSlot {
     ThatchShell3,
     ThatchShell4,
     Floor,
+    Ceiling,
     Interior,
     Trim,
     Door,
@@ -81,6 +82,9 @@ pub struct DoorDescriptor {
     pub width: f32,
     pub height: f32,
     pub thickness: f32,
+    /// Signed hinge-local Y offset of the leaf centre; older exports use zero.
+    #[serde(default)]
+    pub depth_offset: f32,
     pub mesh: BuildingMesh,
     /// Untextured metal knobs and roses in the same hinge-local frame as the leaf.
     #[serde(default)]

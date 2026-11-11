@@ -225,6 +225,7 @@ fn compile_materials(
         MaterialSlot::Wall,
         MaterialSlot::Roof,
         MaterialSlot::Floor,
+        MaterialSlot::Ceiling,
         MaterialSlot::Interior,
         MaterialSlot::Trim,
         MaterialSlot::Door,

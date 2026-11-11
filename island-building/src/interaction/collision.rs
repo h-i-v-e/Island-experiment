@@ -39,11 +39,12 @@ pub(crate) fn door_local(point: Vec3, door: &DoorDescriptor, angle: f32) -> Vec3
 }
 
 pub(crate) fn sphere_door(point: Vec3, radius: f32, door: &DoorDescriptor, angle: f32) -> bool {
+    let bounds = door.local_bounds();
     sphere_box(
         door_local(point, door, angle),
         radius,
-        Vec3::new(0.0, -door.thickness * 0.5, 0.0),
-        Vec3::new(door.width, door.thickness * 0.5, door.height),
+        Vec3::from_array(bounds.min),
+        Vec3::from_array(bounds.max),
     )
 }
 
@@ -83,11 +84,12 @@ pub(crate) fn ray_door(
     limit: f32,
 ) -> Option<f32> {
     let rotation = Quat::from_rotation_z(-door.closed_angle - angle);
+    let bounds = door.local_bounds();
     ray_box(
         door_local(origin, door, angle),
         rotation * direction,
-        Vec3::new(0.0, -door.thickness * 0.5, 0.0),
-        Vec3::new(door.width, door.thickness * 0.5, door.height),
+        Vec3::from_array(bounds.min),
+        Vec3::from_array(bounds.max),
         limit,
     )
 }

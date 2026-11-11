@@ -10,6 +10,42 @@ fn preview(mut recipe: BuildingRecipe) -> BuildingRecipe {
 }
 
 #[test]
+fn floor_and_ceiling_boards_have_continuous_room_coordinates_around_the_flue() {
+    for facade in Facade::ALL {
+        let mut recipe = preview(BuildingRecipe::hut());
+        recipe.walls.style = WallStyle::WattleAndDaub;
+        recipe.openings.retain(|o| o.kind == OpeningKind::Door);
+        recipe.openings[0].facade = Facade::ALL[(facade.index() + 2) % 4];
+        recipe.chimney.as_mut().unwrap().facade = facade;
+        let prototype = generate(&recipe).unwrap();
+        let origin = -(recipe.depth - 2. * (recipe.wall_thickness + recipe.walls.frame_projection)
+            + recipe.walls.beam_width)
+            * 0.5;
+        for slot in [MaterialSlot::Floor, MaterialSlot::Ceiling] {
+            let mesh = &prototype.lods[0]
+                .parts
+                .iter()
+                .find(|part| part.material == slot)
+                .unwrap()
+                .mesh;
+            check_mesh(mesh);
+            for ((point, normal), uv) in mesh.positions.iter().zip(&mesh.normals).zip(&mesh.uvs) {
+                if normal[2].abs() > 0.5 {
+                    assert!((uv[0] - point[0] * 0.5).abs() < 0.00001);
+                    assert!((uv[1] - (point[1] - origin) * 0.5).abs() < 0.00001);
+                }
+            }
+        }
+        assert!(
+            prototype.lods[1..]
+                .iter()
+                .flat_map(|lod| &lod.parts)
+                .all(|part| !matches!(part.material, MaterialSlot::Floor | MaterialSlot::Ceiling))
+        );
+    }
+}
+
+#[test]
 fn half_timbered_walls_keep_clear_openings_real_relief_and_a_baked_distant_frame() {
     for roof in [RoofKind::Gable, RoofKind::Shed] {
         let mut recipe = preview(BuildingRecipe::hut());
@@ -84,6 +120,62 @@ fn half_timbered_walls_keep_clear_openings_real_relief_and_a_baked_distant_frame
         assert_eq!(prototype.hash, regenerated.hash);
         assert_eq!(prototype.lods, regenerated.lods);
         assert_eq!(prototype.atlas, regenerated.atlas);
+    }
+}
+
+#[test]
+fn alternating_plank_end_joints_land_on_actual_joist_centres() {
+    for depth in [5., 8.3] {
+        for bay in [0.75, 1.5, 3.] {
+            let mut recipe = preview(BuildingRecipe::hut());
+            recipe.walls.style = WallStyle::WattleAndDaub;
+            recipe.depth = depth;
+            recipe.walls.bay_width = bay;
+            recipe.chimney = None;
+            let prototype = generate(&recipe).unwrap();
+            let width = recipe.walls.beam_width;
+            let joists: Vec<_> = prototype
+                .colliders
+                .iter()
+                .filter(|c| {
+                    (c.max[1] - c.min[1] - width).abs() < 0.00001
+                        && (c.max[2] - c.min[2] - width).abs() < 0.00001
+                        && c.max[0] - c.min[0] > recipe.width * 0.8
+                })
+                .map(|c| (c.min[1] + c.max[1]) * 0.5)
+                .collect();
+            assert!(!joists.is_empty());
+            for slot in [MaterialSlot::Floor, MaterialSlot::Ceiling] {
+                let mesh = &prototype.lods[0]
+                    .parts
+                    .iter()
+                    .find(|p| p.material == slot)
+                    .unwrap()
+                    .mesh;
+                let period = prototype
+                    .materials
+                    .iter()
+                    .find(|m| m.slot == slot)
+                    .unwrap()
+                    .physical_size[1];
+                // Structural UVs use a two-metre chart before the material's physical scale.
+                let index = mesh.normals.iter().position(|n| n[2].abs() > 0.5).unwrap();
+                let origin = mesh.positions[index][1] - mesh.uvs[index][1] * 2.;
+                for y in &joists {
+                    let joint = (y - origin) / period * 2.;
+                    assert!(
+                        (joint - joint.round()).abs() < 0.00001,
+                        "even and odd rows meet alternate joists"
+                    );
+                }
+                for pair in joists.windows(2) {
+                    assert!(
+                        (period - (pair[1] - pair[0]) * 2.).abs() < 0.00001,
+                        "all full boards span two equal joist bays"
+                    );
+                }
+            }
+        }
     }
 }
 
@@ -284,7 +376,7 @@ fn ceiling_meets_wall_plate_tops_and_keeps_plaster_fireplace_and_collision_close
     };
     let ceiling = recipe.wall_height + 0.1;
     let eye = [0., 0.4, 1.65];
-    let hit = mesh_ray(mesh(MaterialSlot::Interior), eye, [0., 0., 1.]).unwrap();
+    let hit = mesh_ray(mesh(MaterialSlot::Ceiling), eye, [0., 0., 1.]).unwrap();
     assert!((hit - (ceiling - eye[2])).abs() < 0.00001);
     let collision = prototype
         .colliders
@@ -460,7 +552,10 @@ fn presets_have_valid_accessible_geometry_and_three_distinct_lods() {
         for lod in &prototype.lods[1..] {
             assert!(lod.parts.iter().all(|p| !matches!(
                 p.material,
-                MaterialSlot::Glass | MaterialSlot::Interior | MaterialSlot::Floor
+                MaterialSlot::Glass
+                    | MaterialSlot::Interior
+                    | MaterialSlot::Floor
+                    | MaterialSlot::Ceiling
             )));
         }
         assert!(
@@ -835,10 +930,19 @@ fn facade_atlas_preserves_opening_elevations_above_a_thick_floor() {
 #[test]
 fn fitted_door_leaves_have_small_perimeter_clearances_on_every_facade() {
     for facade in Facade::ALL {
-        for hinge in [
+        for (hinge, style, thickness) in [
             island_building::HingeSide::Left,
             island_building::HingeSide::Right,
-        ] {
+        ]
+        .into_iter()
+        .flat_map(|hinge| {
+            [
+                island_building::DoorStyle::Plank,
+                island_building::DoorStyle::FrameAndPanel,
+            ]
+            .into_iter()
+            .flat_map(move |style| [0.12, 0.2, 0.45].map(|depth| (hinge, style, depth)))
+        }) {
             let mut recipe = preview(BuildingRecipe::hut());
             recipe.chimney = None;
             recipe
@@ -846,6 +950,8 @@ fn fitted_door_leaves_have_small_perimeter_clearances_on_every_facade() {
                 .retain(|o| o.kind == OpeningKind::Door || o.facade != facade);
             recipe.openings[0].facade = facade;
             recipe.openings[0].hinge = hinge;
+            recipe.openings[0].door_style = style;
+            recipe.wall_thickness = thickness;
             let prototype =
                 generate(&recipe).expect("fitted door retains its unobstructed full swing");
             let door = &prototype.doors[0];
@@ -864,6 +970,7 @@ fn fitted_door_leaves_have_small_perimeter_clearances_on_every_facade() {
                     ]
                 })
                 .collect::<Vec<_>>();
+            check_leaf_seating(&recipe, door, &leaf_points);
             let along = |point: &[f32; 3]| point[0] * tangent[0] + point[1] * tangent[1];
             let left = leaf_points.iter().map(along).fold(f32::INFINITY, f32::min);
             let right = leaf_points
@@ -882,6 +989,55 @@ fn fitted_door_leaves_have_small_perimeter_clearances_on_every_facade() {
             assert!((opening.offset + opening.width * 0.5 - right - 0.003).abs() < 0.00001);
             assert!((opening.height - top - 0.003).abs() < 0.00001);
             assert!((bottom - 0.006).abs() < 0.00001);
+        }
+    }
+}
+
+fn check_leaf_seating(
+    recipe: &BuildingRecipe,
+    door: &island_building::DoorDescriptor,
+    closed_points: &[[f32; 3]],
+) {
+    let opening = &recipe.openings[0];
+    let facade = opening.facade;
+    let surface = facade.point(recipe, 0., 0., 0.);
+    let inward = |p: [f32; 3]| {
+        (0..2)
+            .map(|i| (surface[i] - p[i]) * facade.normal()[i])
+            .sum::<f32>()
+    };
+    let back = closed_points
+        .iter()
+        .map(|p| inward(*p))
+        .fold(f32::NEG_INFINITY, f32::max);
+    let front = closed_points
+        .iter()
+        .map(|p| inward(*p))
+        .fold(f32::INFINITY, f32::min);
+    assert!(
+        (back - recipe.wall_thickness - 0.001).abs() < 0.00001,
+        "inside face flush with frame"
+    );
+    assert!((back - front - door.thickness).abs() < 0.00001);
+    let bounds = door.local_bounds();
+    assert!(door.mesh.positions.iter().all(|p| bounds.contains(*p)));
+    for step in 0..=135_u16 {
+        let (sine, cosine) =
+            (door.closed_angle + door.swing_angle * f32::from(step) / 135.).sin_cos();
+        for x in [0., door.width] {
+            for y in [bounds.min[1], bounds.max[1]] {
+                let point = [
+                    door.hinge[0] + cosine * x - sine * y,
+                    door.hinge[1] + sine * x + cosine * y,
+                    1.,
+                ];
+                let along = (0..2).map(|i| point[i] * facade.tangent()[i]).sum::<f32>();
+                assert!(
+                    (along - opening.offset).abs() <= opening.width * 0.5 + 0.00001
+                        || inward(point) >= back - 0.00001,
+                    "swing clears jamb and wall"
+                );
+            }
         }
     }
 }
@@ -1033,6 +1189,94 @@ fn front_facing_hit(
 }
 
 #[test]
+fn panel_doors_have_six_real_fields_on_both_faces_and_keep_hinges_collision_and_hardware() {
+    for facade in Facade::ALL {
+        for hinge in [
+            island_building::HingeSide::Left,
+            island_building::HingeSide::Right,
+        ] {
+            let mut recipe = preview(BuildingRecipe::hut());
+            recipe.chimney = None;
+            recipe.openings.retain(|o| o.kind == OpeningKind::Door);
+            recipe.openings[0].facade = facade;
+            recipe.openings[0].hinge = hinge;
+            let plain = generate(&recipe).unwrap();
+            recipe.openings[0].door_style = island_building::DoorStyle::FrameAndPanel;
+            let panels = generate(&recipe).unwrap();
+            let before = &plain.doors[0];
+            let door = &panels.doors[0];
+            check_mesh(&door.mesh);
+            assert_eq!(door.hardware_mesh, before.hardware_mesh);
+            assert!(
+                door.hinge
+                    .iter()
+                    .zip(before.hinge)
+                    .all(|(a, b)| (a - b).abs() < 0.000_001)
+            );
+            assert_eq!(door.collider_at(0.8), before.collider_at(0.8));
+            assert_eq!(panels.colliders, plain.colliders);
+            assert_eq!(panels.lods[0], plain.lods[0]);
+            assert_eq!(panels.lods[2], plain.lods[2]);
+            assert_ne!(
+                panels.atlas, plain.atlas,
+                "LOD2 retains the chosen panel design"
+            );
+            for sign in [-1., 1.] {
+                let direction = [0., -sign, 0.];
+                let origin = [
+                    door.width * 0.04,
+                    door.depth_offset + sign * (door.thickness * 0.5 + 0.1),
+                    door.height * 0.5,
+                ];
+                assert!((mesh_ray(&door.mesh, origin, direction).unwrap() - 0.1).abs() < 0.00001);
+                for x in [0.29, 0.71] {
+                    for z in [0.24, 0.63, 0.886] {
+                        let point = [door.width * x, origin[1], door.height * z];
+                        let distance = mesh_ray(&door.mesh, point, direction).unwrap();
+                        assert!(
+                            (distance - 0.102).abs() < 0.00001,
+                            "six raised fields on each side"
+                        );
+                        assert!(front_facing_hit(&door.mesh, point, direction, 0.103));
+                    }
+                }
+                let groove = [
+                    (door.width * 0.115).clamp(0.085, 0.14) + 0.016,
+                    origin[1],
+                    door.height * 0.24,
+                ];
+                assert!(
+                    mesh_ray(&door.mesh, groove, direction).unwrap() > 0.112,
+                    "sunken moulded border"
+                );
+            }
+            let proxy = &panels.lods[1]
+                .parts
+                .iter()
+                .find(|p| p.material == MaterialSlot::Door)
+                .unwrap()
+                .mesh;
+            check_mesh(proxy);
+            assert!(proxy.triangle_count() < door.mesh.triangle_count());
+            let opening = &recipe.openings[0];
+            for fraction in [-0.21, 0.21] {
+                for height in [0.24, 0.63, 0.886] {
+                    let origin = facade.point(
+                        &recipe,
+                        opening.width * fraction,
+                        opening.height * height,
+                        -0.3,
+                    );
+                    let direction = facade.normal().map(|v| -v);
+                    assert!((mesh_ray(proxy, origin, direction).unwrap() - 0.317).abs() < 0.00001);
+                    assert!(front_facing_hit(proxy, origin, direction, 0.32));
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn latch_side_knobs_are_smooth_geometry_on_both_faces_for_all_hinges_and_facades() {
     for facade in Facade::ALL {
         for hinge in [
@@ -1063,19 +1307,19 @@ fn latch_side_knobs_are_smooth_geometry_on_both_faces_for_all_hinges_and_facades
                 door.hardware_mesh
                     .positions
                     .iter()
-                    .any(|point| point[1] > door.thickness * 0.5 + 0.05)
+                    .any(|point| point[1] - door.depth_offset > door.thickness * 0.5 + 0.05)
             );
             assert!(
                 door.hardware_mesh
                     .positions
                     .iter()
-                    .any(|point| point[1] < -door.thickness * 0.5 - 0.05)
+                    .any(|point| point[1] - door.depth_offset < -door.thickness * 0.5 - 0.05)
             );
             assert!(
                 door.mesh
                     .positions
                     .iter()
-                    .all(|point| point[1].abs() <= door.thickness * 0.5)
+                    .all(|point| (point[1] - door.depth_offset).abs() <= door.thickness * 0.5)
             );
             assert!(
                 prototype
@@ -2011,6 +2255,7 @@ fn slate_and_thatch_keep_roof_bounds_lods_and_flues_valid_at_both_scales() {
                         MaterialSlot::Glass
                             | MaterialSlot::Interior
                             | MaterialSlot::Floor
+                            | MaterialSlot::Ceiling
                             | MaterialSlot::Firebox
                     )));
                 }

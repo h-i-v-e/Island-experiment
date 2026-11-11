@@ -282,6 +282,7 @@ fn palette(r: &BuildingRecipe, c: &mut Checks) {
         ("materials.wall", m.wall),
         ("materials.roof", m.roof),
         ("materials.floor", m.floor),
+        ("materials.ceiling", m.ceiling),
         ("materials.interior", m.interior),
         ("materials.trim", m.trim),
         ("materials.door", m.door),
@@ -310,6 +311,8 @@ fn palette(r: &BuildingRecipe, c: &mut Checks) {
         ("materials.door_recipe", &m.door_recipe),
         ("materials.chimney_recipe", &m.chimney_recipe),
         ("materials.timber_recipe", &m.timber_recipe),
+        ("materials.floor_recipe", &m.floor_recipe),
+        ("materials.ceiling_recipe", &m.ceiling_recipe),
     ] {
         c.require(
             path.as_ref()

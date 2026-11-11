@@ -38,6 +38,16 @@ pub(crate) fn generate(
             r.materials.door_recipe.as_deref(),
         ),
         (
+            MaterialSlot::Floor,
+            r.materials.floor,
+            r.materials.floor_recipe.as_deref(),
+        ),
+        (
+            MaterialSlot::Ceiling,
+            r.materials.ceiling,
+            r.materials.ceiling_recipe.as_deref(),
+        ),
+        (
             MaterialSlot::Chimney,
             r.materials.chimney,
             r.materials.chimney_recipe.as_deref(),
@@ -73,13 +83,14 @@ fn material(
     // The other surfaces retain their existing preview/final source budget.
     let size = match (slot, r.roof.covering) {
         (MaterialSlot::Roof, RoofCovering::Thatch) => 1024,
-        (MaterialSlot::Roof, RoofCovering::Slate) => r.atlas_size.clamp(256, 512),
+        (MaterialSlot::Roof, RoofCovering::Slate)
+        | (MaterialSlot::Floor | MaterialSlot::Ceiling, _) => r.atlas_size.clamp(256, 512),
         _ => r.atlas_size.min(512),
     };
     let mut parameters = RecipeParameterValues::new();
     let colour_parameter = match slot {
         MaterialSlot::Wall if r.walls.style == WallStyle::WattleAndDaub => Some("plaster_colour"),
-        MaterialSlot::Timber => Some("wood_colour"),
+        MaterialSlot::Timber | MaterialSlot::Floor | MaterialSlot::Ceiling => Some("wood_colour"),
         MaterialSlot::Chimney => Some("stone_colour"),
         MaterialSlot::Roof if r.roof.covering != RoofCovering::StandingSeam => Some("roof_colour"),
         _ => None,
@@ -105,6 +116,7 @@ fn material(
     };
     recipe.width = size;
     recipe.height = size;
+    align_board_length(&mut recipe, r, slot);
     let textures =
         generate_texture_set_with_parameters(&recipe, &parameters, NormalConvention::OpenGl)
             .map_err(|e| BuildingError::new(format!("{slot:?}"), e.to_string()))?;
@@ -148,6 +160,19 @@ fn material(
         source_hash,
     })
 }
+
+fn align_board_length(material: &mut TextureRecipe, building: &BuildingRecipe, slot: MaterialSlot) {
+    if matches!(slot, MaterialSlot::Floor | MaterialSlot::Ceiling)
+        && let MaterialModel::WoodenPlanks(settings) = &material.material
+        && settings.regular_stagger
+        && settings.joints_per_plank > 0
+        && let Some(grid) = crate::geometry::timber_frame::joists::grid(building)
+    {
+        // Alternate rows finish over alternate joists; every full board spans two bays.
+        let joints = f32::from(u16::try_from(settings.joints_per_plank).unwrap_or(u16::MAX));
+        material.physical_tile_height_m = grid.spacing * 2. * joints;
+    }
+}
 fn default_material(
     recipe: &BuildingRecipe,
     slot: MaterialSlot,
@@ -159,6 +184,9 @@ fn default_material(
         }
         MaterialSlot::Timber => {
             include_bytes!("../../island-rs/texture-recipes/wooden-planks.json")
+        }
+        MaterialSlot::Floor | MaterialSlot::Ceiling => {
+            include_bytes!("../../island-rs/texture-recipes/wooden-floorboards.json")
         }
         MaterialSlot::Chimney => {
             include_bytes!("../../island-rs/texture-recipes/coursed-stone.json")
@@ -247,8 +275,10 @@ pub(crate) fn prototype_hash(
     portable.materials.door_recipe = None;
     portable.materials.chimney_recipe = None;
     portable.materials.timber_recipe = None;
+    portable.materials.floor_recipe = None;
+    portable.materials.ceiling_recipe = None;
     let mut hash = Sha256::new();
-    hash.update(b"island-building:geometry24:material8:bake13");
+    hash.update(b"island-building:geometry28:material11:bake14");
     hash.update(
         serde_json::to_vec(&portable).map_err(|e| BuildingError::new("hash", e.to_string()))?,
     );
@@ -275,6 +305,7 @@ pub fn colour(recipe: &BuildingRecipe, slot: MaterialSlot) -> [f32; 4] {
         | MaterialSlot::ThatchShell3
         | MaterialSlot::ThatchShell4 => m.roof,
         MaterialSlot::Floor => m.floor,
+        MaterialSlot::Ceiling => m.ceiling,
         MaterialSlot::Interior => m.interior,
         MaterialSlot::Trim => m.trim,
         MaterialSlot::Door => m.door,
@@ -297,6 +328,53 @@ mod tests {
     };
 
     static NEXT_DIRECTORY: AtomicU64 = AtomicU64::new(0);
+
+    #[test]
+    fn floor_and_ceiling_boards_have_physical_relief_and_independent_tints() {
+        let mut legacy = serde_json::to_value(BuildingRecipe::hut()).unwrap();
+        for field in ["ceiling", "floor_recipe", "ceiling_recipe"] {
+            legacy["materials"].as_object_mut().unwrap().remove(field);
+        }
+        let mut recipe: BuildingRecipe = serde_json::from_value(legacy).unwrap();
+        recipe.atlas_size = 128;
+        let floor = material(
+            &recipe,
+            Path::new("."),
+            MaterialSlot::Floor,
+            recipe.materials.floor,
+            None,
+        )
+        .unwrap();
+        let ceiling = material(
+            &recipe,
+            Path::new("."),
+            MaterialSlot::Ceiling,
+            [0.2, 0.1, 0.04],
+            None,
+        )
+        .unwrap();
+        for texture in [&floor, &ceiling] {
+            assert!(
+                texture
+                    .physical_size
+                    .iter()
+                    .zip([1.2, 2.4])
+                    .all(|(a, b)| (a - b).abs() < 0.00001)
+            );
+        }
+        assert_ne!(floor.albedo, ceiling.albedo);
+        assert_eq!(
+            floor.normal, ceiling.normal,
+            "recolouring preserves board relief"
+        );
+        assert_eq!(floor.masks, ceiling.masks);
+        assert!(
+            floor
+                .normal
+                .chunks_exact(4)
+                .any(|p| p[0].abs_diff(128) > 5 || p[1].abs_diff(128) > 5)
+        );
+    }
 
     #[test]
     fn timber_colour_changes_wood_without_repainting_the_plaster_or_changing_grain_relief() {

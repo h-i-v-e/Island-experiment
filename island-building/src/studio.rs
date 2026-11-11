@@ -580,8 +580,12 @@ fn display_prototype(source: &Arc<BuildingPrototype>, cutaway: bool) -> Arc<Buil
     }
     let mut display = source.as_ref().clone();
     for lod in &mut display.lods {
-        lod.parts
-            .retain(|part| part.material != crate::MaterialSlot::Roof);
+        lod.parts.retain(|part| {
+            !matches!(
+                part.material,
+                crate::MaterialSlot::Roof | crate::MaterialSlot::Ceiling
+            )
+        });
         for part in &mut lod.parts {
             if part.material != crate::MaterialSlot::Interior {
                 continue;

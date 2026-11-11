@@ -62,6 +62,12 @@ for door-length boards, or increase the count for staggered timber joints. The
 and occlusion. Material Studio opens, edits, saves and reopens this typed recipe
 through its normal document workflow.
 
+`wooden-floorboards.json` starts with equal-length boards in a regular half-board
+stagger: all even rows share end joints and all odd rows are offset by half a
+length. The **Regular half-board stagger** checkbox selects this arrangement;
+use an even board count for seamless tiling. Building Studio fits this pattern
+to two joist bays when it is assigned to timber-framed floors or ceilings.
+
 `island-rs/texture-recipes/coursed-stone.json` provides staggered grey/brown
 stonework with neutral recessed mortar, suitable for a cold chimney or fireplace.
 Its 2 × 2 metre tile contains nominal 500 × 250 mm stones. The `stone_colour`

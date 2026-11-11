@@ -11,6 +11,7 @@ use crate::{
     RoofKind,
 };
 
+mod doors;
 mod roof_filter;
 use roof_filter::FilteredRoof;
 
@@ -221,31 +222,7 @@ fn sample(r: &BuildingRecipe, sources: &Sources<'_>, chart: usize, u: f32, v: f3
                 }
                 OpeningKind::Door => {
                     let local_x = along - o.offset + o.width * 0.5;
-                    let mut surface = if r.materials.door_recipe.is_some() {
-                        texture(
-                            materials,
-                            MaterialSlot::Door,
-                            local_x,
-                            z - o.sill,
-                            r.materials.door,
-                        )
-                    } else {
-                        let groove = ((along - o.offset) * 9.).rem_euclid(1.) < 0.045;
-                        let factor = if groove { 0.7 } else { 1. };
-                        plain(r.materials.door.map(|v| v * factor), 0., 205)
-                    };
-                    surface.height = -0.012;
-                    let knob_x = if o.hinge == crate::HingeSide::Left {
-                        o.width - 0.078
-                    } else {
-                        0.078
-                    };
-                    let knob_z = 1.02_f32.min((o.height - 0.009) * 0.55) + 0.006;
-                    if (local_x - knob_x).hypot(z - knob_z) < 0.025 {
-                        surface = plain([0.48, 0.44, 0.34], 0.02, 61);
-                        surface.metallic = 230;
-                    }
-                    surface
+                    doors::sample(r, materials, o, [local_x, z - o.sill])
                 }
             };
         }

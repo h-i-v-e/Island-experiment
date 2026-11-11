@@ -2,7 +2,7 @@
 use super::Builder;
 mod corners;
 mod interior;
-pub(super) mod joists;
+pub(crate) mod joists;
 use crate::{
     BuildingRecipe, Facade, MaterialSlot, OpeningKind, OpeningRecipe, RoofCovering, RoofKind,
     WallStyle,

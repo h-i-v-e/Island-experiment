@@ -1,8 +1,8 @@
 use super::super::{PendingAction, StudioState, Tab};
 use super::{ACCENT, DIM, PANEL, choose_export, dialogs, request_action};
 use crate::{
-    BuildingRecipe, Facade, HingeSide, OpeningKind, OpeningRecipe, PartitionAxis, PartitionRecipe,
-    RoofCovering, RoofKind, WallStyle,
+    BuildingRecipe, DoorStyle, Facade, HingeSide, OpeningKind, OpeningRecipe, PartitionAxis,
+    PartitionRecipe, RoofCovering, RoofKind, WallStyle,
 };
 use bevy_egui::egui;
 
@@ -291,6 +291,7 @@ fn openings(ui: &mut egui::Ui, draft: &mut BuildingRecipe, serial: u64) {
                     sill: if door { 0. } else { 0.95 },
                     hinge: HingeSide::Left,
                     swing_degrees: 105.,
+                    door_style: DoorStyle::Plank,
                 });
             }
         }
@@ -316,6 +317,15 @@ fn opening_controls(ui: &mut egui::Ui, opening: &mut OpeningRecipe) {
     scalar(ui, "Height", &mut opening.height, 0.05, " m");
     scalar(ui, "Sill", &mut opening.sill, 0.05, " m");
     if opening.kind == OpeningKind::Door {
+        ui.horizontal(|ui| {
+            ui.label("Door style");
+            ui.selectable_value(&mut opening.door_style, DoorStyle::Plank, "Plank");
+            ui.selectable_value(
+                &mut opening.door_style,
+                DoorStyle::FrameAndPanel,
+                "18th-century panels",
+            );
+        });
         ui.horizontal(|ui| {
             ui.label("Hinge");
             ui.selectable_value(&mut opening.hinge, HingeSide::Left, "Left");
@@ -379,6 +389,7 @@ fn materials(ui: &mut egui::Ui, draft: &mut BuildingRecipe, state: &mut StudioSt
         ("Exterior", &mut draft.materials.wall),
         ("Roof", &mut draft.materials.roof),
         ("Floor", &mut draft.materials.floor),
+        ("Ceiling", &mut draft.materials.ceiling),
         ("Interior", &mut draft.materials.interior),
         ("Trim", &mut draft.materials.trim),
         ("Door", &mut draft.materials.door),
@@ -395,6 +406,7 @@ fn materials(ui: &mut egui::Ui, draft: &mut BuildingRecipe, state: &mut StudioSt
         ui.label("Glass tint / opacity");
     });
     ui.separator();
+    board_materials(ui, draft, state);
     material_path(
         ui,
         "Wall material",
@@ -451,6 +463,30 @@ fn materials(ui: &mut egui::Ui, draft: &mut BuildingRecipe, state: &mut StudioSt
         dialogs::MaterialTarget::Timber,
     );
     ui.label(egui::RichText::new("Choose Material Studio JSON recipes. Physical tiling and parameters use the shared evaluator; exports snapshot dependencies.").small().color(DIM));
+}
+
+fn board_materials(ui: &mut egui::Ui, draft: &mut BuildingRecipe, state: &mut StudioState) {
+    for (label, path, target) in [
+        (
+            "Floor material",
+            &mut draft.materials.floor_recipe,
+            dialogs::MaterialTarget::Floor,
+        ),
+        (
+            "Ceiling material",
+            &mut draft.materials.ceiling_recipe,
+            dialogs::MaterialTarget::Ceiling,
+        ),
+    ] {
+        material_path(ui, label, path, state, target);
+        if path.is_none() {
+            ui.label(
+                egui::RichText::new("Wooden boards · built-in material")
+                    .small()
+                    .color(DIM),
+            );
+        }
+    }
 }
 
 fn bake(ui: &mut egui::Ui, draft: &mut BuildingRecipe, state: &mut StudioState) {

@@ -1,0 +1,81 @@
+{
+  "name": "Wooden floor and ceiling boards",
+  "seed": 41827,
+  "parameters": {
+    "wood_colour": {
+      "kind": "colour",
+      "default": [
+        0.3,
+        0.18,
+        0.085
+      ],
+      "description": "Linear board colour; adjusts the timber without changing the seams, stagger or grain."
+    }
+  },
+  "width": 1024,
+  "height": 1024,
+  "physical_tile_width_m": 1.2,
+  "physical_tile_height_m": 2.4,
+  "material": {
+    "kind": "wooden_planks",
+    "planks": 6,
+    "joints_per_plank": 1,
+    "seam_width_m": 0.003,
+    "bevel_width_m": 0.0018,
+    "seam_depth_m": 0.0025,
+    "grain_scale": 6,
+    "grain_strength_m": 0.00022,
+    "plank_variation_m": 0.00025,
+    "colour_variation": 0.12,
+    "regular_stagger": true
+  },
+  "layers": [],
+  "normal_scale": 0.65,
+  "displacement": {
+    "minimum_m": -0.004,
+    "maximum_m": 0.001,
+    "base_m": 0.0,
+    "displacement_map": true
+  },
+  "occlusion": {
+    "directions": 8,
+    "samples": 5,
+    "radius": 2.0,
+    "max_radius": 20.0,
+    "cavity_strength": 0.8,
+    "horizon_strength": 0.7,
+    "power": 1.0,
+    "combine": {
+      "kind": "multiply"
+    }
+  },
+  "albedo": {
+    "base_color": {
+      "parameter": "wood_colour",
+      "base": [
+        0.3,
+        0.18,
+        0.085
+      ]
+    },
+    "warm_color": {
+      "parameter": "wood_colour",
+      "base": [
+        0.39,
+        0.24,
+        0.115
+      ]
+    },
+    "palette": [],
+    "variation": 0.1,
+    "crack_darkening": 0.06,
+    "shoulder_variation": 0.0,
+    "mineral_density": 0.0,
+    "mineral_brightness": 0.0,
+    "occlusion_influence": 0.0
+  },
+  "output_profiles": [
+    "separate",
+    "motu_unity_terrain"
+  ]
+}

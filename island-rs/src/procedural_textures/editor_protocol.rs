@@ -357,6 +357,11 @@ pub const EDITABLE_METADATA: &[PropertyMetadata] = &[
         tooltip: "Zero makes continuous door-length boards; positive values add staggered joints",
     },
     PropertyMetadata {
+        pointer: "/material/regular_stagger",
+        label: "Regular half-board stagger",
+        tooltip: "Alternate board rows share end joints with a half-length offset; requires an even board count",
+    },
+    PropertyMetadata {
         pointer: "/material/seam_width_m",
         label: "Board seam width",
         tooltip: "Physical gap width in metres",
@@ -1115,7 +1120,7 @@ pub fn schema_document() -> Value {
             "cracked_stone_material": {"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {"kind": {"const": "cracked_stone"}, "cells_x": {"type": "integer", "minimum": 1}, "cells_y": {"type": "integer", "minimum": 1}, "cell_jitter": {"type": "number", "minimum": 0, "maximum": 1}, "warp_amplitude": {"type": "number", "minimum": 0, "maximum": 0.45}, "crack_width": {"type": "number", "exclusiveMinimum": 0}, "shoulder_width": {"type": "number", "minimum": 0}, "crack_depth": {"type": "number", "minimum": 0}, "slab_variation": {"type": "number", "minimum": 0}, "fracture_probability": {"type": "number", "minimum": 0, "maximum": 1}, "fracture_depth": {"type": "number", "minimum": 0}, "surface_amplitude": {"type": "number", "minimum": 0}, "broad_variation": {"type": "number", "minimum": 0}}},
             "slate_roof_material": {"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {"kind": {"const": "slate_roof"}, "courses": {"type": "integer", "minimum": 1, "maximum": 64}, "slates_per_course": {"type": "integer", "minimum": 1, "maximum": 64}, "seam_width_m": {"type": "number", "exclusiveMinimum": 0}, "edge_bevel_m": {"type": "number", "exclusiveMinimum": 0}, "overlap_height_m": {"type": "number", "minimum": 0}, "surface_relief_m": {"type": "number", "minimum": 0}, "colour_variation": {"type": "number", "minimum": 0, "maximum": 1}}},
             "thatch_roof_material": {"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {"kind": {"const": "thatch_roof"}, "courses": {"type": "integer", "minimum": 1, "maximum": 64}, "bundles": {"type": "integer", "minimum": 1, "maximum": 64}, "strands_per_bundle": {"type": "integer", "minimum": 1, "maximum": 32}, "strand_relief_m": {"type": "number", "minimum": 0}, "bundle_relief_m": {"type": "number", "minimum": 0}, "course_relief_m": {"type": "number", "minimum": 0}, "colour_variation": {"type": "number", "minimum": 0, "maximum": 1}}},
-            "wooden_planks_material": {"type":"object","additionalProperties":false,"required":["kind"],"properties":{"kind":{"const":"wooden_planks"},"planks":{"type":"integer","minimum":1,"maximum":128},"joints_per_plank":{"type":"integer","minimum":0,"maximum":64},"grain_scale":{"type":"integer","minimum":1,"maximum":64},"seam_width_m":{"type":"number","exclusiveMinimum":0},"bevel_width_m":{"type":"number","exclusiveMinimum":0},"seam_depth_m":{"type":"number","minimum":0},"grain_strength_m":{"type":"number","minimum":0},"plank_variation_m":{"type":"number","minimum":0},"colour_variation":{"type":"number","minimum":0,"maximum":1}}},
+            "wooden_planks_material": {"type":"object","additionalProperties":false,"required":["kind"],"properties":{"kind":{"const":"wooden_planks"},"planks":{"type":"integer","minimum":1,"maximum":128},"joints_per_plank":{"type":"integer","minimum":0,"maximum":64},"regular_stagger":{"type":"boolean"},"grain_scale":{"type":"integer","minimum":1,"maximum":64},"seam_width_m":{"type":"number","exclusiveMinimum":0},"bevel_width_m":{"type":"number","exclusiveMinimum":0},"seam_depth_m":{"type":"number","minimum":0},"grain_strength_m":{"type":"number","minimum":0},"plank_variation_m":{"type":"number","minimum":0},"colour_variation":{"type":"number","minimum":0,"maximum":1}}},
             "masonry_material": {"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {"kind": {"const": "masonry"}, "cells_x": {"type": "integer", "minimum": 1}, "cells_y": {"type": "integer", "minimum": 2, "multipleOf": 2}, "joint_jitter": {"type": "number", "minimum": 0, "maximum": 0.2}, "mortar_width": {"type": "number", "exclusiveMinimum": 0}, "bevel_width": {"type": "number", "exclusiveMinimum": 0}, "mortar_depth": {"type": "number", "minimum": 0}, "edge_roughness": {"type": "number", "minimum": 0}, "colour_variation": {"type": "number", "minimum": 0, "maximum": 1}, "stone_variation": {"type": "number", "minimum": 0}, "surface_amplitude": {"type": "number", "minimum": 0}}},
             "rounded_stones_material": {"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {"kind": {"const": "rounded_stones"}, "cells_x": {"type": "integer", "minimum": 1}, "cells_y": {"type": "integer", "minimum": 1}, "stone_radius": {"type": "number", "exclusiveMinimum": 0, "maximum": 1}, "cell_jitter": {"type": "number", "minimum": 0, "maximum": 1}, "warp_amplitude": {"type": "number", "minimum": 0, "maximum": 0.4}, "anisotropy": {"type": "number", "exclusiveMinimum": 0}, "stone_height": {"type": "number", "minimum": 0}, "stone_variation": {"type": "number", "minimum": 0}, "gap_height": {"type": "number"}, "sand_amplitude": {"type": "number", "minimum": 0}, "edge_softness": {"type": "number", "exclusiveMinimum": 0}}},
             "displacement": {"type": "object", "additionalProperties": false, "required": ["minimum_m", "maximum_m", "base_m"], "properties": {"minimum_m": {"type": "number"}, "maximum_m": {"type": "number"}, "base_m": {"type": "number"}, "displacement_map": {"type": "boolean"}}},
@@ -1175,6 +1180,7 @@ fn metadata_value(item: &PropertyMetadata) -> Value {
         "/material/course_relief_m" => (json!(0.006), Some([0.0, 0.1]), Some("m")),
         "/material/planks" => (json!(6), Some([1.0, 128.0]), Some("boards")),
         "/material/joints_per_plank" => (json!(0), Some([0.0, 64.0]), Some("joints")),
+        "/material/regular_stagger" => (json!(false), None, None),
         "/material/grain_scale" => (json!(8), Some([1.0, 64.0]), Some("rings/board")),
         "/material/seam_width_m" => (
             json!(0.005),
@@ -1435,7 +1441,7 @@ fn metadata_type(pointer: &str) -> &'static str {
         | "/albedo/warm_color"
         | "/albedo/palette"
         | "/parameters/*/default" => "array",
-        "/displacement/displacement_map" => "boolean",
+        "/displacement/displacement_map" | "/material/regular_stagger" => "boolean",
         "/occlusion/directions" | "/occlusion/samples" => "integer",
         "/material/planks"
         | "/material/joints_per_plank"
@@ -1549,6 +1555,9 @@ pub fn validate_diagnostics(recipe: &TextureRecipe) -> Vec<Diagnostic> {
 
 fn issue_pointer_code(issue: &RecipeValidationError) -> (String, &'static str) {
     match issue {
+        RecipeValidationError::OddWoodenPlankCount { .. } => {
+            ("/material/planks".into(), "wood.even_boards")
+        }
         RecipeValidationError::OddMasonryCourseCount { .. } => {
             ("/material/cells_y".into(), "masonry.even_courses")
         }

@@ -971,5 +971,187 @@ are **24/8/13**. The app is left on Structure / Interior / forced LOD0, entrance
 open, with no unsaved recipe changes. Version 23 is preserved at
 `island-building/dist/.previous/pre-even-joists-20261112-072744/Building Studio.app`.
 Evidence and the focused revision are under
-`artifacts/building-studio/2026-11-12/even-joists/`. The joist extension remains
+`artifacts/building-studio/2026-11-12/even-joists/`. The approved joist extension
+was subsequently committed and pushed to `main` as `7fb8d3c` before the door work.
+
+## 18th-century frame-and-panel doors
+
+Openings now have a per-door **18th-century panels** option alongside **Plank**.
+The Georgian-style six-panel leaf has solid stiles and rails, smaller upper
+panels, taller middle/lower panels, moulded borders and raised fields on both
+faces. Its proportions draw on the
+[Georgian Group's historic front-door examples](https://georgiangroup.org.uk/wp-content/uploads/2024/07/GGM_Brooking_09_Front_doors.pdf).
+It uses the existing door colour/material, with vertical grain on stiles and
+panels and horizontal grain on rails. Hinges, clearances, knobs, opening action
+and collision retain their previous behavior. Older recipes default to Plank;
+only non-default styles add a `door_style` property to saved JSON.
+
+The LOD0 leaf has **564 triangles**, including both detailed faces, within the
+existing 55 mm thickness. LOD1 uses a **126-triangle** closed exterior proxy;
+LOD2 keeps the minimal shell and bakes the panel relief, occlusion and oriented
+material into the atlas. No material draw is added. Static triangle counts for
+the thatched draft are **38,183 / 1,124 / 134**, excluding the separately hinged
+LOD0 leaf and hardware. Geometry/material/bake versions are **25/8/14**.
+
+All **61 library and 32 core tests** pass with studio and all targets enabled.
+Strict all-target Clippy, formatting and whitespace checks pass. Coverage checks
+legacy recipe defaults and round trips, both detailed faces, moulding relief,
+usable material UVs, winding and simplified proxies on all four facades and
+both hinges. The portable export test also uses an assigned wooden-planks
+material and verifies regenerated door geometry, style and material dependencies.
+The manual export's 45 manifest entries match their sizes and SHA-256 hashes.
+Serial Metal captures were reviewed for the closed exterior and open interior
+at LOD0 and the closed exterior at LOD1 and LOD2.
+
+The signed version-25 canonical app was rebuilt and reviewed live. Selecting
+the new style, saving a review copy, Undo back to Plank and Redo back to the
+saved panel style all work, including the dirty-state indicator. The panelled
+entrance opens and closes with its knob. The app is left on
+`panel-door/panel-door-review.json`, Openings / Entrance / forced LOD0, with the
+door closed and no unsaved recipe changes. The original saved wattle draft is
+preserved. Version 24 is backed up at
+`island-building/dist/.previous/pre-panel-door-20261112-075545/Building Studio.app`.
+Evidence and the focused source review are under
+`artifacts/building-studio/2026-11-12/panel-door/`. The new door option remains
+uncommitted on `main` for review.
+
+## Door leaf seated within the frame
+
+Both door styles now sit **55 mm farther back** within the existing lining,
+with their inside face flush with the room-side frame. The hinge axis is at
+that inside face; the leaf and both knobs are offset together in hinge-local
+coordinates. This preserves the 3 mm side/top and 6 mm floor gaps while keeping
+the leaf clear of the jamb during its inward swing. No frame or wall geometry
+changes. Moving collision, picking and player-blocking queries share the same
+leaf bounds. Exported descriptors include a signed `depth_offset` for collision;
+the exported mesh vertices already include it, and older descriptors default
+to zero.
+
+All **62 library and 32 core tests**, strict all-target Clippy, formatting and
+whitespace checks pass. Expanded fitting coverage checks both styles, both
+hinges, all four facades and 12/20/45 cm wall thicknesses, including closed-depth
+alignment and clearance throughout the swing. Query tests cover offset sphere,
+capsule and ray hits, the rotated collider and legacy descriptor loading.
+The portable export's 45 manifest entries match their sizes and SHA-256 hashes.
+Only the prototype, door descriptors, leaf OBJ and hardware OBJ change compared
+with the prior panel-door export; all static LOD meshes and material/atlas maps
+are byte-identical. Versions are **26/8/14**, with unchanged triangle counts.
+
+Metal captures show the fitted closed door from outside and inside and the
+open leaf from inside. The signed version-26 canonical app was reviewed live,
+including a close interior check and a complete open/close cycle. It is left on
+the original saved `panel-door/panel-door-review.json`, Openings / Interior /
+forced LOD0, door closed, with no unsaved recipe changes. Version 25 is preserved
+at `island-building/dist/.previous/pre-door-frame-fit-20261112-083253/Building Studio.app`.
+Evidence and the incremental correction diff are under
+`artifacts/building-studio/2026-11-12/door-frame-fit/`. The panel-door work and
+this correction remain uncommitted on `main`.
+
+## Wooden floor and ceiling boards
+
+The new reusable `island-rs/texture-recipes/wooden-floorboards.json` material
+uses 20 cm wide, 2.4 m long timber boards with staggered end joints, 3 mm seams,
+1.8 mm bevels, subtle grain and board-to-board colour variation. It supplies
+albedo, normal and occlusion maps through the existing shared material evaluator.
+Floors and ceilings now use it by default. Each surface has its own palette
+colour and optional JSON recipe selector. A dedicated ceiling slot keeps the
+plaster walls, partitions, fireplace surround and joists on their existing
+materials. Clearing a custom reference restores the built-in board recipe.
+
+Floor and ceiling charts use common room coordinates, keeping the ceiling boards
+continuous around the flue opening and perpendicular to the east-west joists.
+Slab bounds and collision are unchanged. Ceiling cutaway also removes the new
+slot. Preview maps use 256 px, and authored maps use up to 512 px. All three
+static triangle counts remain **38,183 / 1,124 / 134**; separating the ceiling
+adds one LOD0 material draw. Geometry/material/bake versions are **27/9/14**.
+
+All **63 library and 33 core tests**, strict all-target Clippy, formatting and
+whitespace checks pass. Coverage includes old recipes, independently tinted
+surfaces with unchanged normal relief, continuous UVs around flues on all four
+facades, material selection/Undo, relocated document dependencies and portable
+exports containing both floor and ceiling recipe snapshots. All 51 entries in
+the built-in-material export and 53 in the explicitly assigned export match
+their lengths and SHA-256 hashes. Lower LOD meshes, moving doors, collision and
+the exterior atlas remain byte-identical to the preceding fitted-door export.
+
+Metal captures and the signed version-27 canonical app show both finished
+surfaces. Both JSON pickers, Save, Undo back to the built-in ceiling and Redo
+back to the saved assignment were checked live. The app is left on
+`wooden-boards/boards-review.json`, Materials / Interior / forced LOD0, with the
+entrance open and no unsaved recipe changes. Both surfaces explicitly reference
+the new source recipe in this review copy. The prior saved building drafts are
+preserved. Version 26 is backed up at
+`island-building/dist/.previous/pre-wooden-boards-20261112-103756/Building Studio.app`.
+Evidence and the incremental source review are under
+`artifacts/building-studio/2026-11-12/wooden-boards/`. This work remains uncommitted
+on `main` alongside the reviewed door changes.
+
+## Regular plank joints aligned with joists
+
+The floorboard recipe now enables `regular_stagger`: all even board rows share
+end joints, and all odd rows have a half-length offset. Full boards have equal
+lengths. The shared material evaluator retains random staggering for older
+recipes without this flag. Regular staggering requires an even board count so
+the texture repeats seamlessly; Material Studio exposes the new checkbox and
+reports invalid counts through its normal recipe diagnostics.
+
+In timber-framed buildings, floors and ceilings share the joist grid's origin.
+Regular wooden materials fit each full board to two joist bays, placing their
+end joints over alternate joist centres. Joist spacing and geometry are unchanged.
+The saved draft has **2.345 m** full boards with a **1.1725 m** half offset.
+The standalone material keeps its authored 2.4 m board length. Normal/AO relief
+is evaluated using the fitted physical dimensions, and portable exports preserve
+both the source recipe and the effective material scale.
+
+All **97 shared procedural-material tests**, **63 Building library and 34 core
+tests**, and **45 Material Studio library plus 2 CLI tests** pass. Strict Clippy
+for all three affected crates, formatting and whitespace checks pass. New tests
+check alternate-row alignment across seeds, half-length offsets, wrapping and
+odd-count rejection. Building coverage compares texture joints against actual
+joist collider centres across different room depths and bay spacings.
+All 53 portable-export entries match their lengths and SHA-256 hashes. Lower
+LOD meshes, doors, collision and all maps except floor/ceiling remain byte-identical
+to the preceding board export. Triangle counts remain **38,183 / 1,124 / 134**;
+geometry/material/bake versions are **28/10/14**.
+
+The Metal render and signed version-28 Building Studio were reviewed on the
+original saved `wooden-boards/boards-review.json`. It is left on Structure /
+Interior / forced LOD0, entrance open, with no unsaved recipe changes. Material
+Studio was also rebuilt and signed with the new control and recipe. Both prior
+bundles are preserved in their respective `dist/.previous/` directories under
+`pre-regular-board-joints-20261112-110629/`. Evidence and the incremental source
+review are under `artifacts/building-studio/2026-11-12/board-joints/`. The changes
+remain uncommitted on `main`.
+
+
+## Visible floorboard end seams
+
+The regularly aligned 3 mm end joints could fall entirely between pixel centres
+in the 256 px editing maps. The wooden-plank evaluator now integrates each end
+seam and its bevel across the physical texel footprint, preserving narrow joints
+in albedo and relief without moving the joins or widening their authored gaps.
+The floor shows alternating plank end joints; supporting floor joists stay
+concealed. Ceiling end joints retain their phase over the exposed ceiling joists.
+Continuous wooden materials without end joints retain their previous maps.
+
+All **98 shared material tests**, **63 Building library and 34 core tests**, and
+**45 Material Studio library plus 2 CLI tests** pass, along with strict Clippy
+for all three crates and formatting/whitespace checks. The regression samples
+actual raster pixels at 256, 512 and 1024 px, checking both alternating rows,
+tile-edge wrapping, visible albedo contrast and recessed relief.
+
+Metal captures at editing and authored resolutions show the restored floor
+joints and ceiling joints concealed by joists. All 53 exported files match
+their lengths and SHA-256 hashes. Every mesh, door, collision file and all
+non-board maps are byte-identical to the preceding export. Triangle counts
+remain **38,183 / 1,124 / 134**; geometry/material/bake versions are **28/11/14**.
+Both studio bundles have been rebuilt and signed, with prior bundles preserved
+in `dist/.previous/pre-visible-plank-joints-*/`. Building Studio is version 29.
+Evidence and the focused correction diff are in
+`artifacts/building-studio/2026-11-12/floor-plank-joints/`. These changes remain
 uncommitted on `main`.
+
+The signed version-29 Building Studio was checked live on the original saved
+`wooden-boards/boards-review.json`, with visible floor plank joints and concealed
+ceiling end joints. It is left on Structure / Interior / forced LOD0, entrance
+open, with no unsaved recipe changes. The recipe file itself is unchanged.

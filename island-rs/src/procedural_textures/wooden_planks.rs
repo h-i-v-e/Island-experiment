@@ -102,8 +102,13 @@ fn board_at(
     let coverage = smoothstep(
         settings.seam_width_m * 0.5,
         settings.seam_width_m * 0.5 + settings.bevel_width_m,
-        edge.min(end),
-    );
+        edge,
+    )
+    .min(filtered_end_coverage(
+        settings,
+        end,
+        d.tile_height / d.height as f32,
+    ));
     let grain = grain_at(settings, seed, column, u, v, fraction);
     BoardSample {
         coverage,
@@ -111,6 +116,30 @@ fn board_at(
         row,
         grain,
     }
+}
+
+fn filtered_end_coverage(settings: &WoodenPlanksSettings, distance: f32, texel: f32) -> f32 {
+    let seam = settings.seam_width_m * 0.5;
+    let bevel = settings.bevel_width_m;
+    let half = texel * 0.5;
+    if distance >= seam + bevel + half {
+        return 1.;
+    }
+    // Integrate the bevel across the texel. Point samples miss narrow joints
+    // entirely when regular ends lie on a texture boundary or half-tile line.
+    let integral = |position: f32| {
+        let offset = position.abs() - seam;
+        let area = if offset <= 0. {
+            0.
+        } else if offset >= bevel {
+            offset - bevel * 0.5
+        } else {
+            let t = offset / bevel;
+            bevel * t.powi(3) * (1. - t * 0.5)
+        };
+        area.copysign(position)
+    };
+    ((integral(distance + half) - integral(distance - half)) / texel).clamp(0., 1.)
 }
 
 fn end_joint(
@@ -123,7 +152,11 @@ fn end_joint(
     if settings.joints_per_plank == 0 {
         return (0, f32::INFINITY);
     }
-    let stagger = hash_unit(seed, column, 0, 0x574f_4f44_4a4f);
+    let stagger = if settings.regular_stagger {
+        column.rem_euclid(2) as f32 * 0.5
+    } else {
+        hash_unit(seed, column, 0, 0x574f_4f44_4a4f)
+    };
     let along = v * settings.joints_per_plank as f32 + stagger;
     let row = (along.floor() as i32)
         .rem_euclid(i32::try_from(settings.joints_per_plank).expect("validated joint count"));
@@ -168,6 +201,7 @@ fn validate(s: &WoodenPlanksSettings, d: FieldDimensions) -> Result<(), FieldErr
         || s.planks > d.width
         || s.joints_per_plank > 64
         || s.joints_per_plank > d.height
+        || (s.regular_stagger && s.joints_per_plank > 0 && !s.planks.is_multiple_of(2))
         || s.grain_scale == 0
         || s.grain_scale > 64
         || ![
@@ -198,6 +232,89 @@ mod tests {
     use super::*;
     fn dimensions() -> FieldDimensions {
         FieldDimensions::new(128, 256, 1.2, 2.4).unwrap()
+    }
+
+    #[test]
+    fn regular_joints_share_alternate_rows_and_half_length_offsets_for_every_seed() {
+        let settings = WoodenPlanksSettings {
+            joints_per_plank: 2,
+            regular_stagger: true,
+            ..WoodenPlanksSettings::default()
+        };
+        let d = dimensions();
+        for seed in [0, 42, 41827] {
+            for column in 0..6 {
+                let u = (column as f32 + 0.5) / 6.;
+                let start = if column % 2 == 0 { 0. } else { 0.25 };
+                for joint in [start, start + 0.5, start + 1.] {
+                    assert!(end_joint(&settings, d, seed, column, joint).1 < 0.00001);
+                    assert!(board_at(&settings, d, seed, u, joint + 0.25).coverage > 0.99);
+                    assert!(
+                        (height_at(&settings, d, seed, u, joint)
+                            - height_at(&settings, d, seed, u + 1., joint))
+                        .abs()
+                            < 0.00001
+                    );
+                }
+            }
+        }
+        let odd = WoodenPlanksSettings {
+            planks: 5,
+            ..settings
+        };
+        assert!(generate_height_values(&odd, d, 42).is_err());
+        let legacy: WoodenPlanksSettings =
+            serde_json::from_str("{\"joints_per_plank\":2}").unwrap();
+        assert!(!legacy.regular_stagger);
+    }
+
+    #[test]
+    fn rasterized_floorboard_end_joints_survive_preview_and_export_sampling() {
+        use super::super::recipe::{MaterialModel, TextureRecipe};
+
+        let recipe: TextureRecipe = serde_json::from_str(include_str!(
+            "../../texture-recipes/wooden-floorboards.json"
+        ))
+        .unwrap();
+        let MaterialModel::WoodenPlanks(settings) = recipe.material else {
+            panic!("floorboards must use the wooden-plank evaluator");
+        };
+        let continuous = WoodenPlanksSettings {
+            joints_per_plank: 0,
+            ..settings
+        };
+        for resolution in [256, 512, 1024] {
+            let d = FieldDimensions::new(resolution, resolution, 1.2, 2.345).unwrap();
+            let heights = generate_height_values(&settings, d, recipe.seed).unwrap();
+            let base_heights = generate_height_values(&continuous, d, recipe.seed).unwrap();
+            let mut colours = vec![[0.3, 0.18, 0.085]; d.pixel_count()];
+            let mut base_colours = colours.clone();
+            tint_boards(&mut colours, &settings, d, recipe.seed);
+            tint_boards(&mut base_colours, &continuous, d, recipe.seed);
+            let width = resolution as usize;
+            for column in 0..settings.planks {
+                let x =
+                    ((column as f32 + 0.5) * resolution as f32 / settings.planks as f32) as usize;
+                let rows = if column % 2 == 0 {
+                    [0, width - 1]
+                } else {
+                    [width / 2 - 1, width / 2]
+                };
+                for row in rows {
+                    let index = row * width + x;
+                    assert!(
+                        colours[index][0] < base_colours[index][0] * 0.9,
+                        "{resolution}px column {column}, row {row}: seam {}, board {}",
+                        colours[index][0],
+                        base_colours[index][0]
+                    );
+                    assert!(heights[index] < base_heights[index] - 0.0004);
+                }
+                let middle = width / 4 * width + x;
+                assert_eq!(colours[middle], base_colours[middle]);
+                assert_eq!(heights[middle], base_heights[middle]);
+            }
+        }
     }
 
     #[test]

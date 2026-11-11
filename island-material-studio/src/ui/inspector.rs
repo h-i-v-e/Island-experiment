@@ -300,6 +300,9 @@ fn material_editor(ui: &mut egui::Ui, material: &mut MaterialModel) -> bool {
                 1.0,
             );
             changed |= u32_row(ui, "Growth rings per board", &mut settings.grain_scale, 1.0);
+            changed |= ui
+                .checkbox(&mut settings.regular_stagger, "Regular half-board stagger")
+                .changed();
             changed |= f32_row(ui, "Seam width (m)", &mut settings.seam_width_m, 0.0005);
             changed |= f32_row(ui, "Bevel width (m)", &mut settings.bevel_width_m, 0.0005);
             changed |= f32_row(ui, "Seam depth (m)", &mut settings.seam_depth_m, 0.0005);

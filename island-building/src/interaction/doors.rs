@@ -162,14 +162,15 @@ fn capsule_hits_door(
     angle: f32,
 ) -> bool {
     let mut point = door_local(feet, door, angle);
+    let bounds = door.local_bounds();
     let lower = point.z + radius;
     let upper = (point.z + height - radius).max(lower);
     point.z = (door.height * 0.5).clamp(lower, upper);
     sphere_box(
         point,
         radius,
-        Vec3::new(0.0, -door.thickness * 0.5, 0.0),
-        Vec3::new(door.width, door.thickness * 0.5, door.height),
+        Vec3::from_array(bounds.min),
+        Vec3::from_array(bounds.max),
     )
 }
 
@@ -217,6 +218,7 @@ mod tests {
             width: 1.2,
             height: 2.2,
             thickness: 0.05,
+            depth_offset: 0.,
             mesh: crate::BuildingMesh::default(),
             hardware_mesh: crate::BuildingMesh::default(),
             exterior: true,
@@ -260,6 +262,37 @@ mod tests {
                 .is_some()
             );
         }
+    }
+
+    #[test]
+    fn offset_leaf_queries_follow_the_hinge_local_bounds() {
+        for offset in [-0.025, 0., 0.025] {
+            let mut door = descriptor();
+            door.depth_offset = offset;
+            for angle in [0., 1.2] {
+                let rotation = Quat::from_rotation_z(angle);
+                for side in [-1., 1.] {
+                    let origin = rotation * Vec3::new(0.6, offset + side, 1.6);
+                    let direction = rotation * Vec3::Y * -side;
+                    let distance = ray_door(origin, direction, &door, angle, 3.).unwrap();
+                    assert!((distance - 0.975).abs() < 0.00001);
+                    let distance = door
+                        .collider_at(angle)
+                        .ray_hit(origin.to_array(), direction.to_array(), 3.)
+                        .unwrap();
+                    assert!((distance - 0.975).abs() < 0.00001);
+                }
+                let point = rotation * Vec3::new(0.6, offset, 1.);
+                assert!(super::super::collision::sphere_door(
+                    point, 0.001, &door, angle
+                ));
+                assert!(capsule_hits_door(point, 0.001, 0.1, &door, angle));
+            }
+        }
+        let mut legacy = serde_json::to_value(descriptor()).unwrap();
+        legacy.as_object_mut().unwrap().remove("depth_offset");
+        let legacy: DoorDescriptor = serde_json::from_value(legacy).unwrap();
+        assert_eq!(legacy.depth_offset, 0.);
     }
     #[test]
     fn approach_is_bounded_and_reaches_target() {

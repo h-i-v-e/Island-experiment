@@ -31,6 +31,9 @@ pub const MAX_AO_RADIUS: f32 = 4096.0;
 /// One precise reason a recipe cannot be evaluated.
 #[derive(Clone, Debug, PartialEq)]
 pub enum RecipeValidationError {
+    OddWoodenPlankCount {
+        value: u32,
+    },
     OddMasonryCourseCount {
         value: u32,
     },
@@ -188,6 +191,10 @@ pub enum RecipeValidationError {
 impl fmt::Display for RecipeValidationError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::OddWoodenPlankCount { value } => write!(
+                formatter,
+                "material.planks must be even for a seamless regular stagger, found {value}"
+            ),
             Self::OddMasonryCourseCount { value } => write!(
                 formatter,
                 "material.cells_y must be even for a seamless half-bond tile, found {value}"
@@ -670,6 +677,14 @@ fn validate_material(
             );
         }
         MaterialModel::WoodenPlanks(settings) => {
+            if settings.regular_stagger
+                && settings.joints_per_plank > 0
+                && !settings.planks.is_multiple_of(2)
+            {
+                errors.push(RecipeValidationError::OddWoodenPlankCount {
+                    value: settings.planks,
+                });
+            }
             validate_nonzero("material.planks", settings.planks, errors);
             validate_integer_maximum("material.planks", settings.planks, width.min(128), errors);
             validate_integer_maximum(

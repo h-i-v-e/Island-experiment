@@ -12,6 +12,8 @@ pub(super) enum MaterialTarget {
     Door,
     Chimney,
     Timber,
+    Floor,
+    Ceiling,
 }
 
 pub(super) enum Intent {
@@ -137,6 +139,8 @@ fn finish(state: &mut StudioState, completion: Completion) {
                 MaterialTarget::Door => recipe.materials.door_recipe = Some(path),
                 MaterialTarget::Chimney => recipe.materials.chimney_recipe = Some(path),
                 MaterialTarget::Timber => recipe.materials.timber_recipe = Some(path),
+                MaterialTarget::Floor => recipe.materials.floor_recipe = Some(path),
+                MaterialTarget::Ceiling => recipe.materials.ceiling_recipe = Some(path),
             });
             // Explicit reselection also refreshes a dependency edited in Material Studio.
             state.request_preview();
@@ -182,6 +186,8 @@ mod tests {
             MaterialTarget::Door,
             MaterialTarget::Chimney,
             MaterialTarget::Timber,
+            MaterialTarget::Floor,
+            MaterialTarget::Ceiling,
         ]
         .into_iter()
         .enumerate()
@@ -205,6 +211,8 @@ mod tests {
                 material.door_recipe.as_deref(),
                 material.chimney_recipe.as_deref(),
                 material.timber_recipe.as_deref(),
+                material.floor_recipe.as_deref(),
+                material.ceiling_recipe.as_deref(),
             ]
             .into_iter()
             .enumerate()
@@ -217,6 +225,8 @@ mod tests {
             assert!(state.document.recipe().materials.door_recipe.is_none());
             assert!(state.document.recipe().materials.chimney_recipe.is_none());
             assert!(state.document.recipe().materials.timber_recipe.is_none());
+            assert!(state.document.recipe().materials.floor_recipe.is_none());
+            assert!(state.document.recipe().materials.ceiling_recipe.is_none());
         }
     }
 
