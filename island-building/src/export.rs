@@ -156,7 +156,7 @@ fn write_package(
         })
         .collect();
     let manifest=ExportManifest {
-        package_version:1,geometry_version:16,material_version:7,bake_version:9,
+        package_version:1,geometry_version:18,material_version:8,bake_version:11,
         prototype_hash:prototype.hash.clone(),coordinate_system:"right-handed, native Z-up, metres; OBJ UV V points up".into(),
         normal_convention:"OpenGL tangent-space +Y; linear normal maps".into(),mask_channels:"RGBA = occlusion, roughness, metallic, 1; linear".into(),
         door_policy:"LOD2 appearance uses closed leaves; preserve instance angles independently. door-N.obj and door-N-hardware.obj share hinge-local coordinates and map to doors.json[N]. New doors default closed; removed IDs are ignored.".into(),
@@ -177,6 +177,11 @@ fn snapshot_dependencies(
 ) -> Result<BuildingRecipe, ExportError> {
     let mut recipe = prototype.recipe.clone();
     for (slot, material_slot, reference) in [
+        (
+            "timber",
+            MaterialSlot::Timber,
+            &mut recipe.materials.timber_recipe,
+        ),
         (
             "wall",
             MaterialSlot::Wall,
@@ -367,6 +372,7 @@ fn append_mesh(output: &mut String, mesh: &BuildingMesh, base: &mut usize, scale
 fn material_name(slot: MaterialSlot) -> &'static str {
     match slot {
         MaterialSlot::Wall => "wall",
+        MaterialSlot::Timber => "timber",
         MaterialSlot::Roof => "roof",
         MaterialSlot::ThatchEnd => "thatch_end",
         MaterialSlot::ThatchShell1 => "thatch_shell_1",
@@ -393,6 +399,7 @@ fn material_library(prototype: &BuildingPrototype) -> String {
     );
     for (slot, color) in [
         (MaterialSlot::Wall, p.wall),
+        (MaterialSlot::Timber, p.timber),
         (MaterialSlot::Roof, p.roof),
         (MaterialSlot::Floor, p.floor),
         (MaterialSlot::Interior, p.interior),
@@ -579,38 +586,48 @@ mod tests {
         fs::remove_dir_all(target).unwrap();
     }
 
+    fn write_package_test_materials(source: &Path) {
+        for (name, bytes) in [
+            (
+                "wall",
+                include_bytes!("../../island-rs/texture-recipes/cracked-stone.json").as_slice(),
+            ),
+            (
+                "roof",
+                include_bytes!("../../island-rs/texture-recipes/slate-roof.json").as_slice(),
+            ),
+            (
+                "door",
+                include_bytes!("../../island-rs/texture-recipes/wooden-planks.json").as_slice(),
+            ),
+            (
+                "chimney",
+                include_bytes!("../../island-rs/texture-recipes/coursed-stone.json").as_slice(),
+            ),
+            (
+                "timber",
+                include_bytes!("../../island-rs/texture-recipes/wooden-planks.json").as_slice(),
+            ),
+        ] {
+            fs::write(source.join(format!("{name}.json")), bytes).unwrap();
+        }
+    }
+
     #[test]
     fn package_is_portable_hashed_and_preserves_doors() {
         let target = directory("complete");
         let source = directory("source");
         fs::create_dir(&source).unwrap();
-        fs::write(
-            source.join("wall.json"),
-            include_bytes!("../../island-rs/texture-recipes/cracked-stone.json"),
-        )
-        .unwrap();
+        write_package_test_materials(&source);
         let mut recipe = crate::BuildingRecipe::hut();
         recipe.atlas_size = 128;
-        recipe.materials.wall_recipe = Some("wall.json".into());
         recipe.roof.covering = crate::RoofCovering::Slate;
-        fs::write(
-            source.join("roof.json"),
-            include_bytes!("../../island-rs/texture-recipes/slate-roof.json"),
-        )
-        .unwrap();
+        recipe.walls.style = crate::WallStyle::WattleAndDaub;
+        recipe.materials.wall_recipe = Some("wall.json".into());
         recipe.materials.roof_recipe = Some("roof.json".into());
-        fs::write(
-            source.join("door.json"),
-            include_bytes!("../../island-rs/texture-recipes/wooden-planks.json"),
-        )
-        .unwrap();
         recipe.materials.door_recipe = Some("door.json".into());
-        fs::write(
-            source.join("chimney.json"),
-            include_bytes!("../../island-rs/texture-recipes/coursed-stone.json"),
-        )
-        .unwrap();
         recipe.materials.chimney_recipe = Some("chimney.json".into());
+        recipe.materials.timber_recipe = Some("timber.json".into());
         let prototype = crate::generate_with_base(&recipe, &source).unwrap();
         let manifest = export_package(&prototype, &target, &source).unwrap();
         fs::remove_dir_all(&source).unwrap();
@@ -629,6 +646,11 @@ mod tests {
         assert!(target.join("lod2.obj").exists());
         assert!(target.join("door-0-hardware.obj").exists());
         assert!(target.join("dependencies/door.json").exists());
+        assert_eq!(
+            loaded.materials.timber_recipe.as_deref(),
+            Some("dependencies/timber.json")
+        );
+        assert!(target.join("maps/timber-albedo.png").exists());
         assert_eq!(loaded.roof.covering, crate::RoofCovering::Slate);
         assert_eq!(
             loaded.materials.roof_recipe.as_deref(),
@@ -641,7 +663,7 @@ mod tests {
                 manifest.material_version,
                 manifest.bake_version
             ),
-            (16, 7, 9)
+            (18, 8, 11)
         );
         assert_eq!(
             loaded.materials.door_recipe.as_deref(),

@@ -1,12 +1,150 @@
 use island_building::{
     BuildingMesh, BuildingPrototype, BuildingRecipe, Facade, MaterialSlot, OpeningKind,
-    PartitionAxis, PartitionRecipe, RoofCovering, RoofKind, collision::BoxCollider, generate,
-    generate_with_base, validate,
+    PartitionAxis, PartitionRecipe, RoofCovering, RoofKind, WallStyle, collision::BoxCollider,
+    generate, generate_with_base, validate,
 };
 
 fn preview(mut recipe: BuildingRecipe) -> BuildingRecipe {
     recipe.atlas_size = 128;
     recipe
+}
+
+#[test]
+fn half_timbered_walls_keep_clear_openings_real_relief_and_a_baked_distant_frame() {
+    for roof in [RoofKind::Gable, RoofKind::Shed] {
+        let mut recipe = preview(BuildingRecipe::hut());
+        recipe.roof.kind = roof;
+        recipe.roof.overhang = 0.;
+        let plain = generate(&recipe).unwrap();
+        recipe.walls.style = WallStyle::WattleAndDaub;
+        recipe.materials.wall = recipe.walls.style.default_colour();
+        let prototype = generate(&recipe).unwrap();
+        assert_eq!(prototype.colliders, plain.colliders);
+        assert_eq!(prototype.doors, plain.doors);
+        for lod in &prototype.lods[..2] {
+            let mesh = &lod
+                .parts
+                .iter()
+                .find(|p| p.material == MaterialSlot::Timber)
+                .expect("real timber frame")
+                .mesh;
+            check_mesh(mesh);
+            assert!(
+                mesh.positions
+                    .iter()
+                    .all(|p| prototype.layout.contains(*p, 0.00001))
+            );
+            for facade in Facade::ALL {
+                let post = facade.point(
+                    &recipe,
+                    -facade.length(&recipe) * 0.5 + recipe.walls.beam_width * 0.5,
+                    0.5,
+                    -0.3,
+                );
+                let distance =
+                    mesh_ray(mesh, post, facade.normal().map(|v| -v)).expect("corner post front");
+                assert!((distance - (0.3 - recipe.walls.frame_projection)).abs() < 0.00001);
+            }
+            for opening in &recipe.openings {
+                let point = opening.facade.point(
+                    &recipe,
+                    opening.offset,
+                    opening.sill + opening.height * 0.75,
+                    -0.3,
+                );
+                assert!(
+                    mesh_ray(mesh, point, opening.facade.normal().map(|v| -v))
+                        .is_none_or(|d| d > 0.3 + recipe.wall_thickness)
+                );
+            }
+        }
+        assert!(prototype.lods[0].triangle_count() > prototype.lods[1].triangle_count());
+        assert!(
+            prototype.lods[2]
+                .parts
+                .iter()
+                .all(|p| p.material == MaterialSlot::Atlas)
+        );
+        assert_eq!(prototype.lods[2], plain.lods[2]);
+        assert_ne!(prototype.atlas.albedo, plain.atlas.albedo);
+        assert!(
+            prototype
+                .materials
+                .iter()
+                .any(|m| m.slot == MaterialSlot::Timber)
+        );
+        let regenerated = generate(&recipe).unwrap();
+        assert_eq!(prototype.hash, regenerated.hash);
+        assert_eq!(prototype.lods, regenerated.lods);
+        assert_eq!(prototype.atlas, regenerated.atlas);
+    }
+}
+
+#[test]
+fn old_recipes_default_to_plain_walls_and_frame_controls_are_validated() {
+    let mut value = serde_json::to_value(BuildingRecipe::hut()).unwrap();
+    value.as_object_mut().unwrap().remove("walls");
+    for field in ["timber", "timber_recipe"] {
+        value["materials"].as_object_mut().unwrap().remove(field);
+    }
+    let mut recipe: BuildingRecipe = serde_json::from_value(value).unwrap();
+    assert_eq!(recipe.walls.style, WallStyle::Plain);
+    assert!(recipe.materials.timber_recipe.is_none());
+    for invalid in [f32::NAN, -0.01, 0.5] {
+        recipe.walls.frame_projection = invalid;
+        assert!(validate(&recipe).is_err());
+    }
+}
+
+#[test]
+fn half_timber_corners_close_and_roof_bands_cover_the_thatch_wall_overlap() {
+    for roof in [RoofKind::Gable, RoofKind::Shed] {
+        for projection in [0.005, 0.04] {
+            let mut recipe = preview(BuildingRecipe::hut());
+            recipe.roof.kind = roof;
+            recipe.walls.style = WallStyle::WattleAndDaub;
+            recipe.walls.frame_projection = projection;
+            recipe.roof.covering = RoofCovering::Thatch;
+            recipe.roof.rise = 4.;
+            recipe.roof.thickness = 0.5;
+            let prototype = generate(&recipe).unwrap();
+            for lod in &prototype.lods[..2] {
+                let timber = &lod
+                    .parts
+                    .iter()
+                    .find(|p| p.material == MaterialSlot::Timber)
+                    .unwrap()
+                    .mesh;
+                check_mesh(timber);
+                assert!(
+                    timber
+                        .positions
+                        .iter()
+                        .all(|p| prototype.layout.contains(*p, 0.00001))
+                );
+                for facade in Facade::ALL {
+                    let half = facade.length(&recipe) * 0.5;
+                    let inward = facade.normal().map(|v| -v);
+                    for side in [-1., 1.] {
+                        let origin =
+                            facade.point(&recipe, side * (half + projection * 0.5), 0.5, -0.3);
+                        let distance = mesh_ray(timber, origin, inward)
+                            .expect("continuous corner post outside both wall planes");
+                        assert!((distance - (0.3 - projection)).abs() < 0.00001);
+                        let along = side * half * 0.7;
+                        let x = facade.point(&recipe, along, 0., 0.)[0];
+                        let z = island_building::geometry::chimney::roof_height(&recipe, x)
+                            - recipe.roof.effective_thickness()
+                            + 0.02;
+                        let origin = facade.point(&recipe, along, z, -0.3);
+                        let distance = mesh_ray(timber, origin, inward)
+                            .expect("timber covers the former white roof-joint strip");
+                        assert!((distance - (0.3 - projection)).abs() < 0.00001);
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[test]

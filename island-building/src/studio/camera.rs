@@ -111,6 +111,16 @@ impl CameraControls {
         if view == "window" {
             self.frame_window(prototype);
         }
+        if view == "corner" {
+            self.target = native_to_bevy([
+                recipe.width * 0.5,
+                -recipe.depth * 0.5,
+                recipe.wall_height - 0.08,
+            ]);
+            self.distance = 2.;
+            self.yaw = 0.78;
+            self.pitch = 0.08;
+        }
     }
 
     fn frame_window(&mut self, prototype: &BuildingPrototype) {

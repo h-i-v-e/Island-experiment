@@ -708,3 +708,79 @@ Window / forced LOD0, with the entrance open and east-window controls expanded.
 Version 15 is preserved at
 `island-building/dist/.previous/pre-window-sill-fit-20261111-161018/Building Studio.app`.
 Changes remain uncommitted on `main`.
+
+## Wattle-and-daub walls
+
+The preceding chimney, roof and window work was committed and pushed to `main`
+as `ff218e5` before this extension. `walls.style` now offers `plain` (the legacy
+default) and `wattle_and_daub`. Defaults are 14 cm timber width, 25 mm outward
+projection and 1.5 m bays. Structure exposes these dimensions; Materials exposes
+an independent timber colour and optional material JSON. The default wood grain
+follows each member. A reusable `wattle-daub.json` plaster material and complete
+`wattle-daub-cottage.json` building recipe are included and packaged.
+
+One clipped polygon layout supplies posts, rails, braces and gable/shed framing.
+It excludes opening casings and sills, partitions timber joints without competing
+front faces and stays inside the wall profile. LOD0 adds the projecting edges,
+LOD1 retains the same fronts without those edge faces, and LOD2 bakes the layout
+into the unchanged minimal shell. Baked coverage filters diagonal edges in linear
+light, rotates wood normals with the grain and carries the projected relief.
+Interior surfaces, doors and structural/window collision remain as before.
+
+All **52 library and 26 core tests** pass with studio and all targets enabled;
+strict all-target Clippy and formatting checks pass. Coverage includes legacy
+defaults, dimension validation, profiles at 3 m and 40 m scales, frame joints,
+opening clearance, actual projection on every facade, both roof shapes, valid
+winding/bounds, deterministic generation, independent timber recolouring and
+portable timber dependencies after Save As and export. Versions are **17/8/10**
+for geometry/material/bake, and the macOS bundle is **17**.
+
+The preserved 4 m-rise thatched draft has **37,080 / 923 / 134** static triangles.
+Metal captures show the entrance, window and exterior at all three LODs; the
+final LOD2 capture includes the filtered frame edges. The new cottage recipe
+also passes CLI validation. Evidence and focused source review are under
+`artifacts/building-studio/2026-11-11/wattle-daub/`. This extension is uncommitted.
+
+Before rebuilding, the open untitled version-16 recipe was saved to
+`wattle-daub/pre-rebuild-draft.json`. The old app became unresponsive after Save
+As; the complete JSON backup was verified before closing it with macOS Force
+Quit. The saved recipe is retained separately from the review draft.
+
+All 45 files in the final portable package match manifest lengths and SHA-256
+hashes. The signed version-17 canonical app was opened with `wattle-draft.json`.
+Live switching to Plain removed the frame; Undo restored the wattle-and-daub
+surface, frame controls and clean saved-document state. The app is left on
+Structure / Overview / forced LOD0, with the entrance open. The previous version
+16 bundle is preserved at
+`island-building/dist/.previous/pre-wattle-daub-20261111-165145/Building Studio.app`.
+
+## Continuous timber corners and covered roof joints
+
+Timber faces now meet on a common miter edge outside each building corner.
+Their UV origins share the same wood-grain phase and height, and opening-jamb
+station merging preserves the corner posts. The thatch's former 10 cm plaster
+overlap is replaced by the shared timber roof band. Its top follows the roof
+profile and tucks into the coat, hiding the pale strip without moving the roof
+or changing the authored rise, covering thickness or smoothing. Shed framing
+also follows the structural underside rather than the top of the roof slab.
+
+All **53 library and 27 core tests** pass with studio and all targets enabled;
+strict Clippy and formatting checks pass. New regressions cover shared corner
+positions and grain phase, nearby opening jambs, actual corner closure and
+roof-band coverage on all facades with both roof shapes and 5/40 mm projections.
+The new **Inspection → Corner** view is also available as `--view corner`.
+
+Serial Metal captures show the close corner at every LOD and the full LOD0
+gable-to-thatch join. All 45 package files match manifest lengths and SHA-256
+hashes. Against version 17, every LOD0 roof/thatch part, all material maps,
+collision, doors, layout and the LOD2 geometry are unchanged. The saved draft
+uses **37,269 / 958 / 134** static triangles. Geometry/material/bake versions are
+**18/8/11**. Evidence and focused source review are under
+`artifacts/building-studio/2026-11-11/timber-joints/`.
+
+The signed version-18 canonical app was opened with the original
+`wattle-daub/wattle-draft.json`. It is left on Structure / Corner / forced LOD0,
+with the entrance open and no unsaved recipe changes. The shared post and
+covered roof edge are visible. Version 17 is preserved at
+`island-building/dist/.previous/pre-timber-joints-20261111-174944/Building Studio.app`.
+These changes and the preceding wattle-and-daub extension remain uncommitted.

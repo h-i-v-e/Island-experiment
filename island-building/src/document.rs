@@ -210,6 +210,7 @@ impl StudioDocument {
                 &mut relocated.materials.roof_recipe,
                 &mut relocated.materials.door_recipe,
                 &mut relocated.materials.chimney_recipe,
+                &mut relocated.materials.timber_recipe,
             ]
             .into_iter()
             .flatten()
@@ -258,6 +259,7 @@ fn validate_dependencies(recipe: &BuildingRecipe, base: &Path) -> Result<(), Doc
         &recipe.materials.roof_recipe,
         &recipe.materials.door_recipe,
         &recipe.materials.chimney_recipe,
+        &recipe.materials.timber_recipe,
     ]
     .into_iter()
     .flatten()
@@ -424,7 +426,7 @@ mod tests {
     }
 
     #[test]
-    fn save_as_and_reopen_preserve_a_relative_chimney_material_and_build_identity() {
+    fn save_as_and_reopen_preserve_chimney_and_timber_materials_and_build_identity() {
         let source = path("chimney-source").with_extension("");
         let destination = path("chimney-moved").with_extension("");
         fs::create_dir(&source).unwrap();
@@ -437,6 +439,13 @@ mod tests {
         let mut recipe = BuildingRecipe::hut();
         recipe.atlas_size = 128;
         recipe.materials.chimney_recipe = Some("stone.json".into());
+        recipe.walls.style = crate::WallStyle::WattleAndDaub;
+        recipe.materials.timber_recipe = Some("wood.json".into());
+        fs::write(
+            source.join("wood.json"),
+            include_bytes!("../../island-rs/texture-recipes/wooden-planks.json"),
+        )
+        .unwrap();
         fs::write(
             source.join("building.json"),
             serde_json::to_vec(&recipe).unwrap(),
@@ -464,6 +473,18 @@ mod tests {
         let regenerated =
             crate::generate_with_base(reopened.recipe(), reopened.base_directory().unwrap())
                 .unwrap();
+        assert_eq!(
+            fs::canonicalize(
+                reopened
+                    .recipe()
+                    .materials
+                    .timber_recipe
+                    .as_deref()
+                    .unwrap()
+            )
+            .unwrap(),
+            fs::canonicalize(source.join("wood.json")).unwrap()
+        );
         assert_eq!(regenerated.hash, original.hash);
         assert_eq!(regenerated.atlas, original.atlas);
         fs::remove_dir_all(source).unwrap();

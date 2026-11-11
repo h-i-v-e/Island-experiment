@@ -153,6 +153,14 @@ fn structure(r: &BuildingRecipe, c: &mut Checks) {
         ("roof.rise", r.roof.rise, 0.1, 6.),
         ("roof.overhang", r.roof.overhang, 0., 1.5),
         ("roof.thickness", r.roof.thickness, 0.04, 0.5),
+        ("walls.beam_width", r.walls.beam_width, 0.08, 0.24),
+        (
+            "walls.frame_projection",
+            r.walls.frame_projection,
+            0.005,
+            0.04,
+        ),
+        ("walls.bay_width", r.walls.bay_width, 0.75, 3.),
     ] {
         c.range(name, value, min, max);
     }
@@ -278,6 +286,7 @@ fn palette(r: &BuildingRecipe, c: &mut Checks) {
         ("materials.trim", m.trim),
         ("materials.door", m.door),
         ("materials.chimney", m.chimney),
+        ("materials.timber", m.timber),
     ] {
         c.require(
             colour
@@ -300,6 +309,7 @@ fn palette(r: &BuildingRecipe, c: &mut Checks) {
         ("materials.roof_recipe", &m.roof_recipe),
         ("materials.door_recipe", &m.door_recipe),
         ("materials.chimney_recipe", &m.chimney_recipe),
+        ("materials.timber_recipe", &m.timber_recipe),
     ] {
         c.require(
             path.as_ref()

@@ -9,6 +9,7 @@ pub mod chimney;
 mod hardware;
 pub(crate) mod roof_covering;
 pub(crate) mod thatch;
+pub(crate) mod timber_frame;
 pub(crate) mod windows;
 
 use std::collections::BTreeMap;
@@ -121,6 +122,7 @@ pub(crate) fn generate(r: &BuildingRecipe) -> (BuildingLod, Vec<DoorDescriptor>,
             }
         }
     }
+    timber_frame::generate(&mut b, r, true);
     for p in &r.partitions {
         partition(&mut b, r, p, &mut colliders);
     }

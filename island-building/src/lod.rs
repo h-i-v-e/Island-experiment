@@ -29,6 +29,7 @@ pub(crate) fn middle(recipe: &BuildingRecipe) -> BuildingLod {
         );
     }
     geometry::roof(&mut builder, recipe, false);
+    geometry::timber_frame::generate(&mut builder, recipe, false);
     geometry::chimney::middle(&mut builder, recipe);
     builder.finish()
 }

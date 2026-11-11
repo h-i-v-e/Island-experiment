@@ -1,0 +1,76 @@
+{
+  "name": "Wattle and daub plaster",
+  "seed": 34719,
+  "parameters": {
+    "plaster_colour": {
+      "kind": "colour",
+      "default": [
+        0.78,
+        0.72,
+        0.59
+      ],
+      "description": "Linear limewashed earth plaster colour; timber framing is separate geometry."
+    }
+  },
+  "width": 512,
+  "height": 512,
+  "physical_tile_width_m": 2.0,
+  "physical_tile_height_m": 2.0,
+  "material": {
+    "kind": "layered_noise",
+    "frequency": 5.0,
+    "amplitude": 0.003,
+    "octaves": 4,
+    "lacunarity": 2.0,
+    "gain": 0.5,
+    "offset": 0.0
+  },
+  "layers": [],
+  "normal_scale": 0.7,
+  "displacement": {
+    "minimum_m": -0.004,
+    "maximum_m": 0.004,
+    "base_m": 0.0,
+    "displacement_map": true
+  },
+  "occlusion": {
+    "directions": 8,
+    "samples": 5,
+    "radius": 2.0,
+    "max_radius": 20.0,
+    "cavity_strength": 0.8,
+    "horizon_strength": 0.7,
+    "power": 1.0,
+    "combine": {
+      "kind": "multiply"
+    }
+  },
+  "albedo": {
+    "base_color": {
+      "parameter": "plaster_colour",
+      "base": [
+        0.78,
+        0.72,
+        0.59
+      ]
+    },
+    "warm_color": {
+      "parameter": "plaster_colour",
+      "base": [
+        0.7,
+        0.65,
+        0.53
+      ]
+    },
+    "palette": [],
+    "variation": 0.1,
+    "crack_darkening": 0.02,
+    "shoulder_variation": 0.0,
+    "mineral_density": 0.0,
+    "mineral_brightness": 0.0,
+    "occlusion_influence": 0.0
+  },
+  "output_profiles": [
+    "separate"
+  ]
+}

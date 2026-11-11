@@ -2,7 +2,7 @@ use super::super::{PendingAction, StudioState, Tab};
 use super::{ACCENT, DIM, PANEL, choose_export, dialogs, request_action};
 use crate::{
     BuildingRecipe, Facade, HingeSide, OpeningKind, OpeningRecipe, PartitionAxis, PartitionRecipe,
-    RoofCovering, RoofKind,
+    RoofCovering, RoofKind, WallStyle,
 };
 use bevy_egui::egui;
 
@@ -160,8 +160,45 @@ fn structure(ui: &mut egui::Ui, draft: &mut BuildingRecipe) {
         0.01,
         " m",
     );
+    wall_style(ui, draft);
     ui.separator();
     ui.label(egui::RichText::new("Finished structural surfaces, clear windows and hinged doors. No furniture is generated.").small().color(DIM));
+}
+
+fn wall_style(ui: &mut egui::Ui, draft: &mut BuildingRecipe) {
+    ui.separator();
+    ui.label("Wall construction");
+    let previous = draft.walls.style;
+    ui.horizontal(|ui| {
+        ui.selectable_value(&mut draft.walls.style, WallStyle::Plain, "Plain");
+        ui.selectable_value(
+            &mut draft.walls.style,
+            WallStyle::WattleAndDaub,
+            "Wattle & daub",
+        );
+    });
+    if draft.walls.style != previous {
+        draft.materials.wall = draft.walls.style.default_colour();
+        draft.materials.wall_recipe = None;
+    }
+    if draft.walls.style == WallStyle::WattleAndDaub {
+        scalar(ui, "Timber width", &mut draft.walls.beam_width, 0.005, " m");
+        scalar(
+            ui,
+            "Timber projection",
+            &mut draft.walls.frame_projection,
+            0.001,
+            " m",
+        );
+        scalar(ui, "Bay spacing", &mut draft.walls.bay_width, 0.05, " m");
+        ui.label(
+            egui::RichText::new(
+                "Timber stands proud of the plaster. Frame colour and material are in Materials.",
+            )
+            .small()
+            .color(DIM),
+        );
+    }
 }
 
 fn layout(ui: &mut egui::Ui, draft: &mut BuildingRecipe, state: &StudioState) {
@@ -346,6 +383,7 @@ fn materials(ui: &mut egui::Ui, draft: &mut BuildingRecipe, state: &mut StudioSt
         ("Trim", &mut draft.materials.trim),
         ("Door", &mut draft.materials.door),
         ("Chimney", &mut draft.materials.chimney),
+        ("Frame timber", &mut draft.materials.timber),
     ] {
         ui.horizontal(|ui| {
             ui.color_edit_button_rgb(color);
@@ -405,6 +443,13 @@ fn materials(ui: &mut egui::Ui, draft: &mut BuildingRecipe, state: &mut StudioSt
     {
         dialogs::use_wooden_planks(state);
     }
+    material_path(
+        ui,
+        "Frame timber material",
+        &mut draft.materials.timber_recipe,
+        state,
+        dialogs::MaterialTarget::Timber,
+    );
     ui.label(egui::RichText::new("Choose Material Studio JSON recipes. Physical tiling and parameters use the shared evaluator; exports snapshot dependencies.").small().color(DIM));
 }
 

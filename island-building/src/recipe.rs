@@ -14,6 +14,8 @@ pub struct BuildingRecipe {
     pub wall_height: f32,
     pub wall_thickness: f32,
     pub floor_thickness: f32,
+    #[serde(default)]
+    pub walls: WallRecipe,
     pub roof: RoofRecipe,
     pub openings: Vec<OpeningRecipe>,
     pub partitions: Vec<PartitionRecipe>,
@@ -116,6 +118,44 @@ pub struct OpeningRecipe {
 pub enum RoofKind {
     Gable,
     Shed,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WallStyle {
+    #[default]
+    Plain,
+    WattleAndDaub,
+}
+
+impl WallStyle {
+    #[must_use]
+    pub const fn default_colour(self) -> [f32; 3] {
+        match self {
+            Self::Plain => [0.62, 0.38, 0.22],
+            Self::WattleAndDaub => [0.78, 0.72, 0.59],
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct WallRecipe {
+    pub style: WallStyle,
+    pub beam_width: f32,
+    pub frame_projection: f32,
+    pub bay_width: f32,
+}
+
+impl Default for WallRecipe {
+    fn default() -> Self {
+        Self {
+            style: WallStyle::Plain,
+            beam_width: 0.14,
+            frame_projection: 0.025,
+            bay_width: 1.5,
+        }
+    }
 }
 /// Surface covering, independently of the structural roof shape.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -232,6 +272,8 @@ pub struct MaterialPalette {
     pub glass: [f32; 4],
     #[serde(default = "default_chimney_colour")]
     pub chimney: [f32; 3],
+    #[serde(default = "default_timber_colour")]
+    pub timber: [f32; 3],
     /// Optional material recipe paths, resolved relative to the building source file.
     #[serde(default)]
     pub wall_recipe: Option<String>,
@@ -241,6 +283,8 @@ pub struct MaterialPalette {
     pub door_recipe: Option<String>,
     #[serde(default)]
     pub chimney_recipe: Option<String>,
+    #[serde(default)]
+    pub timber_recipe: Option<String>,
 }
 impl Default for MaterialPalette {
     fn default() -> Self {
@@ -253,15 +297,20 @@ impl Default for MaterialPalette {
             door: [0.30, 0.20, 0.12],
             glass: [0.65, 0.82, 0.88, 0.16],
             chimney: default_chimney_colour(),
+            timber: default_timber_colour(),
             wall_recipe: None,
             roof_recipe: None,
             door_recipe: None,
             chimney_recipe: None,
+            timber_recipe: None,
         }
     }
 }
 const fn default_chimney_colour() -> [f32; 3] {
     [0.255, 0.25, 0.23]
+}
+const fn default_timber_colour() -> [f32; 3] {
+    [0.09, 0.045, 0.022]
 }
 
 impl Default for BuildingRecipe {
@@ -281,6 +330,7 @@ impl BuildingRecipe {
             wall_height: 2.8,
             wall_thickness: 0.2,
             floor_thickness: 0.16,
+            walls: WallRecipe::default(),
             roof: RoofRecipe {
                 covering: RoofCovering::StandingSeam,
                 kind: RoofKind::Gable,

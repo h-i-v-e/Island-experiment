@@ -299,6 +299,10 @@ pub(crate) fn generate(builder: &mut Builder, recipe: &BuildingRecipe, detail: D
 /// A concealed wall overlap closes the joint beneath the rounded underside.
 fn wall_joint(builder: &mut Builder, coat: &Coat<'_>) {
     use crate::Facade;
+    if coat.recipe.walls.style == crate::WallStyle::WattleAndDaub {
+        // The timber rake/eaves band supplies this overlap with the correct finish.
+        return;
+    }
     for facade in Facade::ALL {
         let half = facade.length(coat.recipe) * 0.5;
         for span in [[-half, 0.], [0., half]] {

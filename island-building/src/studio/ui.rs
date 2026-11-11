@@ -216,6 +216,7 @@ fn camera_buttons(ui: &mut egui::Ui, state: &StudioState, controls: &mut CameraC
             ("window", "Window"),
             ("roof-under", "Roof under"),
             ("eaves", "Eaves"),
+            ("corner", "Corner"),
         ] {
             if ui.small_button(label).clicked()
                 && let Some(prototype) = &prototype

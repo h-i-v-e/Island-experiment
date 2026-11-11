@@ -702,7 +702,7 @@ pub fn parse_arguments(
         match arg.as_str() {
             "--help" | "-h" => {
                 println!(
-                    "Island Building Studio\n  --recipe FILE.json | --preset hut|cottage|workshop\n  --seed N\n  --screenshot NEW.png [--lod 0|1|2|auto] [--view exterior|entrance|interior|fireplace|roof-end|roof-under|eaves|window|south|east|north|west] [--door-open] [--capture-ui]\n  --validate\n  --export NEW_DIRECTORY\nInteractive: RMB orbit/look, wheel zoom, WASD walkthrough, E toggle nearby door."
+                    "Island Building Studio\n  --recipe FILE.json | --preset hut|cottage|workshop\n  --seed N\n  --screenshot NEW.png [--lod 0|1|2|auto] [--view exterior|entrance|interior|fireplace|roof-end|roof-under|eaves|window|corner|south|east|north|west] [--door-open] [--capture-ui]\n  --validate\n  --export NEW_DIRECTORY\nInteractive: RMB orbit/look, wheel zoom, WASD walkthrough, E toggle nearby door."
                 );
                 return Ok(None);
             }
@@ -750,6 +750,7 @@ pub fn parse_arguments(
                     "roof-under",
                     "eaves",
                     "window",
+                    "corner",
                     "south",
                     "east",
                     "north",

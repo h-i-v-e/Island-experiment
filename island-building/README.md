@@ -38,13 +38,28 @@ The Structure, Layout, Openings, Roof, Chimney, Materials and LOD/Bake tabs edit
 recipe. Layout supports parallel full cross-walls with internal doorways;
 crossing partitions are diagnosed. Material selectors accept the same JSON
 recipes as Material Studio, resolved relative to the building recipe. Full
-material editing remains in Material Studio. Wall, roof, door and chimney materials each
+material editing remains in Material Studio. Wall, frame timber, roof, door and chimney materials each
 accept an independent recipe. **Materials → Use wooden planks on doors** assigns
 the bundled vertical-board recipe; **Door material → Choose JSON…** accepts any
 shared material recipe. Clearing the reference restores the door palette colour.
 The reusable source recipe is [`wooden-planks.json`](../island-rs/texture-recipes/wooden-planks.json):
 six boards across a 1.2 × 2.4 m tile with editable grain, bevelled seams, colour,
 and optional staggered end joints.
+
+**Structure → Wall construction → Wattle & daub** adds pale plaster infill with
+timber posts, rails, braces and gable framing. Timber defaults to 14 cm wide,
+projecting 25 mm from the plaster, with adjustable width, projection and bay
+spacing. Selecting a wall style restores its wall colour and built-in surface.
+**Materials** provides a separate timber colour and optional JSON material;
+the default wood grain follows each member. The reusable plaster recipe is
+[`wattle-daub.json`](../island-rs/texture-recipes/wattle-daub.json), and
+[`wattle-daub-cottage.json`](recipes/wattle-daub-cottage.json) is a complete example.
+Framing is clipped around openings and kept within the roof profile. LOD0 has
+solid projecting members; LOD1 keeps their fronts; LOD2 bakes the same pattern
+with filtered edges into its minimal shell. Older recipes retain plain walls.
+Corner posts meet at mitered edges with aligned wood grain. Timber roof edging
+overlaps beneath the smoothed thatch to hide the plaster joint.
+**Inspection → Corner** provides a close view of both joins.
 
 LOD0 windows have full-depth painted casings, recessed sashes and glazing bars
 fitted around the clear glass. Sloped sills project 12 cm outside the wall and
@@ -164,7 +179,7 @@ cargo run --manifest-path island-building/Cargo.toml --features studio --bin bui
 ```
 
 Screenshot filenames must not already exist. `--view` also accepts `south`,
-`east`, `west`, `entrance`, `fireplace`, `roof-end`, `roof-under`, `eaves` and `window`; `--capture-ui` includes the HUD. Captures wait for
+`east`, `west`, `entrance`, `fireplace`, `roof-end`, `roof-under`, `eaves`, `window` and `corner`; `--capture-ui` includes the HUD. Captures wait for
 valid geometry and rendering to settle, then exit after the PNG is written.
 Interior/entrance inspection can intentionally pin LOD0 even when a farther LOD
 is requested. Use exterior facade views for forced LOD comparisons.

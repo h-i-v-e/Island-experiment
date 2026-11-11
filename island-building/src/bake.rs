@@ -18,6 +18,7 @@ struct Sources<'a> {
     materials: &'a [MaterialTexture],
     roof: Option<FilteredRoof>,
     thatch_end: Option<FilteredRoof>,
+    frames: [Vec<crate::geometry::timber_frame::Member>; 4],
 }
 impl<'a> Sources<'a> {
     fn new(recipe: &BuildingRecipe, materials: &'a [MaterialTexture]) -> Self {
@@ -49,6 +50,7 @@ impl<'a> Sources<'a> {
             materials,
             roof,
             thatch_end,
+            frames: Facade::ALL.map(|facade| crate::geometry::timber_frame::layout(recipe, facade)),
         }
     }
 }
@@ -189,7 +191,7 @@ fn sample(r: &BuildingRecipe, sources: &Sources<'_>, chart: usize, u: f32, v: f3
     let facade = Facade::ALL[chart];
     let along = (u - 0.5) * facade.length(r);
     let z = v * (r.wall_height + r.roof.rise + r.floor_thickness) - r.floor_thickness;
-    let mut sample = texture(materials, MaterialSlot::Wall, along, z, r.materials.wall);
+    let mut sample = wall_sample(r, sources, chart, [along, z]);
     for o in r.openings.iter().filter(|o| o.facade == facade) {
         let dx = (along - o.offset).abs();
         let inside = dx <= o.width * 0.5 && z >= o.sill && z <= o.sill + o.height;
@@ -249,6 +251,90 @@ fn sample(r: &BuildingRecipe, sources: &Sources<'_>, chart: usize, u: f32, v: f3
         }
     }
     sample
+}
+
+fn wall_sample(
+    recipe: &BuildingRecipe,
+    sources: &Sources<'_>,
+    chart: usize,
+    point: [f32; 2],
+) -> Sample {
+    let plaster = texture(
+        sources.materials,
+        MaterialSlot::Wall,
+        point[0],
+        point[1],
+        recipe.materials.wall,
+    );
+    let footprint = [
+        Facade::ALL[chart].length(recipe) * 4. / (recipe.atlas_size as f32 * 0.9),
+        (recipe.wall_height + recipe.roof.rise + recipe.floor_thickness)
+            * crate::lod::atlas_rows(recipe) as f32
+            / (recipe.atlas_size as f32 * 0.9),
+    ];
+    let mut total = 0_f32;
+    let mut strongest = 0_f32;
+    let mut selected = None;
+    for member in &sources.frames[chart] {
+        let coverage = member.coverage(point, footprint);
+        total += coverage;
+        if coverage > strongest {
+            strongest = coverage;
+            selected = Some(member);
+        }
+    }
+    let Some(member) = selected else {
+        return plaster;
+    };
+    let uv = member.uv(point);
+    let direction = member.direction;
+    let mut sample = texture(
+        sources.materials,
+        MaterialSlot::Timber,
+        uv[0],
+        uv[1],
+        recipe.materials.timber,
+    );
+    let x = f32::from(sample.normal[0]) / 127.5 - 1.;
+    let y = f32::from(sample.normal[1]) / 127.5 - 1.;
+    sample.normal[0] = encode(x * direction[1] + y * direction[0]);
+    sample.normal[1] = encode(-x * direction[0] + y * direction[1]);
+    sample.height = recipe.walls.frame_projection;
+    blend_surface(plaster, sample, total.min(1.))
+}
+
+fn blend_surface(base: Sample, top: Sample, coverage: f32) -> Sample {
+    let mix =
+        |a: u8, b: u8| (f32::from(a) * (1. - coverage) + f32::from(b) * coverage).round() as u8;
+    let mut normal = std::array::from_fn::<_, 3, _>(|i| {
+        (f32::from(base.normal[i]) * (1. - coverage) + f32::from(top.normal[i]) * coverage) / 127.5
+            - 1.
+    });
+    let length = normal.iter().map(|v| v * v).sum::<f32>().sqrt();
+    normal = normal.map(|v| v / length.max(0.0001));
+    Sample {
+        albedo: std::array::from_fn(|i| {
+            if i == 3 {
+                255
+            } else {
+                srgb(linear(base.albedo[i]) * (1. - coverage) + linear(top.albedo[i]) * coverage)
+            }
+        }),
+        normal: [encode(normal[0]), encode(normal[1]), encode(normal[2]), 255],
+        ao: mix(base.ao, top.ao),
+        roughness: mix(base.roughness, top.roughness),
+        metallic: mix(base.metallic, top.metallic),
+        height: top.height * coverage,
+    }
+}
+
+fn linear(channel: u8) -> f32 {
+    let value = f32::from(channel) / 255.;
+    if value <= 0.04045 {
+        value / 12.92
+    } else {
+        ((value + 0.055) / 1.055).powf(2.4)
+    }
 }
 
 /// Length of a roof chart along the slope and its horizontal width.
