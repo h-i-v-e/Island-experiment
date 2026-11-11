@@ -1,3 +1,4 @@
+mod chimney;
 pub(super) mod dialogs;
 mod inspector;
 use super::{PendingAction, StudioState, camera::CameraControls};
@@ -211,12 +212,28 @@ fn camera_buttons(ui: &mut egui::Ui, state: &StudioState, controls: &mut CameraC
             ("east", "E"),
             ("north", "N"),
             ("west", "W"),
+            ("roof-end", "Roof end"),
+            ("window", "Window"),
+            ("roof-under", "Roof under"),
+            ("eaves", "Eaves"),
         ] {
             if ui.small_button(label).clicked()
                 && let Some(prototype) = &prototype
             {
                 controls.frame(prototype, name);
             }
+        }
+        if ui
+            .add_enabled(
+                prototype
+                    .as_ref()
+                    .is_some_and(|prototype| prototype.recipe.chimney.is_some()),
+                egui::Button::new("Fireplace").small(),
+            )
+            .clicked()
+            && let Some(prototype) = &prototype
+        {
+            controls.frame(prototype, "fireplace");
         }
     });
 }

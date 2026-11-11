@@ -82,7 +82,7 @@ pub(crate) fn validate_door_swings(
         .map(|door| Diagnostic {
             element: door.id.clone(),
             message: concat!(
-                "configured door swing intersects a wall, partition, or window; ",
+                "configured door swing intersects a wall, partition, window, or fireplace; ",
                 "move the opening, change its hinge side, or reduce the swing"
             )
             .into(),
@@ -124,6 +124,7 @@ pub(crate) fn validate_structure(recipe: &BuildingRecipe) -> Result<(), Building
         partition_rules(recipe, partition, index, &mut checks);
     }
     palette(recipe, &mut checks);
+    chimney_rules(recipe, &mut checks);
     if checks.0.is_empty() {
         Ok(())
     } else {
@@ -276,6 +277,7 @@ fn palette(r: &BuildingRecipe, c: &mut Checks) {
         ("materials.interior", m.interior),
         ("materials.trim", m.trim),
         ("materials.door", m.door),
+        ("materials.chimney", m.chimney),
     ] {
         c.require(
             colour
@@ -297,6 +299,7 @@ fn palette(r: &BuildingRecipe, c: &mut Checks) {
         ("materials.wall_recipe", &m.wall_recipe),
         ("materials.roof_recipe", &m.roof_recipe),
         ("materials.door_recipe", &m.door_recipe),
+        ("materials.chimney_recipe", &m.chimney_recipe),
     ] {
         c.require(
             path.as_ref()
@@ -305,4 +308,204 @@ fn palette(r: &BuildingRecipe, c: &mut Checks) {
             "material path must contain 1 to 4096 characters",
         );
     }
+}
+
+fn chimney_rules(recipe: &BuildingRecipe, checks: &mut Checks) {
+    let Some(chimney) = recipe.chimney.as_ref() else {
+        return;
+    };
+    let dimensions = [
+        chimney.offset,
+        chimney.width,
+        chimney.depth,
+        chimney.firebox_width,
+        chimney.firebox_height,
+        chimney.firebox_depth,
+        chimney.hearth_depth,
+        chimney.hearth_height,
+        chimney.stack_width,
+        chimney.stack_depth,
+        chimney.height_above_roof,
+    ];
+    if !dimensions
+        .iter()
+        .chain([
+            &recipe.width,
+            &recipe.depth,
+            &recipe.wall_height,
+            &recipe.wall_thickness,
+            &recipe.roof.rise,
+        ])
+        .all(|v| v.is_finite())
+    {
+        checks.require(
+            false,
+            "chimney",
+            "all chimney and structure dimensions must be finite",
+        );
+        return;
+    }
+    chimney_dimensions(recipe, chimney, checks);
+    chimney_clearance(recipe, chimney, checks);
+}
+fn chimney_dimensions(recipe: &BuildingRecipe, c: &crate::ChimneyRecipe, checks: &mut Checks) {
+    for (name, value, min, max) in [
+        ("chimney.width", c.width, 1.1, 3.5),
+        ("chimney.depth", c.depth, 0.4, 1.2),
+        ("chimney.firebox_width", c.firebox_width, 0.5, 2.5),
+        ("chimney.firebox_height", c.firebox_height, 0.5, 1.4),
+        ("chimney.firebox_depth", c.firebox_depth, 0.25, 1.0),
+        ("chimney.hearth_depth", c.hearth_depth, 0.1, 0.6),
+        ("chimney.hearth_height", c.hearth_height, 0.06, 0.2),
+        ("chimney.stack_width", c.stack_width, 0.4, 1.2),
+        ("chimney.stack_depth", c.stack_depth, 0.35, 1.0),
+        ("chimney.height_above_roof", c.height_above_roof, 0.35, 2.5),
+    ] {
+        checks.range(name, value, min, max);
+    }
+    checks.require(
+        c.firebox_width <= c.width - 0.24,
+        "chimney.firebox_width",
+        "firebox must leave at least 12 cm of masonry at each jamb",
+    );
+    checks.require(
+        c.firebox_depth <= c.depth - 0.12,
+        "chimney.firebox_depth",
+        "firebox must leave at least 12 cm of backing masonry",
+    );
+    checks.require(
+        c.stack_width <= c.width - 0.2 && c.stack_depth <= c.depth - 0.06,
+        "chimney",
+        "stack must fit within the masonry hood and remain inside the wall",
+    );
+    checks.require(
+        c.firebox_height + c.hearth_height + 0.78 <= recipe.wall_height - 0.1,
+        "chimney.firebox_height",
+        "fireplace hood must finish below the ceiling",
+    );
+    let flue_wall = 0.1_f32.min(c.stack_width.min(c.stack_depth) * 0.2);
+    checks.require(
+        c.firebox_width + 0.00001 >= c.stack_width - 2. * flue_wall
+            && c.firebox_depth - 0.12 + 0.00001 >= c.stack_depth - 2. * flue_wall,
+        "chimney",
+        "hood opening must accommodate the complete flue",
+    );
+    checks.require(
+        c.offset.abs() + c.width * 0.5 + 0.1
+            <= c.facade.length(recipe) * 0.5 - recipe.wall_thickness - 0.2,
+        "chimney.offset",
+        "hearth must leave solid corner clearance and remain inside the footprint",
+    );
+    let across = match c.facade {
+        Facade::South | Facade::North => recipe.depth,
+        Facade::East | Facade::West => recipe.width,
+    };
+    checks.require(
+        c.depth + c.hearth_depth + 0.66 <= across - 2. * recipe.wall_thickness,
+        "chimney.depth",
+        "fireplace must leave a clear player route in front of the hearth",
+    );
+}
+fn chimney_clearance(recipe: &BuildingRecipe, c: &crate::ChimneyRecipe, checks: &mut Checks) {
+    let hearth = crate::geometry::chimney::hearth_bounds(recipe).expect("enabled chimney");
+    for opening in &recipe.openings {
+        if opening.facade == c.facade {
+            checks.require(
+                (opening.offset - c.offset).abs() >= opening.width * 0.5 + c.width * 0.5 + 0.2,
+                "chimney",
+                "fireplace overlaps an exterior opening or its frame",
+            );
+        }
+        if opening.kind == OpeningKind::Door {
+            let approach = facade_rectangle(
+                recipe,
+                opening.facade,
+                opening.offset,
+                opening.width + 0.56,
+                recipe.wall_thickness - 0.1,
+                recipe.wall_thickness + 0.8,
+            );
+            checks.require(
+                !xy_overlap(hearth, approach, 0.),
+                "chimney",
+                "hearth obstructs an exterior doorway approach",
+            );
+        }
+    }
+    for partition in &recipe.partitions {
+        chimney_partition(recipe, c, hearth, partition, checks);
+    }
+}
+fn chimney_partition(
+    recipe: &BuildingRecipe,
+    c: &crate::ChimneyRecipe,
+    hearth: crate::collision::BoxCollider,
+    p: &PartitionRecipe,
+    checks: &mut Checks,
+) {
+    let axis = match p.axis {
+        PartitionAxis::X => 1,
+        PartitionAxis::Y => 0,
+    };
+    let along = 1 - axis;
+    let mut corridor = crate::collision::BoxCollider {
+        min: [0.; 3],
+        max: [0.; 3],
+    };
+    corridor.min[axis] = p.offset - recipe.wall_thickness * 0.5 - 0.66;
+    corridor.max[axis] = p.offset + recipe.wall_thickness * 0.5 + 0.66;
+    corridor.min[along] = p.door_offset - p.door_width * 0.5 - 0.28;
+    corridor.max[along] = p.door_offset + p.door_width * 0.5 + 0.28;
+    checks.require(
+        !xy_overlap(hearth, corridor, 0.),
+        "chimney",
+        "hearth obstructs an interior doorway or its player approach",
+    );
+    let parallel = matches!(
+        (c.facade, p.axis),
+        (Facade::South | Facade::North, PartitionAxis::X)
+            | (Facade::East | Facade::West, PartitionAxis::Y)
+    );
+    if parallel {
+        let distance = match c.facade {
+            Facade::South => p.offset + recipe.depth * 0.5 - recipe.wall_thickness,
+            Facade::North => recipe.depth * 0.5 - recipe.wall_thickness - p.offset,
+            Facade::East => recipe.width * 0.5 - recipe.wall_thickness - p.offset,
+            Facade::West => p.offset + recipe.width * 0.5 - recipe.wall_thickness,
+        };
+        checks.require(
+            distance >= c.depth + c.hearth_depth + 0.66,
+            "chimney",
+            "hearth leaves insufficient room before a parallel partition",
+        );
+    } else {
+        checks.require(
+            p.offset < hearth.min[axis] - 0.66 - recipe.wall_thickness * 0.5
+                || p.offset > hearth.max[axis] + 0.66 + recipe.wall_thickness * 0.5,
+            "chimney",
+            "hearth intersects or leaves a narrow route beside a room partition",
+        );
+    }
+}
+fn facade_rectangle(
+    recipe: &BuildingRecipe,
+    facade: Facade,
+    offset: f32,
+    width: f32,
+    back: f32,
+    front: f32,
+) -> crate::collision::BoxCollider {
+    let a = facade.point(recipe, offset - width * 0.5, 0., back);
+    let b = facade.point(recipe, offset + width * 0.5, 2., front);
+    crate::collision::BoxCollider {
+        min: std::array::from_fn(|axis| a[axis].min(b[axis])),
+        max: std::array::from_fn(|axis| a[axis].max(b[axis])),
+    }
+}
+fn xy_overlap(
+    a: crate::collision::BoxCollider,
+    b: crate::collision::BoxCollider,
+    margin: f32,
+) -> bool {
+    (0..2).all(|axis| a.min[axis] < b.max[axis] + margin && a.max[axis] > b.min[axis] - margin)
 }

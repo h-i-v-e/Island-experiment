@@ -62,6 +62,11 @@ for door-length boards, or increase the count for staggered timber joints. The
 and occlusion. Material Studio opens, edits, saves and reopens this typed recipe
 through its normal document workflow.
 
+`island-rs/texture-recipes/coursed-stone.json` provides staggered grey/brown
+stonework with neutral recessed mortar, suitable for a cold chimney or fireplace.
+Its 2 × 2 metre tile contains nominal 500 × 250 mm stones. The `stone_colour`
+parameter recolours the stones while retaining the course layout and mortar.
+
 Generate the same maps directly with the shared evaluator:
 
 ```sh
@@ -94,3 +99,13 @@ for inspection and baking; parallax does not modify geometry or silhouettes.
 The plane is the default lit-preview shape because parallax is a tangent-plane
 technique; Bevy documents visible grazing-angle distortion on curved surfaces,
 so the sphere remains available primarily for checking lighting and normals.
+
+Roof materials are reusable native recipes: `../island-rs/texture-recipes/slate-roof.json`
+and `thatch-roof.json`. Both use a 2 × 2 m physical tile and a `roof_colour`
+linear-colour parameter. Slate has staggered overlapping courses with narrow
+bevelled joints and subtle cleavage; thatch has dense, individually staggered
+reed fibres, small cut tips and subdued natural pigment variation. Its default
+1024 px source resolves 288 fibres across a 2 m tile. In both materials U follows the roof slope and V follows the
+ridge. The material selector exposes their physical relief, density and colour
+variation controls; colour overrides preserve the shared height, normal and AO
+maps. Albedo remains lighting-free.

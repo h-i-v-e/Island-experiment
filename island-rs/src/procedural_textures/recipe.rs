@@ -524,6 +524,64 @@ pub enum MaterialModel {
     Masonry(MasonrySettings),
     /// Longitudinal wood grain on bevelled boards with optional staggered end joints.
     WoodenPlanks(WoodenPlanksSettings),
+    /// Staggered overlapping slate courses progressing along U (roof slope).
+    SlateRoof(SlateRoofSettings),
+    /// Straw fibres along U, gathered in bundles across V (roof ridge).
+    ThatchRoof(ThatchRoofSettings),
+}
+
+/// Periodic roof slate controls. All relief and edge widths are metres.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct SlateRoofSettings {
+    pub courses: u32,
+    pub slates_per_course: u32,
+    pub seam_width_m: f32,
+    pub edge_bevel_m: f32,
+    pub overlap_height_m: f32,
+    pub surface_relief_m: f32,
+    pub colour_variation: f32,
+}
+
+impl Default for SlateRoofSettings {
+    fn default() -> Self {
+        Self {
+            courses: 8,
+            slates_per_course: 7,
+            seam_width_m: 0.006,
+            edge_bevel_m: 0.004,
+            overlap_height_m: 0.009,
+            surface_relief_m: 0.0009,
+            colour_variation: 0.22,
+        }
+    }
+}
+
+/// Periodic thatch controls. Strands run down the roof slope along U.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ThatchRoofSettings {
+    pub bundles: u32,
+    pub strands_per_bundle: u32,
+    pub courses: u32,
+    pub strand_relief_m: f32,
+    pub bundle_relief_m: f32,
+    pub course_relief_m: f32,
+    pub colour_variation: f32,
+}
+
+impl Default for ThatchRoofSettings {
+    fn default() -> Self {
+        Self {
+            bundles: 12,
+            strands_per_bundle: 24,
+            courses: 5,
+            strand_relief_m: 0.0007,
+            bundle_relief_m: 0.0014,
+            course_relief_m: 0.00035,
+            colour_variation: 0.22,
+        }
+    }
 }
 
 /// Physical controls for periodic boards. Grain and board length run along V.

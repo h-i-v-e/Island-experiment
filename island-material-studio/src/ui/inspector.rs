@@ -195,6 +195,8 @@ fn material_editor(ui: &mut egui::Ui, material: &mut MaterialModel) -> bool {
         MaterialModel::RoundedStones { .. } => 2,
         MaterialModel::Masonry(_) => 3,
         MaterialModel::WoodenPlanks(_) => 4,
+        MaterialModel::SlateRoof(_) => 5,
+        MaterialModel::ThatchRoof(_) => 6,
     };
     let mut selected = current;
     egui::ComboBox::from_label("Kind")
@@ -205,6 +207,8 @@ fn material_editor(ui: &mut egui::Ui, material: &mut MaterialModel) -> bool {
                 "Rounded stones",
                 "Coursed masonry",
                 "Wooden planks",
+                "Slate roof",
+                "Thatch roof",
             ][selected],
         )
         .show_ui(ui, |ui| {
@@ -213,12 +217,80 @@ fn material_editor(ui: &mut egui::Ui, material: &mut MaterialModel) -> bool {
             ui.selectable_value(&mut selected, 2, "Rounded stones");
             ui.selectable_value(&mut selected, 3, "Coursed masonry");
             ui.selectable_value(&mut selected, 4, "Wooden planks");
+            ui.selectable_value(&mut selected, 5, "Slate roof");
+            ui.selectable_value(&mut selected, 6, "Thatch roof");
         });
     if selected != current {
         *material = material_default(selected);
         changed = true;
     }
     match material {
+        MaterialModel::SlateRoof(settings) => {
+            changed |= u32_row(ui, "Courses down slope (U)", &mut settings.courses, 1.0);
+            changed |= u32_row(
+                ui,
+                "Slates across ridge (V)",
+                &mut settings.slates_per_course,
+                1.0,
+            );
+            changed |= f32_row(ui, "Seam width (m)", &mut settings.seam_width_m, 0.0005);
+            changed |= f32_row(ui, "Edge bevel (m)", &mut settings.edge_bevel_m, 0.0005);
+            changed |= f32_row(
+                ui,
+                "Overlap height (m)",
+                &mut settings.overlap_height_m,
+                0.0005,
+            );
+            changed |= f32_row(
+                ui,
+                "Slate cleavage (m)",
+                &mut settings.surface_relief_m,
+                0.0001,
+            );
+            changed |= f32_row_range(
+                ui,
+                "Slate colour variation",
+                &mut settings.colour_variation,
+                0.01,
+                0.0..=1.0,
+            );
+        }
+        MaterialModel::ThatchRoof(settings) => {
+            changed |= u32_row(ui, "Bundles across ridge (V)", &mut settings.bundles, 1.0);
+            changed |= u32_row(
+                ui,
+                "Strands per bundle",
+                &mut settings.strands_per_bundle,
+                1.0,
+            );
+            changed |= u32_row(ui, "Cut ends along slope (U)", &mut settings.courses, 1.0);
+            changed |= f32_row(
+                ui,
+                "Straw relief (m)",
+                &mut settings.strand_relief_m,
+                0.0001,
+            );
+            changed |= f32_row(
+                ui,
+                "Packing relief (m)",
+                &mut settings.bundle_relief_m,
+                0.0005,
+            );
+            changed |= f32_row(
+                ui,
+                "Cut-tip relief (m)",
+                &mut settings.course_relief_m,
+                0.0005,
+            );
+            changed |= f32_row_range(
+                ui,
+                "Straw colour variation",
+                &mut settings.colour_variation,
+                0.01,
+                0.0..=1.0,
+            );
+            ui.label("Straw fibres follow the roof slope along U.");
+        }
         MaterialModel::WoodenPlanks(settings) => {
             changed |= u32_row(ui, "Boards across U", &mut settings.planks, 1.0);
             changed |= u32_row(
@@ -411,7 +483,9 @@ fn material_default(kind: usize) -> MaterialModel {
         2 => serde_json::from_value(serde_json::json!({ "kind": "rounded_stones" })).unwrap(),
         3 => serde_json::from_value(serde_json::json!({ "kind": "masonry" })).unwrap(),
         4 => serde_json::from_value(serde_json::json!({ "kind": "wooden_planks" })).unwrap(),
-        _ => unreachable!("material selector has exactly five variants"),
+        5 => serde_json::from_value(serde_json::json!({ "kind": "slate_roof" })).unwrap(),
+        6 => serde_json::from_value(serde_json::json!({ "kind": "thatch_roof" })).unwrap(),
+        _ => unreachable!("material selector has exactly seven variants"),
     }
 }
 

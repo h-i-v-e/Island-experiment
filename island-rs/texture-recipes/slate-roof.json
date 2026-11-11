@@ -1,0 +1,71 @@
+{
+  "name": "Slate Roof",
+  "seed": 7291,
+  "parameters": {
+    "roof_colour": {
+      "kind": "colour",
+      "default": [
+        0.11,
+        0.13,
+        0.16
+      ],
+      "description": "Linear roof pigment; colour changes preserve height, normal and AO. U follows the slope; V follows the ridge."
+    }
+  },
+  "width": 512,
+  "height": 512,
+  "physical_tile_width_m": 2.0,
+  "physical_tile_height_m": 2.0,
+  "material": {
+    "kind": "slate_roof"
+  },
+  "layers": [],
+  "normal_scale": 0.8,
+  "displacement": {
+    "minimum_m": -0.004,
+    "maximum_m": 0.012,
+    "base_m": 0.0,
+    "displacement_map": true
+  },
+  "occlusion": {
+    "directions": 8,
+    "samples": 5,
+    "radius": 2.0,
+    "max_radius": 20.0,
+    "cavity_strength": 0.8,
+    "horizon_strength": 0.7,
+    "power": 1.0,
+    "combine": {
+      "kind": "multiply"
+    }
+  },
+  "albedo": {
+    "base_color": {
+      "parameter": "roof_colour",
+      "base": [
+        0.11,
+        0.13,
+        0.16
+      ]
+    },
+    "warm_color": {
+      "parameter": "roof_colour",
+      "base": [
+        0.1265,
+        0.1495,
+        0.184
+      ]
+    },
+    "palette": [],
+    "variation": 0.06,
+    "crack_darkening": 0.0,
+    "shoulder_variation": 0.0,
+    "mineral_density": 0.0,
+    "mineral_brightness": 0.0,
+    "occlusion_influence": 0.0
+  },
+  "output_profiles": [
+    "separate",
+    "motu_unity_terrain"
+  ]
+}

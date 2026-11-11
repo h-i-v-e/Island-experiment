@@ -1,0 +1,125 @@
+{
+  "name": "Coursed stone",
+  "seed": 49673,
+  "parameters": {
+    "stone_colour": {
+      "kind": "colour",
+      "default": [
+        0.255,
+        0.25,
+        0.23
+      ],
+      "description": "Linear stone colour; recolours the stones while retaining neutral mortar, course layout and relief."
+    }
+  },
+  "width": 1024,
+  "height": 1024,
+  "physical_tile_width_m": 2.0,
+  "physical_tile_height_m": 2.0,
+  "material": {
+    "kind": "masonry",
+    "cells_x": 4,
+    "cells_y": 8,
+    "joint_jitter": 0.055,
+    "mortar_width": 0.012,
+    "bevel_width": 0.008,
+    "mortar_depth": 0.024,
+    "stone_variation": 0.0035,
+    "edge_roughness": 0.0018,
+    "surface_amplitude": 0.0015,
+    "colour_variation": 0.24
+  },
+  "layers": [
+    {
+      "id": "mortar-colour",
+      "name": "Neutral mortar",
+      "enabled": true,
+      "source": {
+        "kind": "value",
+        "frequency": 24,
+        "seed_domain": 11948
+      },
+      "mask": {
+        "kind": "previous_height",
+        "bottom_m": -0.019,
+        "top_m": -0.006,
+        "invert": true
+      },
+      "outputs": {
+        "height": {
+          "enabled": false,
+          "blend": {
+            "kind": "add"
+          },
+          "strength_m": 0.0
+        },
+        "albedo": {
+          "enabled": true,
+          "blend": "replace",
+          "strength": 1.0,
+          "colour_map": {
+            "kind": "ramp",
+            "first": [
+              0.125,
+              0.12,
+              0.11
+            ],
+            "second": [
+              0.17,
+              0.16,
+              0.14
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "normal_scale": 0.85,
+  "displacement": {
+    "minimum_m": -0.028,
+    "maximum_m": 0.008,
+    "base_m": 0.0,
+    "displacement_map": true
+  },
+  "occlusion": {
+    "directions": 8,
+    "samples": 5,
+    "radius": 2.0,
+    "max_radius": 16.0,
+    "cavity_strength": 0.85,
+    "horizon_strength": 0.7,
+    "power": 1.0,
+    "combine": {
+      "kind": "multiply"
+    }
+  },
+  "albedo": {
+    "base_color": {
+      "parameter": "stone_colour",
+      "base": [
+        0.255,
+        0.25,
+        0.23
+      ]
+    },
+    "warm_color": {
+      "parameter": "stone_colour",
+      "base": [
+        0.34,
+        0.3,
+        0.24
+      ]
+    },
+    "palette": [],
+    "variation": 0.12,
+    "crack_darkening": 0.0,
+    "shoulder_variation": 0.0,
+    "mineral_density": 0.0,
+    "mineral_brightness": 0.0,
+    "occlusion_influence": 0.0
+  },
+  "output_profiles": [
+    "separate",
+    "motu_unity_terrain"
+  ]
+}

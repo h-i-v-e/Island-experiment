@@ -3,9 +3,13 @@
 #![allow(clippy::many_single_char_names)]
 use crate::{
     BuildingLod, BuildingMesh, BuildingRecipe, DoorDescriptor, Facade, HingeSide, MaterialSlot,
-    MeshPart, OpeningKind, PartitionAxis, RoofKind, collision::BoxCollider,
+    MeshPart, OpeningKind, PartitionAxis, RoofCovering, RoofKind, collision::BoxCollider,
 };
+pub mod chimney;
 mod hardware;
+pub(crate) mod roof_covering;
+pub(crate) mod thatch;
+pub(crate) mod windows;
 
 use std::collections::BTreeMap;
 
@@ -106,16 +110,22 @@ pub(crate) fn generate(r: &BuildingRecipe) -> (BuildingLod, Vec<DoorDescriptor>,
         wall(&mut b, r, facade, true, &mut colliders);
     }
     for opening in &r.openings {
-        frame(&mut b, r, opening, opening.kind == OpeningKind::Window);
         match opening.kind {
-            OpeningKind::Window => window(&mut b, r, opening, &mut colliders),
-            OpeningKind::Door => doors.push(door_leaf(r, opening)),
+            OpeningKind::Window => {
+                windows::casing(&mut b, r, opening);
+                window(&mut b, r, opening, &mut colliders);
+            }
+            OpeningKind::Door => {
+                frame(&mut b, r, opening, false);
+                doors.push(door_leaf(r, opening));
+            }
         }
     }
     for p in &r.partitions {
         partition(&mut b, r, p, &mut colliders);
     }
     roof(&mut b, r, true);
+    chimney::near(&mut b, r, &mut colliders);
     (b.finish(), doors, colliders)
 }
 
@@ -126,20 +136,22 @@ fn slabs(b: &mut Builder, r: &BuildingRecipe, colliders: &mut Vec<BoxCollider>) 
     };
     b.cube(MaterialSlot::Floor, floor.min, floor.max);
     colliders.push(floor);
-    let ceiling = BoxCollider {
-        min: [
-            -r.width * 0.5 + r.wall_thickness,
-            -r.depth * 0.5 + r.wall_thickness,
-            r.wall_height - 0.08,
-        ],
-        max: [
-            r.width * 0.5 - r.wall_thickness,
-            r.depth * 0.5 - r.wall_thickness,
-            r.wall_height,
-        ],
-    };
-    b.cube(MaterialSlot::Interior, ceiling.min, ceiling.max);
-    colliders.push(ceiling);
+    let min = [
+        -r.width * 0.5 + r.wall_thickness,
+        -r.depth * 0.5 + r.wall_thickness,
+    ];
+    let max = [
+        r.width * 0.5 - r.wall_thickness,
+        r.depth * 0.5 - r.wall_thickness,
+    ];
+    for (a, c) in chimney::roof_cells(r, min, max) {
+        let ceiling = BoxCollider {
+            min: [a[0], a[1], r.wall_height - 0.08],
+            max: [c[0], c[1], r.wall_height],
+        };
+        b.cube(MaterialSlot::Interior, ceiling.min, ceiling.max);
+        colliders.push(ceiling);
+    }
 }
 
 fn window(
@@ -162,7 +174,17 @@ fn window(
         ),
         f.point(r, a, z + opening.height, r.wall_thickness * 0.48),
     ];
-    b.face(MaterialSlot::Glass, p);
+    // The sash overlaps the pane by 15 mm; keep the glass clear of the sill.
+    let tangent = f.tangent();
+    let visible = std::array::from_fn::<_, 4, _>(|i| {
+        let mut point = p[i];
+        let along = if matches!(i, 0 | 3) { 1. } else { -1. } * windows::GLASS_INSET;
+        point[0] += tangent[0] * along;
+        point[1] += tangent[1] * along;
+        point[2] += if i < 2 { 1. } else { -1. } * windows::GLASS_INSET;
+        point
+    });
+    b.face(MaterialSlot::Glass, visible);
     let min = std::array::from_fn(|i| p[0][i].min(p[2][i]) - 0.006);
     let max = std::array::from_fn(|i| p[0][i].max(p[2][i]) + 0.006);
     colliders.push(BoxCollider { min, max });
@@ -267,36 +289,6 @@ pub(crate) fn wall(
                 let min = std::array::from_fn(|i| p0[i].min(p1[i]));
                 let max = std::array::from_fn(|i| p0[i].max(p1[i]));
                 colliders.push(BoxCollider { min, max });
-            }
-        }
-    }
-    if interior {
-        // Door frame boxes below supply complete lining faces. Emitting these
-        // reveals too would place duplicate coplanar surfaces inside the jamb.
-        for o in r
-            .openings
-            .iter()
-            .filter(|o| o.facade == f && o.kind == OpeningKind::Window)
-        {
-            let x0 = o.offset - o.width * 0.5;
-            let x1 = o.offset + o.width * 0.5;
-            let z0 = o.sill;
-            let z1 = o.sill + o.height;
-            for (a, c) in [
-                ([x0, z0], [x0, z1]),
-                ([x1, z1], [x1, z0]),
-                ([x1, z0], [x0, z0]),
-                ([x0, z1], [x1, z1]),
-            ] {
-                b.face(
-                    MaterialSlot::Trim,
-                    [
-                        f.point(r, c[0], c[1], 0.),
-                        f.point(r, a[0], a[1], 0.),
-                        f.point(r, a[0], a[1], r.wall_thickness),
-                        f.point(r, c[0], c[1], r.wall_thickness),
-                    ],
-                );
             }
         }
     }
@@ -439,11 +431,23 @@ fn gable(b: &mut Builder, r: &BuildingRecipe, f: Facade) {
     }
 }
 pub(crate) fn roof(b: &mut Builder, r: &BuildingRecipe, detailed: bool) {
+    if r.roof.covering == RoofCovering::Thatch {
+        thatch::generate(
+            b,
+            r,
+            if detailed {
+                thatch::Detail::Near
+            } else {
+                thatch::Detail::Middle
+            },
+        );
+        return;
+    }
     let w = r.width * 0.5 + r.roof.overhang;
     let d = r.depth * 0.5 + r.roof.overhang;
     let h = r.wall_height;
     let rise = r.roof.rise;
-    let thickness = r.roof.thickness;
+    let thickness = r.roof.effective_thickness();
     let spans: Vec<(f32, f32, f32, f32)> = match r.roof.kind {
         RoofKind::Gable => vec![
             (
@@ -467,21 +471,14 @@ pub(crate) fn roof(b: &mut Builder, r: &BuildingRecipe, detailed: bool) {
         )],
     };
     for (x0, x1, z0, z1) in spans {
-        b.face(
-            MaterialSlot::Roof,
-            [
-                [x0, -d, z0 + thickness],
-                [x1, -d, z1 + thickness],
-                [x1, d, z1 + thickness],
-                [x0, d, z0 + thickness],
-            ],
-        );
-        if detailed {
-            b.face(
-                MaterialSlot::Interior,
-                [[x0, d, z0], [x1, d, z1], [x1, -d, z1], [x0, -d, z0]],
-            );
-        }
+        let section = RoofSection {
+            x: [x0, x1],
+            height: [z0, z1],
+            depth: d,
+            thickness,
+            flip_u: r.roof.covering != RoofCovering::StandingSeam && z0 > z1,
+        };
+        roof_surfaces(b, r, section, detailed);
         for y in [-d, d] {
             let p = if y < 0. {
                 [
@@ -498,38 +495,146 @@ pub(crate) fn roof(b: &mut Builder, r: &BuildingRecipe, detailed: bool) {
                     [x1, y, z1 + thickness],
                 ]
             };
-            b.face(MaterialSlot::Trim, p);
+            roof_edge(b, r, section, p);
         }
         for (x, z, flip) in [(x0, z0, true), (x1, z1, false)] {
-            let mut p = [
-                [x, -d, z],
-                [x, d, z],
-                [x, d, z + thickness],
-                [x, -d, z + thickness],
-            ];
-            if flip {
-                p.reverse();
+            for [a, c] in chimney::strip_spans(r, x, d) {
+                if c > a {
+                    let mut p = [
+                        [x, a, z],
+                        [x, c, z],
+                        [x, c, z + thickness],
+                        [x, a, z + thickness],
+                    ];
+                    if flip {
+                        p.reverse();
+                    }
+                    roof_edge(b, r, section, p);
+                }
             }
-            b.face(MaterialSlot::Trim, p);
         }
         if detailed {
-            roof_seams(b, x0, x1, z0, z1, thickness, d);
+            match r.roof.covering {
+                RoofCovering::StandingSeam => roof_seams(b, r, section),
+                RoofCovering::Slate => roof_covering::courses(b, r, section),
+                RoofCovering::Thatch => {
+                    unreachable!("thatched shell has its own prismatic profile")
+                }
+            }
         }
     }
 }
+fn roof_edge(b: &mut Builder, r: &BuildingRecipe, s: RoofSection, p: [[f32; 3]; 4]) {
+    if r.roof.covering == RoofCovering::StandingSeam {
+        b.face(MaterialSlot::Trim, p);
+    } else {
+        b.quad(MaterialSlot::Roof, p, s.face_uvs(p));
+    }
+}
 
+#[derive(Clone, Copy)]
+pub(crate) struct RoofSection {
+    pub(crate) x: [f32; 2],
+    pub(crate) height: [f32; 2],
+    pub(crate) depth: f32,
+    pub(crate) thickness: f32,
+    pub(crate) flip_u: bool,
+}
+impl RoofSection {
+    fn height(self, x: f32) -> f32 {
+        self.height[0] + (x - self.x[0]) * self.slope()
+    }
+    fn slope(self) -> f32 {
+        (self.height[1] - self.height[0]) / (self.x[1] - self.x[0])
+    }
+    fn face_uvs(self, p: [[f32; 3]; 4]) -> [[f32; 2]; 4] {
+        let constant_x = p.iter().all(|v| (v[0] - p[0][0]).abs() < 0.00001);
+        let constant_y = p.iter().all(|v| (v[1] - p[0][1]).abs() < 0.00001);
+        p.map(|point| {
+            let mut uv = self.uv(point[0], point[1]);
+            let vertical = (point[2] - self.height(point[0]) - self.thickness) * 0.5;
+            if constant_x {
+                uv[0] += vertical;
+            }
+            if constant_y {
+                uv[1] += vertical;
+            }
+            uv
+        })
+    }
+    // Structural UVs are half a unit per metre; the material transform applies
+    // the physical tile size, shared by legacy and new roof coverings.
+    fn uv(self, x: f32, y: f32) -> [f32; 2] {
+        [
+            (if self.flip_u {
+                self.x[1] - x
+            } else {
+                x - self.x[0]
+            }) * (1. + self.slope().powi(2)).sqrt()
+                * 0.5,
+            (y + self.depth) * 0.5,
+        ]
+    }
+}
+fn roof_surfaces(b: &mut Builder, r: &BuildingRecipe, s: RoofSection, detailed: bool) {
+    let slope = (s.height[1] - s.height[0]) / (s.x[1] - s.x[0]);
+    let scale = (1. + slope * slope).sqrt() * 0.5;
+    let z = |x: f32| s.height[0] + (x - s.x[0]) * slope;
+    let uv = |x: f32, y: f32| {
+        let along = if s.flip_u { s.x[1] - x } else { x - s.x[0] };
+        [along * scale, (y + s.depth) * 0.5]
+    };
+    for (min, max) in chimney::roof_cells(r, [s.x[0], -s.depth], [s.x[1], s.depth]) {
+        let [x0, y0] = min;
+        let [x1, y1] = max;
+        b.quad(
+            MaterialSlot::Roof,
+            [
+                [x0, y0, z(x0) + s.thickness],
+                [x1, y0, z(x1) + s.thickness],
+                [x1, y1, z(x1) + s.thickness],
+                [x0, y1, z(x0) + s.thickness],
+            ],
+            [uv(x0, y0), uv(x1, y0), uv(x1, y1), uv(x0, y1)],
+        );
+        if detailed {
+            b.quad(
+                MaterialSlot::Interior,
+                [
+                    [x0, y1, z(x0)],
+                    [x1, y1, z(x1)],
+                    [x1, y0, z(x1)],
+                    [x0, y0, z(x0)],
+                ],
+                [uv(x0, y1), uv(x1, y1), uv(x1, y0), uv(x0, y0)],
+            );
+        }
+    }
+}
 // Validated roofs are <=43 metres wide, so this positive count is below 124.
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-fn roof_seams(b: &mut Builder, x0: f32, x1: f32, z0: f32, z1: f32, thickness: f32, depth: f32) {
-    let count = ((x1 - x0) / 0.35).ceil() as u16;
-    for i in 1..count {
-        let t = f32::from(i) / f32::from(count);
-        let x = x0 + (x1 - x0) * t;
-        let z = z0 + (z1 - z0) * t + thickness;
-        b.cube(
-            MaterialSlot::Roof,
-            [x - 0.012, -depth, z - 0.006],
-            [x + 0.012, depth, z + 0.018],
-        );
+fn roof_seams(b: &mut Builder, r: &BuildingRecipe, s: RoofSection) {
+    let count = ((s.x[1] - s.x[0]) / 0.35).ceil() as u16;
+    let hole = chimney::stack_bounds(r);
+    for index in 1..count {
+        let t = f32::from(index) / f32::from(count);
+        let x = s.x[0] + (s.x[1] - s.x[0]) * t;
+        let z = s.height[0] + (s.height[1] - s.height[0]) * t + s.thickness;
+        let spans = if let Some(bounds) =
+            hole.filter(|bounds| x + 0.012 > bounds.min[0] && x - 0.012 < bounds.max[0])
+        {
+            [[-s.depth, bounds.min[1]], [bounds.max[1], s.depth]]
+        } else {
+            [[-s.depth, s.depth], [0., 0.]]
+        };
+        for [a, c] in spans {
+            if c > a {
+                b.cube(
+                    MaterialSlot::Roof,
+                    [x - 0.012, a, z - 0.006],
+                    [x + 0.012, c, z + 0.018],
+                );
+            }
+        }
     }
 }

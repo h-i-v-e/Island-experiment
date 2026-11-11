@@ -10,6 +10,7 @@ pub(super) enum MaterialTarget {
     Wall,
     Roof,
     Door,
+    Chimney,
 }
 
 pub(super) enum Intent {
@@ -133,6 +134,7 @@ fn finish(state: &mut StudioState, completion: Completion) {
                 MaterialTarget::Wall => recipe.materials.wall_recipe = Some(path),
                 MaterialTarget::Roof => recipe.materials.roof_recipe = Some(path),
                 MaterialTarget::Door => recipe.materials.door_recipe = Some(path),
+                MaterialTarget::Chimney => recipe.materials.chimney_recipe = Some(path),
             });
             // Explicit reselection also refreshes a dependency edited in Material Studio.
             state.request_preview();
@@ -172,11 +174,15 @@ mod tests {
 
     #[test]
     fn material_selection_targets_the_right_surface_and_can_be_undone() {
-        for target in [
+        for (selected, target) in [
             MaterialTarget::Wall,
             MaterialTarget::Roof,
             MaterialTarget::Door,
-        ] {
+            MaterialTarget::Chimney,
+        ]
+        .into_iter()
+        .enumerate()
+        {
             let mut state = state();
             let revision = state.document.revision();
             let serial = state.serial;
@@ -190,26 +196,22 @@ mod tests {
                 },
             );
             let material = &state.document.recipe().materials;
-            match target {
-                MaterialTarget::Wall => {
-                    assert_eq!(material.wall_recipe.as_deref(), Some("/tmp/material.json"));
-                    assert!(material.roof_recipe.is_none());
-                }
-                MaterialTarget::Roof => {
-                    assert_eq!(material.roof_recipe.as_deref(), Some("/tmp/material.json"));
-                    assert!(material.wall_recipe.is_none());
-                    assert!(material.door_recipe.is_none());
-                }
-                MaterialTarget::Door => {
-                    assert_eq!(material.door_recipe.as_deref(), Some("/tmp/material.json"));
-                    assert!(material.wall_recipe.is_none());
-                    assert!(material.roof_recipe.is_none());
-                }
+            for (index, path) in [
+                material.wall_recipe.as_deref(),
+                material.roof_recipe.as_deref(),
+                material.door_recipe.as_deref(),
+                material.chimney_recipe.as_deref(),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                assert_eq!(path, (index == selected).then_some("/tmp/material.json"));
             }
             state.document.undo();
             assert!(state.document.recipe().materials.wall_recipe.is_none());
             assert!(state.document.recipe().materials.roof_recipe.is_none());
             assert!(state.document.recipe().materials.door_recipe.is_none());
+            assert!(state.document.recipe().materials.chimney_recipe.is_none());
         }
     }
 

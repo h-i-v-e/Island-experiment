@@ -1,18 +1,20 @@
 //! The shared Rust procedural-material evaluator supplies building surface maps.
-use crate::{BuildingError, BuildingRecipe, MaterialSlot, MaterialTexture};
+use crate::{BuildingError, BuildingRecipe, MaterialSlot, MaterialTexture, RoofCovering};
 use motu::procedural_textures::{
     AlbedoSettings, DisplacementSettings, MaterialModel, NormalConvention, OcclusionRecipeSettings,
-    TextureRecipe, generate_texture_set,
+    RecipeParameterValues, TextureRecipe, generate_texture_set_with_parameters,
     parameters::{ColourValue, LinearRgb},
 };
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, path::Path};
 
+mod thatch_ends;
+
 pub(crate) fn generate(
     r: &BuildingRecipe,
     base: &Path,
 ) -> Result<Vec<MaterialTexture>, BuildingError> {
-    [
+    let mut materials: Vec<_> = [
         (
             MaterialSlot::Wall,
             r.materials.wall,
@@ -28,11 +30,29 @@ pub(crate) fn generate(
             r.materials.door,
             r.materials.door_recipe.as_deref(),
         ),
+        (
+            MaterialSlot::Chimney,
+            r.materials.chimney,
+            r.materials.chimney_recipe.as_deref(),
+        ),
     ]
     .into_iter()
-    .filter(|(slot, _, path)| *slot != MaterialSlot::Door || path.is_some())
+    .filter(|(slot, _, path)| match slot {
+        MaterialSlot::Door => path.is_some(),
+        MaterialSlot::Chimney => r.chimney.is_some() || path.is_some(),
+        _ => true,
+    })
     .map(|(slot, colour, path)| material(r, base, slot, colour, path))
-    .collect()
+    .collect::<Result<_, _>>()?;
+    if r.roof.covering == RoofCovering::Thatch {
+        let roof = materials
+            .iter()
+            .find(|map| map.slot == MaterialSlot::Roof)
+            .expect("roof material is always generated");
+        let ends = thatch_ends::generate(roof, r.seed);
+        materials.extend(ends);
+    }
+    Ok(materials)
 }
 fn material(
     r: &BuildingRecipe,
@@ -41,8 +61,22 @@ fn material(
     colour: [f32; 3],
     path: Option<&str>,
 ) -> Result<MaterialTexture, BuildingError> {
-    // Preview recipes request 128; final bakes retain more source detail under a fixed budget.
-    let size = r.atlas_size.min(512);
+    // Fine straw retains its 1024px source even with a small editing atlas.
+    // The other surfaces retain their existing preview/final source budget.
+    let size = match (slot, r.roof.covering) {
+        (MaterialSlot::Roof, RoofCovering::Thatch) => 1024,
+        (MaterialSlot::Roof, RoofCovering::Slate) => r.atlas_size.clamp(256, 512),
+        _ => r.atlas_size.min(512),
+    };
+    let mut parameters = RecipeParameterValues::new();
+    let colour_parameter = match slot {
+        MaterialSlot::Chimney => Some("stone_colour"),
+        MaterialSlot::Roof if r.roof.covering != RoofCovering::StandingSeam => Some("roof_colour"),
+        _ => None,
+    };
+    if let Some(parameter) = colour_parameter.filter(|_| path.is_none()) {
+        parameters.insert_colour(parameter, LinearRgb::from(colour));
+    }
     let (mut recipe, source_hash) = if let Some(path) = path {
         let bytes =
             std::fs::read(base.join(path)).map_err(|e| BuildingError::new(path, e.to_string()))?;
@@ -50,15 +84,20 @@ fn material(
             serde_json::from_slice(&bytes).map_err(|e| BuildingError::new(path, e.to_string()))?;
         (recipe, hash_bytes(&bytes))
     } else {
-        let recipe = builtin(r.seed, colour, slot);
-        let bytes = serde_json::to_vec(&recipe)
-            .map_err(|e| BuildingError::new("material", e.to_string()))?;
+        let recipe = default_material(r, slot, colour)?;
+        let bytes = if parameters.is_empty() {
+            serde_json::to_vec(&recipe)
+        } else {
+            serde_json::to_vec(&(&recipe, &parameters))
+        }
+        .map_err(|e| BuildingError::new("material", e.to_string()))?;
         (recipe, hash_bytes(&bytes))
     };
     recipe.width = size;
     recipe.height = size;
-    let textures = generate_texture_set(&recipe, NormalConvention::OpenGl)
-        .map_err(|e| BuildingError::new(format!("{slot:?}"), e.to_string()))?;
+    let textures =
+        generate_texture_set_with_parameters(&recipe, &parameters, NormalConvention::OpenGl)
+            .map_err(|e| BuildingError::new(format!("{slot:?}"), e.to_string()))?;
     let albedo = textures
         .albedo
         .pixels()
@@ -78,7 +117,12 @@ fn material(
         .flat_map(|ao| {
             [
                 *ao,
-                if slot == MaterialSlot::Roof { 180 } else { 220 },
+                match (slot, r.roof.covering) {
+                    (MaterialSlot::Roof, RoofCovering::StandingSeam) => 180,
+                    (MaterialSlot::Roof, RoofCovering::Slate) => 224,
+                    (MaterialSlot::Roof, RoofCovering::Thatch) => 242,
+                    _ => 220,
+                },
                 0,
                 255,
             ]
@@ -94,6 +138,32 @@ fn material(
         source_hash,
     })
 }
+fn default_material(
+    recipe: &BuildingRecipe,
+    slot: MaterialSlot,
+    colour: [f32; 3],
+) -> Result<TextureRecipe, BuildingError> {
+    let bytes: &[u8] = match slot {
+        MaterialSlot::Chimney => {
+            include_bytes!("../../island-rs/texture-recipes/coursed-stone.json")
+        }
+        MaterialSlot::Roof => match recipe.roof.covering {
+            RoofCovering::Slate => {
+                include_bytes!("../../island-rs/texture-recipes/slate-roof.json")
+            }
+            RoofCovering::Thatch => {
+                include_bytes!("../../island-rs/texture-recipes/thatch-roof.json")
+            }
+            RoofCovering::StandingSeam => return Ok(builtin(recipe.seed, colour, slot)),
+        },
+        _ => return Ok(builtin(recipe.seed, colour, slot)),
+    };
+    let mut material: TextureRecipe = serde_json::from_slice(bytes)
+        .map_err(|error| BuildingError::new("default material", error.to_string()))?;
+    material.seed ^= recipe.seed;
+    Ok(material)
+}
+
 fn builtin(seed: u64, colour: [f32; 3], slot: MaterialSlot) -> TextureRecipe {
     TextureRecipe {
         name: format!("building_{slot:?}"),
@@ -148,8 +218,9 @@ pub(crate) fn prototype_hash(
     portable.materials.wall_recipe = None;
     portable.materials.roof_recipe = None;
     portable.materials.door_recipe = None;
+    portable.materials.chimney_recipe = None;
     let mut hash = Sha256::new();
-    hash.update(b"island-building:geometry3:material2:bake2");
+    hash.update(b"island-building:geometry16:material7:bake9");
     hash.update(
         serde_json::to_vec(&portable).map_err(|e| BuildingError::new("hash", e.to_string()))?,
     );
@@ -168,12 +239,19 @@ pub fn colour(recipe: &BuildingRecipe, slot: MaterialSlot) -> [f32; 4] {
     let m = &recipe.materials;
     let c = match slot {
         MaterialSlot::Wall => m.wall,
-        MaterialSlot::Roof => m.roof,
+        MaterialSlot::Roof
+        | MaterialSlot::ThatchEnd
+        | MaterialSlot::ThatchShell1
+        | MaterialSlot::ThatchShell2
+        | MaterialSlot::ThatchShell3
+        | MaterialSlot::ThatchShell4 => m.roof,
         MaterialSlot::Floor => m.floor,
         MaterialSlot::Interior => m.interior,
         MaterialSlot::Trim => m.trim,
         MaterialSlot::Door => m.door,
         MaterialSlot::Hardware => [0.48, 0.44, 0.34],
+        MaterialSlot::Chimney => m.chimney,
+        MaterialSlot::Firebox => [0.018, 0.014, 0.012],
         MaterialSlot::WindowProxy => [m.glass[0] * 0.20, m.glass[1] * 0.23, m.glass[2] * 0.26],
         MaterialSlot::Glass => return m.glass,
         MaterialSlot::Atlas => [1.; 3],
@@ -184,6 +262,141 @@ pub fn colour(recipe: &BuildingRecipe, slot: MaterialSlot) -> [f32; 4] {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{
+        fs,
+        sync::atomic::{AtomicU64, Ordering},
+    };
+
+    static NEXT_DIRECTORY: AtomicU64 = AtomicU64::new(0);
+
+    fn chimney_texture(textures: &[MaterialTexture]) -> &MaterialTexture {
+        textures
+            .iter()
+            .find(|texture| texture.slot == MaterialSlot::Chimney)
+            .expect("chimney texture")
+    }
+
+    #[test]
+    fn legacy_building_json_defaults_new_chimney_fields_without_adding_geometry() {
+        let mut legacy = serde_json::to_value(BuildingRecipe::hut()).unwrap();
+        legacy.as_object_mut().unwrap().remove("chimney");
+        for field in ["chimney", "chimney_recipe"] {
+            legacy["materials"].as_object_mut().unwrap().remove(field);
+        }
+        let mut recipe: BuildingRecipe = serde_json::from_value(legacy).unwrap();
+        recipe.atlas_size = 128;
+        assert!(recipe.chimney.is_none());
+        assert!(recipe.materials.chimney_recipe.is_none());
+        assert_eq!(
+            serde_json::to_value(recipe.materials.chimney).unwrap(),
+            serde_json::to_value(crate::MaterialPalette::default().chimney).unwrap()
+        );
+        let prototype = crate::generate(&recipe).unwrap();
+        assert!(
+            prototype
+                .materials
+                .iter()
+                .all(|texture| texture.slot != MaterialSlot::Chimney)
+        );
+        assert!(
+            prototype
+                .lods
+                .iter()
+                .flat_map(|lod| &lod.parts)
+                .all(|part| !matches!(
+                    part.material,
+                    MaterialSlot::Chimney | MaterialSlot::Firebox
+                ))
+        );
+    }
+
+    #[test]
+    fn default_chimney_colour_changes_albedo_and_identity_but_preserves_surface_relief() {
+        let mut recipe = BuildingRecipe::hut();
+        recipe.atlas_size = 128;
+        assert!(recipe.chimney.is_some());
+        let original = generate(&recipe, Path::new(".")).unwrap();
+        recipe.materials.chimney = [0.12, 0.08, 0.045];
+        let recoloured = generate(&recipe, Path::new(".")).unwrap();
+        let a = chimney_texture(&original);
+        let b = chimney_texture(&recoloured);
+        assert_ne!(a.albedo, b.albedo);
+        assert_ne!(a.source_hash, b.source_hash);
+        assert_eq!(a.normal, b.normal);
+        assert_eq!(a.masks, b.masks);
+        assert!(
+            original
+                .iter()
+                .filter(|texture| texture.slot != MaterialSlot::Chimney)
+                .all(|texture| recoloured.contains(texture))
+        );
+    }
+
+    #[test]
+    fn changed_custom_chimney_material_invalidates_identity_and_the_lod2_atlas() {
+        let directory = std::env::temp_dir().join(format!(
+            "building-chimney-material-{}-{}",
+            std::process::id(),
+            NEXT_DIRECTORY.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir(&directory).unwrap();
+        let path = directory.join("stone.json");
+        let mut texture: TextureRecipe = serde_json::from_slice(include_bytes!(
+            "../../island-rs/texture-recipes/coursed-stone.json"
+        ))
+        .unwrap();
+        fs::write(&path, serde_json::to_vec(&texture).unwrap()).unwrap();
+        let mut recipe = BuildingRecipe::hut();
+        recipe.atlas_size = 128;
+        recipe.materials.chimney_recipe = Some("stone.json".into());
+        let original = crate::generate_with_base(&recipe, &directory).unwrap();
+        let MaterialModel::Masonry(settings) = &mut texture.material else {
+            unreachable!()
+        };
+        settings.cells_x = 6;
+        texture.seed += 17;
+        fs::write(&path, serde_json::to_vec(&texture).unwrap()).unwrap();
+        let changed = crate::generate_with_base(&recipe, &directory).unwrap();
+        assert_ne!(
+            chimney_texture(&original.materials).source_hash,
+            chimney_texture(&changed.materials).source_hash
+        );
+        assert_ne!(original.hash, changed.hash);
+        assert_ne!(original.atlas.albedo, changed.atlas.albedo);
+        assert_eq!(original.lods, changed.lods);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn roof_palette_recolours_each_covering_without_changing_surface_relief() {
+        for covering in [RoofCovering::Slate, RoofCovering::Thatch] {
+            let mut recipe = BuildingRecipe::hut();
+            recipe.atlas_size = 128;
+            recipe.roof.covering = covering;
+            recipe.materials.roof = covering.default_colour();
+            let original = material(
+                &recipe,
+                Path::new("."),
+                MaterialSlot::Roof,
+                recipe.materials.roof,
+                None,
+            )
+            .unwrap();
+            recipe.materials.roof = [0.14, 0.07, 0.025];
+            let recoloured = material(
+                &recipe,
+                Path::new("."),
+                MaterialSlot::Roof,
+                recipe.materials.roof,
+                None,
+            )
+            .unwrap();
+            assert_ne!(original.albedo, recoloured.albedo);
+            assert_ne!(original.source_hash, recoloured.source_hash);
+            assert_eq!(original.normal, recoloured.normal);
+            assert_eq!(original.masks, recoloured.masks);
+        }
+    }
 
     #[test]
     fn door_material_is_optional_for_old_recipes_and_changes_the_baked_exterior() {

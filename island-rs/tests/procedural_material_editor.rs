@@ -16,6 +16,119 @@ const GOLDEN_SIZE: u32 = 128;
 static NEXT_TEST_DIRECTORY: AtomicUsize = AtomicUsize::new(0);
 
 #[test]
+fn roof_recipes_are_deterministic_and_colour_rebinding_preserves_relief() {
+    use motu::procedural_textures::{
+        LinearRgb, PreviewSettings, RecipeParameterValues, generate_preview,
+        generate_texture_set_with_parameters,
+    };
+    for filename in ["slate-roof.json", "thatch-roof.json"] {
+        let mut recipe = load_recipe(filename);
+        recipe.width = 128;
+        recipe.height = 128;
+        let restored: TextureRecipe =
+            serde_json::from_slice(&serde_json::to_vec(&recipe).unwrap()).unwrap();
+        assert_eq!(recipe, restored);
+        let baked = generate_texture_set(&recipe, NormalConvention::OpenGl).unwrap();
+        let repeated = generate_texture_set(&restored, NormalConvention::OpenGl).unwrap();
+        assert_eq!(baked.albedo, repeated.albedo);
+        assert_eq!(baked.height, repeated.height);
+        let preview = generate_preview(
+            &recipe,
+            &PreviewSettings {
+                normal_convention: NormalConvention::OpenGl,
+                selected_layer_id: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(baked.albedo, preview.textures.albedo);
+        assert_eq!(baked.normal, preview.textures.normal);
+        let mut values = RecipeParameterValues::new();
+        values.insert_colour("roof_colour", LinearRgb::new(0.18, 0.08, 0.035));
+        let tinted =
+            generate_texture_set_with_parameters(&recipe, &values, NormalConvention::OpenGl)
+                .unwrap();
+        assert_ne!(baked.albedo, tinted.albedo);
+        assert_eq!(baked.height, tinted.height);
+        assert_eq!(baked.normal, tinted.normal);
+        assert_eq!(baked.occlusion, tinted.occlusion);
+        recipe.seed += 1;
+        let changed = generate_texture_set(&recipe, NormalConvention::OpenGl).unwrap();
+        assert_ne!(baked.albedo, changed.albedo);
+        assert_ne!(baked.height, changed.height);
+    }
+}
+
+#[test]
+fn roof_settings_report_invalid_values_at_their_editor_controls() {
+    use motu::procedural_textures::{MaterialModel, editor_protocol::validate_diagnostics};
+    for filename in ["slate-roof.json", "thatch-roof.json"] {
+        let mut recipe = load_recipe(filename);
+        match &mut recipe.material {
+            MaterialModel::SlateRoof(s) => {
+                s.courses = 0;
+                s.seam_width_m = 4.;
+            }
+            MaterialModel::ThatchRoof(s) => {
+                s.courses = 0;
+                s.strands_per_bundle = 33;
+            }
+            _ => unreachable!(),
+        }
+        let diagnostics = validate_diagnostics(&recipe);
+        assert!(
+            diagnostics
+                .iter()
+                .any(|issue| issue.pointer == "/material/courses")
+        );
+        let pointer = if filename == "slate-roof.json" {
+            "/material/seam_width_m"
+        } else {
+            "/material/strands_per_bundle"
+        };
+        assert!(diagnostics.iter().any(|issue| issue.pointer == pointer));
+    }
+    let schema = motu::procedural_textures::schema_document();
+    for kind in ["slate_roof", "thatch_roof"] {
+        assert_eq!(
+            schema["$defs"][format!("{kind}_material")]["properties"]["kind"]["const"],
+            kind
+        );
+    }
+    for path in [
+        "/material/courses",
+        "/material/slates_per_course",
+        "/material/bundles",
+        "/material/strands_per_bundle",
+    ] {
+        assert!(motu::procedural_textures::property_metadata(path).is_some());
+    }
+}
+
+#[test]
+fn coursed_stone_recipe_roundtrips_and_recolours_without_changing_relief() {
+    use motu::procedural_textures::{
+        LinearRgb, RecipeParameterValues, generate_texture_set_with_parameters,
+    };
+    let mut recipe = load_recipe("coursed-stone.json");
+    recipe.width = 128;
+    recipe.height = 128;
+    validate_recipe(&recipe).unwrap();
+    let reopened: TextureRecipe =
+        serde_json::from_slice(&serde_json::to_vec(&recipe).unwrap()).unwrap();
+    assert_eq!(recipe, reopened);
+    let original = generate_texture_set(&recipe, NormalConvention::OpenGl).unwrap();
+    let mut overrides = RecipeParameterValues::new();
+    overrides.insert_colour("stone_colour", LinearRgb::new(0.14, 0.11, 0.08));
+    let tinted =
+        generate_texture_set_with_parameters(&reopened, &overrides, NormalConvention::OpenGl)
+            .unwrap();
+    assert_ne!(original.albedo, tinted.albedo);
+    assert_eq!(original.height, tinted.height);
+    assert_eq!(original.normal, tinted.normal);
+    assert_eq!(original.occlusion, tinted.occlusion);
+}
+
+#[test]
 fn wooden_planks_roundtrip_deterministically_and_colour_overrides_preserve_relief() {
     use motu::procedural_textures::{
         LinearRgb, PreviewSettings, RecipeParameterValues, generate_preview,
@@ -184,6 +297,9 @@ fn all_committed_recipes_use_the_current_valid_schema() {
         "cracked-stone.json",
         "rounded-river-stones.json",
         "wooden-planks.json",
+        "coursed-stone.json",
+        "slate-roof.json",
+        "thatch-roof.json",
     ] {
         let recipe = load_recipe(recipe_name);
         validate_recipe(&recipe).unwrap_or_else(|error| panic!("{recipe_name}: {error}"));
@@ -327,6 +443,9 @@ fn editor_cli_schema_validation_preview_and_failure_envelopes_are_valid_json() {
         "cracked-stone.json",
         "rounded-river-stones.json",
         "wooden-planks.json",
+        "coursed-stone.json",
+        "slate-roof.json",
+        "thatch-roof.json",
     ] {
         let minimum_maps = if load_recipe(recipe_name).layers.is_empty() {
             6

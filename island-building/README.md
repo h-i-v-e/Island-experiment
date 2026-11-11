@@ -21,28 +21,84 @@ open "island-building/dist/Building Studio.app"
 
 The default package command builds release; `--debug` uses incremental development
 artifacts. `--no-build` reuses an executable you have already verified is current.
-The bundle includes the three building recipes, the wooden plank material recipe,
+The bundle includes the three building recipes, the wooden plank, coursed stone, slate and thatch material recipes,
 and this README in `Contents/Resources`.
 Packaging protects an existing bundle and honours `CARGO_TARGET_DIR`.
 
 The floating inspection controls and left recipe inspector follow Tree Studio's
 dark navy/cyan HUD. Right-drag orbits, the wheel zooms, and the named views frame
-each facade, the entrance or the interior. Walkthrough uses WASD, Shift to move
+each facade, the entrance, the interior or the fireplace. Walkthrough uses WASD, Shift to move
 faster, right-drag to look, E to interact with a nearby door, and Escape to return
-to inspection. Closed doors and structural wall sections block movement; open
-doorways remain clear. The player capsule is 0.28 m radius and 1.8 m high.
+to inspection. **Inspection → Window** frames the first window at an angle for
+checking its casing and sill. Closed doors and structural wall sections block
+movement; open doorways remain clear. The player capsule is 0.28 m radius and
+1.8 m high.
 
-The Structure, Layout, Openings, Roof, Materials and LOD/Bake tabs edit the typed
+The Structure, Layout, Openings, Roof, Chimney, Materials and LOD/Bake tabs edit the typed
 recipe. Layout supports parallel full cross-walls with internal doorways;
 crossing partitions are diagnosed. Material selectors accept the same JSON
 recipes as Material Studio, resolved relative to the building recipe. Full
-material editing remains in Material Studio. Wall, roof, and door materials each
+material editing remains in Material Studio. Wall, roof, door and chimney materials each
 accept an independent recipe. **Materials → Use wooden planks on doors** assigns
 the bundled vertical-board recipe; **Door material → Choose JSON…** accepts any
 shared material recipe. Clearing the reference restores the door palette colour.
 The reusable source recipe is [`wooden-planks.json`](../island-rs/texture-recipes/wooden-planks.json):
 six boards across a 1.2 × 2.4 m tile with editable grain, bevelled seams, colour,
 and optional staggered end joints.
+
+LOD0 windows have full-depth painted casings, recessed sashes and glazing bars
+fitted around the clear glass. Sloped sills project 12 cm outside the wall and
+continue into the room. Casing and sills use the trim colour. LOD1 keeps the
+previous simplified window frame and opaque pane; LOD2 keeps its baked exterior.
+
+The **Chimney** tab enables one wall-attached fireplace and roof-penetrating
+chimney, with editable facade, offset, firebox, hearth and stack dimensions.
+New presets include one; existing recipes without a chimney keep their previous
+shape. LOD0 includes a recessed firebox, soot-darkened lining, stone breast,
+hearth, straight-sided breast to the ceiling and hollow flue.
+A projecting mantel and raised surround share the adjacent interior walls' material
+and colour. The flue narrows inside the breast, out of sight. The hearth blocks
+walking. LOD1 keeps a
+simplified exterior chimney, and LOD2 uses an atlas-textured stack. Roof and
+ceiling openings follow the flue. Fire and smoke are not generated.
+
+The **Roof** tab offers **Metal**, **Slate** and **Thatch** coverings independently
+of the gable or single-slope shape. Selecting a covering restores its default
+material and colour; the Materials tab can override it with a custom JSON recipe.
+Slate uses staggered courses and shallow overlapping lips. Thatch uses straight,
+thick roof runs with horizontal eave caps and a separate solid ridge prism.
+The coat is at least 0.45 m thick. LOD0 applies one Catmull-Clark subdivision and
+smooths the roof runs and ridge cap separately, then fits each piece back to its
+original dimensions. Short supporting edges retain the broad slopes and distinct
+ridge shoulder. Straw tips, cut-end shells and hazel bindings follow the smoothed
+surface. LOD1 retains the original prism profile with simplified surface detail;
+LOD2 bakes the material onto the shell. Both coverings retain the chimney opening.
+Recipes without a covering field keep the original standing-seam metal roof.
+The thatch ridge reaches about 1.1 m down each slope, with a distinct shoulder
+above the main coat; its width follows physical slope length on steep roofs.
+It forms one filled triangular prism across the gable apex, with a flat underside
+and closed ends projecting 12 cm beyond the main roof at both gables. Packed reed
+end grain covers the front faces, shoulder edges and exposed undersides, using
+the assigned roof material's colour.
+At LOD0, exposed straw ends use
+four thin masked shell layers, reaching 20 mm from the cut faces. Nested reed
+masks become finer and sparser toward the tips and inherit the roof's material
+colour. **Inspection → Roof end** and **Roof under** frame this detail for close
+review; **Eaves** shows the ridge and horizontal lower caps from standing height.
+LOD1 and LOD2 retain the solid prisms while omitting the straw shells.
+
+The reusable [`slate-roof.json`](../island-rs/texture-recipes/slate-roof.json) and
+[`thatch-roof.json`](../island-rs/texture-recipes/thatch-roof.json) recipes are also
+editable in Material Studio. Their `roof_colour` parameter recolours pigment
+without changing relief. Texture U follows the slope and V follows the ridge.
+
+The chimney and fireplace share an assignable material. With no JSON reference,
+they use the embedded [`coursed-stone.json`](../island-rs/texture-recipes/coursed-stone.json)
+recipe: staggered stone courses with recessed mortar over a 2 × 2 m tile.
+The chimney palette swatch recolours the stone; a custom material recipe supplies
+its own colours. Choose any shared masonry or brick recipe with **Choose JSON…**;
+**Clear** restores the built-in coursed stone. The soot lining keeps its separate
+dark material. **Inspection → Fireplace** frames the interior opening.
 
 New/Open/Revert protect unsaved changes. Save writes a sibling temporary, fsyncs
 it, checks the source bytes and atomically replaces the recipe. An external edit
@@ -88,6 +144,11 @@ canonical angle, limits and dimensions. Instance door state stays independent
 of the canonical closed-pose atlas. New door IDs default closed; removed IDs are
 ignored when restoring placement state.
 
+Thatch exports include the four masked shell materials and separate opacity
+maps. The manifest's `masked_materials` entries specify a 0.5 alpha cutoff and
+double-sided rendering; OBJ/MTL also references each opacity map. Exported UVs
+include each material's physical tile scale.
+
 Albedo maps are sRGB. Normal maps are linear OpenGL tangent-space +Y. Packed
 linear masks use R=occlusion, G=roughness, B=metallic, A=255. Export OBJ UVs use
 upward V. The manifest lists file hashes and generator/material/bake versions.
@@ -103,7 +164,7 @@ cargo run --manifest-path island-building/Cargo.toml --features studio --bin bui
 ```
 
 Screenshot filenames must not already exist. `--view` also accepts `south`,
-`east`, `west` and `entrance`; `--capture-ui` includes the HUD. Captures wait for
+`east`, `west`, `entrance`, `fireplace`, `roof-end`, `roof-under`, `eaves` and `window`; `--capture-ui` includes the HUD. Captures wait for
 valid geometry and rendering to settle, then exit after the PNG is written.
 Interior/entrance inspection can intentionally pin LOD0 even when a farther LOD
 is requested. Use exterior facade views for forced LOD comparisons.
@@ -117,6 +178,9 @@ placement has one scene root and its own retained doors. Attach an explicit
 movement; collision queries do not depend on active visual LOD.
 
 Focused checks:
+
+VS Code uses a pinned Cargo schema in `.vscode/settings.json` to avoid Even
+Better TOML's false lint-table errors while retaining manifest validation.
 
 ```sh
 cargo test --manifest-path island-building/Cargo.toml --no-default-features --lib

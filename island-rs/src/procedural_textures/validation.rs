@@ -454,6 +454,25 @@ fn validate_root(recipe: &TextureRecipe, errors: &mut RecipeValidationErrors) {
             );
         }
     }
+    if let MaterialModel::SlateRoof(settings) = &recipe.material {
+        let course_width = recipe.physical_tile_width_m
+            / f32::from(u16::try_from(settings.courses.max(1)).unwrap_or(u16::MAX));
+        let slate_width = recipe.physical_tile_height_m
+            / f32::from(u16::try_from(settings.slates_per_course.max(1)).unwrap_or(u16::MAX));
+        let cell = course_width.min(slate_width);
+        validate_maximum(
+            "material.seam_width_m",
+            settings.seam_width_m,
+            cell * 0.3,
+            errors,
+        );
+        validate_maximum(
+            "material.edge_bevel_m",
+            settings.edge_bevel_m,
+            cell * 0.2,
+            errors,
+        );
+    }
     validate_parameters(&recipe.parameters, errors);
 
     if recipe.layers.len() > MAX_LAYERS {
@@ -593,6 +612,63 @@ fn validate_material(
     errors: &mut RecipeValidationErrors,
 ) {
     match material {
+        MaterialModel::SlateRoof(settings) => {
+            validate_nonzero("material.courses", settings.courses, errors);
+            validate_integer_maximum("material.courses", settings.courses, width.min(64), errors);
+            validate_nonzero(
+                "material.slates_per_course",
+                settings.slates_per_course,
+                errors,
+            );
+            validate_integer_maximum(
+                "material.slates_per_course",
+                settings.slates_per_course,
+                height.min(64),
+                errors,
+            );
+            validate_positive("material.seam_width_m", settings.seam_width_m, errors);
+            validate_positive("material.edge_bevel_m", settings.edge_bevel_m, errors);
+            validate_nonnegative(
+                "material.overlap_height_m",
+                settings.overlap_height_m,
+                errors,
+            );
+            validate_nonnegative(
+                "material.surface_relief_m",
+                settings.surface_relief_m,
+                errors,
+            );
+            validate_normalized(
+                "material.colour_variation",
+                settings.colour_variation,
+                errors,
+            );
+        }
+        MaterialModel::ThatchRoof(settings) => {
+            validate_nonzero("material.courses", settings.courses, errors);
+            validate_integer_maximum("material.courses", settings.courses, width.min(64), errors);
+            validate_nonzero("material.bundles", settings.bundles, errors);
+            validate_integer_maximum("material.bundles", settings.bundles, height.min(64), errors);
+            validate_nonzero(
+                "material.strands_per_bundle",
+                settings.strands_per_bundle,
+                errors,
+            );
+            validate_integer_maximum(
+                "material.strands_per_bundle",
+                settings.strands_per_bundle,
+                32,
+                errors,
+            );
+            validate_nonnegative("material.strand_relief_m", settings.strand_relief_m, errors);
+            validate_nonnegative("material.bundle_relief_m", settings.bundle_relief_m, errors);
+            validate_nonnegative("material.course_relief_m", settings.course_relief_m, errors);
+            validate_normalized(
+                "material.colour_variation",
+                settings.colour_variation,
+                errors,
+            );
+        }
         MaterialModel::WoodenPlanks(settings) => {
             validate_nonzero("material.planks", settings.planks, errors);
             validate_integer_maximum("material.planks", settings.planks, width.min(128), errors);

@@ -174,6 +174,17 @@ fn compile_materials(
             2.0 / texture.physical_size[0].max(0.001),
             2.0 / texture.physical_size[1].max(0.001),
         ));
+        if texture.slot == MaterialSlot::ThatchEnd {
+            material.reflectance = 0.1;
+        }
+        if texture.slot.thatch_shell_layer().is_some() {
+            // The standard masked PBR path clips the same strand holes in
+            // colour, depth and shadow passes. Shell geometry supplies depth.
+            material.alpha_mode = AlphaMode::Mask(0.5);
+            material.double_sided = true;
+            material.cull_mode = None;
+            material.reflectance = 0.1;
+        }
         handles.insert(texture.slot, materials.add(material));
     }
     handles.insert(
@@ -218,14 +229,26 @@ fn compile_materials(
         MaterialSlot::Trim,
         MaterialSlot::Door,
         MaterialSlot::WindowProxy,
-    ] {
+    ]
+    .into_iter()
+    .chain(
+        source
+            .recipe
+            .chimney
+            .iter()
+            .flat_map(|_| [MaterialSlot::Chimney, MaterialSlot::Firebox]),
+    ) {
         handles.entry(slot).or_insert_with(|| {
             materials.add(StandardMaterial {
                 base_color: {
                     let colour = crate::materials::colour(&source.recipe, slot);
                     Color::linear_rgb(colour[0], colour[1], colour[2])
                 },
-                perceptual_roughness: 0.85,
+                perceptual_roughness: if slot == MaterialSlot::Firebox {
+                    0.98
+                } else {
+                    0.85
+                },
                 ..default()
             })
         });
@@ -364,6 +387,45 @@ fn mip_chain(mut size: u32, data: &[u8], kind: TextureKind) -> (Vec<u8>, u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn straw_shells_use_masked_pbr_with_cutout_maps() {
+        let mut recipe = crate::BuildingRecipe::hut();
+        recipe.atlas_size = 128;
+        recipe.roof.covering = crate::RoofCovering::Thatch;
+        let source = Arc::new(crate::generate(&recipe).unwrap());
+        let mut meshes = Assets::default();
+        let mut materials = Assets::default();
+        let mut images = Assets::default();
+        let compiled = compile_building(source, &mut meshes, &mut materials, &mut images);
+        let end_index = compiled.source.lods[0]
+            .parts
+            .iter()
+            .position(|part| part.material == MaterialSlot::ThatchEnd)
+            .unwrap();
+        let end_material = materials
+            .get(&compiled.lods[0][end_index].material)
+            .unwrap();
+        assert_eq!(end_material.alpha_mode, AlphaMode::Opaque);
+        assert!(end_material.normal_map_texture.is_some());
+        for slot in MaterialSlot::THATCH_SHELLS {
+            let index = compiled.source.lods[0]
+                .parts
+                .iter()
+                .position(|part| part.material == slot)
+                .expect("four shell draws");
+            let part = &compiled.lods[0][index];
+            assert!(!part.glass);
+            let material = materials.get(&part.material).unwrap();
+            assert_eq!(material.alpha_mode, AlphaMode::Mask(0.5));
+            assert!(material.double_sided && material.cull_mode.is_none());
+            let texture = images
+                .get(material.base_color_texture.as_ref().unwrap())
+                .unwrap();
+            let data = texture.data.as_ref().unwrap();
+            assert!(data.chunks_exact(4).any(|p| p[3] == 0));
+            assert!(data.chunks_exact(4).any(|p| p[3] >= 128));
+        }
+    }
     #[test]
     fn axis_conversion_preserves_winding_and_normal_map_tangents() {
         let mesh = convert_mesh(&BuildingMesh {

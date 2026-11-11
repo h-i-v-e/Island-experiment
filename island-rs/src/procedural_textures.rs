@@ -21,6 +21,7 @@ pub mod parameters;
 pub mod periodic;
 pub mod preview;
 pub mod recipe;
+pub mod roofing;
 pub mod rounded_stones;
 pub mod runtime_materials;
 pub mod tree_bark;
@@ -55,8 +56,8 @@ pub use recipe::{
     AlbedoBlend, AlbedoOutput, AlbedoSettings, CRACKED_STONE_MAX_WARP_AMPLITUDE, ColourMap,
     DisplacementSettings, DomainWarpSettings, GradientStop, HeightBlend, HeightOutput, LayerMask,
     LayerOutputs, MaterialLayer, MaterialModel, OcclusionRecipeSettings, ROUNDED_STONES_MAX_RADIUS,
-    ROUNDED_STONES_MAX_WARP_AMPLITUDE, RemapPoint, ScalarRemap, ScalarSource, SourceKind,
-    TextureRecipe,
+    ROUNDED_STONES_MAX_WARP_AMPLITUDE, RemapPoint, ScalarRemap, ScalarSource, SlateRoofSettings,
+    SourceKind, TextureRecipe, ThatchRoofSettings,
 };
 pub use runtime_materials::{
     IslandMaterialKind, IslandMaterialTextures, MaterialBakeIdentity, MaterialSelection,
@@ -210,6 +211,21 @@ pub fn evaluate_resolved_material(
             field.dimensions(),
             recipe.seed,
         );
+    }
+    match &recipe.material {
+        MaterialModel::SlateRoof(settings) => roofing::tint_slate(
+            &mut albedo_linear,
+            settings,
+            field.dimensions(),
+            recipe.seed,
+        ),
+        MaterialModel::ThatchRoof(settings) => roofing::tint_thatch(
+            &mut albedo_linear,
+            settings,
+            field.dimensions(),
+            recipe.seed,
+        ),
+        _ => {}
     }
     layers.apply_albedo(&recipe.layers, &mut albedo_linear)?;
     albedo::apply_occlusion_linear(&mut albedo_linear, field.dimensions(), config, &occlusion)?;

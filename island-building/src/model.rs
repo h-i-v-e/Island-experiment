@@ -7,14 +7,41 @@ use serde::{Deserialize, Serialize};
 pub enum MaterialSlot {
     Wall,
     Roof,
+    ThatchEnd,
+    ThatchShell1,
+    ThatchShell2,
+    ThatchShell3,
+    ThatchShell4,
     Floor,
     Interior,
     Trim,
     Door,
     Hardware,
+    Chimney,
+    Firebox,
     Glass,
     WindowProxy,
     Atlas,
+}
+impl MaterialSlot {
+    /// Four masked cut-end layers, ordered from straw roots to tips.
+    pub const THATCH_SHELLS: [Self; 4] = [
+        Self::ThatchShell1,
+        Self::ThatchShell2,
+        Self::ThatchShell3,
+        Self::ThatchShell4,
+    ];
+
+    #[must_use]
+    pub const fn thatch_shell_layer(self) -> Option<u8> {
+        match self {
+            Self::ThatchShell1 => Some(0),
+            Self::ThatchShell2 => Some(1),
+            Self::ThatchShell3 => Some(2),
+            Self::ThatchShell4 => Some(3),
+            _ => None,
+        }
+    }
 }
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct BuildingMesh {

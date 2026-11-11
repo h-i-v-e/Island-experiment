@@ -196,6 +196,7 @@ fn metal_knobs_inherit_each_hinge_transform_and_near_lod_visibility() {
     for facade in crate::Facade::ALL {
         for hinge in [crate::HingeSide::Left, crate::HingeSide::Right] {
             let mut recipe = BuildingRecipe::hut();
+            recipe.chimney = None; // Isolate door hardware from fireplace placement constraints.
             recipe.atlas_size = 128;
             recipe.openings.retain(|opening| {
                 opening.kind == crate::OpeningKind::Door || opening.facade != facade
@@ -297,4 +298,34 @@ fn assert_knob_runtime(recipe: &BuildingRecipe) {
     );
     app.world_mut().despawn(root);
     assert!(app.world().get_entity(knob).is_err());
+}
+
+#[test]
+fn fireplace_hearth_blocks_walking_at_every_visual_lod_and_keeps_floor_support() {
+    let compiled = prototype();
+    let recipe = &compiled.source.recipe;
+    let chimney = recipe.chimney.as_ref().unwrap();
+    let hearth = crate::geometry::chimney::hearth_bounds(recipe).unwrap();
+    let hearth_centre: [f32; 3] = std::array::from_fn(|i| (hearth.min[i] + hearth.max[i]) * 0.5);
+    let blocked = native_to_bevy([hearth_centre[0], hearth_centre[1], 0.005]);
+    let clear = native_to_bevy(chimney.facade.point(
+        recipe,
+        chimney.offset,
+        0.005,
+        recipe.wall_thickness + chimney.depth + chimney.hearth_depth + 0.5,
+    ));
+    let root = GlobalTransform::IDENTITY;
+    let mut instance = BuildingInstance::new(compiled, "hearth-collision".into());
+    for level in 0..3 {
+        instance.current_lod = level;
+        assert!(instance.blocks_capsule(&root, blocked, 0.28, 1.8));
+        assert!(!instance.blocks_capsule(&root, clear, 0.28, 1.8));
+        let support = instance
+            .support_point(&root, blocked + Vec3::Y * 0.2, 0.3)
+            .unwrap();
+        assert!(
+            support.y.abs() < 1.0e-6,
+            "the hearth is an obstacle, not a raised walking surface"
+        );
+    }
 }

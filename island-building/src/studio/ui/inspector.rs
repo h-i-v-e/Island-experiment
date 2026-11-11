@@ -2,7 +2,7 @@ use super::super::{PendingAction, StudioState, Tab};
 use super::{ACCENT, DIM, PANEL, choose_export, dialogs, request_action};
 use crate::{
     BuildingRecipe, Facade, HingeSide, OpeningKind, OpeningRecipe, PartitionAxis, PartitionRecipe,
-    RoofKind,
+    RoofCovering, RoofKind,
 };
 use bevy_egui::egui;
 
@@ -26,10 +26,13 @@ pub(super) fn show(viewport: &mut egui::Ui, context: &egui::Context, state: &mut
                 Tab::Layout => layout(ui, &mut draft, state),
                 Tab::Openings => openings(ui, &mut draft, state.serial),
                 Tab::Roof => roof(ui, &mut draft),
+                Tab::Chimney => super::chimney::show(ui, &mut draft, state),
                 Tab::Materials => materials(ui, &mut draft, state),
                 Tab::Bake => bake(ui, &mut draft, state),
             });
-            if context.input(|i| i.pointer.primary_down()) {
+            // Only recipe edits start a gesture. Toolbar presses must leave
+            // history enabled until their release event can activate Undo/Redo.
+            if draft != *state.document.recipe() && context.input(|i| i.pointer.primary_down()) {
                 state.document.begin_gesture();
             }
             state.document.edit(|recipe| *recipe = draft);
@@ -46,6 +49,7 @@ fn tabs(ui: &mut egui::Ui, tab: &mut Tab) {
             (Tab::Layout, "Layout"),
             (Tab::Openings, "Openings"),
             (Tab::Roof, "Roof"),
+            (Tab::Chimney, "Chimney"),
             (Tab::Materials, "Materials"),
             (Tab::Bake, "LOD / Bake"),
         ] {
@@ -290,13 +294,45 @@ fn roof(ui: &mut egui::Ui, draft: &mut BuildingRecipe) {
         ui.selectable_value(&mut draft.roof.kind, RoofKind::Gable, "Gable");
         ui.selectable_value(&mut draft.roof.kind, RoofKind::Shed, "Single slope");
     });
+    ui.separator();
+    ui.label("Roof covering");
+    let previous = draft.roof.covering;
+    ui.horizontal(|ui| {
+        for (covering, label) in [
+            (RoofCovering::StandingSeam, "Metal"),
+            (RoofCovering::Slate, "Slate"),
+            (RoofCovering::Thatch, "Thatch"),
+        ] {
+            ui.selectable_value(&mut draft.roof.covering, covering, label);
+        }
+    });
+    if draft.roof.covering != previous {
+        draft.materials.roof = draft.roof.covering.default_colour();
+        draft.materials.roof_recipe = None;
+    }
+    ui.label(
+        egui::RichText::new("Selecting a covering restores its default surface.")
+            .small()
+            .color(DIM),
+    );
     scalar(ui, "Rise", &mut draft.roof.rise, 0.05, " m");
     scalar(ui, "Eaves", &mut draft.roof.overhang, 0.025, " m");
     scalar(ui, "Thickness", &mut draft.roof.thickness, 0.01, " m");
+    if draft.roof.covering == RoofCovering::Thatch {
+        ui.label(
+            egui::RichText::new("Thatch is at least 0.45 m thick.")
+                .small()
+                .color(DIM),
+        );
+    }
     ui.label(
-        egui::RichText::new("The same roof profile is retained at every LOD.")
-            .small()
-            .color(DIM),
+        egui::RichText::new(if draft.roof.covering == RoofCovering::Thatch {
+            "LOD0 smooths the thatch while retaining its overall dimensions."
+        } else {
+            "The same roof profile is retained at every LOD."
+        })
+        .small()
+        .color(DIM),
     );
 }
 
@@ -309,6 +345,7 @@ fn materials(ui: &mut egui::Ui, draft: &mut BuildingRecipe, state: &mut StudioSt
         ("Interior", &mut draft.materials.interior),
         ("Trim", &mut draft.materials.trim),
         ("Door", &mut draft.materials.door),
+        ("Chimney", &mut draft.materials.chimney),
     ] {
         ui.horizontal(|ui| {
             ui.color_edit_button_rgb(color);
@@ -334,12 +371,30 @@ fn materials(ui: &mut egui::Ui, draft: &mut BuildingRecipe, state: &mut StudioSt
         state,
         dialogs::MaterialTarget::Roof,
     );
+    if draft.materials.roof_recipe.is_none() {
+        ui.label(
+            egui::RichText::new(match draft.roof.covering {
+                RoofCovering::StandingSeam => "Metal roof · palette colour",
+                RoofCovering::Slate => "Slate roof · built-in material",
+                RoofCovering::Thatch => "Thatch roof · built-in material",
+            })
+            .small()
+            .color(DIM),
+        );
+    }
     material_path(
         ui,
         "Door material",
         &mut draft.materials.door_recipe,
         state,
         dialogs::MaterialTarget::Door,
+    );
+    material_path(
+        ui,
+        "Chimney material",
+        &mut draft.materials.chimney_recipe,
+        state,
+        dialogs::MaterialTarget::Chimney,
     );
     if ui
         .add_enabled(
@@ -394,14 +449,14 @@ fn bake(ui: &mut egui::Ui, draft: &mut BuildingRecipe, state: &mut StudioState) 
     ui.label(egui::RichText::new("Preview atlases use 128 px. Export meshes, maps, material dependencies, collision, hinges and a SHA-256 manifest to a new directory.").small().color(DIM));
 }
 
-fn scalar(ui: &mut egui::Ui, label: &str, value: &mut f32, speed: f32, suffix: &str) {
+pub(super) fn scalar(ui: &mut egui::Ui, label: &str, value: &mut f32, speed: f32, suffix: &str) {
     ui.horizontal(|ui| {
         ui.add(egui::DragValue::new(value).speed(speed).suffix(suffix));
         ui.label(label);
     });
 }
 
-fn material_path(
+pub(super) fn material_path(
     ui: &mut egui::Ui,
     label: &str,
     path: &mut Option<String>,
@@ -425,5 +480,7 @@ fn material_path(
     });
     if let Some(path) = path {
         ui.add(egui::TextEdit::singleline(path).desired_width(f32::INFINITY));
+    } else if matches!(target, dialogs::MaterialTarget::Chimney) {
+        ui.colored_label(DIM, "Coursed stone");
     }
 }

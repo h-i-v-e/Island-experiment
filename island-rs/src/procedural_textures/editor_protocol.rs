@@ -82,6 +82,56 @@ pub struct PropertyMetadata {
 /// Every editor property has a label and tooltip in this table.
 pub const EDITABLE_METADATA: &[PropertyMetadata] = &[
     PropertyMetadata {
+        pointer: "/material/courses",
+        label: "Roof courses",
+        tooltip: "Rows down the roof slope along U.",
+    },
+    PropertyMetadata {
+        pointer: "/material/slates_per_course",
+        label: "Slates per course",
+        tooltip: "Slate widths across V, with a stable stagger per course.",
+    },
+    PropertyMetadata {
+        pointer: "/material/edge_bevel_m",
+        label: "Slate edge bevel",
+        tooltip: "Physical width of the dressed slate edge.",
+    },
+    PropertyMetadata {
+        pointer: "/material/overlap_height_m",
+        label: "Slate overlap",
+        tooltip: "Physical lapped slate height.",
+    },
+    PropertyMetadata {
+        pointer: "/material/surface_relief_m",
+        label: "Slate cleavage",
+        tooltip: "Small physical slate surface relief.",
+    },
+    PropertyMetadata {
+        pointer: "/material/bundles",
+        label: "Thatch bundles",
+        tooltip: "Bundles across V, perpendicular to the roof slope.",
+    },
+    PropertyMetadata {
+        pointer: "/material/strands_per_bundle",
+        label: "Straw strands",
+        tooltip: "Longitudinal fibres per bundle, running along U.",
+    },
+    PropertyMetadata {
+        pointer: "/material/strand_relief_m",
+        label: "Straw relief",
+        tooltip: "Physical relief of individual straw fibres.",
+    },
+    PropertyMetadata {
+        pointer: "/material/bundle_relief_m",
+        label: "Packing relief",
+        tooltip: "Subtle continuous variation in the depth of packed reeds.",
+    },
+    PropertyMetadata {
+        pointer: "/material/course_relief_m",
+        label: "Cut-tip relief",
+        tooltip: "Shallow cut ends staggered independently along each straw fibre.",
+    },
+    PropertyMetadata {
         pointer: "/name",
         label: "Name",
         tooltip: "Safe generated texture name",
@@ -1056,11 +1106,15 @@ pub fn schema_document() -> Value {
                     {"$ref": "#/$defs/cracked_stone_material"},
                     {"$ref": "#/$defs/rounded_stones_material"},
                     {"$ref": "#/$defs/masonry_material"},
-                    {"$ref": "#/$defs/wooden_planks_material"}
+                    {"$ref": "#/$defs/wooden_planks_material"},
+                    {"$ref": "#/$defs/slate_roof_material"},
+                    {"$ref": "#/$defs/thatch_roof_material"}
                 ]
             },
             "layered_noise_material": {"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {"kind": {"const": "layered_noise"}, "frequency": {"type": "number", "exclusiveMinimum": 0}, "amplitude": {"type": "number"}, "octaves": {"type": "integer", "minimum": 1, "maximum": 16}, "lacunarity": {"type": "number", "exclusiveMinimum": 0}, "gain": {"type": "number"}, "offset": {"type": "number"}}},
             "cracked_stone_material": {"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {"kind": {"const": "cracked_stone"}, "cells_x": {"type": "integer", "minimum": 1}, "cells_y": {"type": "integer", "minimum": 1}, "cell_jitter": {"type": "number", "minimum": 0, "maximum": 1}, "warp_amplitude": {"type": "number", "minimum": 0, "maximum": 0.45}, "crack_width": {"type": "number", "exclusiveMinimum": 0}, "shoulder_width": {"type": "number", "minimum": 0}, "crack_depth": {"type": "number", "minimum": 0}, "slab_variation": {"type": "number", "minimum": 0}, "fracture_probability": {"type": "number", "minimum": 0, "maximum": 1}, "fracture_depth": {"type": "number", "minimum": 0}, "surface_amplitude": {"type": "number", "minimum": 0}, "broad_variation": {"type": "number", "minimum": 0}}},
+            "slate_roof_material": {"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {"kind": {"const": "slate_roof"}, "courses": {"type": "integer", "minimum": 1, "maximum": 64}, "slates_per_course": {"type": "integer", "minimum": 1, "maximum": 64}, "seam_width_m": {"type": "number", "exclusiveMinimum": 0}, "edge_bevel_m": {"type": "number", "exclusiveMinimum": 0}, "overlap_height_m": {"type": "number", "minimum": 0}, "surface_relief_m": {"type": "number", "minimum": 0}, "colour_variation": {"type": "number", "minimum": 0, "maximum": 1}}},
+            "thatch_roof_material": {"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {"kind": {"const": "thatch_roof"}, "courses": {"type": "integer", "minimum": 1, "maximum": 64}, "bundles": {"type": "integer", "minimum": 1, "maximum": 64}, "strands_per_bundle": {"type": "integer", "minimum": 1, "maximum": 32}, "strand_relief_m": {"type": "number", "minimum": 0}, "bundle_relief_m": {"type": "number", "minimum": 0}, "course_relief_m": {"type": "number", "minimum": 0}, "colour_variation": {"type": "number", "minimum": 0, "maximum": 1}}},
             "wooden_planks_material": {"type":"object","additionalProperties":false,"required":["kind"],"properties":{"kind":{"const":"wooden_planks"},"planks":{"type":"integer","minimum":1,"maximum":128},"joints_per_plank":{"type":"integer","minimum":0,"maximum":64},"grain_scale":{"type":"integer","minimum":1,"maximum":64},"seam_width_m":{"type":"number","exclusiveMinimum":0},"bevel_width_m":{"type":"number","exclusiveMinimum":0},"seam_depth_m":{"type":"number","minimum":0},"grain_strength_m":{"type":"number","minimum":0},"plank_variation_m":{"type":"number","minimum":0},"colour_variation":{"type":"number","minimum":0,"maximum":1}}},
             "masonry_material": {"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {"kind": {"const": "masonry"}, "cells_x": {"type": "integer", "minimum": 1}, "cells_y": {"type": "integer", "minimum": 2, "multipleOf": 2}, "joint_jitter": {"type": "number", "minimum": 0, "maximum": 0.2}, "mortar_width": {"type": "number", "exclusiveMinimum": 0}, "bevel_width": {"type": "number", "exclusiveMinimum": 0}, "mortar_depth": {"type": "number", "minimum": 0}, "edge_roughness": {"type": "number", "minimum": 0}, "colour_variation": {"type": "number", "minimum": 0, "maximum": 1}, "stone_variation": {"type": "number", "minimum": 0}, "surface_amplitude": {"type": "number", "minimum": 0}}},
             "rounded_stones_material": {"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {"kind": {"const": "rounded_stones"}, "cells_x": {"type": "integer", "minimum": 1}, "cells_y": {"type": "integer", "minimum": 1}, "stone_radius": {"type": "number", "exclusiveMinimum": 0, "maximum": 1}, "cell_jitter": {"type": "number", "minimum": 0, "maximum": 1}, "warp_amplitude": {"type": "number", "minimum": 0, "maximum": 0.4}, "anisotropy": {"type": "number", "exclusiveMinimum": 0}, "stone_height": {"type": "number", "minimum": 0}, "stone_variation": {"type": "number", "minimum": 0}, "gap_height": {"type": "number"}, "sand_amplitude": {"type": "number", "minimum": 0}, "edge_softness": {"type": "number", "exclusiveMinimum": 0}}},
@@ -1109,6 +1163,16 @@ fn metadata_value(item: &PropertyMetadata) -> Value {
         "/material/cells_x" | "/material/cells_y" => {
             (json!(8), Some([1.0, u32::MAX as f64]), Some("cells"))
         }
+        "/material/courses" => (json!(8), Some([1.0, 64.0]), Some("courses")),
+        "/material/slates_per_course" => (json!(7), Some([1.0, 64.0]), Some("slates")),
+        "/material/edge_bevel_m" => (json!(0.004), Some([0.0, 0.1]), Some("m")),
+        "/material/overlap_height_m" => (json!(0.009), Some([0.0, 0.1]), Some("m")),
+        "/material/surface_relief_m" => (json!(0.0009), Some([0.0, 0.01]), Some("m")),
+        "/material/bundles" => (json!(8), Some([1.0, 64.0]), Some("bundles")),
+        "/material/strands_per_bundle" => (json!(12), Some([1.0, 32.0]), Some("strands/bundle")),
+        "/material/strand_relief_m" => (json!(0.0015), Some([0.0, 0.01]), Some("m")),
+        "/material/bundle_relief_m" => (json!(0.008), Some([0.0, 0.1]), Some("m")),
+        "/material/course_relief_m" => (json!(0.006), Some([0.0, 0.1]), Some("m")),
         "/material/planks" => (json!(6), Some([1.0, 128.0]), Some("boards")),
         "/material/joints_per_plank" => (json!(0), Some([0.0, 64.0]), Some("joints")),
         "/material/grain_scale" => (json!(8), Some([1.0, 64.0]), Some("rings/board")),
@@ -1373,7 +1437,13 @@ fn metadata_type(pointer: &str) -> &'static str {
         | "/parameters/*/default" => "array",
         "/displacement/displacement_map" => "boolean",
         "/occlusion/directions" | "/occlusion/samples" => "integer",
-        "/material/planks" | "/material/joints_per_plank" | "/material/grain_scale" => "integer",
+        "/material/planks"
+        | "/material/joints_per_plank"
+        | "/material/grain_scale"
+        | "/material/courses"
+        | "/material/slates_per_course"
+        | "/material/bundles"
+        | "/material/strands_per_bundle" => "integer",
         _ => "number",
     }
 }
@@ -1386,7 +1456,9 @@ fn metadata_enum(pointer: &str) -> Option<Value> {
             "cracked_stone",
             "rounded_stones",
             "masonry",
-            "wooden_planks"
+            "wooden_planks",
+            "slate_roof",
+            "thatch_roof"
         ])),
         "/output_profiles" => Some(json!(["separate", "motu_unity_terrain"])),
         "/layers/*/source/kind" | "/layers/*/mask/source/kind" => Some(json!([

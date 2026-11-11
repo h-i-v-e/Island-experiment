@@ -1,5 +1,8 @@
 {
   "dotnet.defaultSolution": "island-unity/island-unity.slnx",
+  "evenBetterToml.schema.associations": {
+    "(^|/)Cargo\\.toml$": "https://raw.githubusercontent.com/SchemaStore/schemastore/73fd8db58e81db8e31be43cb70dbff3ea140890d/src/schemas/json/cargo.json"
+  },
   "files.exclude": {
     "**/*.meta": true
   }

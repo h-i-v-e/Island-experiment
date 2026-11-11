@@ -17,6 +17,9 @@ pub struct BuildingRecipe {
     pub roof: RoofRecipe,
     pub openings: Vec<OpeningRecipe>,
     pub partitions: Vec<PartitionRecipe>,
+    /// One wall-attached, unlit fireplace and its roof-penetrating chimney.
+    #[serde(default)]
+    pub chimney: Option<ChimneyRecipe>,
     pub materials: MaterialPalette,
     pub atlas_size: u32,
 }
@@ -114,13 +117,53 @@ pub enum RoofKind {
     Gable,
     Shed,
 }
+/// Surface covering, independently of the structural roof shape.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RoofCovering {
+    #[default]
+    StandingSeam,
+    Slate,
+    Thatch,
+}
+impl RoofCovering {
+    /// Maximum relief above the main roof shell, in metres.
+    #[must_use]
+    pub const fn detail_height(self) -> f32 {
+        match self {
+            Self::StandingSeam => 0.018,
+            Self::Slate => 0.025,
+            Self::Thatch => 0.22,
+        }
+    }
+    #[must_use]
+    pub const fn default_colour(self) -> [f32; 3] {
+        match self {
+            Self::StandingSeam => [0.23, 0.28, 0.29],
+            Self::Slate => [0.11, 0.13, 0.16],
+            Self::Thatch => [0.27, 0.205, 0.12],
+        }
+    }
+}
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct RoofRecipe {
     pub kind: RoofKind,
+    #[serde(default)]
+    pub covering: RoofCovering,
     pub rise: f32,
     pub overhang: f32,
     pub thickness: f32,
+}
+impl RoofRecipe {
+    /// Covering depth grows upwards, preserving the structural underside.
+    #[must_use]
+    pub fn effective_thickness(&self) -> f32 {
+        match self.covering {
+            RoofCovering::Thatch => self.thickness.max(0.45),
+            RoofCovering::StandingSeam | RoofCovering::Slate => self.thickness,
+        }
+    }
 }
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -139,6 +182,44 @@ pub struct PartitionRecipe {
     pub door_width: f32,
     pub door_height: f32,
 }
+/// Dimensions of one wall-attached fireplace and chimney, all in metres.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ChimneyRecipe {
+    pub facade: Facade,
+    pub offset: f32,
+    pub width: f32,
+    pub depth: f32,
+    pub firebox_width: f32,
+    pub firebox_height: f32,
+    pub firebox_depth: f32,
+    /// Hearth projection beyond the front of the fireplace breast.
+    pub hearth_depth: f32,
+    pub hearth_height: f32,
+    pub stack_width: f32,
+    pub stack_depth: f32,
+    /// Clearance above the highest roof point under the complete stack footprint.
+    pub height_above_roof: f32,
+}
+impl Default for ChimneyRecipe {
+    fn default() -> Self {
+        Self {
+            facade: Facade::North,
+            offset: 0.,
+            width: 1.6,
+            depth: 0.6,
+            firebox_width: 1.0,
+            firebox_height: 0.85,
+            firebox_depth: 0.42,
+            hearth_depth: 0.3,
+            hearth_height: 0.12,
+            stack_width: 0.65,
+            stack_depth: 0.5,
+            height_above_roof: 0.8,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct MaterialPalette {
@@ -149,6 +230,8 @@ pub struct MaterialPalette {
     pub trim: [f32; 3],
     pub door: [f32; 3],
     pub glass: [f32; 4],
+    #[serde(default = "default_chimney_colour")]
+    pub chimney: [f32; 3],
     /// Optional material recipe paths, resolved relative to the building source file.
     #[serde(default)]
     pub wall_recipe: Option<String>,
@@ -156,6 +239,8 @@ pub struct MaterialPalette {
     pub roof_recipe: Option<String>,
     #[serde(default)]
     pub door_recipe: Option<String>,
+    #[serde(default)]
+    pub chimney_recipe: Option<String>,
 }
 impl Default for MaterialPalette {
     fn default() -> Self {
@@ -167,12 +252,18 @@ impl Default for MaterialPalette {
             trim: [0.82, 0.76, 0.61],
             door: [0.30, 0.20, 0.12],
             glass: [0.65, 0.82, 0.88, 0.16],
+            chimney: default_chimney_colour(),
             wall_recipe: None,
             roof_recipe: None,
             door_recipe: None,
+            chimney_recipe: None,
         }
     }
 }
+const fn default_chimney_colour() -> [f32; 3] {
+    [0.255, 0.25, 0.23]
+}
+
 impl Default for BuildingRecipe {
     fn default() -> Self {
         Self::hut()
@@ -191,6 +282,7 @@ impl BuildingRecipe {
             wall_thickness: 0.2,
             floor_thickness: 0.16,
             roof: RoofRecipe {
+                covering: RoofCovering::StandingSeam,
                 kind: RoofKind::Gable,
                 rise: 1.4,
                 overhang: 0.35,
@@ -232,6 +324,7 @@ impl BuildingRecipe {
                 },
             ],
             partitions: Vec::new(),
+            chimney: Some(ChimneyRecipe::default()),
             materials: MaterialPalette::default(),
             atlas_size: 512,
         }
@@ -243,6 +336,7 @@ impl BuildingRecipe {
         r.width = 9.;
         r.depth = 7.;
         r.roof.rise = 2.;
+        r.chimney.as_mut().expect("hut chimney").offset = -2.5;
         r.openings[1].offset = -1.5;
         r.openings[2].offset = 1.5;
         r.partitions.push(PartitionRecipe {

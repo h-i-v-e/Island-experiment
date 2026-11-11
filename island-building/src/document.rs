@@ -209,6 +209,7 @@ impl StudioDocument {
                 &mut relocated.materials.wall_recipe,
                 &mut relocated.materials.roof_recipe,
                 &mut relocated.materials.door_recipe,
+                &mut relocated.materials.chimney_recipe,
             ]
             .into_iter()
             .flatten()
@@ -256,6 +257,7 @@ fn validate_dependencies(recipe: &BuildingRecipe, base: &Path) -> Result<(), Doc
         &recipe.materials.wall_recipe,
         &recipe.materials.roof_recipe,
         &recipe.materials.door_recipe,
+        &recipe.materials.chimney_recipe,
     ]
     .into_iter()
     .flatten()
@@ -417,6 +419,53 @@ mod tests {
             fs::canonicalize(reference).unwrap(),
             fs::canonicalize(source.join("wood.json")).unwrap()
         );
+        fs::remove_dir_all(source).unwrap();
+        fs::remove_dir_all(destination).unwrap();
+    }
+
+    #[test]
+    fn save_as_and_reopen_preserve_a_relative_chimney_material_and_build_identity() {
+        let source = path("chimney-source").with_extension("");
+        let destination = path("chimney-moved").with_extension("");
+        fs::create_dir(&source).unwrap();
+        fs::create_dir(&destination).unwrap();
+        fs::write(
+            source.join("stone.json"),
+            include_bytes!("../../island-rs/texture-recipes/coursed-stone.json"),
+        )
+        .unwrap();
+        let mut recipe = BuildingRecipe::hut();
+        recipe.atlas_size = 128;
+        recipe.materials.chimney_recipe = Some("stone.json".into());
+        fs::write(
+            source.join("building.json"),
+            serde_json::to_vec(&recipe).unwrap(),
+        )
+        .unwrap();
+        let mut document = StudioDocument::open(&source.join("building.json")).unwrap();
+        let original =
+            crate::generate_with_base(document.recipe(), document.base_directory().unwrap())
+                .unwrap();
+        document
+            .save_as(&destination.join("building.json"))
+            .unwrap();
+        let reopened = StudioDocument::open(&destination.join("building.json")).unwrap();
+        assert!(!reopened.is_dirty());
+        let reference = reopened
+            .recipe()
+            .materials
+            .chimney_recipe
+            .as_deref()
+            .unwrap();
+        assert_eq!(
+            fs::canonicalize(reference).unwrap(),
+            fs::canonicalize(source.join("stone.json")).unwrap()
+        );
+        let regenerated =
+            crate::generate_with_base(reopened.recipe(), reopened.base_directory().unwrap())
+                .unwrap();
+        assert_eq!(regenerated.hash, original.hash);
+        assert_eq!(regenerated.atlas, original.atlas);
         fs::remove_dir_all(source).unwrap();
         fs::remove_dir_all(destination).unwrap();
     }

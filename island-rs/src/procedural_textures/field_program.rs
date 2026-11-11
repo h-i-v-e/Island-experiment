@@ -175,6 +175,8 @@ pub enum FieldProgram {
     /// Staggered courses of dressed stone with recessed mortar.
     Masonry(recipe::MasonrySettings),
     WoodenPlanks(recipe::WoodenPlanksSettings),
+    SlateRoof(recipe::SlateRoofSettings),
+    ThatchRoof(recipe::ThatchRoofSettings),
     /// A small, general-purpose fBM field for material experiments.
     Layered(LayeredField),
     /// Connected, bevelled cellular slabs with branching fractures.
@@ -191,6 +193,12 @@ impl FieldProgram {
         seed: u64,
     ) -> Result<HeightField, FieldError> {
         let values = match self {
+            Self::SlateRoof(settings) => {
+                super::roofing::generate_slate_height(settings, dimensions, seed)
+            }
+            Self::ThatchRoof(settings) => {
+                super::roofing::generate_thatch_height(settings, dimensions, seed)
+            }
             Self::WoodenPlanks(settings) => {
                 super::wooden_planks::generate_height_values(settings, dimensions, seed)
             }
@@ -230,6 +238,8 @@ impl FieldProgram {
             recipe.physical_tile_height_m,
         )?;
         let program = match &recipe.material {
+            recipe::MaterialModel::SlateRoof(settings) => Self::SlateRoof(*settings),
+            recipe::MaterialModel::ThatchRoof(settings) => Self::ThatchRoof(*settings),
             recipe::MaterialModel::WoodenPlanks(settings) => Self::WoodenPlanks(*settings),
             recipe::MaterialModel::Masonry(settings) => Self::Masonry(*settings),
             recipe::MaterialModel::LayeredNoise {

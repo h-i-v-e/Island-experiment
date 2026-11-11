@@ -40,6 +40,13 @@ pub struct ExportFile {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct MaskedMaterial {
+    pub name: String,
+    pub alpha_cutoff: f32,
+    pub double_sided: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ExportManifest {
     pub package_version: u32,
     pub geometry_version: u32,
@@ -50,6 +57,8 @@ pub struct ExportManifest {
     pub normal_convention: String,
     pub mask_channels: String,
     pub door_policy: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub masked_materials: Vec<MaskedMaterial>,
     pub lod_triangles: [usize; 3],
     pub files: Vec<ExportFile>,
 }
@@ -136,12 +145,22 @@ fn write_package(
     write_json(root, "collision.json", &prototype.colliders, &mut files)?;
     write_json(root, "layout.json", &prototype.layout, &mut files)?;
     write_assets(prototype, root, &mut files)?;
+    let masked_materials = prototype
+        .materials
+        .iter()
+        .filter(|texture| texture.slot.thatch_shell_layer().is_some())
+        .map(|texture| MaskedMaterial {
+            name: material_name(texture.slot).into(),
+            alpha_cutoff: 0.5,
+            double_sided: true,
+        })
+        .collect();
     let manifest=ExportManifest {
-        package_version:1,geometry_version:3,material_version:2,bake_version:2,
+        package_version:1,geometry_version:16,material_version:7,bake_version:9,
         prototype_hash:prototype.hash.clone(),coordinate_system:"right-handed, native Z-up, metres; OBJ UV V points up".into(),
         normal_convention:"OpenGL tangent-space +Y; linear normal maps".into(),mask_channels:"RGBA = occlusion, roughness, metallic, 1; linear".into(),
         door_policy:"LOD2 appearance uses closed leaves; preserve instance angles independently. door-N.obj and door-N-hardware.obj share hinge-local coordinates and map to doors.json[N]. New doors default closed; removed IDs are ignored.".into(),
-        lod_triangles:std::array::from_fn(|index|prototype.lods[index].triangle_count()),files,
+        masked_materials,lod_triangles:std::array::from_fn(|index|prototype.lods[index].triangle_count()),files,
     };
     let bytes = serde_json::to_vec_pretty(&manifest)?;
     fs::write(root.join("manifest.json"), bytes)?;
@@ -172,6 +191,11 @@ fn snapshot_dependencies(
             "door",
             MaterialSlot::Door,
             &mut recipe.materials.door_recipe,
+        ),
+        (
+            "chimney",
+            MaterialSlot::Chimney,
+            &mut recipe.materials.chimney_recipe,
         ),
     ] {
         if let Some(source) = reference.as_deref() {
@@ -236,6 +260,20 @@ fn write_assets(
                 files,
             )?;
         }
+        if texture.slot.thatch_shell_layer().is_some() {
+            let opacity: Vec<_> = texture
+                .albedo
+                .chunks_exact(4)
+                .flat_map(|pixel| [pixel[3], pixel[3], pixel[3], 255])
+                .collect();
+            write_map(
+                root,
+                &format!("maps/{name}-opacity.png"),
+                texture.size,
+                &opacity,
+                files,
+            )?;
+        }
     }
     write_meshes(prototype, root, files)
 }
@@ -261,7 +299,12 @@ fn write_meshes(
                 material_name(part.material)
             )
             .unwrap();
-            append_mesh(&mut obj, &part.mesh, &mut vertex_base);
+            append_mesh(
+                &mut obj,
+                &part.mesh,
+                &mut vertex_base,
+                uv_scale(prototype, part.material),
+            );
         }
         write_bytes(root, &format!("lod{index}.obj"), obj.as_bytes(), files)?;
     }
@@ -269,12 +312,17 @@ fn write_meshes(
         let mut obj = String::from(
             "# Door leaf in hinge-local coordinates; use doors.json for hinge and angles\nmtllib building.mtl\nusemtl door\n",
         );
-        append_mesh(&mut obj, &door.mesh, &mut 1);
+        append_mesh(
+            &mut obj,
+            &door.mesh,
+            &mut 1,
+            uv_scale(prototype, MaterialSlot::Door),
+        );
         write_bytes(root, &format!("door-{index}.obj"), obj.as_bytes(), files)?;
         let mut hardware = String::from(
             "# Door hardware shares the leaf hinge-local coordinates and animation\nmtllib building.mtl\nusemtl hardware\n",
         );
-        append_mesh(&mut hardware, &door.hardware_mesh, &mut 1);
+        append_mesh(&mut hardware, &door.hardware_mesh, &mut 1, [1.; 2]);
         write_bytes(
             root,
             &format!("door-{index}-hardware.obj"),
@@ -285,12 +333,22 @@ fn write_meshes(
     Ok(())
 }
 
-fn append_mesh(output: &mut String, mesh: &BuildingMesh, base: &mut usize) {
+fn uv_scale(prototype: &BuildingPrototype, slot: MaterialSlot) -> [f32; 2] {
+    prototype
+        .materials
+        .iter()
+        .find(|texture| texture.slot == slot)
+        .map_or([1.; 2], |texture| {
+            texture.physical_size.map(|size| 2. / size.max(0.001))
+        })
+}
+
+fn append_mesh(output: &mut String, mesh: &BuildingMesh, base: &mut usize, scale: [f32; 2]) {
     for [x, y, z] in &mesh.positions {
         writeln!(output, "v {x} {y} {z}").unwrap();
     }
     for [u, v] in &mesh.uvs {
-        writeln!(output, "vt {u} {}", 1. - v).unwrap();
+        writeln!(output, "vt {} {}", u * scale[0], 1. - v * scale[1]).unwrap();
     }
     for [x, y, z] in &mesh.normals {
         writeln!(output, "vn {x} {y} {z}").unwrap();
@@ -310,11 +368,18 @@ fn material_name(slot: MaterialSlot) -> &'static str {
     match slot {
         MaterialSlot::Wall => "wall",
         MaterialSlot::Roof => "roof",
+        MaterialSlot::ThatchEnd => "thatch_end",
+        MaterialSlot::ThatchShell1 => "thatch_shell_1",
+        MaterialSlot::ThatchShell2 => "thatch_shell_2",
+        MaterialSlot::ThatchShell3 => "thatch_shell_3",
+        MaterialSlot::ThatchShell4 => "thatch_shell_4",
         MaterialSlot::Floor => "floor",
         MaterialSlot::Interior => "interior",
         MaterialSlot::Trim => "trim",
         MaterialSlot::Door => "door",
         MaterialSlot::Hardware => "hardware",
+        MaterialSlot::Chimney => "chimney",
+        MaterialSlot::Firebox => "firebox",
         MaterialSlot::Glass => "glass",
         MaterialSlot::WindowProxy => "window_proxy",
         MaterialSlot::Atlas => "atlas",
@@ -334,10 +399,24 @@ fn material_library(prototype: &BuildingPrototype) -> String {
         (MaterialSlot::Trim, p.trim),
         (MaterialSlot::Door, p.door),
         (MaterialSlot::Hardware, [0.48, 0.44, 0.34]),
+        (MaterialSlot::Chimney, p.chimney),
+        (MaterialSlot::Firebox, [0.018, 0.014, 0.012]),
         (MaterialSlot::Glass, [p.glass[0], p.glass[1], p.glass[2]]),
         (MaterialSlot::WindowProxy, [0.16, 0.23, 0.25]),
         (MaterialSlot::Atlas, [1.; 3]),
-    ] {
+    ]
+    .into_iter()
+    .chain(
+        std::iter::once(MaterialSlot::ThatchEnd)
+            .chain(MaterialSlot::THATCH_SHELLS)
+            .filter(|slot| {
+                prototype
+                    .materials
+                    .iter()
+                    .any(|texture| texture.slot == *slot)
+            })
+            .map(|slot| (slot, [1.; 3])),
+    ) {
         let name = material_name(slot);
         let textured = slot == MaterialSlot::Atlas
             || prototype
@@ -363,6 +442,13 @@ fn material_library(prototype: &BuildingPrototype) -> String {
             writeln!(
                 text,
                 "map_Kd maps/{name}-albedo.png\nmap_Bump maps/{name}-normal.png"
+            )
+            .unwrap();
+        }
+        if slot.thatch_shell_layer().is_some() {
+            writeln!(
+                text,
+                "map_d maps/{name}-opacity.png\n# alpha_cutoff 0.5; double_sided true"
             )
             .unwrap();
         }
@@ -442,6 +528,58 @@ mod tests {
     }
 
     #[test]
+    fn thatch_package_preserves_masked_shells_physical_uvs_and_regeneration() {
+        let target = directory("thatch-shells");
+        let mut recipe = crate::BuildingRecipe::hut();
+        recipe.atlas_size = 128;
+        recipe.roof.covering = crate::RoofCovering::Thatch;
+        let prototype = crate::generate(&recipe).unwrap();
+        let manifest = export_package(&prototype, &target, Path::new(".")).unwrap();
+        assert_eq!(manifest.masked_materials.len(), 4);
+        let mtl = fs::read_to_string(target.join("building.mtl")).unwrap();
+        assert!(mtl.contains("newmtl thatch_end\n"));
+        assert!(mtl.contains("map_Kd maps/thatch_end-albedo.png"));
+        assert!(
+            manifest
+                .files
+                .iter()
+                .any(|file| file.path == "maps/thatch_end-normal.png")
+        );
+        for feature in &manifest.masked_materials {
+            assert!(feature.double_sided);
+            assert!((feature.alpha_cutoff - 0.5).abs() < f32::EPSILON);
+            let opacity = format!("maps/{}-opacity.png", feature.name);
+            assert!(mtl.contains(&format!("map_d {opacity}")));
+            assert!(manifest.files.iter().any(|file| file.path == opacity));
+        }
+        let obj = fs::read_to_string(target.join("lod0.obj")).unwrap();
+        let after_material = obj.split("usemtl thatch_shell_1\n").nth(1).unwrap();
+        let uv: Vec<f32> = after_material
+            .lines()
+            .find(|line| line.starts_with("vt "))
+            .unwrap()
+            .split_whitespace()
+            .skip(1)
+            .map(|value| value.parse().unwrap())
+            .collect();
+        let source = prototype.lods[0]
+            .parts
+            .iter()
+            .find(|part| part.material == MaterialSlot::ThatchShell1)
+            .unwrap()
+            .mesh
+            .uvs[0];
+        assert!((uv[0] - source[0] * 12.5).abs() < 0.00001);
+        assert!((uv[1] - (1. - source[1] * 12.5)).abs() < 0.00001);
+        let loaded: BuildingRecipe =
+            serde_json::from_slice(&fs::read(target.join("recipe.json")).unwrap()).unwrap();
+        let regenerated = crate::generate_with_base(&loaded, &target).unwrap();
+        assert_eq!(prototype.hash, regenerated.hash);
+        assert_eq!(prototype.materials, regenerated.materials);
+        fs::remove_dir_all(target).unwrap();
+    }
+
+    #[test]
     fn package_is_portable_hashed_and_preserves_doors() {
         let target = directory("complete");
         let source = directory("source");
@@ -454,12 +592,25 @@ mod tests {
         let mut recipe = crate::BuildingRecipe::hut();
         recipe.atlas_size = 128;
         recipe.materials.wall_recipe = Some("wall.json".into());
+        recipe.roof.covering = crate::RoofCovering::Slate;
+        fs::write(
+            source.join("roof.json"),
+            include_bytes!("../../island-rs/texture-recipes/slate-roof.json"),
+        )
+        .unwrap();
+        recipe.materials.roof_recipe = Some("roof.json".into());
         fs::write(
             source.join("door.json"),
             include_bytes!("../../island-rs/texture-recipes/wooden-planks.json"),
         )
         .unwrap();
         recipe.materials.door_recipe = Some("door.json".into());
+        fs::write(
+            source.join("chimney.json"),
+            include_bytes!("../../island-rs/texture-recipes/coursed-stone.json"),
+        )
+        .unwrap();
+        recipe.materials.chimney_recipe = Some("chimney.json".into());
         let prototype = crate::generate_with_base(&recipe, &source).unwrap();
         let manifest = export_package(&prototype, &target, &source).unwrap();
         fs::remove_dir_all(&source).unwrap();
@@ -469,19 +620,49 @@ mod tests {
         }
         let loaded: crate::BuildingRecipe =
             serde_json::from_slice(&fs::read(target.join("recipe.json")).unwrap()).unwrap();
-        assert_eq!(
-            crate::generate_with_base(&loaded, &target).unwrap().hash,
-            prototype.hash
-        );
+        let regenerated = crate::generate_with_base(&loaded, &target).unwrap();
+        assert_eq!(regenerated.hash, prototype.hash);
+        assert_eq!(regenerated.atlas, prototype.atlas);
         let doors: Vec<crate::DoorDescriptor> =
             serde_json::from_slice(&fs::read(target.join("doors.json")).unwrap()).unwrap();
         assert_eq!(doors, prototype.doors);
         assert!(target.join("lod2.obj").exists());
         assert!(target.join("door-0-hardware.obj").exists());
         assert!(target.join("dependencies/door.json").exists());
+        assert_eq!(loaded.roof.covering, crate::RoofCovering::Slate);
+        assert_eq!(
+            loaded.materials.roof_recipe.as_deref(),
+            Some("dependencies/roof.json")
+        );
+        assert!(target.join("dependencies/roof.json").exists());
+        assert_eq!(
+            (
+                manifest.geometry_version,
+                manifest.material_version,
+                manifest.bake_version
+            ),
+            (16, 7, 9)
+        );
         assert_eq!(
             loaded.materials.door_recipe.as_deref(),
             Some("dependencies/door.json")
+        );
+        assert!(target.join("dependencies/chimney.json").exists());
+        assert_eq!(
+            loaded.materials.chimney_recipe.as_deref(),
+            Some("dependencies/chimney.json")
+        );
+        assert!(
+            manifest
+                .files
+                .iter()
+                .any(|file| file.path == "maps/chimney-albedo.png")
+        );
+        let portable: crate::BuildingPrototype =
+            serde_json::from_slice(&fs::read(target.join("prototype.json")).unwrap()).unwrap();
+        assert_eq!(
+            portable.recipe.materials.chimney_recipe,
+            loaded.materials.chimney_recipe
         );
         assert!(
             manifest
@@ -520,6 +701,29 @@ mod tests {
         recipe.materials.wall_recipe = Some("wall.json".into());
         let prototype = crate::generate_with_base(&recipe, &source).unwrap();
         fs::write(&path, b"changed by external editor").unwrap();
+        let error = export_package(&prototype, &target, &source).unwrap_err();
+        assert!(error.to_string().contains("changed since generation"));
+        assert!(!target.exists());
+        fs::remove_dir_all(source).unwrap();
+    }
+
+    #[test]
+    fn changed_chimney_dependency_is_rejected_without_publishing_a_package() {
+        let target = directory("changed-chimney-package");
+        let source = directory("changed-chimney-source");
+        fs::create_dir(&source).unwrap();
+        let material = source.join("stone.json");
+        let mut bytes =
+            include_bytes!("../../island-rs/texture-recipes/coursed-stone.json").to_vec();
+        fs::write(&material, &bytes).unwrap();
+        let mut recipe = crate::BuildingRecipe::hut();
+        recipe.atlas_size = 128;
+        recipe.materials.chimney_recipe = Some("stone.json".into());
+        let prototype = crate::generate_with_base(&recipe, &source).unwrap();
+        // Even a semantically equivalent external edit must not be attributed
+        // to the source hash captured by the already generated prototype.
+        bytes.push(b'\n');
+        fs::write(&material, bytes).unwrap();
         let error = export_package(&prototype, &target, &source).unwrap_err();
         assert!(error.to_string().contains("changed since generation"));
         assert!(!target.exists());
