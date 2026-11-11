@@ -125,6 +125,7 @@ pub(crate) fn generate(r: &BuildingRecipe) -> (BuildingLod, Vec<DoorDescriptor>,
     }
     timber_frame::generate(&mut b, r, true);
     colliders.extend(timber_frame::corner_colliders(r));
+    timber_frame::joists::generate(&mut b, r, &mut colliders);
     for p in &r.partitions {
         partition(&mut b, r, p, &mut colliders);
     }

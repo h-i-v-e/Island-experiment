@@ -64,7 +64,13 @@ beam width, fitting beside nearby opening casings; rails and braces butt into
 them. Timber roof edging overlaps beneath the smoothed thatch to hide the plaster
 joint. The ceiling meets the top of the wall-top rail where roof clearance allows,
 with upper plaster, partitions and the fireplace extended to meet it. This leaves
-the plate visible for adding exposed ceiling timbers later.
+the full top plate visible. LOD0 adds exposed joists across the room between the
+east and west window walls, evenly spaced independently of stud and opening
+positions. The bay-spacing setting controls their maximum centre spacing, with
+equal clear gaps between joists and at the end walls. Their width and depth
+follow the timber width, and their undersides meet the bottom of the top plates.
+Joists share the timber colour/material with grain along the span, include
+collision and stop at the chimney breast to keep the flue clear.
 Horizontal timbers join the upright posts directly above and below each window
 and above each door, fitted against the casing and sill with grain along the beam.
 **Inspection → Corner** provides a close view of both joins.

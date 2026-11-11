@@ -156,7 +156,7 @@ fn write_package(
         })
         .collect();
     let manifest=ExportManifest {
-        package_version:1,geometry_version:22,material_version:8,bake_version:13,
+        package_version:1,geometry_version:24,material_version:8,bake_version:13,
         prototype_hash:prototype.hash.clone(),coordinate_system:"right-handed, native Z-up, metres; OBJ UV V points up".into(),
         normal_convention:"OpenGL tangent-space +Y; linear normal maps".into(),mask_channels:"RGBA = occlusion, roughness, metallic, 1; linear".into(),
         door_policy:"LOD2 appearance uses closed leaves; preserve instance angles independently. door-N.obj and door-N-hardware.obj share hinge-local coordinates and map to doors.json[N]. New doors default closed; removed IDs are ignored.".into(),
@@ -663,7 +663,7 @@ mod tests {
                 manifest.material_version,
                 manifest.bake_version
             ),
-            (22, 8, 13)
+            (24, 8, 13)
         );
         assert_eq!(
             loaded.materials.door_recipe.as_deref(),

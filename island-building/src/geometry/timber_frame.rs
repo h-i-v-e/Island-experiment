@@ -2,6 +2,7 @@
 use super::Builder;
 mod corners;
 mod interior;
+pub(super) mod joists;
 use crate::{
     BuildingRecipe, Facade, MaterialSlot, OpeningKind, OpeningRecipe, RoofCovering, RoofKind,
     WallStyle,
@@ -70,8 +71,6 @@ impl Member {
     }
 }
 
-// Validated facades are at most 40 m and bays at least 0.75 m: at most 54 bays.
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 pub(crate) fn layout(recipe: &BuildingRecipe, facade: Facade) -> Vec<Member> {
     if recipe.walls.style != WallStyle::WattleAndDaub {
         return Vec::new();
@@ -79,23 +78,7 @@ pub(crate) fn layout(recipe: &BuildingRecipe, facade: Facade) -> Vec<Member> {
     let width = recipe.walls.beam_width;
     let half = facade.length(recipe) * 0.5;
     let height = recipe.wall_height;
-    let count = ((half * 2. - width) / recipe.walls.bay_width).ceil();
-    let count = count as u16;
-    let mut posts: Vec<_> = (0..=count)
-        .map(|i| -half + width * 0.5 + (half * 2. - width) * f32::from(i) / f32::from(count))
-        .collect();
-    for opening in recipe.openings.iter().filter(|o| o.facade == facade) {
-        posts.extend([
-            opening.offset - opening.width * 0.5 - 0.075 - width * 0.5,
-            opening.offset + opening.width * 0.5 + 0.075 + width * 0.5,
-        ]);
-    }
-    posts.sort_by(f32::total_cmp);
-    posts.dedup_by(|a, b| (*a - *b).abs() < width);
-    // A nearby opening jamb may merge with a corner station; keep its outer edge.
-    if let Some(last) = posts.last_mut() {
-        *last = half - width * 0.5;
-    }
+    let posts = post_stations(recipe, facade);
     let profile = profile(recipe, facade);
     let mut members = corners::layout(recipe, facade, &profile);
     opening_crosspieces(&mut members, recipe, facade, &profile, &posts);
@@ -127,6 +110,30 @@ pub(crate) fn layout(recipe: &BuildingRecipe, facade: Facade) -> Vec<Member> {
     braces(&mut members, recipe, facade, &profile, &posts, middle);
     roof_members(&mut members, recipe, facade, &profile, half);
     members
+}
+
+// Validated facades are at most 40 m and bays at least 0.75 m: at most 54 bays.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn post_stations(recipe: &BuildingRecipe, facade: Facade) -> Vec<f32> {
+    let width = recipe.walls.beam_width;
+    let half = facade.length(recipe) * 0.5;
+    let count = ((half * 2. - width) / recipe.walls.bay_width).ceil() as u16;
+    let mut posts: Vec<_> = (0..=count)
+        .map(|i| -half + width * 0.5 + (half * 2. - width) * f32::from(i) / f32::from(count))
+        .collect();
+    for opening in recipe.openings.iter().filter(|o| o.facade == facade) {
+        posts.extend([
+            opening.offset - opening.width * 0.5 - 0.075 - width * 0.5,
+            opening.offset + opening.width * 0.5 + 0.075 + width * 0.5,
+        ]);
+    }
+    posts.sort_by(f32::total_cmp);
+    posts.dedup_by(|a, b| (*a - *b).abs() < width);
+    // A nearby opening jamb may merge with a corner station; keep its outer edge.
+    if let Some(last) = posts.last_mut() {
+        *last = half - width * 0.5;
+    }
+    posts
 }
 
 fn opening_crosspieces(

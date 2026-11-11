@@ -248,7 +248,7 @@ pub(crate) fn prototype_hash(
     portable.materials.chimney_recipe = None;
     portable.materials.timber_recipe = None;
     let mut hash = Sha256::new();
-    hash.update(b"island-building:geometry22:material8:bake13");
+    hash.update(b"island-building:geometry24:material8:bake13");
     hash.update(
         serde_json::to_vec(&portable).map_err(|e| BuildingError::new("hash", e.to_string()))?,
     );

@@ -915,4 +915,61 @@ Evidence and the focused correction diff are under
 `artifacts/building-studio/2026-11-11/ceiling-bearer-fit/`. The signed version-21
 bundle is preserved at
 `island-building/dist/.previous/pre-ceiling-fit-20261111-194222/Building Studio.app`.
-All building changes remain uncommitted for review.
+The approved interior framing and ceiling work was subsequently committed and
+pushed to `main` as `8c12e84`.
+
+## Exposed ceiling joists
+
+LOD0 wattle-and-daub buildings now have exposed joists spanning east to west
+between the window walls. The joist positions reuse the actual stud stations
+from both walls, including opening jamb stations, with duplicates removed.
+Each joist uses the configured timber width for both width and depth, meets the
+inner top-plate faces and has its underside flush with the bottom of the top
+plates. The ceiling remains at the plate tops. Longitudinal wood grain, colour
+and material assignment are shared with the existing framing. Solid joist
+collision uses the same bounds as the mesh. Joists stop at the chimney breast
+footprint, leaving its masonry and flue clear on any facade. They are generated
+only in LOD0; plain-wall buildings keep their existing ceiling.
+
+All **59 library and 31 core tests** pass with studio and all targets enabled.
+Strict all-target Clippy, formatting and whitespace checks pass. Added checks
+cover stud alignment on both walls, grain along the span, matching underside
+and collision elevations across both roof shapes and all coverings, absence
+from LOD1, and chimney clearance on all four facades. The saved draft and bundled
+wattle-and-daub cottage both validate. The draft has five 14 cm joists with
+undersides at **2.76 m**, adding 60 triangles and five colliders without another
+material draw. Static triangle counts are **38,207 / 1,000 / 134** and versions
+are **23/8/13**.
+
+The LOD0 Metal capture and signed version-23 canonical app were reviewed on the
+original saved `wattle-daub/wattle-draft.json`. Joists meet the plate bottoms
+cleanly and the ceiling stays flush above them. The app is left on Structure /
+Interior / forced LOD0, with the entrance open and no unsaved recipe changes.
+Version 22 is preserved at
+`island-building/dist/.previous/pre-ceiling-joists-20261111-200701/Building Studio.app`.
+Evidence and the focused source review are under
+`artifacts/building-studio/2026-11-11/ceiling-joists/`. The new joist extension
+remains uncommitted for review.
+
+## Even ceiling-joist spacing
+
+The joist grid now uses room depth and the existing bay-spacing setting instead
+of stud or window locations. Joists have equal clear gaps between them and at
+both end walls, with centre spacing bounded by the bay-spacing setting. The grid
+is generated directly as an iterator without collecting or sorting stud rows.
+Moving or resizing an opening does not change it. Plate-bottom alignment,
+material, grain, collision and chimney clearance retain their previous behavior.
+
+All **59 library and 31 core tests**, strict all-target Clippy, formatting and
+whitespace checks pass. Updated spacing coverage checks equal internal/end gaps,
+room depths from 3 to 40 m, several bay spacings and independence from opening
+edits. The LOD0 Metal capture and signed version-24 app were reviewed with the
+original saved thatched draft. It now has three 14 cm joists at 1.1725 m centres
+with 1.0325 m clear gaps, including the end gaps. Static triangles are
+**38,183 / 1,000 / 134**, with 58 colliders and unchanged material draws. Versions
+are **24/8/13**. The app is left on Structure / Interior / forced LOD0, entrance
+open, with no unsaved recipe changes. Version 23 is preserved at
+`island-building/dist/.previous/pre-even-joists-20261112-072744/Building Studio.app`.
+Evidence and the focused revision are under
+`artifacts/building-studio/2026-11-12/even-joists/`. The joist extension remains
+uncommitted on `main`.

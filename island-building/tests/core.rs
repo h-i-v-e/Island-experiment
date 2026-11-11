@@ -19,7 +19,14 @@ fn half_timbered_walls_keep_clear_openings_real_relief_and_a_baked_distant_frame
         recipe.walls.style = WallStyle::WattleAndDaub;
         recipe.materials.wall = recipe.walls.style.default_colour();
         let prototype = generate(&recipe).unwrap();
-        assert_eq!(prototype.colliders.len(), plain.colliders.len() + 4);
+        assert_eq!(
+            prototype
+                .colliders
+                .iter()
+                .filter(|c| c.min[2] <= 0.)
+                .count(),
+            plain.colliders.iter().filter(|c| c.min[2] <= 0.).count() + 4
+        );
         assert_eq!(prototype.doors, plain.doors);
         for lod in &prototype.lods[..2] {
             let mesh = &lod
@@ -276,7 +283,7 @@ fn ceiling_meets_wall_plate_tops_and_keeps_plaster_fireplace_and_collision_close
             .mesh
     };
     let ceiling = recipe.wall_height + 0.1;
-    let eye = [0., 0., 1.65];
+    let eye = [0., 0.4, 1.65];
     let hit = mesh_ray(mesh(MaterialSlot::Interior), eye, [0., 0., 1.]).unwrap();
     assert!((hit - (ceiling - eye[2])).abs() < 0.00001);
     let collision = prototype
@@ -318,6 +325,65 @@ fn ceiling_meets_wall_plate_tops_and_keeps_plaster_fireplace_and_collision_close
         (masonry - 0.3).abs() < 0.00001,
         "straight breast reaches the raised ceiling"
     );
+}
+
+#[test]
+fn near_joists_span_the_window_walls_at_the_plate_soffit_with_matching_collision() {
+    for roof in [RoofKind::Gable, RoofKind::Shed] {
+        for covering in [
+            RoofCovering::StandingSeam,
+            RoofCovering::Slate,
+            RoofCovering::Thatch,
+        ] {
+            let mut recipe = preview(BuildingRecipe::hut());
+            recipe.walls.style = WallStyle::WattleAndDaub;
+            recipe.roof.kind = roof;
+            recipe.roof.covering = covering;
+            recipe.roof.rise = 4.;
+            let prototype = generate(&recipe).unwrap();
+            let timber = &prototype.lods[0]
+                .parts
+                .iter()
+                .find(|p| p.material == MaterialSlot::Timber)
+                .unwrap()
+                .mesh;
+            check_mesh(timber);
+            let plate_top = recipe.wall_height
+                + if covering == RoofCovering::Thatch {
+                    0.1
+                } else {
+                    0.
+                };
+            let bottom = plate_top - recipe.walls.beam_width;
+            let end = recipe.width * 0.5 - recipe.wall_thickness - recipe.walls.frame_projection;
+            for x in [-end + 0.001, 0., end - 0.001] {
+                let eye = [x, 0., 1.65];
+                let hit =
+                    mesh_ray(timber, eye, [0., 0., 1.]).expect("joist across the entire room");
+                assert!(
+                    (hit - (bottom - eye[2])).abs() < 0.00001,
+                    "underside meets plate bottom"
+                );
+                let collision = prototype
+                    .colliders
+                    .iter()
+                    .filter_map(|c| c.ray_hit(eye, [0., 0., 1.], 10.))
+                    .min_by(f32::total_cmp)
+                    .unwrap();
+                assert!((collision - hit).abs() < 0.00001);
+            }
+            let middle = &prototype.lods[1]
+                .parts
+                .iter()
+                .find(|p| p.material == MaterialSlot::Timber)
+                .unwrap()
+                .mesh;
+            assert!(
+                mesh_ray(middle, [0., 0., 1.65], [0., 0., 1.]).is_none(),
+                "LOD1 has no interior joists"
+            );
+        }
+    }
 }
 
 #[test]
