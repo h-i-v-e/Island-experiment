@@ -102,12 +102,10 @@ fn half_timbered_walls_keep_clear_openings_real_relief_and_a_baked_distant_frame
             }
         }
         assert!(prototype.lods[0].triangle_count() > prototype.lods[1].triangle_count());
-        assert!(
-            prototype.lods[2]
-                .parts
-                .iter()
-                .all(|p| p.material == MaterialSlot::Atlas)
-        );
+        assert!(prototype.lods[2].parts.iter().all(|p| matches!(
+            p.material,
+            MaterialSlot::Atlas | MaterialSlot::Foundation | MaterialSlot::Stairs
+        )));
         assert_eq!(prototype.lods[2], plain.lods[2]);
         assert_ne!(prototype.atlas.albedo, plain.atlas.albedo);
         assert!(
@@ -558,12 +556,10 @@ fn presets_have_valid_accessible_geometry_and_three_distinct_lods() {
                     | MaterialSlot::Ceiling
             )));
         }
-        assert!(
-            prototype.lods[2]
-                .parts
-                .iter()
-                .all(|p| p.material == MaterialSlot::Atlas)
-        );
+        assert!(prototype.lods[2].parts.iter().all(|p| matches!(
+            p.material,
+            MaterialSlot::Atlas | MaterialSlot::Foundation | MaterialSlot::Stairs
+        )));
         assert_eq!(prototype.atlas.albedo.len(), 128 * 128 * 4);
         assert!(prototype.atlas.albedo.chunks_exact(4).all(|p| p[3] == 255));
     }
@@ -1443,12 +1439,10 @@ fn chimney_presets_have_real_fireboxes_and_no_fireplace_geometry_in_lower_lods()
                 .flat_map(|part| &part.mesh.positions)
                 .all(|point| point[2] > recipe.wall_height)
         );
-        assert!(
-            prototype.lods[2]
-                .parts
-                .iter()
-                .all(|part| part.material == MaterialSlot::Atlas)
-        );
+        assert!(prototype.lods[2].parts.iter().all(|part| matches!(
+            part.material,
+            MaterialSlot::Atlas | MaterialSlot::Foundation | MaterialSlot::Stairs
+        )));
         let hearth = island_building::geometry::chimney::hearth_bounds(recipe).unwrap();
         let stood = chimney.facade.point(
             recipe,
@@ -2259,12 +2253,10 @@ fn slate_and_thatch_keep_roof_bounds_lods_and_flues_valid_at_both_scales() {
                             | MaterialSlot::Firebox
                     )));
                 }
-                assert!(
-                    prototype.lods[2]
-                        .parts
-                        .iter()
-                        .all(|part| part.material == MaterialSlot::Atlas)
-                );
+                assert!(prototype.lods[2].parts.iter().all(|part| matches!(
+                    part.material,
+                    MaterialSlot::Atlas | MaterialSlot::Foundation | MaterialSlot::Stairs
+                )));
                 let roof_triangles: usize = prototype.lods[0]
                     .parts
                     .iter()

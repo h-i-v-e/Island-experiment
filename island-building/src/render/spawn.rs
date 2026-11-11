@@ -1,5 +1,5 @@
 use super::{CompiledBuildingPart, CompiledBuildingPrototype, native_to_bevy};
-use crate::interaction::{BuildingInstance, BuildingLodRoot, DoorLeaf};
+use crate::interaction::{BuildingInstance, BuildingLodRoot, BuildingStairs, DoorLeaf};
 use bevy::{
     light::{NotShadowCaster, NotShadowReceiver},
     prelude::*,
@@ -34,7 +34,12 @@ pub fn spawn_building(
             ))
             .id();
         for part in parts {
-            spawn_part(commands, part, Transform::default(), lod_root);
+            let entity = spawn_part(commands, part, Transform::default(), lod_root);
+            if part.stairs {
+                commands
+                    .entity(entity)
+                    .insert(BuildingStairs { building: root });
+            }
         }
     }
     for (index, (door, part)) in prototype

@@ -1155,3 +1155,64 @@ The signed version-29 Building Studio was checked live on the original saved
 `wooden-boards/boards-review.json`, with visible floor plank joints and concealed
 ceiling end joints. It is left on Structure / Interior / forced LOD0, entrance
 open, with no unsaved recipe changes. The recipe file itself is unchanged.
+
+
+## Terrain foundations and hideable entrance stairs
+
+The reviewed panel doors and regular floor/ceiling boards were committed and
+pushed as `c2b61fe`. Foundations are now separate from the wooden floor, with
+an independent colour and material recipe (coursed stone by default). Their
+footprint projects 8 cm beyond the walls, and depth is the full footprint
+diagonal times tan(30°), plus a default 15 cm burial margin. Native floor top
+stays Z=0; place a level building with the highest ground point anywhere inside
+the foundation at that elevation. The bound covers all terrain gradients up
+to 30°, including an interior high point rather than only a corner.
+
+Every exterior door gets an 80 cm clear landing and solid steps with 20 cm rise
+and 24 cm tread. The length accounts for terrain continuing downhill beyond
+the door and checks both toe corners against every possible foundation high
+point. The review hut has a **4.789 m** foundation depth and **62 steps**, with
+**15.76 m** total outward reach; terrain conceals unused lower steps. The
+landing stands 2 mm above the permanent plinth cap to avoid coplanar drawing
+while retaining the existing door clearance. LOD2 uses a 24-triangle ramp
+proxy; all foundation/stair surfaces share one set of baked stone maps. Static
+triangle counts are **38,957 / 1,898 / 176**; versions are **29/12/14**.
+
+Recipe controls under Structure include outset, burial margin and whether to
+generate stairs. Inspection's per-placement stair switch updates rendering,
+capsule/sphere/ray collision and walking support together. The setting survives
+scene-state snapshots, and older states default to showing the generated stairs.
+The studio walker can step up and down the treads. The support allowance remains
+in world metres under rotated or nonuniformly scaled placements. Deep buried
+bounds remain in collision/culling descriptors, while projected LOD size and
+normal overview framing use the above-ground building. The Foundations camera
+frames the complete access geometry; slope/direction controls alter only the
+inspection terrain, not the authored recipe.
+
+All **64 library, 34 core and 4 foundation tests** pass. Subsequent focused
+scaled-support and camera checks pass, together with strict all-target Clippy,
+formatting and whitespace checks. Terrain tests cover square and narrow 3–40 m
+footprints, all four door facades, offset doors, all 360 integer slope headings,
+and high points throughout the foundation footprint. Collision tests verify
+hiding stairs, state migration and visibility, and portable dependency tests
+include assigned foundation recipes and Save As relocation.
+
+Metal captures cover 30° downhill terrain at all three LODs, a diagonal 30°
+slope and hidden stairs on near-level ground. All **59 exported files** match
+their lengths and SHA-256 hashes. Every pre-existing material map, door and
+mesh is byte-identical to the preceding export; structural collision differs
+only by the added foundation. Stair collision is separate and must be switched
+with the stairs material group. `foundation.json` gives buried bounds, while
+`stairs.json` records each entrance's reach and step dimensions.
+
+Evidence and the focused source diff are under
+`artifacts/building-studio/2026-11-12/foundations/`. New foundation and stair work
+remains uncommitted on `main`, with unrelated runtime and crash files preserved.
+
+The signed version-30 canonical Building Studio was reviewed live on the saved
+`foundations/terrain-review.json`. The slope preview reached exactly 30°, stair
+visibility removed its mesh and 63 colliders together, and distant/detailed LOD
+switching worked. It is left on Structure / Foundations / forced LOD0 with
+stairs visible, slope 30°, direction 0°, and no unsaved recipe changes. The
+previous version-29 bundle is preserved at
+`island-building/dist/.previous/pre-foundations-20261112-124739/Building Studio.app`.

@@ -84,5 +84,14 @@ pub(crate) fn resolve(recipe: &BuildingRecipe) -> BuildingLayout {
             layout.bounds_max[axis] = layout.bounds_max[axis].max(bounds.max[axis]);
         }
     }
+    let foundation = crate::geometry::foundation::bounds(recipe);
+    for bounds in std::iter::once(foundation)
+        .chain(crate::geometry::foundation::stairs(recipe).map(|stairs| stairs.bounds))
+    {
+        for axis in 0..3 {
+            layout.bounds_min[axis] = layout.bounds_min[axis].min(bounds.min[axis]);
+            layout.bounds_max[axis] = layout.bounds_max[axis].max(bounds.max[axis]);
+        }
+    }
     layout
 }

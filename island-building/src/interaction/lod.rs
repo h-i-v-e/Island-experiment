@@ -108,6 +108,21 @@ pub(super) fn sync_lod_roots(
     }
 }
 
+pub(super) fn sync_stairs(
+    buildings: Query<&BuildingInstance>,
+    mut stairs: Query<(&super::BuildingStairs, &mut Visibility), Without<BuildingLodRoot>>,
+) {
+    for (stairs, mut visibility) in &mut stairs {
+        if let Ok(building) = buildings.get(stairs.building) {
+            *visibility = if building.stairs_visible {
+                Visibility::Inherited
+            } else {
+                Visibility::Hidden
+            };
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

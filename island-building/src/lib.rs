@@ -46,6 +46,7 @@ pub fn generate_with_base(
         lods: [near, middle, distant],
         doors,
         colliders,
+        stair_colliders: geometry::foundation::stair_colliders(recipe),
         atlas,
         materials,
         hash,

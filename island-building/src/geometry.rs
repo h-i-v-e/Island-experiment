@@ -7,6 +7,7 @@ use crate::{
 };
 pub mod chimney;
 pub(crate) mod door_panels;
+pub mod foundation;
 mod hardware;
 pub(crate) mod roof_covering;
 pub(crate) mod thatch;
@@ -109,6 +110,8 @@ pub(crate) fn generate(r: &BuildingRecipe) -> (BuildingLod, Vec<DoorDescriptor>,
     let mut colliders = Vec::new();
     let mut doors = Vec::new();
     slabs(&mut b, r, &mut colliders);
+    foundation::generate(&mut b, r, false);
+    colliders.push(foundation::bounds(r));
     for facade in Facade::ALL {
         wall(&mut b, r, facade, true, &mut colliders);
     }

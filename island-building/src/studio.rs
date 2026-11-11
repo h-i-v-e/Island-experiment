@@ -40,6 +40,9 @@ pub struct Settings {
     pub automatic: bool,
     pub view: String,
     pub door_open: bool,
+    pub terrain_slope: f32,
+    pub terrain_heading: f32,
+    pub hide_stairs: bool,
     pub capture_ui: bool,
     pub seed: Option<u64>,
     pub export: Option<PathBuf>,
@@ -60,6 +63,9 @@ impl Default for Settings {
             automatic: true,
             view: "exterior".into(),
             door_open: false,
+            terrain_slope: 0.,
+            terrain_heading: 0.,
+            hide_stairs: false,
             capture_ui: false,
             seed: None,
             export: None,
@@ -141,6 +147,7 @@ pub fn run(arguments: impl Iterator<Item = String>) -> Result<(), String> {
                 poll_preview,
                 poll_export,
                 camera::update_camera,
+                terrain_preview,
                 camera::sync_observer,
                 diagnostics,
                 close_requests,
@@ -255,9 +262,12 @@ pub(super) struct StudioState {
     lod: usize,
     automatic: bool,
     door_command: Option<bool>,
+    hide_stairs_initially: bool,
     collision_overlay: bool,
     wireframe: bool,
     cutaway: bool,
+    terrain_slope: f32,
+    terrain_heading: f32,
     recompile: bool,
     light: f32,
     ambient: f32,
@@ -290,9 +300,12 @@ impl StudioState {
             lod: settings.lod,
             automatic: settings.automatic,
             door_command: Some(settings.door_open),
+            hide_stairs_initially: settings.hide_stairs,
             collision_overlay: false,
             wireframe: false,
             cutaway: false,
+            terrain_slope: settings.terrain_slope,
+            terrain_heading: settings.terrain_heading,
             recompile: false,
             final_preview: settings.screenshot.is_some(),
             exit_requested: false,
@@ -413,6 +426,8 @@ struct StudioObserver;
 struct StudioSun;
 #[derive(Component)]
 struct StudioInteriorLight;
+#[derive(Component)]
+struct StudioGround;
 
 fn setup(
     mut commands: Commands,
@@ -429,6 +444,7 @@ fn setup(
             ..default()
         })),
         Transform::from_xyz(0., -0.18, 0.),
+        StudioGround,
     ));
     commands.spawn((
         DirectionalLight {
@@ -517,6 +533,13 @@ fn poll_preview(
                         "studio-preview",
                         Transform::IDENTITY,
                     );
+                    if saved.is_none() && state.hide_stairs_initially {
+                        let mut instance =
+                            BuildingInstance::new(Arc::clone(&compiled), "studio-preview".into());
+                        instance.stairs_visible = false;
+                        commands.entity(root).insert(instance);
+                        state.hide_stairs_initially = false;
+                    }
                     if let Some(saved) = saved {
                         let mut instance = BuildingInstance::new(compiled, "studio-preview".into());
                         instance.restore_state(&saved);
@@ -607,6 +630,28 @@ fn display_prototype(source: &Arc<BuildingPrototype>, cutaway: bool) -> Arc<Buil
     Arc::new(display)
 }
 
+#[allow(clippy::needless_pass_by_value)]
+fn terrain_preview(
+    state: Res<StudioState>,
+    mut ground: Single<&mut Transform, With<StudioGround>>,
+) {
+    let recipe = state.document.recipe();
+    let slope = state.terrain_slope.to_radians().tan();
+    let heading = state.terrain_heading.to_radians();
+    let sx = slope * heading.sin();
+    let sy = slope * heading.cos();
+    let bounds = crate::geometry::foundation::bounds(recipe);
+    let height = if state.terrain_slope == 0. {
+        -0.18
+    } else {
+        -sx.abs() * bounds.max[0] - sy.abs() * bounds.max[1]
+    };
+    **ground = Transform::from_xyz(0., height, 0.).with_rotation(Quat::from_rotation_arc(
+        Vec3::Y,
+        Vec3::new(-sx, 1., sy).normalize(),
+    ));
+}
+
 fn diagnostics(
     state: Res<StudioState>,
     instances: Query<(&BuildingInstance, &GlobalTransform)>,
@@ -622,7 +667,7 @@ fn diagnostics(
         return;
     }
     for (instance, root) in &instances {
-        for shape in &instance.prototype.source.colliders {
+        for shape in instance.active_colliders() {
             let min = crate::render::native_to_bevy(shape.min);
             let max = crate::render::native_to_bevy(shape.max);
             gizmos.cube(
@@ -706,7 +751,7 @@ pub fn parse_arguments(
         match arg.as_str() {
             "--help" | "-h" => {
                 println!(
-                    "Island Building Studio\n  --recipe FILE.json | --preset hut|cottage|workshop\n  --seed N\n  --screenshot NEW.png [--lod 0|1|2|auto] [--view exterior|entrance|interior|fireplace|roof-end|roof-under|eaves|window|corner|south|east|north|west] [--door-open] [--capture-ui]\n  --validate\n  --export NEW_DIRECTORY\nInteractive: RMB orbit/look, wheel zoom, WASD walkthrough, E toggle nearby door."
+                    "Island Building Studio\n  --recipe FILE.json | --preset hut|cottage|workshop\n  --seed N\n  --screenshot NEW.png [--lod 0|1|2|auto] [--view exterior|entrance|interior|foundation|fireplace|roof-end|roof-under|eaves|window|corner|south|east|north|west] [--door-open] [--capture-ui] [--terrain-slope 0..30] [--terrain-heading 0..360] [--hide-stairs]\n  --validate\n  --export NEW_DIRECTORY\nInteractive: RMB orbit/look, wheel zoom, WASD walkthrough, E toggle nearby door."
                 );
                 return Ok(None);
             }
@@ -750,6 +795,7 @@ pub fn parse_arguments(
                     "entrance",
                     "interior",
                     "fireplace",
+                    "foundation",
                     "roof-end",
                     "roof-under",
                     "eaves",
@@ -766,6 +812,12 @@ pub fn parse_arguments(
                 }
             }
             "--door-open" => settings.door_open = true,
+            "--hide-stairs" => settings.hide_stairs = true,
+            "--terrain-slope" | "--terrain-heading" => terrain_argument(
+                &mut settings,
+                &arg,
+                &args.next().ok_or("Terrain flag needs degrees")?,
+            )?,
             "--capture-ui" => settings.capture_ui = true,
             "--validate" => settings.validate = true,
             "--sun" | "--ambient" | "--room-light" | "--exposure" => lighting_argument(
@@ -788,6 +840,20 @@ pub fn parse_arguments(
         return Err("--capture-ui requires --screenshot".into());
     }
     Ok(Some(settings))
+}
+
+fn terrain_argument(settings: &mut Settings, flag: &str, argument: &str) -> Result<(), String> {
+    let value: f32 = argument.parse().map_err(|_| "Terrain flag needs degrees")?;
+    let (target, limit) = if flag == "--terrain-slope" {
+        (&mut settings.terrain_slope, 30.)
+    } else {
+        (&mut settings.terrain_heading, 360.)
+    };
+    if !value.is_finite() || !(0. ..=limit).contains(&value) {
+        return Err(format!("{flag} must be between 0 and {limit} degrees"));
+    }
+    *target = value;
+    Ok(())
 }
 
 fn lighting_argument(settings: &mut Settings, flag: &str, value: &str) -> Result<(), String> {
@@ -837,6 +903,27 @@ mod tests {
             .unwrap();
         assert_eq!(fireplace.view, "fireplace");
         assert!(parse_arguments(["--view", "chimney"].map(str::to_owned).into_iter()).is_err());
+        let terrain = parse_arguments(
+            [
+                "--terrain-slope",
+                "30",
+                "--terrain-heading",
+                "135",
+                "--view",
+                "foundation",
+                "--hide-stairs",
+            ]
+            .map(str::to_owned)
+            .into_iter(),
+        )
+        .unwrap()
+        .unwrap();
+        assert!(terrain.hide_stairs);
+        assert!((terrain.terrain_slope - 30.).abs() < f32::EPSILON);
+        assert!(parse_arguments(["--terrain-slope", "31"].map(str::to_owned).into_iter()).is_err());
+        assert!(
+            parse_arguments(["--terrain-heading", "NaN"].map(str::to_owned).into_iter()).is_err()
+        );
     }
 
     #[test]

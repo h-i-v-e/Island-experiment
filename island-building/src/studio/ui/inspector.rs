@@ -161,8 +161,38 @@ fn structure(ui: &mut egui::Ui, draft: &mut BuildingRecipe) {
         " m",
     );
     wall_style(ui, draft);
+    foundation(ui, draft);
     ui.separator();
     ui.label(egui::RichText::new("Finished structural surfaces, clear windows and hinged doors. No furniture is generated.").small().color(DIM));
+}
+
+fn foundation(ui: &mut egui::Ui, draft: &mut BuildingRecipe) {
+    ui.separator();
+    ui.label("Foundations & access");
+    scalar(
+        ui,
+        "Foundation outset",
+        &mut draft.foundation.outset,
+        0.01,
+        " m",
+    );
+    scalar(
+        ui,
+        "Buried margin",
+        &mut draft.foundation.burial_depth,
+        0.01,
+        " m",
+    );
+    ui.checkbox(&mut draft.foundation.stairs, "Generate entrance stairs");
+    let depth = -crate::geometry::foundation::bounds(draft).min[2];
+    ui.label(format!("30° terrain · {depth:.2} m foundation depth"));
+    if let Some(stairs) = crate::geometry::foundation::stairs(draft).next() {
+        ui.label(format!(
+            "{} steps · {:.2} m reach · 20 cm rise / 24 cm tread",
+            stairs.steps, stairs.run
+        ));
+    }
+    ui.label(egui::RichText::new("Place the highest terrain within the foundation at floor level. Stair visibility can be changed per placement in Inspection.").small().color(DIM));
 }
 
 fn wall_style(ui: &mut egui::Ui, draft: &mut BuildingRecipe) {
@@ -389,6 +419,7 @@ fn materials(ui: &mut egui::Ui, draft: &mut BuildingRecipe, state: &mut StudioSt
         ("Exterior", &mut draft.materials.wall),
         ("Roof", &mut draft.materials.roof),
         ("Floor", &mut draft.materials.floor),
+        ("Foundation / stairs", &mut draft.materials.foundation),
         ("Ceiling", &mut draft.materials.ceiling),
         ("Interior", &mut draft.materials.interior),
         ("Trim", &mut draft.materials.trim),
@@ -407,6 +438,13 @@ fn materials(ui: &mut egui::Ui, draft: &mut BuildingRecipe, state: &mut StudioSt
     });
     ui.separator();
     board_materials(ui, draft, state);
+    material_path(
+        ui,
+        "Foundation / stairs material",
+        &mut draft.materials.foundation_recipe,
+        state,
+        dialogs::MaterialTarget::Foundation,
+    );
     material_path(
         ui,
         "Wall material",

@@ -15,6 +15,8 @@ pub struct BuildingRecipe {
     pub wall_thickness: f32,
     pub floor_thickness: f32,
     #[serde(default)]
+    pub foundation: FoundationRecipe,
+    #[serde(default)]
     pub walls: WallRecipe,
     pub roof: RoofRecipe,
     pub openings: Vec<OpeningRecipe>,
@@ -24,6 +26,24 @@ pub struct BuildingRecipe {
     pub chimney: Option<ChimneyRecipe>,
     pub materials: MaterialPalette,
     pub atlas_size: u32,
+}
+
+/// Terrain may touch floor level anywhere within the foundation footprint.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct FoundationRecipe {
+    pub outset: f32,
+    pub burial_depth: f32,
+    pub stairs: bool,
+}
+impl Default for FoundationRecipe {
+    fn default() -> Self {
+        Self {
+            outset: 0.08,
+            burial_depth: 0.15,
+            stairs: true,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -309,6 +329,8 @@ pub struct MaterialPalette {
     pub wall: [f32; 3],
     pub roof: [f32; 3],
     pub floor: [f32; 3],
+    #[serde(default = "default_chimney_colour")]
+    pub foundation: [f32; 3],
     #[serde(default = "default_ceiling_colour")]
     pub ceiling: [f32; 3],
     pub interior: [f32; 3],
@@ -333,6 +355,8 @@ pub struct MaterialPalette {
     #[serde(default)]
     pub floor_recipe: Option<String>,
     #[serde(default)]
+    pub foundation_recipe: Option<String>,
+    #[serde(default)]
     pub ceiling_recipe: Option<String>,
 }
 impl Default for MaterialPalette {
@@ -341,6 +365,7 @@ impl Default for MaterialPalette {
             wall: [0.62, 0.38, 0.22],
             roof: [0.23, 0.28, 0.29],
             floor: [0.38, 0.27, 0.17],
+            foundation: default_chimney_colour(),
             ceiling: default_ceiling_colour(),
             interior: [0.76, 0.72, 0.61],
             trim: [0.82, 0.76, 0.61],
@@ -354,6 +379,7 @@ impl Default for MaterialPalette {
             chimney_recipe: None,
             timber_recipe: None,
             floor_recipe: None,
+            foundation_recipe: None,
             ceiling_recipe: None,
         }
     }
@@ -385,6 +411,7 @@ impl BuildingRecipe {
             wall_height: 2.8,
             wall_thickness: 0.2,
             floor_thickness: 0.16,
+            foundation: FoundationRecipe::default(),
             walls: WallRecipe::default(),
             roof: RoofRecipe {
                 covering: RoofCovering::StandingSeam,

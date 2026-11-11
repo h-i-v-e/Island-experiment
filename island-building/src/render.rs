@@ -19,3 +19,5 @@ pub fn native_to_bevy(point: [f32; 3]) -> Vec3 {
 pub fn bevy_to_native(point: Vec3) -> [f32; 3] {
     [point.x, -point.z, point.y]
 }
+
+pub(crate) use compiler::above_ground_bounds;

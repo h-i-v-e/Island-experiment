@@ -217,6 +217,7 @@ fn camera_buttons(ui: &mut egui::Ui, state: &StudioState, controls: &mut CameraC
             ("roof-under", "Roof under"),
             ("eaves", "Eaves"),
             ("corner", "Corner"),
+            ("foundation", "Foundations"),
         ] {
             if ui.small_button(label).clicked()
                 && let Some(prototype) = &prototype
@@ -248,6 +249,7 @@ fn instance_status(
         && let Ok(mut instance) = instances.get_mut(root)
     {
         ui.separator();
+        ui.checkbox(&mut instance.stairs_visible, "Show entrance stairs");
         let ids: Vec<_> = instance.doors.keys().cloned().collect();
         for id in ids {
             let open = instance.doors[&id].target.abs() > 0.01;
@@ -265,7 +267,13 @@ fn instance_status(
             ACCENT,
             format!(
                 "LOD{level}  ·  {} triangles",
-                source.lods[level].triangle_count()
+                source.lods[level]
+                    .parts
+                    .iter()
+                    .filter(|part| instance.stairs_visible
+                        || part.material != crate::MaterialSlot::Stairs)
+                    .map(|part| part.mesh.triangle_count())
+                    .sum::<usize>()
                     + if level == 0 {
                         source
                             .doors
@@ -279,7 +287,13 @@ fn instance_status(
         );
         ui.label(format!(
             "{} material draws · {:.1} MiB textures",
-            source.lods[level].parts.len()
+            source.lods[level]
+                .parts
+                .iter()
+                .filter(
+                    |part| instance.stairs_visible || part.material != crate::MaterialSlot::Stairs
+                )
+                .count()
                 + if level == 0 {
                     source.doors.len()
                         + source
@@ -297,6 +311,11 @@ fn instance_status(
             "{} rooms · {} colliders",
             source.layout.room_count,
             source.colliders.len()
+                + if instance.stairs_visible {
+                    source.stair_colliders.len()
+                } else {
+                    0
+                }
         ));
     }
 }
@@ -344,6 +363,10 @@ fn inspection(
             ui.separator();
             ui.checkbox(&mut state.collision_overlay, "Collision overlay");
             ui.checkbox(&mut state.wireframe, "Wireframe");
+            ui.add(egui::Slider::new(&mut state.terrain_slope, 0. ..=30.).text("Terrain slope"));
+            ui.add(
+                egui::Slider::new(&mut state.terrain_heading, 0. ..=360.).text("Slope direction"),
+            );
             if ui
                 .checkbox(&mut state.cutaway, "Roof / ceiling cutaway")
                 .changed()

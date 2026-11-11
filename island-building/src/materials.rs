@@ -43,6 +43,11 @@ pub(crate) fn generate(
             r.materials.floor_recipe.as_deref(),
         ),
         (
+            MaterialSlot::Foundation,
+            r.materials.foundation,
+            r.materials.foundation_recipe.as_deref(),
+        ),
+        (
             MaterialSlot::Ceiling,
             r.materials.ceiling,
             r.materials.ceiling_recipe.as_deref(),
@@ -91,7 +96,7 @@ fn material(
     let colour_parameter = match slot {
         MaterialSlot::Wall if r.walls.style == WallStyle::WattleAndDaub => Some("plaster_colour"),
         MaterialSlot::Timber | MaterialSlot::Floor | MaterialSlot::Ceiling => Some("wood_colour"),
-        MaterialSlot::Chimney => Some("stone_colour"),
+        MaterialSlot::Chimney | MaterialSlot::Foundation => Some("stone_colour"),
         MaterialSlot::Roof if r.roof.covering != RoofCovering::StandingSeam => Some("roof_colour"),
         _ => None,
     };
@@ -188,7 +193,7 @@ fn default_material(
         MaterialSlot::Floor | MaterialSlot::Ceiling => {
             include_bytes!("../../island-rs/texture-recipes/wooden-floorboards.json")
         }
-        MaterialSlot::Chimney => {
+        MaterialSlot::Chimney | MaterialSlot::Foundation => {
             include_bytes!("../../island-rs/texture-recipes/coursed-stone.json")
         }
         MaterialSlot::Roof => match recipe.roof.covering {
@@ -276,9 +281,10 @@ pub(crate) fn prototype_hash(
     portable.materials.chimney_recipe = None;
     portable.materials.timber_recipe = None;
     portable.materials.floor_recipe = None;
+    portable.materials.foundation_recipe = None;
     portable.materials.ceiling_recipe = None;
     let mut hash = Sha256::new();
-    hash.update(b"island-building:geometry28:material11:bake14");
+    hash.update(b"island-building:geometry29:material12:bake14");
     hash.update(
         serde_json::to_vec(&portable).map_err(|e| BuildingError::new("hash", e.to_string()))?,
     );
@@ -305,6 +311,7 @@ pub fn colour(recipe: &BuildingRecipe, slot: MaterialSlot) -> [f32; 4] {
         | MaterialSlot::ThatchShell3
         | MaterialSlot::ThatchShell4 => m.roof,
         MaterialSlot::Floor => m.floor,
+        MaterialSlot::Foundation | MaterialSlot::Stairs => m.foundation,
         MaterialSlot::Ceiling => m.ceiling,
         MaterialSlot::Interior => m.interior,
         MaterialSlot::Trim => m.trim,

@@ -39,8 +39,7 @@ impl CameraControls {
         self.target = Vec3::new(0., recipe.wall_height * 0.5, 0.);
         self.distance = recipe.width.max(recipe.depth) * 2.25;
         if recipe.chimney.is_some() {
-            let min = native_to_bevy(prototype.layout.bounds_min);
-            let max = native_to_bevy(prototype.layout.bounds_max);
+            let [min, max] = crate::render::above_ground_bounds(prototype).map(native_to_bevy);
             self.target = (min + max) * 0.5;
             let radius = min.distance(max) * 0.5;
             self.distance = self
@@ -55,6 +54,15 @@ impl CameraControls {
             "west" => -std::f32::consts::FRAC_PI_2,
             _ => 0.65,
         };
+        if view == "foundation" {
+            let [min, max] =
+                [prototype.layout.bounds_min, prototype.layout.bounds_max].map(native_to_bevy);
+            self.target = (min + max) * 0.5;
+            self.distance = min.distance(max) * 0.5 / 22.5_f32.to_radians().sin() * 1.1;
+            self.pitch = 0.28;
+            let entrance = prototype.layout.entrance;
+            self.yaw = entrance[0].atan2(-entrance[1]) + 0.5;
+        }
         if view == "entrance" {
             self.target = native_to_bevy(prototype.layout.entrance) + Vec3::Y * 1.2;
             self.distance = 5.5;
@@ -277,7 +285,7 @@ pub(super) fn update_camera(
                 Vec3::X * delta.x / f32::from(steps),
                 Vec3::Z * delta.z / f32::from(steps),
             ] {
-                let next = controls.feet + step;
+                let next = supported_step(controls.feet + step, &instances);
                 let blocked = instances
                     .iter()
                     .any(|(instance, root)| instance.blocks_capsule(root, next, 0.28, 1.8));
@@ -330,6 +338,20 @@ pub(super) fn update_camera(
     }
     sun.illuminance = state.light;
     ambient.brightness = state.ambient;
+}
+
+fn supported_step(
+    mut next: Vec3,
+    instances: &Query<(&mut BuildingInstance, &GlobalTransform)>,
+) -> Vec3 {
+    if let Some(support) = instances
+        .iter()
+        .filter_map(|(instance, root)| instance.support_capsule_point(root, next, 0.26, 0.28))
+        .max_by(|a, b| a.y.total_cmp(&b.y))
+    {
+        next.y = support.y + 0.025;
+    }
+    next
 }
 
 #[allow(clippy::needless_pass_by_value, clippy::type_complexity)] // Bevy component/filter query.
@@ -450,8 +472,7 @@ mod tests {
         let prototype = generate(&recipe).unwrap();
         let mut controls = CameraControls::default();
         controls.frame(&prototype, "exterior");
-        let min = native_to_bevy(prototype.layout.bounds_min);
-        let max = native_to_bevy(prototype.layout.bounds_max);
+        let [min, max] = crate::render::above_ground_bounds(&prototype).map(native_to_bevy);
         assert!(controls.target.abs_diff_eq((min + max) * 0.5, 1e-5));
         assert!(controls.distance * 22.5_f32.to_radians().sin() > min.distance(max) * 0.5);
         recipe.chimney = None;

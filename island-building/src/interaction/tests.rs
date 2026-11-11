@@ -111,6 +111,7 @@ fn radial_scaled_collision_and_floor_queries_preserve_metres() {
 #[test]
 fn raised_floor_support_starts_when_capsule_reaches_doorway_threshold() {
     let mut instance = BuildingInstance::new(prototype(), "raised".into());
+    instance.stairs_visible = false;
     let open = instance.prototype.source.doors[0].swing_angle;
     instance.doors.get_mut("entrance").unwrap().angle = open;
     let root = GlobalTransform::from_translation(Vec3::Y * 0.1);
@@ -328,4 +329,85 @@ fn fireplace_hearth_blocks_walking_at_every_visual_lod_and_keeps_floor_support()
             "the hearth is an obstacle, not a raised walking surface"
         );
     }
+}
+
+#[test]
+fn hiding_stairs_disables_rendering_support_and_all_collision_queries_and_persists() {
+    let compiled = prototype();
+    let mut instance = BuildingInstance::new(Arc::clone(&compiled), "stairs".into());
+    let stairs = crate::geometry::foundation::stairs(&compiled.source.recipe)
+        .next()
+        .unwrap();
+    let shape = compiled.source.stair_colliders[6];
+    let centre = [
+        (shape.min[0] + shape.max[0]) * 0.5,
+        (shape.min[1] + shape.max[1]) * 0.5,
+        shape.max[2] - 0.05,
+    ];
+    let root = GlobalTransform::IDENTITY;
+    let world = native_to_bevy(centre);
+    assert!(instance.blocks_sphere(&root, world, 0.02));
+    assert!(instance.blocks_capsule(&root, world, 0.1, 1.8));
+    assert!(
+        instance
+            .raycast(&root, world + Vec3::Y, Vec3::NEG_Y, 2.)
+            .is_some()
+    );
+    assert!(
+        instance
+            .support_point(&root, world + Vec3::Y * 0.1, 0.3)
+            .is_some()
+    );
+    assert!(stairs.run > 1.);
+    let scaled = GlobalTransform::from(Transform::from_scale(Vec3::new(1., 3., 1.)));
+    let below_step = scaled.affine().transform_point3(native_to_bevy([
+        centre[0],
+        centre[1],
+        shape.max[2] - 0.1,
+    ]));
+    assert!(
+        instance.support_point(&scaled, below_step, 0.26).is_none(),
+        "step allowance remains in world metres under nonuniform scaling"
+    );
+    instance.stairs_visible = false;
+    assert!(!instance.blocks_sphere(&root, world, 0.02));
+    assert!(!instance.blocks_capsule(&root, world, 0.1, 1.8));
+    assert!(
+        instance
+            .raycast(&root, world + Vec3::Y, Vec3::NEG_Y, 2.)
+            .is_none()
+    );
+    assert!(
+        instance
+            .support_point(&root, world + Vec3::Y * 0.1, 0.3)
+            .is_none()
+    );
+    let mut replacement = BuildingInstance::new(Arc::clone(&compiled), "stairs".into());
+    assert!(replacement.restore_state(&instance.snapshot()));
+    assert!(!replacement.stairs_visible);
+    let mut legacy = serde_json::to_value(instance.snapshot()).unwrap();
+    legacy.as_object_mut().unwrap().remove("stairs_visible");
+    assert!(replacement.restore_state(&serde_json::from_value(legacy).unwrap()));
+    assert!(replacement.stairs_visible);
+    let mut app = App::new();
+    app.add_systems(Update, super::lod::sync_stairs);
+    let entity = app.world_mut().spawn(instance).id();
+    let child = app
+        .world_mut()
+        .spawn((BuildingStairs { building: entity }, Visibility::Inherited))
+        .id();
+    app.update();
+    assert_eq!(
+        *app.world().get::<Visibility>(child).unwrap(),
+        Visibility::Hidden
+    );
+    app.world_mut()
+        .get_mut::<BuildingInstance>(entity)
+        .unwrap()
+        .stairs_visible = true;
+    app.update();
+    assert_eq!(
+        *app.world().get::<Visibility>(child).unwrap(),
+        Visibility::Inherited
+    );
 }

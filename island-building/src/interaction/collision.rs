@@ -95,6 +95,16 @@ pub(crate) fn ray_door(
 }
 
 impl BuildingInstance {
+    pub(crate) fn active_colliders(&self) -> impl Iterator<Item = &crate::collision::BoxCollider> {
+        self.prototype.source.colliders.iter().chain(
+            self.prototype
+                .source
+                .stair_colliders
+                .iter()
+                .filter(|_| self.stairs_visible),
+        )
+    }
+
     /// Exact structural and moving-leaf capsule query for a root-aligned player.
     #[must_use]
     pub fn blocks_capsule(
@@ -115,10 +125,7 @@ impl BuildingInstance {
         {
             return false;
         }
-        self.prototype
-            .source
-            .colliders
-            .iter()
+        self.active_colliders()
             .any(|shape| shape.intersects_capsule(feet, radius, height))
             || self.prototype.source.doors.iter().any(|door| {
                 door.collider_at(self.doors.get(&door.id).map_or(0.0, |state| state.angle))
@@ -141,10 +148,7 @@ impl BuildingInstance {
         {
             return false;
         }
-        self.prototype
-            .source
-            .colliders
-            .iter()
+        self.active_colliders()
             .any(|shape| sphere_box(point, radius, shape.min.into(), shape.max.into()))
             || self.prototype.source.doors.iter().any(|door| {
                 sphere_door(
@@ -172,10 +176,7 @@ impl BuildingInstance {
         ));
         let [min, max] = self.prototype.native_collision_bounds;
         ray_box(local_origin, local_direction, min, max, max_distance)?;
-        self.prototype
-            .source
-            .colliders
-            .iter()
+        self.active_colliders()
             .filter_map(|shape| {
                 ray_box(
                     local_origin,
@@ -197,7 +198,7 @@ impl BuildingInstance {
             .min_by(f32::total_cmp)
     }
 
-    /// Single-storey floor support independent of render LOD and roof bounds.
+    /// Floor and visible stair support independent of render LOD and roof bounds.
     /// The input is feet position, and step allowance is in world units.
     #[must_use]
     pub fn support_point(
@@ -221,20 +222,31 @@ impl BuildingInstance {
         world_radius: f32,
     ) -> Option<Vec3> {
         let point = native_point(root, world_position);
-        let recipe = &self.prototype.source.recipe;
-        let closest = Vec2::new(
-            point.x.clamp(-recipe.width * 0.5, recipe.width * 0.5),
-            point.y.clamp(-recipe.depth * 0.5, recipe.depth * 0.5),
-        );
         let radius = local_radius(root, world_radius);
-        if Vec2::new(point.x, point.y).distance_squared(closest) > radius * radius {
-            return None;
-        }
-        let support = root
-            .affine()
-            .transform_point3(native_to_bevy([point.x, point.y, 0.0]));
-        let up = root.up().as_vec3();
-        ((support - world_position).dot(up) <= max_step_world).then_some(support)
+        let max_step = max_step_world / root.affine().matrix3.y_axis.length();
+        let floor = crate::geometry::foundation::bounds(&self.prototype.source.recipe);
+        std::iter::once(&floor)
+            .chain(
+                self.prototype
+                    .source
+                    .stair_colliders
+                    .iter()
+                    .filter(|_| self.stairs_visible),
+            )
+            .filter(|shape| {
+                let closest = Vec2::new(
+                    point.x.clamp(shape.min[0], shape.max[0]),
+                    point.y.clamp(shape.min[1], shape.max[1]),
+                );
+                Vec2::new(point.x, point.y).distance_squared(closest) <= radius * radius
+                    && shape.max[2] <= point.z + max_step + 0.00001
+            })
+            .map(|shape| shape.max[2])
+            .max_by(f32::total_cmp)
+            .map(|height| {
+                root.affine()
+                    .transform_point3(native_to_bevy([point.x, point.y, height]))
+            })
     }
 }
 

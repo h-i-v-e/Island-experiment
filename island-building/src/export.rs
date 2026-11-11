@@ -57,6 +57,8 @@ pub struct ExportManifest {
     pub normal_convention: String,
     pub mask_channels: String,
     pub door_policy: String,
+    #[serde(default)]
+    pub terrain_policy: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub masked_materials: Vec<MaskedMaterial>,
     pub lod_triangles: [usize; 3],
@@ -71,6 +73,7 @@ struct PortablePrototype<'a> {
     lods: &'a [crate::BuildingLod; 3],
     doors: &'a [crate::DoorDescriptor],
     colliders: &'a [crate::collision::BoxCollider],
+    stair_colliders: &'a [crate::collision::BoxCollider],
     atlas: &'a crate::BakedAtlas,
     materials: &'a [crate::MaterialTexture],
     hash: &'a str,
@@ -136,6 +139,7 @@ fn write_package(
         lods: &prototype.lods,
         doors: &prototype.doors,
         colliders: &prototype.colliders,
+        stair_colliders: &prototype.stair_colliders,
         atlas: &prototype.atlas,
         materials: &prototype.materials,
         hash: &prototype.hash,
@@ -143,7 +147,25 @@ fn write_package(
     write_json(root, "prototype.json", &portable, &mut files)?;
     write_json(root, "doors.json", &prototype.doors, &mut files)?;
     write_json(root, "collision.json", &prototype.colliders, &mut files)?;
+    write_json(
+        root,
+        "stairs-collision.json",
+        &prototype.stair_colliders,
+        &mut files,
+    )?;
+    write_json(
+        root,
+        "stairs.json",
+        &crate::geometry::foundation::stairs(&prototype.recipe).collect::<Vec<_>>(),
+        &mut files,
+    )?;
     write_json(root, "layout.json", &prototype.layout, &mut files)?;
+    write_json(
+        root,
+        "foundation.json",
+        &crate::geometry::foundation::bounds(&prototype.recipe),
+        &mut files,
+    )?;
     write_assets(prototype, root, &mut files)?;
     let masked_materials = prototype
         .materials
@@ -156,10 +178,11 @@ fn write_package(
         })
         .collect();
     let manifest=ExportManifest {
-        package_version:1,geometry_version:28,material_version:11,bake_version:14,
+        package_version:1,geometry_version:29,material_version:12,bake_version:14,
         prototype_hash:prototype.hash.clone(),coordinate_system:"right-handed, native Z-up, metres; OBJ UV V points up".into(),
         normal_convention:"OpenGL tangent-space +Y; linear normal maps".into(),mask_channels:"RGBA = occlusion, roughness, metallic, 1; linear".into(),
         door_policy:"LOD2 appearance uses closed leaves; preserve instance angles independently. door-N.obj and door-N-hardware.obj share hinge-local coordinates and map to doors.json[N]. depth_offset is the signed hinge-local Y centre for leaf collision; exported leaf and hardware vertices already include it. Missing depth_offset defaults to zero. New doors default closed; removed IDs are ignored.".into(),
+        terrain_policy:"Floor top is local Z=0. Place a level building so the highest terrain point within its foundation footprint touches Z=0; terrain gradients must not exceed 30 degrees. Foundation depth includes burial margin. Stair pitch is steeper than 30 degrees and its toe reaches the worst-case downhill ground beyond the footprint. The stairs material group is independently hideable at every LOD; disable stairs-collision.json with it. collision.json always includes the foundation; stairs.json describes each entrance; foundation.json gives the buried bounds. Baked foundation maps are shared by stairs at all LODs.".into(),
         masked_materials,lod_triangles:std::array::from_fn(|index|prototype.lods[index].triangle_count()),files,
     };
     let bytes = serde_json::to_vec_pretty(&manifest)?;
@@ -206,6 +229,11 @@ fn snapshot_dependencies(
             "floor",
             MaterialSlot::Floor,
             &mut recipe.materials.floor_recipe,
+        ),
+        (
+            "foundation",
+            MaterialSlot::Foundation,
+            &mut recipe.materials.foundation_recipe,
         ),
         (
             "ceiling",
@@ -349,6 +377,11 @@ fn write_meshes(
 }
 
 fn uv_scale(prototype: &BuildingPrototype, slot: MaterialSlot) -> [f32; 2] {
+    let slot = if slot == MaterialSlot::Stairs {
+        MaterialSlot::Foundation
+    } else {
+        slot
+    };
     prototype
         .materials
         .iter()
@@ -390,6 +423,8 @@ fn material_name(slot: MaterialSlot) -> &'static str {
         MaterialSlot::ThatchShell3 => "thatch_shell_3",
         MaterialSlot::ThatchShell4 => "thatch_shell_4",
         MaterialSlot::Floor => "floor",
+        MaterialSlot::Foundation => "foundation",
+        MaterialSlot::Stairs => "stairs",
         MaterialSlot::Ceiling => "ceiling",
         MaterialSlot::Interior => "interior",
         MaterialSlot::Trim => "trim",
@@ -413,6 +448,8 @@ fn material_library(prototype: &BuildingPrototype) -> String {
         (MaterialSlot::Timber, p.timber),
         (MaterialSlot::Roof, p.roof),
         (MaterialSlot::Floor, p.floor),
+        (MaterialSlot::Foundation, p.foundation),
+        (MaterialSlot::Stairs, p.foundation),
         (MaterialSlot::Ceiling, p.ceiling),
         (MaterialSlot::Interior, p.interior),
         (MaterialSlot::Trim, p.trim),
@@ -437,11 +474,17 @@ fn material_library(prototype: &BuildingPrototype) -> String {
             .map(|slot| (slot, [1.; 3])),
     ) {
         let name = material_name(slot);
+        let map_slot = if slot == MaterialSlot::Stairs {
+            MaterialSlot::Foundation
+        } else {
+            slot
+        };
+        let map_name = material_name(map_slot);
         let textured = slot == MaterialSlot::Atlas
             || prototype
                 .materials
                 .iter()
-                .any(|texture| texture.slot == slot);
+                .any(|texture| texture.slot == map_slot);
         let color = if textured { [1.; 3] } else { color };
         let (roughness, metallic) = if slot == MaterialSlot::Hardware {
             (0.24, 0.9)
@@ -460,7 +503,7 @@ fn material_library(prototype: &BuildingPrototype) -> String {
         if textured {
             writeln!(
                 text,
-                "map_Kd maps/{name}-albedo.png\nmap_Bump maps/{name}-normal.png"
+                "map_Kd maps/{map_name}-albedo.png\nmap_Bump maps/{map_name}-normal.png"
             )
             .unwrap();
         }
@@ -653,6 +696,7 @@ mod tests {
         recipe.materials.timber_recipe = Some("timber.json".into());
         recipe.materials.floor_recipe = Some("floor.json".into());
         recipe.materials.ceiling_recipe = Some("ceiling.json".into());
+        recipe.materials.foundation_recipe = Some("chimney.json".into());
         let prototype = crate::generate_with_base(&recipe, &source).unwrap();
         let manifest = export_package(&prototype, &target, &source).unwrap();
         fs::remove_dir_all(&source).unwrap();
@@ -667,7 +711,7 @@ mod tests {
         assert_eq!(regenerated.atlas, prototype.atlas);
         assert_eq!(regenerated.doors, prototype.doors);
         assert_eq!(regenerated.materials, prototype.materials);
-        for surface in ["floor", "ceiling"] {
+        for surface in ["floor", "ceiling", "foundation"] {
             assert!(target.join(format!("dependencies/{surface}.json")).exists());
             assert!(target.join(format!("maps/{surface}-albedo.png")).exists());
         }
@@ -698,7 +742,7 @@ mod tests {
                 manifest.material_version,
                 manifest.bake_version
             ),
-            (28, 11, 14)
+            (29, 12, 14)
         );
         assert_eq!(
             loaded.materials.door_recipe.as_deref(),

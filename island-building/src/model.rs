@@ -24,6 +24,8 @@ pub enum MaterialSlot {
     Glass,
     WindowProxy,
     Atlas,
+    Foundation,
+    Stairs,
 }
 impl MaterialSlot {
     /// Four masked cut-end layers, ordered from straw roots to tips.
@@ -116,6 +118,9 @@ pub struct BuildingPrototype {
     pub lods: [BuildingLod; 3],
     pub doors: Vec<DoorDescriptor>,
     pub colliders: Vec<BoxCollider>,
+    /// Optional entrance collision, switched together with stair visibility.
+    #[serde(default)]
+    pub stair_colliders: Vec<BoxCollider>,
     pub atlas: BakedAtlas,
     pub materials: Vec<MaterialTexture>,
     pub hash: String,

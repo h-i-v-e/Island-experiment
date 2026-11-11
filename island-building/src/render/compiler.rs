@@ -19,6 +19,7 @@ pub struct CompiledBuildingPart {
     pub material: Handle<StandardMaterial>,
     pub triangles: usize,
     pub glass: bool,
+    pub stairs: bool,
 }
 
 /// Retaining this value keeps all assets and collision metadata resident.
@@ -53,6 +54,7 @@ pub fn compile_building(
             material: material_handles[&slot].clone(),
             triangles: mesh.triangle_count(),
             glass: slot == MaterialSlot::Glass,
+            stairs: slot == MaterialSlot::Stairs,
         };
     let lods = std::array::from_fn(|level| {
         source.lods[level]
@@ -73,8 +75,7 @@ pub fn compile_building(
         .collect();
     let inspection_points = inspection_points(&source);
     let native_collision_bounds = collision_bounds(&source);
-    let min = native_to_bevy(source.layout.bounds_min);
-    let max = native_to_bevy(source.layout.bounds_max);
+    let [min, max] = above_ground_bounds(&source).map(native_to_bevy);
     let texture_bytes = source
         .materials
         .iter()
@@ -254,6 +255,10 @@ fn compile_materials(
             })
         });
     }
+    handles.insert(
+        MaterialSlot::Stairs,
+        handles[&MaterialSlot::Foundation].clone(),
+    );
     handles
 }
 
@@ -383,6 +388,29 @@ fn mip_chain(mut size: u32, data: &[u8], kind: TextureKind) -> (Vec<u8>, u32) {
         levels += 1;
     }
     (pixels, levels)
+}
+
+pub(crate) fn above_ground_bounds(source: &BuildingPrototype) -> [[f32; 3]; 2] {
+    source.lods[0]
+        .parts
+        .iter()
+        .filter(|part| {
+            !matches!(
+                part.material,
+                MaterialSlot::Foundation | MaterialSlot::Stairs
+            )
+        })
+        .flat_map(|part| &part.mesh.positions)
+        .fold(
+            [[f32::INFINITY; 3], [f32::NEG_INFINITY; 3]],
+            |mut bounds, point| {
+                for axis in 0..3 {
+                    bounds[0][axis] = bounds[0][axis].min(point[axis]);
+                    bounds[1][axis] = bounds[1][axis].max(point[axis]);
+                }
+                bounds
+            },
+        )
 }
 
 #[cfg(test)]

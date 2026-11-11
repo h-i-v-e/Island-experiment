@@ -19,6 +19,7 @@ pub struct BuildingInstance {
     pub placement_id: String,
     pub lod_mode: LodMode,
     pub current_lod: usize,
+    pub stairs_visible: bool,
     /// Angles are offsets from each descriptor's canonical closed pose, radians.
     pub doors: BTreeMap<String, DoorState>,
 }
@@ -37,6 +38,7 @@ impl BuildingInstance {
             placement_id,
             lod_mode: LodMode::Auto,
             current_lod: 0,
+            stairs_visible: true,
             doors,
         }
     }
@@ -86,6 +88,11 @@ pub struct BuildingOccupant {
 pub struct BuildingBlocker {
     pub radius: f32,
     pub height: f32,
+}
+
+#[derive(Component)]
+pub struct BuildingStairs {
+    pub building: Entity,
 }
 
 #[derive(Component)]
@@ -140,6 +147,7 @@ impl Plugin for BuildingRuntimePlugin {
                 doors::animate_doors,
                 lod::select_lods,
                 lod::sync_lod_roots,
+                lod::sync_stairs,
                 doors::sync_door_leaves,
             )
                 .chain()

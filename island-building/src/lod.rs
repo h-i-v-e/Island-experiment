@@ -6,6 +6,7 @@ use crate::{
 
 pub(crate) fn middle(recipe: &BuildingRecipe) -> BuildingLod {
     let mut builder = Builder::default();
+    geometry::foundation::generate(&mut builder, recipe, false);
     for facade in Facade::ALL {
         geometry::wall(&mut builder, recipe, facade, false, &mut Vec::new());
     }
@@ -64,6 +65,7 @@ pub(crate) fn atlas_uv(recipe: &BuildingRecipe, chart: usize, u: f32, v: f32) ->
 }
 pub(crate) fn distant(recipe: &BuildingRecipe) -> BuildingLod {
     let mut builder = Builder::default();
+    geometry::foundation::generate(&mut builder, recipe, true);
     distant_walls(&mut builder, recipe);
     distant_roof(&mut builder, recipe);
     distant_base(&mut builder, recipe);

@@ -212,6 +212,7 @@ impl StudioDocument {
                 &mut relocated.materials.chimney_recipe,
                 &mut relocated.materials.timber_recipe,
                 &mut relocated.materials.floor_recipe,
+                &mut relocated.materials.foundation_recipe,
                 &mut relocated.materials.ceiling_recipe,
             ]
             .into_iter()
@@ -263,6 +264,7 @@ fn validate_dependencies(recipe: &BuildingRecipe, base: &Path) -> Result<(), Doc
         &recipe.materials.chimney_recipe,
         &recipe.materials.timber_recipe,
         &recipe.materials.floor_recipe,
+        &recipe.materials.foundation_recipe,
         &recipe.materials.ceiling_recipe,
     ]
     .into_iter()
@@ -412,6 +414,7 @@ mod tests {
         recipe.materials.door_recipe = Some("wood.json".into());
         recipe.materials.floor_recipe = Some("wood.json".into());
         recipe.materials.ceiling_recipe = Some("wood.json".into());
+        recipe.materials.foundation_recipe = Some("wood.json".into());
         fs::write(
             source.join("building.json"),
             serde_json::to_vec(&recipe).unwrap(),
@@ -426,6 +429,7 @@ mod tests {
             &loaded.recipe().materials.door_recipe,
             &loaded.recipe().materials.floor_recipe,
             &loaded.recipe().materials.ceiling_recipe,
+            &loaded.recipe().materials.foundation_recipe,
         ] {
             assert_eq!(
                 fs::canonicalize(reference.as_deref().unwrap()).unwrap(),

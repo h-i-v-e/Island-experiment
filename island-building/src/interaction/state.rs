@@ -24,6 +24,12 @@ pub struct BuildingSceneState {
     pub version: u32,
     pub placement_id: String,
     pub doors: BTreeMap<String, DoorState>,
+    #[serde(default = "stairs_visible_default")]
+    pub stairs_visible: bool,
+}
+
+const fn stairs_visible_default() -> bool {
+    true
 }
 
 impl BuildingInstance {
@@ -54,6 +60,7 @@ impl BuildingInstance {
             version: 1,
             placement_id: self.placement_id.clone(),
             doors: self.doors.clone(),
+            stairs_visible: self.stairs_visible,
         }
     }
 
@@ -69,6 +76,7 @@ impl BuildingInstance {
         {
             return false;
         }
+        self.stairs_visible = saved.stairs_visible;
         for descriptor in &self.prototype.source.doors {
             let mut state = saved.doors.get(&descriptor.id).copied().unwrap_or_default();
             let min = descriptor.swing_angle.min(0.0);

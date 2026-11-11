@@ -63,6 +63,28 @@ Material Studio controls this pattern and requires an even number of boards
 across the tile. Interior walls and fireplace surrounds retain their plaster finish.
 These interior materials appear at LOD0.
 
+Foundations are separate coursed stone, with their own colour and JSON material
+selector under **Materials → Foundation / stairs**. They project 8 cm beyond
+the walls and extend down by `tan(30°) × footprint diagonal + burial margin`
+(default 15 cm). Keep the building level and place its floor top at the highest
+terrain point anywhere within the foundation footprint. This covers terrain
+whose slope stays within 30° in any direction.
+
+Each exterior door gets a landing and 20 cm rise / 24 cm tread entrance stairs.
+Their full length reaches the worst downhill terrain beyond the foundation;
+terrain conceals the unused lower steps. **Structure → Generate entrance stairs**
+controls whether the asset contains them. **Inspection → Show entrance stairs**
+controls the current placement, including its collision and walking support.
+This setting is retained by `BuildingInstance::snapshot` / `restore_state`.
+**Terrain slope**, **Slope direction** and the **Foundations** camera provide
+an inspection preview without changing the building recipe.
+
+LOD0 and LOD1 retain solid steps; LOD2 uses a 24-triangle stair silhouette.
+Foundation and stair surfaces share baked stone maps independently of the
+wooden floor. Exported material groups keep stairs independently hideable;
+`stairs-collision.json` must be switched with them. `foundation.json` describes
+the buried bounds, and `stairs.json` records each doorway's reach and step sizes.
+
 **Openings → Door style → 18th-century panels** selects a Georgian-style
 six-panel frame-and-panel leaf for that door. It has solid stiles and rails,
 small upper panels, taller middle/lower panels, moulded borders and raised fields
