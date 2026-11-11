@@ -55,10 +55,16 @@ the default wood grain follows each member. The reusable plaster recipe is
 [`wattle-daub.json`](../island-rs/texture-recipes/wattle-daub.json), and
 [`wattle-daub-cottage.json`](recipes/wattle-daub-cottage.json) is a complete example.
 Framing is clipped around openings and kept within the roof profile. LOD0 has
-solid projecting members; LOD1 keeps their fronts; LOD2 bakes the same pattern
-with filtered edges into its minimal shell. Older recipes retain plain walls.
-Corner posts meet at mitered edges with aligned wood grain. Timber roof edging
-overlaps beneath the smoothed thatch to hide the plaster joint.
+full-depth members visible on both sides of the wall. LOD1 keeps their
+exterior fronts; LOD2 bakes the same pattern with filtered edges into its minimal
+shell. Older recipes retain plain walls.
+Each LOD0 corner is one closed rectangular timber through both walls, with
+vertical grain and collision. Corner sections include the wall thickness and
+beam width, fitting beside nearby opening casings; rails and braces butt into
+them. Timber roof edging overlaps beneath the smoothed thatch to hide the plaster
+joint. The ceiling meets the top of the wall-top rail where roof clearance allows,
+with upper plaster, partitions and the fireplace extended to meet it. This leaves
+the plate visible for adding exposed ceiling timbers later.
 Horizontal timbers join the upright posts directly above and below each window
 and above each door, fitted against the casing and sill with grain along the beam.
 **Inspection → Corner** provides a close view of both joins.

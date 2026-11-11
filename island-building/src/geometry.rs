@@ -18,6 +18,7 @@ const DOOR_THICKNESS: f32 = 0.055;
 const DOOR_EDGE_CLEARANCE: f32 = 0.003;
 const DOOR_FLOOR_CLEARANCE: f32 = 0.006;
 const DOOR_JAMB_CLEARANCE: f32 = 0.001;
+const CEILING_THICKNESS: f32 = 0.08;
 
 #[derive(Default)]
 pub(crate) struct Builder {
@@ -123,6 +124,7 @@ pub(crate) fn generate(r: &BuildingRecipe) -> (BuildingLod, Vec<DoorDescriptor>,
         }
     }
     timber_frame::generate(&mut b, r, true);
+    colliders.extend(timber_frame::corner_colliders(r));
     for p in &r.partitions {
         partition(&mut b, r, p, &mut colliders);
     }
@@ -148,11 +150,32 @@ fn slabs(b: &mut Builder, r: &BuildingRecipe, colliders: &mut Vec<BoxCollider>) 
     ];
     for (a, c) in chimney::roof_cells(r, min, max) {
         let ceiling = BoxCollider {
-            min: [a[0], a[1], r.wall_height - 0.08],
-            max: [c[0], c[1], r.wall_height],
+            min: [a[0], a[1], ceiling_height(r)],
+            max: [c[0], c[1], ceiling_top(r)],
         };
         b.cube(MaterialSlot::Interior, ceiling.min, ceiling.max);
         colliders.push(ceiling);
+    }
+}
+
+fn ceiling_height(recipe: &BuildingRecipe) -> f32 {
+    if recipe.walls.style != crate::WallStyle::WattleAndDaub {
+        return recipe.wall_height - CEILING_THICKNESS;
+    }
+    let inner = recipe.width * 0.5 - recipe.wall_thickness;
+    let roof_top = chimney::roof_height(recipe, -inner).min(chimney::roof_height(recipe, inner));
+    let roof_bottom = roof_top - recipe.roof.effective_thickness();
+    // Meet the top of the wall plate, while fitting shallow roofs too.
+    (recipe.wall_height + timber_frame::roof_overlap(recipe))
+        .min(roof_bottom - 0.01)
+        .min(roof_top - CEILING_THICKNESS)
+}
+
+fn ceiling_top(recipe: &BuildingRecipe) -> f32 {
+    if recipe.walls.style == crate::WallStyle::Plain {
+        recipe.wall_height
+    } else {
+        ceiling_height(recipe) + CEILING_THICKNESS
     }
 }
 
@@ -295,6 +318,18 @@ pub(crate) fn wall(
         }
     }
     gable(b, r, f);
+    if interior && ceiling_top(r) > r.wall_height {
+        let half = half - r.wall_thickness;
+        b.face(
+            MaterialSlot::Interior,
+            [
+                f.point(r, half, r.wall_height, r.wall_thickness),
+                f.point(r, -half, r.wall_height, r.wall_thickness),
+                f.point(r, -half, ceiling_top(r), r.wall_thickness),
+                f.point(r, half, ceiling_top(r), r.wall_thickness),
+            ],
+        );
+    }
 }
 pub(crate) fn frame(b: &mut Builder, r: &BuildingRecipe, o: &crate::OpeningRecipe, mullions: bool) {
     let f = o.facade;
@@ -343,13 +378,18 @@ fn partition(
         PartitionAxis::Y => r.depth * 0.5 - r.wall_thickness,
     };
     for (a, c, z0, z1) in [
-        (-half, p.door_offset - p.door_width * 0.5, 0., r.wall_height),
-        (p.door_offset + p.door_width * 0.5, half, 0., r.wall_height),
+        (
+            -half,
+            p.door_offset - p.door_width * 0.5,
+            0.,
+            ceiling_top(r),
+        ),
+        (p.door_offset + p.door_width * 0.5, half, 0., ceiling_top(r)),
         (
             p.door_offset - p.door_width * 0.5,
             p.door_offset + p.door_width * 0.5,
             p.door_height,
-            r.wall_height,
+            ceiling_top(r),
         ),
     ] {
         let (min, max) = match p.axis {
@@ -636,6 +676,43 @@ fn roof_seams(b: &mut Builder, r: &BuildingRecipe, s: RoofSection) {
                     [x - 0.012, a, z - 0.006],
                     [x + 0.012, c, z + 0.018],
                 );
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn raised_ceiling_fits_shallow_and_steep_roofs_without_changing_plain_walls() {
+        for roof in [RoofKind::Gable, RoofKind::Shed] {
+            for covering in [
+                RoofCovering::StandingSeam,
+                RoofCovering::Slate,
+                RoofCovering::Thatch,
+            ] {
+                for rise in [0.1, 4.] {
+                    for thickness in [0.08, 0.6] {
+                        let mut recipe = BuildingRecipe::hut();
+                        recipe.roof.kind = roof;
+                        recipe.roof.covering = covering;
+                        recipe.roof.rise = rise;
+                        recipe.wall_thickness = thickness;
+                        let old_ceiling = recipe.wall_height - CEILING_THICKNESS;
+                        assert!((ceiling_height(&recipe) - old_ceiling).abs() < 0.000_001);
+                        recipe.walls.style = crate::WallStyle::WattleAndDaub;
+                        let inner = recipe.width * 0.5 - thickness;
+                        let low_roof = chimney::roof_height(&recipe, -inner)
+                            .min(chimney::roof_height(&recipe, inner));
+                        assert!(ceiling_height(&recipe) > old_ceiling);
+                        assert!(ceiling_top(&recipe) <= low_roof + 0.000_001);
+                        assert!(
+                            ceiling_height(&recipe) < low_roof - recipe.roof.effective_thickness()
+                        );
+                    }
+                }
             }
         }
     }

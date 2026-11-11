@@ -814,4 +814,105 @@ The signed version-19 canonical app was opened with the original
 reviewed live. It is left on Structure / Window / forced LOD0, with the entrance
 open and no unsaved recipe changes. Version 18 is preserved at
 `island-building/dist/.previous/pre-opening-crosspieces-20261111-180232/Building Studio.app`.
-The new crosspiece extension remains uncommitted for review.
+The crosspiece extension was subsequently committed and pushed as `bad3330`.
+
+## Through-wall timber visible inside
+
+LOD0 timber now extends through the structural wall and projects into the room
+by the configured frame projection. Interior caps retain the exterior member
+layout and grain, with reverse winding so they render from inside. Inner corner
+posts join with matching grain at mitered edges, including when wall thickness
+exceeds the beam width. Interior joints are partitioned to avoid competing faces,
+and opening cuts continue to respect the casings and sills. All faces share the
+existing assignable timber material and colour. LOD1 and LOD2 retain their
+existing exterior treatment.
+
+All **55 library and 29 core tests** pass with studio and all targets enabled.
+Strict all-target Clippy and formatting checks pass. Added coverage verifies
+room-facing winding, full-depth beam sides, coherent inner corners and clear
+headers/sills/apertures across all facades, both roof shapes and 8/20/60 cm wall
+thicknesses. A near-corner window also verifies that inner corner posts respect
+the opening and that their caps do not overlap other members.
+
+Serial Metal captures show the room, entrance and sunlit window at LOD0. The
+room has visible posts, braces and crosspieces; the open entrance and clear pane
+remain unobstructed. All 45 exported files match manifest lengths and SHA-256
+hashes. Compared with version 19, 43 files are byte-identical, including all maps,
+doors, collision, layout, LOD1 and LOD2. All non-timber LOD0 geometry also matches.
+The preserved draft has **38,311 / 1,010 / 134** static triangles, adding 770 at
+LOD0 with no new material draw. Geometry/material/bake versions are **20/8/12**.
+Evidence and the focused source review are under
+`artifacts/building-studio/2026-11-11/interior-timber/`.
+
+The signed version-20 canonical app was opened with the original
+`wattle-daub/wattle-draft.json` and reviewed live. It is left on Structure /
+Interior / forced LOD0, with the entrance open and no unsaved recipe changes.
+Version 19 is preserved at
+`island-building/dist/.previous/pre-interior-timber-20261111-184442/Building Studio.app`.
+The through-wall timber extension remains uncommitted for review.
+
+## Solid corner posts and exposed wall-top rails
+
+LOD0 now emits exactly four closed rectangular corner posts, replacing the
+separate mitered facade strips and supplementary interior corner pieces. The
+posts span both walls and retain vertical grain across their faces. Their
+section includes the wall thickness plus beam width and exterior projection;
+near-corner openings limit the section so a complete post fits beside its
+casing. Shared footprint masks make adjoining rails and braces butt into each
+post and carry the matching corner silhouette into LOD1 and the LOD2 atlas.
+Four post colliders also cover the new interior projection.
+
+Wattle-and-daub ceilings now sit 6 cm above the wall-top rail where the roof
+permits, with a clearance limit for shallow roofs. On the preserved thatched
+draft this moves the ceiling underside from 2.72 m to **2.96 m**, a **24 cm**
+lift above the original ceiling. The wall-top rail ends at 2.90 m and is fully
+visible. Upper plaster, partitions and the straight fireplace breast extend
+to the raised slab; ceiling and breast collision follow the new height. The
+chimney shaft opening stays clear. Plain-wall ceilings retain their old height.
+This prepares the room for the requested later rafters between the window walls.
+
+All **57 library and 30 core tests** pass with studio and all targets enabled.
+Strict all-target Clippy, formatting and whitespace checks pass. Tests verify
+closed post topology with no diagonal join faces, fitting near-corner casings,
+non-overlapping frame caps, through-wall geometry, clear apertures and visible
+rails. Ceiling tests cover both roof shapes, all three coverings, shallow and
+steep pitches and different wall thicknesses. Ray checks verify upper infill,
+the extended breast and matching ceiling collision. The bundled wattle-and-daub
+cottage recipe also validates.
+
+Serial Metal captures cover the interior, exterior corner and both lower LODs.
+All 45 export entries match their lengths and SHA-256 hashes. Compared with
+version 20, 38 files are identical, including all individual material maps,
+doors, layout and minimal LOD2 geometry. Only timber, upper interior geometry
+and the fireplace breast change in LOD0; only timber changes in LOD1. The atlas
+updates to match the wider corner posts. Static triangles are
+**38,147 / 1,000 / 134**, with no extra material draw. Geometry/material/bake
+versions are **21/8/13**. Evidence and the focused source review are under
+`artifacts/building-studio/2026-11-11/solid-corners-ceiling/`.
+
+The current unsaved plain-hut draft was saved as `pre-rebuild-draft.json` in that
+evidence folder before rebuilding. The signed version-21 canonical app is open
+on the original `wattle-daub/wattle-draft.json`, Structure / Interior / forced
+LOD0, with the entrance open and no unsaved recipe changes. The exposed rail and
+solid inside corner were reviewed live. Version 20 is preserved at
+`island-building/dist/.previous/pre-solid-corners-20261111-191058/Building Studio.app`.
+The through-wall work and this extension remain uncommitted on `main`.
+
+## Ceiling flush with bearer tops
+
+The ceiling underside now meets the wall-top bearer directly. The previous
+6 cm clearance is removed: the thatched draft's ceiling is **2.90 m**, with no
+visible plaster strip or projecting stud ends above the bearer. The shared
+ceiling height also updates the slab collision, upper plaster, partitions and
+fireplace breast. Shallow-roof clearance remains bounded as before.
+
+All **57 library and 30 core tests**, strict all-target Clippy, formatting and
+whitespace checks pass. The existing room ray test now checks the flush height.
+The LOD0 Metal capture and live version-22 app both show a continuous ceiling
+join against the bearer. The original saved draft is open on Interior / LOD0,
+with the entrance open and no unsaved recipe changes. Versions are **22/8/13**.
+Evidence and the focused correction diff are under
+`artifacts/building-studio/2026-11-11/ceiling-bearer-fit/`. The signed version-21
+bundle is preserved at
+`island-building/dist/.previous/pre-ceiling-fit-20261111-194222/Building Studio.app`.
+All building changes remain uncommitted for review.

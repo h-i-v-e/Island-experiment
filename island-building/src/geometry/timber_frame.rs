@@ -1,5 +1,7 @@
 //! Shared half-timber layout: real near/middle relief and matching distant charts.
 use super::Builder;
+mod corners;
+mod interior;
 use crate::{
     BuildingRecipe, Facade, MaterialSlot, OpeningKind, OpeningRecipe, RoofCovering, RoofKind,
     WallStyle,
@@ -12,9 +14,29 @@ pub(crate) struct Member {
     origin: Point,
     pub(crate) direction: Point,
     bounds: [Point; 2],
+    corner: bool,
 }
 
 impl Member {
+    fn new(polygon: Vec<Point>, origin: Point, direction: Point) -> Self {
+        let bounds = [
+            std::array::from_fn(|i| polygon.iter().map(|p| p[i]).fold(f32::INFINITY, f32::min)),
+            std::array::from_fn(|i| {
+                polygon
+                    .iter()
+                    .map(|p| p[i])
+                    .fold(f32::NEG_INFINITY, f32::max)
+            }),
+        ];
+        Self {
+            polygon,
+            origin,
+            direction,
+            bounds,
+            corner: false,
+        }
+    }
+
     pub(crate) fn uv(&self, point: Point) -> Point {
         let delta = [point[0] - self.origin[0], point[1] - self.origin[1]];
         [
@@ -75,7 +97,7 @@ pub(crate) fn layout(recipe: &BuildingRecipe, facade: Facade) -> Vec<Member> {
         *last = half - width * 0.5;
     }
     let profile = profile(recipe, facade);
-    let mut members = Vec::new();
+    let mut members = corners::layout(recipe, facade, &profile);
     opening_crosspieces(&mut members, recipe, facade, &profile, &posts);
     for &along in &posts {
         add(
@@ -225,7 +247,7 @@ fn roof_members(
     }
 }
 
-fn roof_overlap(recipe: &BuildingRecipe) -> f32 {
+pub(super) fn roof_overlap(recipe: &BuildingRecipe) -> f32 {
     if recipe.roof.covering == RoofCovering::Thatch {
         0.10
     } else {
@@ -295,21 +317,11 @@ fn add(
             .collect();
     }
     for polygon in pieces.into_iter().filter(|p| area(p) > 0.00001) {
-        let bounds = [
-            std::array::from_fn(|i| polygon.iter().map(|p| p[i]).fold(f32::INFINITY, f32::min)),
-            std::array::from_fn(|i| {
-                polygon
-                    .iter()
-                    .map(|p| p[i])
-                    .fold(f32::NEG_INFINITY, f32::max)
-            }),
-        ];
-        members.push(Member {
+        members.push(Member::new(
             polygon,
-            origin: grain_origin(recipe, facade, start, offset, direction),
+            grain_origin(recipe, facade, start, offset, direction),
             direction,
-            bounds,
-        });
+        ));
     }
 }
 
@@ -419,7 +431,11 @@ fn subtract(polygon: Vec<Point>, cut: &[Point]) -> Vec<Vec<Point>> {
 
 pub(crate) fn generate(builder: &mut Builder, recipe: &BuildingRecipe, detailed: bool) {
     for facade in Facade::ALL {
-        for member in layout(recipe, facade) {
+        let members = layout(recipe, facade);
+        for member in &members {
+            if detailed && member.corner {
+                continue;
+            }
             let polygon = &member.polygon;
             let front = -recipe.walls.frame_projection;
             for i in 1..polygon.len() - 1 {
@@ -434,20 +450,35 @@ pub(crate) fn generate(builder: &mut Builder, recipe: &BuildingRecipe, detailed:
                 );
             }
             if detailed {
+                let back = recipe.wall_thickness + recipe.walls.frame_projection;
                 for (a, b) in edges(polygon) {
                     builder.face(
                         MaterialSlot::Timber,
                         [
                             point(recipe, facade, b[0], b[1], front),
                             point(recipe, facade, a[0], a[1], front),
-                            point(recipe, facade, a[0], a[1], 0.006),
-                            point(recipe, facade, b[0], b[1], 0.006),
+                            facade.point(recipe, a[0], a[1], back),
+                            facade.point(recipe, b[0], b[1], back),
                         ],
                     );
                 }
             }
         }
+        if detailed && !members.is_empty() {
+            interior::generate(builder, recipe, facade, &members);
+        }
     }
+    if detailed && recipe.walls.style == WallStyle::WattleAndDaub {
+        corners::generate(builder, recipe);
+    }
+}
+
+pub(super) fn corner_colliders(
+    recipe: &BuildingRecipe,
+) -> impl Iterator<Item = crate::collision::BoxCollider> {
+    corners::bounds(recipe)
+        .into_iter()
+        .filter(|_| recipe.walls.style == WallStyle::WattleAndDaub)
 }
 
 #[cfg(test)]

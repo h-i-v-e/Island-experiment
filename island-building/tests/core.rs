@@ -19,7 +19,7 @@ fn half_timbered_walls_keep_clear_openings_real_relief_and_a_baked_distant_frame
         recipe.walls.style = WallStyle::WattleAndDaub;
         recipe.materials.wall = recipe.walls.style.default_colour();
         let prototype = generate(&recipe).unwrap();
-        assert_eq!(prototype.colliders, plain.colliders);
+        assert_eq!(prototype.colliders.len(), plain.colliders.len() + 4);
         assert_eq!(prototype.doors, plain.doors);
         for lod in &prototype.lods[..2] {
             let mesh = &lod
@@ -157,6 +157,167 @@ fn opening_crosspieces_fit_against_casings_and_sills_without_blocking_apertures(
             }
         }
     }
+}
+
+#[test]
+fn lod0_timber_passes_through_walls_and_faces_the_room_without_blocking_openings() {
+    for facade in Facade::ALL {
+        for roof in [RoofKind::Gable, RoofKind::Shed] {
+            for thickness in [0.08, 0.2, 0.6] {
+                let mut recipe = preview(BuildingRecipe::hut());
+                recipe.chimney = None;
+                recipe.roof.kind = roof;
+                recipe.wall_thickness = thickness;
+                recipe.walls.style = WallStyle::WattleAndDaub;
+                recipe.openings.truncate(2);
+                recipe.openings[0].facade = facade;
+                recipe.openings[0].offset = -0.8;
+                recipe.openings[1].facade = facade;
+                recipe.openings[1].offset = 0.8;
+                recipe.openings[1].width = 0.7;
+                let prototype = generate(&recipe).unwrap();
+                let timber = &prototype.lods[0]
+                    .parts
+                    .iter()
+                    .find(|p| p.material == MaterialSlot::Timber)
+                    .unwrap()
+                    .mesh;
+                check_mesh(timber);
+                let inward_face = |wall: Facade, along, z, projection: f32| {
+                    let origin = wall.point(&recipe, along, z, thickness + 0.3);
+                    let direction = wall.normal();
+                    let distance = timber
+                        .indices
+                        .chunks_exact(3)
+                        .filter_map(|tri| {
+                            let normal = timber.normals[tri[0] as usize];
+                            (normal
+                                .iter()
+                                .zip(direction)
+                                .map(|(a, b)| a * b)
+                                .sum::<f32>()
+                                < -0.99)
+                                .then(|| {
+                                    triangle_hit(tri.map_ref(&timber.positions), origin, direction)
+                                })
+                                .flatten()
+                        })
+                        .min_by(f32::total_cmp)
+                        .expect("timber face visible from inside");
+                    assert!((distance - (0.3 - projection)).abs() < 0.00001);
+                };
+                for wall in Facade::ALL {
+                    let corner =
+                        wall.length(&recipe) * 0.5 - thickness - recipe.walls.beam_width * 0.5;
+                    for along in [-corner, corner] {
+                        inward_face(wall, along, 0.5, recipe.walls.beam_width);
+                    }
+                }
+                for opening in &recipe.openings {
+                    let above = opening.sill
+                        + opening.height
+                        + if opening.kind == OpeningKind::Window {
+                            0.065
+                        } else {
+                            0.07
+                        };
+                    inward_face(
+                        facade,
+                        opening.offset,
+                        above + 0.002,
+                        recipe.walls.frame_projection,
+                    );
+                    if opening.kind == OpeningKind::Window {
+                        inward_face(
+                            facade,
+                            opening.offset,
+                            opening.sill - 0.072,
+                            recipe.walls.frame_projection,
+                        );
+                    }
+                    let origin = facade.point(
+                        &recipe,
+                        opening.offset,
+                        opening.sill + opening.height * 0.75,
+                        thickness + 0.3,
+                    );
+                    assert!(
+                        mesh_ray(timber, origin, facade.normal())
+                            .is_none_or(|d| d > thickness + 0.3),
+                        "clear aperture from inside"
+                    );
+                }
+                let other = Facade::ALL[(facade.index() + 1) % 4];
+                inward_face(other, 0., 0.5, recipe.walls.frame_projection);
+                let origin = other.point(&recipe, 0.2, 0.5, thickness * 0.5);
+                let hit = mesh_ray(timber, origin, other.tangent().map(|v| -v)).unwrap();
+                assert!(
+                    (hit - (0.2 - recipe.walls.beam_width * 0.5)).abs() < 0.00001,
+                    "post side extends through the wall core"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn ceiling_meets_wall_plate_tops_and_keeps_plaster_fireplace_and_collision_closed() {
+    let mut recipe = preview(BuildingRecipe::hut());
+    recipe.walls.style = WallStyle::WattleAndDaub;
+    recipe.roof.covering = RoofCovering::Thatch;
+    recipe.roof.rise = 4.;
+    let prototype = generate(&recipe).unwrap();
+    let mesh = |slot| {
+        &prototype.lods[0]
+            .parts
+            .iter()
+            .find(|p| p.material == slot)
+            .unwrap()
+            .mesh
+    };
+    let ceiling = recipe.wall_height + 0.1;
+    let eye = [0., 0., 1.65];
+    let hit = mesh_ray(mesh(MaterialSlot::Interior), eye, [0., 0., 1.]).unwrap();
+    assert!((hit - (ceiling - eye[2])).abs() < 0.00001);
+    let collision = prototype
+        .colliders
+        .iter()
+        .filter_map(|c| c.ray_hit(eye, [0., 0., 1.], 10.))
+        .min_by(f32::total_cmp)
+        .unwrap();
+    assert!(
+        (hit - collision).abs() < 0.00001,
+        "ceiling collision follows its new height"
+    );
+    for facade in [Facade::East, Facade::West] {
+        let origin = facade.point(
+            &recipe,
+            0.8,
+            recipe.wall_height + 0.095,
+            recipe.wall_thickness + 0.3,
+        );
+        let timber = mesh_ray(mesh(MaterialSlot::Timber), origin, facade.normal()).unwrap();
+        assert!(
+            (timber - (0.3 - recipe.walls.frame_projection)).abs() < 0.00001,
+            "full top rail is exposed below the ceiling"
+        );
+        let origin = facade.point(&recipe, 0.8, ceiling - 0.02, recipe.wall_thickness + 0.3);
+        let infill = mesh_ray(mesh(MaterialSlot::Interior), origin, facade.normal()).unwrap();
+        assert!(
+            (infill - 0.3).abs() < 0.00001,
+            "plaster remains behind the bearer up to the ceiling"
+        );
+    }
+    let chimney = recipe.chimney.as_ref().unwrap();
+    let front = recipe.wall_thickness + chimney.depth;
+    let origin = chimney
+        .facade
+        .point(&recipe, chimney.offset, ceiling - 0.02, front + 0.3);
+    let masonry = mesh_ray(mesh(MaterialSlot::Chimney), origin, chimney.facade.normal()).unwrap();
+    assert!(
+        (masonry - 0.3).abs() < 0.00001,
+        "straight breast reaches the raised ceiling"
+    );
 }
 
 #[test]

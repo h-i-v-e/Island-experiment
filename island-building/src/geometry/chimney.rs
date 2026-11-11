@@ -191,7 +191,7 @@ pub(crate) fn near(b: &mut Builder, recipe: &BuildingRecipe, colliders: &mut Vec
             [chimney.width * 0.5, frame.front()],
         ),
         (min, max),
-        [frame.hood_end(), recipe.wall_height],
+        [frame.hood_end(), super::ceiling_top(recipe)],
     ));
     flashing(b, recipe, MaterialSlot::Chimney, true);
 }
@@ -310,7 +310,7 @@ fn breast(b: &mut Builder, f: &Frame<'_>) {
     let outer1 = rectangle(
         [-c.width * 0.5, f.back()],
         [c.width * 0.5, f.front()],
-        f.recipe.wall_height,
+        super::ceiling_top(f.recipe),
     );
     let inner0 = rectangle(
         [-c.firebox_width * 0.5, f.front() - c.firebox_depth],
