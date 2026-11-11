@@ -5,6 +5,17 @@ namespace Motu.Rendering
     public sealed partial class OceanDeckWaveClamp
     {
         private const int MaximumHulls = 4;
+        /// <summary>Remaining slots for fully rendered convex hull exclusions.</summary>
+        public static int AvailableConvexHullSlots
+        {
+            get
+            {
+                int count = 0;
+                foreach (var ship in Active)
+                    if (ship != null && ship.isActiveAndEnabled && ship.HasConvexHull) count++;
+                return Mathf.Max(0, MaximumHulls - count);
+            }
+        }
         [Header("Convex hull exclusion")]
         [Tooltip("Baked in this Transform's local space. Excludes interior water fragments and clamps only crests above the mean sea plane; replaces footprint suppression; bow waves and wake are retained. Clear to restore the footprint.")]
         [SerializeField] private OceanHullVolume convexHull;

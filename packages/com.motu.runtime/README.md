@@ -502,6 +502,20 @@ The **Ship and Shore Wave Audio** sample contains the corresponding hull and
 shore audio components and an isolated native audio validation command. TerraNullus
 already has these components in `Assets/Scripts`; avoid importing duplicate copies.
 
+`SailingNavigation` provides serializable voyage state, a wind-dependent virtual
+speed estimate and hysteretic upwind tacking. Hosts supply the current wind and
+can retain the same planner state when switching to a physically simulated ship.
+`ShipRouteAvoidance` checks swept hull footprints against already-resident terrain
+without discovering or loading islands; preparing resident terrain blocks the
+route until its collision-heightfield data is ready. TerraNullus integrates these
+helpers with an AI captain and distance-based Explorer spawning; its `AI_SHIPS.md`
+describes scene setup and runtime route controls.
+
+Convex hull exclusions use a weighted 3-by-3 normal stencil extending into
+neighbouring water. Diagonal hull projections reuse the four axial wave
+evaluations, and weighted contact coverage feathers the result back into analytic
+wave lighting. This local smoothing changes shading only.
+
 `OceanHullSpray` follows the unclamped wave samples up the hull. With **Gunwale
 Overflow** enabled, waves above the individual rail profile emit inward from
 their actual crest height, vertically above the rail. Taller crests produce
