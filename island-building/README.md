@@ -59,6 +59,8 @@ solid projecting members; LOD1 keeps their fronts; LOD2 bakes the same pattern
 with filtered edges into its minimal shell. Older recipes retain plain walls.
 Corner posts meet at mitered edges with aligned wood grain. Timber roof edging
 overlaps beneath the smoothed thatch to hide the plaster joint.
+Horizontal timbers join the upright posts directly above and below each window
+and above each door, fitted against the casing and sill with grain along the beam.
 **Inspection → Corner** provides a close view of both joins.
 
 LOD0 windows have full-depth painted casings, recessed sashes and glazing bars

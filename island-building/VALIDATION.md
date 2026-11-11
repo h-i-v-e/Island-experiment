@@ -784,3 +784,34 @@ with the entrance open and no unsaved recipe changes. The shared post and
 covered roof edge are visible. Version 17 is preserved at
 `island-building/dist/.previous/pre-timber-joints-20261111-174944/Building Studio.app`.
 These changes and the preceding wattle-and-daub extension remain uncommitted.
+
+## Opening crosspieces
+
+The preceding wattle-and-daub and joined-corner work was committed and pushed
+to `main` as `47549c2` before this extension. The shared frame layout now adds
+horizontal members directly above and below windows and above doors. Each spans
+between the upright posts, uses the configured timber width/projection/material
+and has continuous horizontal grain. Crosspieces take precedence at their joints
+so vertical members butt into them. Their inner edges fit the actual casing and
+sill bounds; the transparent panes and door apertures remain unobstructed.
+
+All **54 library and 28 core tests** pass with studio and all targets enabled.
+Strict all-target Clippy and formatting checks pass. New coverage verifies
+horizontal grain, fit at the trim edges and clear apertures on every facade
+with both roof shapes. Serial Metal captures cover a sunlit window, the open
+entrance and both lower LODs. The sunlit review recipe only moves the west window
+first for the Window camera; authored values and normal lighting are retained.
+
+All 45 exported files match manifest lengths and SHA-256 hashes. Compared with
+version 18, materials, collision, doors, layout, all non-timber geometry at LOD0
+and LOD1, and the minimal LOD2 geometry are unchanged. The preserved draft has
+**37,541 / 1,010 / 134** static triangles. Geometry/material/bake versions are
+**19/8/12**. Evidence and the focused source review are under
+`artifacts/building-studio/2026-11-11/opening-crosspieces/`.
+
+The signed version-19 canonical app was opened with the original
+`wattle-daub/wattle-draft.json`. The door header and both window crosspieces were
+reviewed live. It is left on Structure / Window / forced LOD0, with the entrance
+open and no unsaved recipe changes. Version 18 is preserved at
+`island-building/dist/.previous/pre-opening-crosspieces-20261111-180232/Building Studio.app`.
+The new crosspiece extension remains uncommitted for review.

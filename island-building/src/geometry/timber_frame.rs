@@ -1,6 +1,9 @@
 //! Shared half-timber layout: real near/middle relief and matching distant charts.
 use super::Builder;
-use crate::{BuildingRecipe, Facade, MaterialSlot, RoofCovering, RoofKind, WallStyle};
+use crate::{
+    BuildingRecipe, Facade, MaterialSlot, OpeningKind, OpeningRecipe, RoofCovering, RoofKind,
+    WallStyle,
+};
 
 type Point = [f32; 2];
 
@@ -73,6 +76,7 @@ pub(crate) fn layout(recipe: &BuildingRecipe, facade: Facade) -> Vec<Member> {
     }
     let profile = profile(recipe, facade);
     let mut members = Vec::new();
+    opening_crosspieces(&mut members, recipe, facade, &profile, &posts);
     for &along in &posts {
         add(
             &mut members,
@@ -101,6 +105,57 @@ pub(crate) fn layout(recipe: &BuildingRecipe, facade: Facade) -> Vec<Member> {
     braces(&mut members, recipe, facade, &profile, &posts, middle);
     roof_members(&mut members, recipe, facade, &profile, half);
     members
+}
+
+fn opening_crosspieces(
+    members: &mut Vec<Member>,
+    recipe: &BuildingRecipe,
+    facade: Facade,
+    profile: &[Point],
+    posts: &[f32],
+) {
+    let half_width = recipe.walls.beam_width * 0.5;
+    let half = facade.length(recipe) * 0.5;
+    for opening in recipe.openings.iter().filter(|o| o.facade == facade) {
+        let a = opening.offset - opening.width * 0.5 - 0.075;
+        let b = opening.offset + opening.width * 0.5 + 0.075;
+        let left = posts
+            .iter()
+            .rev()
+            .find(|&&u| u <= a)
+            .map_or(-half, |u| (u - half_width).max(-half));
+        let right = posts
+            .iter()
+            .find(|&&u| u >= b)
+            .map_or(half, |u| (u + half_width).min(half));
+        let [bottom, top] = opening_vertical_bounds(opening);
+        add(
+            members,
+            recipe,
+            facade,
+            profile,
+            [left, top + half_width],
+            [right, top + half_width],
+        );
+        if opening.kind == OpeningKind::Window {
+            add(
+                members,
+                recipe,
+                facade,
+                profile,
+                [left, bottom - half_width],
+                [right, bottom - half_width],
+            );
+        }
+    }
+}
+
+fn opening_vertical_bounds(opening: &OpeningRecipe) -> Point {
+    let [below, above] = match opening.kind {
+        OpeningKind::Window => [super::windows::SILL_DROP, super::windows::CASING_WIDTH],
+        OpeningKind::Door => [0.05, 0.07],
+    };
+    [opening.sill - below, opening.sill + opening.height + above]
 }
 
 fn braces(
@@ -228,8 +283,7 @@ fn add(
     for opening in recipe.openings.iter().filter(|o| o.facade == facade) {
         let a = opening.offset - opening.width * 0.5 - 0.075;
         let b = opening.offset + opening.width * 0.5 + 0.075;
-        let bottom = opening.sill - 0.075;
-        let top = opening.sill + opening.height + 0.075;
+        let [bottom, top] = opening_vertical_bounds(opening);
         let cut = [[a, bottom], [b, bottom], [b, top], [a, top]];
         pieces = pieces.into_iter().flat_map(|p| subtract(p, &cut)).collect();
     }
@@ -401,6 +455,34 @@ mod tests {
     use super::*;
 
     #[test]
+    fn opening_crosspieces_keep_horizontal_grain_across_the_opening() {
+        let mut recipe = BuildingRecipe::hut();
+        recipe.walls.style = WallStyle::WattleAndDaub;
+        for opening in &recipe.openings {
+            let members = layout(&recipe, opening.facade);
+            let [bottom, top] = opening_vertical_bounds(opening);
+            let heights = [
+                Some(top + recipe.walls.beam_width * 0.5),
+                (opening.kind == OpeningKind::Window)
+                    .then_some(bottom - recipe.walls.beam_width * 0.5),
+            ];
+            for z in heights.into_iter().flatten() {
+                for fraction in [-0.45, 0., 0.45] {
+                    let point = [opening.offset + opening.width * fraction, z];
+                    let member = members
+                        .iter()
+                        .find(|m| m.sample(point).is_some())
+                        .expect("full crosspiece at opening");
+                    assert!(
+                        member.direction[1].abs() < 0.00001,
+                        "vertical posts butt into the horizontal crosspiece"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
     fn adjacent_corner_faces_share_the_same_edge_and_grain_phase() {
         let mut recipe = BuildingRecipe::hut();
         recipe.walls.style = WallStyle::WattleAndDaub;
@@ -483,8 +565,8 @@ mod tests {
                         for opening in recipe.openings.iter().filter(|o| o.facade == facade) {
                             assert!(
                                 (centre[0] - opening.offset).abs() >= opening.width * 0.5 + 0.074
-                                    || centre[1] <= opening.sill - 0.074
-                                    || centre[1] >= opening.sill + opening.height + 0.074
+                                    || centre[1] <= opening_vertical_bounds(opening)[0] + 0.001
+                                    || centre[1] >= opening_vertical_bounds(opening)[1] - 0.001
                             );
                         }
                     }

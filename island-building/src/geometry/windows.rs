@@ -2,7 +2,8 @@
 use super::Builder;
 use crate::{BuildingRecipe, MaterialSlot, OpeningRecipe, collision::BoxCollider};
 
-const CASING_WIDTH: f32 = 0.065;
+pub(super) const CASING_WIDTH: f32 = 0.065;
+pub(super) const SILL_DROP: f32 = 0.07;
 const SILL_HORN: f32 = 0.07;
 const SILL_PROJECTION: f32 = 0.12;
 pub(super) const GLASS_INSET: f32 = 0.04;
@@ -86,7 +87,7 @@ fn sill(builder: &mut Builder, frame: &Frame<'_>, x: [f32; 2], height: f32) {
     let [a, c] = x;
     let front = -SILL_PROJECTION;
     let back = frame.recipe.wall_thickness + 0.025;
-    let bottom = height - 0.07;
+    let bottom = height - SILL_DROP;
     // One raised surface closes the wall joint and replaces the bottom lining.
     // Keep the shallow fall, with the low edge above the opening's lower cut.
     let low = height + 0.01;
@@ -140,7 +141,7 @@ pub(crate) fn bounds(recipe: &BuildingRecipe, opening: &OpeningRecipe) -> BoxCol
     let frame = Frame { recipe, opening };
     let a = frame.point(
         opening.offset - opening.width * 0.5 - SILL_HORN,
-        opening.sill - 0.07,
+        opening.sill - SILL_DROP,
         -SILL_PROJECTION,
     );
     let b = frame.point(

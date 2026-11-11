@@ -97,6 +97,69 @@ fn old_recipes_default_to_plain_walls_and_frame_controls_are_validated() {
 }
 
 #[test]
+fn opening_crosspieces_fit_against_casings_and_sills_without_blocking_apertures() {
+    for facade in Facade::ALL {
+        for roof in [RoofKind::Gable, RoofKind::Shed] {
+            let mut recipe = preview(BuildingRecipe::hut());
+            recipe.chimney = None;
+            recipe.roof.kind = roof;
+            recipe.walls.style = WallStyle::WattleAndDaub;
+            recipe.openings.truncate(2);
+            recipe.openings[0].facade = facade;
+            recipe.openings[0].offset = -1.1;
+            recipe.openings[1].facade = facade;
+            recipe.openings[1].offset = 1.1;
+            recipe.openings[1].width = 0.7;
+            let prototype = generate(&recipe).unwrap();
+            for lod in &prototype.lods[..2] {
+                let timber = &lod
+                    .parts
+                    .iter()
+                    .find(|p| p.material == MaterialSlot::Timber)
+                    .unwrap()
+                    .mesh;
+                check_mesh(timber);
+                for opening in &recipe.openings {
+                    let above = opening.sill
+                        + opening.height
+                        + if opening.kind == OpeningKind::Window {
+                            0.065
+                        } else {
+                            0.07
+                        };
+                    for fraction in [-0.45, 0., 0.45] {
+                        let along = opening.offset + opening.width * fraction;
+                        let heights = [
+                            Some(above + 0.002),
+                            (opening.kind == OpeningKind::Window).then_some(opening.sill - 0.072),
+                        ];
+                        for z in heights.into_iter().flatten() {
+                            let origin = facade.point(&recipe, along, z, -0.3);
+                            let distance = mesh_ray(timber, origin, facade.normal().map(|v| -v))
+                                .expect("horizontal timber meets opening trim");
+                            assert!(
+                                (distance - (0.3 - recipe.walls.frame_projection)).abs() < 0.00001
+                            );
+                        }
+                    }
+                    let origin = facade.point(
+                        &recipe,
+                        opening.offset + opening.width * 0.25,
+                        opening.sill + opening.height * 0.75,
+                        -0.3,
+                    );
+                    assert!(
+                        mesh_ray(timber, origin, facade.normal().map(|v| -v))
+                            .is_none_or(|d| d > 0.3 + recipe.wall_thickness),
+                        "crosspieces leave the aperture clear"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn half_timber_corners_close_and_roof_bands_cover_the_thatch_wall_overlap() {
     for roof in [RoofKind::Gable, RoofKind::Shed] {
         for projection in [0.005, 0.04] {
