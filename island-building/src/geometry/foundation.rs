@@ -1,7 +1,8 @@
 //! Buried foundations and independent entrance stairs for terrain up to 30 degrees.
 use super::Builder;
 use crate::{
-    BuildingRecipe, Facade, MaterialSlot, OpeningKind, OpeningRecipe, collision::BoxCollider,
+    BuildingRecipe, Facade, MaterialSlot, OpeningKind, OpeningRecipe, StairRun,
+    collision::BoxCollider,
 };
 use serde::Serialize;
 
@@ -29,6 +30,12 @@ pub struct StairLayout<'a> {
     pub door_id: &'a str,
     pub facade: Facade,
     pub offset: f32,
+    pub orientation: StairRun,
+    /// Native XY unit vector from the landing down the flight.
+    pub direction: [f32; 2],
+    /// Centre of the first tread's upper edge, in native XY metres.
+    pub flight_origin: [f32; 2],
+    pub landing_bounds: BoxCollider,
     pub width: f32,
     pub landing: f32,
     pub landing_height: f32,
@@ -50,12 +57,47 @@ pub fn stairs(recipe: &BuildingRecipe) -> impl Iterator<Item = StairLayout<'_>> 
 
 fn stair_layout<'a>(recipe: &BuildingRecipe, opening: &'a OpeningRecipe) -> StairLayout<'a> {
     let width = opening.width + 0.3;
-    // The landing clears the plinth and the closed door; steps start outside it.
-    let landing = recipe.foundation.outset + LANDING;
+    let orientation = recipe.foundation.stair_run;
+    let normal = opening.facade.normal();
+    let tangent = opening.facade.tangent();
+    // Looking from outside, positive offsets leave more wall on the left.
+    // Equal spans consistently use the right-hand side.
+    let side = if opening.offset > 0. { -1. } else { 1. };
+    let (direction, landing, origin, landing_bounds) = match orientation {
+        StairRun::Outward => {
+            let landing = recipe.foundation.outset + LANDING;
+            let origin = opening.facade.point(recipe, opening.offset, 0., -landing);
+            (
+                normal,
+                landing,
+                origin,
+                facade_box(recipe, opening, width, 0., landing),
+            )
+        }
+        StairRun::AlongWall => {
+            let landing = width * 0.5;
+            let origin = opening.facade.point(
+                recipe,
+                opening.offset + side * landing,
+                0.,
+                -(recipe.foundation.outset + width * 0.5),
+            );
+            (
+                tangent.map(|v| v * side),
+                landing,
+                origin,
+                facade_box(recipe, opening, width, 0., recipe.foundation.outset + width),
+            )
+        }
+    };
     let mut layout = StairLayout {
         door_id: &opening.id,
         facade: opening.facade,
         offset: opening.offset,
+        orientation,
+        direction: [direction[0], direction[1]],
+        flight_origin: [origin[0], origin[1]],
+        landing_bounds,
         width,
         landing,
         landing_height: LANDING_HEIGHT,
@@ -67,35 +109,49 @@ fn stair_layout<'a>(recipe: &BuildingRecipe, opening: &'a OpeningRecipe) -> Stai
         bounds: bounds(recipe),
     };
     let foundation = bounds(recipe);
-    // Stair pitch is steeper than 30 degrees, so it eventually intersects even
-    // ground descending away from the door. Include both toe corners and every
-    // possible highest point in the foundation, rather than just its centre.
+    // A pitch steeper than 30 degrees intersects even ground descending beyond
+    // the house. Include every possible high point and both flight toe corners.
     while layout.drop - LANDING_HEIGHT
-        < worst_drop(recipe, &layout, foundation) + recipe.foundation.burial_depth
+        < worst_drop(&layout, foundation) + recipe.foundation.burial_depth
     {
         layout.steps += 1;
         layout.run = landing + f32::from(layout.steps) * STEP_RUN;
         layout.drop = f32::from(layout.steps) * STEP_RISE;
     }
-    layout.bounds = local_box(
-        recipe,
-        &layout,
-        0.,
-        layout.run,
-        -layout.drop - recipe.foundation.burial_depth,
-        LANDING_HEIGHT,
-    );
+    let bottom = -layout.drop - recipe.foundation.burial_depth;
+    layout.landing_bounds.min[2] = bottom;
+    let flight = flight_box(&layout, 0., layout.run - landing, bottom, LANDING_HEIGHT);
+    layout.bounds = BoxCollider {
+        min: std::array::from_fn(|i| flight.min[i].min(layout.landing_bounds.min[i])),
+        max: std::array::from_fn(|i| flight.max[i].max(layout.landing_bounds.max[i])),
+    };
     layout
 }
 
-fn worst_drop(recipe: &BuildingRecipe, stairs: &StairLayout<'_>, foundation: BoxCollider) -> f32 {
+fn facade_box(
+    recipe: &BuildingRecipe,
+    opening: &OpeningRecipe,
+    width: f32,
+    start: f32,
+    end: f32,
+) -> BoxCollider {
+    let a = opening
+        .facade
+        .point(recipe, opening.offset - width * 0.5, 0., -start);
+    let b = opening
+        .facade
+        .point(recipe, opening.offset + width * 0.5, LANDING_HEIGHT, -end);
+    BoxCollider {
+        min: std::array::from_fn(|i| a[i].min(b[i])),
+        max: std::array::from_fn(|i| a[i].max(b[i])),
+    }
+}
+
+fn worst_drop(stairs: &StairLayout<'_>, foundation: BoxCollider) -> f32 {
     let distance = [-0.5, 0.5]
         .into_iter()
         .flat_map(|side| {
-            let toe =
-                stairs
-                    .facade
-                    .point(recipe, stairs.offset + side * stairs.width, 0., -stairs.run);
+            let toe = flight_point(stairs, side, stairs.run - stairs.landing, 0.);
             [foundation.min[0], foundation.max[0]]
                 .into_iter()
                 .flat_map(move |x| {
@@ -106,20 +162,24 @@ fn worst_drop(recipe: &BuildingRecipe, stairs: &StairLayout<'_>, foundation: Box
     distance * MAX_SLOPE_DEGREES.to_radians().tan()
 }
 
-fn local_box(
-    recipe: &BuildingRecipe,
+fn flight_point(stairs: &StairLayout<'_>, side: f32, run: f32, height: f32) -> [f32; 3] {
+    let [dx, dy] = stairs.direction;
+    [
+        stairs.flight_origin[0] + dx * run - dy * side * stairs.width,
+        stairs.flight_origin[1] + dy * run + dx * side * stairs.width,
+        height,
+    ]
+}
+
+fn flight_box(
     stairs: &StairLayout<'_>,
     start: f32,
     end: f32,
     bottom: f32,
     top: f32,
 ) -> BoxCollider {
-    let a = stairs
-        .facade
-        .point(recipe, stairs.offset - stairs.width * 0.5, bottom, -start);
-    let b = stairs
-        .facade
-        .point(recipe, stairs.offset + stairs.width * 0.5, top, -end);
+    let a = flight_point(stairs, -0.5, start, bottom);
+    let b = flight_point(stairs, 0.5, end, top);
     BoxCollider {
         min: std::array::from_fn(|i| a[i].min(b[i])),
         max: std::array::from_fn(|i| a[i].max(b[i])),
@@ -128,33 +188,19 @@ fn local_box(
 
 #[must_use]
 pub fn stair_colliders(recipe: &BuildingRecipe) -> Vec<BoxCollider> {
-    stairs(recipe)
-        .flat_map(|stairs| steps(recipe, stairs))
-        .collect()
+    stairs(recipe).flat_map(steps).collect()
 }
 
-fn steps<'a>(
-    recipe: &'a BuildingRecipe,
-    stairs: StairLayout<'a>,
-) -> impl Iterator<Item = BoxCollider> + 'a {
-    (0..=stairs.steps).map(move |step| {
-        let (start, end) = if step == 0 {
-            (0., stairs.landing)
-        } else {
-            (
-                stairs.landing + f32::from(step - 1) * STEP_RUN,
-                stairs.landing + f32::from(step) * STEP_RUN,
-            )
-        };
-        local_box(
-            recipe,
+fn steps(stairs: StairLayout<'_>) -> impl Iterator<Item = BoxCollider> {
+    std::iter::once(stairs.landing_bounds).chain((1..=stairs.steps).map(move |step| {
+        flight_box(
             &stairs,
-            start,
-            end,
+            f32::from(step - 1) * STEP_RUN,
+            f32::from(step) * STEP_RUN,
             stairs.bounds.min[2],
             LANDING_HEIGHT - f32::from(step) * STEP_RISE,
         )
-    })
+    }))
 }
 
 pub(crate) fn generate(builder: &mut Builder, recipe: &BuildingRecipe, distant: bool) {
@@ -171,9 +217,9 @@ pub(crate) fn generate(builder: &mut Builder, recipe: &BuildingRecipe, distant: 
     top_ring(builder, recipe);
     for stairs in stairs(recipe) {
         if distant {
-            ramp(builder, recipe, stairs);
+            ramp(builder, stairs);
         } else {
-            for shape in steps(recipe, stairs) {
+            for shape in steps(stairs) {
                 builder.cube(MaterialSlot::Stairs, shape.min, shape.max);
             }
         }
@@ -197,31 +243,19 @@ fn top_ring(builder: &mut Builder, recipe: &BuildingRecipe) {
     }
 }
 
-fn ramp(builder: &mut Builder, recipe: &BuildingRecipe, stairs: StairLayout<'_>) {
-    let landing = local_box(
-        recipe,
-        &stairs,
-        0.,
-        stairs.landing,
-        stairs.bounds.min[2],
-        LANDING_HEIGHT,
+fn ramp(builder: &mut Builder, stairs: StairLayout<'_>) {
+    builder.cube(
+        MaterialSlot::Stairs,
+        stairs.landing_bounds.min,
+        stairs.landing_bounds.max,
     );
-    builder.cube(MaterialSlot::Stairs, landing.min, landing.max);
-    let point = |side: f32, run: f32, height: f32| {
-        stairs.facade.point(
-            recipe,
-            stairs.offset + side * stairs.width * 0.5,
-            height,
-            -run,
-        )
-    };
+    let run = stairs.run - stairs.landing;
     let top = [
-        point(-1., stairs.landing, LANDING_HEIGHT),
-        point(1., stairs.landing, LANDING_HEIGHT),
-        point(1., stairs.run, LANDING_HEIGHT - stairs.drop),
-        point(-1., stairs.run, LANDING_HEIGHT - stairs.drop),
+        flight_point(&stairs, -0.5, 0., LANDING_HEIGHT),
+        flight_point(&stairs, -0.5, run, LANDING_HEIGHT - stairs.drop),
+        flight_point(&stairs, 0.5, run, LANDING_HEIGHT - stairs.drop),
+        flight_point(&stairs, 0.5, 0., LANDING_HEIGHT),
     ];
-    let top = [top[0], top[3], top[2], top[1]];
     builder.face(MaterialSlot::Stairs, top);
     let bottom = top.map(|mut point| {
         point[2] = stairs.bounds.min[2];

@@ -1,5 +1,7 @@
 #![allow(clippy::float_cmp)] // Exact authored floor elevation and serialized defaults.
-use island_building::{BuildingRecipe, Facade, MaterialSlot, generate, geometry::foundation};
+use island_building::{
+    BuildingRecipe, Facade, MaterialSlot, StairRun, generate, geometry::foundation,
+};
 
 #[test]
 fn foundation_bottom_stays_buried_with_a_high_point_anywhere_in_the_footprint() {
@@ -39,35 +41,110 @@ fn stairs_reach_downhill_ground_beyond_every_facade_and_foundation_corner() {
     for (width, depth) in [(6., 5.), (40., 3.), (40., 40.)] {
         for facade in Facade::ALL {
             for offset in [-0.5, 0., 0.5] {
-                let mut recipe = BuildingRecipe {
-                    width,
-                    depth,
-                    ..BuildingRecipe::hut()
-                };
-                recipe.openings[0].facade = facade;
-                recipe.openings[0].offset = offset;
-                let stairs = foundation::stairs(&recipe).next().unwrap();
-                let bounds = foundation::bounds(&recipe);
-                assert!(stairs.steps < 1000);
-                for heading in 0_u16..360 {
-                    let (sx, sy) = f32::from(heading).to_radians().sin_cos();
-                    let peak = sx.abs() * bounds.max[0] + sy.abs() * bounds.max[1];
-                    for side in [-0.5, 0.5] {
-                        let toe = facade.point(
-                            &recipe,
-                            offset + side * stairs.width,
-                            stairs.landing_height - stairs.drop,
-                            -stairs.run,
-                        );
-                        let ground = (sx * toe[0] + sy * toe[1] - peak) * 30_f32.to_radians().tan();
+                for orientation in [StairRun::Outward, StairRun::AlongWall] {
+                    let mut recipe = BuildingRecipe {
+                        width,
+                        depth,
+                        ..BuildingRecipe::hut()
+                    };
+                    recipe.foundation.stair_run = orientation;
+                    recipe.openings[0].facade = facade;
+                    recipe.openings[0].offset = offset;
+                    let stairs = foundation::stairs(&recipe).next().unwrap();
+                    let bounds = foundation::bounds(&recipe);
+                    let colliders = foundation::stair_colliders(&recipe);
+                    let toe = colliders.last().unwrap();
+                    assert!(stairs.steps < 1000);
+                    for heading in 0_u16..360 {
+                        let (sx, sy) = f32::from(heading).to_radians().sin_cos();
+                        let peak = sx.abs() * bounds.max[0] + sy.abs() * bounds.max[1];
+                        for x in [toe.min[0], toe.max[0]] {
+                            for y in [toe.min[1], toe.max[1]] {
+                                let ground = (sx * x + sy * y - peak) * 30_f32.to_radians().tan();
+                                assert!(
+                                    toe.max[2] <= ground - recipe.foundation.burial_depth + 0.0001,
+                                    "{facade:?} {orientation:?} heading {heading}"
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn along_wall_stairs_turn_toward_the_longer_edge_and_stay_outside_the_plinth() {
+    for facade in Facade::ALL {
+        for offset in [-1., 0., 1.] {
+            let mut recipe = BuildingRecipe::hut();
+            recipe.foundation.stair_run = StairRun::AlongWall;
+            recipe.openings[0].facade = facade;
+            recipe.openings[0].offset = offset;
+            let stairs = foundation::stairs(&recipe).next().unwrap();
+            let tangent = facade.tangent();
+            let sign = if offset > 0. { -1. } else { 1. };
+            assert_eq!(stairs.direction, [tangent[0] * sign, tangent[1] * sign]);
+            let door = facade.point(&recipe, offset, stairs.landing_height, 0.);
+            assert!(stairs.landing_bounds.contains(door));
+            let normal = facade.normal();
+            let outer_wall = facade.point(&recipe, 0., 0., -recipe.foundation.outset);
+            let shapes = foundation::stair_colliders(&recipe);
+            let first = &shapes[1];
+            assert!(
+                (0..2).any(
+                    |axis| (first.min[axis] - stairs.landing_bounds.max[axis]).abs() < 0.00001
+                        || (first.max[axis] - stairs.landing_bounds.min[axis]).abs() < 0.00001
+                ),
+                "flight meets landing"
+            );
+            for step in &shapes[1..] {
+                for x in [step.min[0], step.max[0]] {
+                    for y in [step.min[1], step.max[1]] {
                         assert!(
-                            toe[2] <= ground - recipe.foundation.burial_depth + 0.0001,
-                            "{facade:?} heading {heading}"
+                            (x - outer_wall[0]) * normal[0] + (y - outer_wall[1]) * normal[1]
+                                >= -0.00001,
+                            "steps never enter the foundation or house"
                         );
                     }
                 }
             }
         }
+    }
+}
+
+#[test]
+fn stair_direction_is_backward_compatible_and_round_trips_with_the_recipe() {
+    let mut value = serde_json::to_value(BuildingRecipe::hut()).unwrap();
+    value["foundation"]
+        .as_object_mut()
+        .unwrap()
+        .remove("stair_run");
+    let mut recipe: BuildingRecipe = serde_json::from_value(value).unwrap();
+    assert_eq!(recipe.foundation.stair_run, StairRun::Outward);
+    recipe.foundation.stair_run = StairRun::AlongWall;
+    let encoded = serde_json::to_value(&recipe).unwrap();
+    assert_eq!(encoded["foundation"]["stair_run"], "along_wall");
+    assert_eq!(
+        serde_json::from_value::<BuildingRecipe>(encoded).unwrap(),
+        recipe
+    );
+    recipe.atlas_size = 128;
+    let prototype = generate(&recipe).unwrap();
+    for lod in &prototype.lods {
+        let mesh = &lod
+            .parts
+            .iter()
+            .find(|p| p.material == MaterialSlot::Stairs)
+            .unwrap()
+            .mesh;
+        assert!(
+            mesh.positions
+                .iter()
+                .all(|p| prototype.layout.contains(*p, 0.0001))
+        );
+        assert!(mesh.normals.iter().any(|n| n[2] > 0.5));
     }
 }
 

@@ -2,7 +2,7 @@ use super::super::{PendingAction, StudioState, Tab};
 use super::{ACCENT, DIM, PANEL, choose_export, dialogs, request_action};
 use crate::{
     BuildingRecipe, DoorStyle, Facade, HingeSide, OpeningKind, OpeningRecipe, PartitionAxis,
-    PartitionRecipe, RoofCovering, RoofKind, WallStyle,
+    PartitionRecipe, RoofCovering, RoofKind, StairRun, WallStyle,
 };
 use bevy_egui::egui;
 
@@ -184,6 +184,26 @@ fn foundation(ui: &mut egui::Ui, draft: &mut BuildingRecipe) {
         " m",
     );
     ui.checkbox(&mut draft.foundation.stairs, "Generate entrance stairs");
+    ui.horizontal(|ui| {
+        ui.label("Stair direction");
+        ui.selectable_value(
+            &mut draft.foundation.stair_run,
+            StairRun::Outward,
+            "Outward",
+        );
+        ui.selectable_value(
+            &mut draft.foundation.stair_run,
+            StairRun::AlongWall,
+            "Along wall",
+        );
+    });
+    if draft.foundation.stair_run == StairRun::AlongWall {
+        ui.label(
+            egui::RichText::new("Turns toward the longer wall edge beside each door.")
+                .small()
+                .color(DIM),
+        );
+    }
     let depth = -crate::geometry::foundation::bounds(draft).min[2];
     ui.label(format!("30° terrain · {depth:.2} m foundation depth"));
     if let Some(stairs) = crate::geometry::foundation::stairs(draft).next() {

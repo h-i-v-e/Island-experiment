@@ -1216,3 +1216,46 @@ switching worked. It is left on Structure / Foundations / forced LOD0 with
 stairs visible, slope 30°, direction 0°, and no unsaved recipe changes. The
 previous version-29 bundle is preserved at
 `island-building/dist/.previous/pre-foundations-20261112-124739/Building Studio.app`.
+
+
+## Along-wall entrance stairs
+
+The reviewed foundations and outward stairs were committed and pushed as
+`227cdfb`. **Structure → Stair direction** now offers **Outward** and **Along
+wall**, stored as `foundation.stair_run`. Older recipes default to Outward.
+Along-wall stairs turn from a square landing and descend parallel to the facade
+toward the farther corner beside the door. Positive facade offsets choose the
+left side; negative offsets choose the right. A centred door consistently uses
+the right-hand side when viewed from outside. Every facade uses its own tangent.
+
+Near/middle meshes, the distant ramp proxy, colliders, bounds and 30° terrain
+reach share the same borrowed layout calculation. Side flights sit outside the
+plinth and meet their landings. Stair visibility and support remain independent
+per placement. Exported `stairs.json` now records orientation, flight direction,
+first-tread origin and landing bounds, alongside the existing dimensions.
+Geometry/material/bake versions are **30/12/14**; the canonical app is version 31.
+
+All **65 library, 34 core and 6 foundation tests** pass, with strict all-target
+Clippy, formatting and whitespace checks. Coverage includes both directions,
+all four facades, centred and offset doors, 360 slope headings, narrow/square
+footprints, every tread's support at all LODs, hidden collision and portable
+regeneration of the along-wall option. Metal captures show both offset signs,
+LOD0/LOD2 on a 15° slope and worst-case 30° ground descending along the flight.
+
+Both portable exports have **59 verified files**. The preserved outward layout
+retains all non-stair meshes, maps, doors and structural collision byte-for-byte;
+its stair collider coordinates differ by at most 0.3 micrometres from the generic
+flight-frame arithmetic, with unchanged step count and reach. The off-centre
+side-stair review has 46 steps, 11.765 m total reach, and static triangle counts
+**38,529 / 1,666 / 176**. The normal terrain preview conceals the unused lower
+steps. Source review and evidence are under
+`artifacts/building-studio/2026-11-12/along-wall-stairs/`. New side-stair work
+remains uncommitted on `main`; unrelated runtime and crash files are preserved.
+
+The signed version-31 canonical app was reviewed live on the saved
+`along-wall-stairs/along-wall-review.json`. Selecting Outward rebuilt the flight,
+and Undo restored Along wall and the clean saved recipe. It is left on Structure
+/ Foundations camera / forced LOD0, slope 15°, direction 0°, stairs visible and
+door closed. The 0.65 m right offset correctly sends the stairs left along the
+longer wall span. The prior version-30 bundle is preserved at
+`island-building/dist/.previous/pre-along-wall-stairs-20261112-130527/Building Studio.app`.

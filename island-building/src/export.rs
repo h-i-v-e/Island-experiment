@@ -178,11 +178,11 @@ fn write_package(
         })
         .collect();
     let manifest=ExportManifest {
-        package_version:1,geometry_version:29,material_version:12,bake_version:14,
+        package_version:1,geometry_version:30,material_version:12,bake_version:14,
         prototype_hash:prototype.hash.clone(),coordinate_system:"right-handed, native Z-up, metres; OBJ UV V points up".into(),
         normal_convention:"OpenGL tangent-space +Y; linear normal maps".into(),mask_channels:"RGBA = occlusion, roughness, metallic, 1; linear".into(),
         door_policy:"LOD2 appearance uses closed leaves; preserve instance angles independently. door-N.obj and door-N-hardware.obj share hinge-local coordinates and map to doors.json[N]. depth_offset is the signed hinge-local Y centre for leaf collision; exported leaf and hardware vertices already include it. Missing depth_offset defaults to zero. New doors default closed; removed IDs are ignored.".into(),
-        terrain_policy:"Floor top is local Z=0. Place a level building so the highest terrain point within its foundation footprint touches Z=0; terrain gradients must not exceed 30 degrees. Foundation depth includes burial margin. Stair pitch is steeper than 30 degrees and its toe reaches the worst-case downhill ground beyond the footprint. The stairs material group is independently hideable at every LOD; disable stairs-collision.json with it. collision.json always includes the foundation; stairs.json describes each entrance; foundation.json gives the buried bounds. Baked foundation maps are shared by stairs at all LODs.".into(),
+        terrain_policy:"Floor top is local Z=0. Place a level building so the highest terrain point within its foundation footprint touches Z=0; terrain gradients must not exceed 30 degrees. Foundation depth includes burial margin. Stair pitch is steeper than 30 degrees and its toe reaches the worst-case downhill ground beyond the footprint. The stairs material group is independently hideable at every LOD; disable stairs-collision.json with it. collision.json always includes the foundation; stairs.json describes each entrance, flight direction and landing bounds; foundation.json gives the buried bounds. Baked foundation maps are shared by stairs at all LODs.".into(),
         masked_materials,lod_triangles:std::array::from_fn(|index|prototype.lods[index].triangle_count()),files,
     };
     let bytes = serde_json::to_vec_pretty(&manifest)?;
@@ -689,6 +689,7 @@ mod tests {
         recipe.roof.covering = crate::RoofCovering::Slate;
         recipe.walls.style = crate::WallStyle::WattleAndDaub;
         recipe.openings[0].door_style = crate::DoorStyle::FrameAndPanel;
+        recipe.foundation.stair_run = crate::StairRun::AlongWall;
         recipe.materials.wall_recipe = Some("wall.json".into());
         recipe.materials.roof_recipe = Some("roof.json".into());
         recipe.materials.door_recipe = Some("door.json".into());
@@ -710,6 +711,8 @@ mod tests {
         assert_eq!(regenerated.hash, prototype.hash);
         assert_eq!(regenerated.atlas, prototype.atlas);
         assert_eq!(regenerated.doors, prototype.doors);
+        assert_eq!(regenerated.lods, prototype.lods);
+        assert_eq!(regenerated.stair_colliders, prototype.stair_colliders);
         assert_eq!(regenerated.materials, prototype.materials);
         for surface in ["floor", "ceiling", "foundation"] {
             assert!(target.join(format!("dependencies/{surface}.json")).exists());
@@ -742,7 +745,7 @@ mod tests {
                 manifest.material_version,
                 manifest.bake_version
             ),
-            (29, 12, 14)
+            (30, 12, 14)
         );
         assert_eq!(
             loaded.materials.door_recipe.as_deref(),

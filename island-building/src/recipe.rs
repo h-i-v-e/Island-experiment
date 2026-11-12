@@ -35,6 +35,7 @@ pub struct FoundationRecipe {
     pub outset: f32,
     pub burial_depth: f32,
     pub stairs: bool,
+    pub stair_run: StairRun,
 }
 impl Default for FoundationRecipe {
     fn default() -> Self {
@@ -42,8 +43,17 @@ impl Default for FoundationRecipe {
             outset: 0.08,
             burial_depth: 0.15,
             stairs: true,
+            stair_run: StairRun::Outward,
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StairRun {
+    #[default]
+    Outward,
+    AlongWall,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]

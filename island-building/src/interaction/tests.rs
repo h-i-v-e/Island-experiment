@@ -411,3 +411,43 @@ fn hiding_stairs_disables_rendering_support_and_all_collision_queries_and_persis
         Visibility::Inherited
     );
 }
+
+#[test]
+fn along_wall_stairs_keep_tread_support_and_hideable_collision_at_every_lod() {
+    let mut recipe = BuildingRecipe::hut();
+    recipe.atlas_size = 128;
+    recipe.foundation.stair_run = crate::StairRun::AlongWall;
+    recipe.openings[0].offset = 0.6;
+    let compiled = compile_building(
+        Arc::new(generate(&recipe).unwrap()),
+        &mut Assets::default(),
+        &mut Assets::default(),
+        &mut Assets::default(),
+    );
+    let mut instance = BuildingInstance::new(compiled, "along-wall".into());
+    let root = GlobalTransform::IDENTITY;
+    for level in 0..3 {
+        instance.current_lod = level;
+        instance.stairs_visible = true;
+        for shape in &instance.prototype.source.stair_colliders[1..] {
+            let feet = native_to_bevy([
+                (shape.min[0] + shape.max[0]) * 0.5,
+                (shape.min[1] + shape.max[1]) * 0.5,
+                shape.max[2] + 0.025,
+            ]);
+            let support = instance.support_point(&root, feet, 0.26).unwrap();
+            assert!((support.y - shape.max[2]).abs() < 0.00001);
+            assert!(!instance.blocks_capsule(&root, feet, 0.1, 1.8));
+        }
+        let shape = instance.prototype.source.stair_colliders[6];
+        let point = native_to_bevy([
+            (shape.min[0] + shape.max[0]) * 0.5,
+            (shape.min[1] + shape.max[1]) * 0.5,
+            shape.max[2] - 0.02,
+        ]);
+        assert!(instance.blocks_sphere(&root, point, 0.01));
+        instance.stairs_visible = false;
+        assert!(!instance.blocks_sphere(&root, point, 0.01));
+        assert!(instance.support_point(&root, point, 0.26).is_none());
+    }
+}

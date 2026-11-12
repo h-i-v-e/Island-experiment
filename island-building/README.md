@@ -79,6 +79,13 @@ This setting is retained by `BuildingInstance::snapshot` / `restore_state`.
 **Terrain slope**, **Slope direction** and the **Foundations** camera provide
 an inspection preview without changing the building recipe.
 
+**Structure → Stair direction → Along wall** adds a turning landing and runs
+along the outside of the wall toward the farther corner. Moving a door past
+the wall midpoint automatically reverses the flight; a centred door uses the
+right-hand side when viewed from outside. **Outward** remains the default for
+older recipes. The JSON option is `foundation.stair_run: "along_wall"`.
+Both choices retain the full 30° terrain reach and the placement visibility switch.
+
 LOD0 and LOD1 retain solid steps; LOD2 uses a 24-triangle stair silhouette.
 Foundation and stair surfaces share baked stone maps independently of the
 wooden floor. Exported material groups keep stairs independently hideable;
