@@ -149,6 +149,30 @@ impl Portal {
             .iter()
             .all(|plane| plane.distance(p) >= -0.001)
     }
+    /// The same convex cut used by render export, evaluated without allocating
+    /// a plane list during read-only collision queries. Coordinates are metres.
+    pub(crate) fn removes_surface(&self, point: Vec3) -> bool {
+        let along = (point - self.origin).truncate().dot(self.inward);
+        if !(0.0..=self.length).contains(&along) {
+            return false;
+        }
+        self.section
+            .iter()
+            .zip(self.section.iter().cycle().skip(1))
+            .all(|(&a, &b)| {
+                let a = Self::mouth_section(a);
+                let b = Self::mouth_section(b);
+                let edge = b - a;
+                let normal = Vec2::new(-edge.y, edge.x).normalize();
+                let plane_normal = self.right() * normal.x + Vec3::Z * normal.y;
+                let floor = if plane_normal.z > 0.999 {
+                    self.floor_clearance
+                } else {
+                    0.0
+                };
+                plane_normal.dot(point - self.origin) - normal.dot(a) + floor >= 0.0
+            })
+    }
     pub(crate) fn bounds(&self) -> (Vec3, Vec3) {
         let mut min = Vec3::splat(f32::INFINITY);
         let mut max = Vec3::splat(f32::NEG_INFINITY);
@@ -660,6 +684,34 @@ fn append_polygon(mesh: &mut Mesh, polygon: &[Vertex]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn read_only_surface_cut_matches_render_planes_without_an_allocation() {
+        let portal = Portal::new(
+            Vec3::new(999.0, 1000.0, 10.0),
+            Vec2::X,
+            &CaveOptions::default(),
+        );
+        let planes = portal.planes();
+        let mut inside = 0;
+        let mut outside = 0;
+        for along in -4..20 {
+            for across in -10..10 {
+                for height in -4..12 {
+                    let point = portal.origin
+                        + Vec3::new(along as f32 * 0.7, across as f32 * 0.7, height as f32 * 0.7);
+                    let expected = planes.iter().all(|plane| plane.distance(point) >= 0.0);
+                    assert_eq!(portal.removes_surface(point), expected, "{point:?}");
+                    if expected {
+                        inside += 1;
+                    } else {
+                        outside += 1;
+                    }
+                }
+            }
+        }
+        assert!(inside > 0 && outside > 0);
+    }
 
     #[test]
     fn exterior_crest_normals_follow_the_curve_and_preserve_join_normals() {

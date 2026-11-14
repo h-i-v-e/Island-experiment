@@ -48,6 +48,7 @@ namespace Motu.Settings
         [Range(1, 8)] [SerializeField] private int variantsPerSpecies = 4;
 
         public float ForestLatitudeDegrees { get => forestLatitudeDegrees; set => forestLatitudeDegrees = Mathf.Clamp(value, -90f, 90f); }
+        public float AltitudeCooling => Mathf.Clamp(altitudeCooling, 0f, 40f);
         internal HybridForestNative.Options HybridOptions => new HybridForestNative.Options { latitudeDegrees = ForestLatitudeDegrees,
                 altitudeCooling = Mathf.Clamp(altitudeCooling, 0f, 40f),
                 variantsPerSpecies = (uint)Mathf.Clamp(variantsPerSpecies, 1, 8) };

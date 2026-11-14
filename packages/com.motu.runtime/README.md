@@ -470,16 +470,29 @@ Sample ship controls, minimap, preview UI and scene construction remain in the
 development project, outside this runtime assembly.
 
 World discovery batches its candidates before starting generation, prioritising
-nearby detailed islands over distant silhouette cache misses. Finishing a
-silhouette immediately makes its detail upgrade eligible without waiting for
-another world update. **Detail Preparation Lead Seconds** adds a speed-based
-preload margin (default **120 seconds**, bounded by **Maximum Look Ahead Metres**)
-to the existing fixed margin and travel prediction. Stationary viewers keep the
-fixed margin. The resident island limit and single native preparation worker
-remain in effect; this starts approaching islands earlier without allowing
-additional simultaneous generations or unbounded detailed residency.
+nearby detailed islands over distant silhouette cache misses. An approaching cold
+island goes directly through full preparation: the same result publishes its
+independent horizon fallback before uploading details. It no longer generates
+and discards a native island for the silhouette and then reloads it for detail.
+New urgent details cancel lower-priority preparation at its next cancellation
+checkpoint; a native call already in progress finishes before that cancellation
+can release the single worker.
+
+**Detail Preparation Lead Seconds** adds a speed-based preload margin (default
+**120 seconds**, bounded by **Maximum Look Ahead Metres**) to the existing fixed
+margin and travel prediction. Successful preparation times can extend that lead
+on slower hardware, with a 50% reserve and 15 seconds of extra time. Stationary
+viewers keep the fixed margin. The resident island limit and single native
+preparation worker remain in effect; this starts approaching islands earlier
+without allowing additional simultaneous generations or unbounded residency.
 The viewer's current island and visual detail range take precedence over
 predicted destinations when allocating those resident slots.
+
+Every resident island inside its visual detail range receives the viewer's
+terrain/collision focus, including visible neighbors across a grid boundary.
+Changing the primary focused cell does not tear down those neighboring
+colliders or terrain tiles; ordinary view distance and residency unloading own
+their retirement. This allows a hull to straddle the boundary safely.
 
 With `CoherentIslandFactory`, the player's world Z position controls the shared
 solar latitude continuously across the archipelago radius. At the south edge

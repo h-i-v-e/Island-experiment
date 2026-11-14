@@ -59,6 +59,135 @@ namespace Motu.Tests
                 "Teleport or fly-mode velocity must not create an unbounded preparation radius.");
         }
 
+        [Test]
+        public void ColdNearbyIslandStartsDetailsWithoutASeparateHorizonWorker()
+        {
+            var gate = (SemaphoreSlim)typeof(IslandGenerationWorker)
+                .GetField("PreparationGate", BindingFlags.Static | BindingFlags.NonPublic).GetValue(null);
+            Assert.That(gate.Wait(5000), Is.True);
+            try
+            {
+                using var fixture = new Fixture();
+                var nearby = fixture.Add(Vector2Int.zero);
+                Set(fixture.World, "shutdown", new CancellationTokenSource());
+                Invoke(fixture.World, "Update");
+                var generator = nearby.GetType().GetProperty("Generator", Hidden).GetValue(nearby) as IslandGenerator;
+                Assert.That(generator, Is.Not.Null, "An uncached approaching island must go directly into detail preparation.");
+                Assert.That(generator.IsGenerating, Is.True);
+                Assert.That(fixture.World.GeneratingIslandCount, Is.EqualTo(1));
+            }
+            finally { gate.Release(); }
+        }
+
+        [Test]
+        public void UrgentDetailsPreemptBackgroundWorkButNotAnotherImmediateIsland()
+        {
+            using var fixture = new Fixture();
+            var nearby = fixture.Add(Vector2Int.zero);
+            var distant = fixture.Add(Vector2Int.right * 3);
+            Assert.That(Invoke(fixture.World, "ShouldPreemptGeneration", distant, nearby), Is.True);
+            Assert.That(Invoke(fixture.World, "ShouldPreemptGeneration", nearby, distant), Is.False);
+            Assert.That(Invoke(fixture.World, "ShouldPreemptGeneration", nearby, nearby), Is.False);
+        }
+
+        [Test]
+        public void ANewNearbyRequestCancelsTheDistantWorkerOnlyOnce()
+        {
+            using var fixture = new Fixture();
+            var nearby = fixture.Add(Vector2Int.zero);
+            var distant = fixture.Add(Vector2Int.right * 3);
+            var cancellation = new CancellationTokenSource();
+            var type = distant.GetType();
+            type.GetProperty("GenerationCancellation", Hidden).SetValue(distant, cancellation);
+            type.GetProperty("Generating", Hidden).SetValue(distant, true);
+            nearby.GetType().GetProperty("Queued", Hidden).SetValue(nearby, true);
+            Set(fixture.World, "currentGeneration", distant);
+            Invoke(fixture.World, "CancelObsoleteGeneration");
+            Assert.That(cancellation.IsCancellationRequested, Is.True);
+            int token = (int)type.GetProperty("GenerationToken", Hidden).GetValue(distant);
+            Invoke(fixture.World, "CancelObsoleteGeneration");
+            Assert.That(type.GetProperty("GenerationToken", Hidden).GetValue(distant), Is.EqualTo(token));
+            type.GetProperty("GenerationCancellation", Hidden).SetValue(distant, null);
+            cancellation.Dispose();
+        }
+
+        [Test]
+        public void ObservedSlowPreparationExtendsTravelLeadWithinTheSameBounds()
+        {
+            using var fixture = new Fixture();
+            var entry = fixture.Add(Vector2Int.zero);
+            Set(fixture.World, "lastQueryPosition", Vector3.left * 4000);
+            Set(fixture.World, "projectedGenerationPosition", Vector3.left * 4000);
+            Set(fixture.World, "smoothedVelocity", Vector3.right * 10);
+            Assert.That(Invoke(fixture.World, "WantsDetailedIsland", entry), Is.False);
+            Set(fixture.World, "observedDetailPreparationSeconds", 240f);
+            Assert.That(Invoke(fixture.World, "WantsDetailedIsland", entry), Is.True);
+            Assert.That(fixture.World.ResidentIslandLimit, Is.EqualTo(3));
+            Set(fixture.World, "lastQueryPosition", Vector3.left * 12000);
+            Set(fixture.World, "projectedGenerationPosition", Vector3.left * 12000);
+            Assert.That(Invoke(fixture.World, "WantsDetailedIsland", entry), Is.False);
+        }
+
+        [UnityTest, Timeout(600000), Category("NativeIntegration")]
+        public IEnumerator ColdAdjacentIslandHasTerrainAndCollisionBeforeEnteringItsCell()
+        {
+            EditorSceneManager.NewScene(NewSceneSetup.EmptyScene);
+            yield return new EnterPlayMode();
+            var handles = NativeIslandHandle.ActiveCount;
+            using (var fixture = new Fixture())
+            {
+                fixture.MoveViewer(Vector3.left * 2500);
+                fixture.World.Lod3DistanceMetres = 1500;
+                Set(fixture.World, "nextDiscoveryTime", float.MaxValue);
+                var entry = fixture.Add(Vector2Int.zero);
+                fixture.World.enabled = false;
+                fixture.Root.SetActive(true);
+                Set(fixture.World, "smoothedVelocity", Vector3.right * 10);
+                var timer = Stopwatch.StartNew();
+                Invoke(fixture.World, "QueueDesiredGeneration");
+                Invoke(fixture.World, "ProcessGenerationQueue");
+                var generator = (IslandGenerator)entry.GetType().GetProperty("Generator", Hidden).GetValue(entry);
+                Assert.That(generator, Is.Not.Null, "A steady approach must start detail preparation directly.");
+                while (true)
+                {
+                    var position = Vector3.right * (-2500 + (float)timer.Elapsed.TotalSeconds * 10);
+                    fixture.MoveViewer(position);
+                    Invoke(fixture.World, "Update");
+                    bool ready = fixture.World.HasActiveTerrainColliderAt(Vector3.left * 999)
+                        && !generator.IsGenerating && generator.HasRuntime
+                        && !generator.Runtime.IsLod3Visible
+                        && !generator.Runtime.TerrainStreamer.HasPendingTransition
+                        && generator.Runtime.TerrainStreamer.lod0Groups.Count > 0;
+                    Assert.That(position.x, Is.LessThan(-1000),
+                        "At 10 m/s the detailed island and collision must finish before the ship enters its cell.");
+                    if (ready) break;
+                    yield return null;
+                }
+                Assert.That(fixture.World.LoadedIslandCount, Is.EqualTo(1));
+                Assert.That(fixture.World.HorizonIslandCount, Is.EqualTo(1), "Direct detail generation must also retain an independent fallback.");
+                Assert.That(IslandWorldManager.WorldToCell(new Vector3(fixture.World.LogicalPlayerPosition.x, 0,
+                    fixture.World.LogicalPlayerPosition.y)), Is.Not.EqualTo(Vector2Int.zero));
+                Assert.That(fixture.World.HasActiveTerrainColliderAt(Vector3.left * 999), Is.True,
+                    "Collision must be ready at the approaching cell edge before the ship crosses it.");
+                fixture.MoveViewer(Vector3.left * 900);
+                Invoke(fixture.World, "Update");
+                Assert.That(fixture.World.FocusedIsland, Is.Not.Null);
+                fixture.MoveViewer(Vector3.left * 1001);
+                Invoke(fixture.World, "Update");
+                Assert.That(fixture.World.HasActiveTerrainColliderAt(Vector3.left * 999), Is.True,
+                    "Changing grid-cell focus must retain an adjacent island's collision while a ship straddles its edge.");
+                Assert.That(NativeIslandHandle.ActiveCount, Is.EqualTo(handles + 1));
+                UnityEngine.Debug.Log($"MOTU COLD APPROACH: adjacent terrain/collision ready in {timer.Elapsed.TotalSeconds:F2}s, one native preparation and one resident island.");
+            }
+            var drainDeadline = Time.realtimeSinceStartup + 30;
+            while (NativeIslandHandle.ActiveCount != handles)
+            {
+                Assert.That(Time.realtimeSinceStartup, Is.LessThan(drainDeadline));
+                yield return null;
+            }
+            yield return new ExitPlayMode();
+        }
+
         [UnityTest, Timeout(600000), Category("NativeIntegration")]
         public IEnumerator NearbySilhouetteUpgradesToTerrainAndCollisionWithoutAnotherWorldUpdate()
         {
@@ -139,7 +268,14 @@ namespace Motu.Tests
                 Set(World, "streamingTarget", target.transform);
                 Set(World, "hasQueryPosition", true);
                 Set(World, "nextDiscoveryTime", float.MaxValue);
+                if (!Application.isPlaying)
+                {
+                    var environment = new GameObject("Scheduling environment stub").AddComponent<WorldEnvironmentController>();
+                    Set(World, "worldEnvironment", environment);
+                }
             }
+
+            internal void MoveViewer(Vector3 point) { target.transform.position = point; Set(World, "lastQueryPosition", point); Set(World, "projectedGenerationPosition", point); }
 
             internal object Add(Vector2Int cell)
             {

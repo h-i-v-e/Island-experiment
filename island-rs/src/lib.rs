@@ -57,7 +57,7 @@ pub use sky::{SKY_DOME_RADIUS, generate_sky_dome};
 pub use terrain::SurfaceAtlas;
 pub use terrain::{
     CoastalStripOptions, Decoration, Decorations, GenerationMethod, Island, IslandOptions,
-    LandBirdPerch, SurfaceMaps, Terrain,
+    LandBirdPerch, SurfaceMaps, Terrain, TerrainSurfaceHit,
 };
 pub use trees::{
     BranchTip, TreeMeshes, TreeShells, broadleaf_crown, generate_conifer, generate_palm,

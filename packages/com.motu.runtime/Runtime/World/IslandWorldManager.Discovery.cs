@@ -141,6 +141,7 @@ namespace Motu.World
 
         private void CancelObsoleteGeneration()
         {
+            var urgent = SelectNextQueuedIsland();
             foreach (var entry in managedIslands.Values)
             {
                 var remainsRelevant = IsInsideGenerationCorridor(
@@ -155,14 +156,20 @@ namespace Motu.World
                     entry.Queued = false;
                     entry.GenerationToken++;
                 }
-                if (entry.Generating && (!remainsRelevant
-                    || (entry.Horizon != null && !KeepsDetailedIsland(entry))))
+                bool preempt = entry == currentGeneration && urgent != null && ShouldPreemptGeneration(entry, urgent);
+                if (entry.Generating && (!remainsRelevant || preempt
+                    || (entry.Horizon != null && !KeepsDetailedIsland(entry)))
+                    && entry.GenerationCancellation != null && !entry.GenerationCancellation.IsCancellationRequested)
                 {
                     entry.GenerationToken++;
                     entry.GenerationCancellation?.Cancel();
                 }
             }
         }
+
+        private bool ShouldPreemptGeneration(IslandRuntimeEntry running, IslandRuntimeEntry incoming)
+            => NeedsGeneration(incoming) && (NeedsImmediateDetails(incoming) && !NeedsImmediateDetails(running)
+                || WantsDetailedIsland(incoming) && !WantsDetailedIsland(running));
 
         private bool IsInsideGenerationCorridor(
             IslandRuntimeEntry entry,
@@ -207,7 +214,7 @@ namespace Motu.World
                     }
                     entry.Queued = false;
                     if (!NeedsGeneration(entry)) continue;
-                    var loadingDetails = entry.Horizon != null;
+                    var loadingDetails = WantsDetailedIsland(entry);
                     IslandGenerator generator = null;
                     if (loadingDetails)
                     {
@@ -232,11 +239,16 @@ namespace Motu.World
                     entry.Generating = true;
                     currentGeneration = entry;
                     var generated = false;
+                    var preparationBegan = Time.realtimeSinceStartupAsDouble;
                     try
                     {
                         if (loadingDetails)
                             generated = await generator.GenerateAsync(request, cancellation.Token,
-                                installationBudgetMilliseconds);
+                                installationBudgetMilliseconds, mesh =>
+                                {
+                                    if (!destroyed && generationToken == entry.GenerationToken && entry.Horizon == null)
+                                        InstallHorizon(entry, mesh);
+                                });
                         else
                         {
                             var mesh = await IslandGenerationWorker.GenerateHorizonAsync(request, cancellation.Token);
@@ -268,6 +280,9 @@ namespace Motu.World
                     }
                     if (generated)
                     {
+                        if (loadingDetails)
+                            observedDetailPreparationSeconds = Mathf.Max(observedDetailPreparationSeconds,
+                                (float)(Time.realtimeSinceStartupAsDouble - preparationBegan));
                         if (!IsInsideGenerationCorridor(
                                 entry,
                                 cancellationHysteresisMetres))

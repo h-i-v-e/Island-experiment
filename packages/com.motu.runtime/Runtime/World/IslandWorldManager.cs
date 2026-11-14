@@ -135,6 +135,7 @@ namespace Motu.World
         internal Vector3 smoothedVelocity;
         private Vector3 previousTargetPosition;
         private bool hasQueryPosition;
+        private float observedDetailPreparationSeconds;
         internal bool hasPreviousTargetPosition;
         internal float nextDiscoveryTime;
         private IIslandGenerationRequestFactory islandGenerationRequestFactory;
@@ -458,7 +459,9 @@ namespace Motu.World
         private float DetailPreloadRadius => Lod3DistanceMetres + Mathf.Max(
             Mathf.Max(0f, detailPreloadMarginMetres),
             Mathf.Min(Mathf.Max(0f, maximumLookAheadMetres),
-                smoothedVelocity.magnitude * Mathf.Max(0f, detailPreparationLeadSeconds)));
+                smoothedVelocity.magnitude * PreparationLeadSeconds));
+        private float PreparationLeadSeconds => Mathf.Max(Mathf.Max(0f, detailPreparationLeadSeconds),
+            observedDetailPreparationSeconds > 0 ? observedDetailPreparationSeconds * 1.5f + 15f : 0f);
         private float DetailUnloadRadius => DetailPreloadRadius + Mathf.Max(100f, detailUnloadHysteresisMetres);
         private float EffectiveGenerationRadius => Mathf.Max(generationRadiusMetres, DetailPreloadRadius);
         private float EffectiveDiscoveryRadius => Mathf.Max(discoveryRadiusMetres, EffectiveUnloadRadius());
@@ -528,7 +531,14 @@ namespace Motu.World
                         // The independently owned silhouette survives releasing the complete runtime.
                         generator.Clear();
                     }
-                    else generator.Runtime.SetViewPosition(worldPosition);
+                    else
+                    {
+                        generator.Runtime.SetViewPosition(worldPosition);
+                        // An adjacent island can already be visible before the
+                        // viewer crosses its grid boundary. Start its bounded
+                        // terrain/collision neighborhood at that approach too.
+                        generator.PrepareStreamingAt(worldPosition);
+                    }
                 }
                 entry.Horizon?.SetViewPosition(worldPosition,
                     generator == null || generator.IsGenerating || !generator.HasRuntime, Lod3DistanceMetres);
@@ -578,8 +588,10 @@ namespace Motu.World
             }
             if (focusedIsland != selected)
             {
-                focusedIsland?.SetStreamingTarget(null);
-                focusedIsland?.ClearStreamingFocus();
+                // The manager continues preparing every visible neighbor. A
+                // grid-cell handoff must not tear down the old island's nearby
+                // terrain/colliders while a ship still straddles that boundary.
+                if (focusedIsland != null) focusedIsland.Streaming.Target = null;
                 focusedIsland = selected;
             }
             if (focusedIsland != null)

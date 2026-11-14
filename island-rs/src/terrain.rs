@@ -32,6 +32,9 @@ use crate::{
     rng::Rng,
 };
 
+mod accurate_surface;
+mod peak;
+pub use accurate_surface::TerrainSurfaceHit;
 mod bird_perches;
 pub use bird_perches::LandBirdPerch;
 mod coastal_strip;

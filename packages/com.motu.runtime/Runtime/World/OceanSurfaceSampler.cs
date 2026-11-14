@@ -131,6 +131,7 @@ namespace Motu.World
         }
 
         internal float SampleAge(int index) => Time.time - sampleTimes[index];
+        internal Vector3 SamplePosition(int index) => sampledPositions[index];
 
         internal static float MotionTravelAllowance(float tolerance, Vector3 pointVelocity,
             float sampleAge, float maximumAge)

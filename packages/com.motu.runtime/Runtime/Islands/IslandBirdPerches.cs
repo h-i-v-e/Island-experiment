@@ -26,17 +26,29 @@ namespace Motu.Islands
         public static IReadOnlyList<IslandBirdPerches> Loaded => loaded;
         public IReadOnlyList<LandBirdPerch> Perches => perches;
         private float cruiseHeight;
+        private IslandRuntime peakOwner;
         public float CruiseHeight => transform.TransformPoint(new Vector3(0, cruiseHeight, 0)).y;
         public bool TreesVisible { get; set; } = true;
         public void Initialize(LandBirdPerch[] anchors, bool treesVisible = true, float terrainMaximumHeight = 0)
         {
+            peakOwner = GetComponentInParent<IslandRuntime>(true);
             perches = anchors ?? Array.Empty<LandBirdPerch>(); TreesVisible = treesVisible;
             cruiseHeight = terrainMaximumHeight;
             foreach (var perch in perches) cruiseHeight = Mathf.Max(cruiseHeight, perch.LocalPosition.y);
             cruiseHeight += 12;
         }
+        public bool TryGetPeak(out Vector3 worldPeak)
+        {
+            worldPeak = default;
+            if (!isActiveAndEnabled) return false;
+            if (peakOwner == null) peakOwner = GetComponentInParent<IslandRuntime>(true);
+            return peakOwner != null && peakOwner.TryGetTerrainPeak(out worldPeak);
+        }
+
         public bool CanUse(int index) => isActiveAndEnabled && index >= 0 && index < perches.Length
-            && (TreesVisible || perches[index].Kind != LandBirdPerchKind.Tree);
+            && (peakOwner == null || peakOwner.TerrainStreamer != null && peakOwner.TerrainStreamer.isActiveAndEnabled)
+            && (perches[index].Kind != LandBirdPerchKind.Tree || TreesVisible
+                && (peakOwner == null || peakOwner.TerrainStreamer != null && peakOwner.TerrainStreamer.HasVisibleForest));
         public Vector3 Position(int index) => transform.TransformPoint(perches[index].LocalPosition);
         public Quaternion Rotation(int index) => transform.rotation * Quaternion.Euler(0, perches[index].YawDegrees, 0);
         private void OnEnable() { if (!loaded.Contains(this)) loaded.Add(this); }

@@ -173,10 +173,17 @@ namespace Motu.Islands
                 && Vector3.Dot(transform.up, Vector3.up) > 0.99999f;
         }
 
-        public async Task<bool> GenerateAsync(
+        public Task<bool> GenerateAsync(
             IslandGenerationRequest request,
             CancellationToken externalCancellation = default,
             float installationFrameBudgetMilliseconds = 4f)
+            => GenerateAsync(request, externalCancellation, installationFrameBudgetMilliseconds, null);
+
+        internal async Task<bool> GenerateAsync(
+            IslandGenerationRequest request,
+            CancellationToken externalCancellation,
+            float installationFrameBudgetMilliseconds,
+            Action<IslandPreparedMesh> publishHorizon)
         {
             if (request == null) throw new ArgumentNullException(nameof(request));
             if (generationLifecycle.IsGenerating)
@@ -217,6 +224,11 @@ namespace Motu.Islands
                 {
                     return false;
                 }
+
+                // The same native preparation supplies both detail and its
+                // independently owned fallback. Do not generate, discard and
+                // reload an entire cold island just to obtain its silhouette.
+                publishHorizon?.Invoke(prepared.lod3);
 
                 status = "Uploading generated island...";
                 installationStarted = true;

@@ -33,6 +33,27 @@ namespace Motu.Interop
             }
         }
 
+        // Keep disposal outside this short native read without allocating a
+        // worker lease for each main-thread ground query.
+        internal bool TrySampleTerrainSurface(UnityEngine.Vector3 origin, UnityEngine.Vector3 down,
+            out TerrainSurfaceNative.Sample sample)
+        {
+            lock (sync)
+            {
+                sample = default;
+                return !disposed && TerrainSurfaceNative.TryGetAccurateTerrainSurface(value, origin, down, out sample) != 0;
+            }
+        }
+
+        internal bool TryGetTerrainPeak(UnityEngine.Vector3 up, out UnityEngine.Vector3 peak)
+        {
+            lock (sync)
+            {
+                peak = default;
+                return !disposed && TerrainPeakNative.TryGetTerrainPeak(value, up, out peak) != 0;
+            }
+        }
+
         // A worker must hold a lease until all native reads and export copies end.
         // Runtime disposal never waits for that worker on Unity's main thread.
         internal Lease Acquire()

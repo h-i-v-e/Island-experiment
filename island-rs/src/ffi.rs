@@ -12,6 +12,8 @@ mod coastal_strip;
 mod hybrid_forest;
 mod reed_instances;
 mod surface_atlas;
+mod terrain_surface;
+mod terrain_peak;
 
 use std::{
     alloc::{Layout, alloc, dealloc, handle_alloc_error},

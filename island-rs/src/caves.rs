@@ -231,6 +231,13 @@ impl CaveSet {
         })
     }
 
+    pub(crate) fn removes_terrain_surface(&self, point: Vec3) -> bool {
+        let metres = point * ISLAND_WORLD_METRES;
+        self.caves
+            .iter()
+            .any(|cave| cave.portal.removes_surface(metres))
+    }
+
     /// # Errors
     /// Rejects corrupt layouts, meshes and excessive resource counts.
     pub fn validate(&self) -> Result<(), String> {

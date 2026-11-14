@@ -187,6 +187,8 @@ namespace Motu.Streaming
         internal int Lod0GroupCount => lod0Groups.Count;
         internal int TerrainColliderCount => colliderTiles.Count;
         internal bool HasCurrentCollider => colliderTiles.Count != 0;
+        internal bool HasVisibleForest => isActiveAndEnabled && forestStreamer?.Root != null
+            && forestStreamer.Root.activeInHierarchy;
         internal int ForestColliderTileCount => forestStreamer?.ColliderTileCount ?? 0;
         internal int ForestTrunkColliderCount => forestStreamer?.ActiveTrunkColliderCount ?? 0;
         internal int ForestLogColliderCount => forestStreamer?.ActiveLogColliderCount ?? 0;
