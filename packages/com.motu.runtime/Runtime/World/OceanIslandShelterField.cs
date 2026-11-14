@@ -10,6 +10,7 @@ namespace Motu.World
     [AddComponentMenu("Motu/Ocean Island Shelter Field")]
     public sealed class OceanIslandShelterField : MonoBehaviour
     {
+        private const float MaximumReachMetres = 500;
         private sealed class Source
         {
             internal UnityEngine.Object Owner;
@@ -21,8 +22,8 @@ namespace Motu.World
         [SerializeField] private bool shelterEnabled = true;
         [Range(32, 512), SerializeField] private int resolution = 256;
         [Min(256), SerializeField] private float coverageMetres = 4096;
-        [Tooltip("Distance downwind over which an island provides shelter. The first 65 percent forms the calm anchorage core.")]
-        [Min(32), SerializeField] private float reachMetres = 1800;
+        [Tooltip("Distance downwind from land to full wave recovery, capped at 500 metres. The first 65 percent forms the calm anchorage core; shelter then fades smoothly to zero.")]
+        [Range(32, MaximumReachMetres), SerializeField] private float reachMetres = MaximumReachMetres;
         [Min(0), SerializeField] private float edgeSoftnessMetres = 40;
         [Tooltip("Time constant for sea-state changes after a wind turn. The field stays fixed to the islands as the ocean recentres.")]
         [Min(.1f), SerializeField] private float responseSeconds = 12;
@@ -47,7 +48,19 @@ namespace Motu.World
         public bool Enabled { get => shelterEnabled; set { shelterEnabled = value; dirty = true; if (!value) BindOpenWater(); } }
         public int Resolution { get => resolution; set { resolution = Mathf.Clamp(value, 32, 512); dirty = true; } }
         public float CoverageMetres { get => coverageMetres; set { coverageMetres = FiniteAtLeast(value, 256); dirty = true; } }
-        public float ReachMetres { get => reachMetres; set { reachMetres = FiniteAtLeast(value, 32); dirty = true; } }
+        public float ReachMetres
+        {
+            // Read-time clamping also covers older serialized kilometre-scale
+            // settings in player builds, where OnValidate never runs.
+            get => Mathf.Clamp(reachMetres, 32, MaximumReachMetres);
+            set
+            {
+                float reach = Mathf.Min(MaximumReachMetres, FiniteAtLeast(value, 32));
+                if (reach != reachMetres) historyValid = false;
+                reachMetres = reach;
+                dirty = true;
+            }
+        }
         public float ResponseSeconds { get => responseSeconds; set => responseSeconds = FiniteAtLeast(value, .1f); }
         public float ShelteredWaveFraction { get => shelteredWaveFraction; set => shelteredWaveFraction = Mathf.Clamp01(FiniteAtLeast(value, 0)); }
         public RenderTexture Texture => history;
@@ -169,12 +182,13 @@ namespace Motu.World
             GL.Clear(false, true, Color.clear);
             generator.SetVector("_CompositionWorldRect", rect);
             generator.SetVector("_ShelterWindDirection", new Vector4(direction.x, direction.y, 0, 0));
-            generator.SetVector("_ShelterGenerationParameters", new Vector4(reachMetres, .65f, edgeSoftnessMetres, 1));
+            float reach = ReachMetres;
+            generator.SetVector("_ShelterGenerationParameters", new Vector4(reach, .65f, edgeSoftnessMetres, 1));
             foreach (var source in sources)
             {
                 var position = source.Transform.position;
                 var scale = source.Transform.lossyScale;
-                float radius = source.Size * .75f * Mathf.Max(Mathf.Abs(scale.x), Mathf.Abs(scale.z)) + reachMetres + edgeSoftnessMetres;
+                float radius = source.Size * .75f * Mathf.Max(Mathf.Abs(scale.x), Mathf.Abs(scale.z)) + reach + edgeSoftnessMetres;
                 if (position.x + radius < rect.x || position.z + radius < rect.y
                     || position.x - radius > rect.x + rect.z || position.z - radius > rect.y + rect.w) continue;
                 generator.SetTexture("_SeaMask", source.Mask);
@@ -231,7 +245,7 @@ namespace Motu.World
             target = history = next = null;
         }
 
-        private void OnEnable() { dirty = true; }
+        private void OnEnable() { dirty = true; historyValid = false; }
         private void OnDisable() { BindOpenWater(); historyValid = false; }
         private void OnDestroy()
         {
@@ -243,7 +257,7 @@ namespace Motu.World
         {
             resolution = Mathf.Clamp(resolution, 32, 512);
             coverageMetres = FiniteAtLeast(coverageMetres, 256);
-            reachMetres = FiniteAtLeast(reachMetres, 32);
+            ReachMetres = reachMetres;
             responseSeconds = FiniteAtLeast(responseSeconds, .1f);
             edgeSoftnessMetres = FiniteAtLeast(edgeSoftnessMetres, 0);
             shelteredWaveFraction = Mathf.Clamp01(FiniteAtLeast(shelteredWaveFraction, 0));

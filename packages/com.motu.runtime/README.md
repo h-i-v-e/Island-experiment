@@ -505,7 +505,13 @@ orbit latitude). Solar time and lunar phase continue normally while travelling.
 Other island factories use the authored world **Sun Latitude Degrees** value.
 
 Island lee attenuation comes from the shared GPU `MotuOceanShelterWaveScale`
-field used by ocean geometry and buoyancy. `OceanHullSpray.TryGetWaterlineSurface`
+field used by ocean geometry and buoyancy. Shelter reaches at most 500 metres
+downwind from land: the first 65 percent protects the anchorage, followed by
+smooth recovery to full-sized waves. `OceanIslandShelterField.ReachMetres` can
+shorten that distance; older kilometre-scale serialized values are capped at
+runtime too. Reducing the range clears the old shelter history without allocating
+new textures. The existing field resolution and update rate stay unchanged.
+`OceanHullSpray.TryGetWaterlineSurface`
 also exposes that sampled fraction through its overload with `out waveScale`,
 without another GPU query. `OceanShoreSampler.Sample.Amplitude` includes island
 shelter; its `WaveScale` lets audio retain the same attenuation after volume
