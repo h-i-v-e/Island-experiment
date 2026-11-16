@@ -192,6 +192,8 @@ pub(crate) fn generate(
     Ok(BuildingPrototype {
         recipe: r.clone(),
         layout: BuildingLayout {
+            extensions: Vec::new(),
+            occupied_bounds: Vec::new(),
             storeys: 1,
             floor_heights: vec![0.],
             staircase: None,

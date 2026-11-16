@@ -79,7 +79,7 @@ Texture payload is equal between compilers. Keep Standard as the general default
 and select arrays for workloads where repeated measurements show a benefit.
 
 Runtime validation resumed successfully after other graphics applications were
-closed. All 212 Studio tests pass, and the eight-recipe/three-LOD audit removes
+closed. All 219 Studio tests pass, and the eight-recipe/three-LOD audit removes
 11,502 triangles and 90,146 vertices. Standard and array material captures cover
 interiors, thatch, open doors, visible/hidden stairs, shadows and SSAO. See
 `VALIDATION.md` for the benchmark decision and packaged build evidence.
@@ -93,7 +93,7 @@ checking its casing and sill. Closed doors and structural wall sections block
 movement; open doorways remain clear. The player capsule is 0.28 m radius and
 1.8 m high.
 
-The Structure, Layout, Openings, Roof, Chimney, Materials and LOD/Bake tabs edit the typed
+The Structure, Layout, Openings, Lean-tos / wings, Roof, Chimney, Materials and LOD/Bake tabs edit the typed
 recipe. Layout supports parallel full cross-walls with internal doorways;
 crossing partitions are diagnosed. Material selectors accept the same JSON
 recipes as Material Studio, resolved relative to the building recipe. Full
@@ -124,6 +124,59 @@ changing the latter changes building depth. Chimney stack height snaps its absol
 top elevation to courses starting at floor level. Small thicknesses, projections,
 clearances and burial margins remain in metres. Dimensions are still saved in metres,
 with the usual Undo/Redo and existing recipe compatibility.
+
+## Lean-tos and wings
+
+**Lean-tos / wings** adds up to eight enclosed ground-floor extensions to a
+rectangular building. A lean-to has a single roof pitch falling away from the
+house; a wing has a gabled roof with its ridge running outward. Choose the host
+facade, width along that wall, outward depth, centre offset, eaves height and
+roof rise. The main building can have multiple storeys; extensions have one.
+The Gothic church retains its separate cruciform formula.
+
+Shared walls and covered windows are removed to make walkable connections.
+Floors remain level, intersecting roofs are trimmed against their actual surfaces,
+and duplicate floor/foundation faces are removed at joins. The extensions share
+the building's wall, timber, roof, floor and ceiling materials, including slate
+or thatch. Attached thatched lean-tos omit the high-side ridge cap.
+Generated exterior windows use the building-wide dimensions; each extension can
+disable windows or override pane rows/columns. Keep entrances, entrance stairs
+and chimneys clear of the connections; conflicts show a validation error.
+
+Foundations follow the compound footprint and share a burial depth sufficient
+for a 30° slope across the complete building. The terrain preview uses the actual
+footprint, including off-centre wings. All three LODs include extensions. LOD0
+has connected interiors and transparent glazing; LOD1 has opaque windows and
+reduced detail; LOD2 packs the facade bakes into one atlas at the selected
+resolution. Increase that resolution if a large compound needs more distant
+facade detail. **Inspection → Extension** looks into the first attached room.
+
+`recipes/extensions-cottage.json` demonstrates both types. Code can append the
+same typed recipe data, without creating separate building instances:
+
+```rust
+use island_building::{BuildingRecipe, ExtensionKind, ExtensionRecipe, Facade};
+
+let mut recipe = BuildingRecipe::cottage();
+recipe.extensions.push(ExtensionRecipe {
+    id: "east-lean-to".into(),
+    kind: ExtensionKind::LeanTo,
+    facade: Facade::East,
+    width: 3.0,
+    depth: 2.5,
+    wall_height: 2.4,
+    roof_rise: 0.35,
+    ..Default::default()
+});
+```
+
+Offsets follow the host facade's existing tangent convention. Dimensions are
+saved in metres, with the same material-unit controls and Undo/Redo as the main
+structure. Layout exports include extension bounds, interior bounds, connection
+bounds and window centres; foundation placement metadata encloses the whole
+compound. Empty corners of an L-shaped footprint are excluded from occupancy.
+
+## Windows and doors
 
 **Openings → Building-wide defaults** sets one window width, height and sill,
 and one door width and height. New internal doorways use these door sizes too;
@@ -550,7 +603,7 @@ cargo run --manifest-path island-building/Cargo.toml --features studio --bin bui
 ```
 
 Screenshot filenames must not already exist. `--view` also accepts `south`,
-`east`, `west`, `entrance`, `fireplace`, `roof-end`, `roof-under`, `eaves`, `window` and `corner`; `--capture-ui` includes the HUD. Captures wait for
+`east`, `west`, `entrance`, `extension`, `fireplace`, `roof-end`, `roof-under`, `eaves`, `window` and `corner`; `--capture-ui` includes the HUD. Captures wait for
 valid geometry and rendering to settle, then exit after the PNG is written.
 Interior/entrance inspection can intentionally pin LOD0 even when a farther LOD
 is requested. Use exterior facade views for forced LOD comparisons.

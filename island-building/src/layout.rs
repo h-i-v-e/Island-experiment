@@ -3,6 +3,10 @@ use crate::BuildingRecipe;
 use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct BuildingLayout {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub extensions: Vec<crate::ExtensionLayout>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub occupied_bounds: Vec<crate::collision::BoxCollider>,
     #[serde(default = "crate::recipe::one_storey")]
     pub storeys: u8,
     #[serde(default)]
@@ -20,6 +24,13 @@ pub struct BuildingLayout {
 impl BuildingLayout {
     #[must_use]
     pub fn contains(&self, point: [f32; 3], margin: f32) -> bool {
+        if !self.occupied_bounds.is_empty() {
+            return self.occupied_bounds.iter().any(|bounds| {
+                (0..3).all(|i| {
+                    point[i] >= bounds.min[i] - margin && point[i] <= bounds.max[i] + margin
+                })
+            });
+        }
         (0..3).all(|i| {
             point[i] >= self.bounds_min[i] - margin && point[i] <= self.bounds_max[i] + margin
         })
@@ -49,6 +60,8 @@ pub(crate) fn resolve(
         .expect("validated exterior door");
     let stair_room = usize::from(staircase.as_ref().is_some_and(|s| s.stairwell.is_some()));
     let mut layout = BuildingLayout {
+        extensions: Vec::new(),
+        occupied_bounds: Vec::new(),
         storeys: recipe.storeys,
         floor_heights: (0..recipe.storeys)
             .map(|i| recipe.floor_height(i))

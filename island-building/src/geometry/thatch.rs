@@ -23,6 +23,7 @@ struct Coat<'a> {
     half: [f32; 2],
     hole: Option<BoxCollider>,
     detail: Detail,
+    ridge: bool,
     detail_inset: f32,
     surfaces: Vec<smooth::Surface>,
 }
@@ -83,7 +84,7 @@ impl Coat<'_> {
         }
     }
     fn is_ridge(&self, x: f32) -> bool {
-        self.ridge_distance(x) <= self.ridge_width()
+        self.ridge && self.ridge_distance(x) <= self.ridge_width()
     }
     fn ridge_floor(&self) -> f32 {
         self.body_height(self.high_x() - self.ridge_width()) - 0.015
@@ -250,6 +251,10 @@ impl Coat<'_> {
 }
 
 fn coat(recipe: &BuildingRecipe, detail: Detail) -> Coat<'_> {
+    coat_with_ridge(recipe, detail, true)
+}
+
+fn coat_with_ridge(recipe: &BuildingRecipe, detail: Detail, ridge: bool) -> Coat<'_> {
     let mut coat = Coat {
         recipe,
         half: [
@@ -258,6 +263,7 @@ fn coat(recipe: &BuildingRecipe, detail: Detail) -> Coat<'_> {
         ],
         hole: chimney::stack_bounds(recipe),
         detail,
+        ridge,
         detail_inset: 0.05,
         surfaces: Vec::new(),
     };
@@ -272,7 +278,20 @@ pub(super) fn surface_height(recipe: &BuildingRecipe, near: bool) -> impl Fn(f32
     move |x, y| coat.height(x, y)
 }
 pub(crate) fn generate(builder: &mut Builder, recipe: &BuildingRecipe, detail: Detail) {
-    let coat = coat(recipe, detail);
+    generate_with_ridge(builder, recipe, detail, true);
+}
+
+pub(crate) fn generate_lean_to(builder: &mut Builder, recipe: &BuildingRecipe, detail: Detail) {
+    generate_with_ridge(builder, recipe, detail, false);
+}
+
+fn generate_with_ridge(
+    builder: &mut Builder,
+    recipe: &BuildingRecipe,
+    detail: Detail,
+    ridge: bool,
+) {
+    let coat = coat_with_ridge(recipe, detail, ridge);
     let stations = if recipe.roof.kind == RoofKind::Gable {
         [-coat.half[0] * 0.5, coat.half[0] * 0.5]
     } else {
@@ -287,10 +306,14 @@ pub(crate) fn generate(builder: &mut Builder, recipe: &BuildingRecipe, detail: D
         if detail == Detail::Near {
             fibres(builder, &coat, section);
             details::surface_reeds(builder, &coat, section);
-            details::ridge_bindings(builder, &coat, section);
+            if ridge {
+                details::ridge_bindings(builder, &coat, section);
+            }
         }
     }
-    prisms::ridge(builder, &coat);
+    if ridge {
+        prisms::ridge(builder, &coat);
+    }
     if detail == Detail::Near {
         wall_joint(builder, &coat);
     }

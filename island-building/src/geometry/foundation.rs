@@ -19,12 +19,22 @@ const LANDING_HEIGHT: f32 = 0.002;
 pub fn bounds(recipe: &BuildingRecipe) -> BoxCollider {
     let x = recipe.width * 0.5 + recipe.foundation.outset;
     let y = recipe.depth * 0.5 + recipe.foundation.outset;
-    let depth = (x * 2.).hypot(y * 2.) * MAX_SLOPE_DEGREES.to_radians().tan()
+    let footprint = crate::extensions::footprint(recipe);
+    let depth = (footprint.max[0] - footprint.min[0]).hypot(footprint.max[1] - footprint.min[1])
+        * MAX_SLOPE_DEGREES.to_radians().tan()
         + recipe.foundation.burial_depth;
     BoxCollider {
         min: [-x, -y, -depth],
         max: [x, y, 0.],
     }
+}
+
+/// Placement bounds enclose every attached foundation; geometry keeps the actual footprint.
+#[must_use]
+pub fn enclosing_bounds(recipe: &BuildingRecipe) -> BoxCollider {
+    let mut footprint = crate::extensions::footprint(recipe);
+    footprint.min[2] = bounds(recipe).min[2];
+    footprint
 }
 
 #[derive(Clone, Copy, Debug, Serialize)]
@@ -114,7 +124,7 @@ fn stair_layout<'a>(recipe: &BuildingRecipe, opening: &'a OpeningRecipe) -> Stai
         tread_overhang: TREAD_OVERHANG,
         bounds: bounds(recipe),
     };
-    let foundation = bounds(recipe);
+    let foundation = enclosing_bounds(recipe);
     // A pitch steeper than 30 degrees intersects even ground descending beyond
     // the house. Include every possible high point and both flight toe corners.
     while layout.drop - LANDING_HEIGHT

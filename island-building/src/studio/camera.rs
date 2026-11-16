@@ -41,7 +41,7 @@ impl CameraControls {
         self.walkthrough = false;
         self.target = Vec3::new(0., recipe.wall_height * 0.5, 0.);
         self.distance = recipe.width.max(recipe.depth) * 2.25;
-        if recipe.chimney.is_some() || recipe.storeys > 1 {
+        if recipe.chimney.is_some() || recipe.storeys > 1 || !recipe.extensions.is_empty() {
             let [min, max] = crate::render::above_ground_bounds(prototype).map(native_to_bevy);
             self.target = (min + max) * 0.5;
             let radius = min.distance(max) * 0.5;
@@ -85,6 +85,9 @@ impl CameraControls {
         }
         if view == "interior" {
             self.frame_interior(prototype);
+        }
+        if view == "extension" {
+            self.frame_extension(prototype);
         }
         if view == "stair-door" {
             self.frame_stair_door(prototype);
@@ -165,6 +168,29 @@ impl CameraControls {
         if recipe.storeys > 1 {
             self.frame_storey_interior(prototype);
         }
+    }
+
+    fn frame_extension(&mut self, prototype: &BuildingPrototype) {
+        let Some(extension) = prototype.layout.extensions.first() else {
+            return;
+        };
+        let recipe = &prototype.recipe;
+        let Some(authored) = recipe.extensions.iter().find(|e| e.id == extension.id) else {
+            return;
+        };
+        self.walkthrough = true;
+        self.feet = native_to_bevy(authored.facade.point(
+            recipe,
+            authored.offset,
+            0.025,
+            recipe.wall_thickness + 0.8,
+        ));
+        let target = native_to_bevy(std::array::from_fn::<_, 3, _>(|i| {
+            (extension.room_bounds.min[i] + extension.room_bounds.max[i]) * 0.5
+        }));
+        let look = target - (self.feet + Vec3::Y * 1.65);
+        self.yaw = (-look.x).atan2(-look.z);
+        self.pitch = (-look.y / look.length()).asin();
     }
 
     fn frame_storey_interior(&mut self, prototype: &BuildingPrototype) {

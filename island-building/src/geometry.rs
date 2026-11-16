@@ -133,6 +133,22 @@ pub(crate) fn generate_with_roof_pitch(
     r: &BuildingRecipe,
     roof_pitch: f32,
 ) -> (BuildingLod, Vec<DoorDescriptor>, Vec<BoxCollider>) {
+    generate_shell(r, roof_pitch, false)
+}
+
+pub(crate) fn generate_attachment(
+    r: &BuildingRecipe,
+    roof_pitch: f32,
+    lean: bool,
+) -> (BuildingLod, Vec<DoorDescriptor>, Vec<BoxCollider>) {
+    generate_shell(r, roof_pitch, lean)
+}
+
+fn generate_shell(
+    r: &BuildingRecipe,
+    roof_pitch: f32,
+    lean: bool,
+) -> (BuildingLod, Vec<DoorDescriptor>, Vec<BoxCollider>) {
     let mut b = Builder::default();
     let mut colliders = Vec::new();
     let mut doors = Vec::new();
@@ -140,7 +156,11 @@ pub(crate) fn generate_with_roof_pitch(
     foundation::generate(&mut b, r, false);
     colliders.push(foundation::bounds(r));
     room(&mut b, r, &mut colliders, &mut doors, &[]);
-    roof(&mut b, r, true, roof_pitch);
+    if lean && r.roof.covering == RoofCovering::Thatch {
+        thatch::generate_lean_to(&mut b, r, thatch::Detail::Near);
+    } else {
+        roof(&mut b, r, true, roof_pitch);
+    }
     chimney::near(&mut b, r, &mut colliders);
     (b.finish(), doors, colliders)
 }
@@ -430,7 +450,7 @@ fn board_uvs(builder: &mut Builder, recipe: &BuildingRecipe, slot: MaterialSlot,
     }
 }
 
-fn ceiling_height(recipe: &BuildingRecipe) -> f32 {
+pub(crate) fn ceiling_height(recipe: &BuildingRecipe) -> f32 {
     if recipe.walls.style != crate::WallStyle::WattleAndDaub {
         return recipe.wall_height - CEILING_THICKNESS;
     }

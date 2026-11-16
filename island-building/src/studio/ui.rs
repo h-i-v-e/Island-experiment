@@ -1,6 +1,7 @@
 mod chimney;
 mod church;
 pub(super) mod dialogs;
+mod extensions;
 mod grub;
 mod inspector;
 mod openings;
@@ -250,6 +251,14 @@ fn camera_buttons(ui: &mut egui::Ui, state: &StudioState, controls: &mut CameraC
             && let Some(prototype) = &prototype
         {
             controls.frame(prototype, "fireplace");
+        }
+        if prototype
+            .as_ref()
+            .is_some_and(|p| !p.layout.extensions.is_empty())
+            && ui.small_button("Extension").clicked()
+            && let Some(prototype) = &prototype
+        {
+            controls.frame(prototype, "extension");
         }
     });
     if let Some(prototype) = &prototype

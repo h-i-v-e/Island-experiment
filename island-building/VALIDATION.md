@@ -2161,3 +2161,64 @@ No shader/runtime errors were found.
 Build 58 uses geometry/material/bake identities 53/20/22 and preserves build 57.
 Focused source snapshots, captures and validation logs are under
 `artifacts/building-studio/2026-11-17/window-panes/`.
+
+
+## Lean-tos and gabled wings · 17 November 2026
+
+The previously reviewed building/material work was committed and pushed to
+`origin/main` as `cd10794` before this extension work began. The new recipe
+`extensions` list supports up to eight ground-floor rooms on rectangular
+buildings, including multi-storey parents. Each attachment has a stable ID,
+facade, offset, width, outward depth, eaves height, roof rise, optional generated
+windows and optional pane layout. The church keeps its separate cruciform
+formula. `recipes/extensions-cottage.json` demonstrates a thatched lean-to and
+gabled wing together; Studio exposes the same data in **Lean-tos / wings**.
+
+Components share material textures and retain one selected-resolution distant
+atlas. Actual generated roof triangles drive the roof intersections, with a BVH
+limiting comparisons to nearby surfaces. Rear roof transitions use an affine
+shear so separately triangulated slate courses, thatch bodies and ridge caps
+retain their contacts. Attached single-pitch thatch omits its high-side ridge
+cap. Occupied rooms open the shared walls; loft infill above their ceilings
+remains closed behind the roof dressing. The floor subtraction uses complete
+slab footprints, rather than inner room bounds, to eliminate coincident floor
+faces through the former wall thickness. Covered foundation tops are removed.
+
+Seven integration tests cover both attachment types on all four facades,
+walkable capsule clearance, visible passage clearance and retained loft infill,
+one floor surface through each connection, floor support, clear LOD0 glazing,
+opaque lower LODs, finite geometry, shared material maps/atlas budget,
+deterministic regeneration, timber/slate/thatch and multi-storey parents,
+validation failures, compound terrain depth/occupancy, and portable export.
+A dense ray grid checks continuous slate roof coverage at all three LODs. It
+caught an exact-boundary clipping error that discarded fragments when an edge
+passed through an existing vertex; boundary vertices now belong to both
+adjoining fragments while wholly coplanar faces retain deterministic ownership.
+
+Foundations keep the actual compound footprint, sharing burial depth calculated
+from its enclosing diagonal at 30°. Entrance stairs use those complete placement
+bounds. The sloped terrain preview touches the highest point of the actual
+foundation union, including off-centre extensions. Exported layout includes
+extension rooms, connection bounds and window centres; occupancy excludes empty
+courtyard corners. The portable-export test verifies regeneration of geometry,
+collision, layout, atlas and prototype identity.
+
+Build 59 uses geometry/material/bake identities **54/20/23**. Build 58 is
+preserved under the evidence directory. The signed canonical bundle's UUID and
+all 15 file-backed Mach-O sections match the freshly built executable, and the
+bundled example and README match the source. The example has **104,955 / 6,050 /
+662** static triangles, excluding retained moving doors and hardware.
+Evidence, regression logs, captures, package checks and the focused diff are
+under `artifacts/building-studio/2026-11-17/extensions/`.
+
+The final full Studio/all-target suite passes **219 tests**, with strict
+all-target Clippy, formatting and whitespace checks also passing. Seven serial
+Metal captures cover both roof junctions, the connected interior, Standard and
+array rendering, actual LOD1/2 HUD states and 30° terrain. No shader/runtime
+errors were found. The signed build-59 review app loads the example, switches a
+lean-to to a gabled wing and regenerates successfully. Undo restores the clean
+recipe and original preview; the Extension inspection view shows the connected
+room with clear glazing. The live review ends in Overview with material units
+restored, leaving the example unchanged on disk. Numeric dimension editing was
+not established through the computer-use harness; the live acceptance here is
+roof-type switching, Undo and interior inspection.

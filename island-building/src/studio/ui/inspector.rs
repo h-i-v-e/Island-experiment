@@ -35,6 +35,9 @@ pub(super) fn show(viewport: &mut egui::Ui, context: &egui::Context, state: &mut
                 Tab::Structure if church => super::church::show(ui, &mut draft, dimensions),
                 Tab::Structure => structure(ui, &mut draft, dimensions),
                 Tab::Layout => layout(ui, &mut draft, state, dimensions),
+                Tab::Extensions => {
+                    super::extensions::show(ui, &mut draft, state.serial, dimensions);
+                }
                 Tab::Openings => super::openings::show(ui, &mut draft, state.serial, dimensions),
                 Tab::Roof => roof(ui, &mut draft, dimensions),
                 Tab::Chimney => super::chimney::show(ui, &mut draft, state, dimensions),
@@ -59,6 +62,7 @@ fn tabs(ui: &mut egui::Ui, tab: &mut Tab, church: bool) {
         for (candidate, label) in [
             (Tab::Structure, "Structure"),
             (Tab::Layout, "Layout"),
+            (Tab::Extensions, "Lean-tos / wings"),
             (Tab::Openings, "Openings"),
             (Tab::Roof, "Roof"),
             (Tab::Chimney, "Chimney"),

@@ -374,7 +374,7 @@ fn window_controls(ui: &mut egui::Ui, opening: &mut OpeningRecipe, defaults: Win
     }
 }
 
-fn pane_counts(ui: &mut egui::Ui, panes: &mut WindowPanes) {
+pub(super) fn pane_counts(ui: &mut egui::Ui, panes: &mut WindowPanes) {
     ui.label("Window panes");
     ui.horizontal(|ui| {
         ui.add(egui::DragValue::new(&mut panes.columns).range(1..=WindowPanes::MAX_PER_AXIS));

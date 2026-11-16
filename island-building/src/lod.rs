@@ -20,6 +20,18 @@ pub(crate) fn middle_level(recipe: &BuildingRecipe, roof: bool) -> BuildingLod {
     builder.finish()
 }
 
+pub(crate) fn middle_attachment(recipe: &BuildingRecipe, lean: bool) -> BuildingLod {
+    let mut builder = Builder::default();
+    geometry::foundation::generate(&mut builder, recipe, false);
+    middle_body(&mut builder, recipe, false);
+    if lean && recipe.roof.covering == crate::RoofCovering::Thatch {
+        geometry::thatch::generate_lean_to(&mut builder, recipe, geometry::thatch::Detail::Middle);
+    } else {
+        geometry::roof(&mut builder, recipe, false, 0.25);
+    }
+    builder.finish()
+}
+
 fn middle_body(builder: &mut Builder, recipe: &BuildingRecipe, roof: bool) {
     for facade in Facade::ALL {
         geometry::wall(builder, recipe, facade, false, &mut Vec::new());
@@ -79,10 +91,18 @@ pub(crate) fn atlas_uv(recipe: &BuildingRecipe, chart: usize, u: f32, v: f32) ->
     ]
 }
 pub(crate) fn distant(recipe: &BuildingRecipe) -> BuildingLod {
+    distant_attachment(recipe, false)
+}
+
+pub(crate) fn distant_attachment(recipe: &BuildingRecipe, lean: bool) -> BuildingLod {
     let mut builder = Builder::default();
     geometry::foundation::generate(&mut builder, recipe, true);
     distant_walls(&mut builder, recipe);
-    distant_roof(&mut builder, recipe);
+    if lean && recipe.roof.covering == crate::RoofCovering::Thatch {
+        geometry::thatch::generate_lean_to(&mut builder, recipe, geometry::thatch::Detail::Distant);
+    } else {
+        distant_roof(&mut builder, recipe);
+    }
     distant_base(&mut builder, recipe);
     geometry::chimney::distant(&mut builder, recipe);
     builder.finish()

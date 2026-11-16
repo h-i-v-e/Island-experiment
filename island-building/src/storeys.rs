@@ -15,6 +15,10 @@ pub(crate) struct Structure {
 
 pub(crate) fn recipe_for_storey(recipe: &BuildingRecipe, storey: u8) -> BuildingRecipe {
     let mut local = recipe.clone();
+    let window_base = recipe.floor_height(storey) + recipe.opening_defaults.window.sill;
+    local
+        .extensions
+        .retain(|e| window_base < e.wall_height + e.roof_rise + recipe.roof.effective_thickness());
     local.openings.retain(|o| o.storey == storey);
     local.partitions.retain(|p| p.storey == storey);
     for opening in &mut local.openings {

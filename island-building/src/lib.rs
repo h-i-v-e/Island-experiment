@@ -6,6 +6,8 @@ pub mod collision;
 pub use church::{ChurchLayout, ChurchRecipe};
 pub mod document;
 pub mod export;
+pub mod extensions;
+pub use extensions::{ExtensionKind, ExtensionLayout, ExtensionRecipe};
 pub(crate) mod finalize;
 pub mod geometry;
 pub mod grub;
@@ -47,11 +49,21 @@ pub fn generate_with_base(
     recipe: &BuildingRecipe,
     base: &std::path::Path,
 ) -> Result<BuildingPrototype, BuildingError> {
-    let mut resolved = openings::resolve(recipe)?;
+    let resolved = openings::resolve(recipe)?;
     validation::validate_structure(resolved.as_ref())?;
     if resolved.church.is_some() {
         return church::generate(resolved.as_ref(), base);
     }
+    if !resolved.extensions.is_empty() {
+        return extensions::generate(resolved.as_ref(), base);
+    }
+    generate_standard(resolved, base)
+}
+
+pub(crate) fn generate_standard(
+    mut resolved: std::borrow::Cow<'_, BuildingRecipe>,
+    base: &std::path::Path,
+) -> Result<BuildingPrototype, BuildingError> {
     let staircase = stairs::resolve_placement(resolved.as_ref(), base)?;
     if let Some(placement) = &staircase {
         openings::apply_entrance_offsets(&mut resolved, &placement.entrance_offsets);

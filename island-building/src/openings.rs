@@ -175,6 +175,10 @@ fn generated(recipe: &BuildingRecipe, settings: &OpeningGeneration) -> Vec<Openi
     slots(recipe, settings)
         .into_iter()
         .filter(|opening| {
+            opening.kind != OpeningKind::Window
+                || !crate::extensions::covered_window(recipe, opening)
+        })
+        .filter(|opening| {
             !settings
                 .overrides
                 .iter()
@@ -515,6 +519,8 @@ fn regenerate_windows(recipe: &mut BuildingRecipe) {
                 .any(|v| v.id == o.id && v.disabled)
         }));
     }
+    result
+        .retain(|o| o.kind != OpeningKind::Window || !crate::extensions::covered_window(recipe, o));
     recipe.openings = result;
 }
 
@@ -554,6 +560,12 @@ fn obstructions(
         };
         let half = chimney.width * 0.5 + clearance;
         blocked.push([chimney.offset - half, chimney.offset + half]);
+    }
+    for extension in recipe.extensions.iter().filter(|e| e.facade == facade) {
+        blocked.push([
+            extension.offset - extension.width * 0.5 - 0.2,
+            extension.offset + extension.width * 0.5 + 0.2,
+        ]);
     }
     for partition in &recipe.partitions {
         let offset = match (partition.axis, facade) {
@@ -613,7 +625,7 @@ fn place_windows(
 }
 
 fn validate_settings(recipe: &BuildingRecipe) -> Result<(), BuildingError> {
-    let mut diagnostics = Vec::new();
+    let mut diagnostics = crate::extensions::diagnostics(recipe);
     if !recipe.opening_defaults.window_panes.is_valid() {
         diagnostics.push(Diagnostic {
             element: "opening_defaults.window_panes".into(),

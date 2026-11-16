@@ -234,6 +234,7 @@ enum Tab {
     #[default]
     Structure,
     Layout,
+    Extensions,
     Openings,
     Roof,
     Chimney,
@@ -703,11 +704,23 @@ fn terrain_preview(
     let heading = state.terrain_heading.to_radians();
     let sx = slope * heading.sin();
     let sy = slope * heading.cos();
-    let bounds = crate::geometry::foundation::bounds(recipe);
     let height = if state.terrain_slope == 0. {
         -0.18
     } else {
-        -sx.abs() * bounds.max[0] - sy.abs() * bounds.max[1]
+        -crate::extensions::footprints(recipe)
+            .map(|bounds| {
+                sx * if sx >= 0. {
+                    bounds.max[0]
+                } else {
+                    bounds.min[0]
+                } + sy
+                    * if sy >= 0. {
+                        bounds.max[1]
+                    } else {
+                        bounds.min[1]
+                    }
+            })
+            .fold(f32::NEG_INFINITY, f32::max)
     };
     **ground = Transform::from_xyz(0., height, 0.).with_rotation(Quat::from_rotation_arc(
         Vec3::Y,
@@ -821,6 +834,7 @@ fn camera_argument(settings: &mut Settings, flag: &str, value: &str) -> Result<(
         "exterior",
         "entrance",
         "interior",
+        "extension",
         "stairs",
         "stair-door",
         "fireplace",
@@ -854,7 +868,7 @@ pub fn parse_arguments(
         match arg.as_str() {
             "--help" | "-h" => {
                 println!(
-                    "Island Building Studio\n  --recipe FILE.json | --preset hut|cottage|workshop|church\n  --seed N\n  --screenshot NEW.png [--lod 0|1|2|auto] [--view exterior|entrance|interior|stairs|stair-door|foundation|fireplace|roof-end|roof-under|eaves|window|corner|south|east|north|west] [--door-open] [--storey 0..5] [--capture-ui] [--terrain-slope 0..30] [--terrain-heading 0..360] [--hide-stairs]\n  --renderer standard|arrays\n  --validate\n  --export NEW_DIRECTORY\nInteractive: RMB orbit/look, wheel zoom, WASD walkthrough, E toggle nearby door."
+                    "Island Building Studio\n  --recipe FILE.json | --preset hut|cottage|workshop|church\n  --seed N\n  --screenshot NEW.png [--lod 0|1|2|auto] [--view exterior|entrance|interior|extension|stairs|stair-door|foundation|fireplace|roof-end|roof-under|eaves|window|corner|south|east|north|west] [--door-open] [--storey 0..5] [--capture-ui] [--terrain-slope 0..30] [--terrain-heading 0..360] [--hide-stairs]\n  --renderer standard|arrays\n  --validate\n  --export NEW_DIRECTORY\nInteractive: RMB orbit/look, wheel zoom, WASD walkthrough, E toggle nearby door."
                 );
                 return Ok(None);
             }

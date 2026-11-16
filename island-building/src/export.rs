@@ -174,7 +174,7 @@ fn write_package(
     write_json(
         root,
         "foundation.json",
-        &crate::geometry::foundation::bounds(&prototype.recipe),
+        &crate::geometry::foundation::enclosing_bounds(&prototype.recipe),
         &mut files,
     )?;
     write_assets(prototype, root, &mut files)?;
@@ -189,7 +189,7 @@ fn write_package(
         })
         .collect();
     let mut manifest=ExportManifest {
-        package_version:1,geometry_version:53,material_version:20,bake_version:22,
+        package_version:1,geometry_version:54,material_version:20,bake_version:23,
         prototype_hash:prototype.hash.clone(),coordinate_system:"right-handed, native Z-up, metres; OBJ UV V points up".into(),
         normal_convention:"OpenGL tangent-space +Y; linear normal maps".into(),mask_channels:"RGBA = occlusion, roughness, metallic, 1; linear".into(),
         door_policy:"LOD2 appearance uses closed leaves; preserve instance angles independently. door-N.obj and door-N-hardware.obj share hinge-local coordinates and map to doors.json[N]. depth_offset is the signed hinge-local Y centre for leaf collision; exported leaf and hardware vertices already include it. Missing depth_offset defaults to zero. New doors default closed; removed IDs are ignored.".into(),
@@ -806,7 +806,7 @@ mod tests {
                 manifest.material_version,
                 manifest.bake_version
             ),
-            (53, 20, 22)
+            (54, 20, 23)
         );
         assert_eq!(
             loaded.materials.door_recipe.as_deref(),

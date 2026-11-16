@@ -63,6 +63,9 @@ pub(super) fn smoothed(coat: &Coat<'_>) -> Vec<super::smooth::Surface> {
             coat.half[1],
         ));
     }
+    if !coat.ridge {
+        return surfaces;
+    }
     let high = coat.high_x();
     let width = coat.ridge_width();
     let floor = coat.ridge_floor();

@@ -180,6 +180,13 @@ fn inspection_points(source: &BuildingPrototype) -> Vec<Vec3> {
         .iter()
         .map(|door| native_to_bevy(door.hinge) + Vec3::Y * (door.height * 0.5))
         .collect();
+    points.extend(
+        source
+            .layout
+            .extensions
+            .iter()
+            .flat_map(|extension| extension.window_centres.iter().copied().map(native_to_bevy)),
+    );
     // Keep every window vertex: a merged glass mesh can span opposite facades.
     points.extend(
         source.lods[0]

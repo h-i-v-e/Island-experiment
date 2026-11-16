@@ -45,7 +45,7 @@ pub(super) struct Dimensions {
 
 pub(super) fn panel(ui: &mut egui::Ui, state: &mut StudioState) -> Dimensions {
     let index = match state.tab {
-        Tab::Structure => 0,
+        Tab::Structure | Tab::Extensions => 0,
         Tab::Layout => 1,
         Tab::Openings => 2,
         Tab::Roof => 3,
